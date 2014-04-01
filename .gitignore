@@ -1,0 +1,8 @@
+build
+release_build
+relwithdbginfo_build
+debug_build
+trace_build
+*.orig
+.kdev4
+*.kdev4
