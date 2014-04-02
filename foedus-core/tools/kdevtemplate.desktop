@@ -1,0 +1,17 @@
+[General]
+Name=HPL
+Comment=HP Labs C++ file template
+Category=C++/Basic
+Type=Class
+Language=C++
+Files=Header,Implementation
+
+[Header]
+Name=Public Header
+File=kdevtemplate.hpp
+OutputFile={{ name }}.hpp
+
+[Implementation]
+Name=Implementation
+File=kdevtemplate.cpp
+OutputFile={{ name }}.cpp

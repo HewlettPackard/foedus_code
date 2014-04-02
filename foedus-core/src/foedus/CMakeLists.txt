@@ -1,6 +1,6 @@
 
-add_subdirectory(mem)
+add_subdirectory(memory)
 
-set(FOEDUS_CPP
-    ${FOEDUS_MEM_CPP}
+set(FOEDUS_SRC
+    ${FOEDUS_MEMORY_SRC}
     PARENT_SCOPE)

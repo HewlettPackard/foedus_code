@@ -1,3 +1,3 @@
-set(FOEDUS_MEM_CPP
+set(FOEDUS_MEMORY_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/aligned_memory.cpp
     PARENT_SCOPE)

@@ -60,7 +60,7 @@ function(CPPLINT_RECURSIVE target_name src_folder root_folder bin_folder)
                         --root=${root_folder}
                         ${src_folder}
                      WORKING_DIRECTORY ${bin_folder}
-                     COMMENT [CPPLINT])
+                     COMMENT "[CPPLINT-Target] ${src_folder}")
     else(RUN_CPPLINT)
         add_custom_target(${target_name} COMMAND ${CMAKE_COMMAND} -E echo NoLint)
     endif(RUN_CPPLINT)
