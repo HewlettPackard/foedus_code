@@ -1,7 +1,16 @@
 cmake_minimum_required(VERSION 2.4)
 project(foedus_core)
 
-SET(CMAKE_VERBOSE_MAKEFILE ON)
+set(CMAKE_VERBOSE_MAKEFILE ON)
+message (STATUS)
+message (STATUS "========================================")
+message (STATUS "CMAKE_SYSTEM=${CMAKE_SYSTEM}")
+message (STATUS "CMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}")
+message (STATUS "CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}")
+message (STATUS "CMAKE_C_COMPILER=${CMAKE_C_COMPILER}")
+message (STATUS "CMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+message (STATUS "========================================")
+message (STATUS)
 
 # Pointers to the root folders of this project.
 # These are used in a few places of the following cmake scripts, so we define them *first*.
@@ -12,6 +21,13 @@ mark_as_advanced(FOEDUS_CORE_SRC_BIN)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CpplintWrapper.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/WarnInSrcBuild.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/third_party/TestBigEndian.cmake)
+TEST_BIG_ENDIAN(WORDS_BIGENDIAN)
+if (WORDS_BIGENDIAN)
+    message(STATUS "This is a big-endian machine")
+else(WORDS_BIGENDIAN)
+    message(STATUS "This is a little-endian machine")
+endif(WORDS_BIGENDIAN)
 
 # We do assume C++11.
 # However, external projects can link to this library even if they use C++98.
@@ -23,27 +39,34 @@ if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-std\\=c\\+\\+11")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 endif ()
 
-# We merely collect paths of all header files to install. No executable/library built under include.
-add_subdirectory(include)
-
 # We merely collect paths of all cpp files to compile. No executable/library built under src.
 add_subdirectory(src)
 
+# So far only glog.
 add_subdirectory(third_party)
 
 # Compile all files as a single shared library
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glog-0.3.3/src)
-add_library(foedus-core SHARED "${FOEDUS_CORE_ALL_SRC}")
+add_library(foedus-core SHARED ${FOEDUS_CORE_ALL_SRC})
 
 # Link to glog
 add_dependencies(foedus-core glog_build)
 target_link_libraries(foedus-core "${GLOG_STATIC_LIB}")
 
 # Invoke CPPLINT (-DDISABLE_CPPLINT can disable it)
-add_dependencies(foedus-core FOEDUS_CORE_CPPLINT_INCLUDE FOEDUS_CORE_CPPLINT_SRC)
+CPPLINT_RECURSIVE(cpplint_include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_BINARY_DIR}/include)
+CPPLINT_RECURSIVE(cpplint_src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_BINARY_DIR}/src)
+add_dependencies(foedus-core cpplint_include cpplint_src)
 
+# Doxygen commands (not mandatory)
 find_package(Doxygen)
 if(DOXYGEN_FOUND)
     set(DOXYGEN_TARGETS "${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src")

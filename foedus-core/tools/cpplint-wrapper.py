@@ -1,4 +1,6 @@
 #!/usr/bin/python
+## Copyright (c) 2014, Hewlett-Packard Development Company, LP.
+## The license and distribution terms for this file are placed in LICENSE.txt.
 # Wraps Google's cpplint.py for a few additional features;
 # 1) Recursively look for files to check. cpplint.py might do this out of box in future.
 # 2) Control whether we return a non-zero exit code if there are style errros (--style-error arg).
@@ -29,7 +31,7 @@ Syntax: cpplint-wrapper.py
       style warnings (which is the cpplint's behavior). Default is false.
 
     excludes
-      If specified, folders whose names meet this regex are skipped.
+      If specified, files/folders whose names meet this regex are skipped.
       Default is "(\.git|\.svn)".
 
     extensions

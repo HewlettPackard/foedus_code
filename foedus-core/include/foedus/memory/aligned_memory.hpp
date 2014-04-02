@@ -1,15 +1,16 @@
 /*
- * Copyright (c), Hewlett-Packard Development Company, LP.
+ * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #ifndef FOEDUS_MEMORY_ALIGNED_MEMORY_HPP_
 #define FOEDUS_MEMORY_ALIGNED_MEMORY_HPP_
 
-#include <cstddef>
 #include <foedus/cxx11.hpp>
+#include <cstddef>
 namespace foedus { namespace memory {
 /**
  * @brief Represents one memory block aligned to actual OS/hardware pages.
+ * @ingroup MEMORY
  * @details
  * This class is used to allocate and hold memory blocks for objects that must be aligned.
  * There are a few cases where objects must be on aligned memory.

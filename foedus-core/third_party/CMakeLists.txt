@@ -1,4 +1,5 @@
 # Google logging has no CMakeLists.txt. So, directly call the configure/make tool chain.
+# This is very troublesome and undesired. I hope they will move on to CMake asap.
 set(GLOG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/glog-0.3.3")
 mark_as_advanced(GLOG_DIR)
 set(GLOG_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/glog")

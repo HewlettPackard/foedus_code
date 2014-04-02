@@ -30,6 +30,6 @@ class {{ name }} {
 };
 
 {% for ns in namespaces %}
-{% templatetag closebrace %}  // {{ ns }}
+{% templatetag closebrace %}  // namespace {{ ns }}
 {% endfor %}
 #endif  // {% for ns in namespaces %}{{ ns|upper }}_{% endfor %}{{ name|underscores|upper }}_HPP_

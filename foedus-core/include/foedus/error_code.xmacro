@@ -1,0 +1,23 @@
+/*
+ * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
+ * The license and distribution terms for this file are placed in LICENSE.txt.
+ */
+
+/**
+ * \file error_code.xmacro
+ * \brief Error code/message definition in X-Macro style.
+ *
+ * \details
+ * Syntax: X(<error code name>, <integer value of the error code>, <error message>)
+ *
+ * To add new errors, just insert at an arbitrary place, but note that the value of
+ * error codes must be unique. To maintain that as easy as possible, you keep the entries
+ * sorted by the value.
+ *
+ * A general naming rule: ERROR_CODE_<module name>_<error name>.
+ * For example, ERROR_CODE_LOG_
+ */
+X(ERROR_CODE_OUTOFMEMORY,     0x0001, "Out of memory")
+
+X(ERROR_CODE_ENGINE_INVALID_OPTION, 0x0101, "ENGINE: Invalid Option")
+

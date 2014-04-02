@@ -12,9 +12,9 @@ namespace {{ ns }} {% templatetag openbrace %}
 {{ name }}::{{ name }}() {
 }
 
-~{{ name }}::{{ name }}() {
+{{ name }}::~{{ name }}() {
 }
 
 {% for ns in namespaces %}
-{% templatetag closebrace %}  // {{ ns }}
+{% templatetag closebrace %}  // namespace {{ ns }}
 {% endfor %}

@@ -20,12 +20,13 @@ endif(PYTHONINTERP_FOUND)
 # Followings are our coding convention.
 set(LINT_FILTER) # basically everything Google C++ Style recommends. Except...
 
-# for logging and debug printing, we do need it
+# for logging and debug printing, we do need streams
 set(LINT_FILTER ${LINT_FILTER},-readability/streams)
 
-# Good rules, but too many false positives.
-set(LINT_FILTER ${LINT_FILTER},-build/include_what_you_use)
-set(LINT_FILTER ${LINT_FILTER},-build/include_order)
+# Consider disabling them if they cause too many false positives.
+# set(LINT_FILTER ${LINT_FILTER},-build/include_what_you_use)
+# set(LINT_FILTER ${LINT_FILTER},-build/include_order)
+
 mark_as_advanced(LINT_FILTER)
 
 set(LINT_SCRIPT "${FOEDUS_CORE_SRC_ROOT}/third_party/cpplint.py")
