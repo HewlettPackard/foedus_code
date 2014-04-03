@@ -2,15 +2,6 @@ cmake_minimum_required(VERSION 2.4)
 project(foedus_core)
 
 set(CMAKE_VERBOSE_MAKEFILE ON)
-message (STATUS)
-message (STATUS "========================================")
-message (STATUS "CMAKE_SYSTEM=${CMAKE_SYSTEM}")
-message (STATUS "CMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}")
-message (STATUS "CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}")
-message (STATUS "CMAKE_C_COMPILER=${CMAKE_C_COMPILER}")
-message (STATUS "CMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
-message (STATUS "========================================")
-message (STATUS)
 
 # Pointers to the root folders of this project.
 # These are used in a few places of the following cmake scripts, so we define them *first*.
@@ -22,12 +13,18 @@ mark_as_advanced(FOEDUS_CORE_SRC_BIN)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CpplintWrapper.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/WarnInSrcBuild.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/third_party/TestBigEndian.cmake)
+
 TEST_BIG_ENDIAN(WORDS_BIGENDIAN)
-if (WORDS_BIGENDIAN)
-    message(STATUS "This is a big-endian machine")
-else(WORDS_BIGENDIAN)
-    message(STATUS "This is a little-endian machine")
-endif(WORDS_BIGENDIAN)
+message (STATUS)
+message (STATUS "========================================")
+message (STATUS "CMAKE_SYSTEM=${CMAKE_SYSTEM}")
+message (STATUS "CMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}")
+message (STATUS "CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}")
+message (STATUS "CMAKE_C_COMPILER=${CMAKE_C_COMPILER}")
+message (STATUS "CMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+message (STATUS "BIG_ENDIAN=${WORDS_BIGENDIAN}")
+message (STATUS "========================================")
+message (STATUS)
 
 # We do assume C++11.
 # However, external projects can link to this library even if they use C++98.
@@ -70,6 +67,13 @@ add_dependencies(foedus-core cpplint_include cpplint_src)
 find_package(Doxygen)
 if(DOXYGEN_FOUND)
     set(DOXYGEN_TARGETS "${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src")
+    # Doxygen until ver 1.8.6 had a bug; it allowed only a filename in USE_MDFILE_AS_MAINPAGE,
+    # not a full path. see https://bugzilla.gnome.org/show_bug.cgi?id=720092
+    # To work it around, we copy the file to bin folder and use only the file name
+    set(DOXYGEN_MAINPAGE_MARKDOWN "README.markdown")
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/README.markdown ${CMAKE_CURRENT_BINARY_DIR}/README.markdown COPYONLY)
+    # set(DOXYGEN_MAINPAGE_MARKDOWN "${CMAKE_CURRENT_SOURCE_DIR}/README.markdown")
+
     configure_file(${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile @ONLY)
     add_custom_target(dox
         ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile

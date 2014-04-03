@@ -29,7 +29,7 @@ class {{ name }} {
  private:
 };
 
-{% for ns in namespaces %}
+{% for ns in namespaces reversed %}
 {% templatetag closebrace %}  // namespace {{ ns }}
 {% endfor %}
 #endif  // {% for ns in namespaces %}{{ ns|upper }}_{% endfor %}{{ name|underscores|upper }}_HPP_

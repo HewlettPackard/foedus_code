@@ -8,7 +8,7 @@
 namespace foedus {
 
 /**
- * @defgroup ERRORCODES Error code (ErrorCode), error messages, and error stacktrace (ErrorStack)
+ * @defgroup ERRORCODES Error codes, messages, and stacktraces.
  * @brief Error codes (ErrorCode), their error messages defined in error_code.xmacro, and
  * stacktrace information (ErrorStack) returned by our API functions.
  * @details
@@ -22,6 +22,38 @@ namespace foedus {
  * we use the so-called "X Macro" style, which doesn't require any code generation.
  * @see http://en.wikipedia.org/wiki/X_Macro
  * @see http://www.drdobbs.com/the-new-c-x-macros/184401387
+ *
+ * @section CODE_VS_STACK ErrorCode vs ErrorStack
+ * ErrorCode is merely an integer to identify the type of error.
+ * You can get a correponding error message and name of the error via
+ * get_error_name() and get_error_message(), but you can't get stacktrace information.
+ * For lightweight functions used internally, it might be enough.
+ * However, public API methods might need stacktrace information for ease of use.
+ *
+ * In that case, you should return ErrorStack, which additionally contains stacktrace and
+ * custom error message.
+ * ErrorStack is much more costly if it returns an error (if it's ERROR_CODE_OK, very efficinet)
+ * and especially when it contains a custom error message (better when C++11 is enabled. See
+ * ErrorStack for more details).
+ *
+ * To use ErrorStack, you should be familiar with how to use the following macros:
+ * RET_OK, CHECK(x), ERROR_STACK(e), and a few others.
+ * For example, use it as follows:
+ * @code{.cpp}
+ * ErrorStack your_func() {
+ *   if (out-of-memory-observed) {
+ *      return ERROR_STACK(ERROR_CODE_OUTOFMEMORY);
+ *   }
+ *   CHECK(another_func());
+ *   CHECK(yet_another_func());
+ *   return RET_OK;
+ * }
+ * @endcode
+ */
+/**
+ * @file error_code.xmacro
+ * @ingroup ERRORCODES
+ * @brief Error code/message definition in X-Macro style.
  */
 
 #define X(a, b, c) /** c. */ a = b,
@@ -37,7 +69,7 @@ namespace foedus {
 enum ErrorCode {
     /** 0 means no-error. */
     ERROR_CODE_OK = 0,
-#include "error_code.xmacro" // NOLINT
+#include <foedus/error_code.xmacro> // NOLINT
 };
 #undef X
 
@@ -60,7 +92,7 @@ const char* get_error_message(ErrorCode code);
 inline const char* get_error_name(ErrorCode code) {
     switch (code) {
         case ERROR_CODE_OK: return "ERROR_CODE_OK";
-#include "error_code.xmacro" // NOLINT
+#include <foedus/error_code.xmacro> // NOLINT
     }
     return "Unexpected error code";
 }
@@ -72,7 +104,7 @@ inline const char* get_error_name(ErrorCode code) {
 inline const char* get_error_message(ErrorCode code) {
     switch (code) {
         case ERROR_CODE_OK: return "no_error";
-#include "error_code.xmacro" // NOLINT
+#include <foedus/error_code.xmacro> // NOLINT
     }
     return "Unexpected error code";
 }

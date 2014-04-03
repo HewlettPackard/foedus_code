@@ -10,7 +10,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
-#include <iostream>
+#include <iosfwd>
 namespace foedus {
 
 /**
@@ -29,6 +29,16 @@ namespace foedus {
  * We are not even sure what exceptions would look like in future environments.
  * So, we don't throw or catch any exceptions in our program.
  *
+ * @section MACROS Macros to help use ErrorStack
+ * In most places, you should use RET_OK, CHECK(x), or ERROR_STACK(e) to handle this class.
+ * See the doucments of those macros.
+ *
+ * @section FORCED_CHECK Forced return code checking
+ * An error code must be checked by some code, else it will abort with an
+ * "error-not-checked" error in stderr. We might later make this warning instead of aborting,
+ * but we should keep the current setting for a while to check for undesired coding.
+ * Once you get used to, making it sure is quite effortless.
+ *
  * @section MAX_DEPTH Maximum stack trace depth
  * When the return code is an error code, we propagate back the stack trace
  * for easier debugging. We could have a linked-list for this
@@ -40,19 +50,11 @@ namespace foedus {
  * The only thing that has to be allocated on heap is a custom error message.
  * However, there are not many places that use custom messages, so the cost usually doesn't happen.
  *
- * @section FORCED_CHECK Forced return code checking
- * An error code must be checked by some code, else it will report an
- *  "error-not-checked" warning in stderr (NOT fatal errors).
- *  This is costly but useful for checking that code copes with
- *  errors.   Of course, it does not do a static analysis; rather it
- *  is a dynamic check and so it cannot catch all code
- *  that ignores return codes.
- *
  * @section MOVEABLE Moveable
  * This object is \e moveable only when C++11 is enabled. The moveable semantics is beneficial
  * only when there is a custom message. Otherwise, this object doesn't own any object anyways.
  *
- * This class is completely header-only.
+ * This class is header-only \b except output(), dump_and_abort(), and std::ostream redirect.
  */
 class ErrorStack {
  public:
@@ -146,6 +148,9 @@ class ErrorStack {
 
     /** Describe this object to the given stream. */
     void                output(std::ostream* ptr) const;
+
+    /** Describe this object to std::cerr and then abort. */
+    void                dump_and_abort(const char *abort_message) const;
 
  private:
     /**
@@ -375,39 +380,13 @@ inline void ErrorStack::verify() const {
         return;
     }
     if (!checked_) {
-        std::cerr << "WARNING: Return value is not checked."
-            << " ErrorStack must be checked before deallocation." << std::endl;
-        output(&std::cerr);
-        std::cerr << std::endl;
-    }
-}
-
-inline void ErrorStack::output(std::ostream* ptr) const {
-    std::ostream &o = *ptr;  // just to workaround non-const reference rule.
-    if (!is_error()) {
-        o << "No error";
-    } else {
-        o << get_error_name(error_code_) << "(" << error_code_ << "):" << get_message();
-        if (get_custom_message() != NULL) {
-            o << ":" << get_custom_message();
-        }
-
-        for (uint16_t stack_index = 0; stack_index < get_stack_depth(); ++stack_index) {
-            o << std::endl << "  " << get_filename(stack_index)
-                << ":" << get_linenum(stack_index);
-        }
-        if (get_stack_depth() >= foedus::ErrorStack::MAX_STACK_DEPTH) {
-            o << std::endl << "  .. and more. Increase MAX_STACK_DEPTH to see full stacktraces";
-        }
+        dump_and_abort("Return value is not checked. ErrorStack must be checked");
     }
 }
 
 }  // namespace foedus
 
-inline std::ostream& operator<<(std::ostream& o, const foedus::ErrorStack& obj) {
-    obj.output(&o);
-    return o;
-}
+std::ostream& operator<<(std::ostream& o, const foedus::ErrorStack& obj);
 
 // The followings are macros. So, they belong to no namespaces.
 
@@ -416,6 +395,16 @@ inline std::ostream& operator<<(std::ostream& o, const foedus::ErrorStack& obj) 
  * @ingroup ERRORCODES
  * @brief Instantiates ErrorStack with the given foedus::error_code,
  * creating an error stack with the current file, line, and error code.
+ * @details
+ * For example, use it as follows:
+ * @code{.cpp}
+ * ErrorStack your_func() {
+ *   if (out-of-memory-observed) {
+ *      return ERROR_STACK(ERROR_CODE_OUTOFMEMORY);
+ *   }
+ *   return RET_OK;
+ * }
+ * @endcode
  */
 #define ERROR_STACK(e)      foedus::ErrorStack(__FILE__, __LINE__, e)
 
@@ -423,6 +412,17 @@ inline std::ostream& operator<<(std::ostream& o, const foedus::ErrorStack& obj) 
  * @def ERROR_STACK_MSG(e, m)
  * @ingroup ERRORCODES
  * @brief Overload of ERROR_STACK(e) to receive a custom error message.
+ * @details
+ * For example, use it as follows:
+ * @code{.cpp}
+ * ErrorStack your_func() {
+ *   if (out-of-memory-observed) {
+ *      std::string additional_message = ...;
+ *      return ERROR_STACK_MSG(ERROR_CODE_OUTOFMEMORY, additional_message.c_str());
+ *   }
+ *   return RET_OK;
+ * }
+ * @endcode
  */
 #define ERROR_STACK_MSG(e, m)   foedus::ErrorStack(__FILE__, __LINE__, e, m)
 
@@ -433,6 +433,14 @@ inline std::ostream& operator<<(std::ostream& o, const foedus::ErrorStack& obj) 
  * This macro calls \b x and checks its returned value.  If an error is encountered, it
  * immediately returns from the current function or method, augmenting
  * the stack trace held by the return code.
+ * For example, use it as follows:
+ * @code{.cpp}
+ * ErrorStack your_func() {
+ *   CHECK(another_func());
+ *   CHECK(yet_another_func());
+ *   return RET_OK;
+ * }
+ * @endcode
  */
 #define CHECK(x)\
 {\
@@ -443,8 +451,15 @@ inline std::ostream& operator<<(std::ostream& o, const foedus::ErrorStack& obj) 
 /**
  * @def CHECK_MSG(x, m)
  * @ingroup ERRORCODES
- * @brief
  * @brief Overload of CHECK(x) to receive a custom error message.
+ * For example, use it as follows:
+ * @code{.cpp}
+ * ErrorStack your_func() {
+ *   CHECK_MSG(another_func(), "I was doing xxx");
+ *   CHECK_MSG(yet_another_func(), "I was doing yyy");
+ *   return RET_OK;
+ * }
+ * @endcode
  */
 #define CHECK_MSG(x, m)\
 {\
@@ -458,18 +473,19 @@ inline std::ostream& operator<<(std::ostream& o, const foedus::ErrorStack& obj) 
  * @brief
  * This macro calls \b x and aborts if encounters an error.
  * This should be used only in places that expects no error.
+ * For example, use it as follows:
+ * @code{.cpp}
+ * void YourThread::run() {
+ *   // the signature of thread::run() is defined elsewhere, so you can't return ErrorStack.
+ *   // and you are sure an error won't happen here, or an error would be anyway catastrophic.
+ *   COERCE(another_func());
+ * }
+ * @endcode
  */
 #define COERCE(x)\
 {\
     foedus::ErrorStack __e(x);\
-    if (__e.is_error()) {\
-        std::cerr << "FATAL: Unexpected error happened. Will exit." << std::endl;\
-        std::cerr << e << std::endl;\
-        assert(false);\
-        std::cout.flush();\
-        std::cerr.flush();\
-        std::abort();\
-    }\
+    if (__e.is_error()) {__e.output_and_abort(&std::cerr, "Unexpected error happened");}\
 }
 
 #endif  // FOEDUS_ERROR_STACK_HPP_
