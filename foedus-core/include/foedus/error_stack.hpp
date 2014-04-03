@@ -68,7 +68,7 @@ class ErrorStack {
     /**
      * @brief Instantiate a return code without a custom error message nor stacktrace.
      * @param[in] code Error code, either ERROR_CODE_OK or real errors.
-     * \detail
+     * @details
      * This is the most (next to RET_OK) light-weight way to create/propagate a return code.
      * Use this one if you do not need a detail information to debug the error (eg, error whose
      * cause is obvious, an expected error that is immediately caught, etc).
@@ -150,6 +150,7 @@ class ErrorStack {
  private:
     /**
      * @brief Filenames of stacktraces.
+     * @details
      * This is deep-first, so _filenames[0] is where the ErrorStack was initially instantiated.
      * When we reach MAX_STACK_DEPTH, we don't store any more stacktraces and
      * just say ".. more" in the output.
@@ -192,7 +193,6 @@ class ErrorStack {
 };
 
 /**
- * @def RET_OK
  * @ingroup ERRORCODES
  * @brief Normal return value for no-error case.
  * @details

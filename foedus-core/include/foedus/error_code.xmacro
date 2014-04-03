@@ -17,7 +17,7 @@
  * A general naming rule: ERROR_CODE_<module name>_<error name>.
  * For example, ERROR_CODE_LOG_
  */
-X(ERROR_CODE_OUTOFMEMORY,     0x0001, "Out of memory")
+X(ERROR_CODE_OUTOFMEMORY,           0x0001, "GENERAL: Out of memory")
 
-X(ERROR_CODE_ENGINE_INVALID_OPTION, 0x0101, "ENGINE: Invalid Option")
+X(ERROR_CODE_ENGINE_INVALID_OPTION, 0x0101, "ENGINE : Invalid Option")
 
