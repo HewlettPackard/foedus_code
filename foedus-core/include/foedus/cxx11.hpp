@@ -9,6 +9,7 @@
  * @defgroup CXX11 C++11 Keywords in Public Headers
  * @brief Defines macros for hiding C++11 features in public headers for clients that use C++98.
  * @details
+ * @par C++11 in libfoedus
  * We basically \b do \b assume \b C++11 and our library provides the best flexibility when the
  * client program enables C++11. For example, the client program can simply contain foedus-core
  * as a subfolder and statically link to it if C++11 is enabled.
@@ -17,6 +18,7 @@
  * Thus, we will make sure C++11 keywords and classes do not directly appear in public header files.
  * The macros defined in this file are for that switching.
  *
+ * @par C++11 in cpp and non-public headers
  * Remember, this is only for public headers. We anyway compile our library with C++11.
  * We can freely use C++11 keywords/features in cpp and non-public header files, such as
  * xxx-inl.hpp and xxx_pimpl.hpp. In other words, client programs must not include them unless

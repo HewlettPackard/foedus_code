@@ -9,6 +9,10 @@
 namespace foedus {
 
 // forward declarations of option classes for each module.
+namespace fs {
+    struct FilesystemOptions;
+}  // namespace fs
+
 namespace log {
     struct LogOptions;
 }  // namespace log
@@ -42,6 +46,7 @@ struct EngineOptions {
     EngineOptions& operator=(const EngineOptions& other);
     ~EngineOptions();
 
+    fs::FilesystemOptions*      fs_;
     log::LogOptions*            log_;
     memory::MemoryOptions*      memory_;
     snapshot::SnapshotOptions*  snapshot_;

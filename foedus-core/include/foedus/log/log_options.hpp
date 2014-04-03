@@ -35,7 +35,7 @@ struct LogOptions {
      * The folders may or may not be on different physical devices.
      * This option also determines the number of loggers.
      * @attention The default value is just one entry of current folder. When you modify this
-     * setting, do NOT delete the default entry; call folder_paths_.clear() first.
+     * setting, do NOT forget removing the default entry; call folder_paths_.clear() first.
      */
     std::vector<std::string>    folder_paths_;
 

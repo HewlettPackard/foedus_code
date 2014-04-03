@@ -12,9 +12,9 @@ namespace foedus {
  * @defgroup EPOCH Time Epoch
  * @brief Epoch is an corase-grained timestamp used all over the places.
  * @details
- * @section OVERVIEW What is Epoch
+ * @par What is Epoch
  * bluh bluh.
- * @section INCREMENT Who/When Epoch is Incremented
+ * @par Who/When Epoch is Incremented
  * bluh bluh.
  */
 

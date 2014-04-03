@@ -21,25 +21,26 @@ namespace foedus {
  * As it brings stacktrace information, it's more informative than just returning ErrorCode.
  * However, note that instantiating and augmenting this stack object has some overhead.
  *
- * @section WHY Why not exception
- * Two reasons:
- *   \li performance
- *   \li portability
+ * @par Why not exception
+ * A couple of reasons:
+ *   \li Performance
+ *   \li Portability
+ *   \li Our Google C++ Coding Style overlord said so
  *
  * We are not even sure what exceptions would look like in future environments.
  * So, we don't throw or catch any exceptions in our program.
  *
- * @section MACROS Macros to help use ErrorStack
+ * @par Macros to help use ErrorStack
  * In most places, you should use RET_OK, CHECK(x), or ERROR_STACK(e) to handle this class.
  * See the doucments of those macros.
  *
- * @section FORCED_CHECK Forced return code checking
+ * @par Forced return code checking
  * An error code must be checked by some code, else it will abort with an
  * "error-not-checked" error in stderr. We might later make this warning instead of aborting,
  * but we should keep the current setting for a while to check for undesired coding.
  * Once you get used to, making it sure is quite effortless.
  *
- * @section MAX_DEPTH Maximum stack trace depth
+ * @par Maximum stack trace depth
  * When the return code is an error code, we propagate back the stack trace
  * for easier debugging. We could have a linked-list for this
  * and, to ameriolate allocate/delete cost for it, a TLS object pool.
@@ -50,7 +51,7 @@ namespace foedus {
  * The only thing that has to be allocated on heap is a custom error message.
  * However, there are not many places that use custom messages, so the cost usually doesn't happen.
  *
- * @section MOVEABLE Moveable
+ * @par Moveable
  * This object is \e moveable only when C++11 is enabled. The moveable semantics is beneficial
  * only when there is a custom message. Otherwise, this object doesn't own any object anyways.
  *

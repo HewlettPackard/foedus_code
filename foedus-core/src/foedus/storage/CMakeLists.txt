@@ -1,2 +1,3 @@
 set(FOEDUS_STORAGE_SRC
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage_options.cpp
     PARENT_SCOPE)

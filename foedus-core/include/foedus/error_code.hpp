@@ -12,30 +12,30 @@ namespace foedus {
  * @brief Error codes (ErrorCode), their error messages defined in error_code.xmacro, and
  * stacktrace information (ErrorStack) returned by our API functions.
  * @details
- * @section OVERVIEW What it is
+ * @par What it is
  * We define all error codes and their error messages here.
  * Whenever you want a new error message, add a new line in error_code.xmacro like existing lines.
  * This file is completely independent and header-only. Just include this file to use.
  *
- * @section XMacros X-Macros
+ * @par X-Macros
  * To concisely define error codes, error names, and error messages,
  * we use the so-called "X Macro" style, which doesn't require any code generation.
  * @see http://en.wikipedia.org/wiki/X_Macro
  * @see http://www.drdobbs.com/the-new-c-x-macros/184401387
  *
- * @section CODE_VS_STACK ErrorCode vs ErrorStack
+ * @par ErrorCode vs ErrorStack
  * ErrorCode is merely an integer to identify the type of error.
  * You can get a correponding error message and name of the error via
  * get_error_name() and get_error_message(), but you can't get stacktrace information.
  * For lightweight functions used internally, it might be enough.
  * However, public API methods might need stacktrace information for ease of use.
- *
  * In that case, you should return ErrorStack, which additionally contains stacktrace and
  * custom error message.
  * ErrorStack is much more costly if it returns an error (if it's ERROR_CODE_OK, very efficinet)
  * and especially when it contains a custom error message (better when C++11 is enabled. See
  * ErrorStack for more details).
  *
+ * @par How to use ErrorStack
  * To use ErrorStack, you should be familiar with how to use the following macros:
  * RET_OK, CHECK(x), ERROR_STACK(e), and a few others.
  * For example, use it as follows:

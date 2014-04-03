@@ -1,2 +1,3 @@
 set(FOEDUS_SNAPSHOT_SRC
+    ${CMAKE_CURRENT_SOURCE_DIR}/snapshot_options.cpp
     PARENT_SCOPE)

@@ -1,10 +1,12 @@
 
+add_subdirectory(fs)
 add_subdirectory(log)
 add_subdirectory(memory)
 add_subdirectory(storage)
 add_subdirectory(snapshot)
 
 set(FOEDUS_SRC
+    ${FOEDUS_FS_SRC}
     ${FOEDUS_LOG_SRC}
     ${FOEDUS_MEMORY_SRC}
     ${FOEDUS_STORAGE_SRC}
@@ -15,4 +17,3 @@ set(FOEDUS_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/epoch.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/error_stack.cpp
     PARENT_SCOPE)
-
