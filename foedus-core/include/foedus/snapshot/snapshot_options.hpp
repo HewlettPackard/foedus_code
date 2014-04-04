@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_SNAPSHOT_SNAPSHOT_OPTIONS_HPP_
 #define FOEDUS_SNAPSHOT_SNAPSHOT_OPTIONS_HPP_
+#include <foedus/fs/device_emulation_options.hpp>
 #include <iosfwd>
 #include <string>
 #include <vector>
@@ -28,9 +29,13 @@ struct SnapshotOptions {
      * @attention The default value is just one entry of current folder. When you modify this
      * setting, do NOT forget removing the default entry; call folder_paths_.clear() first.
      */
-    std::vector<std::string>    folder_paths_;
+    std::vector<std::string>            folder_paths_;
+
+    /** Settings to emulate slower data device. */
+    foedus::fs::DeviceEmulationOptions  emulation_;
+
+    friend std::ostream& operator<<(std::ostream& o, const SnapshotOptions& v);
 };
 }  // namespace snapshot
 }  // namespace foedus
-std::ostream& operator<<(std::ostream& o, const foedus::snapshot::SnapshotOptions& v);
 #endif  // FOEDUS_SNAPSHOT_SNAPSHOT_OPTIONS_HPP_

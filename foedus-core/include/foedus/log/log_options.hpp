@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_LOG_LOG_OPTIONS_HPP_
 #define FOEDUS_LOG_LOG_OPTIONS_HPP_
+#include <foedus/fs/device_emulation_options.hpp>
 #include <cstdint>
 #include <iosfwd>
 #include <string>
@@ -44,8 +45,12 @@ struct LogOptions {
 
     /** Size in KB of logger for \e each logger. */
     uint32_t                    logger_buffer_kb_;
+
+    /** Settings to emulate slower logging device. */
+    foedus::fs::DeviceEmulationOptions emulation_;
+
+    friend std::ostream& operator<<(std::ostream& o, const LogOptions& v);
 };
 }  // namespace log
 }  // namespace foedus
-std::ostream& operator<<(std::ostream& o, const foedus::log::LogOptions& v);
 #endif  // FOEDUS_LOG_LOG_OPTIONS_HPP_

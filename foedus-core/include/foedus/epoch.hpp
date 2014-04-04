@@ -73,13 +73,13 @@ class Epoch {
     bool    operator<=(const Epoch &other) const { return !operator<(other); }
     bool    operator>=(const Epoch &other) const { return !operator>(other); }
 
+    friend std::ostream& operator<<(std::ostream& o, const Epoch& v);
+
  private:
     /** The raw integer representation. */
     epoch_integer epoch_;
 };
 
 }  // namespace foedus
-
-std::ostream& operator<<(std::ostream& o, const foedus::Epoch& v);
 
 #endif  // FOEDUS_EPOCH_HPP_

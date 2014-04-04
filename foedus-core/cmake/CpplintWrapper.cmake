@@ -51,6 +51,7 @@ mark_as_advanced(LINT_LINELENGTH)
 function(CPPLINT_RECURSIVE target_name src_folder root_folder bin_folder)
     if(RUN_CPPLINT)
         message(STATUS "${target_name}: src=${src_folder}, root=${root_folder}, bin=${bin_folder}")
+        file(MAKE_DIRECTORY ${bin_folder})
         add_custom_target(${target_name}
                      COMMAND
                         ${PYTHON_EXECUTABLE} ${LINT_WRAPPER}

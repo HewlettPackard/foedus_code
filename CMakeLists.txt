@@ -15,6 +15,9 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 # If the client program expects exceptions, and if libstdc throws an exception, kaboom.
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
 
+# Always 64-bit file offsets
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
+
 add_subdirectory(foedus-core)
 add_subdirectory(experiments-core)
 add_subdirectory(tests-core)

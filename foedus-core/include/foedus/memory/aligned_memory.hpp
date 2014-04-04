@@ -7,7 +7,9 @@
 
 #include <foedus/cxx11.hpp>
 #include <cstddef>
-namespace foedus { namespace memory {
+#include <iosfwd>
+namespace foedus {
+namespace memory {
 /**
  * @brief Represents one memory block aligned to actual OS/hardware pages.
  * @ingroup MEMORY
@@ -56,6 +58,8 @@ class AlignedMemory {
     size_t  get_size() const { return size_; }
     /** Returns the alignment of the memory block. */
     size_t  get_alignment() const { return alignment_; }
+
+    friend std::ostream&    operator<<(std::ostream& o, const AlignedMemory& v);
 
  private:
     /** Byte size of the memory block. */

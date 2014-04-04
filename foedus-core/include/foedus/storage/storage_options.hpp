@@ -17,8 +17,9 @@ struct StorageOptions {
      * Constructs option values with default values.
      */
     StorageOptions();
+
+    friend std::ostream& operator<<(std::ostream& o, const StorageOptions& v);
 };
 }  // namespace storage
 }  // namespace foedus
-std::ostream& operator<<(std::ostream& o, const foedus::storage::StorageOptions& v);
 #endif  // FOEDUS_STORAGE_STORAGE_OPTIONS_HPP_

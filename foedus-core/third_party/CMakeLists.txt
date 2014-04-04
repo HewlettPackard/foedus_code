@@ -11,8 +11,8 @@ mark_as_advanced(GLOG_STATIC_LIB_LOCAL)
 file(MAKE_DIRECTORY ${GLOG_BIN_DIR})
 add_custom_command(OUTPUT ${GLOG_STATIC_LIB_LOCAL}
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${GLOG_DIR} ${CMAKE_CURRENT_BINARY_DIR}/glog
-    # glog code causes a few warnings. As it's not our code, okay to disable its warnings.
-    COMMAND ${GLOG_BIN_DIR}/configure CXXFLAGS=-w
+    # fPIC is needed to build libglog friendly to shared library (libfoedus).
+    COMMAND ${GLOG_BIN_DIR}/configure CXXFLAGS=-fPIC
     COMMAND ${CMAKE_MAKE_PROGRAM} -j
     COMMENT [Build-GLOG]
     WORKING_DIRECTORY "${GLOG_BIN_DIR}"

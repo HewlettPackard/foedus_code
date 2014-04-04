@@ -153,6 +153,8 @@ class ErrorStack {
     /** Describe this object to std::cerr and then abort. */
     void                dump_and_abort(const char *abort_message) const;
 
+    friend std::ostream& operator<<(std::ostream& o, const ErrorStack& obj);
+
  private:
     /**
      * @brief Filenames of stacktraces.
@@ -386,8 +388,6 @@ inline void ErrorStack::verify() const {
 }
 
 }  // namespace foedus
-
-std::ostream& operator<<(std::ostream& o, const foedus::ErrorStack& obj);
 
 // The followings are macros. So, they belong to no namespaces.
 

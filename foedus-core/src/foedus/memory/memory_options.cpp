@@ -11,7 +11,7 @@ MemoryOptions::MemoryOptions() {
 }  // namespace memory
 }  // namespace foedus
 
-std::ostream& operator<<(std::ostream& o, const foedus::memory::MemoryOptions& v) {
+std::ostream& operator<<(std::ostream& o, const foedus::memory::MemoryOptions& /*v*/) {
     o << "Memory options:" << std::endl;
     return o;
 }

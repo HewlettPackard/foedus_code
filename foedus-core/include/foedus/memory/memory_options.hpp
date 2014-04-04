@@ -17,8 +17,9 @@ struct MemoryOptions {
      * Constructs option values with default values.
      */
     MemoryOptions();
+
+    friend std::ostream& operator<<(std::ostream& o, const MemoryOptions& v);
 };
 }  // namespace memory
 }  // namespace foedus
-std::ostream& operator<<(std::ostream& o, const foedus::memory::MemoryOptions& v);
 #endif  // FOEDUS_MEMORY_MEMORY_OPTIONS_HPP_

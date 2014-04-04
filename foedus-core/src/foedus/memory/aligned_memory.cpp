@@ -4,8 +4,10 @@
  */
 #include <foedus/memory/aligned_memory.hpp>
 #include <cstdlib>
+#include <ostream>
 
-namespace foedus { namespace memory {
+namespace foedus {
+namespace memory {
 
 AlignedMemory::AlignedMemory(size_t size, size_t alignment)
     : size_(size), alignment_(alignment) {
@@ -32,3 +34,11 @@ AlignedMemory::~AlignedMemory() {
 
 }  // namespace memory
 }  // namespace foedus
+
+
+std::ostream& operator<<(std::ostream& o, const foedus::memory::AlignedMemory& v) {
+    o << "AlignedMemory" << std::endl;
+    o << "  size = " << v.get_size() << std::endl;
+    o << "  alignment = " << v.get_alignment() << std::endl;
+    return o;
+}

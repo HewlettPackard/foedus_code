@@ -22,5 +22,6 @@ std::ostream& operator<<(std::ostream& o, const foedus::log::LogOptions& v) {
     }
     o << "  thread_buffer=" << v.thread_buffer_kb_ << "KB" << std::endl;
     o << "  logger_buffer=" << v.logger_buffer_kb_ << "KB" << std::endl;
+    o << v.emulation_;
     return o;
 }

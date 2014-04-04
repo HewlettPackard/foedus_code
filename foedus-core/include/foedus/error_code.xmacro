@@ -18,3 +18,13 @@ X(ERROR_CODE_OUTOFMEMORY,           0x0001, "GENERAL: Out of memory")
 
 X(ERROR_CODE_ENGINE_INVALID_OPTION, 0x0101, "ENGINE : Invalid Option")
 
+X(ERROR_CODE_FS_ALREADY_OPENED,     0x0201, "FILESYS: Already opened")
+X(ERROR_CODE_FS_FAILED_TO_OPEN,     0x0202, "FILESYS: Failed to open a file")
+X(ERROR_CODE_FS_BAD_SEEK_INPUT,     0x0203, "FILESYS: Invalid arguments for seek()")
+X(ERROR_CODE_FS_SEEK_FAILED,        0x0204, "FILESYS: file seek failed")
+X(ERROR_CODE_FS_BUFFER_TOO_SMALL,   0x0205, "FILESYS: file buffer is too small")
+X(ERROR_CODE_FS_BUFFER_NOT_ALIGNED, 0x0206, "FILESYS: file buffer is not aligned")
+X(ERROR_CODE_FS_TOO_SHORT_READ,     0x0207, "FILESYS: reached end of file before completing reads")
+X(ERROR_CODE_FS_EXCESS_READ,        0x0208, "FILESYS: read more than expected")
+X(ERROR_CODE_FS_WRITE_FAIL,         0x0209, "FILESYS: Disk write failed.")
+X(ERROR_CODE_FS_EXCESS_WRITE,       0x020A, "FILESYS: wrote more than expected")

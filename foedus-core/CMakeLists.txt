@@ -14,7 +14,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CpplintWrapper.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/WarnInSrcBuild.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/third_party/TestBigEndian.cmake)
 
-TEST_BIG_ENDIAN(WORDS_BIGENDIAN)
+#TEST_BIG_ENDIAN(WORDS_BIGENDIAN)
 message (STATUS)
 message (STATUS "========================================")
 message (STATUS "CMAKE_SYSTEM=${CMAKE_SYSTEM}")
@@ -22,7 +22,7 @@ message (STATUS "CMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}")
 message (STATUS "CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}")
 message (STATUS "CMAKE_C_COMPILER=${CMAKE_C_COMPILER}")
 message (STATUS "CMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
-message (STATUS "BIG_ENDIAN=${WORDS_BIGENDIAN}")
+#message (STATUS "BIG_ENDIAN=${WORDS_BIGENDIAN}")
 message (STATUS "========================================")
 message (STATUS)
 
@@ -36,6 +36,14 @@ if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-std\\=c\\+\\+11")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 endif ()
 
+# We anyway use 64-bit file offsets, but ideally should be consistent with client program's.
+if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-D\\_FILE\\_OFFSET\\_BITS\\=64")
+    message(STATUS "Automatically added -D_FILE_OFFSET_BITS=64 for libfoedus-core."
+        " Your client program should also enable the compile option.")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
+endif ()
+
+
 # We merely collect paths of all cpp files to compile. No executable/library built under src.
 add_subdirectory(src)
 
@@ -44,8 +52,10 @@ add_subdirectory(third_party)
 
 # Compile all files as a single shared library
 include_directories(
+    # our main include folder
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glog-0.3.3/src)
+    # We include the BINARY folder of glog as glog generates header files
+    ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog/src)
 add_library(foedus-core SHARED ${FOEDUS_CORE_ALL_SRC})
 
 # Link to glog

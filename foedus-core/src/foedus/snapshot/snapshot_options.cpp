@@ -18,5 +18,6 @@ std::ostream& operator<<(std::ostream& o, const foedus::snapshot::SnapshotOption
     for (size_t i = 0; i < v.folder_paths_.size(); ++i) {
         o << "  folder_paths[" << i << "]=" << v.folder_paths_[i] << std::endl;
     }
+    o << v.emulation_;
     return o;
 }

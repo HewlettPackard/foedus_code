@@ -51,7 +51,8 @@ struct EngineOptions {
     memory::MemoryOptions*      memory_;
     snapshot::SnapshotOptions*  snapshot_;
     storage::StorageOptions*    storage_;
+
+    friend std::ostream& operator<<(std::ostream& o, const EngineOptions& v);
 };
 }  // namespace foedus
-std::ostream& operator<<(std::ostream& o, const foedus::EngineOptions& v);
 #endif  // FOEDUS_ENGINE_OPTIONS_HPP_
