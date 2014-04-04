@@ -31,14 +31,14 @@ struct LogOptions {
     LogOptions();
 
     /**
-     * @brief Folder paths of log folders.
+     * @brief Full paths of log files.
      * @details
-     * The folders may or may not be on different physical devices.
+     * The files may or may not be on different physical devices.
      * This option also determines the number of loggers.
-     * @attention The default value is just one entry of current folder. When you modify this
-     * setting, do NOT forget removing the default entry; call folder_paths_.clear() first.
+     * @attention The default value is just one entry of "<random_num>.log". When you modify this
+     * setting, do NOT forget removing the default entry; call log_paths_.clear() first.
      */
-    std::vector<std::string>    folder_paths_;
+    std::vector<std::string>    log_paths_;
 
     /** Size in KB of log buffer for \e each worker thread. */
     uint32_t                    thread_buffer_kb_;

@@ -31,7 +31,7 @@ namespace foedus {
  * So, we don't throw or catch any exceptions in our program.
  *
  * @par Macros to help use ErrorStack
- * In most places, you should use RET_OK, CHECK(x), or ERROR_STACK(e) to handle this class.
+ * In most places, you should use RET_OK, CHECK_ERROR(x), or ERROR_STACK(e) to handle this class.
  * See the doucments of those macros.
  *
  * @par Forced return code checking
@@ -428,7 +428,7 @@ inline void ErrorStack::verify() const {
 #define ERROR_STACK_MSG(e, m)   foedus::ErrorStack(__FILE__, __LINE__, e, m)
 
 /**
- * @def CHECK(x)
+ * @def CHECK_ERROR(x)
  * @ingroup ERRORCODES
  * @brief
  * This macro calls \b x and checks its returned value.  If an error is encountered, it
@@ -437,39 +437,40 @@ inline void ErrorStack::verify() const {
  * For example, use it as follows:
  * @code{.cpp}
  * ErrorStack your_func() {
- *   CHECK(another_func());
- *   CHECK(yet_another_func());
+ *   CHECK_ERROR(another_func());
+ *   CHECK_ERROR(yet_another_func());
  *   return RET_OK;
  * }
  * @endcode
+ * @note The name is CHECK_ERROR, not CHECK, because Google-logging defines CHECK.
  */
-#define CHECK(x)\
+#define CHECK_ERROR(x)\
 {\
     foedus::ErrorStack __e(x);\
     if (__e.is_error()) {return foedus::ErrorStack(__e, __FILE__, __LINE__);}\
 }
 
 /**
- * @def CHECK_MSG(x, m)
+ * @def CHECK_ERROR_MSG(x, m)
  * @ingroup ERRORCODES
- * @brief Overload of CHECK(x) to receive a custom error message.
+ * @brief Overload of ERROR_CHECK(x) to receive a custom error message.
  * For example, use it as follows:
  * @code{.cpp}
  * ErrorStack your_func() {
- *   CHECK_MSG(another_func(), "I was doing xxx");
- *   CHECK_MSG(yet_another_func(), "I was doing yyy");
+ *   CHECK_ERROR_MSG(another_func(), "I was doing xxx");
+ *   CHECK_ERROR_MSG(yet_another_func(), "I was doing yyy");
  *   return RET_OK;
  * }
  * @endcode
  */
-#define CHECK_MSG(x, m)\
+#define CHECK_ERROR_MSG(x, m)\
 {\
     foedus::ErrorStack __e(x);\
     if (__e.is_error()) {return foedus::ErrorStack(__e, __FILE__, __LINE__, m);}\
 }
 
 /**
- * @def COERCE(x)
+ * @def COERCE_ERROR(x)
  * @ingroup ERRORCODES
  * @brief
  * This macro calls \b x and aborts if encounters an error.
@@ -479,11 +480,11 @@ inline void ErrorStack::verify() const {
  * void YourThread::run() {
  *   // the signature of thread::run() is defined elsewhere, so you can't return ErrorStack.
  *   // and you are sure an error won't happen here, or an error would be anyway catastrophic.
- *   COERCE(another_func());
+ *   COERCE_ERROR(another_func());
  * }
  * @endcode
  */
-#define COERCE(x)\
+#define COERCE_ERROR(x)\
 {\
     foedus::ErrorStack __e(x);\
     if (__e.is_error()) {__e.output_and_abort(&std::cerr, "Unexpected error happened");}\

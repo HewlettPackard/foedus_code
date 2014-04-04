@@ -2,8 +2,8 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#ifndef FOEDUS_FSNAMESPACE_INFO_HPP_
-#define FOEDUS_FSNAMESPACE_INFO_HPP_
+#ifndef FOEDUS_FS_NAMESPACE_INFO_HPP_
+#define FOEDUS_FS_NAMESPACE_INFO_HPP_
 
 /**
  * @namespace foedus::fs
@@ -39,7 +39,6 @@
 /**
  * @defgroup FILESYSTEM Filesystem wrapper
  * @copydoc foedus::fs
- * @copydetails foedus::fs
  */
 
-#endif  // FOEDUS_FSNAMESPACE_INFO_HPP_
+#endif  // FOEDUS_FS_NAMESPACE_INFO_HPP_

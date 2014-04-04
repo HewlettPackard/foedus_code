@@ -7,7 +7,14 @@
 
 #include <foedus/cxx11.hpp>
 #include <foedus/error_stack.hpp>
+#include <foedus/initializable.hpp>
+#include <foedus/fs/fwd.hpp>
+#include <foedus/memory/fwd.hpp>
 namespace foedus {
+
+// forward declarations
+class EnginePimpl;
+class EngineOptions;
 
 /**
  * @defgroup ENGINE Database Engine
@@ -16,21 +23,18 @@ namespace foedus {
  * bluh
  */
 
-class EnginePimpl;
-class EngineOptions;
-
 /**
- * @brief Database engine object that holds all resources.
+ * @brief Database engine object that holds all resources and provides APIs.
  * @ingroup ENGINE
  * @details
  * Detailed description of this class.
  */
-class Engine {
+class Engine : public virtual Initializable {
  public:
     /**
-     * @brief Instantiates an engine object which is \b NOT started yet.
+     * @brief Instantiates an engine object which is \b NOT initialized yet.
      * @details
-     * To start the engine, call run() afterwards.
+     * To start the engine, call initialize() afterwards.
      * This constructor dose nothing but instantiation.
      */
     explicit Engine(const EngineOptions &options);
@@ -38,34 +42,40 @@ class Engine {
     /**
      * @brief Destructs all resources of this object \b IF they were not released yet.
      * @details
-     * Most resources should be released by shutdown(). If this destructor is called before
-     * the call of shutdown(), there was something wrong.
+     * Most resources should be released by uninitialize(). If this destructor is called before
+     * the call of uninitialize(), there was something wrong.
      * So, this destructor complains about it in stderr if that's the case.
-     * Remember, destructor is not the best place to do complex things. Always use shutdown() for
-     * better handling of unexpected errors.
+     * Remember, destructor is not the best place to do complex things. Always use uninitialize()
+     * for better handling of unexpected errors.
      */
     ~Engine();
 
-    /**
-     * @brief Starts up the database engine. This is the first method to call.
-     * @pre is_running() == FALSE
-     * @details
-     * If the return value was not an error, is_running() will return TRUE.
-     */
-    ErrorStack  start();
-
-    /** Returns whether the engine is currently running. */
-    bool        is_running() const;
+    // Disable default constructors
+    Engine() CXX11_FUNC_DELETE;
+    Engine(const Engine &) CXX11_FUNC_DELETE;
+    Engine& operator=(const Engine &) CXX11_FUNC_DELETE;
 
     /**
-     * @brief Terminates the database engine. This is the last method to call.
-     * @pre is_running() == TRUE
-     * @details
-     * Whether the return value was error or not, is_running() will return FALSE.
-     * @attention This method is also automatically called from the destructor if you did not
-     * call it, but it's not a good practice. Explicitly call this method as soon as you are done.
+     * Starts up the database engine. This is the first method to call.
+     * @see Initializable#initialize()
      */
-    ErrorStack shutdown();
+    ErrorStack  initialize() CXX11_OVERRIDE;
+
+    /**
+     * Returns whether the engine is currently running.
+     * @see Initializable#is_initialized()
+     */
+    bool        is_initialized() const CXX11_OVERRIDE;
+
+    /**
+     * Terminates the database engine. This is the last method to call.
+     * @see Initializable#uninitialize()
+     */
+    ErrorStack  uninitialize() CXX11_OVERRIDE;
+
+    const EngineOptions&    get_options() const;
+    fs::Filesystem*         get_filesystem() const;
+    memory::EngineMemory*   get_memory() const;
 
  private:
     EnginePimpl* pimpl_;

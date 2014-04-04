@@ -308,7 +308,7 @@ SUBGROUPING            = YES
 # @ingroup) instead of on a separate page (for HTML and Man pages) or
 # section (for LaTeX and RTF).
 
-INLINE_GROUPED_CLASSES = YES
+INLINE_GROUPED_CLASSES = NO
 
 # When the INLINE_SIMPLE_STRUCTS tag is set to YES, structs, classes, and
 # unions with only public data fields will be shown inline in the documentation

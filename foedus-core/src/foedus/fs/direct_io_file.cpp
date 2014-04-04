@@ -67,7 +67,6 @@ ErrorCode DirectIoFile::open(bool read, bool write, bool append, bool create) {
     }
 }
 
-
 void DirectIoFile::close() {
     if (descriptor_ != INVALID_DESCRIPTOR) {
         int ret = ::close(descriptor_);
@@ -78,6 +77,9 @@ void DirectIoFile::close() {
 
 ErrorCode DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemory* buffer_ptr) {
     memory::AlignedMemory& buffer = *buffer_ptr;
+    if (!is_opened()) {
+        return ERROR_CODE_FS_NOT_OPENED;
+    }
     if (desired_bytes == 0) {
         return ERROR_CODE_OK;
     }
@@ -117,11 +119,19 @@ ErrorCode DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemory* buff
         total_read += read_bytes;
         remaining -= read_bytes;
         current_offset_ += read_bytes;
+        if (remaining > 0) {
+            LOG(INFO) << "Interesting. POSIX read() didn't complete the reads in one call."
+                << " total_read=" << total_read << ", desired_bytes=" << desired_bytes
+                << ", remaining=" << remaining;
+        }
     }
     return ERROR_CODE_OK;
 }
 
 ErrorCode DirectIoFile::write(uint64_t desired_bytes, const memory::AlignedMemory& buffer) {
+    if (!is_opened()) {
+        return ERROR_CODE_FS_NOT_OPENED;
+    }
     if (desired_bytes == 0) {
         return ERROR_CODE_OK;
     }
@@ -162,6 +172,11 @@ ErrorCode DirectIoFile::write(uint64_t desired_bytes, const memory::AlignedMemor
         total_written += written_bytes;
         remaining -= written_bytes;
         current_offset_ += written_bytes;
+        if (remaining > 0) {
+            LOG(INFO) << "Interesting. POSIX write() didn't complete the writes in one call."
+                << " total_written=" << total_written << ", desired_bytes=" << desired_bytes
+                << ", remaining=" << remaining;
+        }
     }
     return ERROR_CODE_OK;
 }
@@ -188,6 +203,23 @@ ErrorCode DirectIoFile::seek(uint64_t offset, SeekType seek_type) {
         return ERROR_CODE_FS_SEEK_FAILED;
     }
     current_offset_ = ret;
+    return ERROR_CODE_OK;
+}
+
+ErrorCode DirectIoFile::sync() {
+    if (!is_opened()) {
+        return ERROR_CODE_FS_NOT_OPENED;
+    }
+    if (!is_write()) {
+        return ERROR_CODE_INVALID_PARAMETER;
+    }
+
+    int ret = ::fsync(descriptor_);
+    if (ret != 0) {
+        LOG(ERROR) << "DirectIoFile::sync(): fsync failed. this=" << *this << ", errno=" << errno;
+        return ERROR_CODE_FS_SYNC_FAILED;
+    }
+
     return ERROR_CODE_OK;
 }
 

@@ -55,6 +55,12 @@
  * @note C++98 : nothing.
  */
 /**
+ * @def CXX11_FINAL
+ * @ingroup CXX11
+ * @brief Used in public headers in place of "final" of C++11.
+ * @note C++98 : nothing.
+ */
+/**
  * @def CXX11_NULLPTR
  * @ingroup CXX11
  * @brief Used in public headers in place of "nullptr" of C++11.
@@ -67,6 +73,12 @@
  * @note C++98 : nothing.
  */
 /**
+ * @def CXX11_OVERRIDE
+ * @ingroup CXX11
+ * @brief Used in public headers in place of "override" of C++11.
+ * @note C++98 : nothing.
+ */
+/**
  * @def CXX11_STATIC_ASSERT
  * @ingroup CXX11
  * @brief Used in public headers in place of "static_assert" of C++11.
@@ -76,15 +88,19 @@
 #define CXX11_FUNC_DELETE
 #define CXX11_FUNC_DEFAULT
 #define CXX11_CONSTEXPR
+#define CXX11_FINAL
 #define CXX11_NULLPTR NULL
 #define CXX11_NOEXCEPT
+#define CXX11_OVERRIDE
 #define CXX11_STATIC_ASSERT(expr, message)
 #else   // DISABLE_CXX11_IN_PUBLIC_HEADERS
 #define CXX11_FUNC_DELETE = delete
 #define CXX11_FUNC_DEFAULT = default
 #define CXX11_CONSTEXPR constexpr
+#define CXX11_FINAL final
 #define CXX11_NULLPTR nullptr
 #define CXX11_NOEXCEPT noexcept
+#define CXX11_OVERRIDE override
 #define CXX11_STATIC_ASSERT(expr, message) static_assert(expr, message)
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 

@@ -1,4 +1,5 @@
 
+add_subdirectory(cache)
 add_subdirectory(fs)
 add_subdirectory(log)
 add_subdirectory(memory)
@@ -6,6 +7,7 @@ add_subdirectory(storage)
 add_subdirectory(snapshot)
 
 set(FOEDUS_SRC
+    ${FOEDUS_CACHE_SRC}
     ${FOEDUS_FS_SRC}
     ${FOEDUS_LOG_SRC}
     ${FOEDUS_MEMORY_SRC}

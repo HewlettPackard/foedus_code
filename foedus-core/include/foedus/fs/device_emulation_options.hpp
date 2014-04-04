@@ -6,6 +6,7 @@
 #define FOEDUS_FS_DEVICE_EMULATION_OPTIONS_HPP_
 #include <cstdint>
 #include <iosfwd>
+
 namespace foedus {
 namespace fs {
 /**

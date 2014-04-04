@@ -6,6 +6,7 @@
 #define FOEDUS_FS_FILESYSTEM_HPP_
 #include <foedus/cxx11.hpp>
 #include <foedus/error_code.hpp>
+#include <foedus/initializable.hpp>
 #include <foedus/fs/filesystem_options.hpp>
 #include <foedus/fs/path.hpp>
 #include <iosfwd>
@@ -99,7 +100,7 @@ struct SpaceInfo  {
  * This class resembles boost::filesystem namespace.
  * However, this is a class, not a namespace, to receive FilesystemOptions.
  */
-class Filesystem {
+class Filesystem : public virtual Initializable {
  public:
     explicit Filesystem(const FilesystemOptions& options);
 
@@ -107,6 +108,11 @@ class Filesystem {
     Filesystem() CXX11_FUNC_DELETE;
     Filesystem(const Filesystem &) CXX11_FUNC_DELETE;
     Filesystem& operator=(const Filesystem &) CXX11_FUNC_DELETE;
+
+    // so far nothing...
+    ErrorStack  initialize() CXX11_OVERRIDE             { return RET_OK; }
+    bool        is_initialized() const CXX11_OVERRIDE   { return true; }
+    ErrorStack  uninitialize() CXX11_OVERRIDE           { return RET_OK; }
 
     FileStatus status(const Path& p) const;
     bool exists(const Path& p) const {return status(p).exists(); }

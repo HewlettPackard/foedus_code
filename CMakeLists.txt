@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 2.4)
 project(foedus_super_build)
 
+# No in-source build please. Terminate it as soon as possible if it happens.
+include(${CMAKE_CURRENT_SOURCE_DIR}/foedus-core/cmake/WarnInSrcBuild.cmake)
+
 # We do assume C++11.
 # However, external projects can link to our shared library even if they use C++98.
 # Our public header files do the switching (hides some API if C++11 is disabled).
@@ -17,6 +20,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 
 # Always 64-bit file offsets
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
+
+enable_testing() # we use CTest in tests-xxx. run "make test" or "ctest" after cmake
 
 add_subdirectory(foedus-core)
 add_subdirectory(experiments-core)

@@ -1,30 +1,50 @@
+#############################################################################
+#
+#               libfoedus-core CMake script
+#
+#############################################################################
 cmake_minimum_required(VERSION 2.4)
 project(foedus_core)
 
-set(CMAKE_VERBOSE_MAKEFILE ON)
+# FIRST, prohibit in-source build.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/WarnInSrcBuild.cmake)
 
 # Pointers to the root folders of this project.
-# These are used in a few places of the following cmake scripts, so we define them *first*.
+# These are used in a few places of the following cmake scripts, so we define them here.
 set(FOEDUS_CORE_SRC_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
-mark_as_advanced(FOEDUS_CORE_SRC_ROOT)
 set(FOEDUS_CORE_SRC_BIN ${CMAKE_CURRENT_BINARY_DIR})
-mark_as_advanced(FOEDUS_CORE_SRC_BIN)
+mark_as_advanced(FOEDUS_CORE_SRC_ROOT FOEDUS_CORE_SRC_BIN)
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CpplintWrapper.cmake)
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/WarnInSrcBuild.cmake)
-include(${CMAKE_CURRENT_SOURCE_DIR}/third_party/TestBigEndian.cmake)
-
-#TEST_BIG_ENDIAN(WORDS_BIGENDIAN)
+set(CMAKE_VERBOSE_MAKEFILE ON)
 message (STATUS)
+message (STATUS "Building libfoedus-core... Environments:")
 message (STATUS "========================================")
 message (STATUS "CMAKE_SYSTEM=${CMAKE_SYSTEM}")
 message (STATUS "CMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}")
 message (STATUS "CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}")
 message (STATUS "CMAKE_C_COMPILER=${CMAKE_C_COMPILER}")
 message (STATUS "CMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
-#message (STATUS "BIG_ENDIAN=${WORDS_BIGENDIAN}")
 message (STATUS "========================================")
 message (STATUS)
+
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+
+
+#############################################################################
+#
+#               Compiler Options  : BEGIN
+#
+#############################################################################
+# We crucially need libnuma, so it's a required dependency.
+# We considered static linking, but statically linking such a low-level library is a bit risky.
+find_package(Numa REQUIRED)
+
+# google-perftools is optional. We use it only for performance experiments.
+# Every such code should be within #ifdef HAVE_GOOGLEPERFTOOLS.
+find_package(GooglePerftools)
+if (GOOGLEPERFTOOLS_FOUND)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_GOOGLEPERFTOOLS")
+endif (GOOGLEPERFTOOLS_FOUND)
 
 # We do assume C++11.
 # However, external projects can link to this library even if they use C++98.
@@ -43,26 +63,43 @@ if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-D\\_FILE\\_OFFSET\\_BITS\\=64")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
 endif ()
 
-
+#############################################################################
+#
+#               Build Target Libraries  : BEGIN
+#
+#############################################################################
 # We merely collect paths of all cpp files to compile. No executable/library built under src.
 add_subdirectory(src)
 
 # So far only glog.
 add_subdirectory(third_party)
 
-# Compile all files as a single shared library
+# include files
 include_directories(
     # our main include folder
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    # libnuma
+    ${NUMA_INCLUDE_DIR}
     # We include the BINARY folder of glog as glog generates header files
     ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog/src)
+# gperftools is optional
+if (GOOGLEPERFTOOLS_FOUND)
+    include_directories(${GooglePerftools_INCLUDE_DIR})
+endif (GOOGLEPERFTOOLS_FOUND)
+
+# Compile all files as a single shared library
 add_library(foedus-core SHARED ${FOEDUS_CORE_ALL_SRC})
 
-# Link to glog
+# Link to libglog, libnuma, libgperftools (if found)
 add_dependencies(foedus-core glog_build)
-target_link_libraries(foedus-core "${GLOG_STATIC_LIB}")
+target_link_libraries(foedus-core ${GLOG_STATIC_LIB})
+target_link_libraries(foedus-core ${NUMA_LIBRARY})
+if (GOOGLEPERFTOOLS_FOUND)
+    target_link_libraries(foedus-core ${GooglePerftools_LIBRARIES})
+endif (GOOGLEPERFTOOLS_FOUND)
 
 # Invoke CPPLINT (-DDISABLE_CPPLINT can disable it)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CpplintWrapper.cmake)
 CPPLINT_RECURSIVE(cpplint_include
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -73,6 +110,11 @@ CPPLINT_RECURSIVE(cpplint_src
     ${CMAKE_CURRENT_BINARY_DIR}/src)
 add_dependencies(foedus-core cpplint_include cpplint_src)
 
+#############################################################################
+#
+#               Doxygen: BEGIN
+#
+#############################################################################
 # Doxygen commands (not mandatory)
 find_package(Doxygen)
 if(DOXYGEN_FOUND)

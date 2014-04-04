@@ -37,15 +37,15 @@ namespace foedus {
  *
  * @par How to use ErrorStack
  * To use ErrorStack, you should be familiar with how to use the following macros:
- * RET_OK, CHECK(x), ERROR_STACK(e), and a few others.
+ * RET_OK, CHECK_ERROR(x), ERROR_STACK(e), COERCE_ERROR(x), and a few others.
  * For example, use it as follows:
  * @code{.cpp}
  * ErrorStack your_func() {
  *   if (out-of-memory-observed) {
  *      return ERROR_STACK(ERROR_CODE_OUTOFMEMORY);
  *   }
- *   CHECK(another_func());
- *   CHECK(yet_another_func());
+ *   CHECK_ERROR(another_func());
+ *   CHECK_ERROR(yet_another_func());
  *   return RET_OK;
  * }
  * @endcode

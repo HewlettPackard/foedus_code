@@ -32,7 +32,7 @@ class Filesystem;
  * This class is used for two kinds of files.
  *  \li Data file, or snapshot files.
  *  \li Log file
- * @todo Consider Windows. MUCH later.
+ * @todo Support Windows. MUCH later.
  */
 class DirectIoFile {
  public:
@@ -78,7 +78,7 @@ class DirectIoFile {
      * @param[in] read whether to allow read accesses on the opened file
      * @param[in] write whether to allow write accesses on the opened file
      * @param[in] append whether to set initial offset at the end of the file
-     * @param[in] read whether to create the file. if already exists, does nothing.
+     * @param[in] create whether to create the file. if already exists, does nothing.
      */
     ErrorCode       open(bool read, bool write, bool append, bool create);
 
@@ -115,6 +115,24 @@ class DirectIoFile {
      * @pre is_opened()
      */
     ErrorCode       seek(uint64_t offset, SeekType seek_type);
+
+
+    /**
+     * @brief Analogues of POSIX fsync().
+     * @details
+     * @par POSIX fsync()
+     * Transfers ("flushes") all modified in-core data of (i.e., modified buffer cache pages for)
+     * the file referred to by the file descriptor fd to the disk device (or other permanent
+     * storage device) so that all changed information can be retrieved even after the system
+     * crashed or was rebooted.
+     * @par No fdatasync analogue
+     * All of our data writes are appends. So, there is no case we are benefited by fdatasync.
+     * Hence, we have only fsync() analogue.
+     * @pre is_opened()
+     * @pre is_write()
+     */
+    ErrorCode       sync();
+
 
     const Filesystem&       get_filesystem() const { return filesystem_; }
     Path                    get_path() const { return path_; }

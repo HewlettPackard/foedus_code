@@ -15,6 +15,8 @@
  * A general error code like out-of-memory might omit module names.
  */
 X(ERROR_CODE_OUTOFMEMORY,           0x0001, "GENERAL: Out of memory")
+X(ERROR_CODE_INVALID_PARAMETER,     0x0002, "GENERAL: Invalid parameter given")
+X(ERROR_CODE_ALREADY_INITIALIZED,   0x0003, "GENERAL: Already initialized")
 
 X(ERROR_CODE_ENGINE_INVALID_OPTION, 0x0101, "ENGINE : Invalid Option")
 
@@ -28,3 +30,5 @@ X(ERROR_CODE_FS_TOO_SHORT_READ,     0x0207, "FILESYS: reached end of file before
 X(ERROR_CODE_FS_EXCESS_READ,        0x0208, "FILESYS: read more than expected")
 X(ERROR_CODE_FS_WRITE_FAIL,         0x0209, "FILESYS: Disk write failed.")
 X(ERROR_CODE_FS_EXCESS_WRITE,       0x020A, "FILESYS: wrote more than expected")
+X(ERROR_CODE_FS_NOT_OPENED,         0x020B, "FILESYS: File not opened yet or failed to open.")
+X(ERROR_CODE_FS_SYNC_FAILED,        0x020C, "FILESYS: fsync() failed.")

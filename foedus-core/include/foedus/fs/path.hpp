@@ -16,7 +16,7 @@ namespace fs {
 /**
  * @brief Analogue of boost::filesystem::path.
  * @ingroup FILESYSTEM
- * @todo Consider Windows. MUCH later.
+ * @todo Support Windows. MUCH later.
  */
 class Path {
  public:
@@ -44,7 +44,7 @@ class Path {
     }
 
     const std::string&  native() const { return pathname_; }
-    const char*         c_str()  const  { return pathname_.c_str(); }
+    const char*         c_str()  const { return pathname_.c_str(); }
     const std::string&  string() const { return pathname_; }
 
     int compare(const Path& p) const CXX11_NOEXCEPT { return pathname_.compare(p.pathname_); }
