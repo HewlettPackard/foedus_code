@@ -8,7 +8,7 @@
 namespace foedus {
 
 /**
- * @defgroup ERRORCODES Error codes, messages, and stacktraces.
+ * @defgroup ERRORCODES Error codes, messages, and stacktraces
  * @brief Error codes (ErrorCode), their error messages defined in error_code.xmacro, and
  * stacktrace information (ErrorStack) returned by our API functions.
  * @details

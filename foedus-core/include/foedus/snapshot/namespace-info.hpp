@@ -7,7 +7,7 @@
 
 /**
  * @namespace foedus::snapshot
- * @brief \b Snapshot \b Manager package.
+ * @brief \b Snapshot \b Manager, which manages snapshot files of the database.
  * @details
  * This package contains classes to handle \e snapshot files.
  * Snapshot files are overlays of the database image.
@@ -16,6 +16,7 @@
 
 /**
  * @defgroup SNAPSHOT Snapshot Manager
+ * @ingroup COMPONENTS
  * @copydoc foedus::snapshot
  */
 

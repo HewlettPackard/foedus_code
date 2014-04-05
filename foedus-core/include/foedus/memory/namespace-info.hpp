@@ -7,13 +7,14 @@
 
 /**
  * @namespace foedus::memory
- * @brief \b Memory \b Manager package.
+ * @brief \b Memory \b Manager, which controls memory allocations, deallocations, and sharing.
  * @details
  * This package contains classes that control memory allocations, deallocations, and sharing.
  */
 
 /**
  * @defgroup MEMORY Memory Manager
+ * @ingroup COMPONENTS
  * @copydoc foedus::memory
  */
 

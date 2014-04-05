@@ -7,7 +7,7 @@
 
 /**
  * @namespace foedus::fs
- * @brief Filesystem wrapper.
+ * @brief Filesystem wrapper, an analogue of boost::filesystem.
  * @details
  * These classes abstract accesses to filesystems like boost::filesystem and std::filesystem in
  * C++1z(?). We should not directly call POSIX or Windows filesystem APIs in other modules.
@@ -38,6 +38,7 @@
 
 /**
  * @defgroup FILESYSTEM Filesystem wrapper
+ * @ingroup COMPONENTS
  * @copydoc foedus::fs
  */
 

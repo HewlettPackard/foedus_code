@@ -1,7 +1,10 @@
+# Performance experiment project for foedus-core
 cmake_minimum_required(VERSION 2.4)
 project(experiments_core)
 
-if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-std\\=c\\+\\+11")
-    message(FATAL_ERROR "Experiments project assume C++11. You have to compile it from super build.")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-endif ()
+include(${CMAKE_CURRENT_SOURCE_DIR}/../general_projects.cmake)
+set(EXPERIMENT_LIB ${GENERAL_LIB})
+
+add_subdirectory(src)
+
+

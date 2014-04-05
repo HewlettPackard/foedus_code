@@ -7,13 +7,14 @@
 
 /**
  * @namespace foedus::log
- * @brief \b Log \b Manager package.
+ * @brief \b Log \b Manager, which writes out transactional logs.
  * @details
  * This package contains classes that control transactional logging.
  */
 
 /**
  * @defgroup LOG Log Manager
+ * @ingroup COMPONENTS
  * @copydoc foedus::log
  */
 

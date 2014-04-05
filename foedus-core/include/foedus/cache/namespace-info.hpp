@@ -7,13 +7,14 @@
 
 /**
  * @namespace foedus::cache
- * @brief \b Snapshot \b Cache \b Manager.
+ * @brief \b Snapshot \b Cache \b Manager, which caches data pages retrieved from snapshot files.
  * @details
  * bluh
  */
 
 /**
  * @defgroup CACHE Snapshot Cache Manager
+ * @ingroup COMPONENTS
  * @copydoc foedus::cache
  */
 

@@ -2,6 +2,11 @@
 #
 #               libfoedus-core CMake script
 #
+# This CMake project is a bit special because we expect user programs to
+# directly include this cmake script to build together as a possible use case.
+# Therefore, this CMake script must be compilable even if it was NOT invoked
+# by the super build.
+#
 #############################################################################
 cmake_minimum_required(VERSION 2.4)
 project(foedus_core)
@@ -39,6 +44,9 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 # We considered static linking, but statically linking such a low-level library is a bit risky.
 find_package(Numa REQUIRED)
 
+# We also need pthread. Note that linking against libstdc with C++11 flag is not enough.
+find_package(Threads REQUIRED)
+
 # google-perftools is optional. We use it only for performance experiments.
 # Every such code should be within #ifdef HAVE_GOOGLEPERFTOOLS.
 find_package(GooglePerftools)
@@ -71,7 +79,10 @@ endif ()
 # We merely collect paths of all cpp files to compile. No executable/library built under src.
 add_subdirectory(src)
 
-# So far glog and gflags.
+# This project contains glog so that it can compile by itself.
+# We also use gflags and gtest, but this core library itself is a pure data processing library
+# without executables nor unit tests. So, we don't contain them in her and instead have them
+# in one above.
 add_subdirectory(third_party)
 
 # include files
@@ -82,7 +93,7 @@ include_directories(
     ${NUMA_INCLUDE_DIR}
     # We include the BINARY folder of glog as glog generates header files
     ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog/src)
-# gperftools is optional
+# gperftools is optional for this library
 if (GOOGLEPERFTOOLS_FOUND)
     include_directories(${GooglePerftools_INCLUDE_DIR})
 endif (GOOGLEPERFTOOLS_FOUND)
@@ -94,6 +105,7 @@ add_library(foedus-core SHARED ${FOEDUS_CORE_ALL_SRC})
 add_dependencies(foedus-core glog_build)
 target_link_libraries(foedus-core ${GLOG_STATIC_LIB})
 target_link_libraries(foedus-core ${NUMA_LIBRARY})
+target_link_libraries(foedus-core ${CMAKE_THREAD_LIBS_INIT})
 if (GOOGLEPERFTOOLS_FOUND)
     target_link_libraries(foedus-core ${GooglePerftools_LIBRARIES})
 endif (GOOGLEPERFTOOLS_FOUND)

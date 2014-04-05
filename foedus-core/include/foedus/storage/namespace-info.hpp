@@ -7,7 +7,7 @@
 
 /**
  * @namespace foedus::storage
- * @brief \b Storage \b Manager package.
+ * @brief \b Storage \b Manager, which implements a couple of key/value stores.
  * @details
  * This package contains core classes that store key/value pairs.
  * This layer has no idea about what is stored, thus no notion of columns either.
@@ -15,6 +15,7 @@
 
 /**
  * @defgroup STORAGE Storage Manager
+ * @ingroup COMPONENTS
  * @copydoc foedus::storage
  */
 

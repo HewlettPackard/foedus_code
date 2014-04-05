@@ -1,3 +1,15 @@
+#############################################################################
+#
+#               FOEDUS super-build CMake script
+#
+# This CMake project is used by the developers of FOEDUS.
+# It is NOT an intended use to include this CMake project from user CMake project.
+# Rather, users should include CMakeLists.txt in foedus-core.
+# All sub-projects other than foedus-core are not intended to be compiled with
+# user programs. They are utility programs, performance experiments, and unit
+# test cases. Users shouldn't have to include such projects.
+#
+#############################################################################
 cmake_minimum_required(VERSION 2.4)
 project(foedus_super_build)
 
@@ -26,9 +38,12 @@ enable_testing() # we use CTest in tests-xxx. run "make test" or "ctest" after c
 # The core library. This project is also compilable by itself.
 add_subdirectory(foedus-core)
 
+# Assorted utility programs for FOEDUS users.
+add_subdirectory(foedus-util)
+
 # google-test and google-flags.
 # we also use google-logging, but it's placed under foedus-core to make it self-contained.
-add_subdirectory(third-party)
+add_subdirectory(third_party)
 
 # experiments and unit tests.
 add_subdirectory(experiments-core)

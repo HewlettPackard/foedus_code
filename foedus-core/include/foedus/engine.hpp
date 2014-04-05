@@ -17,7 +17,13 @@ class EnginePimpl;
 class EngineOptions;
 
 /**
- * @defgroup ENGINE Database Engine
+ * @defgroup COMPONENTS FOEDUS Components
+ * @brief Main modules of libfoedus.
+ */
+
+/**
+ * @defgroup ENGINE \b Database \b Engine
+ * @ingroup COMPONENTS
  * @brief Database engine, the top-level component of foedus.
  * @details
  * bluh
