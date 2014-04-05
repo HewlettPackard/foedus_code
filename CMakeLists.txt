@@ -23,6 +23,13 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
 
 enable_testing() # we use CTest in tests-xxx. run "make test" or "ctest" after cmake
 
+# The core library. This project is also compilable by itself.
 add_subdirectory(foedus-core)
+
+# google-test and google-flags.
+# we also use google-logging, but it's placed under foedus-core to make it self-contained.
+add_subdirectory(third-party)
+
+# experiments and unit tests.
 add_subdirectory(experiments-core)
 add_subdirectory(tests-core)

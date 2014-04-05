@@ -8,6 +8,4 @@ endif ()
 
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/../foedus-core/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/gtest-1.7.0/include)
-
-add_subdirectory(third_party)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/gtest-1.7.0/include)

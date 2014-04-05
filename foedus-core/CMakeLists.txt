@@ -71,7 +71,7 @@ endif ()
 # We merely collect paths of all cpp files to compile. No executable/library built under src.
 add_subdirectory(src)
 
-# So far only glog.
+# So far glog and gflags.
 add_subdirectory(third_party)
 
 # include files
