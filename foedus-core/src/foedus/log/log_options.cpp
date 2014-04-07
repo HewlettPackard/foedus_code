@@ -5,7 +5,6 @@
 #include <foedus/fs/filesystem.hpp>
 #include <foedus/fs/path.hpp>
 #include <foedus/log/log_options.hpp>
-#include <glog/logging.h>
 #include <ostream>
 #include <string>
 namespace foedus {
@@ -15,7 +14,6 @@ LogOptions::LogOptions() {
     fs::FilesystemOptions fs_options;
     fs::Filesystem filesystem(fs_options);
     fs::Path default_path = filesystem.unique_path(fs::Path("%%%%-%%%%-%%%%-%%%%.log"));
-    LOG(INFO) << "LogOptions(). randomly-generated log path: " << default_path;
     log_paths_.push_back(default_path.string());
 
     thread_buffer_kb_ = DEFAULT_THREAD_BUFFER_KB;

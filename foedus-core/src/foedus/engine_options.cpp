@@ -13,6 +13,7 @@ EngineOptions::EngineOptions(const EngineOptions& other) {
 
 EngineOptions& EngineOptions::operator=(const EngineOptions& other) {
     cache_ = other.cache_;
+    debugging_ = other.debugging_;
     fs_ = other.fs_;
     log_ = other.log_;
     memory_ = other.memory_;
@@ -25,6 +26,7 @@ EngineOptions& EngineOptions::operator=(const EngineOptions& other) {
 std::ostream& operator<<(std::ostream& o, const EngineOptions& v) {
     o << "[EngineOptions]" << std::endl;
     o << v.cache_ << std::endl;
+    o << v.debugging_ << std::endl;
     o << v.fs_ << std::endl;
     o << v.log_ << std::endl;
     o << v.memory_ << std::endl;

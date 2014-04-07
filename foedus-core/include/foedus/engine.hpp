@@ -8,6 +8,7 @@
 #include <foedus/cxx11.hpp>
 #include <foedus/error_stack.hpp>
 #include <foedus/initializable.hpp>
+#include <foedus/debugging/fwd.hpp>
 #include <foedus/fs/fwd.hpp>
 #include <foedus/memory/fwd.hpp>
 namespace foedus {
@@ -85,9 +86,14 @@ class Engine : public virtual Initializable {
      */
     ErrorStack  uninitialize() CXX11_OVERRIDE;
 
-    const EngineOptions&    get_options() const;
-    fs::Filesystem*         get_filesystem() const;
-    memory::EngineMemory*   get_memory() const;
+    /** @see EngineOptions */
+    const EngineOptions&            get_options() const;
+    /** See \ref DEBUGGING */
+    debugging::DebuggingSupports&   get_debug() const;
+    /** See \ref FILESYSTEM */
+    fs::Filesystem&                 get_filesystem() const;
+    /** See \ref MEMORY */
+    memory::EngineMemory&           get_memory() const;
 
  private:
     EnginePimpl* pimpl_;

@@ -7,8 +7,9 @@
 
 // rather than forward declarations of option classes for each module, we include them here.
 // these are anyway very small header files, and demanding user code to include each of them
-// won't fly.
+// won't fly. further, just holding instances, rather than pointers, makes (de)allocation simpler.
 #include <foedus/cache/cache_options.hpp>
+#include <foedus/debugging/debugging_options.hpp>
 #include <foedus/fs/filesystem_options.hpp>
 #include <foedus/log/log_options.hpp>
 #include <foedus/memory/memory_options.hpp>
@@ -33,7 +34,9 @@ struct EngineOptions {
     EngineOptions(const EngineOptions& other);
     EngineOptions& operator=(const EngineOptions& other);
 
+    // options for each module
     cache::CacheOptions         cache_;
+    debugging::DebuggingOptions debugging_;
     fs::FilesystemOptions       fs_;
     log::LogOptions             log_;
     memory::MemoryOptions       memory_;

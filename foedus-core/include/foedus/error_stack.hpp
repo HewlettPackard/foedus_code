@@ -517,7 +517,7 @@ inline void ErrorStack::verify() const {
 #define COERCE_ERROR(x)\
 {\
     foedus::ErrorStack __e(x);\
-    if (__e.is_error()) {__e.output_and_abort(&std::cerr, "Unexpected error happened");}\
+    if (__e.is_error()) {__e.dump_and_abort("Unexpected error happened");}\
 }
 
 #endif  // FOEDUS_ERROR_STACK_HPP_

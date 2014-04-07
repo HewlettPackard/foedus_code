@@ -1,5 +1,6 @@
 
 add_subdirectory(cache)
+add_subdirectory(debugging)
 add_subdirectory(fs)
 add_subdirectory(log)
 add_subdirectory(memory)
@@ -9,6 +10,7 @@ add_subdirectory(thread)
 
 set(FOEDUS_CHILD_SRC
     ${FOEDUS_CACHE_SRC}
+    ${FOEDUS_DEBUGGING_SRC}
     ${FOEDUS_FS_SRC}
     ${FOEDUS_LOG_SRC}
     ${FOEDUS_MEMORY_SRC}
