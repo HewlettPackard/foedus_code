@@ -7,6 +7,7 @@
 
 /**
  * @defgroup CXX11 C++11 Keywords in Public Headers
+ * @ingroup IDIOMS
  * @brief Defines macros for hiding C++11 features in public headers for clients that use C++98.
  * @details
  * @par C++11 in libfoedus
@@ -17,6 +18,11 @@
  * as an external shared library which comes with public headers that at least compile in C++98.
  * Thus, we will make sure C++11 keywords and classes do not directly appear in public header files.
  * The macros defined in this file are for that switching.
+ *
+ * @par stdint.h vs cstdint
+ * For this reason, we include stdint.h rather than cstdint.
+ * cstdint is a C++11 extension, which defines those integer types in std namespace
+ * (eg std::int32_t). The integer types in global namespace are more concise to use, too.
  *
  * @par C++11 in cpp and non-public headers
  * Remember, this is only for public headers. We anyway compile our library with C++11.
@@ -31,8 +37,8 @@
  * @brief If defined, our public headers must hide all C++11 dependent APIs.
  */
 #if __cplusplus < 201103L
-#pragma message("C++11 is disabled. libfoedus-core can be used without C++11,"
-                " but enabling C++11 allows more flexible use of the library.")
+#pragma message("C++11 is disabled. libfoedus-core can be used without C++11,")
+#pragma message(" but enabling C++11 allows more flexible use of the library.")
 #define DISABLE_CXX11_IN_PUBLIC_HEADERS
 #endif  // __cplusplus < 201103L
 

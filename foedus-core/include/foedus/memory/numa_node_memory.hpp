@@ -27,7 +27,7 @@ class NumaNodeMemory : public virtual Initializable {
     /**
      * Description of constructor.
      */
-    NumaNodeMemory(EngineMemory *engine_memory, foedus::thread::thread_group_id numa_node);
+    NumaNodeMemory(EngineMemory *engine_memory, foedus::thread::ThreadGroupId numa_node);
     /**
      * Description of destructor.
      */
@@ -41,18 +41,18 @@ class NumaNodeMemory : public virtual Initializable {
     INITIALIZABLE_DEFAULT;
 
     EngineMemory* get_engine_memory() const { return engine_memory_; }
-    foedus::thread::thread_group_id get_numa_node() const { return numa_node_; }
+    foedus::thread::ThreadGroupId get_numa_node() const { return numa_node_; }
 
     // accessors for child memories
-    foedus::thread::thread_local_ordinal get_core_memory_count() const {
+    foedus::thread::ThreadLocalOrdinal get_core_memory_count() const {
         assert(core_memories_.size() <= foedus::thread::MAX_THREAD_LOCAL_ORDINAL);
-        return static_cast<foedus::thread::thread_local_ordinal>(core_memories_.size());
+        return static_cast<foedus::thread::ThreadLocalOrdinal>(core_memories_.size());
     }
     std::vector<NumaCoreMemory*>& get_core_memories() { return core_memories_; }
-    NumaCoreMemory* get_core_memory(foedus::thread::thread_id id) const {
+    NumaCoreMemory* get_core_memory(foedus::thread::ThreadId id) const {
         return core_memories_[foedus::thread::decompose_numa_local_ordinal(id)];
     }
-    NumaCoreMemory* get_core_memory(foedus::thread::thread_local_ordinal ordinal) const {
+    NumaCoreMemory* get_core_memory(foedus::thread::ThreadLocalOrdinal ordinal) const {
         return core_memories_[ordinal];
     }
 
@@ -65,7 +65,7 @@ class NumaNodeMemory : public virtual Initializable {
     /**
      * The NUMA node this memory is allocated for.
      */
-    const foedus::thread::thread_group_id   numa_node_;
+    const foedus::thread::ThreadGroupId   numa_node_;
 
     /**
      * List of NumaCoreMemory, one for each core in this node.

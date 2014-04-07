@@ -76,8 +76,11 @@ class ErrorStackBatch {
     /** Returns whether there was any error. */
     bool        is_error() const { return !error_batch_.empty(); }
 
-    /** Instantiate an ErrorStack object that summarizes all errors in this batch. */
-    ErrorStack  summarize() const;
+    /**
+     * Instantiate an ErrorStack object that summarizes all errors in this batch.
+     * Consider using SUMMARIZE_ERROR_BATCH(batch).
+     */
+    ErrorStack  summarize(const char* filename, const char* func, uint32_t linenum) const;
 
     friend std::ostream& operator<<(std::ostream& o, const ErrorStackBatch& obj);
 
@@ -88,4 +91,15 @@ class ErrorStackBatch {
     std::vector<ErrorStack> error_batch_;
 };
 }  // namespace foedus
+
+/**
+ * @def SUMMARIZE_ERROR_BATCH(batch)
+ * @ingroup ERRORCODES
+ * @brief
+ * This macro calls ErrorStackBatch#summarize() with automatically provided parameters.
+ * For example, use it as follows:
+ * See \ref INITIALIZABLE for an example usage.
+ */
+#define SUMMARIZE_ERROR_BATCH(x) x.summarize(__FILE__, __FUNCTION__, __LINE__)
+
 #endif  // FOEDUS_ERROR_STACK_BATCH_HPP_

@@ -6,7 +6,8 @@
 #include <iostream>
 #include <sstream>
 namespace foedus {
-ErrorStack ErrorStackBatch::summarize() const {
+ErrorStack ErrorStackBatch::summarize(
+    const char* filename, const char* func, uint32_t linenum) const {
     if (!is_error()) {
         return RET_OK;
     } else if (error_batch_.size() == 1) {
@@ -20,12 +21,13 @@ ErrorStack ErrorStackBatch::summarize() const {
             }
             message << "Error[" << i << "]:" << error_batch_[i];
         }
-        return ERROR_STACK_MSG(ERROR_CODE_BATCHED_ERROR, message.str().c_str());
+        return ErrorStack(filename, func, linenum, ERROR_CODE_BATCHED_ERROR, message.str().c_str());
     }
 }
-}  // namespace foedus
 
-std::ostream& operator<<(std::ostream& o, const foedus::ErrorStackBatch& obj) {
-    o << obj.summarize();
+std::ostream& operator<<(std::ostream& o, const ErrorStackBatch& obj) {
+    o << SUMMARIZE_ERROR_BATCH(obj);
     return o;
 }
+
+}  // namespace foedus

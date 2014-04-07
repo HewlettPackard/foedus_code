@@ -5,7 +5,7 @@
 #ifndef FOEDUS_LOG_LOG_OPTIONS_HPP_
 #define FOEDUS_LOG_LOG_OPTIONS_HPP_
 #include <foedus/fs/device_emulation_options.hpp>
-#include <cstdint>
+#include <stdint.h>
 #include <iosfwd>
 #include <string>
 #include <vector>

@@ -6,13 +6,10 @@
 #define FOEDUS_FS_PATH_HPP_
 #include <foedus/cxx11.hpp>
 #include <foedus/error_code.hpp>
-#include <cstdint>
 #include <iosfwd>
 #include <string>
 namespace foedus {
 namespace fs {
-
-
 /**
  * @brief Analogue of boost::filesystem::path.
  * @ingroup FILESYSTEM

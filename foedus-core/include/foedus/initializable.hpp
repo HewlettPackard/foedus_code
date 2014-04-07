@@ -10,6 +10,7 @@
 namespace foedus {
 /**
  * @defgroup INITIALIZABLE Initialize/Uninitialize
+ * @ingroup IDIOMS
  * @brief Defines a uniform class interface to initialize/uninitialize non-trivial resources.
  * @details
  * @par Constructor/Destructor vs initialize()/uninitialize()
@@ -49,7 +50,7 @@ namespace foedus {
  *    batch.emplace_back(some_uninitialization());
  *    batch.emplace_back(another_uninitialization());
  *    batch.emplace_back(yet_another_uninitialization());
- *    return batch.summarize();
+ *    return SUMMARIZE_ERROR_BATCH(batch);
  * }
  * @endcode
  */

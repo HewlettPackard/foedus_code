@@ -5,30 +5,18 @@
 #ifndef FOEDUS_ENGINE_OPTIONS_HPP_
 #define FOEDUS_ENGINE_OPTIONS_HPP_
 
+// rather than forward declarations of option classes for each module, we include them here.
+// these are anyway very small header files, and demanding user code to include each of them
+// won't fly.
+#include <foedus/cache/cache_options.hpp>
+#include <foedus/fs/filesystem_options.hpp>
+#include <foedus/log/log_options.hpp>
+#include <foedus/memory/memory_options.hpp>
+#include <foedus/snapshot/snapshot_options.hpp>
+#include <foedus/storage/storage_options.hpp>
+#include <foedus/thread/thread_options.hpp>
 #include <iosfwd>
 namespace foedus {
-
-// forward declarations of option classes for each module.
-namespace fs {
-    struct FilesystemOptions;
-}  // namespace fs
-
-namespace log {
-    struct LogOptions;
-}  // namespace log
-
-namespace memory {
-    struct MemoryOptions;
-}  // namespace memory
-
-namespace snapshot {
-    struct SnapshotOptions;
-}  // namespace snapshot
-
-namespace storage {
-    struct StorageOptions;
-}  // namespace storage
-
 /**
  * @brief Set of option values given to the engine at start-up.
  * @ingroup ENGINE
@@ -44,13 +32,14 @@ struct EngineOptions {
     EngineOptions();
     EngineOptions(const EngineOptions& other);
     EngineOptions& operator=(const EngineOptions& other);
-    ~EngineOptions();
 
-    fs::FilesystemOptions*      fs_;
-    log::LogOptions*            log_;
-    memory::MemoryOptions*      memory_;
-    snapshot::SnapshotOptions*  snapshot_;
-    storage::StorageOptions*    storage_;
+    cache::CacheOptions         cache_;
+    fs::FilesystemOptions       fs_;
+    log::LogOptions             log_;
+    memory::MemoryOptions       memory_;
+    snapshot::SnapshotOptions   snapshot_;
+    storage::StorageOptions     storage_;
+    thread::ThreadOptions       thread_;
 
     friend std::ostream& operator<<(std::ostream& o, const EngineOptions& v);
 };

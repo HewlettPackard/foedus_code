@@ -8,10 +8,11 @@ namespace foedus {
 namespace cache {
 CacheOptions::CacheOptions() {
 }
-}  // namespace cache
-}  // namespace foedus
 
-std::ostream& operator<<(std::ostream& o, const foedus::cache::CacheOptions& /*v*/) {
+std::ostream& operator<<(std::ostream& o, const CacheOptions& /*v*/) {
     o << "Snapshot Cache options:" << std::endl;
     return o;
 }
+
+}  // namespace cache
+}  // namespace foedus

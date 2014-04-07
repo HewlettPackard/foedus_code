@@ -8,7 +8,7 @@
 #include <foedus/error_code.hpp>
 #include <foedus/fs/device_emulation_options.hpp>
 #include <foedus/fs/path.hpp>
-#include <cstdint>
+#include <stdint.h>
 #include <iosfwd>
 namespace foedus {
 

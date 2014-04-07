@@ -5,7 +5,7 @@
 #ifndef FOEDUS_EPOCH_HPP_
 #define FOEDUS_EPOCH_HPP_
 
-#include <cstdint>
+#include <stdint.h>
 #include <iosfwd>
 namespace foedus {
 /**
@@ -28,7 +28,7 @@ namespace foedus {
 class Epoch {
  public:
     /** Integer representation of epoch. */
-    typedef uint32_t epoch_integer;
+    typedef uint32_t EpochInteger;
     /** Defines constant values. */
     enum Constants {
         /** This value means the epoch is not valid. */
@@ -54,7 +54,7 @@ class Epoch {
     bool    is_valid() const { return epoch_ != EPOCH_INVALID; }
 
     /** Returns the raw integer representation. */
-    epoch_integer get_epoch() const { return epoch_; }
+    EpochInteger get_epoch() const { return epoch_; }
 
     bool    operator==(const Epoch &other) const { return epoch_ == other.epoch_; }
     bool    operator!=(const Epoch &other) const { return epoch_ != other.epoch_; }
@@ -77,7 +77,7 @@ class Epoch {
 
  private:
     /** The raw integer representation. */
-    epoch_integer epoch_;
+    EpochInteger epoch_;
 };
 
 }  // namespace foedus

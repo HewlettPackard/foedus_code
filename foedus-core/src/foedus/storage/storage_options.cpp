@@ -8,10 +8,10 @@ namespace foedus {
 namespace storage {
 StorageOptions::StorageOptions() {
 }
-}  // namespace storage
-}  // namespace foedus
 
-std::ostream& operator<<(std::ostream& o, const foedus::storage::StorageOptions& /*v*/) {
+std::ostream& operator<<(std::ostream& o, const StorageOptions& /*v*/) {
     o << "Storage options:" << std::endl;
     return o;
 }
+}  // namespace storage
+}  // namespace foedus

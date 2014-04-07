@@ -9,5 +9,12 @@ CacheManager::CacheManager(const CacheOptions &options) : options_(options), ini
 }
 CacheManager::~CacheManager() {
 }
+
+ErrorStack CacheManager::initialize_once() {
+    return RET_OK;
+}
+ErrorStack CacheManager::uninitialize_once() {
+    return RET_OK;
+}
 }  // namespace cache
 }  // namespace foedus

@@ -25,7 +25,7 @@ class ThreadPimpl : public virtual Initializable {
     /**
      * Description of constructor.
      */
-    ThreadPimpl(ThreadGroup* group, thread_id id);
+    ThreadPimpl(ThreadGroup* group, ThreadId id);
     /**
      * Description of destructor.
      */
@@ -46,7 +46,7 @@ class ThreadPimpl : public virtual Initializable {
     /**
      * Unique ID of this thread.
      */
-    const thread_id         id_;
+    const ThreadId          id_;
 
     /**
      * Encapsulated raw C++11 thread object.

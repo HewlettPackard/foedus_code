@@ -22,10 +22,7 @@ LogOptions::LogOptions() {
     logger_buffer_kb_ = DEFAULT_LOGGER_BUFFER_KB;
 }
 
-}  // namespace log
-}  // namespace foedus
-
-std::ostream& operator<<(std::ostream& o, const foedus::log::LogOptions& v) {
+std::ostream& operator<<(std::ostream& o, const LogOptions& v) {
     o << "Log options:" << std::endl;
     for (size_t i = 0; i < v.log_paths_.size(); ++i) {
         o << "  log_paths[" << i << "]=" << v.log_paths_[i] << std::endl;
@@ -35,3 +32,6 @@ std::ostream& operator<<(std::ostream& o, const foedus::log::LogOptions& v) {
     o << v.emulation_;
     return o;
 }
+
+}  // namespace log
+}  // namespace foedus

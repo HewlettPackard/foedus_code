@@ -25,10 +25,11 @@ Path Path::parent_path() const {
     }
 }
 
-}  // namespace fs
-}  // namespace foedus
-
-std::ostream& operator<<(std::ostream& o, const foedus::fs::Path& v) {
+std::ostream& operator<<(std::ostream& o, const Path& v) {
     o << v.string();
     return o;
 }
+
+}  // namespace fs
+}  // namespace foedus
+

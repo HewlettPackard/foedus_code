@@ -5,7 +5,6 @@
 #ifndef FOEDUS_THREAD_THREAD_OPTIONS_HPP_
 #define FOEDUS_THREAD_THREAD_OPTIONS_HPP_
 #include <foedus/thread/thread_id.hpp>
-#include <cstdint>
 #include <iosfwd>
 namespace foedus {
 namespace thread {
@@ -27,14 +26,14 @@ struct ThreadOptions {
      * Number of ThreadGroup in the engine.
      * Default value is hardware NUMA node count (::numa_num_configured_nodes()).
      */
-    thread_group_id         group_count_;
+    ThreadGroupId         group_count_;
 
     /**
      * Number of Thread in each ThreadGroup.
      * Default value is hardware NUMA core count;
      * ::numa_num_configured_cpus() / ::numa_num_configured_nodes().
      */
-    thread_local_ordinal    thread_count_per_group_;
+    ThreadLocalOrdinal    thread_count_per_group_;
 };
 }  // namespace thread
 }  // namespace foedus

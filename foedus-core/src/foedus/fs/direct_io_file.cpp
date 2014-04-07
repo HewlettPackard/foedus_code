@@ -223,11 +223,7 @@ ErrorCode DirectIoFile::sync() {
     return ERROR_CODE_OK;
 }
 
-
-}  // namespace fs
-}  // namespace foedus
-
-std::ostream& operator<<(std::ostream& o, const foedus::fs::DirectIoFile& v) {
+std::ostream& operator<<(std::ostream& o, const DirectIoFile& v) {
     o << "DirectIoFile" << std::endl;
     o << v.get_path();
     o << v.get_emulation();
@@ -236,3 +232,6 @@ std::ostream& operator<<(std::ostream& o, const foedus::fs::DirectIoFile& v) {
     o << "  current_offset = " << v.get_current_offset() << std::endl;
     return o;
 }
+
+}  // namespace fs
+}  // namespace foedus

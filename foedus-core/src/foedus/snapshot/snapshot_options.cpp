@@ -10,10 +10,7 @@ SnapshotOptions::SnapshotOptions() {
     folder_paths_.push_back(".");
 }
 
-}  // namespace snapshot
-}  // namespace foedus
-
-std::ostream& operator<<(std::ostream& o, const foedus::snapshot::SnapshotOptions& v) {
+std::ostream& operator<<(std::ostream& o, const SnapshotOptions& v) {
     o << "Snapshot options:" << std::endl;
     for (size_t i = 0; i < v.folder_paths_.size(); ++i) {
         o << "  folder_paths[" << i << "]=" << v.folder_paths_[i] << std::endl;
@@ -21,3 +18,6 @@ std::ostream& operator<<(std::ostream& o, const foedus::snapshot::SnapshotOption
     o << v.emulation_;
     return o;
 }
+
+}  // namespace snapshot
+}  // namespace foedus

@@ -7,13 +7,13 @@
 #include <glog/logging.h>
 
 #include <dirent.h>
+#include <stdint.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/vfs.h>
 #include <unistd.h>
 
 #include <cassert>
-#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -180,12 +180,11 @@ Path Filesystem::unique_path(const Path& model) const {
     return Path(s);
 }
 
-
-}  // namespace fs
-}  // namespace foedus
-
-std::ostream& operator<<(std::ostream& o, const foedus::fs::SpaceInfo& v) {
+std::ostream& operator<<(std::ostream& o, const SpaceInfo& v) {
     o << "SpaceInfo: available_=" << v.available_ << ", capacity_=" << v.capacity_
         << ", free_=" << v.free_;
     return o;
 }
+
+}  // namespace fs
+}  // namespace foedus

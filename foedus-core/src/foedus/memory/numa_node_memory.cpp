@@ -6,10 +6,16 @@
 namespace foedus {
 namespace memory {
 NumaNodeMemory::NumaNodeMemory(EngineMemory *engine_memory,
-        foedus::thread::thread_group_id numa_node)
+        foedus::thread::ThreadGroupId numa_node)
     : engine_memory_(engine_memory), numa_node_(numa_node), initialized_(false) {
 }
 NumaNodeMemory::~NumaNodeMemory() {
+}
+ErrorStack NumaNodeMemory::initialize_once() {
+    return RET_OK;
+}
+ErrorStack NumaNodeMemory::uninitialize_once() {
+    return RET_OK;
 }
 
 }  // namespace memory

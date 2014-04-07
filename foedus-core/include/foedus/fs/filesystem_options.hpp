@@ -17,7 +17,7 @@ struct FilesystemOptions {
     /**
      * Constructs option values with default values.
      */
-    FilesystemOptions();
+    FilesystemOptions() {}
 
     friend std::ostream& operator<<(std::ostream& o, const FilesystemOptions& v);
 };

@@ -7,8 +7,8 @@
 
 #include <foedus/error_code.hpp>
 #include <foedus/cxx11.hpp>
+#include <stdint.h>
 #include <cassert>
-#include <cstdint>
 #include <cstring>
 #include <iosfwd>
 namespace foedus {
@@ -83,20 +83,22 @@ class ErrorStack {
      * @param[in] filename file name of the current place.
      *   It must be a const and permanent string, such as what "__FILE__" returns. Note that we do
      * NOT do deep-copy of the strings.
+     * @param[in] func functiona name of the current place.
+     *   Must be a const-permanent as well, such as "__FUNCTION__" of gcc/MSVC or C++11's __func__.
      * @param[in] linenum line number of the current place. Usually "__LINE__".
      * @param[in] code Error code, must be real errors.
      * @param[in] custom_message Optional custom error message in addition to the default one
      * inferred from error code. If you pass a non-NULL string to this argument,
      * we do deep-copy for each hand-over, so it's EXPENSIVE!
      */
-    ErrorStack(const char* filename, uint32_t linenum, ErrorCode code,
+    ErrorStack(const char* filename, const char* func, uint32_t linenum, ErrorCode code,
                 const char* custom_message = NULL);
 
     /** Copy constructor. */
     ErrorStack(const ErrorStack &other);
 
     /** Non-move copy constructor to augment the stacktrace. */
-    ErrorStack(const ErrorStack &other, const char* filename, uint32_t linenum,
+    ErrorStack(const ErrorStack &other, const char* filename, const char* func, uint32_t linenum,
                 const char* more_custom_message = NULL);
 
     /** Non-move assignment operator. */
@@ -149,6 +151,9 @@ class ErrorStack {
     /** Returns the file name of the given stack position. */
     const char*         get_filename(uint16_t stack_index) const;
 
+    /** Returns the function name of the given stack position. */
+    const char*         get_func(uint16_t stack_index) const;
+
     /** Output a warning to stderr if the error is not checked yet. */
     void                verify() const;
 
@@ -173,6 +178,9 @@ class ErrorStack {
      */
     const char*     filenames_[MAX_STACK_DEPTH];
 
+    /** @brief Functions of stacktraces (no deep-copy as well). */
+    const char*     funcs_[MAX_STACK_DEPTH];
+
     /** @brief Line numbers of stacktraces. */
     uint16_t        linenums_[MAX_STACK_DEPTH];
 
@@ -192,7 +200,7 @@ class ErrorStack {
      * So, all functions in this class should first check if this value is ERROR_CODE_OK or not
      * to avoid further processing.
      */
-    ErrorCode      error_code_;
+    ErrorCode       error_code_;
 
     /**
      * @brief Current stack depth.
@@ -223,11 +231,12 @@ inline ErrorStack::ErrorStack(ErrorCode code)
     : custom_message_(NULL), error_code_(code), stack_depth_(0), checked_(false) {
 }
 
-inline ErrorStack::ErrorStack(const char* filename, uint32_t linenum, ErrorCode code,
-                              const char* custom_message)
+inline ErrorStack::ErrorStack(const char* filename, const char* func, uint32_t linenum,
+                              ErrorCode code, const char* custom_message)
     : error_code_(code), stack_depth_(1), checked_(false) {
     assert(code != ERROR_CODE_OK);
     filenames_[0] = filename;
+    funcs_[0] = func;
     linenums_[0] = linenum;
     copy_custom_message(custom_message);
 }
@@ -266,8 +275,8 @@ inline ErrorStack& ErrorStack::operator=(ErrorStack const &other) {
     return *this;
 }
 
-inline ErrorStack::ErrorStack(const ErrorStack &other, const char* filename, uint32_t linenum,
-                              const char* more_custom_message) {
+inline ErrorStack::ErrorStack(const ErrorStack &other, const char* filename,
+                            const char* func, uint32_t linenum, const char* more_custom_message) {
     // Invariant: if ERROR_CODE_OK, no more processing
     if (other.error_code_ == ERROR_CODE_OK) {
         this->error_code_ = ERROR_CODE_OK;
@@ -278,6 +287,7 @@ inline ErrorStack::ErrorStack(const ErrorStack &other, const char* filename, uin
     // augment stacktrace
     if (stack_depth_ != 0 && stack_depth_ < MAX_STACK_DEPTH) {
         filenames_[stack_depth_] = filename;
+        funcs_[stack_depth_] = func;
         linenums_[stack_depth_] = linenum;
         ++stack_depth_;
     }
@@ -388,6 +398,15 @@ inline const char* ErrorStack::get_filename(uint16_t stack_index) const {
     return filenames_[stack_index];
 }
 
+inline const char* ErrorStack::get_func(uint16_t stack_index) const {
+    // Invariant: if ERROR_CODE_OK, no more processing
+    if (error_code_ == ERROR_CODE_OK) {
+        return NULL;
+    }
+    assert(stack_index < stack_depth_);
+    return funcs_[stack_index];
+}
+
 inline void ErrorStack::verify() const {
     // Invariant: if ERROR_CODE_OK, no more processing
     if (error_code_ == ERROR_CODE_OK) {
@@ -418,7 +437,7 @@ inline void ErrorStack::verify() const {
  * }
  * @endcode
  */
-#define ERROR_STACK(e)      foedus::ErrorStack(__FILE__, __LINE__, e)
+#define ERROR_STACK(e)      foedus::ErrorStack(__FILE__, __FUNCTION__, __LINE__, e)
 
 /**
  * @def ERROR_STACK_MSG(e, m)
@@ -436,7 +455,7 @@ inline void ErrorStack::verify() const {
  * }
  * @endcode
  */
-#define ERROR_STACK_MSG(e, m)   foedus::ErrorStack(__FILE__, __LINE__, e, m)
+#define ERROR_STACK_MSG(e, m)   foedus::ErrorStack(__FILE__, __FUNCTION__, __LINE__, e, m)
 
 /**
  * @def CHECK_ERROR(x)
@@ -458,7 +477,7 @@ inline void ErrorStack::verify() const {
 #define CHECK_ERROR(x)\
 {\
     foedus::ErrorStack __e(x);\
-    if (__e.is_error()) {return foedus::ErrorStack(__e, __FILE__, __LINE__);}\
+    if (__e.is_error()) {return foedus::ErrorStack(__e, __FILE__, __FUNCTION__, __LINE__);}\
 }
 
 /**
@@ -477,7 +496,7 @@ inline void ErrorStack::verify() const {
 #define CHECK_ERROR_MSG(x, m)\
 {\
     foedus::ErrorStack __e(x);\
-    if (__e.is_error()) {return foedus::ErrorStack(__e, __FILE__, __LINE__, m);}\
+    if (__e.is_error()) {return foedus::ErrorStack(__e, __FILE__, __FUNCTION__, __LINE__, m);}\
 }
 
 /**

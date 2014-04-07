@@ -26,7 +26,7 @@ class NumaCoreMemory : public virtual Initializable {
     /**
      * Description of constructor.
      */
-    NumaCoreMemory(NumaNodeMemory *node_memory, foedus::thread::thread_id core);
+    NumaCoreMemory(NumaNodeMemory *node_memory, foedus::thread::ThreadId core);
     /**
      * Description of destructor.
      */
@@ -53,12 +53,12 @@ class NumaCoreMemory : public virtual Initializable {
     /**
      * Global ID of the NUMA core this memory is allocated for.
      */
-    const foedus::thread::thread_id core_id_;
+    const foedus::thread::ThreadId core_id_;
 
     /**
      * Local ordinal of the NUMA core this memory is allocated for.
      */
-    const foedus::thread::thread_local_ordinal core_local_ordinal_;
+    const foedus::thread::ThreadLocalOrdinal core_local_ordinal_;
 
     bool                    initialized_;
 };

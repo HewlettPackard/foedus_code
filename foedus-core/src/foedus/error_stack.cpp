@@ -18,7 +18,10 @@ void ErrorStack::output(std::ostream* ptr) const {
 
         for (uint16_t stack_index = 0; stack_index < get_stack_depth(); ++stack_index) {
             o << std::endl << "  " << get_filename(stack_index)
-                << ":" << get_linenum(stack_index);
+                << ":" << get_linenum(stack_index) << ": ";
+            if (get_func(stack_index) != nullptr) {
+                o << get_func(stack_index) << "()";
+            }
         }
         if (get_stack_depth() >= foedus::ErrorStack::MAX_STACK_DEPTH) {
             o << std::endl << "  .. and more. Increase MAX_STACK_DEPTH to see full stacktraces";
@@ -35,9 +38,10 @@ void ErrorStack::dump_and_abort(const char *abort_message) const {
     std::abort();
 }
 
-}  // namespace foedus
-
-std::ostream& operator<<(std::ostream& o, const foedus::ErrorStack& obj) {
+std::ostream& operator<<(std::ostream& o, const ErrorStack& obj) {
     obj.output(&o);
     return o;
 }
+
+}  // namespace foedus
+

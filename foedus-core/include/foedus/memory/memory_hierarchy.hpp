@@ -29,6 +29,11 @@
  * everything the Engine acquired is released, separately from other Engine's.
  * This also means that memory-leak checkers like valgrind can easily check for potential errors.
  *
+ * @note Unfortunately, there is one exception to this rule; google-logging.
+ * google::InitGoogleLogging() and ShutdownGoogleLogging() must be called exactly once in the
+ * process. So, we do them in Engine's initialize()/uninitialize() with a process-global atomic
+ * counter to make sure we call them only once.
+ *
  * @par Memories shared engine-wide (EngineMemory)
  * @copydetails EngineMemory
  *

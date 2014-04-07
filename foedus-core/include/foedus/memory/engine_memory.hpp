@@ -45,12 +45,12 @@ class EngineMemory : public virtual Initializable {
     const EngineOptions& get_options() const { return options_; }
 
     // accessors for child memories
-    foedus::thread::thread_group_id get_node_memory_count() const {
+    foedus::thread::ThreadGroupId get_node_memory_count() const {
         assert(node_memories_.size() <= foedus::thread::MAX_THREAD_GROUP_ID);
-        return static_cast<foedus::thread::thread_group_id>(node_memories_.size());
+        return static_cast<foedus::thread::ThreadGroupId>(node_memories_.size());
     }
     std::vector<NumaNodeMemory*>& get_node_memories() { return node_memories_; }
-    NumaNodeMemory* get_node_memory(foedus::thread::thread_group_id group) const {
+    NumaNodeMemory* get_node_memory(foedus::thread::ThreadGroupId group) const {
         return node_memories_[group];
     }
 

@@ -4,7 +4,7 @@
  */
 #ifndef FOEDUS_FS_DEVICE_EMULATION_OPTIONS_HPP_
 #define FOEDUS_FS_DEVICE_EMULATION_OPTIONS_HPP_
-#include <cstdint>
+#include <stdint.h>
 #include <iosfwd>
 
 namespace foedus {

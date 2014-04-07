@@ -9,6 +9,7 @@ namespace foedus {
 
 /**
  * @defgroup ERRORCODES Error codes, messages, and stacktraces
+ * @ingroup IDIOMS
  * @brief Error codes (ErrorCode), their error messages defined in error_code.xmacro, and
  * stacktrace information (ErrorStack) returned by our API functions.
  * @details
@@ -58,7 +59,7 @@ namespace foedus {
 
 #define X(a, b, c) /** c. */ a = b,
 /**
- * @enum ErrorCode
+ * @var ErrorCode
  * @ingroup ERRORCODES
  * @brief Enum of error codes defined in error_code.xmacro.
  * @details

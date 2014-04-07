@@ -32,13 +32,13 @@ AlignedMemory::~AlignedMemory() {
     }
 }
 
-}  // namespace memory
-}  // namespace foedus
-
-
-std::ostream& operator<<(std::ostream& o, const foedus::memory::AlignedMemory& v) {
+std::ostream& operator<<(std::ostream& o, const AlignedMemory& v) {
     o << "AlignedMemory" << std::endl;
     o << "  size = " << v.get_size() << std::endl;
     o << "  alignment = " << v.get_alignment() << std::endl;
     return o;
 }
+
+}  // namespace memory
+}  // namespace foedus
+
