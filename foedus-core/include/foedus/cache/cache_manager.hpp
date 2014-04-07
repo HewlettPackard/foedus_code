@@ -23,9 +23,7 @@ class CacheManager : public virtual Initializable {
     CacheManager(const CacheManager &) CXX11_FUNC_DELETE;
     CacheManager& operator=(const CacheManager &) CXX11_FUNC_DELETE;
 
-    ErrorStack  initialize() CXX11_OVERRIDE;
-    bool        is_initialized() const CXX11_OVERRIDE { return initialized_; }
-    ErrorStack  uninitialize() CXX11_OVERRIDE;
+    INITIALIZABLE_DEFAULT;
 
     const CacheOptions&    get_options() const { return options_; }
 

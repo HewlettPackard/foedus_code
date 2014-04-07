@@ -30,11 +30,14 @@
  * This also means that memory-leak checkers like valgrind can easily check for potential errors.
  *
  * @par Memories shared engine-wide (EngineMemory)
- * bluh
+ * @copydetails EngineMemory
+ *
  * @par Memories shared NUMA-Node-wide (NumaNodeMemory)
- * bluh
+ * @copydetails NumaNodeMemory
+ *
  * @par Private Memories in each core (NumaCoreMemory)
- * bluh
+ * @copydetails NumaCoreMemory
+ *
  */
 
 #endif  // FOEDUS_MEMORY_MEMORY_HIERARCHY_HPP_

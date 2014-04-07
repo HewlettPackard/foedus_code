@@ -17,6 +17,7 @@
 X(ERROR_CODE_OUTOFMEMORY,           0x0001, "GENERAL: Out of memory")
 X(ERROR_CODE_INVALID_PARAMETER,     0x0002, "GENERAL: Invalid parameter given")
 X(ERROR_CODE_ALREADY_INITIALIZED,   0x0003, "GENERAL: Already initialized")
+X(ERROR_CODE_BATCHED_ERROR,         0x0004, "GENERAL: More than one errors observed")
 
 X(ERROR_CODE_ENGINE_INVALID_OPTION, 0x0101, "ENGINE : Invalid Option")
 

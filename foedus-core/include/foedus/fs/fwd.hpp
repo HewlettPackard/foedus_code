@@ -4,9 +4,13 @@
  */
 #ifndef FOEDUS_FS_FWD_HPP_
 #define FOEDUS_FS_FWD_HPP_
+/**
+ * @file foedus/fs/fwd.hpp
+ * @brief Forward declarations of classes in filesystem package.
+ * @ingroup FILESYSTEM
+ */
 namespace foedus {
 namespace fs {
-// Forward declarations of classes in this package.
 struct  DeviceEmulationOptions;
 class   DirectIoFile;
 class   Filesystem;

@@ -7,30 +7,60 @@
 #include <foedus/cxx11.hpp>
 #include <foedus/error_stack.hpp>
 #include <foedus/initializable.hpp>
+#include <foedus/memory/fwd.hpp>
+#include <foedus/thread/thread_id.hpp>
 namespace foedus {
 namespace memory {
 /**
  * @brief Repository of memories dynamically acquired within one CPU core (thread).
- * @ingroup MEMHIERARCHY
+ * @ingroup MEMHIERARCHY THREAD
  * @details
- * Detailed description of this class.
+ * One NumaCoreMemory corresponds to one foedus::thread::Thread.
+ * Each Thread exclusively access its NumaCoreMemory so that it needs no synchronization
+ * nor causes cache misses/cache-line ping-pongs.
+ * All memories here are allocated/freed via ::numa_alloc_xxx() and ::numa_free()
+ * (except the user specifies to not use them).
  */
 class NumaCoreMemory : public virtual Initializable {
  public:
     /**
      * Description of constructor.
      */
-    NumaCoreMemory();
+    NumaCoreMemory(NumaNodeMemory *node_memory, foedus::thread::thread_id core);
     /**
      * Description of destructor.
      */
     ~NumaCoreMemory();
 
-    ErrorStack initialize() CXX11_OVERRIDE;
-    bool is_initialized() const CXX11_OVERRIDE { return initialized_; }
-    ErrorStack uninitialize() CXX11_OVERRIDE;
+    // Disable default constructors
+    NumaCoreMemory() CXX11_FUNC_DELETE;
+    NumaCoreMemory(const NumaCoreMemory&) CXX11_FUNC_DELETE;
+    NumaCoreMemory& operator=(const NumaCoreMemory&) CXX11_FUNC_DELETE;
+
+    INITIALIZABLE_DEFAULT;
+
  private:
-    bool    initialized_;
+    /**
+     * The grand-parent memory repository, which holds the parent of this object.
+     */
+    EngineMemory* const     engine_memory_;
+
+    /**
+     * The parent memory repository, which holds this object.
+     */
+    NumaNodeMemory* const   node_memory_;
+
+    /**
+     * Global ID of the NUMA core this memory is allocated for.
+     */
+    const foedus::thread::thread_id core_id_;
+
+    /**
+     * Local ordinal of the NUMA core this memory is allocated for.
+     */
+    const foedus::thread::thread_local_ordinal core_local_ordinal_;
+
+    bool                    initialized_;
 };
 }  // namespace memory
 }  // namespace foedus

@@ -4,9 +4,13 @@
  */
 #ifndef FOEDUS_MEMORY_FWD_HPP_
 #define FOEDUS_MEMORY_FWD_HPP_
+/**
+ * @file foedus/memory/fwd.hpp
+ * @brief Forward declarations of classes in memory package.
+ * @ingroup MEMORY
+ */
 namespace foedus {
 namespace memory {
-// Forward declarations of classes in this package.
 class   AlignedMemory;
 class   EngineMemory;
 struct  MemoryOptions;

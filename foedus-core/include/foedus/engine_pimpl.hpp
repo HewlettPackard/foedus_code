@@ -28,13 +28,7 @@ class EnginePimpl : public virtual Initializable {
     EnginePimpl(const EnginePimpl &) CXX11_FUNC_DELETE;
     EnginePimpl& operator=(const EnginePimpl &) CXX11_FUNC_DELETE;
 
-    /** @copydoc Engine#initialize() */
-    ErrorStack  initialize() CXX11_OVERRIDE;
-
-    /** @copydoc Engine#uninitialize() */
-    ErrorStack  uninitialize() CXX11_OVERRIDE;
-
-    bool        is_initialized() const CXX11_OVERRIDE { return running_; }
+    INITIALIZABLE_DEFAULT;
 
     /** Options given at boot time. Immutable once constructed. */
     const EngineOptions     options_;
@@ -52,7 +46,7 @@ class EnginePimpl : public virtual Initializable {
     fs::Filesystem*         filesystem_;
 
     /** Whether this engine is currently up and running. */
-    bool                    running_;
+    bool                    initialized_;
 };
 }  // namespace foedus
 #endif  // FOEDUS_ENGINE_PIMPL_HPP_

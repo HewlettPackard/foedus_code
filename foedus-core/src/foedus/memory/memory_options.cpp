@@ -6,12 +6,14 @@
 #include <ostream>
 namespace foedus {
 namespace memory {
-MemoryOptions::MemoryOptions() {
+MemoryOptions::MemoryOptions() : use_numa_alloc_(true), interleave_numa_alloc_(false) {
 }
 }  // namespace memory
 }  // namespace foedus
 
-std::ostream& operator<<(std::ostream& o, const foedus::memory::MemoryOptions& /*v*/) {
+std::ostream& operator<<(std::ostream& o, const foedus::memory::MemoryOptions& v) {
     o << "Memory options:" << std::endl;
+    o << "  use_numa_alloc_=" << v.use_numa_alloc_ << std::endl;
+    o << "  interleave_numa_alloc_=" << v.interleave_numa_alloc_ << std::endl;
     return o;
 }

@@ -4,8 +4,11 @@
  */
 #ifndef FOEDUS_FWD_HPP_
 #define FOEDUS_FWD_HPP_
+/**
+ * @file foedus/fwd.hpp
+ * @brief Forward declarations of classes in root package.
+ */
 namespace foedus {
-// Forward declarations of classes in this package.
 class   Engine;
 class   EnginePimpl;
 struct  EngineOptions;

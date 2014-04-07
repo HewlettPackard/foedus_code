@@ -4,9 +4,13 @@
  */
 #ifndef FOEDUS_CACHE_FWD_HPP_
 #define FOEDUS_CACHE_FWD_HPP_
+/**
+ * @file foedus/cache/fwd.hpp
+ * @brief Forward declarations of classes in cache package.
+ * @ingroup CACHE
+ */
 namespace foedus {
 namespace cache {
-// Forward declarations of classes in this package.
 class   CacheManager;
 struct  CacheOptions;
 }  // namespace cache

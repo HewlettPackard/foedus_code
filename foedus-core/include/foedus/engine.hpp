@@ -22,7 +22,7 @@ class EngineOptions;
  */
 
 /**
- * @defgroup ENGINE \b Database \b Engine
+ * @defgroup ENGINE Database Engine
  * @ingroup COMPONENTS
  * @brief Database engine, the top-level component of foedus.
  * @details
@@ -72,6 +72,12 @@ class Engine : public virtual Initializable {
      * @see Initializable#is_initialized()
      */
     bool        is_initialized() const CXX11_OVERRIDE;
+
+    /**
+     * Sets whether the engine is currently running.
+     * @see Initializable#set_initialized()
+     */
+    void        set_initialized(bool value) CXX11_OVERRIDE;
 
     /**
      * Terminates the database engine. This is the last method to call.

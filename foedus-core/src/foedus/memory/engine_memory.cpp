@@ -10,21 +10,11 @@ EngineMemory::EngineMemory(const EngineOptions &options) : options_(options), in
 }
 EngineMemory::~EngineMemory() {
 }
-ErrorStack EngineMemory::initialize() {
-    if (initialized_) {
-        return ERROR_STACK(ERROR_CODE_ALREADY_INITIALIZED);
-    }
-    // Acquire all memories
-    initialized_ = true;
+ErrorStack EngineMemory::initialize_once() {
     return RET_OK;
 }
 
-ErrorStack EngineMemory::uninitialize() {
-    if (!initialized_) {
-        return RET_OK;
-    }
-    // Release all memories
-    initialized_ = false;
+ErrorStack EngineMemory::uninitialize_once() {
     return RET_OK;
 }
 

@@ -15,6 +15,6 @@ namespace {{ ns }} {% templatetag openbrace %}
 {{ name }}::~{{ name }}() {
 }
 
-{% for ns in namespaces %}
+{% for ns in namespaces reversed %}
 {% templatetag closebrace %}  // namespace {{ ns }}
 {% endfor %}

@@ -95,12 +95,12 @@ class ErrorStack {
     /** Copy constructor. */
     ErrorStack(const ErrorStack &other);
 
-    /** Copy constructor to augment the stacktrace. */
+    /** Non-move copy constructor to augment the stacktrace. */
     ErrorStack(const ErrorStack &other, const char* filename, uint32_t linenum,
                 const char* more_custom_message = NULL);
 
-    /** Copy constructor. */
-    ErrorStack& operator=(ErrorStack const &other);
+    /** Non-move assignment operator. */
+    ErrorStack& operator=(const ErrorStack &other);
 
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
     /**
@@ -109,6 +109,11 @@ class ErrorStack {
      * but this is available only with C++11.
      */
     ErrorStack(ErrorStack &&other);
+    /**
+     * Move assignment that steals the custom message without copying.
+     * This is more efficient, but this is available only with C++11.
+     */
+    ErrorStack& operator=(ErrorStack &&other);
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 
     /** Will warn in stderr if the error code is not checked yet. */
@@ -201,6 +206,7 @@ class ErrorStack {
 };
 
 /**
+ * @var RET_OK
  * @ingroup ERRORCODES
  * @brief Normal return value for no-error case.
  * @details
@@ -283,16 +289,21 @@ inline ErrorStack::ErrorStack(const ErrorStack &other, const char* filename, uin
 
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
 inline ErrorStack::ErrorStack(ErrorStack &&other) {
+    operator=(other);
+}
+inline ErrorStack& ErrorStack::operator=(ErrorStack &&other) {
     // Invariant: if ERROR_CODE_OK, no more processing
     if (other.error_code_ == ERROR_CODE_OK) {
         this->error_code_ = ERROR_CODE_OK;
-        return;
+        return *this;
     }
 
     std::memcpy(this, &other, sizeof(ErrorStack));
     other.checked_ = true;
     other.custom_message_ = NULL;  // simply stolen. much more efficient.
+    return *this;
 }
+
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 
 inline ErrorStack::~ErrorStack() {

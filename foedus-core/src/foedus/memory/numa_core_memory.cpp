@@ -3,9 +3,13 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/memory/numa_core_memory.hpp>
+#include <foedus/memory/numa_node_memory.hpp>
 namespace foedus {
 namespace memory {
-NumaCoreMemory::NumaCoreMemory() : initialized_(false) {
+NumaCoreMemory::NumaCoreMemory(NumaNodeMemory *node_memory, foedus::thread::thread_id core_id)
+    : engine_memory_(node_memory->get_engine_memory()), node_memory_(node_memory),
+    core_id_(core_id), core_local_ordinal_(foedus::thread::decompose_numa_local_ordinal(core_id)),
+    initialized_(false) {
 }
 NumaCoreMemory::~NumaCoreMemory() {
 }
