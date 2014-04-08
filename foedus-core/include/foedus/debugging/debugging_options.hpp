@@ -66,7 +66,7 @@ struct DebuggingOptions {
      * @brief Per-module verbose level.
      * @details
      * The value has to contain a comma-separated list of
-     * <module name>=<log level>. <module name> is a glob pattern
+     * 'module name'='log level'. 'module name' is a glob pattern
      * (e.g., gfs* for all modules whose name starts with "gfs"),
      * matched against the filename base (that is, name ignoring .cc/.h./-inl.h)
      * Default is "/". There is an API to change this setting at runtime.

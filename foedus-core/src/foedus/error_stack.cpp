@@ -3,6 +3,7 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/error_stack.hpp>
+#include <glog/logging.h>
 #include <iostream>
 
 namespace foedus {
@@ -30,8 +31,8 @@ void ErrorStack::output(std::ostream* ptr) const {
 }
 
 void ErrorStack::dump_and_abort(const char *abort_message) const {
-    std::cerr << "FATAL:" << abort_message << std::endl;
-    std::cerr << *this << std::endl;
+    LOG(FATAL) << "FATAL:" << abort_message << std::endl;
+    LOG(FATAL) << *this << std::endl;
     assert(false);
     std::cout.flush();
     std::cerr.flush();

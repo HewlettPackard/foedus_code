@@ -75,12 +75,6 @@ class Engine : public virtual Initializable {
     bool        is_initialized() const CXX11_OVERRIDE;
 
     /**
-     * Sets whether the engine is currently running.
-     * @see Initializable#set_initialized()
-     */
-    void        set_initialized(bool value) CXX11_OVERRIDE;
-
-    /**
      * Terminates the database engine. This is the last method to call.
      * @see Initializable#uninitialize()
      */

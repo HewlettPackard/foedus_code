@@ -19,22 +19,22 @@ namespace foedus {
  * By long-living, we mean at least seconds. Small and short-living objects do not have to
  * follow this semantics as it might cause unnecessary complexity or overhead.
  *
- * Same applies to Destructor vs uninitialize(). Explicitly call uninitialize() rather than
- * relying destructor. If you didn't call uninitialize(), destructor might complain about it
- * in logs.
+ * Same applies to Destructor vs uninitialize(). Furthermore, C++ doesn't allow calling
+ * virtual functions (uninitialize()) in destructor.. the class information was already torn down!
+ * So, make sure you always explicitly call uninitialize().
+ * If you didn't call uninitialize(), you actually leak the resource and
+ * the destructor will complain about it in logs.
  *
- * @par Macros
- * For most classes, you can use INITIALIZABLE_DEFAULT macro to save repetitive code.
+ * @par DefaultInitializable
+ * For most classes, you can use DefaultInitializable class to save repetitive code.
  * For example, declare your class like the following:
  * @code{.cpp}
- * class YourClass {
+ * class YourClass : public DefaultInitializable {
  *  public:
  *     YourClass(const ConfigurationForYourClass &conf, int other_params, ...);
  *     ...
- *     INITIALIZABLE_DEFAULT; // which declares/defines overwritten methods for typical classes.
- *     ...
- *  private:
- *     bool  initialized_;
+ *     ErrorStack  initialize_once() CXX11_OVERRIDE;
+ *     ErrorStack  uninitialize_once() CXX11_OVERRIDE;
  * };
  * @endcode
  * Then, define initialize_once()/uninitialize_once() as follows in cpp.
@@ -77,9 +77,6 @@ class Initializable {
     /** Returns whether the object has been already initialized or not. */
     virtual bool        is_initialized() const = 0;
 
-    /** Sets whether the object has been already initialized or not. */
-    virtual void        set_initialized(bool value) = 0;
-
     /**
      * @brief An \e idempotent method to release all resources of this object, if any.
      * @details
@@ -99,57 +96,76 @@ class Initializable {
 };
 
 /**
- * @brief Typical implementation of Initializable#initialize()
- * that provides initialize-once semantics.
+ * @brief Typical implementation of Initializable as a skeleton base class.
  * @ingroup INITIALIZABLE
- * @tparam T the class that implements Initializable. It must define "ErrorStack initialize_once()"
- * to implement class-dependent initialization.
  * @details
- * These inlines functions not provided by Initializable itself to make it a pure interface class.
+ * The implementation of Initializable can either derive from this class or define by its own
+ * (eg. to avoid diamond inheritance).
+ * If it chooses to use this class, it must define "ErrorStack initialize_once()",
+ * and "ErrorStack uninitialize_once()".
+ * @par Defined methods
+ * This macro declares and defines the following methods:
+ *  \li Destructor to do sanity check (uninitialize() called before destruction)
+ *  \li set_initialized()/is_initialized()
+ *  \li initialize()/uninitialize() that calls initialize_once_guard()/uninitialize_once_guard().
+ * @par Declared methods
+ * This macro declares the following methods, which the class has to define in cpp:
+ *  \li initialize_one()/uninitialize_once().
+ * @par Disabled methods
+ * This macro disables the following methods, which don't fly with Initializable:
+ *  \li default copy constructor.
+ *  \li default copy assignment operator.
  */
-template <class T>
-inline ErrorStack initialize_once_guard(T *target) {
-    if (target->is_initialized()) {
-        return ERROR_STACK(ERROR_CODE_ALREADY_INITIALIZED);
-    }
-    CHECK_ERROR(target->initialize_once());
-    target->set_initialized(true);
-    return RET_OK;
-}
+class DefaultInitializable : public virtual Initializable {
+ public:
+     DefaultInitializable() : initialized_(false) {}
+    /**
+     * @brief Typical destructor for Initializable.
+     * @details
+     * It first checks if the object is already initialized. If so, it does nothing.
+     * If not, it complains about it as a bug.
+     */
+    virtual ~DefaultInitializable();
 
-/**
- * Typical implementation of Initializable#uninitialize() that provides uninitialize-once semantics.
- * @ingroup INITIALIZABLE
- * @tparam T the class that implements Initializable. It must define
- * "ErrorStack uninitialize_once()" to implement class-dependent uninitialization.
- */
-template <class T>
-inline ErrorStack uninitialize_once_guard(T *target) {
-    if (!target->is_initialized()) {
+    DefaultInitializable(const DefaultInitializable&) CXX11_FUNC_DELETE;
+    DefaultInitializable& operator=(const DefaultInitializable&) CXX11_FUNC_DELETE;
+
+    /**
+     * Typical implementation of Initializable#initialize()
+     * that provides initialize-once semantics.
+     */
+    ErrorStack  initialize() CXX11_OVERRIDE CXX11_FINAL {
+        if (is_initialized()) {
+            return ERROR_STACK(ERROR_CODE_ALREADY_INITIALIZED);
+        }
+        CHECK_ERROR(initialize_once());
+        initialized_ = true;
         return RET_OK;
     }
-    CHECK_ERROR(target->uninitialize_once());
-    target->set_initialized(false);
-    return RET_OK;
-}
+
+    /**
+     * Typical implementation of Initializable#uninitialize() that provides
+     * uninitialize-once semantics.
+     */
+    ErrorStack  uninitialize() CXX11_OVERRIDE CXX11_FINAL {
+        if (!is_initialized()) {
+            return RET_OK;
+        }
+        CHECK_ERROR(uninitialize_once());
+        initialized_ = false;
+        return RET_OK;
+    }
+
+    bool        is_initialized() const CXX11_OVERRIDE CXX11_FINAL {
+        return initialized_;
+    }
+
+    virtual ErrorStack  initialize_once() = 0;
+    virtual ErrorStack  uninitialize_once() = 0;
+
+ private:
+    bool    initialized_;
+};
 
 }  // namespace foedus
-
-
-/**
- * @def INITIALIZABLE_DEFAULT
- * @brief This macro provides a skeleton of the most typical initialize/uninitialize-once objects.
- * @ingroup INITIALIZABLE
- * @details
- * The implementation must define "bool initializable_", "ErrorStack initialize_once()",
- * and "ErrorStack uninitialize_once()".
- */
-#define INITIALIZABLE_DEFAULT \
-ErrorStack  initialize() CXX11_OVERRIDE { return initialize_once_guard(this); }\
-bool        is_initialized() const CXX11_OVERRIDE { return initialized_; }\
-ErrorStack  uninitialize() CXX11_OVERRIDE { return uninitialize_once_guard(this); }\
-void        set_initialized(bool initialized) CXX11_OVERRIDE { initialized_ = initialized; }\
-ErrorStack  initialize_once();\
-ErrorStack  uninitialize_once();
-
 #endif  // FOEDUS_INITIALIZABLE_HPP_

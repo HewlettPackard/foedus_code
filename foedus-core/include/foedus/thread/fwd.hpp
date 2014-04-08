@@ -15,6 +15,8 @@ namespace thread {
 class   Thread;
 class   ThreadGroup;
 struct  ThreadOptions;
+class   ThreadPimpl;
+class   ThreadPool;
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_FWD_HPP_

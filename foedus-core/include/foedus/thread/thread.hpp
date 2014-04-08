@@ -4,6 +4,8 @@
  */
 #ifndef FOEDUS_THREAD_THREAD_HPP_
 #define FOEDUS_THREAD_THREAD_HPP_
+#include <foedus/initializable.hpp>
+#include <foedus/thread/fwd.hpp>
 namespace foedus {
 namespace thread {
 /**
@@ -12,7 +14,7 @@ namespace thread {
  * @details
  * Detailed description of this class.
  */
-class Thread {
+class Thread : public virtual Initializable {
  public:
     /**
      * Description of constructor.
@@ -22,7 +24,9 @@ class Thread {
      * Description of destructor.
      */
     ~Thread();
+
  private:
+    ThreadPimpl*    pimpl_;
 };
 }  // namespace thread
 }  // namespace foedus

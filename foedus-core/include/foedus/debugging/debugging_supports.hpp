@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_DEBUGGING_DEBUGGING_SUPPORTS_HPP_
 #define FOEDUS_DEBUGGING_DEBUGGING_SUPPORTS_HPP_
+#include <foedus/cxx11.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/debugging/debugging_options.hpp>
 #include <string>
@@ -13,20 +14,12 @@ namespace debugging {
  * @brief APIs to support debugging functionalities.
  * @ingroup DEBUGGING
  */
-class DebuggingSupports : public virtual Initializable {
+class DebuggingSupports : public DefaultInitializable {
  public:
-    /**
-     * Description of constructor.
-     */
+    DebuggingSupports() CXX11_FUNC_DELETE;
     explicit DebuggingSupports(const DebuggingOptions& options);
-    ~DebuggingSupports();
-
-    // Disable default constructors
-    DebuggingSupports() = delete;
-    DebuggingSupports(const DebuggingSupports&) = delete;
-    DebuggingSupports& operator=(const DebuggingSupports&) = delete;
-
-    INITIALIZABLE_DEFAULT;
+    ErrorStack  initialize_once() CXX11_OVERRIDE;
+    ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
     /** @copydoc DebuggingOptions#debug_log_to_stderr_ */
     void                set_debug_log_to_stderr(bool value);
@@ -54,8 +47,6 @@ class DebuggingSupports : public virtual Initializable {
     void                unlock_glog();
 
     const DebuggingOptions&     options_;
-
-    bool                        initialized_;
 };
 }  // namespace debugging
 }  // namespace foedus

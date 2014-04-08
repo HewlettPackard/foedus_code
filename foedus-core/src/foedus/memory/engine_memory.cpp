@@ -6,9 +6,7 @@
 #include <foedus/memory/engine_memory.hpp>
 namespace foedus {
 namespace memory {
-EngineMemory::EngineMemory(const EngineOptions &options) : options_(options), initialized_(false) {
-}
-EngineMemory::~EngineMemory() {
+EngineMemory::EngineMemory(const EngineOptions &options) : options_(options) {
 }
 ErrorStack EngineMemory::initialize_once() {
     return RET_OK;

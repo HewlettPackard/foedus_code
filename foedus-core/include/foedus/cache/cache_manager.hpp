@@ -13,23 +13,17 @@ namespace cache {
  * @details
  * Detailed description of this class.
  */
-class CacheManager : public virtual Initializable {
+class CacheManager : public DefaultInitializable {
  public:
-    explicit CacheManager(const CacheOptions &options);
-    ~CacheManager();
-
-    // Disable default constructors
     CacheManager() CXX11_FUNC_DELETE;
-    CacheManager(const CacheManager &) CXX11_FUNC_DELETE;
-    CacheManager& operator=(const CacheManager &) CXX11_FUNC_DELETE;
-
-    INITIALIZABLE_DEFAULT;
+    explicit CacheManager(const CacheOptions &options);
+    ErrorStack  initialize_once() CXX11_OVERRIDE;
+    ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
     const CacheOptions&    get_options() const { return options_; }
 
  private:
     CacheOptions    options_;
-    bool            initialized_;
 };
 }  // namespace cache
 }  // namespace foedus

@@ -21,23 +21,12 @@ namespace memory {
  * All memories here are allocated/freed via ::numa_alloc_xxx() and ::numa_free()
  * (except the user specifies to not use them).
  */
-class NumaCoreMemory : public virtual Initializable {
+class NumaCoreMemory : public DefaultInitializable {
  public:
-    /**
-     * Description of constructor.
-     */
-    NumaCoreMemory(NumaNodeMemory *node_memory, foedus::thread::ThreadId core);
-    /**
-     * Description of destructor.
-     */
-    ~NumaCoreMemory();
-
-    // Disable default constructors
     NumaCoreMemory() CXX11_FUNC_DELETE;
-    NumaCoreMemory(const NumaCoreMemory&) CXX11_FUNC_DELETE;
-    NumaCoreMemory& operator=(const NumaCoreMemory&) CXX11_FUNC_DELETE;
-
-    INITIALIZABLE_DEFAULT;
+    NumaCoreMemory(NumaNodeMemory *node_memory, foedus::thread::ThreadId core);
+    ErrorStack  initialize_once() CXX11_OVERRIDE;
+    ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
  private:
     /**
@@ -59,8 +48,6 @@ class NumaCoreMemory : public virtual Initializable {
      * Local ordinal of the NUMA core this memory is allocated for.
      */
     const foedus::thread::ThreadLocalOrdinal core_local_ordinal_;
-
-    bool                    initialized_;
 };
 }  // namespace memory
 }  // namespace foedus

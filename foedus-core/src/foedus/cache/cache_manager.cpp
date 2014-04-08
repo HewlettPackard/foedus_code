@@ -5,9 +5,7 @@
 #include <foedus/cache/cache_manager.hpp>
 namespace foedus {
 namespace cache {
-CacheManager::CacheManager(const CacheOptions &options) : options_(options), initialized_(false) {
-}
-CacheManager::~CacheManager() {
+CacheManager::CacheManager(const CacheOptions &options) : options_(options) {
 }
 
 ErrorStack CacheManager::initialize_once() {

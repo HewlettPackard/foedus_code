@@ -97,7 +97,6 @@ class ErrorStackBatch {
  * @ingroup ERRORCODES
  * @brief
  * This macro calls ErrorStackBatch#summarize() with automatically provided parameters.
- * For example, use it as follows:
  * See \ref INITIALIZABLE for an example usage.
  */
 #define SUMMARIZE_ERROR_BATCH(x) x.summarize(__FILE__, __FUNCTION__, __LINE__)

@@ -7,9 +7,7 @@ namespace foedus {
 namespace memory {
 NumaNodeMemory::NumaNodeMemory(EngineMemory *engine_memory,
         foedus::thread::ThreadGroupId numa_node)
-    : engine_memory_(engine_memory), numa_node_(numa_node), initialized_(false) {
-}
-NumaNodeMemory::~NumaNodeMemory() {
+    : engine_memory_(engine_memory), numa_node_(numa_node) {
 }
 ErrorStack NumaNodeMemory::initialize_once() {
     return RET_OK;

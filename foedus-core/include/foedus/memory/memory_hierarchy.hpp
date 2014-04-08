@@ -35,13 +35,13 @@
  * counter to make sure we call them only once.
  *
  * @par Memories shared engine-wide (EngineMemory)
- * @copydetails EngineMemory
+ * @copydetails foedus::memory::EngineMemory
  *
  * @par Memories shared NUMA-Node-wide (NumaNodeMemory)
- * @copydetails NumaNodeMemory
+ * @copydetails foedus::memory::NumaNodeMemory
  *
  * @par Private Memories in each core (NumaCoreMemory)
- * @copydetails NumaCoreMemory
+ * @copydetails foedus::memory::NumaCoreMemory
  *
  */
 

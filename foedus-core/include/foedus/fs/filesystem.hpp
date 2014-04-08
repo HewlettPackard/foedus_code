@@ -112,7 +112,6 @@ class Filesystem : public virtual Initializable {
     // so far nothing...
     ErrorStack  initialize() CXX11_OVERRIDE             { return RET_OK; }
     bool        is_initialized() const CXX11_OVERRIDE   { return true; }
-    void        set_initialized(bool /*value*/) CXX11_OVERRIDE {} // NOLINT not a cast!
     ErrorStack  uninitialize() CXX11_OVERRIDE           { return RET_OK; }
 
     FileStatus status(const Path& p) const;

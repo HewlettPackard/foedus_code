@@ -20,23 +20,12 @@ namespace thread {
  * Especially, this class heavily uses C++11's std::thread, which is why we separate this class
  * from Thread. Be aware of notices in \ref CXX11 unless your client program allows C++11.
  */
-class ThreadPimpl : public virtual Initializable {
+class ThreadPimpl : public DefaultInitializable {
  public:
-    /**
-     * Description of constructor.
-     */
-    ThreadPimpl(ThreadGroup* group, ThreadId id);
-    /**
-     * Description of destructor.
-     */
-    ~ThreadPimpl();
-
-    // Disable default constructors
     ThreadPimpl() CXX11_FUNC_DELETE;
-    ThreadPimpl(const ThreadPimpl &) CXX11_FUNC_DELETE;
-    ThreadPimpl& operator=(const ThreadPimpl &) CXX11_FUNC_DELETE;
-
-    INITIALIZABLE_DEFAULT;
+    ThreadPimpl(ThreadGroup* group, ThreadId id);
+    ErrorStack  initialize_once() CXX11_OVERRIDE;
+    ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
     /**
      * The thread group (NUMA node) this thread belongs to.
@@ -52,8 +41,6 @@ class ThreadPimpl : public virtual Initializable {
      * Encapsulated raw C++11 thread object.
      */
     std::thread*            raw_thread_;
-
-    bool                    initialized_;
 };
 }  // namespace thread
 }  // namespace foedus

@@ -22,23 +22,12 @@ namespace memory {
  * So, all memories here are allocated/freed via ::numa_alloc_xxx() and ::numa_free()
  * (except the user specifies to not use them).
  */
-class NumaNodeMemory : public virtual Initializable {
+class NumaNodeMemory : public DefaultInitializable {
  public:
-    /**
-     * Description of constructor.
-     */
-    NumaNodeMemory(EngineMemory *engine_memory, foedus::thread::ThreadGroupId numa_node);
-    /**
-     * Description of destructor.
-     */
-    ~NumaNodeMemory();
-
-    // Disable default constructors
     NumaNodeMemory() CXX11_FUNC_DELETE;
-    NumaNodeMemory(const NumaNodeMemory&) CXX11_FUNC_DELETE;
-    NumaNodeMemory& operator=(const NumaNodeMemory&) CXX11_FUNC_DELETE;
-
-    INITIALIZABLE_DEFAULT;
+    NumaNodeMemory(EngineMemory *engine_memory, foedus::thread::ThreadGroupId numa_node);
+    ErrorStack  initialize_once() CXX11_OVERRIDE;
+    ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
     EngineMemory* get_engine_memory() const { return engine_memory_; }
     foedus::thread::ThreadGroupId get_numa_node() const { return numa_node_; }
@@ -65,15 +54,13 @@ class NumaNodeMemory : public virtual Initializable {
     /**
      * The NUMA node this memory is allocated for.
      */
-    const foedus::thread::ThreadGroupId   numa_node_;
+    const foedus::thread::ThreadGroupId     numa_node_;
 
     /**
      * List of NumaCoreMemory, one for each core in this node.
      * Index is local ordinal of the NUMA cores.
      */
     std::vector<NumaCoreMemory*>            core_memories_;
-
-    bool                                    initialized_;
 };
 }  // namespace memory
 }  // namespace foedus

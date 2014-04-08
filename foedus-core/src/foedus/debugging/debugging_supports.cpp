@@ -29,12 +29,8 @@ int                 static_glog_initialize_counter_ = 0;
  */
 std::atomic<bool>   static_glog_initialize_locked_ = ATOMIC_VAR_INIT(false);
 
-DebuggingSupports::DebuggingSupports(const DebuggingOptions& options)
-    : options_(options), initialized_(false) {
+DebuggingSupports::DebuggingSupports(const DebuggingOptions& options) : options_(options) {
 }
-DebuggingSupports::~DebuggingSupports() {
-}
-
 
 void DebuggingSupports::initialize_glog() {
     spin_lock_glog();

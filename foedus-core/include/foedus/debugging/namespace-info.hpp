@@ -29,10 +29,10 @@
  * @endcode
  *
  * @par Where Debug Logs are output
- * With the default settings, all logs are written to /tmp/libfoedus.<level>,
+ * With the default settings, all logs are written to /tmp/libfoedus.'level',
  * such as /tmp/libfoedus.INFO. LOG(ERROR) and LOG(FATAL) are also copied to stderr.
  * Logs of specific execution are written to another file,
- * /tmp/libfoedus.<hostname>.<user name>.log.<severity level>.<date>.<time>.<pid>,
+ * /tmp/libfoedus.'hostname'.'user name'.log.'severity level'.'date'.'time'.'pid',
  * such as:
  * /tmp/libfoedus.hkimura-z820.kimurhid.log.INFO.20140406-215444.26946
  *

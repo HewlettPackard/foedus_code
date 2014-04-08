@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_THREAD_THREAD_GROUP_HPP_
 #define FOEDUS_THREAD_THREAD_GROUP_HPP_
+#include <foedus/initializable.hpp>
 namespace foedus {
 namespace thread {
 /**
@@ -12,7 +13,7 @@ namespace thread {
  * @details
  * Detailed description of this class.
  */
-class ThreadGroup {
+class ThreadGroup : public virtual Initializable {
  public:
     /**
      * Description of constructor.

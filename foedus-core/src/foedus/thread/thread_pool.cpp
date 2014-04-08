@@ -2,16 +2,17 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/thread/thread_pimpl.hpp>
+#include <foedus/thread/thread_pool.hpp>
+#include <foedus/thread/thread_options.hpp>
 namespace foedus {
 namespace thread {
-ThreadPimpl::ThreadPimpl(ThreadGroup* group, ThreadId id)
-    : group_(group), id_(id), raw_thread_(nullptr) {
+ThreadPool::ThreadPool(const ThreadOptions &options) : options_(options) {
 }
-ErrorStack ThreadPimpl::initialize_once() {
+ErrorStack ThreadPool::initialize_once() {
     return RET_OK;
 }
-ErrorStack ThreadPimpl::uninitialize_once() {
+
+ErrorStack ThreadPool::uninitialize_once() {
     return RET_OK;
 }
 

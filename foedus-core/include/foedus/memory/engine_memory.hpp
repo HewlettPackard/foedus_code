@@ -29,18 +29,12 @@ namespace memory {
  * So far we allocate separate memory for the second and third.
  * But, there is no fundamental reason to do so. It's for simplicity, and we might revisit it.
  */
-class EngineMemory : public virtual Initializable {
+class EngineMemory : public DefaultInitializable {
  public:
-    explicit EngineMemory(const EngineOptions &options);
-    ~EngineMemory();
-
-    // Disable default constructors
     EngineMemory() CXX11_FUNC_DELETE;
-    EngineMemory(const EngineMemory&) CXX11_FUNC_DELETE;
-    EngineMemory& operator=(const EngineMemory&) CXX11_FUNC_DELETE;
-
-    // Initializable
-    INITIALIZABLE_DEFAULT;
+    explicit EngineMemory(const EngineOptions &options);
+    ErrorStack  initialize_once() CXX11_OVERRIDE;
+    ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
     const EngineOptions& get_options() const { return options_; }
 
@@ -56,7 +50,6 @@ class EngineMemory : public virtual Initializable {
 
  private:
     const EngineOptions&            options_;
-    bool                            initialized_;
 
     /**
      * List of NumaNodeMemory, one for each NUMA socket in the machine.
