@@ -10,6 +10,7 @@
 // This is pimpl. no need for further indirections. just include them all.
 #include <foedus/debugging/debugging_supports.hpp>
 #include <foedus/fs/filesystem.hpp>
+#include <foedus/log/log_manager.hpp>
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/thread/thread_pool.hpp>
 namespace foedus {
@@ -33,6 +34,7 @@ class EnginePimpl : public DefaultInitializable {
     // these are initialized/uninitialized in EnginePimpl's initialize/uninitialize.
     memory::EngineMemory            memory_;
     fs::Filesystem                  filesystem_;
+    log::LogManager                 log_manager_;
     thread::ThreadPool              thread_pool_;
 
     /**

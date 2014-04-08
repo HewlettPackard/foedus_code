@@ -7,7 +7,7 @@
 
 /**
  * @namespace foedus::debugging
- * @brief Debug-Support functionalities.
+ * @brief \b Debug-Support functionalities.
  * @details
  * The engine provides API to turn on/of various debug-support functionalities.
  *

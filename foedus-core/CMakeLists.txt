@@ -71,20 +71,13 @@ if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-D\\_FILE\\_OFFSET\\_BITS\\=64")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
 endif ()
 
+set(CMAKE_INCLUDE_CURRENT_DIR OFF)
+
 #############################################################################
 #
 #               Build Target Libraries  : BEGIN
 #
 #############################################################################
-# We merely collect paths of all cpp files to compile. No executable/library built under src.
-add_subdirectory(src)
-
-# This project contains glog so that it can compile by itself.
-# We also use gflags and gtest, but this core library itself is a pure data processing library
-# without executables nor unit tests. So, we don't contain them in her and instead have them
-# in one above.
-add_subdirectory(third_party)
-
 # include files
 include_directories(
     # our main include folder
@@ -98,7 +91,14 @@ if (GOOGLEPERFTOOLS_FOUND)
     include_directories(${GooglePerftools_INCLUDE_DIR})
 endif (GOOGLEPERFTOOLS_FOUND)
 
-# Compile all files as a single shared library
+# This project contains glog so that it can compile by itself.
+# We also use gflags and gtest, but this core library itself is a pure data processing library
+# without executables nor unit tests. So, we don't contain them in her and instead have them
+# in one above.
+add_subdirectory(third_party)
+
+# Collect all cpp files in the main source folder.
+add_subdirectory(src)
 add_library(foedus-core SHARED ${FOEDUS_CORE_ALL_SRC})
 
 # Link to libglog, libnuma, libgperftools (if found)

@@ -27,6 +27,10 @@
  * Unfortunately, the terminology "thread group" has a different meaning in some other context,
  * but I couldn't come with a better name.
  *
+ * @par Thread Pool and Thread Impersonation
+ * We pre-allocate worker threads in the engine and user-programs \e impersonate one of the
+ * threads to run transactions. For more details, see \ref THREADPOOL.
+ *
  * @par C++11 and public headers
  * We do \b NOT allow C++11 features in public headers; see \ref CXX11.
  * However, C++11's std::thread and related classes are the only cross-platform library

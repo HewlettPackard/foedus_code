@@ -7,7 +7,7 @@
 
 /**
  * @defgroup MEMHIERARCHY Memory Hierarchy
- * @brief NUMA-Aware Memory Hierarchy in libfoedus-core
+ * @brief NUMA-Aware \b Memory \b Hierarchy in libfoedus-core
  * @ingroup MEMORY
  * @details
  * @par Overview

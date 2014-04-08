@@ -8,21 +8,37 @@
 #include <foedus/thread/fwd.hpp>
 namespace foedus {
 namespace thread {
+
 /**
- * @brief The pool of pre-allocated threads in the engine to execute transactions.
+ * @defgroup THREADPOOL Thread-Pool and Impersonation
+ * @brief APIs to \b pool and \b impersonate worker threads in libfoedus-core
  * @ingroup THREAD
  * @details
- * Detailed description of this class.
+ * @par Thread Pool
+ * bluh
+ * @par Impersonation
+ * bluh
+ * @par Examples
+ * bluh
  */
-class ThreadPool : public DefaultInitializable {
+
+/**
+ * @brief The pool of pre-allocated threads in the engine to execute transactions.
+ * @ingroup THREADPOOL
+ * @details
+ * This is the main API class of thread package.
+ */
+class ThreadPool : public virtual Initializable {
  public:
     ThreadPool() CXX11_FUNC_DELETE;
     explicit ThreadPool(const ThreadOptions &options);
-    ErrorStack  initialize_once() CXX11_OVERRIDE;
-    ErrorStack  uninitialize_once() CXX11_OVERRIDE;
+    ~ThreadPool();
+    ErrorStack  initialize() CXX11_OVERRIDE CXX11_FINAL;
+    bool        is_initialized() const CXX11_OVERRIDE CXX11_FINAL;
+    ErrorStack  uninitialize() CXX11_OVERRIDE CXX11_FINAL;
 
  private:
-    const ThreadOptions &options_;
+    ThreadPoolPimpl*    pimpl_;
 };
 }  // namespace thread
 }  // namespace foedus

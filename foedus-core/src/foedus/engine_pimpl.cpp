@@ -10,6 +10,7 @@ EnginePimpl::EnginePimpl(const EngineOptions &options) :
     options_(options),
     memory_(options),
     filesystem_(options.fs_),
+    log_manager_(options.log_),
     thread_pool_(options.thread_),
     debug_(options.debugging_) {
 }
@@ -20,6 +21,7 @@ ErrorStack EnginePimpl::initialize_once() {
 
     // other init
     CHECK_ERROR(filesystem_.initialize());
+    CHECK_ERROR(log_manager_.initialize());
     CHECK_ERROR(memory_.initialize());
     CHECK_ERROR(thread_pool_.initialize());
     return RET_OK;
@@ -29,6 +31,7 @@ ErrorStack EnginePimpl::uninitialize_once() {
     // other uninit (reverse order)
     batch.emprace_back(thread_pool_.uninitialize());
     batch.emprace_back(memory_.uninitialize());
+    batch.emprace_back(log_manager_.uninitialize());
     batch.emprace_back(filesystem_.uninitialize());
 
     // release debugging module at the end. we can't use glog since now.

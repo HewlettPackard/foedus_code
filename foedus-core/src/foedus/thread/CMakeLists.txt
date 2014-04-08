@@ -4,4 +4,5 @@ set(FOEDUS_THREAD_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/thread_options.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/thread_pimpl.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/thread_pool.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/thread_pool_pimpl.cpp
     PARENT_SCOPE)

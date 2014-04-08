@@ -9,7 +9,7 @@
 #include <foedus/error_stack.hpp>
 namespace foedus {
 /**
- * @defgroup INITIALIZABLE Initialize/Uninitialize
+ * @defgroup INITIALIZABLE Initialize/Uninitialize Resources
  * @ingroup IDIOMS
  * @brief Defines a uniform class interface to initialize/uninitialize non-trivial resources.
  * @details
@@ -20,10 +20,9 @@ namespace foedus {
  * follow this semantics as it might cause unnecessary complexity or overhead.
  *
  * Same applies to Destructor vs uninitialize(). Furthermore, C++ doesn't allow calling
- * virtual functions (uninitialize()) in destructor.. the class information was already torn down!
+ * virtual functions (uninitialize()) in destructor as the class information was already torn down!
  * So, make sure you always explicitly call uninitialize().
- * If you didn't call uninitialize(), you actually leak the resource and
- * the destructor will complain about it in logs.
+ * If you didn't call uninitialize(), you actually leak the resource.
  *
  * @par DefaultInitializable
  * For most classes, you can use DefaultInitializable class to save repetitive code.
@@ -53,6 +52,31 @@ namespace foedus {
  *    return SUMMARIZE_ERROR_BATCH(batch);
  * }
  * @endcode
+ *
+ * @par UninitializeGuard, or how RAII fails in real world.
+ * The code that instantiates an Initializable object must call uninitialize() for the reasons
+ * above. Even if there is some error, which causes an early return from the function
+ * by CHECK_ERROR() in many cases. Note that try-catch(...) does not work because this is NOT an
+ * exception (and we never use exceptions in our code). \e YOU have to make sure uninitialize()
+ * is called.
+ * UninitializeGuard addresses this issue, \b but \b imperfectly. For example, use it like this:
+ * @code{.cpp}
+ * ErrorStack your_func() {
+ *     YourInitializable object;
+ *     CHECK_ERROR(object.initialize());
+ *     {
+ *         UninitializeGuard guard(object, UninitializeGuard::WARN_IF_UNINITIALIZE_ERROR);
+ *         CHECK_ERROR(object.do_something());
+ *         CHECK_ERROR(object.uninitialize());
+ *     }
+ * }
+ * @endcode
+ * The UninitializeGuard object automatically calls object.uninitialize() when do_something()
+ * fails and we return from your_func(). \b HOWEVER, C++'s destructor can't propagate any errors,
+ * in our case ErrorStack. The second argument (UninitializeGuard::WARN_IF_UNINITIALIZE_ERROR)
+ * says that if it encounters an error while uninitialize() call, it just warns it in debug log.
+ * Logging the error is not a perfect solution at all. So, this is just an imperfect safety net.
+ * Unfortunately, this is all what we can do in C++ for objects that have non-trivial release.
  */
 
 /**
@@ -104,28 +128,21 @@ class Initializable {
  * If it chooses to use this class, it must define "ErrorStack initialize_once()",
  * and "ErrorStack uninitialize_once()".
  * @par Defined methods
- * This macro declares and defines the following methods:
- *  \li Destructor to do sanity check (uninitialize() called before destruction)
- *  \li set_initialized()/is_initialized()
- *  \li initialize()/uninitialize() that calls initialize_once_guard()/uninitialize_once_guard().
+ * This class declares and defines the following methods:
+ *  \li is_initialized()
+ *  \li initialize()/uninitialize() that calls initialize_once()/uninitialize_once().
  * @par Declared methods
- * This macro declares the following methods, which the class has to define in cpp:
+ * This class declares the following methods, which the class has to define in cpp:
  *  \li initialize_one()/uninitialize_once().
  * @par Disabled methods
- * This macro disables the following methods, which don't fly with Initializable:
+ * This class disables the following methods, which don't fly with Initializable:
  *  \li default copy constructor.
  *  \li default copy assignment operator.
  */
 class DefaultInitializable : public virtual Initializable {
  public:
-     DefaultInitializable() : initialized_(false) {}
-    /**
-     * @brief Typical destructor for Initializable.
-     * @details
-     * It first checks if the object is already initialized. If so, it does nothing.
-     * If not, it complains about it as a bug.
-     */
-    virtual ~DefaultInitializable();
+    DefaultInitializable() : initialized_(false) {}
+    virtual ~DefaultInitializable() {}
 
     DefaultInitializable(const DefaultInitializable&) CXX11_FUNC_DELETE;
     DefaultInitializable& operator=(const DefaultInitializable&) CXX11_FUNC_DELETE;
@@ -165,6 +182,59 @@ class DefaultInitializable : public virtual Initializable {
 
  private:
     bool    initialized_;
+};
+
+/**
+ * @brief Calls Initializable#uninitialize() automatically when it gets out of scope.
+ * @ingroup INITIALIZABLE
+ * @details
+ * \b NOT \b A \b SILVER \b BULLET!
+ * This is a scope guard object to help release Initializable objects, but there are
+ * inherent difficulties to handle errors out of uninitialization. eg:
+ * http://stackoverflow.com/questions/159240/raii-vs-exceptions
+ *
+ * The only correct solution is for every code to make sure calling uninitialize() explicitly
+ * and handling the returned ErrorStack responsively.
+ * This object is just an imperfect safety net.
+ */
+class UninitializeGuard {
+ public:
+    /**
+     * Defines the behavior of this scope guard.
+     */
+    enum Policy {
+        /**
+         * Terminates the entire program if uninitialize() wasn't called when it gets out of scope.
+         * This is used to look for coding issues where we overlook chances of early returns.
+         * Although this is stringent, recommended.
+         */
+        ABORT_IF_NOT_EXPLICITLY_UNINITIALIZED = 0,
+        /**
+         * Automatically calls if uninitialize() wasn't called when it gets out of scope,
+         * and terminates the entire program when uninitialize() actually returns an error.
+         * In either case, we warn about the lack of explicit uninitialize() call in debug log.
+         * This is the default.
+         */
+        ABORT_IF_UNINITIALIZE_ERROR,
+        /**
+         * Automatically calls if uninitialize() wasn't called when it gets out of scope,
+         * and just complains when uninitialize() actually returns an error in debug log.
+         */
+        WARN_IF_UNINITIALIZE_ERROR,
+        /**
+         * Automatically calls if uninitialize() wasn't called when it gets out of scope,
+         * and does nothing even when uninitialize() actually returns an error in debug log.
+         * NOT RECOMMENDED.
+         */
+        SILENT,
+    };
+    UninitializeGuard(Initializable *target, Policy policy = ABORT_IF_UNINITIALIZE_ERROR)
+        : target_(target), policy_(policy) {}
+    ~UninitializeGuard();
+
+ private:
+    Initializable*  target_;
+    Policy          policy_;
 };
 
 }  // namespace foedus

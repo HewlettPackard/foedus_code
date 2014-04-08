@@ -17,6 +17,7 @@ const EngineOptions& Engine::get_options() const    { return pimpl_->options_; }
 
 debugging::DebuggingSupports& Engine::get_debug() const  { return pimpl_->debug_; }
 fs::Filesystem&         Engine::get_filesystem() const  { return pimpl_->filesystem_; }
+log::LogManager&        Engine::get_log() const     { return pimpl_->log_manager_; }
 memory::EngineMemory&   Engine::get_memory() const  { return pimpl_->memory_; }
 bool                Engine::is_initialized() const  { return pimpl_->is_initialized(); }
 ErrorStack          Engine::initialize()            { return pimpl_->initialize(); }

@@ -10,6 +10,7 @@
 #include <foedus/initializable.hpp>
 #include <foedus/debugging/fwd.hpp>
 #include <foedus/fs/fwd.hpp>
+#include <foedus/log/fwd.hpp>
 #include <foedus/memory/fwd.hpp>
 namespace foedus {
 
@@ -25,7 +26,7 @@ class EngineOptions;
 /**
  * @defgroup ENGINE Database Engine
  * @ingroup COMPONENTS
- * @brief Database engine, the top-level component of foedus.
+ * @brief \b Database \b Engine, the top-level component of foedus.
  * @details
  * bluh
  */
@@ -47,10 +48,9 @@ class Engine : public virtual Initializable {
     explicit Engine(const EngineOptions &options);
 
     /**
-     * @brief Destructs all resources of this object \b IF they were not released yet.
+     * @brief Do NOT rely on this destructor to release resources. Call uninitialize() instead.
      * @details
-     * Most resources should be released by uninitialize(). If this destructor is called before
-     * the call of uninitialize(), there was something wrong.
+     * If this destructor is called before the call of uninitialize(), there was something wrong.
      * So, this destructor complains about it in stderr if that's the case.
      * Remember, destructor is not the best place to do complex things. Always use uninitialize()
      * for better handling of unexpected errors.
@@ -86,6 +86,8 @@ class Engine : public virtual Initializable {
     debugging::DebuggingSupports&   get_debug() const;
     /** See \ref FILESYSTEM */
     fs::Filesystem&                 get_filesystem() const;
+    /** See \ref LOG */
+    log::LogManager&                get_log() const;
     /** See \ref MEMORY */
     memory::EngineMemory&           get_memory() const;
 
