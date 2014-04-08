@@ -77,6 +77,23 @@ class ErrorStackBatch {
     bool        is_error() const { return !error_batch_.empty(); }
 
     /**
+     * A convenience method to uninitialize and delete all Initializable objects in a vector,
+     * storing all errors in this batch.
+     */
+    template<class T>
+    void        uninitialize_and_delete_all(std::vector< T* > *vec) {
+        while (!vec->empty()) {
+#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
+            emprace_back(vec->back()->uninitialize());
+#else   // DISABLE_CXX11_IN_PUBLIC_HEADERS
+            push_back(vec->back()->uninitialize());
+#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+            delete vec->back();
+            vec->pop_back();
+        }
+    }
+
+    /**
      * Instantiate an ErrorStack object that summarizes all errors in this batch.
      * Consider using SUMMARIZE_ERROR_BATCH(batch).
      */

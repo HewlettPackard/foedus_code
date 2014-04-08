@@ -18,6 +18,8 @@ X(ERROR_CODE_OUTOFMEMORY,           0x0001, "GENERAL: Out of memory")
 X(ERROR_CODE_INVALID_PARAMETER,     0x0002, "GENERAL: Invalid parameter given")
 X(ERROR_CODE_ALREADY_INITIALIZED,   0x0003, "GENERAL: Already initialized")
 X(ERROR_CODE_BATCHED_ERROR,         0x0004, "GENERAL: More than one errors observed")
+X(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT,      0x0005, "GENERAL: A dependent module is not initialized yet. This implies a wrong initialization order in EnginePimpl.")
+X(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT,    0x0006, "GENERAL: A dependent module is already uninitialized. This implies a wrong uninitialization order in EnginePimpl.")
 
 X(ERROR_CODE_ENGINE_INVALID_OPTION, 0x0101, "ENGINE : Invalid Option")
 

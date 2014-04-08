@@ -14,5 +14,6 @@ class   EnginePimpl;
 struct  EngineOptions;
 class   Epoch;
 class   ErrorStack;
+class   ErrorStackBatch;
 }  // namespace foedus
 #endif  // FOEDUS_FWD_HPP_

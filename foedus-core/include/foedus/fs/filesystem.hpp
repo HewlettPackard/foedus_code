@@ -6,6 +6,7 @@
 #define FOEDUS_FS_FILESYSTEM_HPP_
 #include <foedus/cxx11.hpp>
 #include <foedus/error_code.hpp>
+#include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/fs/filesystem_options.hpp>
 #include <foedus/fs/path.hpp>
@@ -102,17 +103,17 @@ struct SpaceInfo  {
  */
 class Filesystem : public virtual Initializable {
  public:
-    explicit Filesystem(const FilesystemOptions& options);
+    explicit Filesystem(Engine *engine);
 
     // Disable default constructors
     Filesystem() CXX11_FUNC_DELETE;
     Filesystem(const Filesystem &) CXX11_FUNC_DELETE;
     Filesystem& operator=(const Filesystem &) CXX11_FUNC_DELETE;
 
-    // so far nothing...
-    ErrorStack  initialize() CXX11_OVERRIDE             { return RET_OK; }
-    bool        is_initialized() const CXX11_OVERRIDE   { return true; }
-    ErrorStack  uninitialize() CXX11_OVERRIDE           { return RET_OK; }
+    const FilesystemOptions& get_options() const;
+    ErrorStack  initialize() CXX11_OVERRIDE;
+    bool        is_initialized() const CXX11_OVERRIDE { return initialized_; }
+    ErrorStack  uninitialize() CXX11_OVERRIDE;
 
     FileStatus status(const Path& p) const;
     bool exists(const Path& p) const {return status(p).exists(); }
@@ -137,8 +138,8 @@ class Filesystem : public virtual Initializable {
     Path        unique_path(const Path& model)  const;
 
  private:
-    /** The only variable of this object. It's immutable. Thus, all methods are const. */
-    FilesystemOptions options_;
+    Engine* const       engine_;
+    bool                initialized_;
 };
 }  // namespace fs
 }  // namespace foedus

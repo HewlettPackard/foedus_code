@@ -6,6 +6,7 @@
 #define FOEDUS_ENGINE_PIMPL_HPP_
 
 #include <foedus/engine_options.hpp>
+#include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 // This is pimpl. no need for further indirections. just include them all.
 #include <foedus/debugging/debugging_supports.hpp>
@@ -24,18 +25,18 @@ namespace foedus {
 class EnginePimpl : public DefaultInitializable {
  public:
     EnginePimpl() = delete;
-    explicit EnginePimpl(const EngineOptions &options);
-    ErrorStack  initialize_once() CXX11_OVERRIDE;
-    ErrorStack  uninitialize_once() CXX11_OVERRIDE;
+    explicit EnginePimpl(Engine* engine, const EngineOptions &options);
+    ErrorStack  initialize_once() override final;
+    ErrorStack  uninitialize_once() override final;
 
     /** Options given at boot time. Immutable once constructed. */
     const EngineOptions             options_;
 
-    // these are initialized/uninitialized in EnginePimpl's initialize/uninitialize.
-    memory::EngineMemory            memory_;
-    fs::Filesystem                  filesystem_;
-    log::LogManager                 log_manager_;
-    thread::ThreadPool              thread_pool_;
+    /** Pointer to the enclosing object. Few places would need it, but hold it in case. */
+    Engine* const                   engine_;
+
+// Individual modules. Placed in initialize()/uninitialize() order
+// (remember, modules have dependencies between them).
 
     /**
      * Debugging supports.
@@ -44,6 +45,10 @@ class EnginePimpl : public DefaultInitializable {
      * and EnginePimpl#uninitialize_once() must uninitialize it at the end.
      */
     debugging::DebuggingSupports    debug_;
+    fs::Filesystem                  filesystem_;
+    memory::EngineMemory            memory_;
+    thread::ThreadPool              thread_pool_;
+    log::LogManager                 log_manager_;
 };
 }  // namespace foedus
 #endif  // FOEDUS_ENGINE_PIMPL_HPP_

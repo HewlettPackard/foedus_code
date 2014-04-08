@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_THREAD_THREAD_POOL_HPP_
 #define FOEDUS_THREAD_THREAD_POOL_HPP_
+#include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/thread/fwd.hpp>
 namespace foedus {
@@ -31,7 +32,7 @@ namespace thread {
 class ThreadPool : public virtual Initializable {
  public:
     ThreadPool() CXX11_FUNC_DELETE;
-    explicit ThreadPool(const ThreadOptions &options);
+    explicit ThreadPool(Engine *engine);
     ~ThreadPool();
     ErrorStack  initialize() CXX11_OVERRIDE CXX11_FINAL;
     bool        is_initialized() const CXX11_OVERRIDE CXX11_FINAL;

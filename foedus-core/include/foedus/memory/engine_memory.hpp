@@ -32,11 +32,9 @@ namespace memory {
 class EngineMemory : public DefaultInitializable {
  public:
     EngineMemory() CXX11_FUNC_DELETE;
-    explicit EngineMemory(const EngineOptions &options);
+    explicit EngineMemory(Engine* engine) : engine_(engine) {}
     ErrorStack  initialize_once() CXX11_OVERRIDE;
     ErrorStack  uninitialize_once() CXX11_OVERRIDE;
-
-    const EngineOptions& get_options() const { return options_; }
 
     // accessors for child memories
     foedus::thread::ThreadGroupId get_node_memory_count() const {
@@ -47,9 +45,10 @@ class EngineMemory : public DefaultInitializable {
     NumaNodeMemory* get_node_memory(foedus::thread::ThreadGroupId group) const {
         return node_memories_[group];
     }
+    NumaCoreMemory* get_core_memory(foedus::thread::ThreadId id) const;
 
  private:
-    const EngineOptions&            options_;
+    Engine* const                   engine_;
 
     /**
      * List of NumaNodeMemory, one for each NUMA socket in the machine.

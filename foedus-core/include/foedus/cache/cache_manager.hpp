@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_CACHE_CACHE_MANAGER_HPP_
 #define FOEDUS_CACHE_CACHE_MANAGER_HPP_
+#include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/cache/cache_options.hpp>
 namespace foedus {
@@ -16,14 +17,14 @@ namespace cache {
 class CacheManager : public DefaultInitializable {
  public:
     CacheManager() CXX11_FUNC_DELETE;
-    explicit CacheManager(const CacheOptions &options);
+    explicit CacheManager(Engine* engine) : engine_(engine) {}
     ErrorStack  initialize_once() CXX11_OVERRIDE;
     ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
-    const CacheOptions&    get_options() const { return options_; }
+    const CacheOptions&    get_options() const;
 
  private:
-    CacheOptions    options_;
+    Engine* const           engine_;
 };
 }  // namespace cache
 }  // namespace foedus

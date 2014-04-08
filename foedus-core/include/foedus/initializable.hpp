@@ -155,7 +155,12 @@ class DefaultInitializable : public virtual Initializable {
         if (is_initialized()) {
             return ERROR_STACK(ERROR_CODE_ALREADY_INITIALIZED);
         }
-        CHECK_ERROR(initialize_once());
+        ErrorStack init_error = initialize_once();
+        if (init_error.is_error()) {
+            // if error happes in the middle of initialization, we release resources we acquired.
+            CHECK_ERROR(uninitialize_once());
+            return init_error;
+        }
         initialized_ = true;
         return RET_OK;
     }

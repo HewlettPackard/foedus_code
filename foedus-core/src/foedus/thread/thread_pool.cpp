@@ -4,11 +4,10 @@
  */
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread_pool_pimpl.hpp>
-#include <foedus/thread/thread_options.hpp>
 namespace foedus {
 namespace thread {
-ThreadPool::ThreadPool(const ThreadOptions &options) {
-    pimpl_ = new ThreadPoolPimpl(options);
+ThreadPool::ThreadPool(Engine *engine) {
+    pimpl_ = new ThreadPoolPimpl(engine);
 }
 ThreadPool::~ThreadPool() {
     delete pimpl_;

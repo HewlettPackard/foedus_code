@@ -6,6 +6,7 @@
 #define FOEDUS_MEMORY_NUMA_NODE_MEMORY_HPP_
 #include <foedus/cxx11.hpp>
 #include <foedus/error_stack.hpp>
+#include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/thread/thread_id.hpp>
@@ -19,17 +20,16 @@ namespace memory {
  * One NumaNodeMemory corresponds to one foedus::thread::ThreadGroup.
  * All threads in the thread group belong to the NUMA node, thus sharing memories between
  * them must be efficient.
- * So, all memories here are allocated/freed via ::numa_alloc_xxx() and ::numa_free()
- * (except the user specifies to not use them).
+ * So, all memories here are allocated/freed via ::numa_alloc_interleaved(), ::numa_alloc_onnode(),
+ * and ::numa_free() (except the user specifies to not use them).
  */
 class NumaNodeMemory : public DefaultInitializable {
  public:
     NumaNodeMemory() CXX11_FUNC_DELETE;
-    NumaNodeMemory(EngineMemory *engine_memory, foedus::thread::ThreadGroupId numa_node);
+    NumaNodeMemory(Engine* engine, foedus::thread::ThreadGroupId numa_node);
     ErrorStack  initialize_once() CXX11_OVERRIDE;
     ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
-    EngineMemory* get_engine_memory() const { return engine_memory_; }
     foedus::thread::ThreadGroupId get_numa_node() const { return numa_node_; }
 
     // accessors for child memories
@@ -46,10 +46,7 @@ class NumaNodeMemory : public DefaultInitializable {
     }
 
  private:
-    /**
-     * The parent memory repository, which holds this object.
-     */
-    EngineMemory* const                     engine_memory_;
+    Engine* const                           engine_;
 
     /**
      * The NUMA node this memory is allocated for.

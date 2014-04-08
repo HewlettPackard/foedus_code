@@ -35,7 +35,7 @@ struct LogOptions {
      * @details
      * The files may or may not be on different physical devices.
      * This option also determines the number of loggers.
-     * @attention The default value is just one entry of "<random_num>.log". When you modify this
+     * @attention The default value is just one entry of "foedus.log". When you modify this
      * setting, do NOT forget removing the default entry; call log_paths_.clear() first.
      */
     std::vector<std::string>    log_paths_;

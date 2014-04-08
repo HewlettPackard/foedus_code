@@ -4,6 +4,9 @@
  */
 #include <foedus/fs/filesystem.hpp>
 #include <foedus/fs/path.hpp>
+#include <foedus/engine.hpp>
+#include <foedus/engine_options.hpp>
+#include <foedus/debugging/debugging_supports.hpp>
 #include <glog/logging.h>
 
 #include <dirent.h>
@@ -22,9 +25,27 @@
 #include <vector>
 namespace foedus {
 namespace fs {
-Filesystem::Filesystem(const FilesystemOptions &options) {
-    options_ = options;
+Filesystem::Filesystem(Engine *engine) : engine_(engine) {
 }
+
+ErrorStack Filesystem::initialize() {
+    if (!engine_->get_debug().is_initialized()) {
+        return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
+    }
+    initialized_ = true;
+    return RET_OK;
+}
+ErrorStack Filesystem::uninitialize() {
+    if (!initialized_) {
+        if (!engine_->get_debug().is_initialized()) {
+            return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT);
+        }
+        initialized_ = false;
+    }
+    return RET_OK;
+}
+
+const FilesystemOptions& Filesystem::get_options() const { return engine_->get_options().fs_; }
 
 FileStatus Filesystem::status(const Path& p) const {
     struct stat path_stat;

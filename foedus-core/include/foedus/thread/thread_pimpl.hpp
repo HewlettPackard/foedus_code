@@ -6,6 +6,7 @@
 #define FOEDUS_THREAD_THREAD_PIMPL_HPP_
 #include <foedus/cxx11.hpp>
 #include <foedus/initializable.hpp>
+#include <foedus/memory/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <thread>
 namespace foedus {
@@ -23,9 +24,13 @@ namespace thread {
 class ThreadPimpl : public DefaultInitializable {
  public:
     ThreadPimpl() CXX11_FUNC_DELETE;
-    ThreadPimpl(ThreadGroup* group, ThreadId id);
+    ThreadPimpl(Engine* engine, ThreadGroup* group, ThreadId id)
+        : engine_(engine), group_(group), id_(id),
+            core_memory_(CXX11_NULLPTR), raw_thread_(nullptr) {}
     ErrorStack  initialize_once() CXX11_OVERRIDE;
     ErrorStack  uninitialize_once() CXX11_OVERRIDE;
+
+    Engine* const           engine_;
 
     /**
      * The thread group (NUMA node) this thread belongs to.
@@ -38,7 +43,15 @@ class ThreadPimpl : public DefaultInitializable {
     const ThreadId          id_;
 
     /**
+     * Private memory repository of this thread.
+     * ThreadPimpl does NOT own it, meaning it doesn't call its initialize()/uninitialize().
+     * EngineMemory owns it in terms of that.
+     */
+    memory::NumaCoreMemory* core_memory_;
+
+    /**
      * Encapsulated raw C++11 thread object.
+     * This is allocated/deallocated in initialize()/uninitialize().
      */
     std::thread*            raw_thread_;
 };

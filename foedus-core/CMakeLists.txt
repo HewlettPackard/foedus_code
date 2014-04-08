@@ -130,7 +130,12 @@ add_dependencies(foedus-core cpplint_include cpplint_src)
 # Doxygen commands (not mandatory)
 find_package(Doxygen)
 if(DOXYGEN_FOUND)
-    set(DOXYGEN_TARGETS "${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src")
+    set(DOXYGEN_TARGETS "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    set(DOXYGEN_TARGETS "${DOXYGEN_TARGETS} ${CMAKE_CURRENT_SOURCE_DIR}/src")
+    set(DOXYGEN_TARGETS "${DOXYGEN_TARGETS} ${NUMA_INCLUDE_DIR}/numa.h")
+    # include other dependencies if it's worth doing. Most of them are not.
+    # set(DOXYGEN_TARGETS "${DOXYGEN_TARGETS} ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog/src") # too big
+
     # Doxygen until ver 1.8.6 had a bug; it allowed only a filename in USE_MDFILE_AS_MAINPAGE,
     # not a full path. see https://bugzilla.gnome.org/show_bug.cgi?id=720092
     # To work it around, we copy the file to bin folder and use only the file name
@@ -145,6 +150,17 @@ if(DOXYGEN_FOUND)
         COMMENT "Generating API documentation with Doxygen" VERBATIM)
     add_custom_target(browse-dox
         COMMAND google-chrome ${CMAKE_CURRENT_BINARY_DIR}/dox/html/index.html
+        DEPENDS dox)
+    # I recommend "yum install texlive texlive-*" to make this work. it requires a few
+    # additional sty files.
+    add_custom_target(pdf-dox
+        COMMAND epstopdf *.eps # sudo yum install texlive-eps*
+        COMMAND pdflatex refman.tex # sudo yum install texlive
+        COMMAND makeindex refman.idx
+        COMMAND pdflatex refman.tex
+        COMMAND okular refman.pdf
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/dox/latex/
+        COMMENT "Generating a single PDF with Doxygen" VERBATIM
         DEPENDS dox)
 else(DOXYGEN_FOUND)
     add_custom_target(dox ${CMAKE_COMMAND} -E echo "Doxygen not found. No documents generated.")

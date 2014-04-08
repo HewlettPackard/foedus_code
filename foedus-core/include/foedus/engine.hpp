@@ -12,6 +12,7 @@
 #include <foedus/fs/fwd.hpp>
 #include <foedus/log/fwd.hpp>
 #include <foedus/memory/fwd.hpp>
+#include <foedus/thread/fwd.hpp>
 namespace foedus {
 
 // forward declarations
@@ -29,6 +30,33 @@ class EngineOptions;
  * @brief \b Database \b Engine, the top-level component of foedus.
  * @details
  * bluh
+ * @section MODDEP Module Dependency
+ * Sub-modules in the engine have dependencies between them.
+ * For example, all other sub-modules depend on \ref DEBUGGING, so the debugging module
+ * is initialized at first, and uninitialized at end.
+ * There must not be a cycle, obviously. Below is the list of dependencies
+ *  \li All modules depend on \ref DEBUGGING.
+ *  \li \ref THREAD depend on \ref MEMORY.
+ *  \li \ref LOG depend on \ref THREAD and \ref FILESYSTEM.
+ *  \li \ref SNAPSHOT and \ref CACHE depend on \ref LOG.
+ *  \li \ref STORAGE depend on \ref SNAPSHOT and \ref CACHE.
+ *
+ * (transitively implied dependencies omitted, eg \ref LOG of course depends on \ref MEMORY).
+ *
+ * @msc
+ * DBG,FS,MEM,THREAD,LOG,SNAPSHOT,CACHE,STORAGE;
+ * DBG<=FS;
+ * DBG<=MEM;
+ * MEM<=THREAD;
+ * FS<=LOG;
+ * THREAD<=LOG;
+ * LOG<=SNAPSHOT;
+ * LOG<=CACHE;
+ * SNAPSHOT<=STORAGE;
+ * CACHE<=STORAGE;
+ * @endmsc
+ *
+ * Hence, we initialize/uninitialize the modules in the above order.
  */
 
 /**
@@ -90,6 +118,8 @@ class Engine : public virtual Initializable {
     log::LogManager&                get_log() const;
     /** See \ref MEMORY */
     memory::EngineMemory&           get_memory() const;
+    /** See \ref THREAD */
+    thread::ThreadPool&             get_thread_pool() const;
 
  private:
     EnginePimpl* pimpl_;

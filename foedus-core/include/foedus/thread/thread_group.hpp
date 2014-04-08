@@ -4,26 +4,49 @@
  */
 #ifndef FOEDUS_THREAD_THREAD_GROUP_HPP_
 #define FOEDUS_THREAD_THREAD_GROUP_HPP_
+#include <foedus/cxx11.hpp>
 #include <foedus/initializable.hpp>
+#include <foedus/memory/fwd.hpp>
+#include <foedus/thread/fwd.hpp>
+#include <vector>
 namespace foedus {
 namespace thread {
 /**
- * @brief Brief description of this class.
+ * @brief Represents a group of pre-allocated threads running in one NUMA node.
  * @ingroup THREAD
  * @details
  * Detailed description of this class.
  */
-class ThreadGroup : public virtual Initializable {
+class ThreadGroup : public DefaultInitializable {
  public:
-    /**
-     * Description of constructor.
-     */
-    ThreadGroup();
-    /**
-     * Description of destructor.
-     */
-    ~ThreadGroup();
+    ThreadGroup() CXX11_FUNC_DELETE;
+    ThreadGroup(Engine* engine, ThreadGroupId group_id)
+        : engine_(engine), group_id_(group_id), node_memory_(CXX11_NULLPTR) {}
+    ErrorStack  initialize_once() CXX11_OVERRIDE;
+    ErrorStack  uninitialize_once() CXX11_OVERRIDE;
+
+    ThreadGroupId           get_group_id() const  { return group_id_; }
+    memory::NumaNodeMemory* get_node_memory() const  { return node_memory_; }
+    /** Returns Thread object for the given ordinal in this group. */
+    Thread*     get_thread(ThreadLocalOrdinal ordinal) const { return threads_[ordinal]; }
+
  private:
+    Engine* const           engine_;
+
+    /** ID of this thread group. */
+    ThreadGroupId           group_id_;
+
+    /**
+     * Memory repository shared among threads in this group.
+     * ThreadGroup does NOT own it, meaning it doesn't call its initialize()/uninitialize().
+     * EngineMemory owns it in terms of that.
+     */
+    memory::NumaNodeMemory* node_memory_;
+
+    /**
+     * List of Thread in this group. Index is ThreadLocalOrdinal.
+     */
+    std::vector<Thread*>    threads_;
 };
 }  // namespace thread
 }  // namespace foedus

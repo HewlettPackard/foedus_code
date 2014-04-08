@@ -7,6 +7,7 @@ add_subdirectory(memory)
 add_subdirectory(storage)
 add_subdirectory(snapshot)
 add_subdirectory(thread)
+add_subdirectory(xct)
 
 set(FOEDUS_CHILD_SRC
     ${FOEDUS_CACHE_SRC}
@@ -17,6 +18,7 @@ set(FOEDUS_CHILD_SRC
     ${FOEDUS_SNAPSHOT_SRC}
     ${FOEDUS_STORAGE_SRC}
     ${FOEDUS_THREAD_SRC}
+    ${FOEDUS_XCT_SRC}
 )
 set(FOEDUS_SRC
     ${FOEDUS_CHILD_SRC}

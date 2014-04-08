@@ -19,11 +19,12 @@ struct MemoryOptions {
     MemoryOptions();
 
     /**
-     * @brief Whether to use ::numa_alloc_xxx() to allocate memories in NumaCoreMemory and
-     * NumaNodeMemory.
+     * @brief Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode() to allocate memories
+     * in NumaCoreMemory and NumaNodeMemory.
      * @details
      * If false, we use usual posix_memalign() instead.
-     * If everything works correctly, numa_alloc_xxx should result in much better performance
+     * If everything works correctly, ::numa_alloc_interleaved()/::numa_alloc_onnode()
+     * should result in much better performance
      * because each thread should access only the memories allocated for the NUMA node.
      * Default is true.
      */
@@ -32,10 +33,10 @@ struct MemoryOptions {
     /**
      * @brief Whether to use ::numa_alloc_interleaved() instead of ::numa_alloc_onnode().
      * @details
-     * If everything works correctly, numa_alloc_onnode should result in much better performance
+     * If everything works correctly, numa_alloc_onnode() should result in much better performance
      * because interleaving just wastes memory if it is very rare to access other node's memory.
      * Default is false.
-     * If use_numa_alloc_is false, this configuration has no meaning.
+     * If use_numa_alloc_ is false, this configuration has no meaning.
      */
     bool        interleave_numa_alloc_;
 

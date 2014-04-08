@@ -1,0 +1,2 @@
+set(FOEDUS_XCT_SRC
+    PARENT_SCOPE)

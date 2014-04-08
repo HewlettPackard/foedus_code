@@ -3,6 +3,8 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/debugging/debugging_supports.hpp>
+#include <foedus/engine.hpp>
+#include <foedus/engine_options.hpp>
 #include <glog/logging.h>
 #include <atomic>
 #include <string>
@@ -29,19 +31,17 @@ int                 static_glog_initialize_counter_ = 0;
  */
 std::atomic<bool>   static_glog_initialize_locked_ = ATOMIC_VAR_INIT(false);
 
-DebuggingSupports::DebuggingSupports(const DebuggingOptions& options) : options_(options) {
-}
-
 void DebuggingSupports::initialize_glog() {
     spin_lock_glog();
     assert(static_glog_initialize_counter_ >= 0);
     if (static_glog_initialize_counter_ == 0) {
         // Set the glog configurations.
-        FLAGS_logtostderr = options_.debug_log_to_stderr_;
-        FLAGS_stderrthreshold = static_cast<int>(options_.debug_log_stderr_threshold_);
-        FLAGS_minloglevel = static_cast<int>(options_.debug_log_min_threshold_);
-        FLAGS_log_dir = options_.debug_log_dir_;  // This one must be BEFORE InitGoogleLogging()
-        FLAGS_v = options_.verbose_log_level_;
+        const DebuggingOptions &options = engine_->get_options().debugging_;
+        FLAGS_logtostderr = options.debug_log_to_stderr_;
+        FLAGS_stderrthreshold = static_cast<int>(options.debug_log_stderr_threshold_);
+        FLAGS_minloglevel = static_cast<int>(options.debug_log_min_threshold_);
+        FLAGS_log_dir = options.debug_log_dir_;  // This one must be BEFORE InitGoogleLogging()
+        FLAGS_v = options.verbose_log_level_;
         // TODO(Hideaki) ??? how to set FLAGS_vmodule?
         google::InitGoogleLogging("libfoedus");
         LOG(INFO) << "initialize_glog(): Initialized GLOG";

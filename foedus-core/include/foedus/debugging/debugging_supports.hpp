@@ -5,6 +5,7 @@
 #ifndef FOEDUS_DEBUGGING_DEBUGGING_SUPPORTS_HPP_
 #define FOEDUS_DEBUGGING_DEBUGGING_SUPPORTS_HPP_
 #include <foedus/cxx11.hpp>
+#include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/debugging/debugging_options.hpp>
 #include <string>
@@ -17,7 +18,7 @@ namespace debugging {
 class DebuggingSupports : public DefaultInitializable {
  public:
     DebuggingSupports() CXX11_FUNC_DELETE;
-    explicit DebuggingSupports(const DebuggingOptions& options);
+    explicit DebuggingSupports(Engine* engine) : engine_(engine) {}
     ErrorStack  initialize_once() CXX11_OVERRIDE;
     ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
@@ -46,7 +47,7 @@ class DebuggingSupports : public DefaultInitializable {
     void                spin_lock_glog();
     void                unlock_glog();
 
-    const DebuggingOptions&     options_;
+    Engine* const           engine_;
 };
 }  // namespace debugging
 }  // namespace foedus

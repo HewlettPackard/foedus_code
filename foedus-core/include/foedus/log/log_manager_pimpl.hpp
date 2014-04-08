@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_LOG_LOG_MANAGER_PIMPL_HPP_
 #define FOEDUS_LOG_LOG_MANAGER_PIMPL_HPP_
+#include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
 namespace foedus {
@@ -18,11 +19,11 @@ namespace log {
 class LogManagerPimpl : public DefaultInitializable {
  public:
     LogManagerPimpl() = delete;
-    explicit LogManagerPimpl(const LogOptions& options);
+    explicit LogManagerPimpl(Engine* engine) : engine_(engine) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
-    const LogOptions& options_;
+    Engine* const           engine_;
 };
 }  // namespace log
 }  // namespace foedus
