@@ -8,7 +8,6 @@
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
-#include <vector>
 namespace foedus {
 namespace thread {
 /**
@@ -17,36 +16,24 @@ namespace thread {
  * @details
  * Detailed description of this class.
  */
-class ThreadGroup : public DefaultInitializable {
+class ThreadGroup : public virtual Initializable {
  public:
+    friend class ThreadPoolPimpl;
     ThreadGroup() CXX11_FUNC_DELETE;
-    ThreadGroup(Engine* engine, ThreadGroupId group_id)
-        : engine_(engine), group_id_(group_id), node_memory_(CXX11_NULLPTR) {}
-    ErrorStack  initialize_once() CXX11_OVERRIDE;
-    ErrorStack  uninitialize_once() CXX11_OVERRIDE;
+    ThreadGroup(Engine* engine, ThreadGroupId group_id);
+    ~ThreadGroup();
+    ErrorStack  initialize() CXX11_OVERRIDE CXX11_FINAL;
+    bool        is_initialized() const CXX11_OVERRIDE CXX11_FINAL;
+    ErrorStack  uninitialize() CXX11_OVERRIDE CXX11_FINAL;
 
-    ThreadGroupId           get_group_id() const  { return group_id_; }
-    memory::NumaNodeMemory* get_node_memory() const  { return node_memory_; }
+    ThreadGroupId           get_group_id() const;
+    memory::NumaNodeMemory* get_node_memory() const;
+
     /** Returns Thread object for the given ordinal in this group. */
-    Thread*     get_thread(ThreadLocalOrdinal ordinal) const { return threads_[ordinal]; }
+    Thread*     get_thread(ThreadLocalOrdinal ordinal) const;
 
  private:
-    Engine* const           engine_;
-
-    /** ID of this thread group. */
-    ThreadGroupId           group_id_;
-
-    /**
-     * Memory repository shared among threads in this group.
-     * ThreadGroup does NOT own it, meaning it doesn't call its initialize()/uninitialize().
-     * EngineMemory owns it in terms of that.
-     */
-    memory::NumaNodeMemory* node_memory_;
-
-    /**
-     * List of Thread in this group. Index is ThreadLocalOrdinal.
-     */
-    std::vector<Thread*>    threads_;
+    ThreadGroupPimpl*       pimpl_;
 };
 }  // namespace thread
 }  // namespace foedus

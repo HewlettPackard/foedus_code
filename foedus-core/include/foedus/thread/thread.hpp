@@ -16,8 +16,9 @@ namespace thread {
  */
 class Thread : public virtual Initializable {
  public:
+    friend class ThreadPoolPimpl;
     Thread() CXX11_FUNC_DELETE;
-    explicit Thread(Engine* engine, ThreadGroup* group, ThreadId id);
+    explicit Thread(Engine* engine, ThreadGroupPimpl* group, ThreadId id);
     ~Thread();
     ErrorStack  initialize() CXX11_OVERRIDE CXX11_FINAL;
     bool        is_initialized() const CXX11_OVERRIDE CXX11_FINAL;

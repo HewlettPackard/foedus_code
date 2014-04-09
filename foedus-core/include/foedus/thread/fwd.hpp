@@ -12,8 +12,12 @@
  */
 namespace foedus {
 namespace thread {
+class   ImpersonateSession;
+class   ImpersonateSessionPimpl;
+class   ImpersonateTask;
 class   Thread;
 class   ThreadGroup;
+class   ThreadGroupPimpl;
 struct  ThreadOptions;
 class   ThreadPimpl;
 class   ThreadPool;

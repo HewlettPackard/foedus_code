@@ -99,6 +99,15 @@ inline ThreadLocalOrdinal decompose_numa_local_ordinal(ThreadId global_id) {
     return global_id & 0xFF;
 }
 
+/**
+ * @brief Used as a general timeout parameter (in microseconds) for synchronous methods.
+ * @details
+ * If the method had to wait for this length, it gives up and returns a failure.
+ * Negative value means forever. 0 means no wait, in other words it's \e conditional (we
+ * execute the function on the condition of immediate availability).
+ */
+typedef int64_t TimeoutMicrosec;
+
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_THREAD_ID_HPP_

@@ -7,24 +7,26 @@
 #include <foedus/error_stack_batch.hpp>
 #include <foedus/thread/thread.hpp>
 #include <foedus/thread/thread_group.hpp>
-#include <foedus/thread/thread_options.hpp>
+#include <foedus/thread/thread_group_pimpl.hpp>
 #include <vector>
 namespace foedus {
 namespace thread {
-ErrorStack ThreadGroup::initialize_once() {
-    ThreadLocalOrdinal count = engine_->get_options().thread_.thread_count_per_group_;
-    for (ThreadLocalOrdinal ordinal = 0; ordinal < count; ++ordinal) {
-        ThreadId id = compose_thread_id(group_id_, ordinal);
-        threads_.push_back(new Thread(engine_, this, id));
-        CHECK_ERROR(threads_.back()->initialize());
-    }
-    return RET_OK;
+ThreadGroup::ThreadGroup(Engine *engine, ThreadGroupId group_id) {
+    pimpl_ = new ThreadGroupPimpl(engine, group_id);
+}
+ThreadGroup::~ThreadGroup() {
+    delete pimpl_;
+    pimpl_ = NULL;
 }
 
-ErrorStack ThreadGroup::uninitialize_once() {
-    ErrorStackBatch batch;
-    batch.uninitialize_and_delete_all(&threads_);
-    return SUMMARIZE_ERROR_BATCH(batch);
+ErrorStack ThreadGroup::initialize() { return pimpl_->initialize(); }
+bool ThreadGroup::is_initialized() const { return pimpl_->is_initialized(); }
+ErrorStack ThreadGroup::uninitialize() { return pimpl_->uninitialize(); }
+
+ThreadGroupId ThreadGroup::get_group_id() const { return pimpl_->group_id_; }
+memory::NumaNodeMemory* ThreadGroup::get_node_memory() const { return pimpl_->node_memory_; }
+Thread* ThreadGroup::get_thread(ThreadLocalOrdinal ordinal) const {
+    return pimpl_->threads_[ordinal];
 }
 
 }  // namespace thread
