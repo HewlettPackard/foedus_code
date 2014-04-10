@@ -7,34 +7,35 @@
 #include <foedus/engine_options.hpp>
 #include <glog/logging.h>
 #include <atomic>
+#include <mutex>
 #include <string>
 namespace foedus {
 namespace debugging {
 /**
- * @brief This and static_glog_initialize_locked are the \b only static variables
+ * @brief This and static_glog_initialize_lock are the \b only static variables
  * we have in the entire code base.
  * @details
  * Because google-logging requires initialization/uninitialization only once in a process,
  * we need this to coordinate it between multiple engines.
- * We increment/decrement this after taking lock on static_glog_initialize_locked.
+ * We increment/decrement this after taking lock on static_glog_initialize_lock.
  * The one who observed "0" as old value on increment, will initialize glog.
  * The one who observed "1" as old value on decrement, will uninitialize glog.
  * @invariant 0 or larger. negative value is definitely a bug in synchronization code.
  */
-int                 static_glog_initialize_counter_ = 0;
+int         static_glog_initialize_counter = 0;
 
 /**
  * @brief Exclusive lock variable for Google-logging's initialization/uninitialization.
  * @details
- * Each thread does atomic CAS to set TRUE to this variable.
- * If there is a contention, each thread spins on this value.
+ * Each thread takes this mutex while init/uninit glog.
  */
-std::atomic<bool>   static_glog_initialize_locked_ = ATOMIC_VAR_INIT(false);
+std::mutex  static_glog_initialize_lock;
 
 void DebuggingSupports::initialize_glog() {
-    spin_lock_glog();
-    assert(static_glog_initialize_counter_ >= 0);
-    if (static_glog_initialize_counter_ == 0) {
+    std::lock_guard<std::mutex> guard(static_glog_initialize_lock);
+    std::atomic_thread_fence(std::memory_order_acquire);
+    assert(static_glog_initialize_counter >= 0);
+    if (static_glog_initialize_counter == 0) {
         // Set the glog configurations.
         const DebuggingOptions &options = engine_->get_options().debugging_;
         FLAGS_logtostderr = options.debug_log_to_stderr_;
@@ -48,40 +49,24 @@ void DebuggingSupports::initialize_glog() {
     } else {
         LOG(INFO) << "initialize_glog(): Observed that someone else has initialized GLOG";
     }
-    ++static_glog_initialize_counter_;
-    unlock_glog();
+    ++static_glog_initialize_counter;
+    std::atomic_thread_fence(std::memory_order_release);
 }
 
 void DebuggingSupports::uninitialize_glog() {
-    spin_lock_glog();
-    assert(static_glog_initialize_counter_ >= 1);
-    if (static_glog_initialize_counter_ == 1) {
+    std::lock_guard<std::mutex> guard(static_glog_initialize_lock);
+    std::atomic_thread_fence(std::memory_order_acquire);
+    assert(static_glog_initialize_counter >= 1);
+    if (static_glog_initialize_counter == 1) {
         LOG(INFO) << "uninitialize_glog(): Uninitializing GLOG...";
         google::ShutdownGoogleLogging();
     } else {
         LOG(INFO) << "uninitialize_glog(): There are still some other GLOG user.";
     }
-    --static_glog_initialize_counter_;
-    unlock_glog();
+    --static_glog_initialize_counter;
+    std::atomic_thread_fence(std::memory_order_release);
 }
 
-void DebuggingSupports::spin_lock_glog() {
-    while (true) {
-        bool cas_tmp = false;
-        if (std::atomic_compare_exchange_strong(&static_glog_initialize_locked_, &cas_tmp, true)) {
-            break;
-        }
-    }
-    // atomic operations imply full barrier, but to make sure (performance doesn't matter here).
-    std::atomic_thread_fence(std::memory_order_acquire);
-    std::atomic_thread_fence(std::memory_order_release);
-    assert(static_glog_initialize_locked_);
-}
-void DebuggingSupports::unlock_glog() {
-    assert(static_glog_initialize_locked_);
-    static_glog_initialize_locked_ = false;
-    std::atomic_thread_fence(std::memory_order_release);
-}
 ErrorStack DebuggingSupports::initialize_once() {
     initialize_glog();  // initialize glog at the beginning. we can use glog since now
     return RET_OK;

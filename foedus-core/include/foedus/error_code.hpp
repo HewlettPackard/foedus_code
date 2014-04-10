@@ -10,7 +10,7 @@ namespace foedus {
 /**
  * @defgroup ERRORCODES Error codes, messages, and stacktraces
  * @ingroup IDIOMS
- * @brief Error codes (ErrorCode), their error messages defined in error_code.xmacro, and
+ * @brief Error codes (foedus::ErrorCode), their error messages defined in error_code.xmacro, and
  * stacktrace information (ErrorStack) returned by our API functions.
  * @details
  * @par What it is
@@ -25,20 +25,20 @@ namespace foedus {
  * @see http://www.drdobbs.com/the-new-c-x-macros/184401387
  *
  * @par ErrorCode vs ErrorStack
- * ErrorCode is merely an integer to identify the type of error.
+ * foedus::ErrorCode is merely an integer to identify the type of error.
  * You can get a correponding error message and name of the error via
  * get_error_name() and get_error_message(), but you can't get stacktrace information.
  * For lightweight functions used internally, it might be enough.
  * However, public API methods might need stacktrace information for ease of use.
  * In that case, you should return ErrorStack, which additionally contains stacktrace and
  * custom error message.
- * ErrorStack is much more costly if it returns an error (if it's ERROR_CODE_OK, very efficinet)
+ * ErrorStack is much more costly if it returns an error (if it's ERROR_CODE_OK, very efficient)
  * and especially when it contains a custom error message (better when C++11 is enabled. See
  * ErrorStack for more details).
  *
  * @par How to use ErrorStack
  * To use ErrorStack, you should be familiar with how to use the following macros:
- * RET_OK, CHECK_ERROR(x), ERROR_STACK(e), COERCE_ERROR(x), and a few others.
+ * foedus::RET_OK, CHECK_ERROR(x), ERROR_STACK(e), COERCE_ERROR(x), and a few others.
  * For example, use it as follows:
  * @code{.cpp}
  * ErrorStack your_func() {
@@ -50,6 +50,9 @@ namespace foedus {
  *   return RET_OK;
  * }
  * @endcode
+ *
+ * @par Current List of ErrorCode
+ * See foedus::ErrorCode.
  */
 /**
  * @file error_code.xmacro
@@ -57,7 +60,7 @@ namespace foedus {
  * @brief Error code/message definition in X-Macro style.
  */
 
-#define X(a, b, c) /** c. */ a = b,
+#define X(a, b, c) /** b: c. */ a = b,
 /**
  * @var ErrorCode
  * @ingroup ERRORCODES

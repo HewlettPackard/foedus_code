@@ -11,6 +11,7 @@
 #
 #############################################################################
 cmake_minimum_required(VERSION 2.4)
+cmake_policy(SET CMP0003 NEW)
 project(foedus_super_build)
 
 # No in-source build please. Terminate it as soon as possible if it happens.

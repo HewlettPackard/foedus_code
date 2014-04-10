@@ -44,8 +44,6 @@ class DebuggingSupports : public DefaultInitializable {
      * so that all other uninitialization can use glog.
      */
     void                uninitialize_glog();
-    void                spin_lock_glog();
-    void                unlock_glog();
 
     Engine* const           engine_;
 };

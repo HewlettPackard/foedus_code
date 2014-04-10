@@ -37,8 +37,11 @@
  * @brief If defined, our public headers must hide all C++11 dependent APIs.
  */
 #if __cplusplus < 201103L
+#ifndef NO_FOEDUS_CXX11_WARNING
 #pragma message("C++11 is disabled. libfoedus-core can be used without C++11,")
 #pragma message(" but enabling C++11 allows more flexible use of the library.")
+#pragma message(" To suppress this warning without enabling C++11, set -DNO_FOEDUS_CXX11_WARNING.")
+#endif  // NO_FOEDUS_CXX11_WARNING
 #define DISABLE_CXX11_IN_PUBLIC_HEADERS
 #endif  // __cplusplus < 201103L
 

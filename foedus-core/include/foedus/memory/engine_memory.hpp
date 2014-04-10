@@ -24,8 +24,8 @@ namespace memory {
  *
  * @par List of engine-wide memories
  *  \li List of NumaNodeMemory, one for each NUMA socket in the machine.
- *  \li Page pool for the read-only bufferpool.
- *  \li Page pool for volatile read/write store.
+ *  \li Page pool for the read-only bufferpool (SnapshotPage).
+ *  \li Page pool for volatile read/write store (VolatilePage).
  * So far we allocate separate memory for the second and third.
  * But, there is no fundamental reason to do so. It's for simplicity, and we might revisit it.
  */

@@ -94,6 +94,7 @@ class Initializable {
      * If and only if the return value was not an error, is_initialized() will return TRUE.
      * This method is usually not idempotent, but some implementation can choose to be. In that
      * case, the implementation class should clarify that it's idempotent.
+     * This method is responsible for releasing all acquired resources when initialization fails.
      * This method itself is NOT thread-safe. Do not call this in a racy situation.
      */
     virtual ErrorStack  initialize() = 0;
@@ -109,12 +110,13 @@ class Initializable {
      * effort to release as many resources as possible. In other words, Do not leak \b all resources
      * because of \b one issue.
      * This method itself is NOT thread-safe. Do not call this in a racy situation.
-     * @attention This method would be also automatically called from the destructor if you did not
-     * call it, but it's not a good practice as destructor can't return errors either.
+     * @attention This method is NOT automatically called from the destructor.
+     * This is due to the fundamental limitation in C++.
      * Explicitly call this method as soon as you are done, checking the returned value.
-     * @return information of the \e first error this method encounters.
+     * You can also use UninitializeGuard to ameliorate the issue, but it's not perfect.
+     * @return The error this method encounters, if any.
      * In case there are multiple errors while uninitialization, the implementation should use
-     * ErrorStackBatch to produce the ErrorStack object.
+     * ErrorStackBatch to produce a batched ErrorStack object.
      */
     virtual ErrorStack  uninitialize() = 0;
 };

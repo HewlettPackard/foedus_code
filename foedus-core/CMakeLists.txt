@@ -9,6 +9,7 @@
 #
 #############################################################################
 cmake_minimum_required(VERSION 2.4)
+cmake_policy(SET CMP0003 NEW)
 project(foedus_core)
 
 # FIRST, prohibit in-source build.
@@ -130,6 +131,7 @@ add_dependencies(foedus-core cpplint_include cpplint_src)
 # Doxygen commands (not mandatory)
 find_package(Doxygen)
 if(DOXYGEN_FOUND)
+    set(DOXYGEN_INCLUDE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/include")
     set(DOXYGEN_TARGETS "${CMAKE_CURRENT_SOURCE_DIR}/include")
     set(DOXYGEN_TARGETS "${DOXYGEN_TARGETS} ${CMAKE_CURRENT_SOURCE_DIR}/src")
     set(DOXYGEN_TARGETS "${DOXYGEN_TARGETS} ${NUMA_INCLUDE_DIR}/numa.h")
