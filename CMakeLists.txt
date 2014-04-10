@@ -34,6 +34,9 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 # Always 64-bit file offsets
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
 
+# We use cpplint to conform to Google C++ style guide.
+set(ENABLE_CPPLINT true)
+
 enable_testing() # we use CTest in tests-xxx. run "make test" or "ctest" after cmake
 
 # The core library. This project is also compilable by itself.

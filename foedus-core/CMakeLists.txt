@@ -111,7 +111,7 @@ if (GOOGLEPERFTOOLS_FOUND)
     target_link_libraries(foedus-core ${GooglePerftools_LIBRARIES})
 endif (GOOGLEPERFTOOLS_FOUND)
 
-# Invoke CPPLINT (-DDISABLE_CPPLINT can disable it)
+# Invoke CPPLINT (if ENABLE_CPPLINTis given)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CpplintWrapper.cmake)
 CPPLINT_RECURSIVE(cpplint_include
     ${CMAKE_CURRENT_SOURCE_DIR}/include

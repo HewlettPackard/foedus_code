@@ -2,16 +2,15 @@
 # This is optional and graceful; meaning we do not quit building even if there are warnings.
 # We are not that pedantic. However, we will keep an eye on the count of warnings.
 # Related parameters:
-#   -DDISABLE_CPPLINT to cmake command will disable cpplint.
+#   Setting variable ENABLE_CPPLINT to true will enable cpplint.
 find_package(PythonInterp)
-option(DISABLE_CPPLINT "Skip cpplint for style checking" OFF)
 if(PYTHONINTERP_FOUND)
-    if(DISABLE_CPPLINT)
-        message(STATUS "-DDISABLE_CPPLINT was given. Skipped running cpplint")
-        set(RUN_CPPLINT false)
-    else(DISABLE_CPPLINT)
+    if(ENABLE_CPPLINT)
         set(RUN_CPPLINT true)
-    endif(DISABLE_CPPLINT)
+    else(ENABLE_CPPLINT)
+        message(STATUS "ENABLE_CPPLINT was not given. Skipped running cpplint")
+        set(RUN_CPPLINT false)
+    endif(ENABLE_CPPLINT)
 else(PYTHONINTERP_FOUND)
     message(STATUS "python executable not found. Skipped running cpplint")
     set(RUN_CPPLINT false)
