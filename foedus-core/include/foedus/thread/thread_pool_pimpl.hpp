@@ -60,7 +60,7 @@ class ImpersonateSessionPimpl {
 class ThreadPoolPimpl : public DefaultInitializable {
  public:
     ThreadPoolPimpl() = delete;
-    explicit ThreadPoolPimpl(Engine* engine) : engine_(engine), no_more_impersonation_(true) {}
+    explicit ThreadPoolPimpl(Engine* engine) : engine_(engine), no_more_impersonation_(false) {}
     ErrorStack  initialize_once() override final;
     ErrorStack  uninitialize_once() override final;
 

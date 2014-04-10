@@ -160,7 +160,7 @@ if(DOXYGEN_FOUND)
         COMMAND pdflatex refman.tex
         COMMAND okular refman.pdf
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/dox/latex/
-        COMMENT "Generating a single PDF with Doxygen" VERBATIM
+        COMMENT "Generating a single PDF with Doxygen"
         DEPENDS dox)
 else(DOXYGEN_FOUND)
     add_custom_target(dox ${CMAKE_COMMAND} -E echo "Doxygen not found. No documents generated.")

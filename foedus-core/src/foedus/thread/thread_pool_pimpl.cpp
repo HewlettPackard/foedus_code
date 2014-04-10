@@ -27,7 +27,7 @@ ImpersonateSession::Status ImpersonateSessionPimpl::wait_for(TimeoutMicrosec tim
         // this means unconditional wait.
         result_future_.wait();
         return ImpersonateSession::READY;
-    } else if (timeout > 0) {
+    } else {
         std::future_status status = result_future_.wait_for(std::chrono::microseconds(timeout));
         if (status == std::future_status::timeout) {
             return ImpersonateSession::TIMEOUT;
@@ -43,6 +43,7 @@ ErrorStack ThreadPoolPimpl::initialize_once() {
     if (!engine_->get_memory().is_initialized()) {
         return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
     }
+    no_more_impersonation_ = false;
     const ThreadOptions &options = engine_->get_options().thread_;
     assert(engine_->get_memory().is_initialized());
     for (ThreadGroupId group_id = 0; group_id < options.group_count_; ++group_id) {
@@ -72,7 +73,7 @@ Thread* ThreadPoolPimpl::get_thread(ThreadId id) const {
 }
 
 ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task,
-                                               TimeoutMicrosec timeout) {
+                                               TimeoutMicrosec /*timeout*/) {
     ImpersonateSession session(task);
     std::atomic_thread_fence(std::memory_order_acquire);
     if (no_more_impersonation_) {
@@ -94,7 +95,7 @@ ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task,
     return session;
 }
 ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(ImpersonateTask* task,
-                                    ThreadGroupId numa_node, TimeoutMicrosec timeout) {
+                                    ThreadGroupId numa_node, TimeoutMicrosec /*timeout*/) {
     ImpersonateSession session(task);
     std::atomic_thread_fence(std::memory_order_acquire);
     if (no_more_impersonation_) {
@@ -114,7 +115,7 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(ImpersonateTask* ta
     return session;
 }
 ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_core(ImpersonateTask* task,
-                                    ThreadId numa_core, TimeoutMicrosec timeout) {
+                                    ThreadId numa_core, TimeoutMicrosec /*timeout*/) {
     ImpersonateSession session(task);
     std::atomic_thread_fence(std::memory_order_acquire);
     if (no_more_impersonation_) {

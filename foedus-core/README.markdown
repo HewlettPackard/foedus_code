@@ -20,4 +20,4 @@ bluh bluh
 
 API Documents
 -----------
-See \ref foedus.
+See <a href="modules.html">Module List</a> and <a href="namespaces.html">Namespace List</a>.

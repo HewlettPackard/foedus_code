@@ -24,6 +24,8 @@ class Thread : public virtual Initializable {
     bool        is_initialized() const CXX11_OVERRIDE CXX11_FINAL;
     ErrorStack  uninitialize() CXX11_OVERRIDE CXX11_FINAL;
 
+    Engine*     get_engine() const;
+
  private:
     ThreadPimpl*    pimpl_;
 };

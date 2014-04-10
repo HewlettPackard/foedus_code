@@ -17,5 +17,7 @@ Thread::~Thread() {
 ErrorStack Thread::initialize() { return pimpl_->initialize(); }
 bool Thread::is_initialized() const { return pimpl_->is_initialized(); }
 ErrorStack Thread::uninitialize() { return pimpl_->uninitialize(); }
+
+Engine* Thread::get_engine() const { return pimpl_->engine_; }
 }  // namespace thread
 }  // namespace foedus

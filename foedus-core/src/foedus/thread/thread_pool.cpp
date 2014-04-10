@@ -4,6 +4,7 @@
  */
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread_pool_pimpl.hpp>
+#include <cassert>
 namespace foedus {
 namespace thread {
 
@@ -26,8 +27,14 @@ ImpersonateTask* ImpersonateSession::get_task() const { return pimpl_->task_; }
 bool ImpersonateSession::is_valid() const { return pimpl_->is_valid(); }
 ErrorStack ImpersonateSession::get_invalid_cause() const { return pimpl_->failure_cause_; }
 void ImpersonateSession::set_invalid_cause(ErrorStack cause) { pimpl_->failure_cause_ = cause; }
-ErrorStack ImpersonateSession::get_result() { return pimpl_->result_future_.get(); }
-void ImpersonateSession::wait() const { return pimpl_->result_future_.wait(); }
+ErrorStack ImpersonateSession::get_result() {
+    assert(is_valid());
+    return pimpl_->result_future_.get();
+}
+void ImpersonateSession::wait() const {
+    assert(is_valid());
+    return pimpl_->result_future_.wait();
+}
 ImpersonateSession::Status ImpersonateSession::wait_for(TimeoutMicrosec timeout) const {
     return pimpl_->wait_for(timeout);
 }

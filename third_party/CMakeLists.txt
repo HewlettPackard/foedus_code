@@ -1,3 +1,6 @@
+# these are third party code, we don't care warning.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
+
 # We use gflags for command line argument parsing.
 # boost::program_options provides equivalent functionalities, but it's not header-only!
 # Rather, we statically link to gflags. So far, we are boost-free.

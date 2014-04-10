@@ -17,11 +17,87 @@ namespace thread {
  * @brief APIs to \b pool and \b impersonate worker threads in libfoedus-core
  * @ingroup THREAD
  * @details
+ * @section THR Database Engine API and Thread
+ * You might have already noticed that most of our APIs provided by the database engine
+ * requires a Thread object as its execution context.
+ * On the other hand, client programs aren't allowed to instantiate Thread instances by themselves.
+ * So, you have to first obtain the Thread object from the engine.
+ * This document describes how user programs do that, and why.
+ *
  * @section POOL Thread Pool
- * bluh
+ * Most client program needs concurrent accesses running on multiple threads.
+ * In order to avoid overheads and complexity of launching and maintaining threads
+ * by such client programs, our engine provides a pool of pre-allocated threads.
+ * This also makes it easy for the engine to guarantee efficient mapping between
+ * thread and NUMA-core. As described in \ref MEMHIERARCHY, our engine ties threads to
+ * their private memories. If our engine lets the client program to manage its own threads,
+ * we can't achieve the static and efficient mapping.
+ *
+ * @par Number of thread/group configurations
+ * Our engine pre-allocates a fixed number of ThreadGroup and Thread at start-up.
+ * You can configure the numbers in ThreadOptions, but in many cases the default
+ * values (which is the number of hardware NUMA nodes/cores) work fine.
+ *
  * @section IMPERSONATE Impersonation
+ * Our API to execute transactions consists of the following three concepts:
+ *  \li \b Task (ImpersonateTask) is an arbitrary user-defined code to run in our engine.
+ *  \li \b Session (ImpersonateSession) is a one-to-one mapping between a task and a pooled thread
+ * that continues until the completion of the task.
+ *  \li \b Impersonation (ThreadPool#impersonate()) is an action to create a session for the
+ * given task.
+ *
+ * In order to start a user transaction or a series of user transactions on some thread,
+ * the user first defines the task as a class that derives from ImpersonateTask.
+ * Then, the user calls ThreadPool#impersonate() to impersonate one of the pre-allocated
+ * threads for the task.
+ *
+ * When the thread is impersonated, it starts runninng the task asynchronously.
+ * The original client thread, which invoked the impersonation, immediately returns
+ * with ImpersonateSession object for the acquired session.
+ * The original thread can choose to either synchronously wait for the completion of the task or
+ * do other stuffs, such as launching more sessions.
+ *
+ * This means that a use code doesn't have to do \b anything to run the tasks on an arbitrary
+ * number of threads. Everything is encapsulated in the ThreadPool class and its related classes.
+ *
  * @section EX Examples
- * bluh
+ * Below is a trivial example to define a task and submit impersonation request.
+ * @code{.cpp}
+ * #include <foedus/engine.hpp>
+ * #include <foedus/engine_options.hpp>
+ * #include <foedus/thread/thread_pool.hpp>
+ * #include <foedus/thread/thread.hpp>
+ *
+ * class MyTask : public foedus::thread::ImpersonateTask {
+ * public:
+ *     foedus::ErrorStack run(foedus::thread::Thread* context) {
+ *         std::cout << "Ya!" << std::endl;
+ *         return foedus::RET_OK;
+ *     }
+ * };
+ *
+ * int main(int argc, char **argv) {
+ *     foedus::EngineOptions options;
+ *     foedus::Engine engine(options);
+ *     if (engine.initialize().is_error()) {
+ *         return 1;
+ *     }
+ *
+ *     foedus::UninitializeGuard guard(&engine);
+ *     MyTask task;
+ *     foedus::thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+ *     if (session.is_valid()) {
+ *         std::cout << "result=" << session.get_result() << std::endl;
+ *     } else {
+ *         std::cout << "session didn't start=" << session.get_invalid_cause() << std::endl;
+ *     }
+ *     if (engine.uninitialize().is_error()) {
+ *         return 1;
+ *     }
+ *
+ *     return 0;
+ * }
+ * @endcode
  */
 
 /**
@@ -39,7 +115,7 @@ class ImpersonateTask {
 
     /**
      * @brief The method called back from the engine on one of its pooled threads.
-     * @param[in] worker the impersonated thread
+     * @param[in] context the impersonated thread
      * @details
      * Note that the thread calling this method is NOT the client program's thread
      * that invoked ThreadPool#impersonate(), but an asynchronous thread that was pre-allocated
@@ -47,7 +123,7 @@ class ImpersonateTask {
      * When this method returns, the engine releases the impersonated thread to the thread pool
      * so that other clients can grab it for new sessions.
      */
-    virtual ErrorStack run(Thread* worker) = 0;
+    virtual ErrorStack run(Thread* context) = 0;
 };
 
 /**
@@ -75,9 +151,9 @@ class ImpersonateTask {
  * @par Wait for the completion of the session
  * When is_valid()==true, this object also behaves as std::shared_future<ErrorStack>,
  * and we actually use it. But, because of the \ref CXX11 issue, we wrap it as a usual class.
- * This object is copiable like std::shared_future, not std::shared_future.
+ * This object is copiable like std::shared_future, not std::future.
  * Actually, this class is based on std::shared_future just to provide copy semantics
- * for non-C++11 clients. Additional overheads shouldn't matter.
+ * for non-C++11 clients. Additional overheads shouldn't matter, hopeully.
  */
 class ImpersonateSession {
  public:
@@ -151,6 +227,11 @@ class ImpersonateSession {
  * @ingroup THREADPOOL
  * @details
  * This is the main API class of thread package.
+ * Its gut is impersonate() which allows client programs to create a new session
+ * (ImpersonateSession) that runs user-defined functions (ImpersonateTask).
+ * The sessions are executed on pre-allocated threads in the engine.
+ * We throttle sessions, meaning impersonate() blocks when there is no available
+ * thread. To avoid waiting too long, impersonate() receives timeout parameter.
  */
 class ThreadPool : public virtual Initializable {
  public:
@@ -164,13 +245,14 @@ class ThreadPool : public virtual Initializable {
     /**
      * @brief Impersonate as one of pre-allocated threads in this engine, calling
      * back the functor from the impersonated thread (\b NOT the current thread).
-     * @param[in] task the callback functor the client program should define
+     * @param[in] task the callback functor the client program should define. The pointer
+     * must be valid at least until the completion of the session.
      * @param[in] timeout how long we wait for impersonation if there is no available thread
      * @details
      * This is similar to launch a new thread that calls the functor.
      * The difference is that this doesn't actually create a thread (which is very expensive)
      * but instead just impersonates as one of the pre-allocated threads in the engine.
-     * @return The resulting session of impersonation.
+     * @return The resulting session.
      * @todo currently, timeout is ignored. It behaves as if timeout=0
      */
     ImpersonateSession  impersonate(ImpersonateTask* task, TimeoutMicrosec timeout = -1);
