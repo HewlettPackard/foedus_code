@@ -1,0 +1,34 @@
+{
+   libunwind_bug1
+   Memcheck:Param
+   msync(start)
+   fun:__msync_nocancel
+   obj:/usr/lib64/libunwind.so.8.0.1
+   obj:/usr/lib64/libunwind.so.8.0.1
+   obj:/usr/lib64/libunwind.so.8.0.1
+   obj:/usr/lib64/libunwind.so.8.0.1
+   fun:_ULx86_64_step
+   fun:_Z13GetStackTracePPvii
+   fun:_ZN8tcmalloc8PageHeap8GrowHeapEm
+   fun:_ZN8tcmalloc8PageHeap3NewEm
+   fun:_ZN8tcmalloc15CentralFreeList8PopulateEv
+   fun:_ZN8tcmalloc15CentralFreeList18FetchFromSpansSafeEv
+   fun:_ZN8tcmalloc15CentralFreeList11RemoveRangeEPPvS2_i
+}
+{
+   libunwind_bug2
+   Memcheck:Param
+   msync(start)
+   obj:/usr/lib64/libpthread-2.18.so
+   obj:/usr/lib64/libunwind.so.8.0.1
+   obj:/usr/lib64/libunwind.so.8.0.1
+   obj:/usr/lib64/libunwind.so.8.0.1
+   obj:/usr/lib64/libunwind.so.8.0.1
+   fun:_ULx86_64_step
+   fun:_Z13GetStackTracePPvii
+   fun:_ZN8tcmalloc8PageHeap8GrowHeapEm
+   fun:_ZN8tcmalloc8PageHeap3NewEm
+   fun:_ZN8tcmalloc15CentralFreeList8PopulateEv
+   fun:_ZN8tcmalloc15CentralFreeList18FetchFromSpansSafeEv
+   fun:_ZN8tcmalloc15CentralFreeList11RemoveRangeEPPvS2_i
+}

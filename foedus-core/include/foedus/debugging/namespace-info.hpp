@@ -48,6 +48,22 @@
  * The run-time configuration APIs are provided by foedus::debugging::DebuggingSupports,
  * which you can obtain via foedus::Engine::get_debug().
  *
+ * @par Debug Logging Level House-Rules
+ *  \li LOG(FATAL) is used where we are not ready for graceful shutdown. Eventually there should
+ * be none except asserting code bugs.
+ *  \li LOG(ERROR) is the default level for problemetic cases. Most error logging would be this.
+ * Do not use DLOG(ERROR). Instead always use LOG(ERROR).
+ *  \li LOG(WARNING) should be used only for expected and minor user-triggered errors. If it's
+ * either unexpected or major (eg out-of-disk is a user error, but worth raising as an error),
+ * use LOG(ERROR). You can use DLOG(WARNING) to avoid affecting performance in critical places.
+ *  \li For normal events that happen only once or a few times over very \e long time (seconds or
+ * more), then use LOG(INFO). For example, module initializations logs.
+ *  \li For more frequent normal events (hundreds/thousands per second), use DLOG(INFO).
+ *  \li For debug-messages that \e YOU wouldn't want to see unless you are writing code
+ * in that module, use VLOG. VLOG level 0: ~tens per second, 1: ~hundreds per second,
+ * 2: ~thousand per second. If it's more than thousand per second, do NOT use VLOG.
+ * It means (at least) that many level checkings per second! Use DLOG then.
+ *
  * @par Performance Counters
  * TODO implement
  */

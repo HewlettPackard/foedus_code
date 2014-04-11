@@ -33,8 +33,7 @@ namespace foedus {
  * In that case, you should return ErrorStack, which additionally contains stacktrace and
  * custom error message.
  * ErrorStack is much more costly if it returns an error (if it's ERROR_CODE_OK, very efficient)
- * and especially when it contains a custom error message (better when C++11 is enabled. See
- * ErrorStack for more details).
+ * and especially when it contains a custom error message (See ErrorStack for more details).
  *
  * @par How to use ErrorStack
  * To use ErrorStack, you should be familiar with how to use the following macros:

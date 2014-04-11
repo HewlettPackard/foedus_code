@@ -8,6 +8,7 @@
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread_pool_pimpl.hpp>
 #include <glog/logging.h>
+#include <numa.h>
 #include <cassert>
 #include <atomic>
 #include <future>
@@ -35,7 +36,9 @@ ErrorStack ThreadPimpl::uninitialize_once() {
 }
 
 void ThreadPimpl::handle_tasks() {
-    LOG(INFO) << "Thread-" << id_ << " started running";
+    int numa_node = static_cast<int>(decompose_numa_node(id_));
+    LOG(INFO) << "Thread-" << id_ << " started running on NUMA node: " << numa_node;
+    ::numa_run_on_node(numa_node);
     while (true) {
         LOG(INFO) << "Thread-" << id_ << " waiting for a task...";
         std::future<ImpersonateTask*> task_future = impersonated_task_.get_future();

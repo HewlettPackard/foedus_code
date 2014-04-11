@@ -7,7 +7,7 @@
 #include <foedus/cxx11.hpp>
 #include <stdint.h>
 /**
- * @file thread_id.hpp
+ * @file foedus/thread/thread_id.hpp
  * @brief Typedefs of ID types used in thread package.
  * @ingroup THREAD
  */

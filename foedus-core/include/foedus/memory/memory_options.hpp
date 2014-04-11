@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_MEMORY_MEMORY_OPTIONS_HPP_
 #define FOEDUS_MEMORY_MEMORY_OPTIONS_HPP_
+#include <stdint.h>
 #include <iosfwd>
 namespace foedus {
 namespace memory {
@@ -39,6 +40,13 @@ struct MemoryOptions {
      * If use_numa_alloc_ is false, this configuration has no meaning.
      */
     bool        interleave_numa_alloc_;
+
+    /**
+     * @brief Total size of the page pool for volatile pages in MB.
+     * @details
+     *
+     */
+    uint32_t    volatile_page_pool_size_mb_;
 
     friend std::ostream& operator<<(std::ostream& o, const MemoryOptions& v);
 };

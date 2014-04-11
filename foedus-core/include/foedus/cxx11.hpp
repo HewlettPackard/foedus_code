@@ -19,29 +19,36 @@
  * Thus, we will make sure C++11 keywords and classes do not directly appear in public header files.
  * The macros defined in this file are for that switching.
  *
+ * @par DISABLE_CXX11_IN_PUBLIC_HEADERS macro
+ * This macro is defined if __cplusplus < 201103L, meaning the compiler option for the programs
+ * that include this header file (note: which is different from compiler option for libfoedus)
+ * disables C++11.
+ * If defined, our public headers must hide all C++11 dependent APIs.
+ * So, there are several ifdefs on this macro in public headers.
+ *
  * @par stdint.h vs cstdint
- * For this reason, we include stdint.h rather than cstdint.
+ * For the same reason, we include stdint.h rather than cstdint.
  * cstdint is a C++11 extension, which defines those integer types in std namespace
  * (eg std::int32_t). The integer types in global namespace are more concise to use, too.
  *
  * @par C++11 in cpp and non-public headers
  * Remember, this is only for public headers. We anyway compile our library with C++11.
  * We can freely use C++11 keywords/features in cpp and non-public header files, such as
- * xxx-inl.hpp and xxx_pimpl.hpp. In other words, client programs must not include them unless
+ * xxx_inl.hpp and xxx_pimpl.hpp. In other words, client programs must not include them unless
  * they turn on C++11.
  */
 
-/**
- * @def DISABLE_CXX11_IN_PUBLIC_HEADERS
- * @ingroup CXX11
- * @brief If defined, our public headers must hide all C++11 dependent APIs.
- */
 #if __cplusplus < 201103L
 #ifndef NO_FOEDUS_CXX11_WARNING
 #pragma message("C++11 is disabled. libfoedus-core can be used without C++11,")
 #pragma message(" but enabling C++11 allows more flexible use of the library.")
 #pragma message(" To suppress this warning without enabling C++11, set -DNO_FOEDUS_CXX11_WARNING.")
 #endif  // NO_FOEDUS_CXX11_WARNING
+/**
+ * @def DISABLE_CXX11_IN_PUBLIC_HEADERS
+ * @ingroup CXX11
+ * @brief If defined, our public headers must hide all C++11 dependent APIs.
+ */
 #define DISABLE_CXX11_IN_PUBLIC_HEADERS
 #endif  // __cplusplus < 201103L
 

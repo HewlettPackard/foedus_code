@@ -5,6 +5,7 @@
 #ifndef FOEDUS_ERROR_STACK_HPP_
 #define FOEDUS_ERROR_STACK_HPP_
 
+#include <foedus/compiler.hpp>
 #include <foedus/error_code.hpp>
 #include <foedus/cxx11.hpp>
 #include <stdint.h>
@@ -51,9 +52,11 @@ namespace foedus {
  * The only thing that has to be allocated on heap is a custom error message.
  * However, there are not many places that use custom messages, so the cost usually doesn't happen.
  *
- * @par Moveable
- * This object is \e moveable only when C++11 is enabled. The moveable semantics is beneficial
- * only when there is a custom message. Otherwise, this object doesn't own any object anyways.
+ * @par Moveable/Copiable
+ * This object is \e copiable. Further, the copy constructor and copy assignment operator
+ * are equivalent to \e move. Although they take a const reference, we \e steal its
+ * checked_ and custom_message_. This might be confusing, but much more efficient without C++11.
+ * As this object is copied so many times, we take this approach.
  *
  * This class is header-only \b except output(), dump_and_abort(), and std::ostream redirect.
  */
@@ -89,7 +92,7 @@ class ErrorStack {
      * @param[in] code Error code, must be real errors.
      * @param[in] custom_message Optional custom error message in addition to the default one
      * inferred from error code. If you pass a non-NULL string to this argument,
-     * we do deep-copy for each hand-over, so it's EXPENSIVE!
+     * we do deep-copy, so it's EXPENSIVE!
      */
     ErrorStack(const char* filename, const char* func, uint32_t linenum, ErrorCode code,
                 const char* custom_message = NULL);
@@ -97,26 +100,12 @@ class ErrorStack {
     /** Copy constructor. */
     ErrorStack(const ErrorStack &other);
 
-    /** Non-move copy constructor to augment the stacktrace. */
+    /** Copy constructor to augment the stacktrace. */
     ErrorStack(const ErrorStack &other, const char* filename, const char* func, uint32_t linenum,
                 const char* more_custom_message = NULL);
 
-    /** Non-move assignment operator. */
+    /** Assignment operator. */
     ErrorStack& operator=(const ErrorStack &other);
-
-#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-    /**
-     * Move constructor that steals the custom message without copying.
-     * This is more efficient than non-move copy constructor above if it has a custom message,
-     * but this is available only with C++11.
-     */
-    ErrorStack(ErrorStack &&other);
-    /**
-     * Move assignment that steals the custom message without copying.
-     * This is more efficient, but this is available only with C++11.
-     */
-    ErrorStack& operator=(ErrorStack &&other);
-#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 
     /** Will warn in stderr if the error code is not checked yet. */
     ~ErrorStack();
@@ -135,9 +124,11 @@ class ErrorStack {
 
     /**
      * Copy the given custom message into this object.
-     * This method does NOT delete the current custom_message_. The caller is responsible for that.
      */
     void                copy_custom_message(const char* message);
+
+    /** Deletes custom message from this object. */
+    void                clear_custom_message();
 
     /** Appends more custom error message at the end. */
     void                append_custom_message(const char* more_custom_message);
@@ -190,7 +181,7 @@ class ErrorStack {
      * The reason why we don't use auto_ptr etc for this is that they are also expensive and will
      * screw things up if someone misuse our class. Custom error message should be rare, anyways.
      */
-    const char*     custom_message_;
+    mutable const char*     custom_message_;
 
     /**
      * @brief Integer error code.
@@ -224,16 +215,16 @@ class ErrorStack {
 const ErrorStack RET_OK;
 
 inline ErrorStack::ErrorStack()
-    : custom_message_(NULL), error_code_(ERROR_CODE_OK), stack_depth_(0), checked_(true) {
+    : custom_message_(CXX11_NULLPTR), error_code_(ERROR_CODE_OK), stack_depth_(0), checked_(true) {
 }
 
 inline ErrorStack::ErrorStack(ErrorCode code)
-    : custom_message_(NULL), error_code_(code), stack_depth_(0), checked_(false) {
+    : custom_message_(CXX11_NULLPTR), error_code_(code), stack_depth_(0), checked_(false) {
 }
 
 inline ErrorStack::ErrorStack(const char* filename, const char* func, uint32_t linenum,
                               ErrorCode code, const char* custom_message)
-    : error_code_(code), stack_depth_(1), checked_(false) {
+    : custom_message_(CXX11_NULLPTR), error_code_(code), stack_depth_(1), checked_(false) {
     assert(code != ERROR_CODE_OK);
     filenames_[0] = filename;
     funcs_[0] = func;
@@ -241,44 +232,16 @@ inline ErrorStack::ErrorStack(const char* filename, const char* func, uint32_t l
     copy_custom_message(custom_message);
 }
 
-inline ErrorStack::ErrorStack(const ErrorStack &other) {
+inline ErrorStack::ErrorStack(const ErrorStack &other)
+    : custom_message_(CXX11_NULLPTR) {
     operator=(other);
 }
 
-inline void ErrorStack::copy_custom_message(const char* message) {
-    // Invariant: if ERROR_CODE_OK, no more processing
-    if (error_code_ == ERROR_CODE_OK) {
-        return;
-    }
-
-    if (message != NULL) {
-        // do NOT use strdup to make sure new/delete everywhere.
-        size_t len = std::strlen(message);
-        char *copied = new char[len + 1];  // +1 for null terminator
-        custom_message_ = copied;
-        std::memcpy(copied, message, len + 1);
-    } else {
-        custom_message_ = message;
-    }
-}
-inline ErrorStack& ErrorStack::operator=(ErrorStack const &other) {
-    // Invariant: if ERROR_CODE_OK, no more processing
-    if (other.error_code_ == ERROR_CODE_OK) {
-        this->error_code_ = ERROR_CODE_OK;
-        return *this;
-    }
-
-    // As we don't have any linked-list etc, mostly this is enough. Quick.
-    std::memcpy(this, &other, sizeof(ErrorStack));  // we take copy BEFORE mark other checked
-    other.checked_ = true;
-    copy_custom_message(other.custom_message_);  // except custom error message
-    return *this;
-}
-
 inline ErrorStack::ErrorStack(const ErrorStack &other, const char* filename,
-                            const char* func, uint32_t linenum, const char* more_custom_message) {
+                            const char* func, uint32_t linenum, const char* more_custom_message)
+    : custom_message_(CXX11_NULLPTR) {
     // Invariant: if ERROR_CODE_OK, no more processing
-    if (other.error_code_ == ERROR_CODE_OK) {
+    if (LIKELY(other.error_code_ == ERROR_CODE_OK)) {
         this->error_code_ = ERROR_CODE_OK;
         return;
     }
@@ -292,59 +255,82 @@ inline ErrorStack::ErrorStack(const ErrorStack &other, const char* filename,
         ++stack_depth_;
     }
     // augment custom error message
-    if (more_custom_message != NULL) {
+    if (more_custom_message) {
         append_custom_message(more_custom_message);
     }
 }
 
-#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-inline ErrorStack::ErrorStack(ErrorStack &&other) {
-    operator=(other);
-}
-inline ErrorStack& ErrorStack::operator=(ErrorStack &&other) {
+inline ErrorStack& ErrorStack::operator=(const ErrorStack &other) {
     // Invariant: if ERROR_CODE_OK, no more processing
-    if (other.error_code_ == ERROR_CODE_OK) {
+    if (LIKELY(other.error_code_ == ERROR_CODE_OK)) {
         this->error_code_ = ERROR_CODE_OK;
         return *this;
     }
 
-    std::memcpy(this, &other, sizeof(ErrorStack));
+    // As we don't have any linked-list etc, mostly this is enough. Quick.
+    clear_custom_message();
+    std::memcpy(this, &other, sizeof(ErrorStack));  // we take copy BEFORE mark other checked
+
+    // this copy assignment is actually a move assignment. these two are mutable for that.
     other.checked_ = true;
     other.custom_message_ = NULL;  // simply stolen. much more efficient.
     return *this;
 }
 
-#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-
 inline ErrorStack::~ErrorStack() {
     // Invariant: if ERROR_CODE_OK, no more processing
-    if (error_code_ == ERROR_CODE_OK) {
+    if (LIKELY(error_code_ == ERROR_CODE_OK)) {
         return;
     }
 #ifdef DEBUG
     // We output warning if some error code is not checked, but we don't do so in release mode.
     verify();
 #endif  // DEBUG
-    if (custom_message_ != NULL) {
+    clear_custom_message();
+}
+
+
+inline void ErrorStack::clear_custom_message() {
+    if (UNLIKELY(custom_message_)) {
         delete[] custom_message_;
-        custom_message_ = NULL;
+        custom_message_ = CXX11_NULLPTR;
+    }
+}
+
+inline void ErrorStack::copy_custom_message(const char* message) {
+    // Invariant: if ERROR_CODE_OK, no more processing
+    if (LIKELY(error_code_ == ERROR_CODE_OK)) {
+        return;
+    }
+
+    clear_custom_message();
+    if (message) {
+        // do NOT use strdup to make sure new/delete everywhere.
+        size_t len = std::strlen(message);
+        char *copied = new char[len + 1];  // +1 for null terminator
+        if (copied) {
+            custom_message_ = copied;
+            std::memcpy(copied, message, len + 1);
+        }
     }
 }
 
 inline void ErrorStack::append_custom_message(const char* more_custom_message) {
     // Invariant: if ERROR_CODE_OK, no more processing
-    if (error_code_ == ERROR_CODE_OK) {
+    if (LIKELY(error_code_ == ERROR_CODE_OK)) {
         return;
     }
     // augment custom error message
-    if (custom_message_ != NULL) {
+    if (custom_message_) {
         // concat
         size_t cur_len = std::strlen(custom_message_);
         size_t more_len = std::strlen(more_custom_message);
         char *copied = new char[cur_len + more_len + 1];
-        custom_message_ = copied;
-        std::memcpy(copied, custom_message_, cur_len);
-        std::memcpy(copied + cur_len, more_custom_message, more_len + 1);
+        if (copied) {
+            custom_message_ = copied;
+            std::memcpy(copied, custom_message_, cur_len);
+            std::memcpy(copied + cur_len, more_custom_message, more_len + 1);
+        }
     } else {
         copy_custom_message(more_custom_message);  // just put the new message
     }
@@ -409,7 +395,7 @@ inline const char* ErrorStack::get_func(uint16_t stack_index) const {
 
 inline void ErrorStack::verify() const {
     // Invariant: if ERROR_CODE_OK, no more processing
-    if (error_code_ == ERROR_CODE_OK) {
+    if (LIKELY(error_code_ == ERROR_CODE_OK)) {
         return;
     }
     if (!checked_) {
@@ -477,7 +463,7 @@ inline void ErrorStack::verify() const {
 #define CHECK_ERROR(x)\
 {\
     foedus::ErrorStack __e(x);\
-    if (__e.is_error()) {return foedus::ErrorStack(__e, __FILE__, __FUNCTION__, __LINE__);}\
+    if (LIKELY(__e.is_error())) {return foedus::ErrorStack(__e, __FILE__, __FUNCTION__, __LINE__);}\
 }
 
 /**
@@ -496,7 +482,9 @@ inline void ErrorStack::verify() const {
 #define CHECK_ERROR_MSG(x, m)\
 {\
     foedus::ErrorStack __e(x);\
-    if (__e.is_error()) {return foedus::ErrorStack(__e, __FILE__, __FUNCTION__, __LINE__, m);}\
+    if (LIKELY(__e.is_error())) {\
+        return foedus::ErrorStack(__e, __FILE__, __FUNCTION__, __LINE__, m);\
+    }\
 }
 
 /**
@@ -517,7 +505,9 @@ inline void ErrorStack::verify() const {
 #define COERCE_ERROR(x)\
 {\
     foedus::ErrorStack __e(x);\
-    if (__e.is_error()) {__e.dump_and_abort("Unexpected error happened");}\
+    if (LIKELY(__e.is_error())) {\
+        __e.dump_and_abort("Unexpected error happened");\
+    }\
 }
 
 #endif  // FOEDUS_ERROR_STACK_HPP_

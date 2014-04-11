@@ -8,6 +8,7 @@
 #include <foedus/error_stack.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
+#include <foedus/memory/aligned_memory.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <cassert>
@@ -32,7 +33,7 @@ namespace memory {
 class EngineMemory : public DefaultInitializable {
  public:
     EngineMemory() CXX11_FUNC_DELETE;
-    explicit EngineMemory(Engine* engine) : engine_(engine) {}
+    explicit EngineMemory(Engine* engine) CXX11_NOEXCEPT : engine_(engine) {}
     ErrorStack  initialize_once() CXX11_OVERRIDE;
     ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
@@ -41,7 +42,6 @@ class EngineMemory : public DefaultInitializable {
         assert(node_memories_.size() <= foedus::thread::MAX_THREAD_GROUP_ID);
         return static_cast<foedus::thread::ThreadGroupId>(node_memories_.size());
     }
-    std::vector<NumaNodeMemory*>& get_node_memories() { return node_memories_; }
     NumaNodeMemory* get_node_memory(foedus::thread::ThreadGroupId group) const {
         return node_memories_[group];
     }
@@ -55,6 +55,9 @@ class EngineMemory : public DefaultInitializable {
      * Index is NUMA node ID.
      */
     std::vector<NumaNodeMemory*>    node_memories_;
+
+    /** Page pool for volatile read/write store (VolatilePage). */
+    AlignedMemory                   volatile_page_pool_;
 };
 }  // namespace memory
 }  // namespace foedus
