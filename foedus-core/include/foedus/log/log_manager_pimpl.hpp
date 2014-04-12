@@ -16,7 +16,7 @@ namespace log {
  * A private pimpl object for LogManager.
  * Do not include this header from a client program unless you know what you are doing.
  */
-class LogManagerPimpl : public DefaultInitializable {
+class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
  public:
     LogManagerPimpl() = delete;
     explicit LogManagerPimpl(Engine* engine) : engine_(engine) {}

@@ -23,7 +23,7 @@ namespace memory {
  * So, all memories here are allocated/freed via ::numa_alloc_interleaved(), ::numa_alloc_onnode(),
  * and ::numa_free() (except the user specifies to not use them).
  */
-class NumaNodeMemory : public DefaultInitializable {
+class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
  public:
     NumaNodeMemory() CXX11_FUNC_DELETE;
     NumaNodeMemory(Engine* engine, foedus::thread::ThreadGroupId numa_node);

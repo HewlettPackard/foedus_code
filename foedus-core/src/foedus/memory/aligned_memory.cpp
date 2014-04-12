@@ -60,7 +60,7 @@ void AlignedMemory::release_block() {
             default:
                 assert(false);
         }
-        block_ = NULL;
+        block_ = nullptr;
     }
 }
 

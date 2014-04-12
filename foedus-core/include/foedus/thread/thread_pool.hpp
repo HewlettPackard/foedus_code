@@ -155,7 +155,7 @@ class ImpersonateTask {
  * Actually, this class is based on std::shared_future just to provide copy semantics
  * for non-C++11 clients. Additional overheads shouldn't matter, hopeully.
  */
-class ImpersonateSession {
+class ImpersonateSession CXX11_FINAL {
  public:
     friend class ThreadPoolPimpl;
     /** Result of wait_for() */
@@ -233,14 +233,14 @@ class ImpersonateSession {
  * We throttle sessions, meaning impersonate() blocks when there is no available
  * thread. To avoid waiting too long, impersonate() receives timeout parameter.
  */
-class ThreadPool : public virtual Initializable {
+class ThreadPool CXX11_FINAL : public virtual Initializable {
  public:
     ThreadPool() CXX11_FUNC_DELETE;
     explicit ThreadPool(Engine *engine);
     ~ThreadPool();
-    ErrorStack  initialize() CXX11_OVERRIDE CXX11_FINAL;
-    bool        is_initialized() const CXX11_OVERRIDE CXX11_FINAL;
-    ErrorStack  uninitialize() CXX11_OVERRIDE CXX11_FINAL;
+    ErrorStack  initialize() CXX11_OVERRIDE;
+    bool        is_initialized() const CXX11_OVERRIDE;
+    ErrorStack  uninitialize() CXX11_OVERRIDE;
 
     /**
      * @brief Impersonate as one of pre-allocated threads in this engine, calling

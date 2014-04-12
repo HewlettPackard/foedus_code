@@ -13,7 +13,7 @@ void ErrorStack::output(std::ostream* ptr) const {
         o << "No error";
     } else {
         o << get_error_name(error_code_) << "(" << error_code_ << "):" << get_message();
-        if (get_custom_message() != NULL) {
+        if (get_custom_message()) {
             o << ":" << get_custom_message();
         }
 

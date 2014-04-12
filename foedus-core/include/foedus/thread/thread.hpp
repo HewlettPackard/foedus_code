@@ -14,15 +14,15 @@ namespace thread {
  * @ingroup THREAD
  * @details
  */
-class Thread : public virtual Initializable {
+class Thread CXX11_FINAL : public virtual Initializable {
  public:
     friend class ThreadPoolPimpl;
     Thread() CXX11_FUNC_DELETE;
     explicit Thread(Engine* engine, ThreadGroupPimpl* group, ThreadId id);
     ~Thread();
-    ErrorStack  initialize() CXX11_OVERRIDE CXX11_FINAL;
-    bool        is_initialized() const CXX11_OVERRIDE CXX11_FINAL;
-    ErrorStack  uninitialize() CXX11_OVERRIDE CXX11_FINAL;
+    ErrorStack  initialize() CXX11_OVERRIDE;
+    bool        is_initialized() const CXX11_OVERRIDE;
+    ErrorStack  uninitialize() CXX11_OVERRIDE;
 
     Engine*     get_engine() const;
 

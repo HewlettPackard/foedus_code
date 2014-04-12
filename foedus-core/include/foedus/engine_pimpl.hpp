@@ -13,6 +13,7 @@
 #include <foedus/fs/filesystem.hpp>
 #include <foedus/log/log_manager.hpp>
 #include <foedus/memory/engine_memory.hpp>
+#include <foedus/storage/storage_manager.hpp>
 #include <foedus/thread/thread_pool.hpp>
 namespace foedus {
 /**
@@ -22,12 +23,12 @@ namespace foedus {
  * A private pimpl object for Engine.
  * Do not include this header from a client program unless you know what you are doing.
  */
-class EnginePimpl : public DefaultInitializable {
+class EnginePimpl final : public DefaultInitializable {
  public:
     EnginePimpl() = delete;
     explicit EnginePimpl(Engine* engine, const EngineOptions &options);
-    ErrorStack  initialize_once() override final;
-    ErrorStack  uninitialize_once() override final;
+    ErrorStack  initialize_once() override;
+    ErrorStack  uninitialize_once() override;
 
     /** Options given at boot time. Immutable once constructed. */
     const EngineOptions             options_;
@@ -46,9 +47,10 @@ class EnginePimpl : public DefaultInitializable {
      */
     debugging::DebuggingSupports    debug_;
     fs::Filesystem                  filesystem_;
-    memory::EngineMemory            memory_;
+    memory::EngineMemory            memory_manager_;
     thread::ThreadPool              thread_pool_;
     log::LogManager                 log_manager_;
+    storage::StorageManager         storage_manager_;
 };
 }  // namespace foedus
 #endif  // FOEDUS_ENGINE_PIMPL_HPP_

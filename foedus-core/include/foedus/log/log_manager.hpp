@@ -13,7 +13,7 @@ namespace log {
  * @brief Log Manager class that provides API to write/read transaction logs.
  * @ingroup LOG
  */
-class LogManager : public virtual Initializable {
+class LogManager CXX11_FINAL : public virtual Initializable {
  public:
     explicit LogManager(Engine* engine);
     ~LogManager();

@@ -23,7 +23,7 @@ namespace thread {
  * Especially, this class heavily uses C++11 classes, which is why we separate this class
  * from Thread. Be aware of notices in \ref CXX11 unless your client program allows C++11.
  */
-class ThreadPimpl : public DefaultInitializable {
+class ThreadPimpl final : public DefaultInitializable {
  public:
     ThreadPimpl() = delete;
     ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder, ThreadId id)

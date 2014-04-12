@@ -11,7 +11,7 @@ LogManager::LogManager(Engine* engine) {
 }
 LogManager::~LogManager() {
     delete pimpl_;
-    pimpl_ = NULL;
+    pimpl_ = nullptr;
 }
 
 ErrorStack  LogManager::initialize() { return pimpl_->initialize(); }

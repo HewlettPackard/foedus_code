@@ -12,6 +12,7 @@
 #include <foedus/fs/fwd.hpp>
 #include <foedus/log/fwd.hpp>
 #include <foedus/memory/fwd.hpp>
+#include <foedus/storage/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
 namespace foedus {
 
@@ -65,7 +66,7 @@ class EngineOptions;
  * @details
  * Detailed description of this class.
  */
-class Engine : public virtual Initializable {
+class Engine CXX11_FINAL : public virtual Initializable {
  public:
     /**
      * @brief Instantiates an engine object which is \b NOT initialized yet.
@@ -115,11 +116,13 @@ class Engine : public virtual Initializable {
     /** See \ref FILESYSTEM */
     fs::Filesystem&                 get_filesystem() const;
     /** See \ref LOG */
-    log::LogManager&                get_log() const;
+    log::LogManager&                get_log_manager() const;
     /** See \ref MEMORY */
-    memory::EngineMemory&           get_memory() const;
+    memory::EngineMemory&           get_memory_manager() const;
     /** See \ref THREAD */
     thread::ThreadPool&             get_thread_pool() const;
+    /** See \ref STORAGE */
+    storage::StorageManager&        get_storage_manager() const;
 
  private:
     EnginePimpl* pimpl_;

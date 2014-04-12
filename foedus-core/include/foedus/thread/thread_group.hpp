@@ -16,15 +16,15 @@ namespace thread {
  * @details
  * Detailed description of this class.
  */
-class ThreadGroup : public virtual Initializable {
+class ThreadGroup CXX11_FINAL : public virtual Initializable {
  public:
     friend class ThreadPoolPimpl;
     ThreadGroup() CXX11_FUNC_DELETE;
     ThreadGroup(Engine* engine, ThreadGroupId group_id);
     ~ThreadGroup();
-    ErrorStack  initialize() CXX11_OVERRIDE CXX11_FINAL;
-    bool        is_initialized() const CXX11_OVERRIDE CXX11_FINAL;
-    ErrorStack  uninitialize() CXX11_OVERRIDE CXX11_FINAL;
+    ErrorStack  initialize() CXX11_OVERRIDE;
+    bool        is_initialized() const CXX11_OVERRIDE;
+    ErrorStack  uninitialize() CXX11_OVERRIDE;
 
     ThreadGroupId           get_group_id() const;
     memory::NumaNodeMemory* get_node_memory() const;

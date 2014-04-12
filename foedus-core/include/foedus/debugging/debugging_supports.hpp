@@ -15,7 +15,7 @@ namespace debugging {
  * @brief APIs to support debugging functionalities.
  * @ingroup DEBUGGING
  */
-class DebuggingSupports : public DefaultInitializable {
+class DebuggingSupports CXX11_FINAL : public DefaultInitializable {
  public:
     DebuggingSupports() CXX11_FUNC_DELETE;
     explicit DebuggingSupports(Engine* engine) : engine_(engine) {}

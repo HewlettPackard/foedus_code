@@ -101,7 +101,7 @@ struct SpaceInfo  {
  * This class resembles boost::filesystem namespace.
  * However, this is a class, not a namespace, to receive FilesystemOptions.
  */
-class Filesystem : public virtual Initializable {
+class Filesystem CXX11_FINAL : public virtual Initializable {
  public:
     explicit Filesystem(Engine *engine);
 

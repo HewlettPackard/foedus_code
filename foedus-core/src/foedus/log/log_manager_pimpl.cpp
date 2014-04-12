@@ -7,9 +7,11 @@
 #include <foedus/log/log_manager_pimpl.hpp>
 #include <foedus/log/log_options.hpp>
 #include <foedus/thread/thread_pool.hpp>
+#include <glog/logging.h>
 namespace foedus {
 namespace log {
 ErrorStack LogManagerPimpl::initialize_once() {
+    LOG(INFO) << "Initializing LogManager..";
     if (!engine_->get_thread_pool().is_initialized()) {
         return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
     }
@@ -17,6 +19,7 @@ ErrorStack LogManagerPimpl::initialize_once() {
 }
 
 ErrorStack LogManagerPimpl::uninitialize_once() {
+    LOG(INFO) << "Uninitializing LogManager..";
     ErrorStackBatch batch;
     if (!engine_->get_thread_pool().is_initialized()) {
         batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));

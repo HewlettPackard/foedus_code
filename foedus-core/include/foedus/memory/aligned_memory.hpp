@@ -45,7 +45,7 @@ namespace memory {
  *
  * @todo Support Windows' VirtualAlloc() and VirtualFree().
  */
-class AlignedMemory {
+class AlignedMemory CXX11_FINAL {
  public:
     /**
      * @brief Type of new/delete operation for the block.
@@ -112,7 +112,7 @@ class AlignedMemory {
     /** Returns the memory block. */
     void*       get_block() const { return block_; }
     /** Returns if this object doesn't hold a valid memory block. */
-    bool        is_null() const { return block_ == NULL; }
+    bool        is_null() const { return block_ == CXX11_NULLPTR; }
     /** Returns the byte size of the memory block. */
     size_t      get_size() const { return size_; }
     /** Returns the alignment of the memory block. */

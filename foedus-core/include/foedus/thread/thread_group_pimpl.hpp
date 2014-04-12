@@ -17,7 +17,7 @@ namespace thread {
  * A private pimpl object for ThreadGroup.
  * Do not include this header from a client program unless you know what you are doing.
  */
-class ThreadGroupPimpl : public DefaultInitializable {
+class ThreadGroupPimpl final : public DefaultInitializable {
  public:
     ThreadGroupPimpl() = delete;
     ThreadGroupPimpl(Engine* engine, ThreadGroupId group_id)

@@ -45,7 +45,7 @@ ThreadPool::ThreadPool(Engine *engine) {
 }
 ThreadPool::~ThreadPool() {
     delete pimpl_;
-    pimpl_ = NULL;
+    pimpl_ = nullptr;
 }
 
 ErrorStack ThreadPool::initialize() { return pimpl_->initialize(); }

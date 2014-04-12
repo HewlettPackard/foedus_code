@@ -40,12 +40,11 @@ ImpersonateSession::Status ImpersonateSessionPimpl::wait_for(TimeoutMicrosec tim
 
 
 ErrorStack ThreadPoolPimpl::initialize_once() {
-    if (!engine_->get_memory().is_initialized()) {
+    if (!engine_->get_memory_manager().is_initialized()) {
         return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
     }
     no_more_impersonation_ = false;
     const ThreadOptions &options = engine_->get_options().thread_;
-    assert(engine_->get_memory().is_initialized());
     for (ThreadGroupId group_id = 0; group_id < options.group_count_; ++group_id) {
         groups_.push_back(new ThreadGroup(engine_, group_id));
         CHECK_ERROR(groups_.back()->initialize());
@@ -55,7 +54,7 @@ ErrorStack ThreadPoolPimpl::initialize_once() {
 
 ErrorStack ThreadPoolPimpl::uninitialize_once() {
     ErrorStackBatch batch;
-    if (!engine_->get_memory().is_initialized()) {
+    if (!engine_->get_memory_manager().is_initialized()) {
         batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
     }
 

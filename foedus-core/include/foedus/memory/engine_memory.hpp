@@ -30,7 +30,7 @@ namespace memory {
  * So far we allocate separate memory for the second and third.
  * But, there is no fundamental reason to do so. It's for simplicity, and we might revisit it.
  */
-class EngineMemory : public DefaultInitializable {
+class EngineMemory CXX11_FINAL : public DefaultInitializable {
  public:
     EngineMemory() CXX11_FUNC_DELETE;
     explicit EngineMemory(Engine* engine) CXX11_NOEXCEPT : engine_(engine) {}

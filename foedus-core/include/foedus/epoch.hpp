@@ -16,6 +16,7 @@ namespace foedus {
  * bluh bluh.
  * @par Who/When Epoch is Incremented
  * bluh bluh.
+ * @todo move to its own namespace
  */
 
 /**

@@ -95,14 +95,14 @@ class ErrorStack {
      * we do deep-copy, so it's EXPENSIVE!
      */
     ErrorStack(const char* filename, const char* func, uint32_t linenum, ErrorCode code,
-                const char* custom_message = NULL);
+                const char* custom_message = CXX11_NULLPTR);
 
     /** Copy constructor. */
     ErrorStack(const ErrorStack &other);
 
     /** Copy constructor to augment the stacktrace. */
     ErrorStack(const ErrorStack &other, const char* filename, const char* func, uint32_t linenum,
-                const char* more_custom_message = NULL);
+                const char* more_custom_message = CXX11_NULLPTR);
 
     /** Assignment operator. */
     ErrorStack& operator=(const ErrorStack &other);
@@ -273,7 +273,7 @@ inline ErrorStack& ErrorStack::operator=(const ErrorStack &other) {
 
     // this copy assignment is actually a move assignment. these two are mutable for that.
     other.checked_ = true;
-    other.custom_message_ = NULL;  // simply stolen. much more efficient.
+    other.custom_message_ = CXX11_NULLPTR;  // simply stolen. much more efficient.
     return *this;
 }
 
@@ -353,7 +353,7 @@ inline const char* ErrorStack::get_message() const {
 inline const char* ErrorStack::get_custom_message() const {
     // Invariant: if ERROR_CODE_OK, no more processing
     if (error_code_ == ERROR_CODE_OK) {
-        return NULL;
+        return CXX11_NULLPTR;
     }
     return custom_message_;
 }
@@ -378,7 +378,7 @@ inline uint16_t ErrorStack::get_linenum(uint16_t stack_index) const {
 inline const char* ErrorStack::get_filename(uint16_t stack_index) const {
     // Invariant: if ERROR_CODE_OK, no more processing
     if (error_code_ == ERROR_CODE_OK) {
-        return NULL;
+        return CXX11_NULLPTR;
     }
     assert(stack_index < stack_depth_);
     return filenames_[stack_index];
@@ -387,7 +387,7 @@ inline const char* ErrorStack::get_filename(uint16_t stack_index) const {
 inline const char* ErrorStack::get_func(uint16_t stack_index) const {
     // Invariant: if ERROR_CODE_OK, no more processing
     if (error_code_ == ERROR_CODE_OK) {
-        return NULL;
+        return CXX11_NULLPTR;
     }
     assert(stack_index < stack_depth_);
     return funcs_[stack_index];

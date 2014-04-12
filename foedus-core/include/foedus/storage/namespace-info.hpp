@@ -13,12 +13,12 @@
  * This layer has no idea about what is stored, thus no notion of columns either.
  *
  * @section TYPES Types of Storage
- * So far we provide four types of storages; \ref ARRAY, \ref HASH, \ref HEAP, and \ref MASSTREE.
- * Choose the type of storage based on the data to store and access patterns.
+ * So far we provide four types of storages; \ref ARRAY, \ref HASH, \ref SEQUENTIAL,
+ * and \ref MASSTREE. Choose the type of storage based on the data to store and access patterns.
  *  \li \ref ARRAY is extremely simple, fast, and compact (doesn't even store keys), but it only
  * works for arrays that are fix-sized, dense, and regular.
  *  \li \ref HASH is also simple, fast, and yet general except it can't process range accesses.
- *  \li \ref HEAP is very simple and fast, but it can do only appends and full scans.
+ *  \li \ref SEQUENTIAL is very simple and fast, but it can do only appends and full scans.
  *  \li \ref MASSTREE is the most general, addressing all the issues above. But, it's not as
  * simple/fast as others (though optimized as much as possible for many-cores).
  *
@@ -26,7 +26,7 @@
  * In general, you should use \ref HASH or \ref MASSTREE for most tables/indexes.
  * If the access pattern contains range accesses, equality on prefix, and non-equality, then
  * pick \ref HASH. Otherwise, \ref MASSTREE.
- * Use \ref ARRAY and \ref HEAP where they shine; when you literally needs
+ * Use \ref ARRAY and \ref SEQUENTIAL where they shine; when you literally needs
  * arrays and append-only data.
  */
 

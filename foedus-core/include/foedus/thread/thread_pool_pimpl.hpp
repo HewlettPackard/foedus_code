@@ -22,7 +22,7 @@ namespace thread {
  * A private pimpl object for ImpersonateSession.
  * Do not include this header from a client program unless you know what you are doing.
  */
-class ImpersonateSessionPimpl {
+class ImpersonateSessionPimpl final {
  public:
     explicit ImpersonateSessionPimpl(ImpersonateTask* task) : thread_(nullptr), task_(task) {}
     ImpersonateSessionPimpl(const ImpersonateSessionPimpl& other) { operator=(other); }
@@ -57,12 +57,12 @@ class ImpersonateSessionPimpl {
  * A private pimpl object for ThreadPool.
  * Do not include this header from a client program unless you know what you are doing.
  */
-class ThreadPoolPimpl : public DefaultInitializable {
+class ThreadPoolPimpl final : public DefaultInitializable {
  public:
     ThreadPoolPimpl() = delete;
     explicit ThreadPoolPimpl(Engine* engine) : engine_(engine), no_more_impersonation_(false) {}
-    ErrorStack  initialize_once() override final;
-    ErrorStack  uninitialize_once() override final;
+    ErrorStack  initialize_once() override;
+    ErrorStack  uninitialize_once() override;
 
     ImpersonateSession  impersonate(ImpersonateTask* functor, TimeoutMicrosec timeout);
     ImpersonateSession  impersonate_on_numa_node(ImpersonateTask* functor,

@@ -16,7 +16,7 @@ ThreadGroup::ThreadGroup(Engine *engine, ThreadGroupId group_id) {
 }
 ThreadGroup::~ThreadGroup() {
     delete pimpl_;
-    pimpl_ = NULL;
+    pimpl_ = nullptr;
 }
 
 ErrorStack ThreadGroup::initialize() { return pimpl_->initialize(); }

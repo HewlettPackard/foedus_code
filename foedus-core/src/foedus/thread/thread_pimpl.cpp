@@ -17,7 +17,7 @@
 namespace foedus {
 namespace thread {
 ErrorStack ThreadPimpl::initialize_once() {
-    core_memory_ = engine_->get_memory().get_core_memory(id_);
+    core_memory_ = engine_->get_memory_manager().get_core_memory(id_);
     raw_thread_ = new std::thread(&ThreadPimpl::handle_tasks, this);
     if (raw_thread_ == nullptr) {
         return ERROR_STACK(ERROR_CODE_OUTOFMEMORY);
@@ -29,9 +29,9 @@ ErrorStack ThreadPimpl::uninitialize_once() {
         impersonated_task_.set_value(nullptr);  // this signals that the thread should exit.
         raw_thread_->join();
         delete raw_thread_;
-        raw_thread_ = NULL;
+        raw_thread_ = nullptr;
     }
-    core_memory_ = NULL;
+    core_memory_ = nullptr;
     return RET_OK;
 }
 
