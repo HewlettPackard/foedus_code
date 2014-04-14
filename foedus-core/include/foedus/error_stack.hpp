@@ -137,7 +137,7 @@ class ErrorStack {
     uint16_t            get_stack_depth() const;
 
     /** Returns the line number of the given stack position. */
-    uint16_t            get_linenum(uint16_t stack_index) const;
+    uint32_t            get_linenum(uint16_t stack_index) const;
 
     /** Returns the file name of the given stack position. */
     const char*         get_filename(uint16_t stack_index) const;
@@ -173,7 +173,7 @@ class ErrorStack {
     const char*     funcs_[MAX_STACK_DEPTH];
 
     /** @brief Line numbers of stacktraces. */
-    uint16_t        linenums_[MAX_STACK_DEPTH];
+    uint32_t        linenums_[MAX_STACK_DEPTH];
 
     /**
      * @brief Optional custom error message.
@@ -185,7 +185,7 @@ class ErrorStack {
 
     /**
      * @brief Integer error code.
-     * @section Invariant Important invariants
+     * @invariant
      * If this value is ERROR_CODE_OK, all other members have no meanings and we might not even
      * bother clearing them for better performance because that's by far the common case.
      * So, all functions in this class should first check if this value is ERROR_CODE_OK or not
@@ -366,7 +366,7 @@ inline uint16_t ErrorStack::get_stack_depth() const {
     return stack_depth_;
 }
 
-inline uint16_t ErrorStack::get_linenum(uint16_t stack_index) const {
+inline uint32_t ErrorStack::get_linenum(uint16_t stack_index) const {
     // Invariant: if ERROR_CODE_OK, no more processing
     if (error_code_ == ERROR_CODE_OK) {
         return 0;

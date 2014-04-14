@@ -14,10 +14,10 @@ namespace foedus {
 namespace storage {
 namespace array {
 /**
- * @brief Pimpl object of LogManager.
+ * @brief Pimpl object of ArrayStorage.
  * @ingroup LOG
  * @details
- * A private pimpl object for LogManager.
+ * A private pimpl object for ArrayStorage.
  * Do not include this header from a client program unless you know what you are doing.
  */
 class ArrayStoragePimpl final : public DefaultInitializable {

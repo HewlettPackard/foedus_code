@@ -25,6 +25,7 @@ class Thread CXX11_FINAL : public virtual Initializable {
     ErrorStack  uninitialize() CXX11_OVERRIDE;
 
     Engine*     get_engine() const;
+    ThreadId    get_thread_id() const;
 
  private:
     ThreadPimpl*    pimpl_;

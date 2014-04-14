@@ -15,8 +15,10 @@ namespace foedus {
 namespace storage {
 
 /**
- * A constant defining the page size (in bytes) of both snapshot pages and volatile pages.
+ * @brief A constant defining the page size (in bytes) of both snapshot pages and volatile pages.
  * @ingroup STORAGE
+ * @details
+ * This number must be at least 4kb (2^12) because that's Linux's page alignment.
  */
 const uint16_t PAGE_SIZE = 1 << 12;
 
@@ -26,7 +28,7 @@ const uint16_t PAGE_SIZE = 1 << 12;
  * @details
  * bluh
  */
-typedef uint32_t VolatilePageId;
+typedef uint32_t StorageId;
 
 /**
  * @brief bluh
@@ -34,7 +36,31 @@ typedef uint32_t VolatilePageId;
  * @details
  * bluh
  */
-typedef uint32_t StorageId;
+typedef uint32_t ModCount;
+
+/**
+ * @brief bluh
+ * @ingroup STORAGE
+ * @details
+ * bluh
+ */
+typedef uint64_t Checksum;
+
+/**
+ * @brief bluh
+ * @ingroup STORAGE
+ * @details
+ * bluh
+ */
+union VolatilePagePointer {
+    uint64_t        word;
+
+    struct components {
+        ModCount    mod_count;
+        uint32_t    offset;
+    };
+};
+
 
 /**
  * @brief Represents a pointer to another page (usually a child page).
@@ -51,8 +77,8 @@ struct DualPagePointer {
 
     friend std::ostream& operator<<(std::ostream& o, const DualPagePointer& v);
 
-    uint64_t    snapshot_page_id_;
-    VolatilePageId  volatile_page_id_;
+    uint64_t            snapshot_page_id_;
+    VolatilePagePointer volatile_pointer_;
 };
 
 }  // namespace storage

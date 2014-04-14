@@ -6,7 +6,6 @@
 #include <foedus/engine.hpp>
 #include <foedus/engine_options.hpp>
 #include <glog/logging.h>
-#include <atomic>
 #include <mutex>
 #include <string>
 namespace foedus {
@@ -32,8 +31,7 @@ int         static_glog_initialize_counter = 0;
 std::mutex  static_glog_initialize_lock;
 
 void DebuggingSupports::initialize_glog() {
-    std::lock_guard<std::mutex> guard(static_glog_initialize_lock);
-    std::atomic_thread_fence(std::memory_order_acquire);
+    std::lock_guard<std::mutex> guard(static_glog_initialize_lock);  // implies fence too
     assert(static_glog_initialize_counter >= 0);
     if (static_glog_initialize_counter == 0) {
         // Set the glog configurations.
@@ -50,12 +48,10 @@ void DebuggingSupports::initialize_glog() {
         LOG(INFO) << "initialize_glog(): Observed that someone else has initialized GLOG";
     }
     ++static_glog_initialize_counter;
-    std::atomic_thread_fence(std::memory_order_release);
 }
 
 void DebuggingSupports::uninitialize_glog() {
-    std::lock_guard<std::mutex> guard(static_glog_initialize_lock);
-    std::atomic_thread_fence(std::memory_order_acquire);
+    std::lock_guard<std::mutex> guard(static_glog_initialize_lock);  // implies fence too
     assert(static_glog_initialize_counter >= 1);
     if (static_glog_initialize_counter == 1) {
         LOG(INFO) << "uninitialize_glog(): Uninitializing GLOG...";
@@ -64,7 +60,6 @@ void DebuggingSupports::uninitialize_glog() {
         LOG(INFO) << "uninitialize_glog(): There are still some other GLOG user.";
     }
     --static_glog_initialize_counter;
-    std::atomic_thread_fence(std::memory_order_release);
 }
 
 ErrorStack DebuggingSupports::initialize_once() {

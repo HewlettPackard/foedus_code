@@ -9,46 +9,9 @@
 #include <foedus/thread/fwd.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/thread/thread_pool.hpp>
-#include <future>
-#include <thread>
 #include <vector>
 namespace foedus {
 namespace thread {
-
-/**
- * @brief Pimpl object of ImpersonateSession.
- * @ingroup THREADPOOL
- * @details
- * A private pimpl object for ImpersonateSession.
- * Do not include this header from a client program unless you know what you are doing.
- */
-class ImpersonateSessionPimpl final {
- public:
-    explicit ImpersonateSessionPimpl(ImpersonateTask* task) : thread_(nullptr), task_(task) {}
-    ImpersonateSessionPimpl(const ImpersonateSessionPimpl& other) { operator=(other); }
-    ImpersonateSessionPimpl& operator=(const ImpersonateSessionPimpl& other) {
-        thread_ = other.thread_;
-        task_ = other.task_;
-        failure_cause_ = other.failure_cause_;
-        result_future_ = other.result_future_;
-        return *this;
-    }
-
-    bool is_valid() const { return thread_ != nullptr; }
-    ImpersonateSession::Status wait_for(TimeoutMicrosec timeout) const;
-
-    /** The impersonated thread. If impersonation failed, NULL. */
-    Thread*             thread_;
-
-    /** The impersonated task running on this session. */
-    ImpersonateTask*    task_;
-
-    /** If impersonation failed, this indicates why it failed. */
-    ErrorStack          failure_cause_;
-
-    /** Expected result of the impersonated task. */
-    std::shared_future<ErrorStack> result_future_;
-};
 
 /**
  * @brief Pimpl object of ThreadPool.

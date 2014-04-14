@@ -45,7 +45,7 @@ class ThreadPimpl final : public DefaultInitializable {
      * @param[in] session the session to run on this thread
      * @return whether successfully impersonated.
      */
-    bool        try_impersonate(ImpersonateSessionPimpl *session);
+    bool        try_impersonate(ImpersonateSession *session);
 
     Engine* const           engine_;
 

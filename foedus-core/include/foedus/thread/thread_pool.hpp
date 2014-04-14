@@ -9,6 +9,8 @@
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/thread/fwd.hpp>
+#include <foedus/thread/impersonate_session.hpp>
+#include <foedus/thread/impersonate_task.hpp>
 namespace foedus {
 namespace thread {
 
@@ -89,7 +91,7 @@ namespace thread {
  *     if (session.is_valid()) {
  *         std::cout << "result=" << session.get_result() << std::endl;
  *     } else {
- *         std::cout << "session didn't start=" << session.get_invalid_cause() << std::endl;
+ *         std::cout << "session didn't start=" << session.invalid_cause_ << std::endl;
  *     }
  *     if (engine.uninitialize().is_error()) {
  *         return 1;
@@ -99,128 +101,6 @@ namespace thread {
  * }
  * @endcode
  */
-
-/**
- * @brief A pure-virtual functor object to be executed when impersonation succedes.
- * @ingroup THREADPOOL
- * @details
- * The user program should define a class that derives from this class and pass it to
- * ThreadPool#impersonate(). Each task might be fine-grained (eg. one short transaction as a task)
- * or coarse-graiend (eg. a series of transactions assigned to one thread/CPU-core, like DORA).
- * This interface is totally general, so it's up to the client.
- */
-class ImpersonateTask {
- public:
-    virtual ~ImpersonateTask() {}
-
-    /**
-     * @brief The method called back from the engine on one of its pooled threads.
-     * @param[in] context the impersonated thread
-     * @details
-     * Note that the thread calling this method is NOT the client program's thread
-     * that invoked ThreadPool#impersonate(), but an asynchronous thread that was pre-allocated
-     * in the engine.
-     * When this method returns, the engine releases the impersonated thread to the thread pool
-     * so that other clients can grab it for new sessions.
-     */
-    virtual ErrorStack run(Thread* context) = 0;
-};
-
-/**
- * @brief A user session running on an \e impersonated thread.
- * @ingroup THREADPOOL
- * @details
- * @par Overview
- * This object represents an impersonated session, which is obtained by calling
- * ThreadPool#impersonate() and running the given task on a pre-allocated thread.
- * This object also works as a \e future to synchronously or asynchronously
- * wait for the completion of the functor from the client program's thread.
- *
- * @par Result of Impersonation
- * The client program has to first check is_valid() for the given session because
- * there are two possible cases as the result of impersonation.
- *  \li Impersonation succeded (is_valid()==true), running the task on the impersonated thread.
- * In this case, the client's thread (original thread that invoked ThreadPool#impersonate()) can
- * either wait for the end of the impersonated thread (call wait() or wait_for()),
- * or do other things (e.g., launch more impersonated threads).
- *
- *  \li Impersonation failed (is_valid()==false). This might happen for various reasons; timeout,
- * the engine shuts down while waiting, unexpected errors, etc.
- * In this case, get_invalid_cause() indicates the causes of the failed impersonation.
- *
- * @par Wait for the completion of the session
- * When is_valid()==true, this object also behaves as std::shared_future<ErrorStack>,
- * and we actually use it. But, because of the \ref CXX11 issue, we wrap it as a usual class.
- * This object is copiable like std::shared_future, not std::future.
- * Actually, this class is based on std::shared_future just to provide copy semantics
- * for non-C++11 clients. Additional overheads shouldn't matter, hopeully.
- */
-class ImpersonateSession CXX11_FINAL {
- public:
-    friend class ThreadPoolPimpl;
-    /** Result of wait_for() */
-    enum Status {
-        /** If called for an invalid session. */
-        INVALID_SESSION = 0,
-        /** The session has completed. */
-        READY,
-        /** Timeout duration has elapsed. */
-        TIMEOUT,
-    };
-
-    explicit ImpersonateSession(ImpersonateTask* task);
-    ~ImpersonateSession();
-    ImpersonateSession(const ImpersonateSession& other);
-    ImpersonateSession& operator=(const ImpersonateSession& other);
-
-    /**
-     * Returns if the impersonation succeeded.
-     */
-    bool is_valid() const;
-
-    /**
-     * Returns the error stack of the impersonation failure.
-     * @pre is_valid()==false
-     */
-    ErrorStack  get_invalid_cause() const;
-    /** Sets  the error stack of the impersonation failure. */
-    void        set_invalid_cause(ErrorStack cause);
-
-    /** Returns the impersonated task running on this session. */
-    ImpersonateTask* get_task() const;
-
-    /**
-     * @brief Waits until the completion of the asynchronous session and retrieves the result.
-     * @details
-     * It effectively calls wait() in order to wait for the result.
-     * The behavior is undefined if is_valid()== false.
-     * This is analogous to std::future::get().
-     * @pre is_valid()==true
-     */
-    ErrorStack get_result();
-
-    /**
-     * @brief Blocks until the completion of the asynchronous session.
-     * @details
-     * The behavior is undefined if is_valid()== false.
-     * It effectively calls wait_for(-1) in order to unconditionally wait for the result.
-     * This is analogous to std::future::wait().
-     * @pre is_valid()==true
-     */
-    void wait() const;
-
-    /**
-     * @brief Waits for the completion of the asynchronous session, blocking until specified timeout
-     * duration has elapsed or the session completes, whichever comes first.
-     * @param[in] timeout timeout duration in microseconds.
-     * @details
-     * This is analogous to std::future::wait_for() although we don't provide std::chrono.
-     */
-    Status wait_for(TimeoutMicrosec timeout) const;
-
- private:
-    ImpersonateSessionPimpl*     pimpl_;
-};
 
 /**
  * @brief The pool of pre-allocated threads in the engine to execute transactions.

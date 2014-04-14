@@ -61,14 +61,15 @@ void ThreadPimpl::handle_tasks() {
     LOG(INFO) << "Thread-" << id_ << " exits";
 }
 
-bool ThreadPimpl::try_impersonate(ImpersonateSessionPimpl *session) {
+bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
     bool cas_tmp = false;
     if (!impersonated_ && std::atomic_compare_exchange_strong(&impersonated_, &cas_tmp, true)) {
         // successfully acquired. set a new promise for this session.
         LOG(INFO) << "Impersonation succeeded for Thread-" << id_ << ". Setting a task..";
         impersonated_task_result_ = std::promise<ErrorStack>();  // this is a promise for ME
         session->thread_ = holder_;
-        session->result_future_ = impersonated_task_result_.get_future().share();
+        *reinterpret_cast< std::shared_future< ErrorStack >* >(session->result_future_)
+            = impersonated_task_result_.get_future().share();
         impersonated_task_.set_value(session->task_);
         return true;
     } else {

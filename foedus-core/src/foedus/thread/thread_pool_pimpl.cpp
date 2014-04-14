@@ -16,29 +16,8 @@
 #include <foedus/engine_options.hpp>
 #include <cassert>
 #include <atomic>
-#include <chrono>
 namespace foedus {
 namespace thread {
-
-ImpersonateSession::Status ImpersonateSessionPimpl::wait_for(TimeoutMicrosec timeout) const {
-    if (!is_valid()) {
-        return ImpersonateSession::INVALID_SESSION;
-    } else if (timeout < 0) {
-        // this means unconditional wait.
-        result_future_.wait();
-        return ImpersonateSession::READY;
-    } else {
-        std::future_status status = result_future_.wait_for(std::chrono::microseconds(timeout));
-        if (status == std::future_status::timeout) {
-            return ImpersonateSession::TIMEOUT;
-        } else {
-            assert(status == std::future_status::ready);
-            return ImpersonateSession::READY;
-        }
-    }
-}
-
-
 ErrorStack ThreadPoolPimpl::initialize_once() {
     if (!engine_->get_memory_manager().is_initialized()) {
         return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
@@ -76,7 +55,7 @@ ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task,
     ImpersonateSession session(task);
     std::atomic_thread_fence(std::memory_order_acquire);
     if (no_more_impersonation_) {
-        session.set_invalid_cause(ERROR_STACK(ERROR_CODE_BEING_SHUTDOWN));
+        session.invalid_cause_ = ERROR_STACK(ERROR_CODE_BEING_SHUTDOWN);
         return session;
     }
 
@@ -84,13 +63,13 @@ ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task,
         ThreadGroupPimpl* group = groups_[i]->pimpl_;
         for (size_t j = 0; j < group->threads_.size(); ++j) {
             Thread* thread = group->threads_[j];
-            if (thread->pimpl_->try_impersonate(session.pimpl_)) {
+            if (thread->pimpl_->try_impersonate(&session)) {
                 return session;
             }
         }
     }
     // TODO(Hideaki) : currently, timeout is ignored. It behaves as if timeout=0
-    session.set_invalid_cause(ERROR_STACK(ERROR_CODE_TIMEOUT));
+    session.invalid_cause_ = ERROR_STACK(ERROR_CODE_TIMEOUT);
     return session;
 }
 ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(ImpersonateTask* task,
@@ -98,19 +77,19 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(ImpersonateTask* ta
     ImpersonateSession session(task);
     std::atomic_thread_fence(std::memory_order_acquire);
     if (no_more_impersonation_) {
-        session.set_invalid_cause(ERROR_STACK(ERROR_CODE_BEING_SHUTDOWN));
+        session.invalid_cause_ = ERROR_STACK(ERROR_CODE_BEING_SHUTDOWN);
         return session;
     }
 
     ThreadGroupPimpl* group = get_group(numa_node)->pimpl_;
     for (size_t i = 0; i < group->threads_.size(); ++i) {
         Thread* thread = group->threads_[i];
-        if (thread->pimpl_->try_impersonate(session.pimpl_)) {
+        if (thread->pimpl_->try_impersonate(&session)) {
             return session;
         }
     }
     // TODO(Hideaki) : currently, timeout is ignored. It behaves as if timeout=0
-    session.set_invalid_cause(ERROR_STACK(ERROR_CODE_TIMEOUT));
+    session.invalid_cause_ = ERROR_STACK(ERROR_CODE_TIMEOUT);
     return session;
 }
 ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_core(ImpersonateTask* task,
@@ -118,14 +97,14 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_core(ImpersonateTask* ta
     ImpersonateSession session(task);
     std::atomic_thread_fence(std::memory_order_acquire);
     if (no_more_impersonation_) {
-        session.set_invalid_cause(ERROR_STACK(ERROR_CODE_BEING_SHUTDOWN));
+        session.invalid_cause_ = ERROR_STACK(ERROR_CODE_BEING_SHUTDOWN);
         return session;
     }
 
     Thread* thread = get_thread(numa_core);
-    if (!thread->pimpl_->try_impersonate(session.pimpl_)) {
+    if (!thread->pimpl_->try_impersonate(&session)) {
         // TODO(Hideaki) : currently, timeout is ignored. It behaves as if timeout=0
-        session.set_invalid_cause(ERROR_STACK(ERROR_CODE_TIMEOUT));
+        session.invalid_cause_ = ERROR_STACK(ERROR_CODE_TIMEOUT);
     }
     return session;
 }
