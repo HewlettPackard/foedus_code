@@ -7,7 +7,7 @@
 namespace foedus {
 namespace storage {
 namespace array {
-void ArrayPage::initialize_data_page(StorageId storage_id, uint32_t payload_size,
+void ArrayPage::initialize_data_page(StorageId storage_id, uint16_t payload_size,
                                             uint8_t node_height, const ArrayRange& array_range) {
     std::memset(this, 0, PAGE_SIZE);
     storage_id_ = storage_id;

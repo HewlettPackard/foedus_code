@@ -15,6 +15,7 @@
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/storage/storage_manager.hpp>
 #include <foedus/thread/thread_pool.hpp>
+#include <foedus/xct/xct_manager.hpp>
 namespace foedus {
 /**
  * @brief Pimpl object of Engine.
@@ -51,6 +52,7 @@ class EnginePimpl final : public DefaultInitializable {
     thread::ThreadPool              thread_pool_;
     log::LogManager                 log_manager_;
     storage::StorageManager         storage_manager_;
+    xct::XctManager                 xct_manager_;
 };
 }  // namespace foedus
 #endif  // FOEDUS_ENGINE_PIMPL_HPP_

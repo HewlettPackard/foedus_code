@@ -12,6 +12,8 @@
 namespace foedus {
 namespace storage {
 namespace array {
+class   ArrayPage;
+struct  ArrayRange;
 class   ArrayStorage;
 class   ArrayStoragePimpl;
 }  // namespace array

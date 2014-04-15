@@ -40,7 +40,7 @@ struct ArrayRange {
  * @brief bluh.
  * @ingroup ARRAY
  */
-const uint16_t HEADER_SIZE = 40;
+const uint16_t HEADER_SIZE = 32;
 /**
  * @brief bluh.
  * @ingroup ARRAY
@@ -51,11 +51,6 @@ const uint16_t INTERIOR_SIZE = 16;
  * @ingroup ARRAY
  */
 const uint16_t INTERIOR_FANOUT = (foedus::storage::PAGE_SIZE - HEADER_SIZE) / INTERIOR_SIZE;
-/**
- * @brief bluh.
- * @ingroup ARRAY
- */
-const uint16_t LEAF_OVERHEAD = 16;
 
 }  // namespace array
 }  // namespace storage

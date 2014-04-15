@@ -14,6 +14,7 @@
 #include <foedus/memory/fwd.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
+#include <foedus/xct/fwd.hpp>
 namespace foedus {
 
 // forward declarations
@@ -41,11 +42,12 @@ class EngineOptions;
  *  \li \ref LOG depend on \ref THREAD and \ref FILESYSTEM.
  *  \li \ref SNAPSHOT and \ref CACHE depend on \ref LOG.
  *  \li \ref STORAGE depend on \ref SNAPSHOT and \ref CACHE.
+ *  \li \ref XCT depends on \ref STORAGE.
  *
  * (transitively implied dependencies omitted, eg \ref LOG of course depends on \ref MEMORY).
  *
  * @msc
- * DBG,FS,MEM,THREAD,LOG,SNAPSHOT,CACHE,STORAGE;
+ * DBG,FS,MEM,THREAD,LOG,SNAPSHOT,CACHE,STORAGE,XCT;
  * DBG<=FS;
  * DBG<=MEM;
  * MEM<=THREAD;
@@ -55,6 +57,7 @@ class EngineOptions;
  * LOG<=CACHE;
  * SNAPSHOT<=STORAGE;
  * CACHE<=STORAGE;
+ * STORAGE<=XCT;
  * @endmsc
  *
  * Hence, we initialize/uninitialize the modules in the above order.
@@ -123,6 +126,8 @@ class Engine CXX11_FINAL : public virtual Initializable {
     thread::ThreadPool&             get_thread_pool() const;
     /** See \ref STORAGE */
     storage::StorageManager&        get_storage_manager() const;
+    /** See \ref XCT */
+    xct::XctManager&                get_xct_manager() const;
 
  private:
     EnginePimpl* pimpl_;

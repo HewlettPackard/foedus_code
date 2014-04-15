@@ -16,6 +16,7 @@
 #include <foedus/snapshot/snapshot_options.hpp>
 #include <foedus/storage/storage_options.hpp>
 #include <foedus/thread/thread_options.hpp>
+#include <foedus/xct/xct_options.hpp>
 #include <iosfwd>
 namespace foedus {
 /**
@@ -43,6 +44,7 @@ struct EngineOptions {
     snapshot::SnapshotOptions   snapshot_;
     storage::StorageOptions     storage_;
     thread::ThreadOptions       thread_;
+    xct::XctOptions             xct_;
 
     friend std::ostream& operator<<(std::ostream& o, const EngineOptions& v);
 };

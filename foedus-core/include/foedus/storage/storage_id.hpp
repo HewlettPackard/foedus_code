@@ -73,7 +73,9 @@ union VolatilePagePointer {
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
 struct DualPagePointer {
-    DualPagePointer();
+    DualPagePointer() : snapshot_page_id_(0) {
+        volatile_pointer_.word = 0;
+    }
 
     friend std::ostream& operator<<(std::ostream& o, const DualPagePointer& v);
 

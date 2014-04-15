@@ -7,6 +7,7 @@
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
+#include <foedus/xct/xct.hpp>
 #include <atomic>
 #include <future>
 #include <mutex>
@@ -46,6 +47,9 @@ class ThreadPimpl final : public DefaultInitializable {
      * @return whether successfully impersonated.
      */
     bool        try_impersonate(ImpersonateSession *session);
+
+    void        activate_xct();
+    void        deactivate_xct();
 
     Engine* const           engine_;
 
@@ -108,6 +112,13 @@ class ThreadPimpl final : public DefaultInitializable {
      * so that the client program of the old session can still see the corresponding future.
      */
     std::promise<ErrorStack>    impersonated_task_result_;
+
+    /**
+     * Current transaction this thread is conveying.
+     * Each thread can run at most one transaction at once.
+     * If this thread is not conveying any transaction, current_xct_.is_active() == false.
+     */
+    xct::Xct                    current_xct_;
 };
 }  // namespace thread
 }  // namespace foedus

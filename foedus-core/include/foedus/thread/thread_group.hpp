@@ -18,7 +18,6 @@ namespace thread {
  */
 class ThreadGroup CXX11_FINAL : public virtual Initializable {
  public:
-    friend class ThreadPoolPimpl;
     ThreadGroup() CXX11_FUNC_DELETE;
     ThreadGroup(Engine* engine, ThreadGroupId group_id);
     ~ThreadGroup();
@@ -29,8 +28,9 @@ class ThreadGroup CXX11_FINAL : public virtual Initializable {
     ThreadGroupId           get_group_id() const;
     memory::NumaNodeMemory* get_node_memory() const;
 
+    ThreadLocalOrdinal      get_thread_count() const;
     /** Returns Thread object for the given ordinal in this group. */
-    Thread*     get_thread(ThreadLocalOrdinal ordinal) const;
+    Thread*                 get_thread(ThreadLocalOrdinal ordinal) const;
 
  private:
     ThreadGroupPimpl*       pimpl_;

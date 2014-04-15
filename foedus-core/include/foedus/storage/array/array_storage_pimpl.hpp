@@ -9,6 +9,7 @@
 #include <foedus/initializable.hpp>
 #include <foedus/storage/storage.hpp>
 #include <foedus/storage/storage_id.hpp>
+#include <foedus/storage/array/array_id.hpp>
 #include <foedus/storage/array/fwd.hpp>
 namespace foedus {
 namespace storage {
@@ -28,8 +29,15 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
+    ErrorStack  get_record(ArrayOffset offset, void *payload);
+    ErrorStack  get_record_part(ArrayOffset offset, void *payload,
+                                uint16_t payload_offset, uint16_t payload_count);
+
     Engine* const           engine_;
     StorageId               storage_id_;
+    uint16_t                payload_size_;
+    ArrayOffset             array_size_;
+    DualPagePointer         root_page_;
 };
 }  // namespace array
 }  // namespace storage

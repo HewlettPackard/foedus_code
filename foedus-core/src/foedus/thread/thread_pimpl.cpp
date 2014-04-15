@@ -78,6 +78,16 @@ bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
     }
 }
 
+void ThreadPimpl::activate_xct() {
+    assert(!current_xct_.is_active());
+    current_xct_.activate(holder_);
+}
+
+void ThreadPimpl::deactivate_xct() {
+    assert(current_xct_.is_active());
+    current_xct_.deactivate();
+}
+
 
 }  // namespace thread
 }  // namespace foedus

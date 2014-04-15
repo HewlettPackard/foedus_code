@@ -9,6 +9,7 @@
 #include <foedus/initializable.hpp>
 #include <foedus/storage/storage.hpp>
 #include <foedus/storage/storage_id.hpp>
+#include <foedus/storage/array/array_id.hpp>
 #include <foedus/storage/array/fwd.hpp>
 namespace foedus {
 namespace storage {
@@ -32,6 +33,13 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
     ErrorStack  uninitialize() CXX11_OVERRIDE;
 
     StorageId   get_storage_id() const CXX11_OVERRIDE;
+
+    uint16_t    get_payload_size() const;
+    ArrayOffset get_array_size() const;
+
+    ErrorStack  get_record(ArrayOffset offset, void *payload);
+    ErrorStack  get_record_part(ArrayOffset offset, void *payload,
+                                uint16_t payload_offset, uint16_t payload_count);
 
  private:
     ArrayStoragePimpl*  pimpl_;

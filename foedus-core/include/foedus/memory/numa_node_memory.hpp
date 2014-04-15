@@ -9,7 +9,9 @@
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
+#include <foedus/memory/aligned_memory.hpp>
 #include <foedus/thread/thread_id.hpp>
+#include <foedus/xct/fwd.hpp>
 #include <vector>
 namespace foedus {
 namespace memory {
@@ -45,7 +47,27 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
         return core_memories_[ordinal];
     }
 
+    /**
+     * Allocate a memory of the given size on this NUMA node.
+     * @param[in] size byte size of the memory to acquire
+     * @param[out] out allocated memory is moved to object
+     * @return Expect OUTOFMEMORY error.
+     */
+    ErrorStack      allocate_numa_memory(size_t size, AlignedMemory *out);
+
+    xct::XctAccess* get_read_set_memory_piece(foedus::thread::ThreadLocalOrdinal core_ordinal) {
+        return read_set_memory_pieces_[core_ordinal];
+    }
+    xct::XctAccess* get_write_set_memory_piece(foedus::thread::ThreadLocalOrdinal core_ordinal) {
+        return write_set_memory_pieces_[core_ordinal];
+    }
+
  private:
+    /** initialize read-set and write-set memory. */
+    ErrorStack      initialize_read_write_set_memory();
+    /** initialize child memories per core */
+    ErrorStack      initialize_core_memory(thread::ThreadLocalOrdinal ordinal);
+
     Engine* const                           engine_;
 
     /**
@@ -53,11 +75,28 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
      */
     const foedus::thread::ThreadGroupId     numa_node_;
 
+    /** Number of cores in this node. */
+    const thread::ThreadLocalOrdinal        cores_;
+
     /**
      * List of NumaCoreMemory, one for each core in this node.
      * Index is local ordinal of the NUMA cores.
      */
     std::vector<NumaCoreMemory*>            core_memories_;
+
+    /**
+     * Memory to keep track of read-set during transactions.
+     * To better utilize HugePages, we allocate this in node level for all cores rather than in
+     * individual core level. NumaCoreMemory merely gets a piece of this memory.
+     */
+    AlignedMemory                           read_set_memory_;
+    std::vector<xct::XctAccess*>            read_set_memory_pieces_;
+
+    /**
+     * Memory to keep track of write-set during transactions. Same above.
+     */
+    AlignedMemory                           write_set_memory_;
+    std::vector<xct::XctAccess*>            write_set_memory_pieces_;
 };
 }  // namespace memory
 }  // namespace foedus

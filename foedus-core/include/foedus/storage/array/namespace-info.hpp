@@ -14,6 +14,7 @@
  * of limited applicability (fix-sized, regular, dense arrays).
  * The page layout has little per-page information that is dynamic, meaning that
  * most data never changes after the array storage is created.
+ * Further, as everything is pre-allocated, no phantoms, no insertion/splits, nor anything complex.
  * Thus, little synchronization hassles.
  *
  * @section OPS Supported Operations
@@ -50,7 +51,7 @@
  *
  * @par Leaf Node
  * <table>
- *  <tr><th>LeafRecord</th><th>LeafRecord</th><th>...</th></tr>
+ *  <tr><th>Record</th><th>Record</th><th>...</th></tr>
  * </table>
  * See foedus::storage::array::ArrayPage#LeafRecord.
  *

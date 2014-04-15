@@ -25,6 +25,7 @@ ErrorStack ThreadGroup::uninitialize() { return pimpl_->uninitialize(); }
 
 ThreadGroupId ThreadGroup::get_group_id() const { return pimpl_->group_id_; }
 memory::NumaNodeMemory* ThreadGroup::get_node_memory() const { return pimpl_->node_memory_; }
+ThreadLocalOrdinal ThreadGroup::get_thread_count() const { return pimpl_->threads_.size(); }
 Thread* ThreadGroup::get_thread(ThreadLocalOrdinal ordinal) const {
     return pimpl_->threads_[ordinal];
 }

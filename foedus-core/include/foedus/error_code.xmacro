@@ -37,3 +37,10 @@ X(ERROR_CODE_FS_WRITE_FAIL,         0x0209, "FILESYS: Disk write failed.")
 X(ERROR_CODE_FS_EXCESS_WRITE,       0x020A, "FILESYS: wrote more than expected")
 X(ERROR_CODE_FS_NOT_OPENED,         0x020B, "FILESYS: File not opened yet or failed to open.")
 X(ERROR_CODE_FS_SYNC_FAILED,        0x020C, "FILESYS: fsync() failed.")
+
+X(ERROR_CODE_STR_DUPLICATE_STRID,   0x0801, "STORAGE: Duplicate StorageID")
+
+X(ERROR_CODE_XCT_READ_SET_OVERFLOW, 0x0A01, "XCTION : Too large read-set. Check the config of XctOptions")
+X(ERROR_CODE_XCT_WRITE_SET_OVERFLOW,0x0A02, "XCTION : Too large write-set. Check the config of XctOptions")
+X(ERROR_CODE_XCT_ALREADY_RUNNING,   0x0A03, "XCTION : This thread is already running a transaction. Commit or abort it first.")
+X(ERROR_CODE_XCT_NO_XCT,            0x0A04, "XCTION : This thread is not running any transaction.")

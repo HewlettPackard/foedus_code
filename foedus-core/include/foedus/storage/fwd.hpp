@@ -12,6 +12,7 @@
 namespace foedus {
 namespace storage {
 struct  DualPagePointer;
+struct  Record;
 class   Storage;
 class   StorageManager;
 class   StorageManagerPimpl;

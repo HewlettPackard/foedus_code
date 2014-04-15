@@ -60,10 +60,10 @@ ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task,
     }
 
     for (size_t i = 0; i < groups_.size(); ++i) {
-        ThreadGroupPimpl* group = groups_[i]->pimpl_;
-        for (size_t j = 0; j < group->threads_.size(); ++j) {
-            Thread* thread = group->threads_[j];
-            if (thread->pimpl_->try_impersonate(&session)) {
+        ThreadGroup* group = groups_[i];
+        for (size_t j = 0; j < group->get_thread_count(); ++j) {
+            Thread* thread = group->get_thread(j);
+            if (thread->get_pimpl()->try_impersonate(&session)) {
                 return session;
             }
         }
@@ -81,10 +81,10 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(ImpersonateTask* ta
         return session;
     }
 
-    ThreadGroupPimpl* group = get_group(numa_node)->pimpl_;
-    for (size_t i = 0; i < group->threads_.size(); ++i) {
-        Thread* thread = group->threads_[i];
-        if (thread->pimpl_->try_impersonate(&session)) {
+    ThreadGroup* group = groups_[numa_node];
+    for (size_t i = 0; i < group->get_thread_count(); ++i) {
+        Thread* thread = group->get_thread(i);
+        if (thread->get_pimpl()->try_impersonate(&session)) {
             return session;
         }
     }
@@ -102,7 +102,7 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_core(ImpersonateTask* ta
     }
 
     Thread* thread = get_thread(numa_core);
-    if (!thread->pimpl_->try_impersonate(&session)) {
+    if (!thread->get_pimpl()->try_impersonate(&session)) {
         // TODO(Hideaki) : currently, timeout is ignored. It behaves as if timeout=0
         session.invalid_cause_ = ERROR_STACK(ERROR_CODE_TIMEOUT);
     }

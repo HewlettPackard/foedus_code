@@ -20,6 +20,7 @@ EngineOptions& EngineOptions::operator=(const EngineOptions& other) {
     snapshot_ = other.snapshot_;
     storage_ = other.storage_;
     thread_ = other.thread_;
+    xct_ = other.xct_;
     return *this;
 }
 
@@ -33,6 +34,7 @@ std::ostream& operator<<(std::ostream& o, const EngineOptions& v) {
     o << v.snapshot_ << std::endl;
     o << v.storage_ << std::endl;
     o << v.thread_ << std::endl;
+    o << v.xct_ << std::endl;
     return o;
 }
 

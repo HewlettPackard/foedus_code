@@ -9,7 +9,10 @@
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
+#include <foedus/storage/storage_id.hpp>
 #include <foedus/thread/thread_id.hpp>
+#include <foedus/xct/fwd.hpp>
+#include <stdint.h>
 namespace foedus {
 namespace memory {
 /**
@@ -25,12 +28,17 @@ namespace memory {
 class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
  public:
     NumaCoreMemory() CXX11_FUNC_DELETE;
-    NumaCoreMemory(Engine* engine, NumaNodeMemory *node_memory, foedus::thread::ThreadId core_id)
-        : engine_(engine), node_memory_(node_memory), core_id_(core_id),
-            core_local_ordinal_(foedus::thread::decompose_numa_local_ordinal(core_id)) {
-    }
+    NumaCoreMemory(Engine* engine, NumaNodeMemory *node_memory,
+                foedus::thread::ThreadId core_id, foedus::thread::ThreadLocalOrdinal core_ordinal);
     ErrorStack  initialize_once() CXX11_OVERRIDE;
     ErrorStack  uninitialize_once() CXX11_OVERRIDE;
+
+    /** Returns memory to keep track of read-set during transactions. */
+    xct::XctAccess* get_read_set_memory()   const { return read_set_memory_; }
+    uint32_t        get_read_set_size()     const { return read_set_size_; }
+    /** Returns memory to keep track of write-set during transactions. */
+    xct::XctAccess* get_write_set_memory()  const { return write_set_memory_; }
+    uint32_t        get_write_set_size()    const { return write_set_size_; }
 
  private:
     Engine* const           engine_;
@@ -49,6 +57,14 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
      * Local ordinal of the NUMA core this memory is allocated for.
      */
     const foedus::thread::ThreadLocalOrdinal core_local_ordinal_;
+
+    /** Memory to keep track of read-set during transactions. */
+    xct::XctAccess*                          read_set_memory_;
+    uint32_t                                 read_set_size_;
+
+    /** Memory to keep track of write-set during transactions. */
+    xct::XctAccess*                          write_set_memory_;
+    uint32_t                                 write_set_size_;
 };
 }  // namespace memory
 }  // namespace foedus

@@ -14,6 +14,13 @@ ErrorStack ArrayStoragePimpl::initialize_once() {
 ErrorStack ArrayStoragePimpl::uninitialize_once() {
     return RET_OK;
 }
+ErrorStack ArrayStoragePimpl::get_record(ArrayOffset offset, void *payload) {
+    return RET_OK;
+}
+ErrorStack ArrayStoragePimpl::get_record_part(ArrayOffset offset, void *payload,
+                            uint16_t payload_offset, uint16_t payload_count) {
+    return RET_OK;
+}
 
 }  // namespace array
 }  // namespace storage

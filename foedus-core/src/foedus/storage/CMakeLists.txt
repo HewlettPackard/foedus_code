@@ -11,6 +11,7 @@ set(FOEDUS_STORAGE_CHILD_SRC
 )
 set(FOEDUS_STORAGE_SRC
     ${FOEDUS_STORAGE_CHILD_SRC}
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage_id.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage_manager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage_manager_pimpl.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage_options.cpp
