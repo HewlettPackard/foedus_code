@@ -72,6 +72,9 @@ if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-D\\_FILE\\_OFFSET\\_BITS\\=64")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
 endif ()
 
+# Enable GCC's built-in 128bit CAS
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcx16")
+
 set(CMAKE_INCLUDE_CURRENT_DIR OFF)
 
 #############################################################################

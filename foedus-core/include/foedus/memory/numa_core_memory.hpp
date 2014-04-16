@@ -56,15 +56,25 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
     /**
      * Local ordinal of the NUMA core this memory is allocated for.
      */
-    const foedus::thread::ThreadLocalOrdinal core_local_ordinal_;
+    const foedus::thread::ThreadLocalOrdinal    core_local_ordinal_;
 
     /** Memory to keep track of read-set during transactions. */
-    xct::XctAccess*                          read_set_memory_;
-    uint32_t                                 read_set_size_;
+    xct::XctAccess*                         read_set_memory_;
+    uint32_t                                read_set_size_;
 
     /** Memory to keep track of write-set during transactions. */
-    xct::XctAccess*                          write_set_memory_;
-    uint32_t                                 write_set_size_;
+    xct::XctAccess*                         write_set_memory_;
+    uint32_t                                write_set_size_;
+
+    /**
+     * @brief Holds a \b local set of pointers to free pages.
+     * @details
+     * All page allocation/deallocation are local operations without synchronization
+     * except when this chunk goes below 10% or above 90% full.
+     * When it happens, we grab/release a bunch of free pages from EngineMemory#page_pool_.
+     * @see PagePool
+     */
+    PagePoolOffsetChunk*                    free_pool_chunk_;
 };
 }  // namespace memory
 }  // namespace foedus

@@ -10,6 +10,7 @@
 #include <foedus/initializable.hpp>
 #include <foedus/memory/aligned_memory.hpp>
 #include <foedus/memory/fwd.hpp>
+#include <foedus/memory/page_pool.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <cassert>
 #include <vector>
@@ -25,15 +26,13 @@ namespace memory {
  *
  * @par List of engine-wide memories
  *  \li List of NumaNodeMemory, one for each NUMA socket in the machine.
- *  \li Page pool for the read-only bufferpool (SnapshotPage).
- *  \li Page pool for volatile read/write store (VolatilePage).
- * So far we allocate separate memory for the second and third.
- * But, there is no fundamental reason to do so. It's for simplicity, and we might revisit it.
+ *  \li Page pool for volatile read/write store (VolatilePage) and
+ * the read-only bufferpool (SnapshotPage).
  */
 class EngineMemory CXX11_FINAL : public DefaultInitializable {
  public:
     EngineMemory() CXX11_FUNC_DELETE;
-    explicit EngineMemory(Engine* engine) CXX11_NOEXCEPT : engine_(engine) {}
+    explicit EngineMemory(Engine* engine);
     ErrorStack  initialize_once() CXX11_OVERRIDE;
     ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
@@ -47,6 +46,8 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
     }
     NumaCoreMemory* get_core_memory(foedus::thread::ThreadId id) const;
 
+    PagePool&       get_page_pool() { return page_pool_; }
+
  private:
     Engine* const                   engine_;
 
@@ -56,8 +57,8 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
      */
     std::vector<NumaNodeMemory*>    node_memories_;
 
-    /** Page pool for volatile read/write store (VolatilePage). */
-    AlignedMemory                   volatile_page_pool_;
+    /** In-memory page pool. */
+    PagePool                        page_pool_;
 };
 }  // namespace memory
 }  // namespace foedus

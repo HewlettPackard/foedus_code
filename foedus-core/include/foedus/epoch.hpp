@@ -39,6 +39,7 @@ class Epoch {
     };
 
     Epoch() : epoch_(EPOCH_INVALID) {}
+    explicit Epoch(EpochInteger value) : epoch_(value) {}
     // default copy-constructor/assignment/destructor suffice
 
     /**

@@ -66,8 +66,8 @@ Storage* StorageManagerPimpl::get_storage(StorageId id) {
 ErrorStack StorageManagerPimpl::register_storage(Storage* storage) {
     assert(storage);
     assert(storage->is_initialized());
-    StorageId id = storage->get_storage_id();
-    LOG(INFO) << "Adding storage of ID" << id;
+    StorageId id = storage->get_id();
+    LOG(INFO) << "Adding storage of ID-" << id << "(" << storage->get_name() << ")";
     if (storages_capacity_ <= id) {
         CHECK_ERROR(expand_storage_array(id));
     }

@@ -25,31 +25,10 @@ class StorageManagerPimpl : public DefaultInitializable {
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
-    /**
-     * Issue a unique and atomically/monotonically increasing storage ID for a new storage.
-     * The caller might later fail, so StorageId might have holes.
-     */
     StorageId   issue_next_storage_id();
-
-    /**
-     * Returns the storage of given ID.
-     * @param[in] id Storage ID
-     * @return Storage object in this engine. If there is no storage with the ID, nullptr.
-     */
     Storage*    get_storage(StorageId id);
-
-    /**
-     * Adds a storage object, either newly created or constructed from disk at start-up.
-     * The ownership is handed over to this manager, thus caller should NOT uninitialize/destruct.
-     */
     ErrorStack  register_storage(Storage* storage);
-
-    /**
-     * Removes the storage object.
-     * This also invokes uninitialize/destruct.
-     */
     ErrorStack  remove_storage(StorageId id);
-
     ErrorStack  expand_storage_array(StorageId new_size);
 
     Engine* const           engine_;

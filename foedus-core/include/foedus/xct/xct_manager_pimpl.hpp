@@ -17,7 +17,7 @@ namespace xct {
  * A private pimpl object for XctManager.
  * Do not include this header from a client program unless you know what you are doing.
  */
-class XctManagerPimpl CXX11_FINAL : public DefaultInitializable {
+class XctManagerPimpl final : public DefaultInitializable {
  public:
     XctManagerPimpl() = delete;
     explicit XctManagerPimpl(Engine* engine) : engine_(engine) {}

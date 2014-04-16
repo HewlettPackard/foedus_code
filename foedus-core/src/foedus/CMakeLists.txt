@@ -1,4 +1,5 @@
 
+add_subdirectory(assorted)
 add_subdirectory(cache)
 add_subdirectory(debugging)
 add_subdirectory(fs)
@@ -10,6 +11,7 @@ add_subdirectory(thread)
 add_subdirectory(xct)
 
 set(FOEDUS_CHILD_SRC
+    ${FOEDUS_ASSORTED_SRC}
     ${FOEDUS_CACHE_SRC}
     ${FOEDUS_DEBUGGING_SRC}
     ${FOEDUS_FS_SRC}

@@ -16,6 +16,9 @@ class   EngineMemory;
 struct  MemoryOptions;
 class   NumaCoreMemory;
 class   NumaNodeMemory;
+class   PagePoolOffsetChunk;
+class   PagePool;
+class   PagePoolPimpl;
 }  // namespace memory
 }  // namespace foedus
 #endif  // FOEDUS_MEMORY_FWD_HPP_

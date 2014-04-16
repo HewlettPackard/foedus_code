@@ -79,8 +79,8 @@ class AlignedMemory CXX11_FINAL {
     /**
      * Allocate an aligned memory of given size and alignment.
      * @param[in] size Byte size of the memory block. Actual allocation is at least of this size.
-     * @param[in] alignment Alignment bytes of the memory block. Ignored for NUMA_ALLOC_ONNODE and
-     * NUMA_ALLOC_INTERLEAVED.
+     * @param[in] alignment Alignment bytes of the memory block. Must be power of two.
+     * Ignored for NUMA_ALLOC_ONNODE and NUMA_ALLOC_INTERLEAVED.
      * @param[in] alloc_type specifies type of new/delete
      * @param[in] numa_node if alloc_type_ is NUMA_ALLOC_ONNODE, the NUMA node to allocate at.
      * Otherwise ignored.

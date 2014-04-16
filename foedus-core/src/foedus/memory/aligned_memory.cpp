@@ -13,6 +13,7 @@ namespace memory {
 AlignedMemory::AlignedMemory(size_t size, size_t alignment,
                              AllocType alloc_type, int numa_node) noexcept
     : size_(size), alignment_(alignment), alloc_type_(alloc_type), numa_node_(numa_node) {
+    assert((alignment & (alignment - 1)) == 0);  // alignment is power of two
     block_ = nullptr;
     if (size_ % alignment != 0) {
         size_ = ((size_ / alignment) + 1) * alignment;

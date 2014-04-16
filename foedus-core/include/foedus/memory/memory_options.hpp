@@ -14,6 +14,12 @@ namespace memory {
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
 struct MemoryOptions {
+    /** Constant values. */
+    enum Constants {
+        /** Default value for page_pool_size_mb_. */
+        DEFAULT_PAGE_POOL_SIZE_MB = 1 << 10,
+    };
+
     /**
      * Constructs option values with default values.
      */
@@ -42,11 +48,11 @@ struct MemoryOptions {
     bool        interleave_numa_alloc_;
 
     /**
-     * @brief Total size of the page pool for volatile pages in MB.
+     * @brief Total size of the page pool in MB.
      * @details
-     *
+     * Default is 1GB.
      */
-    uint32_t    volatile_page_pool_size_mb_;
+    uint32_t    page_pool_size_mb_;
 
     friend std::ostream& operator<<(std::ostream& o, const MemoryOptions& v);
 };

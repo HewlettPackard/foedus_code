@@ -8,7 +8,7 @@ namespace foedus {
 namespace debugging {
 DebuggingOptions::DebuggingOptions() :
     debug_log_to_stderr_(false),
-    debug_log_stderr_threshold_(DEBUG_LOG_ERROR),
+    debug_log_stderr_threshold_(DEBUG_LOG_INFO),
     debug_log_min_threshold_(DEBUG_LOG_INFO),
     verbose_log_level_(0),
     verbose_modules_(""),

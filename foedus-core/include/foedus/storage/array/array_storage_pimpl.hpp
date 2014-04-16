@@ -11,6 +11,7 @@
 #include <foedus/storage/storage_id.hpp>
 #include <foedus/storage/array/array_id.hpp>
 #include <foedus/storage/array/fwd.hpp>
+#include <string>
 namespace foedus {
 namespace storage {
 namespace array {
@@ -24,20 +25,30 @@ namespace array {
 class ArrayStoragePimpl final : public DefaultInitializable {
  public:
     ArrayStoragePimpl() = delete;
-    explicit ArrayStoragePimpl(Engine* engine, StorageId storage_id)
-        : engine_(engine), storage_id_(storage_id) {}
+    ArrayStoragePimpl(Engine* engine, StorageId id, const std::string &name, uint16_t payload_size,
+        ArrayOffset array_size, DualPagePointer root_page, bool create);
+
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
+
+    ErrorStack  create();
 
     ErrorStack  get_record(ArrayOffset offset, void *payload);
     ErrorStack  get_record_part(ArrayOffset offset, void *payload,
                                 uint16_t payload_offset, uint16_t payload_count);
 
+    ErrorStack  overwrite_record(ArrayOffset offset, const void *payload);
+    ErrorStack  overwrite_record_part(ArrayOffset offset, const void *payload,
+                                uint16_t payload_offset, uint16_t payload_count);
+
     Engine* const           engine_;
-    StorageId               storage_id_;
-    uint16_t                payload_size_;
-    ArrayOffset             array_size_;
+    const StorageId         id_;
+    const std::string       name_;
+    const uint16_t          payload_size_;
+    const uint16_t          payload_size_aligned_;
+    const ArrayOffset       array_size_;
     DualPagePointer         root_page_;
+    bool                    create_;
 };
 }  // namespace array
 }  // namespace storage

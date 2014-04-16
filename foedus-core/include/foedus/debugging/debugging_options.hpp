@@ -44,7 +44,7 @@ struct DebuggingOptions {
     /**
      * @brief Debug logs at or above this level will be copied to stderr.
      * @details
-     * Default is DEBUG_LOG_ERROR. There is an API to change this setting at runtime.
+     * Default is DEBUG_LOG_INFO. There is an API to change this setting at runtime.
      */
     DebugLogLevel                       debug_log_stderr_threshold_;
 

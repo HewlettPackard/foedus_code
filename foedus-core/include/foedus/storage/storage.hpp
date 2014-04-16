@@ -6,6 +6,7 @@
 #define FOEDUS_STORAGE_STORAGE_HPP_
 #include <foedus/initializable.hpp>
 #include <foedus/storage/storage_id.hpp>
+#include <string>
 namespace foedus {
 namespace storage {
 /**
@@ -29,7 +30,15 @@ class Storage : public virtual Initializable {
  public:
     virtual ~Storage() {}
 
-    virtual StorageId get_storage_id() const = 0;
+    /**
+     * Returns the unique ID of this storage.
+     */
+    virtual StorageId           get_id() const = 0;
+
+    /**
+     * Returns the unique name of this storage.
+     */
+    virtual const std::string&  get_name() const = 0;
 };
 }  // namespace storage
 }  // namespace foedus

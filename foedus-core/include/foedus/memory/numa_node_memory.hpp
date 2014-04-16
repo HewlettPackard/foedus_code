@@ -61,10 +61,16 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
     xct::XctAccess* get_write_set_memory_piece(foedus::thread::ThreadLocalOrdinal core_ordinal) {
         return write_set_memory_pieces_[core_ordinal];
     }
+    PagePoolOffsetChunk* get_page_offset_chunk_memory_piece(
+        foedus::thread::ThreadLocalOrdinal core_ordinal) {
+        return page_offset_chunk_memory_pieces_[core_ordinal];
+    }
 
  private:
     /** initialize read-set and write-set memory. */
     ErrorStack      initialize_read_write_set_memory();
+    /** initialize page_offset_chunk_memory_/page_offset_chunk_memory_pieces_. */
+    ErrorStack      initialize_page_offset_chunk_memory();
     /** initialize child memories per core */
     ErrorStack      initialize_core_memory(thread::ThreadLocalOrdinal ordinal);
 
@@ -97,6 +103,12 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
      */
     AlignedMemory                           write_set_memory_;
     std::vector<xct::XctAccess*>            write_set_memory_pieces_;
+
+    /**
+     * Memory to hold a \b local pool of pointers to free pages. Same above.
+     */
+    AlignedMemory                           page_offset_chunk_memory_;
+    std::vector<PagePoolOffsetChunk*>       page_offset_chunk_memory_pieces_;
 };
 }  // namespace memory
 }  // namespace foedus

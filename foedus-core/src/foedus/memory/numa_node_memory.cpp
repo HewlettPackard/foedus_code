@@ -7,6 +7,7 @@
 #include <foedus/error_stack_batch.hpp>
 #include <foedus/memory/numa_core_memory.hpp>
 #include <foedus/memory/numa_node_memory.hpp>
+#include <foedus/memory/page_pool.hpp>
 #include <foedus/thread/thread_options.hpp>
 #include <foedus/xct/xct_access.hpp>
 #include <glog/logging.h>
@@ -23,6 +24,7 @@ ErrorStack NumaNodeMemory::initialize_once() {
         << " BEFORE: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
 
     CHECK_ERROR(initialize_read_write_set_memory());
+    CHECK_ERROR(initialize_page_offset_chunk_memory());
     for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
         CHECK_ERROR(initialize_core_memory(ordinal));
     }
@@ -48,6 +50,20 @@ ErrorStack NumaNodeMemory::initialize_read_write_set_memory() {
 
     return RET_OK;
 }
+ErrorStack NumaNodeMemory::initialize_page_offset_chunk_memory() {
+    size_t size = sizeof(PagePoolOffsetChunk);
+    LOG(INFO) << "Initializing page_offset_chunk_memory_. size=" << cores_ * size << " bytes";
+    CHECK_ERROR(allocate_numa_memory(cores_ * size, &page_offset_chunk_memory_));
+    for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
+        PagePoolOffsetChunk* chunk = reinterpret_cast<PagePoolOffsetChunk*>(
+            page_offset_chunk_memory_.get_block()) + ordinal;
+        chunk->clear();
+        page_offset_chunk_memory_pieces_.push_back(chunk);
+    }
+
+    return RET_OK;
+}
+
 ErrorStack NumaNodeMemory::initialize_core_memory(thread::ThreadLocalOrdinal ordinal) {
     auto core_id = thread::compose_thread_id(numa_node_, ordinal);
     core_memories_.push_back(new NumaCoreMemory(engine_, this, core_id, ordinal));
@@ -62,6 +78,8 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
 
     ErrorStackBatch batch;
     batch.uninitialize_and_delete_all(&core_memories_);
+    page_offset_chunk_memory_pieces_.clear();
+    page_offset_chunk_memory_.release_block();
     write_set_memory_pieces_.clear();
     write_set_memory_.release_block();
     read_set_memory_pieces_.clear();
