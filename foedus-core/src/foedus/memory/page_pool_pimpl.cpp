@@ -6,6 +6,7 @@
 #include <foedus/engine_options.hpp>
 #include <foedus/error_stack_batch.hpp>
 #include <foedus/assorted/assorted_func.hpp>
+#include <foedus/memory/page_pool.hpp>
 #include <foedus/memory/page_pool_pimpl.hpp>
 #include <foedus/memory/memory_options.hpp>
 #include <foedus/storage/storage_manager.hpp>
@@ -16,6 +17,7 @@
 namespace foedus {
 namespace memory {
 PagePoolPimpl::PagePoolPimpl(Engine* engine) : engine_(engine),
+    pool_base_(nullptr), pool_size_(0),
     free_pool_(nullptr), free_pool_capacity_(0),
     free_pool_head_(0), free_pool_count_(0) {
 }
@@ -29,8 +31,10 @@ ErrorStack PagePoolPimpl::initialize_once() {
         size_t size = options.page_pool_size_mb_ << 20;
         size_t alignment = storage::PAGE_SIZE;
         memory_ = std::move(AlignedMemory(size, alignment, alloc_type, 0));
+        pool_base_ = reinterpret_cast<storage::Page*>(memory_.get_block());
+        pool_size_ = memory_.get_size() / storage::PAGE_SIZE;
     }
-    LOG(INFO) << "Acquired memory Page Pool. " << memory_;
+    LOG(INFO) << "Acquired memory Page Pool. " << memory_ << ". pages=" << pool_size_;
 
     assert(memory_.get_size() % storage::PAGE_SIZE == 0);
     uint64_t total_pages = memory_.get_size() / storage::PAGE_SIZE;
@@ -60,14 +64,17 @@ ErrorStack PagePoolPimpl::uninitialize_once() {
         // This is not a memory leak as we anyway releases everything, but it's a smell of bug.
         LOG(WARNING) << "Page Pool has not received back all free pages by its uninitialization!!"
             << " count=" << free_pool_count_ << ", capacity=" << free_pool_capacity_;
+    } else {
+        LOG(INFO) << "Page Pool has received back all free pages. No suspicious behavior.";
     }
     memory_.release_block();
     free_pool_ = nullptr;
+    pool_base_ = nullptr;
     LOG(INFO) << "Released memory. ";
     return RET_OK;
 }
 
-ErrorStack PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chunk) {
+ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chunk) {
     assert(is_initialized());
     assert(desired_grab_count <= free_pool_capacity_);
     assert(chunk->size() + desired_grab_count <= chunk->capacity());
@@ -75,7 +82,8 @@ ErrorStack PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk*
         << " free_pool_count_=" << free_pool_count_;
     std::lock_guard<std::mutex> guard(lock_);
     if (free_pool_count_ == 0) {
-        return ERROR_STACK(ERROR_CODE_MEMORY_NO_FREE_PAGES);
+        LOG(WARNING) << "Nore more free pages left in the pool";
+        return ERROR_CODE_MEMORY_NO_FREE_PAGES;
     }
 
     // grab from the head
@@ -96,7 +104,7 @@ ErrorStack PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk*
     chunk->push_back(head, head + grab_count);
     free_pool_head_ += grab_count;
     free_pool_count_ -= grab_count;
-    return RET_OK;
+    return ERROR_CODE_OK;
 }
 
 void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk) {
@@ -134,6 +142,17 @@ void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk 
     free_pool_count_ += release_count;
 }
 
+PagePoolOffset PagePoolPimpl::resolve_page(storage::Page *page) const {
+    PagePoolOffset offset = page - pool_base_;
+    assert(offset >= pages_for_free_pool_);
+    assert(offset < pool_size_);
+    return offset;
+}
+storage::Page* PagePoolPimpl::resolve_offset(PagePoolOffset offset) const {
+    assert(offset >= pages_for_free_pool_);
+    assert(offset < pool_size_);
+    return pool_base_ + offset;
+}
 
 }  // namespace memory
 }  // namespace foedus

@@ -4,8 +4,10 @@
  */
 #ifndef FOEDUS_STORAGE_STORAGE_HPP_
 #define FOEDUS_STORAGE_STORAGE_HPP_
+#include <foedus/error_stack.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/storage/storage_id.hpp>
+#include <foedus/thread/fwd.hpp>
 #include <string>
 namespace foedus {
 namespace storage {
@@ -39,6 +41,19 @@ class Storage : public virtual Initializable {
      * Returns the unique name of this storage.
      */
     virtual const std::string&  get_name() const = 0;
+
+    /**
+     * Returns whether this storage is already created.
+     */
+    virtual bool                exists() const = 0;
+
+    /**
+     * @brief Newly creates this storage and registers it in the storage manager.
+     * @pre exists() == false
+     * @details
+     * bluh
+     */
+    virtual ErrorStack          create(thread::Thread* context) = 0;
 };
 }  // namespace storage
 }  // namespace foedus

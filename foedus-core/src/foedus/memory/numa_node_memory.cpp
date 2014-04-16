@@ -51,9 +51,15 @@ ErrorStack NumaNodeMemory::initialize_read_write_set_memory() {
     return RET_OK;
 }
 ErrorStack NumaNodeMemory::initialize_page_offset_chunk_memory() {
-    size_t size = sizeof(PagePoolOffsetChunk);
-    LOG(INFO) << "Initializing page_offset_chunk_memory_. size=" << cores_ * size << " bytes";
-    CHECK_ERROR(allocate_numa_memory(cores_ * size, &page_offset_chunk_memory_));
+    size_t size_per_core = sizeof(PagePoolOffsetChunk);
+    size_t total_size = size_per_core * cores_ * size_per_core;
+    LOG(INFO) << "Initializing page_offset_chunk_memory_. total_size=" << total_size << " bytes";
+    if (total_size < HUGEPAGE_SIZE) {
+        // Just one per NUMA node. Not a significant waste.
+        total_size = HUGEPAGE_SIZE;
+        LOG(INFO) << "Allocating extra space to utilize hugepage.";
+    }
+    CHECK_ERROR(allocate_numa_memory(total_size, &page_offset_chunk_memory_));
     for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
         PagePoolOffsetChunk* chunk = reinterpret_cast<PagePoolOffsetChunk*>(
             page_offset_chunk_memory_.get_block()) + ordinal;

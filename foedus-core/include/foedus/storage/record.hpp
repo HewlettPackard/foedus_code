@@ -21,6 +21,7 @@ struct Record CXX11_FINAL {
     /**
      * This indicates the transaction that most recently modified this record.
      * This is also used as lock/delete flag.
+     * Thus, for atomic operations, Record object must be 8-byte aligned.
      */
     xct::XctId          owner_id_;
 

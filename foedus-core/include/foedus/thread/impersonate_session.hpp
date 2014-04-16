@@ -53,6 +53,7 @@ struct ImpersonateSession CXX11_FINAL {
         TIMEOUT,
     };
 
+    ImpersonateSession();
     explicit ImpersonateSession(ImpersonateTask* task);
     ~ImpersonateSession();
     ImpersonateSession(const ImpersonateSession& other);

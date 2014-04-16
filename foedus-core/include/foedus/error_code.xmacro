@@ -22,6 +22,7 @@ X(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT,      0x0005, "GENERAL: A dependen
 X(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT,    0x0006, "GENERAL: A dependent module is already uninitialized. This implies a wrong uninitialization order in EnginePimpl.")
 X(ERROR_CODE_BEING_SHUTDOWN,        0x0007, "GENERAL: The engine is being shutdown.")
 X(ERROR_CODE_TIMEOUT,               0x0008, "GENERAL: Timeout.")
+X(ERROR_CODE_NOTIMPLEMENTED,        0x0009, "GENERAL: Not implemented yet.")
 
 X(ERROR_CODE_ENGINE_INVALID_OPTION, 0x0101, "ENGINE : Invalid Option")
 
@@ -42,6 +43,7 @@ X(ERROR_CODE_MEMORY_NO_FREE_PAGES,  0x0301, "MEMORY : Not enough free pages. Che
 X(ERROR_CODE_MEMORY_DUPLICATE_PAGE, 0x0302, "MEMORY : Duplicate entry in free-page pool.")
 
 X(ERROR_CODE_STR_DUPLICATE_STRID,   0x0801, "STORAGE: Duplicate StorageID")
+X(ERROR_CODE_STR_ALREADY_EXISTS,    0x0802, "STORAGE: This storage already exists")
 
 X(ERROR_CODE_XCT_READ_SET_OVERFLOW, 0x0A01, "XCTION : Too large read-set. Check the config of XctOptions")
 X(ERROR_CODE_XCT_WRITE_SET_OVERFLOW,0x0A02, "XCTION : Too large write-set. Check the config of XctOptions")

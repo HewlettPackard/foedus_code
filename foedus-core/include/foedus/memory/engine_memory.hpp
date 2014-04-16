@@ -46,7 +46,7 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
     }
     NumaCoreMemory* get_core_memory(foedus::thread::ThreadId id) const;
 
-    PagePool&       get_page_pool() { return page_pool_; }
+    PagePool*       get_page_pool() { return &page_pool_; }
 
  private:
     Engine* const                   engine_;

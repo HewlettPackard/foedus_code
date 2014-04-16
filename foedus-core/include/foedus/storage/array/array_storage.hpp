@@ -11,13 +11,14 @@
 #include <foedus/storage/storage_id.hpp>
 #include <foedus/storage/array/array_id.hpp>
 #include <foedus/storage/array/fwd.hpp>
+#include <foedus/thread/fwd.hpp>
 #include <string>
 namespace foedus {
 namespace storage {
 namespace array {
 /**
  * @brief Represents a key-value store based on a dense and regular array.
- * @ingroup STORAGE
+ * @ingroup ARRAY
  */
 class ArrayStorage CXX11_FINAL : public virtual Storage {
  public:
@@ -30,7 +31,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
      * without internal overheads.
      * @param[in] array_size Size of this array
      * @param[in] root_page Root page of this array, ignored if create=true
-     * @param[in] create If true, we newly allocate this array when initialize() is called.
+     * @param[in] create If true, we newly allocate this array when create() is called.
      */
     ArrayStorage(Engine* engine, StorageId id, const std::string &name, uint16_t payload_size,
         ArrayOffset array_size, DualPagePointer root_page, bool create);
@@ -47,21 +48,71 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
     ErrorStack  uninitialize() CXX11_OVERRIDE;
 
     // Storage interface
-    StorageId           get_id() const CXX11_OVERRIDE;
-    const std::string&  get_name() const CXX11_OVERRIDE;
+    StorageId           get_id()    const CXX11_OVERRIDE;
+    const std::string&  get_name()  const CXX11_OVERRIDE;
+    bool                exists()    const CXX11_OVERRIDE;
+    ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
 
-    /** Returns byte size of one record in this array storage without internal overheads. */
+    /**
+     * @brief Returns byte size of one record in this array storage without internal overheads.
+     * @details
+     * ArrayStorage is a fix-sized storage, thus we have this interface in storage level
+     * rather than in record level.
+     */
     uint16_t    get_payload_size() const;
-    /** Size of this array. */
+
+    /** Returns the size of this array. */
     ArrayOffset get_array_size() const;
 
-    ErrorStack  get_record(ArrayOffset offset, void *payload);
-    ErrorStack  get_record_part(ArrayOffset offset, void *payload,
-                                uint16_t payload_offset, uint16_t payload_count);
+    /**
+     * @brief Retrieves one record of the given offset in this array storage.
+     * @param[in] context Thread context
+     * @param[in] offset The offset in this array
+     * @param[out] payload We copy the record to this address. Must be at least get_payload_size().
+     * @pre offset < get_array_size()
+     * @details
+     * Equivalent to get_record(context, offset, payload, 0, get_payload_size()).
+     */
+    ErrorStack  get_record(thread::Thread* context, ArrayOffset offset, void *payload) {
+        return get_record(context, offset, payload, 0, get_payload_size());
+    }
+    /**
+     * @brief Retrieves a part of record of the given offset in this array storage.
+     * @param[in] context Thread context
+     * @param[in] offset The offset in this array
+     * @param[out] payload We copy the record to this address. Must be at least payload_count.
+     * @param[in] payload_offset We copy from this byte position of the record.
+     * @param[in] payload_count How many bytes we copy.
+     * @pre payload_offset + payload_count <= get_payload_size()
+     * @pre offset < get_array_size()
+     */
+    ErrorStack  get_record(thread::Thread* context, ArrayOffset offset,
+                        void *payload, uint16_t payload_offset, uint16_t payload_count);
 
-    ErrorStack  overwrite_record(ArrayOffset offset, const void *payload);
-    ErrorStack  overwrite_record_part(ArrayOffset offset, const void *payload,
-                                uint16_t payload_offset, uint16_t payload_count);
+    /**
+     * @brief Overwrites one record of the given offset in this array storage.
+     * @param[in] context Thread context
+     * @param[in] offset The offset in this array
+     * @param[in] payload We copy from this buffer. Must be at least get_payload_size().
+     * @pre offset < get_array_size()
+     * @details
+     * Equivalent to overwrite_record(context, offset, payload, 0, get_payload_size()).
+     */
+    ErrorStack  overwrite_record(thread::Thread* context, ArrayOffset offset, const void *payload) {
+        return overwrite_record(context, offset, payload, 0, get_payload_size());
+    }
+    /**
+     * @brief Overwrites a part of one record of the given offset in this array storage.
+     * @param[in] context Thread context
+     * @param[in] offset The offset in this array
+     * @param[in] payload We copy from this buffer. Must be at least get_payload_size().
+     * @param[in] payload_offset We copy to this byte position of the record.
+     * @param[in] payload_count How many bytes we copy.
+     * @pre payload_offset + payload_count <= get_payload_size()
+     * @pre offset < get_array_size()
+     */
+    ErrorStack  overwrite_record(thread::Thread* context, ArrayOffset offset,
+                        const void *payload, uint16_t payload_offset, uint16_t payload_count);
 
  private:
     ArrayStoragePimpl*  pimpl_;

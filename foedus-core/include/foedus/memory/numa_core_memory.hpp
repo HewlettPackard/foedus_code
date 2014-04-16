@@ -9,7 +9,7 @@
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
-#include <foedus/storage/storage_id.hpp>
+#include <foedus/memory/memory_id.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/xct/fwd.hpp>
 #include <stdint.h>
@@ -40,7 +40,23 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
     xct::XctAccess* get_write_set_memory()  const { return write_set_memory_; }
     uint32_t        get_write_set_size()    const { return write_set_size_; }
 
+    /**
+     * @brief Acquires one free page from \b local page pool.
+     * @return acquired page, or 0 if no free page is available (OUTOFMEMORY).
+     * @details
+     * This method does not return error code to be simple and fast.
+     * Instead, The caller MUST check if the returned page is zero or not.
+     */
+    PagePoolOffset  grab_free_page();
+    /** Returns one free page to \b local page pool. */
+    void            release_free_page(PagePoolOffset offset);
+
  private:
+    /** Called when there no local free pages. */
+    ErrorCode   grab_free_pages_from_engine();
+    /** Called when there are too many local free pages. */
+    void        release_free_pages_to_engine();
+
     Engine* const           engine_;
 
     /**

@@ -20,6 +20,11 @@ const std::shared_future<ErrorStack>* as_future(const char* ptr) {
     return reinterpret_cast<const std::shared_future< ErrorStack >* >(ptr);
 }
 
+ImpersonateSession::ImpersonateSession()
+    : thread_(nullptr), task_(nullptr), invalid_cause_() {
+    // to avoid pimpl's new/delete, we use aligned storage for future.
+    new (result_future_) std::shared_future<ErrorStack>();
+}
 ImpersonateSession::ImpersonateSession(ImpersonateTask* task)
     : thread_(nullptr), task_(task), invalid_cause_() {
     // to avoid pimpl's new/delete, we use aligned storage for future.

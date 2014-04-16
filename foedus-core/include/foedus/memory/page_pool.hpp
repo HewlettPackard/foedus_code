@@ -13,9 +13,7 @@
 #include <foedus/memory/memory_id.hpp>
 #include <foedus/storage/page.hpp>
 #include <stdint.h>
-#include <cstring>
 #include <cassert>
-#include <vector>
 namespace foedus {
 namespace memory {
 /**
@@ -36,10 +34,11 @@ class PagePoolOffsetChunk {
     };
     PagePoolOffsetChunk() : size_(0) {}
 
-    uint32_t                capacity()  const { return MAX_SIZE; }
-    uint32_t                size()  const { return size_; }
-    bool                    empty() const { return size_ == 0; }
-    bool                    full()  const { return size_ == MAX_SIZE; }
+    uint32_t                capacity() const { return MAX_SIZE; }
+    uint32_t                size()  const   { return size_; }
+    bool                    empty() const   { return size_ == 0; }
+    bool                    full()  const   { return size_ == MAX_SIZE; }
+    void                    clear()         { size_ = 0; }
 
     PagePoolOffset&         operator[](uint32_t index) {
         assert(index < size_);
@@ -49,22 +48,16 @@ class PagePoolOffsetChunk {
         assert(index < size_);
         return chunk_[index];
     }
+    PagePoolOffset          pop_back() {
+        assert(!empty());
+        return chunk_[--size_];
+    }
     void                    push_back(PagePoolOffset pointer) {
         assert(!full());
         chunk_[size_++] = pointer;
     }
-    void                    push_back(const PagePoolOffset* begin, const PagePoolOffset* end) {
-        uint32_t count = end - begin;
-        assert(size_ + count <= MAX_SIZE);
-        std::memcpy(chunk_ + size_, begin, count * sizeof(PagePoolOffset));
-        size_ += count;
-    }
-    void                    move_to(PagePoolOffset* destination, uint32_t count) {
-        assert(size_ >= count);
-        std::memcpy(destination, chunk_ + (size_ - count), count * sizeof(PagePoolOffset));
-        size_ -= count;
-    }
-    void                    clear() { size_ = 0; }
+    void                    push_back(const PagePoolOffset* begin, const PagePoolOffset* end);
+    void                    move_to(PagePoolOffset* destination, uint32_t count);
 
  private:
     uint32_t        size_;
@@ -100,12 +93,13 @@ class PagePool CXX11_FINAL : public virtual Initializable {
      * @param[in] desired_grab_count we grab this number of free pages at most
      * @param[in,out] chunk we \e append the grabbed free pages to this chunk
      * @pre chunk->size() + desired_grab_count <= chunk->capacity()
+     * @return only OUTOFMEMORY is possible
      * @details
      * Callers usually maintain one PagePoolOffsetChunk for its private use and
      * calls this method when the size() goes below some threshold (eg 10%)
      * so as to get size() about 50%.
      */
-    ErrorStack  grab(uint32_t desired_grab_count, PagePoolOffsetChunk *chunk);
+    ErrorCode   grab(uint32_t desired_grab_count, PagePoolOffsetChunk *chunk);
 
     /**
      * @brief Returns the specified number of free pages from the chunk.
@@ -118,6 +112,11 @@ class PagePool CXX11_FINAL : public virtual Initializable {
      * so as to get size() about 50%.
      */
     void        release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
+
+    /** Resolves storage::Page* to offset in this pool. */
+    PagePoolOffset  resolve_page(storage::Page *page) const;
+    /** Resolves offset in this pool to storage::Page*. */
+    storage::Page*  resolve_offset(PagePoolOffset offset) const;
 
  private:
     PagePoolPimpl *pimpl_;

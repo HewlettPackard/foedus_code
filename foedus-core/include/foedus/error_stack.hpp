@@ -463,9 +463,23 @@ inline void ErrorStack::verify() const {
 #define CHECK_ERROR(x)\
 {\
     foedus::ErrorStack __e(x);\
-    if (LIKELY(__e.is_error())) {return foedus::ErrorStack(__e, __FILE__, __FUNCTION__, __LINE__);}\
+    if (UNLIKELY(__e.is_error())) {\
+        return foedus::ErrorStack(__e, __FILE__, __FUNCTION__, __LINE__);\
+    }\
 }
 
+/**
+ * @def CHECK_ERROR_CODE(x)
+ * @ingroup ERRORCODES
+ * @brief
+ * Same as CHECK_ERROR(x) except it receives only an error code, thus more efficient.
+ * @note The name is CHECK_ERROR, not CHECK, because Google-logging defines CHECK.
+ */
+#define CHECK_ERROR_CODE(x)\
+{\
+    foedus::ErrorCode __e = x;\
+    if (UNLIKELY(__e != ERROR_CODE_OK)) {return ERROR_STACK(__e);}\
+}
 /**
  * @def CHECK_ERROR_MSG(x, m)
  * @ingroup ERRORCODES
@@ -482,7 +496,7 @@ inline void ErrorStack::verify() const {
 #define CHECK_ERROR_MSG(x, m)\
 {\
     foedus::ErrorStack __e(x);\
-    if (LIKELY(__e.is_error())) {\
+    if (UNLIKELY(__e.is_error())) {\
         return foedus::ErrorStack(__e, __FILE__, __FUNCTION__, __LINE__, m);\
     }\
 }
@@ -505,7 +519,7 @@ inline void ErrorStack::verify() const {
 #define COERCE_ERROR(x)\
 {\
     foedus::ErrorStack __e(x);\
-    if (LIKELY(__e.is_error())) {\
+    if (UNLIKELY(__e.is_error())) {\
         __e.dump_and_abort("Unexpected error happened");\
     }\
 }

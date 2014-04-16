@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_STORAGE_STORAGE_ID_HPP_
 #define FOEDUS_STORAGE_STORAGE_ID_HPP_
+#include <foedus/memory/memory_id.hpp>
 #include <stdint.h>
 #include <iosfwd>
 /**
@@ -55,10 +56,10 @@ typedef uint64_t Checksum;
 union VolatilePagePointer {
     uint64_t        word;
 
-    struct components {
-        ModCount    mod_count;
-        uint32_t    offset;
-    };
+    struct Components {
+        ModCount                mod_count;
+        memory::PagePoolOffset  offset;
+    } components;
 };
 
 

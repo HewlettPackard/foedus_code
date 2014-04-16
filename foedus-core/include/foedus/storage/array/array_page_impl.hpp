@@ -51,7 +51,7 @@ class ArrayPage final {
     uint16_t            get_payload_size()  const   { return payload_size_; }
     bool                is_leaf()           const   { return node_height_ == 0; }
     uint8_t             get_node_height()   const   { return node_height_; }
-    const ArrayRange&   get_array_rannge()  const   { return array_range_; }
+    const ArrayRange&   get_array_range()   const   { return array_range_; }
     Checksum            get_checksum()      const   { return checksum_; }
     void                set_checksum(Checksum checksum)     { checksum_ = checksum; }
 

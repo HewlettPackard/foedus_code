@@ -40,20 +40,21 @@
  * @section LAYOUT Page Layout
  * @par Header and Data
  * <table>
- *  <tr><th>Fix-Sized HEADER (HEADER_SIZE bytes)</th><th>DATA</th></tr>
+ *  <tr><th>Fix-Sized HEADER (HEADER_SIZE bytes)</th><td>DATA</td></tr>
  * </table>
  *
- * @par Interior Node
+ * @par Interior Node Data
  * <table>
- *  <tr><th>InteriorRecord</th><th>InteriorRecord</th><th>...</th></tr>
+ *  <tr><th>InteriorRecord</th><td>InteriorRecord</td><th>...</th></tr>
  * </table>
  * See foedus::storage::array::ArrayPage#InteriorRecord.
  *
- * @par Leaf Node
+ * @par Leaf Node Data
  * <table>
- *  <tr><th>Record</th><th>Record</th><th>...</th></tr>
+ *  <tr><th>Record</th><td>Padding</td><th>Record</th><td>Padding</td><th>...</th></tr>
  * </table>
- * See foedus::storage::array::ArrayPage#LeafRecord.
+ * We simply puts foedus::storage::Record contiguously, but with a padding (0-7 bytes).
+ * to make sure Record are 8-byte aligned because we do atomic operations on Record's owner_id_.
  *
  * @section VER Concurrency Control
  * We do a bit special concurrency control for this storage type.

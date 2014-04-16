@@ -44,7 +44,7 @@ ErrorStack StorageManagerPimpl::uninitialize_once() {
         || !engine_->get_log_manager().is_initialized()) {
         batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
     }
-
+    // TODO(Hideaki) uninitialize storages
     delete[] storages_;
     storages_ = nullptr;
     return RET_OK;

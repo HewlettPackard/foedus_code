@@ -2,6 +2,7 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
+#include <foedus/compiler.hpp>
 #include <foedus/error_stack_batch.hpp>
 #include <foedus/memory/numa_core_memory.hpp>
 #include <foedus/memory/numa_node_memory.hpp>
@@ -30,7 +31,7 @@ ErrorStack NumaCoreMemory::initialize_once() {
     free_pool_chunk_ = node_memory_->get_page_offset_chunk_memory_piece(core_local_ordinal_);
 
     // Each core starts from 50%-full free pool chunk
-    CHECK_ERROR(engine_->get_memory_manager().get_page_pool().grab(
+    CHECK_ERROR_CODE(engine_->get_memory_manager().get_page_pool()->grab(
         free_pool_chunk_->capacity() / 2, free_pool_chunk_));
     return RET_OK;
 }
@@ -41,11 +42,39 @@ ErrorStack NumaCoreMemory::uninitialize_once() {
     write_set_memory_ = nullptr;
     if (free_pool_chunk_) {
         // return all free pages
-        engine_->get_memory_manager().get_page_pool().release(
+        engine_->get_memory_manager().get_page_pool()->release(
             free_pool_chunk_->size(), free_pool_chunk_);
         free_pool_chunk_ = nullptr;
     }
     return SUMMARIZE_ERROR_BATCH(batch);
 }
+
+PagePoolOffset NumaCoreMemory::grab_free_page() {
+    if (UNLIKELY(free_pool_chunk_->empty())) {
+        if (grab_free_pages_from_engine() != ERROR_CODE_OK) {
+            return 0;
+        }
+    }
+    assert(!free_pool_chunk_->empty());
+    return free_pool_chunk_->pop_back();
+}
+void NumaCoreMemory::release_free_page(PagePoolOffset offset) {
+    if (UNLIKELY(free_pool_chunk_->full())) {
+        release_free_pages_to_engine();
+    }
+    assert(!free_pool_chunk_->full());
+    free_pool_chunk_->push_back(offset);
+}
+
+ErrorCode NumaCoreMemory::grab_free_pages_from_engine() {
+    uint32_t desired = (free_pool_chunk_->capacity() - free_pool_chunk_->size()) / 2;
+    return engine_->get_memory_manager().get_page_pool()->grab(desired, free_pool_chunk_);
+}
+
+void NumaCoreMemory::release_free_pages_to_engine() {
+    uint32_t desired = free_pool_chunk_->size() / 2;
+    engine_->get_memory_manager().get_page_pool()->release(desired, free_pool_chunk_);
+}
+
 }  // namespace memory
 }  // namespace foedus

@@ -63,7 +63,6 @@ inline int static_size_check() {
 }
 
 /**
- * @def foedus::assorted::atomic_compare_exchange_strong_uint128()
  * @brief Atomic 128-bit CAS, which is not in the standard yet.
  * @param[in,out] ptr Points to 128-bit data. \b MUST \b BE \b 128-bit \b ALIGNED.
  * @param[in] o1 If ptr holds this value, we swap. High 64 bit.
@@ -83,7 +82,6 @@ bool atomic_compare_exchange_strong_uint128(
     uint64_t *ptr, uint64_t o1, uint64_t o2, uint64_t n1, uint64_t n2);
 
 /**
- * @def foedus::assorted::atomic_compare_exchange_weak_uint128()
  * @brief Weak version of atomic_compare_exchange_strong_uint128().
  * @ingroup ASSORTED
  */
