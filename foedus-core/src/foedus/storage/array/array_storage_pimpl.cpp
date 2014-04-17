@@ -28,12 +28,10 @@ namespace array {
  * @return index=level.
  */
 std::vector<uint64_t> calculate_required_pages(uint64_t array_size, uint16_t payload) {
-    uint64_t total_payloads = (payload + RECORD_OVERHEAD) * array_size;
-    LOG(INFO) << "total_payloads=" << total_payloads << "B (" << (total_payloads >> 20) << "MB)";
+    uint64_t records_per_page = DATA_SIZE / (payload + RECORD_OVERHEAD);
 
     // so, how many leaf pages do we need?
-    uint64_t page_data_size = PAGE_SIZE - HEADER_SIZE;
-    uint64_t leaf_pages = assorted::int_div_ceil(total_payloads, page_data_size);
+    uint64_t leaf_pages = assorted::int_div_ceil(array_size, records_per_page);
     LOG(INFO) << "We need " << leaf_pages << " leaf pages";
 
     // interior nodes
@@ -59,28 +57,27 @@ ArrayStoragePimpl::ArrayStoragePimpl(Engine* engine, ArrayStorage* holder, Stora
         root_page_pointer_(root_page_pointer), root_page_(nullptr), exist_(!create) {
     pages_ = calculate_required_pages(array_size_, payload_size_aligned_);
     levels_ = pages_.size();
-    for (uint8_t level = 0; level < levels_; ++level) {
-        uint64_t interval;
-        if (level == 0) {
-            interval = (PAGE_SIZE - HEADER_SIZE) / (payload_size_aligned_ + RECORD_OVERHEAD);
-        } else {
-            interval = offset_intervals_[level - 1] * INTERIOR_FANOUT;
-        }
-        offset_intervals_.push_back(interval);
+    offset_intervals_.push_back(DATA_SIZE / (payload_size_aligned_ + RECORD_OVERHEAD));
+    for (uint8_t level = 1; level < levels_; ++level) {
+        offset_intervals_.push_back(offset_intervals_[level - 1] * INTERIOR_FANOUT);
     }
+    pool_ = nullptr;
+    base_address_ = nullptr;
 }
 
 ErrorStack ArrayStoragePimpl::initialize_once() {
     LOG(INFO) << "Initializing an array-storage " << id_ << "(" << name_ << ") exists=" << exist_
-        << " levels=" << levels_;
+        << " levels=" << static_cast<int>(levels_);
     for (uint8_t level = 0; level < levels_; ++level) {
-        LOG(INFO) << "Level-" << level << " pages=" << pages_[level] << " interval="
-            << offset_intervals_[level];
+        LOG(INFO) << "Level-" << static_cast<int>(level) << " pages=" << pages_[level]
+            << " interval=" << offset_intervals_[level];
     }
 
     if (exist_) {
         // initialize root_page_
     }
+    pool_ = engine_->get_memory_manager().get_page_pool();
+    base_address_ = reinterpret_cast<ArrayPage*>(pool_->get_base_address());
     return RET_OK;
 }
 
@@ -107,13 +104,14 @@ ErrorStack ArrayStoragePimpl::uninitialize_once() {
     if (root_page_) {
         LOG(INFO) << "Releasing all in-memory pages...";
         // We don't care which core to return this memory. Just pick the first.
-        memory::PagePool* pool = engine_->get_memory_manager().get_page_pool();
         memory::NumaCoreMemory* memory = engine_->get_memory_manager().get_core_memory(0);
-        release_pages_recursive(pool, memory, root_page_,
+        release_pages_recursive(pool_, memory, root_page_,
                                 root_page_pointer_.volatile_pointer_.components.offset);
         root_page_ = nullptr;
         root_page_pointer_.volatile_pointer_.components.offset = 0;
     }
+    pool_ = nullptr;
+    base_address_ = nullptr;
     return RET_OK;
 }
 
@@ -174,7 +172,6 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
         ArrayRange range(current_pages[0]->get_array_range().end_,
                          current_pages[0]->get_array_range().end_ + offset_intervals_[0]);
         if (range.end_ > array_size_) {
-            assert(levels_ == 1);
             range.end_ = array_size_;
         }
         page->initialize_data_page(id_, payload_size_, 0, range);
@@ -185,7 +182,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
         // push it up to parent, potentially up to root
         for (uint8_t level = 1; level < levels_; ++level) {
             if (current_records[level] == INTERIOR_FANOUT) {
-                VLOG(2) << "leaf=" << leaf << ", interior level=" << level;
+                VLOG(2) << "leaf=" << leaf << ", interior level=" << static_cast<int>(level);
                 memory::PagePoolOffset interior_offset = memory->grab_free_page();
                 assert(interior_offset);
                 ArrayPage* interior_page = reinterpret_cast<ArrayPage*>(
@@ -193,7 +190,6 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
                 ArrayRange interior_range(current_pages[level]->get_array_range().end_,
                          current_pages[level]->get_array_range().end_ + offset_intervals_[level]);
                 if (range.end_ > array_size_) {
-                    assert(level == levels_ - 1);
                     range.end_ = array_size_;
                 }
                 interior_page->initialize_data_page(id_, payload_size_, level, interior_range);
@@ -264,7 +260,6 @@ ErrorStack ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset offset
     assert(is_initialized());
     assert(offset < array_size_);
     assert(out);
-    memory::PagePool* pool = engine_->get_memory_manager().get_page_pool();
     ArrayPage* current_page = root_page_;
     while (!current_page->is_leaf()) {
         assert(current_page->get_array_range().contains(offset));
@@ -276,8 +271,9 @@ ErrorStack ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset offset
             // TODO(Hideaki) Read the page from cache.
             return ERROR_STACK(ERROR_CODE_NOTIMPLEMENTED);
         } else {
-            current_page = reinterpret_cast<ArrayPage*>(
-                pool->resolve_offset(pointer.volatile_pointer_.components.offset));
+            current_page = base_address_ + pointer.volatile_pointer_.components.offset;
+            // current_page = reinterpret_cast<ArrayPage*>(
+            //    pool->resolve_offset(pointer.volatile_pointer_.components.offset));
         }
     }
     assert(current_page->get_array_range().contains(offset));

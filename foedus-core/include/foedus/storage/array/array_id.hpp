@@ -50,6 +50,11 @@ const uint16_t HEADER_SIZE = 32;
  * @brief bluh.
  * @ingroup ARRAY
  */
+const uint16_t DATA_SIZE = foedus::storage::PAGE_SIZE - HEADER_SIZE;
+/**
+ * @brief bluh.
+ * @ingroup ARRAY
+ */
 const uint16_t INTERIOR_SIZE = 16;
 /**
  * @brief bluh.

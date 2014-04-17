@@ -118,6 +118,9 @@ class PagePool CXX11_FINAL : public virtual Initializable {
     /** Resolves offset in this pool to storage::Page*. */
     storage::Page*  resolve_offset(PagePoolOffset offset) const;
 
+    /** Do not rely on this. We might have multiple base addresses later. */
+    storage::Page*  get_base_address();
+
  private:
     PagePoolPimpl *pimpl_;
 };

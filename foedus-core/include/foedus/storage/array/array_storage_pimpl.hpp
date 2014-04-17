@@ -7,6 +7,7 @@
 #include <foedus/cxx11.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
+#include <foedus/memory/fwd.hpp>
 #include <foedus/storage/storage.hpp>
 #include <foedus/storage/storage_id.hpp>
 #include <foedus/storage/array/array_id.hpp>
@@ -71,6 +72,11 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     ArrayPage*              root_page_;
 
     bool                    exist_;
+
+    /** auxiliary. same as engine_->get_memory_manager().get_page_pool(). */
+    memory::PagePool*       pool_;
+    /** auxiliary. same as reinterpret_cast<ArrayPage*>(pool->get_base_address()). */
+    ArrayPage*              base_address_;
 };
 }  // namespace array
 }  // namespace storage

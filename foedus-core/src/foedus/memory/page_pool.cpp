@@ -44,6 +44,9 @@ PagePoolOffset PagePool::resolve_page(storage::Page *page) const {
 storage::Page* PagePool::resolve_offset(PagePoolOffset offset) const {
     return pimpl_->resolve_offset(offset);
 }
+storage::Page* PagePool::get_base_address() {
+    return pimpl_->pool_base_;
+}
 
 }  // namespace memory
 }  // namespace foedus
