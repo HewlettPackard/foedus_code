@@ -11,6 +11,7 @@
 #include <foedus/assorted/assorted_func.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/memory/memory_id.hpp>
+#include <foedus/memory/page_resolver.hpp>
 #include <foedus/storage/page.hpp>
 #include <stdint.h>
 #include <cassert>
@@ -113,13 +114,10 @@ class PagePool CXX11_FINAL : public virtual Initializable {
      */
     void        release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
 
-    /** Resolves storage::Page* to offset in this pool. */
-    PagePoolOffset  resolve_page(storage::Page *page) const;
-    /** Resolves offset in this pool to storage::Page*. */
-    storage::Page*  resolve_offset(PagePoolOffset offset) const;
-
-    /** Do not rely on this. We might have multiple base addresses later. */
-    storage::Page*  get_base_address();
+    /**
+     * Gives an object to resolve an offset in page pool to an actual pointer and vice versa.
+     */
+    PageResolver    get_resolver() const;
 
  private:
     PagePoolPimpl *pimpl_;

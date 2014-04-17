@@ -19,6 +19,7 @@ class   NumaNodeMemory;
 class   PagePoolOffsetChunk;
 class   PagePool;
 class   PagePoolPimpl;
+class   PageResolver;
 }  // namespace memory
 }  // namespace foedus
 #endif  // FOEDUS_MEMORY_FWD_HPP_

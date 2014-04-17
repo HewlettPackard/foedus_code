@@ -4,7 +4,6 @@
  */
 #include <foedus/memory/page_pool.hpp>
 #include <foedus/memory/page_pool_pimpl.hpp>
-#include <cassert>
 #include <cstring>
 namespace foedus {
 namespace memory {
@@ -38,15 +37,7 @@ ErrorCode   PagePool::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chu
 void        PagePool::release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk) {
     pimpl_->release(desired_release_count, chunk);
 }
-PagePoolOffset PagePool::resolve_page(storage::Page *page) const {
-    return pimpl_->resolve_page(page);
-}
-storage::Page* PagePool::resolve_offset(PagePoolOffset offset) const {
-    return pimpl_->resolve_offset(offset);
-}
-storage::Page* PagePool::get_base_address() {
-    return pimpl_->pool_base_;
-}
+PageResolver PagePool::get_resolver() const { return pimpl_->get_resolver(); }
 
 }  // namespace memory
 }  // namespace foedus

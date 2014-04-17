@@ -16,11 +16,13 @@ Engine::~Engine() {
 const EngineOptions& Engine::get_options() const    { return pimpl_->options_; }
 
 debugging::DebuggingSupports& Engine::get_debug() const     { return pimpl_->debug_; }
-fs::Filesystem&         Engine::get_filesystem() const      { return pimpl_->filesystem_; }
+fs::Filesystem&         Engine::get_filesystem()  const     { return pimpl_->filesystem_; }
 log::LogManager&        Engine::get_log_manager() const     { return pimpl_->log_manager_; }
 memory::EngineMemory&   Engine::get_memory_manager() const  { return pimpl_->memory_manager_; }
 thread::ThreadPool&     Engine::get_thread_pool() const     { return pimpl_->thread_pool_; }
 storage::StorageManager&    Engine::get_storage_manager() const { return pimpl_->storage_manager_; }
+xct::XctManager&        Engine::get_xct_manager() const     { return pimpl_->xct_manager_; }
+
 bool                Engine::is_initialized() const  { return pimpl_->is_initialized(); }
 ErrorStack          Engine::initialize()            { return pimpl_->initialize(); }
 ErrorStack          Engine::uninitialize()          { return pimpl_->uninitialize(); }

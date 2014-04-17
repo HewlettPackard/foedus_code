@@ -34,7 +34,7 @@
  * @par C++11 in cpp and non-public headers
  * Remember, this is only for public headers. We anyway compile our library with C++11.
  * We can freely use C++11 keywords/features in cpp and non-public header files, such as
- * xxx_inl.hpp, xxx_impl.hpp, and xxx_pimpl.hpp. In other words, client programs must not include
+ * xxx_impl.hpp, and xxx_pimpl.hpp. In other words, client programs must not include
  * them unless they turn on C++11. Also, impl/pimpl header files often include too much details
  * for client programs to rely on. They might change in next versions.
  */

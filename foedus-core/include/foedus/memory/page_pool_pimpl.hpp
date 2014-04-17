@@ -8,6 +8,7 @@
 #include <foedus/initializable.hpp>
 #include <foedus/memory/aligned_memory.hpp>
 #include <foedus/memory/page_pool.hpp>
+#include <foedus/memory/page_resolver.hpp>
 #include <cassert>
 #include <mutex>
 #include <vector>
@@ -27,10 +28,12 @@ class PagePoolPimpl final : public DefaultInitializable {
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
-    ErrorCode   grab(uint32_t desired_grab_count, PagePoolOffsetChunk *chunk);
-    void        release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
-    PagePoolOffset resolve_page(storage::Page *page) const;
-    storage::Page* resolve_offset(PagePoolOffset offset) const;
+    ErrorCode       grab(uint32_t desired_grab_count, PagePoolOffsetChunk *chunk);
+    void            release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
+
+    PageResolver    get_resolver() const {
+        return PageResolver(pool_base_, pages_for_free_pool_, pool_size_);
+    }
 
     Engine* const                   engine_;
 

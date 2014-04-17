@@ -48,9 +48,16 @@ class Xct {
     uint32_t            get_read_set_size() const { return read_set_size_; }
     uint32_t            get_write_set_size() const { return write_set_size_; }
 
-
-    ErrorStack          add_to_read_set(storage::Record* record);
-    ErrorStack          add_to_write_set(storage::Record* record);
+    /**
+     * Add the given record to the read set of this transaction.
+     * Inlined in xct_inl.hpp.
+     */
+    ErrorCode           add_to_read_set(storage::Record* record);
+    /**
+     * Add the given record to the write set of this transaction.
+     * Inlined in xct_inl.hpp.
+     */
+    ErrorCode           add_to_write_set(storage::Record* record);
 
     friend std::ostream& operator<<(std::ostream& o, const Xct& v);
 
@@ -75,7 +82,6 @@ class Xct {
     /** The thread this transaction is running on. */
     thread::Thread*     thread_;
 };
-
 }  // namespace xct
 }  // namespace foedus
 #endif  // FOEDUS_XCT_XCT_HPP_

@@ -142,17 +142,5 @@ void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk 
     free_pool_count_ += release_count;
 }
 
-PagePoolOffset PagePoolPimpl::resolve_page(storage::Page *page) const {
-    PagePoolOffset offset = page - pool_base_;
-    assert(offset >= pages_for_free_pool_);
-    assert(offset < pool_size_);
-    return offset;
-}
-storage::Page* PagePoolPimpl::resolve_offset(PagePoolOffset offset) const {
-    assert(offset >= pages_for_free_pool_);
-    assert(offset < pool_size_);
-    return pool_base_ + offset;
-}
-
 }  // namespace memory
 }  // namespace foedus

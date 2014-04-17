@@ -15,6 +15,8 @@
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/memory/page_pool.hpp>
 #include <foedus/engine.hpp>
+#include <foedus/xct/xct.hpp>
+#include <foedus/xct/xct_inl.hpp>
 #include <glog/logging.h>
 #include <cstring>
 #include <string>
@@ -61,8 +63,6 @@ ArrayStoragePimpl::ArrayStoragePimpl(Engine* engine, ArrayStorage* holder, Stora
     for (uint8_t level = 1; level < levels_; ++level) {
         offset_intervals_.push_back(offset_intervals_[level - 1] * INTERIOR_FANOUT);
     }
-    pool_ = nullptr;
-    base_address_ = nullptr;
 }
 
 ErrorStack ArrayStoragePimpl::initialize_once() {
@@ -76,12 +76,11 @@ ErrorStack ArrayStoragePimpl::initialize_once() {
     if (exist_) {
         // initialize root_page_
     }
-    pool_ = engine_->get_memory_manager().get_page_pool();
-    base_address_ = reinterpret_cast<ArrayPage*>(pool_->get_base_address());
+    resolver_ = engine_->get_memory_manager().get_page_pool()->get_resolver();
     return RET_OK;
 }
 
-void release_pages_recursive(memory::PagePool *pool, memory::NumaCoreMemory* memory,
+void release_pages_recursive(memory::PageResolver *resolver, memory::NumaCoreMemory* memory,
                              ArrayPage* page, memory::PagePoolOffset offset) {
     if (!page->is_leaf()) {
         for (uint16_t i = 0; i < INTERIOR_FANOUT; ++i) {
@@ -90,8 +89,8 @@ void release_pages_recursive(memory::PagePool *pool, memory::NumaCoreMemory* mem
             if (child_offset) {
                 // then recurse
                 ArrayPage* child_page = reinterpret_cast<ArrayPage*>(
-                    pool->resolve_offset(child_offset));
-                release_pages_recursive(pool, memory, child_page, child_offset);
+                    resolver->resolve_offset(child_offset));
+                release_pages_recursive(resolver, memory, child_page, child_offset);
                 child_pointer.volatile_pointer_.components.offset = 0;
             }
         }
@@ -105,13 +104,11 @@ ErrorStack ArrayStoragePimpl::uninitialize_once() {
         LOG(INFO) << "Releasing all in-memory pages...";
         // We don't care which core to return this memory. Just pick the first.
         memory::NumaCoreMemory* memory = engine_->get_memory_manager().get_core_memory(0);
-        release_pages_recursive(pool_, memory, root_page_,
+        release_pages_recursive(&resolver_, memory, root_page_,
                                 root_page_pointer_.volatile_pointer_.components.offset);
         root_page_ = nullptr;
         root_page_pointer_.volatile_pointer_.components.offset = 0;
     }
-    pool_ = nullptr;
-    base_address_ = nullptr;
     return RET_OK;
 }
 
@@ -126,7 +123,6 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
 
     // TODO(Hideaki) This part must handle the case where RAM < Array Size
     // So far, we just do assert(offset) after memory->grab_free_page().
-    memory::PagePool *pool = engine_->get_memory_manager().get_page_pool();
     memory::NumaCoreMemory *memory = context->get_thread_memory();
 
     // we create from left, keeping cursors on each level.
@@ -138,7 +134,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     for (uint8_t level = 0; level < levels_; ++level) {
         memory::PagePoolOffset offset = memory->grab_free_page();
         assert(offset);
-        ArrayPage* page = reinterpret_cast<ArrayPage*>(pool->resolve_offset(offset));
+        ArrayPage* page = reinterpret_cast<ArrayPage*>(resolver_.resolve_offset(offset));
 
         ArrayRange range(0, offset_intervals_[level]);
         if (range.end_ > array_size_) {
@@ -167,7 +163,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     for (uint64_t leaf = 1; leaf < pages_[0]; ++leaf) {
         memory::PagePoolOffset offset = memory->grab_free_page();
         assert(offset);
-        ArrayPage* page = reinterpret_cast<ArrayPage*>(pool->resolve_offset(offset));
+        ArrayPage* page = reinterpret_cast<ArrayPage*>(resolver_.resolve_offset(offset));
 
         ArrayRange range(current_pages[0]->get_array_range().end_,
                          current_pages[0]->get_array_range().end_ + offset_intervals_[0]);
@@ -186,7 +182,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
                 memory::PagePoolOffset interior_offset = memory->grab_free_page();
                 assert(interior_offset);
                 ArrayPage* interior_page = reinterpret_cast<ArrayPage*>(
-                    pool->resolve_offset(interior_offset));
+                    resolver_.resolve_offset(interior_offset));
                 ArrayRange interior_range(current_pages[level]->get_array_range().end_,
                          current_pages[level]->get_array_range().end_ + offset_intervals_[level]);
                 if (range.end_ > array_size_) {
@@ -235,7 +231,8 @@ ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOffset of
     assert(page->get_array_range().contains(offset));
     ArrayOffset index = offset - page->get_array_range().begin_;
     Record &record = page->get_leaf_record(index);
-    // TODO(Hideaki) Add to Read-set
+    // TODO(Hideaki) Handle too-many-read-set error
+    context->get_current_xct().add_to_read_set(&record);
     std::memcpy(payload, record.payload_ + payload_offset, payload_count);
     return RET_OK;
 }
@@ -250,7 +247,8 @@ ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context,
     assert(page->get_array_range().contains(offset));
     ArrayOffset index = offset - page->get_array_range().begin_;
     Record &record = page->get_leaf_record(index);
-    // TODO(Hideaki) Add to Write-set
+    // TODO(Hideaki) Handle too-many-write-set error
+    context->get_current_xct().add_to_write_set(&record);
     // TODO(Hideaki) Add to private log
     std::memcpy(record.payload_ + payload_offset, payload, payload_count);
     return RET_OK;
@@ -272,9 +270,8 @@ inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset
             // TODO(Hideaki) Read the page from cache.
             return ERROR_STACK(ERROR_CODE_NOTIMPLEMENTED);
         } else {
-            current_page = base_address_ + pointer.volatile_pointer_.components.offset;
-            // current_page = reinterpret_cast<ArrayPage*>(
-            //    pool->resolve_offset(pointer.volatile_pointer_.components.offset));
+            current_page = reinterpret_cast<ArrayPage*>(
+                resolver_.resolve_offset(pointer.volatile_pointer_.components.offset));
         }
     }
     assert(current_page->get_array_range().contains(offset));

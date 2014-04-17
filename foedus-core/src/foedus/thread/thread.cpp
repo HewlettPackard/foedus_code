@@ -22,9 +22,9 @@ Engine*     Thread::get_engine()        const { return pimpl_->engine_; }
 ThreadId    Thread::get_thread_id()     const { return pimpl_->id_; }
 bool        Thread::is_running_xct()    const { return pimpl_->current_xct_.is_active(); }
 memory::NumaCoreMemory* Thread::get_thread_memory() const { return pimpl_->core_memory_; }
-void        Thread::activate_xct()       { return pimpl_->activate_xct(); }
-void        Thread::deactivate_xct()     { return pimpl_->deactivate_xct(); }
-
+void        Thread::activate_xct()      { return pimpl_->activate_xct(); }
+void        Thread::deactivate_xct()    { return pimpl_->deactivate_xct(); }
+xct::Xct&   Thread::get_current_xct()   { return pimpl_->current_xct_; }
 
 }  // namespace thread
 }  // namespace foedus
