@@ -256,7 +256,8 @@ ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context,
     return RET_OK;
 }
 
-ErrorStack ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset offset, ArrayPage** out) {
+inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset offset,
+                                            ArrayPage** out) {
     assert(is_initialized());
     assert(offset < array_size_);
     assert(out);

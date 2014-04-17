@@ -40,6 +40,9 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
     xct::XctAccess* get_write_set_memory()  const { return write_set_memory_; }
     uint32_t        get_write_set_size()    const { return write_set_size_; }
 
+    /** Returns the parent memory repository. */
+    NumaNodeMemory* get_node_memory()       const { return node_memory_; }
+
     /**
      * @brief Acquires one free page from \b local page pool.
      * @return acquired page, or 0 if no free page is available (OUTOFMEMORY).
