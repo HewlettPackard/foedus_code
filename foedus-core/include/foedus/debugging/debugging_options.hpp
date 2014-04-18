@@ -83,6 +83,7 @@ struct DebuggingOptions {
     std::string                         debug_log_dir_;
 
     friend std::ostream& operator<<(std::ostream& o, const DebuggingOptions& v);
+    friend std::istream& operator<<(std::istream& in, DebuggingOptions& v);
 };
 }  // namespace debugging
 }  // namespace foedus

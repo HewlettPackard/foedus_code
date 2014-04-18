@@ -4,6 +4,7 @@
  */
 #include <foedus/storage/storage_manager.hpp>
 #include <foedus/storage/storage_manager_pimpl.hpp>
+#include <string>
 namespace foedus {
 namespace storage {
 StorageManager::StorageManager(Engine* engine) {
@@ -24,6 +25,12 @@ ErrorStack StorageManager::register_storage(Storage* storage) {
     return pimpl_->register_storage(storage);
 }
 ErrorStack StorageManager::remove_storage(StorageId id) { return pimpl_->remove_storage(id); }
+
+ErrorStack StorageManager::create_array(thread::Thread* context, const std::string& name,
+        uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage** out) {
+    return pimpl_->create_array(context, name, payload_size, array_size, out);
+}
+
 
 }  // namespace storage
 }  // namespace foedus

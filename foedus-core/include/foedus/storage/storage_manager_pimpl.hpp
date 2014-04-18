@@ -8,7 +8,10 @@
 #include <foedus/initializable.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/storage/storage_id.hpp>
+#include <foedus/storage/array/fwd.hpp>
+#include <foedus/storage/array/array_id.hpp>
 #include <mutex>
+#include <string>
 namespace foedus {
 namespace storage {
 /**
@@ -18,7 +21,7 @@ namespace storage {
  * A private pimpl object for StorageManager.
  * Do not include this header from a client program unless you know what you are doing.
  */
-class StorageManagerPimpl : public DefaultInitializable {
+class StorageManagerPimpl final : public DefaultInitializable {
  public:
     StorageManagerPimpl() = delete;
     explicit StorageManagerPimpl(Engine* engine);
@@ -30,6 +33,9 @@ class StorageManagerPimpl : public DefaultInitializable {
     ErrorStack  register_storage(Storage* storage);
     ErrorStack  remove_storage(StorageId id);
     ErrorStack  expand_storage_array(StorageId new_size);
+
+    ErrorStack  create_array(thread::Thread* context, const std::string &name,
+                uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out);
 
     Engine* const           engine_;
 

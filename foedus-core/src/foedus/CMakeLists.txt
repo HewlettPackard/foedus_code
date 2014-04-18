@@ -27,7 +27,6 @@ set(FOEDUS_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/engine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/engine_options.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/engine_pimpl.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/epoch.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/error_stack.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/error_stack_batch.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/initializable.cpp

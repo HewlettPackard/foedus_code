@@ -2,6 +2,7 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
+#include <foedus/externalize/externalizable.hpp>
 #include <foedus/xct/xct_options.hpp>
 #include <ostream>
 namespace foedus {
@@ -12,9 +13,10 @@ XctOptions::XctOptions() {
 }
 
 std::ostream& operator<<(std::ostream& o, const XctOptions& v) {
-    o << "Xct options:" << std::endl;
-    o << "  max_read_set_size_=" << v.max_read_set_size_ << std::endl;
-    o << "  max_write_set_size_=" << v.max_write_set_size_ << std::endl;
+    o << "  <XctOptions>" << std::endl;
+    EXTERNALIZE_WRITE(max_read_set_size_);
+    EXTERNALIZE_WRITE(max_write_set_size_);
+    o << "  </XctOptions>" << std::endl;
     return o;
 }
 }  // namespace xct

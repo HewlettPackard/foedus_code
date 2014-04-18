@@ -10,7 +10,8 @@ StorageOptions::StorageOptions() {
 }
 
 std::ostream& operator<<(std::ostream& o, const StorageOptions& /*v*/) {
-    o << "Storage options:" << std::endl;
+    o << "  <StorageOptions>" << std::endl;
+    o << "  </StorageOptions>" << std::endl;
     return o;
 }
 }  // namespace storage

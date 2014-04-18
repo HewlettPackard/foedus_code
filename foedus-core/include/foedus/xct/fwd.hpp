@@ -11,6 +11,7 @@
  */
 namespace foedus {
 namespace xct {
+class   Epoch;
 struct  XctId;
 struct  XctAccess;
 class   Xct;

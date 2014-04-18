@@ -1,4 +1,5 @@
 set(FOEDUS_XCT_SRC
+    ${CMAKE_CURRENT_SOURCE_DIR}/epoch.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/xct.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/xct_access.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/xct_id.cpp

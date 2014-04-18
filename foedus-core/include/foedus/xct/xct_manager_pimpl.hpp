@@ -8,6 +8,7 @@
 #include <foedus/initializable.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <foedus/xct/fwd.hpp>
+#include <foedus/xct/epoch.hpp>
 namespace foedus {
 namespace xct {
 /**
@@ -29,6 +30,14 @@ class XctManagerPimpl final : public DefaultInitializable {
     ErrorStack  abort_xct(thread::Thread* context);
 
     Engine* const           engine_;
+
+    /**
+     * The current epoch of the entire engine.
+     * No locks to protect this variable, but
+     * \li There should be only one thread that might update this (XctManager).
+     * \li Readers should take appropriate fence before reading this (XctManager#begin_xct()).
+     */
+    Epoch                   global_epoch_;
 };
 }  // namespace xct
 }  // namespace foedus

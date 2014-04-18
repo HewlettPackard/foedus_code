@@ -9,6 +9,7 @@
 #include <foedus/storage/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <foedus/xct/fwd.hpp>
+#include <foedus/xct/epoch.hpp>
 #include <foedus/xct/isolation_level.hpp>
 #include <foedus/xct/xct_id.hpp>
 #include <iosfwd>
@@ -64,6 +65,8 @@ class Xct {
  private:
     /** ID of this transaction, which is issued at commit time. */
     XctId               id_;
+    /** */
+    Epoch               epoch_;
 
     /** Level of isolation for this transaction. */
     IsolationLevel      isolation_level_;

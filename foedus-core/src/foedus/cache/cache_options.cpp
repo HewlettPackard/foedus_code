@@ -10,7 +10,8 @@ CacheOptions::CacheOptions() {
 }
 
 std::ostream& operator<<(std::ostream& o, const CacheOptions& /*v*/) {
-    o << "Snapshot Cache options:" << std::endl;
+    o << "  <SnapshotCacheOptions>" << std::endl;
+    o << "  </SnapshotCacheOptions>" << std::endl;
     return o;
 }
 

@@ -4,7 +4,7 @@
  */
 #ifndef FOEDUS_XCT_XCT_ID_HPP_
 #define FOEDUS_XCT_XCT_ID_HPP_
-#include <foedus/epoch.hpp>
+#include <foedus/xct/epoch.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <stdint.h>
 #include <iosfwd>

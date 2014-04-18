@@ -2,6 +2,7 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
+#include <foedus/externalize/externalizable.hpp>
 #include <foedus/thread/thread_options.hpp>
 #include <numa.h>
 #include <ostream>
@@ -21,9 +22,10 @@ ThreadOptions::ThreadOptions() {
 }
 
 std::ostream& operator<<(std::ostream& o, const ThreadOptions& v) {
-    o << "Thread options:" << std::endl;
-    o << "  group_count_=" << static_cast<int>(v.group_count_) << std::endl;
-    o << "  thread_count_per_group_=" << static_cast<int>(v.thread_count_per_group_) << std::endl;
+    o << "  <ThreadOptions>" << std::endl;
+    EXTERNALIZE_WRITE(group_count_);
+    EXTERNALIZE_WRITE(thread_count_per_group_);
+    o << "  </ThreadOptions>" << std::endl;
     return o;
 }
 

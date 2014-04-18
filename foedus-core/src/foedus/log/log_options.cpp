@@ -2,6 +2,7 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
+#include <foedus/externalize/externalizable.hpp>
 #include <foedus/log/log_options.hpp>
 #include <ostream>
 #include <string>
@@ -14,13 +15,12 @@ LogOptions::LogOptions() {
 }
 
 std::ostream& operator<<(std::ostream& o, const LogOptions& v) {
-    o << "Log options:" << std::endl;
-    for (size_t i = 0; i < v.log_paths_.size(); ++i) {
-        o << "  log_paths[" << i << "]=" << v.log_paths_[i] << std::endl;
-    }
-    o << "  thread_buffer=" << v.thread_buffer_kb_ << "KB" << std::endl;
-    o << "  logger_buffer=" << v.logger_buffer_kb_ << "KB" << std::endl;
+    o << "  <LogOptions>" << std::endl;
+    EXTERNALIZE_WRITE(log_paths_);
+    EXTERNALIZE_WRITE(thread_buffer_kb_);
+    EXTERNALIZE_WRITE(logger_buffer_kb_);
     o << v.emulation_;
+    o << "  </LogOptions>" << std::endl;
     return o;
 }
 

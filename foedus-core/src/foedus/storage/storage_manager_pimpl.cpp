@@ -8,9 +8,12 @@
 #include <foedus/storage/storage_manager_pimpl.hpp>
 #include <foedus/storage/storage_options.hpp>
 #include <foedus/storage/storage.hpp>
+#include <foedus/storage/array/array_storage.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <glog/logging.h>
 #include <atomic>
+#include <memory>
+#include <string>
 #include <cstring>
 namespace foedus {
 namespace storage {
@@ -125,6 +128,17 @@ ErrorStack StorageManagerPimpl::expand_storage_array(StorageId new_size) {
     return RET_OK;
 }
 
+ErrorStack StorageManagerPimpl::create_array(thread::Thread* context, const std::string& name,
+            uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage** out) {
+    *out = nullptr;
+    StorageId id = issue_next_storage_id();
+    std::unique_ptr<array::ArrayStorage> array(new array::ArrayStorage
+        (engine_, id, name, payload_size, array_size, DualPagePointer(), true));
+    CHECK_ERROR(array->initialize());
+    CHECK_ERROR(array->create(context));
+    *out = array.release();  // No error, so take over the ownership from unique_ptr.
+    return RET_OK;
+}
 
 }  // namespace storage
 }  // namespace foedus
