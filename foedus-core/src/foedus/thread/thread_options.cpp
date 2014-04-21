@@ -5,7 +5,6 @@
 #include <foedus/externalize/externalizable.hpp>
 #include <foedus/thread/thread_options.hpp>
 #include <numa.h>
-#include <ostream>
 namespace foedus {
 namespace thread {
 ThreadOptions::ThreadOptions() {
@@ -21,12 +20,22 @@ ThreadOptions::ThreadOptions() {
     thread_count_per_group_ = total_cores / group_count_;
 }
 
-std::ostream& operator<<(std::ostream& o, const ThreadOptions& v) {
-    o << "  <ThreadOptions>" << std::endl;
-    EXTERNALIZE_WRITE(group_count_);
-    EXTERNALIZE_WRITE(thread_count_per_group_);
-    o << "  </ThreadOptions>" << std::endl;
-    return o;
+ErrorStack ThreadOptions::load(tinyxml2::XMLElement* element) {
+    EXTERNALIZE_LOAD_ELEMENT(element, group_count_);
+    EXTERNALIZE_LOAD_ELEMENT(element, thread_count_per_group_);
+    return RET_OK;
+}
+
+ErrorStack ThreadOptions::save(tinyxml2::XMLElement* element) const {
+    CHECK_ERROR(insert_comment(element, "Set of options about threads and thread-groups"));
+
+    EXTERNALIZE_SAVE_ELEMENT(element, group_count_,
+        "Number of ThreadGroup in the engine.\n"
+        " Default value is hardware NUMA node count (::numa_num_configured_nodes()).");
+    EXTERNALIZE_SAVE_ELEMENT(element, thread_count_per_group_,
+        "Number of Thread in each ThreadGroup. Default value is hardware NUMA core count;\n"
+        " ::numa_num_configured_cpus() / ::numa_num_configured_nodes()");
+    return RET_OK;
 }
 
 }  // namespace thread

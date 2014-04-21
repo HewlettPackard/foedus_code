@@ -4,6 +4,8 @@
  */
 #ifndef FOEDUS_SNAPSHOT_SNAPSHOT_OPTIONS_HPP_
 #define FOEDUS_SNAPSHOT_SNAPSHOT_OPTIONS_HPP_
+#include <foedus/cxx11.hpp>
+#include <foedus/externalize/externalizable.hpp>
 #include <foedus/fs/device_emulation_options.hpp>
 #include <iosfwd>
 #include <string>
@@ -15,7 +17,7 @@ namespace snapshot {
  * @ingroup SNAPSHOT
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
-struct SnapshotOptions {
+struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable {
     /**
      * Constructs option values with default values.
      */
@@ -34,7 +36,12 @@ struct SnapshotOptions {
     /** Settings to emulate slower data device. */
     foedus::fs::DeviceEmulationOptions  emulation_;
 
-    friend std::ostream& operator<<(std::ostream& o, const SnapshotOptions& v);
+    ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;
+    ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;
+    friend std::ostream& operator<<(std::ostream& o, const SnapshotOptions& v) {
+        v.save_to_stream(&o);
+        return o;
+    }
 };
 }  // namespace snapshot
 }  // namespace foedus

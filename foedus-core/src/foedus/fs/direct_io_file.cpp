@@ -13,10 +13,9 @@
 namespace foedus {
 namespace fs {
 DirectIoFile::DirectIoFile(
-    const Filesystem &filesystem,
     const Path &path,
     const DeviceEmulationOptions &emulation)
-    : filesystem_(filesystem), path_(path), emulation_(emulation),
+    : path_(path), emulation_(emulation),
     descriptor_(INVALID_DESCRIPTOR), read_(false), write_(false), current_offset_(0) {
 }
 
@@ -25,7 +24,7 @@ DirectIoFile::~DirectIoFile() {
 }
 
 ErrorCode DirectIoFile::open(bool read, bool write, bool append, bool create) {
-    if (descriptor_ == INVALID_DESCRIPTOR) {
+    if (descriptor_ != INVALID_DESCRIPTOR) {
         LOG(WARNING) << "DirectIoFile::open(): already opened: " << path_;
         return ERROR_CODE_FS_ALREADY_OPENED;
     }
@@ -60,7 +59,7 @@ ErrorCode DirectIoFile::open(bool read, bool write, bool append, bool create) {
         write_ = write;
         current_offset_ = 0;
         if (append) {
-            current_offset_ = filesystem_.file_size(path_);
+            current_offset_ = file_size(path_);
         }
         LOG(INFO) << "DirectIoFile::open(): successfully opened. " << *this;
         return ERROR_CODE_OK;

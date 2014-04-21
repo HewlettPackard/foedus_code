@@ -4,6 +4,8 @@
  */
 #ifndef FOEDUS_FS_DEVICE_EMULATION_OPTIONS_HPP_
 #define FOEDUS_FS_DEVICE_EMULATION_OPTIONS_HPP_
+#include <foedus/cxx11.hpp>
+#include <foedus/externalize/externalizable.hpp>
 #include <stdint.h>
 #include <iosfwd>
 
@@ -17,7 +19,7 @@ namespace fs {
  * In some experiments, we use them to emulate NVM/SSD/etc on DRAM (RAMDisk).
  * This is a POD.
  */
-struct DeviceEmulationOptions {
+struct DeviceEmulationOptions CXX11_FINAL : public virtual externalize::Externalizable {
     DeviceEmulationOptions() {
         disable_direct_io_ = false;
         emulated_seek_latency_ns_ = 0;
@@ -33,7 +35,12 @@ struct DeviceEmulationOptions {
     /** [Experiments] additional nanosec to busy-wait for each 1KB read. 0 (default) disables it. */
     uint32_t    emulated_scan_latency_ns_;
 
-    friend std::ostream& operator<<(std::ostream& o, const DeviceEmulationOptions& v);
+    ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;
+    ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;
+    friend std::ostream& operator<<(std::ostream& o, const DeviceEmulationOptions& v) {
+        v.save_to_stream(&o);
+        return o;
+    }
 };
 }  // namespace fs
 }  // namespace foedus

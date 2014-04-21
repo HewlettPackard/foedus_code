@@ -9,7 +9,6 @@
 #include <foedus/error_stack.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/debugging/fwd.hpp>
-#include <foedus/fs/fwd.hpp>
 #include <foedus/log/fwd.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/storage/fwd.hpp>
@@ -39,7 +38,7 @@ class EngineOptions;
  * There must not be a cycle, obviously. Below is the list of dependencies
  *  \li All modules depend on \ref DEBUGGING.
  *  \li \ref THREAD depend on \ref MEMORY.
- *  \li \ref LOG depend on \ref THREAD and \ref FILESYSTEM.
+ *  \li \ref LOG depend on \ref THREAD.
  *  \li \ref SNAPSHOT and \ref CACHE depend on \ref LOG.
  *  \li \ref STORAGE depend on \ref SNAPSHOT and \ref CACHE.
  *  \li \ref XCT depends on \ref STORAGE.
@@ -47,11 +46,9 @@ class EngineOptions;
  * (transitively implied dependencies omitted, eg \ref LOG of course depends on \ref MEMORY).
  *
  * @msc
- * DBG,FS,MEM,THREAD,LOG,SNAPSHOT,CACHE,STORAGE,XCT;
- * DBG<=FS;
+ * DBG,MEM,THREAD,LOG,SNAPSHOT,CACHE,STORAGE,XCT;
  * DBG<=MEM;
  * MEM<=THREAD;
- * FS<=LOG;
  * THREAD<=LOG;
  * LOG<=SNAPSHOT;
  * LOG<=CACHE;
@@ -116,8 +113,6 @@ class Engine CXX11_FINAL : public virtual Initializable {
     const EngineOptions&            get_options() const;
     /** See \ref DEBUGGING */
     debugging::DebuggingSupports&   get_debug() const;
-    /** See \ref FILESYSTEM */
-    fs::Filesystem&                 get_filesystem() const;
     /** See \ref LOG */
     log::LogManager&                get_log_manager() const;
     /** See \ref MEMORY */

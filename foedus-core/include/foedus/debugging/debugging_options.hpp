@@ -4,6 +4,8 @@
  */
 #ifndef FOEDUS_DEBUGGING_DEBUGGING_OPTIONS_HPP_
 #define FOEDUS_DEBUGGING_DEBUGGING_OPTIONS_HPP_
+#include <foedus/cxx11.hpp>
+#include <foedus/externalize/externalizable.hpp>
 #include <stdint.h>
 #include <iosfwd>
 #include <string>
@@ -16,7 +18,7 @@ namespace debugging {
  * For ease of debugging, some of the options here has corresponding APIs to change
  * at runtime. So, those options are merely \e initial configurations.
  */
-struct DebuggingOptions {
+struct DebuggingOptions CXX11_FINAL : public virtual externalize::Externalizable {
     /** Defines debug logging levels. */
     enum DebugLogLevel {
         /** Usual logs. */
@@ -82,8 +84,12 @@ struct DebuggingOptions {
      */
     std::string                         debug_log_dir_;
 
-    friend std::ostream& operator<<(std::ostream& o, const DebuggingOptions& v);
-    friend std::istream& operator<<(std::istream& in, DebuggingOptions& v);
+    ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;
+    ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;
+    friend std::ostream& operator<<(std::ostream& o, const DebuggingOptions& v) {
+        v.save_to_stream(&o);
+        return o;
+    }
 };
 }  // namespace debugging
 }  // namespace foedus

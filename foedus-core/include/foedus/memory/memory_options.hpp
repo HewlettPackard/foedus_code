@@ -4,6 +4,8 @@
  */
 #ifndef FOEDUS_MEMORY_MEMORY_OPTIONS_HPP_
 #define FOEDUS_MEMORY_MEMORY_OPTIONS_HPP_
+#include <foedus/cxx11.hpp>
+#include <foedus/externalize/externalizable.hpp>
 #include <stdint.h>
 #include <iosfwd>
 namespace foedus {
@@ -13,7 +15,7 @@ namespace memory {
  * @ingroup MEMORY
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
-struct MemoryOptions {
+struct MemoryOptions CXX11_FINAL : public virtual externalize::Externalizable {
     /** Constant values. */
     enum Constants {
         /** Default value for page_pool_size_mb_. */
@@ -54,7 +56,12 @@ struct MemoryOptions {
      */
     uint32_t    page_pool_size_mb_;
 
-    friend std::ostream& operator<<(std::ostream& o, const MemoryOptions& v);
+    ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;
+    ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;
+    friend std::ostream& operator<<(std::ostream& o, const MemoryOptions& v) {
+        v.save_to_stream(&o);
+        return o;
+    }
 };
 }  // namespace memory
 }  // namespace foedus

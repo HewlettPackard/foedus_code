@@ -42,6 +42,16 @@ X(ERROR_CODE_FS_SYNC_FAILED,        0x020C, "FILESYS: fsync() failed.")
 X(ERROR_CODE_MEMORY_NO_FREE_PAGES,  0x0301, "MEMORY : Not enough free pages. Check the config of MemoryOptions")
 X(ERROR_CODE_MEMORY_DUPLICATE_PAGE, 0x0302, "MEMORY : Duplicate entry in free-page pool.")
 
+X(ERROR_CODE_CONF_PARSE_FAILED,     0x0401, "CONFIG : Config file parsing failed. This usually means an invalid XML file.")
+X(ERROR_CODE_CONF_VALUE_OUTOFRANGE, 0x0402, "CONFIG : Configuration value out of range.")
+X(ERROR_CODE_CONF_MISSING_ELEMENT,  0x0403, "CONFIG : The xml element is missing in the config file.")
+X(ERROR_CODE_CONF_INVALID_ELEMENT,  0x0404, "CONFIG : An invalid valud in the xml element.")
+X(ERROR_CODE_CONF_EMPTY_XML,        0x0405, "CONFIG : No root element in the xml.")
+X(ERROR_CODE_CONF_FILE_NOT_FOUNT,   0x0406, "CONFIG : The file doesn't exist.")
+X(ERROR_CODE_CONF_COULD_NOT_WRITE,  0x0407, "CONFIG : Failed to write a configuration file.")
+X(ERROR_CODE_CONF_COULD_NOT_RENAME, 0x0408, "CONFIG : Failed to atomically rename the temporary file to destination.")
+X(ERROR_CODE_CONF_MKDIRS_FAILED,    0x0409, "CONFIG : Failed to create a directory. Check permissions.")
+
 X(ERROR_CODE_STR_DUPLICATE_STRID,   0x0801, "STORAGE: Duplicate StorageID")
 X(ERROR_CODE_STR_ALREADY_EXISTS,    0x0802, "STORAGE: This storage already exists")
 

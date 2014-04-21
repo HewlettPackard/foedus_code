@@ -10,6 +10,7 @@
 #include <glog/logging.h>
 
 #include <dirent.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -25,33 +26,11 @@
 #include <vector>
 namespace foedus {
 namespace fs {
-Filesystem::Filesystem(Engine *engine) : engine_(engine) {
-}
-
-ErrorStack Filesystem::initialize() {
-    if (!engine_->get_debug().is_initialized()) {
-        return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
-    }
-    initialized_ = true;
-    return RET_OK;
-}
-ErrorStack Filesystem::uninitialize() {
-    if (!initialized_) {
-        if (!engine_->get_debug().is_initialized()) {
-            return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT);
-        }
-        initialized_ = false;
-    }
-    return RET_OK;
-}
-
-const FilesystemOptions& Filesystem::get_options() const { return engine_->get_options().fs_; }
-
-FileStatus Filesystem::status(const Path& p) const {
+FileStatus status(const Path& p) {
     struct stat path_stat;
     int ret = ::stat(p.c_str(), &path_stat);
     if (ret != 0) {
-        LOG(INFO) << "Filesystem::status(): stat() failed for " << p << ". errno=" << errno;
+        LOG(WARNING) << "Filesystem::status(): stat() failed for " << p << ". errno=" << errno;
         if (errno == ENOENT || errno == ENOTDIR) {
             return FileStatus(file_not_found);
         }
@@ -64,14 +43,14 @@ FileStatus Filesystem::status(const Path& p) const {
     return FileStatus(type_unknown);
 }
 
-Path Filesystem::absolute(const Path& p) const {
+Path absolute(const Path& p) {
     if (p.empty() || p.string()[0] == Path::PREFERRED_SEPARATOR) {
         return p;
     }
     return current_path() /= p;
 }
 
-Path Filesystem::current_path() const {
+Path current_path() {
     Path cur;
     for (size_t path_max = 128;; path_max *=2) {  // loop 'til buffer large enough
         std::vector<char> buf(path_max);
@@ -85,9 +64,11 @@ Path Filesystem::current_path() const {
     return cur;
 }
 
-bool Filesystem::create_directories(const Path& p) const {
-    int ret = ::mkdir(p.c_str(), S_IRWXU);
-    if (ret == 0) {
+bool create_directories(const Path& p, bool sync) {
+    if (exists(p)) {
+        return true;
+    }
+    if (create_directory(p, sync)) {
         return true;
     }
     // if failed, create parent then try again
@@ -95,27 +76,30 @@ bool Filesystem::create_directories(const Path& p) const {
     if (parent.empty()) {
         return false;
     }
-    if (!create_directories(parent)) {
+    if (!create_directories(parent, sync)) {
         return false;
     }
     // now ancestors exist.
-    return create_directory(p);
+    return create_directory(p, sync);
 }
 
-bool Filesystem::create_directory(const Path& p) const {
+bool create_directory(const Path& p, bool sync) {
     int ret = ::mkdir(p.c_str(), S_IRWXU);
     if (ret != 0) {
-        LOG(WARNING) << "Filesystem::create_directory() failed for " << p << ". errno=" << errno;
         return false;
     }
-    return true;
+    if (sync) {
+        return fsync(p, true);
+    } else {
+        return true;
+    }
 }
 
-uint64_t Filesystem::file_size(const Path& p) const {
+uint64_t file_size(const Path& p) {
     struct stat path_stat;
     int ret = ::stat(p.c_str(), &path_stat);
     if (ret != 0) {
-        LOG(INFO) << "Filesystem::file_size(): stat() failed for " << p << ". errno=" << errno;
+        LOG(WARNING) << "Filesystem::file_size(): stat() failed for " << p << ". errno=" << errno;
         return static_cast<uint64_t>(-1);
     }
     if (!S_ISREG(path_stat.st_mode)) {
@@ -125,7 +109,7 @@ uint64_t Filesystem::file_size(const Path& p) const {
     return static_cast<uint64_t>(path_stat.st_size);
 }
 
-bool Filesystem::remove(const Path& p) const {
+bool remove(const Path& p) {
     FileStatus s = status(p);
     if (!s.exists()) {
         VLOG(2) << "Filesystem::remove(): " << p << " doesn't exist";
@@ -143,7 +127,7 @@ bool Filesystem::remove(const Path& p) const {
     }
 }
 
-uint64_t Filesystem::remove_all(const Path& p) const {
+uint64_t remove_all(const Path& p) {
     uint64_t count = 1;
     FileStatus s = status(p);
     if (s.is_directory()) {
@@ -167,14 +151,14 @@ uint64_t Filesystem::remove_all(const Path& p) const {
     return count;
 }
 
-SpaceInfo Filesystem::space(const Path& p) const {
+SpaceInfo space(const Path& p) {
     struct statfs vfs;
     SpaceInfo info;
     int ret = ::statfs(p.c_str(), &vfs);
     if (ret == 0) {
-        info.capacity_    = static_cast<uint64_t>(vfs.f_blocks)* vfs.f_bsize;
-        info.free_        = static_cast<uint64_t>(vfs.f_bfree)* vfs.f_bsize;
-        info.available_   = static_cast<uint64_t>(vfs.f_bavail)* vfs.f_bsize;
+        info.capacity_    = static_cast<uint64_t>(vfs.f_blocks) * vfs.f_bsize;
+        info.free_        = static_cast<uint64_t>(vfs.f_bfree)  * vfs.f_bsize;
+        info.available_   = static_cast<uint64_t>(vfs.f_bavail) * vfs.f_bsize;
         VLOG(1) << "Filesystem::space(): " << p << ": " << info;
     } else {
         LOG(WARNING) << "Filesystem::space(): failed for " << p << ". errno=" << errno;
@@ -185,13 +169,13 @@ SpaceInfo Filesystem::space(const Path& p) const {
     return info;
 }
 
-Path Filesystem::unique_path() const {
-    return unique_path(Path("%%%%-%%%%-%%%%-%%%%"));
+Path unique_path() {
+    return unique_path("%%%%-%%%%-%%%%-%%%%");
 }
-Path Filesystem::unique_path(const Path& model) const {
+Path unique_path(const std::string& model) {
     const char* HEX_CHARS = "0123456789abcdef";
     unsigned int seed = static_cast<unsigned int>(std::time(nullptr));
-    std::string s(model.string());
+    std::string s(model);
     for (size_t i = 0; i < s.size(); ++i) {
         if (s[i] == '%') {                       // digit request
             seed = ::rand_r(&seed);
@@ -205,6 +189,53 @@ std::ostream& operator<<(std::ostream& o, const SpaceInfo& v) {
     o << "SpaceInfo: available_=" << v.available_ << ", capacity_=" << v.capacity_
         << ", free_=" << v.free_;
     return o;
+}
+
+bool atomic_rename(const Path& old_path, const Path& new_path) {
+    return ::rename(old_path.c_str(), new_path.c_str()) == 0;
+}
+
+bool fsync(const Path& path, bool sync_parent_directory) {
+    int sync_ret;
+    if (!is_directory(path)) {
+        int descriptor = ::open(path.c_str(), O_RDONLY);
+        if (descriptor < 0) {
+            return false;
+        }
+        sync_ret = ::fsync(descriptor);
+        ::close(descriptor);
+    } else {
+        DIR *dir = ::opendir(path.c_str());
+        if (!dir) {
+            return false;
+        }
+        int descriptor = ::dirfd(dir);
+        if (descriptor < 0) {
+            return false;
+        }
+
+        sync_ret = ::fsync(descriptor);
+        ::closedir(dir);
+    }
+
+    if (sync_ret != 0) {
+        return false;
+    }
+
+    if (sync_parent_directory) {
+        return fsync(path.parent_path(), false);
+    } else {
+        return true;
+    }
+}
+bool durable_atomic_rename(const Path& old_path, const Path& new_path) {
+    if (!fsync(old_path, true)) {
+        return false;
+    }
+    if (!atomic_rename(old_path, new_path)) {
+        return false;
+    }
+    return fsync(new_path, true);
 }
 
 }  // namespace fs

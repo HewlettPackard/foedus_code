@@ -502,6 +502,27 @@ inline void ErrorStack::verify() const {
 }
 
 /**
+ * @def CHECK_OUTOFMEMORY(ptr)
+ * @ingroup ERRORCODES
+ * @brief
+ * This macro checks if \b ptr is nullptr, and if so exists with ERROR_CODE_OUTOFMEMORY error stack.
+ * This is useful as a null check after new/malloc. For example:
+ * @code{.cpp}
+ * ErrorStack your_func() {
+ *   int* ptr = new int[123];
+ *   CHECK_OUTOFMEMORY(ptr);
+ *   ...
+ *   delete[] ptr;
+ *   return RET_OK;
+ * }
+ * @endcode
+ */
+#define CHECK_OUTOFMEMORY(ptr)\
+if (UNLIKELY(!ptr)) {\
+    return foedus::ErrorStack(__FILE__, __FUNCTION__, __LINE__, ERROR_CODE_OUTOFMEMORY);\
+}
+
+/**
  * @def COERCE_ERROR(x)
  * @ingroup ERRORCODES
  * @brief

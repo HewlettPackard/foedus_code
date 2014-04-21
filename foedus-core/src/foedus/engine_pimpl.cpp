@@ -10,7 +10,6 @@ EnginePimpl::EnginePimpl(Engine* engine, const EngineOptions &options) :
     options_(options),
     engine_(engine),
     debug_(engine),
-    filesystem_(engine),
     memory_manager_(engine),
     thread_pool_(engine),
     log_manager_(engine),
@@ -21,7 +20,6 @@ EnginePimpl::EnginePimpl(Engine* engine, const EngineOptions &options) :
 ErrorStack EnginePimpl::initialize_once() {
     // initialize debugging module at the beginning. we can use glog since now.
     CHECK_ERROR(debug_.initialize());
-    CHECK_ERROR(filesystem_.initialize());
     CHECK_ERROR(memory_manager_.initialize());
     CHECK_ERROR(thread_pool_.initialize());
     CHECK_ERROR(log_manager_.initialize());
@@ -37,7 +35,6 @@ ErrorStack EnginePimpl::uninitialize_once() {
     batch.emprace_back(log_manager_.uninitialize());
     batch.emprace_back(thread_pool_.uninitialize());
     batch.emprace_back(memory_manager_.uninitialize());
-    batch.emprace_back(filesystem_.uninitialize());
     batch.emprace_back(debug_.uninitialize());
     // release debugging module at the end. we can't use glog since now.
     return SUMMARIZE_ERROR_BATCH(batch);

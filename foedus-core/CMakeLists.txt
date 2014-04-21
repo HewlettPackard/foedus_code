@@ -88,6 +88,8 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     # libnuma
     ${NUMA_INCLUDE_DIR}
+    # tinyxml2
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tinyxml2-2.1.0
     # We include the BINARY folder of glog as glog generates header files
     ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog/src)
 # gperftools is optional for this library
@@ -109,6 +111,7 @@ add_library(foedus-core SHARED ${FOEDUS_CORE_ALL_SRC})
 add_dependencies(foedus-core glog_build)
 target_link_libraries(foedus-core ${GLOG_STATIC_LIB})
 target_link_libraries(foedus-core ${NUMA_LIBRARY})
+target_link_libraries(foedus-core tinyxml2static)
 target_link_libraries(foedus-core ${CMAKE_THREAD_LIBS_INIT})
 if (GOOGLEPERFTOOLS_FOUND)
     target_link_libraries(foedus-core ${GooglePerftools_LIBRARIES})

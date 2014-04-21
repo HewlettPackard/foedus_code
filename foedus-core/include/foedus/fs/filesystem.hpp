@@ -8,9 +8,9 @@
 #include <foedus/error_code.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
-#include <foedus/fs/filesystem_options.hpp>
 #include <foedus/fs/path.hpp>
 #include <iosfwd>
+#include <string>
 namespace foedus {
 namespace fs {
 
@@ -95,52 +95,150 @@ struct SpaceInfo  {
 };
 
 /**
- * @brief Analogue of boost::filesystem.
+ * Returns the status of the file.
+ * @ingroup FILESYSTEM
+ */
+FileStatus status(const Path& p);
+/**
+ * Returns if the file exists.
+ * @ingroup FILESYSTEM
+ */
+inline bool exists(const Path& p) {return status(p).exists(); }
+/**
+ * Returns if the file is a directory.
+ * @ingroup FILESYSTEM
+ */
+inline bool is_directory(const Path& p) {return status(p).is_directory(); }
+/**
+ * Returns if the file is a regular file.
+ * @ingroup FILESYSTEM
+ */
+inline bool is_regular_file(const Path& p) {return status(p).is_regular_file(); }
+
+/**
+ * Returns the current working directory.
+ * @ingroup FILESYSTEM
+ */
+Path        current_path();
+/**
+ * Returns the absolue path of the specified file.
+ * @ingroup FILESYSTEM
+ */
+Path        absolute(const Path& p);
+
+// so far not needed
+// ErrorCode copy(const Path& from, const Path& to);
+// ErrorCode copy_directory(const Path& from, const Path& to);
+// ErrorCode copy_file(const Path& from, const Path& to);
+
+/**
+ * Recursive mkdir (mkdirs).
+ * @ingroup FILESYSTEM
+ * @param[in] p path of the directory to create
+ * @param[in] sync (optional, default false) wheter to call fsync() on the created directories
+ * and their parents. This is required to make sure the new directory entries become durable.
+ * @return whether the directory already exists or creation succeeded
+ */
+bool        create_directories(const Path& p, bool sync = false);
+/**
+ * mkdir.
+ * @ingroup FILESYSTEM
+ * @param[in] sync (optional, default false) wheter to call fsync() on the created directory
+ * and its parent. This is required to make sure the new directory entry becomes durable.
+ * @return whether the directory already exists or creation whether succeeded
+ */
+bool        create_directory(const Path& p, bool sync = false);
+/**
+ * Returns size of the file.
+ * @ingroup FILESYSTEM
+ */
+uint64_t    file_size(const Path& p);
+/**
+ * Deletes a regular file or an empty directory.
+ * @ingroup FILESYSTEM
+ * @return whether succeeded
+ */
+bool        remove(const Path& p);
+/**
+ * Recursively deletes a directory.
+ * @ingroup FILESYSTEM
+ * @return number of files/directories deleted.
+ */
+uint64_t    remove_all(const Path& p);
+/**
+ * Returns free space information for the device the file is on.
+ * @ingroup FILESYSTEM
+ */
+SpaceInfo   space(const Path& p);
+/**
+ * Equivalent to unique_path(Path("%%%%-%%%%-%%%%-%%%%")).
+ * @ingroup FILESYSTEM
+ */
+Path        unique_path();
+/**
+ * Returns a randomly generated file name with the given template.
+ * @ingroup FILESYSTEM
+ * @param[in] model file name template where % will be replaced with random hex numbers.
+ */
+Path        unique_path(const std::string& model);
+
+/**
+ * @brief Makes the content and metadata of the file durable all the way up to devices.
+ * @ingroup FILESYSTEM
+ * @param[in] path path of the file to make durable
+ * @param[in] sync_parent_directory (optional, default false) whether to also call fsync on
+ * the parent directory to make sure the directory entry is written to device. This is required
+ * when you create a new file, rename, etc.
+ * @return whether the sync succeeded or not. If failed, check the errno global variable
+ * (set by lower-level library).
+ * @details
+ * Surprisingly, there is no analogus method in boost::filesystem.
+ * This method provides the fundamental building block of fault-tolerant systems; fsync.
+ * We so far don't provide fdatasync (no metadata sync), but this should suffice.
+ */
+bool        fsync(const Path& path, bool sync_parent_directory = false);
+
+/**
+ * @brief Renames the old file to the new file with the POSIX atomic-rename semantics.
+ * @ingroup FILESYSTEM
+ * @param[in] old_path path of the file to rename
+ * @param[in] new_path path after rename
+ * @return whether the rename succeeded
+ * @pre exists(old_path)
+ * @pre !exists(new_path) is \b NOT a pre-condition. See below.
+ * @details
+ * This is analogus to boost::filesystem::rename(), but we named this atomic_rename to clarify
+ * that this implementation guarantees the POSIX atomic-rename semantics.
+ * When new_path already exists, this method atomically swaps the file on filesystem with
+ * the old_path file, appropriately deleting the old file.
+ * This is an essential semantics to achieve safe and fault-tolerant file writes.
+ * And, for that usecase, do NOT forget to also call fsync before/after rename, too.
+ * Use durable_atomic_rename() to make sure.
+ *
+ * @see http://pubs.opengroup.org/onlinepubs/009695399/functions/rename.html
+ * @see Eat My Data: How Everybody Gets File IO Wrong:
+ * https://www.flamingspork.com/talks/2007/06/eat_my_data.odp
+ */
+bool        atomic_rename(const Path& old_path, const Path& new_path);
+
+/**
+ * @brief fsync() on source file before rename, then fsync() on destination file after rename.
  * @ingroup FILESYSTEM
  * @details
- * This class resembles boost::filesystem namespace.
- * However, this is a class, not a namespace, to receive FilesystemOptions.
+ * In total, this method makes 4 fsync calls, two on files and two on the parent directory.
+ * Quite expensive, but this is required to make it durable regardless of filesystems.
+ * Fortunately, we have to call this method only once per epoch-advance.
  */
-class Filesystem CXX11_FINAL : public virtual Initializable {
- public:
-    explicit Filesystem(Engine *engine);
+bool        durable_atomic_rename(const Path& old_path, const Path& new_path);
 
-    // Disable default constructors
-    Filesystem() CXX11_FUNC_DELETE;
-    Filesystem(const Filesystem &) CXX11_FUNC_DELETE;
-    Filesystem& operator=(const Filesystem &) CXX11_FUNC_DELETE;
+/**
+ * Just a synonym of atomic_rename() to avoid confusion.
+ * @ingroup FILESYSTEM
+ */
+inline bool rename(const Path& old_path, const Path& new_path) {
+    return atomic_rename(old_path, new_path);
+}
 
-    const FilesystemOptions& get_options() const;
-    ErrorStack  initialize() CXX11_OVERRIDE;
-    bool        is_initialized() const CXX11_OVERRIDE { return initialized_; }
-    ErrorStack  uninitialize() CXX11_OVERRIDE;
-
-    FileStatus status(const Path& p) const;
-    bool exists(const Path& p) const {return status(p).exists(); }
-    bool is_directory(const Path& p) const {return status(p).is_directory(); }
-    bool is_regular_file(const Path& p) const {return status(p).is_regular_file(); }
-
-    Path current_path() const;
-    Path absolute(const Path& p) const;
-
-    // so far not needed
-    // ErrorCode copy(const Path& from, const Path& to) const;
-    // ErrorCode copy_directory(const Path& from, const Path& to) const;
-    // ErrorCode copy_file(const Path& from, const Path& to) const;
-
-    bool        create_directories(const Path& p) const;
-    bool        create_directory(const Path& p) const;
-    uint64_t    file_size(const Path& p) const;
-    bool        remove(const Path& p) const;
-    uint64_t    remove_all(const Path& p) const;
-    SpaceInfo   space(const Path& p) const;
-    Path        unique_path()  const;
-    Path        unique_path(const Path& model)  const;
-
- private:
-    Engine* const       engine_;
-    bool                initialized_;
-};
 }  // namespace fs
 }  // namespace foedus
 #endif  // FOEDUS_FS_FILESYSTEM_HPP_

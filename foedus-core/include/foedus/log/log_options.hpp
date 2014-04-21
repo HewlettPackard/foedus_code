@@ -4,6 +4,8 @@
  */
 #ifndef FOEDUS_LOG_LOG_OPTIONS_HPP_
 #define FOEDUS_LOG_LOG_OPTIONS_HPP_
+#include <foedus/cxx11.hpp>
+#include <foedus/externalize/externalizable.hpp>
 #include <foedus/fs/device_emulation_options.hpp>
 #include <stdint.h>
 #include <iosfwd>
@@ -17,7 +19,7 @@ namespace log {
  * @details
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
-struct LogOptions {
+struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
     /** Constant values. */
     enum Constants {
         /** Default value for thread_buffer_kb_. */
@@ -49,7 +51,12 @@ struct LogOptions {
     /** Settings to emulate slower logging device. */
     foedus::fs::DeviceEmulationOptions emulation_;
 
-    friend std::ostream& operator<<(std::ostream& o, const LogOptions& v);
+    ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;
+    ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;
+    friend std::ostream& operator<<(std::ostream& o, const LogOptions& v) {
+        v.save_to_stream(&o);
+        return o;
+    }
 };
 }  // namespace log
 }  // namespace foedus

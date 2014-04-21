@@ -13,8 +13,6 @@ namespace foedus {
 namespace fs {
 struct  DeviceEmulationOptions;
 class   DirectIoFile;
-class   Filesystem;
-struct  FilesystemOptions;
 struct  FileStatus;
 class   Path;
 struct  SpaceInfo;

@@ -9,7 +9,7 @@
  * @namespace foedus::fs
  * @brief \b Filesystem wrapper, an analogue of boost::filesystem.
  * @details
- * These classes abstract accesses to filesystems like boost::filesystem and std::filesystem in
+ * These methods abstract accesses to filesystems like boost::filesystem and std::filesystem in
  * C++1z(?). We should not directly call POSIX or Windows filesystem APIs in other modules.
  * Instead, all of them should go through this package.
  *
@@ -18,7 +18,7 @@
  * However, the spec (based on Boost filesystem ver2) didn't get into even C++14, let alone
  * its implmentations. Thus, we can't rely on it at all.
  * Boost filesystem has a few issues, too. First, it is changing and has some issue when C++11
- * is enabled. Furthermore, The filesystem package is NOT a header-only module in boost.
+ * is enabled. Furthermore, the filesystem package is NOT a header-only module in boost.
  * We do not want to introduce additional dependencies to the gigantic boost shared library,
  * which might not be available or has versioning issues in some environment.
  * Rather, we just need only a small subset of functionalities in those libraries because
@@ -38,7 +38,7 @@
 
 /**
  * @defgroup FILESYSTEM Filesystem wrapper
- * @ingroup COMPONENTS
+ * @ingroup IDIOMS
  * @copydoc foedus::fs
  */
 

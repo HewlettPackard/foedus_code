@@ -17,8 +17,6 @@ namespace memory {
 }  // namespace memory
 
 namespace fs {
-// forward declaration
-class Filesystem;
 
 /**
  * @brief Represents an I/O stream on one file without filesystem caching.
@@ -56,12 +54,10 @@ class DirectIoFile {
 
     /**
      * @brief Constructs this object without opening it yet.
-     * @param[in] filesystem The filesystem wrapper to abstract low-level filesystem accesses.
      * @param[in] path Path of the file to manipulate
      * @param[in] emulation Optional argument to emulate slower devices.
      */
     DirectIoFile(
-        const Filesystem &filesystem,
         const Path &path,
         const DeviceEmulationOptions &emulation = DeviceEmulationOptions());
 
@@ -134,7 +130,6 @@ class DirectIoFile {
     ErrorCode       sync();
 
 
-    const Filesystem&       get_filesystem() const { return filesystem_; }
     Path                    get_path() const { return path_; }
     DeviceEmulationOptions  get_emulation() const { return emulation_; }
     file_descriptor         get_descriptor() const { return descriptor_; }
@@ -145,9 +140,6 @@ class DirectIoFile {
     friend std::ostream&    operator<<(std::ostream& o, const DirectIoFile& v);
 
  private:
-    /** The filesytem object to abstract low-level filesystem API. */
-    const Filesystem&       filesystem_;
-
     /** The path of the file being manipulated. */
     Path                    path_;
 

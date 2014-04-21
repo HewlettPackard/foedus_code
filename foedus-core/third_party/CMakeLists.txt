@@ -20,3 +20,8 @@ add_custom_command(OUTPUT ${GLOG_STATIC_LIB_LOCAL}
 # every time. the following add_custom_target gives a name for the output.
 add_custom_target(glog_build ALL DEPENDS ${GLOG_STATIC_LIB_LOCAL})
 set(GLOG_STATIC_LIB ${GLOG_STATIC_LIB_LOCAL} PARENT_SCOPE)
+
+# oh, lovely tinyxml2. It's a CMake project.
+set(BUILD_STATIC_LIBS ON) # this creates tinyxml2static library
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -w") # same as glog
+add_subdirectory(tinyxml2-2.1.0)

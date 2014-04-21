@@ -1,0 +1,3 @@
+set(FOEDUS_SAVEPOINT_SRC
+    ${CMAKE_CURRENT_SOURCE_DIR}/savepoint_options.cpp
+    PARENT_SCOPE)
