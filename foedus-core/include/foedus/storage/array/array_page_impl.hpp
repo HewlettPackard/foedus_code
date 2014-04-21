@@ -60,22 +60,22 @@ class ArrayPage final {
                                               uint8_t node_height, const ArrayRange& array_range);
 
     // Record accesses
-    const Record&   get_leaf_record(uint16_t record) const {
+    const Record*   get_leaf_record(uint16_t record) const {
         return const_cast<ArrayPage*>(this)->get_leaf_record(record);
     }
-    Record&         get_leaf_record(uint16_t record) {
+    Record*         get_leaf_record(uint16_t record) {
         assert(is_leaf());
         assert(HEADER_SIZE + (record + 1) * (RECORD_OVERHEAD + payload_size_) <= PAGE_SIZE);
-        return *reinterpret_cast<Record*>(data_.leaf_data
+        return reinterpret_cast<Record*>(data_.leaf_data
             + record * (RECORD_OVERHEAD + payload_size_));
     }
-    const InteriorRecord&   get_interior_record(uint16_t record) const {
+    const InteriorRecord*   get_interior_record(uint16_t record) const {
         return const_cast<ArrayPage*>(this)->get_interior_record(record);
     }
-    InteriorRecord&         get_interior_record(uint16_t record) {
+    InteriorRecord*         get_interior_record(uint16_t record) {
         assert(!is_leaf());
         assert(record < INTERIOR_FANOUT);
-        return data_.interior_data[record];
+        return data_.interior_data + record;
     }
 
  private:

@@ -74,6 +74,7 @@ bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
         return true;
     } else {
         // no, someone else took it.
+        DLOG(INFO) << "Someone already took Thread-" << id_ << ".";
         return false;
     }
 }

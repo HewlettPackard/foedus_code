@@ -84,7 +84,7 @@ void release_pages_recursive(memory::PageResolver *resolver, memory::NumaCoreMem
                              ArrayPage* page, memory::PagePoolOffset offset) {
     if (!page->is_leaf()) {
         for (uint16_t i = 0; i < INTERIOR_FANOUT; ++i) {
-            DualPagePointer &child_pointer = page->get_interior_record(i).pointer_;
+            DualPagePointer &child_pointer = page->get_interior_record(i)->pointer_;
             memory::PagePoolOffset child_offset = child_pointer.volatile_pointer_.components.offset;
             if (child_offset) {
                 // then recurse
@@ -149,7 +149,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
             current_records.push_back(0);
         } else {
             current_records.push_back(1);
-            DualPagePointer& child_pointer = page->get_interior_record(0).pointer_;
+            DualPagePointer& child_pointer = page->get_interior_record(0)->pointer_;
             child_pointer.snapshot_page_id_ = 0;
             child_pointer.volatile_pointer_.components.mod_count = 0;
             child_pointer.volatile_pointer_.components.offset = current_pages_offset[level - 1];
@@ -190,7 +190,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
                 }
                 interior_page->initialize_data_page(id_, payload_size_, level, interior_range);
 
-                DualPagePointer& child_pointer = interior_page->get_interior_record(0).pointer_;
+                DualPagePointer& child_pointer = interior_page->get_interior_record(0)->pointer_;
                 child_pointer.snapshot_page_id_ = 0;
                 child_pointer.volatile_pointer_.components.mod_count = 0;
                 child_pointer.volatile_pointer_.components.offset = current_pages_offset[level - 1];
@@ -200,7 +200,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
                 // also inserts this to parent
             } else {
                 DualPagePointer& child_pointer = current_pages[level]->get_interior_record(
-                    current_records[level]).pointer_;
+                    current_records[level])->pointer_;
                 child_pointer.snapshot_page_id_ = 0;
                 child_pointer.volatile_pointer_.components.mod_count = 0;
                 child_pointer.volatile_pointer_.components.offset = current_pages_offset[level - 1];
@@ -225,15 +225,16 @@ ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOffset of
     assert(is_initialized());
     assert(offset < array_size_);
     assert(payload_offset + payload_count <= payload_size_);
-    ArrayPage* page;
+    ArrayPage* page = nullptr;
     CHECK_ERROR(lookup(context, offset, &page));
+    assert(page);
     assert(page->is_leaf());
     assert(page->get_array_range().contains(offset));
     ArrayOffset index = offset - page->get_array_range().begin_;
-    Record &record = page->get_leaf_record(index);
+    Record *record = page->get_leaf_record(index);
     // TODO(Hideaki) Handle too-many-read-set error
-    context->get_current_xct().add_to_read_set(&record);
-    std::memcpy(payload, record.payload_ + payload_offset, payload_count);
+    context->get_current_xct().add_to_read_set(record);
+    std::memcpy(payload, record->payload_ + payload_offset, payload_count);
     return RET_OK;
 }
 ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context,
@@ -241,16 +242,17 @@ ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context,
     assert(is_initialized());
     assert(offset < array_size_);
     assert(payload_offset + payload_count <= payload_size_);
-    ArrayPage* page;
+    ArrayPage* page = nullptr;
     CHECK_ERROR(lookup(context, offset, &page));
+    assert(page);
     assert(page->is_leaf());
     assert(page->get_array_range().contains(offset));
     ArrayOffset index = offset - page->get_array_range().begin_;
-    Record &record = page->get_leaf_record(index);
+    Record *record = page->get_leaf_record(index);
     // TODO(Hideaki) Handle too-many-write-set error
-    context->get_current_xct().add_to_write_set(&record);
+    context->get_current_xct().add_to_write_set(record);
     // TODO(Hideaki) Add to private log
-    std::memcpy(record.payload_ + payload_offset, payload, payload_count);
+    std::memcpy(record->payload_ + payload_offset, payload, payload_count);
     return RET_OK;
 }
 
@@ -264,7 +266,7 @@ inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset
         assert(current_page->get_array_range().contains(offset));
         uint64_t diff = offset - current_page->get_array_range().begin_;
         uint16_t record = diff / offset_intervals_[current_page->get_node_height() - 1];
-        DualPagePointer& pointer = current_page->get_interior_record(record).pointer_;
+        DualPagePointer& pointer = current_page->get_interior_record(record)->pointer_;
         // TODO(Hideaki) Add to Node-set (?)
         if (pointer.volatile_pointer_.components.offset == 0) {
             // TODO(Hideaki) Read the page from cache.

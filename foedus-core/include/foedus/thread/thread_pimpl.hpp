@@ -29,7 +29,7 @@ class ThreadPimpl final : public DefaultInitializable {
     ThreadPimpl() = delete;
     ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder, ThreadId id)
         : engine_(engine), group_(group), holder_(holder), id_(id),
-            core_memory_(nullptr), raw_thread_(nullptr), exitted_(false) {}
+            core_memory_(nullptr), raw_thread_(nullptr), exitted_(false), impersonated_(false) {}
     ErrorStack  initialize_once() override final;
     ErrorStack  uninitialize_once() override final;
 

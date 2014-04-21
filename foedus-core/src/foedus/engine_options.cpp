@@ -29,6 +29,7 @@ EngineOptions& EngineOptions::operator=(const EngineOptions& other) {
 }
 
 ErrorStack EngineOptions::load(tinyxml2::XMLElement* element) {
+    *this = EngineOptions();  // This guarantees default values for optional XML elements.
     CHECK_ERROR(get_child_element(element, "CacheOptions", &cache_));
     CHECK_ERROR(get_child_element(element, "DebuggingOptions", &debugging_));
     CHECK_ERROR(get_child_element(element, "LogOptions", &log_));

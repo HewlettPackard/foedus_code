@@ -17,6 +17,13 @@ project(foedus_super_build)
 # No in-source build please. Terminate it as soon as possible if it happens.
 include(${CMAKE_CURRENT_SOURCE_DIR}/foedus-core/cmake/WarnInSrcBuild.cmake)
 
+set(CMAKE_VERBOSE_MAKEFILE ON)
+
+# A few projects other than foedus-core refer to foedus-core. Give a global variable for them.
+set(FOEDUS_CORE_SRC_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/foedus-core)
+set(FOEDUS_CORE_SRC_BIN ${CMAKE_CURRENT_BINARY_DIR}/foedus-core)
+mark_as_advanced(FOEDUS_CORE_SRC_ROOT FOEDUS_CORE_SRC_BIN)
+
 # We do assume C++11.
 # However, external projects can link to our shared library even if they use C++98.
 # Our public header files do the switching (hides some API if C++11 is disabled).
