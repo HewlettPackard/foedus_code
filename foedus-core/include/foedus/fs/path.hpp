@@ -21,7 +21,8 @@ class Path {
 
     Path() {}
     Path(const Path& p) : pathname_(p.pathname_) {}
-    explicit Path(const std::string& s) : pathname_(s) {}
+    /** This one resolves ~ at beginning. */
+    explicit Path(const std::string& s);
 
     Path& operator=(const Path& p) { pathname_ = p.pathname_; return *this; }
     Path& operator=(const std::string& s) { pathname_ = s; return *this; }

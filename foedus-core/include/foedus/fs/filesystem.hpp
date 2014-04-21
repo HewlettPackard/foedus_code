@@ -121,6 +121,16 @@ inline bool is_regular_file(const Path& p) {return status(p).is_regular_file(); 
  */
 Path        current_path();
 /**
+ * Returns the absolute path of the home directory of the user running this process.
+ * @ingroup FILESYSTEM
+ * @details
+ * So far this checks only HOME environment variable, which might not be set in some environment.
+ * In that case, this returns an empty path. A truly crossplatform home_path is not in standard
+ * C++, unfortunately.
+ * @see http://stackoverflow.com/questions/2552416/how-can-i-find-the-users-home-dir-in-a-cross-platform-manner-using-c
+ */
+Path        home_path();
+/**
  * Returns the absolue path of the specified file.
  * @ingroup FILESYSTEM
  */

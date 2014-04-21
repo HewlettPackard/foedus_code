@@ -55,14 +55,13 @@ ErrorStack EngineOptions::save(tinyxml2::XMLElement* element) const {
     return RET_OK;
 }
 
-ErrorStack EngineOptions::load_from_file(const std::string& config_path) {
+ErrorStack EngineOptions::load_from_file(const fs::Path& path) {
     tinyxml2::XMLDocument document;
-    fs::Path path(config_path);
     if (!fs::exists(path)) {
-        return ERROR_STACK_MSG(ERROR_CODE_CONF_FILE_NOT_FOUNT, config_path.c_str());
+        return ERROR_STACK_MSG(ERROR_CODE_CONF_FILE_NOT_FOUNT, path.c_str());
     }
 
-    tinyxml2::XMLError load_error = document.LoadFile(config_path.c_str());
+    tinyxml2::XMLError load_error = document.LoadFile(path.c_str());
     if (load_error != tinyxml2::XML_SUCCESS) {
         std::stringstream custom_message;
         custom_message << "problemtic file=" << path << ", tinyxml2 error=" << load_error
@@ -70,14 +69,14 @@ ErrorStack EngineOptions::load_from_file(const std::string& config_path) {
              << ", GetErrorStr2()=" << document.GetErrorStr2();
         return ERROR_STACK_MSG(ERROR_CODE_CONF_PARSE_FAILED, custom_message.str().c_str());
     } else if (!document.RootElement()) {
-        return ERROR_STACK_MSG(ERROR_CODE_CONF_EMPTY_XML, config_path.c_str());
+        return ERROR_STACK_MSG(ERROR_CODE_CONF_EMPTY_XML, path.c_str());
     } else {
         CHECK_ERROR(load(document.RootElement()));
     }
     return RET_OK;
 }
 
-ErrorStack EngineOptions::save_to_file(const std::string& config_path) const {
+ErrorStack EngineOptions::save_to_file(const fs::Path& path) const {
     // construct the XML in memory
     tinyxml2::XMLDocument document;
     tinyxml2::XMLElement* root = document.NewElement("EngineOptions");
@@ -85,7 +84,6 @@ ErrorStack EngineOptions::save_to_file(const std::string& config_path) const {
     document.InsertFirstChild(root);
     CHECK_ERROR(save(root));
 
-    fs::Path path(config_path);
     fs::Path folder = path.parent_path();
     // create the folder if not exists
     if (!fs::exists(folder)) {
@@ -97,7 +95,9 @@ ErrorStack EngineOptions::save_to_file(const std::string& config_path) const {
     }
 
     // To atomically save a file, we write to a temporary file and call sync, then use POSIX rename.
-    fs::Path tmp_path(config_path + ".tmp_" + fs::unique_path("%%%%%%%%").string());
+    fs::Path tmp_path(path);
+    tmp_path += ".tmp_";
+    tmp_path += fs::unique_path("%%%%%%%%");
 
     tinyxml2::XMLError save_error = document.SaveFile(tmp_path.c_str());
     if (save_error != tinyxml2::XML_SUCCESS) {

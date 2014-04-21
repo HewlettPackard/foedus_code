@@ -8,6 +8,17 @@
 #include <string>
 namespace foedus {
 namespace fs {
+Path::Path(const std::string& s) {
+    if (s.size() > 0 && s.at(0) == '~'
+        && (s.size() == 1 || s.at(1) == '/')) {
+        // starts with ~/ or ~ alone: resolve it as home folder
+        pathname_ = home_path().pathname_;
+        pathname_.append(s.substr(1));
+    } else {
+        pathname_ = s;
+    }
+}
+
 Path Path::filename() const {
     size_t pos = pathname_.find_last_of(PREFERRED_SEPARATOR);
     if (pos == pathname_.size()) {

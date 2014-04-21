@@ -64,6 +64,15 @@ Path current_path() {
     return cur;
 }
 
+Path home_path() {
+    const char *home = ::getenv("HOME");
+    if (home) {
+        return Path(home);
+    } else {
+        return Path();
+    }
+}
+
 bool create_directories(const Path& p, bool sync) {
     if (exists(p)) {
         return true;
