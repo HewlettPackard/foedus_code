@@ -8,3 +8,4 @@ trace_build
 .kdev4
 *.kdev4
 *.kate-swp
+*.preview.html
