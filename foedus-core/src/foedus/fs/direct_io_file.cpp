@@ -31,7 +31,7 @@ ErrorCode DirectIoFile::open(bool read, bool write, bool append, bool create) {
 
     LOG(INFO) << "DirectIoFile::open(): opening: " << path_ << "..  read =" << read << " write="
         << write << ", append=" << append << ", create=" << create;
-    int oflags = O_NOATIME;
+    int oflags = O_NOATIME | O_LARGEFILE;
     if (!emulation_.disable_direct_io_) {
         oflags |= O_DIRECT;
     }

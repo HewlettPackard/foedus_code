@@ -30,12 +30,7 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
      */
     XctOptions();
 
-    ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;
-    ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;
-    friend std::ostream& operator<<(std::ostream& o, const XctOptions& v) {
-        v.save_to_stream(&o);
-        return o;
-    }
+    EXTERNALIZABLE(XctOptions);
 
     /**
      * @brief The maximum number of read-set one transaction can have.

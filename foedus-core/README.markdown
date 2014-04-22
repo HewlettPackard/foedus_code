@@ -40,7 +40,8 @@ such as /usr/lib /usr/lib64 etc. In that case, add the following lines in your C
     target_link_libraries(your_program ${FOEDUS_CORE_LIBRARIES})
 
 We recommend your program to turn on C++11, but not mandatory. You can link to and use
-libfoedus-core from C++98/03 projects. If you are to enable C++11, add the following in CMakeLists.
+libfoedus-core from C++98/03 projects without problems although some APIs are not exposed then.
+If you are to enable C++11, on the other hand, add the following in your CMakeLists.
 
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
@@ -49,12 +50,10 @@ Get Started
 -----------
 Here is a minimal example program to create a key-value storage and query on it.
 
-    #include <foedus/error_stack.hpp>
     #include <foedus/engine.hpp>
     #include <foedus/engine_options.hpp>
     #include <foedus/thread/thread_pool.hpp>
     #include <foedus/thread/thread.hpp>
-    #include <foedus/memory/engine_memory.hpp>
     #include <foedus/storage/storage_manager.hpp>
     #include <foedus/storage/array/array_storage.hpp>
     #include <iostream>
@@ -106,7 +105,7 @@ them. If not, run the following:
 
 pthread is a fundamental library to execute multi-threaded programs.
 Note that you have to link to libpthread.so even if you use C++11. C++11 threading merely invokes
-libpthread, so you need to link to libpthread.so. Otherwise, libstdc will thrown an error
+libpthread, so you need to link to libpthread.so. Otherwise, libstdc will throw an error
 at *runtime* (ouch!) when our engine invokes it. Run the following:
 
     sudo yum install glibc glibc-devel    # RedHat/Fedora
@@ -131,8 +130,11 @@ Copy FindNuma.cmake in this cmake folder, then add the following in your CMakeLi
 
 Although not mandatory, libfoedus-core provides additional functionalities if there is
 google-perftools-devel.
+
     sudo yum install google-perftools google-perftools-devel    # RedHat/Fedora
 
+We use none of boost libraries. We might consider using some of the header-only boost libraries,
+but we will surely stay away from non-header-only ones (eg filesystem).
 
 Licensing
 --------

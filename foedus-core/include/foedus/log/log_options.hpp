@@ -8,7 +8,6 @@
 #include <foedus/externalize/externalizable.hpp>
 #include <foedus/fs/device_emulation_options.hpp>
 #include <stdint.h>
-#include <iosfwd>
 #include <string>
 #include <vector>
 namespace foedus {
@@ -51,12 +50,7 @@ struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
     /** Settings to emulate slower logging device. */
     foedus::fs::DeviceEmulationOptions emulation_;
 
-    ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;
-    ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;
-    friend std::ostream& operator<<(std::ostream& o, const LogOptions& v) {
-        v.save_to_stream(&o);
-        return o;
-    }
+    EXTERNALIZABLE(LogOptions);
 };
 }  // namespace log
 }  // namespace foedus

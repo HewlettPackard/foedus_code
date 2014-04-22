@@ -1,5 +1,6 @@
 # Unit test project for foedus-core
 cmake_minimum_required(VERSION 2.4)
+cmake_policy(SET CMP0003 NEW)
 project(tests_core)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../general_projects.cmake)

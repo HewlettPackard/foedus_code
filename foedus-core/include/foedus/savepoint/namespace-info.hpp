@@ -33,7 +33,7 @@
  */
 
 /**
- * @defgroup SAVEPOINT Memory Manager
+ * @defgroup SAVEPOINT Savepoint Manager
  * @ingroup COMPONENTS
  * @copydoc foedus::savepoint
  */

@@ -7,7 +7,6 @@
 #include <foedus/cxx11.hpp>
 #include <foedus/externalize/externalizable.hpp>
 #include <stdint.h>
-#include <iosfwd>
 namespace foedus {
 namespace memory {
 /**
@@ -56,12 +55,7 @@ struct MemoryOptions CXX11_FINAL : public virtual externalize::Externalizable {
      */
     uint32_t    page_pool_size_mb_;
 
-    ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;
-    ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;
-    friend std::ostream& operator<<(std::ostream& o, const MemoryOptions& v) {
-        v.save_to_stream(&o);
-        return o;
-    }
+    EXTERNALIZABLE(MemoryOptions);
 };
 }  // namespace memory
 }  // namespace foedus

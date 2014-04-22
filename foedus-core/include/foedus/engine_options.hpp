@@ -10,7 +10,6 @@
 // won't fly. further, just holding instances, rather than pointers, makes (de)allocation simpler.
 #include <foedus/cxx11.hpp>
 #include <foedus/externalize/externalizable.hpp>
-#include <foedus/fs/path.hpp>
 #include <foedus/cache/cache_options.hpp>
 #include <foedus/debugging/debugging_options.hpp>
 #include <foedus/log/log_options.hpp>
@@ -20,8 +19,6 @@
 #include <foedus/storage/storage_options.hpp>
 #include <foedus/thread/thread_options.hpp>
 #include <foedus/xct/xct_options.hpp>
-#include <iosfwd>
-#include <string>
 namespace foedus {
 /**
  * @brief Set of option values given to the engine at start-up.
@@ -75,30 +72,7 @@ struct EngineOptions CXX11_FINAL : public virtual externalize::Externalizable {
     thread::ThreadOptions       thread_;
     xct::XctOptions             xct_;
 
-    /**
-     * @brief Reads all configuration values from the specified XML file.
-     * @param[in] path path of the configuration file.
-     * @details
-     * Expect errors due to missing-elements, out-of-range values, etc.
-     */
-    ErrorStack load_from_file(const fs::Path &path);
-
-    /**
-     * @brief Writes all configuration values to the specified XML file.
-     * @param[in] path path of the configuration file.
-     * @details
-     * If the file exists, this method atomically overwrites it via POSIX's atomic rename semantics.
-     * If the parent folder doesn't exist, this method automatically creates the folder.
-     * Expect errors due to file-permission (and other file I/O issue), out-of-memory, etc.
-     */
-    ErrorStack save_to_file(const fs::Path &path) const;
-
-    ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;
-    ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;
-    friend std::ostream& operator<<(std::ostream& o, const EngineOptions& v) {
-        v.save_to_stream(&o);
-        return o;
-    }
+    EXTERNALIZABLE(EngineOptions);
 };
 }  // namespace foedus
 #endif  // FOEDUS_ENGINE_OPTIONS_HPP_

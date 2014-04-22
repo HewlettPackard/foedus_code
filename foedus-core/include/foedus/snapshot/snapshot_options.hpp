@@ -7,7 +7,6 @@
 #include <foedus/cxx11.hpp>
 #include <foedus/externalize/externalizable.hpp>
 #include <foedus/fs/device_emulation_options.hpp>
-#include <iosfwd>
 #include <string>
 #include <vector>
 namespace foedus {
@@ -36,12 +35,7 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
     /** Settings to emulate slower data device. */
     foedus::fs::DeviceEmulationOptions  emulation_;
 
-    ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;
-    ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;
-    friend std::ostream& operator<<(std::ostream& o, const SnapshotOptions& v) {
-        v.save_to_stream(&o);
-        return o;
-    }
+    EXTERNALIZABLE(SnapshotOptions);
 };
 }  // namespace snapshot
 }  // namespace foedus

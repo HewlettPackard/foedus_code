@@ -6,7 +6,6 @@
 #define FOEDUS_SAVEPOINT_SAVEPOINT_OPTIONS_HPP_
 #include <foedus/cxx11.hpp>
 #include <foedus/externalize/externalizable.hpp>
-#include <iosfwd>
 #include <string>
 namespace foedus {
 namespace savepoint {
@@ -30,12 +29,7 @@ struct SavepointOptions CXX11_FINAL : public virtual externalize::Externalizable
      */
     std::string savepoint_path_;
 
-    ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;
-    ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;
-    friend std::ostream& operator<<(std::ostream& o, const SavepointOptions& v) {
-        v.save_to_stream(&o);
-        return o;
-    }
+    EXTERNALIZABLE(SavepointOptions);
 };
 }  // namespace savepoint
 }  // namespace foedus

@@ -3,8 +3,11 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/externalize/externalizable.hpp>
+#include <foedus/fs/filesystem.hpp>
+#include <foedus/fs/path.hpp>
 #include <tinyxml2.h>
 #include <ostream>
+#include <sstream>
 #include <string>
 #include <typeinfo>
 #include <vector>
@@ -14,7 +17,7 @@ void Externalizable::save_to_stream(std::ostream* ptr) const {
     std::ostream &o = *ptr;
     tinyxml2::XMLDocument doc;
     // root element name is class name.
-    tinyxml2::XMLElement* element = doc.NewElement("Root");
+    tinyxml2::XMLElement* element = doc.NewElement(get_tag_name());
     if (!element) {
         o << "Out-of-memory during Externalizable::save_to_stream()";
         return;
@@ -29,6 +32,70 @@ void Externalizable::save_to_stream(std::ostream* ptr) const {
     doc.Print(&printer);
     o << printer.CStr();
 }
+
+ErrorStack Externalizable::load_from_file(const fs::Path& path) {
+    tinyxml2::XMLDocument document;
+    if (!fs::exists(path)) {
+        return ERROR_STACK_MSG(ERROR_CODE_CONF_FILE_NOT_FOUNT, path.c_str());
+    }
+
+    tinyxml2::XMLError load_error = document.LoadFile(path.c_str());
+    if (load_error != tinyxml2::XML_SUCCESS) {
+        std::stringstream custom_message;
+        custom_message << "problemtic file=" << path << ", tinyxml2 error=" << load_error
+             << ", GetErrorStr1()=" << document.GetErrorStr1()
+             << ", GetErrorStr2()=" << document.GetErrorStr2();
+        return ERROR_STACK_MSG(ERROR_CODE_CONF_PARSE_FAILED, custom_message.str().c_str());
+    } else if (!document.RootElement()) {
+        return ERROR_STACK_MSG(ERROR_CODE_CONF_EMPTY_XML, path.c_str());
+    } else {
+        CHECK_ERROR(load(document.RootElement()));
+    }
+    return RET_OK;
+}
+
+ErrorStack Externalizable::save_to_file(const fs::Path& path) const {
+    // construct the XML in memory
+    tinyxml2::XMLDocument document;
+    tinyxml2::XMLElement* root = document.NewElement(get_tag_name());
+    CHECK_OUTOFMEMORY(root);
+    document.InsertFirstChild(root);
+    CHECK_ERROR(save(root));
+
+    fs::Path folder = path.parent_path();
+    // create the folder if not exists
+    if (!fs::exists(folder)) {
+        if (!fs::create_directories(folder, true)) {
+            std::stringstream custom_message;
+            custom_message << "file=" << path << ", folder=" << folder << ", errno=" << errno;
+            return ERROR_STACK_MSG(ERROR_CODE_CONF_MKDIRS_FAILED, custom_message.str().c_str());
+        }
+    }
+
+    // To atomically save a file, we write to a temporary file and call sync, then use POSIX rename.
+    fs::Path tmp_path(path);
+    tmp_path += ".tmp_";
+    tmp_path += fs::unique_path("%%%%%%%%");
+
+    tinyxml2::XMLError save_error = document.SaveFile(tmp_path.c_str());
+    if (save_error != tinyxml2::XML_SUCCESS) {
+        std::stringstream custom_message;
+        custom_message << "problemtic file=" << path << ", tinyxml2 error=" << save_error
+             << ", GetErrorStr1()=" << document.GetErrorStr1()
+             << ", GetErrorStr2()=" << document.GetErrorStr2();
+        return ERROR_STACK_MSG(ERROR_CODE_CONF_COULD_NOT_WRITE, custom_message.str().c_str());
+    }
+
+    if (!fs::durable_atomic_rename(tmp_path, path)) {
+        std::stringstream custom_message;
+        custom_message << "dest file=" << path << ", src file=" << tmp_path
+            << ", errno=" << errno;
+        return ERROR_STACK_MSG(ERROR_CODE_CONF_COULD_NOT_RENAME, custom_message.str().c_str());
+    }
+
+    return RET_OK;
+}
+
 
 ErrorStack insert_comment_impl(tinyxml2::XMLElement* element, const std::string& comment) {
     if (comment.size() > 0) {

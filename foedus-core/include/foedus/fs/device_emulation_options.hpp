@@ -7,7 +7,6 @@
 #include <foedus/cxx11.hpp>
 #include <foedus/externalize/externalizable.hpp>
 #include <stdint.h>
-#include <iosfwd>
 
 namespace foedus {
 namespace fs {
@@ -35,12 +34,7 @@ struct DeviceEmulationOptions CXX11_FINAL : public virtual externalize::External
     /** [Experiments] additional nanosec to busy-wait for each 1KB read. 0 (default) disables it. */
     uint32_t    emulated_scan_latency_ns_;
 
-    ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;
-    ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;
-    friend std::ostream& operator<<(std::ostream& o, const DeviceEmulationOptions& v) {
-        v.save_to_stream(&o);
-        return o;
-    }
+    EXTERNALIZABLE(DeviceEmulationOptions);
 };
 }  // namespace fs
 }  // namespace foedus

@@ -24,7 +24,7 @@
  *
  * @par General Recommendation
  * In general, you should use \ref HASH or \ref MASSTREE for most tables/indexes.
- * If the access pattern contains range accesses, equality on prefix, and non-equality, then
+ * If the access pattern contains no range accesses, equality on prefix, nor non-equality, then
  * pick \ref HASH. Otherwise, \ref MASSTREE.
  * Use \ref ARRAY and \ref SEQUENTIAL where they shine; when you literally needs
  * arrays and append-only data.

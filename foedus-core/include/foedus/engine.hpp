@@ -38,7 +38,7 @@ class EngineOptions;
  * There must not be a cycle, obviously. Below is the list of dependencies
  *  \li All modules depend on \ref DEBUGGING.
  *  \li \ref THREAD depend on \ref MEMORY.
- *  \li \ref LOG depend on \ref THREAD.
+ *  \li \ref LOG depend on \ref THREAD and \ref SAVEPOINT.
  *  \li \ref SNAPSHOT and \ref CACHE depend on \ref LOG.
  *  \li \ref STORAGE depend on \ref SNAPSHOT and \ref CACHE.
  *  \li \ref XCT depends on \ref STORAGE.
@@ -46,10 +46,12 @@ class EngineOptions;
  * (transitively implied dependencies omitted, eg \ref LOG of course depends on \ref MEMORY).
  *
  * @msc
- * DBG,MEM,THREAD,LOG,SNAPSHOT,CACHE,STORAGE,XCT;
+ * DBG,MEM,SP,THREAD,LOG,SNAPSHOT,CACHE,STORAGE,XCT;
  * DBG<=MEM;
+ * DBG<=SP;
  * MEM<=THREAD;
  * THREAD<=LOG;
+ * SP<=LOG;
  * LOG<=SNAPSHOT;
  * LOG<=CACHE;
  * SNAPSHOT<=STORAGE;

@@ -7,7 +7,6 @@
 #include <foedus/cxx11.hpp>
 #include <foedus/externalize/externalizable.hpp>
 #include <foedus/thread/thread_id.hpp>
-#include <iosfwd>
 namespace foedus {
 namespace thread {
 /**
@@ -35,12 +34,7 @@ struct ThreadOptions CXX11_FINAL : public virtual externalize::Externalizable {
      */
     ThreadLocalOrdinal    thread_count_per_group_;
 
-    ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;
-    ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;
-    friend std::ostream& operator<<(std::ostream& o, const ThreadOptions& v) {
-        v.save_to_stream(&o);
-        return o;
-    }
+    EXTERNALIZABLE(ThreadOptions);
 };
 }  // namespace thread
 }  // namespace foedus

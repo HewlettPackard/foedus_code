@@ -3,11 +3,9 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/engine_options.hpp>
-#include <foedus/fs/filesystem.hpp>
-#include <foedus/fs/path.hpp>
 #include <tinyxml2.h>
-#include <string>
-#include <sstream>
+#include <cassert>
+#include <vector>
 namespace foedus {
 EngineOptions::EngineOptions() {
 }
@@ -15,109 +13,52 @@ EngineOptions::EngineOptions(const EngineOptions& other) {
     operator=(other);
 }
 
+// template-ing just for const/non-const
+template <typename ENGINE_OPTION_PTR, typename CHILD_PTR>
+std::vector< CHILD_PTR > get_children_impl(ENGINE_OPTION_PTR option) {
+    std::vector< CHILD_PTR > children;
+    children.push_back(&option->cache_);
+    children.push_back(&option->debugging_);
+    children.push_back(&option->log_);
+    children.push_back(&option->memory_);
+    children.push_back(&option->savepoint_);
+    children.push_back(&option->snapshot_);
+    children.push_back(&option->storage_);
+    children.push_back(&option->thread_);
+    children.push_back(&option->xct_);
+    return children;
+}
+std::vector< externalize::Externalizable* > get_children(EngineOptions* option) {
+    return get_children_impl<EngineOptions*, externalize::Externalizable*>(option);
+}
+std::vector< const externalize::Externalizable* > get_children(const EngineOptions* option) {
+    return get_children_impl<const EngineOptions*, const externalize::Externalizable*>(option);
+}
+
 EngineOptions& EngineOptions::operator=(const EngineOptions& other) {
-    cache_ = other.cache_;
-    debugging_ = other.debugging_;
-    log_ = other.log_;
-    memory_ = other.memory_;
-    savepoint_ = other.savepoint_;
-    snapshot_ = other.snapshot_;
-    storage_ = other.storage_;
-    thread_ = other.thread_;
-    xct_ = other.xct_;
+    auto mine = get_children(this);
+    auto others = get_children(&other);
+    assert(mine.size() == others.size());
+    for (size_t i = 0; i < mine.size(); ++i) {
+        mine[i]->assign(others[i]);
+    }
     return *this;
 }
 
 ErrorStack EngineOptions::load(tinyxml2::XMLElement* element) {
     *this = EngineOptions();  // This guarantees default values for optional XML elements.
-    CHECK_ERROR(get_child_element(element, "CacheOptions", &cache_));
-    CHECK_ERROR(get_child_element(element, "DebuggingOptions", &debugging_));
-    CHECK_ERROR(get_child_element(element, "LogOptions", &log_));
-    CHECK_ERROR(get_child_element(element, "MemoryOptions", &memory_));
-    CHECK_ERROR(get_child_element(element, "SavepointOptions", &savepoint_));
-    CHECK_ERROR(get_child_element(element, "SnapshotOptions", &snapshot_));
-    CHECK_ERROR(get_child_element(element, "StorageOptions", &storage_));
-    CHECK_ERROR(get_child_element(element, "ThreadOptions", &thread_));
-    CHECK_ERROR(get_child_element(element, "XctOptions", &xct_));
+    for (externalize::Externalizable* child : get_children(this)) {
+        CHECK_ERROR(get_child_element(element, child->get_tag_name(), child));
+    }
     return RET_OK;
 }
 
 ErrorStack EngineOptions::save(tinyxml2::XMLElement* element) const {
     CHECK_ERROR(insert_comment(element, "Set of options given to the engine at start-up"));
-    CHECK_ERROR(add_child_element(element, "CacheOptions", "", cache_));
-    CHECK_ERROR(add_child_element(element, "DebuggingOptions", "", debugging_));
-    CHECK_ERROR(add_child_element(element, "LogOptions", "", log_));
-    CHECK_ERROR(add_child_element(element, "MemoryOptions", "", memory_));
-    CHECK_ERROR(add_child_element(element, "SavepointOptions", "", savepoint_));
-    CHECK_ERROR(add_child_element(element, "SnapshotOptions", "", snapshot_));
-    CHECK_ERROR(add_child_element(element, "StorageOptions", "", storage_));
-    CHECK_ERROR(add_child_element(element, "ThreadOptions", "", thread_));
-    CHECK_ERROR(add_child_element(element, "XctOptions", "", xct_));
-    return RET_OK;
-}
-
-ErrorStack EngineOptions::load_from_file(const fs::Path& path) {
-    tinyxml2::XMLDocument document;
-    if (!fs::exists(path)) {
-        return ERROR_STACK_MSG(ERROR_CODE_CONF_FILE_NOT_FOUNT, path.c_str());
-    }
-
-    tinyxml2::XMLError load_error = document.LoadFile(path.c_str());
-    if (load_error != tinyxml2::XML_SUCCESS) {
-        std::stringstream custom_message;
-        custom_message << "problemtic file=" << path << ", tinyxml2 error=" << load_error
-             << ", GetErrorStr1()=" << document.GetErrorStr1()
-             << ", GetErrorStr2()=" << document.GetErrorStr2();
-        return ERROR_STACK_MSG(ERROR_CODE_CONF_PARSE_FAILED, custom_message.str().c_str());
-    } else if (!document.RootElement()) {
-        return ERROR_STACK_MSG(ERROR_CODE_CONF_EMPTY_XML, path.c_str());
-    } else {
-        CHECK_ERROR(load(document.RootElement()));
+    for (const externalize::Externalizable* child : get_children(this)) {
+        CHECK_ERROR(add_child_element(element, child->get_tag_name(), "", *child));
     }
     return RET_OK;
 }
-
-ErrorStack EngineOptions::save_to_file(const fs::Path& path) const {
-    // construct the XML in memory
-    tinyxml2::XMLDocument document;
-    tinyxml2::XMLElement* root = document.NewElement("EngineOptions");
-    CHECK_OUTOFMEMORY(root);
-    document.InsertFirstChild(root);
-    CHECK_ERROR(save(root));
-
-    fs::Path folder = path.parent_path();
-    // create the folder if not exists
-    if (!fs::exists(folder)) {
-        if (!fs::create_directories(folder, true)) {
-            std::stringstream custom_message;
-            custom_message << "file=" << path << ", folder=" << folder << ", errno=" << errno;
-            return ERROR_STACK_MSG(ERROR_CODE_CONF_MKDIRS_FAILED, custom_message.str().c_str());
-        }
-    }
-
-    // To atomically save a file, we write to a temporary file and call sync, then use POSIX rename.
-    fs::Path tmp_path(path);
-    tmp_path += ".tmp_";
-    tmp_path += fs::unique_path("%%%%%%%%");
-
-    tinyxml2::XMLError save_error = document.SaveFile(tmp_path.c_str());
-    if (save_error != tinyxml2::XML_SUCCESS) {
-        std::stringstream custom_message;
-        custom_message << "problemtic file=" << path << ", tinyxml2 error=" << save_error
-             << ", GetErrorStr1()=" << document.GetErrorStr1()
-             << ", GetErrorStr2()=" << document.GetErrorStr2();
-        return ERROR_STACK_MSG(ERROR_CODE_CONF_COULD_NOT_WRITE, custom_message.str().c_str());
-    }
-
-    if (!fs::durable_atomic_rename(tmp_path, path)) {
-        std::stringstream custom_message;
-        custom_message << "dest file=" << path << ", src file=" << tmp_path
-            << ", errno=" << errno;
-        return ERROR_STACK_MSG(ERROR_CODE_CONF_COULD_NOT_RENAME, custom_message.str().c_str());
-    }
-
-    return RET_OK;
-}
-
 
 }  // namespace foedus

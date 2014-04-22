@@ -6,6 +6,7 @@
 #define FOEDUS_EXTERNALIZE_EXTERNALIZABLE_HPP_
 #include <foedus/cxx11.hpp>
 #include <foedus/error_stack.hpp>
+#include <foedus/fs/fwd.hpp>
 #include <stdint.h>
 #include <iosfwd>
 #include <string>
@@ -55,9 +56,42 @@ struct Externalizable {
     virtual ErrorStack save(tinyxml2::XMLElement* element) const = 0;
 
     /**
-     * Invokes save() and directs the resulting XML text to the given stream.
+     * @brief Returns an XML tag name for this object as a root element.
+     * @details
+     * We might want to give a different name for same externalizable objects,
+     * so this is used only when it is the root element of xml.
      */
-    void save_to_stream(std::ostream* ptr) const;
+    virtual const char* get_tag_name() const = 0;
+
+    /**
+     * @brief Polymorphic assign operator. This should invoke operator= of the derived class.
+     * @param[in] other assigned value. It must be dynamic-castable to the assignee class.
+     */
+    virtual void assign(const foedus::externalize::Externalizable *other) = 0;
+
+    /**
+     * @brief Invokes save() and directs the resulting XML text to the given stream.
+     * @param[in] ptr ostream to write to.
+     */
+    void        save_to_stream(std::ostream* ptr) const;
+
+    /**
+     * @brief Load the content of this object from the specified XML file.
+     * @param[in] path path of the XML file.
+     * @details
+     * Expect errors due to missing-elements, out-of-range values, etc.
+     */
+    ErrorStack  load_from_file(const fs::Path &path);
+
+    /**
+     * @brief Atomically and durably writes out this object to the specified XML file.
+     * @param[in] path path of the XML file.
+     * @details
+     * If the file exists, this method atomically overwrites it via POSIX's atomic rename semantics.
+     * If the parent folder doesn't exist, this method automatically creates the folder.
+     * Expect errors due to file-permission (and other file I/O issue), out-of-memory, etc.
+     */
+    ErrorStack  save_to_file(const fs::Path &path) const;
 
     // convenience methods
     static ErrorStack insert_comment(tinyxml2::XMLElement* element, const std::string& comment);
@@ -166,5 +200,24 @@ struct Externalizable {
     CHECK_ERROR(get_enum_element(element, EX_EXPAND(attribute), & attribute))
 #define EXTERNALIZE_LOAD_ENUM_ELEMENT_OPTIONAL(element, attribute, default_value) \
     CHECK_ERROR(get_enum_element(element, EX_EXPAND(attribute), & attribute, true, default_value))
+
+/**
+ * @def EXTERNALIZABLE(clazz)
+ * @brief Macro to declare/define essential methods for an externalizable class.
+ * @details
+ * Each externalizable class should invoke this macro in public scope of class definition.
+ * Then, it should define load() and save() in cpp.
+ */
+#define EXTERNALIZABLE(clazz) \
+    ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;\
+    ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;\
+    const char* get_tag_name() const CXX11_OVERRIDE { return EX_EXPAND(clazz); }\
+    void assign(const foedus::externalize::Externalizable *other) CXX11_OVERRIDE {\
+        *this = *dynamic_cast< const clazz * >(other);\
+    }\
+    friend std::ostream& operator<<(std::ostream& o, const clazz & v) {\
+        v.save_to_stream(&o);\
+        return o;\
+    }
 
 #endif  // FOEDUS_EXTERNALIZE_EXTERNALIZABLE_HPP_

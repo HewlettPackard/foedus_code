@@ -7,7 +7,6 @@
 #include <foedus/cxx11.hpp>
 #include <foedus/externalize/externalizable.hpp>
 #include <stdint.h>
-#include <iosfwd>
 #include <string>
 namespace foedus {
 namespace debugging {
@@ -84,12 +83,7 @@ struct DebuggingOptions CXX11_FINAL : public virtual externalize::Externalizable
      */
     std::string                         debug_log_dir_;
 
-    ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;
-    ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;
-    friend std::ostream& operator<<(std::ostream& o, const DebuggingOptions& v) {
-        v.save_to_stream(&o);
-        return o;
-    }
+    EXTERNALIZABLE(DebuggingOptions);
 };
 }  // namespace debugging
 }  // namespace foedus
