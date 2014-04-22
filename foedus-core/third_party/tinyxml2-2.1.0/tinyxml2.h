@@ -25,6 +25,7 @@ distribution.
 #ifndef TINYXML2_INCLUDED
 #define TINYXML2_INCLUDED
 
+#include <stdint.h>
 #if defined(ANDROID_NDK) || defined(__BORLANDC__)
 #   include <ctype.h>
 #   include <limits.h>
@@ -544,6 +545,8 @@ public:
     // converts primitive types to strings
     static void ToStr( int v, char* buffer, int bufferSize );
     static void ToStr( unsigned v, char* buffer, int bufferSize );
+    static void ToStr( int64_t v, char* buffer, int bufferSize );
+    static void ToStr( uint64_t v, char* buffer, int bufferSize );
     static void ToStr( bool v, char* buffer, int bufferSize );
     static void ToStr( float v, char* buffer, int bufferSize );
     static void ToStr( double v, char* buffer, int bufferSize );
@@ -551,6 +554,8 @@ public:
     // converts strings to primitive types
     static bool	ToInt( const char* str, int* value );
     static bool ToUnsigned( const char* str, unsigned* value );
+    static bool ToLongLong( const char* str, int64_t* value );
+    static bool ToUnsignedLongLong( const char* str, uint64_t* value );
     static bool	ToBool( const char* str, bool* value );
     static bool	ToFloat( const char* str, float* value );
     static bool ToDouble( const char* str, double* value );
@@ -1057,6 +1062,17 @@ public:
         QueryUnsignedValue( &i );
         return i;
     }
+    int64_t      LongLongValue() const               {
+        int64_t i=0;
+        QueryLongLongValue( &i );
+        return i;
+    }
+    /// Query as an unsigned integer. See IntValue()
+    uint64_t UnsignedLongLongValue() const          {
+        uint64_t i=0;
+        QueryUnsignedLongLongValue( &i );
+        return i;
+    }
     /// Query as a boolean. See IntValue()
     bool	 BoolValue() const				{
         bool b=false;
@@ -1084,6 +1100,10 @@ public:
     /// See QueryIntValue
     XMLError QueryUnsignedValue( unsigned int* value ) const;
     /// See QueryIntValue
+    XMLError QueryLongLongValue( int64_t* value ) const;
+    /// See QueryIntValue
+    XMLError QueryUnsignedLongLongValue( uint64_t* value ) const;
+    /// See QueryIntValue
     XMLError QueryBoolValue( bool* value ) const;
     /// See QueryIntValue
     XMLError QueryDoubleValue( double* value ) const;
@@ -1096,6 +1116,10 @@ public:
     void SetAttribute( int value );
     /// Set the attribute to value.
     void SetAttribute( unsigned value );
+    /// Set the attribute to value.
+    void SetAttribute( int64_t value );
+    /// Set the attribute to value.
+    void SetAttribute( uint64_t value );
     /// Set the attribute to value.
     void SetAttribute( bool value );
     /// Set the attribute to value.
@@ -1190,6 +1214,18 @@ public:
         return i;
     }
     /// See IntAttribute()
+    int64_t LongLongAttribute( const char* name ) const     {
+        int64_t i=0;
+        QueryLongLongAttribute( name, &i );
+        return i;
+    }
+    /// See IntAttribute()
+    uint64_t UnsignedLongLongAttribute( const char* name ) const {
+        uint64_t i=0;
+        QueryUnsignedLongLongAttribute( name, &i );
+        return i;
+    }
+    /// See IntAttribute()
     bool	 BoolAttribute( const char* name ) const	{
         bool b=false;
         QueryBoolAttribute( name, &b );
@@ -1235,6 +1271,22 @@ public:
             return XML_NO_ATTRIBUTE;
         }
         return a->QueryUnsignedValue( value );
+    }
+    /// See QueryIntAttribute()
+    XMLError QueryLongLongAttribute( const char* name, int64_t* value ) const                {
+        const XMLAttribute* a = FindAttribute( name );
+        if ( !a ) {
+            return XML_NO_ATTRIBUTE;
+        }
+        return a->QueryLongLongValue( value );
+    }
+    /// See QueryIntAttribute()
+    XMLError QueryUnsignedLongLongAttribute( const char* name, uint64_t* value ) const  {
+        const XMLAttribute* a = FindAttribute( name );
+        if ( !a ) {
+            return XML_NO_ATTRIBUTE;
+        }
+        return a->QueryUnsignedLongLongValue( value );
     }
     /// See QueryIntAttribute()
     XMLError QueryBoolAttribute( const char* name, bool* value ) const				{
@@ -1286,6 +1338,13 @@ public:
 	int QueryAttribute( const char* name, unsigned int* value ) const {
 		return QueryUnsignedAttribute( name, value );
 	}
+    int QueryAttribute( const char* name, int64_t* value ) const {
+        return QueryLongLongAttribute( name, value );
+    }
+
+    int QueryAttribute( const char* name, uint64_t* value ) const {
+        return QueryUnsignedLongLongAttribute( name, value );
+    }
 
 	int QueryAttribute( const char* name, bool* value ) const {
 		return QueryBoolAttribute( name, value );
@@ -1311,6 +1370,16 @@ public:
     }
     /// Sets the named attribute to value.
     void SetAttribute( const char* name, unsigned value )		{
+        XMLAttribute* a = FindOrCreateAttribute( name );
+        a->SetAttribute( value );
+    }
+    /// Sets the named attribute to value.
+    void SetAttribute( const char* name, int64_t value )            {
+        XMLAttribute* a = FindOrCreateAttribute( name );
+        a->SetAttribute( value );
+    }
+    /// Sets the named attribute to value.
+    void SetAttribute( const char* name, uint64_t value )       {
         XMLAttribute* a = FindOrCreateAttribute( name );
         a->SetAttribute( value );
     }
@@ -1412,6 +1481,10 @@ public:
     /// Convenience method for setting text inside and element. See SetText() for important limitations.
     void SetText( unsigned value );  
     /// Convenience method for setting text inside and element. See SetText() for important limitations.
+    void SetText( int64_t value );
+    /// Convenience method for setting text inside and element. See SetText() for important limitations.
+    void SetText( uint64_t value );
+    /// Convenience method for setting text inside and element. See SetText() for important limitations.
     void SetText( bool value );  
     /// Convenience method for setting text inside and element. See SetText() for important limitations.
     void SetText( double value );  
@@ -1447,6 +1520,10 @@ public:
     XMLError QueryIntText( int* ival ) const;
     /// See QueryIntText()
     XMLError QueryUnsignedText( unsigned* uval ) const;
+    /// See QueryIntText()
+    XMLError QueryLongLongText( int64_t* ival ) const;
+    /// See QueryIntText()
+    XMLError QueryUnsignedLongLongText( uint64_t* uval ) const;
     /// See QueryIntText()
     XMLError QueryBoolText( bool* bval ) const;
     /// See QueryIntText()
@@ -1969,6 +2046,8 @@ public:
     void PushAttribute( const char* name, const char* value );
     void PushAttribute( const char* name, int value );
     void PushAttribute( const char* name, unsigned value );
+    void PushAttribute( const char* name, int64_t value );
+    void PushAttribute( const char* name, uint64_t value );
     void PushAttribute( const char* name, bool value );
     void PushAttribute( const char* name, double value );
     /// If streaming, close the Element.
@@ -1980,6 +2059,10 @@ public:
     void PushText( int value );
     /// Add a text node from an unsigned.
     void PushText( unsigned value );
+    /// Add a text node from an int64_t.
+    void PushText( int64_t value );
+    /// Add a text node from an uint64_t.
+    void PushText( uint64_t value );
     /// Add a text node from a bool.
     void PushText( bool value );
     /// Add a text node from a float.

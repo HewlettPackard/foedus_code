@@ -6,6 +6,8 @@
 #define FOEDUS_ASSORTED_ASSORTED_FUNC_HPP_
 #include <foedus/cxx11.hpp>
 #include <stdint.h>
+#include <string>
+#include <typeinfo>
 namespace foedus {
 namespace assorted {
 
@@ -65,10 +67,8 @@ inline int static_size_check() {
 /**
  * @brief Atomic 128-bit CAS, which is not in the standard yet.
  * @param[in,out] ptr Points to 128-bit data. \b MUST \b BE \b 128-bit \b ALIGNED.
- * @param[in] o1 If ptr holds this value, we swap. High 64 bit.
- * @param[in] o2 If ptr holds this value, we swap. Low 64 bit.
- * @param[in] n1 We change the ptr to hold this value. High 64 bit.
- * @param[in] n2 We change the ptr to hold this value. Low 64 bit.
+ * @param[in] old_value Points to 128-bit data. If ptr holds this value, we swap.
+ * @param[in] new_value Points to 128-bit data. We change the ptr to hold this value.
  * @return Whether the swap happened
  * @ingroup ASSORTED
  * @details
@@ -79,19 +79,26 @@ inline int static_size_check() {
  * Check out "gcc -dM -E - < /dev/null".
  */
 bool atomic_compare_exchange_strong_uint128(
-    uint64_t *ptr, uint64_t o1, uint64_t o2, uint64_t n1, uint64_t n2);
+    uint64_t *ptr, const uint64_t *old_value, const uint64_t *new_value);
 
 /**
  * @brief Weak version of atomic_compare_exchange_strong_uint128().
  * @ingroup ASSORTED
  */
 inline bool atomic_compare_exchange_weak_uint128(
-    uint64_t *ptr, uint64_t o1, uint64_t o2, uint64_t n1, uint64_t n2) {
-    if (ptr[0] != o1 || ptr[1] != o2) {
+    uint64_t *ptr, const uint64_t *old_value, const uint64_t *new_value) {
+    if (ptr[0] != old_value[0] || ptr[1] != old_value[1]) {
         return false;  // this comparison is fast but not atomic, thus 'weak'
     } else {
-        return atomic_compare_exchange_strong_uint128(ptr, o1, o2, n1, n2);
+        return atomic_compare_exchange_strong_uint128(ptr, old_value, new_value);
     }
+}
+
+std::string demangle_type_name(const char* mangled_name);
+
+template <typename T>
+std::string get_pretty_type_name() {
+    return demangle_type_name(typeid(T).name());
 }
 
 }  // namespace assorted

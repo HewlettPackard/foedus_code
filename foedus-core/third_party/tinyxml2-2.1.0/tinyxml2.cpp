@@ -416,6 +416,15 @@ void XMLUtil::ToStr( unsigned v, char* buffer, int bufferSize )
     TIXML_SNPRINTF( buffer, bufferSize, "%u", v );
 }
 
+void XMLUtil::ToStr( int64_t v, char* buffer, int bufferSize )
+{
+    TIXML_SNPRINTF( buffer, bufferSize, "%lld", v );
+}
+
+void XMLUtil::ToStr( uint64_t v, char* buffer, int bufferSize )
+{
+    TIXML_SNPRINTF( buffer, bufferSize, "%llu", v );
+}
 
 void XMLUtil::ToStr( bool v, char* buffer, int bufferSize )
 {
@@ -449,6 +458,22 @@ bool XMLUtil::ToInt( const char* str, int* value )
 bool XMLUtil::ToUnsigned( const char* str, unsigned *value )
 {
     if ( TIXML_SSCANF( str, "%u", value ) == 1 ) {
+        return true;
+    }
+    return false;
+}
+
+bool XMLUtil::ToLongLong( const char* str, int64_t* value )
+{
+    if ( TIXML_SSCANF( str, "%lld", value ) == 1 ) {
+        return true;
+    }
+    return false;
+}
+
+bool XMLUtil::ToUnsignedLongLong( const char* str, uint64_t* value )
+{
+    if ( TIXML_SSCANF( str, "%llu", value ) == 1 ) {
         return true;
     }
     return false;
@@ -1124,6 +1149,23 @@ XMLError XMLAttribute::QueryUnsignedValue( unsigned int* value ) const
     return XML_WRONG_ATTRIBUTE_TYPE;
 }
 
+XMLError XMLAttribute::QueryLongLongValue( int64_t * value ) const
+{
+    if ( XMLUtil::ToLongLong( Value(), value )) {
+        return XML_NO_ERROR;
+    }
+    return XML_WRONG_ATTRIBUTE_TYPE;
+}
+
+
+XMLError XMLAttribute::QueryUnsignedLongLongValue( uint64_t * value ) const
+{
+    if ( XMLUtil::ToUnsignedLongLong( Value(), value )) {
+        return XML_NO_ERROR;
+    }
+    return XML_WRONG_ATTRIBUTE_TYPE;
+}
+
 
 XMLError XMLAttribute::QueryBoolValue( bool* value ) const
 {
@@ -1173,6 +1215,20 @@ void XMLAttribute::SetAttribute( unsigned v )
     _value.SetStr( buf );
 }
 
+void XMLAttribute::SetAttribute( int64_t v )
+{
+    char buf[BUF_SIZE];
+    XMLUtil::ToStr( v, buf, BUF_SIZE );
+    _value.SetStr( buf );
+}
+
+
+void XMLAttribute::SetAttribute( uint64_t v )
+{
+    char buf[BUF_SIZE];
+    XMLUtil::ToStr( v, buf, BUF_SIZE );
+    _value.SetStr( buf );
+}
 
 void XMLAttribute::SetAttribute( bool v )
 {
@@ -1286,6 +1342,20 @@ void XMLElement::SetText( unsigned v )
     SetText( buf );
 }
 
+void XMLElement::SetText( int64_t v )
+{
+    char buf[BUF_SIZE];
+    XMLUtil::ToStr( v, buf, BUF_SIZE );
+    SetText( buf );
+}
+
+
+void XMLElement::SetText( uint64_t v )
+{
+    char buf[BUF_SIZE];
+    XMLUtil::ToStr( v, buf, BUF_SIZE );
+    SetText( buf );
+}
 
 void XMLElement::SetText( bool v ) 
 {
@@ -1336,6 +1406,30 @@ XMLError XMLElement::QueryUnsignedText( unsigned* uval ) const
     return XML_NO_TEXT_NODE;
 }
 
+XMLError XMLElement::QueryLongLongText( int64_t* ival ) const
+{
+    if ( FirstChild() && FirstChild()->ToText() ) {
+        const char* t = FirstChild()->ToText()->Value();
+        if ( XMLUtil::ToLongLong( t, ival ) ) {
+            return XML_SUCCESS;
+        }
+        return XML_CAN_NOT_CONVERT_TEXT;
+    }
+    return XML_NO_TEXT_NODE;
+}
+
+
+XMLError XMLElement::QueryUnsignedLongLongText( uint64_t* uval ) const
+{
+    if ( FirstChild() && FirstChild()->ToText() ) {
+        const char* t = FirstChild()->ToText()->Value();
+        if ( XMLUtil::ToUnsignedLongLong( t, uval ) ) {
+            return XML_SUCCESS;
+        }
+        return XML_CAN_NOT_CONVERT_TEXT;
+    }
+    return XML_NO_TEXT_NODE;
+}
 
 XMLError XMLElement::QueryBoolText( bool* bval ) const
 {
@@ -1977,6 +2071,20 @@ void XMLPrinter::PushAttribute( const char* name, unsigned v )
     PushAttribute( name, buf );
 }
 
+void XMLPrinter::PushAttribute( const char* name, int64_t v )
+{
+    char buf[BUF_SIZE];
+    XMLUtil::ToStr( v, buf, BUF_SIZE );
+    PushAttribute( name, buf );
+}
+
+
+void XMLPrinter::PushAttribute( const char* name, uint64_t v )
+{
+    char buf[BUF_SIZE];
+    XMLUtil::ToStr( v, buf, BUF_SIZE );
+    PushAttribute( name, buf );
+}
 
 void XMLPrinter::PushAttribute( const char* name, bool v )
 {
@@ -2059,6 +2167,20 @@ void XMLPrinter::PushText( unsigned value )
     PushText( buf, false );
 }
 
+void XMLPrinter::PushText( int64_t value )
+{
+    char buf[BUF_SIZE];
+    XMLUtil::ToStr( value, buf, BUF_SIZE );
+    PushText( buf, false );
+}
+
+
+void XMLPrinter::PushText( uint64_t value )
+{
+    char buf[BUF_SIZE];
+    XMLUtil::ToStr( value, buf, BUF_SIZE );
+    PushText( buf, false );
+}
 
 void XMLPrinter::PushText( bool value )
 {
