@@ -29,14 +29,14 @@ class PageResolver CXX11_FINAL {
         : base_(base), begin_(begin), end_(end) {}
 
     /** Resolves storage::Page* to offset in this pool. */
-    ALWAYS_INLINE PagePoolOffset resolve_page(storage::Page *page) const {
+    PagePoolOffset resolve_page(storage::Page *page) const ALWAYS_INLINE {
         PagePoolOffset offset = page - base_;
         assert(offset >= begin_);
         assert(offset < end_);
         return offset;
     }
     /** Resolves offset in this pool to storage::Page*. */
-    ALWAYS_INLINE storage::Page* resolve_offset(PagePoolOffset offset) const {
+    storage::Page* resolve_offset(PagePoolOffset offset) const ALWAYS_INLINE {
         assert(offset >= begin_);
         assert(offset < end_);
         return base_ + offset;

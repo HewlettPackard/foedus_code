@@ -32,31 +32,30 @@ To avoid it, each experiment's main cpp file should note at least the following 
 
 For example, foedus/storage/array/readonly_experiment.cpp has a following comment at beginning.
 
-```cpp
-/*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
- */
-/**
- * @file foedus/storage/array/readonly_experiment.cpp
- * @brief Read-only uniform-random accesses on array storage
- * @author kimurhid
- * @date 2014/04/14
- * @details
- * This is the first experiment to see the speed-of-light, where we use the simplest
- * data structure, array, and run read-only queries. This is supposed to run VERY fast.
- * Actually, we observed more than 300 MQPS in a desktop machine if the payload is small (16 bytes).
- *
- * @section ENVIRONMENTS Environments
- * At least 1GB of available RAM.
- *
- * @section OTHER Other notes
- * No special steps to build/run this expriment. This is self-contained.
- *
- * @section RESULTS Latest Results
- * foedus_results/20140414_kimurhid_array_readonly
- *
- * @todo PAYLOAD/DURATION_MICRO/RECORDS are so far hard-coded constants, not program arguments.
- */
-```
+    /*
+     * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
+     * The license and distribution terms for this file are placed in LICENSE.txt.
+     */
+    /**
+     * @file foedus/storage/array/readonly_experiment.cpp
+     * @brief Read-only uniform-random accesses on array storage
+     * @author kimurhid
+     * @date 2014/04/14
+     * @details
+     * This is the first experiment to see the speed-of-light, where we use the simplest
+     * data structure, array, and run read-only queries. This is supposed to run VERY fast.
+     * Actually, we observed more than 300 MQPS in a desktop machine if the payload is small (16 bytes).
+     *
+     * @section ENVIRONMENTS Environments
+     * At least 1GB of available RAM.
+     *
+     * @section OTHER Other notes
+     * No special steps to build/run this expriment. This is self-contained.
+     *
+     * @section RESULTS Latest Results
+     * foedus_results/20140414_kimurhid_array_readonly
+     *
+     * @todo PAYLOAD/DURATION_MICRO/RECORDS are so far hard-coded constants, not program arguments.
+     */
+
 Again, do *NOT* upload the results to main foedus_code repo.

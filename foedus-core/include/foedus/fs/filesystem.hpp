@@ -153,6 +153,7 @@ bool        create_directories(const Path& p, bool sync = false);
 /**
  * mkdir.
  * @ingroup FILESYSTEM
+ * @param[in] p path of the directory to create
  * @param[in] sync (optional, default false) wheter to call fsync() on the created directory
  * and its parent. This is required to make sure the new directory entry becomes durable.
  * @return whether the directory already exists or creation whether succeeded
@@ -232,11 +233,20 @@ bool        fsync(const Path& path, bool sync_parent_directory = false);
 bool        atomic_rename(const Path& old_path, const Path& new_path);
 
 /**
- * @brief fsync() on source file before rename, then fsync() on destination file after rename.
+ * @brief fsync() on source file before rename, then fsync() on the parent folder after rename.
  * @ingroup FILESYSTEM
  * @details
- * In total, this method makes 4 fsync calls, two on files and two on the parent directory.
- * Quite expensive, but this is required to make it durable regardless of filesystems.
+ * This method makes 2 fsync calls, one on old file \b before rename
+ * and another on the parent directory \b after rename.
+ *
+ * Note that we don't need fsync on parent directory before rename assuming old_path and new_path
+ * is in the same folder (if not, you have to call fsync yourself before calling this method).
+ * Even if a crash happens right after rename, we still see the old content of new_path.
+ *
+ * Also, we don't need fsync on new_path after rename because POSIX rename doesn't change
+ * the inode of renamed file. It's already there as soon as parent folder's fsync is done.
+ *
+ * Quite complex and expensive, but this is required to make it durable regardless of filesystems.
  * Fortunately, we have to call this method only once per epoch-advance.
  */
 bool        durable_atomic_rename(const Path& old_path, const Path& new_path);

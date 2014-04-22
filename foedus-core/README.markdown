@@ -1,23 +1,139 @@
-FOEDUS Core Library Documentation
+FOEDUS Core Library
 =================================
 
 Introduction
 --------
-bluh bluh
+This project is the gut of FOEDUS as a transactional key-value storage system.
+Your client program can use this library by containing the CMakeLists.txt or linking to the shared
+library.
 
-Get Started
+
+Hardware/Compiler Requeirements
 --------
-bluh bluh
 
+* We support only 64-bits CPUs. More specifically, x86_64 and ARMv8.
+* We assume Linux/Unix so far. No MacOS, Windows, nor Solaris.
+* We require reasonably modern C++ compilers.
+* We depend on CMake.
 
 Compilation
------------
-bluh bluh
+--------
+(If you get a compilation error for missing libraries, refer to Dependencies section.)
+Suppose you want to contain the CMakeLists.txt in your CMake project.
+Add the following lines in your CMakeLists.txt:
 
-Linking to libfoedus.so
+    add_subdirectory(path_to_foedus-core ${CMAKE_CURRENT_BINARY_DIR}/foedus-core)
+    include_directories(path_to_foedus-core/include)
+    add_executable(your_program your_program_x.cpp your_program_y.cpp ...)
+    target_link_libraries(your_program foedus-core)
+
+Compile your program to see if it is correctly linked to libfoedus-core.so.
+
+Alternatively, you can install foedus-core into either your local directory or standard directories,
+such as /usr/lib /usr/lib64 etc. In that case, add the following lines in your CMakeLists.txt:
+
+    # Copy the FindFoedusCore.cmake file (placed under cmake) into your cmake folder beforehand:
+    set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+    find_package(FoedusCore REQUIRED) # This sets FOEDUS_CORE_INCLUDE_DIR and FOEDUS_CORE_LIBRARIES
+    include_directories(${FOEDUS_CORE_INCLUDE_DIR})
+    add_executable(your_program your_program_x.cpp your_program_y.cpp ...)
+    target_link_libraries(your_program ${FOEDUS_CORE_LIBRARIES})
+
+We recommend your program to turn on C++11, but not mandatory. You can link to and use
+libfoedus-core from C++98/03 projects. If you are to enable C++11, add the following in CMakeLists.
+
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+
+
+Get Started
 -----------
-bluh bluh
+Here is a minimal example program to create a key-value storage and query on it.
+
+    #include <foedus/error_stack.hpp>
+    #include <foedus/engine.hpp>
+    #include <foedus/engine_options.hpp>
+    #include <foedus/thread/thread_pool.hpp>
+    #include <foedus/thread/thread.hpp>
+    #include <foedus/memory/engine_memory.hpp>
+    #include <foedus/storage/storage_manager.hpp>
+    #include <foedus/storage/array/array_storage.hpp>
+    #include <iostream>
+
+    const uint16_t PAYLOAD = 16;
+    const uint32_t RECORDS = 1 << 20;
+
+    class MyTask : public foedus::thread::ImpersonateTask {
+    public:
+        foedus::ErrorStack run(th::Thread* context) {
+            foedus::Engine *engine = context->get_engine();
+            foedus::storage::array::ArrayStorage *array = NULL;
+            CHECK_ERROR(engine->get_storage_manager().create_array(
+                context, "myarray", PAYLOAD, RECORDS, &array));
+            char buf[PAYLOAD];
+            CHECK_ERROR(array->get_record(context, 123, buf));
+            return foedus::RET_OK;
+        }
+    };
+
+    int main(int argc, char **argv) {
+        foedus::EngineOptions options;
+        foedus::Engine engine(options);
+        COERCE_ERROR(engine.initialize());
+        MyTask task;
+        foedus::thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+        std::cout << "session: result=" << session.get_result() << std::endl;
+        COERCE_ERROR(engine.uninitialize());
+        return 0;
+    }
+
 
 API Documents
 -----------
-See <a href="modules.html">Module List</a> and <a href="namespaces.html">Namespace List</a>.
+For more details, start from <a href="modules.html">Module List</a> and
+<a href="namespaces.html">Namespace List</a>.
+
+
+Dependencies
+-----------
+We try hard to minimize library dependency so that at least libfoedus-core works in various
+environments. We statically link most of the libraries we internally use, thus they are not
+exposed as library dependency. The only exceptions are standard c++ library, libpthread and libnuma.
+
+Standard C++ library is avaialble in most environments, so most likely you have already installed
+them. If not, run the following:
+
+    sudo yum install libstdc* # RedHat/Fedora
+
+pthread is a fundamental library to execute multi-threaded programs.
+Note that you have to link to libpthread.so even if you use C++11. C++11 threading merely invokes
+libpthread, so you need to link to libpthread.so. Otherwise, libstdc will thrown an error
+at *runtime* (ouch!) when our engine invokes it. Run the following:
+
+    sudo yum install glibc glibc-devel    # RedHat/Fedora
+    sudo apt-get install build-essential  # Debian/Ubuntu
+
+Then, include the following in your CMakeLists.txt:
+
+    find_package(Threads REQUIRED)
+    target_link_libraries(your_program ${CMAKE_THREAD_LIBS_INIT})
+
+Optimizing for NUMA architecture is also too essential for our goal.
+Thus, we depend on libnuma. And, (to my knowledge) there is no good way to statically link to
+libnuma. Hence, your client program must also link to libnuma.so. Run the following:
+
+    sudo yum install numactl        # RedHat/Fedora
+    sudo apt-get install libnuma    # Debian/Ubuntu
+
+Copy FindNuma.cmake in this cmake folder, then add the following in your CMakeLists.txt:
+
+    find_package(Numa REQUIRED)
+    target_link_libraries(your_program ${NUMA_LIBRARY})
+
+Although not mandatory, libfoedus-core provides additional functionalities if there is
+google-perftools-devel.
+    sudo yum install google-perftools google-perftools-devel    # RedHat/Fedora
+
+
+Licensing
+--------
+See [LICENSE.txt](LICENSE.txt)

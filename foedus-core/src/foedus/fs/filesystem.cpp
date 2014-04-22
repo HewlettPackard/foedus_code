@@ -238,13 +238,13 @@ bool fsync(const Path& path, bool sync_parent_directory) {
     }
 }
 bool durable_atomic_rename(const Path& old_path, const Path& new_path) {
-    if (!fsync(old_path, true)) {
+    if (!fsync(old_path, false)) {
         return false;
     }
     if (!atomic_rename(old_path, new_path)) {
         return false;
     }
-    return fsync(new_path, true);
+    return fsync(new_path.parent_path(), false);
 }
 
 }  // namespace fs
