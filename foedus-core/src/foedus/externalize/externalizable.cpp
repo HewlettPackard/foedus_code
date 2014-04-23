@@ -75,7 +75,7 @@ ErrorStack Externalizable::save_to_file(const fs::Path& path) const {
     // To atomically save a file, we write to a temporary file and call sync, then use POSIX rename.
     fs::Path tmp_path(path);
     tmp_path += ".tmp_";
-    tmp_path += fs::unique_path("%%%%%%%%");
+    tmp_path += fs::unique_name("%%%%%%%%");
 
     tinyxml2::XMLError save_error = document.SaveFile(tmp_path.c_str());
     if (save_error != tinyxml2::XML_SUCCESS) {
@@ -232,7 +232,12 @@ template<> struct TinyxmlGetter<uint64_t> {
 };
 template<> struct TinyxmlGetter<std::string> {
     tinyxml2::XMLError operator()(const tinyxml2::XMLElement *element, std::string *out) {
-        *out = element->GetText();
+        const char* text = element->GetText();
+        if (text) {
+            *out = text;
+        } else {
+            out->clear();
+        }
         return tinyxml2::XML_SUCCESS;
     }
 };

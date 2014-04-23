@@ -22,9 +22,9 @@ struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
     /** Constant values. */
     enum Constants {
         /** Default value for thread_buffer_kb_. */
-        DEFAULT_THREAD_BUFFER_KB = 1024,
+        DEFAULT_THREAD_BUFFER_KB = (1 << 14),
         /** Default value for logger_buffer_kb_. */
-        DEFAULT_LOGGER_BUFFER_KB = 8192,
+        DEFAULT_LOGGER_BUFFER_KB = (1 << 14),
     };
     /**
      * Constructs option values with default values.

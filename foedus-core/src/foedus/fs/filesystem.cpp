@@ -43,11 +43,8 @@ FileStatus status(const Path& p) {
     return FileStatus(type_unknown);
 }
 
-Path absolute(const Path& p) {
-    if (p.empty() || p.string()[0] == Path::PREFERRED_SEPARATOR) {
-        return p;
-    }
-    return current_path() /= p;
+Path absolute(const std::string& p) {
+    return Path(p);
 }
 
 Path current_path() {
@@ -178,20 +175,20 @@ SpaceInfo space(const Path& p) {
     return info;
 }
 
-Path unique_path() {
-    return unique_path("%%%%-%%%%-%%%%-%%%%");
+std::string unique_name() {
+    return unique_name("%%%%-%%%%-%%%%-%%%%");
 }
-Path unique_path(const std::string& model) {
+std::string unique_name(const std::string& model) {
     const char* HEX_CHARS = "0123456789abcdef";
     unsigned int seed = static_cast<unsigned int>(std::time(nullptr));
     std::string s(model);
     for (size_t i = 0; i < s.size(); ++i) {
-        if (s[i] == '%') {                       // digit request
+        if (s[i] == '%') {                 // digit request
             seed = ::rand_r(&seed);
             s[i] = HEX_CHARS[seed & 0xf];  // convert to hex digit and replace
         }
     }
-    return Path(s);
+    return s;
 }
 
 std::ostream& operator<<(std::ostream& o, const SpaceInfo& v) {

@@ -1,3 +1,9 @@
+## Valgrind suppression file
+## Add false positives and third party's bugs to here.
+## valgrind --leak-check=full --show-leak-kinds=all --suppressions=<path_to_valgrind.supp> --gen-suppressions=all ./<your_program>
+## Put <Reporter> <Date> <Environment> <Some comment> for each of them
+
+# Hideaki, 2014 Apr, Fedora 19, libunwind's bug.
 {
    libunwind_bug1
    Memcheck:Param
@@ -33,6 +39,7 @@
    fun:_ZN8tcmalloc15CentralFreeList11RemoveRangeEPPvS2_i
 }
 
+# Hideaki, 2014 Apr, Fedora 20, libprofiler's bug.
 {
    libprofiler_bug1
    Memcheck:Leak
@@ -46,4 +53,59 @@
    fun:call_init.part.0
    fun:_dl_init
    obj:/usr/lib64/ld-2.18.so
+}
+
+# Hideaki, 2014 Apr, Fedora 20,
+# http://comments.gmane.org/gmane.linux.kernel.numa/814
+# According to this, these are by design, not a bug of libnuma.
+{
+   numa_run_on_node_global1
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   fun:numa_bitmask_alloc
+   fun:numa_node_to_cpus
+   fun:numa_run_on_node
+   fun:_ZN6foedus6thread11ThreadPimpl12handle_tasksEv
+   fun:_ZNKSt7_Mem_fnIMN6foedus6thread11ThreadPimplEFvvEEclIIEvEEvPS2_DpOT_
+   fun:_ZNSt12_Bind_simpleIFSt7_Mem_fnIMN6foedus6thread11ThreadPimplEFvvEEPS3_EE9_M_invokeIILm0EEEEvSt12_Index_tupleIIXspT_EEE
+   fun:_ZNSt12_Bind_simpleIFSt7_Mem_fnIMN6foedus6thread11ThreadPimplEFvvEEPS3_EEclEv
+   fun:_ZNSt6thread5_ImplISt12_Bind_simpleIFSt7_Mem_fnIMN6foedus6thread11ThreadPimplEFvvEEPS5_EEE6_M_runEv
+   fun:execute_native_thread_routine
+   fun:start_thread
+   fun:clone
+}
+{
+   numa_run_on_node_global2
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:calloc
+   obj:/usr/lib64/libnuma.so.1
+   fun:numa_node_to_cpus
+   fun:numa_run_on_node
+   fun:_ZN6foedus6thread11ThreadPimpl12handle_tasksEv
+   fun:_ZNKSt7_Mem_fnIMN6foedus6thread11ThreadPimplEFvvEEclIIEvEEvPS2_DpOT_
+   fun:_ZNSt12_Bind_simpleIFSt7_Mem_fnIMN6foedus6thread11ThreadPimplEFvvEEPS3_EE9_M_invokeIILm0EEEEvSt12_Index_tupleIIXspT_EEE
+   fun:_ZNSt12_Bind_simpleIFSt7_Mem_fnIMN6foedus6thread11ThreadPimplEFvvEEPS3_EEclEv
+   fun:_ZNSt6thread5_ImplISt12_Bind_simpleIFSt7_Mem_fnIMN6foedus6thread11ThreadPimplEFvvEEPS5_EEE6_M_runEv
+   fun:execute_native_thread_routine
+   fun:start_thread
+   fun:clone
+}
+{
+   numa_run_on_node_global3
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:calloc
+   fun:numa_bitmask_alloc
+   fun:numa_node_to_cpus
+   fun:numa_run_on_node
+   fun:_ZN6foedus6thread11ThreadPimpl12handle_tasksEv
+   fun:_ZNKSt7_Mem_fnIMN6foedus6thread11ThreadPimplEFvvEEclIIEvEEvPS2_DpOT_
+   fun:_ZNSt12_Bind_simpleIFSt7_Mem_fnIMN6foedus6thread11ThreadPimplEFvvEEPS3_EE9_M_invokeIILm0EEEEvSt12_Index_tupleIIXspT_EEE
+   fun:_ZNSt12_Bind_simpleIFSt7_Mem_fnIMN6foedus6thread11ThreadPimplEFvvEEPS3_EEclEv
+   fun:_ZNSt6thread5_ImplISt12_Bind_simpleIFSt7_Mem_fnIMN6foedus6thread11ThreadPimplEFvvEEPS5_EEE6_M_runEv
+   fun:execute_native_thread_routine
+   fun:start_thread
+   fun:clone
 }

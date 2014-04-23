@@ -7,14 +7,18 @@
 #include <foedus/engine.hpp>
 #include <gtest/gtest.h>
 
+namespace foedus {
+
 TEST(EngineTest, Instantiate) {
-    foedus::EngineOptions options = foedus::get_tiny_options();
-    foedus::Engine engine(options);
+    EngineOptions options = get_tiny_options();
+    Engine engine(options);
 }
 
 TEST(EngineTest, Initialize) {
-    foedus::EngineOptions options = foedus::get_tiny_options();
-    foedus::Engine engine(options);
+    EngineOptions options = get_tiny_options();
+    Engine engine(options);
     COERCE_ERROR(engine.initialize());
     COERCE_ERROR(engine.uninitialize());
 }
+
+}  // namespace foedus

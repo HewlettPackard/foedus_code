@@ -5,6 +5,7 @@
 #include <foedus/engine.hpp>
 #include <foedus/engine_options.hpp>
 #include <foedus/error_stack_batch.hpp>
+#include <foedus/assorted/assorted_func.hpp>
 #include <foedus/memory/numa_core_memory.hpp>
 #include <foedus/memory/numa_node_memory.hpp>
 #include <foedus/memory/page_pool.hpp>
@@ -17,7 +18,10 @@ namespace foedus {
 namespace memory {
 NumaNodeMemory::NumaNodeMemory(Engine* engine, thread::ThreadGroupId numa_node)
     : engine_(engine), numa_node_(numa_node),
-        cores_(engine_->get_options().thread_.thread_count_per_group_) {}
+        cores_(engine_->get_options().thread_.thread_count_per_group_),
+        loggers_(assorted::int_div_ceil(engine_->get_options().log_.log_paths_.size(),
+                    engine_->get_options().thread_.group_count_)) {
+}
 
 ErrorStack NumaNodeMemory::initialize_once() {
     LOG(INFO) << "Initializing NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
@@ -25,6 +29,7 @@ ErrorStack NumaNodeMemory::initialize_once() {
 
     CHECK_ERROR(initialize_read_write_set_memory());
     CHECK_ERROR(initialize_page_offset_chunk_memory());
+    CHECK_ERROR(initialize_log_buffers_memory());
     for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
         CHECK_ERROR(initialize_core_memory(ordinal));
     }
@@ -70,6 +75,30 @@ ErrorStack NumaNodeMemory::initialize_page_offset_chunk_memory() {
     return RET_OK;
 }
 
+ErrorStack NumaNodeMemory::initialize_log_buffers_memory() {
+    size_t size_per_core = engine_->get_options().log_.thread_buffer_kb_;
+    uint64_t private_total = (cores_ * size_per_core) << 10;
+    LOG(INFO) << "Initializing thread_buffer_memory_. total_size=" << private_total;
+    CHECK_ERROR(allocate_numa_memory(private_total << 10, &thread_buffer_memory_));
+    for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
+        char* piece = reinterpret_cast<char*>(thread_buffer_memory_.get_block())
+            + size_per_core * ordinal;
+        thread_buffer_memory_pieces_.push_back(piece);
+    }
+
+    uint64_t size_per_logger = (engine_->get_options().log_.logger_buffer_kb_) << 10;
+    uint64_t logger_buffer = size_per_logger * loggers_;
+    LOG(INFO) << "Initializing logger_buffer_memory_. size=" << logger_buffer;
+    CHECK_ERROR(allocate_numa_memory(logger_buffer, &logger_buffer_memory_));
+    for (auto logger = 0; logger < loggers_; ++logger) {
+        char* piece = reinterpret_cast<char*>(logger_buffer_memory_.get_block())
+            + size_per_logger * logger;
+        logger_buffer_memory_pieces_.push_back(piece);
+    }
+    return RET_OK;
+}
+
+
 ErrorStack NumaNodeMemory::initialize_core_memory(thread::ThreadLocalOrdinal ordinal) {
     auto core_id = thread::compose_thread_id(numa_node_, ordinal);
     core_memories_.push_back(new NumaCoreMemory(engine_, this, core_id, ordinal));
@@ -90,6 +119,10 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
     write_set_memory_.release_block();
     read_set_memory_pieces_.clear();
     read_set_memory_.release_block();
+    thread_buffer_memory_pieces_.clear();
+    thread_buffer_memory_.release_block();
+    logger_buffer_memory_pieces_.clear();
+    logger_buffer_memory_.release_block();
 
     LOG(INFO) << "Uninitialized NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
         << " AFTER: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);

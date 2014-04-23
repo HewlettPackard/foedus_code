@@ -63,3 +63,11 @@ add_subdirectory(third_party)
 # experiments and unit tests.
 add_subdirectory(experiments-core)
 add_subdirectory(tests-core)
+
+find_package(Doxygen)
+if(DOXYGEN_FOUND)
+    add_custom_target(dox-all DEPENDS dox
+        COMMENT "Generate API documentation with Doxygen for all projects")
+else(DOXYGEN_FOUND)
+    add_custom_target(dox-all ${CMAKE_COMMAND} -E echo "Doxygen not found. No documents generated.")
+endif(DOXYGEN_FOUND)

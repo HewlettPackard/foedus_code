@@ -15,7 +15,13 @@ Path::Path(const std::string& s) {
         pathname_ = home_path().pathname_;
         pathname_.append(s.substr(1));
     } else {
-        pathname_ = s;
+        if (s.empty() || s.at(0) == PREFERRED_SEPARATOR) {
+            pathname_ = s;
+        } else {
+            Path tmp = current_path();
+            tmp /= s;
+            pathname_ = tmp.string();
+        }
     }
 }
 
@@ -38,7 +44,7 @@ Path Path::parent_path() const {
 }
 
 std::ostream& operator<<(std::ostream& o, const Path& v) {
-    o << v.string() << "(absolute=" << absolute(v).string() << ")";
+    o << v.string();
     return o;
 }
 

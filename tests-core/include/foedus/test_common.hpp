@@ -12,12 +12,19 @@
 
 namespace foedus {
     /**
+     * Returns one randomly generated name in "%%%%_%%%%_%%%%_%%%%" format.
+     */
+    std::string get_random_name() {
+        return fs::unique_name("%%%%_%%%%_%%%%_%%%%");
+    }
+
+    /**
      * Constructs an EngineOption so that all file paths are unique random.
      * This makes it possible to run an arbitrary number of tests in parallel.
      */
     EngineOptions get_randomized_paths(int logger_count, int snapshot_folder_count) {
         EngineOptions options;
-        std::string uniquefier = fs::unique_path("%%%%_%%%%_%%%%_%%%%").string();
+        std::string uniquefier = get_random_name();
         options.log_.log_paths_.clear();
         for (int i = 0; i < logger_count; ++i) {
             std::stringstream str;
@@ -42,6 +49,8 @@ namespace foedus {
      */
     EngineOptions get_tiny_options() {
         EngineOptions options = get_randomized_paths(1, 1);
+        options.log_.thread_buffer_kb_ = 1 << 8;
+        options.log_.logger_buffer_kb_ = 1 << 9;
         options.memory_.page_pool_size_mb_ = 2;
         options.memory_.private_page_pool_initial_grab_ = 32;
         options.thread_.group_count_ = 1;

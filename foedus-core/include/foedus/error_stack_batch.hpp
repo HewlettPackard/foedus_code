@@ -53,7 +53,7 @@ class ErrorStackBatch {
     /**
      * If the given ErrorStack is an error, this method adds it to the end of this batch.
      */
-    void push_back(ErrorStack &error_stack) { // NOLINT shutup. push_back(T&) is an STL semantics
+    void push_back(const ErrorStack &error_stack) {
         if (!error_stack.is_error()) {
             return;
         }

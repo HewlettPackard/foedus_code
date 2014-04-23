@@ -13,6 +13,9 @@ namespace fs {
 /**
  * @brief Analogue of boost::filesystem::path.
  * @ingroup FILESYSTEM
+ * @details
+ * Unlike boost::filesystem::path, this \b always brings a full path.
+ * As soon as this object is instantiated, we convert it to an absolute path with absolute().
  * @todo Support Windows. MUCH later.
  */
 class Path {
@@ -48,9 +51,10 @@ class Path {
     int compare(const Path& p) const CXX11_NOEXCEPT { return pathname_.compare(p.pathname_); }
     int compare(const std::string& s) const { return compare(Path(s)); }
 
-    Path  parent_path() const;
-    Path  filename() const;          // returns 0 or 1 element path
+    Path    parent_path() const;
+    Path    filename() const;          // returns 0 or 1 element path
 
+    bool    root() const { return pathname_.size() == 1 && pathname_.at(0) == PREFERRED_SEPARATOR; }
     bool    empty() const { return pathname_.empty(); }  // name consistent with std containers
     bool    has_parent_path() const     { return !parent_path().empty(); }
     bool    has_filename() const        { return !pathname_.empty(); }

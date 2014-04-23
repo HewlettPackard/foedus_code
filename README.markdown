@@ -5,7 +5,7 @@ Overview
 --------
 FOEDUS is a new transactional key-value library developped at Hewlett-Packard Labs that is optimized
 for a large number of CPU cores and NVRAM storage. It is a handy C++ library you can
-either include in your source code (by invoking CMake script) or dynamically linc to.
+either include in your source code (by invoking CMake script) or dynamically link to.
 In a nutshell, it is something like BerkeleyDB, but it is much more efficient on new hardware.
 
 Folder Structure
@@ -48,6 +48,8 @@ If you want to generate doxygen-pdf, also run the following:
 For Ubuntu/Debian, install equivalent modules.
 TBD: Ubuntu/Debian user, please provide an equivalent command.
 
+If you use Google Chrome, we also recommend installing Markdown Preview extension.
+
 Compilation (For FOEDUS Developers)
 --------
 To compile this project, simply build it as a CMake project. For example:
@@ -76,6 +78,14 @@ Go to build folder, and:
 or
 
     ctest
+
+In order to run valgrind version of it (takes *long* time!),
+
+    ctest -T memcheck
+
+If you find a false positive or third party's bug, add them to foedus-core/tools/valgrind.supp.
+
+    valgrind --leak-check=full --show-leak-kinds=all --suppressions=<path_to_valgrind.supp> --gen-suppressions=all ./<your_program>
 
 Coding Convention (For FOEDUS Developers)
 --------

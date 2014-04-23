@@ -71,6 +71,8 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
     ErrorStack      initialize_read_write_set_memory();
     /** initialize page_offset_chunk_memory_/page_offset_chunk_memory_pieces_. */
     ErrorStack      initialize_page_offset_chunk_memory();
+    /** initialize thread_buffer_memory_ and logger_buffer_memory_. */
+    ErrorStack      initialize_log_buffers_memory();
     /** initialize child memories per core */
     ErrorStack      initialize_core_memory(thread::ThreadLocalOrdinal ordinal);
 
@@ -83,6 +85,9 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
 
     /** Number of cores in this node. */
     const thread::ThreadLocalOrdinal        cores_;
+
+    /** Number of loggers in this node. */
+    const uint16_t                          loggers_;
 
     /**
      * List of NumaCoreMemory, one for each core in this node.
@@ -111,11 +116,10 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
     std::vector<PagePoolOffsetChunk*>       page_offset_chunk_memory_pieces_;
 
     /**
-     * Memory to hold a core-local log buffer. Split by each core in this node.
+     * Memory to hold a thread's log buffer. Split by each core in this node.
      */
-    AlignedMemory                           private_log_buffer_memory_;
-    std::vector<char*>                      private_log_buffer_memory_pieces_;
-
+    AlignedMemory                           thread_buffer_memory_;
+    std::vector<char*>                      thread_buffer_memory_pieces_;
 
     /**
      * Memory to hold an I/O buffer for Logger (log writer). Split by each Logger in this node.

@@ -131,10 +131,10 @@ Path        current_path();
  */
 Path        home_path();
 /**
- * Returns the absolue path of the specified file.
+ * Returns the absolue path of the specified path.
  * @ingroup FILESYSTEM
  */
-Path        absolute(const Path& p);
+Path        absolute(const std::string& p);
 
 // so far not needed
 // ErrorCode copy(const Path& from, const Path& to);
@@ -182,16 +182,16 @@ uint64_t    remove_all(const Path& p);
  */
 SpaceInfo   space(const Path& p);
 /**
- * Equivalent to unique_path(Path("%%%%-%%%%-%%%%-%%%%")).
+ * Equivalent to unique_path("%%%%-%%%%-%%%%-%%%%").
  * @ingroup FILESYSTEM
  */
-Path        unique_path();
+std::string unique_name();
 /**
  * Returns a randomly generated file name with the given template.
  * @ingroup FILESYSTEM
  * @param[in] model file name template where % will be replaced with random hex numbers.
  */
-Path        unique_path(const std::string& model);
+std::string unique_name(const std::string& model);
 
 /**
  * @brief Makes the content and metadata of the file durable all the way up to devices.
