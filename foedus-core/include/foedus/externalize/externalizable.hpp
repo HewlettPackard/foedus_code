@@ -6,6 +6,7 @@
 #define FOEDUS_EXTERNALIZE_EXTERNALIZABLE_HPP_
 #include <foedus/cxx11.hpp>
 #include <foedus/error_stack.hpp>
+#include <foedus/assorted/assorted_func.hpp>
 #include <foedus/fs/fwd.hpp>
 #include <stdint.h>
 #include <iosfwd>
@@ -95,6 +96,7 @@ struct Externalizable {
 
     // convenience methods
     static ErrorStack insert_comment(tinyxml2::XMLElement* element, const std::string& comment);
+    static ErrorStack append_comment(tinyxml2::XMLElement* parent, const std::string& comment);
     static ErrorStack create_element(tinyxml2::XMLElement* parent, const std::string& name,
                                     tinyxml2::XMLElement** out);
 
@@ -126,8 +128,13 @@ struct Externalizable {
     template <typename T>
     static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
                         const std::string& comment, const std::vector< T >& value) {
+        if (comment.size() > 0) {
+            CHECK_ERROR(append_comment(parent,
+                tag + " (type=" + assorted::get_pretty_type_name< std::vector< T > >()
+                    + "): " + comment));
+        }
         for (std::size_t i = 0; i < value.size(); ++i) {
-            CHECK_ERROR(add_element(parent, tag, comment, value[i]));
+            CHECK_ERROR(add_element(parent, tag, "", value[i]));
         }
         return RET_OK;
     }

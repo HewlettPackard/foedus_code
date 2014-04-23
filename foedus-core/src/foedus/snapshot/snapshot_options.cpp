@@ -12,7 +12,7 @@ SnapshotOptions::SnapshotOptions() {
 
 ErrorStack SnapshotOptions::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, folder_paths_);
-    CHECK_ERROR(get_child_element(element, "EmulationOptions", &emulation_))
+    CHECK_ERROR(get_child_element(element, "SnapshotDeviceEmulationOptions", &emulation_))
     return RET_OK;
 }
 
@@ -23,7 +23,7 @@ ErrorStack SnapshotOptions::save(tinyxml2::XMLElement* element) const {
         "Folder paths of snapshot folders.\n"
         " The folders may or may not be on different physical devices."
         " The snapshot folders are used in round-robbin fashion.");
-    CHECK_ERROR(add_child_element(element, "XctOptions",
+    CHECK_ERROR(add_child_element(element, "SnapshotDeviceEmulationOptions",
                     "[Experiments-only] Settings to emulate slower data device", emulation_));
     return RET_OK;
 }

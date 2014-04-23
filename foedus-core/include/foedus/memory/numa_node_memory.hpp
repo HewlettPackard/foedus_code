@@ -109,6 +109,19 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
      */
     AlignedMemory                           page_offset_chunk_memory_;
     std::vector<PagePoolOffsetChunk*>       page_offset_chunk_memory_pieces_;
+
+    /**
+     * Memory to hold a core-local log buffer. Split by each core in this node.
+     */
+    AlignedMemory                           private_log_buffer_memory_;
+    std::vector<char*>                      private_log_buffer_memory_pieces_;
+
+
+    /**
+     * Memory to hold an I/O buffer for Logger (log writer). Split by each Logger in this node.
+     */
+    AlignedMemory                           logger_buffer_memory_;
+    std::vector<char*>                      logger_buffer_memory_pieces_;
 };
 }  // namespace memory
 }  // namespace foedus

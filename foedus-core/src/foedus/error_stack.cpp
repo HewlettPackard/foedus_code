@@ -31,8 +31,7 @@ void ErrorStack::output(std::ostream* ptr) const {
 }
 
 void ErrorStack::dump_and_abort(const char *abort_message) const {
-    LOG(FATAL) << "FATAL:" << abort_message << std::endl;
-    LOG(FATAL) << *this << std::endl;
+    LOG(FATAL) << "FATAL:" << abort_message << std::endl << *this << std::endl;
     assert(false);
     std::cout.flush();
     std::cerr.flush();

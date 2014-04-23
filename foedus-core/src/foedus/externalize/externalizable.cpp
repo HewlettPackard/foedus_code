@@ -119,6 +119,15 @@ ErrorStack Externalizable::insert_comment(tinyxml2::XMLElement* element,
                                           const std::string& comment) {
     return insert_comment_impl(element, comment);
 }
+ErrorStack Externalizable::append_comment(tinyxml2::XMLElement* parent,
+                                          const std::string& comment) {
+    if (comment.size() > 0) {
+        tinyxml2::XMLComment* cm = parent->GetDocument()->NewComment(comment.c_str());
+        CHECK_OUTOFMEMORY(cm);
+        parent->InsertEndChild(cm);
+    }
+    return RET_OK;
+}
 
 ErrorStack Externalizable::create_element(tinyxml2::XMLElement* parent, const std::string& name,
                 tinyxml2::XMLElement** out) {
@@ -137,8 +146,8 @@ ErrorStack add_element_impl(tinyxml2::XMLElement* parent,
     element->SetText(value);
     parent->InsertEndChild(element);
     if (comment.size() > 0) {
-        insert_comment_impl(element,
-                        tag + " (type=" + assorted::get_pretty_type_name<T>() + "): " + comment);
+        CHECK_ERROR(insert_comment_impl(element,
+                        tag + " (type=" + assorted::get_pretty_type_name<T>() + "): " + comment));
     }
     return RET_OK;
 }

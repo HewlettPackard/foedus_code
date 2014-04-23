@@ -76,7 +76,6 @@ ErrorStack PagePoolPimpl::uninitialize_once() {
 
 ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chunk) {
     assert(is_initialized());
-    assert(desired_grab_count <= free_pool_capacity_);
     assert(chunk->size() + desired_grab_count <= chunk->capacity());
     LOG(INFO) << "Grabbing " << desired_grab_count << " pages."
         << " free_pool_count_=" << free_pool_count_;

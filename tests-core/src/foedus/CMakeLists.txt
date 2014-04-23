@@ -1,0 +1,2 @@
+add_foedus_test(test_engine)
+add_foedus_test(test_engine_options)

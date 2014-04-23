@@ -120,8 +120,8 @@ Optimizing for NUMA architecture is also too essential for our goal.
 Thus, we depend on libnuma. And, (to my knowledge) there is no good way to statically link to
 libnuma. Hence, your client program must also link to libnuma.so. Run the following:
 
-    sudo yum install numactl        # RedHat/Fedora
-    sudo apt-get install libnuma    # Debian/Ubuntu
+    sudo yum install numactl numactl-devel  # RedHat/Fedora
+    sudo apt-get install libnuma-dev        # Debian/Ubuntu
 
 Copy FindNuma.cmake in this cmake folder, then add the following in your CMakeLists.txt:
 

@@ -166,10 +166,13 @@ if(DOXYGEN_FOUND)
         COMMAND pdflatex refman.tex # sudo yum install texlive
         COMMAND makeindex refman.idx
         COMMAND pdflatex refman.tex
-        COMMAND okular refman.pdf
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/dox/latex/
         COMMENT "Generating a single PDF with Doxygen"
         DEPENDS dox)
+    add_custom_target(browse-pdf-dox
+        COMMAND okular refman.pdf
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/dox/latex/
+        DEPENDS pdf-dox)
 else(DOXYGEN_FOUND)
     add_custom_target(dox ${CMAKE_COMMAND} -E echo "Doxygen not found. No documents generated.")
 endif(DOXYGEN_FOUND)

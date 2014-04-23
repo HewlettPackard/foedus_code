@@ -23,6 +23,8 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
         DEFAULT_MAX_READ_SET_SIZE = 1 << 16,
         /** Default value for max_write_set_size_. */
         DEFAULT_MAX_WRITE_SET_SIZE = 1 << 14,
+        /** Default value for epoch_advance_interval_ms_. */
+        DEFAULT_EPOCH_ADVANCE_INTERVAL_MS = 20,
     };
 
     /**
@@ -47,6 +49,17 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
      * We pre-allocate this much memory for each NumaCoreMemory. So, don't make it too large.
      */
     uint32_t    max_write_set_size_;
+
+    /**
+     * @brief Intervals in milliseconds between epoch advancements.
+     * @details
+     * Default is 20 ms.
+     * Too frequent epoch advancement might become bottleneck because we \b synchronously write
+     * out savepoint file for each non-empty epoch. However, too infrequent epoch advancement
+     * would increase the latency of queries because transactions are not deemed as commit
+     * until the epoch advances.
+     */
+    uint32_t    epoch_advance_interval_ms_;
 };
 }  // namespace xct
 }  // namespace foedus

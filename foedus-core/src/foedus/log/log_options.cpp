@@ -17,7 +17,7 @@ ErrorStack LogOptions::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, log_paths_);
     EXTERNALIZE_LOAD_ELEMENT(element, thread_buffer_kb_);
     EXTERNALIZE_LOAD_ELEMENT(element, logger_buffer_kb_);
-    CHECK_ERROR(get_child_element(element, "EmulationOptions", &emulation_))
+    CHECK_ERROR(get_child_element(element, "LogDeviceEmulationOptions", &emulation_))
     return RET_OK;
 }
 
@@ -27,11 +27,14 @@ ErrorStack LogOptions::save(tinyxml2::XMLElement* element) const {
     EXTERNALIZE_SAVE_ELEMENT(element, log_paths_,
         "Full paths of log files.\n"
         " The files may or may not be on different physical devices."
-        " This option also determines the number of loggers.");
+        " This option also determines the number of loggers.\n"
+        " For the best performance, the number of loggers should be multiply of the number of NUMA"
+        " node, or ThreadOptions#group_count_ because we assign loggers to each NUMA node in a"
+        " round-robbin fashion.");
     EXTERNALIZE_SAVE_ELEMENT(element, thread_buffer_kb_,
         "Size in KB of log buffer for each worker thread");
     EXTERNALIZE_SAVE_ELEMENT(element, logger_buffer_kb_, "Size in KB of logger for each logger");
-    CHECK_ERROR(add_child_element(element, "XctOptions",
+    CHECK_ERROR(add_child_element(element, "LogDeviceEmulationOptions",
                     "[Experiments-only] Settings to emulate slower logging device", emulation_));
     return RET_OK;
 }

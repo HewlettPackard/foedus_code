@@ -9,6 +9,10 @@
 #include <foedus/thread/fwd.hpp>
 #include <foedus/xct/fwd.hpp>
 #include <foedus/xct/epoch.hpp>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 namespace foedus {
 namespace xct {
 /**
@@ -21,13 +25,27 @@ namespace xct {
 class XctManagerPimpl final : public DefaultInitializable {
  public:
     XctManagerPimpl() = delete;
-    explicit XctManagerPimpl(Engine* engine) : engine_(engine) {}
+    explicit XctManagerPimpl(Engine* engine);
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
+    Epoch       get_global_epoch(bool fence_before_get) const {
+        if (fence_before_get) {
+            std::atomic_thread_fence(std::memory_order_acquire);
+        }
+        return global_epoch_;
+    }
     ErrorStack  begin_xct(thread::Thread* context);
     ErrorStack  commit_xct(thread::Thread* context);
     ErrorStack  abort_xct(thread::Thread* context);
+
+    /**
+     * @brief Main routine for epoch_advance_thread_.
+     * @details
+     * This method keeps advancing global_epoch with the interval configured in XctOptions.
+     * This method exits when someone calls stop_epoch_advance().
+     */
+    void        handle_epoch_advance();
 
     Engine* const           engine_;
 
@@ -38,6 +56,12 @@ class XctManagerPimpl final : public DefaultInitializable {
      * \li Readers should take appropriate fence before reading this (XctManager#begin_xct()).
      */
     Epoch                   global_epoch_;
+
+    std::mutex              epoch_advance_mutex_;
+    std::condition_variable epoch_advance_stop_condition_;
+    std::thread             epoch_advance_thread_;
+    bool                    epoch_advance_stop_requested_;
+    bool                    epoch_advance_stopped_;
 };
 }  // namespace xct
 }  // namespace foedus

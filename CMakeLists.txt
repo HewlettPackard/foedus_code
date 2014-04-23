@@ -45,6 +45,10 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
 set(ENABLE_CPPLINT true)
 
 enable_testing() # we use CTest in tests-xxx. run "make test" or "ctest" after cmake
+include(CTest)
+set(MEMORYCHECK_SUPPRESSIONS_FILE "${FOEDUS_CORE_SRC_ROOT}/tools/valgrind.supp"
+    CACHE FILEPATH "" FORCE)
+set(MEMORYCHECK_COMMAND /usr/bin/valgrind CACHE FILEPATH "" FORCE)
 
 # The core library. This project is also compilable by itself.
 add_subdirectory(foedus-core)

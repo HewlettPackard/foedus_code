@@ -18,6 +18,9 @@ ErrorStack  XctManager::initialize() { return pimpl_->initialize(); }
 bool        XctManager::is_initialized() const { return pimpl_->is_initialized(); }
 ErrorStack  XctManager::uninitialize() { return pimpl_->uninitialize(); }
 
+Epoch       XctManager::get_global_epoch(bool fence_before_get) const {
+    return pimpl_->get_global_epoch(fence_before_get);
+}
 ErrorStack  XctManager::begin_xct(thread::Thread* context)  { return pimpl_->begin_xct(context); }
 ErrorStack  XctManager::commit_xct(thread::Thread* context) { return pimpl_->commit_xct(context); }
 ErrorStack  XctManager::abort_xct(thread::Thread* context)  { return pimpl_->abort_xct(context); }

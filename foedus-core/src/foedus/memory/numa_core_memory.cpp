@@ -30,9 +30,10 @@ ErrorStack NumaCoreMemory::initialize_once() {
     write_set_size_ = engine_->get_options().xct_.max_write_set_size_;
     free_pool_chunk_ = node_memory_->get_page_offset_chunk_memory_piece(core_local_ordinal_);
 
-    // Each core starts from 50%-full free pool chunk
+    // Each core starts from 50%-full free pool chunk (configurable)
+    uint32_t initial_pages = engine_->get_options().memory_.private_page_pool_initial_grab_;
     CHECK_ERROR_CODE(engine_->get_memory_manager().get_page_pool()->grab(
-        free_pool_chunk_->capacity() / 2, free_pool_chunk_));
+        initial_pages, free_pool_chunk_));
     return RET_OK;
 }
 ErrorStack NumaCoreMemory::uninitialize_once() {

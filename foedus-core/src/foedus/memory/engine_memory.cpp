@@ -8,6 +8,7 @@
 #include <foedus/debugging/debugging_supports.hpp>
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/memory/numa_node_memory.hpp>
+#include <foedus/storage/storage_id.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <glog/logging.h>
 namespace foedus {
@@ -19,10 +20,19 @@ ErrorStack EngineMemory::initialize_once() {
     if (!engine_->get_debug().is_initialized()) {
         return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
     }
+    const EngineOptions& options = engine_->get_options();
+
+    // Can we at least start up?
+    size_t total_threads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
+    size_t minimal_page_pool = total_threads * options.memory_.private_page_pool_initial_grab_
+        * storage::PAGE_SIZE;
+    if ((static_cast<uint64_t>(options.memory_.page_pool_size_mb_) << 20) < minimal_page_pool) {
+        return ERROR_STACK(ERROR_CODE_MEMORY_PAGE_POOL_TOO_SMALL);
+    }
 
     CHECK_ERROR(page_pool_.initialize());
 
-    thread::ThreadGroupId numa_nodes = engine_->get_options().thread_.group_count_;
+    thread::ThreadGroupId numa_nodes = options.thread_.group_count_;
     for (thread::ThreadGroupId node = 0; node < numa_nodes; ++node) {
         node_memories_.push_back(new NumaNodeMemory(engine_, node));
         CHECK_ERROR(node_memories_.back()->initialize());

@@ -20,5 +20,4 @@ CPPLINT_RECURSIVE(experiment_core_cpplint_src
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_BINARY_DIR}/src)
 add_custom_target(experiment_core_cpplint_dummy ALL)
-add_dependencies(experiment_core_cpplint_dummy
-    experiment_core_cpplint_include experiment_core_cpplint_src)
+add_dependencies(experiment_core_cpplint_dummy experiment_core_cpplint_include experiment_core_cpplint_src)

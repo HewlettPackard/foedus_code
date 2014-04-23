@@ -94,8 +94,17 @@ inline bool atomic_compare_exchange_weak_uint128(
     }
 }
 
+/**
+ * @brief Demangle the given C++ type name \e if possible (otherwise the original string).
+ * @ingroup ASSORTED
+ */
 std::string demangle_type_name(const char* mangled_name);
 
+/**
+ * @brief Returns the name of the C++ type as readable as possible.
+ * @ingroup ASSORTED
+ * @tparam T the type
+ */
 template <typename T>
 std::string get_pretty_type_name() {
     return demangle_type_name(typeid(T).name());

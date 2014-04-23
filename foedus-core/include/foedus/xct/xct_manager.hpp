@@ -31,6 +31,12 @@ class XctManager CXX11_FINAL : public virtual Initializable {
     ErrorStack  uninitialize() CXX11_OVERRIDE;
 
     /**
+     * @brief Returns the current global epoch.
+     * @param[in] fence_before_get Whether to take memory fence before obtaining the epoch.
+     */
+    Epoch       get_global_epoch(bool fence_before_get = true) const;
+
+    /**
      * @brief Begins a new transaction on the thread.
      * @pre context->is_running_xct() == false
      */
