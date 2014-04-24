@@ -8,8 +8,8 @@ namespace foedus {
 namespace log {
 
 Logger::Logger(Engine* engine, LoggerId id,
-               const fs::Path &log_path, std::vector< thread::ThreadId > assigned_threads)
-    : engine_(engine), id_(id), log_path_(log_path), assigned_threads_(assigned_threads) {
+               const fs::Path &log_path, std::vector< thread::ThreadId > assigned_thread_ids)
+    : engine_(engine), id_(id), log_path_(log_path), assigned_thread_ids_(assigned_thread_ids) {
 }
 
 ErrorStack Logger::initialize_once() {

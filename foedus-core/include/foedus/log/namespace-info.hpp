@@ -10,6 +10,10 @@
  * @brief \b Log \b Manager, which writes out transactional logs.
  * @details
  * This package contains classes that control transactional logging.
+ * @section THREAD_BUFFER Thread-private log buffer
+ * bluh
+ * @section LOGGER Log Writer
+ * bluh
  */
 
 /**

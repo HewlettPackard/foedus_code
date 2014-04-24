@@ -6,6 +6,7 @@ project(experiments_core)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../general_projects.cmake)
 set(EXPERIMENT_LIB ${GENERAL_LIB})
 
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_subdirectory(src)
 
 # Experiments code might be exempted from cpplint later when we think it's too tedious,
