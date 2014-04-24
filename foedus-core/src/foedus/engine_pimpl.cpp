@@ -14,10 +14,10 @@ EnginePimpl::EnginePimpl(Engine* engine, const EngineOptions &options) :
     // even the Engine object has not set the pimpl pointer.
     debug_(engine),
     memory_manager_(engine),
+    savepoint_manager_(engine),
     thread_pool_(engine),
     log_manager_(engine),
     storage_manager_(engine),
-    savepoint_manager_(engine),
     xct_manager_(engine) {
 }
 

@@ -6,6 +6,7 @@
 #define FOEDUS_FS_DIRECT_IO_FILE_HPP_
 #include <foedus/cxx11.hpp>
 #include <foedus/error_code.hpp>
+#include <foedus/error_stack.hpp>
 #include <foedus/fs/device_emulation_options.hpp>
 #include <foedus/fs/path.hpp>
 #include <stdint.h>
@@ -76,7 +77,7 @@ class DirectIoFile {
      * @param[in] append whether to set initial offset at the end of the file
      * @param[in] create whether to create the file. if already exists, does nothing.
      */
-    ErrorCode       open(bool read, bool write, bool append, bool create);
+    ErrorStack      open(bool read, bool write, bool append, bool create);
 
     /** Whether the file is already and successfully opened.*/
     bool            is_opened() const { return descriptor_ != INVALID_DESCRIPTOR; }

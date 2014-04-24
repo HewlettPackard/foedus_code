@@ -38,6 +38,7 @@ X(ERROR_CODE_FS_WRITE_FAIL,         0x0209, "FILESYS: Disk write failed.")
 X(ERROR_CODE_FS_EXCESS_WRITE,       0x020A, "FILESYS: wrote more than expected")
 X(ERROR_CODE_FS_NOT_OPENED,         0x020B, "FILESYS: File not opened yet or failed to open.")
 X(ERROR_CODE_FS_SYNC_FAILED,        0x020C, "FILESYS: fsync() failed.")
+X(ERROR_CODE_FS_MKDIR_FAILED,       0x020D, "FILESYS: Failed to create a directory")
 
 X(ERROR_CODE_MEMORY_NO_FREE_PAGES,  0x0301, "MEMORY : Not enough free pages. Check the config of MemoryOptions")
 X(ERROR_CODE_MEMORY_DUPLICATE_PAGE, 0x0302, "MEMORY : Duplicate entry in free-page pool.")

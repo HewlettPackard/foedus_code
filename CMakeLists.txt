@@ -20,9 +20,11 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/foedus-core/cmake/WarnInSrcBuild.cmake)
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
 # A few projects other than foedus-core refer to foedus-core. Give a global variable for them.
+set(FOEDUS_SRC_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
+set(FOEDUS_BIN_ROOT ${CMAKE_CURRENT_BINARY_DIR})
 set(FOEDUS_CORE_SRC_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/foedus-core)
-set(FOEDUS_CORE_SRC_BIN ${CMAKE_CURRENT_BINARY_DIR}/foedus-core)
-mark_as_advanced(FOEDUS_CORE_SRC_ROOT FOEDUS_CORE_SRC_BIN)
+set(FOEDUS_CORE_BIN_ROOT ${CMAKE_CURRENT_BINARY_DIR}/foedus-core)
+mark_as_advanced(FOEDUS_SRC_ROOT FOEDUS_BIN_ROOT FOEDUS_CORE_SRC_ROOT FOEDUS_CORE_BIN_ROOT)
 
 # We do assume C++11.
 # However, external projects can link to our shared library even if they use C++98.
@@ -82,3 +84,15 @@ add_custom_target(sloccount
         ${CMAKE_CURRENT_SOURCE_DIR}/foedus-util
         > ${CMAKE_CURRENT_BINARY_DIR}/sloccount.ac
     COMMENT "Count source lines of code with sloccount")
+
+
+# for jenkins Cppcheck plugin, also provide a command to write out xml.
+set(CPPLINT_CONVERTER ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cpplint_to_cppcheckxml.py)
+add_custom_target(cpplint-for-jenkins
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    COMMAND ${CMAKE_BUILD_TOOL}
+        cpplint_include cpplint_src
+        experiment_core_cpplint_src experiment_core_cpplint_include
+        tests_core_cpplint_src tests_core_cpplint_include
+        2>&1| ${CPPLINT_CONVERTER} &> ${CMAKE_CURRENT_BINARY_DIR}/cpplint-cppcheck-result.xml
+)

@@ -23,10 +23,17 @@ DirectIoFile::~DirectIoFile() {
     close();
 }
 
-ErrorCode DirectIoFile::open(bool read, bool write, bool append, bool create) {
+ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
     if (descriptor_ != INVALID_DESCRIPTOR) {
-        LOG(WARNING) << "DirectIoFile::open(): already opened: " << path_;
-        return ERROR_CODE_FS_ALREADY_OPENED;
+        return ERROR_STACK_MSG(ERROR_CODE_FS_ALREADY_OPENED, path_.c_str());
+    }
+    Path folder(path_.parent_path());
+    if (!exists(folder)) {
+        if (!create_directories(folder, true)) {
+            LOG(ERROR) << "DirectIoFile::open(): failed to create parent folder: "
+                << folder << ". errno=" << errno;
+            return ERROR_STACK_MSG(ERROR_CODE_FS_MKDIR_FAILED, folder.c_str());
+        }
     }
 
     LOG(INFO) << "DirectIoFile::open(): opening: " << path_ << "..  read =" << read << " write="
@@ -53,7 +60,7 @@ ErrorCode DirectIoFile::open(bool read, bool write, bool append, bool create) {
     descriptor_ = ::open(path_.c_str(), oflags);
     if (descriptor_ == INVALID_DESCRIPTOR) {
         LOG(ERROR) << "DirectIoFile::open(): failed to open: " << path_ << ". errno=" << errno;
-        return ERROR_CODE_FS_FAILED_TO_OPEN;
+        return ERROR_STACK_MSG(ERROR_CODE_FS_FAILED_TO_OPEN, path_.c_str());
     } else {
         read_ = read;
         write_ = write;
@@ -62,7 +69,7 @@ ErrorCode DirectIoFile::open(bool read, bool write, bool append, bool create) {
             current_offset_ = file_size(path_);
         }
         LOG(INFO) << "DirectIoFile::open(): successfully opened. " << *this;
-        return ERROR_CODE_OK;
+        return RET_OK;
     }
 }
 

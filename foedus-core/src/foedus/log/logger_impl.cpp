@@ -15,6 +15,7 @@
 #include <cassert>
 #include <condition_variable>
 #include <mutex>
+#include <string>
 #include <sstream>
 #include <thread>
 #include <vector>
@@ -44,11 +45,13 @@ ErrorStack Logger::initialize_once() {
     numa_node_ = static_cast<int>(thread::decompose_numa_node(assigned_thread_ids_[0]));
     LOG(INFO) << "Initializing Logger-" << id_ << ". assigned " << assigned_thread_ids_.size()
         << " threads, starting from " << assigned_thread_ids_[0] << ", numa_node_=" << numa_node_;
+
     // this is during initialization. no race.
     const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
     current_file_path_ = construct_suffixed_log_path(savepoint.current_log_files_[id_]);
     current_file_ = new fs::DirectIoFile(current_file_path_,
                                          engine_->get_options().log_.emulation_);
+    CHECK_ERROR(current_file_->open(false, true, true, savepoint.empty()));
     logger_thread_ = std::thread(&Logger::handle_logger, this);
     return RET_OK;
 }
