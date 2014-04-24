@@ -28,9 +28,9 @@ ErrorStack LogOptions::save(tinyxml2::XMLElement* element) const {
         "Full paths of log files.\n"
         " The files may or may not be on different physical devices."
         " This option also determines the number of loggers.\n"
-        " For the best performance, the number of loggers should be multiply of the number of NUMA"
-        " node, or ThreadOptions#group_count_ because we assign loggers to each NUMA node in a"
-        " round-robbin fashion.");
+        " For the best performance, the number of loggers must be multiply of the number of NUMA"
+        " node and also be a submultiple of the total number of cores."
+        " This is to evenly assign cores to loggers, loggers to NUMA nodes.");
     EXTERNALIZE_SAVE_ELEMENT(element, thread_buffer_kb_,
         "Size in KB of log buffer for each worker thread");
     EXTERNALIZE_SAVE_ELEMENT(element, logger_buffer_kb_, "Size in KB of logger for each logger");

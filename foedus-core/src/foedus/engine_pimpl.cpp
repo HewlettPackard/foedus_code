@@ -9,6 +9,8 @@ namespace foedus {
 EnginePimpl::EnginePimpl(Engine* engine, const EngineOptions &options) :
     options_(options),
     engine_(engine),
+    // although we give a pointer to engine, these objects must not access it yet.
+    // even the Engine object has not set the pimpl pointer.
     debug_(engine),
     memory_manager_(engine),
     thread_pool_(engine),

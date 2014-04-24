@@ -11,6 +11,9 @@
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <stdint.h>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include <vector>
 namespace foedus {
 namespace log {
@@ -24,7 +27,7 @@ namespace log {
 class Logger final : public DefaultInitializable {
  public:
     Logger(Engine* engine, LoggerId id, const fs::Path &log_path,
-           std::vector< thread::ThreadId > assigned_thread_ids);
+           const std::vector< thread::ThreadId > &assigned_thread_ids);
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
@@ -32,12 +35,33 @@ class Logger final : public DefaultInitializable {
     Logger(const Logger &other) = delete;
     Logger& operator=(const Logger &other) = delete;
 
-
  private:
+    /**
+     * @brief Main routine for logger_thread_.
+     * @details
+     * This method keeps writing out logs in assigned threads' private buffers.
+     * When there are no logs in all the private buffers for a while, it goes into sleep.
+     * This method exits when this object's uninitialize() is called.
+     */
+    void        handle_logger();
+
+    /**
+     * Called from handle_logger when there is no log to process.
+     */
+    void        sleep_logger();
+
     Engine*                         engine_;
     LoggerId                        id_;
+    thread::ThreadGroupId           numa_node_;
     const fs::Path                  log_path_;
     std::vector< thread::ThreadId > assigned_thread_ids_;
+
+    std::mutex                      logger_mutex_;
+    std::condition_variable         logger_stop_condition_;
+    std::thread                     logger_thread_;
+    bool                            logger_stop_requested_;
+    bool                            logger_stopped_;
+
     std::vector< thread::Thread* >  assigned_threads_;
 };
 }  // namespace log

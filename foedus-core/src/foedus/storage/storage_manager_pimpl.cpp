@@ -17,11 +17,6 @@
 #include <cstring>
 namespace foedus {
 namespace storage {
-StorageManagerPimpl::StorageManagerPimpl(Engine* engine)
-    : engine_(engine), largest_storage_id_(0) {
-    storages_ = nullptr;
-    storages_capacity_ = 0;
-}
 ErrorStack StorageManagerPimpl::initialize_once() {
     LOG(INFO) << "Initializing StorageManager..";
     if (!engine_->get_thread_pool().is_initialized()

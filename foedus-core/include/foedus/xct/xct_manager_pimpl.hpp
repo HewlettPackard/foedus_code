@@ -43,7 +43,7 @@ class XctManagerPimpl final : public DefaultInitializable {
      * @brief Main routine for epoch_advance_thread_.
      * @details
      * This method keeps advancing global_epoch with the interval configured in XctOptions.
-     * This method exits when someone calls stop_epoch_advance().
+     * This method exits when this object's uninitialize() is called.
      */
     void        handle_epoch_advance();
 

@@ -38,7 +38,7 @@ ErrorStack XctManagerPimpl::uninitialize_once() {
     if (!engine_->get_storage_manager().is_initialized()) {
         batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
     }
-    LOG(INFO) << "Stopping epoch_advance_thread started...";
+    LOG(INFO) << "Stopping epoch_advance_thread...";
     if (!epoch_advance_stopped_ && epoch_advance_thread_.joinable()) {
         epoch_advance_stop_requested_ = true;
         epoch_advance_stop_condition_.notify_one();

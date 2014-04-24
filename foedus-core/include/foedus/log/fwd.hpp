@@ -14,6 +14,8 @@ namespace log {
 class   LogManager;
 class   LogManagerPimpl;
 struct  LogOptions;
+class   Logger;
+class   ThreadLogBuffer;
 }  // namespace log
 }  // namespace foedus
 #endif  // FOEDUS_LOG_FWD_HPP_

@@ -53,6 +53,8 @@ X(ERROR_CODE_CONF_COULD_NOT_WRITE,  0x0407, "CONFIG : Failed to write a configur
 X(ERROR_CODE_CONF_COULD_NOT_RENAME, 0x0408, "CONFIG : Failed to atomically rename the temporary file to destination.")
 X(ERROR_CODE_CONF_MKDIRS_FAILED,    0x0409, "CONFIG : Failed to create a directory. Check permissions.")
 
+X(ERROR_CODE_LOG_INVALID_LOGGER_COUNT,  0x0501, "LOG    : The number of loggers must be multiply of the number of NUMA node and also be a submultiple of the total number of cores. Check the number of entries in LogOptions#log_paths_")
+
 X(ERROR_CODE_STR_DUPLICATE_STRID,   0x0801, "STORAGE: Duplicate StorageID")
 X(ERROR_CODE_STR_ALREADY_EXISTS,    0x0802, "STORAGE: This storage already exists")
 

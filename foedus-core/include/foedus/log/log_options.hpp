@@ -36,9 +36,9 @@ struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
      * @details
      * The files may or may not be on different physical devices.
      * This option also determines the number of loggers.
-     * For the best performance, the number of loggers should be multiply of the number of NUMA
-     * node, or ThreadOptions#group_count_ because we assign loggers to each NUMA node in a
-     * round-robbin fashion.
+     * For the best performance, the number of loggers must be multiply of the number of NUMA
+     * node and also be a submultiple of the total number of cores.
+     * This is to evenly assign cores to loggers, loggers to NUMA nodes.
      * @attention The default value is just one entry of "foedus.log". When you modify this
      * setting, do NOT forget removing the default entry; call log_paths_.clear() first.
      */

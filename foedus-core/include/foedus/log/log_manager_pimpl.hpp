@@ -7,6 +7,8 @@
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
+#include <foedus/thread/thread_id.hpp>
+#include <vector>
 namespace foedus {
 namespace log {
 /**
@@ -23,7 +25,14 @@ class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
-    Engine* const           engine_;
+    Engine* const               engine_;
+
+    thread::ThreadGroupId       groups_;
+
+    /**
+     * Log writers.
+     */
+    std::vector< Logger* >      loggers_;
 };
 }  // namespace log
 }  // namespace foedus

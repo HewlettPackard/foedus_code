@@ -6,6 +6,7 @@
 #include <foedus/engine_options.hpp>
 #include <foedus/engine.hpp>
 #include <gtest/gtest.h>
+#include <iostream>
 
 namespace foedus {
 
