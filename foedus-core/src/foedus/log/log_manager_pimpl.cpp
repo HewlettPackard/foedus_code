@@ -11,6 +11,7 @@
 #include <foedus/log/logger_impl.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/thread/thread_pool.hpp>
+#include <foedus/savepoint/savepoint_manager.hpp>
 #include <foedus/engine_options.hpp>
 #include <glog/logging.h>
 #include <cassert>
@@ -25,7 +26,8 @@ ErrorStack LogManagerPimpl::initialize_once() {
     const uint16_t total_threads = engine_->get_options().thread_.thread_count_per_group_ * groups_;
     LOG(INFO) << "Initializing LogManager. #loggers=" << total_loggers
         << ", #NUMA-nodes=" << static_cast<int>(groups_) << ", #total_threads=" << total_threads;
-    if (!engine_->get_thread_pool().is_initialized()) {
+    if (!engine_->get_thread_pool().is_initialized()
+        || !engine_->get_savepoint_manager().is_initialized()) {
         return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
     }
     // see comments in LogOptions#log_paths_
@@ -62,7 +64,8 @@ ErrorStack LogManagerPimpl::initialize_once() {
 ErrorStack LogManagerPimpl::uninitialize_once() {
     LOG(INFO) << "Uninitializing LogManager..";
     ErrorStackBatch batch;
-    if (!engine_->get_thread_pool().is_initialized()) {
+    if (!engine_->get_thread_pool().is_initialized()
+        || !engine_->get_savepoint_manager().is_initialized()) {
         batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
     }
     batch.uninitialize_and_delete_all(&loggers_);

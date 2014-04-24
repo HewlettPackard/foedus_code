@@ -36,7 +36,14 @@ ErrorStack Savepoint::save(tinyxml2::XMLElement* element) const {
     return RET_OK;
 }
 
-
+void Savepoint::populate_empty(log::LoggerId logger_count) {
+    current_epoch_ = 0;
+    durable_epoch_ = 0;
+    oldest_log_files_.resize(logger_count, 0);
+    oldest_log_files_offset_begin_.resize(logger_count, 0);
+    current_log_files_.resize(logger_count, 0);
+    current_log_files_offset_durable_.resize(logger_count, 0);
+}
 
 }  // namespace savepoint
 }  // namespace foedus

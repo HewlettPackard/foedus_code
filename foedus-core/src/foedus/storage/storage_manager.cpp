@@ -7,7 +7,7 @@
 #include <string>
 namespace foedus {
 namespace storage {
-StorageManager::StorageManager(Engine* engine) {
+StorageManager::StorageManager(Engine* engine) : pimpl_(nullptr) {
     pimpl_ = new StorageManagerPimpl(engine);
 }
 StorageManager::~StorageManager() {

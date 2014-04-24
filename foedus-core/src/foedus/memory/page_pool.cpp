@@ -19,7 +19,7 @@ void PagePoolOffsetChunk::move_to(PagePoolOffset* destination, uint32_t count) {
     size_ -= count;
 }
 
-PagePool::PagePool(Engine* engine) {
+PagePool::PagePool(Engine* engine) : pimpl_(nullptr) {
     pimpl_ = new PagePoolPimpl(engine);
 }
 PagePool::~PagePool() {

@@ -11,7 +11,7 @@
 #include <vector>
 namespace foedus {
 namespace thread {
-ThreadGroup::ThreadGroup(Engine *engine, ThreadGroupId group_id) {
+ThreadGroup::ThreadGroup(Engine *engine, ThreadGroupId group_id) : pimpl_(nullptr) {
     pimpl_ = new ThreadGroupPimpl(engine, group_id);
 }
 ThreadGroup::~ThreadGroup() {

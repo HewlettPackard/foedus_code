@@ -10,10 +10,23 @@
  * @brief \b Log \b Manager, which writes out transactional logs.
  * @details
  * This package contains classes that control transactional logging.
+ *
+ * @section DECENTRAL_LOG Decentralized Logging
+ * Unlike traditional log manager in DBMS, this log manager is \e decentralized, meaning
+ * each log writer writes to its own file concurrently. This eliminates the bottleneck in
+ * log manager when there are a large number of cores.
+ * The basic idea to guarantee serializability is the epoch-based commit protocol, which does the
+ * check on all loggers before returning the results to client in a way similar to group-commit.
+ *
  * @section THREAD_BUFFER Thread-private log buffer
- * bluh
+ * Each ThreadLoadBugger instance maintains a thread-local log buffer that is filled by
+ * the thread without any synchronization or blocking. The logger collects them and writes
+ * them out to log files. A single log writer handles one or more transactional threads (cores),
+ * and a single NUMA node hosts one or more log writers.
+ *
  * @section LOGGER Log Writer
- * bluh
+ * Each Logger instance writes out files suffixed with ordinal (eg ".0", ".1"...).
+ * The older logs files are deactivated and deleted after log gleaner consumes them.
  */
 
 /**

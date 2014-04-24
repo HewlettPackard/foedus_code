@@ -7,6 +7,7 @@
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/log/log_id.hpp>
+#include <foedus/fs/fwd.hpp>
 #include <foedus/fs/path.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/thread/fwd.hpp>
@@ -50,6 +51,8 @@ class Logger final : public DefaultInitializable {
      */
     void        sleep_logger();
 
+    fs::Path    construct_suffixed_log_path(LogFileOrdinal ordinal) const;
+
     Engine*                         engine_;
     LoggerId                        id_;
     thread::ThreadGroupId           numa_node_;
@@ -62,7 +65,36 @@ class Logger final : public DefaultInitializable {
     bool                            logger_stop_requested_;
     bool                            logger_stopped_;
 
-    std::vector< thread::Thread* >  assigned_threads_;
+    char*                           logger_buffer_;
+    uint64_t                        logger_buffer_size_;
+
+    /**
+     * @brief Ordinal of the oldest active log file of this logger.
+     * @invariant oldest_ordinal_ <= current_ordinal_
+     */
+    LogFileOrdinal                  oldest_ordinal_;
+    /**
+     * @brief Inclusive beginning of active region in the oldest log file.
+     */
+    uint64_t                        oldest_file_offset_begin_;
+    /**
+     * @brief Ordinal of the log file this logger is currently appending to.
+     */
+    LogFileOrdinal                  current_ordinal_;
+    /**
+     * @brief The log file this logger is currently appending to.
+     */
+    fs::DirectIoFile*               current_file_;
+    /**
+     * log_path_ + current_ordinal_.
+     */
+    fs::Path                        current_file_path_;
+    /**
+     * @brief Exclusive end of the current log file, or the size of the current file.
+     */
+    uint64_t                        current_file_offset_end_;
+
+    std::vector< thread::ThreadPimpl* >  assigned_threads_;
 };
 }  // namespace log
 }  // namespace foedus

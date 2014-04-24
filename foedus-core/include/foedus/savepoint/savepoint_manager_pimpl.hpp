@@ -6,8 +6,10 @@
 #define FOEDUS_SAVEPOINT_SAVEPOINT_MANAGER_PIMPL_HPP_
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
+#include <foedus/fs/path.hpp>
 #include <foedus/savepoint/fwd.hpp>
 #include <foedus/savepoint/savepoint.hpp>
+#include <mutex>
 namespace foedus {
 namespace savepoint {
 /**
@@ -24,12 +26,25 @@ class SavepointManagerPimpl CXX11_FINAL : public DefaultInitializable {
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
+    ErrorStack  write_savepoint();
+    Savepoint           get_savepoint_safe() const;
+    const Savepoint&    get_savepoint_fast() const;
+
     Engine* const           engine_;
 
+    /** Path of the savepoint file. */
+    fs::Path                savepoint_path_;
+
     /**
-     * 
+     * The current progress of the entire engine.
      */
     Savepoint               savepoint_;
+
+    /**
+     * Protectes against read/write accesses to savepoint_.
+     * So far exclusive mutex. We should't have frequent accesses to savepoint_, so should be ok.
+     */
+    mutable std::mutex      savepoint_mutex_;
 };
 }  // namespace savepoint
 }  // namespace foedus

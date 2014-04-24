@@ -71,6 +71,19 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
     std::vector<uint64_t>               current_log_files_offset_durable_;
 
     EXTERNALIZABLE(Savepoint);
+
+    /** Returns if there was no savepoint taken so far. */
+    bool                                empty() const { return current_epoch_ == 0; }
+    /** Populate variables as an initial state. */
+    void                                populate_empty(log::LoggerId logger_count);
+    /** Tells if the variables are consistent. */
+    bool                                consistent(log::LoggerId logger_count) const {
+        return (current_epoch_ >= durable_epoch_
+            && oldest_log_files_.size() == logger_count
+            && oldest_log_files_offset_begin_.size() == logger_count
+            && current_log_files_.size() == logger_count
+            && current_log_files_offset_durable_.size() == logger_count);
+    }
 };
 }  // namespace savepoint
 }  // namespace foedus

@@ -6,7 +6,7 @@
 #include <foedus/log/log_manager_pimpl.hpp>
 namespace foedus {
 namespace log {
-LogManager::LogManager(Engine* engine) {
+LogManager::LogManager(Engine* engine) : pimpl_(nullptr) {
     pimpl_ = new LogManagerPimpl(engine);
 }
 LogManager::~LogManager() {

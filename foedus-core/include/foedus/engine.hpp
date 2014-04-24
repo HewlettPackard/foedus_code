@@ -11,6 +11,7 @@
 #include <foedus/debugging/fwd.hpp>
 #include <foedus/log/fwd.hpp>
 #include <foedus/memory/fwd.hpp>
+#include <foedus/savepoint/fwd.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <foedus/xct/fwd.hpp>
@@ -121,6 +122,8 @@ class Engine CXX11_FINAL : public virtual Initializable {
     memory::EngineMemory&           get_memory_manager() const;
     /** See \ref THREAD */
     thread::ThreadPool&             get_thread_pool() const;
+    /** See \ref SAVEPOINT */
+    savepoint::SavepointManager&    get_savepoint_manager() const;
     /** See \ref STORAGE */
     storage::StorageManager&        get_storage_manager() const;
     /** See \ref XCT */

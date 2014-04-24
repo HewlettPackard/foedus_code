@@ -9,7 +9,7 @@
 namespace foedus {
 namespace thread {
 
-ThreadPool::ThreadPool(Engine *engine) {
+ThreadPool::ThreadPool(Engine *engine) : pimpl_(nullptr) {
     pimpl_ = new ThreadPoolPimpl(engine);
 }
 ThreadPool::~ThreadPool() {

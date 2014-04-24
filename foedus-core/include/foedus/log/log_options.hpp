@@ -7,6 +7,7 @@
 #include <foedus/cxx11.hpp>
 #include <foedus/externalize/externalizable.hpp>
 #include <foedus/fs/device_emulation_options.hpp>
+#include <foedus/log/log_id.hpp>
 #include <stdint.h>
 #include <string>
 #include <vector>
@@ -54,6 +55,9 @@ struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
     foedus::fs::DeviceEmulationOptions emulation_;
 
     EXTERNALIZABLE(LogOptions);
+
+    /** Synonym for log_paths_.size(). */
+    LoggerId                    get_logger_count() const { return log_paths_.size(); }
 };
 }  // namespace log
 }  // namespace foedus

@@ -9,7 +9,8 @@ namespace foedus {
 namespace storage {
 namespace array {
 ArrayStorage::ArrayStorage(Engine* engine, StorageId id, const std::string &name,
-        uint16_t payload_size, ArrayOffset array_size, DualPagePointer root_page, bool create) {
+        uint16_t payload_size, ArrayOffset array_size, DualPagePointer root_page, bool create)
+    : pimpl_(nullptr) {
     pimpl_ = new ArrayStoragePimpl(engine, this, id, name,
                                    payload_size, array_size, root_page, create);
 }

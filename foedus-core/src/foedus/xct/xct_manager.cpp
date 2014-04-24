@@ -6,7 +6,7 @@
 #include <foedus/xct/xct_manager_pimpl.hpp>
 namespace foedus {
 namespace xct {
-XctManager::XctManager(Engine* engine) {
+XctManager::XctManager(Engine* engine) : pimpl_(nullptr) {
     pimpl_ = new XctManagerPimpl(engine);
 }
 XctManager::~XctManager() {

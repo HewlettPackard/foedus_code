@@ -6,7 +6,7 @@
 #include <foedus/thread/thread_pimpl.hpp>
 namespace foedus {
 namespace thread {
-Thread::Thread(Engine* engine, ThreadGroupPimpl* group, ThreadId id) {
+Thread::Thread(Engine* engine, ThreadGroupPimpl* group, ThreadId id) : pimpl_(nullptr) {
     pimpl_ = new ThreadPimpl(engine, group, this, id);
 }
 Thread::~Thread() {
