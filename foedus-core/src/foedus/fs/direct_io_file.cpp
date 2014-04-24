@@ -49,7 +49,8 @@ ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
             oflags |= O_RDONLY;
         }
     } else if (write) {
-        oflags |= O_WRONLY;
+        // oflags |= O_WRONLY;
+        oflags |= O_RDWR;
     }
     if (append) {
         oflags |= O_APPEND;
@@ -57,7 +58,7 @@ ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
     if (create) {
         oflags |= O_CREAT;
     }
-    descriptor_ = ::open(path_.c_str(), oflags);
+    descriptor_ = ::open(path_.c_str(), oflags, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
     if (descriptor_ == INVALID_DESCRIPTOR) {
         LOG(ERROR) << "DirectIoFile::open(): failed to open: " << path_ << ". errno=" << errno;
         return ERROR_STACK_MSG(ERROR_CODE_FS_FAILED_TO_OPEN, path_.c_str());
@@ -187,6 +188,24 @@ ErrorCode DirectIoFile::write(uint64_t desired_bytes, const memory::AlignedMemor
     return ERROR_CODE_OK;
 }
 
+ErrorStack DirectIoFile::truncate(uint64_t new_length, bool sync) {
+    LOG(INFO) << "DirectIoFile::truncate(): truncating " << *this << " to " << new_length
+        << " bytes..";
+    if (!is_opened()) {
+        return ERROR_STACK(ERROR_CODE_FS_NOT_OPENED);
+    }
+
+    if (::ftruncate(descriptor_, new_length) != 0) {
+        LOG(ERROR) << "DirectIoFile::truncate(): failed. this=" << *this << " errno=" << errno;
+        return ERROR_STACK_MSG(ERROR_CODE_FS_TRUNCATE_FAILED, path_.c_str());
+    }
+    current_offset_ = new_length;
+    if (sync) {
+        LOG(INFO) << "DirectIoFile::truncate(): also fsync..";
+        foedus::fs::fsync(path_, true);
+    }
+    return RET_OK;
+}
 
 ErrorCode DirectIoFile::seek(uint64_t offset, SeekType seek_type) {
     __off_t ret;

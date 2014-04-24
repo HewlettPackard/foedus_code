@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include <cassert>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -135,22 +136,11 @@ bool remove(const Path& p) {
 
 uint64_t remove_all(const Path& p) {
     uint64_t count = 1;
-    FileStatus s = status(p);
-    if (s.is_directory()) {
-        DIR *d = ::opendir(p.c_str());
-        if (d) {
-            for (dirent *e = ::readdir(d); e != nullptr; e = ::readdir(d)) {
-                if (e->d_name == std::string(".") || e->d_name == std::string("..")) {
-                    continue;
-                }
-                Path next = p;
-                next /= std::string(e->d_name);
-                count += remove_all(next);
-            }
-            ::closedir(d);
-        }
+    std::vector< Path > child_paths = p.child_paths();
+    for (Path child : child_paths) {
+        count += remove_all(child);
     }
-     bool deleted = remove(p);
+    bool deleted = remove(p);
     if (!deleted) {
         LOG(WARNING) << "Filesystem::remove_all(): failed for " << p << ". deleted count=" << count;
     }
@@ -180,7 +170,7 @@ std::string unique_name() {
 }
 std::string unique_name(const std::string& model) {
     const char* HEX_CHARS = "0123456789abcdef";
-    unsigned int seed = static_cast<unsigned int>(std::time(nullptr));
+    unsigned int seed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
     std::string s(model);
     for (size_t i = 0; i < s.size(); ++i) {
         if (s[i] == '%') {                 // digit request

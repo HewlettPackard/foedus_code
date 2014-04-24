@@ -8,6 +8,7 @@
 #include <foedus/error_code.hpp>
 #include <iosfwd>
 #include <string>
+#include <vector>
 namespace foedus {
 namespace fs {
 /**
@@ -52,6 +53,7 @@ class Path {
     int compare(const std::string& s) const { return compare(Path(s)); }
 
     Path    parent_path() const;
+    std::vector< Path > child_paths() const;
     Path    filename() const;          // returns 0 or 1 element path
 
     bool    root() const { return pathname_.size() == 1 && pathname_.at(0) == PREFERRED_SEPARATOR; }

@@ -5,6 +5,7 @@
 #include <foedus/engine.hpp>
 #include <foedus/error_stack_batch.hpp>
 #include <foedus/log/logger_impl.hpp>
+#include <foedus/fs/filesystem.hpp>
 #include <foedus/fs/direct_io_file.hpp>
 #include <foedus/engine_options.hpp>
 #include <foedus/savepoint/savepoint.hpp>
@@ -44,7 +45,8 @@ fs::Path Logger::construct_suffixed_log_path(LogFileOrdinal ordinal) const {
 ErrorStack Logger::initialize_once() {
     numa_node_ = static_cast<int>(thread::decompose_numa_node(assigned_thread_ids_[0]));
     LOG(INFO) << "Initializing Logger-" << id_ << ". assigned " << assigned_thread_ids_.size()
-        << " threads, starting from " << assigned_thread_ids_[0] << ", numa_node_=" << numa_node_;
+        << " threads, starting from " << assigned_thread_ids_[0] << ", numa_node_="
+        << static_cast<int>(numa_node_);
 
     // this is during initialization. no race.
     const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
@@ -52,6 +54,17 @@ ErrorStack Logger::initialize_once() {
     current_file_ = new fs::DirectIoFile(current_file_path_,
                                          engine_->get_options().log_.emulation_);
     CHECK_ERROR(current_file_->open(false, true, true, savepoint.empty()));
+    uint64_t desired_length = savepoint.current_log_files_offset_durable_[id_];
+    uint64_t current_length = fs::file_size(current_file_path_);
+    if (desired_length < fs::file_size(current_file_path_)) {
+        // there are non-durable regions as an incomplete remnant of previous execution.
+        // probably there was a crash. in this case, we discard the non-durable regions.
+        LOG(WARNING) << "Logger-" << id_ << "'s log file has a non-durable region. Probably there"
+            << " was a crash. Will truncate it to " << desired_length << " from " << current_length;
+        CHECK_ERROR(current_file_->truncate(desired_length, true));  // also sync right now
+    }
+
+    // log file and buffer prepared. let's launch the logger thread
     logger_thread_ = std::thread(&Logger::handle_logger, this);
     return RET_OK;
 }

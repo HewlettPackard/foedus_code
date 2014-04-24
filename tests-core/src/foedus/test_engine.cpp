@@ -20,6 +20,26 @@ TEST(EngineTest, Initialize) {
     Engine engine(options);
     COERCE_ERROR(engine.initialize());
     COERCE_ERROR(engine.uninitialize());
+    cleanup_test(options);
+}
+
+TEST(EngineTest, IdempotentUninitialize) {
+    EngineOptions options = get_tiny_options();
+    Engine engine(options);
+    COERCE_ERROR(engine.initialize());
+    COERCE_ERROR(engine.uninitialize());
+    COERCE_ERROR(engine.uninitialize());
+    cleanup_test(options);
+}
+
+TEST(EngineTest, Restart) {
+    EngineOptions options = get_tiny_options();
+    for (int i = 0; i < 2; ++i) {
+        Engine engine(options);
+        COERCE_ERROR(engine.initialize());
+        COERCE_ERROR(engine.uninitialize());
+    }
+    cleanup_test(options);
 }
 
 }  // namespace foedus

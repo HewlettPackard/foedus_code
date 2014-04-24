@@ -108,6 +108,18 @@ class DirectIoFile {
     ErrorCode       write(uint64_t desired_bytes, const foedus::memory::AlignedMemory& buffer);
 
     /**
+     * @brief Discard the content of the file after the given offset.
+     * @param[in] new_length The size of this file would become this value.
+     * @param[in] sync Whether to call fsync on the file and its parent folder after the truncation.
+     * @details
+     * After a successful call of this method, the cursor would be at new_length, too.
+     * This method is used only when we restart the engine in order to discard non-durable
+     * parts of log files (regions after durable watermark).
+     * @pre is_opened()
+     */
+    ErrorStack      truncate(uint64_t new_length, bool sync = false);
+
+    /**
      * Sets the position of the next byte to be written/extracted from/to the stream.
      * @pre is_opened()
      */

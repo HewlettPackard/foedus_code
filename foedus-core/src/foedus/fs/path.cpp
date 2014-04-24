@@ -4,8 +4,10 @@
  */
 #include <foedus/fs/filesystem.hpp>
 #include <foedus/fs/path.hpp>
+#include <dirent.h>
 #include <ostream>
 #include <string>
+#include <vector>
 namespace foedus {
 namespace fs {
 Path::Path(const std::string& s) {
@@ -42,6 +44,26 @@ Path Path::parent_path() const {
         return Path(pathname_.substr(0, pos));
     }
 }
+
+std::vector< Path > Path::child_paths() const {
+    std::vector< Path > children;
+    if (is_directory(*this)) {
+        DIR *d = ::opendir(c_str());
+        if (d) {
+            for (dirent *e = ::readdir(d); e != nullptr; e = ::readdir(d)) {
+                if (e->d_name == std::string(".") || e->d_name == std::string("..")) {
+                    continue;
+                }
+                Path child(*this);
+                child /= std::string(e->d_name);
+                children.emplace_back(child);
+            }
+            ::closedir(d);
+        }
+    }
+    return children;
+}
+
 
 std::ostream& operator<<(std::ostream& o, const Path& v) {
     o << v.string();
