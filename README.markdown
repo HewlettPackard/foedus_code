@@ -39,7 +39,7 @@ In Fedora/RedHat/CentOS etc, run the following:
     sudo yum install gcc gcc-c++ libstdc* cmake glibc glibc-*
     sudo yum install numactl numactl-devel google-perftools google-perftools-devel
     sudo yum install python python-*
-    sudo yum install doxygen graphviz mscgen kdevelop
+    sudo yum install doxygen graphviz mscgen sloccount kdevelop
 
 If you want to generate doxygen-pdf, also run the following:
 

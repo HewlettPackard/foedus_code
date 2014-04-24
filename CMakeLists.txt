@@ -71,3 +71,14 @@ if(DOXYGEN_FOUND)
 else(DOXYGEN_FOUND)
     add_custom_target(dox-all ${CMAKE_COMMAND} -E echo "Doxygen not found. No documents generated.")
 endif(DOXYGEN_FOUND)
+
+add_custom_target(sloccount
+    COMMAND sloccount --duplicates --wide --details
+        # exclude third party code and build folder. sloccount is a bit inflexible for this.
+        ${CMAKE_CURRENT_SOURCE_DIR}/experiments-core
+        ${CMAKE_CURRENT_SOURCE_DIR}/foedus-core/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/foedus-core/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests-core
+        ${CMAKE_CURRENT_SOURCE_DIR}/foedus-util
+        > ${CMAKE_CURRENT_BINARY_DIR}/sloccount.ac
+    COMMENT "Count source lines of code with sloccount")
