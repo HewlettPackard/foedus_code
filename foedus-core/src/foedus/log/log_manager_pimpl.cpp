@@ -9,6 +9,7 @@
 #include <foedus/log/log_manager_pimpl.hpp>
 #include <foedus/log/log_options.hpp>
 #include <foedus/log/logger_impl.hpp>
+#include <foedus/memory/memory_id.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/savepoint/savepoint_manager.hpp>
@@ -23,7 +24,7 @@ ErrorStack LogManagerPimpl::initialize_once() {
     groups_ = engine_->get_options().thread_.group_count_;
     const std::vector< std::string > &log_paths = engine_->get_options().log_.log_paths_;
     const LoggerId total_loggers = log_paths.size();
-    const uint16_t total_threads = engine_->get_options().thread_.thread_count_per_group_ * groups_;
+    const uint16_t total_threads = engine_->get_options().thread_.get_total_thread_count();
     LOG(INFO) << "Initializing LogManager. #loggers=" << total_loggers
         << ", #NUMA-nodes=" << static_cast<int>(groups_) << ", #total_threads=" << total_threads;
     if (!engine_->get_thread_pool().is_initialized()
@@ -41,6 +42,7 @@ ErrorStack LogManagerPimpl::initialize_once() {
     const uint16_t cores_per_logger = total_threads / total_loggers;
     LoggerId current_logger_id = 0;
     for (thread::ThreadGroupId group = 0; group < groups_; ++group) {
+        memory::ScopedNumaPreferred numa_scope(group);
         thread::ThreadLocalOrdinal current_ordinal = 0;
         for (auto j = 0; j < loggers_per_group; ++j) {
             std::vector< thread::ThreadId > assigned_thread_ids;
@@ -58,6 +60,7 @@ ErrorStack LogManagerPimpl::initialize_once() {
         assert(current_ordinal == engine_->get_options().thread_.thread_count_per_group_);
     }
     assert(current_logger_id == total_loggers);
+    assert(current_logger_id == loggers_.size());
     return RET_OK;
 }
 

@@ -25,6 +25,8 @@ memory::NumaCoreMemory* Thread::get_thread_memory() const { return pimpl_->core_
 void        Thread::activate_xct()      { return pimpl_->activate_xct(); }
 void        Thread::deactivate_xct()    { return pimpl_->deactivate_xct(); }
 xct::Xct&   Thread::get_current_xct()   { return pimpl_->current_xct_; }
+log::ThreadLogBuffer& Thread::get_thread_log_buffer() { return pimpl_->log_buffer_; }
+
 
 }  // namespace thread
 }  // namespace foedus

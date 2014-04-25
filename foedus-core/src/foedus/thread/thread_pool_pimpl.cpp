@@ -12,6 +12,7 @@
 #include <foedus/thread/thread_options.hpp>
 #include <foedus/thread/thread.hpp>
 #include <foedus/thread/thread_pimpl.hpp>
+#include <foedus/memory/memory_id.hpp>
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/engine_options.hpp>
 #include <cassert>
@@ -25,6 +26,7 @@ ErrorStack ThreadPoolPimpl::initialize_once() {
     no_more_impersonation_ = false;
     const ThreadOptions &options = engine_->get_options().thread_;
     for (ThreadGroupId group_id = 0; group_id < options.group_count_; ++group_id) {
+        memory::ScopedNumaPreferred numa_scope(group_id);
         groups_.push_back(new ThreadGroup(engine_, group_id));
         CHECK_ERROR(groups_.back()->initialize());
     }

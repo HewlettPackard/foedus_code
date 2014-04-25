@@ -34,6 +34,7 @@ ErrorStack EngineMemory::initialize_once() {
 
     thread::ThreadGroupId numa_nodes = options.thread_.group_count_;
     for (thread::ThreadGroupId node = 0; node < numa_nodes; ++node) {
+        ScopedNumaPreferred numa_scope(node);
         node_memories_.push_back(new NumaNodeMemory(engine_, node));
         CHECK_ERROR(node_memories_.back()->initialize());
     }

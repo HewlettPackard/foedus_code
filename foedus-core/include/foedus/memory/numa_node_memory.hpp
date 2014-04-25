@@ -8,6 +8,7 @@
 #include <foedus/error_stack.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
+#include <foedus/log/log_id.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/memory/aligned_memory.hpp>
 #include <foedus/thread/thread_id.hpp>
@@ -65,6 +66,19 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
         foedus::thread::ThreadLocalOrdinal core_ordinal) {
         return page_offset_chunk_memory_pieces_[core_ordinal];
     }
+    char*           get_thread_buffer_memory_piece(
+        foedus::thread::ThreadLocalOrdinal core_ordinal) {
+        return thread_buffer_memory_pieces_[core_ordinal];
+    }
+    uint64_t        get_thread_buffer_memory_size_per_core() const {
+        return thread_buffer_memory_size_per_core_;
+    }
+    char*           get_logger_buffer_memory_piece(log::LoggerId logger) {
+        return logger_buffer_memory_pieces_[logger];
+    }
+    uint64_t        get_logger_buffer_memory_size_per_core() const {
+        return logger_buffer_memory_size_per_core_;
+    }
 
  private:
     /** initialize read-set and write-set memory. */
@@ -120,12 +134,14 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
      */
     AlignedMemory                           thread_buffer_memory_;
     std::vector<char*>                      thread_buffer_memory_pieces_;
+    uint64_t                                thread_buffer_memory_size_per_core_;
 
     /**
      * Memory to hold an I/O buffer for Logger (log writer). Split by each Logger in this node.
      */
     AlignedMemory                           logger_buffer_memory_;
     std::vector<char*>                      logger_buffer_memory_pieces_;
+    uint64_t                                logger_buffer_memory_size_per_core_;
 };
 }  // namespace memory
 }  // namespace foedus

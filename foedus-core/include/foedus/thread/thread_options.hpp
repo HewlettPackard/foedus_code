@@ -25,16 +25,20 @@ struct ThreadOptions CXX11_FINAL : public virtual externalize::Externalizable {
      * Number of ThreadGroup in the engine.
      * Default value is hardware NUMA node count (::numa_num_configured_nodes()).
      */
-    ThreadGroupId         group_count_;
+    ThreadGroupId           group_count_;
 
     /**
      * Number of Thread in each ThreadGroup.
      * Default value is hardware NUMA core count;
      * ::numa_num_configured_cpus() / ::numa_num_configured_nodes().
      */
-    ThreadLocalOrdinal    thread_count_per_group_;
+    ThreadLocalOrdinal      thread_count_per_group_;
 
     EXTERNALIZABLE(ThreadOptions);
+
+    ThreadId                get_total_thread_count() const {
+        return group_count_ * thread_count_per_group_;
+    }
 };
 }  // namespace thread
 }  // namespace foedus

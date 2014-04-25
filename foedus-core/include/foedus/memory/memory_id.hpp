@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_MEMORY_MEMORY_ID_HPP_
 #define FOEDUS_MEMORY_MEMORY_ID_HPP_
+#include <numa.h>
 #include <stdint.h>
 /**
  * @file foedus/memory/memory_id.hpp
@@ -26,6 +27,21 @@ typedef uint32_t PagePoolOffset;
  * @ingroup MEMORY
  */
 const uint64_t HUGEPAGE_SIZE = 1 << 21;
+
+/**
+ * @brief Automatically sets and resets ::numa_set_preferred().
+ * @ingroup MEMORY MEMHIERARCHY
+ * @details
+ * Use this in a place you want to direct all memory allocation to a specific NUMA node.
+ */
+struct ScopedNumaPreferred {
+    explicit ScopedNumaPreferred(int numa_node) {
+        ::numa_set_preferred(numa_node);
+    }
+    ~ScopedNumaPreferred() {
+        ::numa_set_preferred(-1);
+    }
+};
 
 }  // namespace memory
 }  // namespace foedus

@@ -21,6 +21,8 @@ NumaNodeMemory::NumaNodeMemory(Engine* engine, thread::ThreadGroupId numa_node)
         cores_(engine_->get_options().thread_.thread_count_per_group_),
         loggers_(assorted::int_div_ceil(engine_->get_options().log_.log_paths_.size(),
                     engine_->get_options().thread_.group_count_)) {
+    thread_buffer_memory_size_per_core_ = 0;
+    logger_buffer_memory_size_per_core_ = 0;
 }
 
 ErrorStack NumaNodeMemory::initialize_once() {
@@ -76,23 +78,23 @@ ErrorStack NumaNodeMemory::initialize_page_offset_chunk_memory() {
 }
 
 ErrorStack NumaNodeMemory::initialize_log_buffers_memory() {
-    size_t size_per_core = engine_->get_options().log_.thread_buffer_kb_;
-    uint64_t private_total = (cores_ * size_per_core) << 10;
+    thread_buffer_memory_size_per_core_ = engine_->get_options().log_.thread_buffer_kb_ << 10;
+    uint64_t private_total = (cores_ * thread_buffer_memory_size_per_core_);
     LOG(INFO) << "Initializing thread_buffer_memory_. total_size=" << private_total;
-    CHECK_ERROR(allocate_numa_memory(private_total << 10, &thread_buffer_memory_));
+    CHECK_ERROR(allocate_numa_memory(private_total, &thread_buffer_memory_));
     for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
         char* piece = reinterpret_cast<char*>(thread_buffer_memory_.get_block())
-            + size_per_core * ordinal;
+            + thread_buffer_memory_size_per_core_ * ordinal;
         thread_buffer_memory_pieces_.push_back(piece);
     }
 
-    uint64_t size_per_logger = (engine_->get_options().log_.logger_buffer_kb_) << 10;
-    uint64_t logger_buffer = size_per_logger * loggers_;
+    logger_buffer_memory_size_per_core_ = (engine_->get_options().log_.logger_buffer_kb_) << 10;
+    uint64_t logger_buffer = logger_buffer_memory_size_per_core_ * loggers_;
     LOG(INFO) << "Initializing logger_buffer_memory_. size=" << logger_buffer;
     CHECK_ERROR(allocate_numa_memory(logger_buffer, &logger_buffer_memory_));
     for (auto logger = 0; logger < loggers_; ++logger) {
         char* piece = reinterpret_cast<char*>(logger_buffer_memory_.get_block())
-            + size_per_logger * logger;
+            + logger_buffer_memory_size_per_core_ * logger;
         logger_buffer_memory_pieces_.push_back(piece);
     }
     return RET_OK;

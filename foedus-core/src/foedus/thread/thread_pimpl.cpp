@@ -7,6 +7,8 @@
 #include <foedus/thread/thread_pimpl.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread_pool_pimpl.hpp>
+#include <foedus/log/thread_log_buffer_impl.hpp>
+#include <foedus/error_stack_batch.hpp>
 #include <glog/logging.h>
 #include <numa.h>
 #include <cassert>
@@ -16,23 +18,26 @@
 #include <thread>
 namespace foedus {
 namespace thread {
+ThreadPimpl::ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder, ThreadId id)
+    : engine_(engine), group_(group), holder_(holder), id_(id), core_memory_(nullptr),
+        log_buffer_(engine, id), exitted_(false), impersonated_(false) {
+}
+
 ErrorStack ThreadPimpl::initialize_once() {
     core_memory_ = engine_->get_memory_manager().get_core_memory(id_);
-    raw_thread_ = new std::thread(&ThreadPimpl::handle_tasks, this);
-    if (raw_thread_ == nullptr) {
-        return ERROR_STACK(ERROR_CODE_OUTOFMEMORY);
-    }
+    CHECK_ERROR(log_buffer_.initialize());
+    raw_thread_ = std::thread(&ThreadPimpl::handle_tasks, this);
     return RET_OK;
 }
 ErrorStack ThreadPimpl::uninitialize_once() {
-    if (raw_thread_) {
+    ErrorStackBatch batch;
+    if (raw_thread_.joinable()) {
         impersonated_task_.set_value(nullptr);  // this signals that the thread should exit.
-        raw_thread_->join();
-        delete raw_thread_;
-        raw_thread_ = nullptr;
+        raw_thread_.join();
     }
+    batch.emprace_back(log_buffer_.uninitialize());
     core_memory_ = nullptr;
-    return RET_OK;
+    return SUMMARIZE_ERROR_BATCH(batch);
 }
 
 void ThreadPimpl::handle_tasks() {

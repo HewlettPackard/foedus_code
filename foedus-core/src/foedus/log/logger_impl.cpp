@@ -10,6 +10,11 @@
 #include <foedus/engine_options.hpp>
 #include <foedus/savepoint/savepoint.hpp>
 #include <foedus/savepoint/savepoint_manager.hpp>
+#include <foedus/thread/thread_pool.hpp>
+#include <foedus/thread/thread_pool_pimpl.hpp>
+#include <foedus/thread/thread.hpp>
+#include <foedus/memory/engine_memory.hpp>
+#include <foedus/memory/numa_node_memory.hpp>
 #include <glog/logging.h>
 #include <numa.h>
 #include <atomic>
@@ -31,6 +36,7 @@ Logger::Logger(Engine* engine, LoggerId id,
     current_file_ = nullptr;
     oldest_ordinal_ = 0;
     current_ordinal_ = 0;
+    node_memory_ = nullptr;
     logger_buffer_ = nullptr;
     logger_buffer_size_ = 0;
 }
@@ -51,6 +57,7 @@ ErrorStack Logger::initialize_once() {
     // this is during initialization. no race.
     const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
     current_file_path_ = construct_suffixed_log_path(savepoint.current_log_files_[id_]);
+    // open the log file
     current_file_ = new fs::DirectIoFile(current_file_path_,
                                          engine_->get_options().log_.emulation_);
     CHECK_ERROR(current_file_->open(false, true, true, savepoint.empty()));
@@ -63,6 +70,18 @@ ErrorStack Logger::initialize_once() {
             << " was a crash. Will truncate it to " << desired_length << " from " << current_length;
         CHECK_ERROR(current_file_->truncate(desired_length, true));  // also sync right now
     }
+
+    // which threads are assigned to me?
+    for (auto thread_id : assigned_thread_ids_) {
+        assigned_threads_.push_back(
+            engine_->get_thread_pool().get_pimpl()->get_thread(thread_id)->get_pimpl());
+    }
+
+    // grab a buffer to do file I/O
+    node_memory_ = engine_->get_memory_manager().get_node_memory(numa_node_);
+    logger_buffer_ = node_memory_->get_logger_buffer_memory_piece(id_);
+    logger_buffer_size_ = node_memory_->get_logger_buffer_memory_size_per_core();
+    LOG(INFO) << "Logger-" << id_ << " grabbed a I/O buffer. size=" << logger_buffer_size_;
 
     // log file and buffer prepared. let's launch the logger thread
     logger_thread_ = std::thread(&Logger::handle_logger, this);

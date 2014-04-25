@@ -19,7 +19,7 @@ NumaCoreMemory::NumaCoreMemory(Engine* engine, NumaNodeMemory *node_memory,
             foedus::thread::ThreadId core_id, foedus::thread::ThreadLocalOrdinal core_ordinal)
     : engine_(engine), node_memory_(node_memory),
         core_id_(core_id), core_local_ordinal_(core_ordinal),
-        read_set_memory_(nullptr), write_set_memory_(nullptr) {
+        read_set_memory_(nullptr), write_set_memory_(nullptr), log_buffer_memory_(nullptr) {
 }
 
 ErrorStack NumaCoreMemory::initialize_once() {
@@ -29,6 +29,8 @@ ErrorStack NumaCoreMemory::initialize_once() {
     write_set_memory_ = node_memory_->get_write_set_memory_piece(core_local_ordinal_);
     write_set_size_ = engine_->get_options().xct_.max_write_set_size_;
     free_pool_chunk_ = node_memory_->get_page_offset_chunk_memory_piece(core_local_ordinal_);
+    log_buffer_memory_ = node_memory_->get_thread_buffer_memory_piece(core_local_ordinal_);
+    log_buffer_size_ = node_memory_->get_thread_buffer_memory_size_per_core();
 
     // Each core starts from 50%-full free pool chunk (configurable)
     uint32_t initial_pages = engine_->get_options().memory_.private_page_pool_initial_grab_;
@@ -47,6 +49,7 @@ ErrorStack NumaCoreMemory::uninitialize_once() {
             free_pool_chunk_->size(), free_pool_chunk_);
         free_pool_chunk_ = nullptr;
     }
+    log_buffer_memory_ = nullptr;
     return SUMMARIZE_ERROR_BATCH(batch);
 }
 

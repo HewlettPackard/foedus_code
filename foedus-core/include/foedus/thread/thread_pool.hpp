@@ -153,6 +153,9 @@ class ThreadPool CXX11_FINAL : public virtual Initializable {
     ImpersonateSession  impersonate_on_numa_core(ImpersonateTask* task,
                                         ThreadId numa_core, TimeoutMicrosec timeout = -1);
 
+    /** Returns the pimpl of this object. Use it only when you know what you are doing. */
+    ThreadPoolPimpl*    get_pimpl() const { return pimpl_; }
+
  private:
     ThreadPoolPimpl*    pimpl_;
 };

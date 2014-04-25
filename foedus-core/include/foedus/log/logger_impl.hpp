@@ -9,6 +9,7 @@
 #include <foedus/log/log_id.hpp>
 #include <foedus/fs/fwd.hpp>
 #include <foedus/fs/path.hpp>
+#include <foedus/memory/fwd.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <stdint.h>
@@ -65,6 +66,7 @@ class Logger final : public DefaultInitializable {
     bool                            logger_stop_requested_;
     bool                            logger_stopped_;
 
+    memory::NumaNodeMemory*         node_memory_;
     char*                           logger_buffer_;
     uint64_t                        logger_buffer_size_;
 

@@ -7,6 +7,7 @@
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
+#include <foedus/log/thread_log_buffer_impl.hpp>
 #include <foedus/xct/xct.hpp>
 #include <atomic>
 #include <future>
@@ -27,9 +28,7 @@ namespace thread {
 class ThreadPimpl final : public DefaultInitializable {
  public:
     ThreadPimpl() = delete;
-    ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder, ThreadId id)
-        : engine_(engine), group_(group), holder_(holder), id_(id),
-            core_memory_(nullptr), raw_thread_(nullptr), exitted_(false), impersonated_(false) {}
+    ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder, ThreadId id);
     ErrorStack  initialize_once() override final;
     ErrorStack  uninitialize_once() override final;
 
@@ -76,10 +75,15 @@ class ThreadPimpl final : public DefaultInitializable {
     memory::NumaCoreMemory* core_memory_;
 
     /**
+     * Thread-private log buffer.
+     */
+    log::ThreadLogBuffer    log_buffer_;
+
+    /**
      * Encapsulated raw C++11 thread object.
      * This is allocated/deallocated in initialize()/uninitialize().
      */
-    std::thread*            raw_thread_;
+    std::thread             raw_thread_;
 
     /**
      * Whether this thread has ended.

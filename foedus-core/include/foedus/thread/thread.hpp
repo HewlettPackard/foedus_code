@@ -6,6 +6,7 @@
 #define FOEDUS_THREAD_THREAD_HPP_
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
+#include <foedus/log/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/xct/fwd.hpp>
@@ -51,6 +52,11 @@ class Thread CXX11_FINAL : public virtual Initializable {
      * @pre is_running_xct() == true
      */
     void            deactivate_xct();
+
+    /**
+     * @brief Returns the private log buffer for this thread.
+     */
+    log::ThreadLogBuffer&   get_thread_log_buffer();
 
     /** Returns the pimpl of this object. Use it only when you know what you are doing. */
     ThreadPimpl*    get_pimpl() const { return pimpl_; }
