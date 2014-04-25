@@ -13,8 +13,14 @@ Hardware/Compiler Requeirements
 
 * We support only 64-bits CPUs. More specifically, x86_64 and ARMv8.
 * We assume Linux/Unix so far. No MacOS, Windows, nor Solaris.
+* We assume fsync(2) penetrates all the way through the device. [^1]
 * We require reasonably modern C++ compilers.
 * We depend on CMake.
+
+[^1]: If this is not the case, check your write-cache settings in the filesystem and device driver.
+Unfortunately, even if users configure it right, some storage device sacrifices durability for the
+sake of performance. So is some file system. For those environments, we cannot guarantee ACID.
+
 
 Compilation
 --------

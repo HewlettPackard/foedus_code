@@ -17,6 +17,21 @@ namespace log {
  * @details
  * This is a private implementation-details of \ref LOG, thus file name ends with _impl.
  * Do not include this header from a client program unless you know what you are doing.
+ *
+ * @par Circular Log Buffer
+ * This class forms a circular buffer used by log appender (Thread), log writer (Logger),
+ * and log gleaner (LogGleaner). We maintain four offsets on the buffer.
+ * <table>
+ * <tr><th>Marker</th><th>Read by</th><th>Written by</th><th>Description</th></tr>
+ * <tr><td> get_offset_head() </td><td>Thread</td><td>Thread, LogGleaner</td>
+ *   <td> @copydoc get_offset_head() </td></tr>
+ * <tr><td> get_offset_durable() </td><td>Thread, LogGleaner</td><td>Logger</td>
+ *   <td> @copydoc get_offset_durable() </td></tr>
+ * <tr><td> get_offset_current_xct_begin() </td><td>Logger</td><td>Thread</td>
+ *   <td> @copydoc get_offset_current_xct_begin() </td></tr>
+ * <tr><td> get_offset_tail() </td><td>Thread</td><td>Thread</td>
+ *   <td> @copydoc get_offset_tail() </td></tr>
+ * </table>
  */
 class ThreadLogBuffer final : public DefaultInitializable {
  public:
@@ -28,11 +43,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
     ThreadLogBuffer(const ThreadLogBuffer &other) = delete;
     ThreadLogBuffer& operator=(const ThreadLogBuffer &other) = delete;
 
-    void assert_consistent_offsets() const;
-
- private:
-    Engine*                         engine_;
-    thread::ThreadId                thread_id_;
+    void        assert_consistent_offsets() const;
 
     /**
      * @brief The in-memory log buffer given to this thread.
@@ -41,10 +52,10 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * will append log entries, and from which log writer will read from head.
      * This is a piece of NumaNodeMemory#thread_buffer_memory_.
      */
-    char*                           buffer_;
+    char*       get_buffer() { return buffer_; }
 
     /** Size of the buffer assigned to this thread. */
-    uint64_t                        buffer_size_;
+    uint64_t    get_buffer_size() const { return buffer_size_; }
 
     /**
      * @brief buffer_size_ - 64.
@@ -55,18 +66,20 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * it makes synchronization between log writer and this thread expensive.
      * Rather, we sacrifice a negligible space.
      */
-    uint64_t                        buffer_size_safe_;
-
-    xct::Epoch                      durable_epoch_;
-    xct::Epoch                      current_epoch_;
-
-    // values of these offsets must be in this order except wrap around.
+    uint64_t    get_buffer_size_safe() const { return buffer_size_safe_; }
 
     /**
-     * @brief This marks the position upto which the log writer durably wrote out to log files.
+     * @brief This marks the position where log entries start.
      * @details
+     * This private log buffer is a circular buffer where the \e head is eaten by log gleaner.
+     * However, log gleaner is okay to get behind, reading from log file instead (but slower).
+     * Thus, offset_head_ is advanced either by log gleaner or this thread.
+     * If the latter happens, log gleaner has to give up using in-memory logs and instead
+     * read from log files.
      */
-    uint64_t                        offset_head_;
+    uint64_t    get_offset_head() const { return offset_head_; }
+    /** @copydoc get_offset_head() */
+    void        set_offset_head(uint64_t value) { offset_head_ = value; }
 
     /**
      * @brief This marks the position upto which the log writer durably wrote out to log files.
@@ -76,10 +89,9 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * this variable is advanced by the log writer.
      * This variable is read by this thread to check the end of the circular buffer.
      */
-    uint64_t                        offset_durable_;
-
-    /** Do we need this?? */
-    uint64_t                        offset_current_epoch_;
+    uint64_t    get_offset_durable() const { return offset_durable_; }
+    /** @copydoc get_offset_durable() */
+    void        set_offset_durable(uint64_t value) { offset_durable_ = value; }
 
     /**
      * @brief The beginning of logs for current transaction.
@@ -90,7 +102,9 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * Thus, the log writer can safely read this variable without any fence or lock
      * thanks to regular (either old value or new value, never garbage) read of 64-bit.
      */
-    uint64_t                        offset_current_xct_begin_;
+    uint64_t    get_offset_current_xct_begin() const { return offset_current_xct_begin_; }
+    /** @copydoc get_offset_current_xct_begin() */
+    void        set_offset_current_xct_begin(uint64_t value) { offset_current_xct_begin_ = value; }
 
     /**
      * @brief The current cursor to which next log will be written.
@@ -100,6 +114,31 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * When the transaction aborts, this value rolls back to offset_current_xct_begin_.
      * Only this thread reads/writes to this variable. No other threads access this.
      */
+    uint64_t    get_offset_tail() const { return offset_tail_; }
+    /** @copydoc get_offset_tail() */
+    void        set_offset_tail(uint64_t value) { offset_tail_ = value; }
+
+ private:
+    Engine*                         engine_;
+    thread::ThreadId                thread_id_;
+
+    /** @copydoc get_buffer() */
+    char*                           buffer_;
+    /** @copydoc get_buffer_size() */
+    uint64_t                        buffer_size_;
+    /** @copydoc get_buffer_size_safe() */
+    uint64_t                        buffer_size_safe_;
+
+    xct::Epoch                      durable_epoch_;
+    xct::Epoch                      current_epoch_;
+
+    /** @copydoc get_offset_head() */
+    uint64_t                        offset_head_;
+    /** @copydoc get_offset_durable() */
+    uint64_t                        offset_durable_;
+    /** @copydoc get_offset_current_xct_begin() */
+    uint64_t                        offset_current_xct_begin_;
+    /** @copydoc get_offset_tail() */
     uint64_t                        offset_tail_;
 };
 }  // namespace log

@@ -18,6 +18,7 @@ ErrorStack ThreadLogBuffer::initialize_once() {
     memory::NumaCoreMemory *memory = engine_->get_memory_manager().get_core_memory(thread_id_);
     buffer_ = memory->get_log_buffer_memory();
     buffer_size_ = memory->get_log_buffer_size();
+    buffer_size_safe_ = buffer_size_ - 64;
     return RET_OK;
 }
 
@@ -29,7 +30,6 @@ ErrorStack ThreadLogBuffer::uninitialize_once() {
 void ThreadLogBuffer::assert_consistent_offsets() const {
     assert(offset_head_ < buffer_size_
         && offset_durable_ < buffer_size_
-        && offset_current_epoch_ < buffer_size_
         && offset_current_xct_begin_ < buffer_size_
         && offset_tail_ < buffer_size_);
     // because of wrap around, *at most* one of them does not hold
@@ -37,10 +37,7 @@ void ThreadLogBuffer::assert_consistent_offsets() const {
     if (offset_head_ > offset_durable_) {
         ++violation_count;
     }
-    if (offset_durable_ > offset_current_epoch_) {
-        ++violation_count;
-    }
-    if (offset_current_epoch_ > offset_current_xct_begin_) {
+    if (offset_durable_ > offset_current_xct_begin_) {
         ++violation_count;
     }
     if (offset_current_xct_begin_ > offset_tail_) {

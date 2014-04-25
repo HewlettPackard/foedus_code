@@ -77,7 +77,7 @@ enum ErrorCode {
 #undef X
 
 /**
- * @brief Returns the names of ErrorCode enum defined error_code.xmacro.
+ * @brief Returns the names of ErrorCode enum defined in error_code.xmacro.
  * @ingroup ERRORCODES
  */
 const char* get_error_name(ErrorCode code);

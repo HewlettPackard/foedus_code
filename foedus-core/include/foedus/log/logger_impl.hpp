@@ -28,6 +28,15 @@ namespace log {
  */
 class Logger final : public DefaultInitializable {
  public:
+    /** Constant values. */
+    enum Constants {
+        /**
+         * We always write to file in a multiply of this value, filling up the rest if needed.
+         * 4kb Disk Sector (512b earlier, but nowadays 4kb).
+         */
+        LOG_WRITE_UNIT_SIZE = 1 << 12,
+    };
+
     Logger(Engine* engine, LoggerId id, const fs::Path &log_path,
            const std::vector< thread::ThreadId > &assigned_thread_ids);
     ErrorStack  initialize_once() override;
