@@ -11,7 +11,7 @@ namespace foedus {
 namespace xct {
 
 /**
- * @brief Represents a record of read-access or write-access during a transaction.
+ * @brief Represents a record of read-access during a transaction.
  * @ingroup XCT
  * @details
  * @par POD
@@ -25,6 +25,20 @@ struct XctAccess {
 
     /** Pointer to the accessed record. */
     storage::Record*    record_;
+};
+
+/**
+ * @brief Represents a record of write-access during a transaction.
+ * @ingroup XCT
+ * @details
+ * @par POD
+ * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
+ */
+struct WriteXctAccess : public XctAccess {
+    friend std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v);
+
+    /** Pointer to the log entry in private log buffer for this write opereation. */
+    void*               log_entry_;
 };
 
 }  // namespace xct

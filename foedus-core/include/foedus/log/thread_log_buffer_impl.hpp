@@ -35,6 +35,24 @@ namespace log {
  */
 class ThreadLogBuffer final : public DefaultInitializable {
  public:
+    static uint64_t distance(uint64_t buffer_size, uint64_t from, uint64_t to) {
+        assert(from < buffer_size);
+        assert(to < buffer_size);
+        if (to >= from) {
+            return from - to;
+        } else {
+            return from + buffer_size - to;
+        }
+    }
+    static void advance(uint64_t buffer_size, uint64_t *target, uint64_t advance) {
+        assert(*target < buffer_size);
+        assert(advance < buffer_size);
+        *target += advance;
+        if (*target >= buffer_size) {
+            *target -= buffer_size;
+        }
+    }
+
     ThreadLogBuffer(Engine* engine, thread::ThreadId thread_id);
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
@@ -67,6 +85,25 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * Rather, we sacrifice a negligible space.
      */
     uint64_t    get_buffer_size_safe() const { return buffer_size_safe_; }
+
+    /**
+     * @brief Reserves a space for a new (uncommitted) log entry at the tail.
+     * @param[in] log_length byte size of the log. You have to give it beforehand.
+     * @details
+     * If the circular buffer's tail reaches the head, this method might block.
+     * But it will be rare as we release a large region of buffer at each time.
+     */
+    char*       reserve_new_log(uint16_t log_length) {
+        if (distance(buffer_size_, offset_tail_, offset_head_) + log_length >= buffer_size_safe_) {
+            wait_for_space(log_length);
+        }
+        assert(distance(buffer_size_, offset_tail_, offset_head_) + log_length < buffer_size_safe_);
+        char *buffer = buffer_ + offset_tail_;
+        advance(buffer_size_, &offset_tail_, log_length);
+        return buffer;
+    }
+
+    void       wait_for_space(uint16_t required_space);
 
     /**
      * @brief This marks the position where log entries start.

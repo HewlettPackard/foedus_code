@@ -58,7 +58,7 @@ class Xct {
      * Add the given record to the write set of this transaction.
      * Inlined in xct_inl.hpp.
      */
-    ErrorCode           add_to_write_set(storage::Record* record);
+    ErrorCode           add_to_write_set(storage::Record* record, void* log_entry);
 
     friend std::ostream& operator<<(std::ostream& o, const Xct& v);
 
@@ -78,7 +78,7 @@ class Xct {
     uint32_t            read_set_size_;
     uint32_t            max_read_set_size_;
 
-    XctAccess*          write_set_;
+    WriteXctAccess*     write_set_;
     uint32_t            write_set_size_;
     uint32_t            max_write_set_size_;
 

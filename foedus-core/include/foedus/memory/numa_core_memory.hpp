@@ -37,7 +37,7 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
     xct::XctAccess* get_read_set_memory()   const { return read_set_memory_; }
     uint32_t        get_read_set_size()     const { return read_set_size_; }
     /** Returns memory to keep track of write-set during transactions. */
-    xct::XctAccess* get_write_set_memory()  const { return write_set_memory_; }
+    xct::WriteXctAccess* get_write_set_memory()  const { return write_set_memory_; }
     uint32_t        get_write_set_size()    const { return write_set_size_; }
 
     char*           get_log_buffer_memory() const { return log_buffer_memory_; }
@@ -85,7 +85,7 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
     uint32_t                                read_set_size_;
 
     /** Memory to keep track of write-set during transactions. */
-    xct::XctAccess*                         write_set_memory_;
+    xct::WriteXctAccess*                    write_set_memory_;
     uint32_t                                write_set_size_;
 
     /**

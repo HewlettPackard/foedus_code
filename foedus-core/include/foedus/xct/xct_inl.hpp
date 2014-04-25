@@ -28,13 +28,14 @@ inline ErrorCode Xct::add_to_read_set(storage::Record* record) {
     ++read_set_size_;
     return ERROR_CODE_OK;
 }
-inline ErrorCode Xct::add_to_write_set(storage::Record* record) {
+inline ErrorCode Xct::add_to_write_set(storage::Record* record, void* log_entry) {
     if (UNLIKELY(write_set_size_ >= max_write_set_size_)) {
         return ERROR_CODE_XCT_WRITE_SET_OVERFLOW;
     }
 
     write_set_[write_set_size_].observed_owner_id_ = record->owner_id_;
     write_set_[write_set_size_].record_ = record;
+    write_set_[write_set_size_].log_entry_ = log_entry;
     ++read_set_size_;
     return ERROR_CODE_OK;
 }

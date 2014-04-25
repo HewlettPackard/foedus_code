@@ -3,6 +3,7 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/storage/record.hpp>
+#include <foedus/storage/array/array_log_types.hpp>
 #include <foedus/storage/array/array_id.hpp>
 #include <foedus/storage/array/array_storage.hpp>
 #include <foedus/storage/array/array_storage_pimpl.hpp>
@@ -17,6 +18,8 @@
 #include <foedus/engine.hpp>
 #include <foedus/xct/xct.hpp>
 #include <foedus/xct/xct_inl.hpp>
+#include <foedus/log/thread_log_buffer_impl.hpp>
+#include <foedus/log/log_type.hpp>
 #include <glog/logging.h>
 #include <cstring>
 #include <string>
@@ -249,10 +252,16 @@ ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context,
     assert(page->get_array_range().contains(offset));
     ArrayOffset index = offset - page->get_array_range().begin_;
     Record *record = page->get_leaf_record(index);
+
+    // write out log
+    uint16_t log_length = OverwriteLogType::calculate_log_length(payload_count);
+    OverwriteLogType* log_entry = reinterpret_cast<OverwriteLogType*>(
+        context->get_thread_log_buffer().reserve_new_log(log_length));
+    log_entry->populate(id_, offset, payload, payload_offset, payload_count);
+
     // TODO(Hideaki) Handle too-many-write-set error
-    context->get_current_xct().add_to_write_set(record);
-    // TODO(Hideaki) Add to private log
-    std::memcpy(record->payload_ + payload_offset, payload, payload_count);
+    context->get_current_xct().add_to_write_set(record, log_entry);
+    // TODO(Hideaki) Puts lock bit
     return RET_OK;
 }
 

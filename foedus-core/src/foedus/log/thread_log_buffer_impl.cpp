@@ -46,5 +46,9 @@ void ThreadLogBuffer::assert_consistent_offsets() const {
     assert(violation_count <= 1);
 }
 
+void ThreadLogBuffer::wait_for_space(uint16_t required_space) {
+    // TODO(Hideaki) implement
+}
+
 }  // namespace log
 }  // namespace foedus

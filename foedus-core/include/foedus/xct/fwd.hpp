@@ -14,6 +14,7 @@ namespace xct {
 class   Epoch;
 struct  XctId;
 struct  XctAccess;
+struct  WriteXctAccess;
 class   Xct;
 class   XctManager;
 class   XctManagerPimpl;

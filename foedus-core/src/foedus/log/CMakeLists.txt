@@ -1,4 +1,5 @@
 set(FOEDUS_LOG_SRC
+    ${CMAKE_CURRENT_SOURCE_DIR}/common_log_types.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/logger_impl.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/log_manager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/log_manager_pimpl.cpp

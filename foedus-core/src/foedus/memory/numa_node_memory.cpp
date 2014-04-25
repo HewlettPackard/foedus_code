@@ -44,14 +44,14 @@ ErrorStack NumaNodeMemory::initialize_read_write_set_memory() {
     uint32_t readsets = engine_->get_options().xct_.max_read_set_size_;
     uint32_t writesets = engine_->get_options().xct_.max_write_set_size_;
     size_t readset_size = sizeof(xct::XctAccess) * readsets;
-    size_t writeset_size = sizeof(xct::XctAccess) * writesets;
+    size_t writeset_size = sizeof(xct::WriteXctAccess) * writesets;
 
     CHECK_ERROR(allocate_numa_memory(cores_ * readset_size, &read_set_memory_));
     CHECK_ERROR(allocate_numa_memory(cores_ * writeset_size, &write_set_memory_));
     for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
         read_set_memory_pieces_.push_back(reinterpret_cast<xct::XctAccess*>(
             read_set_memory_.get_block()) + readsets);
-        write_set_memory_pieces_.push_back(reinterpret_cast<xct::XctAccess*>(
+        write_set_memory_pieces_.push_back(reinterpret_cast<xct::WriteXctAccess*>(
             write_set_memory_.get_block()) + writesets);
     }
 

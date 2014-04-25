@@ -56,10 +56,10 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
      */
     ErrorStack      allocate_numa_memory(size_t size, AlignedMemory *out);
 
-    xct::XctAccess* get_read_set_memory_piece(foedus::thread::ThreadLocalOrdinal core_ordinal) {
+    xct::XctAccess* get_read_set_memory_piece(thread::ThreadLocalOrdinal core_ordinal) {
         return read_set_memory_pieces_[core_ordinal];
     }
-    xct::XctAccess* get_write_set_memory_piece(foedus::thread::ThreadLocalOrdinal core_ordinal) {
+    xct::WriteXctAccess* get_write_set_memory_piece(thread::ThreadLocalOrdinal core_ordinal) {
         return write_set_memory_pieces_[core_ordinal];
     }
     PagePoolOffsetChunk* get_page_offset_chunk_memory_piece(
@@ -121,7 +121,7 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
      * Memory to keep track of write-set during transactions. Same above.
      */
     AlignedMemory                           write_set_memory_;
-    std::vector<xct::XctAccess*>            write_set_memory_pieces_;
+    std::vector<xct::WriteXctAccess*>       write_set_memory_pieces_;
 
     /**
      * Memory to hold a \b local pool of pointers to free pages. Same above.

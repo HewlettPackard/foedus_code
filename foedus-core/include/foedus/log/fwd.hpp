@@ -11,10 +11,15 @@
  */
 namespace foedus {
 namespace log {
+struct  BaseLogType;
+struct  EngineLogType;
+struct  FillerLogType;
 class   LogManager;
 class   LogManagerPimpl;
 struct  LogOptions;
 class   Logger;
+struct  RecordLogType;
+struct  StorageLogType;
 class   ThreadLogBuffer;
 }  // namespace log
 }  // namespace foedus
