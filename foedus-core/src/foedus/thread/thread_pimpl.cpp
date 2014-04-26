@@ -20,7 +20,7 @@ namespace foedus {
 namespace thread {
 ThreadPimpl::ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder, ThreadId id)
     : engine_(engine), group_(group), holder_(holder), id_(id), core_memory_(nullptr),
-        log_buffer_(engine, id), exitted_(false), impersonated_(false) {
+        log_buffer_(engine, id), exit_requested_(false), exitted_(false), impersonated_(false) {
 }
 
 ErrorStack ThreadPimpl::initialize_once() {
@@ -31,7 +31,8 @@ ErrorStack ThreadPimpl::initialize_once() {
 }
 ErrorStack ThreadPimpl::uninitialize_once() {
     ErrorStackBatch batch;
-    if (raw_thread_.joinable()) {
+    if (!exit_requested_ && raw_thread_.joinable()) {
+        exit_requested_ = true;
         impersonated_task_.set_value(nullptr);  // this signals that the thread should exit.
         raw_thread_.join();
     }

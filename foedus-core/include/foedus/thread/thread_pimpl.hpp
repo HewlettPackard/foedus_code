@@ -86,6 +86,11 @@ class ThreadPimpl final : public DefaultInitializable {
     std::thread             raw_thread_;
 
     /**
+     * Whether this thread has been requested to exist.
+     */
+    bool                    exit_requested_;
+
+    /**
      * Whether this thread has ended.
      */
     bool                    exitted_;
