@@ -25,6 +25,8 @@ ThreadPimpl::ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder
 
 ErrorStack ThreadPimpl::initialize_once() {
     core_memory_ = engine_->get_memory_manager().get_core_memory(id_);
+    impersonated_task_ = std::promise<ImpersonateTask*>();  // reset the promise/future pair
+    raw_thread_ = std::thread();  // reset the thread object
     CHECK_ERROR(log_buffer_.initialize());
     raw_thread_ = std::thread(&ThreadPimpl::handle_tasks, this);
     return RET_OK;
