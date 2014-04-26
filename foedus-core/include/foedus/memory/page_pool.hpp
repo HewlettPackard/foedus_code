@@ -14,7 +14,7 @@
 #include <foedus/memory/page_resolver.hpp>
 #include <foedus/storage/page.hpp>
 #include <stdint.h>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 namespace foedus {
 namespace memory {
 /**
@@ -42,19 +42,19 @@ class PagePoolOffsetChunk {
     void                    clear()         { size_ = 0; }
 
     PagePoolOffset&         operator[](uint32_t index) {
-        assert(index < size_);
+        ASSERT_ND(index < size_);
         return chunk_[index];
     }
     PagePoolOffset          operator[](uint32_t index) const {
-        assert(index < size_);
+        ASSERT_ND(index < size_);
         return chunk_[index];
     }
     PagePoolOffset          pop_back() {
-        assert(!empty());
+        ASSERT_ND(!empty());
         return chunk_[--size_];
     }
     void                    push_back(PagePoolOffset pointer) {
-        assert(!full());
+        ASSERT_ND(!full());
         chunk_[size_++] = pointer;
     }
     void                    push_back(const PagePoolOffset* begin, const PagePoolOffset* end);

@@ -7,9 +7,9 @@
 #include <foedus/cxx11.hpp>
 #include <foedus/xct/epoch.hpp>
 #include <foedus/thread/thread_id.hpp>
+#include <foedus/assert_nd.hpp>
 #include <stdint.h>
 #include <atomic>
-#include <cassert>
 #include <iosfwd>
 /**
  * @file foedus/xct/xct_id.hpp
@@ -45,25 +45,26 @@ struct XctId {
     template<unsigned int STATUS_BIT>
     void assert_status_bit() {
         CXX11_STATIC_ASSERT(STATUS_BIT < 16, "STATUS_BIT must be within 16 bits");
-        assert(STATUS_BIT < 16);
+        ASSERT_ND(STATUS_BIT < 16);
     }
 
     template<unsigned int STATUS_BIT>
     void lock_unconditional() {
         assert_status_bit<STATUS_BIT>();
         const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
-
-        XctId expected(*this);
-        expected.ordinal_and_status_ &= ~status_bit;
-        XctId desired(*this);
-        expected.ordinal_and_status_ |= status_bit;
         std::atomic<uint64_t>* address = reinterpret_cast< std::atomic<uint64_t>* >(this);
-        uint64_t expected_int = expected.as_int();
-        uint64_t desired_int = desired.as_int();
 
         // spin lock
-        while (!address->compare_exchange_weak(expected_int, desired_int,
-            std::memory_order_release, std::memory_order_relaxed)) {
+        while (true) {
+            XctId tmp(*this);
+            tmp.ordinal_and_status_ &= ~status_bit;
+            uint64_t expected = tmp.as_int();  // same status without lock bit
+            tmp.ordinal_and_status_ |= status_bit;
+            uint64_t desired = tmp.as_int();  // same status with lock bit
+            if (address->compare_exchange_weak(expected, desired,
+                std::memory_order_release, std::memory_order_acquire)) {
+                break;
+            }
         }
     }
     template<unsigned int STATUS_BIT>
@@ -77,7 +78,7 @@ struct XctId {
     void unlock() {
         assert_status_bit<STATUS_BIT>();
         const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
-        assert((ordinal_and_status_ & status_bit) != 0);
+        ASSERT_ND((ordinal_and_status_ & status_bit) != 0);
         ordinal_and_status_ &= ~status_bit;
         std::atomic_thread_fence(std::memory_order_release);
     }

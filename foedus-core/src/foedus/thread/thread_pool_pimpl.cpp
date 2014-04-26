@@ -15,7 +15,7 @@
 #include <foedus/memory/memory_id.hpp>
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/engine_options.hpp>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 #include <atomic>
 namespace foedus {
 namespace thread {

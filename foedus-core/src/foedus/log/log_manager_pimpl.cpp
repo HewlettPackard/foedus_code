@@ -15,7 +15,7 @@
 #include <foedus/savepoint/savepoint_manager.hpp>
 #include <foedus/engine_options.hpp>
 #include <glog/logging.h>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 #include <string>
 #include <vector>
 namespace foedus {
@@ -57,10 +57,10 @@ ErrorStack LogManagerPimpl::initialize_once() {
             CHECK_ERROR(logger->initialize());
             ++current_logger_id;
         }
-        assert(current_ordinal == engine_->get_options().thread_.thread_count_per_group_);
+        ASSERT_ND(current_ordinal == engine_->get_options().thread_.thread_count_per_group_);
     }
-    assert(current_logger_id == total_loggers);
-    assert(current_logger_id == loggers_.size());
+    ASSERT_ND(current_logger_id == total_loggers);
+    ASSERT_ND(current_logger_id == loggers_.size());
     return RET_OK;
 }
 

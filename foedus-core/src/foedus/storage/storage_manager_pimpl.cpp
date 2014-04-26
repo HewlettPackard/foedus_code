@@ -62,15 +62,15 @@ Storage* StorageManagerPimpl::get_storage(StorageId id) {
 
 
 ErrorStack StorageManagerPimpl::register_storage(Storage* storage) {
-    assert(storage);
-    assert(storage->is_initialized());
+    ASSERT_ND(storage);
+    ASSERT_ND(storage->is_initialized());
     StorageId id = storage->get_id();
     LOG(INFO) << "Adding storage of ID-" << id << "(" << storage->get_name() << ")";
     if (storages_capacity_ <= id) {
         CHECK_ERROR(expand_storage_array(id));
     }
 
-    assert(storages_capacity_ > id);
+    ASSERT_ND(storages_capacity_ > id);
     std::lock_guard<std::mutex> guard(mod_lock_);
     if (storages_[id]) {
         LOG(ERROR) << "Duplicate register_storage() call? ID=" << id;

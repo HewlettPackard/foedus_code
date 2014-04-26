@@ -36,7 +36,7 @@ ErrorStack PagePoolPimpl::initialize_once() {
     }
     LOG(INFO) << "Acquired memory Page Pool. " << memory_ << ". pages=" << pool_size_;
 
-    assert(memory_.get_size() % storage::PAGE_SIZE == 0);
+    ASSERT_ND(memory_.get_size() % storage::PAGE_SIZE == 0);
     uint64_t total_pages = memory_.get_size() / storage::PAGE_SIZE;
     uint64_t pointers_total_size = total_pages * sizeof(PagePoolOffset);
     pages_for_free_pool_ = assorted::int_div_ceil(pointers_total_size, storage::PAGE_SIZE);
@@ -75,8 +75,8 @@ ErrorStack PagePoolPimpl::uninitialize_once() {
 }
 
 ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chunk) {
-    assert(is_initialized());
-    assert(chunk->size() + desired_grab_count <= chunk->capacity());
+    ASSERT_ND(is_initialized());
+    ASSERT_ND(chunk->size() + desired_grab_count <= chunk->capacity());
     LOG(INFO) << "Grabbing " << desired_grab_count << " pages."
         << " free_pool_count_=" << free_pool_count_;
     std::lock_guard<std::mutex> guard(lock_);
@@ -99,7 +99,7 @@ ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* 
     }
 
     // no wrap around (or no more wrap around)
-    assert(free_pool_head_ + grab_count <= free_pool_capacity_);
+    ASSERT_ND(free_pool_head_ + grab_count <= free_pool_capacity_);
     chunk->push_back(head, head + grab_count);
     free_pool_head_ += grab_count;
     free_pool_count_ -= grab_count;
@@ -107,8 +107,8 @@ ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* 
 }
 
 void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk) {
-    assert(is_initialized());
-    assert(chunk->size() >= desired_release_count);
+    ASSERT_ND(is_initialized());
+    ASSERT_ND(chunk->size() >= desired_release_count);
     LOG(INFO) << "Releasing " << desired_release_count << " pages."
         << " free_pool_count_=" << free_pool_count_;
     std::lock_guard<std::mutex> guard(lock_);
@@ -136,7 +136,7 @@ void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk 
     }
 
     // no wrap around (or no more wrap around)
-    assert(tail + release_count <= free_pool_capacity_);
+    ASSERT_ND(tail + release_count <= free_pool_capacity_);
     chunk->move_to(free_pool_ + tail, release_count);
     free_pool_count_ += release_count;
 }

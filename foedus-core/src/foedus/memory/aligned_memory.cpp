@@ -4,7 +4,7 @@
  */
 #include <foedus/memory/aligned_memory.hpp>
 #include <numa.h>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 #include <cstdlib>
 #include <ostream>
 
@@ -13,7 +13,7 @@ namespace memory {
 AlignedMemory::AlignedMemory(size_t size, size_t alignment,
                              AllocType alloc_type, int numa_node) noexcept
     : size_(size), alignment_(alignment), alloc_type_(alloc_type), numa_node_(numa_node) {
-    assert((alignment & (alignment - 1)) == 0);  // alignment is power of two
+    ASSERT_ND((alignment & (alignment - 1)) == 0);  // alignment is power of two
     block_ = nullptr;
     if (size_ % alignment != 0) {
         size_ = ((size_ / alignment) + 1) * alignment;
@@ -29,7 +29,7 @@ AlignedMemory::AlignedMemory(size_t size, size_t alignment,
             block_ = ::numa_alloc_onnode(size_, numa_node);
             break;
         default:
-            assert(false);
+            ASSERT_ND(false);
     }
 
     ::memset(block_, 0, size_);  // see class comment for why we do this immediately
@@ -59,19 +59,20 @@ void AlignedMemory::release_block() {
                 ::numa_free(block_, size_);
                 break;
             default:
-                assert(false);
+                ASSERT_ND(false);
         }
         block_ = nullptr;
     }
 }
 
 std::ostream& operator<<(std::ostream& o, const AlignedMemory& v) {
-    o << "AlignedMemory" << std::endl;
-    o << "  is_null = " << v.is_null() << std::endl;
-    o << "  size = " << v.get_size() << std::endl;
-    o << "  alignment = " << v.get_alignment() << std::endl;
-    o << "  alloc_type_ = " << v.get_alloc_type() << std::endl;
-    o << "  numa_node_ = " << v.get_numa_node() << std::endl;
+    o << "<AlignedMemory>";
+    o << "<is_null>" << v.is_null() << "</is_null>";
+    o << "<size>" << v.get_size() << "</size>";
+    o << "<alignment>" << v.get_alignment() << "</alignment>";
+    o << "<alloc_type>" << v.get_alloc_type() << "</<alloc_type>>";
+    o << "<numa_node>" << v.get_numa_node() << "</numa_node>";
+    o << "</AlignedMemory>";
     return o;
 }
 

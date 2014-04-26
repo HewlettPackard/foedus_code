@@ -11,7 +11,7 @@
 #include <foedus/log/common_log_types.hpp>
 #include <foedus/storage/array/array_log_types.hpp>
 
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 #include <iostream>
 namespace foedus {
 namespace log {
@@ -50,7 +50,7 @@ inline void invoke_apply_engine(void *buffer, Engine* engine) {
     switch (code) {
 #include <foedus/log/log_type.xmacro> // NOLINT
         default:
-            assert(false);
+            ASSERT_ND(false);
             return;
     }
 }
@@ -63,7 +63,7 @@ inline void invoke_apply_storage(void *buffer, storage::Storage* storage) {
     switch (code) {
 #include <foedus/log/log_type.xmacro> // NOLINT
         default:
-            assert(false);
+            ASSERT_ND(false);
             return;
     }
 }
@@ -77,7 +77,7 @@ inline void invoke_apply_record(void *buffer,
     switch (code) {
 #include <foedus/log/log_type.xmacro> // NOLINT
         default:
-            assert(false);
+            ASSERT_ND(false);
             return;
     }
 }

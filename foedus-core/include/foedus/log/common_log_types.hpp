@@ -8,7 +8,7 @@
 #include <foedus/fwd.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/storage/storage_id.hpp>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 #include <iosfwd>
 
 /**
@@ -73,10 +73,10 @@ struct EngineLogType : public BaseLogType {
     bool    is_storage_log()    const { return false; }
     bool    is_record_log()     const { return false; }
     void apply_storage(storage::Storage* /*storage*/) {
-        assert(false);
+        ASSERT_ND(false);
     }
     void apply_record(storage::Storage* /*storage*/, storage::Record* /*record*/) {
-        assert(false);
+        ASSERT_ND(false);
     }
 };
 /**
@@ -89,10 +89,10 @@ struct StorageLogType : public BaseLogType {
     bool    is_storage_log()    const { return true; }
     bool    is_record_log()     const { return false; }
     void apply_engine(Engine* /*engine*/) {
-        assert(false);
+        ASSERT_ND(false);
     }
     void apply_record(storage::Storage* /*storage*/, storage::Record* /*record*/) {
-        assert(false);
+        ASSERT_ND(false);
     }
 };
 /**
@@ -105,10 +105,10 @@ struct RecordLogType : public BaseLogType {
     bool    is_storage_log()    const { return false; }
     bool    is_record_log()     const { return true; }
     void apply_engine(Engine* /*engine*/) {
-        assert(false);
+        ASSERT_ND(false);
     }
     void apply_storage(storage::Storage* /*storage*/) {
-        assert(false);
+        ASSERT_ND(false);
     }
 };
 

@@ -12,7 +12,7 @@
 #include <foedus/memory/fwd.hpp>
 #include <foedus/memory/page_pool.hpp>
 #include <foedus/thread/thread_id.hpp>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 #include <vector>
 namespace foedus {
 namespace memory {
@@ -38,7 +38,7 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
 
     // accessors for child memories
     foedus::thread::ThreadGroupId get_node_memory_count() const {
-        assert(node_memories_.size() <= foedus::thread::MAX_THREAD_GROUP_ID);
+        ASSERT_ND(node_memories_.size() <= foedus::thread::MAX_THREAD_GROUP_ID);
         return static_cast<foedus::thread::ThreadGroupId>(node_memories_.size());
     }
     NumaNodeMemory* get_node_memory(foedus::thread::ThreadGroupId group) const {

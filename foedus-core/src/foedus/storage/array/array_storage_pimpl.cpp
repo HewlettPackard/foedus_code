@@ -125,7 +125,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     LOG(INFO) << "Newly creating an array-storage " << id_ << "(" << name_ << ")";
 
     // TODO(Hideaki) This part must handle the case where RAM < Array Size
-    // So far, we just do assert(offset) after memory->grab_free_page().
+    // So far, we just do ASSERT_ND(offset) after memory->grab_free_page().
     memory::NumaCoreMemory *memory = context->get_thread_memory();
 
     // we create from left, keeping cursors on each level.
@@ -136,12 +136,12 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     std::vector<uint16_t> current_records;
     for (uint8_t level = 0; level < levels_; ++level) {
         memory::PagePoolOffset offset = memory->grab_free_page();
-        assert(offset);
+        ASSERT_ND(offset);
         ArrayPage* page = reinterpret_cast<ArrayPage*>(resolver_.resolve_offset(offset));
 
         ArrayRange range(0, offset_intervals_[level]);
         if (range.end_ > array_size_) {
-            assert(level == levels_ - 1);
+            ASSERT_ND(level == levels_ - 1);
             range.end_ = array_size_;
         }
         page->initialize_data_page(id_, payload_size_, level, range);
@@ -158,14 +158,14 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
             child_pointer.volatile_pointer_.components.offset = current_pages_offset[level - 1];
         }
     }
-    assert(current_pages.size() == levels_);
-    assert(current_pages_offset.size() == levels_);
-    assert(current_records.size() == levels_);
+    ASSERT_ND(current_pages.size() == levels_);
+    ASSERT_ND(current_pages_offset.size() == levels_);
+    ASSERT_ND(current_records.size() == levels_);
 
     // then moves on to right
     for (uint64_t leaf = 1; leaf < pages_[0]; ++leaf) {
         memory::PagePoolOffset offset = memory->grab_free_page();
-        assert(offset);
+        ASSERT_ND(offset);
         ArrayPage* page = reinterpret_cast<ArrayPage*>(resolver_.resolve_offset(offset));
 
         ArrayRange range(current_pages[0]->get_array_range().end_,
@@ -183,7 +183,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
             if (current_records[level] == INTERIOR_FANOUT) {
                 VLOG(2) << "leaf=" << leaf << ", interior level=" << static_cast<int>(level);
                 memory::PagePoolOffset interior_offset = memory->grab_free_page();
-                assert(interior_offset);
+                ASSERT_ND(interior_offset);
                 ArrayPage* interior_page = reinterpret_cast<ArrayPage*>(
                     resolver_.resolve_offset(interior_offset));
                 ArrayRange interior_range(current_pages[level]->get_array_range().end_,
@@ -225,14 +225,14 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
 
 ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOffset offset,
                             void *payload, uint16_t payload_offset, uint16_t payload_count) {
-    assert(is_initialized());
-    assert(offset < array_size_);
-    assert(payload_offset + payload_count <= payload_size_);
+    ASSERT_ND(is_initialized());
+    ASSERT_ND(offset < array_size_);
+    ASSERT_ND(payload_offset + payload_count <= payload_size_);
     ArrayPage* page = nullptr;
     CHECK_ERROR(lookup(context, offset, &page));
-    assert(page);
-    assert(page->is_leaf());
-    assert(page->get_array_range().contains(offset));
+    ASSERT_ND(page);
+    ASSERT_ND(page->is_leaf());
+    ASSERT_ND(page->get_array_range().contains(offset));
     ArrayOffset index = offset - page->get_array_range().begin_;
     Record *record = page->get_leaf_record(index);
     // TODO(Hideaki) Handle too-many-read-set error
@@ -242,14 +242,14 @@ ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOffset of
 }
 ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context,
         ArrayOffset offset, const void *payload, uint16_t payload_offset, uint16_t payload_count) {
-    assert(is_initialized());
-    assert(offset < array_size_);
-    assert(payload_offset + payload_count <= payload_size_);
+    ASSERT_ND(is_initialized());
+    ASSERT_ND(offset < array_size_);
+    ASSERT_ND(payload_offset + payload_count <= payload_size_);
     ArrayPage* page = nullptr;
     CHECK_ERROR(lookup(context, offset, &page));
-    assert(page);
-    assert(page->is_leaf());
-    assert(page->get_array_range().contains(offset));
+    ASSERT_ND(page);
+    ASSERT_ND(page->is_leaf());
+    ASSERT_ND(page->get_array_range().contains(offset));
     ArrayOffset index = offset - page->get_array_range().begin_;
     Record *record = page->get_leaf_record(index);
 
@@ -266,12 +266,12 @@ ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context,
 
 inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset offset,
                                             ArrayPage** out) {
-    assert(is_initialized());
-    assert(offset < array_size_);
-    assert(out);
+    ASSERT_ND(is_initialized());
+    ASSERT_ND(offset < array_size_);
+    ASSERT_ND(out);
     ArrayPage* current_page = root_page_;
     while (!current_page->is_leaf()) {
-        assert(current_page->get_array_range().contains(offset));
+        ASSERT_ND(current_page->get_array_range().contains(offset));
         uint64_t diff = offset - current_page->get_array_range().begin_;
         uint16_t record = diff / offset_intervals_[current_page->get_node_height() - 1];
         DualPagePointer& pointer = current_page->get_interior_record(record)->pointer_;
@@ -284,7 +284,7 @@ inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset
                 resolver_.resolve_offset(pointer.volatile_pointer_.components.offset));
         }
     }
-    assert(current_page->get_array_range().contains(offset));
+    ASSERT_ND(current_page->get_array_range().contains(offset));
     *out = current_page;
     return RET_OK;
 }

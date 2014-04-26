@@ -15,10 +15,10 @@
 #include <foedus/thread/thread.hpp>
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/memory/numa_node_memory.hpp>
+#include <foedus/assert_nd.hpp>
 #include <glog/logging.h>
 #include <numa.h>
 #include <atomic>
-#include <cassert>
 #include <condition_variable>
 #include <mutex>
 #include <string>
@@ -96,7 +96,7 @@ ErrorStack Logger::uninitialize_once() {
         logger_stop_requested_ = true;
         logger_stop_condition_.notify_one();
         logger_thread_.join();
-        assert(logger_stopped_);
+        ASSERT_ND(logger_stopped_);
     }
     if (current_file_) {
         current_file_->close();

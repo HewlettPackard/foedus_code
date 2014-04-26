@@ -13,7 +13,7 @@
 #include <foedus/xct/xct_access.hpp>
 #include <glog/logging.h>
 #include <numa.h>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 namespace foedus {
 namespace memory {
 NumaNodeMemory::NumaNodeMemory(Engine* engine, thread::ThreadGroupId numa_node)
@@ -132,7 +132,7 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
 }
 
 ErrorStack NumaNodeMemory::allocate_numa_memory(size_t size, AlignedMemory *out) {
-    assert(out);
+    ASSERT_ND(out);
     AlignedMemory allocated(size, 1 << 12, AlignedMemory::NUMA_ALLOC_ONNODE, numa_node_);
     if (allocated.is_null()) {
         return ERROR_STACK(ERROR_CODE_OUTOFMEMORY);

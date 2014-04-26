@@ -9,12 +9,12 @@ namespace foedus {
 namespace memory {
 void PagePoolOffsetChunk::push_back(const PagePoolOffset* begin, const PagePoolOffset* end) {
     uint32_t count = end - begin;
-    assert(size_ + count <= MAX_SIZE);
+    ASSERT_ND(size_ + count <= MAX_SIZE);
     std::memcpy(chunk_ + size_, begin, count * sizeof(PagePoolOffset));
     size_ += count;
 }
 void PagePoolOffsetChunk::move_to(PagePoolOffset* destination, uint32_t count) {
-    assert(size_ >= count);
+    ASSERT_ND(size_ >= count);
     std::memcpy(destination, chunk_ + (size_ - count), count * sizeof(PagePoolOffset));
     size_ -= count;
 }

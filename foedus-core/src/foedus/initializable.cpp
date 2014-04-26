@@ -4,7 +4,7 @@
  */
 #include <foedus/initializable.hpp>
 #include <glog/logging.h>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 #include <cstdlib>
 #include <iostream>
 #include <typeinfo>
@@ -19,7 +19,7 @@ UninitializeGuard::~UninitializeGuard() {
         if (policy_ == ABORT_IF_NOT_EXPLICITLY_UNINITIALIZED) {
             LOG(FATAL) << "FATAL: According to ABORT_IF_NOT_EXPLICITLY_UNINITIALIZED policy,"
                 << " we abort the program" << std::endl;
-            assert(false);
+            ASSERT_ND(false);
             std::abort();
         } else {
             // okay, call uninitialize().
@@ -33,7 +33,7 @@ UninitializeGuard::~UninitializeGuard() {
                     std::cerr << "FATAL: UninitializeGuard encounters an error on uninitialize()."
                         << " Aborting as we can't propagate this error appropriately."
                         << " error=" << error << std::endl;
-                    assert(false);
+                    ASSERT_ND(false);
                     std::abort();
                     break;
                 case WARN_IF_UNINITIALIZE_ERROR:
@@ -43,7 +43,7 @@ UninitializeGuard::~UninitializeGuard() {
                     break;
                 default:
                     // warns nothing. this policy is NOT recommended
-                    assert(policy_ == SILENT);
+                    ASSERT_ND(policy_ == SILENT);
                 }
             } else {
                 if (policy_ != SILENT) {

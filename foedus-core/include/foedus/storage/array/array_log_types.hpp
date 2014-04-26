@@ -7,8 +7,12 @@
 #include <foedus/log/common_log_types.hpp>
 #include <foedus/log/log_type.hpp>
 #include <foedus/assorted/assorted_func.hpp>
-#include <foedus/storage/array/array_id.hpp>
+#include <foedus/storage/record.hpp>
 #include <foedus/storage/storage_id.hpp>
+#include <foedus/storage/array/fwd.hpp>
+#include <foedus/storage/array/array_storage.hpp>
+#include <foedus/storage/array/array_id.hpp>
+#include <foedus/assert_nd.hpp>
 #include <stdint.h>
 #include <iosfwd>
 #include <cstring>
@@ -24,7 +28,8 @@ namespace array {
  * @brief Log type of array-storage's overwrite operation.
  * @ingroup ARRAY LOGTYPE
  * @details
- * bluh
+ * This is the only modification operation in array.
+ * It simply invokes memcpy to the payload.
  */
 struct OverwriteLogType : public log::RecordLogType {
     LOG_TYPE_NO_CONSTRUCT(OverwriteLogType)
@@ -48,7 +53,11 @@ struct OverwriteLogType : public log::RecordLogType {
         payload_count_ = payload_count;
         std::memcpy(data_, payload, payload_count);
     }
-    void            apply_record(Storage* storage, Record* record);
+    void            apply_record(Storage* storage, Record* record) {
+        ASSERT_ND(payload_count_ < DATA_SIZE);
+        ASSERT_ND(dynamic_cast<ArrayStorage*>(storage));
+        std::memcpy(record->payload_ + payload_offset_, data_, payload_count_);
+    }
 
     friend std::ostream& operator<<(std::ostream& o, const OverwriteLogType& v);
 };

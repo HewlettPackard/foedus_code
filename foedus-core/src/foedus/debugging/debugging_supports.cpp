@@ -32,7 +32,7 @@ std::mutex  static_glog_initialize_lock;
 
 void DebuggingSupports::initialize_glog() {
     std::lock_guard<std::mutex> guard(static_glog_initialize_lock);  // implies fence too
-    assert(static_glog_initialize_counter >= 0);
+    ASSERT_ND(static_glog_initialize_counter >= 0);
     if (static_glog_initialize_counter == 0) {
         // Set the glog configurations.
         const DebuggingOptions &options = engine_->get_options().debugging_;
@@ -52,7 +52,7 @@ void DebuggingSupports::initialize_glog() {
 
 void DebuggingSupports::uninitialize_glog() {
     std::lock_guard<std::mutex> guard(static_glog_initialize_lock);  // implies fence too
-    assert(static_glog_initialize_counter >= 1);
+    ASSERT_ND(static_glog_initialize_counter >= 1);
     if (static_glog_initialize_counter == 1) {
         LOG(INFO) << "uninitialize_glog(): Uninitializing GLOG...";
         google::ShutdownGoogleLogging();

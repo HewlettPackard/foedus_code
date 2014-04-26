@@ -42,4 +42,20 @@ TEST(EngineTest, Restart) {
     cleanup_test(options);
 }
 
+/*
+// this is a good test to see if initialize/uninitialize pair is complete.
+// eg: aren't we incorrectly relying on constructor of some object, rather than initialize()?
+// eg: aren't we lazy to skip some uninitialization, which makes next initialize() crash?
+// again, don't do anything in constructor! there is no point to do so. do it in initialize().
+TEST(EngineTest, RestartManyTimes) {
+    EngineOptions options = get_tiny_options();
+    Engine engine(options); // initialize the same engine many times.
+    for (int i = 0; i < 10; ++i) {
+        COERCE_ERROR(engine.initialize());
+        COERCE_ERROR(engine.uninitialize());
+    }
+    cleanup_test(options);
+}
+*/
+
 }  // namespace foedus

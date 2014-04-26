@@ -15,10 +15,10 @@
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread.hpp>
 #include <foedus/engine_options.hpp>
+#include <foedus/assert_nd.hpp>
 #include <glog/logging.h>
 #include <algorithm>
 #include <atomic>
-#include <cassert>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
@@ -49,7 +49,7 @@ ErrorStack XctManagerPimpl::uninitialize_once() {
         epoch_advance_stop_requested_ = true;
         epoch_advance_stop_condition_.notify_one();
         epoch_advance_thread_.join();
-        assert(epoch_advance_stopped_);
+        ASSERT_ND(epoch_advance_stopped_);
     }
     return RET_OK;
 }

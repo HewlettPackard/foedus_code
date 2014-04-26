@@ -11,7 +11,7 @@
 #include <foedus/error_stack_batch.hpp>
 #include <glog/logging.h>
 #include <numa.h>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 #include <atomic>
 #include <future>
 #include <mutex>
@@ -53,7 +53,7 @@ void ThreadPimpl::handle_tasks() {
         ImpersonateTask* functor = task_future.get();
         impersonated_task_ = std::promise<ImpersonateTask*>();  // reset the promise/future pair
         if (functor) {
-            assert(impersonated_);
+            ASSERT_ND(impersonated_);
             LOG(INFO) << "Thread-" << id_ << " retrieved a task";
             ErrorStack result = functor->run(holder_);
             impersonated_task_result_.set_value(result);
@@ -88,12 +88,12 @@ bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
 }
 
 void ThreadPimpl::activate_xct() {
-    assert(!current_xct_.is_active());
+    ASSERT_ND(!current_xct_.is_active());
     current_xct_.activate(holder_);
 }
 
 void ThreadPimpl::deactivate_xct() {
-    assert(current_xct_.is_active());
+    ASSERT_ND(current_xct_.is_active());
     current_xct_.deactivate();
 }
 

@@ -9,7 +9,7 @@
 #include <foedus/error_code.hpp>
 #include <foedus/cxx11.hpp>
 #include <stdint.h>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 #include <cstring>
 #include <iosfwd>
 namespace foedus {
@@ -225,7 +225,7 @@ inline ErrorStack::ErrorStack(ErrorCode code)
 inline ErrorStack::ErrorStack(const char* filename, const char* func, uint32_t linenum,
                               ErrorCode code, const char* custom_message)
     : custom_message_(CXX11_NULLPTR), error_code_(code), stack_depth_(1), checked_(false) {
-    assert(code != ERROR_CODE_OK);
+    ASSERT_ND(code != ERROR_CODE_OK);
     filenames_[0] = filename;
     funcs_[0] = func;
     linenums_[0] = linenum;
@@ -371,7 +371,7 @@ inline uint32_t ErrorStack::get_linenum(uint16_t stack_index) const {
     if (error_code_ == ERROR_CODE_OK) {
         return 0;
     }
-    assert(stack_index < stack_depth_);
+    ASSERT_ND(stack_index < stack_depth_);
     return linenums_[stack_index];
 }
 
@@ -380,7 +380,7 @@ inline const char* ErrorStack::get_filename(uint16_t stack_index) const {
     if (error_code_ == ERROR_CODE_OK) {
         return CXX11_NULLPTR;
     }
-    assert(stack_index < stack_depth_);
+    ASSERT_ND(stack_index < stack_depth_);
     return filenames_[stack_index];
 }
 
@@ -389,7 +389,7 @@ inline const char* ErrorStack::get_func(uint16_t stack_index) const {
     if (error_code_ == ERROR_CODE_OK) {
         return CXX11_NULLPTR;
     }
-    assert(stack_index < stack_depth_);
+    ASSERT_ND(stack_index < stack_depth_);
     return funcs_[stack_index];
 }
 

@@ -60,11 +60,11 @@ ImpersonateSession& ImpersonateSession::operator=(ImpersonateSession&& other) {
 }
 
 ErrorStack ImpersonateSession::get_result() {
-    assert(is_valid());
+    ASSERT_ND(is_valid());
     return as_future(result_future_)->get();
 }
 void ImpersonateSession::wait() const {
-    assert(is_valid());
+    ASSERT_ND(is_valid());
     return as_future(result_future_)->wait();
 }
 ImpersonateSession::Status ImpersonateSession::wait_for(TimeoutMicrosec timeout) const {
@@ -80,7 +80,7 @@ ImpersonateSession::Status ImpersonateSession::wait_for(TimeoutMicrosec timeout)
         if (status == std::future_status::timeout) {
             return ImpersonateSession::TIMEOUT;
         } else {
-            assert(status == std::future_status::ready);
+            ASSERT_ND(status == std::future_status::ready);
             return ImpersonateSession::READY;
         }
     }

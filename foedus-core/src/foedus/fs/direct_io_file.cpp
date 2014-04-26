@@ -8,7 +8,7 @@
 #include <foedus/memory/aligned_memory.hpp>
 #include <fcntl.h>
 #include <glog/logging.h>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 #include <ostream>
 namespace foedus {
 namespace fs {

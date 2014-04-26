@@ -17,7 +17,7 @@
 #include <sys/vfs.h>
 #include <unistd.h>
 
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -53,7 +53,7 @@ Path current_path() {
     for (size_t path_max = 128;; path_max *=2) {  // loop 'til buffer large enough
         std::vector<char> buf(path_max);
         if (::getcwd(&buf[0], path_max) == 0) {
-            assert(errno == ERANGE);
+            ASSERT_ND(errno == ERANGE);
         } else {
             cur = std::string(&buf[0]);
             break;

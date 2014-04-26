@@ -9,7 +9,7 @@
 #include <foedus/memory/aligned_memory.hpp>
 #include <foedus/memory/page_pool.hpp>
 #include <foedus/memory/page_resolver.hpp>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 #include <mutex>
 #include <vector>
 namespace foedus {

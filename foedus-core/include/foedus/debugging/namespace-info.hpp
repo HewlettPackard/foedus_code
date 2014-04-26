@@ -36,10 +36,10 @@
  * such as:
  * /tmp/libfoedus.hkimura-z820.kimurhid.log.INFO.20140406-215444.26946
  *
- * @par DLOG
- * DLOG() is completely disabled and wiped from our binary if our cmake build level is
+ * @par DLOG and DVLOG
+ * DLOG() and DVLOG() are completely disabled and wiped from our binary if our cmake build level is
  * RELEASE or RELWITHDBGINFO. Most of our code each user transaction goes through should
- * use only DLOG in its critical path.
+ * use only DLOG or DVLOG in its critical path.
  *
  * @par Debug Logging Configurations
  * Although we don't expose glog classes themselves in our APIs, we provide our own APIs

@@ -6,7 +6,7 @@
 #include <foedus/engine.hpp>
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/memory/numa_core_memory.hpp>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 namespace foedus {
 namespace log {
 ThreadLogBuffer::ThreadLogBuffer(Engine* engine, thread::ThreadId thread_id)
@@ -28,7 +28,7 @@ ErrorStack ThreadLogBuffer::uninitialize_once() {
 }
 
 void ThreadLogBuffer::assert_consistent_offsets() const {
-    assert(offset_head_ < buffer_size_
+    ASSERT_ND(offset_head_ < buffer_size_
         && offset_durable_ < buffer_size_
         && offset_current_xct_begin_ < buffer_size_
         && offset_tail_ < buffer_size_);
@@ -43,7 +43,7 @@ void ThreadLogBuffer::assert_consistent_offsets() const {
     if (offset_current_xct_begin_ > offset_tail_) {
         ++violation_count;
     }
-    assert(violation_count <= 1);
+    ASSERT_ND(violation_count <= 1);
 }
 
 void ThreadLogBuffer::wait_for_space(uint16_t required_space) {

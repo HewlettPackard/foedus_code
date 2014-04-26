@@ -8,7 +8,7 @@
 #include <foedus/cxx11.hpp>
 #include <foedus/memory/memory_id.hpp>
 #include <foedus/storage/page.hpp>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 namespace foedus {
 namespace memory {
 /**
@@ -31,14 +31,14 @@ class PageResolver CXX11_FINAL {
     /** Resolves storage::Page* to offset in this pool. */
     PagePoolOffset resolve_page(storage::Page *page) const ALWAYS_INLINE {
         PagePoolOffset offset = page - base_;
-        assert(offset >= begin_);
-        assert(offset < end_);
+        ASSERT_ND(offset >= begin_);
+        ASSERT_ND(offset < end_);
         return offset;
     }
     /** Resolves offset in this pool to storage::Page*. */
     storage::Page* resolve_offset(PagePoolOffset offset) const ALWAYS_INLINE {
-        assert(offset >= begin_);
-        assert(offset < end_);
+        ASSERT_ND(offset >= begin_);
+        ASSERT_ND(offset < end_);
         return base_ + offset;
     }
 

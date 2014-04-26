@@ -4,7 +4,7 @@
  */
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread_pool_pimpl.hpp>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 #include <iostream>
 namespace foedus {
 namespace thread {

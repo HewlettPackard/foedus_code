@@ -21,10 +21,6 @@ std::ostream& operator<<(std::ostream& o, const OverwriteLogType& v) {
     return o;
 }
 
-void OverwriteLogType::apply_record(Storage* storage, Record* record) {
-}
-
-
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus

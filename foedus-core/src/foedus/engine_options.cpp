@@ -4,7 +4,7 @@
  */
 #include <foedus/engine_options.hpp>
 #include <tinyxml2.h>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 #include <vector>
 namespace foedus {
 EngineOptions::EngineOptions() {
@@ -38,7 +38,7 @@ std::vector< const externalize::Externalizable* > get_children(const EngineOptio
 EngineOptions& EngineOptions::operator=(const EngineOptions& other) {
     auto mine = get_children(this);
     auto others = get_children(&other);
-    assert(mine.size() == others.size());
+    ASSERT_ND(mine.size() == others.size());
     for (size_t i = 0; i < mine.size(); ++i) {
         mine[i]->assign(others[i]);
     }

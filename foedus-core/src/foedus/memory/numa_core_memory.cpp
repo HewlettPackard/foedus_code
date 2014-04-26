@@ -59,14 +59,14 @@ PagePoolOffset NumaCoreMemory::grab_free_page() {
             return 0;
         }
     }
-    assert(!free_pool_chunk_->empty());
+    ASSERT_ND(!free_pool_chunk_->empty());
     return free_pool_chunk_->pop_back();
 }
 void NumaCoreMemory::release_free_page(PagePoolOffset offset) {
     if (UNLIKELY(free_pool_chunk_->full())) {
         release_free_pages_to_engine();
     }
-    assert(!free_pool_chunk_->full());
+    ASSERT_ND(!free_pool_chunk_->full());
     free_pool_chunk_->push_back(offset);
 }
 

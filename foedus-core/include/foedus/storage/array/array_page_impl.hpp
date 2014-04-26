@@ -9,7 +9,7 @@
 #include <foedus/storage/array/array_id.hpp>
 #include <foedus/xct/xct_id.hpp>
 #include <stdint.h>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 namespace foedus {
 namespace storage {
 namespace array {
@@ -64,8 +64,8 @@ class ArrayPage final {
         return const_cast<ArrayPage*>(this)->get_leaf_record(record);
     }
     Record*         get_leaf_record(uint16_t record) {
-        assert(is_leaf());
-        assert(HEADER_SIZE + (record + 1) * (RECORD_OVERHEAD + payload_size_) <= PAGE_SIZE);
+        ASSERT_ND(is_leaf());
+        ASSERT_ND(HEADER_SIZE + (record + 1) * (RECORD_OVERHEAD + payload_size_) <= PAGE_SIZE);
         return reinterpret_cast<Record*>(data_.leaf_data
             + record * (RECORD_OVERHEAD + payload_size_));
     }
@@ -73,8 +73,8 @@ class ArrayPage final {
         return const_cast<ArrayPage*>(this)->get_interior_record(record);
     }
     InteriorRecord*         get_interior_record(uint16_t record) {
-        assert(!is_leaf());
-        assert(record < INTERIOR_FANOUT);
+        ASSERT_ND(!is_leaf());
+        ASSERT_ND(record < INTERIOR_FANOUT);
         return data_.interior_data + record;
     }
 

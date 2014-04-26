@@ -36,8 +36,8 @@ namespace log {
 class ThreadLogBuffer final : public DefaultInitializable {
  public:
     static uint64_t distance(uint64_t buffer_size, uint64_t from, uint64_t to) {
-        assert(from < buffer_size);
-        assert(to < buffer_size);
+        ASSERT_ND(from < buffer_size);
+        ASSERT_ND(to < buffer_size);
         if (to >= from) {
             return from - to;
         } else {
@@ -45,8 +45,8 @@ class ThreadLogBuffer final : public DefaultInitializable {
         }
     }
     static void advance(uint64_t buffer_size, uint64_t *target, uint64_t advance) {
-        assert(*target < buffer_size);
-        assert(advance < buffer_size);
+        ASSERT_ND(*target < buffer_size);
+        ASSERT_ND(advance < buffer_size);
         *target += advance;
         if (*target >= buffer_size) {
             *target -= buffer_size;
@@ -97,7 +97,8 @@ class ThreadLogBuffer final : public DefaultInitializable {
         if (distance(buffer_size_, offset_tail_, offset_head_) + log_length >= buffer_size_safe_) {
             wait_for_space(log_length);
         }
-        assert(distance(buffer_size_, offset_tail_, offset_head_) + log_length < buffer_size_safe_);
+        ASSERT_ND(distance(buffer_size_, offset_tail_, offset_head_) + log_length
+            < buffer_size_safe_);
         char *buffer = buffer_ + offset_tail_;
         advance(buffer_size_, &offset_tail_, log_length);
         return buffer;

@@ -56,7 +56,7 @@ ErrorStack EngineMemory::uninitialize_once() {
 NumaCoreMemory* EngineMemory::get_core_memory(thread::ThreadId id) const {
     thread::ThreadGroupId node = thread::decompose_numa_node(id);
     NumaNodeMemory* node_memory = get_node_memory(node);
-    assert(node_memory);
+    ASSERT_ND(node_memory);
     return node_memory->get_core_memory(id);
 }
 

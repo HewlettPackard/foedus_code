@@ -12,7 +12,7 @@
 #include <foedus/xct/epoch.hpp>
 #include <foedus/xct/isolation_level.hpp>
 #include <foedus/xct/xct_id.hpp>
-#include <cassert>
+#include <foedus/assert_nd.hpp>
 #include <iosfwd>
 namespace foedus {
 namespace xct {
@@ -62,7 +62,7 @@ class Xct {
             id_.epoch_ = epoch;
             id_.ordinal_and_status_ = 0;
         } else {
-            assert(id_.ordinal_and_status_ < 0xFFFF);
+            ASSERT_ND(id_.ordinal_and_status_ < 0xFFFF);
             ++id_.ordinal_and_status_;
         }
     }
