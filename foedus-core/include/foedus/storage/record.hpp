@@ -34,6 +34,9 @@ struct Record CXX11_FINAL {
     Record() CXX11_FUNC_DELETE;
     Record(const Record& other) CXX11_FUNC_DELETE;
     Record& operator=(const Record& other) CXX11_FUNC_DELETE;
+
+    void    try_lock() {
+    }
 };
 
 /**

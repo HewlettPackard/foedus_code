@@ -78,6 +78,7 @@ class MyTask2 : public th::ImpersonateTask {
         foedus::Engine *engine = context->get_engine();
         CHECK_ERROR(engine->get_xct_manager().begin_xct(context));
         foedus::storage::Storage* storage = engine->get_storage_manager().get_storage(the_id);
+        foedus::xct::Epoch commit_epoch;
 
         // pre-calculate random numbers to get rid of random number generation as bottleneck
         random_.set_current_seed(context->get_thread_id());
@@ -99,6 +100,8 @@ class MyTask2 : public th::ImpersonateTask {
             CHECK_ERROR(array->get_record(context, id, buf));
             ++processed_;
             if ((processed_ & 0xFFFF) == 0) {
+                CHECK_ERROR(engine->get_xct_manager().prepare_commit_xct(context, &commit_epoch));
+                CHECK_ERROR(engine->get_xct_manager().begin_xct(context));
                 std::atomic_thread_fence(std::memory_order_acquire);
                 if (stop_req) {
                     break;
@@ -106,7 +109,7 @@ class MyTask2 : public th::ImpersonateTask {
             }
         }
 
-        CHECK_ERROR(engine->get_xct_manager().commit_xct(context));
+        CHECK_ERROR(engine->get_xct_manager().prepare_commit_xct(context, &commit_epoch));
         numbers_.release_block();
         std::cout << "I'm done! " << context->get_thread_id()
             << ", processed=" << processed_ << std::endl;

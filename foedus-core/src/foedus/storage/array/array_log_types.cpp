@@ -21,8 +21,7 @@ std::ostream& operator<<(std::ostream& o, const OverwriteLogType& v) {
     return o;
 }
 
-ErrorStack OverwriteLogType::apply_record(Storage* storage, Record* record) {
-    return RET_OK;
+void OverwriteLogType::apply_record(Storage* storage, Record* record) {
 }
 
 

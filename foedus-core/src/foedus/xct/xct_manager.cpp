@@ -22,7 +22,9 @@ Epoch       XctManager::get_global_epoch(bool fence_before_get) const {
     return pimpl_->get_global_epoch(fence_before_get);
 }
 ErrorStack  XctManager::begin_xct(thread::Thread* context)  { return pimpl_->begin_xct(context); }
-ErrorStack  XctManager::commit_xct(thread::Thread* context) { return pimpl_->commit_xct(context); }
+ErrorStack  XctManager::prepare_commit_xct(thread::Thread* context, Epoch *commit_epoch) {
+    return pimpl_->prepare_commit_xct(context, commit_epoch);
+}
 ErrorStack  XctManager::abort_xct(thread::Thread* context)  { return pimpl_->abort_xct(context); }
 
 }  // namespace xct

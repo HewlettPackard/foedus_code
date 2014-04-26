@@ -36,8 +36,35 @@ class XctManagerPimpl final : public DefaultInitializable {
         return global_epoch_;
     }
     ErrorStack  begin_xct(thread::Thread* context);
-    ErrorStack  commit_xct(thread::Thread* context);
+    /**
+     * This is the gut of commit protocol. It's mostly same as [TU2013].
+     */
+    ErrorStack  prepare_commit_xct(thread::Thread* context, Epoch *commit_epoch);
     ErrorStack  abort_xct(thread::Thread* context);
+
+    /**
+     * @brief Phase 1 of prepare_commit_xct()
+     * @details
+     * Try to lock all records we are going to write.
+     * After phase 2, we take memory fence.
+     */
+    void prepare_commit_xct_lock_phase(thread::Thread* context);
+    /**
+     * @brief Phase 2 of prepare_commit_xct()
+     * @return true if verification succeeded. false if we need to abort.
+     * @details
+     * Verify the observed read set and write set against the same record.
+     * Because phase 2 is after the memory fence, no thread would take new locks while checking.
+     */
+    bool prepare_commit_xct_verify_phase(thread::Thread* context);
+    /**
+     * @brief Phase 3 of prepare_commit_xct()
+     * @details
+     * Assuming phase 1 and 2 are successfully completed, apply all changes and unlock locks.
+     */
+    void prepare_commit_xct_apply_phase(thread::Thread* context, const Epoch &commit_epoch);
+    /** unlocking all acquired locks, used when aborts. */
+    void prepare_commit_xct_unlock(thread::Thread* context);
 
     /**
      * @brief Main routine for epoch_advance_thread_.

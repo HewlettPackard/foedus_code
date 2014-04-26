@@ -4,9 +4,12 @@
  */
 #ifndef FOEDUS_XCT_XCT_ID_HPP_
 #define FOEDUS_XCT_XCT_ID_HPP_
+#include <foedus/cxx11.hpp>
 #include <foedus/xct/epoch.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <stdint.h>
+#include <atomic>
+#include <cassert>
 #include <iosfwd>
 /**
  * @file foedus/xct/xct_id.hpp
@@ -27,8 +30,59 @@ namespace xct {
 struct XctId {
     XctId() : epoch_(), thread_id_(0), ordinal_and_status_(0) {
     }
+    /**
+     * Returns if epoch_ and thread_id_ are identical with the given XctId.
+     * We don't provide operator== in XctId because it is confusing.
+     * Instead, we provide compare_xxx that explicitly states what we are comparing.
+     */
+    bool compare_epoch_and_thread(const XctId &other) const {
+        return epoch_ == other.epoch_ && thread_id_ == other.thread_id_;
+    }
+    bool compare_all(const XctId &other) const { return as_int() == other.as_int(); }
 
     friend std::ostream& operator<<(std::ostream& o, const XctId& v);
+
+    template<unsigned int STATUS_BIT>
+    void assert_status_bit() {
+        CXX11_STATIC_ASSERT(STATUS_BIT < 16, "STATUS_BIT must be within 16 bits");
+        assert(STATUS_BIT < 16);
+    }
+
+    template<unsigned int STATUS_BIT>
+    void lock_unconditional() {
+        assert_status_bit<STATUS_BIT>();
+        const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
+
+        XctId expected(*this);
+        expected.ordinal_and_status_ &= ~status_bit;
+        XctId desired(*this);
+        expected.ordinal_and_status_ |= status_bit;
+        std::atomic<uint64_t>* address = reinterpret_cast< std::atomic<uint64_t>* >(this);
+        uint64_t expected_int = expected.as_int();
+        uint64_t desired_int = desired.as_int();
+
+        // spin lock
+        while (!address->compare_exchange_weak(expected_int, desired_int,
+            std::memory_order_release, std::memory_order_relaxed)) {
+        }
+    }
+    template<unsigned int STATUS_BIT>
+    bool is_locked() {
+        assert_status_bit<STATUS_BIT>();
+        const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
+        return (ordinal_and_status_ & status_bit) != 0;
+    }
+
+    template<unsigned int STATUS_BIT>
+    void unlock() {
+        assert_status_bit<STATUS_BIT>();
+        const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
+        assert((ordinal_and_status_ & status_bit) != 0);
+        ordinal_and_status_ &= ~status_bit;
+        std::atomic_thread_fence(std::memory_order_release);
+    }
+
+    uint64_t    as_int() const { return *reinterpret_cast< const uint64_t* >(this); }
 
     /** The high 32 bit represents the epoch of the transaction. */
     Epoch               epoch_;
@@ -38,7 +92,8 @@ struct XctId {
 
     /**
      * Uniquefier among transactions in the same epoch and thread, combined with
-     * a few bits at the last.
+     * a few bits at the last. We use highests bits as status and lower bits as ordinal
+     * so that we can (relatively) easily change the number of status bits later.
      */
     uint16_t            ordinal_and_status_;
 };

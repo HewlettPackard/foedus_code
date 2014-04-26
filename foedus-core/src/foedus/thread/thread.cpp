@@ -27,6 +27,5 @@ void        Thread::deactivate_xct()    { return pimpl_->deactivate_xct(); }
 xct::Xct&   Thread::get_current_xct()   { return pimpl_->current_xct_; }
 log::ThreadLogBuffer& Thread::get_thread_log_buffer() { return pimpl_->log_buffer_; }
 
-
 }  // namespace thread
 }  // namespace foedus

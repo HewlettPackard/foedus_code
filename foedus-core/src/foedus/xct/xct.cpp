@@ -24,6 +24,7 @@ Xct::Xct() {
 
 void Xct::activate(thread::Thread* thread) {
     id_ = XctId();
+    id_.thread_id_ = thread->get_thread_id();
     active_ = true;
     thread_ = thread;
     memory::NumaCoreMemory* core_memory = thread->get_thread_memory();

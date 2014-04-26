@@ -4,10 +4,11 @@
  */
 #ifndef FOEDUS_LOG_COMMON_LOG_TYPES_HPP_
 #define FOEDUS_LOG_COMMON_LOG_TYPES_HPP_
-#include <foedus/error_stack.hpp>
+#include <foedus/cxx11.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/storage/storage_id.hpp>
+#include <cassert>
 #include <iosfwd>
 
 /**
@@ -71,11 +72,11 @@ struct EngineLogType : public BaseLogType {
     bool    is_engine_log()     const { return true; }
     bool    is_storage_log()    const { return false; }
     bool    is_record_log()     const { return false; }
-    ErrorStack apply_storage(storage::Storage* /*storage*/) {
-        return ERROR_STACK(ERROR_CODE_LOG_INVALID_APPLY_TYPE);
+    void apply_storage(storage::Storage* /*storage*/) {
+        assert(false);
     }
-    ErrorStack apply_record(storage::Storage* /*storage*/, storage::Record* /*record*/) {
-        return ERROR_STACK(ERROR_CODE_LOG_INVALID_APPLY_TYPE);
+    void apply_record(storage::Storage* /*storage*/, storage::Record* /*record*/) {
+        assert(false);
     }
 };
 /**
@@ -87,11 +88,11 @@ struct StorageLogType : public BaseLogType {
     bool    is_engine_log()     const { return false; }
     bool    is_storage_log()    const { return true; }
     bool    is_record_log()     const { return false; }
-    ErrorStack apply_engine(Engine* /*engine*/) {
-        return ERROR_STACK(ERROR_CODE_LOG_INVALID_APPLY_TYPE);
+    void apply_engine(Engine* /*engine*/) {
+        assert(false);
     }
-    ErrorStack apply_record(storage::Storage* /*storage*/, storage::Record* /*record*/) {
-        return ERROR_STACK(ERROR_CODE_LOG_INVALID_APPLY_TYPE);
+    void apply_record(storage::Storage* /*storage*/, storage::Record* /*record*/) {
+        assert(false);
     }
 };
 /**
@@ -103,11 +104,11 @@ struct RecordLogType : public BaseLogType {
     bool    is_engine_log()     const { return false; }
     bool    is_storage_log()    const { return false; }
     bool    is_record_log()     const { return true; }
-    ErrorStack apply_engine(Engine* /*engine*/) {
-        return ERROR_STACK(ERROR_CODE_LOG_INVALID_APPLY_TYPE);
+    void apply_engine(Engine* /*engine*/) {
+        assert(false);
     }
-    ErrorStack apply_storage(storage::Storage* /*storage*/) {
-        return ERROR_STACK(ERROR_CODE_LOG_INVALID_APPLY_TYPE);
+    void apply_storage(storage::Storage* /*storage*/) {
+        assert(false);
     }
 };
 
@@ -135,11 +136,9 @@ struct FillerLogType : public BaseLogType {
     bool    is_engine_log()     const { return true; }
     bool    is_storage_log()    const { return true; }
     bool    is_record_log()     const { return true; }
-    ErrorStack apply_engine(Engine* /*engine*/) { return RET_OK; }
-    ErrorStack apply_storage(storage::Storage* /*storage*/) { return RET_OK; }
-    ErrorStack apply_record(storage::Storage* /*storage*/, storage::Record* /*record*/) {
-        return RET_OK;
-    }
+    void    apply_engine(Engine* /*engine*/) {}
+    void    apply_storage(storage::Storage* /*storage*/) {}
+    void    apply_record(storage::Storage* /*storage*/, storage::Record* /*record*/) {}
 
     friend std::ostream& operator<<(std::ostream& o, const FillerLogType&) { return o; }
 };

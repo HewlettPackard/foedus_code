@@ -12,6 +12,7 @@
 #include <foedus/xct/epoch.hpp>
 #include <foedus/xct/isolation_level.hpp>
 #include <foedus/xct/xct_id.hpp>
+#include <cassert>
 #include <iosfwd>
 namespace foedus {
 namespace xct {
@@ -22,6 +23,7 @@ namespace xct {
  * @details
  * To obtain this object (in other words, to begin a transaction),
  * call XctManager#begin_xct().
+ * @todo should be instantiated exclusively by ThreadPimpl so that no need for activate.
  */
 class Xct {
  public:
@@ -45,9 +47,25 @@ class Xct {
     /** Returns the level of isolation for this transaction. */
     IsolationLevel      get_isolation_level() const { return isolation_level_; }
     /** Returns the ID of this transaction, but note that it is not issued until commit time! */
-    XctId               get_id() const { return id_; }
+    const XctId&        get_id() const { return id_; }
     uint32_t            get_read_set_size() const { return read_set_size_; }
     uint32_t            get_write_set_size() const { return write_set_size_; }
+    XctAccess*          get_read_set()  { return read_set_; }
+    WriteXctAccess*     get_write_set() { return write_set_; }
+
+    /**
+     * Called while a successful commit to issue a new xct id.
+     * @todo advance epoch when wrap around
+     */
+    void                issue_next_id(const Epoch &epoch)  {
+        if (epoch != id_.epoch_) {
+            id_.epoch_ = epoch;
+            id_.ordinal_and_status_ = 0;
+        } else {
+            assert(id_.ordinal_and_status_ < 0xFFFF);
+            ++id_.ordinal_and_status_;
+        }
+    }
 
     /**
      * Add the given record to the read set of this transaction.
@@ -65,8 +83,6 @@ class Xct {
  private:
     /** ID of this transaction, which is issued at commit time. */
     XctId               id_;
-    /** */
-    Epoch               epoch_;
 
     /** Level of isolation for this transaction. */
     IsolationLevel      isolation_level_;

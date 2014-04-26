@@ -4,9 +4,12 @@
  */
 #ifndef FOEDUS_LOG_LOG_TYPE_HPP_
 #define FOEDUS_LOG_LOG_TYPE_HPP_
-// include all header files that forward-declare log types defined in the xmacro
+
+// include all header files that forward-declare log types defined in the xmacro.
+// don't include headers that really declare them. we just need foward-declarations here.
 #include <foedus/log/fwd.hpp>
 #include <foedus/storage/array/fwd.hpp>
+
 namespace foedus {
 namespace log {
 /**
@@ -18,14 +21,13 @@ namespace log {
  *
  * \li "populate" method to populate all properties, but the method is not overridden and its
  * signature varies. This is just to have a uniform method name for readability.
- * \li ErrorStack apply_engine(Engine*)     : For engine-wide operation.
- * \li ErrorStack apply_storage(Storage*)   : For storage-wide operation.
- * \li ErrorStack apply_record(Storage*, Record*)   : For record-wise operation.
+ * \li void apply_engine(Engine*)     : For engine-wide operation.
+ * \li void apply_storage(Storage*)   : For storage-wide operation.
+ * \li void apply_record(Storage*, Record*)   : For record-wise operation.
  * \li is_engine_log()/is_storage_log()/is_record_log()
  * \li ostream operator, preferably in xml format without root element.
  *
- * For non-applicable apply-type, the implmentation class should return
- * ERROR_CODE_LOG_INVALID_APPLY_TYPE.
+ * For non-applicable apply-type, the implmentation class should abort.
  *
  * @par No polymorphism
  * There is polymorphism guaranteed for log types.

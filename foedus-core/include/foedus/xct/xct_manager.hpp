@@ -38,18 +38,29 @@ class XctManager CXX11_FINAL : public virtual Initializable {
 
     /**
      * @brief Begins a new transaction on the thread.
+     * @param[in,out] context Thread context
      * @pre context->is_running_xct() == false
      */
     ErrorStack  begin_xct(thread::Thread* context);
 
     /**
-     * @brief Commits the currently running transaction on the thread.
+     * @brief Prepares the currently running transaction on the thread for commit.
      * @pre context->is_running_xct() == true
+     * @param[in,out] context Thread context
+     * @param[out] commit_epoch When successfully prepared, this value indicates the commit
+     * epoch of the prepared transaction. When the global epoch reaches this value, the
+     * transaction is deemed as committed.
+     * @details
+     * As the name of this method implies, this method is \b NOT a commit yet.
+     * The transaction is deemed as committed only when the global epoch advances.
+     * This method merely \e prepares this transaction to be committed so that the caller
+     * can move on to other transactions in the meantime.
      */
-    ErrorStack  commit_xct(thread::Thread* context);
+    ErrorStack  prepare_commit_xct(thread::Thread* context, Epoch *commit_epoch);
 
     /**
      * @brief Aborts the currently running transaction on the thread.
+     * @param[in,out] context Thread context
      * @pre context->is_running_xct() == true
      */
     ErrorStack  abort_xct(thread::Thread* context);

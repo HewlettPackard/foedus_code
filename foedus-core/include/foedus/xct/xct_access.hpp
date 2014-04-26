@@ -6,6 +6,7 @@
 #define FOEDUS_XCT_XCT_ACCESS_HPP_
 #include <foedus/storage/fwd.hpp>
 #include <foedus/xct/xct_id.hpp>
+#include <stdint.h>
 #include <iosfwd>
 namespace foedus {
 namespace xct {
@@ -23,9 +24,19 @@ struct XctAccess {
     /** Transaction ID of the record observed as of the access. */
     XctId               observed_owner_id_;
 
+    /** Pointer to the storage we accessed. */
+    storage::Storage*   storage_;
+
     /** Pointer to the accessed record. */
     storage::Record*    record_;
+
+    /** sort the read set in a unique order. We use address of records as done in [TU2013]. */
+    static bool compare(const XctAccess &left, const XctAccess& right) {
+        return reinterpret_cast<uintptr_t>(left.record_)
+            < reinterpret_cast<uintptr_t>(right.record_);
+    }
 };
+
 
 /**
  * @brief Represents a record of write-access during a transaction.
@@ -39,7 +50,14 @@ struct WriteXctAccess : public XctAccess {
 
     /** Pointer to the log entry in private log buffer for this write opereation. */
     void*               log_entry_;
+
+    /** sort the write set in a unique order. We use address of records as done in [TU2013]. */
+    static bool compare(const WriteXctAccess &left, const WriteXctAccess& right) {
+        return reinterpret_cast<uintptr_t>(left.record_)
+            < reinterpret_cast<uintptr_t>(right.record_);
+    }
 };
+
 
 }  // namespace xct
 }  // namespace foedus

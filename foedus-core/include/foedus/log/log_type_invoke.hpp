@@ -4,13 +4,14 @@
  */
 #ifndef FOEDUS_LOG_LOG_TYPE_INVOKE_HPP_
 #define FOEDUS_LOG_LOG_TYPE_INVOKE_HPP_
-#include <foedus/error_stack.hpp>
 #include <foedus/log/log_type.hpp>
 
-// include all header files that define log types defined in the xmacro
+// include all header files that declare log types defined in the xmacro.
+// unlike log_type.hpp, we need full declarations here. so this file would be big.
 #include <foedus/log/common_log_types.hpp>
 #include <foedus/storage/array/array_log_types.hpp>
 
+#include <cassert>
 #include <iostream>
 namespace foedus {
 namespace log {
@@ -19,20 +20,19 @@ namespace log {
  * @brief Invokes the apply logic for an engine-wide log type.
  * @ingroup LOGTYPE
  */
-ErrorStack invoke_apply_engine(void *log_buffer, Engine* engine);
+void invoke_apply_engine(void *log_buffer, Engine* engine);
 
 /**
  * @brief Invokes the apply logic for a storage-wide log type.
  * @ingroup LOGTYPE
  */
-ErrorStack invoke_apply_storage(void *log_buffer, storage::Storage* storage);
+void invoke_apply_storage(void *log_buffer, storage::Storage* storage);
 
 /**
  * @brief Invokes the apply logic for a record-wise log type.
  * @ingroup LOGTYPE
  */
-ErrorStack invoke_apply_record(void *log_buffer,
-                               storage::Storage* storage, storage::Record* record);
+void invoke_apply_record(void *log_buffer, storage::Storage* storage, storage::Record* record);
 
 /**
  * @brief Invokes the ostream operator for the given log type defined in log_type.xmacro.
@@ -44,44 +44,41 @@ ErrorStack invoke_apply_record(void *log_buffer,
 void invoke_ostream(void *buffer, std::ostream *ptr);
 
 #define X(a, b, c) case a: return reinterpret_cast< c* >(buffer)->apply_engine(engine);
-inline ErrorStack invoke_apply_engine(void *buffer, Engine* engine) {
+inline void invoke_apply_engine(void *buffer, Engine* engine) {
     LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
     LogCode code = static_cast<LogCode>(header->log_type_code_);
     switch (code) {
-        case LOG_TYPE_INVALID:
-            return ERROR_STACK(ERROR_CODE_LOG_INVALID_LOG_TYPE);
 #include <foedus/log/log_type.xmacro> // NOLINT
         default:
-            return ERROR_STACK(ERROR_CODE_LOG_INVALID_LOG_TYPE);
+            assert(false);
+            return;
     }
 }
 #undef X
 
-#define X(a, b, c) case a: return reinterpret_cast< c* >(buffer)->apply_storage(storage);
-inline ErrorStack invoke_apply_storage(void *buffer, storage::Storage* storage) {
+#define X(a, b, c) case a: reinterpret_cast< c* >(buffer)->apply_storage(storage); return;
+inline void invoke_apply_storage(void *buffer, storage::Storage* storage) {
     LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
     LogCode code = static_cast<LogCode>(header->log_type_code_);
     switch (code) {
-        case LOG_TYPE_INVALID:
-            return ERROR_STACK(ERROR_CODE_LOG_INVALID_LOG_TYPE);
 #include <foedus/log/log_type.xmacro> // NOLINT
         default:
-            return ERROR_STACK(ERROR_CODE_LOG_INVALID_LOG_TYPE);
+            assert(false);
+            return;
     }
 }
 #undef X
 
-#define X(a, b, c) case a: return reinterpret_cast< c* >(buffer)->apply_record(storage, record);
-inline ErrorStack invoke_apply_record(void *buffer,
+#define X(a, b, c) case a: reinterpret_cast< c* >(buffer)->apply_record(storage, record); return;
+inline void invoke_apply_record(void *buffer,
                                       storage::Storage* storage, storage::Record* record) {
     LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
     LogCode code = static_cast<LogCode>(header->log_type_code_);
     switch (code) {
-        case LOG_TYPE_INVALID:
-            return ERROR_STACK(ERROR_CODE_LOG_INVALID_LOG_TYPE);
 #include <foedus/log/log_type.xmacro> // NOLINT
         default:
-            return ERROR_STACK(ERROR_CODE_LOG_INVALID_LOG_TYPE);
+            assert(false);
+            return;
     }
 }
 #undef X

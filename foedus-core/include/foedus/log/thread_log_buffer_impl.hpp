@@ -103,7 +103,14 @@ class ThreadLogBuffer final : public DefaultInitializable {
         return buffer;
     }
 
-    void       wait_for_space(uint16_t required_space);
+    /**
+     * Called when the current transaction is successfully committed.
+     */
+    void        publish_current_xct_log() {
+        offset_current_xct_begin_ = offset_tail_;
+    }
+
+    void        wait_for_space(uint16_t required_space);
 
     /**
      * @brief This marks the position where log entries start.

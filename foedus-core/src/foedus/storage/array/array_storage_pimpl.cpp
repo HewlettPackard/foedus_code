@@ -261,7 +261,6 @@ ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context,
 
     // TODO(Hideaki) Handle too-many-write-set error
     context->get_current_xct().add_to_write_set(record, log_entry);
-    // TODO(Hideaki) Puts lock bit
     return RET_OK;
 }
 

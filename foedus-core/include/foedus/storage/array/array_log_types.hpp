@@ -11,6 +11,7 @@
 #include <foedus/storage/storage_id.hpp>
 #include <stdint.h>
 #include <iosfwd>
+#include <cstring>
 /**
  * @file foedus/storage/array/array_log_types.hpp
  * @brief Declares all log types used in this storage type.
@@ -47,7 +48,7 @@ struct OverwriteLogType : public log::RecordLogType {
         payload_count_ = payload_count;
         std::memcpy(data_, payload, payload_count);
     }
-    ErrorStack      apply_record(Storage* storage, Record* record);
+    void            apply_record(Storage* storage, Record* record);
 
     friend std::ostream& operator<<(std::ostream& o, const OverwriteLogType& v);
 };
