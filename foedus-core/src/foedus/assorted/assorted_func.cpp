@@ -17,29 +17,6 @@ int64_t int_div_ceil(int64_t dividee, int64_t dividor) {
     return result.rem != 0 ? (result.quot + 1) : result.quot;
 }
 
-#if defined(__GNUC__) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_16)
-bool atomic_compare_exchange_strong_uint128(
-    uint64_t *ptr, const uint64_t *old_value, const uint64_t *new_value) {
-    return ::__sync_bool_compare_and_swap(
-        reinterpret_cast<__uint128_t*>(ptr),
-        reinterpret_cast<const __uint128_t*>(old_value),
-        reinterpret_cast<const __uint128_t*>(new_value));
-}
-#else  // defined(__GNUC__) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_16)
-bool atomic_compare_exchange_strong_uint128(
-    uint64_t *ptr, const uint64_t *old_value, const uint64_t *new_value) {
-    // oh well, then resort to assembly
-    // see: linux/arch/x86/include/asm/cmpxchg_64.h
-    bool result;
-    uint64_t junk;
-    asm volatile("lock; cmpxchg16b %2;setz %1"
-        : "=d"(junk), "=a"(result), "+m" (*ptr)
-        : "b"(new_value[0]), "c"(new_value[1]), "a"(old_value[0]), "d"(old_value[1]));
-    return result;
-}
-#endif  // defined(__GNUC__) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_16)
-
-
 std::string demangle_type_name(const char* mangled_name) {
 #ifdef __GNUC__
     int status;

@@ -100,31 +100,14 @@ struct Externalizable {
     static ErrorStack create_element(tinyxml2::XMLElement* parent, const std::string& name,
                                     tinyxml2::XMLElement** out);
 
+    /**
+     * Only declaration in header. Explicitly instantiated in cpp for each type this func handles.
+     */
+    template <typename T>
     static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                  const std::string& comment, bool value);
-    static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                  const std::string& comment, int64_t value);
-    static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                  const std::string& comment, uint64_t value);
-    static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                  const std::string& comment, int32_t value);
-    static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                  const std::string& comment, uint32_t value);
-    static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                  const std::string& comment, int16_t value);
-    static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                  const std::string& comment, uint16_t value);
-    static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                  const std::string& comment, int8_t value);
-    static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                  const std::string& comment, uint8_t value);
-    static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                  const std::string& comment, const std::string& value);
-    static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                  const std::string& comment, float value);
-    static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                  const std::string& comment, double value);
+                                  const std::string& comment, T value);
 
+    /** vector version */
     template <typename T>
     static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
                         const std::string& comment, const std::vector< T >& value) {
@@ -139,81 +122,51 @@ struct Externalizable {
         return RET_OK;
     }
 
+    /** enum version */
     template <typename ENUM>
     static ErrorStack add_enum_element(tinyxml2::XMLElement* parent, const std::string& tag,
                                 const std::string& comment, ENUM value) {
         return add_element(parent, tag, comment, static_cast<int64_t>(value));
     }
 
+    /** child Externalizable version */
     static ErrorStack add_child_element(tinyxml2::XMLElement* parent, const std::string& tag,
                                   const std::string& comment, const Externalizable& child);
 
+    /**
+     * Only declaration in header. Explicitly instantiated in cpp for each type this func handles.
+     */
+    template <typename T>
     static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                bool* out, bool optional = false, bool default_value = false);
+                                  T* out, bool optional = false, T value = 0);
+    /** string type is bit special. */
+    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
+                                  std::string* out, bool optional = false, const char* value = "");
 
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                               int64_t* out, bool optional = false, int64_t default_value = 0);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                               uint64_t* out, bool optional = false, uint64_t default_value = 0);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                               int32_t* out, bool optional = false, int32_t default_value = 0);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                               int16_t* out, bool optional = false, int16_t default_value = 0);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                               int8_t* out, bool optional = false, int8_t default_value = 0);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                               uint32_t* out, bool optional = false, uint32_t default_value = 0);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                               uint16_t* out, bool optional = false, uint16_t default_value = 0);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                               uint8_t* out, bool optional = false, uint8_t default_value = 0);
-
-    template <typename T, typename LARGEST_TYPE>
-    static ErrorStack get_smaller_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                               T* out, bool optional, T default_value) {
-        LARGEST_TYPE tmp;
-        CHECK_ERROR(get_element(parent, tag, &tmp, optional, default_value));
-        if (static_cast<LARGEST_TYPE>(static_cast<T>(tmp)) != tmp) {
-            return ERROR_STACK_MSG(ERROR_CODE_CONF_VALUE_OUTOFRANGE, tag.c_str());
-        }
-        *out = static_cast<T>(tmp);
-        return RET_OK;
-    }
-
+    /** enum version */
     template <typename ENUM>
     static ErrorStack get_enum_element(tinyxml2::XMLElement* parent, const std::string& tag,
                     ENUM* out, bool optional = false, ENUM default_value = static_cast<ENUM>(0)) {
         // enum might be signged or unsigned, 1 byte, 2 byte, or 4 byte.
         // But surely it won't exceed int64_t range.
-        return get_smaller_element<ENUM, int64_t>(parent, tag, out, optional, default_value);
+        int64_t tmp;
+        CHECK_ERROR(get_element<int64_t>(parent, tag, &tmp, optional, default_value));
+        if (static_cast<int64_t>(static_cast<ENUM>(tmp)) != tmp) {
+            return ERROR_STACK_MSG(ERROR_CODE_CONF_VALUE_OUTOFRANGE, tag.c_str());
+        }
+        *out = static_cast<ENUM>(tmp);
+        return RET_OK;
     }
 
+    /**
+     * vector version.
+     * Only declaration in header. Explicitly instantiated in cpp for each type this func handles.
+     */
+    template <typename T>
     static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                               float* out, bool optional = false, float default_value = 0);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                               double* out, bool optional = false, double default_value = 0);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                        std::string* out, bool optional = false, const char* default_value = "");
+                        std::vector< T >* out, bool optional = false);
 
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                        std::vector<int64_t>* out, bool optional = false);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                        std::vector<uint64_t>* out, bool optional = false);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                        std::vector<int32_t>* out, bool optional = false);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                        std::vector<uint32_t>* out, bool optional = false);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                        std::vector<int16_t>* out, bool optional = false);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                        std::vector<uint16_t>* out, bool optional = false);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                        std::vector<int8_t>* out, bool optional = false);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                        std::vector<uint8_t>* out, bool optional = false);
-    static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                        std::vector< std::string >* out, bool optional = false);
-
+    /** child Externalizable version */
     static ErrorStack get_child_element(tinyxml2::XMLElement* parent, const std::string& tag,
                         Externalizable* child, bool optional = false);
 };

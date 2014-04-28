@@ -8,8 +8,9 @@
 #include <foedus/xct/epoch.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/assert_nd.hpp>
+#include <foedus/assorted/raw_atomics.hpp>
+#include <foedus/assorted/assorted_func.hpp>
 #include <stdint.h>
-#include <atomic>
 #include <iosfwd>
 /**
  * @file foedus/xct/xct_id.hpp
@@ -52,17 +53,17 @@ struct XctId {
     void lock_unconditional() {
         assert_status_bit<STATUS_BIT>();
         const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
-        std::atomic<uint64_t>* address = reinterpret_cast< std::atomic<uint64_t>* >(this);
+        uint64_t* target = reinterpret_cast<uint64_t*>(this);
 
         // spin lock
+        uint64_t expected;
         while (true) {
             XctId tmp(*this);
             tmp.ordinal_and_status_ &= ~status_bit;
-            uint64_t expected = tmp.as_int();  // same status without lock bit
+            expected = tmp.as_int();  // same status without lock bit
             tmp.ordinal_and_status_ |= status_bit;
             uint64_t desired = tmp.as_int();  // same status with lock bit
-            if (address->compare_exchange_weak(expected, desired,
-                std::memory_order_release, std::memory_order_acquire)) {
+            if (assorted::raw_atomic_compare_exchange_weak(target, &expected, desired)) {
                 break;
             }
         }
@@ -80,7 +81,6 @@ struct XctId {
         const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
         ASSERT_ND((ordinal_and_status_ & status_bit) != 0);
         ordinal_and_status_ &= ~status_bit;
-        std::atomic_thread_fence(std::memory_order_release);
     }
 
     uint64_t    as_int() const { return *reinterpret_cast< const uint64_t* >(this); }
@@ -98,6 +98,8 @@ struct XctId {
      */
     uint16_t            ordinal_and_status_;
 };
+// sizeof(XctId) must be 64 bits.
+const int dummy_check_xct_id_ = assorted::static_size_check<sizeof(XctId), sizeof(uint64_t)>();
 
 }  // namespace xct
 }  // namespace foedus

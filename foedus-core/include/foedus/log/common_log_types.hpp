@@ -47,7 +47,7 @@ struct LogHeader {
 };
 
 /**
- * @var LOG_TYPE_NO_CONSTRUCT(clazz)
+ * @def LOG_TYPE_NO_CONSTRUCT(clazz)
  * @brief Macro to delete all constructors/destructors to prevent misuse for log type classes.
  * @ingroup LOGTYPE
  */

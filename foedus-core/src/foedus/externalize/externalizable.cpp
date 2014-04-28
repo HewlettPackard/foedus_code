@@ -3,6 +3,7 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/externalize/externalizable.hpp>
+#include <foedus/externalize/tinyxml_wrapper.hpp>
 #include <foedus/fs/filesystem.hpp>
 #include <foedus/fs/path.hpp>
 #include <foedus/assorted/assorted_func.hpp>
@@ -11,6 +12,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
 namespace foedus {
 namespace externalize {
 void Externalizable::save_to_stream(std::ostream* ptr) const {
@@ -137,13 +139,13 @@ ErrorStack Externalizable::create_element(tinyxml2::XMLElement* parent, const st
     return RET_OK;
 }
 
-
 template <typename T>
-ErrorStack add_element_impl(tinyxml2::XMLElement* parent,
-                            const std::string& tag, const std::string& comment, const T& value) {
+ErrorStack Externalizable::add_element(tinyxml2::XMLElement* parent,
+                                const std::string& tag, const std::string& comment, T value) {
     tinyxml2::XMLElement* element = parent->GetDocument()->NewElement(tag.c_str());
     CHECK_OUTOFMEMORY(element);
-    element->SetText(value);
+    TinyxmlSetter<T> tinyxml_setter;
+    tinyxml_setter(element, value);
     parent->InsertEndChild(element);
     if (comment.size() > 0) {
         CHECK_ERROR(insert_comment_impl(element,
@@ -152,54 +154,10 @@ ErrorStack add_element_impl(tinyxml2::XMLElement* parent,
     return RET_OK;
 }
 
-ErrorStack Externalizable::add_element(tinyxml2::XMLElement* parent,
-                                const std::string& tag, const std::string& comment, bool value) {
-    return add_element_impl<bool>(parent, tag, comment, value);
-}
-ErrorStack Externalizable::add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                              const std::string& comment, float value) {
-    return add_element_impl<float>(parent, tag, comment, value);
-}
-ErrorStack Externalizable::add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                              const std::string& comment, double value) {
-    return add_element_impl<double>(parent, tag, comment, value);
-}
-ErrorStack Externalizable::add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                           const std::string& comment, int64_t value) {
-    return add_element_impl<int64_t>(parent, tag, comment, value);
-}
-ErrorStack Externalizable::add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                            const std::string& comment, uint64_t value) {
-    return add_element_impl<uint64_t>(parent, tag, comment, value);
-}
-ErrorStack Externalizable::add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                           const std::string& comment, int32_t value) {
-    return add_element_impl<int32_t>(parent, tag, comment, value);
-}
-ErrorStack Externalizable::add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                            const std::string& comment, uint32_t value) {
-    return add_element_impl<uint32_t>(parent, tag, comment, value);
-}
-ErrorStack Externalizable::add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                           const std::string& comment, int16_t value) {
-    return add_element_impl<int16_t>(parent, tag, comment, value);
-}
-ErrorStack Externalizable::add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                            const std::string& comment, uint16_t value) {
-    return add_element_impl<uint16_t>(parent, tag, comment, value);
-}
-ErrorStack Externalizable::add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                           const std::string& comment, int8_t value) {
-    return add_element_impl<int8_t>(parent, tag, comment, value);
-}
-ErrorStack Externalizable::add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                            const std::string& comment, uint8_t value) {
-    return add_element_impl<uint8_t>(parent, tag, comment, value);
-}
-ErrorStack Externalizable::add_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                            const std::string& comment, const std::string& value) {
-    return add_element_impl<const char*>(parent, tag, comment, value.c_str());
-}
+// Explicit instantiations for each type
+#define EXPLICIT_INSTANTIATION_ADD(x) template ErrorStack Externalizable::add_element< x > \
+    (tinyxml2::XMLElement* parent, const std::string& tag, const std::string& comment, x value)
+INSTANTIATE_ALL_TYPES(EXPLICIT_INSTANTIATION_ADD);
 
 ErrorStack Externalizable::add_child_element(tinyxml2::XMLElement* parent, const std::string& tag,
                                        const std::string& comment, const Externalizable& child) {
@@ -211,50 +169,10 @@ ErrorStack Externalizable::add_child_element(tinyxml2::XMLElement* parent, const
     return RET_OK;
 }
 
-
-template <typename T> struct TinyxmlGetter {
-    tinyxml2::XMLError operator()(const tinyxml2::XMLElement *element, T* out);
-};
-template<> struct TinyxmlGetter<bool> {
-    tinyxml2::XMLError operator()(const tinyxml2::XMLElement *element, bool *out) {
-        return element->QueryBoolText(out);
-    }
-};
-template<> struct TinyxmlGetter<int64_t> {
-    tinyxml2::XMLError operator()(const tinyxml2::XMLElement *element, int64_t *out) {
-        return element->QueryLongLongText(out);
-    }
-};
-template<> struct TinyxmlGetter<uint64_t> {
-    tinyxml2::XMLError operator()(const tinyxml2::XMLElement *element, uint64_t *out) {
-        return element->QueryUnsignedLongLongText(out);
-    }
-};
-template<> struct TinyxmlGetter<std::string> {
-    tinyxml2::XMLError operator()(const tinyxml2::XMLElement *element, std::string *out) {
-        const char* text = element->GetText();
-        if (text) {
-            *out = text;
-        } else {
-            out->clear();
-        }
-        return tinyxml2::XML_SUCCESS;
-    }
-};
-template<> struct TinyxmlGetter<double> {
-    tinyxml2::XMLError operator()(const tinyxml2::XMLElement *element, double *out) {
-        return element->QueryDoubleText(out);
-    }
-};
-template<> struct TinyxmlGetter<float> {
-    tinyxml2::XMLError operator()(const tinyxml2::XMLElement *element, float *out) {
-        return element->QueryFloatText(out);
-    }
-};
-
 template <typename T>
-ErrorStack get_element_impl(tinyxml2::XMLElement* parent, const std::string& tag,
-    T* out, bool optional, T default_value, TinyxmlGetter<T> tinyxml_getter) {
+ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
+                                            T* out, bool optional, T default_value) {
+    TinyxmlGetter<T> tinyxml_getter;
     tinyxml2::XMLElement* element = parent->FirstChildElement(tag.c_str());
     if (element) {
         tinyxml2::XMLError xml_error = tinyxml_getter(element, out);
@@ -273,16 +191,26 @@ ErrorStack get_element_impl(tinyxml2::XMLElement* parent, const std::string& tag
     }
 }
 
+// Explicit instantiations for each type
+#define EXPLICIT_INSTANTIATION_GET(x) template ErrorStack Externalizable::get_element< x > \
+    (tinyxml2::XMLElement* parent, const std::string& tag, x * out, bool optional, x default_value)
+INSTANTIATE_ALL_TYPES(EXPLICIT_INSTANTIATION_GET);
+
+ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
+                                    std::string* out, bool optional, const char* default_value) {
+    return get_element<std::string>(parent, tag, out, optional, std::string(default_value));
+}
+
 template <typename T>
-ErrorStack get_element_vector_impl(tinyxml2::XMLElement* parent, const std::string& tag,
-    std::vector<T>* out, bool optional, TinyxmlGetter<T> tinyxml_getter) {
-    out->clear();
+ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
+                                            std::vector<T> * out, bool optional) {
+    TinyxmlGetter<T> tinyxml_getter;
     for (tinyxml2::XMLElement* element = parent->FirstChildElement(tag.c_str());
          element; element = element->NextSiblingElement(tag.c_str())) {
         T tmp;
         tinyxml2::XMLError xml_error = tinyxml_getter(element, &tmp);
         if (xml_error == tinyxml2::XML_SUCCESS) {
-            out->emplace_back(tmp);
+            out->push_back(tmp);  // vector<bool> doesn't support emplace_back!
         } else {
             return ERROR_STACK_MSG(ERROR_CODE_CONF_INVALID_ELEMENT, tag.c_str());
         }
@@ -293,117 +221,10 @@ ErrorStack get_element_vector_impl(tinyxml2::XMLElement* parent, const std::stri
     return RET_OK;
 }
 
-template <typename T, typename LARGEST_TYPE>
-ErrorStack get_smaller_element_vector(tinyxml2::XMLElement* parent, const std::string& tag,
-                            std::vector<T> * out, bool optional) {
-    std::vector< LARGEST_TYPE > tmp;
-    CHECK_ERROR(get_element_vector_impl< LARGEST_TYPE >(
-        parent, tag, &tmp, optional, TinyxmlGetter< LARGEST_TYPE >()));
-    out->clear();
-    for (LARGEST_TYPE value : tmp) {
-        if (static_cast<LARGEST_TYPE>(static_cast<T>(value)) != value) {
-            return ERROR_STACK_MSG(ERROR_CODE_CONF_VALUE_OUTOFRANGE, tag.c_str());
-        }
-        out->push_back(static_cast<T>(value));
-    }
-    return RET_OK;
-}
-
-
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                            bool* out, bool optional, bool default_value) {
-    return get_element_impl(parent, tag, out, optional, default_value, TinyxmlGetter<bool>());
-}
-
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                             int64_t* out, bool optional, int64_t default_value) {
-    return get_element_impl(parent, tag, out, optional, default_value, TinyxmlGetter<int64_t>());
-}
-
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                    uint64_t* out, bool optional, uint64_t default_value) {
-    return get_element_impl(parent, tag, out, optional, default_value, TinyxmlGetter<uint64_t>());
-}
-
-
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                            int32_t* out, bool optional, int32_t default_value) {
-    return get_smaller_element<int32_t, int64_t>(parent, tag, out, optional, default_value);
-}
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                            int16_t* out, bool optional, int16_t default_value) {
-    return get_smaller_element<int16_t, int64_t>(parent, tag, out, optional, default_value);
-}
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                            int8_t* out, bool optional, int8_t default_value) {
-    return get_smaller_element<int8_t, int64_t>(parent, tag, out, optional, default_value);
-}
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                            uint32_t* out, bool optional, uint32_t default_value) {
-    return get_smaller_element<uint32_t, uint64_t>(parent, tag, out, optional, default_value);
-}
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                            uint16_t* out, bool optional, uint16_t default_value) {
-    return get_smaller_element<uint16_t, uint64_t>(parent, tag, out, optional, default_value);
-}
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                            uint8_t* out, bool optional, uint8_t default_value) {
-    return get_smaller_element<uint8_t, uint64_t>(parent, tag, out, optional, default_value);
-}
-
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                              float* out, bool optional, float default_value) {
-    return get_element_impl(parent, tag, out, optional, default_value, TinyxmlGetter<float>());
-}
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                              double* out, bool optional, double default_value) {
-    return get_element_impl(parent, tag, out, optional, default_value, TinyxmlGetter<double>());
-}
-
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                    std::string* out, bool optional, const char* default_value) {
-    return get_element_impl(parent, tag, out, optional,
-                       std::string(default_value), TinyxmlGetter<std::string>());
-}
-
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                    std::vector<int64_t>* out, bool optional) {
-    return get_element_vector_impl(parent, tag, out, optional, TinyxmlGetter<int64_t>());
-}
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                    std::vector<uint64_t>* out, bool optional) {
-    return get_element_vector_impl(parent, tag, out, optional, TinyxmlGetter<uint64_t>());
-}
-
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                    std::vector<int32_t>* out, bool optional) {
-    return get_smaller_element_vector<int32_t, int64_t>(parent, tag, out, optional);
-}
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                    std::vector<uint32_t>* out, bool optional) {
-    return get_smaller_element_vector<uint32_t, uint64_t>(parent, tag, out, optional);
-}
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                    std::vector<int16_t>* out, bool optional) {
-    return get_smaller_element_vector<int16_t, int64_t>(parent, tag, out, optional);
-}
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                    std::vector<uint16_t>* out, bool optional) {
-    return get_smaller_element_vector<uint16_t, uint64_t>(parent, tag, out, optional);
-}
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                    std::vector<int8_t>* out, bool optional) {
-    return get_smaller_element_vector<int8_t, int64_t>(parent, tag, out, optional);
-}
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                    std::vector<uint8_t>* out, bool optional) {
-    return get_smaller_element_vector<uint8_t, uint64_t>(parent, tag, out, optional);
-}
-
-ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
-                                       std::vector< std::string >* out, bool optional) {
-    return get_element_vector_impl(parent, tag, out, optional, TinyxmlGetter<std::string>());
-}
+// Explicit instantiations for each type
+#define EXPLICIT_INSTANTIATION_GET_VECTOR(x) template ErrorStack Externalizable::get_element< x > \
+    (tinyxml2::XMLElement* parent, const std::string& tag, std::vector< x > * out, bool optional)
+INSTANTIATE_ALL_TYPES(EXPLICIT_INSTANTIATION_GET_VECTOR);
 
 ErrorStack Externalizable::get_child_element(tinyxml2::XMLElement* parent, const std::string& tag,
                                        Externalizable* child, bool optional) {

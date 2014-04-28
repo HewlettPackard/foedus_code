@@ -6,7 +6,7 @@
 #define FOEDUS_ASSERT_ND_HPP_
 
 /**
- * @var ASSERT_ND(x)
+ * @def ASSERT_ND(x)
  * @ingroup IDIOMS
  * @brief A warning-free wrapper macro of assert() that has no performance effect in release
  * mode \e even \e when 'x' is not a simple variable.
@@ -22,7 +22,7 @@
  * @see http://cnicholson.net/2009/02/stupid-c-tricks-adventures-in-assert/
  */
 /**
- * @var UNUSED_ND(var)
+ * @def UNUSED_ND(var)
  * @ingroup IDIOMS
  * @brief Cross-compiler UNUSED macro for the same purpose as ASSERT_ND(x).
  */

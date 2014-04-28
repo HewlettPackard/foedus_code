@@ -63,37 +63,6 @@ inline int static_size_check() {
         " int SIZE1 = <size1>ul; long unsigned int SIZE2 = <size2>ul]'");
     return 0;
 }
-
-/**
- * @brief Atomic 128-bit CAS, which is not in the standard yet.
- * @param[in,out] ptr Points to 128-bit data. \b MUST \b BE \b 128-bit \b ALIGNED.
- * @param[in] old_value Points to 128-bit data. If ptr holds this value, we swap.
- * @param[in] new_value Points to 128-bit data. We change the ptr to hold this value.
- * @return Whether the swap happened
- * @ingroup ASSORTED
- * @details
- * We shouldn't rely on it too much as double-word CAS is not provided in older CPU.
- * Once the C++ standard employs it, this method should go away. I will be graybeard by then, tho.
- * \attention You need to give "-mcx16" to GCC to use its builtin 128bit CAS.
- * Otherwise, __GCC_HAVE_SYNC_COMPARE_AND_SWAP_16 is not set and we have to resort to x86 assembly.
- * Check out "gcc -dM -E - < /dev/null".
- */
-bool atomic_compare_exchange_strong_uint128(
-    uint64_t *ptr, const uint64_t *old_value, const uint64_t *new_value);
-
-/**
- * @brief Weak version of atomic_compare_exchange_strong_uint128().
- * @ingroup ASSORTED
- */
-inline bool atomic_compare_exchange_weak_uint128(
-    uint64_t *ptr, const uint64_t *old_value, const uint64_t *new_value) {
-    if (ptr[0] != old_value[0] || ptr[1] != old_value[1]) {
-        return false;  // this comparison is fast but not atomic, thus 'weak'
-    } else {
-        return atomic_compare_exchange_strong_uint128(ptr, old_value, new_value);
-    }
-}
-
 /**
  * @brief Demangle the given C++ type name \e if possible (otherwise the original string).
  * @ingroup ASSORTED
@@ -112,5 +81,54 @@ std::string get_pretty_type_name() {
 
 }  // namespace assorted
 }  // namespace foedus
+
+
+/**
+ * @def INSTANTIATE_ALL_TYPES(M)
+ * @brief A macro to explicitly instantiate the given template for all types we care.
+ * @ingroup ASSORTED
+ * @details
+ * M is the macro to explicitly instantiate a template for the given type.
+ * This macro explicitly instantiates the template for bool, float, double, all integers
+ * (signed/unsigned), and std::string.
+ * This is useful when \e definition of the template class/method involve too many details
+ * and you rather want to just give \e declaration of them in header.
+ *
+ * Use this as follows. In header file.
+ * @code{.h}
+ * template <typename T> void cool_func(T arg);
+ * @endcode
+ * Then, in cpp file.
+ * @code{.cpp}
+ * template <typename T> void cool_func(T arg) {
+ *   ... (implementation code)
+ * }
+ * #define EXPLICIT_INSTANTIATION_COOL_FUNC(x) template void cool_func< x > (x arg);
+ * INSTANTIATE_ALL_TYPES(EXPLICIT_INSTANTIATION_COOL_FUNC);
+ * @endcode
+ * Remember, you should invoke this macro in cpp, not header, otherwise you will get
+ * multiple-definition errors.
+ * @todo Doxygen doesn't understand template explicit instantiation, giving warnings. Not big issue.
+ */
+/**
+ * @def INSTANTIATE_ALL_NUMERIC_TYPES(M)
+ * @brief INSTANTIATE_ALL_TYPES minus std::string.
+ * @ingroup ASSORTED
+ */
+/**
+ * @def INSTANTIATE_ALL_INTEGER_TYPES(M)
+ * @brief INSTANTIATE_ALL_NUMERIC_TYPES minus bool/double/float.
+ * @ingroup ASSORTED
+ */
+#define INSTANTIATE_ALL_INTEGER_TYPES(M) M(int64_t);  /** NOLINT(readability/function) */\
+    M(int32_t); M(int16_t); M(int8_t); M(uint64_t);  /** NOLINT(readability/function) */\
+    M(uint32_t); M(uint16_t); M(uint8_t); /** NOLINT(readability/function) */
+
+#define INSTANTIATE_ALL_NUMERIC_TYPES(M) INSTANTIATE_ALL_INTEGER_TYPES(M);\
+    M(bool); M(float); M(double); /** NOLINT(readability/function) */
+
+#define INSTANTIATE_ALL_TYPES(M) INSTANTIATE_ALL_NUMERIC_TYPES(M);\
+    M(std::string);  /** NOLINT(readability/function) */
+
 
 #endif  // FOEDUS_ASSORTED_ASSORTED_FUNC_HPP_
