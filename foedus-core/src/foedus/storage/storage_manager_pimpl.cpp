@@ -24,6 +24,10 @@ ErrorStack StorageManagerPimpl::initialize_once() {
         return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
     }
 
+    largest_storage_id_ = 0;
+    storages_ = nullptr;
+    storages_capacity_ = 0;
+
     const size_t INITIAL_CAPACITY = 1 << 12;
     storages_ = new Storage*[INITIAL_CAPACITY];
     if (!storages_) {

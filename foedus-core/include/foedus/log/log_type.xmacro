@@ -17,4 +17,5 @@
  * A general log code like "drop" might omit module type names.
  */
 X(LOG_CODE_FILLER,          0x01, foedus::log::FillerLogType)
+X(LOG_CODE_EPOCH_MARKER,    0x02, foedus::log::EpochMarkerLogType)
 X(LOG_CODE_ARRAY_OVERWRITE, 0x21, foedus::storage::array::OverwriteLogType)

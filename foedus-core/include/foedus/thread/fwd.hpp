@@ -14,6 +14,7 @@ namespace foedus {
 namespace thread {
 struct  ImpersonateSession;
 class   ImpersonateTask;
+class   StoppableThread;
 class   Thread;
 class   ThreadGroup;
 class   ThreadGroupPimpl;

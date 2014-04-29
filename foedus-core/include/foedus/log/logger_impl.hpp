@@ -12,10 +12,8 @@
 #include <foedus/memory/fwd.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/thread/fwd.hpp>
+#include <foedus/thread/stoppable_thread_impl.hpp>
 #include <stdint.h>
-#include <condition_variable>
-#include <mutex>
-#include <thread>
 #include <vector>
 namespace foedus {
 namespace log {
@@ -29,7 +27,8 @@ namespace log {
 class Logger final : public DefaultInitializable {
  public:
     Logger(Engine* engine, LoggerId id, const fs::Path &log_path,
-           const std::vector< thread::ThreadId > &assigned_thread_ids);
+           const std::vector< thread::ThreadId > &assigned_thread_ids) : engine_(engine),
+           id_(id), log_path_(log_path), assigned_thread_ids_(assigned_thread_ids) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
@@ -47,11 +46,6 @@ class Logger final : public DefaultInitializable {
      */
     void        handle_logger();
 
-    /**
-     * Called from handle_logger when there is no log to process.
-     */
-    void        sleep_logger();
-
     fs::Path    construct_suffixed_log_path(LogFileOrdinal ordinal) const;
 
     Engine*                         engine_;
@@ -60,11 +54,7 @@ class Logger final : public DefaultInitializable {
     const fs::Path                  log_path_;
     std::vector< thread::ThreadId > assigned_thread_ids_;
 
-    std::mutex                      logger_mutex_;
-    std::condition_variable         logger_stop_condition_;
-    std::thread                     logger_thread_;
-    bool                            logger_stop_requested_;
-    bool                            logger_stopped_;
+    thread::StoppableThread         logger_thread_;
 
     memory::NumaNodeMemory*         node_memory_;
     char*                           logger_buffer_;

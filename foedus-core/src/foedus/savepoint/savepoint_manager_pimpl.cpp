@@ -14,6 +14,7 @@
 namespace foedus {
 namespace savepoint {
 ErrorStack SavepointManagerPimpl::initialize_once() {
+    savepoint_ = Savepoint();
     savepoint_path_ = fs::Path(engine_->get_options().savepoint_.savepoint_path_);
     LOG(INFO) << "Initializing SavepointManager.. path=" << savepoint_path_;
     auto logger_count = engine_->get_options().log_.get_logger_count();

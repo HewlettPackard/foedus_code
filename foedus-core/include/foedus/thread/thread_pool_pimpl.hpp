@@ -23,7 +23,7 @@ namespace thread {
 class ThreadPoolPimpl final : public DefaultInitializable {
  public:
     ThreadPoolPimpl() = delete;
-    explicit ThreadPoolPimpl(Engine* engine) : engine_(engine), no_more_impersonation_(false) {}
+    explicit ThreadPoolPimpl(Engine* engine) : engine_(engine) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 

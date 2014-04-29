@@ -13,13 +13,12 @@
 #include <glog/logging.h>
 namespace foedus {
 namespace memory {
-EngineMemory::EngineMemory(Engine* engine) : engine_(engine), page_pool_(engine) {}
-
 ErrorStack EngineMemory::initialize_once() {
     LOG(INFO) << "Initializing EngineMemory..";
     if (!engine_->get_debug().is_initialized()) {
         return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
     }
+    ASSERT_ND(node_memories_.empty());
     const EngineOptions& options = engine_->get_options();
 
     // Can we at least start up?

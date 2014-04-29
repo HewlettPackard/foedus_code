@@ -24,6 +24,7 @@ ErrorStack ThreadPoolPimpl::initialize_once() {
         return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
     }
     no_more_impersonation_ = false;
+    ASSERT_ND(groups_.empty());
     const ThreadOptions &options = engine_->get_options().thread_;
     for (ThreadGroupId group_id = 0; group_id < options.group_count_; ++group_id) {
         memory::ScopedNumaPreferred numa_scope(group_id);

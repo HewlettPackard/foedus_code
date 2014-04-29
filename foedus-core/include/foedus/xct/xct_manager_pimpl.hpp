@@ -9,10 +9,9 @@
 #include <foedus/thread/fwd.hpp>
 #include <foedus/xct/fwd.hpp>
 #include <foedus/xct/epoch.hpp>
-#include <atomic>
+#include <foedus/thread/stoppable_thread_impl.hpp>
 #include <condition_variable>
 #include <mutex>
-#include <thread>
 namespace foedus {
 namespace xct {
 /**
@@ -25,46 +24,63 @@ namespace xct {
 class XctManagerPimpl final : public DefaultInitializable {
  public:
     XctManagerPimpl() = delete;
-    explicit XctManagerPimpl(Engine* engine);
+    explicit XctManagerPimpl(Engine* engine) : engine_(engine) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
-    Epoch       get_global_epoch(bool fence_before_get) const {
-        if (fence_before_get) {
-            std::atomic_thread_fence(std::memory_order_acquire);
-        }
-        return global_epoch_;
-    }
     ErrorStack  begin_xct(thread::Thread* context);
     /**
      * This is the gut of commit protocol. It's mostly same as [TU2013].
      */
-    ErrorStack  prepare_commit_xct(thread::Thread* context, Epoch *commit_epoch);
+    ErrorStack  precommit_xct(thread::Thread* context, Epoch *commit_epoch);
     ErrorStack  abort_xct(thread::Thread* context);
 
+    void        advance_current_global_epoch();
+    ErrorCode   wait_for_commit(const Epoch &commit_epoch, int64_t wait_microseconds);
+
     /**
-     * @brief Phase 1 of prepare_commit_xct()
+     * @brief precommit_xct() if the transaction is read-only
+     * @details
+     * If the transaction is read-only, commit-epoch (serialization point) is the largest epoch
+     * number in the read set. We don't have to take two memory fences in this case.
+     */
+    bool        precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch);
+    /**
+     * @brief precommit_xct() if the transaction is read-write
+     * @details
+     * See [TU2013] for the full protocol in this case.
+     */
+    bool        precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch);
+    /**
+     * @brief Phase 1 of precommit_xct()
      * @details
      * Try to lock all records we are going to write.
      * After phase 2, we take memory fence.
      */
-    void prepare_commit_xct_lock_phase(thread::Thread* context);
+    void        precommit_xct_lock(thread::Thread* context);
     /**
-     * @brief Phase 2 of prepare_commit_xct()
+     * @brief Phase 2 of precommit_xct() for read-only case
+     * @return true if verification succeeded. false if we need to abort.
+     * @details
+     * Verify the observed read set and set the commit epoch to the highest epoch it observed.
+     */
+    bool        precommit_xct_verify_readonly(thread::Thread* context, Epoch *commit_epoch);
+    /**
+     * @brief Phase 2 of precommit_xct() for read-write case
      * @return true if verification succeeded. false if we need to abort.
      * @details
      * Verify the observed read set and write set against the same record.
      * Because phase 2 is after the memory fence, no thread would take new locks while checking.
      */
-    bool prepare_commit_xct_verify_phase(thread::Thread* context);
+    bool        precommit_xct_verify_readwrite(thread::Thread* context);
     /**
-     * @brief Phase 3 of prepare_commit_xct()
+     * @brief Phase 3 of precommit_xct()
      * @details
      * Assuming phase 1 and 2 are successfully completed, apply all changes and unlock locks.
      */
-    void prepare_commit_xct_apply_phase(thread::Thread* context, const Epoch &commit_epoch);
+    void        precommit_xct_apply(thread::Thread* context, const Epoch &commit_epoch);
     /** unlocking all acquired locks, used when aborts. */
-    void prepare_commit_xct_unlock(thread::Thread* context);
+    void        precommit_xct_unlock(thread::Thread* context);
 
     /**
      * @brief Main routine for epoch_advance_thread_.
@@ -77,18 +93,37 @@ class XctManagerPimpl final : public DefaultInitializable {
     Engine* const           engine_;
 
     /**
-     * The current epoch of the entire engine.
+     * @brief The current epoch of the entire engine.
+     * @details
+     * Currently running (committing) transactions will use this value as their serialization point.
      * No locks to protect this variable, but
      * \li There should be only one thread that might update this (XctManager).
      * \li Readers should take appropriate fence before reading this (XctManager#begin_xct()).
      */
-    Epoch                   global_epoch_;
+    Epoch                   current_global_epoch_;
 
-    std::mutex              epoch_advance_mutex_;
-    std::condition_variable epoch_advance_stop_condition_;
-    std::thread             epoch_advance_thread_;
-    bool                    epoch_advance_stop_requested_;
-    bool                    epoch_advance_stopped_;
+    /**
+     * @brief The durable epoch of the entire engine.
+     * @invariant current_global_epoch_ > durable_global_epoch_
+     * @details
+     * This value indicates upto what commit-groups we can return results to client programs.
+     * This value is advanced by checking the durable epoch of each logger.
+     */
+    Epoch                   durable_global_epoch_;
+
+    /** Fired (notify_all) whenever current_global_epoch_ is advanced. */
+    std::condition_variable current_global_epoch_advanced_;
+    /** Protects current_global_epoch_advanced_. */
+    std::mutex              current_global_epoch_advanced_mutex_;
+    /** Fired (notify_all) whenever durable_global_epoch_ is advanced. */
+    std::condition_variable durable_global_epoch_advanced_;
+    /** Protects durable_global_epoch_advanced_. */
+    std::mutex              durable_global_epoch_advanced_mutex_;
+
+    /**
+     * This thread keeps advancing the current_global_epoch_.
+     */
+    thread::StoppableThread epoch_advance_thread_;
 };
 }  // namespace xct
 }  // namespace foedus

@@ -24,8 +24,7 @@ namespace storage {
 class StorageManagerPimpl final : public DefaultInitializable {
  public:
     StorageManagerPimpl() = delete;
-    explicit StorageManagerPimpl(Engine* engine)
-        : engine_(engine), largest_storage_id_(0), storages_(nullptr), storages_capacity_(0) {}
+    explicit StorageManagerPimpl(Engine* engine) : engine_(engine) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 

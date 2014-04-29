@@ -16,13 +16,14 @@
 #include <algorithm>
 namespace foedus {
 namespace memory {
-PagePoolPimpl::PagePoolPimpl(Engine* engine) : engine_(engine),
-    pool_base_(nullptr), pool_size_(0),
-    free_pool_(nullptr), free_pool_capacity_(0),
-    free_pool_head_(0), free_pool_count_(0) {
-}
-
 ErrorStack PagePoolPimpl::initialize_once() {
+    pool_base_ = nullptr;
+    pool_size_= 0;
+    free_pool_ = nullptr;
+    free_pool_capacity_ = 0;
+    free_pool_head_ = 0;
+    free_pool_count_ = 0;
+
     const MemoryOptions &options = engine_->get_options().memory_;
     LOG(INFO) << "Acquiring memory for Page Pool...";
     {

@@ -32,7 +32,7 @@ namespace memory {
 class EngineMemory CXX11_FINAL : public DefaultInitializable {
  public:
     EngineMemory() CXX11_FUNC_DELETE;
-    explicit EngineMemory(Engine* engine);
+    explicit EngineMemory(Engine* engine) : engine_(engine), page_pool_(engine) {}
     ErrorStack  initialize_once() CXX11_OVERRIDE;
     ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 

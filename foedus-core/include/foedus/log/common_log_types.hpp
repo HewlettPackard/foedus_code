@@ -8,6 +8,7 @@
 #include <foedus/fwd.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/storage/storage_id.hpp>
+#include <foedus/xct/epoch.hpp>
 #include <foedus/assert_nd.hpp>
 #include <iosfwd>
 
@@ -142,6 +143,28 @@ struct FillerLogType : public BaseLogType {
 
     friend std::ostream& operator<<(std::ostream& o, const FillerLogType&) { return o; }
 };
+
+/**
+ * @brief A log type to declare a switch of epoch in a logger or the engine.
+ * @ingroup LOG LOGTYPE
+ * @details
+ * As we use epoch-based coarse-grained commit protocol, we don't have to include epoch or
+ * any timestamp information in each log. Rather, we occasionally put this log in each log file.
+ * This log is just a marker. No apply operation.
+ */
+struct EpochMarkerLogType : public EngineLogType {
+    LOG_TYPE_NO_CONSTRUCT(EpochMarkerLogType)
+
+    void    apply_engine(Engine* /*engine*/) {}
+
+    /** Epoch before this switch. */
+    xct::Epoch      old_epoch_;  // +4
+    /** Epoch after this switch. */
+    xct::Epoch      new_epoch_;  // +4
+
+    friend std::ostream& operator<<(std::ostream& o, const EpochMarkerLogType &v);
+};
+
 }  // namespace log
 }  // namespace foedus
 #endif  // FOEDUS_LOG_COMMON_LOG_TYPES_HPP_

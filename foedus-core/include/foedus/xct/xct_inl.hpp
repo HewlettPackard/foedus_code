@@ -24,6 +24,11 @@ inline ErrorCode Xct::add_to_read_set(storage::Record* record) {
     }
 
     read_set_[read_set_size_].observed_owner_id_ = record->owner_id_;
+    // If the record is locked, we will most likely abort at commit time.
+    // So, do it immediately to avoid wasting CPU resource.
+    if (UNLIKELY(read_set_[read_set_size_].observed_owner_id_.is_locked<15>())) {
+        return ERROR_CODE_XCT_RACE_ABORT;
+    }
     read_set_[read_set_size_].record_ = record;
     ++read_set_size_;
     return ERROR_CODE_OK;

@@ -24,7 +24,7 @@ namespace memory {
 class PagePoolPimpl final : public DefaultInitializable {
  public:
     PagePoolPimpl() = delete;
-    explicit PagePoolPimpl(Engine* engine);
+    explicit PagePoolPimpl(Engine* engine) : engine_(engine) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 

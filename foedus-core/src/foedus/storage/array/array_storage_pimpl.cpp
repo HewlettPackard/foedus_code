@@ -235,8 +235,7 @@ ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOffset of
     ASSERT_ND(page->get_array_range().contains(offset));
     ArrayOffset index = offset - page->get_array_range().begin_;
     Record *record = page->get_leaf_record(index);
-    // TODO(Hideaki) Handle too-many-read-set error
-    context->get_current_xct().add_to_read_set(record);
+    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(record));
     std::memcpy(payload, record->payload_ + payload_offset, payload_count);
     return RET_OK;
 }
@@ -259,8 +258,7 @@ ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context,
         context->get_thread_log_buffer().reserve_new_log(log_length));
     log_entry->populate(id_, offset, payload, payload_offset, payload_count);
 
-    // TODO(Hideaki) Handle too-many-write-set error
-    context->get_current_xct().add_to_write_set(record, log_entry);
+    CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(record, log_entry));
     return RET_OK;
 }
 

@@ -13,6 +13,7 @@ namespace foedus {
 namespace log {
 struct  BaseLogType;
 struct  EngineLogType;
+struct  EpochMarkerLogType;
 struct  FillerLogType;
 class   LogManager;
 class   LogManagerPimpl;

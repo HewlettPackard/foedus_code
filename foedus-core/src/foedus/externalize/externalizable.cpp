@@ -204,6 +204,7 @@ ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::
 template <typename T>
 ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
                                             std::vector<T> * out, bool optional) {
+    out->clear();
     TinyxmlGetter<T> tinyxml_getter;
     for (tinyxml2::XMLElement* element = parent->FirstChildElement(tag.c_str());
          element; element = element->NextSiblingElement(tag.c_str())) {

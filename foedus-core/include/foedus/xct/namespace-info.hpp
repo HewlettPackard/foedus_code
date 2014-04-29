@@ -10,7 +10,13 @@
  * @brief \b Transaction \b Manager, which provides APIs to begin/commit/abort transactions.
  * @details
  * bluh
- * @todo IMPLEMENT
+ * @section REF References
+ * \li [LARSON11] Perake Larson, Spyros Blanas, Cristian Diaconu, Craig Freedman, Jignesh M. Patel,
+ * and Mike Zwilling. "High-Performance Concurrency Control Mechanisms for Main-Memory Databases."
+ * VLDB, 2011.
+ *
+ * \li [TU13] Stephen Tu, Wenting Zheng, Eddie Kohler, Barbara Liskov, and Samuel Madden.
+ *   "Speedy transactions in multicore in-memory databases.", SOSP, 2013.
  */
 
 /**
