@@ -4,19 +4,32 @@
  */
 #include <foedus/externalize/externalizable.hpp>
 #include <foedus/log/log_options.hpp>
+#include <numa.h>
 #include <string>
+#include <sstream>
 namespace foedus {
 namespace log {
 LogOptions::LogOptions() {
-    log_paths_.push_back("foedus.log");
+    int node_count = ::numa_num_configured_nodes();
+    if (node_count <= 0) {
+        node_count = 1;
+    }
+    for (int node = 0; node < node_count; ++node) {
+        std::stringstream str;
+        str << "foedus_node" << node << ".log";
+        log_paths_.push_back(str.str());
+    }
+
     thread_buffer_kb_ = DEFAULT_THREAD_BUFFER_KB;
     logger_buffer_kb_ = DEFAULT_LOGGER_BUFFER_KB;
+    log_file_size_mb_ = DEFAULT_LOG_FILE_SIZE_MB;
 }
 
 ErrorStack LogOptions::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, log_paths_);
     EXTERNALIZE_LOAD_ELEMENT(element, thread_buffer_kb_);
     EXTERNALIZE_LOAD_ELEMENT(element, logger_buffer_kb_);
+    EXTERNALIZE_LOAD_ELEMENT(element, log_file_size_mb_);
     CHECK_ERROR(get_child_element(element, "LogDeviceEmulationOptions", &emulation_))
     return RET_OK;
 }
@@ -34,6 +47,7 @@ ErrorStack LogOptions::save(tinyxml2::XMLElement* element) const {
     EXTERNALIZE_SAVE_ELEMENT(element, thread_buffer_kb_,
         "Size in KB of log buffer for each worker thread");
     EXTERNALIZE_SAVE_ELEMENT(element, logger_buffer_kb_, "Size in KB of logger for each logger");
+    EXTERNALIZE_SAVE_ELEMENT(element, log_file_size_mb_, "Size in MB of files loggers write out");
     CHECK_ERROR(add_child_element(element, "LogDeviceEmulationOptions",
                     "[Experiments-only] Settings to emulate slower logging device", emulation_));
     return RET_OK;

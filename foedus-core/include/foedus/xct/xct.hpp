@@ -6,11 +6,12 @@
 #define FOEDUS_XCT_XCT_HPP_
 #include <foedus/cxx11.hpp>
 #include <foedus/error_stack.hpp>
+#include <foedus/memory/fwd.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
+#include <foedus/thread/thread_id.hpp>
 #include <foedus/xct/fwd.hpp>
 #include <foedus/xct/epoch.hpp>
-#include <foedus/xct/isolation_level.hpp>
 #include <foedus/xct/xct_id.hpp>
 #include <foedus/assert_nd.hpp>
 #include <iosfwd>
@@ -23,7 +24,6 @@ namespace xct {
  * @details
  * To obtain this object (in other words, to begin a transaction),
  * call XctManager#begin_xct().
- * @todo should be instantiated exclusively by ThreadPimpl so that no need for activate.
  */
 class Xct {
  public:
@@ -33,12 +33,21 @@ class Xct {
     Xct(const Xct& other) CXX11_FUNC_DELETE;
     Xct& operator=(const Xct& other) CXX11_FUNC_DELETE;
 
+    void initialize(thread::ThreadId thread_id, memory::NumaCoreMemory* core_memory);
+
     /**
-     * Initializes the transaction information.
+     * Begins the transaction.
      */
-    void                activate(thread::Thread* thread);
+    void                activate(IsolationLevel isolation_level) {
+        ASSERT_ND(!active_);
+        active_ = true;
+        isolation_level_ = isolation_level;
+        read_set_size_ = 0;
+        write_set_size_ = 0;
+    }
+
     /**
-     * Deactivates the transaction information and prepare for reuse.
+     * Closes the transaction.
      */
     void                deactivate() { active_ = false; }
 
@@ -97,9 +106,6 @@ class Xct {
     WriteXctAccess*     write_set_;
     uint32_t            write_set_size_;
     uint32_t            max_write_set_size_;
-
-    /** The thread this transaction is running on. */
-    thread::Thread*     thread_;
 };
 }  // namespace xct
 }  // namespace foedus

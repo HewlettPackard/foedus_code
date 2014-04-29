@@ -122,9 +122,10 @@ Then, include the following in your CMakeLists.txt:
     find_package(Threads REQUIRED)
     target_link_libraries(your_program ${CMAKE_THREAD_LIBS_INIT})
 
-Optimizing for NUMA architecture is also too essential for our goal.
-Thus, we depend on libnuma. And, (to my knowledge) there is no good way to statically link to
-libnuma. Hence, your client program must also link to libnuma.so. Run the following:
+Optimizing for NUMA architecture is also too essential to miss in our project.
+Thus, we link to libnuma. And, (to my knowledge) there is no good way to statically link to
+libnuma (libnuma is under LGPL). Hence, your client program must also link to libnuma.so.
+Run the following:
 
     sudo yum install numactl numactl-devel  # RedHat/Fedora
     sudo apt-get install libnuma-dev        # Debian/Ubuntu

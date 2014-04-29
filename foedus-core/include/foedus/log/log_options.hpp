@@ -26,6 +26,8 @@ struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
         DEFAULT_THREAD_BUFFER_KB = (1 << 14),
         /** Default value for logger_buffer_kb_. */
         DEFAULT_LOGGER_BUFFER_KB = (1 << 14),
+        /** Default value for log_file_size_mb_. */
+        DEFAULT_LOG_FILE_SIZE_MB = (1 << 14),
     };
     /**
      * Constructs option values with default values.
@@ -40,8 +42,9 @@ struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
      * For the best performance, the number of loggers must be multiply of the number of NUMA
      * node and also be a submultiple of the total number of cores.
      * This is to evenly assign cores to loggers, loggers to NUMA nodes.
-     * @attention The default value is just one entry of "foedus.log". When you modify this
-     * setting, do NOT forget removing the default entry; call log_paths_.clear() first.
+     * Default value is "foedus_nodeX.log" where X is NUMA nodes, one entry for each NUMA node.
+     * @attention When you modify this setting, do NOT forget removing the default entry;
+     * call log_paths_.clear() first.
      */
     std::vector<std::string>    log_paths_;
 
@@ -50,6 +53,9 @@ struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
 
     /** Size in KB of logger for \e each logger. */
     uint32_t                    logger_buffer_kb_;
+
+    /** Size in MB of each file loggers write out. */
+    uint32_t                    log_file_size_mb_;
 
     /** Settings to emulate slower logging device. */
     foedus::fs::DeviceEmulationOptions emulation_;

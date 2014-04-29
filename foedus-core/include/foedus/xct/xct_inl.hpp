@@ -19,7 +19,10 @@ namespace foedus {
 namespace xct {
 
 inline ErrorCode Xct::add_to_read_set(storage::Record* record) {
-    if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
+    if (isolation_level_ == DIRTY_READ_PREFER_SNAPSHOT
+        || isolation_level_ == DIRTY_READ_PREFER_VOLATILE) {
+        return ERROR_CODE_OK;
+    } else if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
         return ERROR_CODE_XCT_READ_SET_OVERFLOW;
     }
 

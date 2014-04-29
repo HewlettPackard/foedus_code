@@ -11,12 +11,15 @@
 #include <foedus/storage/storage_id.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <glog/logging.h>
+#include <numa.h>
 namespace foedus {
 namespace memory {
 ErrorStack EngineMemory::initialize_once() {
     LOG(INFO) << "Initializing EngineMemory..";
     if (!engine_->get_debug().is_initialized()) {
         return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
+    } else if (::numa_available() < 0) {
+        return ERROR_STACK(ERROR_CODE_MEMORY_NUMA_UNAVAILABLE);
     }
     ASSERT_ND(node_memories_.empty());
     const EngineOptions& options = engine_->get_options();

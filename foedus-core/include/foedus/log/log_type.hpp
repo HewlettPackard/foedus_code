@@ -54,7 +54,7 @@ namespace log {
  * @ingroup LOGTYPE
  * @details
  */
-#define X(a, b, c) /** b: c. */ a = b,
+#define X(a, b, c) /** b: c. @copydoc c */ a = b,
 enum LogCode {
     /** 0 is reserved as a non-existing log type. */
     LOG_TYPE_INVALID = 0,

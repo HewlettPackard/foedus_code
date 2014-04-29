@@ -7,6 +7,7 @@
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/xct/fwd.hpp>
+#include <foedus/xct/xct_id.hpp>
 #include <foedus/thread/fwd.hpp>
 namespace foedus {
 namespace xct {
@@ -54,9 +55,10 @@ class XctManager CXX11_FINAL : public virtual Initializable {
     /**
      * @brief Begins a new transaction on the thread.
      * @param[in,out] context Thread context
+     * @param[in] isolation_level concurrency isolation level of the new transaction
      * @pre context->is_running_xct() == false
      */
-    ErrorStack  begin_xct(thread::Thread* context);
+    ErrorStack  begin_xct(thread::Thread* context, IsolationLevel isolation_level);
 
     /**
      * @brief Prepares the currently running transaction on the thread for commit.

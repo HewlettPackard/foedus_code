@@ -76,7 +76,8 @@ class MyTask2 : public th::ImpersonateTask {
     MyTask2() {}
     foedus::ErrorStack run(th::Thread* context) {
         foedus::Engine *engine = context->get_engine();
-        CHECK_ERROR(engine->get_xct_manager().begin_xct(context));
+        CHECK_ERROR(engine->get_xct_manager().begin_xct(context,
+            foedus::xct::DIRTY_READ_PREFER_SNAPSHOT));
         foedus::storage::Storage* storage = engine->get_storage_manager().get_storage(the_id);
         foedus::xct::Epoch commit_epoch;
 
@@ -101,7 +102,9 @@ class MyTask2 : public th::ImpersonateTask {
             ++processed_;
             if ((processed_ & 0xFFFF) == 0) {
                 CHECK_ERROR(engine->get_xct_manager().precommit_xct(context, &commit_epoch));
-                CHECK_ERROR(engine->get_xct_manager().begin_xct(context));
+                CHECK_ERROR(engine->get_xct_manager().begin_xct(context,
+                    foedus::xct::SERIALIZABLE));
+                    // foedus::xct::DIRTY_REA   D_PREFER_SNAPSHOT));
                 std::atomic_thread_fence(std::memory_order_acquire);
                 if (stop_req) {
                     break;
@@ -130,6 +133,8 @@ int main(int argc, char **argv) {
         std::cout << "Profiling..." << std::endl;
     }
     foedus::EngineOptions options;
+    options.debugging_.debug_log_min_threshold_
+        = foedus::debugging::DebuggingOptions::DEBUG_LOG_WARNING;
     std::cout << "options=" << std::endl << options << std::endl;
     const int THREADS = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
     {

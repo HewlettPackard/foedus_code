@@ -86,7 +86,7 @@ class Logger final : public DefaultInitializable {
      */
     uint64_t                        current_file_offset_end_;
 
-    std::vector< thread::ThreadPimpl* >  assigned_threads_;
+    std::vector< thread::Thread* >  assigned_threads_;
 };
 }  // namespace log
 }  // namespace foedus

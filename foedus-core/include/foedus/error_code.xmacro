@@ -44,6 +44,7 @@ X(ERROR_CODE_FS_TRUNCATE_FAILED,    0x020E, "FILESYS: File truncation failed")
 X(ERROR_CODE_MEMORY_NO_FREE_PAGES,  0x0301, "MEMORY : Not enough free pages. Check the config of MemoryOptions")
 X(ERROR_CODE_MEMORY_DUPLICATE_PAGE, 0x0302, "MEMORY : Duplicate entry in free-page pool.")
 X(ERROR_CODE_MEMORY_PAGE_POOL_TOO_SMALL, 0x0303, "MEMORY : Page Pool size is too small.")
+X(ERROR_CODE_MEMORY_NUMA_UNAVAILABLE, 0x0304, "MEMORY : NUMA library is not available.")
 
 X(ERROR_CODE_CONF_PARSE_FAILED,     0x0401, "CONFIG : Config file parsing failed. This usually means an invalid XML file.")
 X(ERROR_CODE_CONF_VALUE_OUTOFRANGE, 0x0402, "CONFIG : Configuration value out of range.")

@@ -5,6 +5,7 @@
 #include <foedus/engine.hpp>
 #include <foedus/error_stack_batch.hpp>
 #include <foedus/log/logger_impl.hpp>
+#include <foedus/log/thread_log_buffer_impl.hpp>
 #include <foedus/fs/filesystem.hpp>
 #include <foedus/fs/direct_io_file.hpp>
 #include <foedus/engine_options.hpp>
@@ -56,7 +57,7 @@ ErrorStack Logger::initialize_once() {
     if (desired_length < fs::file_size(current_file_path_)) {
         // there are non-durable regions as an incomplete remnant of previous execution.
         // probably there was a crash. in this case, we discard the non-durable regions.
-        LOG(WARNING) << "Logger-" << id_ << "'s log file has a non-durable region. Probably there"
+        LOG(ERROR) << "Logger-" << id_ << "'s log file has a non-durable region. Probably there"
             << " was a crash. Will truncate it to " << desired_length << " from " << current_length;
         CHECK_ERROR(current_file_->truncate(desired_length, true));  // also sync right now
     }
@@ -64,7 +65,7 @@ ErrorStack Logger::initialize_once() {
     // which threads are assigned to me?
     for (auto thread_id : assigned_thread_ids_) {
         assigned_threads_.push_back(
-            engine_->get_thread_pool().get_pimpl()->get_thread(thread_id)->get_pimpl());
+            engine_->get_thread_pool().get_pimpl()->get_thread(thread_id));
     }
 
     // grab a buffer to do file I/O
@@ -75,7 +76,7 @@ ErrorStack Logger::initialize_once() {
 
     // log file and buffer prepared. let's launch the logger thread
     logger_thread_.initialize("Logger-", id_,
-                        std::thread(&Logger::handle_logger, this), std::chrono::milliseconds(10));
+                    std::thread(&Logger::handle_logger, this), std::chrono::milliseconds(50));
     return RET_OK;
 }
 
@@ -95,6 +96,14 @@ void Logger::handle_logger() {
     ::numa_run_on_node(numa_node_);
     while (!logger_thread_.sleep()) {
         VLOG(1) << "Logger-" << id_ << " doing the job..";
+        std::atomic_thread_fence(std::memory_order_acquire);
+        for (thread::Thread* the_thread : assigned_threads_) {
+            ThreadLogBuffer& buffer = the_thread->get_thread_log_buffer();
+            if (buffer.get_offset_head() == buffer.get_offset_durable()) {
+                VLOG(1) << "Thread-" << the_thread->get_thread_id() << " has no log to flush.";
+                continue;
+            }
+        }
     }
     LOG(INFO) << "Logger-" << id_ << " ended.";
 }

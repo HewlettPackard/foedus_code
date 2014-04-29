@@ -109,17 +109,21 @@ ErrorCode XctManagerPimpl::wait_for_commit(const Epoch& commit_epoch, int64_t wa
 }
 
 
-ErrorStack XctManagerPimpl::begin_xct(thread::Thread* context) {
-    if (context->is_running_xct()) {
+ErrorStack XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel isolation_level) {
+    Xct& current_xct = context->get_current_xct();
+    if (current_xct.is_active()) {
         return ERROR_STACK(ERROR_CODE_XCT_ALREADY_RUNNING);
     }
-    LOG(INFO) << "Stopping epoch_advance_thread...";
-    context->activate_xct();
+    DLOG(INFO) << "Began new transaction in thread-" << context->get_thread_id();
+    current_xct.activate(isolation_level);
+    ASSERT_ND(context->get_thread_log_buffer().get_offset_tail()
+        == context->get_thread_log_buffer().get_offset_current_xct_begin());
     return RET_OK;
 }
 
 ErrorStack XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_epoch) {
-    if (!context->is_running_xct()) {
+    Xct& current_xct = context->get_current_xct();
+    if (!current_xct.is_active()) {
         return ERROR_STACK(ERROR_CODE_XCT_NO_XCT);
     }
 
@@ -131,11 +135,12 @@ ErrorStack XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit
         success = precommit_xct_readwrite(context, commit_epoch);
     }
 
-    context->deactivate_xct();
+    current_xct.deactivate();
     if (success) {
         return RET_OK;
     } else {
         DLOG(WARNING) << "Aborting because of contention";
+        context->get_thread_log_buffer().discard_current_xct_log();
         return ERROR_STACK(ERROR_CODE_XCT_RACE_ABORT);
     }
 }
@@ -277,11 +282,12 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context) {
 }
 
 ErrorStack XctManagerPimpl::abort_xct(thread::Thread* context) {
-    if (!context->is_running_xct()) {
+    Xct& current_xct = context->get_current_xct();
+    if (!current_xct.is_active()) {
         return ERROR_STACK(ERROR_CODE_XCT_NO_XCT);
     }
-    // TODO(Hideaki) Implement
-    context->deactivate_xct();
+    current_xct.deactivate();
+    context->get_thread_log_buffer().discard_current_xct_log();
     return RET_OK;
 }
 

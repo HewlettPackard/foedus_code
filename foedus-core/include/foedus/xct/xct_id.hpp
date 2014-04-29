@@ -21,6 +21,46 @@ namespace foedus {
 namespace xct {
 
 /**
+ * @brief Specifies the level of isolation during transaction processing.
+ * @ingroup XCT
+ * @details
+ * May add:
+ * \li COMMITTED_READ: see-epoch and read data -> fence -> check-epoch, then forget the read set
+ * \li REPEATABLE_READ: assuming no-repeated-access (which we do assume), same as COMMITTED_READ
+ */
+enum IsolationLevel {
+    /**
+     * No guarantee at all for reads, for the sake of best performance and scalability.
+     * This avoids checking and even storing read set, thus provides the best performance.
+     * However, concurrent transactions might be modifying the data the transaction is now reading.
+     * So, this has a chance of reading half-changed data.
+     * To ameriolate the issue a bit, this mode prefers snapshot pages if both a snapshot page
+     * and a volatile page is available. In other words, more consistent but more stale data.
+     */
+    DIRTY_READ_PREFER_SNAPSHOT,
+
+    /**
+     * Basically same as DIRTY_READ_PREFER_SNAPSHOT, but this mode prefers volatile pages
+     * if both a snapshot page and a volatile page is available. In other words,
+     * more recent but more inconsistent data.
+     */
+    DIRTY_READ_PREFER_VOLATILE,
+
+    /**
+     * Snapshot isolation, meaning the transaction might see or be based on stale snapshot.
+     * Optionally, the client can specify which snapshot we should be based on.
+     */
+    SNAPSHOT,
+
+    /**
+     * Protects against all anomalies in all situations.
+     * This is the most expensive level, but everything good has a price.
+     */
+    SERIALIZABLE,
+};
+
+
+/**
  * @brief Transaction ID, a 64-bit data to identify transactions and record versions.
  * @ingroup XCT
  * @details
@@ -100,7 +140,6 @@ struct XctId {
 };
 // sizeof(XctId) must be 64 bits.
 const int dummy_check_xct_id_ = assorted::static_size_check<sizeof(XctId), sizeof(uint64_t)>();
-
 }  // namespace xct
 }  // namespace foedus
 #endif  // FOEDUS_XCT_XCT_ID_HPP_

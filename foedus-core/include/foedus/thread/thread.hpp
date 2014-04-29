@@ -29,9 +29,6 @@ class Thread CXX11_FINAL : public virtual Initializable {
     Engine*     get_engine() const;
     ThreadId    get_thread_id() const;
 
-    /** Returns whether this thread is now running a transaction. */
-    bool        is_running_xct() const;
-
     /**
      * Returns the transaction that is currently running on this thread.
      */
@@ -39,19 +36,6 @@ class Thread CXX11_FINAL : public virtual Initializable {
 
     /** Returns the private memory repository of this thread. */
     memory::NumaCoreMemory* get_thread_memory() const;
-
-
-    /**
-     * @brief Activates the transaction object on the thread.
-     * @pre is_running_xct() == false
-     */
-    void            activate_xct();
-
-    /**
-     * @brief Deactivates the transaction object on the thread.
-     * @pre is_running_xct() == true
-     */
-    void            deactivate_xct();
 
     /**
      * @brief Returns the private log buffer for this thread.

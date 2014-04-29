@@ -13,7 +13,6 @@ namespace xct {
 Xct::Xct() {
     id_ = XctId();
     active_ = false;
-    thread_ = nullptr;
     read_set_ = nullptr;
     read_set_size_ = 0;
     max_read_set_size_ = 0;
@@ -22,12 +21,8 @@ Xct::Xct() {
     max_write_set_size_ = 0;
 }
 
-void Xct::activate(thread::Thread* thread) {
-    id_ = XctId();
-    id_.thread_id_ = thread->get_thread_id();
-    active_ = true;
-    thread_ = thread;
-    memory::NumaCoreMemory* core_memory = thread->get_thread_memory();
+void Xct::initialize(thread::ThreadId thread_id, memory::NumaCoreMemory* core_memory) {
+    id_.thread_id_ = thread_id;
     read_set_ = core_memory->get_read_set_memory();
     read_set_size_ = 0;
     max_read_set_size_ = core_memory->get_read_set_size();
@@ -35,7 +30,6 @@ void Xct::activate(thread::Thread* thread) {
     write_set_size_ = 0;
     max_write_set_size_ = core_memory->get_write_set_size();
 }
-
 
 std::ostream& operator<<(std::ostream& o, const Xct& v) {
     o << "Xct: " << v.get_id() << ", read_set_size=" << v.get_read_set_size()

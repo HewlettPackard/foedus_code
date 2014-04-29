@@ -19,6 +19,12 @@ ErrorStack ThreadLogBuffer::initialize_once() {
     buffer_ = memory->get_log_buffer_memory();
     buffer_size_ = memory->get_log_buffer_size();
     buffer_size_safe_ = buffer_size_ - 64;
+    durable_epoch_ = xct::Epoch(0);
+    current_epoch_ = xct::Epoch(0);
+    offset_head_ = 0;
+    offset_durable_ = 0;
+    offset_current_xct_begin_ = 0;
+    offset_tail_ = 0;
     return RET_OK;
 }
 

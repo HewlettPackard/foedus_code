@@ -25,6 +25,7 @@ ThreadPimpl::ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder
 
 ErrorStack ThreadPimpl::initialize_once() {
     core_memory_ = engine_->get_memory_manager().get_core_memory(id_);
+    current_xct_.initialize(id_, core_memory_);
     impersonated_task_ = std::promise<ImpersonateTask*>();  // reset the promise/future pair
     raw_thread_ = std::thread();  // reset the thread object
     CHECK_ERROR(log_buffer_.initialize());
@@ -86,17 +87,6 @@ bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
         return false;
     }
 }
-
-void ThreadPimpl::activate_xct() {
-    ASSERT_ND(!current_xct_.is_active());
-    current_xct_.activate(holder_);
-}
-
-void ThreadPimpl::deactivate_xct() {
-    ASSERT_ND(current_xct_.is_active());
-    current_xct_.deactivate();
-}
-
 
 }  // namespace thread
 }  // namespace foedus

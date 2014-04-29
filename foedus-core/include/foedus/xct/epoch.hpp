@@ -10,20 +10,16 @@
 namespace foedus {
 namespace xct {
 /**
- * @defgroup EPOCH Time Epoch
  * @ingroup XCT
- * @brief Epoch is an corase-grained timestamp used all over the places.
+ * @brief Represents a time epoch.
  * @details
+ * Epoch is an corase-grained timestamp used all over the places.
+ *
  * @par What is Epoch
  * bluh bluh.
  * @par Who/When Epoch is Incremented
  * bluh bluh.
- */
-
-/**
- * @ingroup EPOCH
- * @brief Represents an epoch.
- * @details
+ *
  * This class is header-only \b except the std::ostream redirect.
  * @todo Handle wrapping-around
  */

@@ -9,6 +9,7 @@
 #include <foedus/thread/fwd.hpp>
 #include <foedus/xct/fwd.hpp>
 #include <foedus/xct/epoch.hpp>
+#include <foedus/xct/xct_id.hpp>
 #include <foedus/thread/stoppable_thread_impl.hpp>
 #include <condition_variable>
 #include <mutex>
@@ -28,7 +29,7 @@ class XctManagerPimpl final : public DefaultInitializable {
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
-    ErrorStack  begin_xct(thread::Thread* context);
+    ErrorStack  begin_xct(thread::Thread* context, IsolationLevel isolation_level);
     /**
      * This is the gut of commit protocol. It's mostly same as [TU2013].
      */

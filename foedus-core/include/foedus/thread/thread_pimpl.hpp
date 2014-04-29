@@ -47,9 +47,6 @@ class ThreadPimpl final : public DefaultInitializable {
      */
     bool        try_impersonate(ImpersonateSession *session);
 
-    void        activate_xct();
-    void        deactivate_xct();
-
     Engine* const           engine_;
 
     /**

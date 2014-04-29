@@ -110,6 +110,10 @@ class ThreadLogBuffer final : public DefaultInitializable {
     void        publish_current_xct_log() {
         offset_current_xct_begin_ = offset_tail_;
     }
+    /** Called when the current transaction aborts. */
+    void        discard_current_xct_log() {
+        offset_tail_ = offset_current_xct_begin_;
+    }
 
     void        wait_for_space(uint16_t required_space);
 

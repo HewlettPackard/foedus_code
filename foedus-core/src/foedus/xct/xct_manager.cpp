@@ -25,7 +25,9 @@ ErrorCode   XctManager::wait_for_commit(const Epoch& commit_epoch, int64_t wait_
     return pimpl_->wait_for_commit(commit_epoch, wait_microseconds);
 }
 
-ErrorStack  XctManager::begin_xct(thread::Thread* context)  { return pimpl_->begin_xct(context); }
+ErrorStack  XctManager::begin_xct(thread::Thread* context, IsolationLevel isolation_level) {
+    return pimpl_->begin_xct(context, isolation_level);
+}
 ErrorStack  XctManager::precommit_xct(thread::Thread* context, Epoch *commit_epoch) {
     return pimpl_->precommit_xct(context, commit_epoch);
 }
