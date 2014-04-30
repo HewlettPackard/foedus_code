@@ -20,15 +20,13 @@ LogOptions::LogOptions() {
         log_paths_.push_back(str.str());
     }
 
-    thread_buffer_kb_ = DEFAULT_THREAD_BUFFER_KB;
-    logger_buffer_kb_ = DEFAULT_LOGGER_BUFFER_KB;
+    log_buffer_kb_ = DEFAULT_LOG_BUFFER_KB;
     log_file_size_mb_ = DEFAULT_LOG_FILE_SIZE_MB;
 }
 
 ErrorStack LogOptions::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, log_paths_);
-    EXTERNALIZE_LOAD_ELEMENT(element, thread_buffer_kb_);
-    EXTERNALIZE_LOAD_ELEMENT(element, logger_buffer_kb_);
+    EXTERNALIZE_LOAD_ELEMENT(element, log_buffer_kb_);
     EXTERNALIZE_LOAD_ELEMENT(element, log_file_size_mb_);
     CHECK_ERROR(get_child_element(element, "LogDeviceEmulationOptions", &emulation_))
     return RET_OK;
@@ -44,9 +42,7 @@ ErrorStack LogOptions::save(tinyxml2::XMLElement* element) const {
         " For the best performance, the number of loggers must be multiply of the number of NUMA"
         " node and also be a submultiple of the total number of cores."
         " This is to evenly assign cores to loggers, loggers to NUMA nodes.");
-    EXTERNALIZE_SAVE_ELEMENT(element, thread_buffer_kb_,
-        "Size in KB of log buffer for each worker thread");
-    EXTERNALIZE_SAVE_ELEMENT(element, logger_buffer_kb_, "Size in KB of logger for each logger");
+    EXTERNALIZE_SAVE_ELEMENT(element, log_buffer_kb_, "Buffer size in KB of each worker thread");
     EXTERNALIZE_SAVE_ELEMENT(element, log_file_size_mb_, "Size in MB of files loggers write out");
     CHECK_ERROR(add_child_element(element, "LogDeviceEmulationOptions",
                     "[Experiments-only] Settings to emulate slower logging device", emulation_));

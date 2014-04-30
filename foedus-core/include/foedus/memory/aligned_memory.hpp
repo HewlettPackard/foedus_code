@@ -6,6 +6,7 @@
 #define FOEDUS_MEMORY_ALIGNED_MEMORY_HPP_
 
 #include <foedus/cxx11.hpp>
+#include <foedus/assert_nd.hpp>
 #include <stdint.h>
 #include <iosfwd>
 namespace foedus {
@@ -149,21 +150,37 @@ class AlignedMemory CXX11_FINAL {
  * pieces are consolidated to one large piece from the viewpoint of OS.
  * In particular, it might be that allocating a consolidated memory triggers transparent hugepage
  * while allocating individual memory does not.
+ *
+ * This object is a POD.
  */
 struct AlignedMemorySlice CXX11_FINAL {
+    /** Empty constructor. */
     AlignedMemorySlice() : memory_(CXX11_NULLPTR), offset_(0), count_(0) {}
+
+    /** A dummy slice that covers the memory entirely. */
     explicit AlignedMemorySlice(AlignedMemory *memory)
         : memory_(memory), offset_(0), count_(memory->get_size()) {}
+
+    /** A slice that covers the specified region of the memory. */
     AlignedMemorySlice(AlignedMemory *memory, uint64_t offset, uint64_t count)
-        : memory_(memory), offset_(offset), count_(count) {}
+        : memory_(memory), offset_(offset), count_(count) {
+        ASSERT_ND(memory->get_size() >= count + offset);
+    }
+
+    /** A slice that covers the specified region of another slice. */
+    AlignedMemorySlice(const AlignedMemorySlice &slice, uint64_t offset, uint64_t count)
+        : memory_(slice.memory_), offset_(slice.offset_ + offset), count_(count) {
+        ASSERT_ND(slice.size() >= count + offset);
+    }
 
     friend std::ostream&    operator<<(std::ostream& o, const AlignedMemorySlice& v);
 
+    void        clear() { memory_ = CXX11_NULLPTR; }
     bool        is_valid()  const { return memory_; }
     uint64_t    size()      const { return count_; }
     char*       get_block() { return reinterpret_cast<char*>(memory_->get_block()) + offset_; }
 
-    /** The wrapped memory. */
+    /** The wrapped memory. This object is just a \e view. It doesn't \e release the block. */
     AlignedMemory*  memory_;
     /** Byte offset of this slice in memory_. */
     uint64_t        offset_;

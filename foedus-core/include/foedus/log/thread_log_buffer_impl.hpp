@@ -7,6 +7,7 @@
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
+#include <foedus/memory/aligned_memory.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/xct/epoch.hpp>
 #include <stdint.h>
@@ -207,11 +208,15 @@ class ThreadLogBuffer final : public DefaultInitializable {
     /** called from publish_current_xct_log when we have to switch the epoch. */
     void        add_thread_epock_mark(const xct::Epoch &commit_epoch);
 
+    /**
+     * @return whether any epoch mark was consumed.
+     */
     bool        consume_epoch_mark();
 
     Engine*                         engine_;
     thread::ThreadId                thread_id_;
 
+    memory::AlignedMemorySlice      buffer_memory_;
     /** @copydoc get_buffer() */
     char*                           buffer_;
     /** @copydoc get_buffer_size() */

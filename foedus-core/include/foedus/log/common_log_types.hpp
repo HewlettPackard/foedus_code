@@ -141,6 +141,9 @@ struct FillerLogType : public BaseLogType {
     void    apply_storage(storage::Storage* /*storage*/) {}
     void    apply_record(storage::Storage* /*storage*/, storage::Record* /*record*/) {}
 
+    /** Populate this log to fill up the specified byte size. */
+    void    init(uint64_t size);
+
     friend std::ostream& operator<<(std::ostream& o, const FillerLogType&) { return o; }
 };
 

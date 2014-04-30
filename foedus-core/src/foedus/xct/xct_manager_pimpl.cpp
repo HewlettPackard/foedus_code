@@ -52,10 +52,10 @@ void XctManagerPimpl::handle_epoch_advance() {
         VLOG(1) << "epoch_advance_thread. current_global_epoch_=" << current_global_epoch_
             << ", durable_global_epoch_=" << durable_global_epoch_;
         // TODO(Hideaki) Must check long-running transactions
-        current_global_epoch_.increment();
+        ++current_global_epoch_;
         current_global_epoch_advanced_.notify_all();
         // TODO(Hideaki) Must check loggers, and update savepoint
-        durable_global_epoch_.increment();
+        ++durable_global_epoch_;
         durable_global_epoch_advanced_.notify_all();
     }
     LOG(INFO) << "epoch_advance_thread ended.";

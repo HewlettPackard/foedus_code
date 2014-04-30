@@ -42,11 +42,9 @@ ErrorStack Logger::initialize_once() {
     current_file_ = nullptr;
     oldest_ordinal_ = 0;
     current_ordinal_ = 0;
-    node_memory_ = nullptr;
-    logger_buffer_cursor_ = 0;
+    numa_node_ = static_cast<int>(thread::decompose_numa_node(assigned_thread_ids_[0]));
     durable_epoch_ = xct::Epoch();
     current_epoch_ = xct::Epoch();
-    numa_node_ = static_cast<int>(thread::decompose_numa_node(assigned_thread_ids_[0]));
     LOG(INFO) << "Initializing Logger-" << id_ << ". assigned " << assigned_thread_ids_.size()
         << " threads, starting from " << assigned_thread_ids_[0] << ", numa_node_="
         << static_cast<int>(numa_node_);
@@ -75,9 +73,9 @@ ErrorStack Logger::initialize_once() {
     }
 
     // grab a buffer to do file I/O
-    node_memory_ = engine_->get_memory_manager().get_node_memory(numa_node_);
-    logger_buffer_ = node_memory_->get_logger_buffer_memory_piece(id_);
-    LOG(INFO) << "Logger-" << id_ << " grabbed a I/O buffer. size=" << logger_buffer_.count_;
+    CHECK_ERROR(engine_->get_memory_manager().get_node_memory(numa_node_)->allocate_numa_memory(
+        FillerLogType::LOG_WRITE_UNIT_SIZE, &fill_buffer_));
+    LOG(INFO) << "Logger-" << id_ << " grabbed a I/O buffer. size=" << fill_buffer_.get_size();
 
     // log file and buffer prepared. let's launch the logger thread
     logger_thread_.initialize("Logger-", id_,
@@ -94,6 +92,7 @@ ErrorStack Logger::uninitialize_once() {
         delete current_file_;
         current_file_ = nullptr;
     }
+    fill_buffer_.release_block();
     return RET_OK;
 }
 void Logger::handle_logger() {
@@ -172,34 +171,40 @@ void Logger::handle_logger() {
             }
 
             if (!any_log_processed && more_log_to_process) {
-                switch_current_epoch(min_skipped_epoch);  // then we advance our current_epoch
+                // then we advance our current_epoch
+                COERCE_ERROR(switch_current_epoch(min_skipped_epoch));
             }
         } while (more_log_to_process && !logger_thread_.is_stop_requested());
     }
     LOG(INFO) << "Logger-" << id_ << " ended.";
 }
 
-void Logger::switch_current_epoch(const xct::Epoch& new_epoch) {
+ErrorStack Logger::switch_current_epoch(const xct::Epoch& new_epoch) {
     ASSERT_ND(new_epoch.is_valid());
     ASSERT_ND(current_epoch_ < new_epoch);
     VLOG(0) << "Logger-" << id_ << " advances its current_epoch from " << current_epoch_
         << " to " << new_epoch;
 
-    COERCE_ERROR(flush_log());
-
-    ASSERT_ND(logger_buffer_cursor_ + sizeof(EpochMarkerLogType) <= logger_buffer_.size());
-    EpochMarkerLogType* epoch_marker = reinterpret_cast<EpochMarkerLogType*>(
-        logger_buffer_.get_block() + logger_buffer_cursor_);
+    // Use fill buffer to write out the epoch mark log
+    char* buf = reinterpret_cast<char*>(fill_buffer_.get_block());
+    EpochMarkerLogType* epoch_marker = reinterpret_cast<EpochMarkerLogType*>(buf);
     epoch_marker->header_.storage_id_ = 0;
     epoch_marker->header_.log_length_ = sizeof(EpochMarkerLogType);
     epoch_marker->header_.log_type_code_ = get_log_code<EpochMarkerLogType>();
     epoch_marker->new_epoch_ = new_epoch;
     epoch_marker->old_epoch_ = current_epoch_;
-    logger_buffer_cursor_ += sizeof(EpochMarkerLogType);
+
+    // Fill it up to 4kb and write. A bit wasteful, but happens only once per epoch
+    FillerLogType* filler_log = reinterpret_cast<FillerLogType*>(buf + sizeof(EpochMarkerLogType));
+    filler_log->init(fill_buffer_.get_size() - sizeof(EpochMarkerLogType));
+
+    CHECK_ERROR_CODE(current_file_->write(fill_buffer_.get_size(), fill_buffer_));
     current_epoch_ = new_epoch;
+    return RET_OK;
 }
 
 ErrorStack Logger::flush_log() {
+    /*
     if (logger_buffer_cursor_ == 0) {
         return RET_OK;
     }
@@ -222,36 +227,56 @@ ErrorStack Logger::flush_log() {
 
     CHECK_ERROR_CODE(current_file_->write(logger_buffer_cursor_, logger_buffer_));
     logger_buffer_cursor_ = 0;
+    */
     return RET_OK;
 }
 
 ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
-    uint64_t from_offset = buffer->get_offset_durable();
+    const uint64_t from_offset = buffer->get_offset_durable();
+    const uint64_t SECTOR_SIZE = FillerLogType::LOG_WRITE_UNIT_SIZE;
     ASSERT_ND(from_offset != upto_offset);
     if (from_offset > upto_offset) {
         // this means wrap-around in the buffer
         // let's write up to the end of the circular buffer, then from the beginning.
-        VLOG(0) << "Buffer for " << buffer->get_thread_id() << " wraps around. " << from_offset
-            << " to " << upto_offset;
+        VLOG(0) << "Writing out Thread-" << buffer->get_thread_id() << "'s log with wrap around."
+            << " from_offset=" << from_offset << ", upto_offset=" << upto_offset;
         CHECK_ERROR(write_log(buffer, buffer->buffer_size_));
         ASSERT_ND(buffer->get_offset_durable() == 0);
         CHECK_ERROR(write_log(buffer, upto_offset));
         ASSERT_ND(buffer->get_offset_durable() == upto_offset);
         return RET_OK;
+    } else {
+        const uint64_t write_size = upto_offset - from_offset;
+        const uint64_t padded_write_size = assorted::align< uint64_t, SECTOR_SIZE >(write_size);
+        VLOG(0) << "Writing out Thread-" << buffer->get_thread_id() << "'s log. write_size="
+            << write_size << ", padded_write_size=" << padded_write_size;
+        if (write_size == padded_write_size) {
+            VLOG(0) << "no padding needed, lucky";
+            CHECK_ERROR_CODE(current_file_->write(write_size,
+                    memory::AlignedMemorySlice(buffer->buffer_memory_, from_offset, write_size)));
+            buffer->offset_durable_ += write_size;
+        } else {
+            VLOG(1) << "padding needed";
+            const uint64_t main_write_size = padded_write_size - SECTOR_SIZE;
+            const uint64_t fragment_size = write_size - main_write_size;
+            ASSERT_ND(fragment_size < SECTOR_SIZE);
+            ASSERT_ND(fragment_size > 0);
+            CHECK_ERROR_CODE(current_file_->write(main_write_size,
+                memory::AlignedMemorySlice(buffer->buffer_memory_, from_offset, main_write_size)));
+            buffer->offset_durable_ += main_write_size;
+
+            // put the remaining and filler log in our fill_buffer_.
+            char* buf = reinterpret_cast<char*>(fill_buffer_.get_block());
+            std::memcpy(buf, buffer->buffer_ + buffer->offset_durable_, fragment_size);
+            FillerLogType* filler_log = reinterpret_cast<FillerLogType*>(buf + fragment_size);
+            filler_log->header_.log_type_code_ = get_log_code<FillerLogType>();
+            filler_log->header_.log_length_ = SECTOR_SIZE - fragment_size;
+            filler_log->header_.storage_id_ = 0;
+            CHECK_ERROR_CODE(current_file_->write(SECTOR_SIZE, fill_buffer_));
+            buffer->offset_durable_ += fragment_size;
+        }
     }
 
-    // write out with our I/O buffer.
-    while (from_offset < upto_offset) {
-        if (logger_buffer_.size() == logger_buffer_cursor_) {
-            CHECK_ERROR(flush_log());
-        }
-        uint64_t write_size = std::min<uint64_t>(upto_offset - from_offset,
-                                                 logger_buffer_.size() - logger_buffer_cursor_);
-        std::memcpy(logger_buffer_.get_block() + logger_buffer_cursor_,
-                    buffer->buffer_ + from_offset, write_size);
-        logger_buffer_cursor_ += write_size;
-        from_offset += write_size;
-    }
     return RET_OK;
 }
 

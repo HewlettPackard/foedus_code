@@ -66,18 +66,8 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
         foedus::thread::ThreadLocalOrdinal core_ordinal) {
         return page_offset_chunk_memory_pieces_[core_ordinal];
     }
-    char*           get_thread_buffer_memory_piece(
-        foedus::thread::ThreadLocalOrdinal core_ordinal) {
-        return thread_buffer_memory_pieces_[core_ordinal];
-    }
-    uint64_t        get_thread_buffer_memory_size_per_core() const {
-        return thread_buffer_memory_size_per_core_;
-    }
-    AlignedMemorySlice get_logger_buffer_memory_piece(log::LoggerId logger) {
-        return logger_buffer_memory_pieces_[logger];
-    }
-    uint64_t        get_logger_buffer_memory_size_per_core() const {
-        return logger_buffer_memory_size_per_core_;
+    AlignedMemorySlice get_log_buffer_memory_piece(log::LoggerId logger) {
+        return log_buffer_memory_pieces_[logger];
     }
 
  private:
@@ -85,7 +75,7 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
     ErrorStack      initialize_read_write_set_memory();
     /** initialize page_offset_chunk_memory_/page_offset_chunk_memory_pieces_. */
     ErrorStack      initialize_page_offset_chunk_memory();
-    /** initialize thread_buffer_memory_ and logger_buffer_memory_. */
+    /** initialize log_buffer_memory_. */
     ErrorStack      initialize_log_buffers_memory();
     /** initialize child memories per core */
     ErrorStack      initialize_core_memory(thread::ThreadLocalOrdinal ordinal);
@@ -132,16 +122,8 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
     /**
      * Memory to hold a thread's log buffer. Split by each core in this node.
      */
-    AlignedMemory                           thread_buffer_memory_;
-    std::vector<char*>                      thread_buffer_memory_pieces_;
-    uint64_t                                thread_buffer_memory_size_per_core_;
-
-    /**
-     * Memory to hold an I/O buffer for Logger (log writer). Split by each Logger in this node.
-     */
-    AlignedMemory                           logger_buffer_memory_;
-    std::vector<AlignedMemorySlice>         logger_buffer_memory_pieces_;
-    uint64_t                                logger_buffer_memory_size_per_core_;
+    AlignedMemory                           log_buffer_memory_;
+    std::vector<AlignedMemorySlice>         log_buffer_memory_pieces_;
 };
 }  // namespace memory
 }  // namespace foedus

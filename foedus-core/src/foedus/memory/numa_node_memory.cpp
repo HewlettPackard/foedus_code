@@ -21,8 +21,6 @@ NumaNodeMemory::NumaNodeMemory(Engine* engine, thread::ThreadGroupId numa_node)
         cores_(engine_->get_options().thread_.thread_count_per_group_),
         loggers_(assorted::int_div_ceil(engine_->get_options().log_.log_paths_.size(),
                     engine_->get_options().thread_.group_count_)) {
-    thread_buffer_memory_size_per_core_ = 0;
-    logger_buffer_memory_size_per_core_ = 0;
 }
 
 ErrorStack NumaNodeMemory::initialize_once() {
@@ -78,25 +76,15 @@ ErrorStack NumaNodeMemory::initialize_page_offset_chunk_memory() {
 }
 
 ErrorStack NumaNodeMemory::initialize_log_buffers_memory() {
-    thread_buffer_memory_size_per_core_ = engine_->get_options().log_.thread_buffer_kb_ << 10;
-    uint64_t private_total = (cores_ * thread_buffer_memory_size_per_core_);
-    LOG(INFO) << "Initializing thread_buffer_memory_. total_size=" << private_total;
-    CHECK_ERROR(allocate_numa_memory(private_total, &thread_buffer_memory_));
+    uint64_t size_per_core_ = engine_->get_options().log_.log_buffer_kb_ << 10;
+    uint64_t private_total = (cores_ * size_per_core_);
+    LOG(INFO) << "Initializing log_buffer_memory_. total_size=" << private_total;
+    CHECK_ERROR(allocate_numa_memory(private_total, &log_buffer_memory_));
     for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
-        char* piece = reinterpret_cast<char*>(thread_buffer_memory_.get_block())
-            + thread_buffer_memory_size_per_core_ * ordinal;
-        thread_buffer_memory_pieces_.push_back(piece);
+        AlignedMemorySlice piece(&log_buffer_memory_, size_per_core_ * ordinal, size_per_core_);
+        log_buffer_memory_pieces_.push_back(piece);
     }
 
-    logger_buffer_memory_size_per_core_ = (engine_->get_options().log_.logger_buffer_kb_) << 10;
-    uint64_t logger_buffer = logger_buffer_memory_size_per_core_ * loggers_;
-    LOG(INFO) << "Initializing logger_buffer_memory_. size=" << logger_buffer;
-    CHECK_ERROR(allocate_numa_memory(logger_buffer, &logger_buffer_memory_));
-    for (auto logger = 0; logger < loggers_; ++logger) {
-        AlignedMemorySlice piece(&logger_buffer_memory_,
-                logger_buffer_memory_size_per_core_ * logger, logger_buffer_memory_size_per_core_);
-        logger_buffer_memory_pieces_.emplace_back(piece);
-    }
     return RET_OK;
 }
 
@@ -121,10 +109,8 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
     write_set_memory_.release_block();
     read_set_memory_pieces_.clear();
     read_set_memory_.release_block();
-    thread_buffer_memory_pieces_.clear();
-    thread_buffer_memory_.release_block();
-    logger_buffer_memory_pieces_.clear();
-    logger_buffer_memory_.release_block();
+    log_buffer_memory_pieces_.clear();
+    log_buffer_memory_.release_block();
 
     LOG(INFO) << "Uninitialized NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
         << " AFTER: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);

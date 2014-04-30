@@ -41,8 +41,7 @@ namespace foedus {
 
     EngineOptions get_tiny_options() {
         EngineOptions options = get_randomized_paths(1, 1);
-        options.log_.thread_buffer_kb_ = 1 << 8;
-        options.log_.logger_buffer_kb_ = 1 << 9;
+        options.log_.log_buffer_kb_ = 1 << 8;
         options.memory_.page_pool_size_mb_ = 2;
         options.memory_.private_page_pool_initial_grab_ = 32;
         options.thread_.group_count_ = 1;

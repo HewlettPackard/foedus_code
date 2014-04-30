@@ -9,7 +9,6 @@
 #include <foedus/log/log_id.hpp>
 #include <foedus/fs/fwd.hpp>
 #include <foedus/fs/path.hpp>
-#include <foedus/memory/fwd.hpp>
 #include <foedus/memory/aligned_memory.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/thread/fwd.hpp>
@@ -48,7 +47,7 @@ class Logger final : public DefaultInitializable {
      */
     void        handle_logger();
 
-    void        switch_current_epoch(const xct::Epoch& new_epoch);
+    ErrorStack  switch_current_epoch(const xct::Epoch& new_epoch);
     ErrorStack  flush_log();
     ErrorStack  write_log(ThreadLogBuffer* buffer, uint64_t upto_offset);
 
@@ -62,9 +61,25 @@ class Logger final : public DefaultInitializable {
 
     thread::StoppableThread         logger_thread_;
 
-    memory::NumaNodeMemory*         node_memory_;
-    memory::AlignedMemorySlice      logger_buffer_;
-    uint64_t                        logger_buffer_cursor_;
+    /**
+     * @brief A local and very small aligned buffer to pad log entries to 4kb.
+     * @details
+     * The logger usually uses the assigned thread's own buffer when it writes out to file
+     * because we want to avoid doubling the overhead. As the buffer is exclusively assigned to
+     * this logger, there is no risk to directly pass the thread's buffer \e except the case
+     * where we are writing out less than 4kb, which only happens at the end of an epoch log block
+     * or when the logger is really catching up well.
+     * In this case, we need to pad it to 4kb. So, we copy the thread's buffer's content to this
+     * buffer and fill the rest.
+     *
+     * Another usecase is when the thread's buffer wraps around. In this case, write_log()
+     * makes two writes, one upto the end of the circular buffer, another from the beginning.
+     * Suppose the first write was not multiply of 4kb. However, we cannot put a filler because
+     * a log entry might span the wrap. In this case, we use fill_buffer_ to join the last piece
+     * (upto 4kb) at the end and the first piece (upto 4kb) at the beginning. So, we will actually
+     * make three writes.
+     */
+    memory::AlignedMemory           fill_buffer_;
 
     /**
      * This is the epoch the logger is currently flushing.

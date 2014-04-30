@@ -9,6 +9,7 @@
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
+#include <foedus/memory/aligned_memory.hpp>
 #include <foedus/memory/memory_id.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/xct/fwd.hpp>
@@ -40,8 +41,7 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
     xct::WriteXctAccess* get_write_set_memory()  const { return write_set_memory_; }
     uint32_t        get_write_set_size()    const { return write_set_size_; }
 
-    char*           get_log_buffer_memory() const { return log_buffer_memory_; }
-    uint64_t        get_log_buffer_size()   const { return log_buffer_size_; }
+    AlignedMemorySlice get_log_buffer_memory() const { return log_buffer_memory_; }
 
     /** Returns the parent memory repository. */
     NumaNodeMemory* get_node_memory()       const { return node_memory_; }
@@ -99,8 +99,7 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
     PagePoolOffsetChunk*                    free_pool_chunk_;
 
     /** Private memory to hold log entries. */
-    char*                                   log_buffer_memory_;
-    uint64_t                                log_buffer_size_;
+    AlignedMemorySlice                      log_buffer_memory_;
 };
 }  // namespace memory
 }  // namespace foedus

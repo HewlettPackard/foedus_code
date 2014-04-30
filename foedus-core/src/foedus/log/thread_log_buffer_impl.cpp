@@ -18,8 +18,9 @@ ThreadLogBuffer::ThreadLogBuffer(Engine* engine, thread::ThreadId thread_id)
 }
 ErrorStack ThreadLogBuffer::initialize_once() {
     memory::NumaCoreMemory *memory = engine_->get_memory_manager().get_core_memory(thread_id_);
-    buffer_ = memory->get_log_buffer_memory();
-    buffer_size_ = memory->get_log_buffer_size();
+    buffer_memory_ = memory->get_log_buffer_memory();
+    buffer_ = buffer_memory_.get_block();
+    buffer_size_ = buffer_memory_.size();
     buffer_size_safe_ = buffer_size_ - 64;
     durable_epoch_ = xct::Epoch();
     current_epoch_ = xct::Epoch();
@@ -32,6 +33,7 @@ ErrorStack ThreadLogBuffer::initialize_once() {
 }
 
 ErrorStack ThreadLogBuffer::uninitialize_once() {
+    buffer_memory_.clear();
     buffer_ = nullptr;
     thread_epoch_marks_.clear();
     return RET_OK;

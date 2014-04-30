@@ -8,7 +8,7 @@ namespace foedus {
 namespace xct {
 std::ostream& operator<<(std::ostream& o, const Epoch& v) {
     if (v.is_valid()) {
-        o << v.get_epoch();
+        o << v.value();
     } else {
         o << "<INVALID>";
     }

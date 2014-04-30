@@ -22,10 +22,8 @@ namespace log {
 struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
     /** Constant values. */
     enum Constants {
-        /** Default value for thread_buffer_kb_. */
-        DEFAULT_THREAD_BUFFER_KB = (1 << 14),
-        /** Default value for logger_buffer_kb_. */
-        DEFAULT_LOGGER_BUFFER_KB = (1 << 14),
+        /** Default value for log_buffer_kb_. */
+        DEFAULT_LOG_BUFFER_KB = (1 << 16),
         /** Default value for log_file_size_mb_. */
         DEFAULT_LOG_FILE_SIZE_MB = (1 << 14),
     };
@@ -49,12 +47,15 @@ struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
     std::vector<std::string>    log_paths_;
 
     /** Size in KB of log buffer for \e each worker thread. */
-    uint32_t                    thread_buffer_kb_;
+    uint32_t                    log_buffer_kb_;
 
-    /** Size in KB of logger for \e each logger. */
-    uint32_t                    logger_buffer_kb_;
-
-    /** Size in MB of each file loggers write out. */
+    /**
+     * @brief Size in MB of each file loggers write out.
+     * @details
+     * The logger switches to next file when it wrote out a complete log entry and observed that
+     * the current log file size is equal to or larger than this value.
+     * Thus, the actual log file size might be a bit larger than this value.
+     */
     uint32_t                    log_file_size_mb_;
 
     /** Settings to emulate slower logging device. */

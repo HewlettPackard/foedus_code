@@ -16,16 +16,29 @@ namespace xct {
  * Epoch is an corase-grained timestamp used all over the places.
  *
  * @par What is Epoch
- * bluh bluh.
- * @par Who/When Epoch is Incremented
- * bluh bluh.
+ * An Epoch represents a few to 100s milliseconds. XctManager periodically or by-demand advances
+ * the value so that the commit protocol, loggers, garbage collector, etc can \e loosely and
+ * efficiently and synchronize with other parts of the engine.
+ * Compared to fine-grained sequence number like Oracle/PostgreSQL's timestamp, this is
+ * much more scalable. Several commercial and open-source storage engines use such a coarse-grained
+ * timestamp nowadays.
  *
+ * @par Wrap-around
+ * This class can handle wrapping-around \b assuming there is no case where we have two epochs
+ * that are 2^31 or more distant. As one epoch represents tens of milliseconds, this assumption
+ * should hold. All very-old epochs will disappear from logs and snapshots by the time
+ * we wrap around. We use wrap-around-aware comparison algorithms
+ *
+ * @see RFC 1982
+ * @see http://en.wikipedia.org/wiki/Serial_number_arithmetic
+ * @see http://github.com/pjkundert/sequence
+ *
+ * @par Translation unit
  * This class is header-only \b except the std::ostream redirect.
- * @todo Handle wrapping-around
  */
 class Epoch {
  public:
-    /** Integer representation of epoch. */
+    /** \b Unsigned integer representation of epoch. "Unsigned" is important. see the links. */
     typedef uint32_t EpochInteger;
     /** Defines constant values. */
     enum Constants {
@@ -41,38 +54,26 @@ class Epoch {
     explicit Epoch(EpochInteger value) : epoch_(value) {}
     // default copy-constructor/assignment/destructor suffice
 
-    /**
-     * @brief Advances this epoch by one.
-     * @return Whether wrap-around happened
-     * @todo Handle wrapping-around
-     */
-    bool    increment() {
-        // TODO(Hideaki) wrapping around
-        ++epoch_;
-        return false;
-    }
-
     bool    is_valid() const { return epoch_ != EPOCH_INVALID; }
 
     /** Returns the raw integer representation. */
-    EpochInteger get_epoch() const { return epoch_; }
+    EpochInteger value() const { return epoch_; }
 
-    bool    operator==(const Epoch &other) const { return epoch_ == other.epoch_; }
-    bool    operator!=(const Epoch &other) const { return epoch_ != other.epoch_; }
+    void    operator++() { ++epoch_; }
 
-    /** @todo Handle wrapping-around */
-    bool    operator<(const Epoch &other) const {
-        // TODO(Hideaki) wrapping around
-        return epoch_ < other.epoch_;
-    }
-    /** @todo Handle wrapping-around */
-    bool    operator>(const Epoch &other) const {
-        // TODO(Hideaki) wrapping around
-        return epoch_ > other.epoch_;
+    /**
+     * Returns the \e distance from this epoch to the given epoch, as defined in RFC 1982.
+     */
+    int32_t distance(const Epoch &other) const {
+        return static_cast<int32_t>(other.epoch_ - epoch_);  // SIGNED. see the links
     }
 
-    bool    operator<=(const Epoch &other) const { return !operator<(other); }
-    bool    operator>=(const Epoch &other) const { return !operator>(other); }
+    bool    operator==(const Epoch &other)  const { return epoch_ == other.epoch_; }
+    bool    operator!=(const Epoch &other)  const { return epoch_ != other.epoch_; }
+    bool    operator<(const Epoch &other)   const { return distance(other) > 0; }
+    bool    operator>(const Epoch &other)   const { return distance(other) < 0; }
+    bool    operator<=(const Epoch &other)  const { return !operator<(other); }
+    bool    operator>=(const Epoch &other)  const { return !operator>(other); }
 
     friend std::ostream& operator<<(std::ostream& o, const Epoch& v);
 
