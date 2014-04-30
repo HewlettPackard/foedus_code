@@ -10,9 +10,11 @@
 #include <foedus/fs/fwd.hpp>
 #include <foedus/fs/path.hpp>
 #include <foedus/memory/fwd.hpp>
+#include <foedus/memory/aligned_memory.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <foedus/thread/stoppable_thread_impl.hpp>
+#include <foedus/xct/epoch.hpp>
 #include <stdint.h>
 #include <vector>
 namespace foedus {
@@ -46,6 +48,10 @@ class Logger final : public DefaultInitializable {
      */
     void        handle_logger();
 
+    void        switch_current_epoch(const xct::Epoch& new_epoch);
+    ErrorStack  flush_log();
+    ErrorStack  write_log(ThreadLogBuffer* buffer, uint64_t upto_offset);
+
     fs::Path    construct_suffixed_log_path(LogFileOrdinal ordinal) const;
 
     Engine*                         engine_;
@@ -57,8 +63,19 @@ class Logger final : public DefaultInitializable {
     thread::StoppableThread         logger_thread_;
 
     memory::NumaNodeMemory*         node_memory_;
-    char*                           logger_buffer_;
-    uint64_t                        logger_buffer_size_;
+    memory::AlignedMemorySlice      logger_buffer_;
+    uint64_t                        logger_buffer_cursor_;
+
+    /**
+     * This is the epoch the logger is currently flushing.
+     * 0 if the logger is currently not aware of any logs to write out.
+     */
+    xct::Epoch                      current_epoch_;
+
+    /**
+     * Upto what epoch the logger flushed logs in \b all buffers assigned to it.
+     */
+    xct::Epoch                      durable_epoch_;
 
     /**
      * @brief Ordinal of the oldest active log file of this logger.

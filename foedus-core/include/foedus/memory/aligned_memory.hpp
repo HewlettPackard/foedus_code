@@ -6,7 +6,7 @@
 #define FOEDUS_MEMORY_ALIGNED_MEMORY_HPP_
 
 #include <foedus/cxx11.hpp>
-#include <cstddef>
+#include <stdint.h>
 #include <iosfwd>
 namespace foedus {
 namespace memory {
@@ -88,7 +88,7 @@ class AlignedMemory CXX11_FINAL {
      * does NOT fail nor throws an exception. Instead, it sets the block_ NULL.
      * So, the caller is responsible for checking it after construction.
      */
-    AlignedMemory(size_t size, size_t alignment,
+    AlignedMemory(uint64_t size, size_t alignment,
         AllocType alloc_type, int numa_node) CXX11_NOEXCEPT;
 
     // Disable default constructors
@@ -114,9 +114,9 @@ class AlignedMemory CXX11_FINAL {
     /** Returns if this object doesn't hold a valid memory block. */
     bool        is_null() const { return block_ == CXX11_NULLPTR; }
     /** Returns the byte size of the memory block. */
-    size_t      get_size() const { return size_; }
+    uint64_t    get_size() const { return size_; }
     /** Returns the alignment of the memory block. */
-    size_t      get_alignment() const { return alignment_; }
+    uint64_t    get_alignment() const { return alignment_; }
     /** Returns type of new/delete operation for the block. */
     AllocType   get_alloc_type() const { return alloc_type_; }
     /** If alloc_type_ is NUMA_ALLOC_ONNODE, returns the NUMA node this memory was allocated at. */
@@ -129,15 +129,46 @@ class AlignedMemory CXX11_FINAL {
 
  private:
     /** Byte size of the memory block. */
-    size_t      size_;
+    uint64_t    size_;
     /** Alignment of the memory block. */
-    size_t      alignment_;
+    uint64_t    alignment_;
     /** type of new/delete operation for the block .*/
     AllocType   alloc_type_;
     /** if alloc_type_ is NUMA_ALLOC_ONNODE, the NUMA node this memory was allocated at. */
     int         numa_node_;
     /** Allocated memory block. */
     void*       block_;
+};
+
+/**
+ * @brief A slice of foedus::memory::AlignedMemory.
+ * @ingroup MEMORY
+ * @details
+ * This class is used to split a single (often large) foedus::memory::AlignedMemory to be used
+ * by multiple consumers. Such use has a performance advantage because many smaller memory
+ * pieces are consolidated to one large piece from the viewpoint of OS.
+ * In particular, it might be that allocating a consolidated memory triggers transparent hugepage
+ * while allocating individual memory does not.
+ */
+struct AlignedMemorySlice CXX11_FINAL {
+    AlignedMemorySlice() : memory_(CXX11_NULLPTR), offset_(0), count_(0) {}
+    explicit AlignedMemorySlice(AlignedMemory *memory)
+        : memory_(memory), offset_(0), count_(memory->get_size()) {}
+    AlignedMemorySlice(AlignedMemory *memory, uint64_t offset, uint64_t count)
+        : memory_(memory), offset_(offset), count_(count) {}
+
+    friend std::ostream&    operator<<(std::ostream& o, const AlignedMemorySlice& v);
+
+    bool        is_valid()  const { return memory_; }
+    uint64_t    size()      const { return count_; }
+    char*       get_block() { return reinterpret_cast<char*>(memory_->get_block()) + offset_; }
+
+    /** The wrapped memory. */
+    AlignedMemory*  memory_;
+    /** Byte offset of this slice in memory_. */
+    uint64_t        offset_;
+    /** Byte count of this slice in memory_. */
+    uint64_t        count_;
 };
 
 }  // namespace memory

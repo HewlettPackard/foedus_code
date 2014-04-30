@@ -163,7 +163,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     bool verified = precommit_xct_verify_readwrite(context);  // phase 2
     if (verified) {
         precommit_xct_apply(context, *commit_epoch);  // phase 3. this also unlocks
-        context->get_thread_log_buffer().publish_current_xct_log();  // announce the log
+        context->get_thread_log_buffer().publish_current_xct_log(*commit_epoch);  // announce log
     } else {
         precommit_xct_unlock(context);  // just unlock in this case
     }

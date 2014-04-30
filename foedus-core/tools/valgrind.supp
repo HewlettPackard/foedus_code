@@ -9,10 +9,10 @@
    Memcheck:Param
    msync(start)
    fun:__msync_nocancel
-   obj:/usr/lib64/libunwind.so.8.0.1
-   obj:/usr/lib64/libunwind.so.8.0.1
-   obj:/usr/lib64/libunwind.so.8.0.1
-   obj:/usr/lib64/libunwind.so.8.0.1
+   obj:/usr/lib64/libunwind.so.*
+   obj:/usr/lib64/libunwind.so.*
+   obj:/usr/lib64/libunwind.so.*
+   obj:/usr/lib64/libunwind.so.*
    fun:_ULx86_64_step
    fun:_Z13GetStackTracePPvii
    fun:_ZN8tcmalloc8PageHeap8GrowHeapEm
@@ -25,11 +25,11 @@
    libunwind_bug2
    Memcheck:Param
    msync(start)
-   obj:/usr/lib64/libpthread-2.18.so
-   obj:/usr/lib64/libunwind.so.8.0.1
-   obj:/usr/lib64/libunwind.so.8.0.1
-   obj:/usr/lib64/libunwind.so.8.0.1
-   obj:/usr/lib64/libunwind.so.8.0.1
+   obj:/usr/lib64/libpthread-*
+   obj:/usr/lib64/libunwind.so*
+   obj:/usr/lib64/libunwind.so*
+   obj:/usr/lib64/libunwind.so*
+   obj:/usr/lib64/libunwind.so*
    fun:_ULx86_64_step
    fun:_Z13GetStackTracePPvii
    fun:_ZN8tcmalloc8PageHeap8GrowHeapEm
@@ -49,10 +49,7 @@
    fun:pthread_once
    fun:_ZN14ProfileHandler8InstanceEv
    fun:ProfileHandlerRegisterThread
-   obj:/usr/lib64/libprofiler.so.0.3.2
-   fun:call_init.part.0
-   fun:_dl_init
-   obj:/usr/lib64/ld-2.18.so
+   obj:/usr/lib64/libprofiler.so*
 }
 
 # Hideaki, 2014 Apr, Fedora 20,
@@ -62,26 +59,6 @@
    numa_run_on_node_global1
    Memcheck:Leak
    match-leak-kinds: reachable
-   fun:malloc
-   fun:numa_bitmask_alloc
-   fun:numa_node_to_cpus
-   fun:numa_run_on_node
-}
-{
-   numa_run_on_node_global2
-   Memcheck:Leak
-   match-leak-kinds: reachable
-   fun:calloc
-   obj:/usr/lib64/libnuma.so.1
-   fun:numa_node_to_cpus
-   fun:numa_run_on_node
-}
-{
-   numa_run_on_node_global3
-   Memcheck:Leak
-   match-leak-kinds: reachable
-   fun:calloc
-   fun:numa_bitmask_alloc
-   fun:numa_node_to_cpus
+   ...
    fun:numa_run_on_node
 }

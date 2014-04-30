@@ -35,7 +35,13 @@
  * efficient and scalable thanks to the simplicity.
  *
  * @section HIE Page Hierarchy
- * Interior and leaf. bluh
+ * Despite the name of this storage type, we do have a page hierarchy, which is required to handle
+ * switches between volatile/snapshot pages. Hence, a more precise description of this storage type
+ * is a fix-sized pre-allocated \e tree that has only integer-keys from 0 to array_size-1.
+ *
+ * All data (payload) are stored in leaf pages and interior pages contain only pointers to its
+ * children. There is only one root page per array, which may or may not be a leaf page.
+ * Just like B-trees in many sense.
  *
  * @section LAYOUT Page Layout
  * @par Header and Data
@@ -83,7 +89,6 @@
  *   Soroush, E. and Velikhov, P. and Wang, D. L. and Balazinska, M. and Becla, J. and DeWitt, D.
  *   and Heath, B. and Maier, D. and Madden, S. and Patel, J. and Stonebraker, M. and Zdonik, S.
  *   "A demonstration of SciDB: a science-oriented DBMS.", VLDB, 2009.
- * @todo IMPLEMENT
  */
 
 /**

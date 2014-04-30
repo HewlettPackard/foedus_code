@@ -73,7 +73,7 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
     uint64_t        get_thread_buffer_memory_size_per_core() const {
         return thread_buffer_memory_size_per_core_;
     }
-    char*           get_logger_buffer_memory_piece(log::LoggerId logger) {
+    AlignedMemorySlice get_logger_buffer_memory_piece(log::LoggerId logger) {
         return logger_buffer_memory_pieces_[logger];
     }
     uint64_t        get_logger_buffer_memory_size_per_core() const {
@@ -140,7 +140,7 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
      * Memory to hold an I/O buffer for Logger (log writer). Split by each Logger in this node.
      */
     AlignedMemory                           logger_buffer_memory_;
-    std::vector<char*>                      logger_buffer_memory_pieces_;
+    std::vector<AlignedMemorySlice>         logger_buffer_memory_pieces_;
     uint64_t                                logger_buffer_memory_size_per_core_;
 };
 }  // namespace memory

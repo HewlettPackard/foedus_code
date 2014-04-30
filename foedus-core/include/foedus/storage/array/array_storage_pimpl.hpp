@@ -5,6 +5,7 @@
 #ifndef FOEDUS_STORAGE_ARRAY_ARRAY_STORAGE_PIMPL_HPP_
 #define FOEDUS_STORAGE_ARRAY_ARRAY_STORAGE_PIMPL_HPP_
 #include <foedus/cxx11.hpp>
+#include <foedus/compiler.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
@@ -39,11 +40,11 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     ErrorStack  create(thread::Thread* context);
 
     ErrorStack  get_record(thread::Thread* context, ArrayOffset offset,
-                                void *payload, uint16_t payload_offset, uint16_t payload_count);
+                    void *payload, uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE;
     ErrorStack  overwrite_record(thread::Thread* context, ArrayOffset offset,
-                        const void *payload, uint16_t payload_offset, uint16_t payload_count);
+            const void *payload, uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE;
 
-    ErrorStack  lookup(thread::Thread* context, ArrayOffset offset, ArrayPage** out);
+    ErrorStack  lookup(thread::Thread* context, ArrayOffset offset, ArrayPage** out) ALWAYS_INLINE;
 
     Engine* const           engine_;
     ArrayStorage* const     holder_;

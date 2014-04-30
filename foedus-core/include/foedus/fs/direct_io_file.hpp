@@ -9,14 +9,10 @@
 #include <foedus/error_stack.hpp>
 #include <foedus/fs/device_emulation_options.hpp>
 #include <foedus/fs/path.hpp>
+#include <foedus/memory/fwd.hpp>
 #include <stdint.h>
 #include <iosfwd>
 namespace foedus {
-
-namespace memory {
-    class AlignedMemory;
-}  // namespace memory
-
 namespace fs {
 
 /**
@@ -95,6 +91,8 @@ class DirectIoFile {
      * @pre (buffer->get_alignment() & 0xFFF) == 0 (4kb alignment)
      */
     ErrorCode       read(uint64_t desired_bytes, foedus::memory::AlignedMemory* buffer);
+    /** Memory slice version. */
+    ErrorCode       read(uint64_t desired_bytes, foedus::memory::AlignedMemorySlice slice);
 
     /**
      * @brief Sequentially write the given amount of contents from the current position.
@@ -106,6 +104,8 @@ class DirectIoFile {
      * @pre (buffer->get_alignment() & 0xFFF) == 0 (4kb alignment)
      */
     ErrorCode       write(uint64_t desired_bytes, const foedus::memory::AlignedMemory& buffer);
+    /** Memory slice version. */
+    ErrorCode       write(uint64_t desired_bytes, foedus::memory::AlignedMemorySlice buffer);
 
     /**
      * @brief Discard the content of the file after the given offset.

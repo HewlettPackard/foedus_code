@@ -62,7 +62,7 @@
  *  \li For debug-messages that \e YOU wouldn't want to see unless you are writing code
  * in that module, use VLOG. VLOG level 0: ~tens per second, 1: ~hundreds per second,
  * 2: ~thousand per second. If it's more than thousand per second, do NOT use VLOG.
- * It means (at least) that many level checkings per second! Use DLOG then.
+ * It means (at least) that many level checkings per second! Use DLOG/DVLOG then.
  *
  * @par Performance Counters
  * TODO implement

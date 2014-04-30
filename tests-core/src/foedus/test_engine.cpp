@@ -49,7 +49,7 @@ TEST(EngineTest, Restart) {
 TEST(EngineTest, RestartManyTimes) {
     EngineOptions options = get_tiny_options();
     Engine engine(options);  // initialize the same engine many times.
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 2; ++i) {
         COERCE_ERROR(engine.initialize());
         COERCE_ERROR(engine.uninitialize());
     }

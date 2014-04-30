@@ -12,6 +12,7 @@
 namespace foedus {
 namespace memory {
 class   AlignedMemory;
+struct  AlignedMemorySlice;
 class   EngineMemory;
 struct  MemoryOptions;
 class   NumaCoreMemory;

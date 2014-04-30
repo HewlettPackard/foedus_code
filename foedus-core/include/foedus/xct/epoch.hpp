@@ -35,7 +35,9 @@ class Epoch {
         EPOCH_INITIAL = 1,
     };
 
+    /** Construct an empty/invalid epoch. */
     Epoch() : epoch_(EPOCH_INVALID) {}
+    /** Construct an epoch of specified integer representation. */
     explicit Epoch(EpochInteger value) : epoch_(value) {}
     // default copy-constructor/assignment/destructor suffice
 

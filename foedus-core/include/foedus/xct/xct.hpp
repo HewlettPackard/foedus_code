@@ -22,8 +22,7 @@ namespace xct {
  * @brief Represents a transaction.
  * @ingroup XCT
  * @details
- * To obtain this object (in other words, to begin a transaction),
- * call XctManager#begin_xct().
+ * To obtain this object, call Thread#get_current_xct().
  */
 class Xct {
  public:

@@ -15,11 +15,11 @@
 #include <foedus/memory/memory_id.hpp>
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/memory/page_pool.hpp>
-#include <foedus/engine.hpp>
 #include <foedus/xct/xct.hpp>
 #include <foedus/xct/xct_inl.hpp>
 #include <foedus/log/thread_log_buffer_impl.hpp>
 #include <foedus/log/log_type.hpp>
+#include <foedus/engine.hpp>
 #include <glog/logging.h>
 #include <cstring>
 #include <string>
@@ -27,6 +27,22 @@
 namespace foedus {
 namespace storage {
 namespace array {
+
+// Defines ArrayStorage methods so that we can inline implementation calls
+bool        ArrayStorage::is_initialized()   const  { return pimpl_->is_initialized(); }
+bool        ArrayStorage::exists()           const  { return pimpl_->exist_; }
+uint16_t    ArrayStorage::get_payload_size() const  { return pimpl_->payload_size_; }
+ArrayOffset ArrayStorage::get_array_size()   const  { return pimpl_->array_size_; }
+StorageId   ArrayStorage::get_id()           const  { return pimpl_->id_; }
+const std::string& ArrayStorage::get_name()  const  { return pimpl_->name_; }
+ErrorStack ArrayStorage::get_record(thread::Thread* context, ArrayOffset offset,
+                    void *payload, uint16_t payload_offset, uint16_t payload_count) {
+    return pimpl_->get_record(context, offset, payload, payload_offset, payload_count);
+}
+ErrorStack ArrayStorage::overwrite_record(thread::Thread* context, ArrayOffset offset,
+            const void *payload, uint16_t payload_offset, uint16_t payload_count) {
+    return pimpl_->overwrite_record(context, offset, payload, payload_offset, payload_count);
+}
 
 /**
  * Calculate leaf/interior pages we need.
@@ -223,8 +239,8 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     return RET_OK;
 }
 
-ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOffset offset,
-                            void *payload, uint16_t payload_offset, uint16_t payload_count) {
+inline ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOffset offset,
+                    void *payload, uint16_t payload_offset, uint16_t payload_count) {
     ASSERT_ND(is_initialized());
     ASSERT_ND(offset < array_size_);
     ASSERT_ND(payload_offset + payload_count <= payload_size_);
@@ -239,8 +255,8 @@ ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOffset of
     std::memcpy(payload, record->payload_ + payload_offset, payload_count);
     return RET_OK;
 }
-ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context,
-        ArrayOffset offset, const void *payload, uint16_t payload_offset, uint16_t payload_count) {
+inline ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context, ArrayOffset offset,
+            const void *payload, uint16_t payload_offset, uint16_t payload_count) {
     ASSERT_ND(is_initialized());
     ASSERT_ND(offset < array_size_);
     ASSERT_ND(payload_offset + payload_count <= payload_size_);
@@ -262,7 +278,7 @@ ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context,
     return RET_OK;
 }
 
-inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset offset,
+inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* /*context*/, ArrayOffset offset,
                                             ArrayPage** out) {
     ASSERT_ND(is_initialized());
     ASSERT_ND(offset < array_size_);

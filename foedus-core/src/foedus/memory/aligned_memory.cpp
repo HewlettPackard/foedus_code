@@ -10,7 +10,7 @@
 
 namespace foedus {
 namespace memory {
-AlignedMemory::AlignedMemory(size_t size, size_t alignment,
+AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
                              AllocType alloc_type, int numa_node) noexcept
     : size_(size), alignment_(alignment), alloc_type_(alloc_type), numa_node_(numa_node) {
     ASSERT_ND((alignment & (alignment - 1)) == 0);  // alignment is power of two
@@ -76,6 +76,16 @@ std::ostream& operator<<(std::ostream& o, const AlignedMemory& v) {
     return o;
 }
 
+std::ostream& operator<<(std::ostream& o, const AlignedMemorySlice& v) {
+    o << "<AlignedMemorySlice>";
+    o << "<offset>" << v.offset_ << "</offset>";
+    o << "<count>" << v.count_ << "</count>";
+    if (v.memory_) {
+        o << *v.memory_;
+    }
+    o << "</AlignedMemorySlice>";
+    return o;
+}
 }  // namespace memory
 }  // namespace foedus
 

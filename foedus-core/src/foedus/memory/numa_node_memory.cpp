@@ -93,9 +93,9 @@ ErrorStack NumaNodeMemory::initialize_log_buffers_memory() {
     LOG(INFO) << "Initializing logger_buffer_memory_. size=" << logger_buffer;
     CHECK_ERROR(allocate_numa_memory(logger_buffer, &logger_buffer_memory_));
     for (auto logger = 0; logger < loggers_; ++logger) {
-        char* piece = reinterpret_cast<char*>(logger_buffer_memory_.get_block())
-            + logger_buffer_memory_size_per_core_ * logger;
-        logger_buffer_memory_pieces_.push_back(piece);
+        AlignedMemorySlice piece(&logger_buffer_memory_,
+                logger_buffer_memory_size_per_core_ * logger, logger_buffer_memory_size_per_core_);
+        logger_buffer_memory_pieces_.emplace_back(piece);
     }
     return RET_OK;
 }

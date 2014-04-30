@@ -13,6 +13,7 @@
 #include <foedus/storage/array/array_storage.hpp>
 #include <foedus/storage/array/array_id.hpp>
 #include <foedus/assert_nd.hpp>
+#include <foedus/compiler.hpp>
 #include <stdint.h>
 #include <iosfwd>
 #include <cstring>
@@ -38,14 +39,14 @@ struct OverwriteLogType : public log::RecordLogType {
     uint16_t        payload_count_;     // +2 => 20
     char            data_[4];           // +4 => 24
 
-    static uint16_t calculate_log_length(uint16_t payload_count) {
+    static uint16_t calculate_log_length(uint16_t payload_count) ALWAYS_INLINE {
         // we pad to 8 bytes for efficiency (so far not for regular register access)
         return assorted::align8(20 + payload_count) - 20;
     }
 
     void            populate(StorageId storage_id, ArrayOffset offset, const void *payload,
-                        uint16_t payload_offset, uint16_t payload_count) {
-        // header_.log_type_code_ = log::get_log_code<OverwriteLogType>();
+                        uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE {
+        header_.log_type_code_ = log::get_log_code<OverwriteLogType>();
         header_.log_length_ = calculate_log_length(payload_count);
         header_.storage_id_ = storage_id;
         offset_ = offset;
@@ -53,7 +54,7 @@ struct OverwriteLogType : public log::RecordLogType {
         payload_count_ = payload_count;
         std::memcpy(data_, payload, payload_count);
     }
-    void            apply_record(Storage* storage, Record* record) {
+    void            apply_record(Storage* storage, Record* record) ALWAYS_INLINE {
         ASSERT_ND(payload_count_ < DATA_SIZE);
         ASSERT_ND(dynamic_cast<ArrayStorage*>(storage));
         std::memcpy(record->payload_ + payload_offset_, data_, payload_count_);

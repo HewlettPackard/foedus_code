@@ -112,12 +112,12 @@ template<> struct TinyxmlGetter<float> {
  * tinyxml2::XMLElement::SetText() is already generic, but it doesn't know std::string.
  */
 template <typename T> struct TinyxmlSetter {
-    void operator()(tinyxml2::XMLElement *element, T value) {
+    void operator()(tinyxml2::XMLElement *element, const T &value) {
         element->SetText(value);
     }
 };
 template <> struct TinyxmlSetter<std::string> {
-    void operator()(tinyxml2::XMLElement *element, std::string value) {
+    void operator()(tinyxml2::XMLElement *element, const std::string &value) {
         element->SetText(value.c_str());
     }
 };
