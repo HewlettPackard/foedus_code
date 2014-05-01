@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <list>
 #include <mutex>
+#include <vector>
 namespace foedus {
 namespace log {
 /**
@@ -99,29 +100,6 @@ class ThreadLogBuffer final : public DefaultInitializable {
     thread::ThreadId get_thread_id() const { return thread_id_; }
 
     /**
-     * @brief The in-memory log buffer given to this thread.
-     * @details
-     * This forms a circular buffer to which \e this thread (the owner of this buffer)
-     * will append log entries, and from which log writer will read from head.
-     * This is a piece of NumaNodeMemory#thread_buffer_memory_.
-     */
-    char*       get_buffer() { return buffer_; }
-
-    /** Size of the buffer assigned to this thread. */
-    uint64_t    get_buffer_size() const { return buffer_size_; }
-
-    /**
-     * @brief buffer_size_ - 64.
-     * @details
-     * We always leave some \e hole between offset_tail_ and offset_head_
-     * to avoid the case offset_tail_ == offset_head_ (log empty? or log full?).
-     * One classic way to handle this case is to store \e count rather than offsets, but
-     * it makes synchronization between log writer and this thread expensive.
-     * Rather, we sacrifice a negligible space.
-     */
-    uint64_t    get_buffer_size_safe() const { return buffer_size_safe_; }
-
-    /**
      * @brief Reserves a space for a new (uncommitted) log entry at the tail.
      * @param[in] log_length byte size of the log. You have to give it beforehand.
      * @details
@@ -129,7 +107,12 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * But it will be rare as we release a large region of buffer at each time.
      */
     char*       reserve_new_log(uint16_t log_length) ALWAYS_INLINE {
-        if (UNLIKELY(
+        if (UNLIKELY(log_length + offset_tail_ >= buffer_size_)) {
+            // now we need wrap around. to simplify, let's avoid having a log entry spanning the
+            // end of the buffer. put a filler log to fill the rest.
+            fillup_tail();
+            ASSERT_ND(offset_tail_ == 0);
+        } else if (UNLIKELY(
             distance(buffer_size_, offset_tail_, offset_head_) + log_length >= buffer_size_safe_)) {
             wait_for_space(log_length);
         }
@@ -213,16 +196,40 @@ class ThreadLogBuffer final : public DefaultInitializable {
      */
     bool        consume_epoch_mark();
 
+    /** Called from reserve_new_log() to fillup the end of the circular buffer with padding. */
+    void        fillup_tail();
+
     Engine*                         engine_;
     thread::ThreadId                thread_id_;
 
     memory::AlignedMemorySlice      buffer_memory_;
-    /** @copydoc get_buffer() */
+    /**
+     * @brief The in-memory log buffer given to this thread.
+     * @details
+     * This forms a circular buffer to which \e this thread (the owner of this buffer)
+     * will append log entries, and from which log writer will read from head.
+     * This is a piece of NumaNodeMemory#thread_buffer_memory_.
+     */
     char*                           buffer_;
-    /** @copydoc get_buffer_size() */
+    /** Size of the buffer assigned to this thread. */
     uint64_t                        buffer_size_;
-    /** @copydoc get_buffer_size_safe() */
+    /**
+     * @brief buffer_size_ - 64.
+     * @details
+     * We always leave some \e hole between offset_tail_ and offset_head_
+     * to avoid the case offset_tail_ == offset_head_ (log empty? or log full?).
+     * One classic way to handle this case is to store \e count rather than offsets, but
+     * it makes synchronization between log writer and this thread expensive.
+     * Rather, we sacrifice a negligible space.
+     */
     uint64_t                        buffer_size_safe_;
+
+    /**
+     * Used to temporarily store a log entry that will span the end of the circular buffer.
+     * It's an extremely rare event, so we simply use vector of char to hold it then copy the
+     * result to buffer.
+     */
+    std::vector<char>               wrap_around_tmp_buffer_;
 
     /** @copydoc get_offset_head() */
     uint64_t                        offset_head_;

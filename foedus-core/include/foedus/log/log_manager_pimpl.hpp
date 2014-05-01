@@ -8,6 +8,7 @@
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
 #include <foedus/thread/thread_id.hpp>
+#include <foedus/xct/epoch.hpp>
 #include <vector>
 namespace foedus {
 namespace log {
@@ -33,6 +34,11 @@ class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
      * Log writers.
      */
     std::vector< Logger* >      loggers_;
+
+    /**
+     * All loggers flushed their logs upto this epoch.
+     */
+    xct::Epoch                  durable_epoch_;
 };
 }  // namespace log
 }  // namespace foedus

@@ -3,6 +3,7 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/log/thread_log_buffer_impl.hpp>
+#include <foedus/log/common_log_types.hpp>
 #include <foedus/engine.hpp>
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/memory/numa_core_memory.hpp>
@@ -60,6 +61,20 @@ void ThreadLogBuffer::assert_consistent_offsets() const {
 
 void ThreadLogBuffer::wait_for_space(uint16_t required_space) {
     // TODO(Hideaki) implement
+    LOG(INFO) << "Thread-" << thread_id_ << " waiting for space to write logs..";
+    while(true);
+}
+
+void ThreadLogBuffer::fillup_tail() {
+    uint64_t len = buffer_size_ - offset_tail_;
+    if (distance(buffer_size_, offset_tail_, offset_head_) + len >= buffer_size_safe_) {
+        wait_for_space(len);
+    }
+    ASSERT_ND(distance(buffer_size_, offset_tail_, offset_head_) + len < buffer_size_safe_);
+    FillerLogType *filler = reinterpret_cast<FillerLogType*>(buffer_ + offset_tail_);
+    filler->init(len);
+    advance(buffer_size_, &offset_tail_, len);
+    ASSERT_ND(offset_tail_ == 0);
 }
 
 void ThreadLogBuffer::add_thread_epock_mark(const xct::Epoch &commit_epoch) {

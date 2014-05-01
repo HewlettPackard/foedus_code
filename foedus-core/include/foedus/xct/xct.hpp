@@ -86,6 +86,23 @@ class Xct {
      */
     ErrorCode           add_to_write_set(storage::Record* record, void* log_entry);
 
+    /**
+     *
+     */
+    Epoch               get_in_commit_log_epoch() const { return in_commit_log_epoch_; }
+
+    struct InCommitLogEpochGuard {
+        InCommitLogEpochGuard(Xct *xct, bool read_only, Epoch current_epoch) : xct_(xct) {
+            ASSERT_ND(!xct_->in_commit_log_epoch_.is_valid());
+            if (!read_only) {
+                ASSERT_ND(!current_epoch.is_valid());
+                xct_->in_commit_log_epoch_ = current_epoch;
+            }
+        };
+
+        Xct* const xct_;
+    };
+
     friend std::ostream& operator<<(std::ostream& o, const Xct& v);
 
  private:
@@ -105,6 +122,9 @@ class Xct {
     WriteXctAccess*     write_set_;
     uint32_t            write_set_size_;
     uint32_t            max_write_set_size_;
+
+    /** @copydoc get_in_commit_log_epoch() */
+    Epoch               in_commit_log_epoch_;
 };
 }  // namespace xct
 }  // namespace foedus

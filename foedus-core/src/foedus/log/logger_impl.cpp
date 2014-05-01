@@ -40,8 +40,6 @@ fs::Path Logger::construct_suffixed_log_path(LogFileOrdinal ordinal) const {
 ErrorStack Logger::initialize_once() {
     // clear all variables
     current_file_ = nullptr;
-    oldest_ordinal_ = 0;
-    current_ordinal_ = 0;
     numa_node_ = static_cast<int>(thread::decompose_numa_node(assigned_thread_ids_[0]));
     durable_epoch_ = xct::Epoch();
     current_epoch_ = xct::Epoch();
@@ -49,21 +47,26 @@ ErrorStack Logger::initialize_once() {
         << " threads, starting from " << assigned_thread_ids_[0] << ", numa_node_="
         << static_cast<int>(numa_node_);
 
+    // Initialize the values from the latest savepoint.
     // this is during initialization. no race.
     const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
-    current_file_path_ = construct_suffixed_log_path(savepoint.current_log_files_[id_]);
+    oldest_ordinal_ = savepoint.oldest_log_files_[id_];
+    current_ordinal_ = savepoint.current_log_files_[id_];
+    current_file_length_ = savepoint.current_log_files_offset_durable_[id_];
+    oldest_file_offset_begin_ = savepoint.oldest_log_files_offset_begin_[id_];
+    current_file_path_ = construct_suffixed_log_path(current_ordinal_);
     // open the log file
     current_file_ = new fs::DirectIoFile(current_file_path_,
                                          engine_->get_options().log_.emulation_);
     CHECK_ERROR(current_file_->open(false, true, true, savepoint.empty()));
-    uint64_t desired_length = savepoint.current_log_files_offset_durable_[id_];
     uint64_t current_length = fs::file_size(current_file_path_);
-    if (desired_length < fs::file_size(current_file_path_)) {
+    if (current_file_length_ < fs::file_size(current_file_path_)) {
         // there are non-durable regions as an incomplete remnant of previous execution.
         // probably there was a crash. in this case, we discard the non-durable regions.
         LOG(ERROR) << "Logger-" << id_ << "'s log file has a non-durable region. Probably there"
-            << " was a crash. Will truncate it to " << desired_length << " from " << current_length;
-        CHECK_ERROR(current_file_->truncate(desired_length, true));  // also sync right now
+            << " was a crash. Will truncate it to " << current_file_length_
+            << " from " << current_length;
+        CHECK_ERROR(current_file_->truncate(current_file_length_, true));  // also sync right now
     }
 
     // which threads are assigned to me?
@@ -161,7 +164,7 @@ void Logger::handle_logger() {
                         // 5) logger writes out all logs up to 30, as ep=3.
                         // To prevent this case, we first read cur_xct_end, take fence, then
                         // check epoch mark.
-                        upto_offset = current_xct_begin;
+                        upto_offset = current_xct_begin;  // use the already-copied value
                     } else {
                         upto_offset = buffer.logger_epoch_ends_;
                     }
@@ -203,35 +206,32 @@ ErrorStack Logger::switch_current_epoch(const xct::Epoch& new_epoch) {
     return RET_OK;
 }
 
-ErrorStack Logger::flush_log() {
-    /*
-    if (logger_buffer_cursor_ == 0) {
+ErrorStack Logger::switch_file_if_required() {
+    if (current_file_length_ < (engine_->get_options().log_.log_file_size_mb_ << 20)) {
         return RET_OK;
     }
-    // we must write in 4kb unit. pad it with a filler.
-    if (logger_buffer_cursor_ % FillerLogType::LOG_WRITE_UNIT_SIZE != 0) {
-        uint64_t filler_size = FillerLogType::LOG_WRITE_UNIT_SIZE
-            - (logger_buffer_cursor_ % FillerLogType::LOG_WRITE_UNIT_SIZE);
-        FillerLogType* filler = reinterpret_cast<FillerLogType*>(
-            logger_buffer_.get_block() + logger_buffer_cursor_);
-        filler->header_.storage_id_ = 0;
-        filler->header_.log_length_ = filler_size;
-        filler->header_.log_type_code_ = get_log_code<FillerLogType>();
-        logger_buffer_cursor_ += filler_size;
+
+    VLOG(0) << "Logger-" << id_ << " moving on to next file. current_ordinal_=" << current_ordinal_;
+
+    // Close the current one. Immediately call fsync on it AND the parent folder.
+    current_file_->close();
+    delete current_file_;
+    current_file_ = nullptr;
+    if (!fs::fsync(current_file_path_, true)) {
+        return ERROR_STACK(ERROR_CODE_FS_SYNC_FAILED);
     }
 
-    const uint64_t max_file_size = (engine_->get_options().log_.log_file_size_mb_ << 20);
-    if (logger_buffer_cursor_ + current_file_offset_end_ > max_file_size) {
-        // TODO(Hideaki) now switch the file.
-    }
-
-    CHECK_ERROR_CODE(current_file_->write(logger_buffer_cursor_, logger_buffer_));
-    logger_buffer_cursor_ = 0;
-    */
+    current_file_path_ = construct_suffixed_log_path(++current_ordinal_);
+    VLOG(0) << "Logger-" << id_ << " next file=" << current_file_path_;
+    current_file_ = new fs::DirectIoFile(current_file_path_,
+                                            engine_->get_options().log_.emulation_);
+    CHECK_ERROR(current_file_->open(false, true, true, true));
+    current_file_length_ = 0;
     return RET_OK;
 }
 
 ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
+    CHECK_ERROR(switch_file_if_required());
     const uint64_t from_offset = buffer->get_offset_durable();
     const uint64_t SECTOR_SIZE = FillerLogType::LOG_WRITE_UNIT_SIZE;
     ASSERT_ND(from_offset != upto_offset);
@@ -240,6 +240,11 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
         // let's write up to the end of the circular buffer, then from the beginning.
         VLOG(0) << "Writing out Thread-" << buffer->get_thread_id() << "'s log with wrap around."
             << " from_offset=" << from_offset << ", upto_offset=" << upto_offset;
+
+        // we can simply write out logs upto the end without worrying about the case where a log
+        // entry spans the end of circular buffer. Because we avoid that in ThreadLogBuffer.
+        // (see reserve_new_log()). So, we can separately handle the two writes by calling itself
+        // again, which adds padding if they need.
         CHECK_ERROR(write_log(buffer, buffer->buffer_size_));
         ASSERT_ND(buffer->get_offset_durable() == 0);
         CHECK_ERROR(write_log(buffer, upto_offset));
@@ -275,9 +280,8 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
             CHECK_ERROR_CODE(current_file_->write(SECTOR_SIZE, fill_buffer_));
             buffer->offset_durable_ += fragment_size;
         }
+        return RET_OK;
     }
-
-    return RET_OK;
 }
 
 }  // namespace log

@@ -20,7 +20,7 @@
  *     MyTask() {}
  *     foedus::ErrorStack run(foedus::threadThread* context) {
  *         foedus::Engine *engine = context->get_engine();
- *         foedus::xctXctManager& xct_manager = engine->get_xct_manager();
+ *         foedus::xct::XctManager& xct_manager = engine->get_xct_manager();
  *         CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::SERIALIZABLE));
  *         ... // read/modify data. See storage module's document for examples.
  *         foedus::xct::Epoch commit_epoch;

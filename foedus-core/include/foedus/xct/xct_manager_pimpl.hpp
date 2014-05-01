@@ -99,13 +99,16 @@ class XctManagerPimpl final : public DefaultInitializable {
      * Currently running (committing) transactions will use this value as their serialization point.
      * No locks to protect this variable, but
      * \li There should be only one thread that might update this (XctManager).
-     * \li Readers should take appropriate fence before reading this (XctManager#begin_xct()).
+     * \li Readers should take appropriate fence before reading this.
+     * @invariant current_global_epoch_ > 0
+     * (current_global_epoch_ begins with 1, not 0. So, epoch-0 is always an empty/dummy epoch)
      */
     Epoch                   current_global_epoch_;
 
     /**
      * @brief The durable epoch of the entire engine.
      * @invariant current_global_epoch_ > durable_global_epoch_
+     * (we need to advance current epoch to make sure the ex-current epoch is durable)
      * @details
      * This value indicates upto what commit-groups we can return results to client programs.
      * This value is advanced by checking the durable epoch of each logger.
@@ -122,7 +125,7 @@ class XctManagerPimpl final : public DefaultInitializable {
     std::mutex              durable_global_epoch_advanced_mutex_;
 
     /**
-     * This thread keeps advancing the current_global_epoch_.
+     * This thread keeps advancing the current_global_epoch_ and durable_global_epoch_.
      */
     thread::StoppableThread epoch_advance_thread_;
 };
