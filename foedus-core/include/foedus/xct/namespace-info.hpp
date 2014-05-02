@@ -45,9 +45,7 @@
  *   ... // read/modify data. See storage module's document for examples.
  *   foedus::xct::Epoch commit_epoch;
  *   CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
- *   if (highest_commit_epoch < commit_epoch) {
- *     highest_commit_epoch = commit_epoch;
- *   }
+ *   highest_commit_epoch.store_max(commit_epoch);
  * }
  * CHECK_ERROR_CODE(xct_manager.wait_for_commit(highest_commit_epoch));
  * @endcode

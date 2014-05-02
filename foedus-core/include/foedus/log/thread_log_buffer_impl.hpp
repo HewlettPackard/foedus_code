@@ -11,9 +11,9 @@
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/xct/epoch.hpp>
 #include <stdint.h>
+#include <iosfwd>
 #include <list>
 #include <mutex>
-#include <vector>
 namespace foedus {
 namespace log {
 /**
@@ -32,8 +32,8 @@ namespace log {
  *   <td> @copydoc get_offset_head() </td></tr>
  * <tr><td> get_offset_durable() </td><td>Thread, LogGleaner</td><td>Logger</td>
  *   <td> @copydoc get_offset_durable() </td></tr>
- * <tr><td> get_offset_current_xct_begin() </td><td>Logger</td><td>Thread</td>
- *   <td> @copydoc get_offset_current_xct_begin() </td></tr>
+ * <tr><td> get_offset_committed() </td><td>Logger</td><td>Thread</td>
+ *   <td> @copydoc get_offset_committed() </td></tr>
  * <tr><td> get_offset_tail() </td><td>Thread</td><td>Thread</td>
  *   <td> @copydoc get_offset_tail() </td></tr>
  * </table>
@@ -83,9 +83,11 @@ class ThreadLogBuffer final : public DefaultInitializable {
         xct::Epoch  new_epoch_;
         /**
          * Where the new epoch starts.
-         * @invariant offset_durable_ <= offset_epoch_begin_ < offset_current_xct_begin_.
+         * @invariant offset_durable_ <= offset_epoch_begin_ < offset_committed_.
          */
         uint64_t    offset_epoch_begin_;
+
+        friend std::ostream& operator<<(std::ostream& o, const ThreadEpockMark& v);
     };
 
     ThreadLogBuffer(Engine* engine, thread::ThreadId thread_id);
@@ -126,16 +128,20 @@ class ThreadLogBuffer final : public DefaultInitializable {
     /**
      * Called when the current transaction is successfully committed.
      */
-    void        publish_current_xct_log(const xct::Epoch &commit_epoch) ALWAYS_INLINE {
+    void        publish_committed_log(xct::Epoch commit_epoch) ALWAYS_INLINE {
         ASSERT_ND(commit_epoch >= current_epoch_);
         if (UNLIKELY(commit_epoch > current_epoch_)) {
-            add_thread_epock_mark(commit_epoch);  // epoch switches!
+            on_new_epoch_observed(commit_epoch);  // epoch switches!
+        } else if (UNLIKELY(commit_epoch < logger_epoch_)) {
+            // This MUST not happen because it means an already durable epoch received a new log!
+            crash_stale_commit_epoch(commit_epoch);
         }
-        offset_current_xct_begin_ = offset_tail_;
+        offset_committed_ = offset_tail_;
     }
+
     /** Called when the current transaction aborts. */
     void        discard_current_xct_log() {
-        offset_tail_ = offset_current_xct_begin_;
+        offset_tail_ = offset_committed_;
     }
 
     /** Called when we have to wait till offset_head_ advances so that we can put new logs. */
@@ -167,7 +173,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
     void        set_offset_durable(uint64_t value) { offset_durable_ = value; }
 
     /**
-     * @brief The beginning of logs for current transaction.
+     * @brief This marks the position upto which transaction logs are committed by the thread.
      * @details
      * Log writers can safely read log entries and write them to log files up to this place.
      * When the transaction commits, this value is advanced by the thread.
@@ -175,26 +181,39 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * Thus, the log writer can safely read this variable without any fence or lock
      * thanks to regular (either old value or new value, never garbage) read of 64-bit.
      */
-    uint64_t    get_offset_current_xct_begin() const { return offset_current_xct_begin_; }
+    uint64_t    get_offset_committed() const { return offset_committed_; }
 
     /**
      * @brief The current cursor to which next log will be written.
      * @details
      * This is the location the current transaction of this thread is writing to \b before commit.
-     * When the transaction commits, offset_current_xct_begin_ catches up with this.
-     * When the transaction aborts, this value rolls back to offset_current_xct_begin_.
+     * When the transaction commits, offset_committed_ catches up with this.
+     * When the transaction aborts, this value rolls back to offset_committed_.
      * Only this thread reads/writes to this variable. No other threads access this.
      */
     uint64_t    get_offset_tail() const { return offset_tail_; }
 
+    friend std::ostream& operator<<(std::ostream& o, const ThreadLogBuffer& v);
+
  private:
-    /** called from publish_current_xct_log when we have to switch the epoch. */
-    void        add_thread_epock_mark(const xct::Epoch &commit_epoch);
+    /**
+     * called from publish_committed_log whenever the thread observes a commit_epoch that is
+     * larger than current_epoch_.
+     */
+    void        on_new_epoch_observed(xct::Epoch commit_epoch);
+
+    /** Crash with a detailed report. */
+    void        crash_stale_commit_epoch(xct::Epoch commit_epoch);
 
     /**
+     * Called from logger to eat an epoch mark to advance logger_epoch_.
      * @return whether any epoch mark was consumed.
+     * @pre logger_epoch_open_ended_ || logger_epoch_ends_ == offset_durable_
+     * meaning the logger has to be waiting for the thread to publish an epoch mark.
      */
     bool        consume_epoch_mark();
+    /** Loop consume_epoch_mark() until the logger doesn't have to. */
+    void        consume_epoch_mark_as_many();
 
     /** Called from reserve_new_log() to fillup the end of the circular buffer with padding. */
     void        fillup_tail();
@@ -224,19 +243,12 @@ class ThreadLogBuffer final : public DefaultInitializable {
      */
     uint64_t                        buffer_size_safe_;
 
-    /**
-     * Used to temporarily store a log entry that will span the end of the circular buffer.
-     * It's an extremely rare event, so we simply use vector of char to hold it then copy the
-     * result to buffer.
-     */
-    std::vector<char>               wrap_around_tmp_buffer_;
-
     /** @copydoc get_offset_head() */
     uint64_t                        offset_head_;
     /** @copydoc get_offset_durable() */
     uint64_t                        offset_durable_;
-    /** @copydoc get_offset_current_xct_begin() */
-    uint64_t                        offset_current_xct_begin_;
+    /** @copydoc get_offset_committed() */
+    uint64_t                        offset_committed_;
     /** @copydoc get_offset_tail() */
     uint64_t                        offset_tail_;
 
@@ -248,17 +260,17 @@ class ThreadLogBuffer final : public DefaultInitializable {
     xct::Epoch                      current_epoch_;
 
     /**
-     * Upto what epoch the logger flushed logs in this buffer.
-     * This is only read/written by the logger.
-     */
-    xct::Epoch                      durable_epoch_;
-
-    /**
-     * This is the epoch the logger is currently flushing.
+     * @brief The epoch the logger is currently flushing.
+     * @details
      * The logger writes out the log entries in this epoch.
      * This value is 0 only when the logger has not visited this buffer.
      * This is only read/written by the logger and updated when the logger consumes ThreadEpockMark.
-     * @invariant current_epoch_ >= logger_epoch_ > durable_epoch_ (except 0)
+     *
+     * This value might be stale when the worker thread is idle for a while. The logger can't
+     * advance this value because the worker can't publish epoch marks. In that case, the logger
+     * leaves this value stale, but it reports a larger durable epoch by detecting that
+     * the thread is idle with the in_commit_log_epoch guard. see Logger::update_durable_epoch().
+     * @invariant current_epoch_ >= logger_epoch_
      */
     xct::Epoch                      logger_epoch_;
     /**
@@ -275,7 +287,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
     /**
      * The position where log entries for logger_epoch_ ends (exclusive).
      * The value is undefined when logger_epoch_open_ended_ is true.
-     * @invariant current_epoch_ >= logger_epoch_ends_ > offset_durable_
+     * @invariant logger_epoch_ends_ >= offset_durable_
      */
     uint64_t                        logger_epoch_ends_;
 
@@ -283,15 +295,15 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * @brief Currently active epoch marks that are waiting to be consumed by the logger.
      * @details
      * The older marks come first. For example, it might be like this:
-     * \li offset_head_=0, offset_durable_=128, current_epoch_=7, durable_epoch_=0.
+     * \li offset_head_=0, offset_durable_=128, current_epoch_=6, logger_epoch_=3.
      * \li Mark 0: Switched from epoch-3 to epoch-4 at offset=128.
-     * \li Mark 1: Switched from epoch-4 to epoch-6 at offset=1024.
-     * \li Mark 2: Switched from epoch-6 to epoch-7 at offset=4096.
+     * \li Mark 1: Switched from epoch-4 to epoch-5 at offset=1024.
+     * \li Mark 2: Switched from epoch-5 to epoch-6 at offset=4096.
      * Then, logger comes by and consumes/removes Mark-0, writes out until offset 1024, setting
-     * offset_durable_=1024, durable_epoch_=4.
+     * offset_durable_=1024, logger_epoch_=4.
      *
-     * In another example where the logger is well catching up with this thread, this vector
-     * might be empty. In that case, logger_epoch_open_ended_ would be true.
+     * In another example where the logger is well catching up with this thread, this list
+     * might be empty. In that case, logger_epoch_open_ended_ is true.
      */
     std::list< ThreadEpockMark >    thread_epoch_marks_;
     /**

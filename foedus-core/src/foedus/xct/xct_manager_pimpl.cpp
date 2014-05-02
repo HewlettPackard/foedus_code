@@ -16,6 +16,8 @@
 #include <foedus/thread/thread.hpp>
 #include <foedus/engine_options.hpp>
 #include <foedus/assert_nd.hpp>
+#include <foedus/savepoint/savepoint_manager.hpp>
+#include <foedus/savepoint/savepoint.hpp>
 #include <glog/logging.h>
 #include <algorithm>
 #include <atomic>
@@ -28,8 +30,9 @@ ErrorStack XctManagerPimpl::initialize_once() {
     if (!engine_->get_storage_manager().is_initialized()) {
         return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
     }
-    current_global_epoch_ = Epoch(1);
-    durable_global_epoch_ = Epoch(0);
+    const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
+    current_global_epoch_ = Epoch(savepoint.durable_epoch_).one_more();
+    durable_global_epoch_ = Epoch(savepoint.durable_epoch_);
     epoch_advance_thread_.initialize("epoch_advance_thread",
         std::thread(&XctManagerPimpl::handle_epoch_advance, this),
         std::chrono::milliseconds(engine_->get_options().xct_.epoch_advance_interval_ms_));
@@ -55,7 +58,7 @@ void XctManagerPimpl::handle_epoch_advance() {
         ++current_global_epoch_;
         current_global_epoch_advanced_.notify_all();
         // TODO(Hideaki) Must check loggers, and update savepoint
-        ++durable_global_epoch_;
+        // ++durable_global_epoch_;
         durable_global_epoch_advanced_.notify_all();
     }
     LOG(INFO) << "epoch_advance_thread ended.";
@@ -117,7 +120,7 @@ ErrorStack XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel is
     DLOG(INFO) << "Began new transaction in thread-" << context->get_thread_id();
     current_xct.activate(isolation_level);
     ASSERT_ND(context->get_thread_log_buffer().get_offset_tail()
-        == context->get_thread_log_buffer().get_offset_current_xct_begin());
+        == context->get_thread_log_buffer().get_offset_committed());
     return RET_OK;
 }
 
@@ -154,6 +157,10 @@ bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *com
 bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch) {
     DLOG(INFO) << "Committing Thread-" << context->get_thread_id() << ", read-write";
     precommit_xct_lock(context);  // Phase 1
+
+    // BEFORE the first fence, update the in_commit_log_epoch_ for logger
+    Xct::InCommitLogEpochGuard guard(&context->get_current_xct(), current_global_epoch_);
+
     std::atomic_thread_fence(std::memory_order_acq_rel);
 
     *commit_epoch = current_global_epoch_;  // serialization point!
@@ -163,7 +170,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     bool verified = precommit_xct_verify_readwrite(context);  // phase 2
     if (verified) {
         precommit_xct_apply(context, *commit_epoch);  // phase 3. this also unlocks
-        context->get_thread_log_buffer().publish_current_xct_log(*commit_epoch);  // announce log
+        context->get_thread_log_buffer().publish_committed_log(*commit_epoch);  // announce log
     } else {
         precommit_xct_unlock(context);  // just unlock in this case
     }

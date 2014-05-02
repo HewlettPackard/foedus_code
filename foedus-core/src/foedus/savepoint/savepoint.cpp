@@ -6,7 +6,7 @@
 #include <foedus/savepoint/savepoint.hpp>
 namespace foedus {
 namespace savepoint {
-Savepoint::Savepoint() : current_epoch_(0), durable_epoch_(0) {
+Savepoint::Savepoint() {
 }
 
 ErrorStack Savepoint::load(tinyxml2::XMLElement* element) {
@@ -37,8 +37,9 @@ ErrorStack Savepoint::save(tinyxml2::XMLElement* element) const {
 }
 
 void Savepoint::populate_empty(log::LoggerId logger_count) {
-    current_epoch_ = 0;
-    durable_epoch_ = 0;
+    // Epoch-0 is reserved for invalid epoch value, so we start from ep-2.
+    current_epoch_ = 2;  // The first epoch that might have transactions is ep-2.
+    durable_epoch_ = 1;  // As there was no transaction in ep-1, this is valid
     oldest_log_files_.resize(logger_count, 0);
     oldest_log_files_offset_begin_.resize(logger_count, 0);
     current_log_files_.resize(logger_count, 0);

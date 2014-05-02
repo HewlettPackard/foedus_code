@@ -59,7 +59,37 @@ class Epoch {
     /** Returns the raw integer representation. */
     EpochInteger value() const { return epoch_; }
 
-    void    operator++() { ++epoch_; }
+    Epoch&  operator++() {
+        ++epoch_;
+        return *this;
+    }
+    Epoch&  operator--() {
+        --epoch_;
+        return *this;
+    }
+    Epoch one_less() const {
+        Epoch tmp(epoch_);
+        tmp.operator--();
+        return tmp;
+    }
+    Epoch one_more() const {
+        Epoch tmp(epoch_);
+        tmp.operator++();
+        return tmp;
+    }
+
+    /** Shorthand for "*this = min(*this, other)" */
+    void    store_min(const Epoch& other) {
+        if (other < *this) {
+            epoch_ = other.epoch_;
+        }
+    }
+    /** Shorthand for "*this = max(*this, other)" */
+    void    store_max(const Epoch& other) {
+        if (other > *this) {
+            epoch_ = other.epoch_;
+        }
+    }
 
     /**
      * Returns the \e distance from this epoch to the given epoch, as defined in RFC 1982.
@@ -81,7 +111,6 @@ class Epoch {
     /** The raw integer representation. */
     EpochInteger epoch_;
 };
-
 }  // namespace xct
 }  // namespace foedus
 

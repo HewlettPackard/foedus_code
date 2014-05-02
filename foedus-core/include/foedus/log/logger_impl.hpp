@@ -47,6 +47,8 @@ class Logger final : public DefaultInitializable {
      */
     void        handle_logger();
 
+    ErrorStack  update_durable_epoch();
+
     /**
      * Moves on to next file if the current file exceeds the configured max size.
      */

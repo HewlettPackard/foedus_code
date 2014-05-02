@@ -20,6 +20,7 @@
 #include <foedus/memory/numa_node_memory.hpp>
 #include <foedus/assert_nd.hpp>
 #include <foedus/xct/xct_manager.hpp>
+#include <foedus/xct/xct.hpp>
 #include <glog/logging.h>
 #include <numa.h>
 #include <algorithm>
@@ -98,73 +99,71 @@ ErrorStack Logger::uninitialize_once() {
     fill_buffer_.release_block();
     return RET_OK;
 }
+
 void Logger::handle_logger() {
     LOG(INFO) << "Logger-" << id_ << " started. pin on NUMA node-" << static_cast<int>(numa_node_);
     ::numa_run_on_node(numa_node_);
     while (!logger_thread_.sleep()) {
-        bool more_log_to_process = false;
-        do {
-            xct::Epoch min_skipped_epoch;
-            bool any_log_processed = false;
-
+        const int MAX_ITERATIONS = 100;
+        int iterations = 0;
+        while (!logger_thread_.is_stop_requested()) {
+            bool more_log_to_process = false;
+            COERCE_ERROR(update_durable_epoch());
             for (thread::Thread* the_thread : assigned_threads_) {
                 if (logger_thread_.is_stop_requested()) {
                     break;
                 }
 
-                // we FIRST take offset_current_xct_begin with memory fence for a reason below.
+                // we FIRST take offset_committed with memory fence for the reason below.
                 ThreadLogBuffer& buffer = the_thread->get_thread_log_buffer();
-                const uint64_t current_xct_begin = buffer.get_offset_current_xct_begin();
-                if (current_xct_begin == buffer.get_offset_durable()) {
+                std::atomic_thread_fence(std::memory_order_acquire);
+                const uint64_t offset_committed = buffer.get_offset_committed();
+                if (offset_committed == buffer.get_offset_durable()) {
                     VLOG(1) << "Thread-" << the_thread->get_thread_id() << " has no log to flush.";
                     continue;
                 }
                 VLOG(0) << "Thread-" << the_thread->get_thread_id() << " has "
-                    << (current_xct_begin - buffer.get_offset_durable()) << " bytes logs to flush.";
+                    << (offset_committed - buffer.get_offset_durable()) << " bytes logs to flush.";
                 std::atomic_thread_fence(std::memory_order_acquire);
 
                 // (if we need to) we consume epoch mark AFTER the fence. Thus, we don't miss a
-                // case where the thread adds a new epoch mark after we read current_xct_begin.
-                if (!buffer.logger_epoch_.is_valid() ||
-                    (!buffer.logger_epoch_open_ended_
-                        && buffer.logger_epoch_ends_ == buffer.offset_durable_)) {
-                    // then, we need to consume an epoch mark. otherwise no logs to write out.
-                    if (!buffer.consume_epoch_mark()) {
-                        LOG(WARNING) << "Couldn't get epoch marks??";
-                        continue;
-                    }
+                // case where the thread adds a new epoch mark after we read offset_committed.
+                buffer.consume_epoch_mark_as_many();
+
+                if (buffer.logger_epoch_open_ended_
+                    && buffer.logger_epoch_ends_ == buffer.offset_durable_) {
+                    // Then, the buffer is empty and maybe the worker thread is idle
+                    continue;
                 }
 
-                ASSERT_ND(buffer.logger_epoch_.is_valid());
-                ASSERT_ND(buffer.logger_epoch_open_ended_
-                    || buffer.logger_epoch_ends_ != buffer.offset_durable_);
                 if (buffer.logger_epoch_ < current_epoch_) {
-                    LOG(FATAL) << "WHAT? Did I miss something? current_epoch_=" << current_epoch_
-                        << ", buffer.logger_epoch_=" << buffer.logger_epoch_;
-                } else if (buffer.logger_epoch_ > current_epoch_) {
+                    // this can happen if the worker thread has been idle for a while.
+                    // however, then there must be no log at least as of the fence above.
+                    if (offset_committed != buffer.offset_durable_) {
+                        LOG(FATAL) << "WHAT? Did I miss something? current_epoch_="
+                            << current_epoch_ << ", buffer=" << buffer;
+                    }
+                    continue;
+                }
+                if (buffer.logger_epoch_ > current_epoch_) {
                     // then skip it for now. we must finish the current epoch first.
                     VLOG(0) << "Skipped " << the_thread->get_thread_id() << "'s log. too recent.";
                     more_log_to_process = true;
-                    if (!min_skipped_epoch.is_valid() || buffer.logger_epoch_ < min_skipped_epoch) {
-                        min_skipped_epoch = buffer.logger_epoch_;
-                    }
                     continue;
                 } else {
                     // okay, let's write out logs in this buffer
-                    more_log_to_process = true;
-                    any_log_processed = true;
                     uint64_t upto_offset;
                     if (buffer.logger_epoch_open_ended_) {
-                        // then, we write out upto current_xct_end. however, consider the case:
-                        // 1) buffer has no mark (open ended) durable=10, cur_xct_end=20, ep=3.
+                        // then, we write out upto offset_committed_. however, consider the case:
+                        // 1) buffer has no mark (open ended) durable=10, committed=20, ep=3.
                         // 2) this logger comes by with current_epoch=3. Sees no mark in buffer.
                         // 3) buffer receives new log in the meantime, ep=4, new mark added,
-                        //   and cur_xct_end is now 30.
-                        // 4) logger "okay, I will flush out all logs up to cur_xct_end(30)".
+                        //   and committed is now 30.
+                        // 4) logger "okay, I will flush out all logs up to committed(30)".
                         // 5) logger writes out all logs up to 30, as ep=3.
-                        // To prevent this case, we first read cur_xct_end, take fence, then
+                        // To prevent this case, we first read offset_committed, take fence, then
                         // check epoch mark.
-                        upto_offset = current_xct_begin;  // use the already-copied value
+                        upto_offset = offset_committed;  // use the already-copied value
                     } else {
                         upto_offset = buffer.logger_epoch_ends_;
                     }
@@ -173,17 +172,115 @@ void Logger::handle_logger() {
                 }
             }
 
-            if (!any_log_processed && more_log_to_process) {
-                // then we advance our current_epoch
-                COERCE_ERROR(switch_current_epoch(min_skipped_epoch));
+            COERCE_ERROR(update_durable_epoch());
+
+            if (!more_log_to_process) {
+                break;
             }
-        } while (more_log_to_process && !logger_thread_.is_stop_requested());
+            if (++iterations >= MAX_ITERATIONS) {
+                LOG(WARNING) << "Logger-" << id_ << " has been working without sleep for long time"
+                    << ". Either too few loggers or potentially a bug??";
+                break;
+            } else {
+                LOG(INFO) << "Logger-" << id_ << " has more task. keep working. " << iterations;
+            }
+        }
     }
     LOG(INFO) << "Logger-" << id_ << " ended.";
 }
 
+ErrorStack Logger::update_durable_epoch() {
+    std::atomic_thread_fence(std::memory_order_acquire);  // not necessary. just to get latest info.
+    const xct::Epoch global_epoch = engine_->get_xct_manager().get_current_global_epoch();
+    std::atomic_thread_fence(std::memory_order_acquire);  // necessary. following is AFTER this.
+
+    VLOG(1) << "Logger-" << id_ << " update_durable_epoch(). durable_epoch_=" << durable_epoch_
+        << ", global_epoch=" << global_epoch;
+
+    xct::Epoch min_durable_epoch = global_epoch.one_less();
+    for (thread::Thread* the_thread : assigned_threads_) {
+        ThreadLogBuffer& buffer = the_thread->get_thread_log_buffer();
+        DVLOG(1) << buffer;
+        if (buffer.logger_epoch_ > min_durable_epoch) {
+            VLOG(1) << "Thread-" << the_thread->get_thread_id() << " at least durable up to "
+                << min_durable_epoch;
+            continue;
+        }
+
+        // in the worst case, buffer is durable up to only logger_epoch_ - 1. let's check.
+        if (!buffer.logger_epoch_open_ended_) {
+            // then easier. we do know up to where we have to flush log to make it durable.
+            if (buffer.logger_epoch_open_ended_ != buffer.offset_durable_) {
+                // there are logs we have to flush, so surely logger_epoch_ - 1.
+                VLOG(1) << "Thread-" << the_thread->get_thread_id() << " more logs in this ep";
+                min_durable_epoch.store_min(buffer.logger_epoch_.one_less());
+            } else {
+                // Then no chance the thread adds more log to this epoch, good!
+                VLOG(1) << "Thread-" << the_thread->get_thread_id() << " no more logs in this ep";
+                min_durable_epoch.store_min(buffer.logger_epoch_);
+                buffer.consume_epoch_mark();  // we can probably update buffer.logger_epoch_, too.
+            }
+        } else {
+            VLOG(1) << "Thread-" << the_thread->get_thread_id() << " open-ended in this ep";
+            // we are not sure whether we flushed everything in this epoch.
+            xct::Epoch epoch_before = buffer.logger_epoch_;
+            if (buffer.consume_epoch_mark()) {
+                VLOG(1) << "Thread-" << the_thread->get_thread_id() << " consumed epoch mark!";
+                ASSERT_ND(buffer.logger_epoch_ > epoch_before);
+                min_durable_epoch.store_min(epoch_before);
+            } else {
+                // mm, really open ended, but the thread might not be in commit phase.
+                xct::Xct& xct = the_thread->get_current_xct();
+                xct::Epoch in_commit_epoch = xct.get_in_commit_log_epoch();
+                // See get_in_commit_log_epoch() about the protocol of in_commit_log_epoch
+                if (!in_commit_epoch.is_valid() || in_commit_epoch > epoch_before) {
+                    VLOG(1) << "Thread-" << the_thread->get_thread_id() << " not in a racy state!";
+                    min_durable_epoch.store_min(epoch_before);
+                } else {
+                    ASSERT_ND(in_commit_epoch == epoch_before);
+                    // This is rare. worth logging in details. In this case, we spin on it.
+                    // This state is guaranteed to quickly end.
+                    // By doing this, handle_logger() can use this method for waiting.
+                    LOG(INFO) << "Thread-" << the_thread->get_thread_id() << " is now publishing"
+                        " logs that might be in epoch-" << epoch_before;
+                    DLOG(INFO) << buffer;
+                    while (in_commit_epoch.is_valid() && in_commit_epoch <= epoch_before) {
+                        in_commit_epoch = xct.get_in_commit_log_epoch();
+                    }
+                    LOG(INFO) << "Thread-" << the_thread->get_thread_id() << " is done with the log"
+                        ". " << epoch_before;
+                    DLOG(INFO) << buffer;
+
+                    // Just logging. we conservatively use one_less because the transaction
+                    // probably produced logs in the epoch. We have to flush them first.
+                    min_durable_epoch.store_min(epoch_before.one_less());
+                }
+            }
+        }
+    }
+
+    ASSERT_ND(min_durable_epoch >= durable_epoch_);
+    if (min_durable_epoch > durable_epoch_) {
+        LOG(INFO) << "Logger-" << id_ << " updates durable_epoch_ from " << durable_epoch_
+            << " to " << min_durable_epoch;
+        if (!fs::fsync(current_file_path_, true)) {
+            return ERROR_STACK(ERROR_CODE_FS_SYNC_FAILED);
+        }
+        LOG(INFO) << "Logger-" << id_ << " fsynced the current file and its folder";
+        std::atomic_thread_fence(std::memory_order_release);  // announce it only AFTER above
+        durable_epoch_ = min_durable_epoch;  // announce it!
+        std::atomic_thread_fence(std::memory_order_release);  // so that log manager sees it asap
+
+        // Also, update current_epoch_.
+        CHECK_ERROR(switch_current_epoch(durable_epoch_.one_more()));
+    } else {
+        VLOG(1) << "Logger-" << id_ << " couldn't update durable_epoch_";
+    }
+
+    return RET_OK;
+}
+
 ErrorStack Logger::switch_current_epoch(const xct::Epoch& new_epoch) {
-    ASSERT_ND(new_epoch.is_valid());
     ASSERT_ND(current_epoch_ < new_epoch);
     VLOG(0) << "Logger-" << id_ << " advances its current_epoch from " << current_epoch_
         << " to " << new_epoch;
