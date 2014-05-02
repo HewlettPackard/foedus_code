@@ -3,6 +3,7 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/error_stack.hpp>
+#include <foedus/assorted/assorted_func.hpp>
 #include <glog/logging.h>
 #include <iostream>
 
@@ -13,8 +14,11 @@ void ErrorStack::output(std::ostream* ptr) const {
         o << "No error";
     } else {
         o << get_error_name(error_code_) << "(" << error_code_ << "):" << get_message();
+        if (os_errno_ != 0) {
+            o << " (OS ERROR=" << assorted::os_error(os_errno_) << ")";
+        }
         if (get_custom_message()) {
-            o << ":" << get_custom_message();
+            o << " (Additional message=" << get_custom_message() << ")";
         }
 
         for (uint16_t stack_index = 0; stack_index < get_stack_depth(); ++stack_index) {

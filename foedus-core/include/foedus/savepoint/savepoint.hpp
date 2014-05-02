@@ -73,7 +73,7 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
     EXTERNALIZABLE(Savepoint);
 
     /** Returns if there was no savepoint taken so far. */
-    bool                                empty() const { return current_epoch_ == 0; }
+    bool                                empty() const;
     /** Populate variables as an initial state. */
     void                                populate_empty(log::LoggerId logger_count);
     /** Tells if the variables are consistent. */

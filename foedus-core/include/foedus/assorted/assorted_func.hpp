@@ -46,6 +46,18 @@ template <typename T> inline T align64(T value) { return align<T, 64>(value); }
 int64_t int_div_ceil(int64_t dividee, int64_t dividor);
 
 /**
+ * Thread-safe strerror(errno). We might do some trick here for portability, too.
+ * @ingroup ASSORTED
+ */
+std::string os_error();
+
+/**
+ * This version receives errno.
+ * @ingroup ASSORTED
+ */
+std::string os_error(int error_number);
+
+/**
  * Alternative for static_assert(sizeof(foo) == sizeof(bar), "oh crap") to display sizeof(foo).
  * @ingroup ASSORTED
  * @details

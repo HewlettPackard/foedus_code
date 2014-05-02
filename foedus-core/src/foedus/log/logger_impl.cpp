@@ -59,7 +59,7 @@ ErrorStack Logger::initialize_once() {
     // open the log file
     current_file_ = new fs::DirectIoFile(current_file_path_,
                                          engine_->get_options().log_.emulation_);
-    CHECK_ERROR(current_file_->open(false, true, true, savepoint.empty()));
+    CHECK_ERROR(current_file_->open(true, true, true, savepoint.empty()));
     uint64_t current_length = fs::file_size(current_file_path_);
     if (current_file_length_ < fs::file_size(current_file_path_)) {
         // there are non-durable regions as an incomplete remnant of previous execution.

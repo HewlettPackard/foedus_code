@@ -2,6 +2,7 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
+#include <foedus/assorted/assorted_func.hpp>
 #include <foedus/fs/filesystem.hpp>
 #include <foedus/fs/path.hpp>
 #include <foedus/engine.hpp>
@@ -31,7 +32,7 @@ FileStatus status(const Path& p) {
     struct stat path_stat;
     int ret = ::stat(p.c_str(), &path_stat);
     if (ret != 0) {
-        LOG(WARNING) << "Filesystem::status(): stat() failed for " << p << ". errno=" << errno;
+        // This is quite normal as we use this to check if a file exists. No message for it.
         if (errno == ENOENT || errno == ENOTDIR) {
             return FileStatus(file_not_found);
         }
@@ -106,7 +107,8 @@ uint64_t file_size(const Path& p) {
     struct stat path_stat;
     int ret = ::stat(p.c_str(), &path_stat);
     if (ret != 0) {
-        LOG(WARNING) << "Filesystem::file_size(): stat() failed for " << p << ". errno=" << errno;
+        LOG(WARNING) << "Filesystem::file_size(): stat() failed for " << p
+            << ". err=" << assorted::os_error();
         return static_cast<uint64_t>(-1);
     }
     if (!S_ISREG(path_stat.st_mode)) {
@@ -128,7 +130,8 @@ bool remove(const Path& p) {
         if (ret == 0) {
             return true;
         } else {
-            LOG(WARNING) << "Filesystem::remove(): failed for " << p << ". errno=" << errno;
+            LOG(WARNING) << "Filesystem::remove(): failed for " << p
+                << ". err=" << assorted::os_error();
             return false;
         }
     }
@@ -157,7 +160,8 @@ SpaceInfo space(const Path& p) {
         info.available_   = static_cast<uint64_t>(vfs.f_bavail) * vfs.f_bsize;
         VLOG(1) << "Filesystem::space(): " << p << ": " << info;
     } else {
-        LOG(WARNING) << "Filesystem::space(): failed for " << p << ". errno=" << errno;
+        LOG(WARNING) << "Filesystem::space(): failed for " << p
+            << ". err=" << assorted::os_error();
         info.available_ = 0;
         info.capacity_ = 0;
         info.free_ = 0;

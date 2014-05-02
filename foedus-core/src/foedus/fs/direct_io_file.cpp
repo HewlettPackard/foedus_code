@@ -2,6 +2,7 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
+#include <foedus/assorted/assorted_func.hpp>
 #include <foedus/fs/device_emulation_options.hpp>
 #include <foedus/fs/direct_io_file.hpp>
 #include <foedus/fs/filesystem.hpp>
@@ -31,14 +32,14 @@ ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
     if (!exists(folder)) {
         if (!create_directories(folder, true)) {
             LOG(ERROR) << "DirectIoFile::open(): failed to create parent folder: "
-                << folder << ". errno=" << errno;
+                << folder << ". err=" << assorted::os_error();
             return ERROR_STACK_MSG(ERROR_CODE_FS_MKDIR_FAILED, folder.c_str());
         }
     }
 
     LOG(INFO) << "DirectIoFile::open(): opening: " << path_ << "..  read =" << read << " write="
         << write << ", append=" << append << ", create=" << create;
-    int oflags = O_NOATIME | O_LARGEFILE;
+    int oflags = O_LARGEFILE;
     if (!emulation_.disable_direct_io_) {
         oflags |= O_DIRECT;
     }
@@ -58,9 +59,11 @@ ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
     if (create) {
         oflags |= O_CREAT;
     }
-    descriptor_ = ::open(path_.c_str(), oflags, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+    mode_t permissions = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
+    descriptor_ = ::open(path_.c_str(), oflags, permissions);
     if (descriptor_ == INVALID_DESCRIPTOR) {
-        LOG(ERROR) << "DirectIoFile::open(): failed to open: " << path_ << ". errno=" << errno;
+        LOG(ERROR) << "DirectIoFile::open(): failed to open: " << path_
+            << ". err=" << assorted::os_error();
         return ERROR_STACK_MSG(ERROR_CODE_FS_FAILED_TO_OPEN, path_.c_str());
     } else {
         read_ = read;
@@ -112,7 +115,7 @@ ErrorCode DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemorySlice 
             LOG(ERROR) << "DirectIoFile::read(): error. this=" << *this << " buffer=" << buffer
                 << ", total_read=" << total_read << ", desired_bytes=" << desired_bytes
                 << ", remaining=" << remaining << ", read_bytes=" << read_bytes
-                << ", errno=" << errno;
+                << ", err=" << assorted::os_error();
             return ERROR_CODE_FS_TOO_SHORT_READ;
         }
 
@@ -120,7 +123,7 @@ ErrorCode DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemorySlice 
             LOG(ERROR) << "DirectIoFile::read(): wtf? this=" << *this << " buffer=" << buffer
                 << ", total_read=" << total_read << ", desired_bytes=" << desired_bytes
                 << ", remaining=" << remaining << ", read_bytes=" << read_bytes
-                << ", errno=" << errno;
+                << ", err=" << assorted::os_error();
             return ERROR_CODE_FS_EXCESS_READ;
         }
 
@@ -168,7 +171,7 @@ ErrorCode DirectIoFile::write(uint64_t desired_bytes, memory::AlignedMemorySlice
             LOG(ERROR) << "DirectIoFile::write(): error. this=" << *this << " buffer=" << buffer
                 << ", total_written=" << total_written << ", desired_bytes=" << desired_bytes
                 << ", remaining=" << remaining << ", written_bytes=" << written_bytes
-                << ", errno=" << errno;
+                << ", err=" << assorted::os_error();
             // TODO(Hideaki) more error codes depending on errno. but mostly it should be disk-full
             return ERROR_CODE_FS_WRITE_FAIL;
         }
@@ -177,7 +180,7 @@ ErrorCode DirectIoFile::write(uint64_t desired_bytes, memory::AlignedMemorySlice
             LOG(ERROR) << "DirectIoFile::write(): wtf? this=" << *this << " buffer=" << buffer
                 << ", total_written=" << total_written << ", desired_bytes=" << desired_bytes
                 << ", remaining=" << remaining << ", written_bytes=" << written_bytes
-                << ", errno=" << errno;
+                << ", err=" << assorted::os_error();
             return ERROR_CODE_FS_EXCESS_WRITE;
         }
 
@@ -201,7 +204,8 @@ ErrorStack DirectIoFile::truncate(uint64_t new_length, bool sync) {
     }
 
     if (::ftruncate(descriptor_, new_length) != 0) {
-        LOG(ERROR) << "DirectIoFile::truncate(): failed. this=" << *this << " errno=" << errno;
+        LOG(ERROR) << "DirectIoFile::truncate(): failed. this=" << *this
+            << " err=" << assorted::os_error();
         return ERROR_STACK_MSG(ERROR_CODE_FS_TRUNCATE_FAILED, path_.c_str());
     }
     current_offset_ = new_length;
@@ -229,7 +233,7 @@ ErrorCode DirectIoFile::seek(uint64_t offset, SeekType seek_type) {
             return ERROR_CODE_FS_BAD_SEEK_INPUT;
     }
     if (ret < 0) {
-        LOG(ERROR) << "DirectIoFile::seek(): failed. errno=" << errno;
+        LOG(ERROR) << "DirectIoFile::seek(): failed. err=" << assorted::os_error();
         return ERROR_CODE_FS_SEEK_FAILED;
     }
     current_offset_ = ret;
@@ -246,7 +250,8 @@ ErrorCode DirectIoFile::sync() {
 
     int ret = ::fsync(descriptor_);
     if (ret != 0) {
-        LOG(ERROR) << "DirectIoFile::sync(): fsync failed. this=" << *this << ", errno=" << errno;
+        LOG(ERROR) << "DirectIoFile::sync(): fsync failed. this=" << *this
+            << ", err=" << assorted::os_error();
         return ERROR_CODE_FS_SYNC_FAILED;
     }
 

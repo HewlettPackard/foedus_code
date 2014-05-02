@@ -8,7 +8,9 @@
 #endif  // __GNUC__
 #include <stdint.h>
 #include <cstdlib>
+#include <cstring>
 #include <string>
+#include <sstream>
 namespace foedus {
 namespace assorted {
 
@@ -16,6 +18,21 @@ int64_t int_div_ceil(int64_t dividee, int64_t dividor) {
     std::ldiv_t result = std::div(dividee, dividor);
     return result.rem != 0 ? (result.quot + 1) : result.quot;
 }
+
+std::string os_error() {
+    return os_error(errno);
+}
+
+std::string os_error(int error_number) {
+    if (errno == 0) {
+        return "[No Error]";
+    }
+    std::stringstream str;
+    // TODO(Hideaki) is std::strerror thread-safe? Thre is no std::strerror_r. Windows, mmm.
+    str << "[Errno " << errno << "] " << std::strerror(errno);
+    return str.str();
+}
+
 
 std::string demangle_type_name(const char* mangled_name) {
 #ifdef __GNUC__
@@ -29,7 +46,6 @@ std::string demangle_type_name(const char* mangled_name) {
 #endif  // __GNUC__
     return mangled_name;
 }
-
 
 
 }  // namespace assorted

@@ -2,13 +2,14 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
+#include <foedus/assorted/assorted_func.hpp>
 #include <foedus/externalize/externalizable.hpp>
 #include <foedus/externalize/tinyxml_wrapper.hpp>
 #include <foedus/fs/filesystem.hpp>
 #include <foedus/fs/path.hpp>
-#include <foedus/assorted/assorted_func.hpp>
 #include <tinyxml2.h>
 #include <ostream>
+#include <cstring>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -69,7 +70,8 @@ ErrorStack Externalizable::save_to_file(const fs::Path& path) const {
     if (!fs::exists(folder)) {
         if (!fs::create_directories(folder, true)) {
             std::stringstream custom_message;
-            custom_message << "file=" << path << ", folder=" << folder << ", errno=" << errno;
+            custom_message << "file=" << path << ", folder=" << folder
+                << ", err=" << assorted::os_error();
             return ERROR_STACK_MSG(ERROR_CODE_CONF_MKDIRS_FAILED, custom_message.str().c_str());
         }
     }
@@ -91,7 +93,7 @@ ErrorStack Externalizable::save_to_file(const fs::Path& path) const {
     if (!fs::durable_atomic_rename(tmp_path, path)) {
         std::stringstream custom_message;
         custom_message << "dest file=" << path << ", src file=" << tmp_path
-            << ", errno=" << errno;
+            << ", err=" << assorted::os_error();
         return ERROR_STACK_MSG(ERROR_CODE_CONF_COULD_NOT_RENAME, custom_message.str().c_str());
     }
 

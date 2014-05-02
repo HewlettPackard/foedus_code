@@ -46,5 +46,10 @@ void Savepoint::populate_empty(log::LoggerId logger_count) {
     current_log_files_offset_durable_.resize(logger_count, 0);
 }
 
+bool Savepoint::empty() const {
+    return durable_epoch_ == 1 && current_epoch_ == 2;
+}
+
+
 }  // namespace savepoint
 }  // namespace foedus

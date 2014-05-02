@@ -8,6 +8,7 @@
 #include <foedus/compiler.hpp>
 #include <foedus/error_code.hpp>
 #include <foedus/cxx11.hpp>
+#include <errno.h>
 #include <stdint.h>
 #include <foedus/assert_nd.hpp>
 #include <cstring>
@@ -184,6 +185,11 @@ class ErrorStack {
     mutable const char*     custom_message_;
 
     /**
+     * Optional errno set by a failed system call.
+     */
+    int             os_errno_;
+
+    /**
      * @brief Integer error code.
      * @invariant
      * If this value is ERROR_CODE_OK, all other members have no meanings and we might not even
@@ -215,16 +221,19 @@ class ErrorStack {
 const ErrorStack RET_OK;
 
 inline ErrorStack::ErrorStack()
-    : custom_message_(CXX11_NULLPTR), error_code_(ERROR_CODE_OK), stack_depth_(0), checked_(true) {
+    : custom_message_(CXX11_NULLPTR), os_errno_(0), error_code_(ERROR_CODE_OK),
+        stack_depth_(0), checked_(true) {
 }
 
 inline ErrorStack::ErrorStack(ErrorCode code)
-    : custom_message_(CXX11_NULLPTR), error_code_(code), stack_depth_(0), checked_(false) {
+    : custom_message_(CXX11_NULLPTR), os_errno_(errno), error_code_(code),
+        stack_depth_(0), checked_(false) {
 }
 
 inline ErrorStack::ErrorStack(const char* filename, const char* func, uint32_t linenum,
                               ErrorCode code, const char* custom_message)
-    : custom_message_(CXX11_NULLPTR), error_code_(code), stack_depth_(1), checked_(false) {
+    : custom_message_(CXX11_NULLPTR), os_errno_(errno), error_code_(code), stack_depth_(1),
+        checked_(false) {
     ASSERT_ND(code != ERROR_CODE_OK);
     filenames_[0] = filename;
     funcs_[0] = func;
