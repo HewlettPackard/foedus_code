@@ -70,7 +70,6 @@ inline bool raw_atomic_compare_exchange_weak_uint128(
     }
 }
 
-
 }  // namespace assorted
 }  // namespace foedus
 

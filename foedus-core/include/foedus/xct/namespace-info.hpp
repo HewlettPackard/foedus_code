@@ -62,7 +62,7 @@
  * @section EPOCH Epoch-based commit protocol
  * foedus::xct::XctManager maintains two global foedus::xct::Epoch; \e current Epoch and
  * \e durable Epoch. foedus::xct::XctManager keeps advancing current epoch periodically.
- * The log module    advances durable epoch when it confirms that all log entries up to the epoch
+ * The log module advances durable epoch when it confirms that all log entries up to the epoch
  * becomes durable and also that the log module durably writes a savepoint ( \ref SAVEPOINT ) file.
  *
  * @section ISOLATION Isolation Levels

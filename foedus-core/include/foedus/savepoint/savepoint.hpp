@@ -31,6 +31,7 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
      * @details
      * This value is advanced by transaction manager periodically.
      * This is equal or larger than all other epoch values below.
+     * @invariant Epoch(current_epoch_).is_valid()
      */
     xct::Epoch::EpochInteger            current_epoch_;
 
@@ -41,6 +42,8 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
      * are not deemed as "done" until this value reaches their epoch values issued on commit time.
      * While the engine restarts, all log entries in log files after this epoch are \b truncated
      * because there might be some logger that did not finish its writing.
+     * @invariant Epoch(durable_epoch_).is_valid()
+     * @invariant Epoch(current_epoch_) > Epoch(durable_epoch_)
      */
     xct::Epoch::EpochInteger            durable_epoch_;
 
@@ -72,18 +75,22 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
 
     EXTERNALIZABLE(Savepoint);
 
-    /** Returns if there was no savepoint taken so far. */
-    bool                                empty() const;
     /** Populate variables as an initial state. */
     void                                populate_empty(log::LoggerId logger_count);
     /** Tells if the variables are consistent. */
     bool                                consistent(log::LoggerId logger_count) const {
+        assert_epoch_values();
         return (current_epoch_ >= durable_epoch_
             && oldest_log_files_.size() == logger_count
             && oldest_log_files_offset_begin_.size() == logger_count
             && current_log_files_.size() == logger_count
             && current_log_files_offset_durable_.size() == logger_count);
     }
+
+    xct::Epoch  get_durable_epoch() const { return xct::Epoch(durable_epoch_); }
+    xct::Epoch  get_current_epoch() const { return xct::Epoch(current_epoch_); }
+    /** Check invariants on current_epoch_/durable_epoch_ */
+    void        assert_epoch_values() const;
 };
 }  // namespace savepoint
 }  // namespace foedus

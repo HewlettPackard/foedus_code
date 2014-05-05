@@ -4,6 +4,9 @@
  */
 #include <foedus/engine.hpp>
 #include <foedus/error_stack_batch.hpp>
+#include <foedus/engine_options.hpp>
+#include <foedus/assert_nd.hpp>
+#include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/xct/xct_access.hpp>
 #include <foedus/xct/xct_manager_pimpl.hpp>
 #include <foedus/xct/xct_options.hpp>
@@ -14,13 +17,10 @@
 #include <foedus/storage/record.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread.hpp>
-#include <foedus/engine_options.hpp>
-#include <foedus/assert_nd.hpp>
 #include <foedus/savepoint/savepoint_manager.hpp>
 #include <foedus/savepoint/savepoint.hpp>
 #include <glog/logging.h>
 #include <algorithm>
-#include <atomic>
 #include <chrono>
 #include <thread>
 namespace foedus {
@@ -31,8 +31,8 @@ ErrorStack XctManagerPimpl::initialize_once() {
         return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
     }
     const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
-    current_global_epoch_ = Epoch(savepoint.durable_epoch_).one_more();
-    durable_global_epoch_ = Epoch(savepoint.durable_epoch_);
+    current_global_epoch_ = savepoint.get_current_epoch();
+    durable_global_epoch_ = savepoint.get_durable_epoch();
     epoch_advance_thread_.initialize("epoch_advance_thread",
         std::thread(&XctManagerPimpl::handle_epoch_advance, this),
         std::chrono::milliseconds(engine_->get_options().xct_.epoch_advance_interval_ms_));
@@ -77,7 +77,7 @@ void XctManagerPimpl::advance_current_global_epoch() {
 }
 
 ErrorCode XctManagerPimpl::wait_for_commit(const Epoch& commit_epoch, int64_t wait_microseconds) {
-    std::atomic_thread_fence(std::memory_order_acquire);
+    assorted::memory_fence_acquire();
     if (wait_microseconds == 0) {
         DVLOG(1) << "was it committed? commit_epoch=" << commit_epoch << ", durable_global_epoch_="
             << durable_global_epoch_;
@@ -150,7 +150,7 @@ ErrorStack XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit
 bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch) {
     DLOG(INFO) << "Committing Thread-" << context->get_thread_id() << ", read_only";
     *commit_epoch = Epoch();
-    std::atomic_thread_fence(std::memory_order_acquire);  // this is enough for read-only case
+    assorted::memory_fence_acquire();  // this is enough for read-only case
     return precommit_xct_verify_readonly(context, commit_epoch);
 }
 
@@ -161,12 +161,12 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     // BEFORE the first fence, update the in_commit_log_epoch_ for logger
     Xct::InCommitLogEpochGuard guard(&context->get_current_xct(), current_global_epoch_);
 
-    std::atomic_thread_fence(std::memory_order_acq_rel);
+    assorted::memory_fence_acq_rel();
 
     *commit_epoch = current_global_epoch_;  // serialization point!
     DLOG(INFO) << "Acquired read-write commit epoch " << *commit_epoch;
 
-    std::atomic_thread_fence(std::memory_order_acq_rel);
+    assorted::memory_fence_acq_rel();
     bool verified = precommit_xct_verify_readwrite(context);  // phase 2
     if (verified) {
         precommit_xct_apply(context, *commit_epoch);  // phase 3. this also unlocks
@@ -284,7 +284,7 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context) {
     for (uint32_t i = 0; i < write_set_size; ++i) {
         write_set[i].record_->owner_id_.unlock<15>();
     }
-    std::atomic_thread_fence(std::memory_order_release);
+    assorted::memory_fence_release();
     DLOG(INFO) << "unlocked write set";
 }
 

@@ -3,6 +3,7 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/engine.hpp>
+#include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/thread/thread_pimpl.hpp>
 #include <foedus/thread/thread_pool.hpp>
@@ -66,7 +67,7 @@ void ThreadPimpl::handle_tasks() {
         }
     }
     exitted_ = true;
-    std::atomic_thread_fence(std::memory_order_release);
+    assorted::memory_fence_release();
     LOG(INFO) << "Thread-" << id_ << " exits";
 }
 

@@ -7,6 +7,7 @@
 #include <foedus/compiler.hpp>
 #include <foedus/error_stack.hpp>
 #include <foedus/storage/record.hpp>
+#include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/xct/xct.hpp>
 #include <foedus/xct/xct_access.hpp>
 #include <iosfwd>
@@ -27,6 +28,12 @@ inline ErrorCode Xct::add_to_read_set(storage::Record* record) {
     }
 
     read_set_[read_set_size_].observed_owner_id_ = record->owner_id_;
+
+    // for RCU protocol, make sure compiler/CPU don't reorder the data access before tag copy.
+    // This is _consume rather than _acquire because it's fine to see stale information as far as
+    // we don't access before the tag copy.
+    assorted::memory_fence_consume();
+
     // If the record is locked, we will most likely abort at commit time.
     // So, do it immediately to avoid wasting CPU resource.
     if (UNLIKELY(read_set_[read_set_size_].observed_owner_id_.is_locked<15>())) {

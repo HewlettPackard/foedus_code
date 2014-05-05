@@ -4,8 +4,10 @@
  */
 #ifndef FOEDUS_XCT_XCT_HPP_
 #define FOEDUS_XCT_XCT_HPP_
+#include <foedus/assert_nd.hpp>
 #include <foedus/cxx11.hpp>
 #include <foedus/error_stack.hpp>
+#include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
@@ -13,7 +15,6 @@
 #include <foedus/xct/fwd.hpp>
 #include <foedus/xct/epoch.hpp>
 #include <foedus/xct/xct_id.hpp>
-#include <foedus/assert_nd.hpp>
 #include <iosfwd>
 namespace foedus {
 namespace xct {
@@ -76,12 +77,18 @@ class Xct {
     }
 
     /**
-     * Add the given record to the read set of this transaction.
+     * @brief Add the given record to the read set of this transaction.
+     * @details
+     * You must call this method \b BEFORE reading the data, otherwise it violates the
+     * commit protocol. This method takes an appropriate memory fence to prohibit local reordering,
+     * but global staleness is fine (in other words, std::memory_order_consume rather
+     * than std::memory_order_acquire, although both are no-op in x86 which is TSO...).
      * Inlined in xct_inl.hpp.
      */
     ErrorCode           add_to_read_set(storage::Record* record);
     /**
-     * Add the given record to the write set of this transaction.
+     * @brief Add the given record to the write set of this transaction.
+     * @details
      * Inlined in xct_inl.hpp.
      */
     ErrorCode           add_to_write_set(storage::Record* record, void* log_entry);
@@ -110,7 +117,10 @@ class Xct {
      * system_sync_epoch_. However, not quite sure about their implementation. Will ask.
      * @see InCommitLogEpochGuard
      */
-    Epoch               get_in_commit_log_epoch() const;
+    Epoch               get_in_commit_log_epoch() const {
+        assorted::memory_fence_acquire();
+        return in_commit_log_epoch_;
+    }
 
     /**
      * Automatically resets in_commit_log_epoch_ with appropriate fence.
@@ -123,7 +133,19 @@ class Xct {
         InCommitLogEpochGuard(Xct *xct, Epoch current_epoch) : xct_(xct) {
             xct_->in_commit_log_epoch_ = current_epoch;
         }
-        ~InCommitLogEpochGuard();
+        ~InCommitLogEpochGuard() {
+            // prohibit reorder the change on ThreadLogBuffer#offset_committed_
+            // BEFORE update to in_commit_log_epoch_. This is to satisfy the first requirement:
+            // ("When this returns 0, this transaction will not publish any more log without getting
+            // recent epoch").
+            // Without this fence, logger can potentially miss the log that has been just published
+            // with the old epoch.
+            assorted::memory_fence_release();
+            xct_->in_commit_log_epoch_ = Epoch(0);
+            // We can also call another memory_order_release here to immediately publish it,
+            // but it's anyway rare. The spinning logger will eventually get the update, so no need.
+            // In non-TSO architecture, this also saves some overhead in critical path.
+        }
         Xct* const xct_;
     };
 

@@ -24,9 +24,6 @@ ErrorStack SavepointManagerPimpl::initialize_once() {
         if (!savepoint_.consistent(logger_count)) {
             return ERROR_STACK(ERROR_CODE_SP_INCONSISTENT_SAVEPOINT);
         }
-        if (savepoint_.empty()) {
-            LOG(INFO) << "The savepoint file was empty.";
-        }
     } else {
         LOG(INFO) << "Savepoint file does not exist. No savepoint taken so far.";
         // Create an empty savepoint file now. This makes sure the directory entry for the file

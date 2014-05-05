@@ -8,6 +8,8 @@
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/memory/numa_core_memory.hpp>
 #include <foedus/assert_nd.hpp>
+#include <foedus/savepoint/savepoint.hpp>
+#include <foedus/savepoint/savepoint_manager.hpp>
 #include <glog/logging.h>
 #include <ostream>
 #include <list>
@@ -24,8 +26,10 @@ ErrorStack ThreadLogBuffer::initialize_once() {
     buffer_ = buffer_memory_.get_block();
     buffer_size_ = buffer_memory_.size();
     buffer_size_safe_ = buffer_size_ - 64;
-    current_epoch_ = xct::Epoch();
-    logger_epoch_ = xct::Epoch();
+
+    const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
+    last_epoch_ = savepoint.get_current_epoch();
+    logger_epoch_ = savepoint.get_current_epoch();
     offset_head_ = 0;
     offset_durable_ = 0;
     offset_committed_ = 0;
@@ -78,18 +82,18 @@ void ThreadLogBuffer::fillup_tail() {
 }
 
 void ThreadLogBuffer::on_new_epoch_observed(xct::Epoch commit_epoch) {
-    ASSERT_ND(commit_epoch > current_epoch_);
+    ASSERT_ND(commit_epoch > last_epoch_);
     VLOG(0) << "Thread-" << thread_id_ << " wrote out the first log entry in epoch-" << commit_epoch
-        << " at offset " << offset_committed_ << ". old epoch=" << current_epoch_;
+        << " at offset " << offset_committed_ << ". old epoch=" << last_epoch_;
     DVLOG(0) << "Before: " << *this;
     ThreadEpockMark mark;
     mark.new_epoch_ = commit_epoch;
-    mark.old_epoch_ = current_epoch_;
+    mark.old_epoch_ = last_epoch_;
     mark.offset_epoch_begin_ = offset_committed_;
-    current_epoch_ = commit_epoch;
+    last_epoch_ = commit_epoch;
 
     if (logger_epoch_ > mark.old_epoch_) {
-        LOG(INFO) << "Thread-" << thread_id_ << " realized that its current_epoch_ is older"
+        LOG(INFO) << "Thread-" << thread_id_ << " realized that its last_epoch_ is older"
             " than logger_epoch_, most likely this thread has been idle for a while";
         // Check if that's the case..
         ASSERT_ND(offset_committed_ == offset_durable_);
@@ -157,7 +161,7 @@ std::ostream& operator<<(std::ostream& o, const ThreadLogBuffer& v) {
     o << "<offset_durable_>" << v.offset_durable_ << "</offset_durable_>";
     o << "<offset_committed_>" << v.offset_committed_ << "</offset_committed_>";
     o << "<offset_tail_>" << v.offset_tail_ << "</offset_tail_>";
-    o << "<current_epoch_>" << v.current_epoch_ << "</current_epoch_>";
+    o << "<last_epoch_>" << v.last_epoch_ << "</last_epoch_>";
     o << "<logger_epoch_>" << v.logger_epoch_ << "</logger_epoch_>";
     o << "<logger_epoch_open_ended_>" << v.logger_epoch_open_ended_
         << "</logger_epoch_open_ended_>";

@@ -9,6 +9,12 @@ namespace savepoint {
 Savepoint::Savepoint() {
 }
 
+void Savepoint::assert_epoch_values() const {
+    ASSERT_ND(xct::Epoch(current_epoch_).is_valid());
+    ASSERT_ND(xct::Epoch(durable_epoch_).is_valid());
+    ASSERT_ND(xct::Epoch(current_epoch_) > xct::Epoch(durable_epoch_));
+}
+
 ErrorStack Savepoint::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, current_epoch_);
     EXTERNALIZE_LOAD_ELEMENT(element, durable_epoch_);
@@ -16,10 +22,12 @@ ErrorStack Savepoint::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, oldest_log_files_offset_begin_);
     EXTERNALIZE_LOAD_ELEMENT(element, current_log_files_);
     EXTERNALIZE_LOAD_ELEMENT(element, current_log_files_offset_durable_);
+    assert_epoch_values();
     return RET_OK;
 }
 
 ErrorStack Savepoint::save(tinyxml2::XMLElement* element) const {
+    assert_epoch_values();
     CHECK_ERROR(insert_comment(element, "progress of the entire engine"));
 
     EXTERNALIZE_SAVE_ELEMENT(element, current_epoch_, "Current epoch of the entire engine.");
@@ -37,17 +45,13 @@ ErrorStack Savepoint::save(tinyxml2::XMLElement* element) const {
 }
 
 void Savepoint::populate_empty(log::LoggerId logger_count) {
-    // Epoch-0 is reserved for invalid epoch value, so we start from ep-2.
-    current_epoch_ = 2;  // The first epoch that might have transactions is ep-2.
-    durable_epoch_ = 1;  // As there was no transaction in ep-1, this is valid
+    current_epoch_ = xct::Epoch::EPOCH_INITIAL_CURRENT;
+    durable_epoch_ = xct::Epoch::EPOCH_INITIAL_DURABLE;
     oldest_log_files_.resize(logger_count, 0);
     oldest_log_files_offset_begin_.resize(logger_count, 0);
     current_log_files_.resize(logger_count, 0);
     current_log_files_offset_durable_.resize(logger_count, 0);
-}
-
-bool Savepoint::empty() const {
-    return durable_epoch_ == 1 && current_epoch_ == 2;
+    assert_epoch_values();
 }
 
 

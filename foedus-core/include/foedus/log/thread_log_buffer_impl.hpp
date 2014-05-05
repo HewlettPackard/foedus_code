@@ -73,12 +73,12 @@ class ThreadLogBuffer final : public DefaultInitializable {
      */
     struct ThreadEpockMark {
         /**
-         * The value of the thread's current_epoch_ before the switch.
+         * The value of the thread's last_epoch_ before the switch.
          * This is not currently used except sanity checks.
          */
         xct::Epoch  old_epoch_;
         /**
-         * The value of the thread's current_epoch_ after the switch.
+         * The value of the thread's last_epoch_ after the switch.
          */
         xct::Epoch  new_epoch_;
         /**
@@ -129,8 +129,8 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * Called when the current transaction is successfully committed.
      */
     void        publish_committed_log(xct::Epoch commit_epoch) ALWAYS_INLINE {
-        ASSERT_ND(commit_epoch >= current_epoch_);
-        if (UNLIKELY(commit_epoch > current_epoch_)) {
+        ASSERT_ND(commit_epoch >= last_epoch_);
+        if (UNLIKELY(commit_epoch > last_epoch_)) {
             on_new_epoch_observed(commit_epoch);  // epoch switches!
         } else if (UNLIKELY(commit_epoch < logger_epoch_)) {
             // This MUST not happen because it means an already durable epoch received a new log!
@@ -198,7 +198,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
  private:
     /**
      * called from publish_committed_log whenever the thread observes a commit_epoch that is
-     * larger than current_epoch_.
+     * larger than last_epoch_.
      */
     void        on_new_epoch_observed(xct::Epoch commit_epoch);
 
@@ -253,11 +253,13 @@ class ThreadLogBuffer final : public DefaultInitializable {
     uint64_t                        offset_tail_;
 
     /**
-     * The previous epoch the most recent transaction of \e this thread writes out logs.
-     * So, it is probably older than the global current epoch.
+     * @brief The epoch of the last transaction on \e this thread.
+     * @details
+     * It might be older than the global current epoch. Especially, when the thread was idle for
+     * a while, this might by WAY older than the global current epoch.
      * This is only read/written by this thread.
      */
-    xct::Epoch                      current_epoch_;
+    xct::Epoch                      last_epoch_;
 
     /**
      * @brief The epoch the logger is currently flushing.
@@ -270,7 +272,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * advance this value because the worker can't publish epoch marks. In that case, the logger
      * leaves this value stale, but it reports a larger durable epoch by detecting that
      * the thread is idle with the in_commit_log_epoch guard. see Logger::update_durable_epoch().
-     * @invariant current_epoch_ >= logger_epoch_
+     * @invariant last_epoch_ >= logger_epoch_
      */
     xct::Epoch                      logger_epoch_;
     /**
@@ -295,7 +297,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * @brief Currently active epoch marks that are waiting to be consumed by the logger.
      * @details
      * The older marks come first. For example, it might be like this:
-     * \li offset_head_=0, offset_durable_=128, current_epoch_=6, logger_epoch_=3.
+     * \li offset_head_=0, offset_durable_=128, last_epoch_=6, logger_epoch_=3.
      * \li Mark 0: Switched from epoch-3 to epoch-4 at offset=128.
      * \li Mark 1: Switched from epoch-4 to epoch-5 at offset=1024.
      * \li Mark 2: Switched from epoch-5 to epoch-6 at offset=4096.

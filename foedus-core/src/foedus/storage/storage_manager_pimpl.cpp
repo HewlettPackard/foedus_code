@@ -4,6 +4,7 @@
  */
 #include <foedus/engine.hpp>
 #include <foedus/error_stack_batch.hpp>
+#include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/log/log_manager.hpp>
 #include <foedus/storage/storage_manager_pimpl.hpp>
 #include <foedus/storage/storage_options.hpp>
@@ -11,7 +12,6 @@
 #include <foedus/storage/array/array_storage.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <glog/logging.h>
-#include <atomic>
 #include <memory>
 #include <string>
 #include <cstring>
@@ -60,7 +60,7 @@ StorageId StorageManagerPimpl::issue_next_storage_id() {
 }
 
 Storage* StorageManagerPimpl::get_storage(StorageId id) {
-    std::atomic_thread_fence(std::memory_order_acquire);  // to sync with expand
+    assorted::memory_fence_acquire();  // to sync with expand
     return storages_[id];
 }
 
@@ -121,8 +121,9 @@ ErrorStack StorageManagerPimpl::expand_storage_array(StorageId new_size) {
                     sizeof(Storage*) * (new_size - storages_capacity_));
     // we must announce the new storages_ to read-threads first because
     // new_size > storages_capacity_.
-    std::atomic_thread_fence(std::memory_order_seq_cst);
+    assorted::memory_fence_release();
     storages_ = new_array;
+    assorted::memory_fence_release();
     storages_capacity_ = new_size;
     return RET_OK;
 }

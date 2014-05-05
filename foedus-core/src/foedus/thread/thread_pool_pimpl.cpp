@@ -3,7 +3,10 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/engine.hpp>
+#include <foedus/engine_options.hpp>
 #include <foedus/error_stack_batch.hpp>
+#include <foedus/assert_nd.hpp>
+#include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/thread/thread_group.hpp>
 #include <foedus/thread/thread_group_pimpl.hpp>
@@ -14,9 +17,6 @@
 #include <foedus/thread/thread_pimpl.hpp>
 #include <foedus/memory/memory_id.hpp>
 #include <foedus/memory/engine_memory.hpp>
-#include <foedus/engine_options.hpp>
-#include <foedus/assert_nd.hpp>
-#include <atomic>
 namespace foedus {
 namespace thread {
 ErrorStack ThreadPoolPimpl::initialize_once() {
@@ -42,7 +42,7 @@ ErrorStack ThreadPoolPimpl::uninitialize_once() {
 
     // first, announce that further impersonation is not allowed.
     no_more_impersonation_ = true;
-    std::atomic_thread_fence(std::memory_order_release);
+    assorted::memory_fence_release();
     batch.uninitialize_and_delete_all(&groups_);
     return SUMMARIZE_ERROR_BATCH(batch);
 }
@@ -56,7 +56,7 @@ Thread* ThreadPoolPimpl::get_thread(ThreadId id) const {
 ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task,
                                                TimeoutMicrosec /*timeout*/) {
     ImpersonateSession session(task);
-    std::atomic_thread_fence(std::memory_order_acquire);
+    assorted::memory_fence_acquire();
     if (no_more_impersonation_) {
         session.invalid_cause_ = ERROR_STACK(ERROR_CODE_BEING_SHUTDOWN);
         return session;
@@ -78,7 +78,7 @@ ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task,
 ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(ImpersonateTask* task,
                                     ThreadGroupId numa_node, TimeoutMicrosec /*timeout*/) {
     ImpersonateSession session(task);
-    std::atomic_thread_fence(std::memory_order_acquire);
+    assorted::memory_fence_acquire();
     if (no_more_impersonation_) {
         session.invalid_cause_ = ERROR_STACK(ERROR_CODE_BEING_SHUTDOWN);
         return session;
@@ -98,7 +98,7 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(ImpersonateTask* ta
 ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_core(ImpersonateTask* task,
                                     ThreadId numa_core, TimeoutMicrosec /*timeout*/) {
     ImpersonateSession session(task);
-    std::atomic_thread_fence(std::memory_order_acquire);
+    assorted::memory_fence_acquire();
     if (no_more_impersonation_) {
         session.invalid_cause_ = ERROR_STACK(ERROR_CODE_BEING_SHUTDOWN);
         return session;

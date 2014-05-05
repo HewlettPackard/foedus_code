@@ -5,6 +5,7 @@
 #ifndef FOEDUS_XCT_EPOCH_HPP_
 #define FOEDUS_XCT_EPOCH_HPP_
 
+#include <foedus/assert_nd.hpp>
 #include <stdint.h>
 #include <iosfwd>
 namespace foedus {
@@ -42,13 +43,15 @@ class Epoch {
     typedef uint32_t EpochInteger;
     /** Defines constant values. */
     enum Constants {
-        /** This value means the epoch is not valid. */
+        /** Zero is always reserved for invalid epoch. A valid epoch always skips this value. */
         EPOCH_INVALID = 0,
-        /** The smallest valid epoch. */
-        EPOCH_INITIAL = 1,
+        /** As there is no transaction in ep-1, initial durable_epoch is 1. */
+        EPOCH_INITIAL_DURABLE = 1,
+        /** The first epoch (before wrap-around) that might have transactions is ep-2. */
+        EPOCH_INITIAL_CURRENT = 2,
     };
 
-    /** Construct an empty/invalid epoch. */
+    /** Construct an invalid epoch. */
     Epoch() : epoch_(EPOCH_INVALID) {}
     /** Construct an epoch of specified integer representation. */
     explicit Epoch(EpochInteger value) : epoch_(value) {}
@@ -60,11 +63,19 @@ class Epoch {
     EpochInteger value() const { return epoch_; }
 
     Epoch&  operator++() {
+        ASSERT_ND(is_valid());  // we prohibit increment from invalid epoch
         ++epoch_;
+        if (epoch_ == 0) {
+            ++epoch_;  // skip 0, which is always an invalid epoch.
+        }
         return *this;
     }
     Epoch&  operator--() {
+        ASSERT_ND(is_valid());  // we prohibit decrement from invalid epoch
         --epoch_;
+        if (epoch_ == 0) {
+            --epoch_;
+        }
         return *this;
     }
     Epoch one_less() const {
@@ -78,23 +89,38 @@ class Epoch {
         return tmp;
     }
 
-    /** Shorthand for "*this = min(*this, other)" */
+    /**
+     * @brief Kind of std::min(this, other).
+     * @pre other.is_valid() otherwise what's the point?
+     * @details
+     * If this.is_valid(), this is exactly std::min. If not, other is unconditionally taken.
+     */
     void    store_min(const Epoch& other) {
-        if (other < *this) {
+        ASSERT_ND(other.is_valid());
+        if (!is_valid() || other < *this) {
             epoch_ = other.epoch_;
         }
     }
-    /** Shorthand for "*this = max(*this, other)" */
+    /**
+     * @brief Kind of std::max(this, other).
+     * @pre other.is_valid() otherwise what's the point?
+     * @details
+     * If this.is_valid(), this is exactly std::max. If not, other is unconditionally taken.
+     */
     void    store_max(const Epoch& other) {
-        if (other > *this) {
+        ASSERT_ND(other.is_valid());
+        if (!is_valid() || other > *this) {
             epoch_ = other.epoch_;
         }
     }
 
     /**
      * Returns the \e distance from this epoch to the given epoch, as defined in RFC 1982.
+     * Both this and other must be valid epochs.
      */
     int32_t distance(const Epoch &other) const {
+        ASSERT_ND(is_valid());
+        ASSERT_ND(other.is_valid());
         return static_cast<int32_t>(other.epoch_ - epoch_);  // SIGNED. see the links
     }
 

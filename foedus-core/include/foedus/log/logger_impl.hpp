@@ -15,6 +15,9 @@
 #include <foedus/thread/stoppable_thread_impl.hpp>
 #include <foedus/xct/epoch.hpp>
 #include <stdint.h>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <vector>
 namespace foedus {
 namespace log {
@@ -36,6 +39,26 @@ class Logger final : public DefaultInitializable {
     Logger() = delete;
     Logger(const Logger &other) = delete;
     Logger& operator=(const Logger &other) = delete;
+
+    /**
+     * @brief Wakes up this logger if its durable_epoch has not reached the given epoch yet.
+     * @details
+     * If this logger's durable_epoch is already same or larger than the epoch, does nothing.
+     * This method just wakes up the logger and immediately returns.
+     * To synchronously wait for the completion, call block_until_durable_epoch().
+     */
+    void        wakeup_for_durable_epoch(xct::Epoch desired_durable_epoch);
+
+    /**
+     * @brief Bloks until the durable_epoch of this logger becomes at least the given value.
+     * @details
+     * If this logger's durable_epoch is already same or larger than the epoch, does nothing.
+     * Log manager calls this method for each logger after wake_up_for_durable_epoch().
+     * This method blocks forever unless there is an engine-wide interruption.
+     * @return Error return only when there is an engine-wide interruption, such as engine shutdown.
+     */
+    ErrorStack  block_until_durable_epoch(xct::Epoch desired_durable_epoch,
+                                            int64_t wait_microseconds);
 
  private:
     /**
@@ -59,6 +82,9 @@ class Logger final : public DefaultInitializable {
 
     fs::Path    construct_suffixed_log_path(LogFileOrdinal ordinal) const;
 
+    /** Check invariants on current_epoch_/durable_epoch_. This method should be wiped in NDEBUG. */
+    void        assert_epoch_values();
+
     Engine*                         engine_;
     LoggerId                        id_;
     thread::ThreadGroupId           numa_node_;
@@ -81,15 +107,25 @@ class Logger final : public DefaultInitializable {
     memory::AlignedMemory           fill_buffer_;
 
     /**
-     * This is the epoch the logger is currently flushing.
-     * 0 if the logger is currently not aware of any logs to write out.
+     * @brief The epoch the logger is currently flushing.
+     * @details
+     * This is updated when buffer.logger_epoch_ is advanced. As buffer.logger_epoch is read/written
+     * exclusively by this logger only, there cannot be any discrepency.
+     * @invariant current_epoch_.is_valid()
+     * @invariant current_epoch_ == min(buffer.logger_epoch_ : assigned threads)
      */
     xct::Epoch                      current_epoch_;
 
     /**
      * Upto what epoch the logger flushed logs in \b all buffers assigned to it.
+     * @invariant durable_epoch_.is_valid()
      */
     xct::Epoch                      durable_epoch_;
+
+    /** Fired (notify_all) whenever durable_epoch_ is advanced. */
+    std::condition_variable         durable_epoch_advanced_;
+    /** Protects durable_epoch_advanced_. */
+    std::mutex                      durable_epoch_advanced_mutex_;
 
     /**
      * @brief Ordinal of the oldest active log file of this logger.
