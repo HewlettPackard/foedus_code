@@ -89,7 +89,7 @@ class AlignedMemory CXX11_FINAL {
      * does NOT fail nor throws an exception. Instead, it sets the block_ NULL.
      * So, the caller is responsible for checking it after construction.
      */
-    AlignedMemory(uint64_t size, size_t alignment,
+    AlignedMemory(uint64_t size, uint64_t alignment,
         AllocType alloc_type, int numa_node) CXX11_NOEXCEPT;
 
     // Disable default constructors

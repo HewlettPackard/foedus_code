@@ -157,9 +157,11 @@ ErrorStack Externalizable::add_element(tinyxml2::XMLElement* parent,
 }
 
 // Explicit instantiations for each type
+// @cond DOXYGEN_IGNORE
 #define EXPLICIT_INSTANTIATION_ADD(x) template ErrorStack Externalizable::add_element< x > \
     (tinyxml2::XMLElement* parent, const std::string& tag, const std::string& comment, x value)
 INSTANTIATE_ALL_TYPES(EXPLICIT_INSTANTIATION_ADD);
+// @endcond
 
 ErrorStack Externalizable::add_child_element(tinyxml2::XMLElement* parent, const std::string& tag,
                                        const std::string& comment, const Externalizable& child) {
@@ -194,9 +196,11 @@ ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::
 }
 
 // Explicit instantiations for each type
+// @cond DOXYGEN_IGNORE
 #define EXPLICIT_INSTANTIATION_GET(x) template ErrorStack Externalizable::get_element< x > \
     (tinyxml2::XMLElement* parent, const std::string& tag, x * out, bool optional, x default_value)
 INSTANTIATE_ALL_TYPES(EXPLICIT_INSTANTIATION_GET);
+// @endcond
 
 ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::string& tag,
                                     std::string* out, bool optional, const char* default_value) {
@@ -225,9 +229,11 @@ ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::
 }
 
 // Explicit instantiations for each type
+// @cond DOXYGEN_IGNORE
 #define EXPLICIT_INSTANTIATION_GET_VECTOR(x) template ErrorStack Externalizable::get_element< x > \
     (tinyxml2::XMLElement* parent, const std::string& tag, std::vector< x > * out, bool optional)
 INSTANTIATE_ALL_TYPES(EXPLICIT_INSTANTIATION_GET_VECTOR);
+// @endcond
 
 ErrorStack Externalizable::get_child_element(tinyxml2::XMLElement* parent, const std::string& tag,
                                        Externalizable* child, bool optional) {

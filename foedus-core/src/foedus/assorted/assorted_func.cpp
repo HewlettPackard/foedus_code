@@ -24,12 +24,12 @@ std::string os_error() {
 }
 
 std::string os_error(int error_number) {
-    if (errno == 0) {
+    if (error_number == 0) {
         return "[No Error]";
     }
     std::stringstream str;
     // TODO(Hideaki) is std::strerror thread-safe? Thre is no std::strerror_r. Windows, mmm.
-    str << "[Errno " << errno << "] " << std::strerror(errno);
+    str << "[Errno " << error_number << "] " << std::strerror(error_number);
     return str.str();
 }
 
