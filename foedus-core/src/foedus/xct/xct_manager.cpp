@@ -19,9 +19,8 @@ bool        XctManager::is_initialized() const { return pimpl_->is_initialized()
 ErrorStack  XctManager::uninitialize() { return pimpl_->uninitialize(); }
 
 Epoch       XctManager::get_current_global_epoch() const { return pimpl_->current_global_epoch_; }
-Epoch       XctManager::get_durable_global_epoch() const { return pimpl_->durable_global_epoch_; }
 void        XctManager::advance_current_global_epoch() { pimpl_->advance_current_global_epoch(); }
-ErrorCode   XctManager::wait_for_commit(const Epoch& commit_epoch, int64_t wait_microseconds) {
+ErrorStack  XctManager::wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds) {
     return pimpl_->wait_for_commit(commit_epoch, wait_microseconds);
 }
 

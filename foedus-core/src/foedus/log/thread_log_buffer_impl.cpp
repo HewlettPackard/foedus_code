@@ -81,7 +81,7 @@ void ThreadLogBuffer::fillup_tail() {
     ASSERT_ND(offset_tail_ == 0);
 }
 
-void ThreadLogBuffer::on_new_epoch_observed(xct::Epoch commit_epoch) {
+void ThreadLogBuffer::on_new_epoch_observed(Epoch commit_epoch) {
     ASSERT_ND(commit_epoch > last_epoch_);
     VLOG(0) << "Thread-" << thread_id_ << " wrote out the first log entry in epoch-" << commit_epoch
         << " at offset " << offset_committed_ << ". old epoch=" << last_epoch_;
@@ -106,7 +106,7 @@ void ThreadLogBuffer::on_new_epoch_observed(xct::Epoch commit_epoch) {
     DVLOG(0) << "After: " << *this;
 }
 
-void ThreadLogBuffer::crash_stale_commit_epoch(xct::Epoch commit_epoch) {
+void ThreadLogBuffer::crash_stale_commit_epoch(Epoch commit_epoch) {
     LOG(FATAL) << "Received a log-publication request with commit_epoch=" << commit_epoch
         << ", which is older than logger_epoch_=" << logger_epoch_ << ", this is a BUG!"
         << std::endl << " Buffer=" << *this;

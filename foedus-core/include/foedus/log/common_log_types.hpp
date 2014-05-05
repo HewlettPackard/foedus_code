@@ -8,7 +8,7 @@
 #include <foedus/fwd.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/storage/storage_id.hpp>
-#include <foedus/xct/epoch.hpp>
+#include <foedus/epoch.hpp>
 #include <foedus/assert_nd.hpp>
 #include <iosfwd>
 
@@ -161,9 +161,9 @@ struct EpochMarkerLogType : public EngineLogType {
     void    apply_engine(Engine* /*engine*/) {}
 
     /** Epoch before this switch. */
-    xct::Epoch      old_epoch_;  // +4
+    Epoch   old_epoch_;  // +4
     /** Epoch after this switch. */
-    xct::Epoch      new_epoch_;  // +4
+    Epoch   new_epoch_;  // +4
 
     friend std::ostream& operator<<(std::ostream& o, const EpochMarkerLogType &v);
 };

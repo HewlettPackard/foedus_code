@@ -48,11 +48,6 @@ class XctManager CXX11_FINAL : public virtual Initializable {
     void        advance_current_global_epoch();
 
     /**
-     * @brief Returns the durable global epoch.
-     */
-    Epoch       get_durable_global_epoch() const;
-
-    /**
      * @brief Begins a new transaction on the thread.
      * @param[in,out] context Thread context
      * @param[in] isolation_level concurrency isolation level of the new transaction
@@ -80,22 +75,9 @@ class XctManager CXX11_FINAL : public virtual Initializable {
 
 
     /**
-     * @brief Synchronously blocks until the durable global epoch reaches reaches the given commit
-     * epoch or the given duration elapses.
-     * @param[in] commit_epoch Returns RET_OK \e iff the durable global epoch reaches this value.
-     * @param[in] wait_microseconds Or, returns a TIMEOUT error when this duration elapses,
-     * whichever comes first. Negative value means waiting forever. 0 means \e conditional,
-     * immediately returning without blocking, which is useful to quickly check the committed-ness.
-     * @see precommit_xct()
-     * @details
-     * Client programs can either call this method for each transaction right after precommit_xct()
-     * or call this method after a bunch of precommit_xct() calls (\e group-commit).
-     * In either case, remember that \b both read-only and read-write transactions must not return
-     * results to clients until the durable global epoch reaches the given commit epoch.
-     * Otherwise, you violate serializability (which might be okay depending on your desired
-     * isolation level).
+     * @copydoc foedus::log::LogManager::wait_until_durable()
      */
-    ErrorCode   wait_for_commit(const Epoch &commit_epoch, int64_t wait_microseconds = -1);
+    ErrorStack  wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds = -1);
 
     /**
      * @brief Aborts the currently running transaction on the thread.

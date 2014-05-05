@@ -7,6 +7,7 @@
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/savepoint/fwd.hpp>
+#include <foedus/epoch.hpp>
 namespace foedus {
 namespace savepoint {
 /**
@@ -46,6 +47,17 @@ class SavepointManager CXX11_FINAL : public virtual Initializable {
      * @see get_savepoint_safe()
      */
     const Savepoint& get_savepoint_fast() const;
+
+    /**
+     * @brief Atomically and durably takes a savepoint for the given epoch advancement.
+     * @details
+     * This is called from log manager when it sees all loggers flushed their logs up to
+     * the given epoch \b BEFORE the log manager announces the new global durable epoch to others.
+     * This is the last step in the system to adavance a global durable epoch, thus officially
+     * committing transactions in the epoch. Until this method completes, the transactions are
+     * not yet committed.
+     */
+    ErrorStack      take_savepoint(Epoch new_global_durable_epoch);
 
  private:
     SavepointManagerPimpl *pimpl_;

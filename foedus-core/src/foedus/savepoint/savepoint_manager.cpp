@@ -22,6 +22,9 @@ const Savepoint& SavepointManager::get_savepoint_fast() const {
     return pimpl_->get_savepoint_fast();
 }
 Savepoint SavepointManager::get_savepoint_safe() const { return pimpl_->get_savepoint_safe(); }
+ErrorStack SavepointManager::take_savepoint(Epoch new_global_durable_epoch) {
+    return pimpl_->take_savepoint(new_global_durable_epoch);
+}
 
 }  // namespace savepoint
 }  // namespace foedus

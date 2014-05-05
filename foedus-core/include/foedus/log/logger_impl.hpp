@@ -13,7 +13,8 @@
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <foedus/thread/stoppable_thread_impl.hpp>
-#include <foedus/xct/epoch.hpp>
+#include <foedus/epoch.hpp>
+#include <foedus/savepoint/fwd.hpp>
 #include <stdint.h>
 #include <chrono>
 #include <condition_variable>
@@ -41,24 +42,23 @@ class Logger final : public DefaultInitializable {
     Logger& operator=(const Logger &other) = delete;
 
     /**
+     * @brief Wakes up this logger if it is sleeping.
+     */
+    void        wakeup();
+
+    /**
      * @brief Wakes up this logger if its durable_epoch has not reached the given epoch yet.
      * @details
      * If this logger's durable_epoch is already same or larger than the epoch, does nothing.
      * This method just wakes up the logger and immediately returns.
-     * To synchronously wait for the completion, call block_until_durable_epoch().
      */
-    void        wakeup_for_durable_epoch(xct::Epoch desired_durable_epoch);
+    void        wakeup_for_durable_epoch(Epoch desired_durable_epoch);
 
-    /**
-     * @brief Bloks until the durable_epoch of this logger becomes at least the given value.
-     * @details
-     * If this logger's durable_epoch is already same or larger than the epoch, does nothing.
-     * Log manager calls this method for each logger after wake_up_for_durable_epoch().
-     * This method blocks forever unless there is an engine-wide interruption.
-     * @return Error return only when there is an engine-wide interruption, such as engine shutdown.
-     */
-    ErrorStack  block_until_durable_epoch(xct::Epoch desired_durable_epoch,
-                                            int64_t wait_microseconds);
+    /** Returns this logger's durable epoch. */
+    Epoch       get_durable_epoch() const { return durable_epoch_; }
+
+    /** Called from log manager's copy_logger_states. */
+    void        copy_logger_state(savepoint::Savepoint *new_savepoint);
 
  private:
     /**
@@ -77,7 +77,7 @@ class Logger final : public DefaultInitializable {
      */
     ErrorStack  switch_file_if_required();
 
-    ErrorStack  switch_current_epoch(const xct::Epoch& new_epoch);
+    ErrorStack  switch_current_epoch(Epoch new_epoch);
     ErrorStack  write_log(ThreadLogBuffer* buffer, uint64_t upto_offset);
 
     fs::Path    construct_suffixed_log_path(LogFileOrdinal ordinal) const;
@@ -114,18 +114,13 @@ class Logger final : public DefaultInitializable {
      * @invariant current_epoch_.is_valid()
      * @invariant current_epoch_ == min(buffer.logger_epoch_ : assigned threads)
      */
-    xct::Epoch                      current_epoch_;
+    Epoch                           current_epoch_;
 
     /**
      * Upto what epoch the logger flushed logs in \b all buffers assigned to it.
      * @invariant durable_epoch_.is_valid()
      */
-    xct::Epoch                      durable_epoch_;
-
-    /** Fired (notify_all) whenever durable_epoch_ is advanced. */
-    std::condition_variable         durable_epoch_advanced_;
-    /** Protects durable_epoch_advanced_. */
-    std::mutex                      durable_epoch_advanced_mutex_;
+    Epoch                           durable_epoch_;
 
     /**
      * @brief Ordinal of the oldest active log file of this logger.

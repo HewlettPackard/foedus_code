@@ -13,7 +13,7 @@
 #include <foedus/thread/fwd.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/xct/fwd.hpp>
-#include <foedus/xct/epoch.hpp>
+#include <foedus/epoch.hpp>
 #include <foedus/xct/xct_id.hpp>
 #include <iosfwd>
 namespace foedus {

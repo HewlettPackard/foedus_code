@@ -3,12 +3,15 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/engine.hpp>
+#include <foedus/engine_options.hpp>
 #include <foedus/error_stack_batch.hpp>
+#include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/fs/filesystem.hpp>
 #include <foedus/fs/path.hpp>
 #include <foedus/savepoint/savepoint_manager_pimpl.hpp>
 #include <foedus/savepoint/savepoint_options.hpp>
-#include <foedus/engine_options.hpp>
+#include <foedus/xct/xct_manager.hpp>
+#include <foedus/log/log_manager.hpp>
 #include <glog/logging.h>
 #include <mutex>
 namespace foedus {
@@ -29,7 +32,7 @@ ErrorStack SavepointManagerPimpl::initialize_once() {
         // Create an empty savepoint file now. This makes sure the directory entry for the file
         // exists.
         savepoint_.populate_empty(logger_count);
-        CHECK_ERROR(write_savepoint());
+        CHECK_ERROR(savepoint_.save_to_file(savepoint_path_));
     }
     return RET_OK;
 }
@@ -40,10 +43,22 @@ ErrorStack SavepointManagerPimpl::uninitialize_once() {
     return RET_OK;
 }
 
-ErrorStack SavepointManagerPimpl::write_savepoint() {
-    CHECK_ERROR(savepoint_.save_to_file(savepoint_path_));
+ErrorStack SavepointManagerPimpl::take_savepoint(Epoch new_global_durable_epoch) {
+    Savepoint new_savepoint = Savepoint();
+    assorted::memory_fence_acquire();
+    new_savepoint.current_epoch_ = engine_->get_xct_manager().get_current_global_epoch().value();
+    new_savepoint.durable_epoch_ = new_global_durable_epoch.value();
+    engine_->get_log_manager().copy_logger_states(&new_savepoint);
+    new_savepoint.assert_epoch_values();
+
+    LOG(INFO) << "Writing a savepoint..." << new_savepoint;
+    CHECK_ERROR(new_savepoint.save_to_file(savepoint_path_));
+    LOG(INFO) << "Wrote a savepoint.";
+    assorted::memory_fence_release();
+    savepoint_ = new_savepoint;
     return RET_OK;
 }
+
 
 const Savepoint& SavepointManagerPimpl::get_savepoint_fast() const { return savepoint_; }
 Savepoint SavepointManagerPimpl::get_savepoint_safe() const {

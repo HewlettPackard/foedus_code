@@ -10,9 +10,9 @@ Savepoint::Savepoint() {
 }
 
 void Savepoint::assert_epoch_values() const {
-    ASSERT_ND(xct::Epoch(current_epoch_).is_valid());
-    ASSERT_ND(xct::Epoch(durable_epoch_).is_valid());
-    ASSERT_ND(xct::Epoch(current_epoch_) > xct::Epoch(durable_epoch_));
+    ASSERT_ND(Epoch(current_epoch_).is_valid());
+    ASSERT_ND(Epoch(durable_epoch_).is_valid());
+    ASSERT_ND(Epoch(current_epoch_) > Epoch(durable_epoch_));
 }
 
 ErrorStack Savepoint::load(tinyxml2::XMLElement* element) {
@@ -45,8 +45,8 @@ ErrorStack Savepoint::save(tinyxml2::XMLElement* element) const {
 }
 
 void Savepoint::populate_empty(log::LoggerId logger_count) {
-    current_epoch_ = xct::Epoch::EPOCH_INITIAL_CURRENT;
-    durable_epoch_ = xct::Epoch::EPOCH_INITIAL_DURABLE;
+    current_epoch_ = Epoch::EPOCH_INITIAL_CURRENT;
+    durable_epoch_ = Epoch::EPOCH_INITIAL_DURABLE;
     oldest_log_files_.resize(logger_count, 0);
     oldest_log_files_offset_begin_.resize(logger_count, 0);
     current_log_files_.resize(logger_count, 0);

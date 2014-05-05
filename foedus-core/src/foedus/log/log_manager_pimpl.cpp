@@ -3,7 +3,10 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/engine.hpp>
+#include <foedus/engine_options.hpp>
+#include <foedus/assert_nd.hpp>
 #include <foedus/error_stack_batch.hpp>
+#include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/fs/path.hpp>
 #include <foedus/log/log_id.hpp>
 #include <foedus/log/log_manager_pimpl.hpp>
@@ -12,10 +15,9 @@
 #include <foedus/memory/memory_id.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/thread/thread_pool.hpp>
+#include <foedus/savepoint/savepoint.hpp>
 #include <foedus/savepoint/savepoint_manager.hpp>
-#include <foedus/engine_options.hpp>
 #include <glog/logging.h>
-#include <foedus/assert_nd.hpp>
 #include <string>
 #include <vector>
 namespace foedus {
@@ -73,6 +75,89 @@ ErrorStack LogManagerPimpl::uninitialize_once() {
     }
     batch.uninitialize_and_delete_all(&loggers_);
     return RET_OK;
+}
+void LogManagerPimpl::wakeup_loggers() {
+    for (Logger* logger : loggers_) {
+        logger->wakeup();
+    }
+}
+
+ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
+    assorted::memory_fence_acquire();
+    Epoch min_durable_epoch;
+    ASSERT_ND(!min_durable_epoch.is_valid());
+    for (Logger* logger : loggers_) {
+        min_durable_epoch.store_min(logger->get_durable_epoch());
+    }
+    ASSERT_ND(min_durable_epoch.is_valid());
+
+    if (min_durable_epoch <= durable_global_epoch_) {
+        VLOG(0) << "durable_global_epoch_ not advanced";
+        return RET_OK;
+    }
+
+    LOG(INFO) << "Global durable epoch is about to advance from " << durable_global_epoch_
+        << " to " << min_durable_epoch;
+    {
+        std::lock_guard<std::mutex> guard(durable_global_epoch_savepoint_mutex_);
+        if (min_durable_epoch <= durable_global_epoch_) {
+            LOG(INFO) << "oh, I lost the race.";
+            return RET_OK;
+        }
+
+        CHECK_ERROR(engine_->get_savepoint_manager().take_savepoint(min_durable_epoch));
+        durable_global_epoch_ = min_durable_epoch;
+    }
+    durable_global_epoch_advanced_.notify_all();
+    return RET_OK;
+}
+
+
+ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds) {
+    assorted::memory_fence_acquire();
+    if (wait_microseconds == 0) {
+        DVLOG(1) << "Conditional check: commit_epoch=" << commit_epoch << ", durable_global_epoch_="
+            << durable_global_epoch_;
+        if (commit_epoch < durable_global_epoch_) {
+            return ERROR_STACK(ERROR_CODE_TIMEOUT);
+        } else {
+            return RET_OK;
+        }
+    }
+
+    std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
+    std::chrono::high_resolution_clock::time_point until
+        = now + std::chrono::microseconds(wait_microseconds);
+    while (commit_epoch < durable_global_epoch_) {
+        for (Logger* logger : loggers_) {
+            logger->wakeup_for_durable_epoch(commit_epoch);
+        }
+        std::unique_lock<std::mutex> the_lock(durable_global_epoch_advanced_mutex_);
+        if (wait_microseconds > 0) {
+            LOG(INFO) << "Synchronously waiting for commit_epoch " << commit_epoch;
+            if (durable_global_epoch_advanced_.wait_until(the_lock, until)
+                    == std::cv_status::timeout && commit_epoch < durable_global_epoch_) {
+                LOG(WARNING) << "Timeout occurs. wait_microseconds=" << wait_microseconds;
+                return ERROR_STACK(ERROR_CODE_TIMEOUT);
+            }
+        } else {
+            durable_global_epoch_advanced_.wait(the_lock);
+        }
+    }
+
+    LOG(INFO) << "durable epoch advanced. durable_global_epoch_=" << durable_global_epoch_;
+    return RET_OK;
+}
+
+
+void LogManagerPimpl::copy_logger_states(savepoint::Savepoint* new_savepoint) {
+    new_savepoint->current_log_files_.clear();
+    new_savepoint->oldest_log_files_offset_begin_.clear();
+    new_savepoint->current_log_files_.clear();
+    new_savepoint->current_log_files_offset_durable_.clear();
+    for (Logger* logger : loggers_) {
+        logger->copy_logger_state(new_savepoint);
+    }
 }
 
 }  // namespace log

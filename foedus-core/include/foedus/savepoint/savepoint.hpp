@@ -7,7 +7,7 @@
 #include <foedus/cxx11.hpp>
 #include <foedus/externalize/externalizable.hpp>
 #include <foedus/log/log_id.hpp>
-#include <foedus/xct/epoch.hpp>
+#include <foedus/epoch.hpp>
 #include <vector>
 namespace foedus {
 namespace savepoint {
@@ -33,7 +33,7 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
      * This is equal or larger than all other epoch values below.
      * @invariant Epoch(current_epoch_).is_valid()
      */
-    xct::Epoch::EpochInteger            current_epoch_;
+    Epoch::EpochInteger             current_epoch_;
 
     /**
      * @brief Latest epoch whose logs were all flushed to disk.
@@ -45,7 +45,7 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
      * @invariant Epoch(durable_epoch_).is_valid()
      * @invariant Epoch(current_epoch_) > Epoch(durable_epoch_)
      */
-    xct::Epoch::EpochInteger            durable_epoch_;
+    Epoch::EpochInteger             durable_epoch_;
 
 
     // for all the following, index is LoggerId
@@ -87,8 +87,8 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
             && current_log_files_offset_durable_.size() == logger_count);
     }
 
-    xct::Epoch  get_durable_epoch() const { return xct::Epoch(durable_epoch_); }
-    xct::Epoch  get_current_epoch() const { return xct::Epoch(current_epoch_); }
+    Epoch  get_durable_epoch() const { return Epoch(durable_epoch_); }
+    Epoch  get_current_epoch() const { return Epoch(current_epoch_); }
     /** Check invariants on current_epoch_/durable_epoch_ */
     void        assert_epoch_values() const;
 };

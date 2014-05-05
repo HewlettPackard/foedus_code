@@ -9,6 +9,7 @@
 #include <foedus/fs/path.hpp>
 #include <foedus/savepoint/fwd.hpp>
 #include <foedus/savepoint/savepoint.hpp>
+#include <foedus/epoch.hpp>
 #include <mutex>
 namespace foedus {
 namespace savepoint {
@@ -26,9 +27,9 @@ class SavepointManagerPimpl CXX11_FINAL : public DefaultInitializable {
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
-    ErrorStack  write_savepoint();
     Savepoint           get_savepoint_safe() const;
     const Savepoint&    get_savepoint_fast() const;
+    ErrorStack          take_savepoint(Epoch new_global_durable_epoch);
 
     Engine* const           engine_;
 

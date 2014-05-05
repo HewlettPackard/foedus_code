@@ -8,7 +8,7 @@
 #include <foedus/initializable.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <foedus/xct/fwd.hpp>
-#include <foedus/xct/epoch.hpp>
+#include <foedus/epoch.hpp>
 #include <foedus/xct/xct_id.hpp>
 #include <foedus/thread/stoppable_thread_impl.hpp>
 #include <condition_variable>
@@ -36,8 +36,8 @@ class XctManagerPimpl final : public DefaultInitializable {
     ErrorStack  precommit_xct(thread::Thread* context, Epoch *commit_epoch);
     ErrorStack  abort_xct(thread::Thread* context);
 
+    ErrorStack  wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds);
     void        advance_current_global_epoch();
-    ErrorCode   wait_for_commit(const Epoch &commit_epoch, int64_t wait_microseconds);
 
     /**
      * @brief precommit_xct() if the transaction is read-only
@@ -105,24 +105,10 @@ class XctManagerPimpl final : public DefaultInitializable {
      */
     Epoch                   current_global_epoch_;
 
-    /**
-     * @brief The durable epoch of the entire engine.
-     * @invariant current_global_epoch_ > durable_global_epoch_
-     * (we need to advance current epoch to make sure the ex-current epoch is durable)
-     * @details
-     * This value indicates upto what commit-groups we can return results to client programs.
-     * This value is advanced by checking the durable epoch of each logger.
-     */
-    Epoch                   durable_global_epoch_;
-
     /** Fired (notify_all) whenever current_global_epoch_ is advanced. */
     std::condition_variable current_global_epoch_advanced_;
     /** Protects current_global_epoch_advanced_. */
     std::mutex              current_global_epoch_advanced_mutex_;
-    /** Fired (notify_all) whenever durable_global_epoch_ is advanced. */
-    std::condition_variable durable_global_epoch_advanced_;
-    /** Protects durable_global_epoch_advanced_. */
-    std::mutex              durable_global_epoch_advanced_mutex_;
 
     /**
      * This thread keeps advancing the current_global_epoch_ and durable_global_epoch_.

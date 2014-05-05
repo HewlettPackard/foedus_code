@@ -8,7 +8,11 @@
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
 #include <foedus/thread/thread_id.hpp>
-#include <foedus/xct/epoch.hpp>
+#include <foedus/epoch.hpp>
+#include <foedus/savepoint/fwd.hpp>
+#include <stdint.h>
+#include <condition_variable>
+#include <mutex>
 #include <vector>
 namespace foedus {
 namespace log {
@@ -26,6 +30,11 @@ class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
+    void        wakeup_loggers();
+    ErrorStack  wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds);
+    ErrorStack  refresh_global_durable_epoch();
+    void        copy_logger_states(savepoint::Savepoint *new_savepoint);
+
     Engine* const               engine_;
 
     thread::ThreadGroupId       groups_;
@@ -36,9 +45,22 @@ class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
     std::vector< Logger* >      loggers_;
 
     /**
-     * All loggers flushed their logs upto this epoch.
+     * @brief The durable epoch of the entire engine.
+     * @invariant current_global_epoch_ > durable_global_epoch_
+     * (we need to advance current epoch to make sure the ex-current epoch is durable)
+     * @details
+     * This value indicates upto what commit-groups we can return results to client programs.
+     * This value is advanced by checking the durable epoch of each logger.
      */
-    xct::Epoch                  durable_epoch_;
+    Epoch                       durable_global_epoch_;
+
+    /** Fired (notify_all) whenever durable_global_epoch_ is advanced. */
+    std::condition_variable     durable_global_epoch_advanced_;
+    /** Protects durable_global_epoch_advanced_. */
+    std::mutex                  durable_global_epoch_advanced_mutex_;
+
+    /** Serializes the thread to take savepoint to advance durable_global_epoch_. */
+    std::mutex                  durable_global_epoch_savepoint_mutex_;
 };
 }  // namespace log
 }  // namespace foedus

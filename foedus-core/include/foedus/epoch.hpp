@@ -2,16 +2,15 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#ifndef FOEDUS_XCT_EPOCH_HPP_
-#define FOEDUS_XCT_EPOCH_HPP_
+#ifndef FOEDUS_EPOCH_HPP_
+#define FOEDUS_EPOCH_HPP_
 
 #include <foedus/assert_nd.hpp>
 #include <stdint.h>
 #include <iosfwd>
 namespace foedus {
-namespace xct {
 /**
- * @ingroup XCT
+ * @ingroup IDIOMS
  * @brief Represents a time epoch.
  * @details
  * Epoch is an corase-grained timestamp used all over the places.
@@ -137,7 +136,6 @@ class Epoch {
     /** The raw integer representation. */
     EpochInteger epoch_;
 };
-}  // namespace xct
 }  // namespace foedus
 
-#endif  // FOEDUS_XCT_EPOCH_HPP_
+#endif  // FOEDUS_EPOCH_HPP_

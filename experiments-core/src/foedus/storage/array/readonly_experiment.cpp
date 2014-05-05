@@ -79,7 +79,7 @@ class MyTask2 : public th::ImpersonateTask {
         CHECK_ERROR(engine->get_xct_manager().begin_xct(context,
             foedus::xct::DIRTY_READ_PREFER_SNAPSHOT));
         foedus::storage::Storage* storage = engine->get_storage_manager().get_storage(the_id);
-        foedus::xct::Epoch commit_epoch;
+        foedus::Epoch commit_epoch;
 
         // pre-calculate random numbers to get rid of random number generation as bottleneck
         random_.set_current_seed(context->get_thread_id());

@@ -5,7 +5,7 @@
 #ifndef FOEDUS_STORAGE_PAGE_HPP_
 #define FOEDUS_STORAGE_PAGE_HPP_
 #include <foedus/cxx11.hpp>
-#include <foedus/xct/epoch.hpp>
+#include <foedus/epoch.hpp>
 #include <foedus/storage/storage_id.hpp>
 namespace foedus {
 namespace storage {
@@ -27,7 +27,7 @@ struct PageHeader {
      * Epoch of this page when this page is written to media (as of the log gleaning).
      * This might not be maintained in volatile pages
      */
-    xct::Epoch          durable_epoch_;     // +4 -> 12
+    Epoch               durable_epoch_;     // +4 -> 12
 
     /** ID of the array storage. immutable after the array storage is created. */
     StorageId           storage_id_;        // +4 -> 16

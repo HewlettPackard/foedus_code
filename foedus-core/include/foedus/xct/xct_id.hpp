@@ -5,7 +5,7 @@
 #ifndef FOEDUS_XCT_XCT_ID_HPP_
 #define FOEDUS_XCT_XCT_ID_HPP_
 #include <foedus/cxx11.hpp>
-#include <foedus/xct/epoch.hpp>
+#include <foedus/epoch.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/assert_nd.hpp>
 #include <foedus/assorted/raw_atomics.hpp>

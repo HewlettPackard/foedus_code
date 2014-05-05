@@ -13,6 +13,7 @@
 #include <foedus/xct/xct.hpp>
 #include <foedus/log/log_type_invoke.hpp>
 #include <foedus/log/thread_log_buffer_impl.hpp>
+#include <foedus/log/log_manager.hpp>
 #include <foedus/storage/storage_manager.hpp>
 #include <foedus/storage/record.hpp>
 #include <foedus/thread/thread_pool.hpp>
@@ -32,7 +33,6 @@ ErrorStack XctManagerPimpl::initialize_once() {
     }
     const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
     current_global_epoch_ = savepoint.get_current_epoch();
-    durable_global_epoch_ = savepoint.get_durable_epoch();
     epoch_advance_thread_.initialize("epoch_advance_thread",
         std::thread(&XctManagerPimpl::handle_epoch_advance, this),
         std::chrono::milliseconds(engine_->get_options().xct_.epoch_advance_interval_ms_));
@@ -52,14 +52,11 @@ ErrorStack XctManagerPimpl::uninitialize_once() {
 void XctManagerPimpl::handle_epoch_advance() {
     LOG(INFO) << "epoch_advance_thread started.";
     while (!epoch_advance_thread_.sleep()) {
-        VLOG(1) << "epoch_advance_thread. current_global_epoch_=" << current_global_epoch_
-            << ", durable_global_epoch_=" << durable_global_epoch_;
+        VLOG(1) << "epoch_advance_thread. current_global_epoch_=" << current_global_epoch_;
         // TODO(Hideaki) Must check long-running transactions
         ++current_global_epoch_;
         current_global_epoch_advanced_.notify_all();
-        // TODO(Hideaki) Must check loggers, and update savepoint
-        // ++durable_global_epoch_;
-        durable_global_epoch_advanced_.notify_all();
+        engine_->get_log_manager().wakeup_loggers();
     }
     LOG(INFO) << "epoch_advance_thread ended.";
 }
@@ -76,39 +73,14 @@ void XctManagerPimpl::advance_current_global_epoch() {
     LOG(INFO) << "epoch advanced. current_global_epoch_=" << current_global_epoch_;
 }
 
-ErrorCode XctManagerPimpl::wait_for_commit(const Epoch& commit_epoch, int64_t wait_microseconds) {
+ErrorStack XctManagerPimpl::wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds) {
     assorted::memory_fence_acquire();
-    if (wait_microseconds == 0) {
-        DVLOG(1) << "was it committed? commit_epoch=" << commit_epoch << ", durable_global_epoch_="
-            << durable_global_epoch_;
-        if (commit_epoch < durable_global_epoch_) {
-            epoch_advance_thread_.wakeup();  // we anyway exit, but let's leave a demand
-            return ERROR_CODE_TIMEOUT;
-        } else {
-            return ERROR_CODE_OK;
-        }
+    if (commit_epoch < current_global_epoch_) {
+        epoch_advance_thread_.wakeup();
     }
 
-    std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
-    std::chrono::high_resolution_clock::time_point until
-        = now + std::chrono::microseconds(wait_microseconds);
-    while (commit_epoch < durable_global_epoch_) {
-        epoch_advance_thread_.wakeup();  // hurrrrry up!
-        std::unique_lock<std::mutex> the_lock(durable_global_epoch_advanced_mutex_);
-        if (wait_microseconds > 0) {
-            LOG(INFO) << "Synchronously waiting for commit_epoch " << commit_epoch;
-            if (durable_global_epoch_advanced_.wait_until(the_lock, until)
-                    == std::cv_status::timeout && commit_epoch < durable_global_epoch_) {
-                LOG(WARNING) << "Timeout occurs. wait_microseconds=" << wait_microseconds;
-                return ERROR_CODE_TIMEOUT;
-            }
-        } else {
-            durable_global_epoch_advanced_.wait(the_lock);
-        }
-    }
-
-    LOG(INFO) << "durable epoch advanced. durable_global_epoch_=" << durable_global_epoch_;
-    return ERROR_CODE_OK;
+    CHECK_ERROR(engine_->get_log_manager().wait_until_durable(commit_epoch, wait_microseconds));
+    return RET_OK;
 }
 
 

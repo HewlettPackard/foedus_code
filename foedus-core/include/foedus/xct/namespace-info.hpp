@@ -23,7 +23,7 @@
  *         foedus::xct::XctManager& xct_manager = engine->get_xct_manager();
  *         CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::SERIALIZABLE));
  *         ... // read/modify data. See storage module's document for examples.
- *         foedus::xct::Epoch commit_epoch;
+ *         foedus::Epoch commit_epoch;
  *         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
  *         CHECK_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
  *         return foedus::RET_OK;
@@ -39,11 +39,11 @@
  * or \e group-commit, which is the primary usecase our engine is optimized for.
  * @code{.cpp}
  * // Example to start and commit several transactions
- * foedus::xct::Epoch highest_commit_epoch;
+ * foedus::Epoch highest_commit_epoch;
  * for (int i = 0; i < 1000; ++i) {
  *   CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::SERIALIZABLE));
  *   ... // read/modify data. See storage module's document for examples.
- *   foedus::xct::Epoch commit_epoch;
+ *   foedus::Epoch commit_epoch;
  *   CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
  *   highest_commit_epoch.store_max(commit_epoch);
  * }
@@ -60,9 +60,9 @@
  * scalability issues, thus we employ [TU13]'s approach.
  *
  * @section EPOCH Epoch-based commit protocol
- * foedus::xct::XctManager maintains two global foedus::xct::Epoch; \e current Epoch and
- * \e durable Epoch. foedus::xct::XctManager keeps advancing current epoch periodically.
- * The log module advances durable epoch when it confirms that all log entries up to the epoch
+ * The engine maintains two global foedus::Epoch; \e current Epoch and
+ * \e durable Epoch. foedus::xct::XctManager keeps advancing current epoch periodically
+ * while the log module advances durable epoch when it confirms that all log entries up to the epoch
  * becomes durable and also that the log module durably writes a savepoint ( \ref SAVEPOINT ) file.
  *
  * @section ISOLATION Isolation Levels

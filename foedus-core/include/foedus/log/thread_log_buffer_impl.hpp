@@ -9,7 +9,7 @@
 #include <foedus/log/fwd.hpp>
 #include <foedus/memory/aligned_memory.hpp>
 #include <foedus/thread/thread_id.hpp>
-#include <foedus/xct/epoch.hpp>
+#include <foedus/epoch.hpp>
 #include <stdint.h>
 #include <iosfwd>
 #include <list>
@@ -76,11 +76,11 @@ class ThreadLogBuffer final : public DefaultInitializable {
          * The value of the thread's last_epoch_ before the switch.
          * This is not currently used except sanity checks.
          */
-        xct::Epoch  old_epoch_;
+        Epoch       old_epoch_;
         /**
          * The value of the thread's last_epoch_ after the switch.
          */
-        xct::Epoch  new_epoch_;
+        Epoch       new_epoch_;
         /**
          * Where the new epoch starts.
          * @invariant offset_durable_ <= offset_epoch_begin_ < offset_committed_.
@@ -128,7 +128,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
     /**
      * Called when the current transaction is successfully committed.
      */
-    void        publish_committed_log(xct::Epoch commit_epoch) ALWAYS_INLINE {
+    void        publish_committed_log(Epoch commit_epoch) ALWAYS_INLINE {
         ASSERT_ND(commit_epoch >= last_epoch_);
         if (UNLIKELY(commit_epoch > last_epoch_)) {
             on_new_epoch_observed(commit_epoch);  // epoch switches!
@@ -200,10 +200,10 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * called from publish_committed_log whenever the thread observes a commit_epoch that is
      * larger than last_epoch_.
      */
-    void        on_new_epoch_observed(xct::Epoch commit_epoch);
+    void        on_new_epoch_observed(Epoch commit_epoch);
 
     /** Crash with a detailed report. */
-    void        crash_stale_commit_epoch(xct::Epoch commit_epoch);
+    void        crash_stale_commit_epoch(Epoch commit_epoch);
 
     /**
      * Called from logger to eat an epoch mark to advance logger_epoch_.
@@ -259,7 +259,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * a while, this might by WAY older than the global current epoch.
      * This is only read/written by this thread.
      */
-    xct::Epoch                      last_epoch_;
+    Epoch                           last_epoch_;
 
     /**
      * @brief The epoch the logger is currently flushing.
@@ -274,7 +274,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * the thread is idle with the in_commit_log_epoch guard. see Logger::update_durable_epoch().
      * @invariant last_epoch_ >= logger_epoch_
      */
-    xct::Epoch                      logger_epoch_;
+    Epoch                           logger_epoch_;
     /**
      * @brief Whether the logger is aware of where log entries for logger_epoch_ ends.
      * @details
