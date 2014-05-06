@@ -25,7 +25,7 @@
  *         ... // read/modify data. See storage module's document for examples.
  *         foedus::Epoch commit_epoch;
  *         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
- *         CHECK_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
+ *         CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
  *         return foedus::RET_OK;
  *     }
  * }
@@ -47,7 +47,7 @@
  *   CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
  *   highest_commit_epoch.store_max(commit_epoch);
  * }
- * CHECK_ERROR_CODE(xct_manager.wait_for_commit(highest_commit_epoch));
+ * CHECK_ERROR(xct_manager.wait_for_commit(highest_commit_epoch));
  * @endcode
  * In this case, we invoke wait_for_commit() for the largest commit epoch just once at the end.
  * This dramatically improves the throughput at the cost of latency of individual transactions.

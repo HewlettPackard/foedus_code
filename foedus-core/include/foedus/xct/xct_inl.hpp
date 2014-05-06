@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_XCT_XCT_INL_HPP_
 #define FOEDUS_XCT_XCT_INL_HPP_
+#include <foedus/assert_nd.hpp>
 #include <foedus/compiler.hpp>
 #include <foedus/error_stack.hpp>
 #include <foedus/storage/record.hpp>
@@ -27,6 +28,7 @@ inline ErrorCode Xct::add_to_read_set(storage::Record* record) {
         return ERROR_CODE_XCT_READ_SET_OVERFLOW;
     }
 
+    ASSERT_ND(record->owner_id_.epoch_.is_valid());
     read_set_[read_set_size_].observed_owner_id_ = record->owner_id_;
 
     // for RCU protocol, make sure compiler/CPU don't reorder the data access before tag copy.
@@ -51,7 +53,7 @@ inline ErrorCode Xct::add_to_write_set(storage::Record* record, void* log_entry)
     write_set_[write_set_size_].observed_owner_id_ = record->owner_id_;
     write_set_[write_set_size_].record_ = record;
     write_set_[write_set_size_].log_entry_ = log_entry;
-    ++read_set_size_;
+    ++write_set_size_;
     return ERROR_CODE_OK;
 }
 

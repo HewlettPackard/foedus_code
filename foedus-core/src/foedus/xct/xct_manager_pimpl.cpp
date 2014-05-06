@@ -168,6 +168,7 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
 bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epoch *commit_epoch) {
     const XctAccess*        read_set = context->get_current_xct().get_read_set();
     const uint32_t          read_set_size = context->get_current_xct().get_read_set_size();
+    *commit_epoch = Epoch();
     for (uint32_t i = 0; i < read_set_size; ++i) {
         // The owning transaction has changed.
         // We don't check ordinal here because there is no change we are racing with ourselves.
@@ -185,12 +186,15 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
         }
 
         // Remembers the highest epoch observed.
-        if (*commit_epoch < read_set[i].observed_owner_id_.epoch_) {
-            *commit_epoch = read_set[i].observed_owner_id_.epoch_;
-        }
+        commit_epoch->store_max(read_set[i].observed_owner_id_.epoch_);
     }
 
     DLOG(INFO) << "Read-only higest epoch observed: " << *commit_epoch;
+    if (!commit_epoch->is_valid()) {
+        DLOG(INFO) << "Read-only higest epoch was empty. The transaction has no read set??";
+        // In this case, set already-durable epoch.
+        *commit_epoch = Epoch(engine_->get_log_manager().get_durable_global_epoch());
+    }
 
     // TODO(Hideaki) Node set check. Now that we have persistent storages too, we need to also
     // check the latest-ness of pages if we followed a snapshot pointer.
@@ -242,9 +246,10 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context,
 
     DLOG(INFO) << "generated new xct id=" << context->get_current_xct().get_id();
     for (uint32_t i = 0; i < write_set_size; ++i) {
+        WriteXctAccess& write = write_set[i];
         log::invoke_apply_record(
-            write_set[i].log_entry_, write_set[i].storage_, write_set[i].record_);
-        write_set[i].record_->owner_id_ = context->get_current_xct().get_id();  // this also unlocks
+            write.log_entry_, write.storage_, write.record_);
+        write.record_->owner_id_ = context->get_current_xct().get_id();  // this also unlocks
     }
     DLOG(INFO) << "aplied and unlocked write set";
 }

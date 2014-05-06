@@ -58,10 +58,12 @@ Here is a minimal example program to create a key-value storage and query on it.
 
     #include <foedus/engine.hpp>
     #include <foedus/engine_options.hpp>
+    #include <foedus/epoch.hpp>
     #include <foedus/thread/thread_pool.hpp>
     #include <foedus/thread/thread.hpp>
     #include <foedus/storage/storage_manager.hpp>
     #include <foedus/storage/array/array_storage.hpp>
+    #include <foedus/xct/xct_manager.hpp>
     #include <iostream>
 
     const uint16_t PAYLOAD = 16;
@@ -74,8 +76,14 @@ Here is a minimal example program to create a key-value storage and query on it.
             foedus::storage::array::ArrayStorage *array =
                 dynamic_cast<foedus::storage::array::ArrayStorage*>(
                     context->get_engine()->get_storage_manager().get_storage(NAME));
+
+            foedus::xct::XctManager& xct_manager = engine->get_xct_manager();
+            CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::SERIALIZABLE));
             char buf[PAYLOAD];
             CHECK_ERROR(array->get_record(context, 123, buf));
+            foedus::Epoch commit_epoch;
+            CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+            CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
             return foedus::RET_OK;
         }
     };

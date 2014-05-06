@@ -49,6 +49,9 @@ class ArrayPage final {
 
     // simple accessors
     StorageId           get_storage_id()    const   { return storage_id_; }
+    uint16_t            get_leaf_record_count()  const {
+        return DATA_SIZE / (RECORD_OVERHEAD + payload_size_);
+    }
     uint16_t            get_payload_size()  const   { return payload_size_; }
     bool                is_leaf()           const   { return node_height_ == 0; }
     uint8_t             get_node_height()   const   { return node_height_; }
@@ -57,8 +60,8 @@ class ArrayPage final {
     void                set_checksum(Checksum checksum)     { checksum_ = checksum; }
 
     /** Called only when this page is initialized. */
-    void                initialize_data_page(StorageId storage_id, uint16_t payload_size,
-                                              uint8_t node_height, const ArrayRange& array_range);
+    void                initialize_data_page(Epoch initial_epoch, StorageId storage_id,
+                        uint16_t payload_size, uint8_t node_height, const ArrayRange& array_range);
 
     // Record accesses
     const Record*   get_leaf_record(uint16_t record) const ALWAYS_INLINE {
@@ -66,7 +69,7 @@ class ArrayPage final {
     }
     Record*         get_leaf_record(uint16_t record) ALWAYS_INLINE {
         ASSERT_ND(is_leaf());
-        ASSERT_ND(HEADER_SIZE + (record + 1) * (RECORD_OVERHEAD + payload_size_) <= PAGE_SIZE);
+        ASSERT_ND((record + 1) * (RECORD_OVERHEAD + payload_size_) <= DATA_SIZE);
         return reinterpret_cast<Record*>(data_.leaf_data
             + record * (RECORD_OVERHEAD + payload_size_));
     }

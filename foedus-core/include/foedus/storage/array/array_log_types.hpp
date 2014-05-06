@@ -41,7 +41,7 @@ struct OverwriteLogType : public log::RecordLogType {
 
     static uint16_t calculate_log_length(uint16_t payload_count) ALWAYS_INLINE {
         // we pad to 8 bytes for efficiency (so far not for regular register access)
-        return assorted::align8(20 + payload_count) - 20;
+        return assorted::align8(20 + payload_count);
     }
 
     void            populate(StorageId storage_id, ArrayOffset offset, const void *payload,

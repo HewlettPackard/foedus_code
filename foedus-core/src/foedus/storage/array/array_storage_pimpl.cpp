@@ -17,6 +17,7 @@
 #include <foedus/memory/page_pool.hpp>
 #include <foedus/xct/xct.hpp>
 #include <foedus/xct/xct_inl.hpp>
+#include <foedus/xct/xct_manager.hpp>
 #include <foedus/log/thread_log_buffer_impl.hpp>
 #include <foedus/log/log_type.hpp>
 #include <foedus/engine.hpp>
@@ -138,7 +139,9 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
         return ERROR_STACK(ERROR_CODE_STR_ALREADY_EXISTS);
     }
 
-    LOG(INFO) << "Newly creating an array-storage " << id_ << "(" << name_ << ")";
+    Epoch initial_epoch = engine_->get_xct_manager().get_current_global_epoch();
+    LOG(INFO) << "Newly creating an array-storage " << id_ << "(" << name_ << ") as epoch="
+        << initial_epoch;
 
     // TODO(Hideaki) This part must handle the case where RAM < Array Size
     // So far, we just do ASSERT_ND(offset) after memory->grab_free_page().
@@ -160,7 +163,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
             ASSERT_ND(level == levels_ - 1);
             range.end_ = array_size_;
         }
-        page->initialize_data_page(id_, payload_size_, level, range);
+        page->initialize_data_page(initial_epoch, id_, payload_size_, level, range);
 
         current_pages.push_back(page);
         current_pages_offset.push_back(offset);
@@ -189,7 +192,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
         if (range.end_ > array_size_) {
             range.end_ = array_size_;
         }
-        page->initialize_data_page(id_, payload_size_, 0, range);
+        page->initialize_data_page(initial_epoch, id_, payload_size_, 0, range);
         current_pages[0] = page;
         current_pages_offset[0] = offset;
         // current_records[0] is always 0
@@ -207,7 +210,8 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
                 if (range.end_ > array_size_) {
                     range.end_ = array_size_;
                 }
-                interior_page->initialize_data_page(id_, payload_size_, level, interior_range);
+                interior_page->initialize_data_page(
+                    initial_epoch, id_, payload_size_, level, interior_range);
 
                 DualPagePointer& child_pointer = interior_page->get_interior_record(0)->pointer_;
                 child_pointer.snapshot_page_id_ = 0;
