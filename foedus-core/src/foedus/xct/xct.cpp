@@ -19,6 +19,7 @@ Xct::Xct() {
     write_set_ = nullptr;
     write_set_size_ = 0;
     max_write_set_size_ = 0;
+    isolation_level_ = SERIALIZABLE;
 }
 
 void Xct::initialize(thread::ThreadId thread_id, memory::NumaCoreMemory* core_memory) {

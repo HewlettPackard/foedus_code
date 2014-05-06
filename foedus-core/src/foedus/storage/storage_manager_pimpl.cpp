@@ -12,9 +12,10 @@
 #include <foedus/storage/array/array_storage.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <glog/logging.h>
+#include <cstring>
 #include <memory>
 #include <string>
-#include <cstring>
+#include <utility>
 namespace foedus {
 namespace storage {
 ErrorStack StorageManagerPimpl::initialize_once() {
@@ -46,9 +47,15 @@ ErrorStack StorageManagerPimpl::uninitialize_once() {
         || !engine_->get_log_manager().is_initialized()) {
         batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
     }
-    // TODO(Hideaki) uninitialize storages
-    delete[] storages_;
-    storages_ = nullptr;
+    {
+        std::lock_guard<std::mutex> guard(mod_lock_);
+        for (auto it = storage_names_.begin(); it != storage_names_.end(); ++it) {
+            delete it->second;
+        }
+        storage_names_.clear();
+        delete[] storages_;
+        storages_ = nullptr;
+    }
     return RET_OK;
 }
 
@@ -62,6 +69,16 @@ StorageId StorageManagerPimpl::issue_next_storage_id() {
 Storage* StorageManagerPimpl::get_storage(StorageId id) {
     assorted::memory_fence_acquire();  // to sync with expand
     return storages_[id];
+}
+Storage* StorageManagerPimpl::get_storage(const std::string& name) {
+    std::lock_guard<std::mutex> guard(mod_lock_);
+    auto it = storage_names_.find(name);
+    if (it == storage_names_.end()) {
+        LOG(WARNING) << "Requested storage name '" << name << "' was not found";
+        return nullptr;
+    } else {
+        return it->second;
+    }
 }
 
 
@@ -80,7 +97,12 @@ ErrorStack StorageManagerPimpl::register_storage(Storage* storage) {
         LOG(ERROR) << "Duplicate register_storage() call? ID=" << id;
         return ERROR_STACK(ERROR_CODE_STR_DUPLICATE_STRID);
     }
+    if (storage_names_.find(storage->get_name()) != storage_names_.end()) {
+        LOG(ERROR) << "Duplicate register_storage() call? Name=" << storage->get_name();
+        return ERROR_STACK(ERROR_CODE_STR_DUPLICATE_STRNAME);
+    }
     storages_[id] = storage;
+    storage_names_.insert(std::pair< std::string, Storage* >(storage->get_name(), storage));
     if (id > largest_storage_id_) {
         largest_storage_id_ = id;
     }
@@ -91,6 +113,9 @@ ErrorStack StorageManagerPimpl::remove_storage(StorageId id) {
     std::lock_guard<std::mutex> guard(mod_lock_);
     if (storages_[id]) {
         LOG(INFO) << "Removing storage of ID" << id;
+        std::string name = storages_[id]->get_name();
+        storage_names_.erase(name);
+        // TODO(Hideaki) should separate this heavy stuff out of critical section.
         ErrorStack error_stack = storages_[id]->uninitialize();
         storages_[id] = nullptr;
         return error_stack;
@@ -139,6 +164,35 @@ ErrorStack StorageManagerPimpl::create_array(thread::Thread* context, const std:
     *out = array.release();  // No error, so take over the ownership from unique_ptr.
     return RET_OK;
 }
+
+/** A task to create an array. Used from create_array_impersonate(). */
+class CreateArrayTask final : public foedus::thread::ImpersonateTask {
+ public:
+    CreateArrayTask(StorageManagerPimpl* pimpl, const std::string& name, uint16_t payload,
+                    array::ArrayOffset array_size, array::ArrayStorage** out)
+        : pimpl_(pimpl), name_(name), payload_(payload), array_size_(array_size), out_(out) {}
+    ErrorStack run(thread::Thread* context) override {
+        *out_ = nullptr;
+        CHECK_ERROR(pimpl_->create_array(context, name_, payload_, array_size_, out_));
+        return RET_OK;
+    }
+
+ private:
+    StorageManagerPimpl* pimpl_;
+    const std::string& name_;
+    const uint16_t payload_;
+    const array::ArrayOffset array_size_;
+    array::ArrayStorage** out_;
+};
+
+ErrorStack StorageManagerPimpl::create_array_impersonate(const std::string& name,
+            uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage** out) {
+    CreateArrayTask task(this, name, payload_size, array_size, out);
+    thread::ImpersonateSession session = engine_->get_thread_pool().impersonate(&task);
+    CHECK_ERROR(session.get_result());
+    return RET_OK;
+}
+
 
 }  // namespace storage
 }  // namespace foedus

@@ -64,6 +64,7 @@ X(ERROR_CODE_SP_INCONSISTENT_SAVEPOINT, 0x0701, "SAVEPNT: Savepoint file is not 
 
 X(ERROR_CODE_STR_DUPLICATE_STRID,   0x0801, "STORAGE: Duplicate StorageID")
 X(ERROR_CODE_STR_ALREADY_EXISTS,    0x0802, "STORAGE: This storage already exists")
+X(ERROR_CODE_STR_DUPLICATE_STRNAME, 0x0803, "STORAGE: This Storage Name already exists")
 
 X(ERROR_CODE_XCT_READ_SET_OVERFLOW, 0x0A01, "XCTION : Too large read-set. Check the config of XctOptions")
 X(ERROR_CODE_XCT_WRITE_SET_OVERFLOW,0x0A02, "XCTION : Too large write-set. Check the config of XctOptions")

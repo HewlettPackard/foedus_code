@@ -10,6 +10,7 @@
 #include <foedus/storage/storage_id.hpp>
 #include <foedus/storage/array/fwd.hpp>
 #include <foedus/storage/array/array_id.hpp>
+#include <map>
 #include <mutex>
 #include <string>
 namespace foedus {
@@ -30,11 +31,14 @@ class StorageManagerPimpl final : public DefaultInitializable {
 
     StorageId   issue_next_storage_id();
     Storage*    get_storage(StorageId id);
+    Storage*    get_storage(const std::string &name);
     ErrorStack  register_storage(Storage* storage);
     ErrorStack  remove_storage(StorageId id);
     ErrorStack  expand_storage_array(StorageId new_size);
 
     ErrorStack  create_array(thread::Thread* context, const std::string &name,
+                uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out);
+    ErrorStack  create_array_impersonate(const std::string &name,
                 uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out);
 
     Engine* const           engine_;
@@ -61,6 +65,12 @@ class StorageManagerPimpl final : public DefaultInitializable {
      * Capacity of storages_. When we need an expansion, we do RCU and switches the pointer.
      */
     size_t                  storages_capacity_;
+
+    /**
+     * Storage name to pointer mapping. Accessing this, either read or write, must take mod_lock_
+     * because std::map is not thread-safe. This is why get_storage(string) is more expensive.
+     */
+    std::map< std::string, Storage* >   storage_names_;
 };
 }  // namespace storage
 }  // namespace foedus

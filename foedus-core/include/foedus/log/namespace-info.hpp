@@ -27,6 +27,12 @@
  * @section LOGGER Log Writer
  * Each Logger instance writes out files suffixed with ordinal (eg ".0", ".1"...).
  * The older logs files are deactivated and deleted after log gleaner consumes them.
+ *
+ * @section DURABLEEP Global Durable Epoch
+ * An important job of Log Manager is to maintain the \e global durable epoch.
+ * Log manager is the module to determine when it's safe to advance the global durable epoch.
+ * It makes sure all loggers flushed their logs up to the epoch, invoked required fsync(),
+ * and also takes a savepoint before it announces the new global durable epoch.
  */
 
 /**

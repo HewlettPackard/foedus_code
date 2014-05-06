@@ -54,8 +54,10 @@ ErrorStack SavepointManagerPimpl::take_savepoint(Epoch new_global_durable_epoch)
     LOG(INFO) << "Writing a savepoint..." << new_savepoint;
     CHECK_ERROR(new_savepoint.save_to_file(savepoint_path_));
     LOG(INFO) << "Wrote a savepoint.";
-    assorted::memory_fence_release();
-    savepoint_ = new_savepoint;
+    {
+        std::lock_guard<std::mutex> guard(savepoint_mutex_);
+        savepoint_ = new_savepoint;
+    }
     return RET_OK;
 }
 

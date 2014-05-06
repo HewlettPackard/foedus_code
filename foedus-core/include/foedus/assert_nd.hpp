@@ -26,12 +26,21 @@
  * @ingroup IDIOMS
  * @brief Cross-compiler UNUSED macro for the same purpose as ASSERT_ND(x).
  */
+namespace foedus {
+    /** Prints out backtrace. This method is best-effort, maybe do nothing in some compiler/OS. */
+    void print_backtrace();
+}  // namespace foedus
+
 #ifdef NDEBUG
 #define ASSERT_ND(x) do { (void) sizeof(x); } while (0)
 #define UNUSED_ND(var) ASSERT_ND(var)
 #else  // NDEBUG
 #include <cassert>
+#ifndef ASSERT_ND_NOBACKTRACE
+#define ASSERT_ND(x) do { if (!(x)) { foedus::print_backtrace(); assert(x); } } while (0)
+#else  // ASSERT_ND_NOBACKTRACE
 #define ASSERT_ND(x) assert(x)
+#endif  // ASSERT_ND_NOBACKTRACE
 #define UNUSED_ND(var)
 #endif  // NDEBUG
 

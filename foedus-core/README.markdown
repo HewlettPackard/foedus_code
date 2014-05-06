@@ -66,14 +66,14 @@ Here is a minimal example program to create a key-value storage and query on it.
 
     const uint16_t PAYLOAD = 16;
     const uint32_t RECORDS = 1 << 20;
+    const char* NAME = "myarray";
 
     class MyTask : public foedus::thread::ImpersonateTask {
     public:
-        foedus::ErrorStack run(th::Thread* context) {
-            foedus::Engine *engine = context->get_engine();
-            foedus::storage::array::ArrayStorage *array = NULL;
-            CHECK_ERROR(engine->get_storage_manager().create_array(
-                context, "myarray", PAYLOAD, RECORDS, &array));
+        foedus::ErrorStack run(foedus::thread::Thread* context) {
+            foedus::storage::array::ArrayStorage *array =
+                dynamic_cast<foedus::storage::array::ArrayStorage*>(
+                    context->get_engine()->get_storage_manager().get_storage(NAME));
             char buf[PAYLOAD];
             CHECK_ERROR(array->get_record(context, 123, buf));
             return foedus::RET_OK;
@@ -84,6 +84,8 @@ Here is a minimal example program to create a key-value storage and query on it.
         foedus::EngineOptions options;
         foedus::Engine engine(options);
         COERCE_ERROR(engine.initialize());
+        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate(
+            NAME, PAYLOAD, RECORDS, &out));
         MyTask task;
         foedus::thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
         std::cout << "session: result=" << session.get_result() << std::endl;

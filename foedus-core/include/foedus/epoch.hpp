@@ -127,8 +127,8 @@ class Epoch {
     bool    operator!=(const Epoch &other)  const { return epoch_ != other.epoch_; }
     bool    operator<(const Epoch &other)   const { return distance(other) > 0; }
     bool    operator>(const Epoch &other)   const { return distance(other) < 0; }
-    bool    operator<=(const Epoch &other)  const { return !operator<(other); }
-    bool    operator>=(const Epoch &other)  const { return !operator>(other); }
+    bool    operator<=(const Epoch &other)  const { return !operator>(other); }
+    bool    operator>=(const Epoch &other)  const { return !operator<(other); }
 
     friend std::ostream& operator<<(std::ostream& o, const Epoch& v);
 

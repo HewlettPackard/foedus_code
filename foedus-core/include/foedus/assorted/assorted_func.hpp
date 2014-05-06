@@ -120,7 +120,9 @@ std::string get_pretty_type_name() {
  * @endcode
  * Remember, you should invoke this macro in cpp, not header, otherwise you will get
  * multiple-definition errors.
- * @todo Doxygen doesn't understand template explicit instantiation, giving warnings. Not big issue.
+ * @note Doxygen doesn't understand template explicit instantiation, giving warnings. Not a big
+ * issue, but you should shut up the Doxygen warnings by putting cond/endcond. See
+ * externalizable.cpp for example.
  */
 /**
  * @def INSTANTIATE_ALL_NUMERIC_TYPES(M)

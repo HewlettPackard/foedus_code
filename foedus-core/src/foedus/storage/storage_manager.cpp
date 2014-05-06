@@ -20,6 +20,8 @@ bool        StorageManager::is_initialized() const { return pimpl_->is_initializ
 ErrorStack  StorageManager::uninitialize() { return pimpl_->uninitialize(); }
 
 Storage* StorageManager::get_storage(StorageId id) { return pimpl_->get_storage(id); }
+Storage* StorageManager::get_storage(const std::string& name) { return pimpl_->get_storage(name); }
+
 StorageId StorageManager::issue_next_storage_id() { return pimpl_->issue_next_storage_id(); }
 ErrorStack StorageManager::register_storage(Storage* storage) {
     return pimpl_->register_storage(storage);
@@ -29,6 +31,10 @@ ErrorStack StorageManager::remove_storage(StorageId id) { return pimpl_->remove_
 ErrorStack StorageManager::create_array(thread::Thread* context, const std::string& name,
         uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage** out) {
     return pimpl_->create_array(context, name, payload_size, array_size, out);
+}
+ErrorStack StorageManager::create_array_impersonate(const std::string& name, uint16_t payload_size,
+                                        array::ArrayOffset array_size, array::ArrayStorage** out) {
+    return pimpl_->create_array_impersonate(name, payload_size, array_size, out);
 }
 
 

@@ -259,12 +259,9 @@ ErrorCode DirectIoFile::sync() {
 }
 
 std::ostream& operator<<(std::ostream& o, const DirectIoFile& v) {
-    o << "DirectIoFile" << std::endl;
-    o << v.get_path();
-    o << v.get_emulation();
-    o << "  descriptor = " << v.get_descriptor() << std::endl;
-    o << "  read = " << v.is_read() << ", write = " << v.is_write() << std::endl;
-    o << "  current_offset = " << v.get_current_offset() << std::endl;
+    o << "DirectIoFile:" << v.get_path() << ", descriptor = " << v.get_descriptor()
+        << ", read = " << v.is_read() << ", write = " << v.is_write()
+        << ", current_offset = " << v.get_current_offset();
     return o;
 }
 

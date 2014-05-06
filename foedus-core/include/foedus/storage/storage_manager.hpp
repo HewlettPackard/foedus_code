@@ -46,6 +46,15 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
     Storage*    get_storage(StorageId id);
 
     /**
+     * Returns the storage of given name.
+     * This one is convenient, but prefer get_storage(StorageId) for better performance.
+     * Or, write your code so that you don't have to invoke this method too often.
+     * @param[in] name Storage name
+     * @return Storage object in this engine. If there is no storage with the name, nullptr.
+     */
+    Storage*    get_storage(const std::string &name);
+
+    /**
      * @brief Adds a storage object, either newly created or constructed from disk at start-up.
      * @param[in] storage an already-constructred and initialized Storage
      * @details
@@ -75,6 +84,13 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
      *
      */
     ErrorStack  create_array(thread::Thread* context, const std::string &name,
+                uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out);
+
+    /**
+     * A convenience function to impersonate as one of available threads and invoke create_array().
+     * @see create_array()
+     */
+    ErrorStack  create_array_impersonate(const std::string &name,
                 uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out);
 
  private:

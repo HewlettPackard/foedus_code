@@ -109,10 +109,11 @@ class Logger final : public DefaultInitializable {
     /**
      * @brief The epoch the logger is currently flushing.
      * @details
-     * This is updated when buffer.logger_epoch_ is advanced. As buffer.logger_epoch is read/written
-     * exclusively by this logger only, there cannot be any discrepency.
+     * This is updated iff durable_epoch_ is advanced.
      * @invariant current_epoch_.is_valid()
-     * @invariant current_epoch_ == min(buffer.logger_epoch_ : assigned threads)
+     * @details
+     * current_epoch_ might be larger than min(buffer.logger_epoch) because of stale logger_epoch.
+     * current_epoch_ == durable_epoch_.one_more(), so we might remove this auxiliary variable.
      */
     Epoch                           current_epoch_;
 

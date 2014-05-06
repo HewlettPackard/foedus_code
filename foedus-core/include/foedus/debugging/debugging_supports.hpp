@@ -31,7 +31,7 @@ class DebuggingSupports CXX11_FINAL : public DefaultInitializable {
     /** @copydoc DebuggingOptions#verbose_log_level_ */
     void                set_verbose_log_level(int verbose);
     /** @copydoc DebuggingOptions#verbose_modules_ */
-    void                set_verbose_modules(const std::string &modules);
+    void                set_verbose_module(const std::string &module, int verbose);
 
  private:
     /**

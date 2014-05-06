@@ -39,6 +39,11 @@ ErrorStack LogManagerPimpl::initialize_once() {
         return ERROR_STACK(ERROR_CODE_LOG_INVALID_LOGGER_COUNT);
     }
 
+    // Initialize durable_global_epoch_
+    durable_global_epoch_ = engine_->get_savepoint_manager().get_savepoint_fast().
+        get_durable_epoch();
+    LOG(INFO) << "durable_global_epoch_=" << durable_global_epoch_;
+
     // evenly distribute loggers to NUMA nodes, then to cores.
     const uint16_t loggers_per_group = total_loggers / groups_;
     const uint16_t cores_per_logger = total_threads / total_loggers;

@@ -62,3 +62,17 @@
    ...
    fun:numa_run_on_node
 }
+
+
+# Hideaki, 2014 May, Fedora 20.
+# Observed "Invalid read of size 4" from std::promise. Someone else has observed the same
+# https://www.mail-archive.com/gcc-bugs@gcc.gnu.org/msg420101.html
+# So, I guess this is libstdc++'s bug.. but not 100% sure yet.
+{
+   std_set_once_bug
+   Memcheck:Addr4
+   fun:pthread_once
+   fun:_ZL14__gthread_oncePiPFvvE
+   fun:_ZSt9call_onceIMNSt13__future_base11_State_baseEFvRSt8functionIFSt10unique_ptrINS0_12_Result_baseENS4_8_DeleterEEvEERbEIKPS1_St17reference_wrapperIS8_ESF_IbEEEvRSt9once_flagOT_DpOT0_
+   ...
+}

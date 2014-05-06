@@ -6,6 +6,7 @@
 #include <foedus/engine.hpp>
 #include <foedus/engine_options.hpp>
 #include <glog/logging.h>
+#include <glog/vlog_is_on.h>
 #include <mutex>
 #include <string>
 namespace foedus {
@@ -41,7 +42,11 @@ void DebuggingSupports::initialize_glog() {
         FLAGS_minloglevel = static_cast<int>(options.debug_log_min_threshold_);
         FLAGS_log_dir = options.debug_log_dir_;  // This one must be BEFORE InitGoogleLogging()
         FLAGS_v = options.verbose_log_level_;
-        // TODO(Hideaki) ??? how to set FLAGS_vmodule?
+        if (options.verbose_modules_.size() > 0) {
+            // TODO(Hideaki) disabled SetVLOGLevel() due to this glog bug
+            // https://code.google.com/p/google-glog/issues/detail?id=172
+            // google::SetVLOGLevel(options.verbose_modules_.c_str(), options.verbose_log_level_);
+        }
         google::InitGoogleLogging("libfoedus");
         LOG(INFO) << "initialize_glog(): Initialized GLOG";
     } else {
@@ -87,9 +92,11 @@ void DebuggingSupports::set_verbose_log_level(int verbose) {
     FLAGS_v = verbose;
     LOG(INFO) << "Changed glog's FLAGS_v to " << verbose;
 }
-void DebuggingSupports::set_verbose_modules(const std::string &modules) {
-    // TODO(Hideaki) ??? how to set FLAGS_vmodule?
-    LOG(INFO) << "Changed glog's FLAGS_??? to " << modules;
+void DebuggingSupports::set_verbose_module(const std::string &module, int verbose) {
+    // google::SetVLOGLevel(module.c_str(), verbose);
+    // TODO(Hideaki) disabled SetVLOGLevel() due to this glog bug
+    // https://code.google.com/p/google-glog/issues/detail?id=172
+    LOG(INFO) << "Invoked google::SetVLOGLevel for " << module << ", level=" << verbose;
 }
 
 

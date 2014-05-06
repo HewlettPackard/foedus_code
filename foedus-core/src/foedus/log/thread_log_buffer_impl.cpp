@@ -30,6 +30,7 @@ ErrorStack ThreadLogBuffer::initialize_once() {
     const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
     last_epoch_ = savepoint.get_current_epoch();
     logger_epoch_ = savepoint.get_current_epoch();
+    logger_epoch_open_ended_ = true;
     offset_head_ = 0;
     offset_durable_ = 0;
     offset_committed_ = 0;

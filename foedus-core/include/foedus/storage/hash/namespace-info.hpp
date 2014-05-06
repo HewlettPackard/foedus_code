@@ -10,6 +10,14 @@
  * @brief \b Hashtable Storage, a concurrent hashtable.
  * @details
  * @todo IMPLEMENT
+ *
+ * @section REF References
+ * \li [ZHOU13] Zhou, Dong, Bin Fan, Hyeontaek Lim, Michael Kaminsky, and David G. Andersen.
+ * "Scalable, high performance ethernet forwarding with CuckooSwitch."
+ * ACM conference on Emerging networking experiments and technologies, 2013.
+ *
+ * \li [FAN13]  Fan, Bin, David G. Andersen, and Michael Kaminsky.
+ * "MemC3: Compact and concurrent memcache with dumber caching and smarter hashing." NSDI, 2013.
  */
 
 /**

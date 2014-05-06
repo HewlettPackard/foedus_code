@@ -112,7 +112,7 @@ class Xct {
      * \li As an added guarantee, this value will be updated as soon as the commit phase ends, so
      * the logger can safely spin on this value.
      *
-     * \Note A similar protocol seems implemented in MIT Silo, too. See
+     * @note A similar protocol seems implemented in MIT Silo, too. See
      * how "txn_logger::advance_system_sync_epoch" updates per_thread_sync_epochs_ and
      * system_sync_epoch_. However, not quite sure about their implementation. Will ask.
      * @see InCommitLogEpochGuard

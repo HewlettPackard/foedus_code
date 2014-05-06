@@ -3,3 +3,6 @@ add_library(test_common STATIC ${CMAKE_CURRENT_SOURCE_DIR}/test_common.cpp)
 
 add_foedus_test(test_engine)
 add_foedus_test(test_engine_options)
+add_foedus_test(test_epoch)
+
+add_subdirectory(storage)

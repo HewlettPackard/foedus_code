@@ -190,13 +190,13 @@ void Logger::handle_logger() {
 ErrorStack Logger::update_durable_epoch() {
     assert_epoch_values();
     assorted::memory_fence_acquire();  // not necessary. just to get latest info.
-    const Epoch global_epoch = engine_->get_xct_manager().get_current_global_epoch();
+    const Epoch current_global_epoch = engine_->get_xct_manager().get_current_global_epoch();
     assorted::memory_fence_acquire();  // necessary. following is AFTER this.
 
     VLOG(1) << "Logger-" << id_ << " update_durable_epoch(). durable_epoch_=" << durable_epoch_
-        << ", global_epoch=" << global_epoch;
+        << ", current_epoch=" << current_epoch_ << ", current_global=" << current_global_epoch;
 
-    Epoch min_durable_epoch = global_epoch.one_less();
+    Epoch min_durable_epoch = current_global_epoch.one_less();
     for (thread::Thread* the_thread : assigned_threads_) {
         ThreadLogBuffer& buffer = the_thread->get_thread_log_buffer();
         DVLOG(1) << buffer;
@@ -286,9 +286,8 @@ ErrorStack Logger::update_durable_epoch() {
 }
 
 ErrorStack Logger::switch_current_epoch(Epoch new_epoch) {
-    assert_epoch_values();
     ASSERT_ND(current_epoch_ < new_epoch);
-    VLOG(0) << "Logger-" << id_ << " advances its current_epoch from " << current_epoch_
+    LOG(INFO) << "Logger-" << id_ << " advances its current_epoch from " << current_epoch_
         << " to " << new_epoch;
 
     // Use fill buffer to write out the epoch mark log
@@ -315,7 +314,8 @@ ErrorStack Logger::switch_file_if_required() {
         return RET_OK;
     }
 
-    VLOG(0) << "Logger-" << id_ << " moving on to next file. current_ordinal_=" << current_ordinal_;
+    LOG(INFO) << "Logger-" << id_ << " moving on to next file. current_ordinal_="
+        << current_ordinal_;
 
     // Close the current one. Immediately call fsync on it AND the parent folder.
     current_file_->close();
@@ -326,7 +326,7 @@ ErrorStack Logger::switch_file_if_required() {
     }
 
     current_file_path_ = construct_suffixed_log_path(++current_ordinal_);
-    VLOG(0) << "Logger-" << id_ << " next file=" << current_file_path_;
+    LOG(INFO) << "Logger-" << id_ << " next file=" << current_file_path_;
     current_file_ = new fs::DirectIoFile(current_file_path_,
                                             engine_->get_options().log_.emulation_);
     CHECK_ERROR(current_file_->open(false, true, true, true));
@@ -407,14 +407,12 @@ void Logger::assert_epoch_values() {
     if (assigned_threads_.empty()) {
         return;
     }
-    Epoch min_value;
     for (thread::Thread* the_thread : assigned_threads_) {
         ThreadLogBuffer& buffer = the_thread->get_thread_log_buffer();
         buffer.assert_consistent_offsets();
-        min_value.store_min(buffer.logger_epoch_);
+        ASSERT_ND(buffer.logger_epoch_.is_valid());
+        ASSERT_ND(current_epoch_ >= buffer.logger_epoch_);
     }
-    ASSERT_ND(min_value.is_valid());
-    ASSERT_ND(min_value == current_epoch_);
 #endif  // NDEBUG
 }
 

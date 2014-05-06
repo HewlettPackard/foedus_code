@@ -5,10 +5,19 @@
 #ifndef FOEDUS_ASSORTED_ATOMIC_FENCES_HPP_
 #define FOEDUS_ASSORTED_ATOMIC_FENCES_HPP_
 #include <foedus/cxx11.hpp>
-#include <foedus/compiler.hpp>
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
 #include <atomic>
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+/**
+ * @file foedus/assorted/atomic_fences.hpp
+ * @ingroup ASSORTED
+ * @brief Atomic fence methods that work for both C++11 and non-C++11 code.
+ * @details
+ * Especially on TSO architecture like x86, most memory fence is trivial thus supposedly very fast.
+ * Invoking a non-inlined function for memory fence is thus not ideal.
+ * The followins \e define memory fences for public headers that need them for inline methods.
+ * cpp and private headers can anyway invoke std::atomic_thread_fence.
+ */
 namespace foedus {
 namespace assorted {
 
@@ -43,8 +52,6 @@ inline void prohibit_compiler_reorder() {
  * A load operation with this memory order performs the acquire operation on the affected memory
  * location: prior writes made to other memory locations by the thread that did the release become
  * visible in this thread.
- * These \e define memory fences for public headers that need them for inline methods.
- * cpp and private headers can anyway invoke std::atomic_thread_fence.
  */
 inline void memory_fence_acquire() {
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
