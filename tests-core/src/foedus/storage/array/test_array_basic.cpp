@@ -18,7 +18,6 @@
 namespace foedus {
 namespace storage {
 namespace array {
-
 TEST(ArrayBasicTest, Create) {
     EngineOptions options = get_tiny_options();
     Engine engine(options);

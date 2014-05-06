@@ -1,1 +1,2 @@
 add_foedus_test(test_array_basic)
+add_foedus_test(test_array_tpcb)

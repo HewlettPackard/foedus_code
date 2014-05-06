@@ -120,20 +120,22 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
 
 ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds) {
     assorted::memory_fence_acquire();
+    if (commit_epoch <= durable_global_epoch_) {
+        DVLOG(1) << "Already durable. commit_epoch=" << commit_epoch << ", durable_global_epoch_="
+            << durable_global_epoch_;
+        return RET_OK;
+    }
+
     if (wait_microseconds == 0) {
         DVLOG(1) << "Conditional check: commit_epoch=" << commit_epoch << ", durable_global_epoch_="
             << durable_global_epoch_;
-        if (commit_epoch < durable_global_epoch_) {
-            return ERROR_STACK(ERROR_CODE_TIMEOUT);
-        } else {
-            return RET_OK;
-        }
+        return ERROR_STACK(ERROR_CODE_TIMEOUT);
     }
 
     std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
     std::chrono::high_resolution_clock::time_point until
         = now + std::chrono::microseconds(wait_microseconds);
-    while (commit_epoch < durable_global_epoch_) {
+    while (commit_epoch > durable_global_epoch_) {
         for (Logger* logger : loggers_) {
             logger->wakeup_for_durable_epoch(commit_epoch);
         }
@@ -141,7 +143,7 @@ ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_
         if (wait_microseconds > 0) {
             LOG(INFO) << "Synchronously waiting for commit_epoch " << commit_epoch;
             if (durable_global_epoch_advanced_.wait_until(the_lock, until)
-                    == std::cv_status::timeout && commit_epoch < durable_global_epoch_) {
+                    == std::cv_status::timeout && commit_epoch > durable_global_epoch_) {
                 LOG(WARNING) << "Timeout occurs. wait_microseconds=" << wait_microseconds;
                 return ERROR_STACK(ERROR_CODE_TIMEOUT);
             }
