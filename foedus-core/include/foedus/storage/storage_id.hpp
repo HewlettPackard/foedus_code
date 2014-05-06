@@ -24,10 +24,12 @@ namespace storage {
 const uint16_t PAGE_SIZE = 1 << 12;
 
 /**
- * @brief bluh
+ * @brief Unique ID for storage.
  * @ingroup STORAGE
  * @details
- * bluh
+ * StorageId is an unsigned integer starting from 1. Value 0 is an always invalid ID (empty).
+ * Name of storage is also unique, but it's an auxiliary information for convenience.
+ * The primary way to identify storages is this StorageId.
  */
 typedef uint32_t StorageId;
 

@@ -77,6 +77,8 @@ ArrayStoragePimpl::ArrayStoragePimpl(Engine* engine, ArrayStorage* holder, Stora
     : engine_(engine), holder_(holder), id_(id), name_(name), payload_size_(payload_size),
         payload_size_aligned_(assorted::align8(payload_size)), array_size_(array_size),
         root_page_pointer_(root_page_pointer), root_page_(nullptr), exist_(!create) {
+    ASSERT_ND(id > 0);
+    ASSERT_ND(name.size() > 0);
     pages_ = calculate_required_pages(array_size_, payload_size_aligned_);
     levels_ = pages_.size();
     offset_intervals_.push_back(DATA_SIZE / (payload_size_aligned_ + RECORD_OVERHEAD));
@@ -255,7 +257,7 @@ inline ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOf
     ASSERT_ND(page->get_array_range().contains(offset));
     ArrayOffset index = offset - page->get_array_range().begin_;
     Record *record = page->get_leaf_record(index);
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(record));
+    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
     std::memcpy(payload, record->payload_ + payload_offset, payload_count);
     return RET_OK;
 }
@@ -278,7 +280,7 @@ inline ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context, A
         context->get_thread_log_buffer().reserve_new_log(log_length));
     log_entry->populate(id_, offset, payload, payload_offset, payload_count);
 
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(record, log_entry));
+    CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
     return RET_OK;
 }
 

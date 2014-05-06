@@ -63,9 +63,8 @@ std::string os_error(int error_number);
  * @details
  * Use it like this:
  * @code{.cpp}
- * const int dummy_check1_ = assorted::static_size_check<sizeof(foo), sizeof(bar)>();
+ * STATIC_SIZE_CHECK(sizeof(foo), sizeof(bar))
  * @endcode
- * Do not forget "const" because otherwise you'll get multiple-definition errors in hpp.
  */
 template<uint64_t SIZE1, uint64_t SIZE2>
 inline int static_size_check() {
@@ -75,6 +74,7 @@ inline int static_size_check() {
         " int SIZE1 = <size1>ul; long unsigned int SIZE2 = <size2>ul]'");
     return 0;
 }
+
 /**
  * @brief Demangle the given C++ type name \e if possible (otherwise the original string).
  * @ingroup ASSORTED
@@ -94,6 +94,16 @@ std::string get_pretty_type_name() {
 }  // namespace assorted
 }  // namespace foedus
 
+
+// Use __COUNTER__ to generate a unique method name
+#define STATIC_SIZE_CHECK_CONCAT_DETAIL(x, y) x##y
+#define STATIC_SIZE_CHECK_CONCAT(x, y) STATIC_SIZE_CHECK_CONCAT_DETAIL(x, y)
+#define STATIC_SIZE_CHECK_METHOD_NAME \
+    STATIC_SIZE_CHECK_CONCAT(_dummy_static_size_check, __COUNTER__)
+#define STATIC_SIZE_CHECK(desired, actual) \
+    inline void STATIC_SIZE_CHECK_METHOD_NAME() { \
+        foedus::assorted::static_size_check< desired, actual >();\
+    }
 
 /**
  * @def INSTANTIATE_ALL_TYPES(M)

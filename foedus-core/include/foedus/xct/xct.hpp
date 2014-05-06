@@ -85,13 +85,14 @@ class Xct {
      * than std::memory_order_acquire, although both are no-op in x86 which is TSO...).
      * Inlined in xct_inl.hpp.
      */
-    ErrorCode           add_to_read_set(storage::Record* record);
+    ErrorCode           add_to_read_set(storage::Storage* storage, storage::Record* record);
     /**
      * @brief Add the given record to the write set of this transaction.
      * @details
      * Inlined in xct_inl.hpp.
      */
-    ErrorCode           add_to_write_set(storage::Record* record, void* log_entry);
+    ErrorCode           add_to_write_set(storage::Storage* storage, storage::Record* record,
+                                         void* log_entry);
 
     /**
      * @brief If this transaction is currently committing with some log to publish, this

@@ -60,6 +60,12 @@ struct OverwriteLogType : public log::RecordLogType {
         std::memcpy(record->payload_ + payload_offset_, data_, payload_count_);
     }
 
+    void            assert_valid() ALWAYS_INLINE {
+        assert_valid_generic();
+        ASSERT_ND(header_.log_length_ == calculate_log_length(payload_count_));
+        ASSERT_ND(header_.log_type_code_ = log::get_log_code<OverwriteLogType>());
+    }
+
     friend std::ostream& operator<<(std::ostream& o, const OverwriteLogType& v);
 };
 }  // namespace array

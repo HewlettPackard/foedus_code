@@ -151,8 +151,9 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
 }
 
 void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
-    WriteXctAccess* write_set = context->get_current_xct().get_write_set();
-    uint32_t        write_set_size = context->get_current_xct().get_write_set_size();
+    Xct& current_xct = context->get_current_xct();
+    WriteXctAccess* write_set = current_xct.get_write_set();
+    uint32_t        write_set_size = current_xct.get_write_set_size();
     DLOG(INFO) << "write_set_size=" << write_set_size;
     std::sort(write_set, write_set + write_set_size, WriteXctAccess::compare);
     DLOG(INFO) << "sorted write set";
@@ -166,8 +167,9 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
 }
 
 bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epoch *commit_epoch) {
-    const XctAccess*        read_set = context->get_current_xct().get_read_set();
-    const uint32_t          read_set_size = context->get_current_xct().get_read_set_size();
+    Xct& current_xct = context->get_current_xct();
+    const XctAccess*        read_set = current_xct.get_read_set();
+    const uint32_t          read_set_size = current_xct.get_read_set_size();
     *commit_epoch = Epoch();
     for (uint32_t i = 0; i < read_set_size; ++i) {
         // The owning transaction has changed.
@@ -202,10 +204,11 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
 }
 
 bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
-    const WriteXctAccess*   write_set = context->get_current_xct().get_write_set();
-    const uint32_t          write_set_size = context->get_current_xct().get_write_set_size();
-    const XctAccess*        read_set = context->get_current_xct().get_read_set();
-    const uint32_t          read_set_size = context->get_current_xct().get_read_set_size();
+    Xct& current_xct = context->get_current_xct();
+    const WriteXctAccess*   write_set = current_xct.get_write_set();
+    const uint32_t          write_set_size = current_xct.get_write_set_size();
+    const XctAccess*        read_set = current_xct.get_read_set();
+    const uint32_t          read_set_size = current_xct.get_read_set_size();
     for (uint32_t i = 0; i < read_set_size; ++i) {
         // The owning transaction has changed.
         // We don't check ordinal here because there is no change we are racing with ourselves.
@@ -238,18 +241,19 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
 
 void XctManagerPimpl::precommit_xct_apply(thread::Thread* context,
                                                      const Epoch &commit_epoch) {
-    WriteXctAccess* write_set = context->get_current_xct().get_write_set();
-    uint32_t        write_set_size = context->get_current_xct().get_write_set_size();
+    Xct& current_xct = context->get_current_xct();
+    WriteXctAccess* write_set = current_xct.get_write_set();
+    uint32_t        write_set_size = current_xct.get_write_set_size();
     DLOG(INFO) << "applying.. write_set_size=" << write_set_size;
 
-    context->get_current_xct().issue_next_id(commit_epoch);
+    current_xct.issue_next_id(commit_epoch);
 
-    DLOG(INFO) << "generated new xct id=" << context->get_current_xct().get_id();
+    DLOG(INFO) << "generated new xct id=" << current_xct.get_id();
     for (uint32_t i = 0; i < write_set_size; ++i) {
         WriteXctAccess& write = write_set[i];
         log::invoke_apply_record(
             write.log_entry_, write.storage_, write.record_);
-        write.record_->owner_id_ = context->get_current_xct().get_id();  // this also unlocks
+        write.record_->owner_id_ = current_xct.get_id();  // this also unlocks
     }
     DLOG(INFO) << "aplied and unlocked write set";
 }

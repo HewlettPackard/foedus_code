@@ -24,15 +24,17 @@ namespace log {
  * \li void apply_engine(Engine*)     : For engine-wide operation.
  * \li void apply_storage(Storage*)   : For storage-wide operation.
  * \li void apply_record(Storage*, Record*)   : For record-wise operation.
+ * \li void assert_valid()  : For debugging (should have no cost in NDEBUG).
  * \li is_engine_log()/is_storage_log()/is_record_log()
  * \li ostream operator, preferably in xml format without root element.
  *
  * For non-applicable apply-type, the implmentation class should abort.
+ * Remember that these are all non-virtual methods. See the next section for more details.
  *
  * @par No polymorphism
  * There is polymorphism guaranteed for log types.
  * Because we read/write just a bunch of bytes and do reinterpret_cast, there is no dynamic
- * type information. We of course can't afford instantiating objects for each log entry.
+ * type information. We of course can't afford instantiating objects for each log entry, either.
  * Do not use any override in log type classes. You should even delete \b all constructors to avoid
  * misuse (see LOG_TYPE_NO_CONSTRUCT(clazz) ).
  * We do have base classes (EngineLogType, StorageLogType, and RecordLogType), but this is only

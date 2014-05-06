@@ -35,6 +35,12 @@ void invoke_apply_storage(void *log_buffer, storage::Storage* storage);
 void invoke_apply_record(void *log_buffer, storage::Storage* storage, storage::Record* record);
 
 /**
+ * @brief Invokes the assertion logic of each log type.
+ * @ingroup LOGTYPE
+ */
+void invoke_assert_valid(void *log_buffer);
+
+/**
  * @brief Invokes the ostream operator for the given log type defined in log_type.xmacro.
  * @ingroup LOGTYPE
  * @details
@@ -45,6 +51,7 @@ void invoke_ostream(void *buffer, std::ostream *ptr);
 
 #define X(a, b, c) case a: return reinterpret_cast< c* >(buffer)->apply_engine(engine);
 inline void invoke_apply_engine(void *buffer, Engine* engine) {
+    invoke_assert_valid(buffer);
     LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
     LogCode code = static_cast<LogCode>(header->log_type_code_);
     switch (code) {
@@ -58,6 +65,7 @@ inline void invoke_apply_engine(void *buffer, Engine* engine) {
 
 #define X(a, b, c) case a: reinterpret_cast< c* >(buffer)->apply_storage(storage); return;
 inline void invoke_apply_storage(void *buffer, storage::Storage* storage) {
+    invoke_assert_valid(buffer);
     LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
     LogCode code = static_cast<LogCode>(header->log_type_code_);
     switch (code) {
@@ -72,6 +80,7 @@ inline void invoke_apply_storage(void *buffer, storage::Storage* storage) {
 #define X(a, b, c) case a: reinterpret_cast< c* >(buffer)->apply_record(storage, record); return;
 inline void invoke_apply_record(void *buffer,
                                       storage::Storage* storage, storage::Record* record) {
+    invoke_assert_valid(buffer);
     LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
     LogCode code = static_cast<LogCode>(header->log_type_code_);
     switch (code) {
@@ -82,6 +91,23 @@ inline void invoke_apply_record(void *buffer,
     }
 }
 #undef X
+
+#ifdef NDEBUG
+inline void invoke_assert_valid(void* /*buffer*/) {}
+#else  // NDEBUG
+#define X(a, b, c) case a: reinterpret_cast< c* >(buffer)->assert_valid(); return;
+inline void invoke_assert_valid(void *buffer) {
+    LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
+    LogCode code = static_cast<LogCode>(header->log_type_code_);
+    switch (code) {
+#include <foedus/log/log_type.xmacro> // NOLINT
+        default:
+            ASSERT_ND(false);
+            return;
+    }
+}
+#undef X
+#endif  // NDEBUG
 
 #define X(a, b, c) case a: o << *reinterpret_cast< c* >(buffer); break;
 inline void invoke_ostream(void *buffer, std::ostream *ptr) {

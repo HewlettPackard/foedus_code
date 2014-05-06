@@ -11,7 +11,13 @@
 #include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/xct/xct.hpp>
 #include <foedus/xct/xct_access.hpp>
+// For log verification. Only in debug mode
+#ifndef NDEBUG
+#include <foedus/log/log_type_invoke.hpp>
+#endif  // NDEBUG
+
 #include <iosfwd>
+
 /**
  * @file foedus/xct/xct_inl.hpp
  * @brief Inline functions of Xct.
@@ -20,7 +26,9 @@
 namespace foedus {
 namespace xct {
 
-inline ErrorCode Xct::add_to_read_set(storage::Record* record) {
+inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record* record) {
+    ASSERT_ND(storage);
+    ASSERT_ND(record);
     if (isolation_level_ == DIRTY_READ_PREFER_SNAPSHOT
         || isolation_level_ == DIRTY_READ_PREFER_VOLATILE) {
         return ERROR_CODE_OK;
@@ -41,16 +49,26 @@ inline ErrorCode Xct::add_to_read_set(storage::Record* record) {
     if (UNLIKELY(read_set_[read_set_size_].observed_owner_id_.is_locked<15>())) {
         return ERROR_CODE_XCT_RACE_ABORT;
     }
+    read_set_[read_set_size_].storage_ = storage;
     read_set_[read_set_size_].record_ = record;
     ++read_set_size_;
     return ERROR_CODE_OK;
 }
-inline ErrorCode Xct::add_to_write_set(storage::Record* record, void* log_entry) {
+inline ErrorCode Xct::add_to_write_set(storage::Storage* storage, storage::Record* record,
+                                       void* log_entry) {
+    ASSERT_ND(storage);
+    ASSERT_ND(record);
+    ASSERT_ND(log_entry);
     if (UNLIKELY(write_set_size_ >= max_write_set_size_)) {
         return ERROR_CODE_XCT_WRITE_SET_OVERFLOW;
     }
 
+#ifndef NDEBUG
+    log::invoke_assert_valid(log_entry);
+#endif  // NDEBUG
+
     write_set_[write_set_size_].observed_owner_id_ = record->owner_id_;
+    write_set_[write_set_size_].storage_ = storage;
     write_set_[write_set_size_].record_ = record;
     write_set_[write_set_size_].log_entry_ = log_entry;
     ++write_set_size_;

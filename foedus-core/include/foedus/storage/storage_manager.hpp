@@ -33,7 +33,8 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
     ErrorStack  uninitialize() CXX11_OVERRIDE;
 
     /**
-     * Issue a unique and atomically/monotonically increasing storage ID for a new storage.
+     * @brief Issue a unique and atomically/monotonically increasing storage ID for a new storage.
+     * @details
      * The caller might later fail, so StorageId might have holes.
      */
     StorageId   issue_next_storage_id();

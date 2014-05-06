@@ -142,7 +142,8 @@ struct XctId {
     uint16_t            ordinal_and_status_;
 };
 // sizeof(XctId) must be 64 bits.
-const int dummy_check_xct_id_ = assorted::static_size_check<sizeof(XctId), sizeof(uint64_t)>();
+STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))
+
 }  // namespace xct
 }  // namespace foedus
 #endif  // FOEDUS_XCT_XCT_ID_HPP_

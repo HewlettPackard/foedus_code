@@ -64,10 +64,9 @@ class PagePoolOffsetChunk {
     uint32_t        size_;
     PagePoolOffset  chunk_[MAX_SIZE];
 };
-const int _dummy1 = assorted::static_size_check<sizeof(PagePoolOffset), 4>();
+STATIC_SIZE_CHECK(sizeof(PagePoolOffset), 4)
 // Size of PagePoolOffsetChunk should be power of two (<=> x & (x-1) == 0)
-const int _dummy2 = assorted::static_size_check<
-    sizeof(PagePoolOffsetChunk) & (sizeof(PagePoolOffsetChunk) - 1), 0>();
+STATIC_SIZE_CHECK(sizeof(PagePoolOffsetChunk) & (sizeof(PagePoolOffsetChunk) - 1), 0)
 
 /**
  * @brief Page pool for volatile read/write store (VolatilePage) and
