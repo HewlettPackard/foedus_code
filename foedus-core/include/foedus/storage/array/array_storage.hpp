@@ -49,6 +49,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
 
     // Storage interface
     StorageId           get_id()    const CXX11_OVERRIDE;
+    StorageType         get_type()  const CXX11_OVERRIDE { return ARRAY_STORAGE; }
     const std::string&  get_name()  const CXX11_OVERRIDE;
     bool                exists()    const CXX11_OVERRIDE;
     ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;

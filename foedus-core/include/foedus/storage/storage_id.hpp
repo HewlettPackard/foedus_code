@@ -34,6 +34,23 @@ const uint16_t PAGE_SIZE = 1 << 12;
 typedef uint32_t StorageId;
 
 /**
+ * @brief Type of the storage, such as hash.
+ * @ingroup STORAGE
+ */
+enum StorageType {
+    /** 0 indicates invalid type. */
+    INVALID_STORAGE = 0,
+    /** \ref ARRAY */
+    ARRAY_STORAGE,
+    /** \ref HASH */
+    HASH_STORAGE,
+    /** \ref MASSTREE */
+    MASSTREE_STORAGE,
+    /** \ref SEQUENTIAL */
+    SEQUENTIAL_STORAGE,
+};
+
+/**
  * @brief bluh
  * @ingroup STORAGE
  * @details

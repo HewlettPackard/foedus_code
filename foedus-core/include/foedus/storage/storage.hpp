@@ -26,7 +26,10 @@ namespace storage {
  * The relation between primary and secondary storages are controlled by higher layers.
  *
  * @section INSTANTIATE Instantiating Storage
- * Storage object is
+ * Storage object is instantiated in two ways.
+ * To newly create a storage, the user invokes storage manager's create_xxx, which instantiates
+ * this object and calls create().
+ * To retrieve an existing storage, bluh bluh
  */
 class Storage : public virtual Initializable {
  public:
@@ -36,6 +39,11 @@ class Storage : public virtual Initializable {
      * Returns the unique ID of this storage.
      */
     virtual StorageId           get_id() const = 0;
+
+    /**
+     * Returns the type of this storage.
+     */
+    virtual StorageType         get_type() const = 0;
 
     /**
      * Returns the unique name of this storage.
@@ -51,7 +59,10 @@ class Storage : public virtual Initializable {
      * @brief Newly creates this storage and registers it in the storage manager.
      * @pre exists() == false
      * @details
-     * bluh
+     * This is invoked from storage manager's create_xxx methods.
+     * Depending on the storage type, this might take a long time to finish.
+     * For a newly created storage, the instasnce of this object is an empty and
+     * trivial-to-instantiate (thus no exception) until we call this method.
      */
     virtual ErrorStack          create(thread::Thread* context) = 0;
 };

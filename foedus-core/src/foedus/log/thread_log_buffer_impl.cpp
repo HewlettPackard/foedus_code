@@ -67,15 +67,16 @@ void ThreadLogBuffer::assert_consistent_offsets() const {
 void ThreadLogBuffer::wait_for_space(uint16_t required_space) {
     // TODO(Hideaki) implement
     LOG(INFO) << "Thread-" << thread_id_ << " waiting for space to write logs..";
+    LOG(FATAL) << "Not implemented yet";
     while(true);
 }
 
 void ThreadLogBuffer::fillup_tail() {
     uint64_t len = buffer_size_ - offset_tail_;
-    if (distance(buffer_size_, offset_tail_, offset_head_) + len >= buffer_size_safe_) {
+    if (head_to_tail_distance() + len >= buffer_size_safe_) {
         wait_for_space(len);
     }
-    ASSERT_ND(distance(buffer_size_, offset_tail_, offset_head_) + len < buffer_size_safe_);
+    ASSERT_ND(head_to_tail_distance() + len < buffer_size_safe_);
     FillerLogType *filler = reinterpret_cast<FillerLogType*>(buffer_ + offset_tail_);
     filler->init(len);
     advance(buffer_size_, &offset_tail_, len);

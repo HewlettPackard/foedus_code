@@ -44,14 +44,18 @@ namespace log {
 class ThreadLogBuffer final : public DefaultInitializable {
  public:
     friend class Logger;
-    /** Subtract operator, considering wrapping around. */
+    /**
+     * @brief Subtract operator, considering wrapping around.
+     * @attention Be careful. As this is a circular buffer, from and to are \b NOT commutative.
+     * actually, distance(from, to) = buffer_size - distance(to, from).
+     */
     static uint64_t distance(uint64_t buffer_size, uint64_t from, uint64_t to) ALWAYS_INLINE {
         ASSERT_ND(from < buffer_size);
         ASSERT_ND(to < buffer_size);
         if (to >= from) {
-            return from - to;
+            return to - from;
         } else {
-            return from + buffer_size - to;
+            return to + buffer_size - from;  // wrap around
         }
     }
     /** Addition operator, considering wrapping around. */
@@ -115,14 +119,16 @@ class ThreadLogBuffer final : public DefaultInitializable {
             fillup_tail();
             ASSERT_ND(offset_tail_ == 0);
         } else if (UNLIKELY(
-            distance(buffer_size_, offset_tail_, offset_head_) + log_length >= buffer_size_safe_)) {
+            head_to_tail_distance() + log_length >= buffer_size_safe_)) {
             wait_for_space(log_length);
         }
-        ASSERT_ND(distance(buffer_size_, offset_tail_, offset_head_) + log_length
-            < buffer_size_safe_);
+        ASSERT_ND(head_to_tail_distance() + log_length < buffer_size_safe_);
         char *buffer = buffer_ + offset_tail_;
         advance(buffer_size_, &offset_tail_, log_length);
         return buffer;
+    }
+    uint64_t    head_to_tail_distance() const ALWAYS_INLINE {
+        return distance(buffer_size_, offset_head_, offset_tail_);
     }
 
     /**
