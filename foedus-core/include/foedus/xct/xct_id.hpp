@@ -71,6 +71,9 @@ enum IsolationLevel {
 struct XctId {
     XctId() : epoch_(), thread_id_(0), ordinal_and_status_(0) {
     }
+    XctId(Epoch epoch, thread::ThreadId thread_id, uint16_t ordinal_and_status)
+        : epoch_(epoch), thread_id_(thread_id), ordinal_and_status_(ordinal_and_status) {}
+
     /**
      * Returns if epoch_ and thread_id_ are identical with the given XctId.
      * We don't provide operator== in XctId because it is confusing.

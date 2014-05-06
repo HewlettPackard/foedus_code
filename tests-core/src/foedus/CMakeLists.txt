@@ -6,3 +6,4 @@ add_foedus_test(test_engine_options)
 add_foedus_test(test_epoch)
 
 add_subdirectory(storage)
+add_subdirectory(xct)
