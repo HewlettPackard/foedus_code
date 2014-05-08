@@ -29,8 +29,7 @@ namespace memory {
 class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
  public:
     NumaCoreMemory() CXX11_FUNC_DELETE;
-    NumaCoreMemory(Engine* engine, NumaNodeMemory *node_memory,
-                foedus::thread::ThreadId core_id, foedus::thread::ThreadLocalOrdinal core_ordinal);
+    NumaCoreMemory(Engine* engine, NumaNodeMemory *node_memory, foedus::thread::ThreadId core_id);
     ErrorStack  initialize_once() CXX11_OVERRIDE;
     ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 

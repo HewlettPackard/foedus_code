@@ -33,6 +33,11 @@ ErrorStack NumaNodeMemory::initialize_once() {
     for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
         CHECK_ERROR(initialize_core_memory(ordinal));
     }
+    ASSERT_ND(core_memories_.size() == cores_);
+    ASSERT_ND(read_set_memory_pieces_.size() == cores_);
+    ASSERT_ND(write_set_memory_pieces_.size() == cores_);
+    ASSERT_ND(page_offset_chunk_memory_pieces_.size() == cores_);
+    ASSERT_ND(log_buffer_memory_pieces_.size() == cores_);
 
     LOG(INFO) << "Initialized NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
         << " AFTER: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
@@ -48,9 +53,9 @@ ErrorStack NumaNodeMemory::initialize_read_write_set_memory() {
     CHECK_ERROR(allocate_numa_memory(cores_ * writeset_size, &write_set_memory_));
     for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
         read_set_memory_pieces_.push_back(reinterpret_cast<xct::XctAccess*>(
-            read_set_memory_.get_block()) + readsets);
+            read_set_memory_.get_block()) + (readsets * ordinal));
         write_set_memory_pieces_.push_back(reinterpret_cast<xct::WriteXctAccess*>(
-            write_set_memory_.get_block()) + writesets);
+            write_set_memory_.get_block()) + (writesets * ordinal));
     }
 
     return RET_OK;
@@ -91,8 +96,9 @@ ErrorStack NumaNodeMemory::initialize_log_buffers_memory() {
 
 ErrorStack NumaNodeMemory::initialize_core_memory(thread::ThreadLocalOrdinal ordinal) {
     auto core_id = thread::compose_thread_id(numa_node_, ordinal);
-    core_memories_.push_back(new NumaCoreMemory(engine_, this, core_id, ordinal));
-    CHECK_ERROR(core_memories_.back()->initialize());
+    NumaCoreMemory* core_memory = new NumaCoreMemory(engine_, this, core_id);
+    core_memories_.push_back(core_memory);
+    CHECK_ERROR(core_memory->initialize());
     return RET_OK;
 }
 

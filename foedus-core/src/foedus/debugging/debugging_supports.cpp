@@ -43,7 +43,7 @@ void DebuggingSupports::initialize_glog() {
         FLAGS_log_dir = options.debug_log_dir_;  // This one must be BEFORE InitGoogleLogging()
         FLAGS_v = options.verbose_log_level_;
         if (options.verbose_modules_.size() > 0) {
-            // TODO(Hideaki) disabled SetVLOGLevel() due to this glog bug
+            // Watch out for this bug, if we get a crash here:
             // https://code.google.com/p/google-glog/issues/detail?id=172
             google::SetVLOGLevel(options.verbose_modules_.c_str(), options.verbose_log_level_);
         }
@@ -93,9 +93,9 @@ void DebuggingSupports::set_verbose_log_level(int verbose) {
     LOG(INFO) << "Changed glog's FLAGS_v to " << verbose;
 }
 void DebuggingSupports::set_verbose_module(const std::string &module, int verbose) {
-    // google::SetVLOGLevel(module.c_str(), verbose);
-    // TODO(Hideaki) disabled SetVLOGLevel() due to this glog bug
+    // Watch out for this bug, if we get a crash here:
     // https://code.google.com/p/google-glog/issues/detail?id=172
+    google::SetVLOGLevel(module.c_str(), verbose);
     LOG(INFO) << "Invoked google::SetVLOGLevel for " << module << ", level=" << verbose;
 }
 

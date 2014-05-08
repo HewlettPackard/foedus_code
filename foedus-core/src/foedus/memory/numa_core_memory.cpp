@@ -16,10 +16,12 @@
 namespace foedus {
 namespace memory {
 NumaCoreMemory::NumaCoreMemory(Engine* engine, NumaNodeMemory *node_memory,
-            foedus::thread::ThreadId core_id, foedus::thread::ThreadLocalOrdinal core_ordinal)
-    : engine_(engine), node_memory_(node_memory),
-        core_id_(core_id), core_local_ordinal_(core_ordinal),
+            thread::ThreadId core_id) : engine_(engine), node_memory_(node_memory),
+        core_id_(core_id), core_local_ordinal_(thread::decompose_numa_local_ordinal(core_id)),
         read_set_memory_(nullptr), write_set_memory_(nullptr) {
+    ASSERT_ND(thread::decompose_numa_node(core_id_) == node_memory->get_numa_node());
+    ASSERT_ND(core_id_ == thread::compose_thread_id(node_memory->get_numa_node(),
+                                                    core_local_ordinal_));
 }
 
 ErrorStack NumaCoreMemory::initialize_once() {

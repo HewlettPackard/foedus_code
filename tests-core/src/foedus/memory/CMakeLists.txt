@@ -1,0 +1,1 @@
+add_foedus_test(test_engine_memory)

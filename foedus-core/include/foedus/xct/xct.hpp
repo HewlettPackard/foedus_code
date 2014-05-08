@@ -49,7 +49,10 @@ class Xct {
     /**
      * Closes the transaction.
      */
-    void                deactivate() { active_ = false; }
+    void                deactivate() {
+        ASSERT_ND(active_);
+        active_ = false;
+    }
 
     /** Returns whether the object is an active transaction. */
     bool                is_active() const { return active_; }
@@ -71,7 +74,7 @@ class Xct {
             id_.epoch_ = epoch;
             id_.ordinal_and_status_ = 0;
         } else {
-            ASSERT_ND(id_.ordinal_and_status_ < 0xFFFF);
+            ASSERT_ND(id_.ordinal_and_status_ < 0x7FFF);
             ++id_.ordinal_and_status_;
         }
     }

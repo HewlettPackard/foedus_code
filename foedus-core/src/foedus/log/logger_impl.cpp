@@ -233,7 +233,9 @@ ErrorStack Logger::update_durable_epoch() {
     Epoch min_durable_epoch = current_global_epoch.one_less();
     for (thread::Thread* the_thread : assigned_threads_) {
         ThreadLogBuffer& buffer = the_thread->get_thread_log_buffer();
-        DVLOG(1) << buffer;
+        DVLOG(1) << "Check durable epoch(cur min=" << min_durable_epoch << "): "
+            << "Thread-" << the_thread->get_thread_id() << ": " << buffer;
+        buffer.consume_epoch_mark_as_many();
         if (buffer.logger_epoch_ > min_durable_epoch) {
             VLOG(1) << "Thread-" << the_thread->get_thread_id() << " at least durable up to "
                 << min_durable_epoch;
@@ -257,50 +259,43 @@ ErrorStack Logger::update_durable_epoch() {
         } else {
             VLOG(1) << "Thread-" << the_thread->get_thread_id() << " open-ended in this ep";
             // we are not sure whether we flushed everything in this epoch.
-            Epoch epoch_before = buffer.logger_epoch_;
-            if (buffer.consume_epoch_mark()) {
-                VLOG(1) << "Thread-" << the_thread->get_thread_id() << " consumed epoch mark!";
-                ASSERT_ND(buffer.logger_epoch_ > epoch_before);
-                min_durable_epoch.store_min(epoch_before);
-            } else {
-                // mm, really open ended, but the thread might not be in commit phase.
-                xct::Xct& xct = the_thread->get_current_xct();
-                Epoch in_commit_epoch = xct.get_in_commit_log_epoch();
-                // See get_in_commit_log_epoch() about the protocol of in_commit_log_epoch
-                if (!in_commit_epoch.is_valid() || in_commit_epoch > epoch_before) {
-                    VLOG(1) << "Thread-" << the_thread->get_thread_id() << " not in a racy state!";
-                    assorted::memory_fence_acquire();  // because offset_committed might be added
-                    if (buffer.offset_durable_ == buffer.offset_committed_) {
-                        VLOG(1) << "Okay, definitely no log to process. just idle";
-                        // then, we are duralble at least to current_global_epoch.one_less()
-                    } else {
-                        VLOG(1) << "mm, still some log in this epoch";
-                        min_durable_epoch.store_min(epoch_before.one_less());
-                    }
+            // check if the thread _might_ be in commit phase.
+            xct::Xct& xct = the_thread->get_current_xct();
+            Epoch in_commit_epoch = xct.get_in_commit_log_epoch();
+            // See get_in_commit_log_epoch() about the protocol of in_commit_log_epoch
+            if (!in_commit_epoch.is_valid() || in_commit_epoch > buffer.logger_epoch_) {
+                VLOG(1) << "Thread-" << the_thread->get_thread_id() << " not in a racy state!";
+                assorted::memory_fence_acquire();  // because offset_committed might be added
+                if (buffer.offset_durable_ == buffer.offset_committed_) {
+                    VLOG(1) << "Okay, definitely no log to process. just idle";
+                    // then, we are duralble at least to current_global_epoch.one_less()
                 } else {
-                    ASSERT_ND(in_commit_epoch == epoch_before);
-                    // This is rare. worth logging in details. In this case, we spin on it.
-                    // This state is guaranteed to quickly end.
-                    // By doing this, handle_logger() can use this method for waiting.
-                    LOG(INFO) << "Thread-" << the_thread->get_thread_id() << " is now publishing"
-                        " logs that might be in epoch-" << epoch_before;
-                    DLOG(INFO) << "this=" << *this << ", buffer=" << buffer;
-                    while (in_commit_epoch.is_valid() && in_commit_epoch <= epoch_before) {
-                        in_commit_epoch = xct.get_in_commit_log_epoch();
-                    }
-                    LOG(INFO) << "Thread-" << the_thread->get_thread_id() << " is done with the log"
-                        ". " << epoch_before;
-                    DLOG(INFO) << "this=" << *this << ", buffer=" << buffer;
-
-                    // Just logging. we conservatively use one_less because the transaction
-                    // probably produced logs in the epoch. We have to flush them first.
-                    min_durable_epoch.store_min(epoch_before.one_less());
+                    VLOG(1) << "mm, still some log in this epoch";
+                    min_durable_epoch.store_min(buffer.logger_epoch_.one_less());
                 }
+            } else {
+                ASSERT_ND(in_commit_epoch == buffer.logger_epoch_);
+                // This is rare. worth logging in details. In this case, we spin on it.
+                // This state is guaranteed to quickly end.
+                // By doing this, handle_logger() can use this method for waiting.
+                LOG(INFO) << "Thread-" << the_thread->get_thread_id() << " is now publishing"
+                    " logs that might be in epoch-" << buffer.logger_epoch_;
+                DLOG(INFO) << "this=" << *this << ", buffer=" << buffer;
+                while (in_commit_epoch.is_valid() && in_commit_epoch <= buffer.logger_epoch_) {
+                    in_commit_epoch = xct.get_in_commit_log_epoch();
+                }
+                LOG(INFO) << "Thread-" << the_thread->get_thread_id() << " is done with the log"
+                    ". " << buffer.logger_epoch_;
+                DLOG(INFO) << "this=" << *this << ", buffer=" << buffer;
+
+                // Just logging. we conservatively use one_less because the transaction
+                // probably produced logs in the epoch. We have to flush them first.
+                min_durable_epoch.store_min(buffer.logger_epoch_.one_less());
             }
         }
     }
 
-    ASSERT_ND(min_durable_epoch >= durable_epoch_);
+    DVLOG(1) << "Checked all loggers. min_durable_epoch=" << min_durable_epoch;
     if (min_durable_epoch > durable_epoch_) {
         LOG(INFO) << "Logger-" << id_ << " updates durable_epoch_ from " << durable_epoch_
             << " to " << min_durable_epoch;

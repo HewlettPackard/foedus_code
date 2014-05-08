@@ -56,9 +56,11 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
      */
     ErrorStack      allocate_numa_memory(size_t size, AlignedMemory *out);
 
+    AlignedMemory& get_read_set_memory() { return read_set_memory_; }
     xct::XctAccess* get_read_set_memory_piece(thread::ThreadLocalOrdinal core_ordinal) {
         return read_set_memory_pieces_[core_ordinal];
     }
+    AlignedMemory& get_write_set_memory() { return write_set_memory_; }
     xct::WriteXctAccess* get_write_set_memory_piece(thread::ThreadLocalOrdinal core_ordinal) {
         return write_set_memory_pieces_[core_ordinal];
     }

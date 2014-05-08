@@ -7,8 +7,8 @@
 #include <foedus/assert_nd.hpp>
 #include <foedus/compiler.hpp>
 #include <foedus/error_stack.hpp>
-#include <foedus/storage/record.hpp>
 #include <foedus/assorted/atomic_fences.hpp>
+#include <foedus/storage/record.hpp>
 #include <foedus/xct/xct.hpp>
 #include <foedus/xct/xct_access.hpp>
 // For log verification. Only in debug mode
@@ -44,10 +44,11 @@ inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record
     // we don't access before the tag copy.
     assorted::memory_fence_consume();
 
-    // If the record is locked, we will most likely abort at commit time.
-    // So, do it immediately to avoid wasting CPU resource.
+    // If the record is locked, we will sure abort at commit time.
+    // Rather, spin here to avoid wasted effort. In our engine, lock happens in commit time,
+    // so no worry about deadlock or long wait.
     if (UNLIKELY(read_set_[read_set_size_].observed_owner_id_.is_locked<15>())) {
-        return ERROR_CODE_XCT_RACE_ABORT;
+        read_set_[read_set_size_].observed_owner_id_.spin_while_locked<15>();
     }
     read_set_[read_set_size_].storage_ = storage;
     read_set_[read_set_size_].record_ = record;

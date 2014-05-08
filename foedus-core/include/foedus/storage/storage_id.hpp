@@ -4,6 +4,8 @@
  */
 #ifndef FOEDUS_STORAGE_STORAGE_ID_HPP_
 #define FOEDUS_STORAGE_STORAGE_ID_HPP_
+#include <foedus/assorted/assorted_func.hpp>
+#include <foedus/assorted/raw_atomics.hpp>
 #include <foedus/memory/memory_id.hpp>
 #include <stdint.h>
 #include <iosfwd>
@@ -51,26 +53,29 @@ enum StorageType {
 };
 
 /**
- * @brief bluh
+ * @brief Monotonically increasing modification count for volatile page pointers.
  * @ingroup STORAGE
  * @details
- * bluh
+ * Whenever a page-switch happens, we also increment this value to avoid ABA issue.
  */
 typedef uint32_t ModCount;
 
 /**
- * @brief bluh
+ * @brief Checksum of a snapshot page.
  * @ingroup STORAGE
  * @details
- * bluh
+ * Each snapshot page contains this checksum to be verified when we read it from
+ * media or occasionally.
  */
 typedef uint64_t Checksum;
 
 /**
- * @brief bluh
+ * @brief Represents a pointer to a volatile page with modification count for preventing ABA.
  * @ingroup STORAGE
  * @details
- * bluh
+ * The high 32 bit is the modification count, the low 32 bit is the offset.
+ * We might reduce the number of bits for mod count, or replace it with a few smaller flags.
+ * The offset has to be at least 32 bit (4kb * 2^32=16TB).
  */
 union VolatilePagePointer {
     uint64_t        word;
@@ -86,10 +91,28 @@ union VolatilePagePointer {
  * @brief Represents a pointer to another page (usually a child page).
  * @ingroup STORAGE
  * @details
- * @par Duality of Page Pointer
- * bluh bluh
+ * @section DUALITY Duality of Page Pointer
+ * \b All page pointers in our storages have duality; a pointer to \e volatile page
+ * and a pointer to \e snapshot page. The volatile pointer always points to the
+ * latest in-memory image of the page. The snapshot page points to
+ * a potentially-stale snapshot image of the page which is guaranteed to be read only in
+ * all regards, even in its descendent pages.
  *
- * @par POD
+ * None, either, or both of the two pointers might null.
+ *  \li Both are null; the page doesn't exist yet.
+ *  \li Only snapshot pointer is null; it's a newly created page. no snapshot taken yet.
+ *  \li Only volatile pointer is null; the snapshot page is the latest and we don't have a
+ * modification on the page since then (or not published by RCU-ing thread yet).
+ *
+ * @SECTION CAS Atomic Compare-And-Exchange
+ * Dual page pointer is, unfortunately, 128 bits.
+ * When we have to atomically swap either or both 64-bit parts depending on the current
+ * value of the entire 128 bit, we need a double-word CAS.
+ * The current implementation uses a processor-specific assembly, assuming recent processors.
+ * This might restrict our portability, so let's minimize the use of this operation and revisit
+ * the design. Do we really need atomic swap for this object?
+ *
+ * @section POD POD
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
 struct DualPagePointer {
@@ -97,11 +120,37 @@ struct DualPagePointer {
         volatile_pointer_.word = 0;
     }
 
+    bool operator==(const DualPagePointer& other) const {
+        return snapshot_page_id_ == other.snapshot_page_id_
+            && volatile_pointer_.word == other.volatile_pointer_.word;
+    }
+    bool operator!=(const DualPagePointer& other) const {
+        return !operator==(other);
+    }
+
     friend std::ostream& operator<<(std::ostream& o, const DualPagePointer& v);
+
+    /** 128-bit atomic CAS (strong version) for the dual pointer. */
+    bool atomic_compare_exchange_strong(
+        const DualPagePointer &expected, const DualPagePointer &desired) {
+        return assorted::raw_atomic_compare_exchange_strong_uint128(
+            reinterpret_cast<uint64_t*>(this),
+            reinterpret_cast<const uint64_t*>(&expected),
+            reinterpret_cast<const uint64_t*>(&desired));
+    }
+    /** 128-bit atomic CAS (weak version) for the dual pointer. */
+    bool atomic_compare_exchange_weak(
+        const DualPagePointer &expected, const DualPagePointer &desired) {
+        return assorted::raw_atomic_compare_exchange_weak_uint128(
+            reinterpret_cast<uint64_t*>(this),
+            reinterpret_cast<const uint64_t*>(&expected),
+            reinterpret_cast<const uint64_t*>(&desired));
+    }
 
     uint64_t            snapshot_page_id_;
     VolatilePagePointer volatile_pointer_;
 };
+STATIC_SIZE_CHECK(sizeof(DualPagePointer), sizeof(uint64_t) * 2)
 
 }  // namespace storage
 }  // namespace foedus

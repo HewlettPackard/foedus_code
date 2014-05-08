@@ -11,9 +11,10 @@ namespace assorted {
 
 template <typename T>
 bool    raw_atomic_compare_exchange_strong(T* target, T* expected, T desired) {
+    static_assert(sizeof(T) == sizeof(std::atomic< T >), "std::atomic<T> size is not same as T??");
     // this is super ugly. but this is the only way to do it without compiler-dependent code.
     std::atomic<T>* casted = reinterpret_cast< std::atomic<T>* >(target);
-    return std::atomic_compare_exchange_strong<T>(casted, expected, desired);
+    return casted->compare_exchange_strong(*expected, desired);
 }
 // template explicit instantiations for all integer types.
 #define EXPLICIT_INSTANTIATION_STRONG(x) \

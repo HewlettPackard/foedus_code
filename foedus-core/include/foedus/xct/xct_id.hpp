@@ -10,6 +10,7 @@
 #include <foedus/assert_nd.hpp>
 #include <foedus/assorted/raw_atomics.hpp>
 #include <foedus/assorted/assorted_func.hpp>
+#include <foedus/assorted/atomic_fences.hpp>
 #include <stdint.h>
 #include <iosfwd>
 /**
@@ -67,9 +68,14 @@ enum IsolationLevel {
  * This object is equivalent to what [TU13] Sec 4.2 defines.
  * @par POD
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
+ * @todo maybe the data member should be uint64_t and just a bunch of accessors to wrap it?
  */
 struct XctId {
     XctId() : epoch_(), thread_id_(0), ordinal_and_status_(0) {
+    }
+    XctId(const XctId& other) {
+        // to assure atomic write of 64 bits, we do the following.
+        *reinterpret_cast<uint64_t*>(this) = other.as_int();
     }
     XctId(Epoch epoch, thread::ThreadId thread_id, uint16_t ordinal_and_status)
         : epoch_(epoch), thread_id_(thread_id), ordinal_and_status_(ordinal_and_status) {}
@@ -87,7 +93,7 @@ struct XctId {
     friend std::ostream& operator<<(std::ostream& o, const XctId& v);
 
     template<unsigned int STATUS_BIT>
-    void assert_status_bit() {
+    void assert_status_bit() const {
         CXX11_STATIC_ASSERT(STATUS_BIT < 16, "STATUS_BIT must be within 16 bits");
         ASSERT_ND(STATUS_BIT < 16);
     }
@@ -107,22 +113,32 @@ struct XctId {
             tmp.ordinal_and_status_ |= status_bit;
             uint64_t desired = tmp.as_int();  // same status with lock bit
             if (assorted::raw_atomic_compare_exchange_weak(target, &expected, desired)) {
+                ASSERT_ND(is_locked<STATUS_BIT>());
                 break;
             }
         }
     }
     template<unsigned int STATUS_BIT>
-    bool is_locked() {
+    bool is_locked() const {
         assert_status_bit<STATUS_BIT>();
         const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
         return (ordinal_and_status_ & status_bit) != 0;
     }
 
     template<unsigned int STATUS_BIT>
+    void spin_while_locked() const {
+        assert_status_bit<STATUS_BIT>();
+        const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
+        while ((ordinal_and_status_ & status_bit) != 0) {
+            assorted::memory_fence_acquire();
+        }
+    }
+
+    template<unsigned int STATUS_BIT>
     void unlock() {
         assert_status_bit<STATUS_BIT>();
         const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
-        ASSERT_ND((ordinal_and_status_ & status_bit) != 0);
+        ASSERT_ND(is_locked<STATUS_BIT>());
         ordinal_and_status_ &= ~status_bit;
     }
 

@@ -4,6 +4,7 @@
  */
 #include <foedus/test_common.hpp>
 #include <foedus/epoch.hpp>
+#include <foedus/assorted/uniform_random.hpp>
 #include <foedus/xct/xct_access.hpp>
 #include <foedus/xct/xct_id.hpp>
 #include <stdint.h>
@@ -74,6 +75,23 @@ TEST(XctAccessTest, SortReadSet) {
     verify_access(sets[6], 40);
 }
 
+TEST(XctAccessTest, RandomReadSet) {
+    const int SIZE = 200;
+    const int SWAP_COUNT = 400;
+    XctAccess sets[SIZE];
+    for (int i = 0; i < SIZE; ++i) {
+        sets[i] = create_access(i + 12);
+    }
+    assorted::UniformRandom rnd(1234);
+    for (int i = 0; i < SWAP_COUNT; ++i) {
+        std::swap(sets[rnd.uniform_within(0, SIZE - 1)], sets[rnd.uniform_within(0, SIZE - 1)]);
+    }
+    std::sort(sets, sets + SIZE, XctAccess::compare);
+    for (int i = 0; i < SIZE; ++i) {
+        verify_access(sets[i], i + 12);
+    }
+}
+
 
 WriteXctAccess create_write_access(int i) {
     WriteXctAccess access;
@@ -131,6 +149,23 @@ TEST(XctAccessTest, SortWriteSet) {
     verify_access(sets[4], 19);
     verify_access(sets[5], 20);
     verify_access(sets[6], 40);
+}
+
+TEST(XctAccessTest, RandomWriteSet) {
+    const int SIZE = 200;
+    const int SWAP_COUNT = 400;
+    WriteXctAccess sets[SIZE];
+    for (int i = 0; i < SIZE; ++i) {
+        sets[i] = create_write_access(i + 12);
+    }
+    assorted::UniformRandom rnd(1234);
+    for (int i = 0; i < SWAP_COUNT; ++i) {
+        std::swap(sets[rnd.uniform_within(0, SIZE - 1)], sets[rnd.uniform_within(0, SIZE - 1)]);
+    }
+    std::sort(sets, sets + SIZE, WriteXctAccess::compare);
+    for (int i = 0; i < SIZE; ++i) {
+        verify_access(sets[i], i + 12);
+    }
 }
 }  // namespace xct
 }  // namespace foedus

@@ -5,5 +5,7 @@ add_foedus_test(test_engine)
 add_foedus_test(test_engine_options)
 add_foedus_test(test_epoch)
 
+add_subdirectory(assorted)
+add_subdirectory(memory)
 add_subdirectory(storage)
 add_subdirectory(xct)

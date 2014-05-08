@@ -12,12 +12,15 @@
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread.hpp>
 #include <foedus/xct/xct_manager.hpp>
+#include <foedus/xct/xct.hpp>
+#include <foedus/xct/xct_access.hpp>
 #include <gtest/gtest.h>
 #include <stdint.h>
 #include <condition_variable>
 #include <future>
 #include <iostream>
 #include <mutex>
+#include <vector>
 /**
  * @file tpch_array_tpcb.cpp
  * A minimal TPC-B on array storage.
@@ -29,7 +32,7 @@ namespace array {
 
 // tiny numbers
 /** number of branches (TPS scaling factor). */
-const int BRANCHES  =   2;
+const int BRANCHES  =   16;
 /** number of tellers in 1 branch. */
 const int TELLERS   =   2;
 /** number of accounts in 1 branch. */
@@ -37,7 +40,7 @@ const int ACCOUNTS  =   4;
 const int ACCOUNTS_PER_TELLER = ACCOUNTS / TELLERS;
 
 /** In this testcase, we run at most this number of threads. */
-const int MAX_TEST_THREADS = 2;
+const int MAX_TEST_THREADS = 4;
 /** number of transaction to run per thread. */
 const int XCTS_PER_THREAD = 100;
 const int INITIAL_ACCOUNT_BALANCE = 100;
@@ -163,8 +166,10 @@ class RunTpcbTask : public thread::ImpersonateTask {
         assorted::UniformRandom rand;
         rand.set_current_seed(client_id_);
         Epoch highest_commit_epoch;
+        xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
         for (int i = 0; i < XCTS_PER_THREAD; ++i) {
-            uint64_t account_id = rand.next_uint32() % (BRANCHES * ACCOUNTS);
+            // uint64_t account_id = rand.next_uint32() % (BRANCHES * ACCOUNTS);
+            uint64_t account_id = rand.next_uint32() % (ACCOUNTS) + (client_id_ * ACCOUNTS);
             uint64_t teller_id = account_id / ACCOUNTS_PER_TELLER;
             uint64_t branch_id = account_id / ACCOUNTS;
             uint64_t history_id = client_id_ * XCTS_PER_THREAD + i;
@@ -176,12 +181,17 @@ class RunTpcbTask : public thread::ImpersonateTask {
                     branch_id, teller_id, account_id, history_id, amount);
                 if (!error_stack.is_error()) {
                     break;
-                } else if (error_stack.get_error_code() != ERROR_CODE_XCT_RACE_ABORT) {
+                } else if (error_stack.get_error_code() == ERROR_CODE_XCT_RACE_ABORT) {
+                    // abort and retry
+                    if (context->get_current_xct().is_active()) {
+                        CHECK_ERROR(xct_manager.abort_xct(context));
+                    }
+                } else {
                     COERCE_ERROR(error_stack);
                 }
             }
         }
-        CHECK_ERROR(context->get_engine()->get_xct_manager().wait_for_commit(highest_commit_epoch));
+        CHECK_ERROR(xct_manager.wait_for_commit(highest_commit_epoch));
         return foedus::RET_OK;
     }
 
@@ -296,6 +306,10 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
             EXPECT_EQ(i / ACCOUNTS, data.branch_id_) << i;
             EXPECT_EQ(expected_account[i], data.account_balance_) << "account-" << i;
         }
+        for (uint32_t i = 0; i < context->get_current_xct().get_read_set_size(); ++i) {
+            xct::XctAccess& access = context->get_current_xct().get_read_set()[i];
+            EXPECT_FALSE(access.observed_owner_id_.is_locked<15>()) << i;
+        }
 
         CHECK_ERROR(xct_manager.abort_xct(context));
         return foedus::RET_OK;
@@ -305,9 +319,11 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
     int clients_;
 };
 
-TEST(ArrayTpcbTest, SingleThreaded) {
+void multi_thread_test(int thread_count) {
     EngineOptions options = get_tiny_options();
-    options.log_.log_buffer_kb_ = 1 << 10;
+    options.log_.log_buffer_kb_ = 1 << 12;
+    options.thread_.group_count_ = 1;
+    options.thread_.thread_count_per_group_ = thread_count;
     Engine engine(options);
     COERCE_ERROR(engine.initialize());
     {
@@ -318,13 +334,21 @@ TEST(ArrayTpcbTest, SingleThreaded) {
 
     {
         std::promise<void> start_promise;
-        RunTpcbTask task(0, start_promise.get_future().share());
-        thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+        std::shared_future<void> start_future = start_promise.get_future().share();
+        std::vector<RunTpcbTask*> tasks;
+        std::vector<thread::ImpersonateSession> sessions;
+        for (int i = 0; i < thread_count; ++i) {
+            tasks.push_back(new RunTpcbTask(i, start_future));
+            sessions.emplace_back(engine.get_thread_pool().impersonate(tasks[i]));
+        }
         start_promise.set_value();
-        COERCE_ERROR(session.get_result());
+        for (int i = 0; i < thread_count; ++i) {
+            COERCE_ERROR(sessions[i].get_result());
+            delete tasks[i];
+        }
     }
     {
-        VerifyTpcbTask task(1);
+        VerifyTpcbTask task(thread_count);
         thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
         COERCE_ERROR(session.get_result());
     }
@@ -332,6 +356,9 @@ TEST(ArrayTpcbTest, SingleThreaded) {
     cleanup_test(options);
 }
 
+TEST(ArrayTpcbTest, SingleThreaded) { multi_thread_test(1); }
+TEST(ArrayTpcbTest, TwoThreaded)    { multi_thread_test(2); }
+TEST(ArrayTpcbTest, FourThreaded)   { multi_thread_test(4); }
 
 }  // namespace array
 }  // namespace storage
