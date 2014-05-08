@@ -1,3 +1,8 @@
+2014-05-07  Hideaki
+Applied the following patch on top of 0.3.3.
+  https://code.google.com/p/google-glog/issues/detail?id=172&start=100
+I need this fix to use SetVLOGLevel.
+
 2013-02-01  Google Inc. <opensource@google.com>
 
 	* google-glog: version 0.3.3

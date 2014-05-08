@@ -4,6 +4,7 @@
  */
 #include <foedus/engine_pimpl.hpp>
 #include <foedus/error_stack_batch.hpp>
+#include <glog/logging.h>
 #include <algorithm>
 namespace foedus {
 
@@ -26,9 +27,15 @@ ErrorStack EnginePimpl::initialize_once() {
     for (Initializable* child : get_children()) {
         CHECK_ERROR(child->initialize());
     }
+    LOG(INFO) << "================================================================================";
+    LOG(INFO) << "================================== FOEDUS ENGINE INITIALIZATION DONE ===========";
+    LOG(INFO) << "================================================================================";
     return RET_OK;
 }
 ErrorStack EnginePimpl::uninitialize_once() {
+    LOG(INFO) << "================================================================================";
+    LOG(INFO) << "================================== FOEDUS ENGINE EXITTING...... ================";
+    LOG(INFO) << "================================================================================";
     ErrorStackBatch batch;
     // uninit in reverse order of initialization
     auto children = get_children();

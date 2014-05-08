@@ -11,8 +11,18 @@
 #include <glog/logging.h>
 #include <foedus/assert_nd.hpp>
 #include <ostream>
+#include <sstream>
+#include <string>
 namespace foedus {
 namespace fs {
+const uint64_t ODIRECT_ALIGNMENT = 0x1000;
+inline bool is_odirect_aligned(uint64_t value) {
+    return (value % ODIRECT_ALIGNMENT) == 0;
+}
+inline bool is_odirect_aligned(void* ptr) {
+    return (reinterpret_cast<uintptr_t>(ptr) % ODIRECT_ALIGNMENT) == 0;
+}
+
 DirectIoFile::DirectIoFile(
     const Path &path,
     const DeviceEmulationOptions &emulation)
@@ -84,24 +94,27 @@ void DirectIoFile::close() {
         descriptor_ = INVALID_DESCRIPTOR;
     }
 }
-ErrorCode DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemory* buffer) {
+ErrorStack DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemory* buffer) {
     return read(desired_bytes, memory::AlignedMemorySlice(buffer));
 }
-ErrorCode DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemorySlice buffer) {
+ErrorStack DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemorySlice buffer) {
     if (!is_opened()) {
-        return ERROR_CODE_FS_NOT_OPENED;
+        return ERROR_STACK_MSG(ERROR_CODE_FS_NOT_OPENED, to_string().c_str());
     }
     if (desired_bytes == 0) {
-        return ERROR_CODE_OK;
+        return RET_OK;
     }
     if (desired_bytes > buffer.count_) {
         LOG(ERROR) << "DirectIoFile::read(): too small buffer is given. desired_bytes="
             << desired_bytes << ", buffer=" << buffer;
-        return ERROR_CODE_FS_BUFFER_TOO_SMALL;
+        return ERROR_STACK_MSG(ERROR_CODE_FS_BUFFER_TOO_SMALL, to_string().c_str());
     }
-    if (!emulation_.disable_direct_io_ && (buffer.memory_->get_alignment() & 0xFFF) != 0) {
-        LOG(ERROR) << "DirectIoFile::read(): non-aligned buffer is given. buffer=" << buffer;
-        return ERROR_CODE_FS_BUFFER_NOT_ALIGNED;
+    if (!is_odirect_aligned(buffer.memory_->get_alignment())
+            || !is_odirect_aligned(buffer.get_block())
+            || !is_odirect_aligned(desired_bytes)) {
+        LOG(ERROR) << "DirectIoFile::read(): non-aligned input is given. buffer=" << buffer
+            << ", desired_bytes=" << desired_bytes;
+        return ERROR_STACK_MSG(ERROR_CODE_FS_BUFFER_NOT_ALIGNED, to_string().c_str());
     }
 
     // underlying POSIX filesystem might split the read for severel reasons. so, while loop.
@@ -109,14 +122,15 @@ ErrorCode DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemorySlice 
     uint64_t remaining = desired_bytes;
     while (remaining > 0) {
         char* position = buffer.get_block() + total_read;
+        ASSERT_ND(is_odirect_aligned(position));
         ssize_t read_bytes = ::read(descriptor_, position, remaining);
-        if (read_bytes <= 0 || errno != 0) {
+        if (read_bytes <= 0) {
             // zero means end of file (unexpected). negative value means error.
             LOG(ERROR) << "DirectIoFile::read(): error. this=" << *this << " buffer=" << buffer
                 << ", total_read=" << total_read << ", desired_bytes=" << desired_bytes
                 << ", remaining=" << remaining << ", read_bytes=" << read_bytes
                 << ", err=" << assorted::os_error();
-            return ERROR_CODE_FS_TOO_SHORT_READ;
+            return ERROR_STACK_MSG(ERROR_CODE_FS_TOO_SHORT_READ, to_string().c_str());
         }
 
         if (static_cast<uint64_t>(read_bytes) > remaining) {
@@ -124,7 +138,13 @@ ErrorCode DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemorySlice 
                 << ", total_read=" << total_read << ", desired_bytes=" << desired_bytes
                 << ", remaining=" << remaining << ", read_bytes=" << read_bytes
                 << ", err=" << assorted::os_error();
-            return ERROR_CODE_FS_EXCESS_READ;
+            return ERROR_STACK_MSG(ERROR_CODE_FS_EXCESS_READ, to_string().c_str());
+        } else if (!emulation_.disable_direct_io_ && !is_odirect_aligned(read_bytes)) {
+            LOG(FATAL) << "DirectIoFile::read(): wtf2? this=" << *this << " buffer=" << buffer
+                << ", total_read=" << total_read << ", desired_bytes=" << desired_bytes
+                << ", remaining=" << remaining << ", read_bytes=" << read_bytes
+                << ", err=" << assorted::os_error();
+            return ERROR_STACK_MSG(ERROR_CODE_FS_RESULT_NOT_ALIGNED, to_string().c_str());
         }
 
         total_read += read_bytes;
@@ -136,28 +156,32 @@ ErrorCode DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemorySlice 
                 << ", remaining=" << remaining;
         }
     }
-    return ERROR_CODE_OK;
+    return RET_OK;
 }
 
-ErrorCode DirectIoFile::write(uint64_t desired_bytes, const memory::AlignedMemory& buffer) {
+ErrorStack DirectIoFile::write(uint64_t desired_bytes, const memory::AlignedMemory& buffer) {
     return write(desired_bytes, memory::AlignedMemorySlice(
         const_cast<memory::AlignedMemory*>(&buffer)));
 }
-ErrorCode DirectIoFile::write(uint64_t desired_bytes, memory::AlignedMemorySlice buffer) {
+
+ErrorStack DirectIoFile::write(uint64_t desired_bytes, memory::AlignedMemorySlice buffer) {
     if (!is_opened()) {
-        return ERROR_CODE_FS_NOT_OPENED;
+        return ERROR_STACK_MSG(ERROR_CODE_FS_NOT_OPENED, to_string().c_str());
     }
     if (desired_bytes == 0) {
-        return ERROR_CODE_OK;
+        return RET_OK;
     }
     if (desired_bytes > buffer.count_) {
         LOG(ERROR) << "DirectIoFile::write(): too small buffer is given. desired_bytes="
             << desired_bytes << ", buffer=" << buffer;
-        return ERROR_CODE_FS_BUFFER_TOO_SMALL;
+        return ERROR_STACK_MSG(ERROR_CODE_FS_BUFFER_TOO_SMALL, to_string().c_str());
     }
-    if (!emulation_.disable_direct_io_ && (buffer.memory_->get_alignment() & 0xFFF) != 0) {
-        LOG(ERROR) << "DirectIoFile::write(): non-aligned buffer is given. buffer=" << buffer;
-        return ERROR_CODE_FS_BUFFER_NOT_ALIGNED;
+    if (!is_odirect_aligned(buffer.memory_->get_alignment())
+            || !is_odirect_aligned(buffer.get_block())
+            || !is_odirect_aligned(desired_bytes)) {
+        LOG(ERROR) << "DirectIoFile::write(): non-aligned input is given. buffer=" << buffer
+            << ", desired_bytes=" << desired_bytes;
+        return ERROR_STACK_MSG(ERROR_CODE_FS_BUFFER_NOT_ALIGNED, to_string().c_str());
     }
 
     // underlying POSIX filesystem might split the write for severel reasons. so, while loop.
@@ -165,15 +189,16 @@ ErrorCode DirectIoFile::write(uint64_t desired_bytes, memory::AlignedMemorySlice
     uint64_t remaining = desired_bytes;
     while (remaining > 0) {
         void* position = buffer.get_block() + total_written;
+        ASSERT_ND(is_odirect_aligned(position));
         ssize_t written_bytes = ::write(descriptor_, position, remaining);
-        if (written_bytes < 0 || errno != 0) {
+        if (written_bytes < 0) {
             // negative value means error.
             LOG(ERROR) << "DirectIoFile::write(): error. this=" << *this << " buffer=" << buffer
                 << ", total_written=" << total_written << ", desired_bytes=" << desired_bytes
                 << ", remaining=" << remaining << ", written_bytes=" << written_bytes
                 << ", err=" << assorted::os_error();
             // TODO(Hideaki) more error codes depending on errno. but mostly it should be disk-full
-            return ERROR_CODE_FS_WRITE_FAIL;
+            return ERROR_STACK_MSG(ERROR_CODE_FS_WRITE_FAIL, to_string().c_str());
         }
 
         if (static_cast<uint64_t>(written_bytes) > remaining) {
@@ -181,7 +206,13 @@ ErrorCode DirectIoFile::write(uint64_t desired_bytes, memory::AlignedMemorySlice
                 << ", total_written=" << total_written << ", desired_bytes=" << desired_bytes
                 << ", remaining=" << remaining << ", written_bytes=" << written_bytes
                 << ", err=" << assorted::os_error();
-            return ERROR_CODE_FS_EXCESS_WRITE;
+            return ERROR_STACK_MSG(ERROR_CODE_FS_EXCESS_WRITE, to_string().c_str());
+        } else if (!emulation_.disable_direct_io_ && !is_odirect_aligned(written_bytes)) {
+            LOG(FATAL) << "DirectIoFile::write(): wtf2? this=" << *this << " buffer=" << buffer
+                << ", total_written=" << total_written << ", desired_bytes=" << desired_bytes
+                << ", remaining=" << remaining << ", written_bytes=" << written_bytes
+                << ", err=" << assorted::os_error();
+            return ERROR_STACK_MSG(ERROR_CODE_FS_RESULT_NOT_ALIGNED, to_string().c_str());
         }
 
         total_written += written_bytes;
@@ -193,20 +224,25 @@ ErrorCode DirectIoFile::write(uint64_t desired_bytes, memory::AlignedMemorySlice
                 << ", remaining=" << remaining;
         }
     }
-    return ERROR_CODE_OK;
+    return RET_OK;
 }
 
 ErrorStack DirectIoFile::truncate(uint64_t new_length, bool sync) {
+    if (!is_odirect_aligned(new_length)) {
+        LOG(ERROR) << "DirectIoFile::truncate(): non-aligned input is given. "
+            << " new_length=" << new_length;
+        return ERROR_STACK(ERROR_CODE_FS_BUFFER_NOT_ALIGNED);
+    }
     LOG(INFO) << "DirectIoFile::truncate(): truncating " << *this << " to " << new_length
         << " bytes..";
     if (!is_opened()) {
-        return ERROR_STACK(ERROR_CODE_FS_NOT_OPENED);
+        return ERROR_STACK_MSG(ERROR_CODE_FS_NOT_OPENED, to_string().c_str());
     }
 
     if (::ftruncate(descriptor_, new_length) != 0) {
         LOG(ERROR) << "DirectIoFile::truncate(): failed. this=" << *this
             << " err=" << assorted::os_error();
-        return ERROR_STACK_MSG(ERROR_CODE_FS_TRUNCATE_FAILED, path_.c_str());
+        return ERROR_STACK_MSG(ERROR_CODE_FS_TRUNCATE_FAILED, to_string().c_str());
     }
     current_offset_ = new_length;
     if (sync) {
@@ -216,7 +252,11 @@ ErrorStack DirectIoFile::truncate(uint64_t new_length, bool sync) {
     return RET_OK;
 }
 
-ErrorCode DirectIoFile::seek(uint64_t offset, SeekType seek_type) {
+ErrorStack DirectIoFile::seek(uint64_t offset, SeekType seek_type) {
+    if (!is_odirect_aligned(offset)) {
+        LOG(ERROR) << "DirectIoFile::seek(): non-aligned input is given. offset=" << offset;
+        return ERROR_STACK(ERROR_CODE_FS_BUFFER_NOT_ALIGNED);
+    }
     __off_t ret;
     switch (seek_type) {
         case DIRECT_IO_SEEK_SET:
@@ -230,38 +270,47 @@ ErrorCode DirectIoFile::seek(uint64_t offset, SeekType seek_type) {
             break;
         default:
             LOG(ERROR) << "DirectIoFile::seek(): wtf?? seek_type=" << seek_type;
-            return ERROR_CODE_FS_BAD_SEEK_INPUT;
+            return ERROR_STACK_MSG(ERROR_CODE_FS_BAD_SEEK_INPUT, to_string().c_str());
     }
     if (ret < 0) {
         LOG(ERROR) << "DirectIoFile::seek(): failed. err=" << assorted::os_error();
-        return ERROR_CODE_FS_SEEK_FAILED;
+        return ERROR_STACK_MSG(ERROR_CODE_FS_SEEK_FAILED, to_string().c_str());
     }
     current_offset_ = ret;
-    return ERROR_CODE_OK;
+    return RET_OK;
 }
 
-ErrorCode DirectIoFile::sync() {
+ErrorStack DirectIoFile::sync() {
     if (!is_opened()) {
-        return ERROR_CODE_FS_NOT_OPENED;
+        return ERROR_STACK(ERROR_CODE_FS_NOT_OPENED);
     }
     if (!is_write()) {
-        return ERROR_CODE_INVALID_PARAMETER;
+        return ERROR_STACK(ERROR_CODE_INVALID_PARAMETER);
     }
 
     int ret = ::fsync(descriptor_);
     if (ret != 0) {
         LOG(ERROR) << "DirectIoFile::sync(): fsync failed. this=" << *this
             << ", err=" << assorted::os_error();
-        return ERROR_CODE_FS_SYNC_FAILED;
+        return ERROR_STACK_MSG(ERROR_CODE_FS_SYNC_FAILED, to_string().c_str());
     }
 
-    return ERROR_CODE_OK;
+    return RET_OK;
 }
 
+std::string DirectIoFile::to_string() const {
+    std::stringstream stream;
+    stream << *this;
+    return stream.str();
+}
 std::ostream& operator<<(std::ostream& o, const DirectIoFile& v) {
-    o << "DirectIoFile:" << v.get_path() << ", descriptor = " << v.get_descriptor()
-        << ", read = " << v.is_read() << ", write = " << v.is_write()
-        << ", current_offset = " << v.get_current_offset();
+    o << "<DirectIoFile>"
+        << "<path>" << v.get_path() << "</path>"
+        << "<descriptor>" << v.get_descriptor() << "</descriptor>"
+        << "<read>" << v.is_read() << "</read>"
+        << "<write>" << v.is_write() << "</write>"
+        << "<current_offset>" << v.get_current_offset() << "</current_offset>"
+        << "</DirectIoFile>";
     return o;
 }
 

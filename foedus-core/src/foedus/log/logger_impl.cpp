@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+4 * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/engine.hpp>
 #include <foedus/epoch.hpp>
@@ -35,6 +35,22 @@
 #include <vector>
 namespace foedus {
 namespace log {
+
+inline bool is_log_aligned(uint64_t offset) {
+    return offset % FillerLogType::LOG_WRITE_UNIT_SIZE == 0;
+}
+inline uint64_t align_log_ceil(uint64_t offset) {
+    return assorted::align< uint64_t, FillerLogType::LOG_WRITE_UNIT_SIZE >(offset);
+}
+inline uint64_t align_log_floor(uint64_t offset) {
+    if (offset % FillerLogType::LOG_WRITE_UNIT_SIZE == 0) {
+        return offset;
+    } else {
+        return assorted::align< uint64_t, FillerLogType::LOG_WRITE_UNIT_SIZE >(offset)
+            - FillerLogType::LOG_WRITE_UNIT_SIZE;
+    }
+}
+
 fs::Path Logger::construct_suffixed_log_path(LogFileOrdinal ordinal) const {
     std::stringstream path_str;
     path_str << log_path_.string() << "." << ordinal;
@@ -52,26 +68,26 @@ ErrorStack Logger::initialize_once() {
     // Initialize the values from the latest savepoint.
     // this is during initialization. no race.
     const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
-    durable_epoch_ = savepoint.get_durable_epoch();  // current/durable epoch starts with what
-    current_epoch_ = savepoint.get_current_epoch();  // the savepoint remembers.
+    durable_epoch_ = savepoint.get_durable_epoch();  // durable epoch from savepoint
     oldest_ordinal_ = savepoint.oldest_log_files_[id_];  // ordinal/length too
     current_ordinal_ = savepoint.current_log_files_[id_];
-    current_file_length_ = savepoint.current_log_files_offset_durable_[id_];
+    current_file_durable_offset_ = savepoint.current_log_files_offset_durable_[id_];
     oldest_file_offset_begin_ = savepoint.oldest_log_files_offset_begin_[id_];
     current_file_path_ = construct_suffixed_log_path(current_ordinal_);
     // open the log file
     current_file_ = new fs::DirectIoFile(current_file_path_,
                                          engine_->get_options().log_.emulation_);
     CHECK_ERROR(current_file_->open(true, true, true, true));
-    uint64_t current_length = fs::file_size(current_file_path_);
-    if (current_file_length_ < fs::file_size(current_file_path_)) {
+    if (current_file_durable_offset_ < current_file_->get_current_offset()) {
         // there are non-durable regions as an incomplete remnant of previous execution.
         // probably there was a crash. in this case, we discard the non-durable regions.
         LOG(ERROR) << "Logger-" << id_ << "'s log file has a non-durable region. Probably there"
-            << " was a crash. Will truncate it to " << current_file_length_
-            << " from " << current_length;
-        CHECK_ERROR(current_file_->truncate(current_file_length_, true));  // also sync right now
+            << " was a crash. Will truncate it to " << current_file_durable_offset_
+            << " from " << current_file_->get_current_offset();
+        CHECK_ERROR(current_file_->truncate(current_file_durable_offset_, true));  // sync right now
     }
+    ASSERT_ND(current_file_durable_offset_ == current_file_->get_current_offset());
+    LOG(INFO) << "Initialized logger: " << *this;
 
     // which threads are assigned to me?
     for (auto thread_id : assigned_thread_ids_) {
@@ -87,11 +103,13 @@ ErrorStack Logger::initialize_once() {
     // log file and buffer prepared. let's launch the logger thread
     logger_thread_.initialize("Logger-", id_,
                     std::thread(&Logger::handle_logger, this), std::chrono::milliseconds(10));
+
+    assert_consistent();
     return RET_OK;
 }
 
 ErrorStack Logger::uninitialize_once() {
-    LOG(INFO) << "Uninitializing Logger-" << id_ << ".";
+    LOG(INFO) << "Uninitializing Logger-" << id_ << ": " << *this;
     ErrorStackBatch batch;
     logger_thread_.stop();
     if (current_file_) {
@@ -103,98 +121,114 @@ ErrorStack Logger::uninitialize_once() {
     return RET_OK;
 }
 
+
 void Logger::handle_logger() {
     LOG(INFO) << "Logger-" << id_ << " started. pin on NUMA node-" << static_cast<int>(numa_node_);
     ::numa_run_on_node(numa_node_);
     while (!logger_thread_.sleep()) {
-        ASSERT_ND(current_epoch_.is_valid() && durable_epoch_.is_valid());
         const int MAX_ITERATIONS = 100;
         int iterations = 0;
         while (!logger_thread_.is_stop_requested()) {
+            assert_consistent();
             bool more_log_to_process = false;
-            COERCE_ERROR(update_durable_epoch());
-            for (thread::Thread* the_thread : assigned_threads_) {
-                if (logger_thread_.is_stop_requested()) {
-                    break;
-                }
-
-                // we FIRST take offset_committed with memory fence for the reason below.
-                ThreadLogBuffer& buffer = the_thread->get_thread_log_buffer();
-                assorted::memory_fence_acquire();
-                const uint64_t offset_committed = buffer.get_offset_committed();
-                if (offset_committed == buffer.get_offset_durable()) {
-                    VLOG(1) << "Thread-" << the_thread->get_thread_id() << " has no log to flush.";
-                    continue;
-                }
-                VLOG(0) << "Thread-" << the_thread->get_thread_id() << " has "
-                    << (offset_committed - buffer.get_offset_durable()) << " bytes logs to flush.";
-                assorted::memory_fence_acquire();
-
-                // (if we need to) we consume epoch mark AFTER the fence. Thus, we don't miss a
-                // case where the thread adds a new epoch mark after we read offset_committed.
-                buffer.consume_epoch_mark_as_many();
-
-                if (buffer.logger_epoch_open_ended_
-                    && buffer.logger_epoch_ends_ == buffer.offset_durable_) {
-                    // Then, the buffer is empty and maybe the worker thread is idle
-                    continue;
-                }
-
-                ASSERT_ND(buffer.logger_epoch_ >= current_epoch_);  // invariant
-                if (buffer.logger_epoch_ > current_epoch_) {
-                    // then skip it for now. we must finish the current epoch first.
-                    VLOG(0) << "Skipped " << the_thread->get_thread_id() << "'s log. too recent.";
-                    more_log_to_process = true;
-                    continue;
-                } else {
-                    // okay, let's write out logs in this buffer
-                    uint64_t upto_offset;
-                    if (!buffer.logger_epoch_open_ended_) {
-                        // We know where current epoch logs end. Write up to there.
-                        upto_offset = buffer.logger_epoch_ends_;
-                    } else {
-                        // We don't know where it ends, but know that all logs are in current epoch.
-                        // then, we write out upto offset_committed_. however, consider the case:
-                        // 1) buffer has no mark (open ended) durable=10, committed=20, ep=3.
-                        // 2) this logger comes by with current_epoch=3. Sees no mark in buffer.
-                        // 3) buffer receives new log in the meantime, ep=4, new mark added,
-                        //   and committed is now 30. (10-20=ep3, 20-30=ep4 logs)
-                        // 4) logger "okay, I will flush out all logs up to committed(30)".
-                        // 5) logger writes out all logs up to 30, as **ep=3**.
-                        // To prevent this case, we first read offset_committed, take fence, then
-                        // check epoch mark.
-                        upto_offset = offset_committed;  // use the already-copied value
-                    }
-
-                    COERCE_ERROR(write_log(&buffer, upto_offset));
-                }
-            }
-
-            COERCE_ERROR(update_durable_epoch());
-
+            COERCE_ERROR(handle_logger_once(&more_log_to_process));
             if (!more_log_to_process) {
                 break;
             }
             if (++iterations >= MAX_ITERATIONS) {
                 LOG(WARNING) << "Logger-" << id_ << " has been working without sleep for long time"
-                    << ". Either too few loggers or potentially a bug??";
+                    << ". Either too few loggers or potentially a bug?? " << *this;
                 break;
             } else {
                 LOG(INFO) << "Logger-" << id_ << " has more task. keep working. " << iterations;
+                DVLOG(1) << *this;
             }
         }
     }
-    LOG(INFO) << "Logger-" << id_ << " ended.";
+    LOG(INFO) << "Logger-" << id_ << " ended. " << *this;
 }
 
+ErrorStack Logger::handle_logger_once(bool *more_log_to_process) {
+    *more_log_to_process = false;
+    CHECK_ERROR(update_durable_epoch());
+    Epoch current_logger_epoch = durable_epoch_.one_more();
+    for (thread::Thread* the_thread : assigned_threads_) {
+        if (logger_thread_.is_stop_requested()) {
+            break;
+        }
+
+        // we FIRST take offset_committed with memory fence for the reason below.
+        ThreadLogBuffer& buffer = the_thread->get_thread_log_buffer();
+        assorted::memory_fence_acquire();
+        const uint64_t offset_committed = buffer.get_offset_committed();
+        if (offset_committed == buffer.get_offset_durable()) {
+            VLOG(1) << "Thread-" << the_thread->get_thread_id() << " has no log to flush.";
+            DVLOG(2) << *this;
+            continue;
+        }
+        VLOG(0) << "Thread-" << the_thread->get_thread_id() << " has "
+            << (offset_committed - buffer.get_offset_durable()) << " bytes logs to flush.";
+        DVLOG(1) << *this;
+        assorted::memory_fence_acquire();
+
+        // (if we need to) we consume epoch mark AFTER the fence. Thus, we don't miss a
+        // case where the thread adds a new epoch mark after we read offset_committed.
+        buffer.consume_epoch_mark_as_many();
+
+        if (buffer.offset_committed_ == buffer.offset_durable_) {
+            // Then, the buffer is empty and maybe the worker thread is idle
+            continue;
+        }
+
+        if (buffer.logger_epoch_ > current_logger_epoch) {
+            VLOG(0) << "Thread-" << the_thread->get_thread_id() << " already went to ep-"
+                << buffer.logger_epoch_ << ". skip it. current=" << current_logger_epoch;
+            *more_log_to_process = true;
+            continue;
+        }
+
+        // okay, let's write out logs in this buffer
+        uint64_t upto_offset;
+        if (!buffer.logger_epoch_open_ended_) {
+            // We know where current epoch logs end. Write up to there.
+            upto_offset = buffer.logger_epoch_ends_;
+        } else {
+            // We don't know where it ends, but know that all logs are in current epoch.
+            // then, we write out upto offset_committed_. however, consider the case:
+            // 1) buffer has no mark (open ended) durable=10, committed=20, ep=3.
+            // 2) this logger comes by with current_epoch=3. Sees no mark in buffer.
+            // 3) buffer receives new log in the meantime, ep=4, new mark added,
+            //   and committed is now 30. (10-20=ep3, 20-30=ep4 logs)
+            // 4) logger "okay, I will flush out all logs up to committed(30)".
+            // 5) logger writes out all logs up to 30, as **ep=3**.
+            // To prevent this case, we first read offset_committed, take fence, then
+            // check epoch mark.
+            upto_offset = offset_committed;  // use the already-copied value
+        }
+
+        if (upto_offset != buffer.offset_durable_) {
+            ASSERT_ND(buffer.logger_epoch_ == current_logger_epoch);
+            CHECK_ERROR(write_log(&buffer, upto_offset));
+        }
+        if (buffer.offset_durable_ != buffer.get_offset_committed()) {
+            *more_log_to_process = true;
+        }
+    }
+
+    CHECK_ERROR(update_durable_epoch());
+    return RET_OK;
+}
+
+
 ErrorStack Logger::update_durable_epoch() {
-    assert_epoch_values();
+    assert_consistent();
     assorted::memory_fence_acquire();  // not necessary. just to get latest info.
     const Epoch current_global_epoch = engine_->get_xct_manager().get_current_global_epoch();
     assorted::memory_fence_acquire();  // necessary. following is AFTER this.
 
     VLOG(1) << "Logger-" << id_ << " update_durable_epoch(). durable_epoch_=" << durable_epoch_
-        << ", current_epoch=" << current_epoch_ << ", current_global=" << current_global_epoch;
+        << ", current_global=" << current_global_epoch;
+    DVLOG(2) << *this;
 
     Epoch min_durable_epoch = current_global_epoch.one_less();
     for (thread::Thread* the_thread : assigned_threads_) {
@@ -208,7 +242,8 @@ ErrorStack Logger::update_durable_epoch() {
 
         // in the worst case, buffer is durable up to only logger_epoch_ - 1. let's check.
         if (!buffer.logger_epoch_open_ended_) {
-            // then easier. we do know up to where we have to flush log to make it durable.
+            // we know up to where we have to flush log to make it durable.
+            ASSERT_ND(buffer.logger_epoch_ < current_global_epoch);  // thus it's not the latest
             if (buffer.logger_epoch_ends_ != buffer.offset_durable_) {
                 // there are logs we have to flush, so surely logger_epoch_ - 1.
                 VLOG(1) << "Thread-" << the_thread->get_thread_id() << " more logs in this ep";
@@ -234,7 +269,14 @@ ErrorStack Logger::update_durable_epoch() {
                 // See get_in_commit_log_epoch() about the protocol of in_commit_log_epoch
                 if (!in_commit_epoch.is_valid() || in_commit_epoch > epoch_before) {
                     VLOG(1) << "Thread-" << the_thread->get_thread_id() << " not in a racy state!";
-                    min_durable_epoch.store_min(epoch_before);
+                    assorted::memory_fence_acquire();  // because offset_committed might be added
+                    if (buffer.offset_durable_ == buffer.offset_committed_) {
+                        VLOG(1) << "Okay, definitely no log to process. just idle";
+                        // then, we are duralble at least to current_global_epoch.one_less()
+                    } else {
+                        VLOG(1) << "mm, still some log in this epoch";
+                        min_durable_epoch.store_min(epoch_before.one_less());
+                    }
                 } else {
                     ASSERT_ND(in_commit_epoch == epoch_before);
                     // This is rare. worth logging in details. In this case, we spin on it.
@@ -242,13 +284,13 @@ ErrorStack Logger::update_durable_epoch() {
                     // By doing this, handle_logger() can use this method for waiting.
                     LOG(INFO) << "Thread-" << the_thread->get_thread_id() << " is now publishing"
                         " logs that might be in epoch-" << epoch_before;
-                    DLOG(INFO) << buffer;
+                    DLOG(INFO) << "this=" << *this << ", buffer=" << buffer;
                     while (in_commit_epoch.is_valid() && in_commit_epoch <= epoch_before) {
                         in_commit_epoch = xct.get_in_commit_log_epoch();
                     }
                     LOG(INFO) << "Thread-" << the_thread->get_thread_id() << " is done with the log"
                         ". " << epoch_before;
-                    DLOG(INFO) << buffer;
+                    DLOG(INFO) << "this=" << *this << ", buffer=" << buffer;
 
                     // Just logging. we conservatively use one_less because the transaction
                     // probably produced logs in the epoch. We have to flush them first.
@@ -263,31 +305,38 @@ ErrorStack Logger::update_durable_epoch() {
         LOG(INFO) << "Logger-" << id_ << " updates durable_epoch_ from " << durable_epoch_
             << " to " << min_durable_epoch;
         if (!fs::fsync(current_file_path_, true)) {
-            return ERROR_STACK(ERROR_CODE_FS_SYNC_FAILED);
+            return ERROR_STACK_MSG(ERROR_CODE_FS_SYNC_FAILED, to_string().c_str());
         }
-        LOG(INFO) << "Logger-" << id_ << " fsynced the current file and its folder";
+        current_file_durable_offset_ = current_file_->get_current_offset();
+        LOG(INFO) << "Logger-" << id_ << " fsynced the current file ("
+            << current_file_durable_offset_ << "  bytes so far) and its folder";
+        DVLOG(0) << "Before: " << *this;
+        Epoch old_epoch = durable_epoch_;
         assorted::memory_fence_release();  // announce it only AFTER above
         durable_epoch_ = min_durable_epoch;  // announce it!
         assorted::memory_fence_release();  // so that log manager sees it asap
 
-        // Also, update current_epoch_.
-        CHECK_ERROR(switch_current_epoch(durable_epoch_.one_more()));
+        // Also, add a log to mark the switch of epoch. We don't have to flush this one immediately
+        // because the switch is part of the next epoch.
+        CHECK_ERROR(log_epoch_switch(old_epoch, min_durable_epoch));
 
         // finally, let the log manager re-calculate the global durable epoch.
         // this may or may not result in new global durable epoch
         assorted::memory_fence_release();
         CHECK_ERROR(engine_->get_log_manager().refresh_global_durable_epoch());
+        DVLOG(0) << "After: " << *this;
     } else {
         VLOG(1) << "Logger-" << id_ << " couldn't update durable_epoch_";
+        DVLOG(1) << *this;
     }
 
-    assert_epoch_values();
+    assert_consistent();
     return RET_OK;
 }
 
-ErrorStack Logger::switch_current_epoch(Epoch new_epoch) {
-    ASSERT_ND(current_epoch_ < new_epoch);
-    LOG(INFO) << "Logger-" << id_ << " advances its current_epoch from " << current_epoch_
+ErrorStack Logger::log_epoch_switch(Epoch old_epoch, Epoch new_epoch) {
+    ASSERT_ND(old_epoch < new_epoch);
+    LOG(INFO) << "Logger-" << id_ << " logs its advancement of durable_epoch from " << old_epoch
         << " to " << new_epoch;
 
     // Use fill buffer to write out the epoch mark log
@@ -297,54 +346,61 @@ ErrorStack Logger::switch_current_epoch(Epoch new_epoch) {
     epoch_marker->header_.log_length_ = sizeof(EpochMarkerLogType);
     epoch_marker->header_.log_type_code_ = get_log_code<EpochMarkerLogType>();
     epoch_marker->new_epoch_ = new_epoch;
-    epoch_marker->old_epoch_ = current_epoch_;
+    epoch_marker->old_epoch_ = old_epoch;
 
     // Fill it up to 4kb and write. A bit wasteful, but happens only once per epoch
     FillerLogType* filler_log = reinterpret_cast<FillerLogType*>(buf + sizeof(EpochMarkerLogType));
     filler_log->init(fill_buffer_.get_size() - sizeof(EpochMarkerLogType));
 
-    CHECK_ERROR_CODE(current_file_->write(fill_buffer_.get_size(), fill_buffer_));
-    current_epoch_ = new_epoch;
-    assert_epoch_values();
+    CHECK_ERROR(current_file_->write(fill_buffer_.get_size(), fill_buffer_));
+    assert_consistent();
     return RET_OK;
 }
 
 ErrorStack Logger::switch_file_if_required() {
-    if (current_file_length_ < (engine_->get_options().log_.log_file_size_mb_ << 20)) {
+    ASSERT_ND(current_file_);
+    if (current_file_->get_current_offset()
+            < (static_cast<uint64_t>(engine_->get_options().log_.log_file_size_mb_) << 20)) {
         return RET_OK;
     }
 
-    LOG(INFO) << "Logger-" << id_ << " moving on to next file. current_ordinal_="
-        << current_ordinal_;
+    LOG(INFO) << "Logger-" << id_ << " moving on to next file. " << *this;
 
     // Close the current one. Immediately call fsync on it AND the parent folder.
     current_file_->close();
     delete current_file_;
     current_file_ = nullptr;
+    current_file_durable_offset_ = 0;
     if (!fs::fsync(current_file_path_, true)) {
-        return ERROR_STACK(ERROR_CODE_FS_SYNC_FAILED);
+        return ERROR_STACK_MSG(ERROR_CODE_FS_SYNC_FAILED, to_string().c_str());
     }
 
     current_file_path_ = construct_suffixed_log_path(++current_ordinal_);
     LOG(INFO) << "Logger-" << id_ << " next file=" << current_file_path_;
     current_file_ = new fs::DirectIoFile(current_file_path_,
                                             engine_->get_options().log_.emulation_);
-    CHECK_ERROR(current_file_->open(false, true, true, true));
-    current_file_length_ = 0;
+    CHECK_ERROR(current_file_->open(true, true, true, true));
+    ASSERT_ND(current_file_->get_current_offset() == 0);
+    LOG(INFO) << "Logger-" << id_ << " moved on to next file. " << *this;
     return RET_OK;
 }
 
 ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
-    assert_epoch_values();
+    assert_consistent();
     CHECK_ERROR(switch_file_if_required());
-    const uint64_t from_offset = buffer->get_offset_durable();
-    const uint64_t SECTOR_SIZE = FillerLogType::LOG_WRITE_UNIT_SIZE;
-    ASSERT_ND(from_offset != upto_offset);
+    uint64_t from_offset = buffer->get_offset_durable();
+    VLOG(0) << "Writing out Thread-" << buffer->get_thread_id() << "'s log. from_offset="
+        << from_offset << ", upto_offset=" << upto_offset;
+    DVLOG(1) << *this;
+    if (from_offset == upto_offset) {
+        return RET_OK;
+    }
+
     if (from_offset > upto_offset) {
         // this means wrap-around in the buffer
         // let's write up to the end of the circular buffer, then from the beginning.
-        VLOG(0) << "Writing out Thread-" << buffer->get_thread_id() << "'s log with wrap around."
-            << " from_offset=" << from_offset << ", upto_offset=" << upto_offset;
+        VLOG(0) << "Wraps around. from_offset=" << from_offset << ", upto_offset=" << upto_offset;
+        DVLOG(0) << *this;
 
         // we can simply write out logs upto the end without worrying about the case where a log
         // entry spans the end of circular buffer. Because we avoid that in ThreadLogBuffer.
@@ -355,38 +411,89 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
         CHECK_ERROR(write_log(buffer, upto_offset));
         ASSERT_ND(buffer->get_offset_durable() == upto_offset);
         return RET_OK;
-    } else {
-        const uint64_t write_size = upto_offset - from_offset;
-        const uint64_t padded_write_size = assorted::align< uint64_t, SECTOR_SIZE >(write_size);
-        VLOG(0) << "Writing out Thread-" << buffer->get_thread_id() << "'s log. write_size="
-            << write_size << ", padded_write_size=" << padded_write_size;
-        if (write_size == padded_write_size) {
-            VLOG(0) << "no padding needed, lucky";
-            CHECK_ERROR_CODE(current_file_->write(write_size,
-                    memory::AlignedMemorySlice(buffer->buffer_memory_, from_offset, write_size)));
-            buffer->offset_durable_ += write_size;
-        } else {
-            VLOG(1) << "padding needed";
-            const uint64_t main_write_size = padded_write_size - SECTOR_SIZE;
-            const uint64_t fragment_size = write_size - main_write_size;
-            ASSERT_ND(fragment_size < SECTOR_SIZE);
-            ASSERT_ND(fragment_size > 0);
-            CHECK_ERROR_CODE(current_file_->write(main_write_size,
-                memory::AlignedMemorySlice(buffer->buffer_memory_, from_offset, main_write_size)));
-            buffer->offset_durable_ += main_write_size;
+    }
 
-            // put the remaining and filler log in our fill_buffer_.
-            char* buf = reinterpret_cast<char*>(fill_buffer_.get_block());
-            std::memcpy(buf, buffer->buffer_ + buffer->offset_durable_, fragment_size);
-            FillerLogType* filler_log = reinterpret_cast<FillerLogType*>(buf + fragment_size);
-            filler_log->header_.log_type_code_ = get_log_code<FillerLogType>();
-            filler_log->header_.log_length_ = SECTOR_SIZE - fragment_size;
-            filler_log->header_.storage_id_ = 0;
-            CHECK_ERROR_CODE(current_file_->write(SECTOR_SIZE, fill_buffer_));
-            buffer->offset_durable_ += fragment_size;
+    // First-4kb. Do we have to pad at the beginning?
+    if (!is_log_aligned(from_offset)) {
+        VLOG(1) << "padding at beginning needed. ";
+        char* buf = reinterpret_cast<char*>(fill_buffer_.get_block());
+
+        // pad upto from_offset
+        uint64_t begin_fill_size = from_offset - align_log_floor(from_offset);
+        ASSERT_ND(begin_fill_size < FillerLogType::LOG_WRITE_UNIT_SIZE);
+        FillerLogType* begin_filler_log = reinterpret_cast<FillerLogType*>(buf);
+        begin_filler_log->init(begin_fill_size);
+        buf += begin_fill_size;
+
+        // then copy the log content, upto at most one page... is it one page? or less?
+        uint64_t copy_size;
+        if (upto_offset < align_log_ceil(from_offset)) {
+            VLOG(1) << "whole log in less than one page.";
+            copy_size = upto_offset - from_offset;
+        } else {
+            VLOG(1) << "one page or more.";
+            copy_size = align_log_ceil(from_offset) - from_offset;
         }
+        ASSERT_ND(copy_size < FillerLogType::LOG_WRITE_UNIT_SIZE);
+        std::memcpy(buf, buffer->buffer_ + buffer->offset_durable_, copy_size);
+        buf += copy_size;
+
+        // pad at the end, if needed
+        uint64_t end_fill_size = FillerLogType::LOG_WRITE_UNIT_SIZE - (begin_fill_size + copy_size);
+        ASSERT_ND(end_fill_size < FillerLogType::LOG_WRITE_UNIT_SIZE);
+        // logs are all 8-byte aligned, and sizeof(FillerLogType) is 8. So this should always hold.
+        ASSERT_ND(end_fill_size == 0 || end_fill_size >= sizeof(FillerLogType));
+        if (end_fill_size > 0) {
+            FillerLogType* end_filler_log = reinterpret_cast<FillerLogType*>(buf);
+            end_filler_log->init(end_fill_size);
+        }
+        CHECK_ERROR(current_file_->write(FillerLogType::LOG_WRITE_UNIT_SIZE, fill_buffer_));
+
+        buffer->advance_offset_durable(copy_size);
+    }
+
+    from_offset = buffer->get_offset_durable();
+    if (from_offset == upto_offset) {
         return RET_OK;
     }
+    // from here, "from" is assured to be aligned
+    ASSERT_ND(is_log_aligned(from_offset));
+    ASSERT_ND(from_offset <= upto_offset);
+
+    // Middle regions where everything is aligned. easy
+    uint64_t middle_size = align_log_floor(upto_offset) - from_offset;
+    if (middle_size > 0) {
+        VLOG(1) << "Writing middle regions: " << middle_size << " bytes";
+        CHECK_ERROR(current_file_->write(middle_size,
+                memory::AlignedMemorySlice(buffer->buffer_memory_, from_offset, middle_size)));
+        buffer->advance_offset_durable(middle_size);
+    }
+
+    from_offset = buffer->get_offset_durable();
+    if (from_offset == upto_offset) {
+        return RET_OK;  // if upto_offset is luckily aligned, we exit here.
+    }
+    ASSERT_ND(is_log_aligned(from_offset));
+    ASSERT_ND(from_offset <= upto_offset);
+    ASSERT_ND(!is_log_aligned(upto_offset));
+
+    // the last 4kb
+    VLOG(1) << "padding at end needed.";
+    char* buf = reinterpret_cast<char*>(fill_buffer_.get_block());
+
+    uint64_t copy_size = upto_offset - from_offset;
+    ASSERT_ND(copy_size < FillerLogType::LOG_WRITE_UNIT_SIZE);
+    std::memcpy(buf, buffer->buffer_ + buffer->offset_durable_, copy_size);
+    buf += copy_size;
+
+    // pad upto from_offset
+    const uint64_t fill_size = FillerLogType::LOG_WRITE_UNIT_SIZE - copy_size;
+    FillerLogType* filler_log = reinterpret_cast<FillerLogType*>(buf);
+    filler_log->init(fill_size);
+
+    CHECK_ERROR(current_file_->write(FillerLogType::LOG_WRITE_UNIT_SIZE, fill_buffer_));
+    buffer->advance_offset_durable(copy_size);
+    return RET_OK;
 }
 
 void Logger::wakeup_for_durable_epoch(Epoch desired_durable_epoch) {
@@ -399,28 +506,64 @@ void Logger::wakeup() {
     logger_thread_.wakeup();
 }
 
-void Logger::assert_epoch_values() {
-    ASSERT_ND(current_epoch_.is_valid());
+void Logger::assert_consistent() {
     ASSERT_ND(durable_epoch_.is_valid());
-    ASSERT_ND(current_epoch_ > durable_epoch_);
-#ifndef NDEBUG  // I know compiler is smart, but to make sure
-    if (assigned_threads_.empty()) {
-        return;
-    }
-    for (thread::Thread* the_thread : assigned_threads_) {
-        ThreadLogBuffer& buffer = the_thread->get_thread_log_buffer();
-        buffer.assert_consistent_offsets();
-        ASSERT_ND(buffer.logger_epoch_.is_valid());
-        ASSERT_ND(current_epoch_ >= buffer.logger_epoch_);
-    }
-#endif  // NDEBUG
+    ASSERT_ND(!engine_->get_xct_manager().is_initialized() ||
+        durable_epoch_ < engine_->get_xct_manager().get_current_global_epoch());
+    ASSERT_ND(is_log_aligned(oldest_file_offset_begin_));
+    ASSERT_ND(current_file_ == nullptr || is_log_aligned(current_file_->get_current_offset()));
+    ASSERT_ND(is_log_aligned(current_file_durable_offset_));
+    ASSERT_ND(current_file_ == nullptr
+        || current_file_durable_offset_ <= current_file_->get_current_offset());
 }
 
 void Logger::copy_logger_state(savepoint::Savepoint* new_savepoint) {
     new_savepoint->oldest_log_files_.push_back(oldest_ordinal_);
     new_savepoint->oldest_log_files_offset_begin_.push_back(oldest_file_offset_begin_);
     new_savepoint->current_log_files_.push_back(current_ordinal_);
-    new_savepoint->current_log_files_offset_durable_.push_back(0);  // TODO(Hideaki) implement
+    new_savepoint->current_log_files_offset_durable_.push_back(current_file_durable_offset_);
+}
+
+std::string Logger::to_string() const {
+    std::stringstream stream;
+    stream << *this;
+    return stream.str();
+}
+std::ostream& operator<<(std::ostream& o, const Logger& v) {
+    o << "<Logger>"
+        << "<id_>" << v.id_ << "</id_>"
+        << "<numa_node_>" << v.numa_node_ << "</numa_node_>"
+        << "<log_path_>" << v.log_path_ << "</log_path_>";
+    o << "<assigned_thread_ids_>";
+    for (auto thread_id : v.assigned_thread_ids_) {
+        o << "<thread_id>" << thread_id << "</thread_id>";
+    }
+    o << "</assigned_thread_ids_>";
+    o << "<durable_epoch_>" << v.durable_epoch_ << "</durable_epoch_>"
+        << "<oldest_ordinal_>" << v.oldest_ordinal_ << "</oldest_ordinal_>"
+        << "<oldest_file_offset_begin_>" << v.oldest_file_offset_begin_
+            << "</oldest_file_offset_begin_>"
+        << "<current_ordinal_>" << v.current_ordinal_ << "</current_ordinal_>";
+
+    o << "<current_file_>";
+    if (v.current_file_) {
+        o << *v.current_file_;
+    } else {
+        o << "nullptr";
+    }
+    o << "</current_file_>";
+
+    o << "<current_file_path_>" << v.current_file_path_ << "</current_file_path_>";
+
+    o << "<current_file_length_>";
+    if (v.current_file_) {
+        o << v.current_file_->get_current_offset();
+    } else {
+        o << "nullptr";
+    }
+    o << "</current_file_length_>";
+    o << "</Logger>";
+    return o;
 }
 
 

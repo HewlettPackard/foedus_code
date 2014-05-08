@@ -45,7 +45,7 @@ void DebuggingSupports::initialize_glog() {
         if (options.verbose_modules_.size() > 0) {
             // TODO(Hideaki) disabled SetVLOGLevel() due to this glog bug
             // https://code.google.com/p/google-glog/issues/detail?id=172
-            // google::SetVLOGLevel(options.verbose_modules_.c_str(), options.verbose_log_level_);
+            google::SetVLOGLevel(options.verbose_modules_.c_str(), options.verbose_log_level_);
         }
         google::InitGoogleLogging("libfoedus");
         LOG(INFO) << "initialize_glog(): Initialized GLOG";

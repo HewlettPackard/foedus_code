@@ -12,6 +12,7 @@
 #include <foedus/memory/fwd.hpp>
 #include <stdint.h>
 #include <iosfwd>
+#include <string>
 namespace foedus {
 namespace fs {
 
@@ -90,9 +91,9 @@ class DirectIoFile {
      * @pre buffer.get_size() >= desired_bytes
      * @pre (buffer->get_alignment() & 0xFFF) == 0 (4kb alignment)
      */
-    ErrorCode       read(uint64_t desired_bytes, foedus::memory::AlignedMemory* buffer);
+    ErrorStack      read(uint64_t desired_bytes, foedus::memory::AlignedMemory* buffer);
     /** Memory slice version. */
-    ErrorCode       read(uint64_t desired_bytes, foedus::memory::AlignedMemorySlice slice);
+    ErrorStack      read(uint64_t desired_bytes, foedus::memory::AlignedMemorySlice slice);
 
     /**
      * @brief Sequentially write the given amount of contents from the current position.
@@ -103,9 +104,9 @@ class DirectIoFile {
      * @pre buffer.get_size() >= desired_bytes
      * @pre (buffer->get_alignment() & 0xFFF) == 0 (4kb alignment)
      */
-    ErrorCode       write(uint64_t desired_bytes, const foedus::memory::AlignedMemory& buffer);
+    ErrorStack      write(uint64_t desired_bytes, const foedus::memory::AlignedMemory& buffer);
     /** Memory slice version. */
-    ErrorCode       write(uint64_t desired_bytes, foedus::memory::AlignedMemorySlice buffer);
+    ErrorStack      write(uint64_t desired_bytes, foedus::memory::AlignedMemorySlice buffer);
 
     /**
      * @brief Discard the content of the file after the given offset.
@@ -123,7 +124,7 @@ class DirectIoFile {
      * Sets the position of the next byte to be written/extracted from/to the stream.
      * @pre is_opened()
      */
-    ErrorCode       seek(uint64_t offset, SeekType seek_type);
+    ErrorStack      seek(uint64_t offset, SeekType seek_type);
 
 
     /**
@@ -140,7 +141,7 @@ class DirectIoFile {
      * @pre is_opened()
      * @pre is_write()
      */
-    ErrorCode       sync();
+    ErrorStack      sync();
 
 
     Path                    get_path() const { return path_; }
@@ -150,6 +151,7 @@ class DirectIoFile {
     bool                    is_read() const { return read_; }
     bool                    is_write() const { return write_; }
 
+    std::string             to_string() const;
     friend std::ostream&    operator<<(std::ostream& o, const DirectIoFile& v);
 
  private:

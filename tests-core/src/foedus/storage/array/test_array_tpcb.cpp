@@ -209,7 +209,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
         CHECK_ERROR(accounts->get_record(context, account_id, &account));
         EXPECT_EQ(branch_id, account.branch_id_);
         int64_t account_balance = account.account_balance_ + amount;
-        CHECK_ERROR(accounts->overwrite_record(context, teller_id,
+        CHECK_ERROR(accounts->overwrite_record(context, account_id,
                     &account_balance, sizeof(account.branch_id_), sizeof(account_balance)));
 
         HistoryData history;

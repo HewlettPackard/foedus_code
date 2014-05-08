@@ -70,7 +70,7 @@ std::ostream& operator<<(std::ostream& o, const AlignedMemory& v) {
     o << "<is_null>" << v.is_null() << "</is_null>";
     o << "<size>" << v.get_size() << "</size>";
     o << "<alignment>" << v.get_alignment() << "</alignment>";
-    o << "<alloc_type>" << v.get_alloc_type() << "</<alloc_type>>";
+    o << "<alloc_type>" << v.get_alloc_type() << "</alloc_type>";
     o << "<numa_node>" << v.get_numa_node() << "</numa_node>";
     o << "</AlignedMemory>";
     return o;

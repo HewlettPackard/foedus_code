@@ -24,7 +24,8 @@ namespace log {
  * Do not include this header from a client program unless you know what you are doing.
  *
  * @section CIR Circular Log Buffer
- * This class forms a circular buffer used by log appender (Thread), log writer (Logger),
+ * This class forms a circular buffer used by log appender (Thread, which we call "the thread" or
+ * "this thread" all over the place), log writer (Logger),
  * and log gleaner (LogGleaner). We maintain four offsets on the buffer.
  * <table>
  * <tr><th>Marker</th><th>Read by</th><th>Written by</th><th>Description</th></tr>
@@ -102,7 +103,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
     ThreadLogBuffer(const ThreadLogBuffer &other) = delete;
     ThreadLogBuffer& operator=(const ThreadLogBuffer &other) = delete;
 
-    void        assert_consistent_offsets() const;
+    void        assert_consistent() const;
     thread::ThreadId get_thread_id() const { return thread_id_; }
 
     /**
@@ -224,6 +225,10 @@ class ThreadLogBuffer final : public DefaultInitializable {
     /** Called from reserve_new_log() to fillup the end of the circular buffer with padding. */
     void        fillup_tail();
 
+    void        advance_offset_durable(uint64_t amount) {
+        advance(buffer_size_, &offset_durable_, amount);
+    }
+
     Engine*                         engine_;
     thread::ThreadId                thread_id_;
 
@@ -260,6 +265,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
 
     /**
      * @brief The epoch of the last transaction on \e this thread.
+     * @invariant last_epoch_.is_valid() (initial value is obtained from savepoint.current)
      * @details
      * It might be older than the global current epoch. Especially, when the thread was idle for
      * a while, this might by WAY older than the global current epoch.
@@ -269,22 +275,22 @@ class ThreadLogBuffer final : public DefaultInitializable {
 
     /**
      * @brief The epoch the logger is currently flushing.
+     * @invariant logger_epoch_.is_valid() (initial value is obtained from savepoint.current)
+     * @invariant last_epoch_ >= logger_epoch_
      * @details
      * The logger writes out the log entries in this epoch.
-     * This value is 0 only when the logger has not visited this buffer.
      * This is only read/written by the logger and updated when the logger consumes ThreadEpockMark.
      *
      * This value might be stale when the worker thread is idle for a while. The logger can't
      * advance this value because the worker can't publish epoch marks. In that case, the logger
      * leaves this value stale, but it reports a larger durable epoch by detecting that
      * the thread is idle with the in_commit_log_epoch guard. see Logger::update_durable_epoch().
-     * @invariant last_epoch_ >= logger_epoch_
      */
     Epoch                           logger_epoch_;
     /**
      * @brief Whether the logger is aware of where log entries for logger_epoch_ ends.
      * @details
-     * For example, when the \e global current epoch is 3 and this thread has already written some
+     * For example, when the global current epoch is 3 and this thread has already written some
      * log in epoch-3, the logger will be aware of where log entries for epoch-2 end via the
      * epoch mark. However, the logger has no idea where log entries for epoch-3
      * will end because this thread will still write out more logs in the epoch!
@@ -314,6 +320,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * might be empty. In that case, logger_epoch_open_ended_ is true.
      */
     std::list< ThreadEpockMark >    thread_epoch_marks_;
+
     /**
      * @brief Protects all accesses to thread_epoch_marks_.
      * @details

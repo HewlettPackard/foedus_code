@@ -16,9 +16,10 @@
 #include <foedus/epoch.hpp>
 #include <foedus/savepoint/fwd.hpp>
 #include <stdint.h>
-#include <chrono>
 #include <condition_variable>
+#include <iosfwd>
 #include <mutex>
+#include <string>
 #include <vector>
 namespace foedus {
 namespace log {
@@ -60,6 +61,9 @@ class Logger final : public DefaultInitializable {
     /** Called from log manager's copy_logger_states. */
     void        copy_logger_state(savepoint::Savepoint *new_savepoint);
 
+    std::string             to_string() const;
+    friend std::ostream&    operator<<(std::ostream& o, const Logger& v);
+
  private:
     /**
      * @brief Main routine for logger_thread_.
@@ -69,7 +73,13 @@ class Logger final : public DefaultInitializable {
      * This method exits when this object's uninitialize() is called.
      */
     void        handle_logger();
+    /** handle_logger() keeps calling this with sleeps. */
+    ErrorStack  handle_logger_once(bool *more_log_to_process);
 
+    /**
+     * Check if we can advance the durable epoch of this logger, invoking fsync BEFORE actually
+     * advancing it in that case.
+     */
     ErrorStack  update_durable_epoch();
 
     /**
@@ -77,13 +87,23 @@ class Logger final : public DefaultInitializable {
      */
     ErrorStack  switch_file_if_required();
 
-    ErrorStack  switch_current_epoch(Epoch new_epoch);
+    /**
+     * Adds a log entry to annotate the switch of epoch.
+     * Individual log entries do not have epoch information, relying on this.
+     */
+    ErrorStack  log_epoch_switch(Epoch old_epoch, Epoch new_epoch);
+
+    /**
+     * Writes out the given buffer upto the offset.
+     * This method handles non-aligned starting/ending offsets by padding, and also handles wrap
+     * around.
+     */
     ErrorStack  write_log(ThreadLogBuffer* buffer, uint64_t upto_offset);
 
     fs::Path    construct_suffixed_log_path(LogFileOrdinal ordinal) const;
 
-    /** Check invariants on current_epoch_/durable_epoch_. This method should be wiped in NDEBUG. */
-    void        assert_epoch_values();
+    /** Check invariants. This method should be wiped in NDEBUG. */
+    void        assert_consistent();
 
     Engine*                         engine_;
     LoggerId                        id_;
@@ -99,27 +119,26 @@ class Logger final : public DefaultInitializable {
      * The logger directly reads from the assigned threads' own buffer when it writes out to file
      * because we want to avoid doubling the overhead. As the buffer is exclusively assigned to
      * this logger, there is no risk to directly pass the thread's buffer \e except the case
-     * where we are writing out less than 4kb, which only happens at the end of an epoch log block
-     * or when the logger is really catching up well.
-     * In this case, we need to pad it to 4kb. So, we copy the thread's buffer's content to this
-     * buffer and fill the rest.
+     * where we are writing out less than 4kb, which happens on:
+     *  \li at the beginning/end of an epoch log block
+     *  \li when the logger is really catching up well (the thread has less than 4kb
+     * commited-but-non-durable log)
+     * In these cases, we need to pad it to 4kb. So, we copy the thread's buffer's content to this
+     * buffer and fill the rest (at the end or at the beginning, or both).
      */
     memory::AlignedMemory           fill_buffer_;
 
     /**
-     * @brief The epoch the logger is currently flushing.
-     * @details
-     * This is updated iff durable_epoch_ is advanced.
-     * @invariant current_epoch_.is_valid()
-     * @details
-     * current_epoch_ might be larger than min(buffer.logger_epoch) because of stale logger_epoch.
-     * current_epoch_ == durable_epoch_.one_more(), so we might remove this auxiliary variable.
-     */
-    Epoch                           current_epoch_;
-
-    /**
-     * Upto what epoch the logger flushed logs in \b all buffers assigned to it.
+     * @brief Upto what epoch the logger flushed logs in \b all buffers assigned to it.
      * @invariant durable_epoch_.is_valid()
+     * @invariant global durable epoch <= durable_epoch_ < global current epoch
+     * @details
+     * Unlike buffer.logger_epoch, this value is continuously maintained by the logger, thus
+     * no case of stale values. Actually, the global durable epoch does not advance until all
+     * loggers' durable_epoch_ advance.
+     * Hence, if some thread is idle or running a long transaction, this value could be larger
+     * than buffer.logger_epoch_. Otherwise (when the worker thread is running normal), this value
+     * is most likely smaller than buffer.logger_epoch_.
      */
     Epoch                           durable_epoch_;
 
@@ -130,6 +149,7 @@ class Logger final : public DefaultInitializable {
     LogFileOrdinal                  oldest_ordinal_;
     /**
      * @brief Inclusive beginning of active region in the oldest log file.
+     * @invariant oldest_file_offset_begin_ % LOG_WRITE_UNIT_SIZE == 0 (because we pad)
      */
     uint64_t                        oldest_file_offset_begin_;
     /**
@@ -144,10 +164,13 @@ class Logger final : public DefaultInitializable {
      * log_path_ + current_ordinal_.
      */
     fs::Path                        current_file_path_;
+
     /**
-     * @brief Exclusive end of the current log file, or the size of the current file.
+     * We called fsync on current file up to this offset.
+     * @invariant current_file_durable_offset_ <= current_file->get_current_offset()
+     * @invariant current_file_durable_offset_ % LOG_WRITE_UNIT_SIZE == 0 (because we pad)
      */
-    uint64_t                        current_file_length_;
+    uint64_t                        current_file_durable_offset_;
 
     std::vector< thread::Thread* >  assigned_threads_;
 };

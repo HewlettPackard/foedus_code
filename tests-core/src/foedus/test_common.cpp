@@ -41,6 +41,12 @@ namespace foedus {
 
     EngineOptions get_tiny_options() {
         EngineOptions options = get_randomized_paths(1, 1);
+        options.debugging_.debug_log_min_threshold_ = debugging::DebuggingOptions::DEBUG_LOG_INFO;
+        options.debugging_.debug_log_stderr_threshold_
+            = debugging::DebuggingOptions::DEBUG_LOG_INFO;
+        options.debugging_.verbose_log_level_ = 1;
+        options.debugging_.verbose_modules_ = "*";
+
         options.log_.log_buffer_kb_ = 1 << 8;
         options.memory_.page_pool_size_mb_ = 2;
         options.memory_.private_page_pool_initial_grab_ = 32;
@@ -65,10 +71,13 @@ namespace foedus {
             fs::Path folder = fs::Path(log_path).parent_path();
             remove_files_start_with(folder, fs::Path(log_path));
         }
+        /*
+        TODO(Hideaki) When snapshot is implemented
         for (std::string snapshot_folder : options.snapshot_.folder_paths_) {
             fs::Path folder(snapshot_folder);
             fs::remove_all(folder);
         }
+        */
     }
 
 }  // namespace foedus

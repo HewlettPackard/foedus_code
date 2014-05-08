@@ -45,7 +45,10 @@ ErrorStack ThreadLogBuffer::uninitialize_once() {
     return RET_OK;
 }
 
-void ThreadLogBuffer::assert_consistent_offsets() const {
+void ThreadLogBuffer::assert_consistent() const {
+    ASSERT_ND(last_epoch_.is_valid());
+    ASSERT_ND(logger_epoch_.is_valid());
+    ASSERT_ND(last_epoch_ >= logger_epoch_);
     ASSERT_ND(offset_head_ < buffer_size_
         && offset_durable_ < buffer_size_
         && offset_committed_ < buffer_size_
@@ -127,6 +130,13 @@ bool ThreadLogBuffer::consume_epoch_mark() {
         }
 
         mark = thread_epoch_marks_.front();
+        if (logger_epoch_open_ended_ && offset_durable_ != mark.offset_epoch_begin_) {
+            // Then, it's too early to consume this epoch mark. We are still working on the
+            // current epoch.
+            VLOG(1) << "There is a new epoch mark, but this still has logs in the current epoch"
+                << " to process. this=" << *this;
+            return false;
+        }
         thread_epoch_marks_.pop_front();
         last_mark = thread_epoch_marks_.empty();
         if (!last_mark) {
@@ -137,7 +147,7 @@ bool ThreadLogBuffer::consume_epoch_mark() {
     if (offset_durable_ != mark.offset_epoch_begin_) {
         LOG(FATAL) << "WHAT? Thread-" << thread_id_ << "'s log buffer is inconsistent."
             << " offset_durable_=" << offset_durable_ << ". but next marker begins at "
-                << mark.offset_epoch_begin_;
+                << mark.offset_epoch_begin_ << ". this=" << *this;
     }
 
     logger_epoch_ = mark.new_epoch_;
