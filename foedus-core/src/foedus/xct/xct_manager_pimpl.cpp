@@ -125,14 +125,14 @@ ErrorStack XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit
     }
 }
 bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch) {
-    DLOG(INFO) << "Committing Thread-" << context->get_thread_id() << ", read_only";
+    DVLOG(1) << "Committing Thread-" << context->get_thread_id() << ", read_only";
     *commit_epoch = Epoch();
     assorted::memory_fence_acquire();  // this is enough for read-only case
     return precommit_xct_verify_readonly(context, commit_epoch);
 }
 
 bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch) {
-    DLOG(INFO) << "Committing Thread-" << context->get_thread_id() << ", read-write";
+    DVLOG(1) << "Committing Thread-" << context->get_thread_id() << ", read-write";
     precommit_xct_lock(context);  // Phase 1
 
     // BEFORE the first fence, update the in_commit_log_epoch_ for logger
@@ -141,7 +141,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     assorted::memory_fence_acq_rel();
 
     *commit_epoch = current_global_epoch_;  // serialization point!
-    DLOG(INFO) << "Acquired read-write commit epoch " << *commit_epoch;
+    DVLOG(1) << "Acquired read-write commit epoch " << *commit_epoch;
 
     assorted::memory_fence_acq_rel();
     bool verified = precommit_xct_verify_readwrite(context);  // phase 2
@@ -159,7 +159,7 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
     Xct& current_xct = context->get_current_xct();
     WriteXctAccess* write_set = current_xct.get_write_set();
     uint32_t        write_set_size = current_xct.get_write_set_size();
-    DLOG(INFO) << "write_set_size=" << write_set_size << ", write_set addr=" << write_set;
+    DVLOG(1) << "write_set_size=" << write_set_size << ", write_set addr=" << write_set;
 
 #ifndef NDEBUG
     // DEBUG: check equivalence of records/logs before/after sort
@@ -174,7 +174,7 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
 #endif  // NDEBUG
 
     std::sort(write_set, write_set + write_set_size, WriteXctAccess::compare);
-    DLOG(INFO) << "sorted write set";
+    DVLOG(1) << "sorted write set";
 
     // lock them unconditionally. there is no risk of deadlock thanks to the sort.
     // lock bit is the highest bit of ordinal_and_status_.
@@ -183,7 +183,7 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
         XctId& owner_id = write_set[i].record_->owner_id_;
         owner_id.lock_unconditional<15>();
     }
-    DLOG(INFO) << "locked write set";
+    DVLOG(1) << "locked write set";
 
 #ifndef NDEBUG
     for (uint32_t i = 0; i < write_set_size; ++i) {
@@ -212,7 +212,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
         // it's latest. Array doesn't have it.
 
         if (access.record_->owner_id_.is_locked<15>()) {
-            DLOG(INFO) << "read set contained a locked record. abort";
+            DLOG(WARNING) << "read set contained a locked record. abort";
             return false;
         }
 
@@ -220,7 +220,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
         commit_epoch->store_max(access.observed_owner_id_.epoch_);
     }
 
-    DLOG(INFO) << "Read-only higest epoch observed: " << *commit_epoch;
+    DVLOG(1) << "Read-only higest epoch observed: " << *commit_epoch;
     if (!commit_epoch->is_valid()) {
         DLOG(INFO) << "Read-only higest epoch was empty. The transaction has no read set??";
         // In this case, set already-durable epoch.
@@ -250,7 +250,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
         // TODO(Hideaki) For data structures that have previous links, we need to check if
         // it's latest. Array doesn't have it. So, we don't have the check so far.
         if (access.record_->owner_id_.is_locked<15>()) {
-            DLOG(INFO) << "read set contained a locked record. was it myself who locked it?";
+            DVLOG(2) << "read set contained a locked record. was it myself who locked it?";
             // write set is sorted. so we can do binary search.
             WriteXctAccess dummy;
             dummy.record_ = access.record_;
@@ -260,7 +260,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
                 DLOG(WARNING) << "no, not me. will abort";
                 return false;
             } else {
-                DLOG(INFO) << "okay, myself. go on.";
+                DVLOG(2) << "okay, myself. go on.";
             }
         }
     }
@@ -275,13 +275,13 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context,
     Xct& current_xct = context->get_current_xct();
     WriteXctAccess* write_set = current_xct.get_write_set();
     uint32_t        write_set_size = current_xct.get_write_set_size();
-    DLOG(INFO) << "applying and unlocking.. write_set_size=" << write_set_size;
+    DVLOG(1) << "applying and unlocking.. write_set_size=" << write_set_size;
 
     current_xct.issue_next_id(commit_epoch);
     XctId new_xct_id = current_xct.get_id();
     ASSERT_ND(!new_xct_id.is_locked<15>());
 
-    DLOG(INFO) << "generated new xct id=" << new_xct_id;
+    DVLOG(1) << "generated new xct id=" << new_xct_id;
     for (uint32_t i = 0; i < write_set_size; ++i) {
         WriteXctAccess& write = write_set[i];
         DVLOG(2) << "Applying/Unlocking " << write.storage_->get_name() << ":" << write.record_;
@@ -289,13 +289,13 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context,
             write.log_entry_, write.storage_, write.record_);
         write.record_->owner_id_ = new_xct_id;  // this also unlocks
     }
-    DLOG(INFO) << "aplied and unlocked write set";
+    DVLOG(1) << "aplied and unlocked write set";
 }
 
 void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context) {
     WriteXctAccess* write_set = context->get_current_xct().get_write_set();
     uint32_t        write_set_size = context->get_current_xct().get_write_set_size();
-    DLOG(INFO) << "unlocking without applying.. write_set_size=" << write_set_size;
+    DVLOG(1) << "unlocking without applying.. write_set_size=" << write_set_size;
     for (uint32_t i = 0; i < write_set_size; ++i) {
         WriteXctAccess& write = write_set[i];
         DVLOG(2) << "Unlocking " << write.storage_->get_name() << ":" << write.record_;

@@ -40,6 +40,13 @@ bool raw_atomic_compare_exchange_strong_uint128(
         : "=d"(junk), "=a"(result), "+m" (*ptr)
         : "b"(new_value[0]), "c"(new_value[1]), "a"(old_value[0]), "d"(old_value[1]));
     return result;
+    // TODO(Hideaki) ARMv8
+    // ARMv8 does have 128bit atomic instructions, called "pair" operations, such as ldaxp and stxp.
+    // There is actually a library that uses it:
+    // https://github.com/ivmai/libatomic_ops/blob/master/src/atomic_ops/sysdeps/gcc/aarch64.h
+    // (but this is GPL. Don't open the URL unless you are ready for it.)
+    // As of now (May 2014), GCC can't handle them, nor provide __uint128_t in ARMv8.
+    // I think it's coming, however. I'm waiting for it... if it's not coming, let's do ourselves.
 }
 #endif  // defined(__GNUC__) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_16)
 

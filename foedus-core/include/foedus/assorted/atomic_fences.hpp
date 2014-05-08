@@ -18,6 +18,11 @@
  * The followins \e define memory fences for public headers that need them for inline methods.
  * cpp and private headers can anyway invoke std::atomic_thread_fence.
  */
+#ifdef __x86_64
+// SPARC might be also TSO (SPARC "TSO mode"), but we don't care SPARC anyways.
+// ARM is not TSO.
+#define TOTAL_STORE_ORDER_CPU
+#endif  // __x86_64
 namespace foedus {
 namespace assorted {
 
@@ -57,11 +62,11 @@ inline void memory_fence_acquire() {
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
     std::atomic_thread_fence(std::memory_order_acquire);  // basically no-op in TSO
 #else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-#ifdef __x86_64
+#ifdef TOTAL_STORE_ORDER_CPU
     prohibit_compiler_reorder();
-#else  // __x86_64
+#else  // TOTAL_STORE_ORDER_CPU
     memory_fence_acquire_impl();
-#endif  // __x86_64
+#endif  // TOTAL_STORE_ORDER_CPU
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 }
 
@@ -77,11 +82,11 @@ inline void memory_fence_release() {
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
     std::atomic_thread_fence(std::memory_order_release);  // basically no-op in TSO
 #else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-#ifdef __x86_64
+#ifdef TOTAL_STORE_ORDER_CPU
     prohibit_compiler_reorder();
-#else  // __x86_64
+#else  // TOTAL_STORE_ORDER_CPU
     memory_fence_release_impl();
-#endif  // __x86_64
+#endif  // TOTAL_STORE_ORDER_CPU
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 }
 
@@ -96,11 +101,11 @@ inline void memory_fence_acq_rel() {
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
     std::atomic_thread_fence(std::memory_order_acq_rel);  // basically no-op in TSO
 #else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-#ifdef __x86_64
+#ifdef TOTAL_STORE_ORDER_CPU
     prohibit_compiler_reorder();
-#else  // __x86_64
+#else  // TOTAL_STORE_ORDER_CPU
     memory_fence_acq_rel_impl();
-#endif  // __x86_64
+#endif  // TOTAL_STORE_ORDER_CPU
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 }
 
@@ -116,11 +121,11 @@ inline void memory_fence_consume() {
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
     std::atomic_thread_fence(std::memory_order_consume);  // basically no-op in TSO
 #else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-#ifdef __x86_64
+#ifdef TOTAL_STORE_ORDER_CPU
     prohibit_compiler_reorder();
-#else  // __x86_64
+#else  // TOTAL_STORE_ORDER_CPU
     memory_fence_consume_impl();
-#endif  // __x86_64
+#endif  // TOTAL_STORE_ORDER_CPU
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 }
 

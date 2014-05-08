@@ -33,6 +33,8 @@ class Thread CXX11_FINAL : public virtual Initializable {
      * Returns the transaction that is currently running on this thread.
      */
     xct::Xct&   get_current_xct();
+    /** Returns if this thread is running an active transaction. */
+    bool        is_running_xct() const;
 
     /** Returns the private memory repository of this thread. */
     memory::NumaCoreMemory* get_thread_memory() const;

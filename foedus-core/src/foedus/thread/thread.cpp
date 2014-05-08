@@ -22,6 +22,8 @@ Engine*     Thread::get_engine()        const { return pimpl_->engine_; }
 ThreadId    Thread::get_thread_id()     const { return pimpl_->id_; }
 memory::NumaCoreMemory* Thread::get_thread_memory() const { return pimpl_->core_memory_; }
 xct::Xct&   Thread::get_current_xct()   { return pimpl_->current_xct_; }
+bool        Thread::is_running_xct()    const { return pimpl_->current_xct_.is_active(); }
+
 log::ThreadLogBuffer& Thread::get_thread_log_buffer() { return pimpl_->log_buffer_; }
 
 }  // namespace thread
