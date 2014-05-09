@@ -1,2 +1,3 @@
-add_foedus_test(test_array_basic)
-add_foedus_test(test_array_tpcb)
+add_foedus_test_individual(test_array_basic "CreateAndQuery;CreateAndWrite;CreateAndReadWrite")
+add_foedus_test_individual(test_array_tpcb
+    "SingleThreadedNoContention;TwoThreadedNoContention;FourThreadedNoContention;SingleThreadedContended;TwoThreadedContended;FourThreadedContended")

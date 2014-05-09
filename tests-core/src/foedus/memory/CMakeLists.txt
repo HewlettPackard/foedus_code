@@ -1,1 +1,1 @@
-add_foedus_test(test_engine_memory)
+add_foedus_test_individual(test_engine_memory "ReadWriteSetMemory")

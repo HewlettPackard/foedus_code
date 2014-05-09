@@ -11,6 +11,7 @@
 namespace foedus {
 namespace assorted {
 // TODO(Hideaki) test cases
-
+TEST(RawAtomicsTest, Empty) {
+}
 }  // namespace assorted
 }  // namespace foedus

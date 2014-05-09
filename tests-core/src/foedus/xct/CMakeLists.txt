@@ -1,2 +1,2 @@
-add_foedus_test(test_xct_access)
-add_foedus_test(test_xct_commit_conflict)
+add_foedus_test_individual(test_xct_access "CompareReadSet;SortReadSet;RandomReadSet;CompareWriteSet;SortWriteSet;RandomWriteSet")
+add_foedus_test_individual(test_xct_commit_conflict "NoConflict;LightConflict;HeavyConflict;ExtremeConflict")

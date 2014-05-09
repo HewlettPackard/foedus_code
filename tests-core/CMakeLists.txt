@@ -20,6 +20,27 @@ function (add_foedus_test targetname)
         COMMAND ${targetname} --gtest_output=xml:test-reports/result_${targetname}.xml)
 endfunction()
 
+# This one adds individual tests as individual add_test entity, thus showing up nicely in
+# results. You should prefer this one. However, you have to list individual tests.
+# Automating this is possible, but tricky and I wouldn't rely on it.
+#  param: individual_tests a _list_ variable to contain names of individual tests
+# Related efforts:
+#   http://baoilleach.blogspot.com/2013/06/using-ctest-with-multiple-tests-in.html
+#   http://smspillaz.wordpress.com/2012/07/05/unit-test-autodiscovery-with-cmake-and-google-test/
+function (add_foedus_test_individual targetname individual_tests)
+   add_executable(${targetname} ${CMAKE_CURRENT_SOURCE_DIR}/${targetname}.cpp)
+   target_link_libraries(${targetname} ${GENERAL_LIB} gtest_main test_common)
+
+   foreach(individual_test ${individual_tests})
+        add_test(
+            NAME ${targetname}_${individual_test}
+            COMMAND ${targetname}
+                --gtest_filter=*.${individual_test}
+                --gtest_output=xml:test-reports/result_${targetname}_${individual_test}.xml)
+    endforeach(individual_test individual_tests)
+
+endfunction()
+
 add_subdirectory(src)
 
 # Testcases probably should have cpplint enabled. So, all codes here are lint-checked.
