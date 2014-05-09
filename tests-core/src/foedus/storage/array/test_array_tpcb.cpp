@@ -375,13 +375,13 @@ void multi_thread_test(int thread_count, bool contended) {
     cleanup_test(options);
 }
 
-TEST(ArrayTpcbTest, SingleThreadedNoContention) { multi_thread_test(1, false); }
-TEST(ArrayTpcbTest, TwoThreadedNoContention)    { multi_thread_test(2, false); }
-TEST(ArrayTpcbTest, FourThreadedNoContention)   { multi_thread_test(4, false); }
+//TEST(ArrayTpcbTest, SingleThreadedNoContention) { multi_thread_test(1, false); }
+//TEST(ArrayTpcbTest, TwoThreadedNoContention)    { multi_thread_test(2, false); }
+//TEST(ArrayTpcbTest, FourThreadedNoContention)   { multi_thread_test(4, false); }
 
-TEST(ArrayTpcbTest, SingleThreadedContended)    { multi_thread_test(1, true); }
+//TEST(ArrayTpcbTest, SingleThreadedContended)    { multi_thread_test(1, true); }
 TEST(ArrayTpcbTest, TwoThreadedContended)       { multi_thread_test(2, true); }
-TEST(ArrayTpcbTest, FourThreadedContended)      { multi_thread_test(4, true); }
+//TEST(ArrayTpcbTest, FourThreadedContended)      { multi_thread_test(4, true); }
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus

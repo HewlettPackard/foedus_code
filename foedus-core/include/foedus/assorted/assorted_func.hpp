@@ -6,6 +6,11 @@
 #define FOEDUS_ASSORTED_ASSORTED_FUNC_HPP_
 #include <foedus/cxx11.hpp>
 #include <stdint.h>
+
+#if defined(__GNUC__)
+#include <xmmintrin.h>
+#endif  // defined(__GNUC__)
+
 #include <string>
 #include <typeinfo>
 namespace foedus {
@@ -57,6 +62,32 @@ std::string os_error();
  */
 std::string os_error(int error_number);
 
+
+/**
+ * @brief Equivalent to _mm_pause() or x86 PAUSE instruction.
+ * @ingroup ASSORTED
+ * @details
+ * Invoke this where you do a spinlock. It especially helps valgrind.
+ * Probably you should invoke this after a few spins.
+ * @see http://stackoverflow.com/questions/7371869/minimum-time-a-thread-can-pause-in-linux
+ * "NOP instruction can be between 0.4-0.5 clocks and PAUSE instruction can consume 38-40 clocks."
+ * @see SPINLOCK_WHILE(x)
+ */
+inline void spinlock_yield() {
+#if defined(__GNUC__)
+    ::_mm_pause();
+#else  // defined(__GNUC__)
+    // Non-gcc compiler.
+    asm volatile("pause" ::: "memory");  // TODO(Hideaki) but what about ARM
+#endif  // defined(__GNUC__)
+}
+/** Helper for SPINLOCK_WHILE. */
+inline void spinlock_yield_if(bool condition) {
+    if (condition) {
+        spinlock_yield();
+    }
+}
+
 /**
  * Alternative for static_assert(sizeof(foo) == sizeof(bar), "oh crap") to display sizeof(foo).
  * @ingroup ASSORTED
@@ -94,6 +125,20 @@ std::string get_pretty_type_name() {
 }  // namespace assorted
 }  // namespace foedus
 
+/**
+ * @def SPINLOCK_WHILE(x)
+ * @brief A macro to busy-wait (spinlock) with occasional pause.
+ * @ingroup ASSORTED
+ * @details
+ * Use this as follows.
+ * @code{.cpp}
+ * SPINLOCK_WHILE(my_variable == 0) {
+ *   do_something();
+ * }
+ * @endcode
+ */
+#define SPINLOCK_WHILE(x) \
+    for (uint8_t __spins = 0; (x); foedus::assorted::spinlock_yield_if(++__spins == 0))
 
 // Use __COUNTER__ to generate a unique method name
 #define STATIC_SIZE_CHECK_CONCAT_DETAIL(x, y) x##y

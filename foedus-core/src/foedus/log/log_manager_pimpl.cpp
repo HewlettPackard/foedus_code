@@ -135,6 +135,7 @@ ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_
     std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
     std::chrono::high_resolution_clock::time_point until
         = now + std::chrono::microseconds(wait_microseconds);
+    // @spinlock, but with sleep (not frequently called)
     while (commit_epoch > durable_global_epoch_) {
         for (Logger* logger : loggers_) {
             logger->wakeup_for_durable_epoch(commit_epoch);

@@ -281,7 +281,9 @@ ErrorStack Logger::update_durable_epoch() {
                 LOG(INFO) << "Thread-" << the_thread->get_thread_id() << " is now publishing"
                     " logs that might be in epoch-" << buffer.logger_epoch_;
                 DLOG(INFO) << "this=" << *this << ", buffer=" << buffer;
-                while (in_commit_epoch.is_valid() && in_commit_epoch <= buffer.logger_epoch_) {
+                // @spinlock
+                SPINLOCK_WHILE(in_commit_epoch.is_valid()
+                    && in_commit_epoch <= buffer.logger_epoch_) {
                     in_commit_epoch = xct.get_in_commit_log_epoch();
                 }
                 LOG(INFO) << "Thread-" << the_thread->get_thread_id() << " is done with the log"

@@ -104,9 +104,8 @@ struct XctId {
         const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
         uint64_t* target = reinterpret_cast<uint64_t*>(this);
 
-        // spin lock
         uint64_t expected;
-        while (true) {
+        SPINLOCK_WHILE(true) {
             XctId tmp(*this);
             tmp.ordinal_and_status_ &= ~status_bit;
             expected = tmp.as_int();  // same status without lock bit
@@ -129,7 +128,7 @@ struct XctId {
     void spin_while_locked() const {
         assert_status_bit<STATUS_BIT>();
         const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
-        while ((ordinal_and_status_ & status_bit) != 0) {
+        SPINLOCK_WHILE((ordinal_and_status_ & status_bit) != 0) {
             assorted::memory_fence_acquire();
         }
     }

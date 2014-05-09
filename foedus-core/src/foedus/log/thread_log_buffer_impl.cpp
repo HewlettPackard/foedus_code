@@ -73,6 +73,7 @@ void ThreadLogBuffer::assert_consistent() const {
 
 void ThreadLogBuffer::wait_for_space(uint16_t required_space) {
     LOG(INFO) << "Thread-" << thread_id_ << " waiting for space to write logs..";
+    // @spinlock, but with a sleep (not in critical path, usually).
     while (head_to_tail_distance() + required_space >= buffer_size_safe_) {
         assorted::memory_fence_acquire();
         if (offset_durable_ != offset_head_) {
