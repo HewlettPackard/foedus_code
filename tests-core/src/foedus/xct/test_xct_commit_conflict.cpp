@@ -103,7 +103,7 @@ class TestTask : public thread::ImpersonateTask {
 
 class GetAllRecordsTask : public thread::ImpersonateTask {
  public:
-    GetAllRecordsTask(Payload* output) : output_(output) {}
+    explicit GetAllRecordsTask(Payload* output) : output_(output) {}
     ErrorStack run(thread::Thread* context) {
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
         CHECK_ERROR(xct_manager.begin_xct(context, SERIALIZABLE));

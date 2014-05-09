@@ -46,12 +46,16 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
 # We use cpplint to conform to Google C++ style guide.
 set(ENABLE_CPPLINT true)
 
-enable_testing() # we use CTest in tests-xxx. run "make test" or "ctest" after cmake
+enable_testing() # we use CTest in tests-xxx. run "make test" or "ctest || true" after cmake
 # or: valgrind --leak-check=full --show-leak-kinds=all --gen-suppressions=all --suppressions=../../../../foedus-core/tools/valgrind.supp ./hoge
+# or: ctest -D ExperimentalMemCheck || true
+# For why we have "|| true", see: http://www.warp1337.com/content/how-use-ctest-jenkins-xunit-or-junit-plugin
 include(CTest)
 set(MEMORYCHECK_SUPPRESSIONS_FILE "${FOEDUS_CORE_SRC_ROOT}/tools/valgrind.supp"
     CACHE FILEPATH "" FORCE)
 set(MEMORYCHECK_COMMAND /usr/bin/valgrind CACHE FILEPATH "" FORCE)
+# Configurations for ctest
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CTestCustom.cmake ${CMAKE_BINARY_DIR}/CTestCustom.cmake COPYONLY)
 
 # The core library. This project is also compilable by itself.
 add_subdirectory(foedus-core)
