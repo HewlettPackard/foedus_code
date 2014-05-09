@@ -287,6 +287,7 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context,
         DVLOG(2) << "Applying/Unlocking " << write.storage_->get_name() << ":" << write.record_;
         log::invoke_apply_record(
             write.log_entry_, write.storage_, write.record_);
+        assorted::memory_fence_release();  // we must apply BEFORE unlock
         write.record_->owner_id_ = new_xct_id;  // this also unlocks
     }
     DVLOG(1) << "aplied and unlocked write set";
@@ -296,6 +297,7 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context) {
     WriteXctAccess* write_set = context->get_current_xct().get_write_set();
     uint32_t        write_set_size = context->get_current_xct().get_write_set_size();
     DVLOG(1) << "unlocking without applying.. write_set_size=" << write_set_size;
+    assorted::memory_fence_release();
     for (uint32_t i = 0; i < write_set_size; ++i) {
         WriteXctAccess& write = write_set[i];
         DVLOG(2) << "Unlocking " << write.storage_->get_name() << ":" << write.record_;

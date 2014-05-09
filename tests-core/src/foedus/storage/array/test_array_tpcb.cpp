@@ -32,7 +32,7 @@ namespace array {
 
 // tiny numbers
 /** number of branches (TPS scaling factor). */
-const int BRANCHES  =   16;
+const int BRANCHES  =   8;
 /** number of tellers in 1 branch. */
 const int TELLERS   =   2;
 /** number of accounts in 1 branch. */
@@ -157,8 +157,8 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
 /** run TPC-B queries. */
 class RunTpcbTask : public thread::ImpersonateTask {
  public:
-    RunTpcbTask(int client_id, std::shared_future<void> start_future)
-        : client_id_(client_id), start_future_(start_future) {
+    RunTpcbTask(int client_id, bool contended, std::shared_future<void> start_future)
+        : client_id_(client_id), contended_(contended), start_future_(start_future) {
         ASSERT_ND(client_id < MAX_TEST_THREADS);
     }
     ErrorStack run(thread::Thread* context) {
@@ -168,8 +168,14 @@ class RunTpcbTask : public thread::ImpersonateTask {
         Epoch highest_commit_epoch;
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
         for (int i = 0; i < XCTS_PER_THREAD; ++i) {
-            // uint64_t account_id = rand.next_uint32() % (BRANCHES * ACCOUNTS);
-            uint64_t account_id = rand.next_uint32() % (ACCOUNTS) + (client_id_ * ACCOUNTS);
+            uint64_t account_id;
+            if (contended_) {
+                account_id = rand.next_uint32() % (BRANCHES * ACCOUNTS);
+            } else {
+                const uint64_t accounts_per_thread = (BRANCHES * ACCOUNTS / MAX_TEST_THREADS);
+                account_id = rand.next_uint32() % accounts_per_thread
+                    + (client_id_ * accounts_per_thread);
+            }
             uint64_t teller_id = account_id / ACCOUNTS_PER_TELLER;
             uint64_t branch_id = account_id / ACCOUNTS;
             uint64_t history_id = client_id_ * XCTS_PER_THREAD + i;
@@ -223,6 +229,11 @@ class RunTpcbTask : public thread::ImpersonateTask {
                     &account_balance, sizeof(account.branch_id_), sizeof(account_balance)));
 
         HistoryData history;
+        CHECK_ERROR(histories->get_record(context, history_id, &history));
+        EXPECT_EQ(0, history.account_id_);
+        EXPECT_EQ(0, history.amount_);
+        EXPECT_EQ(0, history.branch_id_);
+        EXPECT_EQ(0, history.teller_id_);
         history.account_id_ = account_id;
         history.branch_id_ = branch_id;
         history.teller_id_ = teller_id;
@@ -231,12 +242,20 @@ class RunTpcbTask : public thread::ImpersonateTask {
 
         Epoch commit_epoch;
         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+        std::cout << "Committed! Thread-" << context->get_thread_id() << " Updated "
+            << " branch[" << branch_id << "] " << branch.branch_balance_ << " -> " << branch_balance
+            << " teller[" << teller_id << "] " << teller.teller_balance_ << " -> " << teller_balance
+            << " account[" << account_id << "] " << account.account_balance_
+                << " -> " << account_balance
+            << " history[" << history_id << "] amount=" << amount
+            << std::endl;
         highest_commit_epoch->store_max(commit_epoch);
         return RET_OK;
     }
 
  private:
     int                         client_id_;
+    bool                        contended_;
 
     // to start all threads at the same time.
     std::shared_future<void>    start_future_;
@@ -319,7 +338,7 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
     int clients_;
 };
 
-void multi_thread_test(int thread_count) {
+void multi_thread_test(int thread_count, bool contended) {
     EngineOptions options = get_tiny_options();
     options.log_.log_buffer_kb_ = 1 << 12;
     options.thread_.group_count_ = 1;
@@ -338,7 +357,7 @@ void multi_thread_test(int thread_count) {
         std::vector<RunTpcbTask*> tasks;
         std::vector<thread::ImpersonateSession> sessions;
         for (int i = 0; i < thread_count; ++i) {
-            tasks.push_back(new RunTpcbTask(i, start_future));
+            tasks.push_back(new RunTpcbTask(i, contended, start_future));
             sessions.emplace_back(engine.get_thread_pool().impersonate(tasks[i]));
         }
         start_promise.set_value();
@@ -356,10 +375,15 @@ void multi_thread_test(int thread_count) {
     cleanup_test(options);
 }
 
-TEST(ArrayTpcbTest, SingleThreaded) { multi_thread_test(1); }
-TEST(ArrayTpcbTest, TwoThreaded)    { multi_thread_test(2); }
-TEST(ArrayTpcbTest, FourThreaded)   { multi_thread_test(4); }
+TEST(ArrayTpcbTest, SingleThreadedNoContention) { multi_thread_test(1, false); }
+TEST(ArrayTpcbTest, TwoThreadedNoContention)    { multi_thread_test(2, false); }
+TEST(ArrayTpcbTest, FourThreadedNoContention)   { multi_thread_test(4, false); }
 
+TEST(ArrayTpcbTest, SingleThreadedContended)    { multi_thread_test(1, true); }
+/* Now debugging these guys..
+TEST(ArrayTpcbTest, TwoThreadedContended)       { multi_thread_test(2, true); }
+TEST(ArrayTpcbTest, FourThreadedContended)      { multi_thread_test(4, true); }
+*/
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus

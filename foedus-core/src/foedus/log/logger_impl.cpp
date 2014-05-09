@@ -299,6 +299,9 @@ ErrorStack Logger::update_durable_epoch() {
     if (min_durable_epoch > durable_epoch_) {
         LOG(INFO) << "Logger-" << id_ << " updates durable_epoch_ from " << durable_epoch_
             << " to " << min_durable_epoch;
+        // Add a log to mark the switch of epoch. This is not necessary to be fsync-ed together,
+        // but it's a good sanity check to see if a complete log always ends with an epoch mark.
+        CHECK_ERROR(log_epoch_switch(durable_epoch_, min_durable_epoch));
         if (!fs::fsync(current_file_path_, true)) {
             return ERROR_STACK_MSG(ERROR_CODE_FS_SYNC_FAILED, to_string().c_str());
         }
@@ -306,14 +309,9 @@ ErrorStack Logger::update_durable_epoch() {
         LOG(INFO) << "Logger-" << id_ << " fsynced the current file ("
             << current_file_durable_offset_ << "  bytes so far) and its folder";
         DVLOG(0) << "Before: " << *this;
-        Epoch old_epoch = durable_epoch_;
         assorted::memory_fence_release();  // announce it only AFTER above
         durable_epoch_ = min_durable_epoch;  // announce it!
         assorted::memory_fence_release();  // so that log manager sees it asap
-
-        // Also, add a log to mark the switch of epoch. We don't have to flush this one immediately
-        // because the switch is part of the next epoch.
-        CHECK_ERROR(log_epoch_switch(old_epoch, min_durable_epoch));
 
         // finally, let the log manager re-calculate the global durable epoch.
         // this may or may not result in new global durable epoch

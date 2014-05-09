@@ -120,6 +120,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
             uint64_t branch_id = account_id / ACCOUNTS;
             uint64_t history_id = processed_ * TOTAL_THREADS + history_ordinal_;
             int64_t  amount = static_cast<int64_t>(random_.uniform_within(0, 1999999)) - 1000000;
+            int successive_aborts = 0;
             while (!stop_requested) {
                 ErrorStack error_stack = try_transaction(context,
                     branch_id, teller_id, account_id, history_id, amount);
@@ -129,6 +130,11 @@ class RunTpcbTask : public thread::ImpersonateTask {
                     // abort and retry
                     if (context->is_running_xct()) {
                         CHECK_ERROR(xct_manager.abort_xct(context));
+                    }
+                    if ((++successive_aborts & 0xFF) == 0) {
+                        std::cerr << "Thread-" << context->get_thread_id() << " having "
+                            << successive_aborts << " aborts in a row" << std::endl;
+                        assorted::memory_fence_acquire();
                     }
                 } else {
                     COERCE_ERROR(error_stack);
@@ -220,13 +226,16 @@ int main_impl(int argc, char **argv) {
             std::cout << "Creating TPC-B tables... " << std::endl;
             COERCE_ERROR(str_manager.create_array_impersonate("branches",
                                             sizeof(BranchData), BRANCHES, &branches));
+            std::cout << "Created branches " << std::endl;
             COERCE_ERROR(str_manager.create_array_impersonate("tellers",
                                         sizeof(AccountData), BRANCHES * TELLERS, &tellers));
+            std::cout << "Created tellers " << std::endl;
             COERCE_ERROR(str_manager.create_array_impersonate("accounts",
                                         sizeof(TellerData), BRANCHES * ACCOUNTS, &accounts));
+            std::cout << "Created accounts " << std::endl;
             COERCE_ERROR(str_manager.create_array_impersonate("histories",
                                                 sizeof(HistoryData), HISTORIES, &histories));
-            std::cout << "Created!" << std::endl;
+            std::cout << "Created all!" << std::endl;
 
             std::vector< RunTpcbTask* > tasks;
             std::vector< thread::ImpersonateSession > sessions;
@@ -246,8 +255,9 @@ int main_impl(int argc, char **argv) {
                 ::ProfilerStart("tpcb_experiment.prof");
             }
             start_promise.set_value();  // GO!
-
+            std::cout << "Started!" << std::endl;
             std::this_thread::sleep_for(std::chrono::microseconds(DURATION_MICRO));
+            std::cout << "Experiment ended." << std::endl;
 
             uint64_t total = 0;
             assorted::memory_fence_acquire();
@@ -257,6 +267,10 @@ int main_impl(int argc, char **argv) {
             if (profile) {
                 ::ProfilerStop();
             }
+            std::cout << "total=" << total << ", MTPS="
+                << (static_cast<double>(total)/DURATION_MICRO) << std::endl;
+            std::cout << "Shutting down..." << std::endl;
+
             assorted::memory_fence_release();
             stop_requested = true;
             assorted::memory_fence_release();
@@ -265,8 +279,6 @@ int main_impl(int argc, char **argv) {
                 std::cout << "result[" << i << "]=" << sessions[i].get_result() << std::endl;
                 delete tasks[i];
             }
-            std::cout << "total=" << total << ", MTPS="
-                << (static_cast<double>(total)/DURATION_MICRO) << std::endl;
             COERCE_ERROR(engine.uninitialize());
         }
     }

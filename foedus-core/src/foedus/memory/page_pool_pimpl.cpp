@@ -29,8 +29,9 @@ ErrorStack PagePoolPimpl::initialize_once() {
     {
         // TODO(Hideaki) We might want to partition the page pool for NUMA.
         AlignedMemory::AllocType alloc_type = AlignedMemory::NUMA_ALLOC_INTERLEAVED;
-        size_t size = options.page_pool_size_mb_ << 20;
-        size_t alignment = storage::PAGE_SIZE;
+        uint64_t size = static_cast<uint64_t>(options.page_pool_size_mb_) << 20;
+        ASSERT_ND(size >= (2 << 20));
+        uint64_t alignment = storage::PAGE_SIZE;
         memory_ = std::move(AlignedMemory(size, alignment, alloc_type, 0));
         pool_base_ = reinterpret_cast<storage::Page*>(memory_.get_block());
         pool_size_ = memory_.get_size() / storage::PAGE_SIZE;
@@ -82,7 +83,7 @@ ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* 
         << " free_pool_count_=" << free_pool_count_;
     std::lock_guard<std::mutex> guard(lock_);
     if (free_pool_count_ == 0) {
-        LOG(WARNING) << "Nore more free pages left in the pool";
+        LOG(WARNING) << "No more free pages left in the pool";
         return ERROR_CODE_MEMORY_NO_FREE_PAGES;
     }
 

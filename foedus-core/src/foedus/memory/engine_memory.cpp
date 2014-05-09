@@ -25,8 +25,8 @@ ErrorStack EngineMemory::initialize_once() {
     const EngineOptions& options = engine_->get_options();
 
     // Can we at least start up?
-    size_t total_threads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
-    size_t minimal_page_pool = total_threads * options.memory_.private_page_pool_initial_grab_
+    uint64_t total_threads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
+    uint64_t minimal_page_pool = total_threads * options.memory_.private_page_pool_initial_grab_
         * storage::PAGE_SIZE;
     if ((static_cast<uint64_t>(options.memory_.page_pool_size_mb_) << 20) < minimal_page_pool) {
         return ERROR_STACK(ERROR_CODE_MEMORY_PAGE_POOL_TOO_SMALL);

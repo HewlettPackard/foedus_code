@@ -104,7 +104,7 @@ union VolatilePagePointer {
  *  \li Only volatile pointer is null; the snapshot page is the latest and we don't have a
  * modification on the page since then (or not published by RCU-ing thread yet).
  *
- * @SECTION CAS Atomic Compare-And-Exchange
+ * @section CAS Atomic Compare-And-Exchange
  * Dual page pointer is, unfortunately, 128 bits.
  * When we have to atomically swap either or both 64-bit parts depending on the current
  * value of the entire 128 bit, we need a double-word CAS.

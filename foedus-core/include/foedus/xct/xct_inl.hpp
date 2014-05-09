@@ -37,19 +37,20 @@ inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record
     }
 
     ASSERT_ND(record->owner_id_.epoch_.is_valid());
+
+    // If the record is locked, we will surely abort at commit time.
+    // Rather, spin here to avoid wasted effort. In our engine, lock happens in commit time,
+    // so no worry about deadlock or long wait.
+    if (UNLIKELY(record->owner_id_.is_locked<15>())) {
+        record->owner_id_.spin_while_locked<15>();
+    }
+    // yes, still some one might lock at _this_ moment, but we will see it at commit time.
     read_set_[read_set_size_].observed_owner_id_ = record->owner_id_;
 
     // for RCU protocol, make sure compiler/CPU don't reorder the data access before tag copy.
     // This is _consume rather than _acquire because it's fine to see stale information as far as
     // we don't access before the tag copy.
     assorted::memory_fence_consume();
-
-    // If the record is locked, we will sure abort at commit time.
-    // Rather, spin here to avoid wasted effort. In our engine, lock happens in commit time,
-    // so no worry about deadlock or long wait.
-    if (UNLIKELY(read_set_[read_set_size_].observed_owner_id_.is_locked<15>())) {
-        read_set_[read_set_size_].observed_owner_id_.spin_while_locked<15>();
-    }
     read_set_[read_set_size_].storage_ = storage;
     read_set_[read_set_size_].record_ = record;
     ++read_set_size_;

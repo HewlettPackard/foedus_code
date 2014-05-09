@@ -40,7 +40,7 @@ struct OverwriteLogType : public log::RecordLogType {
     char            data_[4];           // +4 => 24
 
     static uint16_t calculate_log_length(uint16_t payload_count) ALWAYS_INLINE {
-        // we pad to 8 bytes for efficiency (so far not for regular register access)
+        // we pad to 8 bytes so that we always have a room for FillerLogType to align.
         return assorted::align8(20 + payload_count);
     }
 

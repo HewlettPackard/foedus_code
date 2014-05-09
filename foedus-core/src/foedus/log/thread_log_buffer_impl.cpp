@@ -2,17 +2,21 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
+#include <foedus/engine.hpp>
+#include <foedus/assert_nd.hpp>
+#include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/log/thread_log_buffer_impl.hpp>
 #include <foedus/log/common_log_types.hpp>
-#include <foedus/engine.hpp>
+#include <foedus/log/log_manager.hpp>
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/memory/numa_core_memory.hpp>
-#include <foedus/assert_nd.hpp>
 #include <foedus/savepoint/savepoint.hpp>
 #include <foedus/savepoint/savepoint_manager.hpp>
 #include <glog/logging.h>
+#include <chrono>
 #include <ostream>
 #include <list>
+#include <thread>
 namespace foedus {
 namespace log {
 ThreadLogBuffer::ThreadLogBuffer(Engine* engine, thread::ThreadId thread_id)
@@ -68,10 +72,23 @@ void ThreadLogBuffer::assert_consistent() const {
 }
 
 void ThreadLogBuffer::wait_for_space(uint16_t required_space) {
-    // TODO(Hideaki) implement
     LOG(INFO) << "Thread-" << thread_id_ << " waiting for space to write logs..";
-    LOG(FATAL) << "Not implemented yet";
-    while(true);
+    while (head_to_tail_distance() + required_space >= buffer_size_safe_) {
+        assorted::memory_fence_acquire();
+        if (offset_durable_ != offset_head_) {
+            // TODO(Hideaki) actually we should kick axx of log gleaner in this case.
+            LOG(INFO) << "Thread-" << thread_id_ << " moving head to durable: " << *this;
+            assorted::memory_fence_release();
+            offset_head_ = offset_durable_;
+            assorted::memory_fence_release();
+        } else {
+            LOG(WARNING) << "Thread-" << thread_id_ << " logger is getting behind. sleeping "
+                << " for a while.." << *this;
+            engine_->get_log_manager().wakeup_loggers();
+            // TODO(Hideaki) this duration should be configurable.
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+    }
 }
 
 void ThreadLogBuffer::fillup_tail() {

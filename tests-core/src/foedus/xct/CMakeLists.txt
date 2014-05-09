@@ -1,1 +1,2 @@
 add_foedus_test(test_xct_access)
+add_foedus_test(test_xct_commit_conflict)
