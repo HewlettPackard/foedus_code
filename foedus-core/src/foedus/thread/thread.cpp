@@ -4,6 +4,7 @@
  */
 #include <foedus/thread/thread.hpp>
 #include <foedus/thread/thread_pimpl.hpp>
+#include <ostream>
 namespace foedus {
 namespace thread {
 Thread::Thread(Engine* engine, ThreadGroupPimpl* group, ThreadId id) : pimpl_(nullptr) {
@@ -25,6 +26,12 @@ xct::Xct&   Thread::get_current_xct()   { return pimpl_->current_xct_; }
 bool        Thread::is_running_xct()    const { return pimpl_->current_xct_.is_active(); }
 
 log::ThreadLogBuffer& Thread::get_thread_log_buffer() { return pimpl_->log_buffer_; }
+
+std::ostream& operator<<(std::ostream& o, const Thread& v) {
+    o << "Thread-" << v.get_thread_id();
+    return o;
+}
+
 
 }  // namespace thread
 }  // namespace foedus

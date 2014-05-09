@@ -37,8 +37,7 @@ function (add_foedus_test_individual targetname individual_tests)
             COMMAND ${targetname}
                 --gtest_filter=*.${individual_test}
                 --gtest_output=xml:test-reports/result_${targetname}_${individual_test}.xml)
-    endforeach(individual_test individual_tests)
-
+   endforeach(individual_test individual_tests)
 endfunction()
 
 add_subdirectory(src)

@@ -74,19 +74,24 @@ struct XctId {
     XctId() : epoch_(), thread_id_(0), ordinal_and_status_(0) {
     }
     XctId(const XctId& other) {
-        // to assure atomic write of 64 bits, we do the following.
-        *reinterpret_cast<uint64_t*>(this) = other.as_int();
+        operator=(other);
     }
     XctId(Epoch epoch, thread::ThreadId thread_id, uint16_t ordinal_and_status)
         : epoch_(epoch), thread_id_(thread_id), ordinal_and_status_(ordinal_and_status) {}
+    XctId& operator=(const XctId& other) {
+        // to assure atomic write of 64 bits, we do the following.
+        *reinterpret_cast<uint64_t*>(this) = other.as_int();
+        return *this;
+    }
 
     /**
-     * Returns if epoch_ and thread_id_ are identical with the given XctId.
+     * Returns if epoch_, thread_id_, and oridnal (w/o status) are identical with the given XctId.
      * We don't provide operator== in XctId because it is confusing.
      * Instead, we provide compare_xxx that explicitly states what we are comparing.
      */
-    bool compare_epoch_and_thread(const XctId &other) const {
-        return epoch_ == other.epoch_ && thread_id_ == other.thread_id_;
+    bool compare_epoch_thread_ordinal(const XctId &other) const {
+        return epoch_ == other.epoch_ && thread_id_ == other.thread_id_
+            && (ordinal_and_status_ & 0x7FFF) == (other.ordinal_and_status_ & 0x7FFF);
     }
     bool compare_all(const XctId &other) const { return as_int() == other.as_int(); }
 

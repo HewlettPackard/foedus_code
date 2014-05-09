@@ -527,7 +527,7 @@ std::string Logger::to_string() const {
 std::ostream& operator<<(std::ostream& o, const Logger& v) {
     o << "<Logger>"
         << "<id_>" << v.id_ << "</id_>"
-        << "<numa_node_>" << v.numa_node_ << "</numa_node_>"
+        << "<numa_node_>" << static_cast<int>(v.numa_node_) << "</numa_node_>"
         << "<log_path_>" << v.log_path_ << "</log_path_>";
     o << "<assigned_thread_ids_>";
     for (auto thread_id : v.assigned_thread_ids_) {

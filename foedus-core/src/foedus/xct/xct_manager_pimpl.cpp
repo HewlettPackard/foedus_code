@@ -92,7 +92,7 @@ ErrorStack XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel is
     if (current_xct.is_active()) {
         return ERROR_STACK(ERROR_CODE_XCT_ALREADY_RUNNING);
     }
-    DLOG(INFO) << "Began new transaction in thread-" << context->get_thread_id();
+    DLOG(INFO) << *context << " Began new transaction";
     current_xct.activate(isolation_level);
     ASSERT_ND(context->get_thread_log_buffer().get_offset_tail()
         == context->get_thread_log_buffer().get_offset_committed());
@@ -119,20 +119,20 @@ ErrorStack XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit
     if (success) {
         return RET_OK;
     } else {
-        DLOG(WARNING) << "Aborting because of contention";
+        DLOG(WARNING) << *context << " Aborting because of contention";
         context->get_thread_log_buffer().discard_current_xct_log();
         return ERROR_STACK(ERROR_CODE_XCT_RACE_ABORT);
     }
 }
 bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch) {
-    DVLOG(1) << "Committing Thread-" << context->get_thread_id() << ", read_only";
+    DVLOG(1) << *context << " Committing read_only";
     *commit_epoch = Epoch();
     assorted::memory_fence_acquire();  // this is enough for read-only case
     return precommit_xct_verify_readonly(context, commit_epoch);
 }
 
 bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch) {
-    DVLOG(1) << "Committing Thread-" << context->get_thread_id() << ", read-write";
+    DVLOG(1) << *context << " Committing read-write";
     precommit_xct_lock(context);  // Phase 1
 
     // BEFORE the first fence, update the in_commit_log_epoch_ for logger
@@ -141,7 +141,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     assorted::memory_fence_acq_rel();
 
     *commit_epoch = current_global_epoch_;  // serialization point!
-    DVLOG(1) << "Acquired read-write commit epoch " << *commit_epoch;
+    DVLOG(1) << *context << " Acquired read-write commit epoch " << *commit_epoch;
 
     assorted::memory_fence_acq_rel();
     bool verified = precommit_xct_verify_readwrite(context);  // phase 2
@@ -159,7 +159,7 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
     Xct& current_xct = context->get_current_xct();
     WriteXctAccess* write_set = current_xct.get_write_set();
     uint32_t        write_set_size = current_xct.get_write_set_size();
-    DVLOG(1) << "write_set_size=" << write_set_size << ", write_set addr=" << write_set;
+    DVLOG(1) << *context << " #write_sets=" << write_set_size << ", addr=" << write_set;
 
 #ifndef NDEBUG
     // DEBUG: check equivalence of records/logs before/after sort
@@ -174,16 +174,17 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
 #endif  // NDEBUG
 
     std::sort(write_set, write_set + write_set_size, WriteXctAccess::compare);
-    DVLOG(1) << "sorted write set";
+    DVLOG(1) << *context << " sorted write set";
 
     // lock them unconditionally. there is no risk of deadlock thanks to the sort.
     // lock bit is the highest bit of ordinal_and_status_.
     for (uint32_t i = 0; i < write_set_size; ++i) {
-        DVLOG(2) << "Locking " << write_set[i].storage_->get_name() << ":" << write_set[i].record_;
+        DVLOG(2) << *context << " Locking " << write_set[i].storage_->get_name()
+            << ":" << write_set[i].record_;
         XctId& owner_id = write_set[i].record_->owner_id_;
         owner_id.lock_unconditional<15>();
     }
-    DVLOG(1) << "locked write set";
+    DVLOG(1) << *context << " locked write set";
 
 #ifndef NDEBUG
     for (uint32_t i = 0; i < write_set_size; ++i) {
@@ -203,16 +204,18 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
         // The owning transaction has changed.
         // We don't check ordinal here because there is no change we are racing with ourselves.
         const XctAccess& access = read_set[i];
-        DVLOG(2) << "Verifying " << access.storage_->get_name() << ":" << access.record_;
-        if (!access.observed_owner_id_.compare_epoch_and_thread(access.record_->owner_id_)) {
-            DLOG(WARNING) << "read set changed by other transaction. will abort";
+        DVLOG(2) << *context << "Verifying " << access.storage_->get_name()
+            << ":" << access.record_ << ". observed_xid=" << access.observed_owner_id_
+                << ", now_xid=" << access.record_->owner_id_;
+        if (!access.observed_owner_id_.compare_epoch_thread_ordinal(access.record_->owner_id_)) {
+            DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
             return false;
         }
         // TODO(Hideaki) For data structures that have previous links, we need to check if
         // it's latest. Array doesn't have it.
 
         if (access.record_->owner_id_.is_locked<15>()) {
-            DLOG(WARNING) << "read set contained a locked record. abort";
+            DLOG(WARNING) << *context << " read set contained a locked record. abort";
             return false;
         }
 
@@ -220,9 +223,10 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
         commit_epoch->store_max(access.observed_owner_id_.epoch_);
     }
 
-    DVLOG(1) << "Read-only higest epoch observed: " << *commit_epoch;
+    DVLOG(1) << *context << "Read-only higest epoch observed: " << *commit_epoch;
     if (!commit_epoch->is_valid()) {
-        DLOG(INFO) << "Read-only higest epoch was empty. The transaction has no read set??";
+        DLOG(INFO) << *context
+            << " Read-only higest epoch was empty. The transaction has no read set??";
         // In this case, set already-durable epoch.
         *commit_epoch = Epoch(engine_->get_log_manager().get_durable_global_epoch());
     }
@@ -242,25 +246,28 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
         // The owning transaction has changed.
         // We don't check ordinal here because there is no change we are racing with ourselves.
         const XctAccess& access = read_set[i];
-        DVLOG(2) << "Verifying " << access.storage_->get_name() << ":" << access.record_;
-        if (!access.observed_owner_id_.compare_epoch_and_thread(access.record_->owner_id_)) {
-            DLOG(WARNING) << "read set changed by other transaction. will abort";
+        DVLOG(2) << *context << " Verifying " << access.storage_->get_name()
+            << ":" << access.record_ << ". observed_xid=" << access.observed_owner_id_
+                << ", now_xid=" << access.record_->owner_id_;
+        if (!access.observed_owner_id_.compare_epoch_thread_ordinal(access.record_->owner_id_)) {
+            DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
             return false;
         }
         // TODO(Hideaki) For data structures that have previous links, we need to check if
         // it's latest. Array doesn't have it. So, we don't have the check so far.
         if (access.record_->owner_id_.is_locked<15>()) {
-            DVLOG(2) << "read set contained a locked record. was it myself who locked it?";
+            DVLOG(2) << *context
+                << " read set contained a locked record. was it myself who locked it?";
             // write set is sorted. so we can do binary search.
             WriteXctAccess dummy;
             dummy.record_ = access.record_;
             bool found = std::binary_search(write_set, write_set + write_set_size, dummy,
                                WriteXctAccess::compare);
             if (!found) {
-                DLOG(WARNING) << "no, not me. will abort";
+                DLOG(WARNING) << *context << " no, not me. will abort";
                 return false;
             } else {
-                DVLOG(2) << "okay, myself. go on.";
+                DVLOG(2) << *context << " okay, myself. go on.";
             }
         }
     }
@@ -275,36 +282,37 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context,
     Xct& current_xct = context->get_current_xct();
     WriteXctAccess* write_set = current_xct.get_write_set();
     uint32_t        write_set_size = current_xct.get_write_set_size();
-    DVLOG(1) << "applying and unlocking.. write_set_size=" << write_set_size;
+    DVLOG(1) << *context << " applying and unlocking.. write_set_size=" << write_set_size;
 
     current_xct.issue_next_id(commit_epoch);
     XctId new_xct_id = current_xct.get_id();
     ASSERT_ND(!new_xct_id.is_locked<15>());
 
-    DVLOG(1) << "generated new xct id=" << new_xct_id;
+    DVLOG(1) << *context << " generated new xct id=" << new_xct_id;
     for (uint32_t i = 0; i < write_set_size; ++i) {
         WriteXctAccess& write = write_set[i];
-        DVLOG(2) << "Applying/Unlocking " << write.storage_->get_name() << ":" << write.record_;
+        DVLOG(2) << *context << " Applying/Unlocking " << write.storage_->get_name()
+            << ":" << write.record_;
         log::invoke_apply_record(
             write.log_entry_, write.storage_, write.record_);
         assorted::memory_fence_release();  // we must apply BEFORE unlock
         write.record_->owner_id_ = new_xct_id;  // this also unlocks
     }
-    DVLOG(1) << "aplied and unlocked write set";
+    DVLOG(1) << *context << " applied and unlocked write set";
 }
 
 void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context) {
     WriteXctAccess* write_set = context->get_current_xct().get_write_set();
     uint32_t        write_set_size = context->get_current_xct().get_write_set_size();
-    DVLOG(1) << "unlocking without applying.. write_set_size=" << write_set_size;
+    DVLOG(1) << *context << " unlocking without applying.. write_set_size=" << write_set_size;
     assorted::memory_fence_release();
     for (uint32_t i = 0; i < write_set_size; ++i) {
         WriteXctAccess& write = write_set[i];
-        DVLOG(2) << "Unlocking " << write.storage_->get_name() << ":" << write.record_;
+        DVLOG(2) << *context << " Unlocking " << write.storage_->get_name() << ":" << write.record_;
         write.record_->owner_id_.unlock<15>();
     }
     assorted::memory_fence_release();
-    DLOG(INFO) << "unlocked write set without applying";
+    DLOG(INFO) << *context << " unlocked write set without applying";
 }
 
 ErrorStack XctManagerPimpl::abort_xct(thread::Thread* context) {
@@ -312,7 +320,7 @@ ErrorStack XctManagerPimpl::abort_xct(thread::Thread* context) {
     if (!current_xct.is_active()) {
         return ERROR_STACK(ERROR_CODE_XCT_NO_XCT);
     }
-    DLOG(INFO) << "Aborted transaction in thread-" << context->get_thread_id();
+    DLOG(INFO) << *context << " Aborted transaction in thread-" << context->get_thread_id();
     current_xct.deactivate();
     context->get_thread_log_buffer().discard_current_xct_log();
     return RET_OK;

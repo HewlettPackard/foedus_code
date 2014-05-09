@@ -10,6 +10,7 @@
 #include <foedus/thread/fwd.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/xct/fwd.hpp>
+#include <iosfwd>
 namespace foedus {
 namespace thread {
 /**
@@ -46,6 +47,8 @@ class Thread CXX11_FINAL : public virtual Initializable {
 
     /** Returns the pimpl of this object. Use it only when you know what you are doing. */
     ThreadPimpl*    get_pimpl() const { return pimpl_; }
+
+    friend std::ostream& operator<<(std::ostream& o, const Thread& v);
 
  private:
     ThreadPimpl*    pimpl_;
