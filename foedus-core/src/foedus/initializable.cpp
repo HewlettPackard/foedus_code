@@ -3,8 +3,8 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/initializable.hpp>
-#include <glog/logging.h>
 #include <foedus/assert_nd.hpp>
+#include <glog/logging.h>
 #include <cstdlib>
 #include <iostream>
 #include <typeinfo>
@@ -15,6 +15,7 @@ UninitializeGuard::~UninitializeGuard() {
             LOG(ERROR) << "UninitializeGuard has found that " << typeid(*target_).name()
                 <<  "#uninitialize() was not called when it was destructed. This is a BUG!"
                 << " We must call uninitialize() before destructors!";
+            print_backtrace();
         }
         if (policy_ == ABORT_IF_NOT_EXPLICITLY_UNINITIALIZED) {
             LOG(FATAL) << "FATAL: According to ABORT_IF_NOT_EXPLICITLY_UNINITIALIZED policy,"
