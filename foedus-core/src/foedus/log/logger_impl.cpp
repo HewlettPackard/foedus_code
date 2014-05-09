@@ -206,11 +206,12 @@ ErrorStack Logger::handle_logger_once(bool *more_log_to_process) {
             upto_offset = offset_committed;  // use the already-copied value
         }
 
+        assorted::memory_fence_acquire();
         if (upto_offset != buffer.offset_durable_) {
-            ASSERT_ND(buffer.logger_epoch_ == current_logger_epoch);
             CHECK_ERROR(write_log(&buffer, upto_offset));
         }
-        if (buffer.offset_durable_ != buffer.get_offset_committed()) {
+        assorted::memory_fence_acquire();
+        if (buffer.offset_durable_ != buffer.offset_committed_) {
             *more_log_to_process = true;
         }
     }
