@@ -90,7 +90,13 @@ ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
 void DirectIoFile::close() {
     if (descriptor_ != INVALID_DESCRIPTOR) {
         int ret = ::close(descriptor_);
-        LOG(INFO) << "DirectIoFile::close(): closed. " << *this << ". ret=" << ret;
+        LOG(INFO) << "DirectIoFile::close(): closed. " << *this;
+        if (ret != 0) {
+            // Error at file close is nasty, we can't do much. We just report it in log.
+            LOG(ERROR) << "DirectIoFile::close(): error:" << foedus::assorted::os_error()
+                << " file=" << *this << ".";
+            ASSERT_ND(false);  // crash only in debug mode
+        }
         descriptor_ = INVALID_DESCRIPTOR;
     }
 }
@@ -121,7 +127,7 @@ ErrorStack DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemorySlice
     uint64_t total_read = 0;
     uint64_t remaining = desired_bytes;
     while (remaining > 0) {
-        char* position = buffer.get_block() + total_read;
+        char* position = reinterpret_cast<char*>(buffer.get_block()) + total_read;
         ASSERT_ND(is_odirect_aligned(position));
         ssize_t read_bytes = ::read(descriptor_, position, remaining);
         if (read_bytes <= 0) {
@@ -185,10 +191,12 @@ ErrorStack DirectIoFile::write(uint64_t desired_bytes, memory::AlignedMemorySlic
     }
 
     // underlying POSIX filesystem might split the write for severel reasons. so, while loop.
+    VLOG(1) << "DirectIoFile::write(). desired_bytes=" << desired_bytes << ", buffer=" << buffer;
     uint64_t total_written = 0;
     uint64_t remaining = desired_bytes;
     while (remaining > 0) {
-        void* position = buffer.get_block() + total_written;
+        void* position = reinterpret_cast<char*>(buffer.get_block()) + total_written;
+        VLOG(1) << "DirectIoFile::write(). position=" << position;
         ASSERT_ND(is_odirect_aligned(position));
         ssize_t written_bytes = ::write(descriptor_, position, remaining);
         if (written_bytes < 0) {

@@ -6,6 +6,8 @@ add_foedus_test_individual(test_engine_options "Instantiate;Copy;Print;SaveLoad"
 add_foedus_test_individual(test_epoch "Valid;Comparison")
 
 add_subdirectory(assorted)
+add_subdirectory(fs)
 add_subdirectory(memory)
 add_subdirectory(storage)
 add_subdirectory(xct)
+

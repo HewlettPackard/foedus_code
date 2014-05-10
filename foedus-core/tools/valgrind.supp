@@ -76,3 +76,25 @@
    fun:_ZSt9call_onceIMNSt13__future_base11_State_baseEFvRSt8functionIFSt10unique_ptrINS0_12_Result_baseENS4_8_DeleterEEvEERbEIKPS1_St17reference_wrapperIS8_ESF_IbEEEvRSt9once_flagOT_DpOT0_
    ...
 }
+
+# Hideaki, 2014 May, Fedora 20.
+# Most likely this is a bug in GLOG's SetVLOGLevel. Seems like it leaks one std::string.
+# It's not a big issue, probably intentional as it's one-time allocation.
+{
+   glog_setvloglevel_leak1
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:_Znwm
+   fun:_ZN6google12SetVLOGLevelEPKci
+   ...
+}
+{
+   glog_setvloglevel_leak2
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:_Znwm
+   fun:_ZNSs4_Rep9_S_createEmmRKSaIcE
+   fun:_ZNSs9_M_mutateEmmm
+   fun:_ZNSs15_M_replace_safeEmmPKcm
+   fun:_ZN6google12SetVLOGLevelEPKci
+}

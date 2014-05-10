@@ -245,7 +245,7 @@ int main_impl(int argc, char **argv) {
                 tasks.push_back(new RunTpcbTask(i, start_future));
                 sessions.emplace_back(engine.get_thread_pool().impersonate(tasks[i]));
                 if (!sessions[i].is_valid()) {
-                    std::cout << "Impersonation failed!" << sessions[i].invalid_cause_ << std::endl;
+                    COERCE_ERROR(sessions[i].invalid_cause_);
                 }
             }
 

@@ -6,6 +6,7 @@
 #include <numa.h>
 #include <foedus/assert_nd.hpp>
 #include <cstdlib>
+#include <cstring>
 #include <ostream>
 
 namespace foedus {
@@ -32,7 +33,7 @@ AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
             ASSERT_ND(false);
     }
 
-    ::memset(block_, 0, size_);  // see class comment for why we do this immediately
+    std::memset(block_, 0, size_);  // see class comment for why we do this immediately
 }
 
 AlignedMemory::AlignedMemory(AlignedMemory &&other) noexcept : block_(nullptr) {
@@ -71,7 +72,8 @@ std::ostream& operator<<(std::ostream& o, const AlignedMemory& v) {
     o << "<size>" << v.get_size() << "</size>";
     o << "<alignment>" << v.get_alignment() << "</alignment>";
     o << "<alloc_type>" << v.get_alloc_type() << "</alloc_type>";
-    o << "<numa_node>" << v.get_numa_node() << "</numa_node>";
+    o << "<numa_node>" << static_cast<int>(v.get_numa_node()) << "</numa_node>";
+    o << "<address>" << v.get_block() << "</address>";
     o << "</AlignedMemory>";
     return o;
 }

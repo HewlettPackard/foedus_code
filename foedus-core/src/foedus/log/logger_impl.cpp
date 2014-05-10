@@ -95,10 +95,14 @@ ErrorStack Logger::initialize_once() {
             engine_->get_thread_pool().get_pimpl()->get_thread(thread_id));
     }
 
-    // grab a buffer to do file I/O
+    // grab a buffer to pad incomplete blocks for direct file I/O
     CHECK_ERROR(engine_->get_memory_manager().get_node_memory(numa_node_)->allocate_numa_memory(
         FillerLogType::LOG_WRITE_UNIT_SIZE, &fill_buffer_));
-    LOG(INFO) << "Logger-" << id_ << " grabbed a I/O buffer. size=" << fill_buffer_.get_size();
+    ASSERT_ND(!fill_buffer_.is_null());
+    ASSERT_ND(fill_buffer_.get_size() >= FillerLogType::LOG_WRITE_UNIT_SIZE);
+    ASSERT_ND(fill_buffer_.get_alignment() >= FillerLogType::LOG_WRITE_UNIT_SIZE);
+    std::memset(fill_buffer_.get_block(), 0, FillerLogType::LOG_WRITE_UNIT_SIZE);
+    LOG(INFO) << "Logger-" << id_ << " grabbed a padding buffer. size=" << fill_buffer_.get_size();
 
     // log file and buffer prepared. let's launch the logger thread
     logger_thread_.initialize("Logger-", id_,

@@ -23,18 +23,18 @@ namespace foedus {
         options.log_.log_paths_.clear();
         for (int i = 0; i < logger_count; ++i) {
             std::stringstream str;
-            str << "test_logs/" << uniquefier << "_" << i << ".log";
+            str << "tmp_logs/" << uniquefier << "_" << i << ".log";
             options.log_.log_paths_.push_back(str.str());
         }
 
         options.snapshot_.folder_paths_.clear();
         for (int i = 0; i < snapshot_folder_count; ++i) {
             std::stringstream str;
-            str << "test_snapshots/" << uniquefier << "_" << i;
+            str << "tmp_snapshots/" << uniquefier << "_" << i;
             options.snapshot_.folder_paths_.push_back(str.str());
         }
 
-        options.savepoint_.savepoint_path_ = std::string("test_savepoints/") + uniquefier + ".xml";
+        options.savepoint_.savepoint_path_ = std::string("tmp_savepoints/") + uniquefier + ".xml";
 
         return options;
     }

@@ -348,6 +348,9 @@ void multi_thread_test(int thread_count, bool contended) {
     {
         CreateTpcbTablesTask task;
         thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+        if (!session.is_valid()) {
+            COERCE_ERROR(session.invalid_cause_);
+        }
         COERCE_ERROR(session.get_result());
     }
 
@@ -359,6 +362,9 @@ void multi_thread_test(int thread_count, bool contended) {
         for (int i = 0; i < thread_count; ++i) {
             tasks.push_back(new RunTpcbTask(i, contended, start_future));
             sessions.emplace_back(engine.get_thread_pool().impersonate(tasks[i]));
+            if (!sessions[i].is_valid()) {
+                COERCE_ERROR(sessions[i].invalid_cause_);
+            }
         }
         start_promise.set_value();
         for (int i = 0; i < thread_count; ++i) {
@@ -369,6 +375,9 @@ void multi_thread_test(int thread_count, bool contended) {
     {
         VerifyTpcbTask task(thread_count);
         thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+        if (!session.is_valid()) {
+            COERCE_ERROR(session.invalid_cause_);
+        }
         COERCE_ERROR(session.get_result());
     }
     COERCE_ERROR(engine.uninitialize());

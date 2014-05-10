@@ -1,1 +1,2 @@
+add_foedus_test_individual(test_aligned_memory "Instantiate;Instantiate2;Move;Slice")
 add_foedus_test_individual(test_engine_memory "ReadWriteSetMemory")

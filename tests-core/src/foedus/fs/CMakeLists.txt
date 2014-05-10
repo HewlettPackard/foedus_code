@@ -1,0 +1,1 @@
+add_foedus_test_individual(test_direct_io_file "Create;CreateAppend;CreateWrite")

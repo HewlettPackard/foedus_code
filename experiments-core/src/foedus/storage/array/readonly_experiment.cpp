@@ -144,6 +144,9 @@ int main(int argc, char **argv) {
             foedus::UninitializeGuard guard(&engine);
             MyTask task;
             th::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+            if (!session.is_valid()) {
+                COERCE_ERROR(session.invalid_cause_);
+            }
             std::cout << "session: " << session << std::endl;
             std::cout << "session: result=" << session.get_result() << std::endl;
 
@@ -154,7 +157,7 @@ int main(int argc, char **argv) {
                 task2[i] = new MyTask2();
                 session2[i] = engine.get_thread_pool().impersonate(task2[i]);
                 if (!session2[i].is_valid()) {
-                    std::cout << "Impersonation failed!" << session2[i].invalid_cause_ << std::endl;
+                    COERCE_ERROR(session2[i].invalid_cause_);
                 }
             }
             ::usleep(1000000);

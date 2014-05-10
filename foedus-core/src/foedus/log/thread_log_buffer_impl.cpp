@@ -27,13 +27,14 @@ ThreadLogBuffer::ThreadLogBuffer(Engine* engine, thread::ThreadId thread_id)
 ErrorStack ThreadLogBuffer::initialize_once() {
     memory::NumaCoreMemory *memory = engine_->get_memory_manager().get_core_memory(thread_id_);
     buffer_memory_ = memory->get_log_buffer_memory();
-    buffer_ = buffer_memory_.get_block();
-    buffer_size_ = buffer_memory_.size();
+    buffer_ = reinterpret_cast<char*>(buffer_memory_.get_block());
+    buffer_size_ = buffer_memory_.get_size();
     buffer_size_safe_ = buffer_size_ - 64;
 
     const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
     last_epoch_ = savepoint.get_current_epoch();
     logger_epoch_ = savepoint.get_current_epoch();
+    logger_epoch_ends_ = 0;
     logger_epoch_open_ended_ = true;
     offset_head_ = 0;
     offset_durable_ = 0;

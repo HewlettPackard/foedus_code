@@ -133,6 +133,9 @@ void run_test(Engine *engine, ASSIGN_FUNC assign_func) {
     for (int i = 0; i < THREADS; ++i) {
         tasks.push_back(new TestTask(assign_func(i), i * 20 + 4, start_future));
         sessions.emplace_back(engine->get_thread_pool().impersonate(tasks[i]));
+        if (!sessions[i].is_valid()) {
+            COERCE_ERROR(sessions[i].invalid_cause_);
+        }
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     start_promise.set_value();
