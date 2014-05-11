@@ -58,8 +58,11 @@ void ThreadPimpl::handle_tasks() {
             ASSERT_ND(impersonated_);
             LOG(INFO) << "Thread-" << id_ << " retrieved a task";
             ErrorStack result = functor->run(holder_);
-            impersonated_task_result_.set_value(result);
+            assorted::memory_fence_release();
             impersonated_ = false;
+            assorted::memory_fence_release();
+            impersonated_task_result_.set_value(result);  // this wakes up the client
+            assorted::memory_fence_release();
             LOG(INFO) << "Thread-" << id_ << " finished a task. result =" << result;
         } else {
             // NULL functor is the signal to terminate
