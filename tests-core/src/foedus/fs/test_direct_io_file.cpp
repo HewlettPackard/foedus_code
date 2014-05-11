@@ -29,6 +29,30 @@ TEST(DirectIoFileTest, Create) {
     file.close();
 }
 
+void test_tmpfs(std::string root) {
+    // this is mainly testing the O_DIRECT error on tmpfs
+    // http://www.gossamer-threads.com/lists/linux/kernel/720702
+    Path folder_path(root + "/foedus_test");
+    if (exists(folder_path)) {
+        remove_all(folder_path);
+    }
+    EXPECT_FALSE(exists(folder_path));
+    EXPECT_TRUE(fs::create_directories(folder_path));
+
+    Path file_path(folder_path);
+    file_path /= get_random_name();
+    EXPECT_FALSE(exists(file_path));
+
+    DirectIoFile file(file_path);
+    COERCE_ERROR(file.open(true, true, true, true));
+    file.close();
+    remove_all(folder_path);
+    EXPECT_FALSE(exists(folder_path));
+}
+
+TEST(DirectIoFileTest, CreateDevShm) { test_tmpfs("/dev/shm"); }
+TEST(DirectIoFileTest, CreateTmp) { test_tmpfs("/tmp"); }
+
 TEST(DirectIoFileTest, CreateAppend) {
     DirectIoFile file(Path(std::string("testfile_") + get_random_name()));
     memory::AlignedMemory memory(1 << 16, 1 << 12, memory::AlignedMemory::NUMA_ALLOC_ONNODE, 0);

@@ -107,11 +107,6 @@ class ThreadPimpl final : public DefaultInitializable {
     std::promise< ImpersonateTask* > impersonated_task_;
 
     /**
-     * Protects from concurrent accesses to impersonated_task_.
-     */
-    std::mutex                  impersonated_task_mutex_;
-
-    /**
      * The \e promise of the result of previous impersonated execution.
      * The pooled thread calls set_value when it finishes the current task.
      * When this receives a new task (when impersonated_ sets true), it creates a new promise

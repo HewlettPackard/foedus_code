@@ -71,6 +71,22 @@ ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
     }
     mode_t permissions = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
     descriptor_ = ::open(path_.c_str(), oflags, permissions);
+
+    // tmpfs (such as /tmp, /dev/shm) refuses to receive O_DIRECT, returning EINVAL (22).
+    // In that case, let's
+    if (descriptor_ == INVALID_DESCRIPTOR && (oflags & O_DIRECT) == O_DIRECT && errno == EINVAL) {
+        descriptor_ = ::open(path_.c_str(), oflags ^ O_DIRECT, permissions);
+        if (descriptor_ != INVALID_DESCRIPTOR) {
+            // Okay, O_DIRECT was the cause. Just complain. go on.
+            LOG(WARNING) << "DirectIoFile::open(): O_DIRECT flag for " << path_
+                << " was rejected and automatically removed. This usually means you specified"
+                << " tmpfs, such as /tmp, /dev/shm. Such non-durable devices should be used only"
+                << " for testing and performance experiments."
+                << " Related URL: http://www.gossamer-threads.com/lists/linux/kernel/720702";
+        }
+        // else the normal error flow below.
+    }
+
     if (descriptor_ == INVALID_DESCRIPTOR) {
         LOG(ERROR) << "DirectIoFile::open(): failed to open: " << path_
             << ". err=" << assorted::os_error();

@@ -83,6 +83,7 @@ bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
         session->thread_ = holder_;
         *reinterpret_cast< std::shared_future< ErrorStack >* >(session->result_future_)
             = impersonated_task_result_.get_future().share();
+        assorted::memory_fence_acq_rel();
         impersonated_task_.set_value(session->task_);
         return true;
     } else {

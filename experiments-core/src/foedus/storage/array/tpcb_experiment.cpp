@@ -28,6 +28,8 @@
 #include <foedus/assorted/assorted_func.hpp>
 #include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/assorted/uniform_random.hpp>
+#include <foedus/fs/filesystem.hpp>
+#include <foedus/fs/path.hpp>
 #include <foedus/memory/aligned_memory.hpp>
 #include <foedus/memory/numa_node_memory.hpp>
 #include <foedus/memory/numa_core_memory.hpp>
@@ -41,6 +43,7 @@
 #include <chrono>
 #include <future>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -209,7 +212,30 @@ int main_impl(int argc, char **argv) {
         profile = true;
         std::cout << "Profiling..." << std::endl;
     }
+    fs::Path folder("/dev/shm/tpcb_array_expr");
+    if (fs::exists(folder)) {
+        fs::remove_all(folder);
+    }
+    if (!fs::create_directories(folder)) {
+        std::cerr << "Couldn't create " << folder << ". err="
+            << assorted::os_error() << std::endl;
+        return 1;
+    }
+
     EngineOptions options;
+
+    fs::Path savepoint_path(folder);
+    savepoint_path /= "savepoint.xml";
+    options.savepoint_.savepoint_path_ = savepoint_path.string();
+    ASSERT_ND(!fs::exists(savepoint_path));
+
+    std::cout << "NUMA node count=" << static_cast<int>(options.thread_.group_count_) << std::endl;
+    options.log_.log_paths_.clear();
+    for (auto i = 0; i < options.thread_.group_count_; ++i) {
+        std::stringstream str;
+        str << "/dev/shm/tpcb_array_expr/foedus_node" << static_cast<int>(i) << ".log";
+        options.log_.log_paths_.push_back(str.str());
+    }
     options.debugging_.debug_log_min_threshold_
         = debugging::DebuggingOptions::DEBUG_LOG_WARNING;
     options.debugging_.verbose_modules_ = "";
@@ -217,6 +243,8 @@ int main_impl(int argc, char **argv) {
     options.log_.log_file_size_mb_ = 1 << 10;
     options.memory_.page_pool_size_mb_ = 1 << 14;  // 16GB
     TOTAL_THREADS = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
+
+    std::cout << "options=" << options << std::endl;
     {
         Engine engine(options);
         COERCE_ERROR(engine.initialize());

@@ -47,39 +47,42 @@
 #include <string>
 #include <vector>
 
-namespace th = foedus::thread;
+namespace foedus {
+namespace storage {
+namespace array {
 
-foedus::storage::StorageId the_id;
+
+StorageId the_id;
 const uint16_t PAYLOAD = 16;  // = 128;
 const uint64_t DURATION_MICRO = 10000000;
 const uint32_t RECORDS = 1 << 20;
 const uint32_t RECORDS_MASK = 0xFFFFF;
 
-class MyTask : public th::ImpersonateTask {
+class MyTask : public thread::ImpersonateTask {
  public:
-    foedus::ErrorStack run(th::Thread* context) {
+    ErrorStack run(thread::Thread* context) {
         std::cout << "Ya!" << std::endl;
-        foedus::Engine *engine = context->get_engine();
-        foedus::storage::array::ArrayStorage *array = NULL;
+        Engine *engine = context->get_engine();
+        ArrayStorage *array = nullptr;
         CHECK_ERROR(engine->get_storage_manager().create_array(
             context, "aaa", PAYLOAD, RECORDS, &array));
         the_id = array->get_id();
-        return foedus::RET_OK;
+        return RET_OK;
     }
 };
 
 bool start_req = false;
 bool stop_req = false;
 
-class MyTask2 : public th::ImpersonateTask {
+class MyTask2 : public thread::ImpersonateTask {
  public:
     MyTask2() {}
-    foedus::ErrorStack run(th::Thread* context) {
-        foedus::Engine *engine = context->get_engine();
+    ErrorStack run(thread::Thread* context) {
+        Engine *engine = context->get_engine();
         CHECK_ERROR(engine->get_xct_manager().begin_xct(context,
-            foedus::xct::DIRTY_READ_PREFER_SNAPSHOT));
-        foedus::storage::Storage* storage = engine->get_storage_manager().get_storage(the_id);
-        foedus::Epoch commit_epoch;
+            xct::DIRTY_READ_PREFER_SNAPSHOT));
+        Storage* storage = engine->get_storage_manager().get_storage(the_id);
+        Epoch commit_epoch;
 
         // pre-calculate random numbers to get rid of random number generation as bottleneck
         random_.set_current_seed(context->get_thread_id());
@@ -92,8 +95,7 @@ class MyTask2 : public th::ImpersonateTask {
             std::atomic_thread_fence(std::memory_order_acquire);
         }
 
-        foedus::storage::array::ArrayStorage *array
-            = dynamic_cast<foedus::storage::array::ArrayStorage*>(storage);
+        ArrayStorage *array = dynamic_cast<ArrayStorage*>(storage);
         char buf[PAYLOAD];
         processed_ = 0;
         while (true) {
@@ -103,8 +105,7 @@ class MyTask2 : public th::ImpersonateTask {
             if ((processed_ & 0xFFFF) == 0) {
                 CHECK_ERROR(engine->get_xct_manager().precommit_xct(context, &commit_epoch));
                 CHECK_ERROR(engine->get_xct_manager().begin_xct(context,
-                    foedus::xct::SERIALIZABLE));
-                    // foedus::xct::DIRTY_REA   D_PREFER_SNAPSHOT));
+                    xct::DIRTY_READ_PREFER_SNAPSHOT));
                 std::atomic_thread_fence(std::memory_order_acquire);
                 if (stop_req) {
                     break;
@@ -116,38 +117,37 @@ class MyTask2 : public th::ImpersonateTask {
         numbers_.release_block();
         std::cout << "I'm done! " << context->get_thread_id()
             << ", processed=" << processed_ << std::endl;
-        return foedus::RET_OK;
+        return RET_OK;
     }
 
-    foedus::memory::AlignedMemory numbers_;
-    foedus::assorted::UniformRandom random_;
+    memory::AlignedMemory numbers_;
+    assorted::UniformRandom random_;
     uint64_t processed_;
     const uint32_t RANDOM_COUNT = 1 << 19;
     const uint32_t RANDOM_COUNT_MOD = 0x7FFFF;
 };
 
-int main(int argc, char **argv) {
+int main_impl(int argc, char **argv) {
     bool profile = false;
     if (argc >= 2 && std::string(argv[1]) == "--profile") {
         profile = true;
         std::cout << "Profiling..." << std::endl;
     }
-    foedus::EngineOptions options;
+    EngineOptions options;
     options.debugging_.debug_log_min_threshold_
-        = foedus::debugging::DebuggingOptions::DEBUG_LOG_WARNING;
-    std::cout << "options=" << std::endl << options << std::endl;
+        = debugging::DebuggingOptions::DEBUG_LOG_WARNING;
     const int THREADS = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
     {
-        foedus::Engine engine(options);
+        Engine engine(options);
         COERCE_ERROR(engine.initialize());
         {
-            foedus::UninitializeGuard guard(&engine);
+            UninitializeGuard guard(&engine);
             MyTask task;
             COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(&task));
 
             typedef MyTask2* TaskPtr;
             TaskPtr* task2 = new TaskPtr[THREADS];
-            th::ImpersonateSession session2[THREADS];
+            thread::ImpersonateSession session2[THREADS];
             for (int i = 0; i < THREADS; ++i) {
                 task2[i] = new MyTask2();
                 session2[i] = engine.get_thread_pool().impersonate(task2[i]);
@@ -188,4 +188,12 @@ int main(int argc, char **argv) {
     }
 
     return 0;
+}
+
+}  // namespace array
+}  // namespace storage
+}  // namespace foedus
+
+int main(int argc, char **argv) {
+    return foedus::storage::array::main_impl(argc, argv);
 }
