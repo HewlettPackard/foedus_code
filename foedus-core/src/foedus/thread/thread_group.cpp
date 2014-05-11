@@ -8,6 +8,7 @@
 #include <foedus/thread/thread.hpp>
 #include <foedus/thread/thread_group.hpp>
 #include <foedus/thread/thread_group_pimpl.hpp>
+#include <ostream>
 #include <vector>
 namespace foedus {
 namespace thread {
@@ -28,6 +29,10 @@ memory::NumaNodeMemory* ThreadGroup::get_node_memory() const { return pimpl_->no
 ThreadLocalOrdinal ThreadGroup::get_thread_count() const { return pimpl_->threads_.size(); }
 Thread* ThreadGroup::get_thread(ThreadLocalOrdinal ordinal) const {
     return pimpl_->threads_[ordinal];
+}
+std::ostream& operator<<(std::ostream& o, const ThreadGroup& v) {
+    o << *v.pimpl_;
+    return o;
 }
 
 }  // namespace thread

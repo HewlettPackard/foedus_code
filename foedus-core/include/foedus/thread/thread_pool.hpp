@@ -4,13 +4,14 @@
  */
 #ifndef FOEDUS_THREAD_THREAD_POOL_HPP_
 #define FOEDUS_THREAD_THREAD_POOL_HPP_
-#include <stdint.h>
 #include <foedus/cxx11.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <foedus/thread/impersonate_session.hpp>
 #include <foedus/thread/impersonate_task.hpp>
+#include <stdint.h>
+#include <iosfwd>
 namespace foedus {
 namespace thread {
 
@@ -178,6 +179,8 @@ class ThreadPool CXX11_FINAL : public virtual Initializable {
 
     /** Returns the pimpl of this object. Use it only when you know what you are doing. */
     ThreadPoolPimpl*    get_pimpl() const { return pimpl_; }
+
+    friend  std::ostream& operator<<(std::ostream& o, const ThreadPool& v);
 
  private:
     ThreadPoolPimpl*    pimpl_;

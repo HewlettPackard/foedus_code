@@ -7,6 +7,7 @@
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
+#include <iosfwd>
 #include <vector>
 namespace foedus {
 namespace thread {
@@ -24,6 +25,8 @@ class ThreadGroupPimpl final : public DefaultInitializable {
         : engine_(engine), group_id_(group_id), node_memory_(nullptr) {}
     ErrorStack  initialize_once() override final;
     ErrorStack  uninitialize_once() override final;
+
+    friend  std::ostream& operator<<(std::ostream& o, const ThreadGroupPimpl& v);
 
     Engine* const           engine_;
 

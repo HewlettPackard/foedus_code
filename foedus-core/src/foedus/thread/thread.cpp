@@ -28,7 +28,11 @@ bool        Thread::is_running_xct()    const { return pimpl_->current_xct_.is_a
 log::ThreadLogBuffer& Thread::get_thread_log_buffer() { return pimpl_->log_buffer_; }
 
 std::ostream& operator<<(std::ostream& o, const Thread& v) {
-    o << "Thread-" << v.get_thread_id();
+    o << "Thread-" << v.get_thread_id() << " [";
+    o << (v.pimpl_->impersonated_ ? "I" : " ");
+    o << (v.pimpl_->exit_requested_ ? "R" : " ");
+    o << (v.pimpl_->exitted_ ? "E" : " ");
+    o << "]";
     return o;
 }
 

@@ -9,6 +9,7 @@
 #include <foedus/thread/fwd.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/thread/thread_pool.hpp>
+#include <iosfwd>
 #include <vector>
 namespace foedus {
 namespace thread {
@@ -35,6 +36,8 @@ class ThreadPoolPimpl final : public DefaultInitializable {
 
     ThreadGroup*        get_group(ThreadGroupId numa_node) const;
     Thread*             get_thread(ThreadId id) const;
+
+    friend  std::ostream& operator<<(std::ostream& o, const ThreadPoolPimpl& v);
 
     Engine* const               engine_;
 

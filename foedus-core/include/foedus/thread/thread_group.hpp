@@ -8,6 +8,7 @@
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
+#include <iosfwd>
 namespace foedus {
 namespace thread {
 /**
@@ -31,6 +32,8 @@ class ThreadGroup CXX11_FINAL : public virtual Initializable {
     ThreadLocalOrdinal      get_thread_count() const;
     /** Returns Thread object for the given ordinal in this group. */
     Thread*                 get_thread(ThreadLocalOrdinal ordinal) const;
+
+    friend  std::ostream& operator<<(std::ostream& o, const ThreadGroup& v);
 
  private:
     ThreadGroupPimpl*       pimpl_;

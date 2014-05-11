@@ -17,6 +17,7 @@
 #include <foedus/thread/thread_pimpl.hpp>
 #include <foedus/memory/memory_id.hpp>
 #include <foedus/memory/engine_memory.hpp>
+#include <ostream>
 namespace foedus {
 namespace thread {
 ErrorStack ThreadPoolPimpl::initialize_once() {
@@ -62,8 +63,7 @@ ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task,
         return session;
     }
 
-    for (size_t i = 0; i < groups_.size(); ++i) {
-        ThreadGroup* group = groups_[i];
+    for (ThreadGroup* group : groups_) {
         for (size_t j = 0; j < group->get_thread_count(); ++j) {
             Thread* thread = group->get_thread(j);
             if (thread->get_pimpl()->try_impersonate(&session)) {
@@ -110,6 +110,18 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_core(ImpersonateTask* ta
         session.invalid_cause_ = ERROR_STACK(ERROR_CODE_TIMEOUT);
     }
     return session;
+}
+
+std::ostream& operator<<(std::ostream& o, const ThreadPoolPimpl& v) {
+    o << "<ThreadPool>";
+    o << "<no_more_impersonation_>" << v.no_more_impersonation_ << "</no_more_impersonation_>";
+    o << "<groups>";
+    for (ThreadGroup* group : v.groups_) {
+        o << *group;
+    }
+    o << "</groups>";
+    o << "</ThreadPool>";
+    return o;
 }
 
 }  // namespace thread

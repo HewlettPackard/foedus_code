@@ -9,6 +9,7 @@
 #include <foedus/thread/thread_group_pimpl.hpp>
 #include <foedus/thread/thread_options.hpp>
 #include <foedus/memory/engine_memory.hpp>
+#include <ostream>
 #include <vector>
 namespace foedus {
 namespace thread {
@@ -29,5 +30,18 @@ ErrorStack ThreadGroupPimpl::uninitialize_once() {
     node_memory_ = nullptr;
     return SUMMARIZE_ERROR_BATCH(batch);
 }
+
+std::ostream& operator<<(std::ostream& o, const ThreadGroupPimpl& v) {
+    o << "<ThreadGroup>";
+    o << "<group_id_>" << static_cast<int>(v.group_id_) << "</group_id_>";
+    o << "<threads_>";
+    for (Thread* child_thread : v.threads_) {
+        o << *child_thread;
+    }
+    o << "</threads_>";
+    o << "</ThreadGroup>";
+    return o;
+}
+
 }  // namespace thread
 }  // namespace foedus

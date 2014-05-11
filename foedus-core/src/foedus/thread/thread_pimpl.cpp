@@ -73,7 +73,7 @@ void ThreadPimpl::handle_tasks() {
 
 bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
     bool cas_tmp = false;
-    if (!impersonated_ && std::atomic_compare_exchange_strong(&impersonated_, &cas_tmp, true)) {
+    if (std::atomic_compare_exchange_weak(&impersonated_, &cas_tmp, true)) {
         // successfully acquired. set a new promise for this session.
         LOG(INFO) << "Impersonation succeeded for Thread-" << id_ << ". Setting a task..";
         impersonated_task_result_ = std::promise<ErrorStack>();  // this is a promise for ME

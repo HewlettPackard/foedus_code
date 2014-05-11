@@ -5,7 +5,7 @@
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread_pool_pimpl.hpp>
 #include <foedus/assert_nd.hpp>
-#include <iostream>
+#include <ostream>
 namespace foedus {
 namespace thread {
 
@@ -34,6 +34,12 @@ ImpersonateSession ThreadPool::impersonate_on_numa_node(
     ImpersonateTask* functor, ThreadGroupId numa_node, TimeoutMicrosec timeout) {
     return pimpl_->impersonate_on_numa_node(functor, numa_node, timeout);
 }
+
+std::ostream& operator<<(std::ostream& o, const ThreadPool& v) {
+    o << *v.pimpl_;
+    return o;
+}
+
 
 }  // namespace thread
 }  // namespace foedus
