@@ -36,7 +36,7 @@ namespace memory {
  * to use THP. You don't need mmap or madvise with this strong hint.
  *
  * After allocating the memory, we zero-clear the memory for two reasons.
- *  \li to avoid bugs caused by unintialized data access
+ *  \li to avoid bugs caused by unintialized data access (i.e. make valgrind happy)
  *  \li to immediately finalize memory allocation, which (with big allocation size) strongly advises
  * Linux to use THP.
  *
@@ -110,6 +110,9 @@ class AlignedMemory CXX11_FINAL {
     /** Automatically releases the memory. */
     ~AlignedMemory() { release_block(); }
 
+    /** Allocate a memory, releasing the current memory if exists. */
+    void        alloc(uint64_t size, uint64_t alignment,
+                      AllocType alloc_type, int numa_node) CXX11_NOEXCEPT;
     /** Returns the memory block. */
     void*       get_block() const { return block_; }
     /** Returns if this object doesn't hold a valid memory block. */

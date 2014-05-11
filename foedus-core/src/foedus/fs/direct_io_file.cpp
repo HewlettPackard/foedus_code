@@ -87,7 +87,7 @@ ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
     }
 }
 
-void DirectIoFile::close() {
+bool DirectIoFile::close() {
     if (descriptor_ != INVALID_DESCRIPTOR) {
         int ret = ::close(descriptor_);
         LOG(INFO) << "DirectIoFile::close(): closed. " << *this;
@@ -98,7 +98,9 @@ void DirectIoFile::close() {
             ASSERT_ND(false);  // crash only in debug mode
         }
         descriptor_ = INVALID_DESCRIPTOR;
+        return ret == 0;
     }
+    return false;
 }
 ErrorStack DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemory* buffer) {
     return read(desired_bytes, memory::AlignedMemorySlice(buffer));
@@ -177,6 +179,7 @@ ErrorStack DirectIoFile::write(uint64_t desired_bytes, memory::AlignedMemorySlic
     if (desired_bytes == 0) {
         return RET_OK;
     }
+    ASSERT_ND(buffer.is_valid());
     if (desired_bytes > buffer.count_) {
         LOG(ERROR) << "DirectIoFile::write(): too small buffer is given. desired_bytes="
             << desired_bytes << ", buffer=" << buffer;

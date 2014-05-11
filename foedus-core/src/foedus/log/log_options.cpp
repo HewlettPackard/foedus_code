@@ -22,12 +22,14 @@ LogOptions::LogOptions() {
 
     log_buffer_kb_ = DEFAULT_LOG_BUFFER_KB;
     log_file_size_mb_ = DEFAULT_LOG_FILE_SIZE_MB;
+    flush_at_shutdown_ = true;
 }
 
 ErrorStack LogOptions::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, log_paths_);
     EXTERNALIZE_LOAD_ELEMENT(element, log_buffer_kb_);
     EXTERNALIZE_LOAD_ELEMENT(element, log_file_size_mb_);
+    EXTERNALIZE_LOAD_ELEMENT(element, flush_at_shutdown_);
     CHECK_ERROR(get_child_element(element, "LogDeviceEmulationOptions", &emulation_))
     return RET_OK;
 }
@@ -44,6 +46,8 @@ ErrorStack LogOptions::save(tinyxml2::XMLElement* element) const {
         " This is to evenly assign cores to loggers, loggers to NUMA nodes.");
     EXTERNALIZE_SAVE_ELEMENT(element, log_buffer_kb_, "Buffer size in KB of each worker thread");
     EXTERNALIZE_SAVE_ELEMENT(element, log_file_size_mb_, "Size in MB of files loggers write out");
+    EXTERNALIZE_SAVE_ELEMENT(element, flush_at_shutdown_,
+            "Whether to flush transaction logs and take savepoint when uninitialize() is called");
     CHECK_ERROR(add_child_element(element, "LogDeviceEmulationOptions",
                     "[Experiments-only] Settings to emulate slower logging device", emulation_));
     return RET_OK;

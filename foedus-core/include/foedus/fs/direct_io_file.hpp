@@ -79,8 +79,12 @@ class DirectIoFile {
     /** Whether the file is already and successfully opened.*/
     bool            is_opened() const { return descriptor_ != INVALID_DESCRIPTOR; }
 
-    /** Close the file if not yet closed. */
-    void            close();
+    /**
+     * @brief Close the file if not yet closed.
+     * @return Whether successfully closed. Even it fails, the file descriptor is already invalid.
+     * You cannot call this method again to close it appropriately.
+     */
+    bool            close();
 
     /**
      * @brief Sequentially read the given amount of contents from the current position.

@@ -21,7 +21,7 @@ std::ostream& operator<<(std::ostream& o, const EpochMarkerLogType& v) {
     return o;
 }
 
-void FillerLogType::init(uint64_t size) {
+void FillerLogType::populate(uint64_t size) {
     header_.storage_id_ = 0;
     header_.log_length_ = size;
     header_.log_type_code_ = get_log_code<FillerLogType>();

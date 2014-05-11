@@ -100,7 +100,7 @@ void ThreadLogBuffer::fillup_tail() {
     }
     ASSERT_ND(head_to_tail_distance() + len < buffer_size_safe_);
     FillerLogType *filler = reinterpret_cast<FillerLogType*>(buffer_ + offset_tail_);
-    filler->init(len);
+    filler->populate(len);
     advance(buffer_size_, &offset_tail_, len);
     ASSERT_ND(offset_tail_ == 0);
 }

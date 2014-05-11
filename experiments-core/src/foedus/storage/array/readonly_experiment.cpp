@@ -143,12 +143,7 @@ int main(int argc, char **argv) {
         {
             foedus::UninitializeGuard guard(&engine);
             MyTask task;
-            th::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
-            if (!session.is_valid()) {
-                COERCE_ERROR(session.invalid_cause_);
-            }
-            std::cout << "session: " << session << std::endl;
-            std::cout << "session: result=" << session.get_result() << std::endl;
+            COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(&task));
 
             typedef MyTask2* TaskPtr;
             TaskPtr* task2 = new TaskPtr[THREADS];

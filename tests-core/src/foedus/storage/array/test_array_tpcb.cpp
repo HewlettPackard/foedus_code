@@ -99,6 +99,7 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
         COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
         for (int i = 0; i < BRANCHES; ++i) {
             BranchData data;
+            std::memset(&data, 0, sizeof(data));  // make valgrind happy
             data.branch_balance_ = INITIAL_ACCOUNT_BALANCE * ACCOUNTS;
             COERCE_ERROR(branches->overwrite_record(context, i, &data));
         }
@@ -112,6 +113,7 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
         COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
         for (int i = 0; i < BRANCHES * TELLERS; ++i) {
             TellerData data;
+            std::memset(&data, 0, sizeof(data));  // make valgrind happy
             data.branch_id_ = i / TELLERS;
             data.teller_balance_ = INITIAL_ACCOUNT_BALANCE * ACCOUNTS_PER_TELLER;
             COERCE_ERROR(tellers->overwrite_record(context, i, &data));
@@ -126,6 +128,7 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
         COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
         for (int i = 0; i < BRANCHES * ACCOUNTS; ++i) {
             AccountData data;
+            std::memset(&data, 0, sizeof(data));  // make valgrind happy
             data.branch_id_ = i / ACCOUNTS;
             data.account_balance_ = INITIAL_ACCOUNT_BALANCE;
             COERCE_ERROR(accounts->overwrite_record(context, i, &data));
@@ -140,6 +143,7 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
         COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
         for (int i = 0; i < HISTORIES; ++i) {
             HistoryData data;
+            std::memset(&data, 0, sizeof(data));  // make valgrind happy
             data.branch_id_ = 0;
             data.teller_id_ = 0;
             data.account_id_ = 0;
@@ -346,41 +350,36 @@ void multi_thread_test(int thread_count, bool contended) {
     Engine engine(options);
     COERCE_ERROR(engine.initialize());
     {
-        CreateTpcbTablesTask task;
-        thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
-        if (!session.is_valid()) {
-            COERCE_ERROR(session.invalid_cause_);
+        UninitializeGuard guard(&engine);
+        {
+            CreateTpcbTablesTask task;
+            COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(&task));
         }
-        COERCE_ERROR(session.get_result());
-    }
 
-    {
-        std::promise<void> start_promise;
-        std::shared_future<void> start_future = start_promise.get_future().share();
-        std::vector<RunTpcbTask*> tasks;
-        std::vector<thread::ImpersonateSession> sessions;
-        for (int i = 0; i < thread_count; ++i) {
-            tasks.push_back(new RunTpcbTask(i, contended, start_future));
-            sessions.emplace_back(engine.get_thread_pool().impersonate(tasks[i]));
-            if (!sessions[i].is_valid()) {
-                COERCE_ERROR(sessions[i].invalid_cause_);
+        {
+            std::promise<void> start_promise;
+            std::shared_future<void> start_future = start_promise.get_future().share();
+            std::vector<RunTpcbTask*> tasks;
+            std::vector<thread::ImpersonateSession> sessions;
+            for (int i = 0; i < thread_count; ++i) {
+                tasks.push_back(new RunTpcbTask(i, contended, start_future));
+                sessions.emplace_back(engine.get_thread_pool().impersonate(tasks[i]));
+                if (!sessions[i].is_valid()) {
+                    COERCE_ERROR(sessions[i].invalid_cause_);
+                }
+            }
+            start_promise.set_value();
+            for (int i = 0; i < thread_count; ++i) {
+                COERCE_ERROR(sessions[i].get_result());
+                delete tasks[i];
             }
         }
-        start_promise.set_value();
-        for (int i = 0; i < thread_count; ++i) {
-            COERCE_ERROR(sessions[i].get_result());
-            delete tasks[i];
+        {
+            VerifyTpcbTask task(thread_count);
+            COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(&task));
         }
+        COERCE_ERROR(engine.uninitialize());
     }
-    {
-        VerifyTpcbTask task(thread_count);
-        thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
-        if (!session.is_valid()) {
-            COERCE_ERROR(session.invalid_cause_);
-        }
-        COERCE_ERROR(session.get_result());
-    }
-    COERCE_ERROR(engine.uninitialize());
     cleanup_test(options);
 }
 

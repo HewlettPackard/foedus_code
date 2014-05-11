@@ -101,7 +101,6 @@ ErrorStack Logger::initialize_once() {
     ASSERT_ND(!fill_buffer_.is_null());
     ASSERT_ND(fill_buffer_.get_size() >= FillerLogType::LOG_WRITE_UNIT_SIZE);
     ASSERT_ND(fill_buffer_.get_alignment() >= FillerLogType::LOG_WRITE_UNIT_SIZE);
-    std::memset(fill_buffer_.get_block(), 0, FillerLogType::LOG_WRITE_UNIT_SIZE);
     LOG(INFO) << "Logger-" << id_ << " grabbed a padding buffer. size=" << fill_buffer_.get_size();
 
     // log file and buffer prepared. let's launch the logger thread
@@ -350,7 +349,7 @@ ErrorStack Logger::log_epoch_switch(Epoch old_epoch, Epoch new_epoch) {
 
     // Fill it up to 4kb and write. A bit wasteful, but happens only once per epoch
     FillerLogType* filler_log = reinterpret_cast<FillerLogType*>(buf + sizeof(EpochMarkerLogType));
-    filler_log->init(fill_buffer_.get_size() - sizeof(EpochMarkerLogType));
+    filler_log->populate(fill_buffer_.get_size() - sizeof(EpochMarkerLogType));
 
     CHECK_ERROR(current_file_->write(fill_buffer_.get_size(), fill_buffer_));
     assert_consistent();
@@ -422,7 +421,7 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
         uint64_t begin_fill_size = from_offset - align_log_floor(from_offset);
         ASSERT_ND(begin_fill_size < FillerLogType::LOG_WRITE_UNIT_SIZE);
         FillerLogType* begin_filler_log = reinterpret_cast<FillerLogType*>(buf);
-        begin_filler_log->init(begin_fill_size);
+        begin_filler_log->populate(begin_fill_size);
         buf += begin_fill_size;
 
         // then copy the log content, upto at most one page... is it one page? or less?
@@ -445,7 +444,7 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
         ASSERT_ND(end_fill_size == 0 || end_fill_size >= sizeof(FillerLogType));
         if (end_fill_size > 0) {
             FillerLogType* end_filler_log = reinterpret_cast<FillerLogType*>(buf);
-            end_filler_log->init(end_fill_size);
+            end_filler_log->populate(end_fill_size);
         }
         CHECK_ERROR(current_file_->write(FillerLogType::LOG_WRITE_UNIT_SIZE, fill_buffer_));
 
@@ -463,9 +462,9 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
     // Middle regions where everything is aligned. easy
     uint64_t middle_size = align_log_floor(upto_offset) - from_offset;
     if (middle_size > 0) {
-        VLOG(1) << "Writing middle regions: " << middle_size << " bytes";
-        CHECK_ERROR(current_file_->write(middle_size,
-                memory::AlignedMemorySlice(buffer->buffer_memory_, from_offset, middle_size)));
+        memory::AlignedMemorySlice subslice(buffer->buffer_memory_, from_offset, middle_size);
+        VLOG(1) << "Writing middle regions: " << middle_size << " bytes. slice=" << subslice;
+        CHECK_ERROR(current_file_->write(middle_size, subslice));
         buffer->advance_offset_durable(middle_size);
     }
 
@@ -489,7 +488,7 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
     // pad upto from_offset
     const uint64_t fill_size = FillerLogType::LOG_WRITE_UNIT_SIZE - copy_size;
     FillerLogType* filler_log = reinterpret_cast<FillerLogType*>(buf);
-    filler_log->init(fill_size);
+    filler_log->populate(fill_size);
 
     CHECK_ERROR(current_file_->write(FillerLogType::LOG_WRITE_UNIT_SIZE, fill_buffer_));
     buffer->advance_offset_durable(copy_size);

@@ -58,6 +58,15 @@ struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
      */
     uint32_t                    log_file_size_mb_;
 
+    /**
+     * @brief Whether to flush transaction logs and take savepoint when uninitialize() is called.
+     * @details
+     * If false, non-durable transactions since the previous savepoint is lost.
+     * This allows quick shutdown when you don't care the aftermath; testcase and experiments.
+     * Default is true.
+     */
+    bool                        flush_at_shutdown_;
+
     /** Settings to emulate slower logging device. */
     foedus::fs::DeviceEmulationOptions emulation_;
 

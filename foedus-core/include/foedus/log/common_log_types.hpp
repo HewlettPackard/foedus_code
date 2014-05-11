@@ -175,7 +175,7 @@ struct FillerLogType : public BaseLogType {
     void    apply_record(storage::Storage* /*storage*/, storage::Record* /*record*/) {}
 
     /** Populate this log to fill up the specified byte size. */
-    void    init(uint64_t size);
+    void    populate(uint64_t size);
 
     void    assert_valid() ALWAYS_INLINE {
         ASSERT_ND(header_.log_type_code_ != LOG_CODE_FILLER);

@@ -22,10 +22,13 @@ TEST(ArrayBasicTest, Create) {
     EngineOptions options = get_tiny_options();
     Engine engine(options);
     COERCE_ERROR(engine.initialize());
-    ArrayStorage* out;
-    COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test", 16, 100, &out));
-    EXPECT_TRUE(out != nullptr);
-    COERCE_ERROR(engine.uninitialize());
+    {
+        UninitializeGuard guard(&engine);
+        ArrayStorage* out;
+        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test", 16, 100, &out));
+        EXPECT_TRUE(out != nullptr);
+        COERCE_ERROR(engine.uninitialize());
+    }
     cleanup_test(options);
 }
 
@@ -52,13 +55,16 @@ TEST(ArrayBasicTest, CreateAndQuery) {
     EngineOptions options = get_tiny_options();
     Engine engine(options);
     COERCE_ERROR(engine.initialize());
-    ArrayStorage* out;
-    COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test2", 16, 100, &out));
-    EXPECT_TRUE(out != nullptr);
-    QueryTask task;
-    thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
-    COERCE_ERROR(session.get_result());
-    COERCE_ERROR(engine.uninitialize());
+    {
+        UninitializeGuard guard(&engine);
+        ArrayStorage* out;
+        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test2", 16, 100, &out));
+        EXPECT_TRUE(out != nullptr);
+        QueryTask task;
+        thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+        COERCE_ERROR(session.get_result());
+        COERCE_ERROR(engine.uninitialize());
+    }
     cleanup_test(options);
 }
 
@@ -87,13 +93,16 @@ TEST(ArrayBasicTest, CreateAndWrite) {
     EngineOptions options = get_tiny_options();
     Engine engine(options);
     COERCE_ERROR(engine.initialize());
-    ArrayStorage* out;
-    COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test3", 16, 100, &out));
-    EXPECT_TRUE(out != nullptr);
-    WriteTask task;
-    thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
-    COERCE_ERROR(session.get_result());
-    COERCE_ERROR(engine.uninitialize());
+    {
+        UninitializeGuard guard(&engine);
+        ArrayStorage* out;
+        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test3", 16, 100, &out));
+        EXPECT_TRUE(out != nullptr);
+        WriteTask task;
+        thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+        COERCE_ERROR(session.get_result());
+        COERCE_ERROR(engine.uninitialize());
+    }
     cleanup_test(options);
 }
 
@@ -136,13 +145,16 @@ TEST(ArrayBasicTest, CreateAndReadWrite) {
     options.log_.log_buffer_kb_ = 1 << 10;  // larger to do all writes in one shot
     Engine engine(options);
     COERCE_ERROR(engine.initialize());
-    ArrayStorage* out;
-    COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test4", 16, 100, &out));
-    EXPECT_TRUE(out != nullptr);
-    ReadWriteTask task;
-    thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
-    COERCE_ERROR(session.get_result());
-    COERCE_ERROR(engine.uninitialize());
+    {
+        UninitializeGuard guard(&engine);
+        ArrayStorage* out;
+        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test4", 16, 100, &out));
+        EXPECT_TRUE(out != nullptr);
+        ReadWriteTask task;
+        thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+        COERCE_ERROR(session.get_result());
+        COERCE_ERROR(engine.uninitialize());
+    }
     cleanup_test(options);
 }
 

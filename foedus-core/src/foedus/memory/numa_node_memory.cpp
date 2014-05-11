@@ -85,8 +85,10 @@ ErrorStack NumaNodeMemory::initialize_log_buffers_memory() {
     uint64_t private_total = (cores_ * size_per_core_);
     LOG(INFO) << "Initializing log_buffer_memory_. total_size=" << private_total;
     CHECK_ERROR(allocate_numa_memory(private_total, &log_buffer_memory_));
+    LOG(INFO) << "log_buffer_memory_ allocated. addr=" << log_buffer_memory_.get_block();
     for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
         AlignedMemorySlice piece(&log_buffer_memory_, size_per_core_ * ordinal, size_per_core_);
+        LOG(INFO) << "log_buffer_piece[" << ordinal << "] addr=" << piece.get_block();
         log_buffer_memory_pieces_.push_back(piece);
     }
 
@@ -125,12 +127,10 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
 
 ErrorStack NumaNodeMemory::allocate_numa_memory(size_t size, AlignedMemory *out) {
     ASSERT_ND(out);
-    AlignedMemory allocated(size, 1 << 12, AlignedMemory::NUMA_ALLOC_ONNODE, numa_node_);
-    if (allocated.is_null()) {
+    out->alloc(size, 1 << 12, AlignedMemory::NUMA_ALLOC_ONNODE, numa_node_);
+    if (out->is_null()) {
         return ERROR_STACK(ERROR_CODE_OUTOFMEMORY);
     }
-
-    *out = std::move(allocated);
     return RET_OK;
 }
 

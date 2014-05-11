@@ -13,9 +13,19 @@ namespace foedus {
 namespace memory {
 AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
                              AllocType alloc_type, int numa_node) noexcept
-    : size_(size), alignment_(alignment), alloc_type_(alloc_type), numa_node_(numa_node) {
+    : size_(0), alignment_(0), alloc_type_(POSIX_MEMALIGN), numa_node_(0), block_(nullptr) {
+    alloc(size, alignment, alloc_type, numa_node);
+}
+
+void AlignedMemory::alloc(uint64_t size, uint64_t alignment,
+                          AllocType alloc_type, int numa_node) noexcept {
+    release_block();
+    ASSERT_ND(block_ == nullptr);
+    size_ = size;
+    alignment_ = alignment;
+    alloc_type_ = alloc_type;
+    numa_node_ = numa_node;
     ASSERT_ND((alignment & (alignment - 1)) == 0);  // alignment is power of two
-    block_ = nullptr;
     if (size_ % alignment != 0) {
         size_ = ((size_ / alignment) + 1) * alignment;
     }
@@ -35,6 +45,7 @@ AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
 
     std::memset(block_, 0, size_);  // see class comment for why we do this immediately
 }
+
 
 AlignedMemory::AlignedMemory(AlignedMemory &&other) noexcept : block_(nullptr) {
     *this = std::move(other);

@@ -138,6 +138,29 @@ class ThreadPool CXX11_FINAL : public virtual Initializable {
     ImpersonateSession  impersonate(ImpersonateTask* task, TimeoutMicrosec timeout = -1);
 
     /**
+     * @brief A shorthand for impersonating a session and synchronously waiting for its end.
+     * @details
+     * Useful for a single and synchronous task invocation.
+     * This is equivalent to the following impersonate() invocation.
+     * @code{.cpp}
+     * ImpersonateSession session = pool.impersonate(task);
+     * if (!session.is_valid()) {
+     *   return session.invalid_cause_;
+     * }
+     * return session.get_result();
+     * @endcode{.cpp}
+     * @return Error code of the impersonation or (if impersonation succeeds) of the task.
+     * This returns RET_OK iff impersonation and the task succeed.
+     */
+    ErrorStack          impersonate_synchronous(ImpersonateTask* task) {
+        ImpersonateSession session = impersonate(task);
+        if (!session.is_valid()) {
+            return session.invalid_cause_;
+        }
+        return session.get_result();
+    }
+
+    /**
      * Overload to specify a NUMA node to run on.
      * @see impersonate()
      * @todo currently, timeout is ignored. It behaves as if timeout=0

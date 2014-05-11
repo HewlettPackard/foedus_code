@@ -3,9 +3,15 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/test_common.hpp>
+#include <foedus/engine_options.hpp>
+#include <foedus/engine.hpp>
 #include <foedus/fs/direct_io_file.hpp>
 #include <foedus/fs/filesystem.hpp>
 #include <foedus/memory/aligned_memory.hpp>
+#include <foedus/memory/engine_memory.hpp>
+#include <foedus/memory/numa_node_memory.hpp>
+#include <foedus/memory/numa_core_memory.hpp>
+#include <foedus/storage/array/array_log_types.hpp>
 #include <gtest/gtest.h>
 #include <cstring>
 #include <string>
@@ -45,6 +51,71 @@ TEST(DirectIoFileTest, CreateWrite) {
     COERCE_ERROR(file.write(1 << 15, memory));
     file.close();
     EXPECT_EQ(3 << 14, file_size(file.get_path()));
+}
+
+TEST(DirectIoFileTest, WriteWithLogBuffer) {
+    EngineOptions options = get_tiny_options();
+    Engine engine(options);
+    COERCE_ERROR(engine.initialize());
+    {
+        UninitializeGuard guard(&engine);
+        memory::EngineMemory& memory = engine.get_memory_manager();
+        EXPECT_EQ(options.thread_.group_count_, memory.get_node_memory_count());
+
+        memory::NumaNodeMemory* node_memory = memory.get_node_memory(0);
+        memory::AlignedMemorySlice log_buf = node_memory->get_log_buffer_memory_piece(0);
+
+        DirectIoFile file(Path(std::string("testfile_") + get_random_name()));
+        std::memset(log_buf.get_block(), 1, 1 << 12);
+        COERCE_ERROR(file.open(true, true, true, true));
+        COERCE_ERROR(file.write(1 << 12, log_buf));
+        file.close();
+        EXPECT_EQ(1 << 12, file_size(file.get_path()));
+
+        COERCE_ERROR(engine.uninitialize());
+    }
+    cleanup_test(options);
+}
+
+TEST(DirectIoFileTest, WriteWithLogBufferPad) {
+    EngineOptions options = get_tiny_options();
+    Engine engine(options);
+    COERCE_ERROR(engine.initialize());
+    {
+        UninitializeGuard guard(&engine);
+        memory::EngineMemory& memory = engine.get_memory_manager();
+        EXPECT_EQ(options.thread_.group_count_, memory.get_node_memory_count());
+
+        memory::NumaNodeMemory* node_memory = memory.get_node_memory(0);
+        memory::AlignedMemorySlice log_buf = node_memory->get_log_buffer_memory_piece(0);
+
+        memory::AlignedMemory fill_buf;
+        COERCE_ERROR(node_memory->allocate_numa_memory(log::FillerLogType::LOG_WRITE_UNIT_SIZE,
+                                                      &fill_buf));
+
+        storage::array::OverwriteLogType* the_log =
+            reinterpret_cast< storage::array::OverwriteLogType* >(log_buf.get_block());
+        char payload[16];
+        std::memset(payload, 5, 16);
+        the_log->populate(1, 2, payload, 0, 16);
+
+        std::memcpy(fill_buf.get_block(), log_buf.get_block(), the_log->header_.log_length_);
+
+        log::FillerLogType* filler_log =
+            reinterpret_cast< log::FillerLogType* >(
+                reinterpret_cast<char*>(fill_buf.get_block()) + the_log->header_.log_length_);
+        filler_log->populate(
+            log::FillerLogType::LOG_WRITE_UNIT_SIZE - the_log->header_.log_length_);
+
+        DirectIoFile file(Path(std::string("testfile_") + get_random_name()));
+        COERCE_ERROR(file.open(true, true, true, true));
+        COERCE_ERROR(file.write(log::FillerLogType::LOG_WRITE_UNIT_SIZE, fill_buf));
+        file.close();
+        EXPECT_EQ(log::FillerLogType::LOG_WRITE_UNIT_SIZE, file_size(file.get_path()));
+
+        COERCE_ERROR(engine.uninitialize());
+    }
+    cleanup_test(options);
 }
 
 }  // namespace fs
