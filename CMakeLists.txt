@@ -101,3 +101,6 @@ add_custom_target(cpplint-for-jenkins
         tests_core_cpplint_src tests_core_cpplint_include
         2>&1| ${CPPLINT_CONVERTER} &> ${CMAKE_CURRENT_BINARY_DIR}/cpplint-cppcheck-result.xml
 )
+
+# For convenience
+add_custom_target(gitpull WORKING_DIRECTORY ${FOEDUS_SRC_ROOT} COMMAND git pull)
