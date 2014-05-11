@@ -17,6 +17,7 @@
 #include <foedus/thread/thread_pimpl.hpp>
 #include <foedus/memory/memory_id.hpp>
 #include <foedus/memory/engine_memory.hpp>
+#include <glog/logging.h>
 #include <ostream>
 namespace foedus {
 namespace thread {
@@ -73,6 +74,7 @@ ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task,
     }
     // TODO(Hideaki) : currently, timeout is ignored. It behaves as if timeout=0
     session.invalid_cause_ = ERROR_STACK(ERROR_CODE_TIMEOUT);
+    LOG(WARNING) << "Failed to impersonate. pool=" << *this;
     return session;
 }
 ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(ImpersonateTask* task,
@@ -93,6 +95,9 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(ImpersonateTask* ta
     }
     // TODO(Hideaki) : currently, timeout is ignored. It behaves as if timeout=0
     session.invalid_cause_ = ERROR_STACK(ERROR_CODE_TIMEOUT);
+    LOG(WARNING) << "Failed to impersonate(node="
+        << static_cast<int>(numa_node)
+        << "). pool=" << *this;
     return session;
 }
 ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_core(ImpersonateTask* task,
@@ -109,6 +114,7 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_core(ImpersonateTask* ta
         // TODO(Hideaki) : currently, timeout is ignored. It behaves as if timeout=0
         session.invalid_cause_ = ERROR_STACK(ERROR_CODE_TIMEOUT);
     }
+    LOG(WARNING) << "Failed to impersonate(core=" << numa_core << "). pool=" << *this;
     return session;
 }
 
