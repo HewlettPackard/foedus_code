@@ -73,7 +73,7 @@ ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
     descriptor_ = ::open(path_.c_str(), oflags, permissions);
 
     // tmpfs (such as /tmp, /dev/shm) refuses to receive O_DIRECT, returning EINVAL (22).
-    // In that case, let's
+    // In that case, let's retry without O_DIRECT flag. MySQL does similar thing, too.
     if (descriptor_ == INVALID_DESCRIPTOR && (oflags & O_DIRECT) == O_DIRECT && errno == EINVAL) {
         descriptor_ = ::open(path_.c_str(), oflags ^ O_DIRECT, permissions);
         if (descriptor_ != INVALID_DESCRIPTOR) {

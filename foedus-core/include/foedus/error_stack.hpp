@@ -185,7 +185,11 @@ class ErrorStack {
     mutable const char*     custom_message_;
 
     /**
-     * Optional errno set by a failed system call.
+     * @brief Global errno set by a failed system call.
+     * @details
+     * This value is retrieved from the \e global errno when this stack is instantiated.
+     * As it's a global variable, it might be not related to the actual error of this stack
+     * (previous error somewhere else).
      */
     int             os_errno_;
 

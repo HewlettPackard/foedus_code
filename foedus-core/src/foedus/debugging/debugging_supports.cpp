@@ -7,6 +7,9 @@
 #include <foedus/engine_options.hpp>
 #include <glog/logging.h>
 #include <glog/vlog_is_on.h>
+#ifdef HAVE_GOOGLEPERFTOOLS
+#include <google/profiler.h>
+#endif  // HAVE_GOOGLEPERFTOOLS
 #include <mutex>
 #include <string>
 namespace foedus {
@@ -99,6 +102,24 @@ void DebuggingSupports::set_verbose_module(const std::string &module, int verbos
     LOG(INFO) << "Invoked google::SetVLOGLevel for " << module << ", level=" << verbose;
 }
 
+ErrorStack DebuggingSupports::start_profile(const std::string& output_file) {
+#ifdef HAVE_GOOGLEPERFTOOLS
+    int ret = ::ProfilerStart(output_file.c_str());
+    if (ret == 0) {
+        LOG(ERROR) << "ProfilerStart() returned zero (an error). os_error=" << assorted::os_error();
+        return ERROR_STACK(ERROR_CODE_DBG_GPERFTOOLS);
+    }
+#else  // HAVE_GOOGLEPERFTOOLS
+    LOG(WARNING) << "Google perftools was not linked. No profile is provided";
+#endif  // HAVE_GOOGLEPERFTOOLS
+    return RET_OK;
+}
+
+void DebuggingSupports::stop_profile() {
+#ifdef HAVE_GOOGLEPERFTOOLS
+    ::ProfilerStop();
+#endif  // HAVE_GOOGLEPERFTOOLS
+}
 
 }  // namespace debugging
 }  // namespace foedus

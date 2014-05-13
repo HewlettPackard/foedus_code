@@ -1427,12 +1427,6 @@ void LogMessage::RecordCrashReason(
 #endif
 }
 
-#ifdef HAVE___ATTRIBUTE__
-# define ATTRIBUTE_NORETURN __attribute__((noreturn))
-#else
-# define ATTRIBUTE_NORETURN
-#endif
-
 static void logging_fail() ATTRIBUTE_NORETURN;
 
 static void logging_fail() {

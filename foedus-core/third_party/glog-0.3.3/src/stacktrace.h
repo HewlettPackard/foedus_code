@@ -33,7 +33,7 @@
 #ifndef BASE_STACKTRACE_H_
 #define BASE_STACKTRACE_H_
 
-#include "config.h"
+#include "glog/config.h"
 
 _START_GOOGLE_NAMESPACE_
 

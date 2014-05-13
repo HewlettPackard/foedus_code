@@ -1,27 +1,29 @@
 # Google logging has no CMakeLists.txt. So, directly call the configure/make tool chain.
 # This is very troublesome and undesired. I hope they will move on to CMake asap.
-set(GLOG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/glog-0.3.3")
-set(GLOG_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/glog")
-set(GLOG_STATIC_LIB_LOCAL "${GLOG_BIN_DIR}/.libs/libglog.a")
-mark_as_advanced(GLOG_DIR GLOG_BIN_DIR GLOG_STATIC_LIB_LOCAL)
+#set(GLOG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/glog-0.3.3")
+#set(GLOG_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/glog")
+#set(GLOG_STATIC_LIB_LOCAL "${GLOG_BIN_DIR}/.libs/libglog.a")
+#mark_as_advanced(GLOG_DIR GLOG_BIN_DIR GLOG_STATIC_LIB_LOCAL)
 
 # We invoke make in build folder to keep the glog's source folder clean.
-file(MAKE_DIRECTORY ${GLOG_BIN_DIR})
-add_custom_command(OUTPUT ${GLOG_STATIC_LIB_LOCAL}
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${GLOG_DIR} ${CMAKE_CURRENT_BINARY_DIR}/glog
-    # fPIC is needed to build libglog friendly to shared library (libfoedus-core).
-    COMMAND ${GLOG_BIN_DIR}/configure 'CXXFLAGS=-fPIC -w' # also ignore warnings from glog
-    COMMAND ${CMAKE_MAKE_PROGRAM} -j
-    COMMENT [Build-GLOG]
-    WORKING_DIRECTORY "${GLOG_BIN_DIR}"
-    DEPENDS ${GLOG_DIR}/ChangeLog # just to see if it has been overwritten
-)
+#file(MAKE_DIRECTORY ${GLOG_BIN_DIR})
+#add_custom_command(OUTPUT ${GLOG_STATIC_LIB_LOCAL}
+#    COMMAND ${CMAKE_COMMAND} -E copy_directory ${GLOG_DIR} ${CMAKE_CURRENT_BINARY_DIR}/glog
+#    # fPIC is needed to build libglog friendly to shared library (libfoedus-core).
+#    COMMAND ${GLOG_BIN_DIR}/configure 'CXXFLAGS=-fPIC -w' # also ignore warnings from glog
+#    COMMAND ${CMAKE_MAKE_PROGRAM} -j
+#    COMMENT [Build-GLOG]
+#    WORKING_DIRECTORY "${GLOG_BIN_DIR}"
+#    DEPENDS ${GLOG_DIR}/ChangeLog # just to see if it has been overwritten
+#)
 # we use add_custom_command for the build itself because otherwise we have to build it
 # every time. the following add_custom_target gives a name for the output.
-add_custom_target(glog_build ALL DEPENDS ${GLOG_STATIC_LIB_LOCAL})
-set(GLOG_STATIC_LIB ${GLOG_STATIC_LIB_LOCAL} PARENT_SCOPE)
+#add_custom_target(glog_build ALL DEPENDS ${GLOG_STATIC_LIB_LOCAL})
+#set(GLOG_STATIC_LIB ${GLOG_STATIC_LIB_LOCAL} PARENT_SCOPE)
 
 # oh, lovely tinyxml2. It's a CMake project.
 set(BUILD_STATIC_LIBS ON) # this creates tinyxml2static library
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -w") # same as glog
 add_subdirectory(tinyxml2-2.1.0)
+# Glog is now also a CMake project.
+add_subdirectory(glog-0.3.3)

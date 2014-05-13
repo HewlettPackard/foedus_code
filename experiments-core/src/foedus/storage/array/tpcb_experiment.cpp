@@ -38,7 +38,7 @@
 #include <foedus/storage/storage_manager.hpp>
 #include <foedus/storage/array/array_storage.hpp>
 #include <foedus/xct/xct_manager.hpp>
-#include <google/profiler.h>
+#include <foedus/debugging/debugging_supports.hpp>
 #include <atomic>
 #include <chrono>
 #include <future>
@@ -63,9 +63,9 @@ const int ACCOUNTS  =   100000;
 const int ACCOUNTS_PER_TELLER = ACCOUNTS / TELLERS;
 
 /** number of histories in TOTAL. */
-const int HISTORIES =   10000000;
+const int HISTORIES =   20000000;
 
-const uint64_t DURATION_MICRO = 100000;
+const uint64_t DURATION_MICRO = 500000;
 
 static_assert(ACCOUNTS % TELLERS == 0, "ACCOUNTS must be multiply of TELLERS");
 
@@ -122,6 +122,10 @@ class RunTpcbTask : public thread::ImpersonateTask {
             uint64_t teller_id = account_id / ACCOUNTS_PER_TELLER;
             uint64_t branch_id = account_id / ACCOUNTS;
             uint64_t history_id = processed_ * TOTAL_THREADS + history_ordinal_;
+            if (history_id >= HISTORIES) {
+                std::cerr << "Full histories" << std::endl;
+                return RET_OK;
+            }
             int64_t  amount = static_cast<int64_t>(random_.uniform_within(0, 1999999)) - 1000000;
             int successive_aborts = 0;
             while (!stop_requested) {
@@ -237,14 +241,14 @@ int main_impl(int argc, char **argv) {
         options.log_.log_paths_.push_back(str.str());
     }
     options.debugging_.debug_log_min_threshold_
-        = debugging::DebuggingOptions::DEBUG_LOG_WARNING;
+        = debugging::DebuggingOptions::DEBUG_LOG_INFO;
+        // = debugging::DebuggingOptions::DEBUG_LOG_WARNING;
     options.debugging_.verbose_modules_ = "";
-    options.log_.log_buffer_kb_ = 1 << 18;  // 256MB * 16 cores = 4 GB. nothing.
+    options.log_.log_buffer_kb_ = 1 << 20;  // 256MB * 16 cores = 4 GB. nothing.
     options.log_.log_file_size_mb_ = 1 << 10;
     options.memory_.page_pool_size_mb_ = 1 << 14;  // 16GB
     TOTAL_THREADS = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
 
-    std::cout << "options=" << options << std::endl;
     {
         Engine engine(options);
         COERCE_ERROR(engine.initialize());
@@ -280,7 +284,7 @@ int main_impl(int argc, char **argv) {
             // make sure all threads are done with random number generation
             std::this_thread::sleep_for(std::chrono::seconds(1));
             if (profile) {
-                ::ProfilerStart("tpcb_experiment.prof");
+                COERCE_ERROR(engine.get_debug().start_profile("tpcb_experiment.prof"));
             }
             start_promise.set_value();  // GO!
             std::cout << "Started!" << std::endl;
@@ -293,7 +297,7 @@ int main_impl(int argc, char **argv) {
                 total += tasks[i]->get_processed();
             }
             if (profile) {
-                ::ProfilerStop();
+                engine.get_debug().stop_profile();
             }
             std::cout << "total=" << total << ", MTPS="
                 << (static_cast<double>(total)/DURATION_MICRO) << std::endl;

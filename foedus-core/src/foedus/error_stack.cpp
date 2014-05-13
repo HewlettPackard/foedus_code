@@ -15,7 +15,7 @@ void ErrorStack::output(std::ostream* ptr) const {
     } else {
         o << get_error_name(error_code_) << "(" << error_code_ << "):" << get_message();
         if (os_errno_ != 0) {
-            o << " (OS ERROR=" << assorted::os_error(os_errno_) << ")";
+            o << " (Latest system call error=" << assorted::os_error(os_errno_) << ")";
         }
         if (get_custom_message()) {
             o << " (Additional message=" << get_custom_message() << ")";

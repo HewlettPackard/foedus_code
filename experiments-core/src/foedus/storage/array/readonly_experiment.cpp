@@ -41,7 +41,6 @@
 #include <foedus/xct/xct_manager.hpp>
 #include <unistd.h>
 #include <sys/mman.h>
-#include <google/profiler.h>
 #include <atomic>
 #include <iostream>
 #include <string>
@@ -159,7 +158,7 @@ int main_impl(int argc, char **argv) {
             start_req = true;
             std::atomic_thread_fence(std::memory_order_release);
             if (profile) {
-                ::ProfilerStart("readonly_experiment.prof");
+                COERCE_ERROR(engine.get_debug().start_profile("readonly_experiment.prof"));
             }
             std::cout << "all started!" << std::endl;
             ::usleep(DURATION_MICRO);
@@ -172,7 +171,7 @@ int main_impl(int argc, char **argv) {
                 total += task2[i]->processed_;
             }
             if (profile) {
-                ::ProfilerStop();
+                engine.get_debug().stop_profile();
             }
 
             for (int i = 0; i < THREADS; ++i) {

@@ -36,9 +36,10 @@
 #ifndef BASE_RAW_LOGGING_H_
 #define BASE_RAW_LOGGING_H_
 
+#include "glog/config.h"
 #include <time.h>
 
-@ac_google_start_namespace@
+namespace GOOGLE_NAMESPACE {
 
 #include "glog/log_severity.h"
 #include "glog/vlog_is_on.h"
@@ -68,7 +69,7 @@
 //   I0821 211317 file.cc:142] RAW: status is 20
 #define RAW_LOG(severity, ...) \
   do { \
-    switch (@ac_google_namespace@::GLOG_ ## severity) {  \
+    switch (GOOGLE_NAMESPACE::GLOG_ ## severity) {  \
       case 0: \
         RAW_LOG_INFO(__VA_ARGS__); \
         break; \
@@ -100,33 +101,33 @@
 #endif // STRIP_LOG == 0
 
 #if STRIP_LOG == 0
-#define RAW_LOG_INFO(...) @ac_google_namespace@::RawLog__(@ac_google_namespace@::GLOG_INFO, \
+#define RAW_LOG_INFO(...) GOOGLE_NAMESPACE::RawLog__(GOOGLE_NAMESPACE::GLOG_INFO, \
                                    __FILE__, __LINE__, __VA_ARGS__)
 #else
-#define RAW_LOG_INFO(...) @ac_google_namespace@::RawLogStub__(0, __VA_ARGS__)
+#define RAW_LOG_INFO(...) GOOGLE_NAMESPACE::RawLogStub__(0, __VA_ARGS__)
 #endif // STRIP_LOG == 0
 
 #if STRIP_LOG <= 1
-#define RAW_LOG_WARNING(...) @ac_google_namespace@::RawLog__(@ac_google_namespace@::GLOG_WARNING,   \
+#define RAW_LOG_WARNING(...) GOOGLE_NAMESPACE::RawLog__(GOOGLE_NAMESPACE::GLOG_WARNING,   \
                                       __FILE__, __LINE__, __VA_ARGS__)
 #else
-#define RAW_LOG_WARNING(...) @ac_google_namespace@::RawLogStub__(0, __VA_ARGS__)
+#define RAW_LOG_WARNING(...) GOOGLE_NAMESPACE::RawLogStub__(0, __VA_ARGS__)
 #endif // STRIP_LOG <= 1
 
 #if STRIP_LOG <= 2
-#define RAW_LOG_ERROR(...) @ac_google_namespace@::RawLog__(@ac_google_namespace@::GLOG_ERROR,       \
+#define RAW_LOG_ERROR(...) GOOGLE_NAMESPACE::RawLog__(GOOGLE_NAMESPACE::GLOG_ERROR,       \
                                     __FILE__, __LINE__, __VA_ARGS__)
 #else
-#define RAW_LOG_ERROR(...) @ac_google_namespace@::RawLogStub__(0, __VA_ARGS__)
+#define RAW_LOG_ERROR(...) GOOGLE_NAMESPACE::RawLogStub__(0, __VA_ARGS__)
 #endif // STRIP_LOG <= 2
 
 #if STRIP_LOG <= 3
-#define RAW_LOG_FATAL(...) @ac_google_namespace@::RawLog__(@ac_google_namespace@::GLOG_FATAL,       \
+#define RAW_LOG_FATAL(...) GOOGLE_NAMESPACE::RawLog__(GOOGLE_NAMESPACE::GLOG_FATAL,       \
                                     __FILE__, __LINE__, __VA_ARGS__)
 #else
 #define RAW_LOG_FATAL(...) \
   do { \
-    @ac_google_namespace@::RawLogStub__(0, __VA_ARGS__);        \
+    GOOGLE_NAMESPACE::RawLogStub__(0, __VA_ARGS__);        \
     exit(1); \
   } while (0)
 #endif // STRIP_LOG <= 3
@@ -173,13 +174,13 @@ GOOGLE_GLOG_DLL_DECL void RawLog__(LogSeverity severity,
                                    const char* file,
                                    int line,
                                    const char* format, ...)
-   @ac_cv___attribute___printf_4_5@;
+   ATTRIBUTE_PRINTF_4_5;
 
 // Hack to propagate time information into this module so that
 // this module does not have to directly call localtime_r(),
 // which could allocate memory.
 GOOGLE_GLOG_DLL_DECL void RawLog__SetLastTime(const struct tm& t, int usecs);
 
-@ac_google_end_namespace@
+}
 
 #endif  // BASE_RAW_LOGGING_H_

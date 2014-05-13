@@ -128,7 +128,7 @@
    "__declspec(dllexport)". This way, when we compile the dll, we export our
    functions/classes. It's safe to define this here because config.h is only
    used internally, to compile the DLL, and every DLL source file #includes
-   "config.h" before anything else. */
+   "glog/config.h" before anything else. */
 #ifndef GOOGLE_GLOG_DLL_DECL
 # define GOOGLE_GLOG_IS_A_DLL  1   /* not set if you're statically linking */
 # define GOOGLE_GLOG_DLL_DECL  __declspec(dllexport)

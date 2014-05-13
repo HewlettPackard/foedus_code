@@ -110,7 +110,7 @@ _END_GOOGLE_NAMESPACE_
 #include <unistd.h>
 
 #include "symbolize.h"
-#include "config.h"
+#include "glog/config.h"
 #include "glog/raw_logging.h"
 
 // Re-runs fn until it doesn't cause EINTR.
@@ -666,7 +666,7 @@ _END_GOOGLE_NAMESPACE_
 
 #include <assert.h>
 
-#include "config.h"
+#include "glog/config.h"
 
 _START_GOOGLE_NAMESPACE_
 

@@ -38,7 +38,8 @@
 #ifndef UTIL_GTL_STL_LOGGING_INL_H_
 #define UTIL_GTL_STL_LOGGING_INL_H_
 
-#if !@ac_cv_cxx_using_operator@
+#include "glog/config.h"
+#ifndef HAVE_USING_OPERATOR
 # error We do not support stl_logging for this compiler
 #endif
 
@@ -62,18 +63,18 @@
 template<class First, class Second>
 std::ostream& operator<<(std::ostream& out, const std::pair<First, Second>& p);
 
-@ac_google_start_namespace@
+namespace GOOGLE_NAMESPACE {
 
 template<class Iter>
 void PrintSequence(std::ostream& out, Iter begin, Iter end);
 
-@ac_google_end_namespace@
+}
 
 #define OUTPUT_TWO_ARG_CONTAINER(Sequence) \
 template<class T1, class T2> \
 inline std::ostream& operator<<(std::ostream& out, \
                                 const Sequence<T1, T2>& seq) { \
-  @ac_google_namespace@::PrintSequence(out, seq.begin(), seq.end()); \
+  GOOGLE_NAMESPACE::PrintSequence(out, seq.begin(), seq.end()); \
   return out; \
 }
 
@@ -90,7 +91,7 @@ OUTPUT_TWO_ARG_CONTAINER(__gnu_cxx::slist)
 template<class T1, class T2, class T3> \
 inline std::ostream& operator<<(std::ostream& out, \
                                 const Sequence<T1, T2, T3>& seq) { \
-  @ac_google_namespace@::PrintSequence(out, seq.begin(), seq.end()); \
+  GOOGLE_NAMESPACE::PrintSequence(out, seq.begin(), seq.end()); \
   return out; \
 }
 
@@ -103,7 +104,7 @@ OUTPUT_THREE_ARG_CONTAINER(std::multiset)
 template<class T1, class T2, class T3, class T4> \
 inline std::ostream& operator<<(std::ostream& out, \
                                 const Sequence<T1, T2, T3, T4>& seq) { \
-  @ac_google_namespace@::PrintSequence(out, seq.begin(), seq.end()); \
+  GOOGLE_NAMESPACE::PrintSequence(out, seq.begin(), seq.end()); \
   return out; \
 }
 
@@ -120,7 +121,7 @@ OUTPUT_FOUR_ARG_CONTAINER(__gnu_cxx::hash_multiset)
 template<class T1, class T2, class T3, class T4, class T5> \
 inline std::ostream& operator<<(std::ostream& out, \
                                 const Sequence<T1, T2, T3, T4, T5>& seq) { \
-  @ac_google_namespace@::PrintSequence(out, seq.begin(), seq.end()); \
+  GOOGLE_NAMESPACE::PrintSequence(out, seq.begin(), seq.end()); \
   return out; \
 }
 
@@ -138,7 +139,7 @@ inline std::ostream& operator<<(std::ostream& out,
   return out;
 }
 
-@ac_google_start_namespace@
+namespace GOOGLE_NAMESPACE {
 
 template<class Iter>
 inline void PrintSequence(std::ostream& out, Iter begin, Iter end) {
@@ -152,7 +153,7 @@ inline void PrintSequence(std::ostream& out, Iter begin, Iter end) {
   }
 }
 
-@ac_google_end_namespace@
+}
 
 // Note that this is technically undefined behavior! We are adding things into
 // the std namespace for a reason though -- we are providing new operations on

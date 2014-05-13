@@ -72,3 +72,5 @@ X(ERROR_CODE_XCT_WRITE_SET_OVERFLOW,0x0A02, "XCTION : Too large write-set. Check
 X(ERROR_CODE_XCT_ALREADY_RUNNING,   0x0A03, "XCTION : This thread is already running a transaction. Commit or abort it first.")
 X(ERROR_CODE_XCT_NO_XCT,            0x0A04, "XCTION : This thread is not running any transaction.")
 X(ERROR_CODE_XCT_RACE_ABORT,        0x0A05, "XCTION : Aborted a transaction because of a race condition. This is an expected error in highly contended case. You might retry the transaction.")
+
+X(ERROR_CODE_DBG_GPERFTOOLS,        0x0B01, "DEBUG  : Gperftools reported an error")

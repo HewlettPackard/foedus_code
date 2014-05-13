@@ -39,7 +39,7 @@
 #include "glog/logging.h"
 #include "demangle.h"
 #include "googletest.h"
-#include "config.h"
+#include "glog/config.h"
 
 GLOG_DEFINE_bool(demangle_filter, false,
                  "Run demangle_unittest in filter mode");

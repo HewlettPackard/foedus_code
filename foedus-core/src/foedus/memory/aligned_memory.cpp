@@ -2,9 +2,11 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/memory/aligned_memory.hpp>
-#include <numa.h>
 #include <foedus/assert_nd.hpp>
+#include <foedus/debugging/stop_watch.hpp>
+#include <foedus/memory/aligned_memory.hpp>
+#include <glog/logging.h>
+#include <numa.h>
 #include <cstdlib>
 #include <cstring>
 #include <ostream>
@@ -29,6 +31,7 @@ void AlignedMemory::alloc(uint64_t size, uint64_t alignment,
     if (size_ % alignment != 0) {
         size_ = ((size_ / alignment) + 1) * alignment;
     }
+    debugging::StopWatch watch;
     switch (alloc_type_) {
         case POSIX_MEMALIGN:
             ::posix_memalign(&block_, alignment, size_);
@@ -42,8 +45,13 @@ void AlignedMemory::alloc(uint64_t size, uint64_t alignment,
         default:
             ASSERT_ND(false);
     }
+    watch.stop();
 
+    debugging::StopWatch watch2;
     std::memset(block_, 0, size_);  // see class comment for why we do this immediately
+    watch2.stop();
+    LOG(INFO) << "Allocated memory in " << watch.elapsed_ns() << "+"
+        << watch2.elapsed_ns() << " ns (alloc+memset)." << *this;
 }
 
 

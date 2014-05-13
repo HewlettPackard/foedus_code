@@ -39,7 +39,7 @@
 #include "glog/logging.h"
 #include "symbolize.h"
 #include "googletest.h"
-#include "config.h"
+#include "glog/config.h"
 
 using namespace std;
 using namespace GOOGLE_NAMESPACE;

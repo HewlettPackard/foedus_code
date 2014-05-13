@@ -33,6 +33,27 @@ class DebuggingSupports CXX11_FINAL : public DefaultInitializable {
     /** @copydoc DebuggingOptions#verbose_modules_ */
     void                set_verbose_module(const std::string &module, int verbose);
 
+    /**
+     * @brief Start running a CPU profiler (gperftools).
+     * @param[in] output path to output the profile result.
+     * @details
+     * This feature is enabled only when you link to libprofiler.so.
+     * For example, use it like this:
+     * @code{.cpp}
+     * CHECK_ERROR(engine.get_debug().start_profile("hoge.prof"));
+     * for (int i = 0; i < 1000000; ++i) do_something();
+     * engine.get_debug().stop_profile("hoge.prof");
+     * @endcode
+     * Then, after the execution,
+     * @code{.sh}
+     * pprof --pdf your_binary hoge.prof > hoge.pdf
+     * okular hoge.pdf
+     * @endcode
+     */
+    ErrorStack          start_profile(const std::string& output_file);
+    /** Stop CPU profiling. */
+    void                stop_profile();
+
  private:
     /**
      * Initialize Google-logging only once. This is called at the beginning of initialize_once()

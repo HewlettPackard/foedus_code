@@ -36,6 +36,10 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 # cause much more harm than good. So, we enable them just as warnings, not errors.
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 
+# Do we need this for gperftools?
+# https://code.google.com/p/gperftools/issues/detail?id=562
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-pie")
+
 # We don't use exceptions, but we hesitate to actually turn it off with -fno-exceptions.
 # If the client program expects exceptions, and if libstdc throws an exception, kaboom.
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
