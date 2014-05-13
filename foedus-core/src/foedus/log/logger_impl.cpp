@@ -153,6 +153,7 @@ void Logger::handle_logger() {
 
 ErrorStack Logger::handle_logger_once(bool *more_log_to_process) {
     *more_log_to_process = false;
+    assorted::spinlock_yield();
     CHECK_ERROR(update_durable_epoch());
     Epoch current_logger_epoch = durable_epoch_.one_more();
     for (thread::Thread* the_thread : assigned_threads_) {
