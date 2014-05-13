@@ -51,9 +51,10 @@ ErrorStack SavepointManagerPimpl::take_savepoint(Epoch new_global_durable_epoch)
     engine_->get_log_manager().copy_logger_states(&new_savepoint);
     new_savepoint.assert_epoch_values();
 
-    LOG(INFO) << "Writing a savepoint..." << new_savepoint;
+    LOG(INFO) << "Writing a savepoint...";
+    VLOG(0) << "Savepoint content=" << new_savepoint;
     CHECK_ERROR(new_savepoint.save_to_file(savepoint_path_));
-    LOG(INFO) << "Wrote a savepoint.";
+    VLOG(0) << "Wrote a savepoint.";
     {
         std::lock_guard<std::mutex> guard(savepoint_mutex_);
         savepoint_ = new_savepoint;

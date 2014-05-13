@@ -142,7 +142,7 @@ ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_
         }
         std::unique_lock<std::mutex> the_lock(durable_global_epoch_advanced_mutex_);
         if (wait_microseconds > 0) {
-            LOG(INFO) << "Synchronously waiting for commit_epoch " << commit_epoch;
+            VLOG(0) << "Synchronously waiting for commit_epoch " << commit_epoch;
             if (durable_global_epoch_advanced_.wait_until(the_lock, until)
                     == std::cv_status::timeout && commit_epoch > durable_global_epoch_) {
                 LOG(WARNING) << "Timeout occurs. wait_microseconds=" << wait_microseconds;
@@ -153,7 +153,7 @@ ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_
         }
     }
 
-    LOG(INFO) << "durable epoch advanced. durable_global_epoch_=" << durable_global_epoch_;
+    VLOG(0) << "durable epoch advanced. durable_global_epoch_=" << durable_global_epoch_;
     return RET_OK;
 }
 

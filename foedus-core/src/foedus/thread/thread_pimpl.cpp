@@ -50,20 +50,20 @@ void ThreadPimpl::handle_tasks() {
     LOG(INFO) << "Thread-" << id_ << " started running on NUMA node: " << numa_node;
     ::numa_run_on_node(numa_node);
     while (true) {
-        LOG(INFO) << "Thread-" << id_ << " waiting for a task...";
+        VLOG(0) << "Thread-" << id_ << " waiting for a task...";
         std::future<ImpersonateTask*> task_future = impersonated_task_.get_future();
         ImpersonateTask* functor = task_future.get();
         impersonated_task_ = std::promise<ImpersonateTask*>();  // reset the promise/future pair
         if (functor) {
             ASSERT_ND(impersonated_);
-            LOG(INFO) << "Thread-" << id_ << " retrieved a task";
+            VLOG(0) << "Thread-" << id_ << " retrieved a task";
             ErrorStack result = functor->run(holder_);
             assorted::memory_fence_release();
             impersonated_ = false;
             assorted::memory_fence_release();
             impersonated_task_result_.set_value(result);  // this wakes up the client
             assorted::memory_fence_release();
-            LOG(INFO) << "Thread-" << id_ << " finished a task. result =" << result;
+            VLOG(0) << "Thread-" << id_ << " finished a task. result =" << result;
         } else {
             // NULL functor is the signal to terminate
             break;
@@ -78,7 +78,7 @@ bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
     bool cas_tmp = false;
     if (std::atomic_compare_exchange_weak(&impersonated_, &cas_tmp, true)) {
         // successfully acquired. set a new promise for this session.
-        LOG(INFO) << "Impersonation succeeded for Thread-" << id_ << ". Setting a task..";
+        VLOG(0) << "Impersonation succeeded for Thread-" << id_ << ". Setting a task..";
         impersonated_task_result_ = std::promise<ErrorStack>();  // this is a promise for ME
         session->thread_ = holder_;
         *reinterpret_cast< std::shared_future< ErrorStack >* >(session->result_future_)
@@ -88,7 +88,7 @@ bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
         return true;
     } else {
         // no, someone else took it.
-        DLOG(INFO) << "Someone already took Thread-" << id_ << ".";
+        DVLOG(0) << "Someone already took Thread-" << id_ << ".";
         return false;
     }
 }

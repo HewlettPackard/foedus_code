@@ -143,7 +143,7 @@ void Logger::handle_logger() {
                     << ". Either too few loggers or potentially a bug?? " << *this;
                 break;
             } else {
-                LOG(INFO) << "Logger-" << id_ << " has more task. keep working. " << iterations;
+                VLOG(0) << "Logger-" << id_ << " has more task. keep working. " << iterations;
                 DVLOG(1) << *this;
             }
         }
@@ -303,7 +303,7 @@ ErrorStack Logger::update_durable_epoch() {
 
     DVLOG(1) << "Checked all loggers. min_durable_epoch=" << min_durable_epoch;
     if (min_durable_epoch > durable_epoch_) {
-        LOG(INFO) << "Logger-" << id_ << " updates durable_epoch_ from " << durable_epoch_
+        VLOG(0) << "Logger-" << id_ << " updates durable_epoch_ from " << durable_epoch_
             << " to " << min_durable_epoch;
         // Add a log to mark the switch of epoch. This is not necessary to be fsync-ed together,
         // but it's a good sanity check to see if a complete log always ends with an epoch mark.
@@ -312,7 +312,7 @@ ErrorStack Logger::update_durable_epoch() {
             return ERROR_STACK_MSG(ERROR_CODE_FS_SYNC_FAILED, to_string().c_str());
         }
         current_file_durable_offset_ = current_file_->get_current_offset();
-        LOG(INFO) << "Logger-" << id_ << " fsynced the current file ("
+        VLOG(0) << "Logger-" << id_ << " fsynced the current file ("
             << current_file_durable_offset_ << "  bytes so far) and its folder";
         DVLOG(0) << "Before: " << *this;
         assorted::memory_fence_release();  // announce it only AFTER above
@@ -335,7 +335,7 @@ ErrorStack Logger::update_durable_epoch() {
 
 ErrorStack Logger::log_epoch_switch(Epoch old_epoch, Epoch new_epoch) {
     ASSERT_ND(old_epoch < new_epoch);
-    LOG(INFO) << "Logger-" << id_ << " logs its advancement of durable_epoch from " << old_epoch
+    VLOG(0) << "Logger-" << id_ << " logs its advancement of durable_epoch from " << old_epoch
         << " to " << new_epoch;
 
     // Use fill buffer to write out the epoch mark log

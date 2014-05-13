@@ -244,9 +244,10 @@ int main_impl(int argc, char **argv) {
         = debugging::DebuggingOptions::DEBUG_LOG_INFO;
         // = debugging::DebuggingOptions::DEBUG_LOG_WARNING;
     options.debugging_.verbose_modules_ = "";
+    options.debugging_.verbose_log_level_ = -1;
     options.log_.log_buffer_kb_ = 1 << 20;  // 256MB * 16 cores = 4 GB. nothing.
     options.log_.log_file_size_mb_ = 1 << 10;
-    options.memory_.page_pool_size_mb_ = 1 << 14;  // 16GB
+    options.memory_.page_pool_size_mb_ = 1 << 12;  // 4GB
     TOTAL_THREADS = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
 
     {

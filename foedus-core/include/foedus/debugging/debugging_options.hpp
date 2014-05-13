@@ -61,7 +61,7 @@ struct DebuggingOptions CXX11_FINAL : public virtual externalize::Externalizable
      * @details
      * Default is 0. There is an API to change this setting at runtime.
      */
-    uint16_t                            verbose_log_level_;
+    int16_t                            verbose_log_level_;
 
     /**
      * @brief Per-module verbose level.
@@ -70,7 +70,7 @@ struct DebuggingOptions CXX11_FINAL : public virtual externalize::Externalizable
      * 'module name'='log level'. 'module name' is a glob pattern
      * (e.g., gfs* for all modules whose name starts with "gfs"),
      * matched against the filename base (that is, name ignoring .cc/.h./-inl.h)
-     * Default is "/". There is an API to change this setting at runtime.
+     * Default is "". There is an API to change this setting at runtime.
      */
     std::string                         verbose_modules_;
 
