@@ -55,6 +55,11 @@ ErrorStack XctManagerPimpl::uninitialize_once() {
 
 void XctManagerPimpl::handle_epoch_advance() {
     LOG(INFO) << "epoch_advance_thread started.";
+    // Wait until all the other initializations are done.
+    SPINLOCK_WHILE(!epoch_advance_thread_.is_stop_requested() && !is_initialized()) {
+        assorted::memory_fence_acquire();
+    }
+    LOG(INFO) << "epoch_advance_thread now starts processing.";
     while (!epoch_advance_thread_.sleep()) {
         VLOG(1) << "epoch_advance_thread. current_global_epoch_=" << current_global_epoch_;
         ASSERT_ND(current_global_epoch_.is_valid());

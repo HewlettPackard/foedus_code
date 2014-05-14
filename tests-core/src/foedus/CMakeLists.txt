@@ -9,5 +9,5 @@ add_subdirectory(assorted)
 add_subdirectory(fs)
 add_subdirectory(memory)
 add_subdirectory(storage)
+add_subdirectory(thread)
 add_subdirectory(xct)
-

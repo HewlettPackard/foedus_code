@@ -18,7 +18,6 @@
 #include <chrono>
 #include <cstring>
 #include <future>
-#include <iostream>
 #include <vector>
 
 namespace foedus {
