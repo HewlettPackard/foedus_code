@@ -1,5 +1,6 @@
 set(FOEDUS_THREAD_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/impersonate_session.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/impersonate_task.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/stoppable_thread_impl.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/thread.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/thread_group.cpp

@@ -3,6 +3,8 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/thread/impersonate_session.hpp>
+#include <foedus/thread/impersonate_task.hpp>
+#include <foedus/thread/impersonate_task_pimpl.hpp>
 #include <foedus/thread/thread.hpp>
 #include <chrono>
 #include <future>
@@ -10,62 +12,14 @@
 namespace foedus {
 namespace thread {
 
-static_assert(sizeof(ImpersonateSession::result_future_) <= sizeof(std::shared_future<ErrorStack>),
-    "size of std::shared_future<ErrorStack> is larger than expected.");
-
-std::shared_future<ErrorStack>* as_future(char* ptr) {
-    return reinterpret_cast< std::shared_future< ErrorStack >* >(ptr);
-}
-const std::shared_future<ErrorStack>* as_future(const char* ptr) {
-    return reinterpret_cast<const std::shared_future< ErrorStack >* >(ptr);
-}
-
-ImpersonateSession::ImpersonateSession()
-    : thread_(nullptr), task_(nullptr), invalid_cause_() {
-    // to avoid pimpl's new/delete, we use aligned storage for future.
-    new (result_future_) std::shared_future<ErrorStack>();
-}
-ImpersonateSession::ImpersonateSession(ImpersonateTask* task)
-    : thread_(nullptr), task_(task), invalid_cause_() {
-    // to avoid pimpl's new/delete, we use aligned storage for future.
-    new (result_future_) std::shared_future<ErrorStack>();
-}
-ImpersonateSession::ImpersonateSession(const ImpersonateSession& other)
-    : thread_(other.thread_), task_(other.task_), invalid_cause_(other.invalid_cause_) {
-    new (result_future_) std::shared_future<ErrorStack>(*as_future(other.result_future_));
-}
-ImpersonateSession::~ImpersonateSession() {
-    as_future(result_future_)->~shared_future();
-}
-ImpersonateSession& ImpersonateSession::operator=(const ImpersonateSession& other) {
-    thread_ = other.thread_;
-    task_ = other.task_;
-    invalid_cause_ = other.invalid_cause_;
-    as_future(result_future_)->operator=(*as_future(other.result_future_));
-    return *this;
-}
-
-ImpersonateSession::ImpersonateSession(ImpersonateSession&& other)
-    : thread_(other.thread_), task_(other.task_), invalid_cause_(other.invalid_cause_) {
-    new (result_future_) std::shared_future<ErrorStack>(
-        std::move(*as_future(other.result_future_)));
-}
-
-ImpersonateSession& ImpersonateSession::operator=(ImpersonateSession&& other) {
-    thread_ = other.thread_;
-    task_ = other.task_;
-    invalid_cause_ = other.invalid_cause_;
-    as_future(result_future_)->operator=(std::move(*as_future(other.result_future_)));
-    return *this;
-}
-
 ErrorStack ImpersonateSession::get_result() {
     ASSERT_ND(is_valid());
-    return as_future(result_future_)->get();
+    wait();
+    return task_->pimpl_->result_;
 }
 void ImpersonateSession::wait() const {
     ASSERT_ND(is_valid());
-    return as_future(result_future_)->wait();
+    task_->pimpl_->done_future_.get_future().wait();
 }
 ImpersonateSession::Status ImpersonateSession::wait_for(TimeoutMicrosec timeout) const {
     if (!is_valid()) {
@@ -75,8 +29,8 @@ ImpersonateSession::Status ImpersonateSession::wait_for(TimeoutMicrosec timeout)
         wait();
         return ImpersonateSession::READY;
     } else {
-        std::future_status status = as_future(result_future_)->wait_for(
-                std::chrono::microseconds(timeout));
+        std::future_status status = task_->pimpl_->done_future_.get_future().
+            wait_for(std::chrono::microseconds(timeout));
         if (status == std::future_status::timeout) {
             return ImpersonateSession::TIMEOUT;
         } else {

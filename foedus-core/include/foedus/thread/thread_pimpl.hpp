@@ -7,12 +7,11 @@
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
+#include <foedus/thread/stoppable_thread_impl.hpp>
 #include <foedus/log/thread_log_buffer_impl.hpp>
 #include <foedus/xct/xct.hpp>
 #include <atomic>
-#include <future>
 #include <mutex>
-#include <thread>
 namespace foedus {
 namespace thread {
 /**
@@ -35,8 +34,8 @@ class ThreadPimpl final : public DefaultInitializable {
     /**
      * @brief Main routine of the worker thread.
      * @details
-     * This method keeps checking impersonated_task_. Whenever it retrieves a task, it runs
-     * it and re-sets impersonated_task_ when it's done.
+     * This method keeps checking current_task_. Whenever it retrieves a task, it runs
+     * it and re-sets current_task_ when it's done. It exists when exit_requested_ is set.
      */
     void        handle_tasks();
 
@@ -77,20 +76,10 @@ class ThreadPimpl final : public DefaultInitializable {
     log::ThreadLogBuffer    log_buffer_;
 
     /**
-     * Encapsulated raw C++11 thread object.
-     * This is allocated/deallocated in initialize()/uninitialize().
+     * Encapsulates raw thread object.
+     * This is initialized/uninitialized in initialize()/uninitialize().
      */
-    std::thread             raw_thread_;
-
-    /**
-     * Whether this thread has been requested to exist.
-     */
-    bool                    exit_requested_;
-
-    /**
-     * Whether this thread has ended.
-     */
-    bool                    exitted_;
+    StoppableThread         raw_thread_;
 
     /**
      * Whether this thread is impersonated and running some code.
@@ -99,27 +88,16 @@ class ThreadPimpl final : public DefaultInitializable {
     std::atomic<bool>       impersonated_;
 
     /**
-     * This thread waits for future from this std::promise to retrieve next functor to run.
-     * Whenever the thread finishes a task, it re-set this std::promise to receive next task.
-     * When the engine shuts down, it calls this task with NULL functor.
-     * It works as a signal to let this thread exit rather than waiting for yet another task.
+     * The task this thread is currently running or will run when it wakes up.
      */
-    std::promise< ImpersonateTask* > impersonated_task_;
-
-    /**
-     * The \e promise of the result of previous impersonated execution.
-     * The pooled thread calls set_value when it finishes the current task.
-     * When this receives a new task (when impersonated_ sets true), it creates a new promise
-     * so that the client program of the old session can still see the corresponding future.
-     */
-    std::promise<ErrorStack>    impersonated_task_result_;
+    ImpersonateTask*        current_task_;
 
     /**
      * Current transaction this thread is conveying.
      * Each thread can run at most one transaction at once.
      * If this thread is not conveying any transaction, current_xct_.is_active() == false.
      */
-    xct::Xct                    current_xct_;
+    xct::Xct                current_xct_;
 };
 }  // namespace thread
 }  // namespace foedus

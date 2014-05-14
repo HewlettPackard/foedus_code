@@ -39,8 +39,8 @@ namespace thread {
  * Actually, this class is based on std::shared_future just to provide copy semantics
  * for non-C++11 clients. Additional overheads shouldn't matter, hopeully.
  *
- * @par Moveable/Copiable
- * This object is copiable. If C++11 is enabled, it is also moveable.
+ * @par POD
+ * This object is a POD. It's trivially copiable/moveable.
  */
 struct ImpersonateSession CXX11_FINAL {
     /** Result of wait_for() */
@@ -53,19 +53,11 @@ struct ImpersonateSession CXX11_FINAL {
         TIMEOUT,
     };
 
-    ImpersonateSession();
-    explicit ImpersonateSession(ImpersonateTask* task);
-    ~ImpersonateSession();
-    ImpersonateSession(const ImpersonateSession& other);
-    ImpersonateSession& operator=(const ImpersonateSession& other);
+    ImpersonateSession() : thread_(CXX11_NULLPTR), task_(CXX11_NULLPTR), invalid_cause_() {}
+    explicit ImpersonateSession(ImpersonateTask* task)
+        : thread_(CXX11_NULLPTR), task_(task), invalid_cause_() {}
+    ~ImpersonateSession() {}
 
-#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-    /** Move constructor is provided only when C++11 is supported. */
-    ImpersonateSession(ImpersonateSession &&other);
-
-    /** Move assignment is provided only when C++11 is supported. */
-    ImpersonateSession& operator=(ImpersonateSession &&other);
-#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
     /**
      * Returns if the impersonation succeeded.
      */
@@ -110,17 +102,6 @@ struct ImpersonateSession CXX11_FINAL {
 
     /** If impersonation failed, this indicates why it failed. */
     ErrorStack          invalid_cause_;
-
-    /**
-     * @brief Expected result of the impersonated task.
-     * @details
-     * Actually std::shared_future<ErrorStack>, which we'd like to hide from public headers.
-     * However, pimpl idiom requires new/delete which is too expensive for such a small object.
-     * So, we use so-called aligned-storage. std::aligned_storage is also C++11, so we do it
-     * ourselves. We do sanity-check of the size (16) in cpp by static_assert.
-     * @see http://stackoverflow.com/questions/4921932/pimpl-idiom-without-using-dynamic-memory-allocation
-     */
-    char                result_future_[16];
 };
 }  // namespace thread
 }  // namespace foedus

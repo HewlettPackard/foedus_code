@@ -2,6 +2,7 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
+#include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/thread/stoppable_thread_impl.hpp>
 #include <glog/logging.h>
 #include <string>
@@ -15,6 +16,7 @@ void StoppableThread::initialize(const std::string &name,
     thread_ = std::move(the_thread);
     sleep_interval_ = sleep_interval;
     stop_requested_ = false;
+    stopped_ = false;
     LOG(INFO) << name_ << " initialized. sleep_interval=" << sleep_interval_.count() << " microsec";
 }
 
@@ -46,13 +48,17 @@ void StoppableThread::wakeup() {
 
 void StoppableThread::stop() {
     LOG(INFO) << "Stopping " << name_ << "...";
-    if (thread_.joinable()) {
+    assorted::memory_fence_acq_rel();
+    if (!stopped_ && !stop_requested_) {
         stop_requested_ = true;
+        assorted::memory_fence_release();
         condition_.notify_all();
         thread_.join();
         LOG(INFO) << "Joined " << name_;
     }
-    LOG(INFO) << "Stopped " << name_;
+    stopped_ = true;
+    assorted::memory_fence_release();
+    LOG(INFO) << "Successfully Stopped " << name_;
 }
 
 }  // namespace thread

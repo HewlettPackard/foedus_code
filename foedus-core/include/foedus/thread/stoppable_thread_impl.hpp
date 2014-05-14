@@ -24,7 +24,7 @@ namespace thread {
  */
 class StoppableThread final {
  public:
-    StoppableThread() : stop_requested_(false) {}
+    StoppableThread() : stop_requested_(false), stopped_(false) {}
     StoppableThread(const StoppableThread &other) = delete;
     StoppableThread& operator=(const StoppableThread &other) = delete;
 
@@ -53,7 +53,11 @@ class StoppableThread final {
      */
     bool sleep();
 
+    /** returns whether someone has requested to stop this. */
     bool is_stop_requested() const { return stop_requested_; }
+
+    /** returns whether this thread has stopped (if the thread hasn't started, false too). */
+    bool is_stopped() const { return stopped_; }
 
  private:
     /** Used only for debug logging. */
@@ -68,6 +72,8 @@ class StoppableThread final {
     std::condition_variable         condition_;
     /** whether someone has requested to stop this. */
     bool                            stop_requested_;
+    /** whether this thread has stopped (if the thread hasn't started, false too). */
+    bool                            stopped_;
 };
 
 
