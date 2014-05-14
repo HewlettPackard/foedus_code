@@ -128,6 +128,13 @@ ErrorStack Logger::uninitialize_once() {
 void Logger::handle_logger() {
     LOG(INFO) << "Logger-" << id_ << " started. pin on NUMA node-" << static_cast<int>(numa_node_);
     ::numa_run_on_node(numa_node_);
+    // The actual logging can't start until all other modules (XctManager=last) are initialized.
+    SPINLOCK_WHILE(!logger_thread_.is_stop_requested()
+        && !engine_->get_xct_manager().is_initialized()) {
+        assorted::memory_fence_acquire();
+    }
+
+    LOG(INFO) << "Logger-" << id_ << " now starts logging";
     while (!logger_thread_.sleep()) {
         const int MAX_ITERATIONS = 100;
         int iterations = 0;
@@ -229,6 +236,7 @@ ErrorStack Logger::update_durable_epoch() {
     assert_consistent();
     assorted::memory_fence_acquire();  // not necessary. just to get latest info.
     const Epoch current_global_epoch = engine_->get_xct_manager().get_current_global_epoch();
+    ASSERT_ND(current_global_epoch.is_valid());
     assorted::memory_fence_acquire();  // necessary. following is AFTER this.
 
     VLOG(1) << "Logger-" << id_ << " update_durable_epoch(). durable_epoch_=" << durable_epoch_

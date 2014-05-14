@@ -36,6 +36,7 @@ ErrorStack XctManagerPimpl::initialize_once() {
     }
     const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
     current_global_epoch_ = savepoint.get_current_epoch();
+    ASSERT_ND(current_global_epoch_.is_valid());
     epoch_advance_thread_.initialize("epoch_advance_thread",
         std::thread(&XctManagerPimpl::handle_epoch_advance, this),
         std::chrono::milliseconds(engine_->get_options().xct_.epoch_advance_interval_ms_));
@@ -56,8 +57,9 @@ void XctManagerPimpl::handle_epoch_advance() {
     LOG(INFO) << "epoch_advance_thread started.";
     while (!epoch_advance_thread_.sleep()) {
         VLOG(1) << "epoch_advance_thread. current_global_epoch_=" << current_global_epoch_;
-        // TODO(Hideaki) Must check long-running transactions
+        ASSERT_ND(current_global_epoch_.is_valid());
         ++current_global_epoch_;
+        ASSERT_ND(current_global_epoch_.is_valid());
         current_global_epoch_advanced_.notify_all();
         engine_->get_log_manager().wakeup_loggers();
     }
