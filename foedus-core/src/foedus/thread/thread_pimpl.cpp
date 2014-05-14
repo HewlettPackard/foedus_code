@@ -53,7 +53,8 @@ void ThreadPimpl::handle_tasks() {
         VLOG(0) << "Thread-" << id_ << " waiting for a task...";
         std::future<ImpersonateTask*> task_future = impersonated_task_.get_future();
         ImpersonateTask* functor = task_future.get();
-        impersonated_task_ = std::promise<ImpersonateTask*>();  // reset the promise/future pair
+        std::promise<ImpersonateTask*> new_promise;
+        impersonated_task_.swap(new_promise);  // reset the promise/future pair
         if (functor) {
             ASSERT_ND(impersonated_);
             VLOG(0) << "Thread-" << id_ << " retrieved a task";

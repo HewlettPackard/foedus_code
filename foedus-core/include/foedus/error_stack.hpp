@@ -280,13 +280,20 @@ inline ErrorStack& ErrorStack::operator=(const ErrorStack &other) {
         return *this;
     }
 
-    // As we don't have any linked-list etc, mostly this is enough. Quick.
-    clear_custom_message();
-    std::memcpy(this, &other, sizeof(ErrorStack));  // we take copy BEFORE mark other checked
-
-    // this copy assignment is actually a move assignment. these two are mutable for that.
-    other.checked_ = true;
+    // this copy assignment is actually a move assignment.
+    // checked_/custom_message_ are mutable for that.
+    custom_message_ = other.custom_message_;  // steal.
     other.custom_message_ = CXX11_NULLPTR;  // simply stolen. much more efficient.
+    stack_depth_ = other.stack_depth_;
+    for (int i = 0; i < other.stack_depth_; ++i) {
+        filenames_[i] = other.filenames_[i];
+        funcs_[i] = other.funcs_[i];
+        linenums_[i] = other.linenums_[i];
+    }
+    os_errno_ = other.os_errno_;
+    error_code_ = other.error_code_;
+    checked_ = false;
+    other.checked_ = true;
     return *this;
 }
 
