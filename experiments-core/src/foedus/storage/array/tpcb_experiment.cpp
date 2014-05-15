@@ -64,9 +64,9 @@ const int ACCOUNTS  =   100000;
 const int ACCOUNTS_PER_TELLER = ACCOUNTS / TELLERS;
 
 /** number of histories in TOTAL. */
-const int HISTORIES =   20000000;
+const int HISTORIES =   200000000;
 
-const uint64_t DURATION_MICRO = 500000;
+const uint64_t DURATION_MICRO = 5000000;
 
 static_assert(ACCOUNTS % TELLERS == 0, "ACCOUNTS must be multiply of TELLERS");
 
@@ -245,7 +245,7 @@ int main_impl(int argc, char **argv) {
     options.debugging_.verbose_log_level_ = -1;
     options.log_.log_buffer_kb_ = 1 << 20;  // 256MB * 16 cores = 4 GB. nothing.
     options.log_.log_file_size_mb_ = 1 << 10;
-    options.memory_.page_pool_size_mb_ = 1 << 12;  // 4GB
+    options.memory_.page_pool_size_mb_ = 1 << 14;  // 16GB
     TOTAL_THREADS = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
 
     {

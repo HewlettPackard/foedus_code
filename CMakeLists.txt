@@ -36,9 +36,13 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 # cause much more harm than good. So, we enable them just as warnings, not errors.
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 
-# Do we need this for gperftools?
+# We need this for gperftools. If you see "0000fa1234" or something like that instead of function
+# names, most likely it's an issue in gperftools.
 # https://code.google.com/p/gperftools/issues/detail?id=562
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-pie")
+# https://code.google.com/p/gperftools/issues/detail?id=586
+# Disabling pie solved the issue for 90% of methods in libfoedus-core.so, but still some methods
+# show only function addresses.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-pie")
 
 # We don't use exceptions, but we hesitate to actually turn it off with -fno-exceptions.
 # If the client program expects exceptions, and if libstdc throws an exception, kaboom.
@@ -49,6 +53,11 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
 
 # We use cpplint to conform to Google C++ style guide.
 set(ENABLE_CPPLINT true)
+
+# A unittest is not run if it's expensive AND it's not essential. If it's an essential test case,
+# we should make it run fast! So far only header-dependency tests fall into this category.
+# The expensive tests are run on jenkins or manually by developers.
+option(RUN_EXPENSIVE_TESTCASES "Whether to run testcases that take long time and is not essential."  OFF)
 
 enable_testing() # we use CTest in tests-xxx. run "make test" or "ctest || true" after cmake
 # or: valgrind --leak-check=full --show-leak-kinds=all --gen-suppressions=all --suppressions=../../../../foedus-core/tools/valgrind.supp ./hoge

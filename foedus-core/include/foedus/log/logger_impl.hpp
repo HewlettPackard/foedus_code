@@ -6,6 +6,7 @@
 #define FOEDUS_LOG_LOGGER_IMPL_HPP_
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
+#include <foedus/log/fwd.hpp>
 #include <foedus/log/log_id.hpp>
 #include <foedus/fs/fwd.hpp>
 #include <foedus/fs/path.hpp>

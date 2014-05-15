@@ -5,6 +5,7 @@
 #ifndef FOEDUS_THREAD_THREAD_GROUP_HPP_
 #define FOEDUS_THREAD_THREAD_GROUP_HPP_
 #include <foedus/cxx11.hpp>
+#include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/thread/fwd.hpp>

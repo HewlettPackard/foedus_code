@@ -19,16 +19,20 @@
 
 find_path(GooglePerftools_ROOT_DIR
     NAMES include/google/heap-profiler.h
+    HINTS /usr /usr/local
 )
 
 find_library(GooglePerftools_LIBRARIES
     NAMES profiler # tcmalloc
-    HINTS ${GooglePerftools_ROOT_DIR}/lib ${GooglePerftools_ROOT_DIR}/lib64
+    HINTS
+        ${GooglePerftools_ROOT_DIR}/lib64
+        ${GooglePerftools_ROOT_DIR}/lib
 )
 
 find_path(GooglePerftools_INCLUDE_DIR
     NAMES google/heap-profiler.h
-    HINTS ${GooglePerftools_ROOT_DIR}/include
+    HINTS
+        ${GooglePerftools_ROOT_DIR}/include
 )
 
 include(FindPackageHandleStandardArgs)

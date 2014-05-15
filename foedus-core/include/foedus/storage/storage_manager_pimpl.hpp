@@ -10,6 +10,7 @@
 #include <foedus/storage/storage_id.hpp>
 #include <foedus/storage/array/fwd.hpp>
 #include <foedus/storage/array/array_id.hpp>
+#include <foedus/thread/fwd.hpp>
 #include <map>
 #include <mutex>
 #include <string>

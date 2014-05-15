@@ -109,7 +109,6 @@ add_subdirectory(src)
 add_library(foedus-core SHARED ${FOEDUS_CORE_ALL_SRC})
 
 # Link to libglog, libnuma, libgperftools (if found)
-add_dependencies(foedus-core glog_build)
 target_link_libraries(foedus-core glog-static)
 target_link_libraries(foedus-core ${NUMA_LIBRARY})
 target_link_libraries(foedus-core tinyxml2static)

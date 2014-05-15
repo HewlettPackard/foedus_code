@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_THREAD_THREAD_GROUP_PIMPL_HPP_
 #define FOEDUS_THREAD_THREAD_GROUP_PIMPL_HPP_
+#include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
