@@ -2,8 +2,8 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#ifndef FOEDUS_THREAD_STOPPABLE_THREAD_HPP_
-#define FOEDUS_THREAD_STOPPABLE_THREAD_HPP_
+#ifndef FOEDUS_THREAD_STOPPABLE_THREAD_IMPL_HPP_
+#define FOEDUS_THREAD_STOPPABLE_THREAD_IMPL_HPP_
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -66,7 +66,7 @@ class StoppableThread final {
     std::thread                     thread_;
     /** How long do we sleep at most for each sleep() call. */
     std::chrono::microseconds       sleep_interval_;
-    /** protectes the condition variable. */
+    /** protects the condition variable. */
     std::mutex                      mutex_;
     /** used to notify the thread to wakeup. */
     std::condition_variable         condition_;
@@ -79,4 +79,4 @@ class StoppableThread final {
 
 }  // namespace thread
 }  // namespace foedus
-#endif  // FOEDUS_THREAD_STOPPABLE_THREAD_HPP_
+#endif  // FOEDUS_THREAD_STOPPABLE_THREAD_IMPL_HPP_

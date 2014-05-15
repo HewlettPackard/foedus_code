@@ -33,6 +33,7 @@
 #include <foedus/memory/aligned_memory.hpp>
 #include <foedus/memory/numa_node_memory.hpp>
 #include <foedus/memory/numa_core_memory.hpp>
+#include <foedus/thread/rendezvous_impl.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread.hpp>
 #include <foedus/storage/storage_manager.hpp>
@@ -41,10 +42,10 @@
 #include <foedus/debugging/debugging_supports.hpp>
 #include <atomic>
 #include <chrono>
-#include <future>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace foedus {
@@ -98,12 +99,12 @@ ArrayStorage* branches      = nullptr;
 ArrayStorage* accounts      = nullptr;
 ArrayStorage* tellers       = nullptr;
 ArrayStorage* histories     = nullptr;
+thread::Rendezvous start_endezvous;
 bool          stop_requested;
 
 class RunTpcbTask : public thread::ImpersonateTask {
  public:
-    RunTpcbTask(uint16_t history_ordinal, std::shared_future<void> start_future)
-        : history_ordinal_(history_ordinal), start_future_(start_future) {}
+    explicit RunTpcbTask(uint16_t history_ordinal) : history_ordinal_(history_ordinal) {}
     ErrorStack run(thread::Thread* context) {
         // pre-calculate random numbers to get rid of random number generation as bottleneck
         random_.set_current_seed(history_ordinal_);
@@ -113,7 +114,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
         random_.fill_memory(&numbers_);
         const uint32_t *randoms = reinterpret_cast<const uint32_t*>(numbers_.get_block());
 
-        start_future_.get();
+        start_endezvous.wait();
 
         processed_ = 0;
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
@@ -204,9 +205,6 @@ class RunTpcbTask : public thread::ImpersonateTask {
     uint16_t history_ordinal_;
     const uint32_t RANDOM_COUNT = 1 << 16;
 
-    // to start all threads at the same time.
-    std::shared_future<void>    start_future_;
-
     HistoryData tmp_history_;
 };
 
@@ -272,10 +270,8 @@ int main_impl(int argc, char **argv) {
 
             std::vector< RunTpcbTask* > tasks;
             std::vector< thread::ImpersonateSession > sessions;
-            std::promise<void>          start_promise;
-            std::shared_future<void>    start_future = start_promise.get_future().share();
             for (int i = 0; i < TOTAL_THREADS; ++i) {
-                tasks.push_back(new RunTpcbTask(i, start_future));
+                tasks.push_back(new RunTpcbTask(i));
                 sessions.emplace_back(engine.get_thread_pool().impersonate(tasks[i]));
                 if (!sessions[i].is_valid()) {
                     COERCE_ERROR(sessions[i].invalid_cause_);
@@ -287,7 +283,7 @@ int main_impl(int argc, char **argv) {
             if (profile) {
                 COERCE_ERROR(engine.get_debug().start_profile("tpcb_experiment.prof"));
             }
-            start_promise.set_value();  // GO!
+            start_endezvous.signal();  // GO!
             std::cout << "Started!" << std::endl;
             std::this_thread::sleep_for(std::chrono::microseconds(DURATION_MICRO));
             std::cout << "Experiment ended." << std::endl;

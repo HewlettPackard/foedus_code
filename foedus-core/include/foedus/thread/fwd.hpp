@@ -15,6 +15,7 @@ namespace thread {
 struct  ImpersonateSession;
 class   ImpersonateTask;
 class   ImpersonateTaskPimpl;
+class   Rendezvous;
 class   StoppableThread;
 class   Thread;
 class   ThreadGroup;

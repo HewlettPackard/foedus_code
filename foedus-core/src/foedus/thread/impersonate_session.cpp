@@ -7,7 +7,6 @@
 #include <foedus/thread/impersonate_task_pimpl.hpp>
 #include <foedus/thread/thread.hpp>
 #include <chrono>
-#include <future>
 #include <iostream>
 namespace foedus {
 namespace thread {
@@ -19,7 +18,7 @@ ErrorStack ImpersonateSession::get_result() {
 }
 void ImpersonateSession::wait() const {
     ASSERT_ND(is_valid());
-    task_->pimpl_->done_future_.get_future().wait();
+    task_->pimpl_->rendezvous_.wait();
 }
 ImpersonateSession::Status ImpersonateSession::wait_for(TimeoutMicrosec timeout) const {
     if (!is_valid()) {
@@ -29,12 +28,10 @@ ImpersonateSession::Status ImpersonateSession::wait_for(TimeoutMicrosec timeout)
         wait();
         return ImpersonateSession::READY;
     } else {
-        std::future_status status = task_->pimpl_->done_future_.get_future().
-            wait_for(std::chrono::microseconds(timeout));
-        if (status == std::future_status::timeout) {
+        bool done = task_->pimpl_->rendezvous_.wait_for(std::chrono::microseconds(timeout));
+        if (!done) {
             return ImpersonateSession::TIMEOUT;
         } else {
-            ASSERT_ND(status == std::future_status::ready);
             return ImpersonateSession::READY;
         }
     }

@@ -7,7 +7,7 @@
 #include <foedus/assert_nd.hpp>
 #include <foedus/error_stack.hpp>
 #include <foedus/thread/fwd.hpp>
-#include <future>
+#include <foedus/thread/rendezvous_impl.hpp>
 namespace foedus {
 namespace thread {
 /**
@@ -27,7 +27,7 @@ class ImpersonateTaskPimpl final {
         if (result.is_error()) {  // otherwise no need to copy
             result_ = result;
         }
-        done_future_.set_value();  // signal
+        rendezvous_.signal();
     }
 
     /**
@@ -35,12 +35,12 @@ class ImpersonateTaskPimpl final {
      */
     ErrorStack                  result_;
 
+
     /**
-     * Signals when this task is done.
-     * ImpersonateSession retrieves a future from this and waits on it.
-     * The impersonated thread calls set_value when it finishes the task.
+     * Signals when this task is done. ImpersonateSession waits on it.
+     * The impersonated thread signals when it finishes the task.
      */
-    std::promise<void>          done_future_;
+    Rendezvous                  rendezvous_;
 };
 }  // namespace thread
 }  // namespace foedus

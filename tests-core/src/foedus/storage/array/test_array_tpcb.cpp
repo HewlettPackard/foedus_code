@@ -9,6 +9,7 @@
 #include <foedus/assorted/uniform_random.hpp>
 #include <foedus/storage/array/array_storage.hpp>
 #include <foedus/storage/storage_manager.hpp>
+#include <foedus/thread/rendezvous_impl.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread.hpp>
 #include <foedus/xct/xct_manager.hpp>
@@ -16,10 +17,7 @@
 #include <foedus/xct/xct_access.hpp>
 #include <gtest/gtest.h>
 #include <stdint.h>
-#include <condition_variable>
-#include <future>
 #include <iostream>
-#include <mutex>
 #include <vector>
 /**
  * @file tpch_array_tpcb.cpp
@@ -161,12 +159,12 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
 /** run TPC-B queries. */
 class RunTpcbTask : public thread::ImpersonateTask {
  public:
-    RunTpcbTask(int client_id, bool contended, std::shared_future<void> start_future)
-        : client_id_(client_id), contended_(contended), start_future_(start_future) {
+    RunTpcbTask(int client_id, bool contended, thread::Rendezvous* start_rendezvous)
+        : client_id_(client_id), contended_(contended), start_rendezvous_(start_rendezvous) {
         ASSERT_ND(client_id < MAX_TEST_THREADS);
     }
     ErrorStack run(thread::Thread* context) {
-        start_future_.get();
+        start_rendezvous_->wait();
         assorted::UniformRandom rand;
         rand.set_current_seed(client_id_);
         Epoch highest_commit_epoch;
@@ -262,7 +260,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
     bool                        contended_;
 
     // to start all threads at the same time.
-    std::shared_future<void>    start_future_;
+    thread::Rendezvous*         start_rendezvous_;
 };
 
 
@@ -357,18 +355,17 @@ void multi_thread_test(int thread_count, bool contended) {
         }
 
         {
-            std::promise<void> start_promise;
-            std::shared_future<void> start_future = start_promise.get_future().share();
+            thread::Rendezvous start_rendezvous;
             std::vector<RunTpcbTask*> tasks;
             std::vector<thread::ImpersonateSession> sessions;
             for (int i = 0; i < thread_count; ++i) {
-                tasks.push_back(new RunTpcbTask(i, contended, start_future));
+                tasks.push_back(new RunTpcbTask(i, contended, &start_rendezvous));
                 sessions.emplace_back(engine.get_thread_pool().impersonate(tasks[i]));
                 if (!sessions[i].is_valid()) {
                     COERCE_ERROR(sessions[i].invalid_cause_);
                 }
             }
-            start_promise.set_value();
+            start_rendezvous.signal();
             for (int i = 0; i < thread_count; ++i) {
                 COERCE_ERROR(sessions[i].get_result());
                 delete tasks[i];

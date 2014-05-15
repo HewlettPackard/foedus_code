@@ -8,6 +8,7 @@
 #include <foedus/epoch.hpp>
 #include <foedus/storage/storage_manager.hpp>
 #include <foedus/storage/array/array_storage.hpp>
+#include <foedus/thread/rendezvous_impl.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread.hpp>
 #include <foedus/xct/xct_access.hpp>
@@ -17,7 +18,7 @@
 #include <gtest/gtest.h>
 #include <chrono>
 #include <cstring>
-#include <future>
+#include <thread>
 #include <vector>
 
 namespace foedus {
@@ -58,10 +59,10 @@ class InitTask : public thread::ImpersonateTask {
 
 class TestTask : public thread::ImpersonateTask {
  public:
-    TestTask(uint64_t offset, uint64_t amount, std::shared_future<void> start_future)
-        : offset_(offset), amount_(amount), start_future_(start_future) {}
+    TestTask(uint64_t offset, uint64_t amount, thread::Rendezvous* start_rendezvous)
+        : offset_(offset), amount_(amount), start_rendezvous_(start_rendezvous) {}
     ErrorStack run(thread::Thread* context) {
-        start_future_.get();
+        start_rendezvous_->wait();
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
         while (true) {
             ErrorStack error_stack = try_transaction(context);
@@ -97,7 +98,7 @@ class TestTask : public thread::ImpersonateTask {
  private:
     uint64_t offset_;
     uint64_t amount_;
-    std::shared_future<void> start_future_;
+    thread::Rendezvous* start_rendezvous_;
 };
 
 class GetAllRecordsTask : public thread::ImpersonateTask {
@@ -125,19 +126,18 @@ void run_test(Engine *engine, ASSIGN_FUNC assign_func) {
     InitTask init_task;
     COERCE_ERROR(engine->get_thread_pool().impersonate(&init_task).get_result());
 
-    std::promise<void>          start_promise;
-    std::shared_future<void>    start_future = start_promise.get_future().share();
+    thread::Rendezvous start_rendezvous;
     std::vector<TestTask*>      tasks;
     std::vector<thread::ImpersonateSession> sessions;
     for (int i = 0; i < THREADS; ++i) {
-        tasks.push_back(new TestTask(assign_func(i), i * 20 + 4, start_future));
+        tasks.push_back(new TestTask(assign_func(i), i * 20 + 4, &start_rendezvous));
         sessions.emplace_back(engine->get_thread_pool().impersonate(tasks[i]));
         if (!sessions[i].is_valid()) {
             COERCE_ERROR(sessions[i].invalid_cause_);
         }
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    start_promise.set_value();
+    start_rendezvous.signal();
     for (int i = 0; i < THREADS; ++i) {
         COERCE_ERROR(sessions[i].get_result());
         delete tasks[i];
