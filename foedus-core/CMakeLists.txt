@@ -95,7 +95,6 @@ include_directories(
 # gperftools is optional for this library
 if (GOOGLEPERFTOOLS_FOUND)
     include_directories(${GooglePerftools_INCLUDE_DIR})
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_GOOGLEPERFTOOLS")
 endif (GOOGLEPERFTOOLS_FOUND)
 
 # This project contains glog so that it can compile by itself.
