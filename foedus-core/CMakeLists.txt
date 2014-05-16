@@ -135,6 +135,8 @@ add_dependencies(foedus-core cpplint_include cpplint_src)
 #############################################################################
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include" DESTINATION "${CMAKE_INSTALL_PREFIX}")
 install(TARGETS foedus-core DESTINATION "${CMAKE_INSTALL_PREFIX}/lib64")
+make_directory(${CMAKE_CURRENT_BINARY_DIR}/dox/html)
+make_directory(${CMAKE_CURRENT_BINARY_DIR}/dox/latex)
 install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dox/html"
     DESTINATION "${CMAKE_INSTALL_PREFIX}/share/doc/foedus-core")
 install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dox/latex"

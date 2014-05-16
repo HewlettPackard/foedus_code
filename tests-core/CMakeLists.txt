@@ -11,7 +11,7 @@ include_directories(
 # CMake function to add compile target, linking, add_test directives.
 function (add_foedus_test targetname)
    add_executable(${targetname} ${CMAKE_CURRENT_SOURCE_DIR}/${targetname}.cpp)
-   target_link_libraries(${targetname} ${GENERAL_LIB} gtest_main test_common)
+   target_link_libraries(${targetname} foedus-core gtest_main test_common)
 
    # To pick up these xml files from Jenkins,
    # Set "**/test-reports/*.xml" as the report file filter.
@@ -29,7 +29,7 @@ endfunction()
 #   http://smspillaz.wordpress.com/2012/07/05/unit-test-autodiscovery-with-cmake-and-google-test/
 function (add_foedus_test_individual targetname individual_tests)
    add_executable(${targetname} ${CMAKE_CURRENT_SOURCE_DIR}/${targetname}.cpp)
-   target_link_libraries(${targetname} ${GENERAL_LIB} gtest_main test_common)
+   target_link_libraries(${targetname} foedus-core gtest_main test_common)
 
    foreach(individual_test ${individual_tests})
         add_test(
