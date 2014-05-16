@@ -285,27 +285,27 @@ else ()
   set (CONFIG_INSTALL_DIR  lib/cmake/${PACKAGE_NAME})
 endif ()
 
-file (RELATIVE_PATH INSTALL_PREFIX_REL2CONFIG_DIR "${CMAKE_INSTALL_PREFIX}/${CONFIG_INSTALL_DIR}" "${CMAKE_INSTALL_PREFIX}")
-configure_file (cmake/config.cmake.in  "${PROJECT_BINARY_DIR}/${PACKAGE_NAME}-config-install.cmake" @ONLY)
-configure_file (cmake/version.cmake.in "${PROJECT_BINARY_DIR}/${PACKAGE_NAME}-config-version.cmake" @ONLY)
-
-install (TARGETS ${TARGETS} DESTINATION ${LIBRARY_INSTALL_DIR} EXPORT gflags-lib)
-if (INSTALL_HEADERS)
-  install (FILES ${PUBLIC_HDRS} DESTINATION ${INCLUDE_INSTALL_DIR}/${GFLAGS_INCLUDE_DIR})
-  install (
-    FILES "${PROJECT_BINARY_DIR}/${PACKAGE_NAME}-config-install.cmake"
-    RENAME ${PACKAGE_NAME}-config.cmake
-    DESTINATION ${CONFIG_INSTALL_DIR}
-  )
-  install (
-    FILES "${PROJECT_BINARY_DIR}/${PACKAGE_NAME}-config-version.cmake"
-    DESTINATION ${CONFIG_INSTALL_DIR}
-  )
-  install (EXPORT gflags-lib DESTINATION ${CONFIG_INSTALL_DIR} FILE ${PACKAGE_NAME}-export.cmake)
-  if (UNIX)
-    install (PROGRAMS src/gflags_completions.sh DESTINATION ${RUNTIME_INSTALL_DIR})
-  endif ()
-endif ()
+#file (RELATIVE_PATH INSTALL_PREFIX_REL2CONFIG_DIR "${CMAKE_INSTALL_PREFIX}/${CONFIG_INSTALL_DIR}" "${CMAKE_INSTALL_PREFIX}")
+#configure_file (cmake/config.cmake.in  "${PROJECT_BINARY_DIR}/${PACKAGE_NAME}-config-install.cmake" @ONLY)
+#configure_file (cmake/version.cmake.in "${PROJECT_BINARY_DIR}/${PACKAGE_NAME}-config-version.cmake" @ONLY)
+#
+#install (TARGETS ${TARGETS} DESTINATION ${LIBRARY_INSTALL_DIR} EXPORT gflags-lib)
+#if (INSTALL_HEADERS)
+#  install (FILES ${PUBLIC_HDRS} DESTINATION ${INCLUDE_INSTALL_DIR}/${GFLAGS_INCLUDE_DIR})
+#  install (
+#    FILES "${PROJECT_BINARY_DIR}/${PACKAGE_NAME}-config-install.cmake"
+#    RENAME ${PACKAGE_NAME}-config.cmake
+#    DESTINATION ${CONFIG_INSTALL_DIR}
+#  )
+#  install (
+#    FILES "${PROJECT_BINARY_DIR}/${PACKAGE_NAME}-config-version.cmake"
+#    DESTINATION ${CONFIG_INSTALL_DIR}
+#  )
+#  install (EXPORT gflags-lib DESTINATION ${CONFIG_INSTALL_DIR} FILE ${PACKAGE_NAME}-export.cmake)
+#  if (UNIX)
+#    install (PROGRAMS src/gflags_completions.sh DESTINATION ${RUNTIME_INSTALL_DIR})
+#  endif ()
+#endif ()
 
 # ----------------------------------------------------------------------------
 # support direct use of build tree

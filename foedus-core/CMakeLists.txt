@@ -116,7 +116,7 @@ if (GOOGLEPERFTOOLS_FOUND)
     target_link_libraries(foedus-core ${GooglePerftools_LIBRARIES})
 endif (GOOGLEPERFTOOLS_FOUND)
 
-# Invoke CPPLINT (if ENABLE_CPPLINTis given)
+# Invoke CPPLINT (if ENABLE_CPPLINT is given)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CpplintWrapper.cmake)
 CPPLINT_RECURSIVE(cpplint_include
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -127,6 +127,34 @@ CPPLINT_RECURSIVE(cpplint_src
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_BINARY_DIR}/src)
 add_dependencies(foedus-core cpplint_include cpplint_src)
+
+#############################################################################
+#
+#               Install headers/libraries/documents  : BEGIN
+#
+#############################################################################
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include" DESTINATION "${CMAKE_INSTALL_PREFIX}")
+install(TARGETS foedus-core DESTINATION "${CMAKE_INSTALL_PREFIX}/lib64")
+install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dox/html"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/share/doc/foedus-core")
+install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dox/latex"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/share/doc/foedus-core")
+
+set(CPACK_PACKAGE_VERSION ${FOEDUS_VERSION})
+set(CPACK_GENERATOR "RPM")
+set(CPACK_PACKAGE_NAME "foedus-core")
+set(CPACK_PACKAGE_RELEASE 1)
+set(CPACK_PACKAGE_CONTACT "hideaki.kimura@hp.com")
+set(CPACK_PACKAGE_VENDOR "Hewlett Packard")
+set(CPACK_PACKAGING_INSTALL_PREFIX ${CMAKE_INSTALL_PREFIX})
+set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CPACK_PACKAGE_RELEASE}.${CMAKE_SYSTEM_PROCESSOR}")
+set(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_CURRENT_BINARY_DIR}/rpm.spec")
+set(CPACK_TARGET_RPM_DIR "${CMAKE_CURRENT_BINARY_DIR}/_CPack_Packages/Linux/RPM")
+make_directory(${CPACK_TARGET_RPM_DIR})
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/rpm.spec.cmake" "${CMAKE_CURRENT_BINARY_DIR}/rpm.spec" @ONLY IMMEDIATE)
+include(CPack)
+# Cheatsheet:
+# http://schneide.wordpress.com/2013/02/11/build-a-rpm-package-using-cmake/
 
 #############################################################################
 #

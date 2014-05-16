@@ -13,6 +13,7 @@
 cmake_minimum_required(VERSION 2.4)
 cmake_policy(SET CMP0003 NEW)
 project(foedus_super_build)
+set(FOEDUS_VERSION "0.1.0")
 
 # No in-source build please. Terminate it as soon as possible if it happens.
 include(${CMAKE_CURRENT_SOURCE_DIR}/foedus-core/cmake/WarnInSrcBuild.cmake)

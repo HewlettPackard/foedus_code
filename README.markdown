@@ -46,10 +46,15 @@ If you want to generate doxygen-pdf, also run the following:
 
     sudo yum install texlive texlive-* okular
 
+If you are the person to compile our rpm packages ("make package"), also run the following:
+
+    sudo yum install rpm-build
+
 For Ubuntu/Debian, install equivalent modules.
 TBD: Ubuntu/Debian user, please provide an equivalent command.
+Especially, I know little about .deb packaging.
 
-If you use Google Chrome, we also recommend installing Markdown Preview extension.
+If you use Google Chrome, we also recommend installing Markdown Preview extension. It's cute.
 
 Compilation (For FOEDUS Developers)
 --------
