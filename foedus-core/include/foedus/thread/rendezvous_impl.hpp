@@ -38,6 +38,8 @@ class Rendezvous final {
     // not copyable, assignable.
     Rendezvous(const Rendezvous &other) = delete;
     Rendezvous& operator=(const Rendezvous &other) = delete;
+    Rendezvous(Rendezvous &&other) = delete;
+    Rendezvous& operator=(Rendezvous &&other) = delete;
 
     /**
      * @brief Block until the event happens.
@@ -45,6 +47,9 @@ class Rendezvous final {
      * Equivalent to std::future<void>::wait().
      */
     void wait() {
+        if (signaled_) {
+            return;
+        }
         std::unique_lock<std::mutex> the_lock(mutex_);
         condition_.wait(the_lock, [this]{ return signaled_; });
     }
@@ -57,6 +62,9 @@ class Rendezvous final {
      */
     template<class REP, class PERIOD>
     bool wait_for(const std::chrono::duration<REP, PERIOD>& timeout) {
+        if (signaled_) {
+            return true;
+        }
         std::unique_lock<std::mutex> the_lock(mutex_);
         return condition_.wait_for< REP, PERIOD >(the_lock, timeout, [this]{ return signaled_; });
     }
@@ -69,6 +77,9 @@ class Rendezvous final {
      */
     template< class CLOCK, class DURATION >
     bool wait_until(const std::chrono::time_point<CLOCK, DURATION>& until) {
+        if (signaled_) {
+            return true;
+        }
         std::unique_lock<std::mutex> the_lock(mutex_);
         return condition_.wait_for< CLOCK, DURATION >(the_lock, until, [this]{ return signaled_; });
     }

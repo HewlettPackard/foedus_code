@@ -15,10 +15,10 @@
  * First thing first. Here's a minimal example to start \e one transaction in the engine.
  * @code{.cpp}
  * // Example to start and commit one transaction
- * class MyTask : public foedus::threadImpersonateTask {
+ * class MyTask : public foedus::thread::ImpersonateTask {
  *  public:
  *     MyTask() {}
- *     foedus::ErrorStack run(foedus::threadThread* context) {
+ *     foedus::ErrorStack run(foedus::thread::Thread* context) {
  *         foedus::Engine *engine = context->get_engine();
  *         foedus::xct::XctManager& xct_manager = engine->get_xct_manager();
  *         CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::SERIALIZABLE));
