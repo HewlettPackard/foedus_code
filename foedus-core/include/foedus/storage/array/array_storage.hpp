@@ -91,6 +91,21 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
                         void *payload, uint16_t payload_offset, uint16_t payload_count);
 
     /**
+     * @brief Retrieves a part of record of the given offset as a primitive type
+     * in this array storage. A bit more efficient than get_record().
+     * @param[in] context Thread context
+     * @param[in] offset The offset in this array
+     * @param[out] payload We copy the record to this address.
+     * @param[in] payload_offset We copy from this byte position of the record.
+     * @tparam T primitive type. All integers and floats are allowed.
+     * @pre payload_offset + sizeof(T) <= get_payload_size()
+     * @pre offset < get_array_size()
+     */
+    template <typename T>
+    ErrorStack  get_record_primitive(thread::Thread* context, ArrayOffset offset,
+                        T *payload, uint16_t payload_offset);
+
+    /**
      * @brief Overwrites one record of the given offset in this array storage.
      * @param[in] context Thread context
      * @param[in] offset The offset in this array
@@ -114,6 +129,21 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
      */
     ErrorStack  overwrite_record(thread::Thread* context, ArrayOffset offset,
                         const void *payload, uint16_t payload_offset, uint16_t payload_count);
+
+    /**
+     * @brief Overwrites a part of record of the given offset as a primitive type
+     * in this array storage. A bit more efficient than overwrite_record().
+     * @param[in] context Thread context
+     * @param[in] offset The offset in this array
+     * @param[in] payload The value as primitive type.
+     * @param[in] payload_offset We copy from this byte position of the record.
+     * @tparam T primitive type. All integers and floats are allowed.
+     * @pre payload_offset + sizeof(T) <= get_payload_size()
+     * @pre offset < get_array_size()
+     */
+    template <typename T>
+    ErrorStack  overwrite_record_primitive(thread::Thread* context, ArrayOffset offset,
+                        T payload, uint16_t payload_offset);
 
  private:
     ArrayStoragePimpl*  pimpl_;

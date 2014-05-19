@@ -36,7 +36,7 @@
  * However, C++11's std::thread and related classes are the only cross-platform library
  * that has no dependencies (boost::thread is NOT header-only).
  * Hence, we use C++11's std::thread but encapsulates the details in implementations (cpp)
- * and non-public header files (-inl.hpp and -pimpl.hpp).
+ * and non-public header files (-impl.hpp).
  */
 
 /**

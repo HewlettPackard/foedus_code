@@ -44,6 +44,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 # Disabling pie solved the issue for 90% of methods in libfoedus-core.so, but still some methods
 # show only function addresses.
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-pie")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fno-pie")
 
 # We don't use exceptions, but we hesitate to actually turn it off with -fno-exceptions.
 # If the client program expects exceptions, and if libstdc throws an exception, kaboom.

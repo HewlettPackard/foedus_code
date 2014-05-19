@@ -54,6 +54,19 @@ struct OverwriteLogType : public log::RecordLogType {
         payload_count_ = payload_count;
         std::memcpy(data_, payload, payload_count);
     }
+    /** For primitive types. A bit more efficient. */
+    template <typename T>
+    void            populate_primitive(StorageId storage_id, ArrayOffset offset, T payload,
+                            uint16_t payload_offset) {
+        header_.log_type_code_ = log::get_log_code<OverwriteLogType>();
+        header_.log_length_ = calculate_log_length(sizeof(T));
+        header_.storage_id_ = storage_id;
+        offset_ = offset;
+        payload_offset_ = payload_offset;
+        payload_count_ = sizeof(T);
+        T* address = reinterpret_cast<T*>(data_);
+        *address = payload;
+    }
     void            apply_record(Storage* storage, Record* record) ALWAYS_INLINE {
         ASSERT_ND(payload_count_ < DATA_SIZE);
         ASSERT_ND(dynamic_cast<ArrayStorage*>(storage));
