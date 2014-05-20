@@ -4,19 +4,15 @@
  */
 #include <foedus/assert_nd.hpp>
 #include <execinfo.h>
+#include <unistd.h>
 #include <iostream>
 #include <cstdlib>
 namespace foedus {
 void print_backtrace() {
     void *array[16];
     int size = ::backtrace(array, 16);
-    char** strings = ::backtrace_symbols(array, size);
-
-    std::cout << "================== Assertion fired up. " << size << " stack frames." << std::endl;
-    for (int i = 0; i < size; i++) {
-        std::cout << "  " << strings[i] << std::endl;
-    }
-
-    std::free(strings);
+    std::cerr << "================== Dumping " << size << " stack frames..." << std::endl;
+    // to avoid malloc issue while backtrace_symbols(), we use backtrace_symbols_fd.
+    ::backtrace_symbols_fd(array, size, STDERR_FILENO);
 }
 }  // namespace foedus

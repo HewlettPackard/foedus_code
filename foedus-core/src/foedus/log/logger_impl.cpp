@@ -145,9 +145,10 @@ void Logger::handle_logger() {
             if (!more_log_to_process) {
                 break;
             }
-            if (++iterations >= MAX_ITERATIONS) {
+            if (((++iterations) % MAX_ITERATIONS) == 0) {
                 LOG(WARNING) << "Logger-" << id_ << " has been working without sleep for long time"
-                    << ". Either too few loggers or potentially a bug?? " << *this;
+                    << "(" << iterations << "). Either too few loggers or potentially a bug?? "
+                    << *this;
                 break;
             } else {
                 VLOG(0) << "Logger-" << id_ << " has more task. keep working. " << iterations;

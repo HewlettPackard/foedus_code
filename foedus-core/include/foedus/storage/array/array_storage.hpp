@@ -136,7 +136,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
      * @param[in] context Thread context
      * @param[in] offset The offset in this array
      * @param[in] payload The value as primitive type.
-     * @param[in] payload_offset We copy from this byte position of the record.
+     * @param[in] payload_offset We copy to this byte position of the record.
      * @tparam T primitive type. All integers and floats are allowed.
      * @pre payload_offset + sizeof(T) <= get_payload_size()
      * @pre offset < get_array_size()

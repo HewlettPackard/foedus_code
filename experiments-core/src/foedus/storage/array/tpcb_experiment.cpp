@@ -166,24 +166,21 @@ class RunTpcbTask : public thread::ImpersonateTask {
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
         CHECK_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
 
-        int64_t current_balance;
-        CHECK_ERROR(branches->get_record(context, branch_id, &current_balance,
-                                         0, sizeof(current_balance)));
-        int64_t branch_balance = current_balance + amount;
-        CHECK_ERROR(branches->overwrite_record(context, branch_id,
-                                                &branch_balance, 0, sizeof(branch_balance)));
+        int64_t balance;
+        CHECK_ERROR(branches->get_record_primitive(context, branch_id, &balance, 0));
+        balance += amount;
+        CHECK_ERROR(branches->overwrite_record_primitive(context, branch_id, balance, 0));
 
-        CHECK_ERROR(tellers->get_record(context, teller_id, &current_balance,
-            sizeof(uint64_t), sizeof(current_balance)));
-        int64_t teller_balance = current_balance + amount;
-        CHECK_ERROR(tellers->overwrite_record(context, teller_id,
-                    &teller_balance, sizeof(uint64_t), sizeof(teller_balance)));
+        CHECK_ERROR(tellers->get_record_primitive(context, teller_id, &balance, sizeof(uint64_t)));
+        balance += amount;
+        CHECK_ERROR(tellers->overwrite_record_primitive(context, teller_id,
+                                                            balance, sizeof(uint64_t)));
 
-        CHECK_ERROR(accounts->get_record(context, account_id, &current_balance,
-            sizeof(uint64_t), sizeof(current_balance)));
-        int64_t account_balance = current_balance + amount;
-        CHECK_ERROR(accounts->overwrite_record(context, account_id,
-                    &account_balance, sizeof(uint64_t), sizeof(account_balance)));
+        CHECK_ERROR(accounts->get_record_primitive(context, account_id,
+                                                    &balance, sizeof(uint64_t)));
+        balance += amount;
+        CHECK_ERROR(accounts->overwrite_record_primitive(
+            context, account_id, balance, sizeof(uint64_t)));
 
         tmp_history_.account_id_ = account_id;
         tmp_history_.branch_id_ = branch_id;

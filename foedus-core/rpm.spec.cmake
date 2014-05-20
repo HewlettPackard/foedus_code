@@ -22,23 +22,11 @@ Any client program can link to it as a shared library.
 # we skip _install step because CPack does that for us.
 # We do only save CPack installed tree in _prepr
 # and then restore it in build.
-%prep
-echo "[prep phase]"
-mv $RPM_BUILD_ROOT @CPACK_TARGET_RPM_DIR@/tmpBBroot
+# %prep
+# %build
+# %install
 
-%build
-echo "[build phase]"
-echo "RPM_BUILD_ROOT=$RPM_BUILD_ROOT"
-make
-make dox
-
-%install
-echo "[install phase]"
-if [ -e $RPM_BUILD_ROOT ];
-then
-  rm -Rf $RPM_BUILD_ROOT
-fi
-mv "@CPACK_TARGET_RPM_DIR@/tmpBBroot" $RPM_BUILD_ROOT
+%clean
 
 %files
 %defattr(-,root,root,-)

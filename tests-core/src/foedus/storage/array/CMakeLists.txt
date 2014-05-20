@@ -5,5 +5,12 @@ set(test_array_tpcb_individuals
     FourThreadedNoContention
     SingleThreadedContended
     TwoThreadedContended
-    FourThreadedContended)
+    FourThreadedContended
+    SingleThreadedNoContentionPrimitive
+    TwoThreadedNoContentionPrimitive
+    FourThreadedNoContentionPrimitive
+    SingleThreadedContendedPrimitive
+    TwoThreadedContendedPrimitive
+    FourThreadedContendedPrimitive
+    )
 add_foedus_test_individual(test_array_tpcb "${test_array_tpcb_individuals}")

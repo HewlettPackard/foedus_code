@@ -80,6 +80,7 @@ ArrayStorage* branches      = nullptr;
 ArrayStorage* accounts      = nullptr;
 ArrayStorage* tellers       = nullptr;
 ArrayStorage* histories     = nullptr;
+bool          use_primitive_accessors = false;
 
 /** Creates TPC-B tables and populate with initial records. */
 class CreateTpcbTablesTask : public thread::ImpersonateTask {
@@ -210,25 +211,71 @@ class RunTpcbTask : public thread::ImpersonateTask {
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
         CHECK_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
 
-        BranchData branch;
-        CHECK_ERROR(branches->get_record(context, branch_id, &branch));
-        int64_t branch_balance = branch.branch_balance_ + amount;
-        CHECK_ERROR(branches->overwrite_record(context, branch_id,
-                                                &branch_balance, 0, sizeof(branch_balance)));
+        int64_t branch_balance_old, branch_balance_new;
+        if (use_primitive_accessors) {
+            branch_balance_old = -1;  // some invalid number
+            CHECK_ERROR(branches->get_record_primitive<int64_t>(context, branch_id,
+                                                                &branch_balance_old, 0));
+            branch_balance_new = branch_balance_old + amount;
+            CHECK_ERROR(branches->overwrite_record_primitive<int64_t>(context, branch_id,
+                                                branch_balance_new, 0));
+        } else {
+            BranchData branch;
+            CHECK_ERROR(branches->get_record(context, branch_id, &branch));
+            branch_balance_old = branch.branch_balance_;
+            branch_balance_new = branch_balance_old + amount;
+            CHECK_ERROR(branches->overwrite_record(context, branch_id,
+                                            &branch_balance_new, 0, sizeof(branch_balance_new)));
+        }
+        EXPECT_GE(branch_balance_old, 0);
 
-        TellerData teller;
-        CHECK_ERROR(tellers->get_record(context, teller_id, &teller));
-        EXPECT_EQ(branch_id, teller.branch_id_);
-        int64_t teller_balance = teller.teller_balance_ + amount;
-        CHECK_ERROR(tellers->overwrite_record(context, teller_id,
-                    &teller_balance, sizeof(teller.branch_id_), sizeof(teller_balance)));
+        int64_t teller_balance_old, teller_balance_new;
+        uint64_t teller_branch_id;
+        if (use_primitive_accessors) {
+            teller_balance_old = -1;
+            teller_branch_id = 0;
+            CHECK_ERROR(tellers->get_record_primitive<int64_t>(context, teller_id,
+                                                            &teller_balance_old, sizeof(uint64_t)));
+            CHECK_ERROR(tellers->get_record_primitive<uint64_t>(context, teller_id,
+                                                                &teller_branch_id, 0));
+            teller_balance_new = teller_balance_old + amount;
+            CHECK_ERROR(tellers->overwrite_record_primitive<int64_t>(context, teller_id,
+                    teller_balance_new, sizeof(uint64_t)));
+        } else {
+            TellerData teller;
+            CHECK_ERROR(tellers->get_record(context, teller_id, &teller));
+            teller_branch_id = teller.branch_id_;
+            teller_balance_old = teller.teller_balance_;
+            teller_balance_new = teller_balance_old + amount;
+            CHECK_ERROR(tellers->overwrite_record(context, teller_id,
+                    &teller_balance_new, sizeof(teller.branch_id_), sizeof(teller_balance_new)));
+        }
+        EXPECT_GE(teller_balance_old, 0);
+        EXPECT_EQ(branch_id, teller_branch_id);
 
-        AccountData account;
-        CHECK_ERROR(accounts->get_record(context, account_id, &account));
-        EXPECT_EQ(branch_id, account.branch_id_);
-        int64_t account_balance = account.account_balance_ + amount;
-        CHECK_ERROR(accounts->overwrite_record(context, account_id,
-                    &account_balance, sizeof(account.branch_id_), sizeof(account_balance)));
+        int64_t account_balance_old, account_balance_new;
+        uint64_t account_branch_id;
+        if (use_primitive_accessors) {
+            account_balance_old = -1;
+            account_branch_id = 0;
+            CHECK_ERROR(accounts->get_record_primitive<int64_t>(context, account_id,
+                                                        &account_balance_old, sizeof(uint64_t)));
+            CHECK_ERROR(accounts->get_record_primitive<uint64_t>(context, account_id,
+                                                        &account_branch_id, 0));
+            account_balance_new = account_balance_old + amount;
+            CHECK_ERROR(accounts->overwrite_record_primitive<int64_t>(context, account_id,
+                    account_balance_new, sizeof(uint64_t)));
+        } else {
+            AccountData account;
+            CHECK_ERROR(accounts->get_record(context, account_id, &account));
+            account_branch_id = account.branch_id_;
+            account_balance_old = account.account_balance_;
+            account_balance_new = account_balance_old + amount;
+            CHECK_ERROR(accounts->overwrite_record(context, account_id,
+                    &account_balance_new, sizeof(account.branch_id_), sizeof(account_balance_new)));
+        }
+        EXPECT_GE(account_balance_old, 0);
+        EXPECT_EQ(branch_id, account_branch_id);
 
         HistoryData history;
         CHECK_ERROR(histories->get_record(context, history_id, &history));
@@ -245,10 +292,10 @@ class RunTpcbTask : public thread::ImpersonateTask {
         Epoch commit_epoch;
         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
         std::cout << "Committed! Thread-" << context->get_thread_id() << " Updated "
-            << " branch[" << branch_id << "] " << branch.branch_balance_ << " -> " << branch_balance
-            << " teller[" << teller_id << "] " << teller.teller_balance_ << " -> " << teller_balance
-            << " account[" << account_id << "] " << account.account_balance_
-                << " -> " << account_balance
+            << " branch[" << branch_id << "] " << branch_balance_old << " -> " << branch_balance_new
+            << " teller[" << teller_id << "] " << teller_balance_old << " -> " << teller_balance_new
+            << " account[" << account_id << "] " << account_balance_old
+                << " -> " << account_balance_new
             << " history[" << history_id << "] amount=" << amount
             << std::endl;
         highest_commit_epoch->store_max(commit_epoch);
@@ -340,7 +387,8 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
     int clients_;
 };
 
-void multi_thread_test(int thread_count, bool contended) {
+void multi_thread_test(int thread_count, bool contended, bool use_primitive = false) {
+    use_primitive_accessors = use_primitive;
     EngineOptions options = get_tiny_options();
     options.log_.log_buffer_kb_ = 1 << 12;
     options.thread_.group_count_ = 1;
@@ -387,6 +435,14 @@ TEST(ArrayTpcbTest, FourThreadedNoContention)   { multi_thread_test(4, false); }
 TEST(ArrayTpcbTest, SingleThreadedContended)    { multi_thread_test(1, true); }
 TEST(ArrayTpcbTest, TwoThreadedContended)       { multi_thread_test(2, true); }
 TEST(ArrayTpcbTest, FourThreadedContended)      { multi_thread_test(4, true); }
+
+TEST(ArrayTpcbTest, SingleThreadedNoContentionPrimitive) { multi_thread_test(1, false, true); }
+TEST(ArrayTpcbTest, TwoThreadedNoContentionPrimitive)    { multi_thread_test(2, false, true); }
+TEST(ArrayTpcbTest, FourThreadedNoContentionPrimitive)   { multi_thread_test(4, false, true); }
+
+TEST(ArrayTpcbTest, SingleThreadedContendedPrimitive)    { multi_thread_test(1, true, true); }
+TEST(ArrayTpcbTest, TwoThreadedContendedPrimitive)       { multi_thread_test(2, true, true); }
+TEST(ArrayTpcbTest, FourThreadedContendedPrimitive)      { multi_thread_test(4, true, true); }
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus
