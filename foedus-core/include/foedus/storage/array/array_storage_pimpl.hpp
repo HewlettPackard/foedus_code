@@ -10,7 +10,7 @@
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/memory/page_resolver.hpp>
-#include <foedus/storage/storage.hpp>
+#include <foedus/storage/fwd.hpp>
 #include <foedus/storage/storage_id.hpp>
 #include <foedus/storage/array/array_id.hpp>
 #include <foedus/storage/array/fwd.hpp>
@@ -39,6 +39,8 @@ class ArrayStoragePimpl final : public DefaultInitializable {
 
     ErrorStack  create(thread::Thread* context);
 
+    ErrorStack  locate_record(thread::Thread* context, ArrayOffset offset,
+                                Record **out) ALWAYS_INLINE;
     ErrorStack  get_record(thread::Thread* context, ArrayOffset offset,
                     void *payload, uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE;
     template <typename T>
@@ -49,6 +51,9 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     template <typename T>
     ErrorStack  overwrite_record_primitive(thread::Thread* context, ArrayOffset offset,
                         T payload, uint16_t payload_offset);
+    template <typename T>
+    ErrorStack  increment_record(thread::Thread* context, ArrayOffset offset,
+                        T* value, uint16_t payload_offset);
 
     ErrorStack  lookup(thread::Thread* context, ArrayOffset offset, ArrayPage** out) ALWAYS_INLINE;
 

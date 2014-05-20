@@ -166,21 +166,14 @@ class RunTpcbTask : public thread::ImpersonateTask {
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
         CHECK_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
 
-        int64_t balance;
-        CHECK_ERROR(branches->get_record_primitive(context, branch_id, &balance, 0));
-        balance += amount;
-        CHECK_ERROR(branches->overwrite_record_primitive(context, branch_id, balance, 0));
+        int64_t balance = amount;
+        CHECK_ERROR(branches->increment_record(context, branch_id, &balance, 0));
 
-        CHECK_ERROR(tellers->get_record_primitive(context, teller_id, &balance, sizeof(uint64_t)));
-        balance += amount;
-        CHECK_ERROR(tellers->overwrite_record_primitive(context, teller_id,
-                                                            balance, sizeof(uint64_t)));
+        balance = amount;
+        CHECK_ERROR(tellers->increment_record(context, teller_id, &balance, sizeof(uint64_t)));
 
-        CHECK_ERROR(accounts->get_record_primitive(context, account_id,
-                                                    &balance, sizeof(uint64_t)));
-        balance += amount;
-        CHECK_ERROR(accounts->overwrite_record_primitive(
-            context, account_id, balance, sizeof(uint64_t)));
+        balance = amount;
+        CHECK_ERROR(accounts->increment_record(context, account_id, &balance, sizeof(uint64_t)));
 
         tmp_history_.account_id_ = account_id;
         tmp_history_.branch_id_ = branch_id;

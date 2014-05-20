@@ -60,6 +60,38 @@ enum IsolationLevel {
     SERIALIZABLE,
 };
 
+/**
+ * @brief Contents of XctId.
+ * @ingroup XCT
+ */
+union XctIdData {
+    XctIdData() : word(0) {}
+    uint64_t word;
+    struct Components {
+        /** The high 32 bit represents the epoch of the transaction. */
+        Epoch               epoch;
+
+        /** Middle 16 bit represents the thread (core) the transaction runs on. */
+        thread::ThreadId    thread_id;
+
+        /**
+        * Uniquefier among transactions in the same epoch and thread, combined with
+        * a few bits at the last. We use highests bits as status and lower bits as ordinal
+        * so that we can (relatively) easily change the number of status bits later.
+        */
+        uint16_t            ordinal_and_status;
+    } components;
+};
+
+inline uint64_t get_xct_id_lock_bit() {
+    XctIdData data;
+    data.word = 0;
+    data.components.ordinal_and_status = static_cast<uint16_t>(0x8000);
+    return data.word;
+}
+
+const uint64_t XCT_ID_LOCK_BIT = get_xct_id_lock_bit();
+const uint64_t XCT_ID_LOCK_MASK = ~XCT_ID_LOCK_BIT;
 
 /**
  * @brief Transaction ID, a 64-bit data to identify transactions and record versions.
@@ -68,19 +100,17 @@ enum IsolationLevel {
  * This object is equivalent to what [TU13] Sec 4.2 defines.
  * @par POD
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
- * @todo maybe the data member should be uint64_t and just a bunch of accessors to wrap it?
  */
 struct XctId {
-    XctId() : epoch_(), thread_id_(0), ordinal_and_status_(0) {
+    XctId() { data_.word = 0; }
+    XctId(const XctId& other) { data_.word = other.data_.word; }
+    XctId(Epoch epoch, thread::ThreadId thread_id, uint16_t ordinal_and_status) {
+        data_.components.epoch = epoch;
+        data_.components.thread_id = thread_id;
+        data_.components.ordinal_and_status = ordinal_and_status;
     }
-    XctId(const XctId& other) {
-        operator=(other);
-    }
-    XctId(Epoch epoch, thread::ThreadId thread_id, uint16_t ordinal_and_status)
-        : epoch_(epoch), thread_id_(thread_id), ordinal_and_status_(ordinal_and_status) {}
     XctId& operator=(const XctId& other) {
-        // to assure atomic write of 64 bits, we do the following.
-        *reinterpret_cast<uint64_t*>(this) = other.as_int();
+        data_.word = other.data_.word;
         return *this;
     }
 
@@ -90,76 +120,39 @@ struct XctId {
      * Instead, we provide compare_xxx that explicitly states what we are comparing.
      */
     bool compare_epoch_thread_ordinal(const XctId &other) const {
-        return epoch_ == other.epoch_ && thread_id_ == other.thread_id_
-            && (ordinal_and_status_ & 0x7FFF) == (other.ordinal_and_status_ & 0x7FFF);
+        return (data_.word & XCT_ID_LOCK_MASK) == (other.data_.word & XCT_ID_LOCK_MASK);
     }
-    bool compare_all(const XctId &other) const { return as_int() == other.as_int(); }
+    bool compare_all(const XctId &other) const { return data_.word == other.data_.word; }
 
     friend std::ostream& operator<<(std::ostream& o, const XctId& v);
 
-    template<unsigned int STATUS_BIT>
-    void assert_status_bit() const {
-        CXX11_STATIC_ASSERT(STATUS_BIT < 16, "STATUS_BIT must be within 16 bits");
-        ASSERT_ND(STATUS_BIT < 16);
-    }
-
-    template<unsigned int STATUS_BIT>
     void lock_unconditional() {
-        assert_status_bit<STATUS_BIT>();
-        const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
-        uint64_t* target = reinterpret_cast<uint64_t*>(this);
-
-        uint64_t expected;
         SPINLOCK_WHILE(true) {
-            XctId tmp(*this);
-            tmp.ordinal_and_status_ &= ~status_bit;
-            expected = tmp.as_int();  // same status without lock bit
-            tmp.ordinal_and_status_ |= status_bit;
-            uint64_t desired = tmp.as_int();  // same status with lock bit
-            if (assorted::raw_atomic_compare_exchange_weak(target, &expected, desired)) {
-                ASSERT_ND(is_locked<STATUS_BIT>());
+            uint64_t expected = data_.word & XCT_ID_LOCK_MASK;
+            uint64_t desired = expected | XCT_ID_LOCK_BIT;
+            if (assorted::raw_atomic_compare_exchange_weak(&data_.word, &expected, desired)) {
+                ASSERT_ND(is_locked());
                 break;
             }
         }
     }
-    template<unsigned int STATUS_BIT>
     bool is_locked() const {
-        assert_status_bit<STATUS_BIT>();
-        const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
-        return (ordinal_and_status_ & status_bit) != 0;
+        return (data_.word & XCT_ID_LOCK_BIT) == XCT_ID_LOCK_BIT;
     }
 
-    template<unsigned int STATUS_BIT>
     void spin_while_locked() const {
-        assert_status_bit<STATUS_BIT>();
-        const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
-        SPINLOCK_WHILE((ordinal_and_status_ & status_bit) != 0) {
+        SPINLOCK_WHILE(is_locked()) {
             assorted::memory_fence_acquire();
         }
     }
 
-    template<unsigned int STATUS_BIT>
     void unlock() {
-        assert_status_bit<STATUS_BIT>();
-        const uint16_t status_bit = static_cast<uint16_t>(1 << STATUS_BIT);
-        ASSERT_ND(is_locked<STATUS_BIT>());
-        ordinal_and_status_ &= ~status_bit;
+        ASSERT_ND(is_locked());
+        data_.word &= XCT_ID_LOCK_MASK;
     }
 
-    uint64_t    as_int() const { return *reinterpret_cast< const uint64_t* >(this); }
-
-    /** The high 32 bit represents the epoch of the transaction. */
-    Epoch               epoch_;
-
-    /** Middle 16 bit represents the thread (core) the transaction runs on. */
-    thread::ThreadId    thread_id_;
-
-    /**
-     * Uniquefier among transactions in the same epoch and thread, combined with
-     * a few bits at the last. We use highests bits as status and lower bits as ordinal
-     * so that we can (relatively) easily change the number of status bits later.
-     */
-    uint16_t            ordinal_and_status_;
+    /** The 64bit data. */
+    XctIdData           data_;
 };
 // sizeof(XctId) must be 64 bits.
 STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))

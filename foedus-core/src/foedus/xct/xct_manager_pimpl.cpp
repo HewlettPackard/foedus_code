@@ -189,7 +189,7 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
         DVLOG(2) << *context << " Locking " << write_set[i].storage_->get_name()
             << ":" << write_set[i].record_;
         XctId& owner_id = write_set[i].record_->owner_id_;
-        owner_id.lock_unconditional<15>();
+        owner_id.lock_unconditional();
     }
     DVLOG(1) << *context << " locked write set";
 
@@ -197,7 +197,7 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
     for (uint32_t i = 0; i < write_set_size; ++i) {
         ASSERT_ND(dbg_records.find(write_set[i].record_) != dbg_records.end());
         ASSERT_ND(dbg_logs.find(write_set[i].log_entry_) != dbg_logs.end());
-        ASSERT_ND(write_set[i].record_->owner_id_.is_locked<15>());
+        ASSERT_ND(write_set[i].record_->owner_id_.is_locked());
     }
 #endif  // NDEBUG
 }
@@ -221,13 +221,13 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
         // TODO(Hideaki) For data structures that have previous links, we need to check if
         // it's latest. Array doesn't have it.
 
-        if (access.record_->owner_id_.is_locked<15>()) {
+        if (access.record_->owner_id_.is_locked()) {
             DLOG(WARNING) << *context << " read set contained a locked record. abort";
             return false;
         }
 
         // Remembers the highest epoch observed.
-        commit_epoch->store_max(access.observed_owner_id_.epoch_);
+        commit_epoch->store_max(access.observed_owner_id_.data_.components.epoch);
     }
 
     DVLOG(1) << *context << "Read-only higest epoch observed: " << *commit_epoch;
@@ -262,7 +262,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
         }
         // TODO(Hideaki) For data structures that have previous links, we need to check if
         // it's latest. Array doesn't have it. So, we don't have the check so far.
-        if (access.record_->owner_id_.is_locked<15>()) {
+        if (access.record_->owner_id_.is_locked()) {
             DVLOG(2) << *context
                 << " read set contained a locked record. was it myself who locked it?";
             // write set is sorted. so we can do binary search.
@@ -293,7 +293,7 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context,
 
     current_xct.issue_next_id(commit_epoch);
     XctId new_xct_id = current_xct.get_id();
-    ASSERT_ND(!new_xct_id.is_locked<15>());
+    ASSERT_ND(!new_xct_id.is_locked());
 
     DVLOG(1) << *context << " generated new xct id=" << new_xct_id;
     for (uint32_t i = 0; i < write_set_size; ++i) {
@@ -316,7 +316,7 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context) {
     for (uint32_t i = 0; i < write_set_size; ++i) {
         WriteXctAccess& write = write_set[i];
         DVLOG(2) << *context << " Unlocking " << write.storage_->get_name() << ":" << write.record_;
-        write.record_->owner_id_.unlock<15>();
+        write.record_->owner_id_.unlock();
     }
     assorted::memory_fence_release();
     DLOG(INFO) << *context << " unlocked write set without applying";

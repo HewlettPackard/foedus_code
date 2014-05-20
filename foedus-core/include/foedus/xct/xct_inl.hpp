@@ -36,13 +36,13 @@ inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record
         return ERROR_CODE_XCT_READ_SET_OVERFLOW;
     }
 
-    ASSERT_ND(record->owner_id_.epoch_.is_valid());
+    ASSERT_ND(record->owner_id_.data_.components.epoch.is_valid());
 
     // If the record is locked, we will surely abort at commit time.
     // Rather, spin here to avoid wasted effort. In our engine, lock happens in commit time,
     // so no worry about deadlock or long wait.
-    if (UNLIKELY(record->owner_id_.is_locked<15>())) {
-        record->owner_id_.spin_while_locked<15>();
+    if (UNLIKELY(record->owner_id_.is_locked())) {
+        record->owner_id_.spin_while_locked();
     }
     // yes, still some one might lock at _this_ moment, but we will see it at commit time.
     read_set_[read_set_size_].observed_owner_id_ = record->owner_id_;

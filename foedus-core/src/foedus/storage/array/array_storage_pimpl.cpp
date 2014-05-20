@@ -42,17 +42,10 @@ ErrorStack ArrayStorage::get_record(thread::Thread* context, ArrayOffset offset,
 }
 
 template <typename T>
-ErrorStack  ArrayStorage::get_record_primitive(thread::Thread* context, ArrayOffset offset,
+ErrorStack ArrayStorage::get_record_primitive(thread::Thread* context, ArrayOffset offset,
                     T *payload, uint16_t payload_offset) {
     return pimpl_->get_record_primitive<T>(context, offset, payload, payload_offset);
 }
-
-// Explicit instantiations for each type
-// @cond DOXYGEN_IGNORE
-#define EXPLICIT_INSTANTIATION_GET(x) template ErrorStack ArrayStorage::get_record_primitive< x > \
-    (thread::Thread* context, ArrayOffset offset, x *payload, uint16_t payload_offset)
-INSTANTIATE_ALL_NUMERIC_TYPES(EXPLICIT_INSTANTIATION_GET);
-// @endcond
 
 ErrorStack ArrayStorage::overwrite_record(thread::Thread* context, ArrayOffset offset,
             const void *payload, uint16_t payload_offset, uint16_t payload_count) {
@@ -60,18 +53,16 @@ ErrorStack ArrayStorage::overwrite_record(thread::Thread* context, ArrayOffset o
 }
 
 template <typename T>
-ErrorStack  ArrayStorage::overwrite_record_primitive(thread::Thread* context, ArrayOffset offset,
+ErrorStack ArrayStorage::overwrite_record_primitive(thread::Thread* context, ArrayOffset offset,
                     T payload, uint16_t payload_offset) {
     return pimpl_->overwrite_record_primitive<T>(context, offset, payload, payload_offset);
 }
 
-// Explicit instantiations for each type
-// @cond DOXYGEN_IGNORE
-#define EXPLICIT_INSTANTIATION_OV(x) template ErrorStack\
-    ArrayStorage::overwrite_record_primitive< x > \
-    (thread::Thread* context, ArrayOffset offset, x payload, uint16_t payload_offset)
-INSTANTIATE_ALL_NUMERIC_TYPES(EXPLICIT_INSTANTIATION_OV);
-// @endcond
+template <typename T>
+ErrorStack ArrayStorage::increment_record(thread::Thread* context, ArrayOffset offset,
+                    T* value, uint16_t payload_offset) {
+    return pimpl_->increment_record<T>(context, offset, value, payload_offset);
+}
 
 /**
  * Calculate leaf/interior pages we need.
@@ -273,18 +264,25 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     return RET_OK;
 }
 
-inline ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOffset offset,
-                    void *payload, uint16_t payload_offset, uint16_t payload_count) {
+inline ErrorStack ArrayStoragePimpl::locate_record(
+    thread::Thread* context, ArrayOffset offset, Record** out) {
     ASSERT_ND(is_initialized());
     ASSERT_ND(offset < array_size_);
-    ASSERT_ND(payload_offset + payload_count <= payload_size_);
     ArrayPage* page = nullptr;
     CHECK_ERROR(lookup(context, offset, &page));
     ASSERT_ND(page);
     ASSERT_ND(page->is_leaf());
     ASSERT_ND(page->get_array_range().contains(offset));
     ArrayOffset index = offset - page->get_array_range().begin_;
-    Record *record = page->get_leaf_record(index);
+    *out = page->get_leaf_record(index);
+    return RET_OK;
+}
+
+inline ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOffset offset,
+                    void *payload, uint16_t payload_offset, uint16_t payload_count) {
+    ASSERT_ND(payload_offset + payload_count <= payload_size_);
+    Record *record = nullptr;
+    CHECK_ERROR(locate_record(context, offset, &record));
     CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
     std::memcpy(payload, record->payload_ + payload_offset, payload_count);
     return RET_OK;
@@ -293,49 +291,26 @@ inline ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOf
 template <typename T>
 ErrorStack ArrayStoragePimpl::get_record_primitive(thread::Thread* context, ArrayOffset offset,
                     T *payload, uint16_t payload_offset) {
-    ASSERT_ND(is_initialized());
-    ASSERT_ND(offset < array_size_);
     ASSERT_ND(payload_offset + sizeof(T) <= payload_size_);
-    ArrayPage* page = nullptr;
-    CHECK_ERROR(lookup(context, offset, &page));
-    ASSERT_ND(page);
-    ASSERT_ND(page->is_leaf());
-    ASSERT_ND(page->get_array_range().contains(offset));
-    ArrayOffset index = offset - page->get_array_range().begin_;
-    Record *record = page->get_leaf_record(index);
+    Record *record = nullptr;
+    CHECK_ERROR(locate_record(context, offset, &record));
     CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
     char* ptr = record->payload_ + payload_offset;
     *payload = *reinterpret_cast<const T*>(ptr);
     return RET_OK;
 }
 
-// Explicit instantiations for each type
-// @cond DOXYGEN_IGNORE
-#define EXPLICIT_INSTANTIATION_GET_IMPL(x) template ErrorStack \
-    ArrayStoragePimpl::get_record_primitive< x > \
-    (thread::Thread* context, ArrayOffset offset, x *payload, uint16_t payload_offset)
-INSTANTIATE_ALL_NUMERIC_TYPES(EXPLICIT_INSTANTIATION_GET_IMPL);
-// @endcond
-
 inline ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context, ArrayOffset offset,
             const void *payload, uint16_t payload_offset, uint16_t payload_count) {
-    ASSERT_ND(is_initialized());
-    ASSERT_ND(offset < array_size_);
     ASSERT_ND(payload_offset + payload_count <= payload_size_);
-    ArrayPage* page = nullptr;
-    CHECK_ERROR(lookup(context, offset, &page));
-    ASSERT_ND(page);
-    ASSERT_ND(page->is_leaf());
-    ASSERT_ND(page->get_array_range().contains(offset));
-    ArrayOffset index = offset - page->get_array_range().begin_;
-    Record *record = page->get_leaf_record(index);
+    Record *record = nullptr;
+    CHECK_ERROR(locate_record(context, offset, &record));
 
     // write out log
     uint16_t log_length = OverwriteLogType::calculate_log_length(payload_count);
     OverwriteLogType* log_entry = reinterpret_cast<OverwriteLogType*>(
         context->get_thread_log_buffer().reserve_new_log(log_length));
     log_entry->populate(id_, offset, payload, payload_offset, payload_count);
-
     CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
     return RET_OK;
 }
@@ -343,34 +318,37 @@ inline ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context, A
 template <typename T>
 ErrorStack ArrayStoragePimpl::overwrite_record_primitive(
             thread::Thread* context, ArrayOffset offset, T payload, uint16_t payload_offset) {
-    ASSERT_ND(is_initialized());
-    ASSERT_ND(offset < array_size_);
     ASSERT_ND(payload_offset + sizeof(T) <= payload_size_);
-    ArrayPage* page = nullptr;
-    CHECK_ERROR(lookup(context, offset, &page));
-    ASSERT_ND(page);
-    ASSERT_ND(page->is_leaf());
-    ASSERT_ND(page->get_array_range().contains(offset));
-    ArrayOffset index = offset - page->get_array_range().begin_;
-    Record *record = page->get_leaf_record(index);
+    Record *record = nullptr;
+    CHECK_ERROR(locate_record(context, offset, &record));
 
     // write out log
     uint16_t log_length = OverwriteLogType::calculate_log_length(sizeof(T));
     OverwriteLogType* log_entry = reinterpret_cast<OverwriteLogType*>(
         context->get_thread_log_buffer().reserve_new_log(log_length));
     log_entry->populate_primitive<T>(id_, offset, payload, payload_offset);
-
     CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
     return RET_OK;
 }
 
-// Explicit instantiations for each type
-// @cond DOXYGEN_IGNORE
-#define EXPLICIT_INSTANTIATION_GET_OV_IMPL(x) template ErrorStack \
-    ArrayStoragePimpl::overwrite_record_primitive< x > \
-    (thread::Thread* context, ArrayOffset offset, x payload, uint16_t payload_offset)
-INSTANTIATE_ALL_NUMERIC_TYPES(EXPLICIT_INSTANTIATION_GET_OV_IMPL);
-// @endcond
+template <typename T>
+ErrorStack ArrayStoragePimpl::increment_record(
+            thread::Thread* context, ArrayOffset offset, T* value, uint16_t payload_offset) {
+    ASSERT_ND(payload_offset + sizeof(T) <= payload_size_);
+    Record *record = nullptr;
+    CHECK_ERROR(locate_record(context, offset, &record));
+
+    // this is get_record + overwrite_record
+    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
+    char* ptr = record->payload_ + payload_offset;
+    *value += *reinterpret_cast<const T*>(ptr);
+    uint16_t log_length = OverwriteLogType::calculate_log_length(sizeof(T));
+    OverwriteLogType* log_entry = reinterpret_cast<OverwriteLogType*>(
+        context->get_thread_log_buffer().reserve_new_log(log_length));
+    log_entry->populate_primitive<T>(id_, offset, *value, payload_offset);
+    CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
+    return RET_OK;
+}
 
 inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* /*context*/, ArrayOffset offset,
                                             ArrayPage** out) {
@@ -397,6 +375,37 @@ inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* /*context*/, ArrayOf
     return RET_OK;
 }
 
+
+// Explicit instantiations for each type
+// @cond DOXYGEN_IGNORE
+#define EXPLICIT_INSTANTIATION_GET(x) template ErrorStack ArrayStorage::get_record_primitive< x > \
+    (thread::Thread* context, ArrayOffset offset, x *payload, uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPLICIT_INSTANTIATION_GET);
+
+#define EXPLICIT_INSTANTIATION_OV(x) template ErrorStack\
+    ArrayStorage::overwrite_record_primitive< x > \
+    (thread::Thread* context, ArrayOffset offset, x payload, uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPLICIT_INSTANTIATION_OV);
+
+#define EXPLICIT_INSTANTIATION_INC(x) template ErrorStack ArrayStorage::increment_record< x > \
+    (thread::Thread* context, ArrayOffset offset, x* value, uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPLICIT_INSTANTIATION_INC);
+
+#define EXPLICIT_INSTANTIATION_GET_IMPL(x) template ErrorStack \
+    ArrayStoragePimpl::get_record_primitive< x > \
+    (thread::Thread* context, ArrayOffset offset, x *payload, uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPLICIT_INSTANTIATION_GET_IMPL);
+
+#define EXPLICIT_INSTANTIATION_GET_OV_IMPL(x) template ErrorStack \
+    ArrayStoragePimpl::overwrite_record_primitive< x > \
+    (thread::Thread* context, ArrayOffset offset, x payload, uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPLICIT_INSTANTIATION_GET_OV_IMPL);
+
+#define EXPLICIT_INSTANTIATION_GET_INC_IMPL(x) template ErrorStack \
+    ArrayStoragePimpl::increment_record< x > \
+    (thread::Thread* context, ArrayOffset offset, x* value, uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPLICIT_INSTANTIATION_GET_INC_IMPL);
+// @endcond
 
 }  // namespace array
 }  // namespace storage

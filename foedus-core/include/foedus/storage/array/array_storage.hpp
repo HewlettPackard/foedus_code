@@ -145,6 +145,24 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
     ErrorStack  overwrite_record_primitive(thread::Thread* context, ArrayOffset offset,
                         T payload, uint16_t payload_offset);
 
+    /**
+     * @brief This one further optimizes overwrite_record_primitive() for the frequent use
+     * case of incrementing some data in primitive type.
+     * @param[in] context Thread context
+     * @param[in] offset The offset in this array
+     * @param[in,out] value (in) addendum, (out) value after addition.
+     * @param[in] payload_offset We write to this byte position of the record.
+     * @tparam T primitive type. All integers and floats are allowed.
+     * @pre payload_offset + sizeof(T) <= get_payload_size()
+     * @pre offset < get_array_size()
+     * @details
+     * This method combines get and overwrite, so it can halve the number of tree lookup.
+     * This method can be only provided with template, so we omit "_primitive".
+     */
+    template <typename T>
+    ErrorStack  increment_record(thread::Thread* context, ArrayOffset offset,
+                        T *value, uint16_t payload_offset);
+
  private:
     ArrayStoragePimpl*  pimpl_;
 };

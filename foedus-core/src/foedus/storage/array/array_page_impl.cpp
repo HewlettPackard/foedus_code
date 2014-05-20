@@ -18,7 +18,7 @@ void ArrayPage::initialize_data_page(Epoch initial_epoch, StorageId storage_id,
     if (is_leaf()) {
         uint16_t records = get_leaf_record_count();
         for (uint16_t i = 0; i < records; ++i) {
-            get_leaf_record(i)->owner_id_.epoch_ = initial_epoch;
+            get_leaf_record(i)->owner_id_.data_.components.epoch = initial_epoch;
         }
     } else {
         /* TODO(Hideaki)
