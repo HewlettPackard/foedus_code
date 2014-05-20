@@ -36,7 +36,7 @@ inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record
         return ERROR_CODE_XCT_READ_SET_OVERFLOW;
     }
 
-    ASSERT_ND(record->owner_id_.data_.components.epoch.is_valid());
+    ASSERT_ND(record->owner_id_.data_.components.epoch().is_valid());
 
     // If the record is locked, we will surely abort at commit time.
     // Rather, spin here to avoid wasted effort. In our engine, lock happens in commit time,

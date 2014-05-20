@@ -63,13 +63,21 @@ enum IsolationLevel {
 /**
  * @brief Contents of XctId.
  * @ingroup XCT
+ * @details
+ * We might shrink bit size of epoch and spend it for ordinal later.
+ * Be prepared for that change.
  */
 union XctIdData {
-    XctIdData() : word(0) {}
+    /** Entire XctId data as one integer. */
     uint64_t word;
+
+    /**
+     * Individual components of XctId data.
+     * Every member must be primitive so that union constructor is trivial in both C++03 and C++11.
+     */
     struct Components {
         /** The high 32 bit represents the epoch of the transaction. */
-        Epoch               epoch;
+        Epoch::EpochInteger epoch_int;
 
         /** Middle 16 bit represents the thread (core) the transaction runs on. */
         thread::ThreadId    thread_id;
@@ -80,7 +88,26 @@ union XctIdData {
         * so that we can (relatively) easily change the number of status bits later.
         */
         uint16_t            ordinal_and_status;
+
+        Epoch               epoch() const { return Epoch(epoch_int); }
     } components;
+
+    /**
+     * To extract IDs within an epoch for logging purpose.
+     * Every member must be primitive so that union constructor is trivial in both C++03 and C++11.
+     */
+    struct Serializers {
+        /** The high 32 bit represents the epoch of the transaction. */
+        Epoch::EpochInteger epoch_int;
+
+        /**
+         * Other bits are used to serialize logs in the same epoch.
+         * This is stored in many log types rather than the full XctId because epoch is implicit.
+         */
+        uint32_t            serializer;
+
+        Epoch               epoch() const { return Epoch(epoch_int); }
+    } serializers;
 };
 
 inline uint64_t get_xct_id_lock_bit() {
@@ -104,8 +131,8 @@ const uint64_t XCT_ID_LOCK_MASK = ~XCT_ID_LOCK_BIT;
 struct XctId {
     XctId() { data_.word = 0; }
     XctId(const XctId& other) { data_.word = other.data_.word; }
-    XctId(Epoch epoch, thread::ThreadId thread_id, uint16_t ordinal_and_status) {
-        data_.components.epoch = epoch;
+    XctId(Epoch::EpochInteger epoch_int, thread::ThreadId thread_id, uint16_t ordinal_and_status) {
+        data_.components.epoch_int = epoch_int;
         data_.components.thread_id = thread_id;
         data_.components.ordinal_and_status = ordinal_and_status;
     }

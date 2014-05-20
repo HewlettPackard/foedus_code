@@ -7,7 +7,7 @@
 namespace foedus {
 namespace xct {
 std::ostream& operator<<(std::ostream& o, const XctId& v) {
-    o << "<XctId><epoch>" << v.data_.components.epoch << "</epoch><thread_id>"
+    o << "<XctId><epoch>" << v.data_.components.epoch() << "</epoch><thread_id>"
         << v.data_.components.thread_id << "</thread_id>"
         << "<ordinal>" << (v.data_.components.ordinal_and_status & 0x7FFF) << "</ordinal>"
         << "<locked>" << (v.is_locked()) << "</locked></XctId>";

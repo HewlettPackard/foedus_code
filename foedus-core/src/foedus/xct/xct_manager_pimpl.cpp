@@ -227,7 +227,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
         }
 
         // Remembers the highest epoch observed.
-        commit_epoch->store_max(access.observed_owner_id_.data_.components.epoch);
+        commit_epoch->store_max(access.observed_owner_id_.data_.components.epoch());
     }
 
     DVLOG(1) << *context << "Read-only higest epoch observed: " << *commit_epoch;
