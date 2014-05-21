@@ -171,6 +171,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
         rand.set_current_seed(client_id_);
         Epoch highest_commit_epoch;
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+        xct::XctId prev_xct_id;
         for (int i = 0; i < XCTS_PER_THREAD; ++i) {
             uint64_t account_id;
             if (contended_) {
@@ -190,6 +191,11 @@ class RunTpcbTask : public thread::ImpersonateTask {
                 ErrorStack error_stack = try_transaction(context, &highest_commit_epoch,
                     branch_id, teller_id, account_id, history_id, amount);
                 if (!error_stack.is_error()) {
+                    xct::XctId xct_id = context->get_current_xct().get_id();
+                    if (prev_xct_id.get_epoch() == xct_id.get_epoch()) {
+                        EXPECT_LT(prev_xct_id.get_ordinal(), xct_id.get_ordinal());
+                    }
+                    prev_xct_id = context->get_current_xct().get_id();
                     break;
                 } else if (error_stack.get_error_code() == ERROR_CODE_XCT_RACE_ABORT) {
                     // abort and retry
@@ -306,6 +312,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
 
         Epoch commit_epoch;
         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+
         std::cout << "Committed! Thread-" << context->get_thread_id() << " Updated "
             << " branch[" << branch_id << "] " << branch_balance_old << " -> " << branch_balance_new
             << " teller[" << teller_id << "] " << teller_balance_old << " -> " << teller_balance_new
@@ -391,7 +398,7 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
         }
         for (uint32_t i = 0; i < context->get_current_xct().get_read_set_size(); ++i) {
             xct::XctAccess& access = context->get_current_xct().get_read_set()[i];
-            EXPECT_FALSE(access.observed_owner_id_.is_locked()) << i;
+            EXPECT_FALSE(access.observed_owner_id_.is_keylocked()) << i;
         }
 
         CHECK_ERROR(xct_manager.abort_xct(context));

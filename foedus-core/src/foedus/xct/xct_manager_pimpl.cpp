@@ -154,7 +154,9 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     bool verified = precommit_xct_verify_readwrite(context);  // phase 2
     if (verified) {
         precommit_xct_apply(context, *commit_epoch);  // phase 3. this also unlocks
-        context->get_thread_log_buffer().publish_committed_log(*commit_epoch);  // announce log
+        // announce log AFTER (with fence) apply, because apply sets xct_order in the logs.
+        assorted::memory_fence_release();
+        context->get_thread_log_buffer().publish_committed_log(*commit_epoch);
     } else {
         precommit_xct_unlock(context);  // just unlock in this case
     }
@@ -189,7 +191,7 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
         DVLOG(2) << *context << " Locking " << write_set[i].storage_->get_name()
             << ":" << write_set[i].record_;
         XctId& owner_id = write_set[i].record_->owner_id_;
-        owner_id.lock_unconditional();
+        owner_id.keylock_unconditional();
     }
     DVLOG(1) << *context << " locked write set";
 
@@ -197,7 +199,7 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
     for (uint32_t i = 0; i < write_set_size; ++i) {
         ASSERT_ND(dbg_records.find(write_set[i].record_) != dbg_records.end());
         ASSERT_ND(dbg_logs.find(write_set[i].log_entry_) != dbg_logs.end());
-        ASSERT_ND(write_set[i].record_->owner_id_.is_locked());
+        ASSERT_ND(write_set[i].record_->owner_id_.is_keylocked());
     }
 #endif  // NDEBUG
 }
@@ -213,20 +215,16 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
         DVLOG(2) << *context << "Verifying " << access.storage_->get_name()
             << ":" << access.record_ << ". observed_xid=" << access.observed_owner_id_
                 << ", now_xid=" << access.record_->owner_id_;
-        if (!access.observed_owner_id_.equals_epoch_thread_ordinal(access.record_->owner_id_)) {
+        ASSERT_ND(!access.observed_owner_id_.is_keylocked());  // we made it sure when we read.
+        if (access.observed_owner_id_.data_ != access.record_->owner_id_.data_) {
             DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
             return false;
         }
         // TODO(Hideaki) For data structures that have previous links, we need to check if
         // it's latest. Array doesn't have it.
 
-        if (access.record_->owner_id_.is_locked()) {
-            DLOG(WARNING) << *context << " read set contained a locked record. abort";
-            return false;
-        }
-
         // Remembers the highest epoch observed.
-        commit_epoch->store_max(access.observed_owner_id_.epoch());
+        commit_epoch->store_max(access.observed_owner_id_.get_epoch());
     }
 
     DVLOG(1) << *context << "Read-only higest epoch observed: " << *commit_epoch;
@@ -255,13 +253,14 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
         DVLOG(2) << *context << " Verifying " << access.storage_->get_name()
             << ":" << access.record_ << ". observed_xid=" << access.observed_owner_id_
                 << ", now_xid=" << access.record_->owner_id_;
-        if (!access.observed_owner_id_.equals_epoch_thread_ordinal(access.record_->owner_id_)) {
+        ASSERT_ND(!access.observed_owner_id_.is_keylocked());  // we made it sure when we read.
+        if (!access.observed_owner_id_.equals_serial_order(access.record_->owner_id_)) {
             DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
             return false;
         }
         // TODO(Hideaki) For data structures that have previous links, we need to check if
         // it's latest. Array doesn't have it. So, we don't have the check so far.
-        if (access.record_->owner_id_.is_locked()) {
+        if (access.record_->owner_id_.is_keylocked()) {
             DVLOG(2) << *context
                 << " read set contained a locked record. was it myself who locked it?";
             // write set is sorted. so we can do binary search.
@@ -292,7 +291,7 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context,
 
     current_xct.issue_next_id(commit_epoch);
     XctId new_xct_id = current_xct.get_id();
-    ASSERT_ND(!new_xct_id.is_locked());
+    ASSERT_ND(!new_xct_id.is_keylocked());
 
     DVLOG(1) << *context << " generated new xct id=" << new_xct_id;
     for (uint32_t i = 0; i < write_set_size; ++i) {
@@ -312,7 +311,7 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context) {
     for (uint32_t i = 0; i < write_set_size; ++i) {
         WriteXctAccess& write = write_set[i];
         DVLOG(2) << *context << " Unlocking " << write.storage_->get_name() << ":" << write.record_;
-        write.record_->owner_id_.unlock();
+        write.record_->owner_id_.release_keylock();
     }
     assorted::memory_fence_release();
     DLOG(INFO) << *context << " unlocked write set without applying";

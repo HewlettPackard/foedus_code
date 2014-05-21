@@ -68,97 +68,129 @@ enum IsolationLevel {
  */
 typedef uint32_t XctOrder;
 
-/**
- * @brief Contents of XctId.
- * @ingroup XCT
- * @details
- * We might shrink bit size of epoch and spend it for ordinal later.
- * Be prepared for that change.
- */
-union XctIdData {
-    /** Entire XctId data as one integer. */
-    uint64_t word;
+// Defines 64bit constant values for XctId.
+//                                             0123456789abcdef
+const uint64_t MASK_EPOCH                  = 0xFFFFFFF800000000ULL;  // first 29 bits
+const uint64_t MASK_THREAD_ID              = 0x00000007FFF80000ULL;  // next 16 bits
+const uint64_t MASK_ORDINAL                = 0x000000000007FFF0ULL;  // next 15 bits
+const uint64_t MASK_SERIALIZER             = 0xFFFFFFFFFFFFFFF0ULL;  // above 3 serialize xcts
+const uint64_t MASK_IN_EPOCH_ORDER         = 0x00000007FFFFFFF0ULL;  // thread_id and ordinal
+const uint64_t KEYLOCK_BIT                 = 0x0000000000000008ULL;
+const uint64_t RANGELOCK_BIT               = 0x0000000000000004ULL;
+const uint64_t DELETE_BIT                  = 0x0000000000000002ULL;
+const uint64_t LATEST_BIT                  = 0x0000000000000001ULL;
 
-    /**
-     * Individual components of XctId data.
-     * Every member must be primitive so that union constructor is trivial in both C++03 and C++11.
-     */
-    struct Components {
-        /** The high 32 bit represents the epoch of the transaction. */
-        Epoch::EpochInteger epoch_int;
-
-        /** Middle 16 bit represents the thread (core) the transaction runs on. */
-        thread::ThreadId    thread_id;
-
-        /**
-        * Uniquefier among transactions in the same epoch and thread, combined with
-        * a few bits at the last. We use highests bits as status and lower bits as ordinal
-        * so that we can (relatively) easily change the number of status bits later.
-        */
-        uint16_t            ordinal_and_status;
-
-        Epoch               epoch() const { return Epoch(epoch_int); }
-    } components;
-
-    /**
-     * To extract IDs within an epoch for logging purpose.
-     * Every member must be primitive so that union constructor is trivial in both C++03 and C++11.
-     */
-    struct Serializers {
-        /** The high 32 bit represents the epoch of the transaction. */
-        Epoch::EpochInteger epoch_int;
-
-        /** Other bits are used to serialize logs in the same epoch. */
-        XctOrder            order;
-
-        Epoch               epoch() const { return Epoch(epoch_int); }
-    } serializers;
-};
-
-inline uint64_t get_xct_id_lock_bit() {
-    XctIdData data;
-    data.word = 0;
-    data.components.ordinal_and_status = static_cast<uint16_t>(0x8000);
-    return data.word;
-}
-
-const uint64_t XCT_ID_LOCK_BIT = get_xct_id_lock_bit();
-const uint64_t XCT_ID_LOCK_MASK = ~XCT_ID_LOCK_BIT;
+const uint64_t UNMASK_EPOCH                = 0x00000007FFFFFFFFULL;
+const uint64_t UNMASK_THREAD_ID            = 0xFFFFFFF80007FFFFULL;
+const uint64_t UNMASK_ORDINAL              = 0xFFFFFFFFFFF8000FULL;
+const uint64_t UNMASK_KEYLOCK              = 0xFFFFFFFFFFFFFFF7ULL;
+const uint64_t UNMASK_RANGELOCK            = 0xFFFFFFFFFFFFFFFBULL;
+const uint64_t UNMASK_DELETE               = 0xFFFFFFFFFFFFFFFDULL;
+const uint64_t UNMASK_LATEST               = 0xFFFFFFFFFFFFFFFEULL;
 
 /**
  * @brief Transaction ID, a 64-bit data to identify transactions and record versions.
  * @ingroup XCT
  * @details
- * This object is equivalent to what [TU13] Sec 4.2 defines.
+ * This object is basically equivalent to what [TU13] Sec 4.2 defines.
+ * The difference is described below.
+ *
+ * @par Bit Assignments
+ * <table>
+ * <tr><th>Bits</th><th>Name</th><th>Description</th></tr>
+ * <tr><td>1..29</td><td>Epoch</td><td>The recent owning transaction was in this Epoch.
+ * We don't consume full 32 bits for epoch.
+ * Assuming 30ms per epoch, 29bit still represents 3 years. All epochs will be refreshed by then
+ * or we can have some periodic mantainance job to make it sure.</td></tr>
+ * <tr><td>30..45</td><td>ThreadId</td><td>The recent owning transaction was on this thread.
+ * Full 16 bits. We might not need 256 node or 256 cores,
+ * but we can't be sure for future.</td></tr>
+ * <tr><td>46..60</td><td>Ordinal</td><td>The recent owning transaction had this ordinal
+ * in the epoch and the thread. We assign only 15 bits. Thus 32k xcts per epoch per core.
+ * A short transaction might exceed it, but then it can just increment current epoch.</td></tr>
+ * <tr><td>61</td><td>Key Lock bit</td><td>Lock the key.</td></tr>
+ * <tr><td>62</td><td>Range Lock bit</td><td>Lock the interval from the key to next key.</td></tr>
+ * <tr><td>63</td><td>Psuedo-delete bit</td><td>Logically delete the key.</td></tr>
+ * <tr><td>64</td><td>(Latest bit)</td><td>So far not used. We treat snapshot differently from
+ * Silo in this regard. Reserved for future/other use.</td></tr>
+ * </table>
+ *
+ * @par Greater than/Less than as 64-bit integer
+ * The first 60 bits represent the serialization order of the transaction. Sometimes not exactly
+ * the chronological order, but enough to assure serializability, see discussion in Sec 4.2 of
+ * [TU13]. This class thus provides before() method to check \e strict order of
+ * two instantances. Be aware of the following things, though:
+ *  \li Epoch might be invalid/uninitialized (zero). An invalid epoch is \e before everything else.
+ *  \li Epoch might wrap-around. We use the same wrap-around handling as foedus::Epoch.
+ *  \li We can \e NOT provide "equals" semantics via simple integer comparison. 61th- bits are
+ * status bits, thus we have to mask it. equals_serial_order() does it.
+ *
  * @par POD
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
 struct XctId {
-    XctId() { data_.word = 0; }
-    XctId(const XctId& other) ALWAYS_INLINE { data_.word = other.data_.word; }
-    XctId(Epoch::EpochInteger epoch_int, thread::ThreadId thread_id, uint16_t ordinal_and_status) {
-        data_.components.epoch_int = epoch_int;
-        data_.components.thread_id = thread_id;
-        data_.components.ordinal_and_status = ordinal_and_status;
+    /** Defines constant values. */
+    enum Constants {
+        SHIFT_EPOCH         = 35,
+        SHIFT_THREAD_ID     = 19,
+        SHIFT_ORDINAL       = 4,
+    };
+
+    XctId() : data_(0) {}
+    XctId(const XctId& other) : data_(other.data_) {}
+    XctId(Epoch::EpochInteger epoch_int, thread::ThreadId thread_id, uint16_t ordinal) {
+        ASSERT_ND(epoch_int < Epoch::EPOCH_INT_OVERFLOW);
+        ASSERT_ND(ordinal < (1 << 15));
+        data_ = (static_cast<uint64_t>(epoch_int) << SHIFT_EPOCH)
+            | (static_cast<uint64_t>(thread_id) << SHIFT_THREAD_ID)
+            | (static_cast<uint64_t>(ordinal) << SHIFT_ORDINAL);
     }
-    XctId& operator=(const XctId& other) ALWAYS_INLINE {
-        data_.word = other.data_.word;
+
+    XctId& operator=(const XctId& other) {
+        data_ = other.data_;
         return *this;
     }
 
-    Epoch   epoch() const ALWAYS_INLINE { return data_.components.epoch(); }
-    bool    is_valid() const ALWAYS_INLINE { return epoch().is_valid(); }
+    Epoch   get_epoch() const ALWAYS_INLINE { return Epoch(get_epoch_int()); }
+    void    set_epoch(Epoch epoch) ALWAYS_INLINE { set_epoch_int(epoch.value()); }
+    Epoch::EpochInteger get_epoch_int() const ALWAYS_INLINE {
+        return static_cast<Epoch::EpochInteger>((data_ & MASK_EPOCH) >> SHIFT_EPOCH);
+    }
+    void    set_epoch_int(Epoch::EpochInteger epoch) ALWAYS_INLINE {
+        ASSERT_ND(epoch < Epoch::EPOCH_INT_OVERFLOW);
+        data_ = (data_ & UNMASK_EPOCH) | (static_cast<uint64_t>(epoch) << SHIFT_EPOCH);
+    }
+    bool    is_valid() const ALWAYS_INLINE { return (data_ & MASK_EPOCH) != 0; }
+
+    thread::ThreadId get_thread_id() const ALWAYS_INLINE {
+        return static_cast<thread::ThreadId>((data_ & MASK_THREAD_ID) >> SHIFT_THREAD_ID);
+    }
+    void    set_thread_id(thread::ThreadId id) ALWAYS_INLINE {
+        data_ = (data_ & MASK_THREAD_ID) | (static_cast<uint64_t>(id) << SHIFT_THREAD_ID);
+    }
+
+    uint16_t get_ordinal() const ALWAYS_INLINE {
+        return static_cast<uint16_t>((data_ & MASK_ORDINAL) >> SHIFT_ORDINAL);
+    }
+    void set_ordinal(uint16_t ordinal) ALWAYS_INLINE {
+        data_ = (data_ & UNMASK_ORDINAL) | (static_cast<uint64_t>(ordinal) << SHIFT_ORDINAL);
+    }
 
     /**
-     * Returns if epoch_, thread_id_, and oridnal (w/o status) are identical with the given XctId.
-     * We don't provide operator== in XctId because it is confusing.
-     * Instead, we provide equals_xxx that explicitly states what we are comparing.
+     * Returns a 32-bit integer that represents the serial order in the epoch.
      */
-    bool equals_epoch_thread_ordinal(const XctId &other) const ALWAYS_INLINE {
-        return (data_.word & XCT_ID_LOCK_MASK) == (other.data_.word & XCT_ID_LOCK_MASK);
+    XctOrder get_in_epoch_xct_order() const ALWAYS_INLINE {
+        return data_ & MASK_IN_EPOCH_ORDER;
+    }
+
+    /**
+     * Returns if epoch, thread_id, and oridnal (w/o status) are identical with the given XctId.
+     */
+    bool equals_serial_order(const XctId &other) const ALWAYS_INLINE {
+        return (data_ & MASK_SERIALIZER) == (other.data_ & MASK_SERIALIZER);
     }
     bool equals_all(const XctId &other) const ALWAYS_INLINE {
-        return data_.word == other.data_.word;
+        return data_ == other.data_;
     }
 
 
@@ -170,60 +202,66 @@ struct XctId {
      */
     bool before(const XctId &other) const ALWAYS_INLINE {
         ASSERT_ND(other.is_valid());
-        return compare_epoch_thread_ordinal(other) < 0;
-    }
-    /** @see before() */
-    bool after(const XctId &other) const ALWAYS_INLINE {
-        ASSERT_ND(is_valid());
-        return compare_epoch_thread_ordinal(other) > 0;
-    }
-
-    /**
-     * Returns -1/0/1 if epoch_, thread_id_, and oridnal (w/o status) of this is less than/equals/
-     * greather than that of other.
-     */
-    int compare_epoch_thread_ordinal(const XctId &other) const ALWAYS_INLINE {
-        ASSERT_ND(is_valid());
-        uint64_t mine = (data_.word & XCT_ID_LOCK_MASK);
-        uint64_t others = (other.data_.word & XCT_ID_LOCK_MASK);
-        if (mine < others) {
-            return -1;
-        } else if (mine == others) {
-            return 0;
+        if (get_epoch().before(other.get_epoch())) {
+            return true;  // epoch is treated carefully because of wrap-around
         } else {
-            return 1;
+            return data_ < other.data_;  // otherwise, just an integer comparison
         }
     }
 
     friend std::ostream& operator<<(std::ostream& o, const XctId& v);
 
-    void lock_unconditional() {
+    /**
+     * Lock this key, busy-waiting if already locked.
+     * This assumes there is no deadlock (sorting write set assues it).
+     */
+    void keylock_unconditional() {
         SPINLOCK_WHILE(true) {
-            uint64_t expected = data_.word & XCT_ID_LOCK_MASK;
-            uint64_t desired = expected | XCT_ID_LOCK_BIT;
-            if (assorted::raw_atomic_compare_exchange_weak(&data_.word, &expected, desired)) {
-                ASSERT_ND(is_locked());
+            uint64_t expected = data_ & UNMASK_KEYLOCK;
+            uint64_t desired = expected | KEYLOCK_BIT;
+            if (assorted::raw_atomic_compare_exchange_weak(&data_, &expected, desired)) {
+                ASSERT_ND(is_keylocked());
                 break;
             }
         }
     }
-    bool is_locked() const ALWAYS_INLINE {
-        return (data_.word & XCT_ID_LOCK_BIT) == XCT_ID_LOCK_BIT;
-    }
-
-    void spin_while_locked() const {
-        SPINLOCK_WHILE(is_locked()) {
+    bool is_keylocked() const ALWAYS_INLINE { return (data_ & KEYLOCK_BIT) != 0; }
+    void spin_while_keylocked() const {
+        SPINLOCK_WHILE(is_keylocked()) {
             assorted::memory_fence_acquire();
         }
     }
-
-    void unlock() ALWAYS_INLINE {
-        ASSERT_ND(is_locked());
-        data_.word &= XCT_ID_LOCK_MASK;
+    void release_keylock() ALWAYS_INLINE {
+        ASSERT_ND(is_keylocked());
+        data_ &= UNMASK_KEYLOCK;
     }
 
+    void rangelock_unconditional() {
+        SPINLOCK_WHILE(true) {
+            uint64_t expected = data_ & UNMASK_RANGELOCK;
+            uint64_t desired = expected | RANGELOCK_BIT;
+            if (assorted::raw_atomic_compare_exchange_weak(&data_, &expected, desired)) {
+                ASSERT_ND(is_rangelocked());
+                break;
+            }
+        }
+    }
+    bool is_rangelocked() const ALWAYS_INLINE { return (data_ & RANGELOCK_BIT) != 0; }
+    void spin_while_rangelocked() const {
+        SPINLOCK_WHILE(is_rangelocked()) {
+            assorted::memory_fence_acquire();
+        }
+    }
+    void release_rangelock() ALWAYS_INLINE {
+        ASSERT_ND(is_rangelocked());
+        data_ &= UNMASK_RANGELOCK;
+    }
+
+    bool is_deleted() const ALWAYS_INLINE { return (data_ & DELETE_BIT) != 0; }
+    bool is_latest() const ALWAYS_INLINE { return (data_ & LATEST_BIT) != 0; }
+
     /** The 64bit data. */
-    XctIdData           data_;
+    uint64_t           data_;
 };
 // sizeof(XctId) must be 64 bits.
 STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))

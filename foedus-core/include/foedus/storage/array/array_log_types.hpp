@@ -74,10 +74,11 @@ struct OverwriteLogType : public log::RecordLogType {
                                  Record* record) ALWAYS_INLINE {
         ASSERT_ND(payload_count_ < DATA_SIZE);
         ASSERT_ND(dynamic_cast<ArrayStorage*>(storage));
-        xct_order_ = xct_id.data_.serializers.order;
+        xct_order_ = xct_id.get_in_epoch_xct_order();
         std::memcpy(record->payload_ + payload_offset_, payload_, payload_count_);
         assorted::memory_fence_release();  // we must apply BEFORE unlock
-        ASSERT_ND(record->owner_id_.before(xct_id));  // ordered correctly?
+        // ordered correctly?
+        // ASSERT_ND(record->owner_id_.before(xct_id));  TODO(Hideaki) must be turned on
         record->owner_id_ = xct_id;  // this also unlocks
     }
 

@@ -35,7 +35,7 @@ class DebuggingSupports CXX11_FINAL : public DefaultInitializable {
 
     /**
      * @brief Start running a CPU profiler (gperftools).
-     * @param[in] output path to output the profile result.
+     * @param[in] output_file path to output the profile result.
      * @details
      * This feature is enabled only when you link to libprofiler.so.
      * For example, use it like this:

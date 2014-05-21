@@ -23,9 +23,14 @@ namespace foedus {
  * much more scalable. Several commercial and open-source storage engines use such a coarse-grained
  * timestamp nowadays.
  *
+ * @par Value range
+ * We use 29 bits to represent an epoch (we need to save 3 bits for the sake of foedus::xct::XctId).
+ * The first 3 bits must be always zero. This means the value range of [0, 2^29 - 1].
+ * Assuming 30ms per epoch, this is about 3 years.
+ *
  * @par Wrap-around
  * This class can handle wrapping-around \b assuming there is no case where we have two epochs
- * that are 2^31 or more distant. As one epoch represents tens of milliseconds, this assumption
+ * that are 2^28 or more distant. As one epoch represents tens of milliseconds, this assumption
  * should hold. All very-old epochs will disappear from logs and snapshots by the time
  * we wrap around. We use wrap-around-aware comparison algorithms
  *
@@ -48,31 +53,44 @@ class Epoch {
         EPOCH_INITIAL_DURABLE = 1,
         /** The first epoch (before wrap-around) that might have transactions is ep-2. */
         EPOCH_INITIAL_CURRENT = 2,
+        /** Use 29 bits to represent an epoch. */
+        EPOCH_BITS = 29,
+        /** Epoch values wrap around at this value. */
+        EPOCH_INT_OVERFLOW = (1 << EPOCH_BITS),
+        /** Used for before(). */
+        EPOCH_INT_HALF = (1 << (EPOCH_BITS - 1)),
     };
 
     /** Construct an invalid epoch. */
     Epoch() : epoch_(EPOCH_INVALID) {}
     /** Construct an epoch of specified integer representation. */
-    explicit Epoch(EpochInteger value) : epoch_(value) {}
+    explicit Epoch(EpochInteger value) : epoch_(value) {
+        ASSERT_ND(value < EPOCH_INT_OVERFLOW);
+    }
     // default copy-constructor/assignment/destructor suffice
 
-    bool    is_valid() const { return epoch_ != EPOCH_INVALID; }
+    bool    is_valid() const {
+        ASSERT_ND(epoch_ < EPOCH_INT_OVERFLOW);
+        return epoch_ != EPOCH_INVALID;
+    }
 
     /** Returns the raw integer representation. */
     EpochInteger value() const { return epoch_; }
 
     Epoch&  operator++() {
         ASSERT_ND(is_valid());  // we prohibit increment from invalid epoch
-        ++epoch_;
-        if (epoch_ == 0) {
-            ++epoch_;  // skip 0, which is always an invalid epoch.
+        if (epoch_ == EPOCH_INT_OVERFLOW - 1) {
+            epoch_ = 1;  // skip 0, which is always an invalid epoch.
+        } else {
+            ++epoch_;
         }
         return *this;
     }
     Epoch&  operator--() {
         ASSERT_ND(is_valid());  // we prohibit decrement from invalid epoch
-        --epoch_;
-        if (epoch_ == 0) {
+        if (epoch_ == 1) {
+            epoch_ = EPOCH_INT_OVERFLOW - 1;  // skip 0, which is always an invalid epoch.
+        } else {
             --epoch_;
         }
         return *this;
@@ -114,26 +132,30 @@ class Epoch {
     }
 
     /**
-     * Returns the \e distance from this epoch to the given epoch, as defined in RFC 1982.
-     * Both this and other must be valid epochs.
+     * Returns if this epoch is \e before the given epoch in the sense of
+     * \e distance defined in RFC 1982. Both this and other must be valid epochs.
      */
-    int32_t distance(const Epoch &other) const {
+    bool before(const Epoch &other) const {
         ASSERT_ND(is_valid());
         ASSERT_ND(other.is_valid());
-        return static_cast<int32_t>(other.epoch_ - epoch_);  // SIGNED. see the links
+        int64_t diff = static_cast<int64_t>(other.epoch_) - static_cast<int64_t>(epoch_);
+        return diff <= -EPOCH_INT_HALF || (diff > 0 && diff < EPOCH_INT_HALF);
     }
 
     bool    operator==(const Epoch &other)  const { return epoch_ == other.epoch_; }
     bool    operator!=(const Epoch &other)  const { return epoch_ != other.epoch_; }
-    bool    operator<(const Epoch &other)   const { return distance(other) > 0; }
-    bool    operator>(const Epoch &other)   const { return distance(other) < 0; }
+    bool    operator<(const Epoch &other)   const { return before(other); }
+    bool    operator>(const Epoch &other)   const { return other.before(*this); }
     bool    operator<=(const Epoch &other)  const { return !operator>(other); }
     bool    operator>=(const Epoch &other)  const { return !operator<(other); }
 
     friend std::ostream& operator<<(std::ostream& o, const Epoch& v);
 
  private:
-    /** The raw integer representation. */
+    /**
+     * The raw integer representation.
+     * @invariant 0 <= epoch_ < EPOCH_INT_OVERFLOW
+     */
     EpochInteger epoch_;
 };
 }  // namespace foedus

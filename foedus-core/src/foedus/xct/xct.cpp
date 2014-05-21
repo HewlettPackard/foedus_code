@@ -23,7 +23,7 @@ Xct::Xct() {
 }
 
 void Xct::initialize(thread::ThreadId thread_id, memory::NumaCoreMemory* core_memory) {
-    id_.data_.components.thread_id = thread_id;
+    id_.set_thread_id(thread_id);
     read_set_ = core_memory->get_read_set_memory();
     read_set_size_ = 0;
     max_read_set_size_ = core_memory->get_read_set_size();

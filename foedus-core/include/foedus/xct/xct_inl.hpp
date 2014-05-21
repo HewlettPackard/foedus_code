@@ -36,16 +36,19 @@ inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record
         return ERROR_CODE_XCT_READ_SET_OVERFLOW;
     }
 
-    ASSERT_ND(record->owner_id_.epoch().is_valid());
+    ASSERT_ND(record->owner_id_.is_valid());
 
     // If the record is locked, we will surely abort at commit time.
     // Rather, spin here to avoid wasted effort. In our engine, lock happens in commit time,
     // so no worry about deadlock or long wait.
-    if (UNLIKELY(record->owner_id_.is_locked())) {
-        record->owner_id_.spin_while_locked();
+    while (true) {
+        read_set_[read_set_size_].observed_owner_id_ = record->owner_id_;
+        if (!read_set_[read_set_size_].observed_owner_id_.is_keylocked()) {
+            break;
+        }
+        record->owner_id_.spin_while_keylocked();
     }
-    // yes, still some one might lock at _this_ moment, but we will see it at commit time.
-    read_set_[read_set_size_].observed_owner_id_ = record->owner_id_;
+    ASSERT_ND(!read_set_[read_set_size_].observed_owner_id_.is_keylocked());
 
     // for RCU protocol, make sure compiler/CPU don't reorder the data access before tag copy.
     // This is _consume rather than _acquire because it's fine to see stale information as far as

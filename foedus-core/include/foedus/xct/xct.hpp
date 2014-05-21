@@ -70,12 +70,11 @@ class Xct {
      * @todo advance epoch when wrap around
      */
     void                issue_next_id(const Epoch &epoch)  {
-        if (epoch.value() != id_.data_.components.epoch_int) {
-            id_.data_.components.epoch_int = epoch.value();
-            id_.data_.components.ordinal_and_status = 0;
+        if (epoch != id_.get_epoch()) {
+            id_.set_epoch(epoch);
+            id_.set_ordinal(0);
         } else {
-            ASSERT_ND(id_.data_.components.ordinal_and_status < 0x7FFF);
-            ++id_.data_.components.ordinal_and_status;
+            id_.set_ordinal(id_.get_ordinal() + 1);
         }
     }
 

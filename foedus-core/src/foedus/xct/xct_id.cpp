@@ -7,10 +7,15 @@
 namespace foedus {
 namespace xct {
 std::ostream& operator<<(std::ostream& o, const XctId& v) {
-    o << "<XctId><epoch>" << v.epoch() << "</epoch><thread_id>"
-        << v.data_.components.thread_id << "</thread_id>"
-        << "<ordinal>" << (v.data_.components.ordinal_and_status & 0x7FFF) << "</ordinal>"
-        << "<locked>" << (v.is_locked()) << "</locked></XctId>";
+    o << "<XctId><epoch>" << v.get_epoch() << "</epoch><thread_id>"
+        << v.get_thread_id() << "</thread_id>"
+        << "<ordinal>" << v.get_ordinal() << "</ordinal>"
+        << "<status>"
+            << (v.is_keylocked() ? "K" : " ")
+            << (v.is_rangelocked() ? "R" : " ")
+            << (v.is_deleted() ? "D" : " ")
+            << (v.is_latest() ? "L" : " ")
+        << "</status></XctId>";
     return o;
 }
 }  // namespace xct

@@ -87,7 +87,7 @@ or
 
 In order to run valgrind version of it (takes *long* time!),
 
-    ctest -T memcheck
+    ctest -D ExperimentalMemCheck
 
 If you find a false positive or third party's bug, add them to foedus-core/tools/valgrind.supp.
 
