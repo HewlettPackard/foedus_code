@@ -15,7 +15,7 @@ std::ostream& operator<<(std::ostream& o, const OverwriteLogType& v) {
     // show first few bytes
     o << "<data_>";
     for (uint16_t i = 0; i < std::min<uint16_t>(8, v.payload_count_); ++i) {
-        o << i << ":" << static_cast<int>(v.data_[i]) << " ";
+        o << i << ":" << static_cast<int>(v.payload_[i]) << " ";
     }
     o << "...</data_>";
     return o;

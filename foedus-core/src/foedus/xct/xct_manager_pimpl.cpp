@@ -206,7 +206,6 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
     Xct& current_xct = context->get_current_xct();
     const XctAccess*        read_set = current_xct.get_read_set();
     const uint32_t          read_set_size = current_xct.get_read_set_size();
-    *commit_epoch = Epoch();
     for (uint32_t i = 0; i < read_set_size; ++i) {
         // The owning transaction has changed.
         // We don't check ordinal here because there is no change we are racing with ourselves.
@@ -214,7 +213,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
         DVLOG(2) << *context << "Verifying " << access.storage_->get_name()
             << ":" << access.record_ << ". observed_xid=" << access.observed_owner_id_
                 << ", now_xid=" << access.record_->owner_id_;
-        if (!access.observed_owner_id_.compare_epoch_thread_ordinal(access.record_->owner_id_)) {
+        if (!access.observed_owner_id_.equals_epoch_thread_ordinal(access.record_->owner_id_)) {
             DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
             return false;
         }
@@ -227,7 +226,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
         }
 
         // Remembers the highest epoch observed.
-        commit_epoch->store_max(access.observed_owner_id_.data_.components.epoch());
+        commit_epoch->store_max(access.observed_owner_id_.epoch());
     }
 
     DVLOG(1) << *context << "Read-only higest epoch observed: " << *commit_epoch;
@@ -256,7 +255,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
         DVLOG(2) << *context << " Verifying " << access.storage_->get_name()
             << ":" << access.record_ << ". observed_xid=" << access.observed_owner_id_
                 << ", now_xid=" << access.record_->owner_id_;
-        if (!access.observed_owner_id_.compare_epoch_thread_ordinal(access.record_->owner_id_)) {
+        if (!access.observed_owner_id_.equals_epoch_thread_ordinal(access.record_->owner_id_)) {
             DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
             return false;
         }
@@ -300,10 +299,7 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context,
         WriteXctAccess& write = write_set[i];
         DVLOG(2) << *context << " Applying/Unlocking " << write.storage_->get_name()
             << ":" << write.record_;
-        log::invoke_apply_record(
-            write.log_entry_, write.storage_, write.record_);
-        assorted::memory_fence_release();  // we must apply BEFORE unlock
-        write.record_->owner_id_ = new_xct_id;  // this also unlocks
+        log::invoke_apply_record(new_xct_id, write.log_entry_, write.storage_, write.record_);
     }
     DVLOG(1) << *context << " applied and unlocked write set";
 }

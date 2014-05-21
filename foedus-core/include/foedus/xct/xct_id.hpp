@@ -5,6 +5,7 @@
 #ifndef FOEDUS_XCT_XCT_ID_HPP_
 #define FOEDUS_XCT_XCT_ID_HPP_
 #include <foedus/cxx11.hpp>
+#include <foedus/compiler.hpp>
 #include <foedus/epoch.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/assert_nd.hpp>
@@ -61,6 +62,13 @@ enum IsolationLevel {
 };
 
 /**
+ * Bits used to serialize (order) logs in the same epoch.
+ * This is stored in many log types rather than the full XctId because epoch is implicit.
+ * @ingroup XCT
+ */
+typedef uint32_t XctOrder;
+
+/**
  * @brief Contents of XctId.
  * @ingroup XCT
  * @details
@@ -100,11 +108,8 @@ union XctIdData {
         /** The high 32 bit represents the epoch of the transaction. */
         Epoch::EpochInteger epoch_int;
 
-        /**
-         * Other bits are used to serialize logs in the same epoch.
-         * This is stored in many log types rather than the full XctId because epoch is implicit.
-         */
-        uint32_t            serializer;
+        /** Other bits are used to serialize logs in the same epoch. */
+        XctOrder            order;
 
         Epoch               epoch() const { return Epoch(epoch_int); }
     } serializers;
@@ -130,26 +135,65 @@ const uint64_t XCT_ID_LOCK_MASK = ~XCT_ID_LOCK_BIT;
  */
 struct XctId {
     XctId() { data_.word = 0; }
-    XctId(const XctId& other) { data_.word = other.data_.word; }
+    XctId(const XctId& other) ALWAYS_INLINE { data_.word = other.data_.word; }
     XctId(Epoch::EpochInteger epoch_int, thread::ThreadId thread_id, uint16_t ordinal_and_status) {
         data_.components.epoch_int = epoch_int;
         data_.components.thread_id = thread_id;
         data_.components.ordinal_and_status = ordinal_and_status;
     }
-    XctId& operator=(const XctId& other) {
+    XctId& operator=(const XctId& other) ALWAYS_INLINE {
         data_.word = other.data_.word;
         return *this;
     }
 
+    Epoch   epoch() const ALWAYS_INLINE { return data_.components.epoch(); }
+    bool    is_valid() const ALWAYS_INLINE { return epoch().is_valid(); }
+
     /**
      * Returns if epoch_, thread_id_, and oridnal (w/o status) are identical with the given XctId.
      * We don't provide operator== in XctId because it is confusing.
-     * Instead, we provide compare_xxx that explicitly states what we are comparing.
+     * Instead, we provide equals_xxx that explicitly states what we are comparing.
      */
-    bool compare_epoch_thread_ordinal(const XctId &other) const {
+    bool equals_epoch_thread_ordinal(const XctId &other) const ALWAYS_INLINE {
         return (data_.word & XCT_ID_LOCK_MASK) == (other.data_.word & XCT_ID_LOCK_MASK);
     }
-    bool compare_all(const XctId &other) const { return data_.word == other.data_.word; }
+    bool equals_all(const XctId &other) const ALWAYS_INLINE {
+        return data_.word == other.data_.word;
+    }
+
+
+
+    /**
+     * Returns if this XctId is \e before other in serialization order, meaning this is either an
+     * invalid (unused) epoch or strictly less than the other.
+     * @pre other.is_valid()
+     */
+    bool before(const XctId &other) const ALWAYS_INLINE {
+        ASSERT_ND(other.is_valid());
+        return compare_epoch_thread_ordinal(other) < 0;
+    }
+    /** @see before() */
+    bool after(const XctId &other) const ALWAYS_INLINE {
+        ASSERT_ND(is_valid());
+        return compare_epoch_thread_ordinal(other) > 0;
+    }
+
+    /**
+     * Returns -1/0/1 if epoch_, thread_id_, and oridnal (w/o status) of this is less than/equals/
+     * greather than that of other.
+     */
+    int compare_epoch_thread_ordinal(const XctId &other) const ALWAYS_INLINE {
+        ASSERT_ND(is_valid());
+        uint64_t mine = (data_.word & XCT_ID_LOCK_MASK);
+        uint64_t others = (other.data_.word & XCT_ID_LOCK_MASK);
+        if (mine < others) {
+            return -1;
+        } else if (mine == others) {
+            return 0;
+        } else {
+            return 1;
+        }
+    }
 
     friend std::ostream& operator<<(std::ostream& o, const XctId& v);
 
@@ -163,7 +207,7 @@ struct XctId {
             }
         }
     }
-    bool is_locked() const {
+    bool is_locked() const ALWAYS_INLINE {
         return (data_.word & XCT_ID_LOCK_BIT) == XCT_ID_LOCK_BIT;
     }
 
@@ -173,7 +217,7 @@ struct XctId {
         }
     }
 
-    void unlock() {
+    void unlock() ALWAYS_INLINE {
         ASSERT_ND(is_locked());
         data_.word &= XCT_ID_LOCK_MASK;
     }

@@ -27,7 +27,7 @@ XctAccess create_access(int i) {
     return access;
 }
 void verify_access(const XctAccess &access, int i) {
-    EXPECT_TRUE(access.observed_owner_id_.compare_all(XctId(i * 20, i + 3, i * 12)));
+    EXPECT_TRUE(access.observed_owner_id_.equals_all(XctId(i * 20, i + 3, i * 12)));
     EXPECT_TRUE(access.storage_ == reinterpret_cast<storage::Storage*>(to_ptr(i * 1234)));
     EXPECT_TRUE(access.record_ == reinterpret_cast<storage::Record*>(to_ptr(i * 8452)));
 }
@@ -102,7 +102,7 @@ WriteXctAccess create_write_access(int i) {
     return access;
 }
 void verify_access(const WriteXctAccess &access, int i) {
-    EXPECT_TRUE(access.observed_owner_id_.compare_all(XctId(i * 43, i + 1, i * 4)));
+    EXPECT_TRUE(access.observed_owner_id_.equals_all(XctId(i * 43, i + 1, i * 4)));
     EXPECT_TRUE(access.storage_ == reinterpret_cast<storage::Storage*>(to_ptr(i * 52223)));
     EXPECT_TRUE(access.record_ == reinterpret_cast<storage::Record*>(to_ptr(i * 14325)));
     EXPECT_TRUE(access.log_entry_ == to_ptr(i * 5423423));

@@ -55,7 +55,10 @@ namespace array {
 /** number of branches (TPS scaling factor). */
 int BRANCHES  =   100;
 
-int TOTAL_THREADS = 1;
+int TOTAL_THREADS = -1;
+
+/** number of log writers per numa node */
+const int LOGGERS_PER_NODE = 8;
 
 /** number of tellers in 1 branch. */
 const int TELLERS   =   10;
@@ -104,7 +107,9 @@ bool          stop_requested;
 
 class RunTpcbTask : public thread::ImpersonateTask {
  public:
-    explicit RunTpcbTask(uint16_t history_ordinal) : history_ordinal_(history_ordinal) {}
+    explicit RunTpcbTask(uint16_t history_ordinal) : history_ordinal_(history_ordinal) {
+        std::memset(tmp_history_.other_data_, 0, sizeof(tmp_history_.other_data_));
+    }
     ErrorStack run(thread::Thread* context) {
         // pre-calculate random numbers to get rid of random number generation as bottleneck
         random_.set_current_seed(history_ordinal_);
@@ -223,7 +228,7 @@ int main_impl(int argc, char **argv) {
 
     std::cout << "NUMA node count=" << static_cast<int>(options.thread_.group_count_) << std::endl;
     options.log_.log_paths_.clear();
-    for (auto i = 0; i < options.thread_.group_count_; ++i) {
+    for (auto i = 0; i < options.thread_.group_count_ * LOGGERS_PER_NODE; ++i) {
         std::stringstream str;
         str << "/dev/shm/tpcb_array_expr/foedus_node" << static_cast<int>(i) << ".log";
         options.log_.log_paths_.push_back(str.str());

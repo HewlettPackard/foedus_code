@@ -149,7 +149,6 @@ void Logger::handle_logger() {
                 LOG(WARNING) << "Logger-" << id_ << " has been working without sleep for long time"
                     << "(" << iterations << "). Either too few loggers or potentially a bug?? "
                     << *this;
-                break;
             } else {
                 VLOG(0) << "Logger-" << id_ << " has more task. keep working. " << iterations;
                 DVLOG(1) << *this;

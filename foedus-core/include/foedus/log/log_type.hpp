@@ -21,9 +21,11 @@ namespace log {
  *
  * \li "populate" method to populate all properties, but the method is not overridden and its
  * signature varies. This is just to have a uniform method name for readability.
- * \li void apply_engine(Engine*)     : For engine-wide operation.
- * \li void apply_storage(Storage*)   : For storage-wide operation.
- * \li void apply_record(Storage*, Record*)   : For record-wise operation.
+ * \li One of the 3 apply methods as follows. These also populate xct_order in log if applicable
+ * (remember, XctId or xct_order is finalized only at commit time, so populate() can't do it).
+ * \li void apply_engine(const XctId&, Engine*)     : For engine-wide operation.
+ * \li void apply_storage(const XctId&, Storage*)   : For storage-wide operation.
+ * \li void apply_record(const XctId&, Storage*, Record*)   : For record-wise operation.
  * \li void assert_valid()  : For debugging (should have no cost in NDEBUG).
  * \li is_engine_log()/is_storage_log()/is_record_log()
  * \li ostream operator, preferably in xml format without root element.
