@@ -32,6 +32,15 @@ void Xct::initialize(thread::ThreadId thread_id, memory::NumaCoreMemory* core_me
     max_write_set_size_ = core_memory->get_write_set_size();
 }
 
+void Xct::issue_next_id(const Epoch &epoch)  {
+    if (epoch != id_.get_epoch()) {
+        id_.set_epoch(epoch);
+        id_.set_ordinal(0);
+    } else {
+        id_.set_ordinal(id_.get_ordinal() + 1);
+    }
+}
+
 std::ostream& operator<<(std::ostream& o, const Xct& v) {
     o << "Xct: " << v.get_id() << ", read_set_size=" << v.get_read_set_size()
         << ", write_set_size=" << v.get_write_set_size();

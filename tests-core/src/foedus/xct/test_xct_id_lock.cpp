@@ -24,7 +24,7 @@ std::vector<std::thread> threads;
 bool  done[THREADS];
 
 void sleep_enough() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
 
 void init() {

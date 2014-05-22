@@ -61,17 +61,19 @@ set(ENABLE_CPPLINT true)
 # The expensive tests are run on jenkins or manually by developers.
 option(RUN_EXPENSIVE_TESTCASES "Whether to run testcases that take long time and is not essential."  OFF)
 
-enable_testing() # we use CTest in tests-xxx. run "make test" or "ctest || true" after cmake
-# or: valgrind --leak-check=full --show-leak-kinds=all --gen-suppressions=all --suppressions=../../../../foedus-core/tools/valgrind.supp ./hoge
-# or: ctest -D ExperimentalMemCheck || true
-# For why we have "|| true", see: http://www.warp1337.com/content/how-use-ctest-jenkins-xunit-or-junit-plugin
-include(CTest)
+# we use CTest in tests-xxx. run "make test" or "ctest || true" after cmake
 set(MEMORYCHECK_SUPPRESSIONS_FILE "${FOEDUS_CORE_SRC_ROOT}/tools/valgrind.supp"
     CACHE FILEPATH "" FORCE)
 configure_file(${MEMORYCHECK_SUPPRESSIONS_FILE} ${FOEDUS_BIN_ROOT}/valgrind.supp COPYONLY)
 set(MEMORYCHECK_COMMAND /usr/bin/valgrind CACHE FILEPATH "" FORCE)
 # Configurations for ctest
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CTestCustom.cmake.in ${CMAKE_BINARY_DIR}/CTestCustom.cmake @ONLY)
+
+enable_testing()
+# or: valgrind --leak-check=full --show-leak-kinds=all --gen-suppressions=all --suppressions=../../../valgrind.supp ./hoge
+# or: ctest -D ExperimentalMemCheck || true
+# For why we have "|| true", see: http://www.warp1337.com/content/how-use-ctest-jenkins-xunit-or-junit-plugin
+include(CTest)
 
 # The core library. This project is also compilable by itself.
 add_subdirectory(foedus-core)

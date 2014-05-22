@@ -69,14 +69,7 @@ class Xct {
      * Called while a successful commit to issue a new xct id.
      * @todo advance epoch when wrap around
      */
-    void                issue_next_id(const Epoch &epoch)  {
-        if (epoch != id_.get_epoch()) {
-            id_.set_epoch(epoch);
-            id_.set_ordinal(0);
-        } else {
-            id_.set_ordinal(id_.get_ordinal() + 1);
-        }
-    }
+    void                issue_next_id(const Epoch &epoch);
 
     /**
      * @brief Add the given record to the read set of this transaction.

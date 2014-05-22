@@ -190,8 +190,8 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
     for (uint32_t i = 0; i < write_set_size; ++i) {
         DVLOG(2) << *context << " Locking " << write_set[i].storage_->get_name()
             << ":" << write_set[i].record_;
-        XctId& owner_id = write_set[i].record_->owner_id_;
-        owner_id.keylock_unconditional();
+        write_set[i].record_->owner_id_.keylock_unconditional();
+        ASSERT_ND(write_set[i].record_->owner_id_.is_keylocked());
     }
     DVLOG(1) << *context << " locked write set";
 
