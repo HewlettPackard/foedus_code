@@ -68,9 +68,10 @@ enable_testing() # we use CTest in tests-xxx. run "make test" or "ctest || true"
 include(CTest)
 set(MEMORYCHECK_SUPPRESSIONS_FILE "${FOEDUS_CORE_SRC_ROOT}/tools/valgrind.supp"
     CACHE FILEPATH "" FORCE)
+configure_file(${MEMORYCHECK_SUPPRESSIONS_FILE} ${FOEDUS_BIN_ROOT}/valgrind.supp COPYONLY)
 set(MEMORYCHECK_COMMAND /usr/bin/valgrind CACHE FILEPATH "" FORCE)
 # Configurations for ctest
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CTestCustom.cmake ${CMAKE_BINARY_DIR}/CTestCustom.cmake COPYONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CTestCustom.cmake.in ${CMAKE_BINARY_DIR}/CTestCustom.cmake @ONLY)
 
 # The core library. This project is also compilable by itself.
 add_subdirectory(foedus-core)

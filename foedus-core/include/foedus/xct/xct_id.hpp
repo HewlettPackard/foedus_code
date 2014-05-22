@@ -125,6 +125,13 @@ const uint64_t UNMASK_LATEST               = 0xFFFFFFFFFFFFFFFEULL;
  *  \li We can \e NOT provide "equals" semantics via simple integer comparison. 61th- bits are
  * status bits, thus we have to mask it. equals_serial_order() does it.
  *
+ * @par Range Lock
+ * Unlike Sile [TU13], we use range-lock bit for protecting a gap rather than a node set, which
+ * is unnecessarily conservative. It basically works same as key lock. One thing to remember is that
+ * each B-tree page has an inclusive low-fence key and an exclusive high-fence key.
+ * Range lock can protect a region from low-fence to the first key and a region from last key to
+ * high-fence key.
+ *
  * @par POD
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
@@ -193,7 +200,18 @@ struct XctId {
         return data_ == other.data_;
     }
 
-
+    /**
+     * @brief Kind of std::max(this, other).
+     * @details
+     * This relies on the semantics of before(). Thus, this can't differentiate two XctId that
+     * differ only in status bits. This method is only used for XctId generation at commit time,
+     * so that's fine.
+     */
+    void store_max(const XctId& other) {
+        if (before(other)) {
+            data_ = other.data_;
+        }
+    }
 
     /**
      * Returns if this XctId is \e before other in serialization order, meaning this is either an

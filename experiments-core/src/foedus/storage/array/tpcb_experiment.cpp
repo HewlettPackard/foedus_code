@@ -11,8 +11,8 @@
  * This is the second experiment, which implements TPC-B.
  *
  * @section ENVIRONMENTS Environments
- * At least 1GB of available RAM.
- * At least 4 cores or more.
+ * At least 24GB of available RAM.
+ * At least 16 cores or more.
  *
  * @section OTHER Other notes
  * No special steps to build/run this expriment. This is self-contained.
@@ -20,7 +20,7 @@
  * verification feature.
  *
  * @section RESULTS Latest Results
- * foedus_results/20140414_kimurhid_array_readonly
+ * 20140521 12M tps
  */
 #include <foedus/error_stack.hpp>
 #include <foedus/engine.hpp>
