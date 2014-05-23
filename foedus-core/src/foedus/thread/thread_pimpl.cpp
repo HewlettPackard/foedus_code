@@ -68,6 +68,7 @@ void ThreadPimpl::handle_tasks() {
                 ASSERT_ND(impersonated_);
                 VLOG(0) << "Thread-" << id_ << " retrieved a task";
                 ErrorStack result = task->run(holder_);
+                VLOG(0) << "Thread-" << id_ << " run(task) returned. result =" << result;
                 assorted::memory_fence_release();
                 impersonated_ = false;
                 assorted::memory_fence_release();

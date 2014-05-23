@@ -53,6 +53,7 @@ void StoppableThread::stop() {
         stop_requested_ = true;
         assorted::memory_fence_release();
         condition_.notify_all();
+        LOG(INFO) << "Joining " << name_;
         thread_.join();
         LOG(INFO) << "Joined " << name_;
     }
