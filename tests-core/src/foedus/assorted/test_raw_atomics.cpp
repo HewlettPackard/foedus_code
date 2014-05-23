@@ -15,16 +15,22 @@
 namespace foedus {
 namespace assorted {
 
-const int THREADS = 4;
-const int ITERATIONS = 30;
+const int THREADS = 6;
+const int ITERATIONS = 20;
+const int REPS = 5;
 template <typename T>
 struct CasTest {
     explicit CasTest(bool weak = false) : weak_(weak) {}
     void test() {
+        for (int i = 0; i < REPS; ++i) {
+            test_rep();
+        }
+    }
+    void test_rep() {
         static_assert(THREADS * ITERATIONS < 127, "exceeds smallest integer");
         data_ = 0;
         conflicts_ = 0;
-        for (int i = 0; i < THREADS * ITERATIONS; ++i) {
+        for (int i = 0; i <= THREADS * ITERATIONS; ++i) {
             observed_[i] = false;
         }
         assorted::memory_fence_release();
@@ -36,11 +42,12 @@ struct CasTest {
         for (int i = 0; i < THREADS; ++i) {
             threads_[i].join();
         }
+        threads_.clear();
 
         EXPECT_FALSE(observed_[data_]) << data_;
         observed_[data_] = true;
         assorted::memory_fence_acquire();
-        for (int i = 0; i < THREADS * ITERATIONS; ++i) {
+        for (int i = 0; i <= THREADS * ITERATIONS; ++i) {
             EXPECT_TRUE(observed_[i]) << i;
         }
         std::cout << "In total, about " << conflicts_ << " coflicts" << std::endl;
@@ -72,10 +79,8 @@ struct CasTest {
                 }
                 if (swapped) {
                     EXPECT_EQ(prev_old, old);
-                    assorted::memory_fence_acq_rel();
                     EXPECT_FALSE(observed_[old]);
                     observed_[old] = true;
-                    assorted::memory_fence_acq_rel();
                     break;
                 } else {
                     ++conflicts_;
