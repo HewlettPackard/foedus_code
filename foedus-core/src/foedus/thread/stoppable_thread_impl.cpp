@@ -15,8 +15,8 @@ void StoppableThread::initialize(const std::string &name,
     name_ = name;
     thread_ = std::move(the_thread);
     sleep_interval_ = sleep_interval;
-    stop_requested_ = false;
-    stopped_ = false;
+    stop_requested_.store(false);
+    stopped_.store(false);
     LOG(INFO) << name_ << " initialized. sleep_interval=" << sleep_interval_.count() << " microsec";
 }
 
@@ -32,7 +32,7 @@ bool StoppableThread::sleep() {
     std::unique_lock<std::mutex> the_lock(mutex_);
     condition_.wait_for(the_lock, sleep_interval_);
     VLOG(1) << name_ << " woke up";
-    if (stop_requested_) {
+    if (is_stop_requested()) {
         LOG(INFO) << name_ << " stop requested";
         return true;
     } else {
@@ -48,14 +48,14 @@ void StoppableThread::wakeup() {
 void StoppableThread::stop() {
     LOG(INFO) << "Stopping " << name_ << "...";
     assorted::memory_fence_acq_rel();
-    if (!stopped_ && !stop_requested_) {
-        stop_requested_ = true;
+    if (!is_stopped() && !is_stop_requested()) {
+        stop_requested_.store(true);
         condition_.notify_all();
         LOG(INFO) << "Joining " << name_ << "...";
         thread_.join();
         LOG(INFO) << "Joined " << name_;
     }
-    stopped_ = true;
+    stopped_.store(true);
     LOG(INFO) << "Successfully Stopped " << name_;
 }
 

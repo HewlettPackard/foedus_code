@@ -55,14 +55,14 @@ class StoppableThread final {
     bool sleep();
 
     /** returns whether someone has requested to stop this. */
-    bool is_stop_requested() const { return stop_requested_.load(); }
+    bool is_stop_requested() const { return stop_requested_.load(std::memory_order_acquire); }
     /** non-atomic is_stop_requested(). */
-    bool is_stop_requested_cheap() const { return stop_requested_.load(std::memory_order_relaxed); }
+    bool is_stop_requested_weak() const { return stop_requested_.load(std::memory_order_relaxed); }
 
     /** returns whether this thread has stopped (if the thread hasn't started, false too). */
-    bool is_stopped() const { return stopped_.load(); }
+    bool is_stopped() const { return stopped_.load(std::memory_order_acquire); }
     /** non-atomic is_stopped(). */
-    bool is_stopped_cheap() const { return stopped_.load(std::memory_order_relaxed); }
+    bool is_stopped_weak() const { return stopped_.load(std::memory_order_relaxed); }
 
  private:
     /** Used only for debug logging. */

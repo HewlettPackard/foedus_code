@@ -79,7 +79,7 @@ class Rendezvous final {
      */
     template< class CLOCK, class DURATION >
     bool wait_until(const std::chrono::time_point<CLOCK, DURATION>& until) {
-        if (signaled_) {
+        if (is_signaled()) {
             return true;
         }
         std::unique_lock<std::mutex> the_lock(mutex_);
@@ -96,13 +96,15 @@ class Rendezvous final {
      * Otherwise, the behavior is undefined.
      */
     void signal() {
-        ASSERT_ND(!signaled_);
-        signaled_ = true;
+        ASSERT_ND(!is_signaled());
+        signaled_.store(true);
         condition_.notify_all();
     }
 
     /** returns whether this thread has stopped (if the thread hasn't started, false too). */
-    bool is_signaled() const { return signaled_.load(); }
+    bool is_signaled() const { return signaled_.load(std::memory_order_acquire); }
+    /** non-atomic is_signaled(). */
+    bool is_signaled_weak() const { return signaled_.load(std::memory_order_relaxed); }
 
  private:
     /** protects the condition variable. */
