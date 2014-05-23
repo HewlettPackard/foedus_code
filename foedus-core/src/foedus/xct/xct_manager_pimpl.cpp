@@ -153,7 +153,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     assorted::memory_fence_acq_rel();
     bool verified = precommit_xct_verify_readwrite(context);  // phase 2
     if (verified) {
-        precommit_xct_apply(context, *commit_epoch);  // phase 3. this also unlocks
+        precommit_xct_apply(context, commit_epoch);  // phase 3. this also unlocks
         // announce log AFTER (with fence) apply, because apply sets xct_order in the logs.
         assorted::memory_fence_release();
         context->get_thread_log_buffer().publish_committed_log(*commit_epoch);
@@ -283,7 +283,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
 }
 
 void XctManagerPimpl::precommit_xct_apply(thread::Thread* context,
-                                                     const Epoch &commit_epoch) {
+                                                     Epoch *commit_epoch) {
     Xct& current_xct = context->get_current_xct();
     WriteXctAccess* write_set = current_xct.get_write_set();
     uint32_t        write_set_size = current_xct.get_write_set_size();
@@ -291,7 +291,10 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context,
 
     current_xct.issue_next_id(commit_epoch);
     XctId new_xct_id = current_xct.get_id();
-    ASSERT_ND(!new_xct_id.is_keylocked());
+    ASSERT_ND(new_xct_id.get_thread_id() == context->get_thread_id());
+    ASSERT_ND(new_xct_id.get_epoch() == *commit_epoch);
+    ASSERT_ND(new_xct_id.get_ordinal() > 0);
+    ASSERT_ND(new_xct_id.is_status_bits_off());
 
     DVLOG(1) << *context << " generated new xct id=" << new_xct_id;
     for (uint32_t i = 0; i < write_set_size; ++i) {

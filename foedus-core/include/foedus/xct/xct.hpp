@@ -6,14 +6,15 @@
 #define FOEDUS_XCT_XCT_HPP_
 #include <foedus/assert_nd.hpp>
 #include <foedus/cxx11.hpp>
+#include <foedus/epoch.hpp>
 #include <foedus/error_stack.hpp>
+#include <foedus/fwd.hpp>
 #include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/xct/fwd.hpp>
-#include <foedus/epoch.hpp>
 #include <foedus/xct/xct_id.hpp>
 #include <iosfwd>
 namespace foedus {
@@ -27,7 +28,7 @@ namespace xct {
  */
 class Xct {
  public:
-    Xct();
+    Xct(Engine* engine, thread::ThreadId thread_id);
 
     // No copy
     Xct(const Xct& other) CXX11_FUNC_DELETE;
@@ -66,10 +67,23 @@ class Xct {
     WriteXctAccess*     get_write_set() { return write_set_; }
 
     /**
-     * Called while a successful commit to issue a new xct id.
-     * @todo advance epoch when wrap around
+     * @brief Called while a successful commit of read-write xct to issue a new xct id.
+     * @param[in,out] epoch (in) The \e minimal epoch this transaction has to be in. (out)
+     * the epoch this transaction ended up with, which is epoch+1 only when it found ordinal is
+     * full for the current epoch.
+     * @details
+     * This method issues a XctId that satisfies the following properties (see [TU13]).
+     * Clarification: "larger" hereby means either a) the epoch is larger or
+     * b) the epoch is same and ordinal is larger.
+     * \li Larger than the most recent XctId issued for read-write transaction on this thread.
+     * \li Larger than every XctId of any record read or written by this transaction.
+     * \li In the \e returned(out) epoch (which is same or larger than the given(in) epoch).
+     *
+     * This method also advancec epoch when ordinal is full for the current epoch.
+     * This method never fails.
+     * @pre write_set_size_>0 (otherwise why called? this is for read-write xct)
      */
-    void                issue_next_id(const Epoch &epoch);
+    void                issue_next_id(Epoch *epoch);
 
     /**
      * @brief Add the given record to the read set of this transaction.
@@ -148,7 +162,15 @@ class Xct {
     friend std::ostream& operator<<(std::ostream& o, const Xct& v);
 
  private:
-    /** ID of this transaction, which is issued at commit time. */
+    Engine* const engine_;
+
+    /** Thread that owns this transaction. */
+    const thread::ThreadId thread_id_;
+
+    /**
+     * Most recently issued ID of this transaction. XctID is issued at commit time,
+     * so this is "previous" ID unless while or right after commit.
+     */
     XctId               id_;
 
     /** Level of isolation for this transaction. */

@@ -4,14 +4,14 @@
  */
 #ifndef FOEDUS_XCT_XCT_ID_HPP_
 #define FOEDUS_XCT_XCT_ID_HPP_
+#include <foedus/assert_nd.hpp>
 #include <foedus/cxx11.hpp>
 #include <foedus/compiler.hpp>
 #include <foedus/epoch.hpp>
-#include <foedus/thread/thread_id.hpp>
-#include <foedus/assert_nd.hpp>
 #include <foedus/assorted/raw_atomics.hpp>
 #include <foedus/assorted/assorted_func.hpp>
 #include <foedus/assorted/atomic_fences.hpp>
+#include <foedus/thread/thread_id.hpp>
 #include <stdint.h>
 #include <iosfwd>
 /**
@@ -70,23 +70,24 @@ typedef uint32_t XctOrder;
 
 // Defines 64bit constant values for XctId.
 //                                             0123456789abcdef
-const uint64_t MASK_EPOCH                  = 0xFFFFFFF800000000ULL;  // first 29 bits
-const uint64_t MASK_THREAD_ID              = 0x00000007FFF80000ULL;  // next 16 bits
-const uint64_t MASK_ORDINAL                = 0x000000000007FFF0ULL;  // next 15 bits
+const uint64_t MASK_EPOCH                  = 0xFFFFFFF000000000ULL;  // first 28 bits
+const uint64_t MASK_ORDINAL                = 0x0000000FFFF00000ULL;  // next 16 bits
+const uint64_t MASK_THREAD_ID              = 0x00000000000FFFF0ULL;  // next 16 bits
 const uint64_t MASK_SERIALIZER             = 0xFFFFFFFFFFFFFFF0ULL;  // above 3 serialize xcts
-const uint64_t MASK_IN_EPOCH_ORDER         = 0x00000007FFFFFFF0ULL;  // thread_id and ordinal
+const uint64_t MASK_IN_EPOCH_ORDER         = 0x0000000FFFFFFFF0ULL;  // ordinal and thread_id
 const uint64_t KEYLOCK_BIT                 = 0x0000000000000008ULL;
 const uint64_t RANGELOCK_BIT               = 0x0000000000000004ULL;
 const uint64_t DELETE_BIT                  = 0x0000000000000002ULL;
 const uint64_t LATEST_BIT                  = 0x0000000000000001ULL;
 
-const uint64_t UNMASK_EPOCH                = 0x00000007FFFFFFFFULL;
-const uint64_t UNMASK_THREAD_ID            = 0xFFFFFFF80007FFFFULL;
-const uint64_t UNMASK_ORDINAL              = 0xFFFFFFFFFFF8000FULL;
+const uint64_t UNMASK_EPOCH                = 0x0000000FFFFFFFFFULL;
+const uint64_t UNMASK_ORDINAL              = 0xFFFFFFF0000FFFFFULL;
+const uint64_t UNMASK_THREAD_ID            = 0xFFFFFFFFFFF0000FULL;
 const uint64_t UNMASK_KEYLOCK              = 0xFFFFFFFFFFFFFFF7ULL;
 const uint64_t UNMASK_RANGELOCK            = 0xFFFFFFFFFFFFFFFBULL;
 const uint64_t UNMASK_DELETE               = 0xFFFFFFFFFFFFFFFDULL;
 const uint64_t UNMASK_LATEST               = 0xFFFFFFFFFFFFFFFEULL;
+const uint64_t UNMASK_STATUS_BITS          = 0xFFFFFFFFFFFFFFF0ULL;
 
 /**
  * @brief Transaction ID, a 64-bit data to identify transactions and record versions.
@@ -98,16 +99,18 @@ const uint64_t UNMASK_LATEST               = 0xFFFFFFFFFFFFFFFEULL;
  * @par Bit Assignments
  * <table>
  * <tr><th>Bits</th><th>Name</th><th>Description</th></tr>
- * <tr><td>1..29</td><td>Epoch</td><td>The recent owning transaction was in this Epoch.
+ * <tr><td>1..28</td><td>Epoch</td><td>The recent owning transaction was in this Epoch.
  * We don't consume full 32 bits for epoch.
- * Assuming 30ms per epoch, 29bit still represents 3 years. All epochs will be refreshed by then
+ * Assuming 20ms per epoch, 28bit still represents 1 year. All epochs will be refreshed by then
  * or we can have some periodic mantainance job to make it sure.</td></tr>
- * <tr><td>30..45</td><td>ThreadId</td><td>The recent owning transaction was on this thread.
- * Full 16 bits. We might not need 256 node or 256 cores,
- * but we can't be sure for future.</td></tr>
- * <tr><td>46..60</td><td>Ordinal</td><td>The recent owning transaction had this ordinal
- * in the epoch and the thread. We assign only 15 bits. Thus 32k xcts per epoch per core.
- * A short transaction might exceed it, but then it can just increment current epoch.</td></tr>
+ * <tr><td>29..45</td><td>Ordinal</td><td>The recent owning transaction had this ordinal
+ * in the epoch. We assign 16 bits. Thus 64k xcts per epoch.
+ * A short transaction might exceed it, but then it can just increment current epoch.
+ * Also, if there are no dependencies between transactions on each core, it could be
+ * up to 64k xcts per epoch per core. See commit protocol.
+ * </td></tr>
+ * <tr><td>46..60</td><td>ThreadId</td><td>The recent owning transaction was on this thread.
+ * 16 bits. We might not need 256 node or 256 cores, but we can't be sure for future.</td></tr>
  * <tr><td>61</td><td>Key Lock bit</td><td>Lock the key.</td></tr>
  * <tr><td>62</td><td>Range Lock bit</td><td>Lock the interval from the key to next key.</td></tr>
  * <tr><td>63</td><td>Psuedo-delete bit</td><td>Logically delete the key.</td></tr>
@@ -122,6 +125,9 @@ const uint64_t UNMASK_LATEST               = 0xFFFFFFFFFFFFFFFEULL;
  * two instantances. Be aware of the following things, though:
  *  \li Epoch might be invalid/uninitialized (zero). An invalid epoch is \e before everything else.
  *  \li Epoch might wrap-around. We use the same wrap-around handling as foedus::Epoch.
+ *  \li Ordinal is not a strict ordinal unless there is a dependency between transactions
+ * in different cores. In that case, commit protocol adjusts the ordinal for serializability.
+ * See [TU13] or their code (gen_commit_tid() in proto2_impl.h).
  *  \li We can \e NOT provide "equals" semantics via simple integer comparison. 61th- bits are
  * status bits, thus we have to mask it. equals_serial_order() does it.
  *
@@ -138,19 +144,19 @@ const uint64_t UNMASK_LATEST               = 0xFFFFFFFFFFFFFFFEULL;
 struct XctId {
     /** Defines constant values. */
     enum Constants {
-        SHIFT_EPOCH         = 35,
-        SHIFT_THREAD_ID     = 19,
-        SHIFT_ORDINAL       = 4,
+        SHIFT_EPOCH         = 36,
+        SHIFT_ORDINAL       = 20,
+        SHIFT_THREAD_ID     = 4,
     };
 
     XctId() : data_(0) {}
     XctId(const XctId& other) : data_(other.data_) {}
-    XctId(Epoch::EpochInteger epoch_int, thread::ThreadId thread_id, uint16_t ordinal) {
+
+    void set_clean(Epoch::EpochInteger epoch_int, uint16_t ordinal, thread::ThreadId thread_id) {
         ASSERT_ND(epoch_int < Epoch::EPOCH_INT_OVERFLOW);
-        ASSERT_ND(ordinal < (1 << 15));
         data_ = (static_cast<uint64_t>(epoch_int) << SHIFT_EPOCH)
-            | (static_cast<uint64_t>(thread_id) << SHIFT_THREAD_ID)
-            | (static_cast<uint64_t>(ordinal) << SHIFT_ORDINAL);
+            | (static_cast<uint64_t>(ordinal) << SHIFT_ORDINAL)
+            | (static_cast<uint64_t>(thread_id) << SHIFT_THREAD_ID);
     }
 
     XctId& operator=(const XctId& other) {
@@ -169,12 +175,6 @@ struct XctId {
     }
     bool    is_valid() const ALWAYS_INLINE { return (data_ & MASK_EPOCH) != 0; }
 
-    thread::ThreadId get_thread_id() const ALWAYS_INLINE {
-        return static_cast<thread::ThreadId>((data_ & MASK_THREAD_ID) >> SHIFT_THREAD_ID);
-    }
-    void    set_thread_id(thread::ThreadId id) ALWAYS_INLINE {
-        data_ = (data_ & MASK_THREAD_ID) | (static_cast<uint64_t>(id) << SHIFT_THREAD_ID);
-    }
 
     uint16_t get_ordinal() const ALWAYS_INLINE {
         return static_cast<uint16_t>((data_ & MASK_ORDINAL) >> SHIFT_ORDINAL);
@@ -182,12 +182,18 @@ struct XctId {
     void set_ordinal(uint16_t ordinal) ALWAYS_INLINE {
         data_ = (data_ & UNMASK_ORDINAL) | (static_cast<uint64_t>(ordinal) << SHIFT_ORDINAL);
     }
+    thread::ThreadId get_thread_id() const ALWAYS_INLINE {
+        return static_cast<thread::ThreadId>((data_ & MASK_THREAD_ID) >> SHIFT_THREAD_ID);
+    }
+    void    set_thread_id(thread::ThreadId id) ALWAYS_INLINE {
+        data_ = (data_ & UNMASK_THREAD_ID) | (static_cast<uint64_t>(id) << SHIFT_THREAD_ID);
+    }
 
     /**
      * Returns a 32-bit integer that represents the serial order in the epoch.
      */
     XctOrder get_in_epoch_xct_order() const ALWAYS_INLINE {
-        return data_ & MASK_IN_EPOCH_ORDER;
+        return (data_ & MASK_IN_EPOCH_ORDER) >> SHIFT_THREAD_ID;
     }
 
     /**
@@ -277,6 +283,13 @@ struct XctId {
 
     bool is_deleted() const ALWAYS_INLINE { return (data_ & DELETE_BIT) != 0; }
     bool is_latest() const ALWAYS_INLINE { return (data_ & LATEST_BIT) != 0; }
+
+    bool is_status_bits_off() const ALWAYS_INLINE {
+        return !is_deleted() && !is_keylocked() && !is_latest() && !is_rangelocked();
+    }
+    void clear_status_bits() ALWAYS_INLINE {
+        data_ &= UNMASK_STATUS_BITS;
+    }
 
     /** The 64bit data. */
     uint64_t           data_;

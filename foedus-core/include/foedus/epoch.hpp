@@ -24,13 +24,13 @@ namespace foedus {
  * timestamp nowadays.
  *
  * @par Value range
- * We use 29 bits to represent an epoch (we need to save 3 bits for the sake of foedus::xct::XctId).
- * The first 3 bits must be always zero. This means the value range of [0, 2^29 - 1].
- * Assuming 30ms per epoch, this is about 3 years.
+ * We use 28 bits to represent an epoch (we need to save 4 bits for the sake of foedus::xct::XctId).
+ * The first 4 bits must be always zero. This means the value range of [0, 2^28 - 1].
+ * Assuming 20ms per epoch, this is about 1 year.
  *
  * @par Wrap-around
  * This class can handle wrapping-around \b assuming there is no case where we have two epochs
- * that are 2^28 or more distant. As one epoch represents tens of milliseconds, this assumption
+ * that are 2^27 or more distant. As one epoch represents tens of milliseconds, this assumption
  * should hold. All very-old epochs will disappear from logs and snapshots by the time
  * we wrap around. We use wrap-around-aware comparison algorithms
  *
@@ -53,8 +53,8 @@ class Epoch {
         EPOCH_INITIAL_DURABLE = 1,
         /** The first epoch (before wrap-around) that might have transactions is ep-2. */
         EPOCH_INITIAL_CURRENT = 2,
-        /** Use 29 bits to represent an epoch. */
-        EPOCH_BITS = 29,
+        /** Bits to represent an epoch. */
+        EPOCH_BITS = 28,
         /** Epoch values wrap around at this value. */
         EPOCH_INT_OVERFLOW = (1 << EPOCH_BITS),
         /** Used for before(). */

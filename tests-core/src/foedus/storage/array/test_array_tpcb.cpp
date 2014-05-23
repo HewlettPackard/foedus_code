@@ -311,6 +311,8 @@ class RunTpcbTask : public thread::ImpersonateTask {
         CHECK_ERROR(histories->overwrite_record(context, history_id, &history));
 
         Epoch commit_epoch;
+        ASSERT_ND(context->get_current_xct().get_read_set_size() > 0);
+        ASSERT_ND(context->get_current_xct().get_write_set_size() > 0);
         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
 
         std::cout << "Committed! Thread-" << context->get_thread_id() << " Updated "

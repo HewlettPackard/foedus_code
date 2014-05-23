@@ -78,7 +78,7 @@ struct OverwriteLogType : public log::RecordLogType {
         std::memcpy(record->payload_ + payload_offset_, payload_, payload_count_);
         assorted::memory_fence_release();  // we must apply BEFORE unlock
         // ordered correctly?
-        // ASSERT_ND(record->owner_id_.before(xct_id));  TODO(Hideaki) must be turned on
+        ASSERT_ND(record->owner_id_.before(xct_id));
         record->owner_id_ = xct_id;  // this also unlocks
     }
 
