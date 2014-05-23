@@ -26,8 +26,12 @@ namespace thread {
 class StoppableThread final {
  public:
     StoppableThread() : stop_requested_(false), stopped_(false) {}
+
+    // non-copyable assignable. (maybe better to provide move, but no need so far)
     StoppableThread(const StoppableThread &other) = delete;
     StoppableThread& operator=(const StoppableThread &other) = delete;
+    StoppableThread(StoppableThread &&other) = delete;
+    StoppableThread& operator=(StoppableThread &&other) = delete;
 
     /** Initializes this object for the given thread. */
     void initialize(const std::string &name,
@@ -51,6 +55,15 @@ class StoppableThread final {
     /**
      * Sleep until the interval elapses or someone requests to stop this thread.
      * @return whether someone has requested to stop this thread.
+     * @details
+     * For example, use it as follows.
+     * @code{.cpp}
+     * void my_thread_handler(StoppableThread* me) {
+     *   while (!me->sleep()) {
+     *     // some stuff
+     *   }
+     * }
+     * @endcode
      */
     bool sleep();
 
