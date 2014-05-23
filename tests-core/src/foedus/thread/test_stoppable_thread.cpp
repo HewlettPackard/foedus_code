@@ -76,6 +76,7 @@ TEST(StoppableThreadTest, Many) {
         EXPECT_TRUE(th->is_stopped());
         EXPECT_TRUE(th->is_stop_requested_weak());
         EXPECT_TRUE(th->is_stopped_weak());
+        delete th;
     }
 }
 

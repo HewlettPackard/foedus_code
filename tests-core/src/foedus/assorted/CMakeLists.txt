@@ -1,1 +1,19 @@
-add_foedus_test_individual(test_raw_atomics "Empty")
+set(test_raw_atomics_individual
+    Uint8
+    Uint16
+    Uint32
+    Uint64
+    Int8
+    Int16
+    Int32
+    Int64
+    Uint8Weak
+    Uint16Weak
+    Uint32Weak
+    Uint64Weak
+    Int8Weak
+    Int16Weak
+    Int32Weak
+    Int64Weak
+)
+add_foedus_test_individual(test_raw_atomics "${test_raw_atomics_individual}")

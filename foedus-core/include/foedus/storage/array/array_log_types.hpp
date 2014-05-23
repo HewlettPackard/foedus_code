@@ -55,9 +55,7 @@ struct OverwriteLogType : public log::RecordLogType {
         offset_ = offset;
         payload_offset_ = payload_offset;
         payload_count_ = payload_count;
-        // some
         std::memcpy(payload_, payload, payload_count);
-        // test
     }
     /** For primitive types. A bit more efficient. */
     template <typename T>
