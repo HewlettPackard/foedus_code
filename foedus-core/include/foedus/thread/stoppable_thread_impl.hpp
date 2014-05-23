@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_THREAD_STOPPABLE_THREAD_IMPL_HPP_
 #define FOEDUS_THREAD_STOPPABLE_THREAD_IMPL_HPP_
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -54,10 +55,14 @@ class StoppableThread final {
     bool sleep();
 
     /** returns whether someone has requested to stop this. */
-    bool is_stop_requested() const { return stop_requested_; }
+    bool is_stop_requested() const { return stop_requested_.load(); }
+    /** non-atomic is_stop_requested(). */
+    bool is_stop_requested_cheap() const { return stop_requested_.load(std::memory_order_relaxed); }
 
     /** returns whether this thread has stopped (if the thread hasn't started, false too). */
-    bool is_stopped() const { return stopped_; }
+    bool is_stopped() const { return stopped_.load(); }
+    /** non-atomic is_stopped(). */
+    bool is_stopped_cheap() const { return stopped_.load(std::memory_order_relaxed); }
 
  private:
     /** Used only for debug logging. */
@@ -71,9 +76,9 @@ class StoppableThread final {
     /** used to notify the thread to wakeup. */
     std::condition_variable         condition_;
     /** whether someone has requested to stop this. */
-    bool                            stop_requested_;
+    std::atomic<bool>               stop_requested_;
     /** whether this thread has stopped (if the thread hasn't started, false too). */
-    bool                            stopped_;
+    std::atomic<bool>               stopped_;
 };
 
 

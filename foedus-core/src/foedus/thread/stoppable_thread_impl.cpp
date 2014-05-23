@@ -45,20 +45,17 @@ void StoppableThread::wakeup() {
     condition_.notify_all();
 }
 
-
 void StoppableThread::stop() {
     LOG(INFO) << "Stopping " << name_ << "...";
     assorted::memory_fence_acq_rel();
     if (!stopped_ && !stop_requested_) {
         stop_requested_ = true;
-        assorted::memory_fence_release();
         condition_.notify_all();
-        LOG(INFO) << "Joining " << name_;
+        LOG(INFO) << "Joining " << name_ << "...";
         thread_.join();
         LOG(INFO) << "Joined " << name_;
     }
     stopped_ = true;
-    assorted::memory_fence_release();
     LOG(INFO) << "Successfully Stopped " << name_;
 }
 

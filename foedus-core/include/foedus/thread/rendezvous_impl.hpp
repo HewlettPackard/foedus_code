@@ -5,6 +5,8 @@
 #ifndef FOEDUS_THREAD_RENDEZVOUS_IMPL_HPP_
 #define FOEDUS_THREAD_RENDEZVOUS_IMPL_HPP_
 #include <foedus/assert_nd.hpp>
+#include <foedus/assorted/atomic_fences.hpp>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -47,11 +49,11 @@ class Rendezvous final {
      * Equivalent to std::future<void>::wait().
      */
     void wait() {
-        if (signaled_) {
+        if (is_signaled()) {
             return;
         }
         std::unique_lock<std::mutex> the_lock(mutex_);
-        condition_.wait(the_lock, [this]{ return signaled_; });
+        condition_.wait(the_lock, [this]{ return is_signaled(); });
     }
 
     /**
@@ -62,11 +64,11 @@ class Rendezvous final {
      */
     template<class REP, class PERIOD>
     bool wait_for(const std::chrono::duration<REP, PERIOD>& timeout) {
-        if (signaled_) {
+        if (is_signaled()) {
             return true;
         }
         std::unique_lock<std::mutex> the_lock(mutex_);
-        return condition_.wait_for< REP, PERIOD >(the_lock, timeout, [this]{ return signaled_; });
+        return condition_.wait_for<REP, PERIOD>(the_lock, timeout, [this]{ return is_signaled(); });
     }
 
     /**
@@ -81,7 +83,9 @@ class Rendezvous final {
             return true;
         }
         std::unique_lock<std::mutex> the_lock(mutex_);
-        return condition_.wait_for< CLOCK, DURATION >(the_lock, until, [this]{ return signaled_; });
+        return condition_.wait_for<CLOCK, DURATION>(the_lock, until, [this]{
+            return is_signaled();
+        });
     }
 
     /**
@@ -98,7 +102,7 @@ class Rendezvous final {
     }
 
     /** returns whether this thread has stopped (if the thread hasn't started, false too). */
-    bool is_signaled() const { return signaled_; }
+    bool is_signaled() const { return signaled_.load(); }
 
  private:
     /** protects the condition variable. */
@@ -106,7 +110,7 @@ class Rendezvous final {
     /** used to notify waiters to wakeup. */
     std::condition_variable         condition_;
     /** whether this thread has stopped (if the thread hasn't started, false too). */
-    bool                            signaled_;
+    std::atomic<bool>               signaled_;
 };
 
 
