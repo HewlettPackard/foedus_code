@@ -18,6 +18,7 @@ TEST(XctIdTest, Empty) {
     EXPECT_EQ(0, id.get_epoch_int());
     EXPECT_EQ(0, id.get_ordinal());
     EXPECT_EQ(0, id.get_thread_id());
+    new int;  // TODO(Hideaki) testing jenkins valgrind
 }
 TEST(XctIdTest, SetAll) {
     XctId id;

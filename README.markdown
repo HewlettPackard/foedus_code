@@ -50,11 +50,14 @@ If you are the person to compile our rpm packages ("make package"), also run the
 
     sudo yum install rpm-build
 
+If you are the admin to maintain our gitlab installation.
+    # see https://fedoraproject.org/wiki/User:Axilleas/GitLab
+    sudo yum groupinstall 'Development Tools' 'Development Libraries'
+    sudo yum install zlib-devel libyaml-devel openssl-devel gdbm-devel readline-devel ncurses-devel libffi-devel curl git openssh-server redis libxml2-devel libxslt-devel libcurl-devel libicu-devel python
+
 For Ubuntu/Debian, install equivalent modules.
 TBD: Ubuntu/Debian user, please provide an equivalent command.
 Especially, I know little about .deb packaging.
-
-If you use Google Chrome, we also recommend installing Markdown Preview extension. It's cute.
 
 Compilation (For FOEDUS Developers)
 --------
