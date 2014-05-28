@@ -14,8 +14,6 @@ include_directories(
 #   add_executable(${targetname} ${CMAKE_CURRENT_SOURCE_DIR}/${targetname}.cpp)
 #   target_link_libraries(${targetname} foedus-core gtest_main test_common)
 #
-#   # To pick up these xml files from Jenkins,
-#   # Set "**/test-reports/*.xml" as the report file filter.
 #   add_test(
 #        NAME ${targetname}
 #        COMMAND ${targetname} --gtest_output=xml:test-reports/result_${targetname}.xml)
@@ -33,25 +31,28 @@ function (add_foedus_test_individual targetname individual_tests)
    target_link_libraries(${targetname} foedus-core gtest_main test_common)
 
    foreach(individual_test ${individual_tests})
+        # To pick up test report xml files from Jenkins,
+        # Set "test-reports/*.xml" as the report file filter.
         add_test(
             NAME ${targetname}_${individual_test}
             COMMAND ${targetname}
                 --gtest_filter=*.${individual_test}
-                --gtest_output=xml:test-reports/result_${targetname}_${individual_test}.xml)
+                --gtest_output=xml:${FOEDUS_TEST_REPORT_DIR}/${targetname}_${individual_test}.xml)
 
         # also add valgrind version. This version takes long, so you might want to exclude
         # them from ctest by "ctest -E valgrind".
-        make_directory(${CMAKE_CURRENT_BINARY_DIR}/valgrind-out)
+        # To pick up valgrind report xml files from Jenkins,
+        # Set "valgrind-reports/*.xml" as the valgrind plugin filter.
         add_test(
             NAME valgrind_${targetname}_${individual_test}
             COMMAND
                 /usr/bin/valgrind
-                --xml=yes --xml-file=valgrind-out/result_valgrind_${targetname}_${individual_test}.xml
+                --xml=yes --xml-file=${FOEDUS_VALGRIND_REPORT_DIR}/${targetname}_${individual_test}.xml
                 --error-exitcode=1 --leak-check=full --show-leak-kinds=all --gen-suppressions=all
                 --suppressions=${FOEDUS_CORE_SRC_ROOT}/tools/valgrind.supp
                 ./${targetname}
                 --gtest_filter=*.${individual_test}
-                --gtest_output=xml:test-reports/result_valgrind_${targetname}_${individual_test}.xml
+                --gtest_output=xml:${FOEDUS_TEST_REPORT_DIR}/valgrind_${targetname}_${individual_test}.xml
             WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
    endforeach(individual_test individual_tests)
 endfunction()

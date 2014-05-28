@@ -4,7 +4,7 @@
  */
 #ifndef FOEDUS_THREAD_STOPPABLE_THREAD_IMPL_HPP_
 #define FOEDUS_THREAD_STOPPABLE_THREAD_IMPL_HPP_
-#include <atomic>
+#include <foedus/assorted/atomic_fences.hpp>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -72,14 +72,20 @@ class StoppableThread final {
     bool sleep();
 
     /** returns whether someone has requested to stop this. */
-    bool is_stop_requested() const { return stop_requested_.load(std::memory_order_acquire); }
+    bool is_stop_requested() const {
+        assorted::memory_fence_acquire();
+        return stop_requested_;
+    }
     /** non-atomic is_stop_requested(). */
-    bool is_stop_requested_weak() const { return stop_requested_.load(std::memory_order_relaxed); }
+    bool is_stop_requested_weak() const { return stop_requested_; }
 
     /** returns whether this thread has stopped (if the thread hasn't started, false too). */
-    bool is_stopped() const { return stopped_.load(std::memory_order_acquire); }
+    bool is_stopped() const {
+        assorted::memory_fence_acquire();
+        return stopped_;
+    }
     /** non-atomic is_stopped(). */
-    bool is_stopped_weak() const { return stopped_.load(std::memory_order_relaxed); }
+    bool is_stopped_weak() const { return stopped_; }
 
  private:
     /** Used only for debug logging. */
@@ -93,9 +99,9 @@ class StoppableThread final {
     /** used to notify the thread to wakeup. */
     std::condition_variable         condition_;
     /** whether someone has requested to stop this. */
-    std::atomic<bool>               stop_requested_;
+    bool                            stop_requested_;
     /** whether this thread has stopped (if the thread hasn't started, false too). */
-    std::atomic<bool>               stopped_;
+    bool                            stopped_;
 };
 
 

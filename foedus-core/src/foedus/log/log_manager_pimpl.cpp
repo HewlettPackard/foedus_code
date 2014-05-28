@@ -104,7 +104,7 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
     LOG(INFO) << "Global durable epoch is about to advance from " << durable_global_epoch_
         << " to " << min_durable_epoch;
     {
-        std::lock_guard<std::mutex> guard(durable_global_epoch_savepoint_mutex_);
+        std::lock_guard<std::mutex> guard(durable_global_epoch_savepoint_mutex_);  // also as fence
         if (min_durable_epoch <= durable_global_epoch_) {
             LOG(INFO) << "oh, I lost the race.";
             return RET_OK;
