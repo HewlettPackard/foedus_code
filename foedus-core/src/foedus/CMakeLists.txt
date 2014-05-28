@@ -12,27 +12,13 @@ add_subdirectory(snapshot)
 add_subdirectory(thread)
 add_subdirectory(xct)
 
-set(FOEDUS_CHILD_SRC
-    ${FOEDUS_ASSORTED_SRC}
-    ${FOEDUS_CACHE_SRC}
-    ${FOEDUS_DEBUGGING_SRC}
-    ${FOEDUS_EXTERNALIZE_SRC}
-    ${FOEDUS_FS_SRC}
-    ${FOEDUS_LOG_SRC}
-    ${FOEDUS_MEMORY_SRC}
-    ${FOEDUS_SAVEPOINT_SRC}
-    ${FOEDUS_SNAPSHOT_SRC}
-    ${FOEDUS_STORAGE_SRC}
-    ${FOEDUS_THREAD_SRC}
-    ${FOEDUS_XCT_SRC}
-)
-set(FOEDUS_SRC
-    ${FOEDUS_CHILD_SRC}
+set_property(GLOBAL APPEND PROPERTY ALL_FOEDUS_CORE_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/assert_nd.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/engine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/engine_options.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/engine_pimpl.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/epoch.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/error_stack.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/error_stack_batch.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/initializable.cpp
-    PARENT_SCOPE)
+)

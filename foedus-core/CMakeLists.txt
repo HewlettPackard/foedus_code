@@ -104,8 +104,10 @@ endif (GOOGLEPERFTOOLS_FOUND)
 add_subdirectory(third_party)
 
 # Collect all cpp files in the main source folder.
+set_property(GLOBAL PROPERTY ALL_FOEDUS_CORE_SRC "")
 add_subdirectory(src)
-add_library(foedus-core SHARED ${FOEDUS_CORE_ALL_SRC})
+get_property(TMP_ALL_FOEDUS_CORE_SRC GLOBAL PROPERTY ALL_FOEDUS_CORE_SRC)
+add_library(foedus-core SHARED ${TMP_ALL_FOEDUS_CORE_SRC})
 
 # Link to libglog, libnuma, libgperftools (if found)
 target_link_libraries(foedus-core glog-static)

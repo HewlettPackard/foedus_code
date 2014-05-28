@@ -22,10 +22,14 @@ namespace thread {
  * As this depends on C++11, the name of this file ends with impl. Thus, only private implementation
  * classes directly use this class. If you are okay with C++11, you can use it from client programs,
  * too.
+ *
+ * @todo initialize() should only set thread. We should separate other initialization from it
+ * because the new thread might be already accessing those properties
+ * (at least valgrind is unhappy). We should have 'launch()' method instead.
  */
 class StoppableThread final {
  public:
-    StoppableThread() : stop_requested_(false), stopped_(false) {}
+    StoppableThread() : stop_requested_(false), stopped_(false), sleep_interval_(0) {}
 
     // non-copyable assignable. (maybe better to provide move, but no need so far)
     StoppableThread(const StoppableThread &other) = delete;
