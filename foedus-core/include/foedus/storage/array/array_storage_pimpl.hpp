@@ -76,6 +76,9 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     /** Number of levels. */
     uint8_t                 levels_;
 
+    /**
+     * Points to the root page.
+     */
     DualPagePointer         root_page_pointer_;
 
     /**

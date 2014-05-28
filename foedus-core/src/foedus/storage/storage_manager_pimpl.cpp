@@ -47,6 +47,13 @@ ErrorStack StorageManagerPimpl::uninitialize_once() {
         || !engine_->get_log_manager().is_initialized()) {
         batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
     }
+    for (size_t i = 0; i < storages_capacity_; ++i) {
+        if (storages_[i] && storages_[i]->is_initialized()) {
+            LOG(INFO) << "Invoking uninitialization for storage-" << i
+                << "(" << storages_[i]->get_name() << ")";
+            batch.emprace_back(storages_[i]->uninitialize());
+        }
+    }
     {
         std::lock_guard<std::mutex> guard(mod_lock_);
         for (auto it = storage_names_.begin(); it != storage_names_.end(); ++it) {
