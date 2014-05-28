@@ -13,6 +13,7 @@ TEST(EpochTest, Valid) {
     EXPECT_TRUE(valid_epoch.is_valid());
     Epoch invalid_epoch;
     EXPECT_FALSE(invalid_epoch.is_valid());
+    new int;  // TODO(Hideaki) just to test valgrind
 }
 
 TEST(EpochTest, Comparison) {
