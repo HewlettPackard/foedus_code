@@ -19,27 +19,21 @@ const int THREADS = 6;
 const int ITERATIONS = 20;
 const int REPS = 5;
 template <typename T>
-struct CasTest {
-    explicit CasTest(bool weak = false) : weak_(weak), start_rendezvous_(nullptr) {}
+struct CasTestImpl {
+    explicit CasTestImpl(bool weak) : weak_(weak) {}
     void test() {
-        for (int i = 0; i < REPS; ++i) {
-            test_rep();
-        }
-    }
-    void test_rep() {
         static_assert(THREADS * ITERATIONS < 127, "exceeds smallest integer");
         data_ = 0;
         conflicts_ = 0;
-        start_rendezvous_ = new thread::Rendezvous();
         for (int i = 0; i <= THREADS * ITERATIONS; ++i) {
             observed_[i] = false;
         }
         assorted::memory_fence_release();
         for (int i = 0; i < THREADS; ++i) {
-            threads_.emplace_back(std::thread(&CasTest::handle, this, i));
+            threads_.emplace_back(std::thread(&CasTestImpl::handle, this, i));
         }
 
-        start_rendezvous_->signal();
+        start_rendezvous_.signal();
         for (int i = 0; i < THREADS; ++i) {
             threads_[i].join();
         }
@@ -52,12 +46,10 @@ struct CasTest {
             EXPECT_TRUE(observed_[i]) << i;
         }
         std::cout << "In total, about " << conflicts_ << " coflicts" << std::endl;
-        delete start_rendezvous_;
-        start_rendezvous_ = nullptr;
     }
 
     void handle(int id) {
-        start_rendezvous_->wait();
+        start_rendezvous_.wait();
         EXPECT_GE(id, 0);
         EXPECT_LT(id, THREADS);
         for (int i = 0; i < ITERATIONS; ++i) {
@@ -98,10 +90,21 @@ struct CasTest {
 
     bool weak_;
     std::vector<std::thread> threads_;
-    thread::Rendezvous *start_rendezvous_;
+    thread::Rendezvous start_rendezvous_;
     T data_;
     int conflicts_;
     bool observed_[THREADS * ITERATIONS];
+};
+template <typename T>
+struct CasTest {
+    explicit CasTest(bool weak = false) : weak_(weak) {}
+    void test() {
+        for (int i = 0; i < REPS; ++i) {
+            CasTestImpl<T> impl(weak_);
+            impl.test();
+        }
+    }
+    bool weak_;
 };
 
 TEST(RawAtomicsTest, Uint8) { CasTest<uint8_t>().test(); }

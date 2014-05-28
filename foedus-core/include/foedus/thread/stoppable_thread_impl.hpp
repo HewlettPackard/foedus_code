@@ -29,7 +29,7 @@ namespace thread {
  */
 class StoppableThread final {
  public:
-    StoppableThread() : stop_requested_(false), stopped_(false), sleep_interval_(0) {}
+    StoppableThread() : sleep_interval_(0), stop_requested_(false), stopped_(false) {}
 
     // non-copyable assignable. (maybe better to provide move, but no need so far)
     StoppableThread(const StoppableThread &other) = delete;

@@ -6,7 +6,6 @@
 #define FOEDUS_THREAD_RENDEZVOUS_IMPL_HPP_
 #include <foedus/assert_nd.hpp>
 #include <foedus/assorted/atomic_fences.hpp>
-#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -53,6 +52,11 @@ class Rendezvous final {
             return;
         }
         std::unique_lock<std::mutex> the_lock(mutex_);
+        if (is_signaled()) {
+            // check it again after taking lock because it might have just signaled.
+            // otherwise, we might miss the signal.
+            return;
+        }
         condition_.wait(the_lock, [this]{ return is_signaled(); });
     }
 
@@ -68,6 +72,9 @@ class Rendezvous final {
             return true;
         }
         std::unique_lock<std::mutex> the_lock(mutex_);
+        if (is_signaled()) {
+            return true;
+        }
         return condition_.wait_for<REP, PERIOD>(the_lock, timeout, [this]{ return is_signaled(); });
     }
 
@@ -83,6 +90,9 @@ class Rendezvous final {
             return true;
         }
         std::unique_lock<std::mutex> the_lock(mutex_);
+        if (is_signaled()) {
+            return true;
+        }
         return condition_.wait_for<CLOCK, DURATION>(the_lock, until, [this]{
             return is_signaled();
         });
@@ -97,14 +107,20 @@ class Rendezvous final {
      */
     void signal() {
         ASSERT_ND(!is_signaled());
-        signaled_.store(true);
+        {
+            std::lock_guard<std::mutex> guard(mutex_);  // also as a fence
+            signaled_ = true;
+        }
         condition_.notify_all();
     }
 
     /** returns whether this thread has stopped (if the thread hasn't started, false too). */
-    bool is_signaled() const { return signaled_.load(std::memory_order_acquire); }
+    bool is_signaled() const {
+        assorted::memory_fence_acquire();
+        return signaled_;
+    }
     /** non-atomic is_signaled(). */
-    bool is_signaled_weak() const { return signaled_.load(std::memory_order_relaxed); }
+    bool is_signaled_weak() const { return signaled_; }
 
  private:
     /** protects the condition variable. */
@@ -112,7 +128,7 @@ class Rendezvous final {
     /** used to notify waiters to wakeup. */
     std::condition_variable         condition_;
     /** whether this thread has stopped (if the thread hasn't started, false too). */
-    std::atomic<bool>               signaled_;
+    bool                            signaled_;
 };
 
 
