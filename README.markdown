@@ -88,9 +88,13 @@ or
 
     ctest
 
-In order to run valgrind version of it (takes *long* time!),
+In order to skip valgrind versions of the tests (because it takes *long* time!),
 
-    ctest -D ExperimentalMemCheck
+    ctest -E valgrind
+
+On the other hand, if you want to run only valgrind versions,
+
+    ctest -R valgrind
 
 If you find a false positive or third party's bug, add them to foedus-core/tools/valgrind.supp.
 

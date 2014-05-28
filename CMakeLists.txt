@@ -66,6 +66,11 @@ set(ENABLE_CPPLINT true)
 # The expensive tests are run on jenkins or manually by developers.
 option(RUN_EXPENSIVE_TESTCASES "Whether to run testcases that take long time and is not essential."  OFF)
 
+# Note 2014 May: The following setting for "ctest -D ExperimentalMemCheck" is obsolete,
+# although still left for future use when ctest supports valgrind-style xml output.
+# We now use "ctest -R valgrind" (run our own valgrind-version targets) for this purpose.
+# See https://issues.jenkins-ci.org/browse/JENKINS-23178?page=com.atlassian.jira.plugin.system.issuetabpanels:all-tabpanel
+# for why we switched to roll-our-own solution.
 # we use CTest in tests-xxx. run "make test" or "ctest || true" after cmake
 set(MEMORYCHECK_SUPPRESSIONS_FILE "${FOEDUS_CORE_SRC_ROOT}/tools/valgrind.supp"
     CACHE FILEPATH "" FORCE)
