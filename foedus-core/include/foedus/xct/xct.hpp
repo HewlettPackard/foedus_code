@@ -39,9 +39,10 @@ class Xct {
     /**
      * Begins the transaction.
      */
-    void                activate(IsolationLevel isolation_level) {
+    void                activate(IsolationLevel isolation_level, bool schema_xct = false) {
         ASSERT_ND(!active_);
         active_ = true;
+        schema_xct_ = schema_xct;
         isolation_level_ = isolation_level;
         read_set_size_ = 0;
         write_set_size_ = 0;
@@ -57,6 +58,11 @@ class Xct {
 
     /** Returns whether the object is an active transaction. */
     bool                is_active() const { return active_; }
+    /**
+     * Whether the transaction is a schema-modification transaction, which issues only
+     * storage create/drop/alter etc operations.
+     */
+    bool                is_schema_xct() const { return schema_xct_; }
     /** Returns the level of isolation for this transaction. */
     IsolationLevel      get_isolation_level() const { return isolation_level_; }
     /** Returns the ID of this transaction, but note that it is not issued until commit time! */
@@ -67,7 +73,7 @@ class Xct {
     WriteXctAccess*     get_write_set() { return write_set_; }
 
     /**
-     * @brief Called while a successful commit of read-write xct to issue a new xct id.
+     * @brief Called while a successful commit of read-write or schema xct to issue a new xct id.
      * @param[in,out] epoch (in) The \e minimal epoch this transaction has to be in. (out)
      * the epoch this transaction ended up with, which is epoch+1 only when it found ordinal is
      * full for the current epoch.
@@ -81,7 +87,6 @@ class Xct {
      *
      * This method also advancec epoch when ordinal is full for the current epoch.
      * This method never fails.
-     * @pre write_set_size_>0 (otherwise why called? this is for read-write xct)
      */
     void                issue_next_id(Epoch *epoch);
 
@@ -178,6 +183,12 @@ class Xct {
 
     /** Whether the object is an active transaction. */
     bool                active_;
+
+    /**
+     * Whether the transaction is a schema-modification transaction, which issues only
+     * storage create/drop/alter etc operations.
+     */
+    bool                schema_xct_;
 
     XctAccess*          read_set_;
     uint32_t            read_set_size_;

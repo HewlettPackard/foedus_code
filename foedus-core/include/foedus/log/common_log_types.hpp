@@ -13,6 +13,7 @@
 #include <foedus/log/log_type.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/storage/storage_id.hpp>
+#include <foedus/thread/fwd.hpp>
 #include <foedus/xct/xct_id.hpp>
 #include <iosfwd>
 /**
@@ -39,6 +40,7 @@ struct LogHeader {
     /**
      * Byte size of this log entry including this header itself and everything.
      * We so far support up to 64KB per log.
+     * @todo all log types are 8-byte aligned, so this can store /8, allowing a 512KB log.
      */
     uint16_t            log_length_;     // +2 => 4
     /**
@@ -77,11 +79,12 @@ struct EngineLogType : public BaseLogType {
     bool    is_engine_log()     const { return true; }
     bool    is_storage_log()    const { return false; }
     bool    is_record_log()     const { return false; }
-    void apply_storage(const xct::XctId &/*xct_id*/, storage::Storage* /*storage*/) {
+    void apply_storage(const xct::XctId &/*xct_id*/,
+                       thread::Thread* /*context*/, storage::Storage* /*storage*/) {
         ASSERT_ND(false);
     }
-    void apply_record(const xct::XctId &/*xct_id*/, storage::Storage* /*storage*/,
-                      storage::Record* /*record*/) {
+    void apply_record(const xct::XctId &/*xct_id*/, thread::Thread* /*context*/,
+                      storage::Storage* /*storage*/, storage::Record* /*record*/) {
         ASSERT_ND(false);
     }
     /**
@@ -104,11 +107,11 @@ struct StorageLogType : public BaseLogType {
     bool    is_engine_log()     const { return false; }
     bool    is_storage_log()    const { return true; }
     bool    is_record_log()     const { return false; }
-    void apply_engine(const xct::XctId &/*xct_id*/, Engine* /*engine*/) {
+    void apply_engine(const xct::XctId &/*xct_id*/, thread::Thread* /*context*/) {
         ASSERT_ND(false);
     }
-    void apply_record(const xct::XctId &/*xct_id*/, storage::Storage* /*storage*/,
-                      storage::Record* /*record*/) {
+    void apply_record(const xct::XctId &/*xct_id*/, thread::Thread* /*context*/,
+                      storage::Storage* /*storage*/, storage::Record* /*record*/) {
         ASSERT_ND(false);
     }
     /**
@@ -131,10 +134,11 @@ struct RecordLogType : public BaseLogType {
     bool    is_engine_log()     const { return false; }
     bool    is_storage_log()    const { return false; }
     bool    is_record_log()     const { return true; }
-    void apply_engine(const xct::XctId &/*xct_id*/, Engine* /*engine*/) {
+    void apply_engine(const xct::XctId &/*xct_id*/, thread::Thread* /*context*/) {
         ASSERT_ND(false);
     }
-    void apply_storage(const xct::XctId &/*xct_id*/, storage::Storage* /*storage*/) {
+    void apply_storage(const xct::XctId &/*xct_id*/,
+                       thread::Thread* /*context*/, storage::Storage* /*storage*/) {
         ASSERT_ND(false);
     }
     /**
@@ -173,10 +177,11 @@ struct FillerLogType : public BaseLogType {
     bool    is_engine_log()     const { return true; }
     bool    is_storage_log()    const { return true; }
     bool    is_record_log()     const { return true; }
-    void    apply_engine(const xct::XctId &/*xct_id*/, Engine* /*engine*/) {}
-    void    apply_storage(const xct::XctId &/*xct_id*/, storage::Storage* /*storage*/) {}
-    void    apply_record(const xct::XctId &/*xct_id*/, storage::Storage* /*storage*/,
-                         storage::Record* /*record*/) {}
+    void    apply_engine(const xct::XctId &/*xct_id*/, thread::Thread* /*context*/) {}
+    void    apply_storage(const xct::XctId &/*xct_id*/,
+                          thread::Thread* /*context*/, storage::Storage* /*storage*/) {}
+    void    apply_record(const xct::XctId &/*xct_id*/, thread::Thread* /*context*/,
+                         storage::Storage* /*storage*/, storage::Record* /*record*/) {}
 
     /** Populate this log to fill up the specified byte size. */
     void    populate(uint64_t size);
@@ -203,7 +208,7 @@ STATIC_SIZE_CHECK(sizeof(FillerLogType), 8)
 struct EpochMarkerLogType : public EngineLogType {
     LOG_TYPE_NO_CONSTRUCT(EpochMarkerLogType)
 
-    void    apply_engine(const xct::XctId &/*xct_id*/, Engine* /*engine*/) {}
+    void    apply_engine(const xct::XctId &/*xct_id*/, thread::Thread* /*context*/) {}
 
     /** Epoch before this switch. */
     Epoch   old_epoch_;  // +4

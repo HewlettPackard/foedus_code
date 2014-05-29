@@ -27,6 +27,7 @@
 #include <set>  // only for debugging
 #endif  // NDEBUG
 #include <thread>
+#include <vector>
 namespace foedus {
 namespace xct {
 ErrorStack XctManagerPimpl::initialize_once() {
@@ -110,6 +111,20 @@ ErrorStack XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel is
     ASSERT_ND(current_xct.get_write_set_size() == 0);
     return RET_OK;
 }
+ErrorStack XctManagerPimpl::begin_schema_xct(thread::Thread* context) {
+    Xct& current_xct = context->get_current_xct();
+    if (current_xct.is_active()) {
+        return ERROR_STACK(ERROR_CODE_XCT_ALREADY_RUNNING);
+    }
+    LOG(INFO) << *context << " Began new schema transaction";
+    current_xct.activate(SERIALIZABLE, true);
+    ASSERT_ND(context->get_thread_log_buffer().get_offset_tail()
+        == context->get_thread_log_buffer().get_offset_committed());
+    ASSERT_ND(current_xct.get_read_set_size() == 0);
+    ASSERT_ND(current_xct.get_write_set_size() == 0);
+    return RET_OK;
+}
+
 
 ErrorStack XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_epoch) {
     Xct& current_xct = context->get_current_xct();
@@ -117,12 +132,16 @@ ErrorStack XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit
         return ERROR_STACK(ERROR_CODE_XCT_NO_XCT);
     }
 
-    bool read_only = context->get_current_xct().get_write_set_size() == 0;
     bool success;
-    if (read_only) {
-        success = precommit_xct_readonly(context, commit_epoch);
+    if (current_xct.is_schema_xct()) {
+        success = precommit_xct_schema(context, commit_epoch);
     } else {
-        success = precommit_xct_readwrite(context, commit_epoch);
+        bool read_only = context->get_current_xct().get_write_set_size() == 0;
+        if (read_only) {
+            success = precommit_xct_readonly(context, commit_epoch);
+        } else {
+            success = precommit_xct_readwrite(context, commit_epoch);
+        }
     }
 
     current_xct.deactivate();
@@ -165,6 +184,53 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     }
 
     return verified;
+}
+bool XctManagerPimpl::precommit_xct_schema(thread::Thread* context, Epoch* commit_epoch) {
+    LOG(INFO) << *context << " committing a schema transaction";
+
+    Xct::InCommitLogEpochGuard guard(&context->get_current_xct(), current_global_epoch_);
+    assorted::memory_fence_acq_rel();
+    *commit_epoch = current_global_epoch_;  // serialization point!
+    LOG(INFO) << *context << " Acquired schema commit epoch " << *commit_epoch;
+    assorted::memory_fence_acq_rel();
+
+    Xct& current_xct = context->get_current_xct();
+    current_xct.issue_next_id(commit_epoch);
+    XctId new_xct_id = current_xct.get_id();
+
+    LOG(INFO) << *context << " schema xct generated new xct id=" << new_xct_id;
+    // Unlike usual transactions, schema xcts don't have read/write sets. Just iterate over logs.
+    std::vector<char*> logs;
+    context->get_thread_log_buffer().list_uncommitted_logs(&logs);
+    for (char* entry : logs) {
+        log::LogHeader* header = reinterpret_cast<log::LogHeader*>(entry);
+        log::LogCode code = static_cast<log::LogCode>(header->log_type_code_);
+        ASSERT_ND(code != log::LOG_TYPE_INVALID);
+        log::LogCodeKind kind = log::get_log_code_kind(code);
+        LOG(INFO) << *context << " Applying schema log " << log::get_log_type_name(code)
+            << ". kind=" << kind << ", log length=" << header->log_length_;
+        if (kind == log::MARKER_LOGS) {
+            LOG(INFO) << *context << " Ignored marker log in schema xct's apply";
+        } else if (kind == log::ENGINE_LOGS) {
+            // engine type log, such as XXX.
+            log::invoke_apply_engine(new_xct_id, entry, context);
+        } else if (kind == log::STORAGE_LOGS) {
+            // storage type log, such as CREATE/DROP STORAGE.
+            storage::StorageId storage_id = header->storage_id_;
+            LOG(INFO) << *context << " schema xct applying storage-" << storage_id;
+            storage::Storage* storage = engine_->get_storage_manager().get_storage(storage_id);
+            log::invoke_apply_storage(new_xct_id, entry, context, storage);
+        } else {
+            // schema xct must not have individual data modification operations.
+            LOG(FATAL) << "Unexpected log type for schema xct:" << code;
+        }
+    }
+    LOG(INFO) << *context << " schema xct applied all logs";
+
+    // schema xct doesn't have apply phase because it is separately applied.
+    context->get_thread_log_buffer().publish_committed_log(*commit_epoch);
+
+    return true;  // so far scheme xct can always commit
 }
 
 void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
@@ -304,7 +370,8 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context,
         WriteXctAccess& write = write_set[i];
         DVLOG(2) << *context << " Applying/Unlocking " << write.storage_->get_name()
             << ":" << write.record_;
-        log::invoke_apply_record(new_xct_id, write.log_entry_, write.storage_, write.record_);
+        log::invoke_apply_record(
+            new_xct_id, write.log_entry_, context, write.storage_, write.record_);
     }
     DVLOG(1) << *context << " applied and unlocked write set";
 }

@@ -2,6 +2,7 @@ build
 release
 release_build
 relwithdbginfo_build
+relwithdebinfo_build
 debug_build
 trace_build
 *.orig

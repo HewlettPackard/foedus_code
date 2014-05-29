@@ -27,6 +27,10 @@ ErrorStack  XctManager::wait_for_commit(Epoch commit_epoch, int64_t wait_microse
 ErrorStack  XctManager::begin_xct(thread::Thread* context, IsolationLevel isolation_level) {
     return pimpl_->begin_xct(context, isolation_level);
 }
+ErrorStack XctManager::begin_schema_xct(thread::Thread* context) {
+    return pimpl_->begin_schema_xct(context);
+}
+
 ErrorStack  XctManager::precommit_xct(thread::Thread* context, Epoch *commit_epoch) {
     return pimpl_->precommit_xct(context, commit_epoch);
 }

@@ -41,7 +41,6 @@ void Xct::initialize(thread::ThreadId thread_id, memory::NumaCoreMemory* core_me
 }
 
 void Xct::issue_next_id(Epoch *epoch)  {
-    ASSERT_ND(write_set_size_ > 0);
     ASSERT_ND(id_.is_valid());
     ASSERT_ND(id_.is_status_bits_off());
 
@@ -89,8 +88,15 @@ void Xct::issue_next_id(Epoch *epoch)  {
 }
 
 std::ostream& operator<<(std::ostream& o, const Xct& v) {
-    o << "Xct: " << v.get_id() << ", read_set_size=" << v.get_read_set_size()
-        << ", write_set_size=" << v.get_write_set_size();
+    o << "<Xct>"
+        << "<active_>" << v.is_active() << "</active_>";
+    if (v.is_active()) {
+        o << "<id_>" << v.get_id() << "</id_>"
+            << "<scheme_xct_>" << v.is_schema_xct() << "</scheme_xct_>"
+            << "<read_set_size>" << v.get_read_set_size() << "</read_set_size>"
+            << "<write_set_size>" << v.get_write_set_size() << "</write_set_size>";
+    }
+    o << "</Xct>";
     return o;
 }
 

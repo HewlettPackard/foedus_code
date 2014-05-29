@@ -14,6 +14,7 @@
 #include <iosfwd>
 #include <list>
 #include <mutex>
+#include <vector>
 namespace foedus {
 namespace log {
 /**
@@ -199,6 +200,14 @@ class ThreadLogBuffer final : public DefaultInitializable {
      * Only this thread reads/writes to this variable. No other threads access this.
      */
     uint64_t    get_offset_tail() const { return offset_tail_; }
+
+    /**
+     * @brief Iterates over the log entries after committed marker to return the list of log
+     * entries.
+     * @details
+     * This assumes the caller is the thread, so no race is possible.
+     */
+    void        list_uncommitted_logs(std::vector<char*> *out);
 
     friend std::ostream& operator<<(std::ostream& o, const ThreadLogBuffer& v);
 

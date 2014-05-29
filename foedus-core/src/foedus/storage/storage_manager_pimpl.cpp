@@ -6,14 +6,17 @@
 #include <foedus/error_stack_batch.hpp>
 #include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/log/log_manager.hpp>
+#include <foedus/log/thread_log_buffer_impl.hpp>
 #include <foedus/storage/storage_manager_pimpl.hpp>
 #include <foedus/storage/storage_options.hpp>
 #include <foedus/storage/storage.hpp>
 #include <foedus/storage/array/array_storage.hpp>
+#include <foedus/storage/array/array_log_types.hpp>
 #include <foedus/thread/thread_pool.hpp>
+#include <foedus/thread/thread.hpp>
+#include <foedus/xct/xct_manager.hpp>
 #include <glog/logging.h>
 #include <cstring>
-#include <memory>
 #include <string>
 #include <utility>
 namespace foedus {
@@ -162,13 +165,30 @@ ErrorStack StorageManagerPimpl::expand_storage_array(StorageId new_size) {
 
 ErrorStack StorageManagerPimpl::create_array(thread::Thread* context, const std::string& name,
             uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage** out) {
-    *out = nullptr;
     StorageId id = issue_next_storage_id();
-    std::unique_ptr<array::ArrayStorage> array(new array::ArrayStorage
-        (engine_, id, name, payload_size, array_size, DualPagePointer(), true));
-    CHECK_ERROR(array->initialize());
-    CHECK_ERROR(array->create(context));
-    *out = array.release();  // No error, so take over the ownership from unique_ptr.
+    // CREATE ARRAY must be the only log in this transaction
+    if (context->get_thread_log_buffer().get_offset_committed() !=
+        context->get_thread_log_buffer().get_offset_tail()) {
+        return ERROR_STACK(ERROR_CODE_STR_MUST_SEPARATE_XCT);
+    }
+
+    CHECK_ERROR(engine_->get_xct_manager().begin_schema_xct(context));
+
+    // write out log
+    uint16_t log_length = array::CreateLogType::calculate_log_length(name.size());
+    array::CreateLogType* log_entry = reinterpret_cast<array::CreateLogType*>(
+        context->get_thread_log_buffer().reserve_new_log(log_length));
+    log_entry->populate(id, array_size, payload_size, name.size(), name.data());
+
+    // commit invokes apply
+    Epoch commit_epoch;
+    CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, &commit_epoch));
+
+    Storage* new_storage = get_storage(id);
+    ASSERT_ND(new_storage);
+    ASSERT_ND(new_storage->get_type() == ARRAY_STORAGE);
+    *out = dynamic_cast<array::ArrayStorage*>(new_storage);
+    ASSERT_ND(*out);
     return RET_OK;
 }
 

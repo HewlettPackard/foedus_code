@@ -8,6 +8,7 @@
 // include all header files that forward-declare log types defined in the xmacro.
 // don't include headers that really declare them. we just need foward-declarations here.
 #include <foedus/log/fwd.hpp>
+#include <foedus/storage/fwd.hpp>
 #include <foedus/storage/array/fwd.hpp>
 
 namespace foedus {
@@ -23,9 +24,9 @@ namespace log {
  * signature varies. This is just to have a uniform method name for readability.
  * \li One of the 3 apply methods as follows. These also populate xct_order in log if applicable
  * (remember, XctId or xct_order is finalized only at commit time, so populate() can't do it).
- * \li void apply_engine(const XctId&, Engine*)     : For engine-wide operation.
- * \li void apply_storage(const XctId&, Storage*)   : For storage-wide operation.
- * \li void apply_record(const XctId&, Storage*, Record*)   : For record-wise operation.
+ * \li void apply_engine(const XctId&, Thread*)             : For engine-wide operation.
+ * \li void apply_storage(const XctId&, Thread*, Storage*)  : For storage-wide operation.
+ * \li void apply_record(const XctId&, Thread*, Storage*, Record*)   : For record-wise operation.
  * \li void assert_valid()  : For debugging (should have no cost in NDEBUG).
  * \li is_engine_log()/is_storage_log()/is_record_log()
  * \li ostream operator, preferably in xml format without root element.
@@ -57,6 +58,13 @@ namespace log {
  * @brief A unique identifier of all log types.
  * @ingroup LOGTYPE
  * @details
+ * Log code values must follow the convention.
+ * Most significant 4 bits are used to denote the kind of the log:
+ * \li 0x0000: record targetted logs
+ * \li 0x1000: storage targetted logs
+ * \li 0x2000: engine targetted logs
+ * \li 0x3000: markers/fillers
+ * \li ~0xF000 (reserved for future use)
  */
 #define X(a, b, c) /** b: c. @copydoc c */ a = b,
 enum LogCode {
@@ -66,6 +74,31 @@ enum LogCode {
 };
 #undef X
 
+/**
+ * @var LogCodeKind
+ * @brief Represents the kind of log types.
+ * @ingroup LOGTYPE
+ * @details
+ * This is the most significant 4 bits of LogCode.
+ */
+enum LogCodeKind {
+    /** record targetted logs */
+    RECORD_LOGS = 0,
+    /** storage targetted logs */
+    STORAGE_LOGS = 1,
+    /** engine targetted logs */
+    ENGINE_LOGS = 2,
+    /** markers/fillers */
+    MARKER_LOGS = 3,
+};
+
+/**
+ * @brief Returns the kind of the given log code.
+ * @ingroup LOGTYPE
+ */
+inline LogCodeKind get_log_code_kind(LogCode code) {
+    return static_cast<LogCodeKind>(code >> 12);
+}
 
 /**
  * @brief Returns the names of LogCode enum defined in log_type.xmacro.

@@ -28,6 +28,35 @@ namespace foedus {
 namespace storage {
 namespace array {
 /**
+ * @brief Log type of CREATE ARRAY STORAGE operation.
+ * @ingroup ARRAY LOGTYPE
+ * @details
+ * This log corresponds to StorageManager::create_array() opereation.
+ * CREATE ARRAY STORAGE has no in-epoch transaction order.
+ * It is always processed in a separate epoch from operations for the storage.
+ * Thus, we advance epoch right after creating a storage (before following operations).
+ *
+ * This log type is infrequently triggered, so no optimization. All methods defined in cpp.
+ */
+struct CreateLogType : public log::StorageLogType {
+    LOG_TYPE_NO_CONSTRUCT(CreateLogType)
+    ArrayOffset     array_size_;        // +8 => 24
+    uint16_t        payload_size_;      // +2 => 26
+    uint16_t        name_length_;       // +2 => 28
+    char            name_[4];           // +4 => 32
+
+    static uint16_t calculate_log_length(uint16_t name_length) {
+        return assorted::align8(28 + name_length);
+    }
+
+    void populate(StorageId storage_id, ArrayOffset array_size,
+            uint16_t payload_size, uint16_t name_length, const char* name);
+    void apply_storage(const xct::XctId& xct_id, thread::Thread* context, Storage* storage);
+    void assert_valid();
+    friend std::ostream& operator<<(std::ostream& o, const CreateLogType& v);
+};
+
+/**
  * @brief Log type of array-storage's overwrite operation.
  * @ingroup ARRAY LOGTYPE
  * @details
@@ -70,8 +99,8 @@ struct OverwriteLogType : public log::RecordLogType {
         T* address = reinterpret_cast<T*>(payload_);
         *address = payload;
     }
-    void            apply_record(const xct::XctId& xct_id, Storage* storage,
-                                 Record* record) ALWAYS_INLINE {
+    void            apply_record(const xct::XctId& xct_id, thread::Thread* /*context*/,
+                                 Storage* storage, Record* record) ALWAYS_INLINE {
         ASSERT_ND(payload_count_ < DATA_SIZE);
         ASSERT_ND(dynamic_cast<ArrayStorage*>(storage));
         xct_order_ = xct_id.get_in_epoch_xct_order();
@@ -90,6 +119,7 @@ struct OverwriteLogType : public log::RecordLogType {
 
     friend std::ostream& operator<<(std::ostream& o, const OverwriteLogType& v);
 };
+
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus

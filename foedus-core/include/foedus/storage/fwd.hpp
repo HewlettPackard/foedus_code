@@ -11,6 +11,7 @@
  */
 namespace foedus {
 namespace storage {
+struct  DropLogType;
 struct  DualPagePointer;
 struct  Page;
 struct  Record;

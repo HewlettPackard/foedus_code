@@ -56,6 +56,18 @@ class XctManager CXX11_FINAL : public virtual Initializable {
     ErrorStack  begin_xct(thread::Thread* context, IsolationLevel isolation_level);
 
     /**
+     * @brief Begins a special transaction for modifying schema on the thread.
+     * @param[in,out] context Thread context
+     * @pre context->is_running_xct() == false
+     * @details
+     * A schema transaction is a special transaction that issues only
+     * storage create/drop/alter etc operations. It cannot issue data modification operations,
+     * and sometimes has a strong restriction, such as having to execute in its own epoch.
+     * Schema transactions are the only transactions that can modify schema.
+     */
+    ErrorStack  begin_schema_xct(thread::Thread* context);
+
+    /**
      * @brief Prepares the currently running transaction on the thread for commit.
      * @pre context->is_running_xct() == true
      * @param[in,out] context Thread context

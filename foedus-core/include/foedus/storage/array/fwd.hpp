@@ -16,6 +16,7 @@ class   ArrayPage;
 struct  ArrayRange;
 class   ArrayStorage;
 class   ArrayStoragePimpl;
+struct  CreateLogType;
 struct  OverwriteLogType;
 }  // namespace array
 }  // namespace storage

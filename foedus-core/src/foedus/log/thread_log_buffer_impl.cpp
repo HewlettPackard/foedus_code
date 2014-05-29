@@ -17,6 +17,7 @@
 #include <ostream>
 #include <list>
 #include <thread>
+#include <vector>
 namespace foedus {
 namespace log {
 ThreadLogBuffer::ThreadLogBuffer(Engine* engine, thread::ThreadId thread_id)
@@ -179,6 +180,32 @@ void ThreadLogBuffer::consume_epoch_mark_as_many() {
         bool consumed = consume_epoch_mark();
         if (!consumed) {
             break;
+        }
+    }
+}
+
+void ThreadLogBuffer::list_uncommitted_logs(std::vector< char* >* out) {
+    ASSERT_ND(out);
+    out->clear();
+    uint64_t cur = offset_committed_;
+    uint64_t end = offset_tail_;
+    while (cur != end) {
+        out->push_back(buffer_ + cur);
+        LogHeader* header = reinterpret_cast<LogHeader*>(buffer_ + cur);
+        ASSERT_ND(header->log_length_ > 0);
+        ASSERT_ND(header->log_length_ % 8 == 0);
+        cur += header->log_length_;
+        if (cur > buffer_size_) {
+            cur -= buffer_size_;
+        }
+
+        if (offset_committed_ < offset_tail_) {
+            // if tail does not wrap around
+            ASSERT_ND(offset_committed_ < cur && cur <= offset_tail_);
+        } else {
+            // if tail wraps around
+            ASSERT_ND((offset_committed_ < cur && offset_tail_ < cur)  // before wrap around
+                || (cur < offset_committed_ && cur <= offset_tail_));  // after wrap around
         }
     }
 }

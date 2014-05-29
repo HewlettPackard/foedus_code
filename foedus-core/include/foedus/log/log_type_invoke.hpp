@@ -6,11 +6,13 @@
 #define FOEDUS_LOG_LOG_TYPE_INVOKE_HPP_
 #include <foedus/assert_nd.hpp>
 #include <foedus/log/log_type.hpp>
+#include <foedus/thread/fwd.hpp>
 #include <foedus/xct/xct_id.hpp>
 
 // include all header files that declare log types defined in the xmacro.
 // unlike log_type.hpp, we need full declarations here. so this file would be big.
 #include <foedus/log/common_log_types.hpp>
+#include <foedus/storage/storage_log_types.hpp>
 #include <foedus/storage/array/array_log_types.hpp>
 
 #include <iostream>
@@ -21,13 +23,14 @@ namespace log {
  * @brief Invokes the apply logic for an engine-wide log type.
  * @ingroup LOGTYPE
  */
-void invoke_apply_engine(const xct::XctId &xct_id, void *log_buffer, Engine* engine);
+void invoke_apply_engine(const xct::XctId &xct_id, void *log_buffer, thread::Thread* context);
 
 /**
  * @brief Invokes the apply logic for a storage-wide log type.
  * @ingroup LOGTYPE
  */
-void invoke_apply_storage(const xct::XctId &xct_id, void *log_buffer, storage::Storage* storage);
+void invoke_apply_storage(const xct::XctId &xct_id, void *log_buffer,
+                          thread::Thread* context, storage::Storage* storage);
 
 /**
  * @brief Invokes the apply logic for a record-wise log type.
@@ -39,8 +42,8 @@ void invoke_apply_storage(const xct::XctId &xct_id, void *log_buffer, storage::S
  * Otherwise the correctness is not guaranteed.
  * For that, apply_record() method must put memory_fence_release() between data and owner_id writes.
  */
-void invoke_apply_record(const xct::XctId &xct_id, void *log_buffer, storage::Storage* storage,
-                         storage::Record* record);
+void invoke_apply_record(const xct::XctId &xct_id, void *log_buffer,
+                    thread::Thread* context, storage::Storage* storage, storage::Record* record);
 
 /**
  * @brief Invokes the assertion logic of each log type.
@@ -57,8 +60,8 @@ void invoke_assert_valid(void *log_buffer);
  */
 void invoke_ostream(void *buffer, std::ostream *ptr);
 
-#define X(a, b, c) case a: return reinterpret_cast< c* >(buffer)->apply_engine(xct_id, engine);
-inline void invoke_apply_engine(const xct::XctId &xct_id, void *buffer, Engine* engine) {
+#define X(a, b, c) case a: return reinterpret_cast< c* >(buffer)->apply_engine(xct_id, context);
+inline void invoke_apply_engine(const xct::XctId &xct_id, void *buffer, thread::Thread* context) {
     invoke_assert_valid(buffer);
     LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
     LogCode code = static_cast<LogCode>(header->log_type_code_);
@@ -71,9 +74,10 @@ inline void invoke_apply_engine(const xct::XctId &xct_id, void *buffer, Engine* 
 }
 #undef X
 
-#define X(a, b, c) case a: reinterpret_cast< c* >(buffer)->apply_storage(xct_id, storage); return;
+#define X(a, b, c) case a: \
+    reinterpret_cast< c* >(buffer)->apply_storage(xct_id, context, storage); return;
 inline void invoke_apply_storage(const xct::XctId &xct_id, void *buffer,
-                                 storage::Storage* storage) {
+                                 thread::Thread* context, storage::Storage* storage) {
     invoke_assert_valid(buffer);
     LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
     LogCode code = static_cast<LogCode>(header->log_type_code_);
@@ -86,10 +90,10 @@ inline void invoke_apply_storage(const xct::XctId &xct_id, void *buffer,
 }
 #undef X
 
-#define X(a, b, c) \
-        case a: reinterpret_cast< c* >(buffer)->apply_record(xct_id, storage, record); return;
+#define X(a, b, c) case a: \
+    reinterpret_cast< c* >(buffer)->apply_record(xct_id, context, storage, record); return;
 inline void invoke_apply_record(const xct::XctId &xct_id, void *buffer,
-                                      storage::Storage* storage, storage::Record* record) {
+                    thread::Thread* context, storage::Storage* storage, storage::Record* record) {
     invoke_assert_valid(buffer);
     LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
     LogCode code = static_cast<LogCode>(header->log_type_code_);

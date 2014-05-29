@@ -27,6 +27,7 @@ namespace foedus {
 namespace xct {
 
 inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record* record) {
+    ASSERT_ND(!schema_xct_);
     ASSERT_ND(storage);
     ASSERT_ND(record);
     if (isolation_level_ == DIRTY_READ_PREFER_SNAPSHOT
@@ -61,6 +62,7 @@ inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record
 }
 inline ErrorCode Xct::add_to_write_set(storage::Storage* storage, storage::Record* record,
                                        void* log_entry) {
+    ASSERT_ND(!schema_xct_);
     ASSERT_ND(storage);
     ASSERT_ND(record);
     ASSERT_ND(log_entry);
