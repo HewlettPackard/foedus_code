@@ -108,23 +108,6 @@ configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/src/glog/config.h.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/src/glog/config.h)
 
-# Other files are copyonly.
-configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/glog/log_severity.h
-    ${CMAKE_CURRENT_BINARY_DIR}/src/glog/log_severity.h COPYONLY)
-configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/glog/logging.h
-    ${CMAKE_CURRENT_BINARY_DIR}/src/glog/logging.h COPYONLY)
-configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/glog/raw_logging.h
-    ${CMAKE_CURRENT_BINARY_DIR}/src/glog/raw_logging.h COPYONLY)
-configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/glog/stl_logging.h
-    ${CMAKE_CURRENT_BINARY_DIR}/src/glog/stl_logging.h COPYONLY)
-configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/glog/vlog_is_on.h
-    ${CMAKE_CURRENT_BINARY_DIR}/src/glog/vlog_is_on.h COPYONLY)
-
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_BINARY_DIR}/src/)
 set(GLOG_SRC
   ${CMAKE_CURRENT_SOURCE_DIR}/src/logging.cc

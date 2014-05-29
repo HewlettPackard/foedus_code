@@ -90,7 +90,8 @@ include_directories(
     ${NUMA_INCLUDE_DIR}
     # tinyxml2
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tinyxml2-2.1.0
-    # We include the BINARY folder of glog as glog generates header files
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glog-0.3.3/src
+    # We also include the BINARY folder of glog as glog generates config.h
     ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog-0.3.3/src)
 # gperftools is optional for this library
 if (GOOGLEPERFTOOLS_FOUND)
