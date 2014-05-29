@@ -16,12 +16,15 @@
 #include <foedus/log/log_type_invoke.hpp>
 #endif  // NDEBUG
 
+#include <cstring>
 #include <iosfwd>
 
 /**
  * @file foedus/xct/xct_inl.hpp
  * @brief Inline functions of Xct.
  * @ingroup XCT
+ * @todo these methods are now bigger than before. Maybe don't have to be inlined.
+ * Check performance later.
  */
 namespace foedus {
 namespace xct {
@@ -60,6 +63,48 @@ inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record
     ++read_set_size_;
     return ERROR_CODE_OK;
 }
+inline ErrorCode Xct::read_record(storage::Storage* storage, storage::Record* record,
+                            void *payload, uint16_t payload_offset, uint16_t payload_count) {
+    ErrorCode read_set_result = add_to_read_set(storage, record);
+    if (read_set_result != ERROR_CODE_OK) {
+        return read_set_result;
+    }
+
+    std::memcpy(payload, record->payload_ + payload_offset, payload_count);
+
+    if (isolation_level_ != DIRTY_READ_PREFER_SNAPSHOT
+        && isolation_level_ != DIRTY_READ_PREFER_VOLATILE) {
+        assorted::memory_fence_consume();
+        ASSERT_ND(read_set_size_ > 0);
+        if (!read_set_[read_set_size_ - 1].observed_owner_id_.equals_all(record->owner_id_)) {
+            // this means we might have read something half-updated. abort now.
+            return ERROR_CODE_XCT_RACE_ABORT;
+        }
+    }
+    return ERROR_CODE_OK;
+}
+template <typename T>
+inline ErrorCode Xct::read_record_primitive(storage::Storage* storage, storage::Record* record,
+                            T *payload, uint16_t payload_offset) {
+    ErrorCode read_set_result = add_to_read_set(storage, record);
+    if (read_set_result != ERROR_CODE_OK) {
+        return read_set_result;
+    }
+
+    char* ptr = record->payload_ + payload_offset;
+    *payload = *reinterpret_cast<const T*>(ptr);
+
+    if (isolation_level_ != DIRTY_READ_PREFER_SNAPSHOT
+        && isolation_level_ != DIRTY_READ_PREFER_VOLATILE) {
+        assorted::memory_fence_consume();
+        ASSERT_ND(read_set_size_ > 0);
+        if (!read_set_[read_set_size_ - 1].observed_owner_id_.equals_all(record->owner_id_)) {
+            return ERROR_CODE_XCT_RACE_ABORT;
+        }
+    }
+    return ERROR_CODE_OK;
+}
+
 inline ErrorCode Xct::add_to_write_set(storage::Storage* storage, storage::Record* record,
                                        void* log_entry) {
     ASSERT_ND(!schema_xct_);

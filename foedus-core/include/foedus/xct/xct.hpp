@@ -100,6 +100,15 @@ class Xct {
      * Inlined in xct_inl.hpp.
      */
     ErrorCode           add_to_read_set(storage::Storage* storage, storage::Record* record);
+
+    /** add_to_read_set() plus the data read plus version check again. */
+    ErrorCode           read_record(storage::Storage* storage, storage::Record* record,
+                                void *payload, uint16_t payload_offset, uint16_t payload_count);
+    /** read_record() for primitive types. */
+    template <typename T>
+    ErrorCode           read_record_primitive(storage::Storage* storage, storage::Record* record,
+                                T *payload, uint16_t payload_offset);
+
     /**
      * @brief Add the given record to the write set of this transaction.
      * @details

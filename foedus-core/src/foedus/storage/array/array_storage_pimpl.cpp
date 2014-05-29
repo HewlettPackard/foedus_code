@@ -22,7 +22,6 @@
 #include <foedus/log/log_type.hpp>
 #include <foedus/engine.hpp>
 #include <glog/logging.h>
-#include <cstring>
 #include <string>
 #include <vector>
 namespace foedus {
@@ -283,8 +282,8 @@ inline ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOf
     ASSERT_ND(payload_offset + payload_count <= payload_size_);
     Record *record = nullptr;
     CHECK_ERROR(locate_record(context, offset, &record));
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
-    std::memcpy(payload, record->payload_ + payload_offset, payload_count);
+    CHECK_ERROR_CODE(context->get_current_xct().read_record(holder_, record,
+                                                        payload, payload_offset, payload_count));
     return RET_OK;
 }
 
@@ -294,9 +293,8 @@ ErrorStack ArrayStoragePimpl::get_record_primitive(thread::Thread* context, Arra
     ASSERT_ND(payload_offset + sizeof(T) <= payload_size_);
     Record *record = nullptr;
     CHECK_ERROR(locate_record(context, offset, &record));
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
-    char* ptr = record->payload_ + payload_offset;
-    *payload = *reinterpret_cast<const T*>(ptr);
+    CHECK_ERROR_CODE(context->get_current_xct().read_record_primitive<T>(holder_, record,
+                                                                      payload, payload_offset));
     return RET_OK;
 }
 
@@ -339,9 +337,10 @@ ErrorStack ArrayStoragePimpl::increment_record(
     CHECK_ERROR(locate_record(context, offset, &record));
 
     // this is get_record + overwrite_record
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
-    char* ptr = record->payload_ + payload_offset;
-    *value += *reinterpret_cast<const T*>(ptr);
+    T old_value;
+    CHECK_ERROR_CODE(context->get_current_xct().read_record_primitive<T>(
+        holder_, record, &old_value, payload_offset));
+    *value += old_value;
     uint16_t log_length = OverwriteLogType::calculate_log_length(sizeof(T));
     OverwriteLogType* log_entry = reinterpret_cast<OverwriteLogType*>(
         context->get_thread_log_buffer().reserve_new_log(log_length));
