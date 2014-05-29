@@ -1,4 +1,4 @@
-add_foedus_test_individual(test_array_basic "CreateAndQuery;CreateAndWrite;CreateAndReadWrite")
+add_foedus_test_individual(test_array_basic "CreateAndQuery;CreateAndDrop;CreateAndWrite;CreateAndReadWrite")
 set(test_array_tpcb_individuals
     SingleThreadedNoContention
     TwoThreadedNoContention

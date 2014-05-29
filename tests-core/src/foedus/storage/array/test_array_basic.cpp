@@ -68,6 +68,20 @@ TEST(ArrayBasicTest, CreateAndQuery) {
     cleanup_test(options);
 }
 
+TEST(ArrayBasicTest, CreateAndDrop) {
+    EngineOptions options = get_tiny_options();
+    Engine engine(options);
+    COERCE_ERROR(engine.initialize());
+    {
+        UninitializeGuard guard(&engine);
+        ArrayStorage* out;
+        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("dd", 16, 100, &out));
+        EXPECT_TRUE(out != nullptr);
+        COERCE_ERROR(engine.get_storage_manager().drop_storage_impersonate(out->get_id()));
+        COERCE_ERROR(engine.uninitialize());
+    }
+    cleanup_test(options);
+}
 
 class WriteTask : public thread::ImpersonateTask {
  public:

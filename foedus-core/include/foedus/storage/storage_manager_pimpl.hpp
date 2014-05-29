@@ -34,8 +34,11 @@ class StorageManagerPimpl final : public DefaultInitializable {
     Storage*    get_storage(StorageId id);
     Storage*    get_storage(const std::string &name);
     ErrorStack  register_storage(Storage* storage);
-    ErrorStack  remove_storage(StorageId id);
     ErrorStack  expand_storage_array(StorageId new_size);
+
+    ErrorStack  drop_storage(thread::Thread* context, StorageId id);
+    ErrorStack  drop_storage_impersonate(StorageId id);
+    void        drop_storage_apply(thread::Thread* context, Storage* storage);
 
     ErrorStack  create_array(thread::Thread* context, const std::string &name,
                 uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out);

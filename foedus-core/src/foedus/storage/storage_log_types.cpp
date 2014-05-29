@@ -4,6 +4,7 @@
  */
 #include <foedus/storage/storage_log_types.hpp>
 #include <foedus/storage/storage_manager.hpp>
+#include <foedus/storage/storage.hpp>
 #include <foedus/thread/thread.hpp>
 #include <foedus/engine.hpp>
 #include <glog/logging.h>
@@ -14,15 +15,17 @@ namespace storage {
 
 void DropLogType::populate(StorageId storage_id) {
     ASSERT_ND(storage_id > 0);
+    header_.log_type_code_ = log::get_log_code<DropLogType>();
+    header_.log_length_ = sizeof(DropLogType);
     header_.storage_id_ = storage_id;
 }
 void DropLogType::apply_storage(const xct::XctId& /*xct_id*/,
                                 thread::Thread* context, Storage* storage) {
     ASSERT_ND(storage);  // because we are now dropping it.
-    UNUSED_ND(storage);
     ASSERT_ND(header_.storage_id_ > 0);
+    ASSERT_ND(header_.storage_id_ == storage->get_id());
     LOG(INFO) << "Applying DROP STORAGE log: " << *this;
-    COERCE_ERROR(context->get_engine()->get_storage_manager().remove_storage(header_.storage_id_));
+    context->get_engine()->get_storage_manager().drop_storage_apply(context, storage);
     LOG(INFO) << "Applied DROP STORAGE log: " << *this;
 }
 

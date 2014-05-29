@@ -26,7 +26,15 @@ StorageId StorageManager::issue_next_storage_id() { return pimpl_->issue_next_st
 ErrorStack StorageManager::register_storage(Storage* storage) {
     return pimpl_->register_storage(storage);
 }
-ErrorStack StorageManager::remove_storage(StorageId id) { return pimpl_->remove_storage(id); }
+ErrorStack StorageManager::drop_storage(thread::Thread* context, StorageId id) {
+    return pimpl_->drop_storage(context, id);
+}
+ErrorStack StorageManager::drop_storage_impersonate(StorageId id) {
+    return pimpl_->drop_storage_impersonate(id);
+}
+void StorageManager::drop_storage_apply(thread::Thread* context, Storage* storage) {
+    pimpl_->drop_storage_apply(context, storage);
+}
 
 ErrorStack StorageManager::create_array(thread::Thread* context, const std::string& name,
         uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage** out) {

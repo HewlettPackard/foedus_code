@@ -192,8 +192,9 @@ void ThreadLogBuffer::list_uncommitted_logs(std::vector< char* >* out) {
     while (cur != end) {
         out->push_back(buffer_ + cur);
         LogHeader* header = reinterpret_cast<LogHeader*>(buffer_ + cur);
-        ASSERT_ND(header->log_length_ > 0);
-        ASSERT_ND(header->log_length_ % 8 == 0);
+        if (header->log_length_ == 0 || header->log_length_ % 8 != 0) {
+            LOG(FATAL) << "Invalid log length. Bug? " << header->log_length_;
+        }
         cur += header->log_length_;
         if (cur > buffer_size_) {
             cur -= buffer_size_;

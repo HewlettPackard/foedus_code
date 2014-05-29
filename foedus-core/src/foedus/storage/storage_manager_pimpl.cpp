@@ -7,6 +7,7 @@
 #include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/log/log_manager.hpp>
 #include <foedus/log/thread_log_buffer_impl.hpp>
+#include <foedus/storage/storage_log_types.hpp>
 #include <foedus/storage/storage_manager_pimpl.hpp>
 #include <foedus/storage/storage_options.hpp>
 #include <foedus/storage/storage.hpp>
@@ -119,20 +120,62 @@ ErrorStack StorageManagerPimpl::register_storage(Storage* storage) {
     return RET_OK;
 }
 
-ErrorStack StorageManagerPimpl::remove_storage(StorageId id) {
+ErrorStack StorageManagerPimpl::drop_storage(thread::Thread* context, StorageId id) {
+    // DROP STORAGE must be the only log in this transaction
+    if (context->get_thread_log_buffer().get_offset_committed() !=
+        context->get_thread_log_buffer().get_offset_tail()) {
+        return ERROR_STACK(ERROR_CODE_STR_MUST_SEPARATE_XCT);
+    }
+
+    // to avoid mixing with normal operations on the storage in this epoch, advance epoch now.
+    engine_->get_xct_manager().advance_current_global_epoch();
+
+    CHECK_ERROR(engine_->get_xct_manager().begin_schema_xct(context));
+
+    // write out log
+    DropLogType* log_entry = reinterpret_cast<DropLogType*>(
+        context->get_thread_log_buffer().reserve_new_log(sizeof(DropLogType)));
+    log_entry->populate(id);
+
+    // commit invokes apply
+    Epoch commit_epoch;
+    CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, &commit_epoch));
+    return RET_OK;
+}
+void StorageManagerPimpl::drop_storage_apply(thread::Thread* /*context*/, Storage* storage) {
+    ASSERT_ND(storage);
+    StorageId id = storage->get_id();
+    std::string name = storage->get_name();
+    LOG(INFO) << "Dropping storage " << id << "(" << name << ")";
+    COERCE_ERROR(storage->uninitialize());
+    LOG(INFO) << "Uninitialized storage " << id << "(" << name << ")";
+
     std::lock_guard<std::mutex> guard(mod_lock_);
-    if (storages_[id]) {
-        LOG(INFO) << "Removing storage of ID" << id;
-        std::string name = storages_[id]->get_name();
-        storage_names_.erase(name);
-        // TODO(Hideaki) should separate this heavy stuff out of critical section.
-        ErrorStack error_stack = storages_[id]->uninitialize();
-        storages_[id] = nullptr;
-        return error_stack;
-    } else {
-        LOG(WARNING) << "No storage of ID=" << id << ". nothing to delete";
+    storage_names_.erase(name);
+    storages_[id] = nullptr;
+    delete storage;
+    LOG(INFO) << "Droped storage " << id << "(" << name << ")";
+}
+
+/** A task to drop a task. Used from drop_storage_impersonate(). */
+class DropStorageTask final : public foedus::thread::ImpersonateTask {
+ public:
+    DropStorageTask(StorageManagerPimpl* pimpl, StorageId id) : pimpl_(pimpl), id_(id) {}
+    ErrorStack run(thread::Thread* context) override {
+        CHECK_ERROR(pimpl_->drop_storage(context, id_));
         return RET_OK;
     }
+
+ private:
+    StorageManagerPimpl* pimpl_;
+    StorageId id_;
+};
+
+ErrorStack StorageManagerPimpl::drop_storage_impersonate(StorageId id) {
+    DropStorageTask task(this, id);
+    thread::ImpersonateSession session = engine_->get_thread_pool().impersonate(&task);
+    CHECK_ERROR(session.get_result());
+    return RET_OK;
 }
 
 
@@ -183,6 +226,9 @@ ErrorStack StorageManagerPimpl::create_array(thread::Thread* context, const std:
     // commit invokes apply
     Epoch commit_epoch;
     CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, &commit_epoch));
+
+    // to avoid mixing normal operations on the new storage in this epoch, advance epoch now.
+    engine_->get_xct_manager().advance_current_global_epoch();
 
     Storage* new_storage = get_storage(id);
     ASSERT_ND(new_storage);

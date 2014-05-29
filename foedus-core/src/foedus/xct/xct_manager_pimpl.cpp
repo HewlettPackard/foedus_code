@@ -78,7 +78,7 @@ void XctManagerPimpl::handle_epoch_advance() {
 void XctManagerPimpl::advance_current_global_epoch() {
     Epoch now = current_global_epoch_;
     LOG(INFO) << "Requesting to immediately advance epoch. current_global_epoch_=" << now << "...";
-    while (now <= current_global_epoch_) {
+    while (now == current_global_epoch_) {
         epoch_advance_thread_.wakeup();  // hurrrrry up!
         std::unique_lock<std::mutex> the_lock(current_global_epoch_advanced_mutex_);
         current_global_epoch_advanced_.wait(the_lock);

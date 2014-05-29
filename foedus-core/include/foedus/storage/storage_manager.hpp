@@ -65,12 +65,24 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
 
     /**
      * @brief Removes the storage object.
+     * @param[in] context thread context to drop the storage
      * @param[in] id ID of the storage to remove
      * @details
      * This also invokes uninitialize/destruct.
      * This method is idempotent, although it logs warning for non-existing id.
      */
-    ErrorStack  remove_storage(StorageId id);
+    ErrorStack  drop_storage(thread::Thread* context, StorageId id);
+
+    /**
+     * A convenience function to impersonate as one of available threads and invoke drop_storage().
+     * @see drop_storage()
+     */
+    ErrorStack  drop_storage_impersonate(StorageId id);
+
+    /**
+     * @brief Apply DROP STORAGE either during normal execution or restart
+     */
+    void        drop_storage_apply(thread::Thread* context, Storage* storage);
 
     /**
      * @brief Newly creates an \ref ARRAY with the specified parameters and registers it to this
