@@ -4,6 +4,7 @@ add_subdirectory(masstree)
 add_subdirectory(sequential)
 
 set_property(GLOBAL APPEND PROPERTY ALL_FOEDUS_CORE_SRC
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage_id.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage_log_types.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage_manager.cpp

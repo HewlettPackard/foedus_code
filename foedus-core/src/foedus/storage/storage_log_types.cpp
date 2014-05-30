@@ -5,6 +5,7 @@
 #include <foedus/storage/storage_log_types.hpp>
 #include <foedus/storage/storage_manager.hpp>
 #include <foedus/storage/storage.hpp>
+#include <foedus/storage/storage_manager_pimpl.hpp>
 #include <foedus/thread/thread.hpp>
 #include <foedus/engine.hpp>
 #include <glog/logging.h>
@@ -25,7 +26,7 @@ void DropLogType::apply_storage(const xct::XctId& /*xct_id*/,
     ASSERT_ND(header_.storage_id_ > 0);
     ASSERT_ND(header_.storage_id_ == storage->get_id());
     LOG(INFO) << "Applying DROP STORAGE log: " << *this;
-    context->get_engine()->get_storage_manager().drop_storage_apply(context, storage);
+    context->get_engine()->get_storage_manager().get_pimpl()->drop_storage_apply(context, storage);
     LOG(INFO) << "Applied DROP STORAGE log: " << *this;
 }
 

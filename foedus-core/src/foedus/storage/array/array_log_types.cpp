@@ -4,6 +4,7 @@
  */
 #include <foedus/assert_nd.hpp>
 #include <foedus/storage/array/array_log_types.hpp>
+#include <foedus/storage/array/array_metadata.hpp>
 #include <foedus/thread/thread.hpp>
 #include <glog/logging.h>
 #include <algorithm>
@@ -34,8 +35,9 @@ void CreateLogType::apply_storage(const xct::XctId& /*xct_id*/,
     ASSERT_ND(storage == nullptr);  // because we are now creating it.
     LOG(INFO) << "Applying CREATE ARRAY STORAGE log: " << *this;
     std::string name(name_, name_length_);
+    ArrayMetadata metadata(header_.storage_id_, name, payload_size_, array_size_, 0);
     std::unique_ptr<array::ArrayStorage> array(new array::ArrayStorage(context->get_engine(),
-        header_.storage_id_, name, payload_size_, array_size_, DualPagePointer(), true));
+        metadata, true));
     COERCE_ERROR(array->initialize());
     COERCE_ERROR(array->create(context));
     array.release();  // No error, so take over the ownership from unique_ptr.

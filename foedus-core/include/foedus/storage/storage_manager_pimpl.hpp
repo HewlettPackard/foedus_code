@@ -33,6 +33,12 @@ class StorageManagerPimpl final : public DefaultInitializable {
     StorageId   issue_next_storage_id();
     Storage*    get_storage(StorageId id);
     Storage*    get_storage(const std::string &name);
+    /**
+     * @brief Adds a storage object, either newly created or constructed from disk at start-up.
+     * @param[in] storage an already-constructred and initialized Storage
+     * @details
+     * The ownership is handed over to this manager, thus caller should NOT uninitialize/destruct.
+     */
     ErrorStack  register_storage(Storage* storage);
     ErrorStack  expand_storage_array(StorageId new_size);
 

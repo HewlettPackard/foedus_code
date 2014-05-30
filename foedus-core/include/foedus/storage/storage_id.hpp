@@ -36,6 +36,20 @@ const uint16_t PAGE_SIZE = 1 << 12;
 typedef uint32_t StorageId;
 
 /**
+ * @brief Page ID of a snapshot page.
+ * @ingroup STORAGE
+ * @details
+ * Snapshot Page ID is a 48-bit integer.
+ * The high 16 bits indicate which snapshot it is in.
+ * As we periodically merge all snapshots, we won't have 2^16 snapshots at one time.
+ * The mid 8 bits indicate the NUMA node ID, or which file it is in.
+ * We have one snapshot file per NUMA node, so it won't be more than 2^8.
+ * The last 40 bits indicate page offset in the file. So, one file in one snapshot must be within
+ * 4kb * 2^40 = 4PB, which is surely the case.
+ */
+typedef uint64_t SnapshotPagePointer;
+
+/**
  * @brief Type of the storage, such as hash.
  * @ingroup STORAGE
  */
@@ -116,12 +130,12 @@ union VolatilePagePointer {
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
 struct DualPagePointer {
-    DualPagePointer() : snapshot_page_id_(0) {
+    DualPagePointer() : snapshot_pointer_(0) {
         volatile_pointer_.word = 0;
     }
 
     bool operator==(const DualPagePointer& other) const {
-        return snapshot_page_id_ == other.snapshot_page_id_
+        return snapshot_pointer_ == other.snapshot_pointer_
             && volatile_pointer_.word == other.volatile_pointer_.word;
     }
     bool operator!=(const DualPagePointer& other) const {
@@ -147,7 +161,7 @@ struct DualPagePointer {
             reinterpret_cast<const uint64_t*>(&desired));
     }
 
-    uint64_t            snapshot_page_id_;
+    SnapshotPagePointer snapshot_pointer_;
     VolatilePagePointer volatile_pointer_;
 };
 STATIC_SIZE_CHECK(sizeof(DualPagePointer), sizeof(uint64_t) * 2)

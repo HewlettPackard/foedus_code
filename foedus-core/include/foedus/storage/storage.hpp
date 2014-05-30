@@ -7,7 +7,9 @@
 #include <foedus/error_stack.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/storage/storage_id.hpp>
+#include <foedus/storage/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
+#include <iosfwd>
 #include <string>
 namespace foedus {
 namespace storage {
@@ -51,6 +53,13 @@ class Storage : public virtual Initializable {
     virtual const std::string&  get_name() const = 0;
 
     /**
+     * Returns the metadata of this storage.
+     * @return metadata for the individual storage instance. You can dynamic_cast it to
+     * derived metadata object.
+     */
+    virtual const Metadata*     get_metadata() const = 0;
+
+    /**
      * Returns whether this storage is already created.
      */
     virtual bool                exists() const = 0;
@@ -65,6 +74,14 @@ class Storage : public virtual Initializable {
      * trivial-to-instantiate (thus no exception) until we call this method.
      */
     virtual ErrorStack          create(thread::Thread* context) = 0;
+
+    /**
+     * Implementation of ostream operator.
+     */
+    virtual void                describe(std::ostream* o) const = 0;
+
+    /** Just delegates to describe(). */
+    friend std::ostream& operator<<(std::ostream& o, const Storage& v);
 };
 }  // namespace storage
 }  // namespace foedus

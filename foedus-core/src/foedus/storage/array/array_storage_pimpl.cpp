@@ -3,12 +3,14 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/storage/record.hpp>
-#include <foedus/storage/array/array_log_types.hpp>
 #include <foedus/storage/array/array_id.hpp>
+#include <foedus/storage/array/array_log_types.hpp>
+#include <foedus/storage/array/array_metadata.hpp>
 #include <foedus/storage/array/array_storage.hpp>
 #include <foedus/storage/array/array_storage_pimpl.hpp>
 #include <foedus/storage/array/array_page_impl.hpp>
 #include <foedus/storage/storage_manager.hpp>
+#include <foedus/storage/storage_manager_pimpl.hpp>
 #include <foedus/assorted/assorted_func.hpp>
 #include <foedus/thread/thread.hpp>
 #include <foedus/memory/numa_core_memory.hpp>
@@ -31,10 +33,12 @@ namespace array {
 // Defines ArrayStorage methods so that we can inline implementation calls
 bool        ArrayStorage::is_initialized()   const  { return pimpl_->is_initialized(); }
 bool        ArrayStorage::exists()           const  { return pimpl_->exist_; }
-uint16_t    ArrayStorage::get_payload_size() const  { return pimpl_->payload_size_; }
-ArrayOffset ArrayStorage::get_array_size()   const  { return pimpl_->array_size_; }
-StorageId   ArrayStorage::get_id()           const  { return pimpl_->id_; }
-const std::string& ArrayStorage::get_name()  const  { return pimpl_->name_; }
+uint16_t    ArrayStorage::get_payload_size() const  { return pimpl_->metadata_.payload_size_; }
+ArrayOffset ArrayStorage::get_array_size()   const  { return pimpl_->metadata_.array_size_; }
+StorageId   ArrayStorage::get_id()           const  { return pimpl_->metadata_.id_; }
+const std::string& ArrayStorage::get_name()  const  { return pimpl_->metadata_.name_; }
+const Metadata* ArrayStorage::get_metadata() const  { return &pimpl_->metadata_; }
+
 ErrorStack ArrayStorage::get_record(thread::Thread* context, ArrayOffset offset,
                     void *payload, uint16_t payload_offset, uint16_t payload_count) {
     return pimpl_->get_record(context, offset, payload, payload_offset, payload_count);
@@ -89,25 +93,25 @@ std::vector<uint64_t> calculate_required_pages(uint64_t array_size, uint16_t pay
     return pages;
 }
 
-ArrayStoragePimpl::ArrayStoragePimpl(Engine* engine, ArrayStorage* holder, StorageId id,
-    const std::string &name,
-    uint16_t payload_size, ArrayOffset array_size, DualPagePointer root_page_pointer, bool create)
-    : engine_(engine), holder_(holder), id_(id), name_(name), payload_size_(payload_size),
-        payload_size_aligned_(assorted::align8(payload_size)), array_size_(array_size),
-        root_page_pointer_(root_page_pointer), root_page_(nullptr), exist_(!create) {
-    ASSERT_ND(id > 0);
-    ASSERT_ND(name.size() > 0);
-    pages_ = calculate_required_pages(array_size_, payload_size_aligned_);
-    levels_ = pages_.size();
-    offset_intervals_.push_back(DATA_SIZE / (payload_size_aligned_ + RECORD_OVERHEAD));
-    for (uint8_t level = 1; level < levels_; ++level) {
-        offset_intervals_.push_back(offset_intervals_[level - 1] * INTERIOR_FANOUT);
-    }
+ArrayStoragePimpl::ArrayStoragePimpl(Engine* engine, ArrayStorage* holder,
+                                     const ArrayMetadata &metadata, bool create)
+    : engine_(engine), holder_(holder), metadata_(metadata), root_page_(nullptr), exist_(!create) {
+    ASSERT_ND(create || metadata.id_ > 0);
+    ASSERT_ND(metadata.name_.size() > 0);
+    root_page_pointer_.snapshot_pointer_ = metadata.root_page_id_;
+    root_page_pointer_.volatile_pointer_.word = 0;
 }
 
 ErrorStack ArrayStoragePimpl::initialize_once() {
-    LOG(INFO) << "Initializing an array-storage " << id_ << "(" << name_ << ") exists=" << exist_
-        << " levels=" << static_cast<int>(levels_);
+    LOG(INFO) << "Initializing an array-storage " << *holder_ << " exists=" << exist_;
+    resolver_ = engine_->get_memory_manager().get_page_pool()->get_resolver();
+    uint16_t payload_size_aligned = (assorted::align8(metadata_.payload_size_));
+    pages_ = calculate_required_pages(metadata_.array_size_, payload_size_aligned);
+    levels_ = pages_.size();
+    offset_intervals_.push_back(DATA_SIZE / (payload_size_aligned + RECORD_OVERHEAD));
+    for (uint8_t level = 1; level < levels_; ++level) {
+        offset_intervals_.push_back(offset_intervals_[level - 1] * INTERIOR_FANOUT);
+    }
     for (uint8_t level = 0; level < levels_; ++level) {
         LOG(INFO) << "Level-" << static_cast<int>(level) << " pages=" << pages_[level]
             << " interval=" << offset_intervals_[level];
@@ -116,7 +120,6 @@ ErrorStack ArrayStoragePimpl::initialize_once() {
     if (exist_) {
         // initialize root_page_
     }
-    resolver_ = engine_->get_memory_manager().get_page_pool()->get_resolver();
     return RET_OK;
 }
 
@@ -139,7 +142,7 @@ void release_pages_recursive(memory::PageResolver *resolver, memory::NumaCoreMem
 }
 
 ErrorStack ArrayStoragePimpl::uninitialize_once() {
-    LOG(INFO) << "Uninitializing an array-storage " << id_ << "(" << name_ << ") exists=" << exist_;
+    LOG(INFO) << "Uninitializing an array-storage " << *holder_;
     if (root_page_) {
         LOG(INFO) << "Releasing all in-memory pages...";
         // We don't care which core to return this memory. Just pick the first.
@@ -155,13 +158,12 @@ ErrorStack ArrayStoragePimpl::uninitialize_once() {
 
 ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     if (exist_) {
-        LOG(ERROR) << "This array-storage already exists: " << id_ << "(" << name_ << ")";
+        LOG(ERROR) << "This array-storage already exists: " << *holder_;
         return ERROR_STACK(ERROR_CODE_STR_ALREADY_EXISTS);
     }
 
     Epoch initial_epoch = engine_->get_xct_manager().get_current_global_epoch();
-    LOG(INFO) << "Newly creating an array-storage " << id_ << "(" << name_ << ") as epoch="
-        << initial_epoch;
+    LOG(INFO) << "Newly creating an array-storage "  << *holder_ << " as epoch=" << initial_epoch;
 
     // TODO(Hideaki) This part must handle the case where RAM < Array Size
     // So far, we just do ASSERT_ND(offset) after memory->grab_free_page().
@@ -179,11 +181,12 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
         ArrayPage* page = reinterpret_cast<ArrayPage*>(resolver_.resolve_offset(offset));
 
         ArrayRange range(0, offset_intervals_[level]);
-        if (range.end_ > array_size_) {
+        if (range.end_ > metadata_.array_size_) {
             ASSERT_ND(level == levels_ - 1);
-            range.end_ = array_size_;
+            range.end_ = metadata_.array_size_;
         }
-        page->initialize_data_page(initial_epoch, id_, payload_size_, level, range);
+        page->initialize_data_page(initial_epoch, metadata_.id_,
+                                   metadata_.payload_size_, level, range);
 
         current_pages.push_back(page);
         current_pages_offset.push_back(offset);
@@ -192,7 +195,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
         } else {
             current_records.push_back(1);
             DualPagePointer& child_pointer = page->get_interior_record(0)->pointer_;
-            child_pointer.snapshot_page_id_ = 0;
+            child_pointer.snapshot_pointer_ = 0;
             child_pointer.volatile_pointer_.components.mod_count = 0;
             child_pointer.volatile_pointer_.components.offset = current_pages_offset[level - 1];
         }
@@ -209,10 +212,10 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
 
         ArrayRange range(current_pages[0]->get_array_range().end_,
                          current_pages[0]->get_array_range().end_ + offset_intervals_[0]);
-        if (range.end_ > array_size_) {
-            range.end_ = array_size_;
+        if (range.end_ > metadata_.array_size_) {
+            range.end_ = metadata_.array_size_;
         }
-        page->initialize_data_page(initial_epoch, id_, payload_size_, 0, range);
+        page->initialize_data_page(initial_epoch, metadata_.id_, metadata_.payload_size_, 0, range);
         current_pages[0] = page;
         current_pages_offset[0] = offset;
         // current_records[0] is always 0
@@ -227,14 +230,14 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
                     resolver_.resolve_offset(interior_offset));
                 ArrayRange interior_range(current_pages[level]->get_array_range().end_,
                          current_pages[level]->get_array_range().end_ + offset_intervals_[level]);
-                if (range.end_ > array_size_) {
-                    range.end_ = array_size_;
+                if (range.end_ > metadata_.array_size_) {
+                    range.end_ = metadata_.array_size_;
                 }
                 interior_page->initialize_data_page(
-                    initial_epoch, id_, payload_size_, level, interior_range);
+                    initial_epoch, metadata_.id_, metadata_.payload_size_, level, interior_range);
 
                 DualPagePointer& child_pointer = interior_page->get_interior_record(0)->pointer_;
-                child_pointer.snapshot_page_id_ = 0;
+                child_pointer.snapshot_pointer_ = 0;
                 child_pointer.volatile_pointer_.components.mod_count = 0;
                 child_pointer.volatile_pointer_.components.offset = current_pages_offset[level - 1];
                 current_pages[level] = interior_page;
@@ -244,7 +247,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
             } else {
                 DualPagePointer& child_pointer = current_pages[level]->get_interior_record(
                     current_records[level])->pointer_;
-                child_pointer.snapshot_page_id_ = 0;
+                child_pointer.snapshot_pointer_ = 0;
                 child_pointer.volatile_pointer_.components.mod_count = 0;
                 child_pointer.volatile_pointer_.components.offset = current_pages_offset[level - 1];
                 ++current_records[level];
@@ -253,20 +256,20 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
         }
     }
 
-    root_page_pointer_.snapshot_page_id_ = 0;
+    root_page_pointer_.snapshot_pointer_ = 0;
     root_page_pointer_.volatile_pointer_.components.mod_count = 0;
     root_page_pointer_.volatile_pointer_.components.offset = current_pages_offset[levels_ - 1];
     root_page_ = current_pages[levels_ - 1];
-    LOG(INFO) << "Newly created an array-storage " << id_ << "(" << name_ << ")";
+    LOG(INFO) << "Newly created an array-storage " << *holder_;
     exist_ = true;
-    engine_->get_storage_manager().register_storage(holder_);
+    engine_->get_storage_manager().get_pimpl()->register_storage(holder_);
     return RET_OK;
 }
 
 inline ErrorStack ArrayStoragePimpl::locate_record(
     thread::Thread* context, ArrayOffset offset, Record** out) {
     ASSERT_ND(is_initialized());
-    ASSERT_ND(offset < array_size_);
+    ASSERT_ND(offset < metadata_.array_size_);
     ArrayPage* page = nullptr;
     CHECK_ERROR(lookup(context, offset, &page));
     ASSERT_ND(page);
@@ -279,7 +282,7 @@ inline ErrorStack ArrayStoragePimpl::locate_record(
 
 inline ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOffset offset,
                     void *payload, uint16_t payload_offset, uint16_t payload_count) {
-    ASSERT_ND(payload_offset + payload_count <= payload_size_);
+    ASSERT_ND(payload_offset + payload_count <= metadata_.payload_size_);
     Record *record = nullptr;
     CHECK_ERROR(locate_record(context, offset, &record));
     CHECK_ERROR_CODE(context->get_current_xct().read_record(holder_, record,
@@ -290,7 +293,7 @@ inline ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOf
 template <typename T>
 ErrorStack ArrayStoragePimpl::get_record_primitive(thread::Thread* context, ArrayOffset offset,
                     T *payload, uint16_t payload_offset) {
-    ASSERT_ND(payload_offset + sizeof(T) <= payload_size_);
+    ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
     Record *record = nullptr;
     CHECK_ERROR(locate_record(context, offset, &record));
     CHECK_ERROR_CODE(context->get_current_xct().read_record_primitive<T>(holder_, record,
@@ -300,7 +303,7 @@ ErrorStack ArrayStoragePimpl::get_record_primitive(thread::Thread* context, Arra
 
 inline ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context, ArrayOffset offset,
             const void *payload, uint16_t payload_offset, uint16_t payload_count) {
-    ASSERT_ND(payload_offset + payload_count <= payload_size_);
+    ASSERT_ND(payload_offset + payload_count <= metadata_.payload_size_);
     Record *record = nullptr;
     CHECK_ERROR(locate_record(context, offset, &record));
 
@@ -308,7 +311,7 @@ inline ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context, A
     uint16_t log_length = OverwriteLogType::calculate_log_length(payload_count);
     OverwriteLogType* log_entry = reinterpret_cast<OverwriteLogType*>(
         context->get_thread_log_buffer().reserve_new_log(log_length));
-    log_entry->populate(id_, offset, payload, payload_offset, payload_count);
+    log_entry->populate(metadata_.id_, offset, payload, payload_offset, payload_count);
     CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
     return RET_OK;
 }
@@ -316,7 +319,7 @@ inline ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context, A
 template <typename T>
 ErrorStack ArrayStoragePimpl::overwrite_record_primitive(
             thread::Thread* context, ArrayOffset offset, T payload, uint16_t payload_offset) {
-    ASSERT_ND(payload_offset + sizeof(T) <= payload_size_);
+    ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
     Record *record = nullptr;
     CHECK_ERROR(locate_record(context, offset, &record));
 
@@ -324,7 +327,7 @@ ErrorStack ArrayStoragePimpl::overwrite_record_primitive(
     uint16_t log_length = OverwriteLogType::calculate_log_length(sizeof(T));
     OverwriteLogType* log_entry = reinterpret_cast<OverwriteLogType*>(
         context->get_thread_log_buffer().reserve_new_log(log_length));
-    log_entry->populate_primitive<T>(id_, offset, payload, payload_offset);
+    log_entry->populate_primitive<T>(metadata_.id_, offset, payload, payload_offset);
     CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
     return RET_OK;
 }
@@ -332,7 +335,7 @@ ErrorStack ArrayStoragePimpl::overwrite_record_primitive(
 template <typename T>
 ErrorStack ArrayStoragePimpl::increment_record(
             thread::Thread* context, ArrayOffset offset, T* value, uint16_t payload_offset) {
-    ASSERT_ND(payload_offset + sizeof(T) <= payload_size_);
+    ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
     Record *record = nullptr;
     CHECK_ERROR(locate_record(context, offset, &record));
 
@@ -344,7 +347,7 @@ ErrorStack ArrayStoragePimpl::increment_record(
     uint16_t log_length = OverwriteLogType::calculate_log_length(sizeof(T));
     OverwriteLogType* log_entry = reinterpret_cast<OverwriteLogType*>(
         context->get_thread_log_buffer().reserve_new_log(log_length));
-    log_entry->populate_primitive<T>(id_, offset, *value, payload_offset);
+    log_entry->populate_primitive<T>(metadata_.id_, offset, *value, payload_offset);
     CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
     return RET_OK;
 }
@@ -352,7 +355,7 @@ ErrorStack ArrayStoragePimpl::increment_record(
 inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* /*context*/, ArrayOffset offset,
                                             ArrayPage** out) {
     ASSERT_ND(is_initialized());
-    ASSERT_ND(offset < array_size_);
+    ASSERT_ND(offset < metadata_.array_size_);
     ASSERT_ND(out);
     ArrayPage* current_page = root_page_;
     while (!current_page->is_leaf()) {

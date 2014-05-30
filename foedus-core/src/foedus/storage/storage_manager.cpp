@@ -23,17 +23,11 @@ Storage* StorageManager::get_storage(StorageId id) { return pimpl_->get_storage(
 Storage* StorageManager::get_storage(const std::string& name) { return pimpl_->get_storage(name); }
 
 StorageId StorageManager::issue_next_storage_id() { return pimpl_->issue_next_storage_id(); }
-ErrorStack StorageManager::register_storage(Storage* storage) {
-    return pimpl_->register_storage(storage);
-}
 ErrorStack StorageManager::drop_storage(thread::Thread* context, StorageId id) {
     return pimpl_->drop_storage(context, id);
 }
 ErrorStack StorageManager::drop_storage_impersonate(StorageId id) {
     return pimpl_->drop_storage_impersonate(id);
-}
-void StorageManager::drop_storage_apply(thread::Thread* context, Storage* storage) {
-    pimpl_->drop_storage_apply(context, storage);
 }
 
 ErrorStack StorageManager::create_array(thread::Thread* context, const std::string& name,

@@ -13,6 +13,7 @@
 #include <foedus/storage/fwd.hpp>
 #include <foedus/storage/storage_id.hpp>
 #include <foedus/storage/array/array_id.hpp>
+#include <foedus/storage/array/array_metadata.hpp>
 #include <foedus/storage/array/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <string>
@@ -30,9 +31,8 @@ namespace array {
 class ArrayStoragePimpl final : public DefaultInitializable {
  public:
     ArrayStoragePimpl() = delete;
-    ArrayStoragePimpl(Engine* engine, ArrayStorage* holder,
-                      StorageId id, const std::string &name, uint16_t payload_size,
-        ArrayOffset array_size, DualPagePointer root_page_pointer, bool create);
+    ArrayStoragePimpl(Engine* engine, ArrayStorage* holder, const ArrayMetadata &metadata,
+                      bool create);
 
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
@@ -59,11 +59,7 @@ class ArrayStoragePimpl final : public DefaultInitializable {
 
     Engine* const           engine_;
     ArrayStorage* const     holder_;
-    const StorageId         id_;
-    const std::string       name_;
-    const uint16_t          payload_size_;
-    const uint16_t          payload_size_aligned_;
-    const ArrayOffset       array_size_;
+    ArrayMetadata           metadata_;
     /**
      * Number of pages in each level. index=level.
      */
@@ -73,8 +69,6 @@ class ArrayStoragePimpl final : public DefaultInitializable {
      * So, offset_intervals_[0] is the number of records in a leaf page.
      */
     std::vector<uint64_t>   offset_intervals_;
-    /** Number of levels. */
-    uint8_t                 levels_;
 
     /**
      * Points to the root page.
@@ -86,6 +80,9 @@ class ArrayStoragePimpl final : public DefaultInitializable {
      * So, we can access the root_page_ without going through caching module.
      */
     ArrayPage*              root_page_;
+
+    /** Number of levels. */
+    uint8_t                 levels_;
 
     bool                    exist_;
 

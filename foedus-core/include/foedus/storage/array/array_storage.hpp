@@ -7,11 +7,13 @@
 #include <foedus/cxx11.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
+#include <foedus/storage/fwd.hpp>
 #include <foedus/storage/storage.hpp>
 #include <foedus/storage/storage_id.hpp>
 #include <foedus/storage/array/array_id.hpp>
 #include <foedus/storage/array/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
+#include <iosfwd>
 #include <string>
 namespace foedus {
 namespace storage {
@@ -25,16 +27,10 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
     /**
      * Constructs an array storage either from disk or newly create.
      * @param[in] engine Database engine
-     * @param[in] id Unique ID of this storage
-     * @param[in] name Name of this storage
-     * @param[in] payload_size byte size of one record in this array storage
-     * without internal overheads.
-     * @param[in] array_size Size of this array
-     * @param[in] root_page Root page of this array, ignored if create=true
+     * @param[in] metadata Metadata of this storage
      * @param[in] create If true, we newly allocate this array when create() is called.
      */
-    ArrayStorage(Engine* engine, StorageId id, const std::string &name, uint16_t payload_size,
-        ArrayOffset array_size, DualPagePointer root_page, bool create);
+    ArrayStorage(Engine* engine, const ArrayMetadata &metadata, bool create);
     ~ArrayStorage() CXX11_OVERRIDE;
 
     // Disable default constructors
@@ -51,6 +47,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
     StorageId           get_id()    const CXX11_OVERRIDE;
     StorageType         get_type()  const CXX11_OVERRIDE { return ARRAY_STORAGE; }
     const std::string&  get_name()  const CXX11_OVERRIDE;
+    const Metadata*     get_metadata()  const CXX11_OVERRIDE;
     bool                exists()    const CXX11_OVERRIDE;
     ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
 
@@ -162,6 +159,8 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
     template <typename T>
     ErrorStack  increment_record(thread::Thread* context, ArrayOffset offset,
                         T *value, uint16_t payload_offset);
+
+    void        describe(std::ostream* o) const CXX11_OVERRIDE;
 
  private:
     ArrayStoragePimpl*  pimpl_;

@@ -56,14 +56,6 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
     Storage*    get_storage(const std::string &name);
 
     /**
-     * @brief Adds a storage object, either newly created or constructed from disk at start-up.
-     * @param[in] storage an already-constructred and initialized Storage
-     * @details
-     * The ownership is handed over to this manager, thus caller should NOT uninitialize/destruct.
-     */
-    ErrorStack  register_storage(Storage* storage);
-
-    /**
      * @brief Removes the storage object.
      * @param[in] context thread context to drop the storage
      * @param[in] id ID of the storage to remove
@@ -80,11 +72,6 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
     ErrorStack  drop_storage_impersonate(StorageId id);
 
     /**
-     * @brief Apply DROP STORAGE either during normal execution or restart
-     */
-    void        drop_storage_apply(thread::Thread* context, Storage* storage);
-
-    /**
      * @brief Newly creates an \ref ARRAY with the specified parameters and registers it to this
      * manager.
      * @param[in] context thread context to create this array
@@ -93,8 +80,7 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
      * without internal overheads.
      * @param[in] array_size Size of this array
      * @param[out] out Pointer to the created array storage, if no error observed.
-     * @details
-     *
+     * @todo probably this should receive ArrayMetadata rather than individual args.
      */
     ErrorStack  create_array(thread::Thread* context, const std::string &name,
                 uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out);
@@ -105,6 +91,9 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
      */
     ErrorStack  create_array_impersonate(const std::string &name,
                 uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out);
+
+    /** Returns pimpl object. Use this only if you know what you are doing. */
+    StorageManagerPimpl* get_pimpl() { return pimpl_; }
 
  private:
     StorageManagerPimpl *pimpl_;

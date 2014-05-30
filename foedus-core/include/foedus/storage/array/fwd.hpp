@@ -12,6 +12,7 @@
 namespace foedus {
 namespace storage {
 namespace array {
+struct  ArrayMetadata;
 class   ArrayPage;
 struct  ArrayRange;
 class   ArrayStorage;
