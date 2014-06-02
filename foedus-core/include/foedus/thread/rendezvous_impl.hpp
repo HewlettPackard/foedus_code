@@ -52,11 +52,6 @@ class Rendezvous final {
             return;
         }
         std::unique_lock<std::mutex> the_lock(mutex_);
-        if (is_signaled()) {
-            // check it again after taking lock because it might have just signaled.
-            // otherwise, we might miss the signal.
-            return;
-        }
         condition_.wait(the_lock, [this]{ return is_signaled(); });
     }
 
@@ -72,9 +67,6 @@ class Rendezvous final {
             return true;
         }
         std::unique_lock<std::mutex> the_lock(mutex_);
-        if (is_signaled()) {
-            return true;
-        }
         return condition_.wait_for<REP, PERIOD>(the_lock, timeout, [this]{ return is_signaled(); });
     }
 
@@ -90,9 +82,6 @@ class Rendezvous final {
             return true;
         }
         std::unique_lock<std::mutex> the_lock(mutex_);
-        if (is_signaled()) {
-            return true;
-        }
         return condition_.wait_for<CLOCK, DURATION>(the_lock, until, [this]{
             return is_signaled();
         });
@@ -111,6 +100,7 @@ class Rendezvous final {
             std::lock_guard<std::mutex> guard(mutex_);  // also as a fence
             signaled_ = true;
         }
+        ASSERT_ND(signaled_);  // std::lock_guard should have implied fence
         condition_.notify_all();
     }
 

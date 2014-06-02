@@ -8,6 +8,7 @@
 #include <foedus/thread/impersonate_session.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread.hpp>
+#include <foedus/thread/rendezvous_impl.hpp>
 #include <stdint.h>
 #include <gtest/gtest.h>
 #include <chrono>
@@ -17,12 +18,14 @@
 namespace foedus {
 namespace thread {
 
-class DummyTask : public ImpersonateTask {
- public:
+struct DummyTask : public ImpersonateTask {
+    explicit DummyTask(Rendezvous *rendezvous) : rendezvous_(rendezvous) {}
     ErrorStack run(Thread* /*context*/) {
+        rendezvous_->wait();
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
         return RET_OK;
     }
+    Rendezvous *rendezvous_;
 };
 
 void run_test(int pooled_count, int impersonate_count) {
@@ -32,19 +35,21 @@ void run_test(int pooled_count, int impersonate_count) {
     COERCE_ERROR(engine.initialize());
     {
         UninitializeGuard guard(&engine);
-        std::vector<DummyTask*> tasks;
-        std::vector<ImpersonateSession> sessions;
-        for (int i = 0; i < impersonate_count; ++i) {
-            tasks.push_back(new DummyTask());
-            sessions.push_back(engine.get_thread_pool().impersonate(tasks[i]));
-        }
+        for (int rep = 0; rep < 10; ++rep) {
+            Rendezvous rendezvous;
+            std::vector<DummyTask*> tasks;
+            std::vector<ImpersonateSession> sessions;
+            for (int i = 0; i < impersonate_count; ++i) {
+                tasks.push_back(new DummyTask(&rendezvous));
+                sessions.push_back(engine.get_thread_pool().impersonate(tasks[i]));
+            }
 
-        for (int i = 0; i < impersonate_count; ++i) {
-            COERCE_ERROR(sessions[i].get_result());
-        }
+            rendezvous.signal();
 
-        for (DummyTask* task : tasks) {
-            delete task;
+            for (int i = 0; i < impersonate_count; ++i) {
+                COERCE_ERROR(sessions[i].get_result());
+                delete tasks[i];
+            }
         }
         COERCE_ERROR(engine.uninitialize());
     }

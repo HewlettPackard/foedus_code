@@ -23,8 +23,7 @@ namespace foedus {
 namespace thread {
 ThreadPimpl::ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder, ThreadId id)
     : engine_(engine), group_(group), holder_(holder), id_(id), core_memory_(nullptr),
-        log_buffer_(engine, id), impersonated_(false), current_task_(nullptr),
-        current_xct_(engine, id) {
+        log_buffer_(engine, id), current_task_(nullptr), current_xct_(engine, id) {
 }
 
 ErrorStack ThreadPimpl::initialize_once() {
@@ -59,21 +58,13 @@ void ThreadPimpl::handle_tasks() {
         VLOG(0) << "Thread-" << id_ << " woke up";
         // Keeps running if the client sets a new task immediately after this.
         while (!raw_thread_.is_stop_requested()) {
-            assorted::memory_fence_acquire();
-            ImpersonateTask* task = current_task_;
-            assorted::memory_fence_release();
-            current_task_ = nullptr;
-            assorted::memory_fence_release();
+            ImpersonateTask* task = current_task_.load();
             if (task) {
-                ASSERT_ND(impersonated_);
                 VLOG(0) << "Thread-" << id_ << " retrieved a task";
                 ErrorStack result = task->run(holder_);
                 VLOG(0) << "Thread-" << id_ << " run(task) returned. result =" << result;
-                assorted::memory_fence_release();
-                impersonated_ = false;
-                assorted::memory_fence_release();
                 task->pimpl_->set_result(result);  // this wakes up the client
-                assorted::memory_fence_release();
+                current_task_.store(nullptr);  // start receiving next task
                 VLOG(0) << "Thread-" << id_ << " finished a task. result =" << result;
             } else {
                 // NULL functor is the signal to terminate
@@ -85,17 +76,17 @@ void ThreadPimpl::handle_tasks() {
 }
 
 bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
-    bool cas_tmp = false;
-    if (impersonated_.compare_exchange_weak(cas_tmp, true)) {
+    ImpersonateTask* task = nullptr;
+    session->thread_ = holder_;
+    if (current_task_.compare_exchange_weak(task, session->task_)) {
         // successfully acquired.
-        VLOG(0) << "Impersonation succeeded for Thread-" << id_ << ". Setting a task..";
-        session->thread_ = holder_;
-        current_task_ = session->task_;
-        assorted::memory_fence_release();
+        VLOG(0) << "Impersonation succeeded for Thread-" << id_ << ".";
         raw_thread_.wakeup();
         return true;
     } else {
         // no, someone else took it.
+        ASSERT_ND(task);
+        session->thread_ = nullptr;
         DVLOG(0) << "Someone already took Thread-" << id_ << ".";
         return false;
     }

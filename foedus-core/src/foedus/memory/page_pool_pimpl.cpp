@@ -79,7 +79,7 @@ ErrorStack PagePoolPimpl::uninitialize_once() {
 ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chunk) {
     ASSERT_ND(is_initialized());
     ASSERT_ND(chunk->size() + desired_grab_count <= chunk->capacity());
-    LOG(INFO) << "Grabbing " << desired_grab_count << " pages."
+    VLOG(0) << "Grabbing " << desired_grab_count << " pages."
         << " free_pool_count_=" << free_pool_count_;
     std::lock_guard<std::mutex> guard(lock_);
     if (free_pool_count_ == 0) {
@@ -111,7 +111,7 @@ ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* 
 void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk) {
     ASSERT_ND(is_initialized());
     ASSERT_ND(chunk->size() >= desired_release_count);
-    LOG(INFO) << "Releasing " << desired_release_count << " pages."
+    VLOG(0) << "Releasing " << desired_release_count << " pages."
         << " free_pool_count_=" << free_pool_count_;
     std::lock_guard<std::mutex> guard(lock_);
     if (free_pool_count_ + desired_release_count > free_pool_capacity_) {

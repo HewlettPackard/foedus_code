@@ -42,7 +42,7 @@ int DumpLog::dump_to_stdout() {
                 ||  log::get_log_code_kind(entry->get_type()) == log::ENGINE_LOGS
                 ||  log::get_log_code_kind(entry->get_type()) == log::STORAGE_LOGS;
             if (important_log || enclosure_->verbose_ > BRIEF) {
-                std::cout << "    <Entry offset=\"0x" << std::hex << std::uppercase << offset
+                std::cout << "    <Log offset=\"0x" << std::hex << std::uppercase << offset
                     << std::nouppercase << std::dec << "\"" << " len=\"0x"
                     << std::hex << std::uppercase << entry->log_length_
                     << std::nouppercase << std::dec << "\">";
@@ -51,7 +51,7 @@ int DumpLog::dump_to_stdout() {
                 } else {
                     std::cout << log::get_log_type_name(entry->get_type());
                 }
-                std::cout << "</Entry>" << std::endl;
+                std::cout << "</Log>" << std::endl;
             }
         }
         Epoch cur_epoch_;

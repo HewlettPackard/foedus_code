@@ -29,7 +29,7 @@ log::ThreadLogBuffer& Thread::get_thread_log_buffer() { return pimpl_->log_buffe
 
 std::ostream& operator<<(std::ostream& o, const Thread& v) {
     o << "Thread-" << v.get_thread_id() << " [";
-    o << (v.pimpl_->impersonated_ ? "I" : " ");
+    o << (v.pimpl_->current_task_.load() ? "I" : " ");
     o << (v.pimpl_->raw_thread_.is_stop_requested() ? "R" : " ");
     o << (v.pimpl_->raw_thread_.is_stopped() ? "E" : " ");
     o << "]";

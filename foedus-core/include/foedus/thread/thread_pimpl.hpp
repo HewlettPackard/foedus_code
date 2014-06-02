@@ -82,15 +82,11 @@ class ThreadPimpl final : public DefaultInitializable {
     StoppableThread         raw_thread_;
 
     /**
-     * Whether this thread is impersonated and running some code.
-     * Only one caller can impersonate a thread at once.
-     */
-    std::atomic<bool>       impersonated_;
-
-    /**
      * The task this thread is currently running or will run when it wakes up.
+     * Only one caller can impersonate a thread at once.
+     * If this thread is not impersonated, null.
      */
-    ImpersonateTask*        current_task_;
+    std::atomic<ImpersonateTask*>   current_task_;
 
     /**
      * Current transaction this thread is conveying.
