@@ -49,6 +49,12 @@ struct LogHeader {
      */
     storage::StorageId  storage_id_;     // +4 => 8
 
+    /** Convenience method to cast into LogCode. */
+    LogCode get_type() const ALWAYS_INLINE { return static_cast<LogCode>(log_type_code_); }
+
+    /** Another convenience method to see if the type code is non-zero and exists. */
+    bool is_valid_type() const { return is_valid_log_type(get_type()); }
+
     friend std::ostream& operator<<(std::ostream& o, const LogHeader& v);
 };
 
@@ -91,7 +97,7 @@ struct EngineLogType : public BaseLogType {
      * @brief Verifies the log contains essential fields set.
      */
     void assert_valid_generic() ALWAYS_INLINE {
-        ASSERT_ND(header_.log_type_code_ != LOG_TYPE_INVALID);
+        ASSERT_ND(header_.is_valid_type());
         ASSERT_ND(header_.log_length_ != 0);
         ASSERT_ND(header_.log_length_ % 8 == 0);  // must be 8 byte aligned
         ASSERT_ND(header_.storage_id_ == 0);
@@ -118,7 +124,7 @@ struct StorageLogType : public BaseLogType {
      * @brief Verifies the log contains essential fields set.
      */
     void assert_valid_generic() ALWAYS_INLINE {
-        ASSERT_ND(header_.log_type_code_ != LOG_TYPE_INVALID);
+        ASSERT_ND(header_.is_valid_type());
         ASSERT_ND(header_.log_length_ != 0);
         ASSERT_ND(header_.log_length_ % 8 == 0);  // must be 8 byte aligned
         ASSERT_ND(header_.storage_id_ > 0);
@@ -145,7 +151,7 @@ struct RecordLogType : public BaseLogType {
      * @brief Verifies the log contains essential fields set.
      */
     void assert_valid_generic() ALWAYS_INLINE {
-        ASSERT_ND(header_.log_type_code_ != LOG_TYPE_INVALID);
+        ASSERT_ND(header_.is_valid_type());
         ASSERT_ND(header_.log_length_ != 0);
         ASSERT_ND(header_.log_length_ % 8 == 0);  // must be 8 byte aligned
         ASSERT_ND(header_.storage_id_ > 0);
@@ -187,13 +193,13 @@ struct FillerLogType : public BaseLogType {
     void    populate(uint64_t size);
 
     void    assert_valid() ALWAYS_INLINE {
-        ASSERT_ND(header_.log_type_code_ != LOG_CODE_FILLER);
+        ASSERT_ND(header_.get_type() == LOG_CODE_FILLER);
         ASSERT_ND(header_.log_length_ >= sizeof(FillerLogType));
         ASSERT_ND(header_.log_length_ % 8 == 0);
         ASSERT_ND(header_.storage_id_ == 0);
     }
 
-    friend std::ostream& operator<<(std::ostream& o, const FillerLogType&) { return o; }
+    friend std::ostream& operator<<(std::ostream& o, const FillerLogType &v);
 };
 STATIC_SIZE_CHECK(sizeof(FillerLogType), 8)
 
@@ -215,6 +221,14 @@ struct EpochMarkerLogType : public EngineLogType {
     /** Epoch after this switch. */
     Epoch   new_epoch_;  // +4
 
+    void    populate(Epoch old_epoch, Epoch new_epoch) {
+        header_.storage_id_ = 0;
+        header_.log_length_ = sizeof(EpochMarkerLogType);
+        header_.log_type_code_ = get_log_code<EpochMarkerLogType>();
+        new_epoch_ = new_epoch;
+        old_epoch_ = old_epoch;
+        assert_valid();
+    }
     void    assert_valid() ALWAYS_INLINE { assert_valid_generic(); }
 
     friend std::ostream& operator<<(std::ostream& o, const EpochMarkerLogType &v);

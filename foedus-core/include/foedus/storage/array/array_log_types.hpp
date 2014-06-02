@@ -114,7 +114,7 @@ struct OverwriteLogType : public log::RecordLogType {
     void            assert_valid() ALWAYS_INLINE {
         assert_valid_generic();
         ASSERT_ND(header_.log_length_ == calculate_log_length(payload_count_));
-        ASSERT_ND(header_.log_type_code_ = log::get_log_code<OverwriteLogType>());
+        ASSERT_ND(header_.get_type() == log::get_log_code<OverwriteLogType>());
     }
 
     friend std::ostream& operator<<(std::ostream& o, const OverwriteLogType& v);

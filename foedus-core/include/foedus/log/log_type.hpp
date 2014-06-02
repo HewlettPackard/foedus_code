@@ -29,7 +29,7 @@ namespace log {
  * \li void apply_record(const XctId&, Thread*, Storage*, Record*)   : For record-wise operation.
  * \li void assert_valid()  : For debugging (should have no cost in NDEBUG).
  * \li is_engine_log()/is_storage_log()/is_record_log()
- * \li ostream operator, preferably in xml format without root element.
+ * \li ostream operator, preferably in xml format.
  *
  * For non-applicable apply-type, the implmentation class should abort.
  * Remember that these are all non-virtual methods. See the next section for more details.
@@ -98,6 +98,19 @@ enum LogCodeKind {
  */
 inline LogCodeKind get_log_code_kind(LogCode code) {
     return static_cast<LogCodeKind>(code >> 12);
+}
+
+/**
+ * @brief Returns if the LogCode value exists.
+ * @ingroup LOGTYPE
+ */
+inline bool is_valid_log_type(LogCode code) {
+    switch (code) {
+#define X(a, b, c) case a: return true;
+#include <foedus/log/log_type.xmacro> // NOLINT
+#undef X
+        default: return false;
+    }
 }
 
 /**

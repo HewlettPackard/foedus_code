@@ -8,9 +8,17 @@
 namespace foedus {
 namespace log {
 std::ostream& operator<<(std::ostream& o, const LogHeader& v) {
-    o << "<Header>" << "<log_type_code_>" << v.log_type_code_ << "</log_type_code_>"
+    o << "<Header>"
+        << "<log_type_code_>" << v.log_type_code_ << "</log_type_code_>"
+        << "<log_type_name_>"
+            << get_log_type_name(v.get_type()) << "</log_type_name_>"
         << "<log_length_>" << v.log_length_ << "</log_length_>"
-        << "<storage_id_>" << v.storage_id_ << "</storage_id_>" << "</Header>";
+        << "<storage_id_>" << v.storage_id_ << "</storage_id_>"
+        << "</Header>";
+    return o;
+}
+std::ostream& operator<<(std::ostream& o, const FillerLogType &v) {
+    o << "<FillerLog>" << v.header_ << "</FillerLog>";
     return o;
 }
 

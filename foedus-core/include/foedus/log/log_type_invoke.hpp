@@ -64,7 +64,7 @@ void invoke_ostream(void *buffer, std::ostream *ptr);
 inline void invoke_apply_engine(const xct::XctId &xct_id, void *buffer, thread::Thread* context) {
     invoke_assert_valid(buffer);
     LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
-    LogCode code = static_cast<LogCode>(header->log_type_code_);
+    LogCode code = header->get_type();
     switch (code) {
 #include <foedus/log/log_type.xmacro> // NOLINT
         default:
@@ -80,7 +80,7 @@ inline void invoke_apply_storage(const xct::XctId &xct_id, void *buffer,
                                  thread::Thread* context, storage::Storage* storage) {
     invoke_assert_valid(buffer);
     LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
-    LogCode code = static_cast<LogCode>(header->log_type_code_);
+    LogCode code = header->get_type();
     switch (code) {
 #include <foedus/log/log_type.xmacro> // NOLINT
         default:
@@ -96,7 +96,7 @@ inline void invoke_apply_record(const xct::XctId &xct_id, void *buffer,
                     thread::Thread* context, storage::Storage* storage, storage::Record* record) {
     invoke_assert_valid(buffer);
     LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
-    LogCode code = static_cast<LogCode>(header->log_type_code_);
+    LogCode code = header->get_type();
     switch (code) {
 #include <foedus/log/log_type.xmacro> // NOLINT
         default:
@@ -112,7 +112,7 @@ inline void invoke_assert_valid(void* /*buffer*/) {}
 #define X(a, b, c) case a: reinterpret_cast< c* >(buffer)->assert_valid(); return;
 inline void invoke_assert_valid(void *buffer) {
     LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
-    LogCode code = static_cast<LogCode>(header->log_type_code_);
+    LogCode code = header->get_type();
     switch (code) {
 #include <foedus/log/log_type.xmacro> // NOLINT
         default:
@@ -126,7 +126,7 @@ inline void invoke_assert_valid(void *buffer) {
 #define X(a, b, c) case a: o << *reinterpret_cast< c* >(buffer); break;
 inline void invoke_ostream(void *buffer, std::ostream *ptr) {
     LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
-    LogCode code = static_cast<LogCode>(header->log_type_code_);
+    LogCode code = header->get_type();
     std::ostream &o = *ptr;
     o << "<" << get_log_type_name(code) << ">";
     o << reinterpret_cast<LogHeader*>(buffer);

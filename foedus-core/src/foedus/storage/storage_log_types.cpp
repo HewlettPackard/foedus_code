@@ -33,7 +33,7 @@ void DropLogType::apply_storage(const xct::XctId& /*xct_id*/,
 void DropLogType::assert_valid() {
     assert_valid_generic();
     ASSERT_ND(header_.log_length_ == sizeof(DropLogType));
-    ASSERT_ND(header_.log_type_code_ = log::get_log_code<DropLogType>());
+    ASSERT_ND(header_.get_type() == log::get_log_code<DropLogType>());
 }
 std::ostream& operator<<(std::ostream& o, const DropLogType& v) {
     o << "<StorageDropLog>"

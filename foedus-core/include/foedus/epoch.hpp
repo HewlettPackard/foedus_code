@@ -158,6 +158,12 @@ class Epoch {
      */
     EpochInteger epoch_;
 };
+
+/**
+ * @ingroup IDIOMS
+ * @brief A constant epoch object that represents an invalid epoch.
+ */
+const Epoch INVALID_EPOCH = Epoch(0);
 }  // namespace foedus
 
 #endif  // FOEDUS_EPOCH_HPP_

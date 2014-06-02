@@ -12,8 +12,7 @@ cmake_policy(SET CMP0003 NEW)
 project(foedus_util)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../general_projects.cmake)
-set(UTIL_LIB foedus-core)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(UTIL_LIB foedus-core gflags-static)
 
 add_subdirectory(src)
-
-

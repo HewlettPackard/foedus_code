@@ -204,7 +204,7 @@ bool XctManagerPimpl::precommit_xct_schema(thread::Thread* context, Epoch* commi
     context->get_thread_log_buffer().list_uncommitted_logs(&logs);
     for (char* entry : logs) {
         log::LogHeader* header = reinterpret_cast<log::LogHeader*>(entry);
-        log::LogCode code = static_cast<log::LogCode>(header->log_type_code_);
+        log::LogCode code = header->get_type();
         ASSERT_ND(code != log::LOG_TYPE_INVALID);
         log::LogCodeKind kind = log::get_log_code_kind(code);
         LOG(INFO) << *context << " Applying schema log " << log::get_log_type_name(code)

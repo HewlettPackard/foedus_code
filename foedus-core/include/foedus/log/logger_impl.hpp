@@ -82,6 +82,11 @@ class Logger final : public DefaultInitializable {
      * advancing it in that case.
      */
     ErrorStack  update_durable_epoch();
+    /**
+     * Subroutine of update_durable_epoch to get the minimum durable epoch of assigned loggers.
+     * This function is assured to be no-error and instantaneous.
+     */
+    Epoch calculate_min_durable_epoch();
 
     /**
      * Moves on to next file if the current file exceeds the configured max size.
@@ -92,7 +97,13 @@ class Logger final : public DefaultInitializable {
      * Adds a log entry to annotate the switch of epoch.
      * Individual log entries do not have epoch information, relying on this.
      */
-    ErrorStack  log_epoch_switch(Epoch old_epoch, Epoch new_epoch);
+    ErrorStack  log_epoch_switch(Epoch new_epoch);
+
+    /**
+     * Whenever we restart or switch to a new file, we call this method to write out an epoch marker
+     * so that all log files start with an epoch marker.
+     */
+    ErrorStack  write_dummy_epoch_mark();
 
     /**
      * Writes out the given buffer upto the offset.
@@ -142,6 +153,24 @@ class Logger final : public DefaultInitializable {
      * is most likely smaller than buffer.logger_epoch_.
      */
     Epoch                           durable_epoch_;
+
+    /**
+     * @brief Upto what epoch the logger has put epoch marker in the log file.
+     * @invariant marked_epoch_.is_valid()
+     * @invariant marked_epoch_ <= durable_epoch_.one_more()
+     * @details
+     * Usually, this value is always same as durable_epoch_.one_more().
+     * This value becomes smaller than that if the logger had no log to write out
+     * when it advanced durable_epoch_. In that case, writing out an epoch marker is a waste
+     * (eg when the system is idle for long time, there will be tons of empty epochs),
+     * so we do not write out the epoch marker and let this value remain same.
+     * When the logger later writes out a log, it checks this value and writes out an epoch mark.
+     * @see no_log_epoch_
+     */
+    Epoch                           marked_epoch_;
+
+    /** Whether so far this logger has not written out any log since previous epoch switch. */
+    bool                            no_log_epoch_;
 
     /**
      * @brief Ordinal of the oldest active log file of this logger.

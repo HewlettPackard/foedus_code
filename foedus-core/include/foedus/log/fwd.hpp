@@ -15,6 +15,7 @@ struct  BaseLogType;
 struct  EngineLogType;
 struct  EpochMarkerLogType;
 struct  FillerLogType;
+struct  LogHeader;
 class   LogManager;
 class   LogManagerPimpl;
 struct  LogOptions;
