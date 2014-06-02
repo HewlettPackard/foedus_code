@@ -15,19 +15,23 @@
 #include <foedus/storage/storage_log_types.hpp>
 #include <foedus/storage/array/array_log_types.hpp>
 
-#include <iostream>
+#include <iosfwd>
 namespace foedus {
 namespace log {
 
 /**
  * @brief Invokes the apply logic for an engine-wide log type.
  * @ingroup LOGTYPE
+ * @details
+ * This is not inlined because this log kind appears much more infrequently.
  */
 void invoke_apply_engine(const xct::XctId &xct_id, void *log_buffer, thread::Thread* context);
 
 /**
  * @brief Invokes the apply logic for a storage-wide log type.
  * @ingroup LOGTYPE
+ * @details
+ * This is not inlined because this log kind appears much more infrequently.
  */
 void invoke_apply_storage(const xct::XctId &xct_id, void *log_buffer,
                           thread::Thread* context, storage::Storage* storage);
@@ -36,6 +40,7 @@ void invoke_apply_storage(const xct::XctId &xct_id, void *log_buffer,
  * @brief Invokes the apply logic for a record-wise log type.
  * @ingroup LOGTYPE
  * @details
+ * This is inlined because this is invoked for every single record type log.
  * This also unlocks the record by overwriting the record's owner_id.
  * @attention When the individual implementation of apply_record does it, it must be careful on
  * the memory order of unlock and data write. It must write data first, then unlock.
@@ -48,6 +53,9 @@ void invoke_apply_record(const xct::XctId &xct_id, void *log_buffer,
 /**
  * @brief Invokes the assertion logic of each log type.
  * @ingroup LOGTYPE
+ * @details
+ * This is inlined because this is invoked for every single record type log.
+ * In non-debug mode, this is anyway empty.
  */
 void invoke_assert_valid(void *log_buffer);
 
@@ -56,39 +64,10 @@ void invoke_assert_valid(void *log_buffer);
  * @ingroup LOGTYPE
  * @details
  * This is only for debugging and analysis use, so does not have to be optimized.
+ * Thus not inlined here.
  * This writes out an XML representation of the log entry.
  */
 void invoke_ostream(void *buffer, std::ostream *ptr);
-
-#define X(a, b, c) case a: return reinterpret_cast< c* >(buffer)->apply_engine(xct_id, context);
-inline void invoke_apply_engine(const xct::XctId &xct_id, void *buffer, thread::Thread* context) {
-    invoke_assert_valid(buffer);
-    LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
-    LogCode code = header->get_type();
-    switch (code) {
-#include <foedus/log/log_type.xmacro> // NOLINT
-        default:
-            ASSERT_ND(false);
-            return;
-    }
-}
-#undef X
-
-#define X(a, b, c) case a: \
-    reinterpret_cast< c* >(buffer)->apply_storage(xct_id, context, storage); return;
-inline void invoke_apply_storage(const xct::XctId &xct_id, void *buffer,
-                                 thread::Thread* context, storage::Storage* storage) {
-    invoke_assert_valid(buffer);
-    LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
-    LogCode code = header->get_type();
-    switch (code) {
-#include <foedus/log/log_type.xmacro> // NOLINT
-        default:
-            ASSERT_ND(false);
-            return;
-    }
-}
-#undef X
 
 #define X(a, b, c) case a: \
     reinterpret_cast< c* >(buffer)->apply_record(xct_id, context, storage, record); return;
@@ -122,21 +101,6 @@ inline void invoke_assert_valid(void *buffer) {
 }
 #undef X
 #endif  // NDEBUG
-
-#define X(a, b, c) case a: o << *reinterpret_cast< c* >(buffer); break;
-inline void invoke_ostream(void *buffer, std::ostream *ptr) {
-    LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
-    LogCode code = header->get_type();
-    std::ostream &o = *ptr;
-    o << "<" << get_log_type_name(code) << ">";
-    o << reinterpret_cast<LogHeader*>(buffer);
-    switch (code) {
-        case LOG_TYPE_INVALID: break;
-#include <foedus/log/log_type.xmacro> // NOLINT
-    }
-    o << "</" << get_log_type_name(code) << ">";
-}
-#undef X
 
 }  // namespace log
 }  // namespace foedus

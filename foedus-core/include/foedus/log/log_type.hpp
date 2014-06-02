@@ -95,6 +95,8 @@ enum LogCodeKind {
 /**
  * @brief Returns the kind of the given log code.
  * @ingroup LOGTYPE
+ * @details
+ * This is inlined here because it's called frequently.
  */
 inline LogCodeKind get_log_code_kind(LogCode code) {
     return static_cast<LogCodeKind>(code >> 12);
@@ -103,6 +105,8 @@ inline LogCodeKind get_log_code_kind(LogCode code) {
 /**
  * @brief Returns if the LogCode value exists.
  * @ingroup LOGTYPE
+ * @details
+ * This is inlined here because it's called frequently.
  */
 inline bool is_valid_log_type(LogCode code) {
     switch (code) {
@@ -116,27 +120,16 @@ inline bool is_valid_log_type(LogCode code) {
 /**
  * @brief Returns the names of LogCode enum defined in log_type.xmacro.
  * @ingroup LOGTYPE
+ * @details
+ * This is NOT inlined because this is used only in debugging situation.
  */
 const char* get_log_type_name(LogCode code);
-
-// A bit tricky to get "a" from a in C macro.
-#define X_QUOTE(str) #str
-#define X_EXPAND_AND_QUOTE(str) X_QUOTE(str)
-#define X(a, b, c) case a: return X_EXPAND_AND_QUOTE(a);
-inline const char* get_log_type_name(LogCode code) {
-    switch (code) {
-        case LOG_TYPE_INVALID: return "LOG_TYPE_INVALID";
-#include <foedus/log/log_type.xmacro> // NOLINT
-        default: return "UNKNOWN";
-    }
-}
-#undef X
-#undef X_EXPAND_AND_QUOTE
-#undef X_QUOTE
 
 /**
  * @brief Returns LogCode for the log type defined in log_type.xmacro.
  * @ingroup LOGTYPE
+ * @details
+ * This is inlined below because it's called VERY frequently.
  */
 template <typename LOG_TYPE>
 LogCode     get_log_code();
