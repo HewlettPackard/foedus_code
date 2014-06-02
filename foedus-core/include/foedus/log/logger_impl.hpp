@@ -117,11 +117,11 @@ class Logger final : public DefaultInitializable {
     /** Check invariants. This method should be wiped in NDEBUG. */
     void        assert_consistent();
 
-    Engine*                         engine_;
-    LoggerId                        id_;
+    Engine* const                   engine_;
+    const LoggerId                  id_;
     thread::ThreadGroupId           numa_node_;
     const fs::Path                  log_path_;
-    std::vector< thread::ThreadId > assigned_thread_ids_;
+    const std::vector< thread::ThreadId > assigned_thread_ids_;
 
     thread::StoppableThread         logger_thread_;
 
