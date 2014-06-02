@@ -12,7 +12,8 @@
  *   https://groups.google.com/forum/#!topic/googletestframework/NK5cAEqsioY
  */
 TEST(DummyTest, Abort) {
-    std::abort();
+    // Disabled usually. Enable only when to test Jenkins.
+    // std::abort();
 }
 TEST(DummyTest, NotAbort) {
 }
