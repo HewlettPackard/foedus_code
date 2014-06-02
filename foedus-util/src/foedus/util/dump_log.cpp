@@ -47,8 +47,8 @@ int main(int argc, char* argv[]) {
     gflags::SetUsageMessage("Log Dumper Utility for libfoedus\n"
         "  Shows the content of specified log file(s) for debugging/trouble-shooting\n"
         "  Usage: foedus_dump_log <flags> <log file(s)>\n"
-        "  Example: foedus_dump_log --verbose=1 --limit -1 foedus_node0.log.0\n"
-        "  Example2: foedus_dump_log --from_epoch 123 --to_epoch 130 ~/foedus_log/*"
+        "  Example: foedus_dump_log -verbose=1 -limit -1 foedus_node0.log.0\n"
+        "  Example2: foedus_dump_log -from_epoch 123 -to_epoch 130 ~/foedus_log/*"
     );
     gflags::RegisterFlagValidator(&FLAGS_verbose,       &ValidateVerbose);
     gflags::RegisterFlagValidator(&FLAGS_from_epoch,    &ValidateEpoch);
@@ -63,6 +63,7 @@ int main(int argc, char* argv[]) {
 
     if (argc == 1) {
         std::cerr << "No files specified" << std::endl;
+        gflags::ShowUsageWithFlags(argv[0]);
         return 1;
     }
 

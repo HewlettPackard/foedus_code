@@ -42,10 +42,9 @@ int DumpLog::dump_to_stdout() {
                 ||  log::get_log_code_kind(entry->get_type()) == log::ENGINE_LOGS
                 ||  log::get_log_code_kind(entry->get_type()) == log::STORAGE_LOGS;
             if (important_log || enclosure_->verbose_ > BRIEF) {
-                std::cout << "    <Entry offset=\"" << offset << "\" offset_hex=\"0x" << std::hex
-                    << std::uppercase << offset << std::nouppercase << std::dec << "\""
-                    << " len=\"" << entry->log_length_ << "\" len_hex=\"0x" << std::hex
-                    << std::uppercase << entry->log_length_
+                std::cout << "    <Entry offset=\"0x" << std::hex << std::uppercase << offset
+                    << std::nouppercase << std::dec << "\"" << " len=\"0x"
+                    << std::hex << std::uppercase << entry->log_length_
                     << std::nouppercase << std::dec << "\">";
                 if (important_log || enclosure_->verbose_ == DETAIL) {
                     log::invoke_ostream(entry, &std::cout);
@@ -126,18 +125,19 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
             // in this case, we have to partially re-read to keep accesses aligned
             if (header->log_length_ > (buffer_size - buffer_offset)) {
                 need_to_read_file = true;
-                new_file_offset = prev_file_offset + (buffer_offset / ALIGNMENT * ALIGNMENT);
-                skip_after_read = (buffer_offset / ALIGNMENT * ALIGNMENT) - buffer_offset;
+                skip_after_read = buffer_offset % ALIGNMENT;
+                new_file_offset = prev_file_offset + buffer_offset - skip_after_read;
+                ASSERT_ND(new_file_offset % ALIGNMENT == 0);
             }
         }
 
         if (need_to_read_file) {
-            ASSERT_ND(new_file_offset > prev_file_offset);
+            ASSERT_ND(new_file_offset >= prev_file_offset);
             uint64_t next_reads = std::min(file_size - new_file_offset, buffer.get_size());
             if (next_reads - skip_after_read < header->log_length_) {
                 result_inconsistencies_.emplace_back(
                     LogInconsistency(LogInconsistency::INCOMPLETE_ENTRY_AT_END,
-                                        file_index, cur_offset, header->log_length_));
+                                        file_index, cur_offset, *header));
                 break;
             }
             ASSERT_ND(next_reads % ALIGNMENT == 0);
@@ -156,7 +156,8 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
         if (header->log_length_ == 0 || header->log_length_ % 8 != 0) {
             result_inconsistencies_.emplace_back(
                 LogInconsistency(LogInconsistency::MISSING_LOG_LENGTH, file_index, cur_offset,
-                    header->log_length_));
+                    *header));
+            break;
         }
 
         if (log::is_valid_log_type(header->get_type())) {
@@ -165,7 +166,7 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
                 if (header->storage_id_ == 0) {
                     result_inconsistencies_.emplace_back(
                         LogInconsistency(LogInconsistency::MISSING_STORAGE_ID, file_index,
-                                        cur_offset, header->get_type()));
+                                        cur_offset, *header));
                 }
             }
             if (header->get_type() == log::LOG_CODE_EPOCH_MARKER) {
@@ -173,15 +174,16 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
                     = reinterpret_cast<log::EpochMarkerLogType*>(header);
                 if (!marker->old_epoch_.is_valid()) {
                     result_inconsistencies_.emplace_back(LogInconsistency(
-                        LogInconsistency::INVALID_OLD_EPOCH, file_index, cur_offset));
+                        LogInconsistency::INVALID_OLD_EPOCH, file_index, cur_offset, *header));
                 }
                 if (!marker->new_epoch_.is_valid()) {
                     result_inconsistencies_.emplace_back(LogInconsistency(
-                        LogInconsistency::INVALID_NEW_EPOCH, file_index, cur_offset));
+                        LogInconsistency::INVALID_NEW_EPOCH, file_index, cur_offset, *header));
                 }
                 if (result_cur_epoch_.is_valid() && result_cur_epoch_ != marker->old_epoch_) {
                     result_inconsistencies_.emplace_back(LogInconsistency(
-                        LogInconsistency::EPOCH_MARKER_DOES_NOT_MATCH, file_index, cur_offset));
+                        LogInconsistency::EPOCH_MARKER_DOES_NOT_MATCH, file_index, cur_offset,
+                        *header));
                 }
                 result_first_epoch_.store_min(marker->new_epoch_);
                 result_cur_epoch_ = marker->new_epoch_;
@@ -192,12 +194,18 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
         } else {
             result_inconsistencies_.emplace_back(
                 LogInconsistency(LogInconsistency::MISSING_LOG_LENGTH, file_index, cur_offset,
-                                 header->log_type_code_));
+                                 *header));
         }
 
         buffer_offset += header->log_length_;
         ++result_processed_logs_;
         if (limit_ >= 0 && static_cast<uint64_t>(limit_) <= result_processed_logs_) {
+            result_limit_reached_ = true;
+            break;
+        }
+        if (result_inconsistencies_.size() > (1 << 8)) {
+            result_inconsistencies_.emplace_back(
+                LogInconsistency(LogInconsistency::TOO_MANY_INCONSISTENCIES, file_index, 0));
             result_limit_reached_ = true;
             break;
         }
@@ -208,16 +216,17 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
 }
 
 std::ostream& operator<<(std::ostream& o, const LogInconsistency& v) {
-    o << "<inconsistency>"
-        << "<file_index_>" << v.file_index_ << "</file_index_>"
-        << "<offset_>" << v.offset_ << "</offset_>"
-        << "<additional_data_>" << v.additional_data_ << "</additional_data_>"
-        << "<type_code_>0x" << std::hex << std::uppercase << v.type_ << std::nouppercase << std::dec
-                << "</type_code_>"
-        << "<type_name_>" << LogInconsistency::type_to_string(v.type_) << "</type_name_>"
-        << "<type_description_>"
-            << LogInconsistency::type_to_description(v.type_) << "</type_description_>"
-        << "</inconsistency>";
+    o << "<inconsistency"
+        << " file_index=\"" << v.file_index_ << "\""
+        << " offset=\"0x" << std::hex << std::uppercase << v.offset_
+            << std::nouppercase << std::dec << "\""
+        << " log_type=\"" << v.header_.log_type_code_ << "\""
+        << " len=\"" << v.header_.log_length_ << "\""
+        << " storage_id=\"" << v.header_.storage_id_ << "\""
+        << " code=\"0x" << std::hex << std::uppercase << v.type_ << std::nouppercase << std::dec
+        << "\" name=\"" << LogInconsistency::type_to_string(v.type_) << "\""
+        << " description=\"" << LogInconsistency::type_to_description(v.type_) << "\""
+        << " />";
     return o;
 }
 

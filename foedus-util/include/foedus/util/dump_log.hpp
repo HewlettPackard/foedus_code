@@ -7,6 +7,7 @@
 #include <foedus/epoch.hpp>
 #include <foedus/fs/path.hpp>
 #include <foedus/log/fwd.hpp>
+#include <foedus/log/common_log_types.hpp>
 #include <stdint.h>
 #include <iosfwd>
 #include <vector>
@@ -16,19 +17,17 @@ namespace util {
 // X-Macro for LogInconsistency
 #define LOG_INCONSISTENCIES \
     X(INCOMPLETE_ENTRY_AT_END, "A log entry that is not fully stored in log file." \
-         " This might be possible at the tail of log after non-graceful engine shutdown."\
-         " Additional data: length of the incomplete log") \
+         " This might be possible at the tail of log after non-graceful engine shutdown.") \
     X(NON_ALIGNED_FILE_END, \
         "File size is not aligned to 4kb. This most likely comes with INCOMPLETE_ENTRY_AT_END.")\
-    X(MISSING_LOG_LENGTH, "Log length is zero. A bug or corrupt log.") \
-    X(MISSING_LOG_TYPE_CODE, "Log code not set or non-existing. A bug or software version issue."\
-         " Additional data: log type code") \
+    X(MISSING_LOG_LENGTH, "Log length is zero. A bug or corrupt log. Stopped reading this file.") \
+    X(MISSING_LOG_TYPE_CODE, "Log code not set or non-existing. A bug or software version issue.") \
     X(MISSING_STORAGE_ID, \
-        "Storage ID is not set of storage/record type logs. A bug or corrupt log."\
-        " Additional data: log type code") \
+        "Storage ID is not set of storage/record type logs. A bug or corrupt log.") \
     X(INVALID_OLD_EPOCH, "old_epoch field of epoch marker is invalid")\
     X(INVALID_NEW_EPOCH, "new_epoch field of epoch marker is invalid")\
-    X(EPOCH_MARKER_DOES_NOT_MATCH, "From field of epoch marker is inconsistent")
+    X(EPOCH_MARKER_DOES_NOT_MATCH, "From field of epoch marker is inconsistent")\
+    X(TOO_MANY_INCONSISTENCIES, "Too many inconsistencies found.")
 /**
  * Represents one inconsistency found in log files.
  */
@@ -63,10 +62,15 @@ LOG_INCONSISTENCIES
                 return "UNKNOWN";
         }
     }
-    LogInconsistency() : type_(CONSISTENT), file_index_(0), offset_(0), additional_data_(0) {}
+    LogInconsistency(InconsistencyType type = CONSISTENT, uint32_t file_index = 0,
+                     uint64_t offset = 0) : type_(type), file_index_(file_index), offset_(offset) {
+        header_.log_length_ = 0;
+        header_.log_type_code_ = 0;
+        header_.storage_id_ = 0;
+    }
     LogInconsistency(InconsistencyType type, uint32_t file_index, uint64_t offset,
-                     uint64_t additional_data = 0) : type_(type), file_index_(file_index),
-                     offset_(offset), additional_data_(additional_data) {}
+                     const log::LogHeader &header)
+        : type_(type), file_index_(file_index), offset_(offset), header_(header) {}
 
     /** Type of inconsistency. */
     InconsistencyType   type_;
@@ -77,8 +81,8 @@ LOG_INCONSISTENCIES
     /** starting byte offset. */
     uint64_t            offset_;
 
-    /** Any inconsistency-specific information. */
-    uint64_t            additional_data_;
+    /** Header of . */
+    log::LogHeader      header_;
 
     friend std::ostream& operator<<(std::ostream& o, const LogInconsistency& v);
 };
