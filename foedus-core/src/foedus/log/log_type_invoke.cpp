@@ -43,13 +43,10 @@ void invoke_ostream(void *buffer, std::ostream *ptr) {
     LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
     LogCode code = header->get_type();
     std::ostream &o = *ptr;
-    o << "<" << get_log_type_name(code) << ">";
-    o << reinterpret_cast<LogHeader*>(buffer);
     switch (code) {
         case LOG_TYPE_INVALID: break;
 #include <foedus/log/log_type.xmacro> // NOLINT
     }
-    o << "</" << get_log_type_name(code) << ">";
 }
 #undef X
 

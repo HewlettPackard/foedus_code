@@ -36,10 +36,24 @@ int DumpLog::dump_to_stdout() {
     // callback object to output the meat part
     struct DumpCallback : public ParserCallback {
         void process(log::LogHeader *entry, uint64_t offset) override {
-            std::cout << "    <Entry offset=\"" << offset << "\" offset_hex=\"0x"
-                << std::hex << std::uppercase << offset << std::nouppercase << std::dec << "\">";
-            log::invoke_ostream(entry, &std::cout);
-            std::cout << "</Entry>" << std::endl;
+            // epoch marker or engine/storage logs are fully shown even in brief mode.
+            bool important_log =
+                entry->get_type() == log::LOG_CODE_EPOCH_MARKER
+                ||  log::get_log_code_kind(entry->get_type()) == log::ENGINE_LOGS
+                ||  log::get_log_code_kind(entry->get_type()) == log::STORAGE_LOGS;
+            if (important_log || enclosure_->verbose_ > BRIEF) {
+                std::cout << "    <Entry offset=\"" << offset << "\" offset_hex=\"0x" << std::hex
+                    << std::uppercase << offset << std::nouppercase << std::dec << "\""
+                    << " len=\"" << entry->log_length_ << "\" len_hex=\"0x" << std::hex
+                    << std::uppercase << entry->log_length_
+                    << std::nouppercase << std::dec << "\">";
+                if (important_log || enclosure_->verbose_ == DETAIL) {
+                    log::invoke_ostream(entry, &std::cout);
+                } else {
+                    std::cout << log::get_log_type_name(entry->get_type());
+                }
+                std::cout << "</Entry>" << std::endl;
+            }
         }
         Epoch cur_epoch_;
         DumpLog* enclosure_;
@@ -49,7 +63,7 @@ int DumpLog::dump_to_stdout() {
     DumpCallback callback;
     callback.enclosure_ = this;
     for (uint32_t file_index = 0; file_index < files_.size(); ++file_index) {
-        std::cout << "  <LogFile\n    file_index=\"" << file_index
+        std::cout << "  <LogFile\n     file_index=\"" << file_index
             << "\"\n     path=\"" << files_[file_index]
             << "\"\n     bytes=\"" << fs::file_size(files_[file_index]) << "\">" << std::endl;
         parse_log_file(file_index, &callback);
@@ -78,11 +92,10 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
     if (result_limit_reached_) {
         return;
     }
+    result_cur_epoch_ = INVALID_EPOCH;
 
     const fs::Path &path = files_[file_index];
-    fs::DirectIoFile file(path);
     const uint32_t ALIGNMENT = log::FillerLogType::LOG_WRITE_UNIT_SIZE;
-    memory::AlignedMemory buffer(1 << 24, ALIGNMENT, memory::AlignedMemory::POSIX_MEMALIGN, 0);
     uint64_t file_size = fs::file_size(path);
     if (file_size % ALIGNMENT != 0) {
         result_inconsistencies_.emplace_back(
@@ -90,10 +103,14 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
         file_size = (file_size / ALIGNMENT) * ALIGNMENT;
     }
 
+    fs::DirectIoFile file(path);
+    memory::AlignedMemory buffer(1 << 24, ALIGNMENT, memory::AlignedMemory::POSIX_MEMALIGN, 0);
+    COERCE_ERROR(file.open(true, false, false, false));
+
     uint64_t prev_file_offset = 0;
     uint64_t buffer_size = 0;
     uint64_t buffer_offset = 0;
-    while (true) {
+    while (prev_file_offset + buffer_offset < file_size) {
         const uint64_t cur_offset = prev_file_offset + buffer_offset;
         char* address = reinterpret_cast<char*>(buffer.get_block()) + buffer_offset;
         log::LogHeader *header = reinterpret_cast<log::LogHeader*>(address);
@@ -166,11 +183,9 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
                     result_inconsistencies_.emplace_back(LogInconsistency(
                         LogInconsistency::EPOCH_MARKER_DOES_NOT_MATCH, file_index, cur_offset));
                 }
-                if (!result_first_epoch_.is_valid()) {
-                    result_first_epoch_ = marker->new_epoch_;
-                }
+                result_first_epoch_.store_min(marker->new_epoch_);
                 result_cur_epoch_ = marker->new_epoch_;
-                result_last_epoch_ = marker->new_epoch_;
+                result_last_epoch_.store_max(marker->new_epoch_);
             }
 
             callback->process(header, cur_offset);

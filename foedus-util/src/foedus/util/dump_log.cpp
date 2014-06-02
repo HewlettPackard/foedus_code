@@ -7,6 +7,7 @@
 #include <foedus/fs/path.hpp>
 #include <foedus/util/dump_log.hpp>
 #include <gflags/gflags.h>
+#include <glog/logging.h>
 #include <stdint.h>
 #include <iostream>
 /**
@@ -78,5 +79,10 @@ int main(int argc, char* argv[]) {
         dump.files_.emplace_back(path);
     }
 
-    return dump.dump_to_stdout();
+    FLAGS_stderrthreshold = 2;
+    FLAGS_minloglevel = 3;
+    google::InitGoogleLogging(argv[0]);
+    int ret = dump.dump_to_stdout();
+    google::ShutdownGoogleLogging();
+    return ret;
 }
