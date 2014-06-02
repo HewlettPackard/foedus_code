@@ -6,6 +6,7 @@
 #define FOEDUS_THREAD_IMPERSONATE_TASK_PIMPL_HPP_
 #include <foedus/assert_nd.hpp>
 #include <foedus/error_stack.hpp>
+#include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <foedus/thread/rendezvous_impl.hpp>
 namespace foedus {
@@ -27,6 +28,7 @@ class ImpersonateTaskPimpl final {
         if (result.is_error()) {  // otherwise no need to copy
             result_ = result;
         }
+        assorted::memory_fence_release();
         rendezvous_.signal();
     }
 

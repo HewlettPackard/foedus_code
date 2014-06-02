@@ -63,8 +63,9 @@ void ThreadPimpl::handle_tasks() {
                 VLOG(0) << "Thread-" << id_ << " retrieved a task";
                 ErrorStack result = task->run(holder_);
                 VLOG(0) << "Thread-" << id_ << " run(task) returned. result =" << result;
-                task->pimpl_->set_result(result);  // this wakes up the client
+                ASSERT_ND(current_task_.load() == task);
                 current_task_.store(nullptr);  // start receiving next task
+                task->pimpl_->set_result(result);  // this wakes up the client
                 VLOG(0) << "Thread-" << id_ << " finished a task. result =" << result;
             } else {
                 // NULL functor is the signal to terminate

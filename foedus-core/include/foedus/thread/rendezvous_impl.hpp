@@ -6,6 +6,7 @@
 #define FOEDUS_THREAD_RENDEZVOUS_IMPL_HPP_
 #include <foedus/assert_nd.hpp>
 #include <foedus/assorted/atomic_fences.hpp>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -96,21 +97,15 @@ class Rendezvous final {
      */
     void signal() {
         ASSERT_ND(!is_signaled());
-        {
-            std::lock_guard<std::mutex> guard(mutex_);  // also as a fence
-            signaled_ = true;
-        }
-        ASSERT_ND(signaled_);  // std::lock_guard should have implied fence
+        // we don't need a mutex here. signaled_ is anyway atomic.
+        signaled_.store(true);
         condition_.notify_all();
     }
 
     /** returns whether this thread has stopped (if the thread hasn't started, false too). */
-    bool is_signaled() const {
-        assorted::memory_fence_acquire();
-        return signaled_;
-    }
+    bool is_signaled() const { return signaled_.load(); }
     /** non-atomic is_signaled(). */
-    bool is_signaled_weak() const { return signaled_; }
+    bool is_signaled_weak() const { return signaled_.load(std::memory_order_relaxed); }
 
  private:
     /** protects the condition variable. */
@@ -118,7 +113,7 @@ class Rendezvous final {
     /** used to notify waiters to wakeup. */
     std::condition_variable         condition_;
     /** whether this thread has stopped (if the thread hasn't started, false too). */
-    bool                            signaled_;
+    std::atomic<bool>               signaled_;
 };
 
 
