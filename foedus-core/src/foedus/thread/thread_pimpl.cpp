@@ -78,7 +78,7 @@ void ThreadPimpl::handle_tasks() {
 bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
     ImpersonateTask* task = nullptr;
     session->thread_ = holder_;
-    if (current_task_.compare_exchange_weak(task, session->task_)) {
+    if (current_task_.compare_exchange_strong(task, session->task_)) {
         // successfully acquired.
         VLOG(0) << "Impersonation succeeded for Thread-" << id_ << ".";
         raw_thread_.wakeup();

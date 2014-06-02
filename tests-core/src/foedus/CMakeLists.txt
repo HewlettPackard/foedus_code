@@ -8,6 +8,7 @@ add_subdirectory(storage)
 add_subdirectory(thread)
 add_subdirectory(xct)
 
+add_foedus_test_individual(test_dummy "Abort;NotAbort")
 add_foedus_test_individual(test_engine "Instantiate;Initialize;IdempotentUninitialize;Restart;RestartManyTimes")
 add_foedus_test_individual(test_engine_options "Instantiate;Copy;Print;SaveLoad")
 add_foedus_test_individual(test_epoch "Valid;Comparison")
