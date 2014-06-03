@@ -1,0 +1,22 @@
+/*
+ * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
+ * The license and distribution terms for this file are placed in LICENSE.txt.
+ */
+#include <foedus/snapshot/snapshot_manager.hpp>
+#include <foedus/snapshot/snapshot_manager_pimpl.hpp>
+namespace foedus {
+namespace snapshot {
+SnapshotManager::SnapshotManager(Engine* engine) : pimpl_(nullptr) {
+    pimpl_ = new SnapshotManagerPimpl(engine);
+}
+SnapshotManager::~SnapshotManager() {
+    delete pimpl_;
+    pimpl_ = nullptr;
+}
+
+ErrorStack  SnapshotManager::initialize() { return pimpl_->initialize(); }
+bool        SnapshotManager::is_initialized() const { return pimpl_->is_initialized(); }
+ErrorStack  SnapshotManager::uninitialize() { return pimpl_->uninitialize(); }
+
+}  // namespace snapshot
+}  // namespace foedus

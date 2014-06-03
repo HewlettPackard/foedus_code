@@ -168,7 +168,11 @@ class Rendezvous final {
      * Only for sanity check in debug mode.
      * pthread_cond_broadcast or kernel futex has some bug??
      * http://www.redhat.com/archives/phil-list/2004-April/msg00002.html
-     * I shouldn't be hitting this decade-old bug, but what
+     * I shouldn't be hitting this decade-old bug, but what is it??
+     *
+     * Ohhh, probabably this:
+     * https://sourceware.org/git/?p=glibc.git;a=commitdiff;h=8f630cca5c36941db1cb48726016bbed80ec1041
+     * Crap, it's a glibc bug.
      */
     std::atomic<uint32_t>           debug_waitors_;
     struct WaitorScope {
