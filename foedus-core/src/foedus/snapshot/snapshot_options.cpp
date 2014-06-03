@@ -8,6 +8,7 @@ namespace foedus {
 namespace snapshot {
 SnapshotOptions::SnapshotOptions() {
     folder_path_pattern_ = "snapshots/node_$NODE$/partition_$PARTITION$";
+    partitions_per_node_ = 1;
 }
 
 ErrorStack SnapshotOptions::load(tinyxml2::XMLElement* element) {
