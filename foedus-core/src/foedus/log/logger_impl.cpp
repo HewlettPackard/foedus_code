@@ -60,7 +60,6 @@ fs::Path Logger::construct_suffixed_log_path(LogFileOrdinal ordinal) const {
 ErrorStack Logger::initialize_once() {
     // clear all variables
     current_file_ = nullptr;
-    numa_node_ = static_cast<int>(thread::decompose_numa_node(assigned_thread_ids_[0]));
     LOG(INFO) << "Initializing Logger-" << id_ << ". assigned " << assigned_thread_ids_.size()
         << " threads, starting from " << assigned_thread_ids_[0] << ", numa_node_="
         << static_cast<int>(numa_node_);

@@ -15,12 +15,12 @@ namespace foedus {
 namespace savepoint {
 /**
  * @brief Pimpl object of SavepointManager.
- * @ingroup LOG
+ * @ingroup SAVEPOINT
  * @details
  * A private pimpl object for SavepointManager.
  * Do not include this header from a client program unless you know what you are doing.
  */
-class SavepointManagerPimpl CXX11_FINAL : public DefaultInitializable {
+class SavepointManagerPimpl final : public DefaultInitializable {
  public:
     SavepointManagerPimpl() = delete;
     explicit SavepointManagerPimpl(Engine* engine) : engine_(engine) {}

@@ -34,7 +34,7 @@ ErrorStack LogManagerPimpl::initialize_once() {
         return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
     }
     // see comments in LogOptions#log_paths_
-    if (total_loggers % groups_ != 0 || total_threads % total_loggers != 0
+    if (total_loggers == 0 || total_loggers % groups_ != 0 || total_threads % total_loggers != 0
         || total_loggers > total_threads) {
         return ERROR_STACK(ERROR_CODE_LOG_INVALID_LOGGER_COUNT);
     }
@@ -57,7 +57,7 @@ ErrorStack LogManagerPimpl::initialize_once() {
                 current_ordinal++;
             }
             std::string folder = engine_->get_options().log_.convert_folder_path_pattern(group, j);
-            Logger* logger = new Logger(engine_, current_logger_id,
+            Logger* logger = new Logger(engine_, current_logger_id, group,
                                         fs::Path(folder), assigned_thread_ids);
             CHECK_OUTOFMEMORY(logger);
             loggers_.push_back(logger);
@@ -104,7 +104,7 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
     LOG(INFO) << "Global durable epoch is about to advance from " << durable_global_epoch_
         << " to " << min_durable_epoch;
     {
-        std::lock_guard<std::mutex> guard(durable_global_epoch_savepoint_mutex_);  // also as fence
+        std::lock_guard<std::mutex> guard(durable_global_epoch_savepoint_mutex_);
         if (min_durable_epoch <= durable_global_epoch_) {
             LOG(INFO) << "oh, I lost the race.";
             return RET_OK;
@@ -112,8 +112,9 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
 
         CHECK_ERROR(engine_->get_savepoint_manager().take_savepoint(min_durable_epoch));
         durable_global_epoch_ = min_durable_epoch;
+        assorted::memory_fence_release();
+        durable_global_epoch_advanced_.notify_all();
     }
-    durable_global_epoch_advanced_.notify_all();
     return RET_OK;
 }
 

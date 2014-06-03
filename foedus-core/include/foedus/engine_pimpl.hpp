@@ -13,6 +13,7 @@
 #include <foedus/log/log_manager.hpp>
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/savepoint/savepoint_manager.hpp>
+#include <foedus/snapshot/snapshot_manager.hpp>
 #include <foedus/storage/storage_manager.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/xct/xct_manager.hpp>
@@ -54,6 +55,7 @@ class EnginePimpl final : public DefaultInitializable {
     savepoint::SavepointManager     savepoint_manager_;
     thread::ThreadPool              thread_pool_;
     log::LogManager                 log_manager_;
+    snapshot::SnapshotManager       snapshot_manager_;
     storage::StorageManager         storage_manager_;
     xct::XctManager                 xct_manager_;
 
@@ -65,6 +67,7 @@ class EnginePimpl final : public DefaultInitializable {
         children.push_back(&savepoint_manager_);
         children.push_back(&thread_pool_);
         children.push_back(&log_manager_);
+        children.push_back(&snapshot_manager_);
         children.push_back(&storage_manager_);
         children.push_back(&xct_manager_);
         return children;

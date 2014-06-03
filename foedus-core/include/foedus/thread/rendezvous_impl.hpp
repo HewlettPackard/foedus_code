@@ -6,6 +6,7 @@
 #define FOEDUS_THREAD_RENDEZVOUS_IMPL_HPP_
 #include <foedus/assert_nd.hpp>
 #include <foedus/assorted/atomic_fences.hpp>
+#include <stdint.h>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -35,7 +36,20 @@ namespace thread {
  */
 class Rendezvous final {
  public:
-    Rendezvous() : signaled_(false) {}
+    Rendezvous() : signaled_(false)
+#ifndef NDEBUG
+        , debug_already_destroyed_(false), debug_waitors_(0)
+#endif  // NDEBUG
+    {
+    }
+
+    ~Rendezvous() {
+#ifndef NDEBUG
+        ASSERT_ND(!debug_already_destroyed_.load());
+        ASSERT_ND(debug_waitors_.load() == 0);
+        debug_already_destroyed_.store(true);
+#endif  // NDEBUG
+    }
 
     // not copyable, assignable.
     Rendezvous(const Rendezvous &other) = delete;
@@ -49,10 +63,14 @@ class Rendezvous final {
      * Equivalent to std::future<void>::wait().
      */
     void wait() {
+#ifndef NDEBUG
+        WaitorScope waitor_scope(this);
+#endif  // NDEBUG
         if (is_signaled()) {
             return;
         }
         std::unique_lock<std::mutex> the_lock(mutex_);
+        debug_assert_already_destroyed();
         condition_.wait(the_lock, [this]{ return is_signaled(); });
     }
 
@@ -64,10 +82,14 @@ class Rendezvous final {
      */
     template<class REP, class PERIOD>
     bool wait_for(const std::chrono::duration<REP, PERIOD>& timeout) {
+#ifndef NDEBUG
+        WaitorScope waitor_scope(this);
+#endif  // NDEBUG
         if (is_signaled()) {
             return true;
         }
         std::unique_lock<std::mutex> the_lock(mutex_);
+        debug_assert_already_destroyed();
         return condition_.wait_for<REP, PERIOD>(the_lock, timeout, [this]{ return is_signaled(); });
     }
 
@@ -79,10 +101,14 @@ class Rendezvous final {
      */
     template< class CLOCK, class DURATION >
     bool wait_until(const std::chrono::time_point<CLOCK, DURATION>& until) {
+#ifndef NDEBUG
+        WaitorScope waitor_scope(this);
+#endif  // NDEBUG
         if (is_signaled()) {
             return true;
         }
         std::unique_lock<std::mutex> the_lock(mutex_);
+        debug_assert_already_destroyed();
         return condition_.wait_for<CLOCK, DURATION>(the_lock, until, [this]{
             return is_signaled();
         });
@@ -97,15 +123,35 @@ class Rendezvous final {
      */
     void signal() {
         ASSERT_ND(!is_signaled());
-        // we don't need a mutex here. signaled_ is anyway atomic.
+        // signal while holding lock. This is to avoid lost signal or spurious blocking.
+        // http://www.domaigne.com/blog/computing/condvars-signal-with-mutex-locked-or-not/
+        // http://stackoverflow.com/questions/15072479/stdcondition-variable-spurious-blocking
+        // yes, you will also see contradicting articles on the web, but this is the safe way.
+        std::lock_guard<std::mutex> guard(mutex_);
         signaled_.store(true);
+        debug_assert_already_destroyed();
         condition_.notify_all();
+        // after notify_all, it IS possible that this object is deleted by concurrent thread,
+        // but that should be fine.
     }
 
     /** returns whether this thread has stopped (if the thread hasn't started, false too). */
-    bool is_signaled() const { return signaled_.load(); }
+    bool is_signaled() const {
+        debug_assert_already_destroyed();
+        return signaled_.load();
+    }
     /** non-atomic is_signaled(). */
-    bool is_signaled_weak() const { return signaled_.load(std::memory_order_relaxed); }
+    bool is_signaled_weak() const {
+        debug_assert_already_destroyed();
+        return signaled_.load(std::memory_order_relaxed);
+    }
+
+    /** In release mode, this function will go away. */
+    void debug_assert_already_destroyed() const {
+#ifndef NDEBUG
+        ASSERT_ND(!debug_already_destroyed_.load());
+#endif  // NDEBUG
+    }
 
  private:
     /** protects the condition variable. */
@@ -114,6 +160,27 @@ class Rendezvous final {
     std::condition_variable         condition_;
     /** whether this thread has stopped (if the thread hasn't started, false too). */
     std::atomic<bool>               signaled_;
+
+#ifndef NDEBUG
+    /** Check for double-free. */
+    std::atomic<bool>               debug_already_destroyed_;
+    /**
+     * Only for sanity check in debug mode.
+     * pthread_cond_broadcast or kernel futex has some bug??
+     * http://www.redhat.com/archives/phil-list/2004-April/msg00002.html
+     * I shouldn't be hitting this decade-old bug, but what
+     */
+    std::atomic<uint32_t>           debug_waitors_;
+    struct WaitorScope {
+        explicit WaitorScope(Rendezvous* enclosure) : enclosure_(enclosure) {
+            ++enclosure_->debug_waitors_;
+        }
+        ~WaitorScope() {
+            --enclosure_->debug_waitors_;
+        }
+        Rendezvous* const enclosure_;
+    };
+#endif  // NDEBUG
 };
 
 

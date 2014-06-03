@@ -65,11 +65,12 @@ void XctManagerPimpl::handle_epoch_advance() {
         VLOG(1) << "epoch_advance_thread. current_global_epoch_=" << current_global_epoch_;
         ASSERT_ND(current_global_epoch_.is_valid());
         {
-            std::lock_guard<std::mutex> guard(current_global_epoch_advanced_mutex_);  // also fence
+            std::lock_guard<std::mutex> guard(current_global_epoch_advanced_mutex_);
             ++current_global_epoch_;
+            ASSERT_ND(current_global_epoch_.is_valid());
+            assorted::memory_fence_release();
+            current_global_epoch_advanced_.notify_all();
         }
-        ASSERT_ND(current_global_epoch_.is_valid());
-        current_global_epoch_advanced_.notify_all();
         engine_->get_log_manager().wakeup_loggers();
     }
     LOG(INFO) << "epoch_advance_thread ended.";

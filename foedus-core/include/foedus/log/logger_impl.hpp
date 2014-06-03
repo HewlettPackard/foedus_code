@@ -33,9 +33,10 @@ namespace log {
  */
 class Logger final : public DefaultInitializable {
  public:
-    Logger(Engine* engine, LoggerId id, const fs::Path &log_folder,
+    Logger(Engine* engine, LoggerId id, thread::ThreadGroupId numa_node, const fs::Path &log_folder,
            const std::vector< thread::ThreadId > &assigned_thread_ids) : engine_(engine),
-           id_(id), log_folder_(log_folder), assigned_thread_ids_(assigned_thread_ids) {}
+           id_(id), numa_node_(numa_node), log_folder_(log_folder),
+           assigned_thread_ids_(assigned_thread_ids) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
@@ -119,7 +120,7 @@ class Logger final : public DefaultInitializable {
 
     Engine* const                   engine_;
     const LoggerId                  id_;
-    thread::ThreadGroupId           numa_node_;
+    const thread::ThreadGroupId     numa_node_;
     const fs::Path                  log_folder_;
     const std::vector< thread::ThreadId > assigned_thread_ids_;
 

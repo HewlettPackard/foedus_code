@@ -9,6 +9,10 @@
 #include <chrono>
 #include <thread>
 #include <vector>
+/**
+ * @file test_stoppable_thread.cpp
+ * Testcases for foedus::thread::StoppableThread.
+ */
 
 namespace foedus {
 namespace thread {

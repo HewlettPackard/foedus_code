@@ -18,6 +18,7 @@ EnginePimpl::EnginePimpl(Engine* engine, const EngineOptions &options) :
     savepoint_manager_(engine),
     thread_pool_(engine),
     log_manager_(engine),
+    snapshot_manager_(engine),
     storage_manager_(engine),
     xct_manager_(engine) {
 }

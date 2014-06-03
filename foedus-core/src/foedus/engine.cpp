@@ -22,6 +22,9 @@ thread::ThreadPool&     Engine::get_thread_pool() const     { return pimpl_->thr
 savepoint::SavepointManager& Engine::get_savepoint_manager() const {
     return pimpl_->savepoint_manager_;
 }
+snapshot::SnapshotManager& Engine::get_snapshot_manager() const {
+    return pimpl_->snapshot_manager_;
+}
 storage::StorageManager&    Engine::get_storage_manager() const { return pimpl_->storage_manager_; }
 xct::XctManager&        Engine::get_xct_manager() const     { return pimpl_->xct_manager_; }
 
