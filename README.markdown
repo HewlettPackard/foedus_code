@@ -30,6 +30,13 @@ libfoedus-core
 For more details of how your client program links to our library, API document, Licensing, etc,
 see [foedus-core](foedus-core/README.markdown)
 
+Current Build Status (For FOEDUS Developers)
+--------
+[![Build Status: release](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release/)
+[![Build Status: relwithdbginfo](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-relwithdbginfo/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-relwithdbginfo/)
+[![Build Status: debug](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-debug/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-debug/)
+[![Build Status: release-valgrind](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release-valgrind/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release-valgrind/)
+[![Build Status: doxygen](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/)
 
 Building Development Environment (For FOEDUS Developers)
 --------

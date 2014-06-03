@@ -10,6 +10,8 @@
  * I'm not sure if I should blame ctest, jenkins, or gtest (or all of them).
  * Related URLs:
  *   https://groups.google.com/forum/#!topic/googletestframework/NK5cAEqsioY
+ *   https://code.google.com/p/googletest/issues/detail?id=342
+ *   https://code.google.com/p/googletest/issues/detail?id=311
  */
 TEST(DummyTest, Abort) {
     // Disabled usually. Enable only when to test Jenkins.

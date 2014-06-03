@@ -71,7 +71,7 @@ option(RUN_EXPENSIVE_TESTCASES "Whether to run testcases that take long time and
 # We now use "ctest -R valgrind" (run our own valgrind-version targets) for this purpose.
 # See https://issues.jenkins-ci.org/browse/JENKINS-23178?page=com.atlassian.jira.plugin.system.issuetabpanels:all-tabpanel
 # for why we switched to roll-our-own solution.
-# we use CTest in tests-xxx. run "make test" or "ctest || true" after cmake
+# we use CTest in tests-xxx. run "make test" or "ctest" after cmake
 set(MEMORYCHECK_SUPPRESSIONS_FILE "${FOEDUS_CORE_SRC_ROOT}/tools/valgrind.supp"
     CACHE FILEPATH "" FORCE)
 configure_file(${MEMORYCHECK_SUPPRESSIONS_FILE} ${FOEDUS_BIN_ROOT}/valgrind.supp COPYONLY)
@@ -81,8 +81,7 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CTestCustom.cmake.in ${CMAKE_BINARY_D
 
 enable_testing()
 # or: valgrind --leak-check=full --show-leak-kinds=all --gen-suppressions=all --suppressions=../../../valgrind.supp ./hoge
-# or: ctest -D ExperimentalMemCheck || true
-# For why we have "|| true", see: http://www.warp1337.com/content/how-use-ctest-jenkins-xunit-or-junit-plugin
+# or: ctest -D ExperimentalMemCheck
 include(CTest)
 
 # The core library. This project is also compilable by itself.
