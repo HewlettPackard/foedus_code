@@ -57,7 +57,7 @@ X(ERROR_CODE_CONF_COULD_NOT_WRITE,  0x0407, "CONFIG : Failed to write a configur
 X(ERROR_CODE_CONF_COULD_NOT_RENAME, 0x0408, "CONFIG : Failed to atomically rename the temporary file to destination.")
 X(ERROR_CODE_CONF_MKDIRS_FAILED,    0x0409, "CONFIG : Failed to create a directory. Check permissions.")
 
-X(ERROR_CODE_LOG_INVALID_LOGGER_COUNT,  0x0501, "LOG    : The number of loggers must be multiply of the number of NUMA node and also be a submultiple of the total number of cores. Check the number of entries in LogOptions#log_paths_")
+X(ERROR_CODE_LOG_INVALID_LOGGER_COUNT,  0x0501, "LOG    : The number of loggers per node must be a submultiple of the number of cores in the node. Check the settings in LogOptions")
 X(ERROR_CODE_LOG_INVALID_APPLY_TYPE,    0x0502, "LOG    : This log type does not support this type of apply")
 X(ERROR_CODE_LOG_INVALID_LOG_TYPE,      0x0503, "LOG    : LOG_TYPE_INVALID")
 

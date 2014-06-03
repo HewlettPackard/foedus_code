@@ -51,6 +51,20 @@ template <typename T> inline T align64(T value) { return align<T, 64>(value); }
 int64_t int_div_ceil(int64_t dividee, int64_t dividor);
 
 /**
+ * target.replaceAll(search, replacement). Sad that std C++ doesn't provide such a basic stuff.
+ * regex is an overkill for this purpose.
+ * @ingroup ASSORTED
+ */
+std::string replace_all(const std::string& target, const std::string& search,
+                           const std::string& replacement);
+/**
+ * target.replaceAll(search, String.valueOf(replacement)).
+ * @ingroup ASSORTED
+ */
+std::string replace_all(const std::string& target, const std::string& search,
+                           int replacement);
+
+/**
  * Thread-safe strerror(errno). We might do some trick here for portability, too.
  * @ingroup ASSORTED
  */

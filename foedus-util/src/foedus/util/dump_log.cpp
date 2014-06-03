@@ -15,6 +15,7 @@
  * @brief Log Dumper Utility
  * @details
  * Shows the content of specified log file(s) for debugging/trouble-shooting.
+ * @todo implement the feature to specify folder rather than file. recursively find log files.
  */
 DEFINE_int32(verbose, 0, "Verbosity level of outputs. 0: Shows only per-file metadata and"
     " important logs, 1: Shows all logs without their details. 2: Shows all logs with all details");
@@ -46,7 +47,7 @@ bool ValidateEpoch(const char* flagname, int64_t value) {
 int main(int argc, char* argv[]) {
     gflags::SetUsageMessage("Log Dumper Utility for libfoedus\n"
         "  Shows the content of specified log file(s) for debugging/trouble-shooting\n"
-        "  Usage: foedus_dump_log <flags> <log file(s)>\n"
+        "  Usage: foedus_dump_log <flags> <log file(s) or folder(s)>\n"
         "  Example: foedus_dump_log -verbose=1 -limit -1 foedus_node0.log.0\n"
         "  Example2: foedus_dump_log -from_epoch 123 -to_epoch 130 ~/foedus_log/*"
     );

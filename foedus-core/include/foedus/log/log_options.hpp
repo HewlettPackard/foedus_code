@@ -33,18 +33,34 @@ struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
     LogOptions();
 
     /**
-     * @brief Full paths of log files.
+     * @brief String pattern of path of log folders in each NUMA node.
      * @details
-     * The files may or may not be on different physical devices.
-     * This option also determines the number of loggers.
-     * For the best performance, the number of loggers must be multiply of the number of NUMA
-     * node and also be a submultiple of the total number of cores.
-     * This is to evenly assign cores to loggers, loggers to NUMA nodes.
-     * Default value is "foedus_nodeX.log" where X is NUMA nodes, one entry for each NUMA node.
-     * @attention When you modify this setting, do NOT forget removing the default entry;
-     * call log_paths_.clear() first.
+     * This specifies the path of the folder to contain log file written out in each NUMA node.
+     * Two special placeholders can be used; $NODE$ and $LOGGER$.
+     * $NODE$ is replaced with the NUMA node number.
+     * $LOGGER$ is replaced with the logger index in the node (0 to loggers_per_node_ - 1).
+     * For example,
+     * \li "/log/node_$NODE$/logger_$LOGGER$" becomes "/log/node_1/logger_0" on node-1 and logger-0.
+     * \li "/log/logger_$INDEX$" becomes "/log/logger_1" on any node and logger-1.
+     *
+     * Both are optional. You can specify a fixed path without the patterns, which means you will
+     * use the same folder for multiple loggers and nodes.
+     * Even in that case, log file names include node/logger number, so it wouldn't cause any data
+     * corruption. It just makes things harder for poor sysadmins.
+     *
+     * The default value is "logs/node_$NODE$/logger_$LOGGER$".
      */
-    std::vector<std::string>    log_paths_;
+    std::string                 folder_path_pattern_;
+
+    /**
+     * @brief Number of loggers per NUMA node.
+     * @details
+     * This value must be at least 1 (which is also default).
+     * A larger value might be able to employ more CPU power if you have succient # of cores.
+     * For the best performance, the number of loggers in each NUMA node must be
+     * a submultiple of the number of cores in the node (s.t. logger assignment is balanced).
+     */
+    uint16_t                    loggers_per_node_;
 
     /** Size in KB of log buffer for \e each worker thread. */
     uint32_t                    log_buffer_kb_;
@@ -70,10 +86,10 @@ struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
     /** Settings to emulate slower logging device. */
     foedus::fs::DeviceEmulationOptions emulation_;
 
-    EXTERNALIZABLE(LogOptions);
+    /** converts folder_path_pattern_ into a string with the given IDs. */
+    std::string     convert_folder_path_pattern(int node, int logger) const;
 
-    /** Synonym for log_paths_.size(). */
-    LoggerId                    get_logger_count() const { return log_paths_.size(); }
+    EXTERNALIZABLE(LogOptions);
 };
 }  // namespace log
 }  // namespace foedus

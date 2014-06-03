@@ -38,6 +38,7 @@ class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
     Engine* const               engine_;
 
     thread::ThreadGroupId       groups_;
+    uint16_t                    loggers_per_node_;
 
     /**
      * Log writers.

@@ -28,18 +28,14 @@ TEST(EngineOptionsTest, Copy) {
 
 TEST(EngineOptionsTest, Print) {
     EngineOptions options;
-    options.log_.log_paths_.clear();
-    options.log_.log_paths_.push_back("~/assd.log");
-    options.log_.log_paths_.push_back("/home/sss/ggg/assd.log");
+    options.log_.folder_path_pattern_ = "~/assd.log";
 
     std::cout << options << std::endl;
 }
 
 TEST(EngineOptionsTest, SaveLoad) {
     EngineOptions options;
-    options.log_.log_paths_.clear();
-    options.log_.log_paths_.push_back("~/assd.log");
-    options.log_.log_paths_.push_back("/home/sss/ggg/assd.log");
+    options.log_.folder_path_pattern_ = "~/assd.log";
     options.savepoint_.savepoint_path_ = "aaa";
     options.memory_.interleave_numa_alloc_ = false;
     options.memory_.page_pool_size_mb_ = 123;
@@ -50,7 +46,7 @@ TEST(EngineOptionsTest, SaveLoad) {
     EngineOptions options2;
     COERCE_ERROR(options2.load_from_file(random_path));
 
-    EXPECT_EQ(options.log_.log_paths_, options2.log_.log_paths_);
+    EXPECT_EQ(options.log_.folder_path_pattern_, options2.log_.folder_path_pattern_);
     EXPECT_EQ(options.savepoint_.savepoint_path_, options2.savepoint_.savepoint_path_);
     EXPECT_EQ(options.memory_.interleave_numa_alloc_, options2.memory_.interleave_numa_alloc_);
     EXPECT_EQ(options.memory_.page_pool_size_mb_, options2.memory_.page_pool_size_mb_);

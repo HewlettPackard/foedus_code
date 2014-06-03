@@ -32,15 +32,15 @@ see [foedus-core](foedus-core/README.markdown)
 
 Current Build Status on Jenkins (For FOEDUS Developers)
 --------
-*release* [![Build Status: release](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release/)
+[![Build Status: release](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release/) *release*
 
-*relwithdbginfo* [![Build Status: relwithdbginfo](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-relwithdbginfo/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-relwithdbginfo/)
+[![Build Status: relwithdbginfo](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-relwithdbginfo/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-relwithdbginfo/) *relwithdbginfo*
 
-*debug* [![Build Status: debug](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-debug/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-debug/)
+[![Build Status: debug](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-debug/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-debug/) *debug*
 
-*release-valgrind* [![Build Status: release-valgrind](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release-valgrind/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release-valgrind/)
+[![Build Status: release-valgrind](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release-valgrind/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release-valgrind/) *release-valgrind*
 
-*doxygen* [![Build Status: doxygen](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/)
+[![Build Status: doxygen](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/) *doxygen*
 
 Building Development Environment (For FOEDUS Developers)
 --------

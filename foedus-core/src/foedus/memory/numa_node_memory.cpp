@@ -19,8 +19,7 @@ namespace memory {
 NumaNodeMemory::NumaNodeMemory(Engine* engine, thread::ThreadGroupId numa_node)
     : engine_(engine), numa_node_(numa_node),
         cores_(engine_->get_options().thread_.thread_count_per_group_),
-        loggers_(assorted::int_div_ceil(engine_->get_options().log_.log_paths_.size(),
-                    engine_->get_options().thread_.group_count_)) {
+        loggers_(engine_->get_options().log_.loggers_per_node_) {
 }
 
 ErrorStack NumaNodeMemory::initialize_once() {

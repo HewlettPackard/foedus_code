@@ -16,22 +16,20 @@ namespace foedus {
         return fs::unique_name("%%%%_%%%%_%%%%_%%%%");
     }
 
-    EngineOptions get_randomized_paths(int logger_count, int snapshot_folder_count) {
+    EngineOptions get_randomized_paths() {
         EngineOptions options;
         std::string uniquefier = get_random_name();
         std::cout << "test uniquefier=" << uniquefier << std::endl;
-        options.log_.log_paths_.clear();
-        for (int i = 0; i < logger_count; ++i) {
+        {
             std::stringstream str;
-            str << "tmp_logs/" << uniquefier << "_" << i << ".log";
-            options.log_.log_paths_.push_back(str.str());
+            str << "tmp_logs/" << uniquefier << "/node_$NODE$/logger_$LOGGER$";
+            options.log_.folder_path_pattern_ = str.str();
         }
 
-        options.snapshot_.folder_paths_.clear();
-        for (int i = 0; i < snapshot_folder_count; ++i) {
+        {
             std::stringstream str;
-            str << "tmp_snapshots/" << uniquefier << "_" << i;
-            options.snapshot_.folder_paths_.push_back(str.str());
+            str << "tmp_snapshots/" << uniquefier << "/node_$NODE$/partition_$PARTITION$";
+            options.snapshot_.folder_path_pattern_ = str.str();
         }
 
         options.savepoint_.savepoint_path_ = std::string("tmp_savepoints/") + uniquefier + ".xml";
@@ -40,7 +38,7 @@ namespace foedus {
     }
 
     EngineOptions get_tiny_options() {
-        EngineOptions options = get_randomized_paths(1, 1);
+        EngineOptions options = get_randomized_paths();
         options.debugging_.debug_log_min_threshold_ = debugging::DebuggingOptions::DEBUG_LOG_INFO;
         options.debugging_.debug_log_stderr_threshold_
             = debugging::DebuggingOptions::DEBUG_LOG_INFO;
@@ -67,17 +65,8 @@ namespace foedus {
     }
     void cleanup_test(const EngineOptions& options) {
         fs::remove(fs::Path(options.savepoint_.savepoint_path_));
-        for (std::string log_path : options.log_.log_paths_) {
-            fs::Path folder = fs::Path(log_path).parent_path();
-            remove_files_start_with(folder, fs::Path(log_path));
-        }
-        /*
-        TODO(Hideaki) When snapshot is implemented
-        for (std::string snapshot_folder : options.snapshot_.folder_paths_) {
-            fs::Path folder(snapshot_folder);
-            fs::remove_all(folder);
-        }
-        */
+        fs::remove(fs::Path("tmp_logs"));
+        fs::remove(fs::Path("tmp_snapshots"));
     }
 
 }  // namespace foedus

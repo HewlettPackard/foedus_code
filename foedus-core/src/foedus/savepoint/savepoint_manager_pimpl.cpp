@@ -20,7 +20,7 @@ ErrorStack SavepointManagerPimpl::initialize_once() {
     savepoint_ = Savepoint();
     savepoint_path_ = fs::Path(engine_->get_options().savepoint_.savepoint_path_);
     LOG(INFO) << "Initializing SavepointManager.. path=" << savepoint_path_;
-    auto logger_count = engine_->get_options().log_.get_logger_count();
+    auto logger_count = engine_->get_options().log_.loggers_per_node_;
     if (fs::exists(savepoint_path_)) {
         LOG(INFO) << "Existing savepoint file found. Loading..";
         CHECK_ERROR(savepoint_.load_from_file(savepoint_path_));

@@ -53,7 +53,7 @@ inline uint64_t align_log_floor(uint64_t offset) {
 
 fs::Path Logger::construct_suffixed_log_path(LogFileOrdinal ordinal) const {
     std::stringstream path_str;
-    path_str << log_path_.string() << "." << ordinal;
+    path_str << log_folder_.string() << "/" << id_ << "_" << ordinal << ".log";
     return fs::Path(path_str.str());
 }
 
@@ -567,7 +567,7 @@ std::ostream& operator<<(std::ostream& o, const Logger& v) {
     o << "<Logger>"
         << "<id_>" << v.id_ << "</id_>"
         << "<numa_node_>" << static_cast<int>(v.numa_node_) << "</numa_node_>"
-        << "<log_path_>" << v.log_path_ << "</log_path_>";
+        << "<log_folder_>" << v.log_folder_ << "</log_folder_>";
     o << "<assigned_thread_ids_>";
     for (auto thread_id : v.assigned_thread_ids_) {
         o << "<thread_id>" << thread_id << "</thread_id>";

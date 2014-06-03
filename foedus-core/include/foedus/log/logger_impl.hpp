@@ -33,9 +33,9 @@ namespace log {
  */
 class Logger final : public DefaultInitializable {
  public:
-    Logger(Engine* engine, LoggerId id, const fs::Path &log_path,
+    Logger(Engine* engine, LoggerId id, const fs::Path &log_folder,
            const std::vector< thread::ThreadId > &assigned_thread_ids) : engine_(engine),
-           id_(id), log_path_(log_path), assigned_thread_ids_(assigned_thread_ids) {}
+           id_(id), log_folder_(log_folder), assigned_thread_ids_(assigned_thread_ids) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
@@ -120,7 +120,7 @@ class Logger final : public DefaultInitializable {
     Engine* const                   engine_;
     const LoggerId                  id_;
     thread::ThreadGroupId           numa_node_;
-    const fs::Path                  log_path_;
+    const fs::Path                  log_folder_;
     const std::vector< thread::ThreadId > assigned_thread_ids_;
 
     thread::StoppableThread         logger_thread_;
@@ -191,7 +191,7 @@ class Logger final : public DefaultInitializable {
      */
     fs::DirectIoFile*               current_file_;
     /**
-     * log_path_ + current_ordinal_.
+     * [log_folder_]/[id_]_[current_ordinal_].log.
      */
     fs::Path                        current_file_path_;
 

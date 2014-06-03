@@ -23,14 +23,37 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
     SnapshotOptions();
 
     /**
-     * @brief Folder paths of snapshot folders.
+     * @brief String pattern of path of snapshot folders in each NUMA node.
      * @details
-     * The folders may or may not be on different physical devices.
-     * The snapshot folders are used in round-robbin fashion.
-     * @attention The default value is just one entry of current folder. When you modify this
-     * setting, do NOT forget removing the default entry; call folder_paths_.clear() first.
+     * This specifies the path of the folders to contain snapshot files in each NUMA node.
+     * Two special placeholders can be used; $NODE$ and $PARTITION$.
+     * $NODE$ is replaced with the NUMA node number.
+     * $PARTITION$ is replaced with the partition in the node (0 to partitions_per_node_ - 1).
+     * For example,
+     * \li "/data/node_$NODE$/part_$PARTITION$" becomes "/data/node_1/part_0" on node-1 and part-0.
+     * \li "/data/folder_$INDEX$" becomes "/data/folder_1" on any node and partition-1.
+     *
+     * Both are optional. You can specify a fixed path without the patterns, which means you will
+     * use the same folder for multiple partitions and nodes.
+     * Even in that case, snapshot file names include uniquefiers, so it wouldn't cause any data
+     * corruption. It just makes things harder for poor sysadmins.
+     *
+     * The snapshot folders are also the granularity of partitioning.
+     * Each snapshot phase starts with partitioning of logs using random samples, then
+     * scatter-gather log entries to assigned partitions like Map-Reduce.
+     *
+     * The default value is "snapshots/node_$NODE$/partition_$PARTITION$".
      */
-    std::vector<std::string>            folder_paths_;
+    std::string                         folder_path_pattern_;
+
+    /**
+     * @brief Number of snapshot folders (ie partitions) per NUMA node.
+     * @details
+     * This value must be at least 1 (which is also default).
+     * A larger value might be able to employ more CPU power during snapshot construction,
+     * but makes the scatter-gather more fine grained, potentially making it slower.
+     */
+    uint16_t                            partitions_per_node_;
 
     /** Settings to emulate slower data device. */
     foedus::fs::DeviceEmulationOptions  emulation_;

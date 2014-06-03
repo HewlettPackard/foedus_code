@@ -227,12 +227,11 @@ int main_impl(int argc, char **argv) {
     ASSERT_ND(!fs::exists(savepoint_path));
 
     std::cout << "NUMA node count=" << static_cast<int>(options.thread_.group_count_) << std::endl;
-    options.log_.log_paths_.clear();
-    for (auto i = 0; i < options.thread_.group_count_ * LOGGERS_PER_NODE; ++i) {
-        std::stringstream str;
-        str << "/dev/shm/tpcb_array_expr/foedus_node" << static_cast<int>(i) << ".log";
-        options.log_.log_paths_.push_back(str.str());
-    }
+    options.snapshot_.folder_path_pattern_
+        = "/dev/shm/tpcb_array_expr/snapshot/node_$NODE$/part_$PARTITION$";
+    options.snapshot_.partitions_per_node_ = 1;
+    options.log_.folder_path_pattern_ = "/dev/shm/tpcb_array_expr/log/node_$NODE$/logger_$LOGGER$";
+    options.log_.loggers_per_node_ = LOGGERS_PER_NODE;
     options.debugging_.debug_log_min_threshold_
         = debugging::DebuggingOptions::DEBUG_LOG_INFO;
         // = debugging::DebuggingOptions::DEBUG_LOG_WARNING;

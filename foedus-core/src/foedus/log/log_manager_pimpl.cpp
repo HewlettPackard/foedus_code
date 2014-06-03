@@ -24,10 +24,10 @@ namespace foedus {
 namespace log {
 ErrorStack LogManagerPimpl::initialize_once() {
     groups_ = engine_->get_options().thread_.group_count_;
-    const std::vector< std::string > &log_paths = engine_->get_options().log_.log_paths_;
-    const LoggerId total_loggers = log_paths.size();
+    loggers_per_node_ = engine_->get_options().log_.loggers_per_node_;
+    const LoggerId total_loggers = loggers_per_node_ * groups_;
     const uint16_t total_threads = engine_->get_options().thread_.get_total_thread_count();
-    LOG(INFO) << "Initializing LogManager. #loggers=" << total_loggers
+    LOG(INFO) << "Initializing LogManager. #loggers_per_node=" << loggers_per_node_
         << ", #NUMA-nodes=" << static_cast<int>(groups_) << ", #total_threads=" << total_threads;
     if (!engine_->get_thread_pool().is_initialized()
         || !engine_->get_savepoint_manager().is_initialized()) {
@@ -45,20 +45,20 @@ ErrorStack LogManagerPimpl::initialize_once() {
     LOG(INFO) << "durable_global_epoch_=" << durable_global_epoch_;
 
     // evenly distribute loggers to NUMA nodes, then to cores.
-    const uint16_t loggers_per_group = total_loggers / groups_;
     const uint16_t cores_per_logger = total_threads / total_loggers;
     LoggerId current_logger_id = 0;
     for (thread::ThreadGroupId group = 0; group < groups_; ++group) {
         memory::ScopedNumaPreferred numa_scope(group);
         thread::ThreadLocalOrdinal current_ordinal = 0;
-        for (auto j = 0; j < loggers_per_group; ++j) {
+        for (auto j = 0; j < loggers_per_node_; ++j) {
             std::vector< thread::ThreadId > assigned_thread_ids;
             for (auto k = 0; k < cores_per_logger; ++k) {
                 assigned_thread_ids.push_back(thread::compose_thread_id(group, current_ordinal));
                 current_ordinal++;
             }
+            std::string folder = engine_->get_options().log_.convert_folder_path_pattern(group, j);
             Logger* logger = new Logger(engine_, current_logger_id,
-                fs::Path(log_paths[current_logger_id]), assigned_thread_ids);
+                                        fs::Path(folder), assigned_thread_ids);
             CHECK_OUTOFMEMORY(logger);
             loggers_.push_back(logger);
             CHECK_ERROR(logger->initialize());
