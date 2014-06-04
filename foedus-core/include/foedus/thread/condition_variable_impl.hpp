@@ -14,12 +14,12 @@
 namespace foedus {
 namespace thread {
 /**
- * @brief An analogue of pthread's condition variable/std::condition_variable to avoid glibc's
+ * @brief An analogue of pthread's condition variable and std::condition_variable to avoid glibc's
  * bug in pthread_cond_broadcast/signal (thus in notify_all/one in turn).
  * @ingroup THREAD
  * @details
- * The whole purpose of this class it to workaound a bug in glibc's pthread_cond_broadcast/signal(),
- * which is also used by std::condition_variable::notify_all/one().
+ * The whole purpose of this class is to workaound a bug in glibc's pthread_cond_broadcast/signal(),
+ * which is also used by std::condition_variable.
  *
  * The bug is already fixed here:
  *   https://sourceware.org/git/?p=glibc.git;a=commitdiff;h=8f630cca5c36941db1cb48726016bbed80ec1041
