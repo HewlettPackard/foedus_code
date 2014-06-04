@@ -57,7 +57,7 @@ ErrorStack LogManagerPimpl::initialize_once() {
                 current_ordinal++;
             }
             std::string folder = engine_->get_options().log_.convert_folder_path_pattern(group, j);
-            Logger* logger = new Logger(engine_, current_logger_id, group,
+            Logger* logger = new Logger(engine_, current_logger_id, group, j,
                                         fs::Path(folder), assigned_thread_ids);
             CHECK_OUTOFMEMORY(logger);
             loggers_.push_back(logger);

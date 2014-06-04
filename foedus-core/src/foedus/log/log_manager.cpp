@@ -2,6 +2,7 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
+#include <foedus/assert_nd.hpp>
 #include <foedus/log/log_manager.hpp>
 #include <foedus/log/log_manager_pimpl.hpp>
 namespace foedus {
@@ -27,6 +28,10 @@ Epoch       LogManager::get_durable_global_epoch_weak() const {
 }
 ErrorStack  LogManager::wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds) {
     return pimpl_->wait_until_durable(commit_epoch, wait_microseconds);
+}
+Logger&     LogManager::get_logger(LoggerId logger_id) {
+    ASSERT_ND(logger_id < pimpl_->loggers_.size());
+    return *(pimpl_->loggers_[logger_id]);
 }
 
 ErrorStack LogManager::refresh_global_durable_epoch() {

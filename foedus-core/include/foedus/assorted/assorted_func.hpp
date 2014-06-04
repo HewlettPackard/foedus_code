@@ -76,6 +76,26 @@ std::string os_error();
  */
 std::string os_error(int error_number);
 
+/**
+ * @brief Convenient way of writing hex integers to stream.
+ * @ingroup ASSORTED
+ * @details
+ * Use it as follows.
+ * @code{.cpp}
+ * std::cout << Hex(1234) << ...
+ * // same output as:
+ * // std::cout << "0x" << std::hex << std::uppercase << 1234 << std::nouppercase << std::dec << ...
+ * @endcode
+ */
+struct Hex {
+    template<typename T>
+    Hex(T val, int fix_digits = -1) : val_(static_cast<uint64_t>(val)), fix_digits_(fix_digits) {}
+
+    uint64_t val_;
+    int fix_digits_;
+    friend std::ostream& operator<<(std::ostream& o, const Hex& v);
+};
+
 
 /**
  * @brief Equivalent to _mm_pause() or x86 PAUSE instruction.

@@ -4,6 +4,7 @@
  */
 #include <foedus/assert_nd.hpp>
 #include <foedus/epoch.hpp>
+#include <foedus/assorted/assorted_func.hpp>
 #include <foedus/fs/direct_io_file.hpp>
 #include <foedus/fs/filesystem.hpp>
 #include <foedus/log/common_log_types.hpp>
@@ -42,10 +43,8 @@ int DumpLog::dump_to_stdout() {
                 ||  log::get_log_code_kind(entry->get_type()) == log::ENGINE_LOGS
                 ||  log::get_log_code_kind(entry->get_type()) == log::STORAGE_LOGS;
             if (important_log || enclosure_->verbose_ > BRIEF) {
-                std::cout << "    <Log offset=\"0x" << std::hex << std::uppercase << offset
-                    << std::nouppercase << std::dec << "\"" << " len=\"0x"
-                    << std::hex << std::uppercase << entry->log_length_
-                    << std::nouppercase << std::dec << "\">";
+                std::cout << "    <Log offset=\"" << assorted::Hex(offset) << "\"" << " len=\""
+                    << assorted::Hex(entry->log_length_) << "\">";
                 if (important_log || enclosure_->verbose_ == DETAIL) {
                     log::invoke_ostream(entry, &std::cout);
                 } else {
@@ -64,7 +63,8 @@ int DumpLog::dump_to_stdout() {
     for (uint32_t file_index = 0; file_index < files_.size(); ++file_index) {
         std::cout << "  <LogFile\n     file_index=\"" << file_index
             << "\"\n     path=\"" << files_[file_index]
-            << "\"\n     bytes=\"" << fs::file_size(files_[file_index]) << "\">" << std::endl;
+            << "\"\n     bytes=\"" << assorted::Hex(fs::file_size(files_[file_index]))
+            << "\">" << std::endl;
         parse_log_file(file_index, &callback);
         std::cout << "  </LogFile>" << std::endl;
     }
@@ -153,6 +153,12 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
         ASSERT_ND(buffer_size > buffer_offset);
         ASSERT_ND(header->log_length_ <= (buffer_size - buffer_offset));
 
+        if (cur_offset == 0 && header->log_type_code_ != log::LOG_CODE_EPOCH_MARKER) {
+            result_inconsistencies_.emplace_back(
+                LogInconsistency(LogInconsistency::NO_EPOCH_MARKER_AT_BEGINNING, file_index,
+                                cur_offset, *header));
+        }
+
         if (header->log_length_ == 0 || header->log_length_ % 8 != 0) {
             result_inconsistencies_.emplace_back(
                 LogInconsistency(LogInconsistency::MISSING_LOG_LENGTH, file_index, cur_offset,
@@ -183,6 +189,11 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
                 if (result_cur_epoch_.is_valid() && result_cur_epoch_ != marker->old_epoch_) {
                     result_inconsistencies_.emplace_back(LogInconsistency(
                         LogInconsistency::EPOCH_MARKER_DOES_NOT_MATCH, file_index, cur_offset,
+                        *header));
+                }
+                if (marker->log_file_offset_ != cur_offset) {
+                    result_inconsistencies_.emplace_back(LogInconsistency(
+                        LogInconsistency::EPOCH_MARKER_INCORRECT_OFFSET, file_index, cur_offset,
                         *header));
                 }
                 result_first_epoch_.store_min(marker->new_epoch_);
@@ -218,12 +229,11 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
 std::ostream& operator<<(std::ostream& o, const LogInconsistency& v) {
     o << "<inconsistency"
         << " file_index=\"" << v.file_index_ << "\""
-        << " offset=\"0x" << std::hex << std::uppercase << v.offset_
-            << std::nouppercase << std::dec << "\""
+        << " offset=\"" << assorted::Hex(v.offset_) << "\""
         << " log_type=\"" << v.header_.log_type_code_ << "\""
         << " len=\"" << v.header_.log_length_ << "\""
         << " storage_id=\"" << v.header_.storage_id_ << "\""
-        << " code=\"0x" << std::hex << std::uppercase << v.type_ << std::nouppercase << std::dec
+        << " code=\"" << assorted::Hex(v.type_)
         << "\" name=\"" << LogInconsistency::type_to_string(v.type_) << "\""
         << " description=\"" << LogInconsistency::type_to_description(v.type_) << "\""
         << " />";

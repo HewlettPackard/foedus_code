@@ -7,6 +7,7 @@
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
+#include <foedus/log/log_id.hpp>
 #include <foedus/savepoint/fwd.hpp>
 #include <foedus/epoch.hpp>
 #include <stdint.h>
@@ -46,6 +47,11 @@ class LogManager CXX11_FINAL : public virtual Initializable {
      * it wouldn't hurt.
      */
     void        wakeup_loggers();
+
+    /**
+     * Returns a logger instance of the given ID.
+     */
+    Logger&     get_logger(LoggerId logger_id);
 
     /**
      * @brief Returns the durable epoch of the entire engine.

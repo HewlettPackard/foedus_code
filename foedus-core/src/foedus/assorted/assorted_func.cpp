@@ -55,6 +55,17 @@ std::string os_error(int error_number) {
     return str.str();
 }
 
+std::ostream& operator<<(std::ostream& o, const Hex& v) {
+    std::ios::fmtflags old_flags = o.flags();
+    o << "0x";
+    if (v.fix_digits_ >= 0) {
+        o.width(v.fix_digits_);
+        o.fill('0');
+    }
+    o << std::hex << std::uppercase << v.val_;
+    o.flags(old_flags);
+    return o;
+}
 
 std::string demangle_type_name(const char* mangled_name) {
 #ifdef __GNUC__

@@ -12,7 +12,6 @@
  * This package contains classes to handle \e snapshot files.
  * Snapshot files are overlays of the database image.
  * Each snapshot file contains a single version of one or more data pages.
- * @todo IMPLEMENT
  */
 
 /**

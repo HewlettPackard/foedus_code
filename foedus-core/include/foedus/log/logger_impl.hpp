@@ -7,6 +7,7 @@
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
+#include <foedus/log/epoch_history.hpp>
 #include <foedus/log/log_id.hpp>
 #include <foedus/fs/fwd.hpp>
 #include <foedus/fs/path.hpp>
@@ -32,10 +33,11 @@ namespace log {
  */
 class Logger final : public DefaultInitializable {
  public:
-    Logger(Engine* engine, LoggerId id, thread::ThreadGroupId numa_node, const fs::Path &log_folder,
+    Logger(Engine* engine, LoggerId id, thread::ThreadGroupId numa_node, uint8_t in_node_ordinal,
+           const fs::Path &log_folder,
            const std::vector< thread::ThreadId > &assigned_thread_ids) : engine_(engine),
-           id_(id), numa_node_(numa_node), log_folder_(log_folder),
-           assigned_thread_ids_(assigned_thread_ids) {}
+           id_(id), numa_node_(numa_node), in_node_ordinal_(in_node_ordinal),
+           log_folder_(log_folder), assigned_thread_ids_(assigned_thread_ids) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
@@ -61,6 +63,9 @@ class Logger final : public DefaultInitializable {
 
     /** Called from log manager's copy_logger_states. */
     void        copy_logger_state(savepoint::Savepoint *new_savepoint);
+
+    /** Append a new epoch history. */
+    void        add_epoch_history(const EpochMarkerLogType& epoch_marker);
 
     std::string             to_string() const;
     friend std::ostream&    operator<<(std::ostream& o, const Logger& v);
@@ -120,6 +125,7 @@ class Logger final : public DefaultInitializable {
     Engine* const                   engine_;
     const LoggerId                  id_;
     const thread::ThreadGroupId     numa_node_;
+    const uint8_t                   in_node_ordinal_;
     const fs::Path                  log_folder_;
     const std::vector< thread::ThreadId > assigned_thread_ids_;
 
@@ -203,6 +209,11 @@ class Logger final : public DefaultInitializable {
     uint64_t                        current_file_durable_offset_;
 
     std::vector< thread::Thread* >  assigned_threads_;
+
+    /**
+     * Remembers all epoch switching in this logger.
+     */
+    std::vector< EpochHistory >     epoch_histories_;
 };
 }  // namespace log
 }  // namespace foedus

@@ -26,7 +26,9 @@ namespace util {
         "Storage ID is not set of storage/record type logs. A bug or corrupt log.") \
     X(INVALID_OLD_EPOCH, "old_epoch field of epoch marker is invalid")\
     X(INVALID_NEW_EPOCH, "new_epoch field of epoch marker is invalid")\
+    X(NO_EPOCH_MARKER_AT_BEGINNING, "The log file does not start with epoch marker.")\
     X(EPOCH_MARKER_DOES_NOT_MATCH, "From field of epoch marker is inconsistent")\
+    X(EPOCH_MARKER_INCORRECT_OFFSET, "Offset field of epoch marker is wrong")\
     X(TOO_MANY_INCONSISTENCIES, "Too many inconsistencies found.")
 /**
  * Represents one inconsistency found in log files.

@@ -363,7 +363,8 @@ ErrorStack Logger::log_epoch_switch(Epoch new_epoch) {
         // Use fill buffer to write out the epoch mark log
         char* buf = reinterpret_cast<char*>(fill_buffer_.get_block());
         EpochMarkerLogType* epoch_marker = reinterpret_cast<EpochMarkerLogType*>(buf);
-        epoch_marker->populate(marked_epoch_, new_epoch);
+        epoch_marker->populate(marked_epoch_, new_epoch, numa_node_, in_node_ordinal_, id_,
+                               current_ordinal_, current_file_->get_current_offset());
 
         // Fill it up to 4kb and write. A bit wasteful, but happens only once per epoch
         FillerLogType* filler_log = reinterpret_cast<FillerLogType*>(buf
@@ -373,9 +374,20 @@ ErrorStack Logger::log_epoch_switch(Epoch new_epoch) {
         CHECK_ERROR(current_file_->write(fill_buffer_.get_size(), fill_buffer_));
         no_log_epoch_ = true;
         marked_epoch_ = new_epoch;
+        add_epoch_history(*epoch_marker);
     }
     assert_consistent();
     return RET_OK;
+}
+void Logger::add_epoch_history(const EpochMarkerLogType& epoch_marker) {
+    ASSERT_ND(epoch_histories_.size() == 0
+        || epoch_histories_.back().new_epoch_ ==  epoch_marker.old_epoch_);
+    if (epoch_marker.old_epoch_ == epoch_marker.new_epoch_) {
+        LOG(INFO) << "Ignored a dummy epoch marker while replaying epoch marker log on Logger-"
+            << id_ << ". marker=" << epoch_marker;
+    } else {
+        epoch_histories_.emplace_back(EpochHistory(epoch_marker));
+    }
 }
 
 ErrorStack Logger::switch_file_if_required() {
@@ -565,6 +577,7 @@ std::ostream& operator<<(std::ostream& o, const Logger& v) {
     o << "<Logger>"
         << "<id_>" << v.id_ << "</id_>"
         << "<numa_node_>" << static_cast<int>(v.numa_node_) << "</numa_node_>"
+        << "<in_node_ordinal_>" << static_cast<int>(v.in_node_ordinal_) << "</in_node_ordinal_>"
         << "<log_folder_>" << v.log_folder_ << "</log_folder_>";
     o << "<assigned_thread_ids_>";
     for (auto thread_id : v.assigned_thread_ids_) {
@@ -596,6 +609,12 @@ std::ostream& operator<<(std::ostream& o, const Logger& v) {
         o << "nullptr";
     }
     o << "</current_file_length_>";
+
+    o << "<epoch_histories_>";
+    for (auto epoch_history : v.epoch_histories_) {
+        o << epoch_history;
+    }
+    o << "</epoch_histories_>";
     o << "</Logger>";
     return o;
 }

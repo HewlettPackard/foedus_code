@@ -209,31 +209,48 @@ STATIC_SIZE_CHECK(sizeof(FillerLogType), 8)
  * @details
  * As we use epoch-based coarse-grained commit protocol, we don't have to include epoch or
  * any timestamp information in each log. Rather, we occasionally put this log in each log file.
- * This log is just a marker. No apply operation.
+ * Each logger puts this marker when it switches epoch. When applied, this just adds
+ * epoch switch history which is maintained until related logs are gleaned and garbage collected.
+ *
+ * The epoch switch history is used to efficiently identify the beginning of each epoch in each
+ * logger. This is useful for example when we take samples from each epoch.
+ *
+ * Every log file starts with an epoch mark.
  */
 struct EpochMarkerLogType : public EngineLogType {
     LOG_TYPE_NO_CONSTRUCT(EpochMarkerLogType)
 
-    void    apply_engine(const xct::XctId &/*xct_id*/, thread::Thread* /*context*/) {}
+    void    apply_engine(const xct::XctId &xct_id, thread::Thread* context);
 
     /** Epoch before this switch. */
-    Epoch   old_epoch_;  // +4
+    Epoch   old_epoch_;  // +4  => 12
     /** Epoch after this switch. */
-    Epoch   new_epoch_;  // +4
+    Epoch   new_epoch_;  // +4  => 16
 
-    void    populate(Epoch old_epoch, Epoch new_epoch) {
-        header_.storage_id_ = 0;
-        header_.log_length_ = sizeof(EpochMarkerLogType);
-        header_.log_type_code_ = get_log_code<EpochMarkerLogType>();
-        new_epoch_ = new_epoch;
-        old_epoch_ = old_epoch;
-        assert_valid();
-    }
+    /** Numa node of the logger that produced this log. */
+    uint8_t     logger_numa_node_;  // +1 => 17
+    /** Ordinal of the logger in the numa node. */
+    uint8_t     logger_in_node_ordinal_;  // +1 => 18
+    /** Unique ID of the logger. */
+    uint16_t    logger_id_;  // +2 => 20
+
+    /** Ordinal of log files (eg "log.0", "log.1"). */
+    uint32_t    log_file_ordinal_;  // +4 => 24
+
+    /**
+     * Byte offset of the epoch mark log itself in the log. We can put this value in this log
+     * because logger knows the current offset of its own file when it writes out an epoch mark.
+     */
+    uint64_t    log_file_offset_;  // +8 => 32
+
+    void    populate(Epoch old_epoch, Epoch new_epoch,
+                     uint8_t logger_numa_node, uint8_t logger_in_node_ordinal,
+                     uint16_t logger_id, uint32_t log_file_ordinal, uint64_t log_file_offset);
     void    assert_valid() ALWAYS_INLINE { assert_valid_generic(); }
 
     friend std::ostream& operator<<(std::ostream& o, const EpochMarkerLogType &v);
 };
-STATIC_SIZE_CHECK(sizeof(EpochMarkerLogType), 16)
+STATIC_SIZE_CHECK(sizeof(EpochMarkerLogType), 32)
 
 }  // namespace log
 }  // namespace foedus
