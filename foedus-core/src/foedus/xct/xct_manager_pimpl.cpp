@@ -66,8 +66,7 @@ void XctManagerPimpl::handle_epoch_advance() {
         ASSERT_ND(get_current_global_epoch().is_valid());
         {
             std::unique_lock<std::mutex> guard(current_global_epoch_advanced_mutex_);
-            // because of the guard above, the following is safe
-            current_global_epoch_ = get_current_global_epoch_nonatomic().one_more().value();
+            current_global_epoch_ = get_current_global_epoch().one_more().value();
             ASSERT_ND(get_current_global_epoch().is_valid());
             current_global_epoch_advanced_.notify_broadcast(guard);
         }
@@ -79,10 +78,12 @@ void XctManagerPimpl::handle_epoch_advance() {
 void XctManagerPimpl::advance_current_global_epoch() {
     Epoch now = get_current_global_epoch();
     LOG(INFO) << "Requesting to immediately advance epoch. current_global_epoch_=" << now << "...";
-    std::unique_lock<std::mutex> the_lock(current_global_epoch_advanced_mutex_);
     while (now == get_current_global_epoch()) {
         epoch_advance_thread_.wakeup();  // hurrrrry up!
-        current_global_epoch_advanced_.wait(the_lock);
+        std::unique_lock<std::mutex> the_lock(current_global_epoch_advanced_mutex_);
+        if (now != get_current_global_epoch()) {
+            current_global_epoch_advanced_.wait(the_lock);
+        }
     }
 
     LOG(INFO) << "epoch advanced. current_global_epoch_=" << get_current_global_epoch();
