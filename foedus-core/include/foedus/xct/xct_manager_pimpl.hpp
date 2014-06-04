@@ -33,7 +33,7 @@ class XctManagerPimpl final : public DefaultInitializable {
     Epoch       get_current_global_epoch() const {
         return Epoch(current_global_epoch_.load());
     }
-    Epoch       get_current_global_epoch_nonatomic() const {
+    Epoch       get_current_global_epoch_weak() const {
         return Epoch(current_global_epoch_.load(std::memory_order_relaxed));
     }
 

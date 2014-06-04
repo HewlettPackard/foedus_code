@@ -71,7 +71,7 @@ void Xct::issue_next_id(Epoch *epoch)  {
             engine_->get_xct_manager().advance_current_global_epoch();
             ASSERT_ND(epoch->before(engine_->get_xct_manager().get_current_global_epoch()));
             // we have already issued fence by now, so we can use nonatomic version.
-            *epoch = engine_->get_xct_manager().get_current_global_epoch_nonatomic();
+            *epoch = engine_->get_xct_manager().get_current_global_epoch_weak();
             continue;  // try again with this epoch.
         }
 

@@ -167,12 +167,11 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     precommit_xct_lock(context);  // Phase 1
 
     // BEFORE the first fence, update the in_commit_log_epoch_ for logger
-    Xct::InCommitLogEpochGuard guard(&context->get_current_xct(),
-                                     get_current_global_epoch_nonatomic());
+    Xct::InCommitLogEpochGuard guard(&context->get_current_xct(), get_current_global_epoch_weak());
 
     assorted::memory_fence_acq_rel();
 
-    *commit_epoch = get_current_global_epoch_nonatomic();  // serialization point!
+    *commit_epoch = get_current_global_epoch_weak();  // serialization point!
     DVLOG(1) << *context << " Acquired read-write commit epoch " << *commit_epoch;
 
     assorted::memory_fence_acq_rel();
@@ -191,10 +190,9 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
 bool XctManagerPimpl::precommit_xct_schema(thread::Thread* context, Epoch* commit_epoch) {
     LOG(INFO) << *context << " committing a schema transaction";
 
-    Xct::InCommitLogEpochGuard guard(&context->get_current_xct(),
-                                     get_current_global_epoch_nonatomic());
+    Xct::InCommitLogEpochGuard guard(&context->get_current_xct(), get_current_global_epoch_weak());
     assorted::memory_fence_acq_rel();
-    *commit_epoch = get_current_global_epoch_nonatomic();  // serialization point!
+    *commit_epoch = get_current_global_epoch_weak();  // serialization point!
     LOG(INFO) << *context << " Acquired schema commit epoch " << *commit_epoch;
     assorted::memory_fence_acq_rel();
 
@@ -306,7 +304,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
             << " Read-only higest epoch was empty. The transaction has no read set??";
         // In this case, set already-durable epoch. We don't have to use atomic version because
         // it's just conservatively telling how long it should wait.
-        *commit_epoch = Epoch(engine_->get_log_manager().get_durable_global_epoch_nonatomic());
+        *commit_epoch = Epoch(engine_->get_log_manager().get_durable_global_epoch_weak());
     }
 
     // TODO(Hideaki) Node set check. Now that we have persistent storages too, we need to also

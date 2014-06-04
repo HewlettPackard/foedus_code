@@ -21,8 +21,8 @@ ErrorStack  XctManager::uninitialize() { return pimpl_->uninitialize(); }
 Epoch       XctManager::get_current_global_epoch() const {
     return pimpl_->get_current_global_epoch();
 }
-Epoch       XctManager::get_current_global_epoch_nonatomic() const {
-    return pimpl_->get_current_global_epoch_nonatomic();
+Epoch       XctManager::get_current_global_epoch_weak() const {
+    return pimpl_->get_current_global_epoch_weak();
 }
 
 void        XctManager::advance_current_global_epoch() { pimpl_->advance_current_global_epoch(); }

@@ -2,7 +2,6 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/thread/stoppable_thread_impl.hpp>
 #include <glog/logging.h>
 #include <string>
@@ -15,6 +14,7 @@ void StoppableThread::initialize(const std::string &name,
     name_ = name;
     thread_ = std::move(the_thread);
     sleep_interval_ = sleep_interval;
+    sleeping_ = false;
     stop_requested_ = false;
     stopped_ = false;
     LOG(INFO) << name_ << " initialized. sleep_interval=" << sleep_interval_.count() << " microsec";
@@ -29,8 +29,11 @@ void StoppableThread::initialize(const std::string& name_prefix, int32_t name_or
 
 bool StoppableThread::sleep() {
     VLOG(1) << name_ << " sleeping for " << sleep_interval_.count() << " microsec";
-    std::unique_lock<std::mutex> the_lock(mutex_);
-    condition_.wait_for(the_lock, sleep_interval_);
+    {
+        std::unique_lock<std::mutex> the_lock(mutex_);
+        sleeping_ = true;
+        condition_.wait_for(the_lock, sleep_interval_);
+    }
     VLOG(1) << name_ << " woke up";
     if (is_stop_requested()) {
         LOG(INFO) << name_ << " stop requested";
@@ -42,27 +45,28 @@ bool StoppableThread::sleep() {
 
 void StoppableThread::wakeup() {
     VLOG(1) << "Waking up " << name_ << "...";
-    condition_.notify_one();
+
+    // wake up only if it's sleeping.
+    // glibc has some issue on pthread_cond_signal when there is no waiter
+    std::unique_lock<std::mutex> the_lock(mutex_);
+    if (sleeping_) {
+        condition_.notify_one();
+    }
 }
 
 void StoppableThread::stop() {
     LOG(INFO) << "Stopping " << name_ << "...";
-    assorted::memory_fence_acq_rel();
-    if (!is_stopped() && !is_stop_requested()) {
+    if (!is_stopped()) {
         {
             std::lock_guard<std::mutex> guard(mutex_);
             stop_requested_ = true;
-            assorted::memory_fence_release();
             condition_.notify_one();
         }
         LOG(INFO) << "Joining " << name_ << "...";
         thread_.join();
         LOG(INFO) << "Joined " << name_;
     }
-    {
-        std::lock_guard<std::mutex> guard(mutex_);  // also as a fence
-        stopped_ = true;
-    }
+    stopped_ = true;
     LOG(INFO) << "Successfully Stopped " << name_;
 }
 

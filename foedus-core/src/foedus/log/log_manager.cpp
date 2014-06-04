@@ -22,8 +22,8 @@ void        LogManager::wakeup_loggers() { pimpl_->wakeup_loggers(); }
 Epoch       LogManager::get_durable_global_epoch() const {
     return pimpl_->get_durable_global_epoch();
 }
-Epoch       LogManager::get_durable_global_epoch_nonatomic() const {
-    return pimpl_->get_durable_global_epoch_nonatomic();
+Epoch       LogManager::get_durable_global_epoch_weak() const {
+    return pimpl_->get_durable_global_epoch_weak();
 }
 ErrorStack  LogManager::wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds) {
     return pimpl_->wait_until_durable(commit_epoch, wait_microseconds);

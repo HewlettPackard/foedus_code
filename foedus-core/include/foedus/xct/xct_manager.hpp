@@ -37,7 +37,7 @@ class XctManager CXX11_FINAL : public virtual Initializable {
      * @brief Returns the current global epoch.
      */
     Epoch       get_current_global_epoch() const;
-    Epoch       get_current_global_epoch_nonatomic() const;
+    Epoch       get_current_global_epoch_weak() const;
 
     /**
      * @brief Requests to advance the current global epoch as soon as possible and blocks until

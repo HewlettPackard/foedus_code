@@ -57,7 +57,7 @@ class LogManager CXX11_FINAL : public virtual Initializable {
      */
     Epoch       get_durable_global_epoch() const;
     /** Non-atomic version of the method. */
-    Epoch       get_durable_global_epoch_nonatomic() const;
+    Epoch       get_durable_global_epoch_weak() const;
 
     /**
      * @brief Synchronously blocks until the durable global epoch reaches the given commit

@@ -37,7 +37,7 @@ class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
     void        copy_logger_states(savepoint::Savepoint *new_savepoint);
 
     Epoch       get_durable_global_epoch() const { return Epoch(durable_global_epoch_.load()); }
-    Epoch       get_durable_global_epoch_nonatomic() const {
+    Epoch       get_durable_global_epoch_weak() const {
         return Epoch(durable_global_epoch_.load(std::memory_order_relaxed));
     }
 

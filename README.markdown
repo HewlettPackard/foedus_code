@@ -93,11 +93,13 @@ Running Tests (For FOEDUS Developers)
 --------
 Go to build folder, and:
 
-    make test
+    ctest
 
 or
 
-    ctest
+    ctest -j4
+    # Pick a test parallelization level according to your machine power. Remember some tests
+    # run many threads in them. 4 should be a good number.
 
 In order to skip valgrind versions of the tests (because it takes *long* time!),
 
@@ -110,6 +112,8 @@ On the other hand, if you want to run only valgrind versions,
 If you find a false positive or third party's bug, add them to foedus-core/tools/valgrind.supp.
 
     valgrind --leak-check=full --show-leak-kinds=all --suppressions=<path_to_valgrind.supp> --gen-suppressions=all ./<your_program>
+
+For more details, check out CTEST/CMAKE documentation.
 
 Coding Convention (For FOEDUS Developers)
 --------
