@@ -36,8 +36,8 @@ ErrorStack XctManagerPimpl::initialize_once() {
         return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
     }
     const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
-    current_global_epoch_ = savepoint.get_current_epoch();
-    ASSERT_ND(current_global_epoch_.is_valid());
+    current_global_epoch_ = savepoint.get_current_epoch().value();
+    ASSERT_ND(get_current_global_epoch().is_valid());
     epoch_advance_thread_.initialize("epoch_advance_thread",
         std::thread(&XctManagerPimpl::handle_epoch_advance, this),
         std::chrono::milliseconds(engine_->get_options().xct_.epoch_advance_interval_ms_));
@@ -62,12 +62,13 @@ void XctManagerPimpl::handle_epoch_advance() {
     }
     LOG(INFO) << "epoch_advance_thread now starts processing.";
     while (!epoch_advance_thread_.sleep()) {
-        VLOG(1) << "epoch_advance_thread. current_global_epoch_=" << current_global_epoch_;
-        ASSERT_ND(current_global_epoch_.is_valid());
+        VLOG(1) << "epoch_advance_thread. current_global_epoch_=" << get_current_global_epoch();
+        ASSERT_ND(get_current_global_epoch().is_valid());
         {
             std::unique_lock<std::mutex> guard(current_global_epoch_advanced_mutex_);
-            ++current_global_epoch_;
-            ASSERT_ND(current_global_epoch_.is_valid());
+            // because of the guard above, the following is safe
+            current_global_epoch_ = get_current_global_epoch_nonatomic().one_more().value();
+            ASSERT_ND(get_current_global_epoch().is_valid());
             current_global_epoch_advanced_.notify_broadcast(guard);
         }
         engine_->get_log_manager().wakeup_loggers();
@@ -76,20 +77,20 @@ void XctManagerPimpl::handle_epoch_advance() {
 }
 
 void XctManagerPimpl::advance_current_global_epoch() {
-    Epoch now = current_global_epoch_;
+    Epoch now = get_current_global_epoch();
     LOG(INFO) << "Requesting to immediately advance epoch. current_global_epoch_=" << now << "...";
     std::unique_lock<std::mutex> the_lock(current_global_epoch_advanced_mutex_);
-    while (now == current_global_epoch_) {
+    while (now == get_current_global_epoch()) {
         epoch_advance_thread_.wakeup();  // hurrrrry up!
         current_global_epoch_advanced_.wait(the_lock);
     }
 
-    LOG(INFO) << "epoch advanced. current_global_epoch_=" << current_global_epoch_;
+    LOG(INFO) << "epoch advanced. current_global_epoch_=" << get_current_global_epoch();
 }
 
 ErrorStack XctManagerPimpl::wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds) {
     assorted::memory_fence_acquire();
-    if (commit_epoch < current_global_epoch_) {
+    if (commit_epoch < get_current_global_epoch()) {
         epoch_advance_thread_.wakeup();
     }
 
@@ -165,11 +166,12 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     precommit_xct_lock(context);  // Phase 1
 
     // BEFORE the first fence, update the in_commit_log_epoch_ for logger
-    Xct::InCommitLogEpochGuard guard(&context->get_current_xct(), current_global_epoch_);
+    Xct::InCommitLogEpochGuard guard(&context->get_current_xct(),
+                                     get_current_global_epoch_nonatomic());
 
     assorted::memory_fence_acq_rel();
 
-    *commit_epoch = current_global_epoch_;  // serialization point!
+    *commit_epoch = get_current_global_epoch_nonatomic();  // serialization point!
     DVLOG(1) << *context << " Acquired read-write commit epoch " << *commit_epoch;
 
     assorted::memory_fence_acq_rel();
@@ -188,9 +190,10 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
 bool XctManagerPimpl::precommit_xct_schema(thread::Thread* context, Epoch* commit_epoch) {
     LOG(INFO) << *context << " committing a schema transaction";
 
-    Xct::InCommitLogEpochGuard guard(&context->get_current_xct(), current_global_epoch_);
+    Xct::InCommitLogEpochGuard guard(&context->get_current_xct(),
+                                     get_current_global_epoch_nonatomic());
     assorted::memory_fence_acq_rel();
-    *commit_epoch = current_global_epoch_;  // serialization point!
+    *commit_epoch = get_current_global_epoch_nonatomic();  // serialization point!
     LOG(INFO) << *context << " Acquired schema commit epoch " << *commit_epoch;
     assorted::memory_fence_acq_rel();
 

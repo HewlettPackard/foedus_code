@@ -18,7 +18,13 @@ ErrorStack  XctManager::initialize() { return pimpl_->initialize(); }
 bool        XctManager::is_initialized() const { return pimpl_->is_initialized(); }
 ErrorStack  XctManager::uninitialize() { return pimpl_->uninitialize(); }
 
-Epoch       XctManager::get_current_global_epoch() const { return pimpl_->current_global_epoch_; }
+Epoch       XctManager::get_current_global_epoch() const {
+    return pimpl_->get_current_global_epoch();
+}
+Epoch       XctManager::get_current_global_epoch_nonatomic() const {
+    return pimpl_->get_current_global_epoch_nonatomic();
+}
+
 void        XctManager::advance_current_global_epoch() { pimpl_->advance_current_global_epoch(); }
 ErrorStack  XctManager::wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds) {
     return pimpl_->wait_for_commit(commit_epoch, wait_microseconds);

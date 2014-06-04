@@ -12,6 +12,7 @@
 #include <foedus/thread/cond_broadcast_impl.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <foedus/thread/stoppable_thread_impl.hpp>
+#include <atomic>
 #include <mutex>
 namespace foedus {
 namespace xct {
@@ -28,6 +29,13 @@ class XctManagerPimpl final : public DefaultInitializable {
     explicit XctManagerPimpl(Engine* engine) : engine_(engine) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
+
+    Epoch       get_current_global_epoch() const {
+        return Epoch(current_global_epoch_.load());
+    }
+    Epoch       get_current_global_epoch_nonatomic() const {
+        return Epoch(current_global_epoch_.load(std::memory_order_relaxed));
+    }
 
     ErrorStack  begin_xct(thread::Thread* context, IsolationLevel isolation_level);
     ErrorStack  begin_schema_xct(thread::Thread* context);
@@ -108,7 +116,7 @@ class XctManagerPimpl final : public DefaultInitializable {
      * @invariant current_global_epoch_ > 0
      * (current_global_epoch_ begins with 1, not 0. So, epoch-0 is always an empty/dummy epoch)
      */
-    Epoch                   current_global_epoch_;
+    std::atomic<Epoch::EpochInteger>    current_global_epoch_;
 
     /** Fired (notify_broadcast) whenever current_global_epoch_ is advanced. */
     thread::CondBroadcast   current_global_epoch_advanced_;

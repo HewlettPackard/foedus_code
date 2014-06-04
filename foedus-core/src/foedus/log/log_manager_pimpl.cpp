@@ -41,7 +41,7 @@ ErrorStack LogManagerPimpl::initialize_once() {
 
     // Initialize durable_global_epoch_
     durable_global_epoch_ = engine_->get_savepoint_manager().get_savepoint_fast().
-        get_durable_epoch();
+        get_durable_epoch().value();
     LOG(INFO) << "durable_global_epoch_=" << get_durable_global_epoch();
 
     // evenly distribute loggers to NUMA nodes, then to cores.
@@ -113,7 +113,7 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
         CHECK_ERROR(engine_->get_savepoint_manager().take_savepoint(min_durable_epoch));
 
         std::unique_lock<std::mutex> notify_lock(durable_global_epoch_advanced_mutex_);
-        durable_global_epoch_ = min_durable_epoch;
+        durable_global_epoch_ = min_durable_epoch.value();
         durable_global_epoch_advanced_.notify_broadcast(notify_lock);
     }
     return RET_OK;

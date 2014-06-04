@@ -235,7 +235,6 @@ ErrorStack Logger::handle_logger_once(bool *more_log_to_process) {
 
 Epoch Logger::calculate_min_durable_epoch() {
     assert_consistent();
-    assorted::memory_fence_acquire();  // not necessary. just to get latest info.
     const Epoch current_global_epoch = engine_->get_xct_manager().get_current_global_epoch();
     ASSERT_ND(current_global_epoch.is_valid());
     assorted::memory_fence_acquire();  // necessary. following is AFTER this.

@@ -36,9 +36,9 @@ class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
     ErrorStack  refresh_global_durable_epoch();
     void        copy_logger_states(savepoint::Savepoint *new_savepoint);
 
-    Epoch       get_durable_global_epoch() const { return durable_global_epoch_.load(); }
+    Epoch       get_durable_global_epoch() const { return Epoch(durable_global_epoch_.load()); }
     Epoch       get_durable_global_epoch_nonatomic() const {
-        return durable_global_epoch_.load(std::memory_order_relaxed);
+        return Epoch(durable_global_epoch_.load(std::memory_order_relaxed));
     }
 
 
@@ -60,7 +60,7 @@ class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
      * This value indicates upto what commit-groups we can return results to client programs.
      * This value is advanced by checking the durable epoch of each logger.
      */
-    std::atomic<Epoch>          durable_global_epoch_;
+    std::atomic<Epoch::EpochInteger> durable_global_epoch_;
 
     /** Fired (notify_broadcast) whenever durable_global_epoch_ is advanced. */
     thread::CondBroadcast       durable_global_epoch_advanced_;
