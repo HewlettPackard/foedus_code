@@ -32,6 +32,14 @@ make_directory(${FOEDUS_VALGRIND_REPORT_DIR})
 mark_as_advanced(FOEDUS_SRC_ROOT FOEDUS_BIN_ROOT FOEDUS_CORE_SRC_ROOT
     FOEDUS_CORE_BIN_ROOT FOEDUS_TEST_REPORT_DIR FOEDUS_VALGRIND_REPORT_DIR)
 
+# All executables should explicitly link to libpthreads, not just relying on implicit linking.
+# http://www.jimmo.org/threads-blocked-in-pthread_cond_signal-on-linux/
+find_package(Threads REQUIRED)
+
+# Further, all modules should be compiled with -pthread
+# https://gcc.gnu.org/bugzilla/show_bug.cgi?id=58929
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
+
 # We do assume C++11.
 # However, external projects can link to our shared library even if they use C++98.
 # Our public header files do the switching (hides some API if C++11 is disabled).

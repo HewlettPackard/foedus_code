@@ -65,6 +65,11 @@ if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-std\\=c\\+\\+11")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 endif ()
 
+# We need to make sure -pthread compiler option is specified
+if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-pthread")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
+endif ()
+
 # We anyway use 64-bit file offsets, but ideally should be consistent with client program's.
 if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-D\\_FILE\\_OFFSET\\_BITS\\=64")
     message(STATUS "Automatically added -D_FILE_OFFSET_BITS=64 for libfoedus-core."

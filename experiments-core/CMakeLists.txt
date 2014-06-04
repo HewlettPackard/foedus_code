@@ -4,7 +4,7 @@ cmake_policy(SET CMP0003 NEW)
 project(experiments_core)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../general_projects.cmake)
-set(EXPERIMENT_LIB foedus-core)
+set(EXPERIMENT_LIB foedus-core ${CMAKE_THREAD_LIBS_INIT})
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_subdirectory(src)

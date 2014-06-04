@@ -42,7 +42,7 @@ bool StoppableThread::sleep() {
 
 void StoppableThread::wakeup() {
     VLOG(1) << "Waking up " << name_ << "...";
-    condition_.notify_all();
+    condition_.notify_one();
 }
 
 void StoppableThread::stop() {
@@ -50,10 +50,11 @@ void StoppableThread::stop() {
     assorted::memory_fence_acq_rel();
     if (!is_stopped() && !is_stop_requested()) {
         {
-            std::lock_guard<std::mutex> guard(mutex_);  // also as a fence
+            std::lock_guard<std::mutex> guard(mutex_);
             stop_requested_ = true;
+            assorted::memory_fence_release();
+            condition_.notify_one();
         }
-        condition_.notify_all();
         LOG(INFO) << "Joining " << name_ << "...";
         thread_.join();
         LOG(INFO) << "Joined " << name_;
