@@ -4,10 +4,9 @@
  */
 #ifndef FOEDUS_THREAD_STOPPABLE_THREAD_IMPL_HPP_
 #define FOEDUS_THREAD_STOPPABLE_THREAD_IMPL_HPP_
+#include <foedus/thread/condition_variable_impl.hpp>
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
-#include <mutex>
 #include <string>
 #include <thread>
 namespace foedus {
@@ -29,8 +28,7 @@ namespace thread {
  */
 class StoppableThread final {
  public:
-    StoppableThread() : sleep_interval_(0), sleeping_(false),
-        stop_requested_(false), stopped_(false) {}
+    StoppableThread() : sleep_interval_(0), stop_requested_(false), stopped_(false) {}
 
     // non-copyable assignable. (maybe better to provide move, but no need so far)
     StoppableThread(const StoppableThread &other) = delete;
@@ -91,12 +89,8 @@ class StoppableThread final {
     std::thread                     thread_;
     /** How long do we sleep at most for each sleep() call. */
     std::chrono::microseconds       sleep_interval_;
-    /** protects the condition variable. */
-    std::mutex                      mutex_;
     /** used to notify the thread to wakeup. */
-    std::condition_variable         condition_;
-    /** Whether this thread is now sleeping. protected by the mutex. */
-    std::atomic<bool>               sleeping_;
+    ConditionVariable               condition_;
     /** whether someone has requested to stop this. */
     std::atomic<bool>               stop_requested_;
     /** whether this thread has stopped (if the thread hasn't started, false too). */

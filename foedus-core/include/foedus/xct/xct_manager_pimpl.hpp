@@ -9,11 +9,10 @@
 #include <foedus/initializable.hpp>
 #include <foedus/xct/fwd.hpp>
 #include <foedus/xct/xct_id.hpp>
-#include <foedus/thread/cond_broadcast_impl.hpp>
+#include <foedus/thread/condition_variable_impl.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <foedus/thread/stoppable_thread_impl.hpp>
 #include <atomic>
-#include <mutex>
 namespace foedus {
 namespace xct {
 /**
@@ -118,10 +117,8 @@ class XctManagerPimpl final : public DefaultInitializable {
      */
     std::atomic<Epoch::EpochInteger>    current_global_epoch_;
 
-    /** Fired (notify_broadcast) whenever current_global_epoch_ is advanced. */
-    thread::CondBroadcast   current_global_epoch_advanced_;
-    /** Protects current_global_epoch_advanced_. */
-    std::mutex              current_global_epoch_advanced_mutex_;
+    /** Fired (notify_all) whenever current_global_epoch_ is advanced. */
+    thread::ConditionVariable           current_global_epoch_advanced_;
 
     /**
      * This thread keeps advancing the current_global_epoch_ and durable_global_epoch_.

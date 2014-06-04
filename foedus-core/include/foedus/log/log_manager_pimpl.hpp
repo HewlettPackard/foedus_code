@@ -9,11 +9,10 @@
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
 #include <foedus/savepoint/fwd.hpp>
-#include <foedus/thread/cond_broadcast_impl.hpp>
+#include <foedus/thread/condition_variable_impl.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <stdint.h>
 #include <atomic>
-#include <mutex>
 #include <vector>
 namespace foedus {
 namespace log {
@@ -60,15 +59,13 @@ class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
      * This value indicates upto what commit-groups we can return results to client programs.
      * This value is advanced by checking the durable epoch of each logger.
      */
-    std::atomic<Epoch::EpochInteger> durable_global_epoch_;
+    std::atomic<Epoch::EpochInteger>    durable_global_epoch_;
 
-    /** Fired (notify_broadcast) whenever durable_global_epoch_ is advanced. */
-    thread::CondBroadcast       durable_global_epoch_advanced_;
-    /** Protects durable_global_epoch_advanced_. */
-    std::mutex                  durable_global_epoch_advanced_mutex_;
+    /** Fired (notify_all) whenever durable_global_epoch_ is advanced. */
+    thread::ConditionVariable           durable_global_epoch_advanced_;
 
     /** Serializes the thread to take savepoint to advance durable_global_epoch_. */
-    std::mutex                  durable_global_epoch_savepoint_mutex_;
+    std::mutex                          durable_global_epoch_savepoint_mutex_;
 };
 }  // namespace log
 }  // namespace foedus

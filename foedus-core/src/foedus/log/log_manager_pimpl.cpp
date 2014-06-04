@@ -112,9 +112,9 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
 
         CHECK_ERROR(engine_->get_savepoint_manager().take_savepoint(min_durable_epoch));
 
-        std::unique_lock<std::mutex> notify_lock(durable_global_epoch_advanced_mutex_);
-        durable_global_epoch_ = min_durable_epoch.value();
-        durable_global_epoch_advanced_.notify_broadcast(notify_lock);
+        durable_global_epoch_advanced_.notify_all([this, min_durable_epoch]{
+            durable_global_epoch_ = min_durable_epoch.value();
+        });
     }
     return RET_OK;
 }
@@ -142,15 +142,14 @@ ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_
         for (Logger* logger : loggers_) {
             logger->wakeup_for_durable_epoch(commit_epoch);
         }
-        std::unique_lock<std::mutex> the_lock(durable_global_epoch_advanced_mutex_);
         if (wait_microseconds > 0) {
             VLOG(0) << "Synchronously waiting for commit_epoch " << commit_epoch;
-            if (!durable_global_epoch_advanced_.wait_until(the_lock, until)) {
+            if (!durable_global_epoch_advanced_.wait_until(until)) {
                 LOG(WARNING) << "Timeout occurs. wait_microseconds=" << wait_microseconds;
                 return ERROR_STACK(ERROR_CODE_TIMEOUT);
             }
         } else {
-            durable_global_epoch_advanced_.wait(the_lock);
+            durable_global_epoch_advanced_.wait();
         }
     }
 

@@ -11,13 +11,12 @@
 #include <foedus/fs/fwd.hpp>
 #include <foedus/fs/path.hpp>
 #include <foedus/memory/aligned_memory.hpp>
-#include <foedus/thread/thread_id.hpp>
 #include <foedus/thread/fwd.hpp>
+#include <foedus/thread/thread_id.hpp>
 #include <foedus/thread/stoppable_thread_impl.hpp>
 #include <foedus/epoch.hpp>
 #include <foedus/savepoint/fwd.hpp>
 #include <stdint.h>
-#include <condition_variable>
 #include <iosfwd>
 #include <mutex>
 #include <string>

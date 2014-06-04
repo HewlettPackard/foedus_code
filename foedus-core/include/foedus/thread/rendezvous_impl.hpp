@@ -5,7 +5,7 @@
 #ifndef FOEDUS_THREAD_RENDEZVOUS_IMPL_HPP_
 #define FOEDUS_THREAD_RENDEZVOUS_IMPL_HPP_
 #include <foedus/assert_nd.hpp>
-#include <foedus/thread/cond_broadcast_impl.hpp>
+#include <foedus/thread/condition_variable_impl.hpp>
 #include <atomic>
 #include <chrono>
 #include <mutex>
@@ -51,8 +51,7 @@ class Rendezvous final {
         if (is_signaled()) {
             return;
         }
-        std::unique_lock<std::mutex> the_lock(mutex_);
-        condition_.wait(the_lock, [this]{ return is_signaled(); });
+        condition_.wait([this]{ return is_signaled(); });
     }
 
     /**
@@ -66,8 +65,7 @@ class Rendezvous final {
         if (is_signaled()) {
             return true;
         }
-        std::unique_lock<std::mutex> the_lock(mutex_);
-        return condition_.wait_for<REP, PERIOD>(the_lock, timeout, [this]{ return is_signaled(); });
+        return condition_.wait_for(timeout, [this]{ return is_signaled(); });
     }
 
     /**
@@ -81,10 +79,7 @@ class Rendezvous final {
         if (is_signaled()) {
             return true;
         }
-        std::unique_lock<std::mutex> the_lock(mutex_);
-        return condition_.wait_for<CLOCK, DURATION>(the_lock, until, [this]{
-            return is_signaled();
-        });
+        return condition_.wait_until(until, [this]{ return is_signaled(); });
     }
 
     /**
@@ -96,9 +91,7 @@ class Rendezvous final {
      */
     void signal() {
         ASSERT_ND(!is_signaled());
-        std::unique_lock<std::mutex> lock(mutex_);
-        signaled_.store(true);
-        condition_.notify_broadcast(lock);
+        condition_.notify_all([this]{ signaled_.store(true); });
         // we must not put ANYTHING after this because notified waiters might have already
         // deleted this object. notify_broadcast() guarantees that itself finishes before
         // destruction, but no guarantee after that.
@@ -114,10 +107,8 @@ class Rendezvous final {
     }
 
  private:
-    /** protects the condition variable. */
-    std::mutex                      mutex_;
     /** used to notify waiters to wakeup. */
-    CondBroadcast                   condition_;
+    ConditionVariable               condition_;
     /** whether this thread has stopped (if the thread hasn't started, false too). */
     std::atomic<bool>               signaled_;
 };

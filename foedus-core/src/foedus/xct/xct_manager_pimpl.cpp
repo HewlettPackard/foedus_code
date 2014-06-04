@@ -64,12 +64,9 @@ void XctManagerPimpl::handle_epoch_advance() {
     while (!epoch_advance_thread_.sleep()) {
         VLOG(1) << "epoch_advance_thread. current_global_epoch_=" << get_current_global_epoch();
         ASSERT_ND(get_current_global_epoch().is_valid());
-        {
-            std::unique_lock<std::mutex> guard(current_global_epoch_advanced_mutex_);
+        current_global_epoch_advanced_.notify_all([this]{
             current_global_epoch_ = get_current_global_epoch().one_more().value();
-            ASSERT_ND(get_current_global_epoch().is_valid());
-            current_global_epoch_advanced_.notify_broadcast(guard);
-        }
+        });
         engine_->get_log_manager().wakeup_loggers();
     }
     LOG(INFO) << "epoch_advance_thread ended.";
@@ -78,11 +75,12 @@ void XctManagerPimpl::handle_epoch_advance() {
 void XctManagerPimpl::advance_current_global_epoch() {
     Epoch now = get_current_global_epoch();
     LOG(INFO) << "Requesting to immediately advance epoch. current_global_epoch_=" << now << "...";
-    while (now == get_current_global_epoch()) {
+    if (now == get_current_global_epoch()) {
         epoch_advance_thread_.wakeup();  // hurrrrry up!
-        std::unique_lock<std::mutex> the_lock(current_global_epoch_advanced_mutex_);
         if (now != get_current_global_epoch()) {
-            current_global_epoch_advanced_.wait(the_lock);
+            current_global_epoch_advanced_.wait([this, now]{
+                return now != get_current_global_epoch();
+            });
         }
     }
 
