@@ -4,14 +4,15 @@
  */
 #ifndef FOEDUS_LOG_LOG_MANAGER_PIMPL_HPP_
 #define FOEDUS_LOG_LOG_MANAGER_PIMPL_HPP_
+#include <foedus/epoch.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
-#include <foedus/thread/thread_id.hpp>
-#include <foedus/epoch.hpp>
 #include <foedus/savepoint/fwd.hpp>
+#include <foedus/thread/cond_broadcast_impl.hpp>
+#include <foedus/thread/thread_id.hpp>
 #include <stdint.h>
-#include <condition_variable>
+#include <atomic>
 #include <mutex>
 #include <vector>
 namespace foedus {
@@ -35,6 +36,12 @@ class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
     ErrorStack  refresh_global_durable_epoch();
     void        copy_logger_states(savepoint::Savepoint *new_savepoint);
 
+    Epoch       get_durable_global_epoch() const { return durable_global_epoch_.load(); }
+    Epoch       get_durable_global_epoch_nonatomic() const {
+        return durable_global_epoch_.load(std::memory_order_relaxed);
+    }
+
+
     Engine* const               engine_;
 
     thread::ThreadGroupId       groups_;
@@ -53,10 +60,10 @@ class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
      * This value indicates upto what commit-groups we can return results to client programs.
      * This value is advanced by checking the durable epoch of each logger.
      */
-    Epoch                       durable_global_epoch_;
+    std::atomic<Epoch>          durable_global_epoch_;
 
-    /** Fired (notify_all) whenever durable_global_epoch_ is advanced. */
-    std::condition_variable     durable_global_epoch_advanced_;
+    /** Fired (notify_broadcast) whenever durable_global_epoch_ is advanced. */
+    thread::CondBroadcast       durable_global_epoch_advanced_;
     /** Protects durable_global_epoch_advanced_. */
     std::mutex                  durable_global_epoch_advanced_mutex_;
 

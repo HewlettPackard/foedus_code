@@ -38,7 +38,8 @@ class CondBroadcast final {
     CondBroadcast() : waiters_(0), notifiers_(0) {}
     ~CondBroadcast() {
         ASSERT_ND(waiters_ == 0);
-        // we must wait until all notifiers exit notify_all
+        // we must wait until all notifiers exit notify_all.
+        // this assumes no new notifiers are newly coming in this situation.
         while (notifiers_ > 0) {
             assorted::spinlock_yield();
         }
@@ -65,6 +66,19 @@ class CondBroadcast final {
         ASSERT_ND(waiters_ > 0);
         --waiters_;
     }
+    /**
+     * @brief Block until the event happens.
+     * @details
+     * Equivalent to std::condition_variable::wait().
+     */
+    void wait(std::unique_lock<std::mutex>& lock) {  // NOLINT same as std::condition_variable
+        ASSERT_ND(lock.owns_lock());
+        ++waiters_;
+        condition_.wait(lock);
+        ASSERT_ND(lock.owns_lock());
+        ASSERT_ND(waiters_ > 0);
+        --waiters_;
+    }
 
     /**
      * @brief Block until the event happens \b or the given period elapses.
@@ -79,6 +93,24 @@ class CondBroadcast final {
         ASSERT_ND(lock.owns_lock());
         ++waiters_;
         bool happened = condition_.wait_for(lock, timeout, predicate);
+        ASSERT_ND(lock.owns_lock());
+        ASSERT_ND(waiters_ > 0);
+        --waiters_;
+        return happened;
+    }
+
+    /**
+     * @brief Block until the event happens \b or the given period elapses.
+     * @return whether the event \b PROBABLY (because this version is w/o pred) happened by now.
+     * @details
+     * Equivalent to std::condition_variable::wait_for().
+     */
+    template<class REP, class PERIOD>
+    bool wait_for(std::unique_lock<std::mutex>& lock,  // NOLINT same as std::condition_variable
+        const std::chrono::duration<REP, PERIOD>& timeout) {
+        ASSERT_ND(lock.owns_lock());
+        ++waiters_;
+        bool happened = condition_.wait_for(lock, timeout) == std::cv_status::no_timeout;
         ASSERT_ND(lock.owns_lock());
         ASSERT_ND(waiters_ > 0);
         --waiters_;
@@ -105,19 +137,37 @@ class CondBroadcast final {
     }
 
     /**
+     * @brief Block until the event happens \b or the given time point arrives.
+     * @return whether the event \b PROBABLY (because this version is w/o pred) happened by now.
+     * @details
+     * Equivalent to std::condition_variable::wait_until().
+     */
+    template< class CLOCK, class DURATION>
+    bool wait_until(std::unique_lock<std::mutex>& lock,  // NOLINT same as std::condition_variable
+                    const std::chrono::time_point<CLOCK, DURATION>& until) {
+        ASSERT_ND(lock.owns_lock());
+        ++waiters_;
+        bool happened = condition_.wait_until(lock, until) == std::cv_status::no_timeout;
+        ASSERT_ND(lock.owns_lock());
+        ASSERT_ND(waiters_ > 0);
+        --waiters_;
+        return happened;
+    }
+
+    /**
      * @brief Notify all waiters that the event has happened.
      * @details
      * Equivalent to std::condition_variable::notify_all().
      * To workaround the pthread_cond_broadcast bug, this method notifies one by one.
      * We might add a switch of the behavior by checking glibc version.
      */
-    void notify_all(std::unique_lock<std::mutex>& lock) {  // NOLINT same as std::condition_variable
+    void notify_broadcast(std::unique_lock<std::mutex>& lock) {  // NOLINT same as above
         ++notifiers_;
         while (true) {
             ASSERT_ND(lock.owns_lock());
             if (waiters_ > 0) {
-                lock.unlock();
                 condition_.notify_one();
+                lock.unlock();
                 assorted::spinlock_yield();
                 lock.lock();
             } else {

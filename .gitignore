@@ -1,6 +1,8 @@
 build
 release
 release_build
+relwithdbginfo
+relwithdebinfo
 relwithdbginfo_build
 relwithdebinfo_build
 debug_build

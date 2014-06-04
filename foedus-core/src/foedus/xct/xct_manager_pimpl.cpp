@@ -65,11 +65,10 @@ void XctManagerPimpl::handle_epoch_advance() {
         VLOG(1) << "epoch_advance_thread. current_global_epoch_=" << current_global_epoch_;
         ASSERT_ND(current_global_epoch_.is_valid());
         {
-            std::lock_guard<std::mutex> guard(current_global_epoch_advanced_mutex_);
+            std::unique_lock<std::mutex> guard(current_global_epoch_advanced_mutex_);
             ++current_global_epoch_;
             ASSERT_ND(current_global_epoch_.is_valid());
-            assorted::memory_fence_release();
-            current_global_epoch_advanced_.notify_all();
+            current_global_epoch_advanced_.notify_broadcast(guard);
         }
         engine_->get_log_manager().wakeup_loggers();
     }
@@ -79,9 +78,9 @@ void XctManagerPimpl::handle_epoch_advance() {
 void XctManagerPimpl::advance_current_global_epoch() {
     Epoch now = current_global_epoch_;
     LOG(INFO) << "Requesting to immediately advance epoch. current_global_epoch_=" << now << "...";
+    std::unique_lock<std::mutex> the_lock(current_global_epoch_advanced_mutex_);
     while (now == current_global_epoch_) {
         epoch_advance_thread_.wakeup();  // hurrrrry up!
-        std::unique_lock<std::mutex> the_lock(current_global_epoch_advanced_mutex_);
         current_global_epoch_advanced_.wait(the_lock);
     }
 
@@ -301,8 +300,9 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
     if (!commit_epoch->is_valid()) {
         DLOG(INFO) << *context
             << " Read-only higest epoch was empty. The transaction has no read set??";
-        // In this case, set already-durable epoch.
-        *commit_epoch = Epoch(engine_->get_log_manager().get_durable_global_epoch());
+        // In this case, set already-durable epoch. We don't have to use atomic version because
+        // it's just conservatively telling how long it should wait.
+        *commit_epoch = Epoch(engine_->get_log_manager().get_durable_global_epoch_nonatomic());
     }
 
     // TODO(Hideaki) Node set check. Now that we have persistent storages too, we need to also

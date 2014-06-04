@@ -19,7 +19,12 @@ bool        LogManager::is_initialized() const { return pimpl_->is_initialized()
 ErrorStack  LogManager::uninitialize() { return pimpl_->uninitialize(); }
 
 void        LogManager::wakeup_loggers() { pimpl_->wakeup_loggers(); }
-Epoch       LogManager::get_durable_global_epoch() const { return pimpl_->durable_global_epoch_; }
+Epoch       LogManager::get_durable_global_epoch() const {
+    return pimpl_->get_durable_global_epoch();
+}
+Epoch       LogManager::get_durable_global_epoch_nonatomic() const {
+    return pimpl_->get_durable_global_epoch_nonatomic();
+}
 ErrorStack  LogManager::wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds) {
     return pimpl_->wait_until_durable(commit_epoch, wait_microseconds);
 }

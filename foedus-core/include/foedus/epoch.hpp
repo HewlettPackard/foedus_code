@@ -6,6 +6,7 @@
 #define FOEDUS_EPOCH_HPP_
 
 #include <foedus/assert_nd.hpp>
+#include <foedus/cxx11.hpp>
 #include <stdint.h>
 #include <iosfwd>
 namespace foedus {
@@ -62,9 +63,9 @@ class Epoch {
     };
 
     /** Construct an invalid epoch. */
-    Epoch() : epoch_(EPOCH_INVALID) {}
+    Epoch() CXX11_NOEXCEPT : epoch_(EPOCH_INVALID) {}
     /** Construct an epoch of specified integer representation. */
-    explicit Epoch(EpochInteger value) : epoch_(value) {
+    explicit Epoch(EpochInteger value) CXX11_NOEXCEPT : epoch_(value) {
         ASSERT_ND(value < EPOCH_INT_OVERFLOW);
     }
     // default copy-constructor/assignment/destructor suffice

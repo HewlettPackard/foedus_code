@@ -98,7 +98,10 @@ class Rendezvous final {
         ASSERT_ND(!is_signaled());
         std::unique_lock<std::mutex> lock(mutex_);
         signaled_.store(true);
-        condition_.notify_all(lock);
+        condition_.notify_broadcast(lock);
+        // we must not put ANYTHING after this because notified waiters might have already
+        // deleted this object. notify_broadcast() guarantees that itself finishes before
+        // destruction, but no guarantee after that.
     }
 
     /** returns whether this thread has stopped (if the thread hasn't started, false too). */
