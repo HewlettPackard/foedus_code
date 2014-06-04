@@ -53,7 +53,7 @@ TEST(RendezvousTest, Simple) {
     another.join();
 }
 
-const int REP = 300;
+const int REP = 3000;
 const int CLIENTS = 4;
 std::vector<Rendezvous*>            many_rendezvous;
 std::vector< std::atomic<int>* >    many_ends;

@@ -35,9 +35,13 @@ namespace thread {
  */
 class CondBroadcast final {
  public:
-    CondBroadcast() : waiters_(0) {}
+    CondBroadcast() : waiters_(0), notifiers_(0) {}
     ~CondBroadcast() {
         ASSERT_ND(waiters_ == 0);
+        // we must wait until all notifiers exit notify_all
+        while (notifiers_ > 0) {
+            assorted::spinlock_yield();
+        }
     }
 
     // not copyable, assignable.
@@ -107,22 +111,20 @@ class CondBroadcast final {
      * To workaround the pthread_cond_broadcast bug, this method notifies one by one.
      * We might add a switch of the behavior by checking glibc version.
      */
-    void notify_all(std::mutex *mtx) {
+    void notify_all(std::unique_lock<std::mutex>& lock) {  // NOLINT same as std::condition_variable
+        ++notifiers_;
         while (true) {
-            // waiter might not be able to get the lock immediately, so keep waking up waitors.
-            {
-                // make sure we do NOT call notify_one if there is no waiter.
-                // Even if there is a waiter, it should be safe, but it IS NOT!!
-                // glibc has a bug that occurs when signals and waits happen concurrently.
-                std::lock_guard<std::mutex> guard(*mtx);
-                if (waiters_ > 0) {
-                    condition_.notify_one();
-                } else {
-                    break;
-                }
+            ASSERT_ND(lock.owns_lock());
+            if (waiters_ > 0) {
+                lock.unlock();
+                condition_.notify_one();
+                assorted::spinlock_yield();
+                lock.lock();
+            } else {
+                break;
             }
-            assorted::spinlock_yield();
         }
+        --notifiers_;
     }
 
  private:
@@ -131,6 +133,8 @@ class CondBroadcast final {
 
     /** Number of waitors. */
     std::atomic<uint32_t>           waiters_;
+    /** Number of notifiers, used to safely destruct this object. */
+    std::atomic<uint32_t>           notifiers_;
 };
 
 

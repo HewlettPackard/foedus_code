@@ -96,10 +96,9 @@ class Rendezvous final {
      */
     void signal() {
         ASSERT_ND(!is_signaled());
-        // we set the signal out of mutex, but this doesn't cause lost signals because notify_all
-        // below loops itself, checking the count of waiters.
+        std::unique_lock<std::mutex> lock(mutex_);
         signaled_.store(true);
-        condition_.notify_all(&mutex_);
+        condition_.notify_all(lock);
     }
 
     /** returns whether this thread has stopped (if the thread hasn't started, false too). */
