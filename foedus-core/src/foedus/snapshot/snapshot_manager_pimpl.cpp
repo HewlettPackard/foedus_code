@@ -8,7 +8,6 @@
 #include <foedus/snapshot/snapshot_manager_pimpl.hpp>
 #include <foedus/snapshot/snapshot_options.hpp>
 #include <glog/logging.h>
-#include <mutex>
 namespace foedus {
 namespace snapshot {
 ErrorStack SnapshotManagerPimpl::initialize_once() {

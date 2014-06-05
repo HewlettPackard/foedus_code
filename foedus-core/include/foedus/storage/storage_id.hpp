@@ -40,7 +40,7 @@ typedef uint32_t StorageId;
  * @ingroup STORAGE
  * @details
  * Snapshot Page ID is a 48-bit integer.
- * The high 16 bits indicate which snapshot it is in.
+ * The high 16 bits indicate which snapshot it is in (foedus::snapshot::SnapshotId).
  * As we periodically merge all snapshots, we won't have 2^16 snapshots at one time.
  * The mid 8 bits indicate the NUMA node ID, or which file it is in.
  * We have one snapshot file per NUMA node, so it won't be more than 2^8.

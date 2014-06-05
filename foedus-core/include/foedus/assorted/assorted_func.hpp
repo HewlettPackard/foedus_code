@@ -11,6 +11,7 @@
 #include <xmmintrin.h>
 #endif  // defined(__GNUC__)
 
+#include <iosfwd>
 #include <string>
 #include <typeinfo>
 namespace foedus {

@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <ostream>
 #include <sstream>
 #include <string>
 #include <thread>

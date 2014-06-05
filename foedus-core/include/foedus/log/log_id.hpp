@@ -4,7 +4,6 @@
  */
 #ifndef FOEDUS_LOG_LOG_ID_HPP_
 #define FOEDUS_LOG_LOG_ID_HPP_
-#include <foedus/cxx11.hpp>
 #include <stdint.h>
 /**
  * @file foedus/log/log_id.hpp

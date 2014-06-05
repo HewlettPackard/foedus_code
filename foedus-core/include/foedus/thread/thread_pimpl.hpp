@@ -11,7 +11,6 @@
 #include <foedus/log/thread_log_buffer_impl.hpp>
 #include <foedus/xct/xct.hpp>
 #include <atomic>
-#include <mutex>
 namespace foedus {
 namespace thread {
 /**

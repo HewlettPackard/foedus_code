@@ -8,7 +8,6 @@
 #include <foedus/thread/condition_variable_impl.hpp>
 #include <atomic>
 #include <chrono>
-#include <mutex>
 namespace foedus {
 namespace thread {
 /**

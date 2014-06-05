@@ -19,7 +19,6 @@
 #include <foedus/savepoint/fwd.hpp>
 #include <stdint.h>
 #include <iosfwd>
-#include <mutex>
 #include <string>
 #include <vector>
 namespace foedus {
