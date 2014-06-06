@@ -26,8 +26,8 @@
     </tab>
     <tab type="examples" visible="yes" title="" intro=""/>  
     <tab type="user" visible="yes" url="http://243-1.bfc.hpl.hp.com:8080/" title="Jenkins" />
-    <tab type="user" visible="yes" url="http://245-1.bfc.hpl.hp.com/kimurhid/foedus_code/tree/master" title="GitLab" />
-    <tab type="user" visible="yes" url="http://245-1.bfc.hpl.hp.com/kimurhid/foedus_code/wikis/home" title="Wiki" />
+    <tab type="user" visible="yes" url="http://245-1.bfc.hpl.hp.com/foedus-dev/foedus_code/tree/master" title="GitLab" />
+    <tab type="user" visible="yes" url="http://245-1.bfc.hpl.hp.com/foedus-dev/foedus_code/wikis/home" title="Wiki" />
   </navindex>
 
   <!-- Layout definition for a class page -->
