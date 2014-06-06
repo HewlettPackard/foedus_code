@@ -18,7 +18,7 @@ Some of them are *NOT* supposed to be directly linked from client programs (_you
 * foedus-rdb : Relational database engine on top of foedus-core.
 * tests-[core/util/rdb] : Unit testcase projects.
 * experiments-[core/util/rdb] : Performance experiments projects.
-* [third\_party](third\_party) : Third party source code used in our programs.
+* [third_party](third_party) : Third party source code used in our programs.
 
 You are supposed to link only to *foedus-core* and *foedus-rdb*.
 Other projects are for internal use or to provide executables, rather than libraries.

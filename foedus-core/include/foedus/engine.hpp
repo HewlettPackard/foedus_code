@@ -11,6 +11,7 @@
 #include <foedus/debugging/fwd.hpp>
 #include <foedus/log/fwd.hpp>
 #include <foedus/memory/fwd.hpp>
+#include <foedus/restart/fwd.hpp>
 #include <foedus/savepoint/fwd.hpp>
 #include <foedus/snapshot/fwd.hpp>
 #include <foedus/storage/fwd.hpp>
@@ -44,11 +45,12 @@ class EngineOptions;
  *  \li \ref SNAPSHOT and \ref CACHE depend on \ref LOG.
  *  \li \ref STORAGE depend on \ref SNAPSHOT and \ref CACHE.
  *  \li \ref XCT depends on \ref STORAGE.
+ *  \li \ref RESTART depends on everything else (and runs only at restart by definition).
  *
  * (transitively implied dependencies omitted, eg \ref LOG of course depends on \ref MEMORY).
  *
  * @msc
- * DBG,MEM,SP,THREAD,LOG,SNAPSHOT,CACHE,STORAGE,XCT;
+ * DBG,MEM,SP,THREAD,LOG,SNAPSHOT,CACHE,STORAGE,XCT,RESTART;
  * DBG<=MEM;
  * DBG<=SP;
  * MEM<=THREAD;
@@ -59,6 +61,13 @@ class EngineOptions;
  * SNAPSHOT<=STORAGE;
  * CACHE<=STORAGE;
  * STORAGE<=XCT;
+ * MEM<=RESTART;
+ * THREAD<=RESTART;
+ * LOG<=RESTART;
+ * SNAPSHOT<=RESTART;
+ * CACHE<=RESTART;
+ * STORAGE<=RESTART;
+ * XCT<=RESTART;
  * @endmsc
  *
  * Hence, we initialize/uninitialize the modules in the above order.
@@ -131,6 +140,8 @@ class Engine CXX11_FINAL : public virtual Initializable {
     storage::StorageManager&        get_storage_manager() const;
     /** See \ref XCT */
     xct::XctManager&                get_xct_manager() const;
+    /** See \ref RESTART */
+    restart::RestartManager&        get_restart_manager() const;
 
  private:
     EnginePimpl* pimpl_;
