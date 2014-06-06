@@ -12,12 +12,19 @@ namespace foedus {
 namespace snapshot {
 ErrorStack SnapshotManagerPimpl::initialize_once() {
     LOG(INFO) << "Initializing SnapshotManager..";
+     if (!engine_->get_log_manager().is_initialized()) {
+        return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
+    }
     return RET_OK;
 }
 
 ErrorStack SnapshotManagerPimpl::uninitialize_once() {
     LOG(INFO) << "Uninitializing SnapshotManager..";
     ErrorStackBatch batch;
+    if (!engine_->get_log_manager().is_initialized()) {
+        batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
+    }
+    snapshot_thread_.stop();
     return RET_OK;
 }
 

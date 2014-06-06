@@ -155,4 +155,15 @@ but we will surely stay away from non-header-only ones (eg filesystem).
 
 Licensing
 --------
-See [LICENSE.txt](LICENSE.txt)
+See [LICENSE.txt](LICENSE.txt) for the license term of libfoedus-core itself.
+libfoedus-core uses a few open source libraries listed below.
+
+|    Library   | License |    Linking/Distribution in libfoedus-core    |
+|:------------:|---------|----------------------------------------------|
+| glog         | BSD     | Static-link. Contains source code.           |
+| tinyxml2     | ZLIB    | Static-link. Contains source code.           |
+| gperftools   | BSD     | Optional dynamic-link. Distributes nothing.  |
+| libnuma      | LGPL    | Dynamic-link. Distributes nothing.           |
+| glibc/stdc++ | LGPL    | Dynamic-link. Distributes nothing.           |
+
+For more details, see COPYING/LICENSE.txt/etc in the third-party folder.

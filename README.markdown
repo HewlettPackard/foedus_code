@@ -13,12 +13,12 @@ Folder Structure
 This root project contains a few sub-projects.
 Some of them are *NOT* supposed to be directly linked from client programs (_your_ programs).
 
-* foedus-core : Key-value store library.
-* foedus-util : A series of utility programs to help use libfoedus.
+* [foedus-core](foedus-core) : Key-value store library.
+* [foedus-util](foedus-util) : A series of utility programs to help use libfoedus.
 * foedus-rdb : Relational database engine on top of foedus-core.
 * tests-[core/util/rdb] : Unit testcase projects.
 * experiments-[core/util/rdb] : Performance experiments projects.
-* third\_party : Third party source code used in our programs.
+* [third\_party](third\_party) : Third party source code used in our programs.
 
 You are supposed to link only to *foedus-core* and *foedus-rdb*.
 Other projects are for internal use or to provide executables, rather than libraries.

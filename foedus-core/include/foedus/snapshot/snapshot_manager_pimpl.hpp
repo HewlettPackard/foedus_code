@@ -11,6 +11,7 @@
 #include <foedus/snapshot/fwd.hpp>
 #include <foedus/snapshot/snapshot.hpp>
 #include <foedus/snapshot/snapshot_id.hpp>
+#include <foedus/thread/stoppable_thread_impl.hpp>
 #include <atomic>
 #include <vector>
 namespace foedus {
@@ -29,6 +30,20 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
         snapshot_epoch_(Epoch::EPOCH_INVALID), previous_snapshot_id_(NULL_SNAPSHOT_ID) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
+
+    Epoch get_snapshot_epoch() const { return Epoch(snapshot_epoch_.load()); }
+    Epoch get_snapshot_epoch_weak() const {
+        return Epoch(snapshot_epoch_.load(std::memory_order_relaxed));
+    }
+
+    SnapshotId issue_next_snapshot_id() {
+        if (previous_snapshot_id_ == NULL_SNAPSHOT_ID) {
+            previous_snapshot_id_ = 1;
+        } else {
+            previous_snapshot_id_ = increment(previous_snapshot_id_);
+        }
+        return previous_snapshot_id_;
+    }
 
     Engine* const           engine_;
 
@@ -50,6 +65,12 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
      * Access to this data must be protected with mutex.
      */
     std::vector< Snapshot >         snapshots_;
+
+    /**
+     * The thread that occasionally wakes up and serves as the main managing thread for
+     * snapshotting, which consists of several child threads and multiple phases.
+     */
+    thread::StoppableThread         snapshot_thread_;
 };
 }  // namespace snapshot
 }  // namespace foedus
