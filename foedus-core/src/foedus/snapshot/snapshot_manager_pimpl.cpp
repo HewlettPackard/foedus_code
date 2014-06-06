@@ -5,6 +5,7 @@
 #include <foedus/engine.hpp>
 #include <foedus/engine_options.hpp>
 #include <foedus/error_stack_batch.hpp>
+#include <foedus/log/log_manager.hpp>
 #include <foedus/snapshot/snapshot_manager_pimpl.hpp>
 #include <foedus/snapshot/snapshot_options.hpp>
 #include <glog/logging.h>
