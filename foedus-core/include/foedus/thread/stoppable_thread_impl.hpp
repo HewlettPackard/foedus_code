@@ -28,7 +28,8 @@ namespace thread {
  */
 class StoppableThread final {
  public:
-    StoppableThread() : sleep_interval_(0), stop_requested_(false), stopped_(false) {}
+    StoppableThread() : sleep_interval_(0),
+        started_(false), stop_requested_(false), stopped_(false) {}
 
     // non-copyable assignable. (maybe better to provide move, but no need so far)
     StoppableThread(const StoppableThread &other) = delete;
@@ -91,6 +92,8 @@ class StoppableThread final {
     std::chrono::microseconds       sleep_interval_;
     /** used to notify the thread to wakeup. */
     ConditionVariable               condition_;
+    /** whether this thread has started. */
+    std::atomic<bool>               started_;
     /** whether someone has requested to stop this. */
     std::atomic<bool>               stop_requested_;
     /** whether this thread has stopped (if the thread hasn't started, false too). */

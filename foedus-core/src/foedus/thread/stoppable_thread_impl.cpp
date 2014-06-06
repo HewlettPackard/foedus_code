@@ -14,6 +14,7 @@ void StoppableThread::initialize(const std::string &name,
     name_ = name;
     thread_ = std::move(the_thread);
     sleep_interval_ = sleep_interval;
+    started_ = true;
     stop_requested_ = false;
     stopped_ = false;
     LOG(INFO) << name_ << " initialized. sleep_interval=" << sleep_interval_.count() << " microsec";
@@ -45,7 +46,7 @@ void StoppableThread::wakeup() {
 
 void StoppableThread::stop() {
     LOG(INFO) << "Stopping " << name_ << "...";
-    if (!is_stopped()) {
+    if (started_ && !is_stopped()) {
         condition_.notify_one([this]{ stop_requested_ = true; });
         LOG(INFO) << "Joining " << name_ << "...";
         thread_.join();
