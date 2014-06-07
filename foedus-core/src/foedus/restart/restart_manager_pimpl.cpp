@@ -4,9 +4,12 @@
  */
 #include <foedus/engine.hpp>
 #include <foedus/engine_options.hpp>
+#include <foedus/epoch.hpp>
 #include <foedus/error_stack_batch.hpp>
+#include <foedus/log/log_manager.hpp>
 #include <foedus/restart/restart_manager_pimpl.hpp>
 #include <foedus/xct/xct_manager.hpp>
+#include <foedus/snapshot/snapshot_manager.hpp>
 #include <glog/logging.h>
 namespace foedus {
 namespace restart {
@@ -31,7 +34,27 @@ ErrorStack RestartManagerPimpl::uninitialize_once() {
 }
 
 ErrorStack RestartManagerPimpl::recover() {
-    LOG(INFO) << "Recovery the database...";
+    Epoch durable_epoch = engine_->get_log_manager().get_durable_global_epoch();
+    Epoch snapshot_epoch = engine_->get_snapshot_manager().get_snapshot_epoch();
+    LOG(INFO) << "Recovering the database... durable_epoch=" << durable_epoch
+        << ", snapshot_epoch=" << snapshot_epoch;
+
+    if (durable_epoch.value() == Epoch::EPOCH_INITIAL_DURABLE) {
+        if (!snapshot_epoch.is_valid()) {
+            LOG(INFO) << "The database is in initial state. Nothing to recover.";
+            return RET_OK;
+        } else {
+            // this means durable_epoch wraps around. nothing wrong, but worth logging.
+            LOG(INFO) << "Interesting. durable_epoch is initial value, but we have snapshot."
+                << " This means epoch wrapped around!";
+        }
+    }
+
+    if (durable_epoch == snapshot_epoch) {
+        LOG(INFO) << "The snapshot is up-to-date. No need to recover.";
+        return RET_OK;
+    }
+
     return RET_OK;
 }
 

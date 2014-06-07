@@ -18,5 +18,10 @@ ErrorStack  SnapshotManager::initialize() { return pimpl_->initialize(); }
 bool        SnapshotManager::is_initialized() const { return pimpl_->is_initialized(); }
 ErrorStack  SnapshotManager::uninitialize() { return pimpl_->uninitialize(); }
 
+Epoch SnapshotManager::get_snapshot_epoch() const { return pimpl_->get_snapshot_epoch(); }
+Epoch SnapshotManager::get_snapshot_epoch_weak() const {
+    return pimpl_->get_snapshot_epoch_weak();
+}
+
 }  // namespace snapshot
 }  // namespace foedus
