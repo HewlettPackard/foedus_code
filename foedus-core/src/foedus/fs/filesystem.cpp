@@ -8,7 +8,6 @@
 #include <foedus/engine.hpp>
 #include <foedus/engine_options.hpp>
 #include <foedus/debugging/debugging_supports.hpp>
-#include <glog/logging.h>
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -107,12 +106,9 @@ uint64_t file_size(const Path& p) {
     struct stat path_stat;
     int ret = ::stat(p.c_str(), &path_stat);
     if (ret != 0) {
-        LOG(WARNING) << "Filesystem::file_size(): stat() failed for " << p
-            << ". err=" << assorted::os_error();
         return static_cast<uint64_t>(-1);
     }
     if (!S_ISREG(path_stat.st_mode)) {
-        LOG(WARNING) << "Filesystem::file_size(): " << p << " is not a regular file!";
         return static_cast<uint64_t>(-1);
     }
     return static_cast<uint64_t>(path_stat.st_size);
@@ -121,7 +117,6 @@ uint64_t file_size(const Path& p) {
 bool remove(const Path& p) {
     FileStatus s = status(p);
     if (!s.exists()) {
-        VLOG(2) << "Filesystem::remove(): " << p << " doesn't exist";
         return 0;
     } else if (s.is_regular_file()) {
         return std::remove(p.c_str()) == 0;
@@ -130,8 +125,6 @@ bool remove(const Path& p) {
         if (ret == 0) {
             return true;
         } else {
-            LOG(WARNING) << "Filesystem::remove(): failed for " << p
-                << ". err=" << assorted::os_error();
             return false;
         }
     }
@@ -143,10 +136,7 @@ uint64_t remove_all(const Path& p) {
     for (Path child : child_paths) {
         count += remove_all(child);
     }
-    bool deleted = remove(p);
-    if (!deleted) {
-        LOG(WARNING) << "Filesystem::remove_all(): failed for " << p << ". deleted count=" << count;
-    }
+    remove(p);
     return count;
 }
 
@@ -158,10 +148,7 @@ SpaceInfo space(const Path& p) {
         info.capacity_    = static_cast<uint64_t>(vfs.f_blocks) * vfs.f_bsize;
         info.free_        = static_cast<uint64_t>(vfs.f_bfree)  * vfs.f_bsize;
         info.available_   = static_cast<uint64_t>(vfs.f_bavail) * vfs.f_bsize;
-        VLOG(1) << "Filesystem::space(): " << p << ": " << info;
     } else {
-        LOG(WARNING) << "Filesystem::space(): failed for " << p
-            << ". err=" << assorted::os_error();
         info.available_ = 0;
         info.capacity_ = 0;
         info.free_ = 0;
