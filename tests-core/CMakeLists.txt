@@ -48,7 +48,8 @@ function (add_foedus_test_individual targetname individual_tests)
             COMMAND
                 /usr/bin/valgrind
                 --xml=yes --xml-file=${FOEDUS_VALGRIND_REPORT_DIR}/${targetname}_${individual_test}.xml
-                --error-exitcode=1 --leak-check=full --show-leak-kinds=all --gen-suppressions=all
+                --error-exitcode=1 --leak-check=full --gen-suppressions=all
+                # removed --show-leak-kinds=all, which is supported only by valgrind 3.9 and later
                 --suppressions=${FOEDUS_CORE_SRC_ROOT}/tools/valgrind.supp
                 ./${targetname}
                 --gtest_filter=*.${individual_test}

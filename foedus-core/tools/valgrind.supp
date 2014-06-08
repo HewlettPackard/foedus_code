@@ -3,6 +3,10 @@
 ## valgrind --leak-check=full --show-leak-kinds=all --suppressions=<path_to_valgrind.supp> --gen-suppressions=all ./<your_program>
 ## Put <Reporter> <Date> <Environment> <Some comment> for each of them
 
+## NOTE: Do not use "match-leak-kinds" feature. It's only supported in valgrind 3.9 and later.
+## It works on Fedora 20, but not on Fedora 19.
+## Comment it out before adding the file to repo.
+
 # Hideaki, 2014 Apr, Fedora 19, libunwind's bug.
 {
    libunwind_bug1
@@ -40,10 +44,10 @@
 }
 
 # Hideaki, 2014 Apr, Fedora 20, libprofiler's bug.
+#   match-leak-kinds: reachable
 {
    libprofiler_bug1
    Memcheck:Leak
-   match-leak-kinds: reachable
    fun:_Znwm
    fun:_ZN14ProfileHandler4InitEv
    fun:pthread_once
@@ -55,10 +59,10 @@
 # Hideaki, 2014 Apr, Fedora 20,
 # http://comments.gmane.org/gmane.linux.kernel.numa/814
 # According to this, these are by design, not a bug of libnuma.
+#   match-leak-kinds: reachable
 {
    numa_run_on_node_global1
    Memcheck:Leak
-   match-leak-kinds: reachable
    ...
    fun:numa_run_on_node
 }
@@ -85,18 +89,18 @@
 # Hideaki, 2014 May, Fedora 20.
 # Most likely this is a bug in GLOG's SetVLOGLevel. Seems like it leaks one std::string.
 # It's not a big issue, probably intentional as it's one-time allocation.
+#   match-leak-kinds: reachable
 {
    glog_setvloglevel_leak1
    Memcheck:Leak
-   match-leak-kinds: reachable
    fun:_Znwm
    fun:_ZN6google12SetVLOGLevelEPKci
    ...
 }
+#   match-leak-kinds: possible
 {
    glog_setvloglevel_leak2
    Memcheck:Leak
-   match-leak-kinds: possible
    fun:_Znwm
    fun:_ZNSs4_Rep9_S_createEmmRKSaIcE
    fun:_ZNSs9_M_mutateEmmm
