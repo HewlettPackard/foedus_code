@@ -19,19 +19,21 @@ namespace memory {
 NumaNodeMemory::NumaNodeMemory(Engine* engine, thread::ThreadGroupId numa_node)
     : engine_(engine), numa_node_(numa_node),
         cores_(engine_->get_options().thread_.thread_count_per_group_),
-        loggers_(engine_->get_options().log_.loggers_per_node_) {
+        loggers_(engine_->get_options().log_.loggers_per_node_), page_pool_(engine, numa_node) {
 }
 
 ErrorStack NumaNodeMemory::initialize_once() {
     LOG(INFO) << "Initializing NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
         << " BEFORE: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
 
+    CHECK_ERROR(page_pool_.initialize());
     CHECK_ERROR(initialize_read_write_set_memory());
     CHECK_ERROR(initialize_page_offset_chunk_memory());
     CHECK_ERROR(initialize_log_buffers_memory());
     for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
         CHECK_ERROR(initialize_core_memory(ordinal));
     }
+    ASSERT_ND(page_pool_.is_initialized());
     ASSERT_ND(core_memories_.size() == cores_);
     ASSERT_ND(read_set_memory_pieces_.size() == cores_);
     ASSERT_ND(write_set_memory_pieces_.size() == cores_);
@@ -118,6 +120,7 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
     read_set_memory_.release_block();
     log_buffer_memory_pieces_.clear();
     log_buffer_memory_.release_block();
+    batch.emprace_back(page_pool_.uninitialize());
 
     LOG(INFO) << "Uninitialized NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
         << " AFTER: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);

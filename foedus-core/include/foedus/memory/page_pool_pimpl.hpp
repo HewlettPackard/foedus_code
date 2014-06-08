@@ -9,6 +9,7 @@
 #include <foedus/memory/aligned_memory.hpp>
 #include <foedus/memory/page_pool.hpp>
 #include <foedus/memory/page_resolver.hpp>
+#include <foedus/thread/thread_id.hpp>
 #include <foedus/assert_nd.hpp>
 #include <mutex>
 #include <vector>
@@ -24,21 +25,28 @@ namespace memory {
 class PagePoolPimpl final : public DefaultInitializable {
  public:
     PagePoolPimpl() = delete;
-    explicit PagePoolPimpl(Engine* engine) : engine_(engine) {}
+    PagePoolPimpl(Engine* engine, thread::ThreadGroupId numa_node)
+        : engine_(engine), numa_node_(numa_node) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
-    ErrorCode       grab(uint32_t desired_grab_count, PagePoolOffsetChunk *chunk);
-    void            release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
-
-    PageResolver    get_resolver() const {
-        return PageResolver(pool_base_, pages_for_free_pool_, pool_size_);
-    }
+    ErrorCode           grab(uint32_t desired_grab_count, PagePoolOffsetChunk *chunk);
+    void                release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
+    LocalPageResolver&  get_resolver() { return resolver_; }
 
     Engine* const                   engine_;
 
+    /** The NUMA node this pool is allocated at. */
+    const thread::ThreadGroupId     numa_node_;
+
     /** The whole memory region of the pool. */
     AlignedMemory                   memory_;
+
+    /**
+     * An object to resolve an offset in \e this page pool (thus \e local) to an actual
+     * pointer and vice versa.
+     */
+    LocalPageResolver               resolver_;
 
     /** Just an auxiliary variable to the beginning of the pool. Same as memory_.get_block(). */
     storage::Page*                  pool_base_;

@@ -14,13 +14,17 @@ namespace memory {
 class   AlignedMemory;
 struct  AlignedMemorySlice;
 class   EngineMemory;
+struct  GlobalPageResolver;
+struct  LocalPageResolver;
 struct  MemoryOptions;
 class   NumaCoreMemory;
 class   NumaNodeMemory;
 class   PagePoolOffsetChunk;
 class   PagePool;
 class   PagePoolPimpl;
+class   PageReleaseBatch;
 class   PageResolver;
+class   RoundRobinPageGrabBatch;
 }  // namespace memory
 }  // namespace foedus
 #endif  // FOEDUS_MEMORY_FWD_HPP_

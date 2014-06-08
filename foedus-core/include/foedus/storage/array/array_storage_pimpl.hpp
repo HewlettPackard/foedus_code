@@ -57,6 +57,10 @@ class ArrayStoragePimpl final : public DefaultInitializable {
 
     ErrorStack  lookup(thread::Thread* context, ArrayOffset offset, ArrayPage** out) ALWAYS_INLINE;
 
+    /** Used only from uninitialize() */
+    void        release_pages_recursive(
+        memory::PageReleaseBatch* batch, ArrayPage* page, VolatilePagePointer volatile_page_id);
+
     Engine* const           engine_;
     ArrayStorage* const     holder_;
     ArrayMetadata           metadata_;
@@ -86,8 +90,8 @@ class ArrayStoragePimpl final : public DefaultInitializable {
 
     bool                    exist_;
 
-    /** auxiliary. caches engine_->get_memory_manager().get_page_pool()->get_resolver(). */
-    memory::PageResolver    resolver_;
+    /** auxiliary. caches engine_->get_memory_manager().get_global_page_resolver(). */
+    memory::GlobalPageResolver    page_resolver_;
 };
 }  // namespace array
 }  // namespace storage

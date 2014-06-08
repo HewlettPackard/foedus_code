@@ -19,6 +19,10 @@ namespace memory {
  * @ingroup MEMORY
  * @details
  * Offset 0 means nullptr. Page-0 never appears as a valid page.
+ * In our engine, all page pools are per-NUMA node.
+ * Thus, each NUMA node has its own page pool.
+ * The maximum size of a single page pool is 2^32 * page size (4kb page: 16TB).
+ * This should be sufficient for one NUMA node.
  */
 typedef uint32_t PagePoolOffset;
 

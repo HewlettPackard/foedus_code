@@ -67,14 +67,6 @@ enum StorageType {
 };
 
 /**
- * @brief Monotonically increasing modification count for volatile page pointers.
- * @ingroup STORAGE
- * @details
- * Whenever a page-switch happens, we also increment this value to avoid ABA issue.
- */
-typedef uint32_t ModCount;
-
-/**
  * @brief Checksum of a snapshot page.
  * @ingroup STORAGE
  * @details
@@ -87,15 +79,20 @@ typedef uint64_t Checksum;
  * @brief Represents a pointer to a volatile page with modification count for preventing ABA.
  * @ingroup STORAGE
  * @details
- * The high 32 bit is the modification count, the low 32 bit is the offset.
- * We might reduce the number of bits for mod count, or replace it with a few smaller flags.
- * The offset has to be at least 32 bit (4kb * 2^32=16TB).
+ * The high 32 bit is a set of flags while the low 32 bit is the offset.
+ * The high 32 bit consits of the following information:
+ *  \li 8-bit NUMA node ID (foedus::thread::ThreadGroupId)
+ *  \li 8-bit flags for concurrency control
+ *  \li 16-bit modification counter
+ * The offset has to be at least 32 bit (4kb * 2^32=16TB per NUMA node).
  */
 union VolatilePagePointer {
     uint64_t        word;
 
     struct Components {
-        ModCount                mod_count;
+        uint8_t                 numa_node;
+        uint8_t                 flags;
+        uint16_t                mod_count;
         memory::PagePoolOffset  offset;
     } components;
 };

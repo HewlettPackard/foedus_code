@@ -25,14 +25,14 @@ ErrorStack PagePoolPimpl::initialize_once() {
     free_pool_count_ = 0;
 
     const MemoryOptions &options = engine_->get_options().memory_;
-    LOG(INFO) << "Acquiring memory for Page Pool...";
+    LOG(INFO) << "Acquiring memory for Page Pool on NUMA node "
+        << static_cast<int>(numa_node_)<< "...";
     {
-        // TODO(Hideaki) We might want to partition the page pool for NUMA.
-        AlignedMemory::AllocType alloc_type = AlignedMemory::NUMA_ALLOC_INTERLEAVED;
-        uint64_t size = static_cast<uint64_t>(options.page_pool_size_mb_) << 20;
+        AlignedMemory::AllocType alloc_type = AlignedMemory::NUMA_ALLOC_ONNODE;
+        uint64_t size = static_cast<uint64_t>(options.page_pool_size_mb_per_node_) << 20;
         ASSERT_ND(size >= (2 << 20));
         uint64_t alignment = storage::PAGE_SIZE;
-        memory_ = std::move(AlignedMemory(size, alignment, alloc_type, 0));
+        memory_ = std::move(AlignedMemory(size, alignment, alloc_type, numa_node_));
         pool_base_ = reinterpret_cast<storage::Page*>(memory_.get_block());
         pool_size_ = memory_.get_size() / storage::PAGE_SIZE;
     }
@@ -55,6 +55,7 @@ ErrorStack PagePoolPimpl::initialize_once() {
     }
     free_pool_head_ = 0;
     free_pool_count_ = free_pool_capacity_;
+    resolver_ = LocalPageResolver(pool_base_, pages_for_free_pool_, pool_size_);
     LOG(INFO) << "Constructed circular free pool.";
 
     return RET_OK;

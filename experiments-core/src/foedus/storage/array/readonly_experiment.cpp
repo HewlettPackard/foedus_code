@@ -78,8 +78,9 @@ class MyTask2 : public thread::ImpersonateTask {
     MyTask2() {}
     ErrorStack run(thread::Thread* context) {
         Engine *engine = context->get_engine();
-        CHECK_ERROR(engine->get_xct_manager().begin_xct(context,
-            xct::DIRTY_READ_PREFER_SNAPSHOT));
+        const xct::IsolationLevel isolation = xct::DIRTY_READ_PREFER_SNAPSHOT;
+        // const xct::IsolationLevel isolation = xct::SERIALIZABLE;
+        CHECK_ERROR(engine->get_xct_manager().begin_xct(context, isolation));
         Storage* storage = engine->get_storage_manager().get_storage(the_id);
         Epoch commit_epoch;
 
@@ -103,8 +104,7 @@ class MyTask2 : public thread::ImpersonateTask {
             ++processed_;
             if ((processed_ & 0xFFFF) == 0) {
                 CHECK_ERROR(engine->get_xct_manager().precommit_xct(context, &commit_epoch));
-                CHECK_ERROR(engine->get_xct_manager().begin_xct(context,
-                    xct::DIRTY_READ_PREFER_SNAPSHOT));
+                CHECK_ERROR(engine->get_xct_manager().begin_xct(context, isolation));
                 std::atomic_thread_fence(std::memory_order_acquire);
                 if (stop_req) {
                     break;
@@ -132,6 +132,9 @@ int main_impl(int argc, char **argv) {
         profile = true;
         std::cout << "Profiling..." << std::endl;
     }
+    fs::remove_all(fs::Path("logs"));
+    fs::remove_all(fs::Path("snapshots"));
+    fs::remove(fs::Path("savepoint.xml"));
     EngineOptions options;
     options.debugging_.debug_log_min_threshold_
         = debugging::DebuggingOptions::DEBUG_LOG_WARNING;

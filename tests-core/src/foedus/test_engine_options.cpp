@@ -38,7 +38,7 @@ TEST(EngineOptionsTest, SaveLoad) {
     options.log_.folder_path_pattern_ = "~/assd.log";
     options.savepoint_.savepoint_path_ = "aaa";
     options.memory_.interleave_numa_alloc_ = false;
-    options.memory_.page_pool_size_mb_ = 123;
+    options.memory_.page_pool_size_mb_per_node_ = 123;
 
     fs::Path random_path(get_random_name() + ".xml");
     COERCE_ERROR(options.save_to_file(random_path));
@@ -49,7 +49,8 @@ TEST(EngineOptionsTest, SaveLoad) {
     EXPECT_EQ(options.log_.folder_path_pattern_, options2.log_.folder_path_pattern_);
     EXPECT_EQ(options.savepoint_.savepoint_path_, options2.savepoint_.savepoint_path_);
     EXPECT_EQ(options.memory_.interleave_numa_alloc_, options2.memory_.interleave_numa_alloc_);
-    EXPECT_EQ(options.memory_.page_pool_size_mb_, options2.memory_.page_pool_size_mb_);
+    EXPECT_EQ(options.memory_.page_pool_size_mb_per_node_,
+              options2.memory_.page_pool_size_mb_per_node_);
 }
 
 }  // namespace foedus

@@ -58,9 +58,9 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
 
  private:
     /** Called when there no local free pages. */
-    ErrorCode   grab_free_pages_from_engine();
+    ErrorCode   grab_free_pages_from_node();
     /** Called when there are too many local free pages. */
-    void        release_free_pages_to_engine();
+    void        release_free_pages_to_node();
 
     Engine* const           engine_;
 

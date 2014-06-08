@@ -35,8 +35,7 @@ ErrorStack NumaCoreMemory::initialize_once() {
 
     // Each core starts from 50%-full free pool chunk (configurable)
     uint32_t initial_pages = engine_->get_options().memory_.private_page_pool_initial_grab_;
-    CHECK_ERROR_CODE(engine_->get_memory_manager().get_page_pool()->grab(
-        initial_pages, free_pool_chunk_));
+    CHECK_ERROR_CODE(node_memory_->get_page_pool().grab(initial_pages, free_pool_chunk_));
     return RET_OK;
 }
 ErrorStack NumaCoreMemory::uninitialize_once() {
@@ -46,8 +45,7 @@ ErrorStack NumaCoreMemory::uninitialize_once() {
     write_set_memory_ = nullptr;
     if (free_pool_chunk_) {
         // return all free pages
-        engine_->get_memory_manager().get_page_pool()->release(
-            free_pool_chunk_->size(), free_pool_chunk_);
+        node_memory_->get_page_pool().release(free_pool_chunk_->size(), free_pool_chunk_);
         free_pool_chunk_ = nullptr;
     }
     log_buffer_memory_.clear();
@@ -56,7 +54,7 @@ ErrorStack NumaCoreMemory::uninitialize_once() {
 
 PagePoolOffset NumaCoreMemory::grab_free_page() {
     if (UNLIKELY(free_pool_chunk_->empty())) {
-        if (grab_free_pages_from_engine() != ERROR_CODE_OK) {
+        if (grab_free_pages_from_node() != ERROR_CODE_OK) {
             return 0;
         }
     }
@@ -65,20 +63,20 @@ PagePoolOffset NumaCoreMemory::grab_free_page() {
 }
 void NumaCoreMemory::release_free_page(PagePoolOffset offset) {
     if (UNLIKELY(free_pool_chunk_->full())) {
-        release_free_pages_to_engine();
+        release_free_pages_to_node();
     }
     ASSERT_ND(!free_pool_chunk_->full());
     free_pool_chunk_->push_back(offset);
 }
 
-ErrorCode NumaCoreMemory::grab_free_pages_from_engine() {
+ErrorCode NumaCoreMemory::grab_free_pages_from_node() {
     uint32_t desired = (free_pool_chunk_->capacity() - free_pool_chunk_->size()) / 2;
-    return engine_->get_memory_manager().get_page_pool()->grab(desired, free_pool_chunk_);
+    return node_memory_->get_page_pool().grab(desired, free_pool_chunk_);
 }
 
-void NumaCoreMemory::release_free_pages_to_engine() {
+void NumaCoreMemory::release_free_pages_to_node() {
     uint32_t desired = free_pool_chunk_->size() / 2;
-    engine_->get_memory_manager().get_page_pool()->release(desired, free_pool_chunk_);
+    node_memory_->get_page_pool().release(desired, free_pool_chunk_);
 }
 
 }  // namespace memory

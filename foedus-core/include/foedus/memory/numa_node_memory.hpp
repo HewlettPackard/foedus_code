@@ -11,6 +11,7 @@
 #include <foedus/log/log_id.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/memory/aligned_memory.hpp>
+#include <foedus/memory/page_pool.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/xct/fwd.hpp>
 #include <vector>
@@ -33,7 +34,9 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
     ErrorStack  initialize_once() CXX11_OVERRIDE;
     ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
-    foedus::thread::ThreadGroupId get_numa_node() const { return numa_node_; }
+    foedus::thread::ThreadGroupId   get_numa_node() const { return numa_node_; }
+
+    PagePool&                       get_page_pool() { return page_pool_; }
 
     // accessors for child memories
     foedus::thread::ThreadLocalOrdinal get_core_memory_count() const {
@@ -94,6 +97,9 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
 
     /** Number of loggers in this node. */
     const uint16_t                          loggers_;
+
+    /** In-memory page pool in this node. */
+    PagePool                                page_pool_;
 
     /**
      * List of NumaCoreMemory, one for each core in this node.

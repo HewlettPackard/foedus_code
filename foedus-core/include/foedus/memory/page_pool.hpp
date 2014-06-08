@@ -13,6 +13,8 @@
 #include <foedus/memory/memory_id.hpp>
 #include <foedus/memory/page_resolver.hpp>
 #include <foedus/storage/page.hpp>
+#include <foedus/storage/storage_id.hpp>
+#include <foedus/thread/thread_id.hpp>
 #include <stdint.h>
 #include <foedus/assert_nd.hpp>
 namespace foedus {
@@ -73,10 +75,12 @@ STATIC_SIZE_CHECK(sizeof(PagePoolOffsetChunk) & (sizeof(PagePoolOffsetChunk) - 1
  * the read-only bufferpool (SnapshotPage).
  * @ingroup MEMORY
  * @details
+ * The engine maintains a few instances of this class; one for each NUMA node.
+ * Each page pool provides in-memory pages for both volatile pages and snapshot pages.
  */
 class PagePool CXX11_FINAL : public virtual Initializable {
  public:
-    explicit PagePool(Engine* engine);
+    PagePool(Engine* engine, thread::ThreadGroupId numa_node);
     ~PagePool();
 
     // Disable default constructors
@@ -87,6 +91,8 @@ class PagePool CXX11_FINAL : public virtual Initializable {
     ErrorStack  initialize() CXX11_OVERRIDE;
     bool        is_initialized() const CXX11_OVERRIDE;
     ErrorStack  uninitialize() CXX11_OVERRIDE;
+
+    thread::ThreadGroupId get_numa_node() const;
 
     /**
      * @brief Adds the specified number of free pages to the chunk.
@@ -114,13 +120,115 @@ class PagePool CXX11_FINAL : public virtual Initializable {
     void        release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
 
     /**
-     * Gives an object to resolve an offset in page pool to an actual pointer and vice versa.
+     * Gives an object to resolve an offset in \e this page pool (thus \e local) to an actual
+     * pointer and vice versa.
      */
-    PageResolver    get_resolver() const;
+    LocalPageResolver&  get_resolver();
 
  private:
     PagePoolPimpl *pimpl_;
 };
+
+/**
+ * @brief A helper class to return a bunch of pages to individual nodes.
+ * @ingroup MEMORY
+ * @details
+ * This returns a large number of pages much more efficiently than returning one-by-one,
+ * especially if the in-memory pages might come from different NUMA nodes.
+ * So far this is used when we shutdown the engine or drop a storage.
+ */
+class PageReleaseBatch CXX11_FINAL {
+ public:
+    typedef PagePoolOffsetChunk* ChunkPtr;
+    explicit PageReleaseBatch(Engine* engine);
+    ~PageReleaseBatch();
+
+    // Disable default constructors
+    PageReleaseBatch() CXX11_FUNC_DELETE;
+    PageReleaseBatch(const PageReleaseBatch&) CXX11_FUNC_DELETE;
+    PageReleaseBatch& operator=(const PageReleaseBatch&) CXX11_FUNC_DELETE;
+
+    /**
+     * @brief Returns the given in-memory volatile page to appropriate NUMA node.
+     * @details
+     * This internally batches the pages to return. At the end, call release_all() to flush it.
+     */
+    void        release(storage::VolatilePagePointer page_id) {
+        release(page_id.components.numa_node, page_id.components.offset);
+    }
+
+    /**
+     * @brief Returns the given in-memory page to the specified NUMA node.
+     * @details
+     * This internally batches the pages to return. At the end, call release_all() to flush it.
+     */
+    void        release(thread::ThreadGroupId numa_node, PagePoolOffset offset);
+
+    /**
+     * Return all batched pages in the given chunk to its pool.
+     */
+    void        release_chunk(thread::ThreadGroupId numa_node);
+
+    /**
+     * Called at the end to return all batched pages to their pools.
+     */
+    void        release_all();
+
+ private:
+    Engine* const   engine_;
+    const uint16_t  numa_node_count_;
+    /** index is thread::ThreadGroupId numa_node. */
+    ChunkPtr        chunks_[256];
+};
+
+
+/**
+ * @brief A helper class to grab a bunch of pages from multiple nodes in round-robin fashion
+ * per chunk.
+ * @ingroup MEMORY
+ * @details
+ * This grabs a large number of pages much more efficiently than grabbing one-by-one from
+ * individual node. Instead, this is not a true round-robin per page because we switch node
+ * only per chunk, which is actually an advantage as it achieves contiguous memory that is
+ * friendly for CPU cache.
+ * So far this is used when create a new array storage, which requires to grab a large number of
+ * pages in round-robin fashion to balance memory usage.
+ */
+class RoundRobinPageGrabBatch CXX11_FINAL {
+ public:
+    explicit RoundRobinPageGrabBatch(Engine* engine);
+    ~RoundRobinPageGrabBatch();
+
+    // Disable default constructors
+    RoundRobinPageGrabBatch() CXX11_FUNC_DELETE;
+    RoundRobinPageGrabBatch(const RoundRobinPageGrabBatch&) CXX11_FUNC_DELETE;
+    RoundRobinPageGrabBatch& operator=(const RoundRobinPageGrabBatch&) CXX11_FUNC_DELETE;
+
+    /**
+     * @brief Grabs an in-memory page in some NUMA node.
+     * @details
+     * This internally batches the pages to return. At the end, call release_all() to release
+     * unused pages.
+     * Although the type of returned value is VolatilePagePointer, it can be used for
+     * snapshot page, too. I just want to return both NUMA node and offset.
+     * Maybe we should have another typedef for it.
+     * @todo this so far doesn't handle out-of-memory case gracefully. what to do..
+     */
+    storage::VolatilePagePointer grab();
+
+    /**
+     * Called at the end to return all \e remaining pages to their pools.
+     * The grabbed pages are not returned, of course.
+     */
+    void        release_all();
+
+ private:
+    Engine* const           engine_;
+    const uint16_t          numa_node_count_;
+    thread::ThreadGroupId   current_node_;
+    PagePoolOffsetChunk     chunk_;
+};
+
 }  // namespace memory
 }  // namespace foedus
 #endif  // FOEDUS_MEMORY_PAGE_POOL_HPP_

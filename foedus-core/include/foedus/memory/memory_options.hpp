@@ -17,8 +17,8 @@ namespace memory {
 struct MemoryOptions CXX11_FINAL : public virtual externalize::Externalizable {
     /** Constant values. */
     enum Constants {
-        /** Default value for page_pool_size_mb_. */
-        DEFAULT_PAGE_POOL_SIZE_MB = 1 << 10,
+        /** Default value for page_pool_size_mb_per_node_. */
+        DEFAULT_PAGE_POOL_SIZE_MB_PER_NODE = 1 << 10,
     };
 
     /**
@@ -49,18 +49,19 @@ struct MemoryOptions CXX11_FINAL : public virtual externalize::Externalizable {
     bool        interleave_numa_alloc_;
 
     /**
-     * @brief Total size of the page pool in MB.
+     * @brief Size of the page pool in MB per each NUMA node.
      * @details
-     * Default is 1GB.
+     * Must be multiply of 2MB. Default is 1GB.
+     * The total amount of memory is page_pool_size_mb_per_node_ *
      */
-    uint32_t    page_pool_size_mb_;
+    uint32_t    page_pool_size_mb_per_node_;
 
     /**
      * @brief How many pages each NumaCoreMemory initially grabs when it is initialized.
      * @details
      * Default is 50% of PagePoolOffsetChunk::MAX_SIZE.
-     * Obviously, private_page_pool_initial_grab_ * PAGE_SIZE * number-of-threads must be
-     * within page_pool_size_mb_ to start up the engine.
+     * Obviously, private_page_pool_initial_grab_ * PAGE_SIZE * number-of-threads-per-node must be
+     * within page_pool_size_mb_per_node_ to start up the engine.
      */
     uint32_t    private_page_pool_initial_grab_;
 

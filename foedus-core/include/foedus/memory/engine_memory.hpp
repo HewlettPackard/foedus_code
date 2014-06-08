@@ -11,6 +11,7 @@
 #include <foedus/memory/aligned_memory.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/memory/page_pool.hpp>
+#include <foedus/memory/page_resolver.hpp>
 #include <foedus/thread/thread_id.hpp>
 #include <foedus/assert_nd.hpp>
 #include <vector>
@@ -32,7 +33,7 @@ namespace memory {
 class EngineMemory CXX11_FINAL : public DefaultInitializable {
  public:
     EngineMemory() CXX11_FUNC_DELETE;
-    explicit EngineMemory(Engine* engine) : engine_(engine), page_pool_(engine) {}
+    explicit EngineMemory(Engine* engine) : engine_(engine) {}
     ErrorStack  initialize_once() CXX11_OVERRIDE;
     ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
@@ -46,7 +47,7 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
     }
     NumaCoreMemory* get_core_memory(foedus::thread::ThreadId id) const;
 
-    PagePool*       get_page_pool() { return &page_pool_; }
+    GlobalPageResolver& get_global_page_resolver() { return global_page_resolver_; }
 
  private:
     Engine* const                   engine_;
@@ -57,8 +58,8 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
      */
     std::vector<NumaNodeMemory*>    node_memories_;
 
-    /** In-memory page pool. */
-    PagePool                        page_pool_;
+    /** Converts page ID to page pointer. */
+    GlobalPageResolver              global_page_resolver_;
 };
 }  // namespace memory
 }  // namespace foedus
