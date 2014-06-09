@@ -42,6 +42,7 @@ namespace memory {
  *
  * To check if THP is actually used, check /proc/meminfo before/after the engine start-up.
  * AnonHugePages tells it. We at least confirmed that THP is used in Fedora 19/20.
+ * For more details, see the section in README.markdown.
  * @see https://lwn.net/Articles/423584/
  *
  * @todo Support Windows' VirtualAlloc() and VirtualFree().

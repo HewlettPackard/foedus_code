@@ -25,10 +25,11 @@ Other projects are for internal use or to provide executables, rather than libra
 You can still contain all projects (or this folder's CMakeLists.txt) in your source code,
 but note that some restrictions on compiler options apply if you do so.
 
-libfoedus-core
+libfoedus-core (For FOEDUS Users)
 -----------
-For more details of how your client program links to our library, API document, Licensing, etc,
-see [foedus-core](foedus-core/README.markdown)
+For more details of how your client program links to and uses our library,
+see [foedus-core](foedus-core) and [its API document](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/doxygen/).
+The sections below are for people developping FOEDUS itself.
 
 Current Build Status on Jenkins (For FOEDUS Developers)
 --------
@@ -114,6 +115,11 @@ If you find a false positive or third party's bug, add them to foedus-core/tools
     valgrind --leak-check=full --show-leak-kinds=all --suppressions=<path_to_valgrind.supp> --gen-suppressions=all ./<your_program>
 
 For more details, check out CTEST/CMAKE documentation.
+
+Enabling Transparent Hugepages (For FOEDUS Developers)
+--------
+Make sure you enable THP (Transparent Huge Page) in *always* mode.
+See the section in [foedus-core](foedus-core).
 
 Coding Convention (For FOEDUS Developers)
 --------
