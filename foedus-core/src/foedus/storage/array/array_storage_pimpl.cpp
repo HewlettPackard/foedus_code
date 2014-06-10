@@ -371,10 +371,15 @@ inline ArrayStoragePimpl::LookupRoute ArrayStoragePimpl::find_route(ArrayOffset 
     ArrayOffset old = offset;
     offset = leaf_fanout_div_.div64(offset);
     ret.route[0] = old - offset * records_in_leaf_;
-    for (uint8_t level = 1; level < levels_; ++level) {
+    for (uint8_t level = 1; level < levels_ - 1; ++level) {
         old = offset;
         offset = interior_fanout_div_.div64(offset);
         ret.route[level] = old - offset * INTERIOR_FANOUT;
+    }
+    if (levels_ > 1) {
+        // the last level is done manually because we don't need any division there
+        ASSERT_ND(offset < INTERIOR_FANOUT);
+        ret.route[levels_ - 1] = offset;
     }
 
     return ret;
@@ -390,7 +395,9 @@ inline ErrorCode ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset 
     ArrayPage* current_page = root_page_;
     ASSERT_ND(current_page->get_array_range().contains(offset));
 
-    // use efficient division to determine the route
+    // use efficient division to determine the route.
+    // this code originally used simple std::lldiv(), which caused 20% of CPU cost in read-only
+    // experiment. wow. The code below now costs only 6%.
     LookupRoute route = find_route(offset);
     const memory::GlobalPageResolver& page_resolver = context->get_global_page_resolver();
     for (uint8_t level = levels_ - 1; level > 0; --level) {
@@ -405,26 +412,6 @@ inline ErrorCode ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset 
                 page_resolver.resolve_offset(pointer.volatile_pointer_));
         }
     }
-
-    /*
-    ArrayOffset dividee = offset;
-    for (uint8_t level = levels_ - 1; level > 0; --level) {
-        ASSERT_ND(current_page->get_array_range().contains(offset));
-        std::lldiv_t div_result = std::lldiv(dividee, offset_intervals_[level - 1]);
-        dividee = static_cast<ArrayOffset>(div_result.rem);
-        uint16_t record = static_cast<uint16_t>(div_result.quot);
-        DualPagePointer& pointer = current_page->get_interior_record(record);
-        // TODO(Hideaki) Add to Node-set (?)
-        if (pointer.volatile_pointer_.components.offset == 0) {
-            // TODO(Hideaki) Read the page from cache.
-            return ERROR_STACK(ERROR_CODE_NOTIMPLEMENTED);
-        } else {
-            current_page = reinterpret_cast<ArrayPage*>(
-                page_resolver.resolve_offset(pointer.volatile_pointer_));
-        }
-        ASSERT_ND(current_page->get_array_range().contains(offset));
-    }
-    */
     ASSERT_ND(current_page->is_leaf());
     ASSERT_ND(current_page->get_array_range().contains(offset));
     ASSERT_ND(current_page->get_array_range().begin_ + route.route[0] == offset);
