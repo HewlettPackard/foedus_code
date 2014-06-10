@@ -366,12 +366,13 @@ inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset
     ASSERT_ND(offset < metadata_.array_size_);
     ASSERT_ND(out);
     ArrayPage* current_page = root_page_;
+    ASSERT_ND(current_page->get_array_range().contains(offset));
 
     const memory::GlobalPageResolver& page_resolver = context->get_global_page_resolver();
     ArrayOffset dividee = offset;
     for (uint8_t level = levels_ - 1; level > 0; --level) {
         ASSERT_ND(current_page->get_array_range().contains(offset));
-        std::lldiv_t div_result = std::lldiv(dividee, offset_intervals_[level]);
+        std::lldiv_t div_result = std::lldiv(dividee, offset_intervals_[level - 1]);
         dividee = static_cast<ArrayOffset>(div_result.rem);
         uint16_t record = static_cast<uint16_t>(div_result.quot);
         DualPagePointer& pointer = current_page->get_interior_record(record);
@@ -383,9 +384,9 @@ inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset
             current_page = reinterpret_cast<ArrayPage*>(
                 page_resolver.resolve_offset(pointer.volatile_pointer_));
         }
+        ASSERT_ND(current_page->get_array_range().contains(offset));
     }
     ASSERT_ND(current_page->is_leaf());
-    ASSERT_ND(current_page->get_array_range().contains(offset));
     *out = current_page;
     return RET_OK;
 }
