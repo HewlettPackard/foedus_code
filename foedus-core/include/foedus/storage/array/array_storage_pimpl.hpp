@@ -8,6 +8,7 @@
 #include <foedus/compiler.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
+#include <foedus/assorted/const_div.hpp>
 #include <foedus/memory/fwd.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/storage/storage_id.hpp>
@@ -15,11 +16,13 @@
 #include <foedus/storage/array/array_metadata.hpp>
 #include <foedus/storage/array/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
+#include <stdint.h>
 #include <string>
 #include <vector>
 namespace foedus {
 namespace storage {
 namespace array {
+
 /**
  * @brief Pimpl object of ArrayStorage.
  * @ingroup ARRAY
@@ -29,6 +32,19 @@ namespace array {
  */
 class ArrayStoragePimpl final : public DefaultInitializable {
  public:
+    /**
+     * Compactly represents the route to reach the given offset.
+     * Fanout cannot exceed 256 (as empty-payload is not allowed, minimal entry size is 16 bytes
+     * in both leaf and interior, 4096/16=256), uint8_t is enough to represent the route.
+     * Also, interior page always has a big fanout close to 256, so 8 levels are more than enough.
+     */
+    union LookupRoute {
+        /** This is a 64bit data. */
+        uint64_t word;
+        /** [0] means record ordinal in leaf, [1] in its parent page, [2]...*/
+        uint8_t route[8];
+    };
+
     ArrayStoragePimpl() = delete;
     ArrayStoragePimpl(Engine* engine, ArrayStorage* holder, const ArrayMetadata &metadata,
                       bool create);
@@ -38,7 +54,8 @@ class ArrayStoragePimpl final : public DefaultInitializable {
 
     ErrorStack  create(thread::Thread* context);
 
-    ErrorStack  locate_record(thread::Thread* context, ArrayOffset offset,
+    // this one is called so frequently, so returns ErrorCode rather than ErrorStack
+    ErrorCode   locate_record(thread::Thread* context, ArrayOffset offset,
                                 Record **out) ALWAYS_INLINE;
     ErrorStack  get_record(thread::Thread* context, ArrayOffset offset,
                     void *payload, uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE;
@@ -54,7 +71,11 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     ErrorStack  increment_record(thread::Thread* context, ArrayOffset offset,
                         T* value, uint16_t payload_offset);
 
-    ErrorStack  lookup(thread::Thread* context, ArrayOffset offset, ArrayPage** out) ALWAYS_INLINE;
+    LookupRoute find_route(ArrayOffset offset) const ALWAYS_INLINE;
+
+    // this one is called so frequently, so returns ErrorCode rather than ErrorStack
+    ErrorCode   lookup(thread::Thread* context, ArrayOffset offset,
+                        ArrayPage** out, uint16_t *index) ALWAYS_INLINE;
 
     /** Used only from uninitialize() */
     void        release_pages_recursive(
@@ -88,6 +109,13 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     uint8_t                 levels_;
 
     bool                    exist_;
+
+    /** Number of records in leaf page. */
+    const uint16_t                records_in_leaf_;
+    /** ConstDiv(records_in_leaf_) to speed up integer division in lookup(). */
+    const assorted::ConstDiv      leaf_fanout_div_;
+    /** ConstDiv(INTERIOR_FANOUT) to speed up integer division in lookup(). */
+    const assorted::ConstDiv      interior_fanout_div_;
 };
 }  // namespace array
 }  // namespace storage

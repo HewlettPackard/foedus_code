@@ -79,6 +79,9 @@ class UniformRandom {
      */
     void fill_memory(foedus::memory::AlignedMemory *memory);
 
+    uint64_t next_uint64() {
+        return (static_cast<uint64_t>(next_uint32()) << 32) | next_uint32();
+    }
     uint32_t next_uint32() {
         seed_ = seed_ * 0xD04C3175 + 0x53DA9022;
         return (seed_ >> 32) ^ (seed_ & 0xFFFFFFFF);

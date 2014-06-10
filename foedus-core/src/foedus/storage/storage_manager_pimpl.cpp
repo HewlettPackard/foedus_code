@@ -215,6 +215,22 @@ ErrorStack StorageManagerPimpl::create_array(thread::Thread* context, const std:
         return ERROR_STACK(ERROR_CODE_STR_MUST_SEPARATE_XCT);
     }
 
+    if (payload_size == 0) {
+        // Array storage has no notion of insert/delete, thus payload=null doesn't make sense.
+        LOG(INFO) << "Empty payload is not allowed for array storage";
+        return ERROR_STACK(ERROR_CODE_STR_ARRAY_INVALID_OPTION);
+    } else if (array_size == 0) {
+        LOG(INFO) << "Empty array is not allowed for array storage";
+        return ERROR_STACK(ERROR_CODE_STR_ARRAY_INVALID_OPTION);
+    }
+    {
+        std::lock_guard<std::mutex> guard(mod_lock_);
+        if (storage_names_.find(name) != storage_names_.end()) {
+            LOG(ERROR) << "This storage name already exists: " << name;
+            return ERROR_STACK(ERROR_CODE_STR_DUPLICATE_STRNAME);
+        }
+    }
+
     CHECK_ERROR(engine_->get_xct_manager().begin_schema_xct(context));
 
     // write out log

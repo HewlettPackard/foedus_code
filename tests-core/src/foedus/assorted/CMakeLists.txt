@@ -17,3 +17,22 @@ set(test_raw_atomics_individual
     Int64Weak
 )
 add_foedus_test_individual(test_raw_atomics "${test_raw_atomics_individual}")
+set(test_const_div_individual
+    Test3
+    Test4
+    Test5
+    Test6
+    Test7
+    Test8
+    Test9
+    Test10
+    Test11
+    Test12
+    Test60
+    Test125
+    Test254
+    Test256
+    Test625
+    TestRandom
+)
+add_foedus_test_individual(test_const_div "${test_const_div_individual}")

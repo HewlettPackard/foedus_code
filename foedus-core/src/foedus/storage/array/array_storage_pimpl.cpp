@@ -96,7 +96,10 @@ std::vector<uint64_t> calculate_required_pages(uint64_t array_size, uint16_t pay
 
 ArrayStoragePimpl::ArrayStoragePimpl(Engine* engine, ArrayStorage* holder,
                                      const ArrayMetadata &metadata, bool create)
-    : engine_(engine), holder_(holder), metadata_(metadata), root_page_(nullptr), exist_(!create) {
+    : engine_(engine), holder_(holder), metadata_(metadata), root_page_(nullptr), exist_(!create),
+        records_in_leaf_(DATA_SIZE / (metadata.payload_size_ + RECORD_OVERHEAD)),
+        leaf_fanout_div_(records_in_leaf_),
+        interior_fanout_div_(INTERIOR_FANOUT) {
     ASSERT_ND(create || metadata.id_ > 0);
     ASSERT_ND(metadata.name_.size() > 0);
     root_page_pointer_.snapshot_pointer_ = metadata.root_page_id_;
@@ -274,25 +277,28 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     return RET_OK;
 }
 
-inline ErrorStack ArrayStoragePimpl::locate_record(
+inline ErrorCode ArrayStoragePimpl::locate_record(
     thread::Thread* context, ArrayOffset offset, Record** out) {
     ASSERT_ND(is_initialized());
     ASSERT_ND(offset < metadata_.array_size_);
+    uint16_t index = 0;
     ArrayPage* page = nullptr;
-    CHECK_ERROR(lookup(context, offset, &page));
+    ErrorCode code = lookup(context, offset, &page, &index);
+    if (code != ERROR_CODE_OK) {
+        return code;
+    }
     ASSERT_ND(page);
     ASSERT_ND(page->is_leaf());
     ASSERT_ND(page->get_array_range().contains(offset));
-    ArrayOffset index = offset - page->get_array_range().begin_;
     *out = page->get_leaf_record(index);
-    return RET_OK;
+    return ERROR_CODE_OK;
 }
 
 inline ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOffset offset,
                     void *payload, uint16_t payload_offset, uint16_t payload_count) {
     ASSERT_ND(payload_offset + payload_count <= metadata_.payload_size_);
     Record *record = nullptr;
-    CHECK_ERROR(locate_record(context, offset, &record));
+    CHECK_ERROR_CODE(locate_record(context, offset, &record));
     CHECK_ERROR_CODE(context->get_current_xct().read_record(holder_, record,
                                                         payload, payload_offset, payload_count));
     return RET_OK;
@@ -303,7 +309,7 @@ ErrorStack ArrayStoragePimpl::get_record_primitive(thread::Thread* context, Arra
                     T *payload, uint16_t payload_offset) {
     ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
     Record *record = nullptr;
-    CHECK_ERROR(locate_record(context, offset, &record));
+    CHECK_ERROR_CODE(locate_record(context, offset, &record));
     CHECK_ERROR_CODE(context->get_current_xct().read_record_primitive<T>(holder_, record,
                                                                       payload, payload_offset));
     return RET_OK;
@@ -313,7 +319,7 @@ inline ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context, A
             const void *payload, uint16_t payload_offset, uint16_t payload_count) {
     ASSERT_ND(payload_offset + payload_count <= metadata_.payload_size_);
     Record *record = nullptr;
-    CHECK_ERROR(locate_record(context, offset, &record));
+    CHECK_ERROR_CODE(locate_record(context, offset, &record));
 
     // write out log
     uint16_t log_length = OverwriteLogType::calculate_log_length(payload_count);
@@ -329,7 +335,7 @@ ErrorStack ArrayStoragePimpl::overwrite_record_primitive(
             thread::Thread* context, ArrayOffset offset, T payload, uint16_t payload_offset) {
     ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
     Record *record = nullptr;
-    CHECK_ERROR(locate_record(context, offset, &record));
+    CHECK_ERROR_CODE(locate_record(context, offset, &record));
 
     // write out log
     uint16_t log_length = OverwriteLogType::calculate_log_length(sizeof(T));
@@ -345,7 +351,7 @@ ErrorStack ArrayStoragePimpl::increment_record(
             thread::Thread* context, ArrayOffset offset, T* value, uint16_t payload_offset) {
     ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
     Record *record = nullptr;
-    CHECK_ERROR(locate_record(context, offset, &record));
+    CHECK_ERROR_CODE(locate_record(context, offset, &record));
 
     // this is get_record + overwrite_record
     T old_value;
@@ -360,15 +366,47 @@ ErrorStack ArrayStoragePimpl::increment_record(
     return RET_OK;
 }
 
-inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset offset,
-                                            ArrayPage** out) {
+inline ArrayStoragePimpl::LookupRoute ArrayStoragePimpl::find_route(ArrayOffset offset) const {
+    LookupRoute ret;
+    ArrayOffset old = offset;
+    offset = leaf_fanout_div_.div64(offset);
+    ret.route[0] = old - offset * records_in_leaf_;
+    for (uint8_t level = 1; level < levels_; ++level) {
+        old = offset;
+        offset = interior_fanout_div_.div64(offset);
+        ret.route[level] = old - offset * INTERIOR_FANOUT;
+    }
+
+    return ret;
+}
+
+
+inline ErrorCode ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset offset,
+                                            ArrayPage** out, uint16_t *index) {
     ASSERT_ND(is_initialized());
     ASSERT_ND(offset < metadata_.array_size_);
     ASSERT_ND(out);
+    ASSERT_ND(index);
     ArrayPage* current_page = root_page_;
     ASSERT_ND(current_page->get_array_range().contains(offset));
 
+    // use efficient division to determine the route
+    LookupRoute route = find_route(offset);
     const memory::GlobalPageResolver& page_resolver = context->get_global_page_resolver();
+    for (uint8_t level = levels_ - 1; level > 0; --level) {
+        ASSERT_ND(current_page->get_array_range().contains(offset));
+        DualPagePointer& pointer = current_page->get_interior_record(route.route[level]);
+        // TODO(Hideaki) Add to Node-set (?)
+        if (pointer.volatile_pointer_.components.offset == 0) {
+            // TODO(Hideaki) Read the page from cache.
+            return ERROR_CODE_NOTIMPLEMENTED;
+        } else {
+            current_page = reinterpret_cast<ArrayPage*>(
+                page_resolver.resolve_offset(pointer.volatile_pointer_));
+        }
+    }
+
+    /*
     ArrayOffset dividee = offset;
     for (uint8_t level = levels_ - 1; level > 0; --level) {
         ASSERT_ND(current_page->get_array_range().contains(offset));
@@ -386,9 +424,13 @@ inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset
         }
         ASSERT_ND(current_page->get_array_range().contains(offset));
     }
+    */
     ASSERT_ND(current_page->is_leaf());
+    ASSERT_ND(current_page->get_array_range().contains(offset));
+    ASSERT_ND(current_page->get_array_range().begin_ + route.route[0] == offset);
     *out = current_page;
-    return RET_OK;
+    *index = route.route[0];
+    return ERROR_CODE_OK;
 }
 
 
