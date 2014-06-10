@@ -2,6 +2,9 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
+#include <foedus/engine.hpp>
+#include <foedus/memory/numa_core_memory.hpp>
+#include <foedus/memory/engine_memory.hpp>
 #include <foedus/thread/thread.hpp>
 #include <foedus/thread/thread_pimpl.hpp>
 #include <ostream>
@@ -15,7 +18,10 @@ Thread::~Thread() {
     pimpl_ = nullptr;
 }
 
-ErrorStack Thread::initialize() { return pimpl_->initialize(); }
+ErrorStack Thread::initialize() {
+    global_page_resolver_ = pimpl_->engine_->get_memory_manager().get_global_page_resolver();
+    return pimpl_->initialize();
+}
 bool Thread::is_initialized() const { return pimpl_->is_initialized(); }
 ErrorStack Thread::uninitialize() { return pimpl_->uninitialize(); }
 

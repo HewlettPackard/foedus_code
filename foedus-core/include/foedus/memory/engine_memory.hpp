@@ -47,7 +47,14 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
     }
     NumaCoreMemory* get_core_memory(foedus::thread::ThreadId id) const;
 
-    GlobalPageResolver& get_global_page_resolver() { return global_page_resolver_; }
+    /**
+     * Returns the page resolver to convert page ID to page pointer.
+     * Any code can get the global page resolver from engine memory, but the most efficient
+     * way is to use the global page page resolver per core because
+     * it never requires remote memory access.
+     * @see thread::Thread::get_global_page_resolver()
+     */
+    const GlobalPageResolver& get_global_page_resolver() const { return global_page_resolver_; }
 
  private:
     Engine* const                   engine_;
@@ -58,7 +65,9 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
      */
     std::vector<NumaNodeMemory*>    node_memories_;
 
-    /** Converts page ID to page pointer. */
+    /**
+     * Converts page ID to page pointer.
+     */
     GlobalPageResolver              global_page_resolver_;
 };
 }  // namespace memory

@@ -9,7 +9,6 @@
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/memory/fwd.hpp>
-#include <foedus/memory/page_resolver.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/storage/storage_id.hpp>
 #include <foedus/storage/array/array_id.hpp>
@@ -89,9 +88,6 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     uint8_t                 levels_;
 
     bool                    exist_;
-
-    /** auxiliary. caches engine_->get_memory_manager().get_global_page_resolver(). */
-    memory::GlobalPageResolver    page_resolver_;
 };
 }  // namespace array
 }  // namespace storage

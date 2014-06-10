@@ -23,6 +23,8 @@
 #include <foedus/log/log_type.hpp>
 #include <foedus/engine.hpp>
 #include <glog/logging.h>
+#include <cinttypes>  // for std::lldiv
+#include <cstdlib>  // for std::lldiv_t
 #include <string>
 #include <vector>
 namespace foedus {
@@ -103,7 +105,6 @@ ArrayStoragePimpl::ArrayStoragePimpl(Engine* engine, ArrayStorage* holder,
 
 ErrorStack ArrayStoragePimpl::initialize_once() {
     LOG(INFO) << "Initializing an array-storage " << *holder_ << " exists=" << exist_;
-    page_resolver_ = engine_->get_memory_manager().get_global_page_resolver();
     uint16_t payload_size_aligned = (assorted::align8(metadata_.payload_size_));
     pages_ = calculate_required_pages(metadata_.array_size_, payload_size_aligned);
     levels_ = pages_.size();
@@ -126,13 +127,15 @@ void ArrayStoragePimpl::release_pages_recursive(
     memory::PageReleaseBatch* batch, ArrayPage* page, VolatilePagePointer volatile_page_id) {
     ASSERT_ND(volatile_page_id.components.offset != 0);
     if (!page->is_leaf()) {
+        const memory::GlobalPageResolver& page_resolver
+            = engine_->get_memory_manager().get_global_page_resolver();
         for (uint16_t i = 0; i < INTERIOR_FANOUT; ++i) {
-            DualPagePointer &child_pointer = page->get_interior_record(i)->pointer_;
+            DualPagePointer &child_pointer = page->get_interior_record(i);
             VolatilePagePointer child_page_id = child_pointer.volatile_pointer_;
             if (child_page_id.components.offset != 0) {
                 // then recurse
                 ArrayPage* child_page = reinterpret_cast<ArrayPage*>(
-                    page_resolver_.resolve_offset(child_page_id));
+                    page_resolver.resolve_offset(child_page_id));
                 release_pages_recursive(batch, child_page, child_page_id);
                 child_pointer.volatile_pointer_.word = 0;
             }
@@ -155,7 +158,7 @@ ErrorStack ArrayStoragePimpl::uninitialize_once() {
 }
 
 
-ErrorStack ArrayStoragePimpl::create(thread::Thread* /*context*/) {
+ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     if (exist_) {
         LOG(ERROR) << "This array-storage already exists: " << *holder_;
         return ERROR_STACK(ERROR_CODE_STR_ALREADY_EXISTS);
@@ -174,11 +177,12 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* /*context*/) {
     std::vector<VolatilePagePointer> current_pages_ids;
     std::vector<uint16_t> current_records;
     // we grab free page in round-robbin fashion.
+    const memory::GlobalPageResolver& page_resolver = context->get_global_page_resolver();
     memory::RoundRobinPageGrabBatch grab_batch(engine_);
     for (uint8_t level = 0; level < levels_; ++level) {
         VolatilePagePointer page_pointer = grab_batch.grab();
         ASSERT_ND(page_pointer.components.offset != 0);
-        ArrayPage* page = reinterpret_cast<ArrayPage*>(page_resolver_.resolve_offset(page_pointer));
+        ArrayPage* page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(page_pointer));
 
         ArrayRange range(0, offset_intervals_[level]);
         if (range.end_ > metadata_.array_size_) {
@@ -194,7 +198,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* /*context*/) {
             current_records.push_back(0);
         } else {
             current_records.push_back(1);
-            DualPagePointer& child_pointer = page->get_interior_record(0)->pointer_;
+            DualPagePointer& child_pointer = page->get_interior_record(0);
             child_pointer.snapshot_pointer_ = 0;
             child_pointer.volatile_pointer_ = current_pages_ids[level - 1];
             child_pointer.volatile_pointer_.components.flags = 0;
@@ -209,7 +213,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* /*context*/) {
     for (uint64_t leaf = 1; leaf < pages_[0]; ++leaf) {
         VolatilePagePointer page_pointer = grab_batch.grab();
         ASSERT_ND(page_pointer.components.offset != 0);
-        ArrayPage* page = reinterpret_cast<ArrayPage*>(page_resolver_.resolve_offset(page_pointer));
+        ArrayPage* page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(page_pointer));
 
         ArrayRange range(current_pages[0]->get_array_range().end_,
                          current_pages[0]->get_array_range().end_ + offset_intervals_[0]);
@@ -228,7 +232,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* /*context*/) {
                 VolatilePagePointer interior_pointer = grab_batch.grab();
                 ASSERT_ND(interior_pointer.components.offset != 0);
                 ArrayPage* interior_page = reinterpret_cast<ArrayPage*>(
-                    page_resolver_.resolve_offset(interior_pointer));
+                    page_resolver.resolve_offset(interior_pointer));
                 ArrayRange interior_range(current_pages[level]->get_array_range().end_,
                          current_pages[level]->get_array_range().end_ + offset_intervals_[level]);
                 if (range.end_ > metadata_.array_size_) {
@@ -237,7 +241,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* /*context*/) {
                 interior_page->initialize_data_page(
                     initial_epoch, metadata_.id_, metadata_.payload_size_, level, interior_range);
 
-                DualPagePointer& child_pointer = interior_page->get_interior_record(0)->pointer_;
+                DualPagePointer& child_pointer = interior_page->get_interior_record(0);
                 child_pointer.snapshot_pointer_ = 0;
                 child_pointer.volatile_pointer_ = current_pages_ids[level - 1];
                 child_pointer.volatile_pointer_.components.flags = 0;
@@ -248,7 +252,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* /*context*/) {
                 // also inserts this to parent
             } else {
                 DualPagePointer& child_pointer = current_pages[level]->get_interior_record(
-                    current_records[level])->pointer_;
+                    current_records[level]);
                 child_pointer.snapshot_pointer_ = 0;
                 child_pointer.volatile_pointer_ = current_pages_ids[level - 1];
                 child_pointer.volatile_pointer_.components.flags = 0;
@@ -356,26 +360,31 @@ ErrorStack ArrayStoragePimpl::increment_record(
     return RET_OK;
 }
 
-inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* /*context*/, ArrayOffset offset,
+inline ErrorStack ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset offset,
                                             ArrayPage** out) {
     ASSERT_ND(is_initialized());
     ASSERT_ND(offset < metadata_.array_size_);
     ASSERT_ND(out);
     ArrayPage* current_page = root_page_;
-    while (!current_page->is_leaf()) {
+
+    const memory::GlobalPageResolver& page_resolver = context->get_global_page_resolver();
+    ArrayOffset dividee = offset;
+    for (uint8_t level = levels_ - 1; level > 0; --level) {
         ASSERT_ND(current_page->get_array_range().contains(offset));
-        uint64_t diff = offset - current_page->get_array_range().begin_;
-        uint16_t record = diff / offset_intervals_[current_page->get_node_height() - 1];
-        DualPagePointer& pointer = current_page->get_interior_record(record)->pointer_;
+        std::lldiv_t div_result = std::lldiv(dividee, offset_intervals_[level]);
+        dividee = static_cast<ArrayOffset>(div_result.rem);
+        uint16_t record = static_cast<uint16_t>(div_result.quot);
+        DualPagePointer& pointer = current_page->get_interior_record(record);
         // TODO(Hideaki) Add to Node-set (?)
         if (pointer.volatile_pointer_.components.offset == 0) {
             // TODO(Hideaki) Read the page from cache.
             return ERROR_STACK(ERROR_CODE_NOTIMPLEMENTED);
         } else {
             current_page = reinterpret_cast<ArrayPage*>(
-                page_resolver_.resolve_offset(pointer.volatile_pointer_));
+                page_resolver.resolve_offset(pointer.volatile_pointer_));
         }
     }
+    ASSERT_ND(current_page->is_leaf());
     ASSERT_ND(current_page->get_array_range().contains(offset));
     *out = current_page;
     return RET_OK;

@@ -27,19 +27,12 @@ namespace array {
 class ArrayPage final {
  public:
     /**
-     * Non-leaf node contains pointers to leaf child nodes.
-     */
-    struct InteriorRecord {
-        DualPagePointer     pointer_;
-    };
-    static_assert(sizeof(InteriorRecord) == INTERIOR_SIZE, "INTERIOR_SIZE is incorrect");
-
-    /**
      * Data union for either leaf (dynamic size) or interior (fixed size).
      */
     union Data {
-        char            leaf_data[1];
-        InteriorRecord  interior_data[INTERIOR_FANOUT];
+        char            leaf_data[INTERIOR_FANOUT * sizeof(DualPagePointer)];
+        // InteriorRecord  interior_data[INTERIOR_FANOUT];
+        DualPagePointer interior_data[INTERIOR_FANOUT];
     };
 
     // A page object is never explicitly instantiated. You must reinterpret_cast.
@@ -73,13 +66,13 @@ class ArrayPage final {
         return reinterpret_cast<Record*>(data_.leaf_data
             + record * (RECORD_OVERHEAD + payload_size_));
     }
-    const InteriorRecord*   get_interior_record(uint16_t record) const ALWAYS_INLINE {
+    const DualPagePointer&   get_interior_record(uint16_t record) const ALWAYS_INLINE {
         return const_cast<ArrayPage*>(this)->get_interior_record(record);
     }
-    InteriorRecord*         get_interior_record(uint16_t record) ALWAYS_INLINE {
+    DualPagePointer&         get_interior_record(uint16_t record) ALWAYS_INLINE {
         ASSERT_ND(!is_leaf());
         ASSERT_ND(record < INTERIOR_FANOUT);
-        return data_.interior_data + record;
+        return data_.interior_data[record];
     }
 
  private:

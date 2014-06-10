@@ -27,6 +27,7 @@ ThreadPimpl::ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder
 }
 
 ErrorStack ThreadPimpl::initialize_once() {
+    ASSERT_ND(engine_->get_memory_manager().is_initialized());
     core_memory_ = engine_->get_memory_manager().get_core_memory(id_);
     current_task_ = nullptr;
     current_xct_.initialize(id_, core_memory_);
