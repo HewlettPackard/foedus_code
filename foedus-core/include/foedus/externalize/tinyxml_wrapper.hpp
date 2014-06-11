@@ -7,7 +7,6 @@
 #include <tinyxml2.h>
 #include <stdint.h>
 #include <string>
-#include <vector>
 namespace foedus {
 namespace externalize {
 /**

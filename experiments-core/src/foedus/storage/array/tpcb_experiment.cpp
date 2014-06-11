@@ -249,17 +249,18 @@ int main_impl(int argc, char **argv) {
             UninitializeGuard guard(&engine);
             StorageManager& str_manager = engine.get_storage_manager();
             std::cout << "Creating TPC-B tables... " << std::endl;
+            Epoch ep;
             COERCE_ERROR(str_manager.create_array_impersonate("branches",
-                                            sizeof(BranchData), BRANCHES, &branches));
+                                            sizeof(BranchData), BRANCHES, &branches, &ep));
             std::cout << "Created branches " << std::endl;
             COERCE_ERROR(str_manager.create_array_impersonate("tellers",
-                                        sizeof(AccountData), BRANCHES * TELLERS, &tellers));
+                                        sizeof(AccountData), BRANCHES * TELLERS, &tellers, &ep));
             std::cout << "Created tellers " << std::endl;
             COERCE_ERROR(str_manager.create_array_impersonate("accounts",
-                                        sizeof(TellerData), BRANCHES * ACCOUNTS, &accounts));
+                                        sizeof(TellerData), BRANCHES * ACCOUNTS, &accounts, &ep));
             std::cout << "Created accounts " << std::endl;
             COERCE_ERROR(str_manager.create_array_impersonate("histories",
-                                                sizeof(HistoryData), HISTORIES, &histories));
+                                                sizeof(HistoryData), HISTORIES, &histories, &ep));
             std::cout << "Created all!" << std::endl;
 
             std::vector< RunTpcbTask* > tasks;

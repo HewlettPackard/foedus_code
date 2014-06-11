@@ -92,8 +92,9 @@ Here is a minimal example program to create a key-value storage and query on it.
         foedus::EngineOptions options;
         foedus::Engine engine(options);
         COERCE_ERROR(engine.initialize());
+        foedus::Epoch create_array_epoch;
         COERCE_ERROR(engine.get_storage_manager().create_array_impersonate(
-            NAME, PAYLOAD, RECORDS, &out));
+            NAME, PAYLOAD, RECORDS, &out, &create_array_epoch));
         MyTask task;
         foedus::thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
         std::cout << "session: result=" << session.get_result() << std::endl;

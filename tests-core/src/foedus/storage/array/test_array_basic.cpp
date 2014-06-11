@@ -25,7 +25,9 @@ TEST(ArrayBasicTest, Create) {
     {
         UninitializeGuard guard(&engine);
         ArrayStorage* out;
-        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test", 16, 100, &out));
+        Epoch commit_epoch;
+        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test", 16, 100, &out,
+            &commit_epoch));
         EXPECT_TRUE(out != nullptr);
         COERCE_ERROR(engine.uninitialize());
     }
@@ -58,7 +60,9 @@ TEST(ArrayBasicTest, CreateAndQuery) {
     {
         UninitializeGuard guard(&engine);
         ArrayStorage* out;
-        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test2", 16, 100, &out));
+        Epoch commit_epoch;
+        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test2", 16, 100, &out,
+            &commit_epoch));
         EXPECT_TRUE(out != nullptr);
         QueryTask task;
         thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
@@ -75,9 +79,12 @@ TEST(ArrayBasicTest, CreateAndDrop) {
     {
         UninitializeGuard guard(&engine);
         ArrayStorage* out;
-        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("dd", 16, 100, &out));
+        Epoch commit_epoch;
+        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("dd", 16, 100, &out,
+            &commit_epoch));
         EXPECT_TRUE(out != nullptr);
-        COERCE_ERROR(engine.get_storage_manager().drop_storage_impersonate(out->get_id()));
+        COERCE_ERROR(engine.get_storage_manager().drop_storage_impersonate(out->get_id(),
+                                                                           &commit_epoch));
         COERCE_ERROR(engine.uninitialize());
     }
     cleanup_test(options);
@@ -110,7 +117,9 @@ TEST(ArrayBasicTest, CreateAndWrite) {
     {
         UninitializeGuard guard(&engine);
         ArrayStorage* out;
-        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test3", 16, 100, &out));
+        Epoch commit_epoch;
+        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test3", 16, 100, &out,
+            &commit_epoch));
         EXPECT_TRUE(out != nullptr);
         WriteTask task;
         thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
@@ -162,7 +171,9 @@ TEST(ArrayBasicTest, CreateAndReadWrite) {
     {
         UninitializeGuard guard(&engine);
         ArrayStorage* out;
-        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test4", 16, 100, &out));
+        Epoch commit_epoch;
+        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test4", 16, 100, &out,
+            &commit_epoch));
         EXPECT_TRUE(out != nullptr);
         ReadWriteTask task;
         thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);

@@ -14,6 +14,7 @@ namespace snapshot {
 struct  Snapshot;
 class   SnapshotManager;
 class   SnapshotManagerPimpl;
+struct  SnapshotMetadata;
 struct  SnapshotOptions;
 }  // namespace snapshot
 }  // namespace foedus

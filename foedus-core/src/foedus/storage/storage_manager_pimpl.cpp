@@ -5,14 +5,17 @@
 #include <foedus/engine.hpp>
 #include <foedus/error_stack_batch.hpp>
 #include <foedus/assorted/atomic_fences.hpp>
+#include <foedus/debugging/stop_watch.hpp>
 #include <foedus/log/log_manager.hpp>
 #include <foedus/log/thread_log_buffer_impl.hpp>
+#include <foedus/snapshot/snapshot_metadata.hpp>
 #include <foedus/storage/storage_log_types.hpp>
 #include <foedus/storage/storage_manager_pimpl.hpp>
 #include <foedus/storage/storage_options.hpp>
 #include <foedus/storage/storage.hpp>
 #include <foedus/storage/array/array_storage.hpp>
 #include <foedus/storage/array/array_log_types.hpp>
+#include <foedus/storage/metadata.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread.hpp>
 #include <foedus/xct/xct_manager.hpp>
@@ -120,7 +123,8 @@ ErrorStack StorageManagerPimpl::register_storage(Storage* storage) {
     return RET_OK;
 }
 
-ErrorStack StorageManagerPimpl::drop_storage(thread::Thread* context, StorageId id) {
+ErrorStack StorageManagerPimpl::drop_storage(thread::Thread* context, StorageId id,
+                                             Epoch *commit_epoch) {
     // DROP STORAGE must be the only log in this transaction
     if (context->get_thread_log_buffer().get_offset_committed() !=
         context->get_thread_log_buffer().get_offset_tail()) {
@@ -138,8 +142,7 @@ ErrorStack StorageManagerPimpl::drop_storage(thread::Thread* context, StorageId 
     log_entry->populate(id);
 
     // commit invokes apply
-    Epoch commit_epoch;
-    CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, &commit_epoch));
+    CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, commit_epoch));
     return RET_OK;
 }
 void StorageManagerPimpl::drop_storage_apply(thread::Thread* /*context*/, Storage* storage) {
@@ -160,19 +163,21 @@ void StorageManagerPimpl::drop_storage_apply(thread::Thread* /*context*/, Storag
 /** A task to drop a task. Used from drop_storage_impersonate(). */
 class DropStorageTask final : public foedus::thread::ImpersonateTask {
  public:
-    DropStorageTask(StorageManagerPimpl* pimpl, StorageId id) : pimpl_(pimpl), id_(id) {}
+    DropStorageTask(StorageManagerPimpl* pimpl, StorageId id, Epoch *commit_epoch)
+        : pimpl_(pimpl), id_(id), commit_epoch_(commit_epoch) {}
     ErrorStack run(thread::Thread* context) override {
-        CHECK_ERROR(pimpl_->drop_storage(context, id_));
+        CHECK_ERROR(pimpl_->drop_storage(context, id_, commit_epoch_));
         return RET_OK;
     }
 
  private:
     StorageManagerPimpl* pimpl_;
     StorageId id_;
+    Epoch *commit_epoch_;
 };
 
-ErrorStack StorageManagerPimpl::drop_storage_impersonate(StorageId id) {
-    DropStorageTask task(this, id);
+ErrorStack StorageManagerPimpl::drop_storage_impersonate(StorageId id, Epoch *commit_epoch) {
+    DropStorageTask task(this, id, commit_epoch);
     thread::ImpersonateSession session = engine_->get_thread_pool().impersonate(&task);
     CHECK_ERROR(session.get_result());
     return RET_OK;
@@ -207,7 +212,8 @@ ErrorStack StorageManagerPimpl::expand_storage_array(StorageId new_size) {
 }
 
 ErrorStack StorageManagerPimpl::create_array(thread::Thread* context, const std::string& name,
-            uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage** out) {
+            uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage** out,
+            Epoch *commit_epoch) {
     StorageId id = issue_next_storage_id();
     // CREATE ARRAY must be the only log in this transaction
     if (context->get_thread_log_buffer().get_offset_committed() !=
@@ -240,8 +246,7 @@ ErrorStack StorageManagerPimpl::create_array(thread::Thread* context, const std:
     log_entry->populate(id, array_size, payload_size, name.size(), name.data());
 
     // commit invokes apply
-    Epoch commit_epoch;
-    CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, &commit_epoch));
+    CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, commit_epoch));
 
     // to avoid mixing normal operations on the new storage in this epoch, advance epoch now.
     engine_->get_xct_manager().advance_current_global_epoch();
@@ -258,11 +263,13 @@ ErrorStack StorageManagerPimpl::create_array(thread::Thread* context, const std:
 class CreateArrayTask final : public foedus::thread::ImpersonateTask {
  public:
     CreateArrayTask(StorageManagerPimpl* pimpl, const std::string& name, uint16_t payload,
-                    array::ArrayOffset array_size, array::ArrayStorage** out)
-        : pimpl_(pimpl), name_(name), payload_(payload), array_size_(array_size), out_(out) {}
+                    array::ArrayOffset array_size, array::ArrayStorage** out, Epoch *commit_epoch)
+        : pimpl_(pimpl), name_(name), payload_(payload), array_size_(array_size), out_(out),
+            commit_epoch_(commit_epoch) {}
     ErrorStack run(thread::Thread* context) override {
         *out_ = nullptr;
-        CHECK_ERROR(pimpl_->create_array(context, name_, payload_, array_size_, out_));
+        CHECK_ERROR(pimpl_->create_array(
+            context, name_, payload_, array_size_, out_, commit_epoch_));
         return RET_OK;
     }
 
@@ -272,16 +279,37 @@ class CreateArrayTask final : public foedus::thread::ImpersonateTask {
     const uint16_t payload_;
     const array::ArrayOffset array_size_;
     array::ArrayStorage** out_;
+    Epoch *commit_epoch_;
 };
 
 ErrorStack StorageManagerPimpl::create_array_impersonate(const std::string& name,
-            uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage** out) {
-    CreateArrayTask task(this, name, payload_size, array_size, out);
+    uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage** out,
+    Epoch *commit_epoch) {
+    CreateArrayTask task(this, name, payload_size, array_size, out, commit_epoch);
     thread::ImpersonateSession session = engine_->get_thread_pool().impersonate(&task);
     CHECK_ERROR(session.get_result());
     return RET_OK;
 }
 
+ErrorStack StorageManagerPimpl::duplicate_all_storage_metadata(
+    snapshot::SnapshotMetadata *metadata) {
+    debugging::StopWatch stop_watch;
+    StorageId largest_storage_id_copy = largest_storage_id_;
+    assorted::memory_fence_acq_rel();
+    for (StorageId id = 1; id <= largest_storage_id_copy; ++id) {
+        // TODO(Hideaki): Here, we assume deleted storages are still registered with some
+        // "pseudo-delete" flag, which is not implemented yet.
+        // Otherwise, we can't easily treat storage deletion in an epoch in-between two snapshots.
+        if (storages_[id]) {
+            metadata->storage_metadata_.push_back(storages_[id]->get_metadata()->duplicate());
+        }
+    }
+    stop_watch.stop();
+    LOG(INFO) << "Duplicated metadata of " << metadata->storage_metadata_.size()
+        << " storages (largest_storage_id_=" << largest_storage_id_copy << ") in "
+        << stop_watch.elapsed_ms() << " milliseconds";
+    return RET_OK;
+}
 
 }  // namespace storage
 }  // namespace foedus

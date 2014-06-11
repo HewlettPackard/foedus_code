@@ -4,6 +4,7 @@
  */
 #include <foedus/externalize/externalizable.hpp>
 #include <foedus/snapshot/snapshot_options.hpp>
+#include <string>
 namespace foedus {
 namespace snapshot {
 SnapshotOptions::SnapshotOptions() {
@@ -11,6 +12,11 @@ SnapshotOptions::SnapshotOptions() {
     partitions_per_node_ = 1;
     snapshot_trigger_page_pool_percent_ = DEFAULT_SNAPSHOT_TRIGGER_PAGE_POOL_PERCENT;
     snapshot_interval_milliseconds_ = DEFAULT_SNAPSHOT_INTERVAL_MILLISECONDS;
+}
+
+std::string SnapshotOptions::convert_folder_path_pattern(int node, int partition) const {
+    std::string tmp = assorted::replace_all(folder_path_pattern_, "$NODE$", node);
+    return assorted::replace_all(tmp, "$PARTITION$", partition);
 }
 
 ErrorStack SnapshotOptions::load(tinyxml2::XMLElement* element) {

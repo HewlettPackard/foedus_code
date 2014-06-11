@@ -15,6 +15,7 @@
 #include <foedus/thread/stoppable_thread_impl.hpp>
 #include <atomic>
 #include <chrono>
+#include <string>
 #include <vector>
 namespace foedus {
 namespace snapshot {
@@ -31,6 +32,9 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
     explicit SnapshotManagerPimpl(Engine* engine) : engine_(engine) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
+
+    /** shorthand for engine_->get_options().snapshot_. */
+    const SnapshotOptions& get_option() const;
 
     Epoch get_snapshot_epoch() const { return Epoch(snapshot_epoch_.load()); }
     Epoch get_snapshot_epoch_weak() const {
@@ -56,8 +60,22 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
      * This method exits when this object's uninitialize() is called.
      */
     void        handle_snapshot();
-    /** handle_snapshot() calls this when it should start snapshotting. */
-    ErrorStack  handle_snapshot_triggered(Epoch *new_snapshot_epoch);
+    /**
+     * handle_snapshot() calls this when it should start snapshotting.
+     * In other words, this function is the main routine of snapshotting.
+     */
+    ErrorStack  handle_snapshot_triggered(Snapshot *new_snapshot);
+
+    /**
+     * Write out a snapshot metadata file that contains metadata of all storages
+     * and a few other global metadata.
+     */
+    ErrorStack  snapshot_metadata(Snapshot *new_snapshot);
+
+    /**
+     * each snapshot has a snapshot-metadata file "snapshot_metadata_<SNAPSHOT_ID>.xml"
+     * in first node's first partition folder. */
+    fs::Path    get_snapshot_metadata_file_path(SnapshotId snapshot_id) const;
 
     Engine* const           engine_;
 

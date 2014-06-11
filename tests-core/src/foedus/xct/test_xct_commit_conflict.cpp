@@ -39,7 +39,9 @@ class InitTask : public thread::ImpersonateTask {
     ErrorStack run(thread::Thread* context) {
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
         storage::StorageManager& str_manager = context->get_engine()->get_storage_manager();
-        CHECK_ERROR(str_manager.create_array(context, "test", sizeof(Payload), RECORDS, &storage));
+        Epoch commit_epoch;
+        CHECK_ERROR(str_manager.create_array(context, "test", sizeof(Payload), RECORDS, &storage,
+            &commit_epoch));
 
         CHECK_ERROR(xct_manager.begin_xct(context, SERIALIZABLE));
 
@@ -50,7 +52,6 @@ class InitTask : public thread::ImpersonateTask {
             CHECK_ERROR(storage->overwrite_record(context, i, &payload));
         }
 
-        Epoch commit_epoch;
         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
         return RET_OK;
     }

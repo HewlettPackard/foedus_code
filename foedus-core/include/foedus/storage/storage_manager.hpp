@@ -6,6 +6,7 @@
 #define FOEDUS_STORAGE_STORAGE_MANAGER_HPP_
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
+#include <foedus/snapshot/fwd.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/storage/storage_id.hpp>
 #include <foedus/storage/array/fwd.hpp>
@@ -59,17 +60,18 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
      * @brief Removes the storage object.
      * @param[in] context thread context to drop the storage
      * @param[in] id ID of the storage to remove
+     * @param[out] commit_epoch The epoch at whose end the storage is really deemed as deleted.
      * @details
      * This also invokes uninitialize/destruct.
      * This method is idempotent, although it logs warning for non-existing id.
      */
-    ErrorStack  drop_storage(thread::Thread* context, StorageId id);
+    ErrorStack  drop_storage(thread::Thread* context, StorageId id, Epoch *commit_epoch);
 
     /**
      * A convenience function to impersonate as one of available threads and invoke drop_storage().
      * @see drop_storage()
      */
-    ErrorStack  drop_storage_impersonate(StorageId id);
+    ErrorStack  drop_storage_impersonate(StorageId id, Epoch *commit_epoch);
 
     /**
      * @brief Newly creates an \ref ARRAY with the specified parameters and registers it to this
@@ -80,17 +82,29 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
      * without internal overheads.
      * @param[in] array_size Size of this array
      * @param[out] out Pointer to the created array storage, if no error observed.
+     * @param[out] commit_epoch The epoch at whose end the storage is really deemed as created.
      * @todo probably this should receive ArrayMetadata rather than individual args.
      */
     ErrorStack  create_array(thread::Thread* context, const std::string &name,
-                uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out);
+                uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out,
+                Epoch *commit_epoch);
 
     /**
      * A convenience function to impersonate as one of available threads and invoke create_array().
      * @see create_array()
      */
     ErrorStack  create_array_impersonate(const std::string &name,
-                uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out);
+                uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out,
+                Epoch *commit_epoch);
+
+
+    /**
+     * This method is called during snapshotting to duplicate metadata of all existing storages
+     * to the given object. So far, this method is not quite optimized for the case where
+     * there are many thousands of storages. There are many other things to do before that,
+     * but at some point we must do something.
+     */
+    ErrorStack  duplicate_all_storage_metadata(snapshot::SnapshotMetadata *metadata);
 
     /** Returns pimpl object. Use this only if you know what you are doing. */
     StorageManagerPimpl* get_pimpl() { return pimpl_; }

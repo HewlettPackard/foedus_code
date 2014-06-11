@@ -94,7 +94,7 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
 
         // Create branches
         COERCE_ERROR(str_manager.create_array(context, "branches",
-                                        sizeof(BranchData), BRANCHES, &branches));
+                                        sizeof(BranchData), BRANCHES, &branches, &commit_epoch));
         EXPECT_TRUE(branches != nullptr);
         COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
         for (int i = 0; i < BRANCHES; ++i) {
@@ -108,7 +108,7 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
 
         // Create tellers
         COERCE_ERROR(str_manager.create_array(context, "tellers",
-                                      sizeof(AccountData), BRANCHES * TELLERS, &tellers));
+                                sizeof(AccountData), BRANCHES * TELLERS, &tellers, &commit_epoch));
         EXPECT_TRUE(tellers != nullptr);
         COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
         for (int i = 0; i < BRANCHES * TELLERS; ++i) {
@@ -123,7 +123,7 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
 
         // Create accounts
         COERCE_ERROR(str_manager.create_array(context, "accounts",
-                                      sizeof(TellerData), BRANCHES * ACCOUNTS, &accounts));
+                                sizeof(TellerData), BRANCHES * ACCOUNTS, &accounts, &commit_epoch));
         EXPECT_TRUE(accounts != nullptr);
         COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
         for (int i = 0; i < BRANCHES * ACCOUNTS; ++i) {
@@ -138,7 +138,7 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
 
         // Create histories
         COERCE_ERROR(str_manager.create_array(context, "histories",
-                                              sizeof(HistoryData), HISTORIES, &histories));
+                                        sizeof(HistoryData), HISTORIES, &histories, &commit_epoch));
         EXPECT_TRUE(histories != nullptr);
         COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
         for (int i = 0; i < HISTORIES; ++i) {

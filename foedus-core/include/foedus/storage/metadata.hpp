@@ -33,14 +33,36 @@ namespace storage {
  * Snapshot metadata files are read at next snapshotting and at next restart.
  */
 struct Metadata : public virtual externalize::Externalizable {
-    Metadata() : id_(0), name_("") {}
-    Metadata(StorageId id, const std::string& name) : id_(id), name_(name) {}
+    Metadata() : id_(0), type_(INVALID_STORAGE), name_("") {}
+    Metadata(StorageId id, StorageType type, const std::string& name)
+        : id_(id), type_(type), name_(name) {}
     virtual ~Metadata() {}
+
+    /**
+     * Constructs an equivalent metadata object and returns a pointer to it.
+     */
+    virtual Metadata* duplicate() const = 0;
+
+    /** common routine for the implementation of load() */
+    ErrorStack load_base(tinyxml2::XMLElement* element);
+    /** common routine for the implementation of save() */
+    ErrorStack save_base(tinyxml2::XMLElement* element) const;
+    /** common routine for the implementation of duplicate() */
+    void duplicate_base(Metadata* duplicated) const {
+        duplicated->id_ = id_;
+        duplicated->type_ = type_;
+        duplicated->name_ = name_;
+    }
 
     /** the unique ID of this storage. */
     StorageId       id_;
+    /** type of the storage. */
+    StorageType     type_;
     /** the unique name of this storage. */
     std::string     name_;
+
+    /** Create an instance from the given XML element, according to the type_ tag in it. */
+    static Metadata* create_instance(tinyxml2::XMLElement* metadata_xml);
 };
 }  // namespace storage
 }  // namespace foedus

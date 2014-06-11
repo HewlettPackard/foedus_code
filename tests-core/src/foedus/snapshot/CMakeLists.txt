@@ -1,0 +1,1 @@
+add_foedus_test_individual(test_snapshot_basic "Empty;OneArrayCreate;TwoArrayCreate")

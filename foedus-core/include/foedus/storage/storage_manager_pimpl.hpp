@@ -6,6 +6,7 @@
 #define FOEDUS_STORAGE_STORAGE_MANAGER_PIMPL_HPP_
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
+#include <foedus/snapshot/fwd.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/storage/storage_id.hpp>
 #include <foedus/storage/array/fwd.hpp>
@@ -42,14 +43,17 @@ class StorageManagerPimpl final : public DefaultInitializable {
     ErrorStack  register_storage(Storage* storage);
     ErrorStack  expand_storage_array(StorageId new_size);
 
-    ErrorStack  drop_storage(thread::Thread* context, StorageId id);
-    ErrorStack  drop_storage_impersonate(StorageId id);
+    ErrorStack  drop_storage(thread::Thread* context, StorageId id, Epoch *commit_epoch);
+    ErrorStack  drop_storage_impersonate(StorageId id, Epoch *commit_epoch);
     void        drop_storage_apply(thread::Thread* context, Storage* storage);
 
     ErrorStack  create_array(thread::Thread* context, const std::string &name,
-                uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out);
-    ErrorStack  create_array_impersonate(const std::string &name,
-                uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out);
+                uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out,
+                Epoch *commit_epoch);
+    ErrorStack  create_array_impersonate(const std::string &name, uint16_t payload_size,
+                array::ArrayOffset array_size, array::ArrayStorage **out, Epoch *commit_epoch);
+
+    ErrorStack  duplicate_all_storage_metadata(snapshot::SnapshotMetadata *metadata);
 
     Engine* const           engine_;
 

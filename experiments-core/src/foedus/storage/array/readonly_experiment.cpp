@@ -63,8 +63,9 @@ class MyTask : public thread::ImpersonateTask {
         std::cout << "Ya!" << std::endl;
         Engine *engine = context->get_engine();
         ArrayStorage *array = nullptr;
+        Epoch commit_epoch;
         CHECK_ERROR(engine->get_storage_manager().create_array(
-            context, "aaa", PAYLOAD, RECORDS, &array));
+            context, "aaa", PAYLOAD, RECORDS, &array, &commit_epoch));
         the_id = array->get_id();
         return RET_OK;
     }

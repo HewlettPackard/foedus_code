@@ -76,6 +76,17 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
     /** Settings to emulate slower data device. */
     foedus::fs::DeviceEmulationOptions  emulation_;
 
+    /** converts folder_path_pattern_ into a string with the given IDs. */
+    std::string     convert_folder_path_pattern(int node, int partition) const;
+
+    /**
+     * Returns the path of first node's first partition, which is also used as the primary place
+     * to write out global files, such as snapshot metadata.
+     */
+    std::string     get_primary_folder_path() const {
+        return convert_folder_path_pattern(0, 0);
+    }
+
     EXTERNALIZABLE(SnapshotOptions);
 };
 }  // namespace snapshot
