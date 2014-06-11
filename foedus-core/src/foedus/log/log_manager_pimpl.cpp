@@ -138,7 +138,7 @@ ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_
     std::chrono::high_resolution_clock::time_point until
         = now + std::chrono::microseconds(wait_microseconds);
     // @spinlock, but with sleep (not frequently called)
-    while (commit_epoch > get_durable_global_epoch()) {
+    SPINLOCK_WHILE(commit_epoch > get_durable_global_epoch()) {
         for (Logger* logger : loggers_) {
             logger->wakeup_for_durable_epoch(commit_epoch);
         }
@@ -149,6 +149,7 @@ ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_
                 return ERROR_STACK(ERROR_CODE_TIMEOUT);
             }
         } else {
+            // here we use a version without predicate. it's fine as we have the while loop outside.
             durable_global_epoch_advanced_.wait();
         }
     }

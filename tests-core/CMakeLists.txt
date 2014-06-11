@@ -46,7 +46,7 @@ function (add_foedus_test_individual targetname individual_tests)
         add_test(
             NAME valgrind_${targetname}_${individual_test}
             COMMAND
-                /usr/bin/valgrind
+                ${MEMORYCHECK_COMMAND}
                 --xml=yes --xml-file=${FOEDUS_VALGRIND_REPORT_DIR}/${targetname}_${individual_test}.xml
                 --error-exitcode=1 --leak-check=full --gen-suppressions=all
                 # removed --show-leak-kinds=all, which is supported only by valgrind 3.9 and later

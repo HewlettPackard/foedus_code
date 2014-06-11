@@ -54,6 +54,9 @@ In Fedora/RedHat/CentOS etc, run the following:
     sudo yum install python python-*
     sudo yum install doxygen graphviz mscgen sloccount kdevelop
 
+For valgrind, check its version after installation.
+If it is not 3.9 or later, we recommend installing a newer one. See the section below.
+
 If you want to generate doxygen-pdf, also run the following:
 
     sudo yum install texlive texlive-* okular
@@ -110,11 +113,44 @@ On the other hand, if you want to run only valgrind versions,
 
     ctest -R valgrind
 
-If you find a false positive or third party's bug, add them to foedus-core/tools/valgrind.supp.
+We strongly recommend to use valgrind 3.9 or later to run all tests on valgrind due to a
+performance issue fixed in valgrind 3.9. See the section below.
 
-    valgrind --leak-check=full --show-leak-kinds=all --suppressions=<path_to_valgrind.supp> --gen-suppressions=all ./<your_program>
+If valgrind reports a false positive or third party's bug, add them to
+foedus-core/tools/valgrind.supp.
 
-For more details, check out CTEST/CMAKE documentation.
+    valgrind --leak-check=full --suppressions=<path_to_valgrind.supp> --gen-suppressions=all ./<your_program>
+
+For more details, check out [CTEST](http://www.vtk.org/Wiki/CMake/Testing_With_CTest)/[CMAKE](http://www.cmake.org/) documentation.
+
+
+Notes for valgrind and installing the latest version of valgrind (For FOEDUS Developers)
+--------
+Valgrind is a powerful tool to debug programs, and we keep our program free from memory-leak
+and bogus memory accesses by running valgrind tests periodically (once per hour on Jenkins).
+
+You are also encouraged to run valgrind versions of tests on your machine.
+However, there is one issue in valgrind ~3.8 that makes it quite troublesome.
+
+Valgrind executes programs in a single-threaded fashion. Thus, if your program has an infinite
+loop (eg spinlock) without yielding to other threads, valgrind never finishes the execution.
+This is why we must use our SPINLOCK_WHILE macro and/or put foedus::assorted::spinlock_yield()
+calls in such places (not too much to avoid unnecessary overhead, of course).
+
+Even with these yielding, valgrind ~3.8 sometimes causes an infinite or semi-infinite loop
+in condition variables, or std::condition_variables::wait()/pthread_cond_wait().
+This problem is fixed in valgrind 3.9, and you can see the difference by running
+tests-core/src/foedus/assorted/test_raw_atomics on valgrind 3.8.3 (almost always infinite loop)
+and valgrind 3.9 (always within a few sec).
+
+If you are using a older linux distro (eg Fedora 19 whose latest valgrind in yum repo is 3.8.3),
+we strongly recommend to install latest valgrind from source and use it with the steps below:
+
+* Download the source from [here](http://valgrind.org/downloads/current.html).
+* Usual triplet: "./configure --prefix=/home/yourname/local; make; make install"
+* Cleanly rebuild foedus so that the cmake script finds the newer valgrind installation.
+* (Optional) Edit your environment variable to see /home/yourname/local/bin before /usr/bin.
+
 
 Enabling Transparent Hugepages (For FOEDUS Developers)
 --------

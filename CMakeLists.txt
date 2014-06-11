@@ -74,6 +74,13 @@ set(ENABLE_CPPLINT true)
 # The expensive tests are run on jenkins or manually by developers.
 option(RUN_EXPENSIVE_TESTCASES "Whether to run testcases that take long time and is not essential."  OFF)
 
+# Find valgrind executable. prefer in the following order:
+#  <home_folder>/local/bin/valgrind  (if needed, install a latest version of valgrind to here)
+#  /usr/local/bin/valgrind (or here)
+#  /usr/bin/valgrind  (probably you have this by standard package manager)
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/tests-core/cmake)
+find_package(Valgrind REQUIRED)
+
 # Note 2014 May: The following setting for "ctest -D ExperimentalMemCheck" is obsolete,
 # although still left for future use when ctest supports valgrind-style xml output.
 # We now use "ctest -R valgrind" (run our own valgrind-version targets) for this purpose.
@@ -83,7 +90,7 @@ option(RUN_EXPENSIVE_TESTCASES "Whether to run testcases that take long time and
 set(MEMORYCHECK_SUPPRESSIONS_FILE "${FOEDUS_CORE_SRC_ROOT}/tools/valgrind.supp"
     CACHE FILEPATH "" FORCE)
 configure_file(${MEMORYCHECK_SUPPRESSIONS_FILE} ${FOEDUS_BIN_ROOT}/valgrind.supp COPYONLY)
-set(MEMORYCHECK_COMMAND /usr/bin/valgrind CACHE FILEPATH "" FORCE)
+set(MEMORYCHECK_COMMAND "${VALGRIND_EXEC}" CACHE FILEPATH "" FORCE)
 # Configurations for ctest
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CTestCustom.cmake.in ${CMAKE_BINARY_DIR}/CTestCustom.cmake @ONLY)
 

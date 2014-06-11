@@ -611,11 +611,14 @@ std::ostream& operator<<(std::ostream& o, const Logger& v) {
     }
     o << "</current_file_length_>";
 
+    o << "<epoch_history_count>" << v.epoch_histories_.size() << "</epoch_history_count>";
+    /* too noisy
     o << "<epoch_histories_>";
     for (auto epoch_history : v.epoch_histories_) {
         o << epoch_history;
     }
     o << "</epoch_histories_>";
+    */
     o << "</Logger>";
     return o;
 }

@@ -3,6 +3,7 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <foedus/test_common.hpp>
+#include <foedus/assorted/assorted_func.hpp>
 #include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/assorted/raw_atomics.hpp>
 #include <foedus/thread/rendezvous_impl.hpp>
@@ -34,6 +35,7 @@ struct CasTestImpl {
         }
 
         start_rendezvous_.signal();
+        std::cout << "Started execution" << std::endl;
         for (int i = 0; i < THREADS; ++i) {
             threads_[i].join();
         }
@@ -64,7 +66,7 @@ struct CasTestImpl {
             EXPECT_FALSE(swapped);
             EXPECT_NE(desired, old);
             EXPECT_NE(127, old);
-            while (true) {
+            SPINLOCK_WHILE(true) {
                 T prev_old = old;
                 if (weak_) {
                     swapped = assorted::raw_atomic_compare_exchange_weak<T>(&data_, &old, desired);
@@ -80,6 +82,9 @@ struct CasTestImpl {
                 } else {
                     ++conflicts_;
                     EXPECT_NE(prev_old, old);
+                    // to speed-up valgrind tests.
+                    std::this_thread::sleep_for(std::chrono::seconds(0));
+                    assorted::memory_fence_acq_rel();
                 }
             }
         }

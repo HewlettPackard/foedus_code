@@ -66,7 +66,7 @@ class ConditionVariable final {
         condition_.wait(scope.lock_, predicate);
     }
     /**
-     * @brief Block until the event happens.
+     * @brief Block until the event \b PROBABLY (because this version is w/o pred) happens.
      * @details
      * Equivalent to std::condition_variable::wait().
      */

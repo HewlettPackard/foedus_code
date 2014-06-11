@@ -8,6 +8,6 @@ set(CTEST_CUSTOM_MAXIMUM_FAILED_TEST_OUTPUT_SIZE 10240000)
 
 # The following triplet is respected only since cmake 2.6.
 # http://www.cmake.org/pipermail/cmake/2008-July/022726.html
-set(CTEST_MEMORYCHECK_COMMAND /usr/bin/valgrind)
+set(CTEST_MEMORYCHECK_COMMAND @MEMORYCHECK_COMMAND@)
 set(CTEST_MEMORYCHECK_SUPPRESSIONS_FILE @FOEDUS_BIN_ROOT@/valgrind.supp)
-set(CTEST_MEMORYCHECK_COMMAND_OPTIONS "--xml=yes --xml-file=test_memcheck.xml --leak-check=full --show-leak-kinds=all --gen-suppressions=all")
+set(CTEST_MEMORYCHECK_COMMAND_OPTIONS "--xml=yes --xml-file=test_memcheck.xml --leak-check=full --gen-suppressions=all")
