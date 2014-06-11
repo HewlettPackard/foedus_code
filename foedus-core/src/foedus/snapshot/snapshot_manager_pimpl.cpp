@@ -122,7 +122,8 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
     Epoch previous_epoch = get_snapshot_epoch();
     LOG(INFO) << "Taking a new snapshot. durable_epoch=" << durable_epoch
         << ". previous_snapshot=" << previous_epoch;
-    ASSERT_ND(durable_epoch.is_valid() && durable_epoch > previous_epoch);
+    ASSERT_ND(durable_epoch.is_valid() &&
+        (!previous_epoch.is_valid() || durable_epoch > previous_epoch));
     new_snapshot->base_epoch_ = previous_epoch;
     new_snapshot->valid_until_epoch_ = durable_epoch;
 
