@@ -49,7 +49,7 @@ void ThreadPimpl::handle_tasks() {
     int numa_node = static_cast<int>(decompose_numa_node(id_));
     LOG(INFO) << "Thread-" << id_ << " started running on NUMA node: " << numa_node;
     ::numa_run_on_node(numa_node);
-    // Actual xct processing can't start until all other modules (XctManager=last) are initialized.
+    // Actual xct processing can't start until XctManager is initialized.
     SPINLOCK_WHILE(!raw_thread_.is_stop_requested()
         && !engine_->get_xct_manager().is_initialized()) {
         assorted::memory_fence_acquire();

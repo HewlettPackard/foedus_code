@@ -9,10 +9,15 @@ namespace snapshot {
 SnapshotOptions::SnapshotOptions() {
     folder_path_pattern_ = "snapshots/node_$NODE$/partition_$PARTITION$";
     partitions_per_node_ = 1;
+    snapshot_trigger_page_pool_percent_ = DEFAULT_SNAPSHOT_TRIGGER_PAGE_POOL_PERCENT;
+    snapshot_interval_milliseconds_ = DEFAULT_SNAPSHOT_INTERVAL_MILLISECONDS;
 }
 
 ErrorStack SnapshotOptions::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, folder_path_pattern_);
+    EXTERNALIZE_LOAD_ELEMENT(element, partitions_per_node_);
+    EXTERNALIZE_LOAD_ELEMENT(element, snapshot_trigger_page_pool_percent_);
+    EXTERNALIZE_LOAD_ELEMENT(element, snapshot_interval_milliseconds_);
     CHECK_ERROR(get_child_element(element, "SnapshotDeviceEmulationOptions", &emulation_))
     return RET_OK;
 }
@@ -41,6 +46,11 @@ ErrorStack SnapshotOptions::save(tinyxml2::XMLElement* element) const {
         "This value must be at least 1 (which is also default)."
         " A larger value might be able to employ more CPU power during snapshot construction,"
         " but makes the scatter-gather more fine grained, potentially making it slower.");
+    EXTERNALIZE_SAVE_ELEMENT(element, snapshot_trigger_page_pool_percent_,
+        "When the main page pool runs under this percent (roughly calculated) of free pages,\n"
+        " snapshot manager starts snapshotting to drop volatile pages even before the interval.");
+    EXTERNALIZE_SAVE_ELEMENT(element, snapshot_interval_milliseconds_,
+        "Interval in milliseconds to take snapshots.");
     CHECK_ERROR(add_child_element(element, "SnapshotDeviceEmulationOptions",
                     "[Experiments-only] Settings to emulate slower data device", emulation_));
     return RET_OK;

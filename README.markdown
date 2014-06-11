@@ -8,7 +8,7 @@ for a large number of CPU cores and NVRAM storage. It is a handy C++ library you
 either include in your source code (by invoking CMake script) or dynamically link to.
 In a nutshell, it is something like BerkeleyDB, but it is much more efficient on new hardware.
 
-Folder Structure
+Folder Structure (For Everyone)
 --------
 This root project contains a few sub-projects.
 Some of them are *NOT* supposed to be directly linked from client programs (_your_ programs).
@@ -28,7 +28,8 @@ but note that some restrictions on compiler options apply if you do so.
 libfoedus-core (For FOEDUS Users)
 -----------
 For more details of how your client program links to and uses our library,
-see [foedus-core](foedus-core) and [its API document](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/doxygen/).
+start from [foedus-core](foedus-core) and
+[its API document](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/doxygen/).
 The sections below are for people developping FOEDUS itself.
 
 Current Build Status on Jenkins (For FOEDUS Developers)
@@ -127,7 +128,7 @@ For more details, check out [CTEST](http://www.vtk.org/Wiki/CMake/Testing_With_C
 Notes for valgrind and installing the latest version of valgrind (For FOEDUS Developers)
 --------
 Valgrind is a powerful tool to debug programs, and we keep our program free from memory-leak
-and bogus memory accesses by running valgrind tests periodically (once per hour on Jenkins).
+and bogus memory accesses by regularly running valgrind tests (once per hour on Jenkins).
 
 You are also encouraged to run valgrind versions of tests on your machine.
 However, there is one issue in valgrind ~3.8 that makes it quite troublesome.
@@ -143,13 +144,15 @@ This problem is fixed in valgrind 3.9, and you can see the difference by running
 tests-core/src/foedus/assorted/test_raw_atomics on valgrind 3.8.3 (almost always infinite loop)
 and valgrind 3.9 (always within a few sec).
 
-If you are using a older linux distro (eg Fedora 19 whose latest valgrind in yum repo is 3.8.3),
-we strongly recommend to install latest valgrind from source and use it with the steps below:
+If you are using an older linux distro (eg Fedora 19 whose latest valgrind in yum repo is 3.8.1),
+we strongly recommend to install latest valgrind from source. Follow these steps:
 
 * Download the source from [here](http://valgrind.org/downloads/current.html).
 * Usual triplet: "./configure --prefix=/home/yourname/local; make; make install"
-* Cleanly rebuild foedus so that the cmake script finds the newer valgrind installation.
+* Cleanly rebuild foedus so that our cmake script finds the newer valgrind installation.
+(the cmake script searches in this order: ~/local, /usr/local, /usr)
 * (Optional) Edit your environment variable to see /home/yourname/local/bin before /usr/bin.
+This is useful when you type "valgrind" in terminal, which might not happen often.
 
 
 Enabling Transparent Hugepages (For FOEDUS Developers)

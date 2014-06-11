@@ -11,8 +11,10 @@
 #include <foedus/snapshot/fwd.hpp>
 #include <foedus/snapshot/snapshot.hpp>
 #include <foedus/snapshot/snapshot_id.hpp>
+#include <foedus/thread/condition_variable_impl.hpp>
 #include <foedus/thread/stoppable_thread_impl.hpp>
 #include <atomic>
+#include <chrono>
 #include <vector>
 namespace foedus {
 namespace snapshot {
@@ -26,8 +28,7 @@ namespace snapshot {
 class SnapshotManagerPimpl final : public DefaultInitializable {
  public:
     SnapshotManagerPimpl() = delete;
-    explicit SnapshotManagerPimpl(Engine* engine) : engine_(engine),
-        snapshot_epoch_(Epoch::EPOCH_INVALID), previous_snapshot_id_(NULL_SNAPSHOT_ID) {}
+    explicit SnapshotManagerPimpl(Engine* engine) : engine_(engine) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
@@ -35,6 +36,8 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
     Epoch get_snapshot_epoch_weak() const {
         return Epoch(snapshot_epoch_.load(std::memory_order_relaxed));
     }
+
+    void    trigger_snapshot_immediate(bool wait_completion);
 
     SnapshotId issue_next_snapshot_id() {
         if (previous_snapshot_id_ == NULL_SNAPSHOT_ID) {
@@ -45,6 +48,17 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
         return previous_snapshot_id_;
     }
 
+    /**
+     * @brief Main routine for snapshot_thread_.
+     * @details
+     * This method keeps taking snapshot periodically.
+     * When there are no logs in all the private buffers for a while, it goes into sleep.
+     * This method exits when this object's uninitialize() is called.
+     */
+    void        handle_snapshot();
+    /** handle_snapshot() calls this when it should start snapshotting. */
+    ErrorStack  handle_snapshot_triggered(Epoch *new_snapshot_epoch);
+
     Engine* const           engine_;
 
     /**
@@ -53,6 +67,19 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
      * This is equivalent to snapshots_.back().valid_entil_epoch_ with empty check.
      */
     std::atomic< Epoch::EpochInteger >  snapshot_epoch_;
+
+    /**
+     * When a caller wants to immediately invoke snapshot, it calls (),
+     * which sets this value and then wakes up snapshot_thread_.
+     * snapshot_thread_ sees this value, unsets it, then immediately start snapshotting.
+     */
+    std::atomic<bool>               immediate_snapshot_requested_;
+
+    /**
+     * When snapshot_thread_ took snapshot last time.
+     * Read and written only by snapshot_thread_.
+     */
+    std::chrono::system_clock::time_point   previous_snapshot_time_;
 
     /**
      * ID of previously completed snapshot. NULL_SNAPSHOT_ID if no snapshot has been taken.
@@ -71,6 +98,9 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
      * snapshotting, which consists of several child threads and multiple phases.
      */
     thread::StoppableThread         snapshot_thread_;
+
+    /** Fired (notify_all) whenever snapshotting is completed. */
+    thread::ConditionVariable       snapshot_taken_;
 };
 }  // namespace snapshot
 }  // namespace foedus

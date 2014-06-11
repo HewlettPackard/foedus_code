@@ -115,13 +115,15 @@ Our library is geared to intensively exploit Hugepages via
 (Transparent Huge Pages).
 You should enable THP in *always* mode to maximize its performance.
 Make sure you enable THP (Transparent Huge Page) in *always* mode as follows.
+
     sudo su
     echo always > /sys/kernel/mm/transparent_hugepage/enabled
+
 To check if THP is enabled in always mode, run some experiments
 (e.g. experiments-core/src/foedus/storage/array/readonly_experiment)
 and watch for the value of *AnonHugePages* in /proc/meminfo before/during the experiments.
 
-If the value does not change, you have no enabled THP in always mode.
+If the value does not change, you have not enabled THP in always mode.
 We are consistently seeing *20-25%* of performance difference with and without properly enabled THP.
 If your linux distro does not support THP, the performance will significantly degrade although
 it will run correctly and safely.

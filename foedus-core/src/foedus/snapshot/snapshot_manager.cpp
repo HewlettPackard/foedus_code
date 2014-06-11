@@ -23,5 +23,9 @@ Epoch SnapshotManager::get_snapshot_epoch_weak() const {
     return pimpl_->get_snapshot_epoch_weak();
 }
 
+void SnapshotManager::trigger_snapshot_immediate(bool wait_completion) {
+    pimpl_->trigger_snapshot_immediate(wait_completion);
+}
+
 }  // namespace snapshot
 }  // namespace foedus

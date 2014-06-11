@@ -17,6 +17,11 @@ namespace snapshot {
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
 struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable {
+    enum Constants {
+        DEFAULT_SNAPSHOT_TRIGGER_PAGE_POOL_PERCENT = 100,
+        DEFAULT_SNAPSHOT_INTERVAL_MILLISECONDS = 60000,
+    };
+
     /**
      * Constructs option values with default values.
      */
@@ -54,6 +59,19 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
      * but makes the scatter-gather more fine grained, potentially making it slower.
      */
     uint16_t                            partitions_per_node_;
+
+    /**
+     * When the main page pool runs under this percent (roughly calculated) of free pages,
+     * snapshot manager starts snapshotting to drop volatile pages even before the interval.
+     * Default is 100 (no check).
+     */
+    uint16_t                            snapshot_trigger_page_pool_percent_;
+
+    /**
+     * Interval in milliseconds to take snapshots.
+     * Default is one minute.
+     */
+    uint32_t                            snapshot_interval_milliseconds_;
 
     /** Settings to emulate slower data device. */
     foedus::fs::DeviceEmulationOptions  emulation_;

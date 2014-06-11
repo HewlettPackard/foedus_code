@@ -131,7 +131,7 @@ ErrorStack Logger::uninitialize_once() {
 void Logger::handle_logger() {
     LOG(INFO) << "Logger-" << id_ << " started. pin on NUMA node-" << static_cast<int>(numa_node_);
     ::numa_run_on_node(numa_node_);
-    // The actual logging can't start until all other modules (XctManager=last) are initialized.
+    // The actual logging can't start XctManager is initialized.
     SPINLOCK_WHILE(!logger_thread_.is_stop_requested()
         && !engine_->get_xct_manager().is_initialized()) {
         assorted::memory_fence_acquire();

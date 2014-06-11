@@ -36,6 +36,15 @@ class SnapshotManager CXX11_FINAL : public virtual Initializable {
     /** Non-atomic version. */
     Epoch get_snapshot_epoch_weak() const;
 
+    /**
+     * @brief Immediately take a snapshot
+     * @param[in] wait_completion whether to block until the completion of entire snapshotting
+     * @details
+     * This method is used to immediately take snapshot for either recovery or memory-saving
+     * purpose.
+     */
+    void    trigger_snapshot_immediate(bool wait_completion);
+
  private:
     SnapshotManagerPimpl *pimpl_;
 };
