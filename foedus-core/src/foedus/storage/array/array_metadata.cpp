@@ -23,13 +23,13 @@ ErrorStack ArrayMetadata::save(tinyxml2::XMLElement* element) const {
     return RET_OK;
 }
 
-Metadata* ArrayMetadata::duplicate() const {
-    ArrayMetadata* duplicated = new ArrayMetadata();
-    duplicate_base(duplicated);
-    duplicated->payload_size_ = payload_size_;
-    duplicated->array_size_ = array_size_;
-    duplicated->root_page_id_ = root_page_id_;
-    return duplicated;
+Metadata* ArrayMetadata::clone() const {
+    ArrayMetadata* cloned = new ArrayMetadata();
+    clone_base(cloned);
+    cloned->payload_size_ = payload_size_;
+    cloned->array_size_ = array_size_;
+    cloned->root_page_id_ = root_page_id_;
+    return cloned;
 }
 
 

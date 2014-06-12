@@ -53,7 +53,7 @@ class StorageManagerPimpl final : public DefaultInitializable {
     ErrorStack  create_array_impersonate(const std::string &name, uint16_t payload_size,
                 array::ArrayOffset array_size, array::ArrayStorage **out, Epoch *commit_epoch);
 
-    ErrorStack  duplicate_all_storage_metadata(snapshot::SnapshotMetadata *metadata);
+    ErrorStack  clone_all_storage_metadata(snapshot::SnapshotMetadata *metadata);
 
     Engine* const           engine_;
 

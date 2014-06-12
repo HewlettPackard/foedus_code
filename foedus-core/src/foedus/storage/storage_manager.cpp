@@ -41,8 +41,8 @@ ErrorStack StorageManager::create_array_impersonate(const std::string& name, uin
     return pimpl_->create_array_impersonate(name, payload_size, array_size, out, commit_epoch);
 }
 
-ErrorStack StorageManager::duplicate_all_storage_metadata(snapshot::SnapshotMetadata *metadata) {
-    return pimpl_->duplicate_all_storage_metadata(metadata);
+ErrorStack StorageManager::clone_all_storage_metadata(snapshot::SnapshotMetadata *metadata) {
+    return pimpl_->clone_all_storage_metadata(metadata);
 }
 
 }  // namespace storage

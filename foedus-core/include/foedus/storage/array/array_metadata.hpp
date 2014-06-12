@@ -31,7 +31,7 @@ struct ArrayMetadata CXX11_FINAL : public virtual Metadata {
     }
     EXTERNALIZABLE(ArrayMetadata);
 
-    Metadata* duplicate() const CXX11_OVERRIDE;
+    Metadata* clone() const CXX11_OVERRIDE;
 
     /** byte size of one record in this array storage without internal overheads */
     uint16_t            payload_size_;

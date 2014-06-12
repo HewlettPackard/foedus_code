@@ -44,11 +44,11 @@ struct SnapshotMetadata CXX11_FINAL : public virtual externalize::Externalizable
      * SnapshotMetadata \b owns the pointed objects, so these will be deleted when this vector
      * is cleared. Thus, you must not put a pointer to an existing
      * metadata object owned by existing storage.
-     * You should call "duplicate()" method of them to obtain a copy of it.
+     * You should call "clone()" method of them to obtain a copy of it.
      * The reason why SnapshotMetadata these objects is that there aren't any backing storage
      * object of the metadata when we are loading SnapshotMetadata from an xml file.
      * So, SnapshotMetadata must be an independent object.
-     * @see foedus::storage::Metadata::duplicate()
+     * @see foedus::storage::Metadata::clone()
      */
     std::vector< storage::Metadata* > storage_metadata_;
 

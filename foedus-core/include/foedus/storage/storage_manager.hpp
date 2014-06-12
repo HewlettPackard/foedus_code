@@ -99,12 +99,12 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
 
 
     /**
-     * This method is called during snapshotting to duplicate metadata of all existing storages
+     * This method is called during snapshotting to clone metadata of all existing storages
      * to the given object. So far, this method is not quite optimized for the case where
      * there are many thousands of storages. There are many other things to do before that,
      * but at some point we must do something.
      */
-    ErrorStack  duplicate_all_storage_metadata(snapshot::SnapshotMetadata *metadata);
+    ErrorStack  clone_all_storage_metadata(snapshot::SnapshotMetadata *metadata);
 
     /** Returns pimpl object. Use this only if you know what you are doing. */
     StorageManagerPimpl* get_pimpl() { return pimpl_; }

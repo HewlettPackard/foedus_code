@@ -148,7 +148,7 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(Snapshot *new_snapshot) {
     metadata.id_ = new_snapshot->id_;
     metadata.base_epoch_ = new_snapshot->base_epoch_.value();
     metadata.valid_until_epoch_ = new_snapshot->valid_until_epoch_.value();
-    CHECK_ERROR(engine_->get_storage_manager().duplicate_all_storage_metadata(&metadata));
+    CHECK_ERROR(engine_->get_storage_manager().clone_all_storage_metadata(&metadata));
 
     // save it to a file
     fs::Path folder(get_option().get_primary_folder_path());

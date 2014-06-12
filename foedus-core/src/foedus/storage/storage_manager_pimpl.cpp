@@ -291,7 +291,7 @@ ErrorStack StorageManagerPimpl::create_array_impersonate(const std::string& name
     return RET_OK;
 }
 
-ErrorStack StorageManagerPimpl::duplicate_all_storage_metadata(
+ErrorStack StorageManagerPimpl::clone_all_storage_metadata(
     snapshot::SnapshotMetadata *metadata) {
     debugging::StopWatch stop_watch;
     StorageId largest_storage_id_copy = largest_storage_id_;
@@ -301,7 +301,7 @@ ErrorStack StorageManagerPimpl::duplicate_all_storage_metadata(
         // "pseudo-delete" flag, which is not implemented yet.
         // Otherwise, we can't easily treat storage deletion in an epoch in-between two snapshots.
         if (storages_[id]) {
-            metadata->storage_metadata_.push_back(storages_[id]->get_metadata()->duplicate());
+            metadata->storage_metadata_.push_back(storages_[id]->get_metadata()->clone());
         }
     }
     stop_watch.stop();

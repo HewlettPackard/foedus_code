@@ -41,17 +41,17 @@ struct Metadata : public virtual externalize::Externalizable {
     /**
      * Constructs an equivalent metadata object and returns a pointer to it.
      */
-    virtual Metadata* duplicate() const = 0;
+    virtual Metadata* clone() const = 0;
 
     /** common routine for the implementation of load() */
     ErrorStack load_base(tinyxml2::XMLElement* element);
     /** common routine for the implementation of save() */
     ErrorStack save_base(tinyxml2::XMLElement* element) const;
     /** common routine for the implementation of duplicate() */
-    void duplicate_base(Metadata* duplicated) const {
-        duplicated->id_ = id_;
-        duplicated->type_ = type_;
-        duplicated->name_ = name_;
+    void clone_base(Metadata* cloned) const {
+        cloned->id_ = id_;
+        cloned->type_ = type_;
+        cloned->name_ = name_;
     }
 
     /** the unique ID of this storage. */
