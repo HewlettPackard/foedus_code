@@ -23,8 +23,20 @@ ErrorStack Metadata::save_base(tinyxml2::XMLElement* element) const {
 }
 
 Metadata* Metadata::create_instance(tinyxml2::XMLElement* metadata_xml) {
-    StorageType type = static_cast<StorageType>(metadata_xml->IntAttribute("type_"));
-    // if any error happens in tinyxml2, it returns 0, which is INVALID_STORAGE
+    int type_int = 0;
+    tinyxml2::XMLElement* element = metadata_xml->FirstChildElement("type_");
+    if (element) {
+        tinyxml2::XMLError ret = element->QueryIntText(&type_int);
+        if (ret != tinyxml2::XML_SUCCESS) {
+            LOG(FATAL) << "Failed to parse storage type in metadata xml: tinyxml2 ret=" << ret;
+            return nullptr;
+        }
+    } else {
+        LOG(FATAL) << "Missing storage type in metadata xml";
+        return nullptr;
+    }
+
+    StorageType type = static_cast<StorageType>(type_int);
     switch (type) {
         case ARRAY_STORAGE:
             return new array::ArrayMetadata();

@@ -23,6 +23,14 @@ Epoch SnapshotManager::get_snapshot_epoch_weak() const {
     return pimpl_->get_snapshot_epoch_weak();
 }
 
+SnapshotId SnapshotManager::get_previous_snapshot_id() const {
+    return pimpl_->get_previous_snapshot_id();
+}
+
+SnapshotId SnapshotManager::get_previous_snapshot_id_weak() const {
+    return pimpl_->get_previous_snapshot_id_weak();
+}
+
 void SnapshotManager::trigger_snapshot_immediate(bool wait_completion) {
     pimpl_->trigger_snapshot_immediate(wait_completion);
 }

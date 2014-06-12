@@ -41,6 +41,11 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
         return Epoch(snapshot_epoch_.load(std::memory_order_relaxed));
     }
 
+    SnapshotId get_previous_snapshot_id() const { return previous_snapshot_id_.load(); }
+    SnapshotId get_previous_snapshot_id_weak() const {
+        return previous_snapshot_id_.load(std::memory_order_relaxed);
+    }
+
     void    trigger_snapshot_immediate(bool wait_completion);
 
     SnapshotId issue_next_snapshot_id() {
@@ -103,7 +108,7 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
      * ID of previously completed snapshot. NULL_SNAPSHOT_ID if no snapshot has been taken.
      * Used to issue a next snapshot ID.
      */
-    SnapshotId                      previous_snapshot_id_;
+    std::atomic<SnapshotId>         previous_snapshot_id_;
 
     /**
      * All previously taken snapshots.

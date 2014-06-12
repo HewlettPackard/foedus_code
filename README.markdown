@@ -141,8 +141,8 @@ calls in such places (not too much to avoid unnecessary overhead, of course).
 Even with these yielding, valgrind ~3.8 sometimes causes an infinite or semi-infinite loop
 in condition variables, or std::condition_variables::wait()/pthread_cond_wait().
 This problem is fixed in valgrind 3.9, and you can see the difference by running
-tests-core/src/foedus/assorted/test_raw_atomics on valgrind 3.8.3 (almost always infinite loop)
-and valgrind 3.9 (always within a few sec).
+tests-core/src/foedus/assorted/test_raw_atomics on valgrind 3.8.1 (almost always infinite loop)
+and valgrind 3.9.0 (always within a few sec).
 
 If you are using an older linux distro (eg Fedora 19 whose latest valgrind in yum repo is 3.8.1),
 we strongly recommend to install latest valgrind from source. Follow these steps:
@@ -159,6 +159,22 @@ Enabling Transparent Hugepages (For FOEDUS Developers)
 --------
 Make sure you enable THP (Transparent Huge Page) in *always* mode.
 See the section in [foedus-core](foedus-core).
+
+
+Git Push/Branch Convention (For FOEDUS Developers)
+--------
+We follow the [git-flow](http://nvie.com/posts/a-successful-git-branching-model/) convention.
+Never ever directly push to *master* branch (most likely you do not have the permission anyways).
+
+Each person should usually work on her/his own branch made from *develop* branch.
+On your own branch, do what you want. We recommend to run at least non-valgrind testcases
+either on *relwithdebinfo* or *debug* before commit, but it is really up to you.
+
+Before pushing to *develop* branch, you must pass all testcases on *relwithdebinfo*, *debug*,
+and *release*, preferrably including valgrind versions (not mandatory if you
+are in hurry). But, if Jenkins reports an error on develop branch, others will yell at you.
+
+Hideaki will push to *master* from *develop*.
 
 Coding Convention (For FOEDUS Developers)
 --------
