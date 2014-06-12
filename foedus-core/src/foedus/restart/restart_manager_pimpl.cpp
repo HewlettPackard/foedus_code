@@ -30,7 +30,7 @@ ErrorStack RestartManagerPimpl::uninitialize_once() {
     if (!engine_->get_xct_manager().is_initialized()) {
         batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
     }
-    return RET_OK;
+    return SUMMARIZE_ERROR_BATCH(batch);
 }
 
 ErrorStack RestartManagerPimpl::recover() {

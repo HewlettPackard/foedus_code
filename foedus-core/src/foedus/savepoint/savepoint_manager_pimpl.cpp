@@ -40,7 +40,7 @@ ErrorStack SavepointManagerPimpl::initialize_once() {
 ErrorStack SavepointManagerPimpl::uninitialize_once() {
     LOG(INFO) << "Uninitializing SavepointManager..";
     ErrorStackBatch batch;
-    return RET_OK;
+    return SUMMARIZE_ERROR_BATCH(batch);
 }
 
 ErrorStack SavepointManagerPimpl::take_savepoint(Epoch new_global_durable_epoch) {

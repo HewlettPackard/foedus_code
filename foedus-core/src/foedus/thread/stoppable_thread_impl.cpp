@@ -45,16 +45,28 @@ void StoppableThread::wakeup() {
 }
 
 void StoppableThread::stop() {
-    LOG(INFO) << "Stopping " << name_ << "...";
-    if (started_ && !is_stopped()) {
-        condition_.notify_one([this]{ stop_requested_ = true; });
-        LOG(INFO) << "Joining " << name_ << "...";
-        thread_.join();
-        LOG(INFO) << "Joined " << name_;
-    }
-    stopped_ = true;
-    LOG(INFO) << "Successfully Stopped " << name_;
+    requst_stop();
+    wait_for_stop();
 }
+void StoppableThread::requst_stop() {
+    if (started_ && !is_stopped() && !is_stop_requested()) {
+        LOG(INFO) << "Requesting to stop " << name_ << "...";
+        condition_.notify_one([this]{ stop_requested_ = true; });
+        LOG(INFO) << "Requested to stop " << name_;
+    } else {
+        LOG(INFO) << "Already requested to stop: " << name_;
+    }
+}
+
+void StoppableThread::wait_for_stop() {
+    if (started_ && !is_stopped()) {
+        LOG(INFO) << "Stopping " << name_ << "...";
+        thread_.join();
+        LOG(INFO) << "Successfully Stopped " << name_;
+        stopped_ = true;
+    }
+}
+
 
 }  // namespace thread
 }  // namespace foedus

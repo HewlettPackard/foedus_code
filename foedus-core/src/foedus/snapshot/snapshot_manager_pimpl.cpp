@@ -46,7 +46,7 @@ ErrorStack SnapshotManagerPimpl::uninitialize_once() {
         batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
     }
     snapshot_thread_.stop();
-    return RET_OK;
+    return SUMMARIZE_ERROR_BATCH(batch);
 }
 
 void SnapshotManagerPimpl::handle_snapshot() {
@@ -137,6 +137,18 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
     LOG(INFO) << "Issued ID for this snapshot:" << snapshot_id;
     new_snapshot->id_ = snapshot_id;
 
+    // okay, let's start the snapshotting.
+    // The procedures below will take long time, so we keep checking our "is_stop_requested"
+    // and stops our child threads when it happens.
+
+    // First, we determine partitioning policy for each storage so that we can scatter-gather
+    // logs to each partition.
+
+    // Second, we initiate log gleaners that do scatter-gather and consume the logs.
+    // This will create snapshot files at each partition and tell us the new root pages of
+    // each storage.
+
+    // Finally, write out the metadata file.
     CHECK_ERROR(snapshot_metadata(new_snapshot));
 
     return RET_OK;

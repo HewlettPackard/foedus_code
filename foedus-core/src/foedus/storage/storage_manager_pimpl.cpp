@@ -70,7 +70,7 @@ ErrorStack StorageManagerPimpl::uninitialize_once() {
         delete[] storages_;
         storages_ = nullptr;
     }
-    return RET_OK;
+    return SUMMARIZE_ERROR_BATCH(batch);
 }
 
 StorageId StorageManagerPimpl::issue_next_storage_id() {

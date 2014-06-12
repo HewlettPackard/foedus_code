@@ -135,8 +135,8 @@ However, there is one issue in valgrind ~3.8 that makes it quite troublesome.
 
 Valgrind executes programs in a single-threaded fashion. Thus, if your program has an infinite
 loop (eg spinlock) without yielding to other threads, valgrind never finishes the execution.
-This is why we must use our SPINLOCK_WHILE macro and/or put foedus::assorted::spinlock_yield()
-calls in such places (not too much to avoid unnecessary overhead, of course).
+This is why we must use our SPINLOCK_WHILE macro in such places, which occasionally calls
+foedus::assorted::spinlock_yield() (not too much to avoid unnecessary overhead, of course).
 
 Even with these yielding, valgrind ~3.8 sometimes causes an infinite or semi-infinite loop
 in condition variables, or std::condition_variables::wait()/pthread_cond_wait().

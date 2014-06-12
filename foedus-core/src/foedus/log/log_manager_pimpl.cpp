@@ -79,7 +79,7 @@ ErrorStack LogManagerPimpl::uninitialize_once() {
         batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
     }
     batch.uninitialize_and_delete_all(&loggers_);
-    return RET_OK;
+    return SUMMARIZE_ERROR_BATCH(batch);
 }
 void LogManagerPimpl::wakeup_loggers() {
     for (Logger* logger : loggers_) {

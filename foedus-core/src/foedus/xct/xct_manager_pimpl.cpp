@@ -51,7 +51,7 @@ ErrorStack XctManagerPimpl::uninitialize_once() {
         batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
     }
     epoch_advance_thread_.stop();
-    return RET_OK;
+    return SUMMARIZE_ERROR_BATCH(batch);
 }
 
 void XctManagerPimpl::handle_epoch_advance() {

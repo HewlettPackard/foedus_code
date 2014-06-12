@@ -124,7 +124,7 @@ ErrorStack Logger::uninitialize_once() {
         current_file_ = nullptr;
     }
     fill_buffer_.release_block();
-    return RET_OK;
+    return SUMMARIZE_ERROR_BATCH(batch);
 }
 
 
@@ -194,6 +194,9 @@ ErrorStack Logger::handle_logger_once(bool *more_log_to_process) {
             continue;
         }
 
+        // we skip log buffer that went faster than others.
+        // this guarantees that all log entries in this log file are ordered by epoch,
+        // which simplifies log gleaners.
         if (buffer.logger_epoch_ > current_logger_epoch) {
             VLOG(0) << "Thread-" << the_thread->get_thread_id() << " already went to ep-"
                 << buffer.logger_epoch_ << ". skip it. current=" << current_logger_epoch;
