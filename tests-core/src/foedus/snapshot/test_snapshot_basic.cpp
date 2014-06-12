@@ -45,8 +45,8 @@ TEST(SnapshotBasicTest, Empty) {
         SnapshotMetadata metadata;
         COERCE_ERROR(read_metadata_file(&engine, &metadata));
         EXPECT_EQ(engine.get_snapshot_manager().get_previous_snapshot_id(), metadata.id_);
-        EXPECT_EQ(INVALID_EPOCH, Epoch(metadata.base_epoch_));
-        EXPECT_EQ(Epoch::EPOCH_INITIAL_DURABLE, metadata.valid_until_epoch_);
+        EXPECT_EQ(Epoch::EPOCH_INVALID, metadata.base_epoch_);
+        EXPECT_NE(Epoch::EPOCH_INVALID, metadata.valid_until_epoch_);
         EXPECT_EQ(0, metadata.storage_metadata_.size());
 
         COERCE_ERROR(engine.uninitialize());
