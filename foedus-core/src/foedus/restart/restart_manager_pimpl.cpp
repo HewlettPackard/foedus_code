@@ -16,7 +16,7 @@ namespace restart {
 ErrorStack RestartManagerPimpl::initialize_once() {
     LOG(INFO) << "Initializing RestartManager..";
      if (!engine_->get_xct_manager().is_initialized()) {
-        return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
+        return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
     }
 
     // after all other initializations, we trigger recovery procedure.
@@ -28,7 +28,7 @@ ErrorStack RestartManagerPimpl::uninitialize_once() {
     LOG(INFO) << "Uninitializing RestartManager..";
     ErrorStackBatch batch;
     if (!engine_->get_xct_manager().is_initialized()) {
-        batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
+        batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
     }
     return SUMMARIZE_ERROR_BATCH(batch);
 }

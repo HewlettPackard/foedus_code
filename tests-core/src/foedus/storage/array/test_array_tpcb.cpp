@@ -197,7 +197,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
                     }
                     prev_xct_id = context->get_current_xct().get_id();
                     break;
-                } else if (error_stack.get_error_code() == ERROR_CODE_XCT_RACE_ABORT) {
+                } else if (error_stack.get_error_code() == kErrorCodeXctRaceAbort) {
                     // abort and retry
                     if (context->get_current_xct().is_active()) {
                         CHECK_ERROR(xct_manager.abort_xct(context));

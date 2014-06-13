@@ -27,7 +27,7 @@ const SnapshotOptions& SnapshotManagerPimpl::get_option() const {
 ErrorStack SnapshotManagerPimpl::initialize_once() {
     LOG(INFO) << "Initializing SnapshotManager..";
      if (!engine_->get_log_manager().is_initialized()) {
-        return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
+        return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
     }
     snapshot_epoch_.store(Epoch::kEpochInvalid);
     // TODO(Hideaki): get snapshot status from savepoint
@@ -44,7 +44,7 @@ ErrorStack SnapshotManagerPimpl::uninitialize_once() {
     LOG(INFO) << "Uninitializing SnapshotManager..";
     ErrorStackBatch batch;
     if (!engine_->get_log_manager().is_initialized()) {
-        batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
+        batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
     }
     snapshot_thread_.stop();
     return SUMMARIZE_ERROR_BATCH(batch);
@@ -173,7 +173,7 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(Snapshot *new_snapshot) {
     if (!fs::exists(folder)) {
         if (!fs::create_directories(folder, true)) {
             LOG(ERROR) << "Failed to create directory:" << folder << ". check permission.";
-            return ERROR_STACK(ERROR_CODE_FS_MKDIR_FAILED);
+            return ERROR_STACK(kErrorCodeFsMkdirFailed);
         }
     }
 

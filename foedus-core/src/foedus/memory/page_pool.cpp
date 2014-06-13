@@ -108,7 +108,7 @@ storage::VolatilePagePointer RoundRobinPageGrabBatch::grab() {
                 break;
             }
 
-            if (code == ERROR_CODE_MEMORY_NO_FREE_PAGES) {
+            if (code == kErrorCodeMemoryNoFreePages) {
                 LOG(WARNING) << "NUMA node-" << current_node_ << " has no more free pages."
                     << " trying another node..";
                 if (current_node_ == old) {

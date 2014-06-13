@@ -42,7 +42,7 @@ namespace foedus {
  * @code{.cpp}
  * ErrorStack your_func() {
  *   if (out-of-memory-observed) {
- *      return ERROR_STACK(ERROR_CODE_OUTOFMEMORY);
+ *      return ERROR_STACK(kErrorCodeOutofmemory);
  *   }
  *   CHECK_ERROR(another_func());
  *   CHECK_ERROR(yet_another_func());

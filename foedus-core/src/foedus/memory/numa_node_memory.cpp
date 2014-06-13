@@ -131,7 +131,7 @@ ErrorStack NumaNodeMemory::allocate_numa_memory(size_t size, AlignedMemory *out)
     ASSERT_ND(out);
     out->alloc(size, 1 << 12, AlignedMemory::kNumaAllocOnnode, numa_node_);
     if (out->is_null()) {
-        return ERROR_STACK(ERROR_CODE_OUTOFMEMORY);
+        return ERROR_STACK(kErrorCodeOutofmemory);
     }
     return kRetOk;
 }

@@ -155,7 +155,7 @@ class DefaultInitializable : public virtual Initializable {
      */
     ErrorStack  initialize() CXX11_OVERRIDE CXX11_FINAL {
         if (is_initialized()) {
-            return ERROR_STACK(ERROR_CODE_ALREADY_INITIALIZED);
+            return ERROR_STACK(kErrorCodeAlreadyInitialized);
         }
         ErrorStack init_error = initialize_once();
         if (init_error.is_error()) {

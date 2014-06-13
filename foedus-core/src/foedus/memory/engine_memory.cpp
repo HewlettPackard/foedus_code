@@ -17,9 +17,9 @@ namespace memory {
 ErrorStack EngineMemory::initialize_once() {
     LOG(INFO) << "Initializing EngineMemory..";
     if (!engine_->get_debug().is_initialized()) {
-        return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
+        return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
     } else if (::numa_available() < 0) {
-        return ERROR_STACK(ERROR_CODE_MEMORY_NUMA_UNAVAILABLE);
+        return ERROR_STACK(kErrorCodeMemoryNumaUnavailable);
     }
     ASSERT_ND(node_memories_.empty());
     const EngineOptions& options = engine_->get_options();
@@ -30,7 +30,7 @@ ErrorStack EngineMemory::initialize_once() {
         * storage::kPageSize;
     if ((static_cast<uint64_t>(options.memory_.page_pool_size_mb_per_node_)
             * options.thread_.group_count_ << 20) < minimal_page_pool) {
-        return ERROR_STACK(ERROR_CODE_MEMORY_PAGE_POOL_TOO_SMALL);
+        return ERROR_STACK(kErrorCodeMemoryPagePoolTooSmall);
     }
 
     thread::ThreadGroupId numa_nodes = options.thread_.group_count_;
@@ -60,7 +60,7 @@ ErrorStack EngineMemory::uninitialize_once() {
     LOG(INFO) << "Uninitializing EngineMemory..";
     ErrorStackBatch batch;
     if (!engine_->get_debug().is_initialized()) {
-        batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
+        batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
     }
 
     batch.uninitialize_and_delete_all(&node_memories_);

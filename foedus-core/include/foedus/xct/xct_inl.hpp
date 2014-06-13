@@ -37,7 +37,7 @@ inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record
         || isolation_level_ == DIRTY_READ_PREFER_VOLATILE) {
         return kErrorCodeOk;
     } else if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
-        return ERROR_CODE_XCT_READ_SET_OVERFLOW;
+        return kErrorCodeXctReadSetOverflow;
     }
 
     ASSERT_ND(record->owner_id_.is_valid());
@@ -78,7 +78,7 @@ inline ErrorCode Xct::read_record(storage::Storage* storage, storage::Record* re
         ASSERT_ND(read_set_size_ > 0);
         if (!read_set_[read_set_size_ - 1].observed_owner_id_.equals_all(record->owner_id_)) {
             // this means we might have read something half-updated. abort now.
-            return ERROR_CODE_XCT_RACE_ABORT;
+            return kErrorCodeXctRaceAbort;
         }
     }
     return kErrorCodeOk;
@@ -99,7 +99,7 @@ inline ErrorCode Xct::read_record_primitive(storage::Storage* storage, storage::
         assorted::memory_fence_consume();
         ASSERT_ND(read_set_size_ > 0);
         if (!read_set_[read_set_size_ - 1].observed_owner_id_.equals_all(record->owner_id_)) {
-            return ERROR_CODE_XCT_RACE_ABORT;
+            return kErrorCodeXctRaceAbort;
         }
     }
     return kErrorCodeOk;
@@ -112,7 +112,7 @@ inline ErrorCode Xct::add_to_write_set(storage::Storage* storage, storage::Recor
     ASSERT_ND(record);
     ASSERT_ND(log_entry);
     if (UNLIKELY(write_set_size_ >= max_write_set_size_)) {
-        return ERROR_CODE_XCT_WRITE_SET_OVERFLOW;
+        return kErrorCodeXctWriteSetOverflow;
     }
 
 #ifndef NDEBUG

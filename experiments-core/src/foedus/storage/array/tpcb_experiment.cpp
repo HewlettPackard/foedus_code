@@ -139,7 +139,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
                     branch_id, teller_id, account_id, history_id, amount);
                 if (!error_stack.is_error()) {
                     break;
-                } else if (error_stack.get_error_code() == ERROR_CODE_XCT_RACE_ABORT) {
+                } else if (error_stack.get_error_code() == kErrorCodeXctRaceAbort) {
                     // abort and retry
                     if (context->is_running_xct()) {
                         CHECK_ERROR(xct_manager.abort_xct(context));

@@ -39,7 +39,7 @@ void Externalizable::save_to_stream(std::ostream* ptr) const {
 ErrorStack Externalizable::load_from_file(const fs::Path& path) {
     tinyxml2::XMLDocument document;
     if (!fs::exists(path)) {
-        return ERROR_STACK_MSG(ERROR_CODE_CONF_FILE_NOT_FOUNT, path.c_str());
+        return ERROR_STACK_MSG(kErrorCodeConfFileNotFount, path.c_str());
     }
 
     tinyxml2::XMLError load_error = document.LoadFile(path.c_str());
@@ -48,9 +48,9 @@ ErrorStack Externalizable::load_from_file(const fs::Path& path) {
         custom_message << "problemtic file=" << path << ", tinyxml2 error=" << load_error
              << ", GetErrorStr1()=" << document.GetErrorStr1()
              << ", GetErrorStr2()=" << document.GetErrorStr2();
-        return ERROR_STACK_MSG(ERROR_CODE_CONF_PARSE_FAILED, custom_message.str().c_str());
+        return ERROR_STACK_MSG(kErrorCodeConfParseFailed, custom_message.str().c_str());
     } else if (!document.RootElement()) {
-        return ERROR_STACK_MSG(ERROR_CODE_CONF_EMPTY_XML, path.c_str());
+        return ERROR_STACK_MSG(kErrorCodeConfEmptyXml, path.c_str());
     } else {
         CHECK_ERROR(load(document.RootElement()));
     }
@@ -72,7 +72,7 @@ ErrorStack Externalizable::save_to_file(const fs::Path& path) const {
             std::stringstream custom_message;
             custom_message << "file=" << path << ", folder=" << folder
                 << ", err=" << assorted::os_error();
-            return ERROR_STACK_MSG(ERROR_CODE_CONF_MKDIRS_FAILED, custom_message.str().c_str());
+            return ERROR_STACK_MSG(kErrorCodeConfMkdirsFailed, custom_message.str().c_str());
         }
     }
 
@@ -87,14 +87,14 @@ ErrorStack Externalizable::save_to_file(const fs::Path& path) const {
         custom_message << "problemtic file=" << path << ", tinyxml2 error=" << save_error
              << ", GetErrorStr1()=" << document.GetErrorStr1()
              << ", GetErrorStr2()=" << document.GetErrorStr2();
-        return ERROR_STACK_MSG(ERROR_CODE_CONF_COULD_NOT_WRITE, custom_message.str().c_str());
+        return ERROR_STACK_MSG(kErrorCodeConfCouldNotWrite, custom_message.str().c_str());
     }
 
     if (!fs::durable_atomic_rename(tmp_path, path)) {
         std::stringstream custom_message;
         custom_message << "dest file=" << path << ", src file=" << tmp_path
             << ", err=" << assorted::os_error();
-        return ERROR_STACK_MSG(ERROR_CODE_CONF_COULD_NOT_RENAME, custom_message.str().c_str());
+        return ERROR_STACK_MSG(kErrorCodeConfCouldNotRename, custom_message.str().c_str());
     }
 
     return kRetOk;
@@ -183,14 +183,14 @@ ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::
         if (xml_error == tinyxml2::XML_SUCCESS) {
             return kRetOk;
         } else {
-            return ERROR_STACK_MSG(ERROR_CODE_CONF_INVALID_ELEMENT, tag.c_str());
+            return ERROR_STACK_MSG(kErrorCodeConfInvalidElement, tag.c_str());
         }
     } else {
         if (optional) {
             *out = default_value;
             return kRetOk;
         } else {
-            return ERROR_STACK_MSG(ERROR_CODE_CONF_MISSING_ELEMENT, tag.c_str());
+            return ERROR_STACK_MSG(kErrorCodeConfMissingElement, tag.c_str());
         }
     }
 }
@@ -219,11 +219,11 @@ ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::
         if (xml_error == tinyxml2::XML_SUCCESS) {
             out->push_back(tmp);  // vector<bool> doesn't support emplace_back!
         } else {
-            return ERROR_STACK_MSG(ERROR_CODE_CONF_INVALID_ELEMENT, tag.c_str());
+            return ERROR_STACK_MSG(kErrorCodeConfInvalidElement, tag.c_str());
         }
     }
     if (out->size() == 0 && !optional) {
-        return ERROR_STACK_MSG(ERROR_CODE_CONF_MISSING_ELEMENT, tag.c_str());
+        return ERROR_STACK_MSG(kErrorCodeConfMissingElement, tag.c_str());
     }
     return kRetOk;
 }
@@ -244,7 +244,7 @@ ErrorStack Externalizable::get_child_element(tinyxml2::XMLElement* parent, const
         if (optional) {
             return kRetOk;
         } else {
-            return ERROR_STACK_MSG(ERROR_CODE_CONF_MISSING_ELEMENT, tag.c_str());
+            return ERROR_STACK_MSG(kErrorCodeConfMissingElement, tag.c_str());
         }
     }
 }

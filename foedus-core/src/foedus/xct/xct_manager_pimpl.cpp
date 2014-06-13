@@ -33,7 +33,7 @@ namespace xct {
 ErrorStack XctManagerPimpl::initialize_once() {
     LOG(INFO) << "Initializing XctManager..";
     if (!engine_->get_storage_manager().is_initialized()) {
-        return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
+        return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
     }
     const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
     current_global_epoch_ = savepoint.get_current_epoch().value();
@@ -48,7 +48,7 @@ ErrorStack XctManagerPimpl::uninitialize_once() {
     LOG(INFO) << "Uninitializing XctManager..";
     ErrorStackBatch batch;
     if (!engine_->get_storage_manager().is_initialized()) {
-        batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
+        batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
     }
     epoch_advance_thread_.stop();
     return SUMMARIZE_ERROR_BATCH(batch);
@@ -101,7 +101,7 @@ ErrorStack XctManagerPimpl::wait_for_commit(Epoch commit_epoch, int64_t wait_mic
 ErrorStack XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel isolation_level) {
     Xct& current_xct = context->get_current_xct();
     if (current_xct.is_active()) {
-        return ERROR_STACK(ERROR_CODE_XCT_ALREADY_RUNNING);
+        return ERROR_STACK(kErrorCodeXctAlreadyRunning);
     }
     DLOG(INFO) << *context << " Began new transaction";
     current_xct.activate(isolation_level);
@@ -114,7 +114,7 @@ ErrorStack XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel is
 ErrorStack XctManagerPimpl::begin_schema_xct(thread::Thread* context) {
     Xct& current_xct = context->get_current_xct();
     if (current_xct.is_active()) {
-        return ERROR_STACK(ERROR_CODE_XCT_ALREADY_RUNNING);
+        return ERROR_STACK(kErrorCodeXctAlreadyRunning);
     }
     LOG(INFO) << *context << " Began new schema transaction";
     current_xct.activate(SERIALIZABLE, true);
@@ -129,7 +129,7 @@ ErrorStack XctManagerPimpl::begin_schema_xct(thread::Thread* context) {
 ErrorStack XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_epoch) {
     Xct& current_xct = context->get_current_xct();
     if (!current_xct.is_active()) {
-        return ERROR_STACK(ERROR_CODE_XCT_NO_XCT);
+        return ERROR_STACK(kErrorCodeXctNoXct);
     }
 
     bool success;
@@ -150,7 +150,7 @@ ErrorStack XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit
     } else {
         DLOG(WARNING) << *context << " Aborting because of contention";
         context->get_thread_log_buffer().discard_current_xct_log();
-        return ERROR_STACK(ERROR_CODE_XCT_RACE_ABORT);
+        return ERROR_STACK(kErrorCodeXctRaceAbort);
     }
 }
 bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch) {
@@ -394,7 +394,7 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context) {
 ErrorStack XctManagerPimpl::abort_xct(thread::Thread* context) {
     Xct& current_xct = context->get_current_xct();
     if (!current_xct.is_active()) {
-        return ERROR_STACK(ERROR_CODE_XCT_NO_XCT);
+        return ERROR_STACK(kErrorCodeXctNoXct);
     }
     DLOG(INFO) << *context << " Aborted transaction in thread-" << context->get_thread_id();
     current_xct.deactivate();

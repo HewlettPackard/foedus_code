@@ -324,7 +324,7 @@ ErrorStack Logger::update_durable_epoch() {
             << " to " << min_durable_epoch;
         // BEFORE updating the epoch, fsync the file AND the parent folder
         if (!fs::fsync(current_file_path_, true)) {
-            return ERROR_STACK_MSG(ERROR_CODE_FS_SYNC_FAILED, to_string().c_str());
+            return ERROR_STACK_MSG(kErrorCodeFsSyncFailed, to_string().c_str());
         }
         current_file_durable_offset_ = current_file_->get_current_offset();
         VLOG(0) << "Logger-" << id_ << " fsynced the current file ("
@@ -409,7 +409,7 @@ ErrorStack Logger::switch_file_if_required() {
     current_file_ = nullptr;
     current_file_durable_offset_ = 0;
     if (!fs::fsync(current_file_path_, true)) {
-        return ERROR_STACK_MSG(ERROR_CODE_FS_SYNC_FAILED, to_string().c_str());
+        return ERROR_STACK_MSG(kErrorCodeFsSyncFailed, to_string().c_str());
     }
 
     current_file_path_ = construct_suffixed_log_path(++current_ordinal_);

@@ -85,7 +85,7 @@ ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* 
     std::lock_guard<std::mutex> guard(lock_);
     if (free_pool_count_ == 0) {
         LOG(WARNING) << "No more free pages left in the pool";
-        return ERROR_CODE_MEMORY_NO_FREE_PAGES;
+        return kErrorCodeMemoryNoFreePages;
     }
 
     // grab from the head
@@ -120,7 +120,7 @@ void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk 
         // we can't recover because page pool is inconsistent!
         LOG(ERROR) << "PagePoolPimpl::release() More than full free-pool. inconsistent state!";
         // TODO(Hideaki) Minor: Do a duplicate-check here to identify the problemetic pages.
-        COERCE_ERROR(ERROR_STACK(ERROR_CODE_MEMORY_DUPLICATE_PAGE));
+        COERCE_ERROR(ERROR_STACK(kErrorCodeMemoryDuplicatePage));
     }
 
     // append to the tail

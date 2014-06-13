@@ -23,7 +23,7 @@ namespace foedus {
 namespace thread {
 ErrorStack ThreadPoolPimpl::initialize_once() {
     if (!engine_->get_memory_manager().is_initialized()) {
-        return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
+        return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
     }
     no_more_impersonation_ = false;
     ASSERT_ND(groups_.empty());
@@ -39,7 +39,7 @@ ErrorStack ThreadPoolPimpl::initialize_once() {
 ErrorStack ThreadPoolPimpl::uninitialize_once() {
     ErrorStackBatch batch;
     if (!engine_->get_memory_manager().is_initialized()) {
-        batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
+        batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
     }
 
     // first, announce that further impersonation is not allowed.
@@ -60,7 +60,7 @@ ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task,
     ImpersonateSession session(task);
     assorted::memory_fence_acquire();
     if (no_more_impersonation_) {
-        session.invalid_cause_ = ERROR_STACK(ERROR_CODE_BEING_SHUTDOWN);
+        session.invalid_cause_ = ERROR_STACK(kErrorCodeBeingShutdown);
         return session;
     }
 
@@ -73,7 +73,7 @@ ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task,
         }
     }
     // TODO(Hideaki) : currently, timeout is ignored. It behaves as if timeout=0
-    session.invalid_cause_ = ERROR_STACK(ERROR_CODE_TIMEOUT);
+    session.invalid_cause_ = ERROR_STACK(kErrorCodeTimeout);
     LOG(WARNING) << "Failed to impersonate. pool=" << *this;
     return session;
 }
@@ -82,7 +82,7 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(ImpersonateTask* ta
     ImpersonateSession session(task);
     assorted::memory_fence_acquire();
     if (no_more_impersonation_) {
-        session.invalid_cause_ = ERROR_STACK(ERROR_CODE_BEING_SHUTDOWN);
+        session.invalid_cause_ = ERROR_STACK(kErrorCodeBeingShutdown);
         return session;
     }
 
@@ -94,7 +94,7 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(ImpersonateTask* ta
         }
     }
     // TODO(Hideaki) : currently, timeout is ignored. It behaves as if timeout=0
-    session.invalid_cause_ = ERROR_STACK(ERROR_CODE_TIMEOUT);
+    session.invalid_cause_ = ERROR_STACK(kErrorCodeTimeout);
     LOG(WARNING) << "Failed to impersonate(node="
         << static_cast<int>(numa_node)
         << "). pool=" << *this;
@@ -105,14 +105,14 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_core(ImpersonateTask* ta
     ImpersonateSession session(task);
     assorted::memory_fence_acquire();
     if (no_more_impersonation_) {
-        session.invalid_cause_ = ERROR_STACK(ERROR_CODE_BEING_SHUTDOWN);
+        session.invalid_cause_ = ERROR_STACK(kErrorCodeBeingShutdown);
         return session;
     }
 
     Thread* thread = get_thread(numa_core);
     if (!thread->get_pimpl()->try_impersonate(&session)) {
         // TODO(Hideaki) : currently, timeout is ignored. It behaves as if timeout=0
-        session.invalid_cause_ = ERROR_STACK(ERROR_CODE_TIMEOUT);
+        session.invalid_cause_ = ERROR_STACK(kErrorCodeTimeout);
     }
     LOG(WARNING) << "Failed to impersonate(core=" << numa_core << "). pool=" << *this;
     return session;

@@ -107,7 +107,7 @@ ErrorStack DebuggingSupports::start_profile(const std::string& output_file) {
     int ret = ::ProfilerStart(output_file.c_str());
     if (ret == 0) {
         LOG(ERROR) << "ProfilerStart() returned zero (an error). os_error=" << assorted::os_error();
-        return ERROR_STACK(ERROR_CODE_DBG_GPERFTOOLS);
+        return ERROR_STACK(kErrorCodeDbgGperftools);
     }
 #else  // HAVE_GOOGLEPERFTOOLS
     LOG(WARNING) << "Google perftools was not linked. No profile is provided";

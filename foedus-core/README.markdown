@@ -66,20 +66,20 @@ Here is a minimal example program to create a key-value storage and query on it.
     #include <foedus/xct/xct_manager.hpp>
     #include <iostream>
 
-    const uint16_t PAYLOAD = 16;
-    const uint32_t RECORDS = 1 << 20;
-    const char* NAME = "myarray";
+    const uint16_t kPayload = 16;
+    const uint32_t kRecords = 1 << 20;
+    const char* kName = "myarray";
 
     class MyTask : public foedus::thread::ImpersonateTask {
     public:
         foedus::ErrorStack run(foedus::thread::Thread* context) {
             foedus::storage::array::ArrayStorage *array =
                 dynamic_cast<foedus::storage::array::ArrayStorage*>(
-                    context->get_engine()->get_storage_manager().get_storage(NAME));
+                    context->get_engine()->get_storage_manager().get_storage(kName));
 
             foedus::xct::XctManager& xct_manager = engine->get_xct_manager();
             CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::SERIALIZABLE));
-            char buf[PAYLOAD];
+            char buf[kPayload];
             CHECK_ERROR(array->get_record(context, 123, buf));
             foedus::Epoch commit_epoch;
             CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
@@ -94,7 +94,7 @@ Here is a minimal example program to create a key-value storage and query on it.
         COERCE_ERROR(engine.initialize());
         foedus::Epoch create_array_epoch;
         COERCE_ERROR(engine.get_storage_manager().create_array_impersonate(
-            NAME, PAYLOAD, RECORDS, &out, &create_array_epoch));
+            kName, kPayload, kRecords, &out, &create_array_epoch));
         MyTask task;
         foedus::thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
         std::cout << "session: result=" << session.get_result() << std::endl;

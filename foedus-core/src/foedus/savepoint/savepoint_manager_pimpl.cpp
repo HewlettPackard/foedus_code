@@ -25,7 +25,7 @@ ErrorStack SavepointManagerPimpl::initialize_once() {
         LOG(INFO) << "Existing savepoint file found. Loading..";
         CHECK_ERROR(savepoint_.load_from_file(savepoint_path_));
         if (!savepoint_.consistent(logger_count)) {
-            return ERROR_STACK(ERROR_CODE_SP_INCONSISTENT_SAVEPOINT);
+            return ERROR_STACK(kErrorCodeSpInconsistentSavepoint);
         }
     } else {
         LOG(INFO) << "Savepoint file does not exist. No savepoint taken so far.";

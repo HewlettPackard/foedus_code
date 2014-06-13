@@ -29,7 +29,7 @@ ErrorStack StorageManagerPimpl::initialize_once() {
     LOG(INFO) << "Initializing StorageManager..";
     if (!engine_->get_thread_pool().is_initialized()
         || !engine_->get_log_manager().is_initialized()) {
-        return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
+        return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
     }
 
     largest_storage_id_ = 0;
@@ -39,7 +39,7 @@ ErrorStack StorageManagerPimpl::initialize_once() {
     const size_t kInitialCapacity = 1 << 12;
     storages_ = new Storage*[kInitialCapacity];
     if (!storages_) {
-        return ERROR_STACK(ERROR_CODE_OUTOFMEMORY);
+        return ERROR_STACK(kErrorCodeOutofmemory);
     }
     std::memset(storages_, 0, sizeof(Storage*) * kInitialCapacity);
     storages_capacity_ = kInitialCapacity;
@@ -52,7 +52,7 @@ ErrorStack StorageManagerPimpl::uninitialize_once() {
     ErrorStackBatch batch;
     if (!engine_->get_thread_pool().is_initialized()
         || !engine_->get_log_manager().is_initialized()) {
-        batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
+        batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
     }
     for (size_t i = 0; i < storages_capacity_; ++i) {
         if (storages_[i] && storages_[i]->is_initialized()) {
@@ -109,11 +109,11 @@ ErrorStack StorageManagerPimpl::register_storage(Storage* storage) {
     std::lock_guard<std::mutex> guard(mod_lock_);
     if (storages_[id]) {
         LOG(ERROR) << "Duplicate register_storage() call? ID=" << id;
-        return ERROR_STACK(ERROR_CODE_STR_DUPLICATE_STRID);
+        return ERROR_STACK(kErrorCodeStrDuplicateStrid);
     }
     if (storage_names_.find(storage->get_name()) != storage_names_.end()) {
         LOG(ERROR) << "Duplicate register_storage() call? Name=" << storage->get_name();
-        return ERROR_STACK(ERROR_CODE_STR_DUPLICATE_STRNAME);
+        return ERROR_STACK(kErrorCodeStrDuplicateStrname);
     }
     storages_[id] = storage;
     storage_names_.insert(std::pair< std::string, Storage* >(storage->get_name(), storage));
@@ -128,7 +128,7 @@ ErrorStack StorageManagerPimpl::drop_storage(thread::Thread* context, StorageId 
     // DROP STORAGE must be the only log in this transaction
     if (context->get_thread_log_buffer().get_offset_committed() !=
         context->get_thread_log_buffer().get_offset_tail()) {
-        return ERROR_STACK(ERROR_CODE_STR_MUST_SEPARATE_XCT);
+        return ERROR_STACK(kErrorCodeStrMustSeparateXct);
     }
 
     // to avoid mixing with normal operations on the storage in this epoch, advance epoch now.
@@ -195,7 +195,7 @@ ErrorStack StorageManagerPimpl::expand_storage_array(StorageId new_size) {
     new_size = (new_size + 1) * 2;  // 2x margin to avoid frequent expansion.
     Storage** new_array = new Storage*[new_size];
     if (!new_array) {
-        return ERROR_STACK(ERROR_CODE_OUTOFMEMORY);
+        return ERROR_STACK(kErrorCodeOutofmemory);
     }
 
     // copy and switch (fence to prevent compiler from doing something stupid)
@@ -218,22 +218,22 @@ ErrorStack StorageManagerPimpl::create_array(thread::Thread* context, const std:
     // CREATE ARRAY must be the only log in this transaction
     if (context->get_thread_log_buffer().get_offset_committed() !=
         context->get_thread_log_buffer().get_offset_tail()) {
-        return ERROR_STACK(ERROR_CODE_STR_MUST_SEPARATE_XCT);
+        return ERROR_STACK(kErrorCodeStrMustSeparateXct);
     }
 
     if (payload_size == 0) {
         // Array storage has no notion of insert/delete, thus payload=null doesn't make sense.
         LOG(INFO) << "Empty payload is not allowed for array storage";
-        return ERROR_STACK(ERROR_CODE_STR_ARRAY_INVALID_OPTION);
+        return ERROR_STACK(kErrorCodeStrArrayInvalidOption);
     } else if (array_size == 0) {
         LOG(INFO) << "Empty array is not allowed for array storage";
-        return ERROR_STACK(ERROR_CODE_STR_ARRAY_INVALID_OPTION);
+        return ERROR_STACK(kErrorCodeStrArrayInvalidOption);
     }
     {
         std::lock_guard<std::mutex> guard(mod_lock_);
         if (storage_names_.find(name) != storage_names_.end()) {
             LOG(ERROR) << "This storage name already exists: " << name;
-            return ERROR_STACK(ERROR_CODE_STR_DUPLICATE_STRNAME);
+            return ERROR_STACK(kErrorCodeStrDuplicateStrname);
         }
     }
 

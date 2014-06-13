@@ -164,7 +164,7 @@ ErrorStack ArrayStoragePimpl::uninitialize_once() {
 ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     if (exist_) {
         LOG(ERROR) << "This array-storage already exists: " << *holder_;
-        return ERROR_STACK(ERROR_CODE_STR_ALREADY_EXISTS);
+        return ERROR_STACK(kErrorCodeStrAlreadyExists);
     }
 
     Epoch initial_epoch = engine_->get_xct_manager().get_current_global_epoch();
@@ -406,7 +406,7 @@ inline ErrorCode ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset 
         // TODO(Hideaki) Add to Node-set (?)
         if (pointer.volatile_pointer_.components.offset == 0) {
             // TODO(Hideaki) Read the page from cache.
-            return ERROR_CODE_NOTIMPLEMENTED;
+            return kErrorCodeNotimplemented;
         } else {
             current_page = reinterpret_cast<ArrayPage*>(
                 page_resolver.resolve_offset(pointer.volatile_pointer_));

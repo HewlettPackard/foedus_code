@@ -437,7 +437,7 @@ inline void ErrorStack::verify() const {
  * @code{.cpp}
  * ErrorStack your_func() {
  *   if (out-of-memory-observed) {
- *      return ERROR_STACK(ERROR_CODE_OUTOFMEMORY);
+ *      return ERROR_STACK(kErrorCodeOutofmemory);
  *   }
  *   return kRetOk;
  * }
@@ -455,7 +455,7 @@ inline void ErrorStack::verify() const {
  * ErrorStack your_func() {
  *   if (out-of-memory-observed) {
  *      std::string additional_message = ...;
- *      return ERROR_STACK_MSG(ERROR_CODE_OUTOFMEMORY, additional_message.c_str());
+ *      return ERROR_STACK_MSG(kErrorCodeOutofmemory, additional_message.c_str());
  *   }
  *   return kRetOk;
  * }
@@ -525,7 +525,7 @@ inline void ErrorStack::verify() const {
  * @def CHECK_OUTOFMEMORY(ptr)
  * @ingroup ERRORCODES
  * @brief
- * This macro checks if \b ptr is nullptr, and if so exists with ERROR_CODE_OUTOFMEMORY error stack.
+ * This macro checks if \b ptr is nullptr, and if so exists with kErrorCodeOutofmemory error stack.
  * This is useful as a null check after new/malloc. For example:
  * @code{.cpp}
  * ErrorStack your_func() {
@@ -539,7 +539,7 @@ inline void ErrorStack::verify() const {
  */
 #define CHECK_OUTOFMEMORY(ptr)\
 if (UNLIKELY(!ptr)) {\
-    return foedus::ErrorStack(__FILE__, __FUNCTION__, __LINE__, ERROR_CODE_OUTOFMEMORY);\
+    return foedus::ErrorStack(__FILE__, __FUNCTION__, __LINE__, kErrorCodeOutofmemory);\
 }
 
 /**

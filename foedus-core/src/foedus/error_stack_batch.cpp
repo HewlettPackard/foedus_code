@@ -21,7 +21,7 @@ ErrorStack ErrorStackBatch::summarize(
             }
             message << "Error[" << i << "]:" << error_batch_[i];
         }
-        return ErrorStack(filename, func, linenum, ERROR_CODE_BATCHED_ERROR, message.str().c_str());
+        return ErrorStack(filename, func, linenum, kErrorCodeBatchedError, message.str().c_str());
     }
 }
 

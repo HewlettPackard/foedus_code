@@ -31,12 +31,12 @@ ErrorStack LogManagerPimpl::initialize_once() {
         << ", #NUMA-nodes=" << static_cast<int>(groups_) << ", #total_threads=" << total_threads;
     if (!engine_->get_thread_pool().is_initialized()
         || !engine_->get_savepoint_manager().is_initialized()) {
-        return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
+        return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
     }
     // see comments in LogOptions#log_paths_
     if (total_loggers == 0 || total_loggers % groups_ != 0 || total_threads % total_loggers != 0
         || total_loggers > total_threads) {
-        return ERROR_STACK(ERROR_CODE_LOG_INVALID_LOGGER_COUNT);
+        return ERROR_STACK(kErrorCodeLogInvalidLoggerCount);
     }
 
     // Initialize durable_global_epoch_
@@ -76,7 +76,7 @@ ErrorStack LogManagerPimpl::uninitialize_once() {
     ErrorStackBatch batch;
     if (!engine_->get_thread_pool().is_initialized()
         || !engine_->get_savepoint_manager().is_initialized()) {
-        batch.emprace_back(ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_UNINIT));
+        batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
     }
     batch.uninitialize_and_delete_all(&loggers_);
     return SUMMARIZE_ERROR_BATCH(batch);
@@ -131,7 +131,7 @@ ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_
     if (wait_microseconds == 0) {
         DVLOG(1) << "Conditional check: commit_epoch=" << commit_epoch << ", durable_global_epoch_="
             << get_durable_global_epoch();
-        return ERROR_STACK(ERROR_CODE_TIMEOUT);
+        return ERROR_STACK(kErrorCodeTimeout);
     }
 
     std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
@@ -146,7 +146,7 @@ ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_
             VLOG(0) << "Synchronously waiting for commit_epoch " << commit_epoch;
             if (!durable_global_epoch_advanced_.wait_until(until)) {
                 LOG(WARNING) << "Timeout occurs. wait_microseconds=" << wait_microseconds;
-                return ERROR_STACK(ERROR_CODE_TIMEOUT);
+                return ERROR_STACK(kErrorCodeTimeout);
             }
         } else {
             // here we use a version without predicate. it's fine as we have the while loop outside.

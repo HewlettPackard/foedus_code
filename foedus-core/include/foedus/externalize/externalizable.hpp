@@ -152,7 +152,7 @@ struct Externalizable {
         int64_t tmp;
         CHECK_ERROR(get_element<int64_t>(parent, tag, &tmp, optional, default_value));
         if (static_cast<int64_t>(static_cast<ENUM>(tmp)) != tmp) {
-            return ERROR_STACK_MSG(ERROR_CODE_CONF_VALUE_OUTOFRANGE, tag.c_str());
+            return ERROR_STACK_MSG(kErrorCodeConfValueOutofrange, tag.c_str());
         }
         *out = static_cast<ENUM>(tmp);
         return kRetOk;
