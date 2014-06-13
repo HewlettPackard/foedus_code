@@ -53,25 +53,25 @@ namespace storage {
 namespace array {
 
 /** number of branches (TPS scaling factor). */
-int BRANCHES  =   100;
+int kBranches  =   100;
 
-int TOTAL_THREADS = -1;
+int kTotalThreads = -1;
 
 /** number of log writers per numa node */
-const int LOGGERS_PER_NODE = 8;
+const int kLoggersPerNode = 8;
 
 /** number of tellers in 1 branch. */
-const int TELLERS   =   10;
+const int kTellers   =   10;
 /** number of accounts in 1 branch. */
-const int ACCOUNTS  =   100000;
-const int ACCOUNTS_PER_TELLER = ACCOUNTS / TELLERS;
+const int kAccounts  =   100000;
+const int kAccountsPerTeller = kAccounts / kTellers;
 
 /** number of histories in TOTAL. */
-const int HISTORIES =   200000000;
+const int kHistories =   200000000;
 
-const uint64_t DURATION_MICRO = 5000000;
+const uint64_t kDurationMicro = 5000000;
 
-static_assert(ACCOUNTS % TELLERS == 0, "ACCOUNTS must be multiply of TELLERS");
+static_assert(kAccounts % kTellers == 0, "kAccounts must be multiply of kTellers");
 
 struct BranchData {
     int64_t     branch_balance_;
@@ -115,7 +115,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
         random_.set_current_seed(history_ordinal_);
         CHECK_ERROR(
             context->get_thread_memory()->get_node_memory()->allocate_numa_memory(
-                RANDOM_COUNT * sizeof(uint32_t), &numbers_));
+                kRandomCount * sizeof(uint32_t), &numbers_));
         random_.fill_memory(&numbers_);
         const uint32_t *randoms = reinterpret_cast<const uint32_t*>(numbers_.get_block());
 
@@ -124,11 +124,11 @@ class RunTpcbTask : public thread::ImpersonateTask {
         processed_ = 0;
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
         while (true) {
-            uint64_t account_id = randoms[processed_ & 0xFFFF] % (BRANCHES * ACCOUNTS);
-            uint64_t teller_id = account_id / ACCOUNTS_PER_TELLER;
-            uint64_t branch_id = account_id / ACCOUNTS;
-            uint64_t history_id = processed_ * TOTAL_THREADS + history_ordinal_;
-            if (history_id >= HISTORIES) {
+            uint64_t account_id = randoms[processed_ & 0xFFFF] % (kBranches * kAccounts);
+            uint64_t teller_id = account_id / kAccountsPerTeller;
+            uint64_t branch_id = account_id / kAccounts;
+            uint64_t history_id = processed_ * kTotalThreads + history_ordinal_;
+            if (history_id >= kHistories) {
                 std::cerr << "Full histories" << std::endl;
                 return RET_OK;
             }
@@ -198,7 +198,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
     assorted::UniformRandom random_;
     uint64_t processed_;
     uint16_t history_ordinal_;
-    const uint32_t RANDOM_COUNT = 1 << 16;
+    const uint32_t kRandomCount = 1 << 16;
 
     HistoryData tmp_history_;
 };
@@ -231,7 +231,7 @@ int main_impl(int argc, char **argv) {
         = "/dev/shm/tpcb_array_expr/snapshot/node_$NODE$/part_$PARTITION$";
     options.snapshot_.partitions_per_node_ = 1;
     options.log_.folder_path_pattern_ = "/dev/shm/tpcb_array_expr/log/node_$NODE$/logger_$LOGGER$";
-    options.log_.loggers_per_node_ = LOGGERS_PER_NODE;
+    options.log_.loggers_per_node_ = kLoggersPerNode;
     options.debugging_.debug_log_min_threshold_
         = debugging::DebuggingOptions::DEBUG_LOG_INFO;
         // = debugging::DebuggingOptions::DEBUG_LOG_WARNING;
@@ -240,7 +240,7 @@ int main_impl(int argc, char **argv) {
     options.log_.log_buffer_kb_ = 1 << 20;  // 256MB * 16 cores = 4 GB. nothing.
     options.log_.log_file_size_mb_ = 1 << 10;
     options.memory_.page_pool_size_mb_per_node_ = 1 << 13;  // 8GB per node = 16GB
-    TOTAL_THREADS = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
+    kTotalThreads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
 
     {
         Engine engine(options);
@@ -251,21 +251,21 @@ int main_impl(int argc, char **argv) {
             std::cout << "Creating TPC-B tables... " << std::endl;
             Epoch ep;
             COERCE_ERROR(str_manager.create_array_impersonate("branches",
-                                            sizeof(BranchData), BRANCHES, &branches, &ep));
+                                            sizeof(BranchData), kBranches, &branches, &ep));
             std::cout << "Created branches " << std::endl;
             COERCE_ERROR(str_manager.create_array_impersonate("tellers",
-                                        sizeof(AccountData), BRANCHES * TELLERS, &tellers, &ep));
+                                        sizeof(AccountData), kBranches * kTellers, &tellers, &ep));
             std::cout << "Created tellers " << std::endl;
             COERCE_ERROR(str_manager.create_array_impersonate("accounts",
-                                        sizeof(TellerData), BRANCHES * ACCOUNTS, &accounts, &ep));
+                                        sizeof(TellerData), kBranches * kAccounts, &accounts, &ep));
             std::cout << "Created accounts " << std::endl;
             COERCE_ERROR(str_manager.create_array_impersonate("histories",
-                                                sizeof(HistoryData), HISTORIES, &histories, &ep));
+                                                sizeof(HistoryData), kHistories, &histories, &ep));
             std::cout << "Created all!" << std::endl;
 
             std::vector< RunTpcbTask* > tasks;
             std::vector< thread::ImpersonateSession > sessions;
-            for (int i = 0; i < TOTAL_THREADS; ++i) {
+            for (int i = 0; i < kTotalThreads; ++i) {
                 tasks.push_back(new RunTpcbTask(i));
                 sessions.emplace_back(engine.get_thread_pool().impersonate(tasks[i]));
                 if (!sessions[i].is_valid()) {
@@ -280,26 +280,26 @@ int main_impl(int argc, char **argv) {
             }
             start_endezvous.signal();  // GO!
             std::cout << "Started!" << std::endl;
-            std::this_thread::sleep_for(std::chrono::microseconds(DURATION_MICRO));
+            std::this_thread::sleep_for(std::chrono::microseconds(kDurationMicro));
             std::cout << "Experiment ended." << std::endl;
 
             uint64_t total = 0;
             assorted::memory_fence_acquire();
-            for (int i = 0; i < TOTAL_THREADS; ++i) {
+            for (int i = 0; i < kTotalThreads; ++i) {
                 total += tasks[i]->get_processed();
             }
             if (profile) {
                 engine.get_debug().stop_profile();
             }
             std::cout << "total=" << total << ", MTPS="
-                << (static_cast<double>(total)/DURATION_MICRO) << std::endl;
+                << (static_cast<double>(total)/kDurationMicro) << std::endl;
             std::cout << "Shutting down..." << std::endl;
 
             assorted::memory_fence_release();
             stop_requested = true;
             assorted::memory_fence_release();
 
-            for (int i = 0; i < TOTAL_THREADS; ++i) {
+            for (int i = 0; i < kTotalThreads; ++i) {
                 std::cout << "result[" << i << "]=" << sessions[i].get_result() << std::endl;
                 delete tasks[i];
             }

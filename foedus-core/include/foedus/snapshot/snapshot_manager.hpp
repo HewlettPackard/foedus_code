@@ -37,7 +37,7 @@ class SnapshotManager CXX11_FINAL : public virtual Initializable {
     /** Non-atomic version. */
     Epoch get_snapshot_epoch_weak() const;
 
-    /** Returns the most recent snapshot's ID. NULL_SNAPSHOT_ID if no snapshot is taken. */
+    /** Returns the most recent snapshot's ID. kNullSnapshotId if no snapshot is taken. */
     SnapshotId get_previous_snapshot_id() const;
     /** Non-atomic version. */
     SnapshotId get_previous_snapshot_id_weak() const;

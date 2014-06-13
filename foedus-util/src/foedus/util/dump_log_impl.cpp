@@ -94,16 +94,16 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
     result_cur_epoch_ = INVALID_EPOCH;
 
     const fs::Path &path = files_[file_index];
-    const uint32_t ALIGNMENT = log::FillerLogType::LOG_WRITE_UNIT_SIZE;
+    const uint32_t kAlignment = log::FillerLogType::LOG_WRITE_UNIT_SIZE;
     uint64_t file_size = fs::file_size(path);
-    if (file_size % ALIGNMENT != 0) {
+    if (file_size % kAlignment != 0) {
         result_inconsistencies_.emplace_back(
             LogInconsistency(LogInconsistency::NON_ALIGNED_FILE_END, file_index, 0));
-        file_size = (file_size / ALIGNMENT) * ALIGNMENT;
+        file_size = (file_size / kAlignment) * kAlignment;
     }
 
     fs::DirectIoFile file(path);
-    memory::AlignedMemory buffer(1 << 24, ALIGNMENT, memory::AlignedMemory::POSIX_MEMALIGN, 0);
+    memory::AlignedMemory buffer(1 << 24, kAlignment, memory::AlignedMemory::POSIX_MEMALIGN, 0);
     COERCE_ERROR(file.open(true, false, false, false));
 
     uint64_t prev_file_offset = 0;
@@ -125,9 +125,9 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
             // in this case, we have to partially re-read to keep accesses aligned
             if (header->log_length_ > (buffer_size - buffer_offset)) {
                 need_to_read_file = true;
-                skip_after_read = buffer_offset % ALIGNMENT;
+                skip_after_read = buffer_offset % kAlignment;
                 new_file_offset = prev_file_offset + buffer_offset - skip_after_read;
-                ASSERT_ND(new_file_offset % ALIGNMENT == 0);
+                ASSERT_ND(new_file_offset % kAlignment == 0);
             }
         }
 
@@ -140,7 +140,7 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
                                         file_index, cur_offset, *header));
                 break;
             }
-            ASSERT_ND(next_reads % ALIGNMENT == 0);
+            ASSERT_ND(next_reads % kAlignment == 0);
             ASSERT_ND(new_file_offset + next_reads <= file_size);
             COERCE_ERROR(file.seek(new_file_offset, fs::DirectIoFile::DIRECT_IO_SEEK_SET));
             COERCE_ERROR(file.read(next_reads, &buffer));

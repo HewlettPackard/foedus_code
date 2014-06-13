@@ -30,7 +30,7 @@ typedef uint32_t PagePoolOffset;
  * So far 2MB is the only page size available via Transparent Huge Page (THP).
  * @ingroup MEMORY
  */
-const uint64_t HUGEPAGE_SIZE = 1 << 21;
+const uint64_t kHugepageSize = 1 << 21;
 
 /**
  * @brief Automatically sets and resets ::numa_set_preferred().

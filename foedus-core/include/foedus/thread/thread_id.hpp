@@ -27,11 +27,11 @@ CXX11_STATIC_ASSERT (sizeof(ThreadGroupId) == 1, "Max NUMA node count must be 1 
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 
 /**
- * @var MAX_THREAD_GROUP_ID
+ * @var kMaxThreadGroupId
  * @brief Maximum possible value of ThreadGroupId.
  * @ingroup THREAD
  */
-const ThreadGroupId MAX_THREAD_GROUP_ID = 0xFF;
+const ThreadGroupId kMaxThreadGroupId = 0xFF;
 
 /**
  * @typedef ThreadLocalOrdinal
@@ -47,11 +47,11 @@ CXX11_STATIC_ASSERT (sizeof(ThreadLocalOrdinal) == 1, "Max core-per-node must be
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 
 /**
- * @var MAX_THREAD_LOCAL_ORDINAL
+ * @var kMaxThreadLocalOrdinal
  * @brief Maximum possible value of ThreadLocalOrdinal.
  * @ingroup THREAD
  */
-const ThreadLocalOrdinal MAX_THREAD_LOCAL_ORDINAL = 0xFF;
+const ThreadLocalOrdinal kMaxThreadLocalOrdinal = 0xFF;
 
 /**
  * @typedef ThreadId
@@ -69,11 +69,11 @@ CXX11_STATIC_ASSERT (sizeof(ThreadId) == 2, "Max thread count must be 2 bytes");
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 
 /**
- * @var MAX_THREAD_ID
+ * @var kMaxThreadId
  * @brief Maximum possible value of ThreadId.
  * @ingroup THREAD
  */
-const ThreadId MAX_THREAD_ID = 0xFFFF;
+const ThreadId kMaxThreadId = 0xFFFF;
 
 /**
  * Returns a globally unique ID of Thread (core) for the given node and ordinal in the node.

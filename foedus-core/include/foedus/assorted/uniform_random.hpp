@@ -98,8 +98,8 @@ class UniformRandom {
      */
     uint32_t get_c(uint32_t A) const {
         // yes, I'm lazy. but this satisfies the spec.
-        const uint64_t C_SEED = 0x734b00c6d7d3bbdaULL;
-        return C_SEED % (A + 1);
+        const uint64_t kCSeed = 0x734b00c6d7d3bbdaULL;
+        return kCSeed % (A + 1);
     }
 };
 

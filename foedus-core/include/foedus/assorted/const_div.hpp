@@ -9,12 +9,12 @@
 #include <stdint.h>
 namespace foedus {
 namespace assorted {
-const uint32_t POWER_2_31 = 1U << 31;
-const uint64_t POWER_2_63 = 1ULL << 63;
-const uint32_t FULL_32_BITS = 0xFFFFFFFF;
-const uint32_t FULL_31_BITS = 0x7FFFFFFF;
-const uint64_t FULL_64_BITS = 0xFFFFFFFFFFFFFFFFULL;
-const uint64_t FULL_63_BITS = 0x7FFFFFFFFFFFFFFFULL;
+const uint32_t kPower2To31 = 1U << 31;
+const uint64_t kPower2To63 = 1ULL << 63;
+const uint32_t kFull32Bits = 0xFFFFFFFF;
+const uint32_t kFull31Bits = 0x7FFFFFFF;
+const uint64_t kFull64Bits = 0xFFFFFFFFFFFFFFFFULL;
+const uint64_t kFull63Bits = 0x7FFFFFFFFFFFFFFFULL;
 
 /**
  * @brief The pre-calculated p-m pair for optimized integer division by constant.

@@ -40,12 +40,12 @@ struct Record CXX11_FINAL {
 };
 
 /**
- * @brief bluh.
+ * @brief Byte size of system-managed region per each record.
  * @ingroup ARRAY
  */
-const uint16_t RECORD_OVERHEAD = sizeof(xct::XctId);
+const uint16_t kRecordOverhead = sizeof(xct::XctId);
 
-CXX11_STATIC_ASSERT(RECORD_OVERHEAD == sizeof(Record) - 8, "RECORD_OVERHEAD is incorrect");
+CXX11_STATIC_ASSERT(kRecordOverhead == sizeof(Record) - 8, "kRecordOverhead is incorrect");
 
 }  // namespace storage
 }  // namespace foedus

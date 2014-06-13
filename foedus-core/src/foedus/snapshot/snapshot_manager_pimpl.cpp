@@ -31,7 +31,7 @@ ErrorStack SnapshotManagerPimpl::initialize_once() {
     }
     snapshot_epoch_.store(Epoch::EPOCH_INVALID);
     // TODO(Hideaki): get snapshot status from savepoint
-    previous_snapshot_id_ = NULL_SNAPSHOT_ID;
+    previous_snapshot_id_ = kNullSnapshotId;
     immediate_snapshot_requested_.store(false);
     previous_snapshot_time_ = std::chrono::system_clock::now();
     snapshot_thread_.initialize("Snapshot",
@@ -130,7 +130,7 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
 
     // determine the snapshot ID
     SnapshotId snapshot_id;
-    if (previous_snapshot_id_ == NULL_SNAPSHOT_ID) {
+    if (previous_snapshot_id_ == kNullSnapshotId) {
         snapshot_id = 1;
     } else {
         snapshot_id = increment(previous_snapshot_id_);

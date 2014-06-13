@@ -160,13 +160,13 @@ std::string unique_name() {
     return unique_name("%%%%-%%%%-%%%%-%%%%");
 }
 std::string unique_name(const std::string& model) {
-    const char* HEX_CHARS = "0123456789abcdef";
+    const char* kHexChars = "0123456789abcdef";
     unsigned int seed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
     std::string s(model);
     for (size_t i = 0; i < s.size(); ++i) {
         if (s[i] == '%') {                 // digit request
             seed = ::rand_r(&seed);
-            s[i] = HEX_CHARS[seed & 0xf];  // convert to hex digit and replace
+            s[i] = kHexChars[seed & 0xf];  // convert to hex digit and replace
         }
     }
     return s;

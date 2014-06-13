@@ -39,17 +39,17 @@ typedef uint16_t SnapshotId;
  */
 typedef uint16_t PartitionId;
 
-const SnapshotId NULL_SNAPSHOT_ID = 0;
+const SnapshotId kNullSnapshotId = 0;
 
 /**
  * @brief Increment SnapshotId.
  * @ingroup SNAPSHOT
- * @invariant id != NULL_SNAPSHOT_ID
+ * @invariant id != kNullSnapshotId
  */
 inline SnapshotId increment(SnapshotId id) {
-    ASSERT_ND(id != NULL_SNAPSHOT_ID);
+    ASSERT_ND(id != kNullSnapshotId);
     ++id;
-    if (id == NULL_SNAPSHOT_ID) {
+    if (id == kNullSnapshotId) {
         return 1;  // wrap around, and skip 0.
     } else {
         return id;

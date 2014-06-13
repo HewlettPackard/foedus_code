@@ -49,7 +49,7 @@ struct PageHeader {
 struct Page CXX11_FINAL {
  private:
     PageHeader  header_;
-    char        data_[PAGE_SIZE - sizeof(PageHeader)];
+    char        data_[kPageSize - sizeof(PageHeader)];
 
     // No instantiation.
     Page() CXX11_FUNC_DELETE;

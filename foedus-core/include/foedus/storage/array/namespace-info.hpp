@@ -46,7 +46,7 @@
  * @section LAYOUT Page Layout
  * @par Header and Data
  * <table>
- *  <tr><th>Fix-Sized HEADER (HEADER_SIZE bytes)</th><td>DATA</td></tr>
+ *  <tr><th>Fix-Sized HEADER (kHeaderSize bytes)</th><td>DATA</td></tr>
  * </table>
  *
  * @par Interior Node Data

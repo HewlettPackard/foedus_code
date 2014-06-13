@@ -39,7 +39,7 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
 
     // accessors for child memories
     foedus::thread::ThreadGroupId get_node_memory_count() const {
-        ASSERT_ND(node_memories_.size() <= foedus::thread::MAX_THREAD_GROUP_ID);
+        ASSERT_ND(node_memories_.size() <= foedus::thread::kMaxThreadGroupId);
         return static_cast<foedus::thread::ThreadGroupId>(node_memories_.size());
     }
     NumaNodeMemory* get_node_memory(foedus::thread::ThreadGroupId group) const {

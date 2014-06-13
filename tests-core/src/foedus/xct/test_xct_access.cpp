@@ -78,18 +78,18 @@ TEST(XctAccessTest, SortReadSet) {
 }
 
 TEST(XctAccessTest, RandomReadSet) {
-    const int SIZE = 200;
-    const int SWAP_COUNT = 400;
-    XctAccess sets[SIZE];
-    for (int i = 0; i < SIZE; ++i) {
+    const int kSize = 200;
+    const int kSwapCount = 400;
+    XctAccess sets[kSize];
+    for (int i = 0; i < kSize; ++i) {
         sets[i] = create_access(i + 12);
     }
     assorted::UniformRandom rnd(1234);
-    for (int i = 0; i < SWAP_COUNT; ++i) {
-        std::swap(sets[rnd.uniform_within(0, SIZE - 1)], sets[rnd.uniform_within(0, SIZE - 1)]);
+    for (int i = 0; i < kSwapCount; ++i) {
+        std::swap(sets[rnd.uniform_within(0, kSize - 1)], sets[rnd.uniform_within(0, kSize - 1)]);
     }
-    std::sort(sets, sets + SIZE, XctAccess::compare);
-    for (int i = 0; i < SIZE; ++i) {
+    std::sort(sets, sets + kSize, XctAccess::compare);
+    for (int i = 0; i < kSize; ++i) {
         verify_access(sets[i], i + 12);
     }
 }
@@ -156,18 +156,18 @@ TEST(XctAccessTest, SortWriteSet) {
 }
 
 TEST(XctAccessTest, RandomWriteSet) {
-    const int SIZE = 200;
-    const int SWAP_COUNT = 400;
-    WriteXctAccess sets[SIZE];
-    for (int i = 0; i < SIZE; ++i) {
+    const int kSize = 200;
+    const int kSwapCount = 400;
+    WriteXctAccess sets[kSize];
+    for (int i = 0; i < kSize; ++i) {
         sets[i] = create_write_access(i + 12);
     }
     assorted::UniformRandom rnd(1234);
-    for (int i = 0; i < SWAP_COUNT; ++i) {
-        std::swap(sets[rnd.uniform_within(0, SIZE - 1)], sets[rnd.uniform_within(0, SIZE - 1)]);
+    for (int i = 0; i < kSwapCount; ++i) {
+        std::swap(sets[rnd.uniform_within(0, kSize - 1)], sets[rnd.uniform_within(0, kSize - 1)]);
     }
-    std::sort(sets, sets + SIZE, WriteXctAccess::compare);
-    for (int i = 0; i < SIZE; ++i) {
+    std::sort(sets, sets + kSize, WriteXctAccess::compare);
+    for (int i = 0; i < kSize; ++i) {
         verify_access(sets[i], i + 12);
     }
 }

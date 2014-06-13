@@ -21,7 +21,7 @@
  * @section RESULTS Latest Results
  * foedus_results/20140414_kimurhid_array_readonly
  *
- * @todo PAYLOAD/DURATION_MICRO/RECORDS are so far hard-coded constants, not program arguments.
+ * @todo kPayload/kDurationMicro/kRecords are so far hard-coded constants, not program arguments.
  */
 #include <foedus/error_stack.hpp>
 #include <foedus/engine.hpp>
@@ -52,10 +52,10 @@ namespace array {
 
 
 StorageId the_id;
-const uint16_t PAYLOAD = 16;  // = 128;
-const uint64_t DURATION_MICRO = 10000000;
-const uint32_t RECORDS = 1 << 20;
-const uint32_t RECORDS_MASK = 0xFFFFF;
+const uint16_t kPayload = 16;  // = 128;
+const uint64_t kDurationMicro = 10000000;
+const uint32_t kRecords = 1 << 20;
+const uint32_t kRecordsMask = 0xFFFFF;
 
 class MyTask : public thread::ImpersonateTask {
  public:
@@ -65,7 +65,7 @@ class MyTask : public thread::ImpersonateTask {
         ArrayStorage *array = nullptr;
         Epoch commit_epoch;
         CHECK_ERROR(engine->get_storage_manager().create_array(
-            context, "aaa", PAYLOAD, RECORDS, &array, &commit_epoch));
+            context, "aaa", kPayload, kRecords, &array, &commit_epoch));
         the_id = array->get_id();
         return RET_OK;
     }
@@ -89,7 +89,7 @@ class MyTask2 : public thread::ImpersonateTask {
         random_.set_current_seed(context->get_thread_id());
         CHECK_ERROR(
             context->get_thread_memory()->get_node_memory()->allocate_numa_memory(
-                RANDOM_COUNT * sizeof(uint32_t), &numbers_));
+                kRandomCount * sizeof(uint32_t), &numbers_));
         random_.fill_memory(&numbers_);
         const uint32_t *randoms = reinterpret_cast<const uint32_t*>(numbers_.get_block());
         while (!start_req) {
@@ -97,10 +97,10 @@ class MyTask2 : public thread::ImpersonateTask {
         }
 
         ArrayStorage *array = dynamic_cast<ArrayStorage*>(storage);
-        char buf[PAYLOAD];
+        char buf[kPayload];
         processed_ = 0;
         while (true) {
-            uint64_t id = randoms[processed_ & 0xFFFF] & RECORDS_MASK;
+            uint64_t id = randoms[processed_ & 0xFFFF] & kRecordsMask;
             CHECK_ERROR(array->get_record(context, id, buf));
             ++processed_;
             if ((processed_ & 0xFFFF) == 0) {
@@ -123,8 +123,8 @@ class MyTask2 : public thread::ImpersonateTask {
     memory::AlignedMemory numbers_;
     assorted::UniformRandom random_;
     uint64_t processed_;
-    const uint32_t RANDOM_COUNT = 1 << 19;
-    const uint32_t RANDOM_COUNT_MOD = 0x7FFFF;
+    const uint32_t kRandomCount = 1 << 19;
+    const uint32_t kRandomCountMod = 0x7FFFF;
 };
 
 int main_impl(int argc, char **argv) {
@@ -139,7 +139,7 @@ int main_impl(int argc, char **argv) {
     EngineOptions options;
     options.debugging_.debug_log_min_threshold_
         = debugging::DebuggingOptions::DEBUG_LOG_WARNING;
-    const int THREADS = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
+    const int kThreads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
     {
         Engine engine(options);
         COERCE_ERROR(engine.initialize());
@@ -149,9 +149,9 @@ int main_impl(int argc, char **argv) {
             COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(&task));
 
             typedef MyTask2* TaskPtr;
-            TaskPtr* task2 = new TaskPtr[THREADS];
-            thread::ImpersonateSession session2[THREADS];
-            for (int i = 0; i < THREADS; ++i) {
+            TaskPtr* task2 = new TaskPtr[kThreads];
+            thread::ImpersonateSession session2[kThreads];
+            for (int i = 0; i < kThreads; ++i) {
                 task2[i] = new MyTask2();
                 session2[i] = engine.get_thread_pool().impersonate(task2[i]);
                 if (!session2[i].is_valid()) {
@@ -165,27 +165,27 @@ int main_impl(int argc, char **argv) {
                 COERCE_ERROR(engine.get_debug().start_profile("readonly_experiment.prof"));
             }
             std::cout << "all started!" << std::endl;
-            ::usleep(DURATION_MICRO);
+            ::usleep(kDurationMicro);
             stop_req = true;
             std::atomic_thread_fence(std::memory_order_release);
 
             uint64_t total = 0;
             std::atomic_thread_fence(std::memory_order_acquire);
-            for (int i = 0; i < THREADS; ++i) {
+            for (int i = 0; i < kThreads; ++i) {
                 total += task2[i]->processed_;
             }
             if (profile) {
                 engine.get_debug().stop_profile();
             }
 
-            for (int i = 0; i < THREADS; ++i) {
+            for (int i = 0; i < kThreads; ++i) {
                 std::cout << "session2: result[" << i << "]="
                     << session2[i].get_result() << std::endl;
                 delete task2[i];
             }
             delete[] task2;
             std::cout << "total=" << total << ", MQPS="
-                << (static_cast<double>(total)/DURATION_MICRO) << std::endl;
+                << (static_cast<double>(total)/kDurationMicro) << std::endl;
             COERCE_ERROR(engine.uninitialize());
         }
     }

@@ -15,12 +15,12 @@
 #include <string>
 namespace foedus {
 namespace fs {
-const uint64_t ODIRECT_ALIGNMENT = 0x1000;
+const uint64_t kOdirectAlignment = 0x1000;
 inline bool is_odirect_aligned(uint64_t value) {
-    return (value % ODIRECT_ALIGNMENT) == 0;
+    return (value % kOdirectAlignment) == 0;
 }
 inline bool is_odirect_aligned(void* ptr) {
-    return (reinterpret_cast<uintptr_t>(ptr) % ODIRECT_ALIGNMENT) == 0;
+    return (reinterpret_cast<uintptr_t>(ptr) % kOdirectAlignment) == 0;
 }
 
 DirectIoFile::DirectIoFile(

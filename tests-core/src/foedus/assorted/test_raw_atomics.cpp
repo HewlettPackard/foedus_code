@@ -16,27 +16,27 @@
 namespace foedus {
 namespace assorted {
 
-const int THREADS = 6;
-const int ITERATIONS = 20;
-const int REPS = 5;
+const int kThreads = 6;
+const int kIterations = 20;
+const int kReps = 5;
 template <typename T>
 struct CasTestImpl {
     explicit CasTestImpl(bool weak) : weak_(weak) {}
     void test() {
-        static_assert(THREADS * ITERATIONS < 127, "exceeds smallest integer");
+        static_assert(kThreads * kIterations < 127, "exceeds smallest integer");
         data_ = 0;
         conflicts_ = 0;
-        for (int i = 0; i <= THREADS * ITERATIONS; ++i) {
+        for (int i = 0; i <= kThreads * kIterations; ++i) {
             observed_[i] = false;
         }
         assorted::memory_fence_release();
-        for (int i = 0; i < THREADS; ++i) {
+        for (int i = 0; i < kThreads; ++i) {
             threads_.emplace_back(std::thread(&CasTestImpl::handle, this, i));
         }
 
         start_rendezvous_.signal();
         std::cout << "Started execution" << std::endl;
-        for (int i = 0; i < THREADS; ++i) {
+        for (int i = 0; i < kThreads; ++i) {
             threads_[i].join();
         }
         threads_.clear();
@@ -44,7 +44,7 @@ struct CasTestImpl {
         EXPECT_FALSE(observed_[data_]) << data_;
         observed_[data_] = true;
         assorted::memory_fence_acquire();
-        for (int i = 0; i <= THREADS * ITERATIONS; ++i) {
+        for (int i = 0; i <= kThreads * kIterations; ++i) {
             EXPECT_TRUE(observed_[i]) << i;
         }
         std::cout << "In total, about " << conflicts_ << " coflicts" << std::endl;
@@ -53,8 +53,8 @@ struct CasTestImpl {
     void handle(int id) {
         start_rendezvous_.wait();
         EXPECT_GE(id, 0);
-        EXPECT_LT(id, THREADS);
-        for (int i = 0; i < ITERATIONS; ++i) {
+        EXPECT_LT(id, kThreads);
+        for (int i = 0; i < kIterations; ++i) {
             T old = 127;
             const T desired = value(id, i);
             bool swapped;
@@ -90,7 +90,7 @@ struct CasTestImpl {
         }
     }
     T value(int id, int iteration) const {
-        return iteration * THREADS + id + 1;
+        return iteration * kThreads + id + 1;
     }
 
     bool weak_;
@@ -98,13 +98,13 @@ struct CasTestImpl {
     thread::Rendezvous start_rendezvous_;
     T data_;
     int conflicts_;
-    bool observed_[THREADS * ITERATIONS];
+    bool observed_[kThreads * kIterations];
 };
 template <typename T>
 struct CasTest {
     explicit CasTest(bool weak = false) : weak_(weak) {}
     void test() {
-        for (int i = 0; i < REPS; ++i) {
+        for (int i = 0; i < kReps; ++i) {
             CasTestImpl<T> impl(weak_);
             impl.test();
         }

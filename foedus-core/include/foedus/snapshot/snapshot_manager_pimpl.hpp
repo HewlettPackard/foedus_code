@@ -49,7 +49,7 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
     void    trigger_snapshot_immediate(bool wait_completion);
 
     SnapshotId issue_next_snapshot_id() {
-        if (previous_snapshot_id_ == NULL_SNAPSHOT_ID) {
+        if (previous_snapshot_id_ == kNullSnapshotId) {
             previous_snapshot_id_ = 1;
         } else {
             previous_snapshot_id_ = increment(previous_snapshot_id_);
@@ -113,7 +113,7 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
     std::chrono::system_clock::time_point   previous_snapshot_time_;
 
     /**
-     * ID of previously completed snapshot. NULL_SNAPSHOT_ID if no snapshot has been taken.
+     * ID of previously completed snapshot. kNullSnapshotId if no snapshot has been taken.
      * Used to issue a next snapshot ID.
      */
     std::atomic<SnapshotId>         previous_snapshot_id_;

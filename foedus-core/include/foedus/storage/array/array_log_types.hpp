@@ -101,7 +101,7 @@ struct OverwriteLogType : public log::RecordLogType {
     }
     void            apply_record(const xct::XctId& xct_id, thread::Thread* /*context*/,
                                  Storage* storage, Record* record) ALWAYS_INLINE {
-        ASSERT_ND(payload_count_ < DATA_SIZE);
+        ASSERT_ND(payload_count_ < kDataSize);
         ASSERT_ND(dynamic_cast<ArrayStorage*>(storage));
         xct_order_ = xct_id.get_in_epoch_xct_order();
         std::memcpy(record->payload_ + payload_offset_, payload_, payload_count_);

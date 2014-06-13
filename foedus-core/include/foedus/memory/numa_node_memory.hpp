@@ -40,7 +40,7 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
 
     // accessors for child memories
     foedus::thread::ThreadLocalOrdinal get_core_memory_count() const {
-        ASSERT_ND(core_memories_.size() <= foedus::thread::MAX_THREAD_LOCAL_ORDINAL);
+        ASSERT_ND(core_memories_.size() <= foedus::thread::kMaxThreadLocalOrdinal);
         return static_cast<foedus::thread::ThreadLocalOrdinal>(core_memories_.size());
     }
     std::vector<NumaCoreMemory*>& get_core_memories() { return core_memories_; }

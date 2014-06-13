@@ -21,7 +21,7 @@ namespace fs {
  */
 class Path {
  public:
-    static const char PREFERRED_SEPARATOR = '/';
+    static const char kPreferredSeparator = '/';
 
     Path() {}
     Path(const Path& p) : pathname_(p.pathname_) {}
@@ -34,8 +34,8 @@ class Path {
     Path& operator+=(const std::string& s)  {pathname_ += s; return *this;}
 
     void append_separator_if_needed() {
-        if (!pathname_.empty() && pathname_.at(pathname_.size() - 1) != PREFERRED_SEPARATOR) {
-            pathname_ += PREFERRED_SEPARATOR;
+        if (!pathname_.empty() && pathname_.at(pathname_.size() - 1) != kPreferredSeparator) {
+            pathname_ += kPreferredSeparator;
         }
     }
     Path& operator/=(const Path& p) { return operator/=(p.pathname_); }
@@ -56,7 +56,7 @@ class Path {
     std::vector< Path > child_paths() const;
     Path    filename() const;          // returns 0 or 1 element path
 
-    bool    root() const { return pathname_.size() == 1 && pathname_.at(0) == PREFERRED_SEPARATOR; }
+    bool    root() const { return pathname_.size() == 1 && pathname_.at(0) == kPreferredSeparator; }
     bool    empty() const { return pathname_.empty(); }  // name consistent with std containers
     bool    has_parent_path() const     { return !parent_path().empty(); }
     bool    has_filename() const        { return !pathname_.empty(); }

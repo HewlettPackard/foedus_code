@@ -17,7 +17,7 @@ Path::Path(const std::string& s) {
         pathname_ = home_path().pathname_;
         pathname_.append(s.substr(1));
     } else {
-        if (s.empty() || s.at(0) == PREFERRED_SEPARATOR) {
+        if (s.empty() || s.at(0) == kPreferredSeparator) {
             pathname_ = s;
         } else {
             Path tmp = current_path();
@@ -28,7 +28,7 @@ Path::Path(const std::string& s) {
 }
 
 Path Path::filename() const {
-    size_t pos = pathname_.find_last_of(PREFERRED_SEPARATOR);
+    size_t pos = pathname_.find_last_of(kPreferredSeparator);
     if (pos == pathname_.size()) {
         return Path(pathname_);
     } else {
@@ -37,7 +37,7 @@ Path Path::filename() const {
 }
 
 Path Path::parent_path() const {
-    size_t pos = pathname_.find_last_of(PREFERRED_SEPARATOR);
+    size_t pos = pathname_.find_last_of(kPreferredSeparator);
     if (pos == pathname_.size()) {
         return Path();
     } else {

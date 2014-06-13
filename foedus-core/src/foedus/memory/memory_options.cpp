@@ -43,7 +43,7 @@ ErrorStack MemoryOptions::save(tinyxml2::XMLElement* element) const {
     EXTERNALIZE_SAVE_ELEMENT(element, private_page_pool_initial_grab_,
         "How many pages each NumaCoreMemory initially grabs when it is initialized."
         " Default is 50% of PagePoolOffsetChunk::MAX_SIZE\n"
-        " Obviously, private_page_pool_initial_grab_ * PAGE_SIZE * number-of-threads must be"
+        " Obviously, private_page_pool_initial_grab_ * kPageSize * number-of-threads must be"
         " within page_pool_size_mb_per_node_ to start up the engine.");
     return RET_OK;
 }

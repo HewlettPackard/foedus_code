@@ -29,9 +29,9 @@ struct Payload {
     uint64_t id_;
     uint64_t data_;
 };
-const int RECORDS = 10;
-const int THREADS = 10;
-static_assert(RECORDS >= THREADS, "booo!");
+const int kRecords = 10;
+const int kThreads = 10;
+static_assert(kRecords >= kThreads, "booo!");
 storage::array::ArrayStorage* storage = nullptr;
 
 class InitTask : public thread::ImpersonateTask {
@@ -40,12 +40,12 @@ class InitTask : public thread::ImpersonateTask {
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
         storage::StorageManager& str_manager = context->get_engine()->get_storage_manager();
         Epoch commit_epoch;
-        CHECK_ERROR(str_manager.create_array(context, "test", sizeof(Payload), RECORDS, &storage,
+        CHECK_ERROR(str_manager.create_array(context, "test", sizeof(Payload), kRecords, &storage,
             &commit_epoch));
 
         CHECK_ERROR(xct_manager.begin_xct(context, SERIALIZABLE));
 
-        for (int i = 0; i < RECORDS; ++i) {
+        for (int i = 0; i < kRecords; ++i) {
             Payload payload;
             payload.id_ = i;
             payload.data_ = 0;
@@ -109,7 +109,7 @@ class GetAllRecordsTask : public thread::ImpersonateTask {
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
         CHECK_ERROR(xct_manager.begin_xct(context, SERIALIZABLE));
 
-        for (int i = 0; i < RECORDS; ++i) {
+        for (int i = 0; i < kRecords; ++i) {
             CHECK_ERROR(storage->get_record(context, i, output_ + i));
         }
 
@@ -130,7 +130,7 @@ void run_test(Engine *engine, ASSIGN_FUNC assign_func) {
     thread::Rendezvous start_rendezvous;
     std::vector<TestTask*>      tasks;
     std::vector<thread::ImpersonateSession> sessions;
-    for (int i = 0; i < THREADS; ++i) {
+    for (int i = 0; i < kThreads; ++i) {
         tasks.push_back(new TestTask(assign_func(i), i * 20 + 4, &start_rendezvous));
         sessions.emplace_back(engine->get_thread_pool().impersonate(tasks[i]));
         if (!sessions[i].is_valid()) {
@@ -139,20 +139,20 @@ void run_test(Engine *engine, ASSIGN_FUNC assign_func) {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     start_rendezvous.signal();
-    for (int i = 0; i < THREADS; ++i) {
+    for (int i = 0; i < kThreads; ++i) {
         COERCE_ERROR(sessions[i].get_result());
         delete tasks[i];
     }
 
-    uint64_t answers[THREADS];
+    uint64_t answers[kThreads];
     std::memset(answers, 0, sizeof(answers));
-    for (int i = 0; i < THREADS; ++i) {
+    for (int i = 0; i < kThreads; ++i) {
         answers[assign_func(i)] += i * 20 + 4;
     }
-    Payload payloads[RECORDS];
+    Payload payloads[kRecords];
     GetAllRecordsTask getall_task(payloads);
     COERCE_ERROR(engine->get_thread_pool().impersonate(&getall_task).get_result());
-    for (int i = 0; i < THREADS; ++i) {
+    for (int i = 0; i < kThreads; ++i) {
         EXPECT_EQ(i, payloads[i].id_);
         EXPECT_EQ(answers[i], payloads[i].data_);
     }
@@ -160,7 +160,7 @@ void run_test(Engine *engine, ASSIGN_FUNC assign_func) {
 
 TEST(XctCommitConflictTest, NoConflict) {
     EngineOptions options = get_tiny_options();
-    options.thread_.thread_count_per_group_ = THREADS;
+    options.thread_.thread_count_per_group_ = kThreads;
     Engine engine(options);
     COERCE_ERROR(engine.initialize());
     {
@@ -173,7 +173,7 @@ TEST(XctCommitConflictTest, NoConflict) {
 
 TEST(XctCommitConflictTest, LightConflict) {
     EngineOptions options = get_tiny_options();
-    options.thread_.thread_count_per_group_ = THREADS;
+    options.thread_.thread_count_per_group_ = kThreads;
     Engine engine(options);
     COERCE_ERROR(engine.initialize());
     {
@@ -186,7 +186,7 @@ TEST(XctCommitConflictTest, LightConflict) {
 
 TEST(XctCommitConflictTest, HeavyConflict) {
     EngineOptions options = get_tiny_options();
-    options.thread_.thread_count_per_group_ = THREADS;
+    options.thread_.thread_count_per_group_ = kThreads;
     Engine engine(options);
     COERCE_ERROR(engine.initialize());
     {
@@ -199,7 +199,7 @@ TEST(XctCommitConflictTest, HeavyConflict) {
 
 TEST(XctCommitConflictTest, ExtremeConflict) {
     EngineOptions options = get_tiny_options();
-    options.thread_.thread_count_per_group_ = THREADS;
+    options.thread_.thread_count_per_group_ = kThreads;
     Engine engine(options);
     COERCE_ERROR(engine.initialize());
     {

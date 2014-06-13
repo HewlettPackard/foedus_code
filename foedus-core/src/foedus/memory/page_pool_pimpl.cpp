@@ -31,17 +31,17 @@ ErrorStack PagePoolPimpl::initialize_once() {
         AlignedMemory::AllocType alloc_type = AlignedMemory::NUMA_ALLOC_ONNODE;
         uint64_t size = static_cast<uint64_t>(options.page_pool_size_mb_per_node_) << 20;
         ASSERT_ND(size >= (2 << 20));
-        uint64_t alignment = storage::PAGE_SIZE;
+        uint64_t alignment = storage::kPageSize;
         memory_ = std::move(AlignedMemory(size, alignment, alloc_type, numa_node_));
         pool_base_ = reinterpret_cast<storage::Page*>(memory_.get_block());
-        pool_size_ = memory_.get_size() / storage::PAGE_SIZE;
+        pool_size_ = memory_.get_size() / storage::kPageSize;
     }
     LOG(INFO) << "Acquired memory Page Pool. " << memory_ << ". pages=" << pool_size_;
 
-    ASSERT_ND(memory_.get_size() % storage::PAGE_SIZE == 0);
-    uint64_t total_pages = memory_.get_size() / storage::PAGE_SIZE;
+    ASSERT_ND(memory_.get_size() % storage::kPageSize == 0);
+    uint64_t total_pages = memory_.get_size() / storage::kPageSize;
     uint64_t pointers_total_size = total_pages * sizeof(PagePoolOffset);
-    pages_for_free_pool_ = assorted::int_div_ceil(pointers_total_size, storage::PAGE_SIZE);
+    pages_for_free_pool_ = assorted::int_div_ceil(pointers_total_size, storage::kPageSize);
     LOG(INFO) << "total_pages=" << total_pages
         << ", pointers_total_size=" << pointers_total_size
         << ", pages_for_free_pool_=" << pages_for_free_pool_;

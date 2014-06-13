@@ -53,39 +53,39 @@ TEST(RendezvousTest, Simple) {
     another.join();
 }
 
-const int REP = 300;
-const int CLIENTS = 4;
+const int kRep = 300;
+const int kClients = 4;
 std::vector<Rendezvous*>            many_rendezvous;
 std::vector< std::atomic<int>* >    many_ends;
 void many_thread() {
-    for (int i = 0; i < REP; ++i) {
+    for (int i = 0; i < kRep; ++i) {
         many_rendezvous[i]->wait();
         EXPECT_TRUE(many_rendezvous[i]->is_signaled());
         int added = ++(*many_ends[i]);
-        if (added == CLIENTS) {
+        if (added == kClients) {
             delete many_rendezvous[i];
         }
     }
 }
 TEST(RendezvousTest, Many) {
     // This tests 1) spurious wake up, 2) lost signal (spurious blocking), 3) and other anomalies.
-    for (int i = 0; i < REP; ++i) {
+    for (int i = 0; i < kRep; ++i) {
         many_rendezvous.push_back(new Rendezvous());
         many_ends.push_back(new std::atomic<int>(0));
     }
 
     std::vector<std::thread> clients;
-    for (int i = 0; i < CLIENTS; ++i) {
+    for (int i = 0; i < kClients; ++i) {
         clients.emplace_back(std::thread(&many_thread));
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    for (int i = 0; i < REP; ++i) {
+    for (int i = 0; i < kRep; ++i) {
         EXPECT_EQ(0, many_ends[i]->load());
     }
 
-    for (int i = 0; i < REP; ++i) {
+    for (int i = 0; i < kRep; ++i) {
         EXPECT_EQ(0, many_ends[i]->load());
         many_rendezvous[i]->signal();
         if (i % 3 == 0) {
@@ -93,12 +93,12 @@ TEST(RendezvousTest, Many) {
         }
     }
 
-    for (int i = 0; i < CLIENTS; ++i) {
+    for (int i = 0; i < kClients; ++i) {
         clients[i].join();
     }
 
-    for (int i = 0; i < REP; ++i) {
-        EXPECT_EQ(CLIENTS, many_ends[i]->load());
+    for (int i = 0; i < kRep; ++i) {
+        EXPECT_EQ(kClients, many_ends[i]->load());
         delete many_ends[i];
     }
 }

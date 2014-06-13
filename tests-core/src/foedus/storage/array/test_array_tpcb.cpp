@@ -30,26 +30,26 @@ namespace array {
 
 // tiny numbers
 /** number of branches (TPS scaling factor). */
-const int BRANCHES  =   8;
+const int kBranches  =   8;
 /** number of tellers in 1 branch. */
-const int TELLERS   =   2;
+const int kTellers   =   2;
 /** number of accounts in 1 branch. */
-const int ACCOUNTS  =   4;
-const int ACCOUNTS_PER_TELLER = ACCOUNTS / TELLERS;
+const int kAccounts  =   4;
+const int kAccountsPerTellers = kAccounts / kTellers;
 
 /** In this testcase, we run at most this number of threads. */
-const int MAX_TEST_THREADS = 4;
+const int kMaxTestThreads = 4;
 /** number of transaction to run per thread. */
-const int XCTS_PER_THREAD = 100;
-const int INITIAL_ACCOUNT_BALANCE = 100;
-const int AMOUNT_RANGE_FROM = 1;
-const int AMOUNT_RANGE_TO = 20;
+const int kXctsPerThread = 100;
+const int kInitialAccountBalance = 100;
+const int kAmountRangeFrom = 1;
+const int kAmountRangeTo = 20;
 
 /** number of histories in TOTAL. */
-const int HISTORIES =   XCTS_PER_THREAD * MAX_TEST_THREADS;
+const int kHistories =   kXctsPerThread * kMaxTestThreads;
 
-static_assert(ACCOUNTS % TELLERS == 0, "ACCOUNTS must be multiply of TELLERS");
-static_assert(HISTORIES % ACCOUNTS == 0, "HISTORIES must be multiply of ACCOUNTS");
+static_assert(kAccounts % kTellers == 0, "kAccounts must be multiply of kTellers");
+static_assert(kHistories % kAccounts == 0, "kHistories must be multiply of kAccounts");
 
 struct BranchData {
     int64_t     branch_balance_;
@@ -94,13 +94,13 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
 
         // Create branches
         COERCE_ERROR(str_manager.create_array(context, "branches",
-                                        sizeof(BranchData), BRANCHES, &branches, &commit_epoch));
+                                        sizeof(BranchData), kBranches, &branches, &commit_epoch));
         EXPECT_TRUE(branches != nullptr);
         COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
-        for (int i = 0; i < BRANCHES; ++i) {
+        for (int i = 0; i < kBranches; ++i) {
             BranchData data;
             std::memset(&data, 0, sizeof(data));  // make valgrind happy
-            data.branch_balance_ = INITIAL_ACCOUNT_BALANCE * ACCOUNTS;
+            data.branch_balance_ = kInitialAccountBalance * kAccounts;
             COERCE_ERROR(branches->overwrite_record(context, i, &data));
         }
         COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
@@ -108,14 +108,14 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
 
         // Create tellers
         COERCE_ERROR(str_manager.create_array(context, "tellers",
-                                sizeof(AccountData), BRANCHES * TELLERS, &tellers, &commit_epoch));
+                            sizeof(AccountData), kBranches * kTellers, &tellers, &commit_epoch));
         EXPECT_TRUE(tellers != nullptr);
         COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
-        for (int i = 0; i < BRANCHES * TELLERS; ++i) {
+        for (int i = 0; i < kBranches * kTellers; ++i) {
             TellerData data;
             std::memset(&data, 0, sizeof(data));  // make valgrind happy
-            data.branch_id_ = i / TELLERS;
-            data.teller_balance_ = INITIAL_ACCOUNT_BALANCE * ACCOUNTS_PER_TELLER;
+            data.branch_id_ = i / kTellers;
+            data.teller_balance_ = kInitialAccountBalance * kAccountsPerTellers;
             COERCE_ERROR(tellers->overwrite_record(context, i, &data));
         }
         COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
@@ -123,14 +123,14 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
 
         // Create accounts
         COERCE_ERROR(str_manager.create_array(context, "accounts",
-                                sizeof(TellerData), BRANCHES * ACCOUNTS, &accounts, &commit_epoch));
+                            sizeof(TellerData), kBranches * kAccounts, &accounts, &commit_epoch));
         EXPECT_TRUE(accounts != nullptr);
         COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
-        for (int i = 0; i < BRANCHES * ACCOUNTS; ++i) {
+        for (int i = 0; i < kBranches * kAccounts; ++i) {
             AccountData data;
             std::memset(&data, 0, sizeof(data));  // make valgrind happy
-            data.branch_id_ = i / ACCOUNTS;
-            data.account_balance_ = INITIAL_ACCOUNT_BALANCE;
+            data.branch_id_ = i / kAccounts;
+            data.account_balance_ = kInitialAccountBalance;
             COERCE_ERROR(accounts->overwrite_record(context, i, &data));
         }
         COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
@@ -138,10 +138,10 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
 
         // Create histories
         COERCE_ERROR(str_manager.create_array(context, "histories",
-                                        sizeof(HistoryData), HISTORIES, &histories, &commit_epoch));
+                                    sizeof(HistoryData), kHistories, &histories, &commit_epoch));
         EXPECT_TRUE(histories != nullptr);
         COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
-        for (int i = 0; i < HISTORIES; ++i) {
+        for (int i = 0; i < kHistories; ++i) {
             HistoryData data;
             std::memset(&data, 0, sizeof(data));  // make valgrind happy
             data.branch_id_ = 0;
@@ -163,7 +163,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
  public:
     RunTpcbTask(int client_id, bool contended, thread::Rendezvous* start_rendezvous)
         : client_id_(client_id), contended_(contended), start_rendezvous_(start_rendezvous) {
-        ASSERT_ND(client_id < MAX_TEST_THREADS);
+        ASSERT_ND(client_id < kMaxTestThreads);
     }
     ErrorStack run(thread::Thread* context) {
         start_rendezvous_->wait();
@@ -172,21 +172,21 @@ class RunTpcbTask : public thread::ImpersonateTask {
         Epoch highest_commit_epoch;
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
         xct::XctId prev_xct_id;
-        for (int i = 0; i < XCTS_PER_THREAD; ++i) {
+        for (int i = 0; i < kXctsPerThread; ++i) {
             uint64_t account_id;
             if (contended_) {
-                account_id = rand.next_uint32() % (BRANCHES * ACCOUNTS);
+                account_id = rand.next_uint32() % (kBranches * kAccounts);
             } else {
-                const uint64_t accounts_per_thread = (BRANCHES * ACCOUNTS / MAX_TEST_THREADS);
+                const uint64_t accounts_per_thread = (kBranches * kAccounts / kMaxTestThreads);
                 account_id = rand.next_uint32() % accounts_per_thread
                     + (client_id_ * accounts_per_thread);
             }
-            uint64_t teller_id = account_id / ACCOUNTS_PER_TELLER;
-            uint64_t branch_id = account_id / ACCOUNTS;
-            uint64_t history_id = client_id_ * XCTS_PER_THREAD + i;
-            int64_t  amount = rand.uniform_within(AMOUNT_RANGE_FROM, AMOUNT_RANGE_TO);
-            EXPECT_GE(amount, AMOUNT_RANGE_FROM);
-            EXPECT_LE(amount, AMOUNT_RANGE_TO);
+            uint64_t teller_id = account_id / kAccountsPerTellers;
+            uint64_t branch_id = account_id / kAccounts;
+            uint64_t history_id = client_id_ * kXctsPerThread + i;
+            int64_t  amount = rand.uniform_within(kAmountRangeFrom, kAmountRangeTo);
+            EXPECT_GE(amount, kAmountRangeFrom);
+            EXPECT_LE(amount, kAmountRangeTo);
             while (true) {
                 ErrorStack error_stack = try_transaction(context, &highest_commit_epoch,
                     branch_id, teller_id, account_id, history_id, amount);
@@ -339,41 +339,41 @@ class RunTpcbTask : public thread::ImpersonateTask {
 class VerifyTpcbTask : public thread::ImpersonateTask {
  public:
     explicit VerifyTpcbTask(int clients) : clients_(clients) {
-        ASSERT_ND(clients <= MAX_TEST_THREADS);
+        ASSERT_ND(clients <= kMaxTestThreads);
     }
     ErrorStack run(thread::Thread* context) {
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
         CHECK_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
 
-        int64_t expected_branch[BRANCHES];
-        int64_t expected_teller[BRANCHES * TELLERS];
-        int64_t expected_account[BRANCHES * ACCOUNTS];
-        for (int i = 0; i < BRANCHES; ++i) {
-            expected_branch[i] = INITIAL_ACCOUNT_BALANCE * ACCOUNTS;
+        int64_t expected_branch[kBranches];
+        int64_t expected_teller[kBranches * kTellers];
+        int64_t expected_account[kBranches * kAccounts];
+        for (int i = 0; i < kBranches; ++i) {
+            expected_branch[i] = kInitialAccountBalance * kAccounts;
         }
-        for (int i = 0; i < BRANCHES * TELLERS; ++i) {
-            expected_teller[i] = INITIAL_ACCOUNT_BALANCE * ACCOUNTS_PER_TELLER;
+        for (int i = 0; i < kBranches * kTellers; ++i) {
+            expected_teller[i] = kInitialAccountBalance * kAccountsPerTellers;
         }
-        for (int i = 0; i < BRANCHES * ACCOUNTS; ++i) {
-            expected_account[i] = INITIAL_ACCOUNT_BALANCE;
+        for (int i = 0; i < kBranches * kAccounts; ++i) {
+            expected_account[i] = kInitialAccountBalance;
         }
 
         for (int client = 0; client < clients_; ++client) {
-            for (int i = 0; i < XCTS_PER_THREAD; ++i) {
+            for (int i = 0; i < kXctsPerThread; ++i) {
                 SCOPED_TRACE(testing::Message() << "Verify client=" << client << ", i=" << i);
-                uint64_t history_id = client * XCTS_PER_THREAD + i;
+                uint64_t history_id = client * kXctsPerThread + i;
                 HistoryData history;
                 CHECK_ERROR(histories->get_record(context, history_id, &history));
-                EXPECT_GE(history.amount_, AMOUNT_RANGE_FROM);
-                EXPECT_LE(history.amount_, AMOUNT_RANGE_TO);
+                EXPECT_GE(history.amount_, kAmountRangeFrom);
+                EXPECT_LE(history.amount_, kAmountRangeTo);
 
-                EXPECT_LT(history.branch_id_, BRANCHES);
-                EXPECT_LT(history.teller_id_, BRANCHES * TELLERS);
-                EXPECT_LT(history.account_id_, BRANCHES * ACCOUNTS);
+                EXPECT_LT(history.branch_id_, kBranches);
+                EXPECT_LT(history.teller_id_, kBranches * kTellers);
+                EXPECT_LT(history.account_id_, kBranches * kAccounts);
 
-                EXPECT_EQ(history.branch_id_, history.teller_id_ / TELLERS);
-                EXPECT_EQ(history.branch_id_, history.account_id_ / ACCOUNTS);
-                EXPECT_EQ(history.teller_id_, history.account_id_ / ACCOUNTS_PER_TELLER);
+                EXPECT_EQ(history.branch_id_, history.teller_id_ / kTellers);
+                EXPECT_EQ(history.branch_id_, history.account_id_ / kAccounts);
+                EXPECT_EQ(history.teller_id_, history.account_id_ / kAccountsPerTellers);
 
                 expected_branch[history.branch_id_] += history.amount_;
                 expected_teller[history.teller_id_] += history.amount_;
@@ -381,21 +381,21 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
             }
         }
 
-        for (int i = 0; i < BRANCHES; ++i) {
+        for (int i = 0; i < kBranches; ++i) {
             BranchData data;
             CHECK_ERROR(branches->get_record(context, i, &data));
             EXPECT_EQ(expected_branch[i], data.branch_balance_) << "branch-" << i;
         }
-        for (int i = 0; i < BRANCHES * TELLERS; ++i) {
+        for (int i = 0; i < kBranches * kTellers; ++i) {
             TellerData data;
             CHECK_ERROR(tellers->get_record(context, i, &data));
-            EXPECT_EQ(i / TELLERS, data.branch_id_) << i;
+            EXPECT_EQ(i / kTellers, data.branch_id_) << i;
             EXPECT_EQ(expected_teller[i], data.teller_balance_) << "teller-" << i;
         }
-        for (int i = 0; i < BRANCHES * ACCOUNTS; ++i) {
+        for (int i = 0; i < kBranches * kAccounts; ++i) {
             AccountData data;
             CHECK_ERROR(accounts->get_record(context, i, &data));
-            EXPECT_EQ(i / ACCOUNTS, data.branch_id_) << i;
+            EXPECT_EQ(i / kAccounts, data.branch_id_) << i;
             EXPECT_EQ(expected_account[i], data.account_balance_) << "account-" << i;
         }
         for (uint32_t i = 0; i < context->get_current_xct().get_read_set_size(); ++i) {

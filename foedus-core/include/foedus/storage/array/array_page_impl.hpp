@@ -30,9 +30,9 @@ class ArrayPage final {
      * Data union for either leaf (dynamic size) or interior (fixed size).
      */
     union Data {
-        char            leaf_data[INTERIOR_FANOUT * sizeof(DualPagePointer)];
-        // InteriorRecord  interior_data[INTERIOR_FANOUT];
-        DualPagePointer interior_data[INTERIOR_FANOUT];
+        char            leaf_data[kInteriorFanout * sizeof(DualPagePointer)];
+        // InteriorRecord  interior_data[kInteriorFanout];
+        DualPagePointer interior_data[kInteriorFanout];
     };
 
     // A page object is never explicitly instantiated. You must reinterpret_cast.
@@ -43,7 +43,7 @@ class ArrayPage final {
     // simple accessors
     StorageId           get_storage_id()    const   { return storage_id_; }
     uint16_t            get_leaf_record_count()  const {
-        return DATA_SIZE / (RECORD_OVERHEAD + payload_size_);
+        return kDataSize / (kRecordOverhead + payload_size_);
     }
     uint16_t            get_payload_size()  const   { return payload_size_; }
     bool                is_leaf()           const   { return node_height_ == 0; }
@@ -62,16 +62,16 @@ class ArrayPage final {
     }
     Record*         get_leaf_record(uint16_t record) ALWAYS_INLINE {
         ASSERT_ND(is_leaf());
-        ASSERT_ND((record + 1) * (RECORD_OVERHEAD + payload_size_) <= DATA_SIZE);
+        ASSERT_ND((record + 1) * (kRecordOverhead + payload_size_) <= kDataSize);
         return reinterpret_cast<Record*>(data_.leaf_data
-            + record * (RECORD_OVERHEAD + payload_size_));
+            + record * (kRecordOverhead + payload_size_));
     }
     const DualPagePointer&   get_interior_record(uint16_t record) const ALWAYS_INLINE {
         return const_cast<ArrayPage*>(this)->get_interior_record(record);
     }
     DualPagePointer&         get_interior_record(uint16_t record) ALWAYS_INLINE {
         ASSERT_ND(!is_leaf());
-        ASSERT_ND(record < INTERIOR_FANOUT);
+        ASSERT_ND(record < kInteriorFanout);
         return data_.interior_data[record];
     }
 
@@ -101,8 +101,8 @@ class ArrayPage final {
     /** Dynamic records in this page. */
     Data                data_;
 };
-static_assert(sizeof(ArrayPage) <= PAGE_SIZE, "sizeof(ArrayPage) exceeds PAGE_SIZE");
-static_assert(sizeof(ArrayPage) - sizeof(ArrayPage::Data) == HEADER_SIZE, "HEADER_SIZE is wrong");
+static_assert(sizeof(ArrayPage) <= kPageSize, "sizeof(ArrayPage) exceeds kPageSize");
+static_assert(sizeof(ArrayPage) - sizeof(ArrayPage::Data) == kHeaderSize, "kHeaderSize is wrong");
 
 }  // namespace array
 }  // namespace storage

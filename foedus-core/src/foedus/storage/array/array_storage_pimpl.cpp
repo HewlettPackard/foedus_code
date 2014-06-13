@@ -73,7 +73,7 @@ ErrorStack ArrayStorage::increment_record(thread::Thread* context, ArrayOffset o
  * @return index=level.
  */
 std::vector<uint64_t> calculate_required_pages(uint64_t array_size, uint16_t payload) {
-    uint64_t records_per_page = DATA_SIZE / (payload + RECORD_OVERHEAD);
+    uint64_t records_per_page = kDataSize / (payload + kRecordOverhead);
 
     // so, how many leaf pages do we need?
     uint64_t leaf_pages = assorted::int_div_ceil(array_size, records_per_page);
@@ -84,7 +84,7 @@ std::vector<uint64_t> calculate_required_pages(uint64_t array_size, uint16_t pay
     std::vector<uint64_t> pages;
     pages.push_back(leaf_pages);
     while (pages.back() != 1) {
-        uint64_t next_level_pages = assorted::int_div_ceil(pages.back(), INTERIOR_FANOUT);
+        uint64_t next_level_pages = assorted::int_div_ceil(pages.back(), kInteriorFanout);
         LOG(INFO) << "Level-" << pages.size() << " would have " << next_level_pages << " pages";
         pages.push_back(next_level_pages);
         total_pages += next_level_pages;
@@ -97,9 +97,9 @@ std::vector<uint64_t> calculate_required_pages(uint64_t array_size, uint16_t pay
 ArrayStoragePimpl::ArrayStoragePimpl(Engine* engine, ArrayStorage* holder,
                                      const ArrayMetadata &metadata, bool create)
     : engine_(engine), holder_(holder), metadata_(metadata), root_page_(nullptr), exist_(!create),
-        records_in_leaf_(DATA_SIZE / (metadata.payload_size_ + RECORD_OVERHEAD)),
+        records_in_leaf_(kDataSize / (metadata.payload_size_ + kRecordOverhead)),
         leaf_fanout_div_(records_in_leaf_),
-        interior_fanout_div_(INTERIOR_FANOUT) {
+        interior_fanout_div_(kInteriorFanout) {
     ASSERT_ND(create || metadata.id_ > 0);
     ASSERT_ND(metadata.name_.size() > 0);
     root_page_pointer_.snapshot_pointer_ = metadata.root_page_id_;
@@ -111,9 +111,9 @@ ErrorStack ArrayStoragePimpl::initialize_once() {
     uint16_t payload_size_aligned = (assorted::align8(metadata_.payload_size_));
     pages_ = calculate_required_pages(metadata_.array_size_, payload_size_aligned);
     levels_ = pages_.size();
-    offset_intervals_.push_back(DATA_SIZE / (payload_size_aligned + RECORD_OVERHEAD));
+    offset_intervals_.push_back(kDataSize / (payload_size_aligned + kRecordOverhead));
     for (uint8_t level = 1; level < levels_; ++level) {
-        offset_intervals_.push_back(offset_intervals_[level - 1] * INTERIOR_FANOUT);
+        offset_intervals_.push_back(offset_intervals_[level - 1] * kInteriorFanout);
     }
     for (uint8_t level = 0; level < levels_; ++level) {
         LOG(INFO) << "Level-" << static_cast<int>(level) << " pages=" << pages_[level]
@@ -132,7 +132,7 @@ void ArrayStoragePimpl::release_pages_recursive(
     if (!page->is_leaf()) {
         const memory::GlobalPageResolver& page_resolver
             = engine_->get_memory_manager().get_global_page_resolver();
-        for (uint16_t i = 0; i < INTERIOR_FANOUT; ++i) {
+        for (uint16_t i = 0; i < kInteriorFanout; ++i) {
             DualPagePointer &child_pointer = page->get_interior_record(i);
             VolatilePagePointer child_page_id = child_pointer.volatile_pointer_;
             if (child_page_id.components.offset != 0) {
@@ -230,7 +230,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
 
         // push it up to parent, potentially up to root
         for (uint8_t level = 1; level < levels_; ++level) {
-            if (current_records[level] == INTERIOR_FANOUT) {
+            if (current_records[level] == kInteriorFanout) {
                 VLOG(2) << "leaf=" << leaf << ", interior level=" << static_cast<int>(level);
                 VolatilePagePointer interior_pointer = grab_batch.grab();
                 ASSERT_ND(interior_pointer.components.offset != 0);
@@ -374,11 +374,11 @@ inline ArrayStoragePimpl::LookupRoute ArrayStoragePimpl::find_route(ArrayOffset 
     for (uint8_t level = 1; level < levels_ - 1; ++level) {
         old = offset;
         offset = interior_fanout_div_.div64(offset);
-        ret.route[level] = old - offset * INTERIOR_FANOUT;
+        ret.route[level] = old - offset * kInteriorFanout;
     }
     if (levels_ > 1) {
         // the last level is done manually because we don't need any division there
-        ASSERT_ND(offset < INTERIOR_FANOUT);
+        ASSERT_ND(offset < kInteriorFanout);
         ret.route[levels_ - 1] = offset;
     }
 

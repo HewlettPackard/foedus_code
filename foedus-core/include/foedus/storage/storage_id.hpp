@@ -23,7 +23,7 @@ namespace storage {
  * @details
  * This number must be at least 4kb (2^12) because that's Linux's page alignment.
  */
-const uint16_t PAGE_SIZE = 1 << 12;
+const uint16_t kPageSize = 1 << 12;
 
 /**
  * @brief Unique ID for storage.

@@ -61,15 +61,15 @@ TEST(StoppableThreadTest, Wakeup) {
 
 TEST(StoppableThreadTest, Many) {
     std::vector<StoppableThread*> threads;
-    const int THREADS = 10;
-    for (int i = 0; i < THREADS; ++i) {
+    const int kThreads = 10;
+    for (int i = 0; i < kThreads; ++i) {
         StoppableThread* th = new StoppableThread();
         threads.push_back(th);
         th->initialize("test", i,
                        std::move(std::thread(handle_thread, th)), std::chrono::milliseconds(5));
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    for (int i = 0; i < THREADS; ++i) {
+    for (int i = 0; i < kThreads; ++i) {
         StoppableThread* th = threads[i];
         EXPECT_FALSE(th->is_stop_requested());
         EXPECT_FALSE(th->is_stopped());

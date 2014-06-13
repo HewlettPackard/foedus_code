@@ -36,13 +36,13 @@ ErrorStack StorageManagerPimpl::initialize_once() {
     storages_ = nullptr;
     storages_capacity_ = 0;
 
-    const size_t INITIAL_CAPACITY = 1 << 12;
-    storages_ = new Storage*[INITIAL_CAPACITY];
+    const size_t kInitialCapacity = 1 << 12;
+    storages_ = new Storage*[kInitialCapacity];
     if (!storages_) {
         return ERROR_STACK(ERROR_CODE_OUTOFMEMORY);
     }
-    std::memset(storages_, 0, sizeof(Storage*) * INITIAL_CAPACITY);
-    storages_capacity_ = INITIAL_CAPACITY;
+    std::memset(storages_, 0, sizeof(Storage*) * kInitialCapacity);
+    storages_capacity_ = kInitialCapacity;
 
     return RET_OK;
 }

@@ -65,9 +65,9 @@ ErrorStack NumaNodeMemory::initialize_page_offset_chunk_memory() {
     size_t size_per_core = sizeof(PagePoolOffsetChunk);
     size_t total_size = size_per_core * cores_;
     LOG(INFO) << "Initializing page_offset_chunk_memory_. total_size=" << total_size << " bytes";
-    if (total_size < HUGEPAGE_SIZE) {
+    if (total_size < kHugepageSize) {
         // Just one per NUMA node. Not a significant waste.
-        total_size = HUGEPAGE_SIZE;
+        total_size = kHugepageSize;
         LOG(INFO) << "Allocating extra space to utilize hugepage.";
     }
     CHECK_ERROR(allocate_numa_memory(total_size, &page_offset_chunk_memory_));

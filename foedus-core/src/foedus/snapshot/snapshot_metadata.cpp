@@ -11,10 +11,10 @@
 namespace foedus {
 namespace snapshot {
 
-const char* CHILD_TAG_NAME = "storage";
-const char* STORAGES_TAG_NAME = "storages";
+const char* kChildTagName = "storage";
+const char* kStoragesTagName = "storages";
 void SnapshotMetadata::clear() {
-    id_ = NULL_SNAPSHOT_ID;
+    id_ = kNullSnapshotId;
     base_epoch_ = Epoch::EPOCH_INVALID;
     valid_until_epoch_ = Epoch::EPOCH_INVALID;
 
@@ -32,14 +32,14 @@ ErrorStack SnapshotMetadata::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, valid_until_epoch_);
 
     // <storages>
-    tinyxml2::XMLElement* storages = element->FirstChildElement(STORAGES_TAG_NAME);
+    tinyxml2::XMLElement* storages = element->FirstChildElement(kStoragesTagName);
     if (!storages) {
         // <storages> tag is missing. treat it at no storages. but weird!
-        LOG(ERROR) << "WAIT, the snapshot metadata file doesn't have " << STORAGES_TAG_NAME
+        LOG(ERROR) << "WAIT, the snapshot metadata file doesn't have " << kStoragesTagName
             << " element? that's weird. It'll be treated as empty, but this shouldn't happen!";
     } else {
-        for (tinyxml2::XMLElement* child = storages->FirstChildElement(CHILD_TAG_NAME);
-            child; child = child->NextSiblingElement(CHILD_TAG_NAME)) {
+        for (tinyxml2::XMLElement* child = storages->FirstChildElement(kChildTagName);
+            child; child = child->NextSiblingElement(kChildTagName)) {
             std::unique_ptr<storage::Metadata> metadata(storage::Metadata::create_instance(child));
             CHECK_ERROR(metadata->load(child));
             VLOG(0) << "Loaded metadata of storage-" << metadata->id_ << " from snapshot file";
@@ -63,12 +63,12 @@ ErrorStack SnapshotMetadata::save(tinyxml2::XMLElement* element) const {
         "This snapshot contains all the logs until this epoch.");
 
     // <storages>
-    tinyxml2::XMLElement* storages = element->GetDocument()->NewElement(STORAGES_TAG_NAME);
+    tinyxml2::XMLElement* storages = element->GetDocument()->NewElement(kStoragesTagName);
     CHECK_OUTOFMEMORY(storages);
     element->InsertEndChild(storages);
     CHECK_ERROR(insert_comment(storages, "Metadata of all storages"));
     for (storage::Metadata *child : storage_metadata_) {
-        CHECK_ERROR(add_child_element(storages, CHILD_TAG_NAME, "", *child));
+        CHECK_ERROR(add_child_element(storages, kChildTagName, "", *child));
     }
     // </storages>
     LOG(INFO) << "Written metadata of " << storage_metadata_.size() << " storages";

@@ -114,7 +114,7 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     const uint16_t                records_in_leaf_;
     /** ConstDiv(records_in_leaf_) to speed up integer division in lookup(). */
     const assorted::ConstDiv      leaf_fanout_div_;
-    /** ConstDiv(INTERIOR_FANOUT) to speed up integer division in lookup(). */
+    /** ConstDiv(kInteriorFanout) to speed up integer division in lookup(). */
     const assorted::ConstDiv      interior_fanout_div_;
 };
 }  // namespace array

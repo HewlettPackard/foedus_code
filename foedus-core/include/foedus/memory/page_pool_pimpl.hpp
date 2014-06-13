@@ -51,7 +51,7 @@ class PagePoolPimpl final : public DefaultInitializable {
     /** Just an auxiliary variable to the beginning of the pool. Same as memory_.get_block(). */
     storage::Page*                  pool_base_;
 
-    /** Just an auxiliary variable of the size of pool. Same as memory_.get_size()/PAGE_SIZE. */
+    /** Just an auxiliary variable of the size of pool. Same as memory_.get_size()/kPageSize. */
     uint64_t                        pool_size_;
 
     /**

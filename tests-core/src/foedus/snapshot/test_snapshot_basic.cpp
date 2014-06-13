@@ -28,7 +28,7 @@ namespace snapshot {
 ErrorStack read_metadata_file(Engine* engine, SnapshotMetadata *metadata) {
     SnapshotManager& manager = engine->get_snapshot_manager();
     SnapshotId snapshot_id = manager.get_previous_snapshot_id();
-    EXPECT_NE(NULL_SNAPSHOT_ID, snapshot_id);
+    EXPECT_NE(kNullSnapshotId, snapshot_id);
     fs::Path file = manager.get_pimpl()->get_snapshot_metadata_file_path(snapshot_id);
     CHECK_ERROR(metadata->load_from_file(file));
     return RET_OK;

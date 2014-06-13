@@ -139,7 +139,7 @@ void Logger::handle_logger() {
 
     LOG(INFO) << "Logger-" << id_ << " now starts logging";
     while (!logger_thread_.sleep()) {
-        const int MAX_ITERATIONS = 100;
+        const int kMaxIterations = 100;
         int iterations = 0;
         while (!logger_thread_.is_stop_requested()) {
             assert_consistent();
@@ -148,7 +148,7 @@ void Logger::handle_logger() {
             if (!more_log_to_process) {
                 break;
             }
-            if (((++iterations) % MAX_ITERATIONS) == 0) {
+            if (((++iterations) % kMaxIterations) == 0) {
                 LOG(WARNING) << "Logger-" << id_ << " has been working without sleep for long time"
                     << "(" << iterations << "). Either too few loggers or potentially a bug?? "
                     << *this;

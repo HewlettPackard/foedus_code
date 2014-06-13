@@ -60,7 +60,7 @@ struct MemoryOptions CXX11_FINAL : public virtual externalize::Externalizable {
      * @brief How many pages each NumaCoreMemory initially grabs when it is initialized.
      * @details
      * Default is 50% of PagePoolOffsetChunk::MAX_SIZE.
-     * Obviously, private_page_pool_initial_grab_ * PAGE_SIZE * number-of-threads-per-node must be
+     * Obviously, private_page_pool_initial_grab_ * kPageSize * number-of-threads-per-node must be
      * within page_pool_size_mb_per_node_ to start up the engine.
      */
     uint32_t    private_page_pool_initial_grab_;
