@@ -28,7 +28,7 @@ ErrorStack PagePoolPimpl::initialize_once() {
     LOG(INFO) << "Acquiring memory for Page Pool on NUMA node "
         << static_cast<int>(numa_node_)<< "...";
     {
-        AlignedMemory::AllocType alloc_type = AlignedMemory::NUMA_ALLOC_ONNODE;
+        AlignedMemory::AllocType alloc_type = AlignedMemory::kNumaAllocOnnode;
         uint64_t size = static_cast<uint64_t>(options.page_pool_size_mb_per_node_) << 20;
         ASSERT_ND(size >= (2 << 20));
         uint64_t alignment = storage::kPageSize;
@@ -58,7 +58,7 @@ ErrorStack PagePoolPimpl::initialize_once() {
     resolver_ = LocalPageResolver(pool_base_, pages_for_free_pool_, pool_size_);
     LOG(INFO) << "Constructed circular free pool.";
 
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack PagePoolPimpl::uninitialize_once() {
@@ -74,7 +74,7 @@ ErrorStack PagePoolPimpl::uninitialize_once() {
     free_pool_ = nullptr;
     pool_base_ = nullptr;
     LOG(INFO) << "Released memory. ";
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chunk) {
@@ -106,7 +106,7 @@ ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* 
     chunk->push_back(head, head + grab_count);
     free_pool_head_ += grab_count;
     free_pool_count_ -= grab_count;
-    return ERROR_CODE_OK;
+    return kErrorCodeOk;
 }
 
 void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk) {

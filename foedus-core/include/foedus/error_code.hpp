@@ -32,12 +32,12 @@ namespace foedus {
  * However, public API methods might need stacktrace information for ease of use.
  * In that case, you should return ErrorStack, which additionally contains stacktrace and
  * custom error message.
- * ErrorStack is much more costly if it returns an error (if it's ERROR_CODE_OK, very efficient)
+ * ErrorStack is much more costly if it returns an error (if it's kErrorCodeOk, very efficient)
  * and especially when it contains a custom error message (See ErrorStack for more details).
  *
  * @par How to use ErrorStack
  * To use ErrorStack, you should be familiar with how to use the following macros:
- * foedus::RET_OK, CHECK_ERROR(x), ERROR_STACK(e), COERCE_ERROR(x), and a few others.
+ * foedus::kRetOk, CHECK_ERROR(x), ERROR_STACK(e), COERCE_ERROR(x), and a few others.
  * For example, use it as follows:
  * @code{.cpp}
  * ErrorStack your_func() {
@@ -46,7 +46,7 @@ namespace foedus {
  *   }
  *   CHECK_ERROR(another_func());
  *   CHECK_ERROR(yet_another_func());
- *   return RET_OK;
+ *   return kRetOk;
  * }
  * @endcode
  *
@@ -71,7 +71,7 @@ namespace foedus {
  */
 enum ErrorCode {
     /** 0 means no-error. */
-    ERROR_CODE_OK = 0,
+    kErrorCodeOk = 0,
 #include <foedus/error_code.xmacro> // NOLINT
 };
 #undef X
@@ -94,7 +94,7 @@ const char* get_error_message(ErrorCode code);
 #define X(a, b, c) case a: return X_EXPAND_AND_QUOTE(a);
 inline const char* get_error_name(ErrorCode code) {
     switch (code) {
-        case ERROR_CODE_OK: return "ERROR_CODE_OK";
+        case kErrorCodeOk: return "kErrorCodeOk";
 #include <foedus/error_code.xmacro> // NOLINT
     }
     return "Unexpected error code";
@@ -106,7 +106,7 @@ inline const char* get_error_name(ErrorCode code) {
 #define X(a, b, c) case a: return c;
 inline const char* get_error_message(ErrorCode code) {
     switch (code) {
-        case ERROR_CODE_OK: return "no_error";
+        case kErrorCodeOk: return "no_error";
 #include <foedus/error_code.xmacro> // NOLINT
     }
     return "Unexpected error code";

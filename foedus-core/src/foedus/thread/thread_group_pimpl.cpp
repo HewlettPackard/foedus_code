@@ -21,7 +21,7 @@ ErrorStack ThreadGroupPimpl::initialize_once() {
         threads_.push_back(new Thread(engine_, this, id));
         CHECK_ERROR(threads_.back()->initialize());
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack ThreadGroupPimpl::uninitialize_once() {

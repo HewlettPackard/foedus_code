@@ -174,7 +174,7 @@ struct FillerLogType : public BaseLogType {
          * We always write to file in a multiply of this value, filling up the rest if needed.
          * 4kb Disk Sector (512b earlier, but nowadays 4kb especially on SSD).
          */
-        LOG_WRITE_UNIT_SIZE = 1 << 12,
+        kLogWriteUnitSize = 1 << 12,
     };
 
     LOG_TYPE_NO_CONSTRUCT(FillerLogType)
@@ -193,7 +193,7 @@ struct FillerLogType : public BaseLogType {
     void    populate(uint64_t size);
 
     void    assert_valid() ALWAYS_INLINE {
-        ASSERT_ND(header_.get_type() == LOG_CODE_FILLER);
+        ASSERT_ND(header_.get_type() == kLogCodeFiller);
         ASSERT_ND(header_.log_length_ >= sizeof(FillerLogType));
         ASSERT_ND(header_.log_length_ % 8 == 0);
         ASSERT_ND(header_.storage_id_ == 0);

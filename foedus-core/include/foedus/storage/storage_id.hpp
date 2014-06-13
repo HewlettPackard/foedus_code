@@ -55,15 +55,15 @@ typedef uint64_t SnapshotPagePointer;
  */
 enum StorageType {
     /** 0 indicates invalid type. */
-    INVALID_STORAGE = 0,
+    kInvalidStorage = 0,
     /** \ref ARRAY */
-    ARRAY_STORAGE,
+    kArrayStorage,
     /** \ref HASH */
-    HASH_STORAGE,
+    kHashStorage,
     /** \ref MASSTREE */
-    MASSTREE_STORAGE,
+    kMasstreeStorage,
     /** \ref SEQUENTIAL */
-    SEQUENTIAL_STORAGE,
+    kSequentialStorage,
 };
 
 /**

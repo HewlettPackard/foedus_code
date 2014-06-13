@@ -52,11 +52,11 @@ const uint64_t kFull63Bits = 0x7FFFFFFFFFFFFFFFULL;
 struct ConstDiv {
     enum Constants {
         /** Whether the divisor is a power of 2. When this flag is on, we just shift bits. */
-        FLAG_POWER_OF_2 = 0x01,
+        kFlagPowerOfTwo = 0x01,
         /** Add inidicator for 32bit division. */
-        FLAG_ADD_32 = 0x02,
+        kFlagAdd32 = 0x02,
         /** Add inidicator for 64bit division. */
-        FLAG_ADD_64 = 0x04,
+        kFlagAdd64 = 0x04,
     };
 
     /**
@@ -133,7 +133,7 @@ inline void ConstDiv::init(uint32_t d) {
         ASSERT_ND(d == (1U << d_highest_bits_));
         shift32_ = 0;
         shift64_ = 0;
-        flags_ = FLAG_POWER_OF_2;
+        flags_ = kFlagPowerOfTwo;
         magic32_ = 0;
         magic64_ = 0;
         return;
@@ -155,7 +155,7 @@ inline void ConstDiv::init(uint32_t d) {
             // We let it overflow, but we do so for remainder too, thus even with overflow
             // we can correctly calculate the quotient!
             // We use the magic number for this case with divide-by-2 in div32 to account for this.
-            flags_ |= FLAG_ADD_32;
+            flags_ |= kFlagAdd32;
             m *= 2;
             uint32_t twice_rem = rem * 2;
             if (twice_rem >= d || twice_rem < rem) {
@@ -176,7 +176,7 @@ inline void ConstDiv::init(uint32_t d) {
         ASSERT_ND(rem > 0 && rem < d);
         uint32_t e = d - rem;
         if (e >= (1ULL << d_highest_bits_)) {
-            flags_ |= FLAG_ADD_64;
+            flags_ |= kFlagAdd64;
             m *= 2;
             uint32_t twice_rem = rem * 2;
             if (twice_rem >= d || twice_rem < rem) {
@@ -192,7 +192,7 @@ inline uint32_t ConstDiv::rem32(uint32_t n, uint32_t d, uint32_t q) const {
     ASSERT_ND(d == d_);
 #endif  // NDEBUG
     ASSERT_ND(n / d == q);
-    if (flags_ & FLAG_POWER_OF_2) {
+    if (flags_ & kFlagPowerOfTwo) {
         return n & ((1 << d_highest_bits_) - 1);
     } else {
         return n - d * q;
@@ -203,7 +203,7 @@ inline uint32_t ConstDiv::rem64(uint64_t n, uint32_t d, uint64_t q) const {
     ASSERT_ND(d == d_);
 #endif  // NDEBUG
     ASSERT_ND(n / d == q);
-    if (flags_ & FLAG_POWER_OF_2) {
+    if (flags_ & kFlagPowerOfTwo) {
         return n & ((1ULL << d_highest_bits_) - 1ULL);
     } else {
         return n - d * q;
@@ -211,12 +211,12 @@ inline uint32_t ConstDiv::rem64(uint64_t n, uint32_t d, uint64_t q) const {
 }
 
 inline uint32_t ConstDiv::div32(uint32_t n) const {
-    if (flags_ & FLAG_POWER_OF_2) {
+    if (flags_ & kFlagPowerOfTwo) {
         return n >> d_highest_bits_;
     } else {
         uint64_t product = static_cast<uint64_t>(n) * magic32_;
         uint32_t quotient = static_cast<uint32_t>(product >> 32);
-        if (flags_ & FLAG_ADD_32) {
+        if (flags_ & kFlagAdd32) {
             quotient += (n - quotient) >> 1;
         }
         return quotient >> shift32_;
@@ -224,7 +224,7 @@ inline uint32_t ConstDiv::div32(uint32_t n) const {
 }
 
 inline uint64_t ConstDiv::div64(uint64_t n) const {
-    if (flags_ & FLAG_POWER_OF_2) {
+    if (flags_ & kFlagPowerOfTwo) {
         return n >> d_highest_bits_;
     }
 
@@ -237,7 +237,7 @@ inline uint64_t ConstDiv::div64(uint64_t n) const {
     // TODO(Hideaki): non-GCC which doesn't have uint128_t.
     __uint128_t product = static_cast<__uint128_t>(n) * magic64_;
     uint64_t quotient = static_cast<uint64_t>(product >> 64);
-    if (flags_ & FLAG_ADD_64) {
+    if (flags_ & kFlagAdd64) {
         quotient += (n - quotient) >> 1;
     }
     return quotient >> shift64_;

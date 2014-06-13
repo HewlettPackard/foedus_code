@@ -17,7 +17,7 @@ ErrorStack LogGleaner::initialize_once() {
     gleaner_thread_.initialize("LogGleaner",
                     std::thread(&LogGleaner::handle_gleaner, this), std::chrono::milliseconds(10));
 
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack LogGleaner::uninitialize_once() {

@@ -22,17 +22,17 @@ void ImpersonateSession::wait() const {
 }
 ImpersonateSession::Status ImpersonateSession::wait_for(TimeoutMicrosec timeout) const {
     if (!is_valid()) {
-        return ImpersonateSession::INVALID_SESSION;
+        return ImpersonateSession::kInvalidSession;
     } else if (timeout < 0) {
         // this means unconditional wait.
         wait();
-        return ImpersonateSession::READY;
+        return ImpersonateSession::kReady;
     } else {
         bool done = task_->pimpl_->rendezvous_.wait_for(std::chrono::microseconds(timeout));
         if (!done) {
-            return ImpersonateSession::TIMEOUT;
+            return ImpersonateSession::kTimeout;
         } else {
-            return ImpersonateSession::READY;
+            return ImpersonateSession::kReady;
         }
     }
 }

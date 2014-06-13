@@ -130,7 +130,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
             uint64_t history_id = processed_ * kTotalThreads + history_ordinal_;
             if (history_id >= kHistories) {
                 std::cerr << "Full histories" << std::endl;
-                return RET_OK;
+                return kRetOk;
             }
             int64_t  amount = static_cast<int64_t>(random_.uniform_within(0, 1999999)) - 1000000;
             int successive_aborts = 0;
@@ -163,7 +163,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
         }
         std::cout << "I'm done! " << context->get_thread_id()
             << ", processed=" << processed_ << std::endl;
-        return RET_OK;
+        return kRetOk;
     }
 
     ErrorStack try_transaction(thread::Thread* context, uint64_t branch_id, uint64_t teller_id,
@@ -188,7 +188,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
 
         Epoch commit_epoch;
         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-        return RET_OK;
+        return kRetOk;
     }
 
     uint64_t get_processed() const { return processed_; }
@@ -233,8 +233,8 @@ int main_impl(int argc, char **argv) {
     options.log_.folder_path_pattern_ = "/dev/shm/tpcb_array_expr/log/node_$NODE$/logger_$LOGGER$";
     options.log_.loggers_per_node_ = kLoggersPerNode;
     options.debugging_.debug_log_min_threshold_
-        = debugging::DebuggingOptions::DEBUG_LOG_INFO;
-        // = debugging::DebuggingOptions::DEBUG_LOG_WARNING;
+        = debugging::DebuggingOptions::kDebugLogInfo;
+        // = debugging::DebuggingOptions::kDebugLogWarning;
     options.debugging_.verbose_modules_ = "";
     options.debugging_.verbose_log_level_ = -1;
     options.log_.log_buffer_kb_ = 1 << 20;  // 256MB * 16 cores = 4 GB. nothing.

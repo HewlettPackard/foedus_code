@@ -23,10 +23,10 @@ namespace array {
  */
 struct ArrayMetadata CXX11_FINAL : public virtual Metadata {
     ArrayMetadata()
-        : Metadata(0, ARRAY_STORAGE, ""), payload_size_(0), array_size_(0), root_page_id_(0) {}
+        : Metadata(0, kArrayStorage, ""), payload_size_(0), array_size_(0), root_page_id_(0) {}
     ArrayMetadata(StorageId id, const std::string& name, uint16_t payload_size,
                   ArrayOffset array_size, SnapshotPagePointer root_page_id)
-        : Metadata(id, ARRAY_STORAGE, name),
+        : Metadata(id, kArrayStorage, name),
         payload_size_(payload_size), array_size_(array_size), root_page_id_(root_page_id) {
     }
     EXTERNALIZABLE(ArrayMetadata);

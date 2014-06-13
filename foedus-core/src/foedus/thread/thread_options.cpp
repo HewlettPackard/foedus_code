@@ -23,7 +23,7 @@ ThreadOptions::ThreadOptions() {
 ErrorStack ThreadOptions::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, group_count_);
     EXTERNALIZE_LOAD_ELEMENT(element, thread_count_per_group_);
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack ThreadOptions::save(tinyxml2::XMLElement* element) const {
@@ -35,7 +35,7 @@ ErrorStack ThreadOptions::save(tinyxml2::XMLElement* element) const {
     EXTERNALIZE_SAVE_ELEMENT(element, thread_count_per_group_,
         "Number of Thread in each ThreadGroup. Default value is hardware NUMA core count;\n"
         " ::numa_num_configured_cpus() / ::numa_num_configured_nodes()");
-    return RET_OK;
+    return kRetOk;
 }
 
 }  // namespace thread

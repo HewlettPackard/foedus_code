@@ -15,7 +15,7 @@ namespace foedus {
 namespace memory {
 AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
                              AllocType alloc_type, int numa_node) noexcept
-    : size_(0), alignment_(0), alloc_type_(POSIX_MEMALIGN), numa_node_(0), block_(nullptr) {
+    : size_(0), alignment_(0), alloc_type_(kPosixMemalign), numa_node_(0), block_(nullptr) {
     alloc(size, alignment, alloc_type, numa_node);
 }
 
@@ -33,13 +33,13 @@ void AlignedMemory::alloc(uint64_t size, uint64_t alignment,
     }
     debugging::StopWatch watch;
     switch (alloc_type_) {
-        case POSIX_MEMALIGN:
+        case kPosixMemalign:
             ::posix_memalign(&block_, alignment, size_);
             break;
-        case NUMA_ALLOC_INTERLEAVED:
+        case kNumaAllocInterleaved:
             block_ = ::numa_alloc_interleaved(size_);
             break;
-        case NUMA_ALLOC_ONNODE:
+        case kNumaAllocOnnode:
             block_ = ::numa_alloc_onnode(size_, numa_node);
             break;
         default:
@@ -71,11 +71,11 @@ AlignedMemory& AlignedMemory::operator=(AlignedMemory &&other) noexcept {
 void AlignedMemory::release_block() {
     if (block_ != nullptr) {
         switch (alloc_type_) {
-            case POSIX_MEMALIGN:
+            case kPosixMemalign:
                 ::free(block_);
                 break;
-            case NUMA_ALLOC_INTERLEAVED:
-            case NUMA_ALLOC_ONNODE:
+            case kNumaAllocInterleaved:
+            case kNumaAllocOnnode:
                 ::numa_free(block_, size_);
                 break;
             default:

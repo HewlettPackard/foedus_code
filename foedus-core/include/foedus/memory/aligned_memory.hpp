@@ -59,32 +59,32 @@ class AlignedMemory CXX11_FINAL {
      */
     enum AllocType {
         /** posix_memalign() and free(). */
-        POSIX_MEMALIGN = 0,
+        kPosixMemalign = 0,
         /** numa_alloc_interleaved() and numa_free(). Implicit 4096 bytes alignment. */
-        NUMA_ALLOC_INTERLEAVED,
+        kNumaAllocInterleaved,
         /** numa_alloc_onnode() and numa_free(). Implicit 4096 bytes alignment.  */
-        NUMA_ALLOC_ONNODE,
+        kNumaAllocOnnode,
         /**
          * Usual new()/delete(). We currently don't use this for aligned memory allocation,
          * but may be the best for portability. But, this is not a strong hint for Linux to use
          * THP. hmm.
          */
-        // NORMAL,
+        // kNormal,
         /** Windows's VirtualAlloc() and VirtualFree(). */
-        // VIRTUAL_ALLOC,
+        // kVirtualAlloc,
     };
 
     /** Empty constructor which allocates nothing. */
-    AlignedMemory() CXX11_NOEXCEPT : size_(0), alignment_(0), alloc_type_(POSIX_MEMALIGN),
+    AlignedMemory() CXX11_NOEXCEPT : size_(0), alignment_(0), alloc_type_(kPosixMemalign),
         numa_node_(0), block_(CXX11_NULLPTR) {}
 
     /**
      * Allocate an aligned memory of given size and alignment.
      * @param[in] size Byte size of the memory block. Actual allocation is at least of this size.
      * @param[in] alignment Alignment bytes of the memory block. Must be power of two.
-     * Ignored for NUMA_ALLOC_ONNODE and NUMA_ALLOC_INTERLEAVED.
+     * Ignored for kNumaAllocOnnode and kNumaAllocInterleaved.
      * @param[in] alloc_type specifies type of new/delete
-     * @param[in] numa_node if alloc_type_ is NUMA_ALLOC_ONNODE, the NUMA node to allocate at.
+     * @param[in] numa_node if alloc_type_ is kNumaAllocOnnode, the NUMA node to allocate at.
      * Otherwise ignored.
      * @attention When memory allocation fails for some reason (eg Out-Of-Memory), this constructor
      * does NOT fail nor throws an exception. Instead, it sets the block_ NULL.
@@ -124,7 +124,7 @@ class AlignedMemory CXX11_FINAL {
     uint64_t    get_alignment() const { return alignment_; }
     /** Returns type of new/delete operation for the block. */
     AllocType   get_alloc_type() const { return alloc_type_; }
-    /** If alloc_type_ is NUMA_ALLOC_ONNODE, returns the NUMA node this memory was allocated at. */
+    /** If alloc_type_ is kNumaAllocOnnode, returns the NUMA node this memory was allocated at. */
     int         get_numa_node() const { return numa_node_; }
 
     /** Releases the memory block. */
@@ -139,7 +139,7 @@ class AlignedMemory CXX11_FINAL {
     uint64_t    alignment_;
     /** type of new/delete operation for the block .*/
     AllocType   alloc_type_;
-    /** if alloc_type_ is NUMA_ALLOC_ONNODE, the NUMA node this memory was allocated at. */
+    /** if alloc_type_ is kNumaAllocOnnode, the NUMA node this memory was allocated at. */
     int         numa_node_;
     /** Allocated memory block. */
     void*       block_;

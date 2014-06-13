@@ -18,7 +18,7 @@ struct MemoryOptions CXX11_FINAL : public virtual externalize::Externalizable {
     /** Constant values. */
     enum Constants {
         /** Default value for page_pool_size_mb_per_node_. */
-        DEFAULT_PAGE_POOL_SIZE_MB_PER_NODE = 1 << 10,
+        kDefaultPagePoolSizeMbPerNode = 1 << 10,
     };
 
     /**

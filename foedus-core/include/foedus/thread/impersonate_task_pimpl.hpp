@@ -33,7 +33,7 @@ class ImpersonateTaskPimpl final {
     }
 
     /**
-     * Result of this task. It's RET_OK until the task completes.
+     * Result of this task. It's kRetOk until the task completes.
      */
     ErrorStack                  result_;
 

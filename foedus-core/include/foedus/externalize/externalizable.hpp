@@ -119,7 +119,7 @@ struct Externalizable {
         for (std::size_t i = 0; i < value.size(); ++i) {
             CHECK_ERROR(add_element(parent, tag, "", value[i]));
         }
-        return RET_OK;
+        return kRetOk;
     }
 
     /** enum version */
@@ -155,7 +155,7 @@ struct Externalizable {
             return ERROR_STACK_MSG(ERROR_CODE_CONF_VALUE_OUTOFRANGE, tag.c_str());
         }
         *out = static_cast<ENUM>(tmp);
-        return RET_OK;
+        return kRetOk;
     }
 
     /**

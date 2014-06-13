@@ -49,7 +49,7 @@ class QueryTask : public thread::ImpersonateTask {
         Epoch commit_epoch;
         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
         CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
-        return foedus::RET_OK;
+        return foedus::kRetOk;
     }
 };
 
@@ -106,7 +106,7 @@ class WriteTask : public thread::ImpersonateTask {
         Epoch commit_epoch;
         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
         CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
-        return foedus::RET_OK;
+        return foedus::kRetOk;
     }
 };
 
@@ -159,7 +159,7 @@ class ReadWriteTask : public thread::ImpersonateTask {
         }
         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
         CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
-        return foedus::RET_OK;
+        return foedus::kRetOk;
     }
 };
 

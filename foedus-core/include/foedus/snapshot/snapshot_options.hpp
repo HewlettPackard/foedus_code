@@ -18,8 +18,8 @@ namespace snapshot {
  */
 struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable {
     enum Constants {
-        DEFAULT_SNAPSHOT_TRIGGER_PAGE_POOL_PERCENT = 100,
-        DEFAULT_SNAPSHOT_INTERVAL_MILLISECONDS = 60000,
+        kDefaultSnapshotTriggerPagePoolPercent = 100,
+        kDefaultSnapshotIntervalMilliseconds = 60000,
     };
 
     /**

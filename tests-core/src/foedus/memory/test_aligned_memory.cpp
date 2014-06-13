@@ -17,8 +17,8 @@ TEST(AlignedMemoryTest, Instantiate) {
     AlignedMemory memory;
     EXPECT_EQ(nullptr, memory.get_block());
     EXPECT_TRUE(memory.is_null());
-    for (AlignedMemory::AllocType type = AlignedMemory::POSIX_MEMALIGN;
-            type <= AlignedMemory::NUMA_ALLOC_ONNODE;
+    for (AlignedMemory::AllocType type = AlignedMemory::kPosixMemalign;
+            type <= AlignedMemory::kNumaAllocOnnode;
             type = static_cast<AlignedMemory::AllocType>(static_cast<int>(type) + 1)) {
         AlignedMemory memory2(1 << 20, 1 << 13, type, 0);
         EXPECT_NE(nullptr, memory2.get_block());
@@ -32,8 +32,8 @@ TEST(AlignedMemoryTest, Instantiate2) {
     memory.release_block();
     EXPECT_EQ(nullptr, memory.get_block());
     EXPECT_TRUE(memory.is_null());
-    for (AlignedMemory::AllocType type = AlignedMemory::POSIX_MEMALIGN;
-            type <= AlignedMemory::NUMA_ALLOC_ONNODE;
+    for (AlignedMemory::AllocType type = AlignedMemory::kPosixMemalign;
+            type <= AlignedMemory::kNumaAllocOnnode;
             type = static_cast<AlignedMemory::AllocType>(static_cast<int>(type) + 1)) {
         AlignedMemory memory2(1 << 20, 1 << 13, type, 0);
         memory2.release_block();
@@ -44,8 +44,8 @@ TEST(AlignedMemoryTest, Instantiate2) {
 
 TEST(AlignedMemoryTest, Move) {
     AlignedMemory memory;
-    for (AlignedMemory::AllocType type = AlignedMemory::POSIX_MEMALIGN;
-            type <= AlignedMemory::NUMA_ALLOC_ONNODE;
+    for (AlignedMemory::AllocType type = AlignedMemory::kPosixMemalign;
+            type <= AlignedMemory::kNumaAllocOnnode;
             type = static_cast<AlignedMemory::AllocType>(static_cast<int>(type) + 1)) {
         AlignedMemory memory2(1 << 20, 1 << 12, type, 0);
         memory = std::move(memory2);
@@ -57,7 +57,7 @@ uint64_t pointer_distance(void* from, void* to) {
 }
 
 TEST(AlignedMemoryTest, Slice) {
-    AlignedMemory memory(1 << 20, 1 << 13, AlignedMemory::NUMA_ALLOC_ONNODE, 0);
+    AlignedMemory memory(1 << 20, 1 << 13, AlignedMemory::kNumaAllocOnnode, 0);
     AlignedMemorySlice slice1(&memory);
     EXPECT_EQ(memory.get_block(), slice1.get_block());
     EXPECT_EQ(memory.get_size(), slice1.get_size());

@@ -33,7 +33,7 @@ namespace foedus {
  * So, we don't throw or catch any exceptions in our program.
  *
  * @par Macros to help use ErrorStack
- * In most places, you should use RET_OK, CHECK_ERROR(x), or ERROR_STACK(e) to handle this class.
+ * In most places, you should use kRetOk, CHECK_ERROR(x), or ERROR_STACK(e) to handle this class.
  * See the doucments of those macros.
  *
  * @par Forced return code checking
@@ -48,7 +48,7 @@ namespace foedus {
  * and, to ameriolate allocate/delete cost for it, a TLS object pool.
  * Unfortunately, it causes issues in some environments and is not so readable/maintainable.
  * Instead, we limit the depth of stacktraces stored in this object to a reasonable number
- * enough for debugging; \ref MAX_STACK_DEPTH.
+ * enough for debugging; \ref kMaxStackDepth.
  * We then store just line numbers and const pointers to file names. No heap allocation.
  * The only thing that has to be allocated on heap is a custom error message.
  * However, there are not many places that use custom messages, so the cost usually doesn't happen.
@@ -66,17 +66,17 @@ class ErrorStack {
     /** Constant values. */
     enum Constants {
        /** Maximum stack trace depth. */
-       MAX_STACK_DEPTH = 8,
+       kMaxStackDepth = 8,
     };
 
-    /** Empty constructor. This is same as duplicating RET_OK. */
+    /** Empty constructor. This is same as duplicating kRetOk. */
     ErrorStack();
 
     /**
      * @brief Instantiate a return code without a custom error message nor stacktrace.
-     * @param[in] code Error code, either ERROR_CODE_OK or real errors.
+     * @param[in] code Error code, either kErrorCodeOk or real errors.
      * @details
-     * This is the most (next to RET_OK) light-weight way to create/propagate a return code.
+     * This is the most (next to kRetOk) light-weight way to create/propagate a return code.
      * Use this one if you do not need a detail information to debug the error (eg, error whose
      * cause is obvious, an expected error that is immediately caught, etc).
      */
@@ -111,7 +111,7 @@ class ErrorStack {
     /** Will warn in stderr if the error code is not checked yet. */
     ~ErrorStack();
 
-    /** Returns if this return code is not ERROR_CODE_OK. */
+    /** Returns if this return code is not kErrorCodeOk. */
     bool                is_error() const;
 
     /** Return the integer error code. */
@@ -162,19 +162,19 @@ class ErrorStack {
      * @brief Filenames of stacktraces.
      * @details
      * This is deep-first, so _filenames[0] is where the ErrorStack was initially instantiated.
-     * When we reach MAX_STACK_DEPTH, we don't store any more stacktraces and
+     * When we reach kMaxStackDepth, we don't store any more stacktraces and
      * just say ".. more" in the output.
      * We do NOT deep-copy the strings, assuming the file name string is const and
      * permanent. We only copy the pointers when passing around.
      * As far as we use "__FILE__" macro to get file name, this is the always case.
      */
-    const char*     filenames_[MAX_STACK_DEPTH];
+    const char*     filenames_[kMaxStackDepth];
 
     /** @brief Functions of stacktraces (no deep-copy as well). */
-    const char*     funcs_[MAX_STACK_DEPTH];
+    const char*     funcs_[kMaxStackDepth];
 
     /** @brief Line numbers of stacktraces. */
-    uint32_t        linenums_[MAX_STACK_DEPTH];
+    uint32_t        linenums_[kMaxStackDepth];
 
     /**
      * @brief Optional custom error message.
@@ -196,9 +196,9 @@ class ErrorStack {
     /**
      * @brief Integer error code.
      * @invariant
-     * If this value is ERROR_CODE_OK, all other members have no meanings and we might not even
+     * If this value is kErrorCodeOk, all other members have no meanings and we might not even
      * bother clearing them for better performance because that's by far the common case.
-     * So, all functions in this class should first check if this value is ERROR_CODE_OK or not
+     * So, all functions in this class should first check if this value is kErrorCodeOk or not
      * to avoid further processing.
      */
     ErrorCode       error_code_;
@@ -215,17 +215,17 @@ class ErrorStack {
 };
 
 /**
- * @var RET_OK
+ * @var kRetOk
  * @ingroup ERRORCODES
  * @brief Normal return value for no-error case.
  * @details
  * Const return code that indicates no error.
  * This is the normal way to return from a method or function.
  */
-const ErrorStack RET_OK;
+const ErrorStack kRetOk;
 
 inline ErrorStack::ErrorStack()
-    : custom_message_(CXX11_NULLPTR), os_errno_(0), error_code_(ERROR_CODE_OK),
+    : custom_message_(CXX11_NULLPTR), os_errno_(0), error_code_(kErrorCodeOk),
         stack_depth_(0), checked_(true) {
 }
 
@@ -238,7 +238,7 @@ inline ErrorStack::ErrorStack(const char* filename, const char* func, uint32_t l
                               ErrorCode code, const char* custom_message)
     : custom_message_(CXX11_NULLPTR), os_errno_(errno), error_code_(code), stack_depth_(1),
         checked_(false) {
-    ASSERT_ND(code != ERROR_CODE_OK);
+    ASSERT_ND(code != kErrorCodeOk);
     filenames_[0] = filename;
     funcs_[0] = func;
     linenums_[0] = linenum;
@@ -253,15 +253,15 @@ inline ErrorStack::ErrorStack(const ErrorStack &other)
 inline ErrorStack::ErrorStack(const ErrorStack &other, const char* filename,
                             const char* func, uint32_t linenum, const char* more_custom_message)
     : custom_message_(CXX11_NULLPTR) {
-    // Invariant: if ERROR_CODE_OK, no more processing
-    if (LIKELY(other.error_code_ == ERROR_CODE_OK)) {
-        this->error_code_ = ERROR_CODE_OK;
+    // Invariant: if kErrorCodeOk, no more processing
+    if (LIKELY(other.error_code_ == kErrorCodeOk)) {
+        this->error_code_ = kErrorCodeOk;
         return;
     }
 
     operator=(other);
     // augment stacktrace
-    if (stack_depth_ != 0 && stack_depth_ < MAX_STACK_DEPTH) {
+    if (stack_depth_ != 0 && stack_depth_ < kMaxStackDepth) {
         filenames_[stack_depth_] = filename;
         funcs_[stack_depth_] = func;
         linenums_[stack_depth_] = linenum;
@@ -274,9 +274,9 @@ inline ErrorStack::ErrorStack(const ErrorStack &other, const char* filename,
 }
 
 inline ErrorStack& ErrorStack::operator=(const ErrorStack &other) {
-    // Invariant: if ERROR_CODE_OK, no more processing
-    if (LIKELY(other.error_code_ == ERROR_CODE_OK)) {
-        this->error_code_ = ERROR_CODE_OK;
+    // Invariant: if kErrorCodeOk, no more processing
+    if (LIKELY(other.error_code_ == kErrorCodeOk)) {
+        this->error_code_ = kErrorCodeOk;
         return *this;
     }
 
@@ -298,8 +298,8 @@ inline ErrorStack& ErrorStack::operator=(const ErrorStack &other) {
 }
 
 inline ErrorStack::~ErrorStack() {
-    // Invariant: if ERROR_CODE_OK, no more processing
-    if (LIKELY(error_code_ == ERROR_CODE_OK)) {
+    // Invariant: if kErrorCodeOk, no more processing
+    if (LIKELY(error_code_ == kErrorCodeOk)) {
         return;
     }
 #ifdef DEBUG
@@ -318,8 +318,8 @@ inline void ErrorStack::clear_custom_message() {
 }
 
 inline void ErrorStack::copy_custom_message(const char* message) {
-    // Invariant: if ERROR_CODE_OK, no more processing
-    if (LIKELY(error_code_ == ERROR_CODE_OK)) {
+    // Invariant: if kErrorCodeOk, no more processing
+    if (LIKELY(error_code_ == kErrorCodeOk)) {
         return;
     }
 
@@ -336,8 +336,8 @@ inline void ErrorStack::copy_custom_message(const char* message) {
 }
 
 inline void ErrorStack::append_custom_message(const char* more_custom_message) {
-    // Invariant: if ERROR_CODE_OK, no more processing
-    if (LIKELY(error_code_ == ERROR_CODE_OK)) {
+    // Invariant: if kErrorCodeOk, no more processing
+    if (LIKELY(error_code_ == kErrorCodeOk)) {
         return;
     }
     // augment custom error message
@@ -358,7 +358,7 @@ inline void ErrorStack::append_custom_message(const char* more_custom_message) {
 
 inline bool ErrorStack::is_error() const {
     checked_ = true;
-    return error_code_ != ERROR_CODE_OK;
+    return error_code_ != kErrorCodeOk;
 }
 
 inline ErrorCode ErrorStack::get_error_code() const {
@@ -371,24 +371,24 @@ inline const char* ErrorStack::get_message() const {
 }
 
 inline const char* ErrorStack::get_custom_message() const {
-    // Invariant: if ERROR_CODE_OK, no more processing
-    if (error_code_ == ERROR_CODE_OK) {
+    // Invariant: if kErrorCodeOk, no more processing
+    if (error_code_ == kErrorCodeOk) {
         return CXX11_NULLPTR;
     }
     return custom_message_;
 }
 
 inline uint16_t ErrorStack::get_stack_depth() const {
-    // Invariant: if ERROR_CODE_OK, no more processing
-    if (error_code_ == ERROR_CODE_OK) {
+    // Invariant: if kErrorCodeOk, no more processing
+    if (error_code_ == kErrorCodeOk) {
         return 0;
     }
     return stack_depth_;
 }
 
 inline uint32_t ErrorStack::get_linenum(uint16_t stack_index) const {
-    // Invariant: if ERROR_CODE_OK, no more processing
-    if (error_code_ == ERROR_CODE_OK) {
+    // Invariant: if kErrorCodeOk, no more processing
+    if (error_code_ == kErrorCodeOk) {
         return 0;
     }
     ASSERT_ND(stack_index < stack_depth_);
@@ -396,8 +396,8 @@ inline uint32_t ErrorStack::get_linenum(uint16_t stack_index) const {
 }
 
 inline const char* ErrorStack::get_filename(uint16_t stack_index) const {
-    // Invariant: if ERROR_CODE_OK, no more processing
-    if (error_code_ == ERROR_CODE_OK) {
+    // Invariant: if kErrorCodeOk, no more processing
+    if (error_code_ == kErrorCodeOk) {
         return CXX11_NULLPTR;
     }
     ASSERT_ND(stack_index < stack_depth_);
@@ -405,8 +405,8 @@ inline const char* ErrorStack::get_filename(uint16_t stack_index) const {
 }
 
 inline const char* ErrorStack::get_func(uint16_t stack_index) const {
-    // Invariant: if ERROR_CODE_OK, no more processing
-    if (error_code_ == ERROR_CODE_OK) {
+    // Invariant: if kErrorCodeOk, no more processing
+    if (error_code_ == kErrorCodeOk) {
         return CXX11_NULLPTR;
     }
     ASSERT_ND(stack_index < stack_depth_);
@@ -414,8 +414,8 @@ inline const char* ErrorStack::get_func(uint16_t stack_index) const {
 }
 
 inline void ErrorStack::verify() const {
-    // Invariant: if ERROR_CODE_OK, no more processing
-    if (LIKELY(error_code_ == ERROR_CODE_OK)) {
+    // Invariant: if kErrorCodeOk, no more processing
+    if (LIKELY(error_code_ == kErrorCodeOk)) {
         return;
     }
     if (!checked_) {
@@ -439,7 +439,7 @@ inline void ErrorStack::verify() const {
  *   if (out-of-memory-observed) {
  *      return ERROR_STACK(ERROR_CODE_OUTOFMEMORY);
  *   }
- *   return RET_OK;
+ *   return kRetOk;
  * }
  * @endcode
  */
@@ -457,7 +457,7 @@ inline void ErrorStack::verify() const {
  *      std::string additional_message = ...;
  *      return ERROR_STACK_MSG(ERROR_CODE_OUTOFMEMORY, additional_message.c_str());
  *   }
- *   return RET_OK;
+ *   return kRetOk;
  * }
  * @endcode
  */
@@ -475,7 +475,7 @@ inline void ErrorStack::verify() const {
  * ErrorStack your_func() {
  *   CHECK_ERROR(another_func());
  *   CHECK_ERROR(yet_another_func());
- *   return RET_OK;
+ *   return kRetOk;
  * }
  * @endcode
  * @note The name is CHECK_ERROR, not CHECK, because Google-logging defines CHECK.
@@ -498,7 +498,7 @@ inline void ErrorStack::verify() const {
 #define CHECK_ERROR_CODE(x)\
 {\
     foedus::ErrorCode __e = x;\
-    if (UNLIKELY(__e != ERROR_CODE_OK)) {return ERROR_STACK(__e);}\
+    if (UNLIKELY(__e != kErrorCodeOk)) {return ERROR_STACK(__e);}\
 }
 /**
  * @def CHECK_ERROR_MSG(x, m)
@@ -509,7 +509,7 @@ inline void ErrorStack::verify() const {
  * ErrorStack your_func() {
  *   CHECK_ERROR_MSG(another_func(), "I was doing xxx");
  *   CHECK_ERROR_MSG(yet_another_func(), "I was doing yyy");
- *   return RET_OK;
+ *   return kRetOk;
  * }
  * @endcode
  */
@@ -533,7 +533,7 @@ inline void ErrorStack::verify() const {
  *   CHECK_OUTOFMEMORY(ptr);
  *   ...
  *   delete[] ptr;
- *   return RET_OK;
+ *   return kRetOk;
  * }
  * @endcode
  */

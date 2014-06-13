@@ -44,7 +44,7 @@ void invoke_ostream(void *buffer, std::ostream *ptr) {
     LogCode code = header->get_type();
     std::ostream &o = *ptr;
     switch (code) {
-        case LOG_TYPE_INVALID: break;
+        case kLogCodeInvalid: break;
 #include <foedus/log/log_type.xmacro> // NOLINT
     }
 }

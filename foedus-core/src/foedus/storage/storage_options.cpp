@@ -8,11 +8,11 @@ namespace storage {
 StorageOptions::StorageOptions() {
 }
 ErrorStack StorageOptions::load(tinyxml2::XMLElement* /*element*/) {
-    return RET_OK;
+    return kRetOk;
 }
 ErrorStack StorageOptions::save(tinyxml2::XMLElement* element) const {
     CHECK_ERROR(insert_comment(element, "Set of options for storage manager."));
-    return RET_OK;
+    return kRetOk;
 }
 }  // namespace storage
 }  // namespace foedus

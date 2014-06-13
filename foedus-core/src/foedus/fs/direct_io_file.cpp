@@ -27,7 +27,7 @@ DirectIoFile::DirectIoFile(
     const Path &path,
     const DeviceEmulationOptions &emulation)
     : path_(path), emulation_(emulation),
-    descriptor_(INVALID_DESCRIPTOR), read_(false), write_(false), current_offset_(0) {
+    descriptor_(kInvalidDescriptor), read_(false), write_(false), current_offset_(0) {
 }
 
 DirectIoFile::~DirectIoFile() {
@@ -35,7 +35,7 @@ DirectIoFile::~DirectIoFile() {
 }
 
 ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
-    if (descriptor_ != INVALID_DESCRIPTOR) {
+    if (descriptor_ != kInvalidDescriptor) {
         return ERROR_STACK_MSG(ERROR_CODE_FS_ALREADY_OPENED, path_.c_str());
     }
     Path folder(path_.parent_path());
@@ -74,9 +74,9 @@ ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
 
     // tmpfs (such as /tmp, /dev/shm) refuses to receive O_DIRECT, returning EINVAL (22).
     // In that case, let's retry without O_DIRECT flag. MySQL does similar thing, too.
-    if (descriptor_ == INVALID_DESCRIPTOR && (oflags & O_DIRECT) == O_DIRECT && errno == EINVAL) {
+    if (descriptor_ == kInvalidDescriptor && (oflags & O_DIRECT) == O_DIRECT && errno == EINVAL) {
         descriptor_ = ::open(path_.c_str(), oflags ^ O_DIRECT, permissions);
-        if (descriptor_ != INVALID_DESCRIPTOR) {
+        if (descriptor_ != kInvalidDescriptor) {
             // Okay, O_DIRECT was the cause. Just complain. go on.
             LOG(WARNING) << "DirectIoFile::open(): O_DIRECT flag for " << path_
                 << " was rejected and automatically removed. This usually means you specified"
@@ -87,7 +87,7 @@ ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
         // else the normal error flow below.
     }
 
-    if (descriptor_ == INVALID_DESCRIPTOR) {
+    if (descriptor_ == kInvalidDescriptor) {
         LOG(ERROR) << "DirectIoFile::open(): failed to open: " << path_
             << ". err=" << assorted::os_error();
         return ERROR_STACK_MSG(ERROR_CODE_FS_FAILED_TO_OPEN, path_.c_str());
@@ -99,12 +99,12 @@ ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
             current_offset_ = file_size(path_);
         }
         LOG(INFO) << "DirectIoFile::open(): successfully opened. " << *this;
-        return RET_OK;
+        return kRetOk;
     }
 }
 
 bool DirectIoFile::close() {
-    if (descriptor_ != INVALID_DESCRIPTOR) {
+    if (descriptor_ != kInvalidDescriptor) {
         int ret = ::close(descriptor_);
         LOG(INFO) << "DirectIoFile::close(): closed. " << *this;
         if (ret != 0) {
@@ -113,7 +113,7 @@ bool DirectIoFile::close() {
                 << " file=" << *this << ".";
             ASSERT_ND(false);  // crash only in debug mode
         }
-        descriptor_ = INVALID_DESCRIPTOR;
+        descriptor_ = kInvalidDescriptor;
         return ret == 0;
     }
     return false;
@@ -126,7 +126,7 @@ ErrorStack DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemorySlice
         return ERROR_STACK_MSG(ERROR_CODE_FS_NOT_OPENED, to_string().c_str());
     }
     if (desired_bytes == 0) {
-        return RET_OK;
+        return kRetOk;
     }
     if (desired_bytes > buffer.count_) {
         LOG(ERROR) << "DirectIoFile::read(): too small buffer is given. desired_bytes="
@@ -180,7 +180,7 @@ ErrorStack DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemorySlice
                 << ", remaining=" << remaining;
         }
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack DirectIoFile::write(uint64_t desired_bytes, const memory::AlignedMemory& buffer) {
@@ -193,7 +193,7 @@ ErrorStack DirectIoFile::write(uint64_t desired_bytes, memory::AlignedMemorySlic
         return ERROR_STACK_MSG(ERROR_CODE_FS_NOT_OPENED, to_string().c_str());
     }
     if (desired_bytes == 0) {
-        return RET_OK;
+        return kRetOk;
     }
     ASSERT_ND(buffer.is_valid());
     if (desired_bytes > buffer.count_) {
@@ -251,7 +251,7 @@ ErrorStack DirectIoFile::write(uint64_t desired_bytes, memory::AlignedMemorySlic
                 << ", remaining=" << remaining;
         }
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack DirectIoFile::truncate(uint64_t new_length, bool sync) {
@@ -276,7 +276,7 @@ ErrorStack DirectIoFile::truncate(uint64_t new_length, bool sync) {
         LOG(INFO) << "DirectIoFile::truncate(): also fsync..";
         foedus::fs::fsync(path_, true);
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack DirectIoFile::seek(uint64_t offset, SeekType seek_type) {
@@ -286,13 +286,13 @@ ErrorStack DirectIoFile::seek(uint64_t offset, SeekType seek_type) {
     }
     __off_t ret;
     switch (seek_type) {
-        case DIRECT_IO_SEEK_SET:
+        case kDirectIoSeekSet:
             ret = ::lseek(descriptor_, offset, SEEK_SET);
             break;
-        case DIRECT_IO_SEEK_CUR:
+        case kDirectIoSeekCur:
             ret = ::lseek(descriptor_, offset, SEEK_CUR);
             break;
-        case DIRECT_IO_SEEK_END:
+        case kDirectIoSeekEnd:
             ret = ::lseek(descriptor_, offset, SEEK_END);
             break;
         default:
@@ -304,7 +304,7 @@ ErrorStack DirectIoFile::seek(uint64_t offset, SeekType seek_type) {
         return ERROR_STACK_MSG(ERROR_CODE_FS_SEEK_FAILED, to_string().c_str());
     }
     current_offset_ = ret;
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack DirectIoFile::sync() {
@@ -322,7 +322,7 @@ ErrorStack DirectIoFile::sync() {
         return ERROR_STACK_MSG(ERROR_CODE_FS_SYNC_FAILED, to_string().c_str());
     }
 
-    return RET_OK;
+    return kRetOk;
 }
 
 std::string DirectIoFile::to_string() const {

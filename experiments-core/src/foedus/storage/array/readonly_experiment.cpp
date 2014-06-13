@@ -67,7 +67,7 @@ class MyTask : public thread::ImpersonateTask {
         CHECK_ERROR(engine->get_storage_manager().create_array(
             context, "aaa", kPayload, kRecords, &array, &commit_epoch));
         the_id = array->get_id();
-        return RET_OK;
+        return kRetOk;
     }
 };
 
@@ -117,7 +117,7 @@ class MyTask2 : public thread::ImpersonateTask {
         numbers_.release_block();
         std::cout << "I'm done! " << context->get_thread_id()
             << ", processed=" << processed_ << std::endl;
-        return RET_OK;
+        return kRetOk;
     }
 
     memory::AlignedMemory numbers_;
@@ -138,7 +138,7 @@ int main_impl(int argc, char **argv) {
     fs::remove(fs::Path("savepoint.xml"));
     EngineOptions options;
     options.debugging_.debug_log_min_threshold_
-        = debugging::DebuggingOptions::DEBUG_LOG_WARNING;
+        = debugging::DebuggingOptions::kDebugLogWarning;
     const int kThreads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
     {
         Engine engine(options);

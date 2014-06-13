@@ -153,7 +153,7 @@ struct XctId {
     XctId(const XctId& other) : data_(other.data_) {}
 
     void set_clean(Epoch::EpochInteger epoch_int, uint16_t ordinal, thread::ThreadId thread_id) {
-        ASSERT_ND(epoch_int < Epoch::EPOCH_INT_OVERFLOW);
+        ASSERT_ND(epoch_int < Epoch::kEpochIntOverflow);
         data_ = (static_cast<uint64_t>(epoch_int) << SHIFT_EPOCH)
             | (static_cast<uint64_t>(ordinal) << SHIFT_ORDINAL)
             | (static_cast<uint64_t>(thread_id) << SHIFT_THREAD_ID);
@@ -170,7 +170,7 @@ struct XctId {
         return static_cast<Epoch::EpochInteger>((data_ & MASK_EPOCH) >> SHIFT_EPOCH);
     }
     void    set_epoch_int(Epoch::EpochInteger epoch) ALWAYS_INLINE {
-        ASSERT_ND(epoch < Epoch::EPOCH_INT_OVERFLOW);
+        ASSERT_ND(epoch < Epoch::kEpochIntOverflow);
         data_ = (data_ & UNMASK_EPOCH) | (static_cast<uint64_t>(epoch) << SHIFT_EPOCH);
     }
     bool    is_valid() const ALWAYS_INLINE { return (data_ & MASK_EPOCH) != 0; }

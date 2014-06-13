@@ -12,14 +12,14 @@
  * Do not forget to include the header file of the new log type in log_type.hpp
  * if you added a new header file.
  *
- * A general naming rule: LOG_CODE_<module type name>_<log name>.
- * For example, LOG_CODE_ARRAY_OVERWRITE.
+ * A general naming rule: kLogCode<module type name><log name>.
+ * For example, kLogCodeArrayOverwrite.
  * A general log code like "filler" might omit module type names.
  *
  * See LogCode for conventions on log code values.
  */
-X(LOG_CODE_FILLER,          0x3001, foedus::log::FillerLogType)
-X(LOG_CODE_EPOCH_MARKER,    0x3002, foedus::log::EpochMarkerLogType)
-X(LOG_CODE_STORAGE_DROP,    0x1011, foedus::storage::DropLogType)
-X(LOG_CODE_ARRAY_CREATE,    0x1021, foedus::storage::array::CreateLogType)
-X(LOG_CODE_ARRAY_OVERWRITE, 0x0022, foedus::storage::array::OverwriteLogType)
+X(kLogCodeFiller,          0x3001, foedus::log::FillerLogType)
+X(kLogCodeEpochMarker,    0x3002, foedus::log::EpochMarkerLogType)
+X(kLogCodeDropLogType,    0x1011, foedus::storage::DropLogType)
+X(kLogCodeArrayCreate,    0x1021, foedus::storage::array::CreateLogType)
+X(kLogCodeArrayOverwrite, 0x0022, foedus::storage::array::OverwriteLogType)

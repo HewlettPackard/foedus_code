@@ -75,7 +75,7 @@ namespace thread {
  * public:
  *     foedus::ErrorStack run(foedus::thread::Thread* context) {
  *         std::cout << "Ya!" << std::endl;
- *         return foedus::RET_OK;
+ *         return foedus::kRetOk;
  *     }
  * };
  *
@@ -151,7 +151,7 @@ class ThreadPool CXX11_FINAL : public virtual Initializable {
      * return session.get_result();
      * @endcode{.cpp}
      * @return Error code of the impersonation or (if impersonation succeeds) of the task.
-     * This returns RET_OK iff impersonation and the task succeed.
+     * This returns kRetOk iff impersonation and the task succeed.
      */
     ErrorStack          impersonate_synchronous(ImpersonateTask* task) {
         ImpersonateSession session = impersonate(task);

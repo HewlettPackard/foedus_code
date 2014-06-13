@@ -55,7 +55,7 @@ TEST(DirectIoFileTest, CreateTmp) { test_tmpfs("/tmp"); }
 
 TEST(DirectIoFileTest, CreateAppend) {
     DirectIoFile file(Path(std::string("testfile_") + get_random_name()));
-    memory::AlignedMemory memory(1 << 16, 1 << 12, memory::AlignedMemory::NUMA_ALLOC_ONNODE, 0);
+    memory::AlignedMemory memory(1 << 16, 1 << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
     std::memset(memory.get_block(), 1, 1 << 15);
     COERCE_ERROR(file.open(true, true, true, true));
     COERCE_ERROR(file.write(1 << 15, memory));
@@ -66,12 +66,12 @@ TEST(DirectIoFileTest, CreateAppend) {
 
 TEST(DirectIoFileTest, CreateWrite) {
     DirectIoFile file(Path(std::string("testfile_") + get_random_name()));
-    memory::AlignedMemory memory(1 << 16, 1 << 12, memory::AlignedMemory::NUMA_ALLOC_ONNODE, 0);
+    memory::AlignedMemory memory(1 << 16, 1 << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
     std::memset(memory.get_block(), 1, 1 << 16);
     COERCE_ERROR(file.open(true, true, false, true));
-    COERCE_ERROR(file.seek(0, DirectIoFile::DIRECT_IO_SEEK_SET));
+    COERCE_ERROR(file.seek(0, DirectIoFile::kDirectIoSeekSet));
     COERCE_ERROR(file.write(1 << 15, memory));
-    COERCE_ERROR(file.seek(1 << 14, DirectIoFile::DIRECT_IO_SEEK_SET));
+    COERCE_ERROR(file.seek(1 << 14, DirectIoFile::kDirectIoSeekSet));
     COERCE_ERROR(file.write(1 << 15, memory));
     file.close();
     EXPECT_EQ(3 << 14, file_size(file.get_path()));
@@ -114,7 +114,7 @@ TEST(DirectIoFileTest, WriteWithLogBufferPad) {
         memory::AlignedMemorySlice log_buf = node_memory->get_log_buffer_memory_piece(0);
 
         memory::AlignedMemory fill_buf;
-        COERCE_ERROR(node_memory->allocate_numa_memory(log::FillerLogType::LOG_WRITE_UNIT_SIZE,
+        COERCE_ERROR(node_memory->allocate_numa_memory(log::FillerLogType::kLogWriteUnitSize,
                                                       &fill_buf));
 
         storage::array::OverwriteLogType* the_log =
@@ -129,13 +129,13 @@ TEST(DirectIoFileTest, WriteWithLogBufferPad) {
             reinterpret_cast< log::FillerLogType* >(
                 reinterpret_cast<char*>(fill_buf.get_block()) + the_log->header_.log_length_);
         filler_log->populate(
-            log::FillerLogType::LOG_WRITE_UNIT_SIZE - the_log->header_.log_length_);
+            log::FillerLogType::kLogWriteUnitSize - the_log->header_.log_length_);
 
         DirectIoFile file(Path(std::string("testfile_") + get_random_name()));
         COERCE_ERROR(file.open(true, true, true, true));
-        COERCE_ERROR(file.write(log::FillerLogType::LOG_WRITE_UNIT_SIZE, fill_buf));
+        COERCE_ERROR(file.write(log::FillerLogType::kLogWriteUnitSize, fill_buf));
         file.close();
-        EXPECT_EQ(log::FillerLogType::LOG_WRITE_UNIT_SIZE, file_size(file.get_path()));
+        EXPECT_EQ(log::FillerLogType::kLogWriteUnitSize, file_size(file.get_path()));
 
         COERCE_ERROR(engine.uninitialize());
     }

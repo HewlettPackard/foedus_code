@@ -28,8 +28,8 @@ void ErrorStack::output(std::ostream* ptr) const {
                 o << get_func(stack_index) << "()";
             }
         }
-        if (get_stack_depth() >= foedus::ErrorStack::MAX_STACK_DEPTH) {
-            o << std::endl << "  .. and more. Increase MAX_STACK_DEPTH to see full stacktraces";
+        if (get_stack_depth() >= foedus::ErrorStack::kMaxStackDepth) {
+            o << std::endl << "  .. and more. Increase kMaxStackDepth to see full stacktraces";
         }
     }
 }

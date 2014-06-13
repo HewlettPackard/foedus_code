@@ -154,7 +154,7 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
         highest_commit_epoch.store_max(commit_epoch);
 
         CHECK_ERROR(xct_manager.wait_for_commit(highest_commit_epoch));
-        return RET_OK;
+        return kRetOk;
     }
 };
 
@@ -208,7 +208,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
             }
         }
         CHECK_ERROR(xct_manager.wait_for_commit(highest_commit_epoch));
-        return foedus::RET_OK;
+        return foedus::kRetOk;
     }
 
     ErrorStack try_transaction(
@@ -323,7 +323,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
             << " history[" << history_id << "] amount=" << amount
             << std::endl;
         highest_commit_epoch->store_max(commit_epoch);
-        return RET_OK;
+        return kRetOk;
     }
 
  private:
@@ -404,7 +404,7 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
         }
 
         CHECK_ERROR(xct_manager.abort_xct(context));
-        return foedus::RET_OK;
+        return foedus::kRetOk;
     }
 
  private:

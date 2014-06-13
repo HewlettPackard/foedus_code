@@ -16,33 +16,33 @@ namespace util {
 
 // X-Macro for LogInconsistency
 #define LOG_INCONSISTENCIES \
-    X(INCOMPLETE_ENTRY_AT_END, "A log entry that is not fully stored in log file." \
+    X(kIncompleteEntryAtEnd, "A log entry that is not fully stored in log file." \
          " This might be possible at the tail of log after non-graceful engine shutdown.") \
-    X(NON_ALIGNED_FILE_END, \
-        "File size is not aligned to 4kb. This most likely comes with INCOMPLETE_ENTRY_AT_END.")\
-    X(MISSING_LOG_LENGTH, "Log length is zero. A bug or corrupt log. Stopped reading this file.") \
-    X(MISSING_LOG_TYPE_CODE, "Log code not set or non-existing. A bug or software version issue.") \
-    X(MISSING_STORAGE_ID, \
+    X(kNonAlignedFileEnd, \
+        "File size is not aligned to 4kb. This most likely comes with kIncompleteEntryAtEnd.")\
+    X(kMissingLogLength, "Log length is zero. A bug or corrupt log. Stopped reading this file.") \
+    X(kMissingLogTypeCode, "Log code not set or non-existing. A bug or software version issue.") \
+    X(kMissingStorageId, \
         "Storage ID is not set of storage/record type logs. A bug or corrupt log.") \
-    X(INVALID_OLD_EPOCH, "old_epoch field of epoch marker is invalid")\
-    X(INVALID_NEW_EPOCH, "new_epoch field of epoch marker is invalid")\
-    X(NO_EPOCH_MARKER_AT_BEGINNING, "The log file does not start with epoch marker.")\
-    X(EPOCH_MARKER_DOES_NOT_MATCH, "From field of epoch marker is inconsistent")\
-    X(EPOCH_MARKER_INCORRECT_OFFSET, "Offset field of epoch marker is wrong")\
-    X(TOO_MANY_INCONSISTENCIES, "Too many inconsistencies found.")
+    X(kInvalidOldExpoch, "old_epoch field of epoch marker is invalid")\
+    X(kInvaligNewEpoch, "new_epoch field of epoch marker is invalid")\
+    X(kNoEpochMarkerAtBeginning, "The log file does not start with epoch marker.")\
+    X(kEpochMarkerDoesNotMatch, "From field of epoch marker is inconsistent")\
+    X(kEpochMarkerIncorrectOffset, "Offset field of epoch marker is wrong")\
+    X(kTooManyInconsistencies, "Too many inconsistencies found.")
 /**
  * Represents one inconsistency found in log files.
  */
 struct LogInconsistency {
     enum InconsistencyType {
-        CONSISTENT = 0,
+        kConsistent = 0,
 #define X(a, b) /** b */ a,
 LOG_INCONSISTENCIES
 #undef X
     };
     static const char* type_to_string(InconsistencyType type) {
         switch (type) {
-            case CONSISTENT: return "CONSISTENT";
+            case kConsistent: return "kConsistent";
 #define X_QUOTE(str) #str
 #define X_EXPAND_AND_QUOTE(str) X_QUOTE(str)
 #define X(a, b) case a: return X_EXPAND_AND_QUOTE(a);
@@ -56,7 +56,7 @@ LOG_INCONSISTENCIES
     }
     static const char* type_to_description(InconsistencyType type) {
         switch (type) {
-            case CONSISTENT: return "not an error";
+            case kConsistent: return "not an error";
 #define X(a, b) case a: return b;
 LOG_INCONSISTENCIES
 #undef X
@@ -64,7 +64,7 @@ LOG_INCONSISTENCIES
                 return "UNKNOWN";
         }
     }
-    LogInconsistency(InconsistencyType type = CONSISTENT, uint32_t file_index = 0,
+    LogInconsistency(InconsistencyType type = kConsistent, uint32_t file_index = 0,
                      uint64_t offset = 0) : type_(type), file_index_(file_index), offset_(offset) {
         header_.log_length_ = 0;
         header_.log_type_code_ = 0;
@@ -91,13 +91,13 @@ LOG_INCONSISTENCIES
 
 struct DumpLog {
     enum Verbosity {
-        BRIEF = 0,
-        NORMAL = 1,
-        DETAIL = 2,
+        kBrief = 0,
+        kNormal = 1,
+        kDetail = 2,
     };
 
     DumpLog() {
-        verbose_ = BRIEF;
+        verbose_ = kBrief;
         limit_ = -1;
         from_epoch_ = INVALID_EPOCH;
         to_epoch_ = INVALID_EPOCH;

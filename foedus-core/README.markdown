@@ -84,7 +84,7 @@ Here is a minimal example program to create a key-value storage and query on it.
             foedus::Epoch commit_epoch;
             CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
             CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
-            return foedus::RET_OK;
+            return foedus::kRetOk;
         }
     };
 

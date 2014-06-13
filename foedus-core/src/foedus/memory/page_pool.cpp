@@ -14,7 +14,7 @@ namespace foedus {
 namespace memory {
 void PagePoolOffsetChunk::push_back(const PagePoolOffset* begin, const PagePoolOffset* end) {
     uint32_t count = end - begin;
-    ASSERT_ND(size_ + count <= MAX_SIZE);
+    ASSERT_ND(size_ + count <= kMaxSize);
     std::memcpy(chunk_ + size_, begin, count * sizeof(PagePoolOffset));
     size_ += count;
 }
@@ -104,7 +104,7 @@ storage::VolatilePagePointer RoundRobinPageGrabBatch::grab() {
             }
             ErrorCode code = engine_->get_memory_manager().get_node_memory(current_node_)->
                 get_page_pool().grab(chunk_.capacity(), &chunk_);
-            if (code == ERROR_CODE_OK) {
+            if (code == kErrorCodeOk) {
                 break;
             }
 

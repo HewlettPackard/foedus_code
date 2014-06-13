@@ -41,7 +41,7 @@ ErrorStack XctManagerPimpl::initialize_once() {
     epoch_advance_thread_.initialize("epoch_advance_thread",
         std::thread(&XctManagerPimpl::handle_epoch_advance, this),
         std::chrono::milliseconds(engine_->get_options().xct_.epoch_advance_interval_ms_));
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack XctManagerPimpl::uninitialize_once() {
@@ -94,7 +94,7 @@ ErrorStack XctManagerPimpl::wait_for_commit(Epoch commit_epoch, int64_t wait_mic
     }
 
     CHECK_ERROR(engine_->get_log_manager().wait_until_durable(commit_epoch, wait_microseconds));
-    return RET_OK;
+    return kRetOk;
 }
 
 
@@ -109,7 +109,7 @@ ErrorStack XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel is
         == context->get_thread_log_buffer().get_offset_committed());
     ASSERT_ND(current_xct.get_read_set_size() == 0);
     ASSERT_ND(current_xct.get_write_set_size() == 0);
-    return RET_OK;
+    return kRetOk;
 }
 ErrorStack XctManagerPimpl::begin_schema_xct(thread::Thread* context) {
     Xct& current_xct = context->get_current_xct();
@@ -122,7 +122,7 @@ ErrorStack XctManagerPimpl::begin_schema_xct(thread::Thread* context) {
         == context->get_thread_log_buffer().get_offset_committed());
     ASSERT_ND(current_xct.get_read_set_size() == 0);
     ASSERT_ND(current_xct.get_write_set_size() == 0);
-    return RET_OK;
+    return kRetOk;
 }
 
 
@@ -146,7 +146,7 @@ ErrorStack XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit
 
     current_xct.deactivate();
     if (success) {
-        return RET_OK;
+        return kRetOk;
     } else {
         DLOG(WARNING) << *context << " Aborting because of contention";
         context->get_thread_log_buffer().discard_current_xct_log();
@@ -205,16 +205,16 @@ bool XctManagerPimpl::precommit_xct_schema(thread::Thread* context, Epoch* commi
     for (char* entry : logs) {
         log::LogHeader* header = reinterpret_cast<log::LogHeader*>(entry);
         log::LogCode code = header->get_type();
-        ASSERT_ND(code != log::LOG_TYPE_INVALID);
+        ASSERT_ND(code != log::kLogCodeInvalid);
         log::LogCodeKind kind = log::get_log_code_kind(code);
         LOG(INFO) << *context << " Applying schema log " << log::get_log_type_name(code)
             << ". kind=" << kind << ", log length=" << header->log_length_;
-        if (kind == log::MARKER_LOGS) {
+        if (kind == log::kMarkerLogs) {
             LOG(INFO) << *context << " Ignored marker log in schema xct's apply";
-        } else if (kind == log::ENGINE_LOGS) {
+        } else if (kind == log::kEngineLogs) {
             // engine type log, such as XXX.
             log::invoke_apply_engine(new_xct_id, entry, context);
-        } else if (kind == log::STORAGE_LOGS) {
+        } else if (kind == log::kStorageLogs) {
             // storage type log, such as CREATE/DROP STORAGE.
             storage::StorageId storage_id = header->storage_id_;
             LOG(INFO) << *context << " schema xct applying storage-" << storage_id;
@@ -399,7 +399,7 @@ ErrorStack XctManagerPimpl::abort_xct(thread::Thread* context) {
     DLOG(INFO) << *context << " Aborted transaction in thread-" << context->get_thread_id();
     current_xct.deactivate();
     context->get_thread_log_buffer().discard_current_xct_log();
-    return RET_OK;
+    return kRetOk;
 }
 
 }  // namespace xct

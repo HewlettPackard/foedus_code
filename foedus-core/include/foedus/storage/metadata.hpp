@@ -33,7 +33,7 @@ namespace storage {
  * Snapshot metadata files are read at next snapshotting and at next restart.
  */
 struct Metadata : public virtual externalize::Externalizable {
-    Metadata() : id_(0), type_(INVALID_STORAGE), name_("") {}
+    Metadata() : id_(0), type_(kInvalidStorage), name_("") {}
     Metadata(StorageId id, StorageType type, const std::string& name)
         : id_(id), type_(type), name_(name) {}
     virtual ~Metadata() {}

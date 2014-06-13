@@ -8,11 +8,11 @@ namespace cache {
 CacheOptions::CacheOptions() {
 }
 ErrorStack CacheOptions::load(tinyxml2::XMLElement* /*element*/) {
-    return RET_OK;
+    return kRetOk;
 }
 ErrorStack CacheOptions::save(tinyxml2::XMLElement* element) const {
     CHECK_ERROR(insert_comment(element, "Set of options for snapshot cache manager."));
-    return RET_OK;
+    return kRetOk;
 }
 
 }  // namespace cache

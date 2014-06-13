@@ -33,14 +33,14 @@ class PagePoolOffsetChunk {
          * Max number of pointers to pack.
          * -1 for size_ (make the size of this class power of two).
          */
-        MAX_SIZE = (1 << 12) - 1,
+        kMaxSize = (1 << 12) - 1,
     };
     PagePoolOffsetChunk() : size_(0) {}
 
-    uint32_t                capacity() const { return MAX_SIZE; }
+    uint32_t                capacity() const { return kMaxSize; }
     uint32_t                size()  const   { return size_; }
     bool                    empty() const   { return size_ == 0; }
-    bool                    full()  const   { return size_ == MAX_SIZE; }
+    bool                    full()  const   { return size_ == kMaxSize; }
     void                    clear()         { size_ = 0; }
 
     PagePoolOffset&         operator[](uint32_t index) {
@@ -64,7 +64,7 @@ class PagePoolOffsetChunk {
 
  private:
     uint32_t        size_;
-    PagePoolOffset  chunk_[MAX_SIZE];
+    PagePoolOffset  chunk_[kMaxSize];
 };
 STATIC_SIZE_CHECK(sizeof(PagePoolOffset), 4)
 // Size of PagePoolOffsetChunk should be power of two (<=> x & (x-1) == 0)

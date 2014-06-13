@@ -40,7 +40,7 @@ namespace foedus {
  * @code{.cpp}
  * ErrorStack  YourClass::initialize_once() {
  *    .... // one-time initialization for this object
- *    return RET_OK;
+ *    return kRetOk;
  * }
  * ErrorStack  YourClass::uninitialize_once() {
  *    // one-time uninitialization for this object. continue releasing resources even when
@@ -65,7 +65,7 @@ namespace foedus {
  *     YourInitializable object;
  *     CHECK_ERROR(object.initialize());
  *     {
- *         UninitializeGuard guard(object, UninitializeGuard::WARN_IF_UNINITIALIZE_ERROR);
+ *         UninitializeGuard guard(object, UninitializeGuard::kWarnIfUninitializeError);
  *         CHECK_ERROR(object.do_something());
  *         CHECK_ERROR(object.uninitialize());
  *     }
@@ -73,7 +73,7 @@ namespace foedus {
  * @endcode
  * The UninitializeGuard object automatically calls object.uninitialize() when do_something()
  * fails and we return from your_func(). \b HOWEVER, C++'s destructor can't propagate any errors,
- * in our case ErrorStack. The second argument (UninitializeGuard::WARN_IF_UNINITIALIZE_ERROR)
+ * in our case ErrorStack. The second argument (UninitializeGuard::kWarnIfUninitializeError)
  * says that if it encounters an error while uninitialize() call, it just warns it in debug log.
  * Logging the error is not a perfect solution at all. So, this is just an imperfect safety net.
  * Unfortunately, this is all what we can do in C++ for objects that have non-trivial release.
@@ -164,7 +164,7 @@ class DefaultInitializable : public virtual Initializable {
             return init_error;
         }
         initialized_ = true;
-        return RET_OK;
+        return kRetOk;
     }
 
     /**
@@ -173,11 +173,11 @@ class DefaultInitializable : public virtual Initializable {
      */
     ErrorStack  uninitialize() CXX11_OVERRIDE CXX11_FINAL {
         if (!is_initialized()) {
-            return RET_OK;
+            return kRetOk;
         }
         CHECK_ERROR(uninitialize_once());
         initialized_ = false;
-        return RET_OK;
+        return kRetOk;
     }
 
     bool        is_initialized() const CXX11_OVERRIDE CXX11_FINAL {
@@ -215,27 +215,27 @@ class UninitializeGuard {
          * This is used to look for coding issues where we overlook chances of early returns.
          * Although this is stringent, recommended.
          */
-        ABORT_IF_NOT_EXPLICITLY_UNINITIALIZED = 0,
+        kAbortIfNotExplicitlyUninitialized = 0,
         /**
          * Automatically calls if uninitialize() wasn't called when it gets out of scope,
          * and terminates the entire program when uninitialize() actually returns an error.
          * In either case, we warn about the lack of explicit uninitialize() call in debug log.
          * This is the default.
          */
-        ABORT_IF_UNINITIALIZE_ERROR,
+        kAbortIfUninitializeError,
         /**
          * Automatically calls if uninitialize() wasn't called when it gets out of scope,
          * and just complains when uninitialize() actually returns an error in debug log.
          */
-        WARN_IF_UNINITIALIZE_ERROR,
+        kWarnIfUninitializeError,
         /**
          * Automatically calls if uninitialize() wasn't called when it gets out of scope,
          * and does nothing even when uninitialize() actually returns an error in debug log.
          * NOT RECOMMENDED.
          */
-        SILENT,
+        kSilent,
     };
-    UninitializeGuard(Initializable *target, Policy policy = ABORT_IF_UNINITIALIZE_ERROR)
+    UninitializeGuard(Initializable *target, Policy policy = kAbortIfUninitializeError)
         : target_(target), policy_(policy) {}
     ~UninitializeGuard();
 

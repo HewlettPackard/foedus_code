@@ -20,7 +20,7 @@ ErrorStack LogMapper::initialize_once() {
     mapper_thread_.initialize("LogMapper-", id_,
                     std::thread(&LogMapper::handle_mapper, this), std::chrono::milliseconds(10));
 
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack LogMapper::uninitialize_once() {

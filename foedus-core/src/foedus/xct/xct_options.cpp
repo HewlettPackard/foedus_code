@@ -7,16 +7,16 @@
 namespace foedus {
 namespace xct {
 XctOptions::XctOptions() {
-    max_read_set_size_ = DEFAULT_MAX_READ_SET_SIZE;
-    max_write_set_size_ = DEFAULT_MAX_WRITE_SET_SIZE;
-    epoch_advance_interval_ms_ = DEFAULT_EPOCH_ADVANCE_INTERVAL_MS;
+    max_read_set_size_ = kDefaultMaxReadSetSize;
+    max_write_set_size_ = kDefaultMaxWriteSetSize;
+    epoch_advance_interval_ms_ = kDefaultEpochAdvanceIntervalMs;
 }
 
 ErrorStack XctOptions::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, max_read_set_size_);
     EXTERNALIZE_LOAD_ELEMENT(element, max_write_set_size_);
     EXTERNALIZE_LOAD_ELEMENT(element, epoch_advance_interval_ms_);
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack XctOptions::save(tinyxml2::XMLElement* element) const {
@@ -34,7 +34,7 @@ ErrorStack XctOptions::save(tinyxml2::XMLElement* element) const {
         " out savepoint file for each non-empty epoch. However, too infrequent epoch advancement\n"
         " would increase the latency of queries because transactions are not deemed as commit"
         " until the epoch advances.");
-    return RET_OK;
+    return kRetOk;
 }
 
 

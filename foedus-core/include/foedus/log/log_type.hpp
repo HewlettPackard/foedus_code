@@ -69,7 +69,7 @@ namespace log {
 #define X(a, b, c) /** b: c. @copydoc c */ a = b,
 enum LogCode {
     /** 0 is reserved as a non-existing log type. */
-    LOG_TYPE_INVALID = 0,
+    kLogCodeInvalid = 0,
 #include <foedus/log/log_type.xmacro> // NOLINT
 };
 #undef X
@@ -83,13 +83,13 @@ enum LogCode {
  */
 enum LogCodeKind {
     /** record targetted logs */
-    RECORD_LOGS = 0,
+    kRecordLogs = 0,
     /** storage targetted logs */
-    STORAGE_LOGS = 1,
+    kStorageLogs = 1,
     /** engine targetted logs */
-    ENGINE_LOGS = 2,
+    kEngineLogs = 2,
     /** markers/fillers */
-    MARKER_LOGS = 3,
+    kMarkerLogs = 3,
 };
 
 /**

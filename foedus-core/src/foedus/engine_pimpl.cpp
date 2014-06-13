@@ -32,7 +32,7 @@ ErrorStack EnginePimpl::initialize_once() {
     LOG(INFO) << "================================================================================";
     LOG(INFO) << "================================== FOEDUS ENGINE INITIALIZATION DONE ===========";
     LOG(INFO) << "================================================================================";
-    return RET_OK;
+    return kRetOk;
 }
 ErrorStack EnginePimpl::uninitialize_once() {
     LOG(INFO) << "================================================================================";

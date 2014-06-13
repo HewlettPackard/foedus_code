@@ -12,8 +12,8 @@ namespace log {
 LogOptions::LogOptions() {
     loggers_per_node_ = 1;
     folder_path_pattern_ = "logs/node_$NODE$/logger_$LOGGER$";
-    log_buffer_kb_ = DEFAULT_LOG_BUFFER_KB;
-    log_file_size_mb_ = DEFAULT_LOG_FILE_SIZE_MB;
+    log_buffer_kb_ = kDefaultLogBufferKb;
+    log_file_size_mb_ = kDefaultLogSizeMb;
     flush_at_shutdown_ = true;
 }
 
@@ -29,7 +29,7 @@ ErrorStack LogOptions::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, log_file_size_mb_);
     EXTERNALIZE_LOAD_ELEMENT(element, flush_at_shutdown_);
     CHECK_ERROR(get_child_element(element, "LogDeviceEmulationOptions", &emulation_))
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack LogOptions::save(tinyxml2::XMLElement* element) const {
@@ -59,7 +59,7 @@ ErrorStack LogOptions::save(tinyxml2::XMLElement* element) const {
             "Whether to flush transaction logs and take savepoint when uninitialize() is called");
     CHECK_ERROR(add_child_element(element, "LogDeviceEmulationOptions",
                     "[Experiments-only] Settings to emulate slower logging device", emulation_));
-    return RET_OK;
+    return kRetOk;
 }
 
 }  // namespace log

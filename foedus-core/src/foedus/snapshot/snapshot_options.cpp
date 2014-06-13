@@ -10,8 +10,8 @@ namespace snapshot {
 SnapshotOptions::SnapshotOptions() {
     folder_path_pattern_ = "snapshots/node_$NODE$/partition_$PARTITION$";
     partitions_per_node_ = 1;
-    snapshot_trigger_page_pool_percent_ = DEFAULT_SNAPSHOT_TRIGGER_PAGE_POOL_PERCENT;
-    snapshot_interval_milliseconds_ = DEFAULT_SNAPSHOT_INTERVAL_MILLISECONDS;
+    snapshot_trigger_page_pool_percent_ = kDefaultSnapshotTriggerPagePoolPercent;
+    snapshot_interval_milliseconds_ = kDefaultSnapshotIntervalMilliseconds;
 }
 
 std::string SnapshotOptions::convert_folder_path_pattern(int node, int partition) const {
@@ -25,7 +25,7 @@ ErrorStack SnapshotOptions::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, snapshot_trigger_page_pool_percent_);
     EXTERNALIZE_LOAD_ELEMENT(element, snapshot_interval_milliseconds_);
     CHECK_ERROR(get_child_element(element, "SnapshotDeviceEmulationOptions", &emulation_))
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack SnapshotOptions::save(tinyxml2::XMLElement* element) const {
@@ -59,7 +59,7 @@ ErrorStack SnapshotOptions::save(tinyxml2::XMLElement* element) const {
         "Interval in milliseconds to take snapshots.");
     CHECK_ERROR(add_child_element(element, "SnapshotDeviceEmulationOptions",
                     "[Experiments-only] Settings to emulate slower data device", emulation_));
-    return RET_OK;
+    return kRetOk;
 }
 
 }  // namespace snapshot

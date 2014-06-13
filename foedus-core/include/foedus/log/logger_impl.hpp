@@ -184,7 +184,7 @@ class Logger final : public DefaultInitializable {
     LogFileOrdinal                  oldest_ordinal_;
     /**
      * @brief Inclusive beginning of active region in the oldest log file.
-     * @invariant oldest_file_offset_begin_ % LOG_WRITE_UNIT_SIZE == 0 (because we pad)
+     * @invariant oldest_file_offset_begin_ % kLogWriteUnitSize == 0 (because we pad)
      */
     uint64_t                        oldest_file_offset_begin_;
     /**
@@ -203,7 +203,7 @@ class Logger final : public DefaultInitializable {
     /**
      * We called fsync on current file up to this offset.
      * @invariant current_file_durable_offset_ <= current_file->get_current_offset()
-     * @invariant current_file_durable_offset_ % LOG_WRITE_UNIT_SIZE == 0 (because we pad)
+     * @invariant current_file_durable_offset_ % kLogWriteUnitSize == 0 (because we pad)
      */
     uint64_t                        current_file_durable_offset_;
 

@@ -26,8 +26,8 @@ DEFINE_int64(to_epoch, 0, "0 means not specified. If specified, stop showing log
 " this epoch appears in the log.");
 
 bool ValidateVerbose(const char* flagname, int32_t value) {
-    if (value >= static_cast<int32_t>(foedus::util::DumpLog::BRIEF)
-            && value <= static_cast<int32_t>(foedus::util::DumpLog::DETAIL)) {
+    if (value >= static_cast<int32_t>(foedus::util::DumpLog::kBrief)
+            && value <= static_cast<int32_t>(foedus::util::DumpLog::kDetail)) {
         return true;
     } else {
         std::cout << "Invalid value for --" << flagname << ": " << value << std::endl;

@@ -15,8 +15,8 @@ const char* kChildTagName = "storage";
 const char* kStoragesTagName = "storages";
 void SnapshotMetadata::clear() {
     id_ = kNullSnapshotId;
-    base_epoch_ = Epoch::EPOCH_INVALID;
-    valid_until_epoch_ = Epoch::EPOCH_INVALID;
+    base_epoch_ = Epoch::kEpochInvalid;
+    valid_until_epoch_ = Epoch::kEpochInvalid;
 
     // SnapshotMetadata owns the metadata object, so we have to delete them
     for (storage::Metadata *storage : storage_metadata_) {
@@ -49,7 +49,7 @@ ErrorStack SnapshotMetadata::load(tinyxml2::XMLElement* element) {
         LOG(INFO) << "Loaded metadata of " << storage_metadata_.size() << " storages";
     }
     // </storages>
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack SnapshotMetadata::save(tinyxml2::XMLElement* element) const {
@@ -72,7 +72,7 @@ ErrorStack SnapshotMetadata::save(tinyxml2::XMLElement* element) const {
     }
     // </storages>
     LOG(INFO) << "Written metadata of " << storage_metadata_.size() << " storages";
-    return RET_OK;
+    return kRetOk;
 }
 
 }  // namespace snapshot

@@ -49,30 +49,30 @@ class Epoch {
     /** Defines constant values. */
     enum Constants {
         /** Zero is always reserved for invalid epoch. A valid epoch always skips this value. */
-        EPOCH_INVALID = 0,
+        kEpochInvalid = 0,
         /** As there is no transaction in ep-1, initial durable_epoch is 1. */
-        EPOCH_INITIAL_DURABLE = 1,
+        kEpochInitialDurable = 1,
         /** The first epoch (before wrap-around) that might have transactions is ep-2. */
-        EPOCH_INITIAL_CURRENT = 2,
+        kEpochInitialCurrent = 2,
         /** Bits to represent an epoch. */
-        EPOCH_BITS = 28,
+        kEpochBits = 28,
         /** Epoch values wrap around at this value. */
-        EPOCH_INT_OVERFLOW = (1 << EPOCH_BITS),
+        kEpochIntOverflow = (1 << kEpochBits),
         /** Used for before(). */
-        EPOCH_INT_HALF = (1 << (EPOCH_BITS - 1)),
+        kEpochIntHalf = (1 << (kEpochBits - 1)),
     };
 
     /** Construct an invalid epoch. */
-    Epoch() CXX11_NOEXCEPT : epoch_(EPOCH_INVALID) {}
+    Epoch() CXX11_NOEXCEPT : epoch_(kEpochInvalid) {}
     /** Construct an epoch of specified integer representation. */
     explicit Epoch(EpochInteger value) CXX11_NOEXCEPT : epoch_(value) {
-        ASSERT_ND(value < EPOCH_INT_OVERFLOW);
+        ASSERT_ND(value < kEpochIntOverflow);
     }
     // default copy-constructor/assignment/destructor suffice
 
     bool    is_valid() const {
-        ASSERT_ND(epoch_ < EPOCH_INT_OVERFLOW);
-        return epoch_ != EPOCH_INVALID;
+        ASSERT_ND(epoch_ < kEpochIntOverflow);
+        return epoch_ != kEpochInvalid;
     }
 
     /** Returns the raw integer representation. */
@@ -80,7 +80,7 @@ class Epoch {
 
     Epoch&  operator++() {
         ASSERT_ND(is_valid());  // we prohibit increment from invalid epoch
-        if (epoch_ == EPOCH_INT_OVERFLOW - 1) {
+        if (epoch_ == kEpochIntOverflow - 1) {
             epoch_ = 1;  // skip 0, which is always an invalid epoch.
         } else {
             ++epoch_;
@@ -90,7 +90,7 @@ class Epoch {
     Epoch&  operator--() {
         ASSERT_ND(is_valid());  // we prohibit decrement from invalid epoch
         if (epoch_ == 1) {
-            epoch_ = EPOCH_INT_OVERFLOW - 1;  // skip 0, which is always an invalid epoch.
+            epoch_ = kEpochIntOverflow - 1;  // skip 0, which is always an invalid epoch.
         } else {
             --epoch_;
         }
@@ -140,7 +140,7 @@ class Epoch {
         ASSERT_ND(is_valid());
         ASSERT_ND(other.is_valid());
         int64_t diff = static_cast<int64_t>(other.epoch_) - static_cast<int64_t>(epoch_);
-        return diff <= -EPOCH_INT_HALF || (diff > 0 && diff < EPOCH_INT_HALF);
+        return diff <= -kEpochIntHalf || (diff > 0 && diff < kEpochIntHalf);
     }
 
     bool    operator==(const Epoch &other)  const { return epoch_ == other.epoch_; }
@@ -155,7 +155,7 @@ class Epoch {
  private:
     /**
      * The raw integer representation.
-     * @invariant 0 <= epoch_ < EPOCH_INT_OVERFLOW
+     * @invariant 0 <= epoch_ < kEpochIntOverflow
      */
     EpochInteger epoch_;
 };

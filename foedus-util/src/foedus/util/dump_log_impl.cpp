@@ -39,13 +39,13 @@ int DumpLog::dump_to_stdout() {
         void process(log::LogHeader *entry, uint64_t offset) override {
             // epoch marker or engine/storage logs are fully shown even in brief mode.
             bool important_log =
-                entry->get_type() == log::LOG_CODE_EPOCH_MARKER
-                ||  log::get_log_code_kind(entry->get_type()) == log::ENGINE_LOGS
-                ||  log::get_log_code_kind(entry->get_type()) == log::STORAGE_LOGS;
-            if (important_log || enclosure_->verbose_ > BRIEF) {
+                entry->get_type() == log::kLogCodeEpochMarker
+                ||  log::get_log_code_kind(entry->get_type()) == log::kEngineLogs
+                ||  log::get_log_code_kind(entry->get_type()) == log::kStorageLogs;
+            if (important_log || enclosure_->verbose_ > kBrief) {
                 std::cout << "    <Log offset=\"" << assorted::Hex(offset) << "\"" << " len=\""
                     << assorted::Hex(entry->log_length_) << "\">";
-                if (important_log || enclosure_->verbose_ == DETAIL) {
+                if (important_log || enclosure_->verbose_ == kDetail) {
                     log::invoke_ostream(entry, &std::cout);
                 } else {
                     std::cout << log::get_log_type_name(entry->get_type());
@@ -94,16 +94,16 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
     result_cur_epoch_ = INVALID_EPOCH;
 
     const fs::Path &path = files_[file_index];
-    const uint32_t kAlignment = log::FillerLogType::LOG_WRITE_UNIT_SIZE;
+    const uint32_t kAlignment = log::FillerLogType::kLogWriteUnitSize;
     uint64_t file_size = fs::file_size(path);
     if (file_size % kAlignment != 0) {
         result_inconsistencies_.emplace_back(
-            LogInconsistency(LogInconsistency::NON_ALIGNED_FILE_END, file_index, 0));
+            LogInconsistency(LogInconsistency::kNonAlignedFileEnd, file_index, 0));
         file_size = (file_size / kAlignment) * kAlignment;
     }
 
     fs::DirectIoFile file(path);
-    memory::AlignedMemory buffer(1 << 24, kAlignment, memory::AlignedMemory::POSIX_MEMALIGN, 0);
+    memory::AlignedMemory buffer(1 << 24, kAlignment, memory::AlignedMemory::kPosixMemalign, 0);
     COERCE_ERROR(file.open(true, false, false, false));
 
     uint64_t prev_file_offset = 0;
@@ -136,13 +136,13 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
             uint64_t next_reads = std::min(file_size - new_file_offset, buffer.get_size());
             if (next_reads - skip_after_read < header->log_length_) {
                 result_inconsistencies_.emplace_back(
-                    LogInconsistency(LogInconsistency::INCOMPLETE_ENTRY_AT_END,
+                    LogInconsistency(LogInconsistency::kIncompleteEntryAtEnd,
                                         file_index, cur_offset, *header));
                 break;
             }
             ASSERT_ND(next_reads % kAlignment == 0);
             ASSERT_ND(new_file_offset + next_reads <= file_size);
-            COERCE_ERROR(file.seek(new_file_offset, fs::DirectIoFile::DIRECT_IO_SEEK_SET));
+            COERCE_ERROR(file.seek(new_file_offset, fs::DirectIoFile::kDirectIoSeekSet));
             COERCE_ERROR(file.read(next_reads, &buffer));
             prev_file_offset = new_file_offset;
             buffer_size = next_reads;
@@ -153,47 +153,47 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
         ASSERT_ND(buffer_size > buffer_offset);
         ASSERT_ND(header->log_length_ <= (buffer_size - buffer_offset));
 
-        if (cur_offset == 0 && header->log_type_code_ != log::LOG_CODE_EPOCH_MARKER) {
+        if (cur_offset == 0 && header->log_type_code_ != log::kLogCodeEpochMarker) {
             result_inconsistencies_.emplace_back(
-                LogInconsistency(LogInconsistency::NO_EPOCH_MARKER_AT_BEGINNING, file_index,
+                LogInconsistency(LogInconsistency::kNoEpochMarkerAtBeginning, file_index,
                                 cur_offset, *header));
         }
 
         if (header->log_length_ == 0 || header->log_length_ % 8 != 0) {
             result_inconsistencies_.emplace_back(
-                LogInconsistency(LogInconsistency::MISSING_LOG_LENGTH, file_index, cur_offset,
+                LogInconsistency(LogInconsistency::kMissingLogLength, file_index, cur_offset,
                     *header));
             break;
         }
 
         if (log::is_valid_log_type(header->get_type())) {
             log::LogCodeKind kind = log::get_log_code_kind(header->get_type());
-            if (kind == foedus::log::STORAGE_LOGS || kind == foedus::log::RECORD_LOGS) {
+            if (kind == foedus::log::kStorageLogs || kind == foedus::log::kRecordLogs) {
                 if (header->storage_id_ == 0) {
                     result_inconsistencies_.emplace_back(
-                        LogInconsistency(LogInconsistency::MISSING_STORAGE_ID, file_index,
+                        LogInconsistency(LogInconsistency::kMissingStorageId, file_index,
                                         cur_offset, *header));
                 }
             }
-            if (header->get_type() == log::LOG_CODE_EPOCH_MARKER) {
+            if (header->get_type() == log::kLogCodeEpochMarker) {
                 log::EpochMarkerLogType *marker
                     = reinterpret_cast<log::EpochMarkerLogType*>(header);
                 if (!marker->old_epoch_.is_valid()) {
                     result_inconsistencies_.emplace_back(LogInconsistency(
-                        LogInconsistency::INVALID_OLD_EPOCH, file_index, cur_offset, *header));
+                        LogInconsistency::kInvalidOldExpoch, file_index, cur_offset, *header));
                 }
                 if (!marker->new_epoch_.is_valid()) {
                     result_inconsistencies_.emplace_back(LogInconsistency(
-                        LogInconsistency::INVALID_NEW_EPOCH, file_index, cur_offset, *header));
+                        LogInconsistency::kInvaligNewEpoch, file_index, cur_offset, *header));
                 }
                 if (result_cur_epoch_.is_valid() && result_cur_epoch_ != marker->old_epoch_) {
                     result_inconsistencies_.emplace_back(LogInconsistency(
-                        LogInconsistency::EPOCH_MARKER_DOES_NOT_MATCH, file_index, cur_offset,
+                        LogInconsistency::kEpochMarkerDoesNotMatch, file_index, cur_offset,
                         *header));
                 }
                 if (marker->log_file_offset_ != cur_offset) {
                     result_inconsistencies_.emplace_back(LogInconsistency(
-                        LogInconsistency::EPOCH_MARKER_INCORRECT_OFFSET, file_index, cur_offset,
+                        LogInconsistency::kEpochMarkerIncorrectOffset, file_index, cur_offset,
                         *header));
                 }
                 result_first_epoch_.store_min(marker->new_epoch_);
@@ -204,7 +204,7 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
             callback->process(header, cur_offset);
         } else {
             result_inconsistencies_.emplace_back(
-                LogInconsistency(LogInconsistency::MISSING_LOG_LENGTH, file_index, cur_offset,
+                LogInconsistency(LogInconsistency::kMissingLogLength, file_index, cur_offset,
                                  *header));
         }
 
@@ -216,7 +216,7 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
         }
         if (result_inconsistencies_.size() > (1 << 8)) {
             result_inconsistencies_.emplace_back(
-                LogInconsistency(LogInconsistency::TOO_MANY_INCONSISTENCIES, file_index, 0));
+                LogInconsistency(LogInconsistency::kTooManyInconsistencies, file_index, 0));
             result_limit_reached_ = true;
             break;
         }

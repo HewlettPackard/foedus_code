@@ -37,17 +37,17 @@ class DirectIoFile {
     /** Constant values. */
     enum Constants {
         /** POSIX open() semantics says -1 is invalid or not-yet-opened. */
-        INVALID_DESCRIPTOR = -1,
+        kInvalidDescriptor = -1,
     };
 
     /** Analogue of SEEK_SET/SEEK_CUR/SEEK_END in POSIX. */
     enum SeekType {
         /** The offset is set to offset bytes. */
-        DIRECT_IO_SEEK_SET = 0,
+        kDirectIoSeekSet = 0,
         /** The offset is set to its current location plus offset bytes. */
-        DIRECT_IO_SEEK_CUR,
+        kDirectIoSeekCur,
         /** The offset is set to the size of the file plus offset bytes. */
-        DIRECT_IO_SEEK_END,
+        kDirectIoSeekEnd,
     };
 
     /**
@@ -77,7 +77,7 @@ class DirectIoFile {
     ErrorStack      open(bool read, bool write, bool append, bool create);
 
     /** Whether the file is already and successfully opened.*/
-    bool            is_opened() const { return descriptor_ != INVALID_DESCRIPTOR; }
+    bool            is_opened() const { return descriptor_ != kInvalidDescriptor; }
 
     /**
      * @brief Close the file if not yet closed.

@@ -41,14 +41,14 @@ ErrorStack ThreadLogBuffer::initialize_once() {
     offset_durable_ = 0;
     offset_committed_ = 0;
     offset_tail_ = 0;
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack ThreadLogBuffer::uninitialize_once() {
     buffer_memory_.clear();
     buffer_ = nullptr;
     thread_epoch_marks_.clear();
-    return RET_OK;
+    return kRetOk;
 }
 
 void ThreadLogBuffer::assert_consistent() const {

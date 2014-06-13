@@ -9,7 +9,7 @@ namespace foedus {
 ErrorStack ErrorStackBatch::summarize(
     const char* filename, const char* func, uint32_t linenum) const {
     if (!is_error()) {
-        return RET_OK;
+        return kRetOk;
     } else if (error_batch_.size() == 1) {
         return error_batch_[0];
     } else {

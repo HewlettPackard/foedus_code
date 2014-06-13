@@ -54,7 +54,7 @@ ErrorStack Externalizable::load_from_file(const fs::Path& path) {
     } else {
         CHECK_ERROR(load(document.RootElement()));
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack Externalizable::save_to_file(const fs::Path& path) const {
@@ -97,7 +97,7 @@ ErrorStack Externalizable::save_to_file(const fs::Path& path) const {
         return ERROR_STACK_MSG(ERROR_CODE_CONF_COULD_NOT_RENAME, custom_message.str().c_str());
     }
 
-    return RET_OK;
+    return kRetOk;
 }
 
 
@@ -117,7 +117,7 @@ ErrorStack insert_comment_impl(tinyxml2::XMLElement* element, const std::string&
             }
         }
     }
-    return RET_OK;
+    return kRetOk;
 }
 ErrorStack Externalizable::insert_comment(tinyxml2::XMLElement* element,
                                           const std::string& comment) {
@@ -130,7 +130,7 @@ ErrorStack Externalizable::append_comment(tinyxml2::XMLElement* parent,
         CHECK_OUTOFMEMORY(cm);
         parent->InsertEndChild(cm);
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack Externalizable::create_element(tinyxml2::XMLElement* parent, const std::string& name,
@@ -138,7 +138,7 @@ ErrorStack Externalizable::create_element(tinyxml2::XMLElement* parent, const st
     *out = parent->GetDocument()->NewElement(name.c_str());
     CHECK_OUTOFMEMORY(*out);
     parent->InsertEndChild(*out);
-    return RET_OK;
+    return kRetOk;
 }
 
 template <typename T>
@@ -153,7 +153,7 @@ ErrorStack Externalizable::add_element(tinyxml2::XMLElement* parent,
         CHECK_ERROR(insert_comment_impl(element,
                         tag + " (type=" + assorted::get_pretty_type_name<T>() + "): " + comment));
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 // Explicit instantiations for each type
@@ -170,7 +170,7 @@ ErrorStack Externalizable::add_child_element(tinyxml2::XMLElement* parent, const
     parent->InsertEndChild(element);
     CHECK_ERROR(insert_comment_impl(element, comment));
     CHECK_ERROR(child.save(element));
-    return RET_OK;
+    return kRetOk;
 }
 
 template <typename T>
@@ -181,14 +181,14 @@ ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::
     if (element) {
         tinyxml2::XMLError xml_error = tinyxml_getter(element, out);
         if (xml_error == tinyxml2::XML_SUCCESS) {
-            return RET_OK;
+            return kRetOk;
         } else {
             return ERROR_STACK_MSG(ERROR_CODE_CONF_INVALID_ELEMENT, tag.c_str());
         }
     } else {
         if (optional) {
             *out = default_value;
-            return RET_OK;
+            return kRetOk;
         } else {
             return ERROR_STACK_MSG(ERROR_CODE_CONF_MISSING_ELEMENT, tag.c_str());
         }
@@ -225,7 +225,7 @@ ErrorStack Externalizable::get_element(tinyxml2::XMLElement* parent, const std::
     if (out->size() == 0 && !optional) {
         return ERROR_STACK_MSG(ERROR_CODE_CONF_MISSING_ELEMENT, tag.c_str());
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 // Explicit instantiations for each type
@@ -242,7 +242,7 @@ ErrorStack Externalizable::get_child_element(tinyxml2::XMLElement* parent, const
         return child->load(element);
     } else {
         if (optional) {
-            return RET_OK;
+            return kRetOk;
         } else {
             return ERROR_STACK_MSG(ERROR_CODE_CONF_MISSING_ELEMENT, tag.c_str());
         }

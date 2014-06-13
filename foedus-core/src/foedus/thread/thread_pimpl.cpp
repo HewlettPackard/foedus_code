@@ -35,7 +35,7 @@ ErrorStack ThreadPimpl::initialize_once() {
     raw_thread_.initialize("Thread-", id_,
                     std::thread(&ThreadPimpl::handle_tasks, this),
                     std::chrono::milliseconds(100));
-    return RET_OK;
+    return kRetOk;
 }
 ErrorStack ThreadPimpl::uninitialize_once() {
     ErrorStackBatch batch;

@@ -53,7 +53,7 @@ ErrorStack EngineMemory::initialize_once() {
     }
     global_page_resolver_ = GlobalPageResolver(
         bases, numa_nodes, page_offset_begin, page_offset_end);
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack EngineMemory::uninitialize_once() {

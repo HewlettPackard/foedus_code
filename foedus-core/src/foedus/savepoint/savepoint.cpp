@@ -23,7 +23,7 @@ ErrorStack Savepoint::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, current_log_files_);
     EXTERNALIZE_LOAD_ELEMENT(element, current_log_files_offset_durable_);
     assert_epoch_values();
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack Savepoint::save(tinyxml2::XMLElement* element) const {
@@ -41,12 +41,12 @@ ErrorStack Savepoint::save(tinyxml2::XMLElement* element) const {
                              "Indicates the log file each logger is currently appending to");
     EXTERNALIZE_SAVE_ELEMENT(element, current_log_files_offset_durable_,
                         "Indicates the exclusive end of durable region in the current log file");
-    return RET_OK;
+    return kRetOk;
 }
 
 void Savepoint::populate_empty(log::LoggerId logger_count) {
-    current_epoch_ = Epoch::EPOCH_INITIAL_CURRENT;
-    durable_epoch_ = Epoch::EPOCH_INITIAL_DURABLE;
+    current_epoch_ = Epoch::kEpochInitialCurrent;
+    durable_epoch_ = Epoch::kEpochInitialDurable;
     oldest_log_files_.resize(logger_count, 0);
     oldest_log_files_offset_begin_.resize(logger_count, 0);
     current_log_files_.resize(logger_count, 0);

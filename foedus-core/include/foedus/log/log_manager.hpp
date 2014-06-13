@@ -68,7 +68,7 @@ class LogManager CXX11_FINAL : public virtual Initializable {
     /**
      * @brief Synchronously blocks until the durable global epoch reaches the given commit
      * epoch or the given duration elapses.
-     * @param[in] commit_epoch Returns RET_OK \e iff the durable global epoch reaches this value.
+     * @param[in] commit_epoch Returns kRetOk \e iff the durable global epoch reaches this value.
      * @param[in] wait_microseconds Or, returns a TIMEOUT error when this duration elapses,
      * whichever comes first. Negative value means waiting forever. 0 means \e conditional,
      * immediately returning without blocking, which is useful to quickly check the committed-ness.

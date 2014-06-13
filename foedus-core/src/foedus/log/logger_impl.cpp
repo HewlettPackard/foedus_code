@@ -38,17 +38,17 @@ namespace foedus {
 namespace log {
 
 inline bool is_log_aligned(uint64_t offset) {
-    return offset % FillerLogType::LOG_WRITE_UNIT_SIZE == 0;
+    return offset % FillerLogType::kLogWriteUnitSize == 0;
 }
 inline uint64_t align_log_ceil(uint64_t offset) {
-    return assorted::align< uint64_t, FillerLogType::LOG_WRITE_UNIT_SIZE >(offset);
+    return assorted::align< uint64_t, FillerLogType::kLogWriteUnitSize >(offset);
 }
 inline uint64_t align_log_floor(uint64_t offset) {
-    if (offset % FillerLogType::LOG_WRITE_UNIT_SIZE == 0) {
+    if (offset % FillerLogType::kLogWriteUnitSize == 0) {
         return offset;
     } else {
-        return assorted::align< uint64_t, FillerLogType::LOG_WRITE_UNIT_SIZE >(offset)
-            - FillerLogType::LOG_WRITE_UNIT_SIZE;
+        return assorted::align< uint64_t, FillerLogType::kLogWriteUnitSize >(offset)
+            - FillerLogType::kLogWriteUnitSize;
     }
 }
 
@@ -99,10 +99,10 @@ ErrorStack Logger::initialize_once() {
 
     // grab a buffer to pad incomplete blocks for direct file I/O
     CHECK_ERROR(engine_->get_memory_manager().get_node_memory(numa_node_)->allocate_numa_memory(
-        FillerLogType::LOG_WRITE_UNIT_SIZE, &fill_buffer_));
+        FillerLogType::kLogWriteUnitSize, &fill_buffer_));
     ASSERT_ND(!fill_buffer_.is_null());
-    ASSERT_ND(fill_buffer_.get_size() >= FillerLogType::LOG_WRITE_UNIT_SIZE);
-    ASSERT_ND(fill_buffer_.get_alignment() >= FillerLogType::LOG_WRITE_UNIT_SIZE);
+    ASSERT_ND(fill_buffer_.get_size() >= FillerLogType::kLogWriteUnitSize);
+    ASSERT_ND(fill_buffer_.get_alignment() >= FillerLogType::kLogWriteUnitSize);
     LOG(INFO) << "Logger-" << id_ << " grabbed a padding buffer. size=" << fill_buffer_.get_size();
     CHECK_ERROR(write_dummy_epoch_mark());
 
@@ -111,7 +111,7 @@ ErrorStack Logger::initialize_once() {
                     std::thread(&Logger::handle_logger, this), std::chrono::milliseconds(10));
 
     assert_consistent();
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack Logger::uninitialize_once() {
@@ -234,7 +234,7 @@ ErrorStack Logger::handle_logger_once(bool *more_log_to_process) {
     }
 
     CHECK_ERROR(update_durable_epoch());
-    return RET_OK;
+    return kRetOk;
 }
 
 Epoch Logger::calculate_min_durable_epoch() {
@@ -344,13 +344,13 @@ ErrorStack Logger::update_durable_epoch() {
     }
 
     assert_consistent();
-    return RET_OK;
+    return kRetOk;
 }
 ErrorStack Logger::write_dummy_epoch_mark() {
     no_log_epoch_ = false;  // to forcibly write out the epoch mark this case
     CHECK_ERROR(log_epoch_switch(durable_epoch_.one_more()));
     LOG(INFO) << "Logger-" << id_ << " wrote out a dummy epoch marker at the beginning";
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack Logger::log_epoch_switch(Epoch new_epoch) {
@@ -381,7 +381,7 @@ ErrorStack Logger::log_epoch_switch(Epoch new_epoch) {
         add_epoch_history(*epoch_marker);
     }
     assert_consistent();
-    return RET_OK;
+    return kRetOk;
 }
 void Logger::add_epoch_history(const EpochMarkerLogType& epoch_marker) {
     ASSERT_ND(epoch_histories_.size() == 0
@@ -398,7 +398,7 @@ ErrorStack Logger::switch_file_if_required() {
     ASSERT_ND(current_file_);
     if (current_file_->get_current_offset()
             < (static_cast<uint64_t>(engine_->get_options().log_.log_file_size_mb_) << 20)) {
-        return RET_OK;
+        return kRetOk;
     }
 
     LOG(INFO) << "Logger-" << id_ << " moving on to next file. " << *this;
@@ -420,7 +420,7 @@ ErrorStack Logger::switch_file_if_required() {
     ASSERT_ND(current_file_->get_current_offset() == 0);
     LOG(INFO) << "Logger-" << id_ << " moved on to next file. " << *this;
     CHECK_ERROR(write_dummy_epoch_mark());
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
@@ -439,7 +439,7 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
         << from_offset << ", upto_offset=" << upto_offset << ", write_epoch=" << write_epoch;
     DVLOG(1) << *this;
     if (from_offset == upto_offset) {
-        return RET_OK;
+        return kRetOk;
     }
 
     if (from_offset > upto_offset) {
@@ -456,7 +456,7 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
         ASSERT_ND(buffer->get_offset_durable() == 0);
         CHECK_ERROR(write_log(buffer, upto_offset));
         ASSERT_ND(buffer->get_offset_durable() == upto_offset);
-        return RET_OK;
+        return kRetOk;
     }
 
     // 1) First-4kb. Do we have to pad at the beginning?
@@ -466,7 +466,7 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
 
         // pad upto from_offset
         uint64_t begin_fill_size = from_offset - align_log_floor(from_offset);
-        ASSERT_ND(begin_fill_size < FillerLogType::LOG_WRITE_UNIT_SIZE);
+        ASSERT_ND(begin_fill_size < FillerLogType::kLogWriteUnitSize);
         FillerLogType* begin_filler_log = reinterpret_cast<FillerLogType*>(buf);
         begin_filler_log->populate(begin_fill_size);
         buf += begin_fill_size;
@@ -480,27 +480,27 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
             VLOG(1) << "one page or more.";
             copy_size = align_log_ceil(from_offset) - from_offset;
         }
-        ASSERT_ND(copy_size < FillerLogType::LOG_WRITE_UNIT_SIZE);
+        ASSERT_ND(copy_size < FillerLogType::kLogWriteUnitSize);
         std::memcpy(buf, buffer->buffer_ + buffer->offset_durable_, copy_size);
         buf += copy_size;
 
         // pad at the end, if needed
-        uint64_t end_fill_size = FillerLogType::LOG_WRITE_UNIT_SIZE - (begin_fill_size + copy_size);
-        ASSERT_ND(end_fill_size < FillerLogType::LOG_WRITE_UNIT_SIZE);
+        uint64_t end_fill_size = FillerLogType::kLogWriteUnitSize - (begin_fill_size + copy_size);
+        ASSERT_ND(end_fill_size < FillerLogType::kLogWriteUnitSize);
         // logs are all 8-byte aligned, and sizeof(FillerLogType) is 8. So this should always hold.
         ASSERT_ND(end_fill_size == 0 || end_fill_size >= sizeof(FillerLogType));
         if (end_fill_size > 0) {
             FillerLogType* end_filler_log = reinterpret_cast<FillerLogType*>(buf);
             end_filler_log->populate(end_fill_size);
         }
-        CHECK_ERROR(current_file_->write(FillerLogType::LOG_WRITE_UNIT_SIZE, fill_buffer_));
+        CHECK_ERROR(current_file_->write(FillerLogType::kLogWriteUnitSize, fill_buffer_));
 
         buffer->advance_offset_durable(copy_size);
     }
 
     from_offset = buffer->get_offset_durable();
     if (from_offset == upto_offset) {
-        return RET_OK;
+        return kRetOk;
     }
     // from here, "from" is assured to be aligned
     ASSERT_ND(is_log_aligned(from_offset));
@@ -517,7 +517,7 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
 
     from_offset = buffer->get_offset_durable();
     if (from_offset == upto_offset) {
-        return RET_OK;  // if upto_offset is luckily aligned, we exit here.
+        return kRetOk;  // if upto_offset is luckily aligned, we exit here.
     }
     ASSERT_ND(is_log_aligned(from_offset));
     ASSERT_ND(from_offset <= upto_offset);
@@ -528,18 +528,18 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
     char* buf = reinterpret_cast<char*>(fill_buffer_.get_block());
 
     uint64_t copy_size = upto_offset - from_offset;
-    ASSERT_ND(copy_size < FillerLogType::LOG_WRITE_UNIT_SIZE);
+    ASSERT_ND(copy_size < FillerLogType::kLogWriteUnitSize);
     std::memcpy(buf, buffer->buffer_ + buffer->offset_durable_, copy_size);
     buf += copy_size;
 
     // pad upto from_offset
-    const uint64_t fill_size = FillerLogType::LOG_WRITE_UNIT_SIZE - copy_size;
+    const uint64_t fill_size = FillerLogType::kLogWriteUnitSize - copy_size;
     FillerLogType* filler_log = reinterpret_cast<FillerLogType*>(buf);
     filler_log->populate(fill_size);
 
-    CHECK_ERROR(current_file_->write(FillerLogType::LOG_WRITE_UNIT_SIZE, fill_buffer_));
+    CHECK_ERROR(current_file_->write(FillerLogType::kLogWriteUnitSize, fill_buffer_));
     buffer->advance_offset_durable(copy_size);
-    return RET_OK;
+    return kRetOk;
 }
 
 void Logger::wakeup_for_durable_epoch(Epoch desired_durable_epoch) {

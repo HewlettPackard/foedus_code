@@ -67,13 +67,13 @@ struct LocalPageResolver CXX11_FINAL {
 struct GlobalPageResolver CXX11_FINAL {
     typedef storage::Page* Base;
     enum Constants {
-        MAX_NUMA_NODE = 256,
+        kMaxNumaNode = 256,
     };
     GlobalPageResolver() : numa_node_count_(0), begin_(0), end_(0) {}
     GlobalPageResolver(const Base *bases, uint16_t numa_node_count,
                        PagePoolOffset begin, PagePoolOffset end)
         : numa_node_count_(numa_node_count), begin_(begin), end_(end) {
-        ASSERT_ND(numa_node_count <= MAX_NUMA_NODE);
+        ASSERT_ND(numa_node_count <= kMaxNumaNode);
         std::memcpy(bases_, bases, sizeof(Base) * numa_node_count_);
     }
     // default assignment/copy constructors are a bit wasteful when #numa node is small, thus:
@@ -108,7 +108,7 @@ struct GlobalPageResolver CXX11_FINAL {
     PagePoolOffset  end_;
 
     /** base address to calculate from/to offset. index is NUMA node ID. */
-    Base            bases_[MAX_NUMA_NODE];
+    Base            bases_[kMaxNumaNode];
 };
 
 }  // namespace memory

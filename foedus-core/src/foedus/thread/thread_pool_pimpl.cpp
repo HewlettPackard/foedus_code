@@ -33,7 +33,7 @@ ErrorStack ThreadPoolPimpl::initialize_once() {
         groups_.push_back(new ThreadGroup(engine_, group_id));
         CHECK_ERROR(groups_.back()->initialize());
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack ThreadPoolPimpl::uninitialize_once() {

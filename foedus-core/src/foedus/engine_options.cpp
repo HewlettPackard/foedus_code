@@ -51,7 +51,7 @@ ErrorStack EngineOptions::load(tinyxml2::XMLElement* element) {
     for (externalize::Externalizable* child : get_children(this)) {
         CHECK_ERROR(get_child_element(element, child->get_tag_name(), child));
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack EngineOptions::save(tinyxml2::XMLElement* element) const {
@@ -59,7 +59,7 @@ ErrorStack EngineOptions::save(tinyxml2::XMLElement* element) const {
     for (const externalize::Externalizable* child : get_children(this)) {
         CHECK_ERROR(add_child_element(element, child->get_tag_name(), "", *child));
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 }  // namespace foedus

@@ -12,7 +12,7 @@ namespace log {
 #define X(a, b, c) case a: return X_EXPAND_AND_QUOTE(a);
 const char* get_log_type_name(LogCode code) {
     switch (code) {
-        case LOG_TYPE_INVALID: return "LOG_TYPE_INVALID";
+        case kLogCodeInvalid: return "kLogCodeInvalid";
 #include <foedus/log/log_type.xmacro> // NOLINT
         default: return "UNKNOWN";
     }

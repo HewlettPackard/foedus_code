@@ -72,11 +72,11 @@ void DebuggingSupports::uninitialize_glog() {
 
 ErrorStack DebuggingSupports::initialize_once() {
     initialize_glog();  // initialize glog at the beginning. we can use glog since now
-    return RET_OK;
+    return kRetOk;
 }
 ErrorStack DebuggingSupports::uninitialize_once() {
     uninitialize_glog();  // release glog at the end. we can't use glog since now
-    return RET_OK;
+    return kRetOk;
 }
 
 void DebuggingSupports::set_debug_log_to_stderr(bool value) {
@@ -112,7 +112,7 @@ ErrorStack DebuggingSupports::start_profile(const std::string& output_file) {
 #else  // HAVE_GOOGLEPERFTOOLS
     LOG(WARNING) << "Google perftools was not linked. No profile is provided";
 #endif  // HAVE_GOOGLEPERFTOOLS
-    return RET_OK;
+    return kRetOk;
 }
 
 void DebuggingSupports::stop_profile() {

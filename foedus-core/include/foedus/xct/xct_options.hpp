@@ -20,11 +20,11 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
     /** Constant values. */
     enum Constants {
         /** Default value for max_read_set_size_. */
-        DEFAULT_MAX_READ_SET_SIZE = 1 << 16,
+        kDefaultMaxReadSetSize = 1 << 16,
         /** Default value for max_write_set_size_. */
-        DEFAULT_MAX_WRITE_SET_SIZE = 1 << 14,
+        kDefaultMaxWriteSetSize = 1 << 14,
         /** Default value for epoch_advance_interval_ms_. */
-        DEFAULT_EPOCH_ADVANCE_INTERVAL_MS = 20,
+        kDefaultEpochAdvanceIntervalMs = 20,
     };
 
     /**

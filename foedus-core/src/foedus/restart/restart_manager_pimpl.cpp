@@ -21,7 +21,7 @@ ErrorStack RestartManagerPimpl::initialize_once() {
 
     // after all other initializations, we trigger recovery procedure.
     CHECK_ERROR(recover());
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack RestartManagerPimpl::uninitialize_once() {
@@ -39,10 +39,10 @@ ErrorStack RestartManagerPimpl::recover() {
     LOG(INFO) << "Recovering the database... durable_epoch=" << durable_epoch
         << ", snapshot_epoch=" << snapshot_epoch;
 
-    if (durable_epoch.value() == Epoch::EPOCH_INITIAL_DURABLE) {
+    if (durable_epoch.value() == Epoch::kEpochInitialDurable) {
         if (!snapshot_epoch.is_valid()) {
             LOG(INFO) << "The database is in initial state. Nothing to recover.";
-            return RET_OK;
+            return kRetOk;
         } else {
             // this means durable_epoch wraps around. nothing wrong, but worth logging.
             LOG(INFO) << "Interesting. durable_epoch is initial value, but we have snapshot."
@@ -52,10 +52,10 @@ ErrorStack RestartManagerPimpl::recover() {
 
     if (durable_epoch == snapshot_epoch) {
         LOG(INFO) << "The snapshot is up-to-date. No need to recover.";
-        return RET_OK;
+        return kRetOk;
     }
 
-    return RET_OK;
+    return kRetOk;
 }
 
 

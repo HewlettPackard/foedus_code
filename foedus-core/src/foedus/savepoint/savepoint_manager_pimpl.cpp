@@ -34,7 +34,7 @@ ErrorStack SavepointManagerPimpl::initialize_once() {
         savepoint_.populate_empty(logger_count);
         CHECK_ERROR(savepoint_.save_to_file(savepoint_path_));
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack SavepointManagerPimpl::uninitialize_once() {
@@ -59,7 +59,7 @@ ErrorStack SavepointManagerPimpl::take_savepoint(Epoch new_global_durable_epoch)
         std::lock_guard<std::mutex> guard(savepoint_mutex_);
         savepoint_ = new_savepoint;
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 

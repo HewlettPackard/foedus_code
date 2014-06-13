@@ -10,8 +10,8 @@ namespace memory {
 MemoryOptions::MemoryOptions() {
     use_numa_alloc_ = true;
     interleave_numa_alloc_ = false;
-    page_pool_size_mb_per_node_ = DEFAULT_PAGE_POOL_SIZE_MB_PER_NODE;
-    private_page_pool_initial_grab_ = PagePoolOffsetChunk::MAX_SIZE / 2;
+    page_pool_size_mb_per_node_ = kDefaultPagePoolSizeMbPerNode;
+    private_page_pool_initial_grab_ = PagePoolOffsetChunk::kMaxSize / 2;
 }
 
 ErrorStack MemoryOptions::load(tinyxml2::XMLElement* element) {
@@ -19,7 +19,7 @@ ErrorStack MemoryOptions::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, interleave_numa_alloc_);
     EXTERNALIZE_LOAD_ELEMENT(element, page_pool_size_mb_per_node_);
     EXTERNALIZE_LOAD_ELEMENT(element, private_page_pool_initial_grab_);
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack MemoryOptions::save(tinyxml2::XMLElement* element) const {
@@ -42,10 +42,10 @@ ErrorStack MemoryOptions::save(tinyxml2::XMLElement* element) const {
                     "Size of the page pool in MB per each NUMA node. Must be multiply of 2MB.");
     EXTERNALIZE_SAVE_ELEMENT(element, private_page_pool_initial_grab_,
         "How many pages each NumaCoreMemory initially grabs when it is initialized."
-        " Default is 50% of PagePoolOffsetChunk::MAX_SIZE\n"
+        " Default is 50% of PagePoolOffsetChunk::kMaxSize\n"
         " Obviously, private_page_pool_initial_grab_ * kPageSize * number-of-threads must be"
         " within page_pool_size_mb_per_node_ to start up the engine.");
-    return RET_OK;
+    return kRetOk;
 }
 
 }  // namespace memory

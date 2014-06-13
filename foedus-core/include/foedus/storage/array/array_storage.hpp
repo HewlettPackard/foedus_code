@@ -45,7 +45,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
 
     // Storage interface
     StorageId           get_id()    const CXX11_OVERRIDE;
-    StorageType         get_type()  const CXX11_OVERRIDE { return ARRAY_STORAGE; }
+    StorageType         get_type()  const CXX11_OVERRIDE { return kArrayStorage; }
     const std::string&  get_name()  const CXX11_OVERRIDE;
     const Metadata*     get_metadata()  const CXX11_OVERRIDE;
     bool                exists()    const CXX11_OVERRIDE;

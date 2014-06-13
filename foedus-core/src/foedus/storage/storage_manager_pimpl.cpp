@@ -44,7 +44,7 @@ ErrorStack StorageManagerPimpl::initialize_once() {
     std::memset(storages_, 0, sizeof(Storage*) * kInitialCapacity);
     storages_capacity_ = kInitialCapacity;
 
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack StorageManagerPimpl::uninitialize_once() {
@@ -120,7 +120,7 @@ ErrorStack StorageManagerPimpl::register_storage(Storage* storage) {
     if (id > largest_storage_id_) {
         largest_storage_id_ = id;
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack StorageManagerPimpl::drop_storage(thread::Thread* context, StorageId id,
@@ -143,7 +143,7 @@ ErrorStack StorageManagerPimpl::drop_storage(thread::Thread* context, StorageId 
 
     // commit invokes apply
     CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, commit_epoch));
-    return RET_OK;
+    return kRetOk;
 }
 void StorageManagerPimpl::drop_storage_apply(thread::Thread* /*context*/, Storage* storage) {
     ASSERT_ND(storage);
@@ -167,7 +167,7 @@ class DropStorageTask final : public foedus::thread::ImpersonateTask {
         : pimpl_(pimpl), id_(id), commit_epoch_(commit_epoch) {}
     ErrorStack run(thread::Thread* context) override {
         CHECK_ERROR(pimpl_->drop_storage(context, id_, commit_epoch_));
-        return RET_OK;
+        return kRetOk;
     }
 
  private:
@@ -180,7 +180,7 @@ ErrorStack StorageManagerPimpl::drop_storage_impersonate(StorageId id, Epoch *co
     DropStorageTask task(this, id, commit_epoch);
     thread::ImpersonateSession session = engine_->get_thread_pool().impersonate(&task);
     CHECK_ERROR(session.get_result());
-    return RET_OK;
+    return kRetOk;
 }
 
 
@@ -189,7 +189,7 @@ ErrorStack StorageManagerPimpl::expand_storage_array(StorageId new_size) {
     std::lock_guard<std::mutex> guard(mod_lock_);
     if (new_size <= storages_capacity_) {
         LOG(INFO) << "Someone else has expanded?";
-        return RET_OK;
+        return kRetOk;
     }
 
     new_size = (new_size + 1) * 2;  // 2x margin to avoid frequent expansion.
@@ -208,7 +208,7 @@ ErrorStack StorageManagerPimpl::expand_storage_array(StorageId new_size) {
     storages_ = new_array;
     assorted::memory_fence_release();
     storages_capacity_ = new_size;
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack StorageManagerPimpl::create_array(thread::Thread* context, const std::string& name,
@@ -253,10 +253,10 @@ ErrorStack StorageManagerPimpl::create_array(thread::Thread* context, const std:
 
     Storage* new_storage = get_storage(id);
     ASSERT_ND(new_storage);
-    ASSERT_ND(new_storage->get_type() == ARRAY_STORAGE);
+    ASSERT_ND(new_storage->get_type() == kArrayStorage);
     *out = dynamic_cast<array::ArrayStorage*>(new_storage);
     ASSERT_ND(*out);
-    return RET_OK;
+    return kRetOk;
 }
 
 /** A task to create an array. Used from create_array_impersonate(). */
@@ -270,7 +270,7 @@ class CreateArrayTask final : public foedus::thread::ImpersonateTask {
         *out_ = nullptr;
         CHECK_ERROR(pimpl_->create_array(
             context, name_, payload_, array_size_, out_, commit_epoch_));
-        return RET_OK;
+        return kRetOk;
     }
 
  private:
@@ -288,7 +288,7 @@ ErrorStack StorageManagerPimpl::create_array_impersonate(const std::string& name
     CreateArrayTask task(this, name, payload_size, array_size, out, commit_epoch);
     thread::ImpersonateSession session = engine_->get_thread_pool().impersonate(&task);
     CHECK_ERROR(session.get_result());
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack StorageManagerPimpl::clone_all_storage_metadata(
@@ -308,7 +308,7 @@ ErrorStack StorageManagerPimpl::clone_all_storage_metadata(
     LOG(INFO) << "Duplicated metadata of " << metadata->storage_metadata_.size()
         << " storages (largest_storage_id_=" << largest_storage_id_copy << ") in "
         << stop_watch.elapsed_ms() << " milliseconds";
-    return RET_OK;
+    return kRetOk;
 }
 
 }  // namespace storage

@@ -12,13 +12,13 @@ SavepointOptions::SavepointOptions() {
 }
 ErrorStack SavepointOptions::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, savepoint_path_);
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack SavepointOptions::save(tinyxml2::XMLElement* element) const {
     CHECK_ERROR(insert_comment(element, "Set of options for savepoint manager"));
     EXTERNALIZE_SAVE_ELEMENT(element, savepoint_path_, "Full path of the savepoint file.");
-    return RET_OK;
+    return kRetOk;
 }
 
 }  // namespace savepoint

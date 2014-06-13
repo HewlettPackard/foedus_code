@@ -21,13 +21,13 @@ struct DebuggingOptions CXX11_FINAL : public virtual externalize::Externalizable
     /** Defines debug logging levels. */
     enum DebugLogLevel {
         /** Usual logs. */
-        DEBUG_LOG_INFO = 0,
+        kDebugLogInfo = 0,
         /** Warns that there are something unexpected, but not a big issue. */
-        DEBUG_LOG_WARNING,
+        kDebugLogWarning,
         /** Raises a major issue. */
-        DEBUG_LOG_ERROR,
+        kDebugLogError,
         /** Immediately quits the engine after this log. */
-        DEBUG_LOG_FATAL,
+        kDebugLogFatal,
     };
 
     /**
@@ -45,14 +45,14 @@ struct DebuggingOptions CXX11_FINAL : public virtual externalize::Externalizable
     /**
      * @brief Debug logs at or above this level will be copied to stderr.
      * @details
-     * Default is DEBUG_LOG_INFO. There is an API to change this setting at runtime.
+     * Default is kDebugLogInfo. There is an API to change this setting at runtime.
      */
     DebugLogLevel                       debug_log_stderr_threshold_;
 
     /**
      * @brief Debug logs below this level will be completely ignored.
      * @details
-     * Default is DEBUG_LOG_INFO. There is an API to change this setting at runtime.
+     * Default is kDebugLogInfo. There is an API to change this setting at runtime.
      */
     DebugLogLevel                       debug_log_min_threshold_;
 

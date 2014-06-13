@@ -53,7 +53,7 @@ class InitTask : public thread::ImpersonateTask {
         }
 
         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-        return RET_OK;
+        return kRetOk;
     }
 };
 
@@ -78,7 +78,7 @@ class TestTask : public thread::ImpersonateTask {
                 COERCE_ERROR(error_stack);
             }
         }
-        return RET_OK;
+        return kRetOk;
     }
 
     ErrorStack try_transaction(thread::Thread* context) {
@@ -93,7 +93,7 @@ class TestTask : public thread::ImpersonateTask {
 
         Epoch commit_epoch;
         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-        return RET_OK;
+        return kRetOk;
     }
 
  private:
@@ -115,7 +115,7 @@ class GetAllRecordsTask : public thread::ImpersonateTask {
 
         Epoch commit_epoch;
         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-        return RET_OK;
+        return kRetOk;
     }
 
  private:

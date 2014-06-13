@@ -12,14 +12,14 @@ ErrorStack Metadata::load_base(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, id_);
     EXTERNALIZE_LOAD_ENUM_ELEMENT(element, type_);
     EXTERNALIZE_LOAD_ELEMENT(element, name_);
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack Metadata::save_base(tinyxml2::XMLElement* element) const {
     EXTERNALIZE_SAVE_ELEMENT(element, id_, "");
     EXTERNALIZE_SAVE_ENUM_ELEMENT(element, type_, "");
     EXTERNALIZE_SAVE_ELEMENT(element, name_, "");
-    return RET_OK;
+    return kRetOk;
 }
 
 Metadata* Metadata::create_instance(tinyxml2::XMLElement* metadata_xml) {
@@ -38,11 +38,11 @@ Metadata* Metadata::create_instance(tinyxml2::XMLElement* metadata_xml) {
 
     StorageType type = static_cast<StorageType>(type_int);
     switch (type) {
-        case ARRAY_STORAGE:
+        case kArrayStorage:
             return new array::ArrayMetadata();
-        case HASH_STORAGE:
-        case MASSTREE_STORAGE:
-        case SEQUENTIAL_STORAGE:
+        case kHashStorage:
+        case kMasstreeStorage:
+        case kSequentialStorage:
             // TODO(Hideaki): Implement
         default:
             LOG(FATAL) << "Unexpected storage type:" << type;

@@ -8,8 +8,8 @@ namespace foedus {
 namespace debugging {
 DebuggingOptions::DebuggingOptions() :
     debug_log_to_stderr_(false),
-    debug_log_stderr_threshold_(DEBUG_LOG_INFO),
-    debug_log_min_threshold_(DEBUG_LOG_INFO),
+    debug_log_stderr_threshold_(kDebugLogInfo),
+    debug_log_min_threshold_(kDebugLogInfo),
     verbose_log_level_(0),
     verbose_modules_(""),
     debug_log_dir_("/tmp/") {
@@ -22,7 +22,7 @@ ErrorStack DebuggingOptions::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, verbose_log_level_);
     EXTERNALIZE_LOAD_ELEMENT(element, verbose_modules_);
     EXTERNALIZE_LOAD_ELEMENT(element, debug_log_dir_);
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack DebuggingOptions::save(tinyxml2::XMLElement* element) const {
@@ -30,20 +30,20 @@ ErrorStack DebuggingOptions::save(tinyxml2::XMLElement* element) const {
         "For ease of debugging, some of the options here has corresponding APIs to change\n"
         " at runtime. So, those options are merely initial configurations.\n"
         " enum DebugLogLevel: Defines debug logging levels\n"
-        " DEBUG_LOG_INFO = 0: Usual logs\n"
-        " DEBUG_LOG_WARNING = 1: Warns that there are something unexpected, but not a big issue.\n"
-        " DEBUG_LOG_ERROR = 2: Raises a major issue.\n"
-        " DEBUG_LOG_FATAL = 3: Immediately quits the engine after this log."));
+        " kDebugLogInfo = 0: Usual logs\n"
+        " kDebugLogWarning = 1: Warns that there are something unexpected, but not a big issue.\n"
+        " kDebugLogError = 2: Raises a major issue.\n"
+        " kDebugLogFatal = 3: Immediately quits the engine after this log."));
 
     EXTERNALIZE_SAVE_ELEMENT(element, debug_log_to_stderr_,
         "Whether to write debug logs to stderr rather than log file.\n"
         " Default is false. There is an API to change this setting at runtime.");
     EXTERNALIZE_SAVE_ENUM_ELEMENT(element, debug_log_stderr_threshold_,
         "Debug logs at or above this level will be copied to stderr.\n"
-        " Default is DEBUG_LOG_INFO. There is an API to change this setting at runtime.");
+        " Default is kDebugLogInfo. There is an API to change this setting at runtime.");
     EXTERNALIZE_SAVE_ENUM_ELEMENT(element, debug_log_min_threshold_,
         "Debug logs below this level will be completely ignored.\n"
-        " Default is DEBUG_LOG_INFO. There is an API to change this setting at runtime.");
+        " Default is kDebugLogInfo. There is an API to change this setting at runtime.");
     EXTERNALIZE_SAVE_ELEMENT(element, verbose_log_level_,
         "Verbose debug logs (VLOG(m)) at or less than this number will be shown.\n"
         " Default is 0. There is an API to change this setting at runtime.");
@@ -58,7 +58,7 @@ ErrorStack DebuggingOptions::save(tinyxml2::XMLElement* element) const {
         "Path of the folder to write debug logs.\n"
         " Default is '/tmp'. @attention We do NOT have API to change this setting at runtime.\n"
         " You must configure this as a start-up option.");
-    return RET_OK;
+    return kRetOk;
 }
 
 }  // namespace debugging

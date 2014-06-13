@@ -35,7 +35,7 @@ inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record
     ASSERT_ND(record);
     if (isolation_level_ == DIRTY_READ_PREFER_SNAPSHOT
         || isolation_level_ == DIRTY_READ_PREFER_VOLATILE) {
-        return ERROR_CODE_OK;
+        return kErrorCodeOk;
     } else if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
         return ERROR_CODE_XCT_READ_SET_OVERFLOW;
     }
@@ -61,12 +61,12 @@ inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record
     read_set_[read_set_size_].storage_ = storage;
     read_set_[read_set_size_].record_ = record;
     ++read_set_size_;
-    return ERROR_CODE_OK;
+    return kErrorCodeOk;
 }
 inline ErrorCode Xct::read_record(storage::Storage* storage, storage::Record* record,
                             void *payload, uint16_t payload_offset, uint16_t payload_count) {
     ErrorCode read_set_result = add_to_read_set(storage, record);
-    if (read_set_result != ERROR_CODE_OK) {
+    if (read_set_result != kErrorCodeOk) {
         return read_set_result;
     }
 
@@ -81,13 +81,13 @@ inline ErrorCode Xct::read_record(storage::Storage* storage, storage::Record* re
             return ERROR_CODE_XCT_RACE_ABORT;
         }
     }
-    return ERROR_CODE_OK;
+    return kErrorCodeOk;
 }
 template <typename T>
 inline ErrorCode Xct::read_record_primitive(storage::Storage* storage, storage::Record* record,
                             T *payload, uint16_t payload_offset) {
     ErrorCode read_set_result = add_to_read_set(storage, record);
-    if (read_set_result != ERROR_CODE_OK) {
+    if (read_set_result != kErrorCodeOk) {
         return read_set_result;
     }
 
@@ -102,7 +102,7 @@ inline ErrorCode Xct::read_record_primitive(storage::Storage* storage, storage::
             return ERROR_CODE_XCT_RACE_ABORT;
         }
     }
-    return ERROR_CODE_OK;
+    return kErrorCodeOk;
 }
 
 inline ErrorCode Xct::add_to_write_set(storage::Storage* storage, storage::Record* record,
@@ -124,7 +124,7 @@ inline ErrorCode Xct::add_to_write_set(storage::Storage* storage, storage::Recor
     write_set_[write_set_size_].record_ = record;
     write_set_[write_set_size_].log_entry_ = log_entry;
     ++write_set_size_;
-    return ERROR_CODE_OK;
+    return kErrorCodeOk;
 }
 
 }  // namespace xct

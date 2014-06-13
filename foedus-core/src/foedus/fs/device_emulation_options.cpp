@@ -10,7 +10,7 @@ ErrorStack DeviceEmulationOptions::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, disable_direct_io_);
     EXTERNALIZE_LOAD_ELEMENT(element, emulated_seek_latency_ns_);
     EXTERNALIZE_LOAD_ELEMENT(element, emulated_scan_latency_ns_);
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack DeviceEmulationOptions::save(tinyxml2::XMLElement* element) const {
@@ -20,7 +20,7 @@ ErrorStack DeviceEmulationOptions::save(tinyxml2::XMLElement* element) const {
         "additional nanosec to busy-wait for each seek. 0 (default) disables it.");
     EXTERNALIZE_SAVE_ELEMENT(element, emulated_scan_latency_ns_,
         "additional nanosec to busy-wait for each 1KB read. 0 (default) disables it.");
-    return RET_OK;
+    return kRetOk;
 }
 
 }  // namespace fs

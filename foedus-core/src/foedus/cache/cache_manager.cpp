@@ -6,10 +6,10 @@
 namespace foedus {
 namespace cache {
 ErrorStack CacheManager::initialize_once() {
-    return RET_OK;
+    return kRetOk;
 }
 ErrorStack CacheManager::uninitialize_once() {
-    return RET_OK;
+    return kRetOk;
 }
 }  // namespace cache
 }  // namespace foedus

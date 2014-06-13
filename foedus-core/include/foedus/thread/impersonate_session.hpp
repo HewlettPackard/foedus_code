@@ -46,11 +46,11 @@ struct ImpersonateSession CXX11_FINAL {
     /** Result of wait_for() */
     enum Status {
         /** If called for an invalid session. */
-        INVALID_SESSION = 0,
+        kInvalidSession = 0,
         /** The session has completed. */
-        READY,
+        kReady,
         /** Timeout duration has elapsed. */
-        TIMEOUT,
+        kTimeout,
     };
 
     ImpersonateSession() : thread_(CXX11_NULLPTR), task_(CXX11_NULLPTR), invalid_cause_() {}

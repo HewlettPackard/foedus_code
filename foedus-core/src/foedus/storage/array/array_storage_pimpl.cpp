@@ -123,7 +123,7 @@ ErrorStack ArrayStoragePimpl::initialize_once() {
     if (exist_) {
         // initialize root_page_
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 void ArrayStoragePimpl::release_pages_recursive(
@@ -157,7 +157,7 @@ ErrorStack ArrayStoragePimpl::uninitialize_once() {
         root_page_ = nullptr;
         root_page_pointer_.volatile_pointer_.word = 0;
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 
@@ -274,7 +274,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     LOG(INFO) << "Newly created an array-storage " << *holder_;
     exist_ = true;
     engine_->get_storage_manager().get_pimpl()->register_storage(holder_);
-    return RET_OK;
+    return kRetOk;
 }
 
 inline ErrorCode ArrayStoragePimpl::locate_record(
@@ -284,14 +284,14 @@ inline ErrorCode ArrayStoragePimpl::locate_record(
     uint16_t index = 0;
     ArrayPage* page = nullptr;
     ErrorCode code = lookup(context, offset, &page, &index);
-    if (code != ERROR_CODE_OK) {
+    if (code != kErrorCodeOk) {
         return code;
     }
     ASSERT_ND(page);
     ASSERT_ND(page->is_leaf());
     ASSERT_ND(page->get_array_range().contains(offset));
     *out = page->get_leaf_record(index);
-    return ERROR_CODE_OK;
+    return kErrorCodeOk;
 }
 
 inline ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOffset offset,
@@ -301,7 +301,7 @@ inline ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOf
     CHECK_ERROR_CODE(locate_record(context, offset, &record));
     CHECK_ERROR_CODE(context->get_current_xct().read_record(holder_, record,
                                                         payload, payload_offset, payload_count));
-    return RET_OK;
+    return kRetOk;
 }
 
 template <typename T>
@@ -312,7 +312,7 @@ ErrorStack ArrayStoragePimpl::get_record_primitive(thread::Thread* context, Arra
     CHECK_ERROR_CODE(locate_record(context, offset, &record));
     CHECK_ERROR_CODE(context->get_current_xct().read_record_primitive<T>(holder_, record,
                                                                       payload, payload_offset));
-    return RET_OK;
+    return kRetOk;
 }
 
 inline ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context, ArrayOffset offset,
@@ -327,7 +327,7 @@ inline ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context, A
         context->get_thread_log_buffer().reserve_new_log(log_length));
     log_entry->populate(metadata_.id_, offset, payload, payload_offset, payload_count);
     CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
-    return RET_OK;
+    return kRetOk;
 }
 
 template <typename T>
@@ -343,7 +343,7 @@ ErrorStack ArrayStoragePimpl::overwrite_record_primitive(
         context->get_thread_log_buffer().reserve_new_log(log_length));
     log_entry->populate_primitive<T>(metadata_.id_, offset, payload, payload_offset);
     CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
-    return RET_OK;
+    return kRetOk;
 }
 
 template <typename T>
@@ -363,7 +363,7 @@ ErrorStack ArrayStoragePimpl::increment_record(
         context->get_thread_log_buffer().reserve_new_log(log_length));
     log_entry->populate_primitive<T>(metadata_.id_, offset, *value, payload_offset);
     CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
-    return RET_OK;
+    return kRetOk;
 }
 
 inline ArrayStoragePimpl::LookupRoute ArrayStoragePimpl::find_route(ArrayOffset offset) const {
@@ -417,7 +417,7 @@ inline ErrorCode ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset 
     ASSERT_ND(current_page->get_array_range().begin_ + route.route[0] == offset);
     *out = current_page;
     *index = route.route[0];
-    return ERROR_CODE_OK;
+    return kErrorCodeOk;
 }
 
 

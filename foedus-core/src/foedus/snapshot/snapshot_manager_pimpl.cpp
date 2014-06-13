@@ -29,7 +29,7 @@ ErrorStack SnapshotManagerPimpl::initialize_once() {
      if (!engine_->get_log_manager().is_initialized()) {
         return ERROR_STACK(ERROR_CODE_DEPEDENT_MODULE_UNAVAILABLE_INIT);
     }
-    snapshot_epoch_.store(Epoch::EPOCH_INVALID);
+    snapshot_epoch_.store(Epoch::kEpochInvalid);
     // TODO(Hideaki): get snapshot status from savepoint
     previous_snapshot_id_ = kNullSnapshotId;
     immediate_snapshot_requested_.store(false);
@@ -37,7 +37,7 @@ ErrorStack SnapshotManagerPimpl::initialize_once() {
     snapshot_thread_.initialize("Snapshot",
                     std::thread(&SnapshotManagerPimpl::handle_snapshot, this),
                     std::chrono::milliseconds(100));
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack SnapshotManagerPimpl::uninitialize_once() {
@@ -153,11 +153,11 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
     // Finally, write out the metadata file.
     CHECK_ERROR(snapshot_metadata(new_snapshot));
 
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack SnapshotManagerPimpl::glean_logs(Snapshot* /*new_snapshot*/) {
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack SnapshotManagerPimpl::snapshot_metadata(Snapshot *new_snapshot) {
@@ -189,7 +189,7 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(Snapshot *new_snapshot) {
     fs::fsync(file, true);
     stop_watch.stop();
     LOG(INFO) << "fsynced the file and the folder! elapsed=" << stop_watch.elapsed_ms() << "ms.";
-    return RET_OK;
+    return kRetOk;
 }
 
 fs::Path SnapshotManagerPimpl::get_snapshot_metadata_file_path(SnapshotId snapshot_id) const {

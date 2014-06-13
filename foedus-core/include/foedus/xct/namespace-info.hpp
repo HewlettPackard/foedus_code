@@ -26,7 +26,7 @@
  *         foedus::Epoch commit_epoch;
  *         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
  *         CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
- *         return foedus::RET_OK;
+ *         return foedus::kRetOk;
  *     }
  * }
  * @endcode

@@ -39,9 +39,9 @@ namespace foedus {
 
     EngineOptions get_tiny_options() {
         EngineOptions options = get_randomized_paths();
-        options.debugging_.debug_log_min_threshold_ = debugging::DebuggingOptions::DEBUG_LOG_INFO;
+        options.debugging_.debug_log_min_threshold_ = debugging::DebuggingOptions::kDebugLogInfo;
         options.debugging_.debug_log_stderr_threshold_
-            = debugging::DebuggingOptions::DEBUG_LOG_INFO;
+            = debugging::DebuggingOptions::kDebugLogInfo;
         options.debugging_.verbose_log_level_ = 1;
         options.debugging_.verbose_modules_ = "*";
 

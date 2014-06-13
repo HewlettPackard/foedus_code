@@ -23,9 +23,9 @@ struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
     /** Constant values. */
     enum Constants {
         /** Default value for log_buffer_kb_. */
-        DEFAULT_LOG_BUFFER_KB = (1 << 16),
+        kDefaultLogBufferKb = (1 << 16),
         /** Default value for log_file_size_mb_. */
-        DEFAULT_LOG_FILE_SIZE_MB = (1 << 14),
+        kDefaultLogSizeMb = (1 << 14),
     };
     /**
      * Constructs option values with default values.

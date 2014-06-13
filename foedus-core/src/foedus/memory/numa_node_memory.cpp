@@ -42,7 +42,7 @@ ErrorStack NumaNodeMemory::initialize_once() {
 
     LOG(INFO) << "Initialized NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
         << " AFTER: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
-    return RET_OK;
+    return kRetOk;
 }
 ErrorStack NumaNodeMemory::initialize_read_write_set_memory() {
     uint32_t readsets = engine_->get_options().xct_.max_read_set_size_;
@@ -59,7 +59,7 @@ ErrorStack NumaNodeMemory::initialize_read_write_set_memory() {
             write_set_memory_.get_block()) + (writesets * ordinal));
     }
 
-    return RET_OK;
+    return kRetOk;
 }
 ErrorStack NumaNodeMemory::initialize_page_offset_chunk_memory() {
     size_t size_per_core = sizeof(PagePoolOffsetChunk);
@@ -78,7 +78,7 @@ ErrorStack NumaNodeMemory::initialize_page_offset_chunk_memory() {
         page_offset_chunk_memory_pieces_.push_back(chunk);
     }
 
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack NumaNodeMemory::initialize_log_buffers_memory() {
@@ -93,7 +93,7 @@ ErrorStack NumaNodeMemory::initialize_log_buffers_memory() {
         log_buffer_memory_pieces_.push_back(piece);
     }
 
-    return RET_OK;
+    return kRetOk;
 }
 
 
@@ -102,7 +102,7 @@ ErrorStack NumaNodeMemory::initialize_core_memory(thread::ThreadLocalOrdinal ord
     NumaCoreMemory* core_memory = new NumaCoreMemory(engine_, this, core_id);
     core_memories_.push_back(core_memory);
     CHECK_ERROR(core_memory->initialize());
-    return RET_OK;
+    return kRetOk;
 }
 
 
@@ -129,11 +129,11 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
 
 ErrorStack NumaNodeMemory::allocate_numa_memory(size_t size, AlignedMemory *out) {
     ASSERT_ND(out);
-    out->alloc(size, 1 << 12, AlignedMemory::NUMA_ALLOC_ONNODE, numa_node_);
+    out->alloc(size, 1 << 12, AlignedMemory::kNumaAllocOnnode, numa_node_);
     if (out->is_null()) {
         return ERROR_STACK(ERROR_CODE_OUTOFMEMORY);
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 }  // namespace memory

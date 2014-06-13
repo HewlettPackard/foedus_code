@@ -20,7 +20,7 @@ ErrorStack LogReducer::initialize_once() {
     reducer_thread_.initialize("LogReducer-", id_,
                     std::thread(&LogReducer::handle_reducer, this), std::chrono::milliseconds(10));
 
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack LogReducer::uninitialize_once() {

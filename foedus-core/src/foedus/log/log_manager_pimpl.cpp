@@ -68,7 +68,7 @@ ErrorStack LogManagerPimpl::initialize_once() {
     }
     ASSERT_ND(current_logger_id == total_loggers);
     ASSERT_ND(current_logger_id == loggers_.size());
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack LogManagerPimpl::uninitialize_once() {
@@ -98,7 +98,7 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
 
     if (min_durable_epoch <= get_durable_global_epoch()) {
         VLOG(0) << "durable_global_epoch_ not advanced";
-        return RET_OK;
+        return kRetOk;
     }
 
     LOG(INFO) << "Global durable epoch is about to advance from " << get_durable_global_epoch()
@@ -107,7 +107,7 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
         std::lock_guard<std::mutex> guard(durable_global_epoch_savepoint_mutex_);
         if (min_durable_epoch <= get_durable_global_epoch()) {
             LOG(INFO) << "oh, I lost the race.";
-            return RET_OK;
+            return kRetOk;
         }
 
         CHECK_ERROR(engine_->get_savepoint_manager().take_savepoint(min_durable_epoch));
@@ -116,7 +116,7 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
             durable_global_epoch_ = min_durable_epoch.value();
         });
     }
-    return RET_OK;
+    return kRetOk;
 }
 
 
@@ -125,7 +125,7 @@ ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_
     if (commit_epoch <= get_durable_global_epoch()) {
         DVLOG(1) << "Already durable. commit_epoch=" << commit_epoch << ", durable_global_epoch_="
             << get_durable_global_epoch();
-        return RET_OK;
+        return kRetOk;
     }
 
     if (wait_microseconds == 0) {
@@ -155,7 +155,7 @@ ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_
     }
 
     VLOG(0) << "durable epoch advanced. durable_global_epoch_=" << get_durable_global_epoch();
-    return RET_OK;
+    return kRetOk;
 }
 
 

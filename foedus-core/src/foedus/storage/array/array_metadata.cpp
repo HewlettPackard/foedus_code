@@ -12,7 +12,7 @@ ErrorStack ArrayMetadata::load(tinyxml2::XMLElement* element) {
     EXTERNALIZE_LOAD_ELEMENT(element, payload_size_);
     EXTERNALIZE_LOAD_ELEMENT(element, array_size_);
     EXTERNALIZE_LOAD_ELEMENT(element, root_page_id_);
-    return RET_OK;
+    return kRetOk;
 }
 
 ErrorStack ArrayMetadata::save(tinyxml2::XMLElement* element) const {
@@ -20,7 +20,7 @@ ErrorStack ArrayMetadata::save(tinyxml2::XMLElement* element) const {
     EXTERNALIZE_SAVE_ELEMENT(element, payload_size_, "");
     EXTERNALIZE_SAVE_ELEMENT(element, array_size_, "");
     EXTERNALIZE_SAVE_ELEMENT(element, root_page_id_, "");
-    return RET_OK;
+    return kRetOk;
 }
 
 Metadata* ArrayMetadata::clone() const {

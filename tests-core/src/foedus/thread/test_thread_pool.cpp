@@ -23,7 +23,7 @@ struct DummyTask : public ImpersonateTask {
     ErrorStack run(Thread* /*context*/) {
         rendezvous_->wait();
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        return RET_OK;
+        return kRetOk;
     }
     Rendezvous *rendezvous_;
 };
