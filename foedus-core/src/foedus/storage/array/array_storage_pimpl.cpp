@@ -298,8 +298,8 @@ inline ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOf
                     void *payload, uint16_t payload_offset, uint16_t payload_count) {
     ASSERT_ND(payload_offset + payload_count <= metadata_.payload_size_);
     Record *record = nullptr;
-    CHECK_ERROR_CODE(locate_record(context, offset, &record));
-    CHECK_ERROR_CODE(context->get_current_xct().read_record(holder_, record,
+    WRAP_ERROR_CODE(locate_record(context, offset, &record));
+    WRAP_ERROR_CODE(context->get_current_xct().read_record(holder_, record,
                                                         payload, payload_offset, payload_count));
     return kRetOk;
 }
@@ -309,8 +309,8 @@ ErrorStack ArrayStoragePimpl::get_record_primitive(thread::Thread* context, Arra
                     T *payload, uint16_t payload_offset) {
     ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
     Record *record = nullptr;
-    CHECK_ERROR_CODE(locate_record(context, offset, &record));
-    CHECK_ERROR_CODE(context->get_current_xct().read_record_primitive<T>(holder_, record,
+    WRAP_ERROR_CODE(locate_record(context, offset, &record));
+    WRAP_ERROR_CODE(context->get_current_xct().read_record_primitive<T>(holder_, record,
                                                                       payload, payload_offset));
     return kRetOk;
 }
@@ -319,14 +319,14 @@ inline ErrorStack ArrayStoragePimpl::overwrite_record(thread::Thread* context, A
             const void *payload, uint16_t payload_offset, uint16_t payload_count) {
     ASSERT_ND(payload_offset + payload_count <= metadata_.payload_size_);
     Record *record = nullptr;
-    CHECK_ERROR_CODE(locate_record(context, offset, &record));
+    WRAP_ERROR_CODE(locate_record(context, offset, &record));
 
     // write out log
     uint16_t log_length = OverwriteLogType::calculate_log_length(payload_count);
     OverwriteLogType* log_entry = reinterpret_cast<OverwriteLogType*>(
         context->get_thread_log_buffer().reserve_new_log(log_length));
     log_entry->populate(metadata_.id_, offset, payload, payload_offset, payload_count);
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
+    WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
     return kRetOk;
 }
 
@@ -335,14 +335,14 @@ ErrorStack ArrayStoragePimpl::overwrite_record_primitive(
             thread::Thread* context, ArrayOffset offset, T payload, uint16_t payload_offset) {
     ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
     Record *record = nullptr;
-    CHECK_ERROR_CODE(locate_record(context, offset, &record));
+    WRAP_ERROR_CODE(locate_record(context, offset, &record));
 
     // write out log
     uint16_t log_length = OverwriteLogType::calculate_log_length(sizeof(T));
     OverwriteLogType* log_entry = reinterpret_cast<OverwriteLogType*>(
         context->get_thread_log_buffer().reserve_new_log(log_length));
     log_entry->populate_primitive<T>(metadata_.id_, offset, payload, payload_offset);
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
+    WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
     return kRetOk;
 }
 
@@ -351,18 +351,18 @@ ErrorStack ArrayStoragePimpl::increment_record(
             thread::Thread* context, ArrayOffset offset, T* value, uint16_t payload_offset) {
     ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
     Record *record = nullptr;
-    CHECK_ERROR_CODE(locate_record(context, offset, &record));
+    WRAP_ERROR_CODE(locate_record(context, offset, &record));
 
     // this is get_record + overwrite_record
     T old_value;
-    CHECK_ERROR_CODE(context->get_current_xct().read_record_primitive<T>(
+    WRAP_ERROR_CODE(context->get_current_xct().read_record_primitive<T>(
         holder_, record, &old_value, payload_offset));
     *value += old_value;
     uint16_t log_length = OverwriteLogType::calculate_log_length(sizeof(T));
     OverwriteLogType* log_entry = reinterpret_cast<OverwriteLogType*>(
         context->get_thread_log_buffer().reserve_new_log(log_length));
     log_entry->populate_primitive<T>(metadata_.id_, offset, *value, payload_offset);
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
+    WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, record, log_entry));
     return kRetOk;
 }
 

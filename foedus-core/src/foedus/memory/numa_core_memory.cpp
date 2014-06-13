@@ -35,7 +35,7 @@ ErrorStack NumaCoreMemory::initialize_once() {
 
     // Each core starts from 50%-full free pool chunk (configurable)
     uint32_t initial_pages = engine_->get_options().memory_.private_page_pool_initial_grab_;
-    CHECK_ERROR_CODE(node_memory_->get_page_pool().grab(initial_pages, free_pool_chunk_));
+    WRAP_ERROR_CODE(node_memory_->get_page_pool().grab(initial_pages, free_pool_chunk_));
     return kRetOk;
 }
 ErrorStack NumaCoreMemory::uninitialize_once() {

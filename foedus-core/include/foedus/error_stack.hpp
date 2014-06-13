@@ -489,13 +489,14 @@ inline void ErrorStack::verify() const {
 }
 
 /**
- * @def CHECK_ERROR_CODE(x)
+ * @def WRAP_ERROR_CODE(x)
  * @ingroup ERRORCODES
  * @brief
  * Same as CHECK_ERROR(x) except it receives only an error code, thus more efficient.
- * @note The name is CHECK_ERROR, not CHECK, because Google-logging defines CHECK.
+ * @note Unlike CHECK_ERROR_CODE(x), this returns ErrorStack.
+ * @see CHECK_ERROR_CODE(x)
  */
-#define CHECK_ERROR_CODE(x)\
+#define WRAP_ERROR_CODE(x)\
 {\
     foedus::ErrorCode __e = x;\
     if (UNLIKELY(__e != kErrorCodeOk)) {return ERROR_STACK(__e);}\

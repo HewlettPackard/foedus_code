@@ -37,15 +37,15 @@ namespace foedus {
  *
  * @par How to use ErrorStack
  * To use ErrorStack, you should be familiar with how to use the following macros:
- * foedus::kRetOk, CHECK_ERROR(x), ERROR_STACK(e), COERCE_ERROR(x), and a few others.
- * For example, use it as follows:
+ * foedus::kRetOk, CHECK_ERROR_CODE(x), CHECK_ERROR(x), ERROR_STACK(e), COERCE_ERROR(x),
+ * and a few others. For example, use it as follows:
  * @code{.cpp}
  * ErrorStack your_func() {
  *   if (out-of-memory-observed) {
  *      return ERROR_STACK(kErrorCodeOutofmemory);
  *   }
- *   CHECK_ERROR(another_func());
- *   CHECK_ERROR(yet_another_func());
+ *   CHECK_ERROR_CODE(another_func());
+ *   CHECK_ERROR_CODE(yet_another_func());
  *   return kRetOk;
  * }
  * @endcode
@@ -113,5 +113,38 @@ inline const char* get_error_message(ErrorCode code) {
 }
 #undef X
 }  // namespace foedus
+
+/**
+ * @def CHECK_ERROR_CODE(x)
+ * @ingroup ERRORCODES
+ * @brief
+ * This macro calls \b x and checks its returned error code.  If the code is NOT kErrorCodeOk, it
+ * immediately returns from the current function or method, returning the error code code.
+ * For example, use it as follows:
+ * @code{.cpp}
+ * ErrorCode another_func();
+ * ErrorCode yet_another_func();
+ * ErrorCode your_func() {
+ *   CHECK_ERROR_CODE(another_func());
+ *   CHECK_ERROR_CODE(yet_another_func());
+ *   return kErrorCodeOk;
+ * }
+ * @endcode
+ *
+ * This macro is used in performance-critical functions that do not return ErrorStack but returns
+ * ErrorCode to save overheads. For a function that is called billion times per second, ErrorStack
+ * \b does cause bottleneck, especially because it requires to allocate hundreds bytes on stack,
+ * which would purge other data from cache lines. We actually did observe such situations in
+ * a few experiments. If your CPU profiling tells that ErrorStack-related methods cause more than
+ * 10% cpu costs, replace ErrorStack with ErrorCode.
+ * @see WRAP_ERROR_CODE(x)
+ */
+#define CHECK_ERROR_CODE(x)\
+{\
+    foedus::ErrorCode __e = x;\
+    if (UNLIKELY(__e != kErrorCodeOk)) {\
+        return __e;\
+    }\
+}
 
 #endif  // FOEDUS_ERROR_CODE_HPP_
