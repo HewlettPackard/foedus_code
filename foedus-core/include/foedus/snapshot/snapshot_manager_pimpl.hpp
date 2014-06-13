@@ -72,6 +72,14 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
     ErrorStack  handle_snapshot_triggered(Snapshot *new_snapshot);
 
     /**
+     * Phase-2 of handle_snapshot_triggered().
+     * Read log files, distribute them to each partition, and construct snapshot files at
+     * each partition.
+     */
+    ErrorStack  glean_logs(Snapshot *new_snapshot);
+
+    /**
+     * Phase-3 of handle_snapshot_triggered().
      * Write out a snapshot metadata file that contains metadata of all storages
      * and a few other global metadata.
      */

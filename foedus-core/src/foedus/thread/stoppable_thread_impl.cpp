@@ -5,6 +5,7 @@
 #include <foedus/thread/stoppable_thread_impl.hpp>
 #include <glog/logging.h>
 #include <string>
+#include <ostream>
 #include <sstream>
 #include <thread>
 namespace foedus {
@@ -67,6 +68,23 @@ void StoppableThread::wait_for_stop() {
     }
 }
 
+std::string StoppableThread::to_string() const {
+    std::stringstream stream;
+    stream << *this;
+    return stream.str();
+}
+
+std::ostream& operator<<(std::ostream& o, const StoppableThread& v) {
+    o << "<StoppableThread>"
+        << "<name_>" << v.name_ << "</name_>"
+        << "<native_thread_id>" << v.thread_.get_id() << "</native_thread_id>"
+        << "<sleep_interval_>" << v.sleep_interval_.count() << "</sleep_interval_>"
+        << "<started_>" << v.started_.load() << "</started_>"
+        << "<stop_requested_>" << v.stop_requested_.load() << "</stop_requested_>"
+        << "<stopped_>" << v.stopped_.load() << "</stopped_>"
+        << "</StoppableThread>";
+    return o;
+}
 
 }  // namespace thread
 }  // namespace foedus

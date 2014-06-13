@@ -11,6 +11,9 @@
  */
 namespace foedus {
 namespace snapshot {
+class   LogGleaner;
+class   LogMapper;
+class   LogReducer;
 struct  Snapshot;
 class   SnapshotManager;
 class   SnapshotManagerPimpl;

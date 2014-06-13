@@ -7,6 +7,7 @@
 #include <foedus/thread/condition_variable_impl.hpp>
 #include <atomic>
 #include <chrono>
+#include <iosfwd>
 #include <string>
 #include <thread>
 namespace foedus {
@@ -93,6 +94,9 @@ class StoppableThread final {
     bool is_stopped() const { return stopped_; }
     /** non-atomic is_stopped(). */
     bool is_stopped_weak() const { return stopped_.load(std::memory_order_relaxed); }
+
+    std::string             to_string() const;
+    friend std::ostream&    operator<<(std::ostream& o, const StoppableThread& v);
 
  private:
     /** Used only for debug logging. */

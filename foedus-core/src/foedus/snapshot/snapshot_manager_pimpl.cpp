@@ -9,6 +9,7 @@
 #include <foedus/fs/filesystem.hpp>
 #include <foedus/fs/path.hpp>
 #include <foedus/log/log_manager.hpp>
+#include <foedus/snapshot/log_gleaner_impl.hpp>
 #include <foedus/snapshot/snapshot_manager_pimpl.hpp>
 #include <foedus/snapshot/snapshot_options.hpp>
 #include <foedus/snapshot/snapshot_metadata.hpp>
@@ -147,10 +148,15 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
     // Second, we initiate log gleaners that do scatter-gather and consume the logs.
     // This will create snapshot files at each partition and tell us the new root pages of
     // each storage.
+    CHECK_ERROR(glean_logs(new_snapshot));
 
     // Finally, write out the metadata file.
     CHECK_ERROR(snapshot_metadata(new_snapshot));
 
+    return RET_OK;
+}
+
+ErrorStack SnapshotManagerPimpl::glean_logs(Snapshot* /*new_snapshot*/) {
     return RET_OK;
 }
 
