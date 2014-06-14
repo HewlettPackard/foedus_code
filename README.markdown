@@ -34,15 +34,13 @@ The sections below are for people developping FOEDUS itself.
 
 Current Build Status on Jenkins (For FOEDUS Developers)
 --------
-[![Build Status: release](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release/) *release*
-
-[![Build Status: relwithdbginfo](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-relwithdbginfo/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-relwithdbginfo/) *relwithdbginfo*
-
-[![Build Status: debug](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-debug/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-debug/) *debug*
-
-[![Build Status: release-valgrind](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release-valgrind/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release-valgrind/) *release-valgrind*
-
-[![Build Status: doxygen](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/) *doxygen*
+|    Build Type    |     *master* Branch     |        *develop* Branch       |
+|:----------------:|:-----------------------:|:-----------------------------:|
+| release          | [![Build Status: master-release](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release/) | [![Build Status: develop-release](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-release/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-release/) |
+| relwithdebinfo   | [![Build Status: master-relwithdebinfo](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-relwithdbginfo/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-relwithdbginfo/) | [![Build Status: develop-relwithdebinfo](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-relwithdbginfo/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-relwithdbginfo/) |
+| debug            | [![Build Status: master-debug](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-debug/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-debug/) | [![Build Status: develop-debug](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-debug/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-debug/) |
+| release-valgrind | [![Build Status: master-release-valgrind](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release-valgrind/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release-valgrind/) | [![Build Status: develop-release-valgrind](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-release-valgrind/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-release-valgrind/) |
+| doxygen          | [![Build Status: master-doxygen](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/) | [![Build Status: develop-doxygen](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-doxygen/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-doxygen/) |
 
 Building Development Environment (For FOEDUS Developers)
 --------
