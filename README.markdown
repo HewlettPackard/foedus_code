@@ -34,15 +34,13 @@ The sections below are for people developping FOEDUS itself.
 
 Current Build Status on Jenkins (For FOEDUS Developers)
 --------
-[![Build Status: release](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release/) *release*
-
-[![Build Status: relwithdbginfo](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-relwithdbginfo/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-relwithdbginfo/) *relwithdbginfo*
-
-[![Build Status: debug](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-debug/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-debug/) *debug*
-
-[![Build Status: release-valgrind](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release-valgrind/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release-valgrind/) *release-valgrind*
-
-[![Build Status: doxygen](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/) *doxygen*
+|    Build Type    |     *master* Branch     |        *develop* Branch       |
+|:----------------:|:-----------------------:|:-----------------------------:|
+| release          | [![Build Status: master-release](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release/) | [![Build Status: develop-release](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-release/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-release/) |
+| relwithdebinfo   | [![Build Status: master-relwithdebinfo](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-relwithdbginfo/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-relwithdbginfo/) | [![Build Status: develop-relwithdebinfo](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-relwithdbginfo/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-relwithdbginfo/) |
+| debug            | [![Build Status: master-debug](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-debug/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-debug/) | [![Build Status: develop-debug](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-debug/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-debug/) |
+| release-valgrind | [![Build Status: master-release-valgrind](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release-valgrind/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-release-valgrind/) | [![Build Status: develop-release-valgrind](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-release-valgrind/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-release-valgrind/) |
+| doxygen          | [![Build Status: master-doxygen](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/) | [![Build Status: develop-doxygen](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-doxygen/badge/icon)](http://243-1.bfc.hpl.hp.com:8080/job/foedus-develop-doxygen/) |
 
 Building Development Environment (For FOEDUS Developers)
 --------
@@ -53,7 +51,7 @@ In Fedora/RedHat/CentOS etc, run the following:
     sudo yum install libunwind libunwind-devel
     sudo yum install numactl numactl-devel google-perftools google-perftools-devel
     sudo yum install python python-*
-    sudo yum install doxygen graphviz mscgen sloccount kdevelop
+    sudo yum install doxygen graphviz mscgen texlive-epspdf sloccount kdevelop
 
 For valgrind, check its version after installation.
 If it is not 3.9 or later, we recommend installing a newer one. See the section below.
@@ -65,11 +63,6 @@ If you want to generate doxygen-pdf, also run the following:
 If you are the person to compile our rpm packages ("make package"), also run the following:
 
     sudo yum install rpm-build
-
-If you are the admin to maintain our gitlab installation.
-    # see https://fedoraproject.org/wiki/User:Axilleas/GitLab
-    sudo yum groupinstall 'Development Tools' 'Development Libraries'
-    sudo yum install zlib-devel libyaml-devel openssl-devel gdbm-devel readline-devel ncurses-devel libffi-devel curl git openssh-server redis libxml2-devel libxslt-devel libcurl-devel libicu-devel python
 
 For Ubuntu/Debian, install equivalent modules.
 TBD: Ubuntu/Debian user, please provide an equivalent command.
@@ -83,7 +76,7 @@ To compile this project, simply build it as a CMake project. For example:
     # We prohibit in-source build, so you have to create a build folder and compile there.
     mkdir build
     cd build
-    # Note, this is equivalent to -DCMAKE_BUILD_TYPE=Debug. You can also use Release/RelWithDbgInfo.
+    # Note, this is equivalent to -DCMAKE_BUILD_TYPE=Debug. You can also use Release/RelWithDebInfo.
     cmake ../
     make
 
@@ -149,6 +142,8 @@ we strongly recommend to install latest valgrind from source. Follow these steps
 
 * Download the source from [here](http://valgrind.org/downloads/current.html).
 * Usual triplet: "./configure --prefix=/home/yourname/local; make; make install"
+or "./configure --prefix=/usr/local; make; sudo make install" if you are a sudoer and others
+on the machine would like it.
 * Cleanly rebuild foedus so that our cmake script finds the newer valgrind installation.
 (the cmake script searches in this order: ~/local, /usr/local, /usr)
 * (Optional) Edit your environment variable to see /home/yourname/local/bin before /usr/bin.
@@ -178,15 +173,32 @@ Hideaki will push to *master* from *develop*.
 
 Coding Convention (For FOEDUS Developers)
 --------
-We fully conform to [Google C++ Style Guide](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml)
+We conform to [Google C++ Style Guide](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml)
 except the arguable rule on streams. See [the discussions](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Streams)
-if you are interested.
+if you are interested. Other minor differences from the convention:
 
-Max 100 characters per line, 4-spaces indent, no tab, and several other rules. Read the guide.
+* 4-spaces indent rather than 2. Instead, max 100 characters per line rather than 80.
+* C++ file names are ".cpp" rather than ".cc", header files are ".hpp" rather than ".h".
+
 We enforce the coding convention by cpplint.py.
 All projects run cpplint for every build and report violations as warnings.
 
+In addition to the Google c++ convention, we have the following house-rules:
 
+* cpp/hpp are placed in folders that fully correspond to namespace hierarchy like a Java project.
+* No importing or aliasing ("using") of namespace at all, even in c++ files. You might initially
+feel this results in lengthy code, but you will soon find it easier to understand others' code and
+not requiring additional typing as much as you thought.
+* If you are calling classes/methods in global namespace (which shouldn't exist in our code, so
+third party's), put "::" as prefix to clarify it's in global namespace (eg "::posix_memalign(foo)").
+* Class/function/variable comments must be in [Doxygen format](http://www.stack.nl/~dimitri/doxygen/manual/index.html).
+Be beefy.
+* Each folder (== package, == namespace) has a header file named "namespace-info.hpp" which gives
+Doxygen documentation of the folder, just like "package-info.java" in Java projects.
+* Each folder has a header file named "fwd.hpp" which gives forward declarations of classes in
+the package. As the Google style guide recommends, prefer forward declarations as much as possible.
+* In addition to general C++ coding conventions, there are several foedus-specific programming
+idioms. Read our Doxygen document first to get familiar with them (see "FOEDUS Programming Idioms").
 
 kdevelop-specific Recommendations (For FOEDUS Developers)
 --------

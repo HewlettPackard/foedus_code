@@ -22,7 +22,7 @@ namespace snapshot {
  * and applies them to construct new snapshot files.
  * @ingroup SNAPSHOT
  * @details
- * @section OVERVIEW Overview
+ * @section REDUCER_OVERVIEW Overview
  * Reducers receive log entries from mappers and apply them to new snapshot files.
  *
  * @section SORTING Sorting

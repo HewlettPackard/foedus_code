@@ -11,7 +11,7 @@
  * @details
  * @todo IMPLEMENT
  *
- * @section REF References
+ * @section HASH_REF References
  * \li [ZHOU13] Zhou, Dong, Bin Fan, Hyeontaek Lim, Michael Kaminsky, and David G. Andersen.
  * "Scalable, high performance ethernet forwarding with CuckooSwitch."
  * ACM conference on Emerging networking experiments and technologies, 2013.

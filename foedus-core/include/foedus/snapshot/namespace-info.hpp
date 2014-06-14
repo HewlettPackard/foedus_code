@@ -40,8 +40,10 @@
  * @section SNAPSHOTTING Making a new Snapshot
  * Snapshot Manager creates a new set of snapshot files as well as its metadata file occasionally.
  * The frequency is a tuning knob.
- * The mechanism to create snapshot files is called \b Log-Gleaner, which is detailed in
- * \b LogGleaner.
+ * The mechanism to create snapshot files is called \b Log-Gleaner (foedus::snapshot::LogGleaner).
+ * See its documentation below.
+ *
+ * @copydetails foedus::snapshot::LogGleaner
  */
 
 /**

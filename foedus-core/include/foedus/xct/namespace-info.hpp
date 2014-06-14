@@ -71,7 +71,7 @@
  * @section READONLY Read-Only Transactions
  * bluh
  *
- * @section REF References
+ * @section XCT_REF References
  * \li [LARSON11] Perake Larson, Spyros Blanas, Cristian Diaconu, Craig Freedman, Jignesh M. Patel,
  * and Mike Zwilling. "High-Performance Concurrency Control Mechanisms for Main-Memory Databases."
  * VLDB, 2011.

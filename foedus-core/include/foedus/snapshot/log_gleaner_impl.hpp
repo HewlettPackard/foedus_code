@@ -20,17 +20,17 @@ namespace snapshot {
  * @brief A log-gleaner, which constructs a new set of snapshot files during snapshotting.
  * @ingroup SNAPSHOT
  * @details
- * @section OVERVIEW Overview
+ * @section GLEANER_OVERVIEW Log Gleaner Overview
  * LogGleaner is the main class that manages most mechanisms to construct a new set of snapshot
  * files. Snapshot procedure constructs and calls this object during snapshot.
  * It receives partitioning policy (which snapshot partitions to send ranges of keys) per storage
  * and beginning/ending epoch of logs to \e glean while log-gleaning.
  *
- * Log-gleaning consists of two components; \b mapper (LogMapper) and \b reducer (LogReducer),
- * obviously named after the well-known map-reduce concepts.
+ * Log-gleaning consists of two components; \b mapper (foedus::snapshot::LogMapper) and \b reducer
+ * (foedus::snapshot::LogReducer), obviously named after the well-known map-reduce concepts.
  *
  * @section MAPPER Mapper
- * LogGleaner launches a set of mapper threads (LogMapper) to read log files.
+ * LogGleaner launches a set of mapper threads (foedus::snapshot::LogMapper) to read log files.
  * Each LogMapper corresponds to foedus::log::Logger, the NUMA-local log writer which simply writes
  * out log entries produced by local worker threads.
  * Thus, the log files contain log entries that might be sent to any partitions.
@@ -38,8 +38,8 @@ namespace snapshot {
  * partition. For more details, see LogMapper.
  *
  * @section REDUCER Reducer
- * LogGleaner also launches a set of reducer threads (LogReducer), one for each snapshot partition.
- * For each epoch, LogReducer sorts log entries sent from LogMapper.
+ * LogGleaner also launches a set of reducer threads (foedus::snapshot::LogReducer), one for each
+ * snapshot partition. For each epoch, LogReducer sorts log entries sent from LogMapper.
  * The log entries are sorted by ordinal (*), then processed just like
  * usual APPLY at the end of transaction, but on top of snapshot files.
  *

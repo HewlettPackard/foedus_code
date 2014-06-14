@@ -11,7 +11,7 @@
 #include <iosfwd>
 namespace foedus {
 /**
- * @ingroup IDIOMS
+ * @ingroup ENGINE
  * @brief Represents a time epoch.
  * @details
  * Epoch is an corase-grained timestamp used all over the places.
