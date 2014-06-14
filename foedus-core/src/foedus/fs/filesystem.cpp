@@ -33,15 +33,15 @@ FileStatus status(const Path& p) {
     if (ret != 0) {
         // This is quite normal as we use this to check if a file exists. No message for it.
         if (errno == ENOENT || errno == ENOTDIR) {
-            return FileStatus(file_not_found);
+            return FileStatus(kFileNotFound);
         }
-        return FileStatus(status_error);
+        return FileStatus(kStatusError);
     } else if (S_ISDIR(path_stat.st_mode)) {
-        return FileStatus(directory_file);
+        return FileStatus(kDirectoryFile);
     } else if (S_ISREG(path_stat.st_mode)) {
-        return FileStatus(regular_file);
+        return FileStatus(kRegularFile);
     }
-    return FileStatus(type_unknown);
+    return FileStatus(kTypeUnknown);
 }
 
 Path absolute(const std::string& p) {
