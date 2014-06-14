@@ -21,7 +21,7 @@ namespace snapshot {
  * sends them to corresponding log reducers.
  * @ingroup SNAPSHOT
  * @details
- * @section OVERVIEW Overview
+ * @section MAPPER_OVERVIEW Overview
  * Mappers read logs per epoch.
  * As log files are guaranteed to be strictly ordered by epoch (see Logger code), we can simply
  * read log files sequentially to achieve this.
@@ -33,7 +33,7 @@ namespace snapshot {
  *  \li Record-wise logs always have storage-id. Mappers check the partitioning information for the
  * storage and send it to corresponding reducers (with buffering to avoid per-log communication).
  *
- * @section OPTIMIZATION Possible Optimization
+ * @section MAPPER_OPTIMIZATION Possible Optimization
  * The log gleaner so far simply reads from log files.
  * We have a plan to optimize its behavior when we have a large amount of DRAM by directly reading
  * from the log buffer if it is not blown away yet.

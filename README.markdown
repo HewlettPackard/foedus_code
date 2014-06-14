@@ -51,7 +51,7 @@ In Fedora/RedHat/CentOS etc, run the following:
     sudo yum install libunwind libunwind-devel
     sudo yum install numactl numactl-devel google-perftools google-perftools-devel
     sudo yum install python python-*
-    sudo yum install doxygen graphviz mscgen sloccount kdevelop
+    sudo yum install doxygen graphviz mscgen texlive-epspdf sloccount kdevelop
 
 For valgrind, check its version after installation.
 If it is not 3.9 or later, we recommend installing a newer one. See the section below.
@@ -63,11 +63,6 @@ If you want to generate doxygen-pdf, also run the following:
 If you are the person to compile our rpm packages ("make package"), also run the following:
 
     sudo yum install rpm-build
-
-If you are the admin to maintain our gitlab installation.
-    # see https://fedoraproject.org/wiki/User:Axilleas/GitLab
-    sudo yum groupinstall 'Development Tools' 'Development Libraries'
-    sudo yum install zlib-devel libyaml-devel openssl-devel gdbm-devel readline-devel ncurses-devel libffi-devel curl git openssh-server redis libxml2-devel libxslt-devel libcurl-devel libicu-devel python
 
 For Ubuntu/Debian, install equivalent modules.
 TBD: Ubuntu/Debian user, please provide an equivalent command.
@@ -81,7 +76,7 @@ To compile this project, simply build it as a CMake project. For example:
     # We prohibit in-source build, so you have to create a build folder and compile there.
     mkdir build
     cd build
-    # Note, this is equivalent to -DCMAKE_BUILD_TYPE=Debug. You can also use Release/RelWithDbgInfo.
+    # Note, this is equivalent to -DCMAKE_BUILD_TYPE=Debug. You can also use Release/RelWithDebInfo.
     cmake ../
     make
 
@@ -195,6 +190,7 @@ not requiring additional typing as much as you thought.
 * If you are calling classes/methods in global namespace (which shouldn't exist in our code, so
 third party's), put "::" as prefix to clarify it's in global namespace (eg "::posix_memalign(foo)").
 * Class/function/variable comments must be in [Doxygen format](http://www.stack.nl/~dimitri/doxygen/manual/index.html).
+Be beefy.
 * Each folder (== package, == namespace) has a header file named "namespace-info.hpp" which gives
 Doxygen documentation of the folder, just like "package-info.java" in Java projects.
 * Each folder has a header file named "fwd.hpp" which gives forward declarations of classes in

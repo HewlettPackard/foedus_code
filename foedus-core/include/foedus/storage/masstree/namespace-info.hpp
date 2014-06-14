@@ -9,7 +9,7 @@
  * @namespace foedus::storage::masstree
  * @brief \b Masstree Storage, 64-bit B-tries with internal B-trees.
  * @details
- * @section REF References
+ * @section MASS_REF References
  * \li [YANDONG12] Yandong Mao, Eddie Kohler, and Robert Tappan Morris.
  *   "Cache craftiness for fast multicore key-value storage.", EuroSys, 2012.
  *

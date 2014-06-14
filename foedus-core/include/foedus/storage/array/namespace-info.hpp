@@ -84,7 +84,7 @@
  * only if it sees the same largest Epoch. If not, gives up (because the volatile page is
  * now newer, no chance to drop it with the latest snapshot version).
  *
- * @section REF References
+ * @section ARRAY_REF References
  * \li [SCIDB] Cudre-Mauroux, P. and Kimura, H. and Lim, K.-T. and Rogers, J. and Simakov, R. and
  *   Soroush, E. and Velikhov, P. and Wang, D. L. and Balazinska, M. and Becla, J. and DeWitt, D.
  *   and Heath, B. and Maier, D. and Madden, S. and Patel, J. and Stonebraker, M. and Zdonik, S.
