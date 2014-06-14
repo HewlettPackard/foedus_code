@@ -5,6 +5,7 @@
 #ifndef FOEDUS_LOG_LOG_TYPE_HPP_
 #define FOEDUS_LOG_LOG_TYPE_HPP_
 
+#include <foedus/cxx11.hpp>
 // include all header files that forward-declare log types defined in the xmacro.
 // don't include headers that really declare them. we just need foward-declarations here.
 #include <foedus/log/fwd.hpp>
@@ -35,13 +36,13 @@ namespace log {
  * Remember that these are all non-virtual methods. See the next section for more details.
  *
  * @par No polymorphism
- * There is polymorphism guaranteed for log types.
+ * There is no polymorphism guaranteed for log types.
  * Because we read/write just a bunch of bytes and do reinterpret_cast, there is no dynamic
  * type information. We of course can't afford instantiating objects for each log entry, either.
  * Do not use any override in log type classes. You should even delete \b all constructors to avoid
  * misuse (see LOG_TYPE_NO_CONSTRUCT(clazz) ).
  * We do have base classes (EngineLogType, StorageLogType, and RecordLogType), but this is only
- * to reduce typing. No overridden methods.
+ * to reduce typing. No virtual methods.
  *
  * @par Current List of LogType
  * See foedus::log::LogCode
@@ -130,12 +131,14 @@ const char* get_log_type_name(LogCode code);
  * @ingroup LOGTYPE
  * @details
  * This is inlined below because it's called VERY frequently.
+ * This is method is declared as constexpr if C++11 is enabled, in which case there should
+ * be really no overheads to call this method.
  */
 template <typename LOG_TYPE>
-LogCode     get_log_code();
+CXX11_CONSTEXPR LogCode get_log_code();
 
 // give a template specialization for each log type class
-#define X(a, b, c) template <> inline LogCode get_log_code< c >() { return a ; }
+#define X(a, b, c) template <> inline CXX11_CONSTEXPR LogCode get_log_code< c >() { return a ; }
 #include <foedus/log/log_type.xmacro> // NOLINT
 #undef X
 

@@ -142,6 +142,8 @@ we strongly recommend to install latest valgrind from source. Follow these steps
 
 * Download the source from [here](http://valgrind.org/downloads/current.html).
 * Usual triplet: "./configure --prefix=/home/yourname/local; make; make install"
+or "./configure --prefix=/usr/local; make; sudo make install" if you are a sudoer and others
+on the machine would like it.
 * Cleanly rebuild foedus so that our cmake script finds the newer valgrind installation.
 (the cmake script searches in this order: ~/local, /usr/local, /usr)
 * (Optional) Edit your environment variable to see /home/yourname/local/bin before /usr/bin.
