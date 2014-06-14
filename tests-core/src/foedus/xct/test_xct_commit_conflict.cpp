@@ -43,7 +43,7 @@ class InitTask : public thread::ImpersonateTask {
         CHECK_ERROR(str_manager.create_array(context, "test", sizeof(Payload), kRecords, &storage,
             &commit_epoch));
 
-        CHECK_ERROR(xct_manager.begin_xct(context, SERIALIZABLE));
+        CHECK_ERROR(xct_manager.begin_xct(context, kSerializable));
 
         for (int i = 0; i < kRecords; ++i) {
             Payload payload;
@@ -83,7 +83,7 @@ class TestTask : public thread::ImpersonateTask {
 
     ErrorStack try_transaction(thread::Thread* context) {
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-        CHECK_ERROR(xct_manager.begin_xct(context, SERIALIZABLE));
+        CHECK_ERROR(xct_manager.begin_xct(context, kSerializable));
 
         Payload payload;
         CHECK_ERROR(storage->get_record(context, offset_, &payload));
@@ -107,7 +107,7 @@ class GetAllRecordsTask : public thread::ImpersonateTask {
     explicit GetAllRecordsTask(Payload* output) : output_(output) {}
     ErrorStack run(thread::Thread* context) {
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-        CHECK_ERROR(xct_manager.begin_xct(context, SERIALIZABLE));
+        CHECK_ERROR(xct_manager.begin_xct(context, kSerializable));
 
         for (int i = 0; i < kRecords; ++i) {
             CHECK_ERROR(storage->get_record(context, i, output_ + i));

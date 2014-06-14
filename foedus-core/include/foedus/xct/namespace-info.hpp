@@ -21,7 +21,7 @@
  *     foedus::ErrorStack run(foedus::thread::Thread* context) {
  *         foedus::Engine *engine = context->get_engine();
  *         foedus::xct::XctManager& xct_manager = engine->get_xct_manager();
- *         CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::SERIALIZABLE));
+ *         CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::kSerializable));
  *         ... // read/modify data. See storage module's document for examples.
  *         foedus::Epoch commit_epoch;
  *         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
@@ -41,7 +41,7 @@
  * // Example to start and commit several transactions
  * foedus::Epoch highest_commit_epoch;
  * for (int i = 0; i < 1000; ++i) {
- *   CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::SERIALIZABLE));
+ *   CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::kSerializable));
  *   ... // read/modify data. See storage module's document for examples.
  *   foedus::Epoch commit_epoch;
  *   CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));

@@ -24,7 +24,7 @@ Xct::Xct(Engine* engine, thread::ThreadId thread_id) : engine_(engine), thread_i
     write_set_ = nullptr;
     write_set_size_ = 0;
     max_write_set_size_ = 0;
-    isolation_level_ = SERIALIZABLE;
+    isolation_level_ = kSerializable;
 }
 
 void Xct::initialize(thread::ThreadId thread_id, memory::NumaCoreMemory* core_memory) {

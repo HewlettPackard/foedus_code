@@ -33,8 +33,8 @@ inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record
     ASSERT_ND(!schema_xct_);
     ASSERT_ND(storage);
     ASSERT_ND(record);
-    if (isolation_level_ == DIRTY_READ_PREFER_SNAPSHOT
-        || isolation_level_ == DIRTY_READ_PREFER_VOLATILE) {
+    if (isolation_level_ == kDirtyReadPreferSnapshot
+        || isolation_level_ == kDirtyReadPreferVolatile) {
         return kErrorCodeOk;
     } else if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
         return kErrorCodeXctReadSetOverflow;
@@ -72,8 +72,8 @@ inline ErrorCode Xct::read_record(storage::Storage* storage, storage::Record* re
 
     std::memcpy(payload, record->payload_ + payload_offset, payload_count);
 
-    if (isolation_level_ != DIRTY_READ_PREFER_SNAPSHOT
-        && isolation_level_ != DIRTY_READ_PREFER_VOLATILE) {
+    if (isolation_level_ != kDirtyReadPreferSnapshot
+        && isolation_level_ != kDirtyReadPreferVolatile) {
         assorted::memory_fence_consume();
         ASSERT_ND(read_set_size_ > 0);
         if (!read_set_[read_set_size_ - 1].observed_owner_id_.equals_all(record->owner_id_)) {
@@ -94,8 +94,8 @@ inline ErrorCode Xct::read_record_primitive(storage::Storage* storage, storage::
     char* ptr = record->payload_ + payload_offset;
     *payload = *reinterpret_cast<const T*>(ptr);
 
-    if (isolation_level_ != DIRTY_READ_PREFER_SNAPSHOT
-        && isolation_level_ != DIRTY_READ_PREFER_VOLATILE) {
+    if (isolation_level_ != kDirtyReadPreferSnapshot
+        && isolation_level_ != kDirtyReadPreferVolatile) {
         assorted::memory_fence_consume();
         ASSERT_ND(read_set_size_ > 0);
         if (!read_set_[read_set_size_ - 1].observed_owner_id_.equals_all(record->owner_id_)) {

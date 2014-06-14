@@ -39,26 +39,26 @@ enum IsolationLevel {
      * To ameriolate the issue a bit, this mode prefers snapshot pages if both a snapshot page
      * and a volatile page is available. In other words, more consistent but more stale data.
      */
-    DIRTY_READ_PREFER_SNAPSHOT,
+    kDirtyReadPreferSnapshot,
 
     /**
-     * Basically same as DIRTY_READ_PREFER_SNAPSHOT, but this mode prefers volatile pages
+     * Basically same as kDirtyReadPreferSnapshot, but this mode prefers volatile pages
      * if both a snapshot page and a volatile page is available. In other words,
      * more recent but more inconsistent data.
      */
-    DIRTY_READ_PREFER_VOLATILE,
+    kDirtyReadPreferVolatile,
 
     /**
      * Snapshot isolation, meaning the transaction might see or be based on stale snapshot.
      * Optionally, the client can specify which snapshot we should be based on.
      */
-    SNAPSHOT,
+    kSnapshot,
 
     /**
      * Protects against all anomalies in all situations.
      * This is the most expensive level, but everything good has a price.
      */
-    SERIALIZABLE,
+    kSerializable,
 };
 
 /**
@@ -70,24 +70,24 @@ typedef uint32_t XctOrder;
 
 // Defines 64bit constant values for XctId.
 //                                             0123456789abcdef
-const uint64_t MASK_EPOCH                  = 0xFFFFFFF000000000ULL;  // first 28 bits
-const uint64_t MASK_ORDINAL                = 0x0000000FFFF00000ULL;  // next 16 bits
-const uint64_t MASK_THREAD_ID              = 0x00000000000FFFF0ULL;  // next 16 bits
-const uint64_t MASK_SERIALIZER             = 0xFFFFFFFFFFFFFFF0ULL;  // above 3 serialize xcts
-const uint64_t MASK_IN_EPOCH_ORDER         = 0x0000000FFFFFFFF0ULL;  // ordinal and thread_id
-const uint64_t KEYLOCK_BIT                 = 0x0000000000000008ULL;
-const uint64_t RANGELOCK_BIT               = 0x0000000000000004ULL;
-const uint64_t DELETE_BIT                  = 0x0000000000000002ULL;
-const uint64_t LATEST_BIT                  = 0x0000000000000001ULL;
+const uint64_t kMaskEpoch                   = 0xFFFFFFF000000000ULL;  // first 28 bits
+const uint64_t kMaskOrdinal                 = 0x0000000FFFF00000ULL;  // next 16 bits
+const uint64_t kMaskThreadId                = 0x00000000000FFFF0ULL;  // next 16 bits
+const uint64_t kMaskSerializer              = 0xFFFFFFFFFFFFFFF0ULL;  // above 3 serialize xcts
+const uint64_t kMaskInEpochOrder            = 0x0000000FFFFFFFF0ULL;  // ordinal and thread_id
+const uint64_t kKeylockBit                  = 0x0000000000000008ULL;
+const uint64_t kRangelockBit                = 0x0000000000000004ULL;
+const uint64_t kDeleteBit                   = 0x0000000000000002ULL;
+const uint64_t kLatestBit                   = 0x0000000000000001ULL;
 
-const uint64_t UNMASK_EPOCH                = 0x0000000FFFFFFFFFULL;
-const uint64_t UNMASK_ORDINAL              = 0xFFFFFFF0000FFFFFULL;
-const uint64_t UNMASK_THREAD_ID            = 0xFFFFFFFFFFF0000FULL;
-const uint64_t UNMASK_KEYLOCK              = 0xFFFFFFFFFFFFFFF7ULL;
-const uint64_t UNMASK_RANGELOCK            = 0xFFFFFFFFFFFFFFFBULL;
-const uint64_t UNMASK_DELETE               = 0xFFFFFFFFFFFFFFFDULL;
-const uint64_t UNMASK_LATEST               = 0xFFFFFFFFFFFFFFFEULL;
-const uint64_t UNMASK_STATUS_BITS          = 0xFFFFFFFFFFFFFFF0ULL;
+const uint64_t kUnmaskEpoch                 = 0x0000000FFFFFFFFFULL;
+const uint64_t kUnmaskOrdinal               = 0xFFFFFFF0000FFFFFULL;
+const uint64_t kUnmaskThreadId              = 0xFFFFFFFFFFF0000FULL;
+const uint64_t kUnmaskKeylock               = 0xFFFFFFFFFFFFFFF7ULL;
+const uint64_t kUnmaskRangelock             = 0xFFFFFFFFFFFFFFFBULL;
+const uint64_t kUnmaskDelete                = 0xFFFFFFFFFFFFFFFDULL;
+const uint64_t kUnmaskLatest                = 0xFFFFFFFFFFFFFFFEULL;
+const uint64_t kUnmaskStatusBits            = 0xFFFFFFFFFFFFFFF0ULL;
 
 /**
  * @brief Transaction ID, a 64-bit data to identify transactions and record versions.
@@ -144,9 +144,9 @@ const uint64_t UNMASK_STATUS_BITS          = 0xFFFFFFFFFFFFFFF0ULL;
 struct XctId {
     /** Defines constant values. */
     enum Constants {
-        SHIFT_EPOCH         = 36,
-        SHIFT_ORDINAL       = 20,
-        SHIFT_THREAD_ID     = 4,
+        kShiftEpoch         = 36,
+        kShiftOrdinal       = 20,
+        kShiftThreadId     = 4,
     };
 
     XctId() : data_(0) {}
@@ -154,9 +154,9 @@ struct XctId {
 
     void set_clean(Epoch::EpochInteger epoch_int, uint16_t ordinal, thread::ThreadId thread_id) {
         ASSERT_ND(epoch_int < Epoch::kEpochIntOverflow);
-        data_ = (static_cast<uint64_t>(epoch_int) << SHIFT_EPOCH)
-            | (static_cast<uint64_t>(ordinal) << SHIFT_ORDINAL)
-            | (static_cast<uint64_t>(thread_id) << SHIFT_THREAD_ID);
+        data_ = (static_cast<uint64_t>(epoch_int) << kShiftEpoch)
+            | (static_cast<uint64_t>(ordinal) << kShiftOrdinal)
+            | (static_cast<uint64_t>(thread_id) << kShiftThreadId);
     }
 
     XctId& operator=(const XctId& other) {
@@ -167,40 +167,40 @@ struct XctId {
     Epoch   get_epoch() const ALWAYS_INLINE { return Epoch(get_epoch_int()); }
     void    set_epoch(Epoch epoch) ALWAYS_INLINE { set_epoch_int(epoch.value()); }
     Epoch::EpochInteger get_epoch_int() const ALWAYS_INLINE {
-        return static_cast<Epoch::EpochInteger>((data_ & MASK_EPOCH) >> SHIFT_EPOCH);
+        return static_cast<Epoch::EpochInteger>((data_ & kMaskEpoch) >> kShiftEpoch);
     }
     void    set_epoch_int(Epoch::EpochInteger epoch) ALWAYS_INLINE {
         ASSERT_ND(epoch < Epoch::kEpochIntOverflow);
-        data_ = (data_ & UNMASK_EPOCH) | (static_cast<uint64_t>(epoch) << SHIFT_EPOCH);
+        data_ = (data_ & kUnmaskEpoch) | (static_cast<uint64_t>(epoch) << kShiftEpoch);
     }
-    bool    is_valid() const ALWAYS_INLINE { return (data_ & MASK_EPOCH) != 0; }
+    bool    is_valid() const ALWAYS_INLINE { return (data_ & kMaskEpoch) != 0; }
 
 
     uint16_t get_ordinal() const ALWAYS_INLINE {
-        return static_cast<uint16_t>((data_ & MASK_ORDINAL) >> SHIFT_ORDINAL);
+        return static_cast<uint16_t>((data_ & kMaskOrdinal) >> kShiftOrdinal);
     }
     void set_ordinal(uint16_t ordinal) ALWAYS_INLINE {
-        data_ = (data_ & UNMASK_ORDINAL) | (static_cast<uint64_t>(ordinal) << SHIFT_ORDINAL);
+        data_ = (data_ & kUnmaskOrdinal) | (static_cast<uint64_t>(ordinal) << kShiftOrdinal);
     }
     thread::ThreadId get_thread_id() const ALWAYS_INLINE {
-        return static_cast<thread::ThreadId>((data_ & MASK_THREAD_ID) >> SHIFT_THREAD_ID);
+        return static_cast<thread::ThreadId>((data_ & kMaskThreadId) >> kShiftThreadId);
     }
     void    set_thread_id(thread::ThreadId id) ALWAYS_INLINE {
-        data_ = (data_ & UNMASK_THREAD_ID) | (static_cast<uint64_t>(id) << SHIFT_THREAD_ID);
+        data_ = (data_ & kUnmaskThreadId) | (static_cast<uint64_t>(id) << kShiftThreadId);
     }
 
     /**
      * Returns a 32-bit integer that represents the serial order in the epoch.
      */
     XctOrder get_in_epoch_xct_order() const ALWAYS_INLINE {
-        return (data_ & MASK_IN_EPOCH_ORDER) >> SHIFT_THREAD_ID;
+        return (data_ & kMaskInEpochOrder) >> kShiftThreadId;
     }
 
     /**
      * Returns if epoch, thread_id, and oridnal (w/o status) are identical with the given XctId.
      */
     bool equals_serial_order(const XctId &other) const ALWAYS_INLINE {
-        return (data_ & MASK_SERIALIZER) == (other.data_ & MASK_SERIALIZER);
+        return (data_ & kMaskSerializer) == (other.data_ & kMaskSerializer);
     }
     bool equals_all(const XctId &other) const ALWAYS_INLINE {
         return data_ == other.data_;
@@ -241,15 +241,15 @@ struct XctId {
      */
     void keylock_unconditional() {
         SPINLOCK_WHILE(true) {
-            uint64_t expected = data_ & UNMASK_KEYLOCK;
-            uint64_t desired = expected | KEYLOCK_BIT;
+            uint64_t expected = data_ & kUnmaskKeylock;
+            uint64_t desired = expected | kKeylockBit;
             if (assorted::raw_atomic_compare_exchange_weak(&data_, &expected, desired)) {
                 ASSERT_ND(is_keylocked());
                 break;
             }
         }
     }
-    bool is_keylocked() const ALWAYS_INLINE { return (data_ & KEYLOCK_BIT) != 0; }
+    bool is_keylocked() const ALWAYS_INLINE { return (data_ & kKeylockBit) != 0; }
     void spin_while_keylocked() const {
         SPINLOCK_WHILE(is_keylocked()) {
             assorted::memory_fence_acquire();
@@ -257,20 +257,20 @@ struct XctId {
     }
     void release_keylock() ALWAYS_INLINE {
         ASSERT_ND(is_keylocked());
-        data_ &= UNMASK_KEYLOCK;
+        data_ &= kUnmaskKeylock;
     }
 
     void rangelock_unconditional() {
         SPINLOCK_WHILE(true) {
-            uint64_t expected = data_ & UNMASK_RANGELOCK;
-            uint64_t desired = expected | RANGELOCK_BIT;
+            uint64_t expected = data_ & kUnmaskRangelock;
+            uint64_t desired = expected | kRangelockBit;
             if (assorted::raw_atomic_compare_exchange_weak(&data_, &expected, desired)) {
                 ASSERT_ND(is_rangelocked());
                 break;
             }
         }
     }
-    bool is_rangelocked() const ALWAYS_INLINE { return (data_ & RANGELOCK_BIT) != 0; }
+    bool is_rangelocked() const ALWAYS_INLINE { return (data_ & kRangelockBit) != 0; }
     void spin_while_rangelocked() const {
         SPINLOCK_WHILE(is_rangelocked()) {
             assorted::memory_fence_acquire();
@@ -278,17 +278,17 @@ struct XctId {
     }
     void release_rangelock() ALWAYS_INLINE {
         ASSERT_ND(is_rangelocked());
-        data_ &= UNMASK_RANGELOCK;
+        data_ &= kUnmaskRangelock;
     }
 
-    bool is_deleted() const ALWAYS_INLINE { return (data_ & DELETE_BIT) != 0; }
-    bool is_latest() const ALWAYS_INLINE { return (data_ & LATEST_BIT) != 0; }
+    bool is_deleted() const ALWAYS_INLINE { return (data_ & kDeleteBit) != 0; }
+    bool is_latest() const ALWAYS_INLINE { return (data_ & kLatestBit) != 0; }
 
     bool is_status_bits_off() const ALWAYS_INLINE {
         return !is_deleted() && !is_keylocked() && !is_latest() && !is_rangelocked();
     }
     void clear_status_bits() ALWAYS_INLINE {
-        data_ &= UNMASK_STATUS_BITS;
+        data_ &= kUnmaskStatusBits;
     }
 
     /** The 64bit data. */

@@ -79,8 +79,8 @@ class MyTask2 : public thread::ImpersonateTask {
     MyTask2() {}
     ErrorStack run(thread::Thread* context) {
         Engine *engine = context->get_engine();
-        const xct::IsolationLevel isolation = xct::DIRTY_READ_PREFER_SNAPSHOT;
-        // const xct::IsolationLevel isolation = xct::SERIALIZABLE;
+        const xct::IsolationLevel isolation = xct::kDirtyReadPreferSnapshot;
+        // const xct::IsolationLevel isolation = xct::kSerializable;
         CHECK_ERROR(engine->get_xct_manager().begin_xct(context, isolation));
         Storage* storage = engine->get_storage_manager().get_storage(the_id);
         Epoch commit_epoch;

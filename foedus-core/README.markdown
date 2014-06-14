@@ -78,7 +78,7 @@ Here is a minimal example program to create a key-value storage and query on it.
                     context->get_engine()->get_storage_manager().get_storage(kName));
 
             foedus::xct::XctManager& xct_manager = engine->get_xct_manager();
-            CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::SERIALIZABLE));
+            CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::kSerializable));
             char buf[kPayload];
             CHECK_ERROR(array->get_record(context, 123, buf));
             foedus::Epoch commit_epoch;

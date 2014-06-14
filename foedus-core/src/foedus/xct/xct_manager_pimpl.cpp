@@ -117,7 +117,7 @@ ErrorStack XctManagerPimpl::begin_schema_xct(thread::Thread* context) {
         return ERROR_STACK(kErrorCodeXctAlreadyRunning);
     }
     LOG(INFO) << *context << " Began new schema transaction";
-    current_xct.activate(SERIALIZABLE, true);
+    current_xct.activate(kSerializable, true);
     ASSERT_ND(context->get_thread_log_buffer().get_offset_tail()
         == context->get_thread_log_buffer().get_offset_committed());
     ASSERT_ND(current_xct.get_read_set_size() == 0);

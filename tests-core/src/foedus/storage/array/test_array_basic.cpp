@@ -42,7 +42,7 @@ class QueryTask : public thread::ImpersonateTask {
                 context->get_engine()->get_storage_manager().get_storage("test2"));
         char buf[16];
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-        CHECK_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
+        CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
 
         CHECK_ERROR(array->get_record(context, 24, buf));
 
@@ -99,7 +99,7 @@ class WriteTask : public thread::ImpersonateTask {
         char buf[16];
         std::memset(buf, 2, 16);
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-        CHECK_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
+        CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
 
         CHECK_ERROR(array->overwrite_record(context, 24, buf));
 
@@ -138,7 +138,7 @@ class ReadWriteTask : public thread::ImpersonateTask {
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
 
         // Write values first
-        CHECK_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
+        CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
         for (int i = 0; i < 100; ++i) {
             uint64_t buf[2];
             buf[0] = i * 46 + 123;
@@ -150,7 +150,7 @@ class ReadWriteTask : public thread::ImpersonateTask {
         CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
 
         // Then, read values
-        CHECK_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
+        CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
         for (int i = 0; i < 100; ++i) {
             uint64_t buf[2];
             CHECK_ERROR(array->get_record(context, i, buf));

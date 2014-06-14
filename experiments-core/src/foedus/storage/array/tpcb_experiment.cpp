@@ -169,7 +169,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
     ErrorStack try_transaction(thread::Thread* context, uint64_t branch_id, uint64_t teller_id,
         uint64_t account_id, uint64_t history_id, int64_t amount) {
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-        CHECK_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
+        CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
 
         int64_t balance = amount;
         CHECK_ERROR(branches->increment_record(context, branch_id, &balance, 0));

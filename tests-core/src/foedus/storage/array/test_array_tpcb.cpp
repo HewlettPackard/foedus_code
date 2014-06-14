@@ -96,7 +96,7 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
         COERCE_ERROR(str_manager.create_array(context, "branches",
                                         sizeof(BranchData), kBranches, &branches, &commit_epoch));
         EXPECT_TRUE(branches != nullptr);
-        COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
+        COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
         for (int i = 0; i < kBranches; ++i) {
             BranchData data;
             std::memset(&data, 0, sizeof(data));  // make valgrind happy
@@ -110,7 +110,7 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
         COERCE_ERROR(str_manager.create_array(context, "tellers",
                             sizeof(AccountData), kBranches * kTellers, &tellers, &commit_epoch));
         EXPECT_TRUE(tellers != nullptr);
-        COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
+        COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
         for (int i = 0; i < kBranches * kTellers; ++i) {
             TellerData data;
             std::memset(&data, 0, sizeof(data));  // make valgrind happy
@@ -125,7 +125,7 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
         COERCE_ERROR(str_manager.create_array(context, "accounts",
                             sizeof(TellerData), kBranches * kAccounts, &accounts, &commit_epoch));
         EXPECT_TRUE(accounts != nullptr);
-        COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
+        COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
         for (int i = 0; i < kBranches * kAccounts; ++i) {
             AccountData data;
             std::memset(&data, 0, sizeof(data));  // make valgrind happy
@@ -140,7 +140,7 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
         COERCE_ERROR(str_manager.create_array(context, "histories",
                                     sizeof(HistoryData), kHistories, &histories, &commit_epoch));
         EXPECT_TRUE(histories != nullptr);
-        COERCE_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
+        COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
         for (int i = 0; i < kHistories; ++i) {
             HistoryData data;
             std::memset(&data, 0, sizeof(data));  // make valgrind happy
@@ -216,7 +216,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
         uint64_t branch_id, uint64_t teller_id,
         uint64_t account_id, uint64_t history_id, int64_t amount) {
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-        CHECK_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
+        CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
 
         int64_t branch_balance_old = -1, branch_balance_new;
         if (use_increment) {
@@ -343,7 +343,7 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
     }
     ErrorStack run(thread::Thread* context) {
         xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-        CHECK_ERROR(xct_manager.begin_xct(context, xct::SERIALIZABLE));
+        CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
 
         int64_t expected_branch[kBranches];
         int64_t expected_teller[kBranches * kTellers];
