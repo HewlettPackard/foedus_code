@@ -176,15 +176,31 @@ Hideaki will push to *master* from *develop*.
 
 Coding Convention (For FOEDUS Developers)
 --------
-We fully conform to [Google C++ Style Guide](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml)
+We conform to [Google C++ Style Guide](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml)
 except the arguable rule on streams. See [the discussions](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Streams)
-if you are interested.
+if you are interested. Other minor differences from the convention:
 
-Max 100 characters per line, 4-spaces indent, no tab, and several other rules. Read the guide.
+* 4-spaces indent rather than 2. Instead, max 100 characters per line rather than 80.
+* C++ file names are ".cpp" rather than ".cc", header files are ".hpp" rather than ".h".
+
 We enforce the coding convention by cpplint.py.
 All projects run cpplint for every build and report violations as warnings.
 
+In addition to the Google c++ convention, we have the following house-rules:
 
+* cpp/hpp are placed in folders that fully correspond to namespace hierarchy like a Java project.
+* No importing or aliasing ("using") of namespace at all, even in c++ files. You might initially
+feel this results in lengthy code, but you will soon find it easier to understand others' code and
+not requiring additional typing as much as you thought.
+* If you are calling classes/methods in global namespace (which shouldn't exist in our code, so
+third party's), put "::" as prefix to clarify it's in global namespace (eg "::posix_memalign(foo)").
+* Class/function/variable comments must be in [Doxygen format](http://www.stack.nl/~dimitri/doxygen/manual/index.html).
+* Each folder (== package, == namespace) has a header file named "namespace-info.hpp" which gives
+Doxygen documentation of the folder, just like "package-info.java" in Java projects.
+* Each folder has a header file named "fwd.hpp" which gives forward declarations of classes in
+the package. As the Google style guide recommends, prefer forward declarations as much as possible.
+* In addition to general C++ coding conventions, there are several foedus-specific programming
+idioms. Read our Doxygen document first to get familiar with them (see "FOEDUS Programming Idioms").
 
 kdevelop-specific Recommendations (For FOEDUS Developers)
 --------
