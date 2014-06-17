@@ -72,6 +72,14 @@ class MapReduceBase : public DefaultInitializable {
 
     /** Main routine */
     void                handle();
+
+    /**
+     * Wait for the beginning of next epoch processing.
+     * @return whether there is more epoch to process.
+     */
+    bool                wait_for_next_epoch();
+    /** Called at the beginning of wait_for_next_epoch to add something specific to derived class.*/
+    virtual void        pre_wait_for_next_epoch() {}
 };
 }  // namespace snapshot
 }  // namespace foedus

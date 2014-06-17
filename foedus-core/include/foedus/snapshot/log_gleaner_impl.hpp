@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_SNAPSHOT_LOG_GLEANER_IMPL_HPP_
 #define FOEDUS_SNAPSHOT_LOG_GLEANER_IMPL_HPP_
+#include <foedus/assert_nd.hpp>
 #include <foedus/epoch.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
@@ -38,7 +39,7 @@ namespace snapshot {
  * out log entries produced by local worker threads.
  * Thus, the log files contain log entries that might be sent to any partitions.
  * LogMapper \e maps each log entry to some partition and send it to a reducer corresponding to the
- * partition. For more details, see LogMapper.
+ * partition. For more details, see foedus::snapshot::LogMapper.
  *
  * @section REDUCER Reducer
  * LogGleaner also launches a set of reducer threads (foedus::snapshot::LogReducer), one for each
@@ -49,6 +50,7 @@ namespace snapshot {
  * (*) otherwise correct result is not guaranteed. For example, imagine the following case:
  *  \li UPDATE rec-1 to A. Log-ordinal 1.
  *  \li UPDATE rec-1 to B. Log-ordinal 2.
+ *
  * Ordinal-1 must be processed before ordinal 2.
  * As log entries are somewhat sorted already (due to how we write log files and buffer them in
  * mapper), we prefer bubble sort here. We so far use std::sort, though.
@@ -97,18 +99,41 @@ class LogGleaner final : public DefaultInitializable {
         return cur_epoch.is_valid() ? cur_epoch.one_more() : Epoch(Epoch::kEpochInitialCurrent);
     }
 
+    thread::ConditionVariable&      processing_epoch_cond_for(Epoch epoch) {
+        if (epoch.value() & 1) {
+            return processing_epoch_cond_[1];
+        } else {
+            return processing_epoch_cond_[0];
+        }
+    }
+
+    Snapshot*               get_snapshot() { return snapshot_; }
+
     bool                    is_stop_requested() const;
     void                    wakeup();
 
-    /**
-     * Utility method for mappers/reducers to wait for the beginning of next epoch processing.
-     * @return whether there is more epoch to process.
-     */
-    bool wait_for_next_epoch();
+    uint16_t increment_completed_count() {
+        ASSERT_ND(completed_count_ < get_all_count());
+        return ++completed_count_;
+    }
+    uint16_t increment_completed_mapper_count() {
+        ASSERT_ND(completed_mapper_count_ < get_mappers_count());
+        return ++completed_mapper_count_;
+    }
+    uint16_t increment_error_count() {
+        ASSERT_ND(error_count_ < get_all_count());
+        return ++error_count_;
+    }
+    uint16_t increment_exit_count() {
+        ASSERT_ND(exit_count_ < get_all_count());
+        return ++exit_count_;
+    }
 
-    void increment_completed_count()    { ++completed_count_; }
-    void increment_error_count()        { ++error_count_; }
-    void increment_exit_count()         { ++exit_count_; }
+    bool is_all_completed() const { return completed_count_ >= get_all_count(); }
+    bool is_all_mappers_completed() const { return completed_mapper_count_ >= mappers_.size(); }
+    uint16_t get_mappers_count() const { return mappers_.size(); }
+    uint16_t get_reducers_count() const { return reducers_.size(); }
+    uint16_t get_all_count() const { return mappers_.size() + reducers_.size(); }
 
  private:
     /**
@@ -137,14 +162,6 @@ class LogGleaner final : public DefaultInitializable {
      */
     thread::ConditionVariable       processing_epoch_cond_[2];
 
-    thread::ConditionVariable&      processing_epoch_cond_for(Epoch epoch) {
-        if (epoch.value() & 1) {
-            return processing_epoch_cond_[1];
-        } else {
-            return processing_epoch_cond_[0];
-        }
-    }
-
     // on the other hand, mappers/reducers can wake up gleaner by accessing gleaner_thread.
 
     /**
@@ -153,6 +170,13 @@ class LogGleaner final : public DefaultInitializable {
      * the gleaner thread sets this to zero and starts next epoch.
      */
     std::atomic<uint16_t>           completed_count_;
+
+    /**
+     * We also have a separate count for mappers only to know if all mappers are done.
+     * Reducers can go into sleep only after all mappers went into sleep (otherwise reducers
+     * might receive more logs!), so they have to also check this.
+     */
+    std::atomic<uint16_t>           completed_mapper_count_;
 
     /**
      * count of mappers/reducers that have exitted with some error.

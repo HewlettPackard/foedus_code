@@ -161,38 +161,6 @@ ErrorStack LogGleaner::execute() {
     return kRetOk;
 }
 
-bool LogGleaner::wait_for_next_epoch() {
-    // take epoch before we increment completed_count_. as at least I'm still working,
-    // get_processing_epoch returns the current processing epoch.
-    Epoch next_epoch = get_next_processing_epoch();
-
-    // let the gleaner know that I'm done for the current epoch and going into sleep.
-    uint16_t value_before = completed_count_.fetch_add(1U);
-    ASSERT_ND(completed_count_ <= mappers_.size() + reducers_.size());
-    if (value_before + 1U == mappers_.size() + reducers_.size()) {
-        // I was the last one to go into sleep, this means the current epoch is fully processed.
-        // let gleaner knows about it.
-        ASSERT_ND(completed_count_ == mappers_.size() + reducers_.size()
-            || get_processing_epoch() == next_epoch);  // gleaner might be already awake
-        LOG(INFO) << "wait_for_next_epoch(): I was the last one, waking up gleaner.. ";
-        gleaner_thread_->wakeup();
-    }
-
-    if (next_epoch > snapshot_->valid_until_epoch_) {
-        VLOG(0) << "That was the last epoch. ";
-        return false;
-    }
-
-    LOG(INFO) << "wait_for_next_epoch(): Going into sleep for " << next_epoch << "...";
-    Epoch::EpochInteger next = next_epoch.value();
-    processing_epoch_cond_for(next_epoch).wait([this, next]{
-        return processing_epoch_.load() == next || is_stop_requested();
-    });
-    LOG(INFO) << "wait_for_next_epoch(): Woke up! processing_epoch_=" << get_processing_epoch()
-        << ", is_stop_requested()=" << is_stop_requested();
-    return !is_stop_requested();
-}
-
 
 std::string LogGleaner::to_string() const {
     std::stringstream stream;
@@ -203,6 +171,7 @@ std::ostream& operator<<(std::ostream& o, const LogGleaner& v) {
     o << "<LogGleaner>"
         << *v.snapshot_ << *v.gleaner_thread_
         << "<completed_count_>" << v.completed_count_ << "</completed_count_>"
+        << "<completed_mapper_count_>" << v.completed_mapper_count_ << "</completed_mapper_count_>"
         << "<error_count_>" << v.error_count_ << "</error_count_>"
         << "<exit_count_>" << v.exit_count_ << "</exit_count_>"
         << "<processing_epoch_>" << v.get_processing_epoch() << "</processing_epoch_>";

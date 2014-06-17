@@ -25,6 +25,8 @@ ErrorStack LogReducer::handle_uninitialize() {
 
 ErrorStack LogReducer::handle_epoch() {
     // Epoch epoch = parent_->get_processing_epoch();
+    SPINLOCK_WHILE(!parent_->is_all_mappers_completed()) {
+    }
     return kRetOk;
 }
 

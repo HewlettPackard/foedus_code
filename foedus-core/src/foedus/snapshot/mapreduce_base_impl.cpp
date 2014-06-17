@@ -8,6 +8,7 @@
 #include <foedus/error_stack_batch.hpp>
 #include <foedus/snapshot/log_gleaner_impl.hpp>
 #include <foedus/snapshot/mapreduce_base_impl.hpp>
+#include <foedus/snapshot/snapshot.hpp>
 #include <glog/logging.h>
 #include <numa.h>
 #include <chrono>
@@ -37,7 +38,8 @@ ErrorStack MapReduceBase::uninitialize_once() {
 }
 
 void MapReduceBase::handle() {
-    LOG(INFO) << "Reducer started running: " << to_string();
+    LOG(INFO) << "Reducer started running: " << to_string()
+        << " NUMA node=" << static_cast<int>(numa_node_);
     ::numa_run_on_node(numa_node_);
 
     LOG(INFO) << "Calling handle_initialize at handle(): " << to_string() << "...";
@@ -48,7 +50,8 @@ void MapReduceBase::handle() {
         parent_->wakeup();
     } else {
         LOG(INFO) << to_string() << " initialization done";
-        if (parent_->wait_for_next_epoch()) {
+        bool success = wait_for_next_epoch();  // wait for the first processing epoch
+        if (success) {
             while (!parent_->is_stop_requested()) {
                 DVLOG(0) << to_string() << " processing epoch-"
                     << parent_->get_processing_epoch();
@@ -62,7 +65,7 @@ void MapReduceBase::handle() {
 
                 DVLOG(0) << to_string() << " processed epoch-"
                     << parent_->get_processing_epoch();
-                if (!parent_->wait_for_next_epoch()) {
+                if (!wait_for_next_epoch()) {
                     break;
                 }
             }
@@ -79,6 +82,40 @@ void MapReduceBase::handle() {
 
     parent_->increment_exit_count();
     LOG(INFO) << "Reducer stopped running: " << to_string();
+}
+
+bool MapReduceBase::wait_for_next_epoch() {
+    pre_wait_for_next_epoch();
+    // take epoch before we increment completed_count_. as at least I'm still working,
+    // get_processing_epoch returns the current processing epoch.
+    Epoch next_epoch = parent_->get_next_processing_epoch();
+
+    // let the gleaner know that I'm done for the current epoch and going into sleep.
+    uint16_t value_after = parent_->increment_completed_count();
+    ASSERT_ND(value_after <= parent_->get_all_count());
+    if (value_after == parent_->get_all_count()) {
+        // I was the last one to go into sleep, this means the current epoch is fully processed.
+        // let gleaner knows about it.
+        ASSERT_ND(parent_->is_all_completed()
+            || parent_->get_processing_epoch() == next_epoch);  // gleaner might be already awake
+        LOG(INFO) << "wait_for_next_epoch(): " << to_string()
+            << " was the last one, waking up gleaner.. ";
+        parent_->wakeup();
+    }
+
+    if (next_epoch > parent_->get_snapshot()->valid_until_epoch_) {
+        VLOG(0) << "That was the last epoch. I'm done: " << to_string();
+        return false;
+    }
+
+    LOG(INFO) << to_string() << " Going into sleep for " << next_epoch << "...";
+    parent_->processing_epoch_cond_for(next_epoch).wait([this, next_epoch]{
+        return parent_->get_processing_epoch() == next_epoch || parent_->is_stop_requested();
+    });
+    LOG(INFO) << to_string() << " Woke up! processing_epoch_="
+        << parent_->get_processing_epoch()
+        << ", is_stop_requested()=" << parent_->is_stop_requested();
+    return !parent_->is_stop_requested();
 }
 
 

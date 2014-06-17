@@ -28,6 +28,13 @@ ErrorStack LogMapper::handle_epoch() {
     return kRetOk;
 }
 
+void LogMapper::pre_wait_for_next_epoch() {
+    uint16_t value_after = parent_->increment_completed_mapper_count();
+    if (value_after == parent_->get_mappers_count()) {
+        LOG(INFO) << "wait_for_next_epoch(): " << to_string() << " was the last mapper.";
+    }
+}
+
 std::ostream& operator<<(std::ostream& o, const LogMapper& v) {
     o << "<LogMapper>"
         << "<id_>" << v.id_ << "</id_>"
