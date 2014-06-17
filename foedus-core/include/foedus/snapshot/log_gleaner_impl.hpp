@@ -10,10 +10,10 @@
 #include <foedus/log/log_id.hpp>
 #include <foedus/snapshot/fwd.hpp>
 #include <foedus/thread/fwd.hpp>
-#include <foedus/thread/stoppable_thread_impl.hpp>
 #include <stdint.h>
 #include <iosfwd>
 #include <string>
+#include <vector>
 namespace foedus {
 namespace snapshot {
 /**
@@ -59,6 +59,10 @@ namespace snapshot {
  * Additionally, LogGleaner is in charge of receiving termination request from the engine
  * if the user invokes Engine::uninitialize() and requesting reducers/mappers to stop.
  *
+ * Reducers/mappers check if they are requested to stop when they get idle or complete all work
+ * in an epoch. Thus, even in the worst case it stops its work after processing logs of one-epoch,
+ * which shouldn't be catastrophic because one epoch is only tens of milliseconds.
+ *
  * @note
  * This is a private implementation-details of \ref SNAPSHOT, thus file name ends with _impl.
  * Do not include this header from a client program. There is no case client program needs to
@@ -66,7 +70,8 @@ namespace snapshot {
  */
 class LogGleaner final : public DefaultInitializable {
  public:
-    explicit LogGleaner(Engine* engine) : engine_(engine) {}
+    explicit LogGleaner(Engine* engine, Snapshot* snapshot)
+        : engine_(engine), snapshot_(snapshot) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
@@ -74,20 +79,30 @@ class LogGleaner final : public DefaultInitializable {
     LogGleaner(const LogGleaner &other) = delete;
     LogGleaner& operator=(const LogGleaner &other) = delete;
 
-    void handle_gleaner();
-
     /**
-     * Stops all threads for this gleaning including reducers/mappers
+     * Main routine of log gleaner.
+     * @param[in] snapshot_thread the thread calling this method. this method occasionally checks
+     * if this thread has been requested to stop, and exit if that happens.
      */
-    void stop_gleaner();
+    ErrorStack execute(thread::StoppableThread *snapshot_thread);
 
     std::string             to_string() const;
     friend std::ostream&    operator<<(std::ostream& o, const LogGleaner& v);
 
  private:
-    Engine* const                   engine_;
+    /**
+     * Request reducers and mappers to cancel the work.
+     * Blocks until all of them stop.
+     */
+    void cancel_reducers_mappers();
 
-    thread::StoppableThread         gleaner_thread_;
+    Engine* const                   engine_;
+    Snapshot* const                 snapshot_;
+
+    /** Index is LoggerId. */
+    std::vector<LogMapper*>         mappers_;
+    /** Index is PartitionId. */
+    std::vector<LogReducer*>        reducers_;
 };
 }  // namespace snapshot
 }  // namespace foedus

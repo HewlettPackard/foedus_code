@@ -156,8 +156,23 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
     return kRetOk;
 }
 
-ErrorStack SnapshotManagerPimpl::glean_logs(Snapshot* /*new_snapshot*/) {
-    return kRetOk;
+ErrorStack SnapshotManagerPimpl::glean_logs(Snapshot* new_snapshot) {
+    // Log gleaner is an object allocated/deallocated per snapshotting.
+    // Make sure we call uninitialize even when there occurs an error.
+    LogGleaner gleaner(engine_, new_snapshot);
+    CHECK_ERROR(gleaner.initialize());
+    ErrorStack result;
+    {
+        UninitializeGuard guard(&gleaner);
+        // Gleaner runs on this thread (snapshot_thread_), so also receives the thread object
+        // to check for termination request.
+        result = gleaner.execute(&snapshot_thread_);
+        if (result.is_error()) {
+            LOG(ERROR) << "Log Gleaner encountered either an error or early termination request";
+        }
+        CHECK_ERROR(gleaner.uninitialize());
+    }
+    return result;
 }
 
 ErrorStack SnapshotManagerPimpl::snapshot_metadata(Snapshot *new_snapshot) {

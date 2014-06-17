@@ -47,6 +47,7 @@ class StoppableThread final {
 
     /**
      * requst_stop() plus wait_for_stop().
+     * This method is idempotent. If the thread is not running already, this immediately returns.
      */
     void stop();
 

@@ -49,8 +49,8 @@ namespace snapshot {
  */
 class LogReducer final : public DefaultInitializable {
  public:
-    LogReducer(Engine* engine, LogGleaner* parent, PartitionId id)
-        : engine_(engine), parent_(parent), id_(id), numa_node_(extract_node_id(id)) {}
+    LogReducer(Engine* engine, LogGleaner* parent, PartitionId id, thread::ThreadGroupId numa_node)
+        : engine_(engine), parent_(parent), id_(id), numa_node_(numa_node) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
