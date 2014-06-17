@@ -131,7 +131,7 @@ const char* get_log_type_name(LogCode code);
  * @ingroup LOGTYPE
  * @details
  * This is inlined below because it's called VERY frequently.
- * This is method is declared as constexpr if C++11 is enabled, in which case there should
+ * This method is declared as constexpr if C++11 is enabled, in which case there should
  * be really no overheads to call this method.
  */
 template <typename LOG_TYPE>

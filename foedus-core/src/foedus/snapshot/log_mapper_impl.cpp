@@ -6,44 +6,40 @@
 #include <foedus/engine.hpp>
 #include <foedus/epoch.hpp>
 #include <foedus/error_stack_batch.hpp>
+#include <foedus/snapshot/log_gleaner_impl.hpp>
 #include <foedus/snapshot/log_mapper_impl.hpp>
 #include <glog/logging.h>
-#include <chrono>
 #include <ostream>
-#include <sstream>
 #include <string>
 namespace foedus {
 namespace snapshot {
 
-ErrorStack LogMapper::initialize_once() {
-    LOG(INFO) << "Initializing LogMapper-" << id_;
-    mapper_thread_.initialize("LogMapper-", id_,
-                    std::thread(&LogMapper::handle_mapper, this), std::chrono::milliseconds(10));
-
+ErrorStack LogMapper::handle_initialize() {
     return kRetOk;
 }
 
-ErrorStack LogMapper::uninitialize_once() {
-    LOG(INFO) << "Uninitializing LogMapper-" << id_;
+ErrorStack LogMapper::handle_uninitialize() {
     ErrorStackBatch batch;
-    mapper_thread_.stop();
     return SUMMARIZE_ERROR_BATCH(batch);
 }
 
-void LogMapper::handle_mapper() {
+ErrorStack LogMapper::handle_epoch() {
+    // Epoch epoch = parent_->get_processing_epoch();
+    return kRetOk;
 }
 
-
-std::string LogMapper::to_string() const {
-    std::stringstream stream;
-    stream << *this;
-    return stream.str();
+void LogMapper::pre_wait_for_next_epoch() {
+    uint16_t value_after = parent_->increment_completed_mapper_count();
+    if (value_after == parent_->get_mappers_count()) {
+        LOG(INFO) << "wait_for_next_epoch(): " << to_string() << " was the last mapper.";
+    }
 }
+
 std::ostream& operator<<(std::ostream& o, const LogMapper& v) {
     o << "<LogMapper>"
         << "<id_>" << v.id_ << "</id_>"
         << "<numa_node_>" << static_cast<int>(v.numa_node_) << "</numa_node_>"
-        << "<mapper_thread_>" << v.mapper_thread_ << "</mapper_thread_>"
+        << "<thread_>" << v.thread_ << "</thread_>"
         << "</LogMapper>";
     return o;
 }

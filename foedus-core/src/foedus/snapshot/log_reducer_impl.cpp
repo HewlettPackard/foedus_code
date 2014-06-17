@@ -6,44 +6,35 @@
 #include <foedus/engine.hpp>
 #include <foedus/epoch.hpp>
 #include <foedus/error_stack_batch.hpp>
+#include <foedus/snapshot/log_gleaner_impl.hpp>
 #include <foedus/snapshot/log_reducer_impl.hpp>
 #include <glog/logging.h>
-#include <chrono>
 #include <ostream>
-#include <sstream>
 #include <string>
 namespace foedus {
 namespace snapshot {
 
-ErrorStack LogReducer::initialize_once() {
-    LOG(INFO) << "Initializing LogReducer-" << id_;
-    reducer_thread_.initialize("LogReducer-", id_,
-                    std::thread(&LogReducer::handle_reducer, this), std::chrono::milliseconds(10));
-
+ErrorStack LogReducer::handle_initialize() {
     return kRetOk;
 }
 
-ErrorStack LogReducer::uninitialize_once() {
-    LOG(INFO) << "Uninitializing LogReducer-" << id_;
+ErrorStack LogReducer::handle_uninitialize() {
     ErrorStackBatch batch;
-    reducer_thread_.stop();
     return SUMMARIZE_ERROR_BATCH(batch);
 }
 
-void LogReducer::handle_reducer() {
+ErrorStack LogReducer::handle_epoch() {
+    // Epoch epoch = parent_->get_processing_epoch();
+    SPINLOCK_WHILE(!parent_->is_all_mappers_completed()) {
+    }
+    return kRetOk;
 }
 
-
-std::string LogReducer::to_string() const {
-    std::stringstream stream;
-    stream << *this;
-    return stream.str();
-}
 std::ostream& operator<<(std::ostream& o, const LogReducer& v) {
     o << "<LogReducer>"
         << "<id_>" << v.id_ << "</id_>"
         << "<numa_node_>" << static_cast<int>(v.numa_node_) << "</numa_node_>"
-        << "<reducer_thread_>" << v.reducer_thread_ << "</reducer_thread_>"
+        << "<thread_>" << v.thread_ << "</thread_>"
         << "</LogReducer>";
     return o;
 }

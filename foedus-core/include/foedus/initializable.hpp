@@ -65,7 +65,7 @@ namespace foedus {
  *     YourInitializable object;
  *     CHECK_ERROR(object.initialize());
  *     {
- *         UninitializeGuard guard(object, UninitializeGuard::kWarnIfUninitializeError);
+ *         UninitializeGuard guard(&object, UninitializeGuard::kWarnIfUninitializeError);
  *         CHECK_ERROR(object.do_something());
  *         CHECK_ERROR(object.uninitialize());
  *     }

@@ -9,6 +9,7 @@
 #include <foedus/log/fwd.hpp>
 #include <foedus/log/log_id.hpp>
 #include <foedus/snapshot/fwd.hpp>
+#include <foedus/snapshot/mapreduce_base_impl.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <foedus/thread/stoppable_thread_impl.hpp>
 #include <stdint.h>
@@ -45,35 +46,26 @@ namespace snapshot {
  * Do not include this header from a client program. There is no case client program needs to
  * access this internal class.
  */
-class LogMapper final : public DefaultInitializable {
+class LogMapper final : public MapReduceBase {
  public:
     LogMapper(Engine* engine, LogGleaner* parent, log::LoggerId id, thread::ThreadGroupId numa_node)
-        : engine_(engine), parent_(parent), id_(id), numa_node_(numa_node) {}
-    ErrorStack  initialize_once() override;
-    ErrorStack  uninitialize_once() override;
+        : MapReduceBase(engine, parent, id, numa_node) {}
 
-    LogMapper() = delete;
-    LogMapper(const LogMapper &other) = delete;
-    LogMapper& operator=(const LogMapper &other) = delete;
-
-    void handle_mapper();
-    void request_stop() { mapper_thread_.requst_stop(); }
-    void wait_for_stop() { mapper_thread_.wait_for_stop(); }
-
-    std::string             to_string() const;
-    friend std::ostream&    operator<<(std::ostream& o, const LogMapper& v);
-
- private:
-    Engine* const                   engine_;
-    LogGleaner* const               parent_;
     /**
      * Unique ID of this log mapper. One log mapper corresponds to one logger, so this ID is also
      * the corresponding logger's ID (log::LoggerId).
      */
-    const log::LoggerId             id_;
-    const thread::ThreadGroupId     numa_node_;
+    log::LoggerId           get_id() const { return id_; }
+    std::string             to_string() const override {
+        return std::string("LogMapper-") + std::to_string(id_);
+    }
+    friend std::ostream&    operator<<(std::ostream& o, const LogMapper& v);
 
-    thread::StoppableThread         mapper_thread_;
+ protected:
+    ErrorStack  handle_initialize() override;
+    ErrorStack  handle_uninitialize() override;
+    ErrorStack  handle_epoch() override;
+    void        pre_wait_for_next_epoch() override;
 };
 }  // namespace snapshot
 }  // namespace foedus

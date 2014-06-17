@@ -18,7 +18,7 @@ namespace log {
  * @ingroup LOG
  * @details
  * ID of Logger is merely an ordinal without holes.
- * In otherwords, it's 0 to LogOptions::log_paths_.size() - 1.
+ * In other words, "(loggers_per_node * NUMA_node_id) + ordinal_in_node".
  */
 typedef uint16_t LoggerId;
 

@@ -4,14 +4,15 @@
  */
 #ifndef FOEDUS_SNAPSHOT_LOG_REDUCER_IMPL_HPP_
 #define FOEDUS_SNAPSHOT_LOG_REDUCER_IMPL_HPP_
+#include <foedus/epoch.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
 #include <foedus/log/log_id.hpp>
 #include <foedus/snapshot/fwd.hpp>
+#include <foedus/snapshot/mapreduce_base_impl.hpp>
 #include <foedus/snapshot/snapshot_id.hpp>
 #include <foedus/thread/fwd.hpp>
-#include <foedus/thread/stoppable_thread_impl.hpp>
 #include <stdint.h>
 #include <iosfwd>
 #include <string>
@@ -47,32 +48,22 @@ namespace snapshot {
  * Do not include this header from a client program. There is no case client program needs to
  * access this internal class.
  */
-class LogReducer final : public DefaultInitializable {
+class LogReducer final : public MapReduceBase {
  public:
-    LogReducer(Engine* engine, LogGleaner* parent, PartitionId id)
-        : engine_(engine), parent_(parent), id_(id), numa_node_(extract_node_id(id)) {}
-    ErrorStack  initialize_once() override;
-    ErrorStack  uninitialize_once() override;
+    LogReducer(Engine* engine, LogGleaner* parent, PartitionId id, thread::ThreadGroupId numa_node)
+        : MapReduceBase(engine, parent, id, numa_node) {}
 
-    LogReducer() = delete;
-    LogReducer(const LogReducer &other) = delete;
-    LogReducer& operator=(const LogReducer &other) = delete;
-
-    void handle_reducer();
-    void request_stop() { reducer_thread_.requst_stop(); }
-    void wait_for_stop() { reducer_thread_.wait_for_stop(); }
-
-    std::string             to_string() const;
+    /** One LogReducer corresponds to one snapshot partition. */
+    PartitionId             get_id() const { return id_; }
+    std::string             to_string() const override {
+        return std::string("LogReducer-") + std::to_string(id_);
+    }
     friend std::ostream&    operator<<(std::ostream& o, const LogReducer& v);
 
- private:
-    Engine* const                   engine_;
-    LogGleaner* const               parent_;
-    /** One LogReducer corresponds to one snapshot partition. */
-    const PartitionId               id_;
-    const thread::ThreadGroupId     numa_node_;
-
-    thread::StoppableThread         reducer_thread_;
+ protected:
+    ErrorStack  handle_initialize() override;
+    ErrorStack  handle_uninitialize() override;
+    ErrorStack  handle_epoch() override;
 };
 }  // namespace snapshot
 }  // namespace foedus
