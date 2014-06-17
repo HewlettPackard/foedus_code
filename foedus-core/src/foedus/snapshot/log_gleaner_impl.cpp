@@ -21,6 +21,7 @@ namespace snapshot {
 ErrorStack LogGleaner::initialize_once() {
     LOG(INFO) << "Initializing Log Gleaner";
     completed_count_.store(0U);
+    completed_mapper_count_.store(0U);
     error_count_.store(0U);
     exit_count_.store(0U);
     processing_epoch_.store(Epoch::kEpochInvalid);
@@ -96,6 +97,7 @@ void LogGleaner::cancel_reducers_mappers() {
 ErrorStack LogGleaner::execute() {
     LOG(INFO) << "gleaner_thread_ starts running: " << *this;
     completed_count_.store(0U);
+    completed_mapper_count_.store(0U);
     error_count_.store(0U);
     exit_count_.store(0U);
     processing_epoch_.store(snapshot_->base_epoch_.value());
@@ -128,6 +130,7 @@ ErrorStack LogGleaner::execute() {
         }
         LOG(INFO) << "Starting a new map/reduce phase for epoch " << next_epoch << ": " << *this;
         completed_count_.store(0U);
+        completed_mapper_count_.store(0U);
         processing_epoch_.store(next_epoch.value());
         processing_epoch_cond_for(next_epoch).notify_all();
 
