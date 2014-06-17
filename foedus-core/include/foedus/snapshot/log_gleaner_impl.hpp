@@ -4,13 +4,16 @@
  */
 #ifndef FOEDUS_SNAPSHOT_LOG_GLEANER_IMPL_HPP_
 #define FOEDUS_SNAPSHOT_LOG_GLEANER_IMPL_HPP_
+#include <foedus/epoch.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
 #include <foedus/log/log_id.hpp>
 #include <foedus/snapshot/fwd.hpp>
+#include <foedus/thread/condition_variable_impl.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <stdint.h>
+#include <atomic>
 #include <iosfwd>
 #include <string>
 #include <vector>
@@ -70,8 +73,11 @@ namespace snapshot {
  */
 class LogGleaner final : public DefaultInitializable {
  public:
-    explicit LogGleaner(Engine* engine, Snapshot* snapshot)
-        : engine_(engine), snapshot_(snapshot) {}
+    friend class LogMapper;
+    friend class LogReducer;
+
+    explicit LogGleaner(Engine* engine, Snapshot* snapshot, thread::StoppableThread* gleaner_thread)
+        : engine_(engine), snapshot_(snapshot), gleaner_thread_(gleaner_thread) {}
     ErrorStack  initialize_once() override;
     ErrorStack  uninitialize_once() override;
 
@@ -79,15 +85,22 @@ class LogGleaner final : public DefaultInitializable {
     LogGleaner(const LogGleaner &other) = delete;
     LogGleaner& operator=(const LogGleaner &other) = delete;
 
-    /**
-     * Main routine of log gleaner.
-     * @param[in] snapshot_thread the thread calling this method. this method occasionally checks
-     * if this thread has been requested to stop, and exit if that happens.
-     */
-    ErrorStack execute(thread::StoppableThread *snapshot_thread);
+    /** Main routine of log gleaner. */
+    ErrorStack execute();
 
     std::string             to_string() const;
     friend std::ostream&    operator<<(std::ostream& o, const LogGleaner& v);
+
+
+    Epoch                   get_processing_epoch() const { return Epoch(processing_epoch_.load()); }
+    Epoch                   get_next_processing_epoch() const {
+        Epoch cur_epoch = get_processing_epoch();
+        // if there was no snapshot (initial snapshot), then the first epoch that might have logs
+        // is kEpochInitialCurrent.
+        return cur_epoch.is_valid() ? cur_epoch.one_more() : Epoch(Epoch::kEpochInitialCurrent);
+    }
+
+    bool                    is_stop_requested() const;
 
  private:
     /**
@@ -96,12 +109,71 @@ class LogGleaner final : public DefaultInitializable {
      */
     void cancel_reducers_mappers();
 
+    /**
+     * Utility method for mappers/reducers to wait for the beginning of next epoch processing.
+     * @return whether there is more epoch to process.
+     */
+    bool wait_for_next_epoch();
+
     Engine* const                   engine_;
     Snapshot* const                 snapshot_;
 
-    /** Index is LoggerId. */
+    /**
+     * The thread that will call execute(). execute() occasionally checks
+     * if this thread has been requested to stop, and exit if that happens.
+     */
+    thread::StoppableThread* const  gleaner_thread_;
+
+    /**
+     * @brief Used to wake up mappers/reducers by gleaner.
+     * @details
+     * Gleaner has two of them to separate 1) mappers/reducers that are still waiting to be woken up
+     * after finishing the previous epoch from 2) those that are already woken up and even finished
+     * the current epoch.
+     * [0] is used when they are waiting for even epoch, [1] for odd epoch.
+     * Kind of stupid. only if std c++ employed boost barriers... (again, we don't use boost).
+     */
+    thread::ConditionVariable       processing_epoch_cond_[2];
+
+    thread::ConditionVariable&      processing_epoch_cond_for(Epoch epoch) {
+        if (epoch.value() & 1) {
+            return processing_epoch_cond_[1];
+        } else {
+            return processing_epoch_cond_[0];
+        }
+    }
+
+    // on the other hand, mappers/reducers can wake up gleaner by accessing gleaner_thread.
+
+    /**
+     * count of mappers/reducers that have completed processing the current epoch.
+     * the gleaner thread is woken up when this becomes mappers_.size() + reducers_.size().
+     * the gleaner thread sets this to zero and starts next epoch.
+     */
+    std::atomic<uint16_t>           completed_count_;
+
+    /**
+     * count of mappers/reducers that have exitted with some error.
+     * if there happens any error, gleaner cancels all mappers/reducers.
+     */
+    std::atomic<uint16_t>           error_count_;
+    /**
+     * count of mappers/reducers that have exitted.
+     * for sanity check only.
+     */
+    std::atomic<uint16_t>           exit_count_;
+
+    /**
+     * The epoch mappers/reducers are supposed to be processing now.
+     * When the processing is not started yet (mappers/reducers initialization phase),
+     * the value is snapshot_->base_epoch_.
+     * When all processing is done, snapshot_->valid_until_epoch_.one_more().
+     */
+    std::atomic<Epoch::EpochInteger>    processing_epoch_;
+
+    /** Mappers. Index is LoggerId. */
     std::vector<LogMapper*>         mappers_;
-    /** Index is PartitionId. */
+    /** Reducers. Index is PartitionId. */
     std::vector<LogReducer*>        reducers_;
 };
 }  // namespace snapshot

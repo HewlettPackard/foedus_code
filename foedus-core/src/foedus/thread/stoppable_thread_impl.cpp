@@ -46,10 +46,10 @@ void StoppableThread::wakeup() {
 }
 
 void StoppableThread::stop() {
-    requst_stop();
+    request_stop();
     wait_for_stop();
 }
-void StoppableThread::requst_stop() {
+void StoppableThread::request_stop() {
     if (started_ && !is_stopped() && !is_stop_requested()) {
         LOG(INFO) << "Requesting to stop " << name_ << "...";
         condition_.notify_one([this]{ stop_requested_ = true; });

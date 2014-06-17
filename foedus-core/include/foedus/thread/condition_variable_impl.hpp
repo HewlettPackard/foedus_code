@@ -156,7 +156,6 @@ class ConditionVariable final {
      * To workaround the pthread_cond_broadcast bug, this method notifies one by one.
      * We might add a switch of the behavior by checking glibc version.
      */
-    template<typename SIGNAL_ACTION>
     void notify_all() {
         notify_all([]{});
     }

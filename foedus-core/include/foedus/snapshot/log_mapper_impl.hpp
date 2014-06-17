@@ -44,6 +44,7 @@ namespace snapshot {
  * This is a private implementation-details of \ref SNAPSHOT, thus file name ends with _impl.
  * Do not include this header from a client program. There is no case client program needs to
  * access this internal class.
+ * @todo mapreduce base class to save duplicate between mapper/reducer
  */
 class LogMapper final : public DefaultInitializable {
  public:
@@ -56,8 +57,7 @@ class LogMapper final : public DefaultInitializable {
     LogMapper(const LogMapper &other) = delete;
     LogMapper& operator=(const LogMapper &other) = delete;
 
-    void handle_mapper();
-    void request_stop() { mapper_thread_.requst_stop(); }
+    void request_stop() { mapper_thread_.request_stop(); }
     void wait_for_stop() { mapper_thread_.wait_for_stop(); }
 
     std::string             to_string() const;
@@ -74,6 +74,15 @@ class LogMapper final : public DefaultInitializable {
     const thread::ThreadGroupId     numa_node_;
 
     thread::StoppableThread         mapper_thread_;
+
+    /** additional initialization in handle() */
+    ErrorStack  handle_initialize();
+    /** additional uninitialization in handle() */
+    ErrorStack  handle_uninitialize();
+    /** Main routine */
+    void        handle();
+    /** Called per epoch */
+    ErrorStack  handle_epoch();
 };
 }  // namespace snapshot
 }  // namespace foedus

@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_SNAPSHOT_LOG_REDUCER_IMPL_HPP_
 #define FOEDUS_SNAPSHOT_LOG_REDUCER_IMPL_HPP_
+#include <foedus/epoch.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
@@ -58,8 +59,7 @@ class LogReducer final : public DefaultInitializable {
     LogReducer(const LogReducer &other) = delete;
     LogReducer& operator=(const LogReducer &other) = delete;
 
-    void handle_reducer();
-    void request_stop() { reducer_thread_.requst_stop(); }
+    void request_stop() { reducer_thread_.request_stop(); }
     void wait_for_stop() { reducer_thread_.wait_for_stop(); }
 
     std::string             to_string() const;
@@ -73,6 +73,15 @@ class LogReducer final : public DefaultInitializable {
     const thread::ThreadGroupId     numa_node_;
 
     thread::StoppableThread         reducer_thread_;
+
+    /** additional initialization in handle() */
+    ErrorStack  handle_initialize();
+    /** additional uninitialization in handle() */
+    ErrorStack  handle_uninitialize();
+    /** Main routine */
+    void        handle();
+    /** Called per epoch */
+    ErrorStack  handle_epoch();
 };
 }  // namespace snapshot
 }  // namespace foedus

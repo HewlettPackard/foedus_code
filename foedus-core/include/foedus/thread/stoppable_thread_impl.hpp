@@ -46,7 +46,7 @@ class StoppableThread final {
         std::thread &&the_thread, const std::chrono::microseconds &sleep_interval);
 
     /**
-     * requst_stop() plus wait_for_stop().
+     * request_stop() plus wait_for_stop().
      * This method is idempotent. If the thread is not running already, this immediately returns.
      */
     void stop();
@@ -56,7 +56,7 @@ class StoppableThread final {
      * If the thread has not started or has already stopped, do nothing (so, this is idempotent).
      * Unlike stop(), this method doesn't join the thread. So, it immediately returns.
      */
-    void requst_stop();
+    void request_stop();
 
     /**
      * Blocks until the thread stops. If the thread is not running anyways, this does nothing.
