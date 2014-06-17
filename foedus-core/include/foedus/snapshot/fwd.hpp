@@ -14,6 +14,7 @@ namespace snapshot {
 class   LogGleaner;
 class   LogMapper;
 class   LogReducer;
+class   MapReduceBase;
 struct  Snapshot;
 class   SnapshotManager;
 class   SnapshotManagerPimpl;

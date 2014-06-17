@@ -73,9 +73,6 @@ namespace snapshot {
  */
 class LogGleaner final : public DefaultInitializable {
  public:
-    friend class LogMapper;
-    friend class LogReducer;
-
     explicit LogGleaner(Engine* engine, Snapshot* snapshot, thread::StoppableThread* gleaner_thread)
         : engine_(engine), snapshot_(snapshot), gleaner_thread_(gleaner_thread) {}
     ErrorStack  initialize_once() override;
@@ -101,6 +98,17 @@ class LogGleaner final : public DefaultInitializable {
     }
 
     bool                    is_stop_requested() const;
+    void                    wakeup();
+
+    /**
+     * Utility method for mappers/reducers to wait for the beginning of next epoch processing.
+     * @return whether there is more epoch to process.
+     */
+    bool wait_for_next_epoch();
+
+    void increment_completed_count()    { ++completed_count_; }
+    void increment_error_count()        { ++error_count_; }
+    void increment_exit_count()         { ++exit_count_; }
 
  private:
     /**
@@ -108,12 +116,6 @@ class LogGleaner final : public DefaultInitializable {
      * Blocks until all of them stop.
      */
     void cancel_reducers_mappers();
-
-    /**
-     * Utility method for mappers/reducers to wait for the beginning of next epoch processing.
-     * @return whether there is more epoch to process.
-     */
-    bool wait_for_next_epoch();
 
     Engine* const                   engine_;
     Snapshot* const                 snapshot_;

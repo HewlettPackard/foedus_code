@@ -55,6 +55,10 @@ ErrorStack LogGleaner::uninitialize_once() {
 bool LogGleaner::is_stop_requested() const {
     return gleaner_thread_->is_stop_requested();
 }
+void LogGleaner::wakeup() {
+    gleaner_thread_->wakeup();
+}
+
 
 void LogGleaner::cancel_reducers_mappers() {
     // first, request to stop all of them before waiting for them.
@@ -115,7 +119,7 @@ ErrorStack LogGleaner::execute() {
     LOG(INFO) << "Initialized mappers and reducers: " << *this;
 
     // let mappers/reducers work for each
-    while (!is_stop_requested()) {
+    while (!is_stop_requested() && error_count_ == 0) {
         // advance the processing epoch and wake up all mappers/reducers
         Epoch next_epoch = get_next_processing_epoch();
         if (next_epoch > snapshot_->valid_until_epoch_) {
@@ -128,7 +132,7 @@ ErrorStack LogGleaner::execute() {
         processing_epoch_cond_for(next_epoch).notify_all();
 
         // then, wait until all mappers/reducers are done for this epoch
-        while (!gleaner_thread_->sleep()) {
+        while (!gleaner_thread_->sleep() && error_count_ == 0) {
             if (is_stop_requested()) {
                 break;
             }
@@ -143,6 +147,10 @@ ErrorStack LogGleaner::execute() {
     if (get_processing_epoch().is_valid()
             && get_processing_epoch() < snapshot_->valid_until_epoch_) {
         LOG(WARNING) << "gleaner_thread_ stopped without completion. cancelled? " << *this;
+    }
+
+    if (error_count_ > 0) {
+        LOG(ERROR) << "Some mapper/reducer got an error. " << *this;
     }
 
     LOG(INFO) << "gleaner_thread_ stopping.. cancelling reducers and mappers: " << *this;
@@ -196,6 +204,7 @@ std::ostream& operator<<(std::ostream& o, const LogGleaner& v) {
         << *v.snapshot_ << *v.gleaner_thread_
         << "<completed_count_>" << v.completed_count_ << "</completed_count_>"
         << "<error_count_>" << v.error_count_ << "</error_count_>"
+        << "<exit_count_>" << v.exit_count_ << "</exit_count_>"
         << "<processing_epoch_>" << v.get_processing_epoch() << "</processing_epoch_>";
     o << "<Mappers>";
     for (auto mapper : v.mappers_) {
