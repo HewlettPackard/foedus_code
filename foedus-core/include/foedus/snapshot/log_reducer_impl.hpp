@@ -64,7 +64,7 @@ class LogReducer final : public MapReduceBase {
  protected:
     ErrorStack  handle_initialize() override;
     ErrorStack  handle_uninitialize() override;
-    ErrorStack  handle_epoch() override;
+    ErrorStack  handle_process() override;
 
  private:
     /**

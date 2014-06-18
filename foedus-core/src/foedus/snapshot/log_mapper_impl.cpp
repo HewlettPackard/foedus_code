@@ -16,6 +16,7 @@
 #include <foedus/memory/memory_id.hpp>
 #include <foedus/snapshot/log_gleaner_impl.hpp>
 #include <foedus/snapshot/log_mapper_impl.hpp>
+#include <foedus/snapshot/snapshot.hpp>
 #include <glog/logging.h>
 #include <algorithm>
 #include <ostream>
@@ -74,33 +75,34 @@ ErrorCode LogMapper::map_log(const log::LogHeader* header) {
     return kErrorCodeOk;
 }
 
-ErrorStack LogMapper::handle_epoch() {
-    const Epoch epoch = parent_->get_processing_epoch();
-    const log::Logger& logger = engine_->get_log_manager().get_logger(id_);
-    log::LogFileOrdinal cur_file_ordinal;
-    uint64_t cur_offset;
-    {
-        const log::EpochHistory *history = logger.get_epoch_history_for(epoch);
-        if (history == nullptr) {
-            VLOG(0) << to_string() << " has no log for epoch-" << epoch;
-            return kRetOk;
-        }
-        DVLOG(0) << to_string() << " found epoch history: " << *history;
-        cur_file_ordinal = history->log_file_ordinal_;
-        cur_offset = history->log_file_offset_;
+ErrorStack LogMapper::handle_process() {
+    const Epoch base_epoch = parent_->get_snapshot()->base_epoch_;
+    const Epoch until_epoch = parent_->get_snapshot()->valid_until_epoch_;
+    log::Logger& logger = engine_->get_log_manager().get_logger(id_);
+    const log::Logger::LogRange log_range = logger.get_log_range(base_epoch, until_epoch);
+    log::LogFileOrdinal cur_file_ordinal = log_range.begin_file_ordinal;
+    uint64_t cur_offset = log_range.begin_offset;
+    if (log_range.is_empty()) {
+        LOG(INFO) << to_string() << " has no logs to process";
+        return kRetOk;
     }
 
     // open the file and seek to there.
-    // here, we open log file for every handle_epoch().
-    // for most epochs, we are opening the same file from the previously-ended position.
-    // so, we can speed this up by keeping the file object, but not sure it's worth doing.
-    // we anyway assume NVRAM or fast SSD.
     processed_log_count_ = 0;
-    bool epoch_ended = false;
-    while (!epoch_ended) {  // loop for log file switch in the epoch
+    bool ended = false;
+    bool first_read = true;
+    while (!ended) {  // loop for log file switch
         fs::Path path = logger.construct_suffixed_log_path(cur_file_ordinal);
         uint64_t file_size = fs::file_size(path);
-        DVLOG(1) << to_string() << " file path=" << path << ", file size=" << file_size;
+        uint64_t read_end;
+        if (cur_file_ordinal == log_range.end_file_ordinal) {
+            ASSERT_ND(log_range.end_offset <= file_size);
+            read_end = log_range.end_offset;
+        } else {
+            read_end = file_size;
+        }
+        DVLOG(1) << to_string() << " file path=" << path << ", file size=" << file_size
+            << ", read_end=" << read_end;
         fs::DirectIoFile file(path, engine_->get_options().snapshot_.emulation_);
         CHECK_ERROR(file.open(true, false, false, false));
         DVLOG(1) << to_string() << "opened log file " << file;
@@ -109,9 +111,9 @@ ErrorStack LogMapper::handle_epoch() {
 
         uint32_t fragment_saved = 0;  // bytes of fragment in previous read
         uint32_t fragment_remaining = 0;
-        while (!epoch_ended && cur_offset < file_size) {  // loop for each read in the file
+        while (!ended && cur_offset < read_end) {  // loop for each read in the file
             uint64_t pos = 0;
-            const uint64_t reads = std::min(io_buffer_.get_size(), file_size - cur_offset);
+            const uint64_t reads = std::min(io_buffer_.get_size(), read_end - cur_offset);
             CHECK_ERROR(file.read(reads, &io_buffer_));
             if (fragment_saved > 0) {
                 // last log entry is continuing to this read.
@@ -140,28 +142,32 @@ ErrorStack LogMapper::handle_epoch() {
                     = reinterpret_cast<const log::LogHeader*>(buffer + pos);
                 ASSERT_ND(cur_offset != 0 || pos != 0
                     || header->get_type() == log::kLogCodeEpochMarker);  // file starts with marker
+                // we must be starting from epoch marker.
+                ASSERT_ND(!first_read || header->get_type() == log::kLogCodeEpochMarker);
+
+                // skip epoch marker
                 if (header->get_type() == log::kLogCodeEpochMarker) {
                     const log::EpochMarkerLogType *marker =
                         reinterpret_cast<const log::EpochMarkerLogType*>(header);
                     ASSERT_ND(header->log_length_ == sizeof(log::EpochMarkerLogType));
-                    ASSERT_ND(marker->old_epoch_ == epoch || marker->new_epoch_ == epoch);
                     ASSERT_ND(marker->log_file_ordinal_ == cur_file_ordinal);
                     ASSERT_ND(marker->log_file_offset_ == cur_offset + pos);
                     ASSERT_ND(marker->new_epoch_ >= marker->old_epoch_);
-                    if (epoch == marker->new_epoch_) {
-                        // this is the first epoch marker or a dummy epoch marker. just skip it.
-                        pos += header->log_length_;
-                        continue;
+                    ASSERT_ND(!base_epoch.is_valid() || marker->new_epoch_ >= base_epoch);
+                    ASSERT_ND(marker->new_epoch_ <= until_epoch);
+                    if (first_read) {
+                        ASSERT_ND(!base_epoch.is_valid() || marker->old_epoch_ <= base_epoch);
+                        first_read = false;
                     } else {
-                        // we reached the beginning of next epoch, so we are done!
-                        ASSERT_ND(marker->new_epoch_ > epoch);
-                        epoch_ended = true;
-                        break;
+                        ASSERT_ND(!base_epoch.is_valid() || marker->old_epoch_ >= base_epoch);
                     }
+                    pos += header->log_length_;
+                    continue;
                 }
+
                 if (header->log_length_ > reads - pos) {
                     // this log spans two file reads.
-                    if (cur_offset >= file_size) {
+                    if (cur_offset >= read_end) {
                         // but it shouldn't span two files or two epochs. something is wrong.
                         LOG(ERROR) << "inconsistent end of log entry. offset=" << (cur_offset + pos)
                             << ", file=" << file << ", log header=" << *header;
@@ -175,25 +181,22 @@ ErrorStack LogMapper::handle_epoch() {
                     std::memcpy(fragment, buffer + pos, reads - pos);
                     fragment_saved = reads - pos;
                     fragment_remaining =  header->log_length_ - fragment_saved;
-                    break;
+                    pos += reads - pos;
                 } else {
                     WRAP_ERROR_CODE(map_log(header));
                     pos += header->log_length_;
                 }
             }
+            ASSERT_ND(pos == reads);
 
             // we processed this file read.
             cur_offset += reads;
-            if (!epoch_ended && cur_offset == file_size) {
-                // we reached end of this file, but we might not be done yet. thus, we do either
-                // 1) move on to next file.
-                // 2) if that was the last file, stop here.
+            if (!ended && cur_offset == read_end) {
+                // we reached end of this file. was it the last file?
                 ASSERT_ND(fragment_saved == 0);  // no log spans two files
                 ASSERT_ND(fragment_remaining == 0);
-                if (logger.get_current_ordinal() == cur_file_ordinal) {
-                    LOG(INFO) << to_string() << " reached end of all log files. this means"
-                        " there has been no log emitted by this logger for a while";
-                    epoch_ended = true;
+                if (log_range.end_file_ordinal == cur_file_ordinal) {
+                    ended = true;
                 } else {
                     ++cur_file_ordinal;
                     cur_offset = 0;
@@ -204,12 +207,11 @@ ErrorStack LogMapper::handle_epoch() {
         }
         file.close();
     }
-    VLOG(0) << to_string() << " processed " << processed_log_count_ << " log entries in epoch-"
-        << epoch;
+    VLOG(0) << to_string() << " processed " << processed_log_count_ << " log entries";
     return kRetOk;
 }
 
-void LogMapper::pre_wait_for_next_epoch() {
+void LogMapper::pre_handle_uninitialize() {
     uint16_t value_after = parent_->increment_completed_mapper_count();
     if (value_after == parent_->get_mappers_count()) {
         LOG(INFO) << "wait_for_next_epoch(): " << to_string() << " was the last mapper.";

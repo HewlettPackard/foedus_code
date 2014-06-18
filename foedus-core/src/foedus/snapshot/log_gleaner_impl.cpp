@@ -22,12 +22,7 @@ namespace snapshot {
 
 ErrorStack LogGleaner::initialize_once() {
     LOG(INFO) << "Initializing Log Gleaner";
-    completed_count_.store(0U);
-    completed_mapper_count_.store(0U);
-    error_count_.store(0U);
-    exit_count_.store(0U);
-    processing_epoch_.store(Epoch::kEpochInvalid);
-    nonrecord_log_buffer_pos_.store(0U);
+    clear_counts();
     // 2MB ought to be enough for everyone
     nonrecord_log_buffer_.alloc(1 << 21, 1 << 21, memory::AlignedMemory::kNumaAllocInterleaved, 0);
     ASSERT_ND(!nonrecord_log_buffer_.is_null());
@@ -104,12 +99,7 @@ void LogGleaner::cancel_reducers_mappers() {
 
 ErrorStack LogGleaner::execute() {
     LOG(INFO) << "gleaner_thread_ starts running: " << *this;
-    completed_count_.store(0U);
-    completed_mapper_count_.store(0U);
-    error_count_.store(0U);
-    exit_count_.store(0U);
-    processing_epoch_.store(snapshot_->base_epoch_.value());
-    nonrecord_log_buffer_pos_.store(0U);
+    clear_counts();
 
     // initialize mappers and reducers. This launches the threads.
     for (LogMapper* mapper : mappers_) {
@@ -120,51 +110,36 @@ ErrorStack LogGleaner::execute() {
     }
     // Wait for completion of mapper/reducer initialization.
     LOG(INFO) << "Waiting for completion of mappers and reducers init.. " << *this;
+
+    // the last one will wake me up.
     while (!gleaner_thread_->sleep()) {
-        ASSERT_ND(completed_count_ <= mappers_.size() + reducers_.size());
-        if (completed_count_ == mappers_.size() + reducers_.size()) {
+        ASSERT_ND(ready_to_start_count_ <= mappers_.size() + reducers_.size());
+        if (is_all_ready_to_start()) {
             break;
         }
     }
 
     LOG(INFO) << "Initialized mappers and reducers: " << *this;
 
-    // let mappers/reducers work for each
-    while (!is_stop_requested() && error_count_ == 0) {
-        // advance the processing epoch and wake up all mappers/reducers
-        Epoch next_epoch = get_next_processing_epoch();
-        if (next_epoch > snapshot_->valid_until_epoch_) {
-            // okay, we already processed all logs
+    // now let's start!
+    start_processing_.signal();
+
+    // then, wait until all mappers/reducers are done for this epoch
+    while (!gleaner_thread_->sleep() && error_count_ == 0) {
+        if (is_stop_requested() || is_all_completed()) {
             break;
         }
-        LOG(INFO) << "Starting a new map/reduce phase for epoch " << next_epoch << ": " << *this;
-        completed_count_.store(0U);
-        completed_mapper_count_.store(0U);
-        processing_epoch_.store(next_epoch.value());
-        processing_epoch_cond_for(next_epoch).notify_all();
-        nonrecord_log_buffer_pos_.store(0U);
-
-        // then, wait until all mappers/reducers are done for this epoch
-        while (!gleaner_thread_->sleep() && error_count_ == 0) {
-            if (is_stop_requested()) {
-                break;
-            }
-            ASSERT_ND(get_processing_epoch() == snapshot_->valid_until_epoch_ || exit_count_ == 0U);
-            ASSERT_ND(completed_count_ <= mappers_.size() + reducers_.size());
-            if (completed_count_ == mappers_.size() + reducers_.size()) {
-                break;
-            }
-        }
-    }
-
-    if (get_processing_epoch().is_valid()
-            && get_processing_epoch() < snapshot_->valid_until_epoch_) {
-        LOG(WARNING) << "gleaner_thread_ stopped without completion. cancelled? " << *this;
     }
 
     if (error_count_ > 0) {
         LOG(ERROR) << "Some mapper/reducer got an error. " << *this;
+    } else if (!is_all_completed()) {
+        LOG(WARNING) << "gleaner_thread_ stopped without completion. cancelled? " << *this;
+    } else {
+        LOG(INFO) << "All mappers/reducers successfully done. " << *this;
     }
+
+    complete_processing_.signal();
 
     LOG(INFO) << "gleaner_thread_ stopping.. cancelling reducers and mappers: " << *this;
     cancel_reducers_mappers();
@@ -186,7 +161,6 @@ void LogGleaner::add_nonrecord_log(const log::LogHeader* header) {
         header->log_length_);
 }
 
-
 std::string LogGleaner::to_string() const {
     std::stringstream stream;
     stream << *this;
@@ -195,11 +169,13 @@ std::string LogGleaner::to_string() const {
 std::ostream& operator<<(std::ostream& o, const LogGleaner& v) {
     o << "<LogGleaner>"
         << *v.snapshot_ << *v.gleaner_thread_
+        << "<ready_to_start_count_>" << v.ready_to_start_count_ << "</ready_to_start_count_>"
         << "<completed_count_>" << v.completed_count_ << "</completed_count_>"
         << "<completed_mapper_count_>" << v.completed_mapper_count_ << "</completed_mapper_count_>"
         << "<error_count_>" << v.error_count_ << "</error_count_>"
         << "<exit_count_>" << v.exit_count_ << "</exit_count_>"
-        << "<processing_epoch_>" << v.get_processing_epoch() << "</processing_epoch_>";
+        << "<nonrecord_log_buffer_pos_>"
+            << v.nonrecord_log_buffer_pos_ << "</nonrecord_log_buffer_pos_>";
     o << "<Mappers>";
     for (auto mapper : v.mappers_) {
         o << *mapper;

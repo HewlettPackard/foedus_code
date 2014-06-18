@@ -35,9 +35,10 @@ ErrorStack LogReducer::handle_uninitialize() {
     return SUMMARIZE_ERROR_BATCH(batch);
 }
 
-ErrorStack LogReducer::handle_epoch() {
+ErrorStack LogReducer::handle_process() {
     // Epoch epoch = parent_->get_processing_epoch();
     SPINLOCK_WHILE(!parent_->is_all_mappers_completed()) {
+        WRAP_ERROR_CODE(check_cancelled());
     }
     return kRetOk;
 }

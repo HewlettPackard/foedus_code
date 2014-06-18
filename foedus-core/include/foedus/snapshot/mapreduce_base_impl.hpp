@@ -4,7 +4,6 @@
  */
 #ifndef FOEDUS_SNAPSHOT_MAPREDUCE_BASE_IMPL_HPP_
 #define FOEDUS_SNAPSHOT_MAPREDUCE_BASE_IMPL_HPP_
-#include <foedus/epoch.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
@@ -58,8 +57,8 @@ class MapReduceBase : public DefaultInitializable {
 
     thread::StoppableThread         thread_;
 
-    /** Implements the specific logics in derived class. Called per epoch. */
-    virtual ErrorStack  handle_epoch() = 0;
+    /** Implements the specific logics in derived class. */
+    virtual ErrorStack  handle_process() = 0;
 
     /** additional initialization  in derived class called at the beginning of handle() */
     virtual ErrorStack  handle_initialize() = 0;
@@ -73,13 +72,13 @@ class MapReduceBase : public DefaultInitializable {
     /** Main routine */
     void                handle();
 
-    /**
-     * Wait for the beginning of next epoch processing.
-     * @return whether there is more epoch to process.
-     */
-    bool                wait_for_next_epoch();
-    /** Called at the beginning of wait_for_next_epoch to add something specific to derived class.*/
-    virtual void        pre_wait_for_next_epoch() {}
+    /** called from handle() when all processing is done. */
+    void                handle_complete();
+    /** to add anything specific to derived class at the beginning of handle_complete() */
+    virtual void        pre_handle_uninitialize() {}
+
+    /** Derived class's handle_process() should occasionally call this to exit if it's cancelled. */
+    ErrorCode           check_cancelled();
 };
 }  // namespace snapshot
 }  // namespace foedus

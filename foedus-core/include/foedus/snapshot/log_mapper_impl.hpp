@@ -66,8 +66,8 @@ class LogMapper final : public MapReduceBase {
  protected:
     ErrorStack  handle_initialize() override;
     ErrorStack  handle_uninitialize() override;
-    ErrorStack  handle_epoch() override;
-    void        pre_wait_for_next_epoch() override;
+    ErrorStack  handle_process() override;
+    void        pre_handle_uninitialize() override;
 
  private:
     /** buffer to read from file. */

@@ -365,6 +365,7 @@ ErrorStack Logger::log_epoch_switch(Epoch new_epoch) {
             << " marked ep=" << marked_epoch_;
     } else {
         // Use fill buffer to write out the epoch mark log
+        std::lock_guard<std::mutex> guard(epoch_switch_mutex_);
         char* buf = reinterpret_cast<char*>(fill_buffer_.get_block());
         EpochMarkerLogType* epoch_marker = reinterpret_cast<EpochMarkerLogType*>(buf);
         epoch_marker->populate(marked_epoch_, new_epoch, numa_node_, in_node_ordinal_, id_,
@@ -386,23 +387,62 @@ ErrorStack Logger::log_epoch_switch(Epoch new_epoch) {
 void Logger::add_epoch_history(const EpochMarkerLogType& epoch_marker) {
     ASSERT_ND(epoch_histories_.size() == 0
         || epoch_histories_.back().new_epoch_ ==  epoch_marker.old_epoch_);
-    if (epoch_marker.old_epoch_ == epoch_marker.new_epoch_) {
+    // the first epoch marker is allowed only if it's a dummy marker.
+    // this simplifies the detection of first epoch marker
+    if (!epoch_histories_.empty() && epoch_marker.old_epoch_ == epoch_marker.new_epoch_) {
         LOG(INFO) << "Ignored a dummy epoch marker while replaying epoch marker log on Logger-"
             << id_ << ". marker=" << epoch_marker;
     } else {
         epoch_histories_.emplace_back(EpochHistory(epoch_marker));
     }
 }
-const EpochHistory* Logger::get_epoch_history_for(Epoch epoch) const {
+Logger::LogRange Logger::get_log_range(Epoch prev_epoch, Epoch until_epoch) {
     // TODO(Hideaki) binary search. we assume there are not many epoch histories, so not urgent.
-    for (const EpochHistory& history : epoch_histories_) {
-        if (history.new_epoch_ == epoch) {
-            return &history;
-        } else if (history.new_epoch_ > epoch) {
-            return nullptr;
+    ASSERT_ND(until_epoch <= durable_epoch_);
+    Logger::LogRange result;
+
+    // to make sure we have an epoch mark, we update marked_epoch_
+    if (marked_epoch_ < durable_epoch_.one_more()) {
+        no_log_epoch_ = false;  // to forcibly write out the epoch mark this case
+        COERCE_ERROR(log_epoch_switch(durable_epoch_.one_more()));
+    }
+    ASSERT_ND(marked_epoch_ > until_epoch);
+
+    std::size_t pos = 0;
+    result.begin_file_ordinal = 0;
+    result.begin_offset = 0;
+    if (prev_epoch.is_valid()) {
+        // first, locate the prev_epoch
+        for (; pos < epoch_histories_.size(); ++pos) {
+            if (epoch_histories_[pos].new_epoch_ > prev_epoch) {
+                result.begin_file_ordinal = epoch_histories_[pos].log_file_ordinal_;
+                result.begin_offset = epoch_histories_[pos].log_file_offset_;
+                break;
+            }
+        }
+        if (pos == epoch_histories_.size()) {
+            LOG(FATAL) << "No epoch mark found for " << prev_epoch << " in logger-" << id_;
         }
     }
-    return nullptr;
+
+    // next, locate until_epoch. we might not find it if the logger was idle for a while.
+    // in that case, the current file/ordinal is used.
+    for (; pos < epoch_histories_.size(); ++pos) {
+        if (epoch_histories_[pos].new_epoch_ > until_epoch) {
+            result.end_file_ordinal = epoch_histories_[pos].log_file_ordinal_;
+            result.end_offset = epoch_histories_[pos].log_file_offset_;
+            break;
+        }
+    }
+
+    if (pos == epoch_histories_.size() && !result.is_empty()) {
+        LOG(FATAL) << "No epoch mark found for " << until_epoch << " in logger-" << id_;
+    }
+
+    ASSERT_ND(result.begin_file_ordinal <= result.end_file_ordinal);
+    ASSERT_ND(result.begin_file_ordinal < result.end_file_ordinal
+        || result.begin_offset <= result.end_offset);
+    return result;
 }
 
 ErrorStack Logger::switch_file_if_required() {

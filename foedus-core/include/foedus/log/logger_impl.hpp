@@ -66,11 +66,31 @@ class Logger final : public DefaultInitializable {
     /** Append a new epoch history. */
     void        add_epoch_history(const EpochMarkerLogType& epoch_marker);
 
+    /** a contiguous range of log entries that might span multiple files. */
+    struct LogRange {
+        LogFileOrdinal  begin_file_ordinal;
+        LogFileOrdinal  end_file_ordinal;
+        uint64_t        begin_offset;
+        uint64_t        end_offset;
+        bool is_empty() const {
+            return begin_file_ordinal == end_file_ordinal && begin_offset == end_offset;
+        }
+    };
+
     /**
-     * Returns an epoch history where this logger switched to the given epoch.
-     * @return an epoch history whose new_epoch is the given epoch. null if no such history
+     * @brief Constructs the range of log entries that represent the given epoch ranges.
+     * @param[in] prev_epoch Log entries until this epoch are skipped.
+     * An invalid epoch means from the beginning.
+     * @param[in] until_epoch Log entries until this epoch are contained.
+     * Must be valid.
+     * @return log range that contains all logs (prev_epoch, until_epoch].
+     * In other owrds, from prev_epoch-exclusive and to until_epoch-inclusive.
+     * @details
+     * In case there is no ending epoch marker (only when marked_epoch_ < durable_epoch_.one_more())
+     * this method writes out a new epoch marker. This method is called only for each snapshotting,
+     * so it shouldn't be too big a waste.
      */
-    const EpochHistory* get_epoch_history_for(Epoch epoch) const;
+    LogRange get_log_range(Epoch prev_epoch, Epoch until_epoch);
 
     LogFileOrdinal get_current_ordinal() const { return current_ordinal_; }
 
@@ -222,6 +242,9 @@ class Logger final : public DefaultInitializable {
      * @todo concurrency protection. we might switch to circular buffer.
      */
     std::vector< EpochHistory >     epoch_histories_;
+
+    /** protects log_epoch_switch() from concurrent accesses. */
+    std::mutex                      epoch_switch_mutex_;
 };
 }  // namespace log
 }  // namespace foedus
