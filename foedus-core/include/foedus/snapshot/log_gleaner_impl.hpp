@@ -10,12 +10,14 @@
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
 #include <foedus/log/log_id.hpp>
+#include <foedus/memory/aligned_memory.hpp>
 #include <foedus/snapshot/fwd.hpp>
 #include <foedus/thread/condition_variable_impl.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <stdint.h>
 #include <atomic>
 #include <iosfwd>
+#include <mutex>
 #include <string>
 #include <vector>
 namespace foedus {
@@ -135,6 +137,12 @@ class LogGleaner final : public DefaultInitializable {
     uint16_t get_reducers_count() const { return reducers_.size(); }
     uint16_t get_all_count() const { return mappers_.size() + reducers_.size(); }
 
+    /**
+     * Atomically copy the given non-record log to this gleaner's buffer, which will be centraly
+     * processed at the end of epoch.
+     */
+    void add_nonrecord_log(const log::LogHeader* header);
+
  private:
     /**
      * Request reducers and mappers to cancel the work.
@@ -201,6 +209,22 @@ class LogGleaner final : public DefaultInitializable {
     std::vector<LogMapper*>         mappers_;
     /** Reducers. Index is PartitionId. */
     std::vector<LogReducer*>        reducers_;
+
+    /**
+     * buffer to collect all logs that will be centraly processed at the end of each epoch.
+     * Those are engine-targetted and storage-targetted logs, which appear much less frequently.
+     * Thus this buffer is quite small.
+     */
+    memory::AlignedMemory           nonrecord_log_buffer_;
+
+    /**
+     * number of bytes copied into nonrecord_log_buffer_.
+     * A mapper that got a non-record log atomically incrementes this value and copies into
+     * nonrecord_log_buffer_ from the previous value as byte position.
+     * As logs don't overlap, we don't need any mutex.
+     * @see add_nonrecord_log()
+     */
+    std::atomic<uint64_t>           nonrecord_log_buffer_pos_;
 };
 }  // namespace snapshot
 }  // namespace foedus

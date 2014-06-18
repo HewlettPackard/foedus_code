@@ -51,6 +51,8 @@ struct LogHeader {
 
     /** Convenience method to cast into LogCode. */
     LogCode get_type() const ALWAYS_INLINE { return static_cast<LogCode>(log_type_code_); }
+    /** Convenience method to get LogCodeKind. */
+    LogCodeKind get_kind() const ALWAYS_INLINE { return get_log_code_kind(get_type()); }
 
     /** Another convenience method to see if the type code is non-zero and exists. */
     bool is_valid_type() const { return is_valid_log_type(get_type()); }

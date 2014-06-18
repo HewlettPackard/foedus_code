@@ -66,8 +66,18 @@ class Logger final : public DefaultInitializable {
     /** Append a new epoch history. */
     void        add_epoch_history(const EpochMarkerLogType& epoch_marker);
 
+    /**
+     * Returns an epoch history where this logger switched to the given epoch.
+     * @return an epoch history whose new_epoch is the given epoch. null if no such history
+     */
+    const EpochHistory* get_epoch_history_for(Epoch epoch) const;
+
+    LogFileOrdinal get_current_ordinal() const { return current_ordinal_; }
+
     std::string             to_string() const;
     friend std::ostream&    operator<<(std::ostream& o, const Logger& v);
+
+    fs::Path    construct_suffixed_log_path(LogFileOrdinal ordinal) const;
 
  private:
     /**
@@ -115,8 +125,6 @@ class Logger final : public DefaultInitializable {
      * around.
      */
     ErrorStack  write_log(ThreadLogBuffer* buffer, uint64_t upto_offset);
-
-    fs::Path    construct_suffixed_log_path(LogFileOrdinal ordinal) const;
 
     /** Check invariants. This method should be wiped in NDEBUG. */
     void        assert_consistent();
@@ -211,6 +219,7 @@ class Logger final : public DefaultInitializable {
 
     /**
      * Remembers all epoch switching in this logger.
+     * @todo concurrency protection. we might switch to circular buffer.
      */
     std::vector< EpochHistory >     epoch_histories_;
 };

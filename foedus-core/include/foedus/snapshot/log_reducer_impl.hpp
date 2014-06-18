@@ -9,6 +9,7 @@
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
 #include <foedus/log/log_id.hpp>
+#include <foedus/memory/aligned_memory.hpp>
 #include <foedus/snapshot/fwd.hpp>
 #include <foedus/snapshot/mapreduce_base_impl.hpp>
 #include <foedus/snapshot/snapshot_id.hpp>
@@ -64,6 +65,14 @@ class LogReducer final : public MapReduceBase {
     ErrorStack  handle_initialize() override;
     ErrorStack  handle_uninitialize() override;
     ErrorStack  handle_epoch() override;
+
+ private:
+    /**
+     * memory to store all log entries in the epoch.
+     * So far, this buffer has to contain all log entries in an epoch to the partition.
+     * We have a few plans to alter the initial implementation.
+     */
+    memory::AlignedMemory   buffer_;
 };
 }  // namespace snapshot
 }  // namespace foedus

@@ -5,11 +5,13 @@
 #include <foedus/engine.hpp>
 #include <foedus/engine_options.hpp>
 #include <foedus/error_stack_batch.hpp>
+#include <foedus/memory/memory_id.hpp>
 #include <foedus/snapshot/log_gleaner_impl.hpp>
 #include <foedus/snapshot/log_mapper_impl.hpp>
 #include <foedus/snapshot/log_reducer_impl.hpp>
 #include <foedus/snapshot/snapshot.hpp>
 #include <foedus/thread/stoppable_thread_impl.hpp>
+#include <foedus/log/common_log_types.hpp>
 #include <glog/logging.h>
 #include <chrono>
 #include <ostream>
@@ -25,10 +27,15 @@ ErrorStack LogGleaner::initialize_once() {
     error_count_.store(0U);
     exit_count_.store(0U);
     processing_epoch_.store(Epoch::kEpochInvalid);
+    nonrecord_log_buffer_pos_.store(0U);
+    // 2MB ought to be enough for everyone
+    nonrecord_log_buffer_.alloc(1 << 21, 1 << 21, memory::AlignedMemory::kNumaAllocInterleaved, 0);
+    ASSERT_ND(!nonrecord_log_buffer_.is_null());
 
     const EngineOptions& options = engine_->get_options();
     const thread::ThreadGroupId numa_nodes = options.thread_.group_count_;
     for (thread::ThreadGroupId node = 0; node < numa_nodes; ++node) {
+        memory::ScopedNumaPreferred numa_scope(node);
         for (uint16_t ordinal = 0; ordinal < options.log_.loggers_per_node_; ++ordinal) {
             log::LoggerId logger_id = options.log_.loggers_per_node_ * node + ordinal;
             mappers_.push_back(new LogMapper(engine_, this, logger_id, node));
@@ -50,6 +57,7 @@ ErrorStack LogGleaner::uninitialize_once() {
     // unexpected errors). We do it again to make sure.
     batch.uninitialize_and_delete_all(&mappers_);
     batch.uninitialize_and_delete_all(&reducers_);
+    nonrecord_log_buffer_.release_block();
     return SUMMARIZE_ERROR_BATCH(batch);
 }
 
@@ -101,6 +109,7 @@ ErrorStack LogGleaner::execute() {
     error_count_.store(0U);
     exit_count_.store(0U);
     processing_epoch_.store(snapshot_->base_epoch_.value());
+    nonrecord_log_buffer_pos_.store(0U);
 
     // initialize mappers and reducers. This launches the threads.
     for (LogMapper* mapper : mappers_) {
@@ -133,6 +142,7 @@ ErrorStack LogGleaner::execute() {
         completed_mapper_count_.store(0U);
         processing_epoch_.store(next_epoch.value());
         processing_epoch_cond_for(next_epoch).notify_all();
+        nonrecord_log_buffer_pos_.store(0U);
 
         // then, wait until all mappers/reducers are done for this epoch
         while (!gleaner_thread_->sleep() && error_count_ == 0) {
@@ -162,6 +172,18 @@ ErrorStack LogGleaner::execute() {
     LOG(INFO) << "gleaner_thread_ ends: " << *this;
 
     return kRetOk;
+}
+
+void LogGleaner::add_nonrecord_log(const log::LogHeader* header) {
+    ASSERT_ND(header->get_kind() != log::kEngineLogs || header->get_kind() != log::kStorageLogs);
+    uint64_t begins_at = nonrecord_log_buffer_pos_.fetch_add(header->log_length_);
+    // we so far assume nonrecord_log_buffer_ is always big enough.
+    // TODO(Hideaki) : automatic growing if needed. Very rare, though.
+    ASSERT_ND(begins_at + header->log_length_ <= nonrecord_log_buffer_.get_size());
+    std::memcpy(
+        static_cast<char*>(nonrecord_log_buffer_.get_block()) + begins_at,
+        header,
+        header->log_length_);
 }
 
 

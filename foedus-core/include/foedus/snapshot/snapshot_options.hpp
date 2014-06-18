@@ -20,6 +20,9 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
     enum Constants {
         kDefaultSnapshotTriggerPagePoolPercent = 100,
         kDefaultSnapshotIntervalMilliseconds = 60000,
+        kDefaultLogMapperBucketKb           = 1024,
+        kDefaultLogMapperIoBufferKb         = 1024,
+        kDefaultLogReducerBufferMb           = 256,
     };
 
     /**
@@ -72,6 +75,29 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
      * Default is one minute.
      */
     uint32_t                            snapshot_interval_milliseconds_;
+
+    /**
+     * The size in KB of bucket (buffer for each partition) in mapper.
+     * The larger, the less freuquently each mapper communicates with reducers.
+     * 1024 (1MB) should be a good number.
+     */
+    uint32_t                            log_mapper_bucket_kb_;
+
+    /**
+     * The size in KB of IO buffer to read log files in mapper.
+     * 1024 (1MB) should be a good number.
+     */
+    uint32_t                            log_mapper_io_buffer_kb_;
+
+    /**
+     * The size in MB of a buffer to store log entries in reducer (partition).
+     * Each reducer receives log entries from all mappers, so the right size is likely much
+     * larger than log_mapper_bucket_kb_.
+     *
+     * So far, this buffer has to contain all log entries in an epoch to the partition.
+     * We have a few plans to alter the initial implementation.
+     */
+    uint32_t                            log_reducer_buffer_mb_;
 
     /** Settings to emulate slower data device. */
     foedus::fs::DeviceEmulationOptions  emulation_;

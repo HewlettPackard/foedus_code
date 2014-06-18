@@ -393,6 +393,17 @@ void Logger::add_epoch_history(const EpochMarkerLogType& epoch_marker) {
         epoch_histories_.emplace_back(EpochHistory(epoch_marker));
     }
 }
+const EpochHistory* Logger::get_epoch_history_for(Epoch epoch) const {
+    // TODO(Hideaki) binary search. we assume there are not many epoch histories, so not urgent.
+    for (const EpochHistory& history : epoch_histories_) {
+        if (history.new_epoch_ == epoch) {
+            return &history;
+        } else if (history.new_epoch_ > epoch) {
+            return nullptr;
+        }
+    }
+    return nullptr;
+}
 
 ErrorStack Logger::switch_file_if_required() {
     ASSERT_ND(current_file_);
