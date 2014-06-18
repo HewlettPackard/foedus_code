@@ -136,17 +136,13 @@ class ConditionVariable final {
     template<typename SIGNAL_ACTION>
     void notify_all(SIGNAL_ACTION signal_action) {
         NotifierScope scope(this);
-        signal_action();  // conduct the action to update actual values *in* critical section
-        while (true) {
-            ASSERT_ND(scope.lock_.owns_lock());
-            if (waiters_ > 0) {
-                condition_.notify_one();
-                scope.lock_.unlock();
-                assorted::spinlock_yield();
-                scope.lock_.lock();
-            } else {
-                break;
-            }
+        {
+            std::lock_guard<std::mutex> guard(mutex_);
+            signal_action();  // conduct the action to update actual values *in* critical section
+        }
+        while (waiters_ > 0) {
+            condition_.notify_one();
+            assorted::spinlock_yield();
         }
     }
     /**
@@ -174,7 +170,10 @@ class ConditionVariable final {
     template<typename SIGNAL_ACTION>
     void notify_one(SIGNAL_ACTION signal_action) {
         NotifierScope scope(this);
-        signal_action();
+        {
+            std::lock_guard<std::mutex> guard(mutex_);
+            signal_action();
+        }
         if (waiters_ > 0) {
             condition_.notify_one();
         }
@@ -224,18 +223,14 @@ class ConditionVariable final {
     };
     /** same for notifier. */
     struct NotifierScope {
-        explicit NotifierScope(ConditionVariable* enclosure)
-            : enclosure_(enclosure), lock_(enclosure_->mutex_) {
-            ASSERT_ND(lock_.owns_lock());
+        explicit NotifierScope(ConditionVariable* enclosure) : enclosure_(enclosure) {
             ++enclosure_->notifiers_;
         }
         ~NotifierScope() {
-            ASSERT_ND(lock_.owns_lock());
             ASSERT_ND(enclosure_->notifiers_ > 0);
             --enclosure_->notifiers_;
         }
         ConditionVariable* const enclosure_;
-        std::unique_lock<std::mutex> lock_;
     };
 };
 
