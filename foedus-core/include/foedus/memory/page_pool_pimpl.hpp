@@ -24,61 +24,61 @@ namespace memory {
  */
 class PagePoolPimpl final : public DefaultInitializable {
  public:
-    PagePoolPimpl() = delete;
-    PagePoolPimpl(Engine* engine, thread::ThreadGroupId numa_node)
-        : engine_(engine), numa_node_(numa_node) {}
-    ErrorStack  initialize_once() override;
-    ErrorStack  uninitialize_once() override;
+  PagePoolPimpl() = delete;
+  PagePoolPimpl(Engine* engine, thread::ThreadGroupId numa_node)
+    : engine_(engine), numa_node_(numa_node) {}
+  ErrorStack  initialize_once() override;
+  ErrorStack  uninitialize_once() override;
 
-    ErrorCode           grab(uint32_t desired_grab_count, PagePoolOffsetChunk *chunk);
-    void                release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
-    LocalPageResolver&  get_resolver() { return resolver_; }
+  ErrorCode           grab(uint32_t desired_grab_count, PagePoolOffsetChunk *chunk);
+  void                release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
+  LocalPageResolver&  get_resolver() { return resolver_; }
 
-    Engine* const                   engine_;
+  Engine* const                   engine_;
 
-    /** The NUMA node this pool is allocated at. */
-    const thread::ThreadGroupId     numa_node_;
+  /** The NUMA node this pool is allocated at. */
+  const thread::ThreadGroupId     numa_node_;
 
-    /** The whole memory region of the pool. */
-    AlignedMemory                   memory_;
+  /** The whole memory region of the pool. */
+  AlignedMemory                   memory_;
 
-    /**
-     * An object to resolve an offset in \e this page pool (thus \e local) to an actual
-     * pointer and vice versa.
-     */
-    LocalPageResolver               resolver_;
+  /**
+   * An object to resolve an offset in \e this page pool (thus \e local) to an actual
+   * pointer and vice versa.
+   */
+  LocalPageResolver               resolver_;
 
-    /** Just an auxiliary variable to the beginning of the pool. Same as memory_.get_block(). */
-    storage::Page*                  pool_base_;
+  /** Just an auxiliary variable to the beginning of the pool. Same as memory_.get_block(). */
+  storage::Page*                  pool_base_;
 
-    /** Just an auxiliary variable of the size of pool. Same as memory_.get_size()/kPageSize. */
-    uint64_t                        pool_size_;
+  /** Just an auxiliary variable of the size of pool. Same as memory_.get_size()/kPageSize. */
+  uint64_t                        pool_size_;
 
-    /**
-     * This many first pages are used for free page maintainance.
-     * This also means that "Page-0" never appears in our engine, thus we can use offset=0 as null.
-     * In other words, all offsets grabbed/released should be equal or larger than this value.
-     * Immutable once initialized.
-     */
-    uint64_t                        pages_for_free_pool_;
+  /**
+   * This many first pages are used for free page maintainance.
+   * This also means that "Page-0" never appears in our engine, thus we can use offset=0 as null.
+   * In other words, all offsets grabbed/released should be equal or larger than this value.
+   * Immutable once initialized.
+   */
+  uint64_t                        pages_for_free_pool_;
 
-    /**
-     * We maintain free pages as a simple circular queue.
-     * We append new/released pages to tail while we eat from head.
-     */
-    PagePoolOffset*                 free_pool_;
-    /** Size of free_pool_. Immutable once initialized. */
-    uint64_t                        free_pool_capacity_;
-    /** Inclusive head of the circular queue. Be aware of wrapping around. */
-    uint64_t                        free_pool_head_;
-    /** Number of free pages. */
-    uint64_t                        free_pool_count_;
+  /**
+   * We maintain free pages as a simple circular queue.
+   * We append new/released pages to tail while we eat from head.
+   */
+  PagePoolOffset*                 free_pool_;
+  /** Size of free_pool_. Immutable once initialized. */
+  uint64_t                        free_pool_capacity_;
+  /** Inclusive head of the circular queue. Be aware of wrapping around. */
+  uint64_t                        free_pool_head_;
+  /** Number of free pages. */
+  uint64_t                        free_pool_count_;
 
-    /**
-     * grab()/release() are protected with this lock.
-     * This lock is not contentious at all because we pack many pointers in a chunk.
-     */
-    std::mutex                      lock_;
+  /**
+   * grab()/release() are protected with this lock.
+   * This lock is not contentious at all because we pack many pointers in a chunk.
+   */
+  std::mutex                      lock_;
 };
 }  // namespace memory
 }  // namespace foedus

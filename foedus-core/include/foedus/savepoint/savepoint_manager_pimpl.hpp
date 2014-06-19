@@ -22,30 +22,30 @@ namespace savepoint {
  */
 class SavepointManagerPimpl final : public DefaultInitializable {
  public:
-    SavepointManagerPimpl() = delete;
-    explicit SavepointManagerPimpl(Engine* engine) : engine_(engine) {}
-    ErrorStack  initialize_once() override;
-    ErrorStack  uninitialize_once() override;
+  SavepointManagerPimpl() = delete;
+  explicit SavepointManagerPimpl(Engine* engine) : engine_(engine) {}
+  ErrorStack  initialize_once() override;
+  ErrorStack  uninitialize_once() override;
 
-    Savepoint           get_savepoint_safe() const;
-    const Savepoint&    get_savepoint_fast() const;
-    ErrorStack          take_savepoint(Epoch new_global_durable_epoch);
+  Savepoint           get_savepoint_safe() const;
+  const Savepoint&    get_savepoint_fast() const;
+  ErrorStack          take_savepoint(Epoch new_global_durable_epoch);
 
-    Engine* const           engine_;
+  Engine* const           engine_;
 
-    /** Path of the savepoint file. */
-    fs::Path                savepoint_path_;
+  /** Path of the savepoint file. */
+  fs::Path                savepoint_path_;
 
-    /**
-     * The current progress of the entire engine.
-     */
-    Savepoint               savepoint_;
+  /**
+   * The current progress of the entire engine.
+   */
+  Savepoint               savepoint_;
 
-    /**
-     * Protectes against read/write accesses to savepoint_.
-     * So far exclusive mutex. We should't have frequent accesses to savepoint_, so should be ok.
-     */
-    mutable std::mutex      savepoint_mutex_;
+  /**
+   * Protectes against read/write accesses to savepoint_.
+   * So far exclusive mutex. We should't have frequent accesses to savepoint_, so should be ok.
+   */
+  mutable std::mutex      savepoint_mutex_;
 };
 }  // namespace savepoint
 }  // namespace foedus

@@ -31,34 +31,34 @@ namespace xct {
  * \li REPEATABLE_READ: assuming no-repeated-access (which we do assume), same as COMMITTED_READ
  */
 enum IsolationLevel {
-    /**
-     * No guarantee at all for reads, for the sake of best performance and scalability.
-     * This avoids checking and even storing read set, thus provides the best performance.
-     * However, concurrent transactions might be modifying the data the transaction is now reading.
-     * So, this has a chance of reading half-changed data.
-     * To ameriolate the issue a bit, this mode prefers snapshot pages if both a snapshot page
-     * and a volatile page is available. In other words, more consistent but more stale data.
-     */
-    kDirtyReadPreferSnapshot,
+  /**
+   * No guarantee at all for reads, for the sake of best performance and scalability.
+   * This avoids checking and even storing read set, thus provides the best performance.
+   * However, concurrent transactions might be modifying the data the transaction is now reading.
+   * So, this has a chance of reading half-changed data.
+   * To ameriolate the issue a bit, this mode prefers snapshot pages if both a snapshot page
+   * and a volatile page is available. In other words, more consistent but more stale data.
+   */
+  kDirtyReadPreferSnapshot,
 
-    /**
-     * Basically same as kDirtyReadPreferSnapshot, but this mode prefers volatile pages
-     * if both a snapshot page and a volatile page is available. In other words,
-     * more recent but more inconsistent data.
-     */
-    kDirtyReadPreferVolatile,
+  /**
+   * Basically same as kDirtyReadPreferSnapshot, but this mode prefers volatile pages
+   * if both a snapshot page and a volatile page is available. In other words,
+   * more recent but more inconsistent data.
+   */
+  kDirtyReadPreferVolatile,
 
-    /**
-     * Snapshot isolation, meaning the transaction might see or be based on stale snapshot.
-     * Optionally, the client can specify which snapshot we should be based on.
-     */
-    kSnapshot,
+  /**
+   * Snapshot isolation, meaning the transaction might see or be based on stale snapshot.
+   * Optionally, the client can specify which snapshot we should be based on.
+   */
+  kSnapshot,
 
-    /**
-     * Protects against all anomalies in all situations.
-     * This is the most expensive level, but everything good has a price.
-     */
-    kSerializable,
+  /**
+   * Protects against all anomalies in all situations.
+   * This is the most expensive level, but everything good has a price.
+   */
+  kSerializable,
 };
 
 /**
@@ -142,157 +142,157 @@ const uint64_t kUnmaskStatusBits            = 0xFFFFFFFFFFFFFFF0ULL;
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
 struct XctId {
-    /** Defines constant values. */
-    enum Constants {
-        kShiftEpoch         = 36,
-        kShiftOrdinal       = 20,
-        kShiftThreadId     = 4,
-    };
+  /** Defines constant values. */
+  enum Constants {
+    kShiftEpoch         = 36,
+    kShiftOrdinal       = 20,
+    kShiftThreadId     = 4,
+  };
 
-    XctId() : data_(0) {}
-    XctId(const XctId& other) : data_(other.data_) {}
+  XctId() : data_(0) {}
+  XctId(const XctId& other) : data_(other.data_) {}
 
-    void set_clean(Epoch::EpochInteger epoch_int, uint16_t ordinal, thread::ThreadId thread_id) {
-        ASSERT_ND(epoch_int < Epoch::kEpochIntOverflow);
-        data_ = (static_cast<uint64_t>(epoch_int) << kShiftEpoch)
-            | (static_cast<uint64_t>(ordinal) << kShiftOrdinal)
-            | (static_cast<uint64_t>(thread_id) << kShiftThreadId);
-    }
+  void set_clean(Epoch::EpochInteger epoch_int, uint16_t ordinal, thread::ThreadId thread_id) {
+    ASSERT_ND(epoch_int < Epoch::kEpochIntOverflow);
+    data_ = (static_cast<uint64_t>(epoch_int) << kShiftEpoch)
+      | (static_cast<uint64_t>(ordinal) << kShiftOrdinal)
+      | (static_cast<uint64_t>(thread_id) << kShiftThreadId);
+  }
 
-    XctId& operator=(const XctId& other) {
-        data_ = other.data_;
-        return *this;
-    }
+  XctId& operator=(const XctId& other) {
+    data_ = other.data_;
+    return *this;
+  }
 
-    Epoch   get_epoch() const ALWAYS_INLINE { return Epoch(get_epoch_int()); }
-    void    set_epoch(Epoch epoch) ALWAYS_INLINE { set_epoch_int(epoch.value()); }
-    Epoch::EpochInteger get_epoch_int() const ALWAYS_INLINE {
-        return static_cast<Epoch::EpochInteger>((data_ & kMaskEpoch) >> kShiftEpoch);
-    }
-    void    set_epoch_int(Epoch::EpochInteger epoch) ALWAYS_INLINE {
-        ASSERT_ND(epoch < Epoch::kEpochIntOverflow);
-        data_ = (data_ & kUnmaskEpoch) | (static_cast<uint64_t>(epoch) << kShiftEpoch);
-    }
-    bool    is_valid() const ALWAYS_INLINE { return (data_ & kMaskEpoch) != 0; }
+  Epoch   get_epoch() const ALWAYS_INLINE { return Epoch(get_epoch_int()); }
+  void    set_epoch(Epoch epoch) ALWAYS_INLINE { set_epoch_int(epoch.value()); }
+  Epoch::EpochInteger get_epoch_int() const ALWAYS_INLINE {
+    return static_cast<Epoch::EpochInteger>((data_ & kMaskEpoch) >> kShiftEpoch);
+  }
+  void    set_epoch_int(Epoch::EpochInteger epoch) ALWAYS_INLINE {
+    ASSERT_ND(epoch < Epoch::kEpochIntOverflow);
+    data_ = (data_ & kUnmaskEpoch) | (static_cast<uint64_t>(epoch) << kShiftEpoch);
+  }
+  bool    is_valid() const ALWAYS_INLINE { return (data_ & kMaskEpoch) != 0; }
 
 
-    uint16_t get_ordinal() const ALWAYS_INLINE {
-        return static_cast<uint16_t>((data_ & kMaskOrdinal) >> kShiftOrdinal);
-    }
-    void set_ordinal(uint16_t ordinal) ALWAYS_INLINE {
-        data_ = (data_ & kUnmaskOrdinal) | (static_cast<uint64_t>(ordinal) << kShiftOrdinal);
-    }
-    thread::ThreadId get_thread_id() const ALWAYS_INLINE {
-        return static_cast<thread::ThreadId>((data_ & kMaskThreadId) >> kShiftThreadId);
-    }
-    void    set_thread_id(thread::ThreadId id) ALWAYS_INLINE {
-        data_ = (data_ & kUnmaskThreadId) | (static_cast<uint64_t>(id) << kShiftThreadId);
-    }
+  uint16_t get_ordinal() const ALWAYS_INLINE {
+    return static_cast<uint16_t>((data_ & kMaskOrdinal) >> kShiftOrdinal);
+  }
+  void set_ordinal(uint16_t ordinal) ALWAYS_INLINE {
+    data_ = (data_ & kUnmaskOrdinal) | (static_cast<uint64_t>(ordinal) << kShiftOrdinal);
+  }
+  thread::ThreadId get_thread_id() const ALWAYS_INLINE {
+    return static_cast<thread::ThreadId>((data_ & kMaskThreadId) >> kShiftThreadId);
+  }
+  void    set_thread_id(thread::ThreadId id) ALWAYS_INLINE {
+    data_ = (data_ & kUnmaskThreadId) | (static_cast<uint64_t>(id) << kShiftThreadId);
+  }
 
-    /**
-     * Returns a 32-bit integer that represents the serial order in the epoch.
-     */
-    XctOrder get_in_epoch_xct_order() const ALWAYS_INLINE {
-        return (data_ & kMaskInEpochOrder) >> kShiftThreadId;
-    }
+  /**
+   * Returns a 32-bit integer that represents the serial order in the epoch.
+   */
+  XctOrder get_in_epoch_xct_order() const ALWAYS_INLINE {
+    return (data_ & kMaskInEpochOrder) >> kShiftThreadId;
+  }
 
-    /**
-     * Returns if epoch, thread_id, and oridnal (w/o status) are identical with the given XctId.
-     */
-    bool equals_serial_order(const XctId &other) const ALWAYS_INLINE {
-        return (data_ & kMaskSerializer) == (other.data_ & kMaskSerializer);
-    }
-    bool equals_all(const XctId &other) const ALWAYS_INLINE {
-        return data_ == other.data_;
-    }
+  /**
+   * Returns if epoch, thread_id, and oridnal (w/o status) are identical with the given XctId.
+   */
+  bool equals_serial_order(const XctId &other) const ALWAYS_INLINE {
+    return (data_ & kMaskSerializer) == (other.data_ & kMaskSerializer);
+  }
+  bool equals_all(const XctId &other) const ALWAYS_INLINE {
+    return data_ == other.data_;
+  }
 
-    /**
-     * @brief Kind of std::max(this, other).
-     * @details
-     * This relies on the semantics of before(). Thus, this can't differentiate two XctId that
-     * differ only in status bits. This method is only used for XctId generation at commit time,
-     * so that's fine.
-     */
-    void store_max(const XctId& other) {
-        if (before(other)) {
-            data_ = other.data_;
-        }
+  /**
+   * @brief Kind of std::max(this, other).
+   * @details
+   * This relies on the semantics of before(). Thus, this can't differentiate two XctId that
+   * differ only in status bits. This method is only used for XctId generation at commit time,
+   * so that's fine.
+   */
+  void store_max(const XctId& other) {
+    if (before(other)) {
+      data_ = other.data_;
     }
+  }
 
-    /**
-     * Returns if this XctId is \e before other in serialization order, meaning this is either an
-     * invalid (unused) epoch or strictly less than the other.
-     * @pre other.is_valid()
-     */
-    bool before(const XctId &other) const ALWAYS_INLINE {
-        ASSERT_ND(other.is_valid());
-        if (get_epoch().before(other.get_epoch())) {
-            return true;  // epoch is treated carefully because of wrap-around
-        } else {
-            return data_ < other.data_;  // otherwise, just an integer comparison
-        }
+  /**
+   * Returns if this XctId is \e before other in serialization order, meaning this is either an
+   * invalid (unused) epoch or strictly less than the other.
+   * @pre other.is_valid()
+   */
+  bool before(const XctId &other) const ALWAYS_INLINE {
+    ASSERT_ND(other.is_valid());
+    if (get_epoch().before(other.get_epoch())) {
+      return true;  // epoch is treated carefully because of wrap-around
+    } else {
+      return data_ < other.data_;  // otherwise, just an integer comparison
     }
+  }
 
-    friend std::ostream& operator<<(std::ostream& o, const XctId& v);
+  friend std::ostream& operator<<(std::ostream& o, const XctId& v);
 
-    /**
-     * Lock this key, busy-waiting if already locked.
-     * This assumes there is no deadlock (sorting write set assues it).
-     */
-    void keylock_unconditional() {
-        SPINLOCK_WHILE(true) {
-            uint64_t expected = data_ & kUnmaskKeylock;
-            uint64_t desired = expected | kKeylockBit;
-            if (assorted::raw_atomic_compare_exchange_weak(&data_, &expected, desired)) {
-                ASSERT_ND(is_keylocked());
-                break;
-            }
-        }
-    }
-    bool is_keylocked() const ALWAYS_INLINE { return (data_ & kKeylockBit) != 0; }
-    void spin_while_keylocked() const {
-        SPINLOCK_WHILE(is_keylocked()) {
-            assorted::memory_fence_acquire();
-        }
-    }
-    void release_keylock() ALWAYS_INLINE {
+  /**
+   * Lock this key, busy-waiting if already locked.
+   * This assumes there is no deadlock (sorting write set assues it).
+   */
+  void keylock_unconditional() {
+    SPINLOCK_WHILE(true) {
+      uint64_t expected = data_ & kUnmaskKeylock;
+      uint64_t desired = expected | kKeylockBit;
+      if (assorted::raw_atomic_compare_exchange_weak(&data_, &expected, desired)) {
         ASSERT_ND(is_keylocked());
-        data_ &= kUnmaskKeylock;
+        break;
+      }
     }
+  }
+  bool is_keylocked() const ALWAYS_INLINE { return (data_ & kKeylockBit) != 0; }
+  void spin_while_keylocked() const {
+    SPINLOCK_WHILE(is_keylocked()) {
+      assorted::memory_fence_acquire();
+    }
+  }
+  void release_keylock() ALWAYS_INLINE {
+    ASSERT_ND(is_keylocked());
+    data_ &= kUnmaskKeylock;
+  }
 
-    void rangelock_unconditional() {
-        SPINLOCK_WHILE(true) {
-            uint64_t expected = data_ & kUnmaskRangelock;
-            uint64_t desired = expected | kRangelockBit;
-            if (assorted::raw_atomic_compare_exchange_weak(&data_, &expected, desired)) {
-                ASSERT_ND(is_rangelocked());
-                break;
-            }
-        }
-    }
-    bool is_rangelocked() const ALWAYS_INLINE { return (data_ & kRangelockBit) != 0; }
-    void spin_while_rangelocked() const {
-        SPINLOCK_WHILE(is_rangelocked()) {
-            assorted::memory_fence_acquire();
-        }
-    }
-    void release_rangelock() ALWAYS_INLINE {
+  void rangelock_unconditional() {
+    SPINLOCK_WHILE(true) {
+      uint64_t expected = data_ & kUnmaskRangelock;
+      uint64_t desired = expected | kRangelockBit;
+      if (assorted::raw_atomic_compare_exchange_weak(&data_, &expected, desired)) {
         ASSERT_ND(is_rangelocked());
-        data_ &= kUnmaskRangelock;
+        break;
+      }
     }
-
-    bool is_deleted() const ALWAYS_INLINE { return (data_ & kDeleteBit) != 0; }
-    bool is_latest() const ALWAYS_INLINE { return (data_ & kLatestBit) != 0; }
-
-    bool is_status_bits_off() const ALWAYS_INLINE {
-        return !is_deleted() && !is_keylocked() && !is_latest() && !is_rangelocked();
+  }
+  bool is_rangelocked() const ALWAYS_INLINE { return (data_ & kRangelockBit) != 0; }
+  void spin_while_rangelocked() const {
+    SPINLOCK_WHILE(is_rangelocked()) {
+      assorted::memory_fence_acquire();
     }
-    void clear_status_bits() ALWAYS_INLINE {
-        data_ &= kUnmaskStatusBits;
-    }
+  }
+  void release_rangelock() ALWAYS_INLINE {
+    ASSERT_ND(is_rangelocked());
+    data_ &= kUnmaskRangelock;
+  }
 
-    /** The 64bit data. */
-    uint64_t           data_;
+  bool is_deleted() const ALWAYS_INLINE { return (data_ & kDeleteBit) != 0; }
+  bool is_latest() const ALWAYS_INLINE { return (data_ & kLatestBit) != 0; }
+
+  bool is_status_bits_off() const ALWAYS_INLINE {
+    return !is_deleted() && !is_keylocked() && !is_latest() && !is_rangelocked();
+  }
+  void clear_status_bits() ALWAYS_INLINE {
+    data_ &= kUnmaskStatusBits;
+  }
+
+  /** The 64bit data. */
+  uint64_t           data_;
 };
 // sizeof(XctId) must be 64 bits.
 STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))

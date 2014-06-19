@@ -20,11 +20,11 @@ namespace fs {
  * @ingroup FILESYSTEM
  */
 enum FileType {
-    kStatusError = 0,
-    kFileNotFound,
-    kRegularFile,
-    kDirectoryFile,
-    kTypeUnknown,
+  kStatusError = 0,
+  kFileNotFound,
+  kRegularFile,
+  kDirectoryFile,
+  kTypeUnknown,
 };
 
 /**
@@ -33,31 +33,31 @@ enum FileType {
  * @ingroup FILESYSTEM
  */
 enum FilePermission {
-    kNoPerms = 0,       // kFileNotFound is kNoPerms rather than kPermsNotKnown
+  kNoPerms = 0,       // kFileNotFound is kNoPerms rather than kPermsNotKnown
 
-    // POSIX equivalent macros given in comments.
-    // Values are from POSIX and are given in octal per the POSIX standard.
+  // POSIX equivalent macros given in comments.
+  // Values are from POSIX and are given in octal per the POSIX standard.
 
-    // permission bits
+  // permission bits
 
-    kOwnerRead = 0400,      // S_IRUSR, Read permission, owner
-    kOwnerWrite = 0200,     // S_IWUSR, Write permission, owner
-    kOwnerExe = 0100,       // S_IXUSR, Execute/search permission, owner
-    kOwnerAll = 0700,       // S_IRWXU, Read, write, execute/search by owner
+  kOwnerRead = 0400,      // S_IRUSR, Read permission, owner
+  kOwnerWrite = 0200,     // S_IWUSR, Write permission, owner
+  kOwnerExe = 0100,       // S_IXUSR, Execute/search permission, owner
+  kOwnerAll = 0700,       // S_IRWXU, Read, write, execute/search by owner
 
-    kGroupRead = 040,       // S_IRGRP, Read permission, group
-    kGroupWrite = 020,      // S_IWGRP, Write permission, group
-    kGroupExe = 010,        // S_IXGRP, Execute/search permission, group
-    kGroupAll = 070,        // S_IRWXG, Read, write, execute/search by group
+  kGroupRead = 040,       // S_IRGRP, Read permission, group
+  kGroupWrite = 020,      // S_IWGRP, Write permission, group
+  kGroupExe = 010,        // S_IXGRP, Execute/search permission, group
+  kGroupAll = 070,        // S_IRWXG, Read, write, execute/search by group
 
-    kOthersRead = 04,       // S_IROTH, Read permission, others
-    kOthersWrite = 02,      // S_IWOTH, Write permission, others
-    kOthersExe = 01,        // S_IXOTH, Execute/search permission, others
-    kOthersAll = 07,        // S_IRWXO, Read, write, execute/search by others
+  kOthersRead = 04,       // S_IROTH, Read permission, others
+  kOthersWrite = 02,      // S_IWOTH, Write permission, others
+  kOthersExe = 01,        // S_IXOTH, Execute/search permission, others
+  kOthersAll = 07,        // S_IRWXO, Read, write, execute/search by others
 
-    kAllAll = kOwnerAll|kGroupAll|kOthersAll,  // 0777
+  kAllAll = kOwnerAll|kGroupAll|kOthersAll,  // 0777
 
-    kPermsNotKnown = 0xFFFF,   // present when directory_entry cache not loaded
+  kPermsNotKnown = 0xFFFF,   // present when directory_entry cache not loaded
 };
 
 /**
@@ -65,19 +65,19 @@ enum FilePermission {
  * @ingroup FILESYSTEM
  */
 struct FileStatus {
-    FileStatus()            : type_(kStatusError), permissions_(kPermsNotKnown) {}
-    explicit FileStatus(FileType type, FilePermission permissions = kPermsNotKnown)
-                                      : type_(type), permissions_(permissions) {}
+  FileStatus()            : type_(kStatusError), permissions_(kPermsNotKnown) {}
+  explicit FileStatus(FileType type, FilePermission permissions = kPermsNotKnown)
+                    : type_(type), permissions_(permissions) {}
 
-    bool type_present() const       { return type_ != kStatusError; }
-    bool permissions_present() const    { return permissions_ != kPermsNotKnown;}
-    bool status_known() const       { return type_present() && permissions_present(); }
-    bool exists() const             { return type_ != kStatusError && type_ != kFileNotFound; }
-    bool is_regular_file() const    { return type_ == kRegularFile; }
-    bool is_directory() const       { return type_ == kDirectoryFile; }
+  bool type_present() const       { return type_ != kStatusError; }
+  bool permissions_present() const    { return permissions_ != kPermsNotKnown;}
+  bool status_known() const       { return type_present() && permissions_present(); }
+  bool exists() const             { return type_ != kStatusError && type_ != kFileNotFound; }
+  bool is_regular_file() const    { return type_ == kRegularFile; }
+  bool is_directory() const       { return type_ == kDirectoryFile; }
 
-    FileType        type_;
-    FilePermission  permissions_;
+  FileType        type_;
+  FilePermission  permissions_;
 };
 
 /**
@@ -86,12 +86,12 @@ struct FileStatus {
  * all values are byte counts.
  */
 struct SpaceInfo  {
-    uint64_t capacity_;
-    /** Less than capacity_. */
-    uint64_t free_;
-    /** Less than free_. */
-    uint64_t available_;
-    friend std::ostream& operator<<(std::ostream& o, const SpaceInfo& v);
+  uint64_t capacity_;
+  /** Less than capacity_. */
+  uint64_t free_;
+  /** Less than free_. */
+  uint64_t available_;
+  friend std::ostream& operator<<(std::ostream& o, const SpaceInfo& v);
 };
 
 /**
@@ -256,7 +256,7 @@ bool        durable_atomic_rename(const Path& old_path, const Path& new_path);
  * @ingroup FILESYSTEM
  */
 inline bool rename(const Path& old_path, const Path& new_path) {
-    return atomic_rename(old_path, new_path);
+  return atomic_rename(old_path, new_path);
 }
 
 }  // namespace fs

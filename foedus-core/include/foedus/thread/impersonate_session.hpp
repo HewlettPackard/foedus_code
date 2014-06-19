@@ -43,65 +43,65 @@ namespace thread {
  * This object is a POD. It's trivially copiable/moveable.
  */
 struct ImpersonateSession CXX11_FINAL {
-    /** Result of wait_for() */
-    enum Status {
-        /** If called for an invalid session. */
-        kInvalidSession = 0,
-        /** The session has completed. */
-        kReady,
-        /** Timeout duration has elapsed. */
-        kTimeout,
-    };
+  /** Result of wait_for() */
+  enum Status {
+    /** If called for an invalid session. */
+    kInvalidSession = 0,
+    /** The session has completed. */
+    kReady,
+    /** Timeout duration has elapsed. */
+    kTimeout,
+  };
 
-    ImpersonateSession() : thread_(CXX11_NULLPTR), task_(CXX11_NULLPTR), invalid_cause_() {}
-    explicit ImpersonateSession(ImpersonateTask* task)
-        : thread_(CXX11_NULLPTR), task_(task), invalid_cause_() {}
-    ~ImpersonateSession() {}
+  ImpersonateSession() : thread_(CXX11_NULLPTR), task_(CXX11_NULLPTR), invalid_cause_() {}
+  explicit ImpersonateSession(ImpersonateTask* task)
+    : thread_(CXX11_NULLPTR), task_(task), invalid_cause_() {}
+  ~ImpersonateSession() {}
 
-    /**
-     * Returns if the impersonation succeeded.
-     */
-    bool        is_valid() const { return thread_ != CXX11_NULLPTR; }
+  /**
+   * Returns if the impersonation succeeded.
+   */
+  bool        is_valid() const { return thread_ != CXX11_NULLPTR; }
 
-    /**
-     * @brief Waits until the completion of the asynchronous session and retrieves the result.
-     * @details
-     * It effectively calls wait() in order to wait for the result.
-     * The behavior is undefined if is_valid()== false.
-     * This is analogous to std::future::get().
-     * @pre is_valid()==true
-     */
-    ErrorStack  get_result();
+  /**
+   * @brief Waits until the completion of the asynchronous session and retrieves the result.
+   * @details
+   * It effectively calls wait() in order to wait for the result.
+   * The behavior is undefined if is_valid()== false.
+   * This is analogous to std::future::get().
+   * @pre is_valid()==true
+   */
+  ErrorStack  get_result();
 
-    /**
-     * @brief Blocks until the completion of the asynchronous session.
-     * @details
-     * The behavior is undefined if is_valid()== false.
-     * It effectively calls wait_for(-1) in order to unconditionally wait for the result.
-     * This is analogous to std::future::wait().
-     * @pre is_valid()==true
-     */
-    void        wait() const;
+  /**
+   * @brief Blocks until the completion of the asynchronous session.
+   * @details
+   * The behavior is undefined if is_valid()== false.
+   * It effectively calls wait_for(-1) in order to unconditionally wait for the result.
+   * This is analogous to std::future::wait().
+   * @pre is_valid()==true
+   */
+  void        wait() const;
 
-    /**
-     * @brief Waits for the completion of the asynchronous session, blocking until specified timeout
-     * duration has elapsed or the session completes, whichever comes first.
-     * @param[in] timeout timeout duration in microseconds.
-     * @details
-     * This is analogous to std::future::wait_for() although we don't provide std::chrono.
-     */
-    Status      wait_for(TimeoutMicrosec timeout) const;
+  /**
+   * @brief Waits for the completion of the asynchronous session, blocking until specified timeout
+   * duration has elapsed or the session completes, whichever comes first.
+   * @param[in] timeout timeout duration in microseconds.
+   * @details
+   * This is analogous to std::future::wait_for() although we don't provide std::chrono.
+   */
+  Status      wait_for(TimeoutMicrosec timeout) const;
 
-    friend std::ostream& operator<<(std::ostream& o, const ImpersonateSession& v);
+  friend std::ostream& operator<<(std::ostream& o, const ImpersonateSession& v);
 
-    /** The impersonated thread. If impersonation failed, NULL. */
-    Thread*             thread_;
+  /** The impersonated thread. If impersonation failed, NULL. */
+  Thread*             thread_;
 
-    /** The impersonated task running on this session. */
-    ImpersonateTask*    task_;
+  /** The impersonated task running on this session. */
+  ImpersonateTask*    task_;
 
-    /** If impersonation failed, this indicates why it failed. */
-    ErrorStack          invalid_cause_;
+  /** If impersonation failed, this indicates why it failed. */
+  ErrorStack          invalid_cause_;
 };
 }  // namespace thread
 }  // namespace foedus

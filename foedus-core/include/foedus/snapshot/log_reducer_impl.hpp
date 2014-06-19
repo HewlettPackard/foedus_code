@@ -51,27 +51,27 @@ namespace snapshot {
  */
 class LogReducer final : public MapReduceBase {
  public:
-    LogReducer(Engine* engine, LogGleaner* parent, PartitionId id, thread::ThreadGroupId numa_node)
-        : MapReduceBase(engine, parent, id, numa_node) {}
+  LogReducer(Engine* engine, LogGleaner* parent, PartitionId id, thread::ThreadGroupId numa_node)
+    : MapReduceBase(engine, parent, id, numa_node) {}
 
-    /** One LogReducer corresponds to one snapshot partition. */
-    PartitionId             get_id() const { return id_; }
-    std::string             to_string() const override {
-        return std::string("LogReducer-") + std::to_string(id_);
-    }
-    friend std::ostream&    operator<<(std::ostream& o, const LogReducer& v);
+  /** One LogReducer corresponds to one snapshot partition. */
+  PartitionId             get_id() const { return id_; }
+  std::string             to_string() const override {
+    return std::string("LogReducer-") + std::to_string(id_);
+  }
+  friend std::ostream&    operator<<(std::ostream& o, const LogReducer& v);
 
  protected:
-    ErrorStack  handle_initialize() override;
-    ErrorStack  handle_uninitialize() override;
-    ErrorStack  handle_process() override;
+  ErrorStack  handle_initialize() override;
+  ErrorStack  handle_uninitialize() override;
+  ErrorStack  handle_process() override;
 
  private:
-    /**
-     * memory to store log entries in the epoch.
-     * Just like the logging buffer, this forms a circular buffer.
-     */
-    memory::AlignedMemory   buffer_;
+  /**
+   * memory to store log entries in the epoch.
+   * Just like the logging buffer, this forms a circular buffer.
+   */
+  memory::AlignedMemory   buffer_;
 };
 }  // namespace snapshot
 }  // namespace foedus

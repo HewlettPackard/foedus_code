@@ -16,20 +16,20 @@ namespace savepoint {
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
 struct SavepointOptions CXX11_FINAL : public virtual externalize::Externalizable {
-    /**
-     * Constructs option values with default values.
-     */
-    SavepointOptions();
+  /**
+   * Constructs option values with default values.
+   */
+  SavepointOptions();
 
-    /**
-     * @brief Full path of the savepoint file.
-     * @details
-     * This file is atomically and durably updated for each epoch-based commit.
-     * Default is "savepoint.xml".
-     */
-    std::string savepoint_path_;
+  /**
+   * @brief Full path of the savepoint file.
+   * @details
+   * This file is atomically and durably updated for each epoch-based commit.
+   * Default is "savepoint.xml".
+   */
+  std::string savepoint_path_;
 
-    EXTERNALIZABLE(SavepointOptions);
+  EXTERNALIZABLE(SavepointOptions);
 };
 }  // namespace savepoint
 }  // namespace foedus

@@ -14,12 +14,12 @@ namespace storage {
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
 struct StorageOptions CXX11_FINAL : public virtual externalize::Externalizable {
-    /**
-     * Constructs option values with default values.
-     */
-    StorageOptions();
+  /**
+   * Constructs option values with default values.
+   */
+  StorageOptions();
 
-    EXTERNALIZABLE(StorageOptions);
+  EXTERNALIZABLE(StorageOptions);
 };
 }  // namespace storage
 }  // namespace foedus

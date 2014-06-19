@@ -52,29 +52,29 @@ find_package(Threads REQUIRED)
 # Every such code should be within #ifdef HAVE_GOOGLEPERFTOOLS.
 find_package(GooglePerftools)
 if (GOOGLEPERFTOOLS_FOUND)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_GOOGLEPERFTOOLS")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_GOOGLEPERFTOOLS")
 endif (GOOGLEPERFTOOLS_FOUND)
 
 # We do assume C++11.
 # However, external projects can link to this library even if they use C++98.
 # Our public header files do the switching (hides some API if C++11 is disabled).
 if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-std\\=c\\+\\+11")
-    message(STATUS "The external project that invokes this CMake script disables c++11."
-        " libfoedus-core can be still used as a shared library, but some API will be disabled.")
-    # this set(CMAKE_CXX_FLAGS) is directory-wide, so it does not affect external projects
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+  message(STATUS "The external project that invokes this CMake script disables c++11."
+    " libfoedus-core can be still used as a shared library, but some API will be disabled.")
+  # this set(CMAKE_CXX_FLAGS) is directory-wide, so it does not affect external projects
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 endif ()
 
 # We need to make sure -pthread compiler option is specified
 if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-pthread")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 endif ()
 
 # We anyway use 64-bit file offsets, but ideally should be consistent with client program's.
 if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-D\\_FILE\\_OFFSET\\_BITS\\=64")
-    message(STATUS "Automatically added -D_FILE_OFFSET_BITS=64 for libfoedus-core."
-        " Your client program should also enable the compile option.")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
+  message(STATUS "Automatically added -D_FILE_OFFSET_BITS=64 for libfoedus-core."
+    " Your client program should also enable the compile option.")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
 endif ()
 
 # Enable GCC's built-in 128bit CAS
@@ -89,18 +89,18 @@ set(CMAKE_INCLUDE_CURRENT_DIR OFF)
 #############################################################################
 # include files
 include_directories(
-    # our main include folder
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    # libnuma
-    ${NUMA_INCLUDE_DIR}
-    # tinyxml2
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tinyxml2-2.1.0
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glog-0.3.3/src
-    # We also include the BINARY folder of glog as glog generates config.h
-    ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog-0.3.3/src)
+  # our main include folder
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  # libnuma
+  ${NUMA_INCLUDE_DIR}
+  # tinyxml2
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tinyxml2-2.1.0
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glog-0.3.3/src
+  # We also include the BINARY folder of glog as glog generates config.h
+  ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog-0.3.3/src)
 # gperftools is optional for this library
 if (GOOGLEPERFTOOLS_FOUND)
-    include_directories(${GooglePerftools_INCLUDE_DIR})
+  include_directories(${GooglePerftools_INCLUDE_DIR})
 endif (GOOGLEPERFTOOLS_FOUND)
 
 # This project contains glog so that it can compile by itself.
@@ -121,19 +121,19 @@ target_link_libraries(foedus-core ${NUMA_LIBRARY})
 target_link_libraries(foedus-core tinyxml2static)
 target_link_libraries(foedus-core ${CMAKE_THREAD_LIBS_INIT})
 if (GOOGLEPERFTOOLS_FOUND)
-    target_link_libraries(foedus-core ${GooglePerftools_LIBRARIES})
+  target_link_libraries(foedus-core ${GooglePerftools_LIBRARIES})
 endif (GOOGLEPERFTOOLS_FOUND)
 
 # Invoke CPPLINT (if ENABLE_CPPLINT is given)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CpplintWrapper.cmake)
 CPPLINT_RECURSIVE(cpplint_include
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_BINARY_DIR}/include)
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_BINARY_DIR}/include)
 CPPLINT_RECURSIVE(cpplint_src
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_BINARY_DIR}/src)
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_BINARY_DIR}/src)
 add_dependencies(foedus-core cpplint_include cpplint_src)
 
 #############################################################################
@@ -146,9 +146,9 @@ install(TARGETS foedus-core DESTINATION "${CMAKE_INSTALL_PREFIX}/lib64")
 make_directory(${CMAKE_CURRENT_BINARY_DIR}/dox/html)
 make_directory(${CMAKE_CURRENT_BINARY_DIR}/dox/latex)
 install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dox/html"
-    DESTINATION "${CMAKE_INSTALL_PREFIX}/share/doc/foedus-core")
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/share/doc/foedus-core")
 install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dox/latex"
-    DESTINATION "${CMAKE_INSTALL_PREFIX}/share/doc/foedus-core")
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/share/doc/foedus-core")
 
 set(CPACK_PACKAGE_VERSION ${FOEDUS_VERSION})
 set(CPACK_GENERATOR "RPM")
@@ -180,43 +180,43 @@ include(CPack)
 # Doxygen commands (not mandatory)
 find_package(Doxygen)
 if(DOXYGEN_FOUND)
-    set(DOXYGEN_INCLUDE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/include")
-    set(DOXYGEN_LAYOUT "${CMAKE_CURRENT_SOURCE_DIR}/DoxygenLayout.xml")
-    set(DOXYGEN_TARGETS "${CMAKE_CURRENT_SOURCE_DIR}/include")
-    set(DOXYGEN_TARGETS "${DOXYGEN_TARGETS} ${CMAKE_CURRENT_SOURCE_DIR}/src")
-    set(DOXYGEN_TARGETS "${DOXYGEN_TARGETS} ${NUMA_INCLUDE_DIR}/numa.h")
-    # include other dependencies if it's worth doing. Most of them are not.
-    # set(DOXYGEN_TARGETS "${DOXYGEN_TARGETS} ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog/src") # too big
+  set(DOXYGEN_INCLUDE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  set(DOXYGEN_LAYOUT "${CMAKE_CURRENT_SOURCE_DIR}/DoxygenLayout.xml")
+  set(DOXYGEN_TARGETS "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  set(DOXYGEN_TARGETS "${DOXYGEN_TARGETS} ${CMAKE_CURRENT_SOURCE_DIR}/src")
+  set(DOXYGEN_TARGETS "${DOXYGEN_TARGETS} ${NUMA_INCLUDE_DIR}/numa.h")
+  # include other dependencies if it's worth doing. Most of them are not.
+  # set(DOXYGEN_TARGETS "${DOXYGEN_TARGETS} ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog/src") # too big
 
-    # Doxygen until ver 1.8.6 had a bug; it allowed only a filename in USE_MDFILE_AS_MAINPAGE,
-    # not a full path. see https://bugzilla.gnome.org/show_bug.cgi?id=720092
-    # To work it around, we copy the file to bin folder and use only the file name
-    set(DOXYGEN_MAINPAGE_MARKDOWN "README.markdown")
-    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/README.markdown ${CMAKE_CURRENT_BINARY_DIR}/README.markdown COPYONLY)
-    # set(DOXYGEN_MAINPAGE_MARKDOWN "${CMAKE_CURRENT_SOURCE_DIR}/README.markdown")
+  # Doxygen until ver 1.8.6 had a bug; it allowed only a filename in USE_MDFILE_AS_MAINPAGE,
+  # not a full path. see https://bugzilla.gnome.org/show_bug.cgi?id=720092
+  # To work it around, we copy the file to bin folder and use only the file name
+  set(DOXYGEN_MAINPAGE_MARKDOWN "README.markdown")
+  configure_file(${CMAKE_CURRENT_SOURCE_DIR}/README.markdown ${CMAKE_CURRENT_BINARY_DIR}/README.markdown COPYONLY)
+  # set(DOXYGEN_MAINPAGE_MARKDOWN "${CMAKE_CURRENT_SOURCE_DIR}/README.markdown")
 
-    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile @ONLY)
-    add_custom_target(dox
-        ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-        COMMENT "Generating API documentation with Doxygen" VERBATIM)
-    add_custom_target(browse-dox
-        COMMAND google-chrome ${CMAKE_CURRENT_BINARY_DIR}/dox/html/index.html
-        DEPENDS dox)
-    # I recommend "yum install texlive texlive-*" to make this work. it requires a few
-    # additional sty files.
-    add_custom_target(pdf-dox
-        COMMAND epstopdf *.eps # sudo yum install texlive-eps*
-        COMMAND pdflatex refman.tex # sudo yum install texlive
-        COMMAND makeindex refman.idx
-        COMMAND pdflatex refman.tex
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/dox/latex/
-        COMMENT "Generating a single PDF with Doxygen"
-        DEPENDS dox)
-    add_custom_target(browse-pdf-dox
-        COMMAND okular refman.pdf
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/dox/latex/
-        DEPENDS pdf-dox)
+  configure_file(${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile @ONLY)
+  add_custom_target(dox
+    ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    COMMENT "Generating API documentation with Doxygen" VERBATIM)
+  add_custom_target(browse-dox
+    COMMAND google-chrome ${CMAKE_CURRENT_BINARY_DIR}/dox/html/index.html
+    DEPENDS dox)
+  # I recommend "yum install texlive texlive-*" to make this work. it requires a few
+  # additional sty files.
+  add_custom_target(pdf-dox
+    COMMAND epstopdf *.eps # sudo yum install texlive-eps*
+    COMMAND pdflatex refman.tex # sudo yum install texlive
+    COMMAND makeindex refman.idx
+    COMMAND pdflatex refman.tex
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/dox/latex/
+    COMMENT "Generating a single PDF with Doxygen"
+    DEPENDS dox)
+  add_custom_target(browse-pdf-dox
+    COMMAND okular refman.pdf
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/dox/latex/
+    DEPENDS pdf-dox)
 else(DOXYGEN_FOUND)
-    add_custom_target(dox ${CMAKE_COMMAND} -E echo "Doxygen not found. No documents generated.")
+  add_custom_target(dox ${CMAKE_COMMAND} -E echo "Doxygen not found. No documents generated.")
 endif(DOXYGEN_FOUND)

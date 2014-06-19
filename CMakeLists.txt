@@ -30,7 +30,7 @@ set(FOEDUS_VALGRIND_REPORT_DIR ${CMAKE_CURRENT_BINARY_DIR}/valgrind-reports)
 make_directory(${FOEDUS_TEST_REPORT_DIR})
 make_directory(${FOEDUS_VALGRIND_REPORT_DIR})
 mark_as_advanced(FOEDUS_SRC_ROOT FOEDUS_BIN_ROOT FOEDUS_CORE_SRC_ROOT
-    FOEDUS_CORE_BIN_ROOT FOEDUS_TEST_REPORT_DIR FOEDUS_VALGRIND_REPORT_DIR)
+  FOEDUS_CORE_BIN_ROOT FOEDUS_TEST_REPORT_DIR FOEDUS_VALGRIND_REPORT_DIR)
 
 # All executables should explicitly link to libpthreads, not just relying on implicit linking.
 # http://www.jimmo.org/threads-blocked-in-pthread_cond_signal-on-linux/
@@ -88,7 +88,7 @@ find_package(Valgrind REQUIRED)
 # for why we switched to roll-our-own solution.
 # we use CTest in tests-xxx. run "make test" or "ctest" after cmake
 set(MEMORYCHECK_SUPPRESSIONS_FILE "${FOEDUS_CORE_SRC_ROOT}/tools/valgrind.supp"
-    CACHE FILEPATH "" FORCE)
+  CACHE FILEPATH "" FORCE)
 configure_file(${MEMORYCHECK_SUPPRESSIONS_FILE} ${FOEDUS_BIN_ROOT}/valgrind.supp COPYONLY)
 set(MEMORYCHECK_COMMAND "${VALGRIND_EXEC}" CACHE FILEPATH "" FORCE)
 # Configurations for ctest
@@ -115,33 +115,33 @@ add_subdirectory(tests-core)
 
 find_package(Doxygen)
 if(DOXYGEN_FOUND)
-    add_custom_target(dox-all DEPENDS dox
-        COMMENT "Generate API documentation with Doxygen for all projects")
+  add_custom_target(dox-all DEPENDS dox
+    COMMENT "Generate API documentation with Doxygen for all projects")
 else(DOXYGEN_FOUND)
-    add_custom_target(dox-all ${CMAKE_COMMAND} -E echo "Doxygen not found. No documents generated.")
+  add_custom_target(dox-all ${CMAKE_COMMAND} -E echo "Doxygen not found. No documents generated.")
 endif(DOXYGEN_FOUND)
 
 add_custom_target(sloccount
-    COMMAND sloccount --duplicates --wide --details
-        # exclude third party code and build folder. sloccount is a bit inflexible for this.
-        ${CMAKE_CURRENT_SOURCE_DIR}/experiments-core
-        ${CMAKE_CURRENT_SOURCE_DIR}/foedus-core/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/foedus-core/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests-core
-        ${CMAKE_CURRENT_SOURCE_DIR}/foedus-util
-        > ${CMAKE_CURRENT_BINARY_DIR}/sloccount.ac
-    COMMENT "Count source lines of code with sloccount")
+  COMMAND sloccount --duplicates --wide --details
+    # exclude third party code and build folder. sloccount is a bit inflexible for this.
+    ${CMAKE_CURRENT_SOURCE_DIR}/experiments-core
+    ${CMAKE_CURRENT_SOURCE_DIR}/foedus-core/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/foedus-core/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests-core
+    ${CMAKE_CURRENT_SOURCE_DIR}/foedus-util
+    > ${CMAKE_CURRENT_BINARY_DIR}/sloccount.ac
+  COMMENT "Count source lines of code with sloccount")
 
 
 # for jenkins Cppcheck plugin, also provide a command to write out xml.
 set(CPPLINT_CONVERTER ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cpplint_to_cppcheckxml.py)
 add_custom_target(cpplint-for-jenkins
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-    COMMAND ${CMAKE_BUILD_TOOL}
-        cpplint_include cpplint_src
-        experiment_core_cpplint_src experiment_core_cpplint_include
-        tests_core_cpplint_src tests_core_cpplint_include
-        2>&1| ${CPPLINT_CONVERTER} &> ${CMAKE_CURRENT_BINARY_DIR}/cpplint-cppcheck-result.xml
+  WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+  COMMAND ${CMAKE_BUILD_TOOL}
+    cpplint_include cpplint_src
+    experiment_core_cpplint_src experiment_core_cpplint_include
+    tests_core_cpplint_src tests_core_cpplint_include
+    2>&1| ${CPPLINT_CONVERTER} &> ${CMAKE_CURRENT_BINARY_DIR}/cpplint-cppcheck-result.xml
 )
 
 # For convenience

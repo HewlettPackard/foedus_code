@@ -20,41 +20,41 @@ namespace thread {
 DEFINE_TEST_CASE_PACKAGE(ThreadPoolTest, foedus.thread);
 
 struct DummyTask : public ImpersonateTask {
-    explicit DummyTask(Rendezvous *rendezvous) : rendezvous_(rendezvous) {}
-    ErrorStack run(Thread* /*context*/) {
-        rendezvous_->wait();
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        return kRetOk;
-    }
-    Rendezvous *rendezvous_;
+  explicit DummyTask(Rendezvous *rendezvous) : rendezvous_(rendezvous) {}
+  ErrorStack run(Thread* /*context*/) {
+    rendezvous_->wait();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    return kRetOk;
+  }
+  Rendezvous *rendezvous_;
 };
 
 void run_test(int pooled_count, int impersonate_count) {
-    EngineOptions options = get_tiny_options();
-    options.thread_.thread_count_per_group_ = pooled_count;
-    Engine engine(options);
-    COERCE_ERROR(engine.initialize());
-    {
-        UninitializeGuard guard(&engine);
-        for (int rep = 0; rep < 10; ++rep) {
-            Rendezvous rendezvous;
-            std::vector<DummyTask*> tasks;
-            std::vector<ImpersonateSession> sessions;
-            for (int i = 0; i < impersonate_count; ++i) {
-                tasks.push_back(new DummyTask(&rendezvous));
-                sessions.push_back(engine.get_thread_pool().impersonate(tasks[i]));
-            }
+  EngineOptions options = get_tiny_options();
+  options.thread_.thread_count_per_group_ = pooled_count;
+  Engine engine(options);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    for (int rep = 0; rep < 10; ++rep) {
+      Rendezvous rendezvous;
+      std::vector<DummyTask*> tasks;
+      std::vector<ImpersonateSession> sessions;
+      for (int i = 0; i < impersonate_count; ++i) {
+        tasks.push_back(new DummyTask(&rendezvous));
+        sessions.push_back(engine.get_thread_pool().impersonate(tasks[i]));
+      }
 
-            rendezvous.signal();
+      rendezvous.signal();
 
-            for (int i = 0; i < impersonate_count; ++i) {
-                COERCE_ERROR(sessions[i].get_result());
-                delete tasks[i];
-            }
-        }
-        COERCE_ERROR(engine.uninitialize());
+      for (int i = 0; i < impersonate_count; ++i) {
+        COERCE_ERROR(sessions[i].get_result());
+        delete tasks[i];
+      }
     }
-    cleanup_test(options);
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
 }
 
 TEST(ThreadPoolTest, ImpersonateOneOne) { run_test(1, 1); }

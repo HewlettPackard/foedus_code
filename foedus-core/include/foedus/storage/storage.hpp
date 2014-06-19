@@ -35,53 +35,53 @@ namespace storage {
  */
 class Storage : public virtual Initializable {
  public:
-    virtual ~Storage() {}
+  virtual ~Storage() {}
 
-    /**
-     * Returns the unique ID of this storage.
-     */
-    virtual StorageId           get_id() const = 0;
+  /**
+   * Returns the unique ID of this storage.
+   */
+  virtual StorageId           get_id() const = 0;
 
-    /**
-     * Returns the type of this storage.
-     */
-    virtual StorageType         get_type() const = 0;
+  /**
+   * Returns the type of this storage.
+   */
+  virtual StorageType         get_type() const = 0;
 
-    /**
-     * Returns the unique name of this storage.
-     */
-    virtual const std::string&  get_name() const = 0;
+  /**
+   * Returns the unique name of this storage.
+   */
+  virtual const std::string&  get_name() const = 0;
 
-    /**
-     * Returns the metadata of this storage.
-     * @return metadata for the individual storage instance. You can dynamic_cast it to
-     * derived metadata object.
-     */
-    virtual const Metadata*     get_metadata() const = 0;
+  /**
+   * Returns the metadata of this storage.
+   * @return metadata for the individual storage instance. You can dynamic_cast it to
+   * derived metadata object.
+   */
+  virtual const Metadata*     get_metadata() const = 0;
 
-    /**
-     * Returns whether this storage is already created.
-     */
-    virtual bool                exists() const = 0;
+  /**
+   * Returns whether this storage is already created.
+   */
+  virtual bool                exists() const = 0;
 
-    /**
-     * @brief Newly creates this storage and registers it in the storage manager.
-     * @pre exists() == false
-     * @details
-     * This is invoked from storage manager's create_xxx methods.
-     * Depending on the storage type, this might take a long time to finish.
-     * For a newly created storage, the instasnce of this object is an empty and
-     * trivial-to-instantiate (thus no exception) until we call this method.
-     */
-    virtual ErrorStack          create(thread::Thread* context) = 0;
+  /**
+   * @brief Newly creates this storage and registers it in the storage manager.
+   * @pre exists() == false
+   * @details
+   * This is invoked from storage manager's create_xxx methods.
+   * Depending on the storage type, this might take a long time to finish.
+   * For a newly created storage, the instasnce of this object is an empty and
+   * trivial-to-instantiate (thus no exception) until we call this method.
+   */
+  virtual ErrorStack          create(thread::Thread* context) = 0;
 
-    /**
-     * Implementation of ostream operator.
-     */
-    virtual void                describe(std::ostream* o) const = 0;
+  /**
+   * Implementation of ostream operator.
+   */
+  virtual void                describe(std::ostream* o) const = 0;
 
-    /** Just delegates to describe(). */
-    friend std::ostream& operator<<(std::ostream& o, const Storage& v);
+  /** Just delegates to describe(). */
+  friend std::ostream& operator<<(std::ostream& o, const Storage& v);
 };
 }  // namespace storage
 }  // namespace foedus

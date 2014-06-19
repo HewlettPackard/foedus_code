@@ -81,70 +81,70 @@ class EngineOptions;
  */
 class Engine CXX11_FINAL : public virtual Initializable {
  public:
-    /**
-     * @brief Instantiates an engine object which is \b NOT initialized yet.
-     * @details
-     * To start the engine, call initialize() afterwards.
-     * This constructor dose nothing but instantiation.
-     */
-    explicit Engine(const EngineOptions &options);
+  /**
+   * @brief Instantiates an engine object which is \b NOT initialized yet.
+   * @details
+   * To start the engine, call initialize() afterwards.
+   * This constructor dose nothing but instantiation.
+   */
+  explicit Engine(const EngineOptions &options);
 
-    /**
-     * @brief Do NOT rely on this destructor to release resources. Call uninitialize() instead.
-     * @details
-     * If this destructor is called before the call of uninitialize(), there was something wrong.
-     * So, this destructor complains about it in stderr if that's the case.
-     * Remember, destructor is not the best place to do complex things. Always use uninitialize()
-     * for better handling of unexpected errors.
-     */
-    ~Engine();
+  /**
+   * @brief Do NOT rely on this destructor to release resources. Call uninitialize() instead.
+   * @details
+   * If this destructor is called before the call of uninitialize(), there was something wrong.
+   * So, this destructor complains about it in stderr if that's the case.
+   * Remember, destructor is not the best place to do complex things. Always use uninitialize()
+   * for better handling of unexpected errors.
+   */
+  ~Engine();
 
-    // Disable default constructors
-    Engine() CXX11_FUNC_DELETE;
-    Engine(const Engine &) CXX11_FUNC_DELETE;
-    Engine& operator=(const Engine &) CXX11_FUNC_DELETE;
+  // Disable default constructors
+  Engine() CXX11_FUNC_DELETE;
+  Engine(const Engine &) CXX11_FUNC_DELETE;
+  Engine& operator=(const Engine &) CXX11_FUNC_DELETE;
 
-    /**
-     * Starts up the database engine. This is the first method to call.
-     * @see Initializable#initialize()
-     */
-    ErrorStack  initialize() CXX11_OVERRIDE;
+  /**
+   * Starts up the database engine. This is the first method to call.
+   * @see Initializable#initialize()
+   */
+  ErrorStack  initialize() CXX11_OVERRIDE;
 
-    /**
-     * Returns whether the engine is currently running.
-     * @see Initializable#is_initialized()
-     */
-    bool        is_initialized() const CXX11_OVERRIDE;
+  /**
+   * Returns whether the engine is currently running.
+   * @see Initializable#is_initialized()
+   */
+  bool        is_initialized() const CXX11_OVERRIDE;
 
-    /**
-     * Terminates the database engine. This is the last method to call.
-     * @see Initializable#uninitialize()
-     */
-    ErrorStack  uninitialize() CXX11_OVERRIDE;
+  /**
+   * Terminates the database engine. This is the last method to call.
+   * @see Initializable#uninitialize()
+   */
+  ErrorStack  uninitialize() CXX11_OVERRIDE;
 
-    /** @see EngineOptions */
-    const EngineOptions&            get_options() const;
-    /** See \ref DEBUGGING */
-    debugging::DebuggingSupports&   get_debug() const;
-    /** See \ref LOG */
-    log::LogManager&                get_log_manager() const;
-    /** See \ref MEMORY */
-    memory::EngineMemory&           get_memory_manager() const;
-    /** See \ref THREAD */
-    thread::ThreadPool&             get_thread_pool() const;
-    /** See \ref SAVEPOINT */
-    savepoint::SavepointManager&    get_savepoint_manager() const;
-    /** See \ref SNAPSHOT */
-    snapshot::SnapshotManager&      get_snapshot_manager() const;
-    /** See \ref STORAGE */
-    storage::StorageManager&        get_storage_manager() const;
-    /** See \ref XCT */
-    xct::XctManager&                get_xct_manager() const;
-    /** See \ref RESTART */
-    restart::RestartManager&        get_restart_manager() const;
+  /** @see EngineOptions */
+  const EngineOptions&            get_options() const;
+  /** See \ref DEBUGGING */
+  debugging::DebuggingSupports&   get_debug() const;
+  /** See \ref LOG */
+  log::LogManager&                get_log_manager() const;
+  /** See \ref MEMORY */
+  memory::EngineMemory&           get_memory_manager() const;
+  /** See \ref THREAD */
+  thread::ThreadPool&             get_thread_pool() const;
+  /** See \ref SAVEPOINT */
+  savepoint::SavepointManager&    get_savepoint_manager() const;
+  /** See \ref SNAPSHOT */
+  snapshot::SnapshotManager&      get_snapshot_manager() const;
+  /** See \ref STORAGE */
+  storage::StorageManager&        get_storage_manager() const;
+  /** See \ref XCT */
+  xct::XctManager&                get_xct_manager() const;
+  /** See \ref RESTART */
+  restart::RestartManager&        get_restart_manager() const;
 
  private:
-    EnginePimpl* pimpl_;
+  EnginePimpl* pimpl_;
 };
 }  // namespace foedus
 #endif  // FOEDUS_ENGINE_HPP_

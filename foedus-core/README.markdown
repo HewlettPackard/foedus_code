@@ -72,34 +72,34 @@ Here is a minimal example program to create a key-value storage and query on it.
 
     class MyTask : public foedus::thread::ImpersonateTask {
     public:
-        foedus::ErrorStack run(foedus::thread::Thread* context) {
-            foedus::storage::array::ArrayStorage *array =
-                dynamic_cast<foedus::storage::array::ArrayStorage*>(
-                    context->get_engine()->get_storage_manager().get_storage(kName));
+      foedus::ErrorStack run(foedus::thread::Thread* context) {
+        foedus::storage::array::ArrayStorage *array =
+          dynamic_cast<foedus::storage::array::ArrayStorage*>(
+            context->get_engine()->get_storage_manager().get_storage(kName));
 
-            foedus::xct::XctManager& xct_manager = engine->get_xct_manager();
-            CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::kSerializable));
-            char buf[kPayload];
-            CHECK_ERROR(array->get_record(context, 123, buf));
-            foedus::Epoch commit_epoch;
-            CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-            CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
-            return foedus::kRetOk;
-        }
+        foedus::xct::XctManager& xct_manager = engine->get_xct_manager();
+        CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::kSerializable));
+        char buf[kPayload];
+        CHECK_ERROR(array->get_record(context, 123, buf));
+        foedus::Epoch commit_epoch;
+        CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+        CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
+        return foedus::kRetOk;
+      }
     };
 
     int main(int argc, char **argv) {
-        foedus::EngineOptions options;
-        foedus::Engine engine(options);
-        COERCE_ERROR(engine.initialize());
-        foedus::Epoch create_array_epoch;
-        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate(
-            kName, kPayload, kRecords, &out, &create_array_epoch));
-        MyTask task;
-        foedus::thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
-        std::cout << "session: result=" << session.get_result() << std::endl;
-        COERCE_ERROR(engine.uninitialize());
-        return 0;
+      foedus::EngineOptions options;
+      foedus::Engine engine(options);
+      COERCE_ERROR(engine.initialize());
+      foedus::Epoch create_array_epoch;
+      COERCE_ERROR(engine.get_storage_manager().create_array_impersonate(
+        kName, kPayload, kRecords, &out, &create_array_epoch));
+      MyTask task;
+      foedus::thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+      std::cout << "session: result=" << session.get_result() << std::endl;
+      COERCE_ERROR(engine.uninitialize());
+      return 0;
     }
 
 

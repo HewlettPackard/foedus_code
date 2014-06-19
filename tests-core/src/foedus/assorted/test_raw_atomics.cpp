@@ -21,95 +21,95 @@ const int kIterations = 20;
 const int kReps = 5;
 template <typename T>
 struct CasTestImpl {
-    explicit CasTestImpl(bool weak) : weak_(weak) {}
-    void test() {
-        static_assert(kThreads * kIterations < 127, "exceeds smallest integer");
-        data_ = 0;
-        conflicts_ = 0;
-        for (int i = 0; i <= kThreads * kIterations; ++i) {
-            observed_[i] = false;
-        }
-        assorted::memory_fence_release();
-        for (int i = 0; i < kThreads; ++i) {
-            threads_.emplace_back(std::thread(&CasTestImpl::handle, this, i));
-        }
-
-        start_rendezvous_.signal();
-        std::cout << "Started execution" << std::endl;
-        for (int i = 0; i < kThreads; ++i) {
-            threads_[i].join();
-        }
-        threads_.clear();
-
-        EXPECT_FALSE(observed_[data_]) << data_;
-        observed_[data_] = true;
-        assorted::memory_fence_acquire();
-        for (int i = 0; i <= kThreads * kIterations; ++i) {
-            EXPECT_TRUE(observed_[i]) << i;
-        }
-        std::cout << "In total, about " << conflicts_ << " coflicts" << std::endl;
+  explicit CasTestImpl(bool weak) : weak_(weak) {}
+  void test() {
+    static_assert(kThreads * kIterations < 127, "exceeds smallest integer");
+    data_ = 0;
+    conflicts_ = 0;
+    for (int i = 0; i <= kThreads * kIterations; ++i) {
+      observed_[i] = false;
+    }
+    assorted::memory_fence_release();
+    for (int i = 0; i < kThreads; ++i) {
+      threads_.emplace_back(std::thread(&CasTestImpl::handle, this, i));
     }
 
-    void handle(int id) {
-        start_rendezvous_.wait();
-        EXPECT_GE(id, 0);
-        EXPECT_LT(id, kThreads);
-        for (int i = 0; i < kIterations; ++i) {
-            T old = 127;
-            const T desired = value(id, i);
-            bool swapped;
-            if (weak_) {
-                swapped = assorted::raw_atomic_compare_exchange_weak<T>(&data_, &old, desired);
-            } else {
-                swapped = assorted::raw_atomic_compare_exchange_strong<T>(&data_, &old, desired);
-            }
-            EXPECT_FALSE(swapped);
-            EXPECT_NE(desired, old);
-            EXPECT_NE(127, old);
-            SPINLOCK_WHILE(true) {
-                T prev_old = old;
-                if (weak_) {
-                    swapped = assorted::raw_atomic_compare_exchange_weak<T>(&data_, &old, desired);
-                } else {
-                    swapped = assorted::raw_atomic_compare_exchange_strong<T>(
-                        &data_, &old, desired);
-                }
-                if (swapped) {
-                    EXPECT_EQ(prev_old, old);
-                    EXPECT_FALSE(observed_[old]);
-                    observed_[old] = true;
-                    break;
-                } else {
-                    ++conflicts_;
-                    EXPECT_NE(prev_old, old);
-                    // to speed-up valgrind tests.
-                    std::this_thread::sleep_for(std::chrono::seconds(0));
-                    assorted::memory_fence_acq_rel();
-                }
-            }
-        }
+    start_rendezvous_.signal();
+    std::cout << "Started execution" << std::endl;
+    for (int i = 0; i < kThreads; ++i) {
+      threads_[i].join();
     }
-    T value(int id, int iteration) const {
-        return iteration * kThreads + id + 1;
-    }
+    threads_.clear();
 
-    bool weak_;
-    std::vector<std::thread> threads_;
-    thread::Rendezvous start_rendezvous_;
-    T data_;
-    int conflicts_;
-    bool observed_[kThreads * kIterations];
+    EXPECT_FALSE(observed_[data_]) << data_;
+    observed_[data_] = true;
+    assorted::memory_fence_acquire();
+    for (int i = 0; i <= kThreads * kIterations; ++i) {
+      EXPECT_TRUE(observed_[i]) << i;
+    }
+    std::cout << "In total, about " << conflicts_ << " coflicts" << std::endl;
+  }
+
+  void handle(int id) {
+    start_rendezvous_.wait();
+    EXPECT_GE(id, 0);
+    EXPECT_LT(id, kThreads);
+    for (int i = 0; i < kIterations; ++i) {
+      T old = 127;
+      const T desired = value(id, i);
+      bool swapped;
+      if (weak_) {
+        swapped = assorted::raw_atomic_compare_exchange_weak<T>(&data_, &old, desired);
+      } else {
+        swapped = assorted::raw_atomic_compare_exchange_strong<T>(&data_, &old, desired);
+      }
+      EXPECT_FALSE(swapped);
+      EXPECT_NE(desired, old);
+      EXPECT_NE(127, old);
+      SPINLOCK_WHILE(true) {
+        T prev_old = old;
+        if (weak_) {
+          swapped = assorted::raw_atomic_compare_exchange_weak<T>(&data_, &old, desired);
+        } else {
+          swapped = assorted::raw_atomic_compare_exchange_strong<T>(
+            &data_, &old, desired);
+        }
+        if (swapped) {
+          EXPECT_EQ(prev_old, old);
+          EXPECT_FALSE(observed_[old]);
+          observed_[old] = true;
+          break;
+        } else {
+          ++conflicts_;
+          EXPECT_NE(prev_old, old);
+          // to speed-up valgrind tests.
+          std::this_thread::sleep_for(std::chrono::seconds(0));
+          assorted::memory_fence_acq_rel();
+        }
+      }
+    }
+  }
+  T value(int id, int iteration) const {
+    return iteration * kThreads + id + 1;
+  }
+
+  bool weak_;
+  std::vector<std::thread> threads_;
+  thread::Rendezvous start_rendezvous_;
+  T data_;
+  int conflicts_;
+  bool observed_[kThreads * kIterations];
 };
 template <typename T>
 struct CasTest {
-    explicit CasTest(bool weak = false) : weak_(weak) {}
-    void test() {
-        for (int i = 0; i < kReps; ++i) {
-            CasTestImpl<T> impl(weak_);
-            impl.test();
-        }
+  explicit CasTest(bool weak = false) : weak_(weak) {}
+  void test() {
+    for (int i = 0; i < kReps; ++i) {
+      CasTestImpl<T> impl(weak_);
+      impl.test();
     }
-    bool weak_;
+  }
+  bool weak_;
 };
 
 DEFINE_TEST_CASE_PACKAGE(RawAtomicsTest, foedus.assorted);

@@ -34,7 +34,7 @@ void invoke_apply_engine(const xct::XctId &xct_id, void *log_buffer, thread::Thr
  * This is not inlined because this log kind appears much more infrequently.
  */
 void invoke_apply_storage(const xct::XctId &xct_id, void *log_buffer,
-                          thread::Thread* context, storage::Storage* storage);
+              thread::Thread* context, storage::Storage* storage);
 
 /**
  * @brief Invokes the apply logic for a record-wise log type.
@@ -48,7 +48,7 @@ void invoke_apply_storage(const xct::XctId &xct_id, void *log_buffer,
  * For that, apply_record() method must put memory_fence_release() between data and owner_id writes.
  */
 void invoke_apply_record(const xct::XctId &xct_id, void *log_buffer,
-                    thread::Thread* context, storage::Storage* storage, storage::Record* record);
+          thread::Thread* context, storage::Storage* storage, storage::Record* record);
 
 /**
  * @brief Invokes the assertion logic of each log type.
@@ -70,18 +70,18 @@ void invoke_assert_valid(void *log_buffer);
 void invoke_ostream(void *buffer, std::ostream *ptr);
 
 #define X(a, b, c) case a: \
-    reinterpret_cast< c* >(buffer)->apply_record(xct_id, context, storage, record); return;
+  reinterpret_cast< c* >(buffer)->apply_record(xct_id, context, storage, record); return;
 inline void invoke_apply_record(const xct::XctId &xct_id, void *buffer,
-                    thread::Thread* context, storage::Storage* storage, storage::Record* record) {
-    invoke_assert_valid(buffer);
-    LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
-    LogCode code = header->get_type();
-    switch (code) {
+          thread::Thread* context, storage::Storage* storage, storage::Record* record) {
+  invoke_assert_valid(buffer);
+  LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
+  LogCode code = header->get_type();
+  switch (code) {
 #include <foedus/log/log_type.xmacro> // NOLINT
-        default:
-            ASSERT_ND(false);
-            return;
-    }
+    default:
+      ASSERT_ND(false);
+      return;
+  }
 }
 #undef X
 
@@ -90,14 +90,14 @@ inline void invoke_assert_valid(void* /*buffer*/) {}
 #else  // NDEBUG
 #define X(a, b, c) case a: reinterpret_cast< c* >(buffer)->assert_valid(); return;
 inline void invoke_assert_valid(void *buffer) {
-    LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
-    LogCode code = header->get_type();
-    switch (code) {
+  LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
+  LogCode code = header->get_type();
+  switch (code) {
 #include <foedus/log/log_type.xmacro> // NOLINT
-        default:
-            ASSERT_ND(false);
-            return;
-    }
+    default:
+      ASSERT_ND(false);
+      return;
+  }
 }
 #undef X
 #endif  // NDEBUG

@@ -5,8 +5,8 @@ project(tests_core)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../general_projects.cmake)
 include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/gtest-1.7.0/include)
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/gtest-1.7.0/include)
 
 # Not used any more.
 # CMake function to add compile target, linking, add_test directives.
@@ -31,30 +31,30 @@ function (add_foedus_test_individual targetname individual_tests)
    target_link_libraries(${targetname} foedus-core gtest_main test_common ${CMAKE_THREAD_LIBS_INIT})
 
    foreach(individual_test ${individual_tests})
-        # To pick up test report xml files from Jenkins,
-        # Set "test-reports/*.xml" as the report file filter.
-        add_test(
-            NAME ${targetname}_${individual_test}
-            COMMAND ${targetname}
-                --gtest_filter=*.${individual_test}
-                --gtest_output=xml:${FOEDUS_TEST_REPORT_DIR}/${targetname}_${individual_test}.xml)
+    # To pick up test report xml files from Jenkins,
+    # Set "test-reports/*.xml" as the report file filter.
+    add_test(
+      NAME ${targetname}_${individual_test}
+      COMMAND ${targetname}
+        --gtest_filter=*.${individual_test}
+        --gtest_output=xml:${FOEDUS_TEST_REPORT_DIR}/${targetname}_${individual_test}.xml)
 
-        # also add valgrind version. This version takes long, so you might want to exclude
-        # them from ctest by "ctest -E valgrind".
-        # To pick up valgrind report xml files from Jenkins,
-        # Set "valgrind-reports/*.xml" as the valgrind plugin filter.
-        add_test(
-            NAME valgrind_${targetname}_${individual_test}
-            COMMAND
-                ${MEMORYCHECK_COMMAND}
-                --xml=yes --xml-file=${FOEDUS_VALGRIND_REPORT_DIR}/${targetname}_${individual_test}.xml
-                --error-exitcode=1 --leak-check=full --gen-suppressions=all
-                # removed --show-leak-kinds=all, which is supported only by valgrind 3.9 and later
-                --suppressions=${FOEDUS_CORE_SRC_ROOT}/tools/valgrind.supp
-                ./${targetname}
-                --gtest_filter=*.${individual_test}
-                --gtest_output=xml:${FOEDUS_TEST_REPORT_DIR}/valgrind_${targetname}_${individual_test}.xml
-            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+    # also add valgrind version. This version takes long, so you might want to exclude
+    # them from ctest by "ctest -E valgrind".
+    # To pick up valgrind report xml files from Jenkins,
+    # Set "valgrind-reports/*.xml" as the valgrind plugin filter.
+    add_test(
+      NAME valgrind_${targetname}_${individual_test}
+      COMMAND
+        ${MEMORYCHECK_COMMAND}
+        --xml=yes --xml-file=${FOEDUS_VALGRIND_REPORT_DIR}/${targetname}_${individual_test}.xml
+        --error-exitcode=1 --leak-check=full --gen-suppressions=all
+        # removed --show-leak-kinds=all, which is supported only by valgrind 3.9 and later
+        --suppressions=${FOEDUS_CORE_SRC_ROOT}/tools/valgrind.supp
+        ./${targetname}
+        --gtest_filter=*.${individual_test}
+        --gtest_output=xml:${FOEDUS_TEST_REPORT_DIR}/valgrind_${targetname}_${individual_test}.xml
+      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
    endforeach(individual_test individual_tests)
 endfunction()
 
@@ -64,12 +64,12 @@ add_subdirectory(src)
 # But, we might revisit this decision.
 include(${FOEDUS_CORE_SRC_ROOT}/cmake/CpplintWrapper.cmake)
 CPPLINT_RECURSIVE(tests_core_cpplint_include
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_BINARY_DIR}/include)
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_BINARY_DIR}/include)
 CPPLINT_RECURSIVE(tests_core_cpplint_src
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_BINARY_DIR}/src)
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_BINARY_DIR}/src)
 add_custom_target(tests_core_cpplint_dummy ALL)
 add_dependencies(tests_core_cpplint_dummy tests_core_cpplint_include tests_core_cpplint_src)

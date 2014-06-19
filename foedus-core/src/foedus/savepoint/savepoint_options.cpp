@@ -8,17 +8,17 @@
 namespace foedus {
 namespace savepoint {
 SavepointOptions::SavepointOptions() {
-    savepoint_path_ = "savepoint.xml";
+  savepoint_path_ = "savepoint.xml";
 }
 ErrorStack SavepointOptions::load(tinyxml2::XMLElement* element) {
-    EXTERNALIZE_LOAD_ELEMENT(element, savepoint_path_);
-    return kRetOk;
+  EXTERNALIZE_LOAD_ELEMENT(element, savepoint_path_);
+  return kRetOk;
 }
 
 ErrorStack SavepointOptions::save(tinyxml2::XMLElement* element) const {
-    CHECK_ERROR(insert_comment(element, "Set of options for savepoint manager"));
-    EXTERNALIZE_SAVE_ELEMENT(element, savepoint_path_, "Full path of the savepoint file.");
-    return kRetOk;
+  CHECK_ERROR(insert_comment(element, "Set of options for savepoint manager"));
+  EXTERNALIZE_SAVE_ELEMENT(element, savepoint_path_, "Full path of the savepoint file.");
+  return kRetOk;
 }
 
 }  // namespace savepoint

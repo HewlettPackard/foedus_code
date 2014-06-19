@@ -59,16 +59,16 @@ const uint32_t kRecordsMask = 0xFFFFF;
 
 class MyTask : public thread::ImpersonateTask {
  public:
-    ErrorStack run(thread::Thread* context) {
-        std::cout << "Ya!" << std::endl;
-        Engine *engine = context->get_engine();
-        ArrayStorage *array = nullptr;
-        Epoch commit_epoch;
-        CHECK_ERROR(engine->get_storage_manager().create_array(
-            context, "aaa", kPayload, kRecords, &array, &commit_epoch));
-        the_id = array->get_id();
-        return kRetOk;
-    }
+  ErrorStack run(thread::Thread* context) {
+    std::cout << "Ya!" << std::endl;
+    Engine *engine = context->get_engine();
+    ArrayStorage *array = nullptr;
+    Epoch commit_epoch;
+    CHECK_ERROR(engine->get_storage_manager().create_array(
+      context, "aaa", kPayload, kRecords, &array, &commit_epoch));
+    the_id = array->get_id();
+    return kRetOk;
+  }
 };
 
 bool start_req = false;
@@ -76,121 +76,121 @@ bool stop_req = false;
 
 class MyTask2 : public thread::ImpersonateTask {
  public:
-    MyTask2() {}
-    ErrorStack run(thread::Thread* context) {
-        Engine *engine = context->get_engine();
-        const xct::IsolationLevel isolation = xct::kDirtyReadPreferSnapshot;
-        // const xct::IsolationLevel isolation = xct::kSerializable;
-        CHECK_ERROR(engine->get_xct_manager().begin_xct(context, isolation));
-        Storage* storage = engine->get_storage_manager().get_storage(the_id);
-        Epoch commit_epoch;
+  MyTask2() {}
+  ErrorStack run(thread::Thread* context) {
+    Engine *engine = context->get_engine();
+    const xct::IsolationLevel isolation = xct::kDirtyReadPreferSnapshot;
+    // const xct::IsolationLevel isolation = xct::kSerializable;
+    CHECK_ERROR(engine->get_xct_manager().begin_xct(context, isolation));
+    Storage* storage = engine->get_storage_manager().get_storage(the_id);
+    Epoch commit_epoch;
 
-        // pre-calculate random numbers to get rid of random number generation as bottleneck
-        random_.set_current_seed(context->get_thread_id());
-        CHECK_ERROR(
-            context->get_thread_memory()->get_node_memory()->allocate_numa_memory(
-                kRandomCount * sizeof(uint32_t), &numbers_));
-        random_.fill_memory(&numbers_);
-        const uint32_t *randoms = reinterpret_cast<const uint32_t*>(numbers_.get_block());
-        while (!start_req) {
-            std::atomic_thread_fence(std::memory_order_acquire);
-        }
-
-        ArrayStorage *array = dynamic_cast<ArrayStorage*>(storage);
-        char buf[kPayload];
-        processed_ = 0;
-        while (true) {
-            uint64_t id = randoms[processed_ & 0xFFFF] & kRecordsMask;
-            CHECK_ERROR(array->get_record(context, id, buf));
-            ++processed_;
-            if ((processed_ & 0xFFFF) == 0) {
-                CHECK_ERROR(engine->get_xct_manager().precommit_xct(context, &commit_epoch));
-                CHECK_ERROR(engine->get_xct_manager().begin_xct(context, isolation));
-                std::atomic_thread_fence(std::memory_order_acquire);
-                if (stop_req) {
-                    break;
-                }
-            }
-        }
-
-        CHECK_ERROR(engine->get_xct_manager().precommit_xct(context, &commit_epoch));
-        numbers_.release_block();
-        std::cout << "I'm done! " << context->get_thread_id()
-            << ", processed=" << processed_ << std::endl;
-        return kRetOk;
+    // pre-calculate random numbers to get rid of random number generation as bottleneck
+    random_.set_current_seed(context->get_thread_id());
+    CHECK_ERROR(
+      context->get_thread_memory()->get_node_memory()->allocate_numa_memory(
+        kRandomCount * sizeof(uint32_t), &numbers_));
+    random_.fill_memory(&numbers_);
+    const uint32_t *randoms = reinterpret_cast<const uint32_t*>(numbers_.get_block());
+    while (!start_req) {
+      std::atomic_thread_fence(std::memory_order_acquire);
     }
 
-    memory::AlignedMemory numbers_;
-    assorted::UniformRandom random_;
-    uint64_t processed_;
-    const uint32_t kRandomCount = 1 << 19;
-    const uint32_t kRandomCountMod = 0x7FFFF;
+    ArrayStorage *array = dynamic_cast<ArrayStorage*>(storage);
+    char buf[kPayload];
+    processed_ = 0;
+    while (true) {
+      uint64_t id = randoms[processed_ & 0xFFFF] & kRecordsMask;
+      CHECK_ERROR(array->get_record(context, id, buf));
+      ++processed_;
+      if ((processed_ & 0xFFFF) == 0) {
+        CHECK_ERROR(engine->get_xct_manager().precommit_xct(context, &commit_epoch));
+        CHECK_ERROR(engine->get_xct_manager().begin_xct(context, isolation));
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (stop_req) {
+          break;
+        }
+      }
+    }
+
+    CHECK_ERROR(engine->get_xct_manager().precommit_xct(context, &commit_epoch));
+    numbers_.release_block();
+    std::cout << "I'm done! " << context->get_thread_id()
+      << ", processed=" << processed_ << std::endl;
+    return kRetOk;
+  }
+
+  memory::AlignedMemory numbers_;
+  assorted::UniformRandom random_;
+  uint64_t processed_;
+  const uint32_t kRandomCount = 1 << 19;
+  const uint32_t kRandomCountMod = 0x7FFFF;
 };
 
 int main_impl(int argc, char **argv) {
-    bool profile = false;
-    if (argc >= 2 && std::string(argv[1]) == "--profile") {
-        profile = true;
-        std::cout << "Profiling..." << std::endl;
-    }
-    fs::remove_all(fs::Path("logs"));
-    fs::remove_all(fs::Path("snapshots"));
-    fs::remove(fs::Path("savepoint.xml"));
-    EngineOptions options;
-    options.debugging_.debug_log_min_threshold_
-        = debugging::DebuggingOptions::kDebugLogWarning;
-    const int kThreads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
+  bool profile = false;
+  if (argc >= 2 && std::string(argv[1]) == "--profile") {
+    profile = true;
+    std::cout << "Profiling..." << std::endl;
+  }
+  fs::remove_all(fs::Path("logs"));
+  fs::remove_all(fs::Path("snapshots"));
+  fs::remove(fs::Path("savepoint.xml"));
+  EngineOptions options;
+  options.debugging_.debug_log_min_threshold_
+    = debugging::DebuggingOptions::kDebugLogWarning;
+  const int kThreads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
+  {
+    Engine engine(options);
+    COERCE_ERROR(engine.initialize());
     {
-        Engine engine(options);
-        COERCE_ERROR(engine.initialize());
-        {
-            UninitializeGuard guard(&engine);
-            MyTask task;
-            COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(&task));
+      UninitializeGuard guard(&engine);
+      MyTask task;
+      COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(&task));
 
-            typedef MyTask2* TaskPtr;
-            TaskPtr* task2 = new TaskPtr[kThreads];
-            thread::ImpersonateSession session2[kThreads];
-            for (int i = 0; i < kThreads; ++i) {
-                task2[i] = new MyTask2();
-                session2[i] = engine.get_thread_pool().impersonate(task2[i]);
-                if (!session2[i].is_valid()) {
-                    COERCE_ERROR(session2[i].invalid_cause_);
-                }
-            }
-            ::usleep(1000000);
-            start_req = true;
-            std::atomic_thread_fence(std::memory_order_release);
-            if (profile) {
-                COERCE_ERROR(engine.get_debug().start_profile("readonly_experiment.prof"));
-            }
-            std::cout << "all started!" << std::endl;
-            ::usleep(kDurationMicro);
-            stop_req = true;
-            std::atomic_thread_fence(std::memory_order_release);
-
-            uint64_t total = 0;
-            std::atomic_thread_fence(std::memory_order_acquire);
-            for (int i = 0; i < kThreads; ++i) {
-                total += task2[i]->processed_;
-            }
-            if (profile) {
-                engine.get_debug().stop_profile();
-            }
-
-            for (int i = 0; i < kThreads; ++i) {
-                std::cout << "session2: result[" << i << "]="
-                    << session2[i].get_result() << std::endl;
-                delete task2[i];
-            }
-            delete[] task2;
-            std::cout << "total=" << total << ", MQPS="
-                << (static_cast<double>(total)/kDurationMicro) << std::endl;
-            COERCE_ERROR(engine.uninitialize());
+      typedef MyTask2* TaskPtr;
+      TaskPtr* task2 = new TaskPtr[kThreads];
+      thread::ImpersonateSession session2[kThreads];
+      for (int i = 0; i < kThreads; ++i) {
+        task2[i] = new MyTask2();
+        session2[i] = engine.get_thread_pool().impersonate(task2[i]);
+        if (!session2[i].is_valid()) {
+          COERCE_ERROR(session2[i].invalid_cause_);
         }
-    }
+      }
+      ::usleep(1000000);
+      start_req = true;
+      std::atomic_thread_fence(std::memory_order_release);
+      if (profile) {
+        COERCE_ERROR(engine.get_debug().start_profile("readonly_experiment.prof"));
+      }
+      std::cout << "all started!" << std::endl;
+      ::usleep(kDurationMicro);
+      stop_req = true;
+      std::atomic_thread_fence(std::memory_order_release);
 
-    return 0;
+      uint64_t total = 0;
+      std::atomic_thread_fence(std::memory_order_acquire);
+      for (int i = 0; i < kThreads; ++i) {
+        total += task2[i]->processed_;
+      }
+      if (profile) {
+        engine.get_debug().stop_profile();
+      }
+
+      for (int i = 0; i < kThreads; ++i) {
+        std::cout << "session2: result[" << i << "]="
+          << session2[i].get_result() << std::endl;
+        delete task2[i];
+      }
+      delete[] task2;
+      std::cout << "total=" << total << ", MQPS="
+        << (static_cast<double>(total)/kDurationMicro) << std::endl;
+      COERCE_ERROR(engine.uninitialize());
+    }
+  }
+
+  return 0;
 }
 
 }  // namespace array
@@ -198,5 +198,5 @@ int main_impl(int argc, char **argv) {
 }  // namespace foedus
 
 int main(int argc, char **argv) {
-    return foedus::storage::array::main_impl(argc, argv);
+  return foedus::storage::array::main_impl(argc, argv);
 }

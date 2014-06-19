@@ -6,11 +6,11 @@
 #include <ostream>
 namespace foedus {
 std::ostream& operator<<(std::ostream& o, const Epoch& v) {
-    if (v.is_valid()) {
-        o << v.value();
-    } else {
-        o << "<INVALID>";
-    }
-    return o;
+  if (v.is_valid()) {
+    o << v.value();
+  } else {
+    o << "<INVALID>";
+  }
+  return o;
 }
 }  // namespace foedus

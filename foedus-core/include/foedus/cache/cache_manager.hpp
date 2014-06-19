@@ -16,15 +16,15 @@ namespace cache {
  */
 class CacheManager : public DefaultInitializable {
  public:
-    CacheManager() CXX11_FUNC_DELETE;
-    explicit CacheManager(Engine* engine) : engine_(engine) {}
-    ErrorStack  initialize_once() CXX11_OVERRIDE;
-    ErrorStack  uninitialize_once() CXX11_OVERRIDE;
+  CacheManager() CXX11_FUNC_DELETE;
+  explicit CacheManager(Engine* engine) : engine_(engine) {}
+  ErrorStack  initialize_once() CXX11_OVERRIDE;
+  ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
-    const CacheOptions&    get_options() const;
+  const CacheOptions&    get_options() const;
 
  private:
-    Engine* const           engine_;
+  Engine* const           engine_;
 };
 }  // namespace cache
 }  // namespace foedus

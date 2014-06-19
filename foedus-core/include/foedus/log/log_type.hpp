@@ -69,8 +69,8 @@ namespace log {
  */
 #define X(a, b, c) /** b: c. @copydoc c */ a = b,
 enum LogCode {
-    /** 0 is reserved as a non-existing log type. */
-    kLogCodeInvalid = 0,
+  /** 0 is reserved as a non-existing log type. */
+  kLogCodeInvalid = 0,
 #include <foedus/log/log_type.xmacro> // NOLINT
 };
 #undef X
@@ -83,14 +83,14 @@ enum LogCode {
  * This is the most significant 4 bits of LogCode.
  */
 enum LogCodeKind {
-    /** record targetted logs */
-    kRecordLogs = 0,
-    /** storage targetted logs */
-    kStorageLogs = 1,
-    /** engine targetted logs */
-    kEngineLogs = 2,
-    /** markers/fillers */
-    kMarkerLogs = 3,
+  /** record targetted logs */
+  kRecordLogs = 0,
+  /** storage targetted logs */
+  kStorageLogs = 1,
+  /** engine targetted logs */
+  kEngineLogs = 2,
+  /** markers/fillers */
+  kMarkerLogs = 3,
 };
 
 /**
@@ -100,7 +100,7 @@ enum LogCodeKind {
  * This is inlined here because it's called frequently.
  */
 inline LogCodeKind get_log_code_kind(LogCode code) {
-    return static_cast<LogCodeKind>(code >> 12);
+  return static_cast<LogCodeKind>(code >> 12);
 }
 
 /**
@@ -110,12 +110,12 @@ inline LogCodeKind get_log_code_kind(LogCode code) {
  * This is inlined here because it's called frequently.
  */
 inline bool is_valid_log_type(LogCode code) {
-    switch (code) {
+  switch (code) {
 #define X(a, b, c) case a: return true;
 #include <foedus/log/log_type.xmacro> // NOLINT
 #undef X
-        default: return false;
-    }
+    default: return false;
+  }
 }
 
 /**

@@ -20,29 +20,29 @@ namespace thread {
  */
 class ImpersonateTaskPimpl final {
  public:
-    ImpersonateTaskPimpl() {}
-    ~ImpersonateTaskPimpl() {}
+  ImpersonateTaskPimpl() {}
+  ~ImpersonateTaskPimpl() {}
 
-    void set_result(const ErrorStack& result) {
-        ASSERT_ND(!result_.is_error());
-        if (result.is_error()) {  // otherwise no need to copy
-            result_ = result;
-        }
-        assorted::memory_fence_release();
-        rendezvous_.signal();
+  void set_result(const ErrorStack& result) {
+    ASSERT_ND(!result_.is_error());
+    if (result.is_error()) {  // otherwise no need to copy
+      result_ = result;
     }
+    assorted::memory_fence_release();
+    rendezvous_.signal();
+  }
 
-    /**
-     * Result of this task. It's kRetOk until the task completes.
-     */
-    ErrorStack                  result_;
+  /**
+   * Result of this task. It's kRetOk until the task completes.
+   */
+  ErrorStack                  result_;
 
 
-    /**
-     * Signals when this task is done. ImpersonateSession waits on it.
-     * The impersonated thread signals when it finishes the task.
-     */
-    Rendezvous                  rendezvous_;
+  /**
+   * Signals when this task is done. ImpersonateSession waits on it.
+   * The impersonated thread signals when it finishes the task.
+   */
+  Rendezvous                  rendezvous_;
 };
 }  // namespace thread
 }  // namespace foedus

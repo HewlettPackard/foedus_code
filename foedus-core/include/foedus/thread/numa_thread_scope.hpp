@@ -14,13 +14,13 @@ namespace thread {
  * Declare this object as soon as the thread starts.
  */
 struct NumaThreadScope {
-    explicit NumaThreadScope(int numa_node) {
-        ::numa_run_on_node(numa_node);
-        ::numa_set_localalloc();
-    }
-    ~NumaThreadScope() {
-        ::numa_run_on_node_mask(::numa_all_nodes_ptr);
-    }
+  explicit NumaThreadScope(int numa_node) {
+    ::numa_run_on_node(numa_node);
+    ::numa_set_localalloc();
+  }
+  ~NumaThreadScope() {
+    ::numa_run_on_node_mask(::numa_all_nodes_ptr);
+  }
 };
 
 }  // namespace thread

@@ -15,69 +15,69 @@ namespace foedus {
 namespace assorted {
 
 int64_t int_div_ceil(int64_t dividee, int64_t dividor) {
-    std::ldiv_t result = std::div(dividee, dividor);
-    return result.rem != 0 ? (result.quot + 1) : result.quot;
+  std::ldiv_t result = std::div(dividee, dividor);
+  return result.rem != 0 ? (result.quot + 1) : result.quot;
 }
 
 std::string replace_all(const std::string& target, const std::string& search,
-                           const std::string& replacement) {
-    std::string subject = target;
-    while (true) {
-        std::size_t pos = subject.find(search);
-        if (pos != std::string::npos) {
-            subject.replace(pos, search.size(), replacement);
-        } else {
-            break;
-        }
+               const std::string& replacement) {
+  std::string subject = target;
+  while (true) {
+    std::size_t pos = subject.find(search);
+    if (pos != std::string::npos) {
+      subject.replace(pos, search.size(), replacement);
+    } else {
+      break;
     }
-    return subject;
+  }
+  return subject;
 }
 
 std::string replace_all(const std::string& target, const std::string& search,
-                           int replacement) {
-    std::stringstream str;
-    str << replacement;
-    std::string rep = str.str();
-    return replace_all(target, search, rep);
+               int replacement) {
+  std::stringstream str;
+  str << replacement;
+  std::string rep = str.str();
+  return replace_all(target, search, rep);
 }
 
 std::string os_error() {
-    return os_error(errno);
+  return os_error(errno);
 }
 
 std::string os_error(int error_number) {
-    if (error_number == 0) {
-        return "[No Error]";
-    }
-    std::stringstream str;
-    // TODO(Hideaki) is std::strerror thread-safe? Thre is no std::strerror_r. Windows, mmm.
-    str << "[Errno " << error_number << "] " << std::strerror(error_number);
-    return str.str();
+  if (error_number == 0) {
+    return "[No Error]";
+  }
+  std::stringstream str;
+  // TODO(Hideaki) is std::strerror thread-safe? Thre is no std::strerror_r. Windows, mmm.
+  str << "[Errno " << error_number << "] " << std::strerror(error_number);
+  return str.str();
 }
 
 std::ostream& operator<<(std::ostream& o, const Hex& v) {
-    std::ios::fmtflags old_flags = o.flags();
-    o << "0x";
-    if (v.fix_digits_ >= 0) {
-        o.width(v.fix_digits_);
-        o.fill('0');
-    }
-    o << std::hex << std::uppercase << v.val_;
-    o.flags(old_flags);
-    return o;
+  std::ios::fmtflags old_flags = o.flags();
+  o << "0x";
+  if (v.fix_digits_ >= 0) {
+    o.width(v.fix_digits_);
+    o.fill('0');
+  }
+  o << std::hex << std::uppercase << v.val_;
+  o.flags(old_flags);
+  return o;
 }
 
 std::string demangle_type_name(const char* mangled_name) {
 #ifdef __GNUC__
-    int status;
-    char* demangled = abi::__cxa_demangle(mangled_name, nullptr, nullptr, &status);
-    if (demangled) {
-        std::string ret(demangled);
-        ::free(demangled);
-        return ret;
-    }
+  int status;
+  char* demangled = abi::__cxa_demangle(mangled_name, nullptr, nullptr, &status);
+  if (demangled) {
+    std::string ret(demangled);
+    ::free(demangled);
+    return ret;
+  }
 #endif  // __GNUC__
-    return mangled_name;
+  return mangled_name;
 }
 
 

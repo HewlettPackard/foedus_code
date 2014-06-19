@@ -29,109 +29,109 @@ namespace memory {
  */
 class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
  public:
-    NumaNodeMemory() CXX11_FUNC_DELETE;
-    NumaNodeMemory(Engine* engine, foedus::thread::ThreadGroupId numa_node);
-    ErrorStack  initialize_once() CXX11_OVERRIDE;
-    ErrorStack  uninitialize_once() CXX11_OVERRIDE;
+  NumaNodeMemory() CXX11_FUNC_DELETE;
+  NumaNodeMemory(Engine* engine, foedus::thread::ThreadGroupId numa_node);
+  ErrorStack  initialize_once() CXX11_OVERRIDE;
+  ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
-    foedus::thread::ThreadGroupId   get_numa_node() const { return numa_node_; }
+  foedus::thread::ThreadGroupId   get_numa_node() const { return numa_node_; }
 
-    PagePool&                       get_page_pool() { return page_pool_; }
+  PagePool&                       get_page_pool() { return page_pool_; }
 
-    // accessors for child memories
-    foedus::thread::ThreadLocalOrdinal get_core_memory_count() const {
-        ASSERT_ND(core_memories_.size() <= foedus::thread::kMaxThreadLocalOrdinal);
-        return static_cast<foedus::thread::ThreadLocalOrdinal>(core_memories_.size());
-    }
-    std::vector<NumaCoreMemory*>& get_core_memories() { return core_memories_; }
-    NumaCoreMemory* get_core_memory(foedus::thread::ThreadId id) const {
-        return core_memories_[foedus::thread::decompose_numa_local_ordinal(id)];
-    }
-    NumaCoreMemory* get_core_memory(foedus::thread::ThreadLocalOrdinal ordinal) const {
-        return core_memories_[ordinal];
-    }
+  // accessors for child memories
+  foedus::thread::ThreadLocalOrdinal get_core_memory_count() const {
+    ASSERT_ND(core_memories_.size() <= foedus::thread::kMaxThreadLocalOrdinal);
+    return static_cast<foedus::thread::ThreadLocalOrdinal>(core_memories_.size());
+  }
+  std::vector<NumaCoreMemory*>& get_core_memories() { return core_memories_; }
+  NumaCoreMemory* get_core_memory(foedus::thread::ThreadId id) const {
+    return core_memories_[foedus::thread::decompose_numa_local_ordinal(id)];
+  }
+  NumaCoreMemory* get_core_memory(foedus::thread::ThreadLocalOrdinal ordinal) const {
+    return core_memories_[ordinal];
+  }
 
-    /**
-     * Allocate a memory of the given size on this NUMA node.
-     * @param[in] size byte size of the memory to acquire
-     * @param[out] out allocated memory is moved to object
-     * @return Expect OUTOFMEMORY error.
-     */
-    ErrorStack      allocate_numa_memory(size_t size, AlignedMemory *out);
+  /**
+   * Allocate a memory of the given size on this NUMA node.
+   * @param[in] size byte size of the memory to acquire
+   * @param[out] out allocated memory is moved to object
+   * @return Expect OUTOFMEMORY error.
+   */
+  ErrorStack      allocate_numa_memory(size_t size, AlignedMemory *out);
 
-    AlignedMemory& get_read_set_memory() { return read_set_memory_; }
-    xct::XctAccess* get_read_set_memory_piece(thread::ThreadLocalOrdinal core_ordinal) {
-        return read_set_memory_pieces_[core_ordinal];
-    }
-    AlignedMemory& get_write_set_memory() { return write_set_memory_; }
-    xct::WriteXctAccess* get_write_set_memory_piece(thread::ThreadLocalOrdinal core_ordinal) {
-        return write_set_memory_pieces_[core_ordinal];
-    }
-    PagePoolOffsetChunk* get_page_offset_chunk_memory_piece(
-        foedus::thread::ThreadLocalOrdinal core_ordinal) {
-        return page_offset_chunk_memory_pieces_[core_ordinal];
-    }
-    AlignedMemorySlice get_log_buffer_memory_piece(log::LoggerId logger) {
-        return log_buffer_memory_pieces_[logger];
-    }
+  AlignedMemory& get_read_set_memory() { return read_set_memory_; }
+  xct::XctAccess* get_read_set_memory_piece(thread::ThreadLocalOrdinal core_ordinal) {
+    return read_set_memory_pieces_[core_ordinal];
+  }
+  AlignedMemory& get_write_set_memory() { return write_set_memory_; }
+  xct::WriteXctAccess* get_write_set_memory_piece(thread::ThreadLocalOrdinal core_ordinal) {
+    return write_set_memory_pieces_[core_ordinal];
+  }
+  PagePoolOffsetChunk* get_page_offset_chunk_memory_piece(
+    foedus::thread::ThreadLocalOrdinal core_ordinal) {
+    return page_offset_chunk_memory_pieces_[core_ordinal];
+  }
+  AlignedMemorySlice get_log_buffer_memory_piece(log::LoggerId logger) {
+    return log_buffer_memory_pieces_[logger];
+  }
 
  private:
-    /** initialize read-set and write-set memory. */
-    ErrorStack      initialize_read_write_set_memory();
-    /** initialize page_offset_chunk_memory_/page_offset_chunk_memory_pieces_. */
-    ErrorStack      initialize_page_offset_chunk_memory();
-    /** initialize log_buffer_memory_. */
-    ErrorStack      initialize_log_buffers_memory();
-    /** initialize child memories per core */
-    ErrorStack      initialize_core_memory(thread::ThreadLocalOrdinal ordinal);
+  /** initialize read-set and write-set memory. */
+  ErrorStack      initialize_read_write_set_memory();
+  /** initialize page_offset_chunk_memory_/page_offset_chunk_memory_pieces_. */
+  ErrorStack      initialize_page_offset_chunk_memory();
+  /** initialize log_buffer_memory_. */
+  ErrorStack      initialize_log_buffers_memory();
+  /** initialize child memories per core */
+  ErrorStack      initialize_core_memory(thread::ThreadLocalOrdinal ordinal);
 
-    Engine* const                           engine_;
+  Engine* const                           engine_;
 
-    /**
-     * The NUMA node this memory is allocated for.
-     */
-    const foedus::thread::ThreadGroupId     numa_node_;
+  /**
+   * The NUMA node this memory is allocated for.
+   */
+  const foedus::thread::ThreadGroupId     numa_node_;
 
-    /** Number of cores in this node. */
-    const thread::ThreadLocalOrdinal        cores_;
+  /** Number of cores in this node. */
+  const thread::ThreadLocalOrdinal        cores_;
 
-    /** Number of loggers in this node. */
-    const uint16_t                          loggers_;
+  /** Number of loggers in this node. */
+  const uint16_t                          loggers_;
 
-    /** In-memory page pool in this node. */
-    PagePool                                page_pool_;
+  /** In-memory page pool in this node. */
+  PagePool                                page_pool_;
 
-    /**
-     * List of NumaCoreMemory, one for each core in this node.
-     * Index is local ordinal of the NUMA cores.
-     */
-    std::vector<NumaCoreMemory*>            core_memories_;
+  /**
+   * List of NumaCoreMemory, one for each core in this node.
+   * Index is local ordinal of the NUMA cores.
+   */
+  std::vector<NumaCoreMemory*>            core_memories_;
 
-    /**
-     * Memory to keep track of read-set during transactions.
-     * To better utilize HugePages, we allocate this in node level for all cores rather than in
-     * individual core level. NumaCoreMemory merely gets a piece of this memory.
-     */
-    AlignedMemory                           read_set_memory_;
-    std::vector<xct::XctAccess*>            read_set_memory_pieces_;
+  /**
+   * Memory to keep track of read-set during transactions.
+   * To better utilize HugePages, we allocate this in node level for all cores rather than in
+   * individual core level. NumaCoreMemory merely gets a piece of this memory.
+   */
+  AlignedMemory                           read_set_memory_;
+  std::vector<xct::XctAccess*>            read_set_memory_pieces_;
 
-    /**
-     * Memory to keep track of write-set during transactions. Same above.
-     */
-    AlignedMemory                           write_set_memory_;
-    std::vector<xct::WriteXctAccess*>       write_set_memory_pieces_;
+  /**
+   * Memory to keep track of write-set during transactions. Same above.
+   */
+  AlignedMemory                           write_set_memory_;
+  std::vector<xct::WriteXctAccess*>       write_set_memory_pieces_;
 
-    /**
-     * Memory to hold a \b local pool of pointers to free pages. Same above.
-     */
-    AlignedMemory                           page_offset_chunk_memory_;
-    std::vector<PagePoolOffsetChunk*>       page_offset_chunk_memory_pieces_;
+  /**
+   * Memory to hold a \b local pool of pointers to free pages. Same above.
+   */
+  AlignedMemory                           page_offset_chunk_memory_;
+  std::vector<PagePoolOffsetChunk*>       page_offset_chunk_memory_pieces_;
 
-    /**
-     * Memory to hold a thread's log buffer. Split by each core in this node.
-     */
-    AlignedMemory                           log_buffer_memory_;
-    std::vector<AlignedMemorySlice>         log_buffer_memory_pieces_;
+  /**
+   * Memory to hold a thread's log buffer. Split by each core in this node.
+   */
+  AlignedMemory                           log_buffer_memory_;
+  std::vector<AlignedMemorySlice>         log_buffer_memory_pieces_;
 };
 }  // namespace memory
 }  // namespace foedus

@@ -80,7 +80,7 @@ const ThreadId kMaxThreadId = 0xFFFF;
  * @ingroup THREAD
  */
 inline ThreadId compose_thread_id(ThreadGroupId node, ThreadLocalOrdinal local_core) {
-    return (node << 8) | local_core;
+  return (node << 8) | local_core;
 }
 
 /**
@@ -88,7 +88,7 @@ inline ThreadId compose_thread_id(ThreadGroupId node, ThreadLocalOrdinal local_c
  * @ingroup THREAD
  */
 inline ThreadGroupId decompose_numa_node(ThreadId global_id) {
-    return (global_id >> 8) & 0xFF;
+  return (global_id >> 8) & 0xFF;
 }
 
 /**
@@ -96,7 +96,7 @@ inline ThreadGroupId decompose_numa_node(ThreadId global_id) {
  * @ingroup THREAD
  */
 inline ThreadLocalOrdinal decompose_numa_local_ordinal(ThreadId global_id) {
-    return global_id & 0xFF;
+  return global_id & 0xFF;
 }
 
 /**

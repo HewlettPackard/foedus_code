@@ -7,9 +7,9 @@
 namespace foedus {
 namespace storage {
 std::ostream& operator<<(std::ostream& o, const DualPagePointer& /*v*/) {
-    // TODO(Hideaki) implement
-    o << "DualPagePointer:" << std::endl;
-    return o;
+  // TODO(Hideaki) implement
+  o << "DualPagePointer:" << std::endl;
+  return o;
 }
 }  // namespace storage
 }  // namespace foedus

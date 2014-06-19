@@ -24,37 +24,37 @@ namespace thread {
  */
 class ThreadPoolPimpl final : public DefaultInitializable {
  public:
-    ThreadPoolPimpl() = delete;
-    explicit ThreadPoolPimpl(Engine* engine) : engine_(engine) {}
-    ErrorStack  initialize_once() override;
-    ErrorStack  uninitialize_once() override;
+  ThreadPoolPimpl() = delete;
+  explicit ThreadPoolPimpl(Engine* engine) : engine_(engine) {}
+  ErrorStack  initialize_once() override;
+  ErrorStack  uninitialize_once() override;
 
-    ImpersonateSession  impersonate(ImpersonateTask* functor, TimeoutMicrosec timeout);
-    ImpersonateSession  impersonate_on_numa_node(ImpersonateTask* functor,
-                                        ThreadGroupId numa_node, TimeoutMicrosec timeout);
-    ImpersonateSession  impersonate_on_numa_core(ImpersonateTask* functor,
-                                        ThreadId numa_core, TimeoutMicrosec timeout);
+  ImpersonateSession  impersonate(ImpersonateTask* functor, TimeoutMicrosec timeout);
+  ImpersonateSession  impersonate_on_numa_node(ImpersonateTask* functor,
+                    ThreadGroupId numa_node, TimeoutMicrosec timeout);
+  ImpersonateSession  impersonate_on_numa_core(ImpersonateTask* functor,
+                    ThreadId numa_core, TimeoutMicrosec timeout);
 
-    ThreadGroup*        get_group(ThreadGroupId numa_node) const;
-    Thread*             get_thread(ThreadId id) const;
+  ThreadGroup*        get_group(ThreadGroupId numa_node) const;
+  Thread*             get_thread(ThreadId id) const;
 
-    friend  std::ostream& operator<<(std::ostream& o, const ThreadPoolPimpl& v);
+  friend  std::ostream& operator<<(std::ostream& o, const ThreadPoolPimpl& v);
 
-    Engine* const               engine_;
+  Engine* const               engine_;
 
-    /**
-     * List of ThreadGroup, one for each NUMA node in this engine.
-     * Index is ThreadGroupId.
-     */
-    std::vector<ThreadGroup*>   groups_;
+  /**
+   * List of ThreadGroup, one for each NUMA node in this engine.
+   * Index is ThreadGroupId.
+   */
+  std::vector<ThreadGroup*>   groups_;
 
-    /**
-     * @brief Whether this thread pool has stopped allowing further impersonation.
-     * @details
-     * As the first step to terminate the entire engine, uninitialize() sets this to true,
-     * prohibiting further impersonations from client code.
-     */
-    bool                        no_more_impersonation_;
+  /**
+   * @brief Whether this thread pool has stopped allowing further impersonation.
+   * @details
+   * As the first step to terminate the entire engine, uninitialize() sets this to true,
+   * prohibiting further impersonations from client code.
+   */
+  bool                        no_more_impersonation_;
 };
 }  // namespace thread
 }  // namespace foedus

@@ -14,12 +14,12 @@ namespace cache {
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
 struct CacheOptions CXX11_FINAL : public virtual externalize::Externalizable {
-    /**
-     * Constructs option values with default values.
-     */
-    CacheOptions();
+  /**
+   * Constructs option values with default values.
+   */
+  CacheOptions();
 
-    EXTERNALIZABLE(CacheOptions);
+  EXTERNALIZABLE(CacheOptions);
 };
 }  // namespace cache
 }  // namespace foedus

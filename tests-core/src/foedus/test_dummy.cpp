@@ -16,8 +16,8 @@ DEFINE_TEST_CASE_PACKAGE(DummyTest, foedus);
  *   https://code.google.com/p/googletest/issues/detail?id=311
  */
 TEST(DummyTest, Abort) {
-    // Disabled usually. Enable only when to test Jenkins.
-    // std::abort();
+  // Disabled usually. Enable only when to test Jenkins.
+  // std::abort();
 }
 TEST(DummyTest, NotAbort) {
 }

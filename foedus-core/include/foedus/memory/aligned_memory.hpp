@@ -49,100 +49,100 @@ namespace memory {
  */
 class AlignedMemory CXX11_FINAL {
  public:
+  /**
+   * @brief Type of new/delete operation for the block.
+   * @details
+   * So far we allow posix_memalign and numa_alloc.
+   * numa_alloc implicitly aligns the allocated memory, but we can't specify alignment size.
+   * Usually it's 4096 bytes aligned, thus always enough for our usage.
+   * @see http://stackoverflow.com/questions/8154162/numa-aware-cache-aligned-memory-allocation
+   */
+  enum AllocType {
+    /** posix_memalign() and free(). */
+    kPosixMemalign = 0,
+    /** numa_alloc_interleaved() and numa_free(). Implicit 4096 bytes alignment. */
+    kNumaAllocInterleaved,
+    /** numa_alloc_onnode() and numa_free(). Implicit 4096 bytes alignment.  */
+    kNumaAllocOnnode,
     /**
-     * @brief Type of new/delete operation for the block.
-     * @details
-     * So far we allow posix_memalign and numa_alloc.
-     * numa_alloc implicitly aligns the allocated memory, but we can't specify alignment size.
-     * Usually it's 4096 bytes aligned, thus always enough for our usage.
-     * @see http://stackoverflow.com/questions/8154162/numa-aware-cache-aligned-memory-allocation
+     * Usual new()/delete(). We currently don't use this for aligned memory allocation,
+     * but may be the best for portability. But, this is not a strong hint for Linux to use
+     * THP. hmm.
      */
-    enum AllocType {
-        /** posix_memalign() and free(). */
-        kPosixMemalign = 0,
-        /** numa_alloc_interleaved() and numa_free(). Implicit 4096 bytes alignment. */
-        kNumaAllocInterleaved,
-        /** numa_alloc_onnode() and numa_free(). Implicit 4096 bytes alignment.  */
-        kNumaAllocOnnode,
-        /**
-         * Usual new()/delete(). We currently don't use this for aligned memory allocation,
-         * but may be the best for portability. But, this is not a strong hint for Linux to use
-         * THP. hmm.
-         */
-        // kNormal,
-        /** Windows's VirtualAlloc() and VirtualFree(). */
-        // kVirtualAlloc,
-    };
+    // kNormal,
+    /** Windows's VirtualAlloc() and VirtualFree(). */
+    // kVirtualAlloc,
+  };
 
-    /** Empty constructor which allocates nothing. */
-    AlignedMemory() CXX11_NOEXCEPT : size_(0), alignment_(0), alloc_type_(kPosixMemalign),
-        numa_node_(0), block_(CXX11_NULLPTR) {}
+  /** Empty constructor which allocates nothing. */
+  AlignedMemory() CXX11_NOEXCEPT : size_(0), alignment_(0), alloc_type_(kPosixMemalign),
+    numa_node_(0), block_(CXX11_NULLPTR) {}
 
-    /**
-     * Allocate an aligned memory of given size and alignment.
-     * @param[in] size Byte size of the memory block. Actual allocation is at least of this size.
-     * @param[in] alignment Alignment bytes of the memory block. Must be power of two.
-     * Ignored for kNumaAllocOnnode and kNumaAllocInterleaved.
-     * @param[in] alloc_type specifies type of new/delete
-     * @param[in] numa_node if alloc_type_ is kNumaAllocOnnode, the NUMA node to allocate at.
-     * Otherwise ignored.
-     * @attention When memory allocation fails for some reason (eg Out-Of-Memory), this constructor
-     * does NOT fail nor throws an exception. Instead, it sets the block_ NULL.
-     * So, the caller is responsible for checking it after construction.
-     */
-    AlignedMemory(uint64_t size, uint64_t alignment,
-        AllocType alloc_type, int numa_node) CXX11_NOEXCEPT;
+  /**
+   * Allocate an aligned memory of given size and alignment.
+   * @param[in] size Byte size of the memory block. Actual allocation is at least of this size.
+   * @param[in] alignment Alignment bytes of the memory block. Must be power of two.
+   * Ignored for kNumaAllocOnnode and kNumaAllocInterleaved.
+   * @param[in] alloc_type specifies type of new/delete
+   * @param[in] numa_node if alloc_type_ is kNumaAllocOnnode, the NUMA node to allocate at.
+   * Otherwise ignored.
+   * @attention When memory allocation fails for some reason (eg Out-Of-Memory), this constructor
+   * does NOT fail nor throws an exception. Instead, it sets the block_ NULL.
+   * So, the caller is responsible for checking it after construction.
+   */
+  AlignedMemory(uint64_t size, uint64_t alignment,
+    AllocType alloc_type, int numa_node) CXX11_NOEXCEPT;
 
-    // Disable default constructors
-    AlignedMemory(const AlignedMemory &other) CXX11_FUNC_DELETE;
-    AlignedMemory& operator=(const AlignedMemory &other) CXX11_FUNC_DELETE;
+  // Disable default constructors
+  AlignedMemory(const AlignedMemory &other) CXX11_FUNC_DELETE;
+  AlignedMemory& operator=(const AlignedMemory &other) CXX11_FUNC_DELETE;
 
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-    /**
-     * Move constructor that steals the memory block from other.
-     */
-    AlignedMemory(AlignedMemory &&other) noexcept;
-    /**
-     * Move assignment operator that steals the memory block from other.
-     */
-    AlignedMemory& operator=(AlignedMemory &&other) noexcept;
+  /**
+   * Move constructor that steals the memory block from other.
+   */
+  AlignedMemory(AlignedMemory &&other) noexcept;
+  /**
+   * Move assignment operator that steals the memory block from other.
+   */
+  AlignedMemory& operator=(AlignedMemory &&other) noexcept;
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 
-    /** Automatically releases the memory. */
-    ~AlignedMemory() { release_block(); }
+  /** Automatically releases the memory. */
+  ~AlignedMemory() { release_block(); }
 
-    /** Allocate a memory, releasing the current memory if exists. */
-    void        alloc(uint64_t size, uint64_t alignment,
-                      AllocType alloc_type, int numa_node) CXX11_NOEXCEPT;
-    /** Returns the memory block. */
-    void*       get_block() const { return block_; }
-    /** Returns if this object doesn't hold a valid memory block. */
-    bool        is_null() const { return block_ == CXX11_NULLPTR; }
-    /** Returns the byte size of the memory block. */
-    uint64_t    get_size() const { return size_; }
-    /** Returns the alignment of the memory block. */
-    uint64_t    get_alignment() const { return alignment_; }
-    /** Returns type of new/delete operation for the block. */
-    AllocType   get_alloc_type() const { return alloc_type_; }
-    /** If alloc_type_ is kNumaAllocOnnode, returns the NUMA node this memory was allocated at. */
-    int         get_numa_node() const { return numa_node_; }
+  /** Allocate a memory, releasing the current memory if exists. */
+  void        alloc(uint64_t size, uint64_t alignment,
+            AllocType alloc_type, int numa_node) CXX11_NOEXCEPT;
+  /** Returns the memory block. */
+  void*       get_block() const { return block_; }
+  /** Returns if this object doesn't hold a valid memory block. */
+  bool        is_null() const { return block_ == CXX11_NULLPTR; }
+  /** Returns the byte size of the memory block. */
+  uint64_t    get_size() const { return size_; }
+  /** Returns the alignment of the memory block. */
+  uint64_t    get_alignment() const { return alignment_; }
+  /** Returns type of new/delete operation for the block. */
+  AllocType   get_alloc_type() const { return alloc_type_; }
+  /** If alloc_type_ is kNumaAllocOnnode, returns the NUMA node this memory was allocated at. */
+  int         get_numa_node() const { return numa_node_; }
 
-    /** Releases the memory block. */
-    void        release_block();
+  /** Releases the memory block. */
+  void        release_block();
 
-    friend std::ostream&    operator<<(std::ostream& o, const AlignedMemory& v);
+  friend std::ostream&    operator<<(std::ostream& o, const AlignedMemory& v);
 
  private:
-    /** Byte size of the memory block. */
-    uint64_t    size_;
-    /** Alignment of the memory block. */
-    uint64_t    alignment_;
-    /** type of new/delete operation for the block .*/
-    AllocType   alloc_type_;
-    /** if alloc_type_ is kNumaAllocOnnode, the NUMA node this memory was allocated at. */
-    int         numa_node_;
-    /** Allocated memory block. */
-    void*       block_;
+  /** Byte size of the memory block. */
+  uint64_t    size_;
+  /** Alignment of the memory block. */
+  uint64_t    alignment_;
+  /** type of new/delete operation for the block .*/
+  AllocType   alloc_type_;
+  /** if alloc_type_ is kNumaAllocOnnode, the NUMA node this memory was allocated at. */
+  int         numa_node_;
+  /** Allocated memory block. */
+  void*       block_;
 };
 
 /**
@@ -158,38 +158,38 @@ class AlignedMemory CXX11_FINAL {
  * This object is a POD.
  */
 struct AlignedMemorySlice CXX11_FINAL {
-    /** Empty constructor. */
-    AlignedMemorySlice() : memory_(CXX11_NULLPTR), offset_(0), count_(0) {}
+  /** Empty constructor. */
+  AlignedMemorySlice() : memory_(CXX11_NULLPTR), offset_(0), count_(0) {}
 
-    /** A dummy slice that covers the memory entirely. */
-    explicit AlignedMemorySlice(AlignedMemory *memory)
-        : memory_(memory), offset_(0), count_(memory->get_size()) {}
+  /** A dummy slice that covers the memory entirely. */
+  explicit AlignedMemorySlice(AlignedMemory *memory)
+    : memory_(memory), offset_(0), count_(memory->get_size()) {}
 
-    /** A slice that covers the specified region of the memory. */
-    AlignedMemorySlice(AlignedMemory *memory, uint64_t offset, uint64_t count)
-        : memory_(memory), offset_(offset), count_(count) {
-        ASSERT_ND(memory->get_size() >= count + offset);
-    }
+  /** A slice that covers the specified region of the memory. */
+  AlignedMemorySlice(AlignedMemory *memory, uint64_t offset, uint64_t count)
+    : memory_(memory), offset_(offset), count_(count) {
+    ASSERT_ND(memory->get_size() >= count + offset);
+  }
 
-    /** A slice that covers the specified region of another slice. */
-    AlignedMemorySlice(const AlignedMemorySlice &slice, uint64_t offset, uint64_t count)
-        : memory_(slice.memory_), offset_(slice.offset_ + offset), count_(count) {
-        ASSERT_ND(slice.get_size() >= count + offset);
-    }
+  /** A slice that covers the specified region of another slice. */
+  AlignedMemorySlice(const AlignedMemorySlice &slice, uint64_t offset, uint64_t count)
+    : memory_(slice.memory_), offset_(slice.offset_ + offset), count_(count) {
+    ASSERT_ND(slice.get_size() >= count + offset);
+  }
 
-    friend std::ostream&    operator<<(std::ostream& o, const AlignedMemorySlice& v);
+  friend std::ostream&    operator<<(std::ostream& o, const AlignedMemorySlice& v);
 
-    void        clear() { memory_ = CXX11_NULLPTR; }
-    bool        is_valid()  const { return memory_; }
-    uint64_t    get_size()  const { return count_; }
-    void*       get_block() { return reinterpret_cast<char*>(memory_->get_block()) + offset_; }
+  void        clear() { memory_ = CXX11_NULLPTR; }
+  bool        is_valid()  const { return memory_; }
+  uint64_t    get_size()  const { return count_; }
+  void*       get_block() { return reinterpret_cast<char*>(memory_->get_block()) + offset_; }
 
-    /** The wrapped memory. This object is just a \e view. It doesn't \e release the block. */
-    AlignedMemory*  memory_;
-    /** Byte offset of this slice in memory_. */
-    uint64_t        offset_;
-    /** Byte count of this slice in memory_. */
-    uint64_t        count_;
+  /** The wrapped memory. This object is just a \e view. It doesn't \e release the block. */
+  AlignedMemory*  memory_;
+  /** Byte offset of this slice in memory_. */
+  uint64_t        offset_;
+  /** Byte count of this slice in memory_. */
+  uint64_t        count_;
 };
 
 }  // namespace memory

@@ -18,28 +18,28 @@ namespace snapshot {
  * This is POD.
  */
 struct Snapshot {
-    /**
-     * Unique ID of this snapshot.
-     * @attention Greater-than/less-than has no meaning due to wrap-around. Use epochs for that
-     * purpose. ID is used only for equality.
-     */
-    SnapshotId  id_;
+  /**
+   * Unique ID of this snapshot.
+   * @attention Greater-than/less-than has no meaning due to wrap-around. Use epochs for that
+   * purpose. ID is used only for equality.
+   */
+  SnapshotId  id_;
 
-    /**
-     * This snapshot was taken based on another snapshot that is valid_until this epoch.
-     * If this is the first snapshot, this is an invalid epoch.
-     */
-    Epoch base_epoch_;
+  /**
+   * This snapshot was taken based on another snapshot that is valid_until this epoch.
+   * If this is the first snapshot, this is an invalid epoch.
+   */
+  Epoch base_epoch_;
 
-    /**
-     * This snapshot contains all the logs until this epoch.
-     * @invariant valid_until_epoch_.is_valid()
-     */
-    Epoch valid_until_epoch_;
+  /**
+   * This snapshot contains all the logs until this epoch.
+   * @invariant valid_until_epoch_.is_valid()
+   */
+  Epoch valid_until_epoch_;
 
-    // here goes statistics, but it's not yet done.
+  // here goes statistics, but it's not yet done.
 
-    friend std::ostream& operator<<(std::ostream& o, const Snapshot& v);
+  friend std::ostream& operator<<(std::ostream& o, const Snapshot& v);
 };
 }  // namespace snapshot
 }  // namespace foedus

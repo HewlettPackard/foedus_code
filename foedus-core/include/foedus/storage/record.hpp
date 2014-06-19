@@ -18,25 +18,25 @@ namespace storage {
  * A record is always reinterpret-ed from a data page. No meaningful RTTI nor copy/move semantics.
  */
 struct Record CXX11_FINAL {
-    /**
-     * This indicates the transaction that most recently modified this record.
-     * This is also used as lock/delete flag.
-     * Thus, for atomic operations, Record object must be 8-byte aligned.
-     */
-    xct::XctId          owner_id_;
+  /**
+   * This indicates the transaction that most recently modified this record.
+   * This is also used as lock/delete flag.
+   * Thus, for atomic operations, Record object must be 8-byte aligned.
+   */
+  xct::XctId          owner_id_;
 
-    /**
-     * Arbitrary payload given by the user. The size is actually meaningless (8 is just to not
-     * confuse compiler variable layout).
-     */
-    char                payload_[8];
+  /**
+   * Arbitrary payload given by the user. The size is actually meaningless (8 is just to not
+   * confuse compiler variable layout).
+   */
+  char                payload_[8];
 
-    Record() CXX11_FUNC_DELETE;
-    Record(const Record& other) CXX11_FUNC_DELETE;
-    Record& operator=(const Record& other) CXX11_FUNC_DELETE;
+  Record() CXX11_FUNC_DELETE;
+  Record(const Record& other) CXX11_FUNC_DELETE;
+  Record& operator=(const Record& other) CXX11_FUNC_DELETE;
 
-    void    try_lock() {
-    }
+  void    try_lock() {
+  }
 };
 
 /**
