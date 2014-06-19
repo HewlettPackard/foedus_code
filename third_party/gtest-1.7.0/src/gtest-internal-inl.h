@@ -896,7 +896,7 @@ class GTEST_API_ UnitTestImpl {
   // large number of test results.
   // This might be a bit convoluted way of adding package feature, but
   // adding this info into TestCase would introduce even more convolutions
-  // unless many related macros/classes are refactored together.
+  // unless many related macros/classes are changed together.
   std::map<std::string, std::string> test_case_package_mappings_;
 
 #if GTEST_HAS_PARAM_TEST
