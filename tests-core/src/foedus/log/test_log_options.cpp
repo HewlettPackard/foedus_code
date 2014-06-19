@@ -12,6 +12,7 @@
  */
 namespace foedus {
 namespace log {
+DEFINE_TEST_CASE_PACKAGE(LogOptionsTest, foedus.log);
 
 TEST(LogOptionsTest, NodePattern) {
     LogOptions options;

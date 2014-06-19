@@ -27,6 +27,7 @@
 namespace foedus {
 namespace storage {
 namespace array {
+DEFINE_TEST_CASE_PACKAGE(ArrayTpcbTest, foedus.storage.array);
 
 // tiny numbers
 /** number of branches (TPS scaling factor). */

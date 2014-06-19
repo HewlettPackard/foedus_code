@@ -16,6 +16,7 @@
 
 namespace foedus {
 namespace thread {
+DEFINE_TEST_CASE_PACKAGE(StoppableThreadTest, foedus.thread);
 
 void handle_thread(StoppableThread* me) {
     while (!me->sleep()) {

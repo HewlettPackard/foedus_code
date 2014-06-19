@@ -15,6 +15,7 @@
  */
 namespace foedus {
 namespace thread {
+DEFINE_TEST_CASE_PACKAGE(RendezvousTest, foedus.thread);
 
 TEST(RendezvousTest, Instantiate) {
     Rendezvous rendezvous;

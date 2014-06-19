@@ -18,6 +18,7 @@
 namespace foedus {
 namespace storage {
 namespace array {
+DEFINE_TEST_CASE_PACKAGE(ArrayBasicTest, foedus.storage.array);
 TEST(ArrayBasicTest, Create) {
     EngineOptions options = get_tiny_options();
     Engine engine(options);

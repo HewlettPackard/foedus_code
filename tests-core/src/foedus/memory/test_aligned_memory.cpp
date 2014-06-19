@@ -13,6 +13,8 @@
 namespace foedus {
 namespace memory {
 
+DEFINE_TEST_CASE_PACKAGE(AlignedMemoryTest, foedus.memory);
+
 TEST(AlignedMemoryTest, Instantiate) {
     AlignedMemory memory;
     EXPECT_EQ(nullptr, memory.get_block());

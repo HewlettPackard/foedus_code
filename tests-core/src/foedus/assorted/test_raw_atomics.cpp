@@ -112,6 +112,8 @@ struct CasTest {
     bool weak_;
 };
 
+DEFINE_TEST_CASE_PACKAGE(RawAtomicsTest, foedus.assorted);
+
 TEST(RawAtomicsTest, Uint8) { CasTest<uint8_t>().test(); }
 TEST(RawAtomicsTest, Uint16) { CasTest<uint16_t>().test(); }
 TEST(RawAtomicsTest, Uint32) { CasTest<uint32_t>().test(); }

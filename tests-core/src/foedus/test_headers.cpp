@@ -28,6 +28,8 @@ const char *TINYXML2_ROOT_PATH = X_EXPAND_AND_QUOTE(TINYXML2_SRC_ROOT);
 #undef X_QUOTE
 
 namespace foedus {
+DEFINE_TEST_CASE_PACKAGE(HeadersTest, foedus);
+
 bool ends_with(const std::string& str, const std::string& pattern) {
     return str.find(pattern) != str.npos;
 }

@@ -7,6 +7,7 @@
 #include <iostream>
 
 namespace foedus {
+DEFINE_TEST_CASE_PACKAGE(EpochTest, foedus);
 
 TEST(EpochTest, Valid) {
     Epoch valid_epoch(123);

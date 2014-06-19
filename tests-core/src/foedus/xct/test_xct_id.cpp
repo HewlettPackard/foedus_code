@@ -10,6 +10,7 @@
 
 namespace foedus {
 namespace xct {
+DEFINE_TEST_CASE_PACKAGE(XctIdTest, foedus.xct);
 
 
 TEST(XctIdTest, Empty) {

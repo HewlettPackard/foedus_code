@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 namespace foedus {
+DEFINE_TEST_CASE_PACKAGE(EngineTest, foedus);
 
 TEST(EngineTest, Instantiate) {
     EngineOptions options = get_tiny_options();

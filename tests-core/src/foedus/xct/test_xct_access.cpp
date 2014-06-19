@@ -14,6 +14,7 @@
 
 namespace foedus {
 namespace xct {
+DEFINE_TEST_CASE_PACKAGE(XctAccessTest, foedus.xct);
 
 void* to_ptr(int val) {
     return reinterpret_cast<void*>(static_cast<uintptr_t>(val));

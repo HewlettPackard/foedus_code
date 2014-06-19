@@ -17,6 +17,7 @@
 
 namespace foedus {
 namespace thread {
+DEFINE_TEST_CASE_PACKAGE(ThreadPoolTest, foedus.thread);
 
 struct DummyTask : public ImpersonateTask {
     explicit DummyTask(Rendezvous *rendezvous) : rendezvous_(rendezvous) {}

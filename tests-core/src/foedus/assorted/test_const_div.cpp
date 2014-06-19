@@ -37,6 +37,7 @@ void test(uint32_t d) {
     }
 }
 
+DEFINE_TEST_CASE_PACKAGE(ConstDivTest, foedus.assorted);
 TEST(ConstDivTest, Test3) { test(3); }
 TEST(ConstDivTest, Test4) { test(4); }
 TEST(ConstDivTest, Test5) { test(5); }

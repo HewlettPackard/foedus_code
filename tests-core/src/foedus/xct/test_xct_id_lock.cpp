@@ -15,6 +15,7 @@
 
 namespace foedus {
 namespace xct {
+DEFINE_TEST_CASE_PACKAGE(XctIdLockTest, foedus.xct);
 
 const int kThreads = 10;
 const int kKeys = 100;

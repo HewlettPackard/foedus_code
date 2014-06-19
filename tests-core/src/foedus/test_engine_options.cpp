@@ -10,6 +10,7 @@
 #include <string>
 
 namespace foedus {
+DEFINE_TEST_CASE_PACKAGE(EngineOptionsTest, foedus);
 
 TEST(EngineOptionsTest, Instantiate) {
     EngineOptions options;

@@ -15,6 +15,7 @@
 
 namespace foedus {
 namespace memory {
+DEFINE_TEST_CASE_PACKAGE(EngineMemoryTest, foedus.memory);
 
 TEST(EngineMemoryTest, ReadWriteSetMemory) {
     EngineOptions options = get_tiny_options();

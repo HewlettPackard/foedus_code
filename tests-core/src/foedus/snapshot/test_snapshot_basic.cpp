@@ -24,6 +24,7 @@
  */
 namespace foedus {
 namespace snapshot {
+DEFINE_TEST_CASE_PACKAGE(SnapshotBasicTest, foedus.snapshot);
 
 ErrorStack read_metadata_file(Engine* engine, SnapshotMetadata *metadata) {
     SnapshotManager& manager = engine->get_snapshot_manager();

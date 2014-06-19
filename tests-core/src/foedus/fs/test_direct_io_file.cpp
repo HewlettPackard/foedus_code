@@ -22,6 +22,7 @@
  */
 namespace foedus {
 namespace fs {
+DEFINE_TEST_CASE_PACKAGE(DirectIoFileTest, foedus.fs);
 
 TEST(DirectIoFileTest, Create) {
     DirectIoFile file(Path(std::string("testfile_") + get_random_name()));

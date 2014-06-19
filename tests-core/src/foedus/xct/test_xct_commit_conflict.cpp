@@ -23,6 +23,7 @@
 
 namespace foedus {
 namespace xct {
+DEFINE_TEST_CASE_PACKAGE(XctCommitConflictTest, foedus.xct);
 
 
 struct Payload {
