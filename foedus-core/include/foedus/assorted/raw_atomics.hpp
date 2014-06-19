@@ -31,12 +31,12 @@ bool    raw_atomic_compare_exchange_strong(T* target, T* expected, T desired);
  */
 template <typename T>
 inline bool raw_atomic_compare_exchange_weak(T* target, T* expected, T desired) {
-    if (*target != *expected) {
-        *expected = *target;
-        return false;
-    } else {
-        return raw_atomic_compare_exchange_strong<T>(target, expected, desired);
-    }
+  if (*target != *expected) {
+    *expected = *target;
+    return false;
+  } else {
+    return raw_atomic_compare_exchange_strong<T>(target, expected, desired);
+  }
 }
 
 /**
@@ -55,19 +55,19 @@ inline bool raw_atomic_compare_exchange_weak(T* target, T* expected, T desired) 
  * Check out "gcc -dM -E - < /dev/null".
  */
 bool raw_atomic_compare_exchange_strong_uint128(
-    uint64_t *ptr, const uint64_t *old_value, const uint64_t *new_value);
+  uint64_t *ptr, const uint64_t *old_value, const uint64_t *new_value);
 
 /**
  * @brief Weak version of raw_atomic_compare_exchange_strong_uint128().
  * @ingroup ASSORTED
  */
 inline bool raw_atomic_compare_exchange_weak_uint128(
-    uint64_t *ptr, const uint64_t *old_value, const uint64_t *new_value) {
-    if (ptr[0] != old_value[0] || ptr[1] != old_value[1]) {
-        return false;  // this comparison is fast but not atomic, thus 'weak'
-    } else {
-        return raw_atomic_compare_exchange_strong_uint128(ptr, old_value, new_value);
-    }
+  uint64_t *ptr, const uint64_t *old_value, const uint64_t *new_value) {
+  if (ptr[0] != old_value[0] || ptr[1] != old_value[1]) {
+    return false;  // this comparison is fast but not atomic, thus 'weak'
+  } else {
+    return raw_atomic_compare_exchange_strong_uint128(ptr, old_value, new_value);
+  }
 }
 
 }  // namespace assorted

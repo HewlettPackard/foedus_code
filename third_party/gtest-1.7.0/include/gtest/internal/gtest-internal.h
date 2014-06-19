@@ -498,6 +498,25 @@ GTEST_API_ TestInfo* MakeAndRegisterTestInfo(
     TearDownTestCaseFunc tear_down_tc,
     TestFactoryBase* factory);
 
+// Adds a mapping from test case name to package name, which will be
+// used as a prefix in the name attribute in result XML files. Returns
+// true if the mapping was created or false if there already exists.
+//
+// Arguments:
+//
+//   test_case_name: name of the test case
+//   package_name: package of the test case
+GTEST_API_ bool AddTestCasePackage(const char* test_case_name,
+                                   const char* package_name);
+
+// Returns the registered package name for the test case, NULL if
+// not registered.
+//
+// Arguments:
+//
+//   test_case_name: name of the test case
+GTEST_API_ const char* GetTestCasePackage(const char* test_case_name);
+
 // If *pstr starts with the given prefix, modifies *pstr to be right
 // past the prefix and returns true; otherwise leaves *pstr unchanged
 // and returns false.  None of pstr, *pstr, and prefix can be NULL.
@@ -1154,5 +1173,16 @@ class GTEST_TEST_CLASS_NAME_(test_case_name, test_name) : public parent_class {\
         new ::testing::internal::TestFactoryImpl<\
             GTEST_TEST_CLASS_NAME_(test_case_name, test_name)>);\
 void GTEST_TEST_CLASS_NAME_(test_case_name, test_name)::TestBody()
+
+// Helper macro for defining package name of a test case.
+#define GTEST_TEST_PACKAGE_(test_case_name, test_package)\
+class test_case_name##_Package {\
+ private:\
+  static const bool dummy_ GTEST_ATTRIBUTE_UNUSED_;\
+};\
+\
+const bool test_case_name##_Package::dummy_ =\
+    ::testing::internal::AddTestCasePackage(\
+        #test_case_name, #test_package)
 
 #endif  // GTEST_INCLUDE_GTEST_INTERNAL_GTEST_INTERNAL_H_

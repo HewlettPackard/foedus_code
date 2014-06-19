@@ -8,6 +8,7 @@
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
 #include <foedus/log/log_id.hpp>
+#include <foedus/memory/aligned_memory.hpp>
 #include <foedus/snapshot/fwd.hpp>
 #include <foedus/snapshot/mapreduce_base_impl.hpp>
 #include <foedus/thread/fwd.hpp>
@@ -48,24 +49,48 @@ namespace snapshot {
  */
 class LogMapper final : public MapReduceBase {
  public:
-    LogMapper(Engine* engine, LogGleaner* parent, log::LoggerId id, thread::ThreadGroupId numa_node)
-        : MapReduceBase(engine, parent, id, numa_node) {}
+  LogMapper(Engine* engine, LogGleaner* parent, log::LoggerId id, thread::ThreadGroupId numa_node)
+    : MapReduceBase(engine, parent, id, numa_node),
+      bucket_size_kb_(0), processed_log_count_(0) {}
 
-    /**
-     * Unique ID of this log mapper. One log mapper corresponds to one logger, so this ID is also
-     * the corresponding logger's ID (log::LoggerId).
-     */
-    log::LoggerId           get_id() const { return id_; }
-    std::string             to_string() const override {
-        return std::string("LogMapper-") + std::to_string(id_);
-    }
-    friend std::ostream&    operator<<(std::ostream& o, const LogMapper& v);
+  /**
+   * Unique ID of this log mapper. One log mapper corresponds to one logger, so this ID is also
+   * the corresponding logger's ID (log::LoggerId).
+   */
+  log::LoggerId           get_id() const { return id_; }
+  std::string             to_string() const override {
+    return std::string("LogMapper-") + std::to_string(id_);
+  }
+  friend std::ostream&    operator<<(std::ostream& o, const LogMapper& v);
 
  protected:
-    ErrorStack  handle_initialize() override;
-    ErrorStack  handle_uninitialize() override;
-    ErrorStack  handle_epoch() override;
-    void        pre_wait_for_next_epoch() override;
+  ErrorStack  handle_initialize() override;
+  ErrorStack  handle_uninitialize() override;
+  ErrorStack  handle_process() override;
+  void        pre_handle_uninitialize() override;
+
+ private:
+  /** buffer to read from file. */
+  memory::AlignedMemory   io_buffer_;
+
+  /** very small buffer to glue a log entry spanning two file reads. */
+  memory::AlignedMemory   io_fragment_tmp_;
+
+  /** memory for all partitions. Use get_bucket_slice() to get a slice of it. */
+  memory::AlignedMemory   buckets_memory_;
+
+  /** Equivalent to engine_->get_options().snapshot_.log_mapper_bucket_kb_. */
+  uint32_t                bucket_size_kb_;
+
+  /** just for reporting. */
+  uint64_t                processed_log_count_;
+
+  memory::AlignedMemorySlice get_bucket_slice(PartitionId partition) {
+    uint64_t bucket_size = static_cast<uint64_t>(bucket_size_kb_) << 10;
+    return memory::AlignedMemorySlice(&buckets_memory_, bucket_size * partition, bucket_size);
+  }
+
+  ErrorCode       map_log(const log::LogHeader* header);
 };
 }  // namespace snapshot
 }  // namespace foedus

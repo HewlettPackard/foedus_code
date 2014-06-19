@@ -28,43 +28,43 @@ namespace memory {
  */
 class PagePoolOffsetChunk {
  public:
-    enum Constants {
-        /**
-         * Max number of pointers to pack.
-         * -1 for size_ (make the size of this class power of two).
-         */
-        kMaxSize = (1 << 12) - 1,
-    };
-    PagePoolOffsetChunk() : size_(0) {}
+  enum Constants {
+    /**
+     * Max number of pointers to pack.
+     * -1 for size_ (make the size of this class power of two).
+     */
+    kMaxSize = (1 << 12) - 1,
+  };
+  PagePoolOffsetChunk() : size_(0) {}
 
-    uint32_t                capacity() const { return kMaxSize; }
-    uint32_t                size()  const   { return size_; }
-    bool                    empty() const   { return size_ == 0; }
-    bool                    full()  const   { return size_ == kMaxSize; }
-    void                    clear()         { size_ = 0; }
+  uint32_t                capacity() const { return kMaxSize; }
+  uint32_t                size()  const   { return size_; }
+  bool                    empty() const   { return size_ == 0; }
+  bool                    full()  const   { return size_ == kMaxSize; }
+  void                    clear()         { size_ = 0; }
 
-    PagePoolOffset&         operator[](uint32_t index) {
-        ASSERT_ND(index < size_);
-        return chunk_[index];
-    }
-    PagePoolOffset          operator[](uint32_t index) const {
-        ASSERT_ND(index < size_);
-        return chunk_[index];
-    }
-    PagePoolOffset          pop_back() {
-        ASSERT_ND(!empty());
-        return chunk_[--size_];
-    }
-    void                    push_back(PagePoolOffset pointer) {
-        ASSERT_ND(!full());
-        chunk_[size_++] = pointer;
-    }
-    void                    push_back(const PagePoolOffset* begin, const PagePoolOffset* end);
-    void                    move_to(PagePoolOffset* destination, uint32_t count);
+  PagePoolOffset&         operator[](uint32_t index) {
+    ASSERT_ND(index < size_);
+    return chunk_[index];
+  }
+  PagePoolOffset          operator[](uint32_t index) const {
+    ASSERT_ND(index < size_);
+    return chunk_[index];
+  }
+  PagePoolOffset          pop_back() {
+    ASSERT_ND(!empty());
+    return chunk_[--size_];
+  }
+  void                    push_back(PagePoolOffset pointer) {
+    ASSERT_ND(!full());
+    chunk_[size_++] = pointer;
+  }
+  void                    push_back(const PagePoolOffset* begin, const PagePoolOffset* end);
+  void                    move_to(PagePoolOffset* destination, uint32_t count);
 
  private:
-    uint32_t        size_;
-    PagePoolOffset  chunk_[kMaxSize];
+  uint32_t        size_;
+  PagePoolOffset  chunk_[kMaxSize];
 };
 STATIC_SIZE_CHECK(sizeof(PagePoolOffset), 4)
 // Size of PagePoolOffsetChunk should be power of two (<=> x & (x-1) == 0)
@@ -80,53 +80,53 @@ STATIC_SIZE_CHECK(sizeof(PagePoolOffsetChunk) & (sizeof(PagePoolOffsetChunk) - 1
  */
 class PagePool CXX11_FINAL : public virtual Initializable {
  public:
-    PagePool(Engine* engine, thread::ThreadGroupId numa_node);
-    ~PagePool();
+  PagePool(Engine* engine, thread::ThreadGroupId numa_node);
+  ~PagePool();
 
-    // Disable default constructors
-    PagePool() CXX11_FUNC_DELETE;
-    PagePool(const PagePool&) CXX11_FUNC_DELETE;
-    PagePool& operator=(const PagePool&) CXX11_FUNC_DELETE;
+  // Disable default constructors
+  PagePool() CXX11_FUNC_DELETE;
+  PagePool(const PagePool&) CXX11_FUNC_DELETE;
+  PagePool& operator=(const PagePool&) CXX11_FUNC_DELETE;
 
-    ErrorStack  initialize() CXX11_OVERRIDE;
-    bool        is_initialized() const CXX11_OVERRIDE;
-    ErrorStack  uninitialize() CXX11_OVERRIDE;
+  ErrorStack  initialize() CXX11_OVERRIDE;
+  bool        is_initialized() const CXX11_OVERRIDE;
+  ErrorStack  uninitialize() CXX11_OVERRIDE;
 
-    thread::ThreadGroupId get_numa_node() const;
+  thread::ThreadGroupId get_numa_node() const;
 
-    /**
-     * @brief Adds the specified number of free pages to the chunk.
-     * @param[in] desired_grab_count we grab this number of free pages at most
-     * @param[in,out] chunk we \e append the grabbed free pages to this chunk
-     * @pre chunk->size() + desired_grab_count <= chunk->capacity()
-     * @return only OUTOFMEMORY is possible
-     * @details
-     * Callers usually maintain one PagePoolOffsetChunk for its private use and
-     * calls this method when the size() goes below some threshold (eg 10%)
-     * so as to get size() about 50%.
-     */
-    ErrorCode   grab(uint32_t desired_grab_count, PagePoolOffsetChunk *chunk);
+  /**
+   * @brief Adds the specified number of free pages to the chunk.
+   * @param[in] desired_grab_count we grab this number of free pages at most
+   * @param[in,out] chunk we \e append the grabbed free pages to this chunk
+   * @pre chunk->size() + desired_grab_count <= chunk->capacity()
+   * @return only OUTOFMEMORY is possible
+   * @details
+   * Callers usually maintain one PagePoolOffsetChunk for its private use and
+   * calls this method when the size() goes below some threshold (eg 10%)
+   * so as to get size() about 50%.
+   */
+  ErrorCode   grab(uint32_t desired_grab_count, PagePoolOffsetChunk *chunk);
 
-    /**
-     * @brief Returns the specified number of free pages from the chunk.
-     * @param[in] desired_release_count we release this number of free pages
-     * @param[in,out] chunk we release free pages from the tail of this chunk
-     * @pre chunk->size() - desired_release_count >= 0
-     * @details
-     * Callers usually maintain one PagePoolOffsetChunk for its private use and
-     * calls this method when the size() goes above some threshold (eg 90%)
-     * so as to get size() about 50%.
-     */
-    void        release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
+  /**
+   * @brief Returns the specified number of free pages from the chunk.
+   * @param[in] desired_release_count we release this number of free pages
+   * @param[in,out] chunk we release free pages from the tail of this chunk
+   * @pre chunk->size() - desired_release_count >= 0
+   * @details
+   * Callers usually maintain one PagePoolOffsetChunk for its private use and
+   * calls this method when the size() goes above some threshold (eg 90%)
+   * so as to get size() about 50%.
+   */
+  void        release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
 
-    /**
-     * Gives an object to resolve an offset in \e this page pool (thus \e local) to an actual
-     * pointer and vice versa.
-     */
-    LocalPageResolver&  get_resolver();
+  /**
+   * Gives an object to resolve an offset in \e this page pool (thus \e local) to an actual
+   * pointer and vice versa.
+   */
+  LocalPageResolver&  get_resolver();
 
  private:
-    PagePoolPimpl *pimpl_;
+  PagePoolPimpl *pimpl_;
 };
 
 /**
@@ -139,46 +139,46 @@ class PagePool CXX11_FINAL : public virtual Initializable {
  */
 class PageReleaseBatch CXX11_FINAL {
  public:
-    typedef PagePoolOffsetChunk* ChunkPtr;
-    explicit PageReleaseBatch(Engine* engine);
-    ~PageReleaseBatch();
+  typedef PagePoolOffsetChunk* ChunkPtr;
+  explicit PageReleaseBatch(Engine* engine);
+  ~PageReleaseBatch();
 
-    // Disable default constructors
-    PageReleaseBatch() CXX11_FUNC_DELETE;
-    PageReleaseBatch(const PageReleaseBatch&) CXX11_FUNC_DELETE;
-    PageReleaseBatch& operator=(const PageReleaseBatch&) CXX11_FUNC_DELETE;
+  // Disable default constructors
+  PageReleaseBatch() CXX11_FUNC_DELETE;
+  PageReleaseBatch(const PageReleaseBatch&) CXX11_FUNC_DELETE;
+  PageReleaseBatch& operator=(const PageReleaseBatch&) CXX11_FUNC_DELETE;
 
-    /**
-     * @brief Returns the given in-memory volatile page to appropriate NUMA node.
-     * @details
-     * This internally batches the pages to return. At the end, call release_all() to flush it.
-     */
-    void        release(storage::VolatilePagePointer page_id) {
-        release(page_id.components.numa_node, page_id.components.offset);
-    }
+  /**
+   * @brief Returns the given in-memory volatile page to appropriate NUMA node.
+   * @details
+   * This internally batches the pages to return. At the end, call release_all() to flush it.
+   */
+  void        release(storage::VolatilePagePointer page_id) {
+    release(page_id.components.numa_node, page_id.components.offset);
+  }
 
-    /**
-     * @brief Returns the given in-memory page to the specified NUMA node.
-     * @details
-     * This internally batches the pages to return. At the end, call release_all() to flush it.
-     */
-    void        release(thread::ThreadGroupId numa_node, PagePoolOffset offset);
+  /**
+   * @brief Returns the given in-memory page to the specified NUMA node.
+   * @details
+   * This internally batches the pages to return. At the end, call release_all() to flush it.
+   */
+  void        release(thread::ThreadGroupId numa_node, PagePoolOffset offset);
 
-    /**
-     * Return all batched pages in the given chunk to its pool.
-     */
-    void        release_chunk(thread::ThreadGroupId numa_node);
+  /**
+   * Return all batched pages in the given chunk to its pool.
+   */
+  void        release_chunk(thread::ThreadGroupId numa_node);
 
-    /**
-     * Called at the end to return all batched pages to their pools.
-     */
-    void        release_all();
+  /**
+   * Called at the end to return all batched pages to their pools.
+   */
+  void        release_all();
 
  private:
-    Engine* const   engine_;
-    const uint16_t  numa_node_count_;
-    /** index is thread::ThreadGroupId numa_node. */
-    ChunkPtr        chunks_[256];
+  Engine* const   engine_;
+  const uint16_t  numa_node_count_;
+  /** index is thread::ThreadGroupId numa_node. */
+  ChunkPtr        chunks_[256];
 };
 
 
@@ -196,37 +196,37 @@ class PageReleaseBatch CXX11_FINAL {
  */
 class RoundRobinPageGrabBatch CXX11_FINAL {
  public:
-    explicit RoundRobinPageGrabBatch(Engine* engine);
-    ~RoundRobinPageGrabBatch();
+  explicit RoundRobinPageGrabBatch(Engine* engine);
+  ~RoundRobinPageGrabBatch();
 
-    // Disable default constructors
-    RoundRobinPageGrabBatch() CXX11_FUNC_DELETE;
-    RoundRobinPageGrabBatch(const RoundRobinPageGrabBatch&) CXX11_FUNC_DELETE;
-    RoundRobinPageGrabBatch& operator=(const RoundRobinPageGrabBatch&) CXX11_FUNC_DELETE;
+  // Disable default constructors
+  RoundRobinPageGrabBatch() CXX11_FUNC_DELETE;
+  RoundRobinPageGrabBatch(const RoundRobinPageGrabBatch&) CXX11_FUNC_DELETE;
+  RoundRobinPageGrabBatch& operator=(const RoundRobinPageGrabBatch&) CXX11_FUNC_DELETE;
 
-    /**
-     * @brief Grabs an in-memory page in some NUMA node.
-     * @details
-     * This internally batches the pages to return. At the end, call release_all() to release
-     * unused pages.
-     * Although the type of returned value is VolatilePagePointer, it can be used for
-     * snapshot page, too. I just want to return both NUMA node and offset.
-     * Maybe we should have another typedef for it.
-     * @todo this so far doesn't handle out-of-memory case gracefully. what to do..
-     */
-    storage::VolatilePagePointer grab();
+  /**
+   * @brief Grabs an in-memory page in some NUMA node.
+   * @details
+   * This internally batches the pages to return. At the end, call release_all() to release
+   * unused pages.
+   * Although the type of returned value is VolatilePagePointer, it can be used for
+   * snapshot page, too. I just want to return both NUMA node and offset.
+   * Maybe we should have another typedef for it.
+   * @todo this so far doesn't handle out-of-memory case gracefully. what to do..
+   */
+  storage::VolatilePagePointer grab();
 
-    /**
-     * Called at the end to return all \e remaining pages to their pools.
-     * The grabbed pages are not returned, of course.
-     */
-    void        release_all();
+  /**
+   * Called at the end to return all \e remaining pages to their pools.
+   * The grabbed pages are not returned, of course.
+   */
+  void        release_all();
 
  private:
-    Engine* const           engine_;
-    const uint16_t          numa_node_count_;
-    thread::ThreadGroupId   current_node_;
-    PagePoolOffsetChunk     chunk_;
+  Engine* const           engine_;
+  const uint16_t          numa_node_count_;
+  thread::ThreadGroupId   current_node_;
+  PagePoolOffsetChunk     chunk_;
 };
 
 }  // namespace memory

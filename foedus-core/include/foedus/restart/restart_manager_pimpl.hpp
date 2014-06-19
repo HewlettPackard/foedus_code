@@ -18,18 +18,18 @@ namespace restart {
  */
 class RestartManagerPimpl final : public DefaultInitializable {
  public:
-    RestartManagerPimpl() = delete;
-    explicit RestartManagerPimpl(Engine* engine) : engine_(engine) {}
-    ErrorStack  initialize_once() override;
-    ErrorStack  uninitialize_once() override;
+  RestartManagerPimpl() = delete;
+  explicit RestartManagerPimpl(Engine* engine) : engine_(engine) {}
+  ErrorStack  initialize_once() override;
+  ErrorStack  uninitialize_once() override;
 
-    /**
-     * Recover the state of database from recent snapshot files and transaction logs.
-     * @pre is_initialized(), and all other modules in the engine is_initialized().
-     */
-    ErrorStack  recover();
+  /**
+   * Recover the state of database from recent snapshot files and transaction logs.
+   * @pre is_initialized(), and all other modules in the engine is_initialized().
+   */
+  ErrorStack  recover();
 
-    Engine* const           engine_;
+  Engine* const           engine_;
 };
 }  // namespace restart
 }  // namespace foedus

@@ -10,12 +10,14 @@
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
 #include <foedus/log/log_id.hpp>
+#include <foedus/memory/aligned_memory.hpp>
 #include <foedus/snapshot/fwd.hpp>
-#include <foedus/thread/condition_variable_impl.hpp>
 #include <foedus/thread/fwd.hpp>
+#include <foedus/thread/rendezvous_impl.hpp>
 #include <stdint.h>
 #include <atomic>
 #include <iosfwd>
+#include <mutex>
 #include <string>
 #include <vector>
 namespace foedus {
@@ -56,17 +58,17 @@ namespace snapshot {
  * mapper), we prefer bubble sort here. We so far use std::sort, though.
  *
  * @section SYNC Synchronization
- * LogGleaner coordinates the synchronization between mappers and reducers for each epoch.
- * At the beginning of each epoch, gleaner wakes up reducers and mappers. Mappers go in to sleep
- * when they process all logs in the epoch. When all mappers went to sleep, reducers start to
+ * LogGleaner coordinates the synchronization between mappers and reducers during snapshotting.
+ * At the beginning of snapshotting, gleaner wakes up reducers and mappers. Mappers go in to sleep
+ * when they process all logs. When all mappers went to sleep, reducers start to
  * also go into sleep when they process all logs they receive.
- * When all of them are done, gleaner initiates the processing of next epoch.
+ * When all of them are done, gleaner initiates the last wrap-up phase.
  * Additionally, LogGleaner is in charge of receiving termination request from the engine
  * if the user invokes Engine::uninitialize() and requesting reducers/mappers to stop.
  *
- * Reducers/mappers check if they are requested to stop when they get idle or complete all work
- * in an epoch. Thus, even in the worst case it stops its work after processing logs of one-epoch,
- * which shouldn't be catastrophic because one epoch is only tens of milliseconds.
+ * Reducers/mappers occasionally check if they are requested to stop when they get idle or complete
+ * all work. They do the check at least once for a while so that the latency to stop can not be
+ * catastrophic.
  *
  * @note
  * This is a private implementation-details of \ref SNAPSHOT, thus file name ends with _impl.
@@ -75,132 +77,155 @@ namespace snapshot {
  */
 class LogGleaner final : public DefaultInitializable {
  public:
-    explicit LogGleaner(Engine* engine, Snapshot* snapshot, thread::StoppableThread* gleaner_thread)
-        : engine_(engine), snapshot_(snapshot), gleaner_thread_(gleaner_thread) {}
-    ErrorStack  initialize_once() override;
-    ErrorStack  uninitialize_once() override;
+  explicit LogGleaner(Engine* engine, Snapshot* snapshot, thread::StoppableThread* gleaner_thread)
+    : engine_(engine), snapshot_(snapshot), gleaner_thread_(gleaner_thread) {}
+  ErrorStack  initialize_once() override;
+  ErrorStack  uninitialize_once() override;
 
-    LogGleaner() = delete;
-    LogGleaner(const LogGleaner &other) = delete;
-    LogGleaner& operator=(const LogGleaner &other) = delete;
+  LogGleaner() = delete;
+  LogGleaner(const LogGleaner &other) = delete;
+  LogGleaner& operator=(const LogGleaner &other) = delete;
 
-    /** Main routine of log gleaner. */
-    ErrorStack execute();
+  /** Main routine of log gleaner. */
+  ErrorStack execute();
 
-    std::string             to_string() const;
-    friend std::ostream&    operator<<(std::ostream& o, const LogGleaner& v);
+  std::string             to_string() const;
+  friend std::ostream&    operator<<(std::ostream& o, const LogGleaner& v);
 
+  Snapshot*               get_snapshot() { return snapshot_; }
 
-    Epoch                   get_processing_epoch() const { return Epoch(processing_epoch_.load()); }
-    Epoch                   get_next_processing_epoch() const {
-        Epoch cur_epoch = get_processing_epoch();
-        // if there was no snapshot (initial snapshot), then the first epoch that might have logs
-        // is kEpochInitialCurrent.
-        return cur_epoch.is_valid() ? cur_epoch.one_more() : Epoch(Epoch::kEpochInitialCurrent);
-    }
+  bool                    is_stop_requested() const;
+  void                    wakeup();
 
-    thread::ConditionVariable&      processing_epoch_cond_for(Epoch epoch) {
-        if (epoch.value() & 1) {
-            return processing_epoch_cond_[1];
-        } else {
-            return processing_epoch_cond_[0];
-        }
-    }
+  uint16_t increment_ready_to_start_count() {
+    ASSERT_ND(ready_to_start_count_ < get_all_count());
+    return ++ready_to_start_count_;
+  }
+  uint16_t increment_completed_count() {
+    ASSERT_ND(completed_count_ < get_all_count());
+    return ++completed_count_;
+  }
+  uint16_t increment_completed_mapper_count() {
+    ASSERT_ND(completed_mapper_count_ < get_mappers_count());
+    return ++completed_mapper_count_;
+  }
+  uint16_t increment_error_count() {
+    ASSERT_ND(error_count_ < get_all_count());
+    return ++error_count_;
+  }
+  uint16_t increment_exit_count() {
+    ASSERT_ND(exit_count_ < get_all_count());
+    return ++exit_count_;
+  }
 
-    Snapshot*               get_snapshot() { return snapshot_; }
+  void clear_counts() {
+    ready_to_start_count_.store(0U);
+    completed_count_.store(0U);
+    completed_mapper_count_.store(0U);
+    error_count_.store(0U);
+    exit_count_.store(0U);
+    nonrecord_log_buffer_pos_.store(0U);
+  }
 
-    bool                    is_stop_requested() const;
-    void                    wakeup();
+  bool is_all_ready_to_start() const { return ready_to_start_count_ >= get_all_count(); }
+  bool is_all_completed() const { return completed_count_ >= get_all_count(); }
+  bool is_all_mappers_completed() const { return completed_mapper_count_ >= mappers_.size(); }
+  uint16_t get_mappers_count() const { return mappers_.size(); }
+  uint16_t get_reducers_count() const { return reducers_.size(); }
+  uint16_t get_all_count() const { return mappers_.size() + reducers_.size(); }
 
-    uint16_t increment_completed_count() {
-        ASSERT_ND(completed_count_ < get_all_count());
-        return ++completed_count_;
-    }
-    uint16_t increment_completed_mapper_count() {
-        ASSERT_ND(completed_mapper_count_ < get_mappers_count());
-        return ++completed_mapper_count_;
-    }
-    uint16_t increment_error_count() {
-        ASSERT_ND(error_count_ < get_all_count());
-        return ++error_count_;
-    }
-    uint16_t increment_exit_count() {
-        ASSERT_ND(exit_count_ < get_all_count());
-        return ++exit_count_;
-    }
+  /** Called from mappers/reducers to wait until processing starts (or cancelled). */
+  void wait_for_start() { start_processing_.wait(); }
+  /** Called from mappers/reducers to wait until everyone else is done (or cancelled). */
+  void wait_for_complete() { complete_processing_.wait(); }
 
-    bool is_all_completed() const { return completed_count_ >= get_all_count(); }
-    bool is_all_mappers_completed() const { return completed_mapper_count_ >= mappers_.size(); }
-    uint16_t get_mappers_count() const { return mappers_.size(); }
-    uint16_t get_reducers_count() const { return reducers_.size(); }
-    uint16_t get_all_count() const { return mappers_.size() + reducers_.size(); }
+  /**
+   * Atomically copy the given non-record log to this gleaner's buffer, which will be centraly
+   * processed at the end of epoch.
+   */
+  void add_nonrecord_log(const log::LogHeader* header);
 
  private:
-    /**
-     * Request reducers and mappers to cancel the work.
-     * Blocks until all of them stop.
-     */
-    void cancel_reducers_mappers();
+  /**
+   * Request reducers and mappers to cancel the work.
+   * Blocks until all of them stop.
+   */
+  void cancel_reducers_mappers();
 
-    Engine* const                   engine_;
-    Snapshot* const                 snapshot_;
+  Engine* const                   engine_;
+  Snapshot* const                 snapshot_;
 
-    /**
-     * The thread that will call execute(). execute() occasionally checks
-     * if this thread has been requested to stop, and exit if that happens.
-     */
-    thread::StoppableThread* const  gleaner_thread_;
+  /**
+   * The thread that will call execute(). execute() occasionally checks
+   * if this thread has been requested to stop, and exit if that happens.
+   */
+  thread::StoppableThread* const  gleaner_thread_;
 
-    /**
-     * @brief Used to wake up mappers/reducers by gleaner.
-     * @details
-     * Gleaner has two of them to separate 1) mappers/reducers that are still waiting to be woken up
-     * after finishing the previous epoch from 2) those that are already woken up and even finished
-     * the current epoch.
-     * [0] is used when they are waiting for even epoch, [1] for odd epoch.
-     * Kind of stupid. only if std c++ employed boost barriers... (again, we don't use boost).
-     */
-    thread::ConditionVariable       processing_epoch_cond_[2];
+  /**
+   * rendezvous point after all mappers/reducers complete initialization.
+   * signalled when is_all_ready_to_start() becomes true.
+   */
+  thread::Rendezvous              start_processing_;
 
-    // on the other hand, mappers/reducers can wake up gleaner by accessing gleaner_thread.
+  /**
+   * rendezvous point after all mappers/reducers complete all processing.
+   * signalled when is_all_completed() becomes true.
+   */
+  thread::Rendezvous              complete_processing_;
 
-    /**
-     * count of mappers/reducers that have completed processing the current epoch.
-     * the gleaner thread is woken up when this becomes mappers_.size() + reducers_.size().
-     * the gleaner thread sets this to zero and starts next epoch.
-     */
-    std::atomic<uint16_t>           completed_count_;
+  // on the other hand, mappers/reducers can wake up gleaner by accessing gleaner_thread.
 
-    /**
-     * We also have a separate count for mappers only to know if all mappers are done.
-     * Reducers can go into sleep only after all mappers went into sleep (otherwise reducers
-     * might receive more logs!), so they have to also check this.
-     */
-    std::atomic<uint16_t>           completed_mapper_count_;
+  /**
+   * count of mappers/reducers that are ready to start processing (finished initialization).
+   * the gleaner thread is woken up when this becomes mappers_.size() + reducers_.size().
+   */
+  std::atomic<uint16_t>           ready_to_start_count_;
 
-    /**
-     * count of mappers/reducers that have exitted with some error.
-     * if there happens any error, gleaner cancels all mappers/reducers.
-     */
-    std::atomic<uint16_t>           error_count_;
-    /**
-     * count of mappers/reducers that have exitted.
-     * for sanity check only.
-     */
-    std::atomic<uint16_t>           exit_count_;
+  /**
+   * count of mappers/reducers that have completed processing the current epoch.
+   * the gleaner thread is woken up when this becomes mappers_.size() + reducers_.size().
+   * the gleaner thread sets this to zero and starts next epoch.
+   */
+  std::atomic<uint16_t>           completed_count_;
 
-    /**
-     * The epoch mappers/reducers are supposed to be processing now.
-     * When the processing is not started yet (mappers/reducers initialization phase),
-     * the value is snapshot_->base_epoch_.
-     * When all processing is done, snapshot_->valid_until_epoch_.one_more().
-     */
-    std::atomic<Epoch::EpochInteger>    processing_epoch_;
+  /**
+   * We also have a separate count for mappers only to know if all mappers are done.
+   * Reducers can go into sleep only after all mappers went into sleep (otherwise reducers
+   * might receive more logs!), so they have to also check this.
+   */
+  std::atomic<uint16_t>           completed_mapper_count_;
 
-    /** Mappers. Index is LoggerId. */
-    std::vector<LogMapper*>         mappers_;
-    /** Reducers. Index is PartitionId. */
-    std::vector<LogReducer*>        reducers_;
+  /**
+   * count of mappers/reducers that have exitted with some error.
+   * if there happens any error, gleaner cancels all mappers/reducers.
+   */
+  std::atomic<uint16_t>           error_count_;
+  /**
+   * count of mappers/reducers that have exitted.
+   * for sanity check only.
+   */
+  std::atomic<uint16_t>           exit_count_;
+
+  /** Mappers. Index is LoggerId. */
+  std::vector<LogMapper*>         mappers_;
+  /** Reducers. Index is PartitionId. */
+  std::vector<LogReducer*>        reducers_;
+
+  /**
+   * buffer to collect all logs that will be centraly processed at the end of each epoch.
+   * Those are engine-targetted and storage-targetted logs, which appear much less frequently.
+   * Thus this buffer is quite small.
+   */
+  memory::AlignedMemory           nonrecord_log_buffer_;
+
+  /**
+   * number of bytes copied into nonrecord_log_buffer_.
+   * A mapper that got a non-record log atomically incrementes this value and copies into
+   * nonrecord_log_buffer_ from the previous value as byte position.
+   * As logs don't overlap, we don't need any mutex.
+   * @see add_nonrecord_log()
+   */
+  std::atomic<uint64_t>           nonrecord_log_buffer_pos_;
 };
 }  // namespace snapshot
 }  // namespace foedus

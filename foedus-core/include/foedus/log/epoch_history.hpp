@@ -18,17 +18,17 @@ namespace log {
  * This object is POD.
  */
 struct EpochHistory {
-    explicit EpochHistory(const EpochMarkerLogType& marker)
-        : old_epoch_(marker.old_epoch_), new_epoch_(marker.new_epoch_),
-        log_file_ordinal_(marker.log_file_ordinal_), log_file_offset_(marker.log_file_offset_) {
-    }
+  explicit EpochHistory(const EpochMarkerLogType& marker)
+    : old_epoch_(marker.old_epoch_), new_epoch_(marker.new_epoch_),
+    log_file_ordinal_(marker.log_file_ordinal_), log_file_offset_(marker.log_file_offset_) {
+  }
 
-    Epoch           old_epoch_;
-    Epoch           new_epoch_;
-    LogFileOrdinal  log_file_ordinal_;
-    uint64_t        log_file_offset_;
+  Epoch           old_epoch_;
+  Epoch           new_epoch_;
+  LogFileOrdinal  log_file_ordinal_;
+  uint64_t        log_file_offset_;
 
-    friend std::ostream& operator<<(std::ostream& o, const EpochHistory& v);
+  friend std::ostream& operator<<(std::ostream& o, const EpochHistory& v);
 };
 
 }  // namespace log

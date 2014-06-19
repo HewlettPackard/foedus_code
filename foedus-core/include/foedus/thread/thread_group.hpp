@@ -20,24 +20,24 @@ namespace thread {
  */
 class ThreadGroup CXX11_FINAL : public virtual Initializable {
  public:
-    ThreadGroup() CXX11_FUNC_DELETE;
-    ThreadGroup(Engine* engine, ThreadGroupId group_id);
-    ~ThreadGroup();
-    ErrorStack  initialize() CXX11_OVERRIDE;
-    bool        is_initialized() const CXX11_OVERRIDE;
-    ErrorStack  uninitialize() CXX11_OVERRIDE;
+  ThreadGroup() CXX11_FUNC_DELETE;
+  ThreadGroup(Engine* engine, ThreadGroupId group_id);
+  ~ThreadGroup();
+  ErrorStack  initialize() CXX11_OVERRIDE;
+  bool        is_initialized() const CXX11_OVERRIDE;
+  ErrorStack  uninitialize() CXX11_OVERRIDE;
 
-    ThreadGroupId           get_group_id() const;
-    memory::NumaNodeMemory* get_node_memory() const;
+  ThreadGroupId           get_group_id() const;
+  memory::NumaNodeMemory* get_node_memory() const;
 
-    ThreadLocalOrdinal      get_thread_count() const;
-    /** Returns Thread object for the given ordinal in this group. */
-    Thread*                 get_thread(ThreadLocalOrdinal ordinal) const;
+  ThreadLocalOrdinal      get_thread_count() const;
+  /** Returns Thread object for the given ordinal in this group. */
+  Thread*                 get_thread(ThreadLocalOrdinal ordinal) const;
 
-    friend  std::ostream& operator<<(std::ostream& o, const ThreadGroup& v);
+  friend  std::ostream& operator<<(std::ostream& o, const ThreadGroup& v);
 
  private:
-    ThreadGroupPimpl*       pimpl_;
+  ThreadGroupPimpl*       pimpl_;
 };
 }  // namespace thread
 }  // namespace foedus

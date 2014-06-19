@@ -60,31 +60,31 @@ namespace thread {
  */
 class ImpersonateTask {
  public:
-    friend class ImpersonateSession;
-    friend class ThreadPimpl;
+  friend class ImpersonateSession;
+  friend class ThreadPimpl;
 
-    // non-copyable, non-assignable
-    ImpersonateTask(const ImpersonateTask &other) CXX11_FUNC_DELETE;
-    ImpersonateTask& operator=(const ImpersonateTask &other) CXX11_FUNC_DELETE;
+  // non-copyable, non-assignable
+  ImpersonateTask(const ImpersonateTask &other) CXX11_FUNC_DELETE;
+  ImpersonateTask& operator=(const ImpersonateTask &other) CXX11_FUNC_DELETE;
 
-    ImpersonateTask();
-    virtual ~ImpersonateTask();
+  ImpersonateTask();
+  virtual ~ImpersonateTask();
 
-    /**
-     * @brief The method called back from the engine on one of its pooled threads.
-     * @param[in] context the impersonated thread
-     * @details
-     * Note that the thread calling this method is NOT the client program's thread
-     * that invoked ThreadPool#impersonate(), but an asynchronous thread that was pre-allocated
-     * in the engine.
-     * When this method returns, the engine releases the impersonated thread to the thread pool
-     * so that other clients can grab it for new sessions.
-     */
-    virtual ErrorStack run(Thread* context) = 0;
+  /**
+   * @brief The method called back from the engine on one of its pooled threads.
+   * @param[in] context the impersonated thread
+   * @details
+   * Note that the thread calling this method is NOT the client program's thread
+   * that invoked ThreadPool#impersonate(), but an asynchronous thread that was pre-allocated
+   * in the engine.
+   * When this method returns, the engine releases the impersonated thread to the thread pool
+   * so that other clients can grab it for new sessions.
+   */
+  virtual ErrorStack run(Thread* context) = 0;
 
  private:
-    /** pimpl of this object. */
-    ImpersonateTaskPimpl*   pimpl_;
+  /** pimpl of this object. */
+  ImpersonateTaskPimpl*   pimpl_;
 };
 }  // namespace thread
 }  // namespace foedus

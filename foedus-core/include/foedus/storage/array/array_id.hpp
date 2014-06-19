@@ -34,15 +34,15 @@ typedef uint64_t ArrayOffset;
  * Begin is inclusive, end is exclusive.
  */
 struct ArrayRange {
-    ArrayRange() : begin_(0), end_(0) {}
-    ArrayRange(ArrayOffset begin, ArrayOffset end) : begin_(begin), end_(end) {}
+  ArrayRange() : begin_(0), end_(0) {}
+  ArrayRange(ArrayOffset begin, ArrayOffset end) : begin_(begin), end_(end) {}
 
-    bool    contains(ArrayOffset offset) const { return offset >= begin_ && offset < end_; }
+  bool    contains(ArrayOffset offset) const { return offset >= begin_ && offset < end_; }
 
-    /** Inclusive beginning of the offset range. */
-    ArrayOffset begin_;
-    /** Exclusive end of the offset range. */
-    ArrayOffset end_;
+  /** Inclusive beginning of the offset range. */
+  ArrayOffset begin_;
+  /** Exclusive end of the offset range. */
+  ArrayOffset end_;
 };
 
 /**

@@ -53,6 +53,7 @@
 #include <string.h>  // For memmove.
 
 #include <algorithm>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -673,6 +674,37 @@ class GTEST_API_ UnitTestImpl {
                 tear_down_tc)->AddTestInfo(test_info);
   }
 
+  // Adds a mapping from test case name to package name, which will be
+  // used as a prefix in the name attribute in result XML files. Returns
+  // true if the mapping was created or false if there already exists.
+  //
+  // Arguments:
+  //
+  //   test_case_name: name of the test case
+  //   package_name: package of the test case
+  bool AddTestCasePackage(const char* test_case_name,
+                          const char* package_name) {
+      return test_case_package_mappings_.insert(
+          std::map<std::string, std::string>::value_type(
+              test_case_name,
+              package_name)).second;
+  }
+
+  // Returns the registered package name for the test case, NULL if
+  // not registered.
+  //
+  // Arguments:
+  //
+  //   test_case_name: name of the test case
+  const char* GetTestCasePackage(const char* test_case_name) const {
+      if (test_case_package_mappings_.find(test_case_name)
+            == test_case_package_mappings_.end()) {
+          return NULL;
+      } else {
+          return test_case_package_mappings_.find(test_case_name)->second.c_str();
+      }
+  }
+
 #if GTEST_HAS_PARAM_TEST
   // Returns ParameterizedTestCaseRegistry object used to keep track of
   // value-parameterized tests and instantiate and register them.
@@ -853,6 +885,19 @@ class GTEST_API_ UnitTestImpl {
   // element of this vector is the index of the i-th test case in the
   // shuffled order.
   std::vector<int> test_case_indices_;
+
+  // Mapping from test case name to its package name.
+  // Package names are only used when we write out result xml files.
+  // If a test case defines a package name, we add it as a prefix
+  // in "name" attribute of the "testcase" element.
+  // eg. Test case name = "DivTest", package name = "math".
+  //   <testcase name="math.DivTest" ...
+  // This will help CI tools, such as Jenkins, nicely show a
+  // large number of test results.
+  // This might be a bit convoluted way of adding package feature, but
+  // adding this info into TestCase would introduce even more convolutions
+  // unless many related macros/classes are changed together.
+  std::map<std::string, std::string> test_case_package_mappings_;
 
 #if GTEST_HAS_PARAM_TEST
   // ParameterizedTestRegistry object used to register value-parameterized

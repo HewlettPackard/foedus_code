@@ -10,8 +10,8 @@ ImpersonateTask::ImpersonateTask() : pimpl_(new ImpersonateTaskPimpl()) {
 }
 
 ImpersonateTask::~ImpersonateTask() {
-    delete pimpl_;
-    pimpl_ = nullptr;
+  delete pimpl_;
+  pimpl_ = nullptr;
 }
 }  // namespace thread
 }  // namespace foedus

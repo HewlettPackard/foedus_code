@@ -44,9 +44,9 @@ void memory_fence_seq_cst_impl();
  */
 inline void prohibit_compiler_reorder() {
 #ifdef __x86_64
-    asm volatile("" ::: "memory");  // basically no-op
+  asm volatile("" ::: "memory");  // basically no-op
 #else  // __x86_64
-    // TODO(Hideaki) ARMv8? anyway this is not enough on non-TSO..
+  // TODO(Hideaki) ARMv8? anyway this is not enough on non-TSO..
 #endif  // __x86_64
 }
 
@@ -60,12 +60,12 @@ inline void prohibit_compiler_reorder() {
  */
 inline void memory_fence_acquire() {
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-    std::atomic_thread_fence(std::memory_order_acquire);  // basically no-op in TSO
+  std::atomic_thread_fence(std::memory_order_acquire);  // basically no-op in TSO
 #else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 #ifdef TOTAL_STORE_ORDER_CPU
-    prohibit_compiler_reorder();
+  prohibit_compiler_reorder();
 #else  // TOTAL_STORE_ORDER_CPU
-    memory_fence_acquire_impl();
+  memory_fence_acquire_impl();
 #endif  // TOTAL_STORE_ORDER_CPU
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 }
@@ -80,12 +80,12 @@ inline void memory_fence_acquire() {
  */
 inline void memory_fence_release() {
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-    std::atomic_thread_fence(std::memory_order_release);  // basically no-op in TSO
+  std::atomic_thread_fence(std::memory_order_release);  // basically no-op in TSO
 #else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 #ifdef TOTAL_STORE_ORDER_CPU
-    prohibit_compiler_reorder();
+  prohibit_compiler_reorder();
 #else  // TOTAL_STORE_ORDER_CPU
-    memory_fence_release_impl();
+  memory_fence_release_impl();
 #endif  // TOTAL_STORE_ORDER_CPU
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 }
@@ -99,12 +99,12 @@ inline void memory_fence_release() {
  */
 inline void memory_fence_acq_rel() {
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-    std::atomic_thread_fence(std::memory_order_acq_rel);  // basically no-op in TSO
+  std::atomic_thread_fence(std::memory_order_acq_rel);  // basically no-op in TSO
 #else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 #ifdef TOTAL_STORE_ORDER_CPU
-    prohibit_compiler_reorder();
+  prohibit_compiler_reorder();
 #else  // TOTAL_STORE_ORDER_CPU
-    memory_fence_acq_rel_impl();
+  memory_fence_acq_rel_impl();
 #endif  // TOTAL_STORE_ORDER_CPU
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 }
@@ -119,12 +119,12 @@ inline void memory_fence_acq_rel() {
  */
 inline void memory_fence_consume() {
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-    std::atomic_thread_fence(std::memory_order_consume);  // basically no-op in TSO
+  std::atomic_thread_fence(std::memory_order_consume);  // basically no-op in TSO
 #else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 #ifdef TOTAL_STORE_ORDER_CPU
-    prohibit_compiler_reorder();
+  prohibit_compiler_reorder();
 #else  // TOTAL_STORE_ORDER_CPU
-    memory_fence_consume_impl();
+  memory_fence_consume_impl();
 #endif  // TOTAL_STORE_ORDER_CPU
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 }
@@ -138,11 +138,11 @@ inline void memory_fence_consume() {
  */
 inline void memory_fence_seq_cst() {
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-    std::atomic_thread_fence(std::memory_order_seq_cst);  // compiled into mfence etc
+  std::atomic_thread_fence(std::memory_order_seq_cst);  // compiled into mfence etc
 #else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-    // This one has to be really a mfence call even in x86. It's anyway expensive,
-    // so a function call overhead doesn't matter.
-    memory_fence_seq_cst_impl();
+  // This one has to be really a mfence call even in x86. It's anyway expensive,
+  // so a function call overhead doesn't matter.
+  memory_fence_seq_cst_impl();
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 }
 

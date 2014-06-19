@@ -8,11 +8,11 @@ namespace foedus {
 namespace assorted {
 
 void UniformRandom::fill_memory(memory::AlignedMemory* memory) {
-    uint32_t* ints = reinterpret_cast<uint32_t*>(memory->get_block());
-    uint64_t count = memory->get_size() / sizeof(uint32_t);
-    for (uint64_t i = 0; i < count; ++i) {
-        ints[i] = next_uint32();
-    }
+  uint32_t* ints = reinterpret_cast<uint32_t*>(memory->get_block());
+  uint64_t count = memory->get_size() / sizeof(uint32_t);
+  for (uint64_t i = 0; i < count; ++i) {
+    ints[i] = next_uint32();
+  }
 }
 
 }  // namespace assorted

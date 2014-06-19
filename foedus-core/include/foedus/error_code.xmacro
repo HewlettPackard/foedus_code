@@ -61,6 +61,9 @@ X(kErrorCodeLogInvalidLoggerCount,  0x0501, "LOG    : The number of loggers per 
 X(kErrorCodeLogInvalidApplyType,    0x0502, "LOG    : This log type does not support this type of apply")
 X(kErrorCodeLogInvalidLogType,      0x0503, "LOG    : LOG_TYPE_INVALID")
 
+X(kErrorCodeSnapshotInvalidLogEnd,  0x0601, "SNAPSHT: Inconsistent end of log entry detected.")
+X(kErrorCodeSnapshotCancelled,      0x0602, "SNAPSHT: (internal error code) Snapshot task cancelled.")
+
 X(kErrorCodeSpInconsistentSavepoint, 0x0701, "SAVEPNT: Savepoint file is not consistent with other configurations. Check the number of loggers.")
 
 X(kErrorCodeStrDuplicateStrid,      0x0801, "STORAGE: Duplicate StorageID")

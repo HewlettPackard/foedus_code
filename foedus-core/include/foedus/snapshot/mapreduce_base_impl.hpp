@@ -4,7 +4,6 @@
  */
 #ifndef FOEDUS_SNAPSHOT_MAPREDUCE_BASE_IMPL_HPP_
 #define FOEDUS_SNAPSHOT_MAPREDUCE_BASE_IMPL_HPP_
-#include <foedus/epoch.hpp>
 #include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/log/fwd.hpp>
@@ -33,53 +32,53 @@ namespace snapshot {
  */
 class MapReduceBase : public DefaultInitializable {
  public:
-    MapReduceBase(Engine* engine, LogGleaner* parent, uint16_t id, thread::ThreadGroupId numa_node)
-        : engine_(engine), parent_(parent), id_(id), numa_node_(numa_node) {}
+  MapReduceBase(Engine* engine, LogGleaner* parent, uint16_t id, thread::ThreadGroupId numa_node)
+    : engine_(engine), parent_(parent), id_(id), numa_node_(numa_node) {}
 
-    ErrorStack  initialize_once() override final;
-    ErrorStack  uninitialize_once() override final;
+  ErrorStack  initialize_once() override final;
+  ErrorStack  uninitialize_once() override final;
 
-    MapReduceBase() = delete;
-    MapReduceBase(const MapReduceBase &other) = delete;
-    MapReduceBase& operator=(const MapReduceBase &other) = delete;
+  MapReduceBase() = delete;
+  MapReduceBase(const MapReduceBase &other) = delete;
+  MapReduceBase& operator=(const MapReduceBase &other) = delete;
 
-    void request_stop() { thread_.request_stop(); }
-    void wait_for_stop() { thread_.wait_for_stop(); }
+  void request_stop() { thread_.request_stop(); }
+  void wait_for_stop() { thread_.wait_for_stop(); }
 
-    /** Expects "LogReducer-x", "LogMapper-y" etc. Used only for logging/debugging. */
-    virtual std::string to_string() const = 0;
+  /** Expects "LogReducer-x", "LogMapper-y" etc. Used only for logging/debugging. */
+  virtual std::string to_string() const = 0;
 
  protected:
-    Engine* const                   engine_;
-    LogGleaner* const               parent_;
-    /** Unique ID of this mapper or reducer. */
-    const uint16_t                  id_;
-    const thread::ThreadGroupId     numa_node_;
+  Engine* const                   engine_;
+  LogGleaner* const               parent_;
+  /** Unique ID of this mapper or reducer. */
+  const uint16_t                  id_;
+  const thread::ThreadGroupId     numa_node_;
 
-    thread::StoppableThread         thread_;
+  thread::StoppableThread         thread_;
 
-    /** Implements the specific logics in derived class. Called per epoch. */
-    virtual ErrorStack  handle_epoch() = 0;
+  /** Implements the specific logics in derived class. */
+  virtual ErrorStack  handle_process() = 0;
 
-    /** additional initialization  in derived class called at the beginning of handle() */
-    virtual ErrorStack  handle_initialize() = 0;
+  /** additional initialization  in derived class called at the beginning of handle() */
+  virtual ErrorStack  handle_initialize() = 0;
 
-    /**
-     * additional uninitialization in derived class called at the end of handle().
-     * This one must be idempotent as we call this again at uninitialize() in case of error-exit.
-     */
-    virtual ErrorStack  handle_uninitialize() = 0;
+  /**
+   * additional uninitialization in derived class called at the end of handle().
+   * This one must be idempotent as we call this again at uninitialize() in case of error-exit.
+   */
+  virtual ErrorStack  handle_uninitialize() = 0;
 
-    /** Main routine */
-    void                handle();
+  /** Main routine */
+  void                handle();
 
-    /**
-     * Wait for the beginning of next epoch processing.
-     * @return whether there is more epoch to process.
-     */
-    bool                wait_for_next_epoch();
-    /** Called at the beginning of wait_for_next_epoch to add something specific to derived class.*/
-    virtual void        pre_wait_for_next_epoch() {}
+  /** called from handle() when all processing is done. */
+  void                handle_complete();
+  /** to add anything specific to derived class at the beginning of handle_complete() */
+  virtual void        pre_handle_uninitialize() {}
+
+  /** Derived class's handle_process() should occasionally call this to exit if it's cancelled. */
+  ErrorCode           check_cancelled();
 };
 }  // namespace snapshot
 }  // namespace foedus

@@ -4,6 +4,8 @@
  */
 #include <gtest/gtest.h>
 #include <cstdlib>
+namespace foedus {
+DEFINE_TEST_CASE_PACKAGE(DummyTest, foedus);
 /**
  * Just to see if Jenkins can pick up aborted testcases.
  * This is a bit trickier than it should be.
@@ -14,8 +16,10 @@
  *   https://code.google.com/p/googletest/issues/detail?id=311
  */
 TEST(DummyTest, Abort) {
-    // Disabled usually. Enable only when to test Jenkins.
-    // std::abort();
+  // Disabled usually. Enable only when to test Jenkins.
+  // std::abort();
 }
 TEST(DummyTest, NotAbort) {
 }
+
+}  // namespace foedus

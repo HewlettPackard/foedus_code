@@ -7,11 +7,11 @@
 namespace foedus {
 namespace savepoint {
 SavepointManager::SavepointManager(Engine* engine) : pimpl_(nullptr) {
-    pimpl_ = new SavepointManagerPimpl(engine);
+  pimpl_ = new SavepointManagerPimpl(engine);
 }
 SavepointManager::~SavepointManager() {
-    delete pimpl_;
-    pimpl_ = nullptr;
+  delete pimpl_;
+  pimpl_ = nullptr;
 }
 
 ErrorStack  SavepointManager::initialize() { return pimpl_->initialize(); }
@@ -19,11 +19,11 @@ bool        SavepointManager::is_initialized() const { return pimpl_->is_initial
 ErrorStack  SavepointManager::uninitialize() { return pimpl_->uninitialize(); }
 
 const Savepoint& SavepointManager::get_savepoint_fast() const {
-    return pimpl_->get_savepoint_fast();
+  return pimpl_->get_savepoint_fast();
 }
 Savepoint SavepointManager::get_savepoint_safe() const { return pimpl_->get_savepoint_safe(); }
 ErrorStack SavepointManager::take_savepoint(Epoch new_global_durable_epoch) {
-    return pimpl_->take_savepoint(new_global_durable_epoch);
+  return pimpl_->take_savepoint(new_global_durable_epoch);
 }
 
 }  // namespace savepoint

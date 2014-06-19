@@ -16,15 +16,15 @@ namespace {{ ns }} {% templatetag openbrace %}
  */
 class {{ name }} {
  public:
-    /**
-     * Description of constructor.
-     */
-    {{ name }}();
+  /**
+   * Description of constructor.
+   */
+  {{ name }}();
 
-    /**
-     * Description of destructor.
-     */
-    ~{{ name }}();
+  /**
+   * Description of destructor.
+   */
+  ~{{ name }}();
  protected:
  private:
 };

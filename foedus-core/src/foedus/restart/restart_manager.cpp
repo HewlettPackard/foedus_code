@@ -7,11 +7,11 @@
 namespace foedus {
 namespace restart {
 RestartManager::RestartManager(Engine* engine) : pimpl_(nullptr) {
-    pimpl_ = new RestartManagerPimpl(engine);
+  pimpl_ = new RestartManagerPimpl(engine);
 }
 RestartManager::~RestartManager() {
-    delete pimpl_;
-    pimpl_ = nullptr;
+  delete pimpl_;
+  pimpl_ = nullptr;
 }
 
 ErrorStack  RestartManager::initialize() { return pimpl_->initialize(); }

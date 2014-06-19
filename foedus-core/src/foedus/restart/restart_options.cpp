@@ -10,12 +10,12 @@ RestartOptions::RestartOptions() {
 }
 
 ErrorStack RestartOptions::load(tinyxml2::XMLElement* /*element*/) {
-    return kRetOk;
+  return kRetOk;
 }
 
 ErrorStack RestartOptions::save(tinyxml2::XMLElement* element) const {
-    CHECK_ERROR(insert_comment(element, "Set of options for restart manager"));
-    return kRetOk;
+  CHECK_ERROR(insert_comment(element, "Set of options for restart manager"));
+  return kRetOk;
 }
 
 }  // namespace restart

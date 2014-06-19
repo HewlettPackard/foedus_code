@@ -25,47 +25,47 @@ namespace log {
  */
 class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
  public:
-    LogManagerPimpl() = delete;
-    explicit LogManagerPimpl(Engine* engine) : engine_(engine) {}
-    ErrorStack  initialize_once() override;
-    ErrorStack  uninitialize_once() override;
+  LogManagerPimpl() = delete;
+  explicit LogManagerPimpl(Engine* engine) : engine_(engine) {}
+  ErrorStack  initialize_once() override;
+  ErrorStack  uninitialize_once() override;
 
-    void        wakeup_loggers();
-    ErrorStack  wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds);
-    ErrorStack  refresh_global_durable_epoch();
-    void        copy_logger_states(savepoint::Savepoint *new_savepoint);
+  void        wakeup_loggers();
+  ErrorStack  wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds);
+  ErrorStack  refresh_global_durable_epoch();
+  void        copy_logger_states(savepoint::Savepoint *new_savepoint);
 
-    Epoch       get_durable_global_epoch() const { return Epoch(durable_global_epoch_.load()); }
-    Epoch       get_durable_global_epoch_weak() const {
-        return Epoch(durable_global_epoch_.load(std::memory_order_relaxed));
-    }
+  Epoch       get_durable_global_epoch() const { return Epoch(durable_global_epoch_.load()); }
+  Epoch       get_durable_global_epoch_weak() const {
+    return Epoch(durable_global_epoch_.load(std::memory_order_relaxed));
+  }
 
 
-    Engine* const               engine_;
+  Engine* const               engine_;
 
-    thread::ThreadGroupId       groups_;
-    uint16_t                    loggers_per_node_;
+  thread::ThreadGroupId       groups_;
+  uint16_t                    loggers_per_node_;
 
-    /**
-     * Log writers.
-     */
-    std::vector< Logger* >      loggers_;
+  /**
+   * Log writers.
+   */
+  std::vector< Logger* >      loggers_;
 
-    /**
-     * @brief The durable epoch of the entire engine.
-     * @invariant current_global_epoch_ > durable_global_epoch_
-     * (we need to advance current epoch to make sure the ex-current epoch is durable)
-     * @details
-     * This value indicates upto what commit-groups we can return results to client programs.
-     * This value is advanced by checking the durable epoch of each logger.
-     */
-    std::atomic<Epoch::EpochInteger>    durable_global_epoch_;
+  /**
+   * @brief The durable epoch of the entire engine.
+   * @invariant current_global_epoch_ > durable_global_epoch_
+   * (we need to advance current epoch to make sure the ex-current epoch is durable)
+   * @details
+   * This value indicates upto what commit-groups we can return results to client programs.
+   * This value is advanced by checking the durable epoch of each logger.
+   */
+  std::atomic<Epoch::EpochInteger>    durable_global_epoch_;
 
-    /** Fired (notify_all) whenever durable_global_epoch_ is advanced. */
-    thread::ConditionVariable           durable_global_epoch_advanced_;
+  /** Fired (notify_all) whenever durable_global_epoch_ is advanced. */
+  thread::ConditionVariable           durable_global_epoch_advanced_;
 
-    /** Serializes the thread to take savepoint to advance durable_global_epoch_. */
-    std::mutex                          durable_global_epoch_savepoint_mutex_;
+  /** Serializes the thread to take savepoint to advance durable_global_epoch_. */
+  std::mutex                          durable_global_epoch_savepoint_mutex_;
 };
 }  // namespace log
 }  // namespace foedus

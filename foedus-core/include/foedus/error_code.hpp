@@ -70,8 +70,8 @@ namespace foedus {
  * But, note that returning this value is MUCH more efficient.
  */
 enum ErrorCode {
-    /** 0 means no-error. */
-    kErrorCodeOk = 0,
+  /** 0 means no-error. */
+  kErrorCodeOk = 0,
 #include <foedus/error_code.xmacro> // NOLINT
 };
 #undef X
@@ -93,11 +93,11 @@ const char* get_error_message(ErrorCode code);
 #define X_EXPAND_AND_QUOTE(str) X_QUOTE(str)
 #define X(a, b, c) case a: return X_EXPAND_AND_QUOTE(a);
 inline const char* get_error_name(ErrorCode code) {
-    switch (code) {
-        case kErrorCodeOk: return "kErrorCodeOk";
+  switch (code) {
+    case kErrorCodeOk: return "kErrorCodeOk";
 #include <foedus/error_code.xmacro> // NOLINT
-    }
-    return "Unexpected error code";
+  }
+  return "Unexpected error code";
 }
 #undef X
 #undef X_EXPAND_AND_QUOTE
@@ -105,11 +105,11 @@ inline const char* get_error_name(ErrorCode code) {
 
 #define X(a, b, c) case a: return c;
 inline const char* get_error_message(ErrorCode code) {
-    switch (code) {
-        case kErrorCodeOk: return "no_error";
+  switch (code) {
+    case kErrorCodeOk: return "no_error";
 #include <foedus/error_code.xmacro> // NOLINT
-    }
-    return "Unexpected error code";
+  }
+  return "Unexpected error code";
 }
 #undef X
 }  // namespace foedus
@@ -141,10 +141,10 @@ inline const char* get_error_message(ErrorCode code) {
  */
 #define CHECK_ERROR_CODE(x)\
 {\
-    foedus::ErrorCode __e = x;\
-    if (UNLIKELY(__e != kErrorCodeOk)) {\
-        return __e;\
-    }\
+  foedus::ErrorCode __e = x;\
+  if (UNLIKELY(__e != kErrorCodeOk)) {\
+    return __e;\
+  }\
 }
 
 #endif  // FOEDUS_ERROR_CODE_HPP_

@@ -54,16 +54,16 @@ typedef uint64_t SnapshotPagePointer;
  * @ingroup STORAGE
  */
 enum StorageType {
-    /** 0 indicates invalid type. */
-    kInvalidStorage = 0,
-    /** \ref ARRAY */
-    kArrayStorage,
-    /** \ref HASH */
-    kHashStorage,
-    /** \ref MASSTREE */
-    kMasstreeStorage,
-    /** \ref SEQUENTIAL */
-    kSequentialStorage,
+  /** 0 indicates invalid type. */
+  kInvalidStorage = 0,
+  /** \ref ARRAY */
+  kArrayStorage,
+  /** \ref HASH */
+  kHashStorage,
+  /** \ref MASSTREE */
+  kMasstreeStorage,
+  /** \ref SEQUENTIAL */
+  kSequentialStorage,
 };
 
 /**
@@ -87,14 +87,14 @@ typedef uint64_t Checksum;
  * The offset has to be at least 32 bit (4kb * 2^32=16TB per NUMA node).
  */
 union VolatilePagePointer {
-    uint64_t        word;
+  uint64_t        word;
 
-    struct Components {
-        uint8_t                 numa_node;
-        uint8_t                 flags;
-        uint16_t                mod_count;
-        memory::PagePoolOffset  offset;
-    } components;
+  struct Components {
+    uint8_t                 numa_node;
+    uint8_t                 flags;
+    uint16_t                mod_count;
+    memory::PagePoolOffset  offset;
+  } components;
 };
 
 
@@ -127,39 +127,39 @@ union VolatilePagePointer {
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
 struct DualPagePointer {
-    DualPagePointer() : snapshot_pointer_(0) {
-        volatile_pointer_.word = 0;
-    }
+  DualPagePointer() : snapshot_pointer_(0) {
+    volatile_pointer_.word = 0;
+  }
 
-    bool operator==(const DualPagePointer& other) const {
-        return snapshot_pointer_ == other.snapshot_pointer_
-            && volatile_pointer_.word == other.volatile_pointer_.word;
-    }
-    bool operator!=(const DualPagePointer& other) const {
-        return !operator==(other);
-    }
+  bool operator==(const DualPagePointer& other) const {
+    return snapshot_pointer_ == other.snapshot_pointer_
+      && volatile_pointer_.word == other.volatile_pointer_.word;
+  }
+  bool operator!=(const DualPagePointer& other) const {
+    return !operator==(other);
+  }
 
-    friend std::ostream& operator<<(std::ostream& o, const DualPagePointer& v);
+  friend std::ostream& operator<<(std::ostream& o, const DualPagePointer& v);
 
-    /** 128-bit atomic CAS (strong version) for the dual pointer. */
-    bool atomic_compare_exchange_strong(
-        const DualPagePointer &expected, const DualPagePointer &desired) {
-        return assorted::raw_atomic_compare_exchange_strong_uint128(
-            reinterpret_cast<uint64_t*>(this),
-            reinterpret_cast<const uint64_t*>(&expected),
-            reinterpret_cast<const uint64_t*>(&desired));
-    }
-    /** 128-bit atomic CAS (weak version) for the dual pointer. */
-    bool atomic_compare_exchange_weak(
-        const DualPagePointer &expected, const DualPagePointer &desired) {
-        return assorted::raw_atomic_compare_exchange_weak_uint128(
-            reinterpret_cast<uint64_t*>(this),
-            reinterpret_cast<const uint64_t*>(&expected),
-            reinterpret_cast<const uint64_t*>(&desired));
-    }
+  /** 128-bit atomic CAS (strong version) for the dual pointer. */
+  bool atomic_compare_exchange_strong(
+    const DualPagePointer &expected, const DualPagePointer &desired) {
+    return assorted::raw_atomic_compare_exchange_strong_uint128(
+      reinterpret_cast<uint64_t*>(this),
+      reinterpret_cast<const uint64_t*>(&expected),
+      reinterpret_cast<const uint64_t*>(&desired));
+  }
+  /** 128-bit atomic CAS (weak version) for the dual pointer. */
+  bool atomic_compare_exchange_weak(
+    const DualPagePointer &expected, const DualPagePointer &desired) {
+    return assorted::raw_atomic_compare_exchange_weak_uint128(
+      reinterpret_cast<uint64_t*>(this),
+      reinterpret_cast<const uint64_t*>(&expected),
+      reinterpret_cast<const uint64_t*>(&desired));
+  }
 
-    SnapshotPagePointer snapshot_pointer_;
-    VolatilePagePointer volatile_pointer_;
+  SnapshotPagePointer snapshot_pointer_;
+  VolatilePagePointer volatile_pointer_;
 };
 STATIC_SIZE_CHECK(sizeof(DualPagePointer), sizeof(uint64_t) * 2)
 

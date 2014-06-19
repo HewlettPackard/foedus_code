@@ -24,124 +24,125 @@
  */
 namespace foedus {
 namespace snapshot {
+DEFINE_TEST_CASE_PACKAGE(SnapshotBasicTest, foedus.snapshot);
 
 ErrorStack read_metadata_file(Engine* engine, SnapshotMetadata *metadata) {
-    SnapshotManager& manager = engine->get_snapshot_manager();
-    SnapshotId snapshot_id = manager.get_previous_snapshot_id();
-    EXPECT_NE(kNullSnapshotId, snapshot_id);
-    fs::Path file = manager.get_pimpl()->get_snapshot_metadata_file_path(snapshot_id);
-    CHECK_ERROR(metadata->load_from_file(file));
-    return kRetOk;
+  SnapshotManager& manager = engine->get_snapshot_manager();
+  SnapshotId snapshot_id = manager.get_previous_snapshot_id();
+  EXPECT_NE(kNullSnapshotId, snapshot_id);
+  fs::Path file = manager.get_pimpl()->get_snapshot_metadata_file_path(snapshot_id);
+  CHECK_ERROR(metadata->load_from_file(file));
+  return kRetOk;
 }
 
 TEST(SnapshotBasicTest, Empty) {
-    EngineOptions options = get_tiny_options();
-    Engine engine(options);
-    COERCE_ERROR(engine.initialize());
-    {
-        UninitializeGuard guard(&engine);
-        engine.get_snapshot_manager().trigger_snapshot_immediate(true);
+  EngineOptions options = get_tiny_options();
+  Engine engine(options);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    engine.get_snapshot_manager().trigger_snapshot_immediate(true);
 
-        SnapshotMetadata metadata;
-        COERCE_ERROR(read_metadata_file(&engine, &metadata));
-        EXPECT_EQ(engine.get_snapshot_manager().get_previous_snapshot_id(), metadata.id_);
-        EXPECT_EQ(Epoch::kEpochInvalid, metadata.base_epoch_);
-        EXPECT_NE(Epoch::kEpochInvalid, metadata.valid_until_epoch_);
-        EXPECT_EQ(0, metadata.storage_metadata_.size());
+    SnapshotMetadata metadata;
+    COERCE_ERROR(read_metadata_file(&engine, &metadata));
+    EXPECT_EQ(engine.get_snapshot_manager().get_previous_snapshot_id(), metadata.id_);
+    EXPECT_EQ(Epoch::kEpochInvalid, metadata.base_epoch_);
+    EXPECT_NE(Epoch::kEpochInvalid, metadata.valid_until_epoch_);
+    EXPECT_EQ(0, metadata.storage_metadata_.size());
 
-        COERCE_ERROR(engine.uninitialize());
-    }
-    cleanup_test(options);
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
 }
 
 TEST(SnapshotBasicTest, OneArrayCreate) {
-    EngineOptions options = get_tiny_options();
-    Engine engine(options);
-    COERCE_ERROR(engine.initialize());
-    {
-        UninitializeGuard guard(&engine);
-        storage::array::ArrayStorage* out;
-        Epoch commit_epoch;
-        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test", 16, 100, &out,
-            &commit_epoch));
-        EXPECT_TRUE(out != nullptr);
-        EXPECT_TRUE(commit_epoch.is_valid());
-        COERCE_ERROR(engine.get_xct_manager().wait_for_commit(commit_epoch));
-        engine.get_snapshot_manager().trigger_snapshot_immediate(true);
+  EngineOptions options = get_tiny_options();
+  Engine engine(options);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    storage::array::ArrayStorage* out;
+    Epoch commit_epoch;
+    COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test", 16, 100, &out,
+      &commit_epoch));
+    EXPECT_TRUE(out != nullptr);
+    EXPECT_TRUE(commit_epoch.is_valid());
+    COERCE_ERROR(engine.get_xct_manager().wait_for_commit(commit_epoch));
+    engine.get_snapshot_manager().trigger_snapshot_immediate(true);
 
-        SnapshotMetadata metadata;
-        COERCE_ERROR(read_metadata_file(&engine, &metadata));
-        EXPECT_EQ(engine.get_snapshot_manager().get_previous_snapshot_id(), metadata.id_);
-        EXPECT_EQ(Epoch::kEpochInvalid, metadata.base_epoch_);
-        EXPECT_GE(Epoch(metadata.valid_until_epoch_), commit_epoch);
-        EXPECT_EQ(1, metadata.storage_metadata_.size());
+    SnapshotMetadata metadata;
+    COERCE_ERROR(read_metadata_file(&engine, &metadata));
+    EXPECT_EQ(engine.get_snapshot_manager().get_previous_snapshot_id(), metadata.id_);
+    EXPECT_EQ(Epoch::kEpochInvalid, metadata.base_epoch_);
+    EXPECT_GE(Epoch(metadata.valid_until_epoch_), commit_epoch);
+    EXPECT_EQ(1, metadata.storage_metadata_.size());
 
-        storage::array::ArrayMetadata *array = dynamic_cast<storage::array::ArrayMetadata*>(
-            metadata.storage_metadata_[0]);
-        EXPECT_TRUE(array != nullptr);
-        EXPECT_EQ(out->get_id(), array->id_);
-        EXPECT_EQ(out->get_name(), array->name_);
-        EXPECT_EQ(out->get_type(), array->type_);
-        EXPECT_EQ(out->get_array_size(), array->array_size_);
-        EXPECT_EQ(out->get_payload_size(), array->payload_size_);
+    storage::array::ArrayMetadata *array = dynamic_cast<storage::array::ArrayMetadata*>(
+      metadata.storage_metadata_[0]);
+    EXPECT_TRUE(array != nullptr);
+    EXPECT_EQ(out->get_id(), array->id_);
+    EXPECT_EQ(out->get_name(), array->name_);
+    EXPECT_EQ(out->get_type(), array->type_);
+    EXPECT_EQ(out->get_array_size(), array->array_size_);
+    EXPECT_EQ(out->get_payload_size(), array->payload_size_);
 
-        COERCE_ERROR(engine.uninitialize());
-    }
-    cleanup_test(options);
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
 }
 
 TEST(SnapshotBasicTest, TwoArrayCreate) {
-    EngineOptions options = get_tiny_options();
-    Engine engine(options);
-    COERCE_ERROR(engine.initialize());
+  EngineOptions options = get_tiny_options();
+  Engine engine(options);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    storage::array::ArrayStorage* out;
+    Epoch commit_epoch;
+    COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test", 16, 10, &out,
+      &commit_epoch));
+    EXPECT_TRUE(out != nullptr);
+    storage::array::ArrayStorage* out2;
+    COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test2", 50, 20, &out2,
+      &commit_epoch));
+    EXPECT_TRUE(out2 != nullptr);
+
+    EXPECT_TRUE(commit_epoch.is_valid());
+    COERCE_ERROR(engine.get_xct_manager().wait_for_commit(commit_epoch));
+    engine.get_snapshot_manager().trigger_snapshot_immediate(true);
+
+    SnapshotMetadata metadata;
+    COERCE_ERROR(read_metadata_file(&engine, &metadata));
+    EXPECT_EQ(engine.get_snapshot_manager().get_previous_snapshot_id(), metadata.id_);
+    EXPECT_EQ(Epoch::kEpochInvalid, metadata.base_epoch_);
+    EXPECT_GE(Epoch(metadata.valid_until_epoch_), commit_epoch);
+    EXPECT_EQ(2, metadata.storage_metadata_.size());
+
     {
-        UninitializeGuard guard(&engine);
-        storage::array::ArrayStorage* out;
-        Epoch commit_epoch;
-        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test", 16, 10, &out,
-            &commit_epoch));
-        EXPECT_TRUE(out != nullptr);
-        storage::array::ArrayStorage* out2;
-        COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test2", 50, 20, &out2,
-            &commit_epoch));
-        EXPECT_TRUE(out2 != nullptr);
-
-        EXPECT_TRUE(commit_epoch.is_valid());
-        COERCE_ERROR(engine.get_xct_manager().wait_for_commit(commit_epoch));
-        engine.get_snapshot_manager().trigger_snapshot_immediate(true);
-
-        SnapshotMetadata metadata;
-        COERCE_ERROR(read_metadata_file(&engine, &metadata));
-        EXPECT_EQ(engine.get_snapshot_manager().get_previous_snapshot_id(), metadata.id_);
-        EXPECT_EQ(Epoch::kEpochInvalid, metadata.base_epoch_);
-        EXPECT_GE(Epoch(metadata.valid_until_epoch_), commit_epoch);
-        EXPECT_EQ(2, metadata.storage_metadata_.size());
-
-        {
-            storage::array::ArrayMetadata *array = dynamic_cast<storage::array::ArrayMetadata*>(
-                metadata.storage_metadata_[0]);
-            EXPECT_TRUE(array != nullptr);
-            EXPECT_EQ(out->get_id(), array->id_);
-            EXPECT_EQ(out->get_name(), array->name_);
-            EXPECT_EQ(out->get_type(), array->type_);
-            EXPECT_EQ(out->get_array_size(), array->array_size_);
-            EXPECT_EQ(out->get_payload_size(), array->payload_size_);
-        }
-
-        {
-            storage::array::ArrayMetadata *array = dynamic_cast<storage::array::ArrayMetadata*>(
-                metadata.storage_metadata_[1]);
-            EXPECT_TRUE(array != nullptr);
-            EXPECT_EQ(out2->get_id(), array->id_);
-            EXPECT_EQ(out2->get_name(), array->name_);
-            EXPECT_EQ(out2->get_type(), array->type_);
-            EXPECT_EQ(out2->get_array_size(), array->array_size_);
-            EXPECT_EQ(out2->get_payload_size(), array->payload_size_);
-        }
-
-        COERCE_ERROR(engine.uninitialize());
+      storage::array::ArrayMetadata *array = dynamic_cast<storage::array::ArrayMetadata*>(
+        metadata.storage_metadata_[0]);
+      EXPECT_TRUE(array != nullptr);
+      EXPECT_EQ(out->get_id(), array->id_);
+      EXPECT_EQ(out->get_name(), array->name_);
+      EXPECT_EQ(out->get_type(), array->type_);
+      EXPECT_EQ(out->get_array_size(), array->array_size_);
+      EXPECT_EQ(out->get_payload_size(), array->payload_size_);
     }
-    cleanup_test(options);
+
+    {
+      storage::array::ArrayMetadata *array = dynamic_cast<storage::array::ArrayMetadata*>(
+        metadata.storage_metadata_[1]);
+      EXPECT_TRUE(array != nullptr);
+      EXPECT_EQ(out2->get_id(), array->id_);
+      EXPECT_EQ(out2->get_name(), array->name_);
+      EXPECT_EQ(out2->get_type(), array->type_);
+      EXPECT_EQ(out2->get_array_size(), array->array_size_);
+      EXPECT_EQ(out2->get_payload_size(), array->payload_size_);
+    }
+
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
 }
 
 }  // namespace snapshot

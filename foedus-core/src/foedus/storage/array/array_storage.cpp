@@ -10,12 +10,12 @@ namespace foedus {
 namespace storage {
 namespace array {
 ArrayStorage::ArrayStorage(Engine* engine, const ArrayMetadata &metadata, bool create)
-    : pimpl_(nullptr) {
-    pimpl_ = new ArrayStoragePimpl(engine, this, metadata, create);
+  : pimpl_(nullptr) {
+  pimpl_ = new ArrayStoragePimpl(engine, this, metadata, create);
 }
 ArrayStorage::~ArrayStorage() {
-    delete pimpl_;
-    pimpl_ = nullptr;
+  delete pimpl_;
+  pimpl_ = nullptr;
 }
 
 ErrorStack  ArrayStorage::initialize()              { return pimpl_->initialize(); }
@@ -23,13 +23,13 @@ ErrorStack  ArrayStorage::uninitialize()            { return pimpl_->uninitializ
 ErrorStack  ArrayStorage::create(thread::Thread* context)   { return pimpl_->create(context); }
 
 void ArrayStorage::describe(std::ostream* o_ptr) const {
-    std::ostream& o = *o_ptr;
-    o << "<ArrayStorage>"
-        << "<id>" << get_id() << "</id>"
-        << "<name>" << get_name() << "</name>"
-        << "<payload_size>" << get_payload_size() << "</payload_size>"
-        << "<array_size>" << get_array_size() << "</array_size>"
-        << "</ArrayStorage>";
+  std::ostream& o = *o_ptr;
+  o << "<ArrayStorage>"
+    << "<id>" << get_id() << "</id>"
+    << "<name>" << get_name() << "</name>"
+    << "<payload_size>" << get_payload_size() << "</payload_size>"
+    << "<array_size>" << get_array_size() << "</array_size>"
+    << "</ArrayStorage>";
 }
 
 // most other methods are defined in pimpl.cpp to allow inlining

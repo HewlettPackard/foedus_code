@@ -16,30 +16,30 @@ namespace debugging {
  */
 class StopWatch {
  public:
-    StopWatch() : started_(0), stopped_(0) { start(); }
+  StopWatch() : started_(0), stopped_(0) { start(); }
 
-    /** Take current time tick. */
-    void        start();
+  /** Take current time tick. */
+  void        start();
 
-    /** Take another current time tick. Returns elapsed nanosec. */
-    uint64_t    stop();
+  /** Take another current time tick. Returns elapsed nanosec. */
+  uint64_t    stop();
 
-    uint64_t    elapsed_ns() const {
-        return stopped_ - started_;
-    }
-    double      elapsed_us() const {
-        return static_cast<double>(stopped_ - started_) / 1000.0;
-    }
-    double      elapsed_ms() const {
-        return static_cast<double>(stopped_ - started_) / 1000000.0;
-    }
-    double      elapsed_sec() const {
-        return static_cast<double>(stopped_ - started_) / 1000000000.0;
-    }
+  uint64_t    elapsed_ns() const {
+    return stopped_ - started_;
+  }
+  double      elapsed_us() const {
+    return static_cast<double>(stopped_ - started_) / 1000.0;
+  }
+  double      elapsed_ms() const {
+    return static_cast<double>(stopped_ - started_) / 1000000.0;
+  }
+  double      elapsed_sec() const {
+    return static_cast<double>(stopped_ - started_) / 1000000000.0;
+  }
 
  private:
-    uint64_t started_;
-    uint64_t stopped_;
+  uint64_t started_;
+  uint64_t stopped_;
 };
 
 }  // namespace debugging

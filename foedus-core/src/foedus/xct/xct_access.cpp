@@ -11,16 +11,16 @@
 namespace foedus {
 namespace xct {
 std::ostream& operator<<(std::ostream& o, const XctAccess& v) {
-    o << "XctAccess: storage=" << v.storage_->get_name()
-        << "observed_owner_id=" << v.observed_owner_id_ << ", record_address=" << v.record_
-        << ", record current_owner_id=" << v.record_->owner_id_;
-    return o;
+  o << "XctAccess: storage=" << v.storage_->get_name()
+    << "observed_owner_id=" << v.observed_owner_id_ << ", record_address=" << v.record_
+    << ", record current_owner_id=" << v.record_->owner_id_;
+  return o;
 }
 std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v) {
-    o << "WriteAccess log=";
-    log::invoke_ostream(v.log_entry_, &o);
-    o << ". base=" << static_cast<const XctAccess&>(v);
-    return o;
+  o << "WriteAccess log=";
+  log::invoke_ostream(v.log_entry_, &o);
+  o << ". base=" << static_cast<const XctAccess&>(v);
+  return o;
 }
 }  // namespace xct
 }  // namespace foedus

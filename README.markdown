@@ -177,7 +177,7 @@ We conform to [Google C++ Style Guide](http://google-styleguide.googlecode.com/s
 except the arguable rule on streams. See [the discussions](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Streams)
 if you are interested. Other minor differences from the convention:
 
-* 4-spaces indent rather than 2. Instead, max 100 characters per line rather than 80.
+* Max 100 characters per line rather than 80 (you are welcomed to keep it within 80, though).
 * C++ file names are ".cpp" rather than ".cc", header files are ".hpp" rather than ".h".
 
 We enforce the coding convention by cpplint.py.
@@ -206,7 +206,7 @@ Only if you use kdevelop, and not if you have your own configuration (which is t
 
 * Settings, Configure Editor, Appearance, Borders, Enable "Show folding markers", "Show line numbers"
 * Settings, Configure Editor, Editing, "Show static word wrap marker" with 100 characters.
-* Settings, Configure Editor, Editing, Indentation, "Spaces" 4 characters.
+* Settings, Configure Editor, Editing, Indentation, "Spaces" 2 characters.
 * Settings, Configure Editor, Open/Save, General, Append newline at end of file.
 
 We also have a template file for creating new classes in kdevelop.

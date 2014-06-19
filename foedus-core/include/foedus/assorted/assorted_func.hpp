@@ -29,7 +29,7 @@ namespace assorted {
  */
 template <typename T, unsigned int ALIGNMENT>
 inline T align(T value) {
-    return static_cast<T>((value + ALIGNMENT - 1) & (-ALIGNMENT));
+  return static_cast<T>((value + ALIGNMENT - 1) & (-ALIGNMENT));
 }
 
 /**
@@ -57,13 +57,13 @@ int64_t int_div_ceil(int64_t dividee, int64_t dividor);
  * @ingroup ASSORTED
  */
 std::string replace_all(const std::string& target, const std::string& search,
-                           const std::string& replacement);
+               const std::string& replacement);
 /**
  * target.replaceAll(search, String.valueOf(replacement)).
  * @ingroup ASSORTED
  */
 std::string replace_all(const std::string& target, const std::string& search,
-                           int replacement);
+               int replacement);
 
 /**
  * Thread-safe strerror(errno). We might do some trick here for portability, too.
@@ -89,12 +89,12 @@ std::string os_error(int error_number);
  * @endcode
  */
 struct Hex {
-    template<typename T>
-    Hex(T val, int fix_digits = -1) : val_(static_cast<uint64_t>(val)), fix_digits_(fix_digits) {}
+  template<typename T>
+  Hex(T val, int fix_digits = -1) : val_(static_cast<uint64_t>(val)), fix_digits_(fix_digits) {}
 
-    uint64_t val_;
-    int fix_digits_;
-    friend std::ostream& operator<<(std::ostream& o, const Hex& v);
+  uint64_t val_;
+  int fix_digits_;
+  friend std::ostream& operator<<(std::ostream& o, const Hex& v);
 };
 
 
@@ -110,17 +110,17 @@ struct Hex {
  */
 inline void spinlock_yield() {
 #if defined(__GNUC__)
-    ::_mm_pause();
+  ::_mm_pause();
 #else  // defined(__GNUC__)
-    // Non-gcc compiler.
-    asm volatile("pause" ::: "memory");  // TODO(Hideaki) but what about ARM
+  // Non-gcc compiler.
+  asm volatile("pause" ::: "memory");  // TODO(Hideaki) but what about ARM
 #endif  // defined(__GNUC__)
 }
 /** Helper for SPINLOCK_WHILE. */
 inline void spinlock_yield_if(bool condition) {
-    if (condition) {
-        spinlock_yield();
-    }
+  if (condition) {
+    spinlock_yield();
+  }
 }
 
 /**
@@ -134,11 +134,11 @@ inline void spinlock_yield_if(bool condition) {
  */
 template<uint64_t SIZE1, uint64_t SIZE2>
 inline int static_size_check() {
-    CXX11_STATIC_ASSERT(SIZE1 == SIZE2,
-        "Static Size Check failed. Look for a message like this to see the value of Size1 and "
-        "Size2: 'In instantiation of int foedus::assorted::static_size_check() [with long unsigned"
-        " int SIZE1 = <size1>ul; long unsigned int SIZE2 = <size2>ul]'");
-    return 0;
+  CXX11_STATIC_ASSERT(SIZE1 == SIZE2,
+    "Static Size Check failed. Look for a message like this to see the value of Size1 and "
+    "Size2: 'In instantiation of int foedus::assorted::static_size_check() [with long unsigned"
+    " int SIZE1 = <size1>ul; long unsigned int SIZE2 = <size2>ul]'");
+  return 0;
 }
 
 /**
@@ -154,7 +154,7 @@ std::string demangle_type_name(const char* mangled_name);
  */
 template <typename T>
 std::string get_pretty_type_name() {
-    return demangle_type_name(typeid(T).name());
+  return demangle_type_name(typeid(T).name());
 }
 
 }  // namespace assorted
@@ -173,17 +173,17 @@ std::string get_pretty_type_name() {
  * @endcode
  */
 #define SPINLOCK_WHILE(x) \
-    for (uint8_t __spins = 0; (x); foedus::assorted::spinlock_yield_if(++__spins == 0))
+  for (uint8_t __spins = 0; (x); foedus::assorted::spinlock_yield_if(++__spins == 0))
 
 // Use __COUNTER__ to generate a unique method name
 #define STATIC_SIZE_CHECK_CONCAT_DETAIL(x, y) x##y
 #define STATIC_SIZE_CHECK_CONCAT(x, y) STATIC_SIZE_CHECK_CONCAT_DETAIL(x, y)
 #define STATIC_SIZE_CHECK_METHOD_NAME \
-    STATIC_SIZE_CHECK_CONCAT(_dummy_static_size_check, __COUNTER__)
+  STATIC_SIZE_CHECK_CONCAT(_dummy_static_size_check, __COUNTER__)
 #define STATIC_SIZE_CHECK(desired, actual) \
-    inline void STATIC_SIZE_CHECK_METHOD_NAME() { \
-        foedus::assorted::static_size_check< desired, actual >();\
-    }
+  inline void STATIC_SIZE_CHECK_METHOD_NAME() { \
+    foedus::assorted::static_size_check< desired, actual >();\
+  }
 
 /**
  * @def INSTANTIATE_ALL_TYPES(M)
@@ -225,14 +225,14 @@ std::string get_pretty_type_name() {
  * @ingroup ASSORTED
  */
 #define INSTANTIATE_ALL_INTEGER_TYPES(M) M(int64_t);  /** NOLINT(readability/function) */\
-    M(int32_t); M(int16_t); M(int8_t); M(uint64_t);  /** NOLINT(readability/function) */\
-    M(uint32_t); M(uint16_t); M(uint8_t); /** NOLINT(readability/function) */
+  M(int32_t); M(int16_t); M(int8_t); M(uint64_t);  /** NOLINT(readability/function) */\
+  M(uint32_t); M(uint16_t); M(uint8_t); /** NOLINT(readability/function) */
 
 #define INSTANTIATE_ALL_NUMERIC_TYPES(M) INSTANTIATE_ALL_INTEGER_TYPES(M);\
-    M(bool); M(float); M(double); /** NOLINT(readability/function) */
+  M(bool); M(float); M(double); /** NOLINT(readability/function) */
 
 #define INSTANTIATE_ALL_TYPES(M) INSTANTIATE_ALL_NUMERIC_TYPES(M);\
-    M(std::string);  /** NOLINT(readability/function) */
+  M(std::string);  /** NOLINT(readability/function) */
 
 
 #endif  // FOEDUS_ASSORTED_ASSORTED_FUNC_HPP_

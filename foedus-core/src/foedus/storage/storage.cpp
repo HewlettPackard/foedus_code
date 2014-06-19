@@ -7,8 +7,8 @@
 namespace foedus {
 namespace storage {
 std::ostream& operator<<(std::ostream& o, const Storage& v) {
-    v.describe(&o);
-    return o;
+  v.describe(&o);
+  return o;
 }
 }  // namespace storage
 }  // namespace foedus

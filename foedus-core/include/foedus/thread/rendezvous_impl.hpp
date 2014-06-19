@@ -33,83 +33,83 @@ namespace thread {
  */
 class Rendezvous final {
  public:
-    Rendezvous() : signaled_(false) {}
+  Rendezvous() : signaled_(false) {}
 
-    // not copyable, assignable.
-    Rendezvous(const Rendezvous &other) = delete;
-    Rendezvous& operator=(const Rendezvous &other) = delete;
-    Rendezvous(Rendezvous &&other) = delete;
-    Rendezvous& operator=(Rendezvous &&other) = delete;
+  // not copyable, assignable.
+  Rendezvous(const Rendezvous &other) = delete;
+  Rendezvous& operator=(const Rendezvous &other) = delete;
+  Rendezvous(Rendezvous &&other) = delete;
+  Rendezvous& operator=(Rendezvous &&other) = delete;
 
-    /**
-     * @brief Block until the event happens.
-     * @details
-     * Equivalent to std::future<void>::wait().
-     */
-    void wait() {
-        if (is_signaled()) {
-            return;
-        }
-        condition_.wait([this]{ return is_signaled(); });
+  /**
+   * @brief Block until the event happens.
+   * @details
+   * Equivalent to std::future<void>::wait().
+   */
+  void wait() {
+    if (is_signaled()) {
+      return;
     }
+    condition_.wait([this]{ return is_signaled(); });
+  }
 
-    /**
-     * @brief Block until the event happens \b or the given period elapses.
-     * @return whether the event happened by now.
-     * @details
-     * Equivalent to std::future<void>::wait_for().
-     */
-    template<class REP, class PERIOD>
-    bool wait_for(const std::chrono::duration<REP, PERIOD>& timeout) {
-        if (is_signaled()) {
-            return true;
-        }
-        return condition_.wait_for(timeout, [this]{ return is_signaled(); });
+  /**
+   * @brief Block until the event happens \b or the given period elapses.
+   * @return whether the event happened by now.
+   * @details
+   * Equivalent to std::future<void>::wait_for().
+   */
+  template<class REP, class PERIOD>
+  bool wait_for(const std::chrono::duration<REP, PERIOD>& timeout) {
+    if (is_signaled()) {
+      return true;
     }
+    return condition_.wait_for(timeout, [this]{ return is_signaled(); });
+  }
 
-    /**
-     * @brief Block until the event happens \b or the given time point arrives.
-     * @return whether the event happened by now.
-     * @details
-     * Equivalent to std::future<void>::wait_until().
-     */
-    template< class CLOCK, class DURATION >
-    bool wait_until(const std::chrono::time_point<CLOCK, DURATION>& until) {
-        if (is_signaled()) {
-            return true;
-        }
-        return condition_.wait_until(until, [this]{ return is_signaled(); });
+  /**
+   * @brief Block until the event happens \b or the given time point arrives.
+   * @return whether the event happened by now.
+   * @details
+   * Equivalent to std::future<void>::wait_until().
+   */
+  template< class CLOCK, class DURATION >
+  bool wait_until(const std::chrono::time_point<CLOCK, DURATION>& until) {
+    if (is_signaled()) {
+      return true;
     }
+    return condition_.wait_until(until, [this]{ return is_signaled(); });
+  }
 
-    /**
-     * @brief Notify all waiters that the event has happened.
-     * @details
-     * Equivalent to std::promise<void>::set_value().
-     * There must be only one thread that might call this method, and it should call this only once.
-     * Otherwise, the behavior is undefined.
-     */
-    void signal() {
-        ASSERT_ND(!is_signaled());
-        condition_.notify_all([this]{ signaled_.store(true); });
-        // we must not put ANYTHING after this because notified waiters might have already
-        // deleted this object. notify_broadcast() guarantees that itself finishes before
-        // destruction, but no guarantee after that.
-    }
+  /**
+   * @brief Notify all waiters that the event has happened.
+   * @details
+   * Equivalent to std::promise<void>::set_value().
+   * There must be only one thread that might call this method, and it should call this only once.
+   * Otherwise, the behavior is undefined.
+   */
+  void signal() {
+    ASSERT_ND(!is_signaled());
+    condition_.notify_all([this]{ signaled_.store(true); });
+    // we must not put ANYTHING after this because notified waiters might have already
+    // deleted this object. notify_broadcast() guarantees that itself finishes before
+    // destruction, but no guarantee after that.
+  }
 
-    /** returns whether this thread has stopped (if the thread hasn't started, false too). */
-    bool is_signaled() const {
-        return signaled_.load();
-    }
-    /** non-atomic is_signaled(). */
-    bool is_signaled_weak() const {
-        return signaled_.load(std::memory_order_relaxed);
-    }
+  /** returns whether this thread has stopped (if the thread hasn't started, false too). */
+  bool is_signaled() const {
+    return signaled_.load();
+  }
+  /** non-atomic is_signaled(). */
+  bool is_signaled_weak() const {
+    return signaled_.load(std::memory_order_relaxed);
+  }
 
  private:
-    /** used to notify waiters to wakeup. */
-    ConditionVariable               condition_;
-    /** whether this thread has stopped (if the thread hasn't started, false too). */
-    std::atomic<bool>               signaled_;
+  /** used to notify waiters to wakeup. */
+  ConditionVariable               condition_;
+  /** whether this thread has stopped (if the thread hasn't started, false too). */
+  std::atomic<bool>               signaled_;
 };
 
 

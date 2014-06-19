@@ -2242,6 +2242,19 @@ bool StaticAssertTypeEq() {
 # define TEST(test_case_name, test_name) GTEST_TEST(test_case_name, test_name)
 #endif
 
+// Defines the package of a testcase.
+// Example:
+//  DEFINE_TEST_CASE_PACKAGE(FooTest, bar);
+//  TEST(FooTest, Test1) {...}
+//  TEST(FooTest, Test2) {...}
+// // this will output "bar.FooTest" as test suite name.
+//  DEFINE_TEST_CASE_PACKAGE(Foo2Test, yet.another.foo);
+//  TEST(Foo2Test, Test1) {...}
+//  TEST(Foo2Test, Test2) {...}
+// // this will output "yet.another.foo.Foo2Test" as test suite name.
+#define DEFINE_TEST_CASE_PACKAGE(test_case_name, package_name)\
+    GTEST_TEST_PACKAGE_(test_case_name, package_name)
+
 // Defines a test that uses a test fixture.
 //
 // The first parameter is the name of the test fixture class, which

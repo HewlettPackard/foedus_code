@@ -13,12 +13,12 @@ add_subdirectory(src)
 # but fow now we enable cpplint to experiments code, too.
 include(${FOEDUS_CORE_SRC_ROOT}/cmake/CpplintWrapper.cmake)
 CPPLINT_RECURSIVE(experiment_core_cpplint_include
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_BINARY_DIR}/include)
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_BINARY_DIR}/include)
 CPPLINT_RECURSIVE(experiment_core_cpplint_src
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_BINARY_DIR}/src)
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_BINARY_DIR}/src)
 add_custom_target(experiment_core_cpplint_dummy ALL)
 add_dependencies(experiment_core_cpplint_dummy experiment_core_cpplint_include experiment_core_cpplint_src)

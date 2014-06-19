@@ -11,11 +11,11 @@ namespace log {
 #define X_EXPAND_AND_QUOTE(str) X_QUOTE(str)
 #define X(a, b, c) case a: return X_EXPAND_AND_QUOTE(a);
 const char* get_log_type_name(LogCode code) {
-    switch (code) {
-        case kLogCodeInvalid: return "kLogCodeInvalid";
+  switch (code) {
+    case kLogCodeInvalid: return "kLogCodeInvalid";
 #include <foedus/log/log_type.xmacro> // NOLINT
-        default: return "UNKNOWN";
-    }
+    default: return "UNKNOWN";
+  }
 }
 #undef X
 #undef X_EXPAND_AND_QUOTE

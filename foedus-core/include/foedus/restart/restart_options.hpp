@@ -14,12 +14,12 @@ namespace restart {
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
 struct RestartOptions CXX11_FINAL : public virtual externalize::Externalizable {
-    /**
-     * Constructs option values with default values.
-     */
-    RestartOptions();
+  /**
+   * Constructs option values with default values.
+   */
+  RestartOptions();
 
-    EXTERNALIZABLE(RestartOptions);
+  EXTERNALIZABLE(RestartOptions);
 };
 }  // namespace restart
 }  // namespace foedus

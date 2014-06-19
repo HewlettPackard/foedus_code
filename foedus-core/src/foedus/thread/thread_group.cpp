@@ -13,11 +13,11 @@
 namespace foedus {
 namespace thread {
 ThreadGroup::ThreadGroup(Engine *engine, ThreadGroupId group_id) : pimpl_(nullptr) {
-    pimpl_ = new ThreadGroupPimpl(engine, group_id);
+  pimpl_ = new ThreadGroupPimpl(engine, group_id);
 }
 ThreadGroup::~ThreadGroup() {
-    delete pimpl_;
-    pimpl_ = nullptr;
+  delete pimpl_;
+  pimpl_ = nullptr;
 }
 
 ErrorStack ThreadGroup::initialize() { return pimpl_->initialize(); }
@@ -28,11 +28,11 @@ ThreadGroupId ThreadGroup::get_group_id() const { return pimpl_->group_id_; }
 memory::NumaNodeMemory* ThreadGroup::get_node_memory() const { return pimpl_->node_memory_; }
 ThreadLocalOrdinal ThreadGroup::get_thread_count() const { return pimpl_->threads_.size(); }
 Thread* ThreadGroup::get_thread(ThreadLocalOrdinal ordinal) const {
-    return pimpl_->threads_[ordinal];
+  return pimpl_->threads_[ordinal];
 }
 std::ostream& operator<<(std::ostream& o, const ThreadGroup& v) {
-    o << *v.pimpl_;
-    return o;
+  o << *v.pimpl_;
+  return o;
 }
 
 }  // namespace thread

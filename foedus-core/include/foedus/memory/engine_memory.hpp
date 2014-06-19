@@ -32,43 +32,43 @@ namespace memory {
  */
 class EngineMemory CXX11_FINAL : public DefaultInitializable {
  public:
-    EngineMemory() CXX11_FUNC_DELETE;
-    explicit EngineMemory(Engine* engine) : engine_(engine) {}
-    ErrorStack  initialize_once() CXX11_OVERRIDE;
-    ErrorStack  uninitialize_once() CXX11_OVERRIDE;
+  EngineMemory() CXX11_FUNC_DELETE;
+  explicit EngineMemory(Engine* engine) : engine_(engine) {}
+  ErrorStack  initialize_once() CXX11_OVERRIDE;
+  ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
-    // accessors for child memories
-    foedus::thread::ThreadGroupId get_node_memory_count() const {
-        ASSERT_ND(node_memories_.size() <= foedus::thread::kMaxThreadGroupId);
-        return static_cast<foedus::thread::ThreadGroupId>(node_memories_.size());
-    }
-    NumaNodeMemory* get_node_memory(foedus::thread::ThreadGroupId group) const {
-        return node_memories_[group];
-    }
-    NumaCoreMemory* get_core_memory(foedus::thread::ThreadId id) const;
+  // accessors for child memories
+  foedus::thread::ThreadGroupId get_node_memory_count() const {
+    ASSERT_ND(node_memories_.size() <= foedus::thread::kMaxThreadGroupId);
+    return static_cast<foedus::thread::ThreadGroupId>(node_memories_.size());
+  }
+  NumaNodeMemory* get_node_memory(foedus::thread::ThreadGroupId group) const {
+    return node_memories_[group];
+  }
+  NumaCoreMemory* get_core_memory(foedus::thread::ThreadId id) const;
 
-    /**
-     * Returns the page resolver to convert page ID to page pointer.
-     * Any code can get the global page resolver from engine memory, but the most efficient
-     * way is to use the global page page resolver per core because
-     * it never requires remote memory access.
-     * @see thread::Thread::get_global_page_resolver()
-     */
-    const GlobalPageResolver& get_global_page_resolver() const { return global_page_resolver_; }
+  /**
+   * Returns the page resolver to convert page ID to page pointer.
+   * Any code can get the global page resolver from engine memory, but the most efficient
+   * way is to use the global page page resolver per core because
+   * it never requires remote memory access.
+   * @see thread::Thread::get_global_page_resolver()
+   */
+  const GlobalPageResolver& get_global_page_resolver() const { return global_page_resolver_; }
 
  private:
-    Engine* const                   engine_;
+  Engine* const                   engine_;
 
-    /**
-     * List of NumaNodeMemory, one for each NUMA socket in the machine.
-     * Index is NUMA node ID.
-     */
-    std::vector<NumaNodeMemory*>    node_memories_;
+  /**
+   * List of NumaNodeMemory, one for each NUMA socket in the machine.
+   * Index is NUMA node ID.
+   */
+  std::vector<NumaNodeMemory*>    node_memories_;
 
-    /**
-     * Converts page ID to page pointer.
-     */
-    GlobalPageResolver              global_page_resolver_;
+  /**
+   * Converts page ID to page pointer.
+   */
+  GlobalPageResolver              global_page_resolver_;
 };
 }  // namespace memory
 }  // namespace foedus

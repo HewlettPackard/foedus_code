@@ -85,40 +85,40 @@ namespace foedus {
  */
 class Initializable {
  public:
-    virtual ~Initializable() {}
+  virtual ~Initializable() {}
 
-    /**
-     * @brief Acquires resources in this object, usually called right after constructor.
-     * @pre is_initialized() == FALSE
-     * @details
-     * If and only if the return value was not an error, is_initialized() will return TRUE.
-     * This method is usually not idempotent, but some implementation can choose to be. In that
-     * case, the implementation class should clarify that it's idempotent.
-     * This method is responsible for releasing all acquired resources when initialization fails.
-     * This method itself is NOT thread-safe. Do not call this in a racy situation.
-     */
-    virtual ErrorStack  initialize() = 0;
+  /**
+   * @brief Acquires resources in this object, usually called right after constructor.
+   * @pre is_initialized() == FALSE
+   * @details
+   * If and only if the return value was not an error, is_initialized() will return TRUE.
+   * This method is usually not idempotent, but some implementation can choose to be. In that
+   * case, the implementation class should clarify that it's idempotent.
+   * This method is responsible for releasing all acquired resources when initialization fails.
+   * This method itself is NOT thread-safe. Do not call this in a racy situation.
+   */
+  virtual ErrorStack  initialize() = 0;
 
-    /** Returns whether the object has been already initialized or not. */
-    virtual bool        is_initialized() const = 0;
+  /** Returns whether the object has been already initialized or not. */
+  virtual bool        is_initialized() const = 0;
 
-    /**
-     * @brief An \e idempotent method to release all resources of this object, if any.
-     * @details
-     * After this method, is_initialized() will return FALSE.
-     * \b Whether this method encounters an error or not, the implementation should make the best
-     * effort to release as many resources as possible. In other words, Do not leak \b all resources
-     * because of \b one issue.
-     * This method itself is NOT thread-safe. Do not call this in a racy situation.
-     * @attention This method is NOT automatically called from the destructor.
-     * This is due to the fundamental limitation in C++.
-     * Explicitly call this method as soon as you are done, checking the returned value.
-     * You can also use UninitializeGuard to ameliorate the issue, but it's not perfect.
-     * @return The error this method encounters, if any.
-     * In case there are multiple errors while uninitialization, the implementation should use
-     * ErrorStackBatch to produce a batched ErrorStack object.
-     */
-    virtual ErrorStack  uninitialize() = 0;
+  /**
+   * @brief An \e idempotent method to release all resources of this object, if any.
+   * @details
+   * After this method, is_initialized() will return FALSE.
+   * \b Whether this method encounters an error or not, the implementation should make the best
+   * effort to release as many resources as possible. In other words, Do not leak \b all resources
+   * because of \b one issue.
+   * This method itself is NOT thread-safe. Do not call this in a racy situation.
+   * @attention This method is NOT automatically called from the destructor.
+   * This is due to the fundamental limitation in C++.
+   * Explicitly call this method as soon as you are done, checking the returned value.
+   * You can also use UninitializeGuard to ameliorate the issue, but it's not perfect.
+   * @return The error this method encounters, if any.
+   * In case there are multiple errors while uninitialization, the implementation should use
+   * ErrorStackBatch to produce a batched ErrorStack object.
+   */
+  virtual ErrorStack  uninitialize() = 0;
 };
 
 /**
@@ -143,52 +143,52 @@ class Initializable {
  */
 class DefaultInitializable : public virtual Initializable {
  public:
-    DefaultInitializable() : initialized_(false) {}
-    virtual ~DefaultInitializable() {}
+  DefaultInitializable() : initialized_(false) {}
+  virtual ~DefaultInitializable() {}
 
-    DefaultInitializable(const DefaultInitializable&) CXX11_FUNC_DELETE;
-    DefaultInitializable& operator=(const DefaultInitializable&) CXX11_FUNC_DELETE;
+  DefaultInitializable(const DefaultInitializable&) CXX11_FUNC_DELETE;
+  DefaultInitializable& operator=(const DefaultInitializable&) CXX11_FUNC_DELETE;
 
-    /**
-     * Typical implementation of Initializable#initialize()
-     * that provides initialize-once semantics.
-     */
-    ErrorStack  initialize() CXX11_OVERRIDE CXX11_FINAL {
-        if (is_initialized()) {
-            return ERROR_STACK(kErrorCodeAlreadyInitialized);
-        }
-        ErrorStack init_error = initialize_once();
-        if (init_error.is_error()) {
-            // if error happes in the middle of initialization, we release resources we acquired.
-            CHECK_ERROR(uninitialize_once());
-            return init_error;
-        }
-        initialized_ = true;
-        return kRetOk;
+  /**
+   * Typical implementation of Initializable#initialize()
+   * that provides initialize-once semantics.
+   */
+  ErrorStack  initialize() CXX11_OVERRIDE CXX11_FINAL {
+    if (is_initialized()) {
+      return ERROR_STACK(kErrorCodeAlreadyInitialized);
     }
-
-    /**
-     * Typical implementation of Initializable#uninitialize() that provides
-     * uninitialize-once semantics.
-     */
-    ErrorStack  uninitialize() CXX11_OVERRIDE CXX11_FINAL {
-        if (!is_initialized()) {
-            return kRetOk;
-        }
-        CHECK_ERROR(uninitialize_once());
-        initialized_ = false;
-        return kRetOk;
+    ErrorStack init_error = initialize_once();
+    if (init_error.is_error()) {
+      // if error happes in the middle of initialization, we release resources we acquired.
+      CHECK_ERROR(uninitialize_once());
+      return init_error;
     }
+    initialized_ = true;
+    return kRetOk;
+  }
 
-    bool        is_initialized() const CXX11_OVERRIDE CXX11_FINAL {
-        return initialized_;
+  /**
+   * Typical implementation of Initializable#uninitialize() that provides
+   * uninitialize-once semantics.
+   */
+  ErrorStack  uninitialize() CXX11_OVERRIDE CXX11_FINAL {
+    if (!is_initialized()) {
+      return kRetOk;
     }
+    CHECK_ERROR(uninitialize_once());
+    initialized_ = false;
+    return kRetOk;
+  }
 
-    virtual ErrorStack  initialize_once() = 0;
-    virtual ErrorStack  uninitialize_once() = 0;
+  bool        is_initialized() const CXX11_OVERRIDE CXX11_FINAL {
+    return initialized_;
+  }
+
+  virtual ErrorStack  initialize_once() = 0;
+  virtual ErrorStack  uninitialize_once() = 0;
 
  private:
-    bool    initialized_;
+  bool    initialized_;
 };
 
 /**
@@ -206,42 +206,42 @@ class DefaultInitializable : public virtual Initializable {
  */
 class UninitializeGuard {
  public:
+  /**
+   * Defines the behavior of this scope guard.
+   */
+  enum Policy {
     /**
-     * Defines the behavior of this scope guard.
+     * Terminates the entire program if uninitialize() wasn't called when it gets out of scope.
+     * This is used to look for coding issues where we overlook chances of early returns.
+     * Although this is stringent, recommended.
      */
-    enum Policy {
-        /**
-         * Terminates the entire program if uninitialize() wasn't called when it gets out of scope.
-         * This is used to look for coding issues where we overlook chances of early returns.
-         * Although this is stringent, recommended.
-         */
-        kAbortIfNotExplicitlyUninitialized = 0,
-        /**
-         * Automatically calls if uninitialize() wasn't called when it gets out of scope,
-         * and terminates the entire program when uninitialize() actually returns an error.
-         * In either case, we warn about the lack of explicit uninitialize() call in debug log.
-         * This is the default.
-         */
-        kAbortIfUninitializeError,
-        /**
-         * Automatically calls if uninitialize() wasn't called when it gets out of scope,
-         * and just complains when uninitialize() actually returns an error in debug log.
-         */
-        kWarnIfUninitializeError,
-        /**
-         * Automatically calls if uninitialize() wasn't called when it gets out of scope,
-         * and does nothing even when uninitialize() actually returns an error in debug log.
-         * NOT RECOMMENDED.
-         */
-        kSilent,
-    };
-    UninitializeGuard(Initializable *target, Policy policy = kAbortIfUninitializeError)
-        : target_(target), policy_(policy) {}
-    ~UninitializeGuard();
+    kAbortIfNotExplicitlyUninitialized = 0,
+    /**
+     * Automatically calls if uninitialize() wasn't called when it gets out of scope,
+     * and terminates the entire program when uninitialize() actually returns an error.
+     * In either case, we warn about the lack of explicit uninitialize() call in debug log.
+     * This is the default.
+     */
+    kAbortIfUninitializeError,
+    /**
+     * Automatically calls if uninitialize() wasn't called when it gets out of scope,
+     * and just complains when uninitialize() actually returns an error in debug log.
+     */
+    kWarnIfUninitializeError,
+    /**
+     * Automatically calls if uninitialize() wasn't called when it gets out of scope,
+     * and does nothing even when uninitialize() actually returns an error in debug log.
+     * NOT RECOMMENDED.
+     */
+    kSilent,
+  };
+  UninitializeGuard(Initializable *target, Policy policy = kAbortIfUninitializeError)
+    : target_(target), policy_(policy) {}
+  ~UninitializeGuard();
 
  private:
-    Initializable*  target_;
-    Policy          policy_;
+  Initializable*  target_;
+  Policy          policy_;
 };
 
 }  // namespace foedus

@@ -55,26 +55,26 @@ namespace foedus {
  * @endcode
  */
 struct EngineOptions CXX11_FINAL : public virtual externalize::Externalizable {
-    /**
-     * Constructs option values with default values.
-     */
-    EngineOptions();
-    EngineOptions(const EngineOptions& other);
-    EngineOptions& operator=(const EngineOptions& other);
+  /**
+   * Constructs option values with default values.
+   */
+  EngineOptions();
+  EngineOptions(const EngineOptions& other);
+  EngineOptions& operator=(const EngineOptions& other);
 
-    // options for each module
-    cache::CacheOptions         cache_;
-    debugging::DebuggingOptions debugging_;
-    log::LogOptions             log_;
-    memory::MemoryOptions       memory_;
-    restart::RestartOptions     restart_;
-    savepoint::SavepointOptions savepoint_;
-    snapshot::SnapshotOptions   snapshot_;
-    storage::StorageOptions     storage_;
-    thread::ThreadOptions       thread_;
-    xct::XctOptions             xct_;
+  // options for each module
+  cache::CacheOptions         cache_;
+  debugging::DebuggingOptions debugging_;
+  log::LogOptions             log_;
+  memory::MemoryOptions       memory_;
+  restart::RestartOptions     restart_;
+  savepoint::SavepointOptions savepoint_;
+  snapshot::SnapshotOptions   snapshot_;
+  storage::StorageOptions     storage_;
+  thread::ThreadOptions       thread_;
+  xct::XctOptions             xct_;
 
-    EXTERNALIZABLE(EngineOptions);
+  EXTERNALIZABLE(EngineOptions);
 };
 }  // namespace foedus
 #endif  // FOEDUS_ENGINE_OPTIONS_HPP_

@@ -16,20 +16,20 @@ namespace restart {
  */
 class RestartManager CXX11_FINAL : public virtual Initializable {
  public:
-    explicit RestartManager(Engine* engine);
-    ~RestartManager();
+  explicit RestartManager(Engine* engine);
+  ~RestartManager();
 
-    // Disable default constructors
-    RestartManager() CXX11_FUNC_DELETE;
-    RestartManager(const RestartManager&) CXX11_FUNC_DELETE;
-    RestartManager& operator=(const RestartManager&) CXX11_FUNC_DELETE;
+  // Disable default constructors
+  RestartManager() CXX11_FUNC_DELETE;
+  RestartManager(const RestartManager&) CXX11_FUNC_DELETE;
+  RestartManager& operator=(const RestartManager&) CXX11_FUNC_DELETE;
 
-    ErrorStack  initialize() CXX11_OVERRIDE;
-    bool        is_initialized() const CXX11_OVERRIDE;
-    ErrorStack  uninitialize() CXX11_OVERRIDE;
+  ErrorStack  initialize() CXX11_OVERRIDE;
+  bool        is_initialized() const CXX11_OVERRIDE;
+  ErrorStack  uninitialize() CXX11_OVERRIDE;
 
  private:
-    RestartManagerPimpl *pimpl_;
+  RestartManagerPimpl *pimpl_;
 };
 }  // namespace restart
 }  // namespace foedus

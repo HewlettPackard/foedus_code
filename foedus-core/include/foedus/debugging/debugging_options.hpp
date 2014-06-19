@@ -18,72 +18,72 @@ namespace debugging {
  * at runtime. So, those options are merely \e initial configurations.
  */
 struct DebuggingOptions CXX11_FINAL : public virtual externalize::Externalizable {
-    /** Defines debug logging levels. */
-    enum DebugLogLevel {
-        /** Usual logs. */
-        kDebugLogInfo = 0,
-        /** Warns that there are something unexpected, but not a big issue. */
-        kDebugLogWarning,
-        /** Raises a major issue. */
-        kDebugLogError,
-        /** Immediately quits the engine after this log. */
-        kDebugLogFatal,
-    };
+  /** Defines debug logging levels. */
+  enum DebugLogLevel {
+    /** Usual logs. */
+    kDebugLogInfo = 0,
+    /** Warns that there are something unexpected, but not a big issue. */
+    kDebugLogWarning,
+    /** Raises a major issue. */
+    kDebugLogError,
+    /** Immediately quits the engine after this log. */
+    kDebugLogFatal,
+  };
 
-    /**
-     * Constructs option values with default values.
-     */
-    DebuggingOptions();
+  /**
+   * Constructs option values with default values.
+   */
+  DebuggingOptions();
 
-    /**
-     * @brief Whether to write debug logs to stderr rather than log file.
-     * @details
-     * Default is false. There is an API to change this setting at runtime.
-     */
-    bool                                debug_log_to_stderr_;
+  /**
+   * @brief Whether to write debug logs to stderr rather than log file.
+   * @details
+   * Default is false. There is an API to change this setting at runtime.
+   */
+  bool                                debug_log_to_stderr_;
 
-    /**
-     * @brief Debug logs at or above this level will be copied to stderr.
-     * @details
-     * Default is kDebugLogInfo. There is an API to change this setting at runtime.
-     */
-    DebugLogLevel                       debug_log_stderr_threshold_;
+  /**
+   * @brief Debug logs at or above this level will be copied to stderr.
+   * @details
+   * Default is kDebugLogInfo. There is an API to change this setting at runtime.
+   */
+  DebugLogLevel                       debug_log_stderr_threshold_;
 
-    /**
-     * @brief Debug logs below this level will be completely ignored.
-     * @details
-     * Default is kDebugLogInfo. There is an API to change this setting at runtime.
-     */
-    DebugLogLevel                       debug_log_min_threshold_;
+  /**
+   * @brief Debug logs below this level will be completely ignored.
+   * @details
+   * Default is kDebugLogInfo. There is an API to change this setting at runtime.
+   */
+  DebugLogLevel                       debug_log_min_threshold_;
 
-    /**
-     * @brief Verbose debug logs (VLOG(m)) at or less than this number will be shown.
-     * @details
-     * Default is 0. There is an API to change this setting at runtime.
-     */
-    int16_t                            verbose_log_level_;
+  /**
+   * @brief Verbose debug logs (VLOG(m)) at or less than this number will be shown.
+   * @details
+   * Default is 0. There is an API to change this setting at runtime.
+   */
+  int16_t                            verbose_log_level_;
 
-    /**
-     * @brief Per-module verbose level.
-     * @details
-     * The value has to contain a comma-separated list of
-     * 'module name'='log level'. 'module name' is a glob pattern
-     * (e.g., gfs* for all modules whose name starts with "gfs"),
-     * matched against the filename base (that is, name ignoring .cc/.h./-inl.h)
-     * Default is "". There is an API to change this setting at runtime.
-     */
-    std::string                         verbose_modules_;
+  /**
+   * @brief Per-module verbose level.
+   * @details
+   * The value has to contain a comma-separated list of
+   * 'module name'='log level'. 'module name' is a glob pattern
+   * (e.g., gfs* for all modules whose name starts with "gfs"),
+   * matched against the filename base (that is, name ignoring .cc/.h./-inl.h)
+   * Default is "". There is an API to change this setting at runtime.
+   */
+  std::string                         verbose_modules_;
 
-    /**
-     * @brief Path of the folder to write debug logs.
-     * @details
-     * Default is "/tmp".
-     * @attention We do NOT have API to change this setting at runtime.
-     * You must configure this as a start-up option.
-     */
-    std::string                         debug_log_dir_;
+  /**
+   * @brief Path of the folder to write debug logs.
+   * @details
+   * Default is "/tmp".
+   * @attention We do NOT have API to change this setting at runtime.
+   * You must configure this as a start-up option.
+   */
+  std::string                         debug_log_dir_;
 
-    EXTERNALIZABLE(DebuggingOptions);
+  EXTERNALIZABLE(DebuggingOptions);
 };
 }  // namespace debugging
 }  // namespace foedus

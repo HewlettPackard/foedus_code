@@ -25,74 +25,74 @@ namespace thread {
  */
 class ThreadPimpl final : public DefaultInitializable {
  public:
-    ThreadPimpl() = delete;
-    ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder, ThreadId id);
-    ErrorStack  initialize_once() override final;
-    ErrorStack  uninitialize_once() override final;
+  ThreadPimpl() = delete;
+  ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder, ThreadId id);
+  ErrorStack  initialize_once() override final;
+  ErrorStack  uninitialize_once() override final;
 
-    /**
-     * @brief Main routine of the worker thread.
-     * @details
-     * This method keeps checking current_task_. Whenever it retrieves a task, it runs
-     * it and re-sets current_task_ when it's done. It exists when exit_requested_ is set.
-     */
-    void        handle_tasks();
+  /**
+   * @brief Main routine of the worker thread.
+   * @details
+   * This method keeps checking current_task_. Whenever it retrieves a task, it runs
+   * it and re-sets current_task_ when it's done. It exists when exit_requested_ is set.
+   */
+  void        handle_tasks();
 
-    /**
-     * Conditionally try to occupy this thread, or impersonate. If it fails, it immediately returns.
-     * @param[in] session the session to run on this thread
-     * @return whether successfully impersonated.
-     */
-    bool        try_impersonate(ImpersonateSession *session);
+  /**
+   * Conditionally try to occupy this thread, or impersonate. If it fails, it immediately returns.
+   * @param[in] session the session to run on this thread
+   * @return whether successfully impersonated.
+   */
+  bool        try_impersonate(ImpersonateSession *session);
 
-    Engine* const           engine_;
+  Engine* const           engine_;
 
-    /**
-     * The thread group (NUMA node) this thread belongs to.
-     */
-    ThreadGroupPimpl* const group_;
+  /**
+   * The thread group (NUMA node) this thread belongs to.
+   */
+  ThreadGroupPimpl* const group_;
 
-    /**
-     * The public object that holds this pimpl object.
-     */
-    Thread* const           holder_;
+  /**
+   * The public object that holds this pimpl object.
+   */
+  Thread* const           holder_;
 
-    /**
-     * Unique ID of this thread.
-     */
-    const ThreadId          id_;
+  /**
+   * Unique ID of this thread.
+   */
+  const ThreadId          id_;
 
-    /**
-     * Private memory repository of this thread.
-     * ThreadPimpl does NOT own it, meaning it doesn't call its initialize()/uninitialize().
-     * EngineMemory owns it in terms of that.
-     */
-    memory::NumaCoreMemory* core_memory_;
+  /**
+   * Private memory repository of this thread.
+   * ThreadPimpl does NOT own it, meaning it doesn't call its initialize()/uninitialize().
+   * EngineMemory owns it in terms of that.
+   */
+  memory::NumaCoreMemory* core_memory_;
 
-    /**
-     * Thread-private log buffer.
-     */
-    log::ThreadLogBuffer    log_buffer_;
+  /**
+   * Thread-private log buffer.
+   */
+  log::ThreadLogBuffer    log_buffer_;
 
-    /**
-     * Encapsulates raw thread object.
-     * This is initialized/uninitialized in initialize()/uninitialize().
-     */
-    StoppableThread         raw_thread_;
+  /**
+   * Encapsulates raw thread object.
+   * This is initialized/uninitialized in initialize()/uninitialize().
+   */
+  StoppableThread         raw_thread_;
 
-    /**
-     * The task this thread is currently running or will run when it wakes up.
-     * Only one caller can impersonate a thread at once.
-     * If this thread is not impersonated, null.
-     */
-    std::atomic<ImpersonateTask*>   current_task_;
+  /**
+   * The task this thread is currently running or will run when it wakes up.
+   * Only one caller can impersonate a thread at once.
+   * If this thread is not impersonated, null.
+   */
+  std::atomic<ImpersonateTask*>   current_task_;
 
-    /**
-     * Current transaction this thread is conveying.
-     * Each thread can run at most one transaction at once.
-     * If this thread is not conveying any transaction, current_xct_.is_active() == false.
-     */
-    xct::Xct                current_xct_;
+  /**
+   * Current transaction this thread is conveying.
+   * Each thread can run at most one transaction at once.
+   * If this thread is not conveying any transaction, current_xct_.is_active() == false.
+   */
+  xct::Xct                current_xct_;
 };
 }  // namespace thread
 }  // namespace foedus

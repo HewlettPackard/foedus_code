@@ -27,8 +27,8 @@
  * @brief Cross-compiler UNUSED macro for the same purpose as ASSERT_ND(x).
  */
 namespace foedus {
-    /** Prints out backtrace. This method is best-effort, maybe do nothing in some compiler/OS. */
-    void print_backtrace();
+  /** Prints out backtrace. This method is best-effort, maybe do nothing in some compiler/OS. */
+  void print_backtrace();
 }  // namespace foedus
 
 #ifdef NDEBUG

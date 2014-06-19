@@ -17,25 +17,25 @@ namespace storage {
  * In other words, this object contains the common header items regardless of storage types.
  */
 struct PageHeader {
-    /**
-     * Checksum of the content of this page to detect corrupted pages.
-     * Changes only when we save it to media. No synchronization needed to access.
-     */
-    Checksum            checksum_;          // +8 -> 8
+  /**
+   * Checksum of the content of this page to detect corrupted pages.
+   * Changes only when we save it to media. No synchronization needed to access.
+   */
+  Checksum            checksum_;          // +8 -> 8
 
-    /**
-     * Epoch of this page when this page is written to media (as of the log gleaning).
-     * This might not be maintained in volatile pages
-     */
-    Epoch               durable_epoch_;     // +4 -> 12
+  /**
+   * Epoch of this page when this page is written to media (as of the log gleaning).
+   * This might not be maintained in volatile pages
+   */
+  Epoch               durable_epoch_;     // +4 -> 12
 
-    /** ID of the array storage. immutable after the array storage is created. */
-    StorageId           storage_id_;        // +4 -> 16
+  /** ID of the array storage. immutable after the array storage is created. */
+  StorageId           storage_id_;        // +4 -> 16
 
-    // No instantiation.
-    PageHeader() CXX11_FUNC_DELETE;
-    PageHeader(const PageHeader& other) CXX11_FUNC_DELETE;
-    PageHeader& operator=(const PageHeader& other) CXX11_FUNC_DELETE;
+  // No instantiation.
+  PageHeader() CXX11_FUNC_DELETE;
+  PageHeader(const PageHeader& other) CXX11_FUNC_DELETE;
+  PageHeader& operator=(const PageHeader& other) CXX11_FUNC_DELETE;
 };
 
 /**
@@ -48,13 +48,13 @@ struct PageHeader {
  */
 struct Page CXX11_FINAL {
  private:
-    PageHeader  header_;
-    char        data_[kPageSize - sizeof(PageHeader)];
+  PageHeader  header_;
+  char        data_[kPageSize - sizeof(PageHeader)];
 
-    // No instantiation.
-    Page() CXX11_FUNC_DELETE;
-    Page(const Page& other) CXX11_FUNC_DELETE;
-    Page& operator=(const Page& other) CXX11_FUNC_DELETE;
+  // No instantiation.
+  Page() CXX11_FUNC_DELETE;
+  Page(const Page& other) CXX11_FUNC_DELETE;
+  Page& operator=(const Page& other) CXX11_FUNC_DELETE;
 };
 
 }  // namespace storage

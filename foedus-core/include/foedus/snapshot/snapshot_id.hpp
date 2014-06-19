@@ -47,13 +47,13 @@ const SnapshotId kNullSnapshotId = 0;
  * @invariant id != kNullSnapshotId
  */
 inline SnapshotId increment(SnapshotId id) {
-    ASSERT_ND(id != kNullSnapshotId);
-    ++id;
-    if (id == kNullSnapshotId) {
-        return 1;  // wrap around, and skip 0.
-    } else {
-        return id;
-    }
+  ASSERT_ND(id != kNullSnapshotId);
+  ++id;
+  if (id == kNullSnapshotId) {
+    return 1;  // wrap around, and skip 0.
+  } else {
+    return id;
+  }
 }
 
 }  // namespace snapshot
