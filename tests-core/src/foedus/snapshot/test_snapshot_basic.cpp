@@ -63,8 +63,8 @@ TEST(SnapshotBasicTest, OneArrayCreate) {
     UninitializeGuard guard(&engine);
     storage::array::ArrayStorage* out;
     Epoch commit_epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test", 16, 100, &out,
-      &commit_epoch));
+    storage::array::ArrayMetadata meta("test", 16, 100);
+    COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &out, &commit_epoch));
     EXPECT_TRUE(out != nullptr);
     EXPECT_TRUE(commit_epoch.is_valid());
     COERCE_ERROR(engine.get_xct_manager().wait_for_commit(commit_epoch));
@@ -99,12 +99,12 @@ TEST(SnapshotBasicTest, TwoArrayCreate) {
     UninitializeGuard guard(&engine);
     storage::array::ArrayStorage* out;
     Epoch commit_epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test", 16, 10, &out,
-      &commit_epoch));
+    storage::array::ArrayMetadata meta("test", 16, 10);
+    COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &out, &commit_epoch));
     EXPECT_TRUE(out != nullptr);
     storage::array::ArrayStorage* out2;
-    COERCE_ERROR(engine.get_storage_manager().create_array_impersonate("test2", 50, 20, &out2,
-      &commit_epoch));
+    storage::array::ArrayMetadata meta2("test2", 50, 20);
+    COERCE_ERROR(engine.get_storage_manager().create_array(&meta2, &out2, &commit_epoch));
     EXPECT_TRUE(out2 != nullptr);
 
     EXPECT_TRUE(commit_epoch.is_valid());

@@ -7,6 +7,7 @@
 #include <foedus/engine_options.hpp>
 #include <foedus/epoch.hpp>
 #include <foedus/storage/storage_manager.hpp>
+#include <foedus/storage/array/array_metadata.hpp>
 #include <foedus/storage/array/array_storage.hpp>
 #include <foedus/thread/rendezvous_impl.hpp>
 #include <foedus/thread/thread_pool.hpp>
@@ -41,8 +42,8 @@ class InitTask : public thread::ImpersonateTask {
     xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
     storage::StorageManager& str_manager = context->get_engine()->get_storage_manager();
     Epoch commit_epoch;
-    CHECK_ERROR(str_manager.create_array(context, "test", sizeof(Payload), kRecords, &storage,
-      &commit_epoch));
+    storage::array::ArrayMetadata meta("test", sizeof(Payload), kRecords);
+    CHECK_ERROR(str_manager.create_array(context, &meta, &storage, &commit_epoch));
 
     CHECK_ERROR(xct_manager.begin_xct(context, kSerializable));
 

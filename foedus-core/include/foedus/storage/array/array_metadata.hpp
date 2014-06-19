@@ -29,6 +29,11 @@ struct ArrayMetadata CXX11_FINAL : public virtual Metadata {
     : Metadata(id, kArrayStorage, name),
     payload_size_(payload_size), array_size_(array_size), root_page_id_(root_page_id) {
   }
+  /** This one is for newly creating a storage. */
+  ArrayMetadata(const std::string& name, uint16_t payload_size, ArrayOffset array_size)
+    : Metadata(0, kArrayStorage, name),
+    payload_size_(payload_size), array_size_(array_size), root_page_id_(0) {
+  }
   EXTERNALIZABLE(ArrayMetadata);
 
   Metadata* clone() const CXX11_OVERRIDE;

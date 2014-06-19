@@ -165,6 +165,21 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
  private:
   ArrayStoragePimpl*  pimpl_;
 };
+
+/**
+ * @brief Factory object for array storages.
+ * @ingroup ARRAY
+ */
+class ArrayStorageFactory CXX11_FINAL : public virtual StorageFactory {
+ public:
+  ~ArrayStorageFactory() {}
+  StorageType   get_type() const CXX11_OVERRIDE { return kArrayStorage; }
+  bool          is_right_metadata(const Metadata *metadata) const;
+  ErrorStack    get_instance(Engine* engine, const Metadata *metadata,
+                                bool create, Storage** storage) const;
+  void          add_create_log(const Metadata* metadata, thread::Thread* context) const;
+};
+
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus

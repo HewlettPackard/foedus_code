@@ -10,7 +10,6 @@
 #include <foedus/storage/fwd.hpp>
 #include <foedus/storage/storage_id.hpp>
 #include <foedus/storage/array/fwd.hpp>
-#include <foedus/storage/array/array_id.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <string>
 namespace foedus {
@@ -71,32 +70,40 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
    * A convenience function to impersonate as one of available threads and invoke drop_storage().
    * @see drop_storage()
    */
-  ErrorStack  drop_storage_impersonate(StorageId id, Epoch *commit_epoch);
+  ErrorStack  drop_storage(StorageId id, Epoch *commit_epoch);
 
   /**
-   * @brief Newly creates an \ref ARRAY with the specified parameters and registers it to this
+   * @brief Newly creates a storage with the specified metadata and registers it to this
    * manager.
-   * @param[in] context thread context to create this array
-   * @param[in] name Name of the array storage
-   * @param[in] payload_size byte size of one record in this array storage
-   * without internal overheads.
-   * @param[in] array_size Size of this array
-   * @param[out] out Pointer to the created array storage, if no error observed.
+   * @param[in] context thread context to create this storage
+   * @param[in,out] metadata Specifies metadata of the newly created storage, such as name.
+   * The metadata object must be an instance of derived metadata such as ArrayMetadata.
+   * This method, when succeeded, changes only one property of the given metadata; id_.
+   * @param[out] storage Pointer to the created storage, if no error observed.
    * @param[out] commit_epoch The epoch at whose end the storage is really deemed as created.
-   * @todo probably this should receive ArrayMetadata rather than individual args.
    */
-  ErrorStack  create_array(thread::Thread* context, const std::string &name,
-        uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out,
-        Epoch *commit_epoch);
+  ErrorStack  create_storage(thread::Thread* context, Metadata *metadata, Storage **storage,
+                             Epoch *commit_epoch);
 
   /**
-   * A convenience function to impersonate as one of available threads and invoke create_array().
-   * @see create_array()
+   * @brief A convenience function to impersonate as one of available threads
+   * and then invoke create_storage().
    */
-  ErrorStack  create_array_impersonate(const std::string &name,
-        uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out,
-        Epoch *commit_epoch);
+  ErrorStack  create_storage(Metadata *metadata, Storage **storage, Epoch *commit_epoch);
 
+  /**
+   * @brief Just a type-wrapper of create_storage() for array storages.
+   * @see create_storage()
+   */
+  ErrorStack  create_array(thread::Thread* context, array::ArrayMetadata *metadata,
+                           array::ArrayStorage **storage, Epoch *commit_epoch);
+
+  /**
+   * @brief A convenience function to impersonate as one of available threads
+   * and then invoke create_array().
+   */
+  ErrorStack  create_array(array::ArrayMetadata *metadata,
+                           array::ArrayStorage **storage, Epoch *commit_epoch);
 
   /**
    * This method is called during snapshotting to clone metadata of all existing storages
