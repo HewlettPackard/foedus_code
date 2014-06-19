@@ -17,6 +17,7 @@
 #include <foedus/engine_options.hpp>
 #include <foedus/savepoint/savepoint.hpp>
 #include <foedus/savepoint/savepoint_manager.hpp>
+#include <foedus/thread/numa_thread_scope.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread_pool_pimpl.hpp>
 #include <foedus/thread/thread.hpp>
@@ -130,7 +131,7 @@ ErrorStack Logger::uninitialize_once() {
 
 void Logger::handle_logger() {
     LOG(INFO) << "Logger-" << id_ << " started. pin on NUMA node-" << static_cast<int>(numa_node_);
-    ::numa_run_on_node(numa_node_);
+    thread::NumaThreadScope scope(numa_node_);
     // The actual logging can't start XctManager is initialized.
     SPINLOCK_WHILE(!logger_thread_.is_stop_requested()
         && !engine_->get_xct_manager().is_initialized()) {

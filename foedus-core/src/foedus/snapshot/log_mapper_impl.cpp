@@ -112,6 +112,7 @@ ErrorStack LogMapper::handle_process() {
         uint32_t fragment_saved = 0;  // bytes of fragment in previous read
         uint32_t fragment_remaining = 0;
         while (!ended && cur_offset < read_end) {  // loop for each read in the file
+            WRAP_ERROR_CODE(check_cancelled());  // check per each read
             uint64_t pos = 0;
             const uint64_t reads = std::min(io_buffer_.get_size(), read_end - cur_offset);
             CHECK_ERROR(file.read(reads, &io_buffer_));

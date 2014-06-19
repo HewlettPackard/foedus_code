@@ -7,10 +7,11 @@
 #include <foedus/error_stack_batch.hpp>
 #include <foedus/assorted/atomic_fences.hpp>
 #include <foedus/memory/engine_memory.hpp>
+#include <foedus/thread/impersonate_task_pimpl.hpp>
+#include <foedus/thread/numa_thread_scope.hpp>
 #include <foedus/thread/thread_pimpl.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread_pool_pimpl.hpp>
-#include <foedus/thread/impersonate_task_pimpl.hpp>
 #include <foedus/log/thread_log_buffer_impl.hpp>
 #include <foedus/xct/xct_manager.hpp>
 #include <glog/logging.h>
@@ -48,7 +49,7 @@ ErrorStack ThreadPimpl::uninitialize_once() {
 void ThreadPimpl::handle_tasks() {
     int numa_node = static_cast<int>(decompose_numa_node(id_));
     LOG(INFO) << "Thread-" << id_ << " started running on NUMA node: " << numa_node;
-    ::numa_run_on_node(numa_node);
+    NumaThreadScope scope(numa_node);
     // Actual xct processing can't start until XctManager is initialized.
     SPINLOCK_WHILE(!raw_thread_.is_stop_requested()
         && !engine_->get_xct_manager().is_initialized()) {

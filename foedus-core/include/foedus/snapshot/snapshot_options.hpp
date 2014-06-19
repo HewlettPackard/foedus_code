@@ -21,7 +21,7 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
         kDefaultSnapshotTriggerPagePoolPercent = 100,
         kDefaultSnapshotIntervalMilliseconds = 60000,
         kDefaultLogMapperBucketKb           = 1024,
-        kDefaultLogMapperIoBufferKb         = 1024,
+        kDefaultLogMapperIoBufferKb         = 2048,
         kDefaultLogReducerBufferMb           = 256,
     };
 
@@ -94,8 +94,10 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
      * Each reducer receives log entries from all mappers, so the right size is likely much
      * larger than log_mapper_bucket_kb_.
      *
-     * So far, this buffer has to contain all log entries in an epoch to the partition.
-     * We have a few plans to alter the initial implementation.
+     * Reducer sorts and dumps out this buffer to a file, then does merge-sort at the end.
+     * If this buffer can contain all the logs while snapshotting, it will not do any I/O
+     * thus be significanltly faster.
+     * If you have a big DRAM, you might want to specify a large number for that reason.
      */
     uint32_t                            log_reducer_buffer_mb_;
 

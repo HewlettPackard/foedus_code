@@ -9,6 +9,7 @@
 #include <foedus/snapshot/log_gleaner_impl.hpp>
 #include <foedus/snapshot/mapreduce_base_impl.hpp>
 #include <foedus/snapshot/snapshot.hpp>
+#include <foedus/thread/numa_thread_scope.hpp>
 #include <glog/logging.h>
 #include <numa.h>
 #include <chrono>
@@ -47,7 +48,7 @@ ErrorCode MapReduceBase::check_cancelled() {
 void MapReduceBase::handle() {
     LOG(INFO) << "Reducer started running: " << to_string()
         << " NUMA node=" << static_cast<int>(numa_node_);
-    ::numa_run_on_node(numa_node_);
+    thread::NumaThreadScope scope(numa_node_);
 
     LOG(INFO) << "Calling handle_initialize at handle(): " << to_string() << "...";
     ErrorStack init_error = handle_initialize();

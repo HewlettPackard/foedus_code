@@ -68,9 +68,8 @@ class LogReducer final : public MapReduceBase {
 
  private:
     /**
-     * memory to store all log entries in the epoch.
-     * So far, this buffer has to contain all log entries in an epoch to the partition.
-     * We have a few plans to alter the initial implementation.
+     * memory to store log entries in the epoch.
+     * Just like the logging buffer, this forms a circular buffer.
      */
     memory::AlignedMemory   buffer_;
 };
