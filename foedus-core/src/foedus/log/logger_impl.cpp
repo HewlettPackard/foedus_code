@@ -26,7 +26,6 @@
 #include <foedus/xct/xct_manager.hpp>
 #include <foedus/xct/xct.hpp>
 #include <glog/logging.h>
-#include <numa.h>
 #include <algorithm>
 #include <chrono>
 #include <cstring>

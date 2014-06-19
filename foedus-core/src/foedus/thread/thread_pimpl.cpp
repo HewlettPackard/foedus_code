@@ -15,7 +15,6 @@
 #include <foedus/log/thread_log_buffer_impl.hpp>
 #include <foedus/xct/xct_manager.hpp>
 #include <glog/logging.h>
-#include <numa.h>
 #include <atomic>
 #include <future>
 #include <mutex>

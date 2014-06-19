@@ -11,7 +11,6 @@
 #include <foedus/snapshot/snapshot.hpp>
 #include <foedus/thread/numa_thread_scope.hpp>
 #include <glog/logging.h>
-#include <numa.h>
 #include <chrono>
 #include <ostream>
 #include <sstream>
