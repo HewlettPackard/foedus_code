@@ -2229,6 +2229,30 @@ TestInfo* MakeAndRegisterTestInfo(
   return test_info;
 }
 
+// Adds a mapping from test case name to package name, which will be
+// used as a prefix in the name attribute in result XML files. Returns
+// true if the mapping was created or false if there already exists.
+//
+// Arguments:
+//
+//   test_case_name: name of the test case
+//   package_name: package of the test case
+bool AddTestCasePackage(const char* test_case_name,
+                        const char* package_name) {
+    return GetUnitTestImpl()->AddTestCasePackage(
+        test_case_name, package_name);
+}
+
+// Returns the registered package name for the test case, NULL if
+// not registered.
+//
+// Arguments:
+//
+//   test_case_name: name of the test case
+const char* GetTestCasePackage(const char* test_case_name) {
+    return GetUnitTestImpl()->GetTestCasePackage(test_case_name);
+}
+
 #if GTEST_HAS_PARAM_TEST
 void ReportInvalidTestCaseType(const char* test_case_name,
                                const char* file, int line) {
@@ -3334,7 +3358,14 @@ void XmlUnitTestResultPrinter::PrintXmlTestCase(std::ostream* stream,
                                                 const TestCase& test_case) {
   const std::string kTestsuite = "testsuite";
   *stream << "  <" << kTestsuite;
-  OutputXmlAttribute(stream, kTestsuite, "name", test_case.name());
+  const char* package_name = internal::GetTestCasePackage(test_case.name());
+  if (package_name) {
+    // Prefix the test suite name with package + "."
+    OutputXmlAttribute(stream, kTestsuite, "name",
+                       std::string(package_name) + "." + test_case.name());
+  } else {
+    OutputXmlAttribute(stream, kTestsuite, "name", test_case.name());
+  }
   OutputXmlAttribute(stream, kTestsuite, "tests",
                      StreamableToString(test_case.reportable_test_count()));
   OutputXmlAttribute(stream, kTestsuite, "failures",
