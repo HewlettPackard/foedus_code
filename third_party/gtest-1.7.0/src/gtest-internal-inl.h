@@ -892,11 +892,11 @@ class GTEST_API_ UnitTestImpl {
   // in "name" attribute of the "testcase" element.
   // eg. Test case name = "DivTest", package name = "math".
   //   <testcase name="math.DivTest" ...
-  // This will help CI tools, such as Jenkins, to nicely show a
+  // This will help CI tools, such as Jenkins, nicely show a
   // large number of test results.
-  // This might be an unnecessarily convluted way of adding package
-  // names, but adding this info into TestCase class would introduce
-  // even more convlutions without refactoring many related macros/classes.
+  // This might be a bit convoluted way of adding package feature, but
+  // adding this info into TestCase would introduce even more convolutions
+  // unless many related macros/classes are refactored together.
   std::map<std::string, std::string> test_case_package_mappings_;
 
 #if GTEST_HAS_PARAM_TEST
