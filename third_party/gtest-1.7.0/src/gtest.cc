@@ -3325,7 +3325,16 @@ void XmlUnitTestResultPrinter::OutputXmlTestInfo(::std::ostream* stream,
                      test_info.should_run() ? "run" : "notrun");
   OutputXmlAttribute(stream, kTestcase, "time",
                      FormatTimeInMillisAsSeconds(result.elapsed_time()));
-  OutputXmlAttribute(stream, kTestcase, "classname", test_case_name);
+  const char* package_name = internal::GetTestCasePackage(test_case_name);
+  if (package_name) {
+    // Prefix the test suite name with package + "."
+    // Actually, Jenkins doesn't need "classname" because testsuite defines "name",
+    // but let's keep the existing behavior.
+    OutputXmlAttribute(stream, kTestcase, "classname",
+        std::string(package_name) + "." + test_case_name);
+  } else {
+    OutputXmlAttribute(stream, kTestcase, "classname", test_case_name);
+  }
   *stream << TestPropertiesAsXmlAttributes(result);
 
   int failures = 0;
