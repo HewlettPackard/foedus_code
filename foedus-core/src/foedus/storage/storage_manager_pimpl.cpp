@@ -14,7 +14,6 @@
 #include <foedus/storage/storage_options.hpp>
 #include <foedus/storage/storage.hpp>
 #include <foedus/storage/array/array_storage.hpp>
-#include <foedus/storage/array/array_log_types.hpp>
 #include <foedus/storage/metadata.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread.hpp>
@@ -23,6 +22,7 @@
 #include <cstring>
 #include <string>
 #include <utility>
+#include <memory>
 namespace foedus {
 namespace storage {
 ErrorStack StorageManagerPimpl::initialize_once() {
@@ -35,6 +35,8 @@ ErrorStack StorageManagerPimpl::initialize_once() {
   largest_storage_id_ = 0;
   storages_ = nullptr;
   storages_capacity_ = 0;
+  init_storage_factories();
+  LOG(INFO) << "We have " << storage_factories_.size() << " types of storages";
 
   const size_t kInitialCapacity = 1 << 12;
   storages_ = new Storage*[kInitialCapacity];
@@ -70,7 +72,21 @@ ErrorStack StorageManagerPimpl::uninitialize_once() {
     delete[] storages_;
     storages_ = nullptr;
   }
+  clear_storage_factories();
   return SUMMARIZE_ERROR_BATCH(batch);
+}
+
+void StorageManagerPimpl::init_storage_factories() {
+  clear_storage_factories();
+  // list all storage factories here
+  storage_factories_.push_back(new array::ArrayStorageFactory());
+}
+
+void StorageManagerPimpl::clear_storage_factories() {
+  for (StorageFactory* factory : storage_factories_) {
+    delete factory;
+  }
+  storage_factories_.clear();
 }
 
 StorageId StorageManagerPimpl::issue_next_storage_id() {
@@ -160,7 +176,7 @@ void StorageManagerPimpl::drop_storage_apply(thread::Thread* /*context*/, Storag
   LOG(INFO) << "Droped storage " << id << "(" << name << ")";
 }
 
-/** A task to drop a task. Used from drop_storage_impersonate(). */
+/** A task to drop a task. Used from impersonate version of drop_storage(). */
 class DropStorageTask final : public foedus::thread::ImpersonateTask {
  public:
   DropStorageTask(StorageManagerPimpl* pimpl, StorageId id, Epoch *commit_epoch)
@@ -176,7 +192,7 @@ class DropStorageTask final : public foedus::thread::ImpersonateTask {
   Epoch *commit_epoch_;
 };
 
-ErrorStack StorageManagerPimpl::drop_storage_impersonate(StorageId id, Epoch *commit_epoch) {
+ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) {
   DropStorageTask task(this, id, commit_epoch);
   thread::ImpersonateSession session = engine_->get_thread_pool().impersonate(&task);
   CHECK_ERROR(session.get_result());
@@ -211,24 +227,18 @@ ErrorStack StorageManagerPimpl::expand_storage_array(StorageId new_size) {
   return kRetOk;
 }
 
-ErrorStack StorageManagerPimpl::create_array(thread::Thread* context, const std::string& name,
-      uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage** out,
-      Epoch *commit_epoch) {
+ErrorStack StorageManagerPimpl::create_storage(thread::Thread* context,
+                    Metadata *metadata, Storage **storage, Epoch *commit_epoch) {
+  *storage = nullptr;
   StorageId id = issue_next_storage_id();
-  // CREATE ARRAY must be the only log in this transaction
+  metadata->id_ = id;
+  // CREATE STORAGE must be the only log in this transaction
   if (context->get_thread_log_buffer().get_offset_committed() !=
     context->get_thread_log_buffer().get_offset_tail()) {
     return ERROR_STACK(kErrorCodeStrMustSeparateXct);
   }
 
-  if (payload_size == 0) {
-    // Array storage has no notion of insert/delete, thus payload=null doesn't make sense.
-    LOG(INFO) << "Empty payload is not allowed for array storage";
-    return ERROR_STACK(kErrorCodeStrArrayInvalidOption);
-  } else if (array_size == 0) {
-    LOG(INFO) << "Empty array is not allowed for array storage";
-    return ERROR_STACK(kErrorCodeStrArrayInvalidOption);
-  }
+  const std::string& name = metadata->name_;
   {
     std::lock_guard<std::mutex> guard(mod_lock_);
     if (storage_names_.find(name) != storage_names_.end()) {
@@ -237,13 +247,16 @@ ErrorStack StorageManagerPimpl::create_array(thread::Thread* context, const std:
     }
   }
 
-  CHECK_ERROR(engine_->get_xct_manager().begin_schema_xct(context));
+  StorageFactory* the_factory = nullptr;
+  for (StorageFactory* factory : storage_factories_) {
+    if (factory->is_right_metadata(metadata)) {
+      the_factory = factory;
+      break;
+    }
+  }
 
-  // write out log
-  uint16_t log_length = array::CreateLogType::calculate_log_length(name.size());
-  array::CreateLogType* log_entry = reinterpret_cast<array::CreateLogType*>(
-    context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(id, array_size, payload_size, name.size(), name.data());
+  CHECK_ERROR(engine_->get_xct_manager().begin_schema_xct(context));
+  the_factory->add_create_log(metadata, context);  // write out log
 
   // commit invokes apply
   CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, commit_epoch));
@@ -251,41 +264,34 @@ ErrorStack StorageManagerPimpl::create_array(thread::Thread* context, const std:
   // to avoid mixing normal operations on the new storage in this epoch, advance epoch now.
   engine_->get_xct_manager().advance_current_global_epoch();
 
-  Storage* new_storage = get_storage(id);
-  ASSERT_ND(new_storage);
-  ASSERT_ND(new_storage->get_type() == kArrayStorage);
-  *out = dynamic_cast<array::ArrayStorage*>(new_storage);
-  ASSERT_ND(*out);
+  *storage = get_storage(id);
+  ASSERT_ND(*storage);
+  ASSERT_ND((*storage)->get_type() == the_factory->get_type());
   return kRetOk;
 }
 
-/** A task to create an array. Used from create_array_impersonate(). */
-class CreateArrayTask final : public foedus::thread::ImpersonateTask {
+/** A task to create an array. Used from impersonate version of create_array(). */
+class CreateStorageTask final : public foedus::thread::ImpersonateTask {
  public:
-  CreateArrayTask(StorageManagerPimpl* pimpl, const std::string& name, uint16_t payload,
-          array::ArrayOffset array_size, array::ArrayStorage** out, Epoch *commit_epoch)
-    : pimpl_(pimpl), name_(name), payload_(payload), array_size_(array_size), out_(out),
-      commit_epoch_(commit_epoch) {}
+  CreateStorageTask(StorageManagerPimpl* pimpl,
+                    Metadata *metadata, Storage **storage, Epoch *commit_epoch)
+    : pimpl_(pimpl), metadata_(metadata), storage_(storage), commit_epoch_(commit_epoch) {}
   ErrorStack run(thread::Thread* context) override {
-    *out_ = nullptr;
-    CHECK_ERROR(pimpl_->create_array(
-      context, name_, payload_, array_size_, out_, commit_epoch_));
+    *storage_ = nullptr;
+    CHECK_ERROR(pimpl_->create_storage(context, metadata_, storage_, commit_epoch_));
     return kRetOk;
   }
 
  private:
-  StorageManagerPimpl* pimpl_;
-  const std::string& name_;
-  const uint16_t payload_;
-  const array::ArrayOffset array_size_;
-  array::ArrayStorage** out_;
-  Epoch *commit_epoch_;
+  StorageManagerPimpl* const pimpl_;
+  Metadata* const metadata_;
+  Storage** const storage_;
+  Epoch* const commit_epoch_;
 };
 
-ErrorStack StorageManagerPimpl::create_array_impersonate(const std::string& name,
-  uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage** out,
-  Epoch *commit_epoch) {
-  CreateArrayTask task(this, name, payload_size, array_size, out, commit_epoch);
+ErrorStack StorageManagerPimpl::create_storage(
+  Metadata *metadata, Storage **storage, Epoch *commit_epoch) {
+  CreateStorageTask task(this, metadata, storage, commit_epoch);
   thread::ImpersonateSession session = engine_->get_thread_pool().impersonate(&task);
   CHECK_ERROR(session.get_result());
   return kRetOk;

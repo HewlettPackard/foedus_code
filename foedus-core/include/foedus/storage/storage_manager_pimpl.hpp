@@ -9,12 +9,11 @@
 #include <foedus/snapshot/fwd.hpp>
 #include <foedus/storage/fwd.hpp>
 #include <foedus/storage/storage_id.hpp>
-#include <foedus/storage/array/fwd.hpp>
-#include <foedus/storage/array/array_id.hpp>
 #include <foedus/thread/fwd.hpp>
 #include <map>
 #include <mutex>
 #include <string>
+#include <vector>
 namespace foedus {
 namespace storage {
 /**
@@ -31,6 +30,9 @@ class StorageManagerPimpl final : public DefaultInitializable {
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
+  void        init_storage_factories();
+  void        clear_storage_factories();
+
   StorageId   issue_next_storage_id();
   Storage*    get_storage(StorageId id);
   Storage*    get_storage(const std::string &name);
@@ -44,14 +46,12 @@ class StorageManagerPimpl final : public DefaultInitializable {
   ErrorStack  expand_storage_array(StorageId new_size);
 
   ErrorStack  drop_storage(thread::Thread* context, StorageId id, Epoch *commit_epoch);
-  ErrorStack  drop_storage_impersonate(StorageId id, Epoch *commit_epoch);
+  ErrorStack  drop_storage(StorageId id, Epoch *commit_epoch);
   void        drop_storage_apply(thread::Thread* context, Storage* storage);
 
-  ErrorStack  create_array(thread::Thread* context, const std::string &name,
-        uint16_t payload_size, array::ArrayOffset array_size, array::ArrayStorage **out,
-        Epoch *commit_epoch);
-  ErrorStack  create_array_impersonate(const std::string &name, uint16_t payload_size,
-        array::ArrayOffset array_size, array::ArrayStorage **out, Epoch *commit_epoch);
+  ErrorStack  create_storage(thread::Thread*, Metadata *metadata, Storage **storage,
+                             Epoch *commit_epoch);
+  ErrorStack  create_storage(Metadata *metadata, Storage **storage, Epoch *commit_epoch);
 
   ErrorStack  clone_all_storage_metadata(snapshot::SnapshotMetadata *metadata);
 
@@ -85,6 +85,13 @@ class StorageManagerPimpl final : public DefaultInitializable {
    * because std::map is not thread-safe. This is why get_storage(string) is more expensive.
    */
   std::map< std::string, Storage* >   storage_names_;
+
+  /**
+   * Factory objects to instantiate storage objects.
+   * This is just a vector, so you must iterate over it and invoke is_right_metadata() to find
+   * the right factory for the given metadata.
+   */
+  std::vector< StorageFactory* >      storage_factories_;
 };
 }  // namespace storage
 }  // namespace foedus

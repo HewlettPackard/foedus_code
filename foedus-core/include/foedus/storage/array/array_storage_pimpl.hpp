@@ -59,6 +59,8 @@ class ArrayStoragePimpl final : public DefaultInitializable {
                 Record **out) ALWAYS_INLINE;
   ErrorStack  get_record(thread::Thread* context, ArrayOffset offset,
           void *payload, uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE;
+  ErrorCode   get_record_light(thread::Thread* context, ArrayOffset offset, void *payload,
+          uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE;
   template <typename T>
   ErrorStack  get_record_primitive(thread::Thread* context, ArrayOffset offset,
             T *payload, uint16_t payload_offset);

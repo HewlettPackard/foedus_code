@@ -5,6 +5,7 @@
 #ifndef FOEDUS_STORAGE_STORAGE_HPP_
 #define FOEDUS_STORAGE_STORAGE_HPP_
 #include <foedus/error_stack.hpp>
+#include <foedus/fwd.hpp>
 #include <foedus/initializable.hpp>
 #include <foedus/storage/storage_id.hpp>
 #include <foedus/storage/fwd.hpp>
@@ -82,6 +83,51 @@ class Storage : public virtual Initializable {
 
   /** Just delegates to describe(). */
   friend std::ostream& operator<<(std::ostream& o, const Storage& v);
+};
+
+/**
+ * @brief Interface to instantiate a storage.
+ * @ingroup STORAGE
+ * @details
+ * This is an interface of factory classes for storage classes.
+ * One reason to have a factory class in this case is to encapsulate error handling during
+ * instantiation, which is impossible if we simply invoke C++ constructors.
+ */
+class StorageFactory {
+ public:
+  virtual ~StorageFactory() {}
+
+  /**
+   * Returns the type of storages this factory creates.
+   */
+  virtual StorageType  get_type() const = 0;
+
+  /**
+   * @brief Tells if the given metadata object satisfies the requirement of the storage.
+   * @param[in] metadata metadata object of a derived class
+   * @details
+   * For example, ArrayStorageFactory receive only ArrayMetadata.
+   * The storage manager checks with all storage factories for each instantiation request
+   * to identify the right factory class (a bit wasteful, but storage creation is a rare event).
+   */
+  virtual bool is_right_metadata(const Metadata *metadata) const = 0;
+
+  /**
+   * @brief Instantiate a storage object with the given metadata.
+   * @param[in] metadata metadata of the newly instantiated storage object
+   * @param[out] storage set only when this method succeeds. otherwise null.
+   * @pre is_right_metadata(metadata)
+   * @details
+   * This method verifies the metadata object and might return errors for various reasons.
+   */
+  virtual ErrorStack get_instance(Engine* engine, const Metadata *metadata,
+                                  Storage** storage) const = 0;
+
+  /**
+   * Adds a log entry for newly creating the storage to the context's log buffer.
+   * @pre is_right_metadata(metadata)
+   */
+  virtual void add_create_log(const Metadata *metadata, thread::Thread* context) const = 0;
 };
 }  // namespace storage
 }  // namespace foedus

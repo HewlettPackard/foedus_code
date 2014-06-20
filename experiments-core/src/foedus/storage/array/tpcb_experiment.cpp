@@ -37,6 +37,7 @@
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread.hpp>
 #include <foedus/storage/storage_manager.hpp>
+#include <foedus/storage/array/array_metadata.hpp>
 #include <foedus/storage/array/array_storage.hpp>
 #include <foedus/xct/xct_manager.hpp>
 #include <foedus/debugging/debugging_supports.hpp>
@@ -250,17 +251,17 @@ int main_impl(int argc, char **argv) {
       StorageManager& str_manager = engine.get_storage_manager();
       std::cout << "Creating TPC-B tables... " << std::endl;
       Epoch ep;
-      COERCE_ERROR(str_manager.create_array_impersonate("branches",
-                      sizeof(BranchData), kBranches, &branches, &ep));
+      ArrayMetadata branch_meta("branches", sizeof(BranchData), kBranches);
+      COERCE_ERROR(str_manager.create_array(&branch_meta, &branches, &ep));
       std::cout << "Created branches " << std::endl;
-      COERCE_ERROR(str_manager.create_array_impersonate("tellers",
-                    sizeof(AccountData), kBranches * kTellers, &tellers, &ep));
+      ArrayMetadata teller_meta("tellers", sizeof(TellerData), kBranches * kTellers);
+      COERCE_ERROR(str_manager.create_array(&teller_meta, &tellers, &ep));
       std::cout << "Created tellers " << std::endl;
-      COERCE_ERROR(str_manager.create_array_impersonate("accounts",
-                    sizeof(TellerData), kBranches * kAccounts, &accounts, &ep));
+      ArrayMetadata account_meta("accounts", sizeof(AccountData), kBranches * kAccounts);
+      COERCE_ERROR(str_manager.create_array(&account_meta, &accounts, &ep));
       std::cout << "Created accounts " << std::endl;
-      COERCE_ERROR(str_manager.create_array_impersonate("histories",
-                        sizeof(HistoryData), kHistories, &histories, &ep));
+      ArrayMetadata history_meta("histories", sizeof(HistoryData), kHistories);
+      COERCE_ERROR(str_manager.create_array(&history_meta, &histories, &ep));
       std::cout << "Created all!" << std::endl;
 
       std::vector< RunTpcbTask* > tasks;

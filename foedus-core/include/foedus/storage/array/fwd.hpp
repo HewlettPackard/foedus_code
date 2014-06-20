@@ -16,6 +16,7 @@ struct  ArrayMetadata;
 class   ArrayPage;
 struct  ArrayRange;
 class   ArrayStorage;
+class   ArrayStorageFactory;
 class   ArrayStoragePimpl;
 struct  CreateLogType;
 struct  OverwriteLogType;

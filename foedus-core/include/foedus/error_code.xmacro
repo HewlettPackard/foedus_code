@@ -71,6 +71,8 @@ X(kErrorCodeStrAlreadyExists,       0x0802, "STORAGE: This storage already exist
 X(kErrorCodeStrDuplicateStrname,    0x0803, "STORAGE: This Storage Name already exists")
 X(kErrorCodeStrMustSeparateXct,     0x0804, "STORAGE: This storage operation must be done in a separate transaction.")
 X(kErrorCodeStrArrayInvalidOption,  0x0805, "STORAGE: Invalid Option for array storage")
+X(kErrorCodeStrWrongMetadataType,   0x0806, "STORAGE: Metadata type does not match")
+X(kErrorCodeStrUnsupportedMetadata, 0x0807, "STORAGE: This metadata type is not yet supported")
 
 X(kErrorCodeXctReadSetOverflow,     0x0A01, "XCTION : Too large read-set. Check the config of XctOptions")
 X(kErrorCodeXctWriteSetOverflow,    0x0A02, "XCTION : Too large write-set. Check the config of XctOptions")

@@ -10,7 +10,7 @@
  * @details
  * This is the first experiment to see the speed-of-light, where we use the simplest
  * data structure, array, and run read-only queries. This is supposed to run VERY fast.
- * Actually, we observed more than 300 MQPS in a desktop machine if the payload is small (16 bytes).
+ * Actually, we observed more than 400 MQPS in a desktop machine if the payload is small (16 bytes).
  *
  * @section ENVIRONMENTS Environments
  * At least 1GB of available RAM.
@@ -37,6 +37,7 @@
 #include <foedus/memory/numa_node_memory.hpp>
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/storage/storage_manager.hpp>
+#include <foedus/storage/array/array_metadata.hpp>
 #include <foedus/storage/array/array_storage.hpp>
 #include <foedus/xct/xct_manager.hpp>
 #include <unistd.h>
@@ -51,38 +52,23 @@ namespace storage {
 namespace array {
 
 
-StorageId the_id;
 const uint16_t kPayload = 16;  // = 128;
 const uint64_t kDurationMicro = 10000000;
 const uint32_t kRecords = 1 << 20;
 const uint32_t kRecordsMask = 0xFFFFF;
 
-class MyTask : public thread::ImpersonateTask {
- public:
-  ErrorStack run(thread::Thread* context) {
-    std::cout << "Ya!" << std::endl;
-    Engine *engine = context->get_engine();
-    ArrayStorage *array = nullptr;
-    Epoch commit_epoch;
-    CHECK_ERROR(engine->get_storage_manager().create_array(
-      context, "aaa", kPayload, kRecords, &array, &commit_epoch));
-    the_id = array->get_id();
-    return kRetOk;
-  }
-};
-
 bool start_req = false;
 bool stop_req = false;
+ArrayStorage *storage = nullptr;
 
-class MyTask2 : public thread::ImpersonateTask {
+class ReadTask : public thread::ImpersonateTask {
  public:
-  MyTask2() {}
+  ReadTask() {}
   ErrorStack run(thread::Thread* context) {
     Engine *engine = context->get_engine();
     const xct::IsolationLevel isolation = xct::kDirtyReadPreferSnapshot;
     // const xct::IsolationLevel isolation = xct::kSerializable;
     CHECK_ERROR(engine->get_xct_manager().begin_xct(context, isolation));
-    Storage* storage = engine->get_storage_manager().get_storage(the_id);
     Epoch commit_epoch;
 
     // pre-calculate random numbers to get rid of random number generation as bottleneck
@@ -101,7 +87,8 @@ class MyTask2 : public thread::ImpersonateTask {
     processed_ = 0;
     while (true) {
       uint64_t id = randoms[processed_ & 0xFFFF] & kRecordsMask;
-      CHECK_ERROR(array->get_record(context, id, buf));
+      // CHECK_ERROR(array->get_record(context, id, buf, 0, kPayload));
+      WRAP_ERROR_CODE(array->get_record_light(context, id, buf, 0, kPayload));
       ++processed_;
       if ((processed_ & 0xFFFF) == 0) {
         CHECK_ERROR(engine->get_xct_manager().precommit_xct(context, &commit_epoch));
@@ -145,17 +132,18 @@ int main_impl(int argc, char **argv) {
     COERCE_ERROR(engine.initialize());
     {
       UninitializeGuard guard(&engine);
-      MyTask task;
-      COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(&task));
+      Epoch commit_epoch;
+      ArrayMetadata meta("aaa", kPayload, kRecords);
+      COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &storage, &commit_epoch));
 
-      typedef MyTask2* TaskPtr;
-      TaskPtr* task2 = new TaskPtr[kThreads];
-      thread::ImpersonateSession session2[kThreads];
+      typedef ReadTask* TaskPtr;
+      TaskPtr* tasks = new TaskPtr[kThreads];
+      thread::ImpersonateSession sessions[kThreads];
       for (int i = 0; i < kThreads; ++i) {
-        task2[i] = new MyTask2();
-        session2[i] = engine.get_thread_pool().impersonate(task2[i]);
-        if (!session2[i].is_valid()) {
-          COERCE_ERROR(session2[i].invalid_cause_);
+        tasks[i] = new ReadTask();
+        sessions[i] = engine.get_thread_pool().impersonate(tasks[i]);
+        if (!sessions[i].is_valid()) {
+          COERCE_ERROR(sessions[i].invalid_cause_);
         }
       }
       ::usleep(1000000);
@@ -172,18 +160,18 @@ int main_impl(int argc, char **argv) {
       uint64_t total = 0;
       std::atomic_thread_fence(std::memory_order_acquire);
       for (int i = 0; i < kThreads; ++i) {
-        total += task2[i]->processed_;
+        total += tasks[i]->processed_;
       }
       if (profile) {
         engine.get_debug().stop_profile();
       }
 
       for (int i = 0; i < kThreads; ++i) {
-        std::cout << "session2: result[" << i << "]="
-          << session2[i].get_result() << std::endl;
-        delete task2[i];
+        std::cout << "session: result[" << i << "]="
+          << sessions[i].get_result() << std::endl;
+        delete tasks[i];
       }
-      delete[] task2;
+      delete[] tasks;
       std::cout << "total=" << total << ", MQPS="
         << (static_cast<double>(total)/kDurationMicro) << std::endl;
       COERCE_ERROR(engine.uninitialize());

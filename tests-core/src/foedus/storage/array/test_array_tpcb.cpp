@@ -7,6 +7,7 @@
 #include <foedus/engine.hpp>
 #include <foedus/epoch.hpp>
 #include <foedus/assorted/uniform_random.hpp>
+#include <foedus/storage/array/array_metadata.hpp>
 #include <foedus/storage/array/array_storage.hpp>
 #include <foedus/storage/storage_manager.hpp>
 #include <foedus/thread/rendezvous_impl.hpp>
@@ -94,8 +95,8 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
     Epoch commit_epoch;
 
     // Create branches
-    COERCE_ERROR(str_manager.create_array(context, "branches",
-                    sizeof(BranchData), kBranches, &branches, &commit_epoch));
+    ArrayMetadata branch_meta("branches", sizeof(BranchData), kBranches);
+    COERCE_ERROR(str_manager.create_array(context, &branch_meta, &branches, &commit_epoch));
     EXPECT_TRUE(branches != nullptr);
     COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
     for (int i = 0; i < kBranches; ++i) {
@@ -108,8 +109,8 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
     highest_commit_epoch.store_max(commit_epoch);
 
     // Create tellers
-    COERCE_ERROR(str_manager.create_array(context, "tellers",
-              sizeof(AccountData), kBranches * kTellers, &tellers, &commit_epoch));
+    ArrayMetadata teller_meta("tellers", sizeof(TellerData), kBranches * kTellers);
+    COERCE_ERROR(str_manager.create_array(context, &teller_meta, &tellers, &commit_epoch));
     EXPECT_TRUE(tellers != nullptr);
     COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
     for (int i = 0; i < kBranches * kTellers; ++i) {
@@ -123,8 +124,8 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
     highest_commit_epoch.store_max(commit_epoch);
 
     // Create accounts
-    COERCE_ERROR(str_manager.create_array(context, "accounts",
-              sizeof(TellerData), kBranches * kAccounts, &accounts, &commit_epoch));
+    ArrayMetadata account_meta("accounts", sizeof(AccountData), kBranches * kAccounts);
+    COERCE_ERROR(str_manager.create_array(context, &account_meta, &accounts, &commit_epoch));
     EXPECT_TRUE(accounts != nullptr);
     COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
     for (int i = 0; i < kBranches * kAccounts; ++i) {
@@ -138,8 +139,8 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
     highest_commit_epoch.store_max(commit_epoch);
 
     // Create histories
-    COERCE_ERROR(str_manager.create_array(context, "histories",
-                  sizeof(HistoryData), kHistories, &histories, &commit_epoch));
+    ArrayMetadata history_meta("histories", sizeof(HistoryData), kHistories);
+    COERCE_ERROR(str_manager.create_array(context, &history_meta, &histories, &commit_epoch));
     EXPECT_TRUE(histories != nullptr);
     COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
     for (int i = 0; i < kHistories; ++i) {

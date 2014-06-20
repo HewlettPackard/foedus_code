@@ -17,6 +17,7 @@ struct  Metadata;
 struct  Page;
 struct  Record;
 class   Storage;
+class   StorageFactory;
 class   StorageManager;
 class   StorageManagerPimpl;
 }  // namespace storage
