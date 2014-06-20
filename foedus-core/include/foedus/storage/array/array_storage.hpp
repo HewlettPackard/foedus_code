@@ -71,9 +71,8 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
    * @details
    * Equivalent to get_record(context, offset, payload, 0, get_payload_size()).
    */
-  ErrorStack  get_record(thread::Thread* context, ArrayOffset offset, void *payload) {
-    return get_record(context, offset, payload, 0, get_payload_size());
-  }
+  ErrorStack  get_record(thread::Thread* context, ArrayOffset offset, void *payload);
+
   /**
    * @brief Retrieves a part of record of the given offset in this array storage.
    * @param[in] context Thread context
@@ -85,6 +84,19 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
    * @pre offset < get_array_size()
    */
   ErrorStack  get_record(thread::Thread* context, ArrayOffset offset,
+            void *payload, uint16_t payload_offset, uint16_t payload_count);
+
+  /**
+   * Same as get_record() except this returns only ErrorCode, not ErrorStack.
+   * @see get_record()
+   */
+  ErrorCode   get_record_light(thread::Thread* context, ArrayOffset offset, void *payload);
+
+  /**
+   * Same as get_record() except this returns only ErrorCode, not ErrorStack.
+   * @see get_record()
+   */
+  ErrorCode   get_record_light(thread::Thread* context, ArrayOffset offset,
             void *payload, uint16_t payload_offset, uint16_t payload_count);
 
   /**

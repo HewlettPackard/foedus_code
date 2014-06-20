@@ -40,9 +40,24 @@ StorageId   ArrayStorage::get_id()           const  { return pimpl_->metadata_.i
 const std::string& ArrayStorage::get_name()  const  { return pimpl_->metadata_.name_; }
 const Metadata* ArrayStorage::get_metadata() const  { return &pimpl_->metadata_; }
 
+ErrorStack ArrayStorage::get_record(
+  thread::Thread* context, ArrayOffset offset, void *payload) {
+  return get_record(context, offset, payload, 0, pimpl_->metadata_.payload_size_);
+}
+
 ErrorStack ArrayStorage::get_record(thread::Thread* context, ArrayOffset offset,
           void *payload, uint16_t payload_offset, uint16_t payload_count) {
   return pimpl_->get_record(context, offset, payload, payload_offset, payload_count);
+}
+
+ErrorCode ArrayStorage::get_record_light(
+  thread::Thread* context, ArrayOffset offset, void *payload) {
+  return get_record_light(context, offset, payload, 0, pimpl_->metadata_.payload_size_);
+}
+
+ErrorCode ArrayStorage::get_record_light(thread::Thread* context, ArrayOffset offset,
+          void *payload, uint16_t payload_offset, uint16_t payload_count) {
+  return pimpl_->get_record_light(context, offset, payload, payload_offset, payload_count);
 }
 
 template <typename T>
@@ -302,6 +317,15 @@ inline ErrorStack ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOf
   WRAP_ERROR_CODE(context->get_current_xct().read_record(holder_, record,
                             payload, payload_offset, payload_count));
   return kRetOk;
+}
+
+inline ErrorCode ArrayStoragePimpl::get_record_light(thread::Thread* context, ArrayOffset offset,
+          void *payload, uint16_t payload_offset, uint16_t payload_count) {
+  ASSERT_ND(payload_offset + payload_count <= metadata_.payload_size_);
+  Record *record = nullptr;
+  CHECK_ERROR_CODE(locate_record(context, offset, &record));
+  return context->get_current_xct().read_record(holder_, record,
+                                                payload, payload_offset, payload_count);
 }
 
 template <typename T>
