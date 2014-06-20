@@ -54,28 +54,25 @@ class ArrayStoragePimpl final : public DefaultInitializable {
 
   ErrorStack  create(thread::Thread* context);
 
-  // this one is called so frequently, so returns ErrorCode rather than ErrorStack
+  // all per-record APIs are called so frequently, so returns ErrorCode rather than ErrorStack
   ErrorCode   locate_record(thread::Thread* context, ArrayOffset offset,
                 Record **out) ALWAYS_INLINE;
-  ErrorStack  get_record(thread::Thread* context, ArrayOffset offset,
+  ErrorCode   get_record(thread::Thread* context, ArrayOffset offset,
           void *payload, uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE;
-  ErrorCode   get_record_light(thread::Thread* context, ArrayOffset offset, void *payload,
-          uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE;
   template <typename T>
-  ErrorStack  get_record_primitive(thread::Thread* context, ArrayOffset offset,
+  ErrorCode   get_record_primitive(thread::Thread* context, ArrayOffset offset,
             T *payload, uint16_t payload_offset);
-  ErrorStack  overwrite_record(thread::Thread* context, ArrayOffset offset,
+  ErrorCode   overwrite_record(thread::Thread* context, ArrayOffset offset,
       const void *payload, uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE;
   template <typename T>
-  ErrorStack  overwrite_record_primitive(thread::Thread* context, ArrayOffset offset,
+  ErrorCode   overwrite_record_primitive(thread::Thread* context, ArrayOffset offset,
             T payload, uint16_t payload_offset);
   template <typename T>
-  ErrorStack  increment_record(thread::Thread* context, ArrayOffset offset,
+  ErrorCode   increment_record(thread::Thread* context, ArrayOffset offset,
             T* value, uint16_t payload_offset);
 
   LookupRoute find_route(ArrayOffset offset) const ALWAYS_INLINE;
 
-  // this one is called so frequently, so returns ErrorCode rather than ErrorStack
   ErrorCode   lookup(thread::Thread* context, ArrayOffset offset,
             ArrayPage** out, uint16_t *index) ALWAYS_INLINE;
 

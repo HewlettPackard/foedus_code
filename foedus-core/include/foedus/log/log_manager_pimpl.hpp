@@ -31,7 +31,7 @@ class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
   ErrorStack  uninitialize_once() override;
 
   void        wakeup_loggers();
-  ErrorStack  wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds);
+  ErrorCode   wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds);
   ErrorStack  refresh_global_durable_epoch();
   void        copy_logger_states(savepoint::Savepoint *new_savepoint);
 

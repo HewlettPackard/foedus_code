@@ -120,18 +120,18 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
 }
 
 
-ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds) {
+ErrorCode LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds) {
   assorted::memory_fence_acquire();
   if (commit_epoch <= get_durable_global_epoch()) {
     DVLOG(1) << "Already durable. commit_epoch=" << commit_epoch << ", durable_global_epoch_="
       << get_durable_global_epoch();
-    return kRetOk;
+    return kErrorCodeOk;
   }
 
   if (wait_microseconds == 0) {
     DVLOG(1) << "Conditional check: commit_epoch=" << commit_epoch << ", durable_global_epoch_="
       << get_durable_global_epoch();
-    return ERROR_STACK(kErrorCodeTimeout);
+    return kErrorCodeTimeout;
   }
 
   std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
@@ -146,7 +146,7 @@ ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_
       VLOG(0) << "Synchronously waiting for commit_epoch " << commit_epoch;
       if (!durable_global_epoch_advanced_.wait_until(until)) {
         LOG(WARNING) << "Timeout occurs. wait_microseconds=" << wait_microseconds;
-        return ERROR_STACK(kErrorCodeTimeout);
+        return kErrorCodeTimeout;
       }
     } else {
       // here we use a version without predicate. it's fine as we have the while loop outside.
@@ -155,7 +155,7 @@ ErrorStack LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_
   }
 
   VLOG(0) << "durable epoch advanced. durable_global_epoch_=" << get_durable_global_epoch();
-  return kRetOk;
+  return kErrorCodeOk;
 }
 
 

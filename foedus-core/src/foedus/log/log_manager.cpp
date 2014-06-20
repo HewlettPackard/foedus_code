@@ -26,7 +26,7 @@ Epoch       LogManager::get_durable_global_epoch() const {
 Epoch       LogManager::get_durable_global_epoch_weak() const {
   return pimpl_->get_durable_global_epoch_weak();
 }
-ErrorStack  LogManager::wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds) {
+ErrorCode   LogManager::wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds) {
   return pimpl_->wait_until_durable(commit_epoch, wait_microseconds);
 }
 Logger&     LogManager::get_logger(LoggerId logger_id) {
