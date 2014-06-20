@@ -176,7 +176,7 @@ void StorageManagerPimpl::drop_storage_apply(thread::Thread* /*context*/, Storag
   LOG(INFO) << "Droped storage " << id << "(" << name << ")";
 }
 
-/** A task to drop a task. Used from drop_storage_impersonate(). */
+/** A task to drop a task. Used from impersonate version of drop_storage(). */
 class DropStorageTask final : public foedus::thread::ImpersonateTask {
  public:
   DropStorageTask(StorageManagerPimpl* pimpl, StorageId id, Epoch *commit_epoch)
@@ -270,7 +270,7 @@ ErrorStack StorageManagerPimpl::create_storage(thread::Thread* context,
   return kRetOk;
 }
 
-/** A task to create an array. Used from create_array_impersonate(). */
+/** A task to create an array. Used from impersonate version of create_array(). */
 class CreateStorageTask final : public foedus::thread::ImpersonateTask {
  public:
   CreateStorageTask(StorageManagerPimpl* pimpl,

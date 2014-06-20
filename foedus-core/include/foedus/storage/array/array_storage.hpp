@@ -175,8 +175,7 @@ class ArrayStorageFactory CXX11_FINAL : public virtual StorageFactory {
   ~ArrayStorageFactory() {}
   StorageType   get_type() const CXX11_OVERRIDE { return kArrayStorage; }
   bool          is_right_metadata(const Metadata *metadata) const;
-  ErrorStack    get_instance(Engine* engine, const Metadata *metadata,
-                                bool create, Storage** storage) const;
+  ErrorStack    get_instance(Engine* engine, const Metadata *metadata, Storage** storage) const;
   void          add_create_log(const Metadata* metadata, thread::Thread* context) const;
 };
 

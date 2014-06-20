@@ -115,15 +115,13 @@ class StorageFactory {
   /**
    * @brief Instantiate a storage object with the given metadata.
    * @param[in] metadata metadata of the newly instantiated storage object
-   * @param[in] create whether this storage will be newly created in the engine.
-   * When we are just constructing the storage object on restart, this is false.
    * @param[out] storage set only when this method succeeds. otherwise null.
    * @pre is_right_metadata(metadata)
    * @details
    * This method verifies the metadata object and might return errors for various reasons.
    */
   virtual ErrorStack get_instance(Engine* engine, const Metadata *metadata,
-                                  bool create, Storage** storage) const = 0;
+                                  Storage** storage) const = 0;
 
   /**
    * Adds a log entry for newly creating the storage to the context's log buffer.

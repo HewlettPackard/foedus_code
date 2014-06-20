@@ -37,6 +37,7 @@
 #include <foedus/memory/numa_node_memory.hpp>
 #include <foedus/memory/engine_memory.hpp>
 #include <foedus/storage/storage_manager.hpp>
+#include <foedus/storage/array/array_metadata.hpp>
 #include <foedus/storage/array/array_storage.hpp>
 #include <foedus/xct/xct_manager.hpp>
 #include <unistd.h>
@@ -64,8 +65,8 @@ class MyTask : public thread::ImpersonateTask {
     Engine *engine = context->get_engine();
     ArrayStorage *array = nullptr;
     Epoch commit_epoch;
-    CHECK_ERROR(engine->get_storage_manager().create_array(
-      context, "aaa", kPayload, kRecords, &array, &commit_epoch));
+    ArrayMetadata meta("aaa", kPayload, kRecords);
+    CHECK_ERROR(engine->get_storage_manager().create_array(context, &meta, &array, &commit_epoch));
     the_id = array->get_id();
     return kRetOk;
   }

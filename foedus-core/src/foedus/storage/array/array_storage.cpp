@@ -37,7 +37,7 @@ void ArrayStorage::describe(std::ostream* o_ptr) const {
 }
 
 ErrorStack ArrayStorageFactory::get_instance(Engine* engine, const Metadata* metadata,
-  bool create, Storage** storage) const {
+  Storage** storage) const {
   ASSERT_ND(metadata);
   const ArrayMetadata* casted = dynamic_cast<const ArrayMetadata*>(metadata);
   if (casted == nullptr) {
@@ -54,7 +54,7 @@ ErrorStack ArrayStorageFactory::get_instance(Engine* engine, const Metadata* met
     return ERROR_STACK(kErrorCodeStrArrayInvalidOption);
   }
 
-  *storage = new ArrayStorage(engine, *casted, create);
+  *storage = new ArrayStorage(engine, *casted, false);
   return kRetOk;
 }
 bool ArrayStorageFactory::is_right_metadata(const Metadata *metadata) const {
