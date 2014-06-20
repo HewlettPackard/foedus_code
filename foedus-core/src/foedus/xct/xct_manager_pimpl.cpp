@@ -7,19 +7,20 @@
 #include <foedus/engine_options.hpp>
 #include <foedus/assert_nd.hpp>
 #include <foedus/assorted/atomic_fences.hpp>
-#include <foedus/xct/xct_access.hpp>
-#include <foedus/xct/xct_manager_pimpl.hpp>
-#include <foedus/xct/xct_options.hpp>
-#include <foedus/xct/xct.hpp>
 #include <foedus/log/log_type_invoke.hpp>
 #include <foedus/log/thread_log_buffer_impl.hpp>
 #include <foedus/log/log_manager.hpp>
+#include <foedus/savepoint/savepoint_manager.hpp>
+#include <foedus/savepoint/savepoint.hpp>
 #include <foedus/storage/storage_manager.hpp>
 #include <foedus/storage/record.hpp>
 #include <foedus/thread/thread_pool.hpp>
 #include <foedus/thread/thread.hpp>
-#include <foedus/savepoint/savepoint_manager.hpp>
-#include <foedus/savepoint/savepoint.hpp>
+#include <foedus/xct/xct_access.hpp>
+#include <foedus/xct/xct_manager.hpp>
+#include <foedus/xct/xct_manager_pimpl.hpp>
+#include <foedus/xct/xct_options.hpp>
+#include <foedus/xct/xct.hpp>
 #include <glog/logging.h>
 #include <algorithm>
 #include <chrono>
@@ -30,6 +31,31 @@
 #include <vector>
 namespace foedus {
 namespace xct {
+// XctManager methods defined here to enable inlining
+Epoch       XctManager::get_current_global_epoch() const {
+  return pimpl_->get_current_global_epoch();
+}
+Epoch       XctManager::get_current_global_epoch_weak() const {
+  return pimpl_->get_current_global_epoch_weak();
+}
+void        XctManager::advance_current_global_epoch() { pimpl_->advance_current_global_epoch(); }
+ErrorCode   XctManager::wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds) {
+  return pimpl_->wait_for_commit(commit_epoch, wait_microseconds);
+}
+
+ErrorCode   XctManager::begin_xct(thread::Thread* context, IsolationLevel isolation_level) {
+  return pimpl_->begin_xct(context, isolation_level);
+}
+ErrorCode   XctManager::begin_schema_xct(thread::Thread* context) {
+  return pimpl_->begin_schema_xct(context);
+}
+
+ErrorCode   XctManager::precommit_xct(thread::Thread* context, Epoch *commit_epoch) {
+  return pimpl_->precommit_xct(context, commit_epoch);
+}
+ErrorCode   XctManager::abort_xct(thread::Thread* context)  { return pimpl_->abort_xct(context); }
+
+
 ErrorStack XctManagerPimpl::initialize_once() {
   LOG(INFO) << "Initializing XctManager..";
   if (!engine_->get_storage_manager().is_initialized()) {
@@ -87,21 +113,20 @@ void XctManagerPimpl::advance_current_global_epoch() {
   LOG(INFO) << "epoch advanced. current_global_epoch_=" << get_current_global_epoch();
 }
 
-ErrorStack XctManagerPimpl::wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds) {
+ErrorCode XctManagerPimpl::wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds) {
   assorted::memory_fence_acquire();
   if (commit_epoch < get_current_global_epoch()) {
     epoch_advance_thread_.wakeup();
   }
 
-  CHECK_ERROR(engine_->get_log_manager().wait_until_durable(commit_epoch, wait_microseconds));
-  return kRetOk;
+  return engine_->get_log_manager().wait_until_durable(commit_epoch, wait_microseconds);
 }
 
 
-ErrorStack XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel isolation_level) {
+ErrorCode XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel isolation_level) {
   Xct& current_xct = context->get_current_xct();
   if (current_xct.is_active()) {
-    return ERROR_STACK(kErrorCodeXctAlreadyRunning);
+    return kErrorCodeXctAlreadyRunning;
   }
   DLOG(INFO) << *context << " Began new transaction";
   current_xct.activate(isolation_level);
@@ -109,12 +134,12 @@ ErrorStack XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel is
     == context->get_thread_log_buffer().get_offset_committed());
   ASSERT_ND(current_xct.get_read_set_size() == 0);
   ASSERT_ND(current_xct.get_write_set_size() == 0);
-  return kRetOk;
+  return kErrorCodeOk;
 }
-ErrorStack XctManagerPimpl::begin_schema_xct(thread::Thread* context) {
+ErrorCode XctManagerPimpl::begin_schema_xct(thread::Thread* context) {
   Xct& current_xct = context->get_current_xct();
   if (current_xct.is_active()) {
-    return ERROR_STACK(kErrorCodeXctAlreadyRunning);
+    return kErrorCodeXctAlreadyRunning;
   }
   LOG(INFO) << *context << " Began new schema transaction";
   current_xct.activate(kSerializable, true);
@@ -122,14 +147,14 @@ ErrorStack XctManagerPimpl::begin_schema_xct(thread::Thread* context) {
     == context->get_thread_log_buffer().get_offset_committed());
   ASSERT_ND(current_xct.get_read_set_size() == 0);
   ASSERT_ND(current_xct.get_write_set_size() == 0);
-  return kRetOk;
+  return kErrorCodeOk;
 }
 
 
-ErrorStack XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_epoch) {
+ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_epoch) {
   Xct& current_xct = context->get_current_xct();
   if (!current_xct.is_active()) {
-    return ERROR_STACK(kErrorCodeXctNoXct);
+    return kErrorCodeXctNoXct;
   }
 
   bool success;
@@ -146,11 +171,11 @@ ErrorStack XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit
 
   current_xct.deactivate();
   if (success) {
-    return kRetOk;
+    return kErrorCodeOk;
   } else {
     DLOG(WARNING) << *context << " Aborting because of contention";
     context->get_thread_log_buffer().discard_current_xct_log();
-    return ERROR_STACK(kErrorCodeXctRaceAbort);
+    return kErrorCodeXctRaceAbort;
   }
 }
 bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch) {
@@ -391,15 +416,15 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context) {
   DLOG(INFO) << *context << " unlocked write set without applying";
 }
 
-ErrorStack XctManagerPimpl::abort_xct(thread::Thread* context) {
+ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
   Xct& current_xct = context->get_current_xct();
   if (!current_xct.is_active()) {
-    return ERROR_STACK(kErrorCodeXctNoXct);
+    return kErrorCodeXctNoXct;
   }
   DLOG(INFO) << *context << " Aborted transaction in thread-" << context->get_thread_id();
   current_xct.deactivate();
   context->get_thread_log_buffer().discard_current_xct_log();
-  return kRetOk;
+  return kErrorCodeOk;
 }
 
 }  // namespace xct

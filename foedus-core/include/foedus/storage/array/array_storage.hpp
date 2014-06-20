@@ -71,7 +71,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
    * @details
    * Equivalent to get_record(context, offset, payload, 0, get_payload_size()).
    */
-  ErrorStack  get_record(thread::Thread* context, ArrayOffset offset, void *payload);
+  ErrorCode  get_record(thread::Thread* context, ArrayOffset offset, void *payload);
 
   /**
    * @brief Retrieves a part of record of the given offset in this array storage.
@@ -83,20 +83,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
    * @pre payload_offset + payload_count <= get_payload_size()
    * @pre offset < get_array_size()
    */
-  ErrorStack  get_record(thread::Thread* context, ArrayOffset offset,
-            void *payload, uint16_t payload_offset, uint16_t payload_count);
-
-  /**
-   * Same as get_record() except this returns only ErrorCode, not ErrorStack.
-   * @see get_record()
-   */
-  ErrorCode   get_record_light(thread::Thread* context, ArrayOffset offset, void *payload);
-
-  /**
-   * Same as get_record() except this returns only ErrorCode, not ErrorStack.
-   * @see get_record()
-   */
-  ErrorCode   get_record_light(thread::Thread* context, ArrayOffset offset,
+  ErrorCode  get_record(thread::Thread* context, ArrayOffset offset,
             void *payload, uint16_t payload_offset, uint16_t payload_count);
 
   /**
@@ -111,7 +98,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
    * @pre offset < get_array_size()
    */
   template <typename T>
-  ErrorStack  get_record_primitive(thread::Thread* context, ArrayOffset offset,
+  ErrorCode  get_record_primitive(thread::Thread* context, ArrayOffset offset,
             T *payload, uint16_t payload_offset);
 
   /**
@@ -123,7 +110,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
    * @details
    * Equivalent to overwrite_record(context, offset, payload, 0, get_payload_size()).
    */
-  ErrorStack  overwrite_record(thread::Thread* context, ArrayOffset offset, const void *payload) {
+  ErrorCode  overwrite_record(thread::Thread* context, ArrayOffset offset, const void *payload) {
     return overwrite_record(context, offset, payload, 0, get_payload_size());
   }
   /**
@@ -136,7 +123,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
    * @pre payload_offset + payload_count <= get_payload_size()
    * @pre offset < get_array_size()
    */
-  ErrorStack  overwrite_record(thread::Thread* context, ArrayOffset offset,
+  ErrorCode  overwrite_record(thread::Thread* context, ArrayOffset offset,
             const void *payload, uint16_t payload_offset, uint16_t payload_count);
 
   /**
@@ -151,7 +138,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
    * @pre offset < get_array_size()
    */
   template <typename T>
-  ErrorStack  overwrite_record_primitive(thread::Thread* context, ArrayOffset offset,
+  ErrorCode  overwrite_record_primitive(thread::Thread* context, ArrayOffset offset,
             T payload, uint16_t payload_offset);
 
   /**
@@ -169,7 +156,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
    * This method can be only provided with template, so we omit "_primitive".
    */
   template <typename T>
-  ErrorStack  increment_record(thread::Thread* context, ArrayOffset offset,
+  ErrorCode  increment_record(thread::Thread* context, ArrayOffset offset,
             T *value, uint16_t payload_offset);
 
   void        describe(std::ostream* o) const CXX11_OVERRIDE;

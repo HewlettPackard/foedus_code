@@ -136,11 +136,11 @@ class RunTpcbTask : public thread::ImpersonateTask {
       int64_t  amount = static_cast<int64_t>(random_.uniform_within(0, 1999999)) - 1000000;
       int successive_aborts = 0;
       while (!stop_requested) {
-        ErrorStack error_stack = try_transaction(context,
+        ErrorCode result_code = try_transaction(context,
           branch_id, teller_id, account_id, history_id, amount);
-        if (!error_stack.is_error()) {
+        if (result_code == kErrorCodeOk) {
           break;
-        } else if (error_stack.get_error_code() == kErrorCodeXctRaceAbort) {
+        } else if (result_code == kErrorCodeXctRaceAbort) {
           // abort and retry
           if (context->is_running_xct()) {
             CHECK_ERROR(xct_manager.abort_xct(context));
@@ -151,7 +151,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
             assorted::memory_fence_acquire();
           }
         } else {
-          COERCE_ERROR(error_stack);
+          COERCE_ERROR(ERROR_STACK(result_code));
         }
       }
       ++processed_;
@@ -167,29 +167,29 @@ class RunTpcbTask : public thread::ImpersonateTask {
     return kRetOk;
   }
 
-  ErrorStack try_transaction(thread::Thread* context, uint64_t branch_id, uint64_t teller_id,
+  ErrorCode try_transaction(thread::Thread* context, uint64_t branch_id, uint64_t teller_id,
     uint64_t account_id, uint64_t history_id, int64_t amount) {
     xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-    CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+    CHECK_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
 
     int64_t balance = amount;
-    CHECK_ERROR(branches->increment_record(context, branch_id, &balance, 0));
+    CHECK_ERROR_CODE(branches->increment_record(context, branch_id, &balance, 0));
 
     balance = amount;
-    CHECK_ERROR(tellers->increment_record(context, teller_id, &balance, sizeof(uint64_t)));
+    CHECK_ERROR_CODE(tellers->increment_record(context, teller_id, &balance, sizeof(uint64_t)));
 
     balance = amount;
-    CHECK_ERROR(accounts->increment_record(context, account_id, &balance, sizeof(uint64_t)));
+    CHECK_ERROR_CODE(accounts->increment_record(context, account_id, &balance, sizeof(uint64_t)));
 
     tmp_history_.account_id_ = account_id;
     tmp_history_.branch_id_ = branch_id;
     tmp_history_.teller_id_ = teller_id;
     tmp_history_.amount_ = amount;
-    CHECK_ERROR(histories->overwrite_record(context, history_id, &tmp_history_));
+    CHECK_ERROR_CODE(histories->overwrite_record(context, history_id, &tmp_history_));
 
     Epoch commit_epoch;
-    CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-    return kRetOk;
+    CHECK_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+    return kErrorCodeOk;
   }
 
   uint64_t get_processed() const { return processed_; }

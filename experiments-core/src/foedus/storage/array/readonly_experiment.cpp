@@ -20,6 +20,7 @@
  *
  * @section RESULTS Latest Results
  * foedus_results/20140414_kimurhid_array_readonly
+ * foedus_results/20140619_kimurhid_array_readonly
  *
  * @todo kPayload/kDurationMicro/kRecords are so far hard-coded constants, not program arguments.
  */
@@ -87,8 +88,7 @@ class ReadTask : public thread::ImpersonateTask {
     processed_ = 0;
     while (true) {
       uint64_t id = randoms[processed_ & 0xFFFF] & kRecordsMask;
-      // CHECK_ERROR(array->get_record(context, id, buf, 0, kPayload));
-      WRAP_ERROR_CODE(array->get_record_light(context, id, buf, 0, kPayload));
+      WRAP_ERROR_CODE(array->get_record(context, id, buf, 0, kPayload));
       ++processed_;
       if ((processed_ & 0xFFFF) == 0) {
         CHECK_ERROR(engine->get_xct_manager().precommit_xct(context, &commit_epoch));

@@ -54,7 +54,7 @@ class XctManager CXX11_FINAL : public virtual Initializable {
    * @param[in] isolation_level concurrency isolation level of the new transaction
    * @pre context->is_running_xct() == false
    */
-  ErrorStack  begin_xct(thread::Thread* context, IsolationLevel isolation_level);
+  ErrorCode  begin_xct(thread::Thread* context, IsolationLevel isolation_level);
 
   /**
    * @brief Begins a special transaction for modifying schema on the thread.
@@ -66,7 +66,7 @@ class XctManager CXX11_FINAL : public virtual Initializable {
    * and sometimes has a strong restriction, such as having to execute in its own epoch.
    * Schema transactions are the only transactions that can modify schema.
    */
-  ErrorStack  begin_schema_xct(thread::Thread* context);
+  ErrorCode  begin_schema_xct(thread::Thread* context);
 
   /**
    * @brief Prepares the currently running transaction on the thread for commit.
@@ -84,20 +84,20 @@ class XctManager CXX11_FINAL : public virtual Initializable {
    * wait for the commit using wait_for_commit().
    * @see wait_for_commit()
    */
-  ErrorStack  precommit_xct(thread::Thread* context, Epoch *commit_epoch);
+  ErrorCode   precommit_xct(thread::Thread* context, Epoch *commit_epoch);
 
 
   /**
    * @copydoc foedus::log::LogManager::wait_until_durable()
    */
-  ErrorStack  wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds = -1);
+  ErrorCode   wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds = -1);
 
   /**
    * @brief Aborts the currently running transaction on the thread.
    * @param[in,out] context Thread context
    * @pre context->is_running_xct() == true
    */
-  ErrorStack  abort_xct(thread::Thread* context);
+  ErrorCode   abort_xct(thread::Thread* context);
 
  private:
   XctManagerPimpl *pimpl_;

@@ -36,15 +36,15 @@ class XctManagerPimpl final : public DefaultInitializable {
     return Epoch(current_global_epoch_.load(std::memory_order_relaxed));
   }
 
-  ErrorStack  begin_xct(thread::Thread* context, IsolationLevel isolation_level);
-  ErrorStack  begin_schema_xct(thread::Thread* context);
+  ErrorCode   begin_xct(thread::Thread* context, IsolationLevel isolation_level);
+  ErrorCode   begin_schema_xct(thread::Thread* context);
   /**
    * This is the gut of commit protocol. It's mostly same as [TU2013].
    */
-  ErrorStack  precommit_xct(thread::Thread* context, Epoch *commit_epoch);
-  ErrorStack  abort_xct(thread::Thread* context);
+  ErrorCode   precommit_xct(thread::Thread* context, Epoch *commit_epoch);
+  ErrorCode   abort_xct(thread::Thread* context);
 
-  ErrorStack  wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds);
+  ErrorCode   wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds);
   void        advance_current_global_epoch();
 
   /**

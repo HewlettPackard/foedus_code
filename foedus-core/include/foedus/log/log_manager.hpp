@@ -80,7 +80,7 @@ class LogManager CXX11_FINAL : public virtual Initializable {
    * Otherwise, you violate serializability (which might be okay depending on your desired
    * isolation level).
    */
-  ErrorStack  wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds = -1);
+  ErrorCode   wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds = -1);
 
   /**
    * @brief Called whenever there is a chance that the global durable epoch advances.
