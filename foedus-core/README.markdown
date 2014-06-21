@@ -56,16 +56,17 @@ Get Started
 -----------
 Here is a minimal example program to create a key-value storage and query on it.
 
-    #include <foedus/engine.hpp>
-    #include <foedus/engine_options.hpp>
-    #include <foedus/epoch.hpp>
-    #include <foedus/thread/thread_pool.hpp>
-    #include <foedus/thread/thread.hpp>
-    #include <foedus/storage/storage_manager.hpp>
-    #include <foedus/storage/array/array_metadata.hpp>
-    #include <foedus/storage/array/array_storage.hpp>
-    #include <foedus/xct/xct_manager.hpp>
     #include <iostream>
+
+    #include "foedus/engine.hpp"
+    #include "foedus/engine_options.hpp"
+    #include "foedus/epoch.hpp"
+    #include "foedus/storage/storage_manager.hpp"
+    #include "foedus/storage/array/array_metadata.hpp"
+    #include "foedus/storage/array/array_storage.hpp"
+    #include "foedus/thread/thread.hpp"
+    #include "foedus/thread/thread_pool.hpp"
+    #include "foedus/xct/xct_manager.hpp"
 
     const uint16_t kPayload = 16;
     const uint32_t kRecords = 1 << 20;
