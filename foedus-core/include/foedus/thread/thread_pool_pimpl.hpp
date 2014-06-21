@@ -4,14 +4,16 @@
  */
 #ifndef FOEDUS_THREAD_THREAD_POOL_PIMPL_HPP_
 #define FOEDUS_THREAD_THREAD_POOL_PIMPL_HPP_
-#include <foedus/initializable.hpp>
-#include <foedus/fwd.hpp>
-#include <foedus/memory/fwd.hpp>
-#include <foedus/thread/fwd.hpp>
-#include <foedus/thread/thread_id.hpp>
-#include <foedus/thread/thread_pool.hpp>
 #include <iosfwd>
 #include <vector>
+
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/memory/fwd.hpp"
+#include "foedus/thread/fwd.hpp"
+#include "foedus/thread/thread_id.hpp"
+#include "foedus/thread/thread_pool.hpp"
+
 namespace foedus {
 namespace thread {
 

@@ -4,11 +4,13 @@
  */
 #ifndef FOEDUS_SNAPSHOT_SNAPSHOT_OPTIONS_HPP_
 #define FOEDUS_SNAPSHOT_SNAPSHOT_OPTIONS_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/externalize/externalizable.hpp>
-#include <foedus/fs/device_emulation_options.hpp>
 #include <string>
 #include <vector>
+
+#include "foedus/cxx11.hpp"
+#include "foedus/externalize/externalizable.hpp"
+#include "foedus/fs/device_emulation_options.hpp"
+
 namespace foedus {
 namespace snapshot {
 /**

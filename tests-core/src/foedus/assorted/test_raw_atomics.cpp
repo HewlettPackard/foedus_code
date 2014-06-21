@@ -2,16 +2,18 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/test_common.hpp>
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/assorted/atomic_fences.hpp>
-#include <foedus/assorted/raw_atomics.hpp>
-#include <foedus/thread/rendezvous_impl.hpp>
-#include <stdint.h>
 #include <gtest/gtest.h>
+#include <stdint.h>
+
 #include <iostream>
 #include <thread>
 #include <vector>
+
+#include "foedus/test_common.hpp"
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/assorted/raw_atomics.hpp"
+#include "foedus/thread/rendezvous_impl.hpp"
 
 namespace foedus {
 namespace assorted {

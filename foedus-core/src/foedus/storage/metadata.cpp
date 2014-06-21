@@ -2,10 +2,13 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/storage/metadata.hpp>
-#include <foedus/storage/array/array_metadata.hpp>
+#include "foedus/storage/metadata.hpp"
+
 #include <glog/logging.h>
 #include <tinyxml2.h>
+
+#include "foedus/storage/array/array_metadata.hpp"
+
 namespace foedus {
 namespace storage {
 ErrorStack Metadata::load_base(tinyxml2::XMLElement* element) {

@@ -4,8 +4,10 @@
  */
 #ifndef FOEDUS_THREAD_THREAD_ID_HPP_
 #define FOEDUS_THREAD_THREAD_ID_HPP_
-#include <foedus/cxx11.hpp>
 #include <stdint.h>
+
+#include "foedus/cxx11.hpp"
+
 /**
  * @file foedus/thread/thread_id.hpp
  * @brief Typedefs of ID types used in thread package.

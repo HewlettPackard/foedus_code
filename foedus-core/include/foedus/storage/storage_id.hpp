@@ -4,11 +4,14 @@
  */
 #ifndef FOEDUS_STORAGE_STORAGE_ID_HPP_
 #define FOEDUS_STORAGE_STORAGE_ID_HPP_
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/assorted/raw_atomics.hpp>
-#include <foedus/memory/memory_id.hpp>
 #include <stdint.h>
+
 #include <iosfwd>
+
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/raw_atomics.hpp"
+#include "foedus/memory/memory_id.hpp"
+
 /**
  * @file foedus/storage/storage_id.hpp
  * @brief Definitions of IDs in this package and a few related constant values.

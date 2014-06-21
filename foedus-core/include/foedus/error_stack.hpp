@@ -5,14 +5,17 @@
 #ifndef FOEDUS_ERROR_STACK_HPP_
 #define FOEDUS_ERROR_STACK_HPP_
 
-#include <foedus/compiler.hpp>
-#include <foedus/error_code.hpp>
-#include <foedus/cxx11.hpp>
 #include <errno.h>
 #include <stdint.h>
-#include <foedus/assert_nd.hpp>
+
 #include <cstring>
 #include <iosfwd>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/compiler.hpp"
+#include "foedus/cxx11.hpp"
+#include "foedus/error_code.hpp"
+
 namespace foedus {
 
 /**

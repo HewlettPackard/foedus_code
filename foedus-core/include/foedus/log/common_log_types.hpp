@@ -4,18 +4,20 @@
  */
 #ifndef FOEDUS_LOG_COMMON_LOG_TYPES_HPP_
 #define FOEDUS_LOG_COMMON_LOG_TYPES_HPP_
-#include <foedus/compiler.hpp>
-#include <foedus/cxx11.hpp>
-#include <foedus/fwd.hpp>
-#include <foedus/epoch.hpp>
-#include <foedus/assert_nd.hpp>
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/log/log_type.hpp>
-#include <foedus/storage/fwd.hpp>
-#include <foedus/storage/storage_id.hpp>
-#include <foedus/thread/fwd.hpp>
-#include <foedus/xct/xct_id.hpp>
 #include <iosfwd>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/compiler.hpp"
+#include "foedus/cxx11.hpp"
+#include "foedus/epoch.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/log/log_type.hpp"
+#include "foedus/storage/fwd.hpp"
+#include "foedus/storage/storage_id.hpp"
+#include "foedus/thread/fwd.hpp"
+#include "foedus/xct/xct_id.hpp"
+
 /**
  * @file foedus/log/common_log_types.hpp
  * @brief Declares common log types used in all packages.

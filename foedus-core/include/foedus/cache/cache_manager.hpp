@@ -4,9 +4,9 @@
  */
 #ifndef FOEDUS_CACHE_CACHE_MANAGER_HPP_
 #define FOEDUS_CACHE_CACHE_MANAGER_HPP_
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/cache/cache_options.hpp>
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/cache/cache_options.hpp"
 namespace foedus {
 namespace cache {
 /**

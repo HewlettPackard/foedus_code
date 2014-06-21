@@ -4,8 +4,8 @@
  */
 #ifndef FOEDUS_EXTERNALIZE_TINYXML_WRAPPER_HPP_
 #define FOEDUS_EXTERNALIZE_TINYXML_WRAPPER_HPP_
-#include <tinyxml2.h>
 #include <stdint.h>
+#include <tinyxml2.h>
 #include <string>
 namespace foedus {
 namespace externalize {

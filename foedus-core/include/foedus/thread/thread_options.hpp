@@ -4,9 +4,9 @@
  */
 #ifndef FOEDUS_THREAD_THREAD_OPTIONS_HPP_
 #define FOEDUS_THREAD_THREAD_OPTIONS_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/externalize/externalizable.hpp>
-#include <foedus/thread/thread_id.hpp>
+#include "foedus/cxx11.hpp"
+#include "foedus/externalize/externalizable.hpp"
+#include "foedus/thread/thread_id.hpp"
 namespace foedus {
 namespace thread {
 /**

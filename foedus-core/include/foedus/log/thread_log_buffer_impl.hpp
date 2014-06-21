@@ -4,17 +4,20 @@
  */
 #ifndef FOEDUS_LOG_THREAD_LOG_BUFFER_IMPL_HPP_
 #define FOEDUS_LOG_THREAD_LOG_BUFFER_IMPL_HPP_
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/log/fwd.hpp>
-#include <foedus/memory/aligned_memory.hpp>
-#include <foedus/thread/thread_id.hpp>
-#include <foedus/epoch.hpp>
 #include <stdint.h>
+
 #include <iosfwd>
 #include <list>
 #include <mutex>
 #include <vector>
+
+#include "foedus/epoch.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/log/fwd.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/thread/thread_id.hpp"
+
 namespace foedus {
 namespace log {
 /**

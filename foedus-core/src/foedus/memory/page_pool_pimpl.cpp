@@ -2,18 +2,22 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/engine.hpp>
-#include <foedus/engine_options.hpp>
-#include <foedus/error_stack_batch.hpp>
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/memory/page_pool.hpp>
-#include <foedus/memory/page_pool_pimpl.hpp>
-#include <foedus/memory/memory_options.hpp>
-#include <foedus/storage/storage_manager.hpp>
-#include <foedus/thread/thread_pool.hpp>
-#include <foedus/thread/thread.hpp>
+#include "foedus/memory/page_pool_pimpl.hpp"
+
 #include <glog/logging.h>
+
 #include <algorithm>
+
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/error_stack_batch.hpp"
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/memory/memory_options.hpp"
+#include "foedus/memory/page_pool.hpp"
+#include "foedus/storage/storage_manager.hpp"
+#include "foedus/thread/thread.hpp"
+#include "foedus/thread/thread_pool.hpp"
+
 namespace foedus {
 namespace memory {
 ErrorStack PagePoolPimpl::initialize_once() {

@@ -4,17 +4,19 @@
  */
 #ifndef FOEDUS_MEMORY_ENGINE_MEMORY_HPP_
 #define FOEDUS_MEMORY_ENGINE_MEMORY_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/error_stack.hpp>
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/memory/aligned_memory.hpp>
-#include <foedus/memory/fwd.hpp>
-#include <foedus/memory/page_pool.hpp>
-#include <foedus/memory/page_resolver.hpp>
-#include <foedus/thread/thread_id.hpp>
-#include <foedus/assert_nd.hpp>
 #include <vector>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/cxx11.hpp"
+#include "foedus/error_stack.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/memory/fwd.hpp"
+#include "foedus/memory/page_pool.hpp"
+#include "foedus/memory/page_resolver.hpp"
+#include "foedus/thread/thread_id.hpp"
+
 namespace foedus {
 namespace memory {
 /**

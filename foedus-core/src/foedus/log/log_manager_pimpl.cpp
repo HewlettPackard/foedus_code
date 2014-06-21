@@ -2,24 +2,28 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/engine.hpp>
-#include <foedus/engine_options.hpp>
-#include <foedus/assert_nd.hpp>
-#include <foedus/error_stack_batch.hpp>
-#include <foedus/assorted/atomic_fences.hpp>
-#include <foedus/fs/path.hpp>
-#include <foedus/log/log_id.hpp>
-#include <foedus/log/log_manager_pimpl.hpp>
-#include <foedus/log/log_options.hpp>
-#include <foedus/log/logger_impl.hpp>
-#include <foedus/memory/memory_id.hpp>
-#include <foedus/thread/thread_id.hpp>
-#include <foedus/thread/thread_pool.hpp>
-#include <foedus/savepoint/savepoint.hpp>
-#include <foedus/savepoint/savepoint_manager.hpp>
+#include "foedus/log/log_manager_pimpl.hpp"
+
 #include <glog/logging.h>
+
 #include <string>
 #include <vector>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/error_stack_batch.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/fs/path.hpp"
+#include "foedus/log/log_id.hpp"
+#include "foedus/log/log_options.hpp"
+#include "foedus/log/logger_impl.hpp"
+#include "foedus/memory/memory_id.hpp"
+#include "foedus/savepoint/savepoint.hpp"
+#include "foedus/savepoint/savepoint_manager.hpp"
+#include "foedus/thread/thread_id.hpp"
+#include "foedus/thread/thread_pool.hpp"
+
 namespace foedus {
 namespace log {
 ErrorStack LogManagerPimpl::initialize_once() {

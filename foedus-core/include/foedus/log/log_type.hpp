@@ -5,12 +5,12 @@
 #ifndef FOEDUS_LOG_LOG_TYPE_HPP_
 #define FOEDUS_LOG_LOG_TYPE_HPP_
 
-#include <foedus/cxx11.hpp>
+#include "foedus/cxx11.hpp"
 // include all header files that forward-declare log types defined in the xmacro.
 // don't include headers that really declare them. we just need foward-declarations here.
-#include <foedus/log/fwd.hpp>
-#include <foedus/storage/fwd.hpp>
-#include <foedus/storage/array/fwd.hpp>
+#include "foedus/log/fwd.hpp"
+#include "foedus/storage/fwd.hpp"
+#include "foedus/storage/array/fwd.hpp"
 
 namespace foedus {
 namespace log {
@@ -71,7 +71,7 @@ namespace log {
 enum LogCode {
   /** 0 is reserved as a non-existing log type. */
   kLogCodeInvalid = 0,
-#include <foedus/log/log_type.xmacro> // NOLINT
+#include "foedus/log/log_type.xmacro" // NOLINT
 };
 #undef X
 
@@ -112,7 +112,7 @@ inline LogCodeKind get_log_code_kind(LogCode code) {
 inline bool is_valid_log_type(LogCode code) {
   switch (code) {
 #define X(a, b, c) case a: return true;
-#include <foedus/log/log_type.xmacro> // NOLINT
+#include "foedus/log/log_type.xmacro" // NOLINT
 #undef X
     default: return false;
   }
@@ -139,7 +139,7 @@ CXX11_CONSTEXPR LogCode get_log_code();
 
 // give a template specialization for each log type class
 #define X(a, b, c) template <> inline CXX11_CONSTEXPR LogCode get_log_code< c >() { return a ; }
-#include <foedus/log/log_type.xmacro> // NOLINT
+#include "foedus/log/log_type.xmacro" // NOLINT
 #undef X
 
 }  // namespace log

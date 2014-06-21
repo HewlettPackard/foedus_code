@@ -4,15 +4,18 @@
  */
 #ifndef FOEDUS_FS_DIRECT_IO_FILE_HPP_
 #define FOEDUS_FS_DIRECT_IO_FILE_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/error_code.hpp>
-#include <foedus/error_stack.hpp>
-#include <foedus/fs/device_emulation_options.hpp>
-#include <foedus/fs/path.hpp>
-#include <foedus/memory/fwd.hpp>
 #include <stdint.h>
+
 #include <iosfwd>
 #include <string>
+
+#include "foedus/cxx11.hpp"
+#include "foedus/error_code.hpp"
+#include "foedus/error_stack.hpp"
+#include "foedus/fs/device_emulation_options.hpp"
+#include "foedus/fs/path.hpp"
+#include "foedus/memory/fwd.hpp"
+
 namespace foedus {
 namespace fs {
 

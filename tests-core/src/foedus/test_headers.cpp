@@ -2,9 +2,8 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/fs/filesystem.hpp>
-#include <foedus/fs/path.hpp>
 #include <gtest/gtest.h>
+
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -12,6 +11,9 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include "foedus/fs/filesystem.hpp"
+#include "foedus/fs/path.hpp"
 
 /**
  * @file tpch_headers.cpp

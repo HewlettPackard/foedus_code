@@ -4,11 +4,13 @@
  */
 #ifndef FOEDUS_DEBUGGING_DEBUGGING_SUPPORTS_HPP_
 #define FOEDUS_DEBUGGING_DEBUGGING_SUPPORTS_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/debugging/debugging_options.hpp>
 #include <string>
+
+#include "foedus/cxx11.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/debugging/debugging_options.hpp"
+
 namespace foedus {
 namespace debugging {
 /**

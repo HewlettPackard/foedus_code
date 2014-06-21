@@ -4,11 +4,11 @@
  */
 #ifndef FOEDUS_SNAPSHOT_SNAPSHOT_MANAGER_HPP_
 #define FOEDUS_SNAPSHOT_SNAPSHOT_MANAGER_HPP_
-#include <foedus/epoch.hpp>
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/snapshot/fwd.hpp>
-#include <foedus/snapshot/snapshot_id.hpp>
+#include "foedus/epoch.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/snapshot/fwd.hpp"
+#include "foedus/snapshot/snapshot_id.hpp"
 namespace foedus {
 namespace snapshot {
 /**

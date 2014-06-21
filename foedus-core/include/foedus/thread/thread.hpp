@@ -4,14 +4,16 @@
  */
 #ifndef FOEDUS_THREAD_THREAD_HPP_
 #define FOEDUS_THREAD_THREAD_HPP_
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/log/fwd.hpp>
-#include <foedus/thread/fwd.hpp>
-#include <foedus/memory/fwd.hpp>
-#include <foedus/memory/page_resolver.hpp>
-#include <foedus/xct/fwd.hpp>
 #include <iosfwd>
+
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/log/fwd.hpp"
+#include "foedus/memory/fwd.hpp"
+#include "foedus/memory/page_resolver.hpp"
+#include "foedus/thread/fwd.hpp"
+#include "foedus/xct/fwd.hpp"
+
 namespace foedus {
 namespace thread {
 /**

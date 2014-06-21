@@ -2,26 +2,10 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/engine.hpp>
-#include <foedus/error_stack_batch.hpp>
-#include <foedus/engine_options.hpp>
-#include <foedus/assert_nd.hpp>
-#include <foedus/assorted/atomic_fences.hpp>
-#include <foedus/log/log_type_invoke.hpp>
-#include <foedus/log/thread_log_buffer_impl.hpp>
-#include <foedus/log/log_manager.hpp>
-#include <foedus/savepoint/savepoint_manager.hpp>
-#include <foedus/savepoint/savepoint.hpp>
-#include <foedus/storage/storage_manager.hpp>
-#include <foedus/storage/record.hpp>
-#include <foedus/thread/thread_pool.hpp>
-#include <foedus/thread/thread.hpp>
-#include <foedus/xct/xct_access.hpp>
-#include <foedus/xct/xct_manager.hpp>
-#include <foedus/xct/xct_manager_pimpl.hpp>
-#include <foedus/xct/xct_options.hpp>
-#include <foedus/xct/xct.hpp>
+#include "foedus/xct/xct_manager_pimpl.hpp"
+
 #include <glog/logging.h>
+
 #include <algorithm>
 #include <chrono>
 #ifndef NDEBUG
@@ -29,6 +13,26 @@
 #endif  // NDEBUG
 #include <thread>
 #include <vector>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/error_stack_batch.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/log/log_manager.hpp"
+#include "foedus/log/log_type_invoke.hpp"
+#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/savepoint/savepoint.hpp"
+#include "foedus/savepoint/savepoint_manager.hpp"
+#include "foedus/storage/record.hpp"
+#include "foedus/storage/storage_manager.hpp"
+#include "foedus/thread/thread.hpp"
+#include "foedus/thread/thread_pool.hpp"
+#include "foedus/xct/xct.hpp"
+#include "foedus/xct/xct_access.hpp"
+#include "foedus/xct/xct_manager.hpp"
+#include "foedus/xct/xct_options.hpp"
+
 namespace foedus {
 namespace xct {
 // XctManager methods defined here to enable inlining

@@ -2,10 +2,12 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/test_common.hpp>
-#include <foedus/log/log_options.hpp>
 #include <gtest/gtest.h>
+
 #include <string>
+
+#include "foedus/test_common.hpp"
+#include "foedus/log/log_options.hpp"
 /**
  * @file test_log_options.cpp
  * Testcases for LogOptions.

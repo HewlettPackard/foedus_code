@@ -2,7 +2,7 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/log/log_type.hpp>
+#include "foedus/log/log_type.hpp"
 #include <iostream>
 namespace foedus {
 namespace log {
@@ -13,7 +13,7 @@ namespace log {
 const char* get_log_type_name(LogCode code) {
   switch (code) {
     case kLogCodeInvalid: return "kLogCodeInvalid";
-#include <foedus/log/log_type.xmacro> // NOLINT
+#include "foedus/log/log_type.xmacro" // NOLINT
     default: return "UNKNOWN";
   }
 }

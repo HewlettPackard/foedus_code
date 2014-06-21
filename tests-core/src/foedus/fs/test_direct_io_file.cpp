@@ -2,19 +2,22 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/test_common.hpp>
-#include <foedus/engine_options.hpp>
-#include <foedus/engine.hpp>
-#include <foedus/fs/direct_io_file.hpp>
-#include <foedus/fs/filesystem.hpp>
-#include <foedus/memory/aligned_memory.hpp>
-#include <foedus/memory/engine_memory.hpp>
-#include <foedus/memory/numa_node_memory.hpp>
-#include <foedus/memory/numa_core_memory.hpp>
-#include <foedus/storage/array/array_log_types.hpp>
 #include <gtest/gtest.h>
+
 #include <cstring>
 #include <string>
+
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/test_common.hpp"
+#include "foedus/fs/direct_io_file.hpp"
+#include "foedus/fs/filesystem.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/storage/array/array_log_types.hpp"
+
 /**
  * @file test_direct_io_file.cpp
  * Testcases for DirectIoFile.

@@ -2,9 +2,12 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/externalize/externalizable.hpp>
-#include <foedus/snapshot/snapshot_options.hpp>
+#include "foedus/snapshot/snapshot_options.hpp"
+
 #include <string>
+
+#include "foedus/externalize/externalizable.hpp"
+
 namespace foedus {
 namespace snapshot {
 SnapshotOptions::SnapshotOptions() {

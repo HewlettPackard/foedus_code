@@ -2,27 +2,31 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/engine.hpp>
-#include <foedus/error_stack_batch.hpp>
-#include <foedus/assorted/atomic_fences.hpp>
-#include <foedus/debugging/stop_watch.hpp>
-#include <foedus/log/log_manager.hpp>
-#include <foedus/log/thread_log_buffer_impl.hpp>
-#include <foedus/snapshot/snapshot_metadata.hpp>
-#include <foedus/storage/storage_log_types.hpp>
-#include <foedus/storage/storage_manager_pimpl.hpp>
-#include <foedus/storage/storage_options.hpp>
-#include <foedus/storage/storage.hpp>
-#include <foedus/storage/array/array_storage.hpp>
-#include <foedus/storage/metadata.hpp>
-#include <foedus/thread/thread_pool.hpp>
-#include <foedus/thread/thread.hpp>
-#include <foedus/xct/xct_manager.hpp>
+#include "foedus/storage/storage_manager_pimpl.hpp"
+
 #include <glog/logging.h>
+
 #include <cstring>
+#include <memory>
 #include <string>
 #include <utility>
-#include <memory>
+
+#include "foedus/engine.hpp"
+#include "foedus/error_stack_batch.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/debugging/stop_watch.hpp"
+#include "foedus/log/log_manager.hpp"
+#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/snapshot/snapshot_metadata.hpp"
+#include "foedus/storage/metadata.hpp"
+#include "foedus/storage/storage.hpp"
+#include "foedus/storage/storage_log_types.hpp"
+#include "foedus/storage/storage_options.hpp"
+#include "foedus/storage/array/array_storage.hpp"
+#include "foedus/thread/thread.hpp"
+#include "foedus/thread/thread_pool.hpp"
+#include "foedus/xct/xct_manager.hpp"
+
 namespace foedus {
 namespace storage {
 ErrorStack StorageManagerPimpl::initialize_once() {

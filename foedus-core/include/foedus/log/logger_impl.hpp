@@ -4,23 +4,26 @@
  */
 #ifndef FOEDUS_LOG_LOGGER_IMPL_HPP_
 #define FOEDUS_LOG_LOGGER_IMPL_HPP_
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/log/fwd.hpp>
-#include <foedus/log/epoch_history.hpp>
-#include <foedus/log/log_id.hpp>
-#include <foedus/fs/fwd.hpp>
-#include <foedus/fs/path.hpp>
-#include <foedus/memory/aligned_memory.hpp>
-#include <foedus/thread/fwd.hpp>
-#include <foedus/thread/thread_id.hpp>
-#include <foedus/thread/stoppable_thread_impl.hpp>
-#include <foedus/epoch.hpp>
-#include <foedus/savepoint/fwd.hpp>
 #include <stdint.h>
+
 #include <iosfwd>
 #include <string>
 #include <vector>
+
+#include "foedus/epoch.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/fs/fwd.hpp"
+#include "foedus/fs/path.hpp"
+#include "foedus/log/epoch_history.hpp"
+#include "foedus/log/fwd.hpp"
+#include "foedus/log/log_id.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/savepoint/fwd.hpp"
+#include "foedus/thread/fwd.hpp"
+#include "foedus/thread/stoppable_thread_impl.hpp"
+#include "foedus/thread/thread_id.hpp"
+
 namespace foedus {
 namespace log {
 /**

@@ -4,12 +4,14 @@
  */
 #ifndef FOEDUS_SNAPSHOT_SNAPSHOT_METADATA_HPP_
 #define FOEDUS_SNAPSHOT_SNAPSHOT_METADATA_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/epoch.hpp>
-#include <foedus/externalize/externalizable.hpp>
-#include <foedus/snapshot/snapshot_id.hpp>
-#include <foedus/storage/fwd.hpp>
 #include <vector>
+
+#include "foedus/cxx11.hpp"
+#include "foedus/epoch.hpp"
+#include "foedus/externalize/externalizable.hpp"
+#include "foedus/snapshot/snapshot_id.hpp"
+#include "foedus/storage/fwd.hpp"
+
 namespace foedus {
 namespace snapshot {
 

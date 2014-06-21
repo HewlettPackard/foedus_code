@@ -2,12 +2,15 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/thread/impersonate_session.hpp>
-#include <foedus/thread/impersonate_task.hpp>
-#include <foedus/thread/impersonate_task_pimpl.hpp>
-#include <foedus/thread/thread.hpp>
+#include "foedus/thread/impersonate_session.hpp"
+
 #include <chrono>
 #include <iostream>
+
+#include "foedus/thread/impersonate_task.hpp"
+#include "foedus/thread/impersonate_task_pimpl.hpp"
+#include "foedus/thread/thread.hpp"
+
 namespace foedus {
 namespace thread {
 

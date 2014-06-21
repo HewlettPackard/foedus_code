@@ -72,7 +72,7 @@ namespace foedus {
 enum ErrorCode {
   /** 0 means no-error. */
   kErrorCodeOk = 0,
-#include <foedus/error_code.xmacro> // NOLINT
+#include "foedus/error_code.xmacro" // NOLINT
 };
 #undef X
 
@@ -95,7 +95,7 @@ const char* get_error_message(ErrorCode code);
 inline const char* get_error_name(ErrorCode code) {
   switch (code) {
     case kErrorCodeOk: return "kErrorCodeOk";
-#include <foedus/error_code.xmacro> // NOLINT
+#include "foedus/error_code.xmacro" // NOLINT
   }
   return "Unexpected error code";
 }
@@ -107,7 +107,7 @@ inline const char* get_error_name(ErrorCode code) {
 inline const char* get_error_message(ErrorCode code) {
   switch (code) {
     case kErrorCodeOk: return "no_error";
-#include <foedus/error_code.xmacro> // NOLINT
+#include "foedus/error_code.xmacro" // NOLINT
   }
   return "Unexpected error code";
 }

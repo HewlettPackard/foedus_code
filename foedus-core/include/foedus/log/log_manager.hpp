@@ -4,13 +4,15 @@
  */
 #ifndef FOEDUS_LOG_LOG_MANAGER_HPP_
 #define FOEDUS_LOG_LOG_MANAGER_HPP_
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/log/fwd.hpp>
-#include <foedus/log/log_id.hpp>
-#include <foedus/savepoint/fwd.hpp>
-#include <foedus/epoch.hpp>
 #include <stdint.h>
+
+#include "foedus/epoch.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/log/fwd.hpp"
+#include "foedus/log/log_id.hpp"
+#include "foedus/savepoint/fwd.hpp"
+
 namespace foedus {
 namespace log {
 /**

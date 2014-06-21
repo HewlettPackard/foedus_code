@@ -4,7 +4,7 @@
  */
 #ifndef FOEDUS_THREAD_FWD_HPP_
 #define FOEDUS_THREAD_FWD_HPP_
-#include <foedus/thread/thread_id.hpp>
+#include "foedus/thread/thread_id.hpp"
 /**
  * @file foedus/thread/fwd.hpp
  * @brief Forward declarations of classes in thread package.

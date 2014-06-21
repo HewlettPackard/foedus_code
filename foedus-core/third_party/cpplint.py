@@ -582,6 +582,19 @@ class _IncludeState(dict):
   def SetLastHeader(self, header_path):
     self._last_header = header_path
 
+  def CanonicalizeHierarchicalOrder(self, header_path):
+    """Converts path string such that "aaa/bbb.h" comes before "aaa/abc/eee.h".
+
+    - detects where the last "/" is in the path string
+    - insert "#" there so that it comes before everything under the folder
+
+    """
+    i = header_path.rfind('/')
+    if i < 0:
+      return header_path
+    else:
+      return header_path[:i+1] + '#' + header_path[i+1:]
+
   def CanonicalizeAlphabeticalOrder(self, header_path):
     """Returns a path canonicalized for alphabetical comparison.
 
@@ -3620,10 +3633,11 @@ def CheckIncludeLine(filename, clean_lines, linenum, include_state, error):
               '%s. Should be: %s.h, c system, c++ system, other.' %
               (error_message, fileinfo.BaseName()))
       canonical_include = include_state.CanonicalizeAlphabeticalOrder(include)
+      canonical_include = include_state.CanonicalizeHierarchicalOrder(canonical_include)
       if not include_state.IsInAlphabeticalOrder(
           clean_lines, linenum, canonical_include):
         error(filename, linenum, 'build/include_alpha', 4,
-              'Include "%s" not in alphabetical order' % include)
+              'Include "%s" not in alphabetical order.' % include)
       include_state.SetLastHeader(canonical_include)
 
   # Look for any of the stream classes that are part of standard C++.

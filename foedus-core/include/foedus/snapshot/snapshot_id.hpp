@@ -4,8 +4,10 @@
  */
 #ifndef FOEDUS_SNAPSHOT_SNAPSHOT_ID_HPP_
 #define FOEDUS_SNAPSHOT_SNAPSHOT_ID_HPP_
-#include <foedus/assert_nd.hpp>
 #include <stdint.h>
+
+#include "foedus/assert_nd.hpp"
+
 /**
  * @file foedus/snapshot/snapshot_id.hpp
  * @brief Typedefs of ID types used in snapshot package.

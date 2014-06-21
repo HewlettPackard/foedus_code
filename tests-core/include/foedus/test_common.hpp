@@ -4,9 +4,11 @@
  */
 #ifndef FOEDUS_TEST_COMMON_HPP_
 #define FOEDUS_TEST_COMMON_HPP_
-#include <foedus/fs/fwd.hpp>
-#include <foedus/engine_options.hpp>
+
 #include <string>
+
+#include "foedus/engine_options.hpp"
+#include "foedus/fs/fwd.hpp"
 
 namespace foedus {
   /**

@@ -4,14 +4,17 @@
  */
 #ifndef FOEDUS_EXTERNALIZE_EXTERNALIZABLE_HPP_
 #define FOEDUS_EXTERNALIZE_EXTERNALIZABLE_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/error_stack.hpp>
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/fs/fwd.hpp>
 #include <stdint.h>
+
 #include <iosfwd>
 #include <string>
 #include <vector>
+
+#include "foedus/cxx11.hpp"
+#include "foedus/error_stack.hpp"
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/fs/fwd.hpp"
+
 // forward declarations for tinyxml2. They should provide a header file for this...
 namespace tinyxml2 {
   class XMLDocument;

@@ -4,9 +4,11 @@
  */
 #ifndef FOEDUS_ASSORTED_CONST_DIV_HPP_
 #define FOEDUS_ASSORTED_CONST_DIV_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/assert_nd.hpp>
 #include <stdint.h>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/cxx11.hpp"
+
 namespace foedus {
 namespace assorted {
 const uint32_t kPower2To31 = 1U << 31;

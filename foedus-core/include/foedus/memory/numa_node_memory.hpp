@@ -4,17 +4,19 @@
  */
 #ifndef FOEDUS_MEMORY_NUMA_NODE_MEMORY_HPP_
 #define FOEDUS_MEMORY_NUMA_NODE_MEMORY_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/error_stack.hpp>
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/log/log_id.hpp>
-#include <foedus/memory/fwd.hpp>
-#include <foedus/memory/aligned_memory.hpp>
-#include <foedus/memory/page_pool.hpp>
-#include <foedus/thread/thread_id.hpp>
-#include <foedus/xct/fwd.hpp>
 #include <vector>
+
+#include "foedus/cxx11.hpp"
+#include "foedus/error_stack.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/log/log_id.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/memory/fwd.hpp"
+#include "foedus/memory/page_pool.hpp"
+#include "foedus/thread/thread_id.hpp"
+#include "foedus/xct/fwd.hpp"
+
 namespace foedus {
 namespace memory {
 /**

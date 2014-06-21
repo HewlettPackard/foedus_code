@@ -8,18 +8,18 @@
 // rather than forward declarations of option classes for each module, we include them here.
 // these are anyway very small header files, and demanding user code to include each of them
 // won't fly. further, just holding instances, rather than pointers, makes (de)allocation simpler.
-#include <foedus/cxx11.hpp>
-#include <foedus/externalize/externalizable.hpp>
-#include <foedus/cache/cache_options.hpp>
-#include <foedus/debugging/debugging_options.hpp>
-#include <foedus/log/log_options.hpp>
-#include <foedus/memory/memory_options.hpp>
-#include <foedus/restart/restart_options.hpp>
-#include <foedus/savepoint/savepoint_options.hpp>
-#include <foedus/snapshot/snapshot_options.hpp>
-#include <foedus/storage/storage_options.hpp>
-#include <foedus/thread/thread_options.hpp>
-#include <foedus/xct/xct_options.hpp>
+#include "foedus/cxx11.hpp"
+#include "foedus/cache/cache_options.hpp"
+#include "foedus/debugging/debugging_options.hpp"
+#include "foedus/externalize/externalizable.hpp"
+#include "foedus/log/log_options.hpp"
+#include "foedus/memory/memory_options.hpp"
+#include "foedus/restart/restart_options.hpp"
+#include "foedus/savepoint/savepoint_options.hpp"
+#include "foedus/snapshot/snapshot_options.hpp"
+#include "foedus/storage/storage_options.hpp"
+#include "foedus/thread/thread_options.hpp"
+#include "foedus/xct/xct_options.hpp"
 namespace foedus {
 /**
  * @brief Set of option values given to the engine at start-up.

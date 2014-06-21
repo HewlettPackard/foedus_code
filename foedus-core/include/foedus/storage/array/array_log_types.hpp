@@ -4,21 +4,24 @@
  */
 #ifndef FOEDUS_STORAGE_ARRAY_LOG_TYPES_HPP_
 #define FOEDUS_STORAGE_ARRAY_LOG_TYPES_HPP_
-#include <foedus/assert_nd.hpp>
-#include <foedus/compiler.hpp>
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/assorted/atomic_fences.hpp>
-#include <foedus/log/common_log_types.hpp>
-#include <foedus/log/log_type.hpp>
-#include <foedus/storage/record.hpp>
-#include <foedus/storage/storage_id.hpp>
-#include <foedus/storage/array/fwd.hpp>
-#include <foedus/storage/array/array_storage.hpp>
-#include <foedus/storage/array/array_id.hpp>
-#include <foedus/xct/xct_id.hpp>
 #include <stdint.h>
-#include <iosfwd>
+
 #include <cstring>
+#include <iosfwd>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/compiler.hpp"
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/log/common_log_types.hpp"
+#include "foedus/log/log_type.hpp"
+#include "foedus/storage/record.hpp"
+#include "foedus/storage/storage_id.hpp"
+#include "foedus/storage/array/array_id.hpp"
+#include "foedus/storage/array/array_storage.hpp"
+#include "foedus/storage/array/fwd.hpp"
+#include "foedus/xct/xct_id.hpp"
+
 /**
  * @file foedus/storage/array/array_log_types.hpp
  * @brief Declares all log types used in this storage type.

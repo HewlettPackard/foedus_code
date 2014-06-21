@@ -4,20 +4,22 @@
  */
 #ifndef FOEDUS_XCT_XCT_INL_HPP_
 #define FOEDUS_XCT_XCT_INL_HPP_
-#include <foedus/assert_nd.hpp>
-#include <foedus/compiler.hpp>
-#include <foedus/error_stack.hpp>
-#include <foedus/assorted/atomic_fences.hpp>
-#include <foedus/storage/record.hpp>
-#include <foedus/xct/xct.hpp>
-#include <foedus/xct/xct_access.hpp>
-// For log verification. Only in debug mode
-#ifndef NDEBUG
-#include <foedus/log/log_type_invoke.hpp>
-#endif  // NDEBUG
-
 #include <cstring>
 #include <iosfwd>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/compiler.hpp"
+#include "foedus/error_stack.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
+
+// For log verification. Only in debug mode
+#ifndef NDEBUG
+#include "foedus/log/log_type_invoke.hpp"
+#endif  // NDEBUG
+
+#include "foedus/storage/record.hpp"
+#include "foedus/xct/xct.hpp"
+#include "foedus/xct/xct_access.hpp"
 
 /**
  * @file foedus/xct/xct_inl.hpp

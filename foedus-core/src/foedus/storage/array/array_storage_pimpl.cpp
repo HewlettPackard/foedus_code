@@ -2,31 +2,33 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/storage/record.hpp>
-#include <foedus/storage/array/array_id.hpp>
-#include <foedus/storage/array/array_log_types.hpp>
-#include <foedus/storage/array/array_metadata.hpp>
-#include <foedus/storage/array/array_storage.hpp>
-#include <foedus/storage/array/array_storage_pimpl.hpp>
-#include <foedus/storage/array/array_page_impl.hpp>
-#include <foedus/storage/storage_manager.hpp>
-#include <foedus/storage/storage_manager_pimpl.hpp>
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/thread/thread.hpp>
-#include <foedus/memory/memory_id.hpp>
-#include <foedus/memory/engine_memory.hpp>
-#include <foedus/memory/page_pool.hpp>
-#include <foedus/xct/xct.hpp>
-#include <foedus/xct/xct_inl.hpp>
-#include <foedus/xct/xct_manager.hpp>
-#include <foedus/log/thread_log_buffer_impl.hpp>
-#include <foedus/log/log_type.hpp>
-#include <foedus/engine.hpp>
+#include "foedus/storage/array/array_storage_pimpl.hpp"
+
 #include <glog/logging.h>
-#include <cinttypes>  // for std::lldiv
-#include <cstdlib>  // for std::lldiv_t
+
 #include <string>
 #include <vector>
+
+#include "foedus/engine.hpp"
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/log/log_type.hpp"
+#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/memory_id.hpp"
+#include "foedus/memory/page_pool.hpp"
+#include "foedus/storage/record.hpp"
+#include "foedus/storage/storage_manager.hpp"
+#include "foedus/storage/storage_manager_pimpl.hpp"
+#include "foedus/storage/array/array_id.hpp"
+#include "foedus/storage/array/array_log_types.hpp"
+#include "foedus/storage/array/array_metadata.hpp"
+#include "foedus/storage/array/array_page_impl.hpp"
+#include "foedus/storage/array/array_storage.hpp"
+#include "foedus/thread/thread.hpp"
+#include "foedus/xct/xct.hpp"
+#include "foedus/xct/xct_inl.hpp"
+#include "foedus/xct/xct_manager.hpp"
+
 namespace foedus {
 namespace storage {
 namespace array {

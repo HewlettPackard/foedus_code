@@ -4,14 +4,16 @@
  */
 #ifndef FOEDUS_STORAGE_STORAGE_MANAGER_HPP_
 #define FOEDUS_STORAGE_STORAGE_MANAGER_HPP_
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/snapshot/fwd.hpp>
-#include <foedus/storage/fwd.hpp>
-#include <foedus/storage/storage_id.hpp>
-#include <foedus/storage/array/fwd.hpp>
-#include <foedus/thread/fwd.hpp>
 #include <string>
+
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/snapshot/fwd.hpp"
+#include "foedus/storage/fwd.hpp"
+#include "foedus/storage/storage_id.hpp"
+#include "foedus/storage/array/fwd.hpp"
+#include "foedus/thread/fwd.hpp"
+
 namespace foedus {
 namespace storage {
 /**

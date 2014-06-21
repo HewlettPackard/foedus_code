@@ -2,22 +2,26 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/engine.hpp>
-#include <foedus/engine_options.hpp>
-#include <foedus/error_stack_batch.hpp>
-#include <foedus/assorted/atomic_fences.hpp>
-#include <foedus/fs/filesystem.hpp>
-#include <foedus/fs/path.hpp>
-#include <foedus/log/log_manager.hpp>
-#include <foedus/snapshot/log_gleaner_impl.hpp>
-#include <foedus/snapshot/snapshot_manager_pimpl.hpp>
-#include <foedus/snapshot/snapshot_options.hpp>
-#include <foedus/snapshot/snapshot_metadata.hpp>
-#include <foedus/storage/storage_manager.hpp>
-#include <foedus/debugging/stop_watch.hpp>
+#include "foedus/snapshot/snapshot_manager_pimpl.hpp"
+
 #include <glog/logging.h>
+
 #include <chrono>
 #include <string>
+
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/error_stack_batch.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/debugging/stop_watch.hpp"
+#include "foedus/fs/filesystem.hpp"
+#include "foedus/fs/path.hpp"
+#include "foedus/log/log_manager.hpp"
+#include "foedus/snapshot/log_gleaner_impl.hpp"
+#include "foedus/snapshot/snapshot_metadata.hpp"
+#include "foedus/snapshot/snapshot_options.hpp"
+#include "foedus/storage/storage_manager.hpp"
+
 namespace foedus {
 namespace snapshot {
 const SnapshotOptions& SnapshotManagerPimpl::get_option() const {

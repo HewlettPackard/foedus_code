@@ -2,9 +2,11 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/test_common.hpp>
-#include <foedus/memory/aligned_memory.hpp>
 #include <gtest/gtest.h>
+
+#include "foedus/test_common.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+
 /**
  * @file test_aligned_memory.cpp
  * Testcases for AlignedMemory.

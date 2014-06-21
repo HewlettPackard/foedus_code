@@ -2,17 +2,21 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/fs/device_emulation_options.hpp>
-#include <foedus/fs/direct_io_file.hpp>
-#include <foedus/fs/filesystem.hpp>
-#include <foedus/memory/aligned_memory.hpp>
+#include "foedus/fs/direct_io_file.hpp"
+
 #include <fcntl.h>
 #include <glog/logging.h>
-#include <foedus/assert_nd.hpp>
+
 #include <ostream>
 #include <sstream>
 #include <string>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/fs/device_emulation_options.hpp"
+#include "foedus/fs/filesystem.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+
 namespace foedus {
 namespace fs {
 const uint64_t kOdirectAlignment = 0x1000;

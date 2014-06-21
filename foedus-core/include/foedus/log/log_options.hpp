@@ -4,13 +4,16 @@
  */
 #ifndef FOEDUS_LOG_LOG_OPTIONS_HPP_
 #define FOEDUS_LOG_LOG_OPTIONS_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/externalize/externalizable.hpp>
-#include <foedus/fs/device_emulation_options.hpp>
-#include <foedus/log/log_id.hpp>
 #include <stdint.h>
+
 #include <string>
 #include <vector>
+
+#include "foedus/cxx11.hpp"
+#include "foedus/externalize/externalizable.hpp"
+#include "foedus/fs/device_emulation_options.hpp"
+#include "foedus/log/log_id.hpp"
+
 namespace foedus {
 namespace log {
 /**

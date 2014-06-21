@@ -4,13 +4,15 @@
  */
 #ifndef FOEDUS_MEMORY_PAGE_RESOLVER_HPP_
 #define FOEDUS_MEMORY_PAGE_RESOLVER_HPP_
-#include <foedus/compiler.hpp>
-#include <foedus/cxx11.hpp>
-#include <foedus/storage/page.hpp>
-#include <foedus/storage/storage_id.hpp>
-#include <foedus/thread/thread_id.hpp>
-#include <foedus/assert_nd.hpp>
 #include <cstring>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/compiler.hpp"
+#include "foedus/cxx11.hpp"
+#include "foedus/storage/page.hpp"
+#include "foedus/storage/storage_id.hpp"
+#include "foedus/thread/thread_id.hpp"
+
 namespace foedus {
 namespace memory {
 /**

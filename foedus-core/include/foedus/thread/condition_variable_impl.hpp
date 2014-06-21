@@ -4,13 +4,16 @@
  */
 #ifndef FOEDUS_THREAD_CONDITION_VARIABLE_IMPL_HPP_
 #define FOEDUS_THREAD_CONDITION_VARIABLE_IMPL_HPP_
-#include <foedus/assert_nd.hpp>
-#include <foedus/assorted/assorted_func.hpp>
 #include <stdint.h>
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/assorted/assorted_func.hpp"
+
 namespace foedus {
 namespace thread {
 /**

@@ -4,13 +4,15 @@
  */
 #ifndef FOEDUS_STORAGE_ARRAY_ARRAY_PAGE_HPP_
 #define FOEDUS_STORAGE_ARRAY_ARRAY_PAGE_HPP_
-#include <foedus/storage/record.hpp>
-#include <foedus/storage/storage_id.hpp>
-#include <foedus/storage/array/array_id.hpp>
-#include <foedus/xct/xct_id.hpp>
-#include <foedus/assert_nd.hpp>
-#include <foedus/compiler.hpp>
 #include <stdint.h>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/compiler.hpp"
+#include "foedus/storage/record.hpp"
+#include "foedus/storage/storage_id.hpp"
+#include "foedus/storage/array/array_id.hpp"
+#include "foedus/xct/xct_id.hpp"
+
 namespace foedus {
 namespace storage {
 namespace array {

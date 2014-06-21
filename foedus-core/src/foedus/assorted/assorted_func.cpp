@@ -2,15 +2,15 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/assorted/assorted_func.hpp>
+#include "foedus/assorted/assorted_func.hpp"
 #ifdef __GNUC__  // for get_pretty_type_name()
 #include <cxxabi.h>
 #endif  // __GNUC__
 #include <stdint.h>
 #include <cstdlib>
 #include <cstring>
-#include <string>
 #include <sstream>
+#include <string>
 namespace foedus {
 namespace assorted {
 
