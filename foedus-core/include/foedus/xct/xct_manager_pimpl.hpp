@@ -4,15 +4,17 @@
  */
 #ifndef FOEDUS_XCT_XCT_MANAGER_PIMPL_HPP_
 #define FOEDUS_XCT_XCT_MANAGER_PIMPL_HPP_
-#include <foedus/epoch.hpp>
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/xct/fwd.hpp>
-#include <foedus/xct/xct_id.hpp>
-#include <foedus/thread/condition_variable_impl.hpp>
-#include <foedus/thread/fwd.hpp>
-#include <foedus/thread/stoppable_thread_impl.hpp>
 #include <atomic>
+
+#include "foedus/epoch.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/thread/condition_variable_impl.hpp"
+#include "foedus/thread/fwd.hpp"
+#include "foedus/thread/stoppable_thread_impl.hpp"
+#include "foedus/xct/fwd.hpp"
+#include "foedus/xct/xct_id.hpp"
+
 namespace foedus {
 namespace xct {
 /**

@@ -22,25 +22,6 @@
  * @section RESULTS Latest Results
  * 20140521 12M tps
  */
-#include <foedus/error_stack.hpp>
-#include <foedus/engine.hpp>
-#include <foedus/engine_options.hpp>
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/assorted/atomic_fences.hpp>
-#include <foedus/assorted/uniform_random.hpp>
-#include <foedus/fs/filesystem.hpp>
-#include <foedus/fs/path.hpp>
-#include <foedus/memory/aligned_memory.hpp>
-#include <foedus/memory/numa_node_memory.hpp>
-#include <foedus/memory/numa_core_memory.hpp>
-#include <foedus/thread/rendezvous_impl.hpp>
-#include <foedus/thread/thread_pool.hpp>
-#include <foedus/thread/thread.hpp>
-#include <foedus/storage/storage_manager.hpp>
-#include <foedus/storage/array/array_metadata.hpp>
-#include <foedus/storage/array/array_storage.hpp>
-#include <foedus/xct/xct_manager.hpp>
-#include <foedus/debugging/debugging_supports.hpp>
 #include <atomic>
 #include <chrono>
 #include <iostream>
@@ -48,6 +29,26 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/error_stack.hpp"
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/assorted/uniform_random.hpp"
+#include "foedus/debugging/debugging_supports.hpp"
+#include "foedus/fs/filesystem.hpp"
+#include "foedus/fs/path.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/storage/storage_manager.hpp"
+#include "foedus/storage/array/array_metadata.hpp"
+#include "foedus/storage/array/array_storage.hpp"
+#include "foedus/thread/rendezvous_impl.hpp"
+#include "foedus/thread/thread.hpp"
+#include "foedus/thread/thread_pool.hpp"
+#include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 namespace storage {

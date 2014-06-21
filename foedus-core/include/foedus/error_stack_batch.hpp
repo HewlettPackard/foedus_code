@@ -4,10 +4,12 @@
  */
 #ifndef FOEDUS_ERROR_STACK_BATCH_HPP_
 #define FOEDUS_ERROR_STACK_BATCH_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/error_stack.hpp>
 #include <iosfwd>
 #include <vector>
+
+#include "foedus/cxx11.hpp"
+#include "foedus/error_stack.hpp"
+
 namespace foedus {
 /**
  * @brief Batches zero or more ErrorStack objects to represent in one ErrorStack.

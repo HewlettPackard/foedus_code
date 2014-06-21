@@ -4,16 +4,18 @@
  */
 #ifndef FOEDUS_MEMORY_NUMA_CORE_MEMORY_HPP_
 #define FOEDUS_MEMORY_NUMA_CORE_MEMORY_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/error_stack.hpp>
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/memory/fwd.hpp>
-#include <foedus/memory/aligned_memory.hpp>
-#include <foedus/memory/memory_id.hpp>
-#include <foedus/thread/thread_id.hpp>
-#include <foedus/xct/fwd.hpp>
 #include <stdint.h>
+
+#include "foedus/cxx11.hpp"
+#include "foedus/error_stack.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/memory/fwd.hpp"
+#include "foedus/memory/memory_id.hpp"
+#include "foedus/thread/thread_id.hpp"
+#include "foedus/xct/fwd.hpp"
+
 namespace foedus {
 namespace memory {
 /**

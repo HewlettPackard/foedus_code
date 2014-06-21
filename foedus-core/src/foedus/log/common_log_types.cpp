@@ -2,14 +2,17 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/log/common_log_types.hpp>
-#include <foedus/log/log_type.hpp>
-#include <foedus/log/log_manager.hpp>
-#include <foedus/log/logger_impl.hpp>
-#include <foedus/thread/thread.hpp>
-#include <foedus/engine.hpp>
+#include "foedus/log/common_log_types.hpp"
+
 #include <ostream>
+
+#include "foedus/engine.hpp"
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/log/log_manager.hpp"
+#include "foedus/log/log_type.hpp"
+#include "foedus/log/logger_impl.hpp"
+#include "foedus/thread/thread.hpp"
+
 namespace foedus {
 namespace log {
 std::ostream& operator<<(std::ostream& o, const LogHeader& v) {

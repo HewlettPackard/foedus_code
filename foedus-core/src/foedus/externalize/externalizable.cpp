@@ -2,17 +2,20 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/externalize/externalizable.hpp>
-#include <foedus/externalize/tinyxml_wrapper.hpp>
-#include <foedus/fs/filesystem.hpp>
-#include <foedus/fs/path.hpp>
+#include "foedus/externalize/externalizable.hpp"
+
 #include <tinyxml2.h>
-#include <ostream>
+
 #include <cstring>
+#include <ostream>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/externalize/tinyxml_wrapper.hpp"
+#include "foedus/fs/filesystem.hpp"
+#include "foedus/fs/path.hpp"
 
 namespace foedus {
 namespace externalize {

@@ -4,16 +4,19 @@
  */
 #ifndef FOEDUS_LOG_LOG_MANAGER_PIMPL_HPP_
 #define FOEDUS_LOG_LOG_MANAGER_PIMPL_HPP_
-#include <foedus/epoch.hpp>
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/log/fwd.hpp>
-#include <foedus/savepoint/fwd.hpp>
-#include <foedus/thread/condition_variable_impl.hpp>
-#include <foedus/thread/thread_id.hpp>
 #include <stdint.h>
+
 #include <atomic>
 #include <vector>
+
+#include "foedus/epoch.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/log/fwd.hpp"
+#include "foedus/savepoint/fwd.hpp"
+#include "foedus/thread/condition_variable_impl.hpp"
+#include "foedus/thread/thread_id.hpp"
+
 namespace foedus {
 namespace log {
 /**

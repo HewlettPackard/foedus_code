@@ -4,16 +4,18 @@
  */
 #ifndef FOEDUS_STORAGE_STORAGE_MANAGER_PIMPL_HPP_
 #define FOEDUS_STORAGE_STORAGE_MANAGER_PIMPL_HPP_
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/snapshot/fwd.hpp>
-#include <foedus/storage/fwd.hpp>
-#include <foedus/storage/storage_id.hpp>
-#include <foedus/thread/fwd.hpp>
 #include <map>
 #include <mutex>
 #include <string>
 #include <vector>
+
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/snapshot/fwd.hpp"
+#include "foedus/storage/fwd.hpp"
+#include "foedus/storage/storage_id.hpp"
+#include "foedus/thread/fwd.hpp"
+
 namespace foedus {
 namespace storage {
 /**

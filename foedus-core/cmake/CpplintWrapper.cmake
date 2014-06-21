@@ -19,6 +19,12 @@ endif(PYTHONINTERP_FOUND)
 # Followings are our coding convention.
 set(LINT_FILTER) # basically everything Google C++ Style recommends. Except...
 
+# This the only rule cpplint.py disables by default. Enable it.
+# However, the default implementation of build/include_alpha in cpplint.py is a bit sloppy.
+# It doesn't correctly take care of "/" in include.
+# Thus we changed cpplint.py for this.
+set(LINT_FILTER ${LINT_FILTER},+build/include_alpha)
+
 # for logging and debug printing, we do need streams
 set(LINT_FILTER ${LINT_FILTER},-readability/streams)
 

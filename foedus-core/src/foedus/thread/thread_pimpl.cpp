@@ -2,23 +2,27 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/assert_nd.hpp>
-#include <foedus/engine.hpp>
-#include <foedus/error_stack_batch.hpp>
-#include <foedus/assorted/atomic_fences.hpp>
-#include <foedus/memory/engine_memory.hpp>
-#include <foedus/thread/impersonate_task_pimpl.hpp>
-#include <foedus/thread/numa_thread_scope.hpp>
-#include <foedus/thread/thread_pimpl.hpp>
-#include <foedus/thread/thread_pool.hpp>
-#include <foedus/thread/thread_pool_pimpl.hpp>
-#include <foedus/log/thread_log_buffer_impl.hpp>
-#include <foedus/xct/xct_manager.hpp>
+#include "foedus/thread/thread_pimpl.hpp"
+
 #include <glog/logging.h>
+
 #include <atomic>
 #include <future>
 #include <mutex>
 #include <thread>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/engine.hpp"
+#include "foedus/error_stack_batch.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/thread/impersonate_task_pimpl.hpp"
+#include "foedus/thread/numa_thread_scope.hpp"
+#include "foedus/thread/thread_pool.hpp"
+#include "foedus/thread/thread_pool_pimpl.hpp"
+#include "foedus/xct/xct_manager.hpp"
+
 namespace foedus {
 namespace thread {
 ThreadPimpl::ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder, ThreadId id)

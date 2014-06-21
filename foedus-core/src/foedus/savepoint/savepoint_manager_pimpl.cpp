@@ -2,18 +2,22 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/engine.hpp>
-#include <foedus/engine_options.hpp>
-#include <foedus/error_stack_batch.hpp>
-#include <foedus/assorted/atomic_fences.hpp>
-#include <foedus/fs/filesystem.hpp>
-#include <foedus/fs/path.hpp>
-#include <foedus/savepoint/savepoint_manager_pimpl.hpp>
-#include <foedus/savepoint/savepoint_options.hpp>
-#include <foedus/xct/xct_manager.hpp>
-#include <foedus/log/log_manager.hpp>
+#include "foedus/savepoint/savepoint_manager_pimpl.hpp"
+
 #include <glog/logging.h>
+
 #include <mutex>
+
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/error_stack_batch.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/fs/filesystem.hpp"
+#include "foedus/fs/path.hpp"
+#include "foedus/log/log_manager.hpp"
+#include "foedus/savepoint/savepoint_options.hpp"
+#include "foedus/xct/xct_manager.hpp"
+
 namespace foedus {
 namespace savepoint {
 ErrorStack SavepointManagerPimpl::initialize_once() {

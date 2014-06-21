@@ -4,18 +4,19 @@
  */
 #ifndef FOEDUS_LOG_LOG_TYPE_INVOKE_HPP_
 #define FOEDUS_LOG_LOG_TYPE_INVOKE_HPP_
-#include <foedus/assert_nd.hpp>
-#include <foedus/log/log_type.hpp>
-#include <foedus/thread/fwd.hpp>
-#include <foedus/xct/xct_id.hpp>
+#include <iosfwd>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/log/log_type.hpp"
+#include "foedus/thread/fwd.hpp"
+#include "foedus/xct/xct_id.hpp"
 
 // include all header files that declare log types defined in the xmacro.
 // unlike log_type.hpp, we need full declarations here. so this file would be big.
-#include <foedus/log/common_log_types.hpp>
-#include <foedus/storage/storage_log_types.hpp>
-#include <foedus/storage/array/array_log_types.hpp>
+#include "foedus/log/common_log_types.hpp"  // NOLINT(build/include_alpha)
+#include "foedus/storage/storage_log_types.hpp"
+#include "foedus/storage/array/array_log_types.hpp"
 
-#include <iosfwd>
 namespace foedus {
 namespace log {
 
@@ -77,7 +78,7 @@ inline void invoke_apply_record(const xct::XctId &xct_id, void *buffer,
   LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
   LogCode code = header->get_type();
   switch (code) {
-#include <foedus/log/log_type.xmacro> // NOLINT
+#include "foedus/log/log_type.xmacro" // NOLINT
     default:
       ASSERT_ND(false);
       return;
@@ -93,7 +94,7 @@ inline void invoke_assert_valid(void *buffer) {
   LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
   LogCode code = header->get_type();
   switch (code) {
-#include <foedus/log/log_type.xmacro> // NOLINT
+#include "foedus/log/log_type.xmacro" // NOLINT
     default:
       ASSERT_ND(false);
       return;

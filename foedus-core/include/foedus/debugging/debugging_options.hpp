@@ -4,10 +4,13 @@
  */
 #ifndef FOEDUS_DEBUGGING_DEBUGGING_OPTIONS_HPP_
 #define FOEDUS_DEBUGGING_DEBUGGING_OPTIONS_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/externalize/externalizable.hpp>
 #include <stdint.h>
+
 #include <string>
+
+#include "foedus/cxx11.hpp"
+#include "foedus/externalize/externalizable.hpp"
+
 namespace foedus {
 namespace debugging {
 /**

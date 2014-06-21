@@ -2,17 +2,20 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/compiler.hpp>
-#include <foedus/error_stack_batch.hpp>
-#include <foedus/memory/numa_core_memory.hpp>
-#include <foedus/memory/numa_node_memory.hpp>
-#include <foedus/memory/engine_memory.hpp>
-#include <foedus/xct/xct_id.hpp>
-#include <foedus/xct/xct_access.hpp>
-#include <foedus/xct/xct_options.hpp>
-#include <foedus/engine.hpp>
-#include <foedus/engine_options.hpp>
+#include "foedus/memory/numa_core_memory.hpp"
+
 #include <glog/logging.h>
+
+#include "foedus/compiler.hpp"
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/error_stack_batch.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/xct/xct_access.hpp"
+#include "foedus/xct/xct_id.hpp"
+#include "foedus/xct/xct_options.hpp"
+
 namespace foedus {
 namespace memory {
 NumaCoreMemory::NumaCoreMemory(Engine* engine, NumaNodeMemory *node_memory,

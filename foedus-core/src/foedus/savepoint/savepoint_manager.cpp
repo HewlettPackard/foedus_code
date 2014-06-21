@@ -2,8 +2,8 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/savepoint/savepoint_manager.hpp>
-#include <foedus/savepoint/savepoint_manager_pimpl.hpp>
+#include "foedus/savepoint/savepoint_manager.hpp"
+#include "foedus/savepoint/savepoint_manager_pimpl.hpp"
 namespace foedus {
 namespace savepoint {
 SavepointManager::SavepointManager(Engine* engine) : pimpl_(nullptr) {

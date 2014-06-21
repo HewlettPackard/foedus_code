@@ -2,9 +2,12 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/log/epoch_history.hpp>
+#include "foedus/log/epoch_history.hpp"
+
 #include <ostream>
+
+#include "foedus/assorted/assorted_func.hpp"
+
 namespace foedus {
 namespace log {
 std::ostream& operator<<(std::ostream& o, const EpochHistory& v) {

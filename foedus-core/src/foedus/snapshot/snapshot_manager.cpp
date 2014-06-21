@@ -2,8 +2,8 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/snapshot/snapshot_manager.hpp>
-#include <foedus/snapshot/snapshot_manager_pimpl.hpp>
+#include "foedus/snapshot/snapshot_manager.hpp"
+#include "foedus/snapshot/snapshot_manager_pimpl.hpp"
 namespace foedus {
 namespace snapshot {
 SnapshotManager::SnapshotManager(Engine* engine) : pimpl_(nullptr) {

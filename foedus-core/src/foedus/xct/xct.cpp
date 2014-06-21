@@ -2,17 +2,22 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/engine.hpp>
-#include <foedus/xct/xct_inl.hpp>
-#include <foedus/xct/xct_access.hpp>
-#include <foedus/xct/xct_manager.hpp>
-#include <foedus/storage/record.hpp>
-#include <foedus/thread/thread.hpp>
-#include <foedus/memory/numa_core_memory.hpp>
-#include <foedus/savepoint/savepoint_manager.hpp>
-#include <foedus/savepoint/savepoint.hpp>
+#include "foedus/xct/xct.hpp"
+
 #include <glog/logging.h>
+
 #include <ostream>
+
+#include "foedus/engine.hpp"
+#include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/savepoint/savepoint.hpp"
+#include "foedus/savepoint/savepoint_manager.hpp"
+#include "foedus/storage/record.hpp"
+#include "foedus/thread/thread.hpp"
+#include "foedus/xct/xct_access.hpp"
+#include "foedus/xct/xct_inl.hpp"
+#include "foedus/xct/xct_manager.hpp"
+
 namespace foedus {
 namespace xct {
 Xct::Xct(Engine* engine, thread::ThreadId thread_id) : engine_(engine), thread_id_(thread_id) {

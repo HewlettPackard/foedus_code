@@ -2,22 +2,16 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/fs/filesystem.hpp>
-#include <foedus/fs/path.hpp>
-#include <foedus/engine.hpp>
-#include <foedus/engine_options.hpp>
-#include <foedus/debugging/debugging_supports.hpp>
+#include "foedus/fs/filesystem.hpp"
 
 #include <dirent.h>
 #include <fcntl.h>
 #include <stdint.h>
-#include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/vfs.h>
 #include <unistd.h>
 
-#include <foedus/assert_nd.hpp>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -25,6 +19,14 @@
 #include <iostream>
 #include <string>
 #include <vector>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/debugging/debugging_supports.hpp"
+#include "foedus/fs/path.hpp"
+
 namespace foedus {
 namespace fs {
 FileStatus status(const Path& p) {

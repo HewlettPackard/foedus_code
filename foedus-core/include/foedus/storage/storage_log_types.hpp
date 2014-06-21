@@ -4,12 +4,15 @@
  */
 #ifndef FOEDUS_STORAGE_STORAGE_LOG_TYPES_HPP_
 #define FOEDUS_STORAGE_STORAGE_LOG_TYPES_HPP_
-#include <foedus/log/common_log_types.hpp>
-#include <foedus/storage/storage_id.hpp>
-#include <foedus/thread/fwd.hpp>
-#include <foedus/xct/fwd.hpp>
 #include <stdint.h>
+
 #include <iosfwd>
+
+#include "foedus/log/common_log_types.hpp"
+#include "foedus/storage/storage_id.hpp"
+#include "foedus/thread/fwd.hpp"
+#include "foedus/xct/fwd.hpp"
+
 /**
  * @file foedus/storage/storage_log_types.hpp
  * @brief Declares common log types for all (or at least multiple) storage types.

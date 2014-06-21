@@ -4,7 +4,6 @@
  */
 #ifndef FOEDUS_ASSORTED_ASSORTED_FUNC_HPP_
 #define FOEDUS_ASSORTED_ASSORTED_FUNC_HPP_
-#include <foedus/cxx11.hpp>
 #include <stdint.h>
 
 #if defined(__GNUC__)
@@ -14,6 +13,9 @@
 #include <iosfwd>
 #include <string>
 #include <typeinfo>
+
+#include "foedus/cxx11.hpp"
+
 namespace foedus {
 namespace assorted {
 

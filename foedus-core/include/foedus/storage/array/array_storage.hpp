@@ -4,17 +4,19 @@
  */
 #ifndef FOEDUS_STORAGE_ARRAY_ARRAY_STORAGE_HPP_
 #define FOEDUS_STORAGE_ARRAY_ARRAY_STORAGE_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/storage/fwd.hpp>
-#include <foedus/storage/storage.hpp>
-#include <foedus/storage/storage_id.hpp>
-#include <foedus/storage/array/array_id.hpp>
-#include <foedus/storage/array/fwd.hpp>
-#include <foedus/thread/fwd.hpp>
 #include <iosfwd>
 #include <string>
+
+#include "foedus/cxx11.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/storage/fwd.hpp"
+#include "foedus/storage/storage.hpp"
+#include "foedus/storage/storage_id.hpp"
+#include "foedus/storage/array/array_id.hpp"
+#include "foedus/storage/array/fwd.hpp"
+#include "foedus/thread/fwd.hpp"
+
 namespace foedus {
 namespace storage {
 namespace array {

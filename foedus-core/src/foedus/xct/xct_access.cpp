@@ -2,12 +2,15 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/xct/xct_access.hpp>
-#include <foedus/storage/record.hpp>
-#include <foedus/storage/storage.hpp>
-#include <foedus/log/log_type.hpp>
-#include <foedus/log/log_type_invoke.hpp>
+#include "foedus/xct/xct_access.hpp"
+
 #include <ostream>
+
+#include "foedus/log/log_type.hpp"
+#include "foedus/log/log_type_invoke.hpp"
+#include "foedus/storage/record.hpp"
+#include "foedus/storage/storage.hpp"
+
 namespace foedus {
 namespace xct {
 std::ostream& operator<<(std::ostream& o, const XctAccess& v) {

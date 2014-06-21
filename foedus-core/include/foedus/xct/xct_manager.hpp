@@ -4,11 +4,11 @@
  */
 #ifndef FOEDUS_XCT_XCT_MANAGER_HPP_
 #define FOEDUS_XCT_XCT_MANAGER_HPP_
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/xct/fwd.hpp>
-#include <foedus/xct/xct_id.hpp>
-#include <foedus/thread/fwd.hpp>
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/thread/fwd.hpp"
+#include "foedus/xct/fwd.hpp"
+#include "foedus/xct/xct_id.hpp"
 namespace foedus {
 namespace xct {
 /**

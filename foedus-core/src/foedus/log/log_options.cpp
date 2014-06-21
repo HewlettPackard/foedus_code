@@ -2,11 +2,14 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/externalize/externalizable.hpp>
-#include <foedus/log/log_options.hpp>
-#include <string>
+#include "foedus/log/log_options.hpp"
+
 #include <sstream>
+#include <string>
+
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/externalize/externalizable.hpp"
+
 namespace foedus {
 namespace log {
 LogOptions::LogOptions() {

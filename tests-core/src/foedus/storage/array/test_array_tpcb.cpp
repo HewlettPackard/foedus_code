@@ -2,24 +2,27 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/test_common.hpp>
-#include <foedus/engine_options.hpp>
-#include <foedus/engine.hpp>
-#include <foedus/epoch.hpp>
-#include <foedus/assorted/uniform_random.hpp>
-#include <foedus/storage/array/array_metadata.hpp>
-#include <foedus/storage/array/array_storage.hpp>
-#include <foedus/storage/storage_manager.hpp>
-#include <foedus/thread/rendezvous_impl.hpp>
-#include <foedus/thread/thread_pool.hpp>
-#include <foedus/thread/thread.hpp>
-#include <foedus/xct/xct_manager.hpp>
-#include <foedus/xct/xct.hpp>
-#include <foedus/xct/xct_access.hpp>
 #include <gtest/gtest.h>
 #include <stdint.h>
+
 #include <iostream>
 #include <vector>
+
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/epoch.hpp"
+#include "foedus/test_common.hpp"
+#include "foedus/assorted/uniform_random.hpp"
+#include "foedus/storage/storage_manager.hpp"
+#include "foedus/storage/array/array_metadata.hpp"
+#include "foedus/storage/array/array_storage.hpp"
+#include "foedus/thread/rendezvous_impl.hpp"
+#include "foedus/thread/thread.hpp"
+#include "foedus/thread/thread_pool.hpp"
+#include "foedus/xct/xct.hpp"
+#include "foedus/xct/xct_access.hpp"
+#include "foedus/xct/xct_manager.hpp"
+
 /**
  * @file tpch_array_tpcb.cpp
  * A minimal TPC-B on array storage.

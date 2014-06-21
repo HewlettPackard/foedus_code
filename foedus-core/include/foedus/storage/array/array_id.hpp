@@ -4,9 +4,12 @@
  */
 #ifndef FOEDUS_STORAGE_ARRAY_ARRAY_ID_HPP_
 #define FOEDUS_STORAGE_ARRAY_ARRAY_ID_HPP_
-#include <foedus/storage/storage_id.hpp>
 #include <stdint.h>
+
 #include <iosfwd>
+
+#include "foedus/storage/storage_id.hpp"
+
 /**
  * @file foedus/storage/array/array_id.hpp
  * @brief Definitions of IDs in this package and a few related constant values.

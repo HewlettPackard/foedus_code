@@ -4,9 +4,9 @@
  */
 #ifndef FOEDUS_STORAGE_RECORD_HPP_
 #define FOEDUS_STORAGE_RECORD_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/storage/storage_id.hpp>
-#include <foedus/xct/xct_id.hpp>
+#include "foedus/cxx11.hpp"
+#include "foedus/storage/storage_id.hpp"
+#include "foedus/xct/xct_id.hpp"
 namespace foedus {
 namespace storage {
 /**

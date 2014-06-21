@@ -4,10 +4,10 @@
  */
 #ifndef FOEDUS_UTIL_DUPM_LOG_HPP_
 #define FOEDUS_UTIL_DUPM_LOG_HPP_
-#include <foedus/epoch.hpp>
-#include <foedus/fs/path.hpp>
-#include <foedus/log/fwd.hpp>
-#include <foedus/log/common_log_types.hpp>
+#include "foedus/epoch.hpp"
+#include "foedus/fs/path.hpp"
+#include "foedus/log/fwd.hpp"
+#include "foedus/log/common_log_types.hpp"
 #include <stdint.h>
 #include <iosfwd>
 #include <vector>

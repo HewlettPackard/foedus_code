@@ -4,10 +4,12 @@
  */
 #ifndef FOEDUS_THREAD_RENDEZVOUS_IMPL_HPP_
 #define FOEDUS_THREAD_RENDEZVOUS_IMPL_HPP_
-#include <foedus/assert_nd.hpp>
-#include <foedus/thread/condition_variable_impl.hpp>
 #include <atomic>
 #include <chrono>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/thread/condition_variable_impl.hpp"
+
 namespace foedus {
 namespace thread {
 /**

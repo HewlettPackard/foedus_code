@@ -2,16 +2,20 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/assert_nd.hpp>
-#include <foedus/storage/array/array_log_types.hpp>
-#include <foedus/storage/array/array_metadata.hpp>
-#include <foedus/thread/thread.hpp>
+#include "foedus/storage/array/array_log_types.hpp"
+
 #include <glog/logging.h>
+
 #include <algorithm>
 #include <memory>
 #include <ostream>
 #include <string>
 #include <utility>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/storage/array/array_metadata.hpp"
+#include "foedus/thread/thread.hpp"
+
 namespace foedus {
 namespace storage {
 namespace array {

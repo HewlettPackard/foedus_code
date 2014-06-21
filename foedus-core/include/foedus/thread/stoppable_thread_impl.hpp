@@ -4,12 +4,14 @@
  */
 #ifndef FOEDUS_THREAD_STOPPABLE_THREAD_IMPL_HPP_
 #define FOEDUS_THREAD_STOPPABLE_THREAD_IMPL_HPP_
-#include <foedus/thread/condition_variable_impl.hpp>
 #include <atomic>
 #include <chrono>
 #include <iosfwd>
 #include <string>
 #include <thread>
+
+#include "foedus/thread/condition_variable_impl.hpp"
+
 namespace foedus {
 namespace thread {
 /**

@@ -2,18 +2,21 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/engine.hpp>
-#include <foedus/engine_options.hpp>
-#include <foedus/error_stack_batch.hpp>
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/memory/numa_core_memory.hpp>
-#include <foedus/memory/numa_node_memory.hpp>
-#include <foedus/memory/page_pool.hpp>
-#include <foedus/thread/thread_options.hpp>
-#include <foedus/xct/xct_access.hpp>
+#include "foedus/memory/numa_node_memory.hpp"
+
 #include <glog/logging.h>
 #include <numa.h>
-#include <foedus/assert_nd.hpp>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/error_stack_batch.hpp"
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/memory/page_pool.hpp"
+#include "foedus/thread/thread_options.hpp"
+#include "foedus/xct/xct_access.hpp"
+
 namespace foedus {
 namespace memory {
 NumaNodeMemory::NumaNodeMemory(Engine* engine, thread::ThreadGroupId numa_node)

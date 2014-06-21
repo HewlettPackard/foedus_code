@@ -4,10 +4,12 @@
  */
 #ifndef FOEDUS_THREAD_IMPERSONATE_SESSION_HPP_
 #define FOEDUS_THREAD_IMPERSONATE_SESSION_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/error_stack.hpp>
-#include <foedus/thread/fwd.hpp>
 #include <iosfwd>
+
+#include "foedus/cxx11.hpp"
+#include "foedus/error_stack.hpp"
+#include "foedus/thread/fwd.hpp"
+
 namespace foedus {
 namespace thread {
 /**

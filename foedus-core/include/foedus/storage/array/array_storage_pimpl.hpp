@@ -4,21 +4,24 @@
  */
 #ifndef FOEDUS_STORAGE_ARRAY_ARRAY_STORAGE_PIMPL_HPP_
 #define FOEDUS_STORAGE_ARRAY_ARRAY_STORAGE_PIMPL_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/compiler.hpp>
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/assorted/const_div.hpp>
-#include <foedus/memory/fwd.hpp>
-#include <foedus/storage/fwd.hpp>
-#include <foedus/storage/storage_id.hpp>
-#include <foedus/storage/array/array_id.hpp>
-#include <foedus/storage/array/array_metadata.hpp>
-#include <foedus/storage/array/fwd.hpp>
-#include <foedus/thread/fwd.hpp>
 #include <stdint.h>
+
 #include <string>
 #include <vector>
+
+#include "foedus/compiler.hpp"
+#include "foedus/cxx11.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/assorted/const_div.hpp"
+#include "foedus/memory/fwd.hpp"
+#include "foedus/storage/fwd.hpp"
+#include "foedus/storage/storage_id.hpp"
+#include "foedus/storage/array/array_id.hpp"
+#include "foedus/storage/array/array_metadata.hpp"
+#include "foedus/storage/array/fwd.hpp"
+#include "foedus/thread/fwd.hpp"
+
 namespace foedus {
 namespace storage {
 namespace array {

@@ -4,18 +4,21 @@
  */
 #ifndef FOEDUS_SNAPSHOT_LOG_MAPPER_IMPL_HPP_
 #define FOEDUS_SNAPSHOT_LOG_MAPPER_IMPL_HPP_
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/log/fwd.hpp>
-#include <foedus/log/log_id.hpp>
-#include <foedus/memory/aligned_memory.hpp>
-#include <foedus/snapshot/fwd.hpp>
-#include <foedus/snapshot/mapreduce_base_impl.hpp>
-#include <foedus/thread/fwd.hpp>
-#include <foedus/thread/stoppable_thread_impl.hpp>
 #include <stdint.h>
+
 #include <iosfwd>
 #include <string>
+
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/log/fwd.hpp"
+#include "foedus/log/log_id.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/snapshot/fwd.hpp"
+#include "foedus/snapshot/mapreduce_base_impl.hpp"
+#include "foedus/thread/fwd.hpp"
+#include "foedus/thread/stoppable_thread_impl.hpp"
+
 namespace foedus {
 namespace snapshot {
 /**

@@ -5,8 +5,8 @@
 #ifndef FOEDUS_INITIALIZABLE_HPP_
 #define FOEDUS_INITIALIZABLE_HPP_
 
-#include <foedus/cxx11.hpp>
-#include <foedus/error_stack.hpp>
+#include "foedus/cxx11.hpp"
+#include "foedus/error_stack.hpp"
 namespace foedus {
 /**
  * @defgroup INITIALIZABLE Initialize/Uninitialize Resources

@@ -4,8 +4,10 @@
  */
 #ifndef FOEDUS_ASSORTED_UNIFORM_RANDOM_HPP_
 #define FOEDUS_ASSORTED_UNIFORM_RANDOM_HPP_
-#include <foedus/memory/fwd.hpp>
 #include <stdint.h>
+
+#include "foedus/memory/fwd.hpp"
+
 namespace foedus {
 namespace assorted {
 /**

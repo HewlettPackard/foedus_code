@@ -4,11 +4,14 @@
  */
 #ifndef FOEDUS_LOG_EPOCH_HISTORY_HPP_
 #define FOEDUS_LOG_EPOCH_HISTORY_HPP_
-#include <foedus/epoch.hpp>
-#include <foedus/log/common_log_types.hpp>
-#include <foedus/log/log_id.hpp>
 #include <stdint.h>
+
 #include <iosfwd>
+
+#include "foedus/epoch.hpp"
+#include "foedus/log/common_log_types.hpp"
+#include "foedus/log/log_id.hpp"
+
 namespace foedus {
 namespace log {
 /**

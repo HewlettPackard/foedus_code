@@ -5,10 +5,13 @@
 #ifndef FOEDUS_MEMORY_ALIGNED_MEMORY_HPP_
 #define FOEDUS_MEMORY_ALIGNED_MEMORY_HPP_
 
-#include <foedus/cxx11.hpp>
-#include <foedus/assert_nd.hpp>
 #include <stdint.h>
+
 #include <iosfwd>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/cxx11.hpp"
+
 namespace foedus {
 namespace memory {
 /**

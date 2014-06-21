@@ -124,7 +124,8 @@ def exec_cpplint(files, cpplint_arguments):
     sys.stdout.write('Launching cpplint for ' + str(len(files)) + ' files.\n')
     # sys.stdout.write('Launching cpplint (' + cpplint_file + ') for ' + str(len(files))
     #                  + ' files. arguments: ' + ' '.join(args) + '\n')
-    proc = subprocess.Popen(args, stderr=subprocess.PIPE, close_fds=True)
+    proc = subprocess.Popen(args, bufsize=65536, stderr=subprocess.PIPE, close_fds=True)
+    proc.wait()
     has_error = False
     for line in proc.stderr:
         # This is annoying. Why cpplint writes this to _stderr_??

@@ -2,16 +2,20 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/debugging/debugging_supports.hpp>
-#include <foedus/engine.hpp>
-#include <foedus/engine_options.hpp>
+#include "foedus/debugging/debugging_supports.hpp"
+
 #include <glog/logging.h>
 #include <glog/vlog_is_on.h>
 #ifdef HAVE_GOOGLEPERFTOOLS
 #include <google/profiler.h>
 #endif  // HAVE_GOOGLEPERFTOOLS
+
 #include <mutex>
 #include <string>
+
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+
 namespace foedus {
 namespace debugging {
 /**

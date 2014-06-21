@@ -4,9 +4,9 @@
  */
 #ifndef FOEDUS_RESTART_RESTART_MANAGER_PIMPL_HPP_
 #define FOEDUS_RESTART_RESTART_MANAGER_PIMPL_HPP_
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/restart/fwd.hpp>
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/restart/fwd.hpp"
 namespace foedus {
 namespace restart {
 /**

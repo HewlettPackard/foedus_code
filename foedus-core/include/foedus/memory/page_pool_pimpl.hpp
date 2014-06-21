@@ -4,15 +4,17 @@
  */
 #ifndef FOEDUS_MEMORY_PAGE_POOL_PIMPL_HPP_
 #define FOEDUS_MEMORY_PAGE_POOL_PIMPL_HPP_
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/memory/aligned_memory.hpp>
-#include <foedus/memory/page_pool.hpp>
-#include <foedus/memory/page_resolver.hpp>
-#include <foedus/thread/thread_id.hpp>
-#include <foedus/assert_nd.hpp>
 #include <mutex>
 #include <vector>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/memory/page_pool.hpp"
+#include "foedus/memory/page_resolver.hpp"
+#include "foedus/thread/thread_id.hpp"
+
 namespace foedus {
 namespace memory {
 /**

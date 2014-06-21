@@ -2,8 +2,10 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/xct/xct_id.hpp>
+#include "foedus/xct/xct_id.hpp"
+
 #include <ostream>
+
 namespace foedus {
 namespace xct {
 std::ostream& operator<<(std::ostream& o, const XctId& v) {

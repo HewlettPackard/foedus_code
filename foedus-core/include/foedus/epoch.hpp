@@ -5,10 +5,13 @@
 #ifndef FOEDUS_EPOCH_HPP_
 #define FOEDUS_EPOCH_HPP_
 
-#include <foedus/assert_nd.hpp>
-#include <foedus/cxx11.hpp>
 #include <stdint.h>
+
 #include <iosfwd>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/cxx11.hpp"
+
 namespace foedus {
 /**
  * @ingroup ENGINE

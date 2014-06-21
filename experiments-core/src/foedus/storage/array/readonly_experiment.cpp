@@ -24,29 +24,31 @@
  *
  * @todo kPayload/kDurationMicro/kRecords are so far hard-coded constants, not program arguments.
  */
-#include <foedus/error_stack.hpp>
-#include <foedus/engine.hpp>
-#include <foedus/engine_options.hpp>
-#include <foedus/fs/filesystem.hpp>
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/assorted/uniform_random.hpp>
-#include <foedus/debugging/debugging_supports.hpp>
-#include <foedus/thread/thread_pool.hpp>
-#include <foedus/thread/thread.hpp>
-#include <foedus/memory/aligned_memory.hpp>
-#include <foedus/memory/numa_core_memory.hpp>
-#include <foedus/memory/numa_node_memory.hpp>
-#include <foedus/memory/engine_memory.hpp>
-#include <foedus/storage/storage_manager.hpp>
-#include <foedus/storage/array/array_metadata.hpp>
-#include <foedus/storage/array/array_storage.hpp>
-#include <foedus/xct/xct_manager.hpp>
-#include <unistd.h>
 #include <sys/mman.h>
+#include <unistd.h>
+
 #include <atomic>
 #include <iostream>
 #include <string>
 #include <vector>
+
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/error_stack.hpp"
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/uniform_random.hpp"
+#include "foedus/debugging/debugging_supports.hpp"
+#include "foedus/fs/filesystem.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/storage/storage_manager.hpp"
+#include "foedus/storage/array/array_metadata.hpp"
+#include "foedus/storage/array/array_storage.hpp"
+#include "foedus/thread/thread.hpp"
+#include "foedus/thread/thread_pool.hpp"
+#include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 namespace storage {

@@ -2,12 +2,15 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/fs/filesystem.hpp>
-#include <foedus/fs/path.hpp>
 #include <dirent.h>
+
 #include <ostream>
 #include <string>
 #include <vector>
+
+#include "foedus/fs/filesystem.hpp"
+#include "foedus/fs/path.hpp"
+
 namespace foedus {
 namespace fs {
 Path::Path(const std::string& s) {

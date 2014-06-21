@@ -2,22 +2,26 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/engine.hpp>
-#include <foedus/assert_nd.hpp>
-#include <foedus/assorted/atomic_fences.hpp>
-#include <foedus/log/thread_log_buffer_impl.hpp>
-#include <foedus/log/common_log_types.hpp>
-#include <foedus/log/log_manager.hpp>
-#include <foedus/memory/engine_memory.hpp>
-#include <foedus/memory/numa_core_memory.hpp>
-#include <foedus/savepoint/savepoint.hpp>
-#include <foedus/savepoint/savepoint_manager.hpp>
+#include "foedus/log/thread_log_buffer_impl.hpp"
+
 #include <glog/logging.h>
+
 #include <chrono>
-#include <ostream>
 #include <list>
+#include <ostream>
 #include <thread>
 #include <vector>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/engine.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/log/common_log_types.hpp"
+#include "foedus/log/log_manager.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/savepoint/savepoint.hpp"
+#include "foedus/savepoint/savepoint_manager.hpp"
+
 namespace foedus {
 namespace log {
 ThreadLogBuffer::ThreadLogBuffer(Engine* engine, thread::ThreadId thread_id)

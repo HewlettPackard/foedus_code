@@ -4,8 +4,8 @@
  */
 #ifndef FOEDUS_CACHE_CACHE_OPTIONS_HPP_
 #define FOEDUS_CACHE_CACHE_OPTIONS_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/externalize/externalizable.hpp>
+#include "foedus/cxx11.hpp"
+#include "foedus/externalize/externalizable.hpp"
 namespace foedus {
 namespace cache {
 /**

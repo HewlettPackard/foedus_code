@@ -4,22 +4,25 @@
  */
 #ifndef FOEDUS_SNAPSHOT_LOG_GLEANER_IMPL_HPP_
 #define FOEDUS_SNAPSHOT_LOG_GLEANER_IMPL_HPP_
-#include <foedus/assert_nd.hpp>
-#include <foedus/epoch.hpp>
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/log/fwd.hpp>
-#include <foedus/log/log_id.hpp>
-#include <foedus/memory/aligned_memory.hpp>
-#include <foedus/snapshot/fwd.hpp>
-#include <foedus/thread/fwd.hpp>
-#include <foedus/thread/rendezvous_impl.hpp>
 #include <stdint.h>
+
 #include <atomic>
 #include <iosfwd>
 #include <mutex>
 #include <string>
 #include <vector>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/epoch.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/log/fwd.hpp"
+#include "foedus/log/log_id.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/snapshot/fwd.hpp"
+#include "foedus/thread/fwd.hpp"
+#include "foedus/thread/rendezvous_impl.hpp"
+
 namespace foedus {
 namespace snapshot {
 /**

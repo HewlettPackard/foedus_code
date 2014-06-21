@@ -2,8 +2,8 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/assorted/uniform_random.hpp>
-#include <foedus/memory/aligned_memory.hpp>
+#include "foedus/assorted/uniform_random.hpp"
+#include "foedus/memory/aligned_memory.hpp"
 namespace foedus {
 namespace assorted {
 

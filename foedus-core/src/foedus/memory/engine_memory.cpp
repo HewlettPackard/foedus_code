@@ -2,16 +2,19 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/engine.hpp>
-#include <foedus/engine_options.hpp>
-#include <foedus/error_stack_batch.hpp>
-#include <foedus/debugging/debugging_supports.hpp>
-#include <foedus/memory/engine_memory.hpp>
-#include <foedus/memory/numa_node_memory.hpp>
-#include <foedus/storage/storage_id.hpp>
-#include <foedus/thread/thread_id.hpp>
+#include "foedus/memory/engine_memory.hpp"
+
 #include <glog/logging.h>
 #include <numa.h>
+
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/error_stack_batch.hpp"
+#include "foedus/debugging/debugging_supports.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/storage/storage_id.hpp"
+#include "foedus/thread/thread_id.hpp"
+
 namespace foedus {
 namespace memory {
 ErrorStack EngineMemory::initialize_once() {

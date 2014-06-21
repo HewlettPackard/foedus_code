@@ -4,13 +4,15 @@
  */
 #ifndef FOEDUS_THREAD_THREAD_PIMPL_HPP_
 #define FOEDUS_THREAD_THREAD_PIMPL_HPP_
-#include <foedus/initializable.hpp>
-#include <foedus/memory/fwd.hpp>
-#include <foedus/thread/fwd.hpp>
-#include <foedus/thread/stoppable_thread_impl.hpp>
-#include <foedus/log/thread_log_buffer_impl.hpp>
-#include <foedus/xct/xct.hpp>
 #include <atomic>
+
+#include "foedus/initializable.hpp"
+#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/memory/fwd.hpp"
+#include "foedus/thread/fwd.hpp"
+#include "foedus/thread/stoppable_thread_impl.hpp"
+#include "foedus/xct/xct.hpp"
+
 namespace foedus {
 namespace thread {
 /**

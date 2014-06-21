@@ -2,12 +2,15 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/engine.hpp>
-#include <foedus/memory/numa_core_memory.hpp>
-#include <foedus/memory/engine_memory.hpp>
-#include <foedus/thread/thread.hpp>
-#include <foedus/thread/thread_pimpl.hpp>
+#include "foedus/thread/thread.hpp"
+
 #include <ostream>
+
+#include "foedus/engine.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/thread/thread_pimpl.hpp"
+
 namespace foedus {
 namespace thread {
 Thread::Thread(Engine* engine, ThreadGroupPimpl* group, ThreadId id) : pimpl_(nullptr) {

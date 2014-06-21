@@ -2,8 +2,10 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/log/log_type_invoke.hpp>
+#include "foedus/log/log_type_invoke.hpp"
+
 #include <iostream>
+
 namespace foedus {
 namespace log {
 
@@ -13,7 +15,7 @@ void invoke_apply_engine(const xct::XctId &xct_id, void *buffer, thread::Thread*
   LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
   LogCode code = header->get_type();
   switch (code) {
-#include <foedus/log/log_type.xmacro> // NOLINT
+#include "foedus/log/log_type.xmacro" // NOLINT
     default:
       ASSERT_ND(false);
       return;
@@ -29,7 +31,7 @@ void invoke_apply_storage(const xct::XctId &xct_id, void *buffer,
   LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
   LogCode code = header->get_type();
   switch (code) {
-#include <foedus/log/log_type.xmacro> // NOLINT
+#include "foedus/log/log_type.xmacro" // NOLINT
     default:
       ASSERT_ND(false);
       return;
@@ -45,7 +47,7 @@ void invoke_ostream(void *buffer, std::ostream *ptr) {
   std::ostream &o = *ptr;
   switch (code) {
     case kLogCodeInvalid: break;
-#include <foedus/log/log_type.xmacro> // NOLINT
+#include "foedus/log/log_type.xmacro" // NOLINT
   }
 }
 #undef X

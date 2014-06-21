@@ -2,8 +2,10 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/snapshot/snapshot.hpp>
+#include "foedus/snapshot/snapshot.hpp"
+
 #include <ostream>
+
 namespace foedus {
 namespace snapshot {
 std::ostream& operator<<(std::ostream& o, const Snapshot& v) {

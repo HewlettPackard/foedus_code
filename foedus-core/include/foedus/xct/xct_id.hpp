@@ -4,16 +4,19 @@
  */
 #ifndef FOEDUS_XCT_XCT_ID_HPP_
 #define FOEDUS_XCT_XCT_ID_HPP_
-#include <foedus/assert_nd.hpp>
-#include <foedus/cxx11.hpp>
-#include <foedus/compiler.hpp>
-#include <foedus/epoch.hpp>
-#include <foedus/assorted/raw_atomics.hpp>
-#include <foedus/assorted/assorted_func.hpp>
-#include <foedus/assorted/atomic_fences.hpp>
-#include <foedus/thread/thread_id.hpp>
 #include <stdint.h>
+
 #include <iosfwd>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/compiler.hpp"
+#include "foedus/cxx11.hpp"
+#include "foedus/epoch.hpp"
+#include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/assorted/raw_atomics.hpp"
+#include "foedus/thread/thread_id.hpp"
+
 /**
  * @file foedus/xct/xct_id.hpp
  * @brief Definitions of IDs in this package and a few related constant values.

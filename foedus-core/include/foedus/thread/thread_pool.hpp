@@ -4,14 +4,17 @@
  */
 #ifndef FOEDUS_THREAD_THREAD_POOL_HPP_
 #define FOEDUS_THREAD_THREAD_POOL_HPP_
-#include <foedus/cxx11.hpp>
-#include <foedus/fwd.hpp>
-#include <foedus/initializable.hpp>
-#include <foedus/thread/fwd.hpp>
-#include <foedus/thread/impersonate_session.hpp>
-#include <foedus/thread/impersonate_task.hpp>
 #include <stdint.h>
+
 #include <iosfwd>
+
+#include "foedus/cxx11.hpp"
+#include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/thread/fwd.hpp"
+#include "foedus/thread/impersonate_session.hpp"
+#include "foedus/thread/impersonate_task.hpp"
+
 namespace foedus {
 namespace thread {
 
@@ -66,10 +69,10 @@ namespace thread {
  * @section EX Examples
  * Below is a trivial example to define a task and submit impersonation request.
  * @code{.cpp}
- * #include <foedus/engine.hpp>
- * #include <foedus/engine_options.hpp>
- * #include <foedus/thread/thread_pool.hpp>
- * #include <foedus/thread/thread.hpp>
+ * #include "foedus/engine.hpp"
+ * #include "foedus/engine_options.hpp"
+ * #include "foedus/thread/thread_pool.hpp"
+ * #include "foedus/thread/thread.hpp"
  *
  * class MyTask : public foedus::thread::ImpersonateTask {
  * public:

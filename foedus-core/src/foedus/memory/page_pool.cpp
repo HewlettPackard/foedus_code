@@ -2,14 +2,18 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/memory/page_pool.hpp>
-#include <foedus/memory/page_pool_pimpl.hpp>
-#include <foedus/memory/engine_memory.hpp>
-#include <foedus/memory/numa_node_memory.hpp>
-#include <foedus/engine.hpp>
-#include <foedus/engine_options.hpp>
+#include "foedus/memory/page_pool.hpp"
+
 #include <glog/logging.h>
+
 #include <cstring>
+
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/memory/page_pool_pimpl.hpp"
+
 namespace foedus {
 namespace memory {
 void PagePoolOffsetChunk::push_back(const PagePoolOffset* begin, const PagePoolOffset* end) {

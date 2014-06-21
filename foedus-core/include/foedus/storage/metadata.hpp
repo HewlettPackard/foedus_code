@@ -4,10 +4,12 @@
  */
 #ifndef FOEDUS_STORAGE_METADATA_HPP_
 #define FOEDUS_STORAGE_METADATA_HPP_
-#include <foedus/externalize/externalizable.hpp>
-#include <foedus/storage/storage_id.hpp>
 #include <iosfwd>
 #include <string>
+
+#include "foedus/externalize/externalizable.hpp"
+#include "foedus/storage/storage_id.hpp"
+
 namespace foedus {
 namespace storage {
 /**

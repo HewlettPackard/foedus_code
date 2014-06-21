@@ -2,14 +2,17 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <foedus/assert_nd.hpp>
-#include <foedus/debugging/stop_watch.hpp>
-#include <foedus/memory/aligned_memory.hpp>
+#include "foedus/memory/aligned_memory.hpp"
+
 #include <glog/logging.h>
 #include <numa.h>
+
 #include <cstdlib>
 #include <cstring>
 #include <ostream>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/debugging/stop_watch.hpp"
 
 namespace foedus {
 namespace memory {
