@@ -3,7 +3,9 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include "foedus/xct/xct_id.hpp"
+
 #include <ostream>
+
 namespace foedus {
 namespace xct {
 std::ostream& operator<<(std::ostream& o, const XctId& v) {

@@ -3,6 +3,7 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include <gtest/gtest.h>
+
 #include <cstdlib>
 namespace foedus {
 DEFINE_TEST_CASE_PACKAGE(DummyTest, foedus);

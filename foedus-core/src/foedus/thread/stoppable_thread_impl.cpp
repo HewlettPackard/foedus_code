@@ -3,11 +3,14 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include "foedus/thread/stoppable_thread_impl.hpp"
+
 #include <glog/logging.h>
+
 #include <ostream>
 #include <sstream>
 #include <string>
 #include <thread>
+
 namespace foedus {
 namespace thread {
 void StoppableThread::initialize(const std::string &name,

@@ -3,7 +3,9 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include "foedus/log/log_type.hpp"
+
 #include <iostream>
+
 namespace foedus {
 namespace log {
 // A bit tricky to get "a" from a in C macro.

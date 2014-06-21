@@ -3,7 +3,9 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include "foedus/log/log_type_invoke.hpp"
+
 #include <iostream>
+
 namespace foedus {
 namespace log {
 

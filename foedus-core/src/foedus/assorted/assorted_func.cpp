@@ -3,10 +3,12 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include "foedus/assorted/assorted_func.hpp"
+
 #ifdef __GNUC__  // for get_pretty_type_name()
 #include <cxxabi.h>
 #endif  // __GNUC__
 #include <stdint.h>
+
 #include <cstdlib>
 #include <cstring>
 #include <sstream>

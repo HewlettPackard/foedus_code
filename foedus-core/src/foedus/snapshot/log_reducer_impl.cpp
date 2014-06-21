@@ -5,6 +5,7 @@
 #include "foedus/snapshot/log_reducer_impl.hpp"
 
 #include <glog/logging.h>
+
 #include <ostream>
 #include <string>
 

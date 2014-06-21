@@ -148,7 +148,8 @@ _ERROR_CATEGORIES = [
   'build/header_guard',
   'build/include',
   'build/include_alpha',
-  'build/include_order',
+  'build/include_order',   # Modified by HP
+  'build/include_separator',  # Added by HP
   'build/include_what_you_use',
   'build/namespaces',
   'build/printf_format',
@@ -582,19 +583,6 @@ class _IncludeState(dict):
   def SetLastHeader(self, header_path):
     self._last_header = header_path
 
-  def CanonicalizeHierarchicalOrder(self, header_path):
-    """Converts path string such that "aaa/bbb.h" comes before "aaa/abc/eee.h".
-
-    - detects where the last "/" is in the path string
-    - insert "#" there so that it comes before everything under the folder
-
-    """
-    i = header_path.rfind('/')
-    if i < 0:
-      return header_path
-    else:
-      return header_path[:i+1] + '#' + header_path[i+1:]
-
   def CanonicalizeAlphabeticalOrder(self, header_path):
     """Returns a path canonicalized for alphabetical comparison.
 
@@ -609,6 +597,19 @@ class _IncludeState(dict):
       Canonicalized path.
     """
     return header_path.replace('-inl.h', '.h').replace('-', '_').lower()
+
+  def CanonicalizeHierarchicalOrder(self, header_path):
+    """Converts path string such that "aaa/bbb.h" comes before "aaa/abc/eee.h".
+
+    - detects where the last "/" is in the path string
+    - insert "#" there so that it comes before everything under the folder
+
+    """
+    i = header_path.rfind('/')
+    if i < 0:
+      return header_path
+    else:
+      return header_path[:i+1] + '#' + header_path[i+1:]
 
   def IsInAlphabeticalOrder(self, clean_lines, linenum, header_path):
     """Check if a header is in alphabetical order with the previous header.
@@ -626,10 +627,37 @@ class _IncludeState(dict):
     #
     # If previous line was a blank line, assume that the headers are
     # intentionally sorted the way they are.
-    if (self._last_header > header_path and
+    if (self.CanonicalizeHierarchicalOrder(self._last_header)
+          > self.CanonicalizeHierarchicalOrder(header_path) and
         not Match(r'^\s*$', clean_lines.elided[linenum - 1])):
       return False
     return True
+
+  def CheckIncludeSeparator(self, header_type):
+    """Returns a non-empty error message if the next header should have
+    been preceded by a blank line to separate include categories.
+
+    Args:
+      header_type: One of the _XXX_HEADER constants defined above.
+    """
+    if (self._section == self._INITIAL_SECTION):
+      return ''
+
+    error_message = ('%s should be separated from %s with a blank line' %
+                     (self._TYPE_NAMES[header_type],
+                      self._SECTION_NAMES[self._section]))
+
+    if header_type == _C_SYS_HEADER:
+      if self._section != self._C_SECTION:
+        return error_message
+    elif header_type == _CPP_SYS_HEADER:
+      if self._section != self._CPP_SECTION:
+        return error_message
+    elif header_type == _LIKELY_MY_HEADER or header_type == _POSSIBLE_MY_HEADER:
+      if self._section == self._C_SECTION or self._section == self._CPP_SECTION:
+        return error_message
+
+    return ''
 
   def CheckNextIncludeOrder(self, header_type):
     """Returns a non-empty error message if the next header is out of order.
@@ -3626,14 +3654,33 @@ def CheckIncludeLine(filename, clean_lines, linenum, include_state, error):
       # using a number of techniques. The include_state object keeps
       # track of the highest type seen, and complains if we see a
       # lower type after that.
+
+      # Additionally, we want to separate them with a blank line
+      found_blank_line = False
+      prev_linenum = linenum - 1
+      while prev_linenum >= 0:
+        if IsBlankLine(clean_lines.elided[prev_linenum]):
+          found_blank_line = True
+          break
+        elif clean_lines.elided[prev_linenum].find('#include') >= 0:
+          break
+        prev_linenum -= 1
+
+      if linenum > 0 and not found_blank_line:
+        error_message = include_state.CheckIncludeSeparator(
+            _ClassifyInclude(fileinfo, include, is_system))
+        if error_message:
+          error(filename, linenum, 'build/include_separator', 4,
+              '%s. Should be: %s.h, <blank line>, c system, <blank line>, c++ system, <blank line>, other.' %
+              (error_message, fileinfo.BaseName()))
+
       error_message = include_state.CheckNextIncludeOrder(
           _ClassifyInclude(fileinfo, include, is_system))
       if error_message:
         error(filename, linenum, 'build/include_order', 4,
-              '%s. Should be: %s.h, c system, c++ system, other.' %
+              '%s. Should be: %s.h, <blank line>, c system, <blank line>, c++ system, <blank line>, other.' %
               (error_message, fileinfo.BaseName()))
       canonical_include = include_state.CanonicalizeAlphabeticalOrder(include)
-      canonical_include = include_state.CanonicalizeHierarchicalOrder(canonical_include)
       if not include_state.IsInAlphabeticalOrder(
           clean_lines, linenum, canonical_include):
         error(filename, linenum, 'build/include_alpha', 4,

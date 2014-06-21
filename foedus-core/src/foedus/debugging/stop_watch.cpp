@@ -3,7 +3,9 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include "foedus/debugging/stop_watch.hpp"
+
 #include <chrono>
+
 namespace foedus {
 namespace debugging {
 

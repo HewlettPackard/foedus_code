@@ -3,8 +3,10 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 #include "foedus/assert_nd.hpp"
+
 #include <execinfo.h>
 #include <unistd.h>
+
 #include <cstdlib>
 #include <iostream>
 namespace foedus {
