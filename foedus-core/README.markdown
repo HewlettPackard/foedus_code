@@ -75,7 +75,7 @@ Here is a minimal example program to create a key-value storage and query on it.
     foedus::storage::array::ArrayStorage *array;
 
     class MyTask : public foedus::thread::ImpersonateTask {
-    public:
+     public:
       foedus::ErrorStack run(foedus::thread::Thread* context) {
         foedus::xct::XctManager& xct_manager = engine->get_xct_manager();
         WRAP_ERROR_CODE(xct_manager.begin_xct(context, foedus::xct::kSerializable));

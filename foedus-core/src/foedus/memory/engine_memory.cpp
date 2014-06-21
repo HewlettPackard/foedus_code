@@ -4,8 +4,8 @@
  */
 #include "foedus/memory/engine_memory.hpp"
 
-#include <glog/logging.h>
 #include <numa.h>
+#include <glog/logging.h>
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"

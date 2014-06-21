@@ -607,7 +607,7 @@ class _IncludeState(dict):
     """
     i = header_path.rfind('/')
     if i < 0:
-      return header_path
+      return '#' + header_path
     else:
       return header_path[:i+1] + '#' + header_path[i+1:]
 

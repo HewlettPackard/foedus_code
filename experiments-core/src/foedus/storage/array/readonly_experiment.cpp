@@ -24,8 +24,8 @@
  *
  * @todo kPayload/kDurationMicro/kRecords are so far hard-coded constants, not program arguments.
  */
-#include <sys/mman.h>
 #include <unistd.h>
+#include <sys/mman.h>
 
 #include <atomic>
 #include <iostream>
