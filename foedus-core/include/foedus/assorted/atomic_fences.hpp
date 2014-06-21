@@ -5,11 +5,11 @@
 #ifndef FOEDUS_ASSORTED_ATOMIC_FENCES_HPP_
 #define FOEDUS_ASSORTED_ATOMIC_FENCES_HPP_
 
-#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-#include <atomic>
-#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-
 #include "foedus/cxx11.hpp"
+
+#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
+#include <atomic>  // NOLINT(build/include_order) Needs the macro before include.
+#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 
 /**
  * @file foedus/assorted/atomic_fences.hpp
