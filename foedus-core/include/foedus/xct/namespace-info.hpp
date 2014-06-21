@@ -21,11 +21,11 @@
  *     foedus::ErrorStack run(foedus::thread::Thread* context) {
  *         foedus::Engine *engine = context->get_engine();
  *         foedus::xct::XctManager& xct_manager = engine->get_xct_manager();
- *         CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::kSerializable));
+ *         WRAP_ERROR_CODE(xct_manager.begin_xct(context, foedus::xct::kSerializable));
  *         ... // read/modify data. See storage module's document for examples.
  *         foedus::Epoch commit_epoch;
- *         CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
- *         CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
+ *         WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+ *         WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
  *         return foedus::kRetOk;
  *     }
  * }
@@ -41,10 +41,10 @@
  * // Example to start and commit several transactions
  * foedus::Epoch highest_commit_epoch;
  * for (int i = 0; i < 1000; ++i) {
- *   CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::kSerializable));
+ *   WRAP_ERROR_CODE(xct_manager.begin_xct(context, foedus::xct::kSerializable));
  *   ... // read/modify data. See storage module's document for examples.
  *   foedus::Epoch commit_epoch;
- *   CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+ *   WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
  *   highest_commit_epoch.store_max(commit_epoch);
  * }
  * CHECK_ERROR(xct_manager.wait_for_commit(highest_commit_epoch));

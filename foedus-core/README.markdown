@@ -78,12 +78,12 @@ Here is a minimal example program to create a key-value storage and query on it.
     public:
       foedus::ErrorStack run(foedus::thread::Thread* context) {
         foedus::xct::XctManager& xct_manager = engine->get_xct_manager();
-        CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::kSerializable));
+        WRAP_ERROR_CODE(xct_manager.begin_xct(context, foedus::xct::kSerializable));
         char buf[kPayload];
-        CHECK_ERROR(array->get_record(context, 123, buf));
+        WRAP_ERROR_CODE(array->get_record(context, 123, buf));
         foedus::Epoch commit_epoch;
-        CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-        CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
+        WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+        WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
         return foedus::kRetOk;
       }
     };
