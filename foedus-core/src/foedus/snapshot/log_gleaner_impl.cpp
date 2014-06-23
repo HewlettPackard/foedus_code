@@ -40,10 +40,7 @@ ErrorStack LogGleaner::initialize_once() {
       mappers_.push_back(new LogMapper(engine_, this, logger_id, node));
     }
 
-    for (uint16_t ordinal = 0; ordinal < options.snapshot_.partitions_per_node_; ++ordinal) {
-      PartitionId partition_id = options.snapshot_.partitions_per_node_ * node + ordinal;
-      reducers_.push_back(new LogReducer(engine_, this, partition_id, node));
-    }
+    reducers_.push_back(new LogReducer(engine_, this, node));
   }
 
   return kRetOk;

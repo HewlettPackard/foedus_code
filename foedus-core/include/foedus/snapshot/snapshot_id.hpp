@@ -29,18 +29,6 @@ namespace snapshot {
  */
 typedef uint16_t SnapshotId;
 
-/**
- * @brief Unique ID of Partition of snapshot files.
- * @ingroup SNAPSHOT
- * @details
- * Snapshot files are stored in partitions.
- * Each NUMA node exclusively owns one or more partition.
- * All storages partition their data into one of the partition without overlaps.
- * PartitionId is merely a (partitions_per_node * NUMA_node_id) + partition_ordinal_in_node.
- * Assumeing that there are at most 256 partitions per NUMA node, it always fits 16 bits.
- */
-typedef uint16_t PartitionId;
-
 const SnapshotId kNullSnapshotId = 0;
 
 /**

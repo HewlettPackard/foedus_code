@@ -11,6 +11,7 @@
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/memory/memory_id.hpp"
+#include "foedus/thread/thread_id.hpp"
 
 /**
  * @file foedus/storage/storage_id.hpp
@@ -37,6 +38,12 @@ const uint16_t kPageSize = 1 << 12;
  * The primary way to identify storages is this StorageId.
  */
 typedef uint32_t StorageId;
+
+/**
+ * @brief As partition=NUMA node, this is just a synonym of foedus::thread::ThreadGroupId.
+ * @ingroup STORAGE
+ */
+typedef thread::ThreadGroupId PartitionId;
 
 /**
  * @brief Page ID of a snapshot page.

@@ -84,11 +84,11 @@ namespace snapshot {
  */
 class LogReducer final : public MapReduceBase {
  public:
-  LogReducer(Engine* engine, LogGleaner* parent, PartitionId id, thread::ThreadGroupId numa_node)
-    : MapReduceBase(engine, parent, id, numa_node) {}
+  LogReducer(Engine* engine, LogGleaner* parent, thread::ThreadGroupId numa_node)
+    : MapReduceBase(engine, parent, numa_node, numa_node) {}
 
-  /** One LogReducer corresponds to one snapshot partition. */
-  PartitionId             get_id() const { return id_; }
+  /** One LogReducer corresponds to one NUMA node (partition). */
+  thread::ThreadGroupId   get_id() const { return id_; }
   std::string             to_string() const override {
     return std::string("LogReducer-") + std::to_string(id_);
   }

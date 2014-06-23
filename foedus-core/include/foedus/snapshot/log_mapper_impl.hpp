@@ -18,6 +18,7 @@
 #include "foedus/snapshot/mapreduce_base_impl.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
+#include "foedus/thread/thread_id.hpp"
 
 namespace foedus {
 namespace snapshot {
@@ -88,7 +89,7 @@ class LogMapper final : public MapReduceBase {
   /** just for reporting. */
   uint64_t                processed_log_count_;
 
-  memory::AlignedMemorySlice get_bucket_slice(PartitionId partition) {
+  memory::AlignedMemorySlice get_bucket_slice(thread::ThreadGroupId partition) {
     uint64_t bucket_size = static_cast<uint64_t>(bucket_size_kb_) << 10;
     return memory::AlignedMemorySlice(&buckets_memory_, bucket_size * partition, bucket_size);
   }

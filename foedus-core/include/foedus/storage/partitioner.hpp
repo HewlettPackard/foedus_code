@@ -12,7 +12,6 @@
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/log/fwd.hpp"
-#include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/storage/storage_id.hpp"
 
 namespace foedus {
@@ -73,9 +72,7 @@ class Partitioner {
    * Assume the scale when you optimize the implementation in derived classes.
    */
   virtual ErrorStack partition_batch(
-    const log::RecordLogType **logs,
-    uint32_t logs_count,
-    snapshot::PartitionId *results) const = 0;
+    const log::RecordLogType **logs, uint32_t logs_count, PartitionId *results) const = 0;
 
   /**
    * Implementation of ostream operator.

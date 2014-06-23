@@ -15,7 +15,6 @@
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/log/fwd.hpp"
-#include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/storage/partitioner.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/array/array_id.hpp"
@@ -64,7 +63,7 @@ class ArrayPartitioner CXX11_FINAL : public virtual Partitioner {
   void describe(std::ostream* o) const;
 
   ErrorStack partition_batch(
-    const log::RecordLogType** logs, uint32_t logs_count, snapshot::PartitionId* results) const;
+    const log::RecordLogType** logs, uint32_t logs_count, PartitionId* results) const;
 
  private:
   /** only for sanity check */
@@ -82,7 +81,7 @@ class ArrayPartitioner CXX11_FINAL : public virtual Partitioner {
   assorted::ConstDiv    bucket_size_div_;
 
   /** partition of each bucket. */
-  snapshot::PartitionId bucket_owners_[kInteriorFanout];
+  PartitionId           bucket_owners_[kInteriorFanout];
 };
 }  // namespace array
 }  // namespace storage

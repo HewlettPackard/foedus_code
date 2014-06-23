@@ -48,7 +48,7 @@ namespace snapshot {
  *
  * @section REDUCER Reducer
  * LogGleaner also launches a set of reducer threads (foedus::snapshot::LogReducer), one for each
- * snapshot partition. For each epoch, LogReducer sorts log entries sent from LogMapper.
+ * NUMA node. For each epoch, LogReducer sorts log entries sent from LogMapper.
  * The log entries are sorted by ordinal (*), then processed just like
  * usual APPLY at the end of transaction, but on top of snapshot files.
  *

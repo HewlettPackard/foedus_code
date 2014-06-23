@@ -48,9 +48,7 @@ ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
 
     // do we have enough direct children? if not, some partition will not receive buckets.
     // Although it's not a critical error, let's log it as an error.
-    snapshot::PartitionId total_partitions =
-      engine->get_options().thread_.group_count_ *
-      engine->get_options().snapshot_.partitions_per_node_;
+    PartitionId total_partitions = engine->get_options().thread_.group_count_;
 
     if (direct_children < total_partitions) {
       LOG(ERROR) << "Warning-like error: This array doesn't have enough direct children in root"
@@ -96,7 +94,7 @@ void ArrayPartitioner::describe(std::ostream* o_ptr) const {
 ErrorStack ArrayPartitioner::partition_batch(
   const log::RecordLogType** logs,
   uint32_t logs_count,
-  snapshot::PartitionId* results) const {
+  PartitionId* results) const {
   if (array_single_page_) {
     // then no partitioning possible.
     for (uint32_t i = 0; i < logs_count; ++i) {
