@@ -50,6 +50,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
   StorageType         get_type()  const CXX11_OVERRIDE { return kArrayStorage; }
   const std::string&  get_name()  const CXX11_OVERRIDE;
   const Metadata*     get_metadata()  const CXX11_OVERRIDE;
+  const ArrayMetadata*  get_array_metadata()  const;
   bool                exists()    const CXX11_OVERRIDE;
   ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
 

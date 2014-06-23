@@ -86,15 +86,6 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   Engine* const           engine_;
   ArrayStorage* const     holder_;
   ArrayMetadata           metadata_;
-  /**
-   * Number of pages in each level. index=level.
-   */
-  std::vector<uint64_t>   pages_;
-  /**
-   * The offset interval a single page represents in each level. index=level.
-   * So, offset_intervals_[0] is the number of records in a leaf page.
-   */
-  std::vector<uint64_t>   offset_intervals_;
 
   /**
    * Points to the root page.

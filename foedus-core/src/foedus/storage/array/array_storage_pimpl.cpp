@@ -41,6 +41,7 @@ ArrayOffset ArrayStorage::get_array_size()   const  { return pimpl_->metadata_.a
 StorageId   ArrayStorage::get_id()           const  { return pimpl_->metadata_.id_; }
 const std::string& ArrayStorage::get_name()  const  { return pimpl_->metadata_.name_; }
 const Metadata* ArrayStorage::get_metadata() const  { return &pimpl_->metadata_; }
+const ArrayMetadata* ArrayStorage::get_array_metadata() const  { return &pimpl_->metadata_; }
 
 ErrorCode ArrayStorage::get_record(
   thread::Thread* context, ArrayOffset offset, void *payload) {
@@ -116,16 +117,9 @@ ArrayStoragePimpl::ArrayStoragePimpl(Engine* engine, ArrayStorage* holder,
 ErrorStack ArrayStoragePimpl::initialize_once() {
   LOG(INFO) << "Initializing an array-storage " << *holder_ << " exists=" << exist_;
   uint16_t payload_size_aligned = (assorted::align8(metadata_.payload_size_));
-  pages_ = calculate_required_pages(metadata_.array_size_, payload_size_aligned);
-  levels_ = pages_.size();
-  offset_intervals_.push_back(kDataSize / (payload_size_aligned + kRecordOverhead));
-  for (uint8_t level = 1; level < levels_; ++level) {
-    offset_intervals_.push_back(offset_intervals_[level - 1] * kInteriorFanout);
-  }
-  for (uint8_t level = 0; level < levels_; ++level) {
-    LOG(INFO) << "Level-" << static_cast<int>(level) << " pages=" << pages_[level]
-      << " interval=" << offset_intervals_[level];
-  }
+  std::vector<uint64_t> pages = calculate_required_pages(
+    metadata_.array_size_, payload_size_aligned);
+  levels_ = pages.size();
 
   if (exist_) {
     // initialize root_page_
@@ -174,6 +168,24 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     return ERROR_STACK(kErrorCodeStrAlreadyExists);
   }
 
+  const uint16_t payload_size_aligned = (assorted::align8(metadata_.payload_size_));
+
+  // Number of pages in each level. index=level.
+  std::vector<uint64_t> pages = calculate_required_pages(
+    metadata_.array_size_, payload_size_aligned);
+
+  // The offset interval a single page represents in each level. index=level.
+  // So, offset_intervals[0] is the number of records in a leaf page.
+  std::vector<uint64_t> offset_intervals;
+  offset_intervals.push_back(kDataSize / (payload_size_aligned + kRecordOverhead));
+  for (uint8_t level = 1; level < levels_; ++level) {
+    offset_intervals.push_back(offset_intervals[level - 1] * kInteriorFanout);
+  }
+  for (uint8_t level = 0; level < levels_; ++level) {
+    LOG(INFO) << "Level-" << static_cast<int>(level) << " pages=" << pages[level]
+      << " interval=" << offset_intervals[level];
+  }
+
   Epoch initial_epoch = engine_->get_xct_manager().get_current_global_epoch();
   LOG(INFO) << "Newly creating an array-storage "  << *holder_ << " as epoch=" << initial_epoch;
 
@@ -194,7 +206,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     ASSERT_ND(page_pointer.components.offset != 0);
     ArrayPage* page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(page_pointer));
 
-    ArrayRange range(0, offset_intervals_[level]);
+    ArrayRange range(0, offset_intervals[level]);
     if (range.end_ > metadata_.array_size_) {
       ASSERT_ND(level == levels_ - 1);
       range.end_ = metadata_.array_size_;
@@ -220,13 +232,13 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
   ASSERT_ND(current_records.size() == levels_);
 
   // then moves on to right
-  for (uint64_t leaf = 1; leaf < pages_[0]; ++leaf) {
+  for (uint64_t leaf = 1; leaf < pages[0]; ++leaf) {
     VolatilePagePointer page_pointer = grab_batch.grab();
     ASSERT_ND(page_pointer.components.offset != 0);
     ArrayPage* page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(page_pointer));
 
     ArrayRange range(current_pages[0]->get_array_range().end_,
-             current_pages[0]->get_array_range().end_ + offset_intervals_[0]);
+             current_pages[0]->get_array_range().end_ + offset_intervals[0]);
     if (range.end_ > metadata_.array_size_) {
       range.end_ = metadata_.array_size_;
     }
@@ -244,7 +256,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
         ArrayPage* interior_page = reinterpret_cast<ArrayPage*>(
           page_resolver.resolve_offset(interior_pointer));
         ArrayRange interior_range(current_pages[level]->get_array_range().end_,
-             current_pages[level]->get_array_range().end_ + offset_intervals_[level]);
+             current_pages[level]->get_array_range().end_ + offset_intervals[level]);
         if (range.end_ > metadata_.array_size_) {
           range.end_ = metadata_.array_size_;
         }
