@@ -164,6 +164,9 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
 
   void        describe(std::ostream* o) const CXX11_OVERRIDE;
 
+  /** Use this only if you know what you are doing. */
+  ArrayStoragePimpl*  get_pimpl() { return pimpl_; }
+
  private:
   ArrayStoragePimpl*  pimpl_;
 };

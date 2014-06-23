@@ -83,6 +83,12 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   void        release_pages_recursive(
     memory::PageReleaseBatch* batch, ArrayPage* page, VolatilePagePointer volatile_page_id);
 
+  /**
+  * Calculate leaf/interior pages we need.
+  * @return index=level.
+  */
+  static std::vector<uint64_t> calculate_required_pages(uint64_t array_size, uint16_t payload);
+
   Engine* const           engine_;
   ArrayStorage* const     holder_;
   ArrayMetadata           metadata_;

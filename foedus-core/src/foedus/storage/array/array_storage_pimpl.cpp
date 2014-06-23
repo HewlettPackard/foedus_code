@@ -80,7 +80,9 @@ ErrorCode ArrayStorage::increment_record(thread::Thread* context, ArrayOffset of
  * Calculate leaf/interior pages we need.
  * @return index=level.
  */
-std::vector<uint64_t> calculate_required_pages(uint64_t array_size, uint16_t payload) {
+std::vector<uint64_t> ArrayStoragePimpl::calculate_required_pages(
+  uint64_t array_size, uint16_t payload) {
+  payload = assorted::align8(payload);
   uint64_t records_per_page = kDataSize / (payload + kRecordOverhead);
 
   // so, how many leaf pages do we need?
@@ -116,9 +118,8 @@ ArrayStoragePimpl::ArrayStoragePimpl(Engine* engine, ArrayStorage* holder,
 
 ErrorStack ArrayStoragePimpl::initialize_once() {
   LOG(INFO) << "Initializing an array-storage " << *holder_ << " exists=" << exist_;
-  uint16_t payload_size_aligned = (assorted::align8(metadata_.payload_size_));
   std::vector<uint64_t> pages = calculate_required_pages(
-    metadata_.array_size_, payload_size_aligned);
+    metadata_.array_size_, metadata_.payload_size_);
   levels_ = pages.size();
 
   if (exist_) {
@@ -172,7 +173,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
 
   // Number of pages in each level. index=level.
   std::vector<uint64_t> pages = calculate_required_pages(
-    metadata_.array_size_, payload_size_aligned);
+    metadata_.array_size_, metadata_.payload_size_);
 
   // The offset interval a single page represents in each level. index=level.
   // So, offset_intervals[0] is the number of records in a leaf page.
