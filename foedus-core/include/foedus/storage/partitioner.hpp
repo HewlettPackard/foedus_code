@@ -9,7 +9,6 @@
 
 #include <iosfwd>
 
-#include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -62,16 +61,28 @@ class Partitioner {
   virtual Partitioner* clone() const = 0;
 
   /**
+   * @brief returns if this storage is partitionable.
+   * @details
+   * Some storage, such as a B-tree with only a single page (root=leaf), it is impossible
+   * to partition. In that case, this returns false to indicate that the caller can just assume
+   * all logs should be blindly sent to partition-0.
+   * Similarly, if there is only one NUMA node (partition), the caller also skips partitioning,
+   * but in that case the caller even skips instantiating partitioners.
+   */
+  virtual bool is_partitionable() const = 0;
+
+  /**
    * @brief Identifies the partition of each log record in a batched fashion.
    * @param[in] logs pointer to log records. All of them must be logs of the storage.
    * @param[in] logs_count number of entries to process.
    * @param[out] results this method will set the partition of logs[i] to results[i].
+   * @pre !is_partitionable(): in this case, it's waste of time. check it before calling this.
    * @details
    * Each storage type implements this method based on the statistics passed to
    * create_partitioner(). For better performance, logs_count is usually at least thousands.
    * Assume the scale when you optimize the implementation in derived classes.
    */
-  virtual ErrorStack partition_batch(
+  virtual void partition_batch(
     const log::RecordLogType **logs, uint32_t logs_count, PartitionId *results) const = 0;
 
   /**

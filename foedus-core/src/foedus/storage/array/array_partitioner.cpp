@@ -110,18 +110,11 @@ void ArrayPartitioner::describe(std::ostream* o_ptr) const {
   o << "</ArrayPartitioner>";
 }
 
-ErrorStack ArrayPartitioner::partition_batch(
+void ArrayPartitioner::partition_batch(
   const log::RecordLogType** logs,
   uint32_t logs_count,
   PartitionId* results) const {
-  if (array_single_page_) {
-    // then no partitioning possible.
-    for (uint32_t i = 0; i < logs_count; ++i) {
-      results[i] = 0;
-    }
-    return kRetOk;
-  }
-
+  ASSERT_ND(is_partitionable());
   for (uint32_t i = 0; i < logs_count; ++i) {
     ASSERT_ND(logs[i]->header_.log_type_code_ == log::kLogCodeArrayOverwrite);
     ASSERT_ND(logs[i]->header_.storage_id_ == array_id_);
@@ -131,8 +124,6 @@ ErrorStack ArrayPartitioner::partition_batch(
     ASSERT_ND(bucket < kInteriorFanout);
     results[i] = bucket_owners_[bucket];
   }
-
-  return kRetOk;
 }
 }  // namespace array
 }  // namespace storage

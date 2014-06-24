@@ -78,7 +78,7 @@ class MapReduceBase : public DefaultInitializable {
   /** called from handle() when all processing is done. */
   void                handle_complete();
   /** to add anything specific to derived class at the beginning of handle_complete() */
-  virtual void        pre_handle_uninitialize() {}
+  virtual void        pre_handle_complete() {}
 
   /** Derived class's handle_process() should occasionally call this to exit if it's cancelled. */
   ErrorCode           check_cancelled();

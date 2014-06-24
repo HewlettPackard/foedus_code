@@ -16,6 +16,7 @@
 #include "foedus/epoch.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/debugging/stop_watch.hpp"
 #include "foedus/fs/direct_io_file.hpp"
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/log/log_manager.hpp"
@@ -24,6 +25,7 @@
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/snapshot/log_gleaner_impl.hpp"
 #include "foedus/snapshot/snapshot.hpp"
+#include "foedus/storage/partitioner.hpp"
 
 namespace foedus {
 namespace snapshot {
@@ -41,7 +43,6 @@ ErrorStack LogMapper::handle_initialize() {
   ASSERT_ND(!io_buffer_.is_null());
 
   uint64_t bucket_size = static_cast<uint64_t>(option.log_mapper_bucket_kb_) << 10;
-  buckets_all_count_ = bucket_size / sizeof(Bucket);
   buckets_memory_.alloc(
     bucket_size,
     memory::kHugepageSize,
@@ -49,7 +50,31 @@ ErrorStack LogMapper::handle_initialize() {
     numa_node_);
   ASSERT_ND(!buckets_memory_.is_null());
 
-  buckets_allocated_count_ = 0;
+  const uint64_t tmp_memory_size = memory::kHugepageSize;
+  tmp_memory_.alloc(
+    tmp_memory_size,
+    memory::kHugepageSize,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    numa_node_);
+  ASSERT_ND(!tmp_memory_.is_null());
+
+  uint64_t tmp_offset = 0;
+  tmp_send_buffer_slice_ = memory::AlignedMemorySlice(&tmp_memory_, tmp_offset, kSendBufferSize);
+  tmp_offset += kSendBufferSize;
+  tmp_pointer_array_slice_ = memory::AlignedMemorySlice(&tmp_memory_, tmp_offset, kBucketSize << 1);
+  tmp_offset += kBucketSize << 1;
+  tmp_sort_array_slice_ = memory::AlignedMemorySlice(&tmp_memory_, tmp_offset, kBucketSize << 1);
+  tmp_offset += kBucketSize << 1;
+  const uint64_t hashlist_bytesize = kBucketHashListMaxCount * sizeof(BucketHashList);
+  tmp_hashlist_buffer_slice_ = memory::AlignedMemorySlice(
+    &tmp_memory_, tmp_offset, hashlist_bytesize);
+  tmp_offset += hashlist_bytesize;
+  tmp_partition_array_slice_ = memory::AlignedMemorySlice(&tmp_memory_, tmp_offset, kBucketSize);
+  tmp_offset += kBucketSize;
+  if (tmp_memory_size < tmp_offset) {
+    LOG(FATAL) << "tmp_memory_size is too small. some contant values are messed up";
+  }
+
   processed_log_count_ = 0;
   clear_storage_buckets();
 
@@ -60,8 +85,16 @@ ErrorStack LogMapper::handle_uninitialize() {
   ErrorStackBatch batch;
   io_buffer_.release_block();
   buckets_memory_.release_block();
+  tmp_memory_.release_block();
   clear_storage_buckets();
   return SUMMARIZE_ERROR_BATCH(batch);
+}
+
+void LogMapper::pre_handle_complete() {
+  uint16_t value_after = parent_->increment_completed_mapper_count();
+  if (value_after == parent_->get_mappers_count()) {
+    LOG(INFO) << "wait_for_next_epoch(): " << to_string() << " was the last mapper.";
+  }
 }
 
 ErrorStack LogMapper::handle_process() {
@@ -129,10 +162,17 @@ ErrorStack LogMapper::handle_process_buffer(
   uint64_t *cur_offset, bool *first_read) {
   const Epoch base_epoch = parent_->get_snapshot()->base_epoch_;  // only for assertions
   const Epoch until_epoch = parent_->get_snapshot()->valid_until_epoch_;  // only for assertions
+  const uint64_t file_len = fs::file_size(file.get_path());
 
-  uint64_t pos = 0;
+  // many temporary memory are used only within this method and completely cleared out
+  // for every call.
+  clear_storage_buckets();
+
+  uint64_t pos;  // buffer-position
   char* buffer = reinterpret_cast<char*>(io_buffer_.get_block());
-  while (pos < buffered_bytes) {
+  for (pos = 0; pos < buffered_bytes; ++processed_log_count_) {
+    // Note: The loop here must be a VERY tight loop, iterated over every single log entry!
+    // In most cases, we should be just calling bucket_log().
     const log::LogHeader* header
       = reinterpret_cast<const log::LogHeader*>(buffer + pos);
     ASSERT_ND(*cur_offset != 0 || pos != 0
@@ -140,21 +180,19 @@ ErrorStack LogMapper::handle_process_buffer(
     // we must be starting from epoch marker.
     ASSERT_ND(!*first_read || header->get_type() == log::kLogCodeEpochMarker);
 
-    if (header->log_length_ > buffered_bytes - pos) {
+    if (UNLIKELY(header->log_length_ > buffered_bytes - pos)) {
       // if a log goes beyond this read, stop processing here and read from that offset again.
       // this is simpler than glue-ing the fragment. This happens just once per 64MB read,
       // so not a big waste.
-      if (*cur_offset + pos + header->log_length_ > fs::file_size(file.get_path())) {
+      if (*cur_offset + pos + header->log_length_ > file_len) {
         // but it never spans two files. something is wrong.
         LOG(ERROR) << "inconsistent end of log entry. offset=" << (*cur_offset + pos)
           << ", file=" << file << ", log header=" << *header;
         return ERROR_STACK_MSG(kErrorCodeSnapshotInvalidLogEnd, file.get_path().c_str());
       }
       break;
-    }
-
-    // skip epoch marker
-    if (header->get_type() == log::kLogCodeEpochMarker) {
+    } else if (UNLIKELY(header->get_type() == log::kLogCodeEpochMarker)) {
+      // skip epoch marker
       const log::EpochMarkerLogType *marker =
         reinterpret_cast<const log::EpochMarkerLogType*>(header);
       ASSERT_ND(header->log_length_ == sizeof(log::EpochMarkerLogType));
@@ -169,52 +207,60 @@ ErrorStack LogMapper::handle_process_buffer(
       } else {
         ASSERT_ND(!base_epoch.is_valid() || marker->old_epoch_ >= base_epoch);
       }
-      pos += header->log_length_;
-      continue;
+    } else if (UNLIKELY(header->get_type() == log::kLogCodeFiller)) {
+      // skip filler log
+    } else if (UNLIKELY(header->get_kind() != log::kRecordLogs)) {
+      // every thing other than record-targetted logs is processed at the end of epoch.
+      parent_->add_nonrecord_log(header);
+    } else {
+      bool bucketed = bucket_log(header->storage_id_, pos);
+      if (UNLIKELY(!bucketed)) {
+        // need to add a new bucket
+        bool added = add_new_bucket(header->storage_id_);
+        if (added) {
+          bucketed = bucket_log(header->storage_id_, pos);
+          ASSERT_ND(bucketed);
+        } else {
+          // runs out of bucket_memory. have to flush now.
+          flush_all_buckets();
+          added = add_new_bucket(header->storage_id_);
+          ASSERT_ND(added);
+          bucketed = bucket_log(header->storage_id_, pos);
+          ASSERT_ND(bucketed);
+        }
+      }
     }
 
-    WRAP_ERROR_CODE(map_log(header));
     pos += header->log_length_;
   }
   *cur_offset += pos;
+
+  // bucktized all logs. now let's send them out to reducers
+  flush_all_buckets();
   return kRetOk;
 }
 
-ErrorCode LogMapper::map_log(const log::LogHeader* header) {
-  ++processed_log_count_;
-  if (header->get_type() == log::kLogCodeFiller) {
-    return kErrorCodeOk;
+inline bool LogMapper::bucket_log(storage::StorageId storage_id, uint64_t pos) {
+  BucketHashList* hashlist = find_storage_hashlist(storage_id);
+  if (UNLIKELY(hashlist == nullptr)) {
+    return false;
   }
-  if (header->get_kind() != log::kRecordLogs) {
-    // every thing other than record-targetted logs is processed at the end of epoch.
-    parent_->add_nonrecord_log(header);
-    return kErrorCodeOk;
-  }
-  return kErrorCodeOk;
-}
 
-void LogMapper::pre_handle_uninitialize() {
-  uint16_t value_after = parent_->increment_completed_mapper_count();
-  if (value_after == parent_->get_mappers_count()) {
-    LOG(INFO) << "wait_for_next_epoch(): " << to_string() << " was the last mapper.";
+  if (LIKELY(!hashlist->tail_->is_full())) {
+    // 99.99% cases we are hitting here straight out of the tight loop.
+    // hope the hints guide the compiler well.
+    MapperBufferPosition log_position = to_mapper_buffer_position(pos);
+    hashlist->tail_->log_positions_[hashlist->tail_->counts_] = log_position;
+    ++hashlist->tail_->counts_;
+    return true;
+  } else {
+    // found it, but we need to add a new bucket for this storage.
+    return false;
   }
-}
-
-
-void LogMapper::clear_storage_buckets() {
-  // we have to delete something only when there is non-null hashtable_next_
-  for (uint16_t i = 0; i < 256; ++i) {
-    for (BucketLinkedList* next = storage_buckets_[i].hashtable_next_; next;) {
-      BucketLinkedList* tmp_next = next->hashtable_next_;
-      delete next;
-      next = tmp_next;
-    }
-  }
-  std::memset(storage_buckets_, 0, sizeof(storage_buckets_));
 }
 
 bool LogMapper::add_new_bucket(storage::StorageId storage_id) {
-  if (buckets_allocated_count_ >= buckets_all_count_) {
+  if (buckets_allocated_count_ >= buckets_memory_.get_size() / sizeof(Bucket)) {
     // we allocated all buckets_memory_! we have to flush the buckets now.
     // this shouldn't happen often.
     LOG(WARNING) << to_string() << " ran out of buckets_memory_, so it has to flush buckets before"
@@ -230,72 +276,196 @@ bool LogMapper::add_new_bucket(storage::StorageId storage_id) {
   new_bucket->counts_ = 0;
   new_bucket->next_bucket_ = nullptr;
 
-  BucketLinkedList* hashtable_entry = storage_buckets_ + static_cast<uint8_t>(storage_id);
-  BucketLinkedList* existing_buckets;
-  for (existing_buckets = hashtable_entry;
-      existing_buckets->storage_id_ != storage_id && existing_buckets != nullptr;
-      existing_buckets = existing_buckets->hashtable_next_) {
-    continue;
-  }
-
-  if (existing_buckets) {
+  BucketHashList* hashlist = find_storage_hashlist(storage_id);
+  if (hashlist) {
     // just add this as a new tail
-    ASSERT_ND(existing_buckets->tail_->is_full());
-    existing_buckets->tail_->next_bucket_ = new_bucket;
-    existing_buckets->tail_ = new_bucket;
+    ASSERT_ND(hashlist->storage_id_ == storage_id);
+    ASSERT_ND(hashlist->tail_->is_full());
+    hashlist->tail_->next_bucket_ = new_bucket;
+    hashlist->tail_ = new_bucket;
+    ++hashlist->bucket_counts_;
   } else {
     // we don't even have a linked list for this.
-    BucketLinkedList* new_entry;
-    if (hashtable_entry->storage_id_ == 0) {
-      // this is the first in this bucket, so let's just use it.
-      new_entry = hashtable_entry;
-      new_entry->hashtable_next_ = nullptr;
-    } else {
-      // it's already taken. we have to instantiate ourself. If this happens often, maybe
-      // we should have 65536 hash buckets...
-      new_entry = new BucketLinkedList();
-
-      // insert between hashtable_entry and hashtable_entry->hashtable_next_
-      new_entry->hashtable_next_ = hashtable_entry->hashtable_next_;
-      hashtable_entry->hashtable_next_ = new_entry;
+    // If this happens often, maybe we should have 65536 hash buckets...
+    if (hashlist_allocated_count_ >= kBucketHashListMaxCount) {
+      LOG(WARNING) << to_string() << " ran out of hashlist memory, so it has to flush buckets now"
+        " This shouldn't happen often. We must consider increasing kBucketHashListMaxCount."
+        " this=" << *this;
+      return false;
     }
-    new_entry->storage_id_ = storage_id;
-    new_entry->head_ = new_bucket;
-    new_entry->tail_ = new_bucket;
+
+    // allocate from the pool
+    BucketHashList* new_hashlist =
+      reinterpret_cast<BucketHashList*>(tmp_hashlist_buffer_slice_.get_block())
+      + hashlist_allocated_count_;
+    ++hashlist_allocated_count_;
+
+    new_hashlist->storage_id_ = storage_id;
+    new_hashlist->head_ = new_bucket;
+    new_hashlist->tail_ = new_bucket;
+    new_hashlist->bucket_counts_ = 1;
+
+    add_storage_hashlist(new_hashlist);
   }
   return true;
 }
+void LogMapper::add_storage_hashlist(BucketHashList* new_hashlist) {
+  ASSERT_ND(new_hashlist);
+  uint8_t index = static_cast<uint8_t>(new_hashlist->storage_id_);
+  if (storage_hashlists_[index] == nullptr) {
+    storage_hashlists_[index] = new_hashlist;
+    new_hashlist->hashlist_next_ = nullptr;
+  } else {
+    new_hashlist->hashlist_next_ = storage_hashlists_[index];
+    storage_hashlists_[index] = new_hashlist;
+  }
+}
 
-inline bool LogMapper::bucket_log(
-  storage::StorageId storage_id, MapperBufferPosition log_position) {
-  BucketLinkedList* buckets = &storage_buckets_[storage_id & 0xFF];
-  while (UNLIKELY(buckets->storage_id_ != storage_id)) {
-    buckets = buckets->hashtable_next_;
-    if (buckets == nullptr) {
-      return false;  // not found
+void LogMapper::clear_storage_buckets() {
+  std::memset(storage_hashlists_, 0, sizeof(storage_hashlists_));
+  buckets_allocated_count_ = 0;
+  hashlist_allocated_count_ = 0;
+}
+
+void LogMapper::flush_all_buckets() {
+  for (uint16_t i = 0; i < 256; ++i) {
+    for (BucketHashList* hashlist = storage_hashlists_[i];
+          hashlist != nullptr && hashlist->storage_id_ != 0;
+          hashlist = hashlist->hashlist_next_) {
+      flush_bucket(*hashlist);
+    }
+  }
+  clear_storage_buckets();
+}
+
+void LogMapper::flush_bucket(const BucketHashList& hashlist) {
+  ASSERT_ND(hashlist.head_);
+  ASSERT_ND(hashlist.tail_);
+  // temporary variables to store partitioning results
+  const log::RecordLogType** pointer_array = reinterpret_cast<const log::RecordLogType**>(
+    tmp_pointer_array_slice_.get_block());
+  PartitionSortEntry* sort_array = reinterpret_cast<PartitionSortEntry*>(
+    tmp_sort_array_slice_.get_block());
+  storage::PartitionId* partition_array = reinterpret_cast<storage::PartitionId*>(
+    tmp_partition_array_slice_.get_block());
+  const char* buffer_base_address = reinterpret_cast<const char*>(io_buffer_.get_block());
+  const bool multi_partitions = engine_->get_options().thread_.group_count_ > 1;
+
+  uint64_t log_count = 0;  // just for reporting
+  debugging::StopWatch stop_watch;
+  for (Bucket* bucket = hashlist.head_; bucket != nullptr; bucket = bucket->next_bucket_) {
+    ASSERT_ND(bucket->counts_ > 0);
+    ASSERT_ND(bucket->counts_ <= kBucketMaxCount);
+    ASSERT_ND(bucket->storage_id_ == hashlist.storage_id_);
+    log_count += bucket->counts_;
+
+    // if there are multiple partitions, we first partition log entries.
+    if (multi_partitions) {
+      const storage::Partitioner* partitioner = parent_->get_or_create_partitioner(
+        bucket->storage_id_);
+      if (partitioner->is_partitionable()) {
+        // calculate partitions
+        for (uint32_t i = 0; i < bucket->counts_; ++i) {
+          pointer_array[i] = reinterpret_cast<const log::RecordLogType*>(
+            buffer_base_address + from_mapper_buffer_position(bucket->log_positions_[i]));
+
+          ASSERT_ND(pointer_array[i]->header_.storage_id_ == bucket->storage_id_);
+          ASSERT_ND(pointer_array[i]->header_.storage_id_ == hashlist.storage_id_);
+        }
+        partitioner->partition_batch(pointer_array, bucket->counts_, partition_array);
+
+        // sort the log positions by the calculated partitions
+        std::memset(sort_array, 0, sizeof(PartitionSortEntry) * bucket->counts_);
+        for (uint32_t i = 0; i < bucket->counts_; ++i) {
+          sort_array[i].components.partition_ = partition_array[i];
+          sort_array[i].components.position_ = bucket->log_positions_[i];
+        }
+        std::sort(
+          reinterpret_cast<uint64_t*>(sort_array),
+          reinterpret_cast<uint64_t*>(sort_array + bucket->counts_));
+
+        // let's reuse the current bucket as a temporary memory to hold sorted entries.
+        // buckets are discarded after the flushing, so this doesn't cause any issue.
+        const uint32_t original_count = bucket->counts_;
+        storage::PartitionId current_partition = sort_array[0].components.partition_;
+        bucket->log_positions_[0] = sort_array[0].components.position_;
+        bucket->counts_ = 1;
+        for (uint32_t i = 1; i < original_count; ++i) {
+          if (current_partition == sort_array[i].components.partition_) {
+            bucket->log_positions_[bucket->counts_] = sort_array[i].components.position_;
+            ++bucket->counts_;
+            ASSERT_ND(bucket->counts_ <= original_count);
+          } else {
+            // the current partition has ended.
+            // let's send out these log entries to this partition
+            send_bucket_partition(*bucket, current_partition);
+            // this is the beginning of next partition
+            current_partition = sort_array[i].components.partition_;
+            bucket->log_positions_[0] = sort_array[i].components.position_;
+            bucket->counts_ = 1;
+          }
+        }
+
+        ASSERT_ND(bucket->counts_ >= 0);
+        // send out the last partition
+        send_bucket_partition(*bucket, current_partition);
+      } else {
+        // in this case, it's same as single partition regarding this storage.
+        send_bucket_partition(*bucket, 0);
+      }
+    } else {
+      // if it's not multi-partition, we blindly send everything to partition-0 (NUMA node 0)
+      send_bucket_partition(*bucket, 0);
     }
   }
 
-  if (LIKELY(!buckets->tail_->is_full())) {
-    buckets->tail_->log_positions_[buckets->tail_->counts_] = log_position;
-    ++buckets->tail_->counts_;
-    return true;
-  } else {
-    // found it, but we need to add a new bucket for this storage.
-    return false;
+  stop_watch.stop();
+  LOG(INFO) << to_string() << " sent out " << log_count << " log entries for storage-"
+    << hashlist.storage_id_ << " in " << stop_watch.elapsed_ms() << " milliseconds";
+}
+
+void LogMapper::send_bucket_partition(
+  const Bucket& bucket, storage::PartitionId partition) {
+  VLOG(0) << to_string() << " sending " << bucket.counts_ << " log entries for storage-"
+    << bucket.storage_id_ << " to partition-" << static_cast<int>(partition);
+  // stitch the log entries in send buffer
+  char* send_buffer = reinterpret_cast<char*>(tmp_send_buffer_slice_.get_block());
+  const char* buffer_base_address = reinterpret_cast<const char*>(io_buffer_.get_block());
+  ASSERT_ND(tmp_send_buffer_slice_.get_size() == kSendBufferSize);
+
+  uint64_t written = 0;
+  for (uint32_t i = 0; i < bucket.counts_; ++i) {
+    const log::LogHeader* header = reinterpret_cast<const log::LogHeader*>(
+      buffer_base_address + from_mapper_buffer_position(bucket.log_positions_[i]));
+    ASSERT_ND(header->storage_id_ == bucket.storage_id_);
+    ASSERT_ND(header->log_length_ < kSendBufferSize);  // each log can't be 1MB
+    ASSERT_ND(header->log_length_ > 0);
+    ASSERT_ND(header->log_length_ % 8 == 0);
+    if (written + header->log_length_ > kSendBufferSize) {
+      // buffer full. send out.
+      send_bucket_partition_buffer(bucket, partition, send_buffer, written);
+      written = 0;
+    }
+    std::memcpy(send_buffer, header, header->log_length_);
+    written += header->log_length_;
+  }
+  send_bucket_partition_buffer(bucket, partition, send_buffer, written);
+}
+
+void LogMapper::send_bucket_partition_buffer(const Bucket& bucket, storage::PartitionId partition,
+                                             const char* send_buffer, uint64_t written) {
+  if (written == 0) {
+    return;
   }
 }
 
-ErrorStack LogMapper::flush_buckets() {
-  return kRetOk;
-}
 
 std::ostream& operator<<(std::ostream& o, const LogMapper& v) {
   o << "<LogMapper>"
     << "<id_>" << v.id_ << "</id_>"
     << "<numa_node_>" << static_cast<int>(v.numa_node_) << "</numa_node_>"
     << "<buckets_allocated_count_>" << v.buckets_allocated_count_ << "</buckets_allocated_count_>"
-    << "<buckets_all_count_>" << v.buckets_all_count_ << "</buckets_all_count_>"
+    << "<hashlist_allocated_count>" << v.hashlist_allocated_count_ << "</hashlist_allocated_count>"
     << "<processed_log_count_>" << v.processed_log_count_ << "</processed_log_count_>"
     << "<thread_>" << v.thread_ << "</thread_>"
     << "</LogMapper>";

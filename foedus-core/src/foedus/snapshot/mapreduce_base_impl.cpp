@@ -104,7 +104,7 @@ void MapReduceBase::handle() {
 }
 
 void MapReduceBase::handle_complete() {
-  pre_handle_uninitialize();
+  pre_handle_complete();
 
   // let the gleaner know that I'm done for the current epoch and going into sleep.
   uint16_t value_after = parent_->increment_completed_count();

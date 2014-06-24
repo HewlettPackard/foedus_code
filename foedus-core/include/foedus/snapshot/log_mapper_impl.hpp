@@ -6,7 +6,6 @@
 #define FOEDUS_SNAPSHOT_LOG_MAPPER_IMPL_HPP_
 #include <stdint.h>
 
-#include <cstring>
 #include <iosfwd>
 #include <string>
 
@@ -62,8 +61,8 @@ class LogMapper final : public MapReduceBase {
  public:
   LogMapper(Engine* engine, LogGleaner* parent, log::LoggerId id, thread::ThreadGroupId numa_node)
     : MapReduceBase(engine, parent, id, numa_node),
-      buckets_allocated_count_(0), buckets_all_count_(0), processed_log_count_(0) {
-    std::memset(storage_buckets_, 0, sizeof(storage_buckets_));
+      processed_log_count_(0) {
+    clear_storage_buckets();
   }
 
   /**
@@ -81,7 +80,7 @@ class LogMapper final : public MapReduceBase {
   ErrorStack  handle_uninitialize() override;
   ErrorStack  handle_process() override;
 
-  void        pre_handle_uninitialize() override;
+  void        pre_handle_complete() override;
 
  private:
   /**
@@ -92,15 +91,29 @@ class LogMapper final : public MapReduceBase {
    */
   typedef uint32_t MapperBufferPosition;
 
+  enum Constsants {
+    kBucketSize = 1 << 16,
+    kBucketMaxCount = (kBucketSize - 16) / 4,
+    /**
+     * How many distinct StorageId one batch (I/O buffer) is expected to have at most.
+     * If it exceeds this number, we have to flush buckets before fully processing the batch.
+     * It's very unlikely, though.
+     */
+    kBucketHashListMaxCount = 1 << 12,
+    /**
+     * Size of temporary buffer to stitch log entries in one storage and in one partition.
+     * We stitch them in our memory not in reducer's memory even when the two are in same
+     * NUMA node. We have to anyway calculate the total byte length of what will be sent.
+     * Otherwise we need atomic operation at reducer's memory for every log entry to send!
+     */
+    kSendBufferSize = 1 << 20,
+  };
+
   /**
    * Stores bunch of byte positions in IO buffer to one storage.
    */
   struct Bucket final {
-    enum Constsants {
-      kBucketSize = 1 << 16,
-      kMaxCount = (kBucketSize - 16) / 4,
-    };
-    inline bool is_full() const ALWAYS_INLINE { return counts_ < kMaxCount; }
+    inline bool is_full() const ALWAYS_INLINE { return counts_ < kBucketMaxCount; }
 
     /** This bucket stores log positions for this storage. */
     storage::StorageId    storage_id_;   // +4 => 4
@@ -109,20 +122,37 @@ class LogMapper final : public MapReduceBase {
     /** A storage can have more than one bucket, thus it forms a singly linked list. */
     Bucket*               next_bucket_;  // +8 => 16
     /** Byte positions in IO buffer. */
-    MapperBufferPosition  log_positions_[kMaxCount];  // + 4 * kMaxCount => kBucketSize
+    MapperBufferPosition  log_positions_[kBucketMaxCount];  // + 4 * kBucketMaxCount => kBucketSize
   };
-  STATIC_SIZE_CHECK(sizeof(Bucket), Bucket::kBucketSize)
+  STATIC_SIZE_CHECK(sizeof(Bucket), kBucketSize)
 
   /**
-   * Entry in the hashtable for storage bucketing.
-   * This object is new/deleted only when we have non-null hashtable_next_, in other words
-   * a hash bucket has more than one storage.
+   * Entry in the hashtable for storage bucketing, corresponding to one storage.
+   * It is a singly linked list of Bucket.
+   * @par Why head_ and tail_
+   * We don't have to store tail by just inserting new buckets at head, but then iteration
+   * will be in back-order. By inserting to tail_, iteration from head to tail guarantees
+   * log-entry order. We might rely on it later. It's anyway just 8 bytes per list.
    */
-  struct BucketLinkedList {
-    storage::StorageId  storage_id_;
-    Bucket*             head_;
-    Bucket*             tail_;
-    BucketLinkedList*   hashtable_next_;
+  struct BucketHashList {
+    storage::StorageId  storage_id_;  // +4 => 4
+    uint16_t            bucket_counts_;  // +2 => 6
+    uint16_t            dummy_;       // +2 => 8
+    Bucket*             head_;        // +8 => 16
+    Bucket*             tail_;        // +8 => 24
+    BucketHashList*     hashlist_next_;  // +8 => 32
+  };
+
+  /** Used to sort log entries by partition. */
+  union PartitionSortEntry {
+    uint64_t word;
+
+    struct Components {
+      uint16_t              dummy1_;      // +2 => 2
+      uint8_t               dummy2_;      // +1 => 3
+      storage::PartitionId  partition_;   // +1 => 4
+      MapperBufferPosition  position_;    // +4 => 8
+    } components;
   };
 
   /** buffer to read from file. */
@@ -131,17 +161,62 @@ class LogMapper final : public MapReduceBase {
   /** memory for Bucket. */
   memory::AlignedMemory   buckets_memory_;
 
+  /**
+   * used for various temporary variables that are big and have to be very fast.
+   * these include pointer array and partition array passed around from/to partitioner.
+   * All of these variables are cleared after each handle_process_buffer(), thus "tmp".
+   * Currently the size is always 2MB so that it uses hugepage.
+   * kBucketSize is 1 << 16 (64k), so in total a few hundred KB.
+   * kBucketHashListMaxCount is 1 << 12, adding another hundred KB.
+   * In sum they should be within 1MB. Plus the 1MB send buffer. Thus within 2MB (hugepage).
+   */
+  memory::AlignedMemory   tmp_memory_;
+
+  /**
+   * Slice of tmp_memory_ used as send buffer.
+   * Size is kSendBufferSize (1MB).
+   */
+  memory::AlignedMemorySlice  tmp_send_buffer_slice_;
+
+  /**
+   * Slice of tmp_memory_ used as pointer array (log::RecordLogType*[]).
+   * Size is kBucketSize * 2 bytes (= (kBucketSize / 4) pointers).
+   */
+  memory::AlignedMemorySlice  tmp_pointer_array_slice_;
+
+  /**
+   * Slice of tmp_memory_ used as sort array (PartitionSortEntry[]).
+   * Size is kBucketSize * 2 bytes.
+   */
+  memory::AlignedMemorySlice  tmp_sort_array_slice_;
+
+  /**
+   * Slice of tmp_memory_ used as BucketHashList memory (BucketHashList[]).
+   * Size is kBucketHashListMaxCount * sizeof(BucketHashList) bytes.
+   */
+  memory::AlignedMemorySlice  tmp_hashlist_buffer_slice_;
+
+  /**
+   * Slice of tmp_memory_ used as partition array (storage::PartitionId[]).
+   * Size is kBucketSize bytes (as so far sizeof(storage::PartitionId) == 1, this is too much,
+   * but not a big issue.).
+   */
+  memory::AlignedMemorySlice  tmp_partition_array_slice_;
+
   /** How many Bucket allocated. This is zero-cleared when the I/O buffer is fully processed. */
   uint32_t                buckets_allocated_count_;
 
-  /** How many Bucket we can allocate in total. */
-  uint32_t                buckets_all_count_;
+  /**
+   * How many BucketHashList allocated.
+   * @invariant hashlist_allocated_count_ <= kBucketHashListMaxCount
+   */
+  uint32_t                hashlist_allocated_count_;
 
   /** just for reporting. */
   uint64_t                processed_log_count_;
 
   /**
-   * A stupidly simple hashtable for BucketLinkedList.
+   * A stupidly simple hashtable for BucketHashList.
    * Key is StorageId. 256 entries for the last 1 byte of StorageId (StorageId & 0xFF).
    * In each entry, we sequentially look for the storage ID.
    * We don't want to do expensive hash calculation for each log entry, so this is the
@@ -149,21 +224,13 @@ class LogMapper final : public MapReduceBase {
    * This hashtable is zero-cleared when the I/O buffer is fully processed.
    * @see clear_storage_buckets()
    */
-  BucketLinkedList        storage_buckets_[256];
+  BucketHashList*       storage_hashlists_[256];
 
   /**
    * Process one I/O buffer, which is the unit of batching in mapper.
    */
   ErrorStack  handle_process_buffer(const fs::DirectIoFile &file, uint64_t buffered_bytes,
                       log::LogFileOrdinal cur_file_ordinal, uint64_t *cur_offset, bool *first_read);
-
-  ErrorCode   map_log(const log::LogHeader* header);
-
-  /**
-   * Zero-clear storage_buckets_() and delete new-ed BucketLinkedList.
-   * Do not use this from constructor because the initial content of the memory might be garbage.
-   */
-  void        clear_storage_buckets();
 
   /**
    * Add the given log position to a bucket for the specified storage.
@@ -174,8 +241,7 @@ class LogMapper final : public MapReduceBase {
    * You can assume almost all cases this returns true (for compiler hint).
    * When this returns false, it should be followed by add_new_bucket()
    */
-  bool        bucket_log(storage::StorageId storage_id, MapperBufferPosition log_position)
-    ALWAYS_INLINE;
+  bool        bucket_log(storage::StorageId storage_id, uint64_t pos) ALWAYS_INLINE;
 
   /**
    * Add a new bucket for the specified storage.
@@ -193,7 +259,50 @@ class LogMapper final : public MapReduceBase {
    * This can be called either at the end of handle_process_buffer() or in the middle.
    * For better performance, it should be the former.
    */
-  ErrorStack  flush_buckets();
+  void        flush_all_buckets();
+
+  /**
+   * Send out one storage's bucketized log entries to reducers.
+   * Called from flush_all_buckets().
+   */
+  void        flush_bucket(const BucketHashList& hashlist);
+
+  /**
+   * Send out all logs in the bucket to the given partition.
+   */
+  void        send_bucket_partition(const Bucket& bucket, storage::PartitionId partition);
+  /** subroutine of send_bucket_partition to send out a send-buffer. */
+  void        send_bucket_partition_buffer(const Bucket& bucket, storage::PartitionId partition,
+    const char* send_buffer, uint64_t written);
+
+  /**
+   * Zero-clears storage_hashlists_ and resets other related temporary variables.
+   */
+  void        clear_storage_buckets();
+
+  /**
+   * Return BucketHashList for the given storage ID.
+   * NULL if not found.
+   * This method is optimized for the case where the first search with last 1 byte is sufficient.
+   */
+  inline BucketHashList* find_storage_hashlist(storage::StorageId storage_id) ALWAYS_INLINE {
+    uint8_t index = static_cast<uint8_t>(storage_id);
+    BucketHashList* hashlist = storage_hashlists_[index];
+    if (UNLIKELY(hashlist == nullptr)) {
+      return nullptr;
+    } else {
+      while (UNLIKELY(hashlist->storage_id_ != storage_id)) {
+        hashlist = hashlist->hashlist_next_;
+        if (hashlist == nullptr) {
+          return nullptr;
+        }
+      }
+    }
+
+    return hashlist;
+  }
+  /** Insert the new BucketHashList. This shouldn't be called often. */
+  void add_storage_hashlist(BucketHashList* new_hashlist);
 
   inline static MapperBufferPosition to_mapper_buffer_position(uint64_t byte_position) {
     ASSERT_ND(byte_position % 8 == 0);

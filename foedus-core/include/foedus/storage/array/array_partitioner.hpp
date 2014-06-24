@@ -11,7 +11,6 @@
 #include <iosfwd>
 
 #include "foedus/cxx11.hpp"
-#include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/log/fwd.hpp"
@@ -59,11 +58,12 @@ class ArrayPartitioner CXX11_FINAL : public virtual Partitioner {
     std::memcpy(this, &other, sizeof(ArrayPartitioner));
   }
   ~ArrayPartitioner() {}
-  Partitioner* clone() const { return new ArrayPartitioner(*this); }
-  void describe(std::ostream* o) const;
+  Partitioner* clone() const CXX11_OVERRIDE { return new ArrayPartitioner(*this); }
+  void describe(std::ostream* o) const CXX11_OVERRIDE;
 
-  ErrorStack partition_batch(
-    const log::RecordLogType** logs, uint32_t logs_count, PartitionId* results) const;
+  bool is_partitionable() const CXX11_OVERRIDE { return !array_single_page_; }
+  void partition_batch(const log::RecordLogType** logs, uint32_t logs_count, PartitionId* results)
+    const CXX11_OVERRIDE;
 
  private:
   /** only for sanity check */
