@@ -48,7 +48,8 @@ ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
 
     // do we have enough direct children? if not, some partition will not receive buckets.
     // Although it's not a critical error, let's log it as an error.
-    PartitionId total_partitions = engine->get_options().thread_.group_count_;
+    uint16_t total_partitions = engine->get_options().thread_.group_count_;
+    ASSERT_ND(total_partitions > 1);  // if not, why we are coming here. it's a waste.
 
     if (direct_children < total_partitions) {
       LOG(ERROR) << "Warning-like error: This array doesn't have enough direct children in root"
@@ -62,19 +63,37 @@ ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
     const uint16_t excessive_count = (direct_children * 12 / (total_partitions * 10)) + 1;
     std::vector<uint16_t> excessive_children;
     for (uint16_t child = 0; child < direct_children; ++child) {
-      thread::ThreadGroupId group = 0;
-
       const DualPagePointer &pointer = array->root_page_->get_interior_record(child);
+      PartitionId partition;
       if (pointer.volatile_pointer_.components.offset != 0) {
-        group = pointer.volatile_pointer_.components.numa_node;
+        partition = pointer.volatile_pointer_.components.numa_node;
       } else {
         // if no volatile page, see snapshot page owner.
-        group = extract_numa_node_from_snapshot_pointer(pointer.snapshot_pointer_);
+        partition = extract_numa_node_from_snapshot_pointer(pointer.snapshot_pointer_);
         // this ignores the case where neither snapshot/volatile page is there.
         // however, as we create all pages at ArrayStorage::create(), this so far never happens.
       }
-      ASSERT_ND(group < engine->get_options().thread_.group_count_);
-      // snapshot::PartitionId
+      ASSERT_ND(partition < total_partitions);
+      if (counts[partition] >= excessive_count) {
+        excessive_children.push_back(child);
+      } else {
+        ++counts[partition];
+        bucket_owners_[child] = partition;
+      }
+    }
+
+    // just add it to the one with least assignments.
+    // a stupid loop, but this part won't be a bottleneck (only 250 elements).
+    for (uint16_t child : excessive_children) {
+      PartitionId most_needy = 0;
+      for (PartitionId partition = 1; partition < total_partitions; ++partition) {
+        if (counts[partition] < counts[most_needy]) {
+          most_needy = partition;
+        }
+      }
+
+      ++counts[most_needy];
+      bucket_owners_[child] = most_needy;
     }
   }
 }

@@ -57,7 +57,7 @@ class Partitioner {
    * If we have just one partitioner object for each storage, all mappers in all NUMA nodes have
    * to use the same object, most likely causing expensinve inter NUMA node communications.
    * Partitioner object is anyway small and created only once for each storage and mapper, thus
-   * each mapper instead invokes this method with NumaScope to get a local copy.
+   * each mapper instead invokes this method within NumaScope to get a local copy.
    */
   virtual Partitioner* clone() const = 0;
 

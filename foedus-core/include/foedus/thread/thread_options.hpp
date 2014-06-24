@@ -24,8 +24,10 @@ struct ThreadOptions CXX11_FINAL : public virtual externalize::Externalizable {
   /**
    * Number of ThreadGroup in the engine.
    * Default value is hardware NUMA node count (::numa_num_configured_nodes()).
+   * Note that the type of this value is NOT ThreadGroupId so that we can handle 256 NUMA nodes.
+   * Otherwise 256 becomes 0.
    */
-  ThreadGroupId           group_count_;
+  uint16_t                group_count_;
 
   /**
    * Number of Thread in each ThreadGroup.

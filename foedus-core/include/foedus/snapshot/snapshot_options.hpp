@@ -21,10 +21,10 @@ namespace snapshot {
 struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable {
   enum Constants {
     kDefaultSnapshotTriggerPagePoolPercent = 100,
-    kDefaultSnapshotIntervalMilliseconds = 60000,
-    kDefaultLogMapperBucketKb           = 1024,
-    kDefaultLogMapperIoBufferKb         = 2048,
-    kDefaultLogReducerBufferMb           = 256,
+    kDefaultSnapshotIntervalMilliseconds  = 60000,
+    kDefaultLogMapperBucketKb             = 1024,
+    kDefaultLogMapperIoBufferMb           = 64,
+    kDefaultLogReducerBufferMb            = 256,
   };
 
   /**
@@ -69,10 +69,12 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
   uint32_t                            log_mapper_bucket_kb_;
 
   /**
-   * The size in KB of IO buffer to read log files in mapper.
-   * 1024 (1MB) should be a good number.
+   * The size in MB of IO buffer to read log files in mapper.
+   * This buffer is also the unit of batch processing in mapper, so this number should be
+   * sufficiently large.
+   * Maximum size is 1 << 15 MB (otherwise we can't represent log position in 4 bytes).
    */
-  uint32_t                            log_mapper_io_buffer_kb_;
+  uint16_t                            log_mapper_io_buffer_mb_;
 
   /**
    * The size in MB of a buffer to store log entries in reducer (partition).

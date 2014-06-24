@@ -7,9 +7,11 @@
 #include <glog/logging.h>
 
 #include <chrono>
+#include <map>
 #include <ostream>
 #include <sstream>
 #include <string>
+#include <utility>
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
@@ -19,6 +21,7 @@
 #include "foedus/snapshot/log_mapper_impl.hpp"
 #include "foedus/snapshot/log_reducer_impl.hpp"
 #include "foedus/snapshot/snapshot.hpp"
+#include "foedus/storage/partitioner.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
 
 namespace foedus {
@@ -54,6 +57,12 @@ ErrorStack LogGleaner::uninitialize_once() {
   batch.uninitialize_and_delete_all(&mappers_);
   batch.uninitialize_and_delete_all(&reducers_);
   nonrecord_log_buffer_.release_block();
+
+  for (std::map<storage::StorageId, storage::Partitioner*>::iterator it = partitioners_.begin();
+      it != partitioners_.end(); ++it) {
+    delete it->second;
+  }
+  partitioners_.clear();
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 
@@ -161,6 +170,33 @@ void LogGleaner::add_nonrecord_log(const log::LogHeader* header) {
     header,
     header->log_length_);
 }
+
+const storage::Partitioner* LogGleaner::get_or_create_partitioner(storage::StorageId storage_id) {
+  {
+    std::lock_guard<std::mutex> guard(partitioners_mutex_);
+    auto it = partitioners_.find(storage_id);
+    if (it != partitioners_.end()) {
+      return it->second;
+    }
+  }
+
+  // not found, let's create a new one, but out of the critical section to avoid contention.
+  storage::Partitioner* partitioner = storage::Partitioner::create_partitioner(engine_, storage_id);
+  {
+    std::lock_guard<std::mutex> guard(partitioners_mutex_);
+    auto it = partitioners_.find(storage_id);
+    if (it != partitioners_.end()) {
+      // oh, someone has just added it!
+      delete partitioner;
+      return it->second;
+    } else {
+      partitioners_.insert(std::pair<storage::StorageId, storage::Partitioner*>(
+        storage_id, partitioner));
+      return partitioner;
+    }
+  }
+}
+
 
 std::string LogGleaner::to_string() const {
   std::stringstream stream;

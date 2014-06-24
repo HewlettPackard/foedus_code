@@ -15,7 +15,7 @@ SnapshotOptions::SnapshotOptions() {
   snapshot_trigger_page_pool_percent_ = kDefaultSnapshotTriggerPagePoolPercent;
   snapshot_interval_milliseconds_ = kDefaultSnapshotIntervalMilliseconds;
   log_mapper_bucket_kb_ = kDefaultLogMapperBucketKb;
-  log_mapper_io_buffer_kb_ = kDefaultLogMapperIoBufferKb;
+  log_mapper_io_buffer_mb_ = kDefaultLogMapperIoBufferMb;
   log_reducer_buffer_mb_ = kDefaultLogReducerBufferMb;
 }
 
@@ -28,7 +28,7 @@ ErrorStack SnapshotOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, snapshot_trigger_page_pool_percent_);
   EXTERNALIZE_LOAD_ELEMENT(element, snapshot_interval_milliseconds_);
   EXTERNALIZE_LOAD_ELEMENT(element, log_mapper_bucket_kb_);
-  EXTERNALIZE_LOAD_ELEMENT(element, log_mapper_io_buffer_kb_);
+  EXTERNALIZE_LOAD_ELEMENT(element, log_mapper_io_buffer_mb_);
   EXTERNALIZE_LOAD_ELEMENT(element, log_reducer_buffer_mb_);
   CHECK_ERROR(get_child_element(element, "SnapshotDeviceEmulationOptions", &emulation_))
   return kRetOk;
@@ -51,8 +51,9 @@ ErrorStack SnapshotOptions::save(tinyxml2::XMLElement* element) const {
     "Size in KB of bucket (buffer for each partition) in mapper."
     " The larger, the less freuquently each mapper communicates with reducers."
     " 1024 (1MB) should be a good number.");
-  EXTERNALIZE_SAVE_ELEMENT(element, log_mapper_io_buffer_kb_,
-    "Size in KB of IO buffer to read log files in mapper. 1024 (1MB) should be a good number.");
+  EXTERNALIZE_SAVE_ELEMENT(element, log_mapper_io_buffer_mb_,
+    "Size in MB of IO buffer to read log files in mapper."
+    " This buffer is also the unit of batch processing in mapper.");
   EXTERNALIZE_SAVE_ELEMENT(element, log_reducer_buffer_mb_,
     "The size in MB of a buffer to store log entries in reducer (partition).");
   CHECK_ERROR(add_child_element(element, "SnapshotDeviceEmulationOptions",
