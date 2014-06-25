@@ -65,7 +65,6 @@ inline BufferPosition to_buffer_position(uint64_t byte_position) {
 inline uint64_t from_buffer_position(BufferPosition buffer_position) {
   return static_cast<uint64_t>(buffer_position) << 3;
 }
-
 }  // namespace snapshot
 }  // namespace foedus
 #endif  // FOEDUS_SNAPSHOT_SNAPSHOT_ID_HPP_

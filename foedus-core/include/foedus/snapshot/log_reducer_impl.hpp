@@ -101,6 +101,7 @@ class LogReducer final : public MapReduceBase {
    * @brief Append the log entries of one storage in the given buffer to this reducer's buffer.
    * @param[in] storage_id all log entries are of this storage
    * @param[in] send_buffer contains log entries to copy
+   * @param[in] log_count number of log entries to copy
    * @param[in] send_buffer_size byte count to copy
    * @details
    * This is the interface via which mappers send log entries to reducers.
@@ -113,6 +114,7 @@ class LogReducer final : public MapReduceBase {
   void append_log_chunk(
     storage::StorageId storage_id,
     const char* send_buffer,
+    uint32_t log_count,
     uint64_t send_buffer_size);
 
  protected:
@@ -147,7 +149,9 @@ class LogReducer final : public MapReduceBase {
    */
   struct BlockHeader {
     storage::StorageId  storage_id_;
+    uint32_t            log_count_;
     BufferPosition      block_length_;
+    uint32_t            dummy_;
   };
 
   struct ReducerBuffer {

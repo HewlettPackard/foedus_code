@@ -13,7 +13,7 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/const_div.hpp"
-#include "foedus/log/fwd.hpp"
+#include "foedus/memory/aligned_memory.hpp"
 #include "foedus/storage/partitioner.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/array/array_id.hpp"
@@ -58,12 +58,26 @@ class ArrayPartitioner CXX11_FINAL : public virtual Partitioner {
     std::memcpy(this, &other, sizeof(ArrayPartitioner));
   }
   ~ArrayPartitioner() {}
+  StorageId get_storage_id() const CXX11_OVERRIDE { return array_id_; }
   Partitioner* clone() const CXX11_OVERRIDE { return new ArrayPartitioner(*this); }
   void describe(std::ostream* o) const CXX11_OVERRIDE;
 
   bool is_partitionable() const CXX11_OVERRIDE { return !array_single_page_; }
-  void partition_batch(const log::RecordLogType** logs, uint32_t logs_count, PartitionId* results)
-    const CXX11_OVERRIDE;
+  void partition_batch(
+    PartitionId                     local_partition,
+    const snapshot::LogBuffer&      log_buffer,
+    const snapshot::BufferPosition* log_positions,
+    uint32_t                        logs_count,
+    PartitionId*                    results) const CXX11_OVERRIDE;
+
+  void sort_batch(
+    const snapshot::LogBuffer&      log_buffer,
+    const snapshot::BufferPosition* log_positions,
+    uint32_t                        log_positions_count,
+    memory::AlignedMemorySlice      sort_buffer,
+    Epoch                           base_epoch,
+    snapshot::BufferPosition*       output_buffer,
+    uint32_t*                       written_count) const CXX11_OVERRIDE;
 
  private:
   /** only for sanity check */

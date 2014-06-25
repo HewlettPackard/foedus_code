@@ -9,19 +9,23 @@
 
 #include <iosfwd>
 
+#include "foedus/epoch.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/log/fwd.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/snapshot/log_buffer.hpp"
+#include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/storage/storage_id.hpp"
 
 namespace foedus {
 namespace storage {
 /**
- * @brief Partitioning statistics and logic for one storage.
+ * @brief Partitioning and sorting logic for one storage.
  * @ingroup STORAGE
  * @details
  * When the snapshot module takes snapshot, it instantiates this object for each storage
  * that had some log. Mappers obtain the object and use it to determine which partition to
- * send logs to.
+ * send logs to. Reducers also use it to sort individual logs in the storage by key-then-ordinal
+ * order.
  * All methods in this object are in a batched style to avoid overheads per small log entry.
  *
  * @section PARTITION_ALGO Partitioning Algorithm
@@ -32,7 +36,12 @@ namespace storage {
  * we might want to explore smarter partitioning that utilizes, say, log entries.
  * (but that will be complex/expensive!)
  *
- * For more details of how individual storage types design partitions, see the derived classes.
+ * @section SORT_ALGO Sorting Algorithm
+ * Sorting algorithm \e may use metadata specific to the storage (not just storage type).
+ * For example, if we somehow know that every key in the storage is 8 byte, we can do something
+ * very efficient. Or, in some case the requirement of sorting itself might depend on the storage.
+ *
+ * For more details of how individual storage types implement them, see the derived classes.
  */
 class Partitioner {
  public:
@@ -48,6 +57,8 @@ class Partitioner {
   static Partitioner* create_partitioner(Engine* engine, StorageId id);
 
   virtual ~Partitioner() {}
+
+  virtual StorageId get_storage_id() const = 0;
 
   /**
    * @brief Clone this object, usually in order to get local copy on the same NUMA node.
@@ -73,7 +84,9 @@ class Partitioner {
 
   /**
    * @brief Identifies the partition of each log record in a batched fashion.
-   * @param[in] logs pointer to log records. All of them must be logs of the storage.
+   * @param[in] local_partition The node the caller (mapper) resides in.
+   * @param[in] log_buffer Converts from positions to physical pointers.
+   * @param[in] log_positions positions of log records. All of them must be logs of this storage.
    * @param[in] logs_count number of entries to process.
    * @param[out] results this method will set the partition of logs[i] to results[i].
    * @pre !is_partitionable(): in this case, it's waste of time. check it before calling this.
@@ -83,7 +96,43 @@ class Partitioner {
    * Assume the scale when you optimize the implementation in derived classes.
    */
   virtual void partition_batch(
-    const log::RecordLogType **logs, uint32_t logs_count, PartitionId *results) const = 0;
+    PartitionId                     local_partition,
+    const snapshot::LogBuffer&      log_buffer,
+    const snapshot::BufferPosition* log_positions,
+    uint32_t                        logs_count,
+    PartitionId*                    results) const = 0;
+
+  /**
+   * @brief Called from log reducer to sort log entries by keys.
+   * @param[in] log_buffer Converts from positions to physical pointers.
+   * @param[in] log_positions positions of log records. All of them must be logs of this storage.
+   * @param[in] logs_count number of entries to process.
+   * @param[in] sort_buffer For whatever purpose, the implementation can use this buffer as
+   * temporary working space.
+   * @param[in] base_epoch All log entries in this inputs are assured to be after this epoch.
+   * Also, it is assured to be within 2^16 from this epoch.
+   * Even with 10 milliseconds per epoch, this corresponds to more than 10 hours.
+   * Snapshot surely happens more often than that.
+   * @param[out] output_buffer sorted results are written to this variable.
+   * the buffer size is at least of log_positions_count_.
+   * @param[out] written_count how many logs written to output_buffer. If there was no compaction,
+   * this will be same as log_positions_count_.
+   * @details
+   * All log entries passed to this method are for this storage.
+   * Each storage type implements an efficient and batched way of sorting all log entries
+   * by key-and-then-ordinal.
+   * The implementation can do \b compaction when it is safe.
+   * For example, two \e ovewrite logs on the same key's same data region can be compacted to
+   * one log. In that case, written_count becomes smaller than log_positions_count_.
+   */
+  virtual void                sort_batch(
+    const snapshot::LogBuffer&      log_buffer,
+    const snapshot::BufferPosition* log_positions,
+    uint32_t                        log_positions_count,
+    memory::AlignedMemorySlice      sort_buffer,
+    Epoch                           base_epoch,
+    snapshot::BufferPosition*       output_buffer,
+    uint32_t*                       written_count) const = 0;
 
   /**
    * Implementation of ostream operator.

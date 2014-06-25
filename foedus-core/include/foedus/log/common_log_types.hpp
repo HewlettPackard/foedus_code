@@ -16,6 +16,7 @@
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
+#include "foedus/xct/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 /**
@@ -24,11 +25,6 @@
  * @ingroup LOG
  */
 namespace foedus {
-namespace xct {
-
-class Xct;
-}
-
 namespace log {
 
 /**
@@ -224,15 +220,17 @@ STATIC_SIZE_CHECK(sizeof(FillerLogType), 16)
  * @brief A log type to declare a switch of epoch in a logger or the engine.
  * @ingroup LOG LOGTYPE
  * @details
- * As we use epoch-based coarse-grained commit protocol, we don't have to include epoch or
- * any timestamp information in each log. Rather, we occasionally put this log in each log file.
  * Each logger puts this marker when it switches epoch. When applied, this just adds
  * epoch switch history which is maintained until related logs are gleaned and garbage collected.
  *
  * The epoch switch history is used to efficiently identify the beginning of each epoch in each
  * logger. This is useful for example when we take samples from each epoch.
  *
- * Every log file starts with an epoch mark.
+ * Now that we contain XctId in every log, it's not necessary to put this marker.
+ * However, having this log makes a few things easier; the epoch history management for
+ * seeking to beginning of a specific epoch and several sanity checks.
+ * So, we still keep this log. It's anyway only occadionally written, so no harm.
+ * Every log file starts with an epoch mark for this reason, too.
  */
 struct EpochMarkerLogType : public EngineLogType {
   LOG_TYPE_NO_CONSTRUCT(EpochMarkerLogType)

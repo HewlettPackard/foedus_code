@@ -53,10 +53,13 @@ ErrorStack LogReducer::handle_process() {
 }
 
 void LogReducer::append_log_chunk(
-  storage::StorageId storage_id, const char* send_buffer, uint64_t send_buffer_size) {
+  storage::StorageId storage_id,
+  const char* send_buffer,
+  uint32_t log_count,
+  uint64_t send_buffer_size) {
 #ifndef NDEBUG
-  DVLOG(1) << "Appending a block of " << send_buffer_size << " bytes to " << to_string()
-    << "'s buffer for storage-" << storage_id;
+  DVLOG(1) << "Appending a block of " << send_buffer_size << " bytes (" << log_count
+    << " entries) to " << to_string() << "'s buffer for storage-" << storage_id;
   debugging::StopWatch stop_watch;
 #endif  // NDEBUG
   const uint64_t required_size = send_buffer_size + sizeof(BlockHeader);
@@ -114,6 +117,7 @@ void LogReducer::append_log_chunk(
   char* destination = reinterpret_cast<char*>(buffer->buffer_slice_.get_block()) + begin_position;
   BlockHeader header;
   header.storage_id_ = storage_id;
+  header.log_count_ = log_count;
   header.block_length_ = to_buffer_position(required_size);
   std::memcpy(destination, &header, sizeof(BlockHeader));
   std::memcpy(destination + sizeof(BlockHeader), send_buffer, send_buffer_size);

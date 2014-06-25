@@ -433,49 +433,6 @@ inline ErrorCode ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset 
   return kErrorCodeOk;
 }
 
-struct ArraySortEntry {
-  ArrayOffset offset;
-  uint16_t    compressed_epoch_;  // difference from base_epoch
-  uint16_t    in_epoch_ordinal_;
-  snapshot::BufferPosition position;
-};
-
-void ArrayStoragePimpl::batch_sort_logs(
-  const Storage::BatchSortLogInput& input,
-  snapshot::BufferPosition* output_buffer,
-  uint32_t* written_count) const {
-  ASSERT_ND(sizeof(ArraySortEntry) == 16);
-  if (input.sort_buffer_size_ < sizeof(ArraySortEntry) * input.log_positions_count_) {
-    LOG(FATAL) << "Sort buffer is too small! log count=" << input.log_positions_count_
-      << ", buffer size = " << input.sort_buffer_size_;
-  }
-
-  const Epoch::EpochInteger base_epoch = input.base_epoch_.value();
-  ArraySortEntry* entries = reinterpret_cast<ArraySortEntry*>(input.sort_buffer_);
-  for (uint32_t i = 0; i < input.log_positions_count_; ++i) {
-    const OverwriteLogType* log_entry = reinterpret_cast<const OverwriteLogType*>(
-      input.resolve_position(input.log_positions_[i]));
-    ASSERT_ND(log_entry->header_.log_type_code_ == log::kLogCodeArrayOverwrite);
-    entries[i].offset = log_entry->offset_;
-    const Epoch::EpochInteger epoch = log_entry->header_.xct_id_.get_epoch_int();
-    if (epoch >= base_epoch) {
-      ASSERT_ND(epoch - base_epoch < (1 << 16));
-      entries[i].compressed_epoch_ = epoch - base_epoch;
-    } else {
-      // wrap around
-      ASSERT_ND(epoch + Epoch::kEpochIntOverflow - base_epoch < (1 << 16));
-      entries[i].compressed_epoch_ = epoch + Epoch::kEpochIntOverflow - base_epoch;
-    }
-    entries[i].compressed_epoch_ = log_entry->header_.xct_id_.get_epoch_int();
-    entries[i].in_epoch_ordinal_ = log_entry->header_.xct_id_.get_ordinal();
-    entries[i].position = input.log_positions_[i];
-  }
-
-  debugging::StopWatch stop_watch;
-  // TODO(Hideaki) non-gcc support. uint128_t support
-}
-
-
 // Explicit instantiations for each type
 // @cond DOXYGEN_IGNORE
 #define EXPLICIT_INSTANTIATION_GET(x) template ErrorCode ArrayStorage::get_record_primitive< x > \

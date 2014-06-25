@@ -12,7 +12,6 @@
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/log/fwd.hpp"
-#include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -85,55 +84,6 @@ class Storage : public virtual Initializable {
    * Implementation of ostream operator.
    */
   virtual void                describe(std::ostream* o) const = 0;
-
-  /**
-   * Combines inputs for batch_sort_logs().
-   */
-  struct BatchSortLogInput {
-    /**
-     * positions of log entries relative to buffer_base_address_.
-     */
-    const snapshot::BufferPosition* log_positions_;
-    uint32_t                        log_positions_count_;
-    const char*                     buffer_base_address_;
-    /**
-     * For whatever purpose, the implementation can use this buffer to
-     */
-    void*                           sort_buffer_;
-    uint64_t                        sort_buffer_size_;
-    /**
-     * All log entries in this inputs are assured to be after this epoch.
-     * Also, it is assured to be within 2^16 from this epoch.
-     * Even with 10 milliseconds per epoch, this corresponds to more than 10 hours.
-     * Snapshot surely happens more often than that.
-     */
-    Epoch                           base_epoch_;
-
-    inline const log::RecordLogType* resolve_position(snapshot::BufferPosition position) const {
-      return reinterpret_cast<const log::RecordLogType*>(
-        buffer_base_address_ + snapshot::from_buffer_position(position));
-    }
-  };
-
-  /**
-   * @brief Called from log reducer to sort log entries by keys.
-   * @param[in] input combined input
-   * @param[out] output_buffer sorted results are written to this variable.
-   * the buffer size is at least of log_positions_count_.
-   * @param[out] written_count how many logs written to output_buffer. If there was no compaction,
-   * this will be same as log_positions_count_.
-   * @details
-   * All log entries passed to this method are for this storage.
-   * Each storage type implements an efficient and batched way of sorting all log entries
-   * by key-and-then-ordinal.
-   * The implementation can do \b compaction when it is safe.
-   * For example, two \e ovewrite logs on the same key's same data region can be compacted to
-   * one log. In that case, written_count becomes smaller than log_positions_count_.
-   */
-  virtual void                batch_sort_logs(
-    const BatchSortLogInput&  input,
-    snapshot::BufferPosition* output_buffer,
-    uint32_t                  *written_count) const = 0;
 
   /** Just delegates to describe(). */
   friend std::ostream& operator<<(std::ostream& o, const Storage& v);

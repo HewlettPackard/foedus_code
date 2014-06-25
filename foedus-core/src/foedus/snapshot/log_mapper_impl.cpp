@@ -62,8 +62,8 @@ ErrorStack LogMapper::handle_initialize() {
   uint64_t tmp_offset = 0;
   tmp_send_buffer_slice_ = memory::AlignedMemorySlice(&tmp_memory_, tmp_offset, kSendBufferSize);
   tmp_offset += kSendBufferSize;
-  tmp_pointer_array_slice_ = memory::AlignedMemorySlice(&tmp_memory_, tmp_offset, kBucketSize << 1);
-  tmp_offset += kBucketSize << 1;
+  tmp_position_array_slice_ = memory::AlignedMemorySlice(&tmp_memory_, tmp_offset, kBucketSize);
+  tmp_offset += kBucketSize;
   tmp_sort_array_slice_ = memory::AlignedMemorySlice(&tmp_memory_, tmp_offset, kBucketSize << 1);
   tmp_offset += kBucketSize << 1;
   const uint64_t hashlist_bytesize = kBucketHashListMaxCount * sizeof(BucketHashList);
@@ -343,13 +343,13 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
   ASSERT_ND(hashlist.head_);
   ASSERT_ND(hashlist.tail_);
   // temporary variables to store partitioning results
-  const log::RecordLogType** pointer_array = reinterpret_cast<const log::RecordLogType**>(
-    tmp_pointer_array_slice_.get_block());
+  BufferPosition* position_array = reinterpret_cast<BufferPosition*>(
+    tmp_position_array_slice_.get_block());
   PartitionSortEntry* sort_array = reinterpret_cast<PartitionSortEntry*>(
     tmp_sort_array_slice_.get_block());
   storage::PartitionId* partition_array = reinterpret_cast<storage::PartitionId*>(
     tmp_partition_array_slice_.get_block());
-  const char* buffer_base_address = reinterpret_cast<const char*>(io_buffer_.get_block());
+  LogBuffer log_buffer(reinterpret_cast<char*>(io_buffer_.get_block()));
   const bool multi_partitions = engine_->get_options().thread_.group_count_ > 1;
 
   uint64_t log_count = 0;  // just for reporting
@@ -367,13 +367,18 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
       if (partitioner->is_partitionable()) {
         // calculate partitions
         for (uint32_t i = 0; i < bucket->counts_; ++i) {
-          pointer_array[i] = reinterpret_cast<const log::RecordLogType*>(
-            buffer_base_address + from_buffer_position(bucket->log_positions_[i]));
-
-          ASSERT_ND(pointer_array[i]->header_.storage_id_ == bucket->storage_id_);
-          ASSERT_ND(pointer_array[i]->header_.storage_id_ == hashlist.storage_id_);
+          position_array[i] = bucket->log_positions_[i];
+          ASSERT_ND(log_buffer.resolve(position_array[i])->header_.storage_id_
+            == bucket->storage_id_);
+          ASSERT_ND(log_buffer.resolve(position_array[i])->header_.storage_id_
+            == hashlist.storage_id_);
         }
-        partitioner->partition_batch(pointer_array, bucket->counts_, partition_array);
+        partitioner->partition_batch(
+          numa_node_,
+          log_buffer,
+          position_array,
+          bucket->counts_,
+          partition_array);
 
         // sort the log positions by the calculated partitions
         std::memset(sort_array, 0, sizeof(PartitionSortEntry) * bucket->counts_);
@@ -407,7 +412,7 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
           }
         }
 
-        ASSERT_ND(bucket->counts_ >= 0);
+        ASSERT_ND(bucket->counts_ > 0);
         // send out the last partition
         send_bucket_partition(*bucket, current_partition);
       } else {
@@ -435,31 +440,37 @@ void LogMapper::send_bucket_partition(
   ASSERT_ND(tmp_send_buffer_slice_.get_size() == kSendBufferSize);
 
   uint64_t written = 0;
+  uint32_t log_count = 0;
   for (uint32_t i = 0; i < bucket.counts_; ++i) {
     const log::LogHeader* header = reinterpret_cast<const log::LogHeader*>(
       buffer_base_address + from_buffer_position(bucket.log_positions_[i]));
     ASSERT_ND(header->storage_id_ == bucket.storage_id_);
-    ASSERT_ND(header->log_length_ < kSendBufferSize);  // each log can't be 1MB
     ASSERT_ND(header->log_length_ > 0);
     ASSERT_ND(header->log_length_ % 8 == 0);
     if (written + header->log_length_ > kSendBufferSize) {
       // buffer full. send out.
-      send_bucket_partition_buffer(bucket, partition, send_buffer, written);
+      send_bucket_partition_buffer(bucket, partition, send_buffer, log_count, written);
+      log_count = 0;
       written = 0;
     }
     std::memcpy(send_buffer, header, header->log_length_);
     written += header->log_length_;
+    ++log_count;
   }
-  send_bucket_partition_buffer(bucket, partition, send_buffer, written);
+  send_bucket_partition_buffer(bucket, partition, send_buffer, log_count, written);
 }
 
-void LogMapper::send_bucket_partition_buffer(const Bucket& bucket, storage::PartitionId partition,
-                                             const char* send_buffer, uint64_t written) {
+void LogMapper::send_bucket_partition_buffer(
+  const Bucket& bucket,
+  storage::PartitionId partition,
+  const char* send_buffer,
+  uint32_t log_count,
+  uint64_t written) {
   if (written == 0) {
     return;
   }
   LogReducer* reducer = parent_->get_reducer(partition);
-  reducer->append_log_chunk(bucket.storage_id_, send_buffer, written);
+  reducer->append_log_chunk(bucket.storage_id_, send_buffer, log_count, written);
 }
 
 

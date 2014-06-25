@@ -54,10 +54,6 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
   bool                exists()    const CXX11_OVERRIDE;
   ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
 
-  void                batch_sort_logs(
-    const BatchSortLogInput& input, snapshot::BufferPosition* output_buffer,
-    uint32_t* written_count) const CXX11_OVERRIDE;
-
   /**
    * @brief Returns byte size of one record in this array storage without internal overheads.
    * @details

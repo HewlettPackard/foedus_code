@@ -171,10 +171,10 @@ class LogMapper final : public MapReduceBase {
   memory::AlignedMemorySlice  tmp_send_buffer_slice_;
 
   /**
-   * Slice of tmp_memory_ used as pointer array (log::RecordLogType*[]).
-   * Size is kBucketSize * 2 bytes (= (kBucketSize / 4) pointers).
+   * Slice of tmp_memory_ used as position array (BufferPosition[]).
+   * Size is kBucketSize bytes (= (kBucketSize / 4) positions).
    */
-  memory::AlignedMemorySlice  tmp_pointer_array_slice_;
+  memory::AlignedMemorySlice  tmp_position_array_slice_;
 
   /**
    * Slice of tmp_memory_ used as sort array (PartitionSortEntry[]).
@@ -265,7 +265,7 @@ class LogMapper final : public MapReduceBase {
   void        send_bucket_partition(const Bucket& bucket, storage::PartitionId partition);
   /** subroutine of send_bucket_partition to send out a send-buffer. */
   void        send_bucket_partition_buffer(const Bucket& bucket, storage::PartitionId partition,
-    const char* send_buffer, uint64_t written);
+    const char* send_buffer, uint32_t log_count, uint64_t written);
 
   /**
    * Zero-clears storage_hashlists_ and resets other related temporary variables.

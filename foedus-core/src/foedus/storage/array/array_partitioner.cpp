@@ -6,12 +6,15 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <ostream>
 #include <vector>
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
+#include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/common_log_types.hpp"
+#include "foedus/memory/aligned_memory.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_log_types.hpp"
 #include "foedus/storage/array/array_page_impl.hpp"
@@ -44,7 +47,8 @@ ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
     std::vector<uint64_t> pages = ArrayStoragePimpl::calculate_required_pages(
       array_size_, storage->get_payload_size());
     ASSERT_ND(pages.size() == array->levels_);
-    uint16_t direct_children = pages.back();
+    ASSERT_ND(pages[pages.size() - 1] == 1);  // root page
+    uint16_t direct_children = pages[pages.size() - 2];
 
     // do we have enough direct children? if not, some partition will not receive buckets.
     // Although it's not a critical error, let's log it as an error.
@@ -111,19 +115,141 @@ void ArrayPartitioner::describe(std::ostream* o_ptr) const {
 }
 
 void ArrayPartitioner::partition_batch(
-  const log::RecordLogType** logs,
-  uint32_t logs_count,
-  PartitionId* results) const {
+  PartitionId /*local_partition*/,
+  const snapshot::LogBuffer&      log_buffer,
+  const snapshot::BufferPosition* log_positions,
+  uint32_t                        logs_count,
+  PartitionId*                    results) const {
   ASSERT_ND(is_partitionable());
   for (uint32_t i = 0; i < logs_count; ++i) {
-    ASSERT_ND(logs[i]->header_.log_type_code_ == log::kLogCodeArrayOverwrite);
-    ASSERT_ND(logs[i]->header_.storage_id_ == array_id_);
-    const OverwriteLogType *log = reinterpret_cast<const OverwriteLogType*>(logs[i]);
+    const OverwriteLogType *log = reinterpret_cast<const OverwriteLogType*>(
+      log_buffer.resolve(log_positions[i]));
+    ASSERT_ND(log->header_.log_type_code_ == log::kLogCodeArrayOverwrite);
+    ASSERT_ND(log->header_.storage_id_ == array_id_);
     ASSERT_ND(log->offset_ < array_size_);
     uint64_t bucket = bucket_size_div_.div64(log->offset_);
     ASSERT_ND(bucket < kInteriorFanout);
     results[i] = bucket_owners_[bucket];
   }
+}
+
+/**
+  * Used in sort_batch().
+  * \li 0-7 bytes: ArrayOffset, the most significant.
+  * \li 8-9 bytes: compressed epoch (difference from base_epoch)
+  * \li 10-11 bytes: in-epoch-ordinal
+  * \li 12-15 bytes: BufferPosition (doesn't have to be sorted together, but for simplicity)
+  * Be careful on endian! We use uint128_t to make it easier.
+  * @todo non-gcc support.
+  */
+struct SortEntry {
+  inline void set(
+    ArrayOffset               offset,
+    uint16_t                  compressed_epoch,
+    uint16_t                  in_epoch_ordinal,
+    snapshot::BufferPosition  position) ALWAYS_INLINE {
+    *reinterpret_cast<__uint128_t*>(this)
+      = static_cast<__uint128_t>(offset) << 64
+        | static_cast<__uint128_t>(compressed_epoch) << 48
+        | static_cast<__uint128_t>(in_epoch_ordinal) << 32
+        | static_cast<__uint128_t>(position);
+  }
+  inline ArrayOffset get_offset() const ALWAYS_INLINE {
+    return static_cast<ArrayOffset>(
+      *reinterpret_cast<const __uint128_t*>(this) >> 64);
+  }
+  inline snapshot::BufferPosition get_position() const ALWAYS_INLINE {
+    return static_cast<snapshot::BufferPosition>(*reinterpret_cast<const __uint128_t*>(this));
+  }
+  char data_[16];
+};
+
+void ArrayPartitioner::sort_batch(
+    const snapshot::LogBuffer&      log_buffer,
+    const snapshot::BufferPosition* log_positions,
+    uint32_t                        log_positions_count,
+    memory::AlignedMemorySlice      sort_buffer,
+    Epoch                           base_epoch,
+    snapshot::BufferPosition*       output_buffer,
+    uint32_t*                       written_count) const {
+  if (log_positions_count == 0) {
+    *written_count = 0;
+    return;
+  } else if (sort_buffer.get_size() < sizeof(SortEntry) * log_positions_count) {
+    LOG(FATAL) << "Sort buffer is too small! log count=" << log_positions_count
+      << ", buffer= " << sort_buffer;
+  }
+
+  debugging::StopWatch stop_watch_entire;
+
+  ASSERT_ND(sizeof(SortEntry) == 16);
+  const Epoch::EpochInteger base_epoch_int = base_epoch.value();
+  SortEntry* entries = reinterpret_cast<SortEntry*>(sort_buffer.get_block());
+  for (uint32_t i = 0; i < log_positions_count; ++i) {
+    const OverwriteLogType* log_entry = reinterpret_cast<const OverwriteLogType*>(
+      log_buffer.resolve(log_positions[i]));
+    ASSERT_ND(log_entry->header_.log_type_code_ == log::kLogCodeArrayOverwrite);
+    uint16_t compressed_epoch;
+    const Epoch::EpochInteger epoch = log_entry->header_.xct_id_.get_epoch_int();
+    if (epoch >= base_epoch_int) {
+      ASSERT_ND(epoch - base_epoch_int < (1 << 16));
+      compressed_epoch = epoch - base_epoch_int;
+    } else {
+      // wrap around
+      ASSERT_ND(epoch + Epoch::kEpochIntOverflow - base_epoch_int < (1 << 16));
+      compressed_epoch = epoch + Epoch::kEpochIntOverflow - base_epoch_int;
+    }
+    entries[i].set(
+      log_entry->offset_,
+      compressed_epoch,
+      log_entry->header_.xct_id_.get_ordinal(),
+      log_positions[i]);
+  }
+
+  debugging::StopWatch stop_watch;
+  // TODO(Hideaki) non-gcc support.
+  // Actually, we need only 12-bytes sorting, so perhaps doing without __uint128_t is faster?
+  std::sort(
+    reinterpret_cast<__uint128_t*>(entries),
+    reinterpret_cast<__uint128_t*>(entries + log_positions_count));
+  stop_watch.stop();
+  VLOG(0) << "Sorted " << log_positions_count
+    << " log entries in " << stop_watch.elapsed_ms() << "ms";
+
+  uint32_t result_count = 1;
+  output_buffer[0] = entries[0].get_position();
+  for (uint32_t i = 1; i < log_positions_count; ++i) {
+    // compact the logs if the same offset appears in a row, and covers the same data region.
+    // because we sorted it by offset and then ordinal, later logs can overwrite the earlier one.
+    if (entries[i].get_offset() == entries[i - 1].get_offset()) {
+      // is the data region same or superseded?
+      const OverwriteLogType* prev = reinterpret_cast<const OverwriteLogType*>(
+        log_buffer.resolve(entries[i - 1].get_position()));
+      const OverwriteLogType* next = reinterpret_cast<const OverwriteLogType*>(
+        log_buffer.resolve(entries[i].get_position()));
+      uint16_t prev_begin = prev->payload_offset_;
+      uint16_t prev_end = prev_begin + prev->payload_count_;
+      uint16_t next_begin = next->payload_offset_;
+      uint16_t next_end = next_begin + next->payload_count_;
+      if (next_begin <= prev_begin && next_end >= prev_end) {
+        --result_count;
+      }
+
+      // the logic checks data range against only the previous entry.
+      // we might have a situation where 3 or more log entries have the same array offset
+      // and the data regions are like following
+      // Log 1: [4, 8) bytes, Log 2: [8, 12) bytes, Log 3: [4, 8) bytes
+      // If we check further, Log 3 can eliminate Log 1. However, the check is expensive..
+    }
+    output_buffer[result_count] = entries[i].get_position();
+    ++result_count;
+  }
+
+  stop_watch_entire.stop();
+  VLOG(0) << "Array-" << array_id_ << " sort_batch() done in  " << stop_watch_entire.elapsed_ms()
+      << "ms  for " << log_positions_count << " log entries, compacted them to"
+        << result_count << " log entries";
+  *written_count = result_count;
 }
 }  // namespace array
 }  // namespace storage

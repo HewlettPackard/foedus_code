@@ -90,11 +90,6 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   */
   static std::vector<uint64_t> calculate_required_pages(uint64_t array_size, uint16_t payload);
 
-  void        batch_sort_logs(
-    const Storage::BatchSortLogInput& input,
-    snapshot::BufferPosition* output_buffer,
-    uint32_t* written_count) const;
-
   Engine* const           engine_;
   ArrayStorage* const     holder_;
   ArrayMetadata           metadata_;
