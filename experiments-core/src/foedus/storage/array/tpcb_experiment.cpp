@@ -229,9 +229,7 @@ int main_impl(int argc, char **argv) {
   ASSERT_ND(!fs::exists(savepoint_path));
 
   std::cout << "NUMA node count=" << static_cast<int>(options.thread_.group_count_) << std::endl;
-  options.snapshot_.folder_path_pattern_
-    = "/dev/shm/tpcb_array_expr/snapshot/node_$NODE$/part_$PARTITION$";
-  options.snapshot_.partitions_per_node_ = 1;
+  options.snapshot_.folder_path_pattern_ = "/dev/shm/tpcb_array_expr/snapshot/node_$NODE$";
   options.log_.folder_path_pattern_ = "/dev/shm/tpcb_array_expr/log/node_$NODE$/logger_$LOGGER$";
   options.log_.loggers_per_node_ = kLoggersPerNode;
   options.debugging_.debug_log_min_threshold_

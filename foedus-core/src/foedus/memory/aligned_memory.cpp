@@ -4,8 +4,8 @@
  */
 #include "foedus/memory/aligned_memory.hpp"
 
-#include <glog/logging.h>
 #include <numa.h>
+#include <glog/logging.h>
 
 #include <cstdlib>
 #include <cstring>

@@ -2,8 +2,8 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include <gtest/gtest.h>
 #include <stdint.h>
+#include <gtest/gtest.h>
 
 #include <algorithm>
 #include <iostream>
@@ -103,7 +103,7 @@ WriteXctAccess create_write_access(int i) {
   access.observed_owner_id_.set_clean(i * 43, i * 4, i + 1);
   access.storage_ = reinterpret_cast<storage::Storage*>(to_ptr(i * 52223));
   access.record_ = reinterpret_cast<storage::Record*>(to_ptr(i * 14325));
-  access.log_entry_ = to_ptr(i * 5423423);
+  access.log_entry_ = reinterpret_cast<log::RecordLogType*>(to_ptr(i * 5423423));
   return access;
 }
 void verify_access(const WriteXctAccess &access, int i) {

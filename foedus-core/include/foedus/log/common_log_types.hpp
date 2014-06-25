@@ -16,6 +16,7 @@
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
+#include "foedus/xct/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 /**
@@ -31,7 +32,7 @@ namespace log {
  * @ingroup LOGTYPE
  * @details
  * Each log type should contain this as the first member.
- * This is 8-byte, so compiler won't do any reorder or filling.
+ * This is 16-byte, so compiler won't do any reorder or filling.
  */
 struct LogHeader {
   /**
@@ -50,6 +51,15 @@ struct LogHeader {
    * If this operation is agnostic to individual storages, zero.
    */
   storage::StorageId  storage_id_;     // +4 => 8
+
+  /**
+   * Epoch and in-epoch ordinal of this log.
+   * Unlike other fields, xct_id is set at commit time because we have no idea what the
+   * epoch and the in-epoch ordinal will be until that time.
+   * Basically all logs have this information, but FillerLogType does not have it so that
+   * it fits in 8 bytes.
+   */
+  xct::XctId          xct_id_;         // +8 => 16
 
   /** Convenience method to cast into LogCode. */
   LogCode get_type() const ALWAYS_INLINE { return static_cast<LogCode>(log_type_code_); }
@@ -79,7 +89,7 @@ struct LogHeader {
 struct BaseLogType {
   LogHeader   header_;
 };
-STATIC_SIZE_CHECK(sizeof(BaseLogType), 8)
+STATIC_SIZE_CHECK(sizeof(BaseLogType), 16)
 
 /**
  * @brief Base class for log type of engine-wide operation.
@@ -89,12 +99,11 @@ struct EngineLogType : public BaseLogType {
   bool    is_engine_log()     const { return true; }
   bool    is_storage_log()    const { return false; }
   bool    is_record_log()     const { return false; }
-  void apply_storage(const xct::XctId &/*xct_id*/,
-             thread::Thread* /*context*/, storage::Storage* /*storage*/) {
+  void apply_storage(thread::Thread* /*context*/, storage::Storage* /*storage*/) {
     ASSERT_ND(false);
   }
-  void apply_record(const xct::XctId &/*xct_id*/, thread::Thread* /*context*/,
-            storage::Storage* /*storage*/, storage::Record* /*record*/) {
+  void apply_record(thread::Thread* /*context*/,
+                    storage::Storage* /*storage*/, storage::Record* /*record*/) {
     ASSERT_ND(false);
   }
   /**
@@ -107,7 +116,7 @@ struct EngineLogType : public BaseLogType {
     ASSERT_ND(header_.storage_id_ == 0);
   }
 };
-STATIC_SIZE_CHECK(sizeof(EngineLogType), 8)
+STATIC_SIZE_CHECK(sizeof(EngineLogType), 16)
 
 /**
  * @brief Base class for log type of storage-wide operation.
@@ -117,11 +126,11 @@ struct StorageLogType : public BaseLogType {
   bool    is_engine_log()     const { return false; }
   bool    is_storage_log()    const { return true; }
   bool    is_record_log()     const { return false; }
-  void apply_engine(const xct::XctId &/*xct_id*/, thread::Thread* /*context*/) {
+  void apply_engine(thread::Thread* /*context*/) {
     ASSERT_ND(false);
   }
-  void apply_record(const xct::XctId &/*xct_id*/, thread::Thread* /*context*/,
-            storage::Storage* /*storage*/, storage::Record* /*record*/) {
+  void apply_record(thread::Thread* /*context*/,
+                    storage::Storage* /*storage*/, storage::Record* /*record*/) {
     ASSERT_ND(false);
   }
   /**
@@ -134,7 +143,7 @@ struct StorageLogType : public BaseLogType {
     ASSERT_ND(header_.storage_id_ > 0);
   }
 };
-STATIC_SIZE_CHECK(sizeof(StorageLogType), 8)
+STATIC_SIZE_CHECK(sizeof(StorageLogType), 16)
 
 /**
  * @brief Base class for log type of record-wise operation.
@@ -144,11 +153,10 @@ struct RecordLogType : public BaseLogType {
   bool    is_engine_log()     const { return false; }
   bool    is_storage_log()    const { return false; }
   bool    is_record_log()     const { return true; }
-  void apply_engine(const xct::XctId &/*xct_id*/, thread::Thread* /*context*/) {
+  void apply_engine(thread::Thread* /*context*/) {
     ASSERT_ND(false);
   }
-  void apply_storage(const xct::XctId &/*xct_id*/,
-             thread::Thread* /*context*/, storage::Storage* /*storage*/) {
+  void apply_storage(thread::Thread* /*context*/, storage::Storage* /*storage*/) {
     ASSERT_ND(false);
   }
   /**
@@ -161,7 +169,7 @@ struct RecordLogType : public BaseLogType {
     ASSERT_ND(header_.storage_id_ > 0);
   }
 };
-STATIC_SIZE_CHECK(sizeof(RecordLogType), 8)
+STATIC_SIZE_CHECK(sizeof(RecordLogType), 16)
 
 /**
  * @brief A dummy log type to fill up a sector in log files.
@@ -187,11 +195,10 @@ struct FillerLogType : public BaseLogType {
   bool    is_engine_log()     const { return true; }
   bool    is_storage_log()    const { return true; }
   bool    is_record_log()     const { return true; }
-  void    apply_engine(const xct::XctId &/*xct_id*/, thread::Thread* /*context*/) {}
-  void    apply_storage(const xct::XctId &/*xct_id*/,
-              thread::Thread* /*context*/, storage::Storage* /*storage*/) {}
-  void    apply_record(const xct::XctId &/*xct_id*/, thread::Thread* /*context*/,
-             storage::Storage* /*storage*/, storage::Record* /*record*/) {}
+  void    apply_engine(thread::Thread* /*context*/) {}
+  void    apply_storage(thread::Thread* /*context*/, storage::Storage* /*storage*/) {}
+  void    apply_record(thread::Thread* /*context*/,
+                       storage::Storage* /*storage*/, storage::Record* /*record*/) {}
 
   /** Populate this log to fill up the specified byte size. */
   void    populate(uint64_t size);
@@ -205,47 +212,51 @@ struct FillerLogType : public BaseLogType {
 
   friend std::ostream& operator<<(std::ostream& o, const FillerLogType &v);
 };
-STATIC_SIZE_CHECK(sizeof(FillerLogType), 8)
+STATIC_SIZE_CHECK(sizeof(FillerLogType), 16)
+// NOTE: As a class, it's 16 bytes. However, it might be only 8 bytes in actual log.
+// In that case, xct_id is omitted.
 
 /**
  * @brief A log type to declare a switch of epoch in a logger or the engine.
  * @ingroup LOG LOGTYPE
  * @details
- * As we use epoch-based coarse-grained commit protocol, we don't have to include epoch or
- * any timestamp information in each log. Rather, we occasionally put this log in each log file.
  * Each logger puts this marker when it switches epoch. When applied, this just adds
  * epoch switch history which is maintained until related logs are gleaned and garbage collected.
  *
  * The epoch switch history is used to efficiently identify the beginning of each epoch in each
  * logger. This is useful for example when we take samples from each epoch.
  *
- * Every log file starts with an epoch mark.
+ * Now that we contain XctId in every log, it's not necessary to put this marker.
+ * However, having this log makes a few things easier; the epoch history management for
+ * seeking to beginning of a specific epoch and several sanity checks.
+ * So, we still keep this log. It's anyway only occadionally written, so no harm.
+ * Every log file starts with an epoch mark for this reason, too.
  */
 struct EpochMarkerLogType : public EngineLogType {
   LOG_TYPE_NO_CONSTRUCT(EpochMarkerLogType)
 
-  void    apply_engine(const xct::XctId &xct_id, thread::Thread* context);
+  void    apply_engine(thread::Thread* context);
 
   /** Epoch before this switch. */
-  Epoch   old_epoch_;  // +4  => 12
+  Epoch   old_epoch_;  // +4  => 20
   /** Epoch after this switch. */
-  Epoch   new_epoch_;  // +4  => 16
+  Epoch   new_epoch_;  // +4  => 24
 
   /** Numa node of the logger that produced this log. */
-  uint8_t     logger_numa_node_;  // +1 => 17
+  uint8_t     logger_numa_node_;  // +1 => 25
   /** Ordinal of the logger in the numa node. */
-  uint8_t     logger_in_node_ordinal_;  // +1 => 18
+  uint8_t     logger_in_node_ordinal_;  // +1 => 26
   /** Unique ID of the logger. */
-  uint16_t    logger_id_;  // +2 => 20
+  uint16_t    logger_id_;  // +2 => 28
 
   /** Ordinal of log files (eg "log.0", "log.1"). */
-  uint32_t    log_file_ordinal_;  // +4 => 24
+  uint32_t    log_file_ordinal_;  // +4 => 32
 
   /**
    * Byte offset of the epoch mark log itself in the log. We can put this value in this log
    * because logger knows the current offset of its own file when it writes out an epoch mark.
    */
-  uint64_t    log_file_offset_;  // +8 => 32
+  uint64_t    log_file_offset_;  // +8 => 40
 
   void    populate(Epoch old_epoch, Epoch new_epoch,
            uint8_t logger_numa_node, uint8_t logger_in_node_ordinal,
@@ -254,7 +265,7 @@ struct EpochMarkerLogType : public EngineLogType {
 
   friend std::ostream& operator<<(std::ostream& o, const EpochMarkerLogType &v);
 };
-STATIC_SIZE_CHECK(sizeof(EpochMarkerLogType), 32)
+STATIC_SIZE_CHECK(sizeof(EpochMarkerLogType), 40)
 
 }  // namespace log
 }  // namespace foedus

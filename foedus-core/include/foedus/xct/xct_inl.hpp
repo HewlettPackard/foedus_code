@@ -108,7 +108,7 @@ inline ErrorCode Xct::read_record_primitive(storage::Storage* storage, storage::
 }
 
 inline ErrorCode Xct::add_to_write_set(storage::Storage* storage, storage::Record* record,
-                     void* log_entry) {
+                     log::RecordLogType* log_entry) {
   ASSERT_ND(!schema_xct_);
   ASSERT_ND(storage);
   ASSERT_ND(record);

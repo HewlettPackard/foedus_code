@@ -6,18 +6,21 @@
 #define FOEDUS_SNAPSHOT_LOG_REDUCER_IMPL_HPP_
 #include <stdint.h>
 
+#include <atomic>
 #include <iosfwd>
 #include <string>
 
-#include "foedus/epoch.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/log/log_id.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/fwd.hpp"
 #include "foedus/snapshot/mapreduce_base_impl.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
+#include "foedus/storage/storage_id.hpp"
+#include "foedus/thread/condition_variable_impl.hpp"
 #include "foedus/thread/fwd.hpp"
 
 namespace foedus {
@@ -84,15 +87,35 @@ namespace snapshot {
  */
 class LogReducer final : public MapReduceBase {
  public:
-  LogReducer(Engine* engine, LogGleaner* parent, PartitionId id, thread::ThreadGroupId numa_node)
-    : MapReduceBase(engine, parent, id, numa_node) {}
+  LogReducer(Engine* engine, LogGleaner* parent, thread::ThreadGroupId numa_node)
+    : MapReduceBase(engine, parent, numa_node, numa_node) {}
 
-  /** One LogReducer corresponds to one snapshot partition. */
-  PartitionId             get_id() const { return id_; }
+  /** One LogReducer corresponds to one NUMA node (partition). */
+  thread::ThreadGroupId   get_id() const { return id_; }
   std::string             to_string() const override {
     return std::string("LogReducer-") + std::to_string(id_);
   }
   friend std::ostream&    operator<<(std::ostream& o, const LogReducer& v);
+
+  /**
+   * @brief Append the log entries of one storage in the given buffer to this reducer's buffer.
+   * @param[in] storage_id all log entries are of this storage
+   * @param[in] send_buffer contains log entries to copy
+   * @param[in] log_count number of log entries to copy
+   * @param[in] send_buffer_size byte count to copy
+   * @details
+   * This is the interface via which mappers send log entries to reducers.
+   * Internally, this atomically changes the status of the current reducer buffer to reserve
+   * a contiguous space and then copy without blocking other mappers.
+   * If this methods hits a situation where the current buffer becomes full, this methods
+   * wakes up the reducer and lets it switch the current buffer.
+   * All log entries are contiguously copied. One block doesn't span two buffers.
+   */
+  void append_log_chunk(
+    storage::StorageId storage_id,
+    const char* send_buffer,
+    uint32_t log_count,
+    uint64_t send_buffer_size);
 
  protected:
   ErrorStack  handle_initialize() override;
@@ -100,11 +123,85 @@ class LogReducer final : public MapReduceBase {
   ErrorStack  handle_process() override;
 
  private:
+  enum Constants {
+    /**
+     * A bit-wise flag in BufferStatus's flags_.
+     * If this bit is on, no more mappers can enter the buffer as a new writer.
+     */
+    kFlagNoMoreWriters = 0x0001,
+  };
   /**
-   * memory to store log entries in the epoch.
-   * Just like the logging buffer, this forms a circular buffer.
+   * Compactly represents important status informations of a reducer buffer.
+   * Concurrent threads use atomic CAS to change any of these information.
+   * Last 32 bits are tail position of the buffer in bytes divided by 8, so at most 32 GB buffer.
    */
-  memory::AlignedMemory   buffer_;
+  union BufferStatus {
+    uint64_t word;
+    struct Components {
+      uint16_t        active_writers_;
+      uint16_t        flags_;
+      BufferPosition  tail_position_;
+    } components;
+  };
+
+  /**
+   * All buffer blocks sent via append_log_chunk() put this header at first.
+   */
+  struct BlockHeader {
+    storage::StorageId  storage_id_;
+    uint32_t            log_count_;
+    BufferPosition      block_length_;
+    uint32_t            dummy_;
+  };
+
+  struct ReducerBuffer {
+    memory::AlignedMemorySlice  buffer_slice_;
+
+    std::atomic<uint64_t>       status_;  // actually of type BufferStatus
+
+    char filler_to_avoid_false_sharing_[
+      assorted::kCachelineSize
+      - sizeof(memory::AlignedMemorySlice)
+      - sizeof(std::atomic<uint64_t>)];
+
+
+    BufferStatus get_status() const {
+      BufferStatus ret;
+      ret.word = status_.load();
+      return ret;
+    }
+    BufferStatus get_status_weak() const {
+      BufferStatus ret;
+      ret.word = status_.load(std::memory_order_relaxed);
+      return ret;
+    }
+  };
+
+  /**
+   * Underlying memory of reducer buffer.
+   */
+  memory::AlignedMemory   buffer_memory_;
+
+  /**
+   * The reducer buffer is split into two so that reducers can always work on completely filled
+   * buffer while mappers keep appending to another buffer.
+   * @see current_buffer_
+   */
+  ReducerBuffer buffers_[2];
+
+  /**
+   * buffers_[current_buffer_ % 2] is the buffer mappers should append to.
+   * This value increases for every buffer switch.
+   */
+  std::atomic<uint32_t>   current_buffer_;
+
+  /**
+   * Fired (notify_all) whenever current_buffer_ is switched.
+   * Used by mappers to wait for available buffer.
+   */
+  thread::ConditionVariable current_buffer_changed_;
+
+  ReducerBuffer* get_current_buffer() { return &buffers_[current_buffer_ % 2]; }
 };
 }  // namespace snapshot
 }  // namespace foedus

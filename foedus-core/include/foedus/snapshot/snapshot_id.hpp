@@ -29,18 +29,6 @@ namespace snapshot {
  */
 typedef uint16_t SnapshotId;
 
-/**
- * @brief Unique ID of Partition of snapshot files.
- * @ingroup SNAPSHOT
- * @details
- * Snapshot files are stored in partitions.
- * Each NUMA node exclusively owns one or more partition.
- * All storages partition their data into one of the partition without overlaps.
- * PartitionId is merely a (partitions_per_node * NUMA_node_id) + partition_ordinal_in_node.
- * Assumeing that there are at most 256 partitions per NUMA node, it always fits 16 bits.
- */
-typedef uint16_t PartitionId;
-
 const SnapshotId kNullSnapshotId = 0;
 
 /**
@@ -58,6 +46,25 @@ inline SnapshotId increment(SnapshotId id) {
   }
 }
 
+/**
+ * @brief Represents a position in some buffer.
+ * @ingroup SNAPSHOT
+ * @details
+ * As log is always 8-byte aligned, we divide the original byte position by 8.
+ * Thus, this can represent up to 8 * 2^32=32GB, which is the maximum value of
+ * log_mapper_io_buffer_mb_.
+ * @see to_buffer_position
+ * @see from_buffer_position
+ */
+typedef uint32_t BufferPosition;
+
+inline BufferPosition to_buffer_position(uint64_t byte_position) {
+  ASSERT_ND(byte_position % 8 == 0);
+  return byte_position >> 3;
+}
+inline uint64_t from_buffer_position(BufferPosition buffer_position) {
+  return static_cast<uint64_t>(buffer_position) << 3;
+}
 }  // namespace snapshot
 }  // namespace foedus
 #endif  // FOEDUS_SNAPSHOT_SNAPSHOT_ID_HPP_

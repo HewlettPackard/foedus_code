@@ -4,8 +4,8 @@
  */
 #include "foedus/storage/metadata.hpp"
 
-#include <glog/logging.h>
 #include <tinyxml2.h>
+#include <glog/logging.h>
 
 #include "foedus/storage/array/array_metadata.hpp"
 

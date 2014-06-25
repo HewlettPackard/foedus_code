@@ -24,8 +24,7 @@ void DropLogType::populate(StorageId storage_id) {
   header_.log_length_ = sizeof(DropLogType);
   header_.storage_id_ = storage_id;
 }
-void DropLogType::apply_storage(const xct::XctId& /*xct_id*/,
-                thread::Thread* context, Storage* storage) {
+void DropLogType::apply_storage(thread::Thread* context, Storage* storage) {
   ASSERT_ND(storage);  // because we are now dropping it.
   ASSERT_ND(header_.storage_id_ > 0);
   ASSERT_ND(header_.storage_id_ == storage->get_id());

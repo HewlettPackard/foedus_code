@@ -56,16 +56,17 @@ Get Started
 -----------
 Here is a minimal example program to create a key-value storage and query on it.
 
-    #include <foedus/engine.hpp>
-    #include <foedus/engine_options.hpp>
-    #include <foedus/epoch.hpp>
-    #include <foedus/thread/thread_pool.hpp>
-    #include <foedus/thread/thread.hpp>
-    #include <foedus/storage/storage_manager.hpp>
-    #include <foedus/storage/array/array_metadata.hpp>
-    #include <foedus/storage/array/array_storage.hpp>
-    #include <foedus/xct/xct_manager.hpp>
     #include <iostream>
+
+    #include "foedus/engine.hpp"
+    #include "foedus/engine_options.hpp"
+    #include "foedus/epoch.hpp"
+    #include "foedus/storage/storage_manager.hpp"
+    #include "foedus/storage/array/array_metadata.hpp"
+    #include "foedus/storage/array/array_storage.hpp"
+    #include "foedus/thread/thread.hpp"
+    #include "foedus/thread/thread_pool.hpp"
+    #include "foedus/xct/xct_manager.hpp"
 
     const uint16_t kPayload = 16;
     const uint32_t kRecords = 1 << 20;
@@ -74,15 +75,15 @@ Here is a minimal example program to create a key-value storage and query on it.
     foedus::storage::array::ArrayStorage *array;
 
     class MyTask : public foedus::thread::ImpersonateTask {
-    public:
+     public:
       foedus::ErrorStack run(foedus::thread::Thread* context) {
         foedus::xct::XctManager& xct_manager = engine->get_xct_manager();
-        CHECK_ERROR(xct_manager.begin_xct(context, foedus::xct::kSerializable));
+        WRAP_ERROR_CODE(xct_manager.begin_xct(context, foedus::xct::kSerializable));
         char buf[kPayload];
-        CHECK_ERROR(array->get_record(context, 123, buf));
+        WRAP_ERROR_CODE(array->get_record(context, 123, buf));
         foedus::Epoch commit_epoch;
-        CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-        CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
+        WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+        WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
         return foedus::kRetOk;
       }
     };

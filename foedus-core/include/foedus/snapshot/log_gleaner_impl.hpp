@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <iosfwd>
+#include <map>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -20,6 +21,8 @@
 #include "foedus/log/log_id.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/fwd.hpp"
+#include "foedus/storage/fwd.hpp"
+#include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/rendezvous_impl.hpp"
 
@@ -48,7 +51,7 @@ namespace snapshot {
  *
  * @section REDUCER Reducer
  * LogGleaner also launches a set of reducer threads (foedus::snapshot::LogReducer), one for each
- * snapshot partition. For each epoch, LogReducer sorts log entries sent from LogMapper.
+ * NUMA node. For each epoch, LogReducer sorts log entries sent from LogMapper.
  * The log entries are sorted by ordinal (*), then processed just like
  * usual APPLY at the end of transaction, but on top of snapshot files.
  *
@@ -96,6 +99,9 @@ class LogGleaner final : public DefaultInitializable {
   friend std::ostream&    operator<<(std::ostream& o, const LogGleaner& v);
 
   Snapshot*               get_snapshot() { return snapshot_; }
+  LogReducer*             get_reducer(thread::ThreadGroupId partition) {
+    return reducers_[partition];
+  }
 
   bool                    is_stop_requested() const;
   void                    wakeup();
@@ -147,6 +153,11 @@ class LogGleaner final : public DefaultInitializable {
    * processed at the end of epoch.
    */
   void add_nonrecord_log(const log::LogHeader* header);
+
+  /**
+   * Obtains partitioner for the storage.
+   */
+  const storage::Partitioner* get_or_create_partitioner(storage::StorageId storage_id);
 
  private:
   /**
@@ -211,8 +222,21 @@ class LogGleaner final : public DefaultInitializable {
 
   /** Mappers. Index is LoggerId. */
   std::vector<LogMapper*>         mappers_;
-  /** Reducers. Index is PartitionId. */
+  /** Reducers. Index is NUMA node ID (partition). */
   std::vector<LogReducer*>        reducers_;
+
+  /**
+   * Objects to partition log entries. Partitioners are added by mappers when they observe a
+   * new Storage ID. Once added to here, a partitioner gets never changed.
+   * If there is only one partition (NUMA node), this is not used.
+   */
+  std::map<storage::StorageId, storage::Partitioner*> partitioners_;
+
+  /**
+   * Protects read/write to partitioners_. Insertion to partitioners_ should do heavy construction
+   * out of this mutex to avoid contention.
+   */
+  std::mutex     partitioners_mutex_;
 
   /**
    * buffer to collect all logs that will be centraly processed at the end of each epoch.

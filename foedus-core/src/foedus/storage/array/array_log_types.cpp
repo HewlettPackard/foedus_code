@@ -34,8 +34,7 @@ void CreateLogType::populate(StorageId storage_id, ArrayOffset array_size,
   name_length_ = name_length;
   std::memcpy(name_, name, name_length);
 }
-void CreateLogType::apply_storage(const xct::XctId& /*xct_id*/,
-                  thread::Thread* context, Storage* storage) {
+void CreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
   ASSERT_ND(storage == nullptr);  // because we are now creating it.
   LOG(INFO) << "Applying CREATE ARRAY STORAGE log: " << *this;
   std::string name(name_, name_length_);

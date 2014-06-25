@@ -26,7 +26,7 @@ namespace log {
  * @details
  * This is not inlined because this log kind appears much more infrequently.
  */
-void invoke_apply_engine(const xct::XctId &xct_id, void *log_buffer, thread::Thread* context);
+void invoke_apply_engine(void *log_buffer, thread::Thread* context);
 
 /**
  * @brief Invokes the apply logic for a storage-wide log type.
@@ -34,21 +34,15 @@ void invoke_apply_engine(const xct::XctId &xct_id, void *log_buffer, thread::Thr
  * @details
  * This is not inlined because this log kind appears much more infrequently.
  */
-void invoke_apply_storage(const xct::XctId &xct_id, void *log_buffer,
-              thread::Thread* context, storage::Storage* storage);
+void invoke_apply_storage(void *log_buffer, thread::Thread* context, storage::Storage* storage);
 
 /**
  * @brief Invokes the apply logic for a record-wise log type.
  * @ingroup LOGTYPE
  * @details
  * This is inlined because this is invoked for every single record type log.
- * This also unlocks the record by overwriting the record's owner_id.
- * @attention When the individual implementation of apply_record does it, it must be careful on
- * the memory order of unlock and data write. It must write data first, then unlock.
- * Otherwise the correctness is not guaranteed.
- * For that, apply_record() method must put memory_fence_release() between data and owner_id writes.
  */
-void invoke_apply_record(const xct::XctId &xct_id, void *log_buffer,
+void invoke_apply_record(void *log_buffer,
           thread::Thread* context, storage::Storage* storage, storage::Record* record);
 
 /**
@@ -71,8 +65,8 @@ void invoke_assert_valid(void *log_buffer);
 void invoke_ostream(void *buffer, std::ostream *ptr);
 
 #define X(a, b, c) case a: \
-  reinterpret_cast< c* >(buffer)->apply_record(xct_id, context, storage, record); return;
-inline void invoke_apply_record(const xct::XctId &xct_id, void *buffer,
+  reinterpret_cast< c* >(buffer)->apply_record(context, storage, record); return;
+inline void invoke_apply_record(void *buffer,
           thread::Thread* context, storage::Storage* storage, storage::Record* record) {
   invoke_assert_valid(buffer);
   LogHeader* header = reinterpret_cast<LogHeader*>(buffer);

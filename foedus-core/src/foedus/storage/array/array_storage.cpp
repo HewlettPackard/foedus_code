@@ -80,7 +80,6 @@ void ArrayStorageFactory::add_create_log(const Metadata* metadata, thread::Threa
     casted->name_.data());
 }
 
-
 // most other methods are defined in pimpl.cpp to allow inlining
 
 }  // namespace array

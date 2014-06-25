@@ -75,6 +75,10 @@ ErrorStack Logger::initialize_once() {
   durable_epoch_ = savepoint.get_durable_epoch();  // durable epoch from savepoint
   marked_epoch_ = durable_epoch_.one_more();
   no_log_epoch_ = false;
+  ASSERT_ND(savepoint.oldest_log_files_.size() > id_);
+  ASSERT_ND(savepoint.current_log_files_.size() > id_);
+  ASSERT_ND(savepoint.current_log_files_offset_durable_.size() > id_);
+  ASSERT_ND(savepoint.oldest_log_files_offset_begin_.size() > id_);
   oldest_ordinal_ = savepoint.oldest_log_files_[id_];  // ordinal/length too
   current_ordinal_ = savepoint.current_log_files_[id_];
   current_file_durable_offset_ = savepoint.current_log_files_offset_durable_[id_];

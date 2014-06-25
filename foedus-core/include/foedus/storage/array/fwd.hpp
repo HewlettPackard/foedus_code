@@ -14,6 +14,7 @@ namespace storage {
 namespace array {
 struct  ArrayMetadata;
 class   ArrayPage;
+class   ArrayPartitioner;
 struct  ArrayRange;
 class   ArrayStorage;
 class   ArrayStorageFactory;

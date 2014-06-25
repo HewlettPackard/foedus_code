@@ -11,27 +11,24 @@
 namespace foedus {
 namespace snapshot {
 SnapshotOptions::SnapshotOptions() {
-  folder_path_pattern_ = "snapshots/node_$NODE$/partition_$PARTITION$";
-  partitions_per_node_ = 1;
+  folder_path_pattern_ = "snapshots/node_$NODE$";
   snapshot_trigger_page_pool_percent_ = kDefaultSnapshotTriggerPagePoolPercent;
   snapshot_interval_milliseconds_ = kDefaultSnapshotIntervalMilliseconds;
   log_mapper_bucket_kb_ = kDefaultLogMapperBucketKb;
-  log_mapper_io_buffer_kb_ = kDefaultLogMapperIoBufferKb;
+  log_mapper_io_buffer_mb_ = kDefaultLogMapperIoBufferMb;
   log_reducer_buffer_mb_ = kDefaultLogReducerBufferMb;
 }
 
-std::string SnapshotOptions::convert_folder_path_pattern(int node, int partition) const {
-  std::string tmp = assorted::replace_all(folder_path_pattern_, "$NODE$", node);
-  return assorted::replace_all(tmp, "$PARTITION$", partition);
+std::string SnapshotOptions::convert_folder_path_pattern(int node) const {
+  return assorted::replace_all(folder_path_pattern_, "$NODE$", node);
 }
 
 ErrorStack SnapshotOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, folder_path_pattern_);
-  EXTERNALIZE_LOAD_ELEMENT(element, partitions_per_node_);
   EXTERNALIZE_LOAD_ELEMENT(element, snapshot_trigger_page_pool_percent_);
   EXTERNALIZE_LOAD_ELEMENT(element, snapshot_interval_milliseconds_);
   EXTERNALIZE_LOAD_ELEMENT(element, log_mapper_bucket_kb_);
-  EXTERNALIZE_LOAD_ELEMENT(element, log_mapper_io_buffer_kb_);
+  EXTERNALIZE_LOAD_ELEMENT(element, log_mapper_io_buffer_mb_);
   EXTERNALIZE_LOAD_ELEMENT(element, log_reducer_buffer_mb_);
   CHECK_ERROR(get_child_element(element, "SnapshotDeviceEmulationOptions", &emulation_))
   return kRetOk;
@@ -43,24 +40,8 @@ ErrorStack SnapshotOptions::save(tinyxml2::XMLElement* element) const {
   EXTERNALIZE_SAVE_ELEMENT(element, folder_path_pattern_,
     "String pattern of path of snapshot folders in each NUMA node.\n"
     "This specifies the path of the folders to contain snapshot files in each NUMA node.\n"
-    " Two special placeholders can be used; $NODE$ and $PARTITION$."
-    " $NODE$ is replaced with the NUMA node number.\n"
-    " $PARTITION$ is replaced with the partition in the node (0 to partitions_per_node_ - 1)."
-    " For example,\n"
-    " /data/node_$NODE$/folder_$INDEX$ becomes /data/node_1/folder_0 on node-1 and index-0.\n"
-    " /data/folder_$INDEX$ becomes /data/folder_1 on any node and index-1.\n"
-    " Both are optional. You can specify a fixed path without the patterns, which means you\n"
-    " will use the same folder for multiple partitions or nodes. Even in that case, snapshot\n"
-    " file names include uniquefiers, so it wouldn't cause any data corruption. It just makes\n"
-    " things harder for poor sysadmins.\n"
-    " The snapshot folders are also the granularity of partitioning."
-    " Each snapshot phase starts with partitioning of logs using random samples, then"
-    " scatter-gather log entries to assigned partitions like Map-Reduce.");
-  EXTERNALIZE_SAVE_ELEMENT(element, partitions_per_node_,
-    "Number of snapshot folders (ie partitions) per NUMA node.\n"
-    "This value must be at least 1 (which is also default)."
-    " A larger value might be able to employ more CPU power during snapshot construction,"
-    " but makes the scatter-gather more fine grained, potentially making it slower.");
+    " A special placeholder $NODE$ will be replaced with the NUMA node number."
+    " For example, /data/node_$NODE$ becomes /data/node_1 on node-1.");
   EXTERNALIZE_SAVE_ELEMENT(element, snapshot_trigger_page_pool_percent_,
     "When the main page pool runs under this percent (roughly calculated) of free pages,\n"
     " snapshot manager starts snapshotting to drop volatile pages even before the interval.");
@@ -70,8 +51,9 @@ ErrorStack SnapshotOptions::save(tinyxml2::XMLElement* element) const {
     "Size in KB of bucket (buffer for each partition) in mapper."
     " The larger, the less freuquently each mapper communicates with reducers."
     " 1024 (1MB) should be a good number.");
-  EXTERNALIZE_SAVE_ELEMENT(element, log_mapper_io_buffer_kb_,
-    "Size in KB of IO buffer to read log files in mapper. 1024 (1MB) should be a good number.");
+  EXTERNALIZE_SAVE_ELEMENT(element, log_mapper_io_buffer_mb_,
+    "Size in MB of IO buffer to read log files in mapper."
+    " This buffer is also the unit of batch processing in mapper.");
   EXTERNALIZE_SAVE_ELEMENT(element, log_reducer_buffer_mb_,
     "The size in MB of a buffer to store log entries in reducer (partition).");
   CHECK_ERROR(add_child_element(element, "SnapshotDeviceEmulationOptions",

@@ -33,7 +33,7 @@ struct DropLogType : public log::StorageLogType {
   LOG_TYPE_NO_CONSTRUCT(DropLogType)
 
   void populate(StorageId storage_id);
-  void apply_storage(const xct::XctId& xct_id, thread::Thread* context, Storage* storage);
+  void apply_storage(thread::Thread* context, Storage* storage);
   void assert_valid();
   friend std::ostream& operator<<(std::ostream& o, const DropLogType& v);
 };

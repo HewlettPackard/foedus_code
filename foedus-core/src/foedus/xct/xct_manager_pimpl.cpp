@@ -238,17 +238,23 @@ bool XctManagerPimpl::precommit_xct_schema(thread::Thread* context, Epoch* commi
     log::LogCodeKind kind = log::get_log_code_kind(code);
     LOG(INFO) << *context << " Applying schema log " << log::get_log_type_name(code)
       << ". kind=" << kind << ", log length=" << header->log_length_;
+    if (header->log_length_ >= 16) {
+      header->xct_id_ = new_xct_id;
+    } else {
+      // So far only log type that omits xct_id is FillerLogType.
+      ASSERT_ND(code == log::kLogCodeFiller);
+    }
     if (kind == log::kMarkerLogs) {
       LOG(INFO) << *context << " Ignored marker log in schema xct's apply";
     } else if (kind == log::kEngineLogs) {
       // engine type log, such as XXX.
-      log::invoke_apply_engine(new_xct_id, entry, context);
+      log::invoke_apply_engine(entry, context);
     } else if (kind == log::kStorageLogs) {
       // storage type log, such as CREATE/DROP STORAGE.
       storage::StorageId storage_id = header->storage_id_;
       LOG(INFO) << *context << " schema xct applying storage-" << storage_id;
       storage::Storage* storage = engine_->get_storage_manager().get_storage(storage_id);
-      log::invoke_apply_storage(new_xct_id, entry, context, storage);
+      log::invoke_apply_storage(entry, context, storage);
     } else {
       // schema xct must not have individual data modification operations.
       LOG(FATAL) << "Unexpected log type for schema xct:" << code;
@@ -400,8 +406,16 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context,
     WriteXctAccess& write = write_set[i];
     DVLOG(2) << *context << " Applying/Unlocking " << write.storage_->get_name()
       << ":" << write.record_;
-    log::invoke_apply_record(
-      new_xct_id, write.log_entry_, context, write.storage_, write.record_);
+
+    // We must be careful on the memory order of unlock and data write.
+    // We must write data first (invoke_apply), then unlock.
+    // Otherwise the correctness is not guaranteed.
+    write.log_entry_->header_.xct_id_ = new_xct_id;
+    log::invoke_apply_record(write.log_entry_, context, write.storage_, write.record_);
+    // For this reason, we put memory_fence_release() between data and owner_id writes.
+    assorted::memory_fence_release();
+    ASSERT_ND(write.record_->owner_id_.before(new_xct_id));  // ordered correctly?
+    write.record_->owner_id_ = new_xct_id;  // this also unlocks
   }
   DVLOG(1) << *context << " applied and unlocked write set";
 }

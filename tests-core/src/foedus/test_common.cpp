@@ -29,7 +29,7 @@ namespace foedus {
 
     {
       std::stringstream str;
-      str << "tmp_snapshots/" << uniquefier << "/node_$NODE$/partition_$PARTITION$";
+      str << "tmp_snapshots/" << uniquefier << "/node_$NODE$";
       options.snapshot_.folder_path_pattern_ = str.str();
     }
 

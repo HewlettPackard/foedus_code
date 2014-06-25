@@ -50,6 +50,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
   StorageType         get_type()  const CXX11_OVERRIDE { return kArrayStorage; }
   const std::string&  get_name()  const CXX11_OVERRIDE;
   const Metadata*     get_metadata()  const CXX11_OVERRIDE;
+  const ArrayMetadata*  get_array_metadata()  const;
   bool                exists()    const CXX11_OVERRIDE;
   ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
 
@@ -162,6 +163,9 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
             T *value, uint16_t payload_offset);
 
   void        describe(std::ostream* o) const CXX11_OVERRIDE;
+
+  /** Use this only if you know what you are doing. */
+  ArrayStoragePimpl*  get_pimpl() { return pimpl_; }
 
  private:
   ArrayStoragePimpl*  pimpl_;

@@ -16,6 +16,7 @@
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
+#include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/array/array_id.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
@@ -83,18 +84,15 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   void        release_pages_recursive(
     memory::PageReleaseBatch* batch, ArrayPage* page, VolatilePagePointer volatile_page_id);
 
+  /**
+  * Calculate leaf/interior pages we need.
+  * @return index=level.
+  */
+  static std::vector<uint64_t> calculate_required_pages(uint64_t array_size, uint16_t payload);
+
   Engine* const           engine_;
   ArrayStorage* const     holder_;
   ArrayMetadata           metadata_;
-  /**
-   * Number of pages in each level. index=level.
-   */
-  std::vector<uint64_t>   pages_;
-  /**
-   * The offset interval a single page represents in each level. index=level.
-   * So, offset_intervals_[0] is the number of records in a leaf page.
-   */
-  std::vector<uint64_t>   offset_intervals_;
 
   /**
    * Points to the root page.
