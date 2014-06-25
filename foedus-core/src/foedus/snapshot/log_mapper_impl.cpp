@@ -24,6 +24,7 @@
 #include "foedus/log/logger_impl.hpp"
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/snapshot/log_gleaner_impl.hpp"
+#include "foedus/snapshot/log_reducer_impl.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/storage/partitioner.hpp"
 
@@ -249,7 +250,7 @@ inline bool LogMapper::bucket_log(storage::StorageId storage_id, uint64_t pos) {
   if (LIKELY(!hashlist->tail_->is_full())) {
     // 99.99% cases we are hitting here straight out of the tight loop.
     // hope the hints guide the compiler well.
-    MapperBufferPosition log_position = to_mapper_buffer_position(pos);
+    BufferPosition log_position = to_buffer_position(pos);
     hashlist->tail_->log_positions_[hashlist->tail_->counts_] = log_position;
     ++hashlist->tail_->counts_;
     return true;
@@ -367,7 +368,7 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
         // calculate partitions
         for (uint32_t i = 0; i < bucket->counts_; ++i) {
           pointer_array[i] = reinterpret_cast<const log::RecordLogType*>(
-            buffer_base_address + from_mapper_buffer_position(bucket->log_positions_[i]));
+            buffer_base_address + from_buffer_position(bucket->log_positions_[i]));
 
           ASSERT_ND(pointer_array[i]->header_.storage_id_ == bucket->storage_id_);
           ASSERT_ND(pointer_array[i]->header_.storage_id_ == hashlist.storage_id_);
@@ -436,7 +437,7 @@ void LogMapper::send_bucket_partition(
   uint64_t written = 0;
   for (uint32_t i = 0; i < bucket.counts_; ++i) {
     const log::LogHeader* header = reinterpret_cast<const log::LogHeader*>(
-      buffer_base_address + from_mapper_buffer_position(bucket.log_positions_[i]));
+      buffer_base_address + from_buffer_position(bucket.log_positions_[i]));
     ASSERT_ND(header->storage_id_ == bucket.storage_id_);
     ASSERT_ND(header->log_length_ < kSendBufferSize);  // each log can't be 1MB
     ASSERT_ND(header->log_length_ > 0);
@@ -457,6 +458,8 @@ void LogMapper::send_bucket_partition_buffer(const Bucket& bucket, storage::Part
   if (written == 0) {
     return;
   }
+  LogReducer* reducer = parent_->get_reducer(partition);
+  reducer->append_log_chunk(bucket.storage_id_, send_buffer, written);
 }
 
 

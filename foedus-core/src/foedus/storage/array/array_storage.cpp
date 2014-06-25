@@ -80,6 +80,12 @@ void ArrayStorageFactory::add_create_log(const Metadata* metadata, thread::Threa
     casted->name_.data());
 }
 
+void ArrayStorage::batch_sort_logs(
+  const Storage::BatchSortLogInput& input,
+  snapshot::BufferPosition* output_buffer,
+  uint32_t* written_count) const {
+  pimpl_->batch_sort_logs(input, output_buffer, written_count);
+}
 
 // most other methods are defined in pimpl.cpp to allow inlining
 

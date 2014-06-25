@@ -11,6 +11,7 @@
 
 #include "foedus/engine.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_type.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
 #include "foedus/memory/engine_memory.hpp"
@@ -430,6 +431,40 @@ inline ErrorCode ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset 
   *out = current_page;
   *index = route.route[0];
   return kErrorCodeOk;
+}
+
+struct ArraySortEntry {
+  ArrayOffset offset;
+  uint16_t    compressed_epoch_;  // difference from base_epoch
+  uint16_t    in_epoch_ordinal_;
+  snapshot::BufferPosition position;
+};
+
+void ArrayStoragePimpl::batch_sort_logs(
+  const Storage::BatchSortLogInput& input,
+  snapshot::BufferPosition* output_buffer,
+  uint32_t* written_count) const {
+  ASSERT_ND(sizeof(ArraySortEntry) == 16);
+  if (input.sort_buffer_size_ < sizeof(ArraySortEntry) * input.log_positions_count_) {
+    LOG(FATAL) << "Sort buffer is too small! log count=" << input.log_positions_count_
+      << ", buffer size = " << input.sort_buffer_size_;
+  }
+
+  const Epoch::EpochInteger base_epoch = input.base_epoch_.value();
+  ArraySortEntry* entries = reinterpret_cast<ArraySortEntry*>(input.sort_buffer_);
+  for (uint32_t i = 0; i < input.log_positions_count_; ++i) {
+    const OverwriteLogType* log_entry = reinterpret_cast<const OverwriteLogType*>(
+      input.resolve_position(input.log_positions_[i]));
+    ASSERT_ND(log_entry->header_.log_type_code_ == log::get_log_code<OverwriteLogType>());
+    entries[i].offset = log_entry->offset_;
+    // TODO(Hideaki) epoch marker needed.
+    entries[i].compressed_epoch_ = base_epoch;
+    entries[i].in_epoch_ordinal_ = xct::extract_in_epoch_ordinal(log_entry->xct_order_);
+    entries[i].position = input.log_positions_[i];
+  }
+
+  debugging::StopWatch stop_watch;
+  // TODO(Hideaki) non-gcc support. uint128_t support
 }
 
 

@@ -70,6 +70,10 @@ enum IsolationLevel {
  * @ingroup XCT
  */
 typedef uint32_t XctOrder;
+/**
+ * In most cases this suffices. Do we need ThreadId?
+ */
+inline uint16_t extract_in_epoch_ordinal(XctOrder order) { return order >> 16; }
 
 // Defines 64bit constant values for XctId.
 //                                             0123456789abcdef

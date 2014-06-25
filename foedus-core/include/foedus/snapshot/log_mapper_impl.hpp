@@ -83,14 +83,6 @@ class LogMapper final : public MapReduceBase {
   void        pre_handle_complete() override;
 
  private:
-  /**
-   * Represents a position in IO buffer.
-   * As log is always 8-byte aligned, we divide the original byte position by 8.
-   * Thus, this can represent up to 8 * 2^32=32GB, which is the maximum value of
-   * log_mapper_io_buffer_mb_.
-   */
-  typedef uint32_t MapperBufferPosition;
-
   enum Constsants {
     kBucketSize = 1 << 16,
     kBucketMaxCount = (kBucketSize - 16) / 4,
@@ -116,13 +108,13 @@ class LogMapper final : public MapReduceBase {
     inline bool is_full() const ALWAYS_INLINE { return counts_ < kBucketMaxCount; }
 
     /** This bucket stores log positions for this storage. */
-    storage::StorageId    storage_id_;   // +4 => 4
+    storage::StorageId  storage_id_;   // +4 => 4
     /** Number of active log positions stored. */
-    uint32_t              counts_;       // +4 => 8
+    uint32_t            counts_;       // +4 => 8
     /** A storage can have more than one bucket, thus it forms a singly linked list. */
-    Bucket*               next_bucket_;  // +8 => 16
+    Bucket*             next_bucket_;  // +8 => 16
     /** Byte positions in IO buffer. */
-    MapperBufferPosition  log_positions_[kBucketMaxCount];  // + 4 * kBucketMaxCount => kBucketSize
+    BufferPosition      log_positions_[kBucketMaxCount];  // + 4 * kBucketMaxCount => kBucketSize
   };
   STATIC_SIZE_CHECK(sizeof(Bucket), kBucketSize)
 
@@ -151,7 +143,7 @@ class LogMapper final : public MapReduceBase {
       uint16_t              dummy1_;      // +2 => 2
       uint8_t               dummy2_;      // +1 => 3
       storage::PartitionId  partition_;   // +1 => 4
-      MapperBufferPosition  position_;    // +4 => 8
+      BufferPosition        position_;    // +4 => 8
     } components;
   };
 
@@ -303,14 +295,6 @@ class LogMapper final : public MapReduceBase {
   }
   /** Insert the new BucketHashList. This shouldn't be called often. */
   void add_storage_hashlist(BucketHashList* new_hashlist);
-
-  inline static MapperBufferPosition to_mapper_buffer_position(uint64_t byte_position) {
-    ASSERT_ND(byte_position % 8 == 0);
-    return byte_position >> 3;
-  }
-  inline static uint64_t from_mapper_buffer_position(MapperBufferPosition mapper_buffer_position) {
-    return static_cast<uint64_t>(mapper_buffer_position) << 3;
-  }
 };
 
 

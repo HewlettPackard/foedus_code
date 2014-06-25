@@ -46,6 +46,26 @@ inline SnapshotId increment(SnapshotId id) {
   }
 }
 
+/**
+ * @brief Represents a position in some buffer.
+ * @ingroup SNAPSHOT
+ * @details
+ * As log is always 8-byte aligned, we divide the original byte position by 8.
+ * Thus, this can represent up to 8 * 2^32=32GB, which is the maximum value of
+ * log_mapper_io_buffer_mb_.
+ * @see to_buffer_position
+ * @see from_buffer_position
+ */
+typedef uint32_t BufferPosition;
+
+inline BufferPosition to_buffer_position(uint64_t byte_position) {
+  ASSERT_ND(byte_position % 8 == 0);
+  return byte_position >> 3;
+}
+inline uint64_t from_buffer_position(BufferPosition buffer_position) {
+  return static_cast<uint64_t>(buffer_position) << 3;
+}
+
 }  // namespace snapshot
 }  // namespace foedus
 #endif  // FOEDUS_SNAPSHOT_SNAPSHOT_ID_HPP_

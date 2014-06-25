@@ -16,6 +16,7 @@
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
+#include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/array/array_id.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
@@ -88,6 +89,11 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   * @return index=level.
   */
   static std::vector<uint64_t> calculate_required_pages(uint64_t array_size, uint16_t payload);
+
+  void        batch_sort_logs(
+    const Storage::BatchSortLogInput& input,
+    snapshot::BufferPosition* output_buffer,
+    uint32_t* written_count) const;
 
   Engine* const           engine_;
   ArrayStorage* const     holder_;

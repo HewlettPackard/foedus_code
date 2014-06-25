@@ -99,6 +99,9 @@ class LogGleaner final : public DefaultInitializable {
   friend std::ostream&    operator<<(std::ostream& o, const LogGleaner& v);
 
   Snapshot*               get_snapshot() { return snapshot_; }
+  LogReducer*             get_reducer(thread::ThreadGroupId partition) {
+    return reducers_[partition];
+  }
 
   bool                    is_stop_requested() const;
   void                    wakeup();
