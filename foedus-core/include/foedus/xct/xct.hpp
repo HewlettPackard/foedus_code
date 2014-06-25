@@ -12,6 +12,7 @@
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/log/common_log_types.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -117,7 +118,7 @@ class Xct {
    * Inlined in xct_inl.hpp.
    */
   ErrorCode           add_to_write_set(storage::Storage* storage, storage::Record* record,
-                     void* log_entry);
+                     log::RecordLogType* log_entry);
 
   /**
    * @brief If this transaction is currently committing with some log to publish, this

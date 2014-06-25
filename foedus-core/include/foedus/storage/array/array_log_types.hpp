@@ -54,7 +54,7 @@ struct CreateLogType : public log::StorageLogType {
 
   void populate(StorageId storage_id, ArrayOffset array_size,
       uint16_t payload_size, uint16_t name_length, const char* name);
-  void apply_storage(const xct::XctId& xct_id, thread::Thread* context, Storage* storage);
+  void apply_storage(thread::Thread* context, Storage* storage);
   void assert_valid();
   friend std::ostream& operator<<(std::ostream& o, const CreateLogType& v);
 };
@@ -68,20 +68,19 @@ struct CreateLogType : public log::StorageLogType {
  */
 struct OverwriteLogType : public log::RecordLogType {
   LOG_TYPE_NO_CONSTRUCT(OverwriteLogType)
-  ArrayOffset     offset_;            // +8 => 16
-  xct::XctOrder   xct_order_;         // +4 => 20
-  uint16_t        payload_offset_;    // +2 => 22
-  uint16_t        payload_count_;     // +2 => 24
-  char            payload_[8];        // +8 => 32
+  ArrayOffset     offset_;            // +8 => 24
+  uint16_t        payload_offset_;    // +2 => 26
+  uint16_t        payload_count_;     // +2 => 28
+  char            payload_[4];        // +4 => 32
 
   static uint16_t calculate_log_length(uint16_t payload_count) ALWAYS_INLINE {
     // we pad to 8 bytes so that we always have a room for FillerLogType to align.
-    return assorted::align8(24 + payload_count);
+    return assorted::align8(28 + payload_count);
   }
 
   void            populate(StorageId storage_id, ArrayOffset offset,
       const void *payload, uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE {
-    header_.log_type_code_ = log::get_log_code<OverwriteLogType>();
+    header_.log_type_code_ = log::kLogCodeArrayOverwrite;
     header_.log_length_ = calculate_log_length(payload_count);
     header_.storage_id_ = storage_id;
     offset_ = offset;
@@ -93,7 +92,7 @@ struct OverwriteLogType : public log::RecordLogType {
   template <typename T>
   void            populate_primitive(StorageId storage_id,
       ArrayOffset offset, T payload, uint16_t payload_offset) {
-    header_.log_type_code_ = log::get_log_code<OverwriteLogType>();
+    header_.log_type_code_ = log::kLogCodeArrayOverwrite;
     header_.log_length_ = calculate_log_length(sizeof(T));
     header_.storage_id_ = storage_id;
     offset_ = offset;
@@ -102,22 +101,18 @@ struct OverwriteLogType : public log::RecordLogType {
     T* address = reinterpret_cast<T*>(payload_);
     *address = payload;
   }
-  void            apply_record(const xct::XctId& xct_id, thread::Thread* /*context*/,
-                 Storage* storage, Record* record) ALWAYS_INLINE {
+  void            apply_record(thread::Thread* /*context*/,
+                               Storage* storage, Record* record) ALWAYS_INLINE {
     ASSERT_ND(payload_count_ < kDataSize);
     ASSERT_ND(dynamic_cast<ArrayStorage*>(storage));
-    xct_order_ = xct_id.get_in_epoch_xct_order();
     std::memcpy(record->payload_ + payload_offset_, payload_, payload_count_);
     assorted::memory_fence_release();  // we must apply BEFORE unlock
-    // ordered correctly?
-    ASSERT_ND(record->owner_id_.before(xct_id));
-    record->owner_id_ = xct_id;  // this also unlocks
   }
 
   void            assert_valid() ALWAYS_INLINE {
     assert_valid_generic();
     ASSERT_ND(header_.log_length_ == calculate_log_length(payload_count_));
-    ASSERT_ND(header_.get_type() == log::get_log_code<OverwriteLogType>());
+    ASSERT_ND(header_.get_type() == log::kLogCodeArrayOverwrite);
   }
 
   friend std::ostream& operator<<(std::ostream& o, const OverwriteLogType& v);

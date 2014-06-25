@@ -455,11 +455,19 @@ void ArrayStoragePimpl::batch_sort_logs(
   for (uint32_t i = 0; i < input.log_positions_count_; ++i) {
     const OverwriteLogType* log_entry = reinterpret_cast<const OverwriteLogType*>(
       input.resolve_position(input.log_positions_[i]));
-    ASSERT_ND(log_entry->header_.log_type_code_ == log::get_log_code<OverwriteLogType>());
+    ASSERT_ND(log_entry->header_.log_type_code_ == log::kLogCodeArrayOverwrite);
     entries[i].offset = log_entry->offset_;
-    // TODO(Hideaki) epoch marker needed.
-    entries[i].compressed_epoch_ = base_epoch;
-    entries[i].in_epoch_ordinal_ = xct::extract_in_epoch_ordinal(log_entry->xct_order_);
+    const Epoch::EpochInteger epoch = log_entry->header_.xct_id_.get_epoch_int();
+    if (epoch >= base_epoch) {
+      ASSERT_ND(epoch - base_epoch < (1 << 16));
+      entries[i].compressed_epoch_ = epoch - base_epoch;
+    } else {
+      // wrap around
+      ASSERT_ND(epoch + Epoch::kEpochIntOverflow - base_epoch < (1 << 16));
+      entries[i].compressed_epoch_ = epoch + Epoch::kEpochIntOverflow - base_epoch;
+    }
+    entries[i].compressed_epoch_ = log_entry->header_.xct_id_.get_epoch_int();
+    entries[i].in_epoch_ordinal_ = log_entry->header_.xct_id_.get_ordinal();
     entries[i].position = input.log_positions_[i];
   }
 

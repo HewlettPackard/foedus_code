@@ -9,8 +9,8 @@
 namespace foedus {
 namespace log {
 
-#define X(a, b, c) case a: return reinterpret_cast< c* >(buffer)->apply_engine(xct_id, context);
-void invoke_apply_engine(const xct::XctId &xct_id, void *buffer, thread::Thread* context) {
+#define X(a, b, c) case a: return reinterpret_cast< c* >(buffer)->apply_engine(context);
+void invoke_apply_engine(void *buffer, thread::Thread* context) {
   invoke_assert_valid(buffer);
   LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
   LogCode code = header->get_type();
@@ -24,9 +24,8 @@ void invoke_apply_engine(const xct::XctId &xct_id, void *buffer, thread::Thread*
 #undef X
 
 #define X(a, b, c) case a: \
-  reinterpret_cast< c* >(buffer)->apply_storage(xct_id, context, storage); return;
-void invoke_apply_storage(const xct::XctId &xct_id, void *buffer,
-                 thread::Thread* context, storage::Storage* storage) {
+  reinterpret_cast< c* >(buffer)->apply_storage(context, storage); return;
+void invoke_apply_storage(void *buffer, thread::Thread* context, storage::Storage* storage) {
   invoke_assert_valid(buffer);
   LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
   LogCode code = header->get_type();

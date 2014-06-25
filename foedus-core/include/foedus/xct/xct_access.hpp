@@ -8,6 +8,7 @@
 
 #include <iosfwd>
 
+#include "foedus/log/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
 
@@ -52,7 +53,7 @@ struct WriteXctAccess : public XctAccess {
   friend std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v);
 
   /** Pointer to the log entry in private log buffer for this write opereation. */
-  void*               log_entry_;
+  log::RecordLogType*   log_entry_;
 
   /** sort the write set in a unique order. We use address of records as done in [TU2013]. */
   static bool compare(const WriteXctAccess &left, const WriteXctAccess& right) {
