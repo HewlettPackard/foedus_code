@@ -103,7 +103,7 @@ namespace snapshot {
 class LogReducer final : public MapReduceBase {
  public:
   LogReducer(Engine* engine, LogGleaner* parent, thread::ThreadGroupId numa_node)
-    : MapReduceBase(engine, parent, numa_node, numa_node) {}
+    : MapReduceBase(engine, parent, numa_node, numa_node), sorted_runs_(0), current_buffer_(0) {}
 
   /** One LogReducer corresponds to one NUMA node (partition). */
   thread::ThreadGroupId   get_id() const { return id_; }
