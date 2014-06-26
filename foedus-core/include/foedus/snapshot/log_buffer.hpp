@@ -18,8 +18,8 @@ struct LogBuffer {
   explicit LogBuffer(char* base_address) : base_address_(base_address) {}
   char* const base_address_;
 
-  inline const log::RecordLogType* resolve(BufferPosition position) const {
-    return reinterpret_cast<const log::RecordLogType*>(
+  inline log::RecordLogType* resolve(BufferPosition position) const {
+    return reinterpret_cast<log::RecordLogType*>(
       base_address_ + from_buffer_position(position));
   }
   inline BufferPosition compact(const log::RecordLogType* address) const {

@@ -15,6 +15,8 @@
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
+#include "foedus/fs/fwd.hpp"
+#include "foedus/fs/path.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/log/log_id.hpp"
 #include "foedus/memory/aligned_memory.hpp"
@@ -146,6 +148,10 @@ class LogReducer final : public MapReduceBase {
     kFlagNoMoreWriters = 0x0001,
     /** @see BlockHeader::magic_word_ */
     kBlockHeaderMagicWord = 0xDEADBEEF,
+    /** @see DumpStorageHeaderFiller */
+    kStorageHeaderFillerMagicWord = 0x8BADF00D,
+    /** @see DumpStorageHeaderReal */
+    kStorageHeaderRealMagicWord = 0xCAFEBABE,
   };
   /**
    * Compactly represents important status informations of a reducer buffer.
@@ -171,6 +177,45 @@ class LogReducer final : public MapReduceBase {
     /** just for sanity check. */
     uint32_t            magic_word_;
   };
+
+  /**
+   * All storage blocks in dump file start with this header.
+   * This base object MUST be within 8 bytes so that DumpStorageHeaderFiller is within 8 bytes.
+   */
+  struct DumpStorageHeaderBase {
+    /**
+     * This is used to identify the storage block is a dummy (filler) one or a real one.
+     * This must be either kStorageHeaderFillerMagicWord or kStorageHeaderRealMagicWord.
+     */
+    uint32_t            magic_word_;
+    /**
+     * Length of this block.
+     * @attention So far, this not set for DumpStorageHeaderReal as it's not needed.
+     * To calculate it, we have to iterate over the log entries twice..
+     */
+    BufferPosition      block_length_;
+  };
+
+  /**
+   * A storage block in dump file that actually stores some storage.
+   * The magic word for this is kStorageHeaderDummyMagicWord.
+   */
+  struct DumpStorageHeaderReal : public DumpStorageHeaderBase {
+    storage::StorageId  storage_id_;
+    uint32_t            log_count_;
+  };
+
+  /**
+   * @brief A header for a dummy storage block that fills the gap between the end of
+   * previous storage block and the beginning of next storage block.
+   * @details
+   * Such a dummy storage is needed to guarantee aligned (4kb) writes on DirectIoFile.
+   * (we can also do it without dummy blocks by retaining the "fragment" until the next
+   * storage block, but the complexity isn't worth it. 4kb for each storage? nothing.)
+   * This object MUST be 8 bytes so that it can fill any gap (all log entries are 8-byte aligned).
+   * The magic word for this is kStorageHeaderFillerMagicWord.
+   */
+  struct DumpStorageHeaderFiller : public DumpStorageHeaderBase {};
 
   struct ReducerBuffer {
     memory::AlignedMemorySlice  buffer_slice_;
@@ -205,6 +250,11 @@ class LogReducer final : public MapReduceBase {
    * Underlying memory of reducer buffer.
    */
   memory::AlignedMemory   buffer_memory_;
+
+  /**
+   * Buffer for writing out a sorted run.
+   */
+  memory::AlignedMemory   dump_io_buffer_;
 
   /**
    * Used to sort log entries in each storage.
@@ -284,8 +334,29 @@ class LogReducer final : public MapReduceBase {
     BufferPosition tail_position,
     std::map<storage::StorageId, std::vector<BufferPosition> > *blocks) const;
 
+  /**
+   * Third sub routine of dump_buffer().
+   * For the specified storage, sort all log entries in key-and-ordinal order, then dump
+   * them to the file.
+   */
+  ErrorStack dump_buffer_sort_storage(
+    const LogBuffer &buffer,
+    storage::StorageId storage_id,
+    const std::vector<BufferPosition>& log_positions,
+    fs::DirectIoFile *dump_file);
+
+  /** Sub routine of dump_buffer_sort_storage to write the sorted logs to the file. */
+  ErrorStack dump_buffer_sort_storage_write(
+    const LogBuffer &buffer,
+    storage::StorageId storage_id,
+    const BufferPosition* sorted_logs,
+    uint32_t log_count,
+    fs::DirectIoFile *dump_file);
+
   void expand_sort_buffer_if_needed(uint64_t required_size);
   void expand_positions_buffers_if_needed(uint64_t required_size_per_buffer);
+
+  fs::Path get_sorted_run_file_path(uint32_t sorted_run) const;
 };
 }  // namespace snapshot
 }  // namespace foedus
