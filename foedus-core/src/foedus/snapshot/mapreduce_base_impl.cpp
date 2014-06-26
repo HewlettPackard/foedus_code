@@ -41,7 +41,7 @@ ErrorStack MapReduceBase::uninitialize_once() {
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 
-ErrorCode MapReduceBase::check_cancelled() {
+ErrorCode MapReduceBase::check_cancelled() const {
   if (parent_->is_stop_requested()) {
     return kErrorCodeSnapshotCancelled;
   }

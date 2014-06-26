@@ -37,7 +37,7 @@ namespace array {
  *
  * @par Balancing policy
  * We so far balance the partition assignments so that no partitition receives
- * more than "average+20%" buckets where average is #buckets/#partitions.
+ * more than average buckets where average is buckets/partitions.
  * The excessive bucket is given to needy ones that do not have enough buckets.
  *
  * @par Limitations of current policy
@@ -73,11 +73,13 @@ class ArrayPartitioner CXX11_FINAL : public virtual Partitioner {
   void sort_batch(
     const snapshot::LogBuffer&      log_buffer,
     const snapshot::BufferPosition* log_positions,
-    uint32_t                        log_positions_count,
+    uint32_t                        logs_count,
     memory::AlignedMemorySlice      sort_buffer,
     Epoch                           base_epoch,
     snapshot::BufferPosition*       output_buffer,
     uint32_t*                       written_count) const CXX11_OVERRIDE;
+
+  uint64_t get_required_sort_buffer_size(uint32_t log_count) const CXX11_OVERRIDE;
 
  private:
   /** only for sanity check */

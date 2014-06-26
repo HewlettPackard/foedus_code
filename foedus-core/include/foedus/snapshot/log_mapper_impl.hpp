@@ -135,16 +135,42 @@ class LogMapper final : public MapReduceBase {
     BucketHashList*     hashlist_next_;  // +8 => 32
   };
 
-  /** Used to sort log entries by partition. */
-  union PartitionSortEntry {
-    uint64_t word;
+  /**
+   * Used to sort log entries by partition.
+   * @todo we don't really have to sorting, and also the sort key here is just 1 byte.
+   * we should rather pre-alocate a sufficient memory for 256 buckets and just
+   * append to them, flushing when it gets full. by doing this, we can also batch-process
+   * multiple Bucket efficiently.
+   */
+  struct PartitionSortEntry {
+    inline void set(storage::PartitionId partition, BufferPosition position) ALWAYS_INLINE {
+      partition_ = partition;
+      position_ = position;
+    }
 
-    struct Components {
-      uint16_t              dummy1_;      // +2 => 2
-      uint8_t               dummy2_;      // +1 => 3
-      storage::PartitionId  partition_;   // +1 => 4
-      BufferPosition        position_;    // +4 => 8
-    } components;
+    inline bool operator<(const PartitionSortEntry& other) const ALWAYS_INLINE {
+      return partition_ < other.partition_;
+    }
+    inline bool operator<=(const PartitionSortEntry& other) const ALWAYS_INLINE {
+      return partition_ <= other.partition_;
+    }
+    inline bool operator==(const PartitionSortEntry& other) const ALWAYS_INLINE {
+      return partition_ == other.partition_;
+    }
+    inline bool operator!=(const PartitionSortEntry& other) const ALWAYS_INLINE {
+      return partition_ != other.partition_;
+    }
+    inline bool operator>(const PartitionSortEntry& other) const ALWAYS_INLINE {
+      return partition_ > other.partition_;
+    }
+    inline bool operator>=(const PartitionSortEntry& other) const ALWAYS_INLINE {
+      return partition_ >= other.partition_;
+    }
+
+    uint16_t              filler1_;  // +2 => 2
+    uint8_t               filler2_;  // +1 => 3
+    storage::PartitionId  partition_;  // +1 => 4
+    BufferPosition        position_;  // +4 => 8
   };
 
   /** buffer to read from file. */

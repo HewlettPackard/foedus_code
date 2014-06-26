@@ -81,7 +81,7 @@ class MapReduceBase : public DefaultInitializable {
   virtual void        pre_handle_complete() {}
 
   /** Derived class's handle_process() should occasionally call this to exit if it's cancelled. */
-  ErrorCode           check_cancelled();
+  ErrorCode           check_cancelled() const;
 };
 }  // namespace snapshot
 }  // namespace foedus

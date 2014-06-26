@@ -383,22 +383,19 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
         // sort the log positions by the calculated partitions
         std::memset(sort_array, 0, sizeof(PartitionSortEntry) * bucket->counts_);
         for (uint32_t i = 0; i < bucket->counts_; ++i) {
-          sort_array[i].components.partition_ = partition_array[i];
-          sort_array[i].components.position_ = bucket->log_positions_[i];
+          sort_array[i].set(partition_array[i], bucket->log_positions_[i]);
         }
-        std::sort(
-          reinterpret_cast<uint64_t*>(sort_array),
-          reinterpret_cast<uint64_t*>(sort_array + bucket->counts_));
+        std::sort(sort_array, sort_array + bucket->counts_);
 
         // let's reuse the current bucket as a temporary memory to hold sorted entries.
         // buckets are discarded after the flushing, so this doesn't cause any issue.
         const uint32_t original_count = bucket->counts_;
-        storage::PartitionId current_partition = sort_array[0].components.partition_;
-        bucket->log_positions_[0] = sort_array[0].components.position_;
+        storage::PartitionId current_partition = sort_array[0].partition_;
+        bucket->log_positions_[0] = sort_array[0].position_;
         bucket->counts_ = 1;
         for (uint32_t i = 1; i < original_count; ++i) {
-          if (current_partition == sort_array[i].components.partition_) {
-            bucket->log_positions_[bucket->counts_] = sort_array[i].components.position_;
+          if (current_partition == sort_array[i].partition_) {
+            bucket->log_positions_[bucket->counts_] = sort_array[i].position_;
             ++bucket->counts_;
             ASSERT_ND(bucket->counts_ <= original_count);
           } else {
@@ -406,8 +403,8 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
             // let's send out these log entries to this partition
             send_bucket_partition(*bucket, current_partition);
             // this is the beginning of next partition
-            current_partition = sort_array[i].components.partition_;
-            bucket->log_positions_[0] = sort_array[i].components.position_;
+            current_partition = sort_array[i].partition_;
+            bucket->log_positions_[0] = sort_array[i].position_;
             bucket->counts_ = 1;
           }
         }

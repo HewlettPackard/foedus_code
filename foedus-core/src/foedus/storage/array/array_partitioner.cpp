@@ -64,7 +64,7 @@ ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
     // two paths. first path simply sees volatile/snapshot pointer and determines owner.
     // second path addresses excessive assignments, off loading them to needy ones.
     std::vector<uint16_t> counts(total_partitions, 0);
-    const uint16_t excessive_count = (direct_children * 12 / (total_partitions * 10)) + 1;
+    const uint16_t excessive_count = (direct_children / total_partitions) + 1;
     std::vector<uint16_t> excessive_children;
     for (uint16_t child = 0; child < direct_children; ++child) {
       const DualPagePointer &pointer = array->root_page_->get_interior_record(child);
@@ -139,7 +139,7 @@ void ArrayPartitioner::partition_batch(
   * \li 8-9 bytes: compressed epoch (difference from base_epoch)
   * \li 10-11 bytes: in-epoch-ordinal
   * \li 12-15 bytes: BufferPosition (doesn't have to be sorted together, but for simplicity)
-  * Be careful on endian! We use uint128_t to make it easier.
+  * Be careful on endian! We use uint128_t to make it easier and faster.
   * @todo non-gcc support.
   */
 struct SortEntry {
@@ -164,6 +164,13 @@ struct SortEntry {
   char data_[16];
 };
 
+uint64_t ArrayPartitioner::get_required_sort_buffer_size(uint32_t log_count) const {
+  // we so far sort them in one path.
+  // to save memory, we could do multi-path merge-sort.
+  // however, in reality each log has many bytes, so log_count is not that big.
+  return sizeof(SortEntry) * log_count;
+}
+
 void ArrayPartitioner::sort_batch(
     const snapshot::LogBuffer&      log_buffer,
     const snapshot::BufferPosition* log_positions,
@@ -177,7 +184,8 @@ void ArrayPartitioner::sort_batch(
     return;
   } else if (sort_buffer.get_size() < sizeof(SortEntry) * log_positions_count) {
     LOG(FATAL) << "Sort buffer is too small! log count=" << log_positions_count
-      << ", buffer= " << sort_buffer;
+      << ", buffer= " << sort_buffer
+      << ", required=" << get_required_sort_buffer_size(log_positions_count);
   }
 
   debugging::StopWatch stop_watch_entire;
