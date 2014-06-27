@@ -275,12 +275,25 @@ ErrorStack LogReducer::dump_buffer_sort_storage_write(
   // to keep it aligned, the bytes after this threshold have to be retained and copied over to
   // the beginning of the buffer.
   const uint64_t flush_threshold = dump_io_buffer_.get_size() - (1 << 16);
+  uint64_t total_bytes;
   {
+    // figuring out the block length is a bit expensive. we have to go through all log entries.
+    // but, snapshotting happens only once per minutes, and all of these are in-memory operations.
+    // I hope this isn't a big cost. (let's keep an eye on it, though)
+    debugging::StopWatch length_watch;
+    total_bytes = sizeof(DumpStorageHeaderReal);
+    for (uint32_t i = 0; i < log_count; ++i) {
+      total_bytes += buffer.resolve(sorted_logs[i])->header_.log_length_;
+    }
+    length_watch.stop();
+    LOG(INFO) << to_string() << " iterated over " << log_count
+      << " log records to figure out block length in "<< length_watch.elapsed_us() << "us";
+
     DumpStorageHeaderReal* header = reinterpret_cast<DumpStorageHeaderReal*>(io_buffer);
     header->storage_id_ = storage_id;
     header->log_count_ = log_count;
     header->magic_word_ = kStorageHeaderRealMagicWord;
-    header->block_length_ = 0;  // we don't set this for real blocks
+    header->block_length_ = to_buffer_position(total_bytes);
   }
   uint64_t total_written = 0;
   uint64_t current_pos = sizeof(DumpStorageHeaderReal);
@@ -303,6 +316,9 @@ ErrorStack LogReducer::dump_buffer_sort_storage_write(
       total_written += flush_threshold;
     }
   }
+
+  ASSERT_ND(total_bytes == current_pos);  // now we went over all logs again
+
   if (current_pos > 0) {
     ASSERT_ND(current_pos < flush_threshold);
     // for aligned write, add a dummy storage block at the end.
@@ -314,6 +330,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage_write(
       DumpStorageHeaderFiller* filler = reinterpret_cast<DumpStorageHeaderFiller*>(
         io_buffer + current_pos);
       filler->block_length_ = to_buffer_position(upto - current_pos);
+      ASSERT_ND(filler->block_length_ < to_buffer_position(log::FillerLogType::kLogWriteUnitSize));
       filler->magic_word_ = kStorageHeaderFillerMagicWord;
       if (upto - current_pos > sizeof(DumpStorageHeaderFiller)) {
         // fill it with zeros. not mandatory, but wouldn't hurt. it's just 4kb.

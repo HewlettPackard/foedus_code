@@ -189,9 +189,7 @@ class LogReducer final : public MapReduceBase {
      */
     uint32_t            magic_word_;
     /**
-     * Length of this block.
-     * @attention So far, this not set for DumpStorageHeaderReal as it's not needed.
-     * To calculate it, we have to iterate over the log entries twice..
+     * Length of this block \e including the header.
      */
     BufferPosition      block_length_;
   };
