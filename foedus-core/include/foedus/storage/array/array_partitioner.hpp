@@ -13,7 +13,7 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/const_div.hpp"
-#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/memory/fwd.hpp"
 #include "foedus/storage/partitioner.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/array/array_id.hpp"
@@ -71,13 +71,13 @@ class ArrayPartitioner CXX11_FINAL : public virtual Partitioner {
     PartitionId*                    results) const CXX11_OVERRIDE;
 
   void sort_batch(
-    const snapshot::LogBuffer&      log_buffer,
-    const snapshot::BufferPosition* log_positions,
-    uint32_t                        logs_count,
-    memory::AlignedMemorySlice      sort_buffer,
-    Epoch                           base_epoch,
-    snapshot::BufferPosition*       output_buffer,
-    uint32_t*                       written_count) const CXX11_OVERRIDE;
+    const snapshot::LogBuffer&        log_buffer,
+    const snapshot::BufferPosition*   log_positions,
+    uint32_t                          logs_count,
+    const memory::AlignedMemorySlice& sort_buffer,
+    Epoch                             base_epoch,
+    snapshot::BufferPosition*         output_buffer,
+    uint32_t*                         written_count) const CXX11_OVERRIDE;
 
   uint64_t get_required_sort_buffer_size(uint32_t log_count) const CXX11_OVERRIDE;
 

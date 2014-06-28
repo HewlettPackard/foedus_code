@@ -9,6 +9,7 @@
 #include <atomic>
 #include <iosfwd>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -245,6 +246,44 @@ class LogReducer final : public MapReduceBase {
   };
 
   /**
+   * Context object used throughout merge_sort().
+   */
+  struct MergeContext {
+    explicit MergeContext(uint32_t sorted_buffer_count);
+    ~MergeContext();
+
+    const uint32_t                            sorted_buffer_count_;
+    memory::AlignedMemory                     io_memory_;
+    std::vector< memory::AlignedMemorySlice > io_buffers_;
+
+    /**
+     * @brief stream objects that keep reading storage blocks.
+     * @details
+     * The first one is always the InMemorySortedBuffer (based on last_buffer_).
+     * Others are DumpFileSortedBuffer for the sorted run files.
+     * Dummy block is automatically skipped.
+     * If storage_id_ is zero, it means that the stream reached the end.
+     */
+    std::vector< std::unique_ptr<SortedBuffer> >  sorted_buffers_;
+
+    /**
+     * Just to automatically close/delete them.
+     * Index is sorted_buffers_'s - 1, but anyway we never explicitly access this.
+     */
+    std::vector< std::unique_ptr<fs::DirectIoFile> > sorted_files_auto_ptrs_;
+
+    SortedBuffer**                          tmp_sorted_buffer_array_;
+    uint32_t                                tmp_sorted_buffer_count_;
+
+    /**
+     * Returns the minimum storage_id the sorted buffers are currently at.
+     * Iff all sorted buffers reached the end, returns 0.
+     */
+    storage::StorageId  get_min_storage_id() const;
+    void                set_tmp_sorted_buffer_array(storage::StorageId storage_id);
+  };
+
+  /**
    * Underlying memory of reducer buffer.
    */
   memory::AlignedMemory   buffer_memory_;
@@ -299,7 +338,17 @@ class LogReducer final : public MapReduceBase {
    */
   thread::ConditionVariable current_buffer_changed_;
 
+  ReducerBuffer* get_non_current_buffer() { return &buffers_[(current_buffer_ + 1) % 2]; }
   ReducerBuffer* get_current_buffer() { return &buffers_[current_buffer_ % 2]; }
+  const ReducerBuffer* get_non_current_buffer() const {
+    return &buffers_[(current_buffer_ + 1) % 2];
+  }
+  const ReducerBuffer* get_current_buffer() const {
+    return &buffers_[current_buffer_ % 2];
+  }
+  void expand_sort_buffer_if_needed(uint64_t required_size);
+  void expand_positions_buffers_if_needed(uint64_t required_size_per_buffer);
+  fs::Path get_sorted_run_file_path(uint32_t sorted_run) const;
 
   /**
    * Sorts and dumps another buffer (buffers_[sorted_runs_ % 2]).
@@ -351,10 +400,32 @@ class LogReducer final : public MapReduceBase {
     uint32_t log_count,
     fs::DirectIoFile *dump_file);
 
-  void expand_sort_buffer_if_needed(uint64_t required_size);
-  void expand_positions_buffers_if_needed(uint64_t required_size_per_buffer);
+  /**
+   * @brief Called at the end of the reducer to construct a snapshot file
+   * from the dumped buffers and in-memory buffer.
+   * @pre at most one of the buffers are in-use (non-current buffer's tail_position==0)
+   * @pre all mappers completed (thus both buffers active_writers==0 and won't change)
+   * @details
+   * This invokes a foedus::storage::Composer for each storage, giving sorted buffers as inputs.
+   * The result is just one snapshot file, which is written by SnapshotWriter.
+   */
+  ErrorStack merge_sort();
 
-  fs::Path get_sorted_run_file_path(uint32_t sorted_run) const;
+  /** just sanity checks. */
+  void merge_sort_check_buffer_status() const;
+
+  /**
+   * First sub routine of merge_sort() which allocates I/O buffers to read from sorted run files.
+   */
+  void merge_sort_allocate_io_buffers(MergeContext* context) const;
+  /**
+   * Second sub routine that opens the files with the I/O buffers.
+   */
+  ErrorStack merge_sort_open_sorted_runs(MergeContext* context) const;
+  /**
+   * Initial reading and locating first storage blocks in each buffer.
+   */
+  ErrorStack merge_sort_initialize_sort_buffers(MergeContext* context) const;
 };
 }  // namespace snapshot
 }  // namespace foedus

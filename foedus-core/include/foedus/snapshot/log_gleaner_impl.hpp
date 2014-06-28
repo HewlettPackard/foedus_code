@@ -51,8 +51,8 @@ namespace snapshot {
  *
  * @section REDUCER Reducer
  * LogGleaner also launches a set of reducer threads (foedus::snapshot::LogReducer), one for each
- * NUMA node. For each epoch, LogReducer sorts log entries sent from LogMapper.
- * The log entries are sorted by ordinal (*), then processed just like
+ * NUMA node. LogReducer sorts log entries sent from LogMapper.
+ * The log entries are sorted by key and ordinal (*), then processed just like
  * usual APPLY at the end of transaction, but on top of snapshot files.
  *
  * (*) otherwise correct result is not guaranteed. For example, imagine the following case:
@@ -60,8 +60,6 @@ namespace snapshot {
  *  \li UPDATE rec-1 to B. Log-ordinal 2.
  *
  * Ordinal-1 must be processed before ordinal 2.
- * As log entries are somewhat sorted already (due to how we write log files and buffer them in
- * mapper), we prefer bubble sort here. We so far use std::sort, though.
  *
  * @section SYNC Synchronization
  * LogGleaner coordinates the synchronization between mappers and reducers during snapshotting.

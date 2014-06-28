@@ -4,6 +4,8 @@
  */
 #include "foedus/snapshot/log_buffer.hpp"
 
+#include <glog/logging.h>
+
 #include <algorithm>
 #include <cstring>
 #include <ostream>
@@ -19,15 +21,37 @@ std::ostream& operator<<(std::ostream& o, const SortedBuffer& v) {
   return o;
 }
 
-void InMemorySortedBuffer::describe(std::ostream* optr) const {
+void SortedBuffer::describe_base_elements(std::ostream* optr) const {
   std::ostream& o = *optr;
-  o << "<InMemorySortedBuffer>"
-      << "<block_>" << block_ << "</block_>"
-      << "<cur_pos_>" << cur_pos_ << "</cur_pos_>"
-      << "<end_pos_>" << end_pos_ << "</end_pos_>"
-    << "</InMemorySortedBuffer>";
+  o << "<buffer_>" << buffer_ << "</buffer_>"
+    << "<buffer_size_>" << buffer_size_ << "</buffer_size_>"
+    << "<offset_>" << offset_ << "</offset_>"
+    << "<total_size_>" << total_size_ << "</total_size_>"
+    << "<cur_block_storage_id_>" << cur_block_storage_id_ << "</cur_block_storage_id_>"
+    << "<cur_block_log_count_>" << cur_block_log_count_ << "</cur_block_log_count_>"
+    << "<cur_block_abosulte_begin_>" << cur_block_abosulte_begin_ << "</cur_block_abosulte_begin_>"
+    << "<cur_block_abosulte_end_>" << cur_block_abosulte_end_ << "</cur_block_abosulte_end_>";
 }
 
+void InMemorySortedBuffer::describe(std::ostream* optr) const {
+  std::ostream& o = *optr;
+  o << "<InMemorySortedBuffer>";
+  describe_base_elements(optr);
+  o << "</InMemorySortedBuffer>";
+}
+
+
+DumpFileSortedBuffer::DumpFileSortedBuffer(
+  fs::DirectIoFile* file, memory::AlignedMemorySlice io_buffer)
+  : SortedBuffer(
+    reinterpret_cast<char*>(io_buffer.get_block()),
+    io_buffer.get_size(),
+    fs::file_size(file->get_path())),
+    file_(file),
+    io_buffer_(io_buffer) {
+  ASSERT_ND(buffer_size_ % kAlignment == 0);
+  ASSERT_ND(total_size_ % kAlignment == 0);
+}
 
 std::string DumpFileSortedBuffer::to_string() const {
   return std::string("DumpFileSortedBuffer: ") + file_->get_path().string();
@@ -35,61 +59,54 @@ std::string DumpFileSortedBuffer::to_string() const {
 
 void DumpFileSortedBuffer::describe(std::ostream* optr) const {
   std::ostream& o = *optr;
-  o << "<DumpFileSortedBuffer>"
-      << file_
-      << "<io_buffer_>" << io_buffer_ << "</io_buffer_>"
-      << "<cur_buffer_pos_>" << cur_buffer_pos_ << "</cur_buffer_pos_>"
-      << "<cur_file_pos_>" << cur_file_pos_ << "</cur_file_pos_>"
-      << "<end_file_pos_>" << end_file_pos_ << "</end_file_pos_>"
-    << "</DumpFileSortedBuffer>";
+  o << "<DumpFileSortedBuffer>";
+  describe_base_elements(optr);
+  o << "<file_>" << file_ << "</file_>";
+  o << "<io_buffer_>" << io_buffer_ << "</io_buffer_>";
+  o << "</DumpFileSortedBuffer>";
 }
 
-ErrorCode DumpFileSortedBuffer::wind(uint64_t* cur_pos, uint64_t* end_pos) {
-  const uint64_t old_pos = *cur_pos;
-  const uint64_t buffer_size = io_buffer_.get_size();
-  ASSERT_ND(old_pos >= cur_buffer_pos_);
-  ASSERT_ND(file_size_ == fs::file_size(file_->get_path()));
-  ASSERT_ND(cur_file_pos_ % kAlignment == 0);
-  ASSERT_ND(old_pos <= buffer_size);
-  ASSERT_ND(cur_file_pos_ + old_pos <= end_file_pos_);
+ErrorCode DumpFileSortedBuffer::wind(uint64_t next_absolute_pos) {
+  ASSERT_ND(offset_ % kAlignment == 0);
+  if (next_absolute_pos == offset_ || offset_ + buffer_size_ >= total_size_) {
+    return kErrorCodeOk;  // nothing to do then
+  } else if (next_absolute_pos < offset_ ||
+    next_absolute_pos >= offset_ + buffer_size_ ||
+    next_absolute_pos >= total_size_) {
+    LOG(FATAL) << " wtf next_absolute_pos=" << next_absolute_pos << ", offset=" << offset_
+      << ", buffer_size=" << buffer_size_ << ", total_size_=" << total_size_;
+    return kErrorCodeInvalidParameter;
+  }
 
-  uint64_t read_to;
-  if (buffer_size == old_pos) {
-    *cur_pos = 0;
-    read_to = 0;
-    cur_file_pos_ += buffer_size;
+  uint32_t jump_distance;
+  uint64_t next_relative_pos = to_relative_pos(next_absolute_pos);
+  uint64_t read_to_relative;
+  if (next_absolute_pos % kAlignment == 0) {
+    jump_distance = buffer_size_;
+    read_to_relative = 0;
   } else {
     // move the remaining (non-consumed) content in the buffer to the beginning of buffer.
-    // we have to do this with alignment (this is why the returned cur_pos might not be zero)
-    uint64_t move_from = old_pos / kAlignment * kAlignment;
-    ASSERT_ND(move_from <= old_pos);
-    ASSERT_ND(move_from > old_pos - kAlignment);
-    char* buffer = reinterpret_cast<char*>(io_buffer_.get_block());
-    std::memmove(buffer, buffer + move_from, buffer_size - move_from);
-    *cur_pos -= move_from;
-    read_to = kAlignment;
-    cur_file_pos_ += move_from;
-    ASSERT_ND(*cur_pos == old_pos % kAlignment);
+    // we have to do this for alignment
+    jump_distance = next_relative_pos / kAlignment * kAlignment;
+    ASSERT_ND(jump_distance < next_relative_pos);
+    ASSERT_ND(jump_distance > next_relative_pos - kAlignment);
+    std::memmove(buffer_, buffer_ + jump_distance, buffer_size_ - jump_distance);
+    read_to_relative = kAlignment;
   }
-  cur_buffer_pos_ = *cur_pos;
-  ASSERT_ND(cur_file_pos_ <= end_file_pos_);
-  ASSERT_ND(cur_file_pos_ <= file_size_);
-  ASSERT_ND(cur_file_pos_ % kAlignment == 0);
 
   // we read as much as possible. note that "cur_file_pos_ + buffer_size" might become
   // larger than end_file_pos_. It's fine, the next DumpFileSortedBuffer object for another
   // storage will take care of the excessive bytes.
-  uint64_t read_upto_file_pos = std::min(cur_file_pos_ + buffer_size, file_size_);
-  uint64_t desired_reads = read_upto_file_pos - (cur_file_pos_ + read_to);
-  if (desired_reads > 0) {
-    ErrorStack er = file_->read(desired_reads, io_buffer_);
-    if (er.is_error()) {
-      return er.get_error_code();
-    }
+  uint64_t desired_reads = std::min(
+    buffer_size_ - read_to_relative,
+    total_size_ - offset_ - read_to_relative);
+  ErrorStack er = file_->read(desired_reads, io_buffer_);
+  if (er.is_error()) {
+    return er.get_error_code();
   }
 
-  *end_pos = std::min(buffer_size, end_file_pos_ - cur_file_pos_);
-  ASSERT_ND(*end_pos >= *cur_pos);
+  offset_ += jump_distance;
+  ASSERT_ND(offset_ % kAlignment == 0);
   return kErrorCodeOk;
 }
 

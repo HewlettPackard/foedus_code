@@ -172,13 +172,13 @@ uint64_t ArrayPartitioner::get_required_sort_buffer_size(uint32_t log_count) con
 }
 
 void ArrayPartitioner::sort_batch(
-    const snapshot::LogBuffer&      log_buffer,
-    const snapshot::BufferPosition* log_positions,
-    uint32_t                        log_positions_count,
-    memory::AlignedMemorySlice      sort_buffer,
-    Epoch                           base_epoch,
-    snapshot::BufferPosition*       output_buffer,
-    uint32_t*                       written_count) const {
+    const snapshot::LogBuffer&        log_buffer,
+    const snapshot::BufferPosition*   log_positions,
+    uint32_t                          log_positions_count,
+    const memory::AlignedMemorySlice& sort_buffer,
+    Epoch                             base_epoch,
+    snapshot::BufferPosition*         output_buffer,
+    uint32_t*                         written_count) const {
   if (log_positions_count == 0) {
     *written_count = 0;
     return;

@@ -11,7 +11,7 @@
 
 #include "foedus/epoch.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/memory/fwd.hpp"
 #include "foedus/snapshot/log_buffer.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -127,13 +127,13 @@ class Partitioner {
    * @see get_required_sort_buffer_size()
    */
   virtual void                sort_batch(
-    const snapshot::LogBuffer&      log_buffer,
-    const snapshot::BufferPosition* log_positions,
-    uint32_t                        logs_count,
-    memory::AlignedMemorySlice      sort_buffer,
-    Epoch                           base_epoch,
-    snapshot::BufferPosition*       output_buffer,
-    uint32_t*                       written_count) const = 0;
+    const snapshot::LogBuffer&        log_buffer,
+    const snapshot::BufferPosition*   log_positions,
+    uint32_t                          logs_count,
+    const memory::AlignedMemorySlice& sort_buffer,
+    Epoch                             base_epoch,
+    snapshot::BufferPosition*         output_buffer,
+    uint32_t*                         written_count) const = 0;
 
   /** Returns required size of sort buffer for sort_batch() */
   virtual uint64_t            get_required_sort_buffer_size(uint32_t log_count) const = 0;

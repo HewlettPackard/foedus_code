@@ -6,6 +6,7 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <map>
 #include <ostream>
 #include <string>
@@ -506,6 +507,263 @@ fs::Path LogReducer::get_sorted_run_file_path(uint32_t sorted_run) const {
   path /= file_name.str();
   return path;
 }
+
+LogReducer::MergeContext::MergeContext(uint32_t sorted_buffer_count)
+  : sorted_buffer_count_(sorted_buffer_count),
+  tmp_sorted_buffer_array_(new SortedBuffer*[sorted_buffer_count]),
+  tmp_sorted_buffer_count_(0) {
+}
+
+LogReducer::MergeContext::~MergeContext() {
+  sorted_buffers_.clear();
+  // destructor calls close(), but to make sure
+  for (auto& file : sorted_files_auto_ptrs_) {
+    file->close();
+  }
+  sorted_files_auto_ptrs_.clear();
+  io_buffers_.clear();
+  io_memory_.release_block();
+  delete[] tmp_sorted_buffer_array_;
+  tmp_sorted_buffer_array_ = nullptr;
+}
+
+storage::StorageId LogReducer::MergeContext::get_min_storage_id() const {
+  bool first = true;
+  storage::StorageId storage_id = 0;
+  for (uint32_t i = 0 ; i < sorted_buffer_count_; ++i) {
+    storage::StorageId the_storage_id = sorted_buffers_[i]->get_cur_block_storage_id();
+    if (the_storage_id == 0) {
+      continue;
+    }
+    if (first) {
+      storage_id = the_storage_id;
+      first = false;
+    } else {
+      storage_id = std::min(storage_id, the_storage_id);
+    }
+  }
+  return storage_id;
+}
+
+void LogReducer::MergeContext::set_tmp_sorted_buffer_array(storage::StorageId storage_id) {
+  tmp_sorted_buffer_count_ = 0;
+  for (uint32_t i = 0 ; i < sorted_buffer_count_; ++i) {
+    if (sorted_buffers_[i]->get_cur_block_storage_id() == storage_id) {
+        tmp_sorted_buffer_array_[tmp_sorted_buffer_count_] = sorted_buffers_[i].get();
+        ++tmp_sorted_buffer_count_;
+    }
+  }
+  ASSERT_ND(tmp_sorted_buffer_count_ > 0);
+}
+
+
+
+ErrorStack LogReducer::merge_sort() {
+  merge_sort_check_buffer_status();
+  MergeContext context(sorted_runs_);
+  ReducerBuffer* last_buffer = get_current_buffer();
+
+  LOG(INFO) << to_string() << " merge sorting " << sorted_runs_ << " sorted runs and the current"
+    << " buffer which has " << last_buffer->get_status().components.tail_position_ << " bytes";
+  debugging::StopWatch merge_watch;
+
+  // prepare the input streams for composers
+  merge_sort_allocate_io_buffers(&context);
+  CHECK_ERROR(merge_sort_open_sorted_runs(&context));
+  CHECK_ERROR(merge_sort_initialize_sort_buffers(&context));
+
+  storage::StorageId prev_storage_id = 0;
+  while (true) {
+    storage::StorageId storage_id = context.get_min_storage_id();
+    if (storage_id == 0) {
+      break;
+    } else if (storage_id <= prev_storage_id) {
+      LOG(FATAL) << to_string() << " wtf. not storage sorted? " << *this;
+    }
+    prev_storage_id = storage_id;
+
+    // collect streams for this storage
+    VLOG(0) << to_string() << " merging storage-" << storage_id;
+    context.set_tmp_sorted_buffer_array(storage_id);
+
+    // run composer
+
+    // after reading them, we should be at next block header.
+    for (uint32_t i = 0 ; i < context.sorted_buffer_count_; ++i) {
+      SortedBuffer *buffer = context.sorted_buffers_[i].get();
+      if (buffer->get_cur_block_storage_id() == storage_id) {
+        uint64_t next_block_header_pos = buffer->get_cur_block_abosulte_end();
+        uint64_t in_buffer_pos = buffer->to_relative_pos(next_block_header_pos);
+        const DumpStorageHeaderBase* next_header =
+          reinterpret_cast<const DumpStorageHeaderBase*>(buffer->get_buffer() + in_buffer_pos);
+
+        // skip a dummy block
+        if (next_block_header_pos < buffer->get_total_size() &&
+          next_header->magic_word_ == kStorageHeaderFillerMagicWord) {
+          // next block is a dummy block. we have to skip over it.
+          // no two filler blocks come in a row, so just skip this one.
+          uint64_t skip_bytes = from_buffer_position(next_header->block_length_);
+          next_block_header_pos += skip_bytes;
+          VLOG(1) << to_string() << " skipped a filler block. " << skip_bytes << " bytes";
+          if (next_block_header_pos + sizeof(DumpStorageHeaderReal)
+            > buffer->get_offset() + buffer->get_buffer_size()) {
+            // we have to at least read the header of next block. if we unluckily hit
+            // the boundary here, wind it.
+            LOG(INFO) << to_string() << " wow, we unluckily hit buffer boundary while skipping"
+              << " a filler block. it's rare!";
+            WRAP_ERROR_CODE(buffer->wind(next_block_header_pos));
+            ASSERT_ND(next_block_header_pos >= buffer->get_offset());
+            ASSERT_ND(next_block_header_pos + sizeof(DumpStorageHeaderReal)
+              <= buffer->get_offset() + buffer->get_buffer_size());
+          }
+
+          in_buffer_pos = buffer->to_relative_pos(next_block_header_pos);
+          next_header =
+            reinterpret_cast<const DumpStorageHeaderBase*>(buffer->get_buffer() + in_buffer_pos);
+        }
+
+        // next block must be a real block. but, did we reach end of file?
+        if (next_block_header_pos >= buffer->get_total_size()) {
+          ASSERT_ND(next_block_header_pos == buffer->get_total_size());
+          // this stream is done
+          buffer->set_current_block(0, 0, 0, 0);
+          LOG(INFO) << to_string() << " fully merged a stream: " << *buffer;
+        } else {
+          if (next_header->magic_word_ != kStorageHeaderRealMagicWord) {
+            LOG(FATAL) << to_string() << " wtf. block magic word doesn't match. pos="
+              << next_block_header_pos << ", magic=" << assorted::Hex(next_header->magic_word_);
+          }
+
+          const DumpStorageHeaderReal* next_header_casted
+            = reinterpret_cast<const DumpStorageHeaderReal*>(next_header);
+          if (next_header_casted->storage_id_ == 0 ||
+            next_header_casted->log_count_ == 0 ||
+            next_header_casted->block_length_ == 0) {
+            LOG(FATAL) << to_string() << " wtf. invalid block header. pos="
+              << next_block_header_pos;
+          }
+          buffer->set_current_block(
+            next_header_casted->storage_id_,
+            next_header_casted->log_count_,
+            next_block_header_pos + sizeof(DumpStorageHeaderReal),
+            next_block_header_pos + from_buffer_position(next_header_casted->block_length_));
+        }
+      }
+    }
+  }
+
+  merge_watch.stop();
+  LOG(INFO) << to_string() << " completed merging in " << merge_watch.elapsed_sec() << " seconds";
+  return kRetOk;
+}
+
+
+void LogReducer::merge_sort_check_buffer_status() const {
+  ASSERT_ND(sorted_runs_ == current_buffer_.load());
+  if (get_non_current_buffer()->get_status().components.tail_position_ > 0 ||
+      get_non_current_buffer()->get_status().components.active_writers_ > 0) {
+    LOG(FATAL) << to_string() << " non-current buffer still has some data. this must not happen"
+      << " at merge_sort step.";
+  }
+  const ReducerBuffer* last_buffer = get_current_buffer();
+  if (last_buffer->get_status().components.active_writers_ > 0) {
+    LOG(FATAL) << to_string() << " last buffer is still being written. this must not happen"
+      << " at merge_sort step.";
+  }
+  ASSERT_ND(!last_buffer->is_no_more_writers());  // it should be still active
+}
+
+void LogReducer::merge_sort_allocate_io_buffers(LogReducer::MergeContext* context) const {
+  if (context->sorted_buffer_count_ == 0) {
+    LOG(INFO) << to_string() << " great, no sorted run files. everything in-memory";
+    return;
+  }
+  debugging::StopWatch alloc_watch;
+  uint64_t size_per_run =
+    static_cast<uint64_t>(engine_->get_options().snapshot_.log_reducer_read_io_buffer_kb_) << 10;
+  uint64_t size_total = size_per_run * context->sorted_buffer_count_;
+  context->io_memory_.alloc(
+    size_total,
+    memory::kHugepageSize,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    numa_node_);
+  for (uint32_t i = 0; i < context->sorted_buffer_count_; ++i) {
+    context->io_buffers_.emplace_back(memory::AlignedMemorySlice(
+      &context->io_memory_,
+      i * size_per_run,
+      size_per_run));
+  }
+  alloc_watch.stop();
+  LOG(INFO) << to_string() << " allocated IO buffers (" << size_total << " bytes in total) "
+    << " in " << alloc_watch.elapsed_us() << "us";
+}
+
+ErrorStack LogReducer::merge_sort_open_sorted_runs(LogReducer::MergeContext* context) const {
+  const ReducerBuffer* last_buffer = get_current_buffer();
+  // always the last buffer (no cost)
+  context->sorted_buffers_.emplace_back(new InMemorySortedBuffer(
+    reinterpret_cast<char*>(last_buffer->buffer_slice_.get_block()),
+    from_buffer_position(last_buffer->get_status().components.tail_position_)));
+
+  // sorted run files
+  ASSERT_ND(context->io_buffers_.size() == sorted_runs_);
+  for (uint32_t sorted_run = 0 ; sorted_run < context->sorted_buffer_count_; ++sorted_run) {
+    fs::Path path = get_sorted_run_file_path(sorted_run);
+    if (!fs::exists(path)) {
+      LOG(FATAL) << to_string() << " wtf. this sorted run file doesn't exist " << path;
+    }
+    uint64_t file_size = fs::file_size(path);
+    if (file_size == 0) {
+      LOG(FATAL) << to_string() << " wtf. this sorted run file is empty " << path;
+    }
+
+    std::unique_ptr<fs::DirectIoFile> file_ptr(new fs::DirectIoFile(
+      path,
+      engine_->get_options().snapshot_.emulation_));
+    CHECK_ERROR(file_ptr->open(true, false, false, false));
+
+    context->sorted_buffers_.emplace_back(new DumpFileSortedBuffer(
+      file_ptr.get(),
+      context->io_buffers_[sorted_run]));
+    context->sorted_files_auto_ptrs_.emplace_back(std::move(file_ptr));
+  }
+
+  ASSERT_ND(context->sorted_files_auto_ptrs_.size() == context->sorted_buffers_.size() - 1);
+  return kRetOk;
+}
+
+ErrorStack LogReducer::merge_sort_initialize_sort_buffers(LogReducer::MergeContext* context) const {
+  for (uint32_t index = 0 ; index < context->sorted_buffer_count_; ++index) {
+    SortedBuffer* buffer = context->sorted_buffers_[index].get();
+    if (index > 0) {
+      DumpFileSortedBuffer* casted = dynamic_cast<DumpFileSortedBuffer*>(buffer);
+      ASSERT_ND(casted);
+      // the buffer hasn't loaded any data, so let's make the first read.
+      uint64_t desired_reads = std::min(casted->get_buffer_size(), casted->get_total_size());
+      CHECK_ERROR(casted->get_file()->read(desired_reads, casted->get_io_buffer()));
+    } else {
+      ASSERT_ND(dynamic_cast<InMemorySortedBuffer*>(buffer));
+      // in-memory one has already loaded everything
+    }
+
+    // See the first block header. As dummy block always follows a real block, this must be
+    // a real block.
+    const DumpStorageHeaderReal* header = reinterpret_cast<const DumpStorageHeaderReal*>(
+      buffer->get_buffer());
+    if (header->magic_word_ != kStorageHeaderRealMagicWord) {
+      LOG(FATAL) << to_string() << " wtf. first block in the file is not a real storage block."
+        << *buffer;
+    }
+    buffer->set_current_block(
+      header->storage_id_,
+      header->log_count_,
+      sizeof(DumpStorageHeaderReal),
+      from_buffer_position(header->block_length_));
+  }
+
+  return kRetOk;
+}
+
 
 std::ostream& operator<<(std::ostream& o, const LogReducer& v) {
   o << "<LogReducer>"

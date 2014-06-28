@@ -11,6 +11,8 @@
  */
 namespace foedus {
 namespace snapshot {
+class   InMemorySortedBuffer;
+class   DumpFileSortedBuffer;
 struct  LogBuffer;
 class   LogGleaner;
 class   LogMapper;
