@@ -2,8 +2,8 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#ifndef FOEDUS_DEBUGGING_RDTSC_WAITS_HPP_
-#define FOEDUS_DEBUGGING_RDTSC_WAITS_HPP_
+#ifndef FOEDUS_DEBUGGING_RDTSC_HPP_
+#define FOEDUS_DEBUGGING_RDTSC_HPP_
 /**
  * @file foedus/debugging/rdtsc_waits.hpp
  * @brief Implements an RDTSC (Real-time time stamp counter) wait to emulate latency on slower
@@ -49,4 +49,4 @@ inline void wait_rdtsc_cycles(uint64_t cycles) {
 
 }  // namespace debugging
 }  // namespace foedus
-#endif  // FOEDUS_DEBUGGING_RDTSC_WAITS_HPP_
+#endif  // FOEDUS_DEBUGGING_RDTSC_HPP_

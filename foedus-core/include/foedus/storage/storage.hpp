@@ -118,6 +118,7 @@ class StorageFactory {
 
   /**
    * @brief Instantiate a storage object with the given metadata.
+   * @param[in] engine database engine
    * @param[in] metadata metadata of the newly instantiated storage object
    * @param[out] storage set only when this method succeeds. otherwise null.
    * @pre is_right_metadata(metadata)

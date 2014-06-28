@@ -25,6 +25,8 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
     kDefaultLogMapperBucketKb             = 1024,
     kDefaultLogMapperIoBufferMb           = 64,
     kDefaultLogReducerBufferMb            = 256,
+    kDefaultLogReducerDumpIoBufferMb      = 8,
+    kDefaultLogReducerReadIoBufferKb      = 1024,
   };
 
   /**
@@ -87,6 +89,18 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
    * If you have a big DRAM, you might want to specify a large number for that reason.
    */
   uint32_t                            log_reducer_buffer_mb_;
+
+  /**
+   * The size in MB of a buffer to write out sorted log entries in reducer to a temporary file.
+   */
+  uint32_t                            log_reducer_dump_io_buffer_mb_;
+
+  /**
+   * The size in KB of a buffer in reducer to read one temporary file.
+   * Note that the total memory consumption is this number times the number of temporary files.
+   * It's a merge-sort.
+   */
+  uint32_t                            log_reducer_read_io_buffer_kb_;
 
   /** Settings to emulate slower data device. */
   foedus::fs::DeviceEmulationOptions  emulation_;

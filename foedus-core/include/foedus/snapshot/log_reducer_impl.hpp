@@ -8,11 +8,16 @@
 
 #include <atomic>
 #include <iosfwd>
+#include <map>
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
+#include "foedus/fs/fwd.hpp"
+#include "foedus/fs/path.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/log/log_id.hpp"
 #include "foedus/memory/aligned_memory.hpp"
@@ -35,20 +40,31 @@ namespace snapshot {
  *
  * @section SORTING Sorting
  * The log entries are sorted in a few steps to be processed efficiently and simply.
+ * Sorting starts when one of the reducer's buffer becomes full.
+ * Reducer never starts sorting until that to maximize the benefits of batch-processing
+ * (this design might be revisited later, though).
+ * Reducers maintain two buffers to let mappers keep sending data while reducers are sorting
+ * and dumping to temporary files.
  *
  * @subsection STORAGE-SORT Storage Sorting
- * The first step is to sort log entries by storage.
+ * The first step is to sort log entries by storage, which is done in mappers.
  * We process all log entries of one storage together.
  * This has a benefit of code simplicity and less D-cache misses.
  * We don't actually sort in this case because we don't care the order between
- * storages. Thus, we use hashmap-like structure to sort based on storage-id.
+ * storages. Thus, we use hashmap-like structure in mappers to sort based on storage-id.
+ *
+ * Upon receiving a chunk of data from mappers, the reducer has to collect all of them
+ * to do the following (otherwise the sorting is incomplete). This is done by simply reading
+ * all block headers utilizing the block_length_ property.
+ * Assuming each block is sufficiently large, this jumping cost on DRAM should be negligible.
+ * If each block is not sufficiently large, there are anyway other performance issues.
  *
  * @subsection KEY-ORDINAL-SORT Key and Ordinal Sorting
  * Then, in each storage, we sort logs by keys and then by ordinal (*).
  * The algorithm to do this sorting depends on the storage type (eg Array, Masstree)
  * because some storage has a VERY efficient way to do this.
  * We exploit the fact that this sorting occurs only per storage, just passing the whole
- * log entries for the storage to storage-specific logic defined in XXX.
+ * log entries for the storage to storage-specific logic defined in foedus::storage::Partitioner.
  * This is another reason to sort by storage first.
  *
  * (*) We do need to sort by ordinal. Otherwise correct result is not guaranteed.
@@ -57,11 +73,11 @@ namespace snapshot {
  *  \li UPDATE rec-1 to B. Log-ordinal 2.
  * Ordinal-1 must be processed before ordinal 2.
  *
+ * For more details, see foedus::storage::Partitioner.
  *
  * @subsection DUMP-MERGE Dumping Logs and and Merging
- * When each reducer buffer gets full or alomost full, we do the sorting and dump it to
- * a file. When all logs are received, the reducer does merge-sort on top of the
- * sorted run files.
+ * After the sorting, the reducer dumps the buffer to a file.
+ * When all logs are received, the reducer does merge-sort on top of the sorted run files.
  *
  * @subsection COMPACTING Compacting Logs
  * In some cases, we can delete log entries for the same keys.
@@ -73,6 +89,8 @@ namespace snapshot {
  * This compaction is especially useful for a record that is repeatedly updated/inserted/deleted,
  * such as TPC-C's WAREHOUSE/DISTRICT records, where several thousands of overwrite-logs
  * in each reducer buffer will be compacted into just one log.
+ *
+ * See foedus::storage::Partitioner::sort_batch() for more details.
  *
  * @section DATAPAGES Data Pages
  * One tricky thing in reducer is how it manages data pages to read previous snapshot pages
@@ -88,7 +106,7 @@ namespace snapshot {
 class LogReducer final : public MapReduceBase {
  public:
   LogReducer(Engine* engine, LogGleaner* parent, thread::ThreadGroupId numa_node)
-    : MapReduceBase(engine, parent, numa_node, numa_node) {}
+    : MapReduceBase(engine, parent, numa_node, numa_node), sorted_runs_(0), current_buffer_(0) {}
 
   /** One LogReducer corresponds to one NUMA node (partition). */
   thread::ThreadGroupId   get_id() const { return id_; }
@@ -129,6 +147,12 @@ class LogReducer final : public MapReduceBase {
      * If this bit is on, no more mappers can enter the buffer as a new writer.
      */
     kFlagNoMoreWriters = 0x0001,
+    /** @see BlockHeader::magic_word_ */
+    kBlockHeaderMagicWord = 0xDEADBEEF,
+    /** @see DumpStorageHeaderFiller */
+    kStorageHeaderFillerMagicWord = 0x8BADF00D,
+    /** @see DumpStorageHeaderReal */
+    kStorageHeaderRealMagicWord = 0xCAFEBABE,
   };
   /**
    * Compactly represents important status informations of a reducer buffer.
@@ -151,8 +175,46 @@ class LogReducer final : public MapReduceBase {
     storage::StorageId  storage_id_;
     uint32_t            log_count_;
     BufferPosition      block_length_;
-    uint32_t            dummy_;
+    /** just for sanity check. */
+    uint32_t            magic_word_;
   };
+
+  /**
+   * All storage blocks in dump file start with this header.
+   * This base object MUST be within 8 bytes so that DumpStorageHeaderFiller is within 8 bytes.
+   */
+  struct DumpStorageHeaderBase {
+    /**
+     * This is used to identify the storage block is a dummy (filler) one or a real one.
+     * This must be either kStorageHeaderFillerMagicWord or kStorageHeaderRealMagicWord.
+     */
+    uint32_t            magic_word_;
+    /**
+     * Length of this block \e including the header.
+     */
+    BufferPosition      block_length_;
+  };
+
+  /**
+   * A storage block in dump file that actually stores some storage.
+   * The magic word for this is kStorageHeaderDummyMagicWord.
+   */
+  struct DumpStorageHeaderReal : public DumpStorageHeaderBase {
+    storage::StorageId  storage_id_;
+    uint32_t            log_count_;
+  };
+
+  /**
+   * @brief A header for a dummy storage block that fills the gap between the end of
+   * previous storage block and the beginning of next storage block.
+   * @details
+   * Such a dummy storage is needed to guarantee aligned (4kb) writes on DirectIoFile.
+   * (we can also do it without dummy blocks by retaining the "fragment" until the next
+   * storage block, but the complexity isn't worth it. 4kb for each storage? nothing.)
+   * This object MUST be 8 bytes so that it can fill any gap (all log entries are 8-byte aligned).
+   * The magic word for this is kStorageHeaderFillerMagicWord.
+   */
+  struct DumpStorageHeaderFiller : public DumpStorageHeaderBase {};
 
   struct ReducerBuffer {
     memory::AlignedMemorySlice  buffer_slice_;
@@ -175,6 +237,50 @@ class LogReducer final : public MapReduceBase {
       ret.word = status_.load(std::memory_order_relaxed);
       return ret;
     }
+    bool        is_no_more_writers() const {
+      return (get_status().components.flags_ & kFlagNoMoreWriters) != 0;
+    }
+    bool        is_no_more_writers_weak() const {
+      return (get_status_weak().components.flags_ & kFlagNoMoreWriters) != 0;
+    }
+  };
+
+  /**
+   * Context object used throughout merge_sort().
+   */
+  struct MergeContext {
+    explicit MergeContext(uint32_t sorted_buffer_count);
+    ~MergeContext();
+
+    const uint32_t                            sorted_buffer_count_;
+    memory::AlignedMemory                     io_memory_;
+    std::vector< memory::AlignedMemorySlice > io_buffers_;
+
+    /**
+     * @brief stream objects that keep reading storage blocks.
+     * @details
+     * The first one is always the InMemorySortedBuffer (based on last_buffer_).
+     * Others are DumpFileSortedBuffer for the sorted run files.
+     * Dummy block is automatically skipped.
+     * If storage_id_ is zero, it means that the stream reached the end.
+     */
+    std::vector< std::unique_ptr<SortedBuffer> >  sorted_buffers_;
+
+    /**
+     * Just to automatically close/delete them.
+     * Index is sorted_buffers_'s - 1, but anyway we never explicitly access this.
+     */
+    std::vector< std::unique_ptr<fs::DirectIoFile> > sorted_files_auto_ptrs_;
+
+    SortedBuffer**                          tmp_sorted_buffer_array_;
+    uint32_t                                tmp_sorted_buffer_count_;
+
+    /**
+     * Returns the minimum storage_id the sorted buffers are currently at.
+     * Iff all sorted buffers reached the end, returns 0.
+     */
+    storage::StorageId  get_min_storage_id() const;
+    void                set_tmp_sorted_buffer_array(storage::StorageId storage_id);
   };
 
   /**
@@ -183,11 +289,42 @@ class LogReducer final : public MapReduceBase {
   memory::AlignedMemory   buffer_memory_;
 
   /**
+   * Buffer for writing out a sorted run.
+   */
+  memory::AlignedMemory   dump_io_buffer_;
+
+  /**
+   * Used to sort log entries in each storage.
+   * This is automatically extended when needed.
+   */
+  memory::AlignedMemory   sort_buffer_;
+
+  /**
+   * Used to temporarily store input/output positions of all log entries for one storage.
+   * This is automatically extended when needed.
+   * Note that this contains two slices, input_positions_slice_ and output_positions_slice_.
+   */
+  memory::AlignedMemory   positions_buffers_;
+
+  /** Half of positions_buffers_ used for input buffer for batch-sorting method. */
+  memory::AlignedMemorySlice input_positions_slice_;
+  /** Half of positions_buffers_ used for output buffer for batch-sorting method. */
+  memory::AlignedMemorySlice output_positions_slice_;
+
+  /**
    * The reducer buffer is split into two so that reducers can always work on completely filled
    * buffer while mappers keep appending to another buffer.
    * @see current_buffer_
    */
   ReducerBuffer buffers_[2];
+
+  /**
+   * How many buffers written out as a temporary file.
+   * If this number is zero when all mappers complete, the reducer does not bother writing out
+   * the last and only buffer to file.
+   * For now, this value should be always same as current_buffer_.
+   */
+  uint32_t      sorted_runs_;
 
   /**
    * buffers_[current_buffer_ % 2] is the buffer mappers should append to.
@@ -201,7 +338,94 @@ class LogReducer final : public MapReduceBase {
    */
   thread::ConditionVariable current_buffer_changed_;
 
+  ReducerBuffer* get_non_current_buffer() { return &buffers_[(current_buffer_ + 1) % 2]; }
   ReducerBuffer* get_current_buffer() { return &buffers_[current_buffer_ % 2]; }
+  const ReducerBuffer* get_non_current_buffer() const {
+    return &buffers_[(current_buffer_ + 1) % 2];
+  }
+  const ReducerBuffer* get_current_buffer() const {
+    return &buffers_[current_buffer_ % 2];
+  }
+  void expand_sort_buffer_if_needed(uint64_t required_size);
+  void expand_positions_buffers_if_needed(uint64_t required_size_per_buffer);
+  fs::Path get_sorted_run_file_path(uint32_t sorted_run) const;
+
+  /**
+   * Sorts and dumps another buffer (buffers_[sorted_runs_ % 2]).
+   * @pre buffers_[sorted_runs_ % 2] is closed for new writers
+   * (but doesn't have to be active_writers_==0. this method waits for it)
+   * @details
+   * When it is completed, this method increments sorted_runs_.
+   * So, the next target of sort/dump is another buffer.
+   */
+  ErrorStack dump_buffer();
+  /**
+   * First sub routine of dump_buffer.
+   * Wait for all mappers to finish writing (active_writers==0).
+   * because each mapper might be writing up to 1MB, and might be from remote NUMA node,
+   * this chould take hundred microseconds.
+   * a bit unclear whether spinning is better or not in this case.
+   * however, buffer dumping happens only occasionally, so the difference is not that significant.
+   * thus, we simply spin here.
+   */
+  ErrorStack dump_buffer_wait_for_writers(const ReducerBuffer& buffer) const;
+
+  /**
+   * Second sub routine of dump_buffer().
+   * We list up all blocks for each storage to sort them by key.
+   * assuming that there aren't a huge number of blocks (each block should be several hundred KB),
+   * we simply use a vector and a map. if this becomes the bottleneck, let's tune it later.
+   */
+  void dump_buffer_scan_block_headers(
+    char* buffer_base,
+    BufferPosition tail_position,
+    std::map<storage::StorageId, std::vector<BufferPosition> > *blocks) const;
+
+  /**
+   * Third sub routine of dump_buffer().
+   * For the specified storage, sort all log entries in key-and-ordinal order, then dump
+   * them to the file.
+   */
+  ErrorStack dump_buffer_sort_storage(
+    const LogBuffer &buffer,
+    storage::StorageId storage_id,
+    const std::vector<BufferPosition>& log_positions,
+    fs::DirectIoFile *dump_file);
+
+  /** Sub routine of dump_buffer_sort_storage to write the sorted logs to the file. */
+  ErrorStack dump_buffer_sort_storage_write(
+    const LogBuffer &buffer,
+    storage::StorageId storage_id,
+    const BufferPosition* sorted_logs,
+    uint32_t log_count,
+    fs::DirectIoFile *dump_file);
+
+  /**
+   * @brief Called at the end of the reducer to construct a snapshot file
+   * from the dumped buffers and in-memory buffer.
+   * @pre at most one of the buffers are in-use (non-current buffer's tail_position==0)
+   * @pre all mappers completed (thus both buffers active_writers==0 and won't change)
+   * @details
+   * This invokes a foedus::storage::Composer for each storage, giving sorted buffers as inputs.
+   * The result is just one snapshot file, which is written by SnapshotWriter.
+   */
+  ErrorStack merge_sort();
+
+  /** just sanity checks. */
+  void merge_sort_check_buffer_status() const;
+
+  /**
+   * First sub routine of merge_sort() which allocates I/O buffers to read from sorted run files.
+   */
+  void merge_sort_allocate_io_buffers(MergeContext* context) const;
+  /**
+   * Second sub routine that opens the files with the I/O buffers.
+   */
+  ErrorStack merge_sort_open_sorted_runs(MergeContext* context) const;
+  /**
+   * Initial reading and locating first storage blocks in each buffer.
+   */
+  ErrorStack merge_sort_initialize_sort_buffers(MergeContext* context) const;
 };
 }  // namespace snapshot
 }  // namespace foedus

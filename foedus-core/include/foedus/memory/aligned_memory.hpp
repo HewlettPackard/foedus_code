@@ -185,7 +185,7 @@ struct AlignedMemorySlice CXX11_FINAL {
   void        clear() { memory_ = CXX11_NULLPTR; }
   bool        is_valid()  const { return memory_; }
   uint64_t    get_size()  const { return count_; }
-  void*       get_block() { return reinterpret_cast<char*>(memory_->get_block()) + offset_; }
+  void*       get_block() const { return reinterpret_cast<char*>(memory_->get_block()) + offset_; }
 
   /** The wrapped memory. This object is just a \e view. It doesn't \e release the block. */
   AlignedMemory*  memory_;

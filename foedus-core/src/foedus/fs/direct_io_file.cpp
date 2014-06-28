@@ -125,7 +125,7 @@ bool DirectIoFile::close() {
 ErrorStack DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemory* buffer) {
   return read(desired_bytes, memory::AlignedMemorySlice(buffer));
 }
-ErrorStack DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemorySlice buffer) {
+ErrorStack DirectIoFile::read(uint64_t desired_bytes, const memory::AlignedMemorySlice& buffer) {
   if (!is_opened()) {
     return ERROR_STACK_MSG(kErrorCodeFsNotOpened, to_string().c_str());
   }
@@ -192,7 +192,7 @@ ErrorStack DirectIoFile::write(uint64_t desired_bytes, const memory::AlignedMemo
     const_cast<memory::AlignedMemory*>(&buffer)));
 }
 
-ErrorStack DirectIoFile::write(uint64_t desired_bytes, memory::AlignedMemorySlice buffer) {
+ErrorStack DirectIoFile::write(uint64_t desired_bytes, const memory::AlignedMemorySlice& buffer) {
   if (!is_opened()) {
     return ERROR_STACK_MSG(kErrorCodeFsNotOpened, to_string().c_str());
   }

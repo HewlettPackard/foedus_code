@@ -11,6 +11,8 @@
  */
 namespace foedus {
 namespace snapshot {
+class   InMemorySortedBuffer;
+class   DumpFileSortedBuffer;
 struct  LogBuffer;
 class   LogGleaner;
 class   LogMapper;
@@ -22,6 +24,7 @@ class   SnapshotManager;
 class   SnapshotManagerPimpl;
 struct  SnapshotMetadata;
 struct  SnapshotOptions;
+class   SortedBuffer;
 }  // namespace snapshot
 }  // namespace foedus
 #endif  // FOEDUS_SNAPSHOT_FWD_HPP_

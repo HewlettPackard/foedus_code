@@ -88,9 +88,8 @@ set(CMAKE_INCLUDE_CURRENT_DIR OFF)
 #
 #############################################################################
 # include files
-include_directories(
-  # our main include folder
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include) # our main include folder
+include_directories(SYSTEM
   # libnuma
   ${NUMA_INCLUDE_DIR}
   # tinyxml2
@@ -100,7 +99,7 @@ include_directories(
   ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog-0.3.3/src)
 # gperftools is optional for this library
 if (GOOGLEPERFTOOLS_FOUND)
-  include_directories(${GooglePerftools_INCLUDE_DIR})
+  include_directories(SYSTEM ${GooglePerftools_INCLUDE_DIR})
 endif (GOOGLEPERFTOOLS_FOUND)
 
 # This project contains glog so that it can compile by itself.
