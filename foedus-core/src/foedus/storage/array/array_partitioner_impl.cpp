@@ -2,7 +2,7 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include "foedus/storage/array/array_partitioner.hpp"
+#include "foedus/storage/array/array_partitioner_impl.hpp"
 
 #include <glog/logging.h>
 

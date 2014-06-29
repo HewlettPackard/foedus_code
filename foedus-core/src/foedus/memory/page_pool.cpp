@@ -28,8 +28,11 @@ void PagePoolOffsetChunk::move_to(PagePoolOffset* destination, uint32_t count) {
   size_ -= count;
 }
 
-PagePool::PagePool(Engine* engine, thread::ThreadGroupId numa_node) : pimpl_(nullptr) {
-  pimpl_ = new PagePoolPimpl(engine, numa_node);
+PagePool::PagePool(
+  uint64_t memory_byte_size,
+  uint64_t memory_alignment,
+  thread::ThreadGroupId numa_node) : pimpl_(nullptr) {
+  pimpl_ = new PagePoolPimpl(memory_byte_size, memory_alignment, numa_node);
 }
 PagePool::~PagePool() {
   delete pimpl_;
@@ -39,6 +42,8 @@ PagePool::~PagePool() {
 ErrorStack  PagePool::initialize() { return pimpl_->initialize(); }
 bool        PagePool::is_initialized() const { return pimpl_->is_initialized(); }
 ErrorStack  PagePool::uninitialize() { return pimpl_->uninitialize(); }
+uint64_t    PagePool::get_memory_byte_size() const { return pimpl_->memory_byte_size_; }
+uint64_t    PagePool::get_memory_alignment() const { return pimpl_->memory_alignment_; }
 thread::ThreadGroupId PagePool::get_numa_node() const { return pimpl_->numa_node_; }
 
 ErrorCode   PagePool::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chunk) {
@@ -48,6 +53,11 @@ void        PagePool::release(uint32_t desired_release_count, PagePoolOffsetChun
   pimpl_->release(desired_release_count, chunk);
 }
 LocalPageResolver& PagePool::get_resolver() { return pimpl_->get_resolver(); }
+
+std::ostream& operator<<(std::ostream& o, const PagePool& v) {
+  o << v.pimpl_;
+  return o;
+}
 
 PageReleaseBatch::PageReleaseBatch(Engine* engine)
   : engine_(engine), numa_node_count_(engine->get_options().thread_.group_count_) {

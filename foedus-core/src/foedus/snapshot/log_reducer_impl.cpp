@@ -29,6 +29,7 @@
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/snapshot/log_gleaner_impl.hpp"
 #include "foedus/snapshot/snapshot.hpp"
+#include "foedus/storage/composer.hpp"
 #include "foedus/storage/partitioner.hpp"
 
 namespace foedus {
@@ -85,13 +86,15 @@ ErrorStack LogReducer::handle_initialize() {
   buffers_[1].status_.store(0U);
   sorted_runs_ = 0;
 
-  // we don't initialize snapshot_writer_ yet because it is needed at the end of reducer.
+  // we don't initialize snapshot_writer_/composer_work_memory_ yet
+  // because they are needed at the end of reducer.
   return kRetOk;
 }
 
 ErrorStack LogReducer::handle_uninitialize() {
   ErrorStackBatch batch;
   batch.emprace_back(snapshot_writer_.uninitialize());
+  composer_work_memory_.release_block();
   buffer_memory_.release_block();
   dump_io_buffer_.release_block();
   sort_buffer_.release_block();
@@ -523,6 +526,19 @@ void LogReducer::expand_positions_buffers_if_needed(uint64_t required_size_per_b
   }
 }
 
+void LogReducer::expand_composer_work_memory_if_needed(uint64_t required_size) {
+  if (composer_work_memory_.is_null() || composer_work_memory_.get_size() < required_size) {
+    LOG(WARNING) << to_string() << " automatically expanding composer_work_memory_ from "
+      << sort_buffer_.get_size() << " to " << required_size << ". if this happens often,"
+      << " our sizing is wrong.";
+      composer_work_memory_.alloc(
+        required_size,
+        memory::kHugepageSize,
+        memory::AlignedMemory::kNumaAllocOnnode,
+        numa_node_);
+  }
+}
+
 fs::Path LogReducer::get_sorted_run_file_path(uint32_t sorted_run) const {
   // sorted_run_<snapshot id>_<node id>_<sorted run>.tmp is the file name
   std::stringstream file_name;
@@ -585,6 +601,16 @@ void LogReducer::MergeContext::set_tmp_sorted_buffer_array(storage::StorageId st
 
 ErrorStack LogReducer::merge_sort() {
   merge_sort_check_buffer_status();
+
+  // we initialize snapshot_writer here rather than reducer's initialize() because
+  // we use it only during merge_sort().
+  CHECK_ERROR(snapshot_writer_.initialize());
+
+  // because now we are at the last merging phase, we will no longer dump sorted runs any more.
+  // thus, we re-use the reducer's dump IO buffer for snapshot writer's dump buffer.
+  // we still keep the ownership of the buffer in terms of uninitialization.
+  snapshot_writer_.set_dump_io_buffer(&dump_io_buffer_);
+
   MergeContext context(sorted_runs_);
   ReducerBuffer* last_buffer = get_current_buffer();
 
@@ -613,6 +639,21 @@ ErrorStack LogReducer::merge_sort() {
     context.set_tmp_sorted_buffer_array(storage_id);
 
     // run composer
+    const storage::Partitioner* partitioner = parent_->get_or_create_partitioner(storage_id);
+    std::unique_ptr< storage::Composer > composer(
+      storage::Composer::create_composer(
+        engine_,
+        partitioner,
+        &snapshot_writer_,
+        *parent_->get_snapshot()));
+    uint64_t work_memory_size = composer->get_required_work_memory_size(
+      context.tmp_sorted_buffer_array_,
+      context.tmp_sorted_buffer_count_);
+    expand_composer_work_memory_if_needed(work_memory_size);
+    CHECK_ERROR(composer->compose(
+      context.tmp_sorted_buffer_array_,
+      context.tmp_sorted_buffer_count_,
+      memory::AlignedMemorySlice(&composer_work_memory_)));
 
     // move on to next blocks
     for (uint32_t i = 0 ; i < context.sorted_buffer_count_; ++i) {

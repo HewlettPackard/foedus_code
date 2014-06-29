@@ -325,6 +325,12 @@ class LogReducer final : public MapReduceBase {
   memory::AlignedMemorySlice output_positions_slice_;
 
   /**
+   * Temporary work memory for composers during merge_sort().
+   * Automatically expanded if needed.
+   */
+  memory::AlignedMemory   composer_work_memory_;
+
+  /**
    * The reducer buffer is split into two so that reducers can always work on completely filled
    * buffer while mappers keep appending to another buffer.
    * @see current_buffer_
@@ -361,6 +367,7 @@ class LogReducer final : public MapReduceBase {
   }
   void expand_sort_buffer_if_needed(uint64_t required_size);
   void expand_positions_buffers_if_needed(uint64_t required_size_per_buffer);
+  void expand_composer_work_memory_if_needed(uint64_t required_size);
   fs::Path get_sorted_run_file_path(uint32_t sorted_run) const;
 
   /**

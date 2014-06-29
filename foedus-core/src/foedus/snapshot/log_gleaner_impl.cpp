@@ -163,8 +163,6 @@ ErrorStack LogGleaner::execute() {
     LOG(INFO) << "All mappers/reducers successfully done. " << *this;
   }
 
-  complete_processing_.signal();
-
   LOG(INFO) << "gleaner_thread_ stopping.. cancelling reducers and mappers: " << *this;
   cancel_reducers_mappers();
   ASSERT_ND(exit_count_.load() == mappers_.size() + reducers_.size());

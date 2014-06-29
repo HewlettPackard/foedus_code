@@ -6,6 +6,8 @@
 #define FOEDUS_MEMORY_PAGE_POOL_HPP_
 #include <stdint.h>
 
+#include <iosfwd>
+
 #include "foedus/assert_nd.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/error_stack.hpp"
@@ -82,7 +84,7 @@ STATIC_SIZE_CHECK(sizeof(PagePoolOffsetChunk) & (sizeof(PagePoolOffsetChunk) - 1
  */
 class PagePool CXX11_FINAL : public virtual Initializable {
  public:
-  PagePool(Engine* engine, thread::ThreadGroupId numa_node);
+  PagePool(uint64_t memory_byte_size, uint64_t memory_alignment, thread::ThreadGroupId numa_node);
   ~PagePool();
 
   // Disable default constructors
@@ -94,6 +96,8 @@ class PagePool CXX11_FINAL : public virtual Initializable {
   bool        is_initialized() const CXX11_OVERRIDE;
   ErrorStack  uninitialize() CXX11_OVERRIDE;
 
+  uint64_t              get_memory_byte_size() const;
+  uint64_t              get_memory_alignment() const;
   thread::ThreadGroupId get_numa_node() const;
 
   /**
@@ -126,6 +130,8 @@ class PagePool CXX11_FINAL : public virtual Initializable {
    * pointer and vice versa.
    */
   LocalPageResolver&  get_resolver();
+
+  friend std::ostream& operator<<(std::ostream& o, const PagePool& v);
 
  private:
   PagePoolPimpl *pimpl_;

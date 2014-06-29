@@ -20,6 +20,14 @@
 
 namespace foedus {
 namespace memory {
+PagePoolPimpl::PagePoolPimpl(
+  uint64_t memory_byte_size,
+  uint64_t memory_alignment,
+  thread::ThreadGroupId numa_node)
+    : memory_byte_size_(memory_byte_size / memory_alignment * memory_alignment),
+    memory_alignment_(memory_alignment),
+    numa_node_(numa_node) {}
+
 ErrorStack PagePoolPimpl::initialize_once() {
   pool_base_ = nullptr;
   pool_size_= 0;
@@ -28,18 +36,12 @@ ErrorStack PagePoolPimpl::initialize_once() {
   free_pool_head_ = 0;
   free_pool_count_ = 0;
 
-  const MemoryOptions &options = engine_->get_options().memory_;
-  LOG(INFO) << "Acquiring memory for Page Pool on NUMA node "
+  LOG(INFO) << "Acquiring memory for Page Pool (" << memory_byte_size_ << " bytes) on NUMA node "
     << static_cast<int>(numa_node_)<< "...";
-  {
-    AlignedMemory::AllocType alloc_type = AlignedMemory::kNumaAllocOnnode;
-    uint64_t size = static_cast<uint64_t>(options.page_pool_size_mb_per_node_) << 20;
-    ASSERT_ND(size >= (2 << 20));
-    uint64_t alignment = storage::kPageSize;
-    memory_ = std::move(AlignedMemory(size, alignment, alloc_type, numa_node_));
-    pool_base_ = reinterpret_cast<storage::Page*>(memory_.get_block());
-    pool_size_ = memory_.get_size() / storage::kPageSize;
-  }
+  ASSERT_ND(memory_byte_size_ % memory_alignment_ == 0);
+  memory_.alloc(memory_byte_size_, memory_alignment_, AlignedMemory::kNumaAllocOnnode, numa_node_);
+  pool_base_ = reinterpret_cast<storage::Page*>(memory_.get_block());
+  pool_size_ = memory_.get_size() / storage::kPageSize;
   LOG(INFO) << "Acquired memory Page Pool. " << memory_ << ". pages=" << pool_size_;
 
   ASSERT_ND(memory_.get_size() % storage::kPageSize == 0);
@@ -146,6 +148,19 @@ void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk 
   ASSERT_ND(tail + release_count <= free_pool_capacity_);
   chunk->move_to(free_pool_ + tail, release_count);
   free_pool_count_ += release_count;
+}
+
+
+std::ostream& operator<<(std::ostream& o, const PagePoolPimpl& v) {
+  o << "<PagePool>"
+    << "<memory_>" << v.memory_ << "</memory_>"
+    << "<numa_node_>" << v.numa_node_ << "</numa_node_>"
+    << "<pages_for_free_pool_>" << v.pages_for_free_pool_ << "</pages_for_free_pool_>"
+    << "<free_pool_capacity_>" << v.free_pool_capacity_ << "</free_pool_capacity_>"
+    << "<free_pool_head_>" << v.free_pool_head_ << "</free_pool_head_>"
+    << "<free_pool_count_>" << v.free_pool_count_ << "</free_pool_count_>"
+    << "</PagePool>";
+  return o;
 }
 
 }  // namespace memory

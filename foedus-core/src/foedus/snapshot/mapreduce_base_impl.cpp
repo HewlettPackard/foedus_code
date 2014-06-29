@@ -106,7 +106,7 @@ void MapReduceBase::handle() {
 void MapReduceBase::handle_complete() {
   pre_handle_complete();
 
-  // let the gleaner know that I'm done for the current epoch and going into sleep.
+  // let the gleaner know that I'm done.
   uint16_t value_after = parent_->increment_completed_count();
   ASSERT_ND(value_after <= parent_->get_all_count());
   if (value_after == parent_->get_all_count()) {
@@ -116,9 +116,6 @@ void MapReduceBase::handle_complete() {
     LOG(INFO) << to_string() << " was the last one to finish, waking up gleaner.. ";
     parent_->wakeup();
   }
-
-  LOG(INFO) << to_string() << " Going into sleep...";
-  parent_->wait_for_complete();
 }
 
 

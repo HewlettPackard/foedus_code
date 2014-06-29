@@ -9,7 +9,7 @@
 #include "foedus/engine.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_manager.hpp"
-#include "foedus/storage/array/array_partitioner.hpp"
+#include "foedus/storage/array/array_partitioner_impl.hpp"
 
 namespace foedus {
 namespace storage {

@@ -4,6 +4,10 @@
  */
 #ifndef FOEDUS_MEMORY_PAGE_POOL_PIMPL_HPP_
 #define FOEDUS_MEMORY_PAGE_POOL_PIMPL_HPP_
+
+#include <stdint.h>
+
+#include <iosfwd>
 #include <mutex>
 #include <vector>
 
@@ -27,8 +31,10 @@ namespace memory {
 class PagePoolPimpl final : public DefaultInitializable {
  public:
   PagePoolPimpl() = delete;
-  PagePoolPimpl(Engine* engine, thread::ThreadGroupId numa_node)
-    : engine_(engine), numa_node_(numa_node) {}
+  PagePoolPimpl(
+    uint64_t memory_byte_size,
+    uint64_t memory_alignment,
+    thread::ThreadGroupId numa_node);
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
@@ -36,7 +42,13 @@ class PagePoolPimpl final : public DefaultInitializable {
   void                release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
   LocalPageResolver&  get_resolver() { return resolver_; }
 
-  Engine* const                   engine_;
+  friend std::ostream& operator<<(std::ostream& o, const PagePoolPimpl& v);
+
+  /** Byte size of this page pool. */
+  const uint64_t                  memory_byte_size_;
+
+  /** Byte size of this page pool. */
+  const uint64_t                  memory_alignment_;
 
   /** The NUMA node this pool is allocated at. */
   const thread::ThreadGroupId     numa_node_;
@@ -53,7 +65,7 @@ class PagePoolPimpl final : public DefaultInitializable {
   /** Just an auxiliary variable to the beginning of the pool. Same as memory_.get_block(). */
   storage::Page*                  pool_base_;
 
-  /** Just an auxiliary variable of the size of pool. Same as memory_.get_size()/kPageSize. */
+  /** Just an auxiliary variable of the size of pool. Same as memory_byte_size/kPageSize. */
   uint64_t                        pool_size_;
 
   /**

@@ -56,17 +56,18 @@ class Composer {
 
   virtual uint64_t    get_required_work_memory_size(
     snapshot::SortedBuffer**  log_streams,
-    uint32_t                  log_streams_count,
-    const snapshot::Snapshot& previous_snapshot) const = 0;
+    uint32_t                  log_streams_count) const = 0;
 
   virtual ErrorStack  compose(
     snapshot::SortedBuffer**          log_streams,
     uint32_t                          log_streams_count,
-    const snapshot::Snapshot&         previous_snapshot,
-    const snapshot::Snapshot&         new_snapshot,
     const memory::AlignedMemorySlice& work_memory) = 0;
 
-  static Composer*    create_instance(Engine* engine, Partitioner* partitioner);
+  static Composer*    create_composer(
+    Engine *engine,
+    const Partitioner* partitioner,
+    snapshot::SnapshotWriter* snapshot_writer,
+    const snapshot::Snapshot& new_snapshot);
 
   friend std::ostream&    operator<<(std::ostream& o, const Composer& v);
 };

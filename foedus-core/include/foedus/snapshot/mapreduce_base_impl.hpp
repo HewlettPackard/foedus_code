@@ -45,8 +45,9 @@ class MapReduceBase : public DefaultInitializable {
   MapReduceBase(const MapReduceBase &other) = delete;
   MapReduceBase& operator=(const MapReduceBase &other) = delete;
 
-  void request_stop() { thread_.request_stop(); }
-  void wait_for_stop() { thread_.wait_for_stop(); }
+  LogGleaner*   get_parent() const { return parent_; }
+  void          request_stop() { thread_.request_stop(); }
+  void          wait_for_stop() { thread_.wait_for_stop(); }
 
   /** Expects "LogReducer-x", "LogMapper-y" etc. Used only for logging/debugging. */
   virtual std::string to_string() const = 0;
