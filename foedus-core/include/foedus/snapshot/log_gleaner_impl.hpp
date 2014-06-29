@@ -162,7 +162,12 @@ class LogGleaner final : public DefaultInitializable {
    * Request reducers and mappers to cancel the work.
    * Blocks until all of them stop.
    */
-  void cancel_reducers_mappers();
+  void cancel_reducers_mappers() {
+    cancel_mappers();
+    cancel_reducers();
+  }
+  void cancel_mappers();
+  void cancel_reducers();
 
   Engine* const                   engine_;
   Snapshot* const                 snapshot_;

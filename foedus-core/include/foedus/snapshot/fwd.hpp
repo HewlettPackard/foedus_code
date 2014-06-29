@@ -24,6 +24,7 @@ class   SnapshotManager;
 class   SnapshotManagerPimpl;
 struct  SnapshotMetadata;
 struct  SnapshotOptions;
+class   SnapshotWriter;
 class   SortedBuffer;
 }  // namespace snapshot
 }  // namespace foedus
