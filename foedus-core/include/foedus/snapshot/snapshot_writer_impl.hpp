@@ -15,10 +15,10 @@
 #include "foedus/initializable.hpp"
 #include "foedus/fs/fwd.hpp"
 #include "foedus/fs/path.hpp"
-#include "foedus/memory/page_pool.hpp"
-#include "foedus/memory/page_resolver.hpp"
+#include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/fwd.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
+#include "foedus/storage/page.hpp"
 #include "foedus/thread/thread_id.hpp"
 
 namespace foedus {
@@ -64,47 +64,52 @@ class SnapshotWriter final : public DefaultInitializable {
   SnapshotWriter(Engine* engine, LogReducer* parent);
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
+  bool        close();
 
   SnapshotWriter() = delete;
   SnapshotWriter(const SnapshotWriter &other) = delete;
   SnapshotWriter& operator=(const SnapshotWriter &other) = delete;
 
-  const memory::PagePool&                get_pool() const { return page_pool_; }
-  const memory::LocalPageResolver&       get_resolver() const { return page_resolver_; }
 
-  memory::PagePoolOffset allocate_new_page() ALWAYS_INLINE {
-    if (UNLIKELY(free_page_chunk_.empty())) {
-      // composers don't deallocate each page, so it's best to make it full each time.
-      ErrorCode ret = page_pool_.grab(memory::PagePoolOffsetChunk::kMaxSize, &free_page_chunk_);
-      if (ret != kErrorCodeOk) {
-        // no more free pages, now we are going to flush all pages except right-most pages
-        return 0;  // caller checks this.
-      }
-    }
-    ASSERT_ND(!free_page_chunk_.empty());
-    return free_page_chunk_.pop_back();
+  bool                    is_full() ALWAYS_INLINE { return next_page_ >= pool_size_; }
+  memory::PagePoolOffset  allocate_new_page() ALWAYS_INLINE {
+    ASSERT_ND(!is_full());
+    return next_page_++;
+  }
+  storage::Page*          resolve(memory::PagePoolOffset offset) ALWAYS_INLINE {
+    ASSERT_ND(offset > 0);
+    ASSERT_ND(offset < pool_size_);
+    return page_base_ + offset;
+  }
+  memory::PagePoolOffset  resolve(storage::Page* page) ALWAYS_INLINE {
+    memory::PagePoolOffset offset = page - page_base_;
+    ASSERT_ND(offset > 0);
+    ASSERT_ND(offset < pool_size_);
+    return offset;
   }
 
   /**
    * @brief Maps given in-memory pages to page IDs in the snapshot file.
-   * @param[in] memory_pages in-memory pages to fix
-   * @param[in] count length of memory_pages
-   * @return the base local page ID, or the page ID of memory_pages[0] when it is written to a file.
-   * All the following pages in memory_pages get contiguous page IDs, so
-   * memory_pages[3]'s page ID is returned_value + 3.
+   * @param[in] count number of pages to fix
+   * @return the base local page ID, or the page ID of the first page when it is written to a file.
+   * All the following pages contiguous page IDs, so * next page ID is returned_value + 1.
    * @details
    * This is called by composers to obtain page IDs in the file when it finishes composing
    * the pages. Receiving the base page ID, composers will finalize their data pages to replace
    * page IDs in data pages. When it's done, they will call dump_pages().
    */
-  storage::SnapshotLocalPageId fix_pages(
-    const memory::PagePoolOffset* memory_pages,
-    uint32_t count);
+  storage::SnapshotLocalPageId fix_pages(uint32_t count) {
+    storage::SnapshotLocalPageId ret = fixed_upto_;
+    fixed_upto_ += count;
+    return ret;
+  }
 
   /**
    * @brief Writes out in-memory pages to the snapshot file.
    * @param[in] memory_pages in-memory pages to fix
    * @param[in] count length of memory_pages
+   * @pre fixed_upto_ - count == dumped_upto_
+   * @post fixed_upto_ == dumped_upto_
    * @details
    * All pages will be written contiguously. So, this method first stitches the in-memory pages
    * to IO buffer then call write(). We do so even if the in-memory pages are (luckily) contiguous.
@@ -113,13 +118,27 @@ class SnapshotWriter final : public DefaultInitializable {
 
   /**
    * @brief Called when one storage is fully or partially written.
+   * @param[in] excluded_pages a small number of pages that are retained while this resetting.
+   * @param[in] excluded_count count of excluded_pages
+   * @return new page offset for excluded_pages[0]. excluded_pages[i] would be returned_value + i.
+   * @pre excluded_pages are sorted by offset in ascending order. This is trivially guaranteed
+   * if you pass pages from root to leaf order.
+   * @post next_page_ == 1 + excluded_count
    * @details
    * Returns all in-memory pages to the pool \b except the excluded pages.
    * The excluded pages are given only when the storage is partially written to avoid OOM.
+   * These pages are \b moved to the beginning of the page pool, so their page offsets
+   * will \b change. The returned value (which is so far always 1) tells the new page offset for
+   * the excluded pages.
+   *
+   * We do this compaction to guarantee that there is no hole in page allocation in this object.
+   * The excluded pages are very few, so this won't cause an issue.
    * This is the only interface in snapshot writer to return pages to pool.
    * Compared to releasing each page, this is much more efficient.
    */
-  void      reset_pool(const memory::PagePoolOffset* excluded_pages, uint32_t excluded_count);
+  memory::PagePoolOffset reset_pool(
+    const memory::PagePoolOffset* excluded_pages,
+    uint32_t excluded_count);
 
   /** for recycling dump_io_buffer. */
   void      set_dump_io_buffer(memory::AlignedMemory* dump_io_buffer) {
@@ -130,6 +149,7 @@ class SnapshotWriter final : public DefaultInitializable {
     return "SnapshotWriter-" + std::to_string(numa_node_);
   }
   friend std::ostream&    operator<<(std::ostream& o, const SnapshotWriter& v);
+
 
  private:
   Engine* const                   engine_;
@@ -143,11 +163,12 @@ class SnapshotWriter final : public DefaultInitializable {
   fs::DirectIoFile*               snapshot_file_;
 
   /** This is the only page pool for all composers using this snapshot writer. */
-  memory::PagePool                page_pool_;
-  /** so, there is no global page resolver. Easy and efficient. */
-  memory::LocalPageResolver       page_resolver_;
-  /** Locally cached free pages. */
-  memory::PagePoolOffsetChunk     free_page_chunk_;
+  memory::AlignedMemory           pool_memory_;
+  /** Same as pool_memory_.get_block(). */
+  storage::Page*                  page_base_;
+  /** How many pages allocated from the pool. Cleared after completion of each storage. */
+  memory::PagePoolOffset          next_page_;
+  memory::PagePoolOffset          pool_size_;
 
   /**
    * Used to sequentially write out data pages to a file.
@@ -157,10 +178,15 @@ class SnapshotWriter final : public DefaultInitializable {
   memory::AlignedMemory*          dump_io_buffer_;
 
   /**
-   * This writer has fixed pages up to this number.
+   * This writer has fixed pages up to this page.
    * In other word, the next page will be fixed_upto_ + 1.
    */
   storage::SnapshotLocalPageId    fixed_upto_;
+  /**
+   * This writer has written out pages up to this page.
+   * This number should become same as fixed_upto_ after each dump.
+   */
+  storage::SnapshotLocalPageId    dumped_upto_;
 
   void      clear_snapshot_file();
   fs::Path  get_snapshot_file_path() const;

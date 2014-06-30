@@ -84,13 +84,17 @@ class ArrayPartitioner final : public virtual Partitioner {
     snapshot::BufferPosition*         output_buffer,
     uint32_t*                         written_count) const override;
 
-  uint64_t get_required_sort_buffer_size(uint32_t log_count) const override;
+  uint64_t  get_required_sort_buffer_size(uint32_t log_count) const override;
+
+  uint8_t   get_array_levels() const { return array_levels_; }
+  const PartitionId* get_bucket_owners() const { return bucket_owners_; }
 
  private:
   /** only for sanity check */
   StorageId             array_id_;
   /** whether this array has only one page, so no interior page nor partitioning. */
   bool                  array_single_page_;
+  uint8_t               array_levels_;
 
   /** Size of the entire array. */
   ArrayOffset           array_size_;

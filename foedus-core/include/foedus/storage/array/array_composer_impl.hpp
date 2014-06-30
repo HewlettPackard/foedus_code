@@ -73,6 +73,7 @@ class ArrayComposer final : public virtual Composer {
   ErrorStack compose(
     snapshot::SortedBuffer** log_streams,
     uint32_t log_streams_count,
+    SnapshotPagePointer previous_root_page_pointer,
     const memory::AlignedMemorySlice& work_memory) override;
 
   uint64_t get_required_work_memory_size(
@@ -84,6 +85,12 @@ class ArrayComposer final : public virtual Composer {
   const ArrayPartitioner* const partitioner_;
   snapshot::SnapshotWriter* const snapshot_writer_;
   const snapshot::Snapshot& new_snapshot_;
+
+  ErrorStack strawman_tournament(
+    snapshot::SortedBuffer** log_streams,
+    uint32_t log_streams_count,
+    SnapshotPagePointer previous_root_page_pointer,
+    const memory::AlignedMemorySlice& work_memory);
 };
 }  // namespace array
 }  // namespace storage

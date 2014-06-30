@@ -157,6 +157,7 @@ struct XctId {
   };
 
   XctId() : data_(0) {}
+  explicit XctId(uint64_t data) : data_(data) {}
   XctId(const XctId& other) : data_(other.data_) {}
 
   void set_clean(Epoch::EpochInteger epoch_int, uint16_t ordinal, thread::ThreadId thread_id) {

@@ -653,6 +653,7 @@ ErrorStack LogReducer::merge_sort() {
     CHECK_ERROR(composer->compose(
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_,
+      0,  // TODO(Hideaki): Get root page in previous snapshot.
       memory::AlignedMemorySlice(&composer_work_memory_)));
 
     // move on to next blocks
@@ -662,6 +663,7 @@ ErrorStack LogReducer::merge_sort() {
     }
   }
 
+  snapshot_writer_.close();
   merge_watch.stop();
   LOG(INFO) << to_string() << " completed merging in " << merge_watch.elapsed_sec() << " seconds";
   return kRetOk;
