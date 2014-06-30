@@ -73,10 +73,9 @@ void LogGleaner::wakeup() {
   gleaner_thread_->wakeup();
 }
 
-
-void LogGleaner::cancel_reducers_mappers() {
+void LogGleaner::cancel_mappers() {
   // first, request to stop all of them before waiting for them.
-  LOG(INFO) << "Requesting mappers/reducers to stop.. " << *this;
+  LOG(INFO) << "Requesting mappers to stop.. " << *this;
   for (LogMapper* mapper : mappers_) {
     if (mapper->is_initialized()) {
       mapper->request_stop();
@@ -84,6 +83,19 @@ void LogGleaner::cancel_reducers_mappers() {
       LOG(WARNING) << "This mapper is not initilized.. During error handling?" << *mapper;
     }
   }
+
+  LOG(INFO) << "Requested mappers to stop. Now blocking.." << *this;
+  for (LogMapper* mapper : mappers_) {
+    if (mapper->is_initialized()) {
+      mapper->wait_for_stop();
+      mapper->uninitialize();
+    }
+  }
+  LOG(INFO) << "All mappers stopped." << *this;
+}
+void LogGleaner::cancel_reducers() {
+  // first, request to stop all of them before waiting for them.
+  LOG(INFO) << "Requesting reducers to stop.. " << *this;
   for (LogReducer* reducer : reducers_) {
     if (reducer->is_initialized()) {
       reducer->request_stop();
@@ -92,20 +104,15 @@ void LogGleaner::cancel_reducers_mappers() {
     }
   }
 
-  LOG(INFO) << "Requested mappers/reducers to stop. Now blocking.." << *this;
-  for (LogMapper* mapper : mappers_) {
-    if (mapper->is_initialized()) {
-      mapper->wait_for_stop();
-    }
-  }
+  LOG(INFO) << "Requested reducers to stop. Now blocking.." << *this;
   for (LogReducer* reducer : reducers_) {
     if (reducer->is_initialized()) {
       reducer->wait_for_stop();
+      reducer->uninitialize();
     }
   }
-  LOG(INFO) << "All mappers/reducers stopped." << *this;
+  LOG(INFO) << "All reducers stopped." << *this;
 }
-
 
 ErrorStack LogGleaner::execute() {
   LOG(INFO) << "gleaner_thread_ starts running: " << *this;
@@ -135,9 +142,16 @@ ErrorStack LogGleaner::execute() {
   start_processing_.signal();
 
   // then, wait until all mappers/reducers are done for this epoch
+  bool terminated_mappers = false;
   while (!gleaner_thread_->sleep() && error_count_ == 0) {
     if (is_stop_requested() || is_all_completed()) {
       break;
+    }
+    if (!terminated_mappers && is_all_mappers_completed()) {
+      // as soon as all mappers complete, uninitialize them to release unused memories.
+      // the last phase of reducers consume lots of resource, so this might help a bit.
+      cancel_mappers();
+      terminated_mappers = true;
     }
   }
 
@@ -148,8 +162,6 @@ ErrorStack LogGleaner::execute() {
   } else {
     LOG(INFO) << "All mappers/reducers successfully done. " << *this;
   }
-
-  complete_processing_.signal();
 
   LOG(INFO) << "gleaner_thread_ stopping.. cancelling reducers and mappers: " << *this;
   cancel_reducers_mappers();

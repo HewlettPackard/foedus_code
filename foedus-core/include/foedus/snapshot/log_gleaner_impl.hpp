@@ -143,8 +143,6 @@ class LogGleaner final : public DefaultInitializable {
 
   /** Called from mappers/reducers to wait until processing starts (or cancelled). */
   void wait_for_start() { start_processing_.wait(); }
-  /** Called from mappers/reducers to wait until everyone else is done (or cancelled). */
-  void wait_for_complete() { complete_processing_.wait(); }
 
   /**
    * Atomically copy the given non-record log to this gleaner's buffer, which will be centraly
@@ -162,7 +160,12 @@ class LogGleaner final : public DefaultInitializable {
    * Request reducers and mappers to cancel the work.
    * Blocks until all of them stop.
    */
-  void cancel_reducers_mappers();
+  void cancel_reducers_mappers() {
+    cancel_mappers();
+    cancel_reducers();
+  }
+  void cancel_mappers();
+  void cancel_reducers();
 
   Engine* const                   engine_;
   Snapshot* const                 snapshot_;
@@ -178,12 +181,6 @@ class LogGleaner final : public DefaultInitializable {
    * signalled when is_all_ready_to_start() becomes true.
    */
   thread::Rendezvous              start_processing_;
-
-  /**
-   * rendezvous point after all mappers/reducers complete all processing.
-   * signalled when is_all_completed() becomes true.
-   */
-  thread::Rendezvous              complete_processing_;
 
   // on the other hand, mappers/reducers can wake up gleaner by accessing gleaner_thread.
 

@@ -16,6 +16,7 @@
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
+#include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/fs/fwd.hpp"
 #include "foedus/fs/path.hpp"
 #include "foedus/log/fwd.hpp"
@@ -24,6 +25,7 @@
 #include "foedus/snapshot/fwd.hpp"
 #include "foedus/snapshot/mapreduce_base_impl.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
+#include "foedus/snapshot/snapshot_writer_impl.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/condition_variable_impl.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -102,11 +104,19 @@ namespace snapshot {
  * This is a private implementation-details of \ref SNAPSHOT, thus file name ends with _impl.
  * Do not include this header from a client program. There is no case client program needs to
  * access this internal class.
+ *
+ * @todo This class got a bit bloated and hard to do a whitebox test because of dependencies
+ * to other modules. Dump-part and merge-part should be separated into its own classes in a way
+ * testcases can independently test them. Maybe reducer should be its own package?
  */
 class LogReducer final : public MapReduceBase {
  public:
   LogReducer(Engine* engine, LogGleaner* parent, thread::ThreadGroupId numa_node)
-    : MapReduceBase(engine, parent, numa_node, numa_node), sorted_runs_(0), current_buffer_(0) {}
+    : MapReduceBase(engine, parent, numa_node, numa_node),
+      snapshot_writer_(engine_, this),
+      previous_snapshot_files_(engine_),
+      sorted_runs_(0),
+      current_buffer_(0) {}
 
   /** One LogReducer corresponds to one NUMA node (partition). */
   thread::ThreadGroupId   get_id() const { return id_; }
@@ -284,6 +294,15 @@ class LogReducer final : public MapReduceBase {
   };
 
   /**
+   * Writes out composed snapshot pages to a new snapshot file.
+   */
+  SnapshotWriter          snapshot_writer_;
+  /**
+   * To read previous snapshot versions.
+   */
+  cache::SnapshotFileSet  previous_snapshot_files_;
+
+  /**
    * Underlying memory of reducer buffer.
    */
   memory::AlignedMemory   buffer_memory_;
@@ -310,6 +329,12 @@ class LogReducer final : public MapReduceBase {
   memory::AlignedMemorySlice input_positions_slice_;
   /** Half of positions_buffers_ used for output buffer for batch-sorting method. */
   memory::AlignedMemorySlice output_positions_slice_;
+
+  /**
+   * Temporary work memory for composers during merge_sort().
+   * Automatically expanded if needed.
+   */
+  memory::AlignedMemory   composer_work_memory_;
 
   /**
    * The reducer buffer is split into two so that reducers can always work on completely filled
@@ -348,6 +373,7 @@ class LogReducer final : public MapReduceBase {
   }
   void expand_sort_buffer_if_needed(uint64_t required_size);
   void expand_positions_buffers_if_needed(uint64_t required_size_per_buffer);
+  void expand_composer_work_memory_if_needed(uint64_t required_size);
   fs::Path get_sorted_run_file_path(uint32_t sorted_run) const;
 
   /**
@@ -409,23 +435,32 @@ class LogReducer final : public MapReduceBase {
    * This invokes a foedus::storage::Composer for each storage, giving sorted buffers as inputs.
    * The result is just one snapshot file, which is written by SnapshotWriter.
    */
-  ErrorStack merge_sort();
+  ErrorStack  merge_sort();
 
   /** just sanity checks. */
-  void merge_sort_check_buffer_status() const;
+  void        merge_sort_check_buffer_status() const;
 
   /**
    * First sub routine of merge_sort() which allocates I/O buffers to read from sorted run files.
    */
-  void merge_sort_allocate_io_buffers(MergeContext* context) const;
+  void        merge_sort_allocate_io_buffers(MergeContext* context) const;
   /**
    * Second sub routine that opens the files with the I/O buffers.
    */
-  ErrorStack merge_sort_open_sorted_runs(MergeContext* context) const;
+  ErrorStack  merge_sort_open_sorted_runs(MergeContext* context) const;
   /**
    * Initial reading and locating first storage blocks in each buffer.
    */
-  ErrorStack merge_sort_initialize_sort_buffers(MergeContext* context) const;
+  ErrorStack  merge_sort_initialize_sort_buffers(MergeContext* context) const;
+  /**
+   * After processing each storage, merge_sort() calls this method to advance each input stream
+   * that had contained the processed storage to next storage block.
+   * This method assumes that, the streams are at next block header because they fully read
+   * previous blocks.
+   */
+  ErrorCode   merge_sort_advance_sort_buffers(
+    SortedBuffer* buffer,
+    storage::StorageId processed_storage_id) const;
 };
 }  // namespace snapshot
 }  // namespace foedus

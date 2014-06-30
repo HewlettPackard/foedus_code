@@ -13,7 +13,7 @@
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_log_types.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
-#include "foedus/storage/array/array_partitioner.hpp"
+#include "foedus/storage/array/array_partitioner_impl.hpp"
 #include "foedus/storage/array/array_storage.hpp"
 
 namespace foedus {

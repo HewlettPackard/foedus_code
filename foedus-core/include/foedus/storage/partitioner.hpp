@@ -59,6 +59,7 @@ class Partitioner {
   virtual ~Partitioner() {}
 
   virtual StorageId get_storage_id() const = 0;
+  virtual StorageType get_storage_type() const = 0;
 
   /**
    * @brief Clone this object, usually in order to get local copy on the same NUMA node.

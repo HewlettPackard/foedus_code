@@ -85,11 +85,13 @@ class ErrorStackBatch {
   template<class T>
   void        uninitialize_and_delete_all(std::vector< T* > *vec) {
     while (!vec->empty()) {
+      if (vec->back()->is_initialized()) {
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-      emprace_back(vec->back()->uninitialize());
+        emprace_back(vec->back()->uninitialize());
 #else   // DISABLE_CXX11_IN_PUBLIC_HEADERS
-      push_back(vec->back()->uninitialize());
+        push_back(vec->back()->uninitialize());
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+      }
       delete vec->back();
       vec->pop_back();
     }

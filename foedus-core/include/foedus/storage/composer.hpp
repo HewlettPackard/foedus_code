@@ -13,6 +13,7 @@
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
+#include "foedus/storage/storage_id.hpp"
 
 namespace foedus {
 namespace storage {
@@ -43,6 +44,13 @@ namespace storage {
  *  \li Pre-sorted stream(s) of log entries (foedus::snapshot::SortedBuffer).
  *  \li Snapshot writer to allocate pages and write them out to a snapshot file.
  *  \li Most recent snapshot files.
+ *
+ * @section COMPOSER_OUTPUTS Outputs
+ * Composers emit the following data when it's done.
+ *  \li Composed data pages, which are written to the snapshot file by the snapshot writer.
+ *  \li For each storage and for each second-level page that is pointed from the root page,
+ * the snapshot pointer and relevant pointer information (eg key range). This is required to
+ * construct the root page at the end of snapshotting.
  */
 class Composer {
  public:
@@ -56,17 +64,19 @@ class Composer {
 
   virtual uint64_t    get_required_work_memory_size(
     snapshot::SortedBuffer**  log_streams,
-    uint32_t                  log_streams_count,
-    const snapshot::Snapshot& previous_snapshot) const = 0;
+    uint32_t                  log_streams_count) const = 0;
 
   virtual ErrorStack  compose(
     snapshot::SortedBuffer**          log_streams,
     uint32_t                          log_streams_count,
-    const snapshot::Snapshot&         previous_snapshot,
-    const snapshot::Snapshot&         new_snapshot,
+    SnapshotPagePointer               previous_root_page_pointer,
     const memory::AlignedMemorySlice& work_memory) = 0;
 
-  static Composer*    create_instance(Engine* engine, Partitioner* partitioner);
+  static Composer*    create_composer(
+    Engine *engine,
+    const Partitioner* partitioner,
+    snapshot::SnapshotWriter* snapshot_writer,
+    const snapshot::Snapshot& new_snapshot);
 
   friend std::ostream&    operator<<(std::ostream& o, const Composer& v);
 };

@@ -20,9 +20,14 @@
 namespace foedus {
 namespace memory {
 NumaNodeMemory::NumaNodeMemory(Engine* engine, thread::ThreadGroupId numa_node)
-  : engine_(engine), numa_node_(numa_node),
+  : engine_(engine),
+    numa_node_(numa_node),
     cores_(engine_->get_options().thread_.thread_count_per_group_),
-    loggers_(engine_->get_options().log_.loggers_per_node_), page_pool_(engine, numa_node) {
+    loggers_(engine_->get_options().log_.loggers_per_node_),
+    page_pool_(
+      static_cast<uint64_t>(engine->get_options().memory_.page_pool_size_mb_per_node_) << 20,
+      kHugepageSize,
+      numa_node) {
 }
 
 ErrorStack NumaNodeMemory::initialize_once() {

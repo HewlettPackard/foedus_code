@@ -65,6 +65,9 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
   /** Returns the size of this array. */
   ArrayOffset get_array_size() const;
 
+  /** Returns the number of levels. */
+  uint8_t     get_levels() const;
+
   /**
    * @brief Retrieves one record of the given offset in this array storage.
    * @param[in] context Thread context

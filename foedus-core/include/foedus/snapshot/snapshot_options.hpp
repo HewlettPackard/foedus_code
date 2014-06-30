@@ -27,6 +27,7 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
     kDefaultLogReducerBufferMb            = 256,
     kDefaultLogReducerDumpIoBufferMb      = 8,
     kDefaultLogReducerReadIoBufferKb      = 1024,
+    kDefaultSnapshotWriterPagePoolSizeMb  = 128,
   };
 
   /**
@@ -102,11 +103,23 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
    */
   uint32_t                            log_reducer_read_io_buffer_kb_;
 
+  /**
+   * The size in MB of one snapshot writer, which holds data pages modified in the snapshot
+   * and them sequentially dumps them to a file for each storage.
+   * Ideally, this size should be more than the maximum size of data pages modifed in
+   * each storage in each snapshot.
+   * Note that the total memory consumption is this number times the number of reducers (nodes).
+   */
+  uint32_t                            snapshot_writer_page_pool_size_mb_;
+
   /** Settings to emulate slower data device. */
   foedus::fs::DeviceEmulationOptions  emulation_;
 
   /** converts folder_path_pattern_ into a string with the given node. */
   std::string     convert_folder_path_pattern(int node) const;
+
+  /** <folder_path>/snapshot_<snapshot-id>_node_<node-id>.data. */
+  std::string     construct_snapshot_file_path(int snapshot_id, int node) const;
 
   /**
    * Returns the path of first node, which is also used as the primary place

@@ -2,7 +2,7 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#include "foedus/storage/array/array_partitioner.hpp"
+#include "foedus/storage/array/array_partitioner_impl.hpp"
 
 #include <glog/logging.h>
 
@@ -31,6 +31,7 @@ ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
   ASSERT_ND(storage);
 
   array_id_ = storage->get_id();
+  array_levels_ = storage->get_levels();
   array_size_ = storage->get_array_size();
   bucket_size_ = array_size_ / kInteriorFanout;
   bucket_size_div_ = assorted::ConstDiv(bucket_size_);

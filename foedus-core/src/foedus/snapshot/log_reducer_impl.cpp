@@ -7,6 +7,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <cstring>
 #include <map>
 #include <ostream>
 #include <string>
@@ -19,6 +20,7 @@
 #include "foedus/epoch.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/debugging/rdtsc_watch.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/fs/direct_io_file.hpp"
 #include "foedus/fs/filesystem.hpp"
@@ -27,6 +29,7 @@
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/snapshot/log_gleaner_impl.hpp"
 #include "foedus/snapshot/snapshot.hpp"
+#include "foedus/storage/composer.hpp"
 #include "foedus/storage/partitioner.hpp"
 
 namespace foedus {
@@ -79,12 +82,20 @@ ErrorStack LogReducer::handle_initialize() {
     positions_buffers_.get_size() >> 1);
 
   current_buffer_ = 0;
+  buffers_[0].status_.store(0U);
+  buffers_[1].status_.store(0U);
   sorted_runs_ = 0;
+
+  // we don't initialize snapshot_writer_/composer_work_memory_ yet
+  // because they are needed at the end of reducer.
   return kRetOk;
 }
 
 ErrorStack LogReducer::handle_uninitialize() {
   ErrorStackBatch batch;
+  batch.emprace_back(snapshot_writer_.uninitialize());
+  batch.emprace_back(previous_snapshot_files_.uninitialize());
+  composer_work_memory_.release_block();
   buffer_memory_.release_block();
   dump_io_buffer_.release_block();
   sort_buffer_.release_block();
@@ -93,9 +104,35 @@ ErrorStack LogReducer::handle_uninitialize() {
 }
 
 ErrorStack LogReducer::handle_process() {
-  SPINLOCK_WHILE(!parent_->is_all_mappers_completed()) {
+  while (!thread_.sleep()) {
     WRAP_ERROR_CODE(check_cancelled());
+    if (parent_->is_all_mappers_completed()) {
+      break;
+    }
+    // should I switch the current buffer?
+    // this is while, not if, in case the new current buffer becomes full while this reducer is
+    // dumping the old current buffer.
+    while (get_current_buffer()->is_no_more_writers()) {
+      WRAP_ERROR_CODE(check_cancelled());
+      // okay, let's switch now. As this thread dumps the buffer as soon as this happens,
+      // only one of the buffers can be full.
+      if (get_non_current_buffer()->status_.load() != 0) {
+        LOG(FATAL) << to_string() << " wtf. both buffers are in use, can't happen";
+      }
+      LOG(INFO) << to_string() << " switching buffer. current_buffer_=" << current_buffer_;
+      current_buffer_.fetch_add(1U);
+      ASSERT_ND(sorted_runs_ + 1U == current_buffer_.load());
+      // Then, immediately start dumping the full buffer.
+      CHECK_ERROR(dump_buffer());
+    }
   }
+
+  LOG(INFO) << to_string() << " all mappers are done, this reducer starts the merge-sort phase.";
+  ASSERT_ND(parent_->is_all_mappers_completed());
+  WRAP_ERROR_CODE(check_cancelled());
+  CHECK_ERROR(merge_sort());
+
+  LOG(INFO) << to_string() << " all done.";
   return kRetOk;
 }
 
@@ -360,11 +397,10 @@ void LogReducer::append_log_chunk(
   const char* send_buffer,
   uint32_t log_count,
   uint64_t send_buffer_size) {
-#ifndef NDEBUG
   DVLOG(1) << "Appending a block of " << send_buffer_size << " bytes (" << log_count
     << " entries) to " << to_string() << "'s buffer for storage-" << storage_id;
-  debugging::StopWatch stop_watch;
-#endif  // NDEBUG
+  debugging::RdtscWatch stop_watch;
+
   const uint64_t required_size = send_buffer_size + sizeof(BlockHeader);
   ReducerBuffer* buffer = nullptr;
   uint64_t begin_position = 0;
@@ -414,9 +450,7 @@ void LogReducer::append_log_chunk(
 
   // now start copying. this might take a few tens of microseconds if it's 1MB and on another
   // NUMA node.
-#ifndef NDEBUG
-  debugging::StopWatch copy_watch;
-#endif  // NDEBUG
+  debugging::RdtscWatch copy_watch;
   char* destination = reinterpret_cast<char*>(buffer->buffer_slice_.get_block()) + begin_position;
   BlockHeader header;
   header.storage_id_ = storage_id;
@@ -425,10 +459,9 @@ void LogReducer::append_log_chunk(
   header.magic_word_ = kBlockHeaderMagicWord;
   std::memcpy(destination, &header, sizeof(BlockHeader));
   std::memcpy(destination + sizeof(BlockHeader), send_buffer, send_buffer_size);
-#ifndef NDEBUG
   copy_watch.stop();
-  DVLOG(1) << "memcpy of " << send_buffer_size << " bytes took " << copy_watch.elapsed_ns() << "ns";
-#endif  // NDEBUG
+  DVLOG(1) << "memcpy of " << send_buffer_size << " bytes took "
+    << copy_watch.elapsed() << " cycles";
 
   // done, let's decrement the active_writers_ to declare we are done.
   while (true) {
@@ -453,11 +486,9 @@ void LogReducer::append_log_chunk(
     break;
   }
 
-#ifndef NDEBUG
   stop_watch.stop();
   DVLOG(1) << "Completed appending a block of " << send_buffer_size << " bytes to " << to_string()
-    << "'s buffer for storage-" << storage_id << " in " << stop_watch.elapsed_ns() << "ns";
-#endif  // NDEBUG
+    << "'s buffer for storage-" << storage_id << " in " << stop_watch.elapsed() << " cycles";
 }
 
 void LogReducer::expand_sort_buffer_if_needed(uint64_t required_size) {
@@ -493,6 +524,19 @@ void LogReducer::expand_positions_buffers_if_needed(uint64_t required_size_per_b
         &positions_buffers_,
         positions_buffers_.get_size() >> 1,
         positions_buffers_.get_size() >> 1);
+  }
+}
+
+void LogReducer::expand_composer_work_memory_if_needed(uint64_t required_size) {
+  if (composer_work_memory_.is_null() || composer_work_memory_.get_size() < required_size) {
+    LOG(WARNING) << to_string() << " automatically expanding composer_work_memory_ from "
+      << sort_buffer_.get_size() << " to " << required_size << ". if this happens often,"
+      << " our sizing is wrong.";
+      composer_work_memory_.alloc(
+        required_size,
+        memory::kHugepageSize,
+        memory::AlignedMemory::kNumaAllocOnnode,
+        numa_node_);
   }
 }
 
@@ -556,10 +600,19 @@ void LogReducer::MergeContext::set_tmp_sorted_buffer_array(storage::StorageId st
   ASSERT_ND(tmp_sorted_buffer_count_ > 0);
 }
 
-
-
 ErrorStack LogReducer::merge_sort() {
   merge_sort_check_buffer_status();
+
+  // we initialize snapshot_writer here rather than reducer's initialize() because
+  // we use it only during merge_sort().
+  CHECK_ERROR(snapshot_writer_.initialize());
+  CHECK_ERROR(previous_snapshot_files_.initialize());
+
+  // because now we are at the last merging phase, we will no longer dump sorted runs any more.
+  // thus, we re-use the reducer's dump IO buffer for snapshot writer's dump buffer.
+  // we still keep the ownership of the buffer in terms of uninitialization.
+  snapshot_writer_.set_dump_io_buffer(&dump_io_buffer_);
+
   MergeContext context(sorted_runs_);
   ReducerBuffer* last_buffer = get_current_buffer();
 
@@ -572,6 +625,7 @@ ErrorStack LogReducer::merge_sort() {
   CHECK_ERROR(merge_sort_open_sorted_runs(&context));
   CHECK_ERROR(merge_sort_initialize_sort_buffers(&context));
 
+  // merge-sort each storage
   storage::StorageId prev_storage_id = 0;
   while (true) {
     storage::StorageId storage_id = context.get_min_storage_id();
@@ -587,71 +641,32 @@ ErrorStack LogReducer::merge_sort() {
     context.set_tmp_sorted_buffer_array(storage_id);
 
     // run composer
+    const storage::Partitioner* partitioner = parent_->get_or_create_partitioner(storage_id);
+    std::unique_ptr< storage::Composer > composer(
+      storage::Composer::create_composer(
+        engine_,
+        partitioner,
+        &snapshot_writer_,
+        *parent_->get_snapshot()));
+    uint64_t work_memory_size = composer->get_required_work_memory_size(
+      context.tmp_sorted_buffer_array_,
+      context.tmp_sorted_buffer_count_);
+    expand_composer_work_memory_if_needed(work_memory_size);
+    // snapshot_reader_.get_or_open_file();
+    CHECK_ERROR(composer->compose(
+      context.tmp_sorted_buffer_array_,
+      context.tmp_sorted_buffer_count_,
+      0,  // TODO(Hideaki): Get root page in previous snapshot.
+      memory::AlignedMemorySlice(&composer_work_memory_)));
 
-    // after reading them, we should be at next block header.
+    // move on to next blocks
     for (uint32_t i = 0 ; i < context.sorted_buffer_count_; ++i) {
       SortedBuffer *buffer = context.sorted_buffers_[i].get();
-      if (buffer->get_cur_block_storage_id() == storage_id) {
-        uint64_t next_block_header_pos = buffer->get_cur_block_abosulte_end();
-        uint64_t in_buffer_pos = buffer->to_relative_pos(next_block_header_pos);
-        const DumpStorageHeaderBase* next_header =
-          reinterpret_cast<const DumpStorageHeaderBase*>(buffer->get_buffer() + in_buffer_pos);
-
-        // skip a dummy block
-        if (next_block_header_pos < buffer->get_total_size() &&
-          next_header->magic_word_ == kStorageHeaderFillerMagicWord) {
-          // next block is a dummy block. we have to skip over it.
-          // no two filler blocks come in a row, so just skip this one.
-          uint64_t skip_bytes = from_buffer_position(next_header->block_length_);
-          next_block_header_pos += skip_bytes;
-          VLOG(1) << to_string() << " skipped a filler block. " << skip_bytes << " bytes";
-          if (next_block_header_pos + sizeof(DumpStorageHeaderReal)
-            > buffer->get_offset() + buffer->get_buffer_size()) {
-            // we have to at least read the header of next block. if we unluckily hit
-            // the boundary here, wind it.
-            LOG(INFO) << to_string() << " wow, we unluckily hit buffer boundary while skipping"
-              << " a filler block. it's rare!";
-            WRAP_ERROR_CODE(buffer->wind(next_block_header_pos));
-            ASSERT_ND(next_block_header_pos >= buffer->get_offset());
-            ASSERT_ND(next_block_header_pos + sizeof(DumpStorageHeaderReal)
-              <= buffer->get_offset() + buffer->get_buffer_size());
-          }
-
-          in_buffer_pos = buffer->to_relative_pos(next_block_header_pos);
-          next_header =
-            reinterpret_cast<const DumpStorageHeaderBase*>(buffer->get_buffer() + in_buffer_pos);
-        }
-
-        // next block must be a real block. but, did we reach end of file?
-        if (next_block_header_pos >= buffer->get_total_size()) {
-          ASSERT_ND(next_block_header_pos == buffer->get_total_size());
-          // this stream is done
-          buffer->set_current_block(0, 0, 0, 0);
-          LOG(INFO) << to_string() << " fully merged a stream: " << *buffer;
-        } else {
-          if (next_header->magic_word_ != kStorageHeaderRealMagicWord) {
-            LOG(FATAL) << to_string() << " wtf. block magic word doesn't match. pos="
-              << next_block_header_pos << ", magic=" << assorted::Hex(next_header->magic_word_);
-          }
-
-          const DumpStorageHeaderReal* next_header_casted
-            = reinterpret_cast<const DumpStorageHeaderReal*>(next_header);
-          if (next_header_casted->storage_id_ == 0 ||
-            next_header_casted->log_count_ == 0 ||
-            next_header_casted->block_length_ == 0) {
-            LOG(FATAL) << to_string() << " wtf. invalid block header. pos="
-              << next_block_header_pos;
-          }
-          buffer->set_current_block(
-            next_header_casted->storage_id_,
-            next_header_casted->log_count_,
-            next_block_header_pos + sizeof(DumpStorageHeaderReal),
-            next_block_header_pos + from_buffer_position(next_header_casted->block_length_));
-        }
-      }
+      WRAP_ERROR_CODE(merge_sort_advance_sort_buffers(buffer, storage_id));
     }
   }
 
+  snapshot_writer_.close();
   merge_watch.stop();
   LOG(INFO) << to_string() << " completed merging in " << merge_watch.elapsed_sec() << " seconds";
   return kRetOk;
@@ -764,6 +779,71 @@ ErrorStack LogReducer::merge_sort_initialize_sort_buffers(LogReducer::MergeConte
   return kRetOk;
 }
 
+
+ErrorCode LogReducer::merge_sort_advance_sort_buffers(
+  SortedBuffer* buffer,
+  storage::StorageId processed_storage_id) const {
+  if (buffer->get_cur_block_storage_id() != processed_storage_id) {
+    return kErrorCodeOk;
+  }
+  uint64_t next_block_header_pos = buffer->get_cur_block_abosulte_end();
+  uint64_t in_buffer_pos = buffer->to_relative_pos(next_block_header_pos);
+  const DumpStorageHeaderBase* next_header =
+    reinterpret_cast<const DumpStorageHeaderBase*>(buffer->get_buffer() + in_buffer_pos);
+
+  // skip a dummy block
+  if (next_block_header_pos < buffer->get_total_size() &&
+    next_header->magic_word_ == kStorageHeaderFillerMagicWord) {
+    // next block is a dummy block. we have to skip over it.
+    // no two filler blocks come in a row, so just skip this one.
+    uint64_t skip_bytes = from_buffer_position(next_header->block_length_);
+    next_block_header_pos += skip_bytes;
+    VLOG(1) << to_string() << " skipped a filler block. " << skip_bytes << " bytes";
+    if (next_block_header_pos + sizeof(DumpStorageHeaderReal)
+      > buffer->get_offset() + buffer->get_buffer_size()) {
+      // we have to at least read the header of next block. if we unluckily hit
+      // the boundary here, wind it.
+      LOG(INFO) << to_string() << " wow, we unluckily hit buffer boundary while skipping"
+        << " a filler block. it's rare!";
+      CHECK_ERROR_CODE(buffer->wind(next_block_header_pos));
+      ASSERT_ND(next_block_header_pos >= buffer->get_offset());
+      ASSERT_ND(next_block_header_pos + sizeof(DumpStorageHeaderReal)
+        <= buffer->get_offset() + buffer->get_buffer_size());
+    }
+
+    in_buffer_pos = buffer->to_relative_pos(next_block_header_pos);
+    next_header =
+      reinterpret_cast<const DumpStorageHeaderBase*>(buffer->get_buffer() + in_buffer_pos);
+  }
+
+  // next block must be a real block. but, did we reach end of file?
+  if (next_block_header_pos >= buffer->get_total_size()) {
+    ASSERT_ND(next_block_header_pos == buffer->get_total_size());
+    // this stream is done
+    buffer->set_current_block(0, 0, 0, 0);
+    LOG(INFO) << to_string() << " fully merged a stream: " << *buffer;
+  } else {
+    if (next_header->magic_word_ != kStorageHeaderRealMagicWord) {
+      LOG(FATAL) << to_string() << " wtf. block magic word doesn't match. pos="
+        << next_block_header_pos << ", magic=" << assorted::Hex(next_header->magic_word_);
+    }
+
+    const DumpStorageHeaderReal* next_header_casted
+      = reinterpret_cast<const DumpStorageHeaderReal*>(next_header);
+    if (next_header_casted->storage_id_ == 0 ||
+      next_header_casted->log_count_ == 0 ||
+      next_header_casted->block_length_ == 0) {
+      LOG(FATAL) << to_string() << " wtf. invalid block header. pos="
+        << next_block_header_pos;
+    }
+    buffer->set_current_block(
+      next_header_casted->storage_id_,
+      next_header_casted->log_count_,
+      next_block_header_pos + sizeof(DumpStorageHeaderReal),
+      next_block_header_pos + from_buffer_position(next_header_casted->block_length_));
+  }
+  return kErrorCodeOk;
+}
 
 std::ostream& operator<<(std::ostream& o, const LogReducer& v) {
   o << "<LogReducer>"

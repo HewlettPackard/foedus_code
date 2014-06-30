@@ -2,15 +2,14 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
-#ifndef FOEDUS_STORAGE_ARRAY_ARRAY_PARTITIONER_HPP_
-#define FOEDUS_STORAGE_ARRAY_ARRAY_PARTITIONER_HPP_
+#ifndef FOEDUS_STORAGE_ARRAY_ARRAY_PARTITIONER_IMPL_HPP_
+#define FOEDUS_STORAGE_ARRAY_ARRAY_PARTITIONER_IMPL_HPP_
 
 #include <stdint.h>
 
 #include <cstring>
 #include <iosfwd>
 
-#include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/memory/fwd.hpp"
@@ -50,25 +49,31 @@ namespace array {
  * Another choice we considered was a vector of ArrayRange in an arbitrary length
  * over which we do binary search. However, this is more expensive.
  * For a simple data structure like array, it might not pay off.
+ *
+ * @note
+ * This is a private implementation-details of \ref ARRAY, thus file name ends with _impl.
+ * Do not include this header from a client program. There is no case client program needs to
+ * access this internal class.
  */
-class ArrayPartitioner CXX11_FINAL : public virtual Partitioner {
+class ArrayPartitioner final : public virtual Partitioner {
  public:
   ArrayPartitioner(Engine *engine, StorageId id);
   ArrayPartitioner(const ArrayPartitioner& other) {
     std::memcpy(this, &other, sizeof(ArrayPartitioner));
   }
   ~ArrayPartitioner() {}
-  StorageId get_storage_id() const CXX11_OVERRIDE { return array_id_; }
-  Partitioner* clone() const CXX11_OVERRIDE { return new ArrayPartitioner(*this); }
-  void describe(std::ostream* o) const CXX11_OVERRIDE;
+  StorageId get_storage_id() const override { return array_id_; }
+  StorageType get_storage_type() const override { return kArrayStorage; }
+  Partitioner* clone() const override { return new ArrayPartitioner(*this); }
+  void describe(std::ostream* o) const override;
 
-  bool is_partitionable() const CXX11_OVERRIDE { return !array_single_page_; }
+  bool is_partitionable() const override { return !array_single_page_; }
   void partition_batch(
     PartitionId                     local_partition,
     const snapshot::LogBuffer&      log_buffer,
     const snapshot::BufferPosition* log_positions,
     uint32_t                        logs_count,
-    PartitionId*                    results) const CXX11_OVERRIDE;
+    PartitionId*                    results) const override;
 
   void sort_batch(
     const snapshot::LogBuffer&        log_buffer,
@@ -77,15 +82,19 @@ class ArrayPartitioner CXX11_FINAL : public virtual Partitioner {
     const memory::AlignedMemorySlice& sort_buffer,
     Epoch                             base_epoch,
     snapshot::BufferPosition*         output_buffer,
-    uint32_t*                         written_count) const CXX11_OVERRIDE;
+    uint32_t*                         written_count) const override;
 
-  uint64_t get_required_sort_buffer_size(uint32_t log_count) const CXX11_OVERRIDE;
+  uint64_t  get_required_sort_buffer_size(uint32_t log_count) const override;
+
+  uint8_t   get_array_levels() const { return array_levels_; }
+  const PartitionId* get_bucket_owners() const { return bucket_owners_; }
 
  private:
   /** only for sanity check */
   StorageId             array_id_;
   /** whether this array has only one page, so no interior page nor partitioning. */
   bool                  array_single_page_;
+  uint8_t               array_levels_;
 
   /** Size of the entire array. */
   ArrayOffset           array_size_;
@@ -102,4 +111,4 @@ class ArrayPartitioner CXX11_FINAL : public virtual Partitioner {
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus
-#endif  // FOEDUS_STORAGE_ARRAY_ARRAY_PARTITIONER_HPP_
+#endif  // FOEDUS_STORAGE_ARRAY_ARRAY_PARTITIONER_IMPL_HPP_
