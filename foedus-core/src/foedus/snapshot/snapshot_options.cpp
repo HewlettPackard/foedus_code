@@ -26,6 +26,15 @@ std::string SnapshotOptions::convert_folder_path_pattern(int node) const {
   return assorted::replace_all(folder_path_pattern_, "$NODE$", node);
 }
 
+std::string SnapshotOptions::construct_snapshot_file_path(int snapshot_id, int node) const {
+  return convert_folder_path_pattern(node)
+    + std::string("/snapshot_")
+    + std::to_string(snapshot_id)
+    + std::string("_")
+    + std::to_string(node);
+}
+
+
 ErrorStack SnapshotOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, folder_path_pattern_);
   EXTERNALIZE_LOAD_ELEMENT(element, snapshot_trigger_page_pool_percent_);

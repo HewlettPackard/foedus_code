@@ -94,6 +94,7 @@ ErrorStack LogReducer::handle_initialize() {
 ErrorStack LogReducer::handle_uninitialize() {
   ErrorStackBatch batch;
   batch.emprace_back(snapshot_writer_.uninitialize());
+  batch.emprace_back(previous_snapshot_files_.uninitialize());
   composer_work_memory_.release_block();
   buffer_memory_.release_block();
   dump_io_buffer_.release_block();
@@ -605,6 +606,7 @@ ErrorStack LogReducer::merge_sort() {
   // we initialize snapshot_writer here rather than reducer's initialize() because
   // we use it only during merge_sort().
   CHECK_ERROR(snapshot_writer_.initialize());
+  CHECK_ERROR(previous_snapshot_files_.initialize());
 
   // because now we are at the last merging phase, we will no longer dump sorted runs any more.
   // thus, we re-use the reducer's dump IO buffer for snapshot writer's dump buffer.
@@ -650,6 +652,7 @@ ErrorStack LogReducer::merge_sort() {
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_);
     expand_composer_work_memory_if_needed(work_memory_size);
+    // snapshot_reader_.get_or_open_file();
     CHECK_ERROR(composer->compose(
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_,

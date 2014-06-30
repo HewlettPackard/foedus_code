@@ -63,6 +63,9 @@ typedef uint64_t SnapshotPagePointer;
 inline uint8_t extract_numa_node_from_snapshot_pointer(SnapshotPagePointer pointer) {
   return static_cast<uint8_t>(pointer >> 40);
 }
+inline uint16_t extract_snapshot_id_from_snapshot_pointer(SnapshotPagePointer pointer) {
+  return static_cast<uint16_t>(pointer >> 48);
+}
 
 /**
  * @brief Represents a local page ID in each one snapshot file in some NUMA node.

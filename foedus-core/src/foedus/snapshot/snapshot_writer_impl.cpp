@@ -45,15 +45,8 @@ void SnapshotWriter::clear_snapshot_file() {
 }
 
 fs::Path SnapshotWriter::get_snapshot_file_path() const {
-  std::string folder = engine_->get_options().snapshot_.convert_folder_path_pattern(numa_node_);
-  // snapshot_<snapshot-id>_node_<node-id>.data
-  std::string name =
-    std::string("snapshot_")
-    + std::to_string(snapshot_id_)
-    + std::string("_")
-    + std::to_string(static_cast<int>(numa_node_));
-  fs::Path path(folder);
-  path /= name;
+  fs::Path path(engine_->get_options().snapshot_.construct_snapshot_file_path(snapshot_id_,
+                                                                              numa_node_));
   return path;
 }
 

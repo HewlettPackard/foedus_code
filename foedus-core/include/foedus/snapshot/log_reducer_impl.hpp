@@ -16,6 +16,7 @@
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
+#include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/fs/fwd.hpp"
 #include "foedus/fs/path.hpp"
 #include "foedus/log/fwd.hpp"
@@ -113,6 +114,7 @@ class LogReducer final : public MapReduceBase {
   LogReducer(Engine* engine, LogGleaner* parent, thread::ThreadGroupId numa_node)
     : MapReduceBase(engine, parent, numa_node, numa_node),
       snapshot_writer_(engine_, this),
+      previous_snapshot_files_(engine_),
       sorted_runs_(0),
       current_buffer_(0) {}
 
@@ -295,6 +297,10 @@ class LogReducer final : public MapReduceBase {
    * Writes out composed snapshot pages to a new snapshot file.
    */
   SnapshotWriter          snapshot_writer_;
+  /**
+   * To read previous snapshot versions.
+   */
+  cache::SnapshotFileSet  previous_snapshot_files_;
 
   /**
    * Underlying memory of reducer buffer.

@@ -118,6 +118,9 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
   /** converts folder_path_pattern_ into a string with the given node. */
   std::string     convert_folder_path_pattern(int node) const;
 
+  /** <folder_path>/snapshot_<snapshot-id>_node_<node-id>.data. */
+  std::string     construct_snapshot_file_path(int snapshot_id, int node) const;
+
   /**
    * Returns the path of first node, which is also used as the primary place
    * to write out global files, such as snapshot metadata.
