@@ -69,8 +69,8 @@ void ArrayStorageFactory::add_create_log(const Metadata* metadata, thread::Threa
   const ArrayMetadata* casted = dynamic_cast<const ArrayMetadata*>(metadata);
   ASSERT_ND(casted);
 
-  uint16_t log_length = CreateLogType::calculate_log_length(casted->name_.size());
-  CreateLogType* log_entry = reinterpret_cast<CreateLogType*>(
+  uint16_t log_length = ArrayCreateLogType::calculate_log_length(casted->name_.size());
+  ArrayCreateLogType* log_entry = reinterpret_cast<ArrayCreateLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(
     casted->id_,

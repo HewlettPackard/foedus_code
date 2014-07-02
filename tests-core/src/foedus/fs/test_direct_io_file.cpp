@@ -121,8 +121,8 @@ TEST(DirectIoFileTest, WriteWithLogBufferPad) {
     COERCE_ERROR(node_memory->allocate_numa_memory(log::FillerLogType::kLogWriteUnitSize,
                             &fill_buf));
 
-    storage::array::OverwriteLogType* the_log =
-      reinterpret_cast< storage::array::OverwriteLogType* >(log_buf.get_block());
+    storage::array::ArrayOverwriteLogType* the_log =
+      reinterpret_cast< storage::array::ArrayOverwriteLogType* >(log_buf.get_block());
     char payload[16];
     std::memset(payload, 5, 16);
     the_log->populate(1, 2, payload, 0, 16);

@@ -42,8 +42,8 @@ namespace sequential {
  *
  * This log type is infrequently triggered, so no optimization. All methods defined in cpp.
  */
-struct CreateLogType : public log::StorageLogType {
-  LOG_TYPE_NO_CONSTRUCT(CreateLogType)
+struct SequentialCreateLogType : public log::StorageLogType {
+  LOG_TYPE_NO_CONSTRUCT(SequentialCreateLogType)
   uint16_t        name_length_;       // +2 => 18
   char            name_[6];           // +6 => 24
 
@@ -54,7 +54,7 @@ struct CreateLogType : public log::StorageLogType {
   void populate(StorageId storage_id, uint16_t name_length, const char* name);
   void apply_storage(thread::Thread* context, Storage* storage);
   void assert_valid();
-  friend std::ostream& operator<<(std::ostream& o, const CreateLogType& v);
+  friend std::ostream& operator<<(std::ostream& o, const SequentialCreateLogType& v);
 };
 
 /**
@@ -64,8 +64,8 @@ struct CreateLogType : public log::StorageLogType {
  * This is the only record-level operation in sequential storage.
  * It simply appends the the end with an atomic operation.
  */
-struct AppendLogType : public log::RecordLogType {
-  LOG_TYPE_NO_CONSTRUCT(AppendLogType)
+struct SequentialAppendLogType : public log::RecordLogType {
+  LOG_TYPE_NO_CONSTRUCT(SequentialAppendLogType)
   uint16_t        payload_count_;     // +2 => 18
   char            payload_[6];        // +6 => 24
 
@@ -98,7 +98,7 @@ struct AppendLogType : public log::RecordLogType {
     ASSERT_ND(header_.get_type() == log::kLogCodeSequentialAppend);
   }
 
-  friend std::ostream& operator<<(std::ostream& o, const AppendLogType& v);
+  friend std::ostream& operator<<(std::ostream& o, const SequentialAppendLogType& v);
 };
 
 }  // namespace sequential

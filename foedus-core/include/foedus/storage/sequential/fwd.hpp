@@ -12,14 +12,14 @@
 namespace foedus {
 namespace storage {
 namespace sequential {
+struct  SequentialAppendLogType;
+struct  SequentialCreateLogType;
 struct  SequentialMetadata;
 class   SequentialPage;
 class   SequentialPartitioner;
 class   SequentialStorage;
 class   SequentialStorageFactory;
 class   SequentialStoragePimpl;
-struct  CreateLogType;
-struct  AppendLogType;
 }  // namespace sequential
 }  // namespace storage
 }  // namespace foedus

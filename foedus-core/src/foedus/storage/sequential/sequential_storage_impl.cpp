@@ -100,8 +100,8 @@ inline ErrorCode SequentialStoragePimpl::append_record(
   // CHECK_ERROR_CODE(locate_record(context, offset, &record));
 
   // write out log
-  uint16_t log_length = AppendLogType::calculate_log_length(payload_count);
-  AppendLogType* log_entry = reinterpret_cast<AppendLogType*>(
+  uint16_t log_length = SequentialAppendLogType::calculate_log_length(payload_count);
+  SequentialAppendLogType* log_entry = reinterpret_cast<SequentialAppendLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(metadata_.id_, payload, payload_count);
   return context->get_current_xct().add_to_write_set(holder_, record, log_entry);

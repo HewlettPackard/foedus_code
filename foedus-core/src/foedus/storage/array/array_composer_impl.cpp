@@ -66,15 +66,15 @@ struct StreamStatus {
     return kErrorCodeOk;
   }
   void read_entry() {
-    const OverwriteLogType* entry = get_entry();
+    const ArrayOverwriteLogType* entry = get_entry();
     ASSERT_ND(entry->header_.get_type() == log::kLogCodeArrayOverwrite);
     ASSERT_ND(entry->header_.log_length_ > 0);
     cur_value_ = entry->offset_;
     cur_xct_id_ = entry->header_.xct_id_;
     cur_length_ = entry->header_.log_length_;
   }
-  const OverwriteLogType* get_entry() const {
-    return reinterpret_cast<const OverwriteLogType*>(buffer_ + cur_relative_pos_);
+  const ArrayOverwriteLogType* get_entry() const {
+    return reinterpret_cast<const ArrayOverwriteLogType*>(buffer_ + cur_relative_pos_);
   }
 
   snapshot::SortedBuffer* stream_;
@@ -141,7 +141,7 @@ ErrorStack ArrayComposer::strawman_tournament(
       }
     }
     ASSERT_ND(smallest_stream < log_streams_count);
-    const OverwriteLogType* entry = status[smallest_stream].get_entry();
+    const ArrayOverwriteLogType* entry = status[smallest_stream].get_entry();
     ASSERT_ND(entry->offset_ == smallest_value);
     ASSERT_ND(entry->header_.xct_id_.equals_all(smallest_xct_id));
     // TODO(Hideaki): use it

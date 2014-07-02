@@ -20,17 +20,20 @@ namespace foedus {
 namespace storage {
 namespace sequential {
 
-void CreateLogType::populate(StorageId storage_id, uint16_t name_length, const char* name) {
+void SequentialCreateLogType::populate(
+  StorageId storage_id,
+  uint16_t name_length,
+  const char* name) {
   ASSERT_ND(storage_id > 0);
   ASSERT_ND(name_length > 0);
   ASSERT_ND(name);
-  header_.log_type_code_ = log::get_log_code<CreateLogType>();
+  header_.log_type_code_ = log::kLogCodeSequentialCreate;
   header_.log_length_ = calculate_log_length(name_length);
   header_.storage_id_ = storage_id;
   name_length_ = name_length;
   std::memcpy(name_, name, name_length);
 }
-void CreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
+void SequentialCreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
   ASSERT_ND(storage == nullptr);  // because we are now creating it.
   LOG(INFO) << "Applying CREATE SEQUENTIAL STORAGE log: " << *this;
   std::string name(name_, name_length_);
@@ -43,12 +46,12 @@ void CreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
   LOG(INFO) << "Applied CREATE SEQUENTIAL STORAGE log: " << *this;
 }
 
-void CreateLogType::assert_valid() {
+void SequentialCreateLogType::assert_valid() {
   assert_valid_generic();
   ASSERT_ND(header_.log_length_ == calculate_log_length(name_length_));
-  ASSERT_ND(header_.get_type() == log::get_log_code<CreateLogType>());
+  ASSERT_ND(header_.get_type() == log::get_log_code<SequentialCreateLogType>());
 }
-std::ostream& operator<<(std::ostream& o, const CreateLogType& v) {
+std::ostream& operator<<(std::ostream& o, const SequentialCreateLogType& v) {
   o << "<SequentialCreateLog>"
     << "<storage_id_>" << v.header_.storage_id_ << "</storage_id_>"
     << "<name_>" << std::string(v.name_, v.name_length_) << "</name_>"
@@ -57,7 +60,7 @@ std::ostream& operator<<(std::ostream& o, const CreateLogType& v) {
   return o;
 }
 
-std::ostream& operator<<(std::ostream& o, const AppendLogType& v) {
+std::ostream& operator<<(std::ostream& o, const SequentialAppendLogType& v) {
   o << "<SequentialAppendLog>"
     << "<payload_count_>" << v.payload_count_ << "</payload_count_>";
   // show first few bytes

@@ -60,8 +60,8 @@ void SequentialStorageFactory::add_create_log(
   const SequentialMetadata* casted = dynamic_cast<const SequentialMetadata*>(metadata);
   ASSERT_ND(casted);
 
-  uint16_t log_length = CreateLogType::calculate_log_length(casted->name_.size());
-  CreateLogType* log_entry = reinterpret_cast<CreateLogType*>(
+  uint16_t log_length = SequentialCreateLogType::calculate_log_length(casted->name_.size());
+  SequentialCreateLogType* log_entry = reinterpret_cast<SequentialCreateLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(
     casted->id_,
