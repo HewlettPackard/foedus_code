@@ -35,11 +35,11 @@ namespace sequential {
  */
 class SequentialPartitioner final : public virtual Partitioner {
  public:
-  SequentialPartitioner(Engine *engine, StorageId id);
+  explicit SequentialPartitioner(StorageId id) : sequential_id_(id) {}
   ~SequentialPartitioner() {}
   StorageId get_storage_id() const override { return sequential_id_; }
   StorageType get_storage_type() const override { return kSequentialStorage; }
-  Partitioner* clone() const override { return new SequentialPartitioner(*this); }
+  Partitioner* clone() const override { return new SequentialPartitioner(sequential_id_); }
   void describe(std::ostream* o) const override;
 
   bool is_partitionable() const override { return true; }
@@ -59,7 +59,7 @@ class SequentialPartitioner final : public virtual Partitioner {
     snapshot::BufferPosition*         output_buffer,
     uint32_t*                         written_count) const override;
 
-  uint64_t  get_required_sort_buffer_size(uint32_t log_count) const override { return 0; }
+  uint64_t  get_required_sort_buffer_size(uint32_t /*log_count*/) const override { return 0; }
 
  private:
   /** only for sanity check */

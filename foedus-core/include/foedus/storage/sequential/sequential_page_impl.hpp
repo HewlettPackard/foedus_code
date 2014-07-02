@@ -81,6 +81,9 @@ class SequentialPage final {
   Checksum            get_checksum()      const   { return checksum_; }
   void                set_checksum(Checksum checksum)     { checksum_ = checksum; }
 
+  const DualPagePointer& get_next_page()  const   { return next_page_; }
+  void                set_next_page(const DualPagePointer& page) { next_page_ = page; }
+
   /** Called only when this page is initialized. */
   void                initialize_data_page(StorageId storage_id) {
     storage_id_ = storage_id;
