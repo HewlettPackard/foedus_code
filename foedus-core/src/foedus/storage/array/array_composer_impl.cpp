@@ -107,6 +107,8 @@ ErrorStack ArrayComposer::strawman_tournament(
   std::memset(current_pages, 0, sizeof(ArrayPage*) * 8);
 
   const uint8_t levels = partitioner_->get_array_levels();
+  VLOG(0) << to_string() << ", prev root=" << previous_root_page_pointer
+    << ", levels=" << levels;
   {
     // let's load the first pages. what's the first key?
     ArrayOffset smallest_value = 0xFFFFFFFFFFFFFFFFULL;
@@ -177,7 +179,7 @@ ErrorStack ArrayComposer::compose(
 }
 
 uint64_t ArrayComposer::get_required_work_memory_size(
-  snapshot::SortedBuffer** log_streams,
+  snapshot::SortedBuffer** /*log_streams*/,
   uint32_t log_streams_count) const {
   return sizeof(StreamStatus) * log_streams_count;
 }

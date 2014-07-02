@@ -9,6 +9,8 @@
 #include "foedus/storage/storage_manager_pimpl.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/storage/array/array_storage.hpp"
+#include "foedus/storage/sequential/sequential_metadata.hpp"
+#include "foedus/storage/sequential/sequential_storage.hpp"
 
 namespace foedus {
 namespace storage {
@@ -45,22 +47,48 @@ ErrorStack StorageManager::create_storage(Metadata *metadata, Storage **storage,
   return pimpl_->create_storage(metadata, storage, commit_epoch);
 }
 
-ErrorStack StorageManager::create_array(thread::Thread* context, array::ArrayMetadata* metadata,
-                                        array::ArrayStorage** storage, Epoch* commit_epoch) {
+ErrorStack StorageManager::create_array(
+  thread::Thread* context,
+  array::ArrayMetadata* metadata,
+  array::ArrayStorage** storage,
+  Epoch* commit_epoch) {
   Storage* tmp = nullptr;
   ErrorStack result = create_storage(context, metadata, &tmp, commit_epoch);
   *storage = dynamic_cast<array::ArrayStorage*>(tmp);
   return result;
 }
 
-ErrorStack StorageManager::create_array(array::ArrayMetadata* metadata,
-                                        array::ArrayStorage** storage, Epoch* commit_epoch) {
+ErrorStack StorageManager::create_array(
+  array::ArrayMetadata* metadata,
+  array::ArrayStorage** storage,
+  Epoch* commit_epoch) {
   Storage* tmp = nullptr;
   ErrorStack result = create_storage(metadata, &tmp, commit_epoch);
   *storage = dynamic_cast<array::ArrayStorage*>(tmp);
   return result;
 }
 
+
+ErrorStack StorageManager::create_sequential(
+  thread::Thread* context,
+  sequential::SequentialMetadata* metadata,
+  sequential::SequentialStorage** storage,
+  Epoch* commit_epoch) {
+  Storage* tmp = nullptr;
+  ErrorStack result = create_storage(context, metadata, &tmp, commit_epoch);
+  *storage = dynamic_cast<sequential::SequentialStorage*>(tmp);
+  return result;
+}
+
+ErrorStack StorageManager::create_sequential(
+  sequential::SequentialMetadata* metadata,
+  sequential::SequentialStorage** storage,
+  Epoch* commit_epoch) {
+  Storage* tmp = nullptr;
+  ErrorStack result = create_storage(metadata, &tmp, commit_epoch);
+  *storage = dynamic_cast<sequential::SequentialStorage*>(tmp);
+  return result;
+}
 
 ErrorStack StorageManager::clone_all_storage_metadata(snapshot::SnapshotMetadata *metadata) {
   return pimpl_->clone_all_storage_metadata(metadata);

@@ -16,6 +16,7 @@
 #include "foedus/log/common_log_types.hpp"  // NOLINT(build/include_alpha)
 #include "foedus/storage/storage_log_types.hpp"
 #include "foedus/storage/array/array_log_types.hpp"
+#include "foedus/storage/sequential/sequential_log_types.hpp"
 
 namespace foedus {
 namespace log {

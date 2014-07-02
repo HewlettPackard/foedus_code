@@ -12,6 +12,7 @@
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/array/fwd.hpp"
+#include "foedus/storage/sequential/fwd.hpp"
 #include "foedus/thread/fwd.hpp"
 
 namespace foedus {
@@ -97,15 +98,40 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
    * @brief Just a type-wrapper of create_storage() for array storages.
    * @see create_storage()
    */
-  ErrorStack  create_array(thread::Thread* context, array::ArrayMetadata *metadata,
-                           array::ArrayStorage **storage, Epoch *commit_epoch);
+  ErrorStack  create_array(
+    thread::Thread* context,
+    array::ArrayMetadata *metadata,
+    array::ArrayStorage **storage,
+    Epoch *commit_epoch);
 
   /**
    * @brief A convenience function to impersonate as one of available threads
    * and then invoke create_array().
    */
-  ErrorStack  create_array(array::ArrayMetadata *metadata,
-                           array::ArrayStorage **storage, Epoch *commit_epoch);
+  ErrorStack  create_array(
+    array::ArrayMetadata *metadata,
+    array::ArrayStorage **storage,
+    Epoch *commit_epoch);
+
+
+  /**
+   * @brief Just a type-wrapper of create_storage() for sequential storages.
+   * @see create_storage()
+   */
+  ErrorStack  create_sequential(
+    thread::Thread* context,
+    sequential::SequentialMetadata *metadata,
+    sequential::SequentialStorage **storage,
+    Epoch *commit_epoch);
+
+  /**
+   * @brief A convenience function to impersonate as one of available threads
+   * and then invoke create_sequential().
+   */
+  ErrorStack  create_sequential(
+    sequential::SequentialMetadata *metadata,
+    sequential::SequentialStorage **storage,
+    Epoch *commit_epoch);
 
   /**
    * This method is called during snapshotting to clone metadata of all existing storages

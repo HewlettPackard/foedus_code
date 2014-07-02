@@ -8,6 +8,7 @@
 #include <glog/logging.h>
 
 #include "foedus/storage/array/array_metadata.hpp"
+#include "foedus/storage/sequential/sequential_metadata.hpp"
 
 namespace foedus {
 namespace storage {
@@ -43,9 +44,10 @@ Metadata* Metadata::create_instance(tinyxml2::XMLElement* metadata_xml) {
   switch (type) {
     case kArrayStorage:
       return new array::ArrayMetadata();
+    case kSequentialStorage:
+      return new sequential::SequentialMetadata();
     case kHashStorage:
     case kMasstreeStorage:
-    case kSequentialStorage:
       // TODO(Hideaki): Implement
     default:
       LOG(FATAL) << "Unexpected storage type:" << type;
