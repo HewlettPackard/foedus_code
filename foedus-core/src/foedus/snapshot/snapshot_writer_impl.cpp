@@ -25,11 +25,10 @@ SnapshotWriter::SnapshotWriter(Engine* engine, LogReducer* parent)
   numa_node_(parent->get_id()),
   snapshot_id_(parent_->get_parent()->get_snapshot()->id_),
   snapshot_file_(nullptr),
-  next_page_(0),
   pool_size_(0),
   dump_io_buffer_(nullptr),
-  fixed_upto_(0),
-  dumped_upto_(0) {
+  allocated_pages_(0),
+  dumped_pages_(0) {
 }
 
 bool SnapshotWriter::close() {
@@ -60,13 +59,27 @@ ErrorStack SnapshotWriter::initialize_once() {
     numa_node_),
   page_base_ = reinterpret_cast<storage::Page*>(pool_memory_.get_block());
   pool_size_ = pool_byte_size / sizeof(storage::Page);
-  next_page_ = 1;  // skip page-0.
   clear_snapshot_file();
   fs::Path path(get_snapshot_file_path());
   snapshot_file_ = new fs::DirectIoFile(path, engine_->get_options().snapshot_.emulation_);
   CHECK_ERROR(snapshot_file_->open(true, true, true, true));
-  fixed_upto_ = 0;
-  dumped_upto_ = 0;
+
+  // write page-0. this is a dummy page which will never be read
+  char* first_page = reinterpret_cast<char*>(pool_memory_.get_block());
+  // first 8 bytes have some data, but we would use them just for sanity checks and debugging
+  *reinterpret_cast<uint32_t*>(first_page) = 0x1BF0ED05;
+  *reinterpret_cast<uint16_t*>(first_page + 4) = get_snapshot_id();
+  *reinterpret_cast<uint16_t*>(first_page + 6) = get_numa_node();
+  std::memset(first_page + 8, 0, sizeof(storage::Page) - 8);
+  std::string duh("This is the first 4kb page of a snapshot file in libfoedus."
+    " The first page is never used as data. It just consists of"
+    " first magic word (0x1BF0ED05), snapshot ID (2 bytes), then partition (NUMA node, 2 bytes),"
+    " and these useless sentences. Maybe we put our complaints on our cafeteria here.");
+  std::memcpy(first_page + 8, duh.data(), duh.size());
+
+  CHECK_ERROR(snapshot_file_->write(sizeof(storage::Page), pool_memory_));
+  allocated_pages_ = 1;
+  dumped_pages_ = 1;
   return kRetOk;
 }
 
@@ -77,12 +90,62 @@ ErrorStack SnapshotWriter::uninitialize_once() {
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 
+inline uint32_t count_contiguous(const memory::PagePoolOffset* array, uint32_t from, uint32_t to) {
+  uint32_t contiguous = 1;
+  for (memory::PagePoolOffset value = array[from];
+        from + contiguous < to && value == array[from + contiguous];
+        ++contiguous);
+  return contiguous;
+}
+
 ErrorCode SnapshotWriter::dump_pages(const memory::PagePoolOffset* memory_pages, uint32_t count) {
-  dumped_upto_ += count;
-  ASSERT_ND(dumped_upto_ == fixed_upto_);
+  ASSERT_ND(dump_io_buffer_);
+  // to avoid writing out small pieces, we copy the pages to dump_io_buffer_.
+  storage::Page* buffer = reinterpret_cast<storage::Page*>(dump_io_buffer_->get_block());
+  const uint64_t max_buffered = dump_io_buffer_->get_size() / sizeof(storage::Page);
+  uint32_t buffered = 0;
+  uint32_t cur = 0;
+  while (cur < count) {
+    uint32_t contiguous = count_contiguous(memory_pages, cur, count);
+
+    // flush the buffer if full
+    if (buffered + contiguous > max_buffered) {
+      UNWRAP_ERROR_STACK(snapshot_file_->write(
+        sizeof(storage::Page) * buffered,
+        memory::AlignedMemorySlice(dump_io_buffer_, 0, sizeof(storage::Page) * buffered)));
+      buffered = 0;
+    }
+
+    // copy the pages to IO buffer. this might be wasteful when contiguous is large
+    // (we can directly write from there). But, then the client should have used another method.
+    storage::Page* source = resolve(memory_pages[cur]);
+    std::memcpy(buffer + buffered, source, sizeof(storage::Page) * contiguous);
+    buffered += contiguous;
+    cur += contiguous;
+  }
+
+  if (buffered > 0) {
+    UNWRAP_ERROR_STACK(snapshot_file_->write(
+      sizeof(storage::Page) * buffered,
+      memory::AlignedMemorySlice(dump_io_buffer_, 0, sizeof(storage::Page) * buffered)));
+  }
+
+  dumped_pages_ += count;
   return kErrorCodeOk;
 }
 
+
+ErrorCode SnapshotWriter::dump_pages(memory::PagePoolOffset from_page, uint32_t count) {
+  // the data are already sequetial. no need for copying
+  UNWRAP_ERROR_STACK(snapshot_file_->write(
+    sizeof(storage::Page) * count,
+    memory::AlignedMemorySlice(
+      &pool_memory_,
+      sizeof(storage::Page) * from_page,
+      sizeof(storage::Page) * count)));
+  dumped_pages_ += count;
+  return kErrorCodeOk;
+}
 
 memory::PagePoolOffset SnapshotWriter::reset_pool(
   const memory::PagePoolOffset* excluded_pages,
@@ -97,7 +160,7 @@ memory::PagePoolOffset SnapshotWriter::reset_pool(
       std::memcpy(resolve(kNewOffsetBase + i), resolve(excluded_pages[i]), sizeof(storage::Page));
     }
   }
-  next_page_ = kNewOffsetBase + excluded_count;
+  allocated_pages_ = kNewOffsetBase + excluded_count;
   return kNewOffsetBase;
 }
 
@@ -107,8 +170,9 @@ std::ostream& operator<<(std::ostream& o, const SnapshotWriter& v) {
     << "<numa_node_>" << v.numa_node_ << "</numa_node_>"
     << "<snapshot_id_>" << v.snapshot_id_ << "</snapshot_id_>"
     << "<pool_memory_>" << v.pool_memory_ << "</pool_memory_>"
-    << "<next_page_>" << v.next_page_ << "</next_page_>"
     << "<pool_size_>" << v.pool_size_ << "</pool_size_>"
+    << "<allocated_pages_>" << v.allocated_pages_ << "</allocated_pages_>"
+    << "<dumped_pages_>" << v.dumped_pages_ << "</dumped_pages_>"
     << "</SnapshotWriter>";
   return o;
 }

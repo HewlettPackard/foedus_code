@@ -20,13 +20,17 @@ namespace foedus {
 namespace storage {
 namespace array {
 
-void CreateLogType::populate(StorageId storage_id, ArrayOffset array_size,
-    uint16_t payload_size, uint16_t name_length, const char* name) {
+void ArrayCreateLogType::populate(
+  StorageId storage_id,
+  ArrayOffset array_size,
+  uint16_t payload_size,
+  uint16_t name_length,
+  const char* name) {
   ASSERT_ND(storage_id > 0);
   ASSERT_ND(array_size > 0);
   ASSERT_ND(name_length > 0);
   ASSERT_ND(name);
-  header_.log_type_code_ = log::get_log_code<CreateLogType>();
+  header_.log_type_code_ = log::kLogCodeArrayCreate;
   header_.log_length_ = calculate_log_length(name_length);
   header_.storage_id_ = storage_id;
   array_size_ = array_size;
@@ -34,7 +38,7 @@ void CreateLogType::populate(StorageId storage_id, ArrayOffset array_size,
   name_length_ = name_length;
   std::memcpy(name_, name, name_length);
 }
-void CreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
+void ArrayCreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
   ASSERT_ND(storage == nullptr);  // because we are now creating it.
   LOG(INFO) << "Applying CREATE ARRAY STORAGE log: " << *this;
   std::string name(name_, name_length_);
@@ -47,12 +51,12 @@ void CreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
   LOG(INFO) << "Applied CREATE ARRAY STORAGE log: " << *this;
 }
 
-void CreateLogType::assert_valid() {
+void ArrayCreateLogType::assert_valid() {
   assert_valid_generic();
   ASSERT_ND(header_.log_length_ == calculate_log_length(name_length_));
-  ASSERT_ND(header_.get_type() == log::get_log_code<CreateLogType>());
+  ASSERT_ND(header_.get_type() == log::get_log_code<ArrayCreateLogType>());
 }
-std::ostream& operator<<(std::ostream& o, const CreateLogType& v) {
+std::ostream& operator<<(std::ostream& o, const ArrayCreateLogType& v) {
   o << "<ArrayCreateLog>"
     << "<storage_id_>" << v.header_.storage_id_ << "</storage_id_>"
     << "<name_>" << std::string(v.name_, v.name_length_) << "</name_>"
@@ -62,7 +66,7 @@ std::ostream& operator<<(std::ostream& o, const CreateLogType& v) {
   return o;
 }
 
-std::ostream& operator<<(std::ostream& o, const OverwriteLogType& v) {
+std::ostream& operator<<(std::ostream& o, const ArrayOverwriteLogType& v) {
   o << "<ArrayOverwriteLog>"
     << "<offset_>" << v.offset_ << "</offset_>"
     << "<payload_offset_>" << v.payload_offset_ << "</payload_offset_>"

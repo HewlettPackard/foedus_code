@@ -12,15 +12,15 @@
 namespace foedus {
 namespace storage {
 namespace array {
+struct  ArrayCreateLogType;
 struct  ArrayMetadata;
+struct  ArrayOverwriteLogType;
 class   ArrayPage;
 class   ArrayPartitioner;
 struct  ArrayRange;
 class   ArrayStorage;
 class   ArrayStorageFactory;
 class   ArrayStoragePimpl;
-struct  CreateLogType;
-struct  OverwriteLogType;
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus

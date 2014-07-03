@@ -13,24 +13,30 @@ namespace storage {
  * @brief Just a marker to denote that a memory region represents a data page.
  * @ingroup STORAGE
  * @details
- * Each storage class derives from this to define their page headers.
- * In other words, this object contains the common header items regardless of storage types.
+ * Each storage page class contains this at the beginning to declare common properties.
+ * In other words, we can always reinterpret_cast a page pointer to this object and
+ * get/set basic properties.
  */
-struct PageHeader {
+struct PageHeader CXX11_FINAL {
+  /**
+   * @brief Snapshot Page ID of this page.
+   * @details
+   * As the name suggests, this is set only when this page becomes a snapshot page.
+   * When this page image is a volatile page, there is no point to store page ID
+   * because the pointer address tells it.
+   */
+  SnapshotPagePointer snapshot_page_id_;  // +8 -> 8
+
+  /**
+   * ID of the storage this page belongs to.
+   */
+  StorageId           storage_id_;        // +4 -> 16
+
   /**
    * Checksum of the content of this page to detect corrupted pages.
-   * Changes only when we save it to media. No synchronization needed to access.
+   * Changes only when this page becomes a snapshot page.
    */
-  Checksum            checksum_;          // +8 -> 8
-
-  /**
-   * Epoch of this page when this page is written to media (as of the log gleaning).
-   * This might not be maintained in volatile pages
-   */
-  Epoch               durable_epoch_;     // +4 -> 12
-
-  /** ID of the array storage. immutable after the array storage is created. */
-  StorageId           storage_id_;        // +4 -> 16
+  Checksum            checksum_;          // +4 -> 16
 
   // No instantiation.
   PageHeader() CXX11_FUNC_DELETE;

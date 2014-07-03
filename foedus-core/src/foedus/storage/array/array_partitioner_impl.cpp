@@ -123,7 +123,7 @@ void ArrayPartitioner::partition_batch(
   PartitionId*                    results) const {
   ASSERT_ND(is_partitionable());
   for (uint32_t i = 0; i < logs_count; ++i) {
-    const OverwriteLogType *log = reinterpret_cast<const OverwriteLogType*>(
+    const ArrayOverwriteLogType *log = reinterpret_cast<const ArrayOverwriteLogType*>(
       log_buffer.resolve(log_positions[i]));
     ASSERT_ND(log->header_.log_type_code_ == log::kLogCodeArrayOverwrite);
     ASSERT_ND(log->header_.storage_id_ == array_id_);
@@ -195,7 +195,7 @@ void ArrayPartitioner::sort_batch(
   const Epoch::EpochInteger base_epoch_int = base_epoch.value();
   SortEntry* entries = reinterpret_cast<SortEntry*>(sort_buffer.get_block());
   for (uint32_t i = 0; i < log_positions_count; ++i) {
-    const OverwriteLogType* log_entry = reinterpret_cast<const OverwriteLogType*>(
+    const ArrayOverwriteLogType* log_entry = reinterpret_cast<const ArrayOverwriteLogType*>(
       log_buffer.resolve(log_positions[i]));
     ASSERT_ND(log_entry->header_.log_type_code_ == log::kLogCodeArrayOverwrite);
     uint16_t compressed_epoch;
@@ -232,9 +232,9 @@ void ArrayPartitioner::sort_batch(
     // because we sorted it by offset and then ordinal, later logs can overwrite the earlier one.
     if (entries[i].get_offset() == entries[i - 1].get_offset()) {
       // is the data region same or superseded?
-      const OverwriteLogType* prev = reinterpret_cast<const OverwriteLogType*>(
+      const ArrayOverwriteLogType* prev = reinterpret_cast<const ArrayOverwriteLogType*>(
         log_buffer.resolve(entries[i - 1].get_position()));
-      const OverwriteLogType* next = reinterpret_cast<const OverwriteLogType*>(
+      const ArrayOverwriteLogType* next = reinterpret_cast<const ArrayOverwriteLogType*>(
         log_buffer.resolve(entries[i].get_position()));
       uint16_t prev_begin = prev->payload_offset_;
       uint16_t prev_end = prev_begin + prev->payload_count_;

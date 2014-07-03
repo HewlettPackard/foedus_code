@@ -339,8 +339,8 @@ inline ErrorCode ArrayStoragePimpl::overwrite_record(thread::Thread* context, Ar
   CHECK_ERROR_CODE(locate_record(context, offset, &record));
 
   // write out log
-  uint16_t log_length = OverwriteLogType::calculate_log_length(payload_count);
-  OverwriteLogType* log_entry = reinterpret_cast<OverwriteLogType*>(
+  uint16_t log_length = ArrayOverwriteLogType::calculate_log_length(payload_count);
+  ArrayOverwriteLogType* log_entry = reinterpret_cast<ArrayOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(metadata_.id_, offset, payload, payload_offset, payload_count);
   return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
@@ -354,8 +354,8 @@ ErrorCode ArrayStoragePimpl::overwrite_record_primitive(
   CHECK_ERROR_CODE(locate_record(context, offset, &record));
 
   // write out log
-  uint16_t log_length = OverwriteLogType::calculate_log_length(sizeof(T));
-  OverwriteLogType* log_entry = reinterpret_cast<OverwriteLogType*>(
+  uint16_t log_length = ArrayOverwriteLogType::calculate_log_length(sizeof(T));
+  ArrayOverwriteLogType* log_entry = reinterpret_cast<ArrayOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate_primitive<T>(metadata_.id_, offset, payload, payload_offset);
   return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
@@ -373,8 +373,8 @@ ErrorCode ArrayStoragePimpl::increment_record(
   CHECK_ERROR_CODE(context->get_current_xct().read_record_primitive<T>(
     holder_, record, &old_value, payload_offset));
   *value += old_value;
-  uint16_t log_length = OverwriteLogType::calculate_log_length(sizeof(T));
-  OverwriteLogType* log_entry = reinterpret_cast<OverwriteLogType*>(
+  uint16_t log_length = ArrayOverwriteLogType::calculate_log_length(sizeof(T));
+  ArrayOverwriteLogType* log_entry = reinterpret_cast<ArrayOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate_primitive<T>(metadata_.id_, offset, *value, payload_offset);
   return context->get_current_xct().add_to_write_set(holder_, record, log_entry);

@@ -10,6 +10,8 @@
 #include "foedus/storage/partitioner.hpp"
 #include "foedus/storage/array/array_composer_impl.hpp"
 #include "foedus/storage/array/array_partitioner_impl.hpp"
+#include "foedus/storage/sequential/sequential_composer_impl.hpp"
+#include "foedus/storage/sequential/sequential_partitioner_impl.hpp"
 
 namespace foedus {
 namespace storage {
@@ -32,10 +34,16 @@ Composer* Composer::create_composer(
         new_snapshot);
       break;
 
+    case kSequentialStorage:
+      return new sequential::SequentialComposer(
+        engine,
+        dynamic_cast<const sequential::SequentialPartitioner*>(partitioner),
+        snapshot_writer,
+        new_snapshot);
+      break;
     // TODO(Hideaki) implement
     case kHashStorage:
     case kMasstreeStorage:
-    case kSequentialStorage:
     default:
       break;
   }

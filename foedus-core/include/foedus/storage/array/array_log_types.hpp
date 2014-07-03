@@ -41,8 +41,8 @@ namespace array {
  *
  * This log type is infrequently triggered, so no optimization. All methods defined in cpp.
  */
-struct CreateLogType : public log::StorageLogType {
-  LOG_TYPE_NO_CONSTRUCT(CreateLogType)
+struct ArrayCreateLogType : public log::StorageLogType {
+  LOG_TYPE_NO_CONSTRUCT(ArrayCreateLogType)
   ArrayOffset     array_size_;        // +8 => 24
   uint16_t        payload_size_;      // +2 => 26
   uint16_t        name_length_;       // +2 => 28
@@ -56,7 +56,7 @@ struct CreateLogType : public log::StorageLogType {
       uint16_t payload_size, uint16_t name_length, const char* name);
   void apply_storage(thread::Thread* context, Storage* storage);
   void assert_valid();
-  friend std::ostream& operator<<(std::ostream& o, const CreateLogType& v);
+  friend std::ostream& operator<<(std::ostream& o, const ArrayCreateLogType& v);
 };
 
 /**
@@ -66,8 +66,8 @@ struct CreateLogType : public log::StorageLogType {
  * This is the only modification operation in array.
  * It simply invokes memcpy to the payload.
  */
-struct OverwriteLogType : public log::RecordLogType {
-  LOG_TYPE_NO_CONSTRUCT(OverwriteLogType)
+struct ArrayOverwriteLogType : public log::RecordLogType {
+  LOG_TYPE_NO_CONSTRUCT(ArrayOverwriteLogType)
   ArrayOffset     offset_;            // +8 => 24
   uint16_t        payload_offset_;    // +2 => 26
   uint16_t        payload_count_;     // +2 => 28
@@ -115,7 +115,7 @@ struct OverwriteLogType : public log::RecordLogType {
     ASSERT_ND(header_.get_type() == log::kLogCodeArrayOverwrite);
   }
 
-  friend std::ostream& operator<<(std::ostream& o, const OverwriteLogType& v);
+  friend std::ostream& operator<<(std::ostream& o, const ArrayOverwriteLogType& v);
 };
 
 }  // namespace array

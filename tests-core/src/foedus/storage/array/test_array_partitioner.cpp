@@ -77,7 +77,7 @@ struct Logs {
 
   void add_log(Epoch::EpochInteger epoch_int, uint16_t ordinal,
                ArrayOffset offset, uint16_t payload_offset, uint16_t payload_count) {
-    OverwriteLogType* entry = reinterpret_cast<OverwriteLogType*>(memory_ + cur_pos_);
+    ArrayOverwriteLogType* entry = reinterpret_cast<ArrayOverwriteLogType*>(memory_ + cur_pos_);
     char dummy[kPayload];
     entry->populate(partitioner_->get_storage_id(), offset, dummy, payload_offset, payload_count);
     entry->header_.xct_id_.set_clean(epoch_int, ordinal, 0);

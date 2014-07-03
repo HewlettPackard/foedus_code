@@ -23,31 +23,6 @@ namespace array {
  * @brief Composer for an array storage.
  * @ingroup ARRAY
  * @details
- * There are a few options to implement partitioning for an array with trade-offs between
- * simplicity/efficiency and accuracy/flexibility.
- *
- * @par Current policy
- * So far our choice prefers simplicity/efficiency.
- * We split the whole range of the array into kInteriorFanout buckets and assign the partition
- * based on who currently holds the page under the root page.
- * Designing this policy is extremely simple; we just take a look at the root page of this storage
- * and sees the volatile pointer's NUMA node.
- *
- * @par Balancing policy
- * We so far balance the partition assignments so that no partitition receives
- * more than average buckets where average is buckets/partitions.
- * The excessive bucket is given to needy ones that do not have enough buckets.
- *
- * @par Limitations of current policy
- * Of course this simple policy has some issue. One issue is that if the root page has
- * direct children fewer than the number of partitions, some partition does not receive any
- * bucket even if there are many more indirect children. That doesn't happen so often, though.
- * We outputs warnings if this happens.
- *
- * @par Alternative policy
- * Another choice we considered was a vector of ArrayRange in an arbitrary length
- * over which we do binary search. However, this is more expensive.
- * For a simple data structure like array, it might not pay off.
  *
  * @note
  * This is a private implementation-details of \ref ARRAY, thus file name ends with _impl.
