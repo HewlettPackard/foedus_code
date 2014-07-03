@@ -504,6 +504,21 @@ inline void ErrorStack::verify() const {
   foedus::ErrorCode __e = x;\
   if (UNLIKELY(__e != kErrorCodeOk)) {return ERROR_STACK(__e);}\
 }
+
+/**
+ * @def UNWRAP_ERROR_STACK(x)
+ * @ingroup ERRORCODES
+ * @brief
+ * Similar to WRAP_ERROR_CODE(x), but this one converts ErrorStack to ErrorCode.
+ * This reduces information, so use it carefully.
+ * @see WRAP_ERROR_CODE(x)
+ */
+#define UNWRAP_ERROR_STACK(x)\
+{\
+  foedus::ErrorStack __e = x;\
+  if (UNLIKELY(__e.is_error())) { return __e.get_error_code(); }\
+}
+
 /**
  * @def CHECK_ERROR_MSG(x, m)
  * @ingroup ERRORCODES

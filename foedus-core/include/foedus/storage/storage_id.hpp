@@ -77,8 +77,18 @@ inline uint16_t extract_snapshot_id_from_snapshot_pointer(SnapshotPagePointer po
  */
 typedef uint64_t SnapshotLocalPageId;
 
-inline void assert_valid_snapshot_local_page_offset(SnapshotLocalPageId page_id) {
+inline void assert_valid_snapshot_local_page_id(SnapshotLocalPageId page_id) {
   ASSERT_ND(page_id < (1ULL << 40));
+}
+
+inline SnapshotPagePointer to_snapshot_page_pointer(
+  uint16_t snapshot_id,
+  uint8_t node,
+  SnapshotLocalPageId local_page_id) {
+  assert_valid_snapshot_local_page_id(local_page_id);
+  return static_cast<uint64_t>(snapshot_id) << 48
+      | static_cast<uint64_t>(node) << 40
+      | local_page_id;
 }
 
 /**
@@ -105,7 +115,7 @@ enum StorageType {
  * Each snapshot page contains this checksum to be verified when we read it from
  * media or occasionally.
  */
-typedef uint64_t Checksum;
+typedef uint32_t Checksum;
 
 /**
  * @brief Represents a pointer to a volatile page with modification count for preventing ABA.
@@ -117,6 +127,8 @@ typedef uint64_t Checksum;
  *  \li 8-bit flags for concurrency control
  *  \li 16-bit modification counter
  * The offset has to be at least 32 bit (4kb * 2^32=16TB per NUMA node).
+ * @todo This might become just a typedef of uint64_t rather than union.
+ * union data type is a bit unfriendly to some standard classes.
  */
 union VolatilePagePointer {
   uint64_t        word;

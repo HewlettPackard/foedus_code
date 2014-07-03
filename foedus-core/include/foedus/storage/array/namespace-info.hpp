@@ -9,7 +9,7 @@
  * @namespace foedus::storage::array
  * @brief \b Array Storage, a dense and regular array.
  * @details
- * @section BASICS Basic Structure
+ * @section ARRAY_BASICS Basic Structure
  * Our array-storage is an extremely simple data structure at the cost
  * of limited applicability (fix-sized, regular, dense arrays).
  * The page layout has little per-page information that is dynamic, meaning that
@@ -17,7 +17,7 @@
  * Further, as everything is pre-allocated, no phantoms, no insertion/splits, nor anything complex.
  * Thus, little synchronization hassles.
  *
- * @section OPS Supported Operations
+ * @section ARRAY_OPS Supported Operations
  * Array storage allows very few data operations.
  * \li \b Reads a record or a range of records.
  * \li \b Overwrites a record.
@@ -34,7 +34,7 @@
  * If these limitations do not cause an issue, array storage is a best choice as it's extremely
  * efficient and scalable thanks to the simplicity.
  *
- * @section HIE Page Hierarchy
+ * @section ARRAY_HIE Page Hierarchy
  * Despite the name of this storage type, we do have a page hierarchy, which is required to handle
  * switches between volatile/snapshot pages. Hence, a more precise description of this storage type
  * is a fix-sized pre-allocated \e tree that has only integer-keys from 0 to array_size-1.
@@ -43,7 +43,7 @@
  * children. There is only one root page per array, which may or may not be a leaf page.
  * Just like B-trees in many sense.
  *
- * @section LAYOUT Page Layout
+ * @section ARRAY_LAYOUT Page Layout
  * @par Header and Data
  * <table>
  *  <tr><th>Fix-Sized HEADER (kHeaderSize bytes)</th><td>DATA</td></tr>
@@ -62,7 +62,7 @@
  * We simply puts foedus::storage::Record contiguously, but with a padding (0-7 bytes).
  * to make sure Record are 8-byte aligned because we do atomic operations on Record's owner_id_.
  *
- * @section VER Concurrency Control
+ * @section ARRAY_VER Concurrency Control
  * We do a bit special concurrency control for this storage type.
  * Because everything is pre-allocated and no split/physical-delete/merge whatsoever,
  * we can do the ModCount concurrency control \b per \b Record, not per page.

@@ -38,8 +38,8 @@ namespace snapshot {
  * @par Fix Phase
  * Next phase is invoked at the end of composer for the storage, finalizing page ID in the snapshot
  * file for each modified page and replacing volatile page pointers with snapshot pointers.
- * This part also depends on composer (or page format of the storage), so the snapshot writer calls
- * composer's method.
+ * This part also depends on composer (or page format of the storage), so this is done by
+ * composer.
  *
  * @par Dump Phase
  * The last phase simply dumps out the pages to snapshot file. This is a sequential write
@@ -71,10 +71,12 @@ class SnapshotWriter final : public DefaultInitializable {
   SnapshotWriter& operator=(const SnapshotWriter &other) = delete;
 
 
-  bool                    is_full() ALWAYS_INLINE { return next_page_ >= pool_size_; }
+  thread::ThreadGroupId   get_numa_node() const { return numa_node_; }
+  SnapshotId              get_snapshot_id() const { return snapshot_id_; }
+  bool                    is_full() ALWAYS_INLINE { return allocated_pages_ >= pool_size_; }
   memory::PagePoolOffset  allocate_new_page() ALWAYS_INLINE {
     ASSERT_ND(!is_full());
-    return next_page_++;
+    return allocated_pages_++;
   }
   storage::Page*          resolve(memory::PagePoolOffset offset) ALWAYS_INLINE {
     ASSERT_ND(offset > 0);
@@ -89,32 +91,24 @@ class SnapshotWriter final : public DefaultInitializable {
   }
 
   /**
-   * @brief Maps given in-memory pages to page IDs in the snapshot file.
-   * @param[in] count number of pages to fix
-   * @return the base local page ID, or the page ID of the first page when it is written to a file.
-   * All the following pages contiguous page IDs, so * next page ID is returned_value + 1.
-   * @details
-   * This is called by composers to obtain page IDs in the file when it finishes composing
-   * the pages. Receiving the base page ID, composers will finalize their data pages to replace
-   * page IDs in data pages. When it's done, they will call dump_pages().
-   */
-  storage::SnapshotLocalPageId fix_pages(uint32_t count) {
-    storage::SnapshotLocalPageId ret = fixed_upto_;
-    fixed_upto_ += count;
-    return ret;
-  }
-
-  /**
    * @brief Writes out in-memory pages to the snapshot file.
    * @param[in] memory_pages in-memory pages to fix
    * @param[in] count length of memory_pages
-   * @pre fixed_upto_ - count == dumped_upto_
-   * @post fixed_upto_ == dumped_upto_
    * @details
    * All pages will be written contiguously. So, this method first stitches the in-memory pages
    * to IO buffer then call write(). We do so even if the in-memory pages are (luckily) contiguous.
    */
   ErrorCode dump_pages(const memory::PagePoolOffset* memory_pages, uint32_t count);
+
+  /**
+   * @brief This is used to write out pages that are contiguous in this pool.
+   * @param[in] from_page beginning of contiguous in-memory pages to fix
+   * @param[in] count number of pages to write out
+   * @details
+   * This is a more efficient version that is probably used only for initial snapshotting
+   * and sequential storage.
+   */
+  ErrorCode dump_pages(memory::PagePoolOffset from_page, uint32_t count);
 
   /**
    * @brief Called when one storage is fully or partially written.
@@ -150,6 +144,10 @@ class SnapshotWriter final : public DefaultInitializable {
   }
   friend std::ostream&    operator<<(std::ostream& o, const SnapshotWriter& v);
 
+  /** This writer has allocated this many pages since the recent reset_pool(). */
+  memory::PagePoolOffset  get_allocated_pages() const { return allocated_pages_; }
+  /** This writer has written out this many pages in total. */
+  uint64_t                get_dumped_pages() const { return dumped_pages_; }
 
  private:
   Engine* const                   engine_;
@@ -166,8 +164,7 @@ class SnapshotWriter final : public DefaultInitializable {
   memory::AlignedMemory           pool_memory_;
   /** Same as pool_memory_.get_block(). */
   storage::Page*                  page_base_;
-  /** How many pages allocated from the pool. Cleared after completion of each storage. */
-  memory::PagePoolOffset          next_page_;
+  /** Size of the pool in pages. */
   memory::PagePoolOffset          pool_size_;
 
   /**
@@ -178,15 +175,14 @@ class SnapshotWriter final : public DefaultInitializable {
   memory::AlignedMemory*          dump_io_buffer_;
 
   /**
-   * This writer has fixed pages up to this page.
-   * In other word, the next page will be fixed_upto_ + 1.
+   * How many pages allocated from the pool. Cleared after completion of each storage.
+   * @invariant 0 <= allocated_pages_ <= pool_size_
    */
-  storage::SnapshotLocalPageId    fixed_upto_;
+  memory::PagePoolOffset          allocated_pages_;
   /**
-   * This writer has written out pages up to this page.
-   * This number should become same as fixed_upto_ after each dump.
+   * This writer has written out this many pages in total.
    */
-  storage::SnapshotLocalPageId    dumped_upto_;
+  uint64_t                        dumped_pages_;
 
   void      clear_snapshot_file();
   fs::Path  get_snapshot_file_path() const;

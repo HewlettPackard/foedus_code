@@ -65,6 +65,10 @@ class SequentialComposer final : public virtual Composer {
   const SequentialPartitioner* const partitioner_;
   snapshot::SnapshotWriter* const snapshot_writer_;
   const snapshot::Snapshot& new_snapshot_;
+
+  SequentialPage* allocate_page(SnapshotPagePointer *next_allocated_page_id);
+  ErrorCode fix_and_dump(SequentialPage* first_unfixed_page, SequentialPage** cur_page);
+  SnapshotPagePointer to_snapshot_pointer(SnapshotLocalPageId local_id) const;
 };
 }  // namespace sequential
 }  // namespace storage

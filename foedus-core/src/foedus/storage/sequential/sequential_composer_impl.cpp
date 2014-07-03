@@ -66,6 +66,8 @@ struct StreamStatus {
     ASSERT_ND(entry->header_.get_type() == log::kLogCodeSequentialAppend);
     ASSERT_ND(entry->header_.log_length_ > 0);
     cur_length_ = entry->header_.log_length_;
+    cur_payload_ = entry->payload_;
+    cur_owner_id_ = entry->header_.xct_id_;
   }
   const SequentialAppendLogType* get_entry() const {
     return reinterpret_cast<const SequentialAppendLogType*>(buffer_ + cur_relative_pos_);
@@ -78,48 +80,104 @@ struct StreamStatus {
   uint64_t        cur_relative_pos_;
   uint64_t        end_absolute_pos_;
   uint32_t        cur_length_;
+  const void*     cur_payload_;
+  xct::XctId      cur_owner_id_;
   bool            ended_;
 };
+
+SnapshotPagePointer SequentialComposer::to_snapshot_pointer(
+  SnapshotLocalPageId local_id) const {
+  return to_snapshot_page_pointer(
+    snapshot_writer_->get_snapshot_id(),
+    snapshot_writer_->get_numa_node(),
+    local_id);
+}
+
+ErrorCode SequentialComposer::fix_and_dump(
+  SequentialPage* first_unfixed_page,
+  SequentialPage** cur_page) {
+  // it's simple. we write out all pages we allocated.
+  // replace page pointers with fixed ones
+  memory::PagePoolOffset first_unfixed_offset = first_unfixed_page->header().snapshot_page_id_;
+  ASSERT_ND(first_unfixed_offset > 0);
+  memory::PagePoolOffset upto_offset = snapshot_writer_->get_allocated_pages();
+  ASSERT_ND(first_unfixed_offset < upto_offset);
+  if (*cur_page) {
+    --upto_offset;  // exclude the current page
+    ASSERT_ND(snapshot_writer_->resolve(reinterpret_cast<Page*>(*cur_page)) == upto_offset);
+  }
+
+  CHECK_ERROR_CODE(snapshot_writer_->dump_pages(
+    first_unfixed_offset,
+    upto_offset - first_unfixed_offset));
+  if (*cur_page) {
+    memory::PagePoolOffset exclude_offset =
+      snapshot_writer_->resolve(reinterpret_cast<Page*>(*cur_page));
+    memory::PagePoolOffset new_offset = snapshot_writer_->reset_pool(&exclude_offset, 1);
+    // now the only surviving page, cur_page, gets the new_offset.
+    *cur_page = reinterpret_cast<SequentialPage*>(snapshot_writer_->resolve(new_offset));
+  } else {
+    snapshot_writer_->reset_pool(nullptr, 0);
+  }
+  return kErrorCodeOk;
+}
+
+SequentialPage* SequentialComposer::allocate_page(SnapshotPagePointer *next_allocated_page_id) {
+  memory::PagePoolOffset offset = snapshot_writer_->allocate_new_page();
+  SequentialPage* page = reinterpret_cast<SequentialPage*>(snapshot_writer_->resolve(offset));
+  ASSERT_ND(page);
+  page->initialize_data_page(partitioner_->get_storage_id());
+  page->header().snapshot_page_id_ = *next_allocated_page_id;
+  ++(*next_allocated_page_id);
+  return page;
+}
 
 ErrorStack SequentialComposer::compose(
   snapshot::SortedBuffer** log_streams,
   uint32_t log_streams_count,
   SnapshotPagePointer previous_root_page_pointer,
   const memory::AlignedMemorySlice& /*work_memory*/) {
-  VLOG(0) << to_string() << " composing with " << log_streams_count << " streams."
-    << " previous_root_page_pointer=" << assorted::Hex(previous_root_page_pointer);
   debugging::StopWatch stop_watch;
 
-  memory::PagePoolOffset current_page_offset = snapshot_writer_->allocate_new_page();
-  SequentialPage* current_page = reinterpret_cast<SequentialPage*>(
-    snapshot_writer_->resolve(current_page_offset));
-  ASSERT_ND(current_page);
+  // we write out all pages we allocate. much simpler than other storage types.
+  // thus, we don't need a dedicated "fix" phase. we know the page ID after dumping already.
+  // we pass around next_allocated_page_id for that.
+  const SnapshotLocalPageId first_local_page_id = snapshot_writer_->get_dumped_pages();
+  const SnapshotPagePointer first_page_id = to_snapshot_pointer(first_local_page_id);
+  SnapshotPagePointer next_allocated_page_id = first_page_id;
+  SequentialPage* first_unfixed_page = allocate_page(&next_allocated_page_id);
+  SequentialPage* cur_page = first_unfixed_page;
+
+  VLOG(0) << to_string() << " composing with " << log_streams_count << " streams."
+    << " previous_root_page_pointer=" << assorted::Hex(previous_root_page_pointer)
+    << " first_page_id=" << assorted::Hex(previous_root_page_pointer);
+
   for (uint32_t i = 0; i < log_streams_count; ++i) {
     StreamStatus status;
     status.init(log_streams[i]);
     const SequentialAppendLogType* entry = status.get_entry();
 
-    if (current_page->get_used_data_bytes()
-        + assorted::align8(entry->payload_count_) + kRecordOverhead > SequentialPage::kDataSize ||
-        current_page->get_record_count() >= SequentialPage::kMaxSlots) {
-      // now need to allocate a new page
+    // need to allocate a new page?
+    uint16_t record_length = assorted::align8(entry->payload_count_) + kRecordOverhead;
+    if (first_unfixed_page->get_used_data_bytes() + record_length > SequentialPage::kDataSize ||
+        first_unfixed_page->get_record_count() >= SequentialPage::kMaxSlots) {
+      // need to flush the buffer?
       if (snapshot_writer_->is_full()) {
-        // TODO(Hideaki) fix and dump
+        // dump everything except the current page
+        WRAP_ERROR_CODE(fix_and_dump(first_unfixed_page, &cur_page));
+        first_unfixed_page = cur_page;
       }
-      memory::PagePoolOffset new_page_offset = snapshot_writer_->allocate_new_page();
-      SequentialPage* new_page = reinterpret_cast<SequentialPage*>(
-        snapshot_writer_->resolve(new_page_offset));
-      DualPagePointer new_page_pointer;
-      new_page_pointer.volatile_pointer_.components.offset = new_page_offset;
-      current_page->set_next_page(new_page_pointer);
-      current_page_offset = new_page_offset;
-      current_page = new_page;
+
+      // sequential storage is a bit special. As every page is written-once, we need only
+      // snapshot pointer. No dual page pointers.
+      SequentialPage* new_page = allocate_page(&next_allocated_page_id);
+      cur_page->next_page().snapshot_pointer_ = new_page->header().snapshot_page_id_;
+      cur_page = new_page;
     }
 
-    ASSERT_ND(current_page->get_used_data_bytes() + status.cur_length_
-      <= SequentialPage::kDataSize);
-    ASSERT_ND(current_page->get_record_count() < SequentialPage::kMaxSlots);
-    // TODO(Hideaki) put record in page, no need for atomics
+    ASSERT_ND(cur_page->get_used_data_bytes() + record_length <= SequentialPage::kDataSize);
+    ASSERT_ND(cur_page->get_record_count() < SequentialPage::kMaxSlots);
+    cur_page->append_record_nosync(status.cur_owner_id_, status.cur_length_, status.cur_payload_);
 
     // then, read next
     WRAP_ERROR_CODE(status.next());
@@ -127,7 +185,9 @@ ErrorStack SequentialComposer::compose(
       break;
     }
   }
-  // TODO(Hideaki) fix and dump
+  // dump everything
+  cur_page = nullptr;
+  WRAP_ERROR_CODE(fix_and_dump(first_unfixed_page, &cur_page));
 
   stop_watch.stop();
   VLOG(0) << to_string() << " done in " << stop_watch.elapsed_ms() << "ms.";

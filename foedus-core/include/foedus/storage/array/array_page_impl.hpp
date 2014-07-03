@@ -89,7 +89,7 @@ class ArrayPage final {
 
   uint8_t             reserved1_;     // +1 -> 8
 
-  /** The offset range this node is in charge of. */
+  /** The offset range this node is in charge of. Mainly for sanity checking. */
   ArrayRange          array_range_;   // +16 -> 24
 
   // All variables up to here are immutable after the array storage is created.
