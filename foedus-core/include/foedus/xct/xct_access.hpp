@@ -63,6 +63,30 @@ struct WriteXctAccess : public XctAccess {
 };
 
 
+/**
+ * @brief Represents a record of special write-access during a transaction
+ * without any need for locking.
+ * @ingroup XCT
+ * @details
+ * Some storage type doesn't need locking for serializability (so far \ref SEQUENTIAL only)
+ * For them, we maintain this write-set objects separated from WriteXctAccess.
+ * We don't lock/unlock for these records, and we don't even have to remember what
+ * we observed (actually, we don't even observe anything when we create this).
+ * @par POD
+ * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
+ */
+struct LockFreeWriteXctAccess {
+  friend std::ostream& operator<<(std::ostream& o, const LockFreeWriteXctAccess& v);
+
+  /** Pointer to the storage we accessed. */
+  storage::Storage*     storage_;
+
+  /** Pointer to the log entry in private log buffer for this write opereation. */
+  log::RecordLogType*   log_entry_;
+
+  // no need for compare method or storing version/record/etc. it's lock-free!
+};
+
 }  // namespace xct
 }  // namespace foedus
 #endif  // FOEDUS_XCT_XCT_ACCESS_HPP_

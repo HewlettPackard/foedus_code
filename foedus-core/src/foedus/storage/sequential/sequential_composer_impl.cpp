@@ -98,7 +98,7 @@ ErrorCode SequentialComposer::fix_and_dump(
   SequentialPage** cur_page) {
   // it's simple. we write out all pages we allocated.
   // replace page pointers with fixed ones
-  memory::PagePoolOffset first_unfixed_offset = first_unfixed_page->header().snapshot_page_id_;
+  memory::PagePoolOffset first_unfixed_offset = first_unfixed_page->header().page_id_;
   ASSERT_ND(first_unfixed_offset > 0);
   memory::PagePoolOffset upto_offset = snapshot_writer_->get_allocated_pages();
   ASSERT_ND(first_unfixed_offset < upto_offset);
@@ -126,8 +126,7 @@ SequentialPage* SequentialComposer::allocate_page(SnapshotPagePointer *next_allo
   memory::PagePoolOffset offset = snapshot_writer_->allocate_new_page();
   SequentialPage* page = reinterpret_cast<SequentialPage*>(snapshot_writer_->resolve(offset));
   ASSERT_ND(page);
-  page->initialize_data_page(partitioner_->get_storage_id());
-  page->header().snapshot_page_id_ = *next_allocated_page_id;
+  page->initialize_data_page(partitioner_->get_storage_id(), *next_allocated_page_id);
   ++(*next_allocated_page_id);
   return page;
 }
@@ -158,9 +157,7 @@ ErrorStack SequentialComposer::compose(
     const SequentialAppendLogType* entry = status.get_entry();
 
     // need to allocate a new page?
-    uint16_t record_length = assorted::align8(entry->payload_count_) + kRecordOverhead;
-    if (first_unfixed_page->get_used_data_bytes() + record_length > SequentialPage::kDataSize ||
-        first_unfixed_page->get_record_count() >= SequentialPage::kMaxSlots) {
+    if (!first_unfixed_page->can_insert_record(entry->payload_count_)) {
       // need to flush the buffer?
       if (snapshot_writer_->is_full()) {
         // dump everything except the current page
@@ -171,12 +168,11 @@ ErrorStack SequentialComposer::compose(
       // sequential storage is a bit special. As every page is written-once, we need only
       // snapshot pointer. No dual page pointers.
       SequentialPage* new_page = allocate_page(&next_allocated_page_id);
-      cur_page->next_page().snapshot_pointer_ = new_page->header().snapshot_page_id_;
+      cur_page->next_page().snapshot_pointer_ = new_page->header().page_id_;
       cur_page = new_page;
     }
 
-    ASSERT_ND(cur_page->get_used_data_bytes() + record_length <= SequentialPage::kDataSize);
-    ASSERT_ND(cur_page->get_record_count() < SequentialPage::kMaxSlots);
+    ASSERT_ND(cur_page->can_insert_record(entry->payload_count_));
     cur_page->append_record_nosync(status.cur_owner_id_, status.cur_length_, status.cur_payload_);
 
     // then, read next

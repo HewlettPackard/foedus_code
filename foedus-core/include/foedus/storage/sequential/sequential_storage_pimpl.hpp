@@ -21,6 +21,7 @@
 #include "foedus/storage/sequential/fwd.hpp"
 #include "foedus/storage/sequential/sequential_id.hpp"
 #include "foedus/storage/sequential/sequential_metadata.hpp"
+#include "foedus/storage/sequential/sequential_volatile_list_impl.hpp"
 #include "foedus/thread/fwd.hpp"
 
 namespace foedus {
@@ -49,24 +50,25 @@ class SequentialStoragePimpl final : public DefaultInitializable {
 
   ErrorCode   append_record(thread::Thread* context, const void *payload, uint16_t payload_count);
 
-  /** Used only from uninitialize() */
-  void        release_pages_recursive(
-    memory::PageReleaseBatch* batch, SequentialPage* page, VolatilePagePointer volatile_page_id);
+  void        apply_append_record(
+    thread::Thread* context,
+    const SequentialAppendLogType* log_entry);
 
   Engine* const             engine_;
   SequentialStorage* const  holder_;
   SequentialMetadata        metadata_;
 
   /**
-   * Points to snapshot \e head pages.
-   * A sequential storage has zero or more head pages that point to the beginning of
-   * singly-linked list of snapshot pages; one for each node and each snapshot.
-   * In addition to these stable pages, a sequential storage has one volatile purely in-memory
-   * append-only list.
+   * @brief A separate lock-free in-memory list of volatile records.
+   * @details
+   * This separate list maintains records in the sequential storage until they are
+   * snapshotted. When the records are snapshotted, the snapshot thread scans this list
+   * and drops snapshotted records (of course atomically with installing the snapshot versions).
    */
-  std::vector<DualPagePointer> head_pages_;
+  SequentialVolatileList    volatile_list_;
 
-  bool                        exist_;
+  /** If this is true, initialize() reads it back from previous snapshot and logs. */
+  bool                      exist_;
 };
 }  // namespace sequential
 }  // namespace storage

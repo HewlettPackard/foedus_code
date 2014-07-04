@@ -84,12 +84,15 @@ struct SequentialAppendLogType : public log::RecordLogType {
     payload_count_ = payload_count;
     std::memcpy(payload_, payload, payload_count);
   }
-  void            apply_record(thread::Thread* /*context*/,
-                               Storage* storage, Record* record) ALWAYS_INLINE {
+  void            apply_record(
+    thread::Thread* context,
+    Storage* storage,
+    Record* record) ALWAYS_INLINE {
+    ASSERT_ND(!record);  // It's a lock-free write set, so it doesn't have record info.
     ASSERT_ND(payload_count_ < SequentialPage::kMaxPayload);
-    ASSERT_ND(dynamic_cast<SequentialStorage*>(storage));
-    std::memcpy(record->payload_, payload_, payload_count_);
-    assorted::memory_fence_release();  // we must apply BEFORE unlock
+    SequentialStorage* casted = dynamic_cast<SequentialStorage*>(storage);
+    ASSERT_ND(casted);
+    casted->apply_append_record(context, this);
   }
 
   void            assert_valid() ALWAYS_INLINE {

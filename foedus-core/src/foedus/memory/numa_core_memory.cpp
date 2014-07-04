@@ -18,10 +18,17 @@
 
 namespace foedus {
 namespace memory {
-NumaCoreMemory::NumaCoreMemory(Engine* engine, NumaNodeMemory *node_memory,
-      thread::ThreadId core_id) : engine_(engine), node_memory_(node_memory),
-    core_id_(core_id), core_local_ordinal_(thread::decompose_numa_local_ordinal(core_id)),
-    read_set_memory_(nullptr), write_set_memory_(nullptr) {
+NumaCoreMemory::NumaCoreMemory(
+  Engine* engine,
+  NumaNodeMemory *node_memory,
+  thread::ThreadId core_id)
+  : engine_(engine),
+    node_memory_(node_memory),
+    core_id_(core_id),
+    core_local_ordinal_(thread::decompose_numa_local_ordinal(core_id)),
+    read_set_memory_(nullptr),
+    write_set_memory_(nullptr),
+    lock_free_write_set_memory_(nullptr) {
   ASSERT_ND(thread::decompose_numa_node(core_id_) == node_memory->get_numa_node());
   ASSERT_ND(core_id_ == thread::compose_thread_id(node_memory->get_numa_node(),
                           core_local_ordinal_));
@@ -33,6 +40,9 @@ ErrorStack NumaCoreMemory::initialize_once() {
   read_set_size_ = engine_->get_options().xct_.max_read_set_size_;
   write_set_memory_ = node_memory_->get_write_set_memory_piece(core_local_ordinal_);
   write_set_size_ = engine_->get_options().xct_.max_write_set_size_;
+  lock_free_write_set_memory_ = node_memory_->get_lock_free_write_set_memory_piece(
+    core_local_ordinal_);
+  lock_free_write_set_size_ = engine_->get_options().xct_.max_lock_free_write_set_size_;
   free_pool_chunk_ = node_memory_->get_page_offset_chunk_memory_piece(core_local_ordinal_);
   log_buffer_memory_ = node_memory_->get_log_buffer_memory_piece(core_local_ordinal_);
 
@@ -46,6 +56,7 @@ ErrorStack NumaCoreMemory::uninitialize_once() {
   ErrorStackBatch batch;
   read_set_memory_ = nullptr;
   write_set_memory_ = nullptr;
+  lock_free_write_set_memory_ = nullptr;
   if (free_pool_chunk_) {
     // return all free pages
     node_memory_->get_page_pool().release(free_pool_chunk_->size(), free_pool_chunk_);

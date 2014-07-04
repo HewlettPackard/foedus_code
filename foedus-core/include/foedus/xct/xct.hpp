@@ -49,6 +49,7 @@ class Xct {
     isolation_level_ = isolation_level;
     read_set_size_ = 0;
     write_set_size_ = 0;
+    lock_free_write_set_size_ = 0;
   }
 
   /**
@@ -66,14 +67,21 @@ class Xct {
    * storage create/drop/alter etc operations.
    */
   bool                is_schema_xct() const { return schema_xct_; }
+  /** Returns if this transaction makes no writes. */
+  bool                is_read_only() const {
+    return write_set_size_ == 0 && lock_free_write_set_size_ == 0;
+  }
   /** Returns the level of isolation for this transaction. */
   IsolationLevel      get_isolation_level() const { return isolation_level_; }
   /** Returns the ID of this transaction, but note that it is not issued until commit time! */
   const XctId&        get_id() const { return id_; }
   uint32_t            get_read_set_size() const { return read_set_size_; }
   uint32_t            get_write_set_size() const { return write_set_size_; }
+  uint32_t            get_lock_free_write_set_size() const { return lock_free_write_set_size_; }
   XctAccess*          get_read_set()  { return read_set_; }
   WriteXctAccess*     get_write_set() { return write_set_; }
+  LockFreeWriteXctAccess* get_lock_free_write_set() { return lock_free_write_set_; }
+
 
   /**
    * @brief Called while a successful commit of read-write or schema xct to issue a new xct id.
@@ -117,8 +125,19 @@ class Xct {
    * @details
    * Inlined in xct_inl.hpp.
    */
-  ErrorCode           add_to_write_set(storage::Storage* storage, storage::Record* record,
-                     log::RecordLogType* log_entry);
+  ErrorCode           add_to_write_set(
+    storage::Storage* storage,
+    storage::Record* record,
+    log::RecordLogType* log_entry);
+
+  /**
+   * @brief Add the given log to the lock-free write set of this transaction.
+   * @details
+   * Inlined in xct_inl.hpp.
+   */
+  ErrorCode           add_to_lock_free_write_set(
+    storage::Storage* storage,
+    log::RecordLogType* log_entry);
 
   /**
    * @brief If this transaction is currently committing with some log to publish, this
@@ -209,6 +228,10 @@ class Xct {
   WriteXctAccess*     write_set_;
   uint32_t            write_set_size_;
   uint32_t            max_write_set_size_;
+
+  LockFreeWriteXctAccess* lock_free_write_set_;
+  uint32_t                lock_free_write_set_size_;
+  uint32_t                max_lock_free_write_set_size_;
 
   /** @copydoc get_in_commit_log_epoch() */
   Epoch               in_commit_log_epoch_;

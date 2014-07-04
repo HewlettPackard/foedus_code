@@ -10,7 +10,9 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
+#include "foedus/epoch.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -76,7 +78,7 @@ class SequentialPage final {
    * barrier or atomic CAS when needed.
    */
   uint16_t            get_record_count()  const {
-    return static_cast<uint16_t>(status_ >> 16);  // 32-48 bits
+    return static_cast<uint16_t>(peek_status() >> 16);  // 32-48 bits
   }
   /**
    * How many data bytes in this page consumed so far. Monotonically increasing.
@@ -86,7 +88,7 @@ class SequentialPage final {
    * barrier or atomic CAS when needed.
    */
   uint16_t            get_used_data_bytes() const {
-    return static_cast<uint16_t>(status_);  // 48-64 bits
+    return static_cast<uint16_t>(peek_status());  // 48-64 bits
   }
 
   /** Returns byte length of payload of the specified record in this page. */
@@ -108,14 +110,27 @@ class SequentialPage final {
   const DualPagePointer&  next_page() const { return next_page_; }
 
   /** Called only when this page is initialized. */
-  void                initialize_data_page(StorageId storage_id) {
+  void                initialize_data_page(StorageId storage_id, uint64_t page_id) {
     header_.checksum_ = 0;
-    header_.snapshot_page_id_ = 0;
+    header_.page_id_ = page_id;
     header_.storage_id_ = storage_id;
-    status_ = 0;
+    status_.store(0, std::memory_order_relaxed);
     next_page_.snapshot_pointer_ = 0;
     next_page_.volatile_pointer_.word = 0;
   }
+
+  /**
+   * @brief Appends a record to this page while usual transactional processing.
+   * @return whether it successfully inserted. False if this page becomes full
+   * due to concurrent threads. In that case, the caller will allocate a new page.
+   * @details
+   * This method invokes one atomic operation to safely insert a new record in a
+   * lock-free fashion.
+   */
+  bool                append_record(
+    xct::XctId owner_id,
+    uint16_t payload_length,
+    const void* payload);
 
   /**
    * @brief Appends a record to this page while snapshotting.
@@ -135,12 +150,46 @@ class SequentialPage final {
     xct::XctId* owner_id_addr = reinterpret_cast<xct::XctId*>(data_ + used_data_bytes);
     *owner_id_addr = owner_id;
     std::memcpy(data_ + used_data_bytes + kRecordOverhead, payload, payload_length);
-    status_ = (static_cast<uint64_t>(record + 1) << 16) |
-      static_cast<uint64_t>(used_data_bytes + assorted::align8(payload_length) + kRecordOverhead);
+    status_.store(
+      (static_cast<uint64_t>(record + 1) << 16) |
+        static_cast<uint64_t>(used_data_bytes + assorted::align8(payload_length) + kRecordOverhead),
+      std::memory_order_relaxed);
   }
 
+  /**
+   * Returns if this page has enough room to insert a record with the given payload length.
+   * This method does not guarantee if you can really insert it due to concurrent appends.
+   * Thus, this method should be followed by append_record, which does real check and insert.
+   */
+  bool                can_insert_record(uint16_t payload_length) const {
+    uint16_t record_length = assorted::align8(payload_length) + kRecordOverhead;
+    return get_used_data_bytes() + record_length <= kDataSize && get_record_count() < kMaxSlots;
+  }
+  /**
+   * Returns the epoch of the first record in this page (invalid epoch if no record).
+   * In a volatile sequential page, we make sure one page doesn't have records in two epochs.
+   * In snapshot pages, we don't have such requirements.
+   */
+  Epoch               get_first_record_epoch() const {
+    if (get_record_count() == 0) {
+      return INVALID_EPOCH;
+    }
+    const xct::XctId* owner_id_addr = reinterpret_cast<const xct::XctId*>(data_);
+    return owner_id_addr->get_epoch();
+  }
+
+  /**
+   * @brief Atomically sets the closed flag in status_.
+   * @post closed flag is ON (whether by this caller or concurrent callers)
+   * @return Whether the caller is the thread that set the flag. If this returns true,
+   * the caller is responsible for installing next page. Others will spinlock for it.
+   */
+  bool                try_close_page();
+
+  uint64_t            peek_status() const { return status_.load(std::memory_order_relaxed); }
+
  private:
-  PageHeader          header_;          // +16 -> 16
+  PageHeader            header_;          // +16 -> 16
 
   /**
    * @brief Atomically maintained status of this page.
@@ -155,7 +204,7 @@ class SequentialPage final {
    *  \li [32-48) bits: record count.
    *  \li [48-64) bits: used data bytes.
    */
-  uint64_t            status_;          // +8 ->24
+  std::atomic<uint64_t> status_;          // +8 ->24
 
   /**
    * Pointer to next page.
@@ -163,13 +212,13 @@ class SequentialPage final {
    * intermediate pages).
    * Once it is set, the pointer and the pointed page will never be changed.
    */
-  DualPagePointer     next_page_;       // +16 -> 40
+  DualPagePointer       next_page_;       // +16 -> 40
 
   /** Indicates lengthes of each record. */
-  LengthSlots         slots_;           // +256 -> 296
+  LengthSlots           slots_;           // +256 -> 296
 
   /** Dynamic records in this page. */
-  char                data_[kDataSize];
+  char                  data_[kDataSize];
 };
 STATIC_SIZE_CHECK(sizeof(SequentialPage), 1 << 12)
 
@@ -221,7 +270,7 @@ class SequentialRootPage final {
   /** Called only when this page is initialized. */
   void                initialize_data_page(StorageId storage_id) {
     header_.checksum_ = 0;
-    header_.snapshot_page_id_ = 0;
+    header_.page_id_ = 0;
     header_.storage_id_ = storage_id;
     pointer_count_ = 0;
     next_page_ = 0;

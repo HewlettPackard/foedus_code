@@ -25,5 +25,13 @@ std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v) {
   o << ". base=" << static_cast<const XctAccess&>(v);
   return o;
 }
+std::ostream& operator<<(std::ostream& o, const LockFreeWriteXctAccess& v) {
+  o << "<LockFreeWriteXctAccess>"
+    << "<storage>" << v.storage_->get_id() << "</storage>";
+  log::invoke_ostream(v.log_entry_, &o);
+  o << "</LockFreeWriteXctAccess>";
+  return o;
+}
+
 }  // namespace xct
 }  // namespace foedus

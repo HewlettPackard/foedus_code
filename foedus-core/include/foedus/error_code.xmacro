@@ -73,6 +73,7 @@ X(kErrorCodeStrMustSeparateXct,     0x0804, "STORAGE: This storage operation mus
 X(kErrorCodeStrArrayInvalidOption,  0x0805, "STORAGE: Invalid Option for array storage")
 X(kErrorCodeStrWrongMetadataType,   0x0806, "STORAGE: Metadata type does not match")
 X(kErrorCodeStrUnsupportedMetadata, 0x0807, "STORAGE: This metadata type is not yet supported")
+X(kErrorCodeStrTooLongPayload,      0x0808, "STORAGE: Payload of the record is too long")
 
 X(kErrorCodeXctReadSetOverflow,     0x0A01, "XCTION : Too large read-set. Check the config of XctOptions")
 X(kErrorCodeXctWriteSetOverflow,    0x0A02, "XCTION : Too large write-set. Check the config of XctOptions")

@@ -141,6 +141,18 @@ union VolatilePagePointer {
   } components;
 };
 
+inline VolatilePagePointer combine_volatile_page_pointer(
+  uint8_t numa_node,
+  uint8_t flags,
+  uint16_t mod_count,
+  memory::PagePoolOffset offset) {
+  VolatilePagePointer ret;
+  ret.components.numa_node = numa_node;
+  ret.components.flags = flags;
+  ret.components.mod_count = mod_count;
+  ret.components.offset = offset;
+  return ret;
+}
 
 /**
  * @brief Represents a pointer to another page (usually a child page).

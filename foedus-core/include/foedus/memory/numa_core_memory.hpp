@@ -41,6 +41,11 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
   /** Returns memory to keep track of write-set during transactions. */
   xct::WriteXctAccess* get_write_set_memory()  const { return write_set_memory_; }
   uint32_t        get_write_set_size()    const { return write_set_size_; }
+  /** Returns memory to keep track of lock-free write-set during transactions. */
+  xct::LockFreeWriteXctAccess* get_lock_free_write_set_memory() const {
+    return lock_free_write_set_memory_;
+  }
+  uint32_t        get_lock_free_write_set_size() const { return lock_free_write_set_size_; }
 
   AlignedMemorySlice get_log_buffer_memory() const { return log_buffer_memory_; }
 
@@ -88,6 +93,10 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
   /** Memory to keep track of write-set during transactions. */
   xct::WriteXctAccess*                    write_set_memory_;
   uint32_t                                write_set_size_;
+
+  /** Memory to keep track of lock-free write-set during transactions. */
+  xct::LockFreeWriteXctAccess*            lock_free_write_set_memory_;
+  uint32_t                                lock_free_write_set_size_;
 
   /**
    * @brief Holds a \b local set of pointers to free pages.
