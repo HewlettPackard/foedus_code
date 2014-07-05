@@ -51,6 +51,12 @@ namespace storage {
  *  \li For each storage and for each second-level page that is pointed from the root page,
  * the snapshot pointer and relevant pointer information (eg key range). This is required to
  * construct the root page at the end of snapshotting.
+ *
+ * @section COMPOSER_INSTALL Installing Composed Pages
+ * At the end of snapshotting, composers install pointers to the snapshot pages they composed.
+ * These are written to the snapshot pointer part of DualPagePointer so that transactions
+ * can start using the snapshot pages.
+ * Composers also drop volatile pointers if possible, reducing pressures to volatile page pool.
  */
 class Composer {
  public:
@@ -62,10 +68,14 @@ class Composer {
   /** Writes out a detailed description of this object to stream. */
   virtual void        describe(std::ostream* o) const = 0;
 
+  /** Returns the size of working memory this composer needs. */
   virtual uint64_t    get_required_work_memory_size(
     snapshot::SortedBuffer**  log_streams,
     uint32_t                  log_streams_count) const = 0;
 
+  /**
+   * @brief Construct snapshot pages from sorted run files of one storage.
+   */
   virtual ErrorStack  compose(
     snapshot::SortedBuffer**          log_streams,
     uint32_t                          log_streams_count,

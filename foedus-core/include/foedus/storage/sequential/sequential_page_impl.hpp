@@ -43,12 +43,11 @@ class SequentialPage final {
    */
   struct LengthSlots {
     /**
-     * Length of each record's payload divided by 8.
-     * Thus, one record can have at most 256*8=2048 bytes. Should be a reasonable limit.
+     * Length of each record's payload.
      * Zero means that the record is not inserted yet (we don't allow zero-byte body
      * in \ref SEQUENTIAL; there is no point to have it).
      */
-    uint8_t lengthes_[kMaxSlots];
+    uint16_t lengthes_[kMaxSlots];
   };
 
   // A page object is never explicitly instantiated. You must reinterpret_cast.
@@ -84,16 +83,25 @@ class SequentialPage final {
   /** Returns byte length of payload of the specified record in this page. */
   uint16_t            get_payload_length(uint16_t record)  const {
     ASSERT_ND(record < get_record_count());
-    return slots_.lengthes_[record] << 3;
+    return slots_.lengthes_[record];
   }
   /** Returns byte length of the specified record in this page. */
   uint16_t            get_record_length(uint16_t record)  const {
     return get_payload_length(record) + foedus::storage::kRecordOverhead;
   }
-  void                set_payload_length_nosync(uint16_t record, uint16_t length) {
-    ASSERT_ND(length < kMaxPayload);
-    ASSERT_ND(record < kMaxSlots);
-    slots_.lengthes_[record] = assorted::align8(length) >> 3;
+
+  /** Retrieve positions and lengthes of all records in one batch. */
+  void                get_all_records_nosync(
+    uint16_t* record_count,
+    const char** record_pointers,
+    uint16_t* payload_lengthes) const {
+    *record_count = get_record_count();
+    uint16_t position = 0;
+    for (uint16_t i = 0; i < *record_count; ++i) {
+      record_pointers[i] = data_ + position;
+      payload_lengthes[i] = slots_.lengthes_[i];
+      position += assorted::align8(payload_lengthes[i]) + foedus::storage::kRecordOverhead;
+    }
   }
 
   DualPagePointer&        next_page() { return next_page_; }
@@ -136,7 +144,7 @@ class SequentialPage final {
     ASSERT_ND(record < kMaxSlots);
     uint16_t used_data_bytes = get_used_data_bytes();
     ASSERT_ND(used_data_bytes + assorted::align8(payload_length) + kRecordOverhead <= kDataSize);
-    set_payload_length_nosync(record, payload_length);
+    slots_.lengthes_[record] = payload_length;
     xct::XctId* owner_id_addr = reinterpret_cast<xct::XctId*>(data_ + used_data_bytes);
     *owner_id_addr = owner_id;
     std::memcpy(data_ + used_data_bytes + kRecordOverhead, payload, payload_length);
@@ -205,7 +213,7 @@ class SequentialPage final {
   DualPagePointer       next_page_;       // +16 -> 40
 
   /** Indicates lengthes of each record. */
-  LengthSlots           slots_;           // +256 -> 296
+  LengthSlots           slots_;           // +512 -> 552
 
   /** Dynamic records in this page. */
   char                  data_[kDataSize];

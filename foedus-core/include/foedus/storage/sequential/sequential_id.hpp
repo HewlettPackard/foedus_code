@@ -26,7 +26,7 @@ const uint16_t kMaxSlots = 1 << 8;
  * Byte size of header in each data page of sequential storage.
  * @ingroup SEQUENTIAL
  */
-const uint16_t kHeaderSize = 296;
+const uint16_t kHeaderSize = 552;
 /**
  * Byte size of data region in each data page of sequential storage.
  * @ingroup SEQUENTIAL
@@ -37,7 +37,7 @@ const uint16_t kDataSize = foedus::storage::kPageSize - kHeaderSize;
  * Payload must be shorter than this length.
  * @ingroup SEQUENTIAL
  */
-const uint16_t kMaxPayload = 2048;
+const uint16_t kMaxPayload = kDataSize;
 
 /**
  * Byte size of header in each root page of sequential storage.

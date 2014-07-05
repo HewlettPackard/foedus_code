@@ -79,21 +79,26 @@ ErrorStack SequentialVolatileList::uninitialize_once() {
 }
 
 void SequentialVolatileList::append_record(
-  thread::Thread* context, xct::XctId owner_id, const void* payload, uint16_t payload_count) {
+  thread::Thread* context,
+  xct::XctId owner_id,
+  const void* payload,
+  uint16_t payload_count) {
   uint8_t node = context->get_numa_node();
   Epoch epoch = owner_id.get_epoch();
   while (true) {
     // note: we make sure no volatile page has records from two epochs.
     // this makes us easy to drop volatile pages after snapshotting.
-    if (tail_->can_insert_record(payload_count) && tail_->get_first_record_epoch() == epoch) {
-      bool succeeded = tail_->append_record(owner_id, payload_count, payload);
+    SequentialPage* my_tail = tail_;  // someone else might be now changing tail. Cache it here.
+    //  && my_tail->get_first_record_epoch() == epoch  TODO(Hideaki) must rethink about this
+    if (my_tail->can_insert_record(payload_count)) {
+      bool succeeded = my_tail->append_record(owner_id, payload_count, payload);
       if (succeeded) {
         break;
       }
     }
 
     // we need to insert a new page. 1) close the page, 2) install next page.
-    bool this_thread_closed_it = tail_->try_close_page();
+    bool this_thread_closed_it = my_tail->try_close_page();
     if (this_thread_closed_it) {
       // this thread closed it, so it is responsible for installing next page.
       memory::PagePoolOffset new_page_offset = context->get_thread_memory()->grab_free_page();
@@ -111,14 +116,13 @@ void SequentialVolatileList::append_record(
       new_page->append_record_nosync(owner_id, payload_count, payload);
       // change tail pointer BEFORE (with barrier) setting next pointer in ex-tail so that
       // no one else can change tail_ even if this thread gets stalled right now.
-      SequentialPage* tmp_tail = tail_;
       tail_ = new_page;  // change the tail to the new page
       assorted::memory_fence_release();
-      tmp_tail->next_page().volatile_pointer_ = new_page_pointer;
+      my_tail->next_page().volatile_pointer_ = new_page_pointer;
       return;  // we are done!
     } else {
       // other thread closed it. let's wait for the thread installing a next page.
-      SPINLOCK_WHILE(tail_->next_page().volatile_pointer_.components.offset == 0) {
+      SPINLOCK_WHILE(my_tail->next_page().volatile_pointer_.components.offset == 0) {
       }
       continue;  // retry
     }

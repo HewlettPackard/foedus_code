@@ -59,6 +59,9 @@ class SequentialVolatileList final : public DefaultInitializable {
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
+  SequentialPage*   get_head() const { return head_; }
+  SequentialPage*   get_tail() const { return tail_; }
+
   /**
    * @brief Appends an already-commited record to this volatile list.
    * @details

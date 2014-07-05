@@ -19,7 +19,7 @@ bool SequentialPage::append_record(
     bool cur_closed = (cur_status >> 32) > 0;
     if (cur_closed ||
       cur_record_count >= kMaxSlots ||
-      cur_used_bytes + record_length <= kDataSize) {
+      cur_used_bytes + record_length > kDataSize) {
       // this page seems full. give up
       return false;
     }
@@ -29,7 +29,7 @@ bool SequentialPage::append_record(
       static_cast<uint64_t>(cur_used_bytes + record_length);
     if (status_.compare_exchange_weak(cur_status, new_status)) {
       // CAS succeeded. put the record
-      set_payload_length_nosync(cur_record_count, payload_length);
+      slots_.lengthes_[cur_record_count] = payload_length;
       std::memcpy(data_ + cur_used_bytes + kRecordOverhead, payload, payload_length);
       assorted::memory_fence_release();  // finish memcpy BEFORE setting xct_id
       xct::XctId* owner_id_addr = reinterpret_cast<xct::XctId*>(data_ + cur_used_bytes);
