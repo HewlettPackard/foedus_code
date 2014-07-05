@@ -46,6 +46,24 @@
  * But, again, most sequential storage's root page should be just one or two pages.
  * A similar overhead happens to all other storage types, too.
  *
+ * @section SEQ_LAYOUT Page Layout
+ * Both data pages and root pages form a singly linked list of pages.
+ * The next pointer is stored in the header part.
+ *
+ * @subsection SEQ_LAYOUT_DATA Layout of Data Page (foedus::storage::sequential::SequentialPage)
+ * <table>
+ *  <tr><th>Fix-Sized HEADER (kHeaderSize bytes)</th></tr>
+ *  <tr><td>Record Data part, which grows forward</td></tr>
+ *  <tr><th>Unused part</th></tr>
+ *  <tr><td>Record Lengthes part, which grows backawrd</td></tr>
+ * </table>
+ *
+ * @subsection SEQ_LAYOUT_ROOT Layout of Root Page (foedus::storage::sequential::SequentialRootPage)
+ * <table>
+ *  <tr><th>Fix-Sized HEADER (kHeaderSize bytes)</th></tr>
+ *  <tr><td>Pointers to head pages..</td></tr>
+ * </table>
+ *
  * @section SEQ_INMEM In-memory List
  * As described above, the volatile part of sequential storage is a set of singly-linked list
  * pointed directly from the storage object. The storage object maintains such in-memory list
@@ -54,7 +72,7 @@
  *
  * Because we have to efficiently append to the in-memory list, we maintain head and tail pointers
  * to each list. Updating the tail page and replacing tail pointers involve a few atomic operations,
- * but no expensive locks as done in other storages. For more details, see SequentialStoragePimpl.
+ * but no expensive locks as done in other storages. For more details, see SequentialVolatileList.
  */
 
 /**

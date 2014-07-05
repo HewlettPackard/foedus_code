@@ -13,23 +13,33 @@ bool SequentialPage::append_record(
   const void* payload) {
   uint16_t record_length = assorted::align8(payload_length) + kRecordOverhead;
   while (true) {
-    uint64_t cur_status = peek_status();
-    uint16_t cur_record_count = static_cast<uint16_t>(cur_status >> 16);  // 32-48 bits
-    uint16_t cur_used_bytes = static_cast<uint16_t>(cur_status);  // 48-64 bits
-    bool cur_closed = (cur_status >> 32) > 0;
+    uint64_t  cur_status = peek_status();
+    Epoch     cur_earliest_epoch(static_cast<uint32_t>(cur_status >> 32));  // 0-32 bits
+    bool      cur_closed = (cur_status & (1U << 31)) != 0;  // 32-33 bit
+    uint16_t  cur_record_count = (cur_status >> 16) & 0x7FFFU;  // 33-48 bits
+    uint16_t  cur_used_bytes = static_cast<uint16_t>(cur_status);  // 48-64 bits
     if (cur_closed ||
       cur_record_count >= kMaxSlots ||
-      cur_used_bytes + record_length > kDataSize) {
+      cur_used_bytes + record_length + sizeof(PayloadLength) * (cur_record_count + 1) > kDataSize) {
       // this page seems full. give up
       return false;
     }
 
+    // volatile pages maintain the earliest epoch in the page
+    ASSERT_ND(owner_id.get_epoch().is_valid());
+    if (cur_earliest_epoch.is_valid()) {
+      cur_earliest_epoch.store_min(owner_id.get_epoch());
+    } else {
+      cur_earliest_epoch = owner_id.get_epoch();
+    }
+
     uint64_t new_status =
+      static_cast<uint64_t>(cur_earliest_epoch.value()) << 32 |
       static_cast<uint64_t>(cur_record_count + 1) << 16 |
       static_cast<uint64_t>(cur_used_bytes + record_length);
     if (status_.compare_exchange_weak(cur_status, new_status)) {
       // CAS succeeded. put the record
-      slots_.lengthes_[cur_record_count] = payload_length;
+      set_payload_length(cur_record_count, payload_length);
       std::memcpy(data_ + cur_used_bytes + kRecordOverhead, payload, payload_length);
       assorted::memory_fence_release();  // finish memcpy BEFORE setting xct_id
       xct::XctId* owner_id_addr = reinterpret_cast<xct::XctId*>(data_ + cur_used_bytes);
@@ -48,12 +58,12 @@ bool SequentialPage::append_record(
 bool SequentialPage::try_close_page() {
   while (true) {
     uint64_t cur_status = peek_status();
-    bool cur_closed = (cur_status >> 32) > 0;
+    bool cur_closed = (cur_status & (1U << 31)) != 0;  // 32-33 bit
     if (cur_closed) {
       return false;  // someone already closed it!
     }
 
-    uint64_t new_status = cur_status | (1ULL << 32);
+    uint64_t new_status = cur_status | (1ULL << 31);
     if (status_.compare_exchange_weak(cur_status, new_status)) {
       return true;
     }

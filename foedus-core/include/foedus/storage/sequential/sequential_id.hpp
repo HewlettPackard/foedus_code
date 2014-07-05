@@ -18,15 +18,15 @@ namespace foedus {
 namespace storage {
 namespace sequential {
 /**
- * We so far have 256 slots in each data page, or 256 bytes per 4096 bytes. Arguable.
+ * We have to represent the record count in 15 bits.
  * @ingroup SEQUENTIAL
  */
-const uint16_t kMaxSlots = 1 << 8;
+const uint16_t kMaxSlots = 1 << 15;
 /**
  * Byte size of header in each data page of sequential storage.
  * @ingroup SEQUENTIAL
  */
-const uint16_t kHeaderSize = 552;
+const uint16_t kHeaderSize = 40;
 /**
  * Byte size of data region in each data page of sequential storage.
  * @ingroup SEQUENTIAL

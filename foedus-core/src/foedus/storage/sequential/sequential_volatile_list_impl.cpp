@@ -88,7 +88,6 @@ void SequentialVolatileList::append_record(
     // note: we make sure no volatile page has records from two epochs.
     // this makes us easy to drop volatile pages after snapshotting.
     SequentialPage* my_tail = tail_;  // someone else might be now changing tail. Cache it here.
-    //  && my_tail->get_first_record_epoch() == epoch  TODO(Hideaki) must rethink about this
     if (my_tail->can_insert_record(payload_count)) {
       bool succeeded = my_tail->append_record(owner_id, payload_count, payload);
       if (succeeded) {
