@@ -36,16 +36,6 @@ namespace sequential {
  */
 class SequentialPage final {
  public:
-  enum Constants {
-    /** We so far have 256 slots in each page, or 256 bytes per 4096 bytes. Arguable. */
-    kMaxSlots = 1 << 8,
-    /** Byte size of header in each page of sequential storage. */
-    kHeaderSize = 296,
-    /** Byte size of data region in each page of sequential storage. */
-    kDataSize = foedus::storage::kPageSize - kHeaderSize,
-    /** Payload must be shorter than this length. */
-    kMaxPayload = 2048,
-  };
   /**
    * Stores each record's length. We do NOT store position of each record,
    * so we have to sum up all of them to identify the location.
@@ -243,15 +233,6 @@ STATIC_SIZE_CHECK(sizeof(SequentialPage), 1 << 12)
  */
 class SequentialRootPage final {
  public:
-  enum Constants {
-    /** Byte size of header in each page of sequential storage. */
-    kHeaderSize = 32,
-    /** Maximum number of head pointers in one page. */
-    kMaxHeadPointers = (foedus::storage::kPageSize - kHeaderSize) / sizeof(SnapshotPagePointer),
-    /** Byte size of data region in each page of sequential storage. */
-    kDataSize = foedus::storage::kPageSize - kHeaderSize,
-  };
-
   // A page object is never explicitly instantiated. You must reinterpret_cast.
   SequentialRootPage() = delete;
   SequentialRootPage(const SequentialRootPage& other) = delete;
@@ -289,7 +270,7 @@ class SequentialRootPage final {
   SnapshotPagePointer next_page_;       // +8 -> 32
 
   /** Pointers to heads of data pages. */
-  SnapshotPagePointer head_page_pointers_[kMaxHeadPointers];
+  SnapshotPagePointer head_page_pointers_[kRootPageMaxHeadPointers];
 };
 STATIC_SIZE_CHECK(sizeof(SequentialRootPage), 1 << 12)
 

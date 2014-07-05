@@ -102,7 +102,7 @@ ErrorStack SequentialStoragePimpl::create(thread::Thread* /*context*/) {
 
 inline ErrorCode SequentialStoragePimpl::append_record(
   thread::Thread* context, const void *payload, uint16_t payload_count) {
-  if (payload_count >= SequentialPage::kMaxPayload) {
+  if (payload_count >= kMaxPayload) {
     return kErrorCodeStrTooLongPayload;
   }
 

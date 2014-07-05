@@ -11,6 +11,7 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
+#include "foedus/cxx11.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/log/common_log_types.hpp"
@@ -19,7 +20,6 @@
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/sequential/fwd.hpp"
 #include "foedus/storage/sequential/sequential_id.hpp"
-#include "foedus/storage/sequential/sequential_page_impl.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
 #include "foedus/xct/xct_id.hpp"
 
@@ -88,8 +88,8 @@ struct SequentialAppendLogType : public log::RecordLogType {
     thread::Thread* context,
     Storage* storage,
     Record* record) ALWAYS_INLINE {
-    ASSERT_ND(!record);  // It's a lock-free write set, so it doesn't have record info.
-    ASSERT_ND(payload_count_ < SequentialPage::kMaxPayload);
+    // It's a lock-free write set, so it doesn't have record info.
+    ASSERT_ND(record == CXX11_NULLPTR);
     SequentialStorage* casted = dynamic_cast<SequentialStorage*>(storage);
     ASSERT_ND(casted);
     casted->apply_append_record(context, this);
@@ -98,6 +98,7 @@ struct SequentialAppendLogType : public log::RecordLogType {
   void            assert_valid() ALWAYS_INLINE {
     assert_valid_generic();
     ASSERT_ND(header_.log_length_ == calculate_log_length(payload_count_));
+    ASSERT_ND(payload_count_ < kMaxPayload);
     ASSERT_ND(header_.get_type() == log::kLogCodeSequentialAppend);
   }
 

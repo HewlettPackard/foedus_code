@@ -11,10 +11,16 @@
 namespace foedus {
 namespace storage {
 namespace array {
-void ArrayPage::initialize_data_page(Epoch initial_epoch, StorageId storage_id,
-          uint16_t payload_size, uint8_t node_height, const ArrayRange& array_range) {
+void ArrayPage::initialize_data_page(
+  Epoch initial_epoch,
+  StorageId storage_id,
+  uint64_t page_id,
+  uint16_t payload_size,
+  uint8_t node_height,
+  const ArrayRange& array_range) {
   std::memset(this, 0, kPageSize);
-  storage_id_ = storage_id;
+  header_.storage_id_ = storage_id;
+  header_.page_id_ = page_id;
   payload_size_ = payload_size;
   node_height_ = node_height;
   array_range_ = array_range;
