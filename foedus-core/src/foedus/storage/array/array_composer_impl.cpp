@@ -162,7 +162,8 @@ ErrorStack ArrayComposer::compose(
   snapshot::SortedBuffer** log_streams,
   uint32_t log_streams_count,
   SnapshotPagePointer previous_root_page_pointer,
-  const memory::AlignedMemorySlice& work_memory) {
+  const memory::AlignedMemorySlice& work_memory,
+  Page* /*root_info_page*/) {
   VLOG(0) << to_string() << " composing with " << log_streams_count << " streams."
     << " previous_root_page_pointer=" << assorted::Hex(previous_root_page_pointer);
   debugging::StopWatch stop_watch;

@@ -84,7 +84,6 @@ void SequentialVolatileList::append_record(
   const void* payload,
   uint16_t payload_count) {
   uint8_t node = context->get_numa_node();
-  Epoch epoch = owner_id.get_epoch();
   while (true) {
     // note: we make sure no volatile page has records from two epochs.
     // this makes us easy to drop volatile pages after snapshotting.

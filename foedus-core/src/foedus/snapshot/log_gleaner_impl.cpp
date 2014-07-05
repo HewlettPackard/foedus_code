@@ -141,7 +141,7 @@ ErrorStack LogGleaner::execute() {
   // now let's start!
   start_processing_.signal();
 
-  // then, wait until all mappers/reducers are done for this epoch
+  // then, wait until all mappers/reducers are done
   bool terminated_mappers = false;
   while (!gleaner_thread_->sleep() && error_count_ == 0) {
     if (is_stop_requested() || is_all_completed()) {
@@ -150,6 +150,7 @@ ErrorStack LogGleaner::execute() {
     if (!terminated_mappers && is_all_mappers_completed()) {
       // as soon as all mappers complete, uninitialize them to release unused memories.
       // the last phase of reducers consume lots of resource, so this might help a bit.
+      LOG(INFO) << "All mappers are done. Let's immediately release their resources...: " << *this;
       cancel_mappers();
       terminated_mappers = true;
     }
@@ -160,7 +161,8 @@ ErrorStack LogGleaner::execute() {
   } else if (!is_all_completed()) {
     LOG(WARNING) << "gleaner_thread_ stopped without completion. cancelled? " << *this;
   } else {
-    LOG(INFO) << "All mappers/reducers successfully done. " << *this;
+    LOG(INFO) << "All mappers/reducers successfully done. Now on to the final phase." << *this;
+    CHECK_ERROR(construct_root_pages());
   }
 
   LOG(INFO) << "gleaner_thread_ stopping.. cancelling reducers and mappers: " << *this;
@@ -168,6 +170,10 @@ ErrorStack LogGleaner::execute() {
   ASSERT_ND(exit_count_.load() == mappers_.size() + reducers_.size());
   LOG(INFO) << "gleaner_thread_ ends: " << *this;
 
+  return kRetOk;
+}
+
+ErrorStack LogGleaner::construct_root_pages() {
   return kRetOk;
 }
 
@@ -221,6 +227,7 @@ std::ostream& operator<<(std::ostream& o, const LogGleaner& v) {
     << "<ready_to_start_count_>" << v.ready_to_start_count_ << "</ready_to_start_count_>"
     << "<completed_count_>" << v.completed_count_ << "</completed_count_>"
     << "<completed_mapper_count_>" << v.completed_mapper_count_ << "</completed_mapper_count_>"
+    << "<partitioner_count>" << v.get_partitioner_count() << "</partitioner_count>"
     << "<error_count_>" << v.error_count_ << "</error_count_>"
     << "<exit_count_>" << v.exit_count_ << "</exit_count_>"
     << "<nonrecord_log_buffer_pos_>"

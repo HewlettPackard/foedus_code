@@ -135,14 +135,22 @@ ErrorStack SequentialComposer::compose(
   snapshot::SortedBuffer** log_streams,
   uint32_t log_streams_count,
   SnapshotPagePointer previous_root_page_pointer,
-  const memory::AlignedMemorySlice& /*work_memory*/) {
+  const memory::AlignedMemorySlice& /*work_memory*/,
+  Page* root_info_page) {
   debugging::StopWatch stop_watch;
+
+  // this compose() emits just one pointer to the head page.
+  std::memset(root_info_page, 0, sizeof(Page));
+  RootInfoPage* root_info_page_casted = reinterpret_cast<RootInfoPage*>(root_info_page);
+  root_info_page_casted->header_.storage_id_ = partitioner_->get_storage_id();
+  root_info_page_casted->pointer_count_ = 1;
 
   // we write out all pages we allocate. much simpler than other storage types.
   // thus, we don't need a dedicated "fix" phase. we know the page ID after dumping already.
   // we pass around next_allocated_page_id for that.
   const SnapshotLocalPageId first_local_page_id = snapshot_writer_->get_dumped_pages();
   const SnapshotPagePointer first_page_id = to_snapshot_pointer(first_local_page_id);
+  root_info_page_casted->pointers_[0] = first_page_id;
   SnapshotPagePointer next_allocated_page_id = first_page_id;
   SequentialPage* first_unfixed_page = allocate_page(&next_allocated_page_id);
   SequentialPage* cur_page = first_unfixed_page;
@@ -186,7 +194,8 @@ ErrorStack SequentialComposer::compose(
   WRAP_ERROR_CODE(fix_and_dump(first_unfixed_page, &cur_page));
 
   stop_watch.stop();
-  VLOG(0) << to_string() << " done in " << stop_watch.elapsed_ms() << "ms.";
+  VLOG(0) << to_string() << " done in " << stop_watch.elapsed_ms() << "ms. head page="
+    << assorted::Hex(first_page_id);
   return kRetOk;
 }
 

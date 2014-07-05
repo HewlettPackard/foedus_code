@@ -48,8 +48,10 @@ struct PageHeader CXX11_FINAL {
  * @ingroup STORAGE
  * @details
  * We don't instantiate this object nor derive from this. This is just a marker.
- * Because PageHeader might be extended in each storage, even the data_ address is not correct.
- * We thus make everything private to prevent misuse.
+ * Because derived page objects have more header properties and even the data_ is layed out
+ * differently. We thus make everything private to prevent misuse.
+ * @attention Remember, anyway we don't have RTTI for data pages. They are just byte arrays used
+ * with reinterpret_cast.
  */
 struct Page CXX11_FINAL {
   /** At least the basic header exists in all pages. */

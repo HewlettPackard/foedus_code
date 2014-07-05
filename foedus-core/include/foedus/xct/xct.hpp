@@ -233,6 +233,12 @@ class Xct {
   uint32_t                lock_free_write_set_size_;
   uint32_t                max_lock_free_write_set_size_;
 
+  // @todo we also need a special lock_free read set just for scanning xct on sequential storage.
+  // it should check if the biggest XctId the scanner read is still the biggest XctId in the list.
+  // we can easily implement it by remembering "safe" page to resume search, or just remembering
+  // tail (abort if tail has changed), and then reading all record in the page.
+  // as we don't have scanning accesses to sequential storage yet, low priority.
+
   /** @copydoc get_in_commit_log_epoch() */
   Epoch               in_commit_log_epoch_;
 };

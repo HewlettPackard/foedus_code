@@ -116,6 +116,7 @@ class LogReducer final : public MapReduceBase {
       snapshot_writer_(engine_, this),
       previous_snapshot_files_(engine_),
       sorted_runs_(0),
+      total_storage_count_(0),
       current_buffer_(0) {}
 
   /** One LogReducer corresponds to one NUMA node (partition). */
@@ -319,6 +320,12 @@ class LogReducer final : public MapReduceBase {
   memory::AlignedMemory   sort_buffer_;
 
   /**
+   * Used to store information output from composers to construct root pages.
+   * 4kb * storages. This is automatically extended when needed.
+   */
+  memory::AlignedMemory   root_info_buffer_;
+
+  /**
    * Used to temporarily store input/output positions of all log entries for one storage.
    * This is automatically extended when needed.
    * Note that this contains two slices, input_positions_slice_ and output_positions_slice_.
@@ -352,6 +359,13 @@ class LogReducer final : public MapReduceBase {
   uint32_t      sorted_runs_;
 
   /**
+   * Set at the end of merge_sort().
+   * Total number of storages this reducer has merged and composed.
+   * This is also the number of root-info pages this reducer has produced.
+   */
+  uint32_t      total_storage_count_;
+
+  /**
    * buffers_[current_buffer_ % 2] is the buffer mappers should append to.
    * This value increases for every buffer switch.
    */
@@ -371,9 +385,23 @@ class LogReducer final : public MapReduceBase {
   const ReducerBuffer* get_current_buffer() const {
     return &buffers_[current_buffer_ % 2];
   }
-  void expand_sort_buffer_if_needed(uint64_t required_size);
+
+  void expand_if_needed(
+    uint64_t required_size,
+    memory::AlignedMemory *memory,
+    const std::string& name);
+  void expand_sort_buffer_if_needed(uint64_t required_size) {
+    expand_if_needed(required_size, &sort_buffer_, "sort_buffer_");
+  }
+  void expand_composer_work_memory_if_needed(uint64_t required_size) {
+    expand_if_needed(required_size, &composer_work_memory_, "composer_work_memory_");
+  }
+  void expand_root_info_buffer_if_needed(uint64_t required_size) {
+    expand_if_needed(required_size, &root_info_buffer_, "root_info_buffer_");
+  }
+  /** This one is a bit special. */
   void expand_positions_buffers_if_needed(uint64_t required_size_per_buffer);
-  void expand_composer_work_memory_if_needed(uint64_t required_size);
+
   fs::Path get_sorted_run_file_path(uint32_t sorted_run) const;
 
   /**

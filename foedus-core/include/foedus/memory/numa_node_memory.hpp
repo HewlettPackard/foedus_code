@@ -105,7 +105,7 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   /** Number of loggers in this node. */
   const uint16_t                          loggers_;
 
-  /** In-memory page pool in this node. */
+  /** In-memory volatile page pool in this node. */
   PagePool                                page_pool_;
 
   /**
@@ -135,7 +135,7 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   std::vector<xct::LockFreeWriteXctAccess*> lock_free_write_set_memory_pieces_;
 
   /**
-   * Memory to hold a \b local pool of pointers to free pages. Same above.
+   * Memory to hold a \b local pool of pointers to free volatile pages. Same above.
    */
   AlignedMemory                           page_offset_chunk_memory_;
   std::vector<PagePoolOffsetChunk*>       page_offset_chunk_memory_pieces_;

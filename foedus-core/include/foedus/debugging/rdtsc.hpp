@@ -5,7 +5,7 @@
 #ifndef FOEDUS_DEBUGGING_RDTSC_HPP_
 #define FOEDUS_DEBUGGING_RDTSC_HPP_
 /**
- * @file foedus/debugging/rdtsc_waits.hpp
+ * @file foedus/debugging/rdtsc.hpp
  * @brief Implements an RDTSC (Real-time time stamp counter) wait to emulate latency on slower
  * devices.
  * @ingroup DEBUGGING

@@ -49,8 +49,9 @@ namespace storage {
  * Composers emit the following data when it's done.
  *  \li Composed data pages, which are written to the snapshot file by the snapshot writer.
  *  \li For each storage and for each second-level page that is pointed from the root page,
- * the snapshot pointer and relevant pointer information (eg key range). This is required to
- * construct the root page at the end of snapshotting.
+ * the snapshot pointer and relevant pointer information (eg key range).
+ * We call this information as \e root-info and store them in a tentative page.
+ * This is required to construct the root page at the end of snapshotting.
  *
  * @section COMPOSER_INSTALL Installing Composed Pages
  * At the end of snapshotting, composers install pointers to the snapshot pages they composed.
@@ -75,12 +76,20 @@ class Composer {
 
   /**
    * @brief Construct snapshot pages from sorted run files of one storage.
+   * @param[in] log_streams Sorted runs
+   * @param[in] log_streams_count Number of sorted runs
+   * @param[in] previous_root_page_pointer Not used so far
+   * @param[in] work_memory Working memory to be used in this method
+   * @param[out] root_info_page Returns pointers and related information that is required
+   * to construct the root page. The data format depends on the composer. In all implementations,
+   * the information must fit in one page (should be, otherwise we can't have a root page)
    */
   virtual ErrorStack  compose(
     snapshot::SortedBuffer**          log_streams,
     uint32_t                          log_streams_count,
     SnapshotPagePointer               previous_root_page_pointer,
-    const memory::AlignedMemorySlice& work_memory) = 0;
+    const memory::AlignedMemorySlice& work_memory,
+    Page*                             root_info_page) = 0;
 
   static Composer*    create_composer(
     Engine *engine,
