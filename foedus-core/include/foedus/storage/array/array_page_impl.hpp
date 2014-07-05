@@ -109,13 +109,6 @@ class ArrayPage final {
    */
   Checksum            checksum_;      // +8 -> 48
 
-  uint64_t            reserved3_;     // +8 -> 56
-  uint64_t            reserved4_;     // +8 -> 64
-
-  // fill up to 64 bytes. we usually don't need to read these headers, so it'd be better
-  // if the first data starts with a cache line (64 bytes);
-  // is it better than slightly larger fanout? don't know...
-
   /** Dynamic records in this page. */
   Data                data_;
 };

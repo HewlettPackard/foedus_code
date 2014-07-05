@@ -7,6 +7,9 @@
 #include <numa.h>
 #include <glog/logging.h>
 
+#include <fstream>
+#include <string>
+
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
@@ -24,6 +27,7 @@ ErrorStack EngineMemory::initialize_once() {
   } else if (::numa_available() < 0) {
     return ERROR_STACK(kErrorCodeMemoryNumaUnavailable);
   }
+  check_transparent_hugepage_setting();
   ASSERT_ND(node_memories_.empty());
   const EngineOptions& options = engine_->get_options();
 
@@ -54,8 +58,7 @@ ErrorStack EngineMemory::initialize_once() {
       ASSERT_ND(page_offset_end == node_memory->get_page_pool().get_resolver().end_);
     }
   }
-  global_page_resolver_ = GlobalPageResolver(
-    bases, numa_nodes, page_offset_begin, page_offset_end);
+  global_page_resolver_ = GlobalPageResolver(bases, numa_nodes, page_offset_begin, page_offset_end);
   return kRetOk;
 }
 
@@ -75,6 +78,28 @@ NumaCoreMemory* EngineMemory::get_core_memory(thread::ThreadId id) const {
   NumaNodeMemory* node_memory = get_node_memory(node);
   ASSERT_ND(node_memory);
   return node_memory->get_core_memory(id);
+}
+
+void EngineMemory::check_transparent_hugepage_setting() const {
+  std::ifstream conf("/sys/kernel/mm/transparent_hugepage/enabled");
+  if (conf.is_open()) {
+    std::string line;
+    std::getline(conf, line);
+    conf.close();
+    if (line == "[always] madvise never") {
+      LOG(INFO) << "Great, THP is in always mode";
+    } else {
+      LOG(WARNING) << "THP is not in always mode ('" << line << "')."
+        << " Not enabling THP reduces our performance up to 30%. Run the following to enable it:"
+        << std::endl << "  sudo su"
+        << std::endl << "  echo always > /sys/kernel/mm/transparent_hugepage/enabled";
+    }
+    return;
+  }
+
+  LOG(WARNING) << "Could not read /sys/kernel/mm/transparent_hugepage/enabled to check"
+    << " if THP is enabled. This implies that THP is not available in this system."
+    << " Using an old linux without THP reduces our performance up to 30%";
 }
 
 
