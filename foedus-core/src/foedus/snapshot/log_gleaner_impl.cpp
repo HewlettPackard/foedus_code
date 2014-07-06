@@ -18,6 +18,7 @@
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
+#include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/common_log_types.hpp"
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/snapshot/log_mapper_impl.hpp"
@@ -26,7 +27,6 @@
 #include "foedus/storage/composer.hpp"
 #include "foedus/storage/partitioner.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
-#include "foedus/debugging/stop_watch.hpp"
 
 namespace foedus {
 namespace snapshot {
