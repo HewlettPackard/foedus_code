@@ -107,8 +107,10 @@ inline ErrorCode Xct::read_record_primitive(storage::Storage* storage, storage::
   return kErrorCodeOk;
 }
 
-inline ErrorCode Xct::add_to_write_set(storage::Storage* storage, storage::Record* record,
-                     log::RecordLogType* log_entry) {
+inline ErrorCode Xct::add_to_write_set(
+  storage::Storage* storage,
+  storage::Record* record,
+  log::RecordLogType* log_entry) {
   ASSERT_ND(!schema_xct_);
   ASSERT_ND(storage);
   ASSERT_ND(record);
@@ -126,6 +128,26 @@ inline ErrorCode Xct::add_to_write_set(storage::Storage* storage, storage::Recor
   write_set_[write_set_size_].record_ = record;
   write_set_[write_set_size_].log_entry_ = log_entry;
   ++write_set_size_;
+  return kErrorCodeOk;
+}
+
+inline ErrorCode Xct::add_to_lock_free_write_set(
+  storage::Storage* storage,
+  log::RecordLogType* log_entry) {
+  ASSERT_ND(!schema_xct_);
+  ASSERT_ND(storage);
+  ASSERT_ND(log_entry);
+  if (UNLIKELY(lock_free_write_set_size_ >= max_lock_free_write_set_size_)) {
+    return kErrorCodeXctWriteSetOverflow;
+  }
+
+#ifndef NDEBUG
+  log::invoke_assert_valid(log_entry);
+#endif  // NDEBUG
+
+  lock_free_write_set_[lock_free_write_set_size_].storage_ = storage;
+  lock_free_write_set_[lock_free_write_set_size_].log_entry_ = log_entry;
+  ++lock_free_write_set_size_;
   return kErrorCodeOk;
 }
 

@@ -26,6 +26,7 @@
 #include "foedus/snapshot/mapreduce_base_impl.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/snapshot/snapshot_writer_impl.hpp"
+#include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/condition_variable_impl.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -116,6 +117,7 @@ class LogReducer final : public MapReduceBase {
       snapshot_writer_(engine_, this),
       previous_snapshot_files_(engine_),
       sorted_runs_(0),
+      total_storage_count_(0),
       current_buffer_(0) {}
 
   /** One LogReducer corresponds to one NUMA node (partition). */
@@ -144,6 +146,12 @@ class LogReducer final : public MapReduceBase {
     const char* send_buffer,
     uint32_t log_count,
     uint64_t send_buffer_size);
+
+  /** These are public, but used only from LogGleaner other than itself. */
+  uint32_t get_root_info_page_count() const { return total_storage_count_; }
+  memory::AlignedMemory& get_root_info_buffer() { return root_info_buffer_; }
+  storage::Composer* create_composer(storage::StorageId storage_id);
+  memory::AlignedMemory& get_composer_work_memory() { return composer_work_memory_; }
 
  protected:
   ErrorStack  handle_initialize() override;
@@ -319,6 +327,12 @@ class LogReducer final : public MapReduceBase {
   memory::AlignedMemory   sort_buffer_;
 
   /**
+   * Used to store information output from composers to construct root pages.
+   * 4kb * storages. This is automatically extended when needed.
+   */
+  memory::AlignedMemory   root_info_buffer_;
+
+  /**
    * Used to temporarily store input/output positions of all log entries for one storage.
    * This is automatically extended when needed.
    * Note that this contains two slices, input_positions_slice_ and output_positions_slice_.
@@ -352,6 +366,13 @@ class LogReducer final : public MapReduceBase {
   uint32_t      sorted_runs_;
 
   /**
+   * Set at the end of merge_sort().
+   * Total number of storages this reducer has merged and composed.
+   * This is also the number of root-info pages this reducer has produced.
+   */
+  uint32_t      total_storage_count_;
+
+  /**
    * buffers_[current_buffer_ % 2] is the buffer mappers should append to.
    * This value increases for every buffer switch.
    */
@@ -371,9 +392,23 @@ class LogReducer final : public MapReduceBase {
   const ReducerBuffer* get_current_buffer() const {
     return &buffers_[current_buffer_ % 2];
   }
-  void expand_sort_buffer_if_needed(uint64_t required_size);
+
+  void expand_if_needed(
+    uint64_t required_size,
+    memory::AlignedMemory *memory,
+    const std::string& name);
+  void expand_sort_buffer_if_needed(uint64_t required_size) {
+    expand_if_needed(required_size, &sort_buffer_, "sort_buffer_");
+  }
+  void expand_composer_work_memory_if_needed(uint64_t required_size) {
+    expand_if_needed(required_size, &composer_work_memory_, "composer_work_memory_");
+  }
+  void expand_root_info_buffer_if_needed(uint64_t required_size) {
+    expand_if_needed(required_size, &root_info_buffer_, "root_info_buffer_");
+  }
+  /** This one is a bit special. */
   void expand_positions_buffers_if_needed(uint64_t required_size_per_buffer);
-  void expand_composer_work_memory_if_needed(uint64_t required_size);
+
   fs::Path get_sorted_run_file_path(uint32_t sorted_run) const;
 
   /**

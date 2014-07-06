@@ -8,6 +8,7 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
+#include "foedus/storage/page.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/array/array_id.hpp"
@@ -43,7 +44,9 @@ class ArrayPage final {
   ArrayPage& operator=(const ArrayPage& other) = delete;
 
   // simple accessors
-  StorageId           get_storage_id()    const   { return storage_id_; }
+  PageHeader&         header() { return header_; }
+  const PageHeader&   header() const { return header_; }
+  StorageId           get_storage_id()    const   { return header_.storage_id_; }
   uint16_t            get_leaf_record_count()  const {
     return kDataSize / (kRecordOverhead + payload_size_);
   }
@@ -55,8 +58,13 @@ class ArrayPage final {
   void                set_checksum(Checksum checksum)     { checksum_ = checksum; }
 
   /** Called only when this page is initialized. */
-  void                initialize_data_page(Epoch initial_epoch, StorageId storage_id,
-            uint16_t payload_size, uint8_t node_height, const ArrayRange& array_range);
+  void                initialize_data_page(
+    Epoch initial_epoch,
+    StorageId storage_id,
+    uint64_t page_id,
+    uint16_t payload_size,
+    uint8_t node_height,
+    const ArrayRange& array_range);
 
   // Record accesses
   const Record*   get_leaf_record(uint16_t record) const ALWAYS_INLINE {
@@ -78,19 +86,20 @@ class ArrayPage final {
   }
 
  private:
-  /** ID of the array storage. */
-  StorageId           storage_id_;    // +4 -> 4
+  /** common header */
+  PageHeader          header_;        // +16 -> 16
 
   /** Byte size of one record in this array storage without internal overheads. */
-  uint16_t            payload_size_;  // +2 -> 6
+  uint16_t            payload_size_;  // +2 -> 18
 
   /** Height of this node, counting up from 0 (leaf). */
-  uint8_t             node_height_;   // +1 -> 7
+  uint8_t             node_height_;   // +1 -> 19
 
-  uint8_t             reserved1_;     // +1 -> 8
+  uint8_t             reserved1_;     // +1 -> 20
+  uint32_t            reserved2_;     // +4 -> 24
 
   /** The offset range this node is in charge of. Mainly for sanity checking. */
-  ArrayRange          array_range_;   // +16 -> 24
+  ArrayRange          array_range_;   // +16 -> 40
 
   // All variables up to here are immutable after the array storage is created.
 
@@ -98,7 +107,7 @@ class ArrayPage final {
    * Checksum of the content of this page to detect corrupted pages.
    * \b Changes only when we save it to media. No synchronization needed to access.
    */
-  Checksum            checksum_;      // +8 -> 32
+  Checksum            checksum_;      // +8 -> 48
 
   /** Dynamic records in this page. */
   Data                data_;

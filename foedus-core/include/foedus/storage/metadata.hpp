@@ -35,9 +35,15 @@ namespace storage {
  * Snapshot metadata files are read at next snapshotting and at next restart.
  */
 struct Metadata : public virtual externalize::Externalizable {
-  Metadata() : id_(0), type_(kInvalidStorage), name_("") {}
+  Metadata() : id_(0), type_(kInvalidStorage), name_(""), root_snapshot_page_id_(0) {}
   Metadata(StorageId id, StorageType type, const std::string& name)
-    : id_(id), type_(type), name_(name) {}
+    : id_(id), type_(type), name_(name), root_snapshot_page_id_(0) {}
+  Metadata(
+    StorageId id,
+    StorageType type,
+    const std::string& name,
+    SnapshotPagePointer root_snapshot_page_id)
+    : id_(id), type_(type), name_(name), root_snapshot_page_id_(root_snapshot_page_id) {}
   virtual ~Metadata() {}
 
   /**
@@ -54,6 +60,7 @@ struct Metadata : public virtual externalize::Externalizable {
     cloned->id_ = id_;
     cloned->type_ = type_;
     cloned->name_ = name_;
+    cloned->root_snapshot_page_id_ = root_snapshot_page_id_;
   }
 
   /** the unique ID of this storage. */
@@ -62,6 +69,11 @@ struct Metadata : public virtual externalize::Externalizable {
   StorageType     type_;
   /** the unique name of this storage. */
   std::string     name_;
+  /**
+   * Pointer to a snapshotted page this storage is rooted at.
+   * This is 0 until this storage has the first snapshot.
+   */
+  SnapshotPagePointer root_snapshot_page_id_;
 
   /** Create an instance from the given XML element, according to the type_ tag in it. */
   static Metadata* create_instance(tinyxml2::XMLElement* metadata_xml);

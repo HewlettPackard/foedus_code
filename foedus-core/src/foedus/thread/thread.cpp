@@ -31,6 +31,10 @@ ErrorStack Thread::uninitialize() { return pimpl_->uninitialize(); }
 Engine*     Thread::get_engine()        const { return pimpl_->engine_; }
 ThreadId    Thread::get_thread_id()     const { return pimpl_->id_; }
 memory::NumaCoreMemory* Thread::get_thread_memory() const { return pimpl_->core_memory_; }
+memory::NumaNodeMemory* Thread::get_node_memory() const {
+  return pimpl_->core_memory_->get_node_memory();
+}
+
 xct::Xct&   Thread::get_current_xct()   { return pimpl_->current_xct_; }
 bool        Thread::is_running_xct()    const { return pimpl_->current_xct_.is_active(); }
 

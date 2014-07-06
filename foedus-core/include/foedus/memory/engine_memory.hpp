@@ -71,6 +71,12 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
    * Converts page ID to page pointer.
    */
   GlobalPageResolver              global_page_resolver_;
+
+  /**
+   * THP being disabled is one of the most frequent misconfiguration that reduces performance
+   * for 30% or more. We output a strong warning at startup if it's not "always" mode.
+   */
+  void check_transparent_hugepage_setting() const;
 };
 }  // namespace memory
 }  // namespace foedus

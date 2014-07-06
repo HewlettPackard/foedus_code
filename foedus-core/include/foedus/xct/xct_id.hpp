@@ -213,6 +213,14 @@ struct XctId {
   bool equals_all(const XctId &other) const ALWAYS_INLINE {
     return data_ == other.data_;
   }
+  /**
+   * well, it might be confusing, but not providing == is way too inconvenient.
+   * @attention PLEASE BE AWARE THAT THIS COMPARES ALL BITS!
+   * If this is not the semantics you want as "==", use the individual methods above.
+   */
+  bool operator==(const XctId &other) const ALWAYS_INLINE {
+    return data_ == other.data_;
+  }
 
   /**
    * @brief Kind of std::max(this, other).

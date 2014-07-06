@@ -114,7 +114,7 @@ ArrayStoragePimpl::ArrayStoragePimpl(Engine* engine, ArrayStorage* holder,
     interior_fanout_div_(kInteriorFanout) {
   ASSERT_ND(create || metadata.id_ > 0);
   ASSERT_ND(metadata.name_.size() > 0);
-  root_page_pointer_.snapshot_pointer_ = metadata.root_page_id_;
+  root_page_pointer_.snapshot_pointer_ = metadata.root_snapshot_page_id_;
   root_page_pointer_.volatile_pointer_.word = 0;
 }
 
@@ -214,8 +214,13 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
       ASSERT_ND(level == levels_ - 1);
       range.end_ = metadata_.array_size_;
     }
-    page->initialize_data_page(initial_epoch, metadata_.id_,
-                   metadata_.payload_size_, level, range);
+    page->initialize_data_page(
+      initial_epoch,
+      metadata_.id_,
+      page_pointer.word,
+      metadata_.payload_size_,
+      level,
+      range);
 
     current_pages.push_back(page);
     current_pages_ids.push_back(page_pointer);
@@ -245,7 +250,13 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     if (range.end_ > metadata_.array_size_) {
       range.end_ = metadata_.array_size_;
     }
-    page->initialize_data_page(initial_epoch, metadata_.id_, metadata_.payload_size_, 0, range);
+    page->initialize_data_page(
+      initial_epoch,
+      metadata_.id_,
+      page_pointer.word,
+      metadata_.payload_size_,
+      0,
+      range);
     current_pages[0] = page;
     current_pages_ids[0] = page_pointer;
     // current_records[0] is always 0
@@ -264,7 +275,11 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
           range.end_ = metadata_.array_size_;
         }
         interior_page->initialize_data_page(
-          initial_epoch, metadata_.id_, metadata_.payload_size_, level, interior_range);
+          initial_epoch,
+          metadata_.id_,
+          interior_pointer.word,
+          metadata_.payload_size_,
+          level, interior_range);
 
         DualPagePointer& child_pointer = interior_page->get_interior_record(0);
         child_pointer.snapshot_pointer_ = 0;

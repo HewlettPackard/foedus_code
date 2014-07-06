@@ -16,6 +16,7 @@ ErrorStack Metadata::load_base(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, id_);
   EXTERNALIZE_LOAD_ENUM_ELEMENT(element, type_);
   EXTERNALIZE_LOAD_ELEMENT(element, name_);
+  EXTERNALIZE_LOAD_ELEMENT(element, root_snapshot_page_id_);
   return kRetOk;
 }
 
@@ -23,6 +24,7 @@ ErrorStack Metadata::save_base(tinyxml2::XMLElement* element) const {
   EXTERNALIZE_SAVE_ELEMENT(element, id_, "");
   EXTERNALIZE_SAVE_ENUM_ELEMENT(element, type_, "");
   EXTERNALIZE_SAVE_ELEMENT(element, name_, "");
+  EXTERNALIZE_SAVE_ELEMENT(element, root_snapshot_page_id_, "");
   return kRetOk;
 }
 

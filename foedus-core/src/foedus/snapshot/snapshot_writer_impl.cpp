@@ -13,6 +13,7 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/fs/direct_io_file.hpp"
+#include "foedus/fs/filesystem.hpp"
 #include "foedus/snapshot/log_gleaner_impl.hpp"
 #include "foedus/snapshot/log_reducer_impl.hpp"
 #include "foedus/snapshot/snapshot.hpp"
@@ -32,7 +33,13 @@ SnapshotWriter::SnapshotWriter(Engine* engine, LogReducer* parent)
 }
 
 bool SnapshotWriter::close() {
-  return snapshot_file_->close();
+  fs::Path path = snapshot_file_->get_path();
+  bool closed = snapshot_file_->close();
+  if (!closed) {
+    return false;
+  }
+  // also fsync the file.
+  return fs::fsync(path, true);
 }
 
 void SnapshotWriter::clear_snapshot_file() {
@@ -94,7 +101,9 @@ inline uint32_t count_contiguous(const memory::PagePoolOffset* array, uint32_t f
   uint32_t contiguous = 1;
   for (memory::PagePoolOffset value = array[from];
         from + contiguous < to && value == array[from + contiguous];
-        ++contiguous);
+        ++contiguous) {
+    continue;
+  }
   return contiguous;
 }
 

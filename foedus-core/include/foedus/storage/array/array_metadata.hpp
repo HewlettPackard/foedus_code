@@ -26,16 +26,19 @@ namespace array {
  */
 struct ArrayMetadata CXX11_FINAL : public virtual Metadata {
   ArrayMetadata()
-    : Metadata(0, kArrayStorage, ""), payload_size_(0), array_size_(0), root_page_id_(0) {}
-  ArrayMetadata(StorageId id, const std::string& name, uint16_t payload_size,
-          ArrayOffset array_size, SnapshotPagePointer root_page_id)
+    : Metadata(0, kArrayStorage, ""), payload_size_(0), array_size_(0) {}
+  ArrayMetadata(
+    StorageId id,
+    const std::string& name,
+    uint16_t payload_size,
+    ArrayOffset array_size)
     : Metadata(id, kArrayStorage, name),
-    payload_size_(payload_size), array_size_(array_size), root_page_id_(root_page_id) {
+    payload_size_(payload_size), array_size_(array_size) {
   }
   /** This one is for newly creating a storage. */
   ArrayMetadata(const std::string& name, uint16_t payload_size, ArrayOffset array_size)
     : Metadata(0, kArrayStorage, name),
-    payload_size_(payload_size), array_size_(array_size), root_page_id_(0) {
+    payload_size_(payload_size), array_size_(array_size) {
   }
   EXTERNALIZABLE(ArrayMetadata);
 
@@ -45,7 +48,6 @@ struct ArrayMetadata CXX11_FINAL : public virtual Metadata {
   uint16_t            payload_size_;
   /** Size of this array */
   ArrayOffset         array_size_;
-  SnapshotPagePointer root_page_id_;
 };
 }  // namespace array
 }  // namespace storage

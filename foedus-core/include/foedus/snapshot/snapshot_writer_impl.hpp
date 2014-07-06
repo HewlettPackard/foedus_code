@@ -64,6 +64,10 @@ class SnapshotWriter final : public DefaultInitializable {
   SnapshotWriter(Engine* engine, LogReducer* parent);
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
+  /**
+   * Close the file and makes sure all writes become durable (including the directory entry).
+   * @return whether successfully closed and synced.
+   */
   bool        close();
 
   SnapshotWriter() = delete;

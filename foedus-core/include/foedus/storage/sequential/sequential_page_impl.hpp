@@ -10,7 +10,9 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
+#include "foedus/epoch.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -34,31 +36,6 @@ namespace sequential {
  */
 class SequentialPage final {
  public:
-  enum Constants {
-    /** We so far have 256 slots in each page, or 256 bytes per 4096 bytes. Arguable. */
-    kMaxSlots = 1 << 8,
-    /** Byte size of header in each page of sequential storage. */
-    kHeaderSize = 296,
-    /** Byte size of data region in each page of sequential storage. */
-    kDataSize = foedus::storage::kPageSize - kHeaderSize,
-    /** Payload must be shorter than this length. */
-    kMaxPayload = 2048,
-  };
-  /**
-   * Stores each record's length. We do NOT store position of each record,
-   * so we have to sum up all of them to identify the location.
-   * However, that's the only usecase of \ref SEQUENTIAL. Only scans.
-   */
-  struct LengthSlots {
-    /**
-     * Length of each record's payload divided by 8.
-     * Thus, one record can have at most 256*8=2048 bytes. Should be a reasonable limit.
-     * Zero means that the record is not inserted yet (we don't allow zero-byte body
-     * in \ref SEQUENTIAL; there is no point to have it).
-     */
-    uint8_t lengthes_[kMaxSlots];
-  };
-
   // A page object is never explicitly instantiated. You must reinterpret_cast.
   SequentialPage() = delete;
   SequentialPage(const SequentialPage& other) = delete;
@@ -76,7 +53,7 @@ class SequentialPage final {
    * barrier or atomic CAS when needed.
    */
   uint16_t            get_record_count()  const {
-    return static_cast<uint16_t>(status_ >> 16);  // 32-48 bits
+    return (peek_status() >> 16) & 0x7FFFU;  // 33-48 bits
   }
   /**
    * How many data bytes in this page consumed so far. Monotonically increasing.
@@ -86,36 +63,72 @@ class SequentialPage final {
    * barrier or atomic CAS when needed.
    */
   uint16_t            get_used_data_bytes() const {
-    return static_cast<uint16_t>(status_);  // 48-64 bits
+    return static_cast<uint16_t>(peek_status());  // 48-64 bits
+  }
+
+  void                assert_consistent() const {
+    ASSERT_ND(get_used_data_bytes() + get_record_count() * sizeof(PayloadLength) <= kDataSize);
   }
 
   /** Returns byte length of payload of the specified record in this page. */
   uint16_t            get_payload_length(uint16_t record)  const {
     ASSERT_ND(record < get_record_count());
-    return slots_.lengthes_[record] << 3;
+    assert_consistent();
+    const PayloadLength* lengthes = reinterpret_cast<const PayloadLength*>(data_ + kDataSize);
+    PayloadLength length = *(lengthes - 1 - record);
+    return length;
+  }
+  /** Sets byte length of payload of the specified record in this page. */
+  void                set_payload_length(uint16_t record, uint16_t length) {
+    assert_consistent();
+    PayloadLength* lengthes = reinterpret_cast<PayloadLength*>(data_ + kDataSize);
+    *(lengthes - 1 - record) = length;
   }
   /** Returns byte length of the specified record in this page. */
   uint16_t            get_record_length(uint16_t record)  const {
     return get_payload_length(record) + foedus::storage::kRecordOverhead;
   }
-  void                set_payload_length_nosync(uint16_t record, uint16_t length) {
-    ASSERT_ND(length < kMaxPayload);
-    ASSERT_ND(record < kMaxSlots);
-    slots_.lengthes_[record] = assorted::align8(length) >> 3;
+
+  /** Retrieve positions and lengthes of all records in one batch. */
+  void                get_all_records_nosync(
+    uint16_t* record_count,
+    const char** record_pointers,
+    uint16_t* payload_lengthes) const {
+    assert_consistent();
+    *record_count = get_record_count();
+    uint16_t position = 0;
+    for (uint16_t i = 0; i < *record_count; ++i) {
+      record_pointers[i] = data_ + position;
+      payload_lengthes[i] = get_payload_length(i);
+      position += assorted::align8(payload_lengthes[i]) + foedus::storage::kRecordOverhead;
+    }
   }
 
   DualPagePointer&        next_page() { return next_page_; }
   const DualPagePointer&  next_page() const { return next_page_; }
 
   /** Called only when this page is initialized. */
-  void                initialize_data_page(StorageId storage_id) {
+  void                initialize_data_page(StorageId storage_id, uint64_t page_id) {
     header_.checksum_ = 0;
-    header_.snapshot_page_id_ = 0;
+    header_.page_id_ = page_id;
     header_.storage_id_ = storage_id;
-    status_ = 0;
+    status_.store(0, std::memory_order_relaxed);
     next_page_.snapshot_pointer_ = 0;
     next_page_.volatile_pointer_.word = 0;
   }
+
+  /**
+   * @brief Appends a record to this page while usual transactional processing.
+   * @return whether it successfully inserted. False if this page becomes full
+   * due to concurrent threads. In that case, the caller will allocate a new page.
+   * @details
+   * This method invokes one atomic operation to safely insert a new record in a
+   * lock-free fashion.
+   */
+  bool                append_record(
+    xct::XctId owner_id,
+    uint16_t payload_length,
+    const void* payload);
 
   /**
    * @brief Appends a record to this page while snapshotting.
@@ -131,16 +144,56 @@ class SequentialPage final {
     ASSERT_ND(record < kMaxSlots);
     uint16_t used_data_bytes = get_used_data_bytes();
     ASSERT_ND(used_data_bytes + assorted::align8(payload_length) + kRecordOverhead <= kDataSize);
-    set_payload_length_nosync(record, payload_length);
+    set_payload_length(record, payload_length);
     xct::XctId* owner_id_addr = reinterpret_cast<xct::XctId*>(data_ + used_data_bytes);
     *owner_id_addr = owner_id;
     std::memcpy(data_ + used_data_bytes + kRecordOverhead, payload, payload_length);
-    status_ = (static_cast<uint64_t>(record + 1) << 16) |
-      static_cast<uint64_t>(used_data_bytes + assorted::align8(payload_length) + kRecordOverhead);
+    status_.store(
+      (static_cast<uint64_t>(record + 1) << 16) |
+        static_cast<uint64_t>(used_data_bytes + assorted::align8(payload_length) + kRecordOverhead),
+      std::memory_order_relaxed);
+    assert_consistent();
   }
 
+  /**
+   * Returns if this page has enough room to insert a record with the given payload length.
+   * This method does not guarantee if you can really insert it due to concurrent appends.
+   * Thus, this method should be followed by append_record, which does real check and insert.
+   */
+  bool                can_insert_record(uint16_t payload_length) const {
+    uint16_t record_count = get_record_count();
+    uint16_t record_length = assorted::align8(payload_length) + kRecordOverhead;
+    uint16_t used_data_bytes = get_used_data_bytes();
+    return used_data_bytes + record_length + sizeof(PayloadLength) * (record_count + 1) <= kDataSize
+      && record_count < kMaxSlots;
+  }
+  /**
+   * Returns the earliest epoch of records in this page (invalid epoch if no record).
+   * In a volatile sequential page, we utilize this information to efficiently discard pages
+   * after snapshotting. In snapshot pages, we don't need it thus it's not maintained.
+   */
+  Epoch               get_earliest_record_epoch() const {
+    if (get_record_count() == 0) {
+      return INVALID_EPOCH;
+    }
+    return Epoch(static_cast<uint32_t>(peek_status() >> 32));  // 0-32 bits
+  }
+
+  /**
+   * @brief Atomically sets the closed flag in status_.
+   * @post closed flag is ON (whether by this caller or concurrent callers)
+   * @return Whether the caller is the thread that set the flag. If this returns true,
+   * the caller is responsible for installing next page. Others will spinlock for it.
+   */
+  bool                try_close_page();
+
+  uint64_t            peek_status() const { return status_.load(std::memory_order_relaxed); }
+
  private:
-  PageHeader          header_;          // +16 -> 16
+  /** Byte length of payload is represented in 2 bytes. */
+  typedef uint16_t PayloadLength;
+
+  PageHeader            header_;          // +16 -> 16
 
   /**
    * @brief Atomically maintained status of this page.
@@ -149,27 +202,28 @@ class SequentialPage final {
    * Insertion and reads on in-memory pages access this with atomic operations
    * or barriers. If the page is a snapshot page, no need for synchronization.
    *
-   *  \li [0-31) bits: Unused so far.
-   *  \li [31-32) bits: whether this page is closed for further insertion.
+   *  \li [0-32) bits: Earliest epoch of records in this page. This is used to efficiently
+   * discard volatile pages after snapshotting. We thus don't maintain this for snapshot pages.
+   *  \li [32-33) bits: whether this page is closed for further insertion.
    * If this bit is ON, next_page_ is already set or being set.
-   *  \li [32-48) bits: record count.
-   *  \li [48-64) bits: used data bytes.
+   *  \li [33-48) bits: record count (thus up to 32k records per page. surely enough).
+   *  \li [48-64) bits: used data bytes (not including length part, only the forward-growing part).
    */
-  uint64_t            status_;          // +8 ->24
+  std::atomic<uint64_t> status_;          // +8 ->24
 
   /**
    * Pointer to next page.
-   * It is first null, then set with atomic CAS (losers of the race discards their
-   * intermediate pages).
+   * The thread that changed the status_ to 'closed' is responsible to install next page.
+   * Other threads do spin lock on this.
    * Once it is set, the pointer and the pointed page will never be changed.
    */
-  DualPagePointer     next_page_;       // +16 -> 40
+  DualPagePointer       next_page_;       // +16 -> 40
 
-  /** Indicates lengthes of each record. */
-  LengthSlots         slots_;           // +256 -> 296
-
-  /** Dynamic records in this page. */
-  char                data_[kDataSize];
+  /**
+   * Dynamic data part in this page, which consist of 1) record part growing forward,
+   * 2) unused part, and 3) payload lengthes part growing backward.
+   */
+  char                  data_[kDataSize];
 };
 STATIC_SIZE_CHECK(sizeof(SequentialPage), 1 << 12)
 
@@ -194,15 +248,6 @@ STATIC_SIZE_CHECK(sizeof(SequentialPage), 1 << 12)
  */
 class SequentialRootPage final {
  public:
-  enum Constants {
-    /** Byte size of header in each page of sequential storage. */
-    kHeaderSize = 32,
-    /** Maximum number of head pointers in one page. */
-    kMaxHeadPointers = (foedus::storage::kPageSize - kHeaderSize) / sizeof(SnapshotPagePointer),
-    /** Byte size of data region in each page of sequential storage. */
-    kDataSize = foedus::storage::kPageSize - kHeaderSize,
-  };
-
   // A page object is never explicitly instantiated. You must reinterpret_cast.
   SequentialRootPage() = delete;
   SequentialRootPage(const SequentialRootPage& other) = delete;
@@ -214,14 +259,21 @@ class SequentialRootPage final {
 
   /** Returns How many pointers to head pages exist in this page. */
   uint16_t            get_pointer_count()  const { return pointer_count_; }
+  const SnapshotPagePointer* get_pointers() const { return head_page_pointers_; }
+
+  void set_pointers(SnapshotPagePointer *pointers, uint16_t pointer_count) {
+    ASSERT_ND(pointer_count <= kRootPageMaxHeadPointers);
+    pointer_count_ = pointer_count;
+    std::memcpy(head_page_pointers_, pointers, sizeof(SnapshotPagePointer) * pointer_count);
+  }
 
   SnapshotPagePointer get_next_page() const { return next_page_; }
   void                set_next_page(SnapshotPagePointer page) { next_page_ = page; }
 
   /** Called only when this page is initialized. */
-  void                initialize_data_page(StorageId storage_id) {
+  void                initialize_root_page(StorageId storage_id, uint64_t page_id) {
     header_.checksum_ = 0;
-    header_.snapshot_page_id_ = 0;
+    header_.page_id_ = page_id;
     header_.storage_id_ = storage_id;
     pointer_count_ = 0;
     next_page_ = 0;
@@ -240,7 +292,7 @@ class SequentialRootPage final {
   SnapshotPagePointer next_page_;       // +8 -> 32
 
   /** Pointers to heads of data pages. */
-  SnapshotPagePointer head_page_pointers_[kMaxHeadPointers];
+  SnapshotPagePointer head_page_pointers_[kRootPageMaxHeadPointers];
 };
 STATIC_SIZE_CHECK(sizeof(SequentialRootPage), 1 << 12)
 

@@ -138,6 +138,7 @@ ErrorCode XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel iso
     == context->get_thread_log_buffer().get_offset_committed());
   ASSERT_ND(current_xct.get_read_set_size() == 0);
   ASSERT_ND(current_xct.get_write_set_size() == 0);
+  ASSERT_ND(current_xct.get_lock_free_write_set_size() == 0);
   return kErrorCodeOk;
 }
 ErrorCode XctManagerPimpl::begin_schema_xct(thread::Thread* context) {
@@ -151,6 +152,7 @@ ErrorCode XctManagerPimpl::begin_schema_xct(thread::Thread* context) {
     == context->get_thread_log_buffer().get_offset_committed());
   ASSERT_ND(current_xct.get_read_set_size() == 0);
   ASSERT_ND(current_xct.get_write_set_size() == 0);
+  ASSERT_ND(current_xct.get_lock_free_write_set_size() == 0);
   return kErrorCodeOk;
 }
 
@@ -165,7 +167,7 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
   if (current_xct.is_schema_xct()) {
     success = precommit_xct_schema(context, commit_epoch);
   } else {
-    bool read_only = context->get_current_xct().get_write_set_size() == 0;
+    bool read_only = context->get_current_xct().is_read_only();
     if (read_only) {
       success = precommit_xct_readonly(context, commit_epoch);
     } else {
@@ -387,12 +389,14 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
   return true;
 }
 
-void XctManagerPimpl::precommit_xct_apply(thread::Thread* context,
-                           Epoch *commit_epoch) {
+void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit_epoch) {
   Xct& current_xct = context->get_current_xct();
   WriteXctAccess* write_set = current_xct.get_write_set();
   uint32_t        write_set_size = current_xct.get_write_set_size();
-  DVLOG(1) << *context << " applying and unlocking.. write_set_size=" << write_set_size;
+  LockFreeWriteXctAccess* lock_free_write_set = current_xct.get_lock_free_write_set();
+  uint32_t                lock_free_write_set_size = current_xct.get_lock_free_write_set_size();
+  DVLOG(1) << *context << " applying and unlocking.. write_set_size=" << write_set_size
+    << ", lock_free_write_set_size=" << lock_free_write_set_size;
 
   current_xct.issue_next_id(commit_epoch);
   XctId new_xct_id = current_xct.get_id();
@@ -416,6 +420,13 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context,
     assorted::memory_fence_release();
     ASSERT_ND(write.record_->owner_id_.before(new_xct_id));  // ordered correctly?
     write.record_->owner_id_ = new_xct_id;  // this also unlocks
+  }
+  // lock-free write-set doesn't have to worry about lock or ordering.
+  for (uint32_t i = 0; i < lock_free_write_set_size; ++i) {
+    LockFreeWriteXctAccess& write = lock_free_write_set[i];
+    DVLOG(2) << *context << " Applying Lock-Free write " << write.storage_->get_name();
+    write.log_entry_->header_.xct_id_ = new_xct_id;
+    log::invoke_apply_record(write.log_entry_, context, write.storage_, nullptr);
   }
   DVLOG(1) << *context << " applied and unlocked write set";
 }

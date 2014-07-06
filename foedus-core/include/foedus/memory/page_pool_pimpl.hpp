@@ -40,6 +40,8 @@ class PagePoolPimpl final : public DefaultInitializable {
 
   ErrorCode           grab(uint32_t desired_grab_count, PagePoolOffsetChunk *chunk);
   void                release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
+  ErrorCode           grab_one(PagePoolOffset *offset);
+  void                release_one(PagePoolOffset offset);
   LocalPageResolver&  get_resolver() { return resolver_; }
 
   friend std::ostream& operator<<(std::ostream& o, const PagePoolPimpl& v);

@@ -20,6 +20,7 @@
 #include "foedus/snapshot/log_gleaner_impl.hpp"
 #include "foedus/snapshot/snapshot_metadata.hpp"
 #include "foedus/snapshot/snapshot_options.hpp"
+#include "foedus/storage/metadata.hpp"
 #include "foedus/storage/storage_manager.hpp"
 
 namespace foedus {
@@ -174,6 +175,8 @@ ErrorStack SnapshotManagerPimpl::glean_logs(Snapshot* new_snapshot) {
     if (result.is_error()) {
       LOG(ERROR) << "Log Gleaner encountered either an error or early termination request";
     }
+    // the output is list of pointers to new root pages
+    new_snapshot->new_root_page_pointers_ = gleaner.get_new_root_page_pointers();
     CHECK_ERROR(gleaner.uninitialize());
   }
   return result;
@@ -186,6 +189,21 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(Snapshot *new_snapshot) {
   metadata.base_epoch_ = new_snapshot->base_epoch_.value();
   metadata.valid_until_epoch_ = new_snapshot->valid_until_epoch_.value();
   CHECK_ERROR(engine_->get_storage_manager().clone_all_storage_metadata(&metadata));
+
+  // we modified the root page. install it.
+  uint32_t installed_root_pages_count = 0;
+  for (storage::Metadata* meta : metadata.storage_metadata_) {
+    const auto& it = new_snapshot->new_root_page_pointers_.find(meta->id_);
+    if (it != new_snapshot->new_root_page_pointers_.end()) {
+      storage::SnapshotPagePointer new_pointer = it->second;
+      ASSERT_ND(new_pointer != meta->root_snapshot_page_id_);
+      meta->root_snapshot_page_id_ = new_pointer;
+      ++installed_root_pages_count;
+    }
+  }
+  LOG(INFO) << "Out of " << metadata.storage_metadata_.size() << " storages, "
+    << installed_root_pages_count << " changed their root pages.";
+  ASSERT_ND(installed_root_pages_count == new_snapshot->new_root_page_pointers_.size());
 
   // save it to a file
   fs::Path folder(get_option().get_primary_folder_path());

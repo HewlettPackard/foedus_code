@@ -6,6 +6,7 @@
 
 #include <glog/logging.h>
 
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -51,34 +52,40 @@ ErrorCode SequentialStorage::append_record(
   return pimpl_->append_record(context, payload, payload_count);
 }
 
+void SequentialStorage::apply_append_record(
+  thread::Thread* context,
+  const SequentialAppendLogType* log_entry) {
+  pimpl_->apply_append_record(context, log_entry);
+}
+
 SequentialStoragePimpl::SequentialStoragePimpl(
   Engine* engine,
   SequentialStorage* holder,
   const SequentialMetadata &metadata,
   bool create)
-  : engine_(engine), holder_(holder), metadata_(metadata), exist_(!create) {
+  :
+    engine_(engine),
+    holder_(holder),
+    metadata_(metadata),
+    volatile_list_(engine, metadata.id_),
+    exist_(!create) {
   ASSERT_ND(create || metadata.id_ > 0);
   ASSERT_ND(metadata.name_.size() > 0);
 }
 
 ErrorStack SequentialStoragePimpl::initialize_once() {
   LOG(INFO) << "Initializing an sequential-storage " << *holder_ << " exists=" << exist_;
+  CHECK_ERROR(volatile_list_.initialize());
 
   if (exist_) {
-    // initialize root_page_
+    // TODO(Hideaki): initialize head_root_page_id_
   }
   return kRetOk;
 }
 
-void SequentialStoragePimpl::release_pages_recursive(
-  memory::PageReleaseBatch* /*batch*/,
-  SequentialPage* /*page*/,
-  VolatilePagePointer /*volatile_page_id*/) {
-}
-
 ErrorStack SequentialStoragePimpl::uninitialize_once() {
   LOG(INFO) << "Uninitializing an sequential-storage " << *holder_;
-  return kRetOk;
+  return volatile_list_.uninitialize();
 }
 
 ErrorStack SequentialStoragePimpl::create(thread::Thread* /*context*/) {
@@ -95,16 +102,30 @@ ErrorStack SequentialStoragePimpl::create(thread::Thread* /*context*/) {
 
 inline ErrorCode SequentialStoragePimpl::append_record(
   thread::Thread* context, const void *payload, uint16_t payload_count) {
-  ASSERT_ND(payload_count < SequentialPage::kMaxPayload);
-  Record *record = nullptr;
-  // CHECK_ERROR_CODE(locate_record(context, offset, &record));
+  if (payload_count >= kMaxPayload) {
+    return kErrorCodeStrTooLongPayload;
+  }
 
-  // write out log
+  // Sequential storage doesn't need to check its current state for appends.
+  // we are sure we can append it anyways, so we just create a log record.
   uint16_t log_length = SequentialAppendLogType::calculate_log_length(payload_count);
   SequentialAppendLogType* log_entry = reinterpret_cast<SequentialAppendLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(metadata_.id_, payload, payload_count);
-  return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
+
+  // also, we don't have to take a lock while commit because our SequentialVolatileList is
+  // lock-free. So, we maintain a special lock-free write-set for sequential storage.
+  return context->get_current_xct().add_to_lock_free_write_set(holder_, log_entry);
+}
+
+void SequentialStoragePimpl::apply_append_record(
+  thread::Thread* context,
+  const SequentialAppendLogType* log_entry) {
+  volatile_list_.append_record(
+    context,
+    log_entry->header_.xct_id_,
+    log_entry->payload_,
+    log_entry->payload_count_);
 }
 
 }  // namespace sequential

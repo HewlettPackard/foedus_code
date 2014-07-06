@@ -4,10 +4,13 @@
  */
 #ifndef FOEDUS_SNAPSHOT_SNAPSHOT_HPP_
 #define FOEDUS_SNAPSHOT_SNAPSHOT_HPP_
+
 #include <iosfwd>
+#include <map>
 
 #include "foedus/epoch.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
+#include "foedus/storage/storage_id.hpp"
 
 namespace foedus {
 namespace snapshot {
@@ -39,7 +42,12 @@ struct Snapshot {
    */
   Epoch valid_until_epoch_;
 
-  // here goes statistics, but it's not yet done.
+  /**
+   * For each storage that was modified in this snapshotting,
+   * this holds the pointer to new root page.
+   * This is filled in at the end of LogGleaner.
+   */
+  std::map<storage::StorageId, storage::SnapshotPagePointer> new_root_page_pointers_;
 
   friend std::ostream& operator<<(std::ostream& o, const Snapshot& v);
 };

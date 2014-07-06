@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_SNAPSHOT_SNAPSHOT_MANAGER_PIMPL_HPP_
 #define FOEDUS_SNAPSHOT_SNAPSHOT_MANAGER_PIMPL_HPP_
+
 #include <atomic>
 #include <chrono>
 #include <string>
@@ -77,6 +78,9 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
    * Phase-2 of handle_snapshot_triggered().
    * Read log files, distribute them to each partition, and construct snapshot files at
    * each partition.
+   * After successful completion, all snapshot files become also durable
+   * (LogGleaner's uninitialize() makes it sure).
+   * Thus, now we can start installing pointers to the new snapshot file pages.
    */
   ErrorStack  glean_logs(Snapshot *new_snapshot);
 
@@ -86,6 +90,8 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
    * and a few other global metadata.
    */
   ErrorStack  snapshot_metadata(Snapshot *new_snapshot);
+
+  // @todo Phase-4 to install pointers to snapshot pages and drop volatile pages.
 
   /**
    * each snapshot has a snapshot-metadata file "snapshot_metadata_<SNAPSHOT_ID>.xml"

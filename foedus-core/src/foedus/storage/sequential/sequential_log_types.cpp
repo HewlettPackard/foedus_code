@@ -37,7 +37,7 @@ void SequentialCreateLogType::apply_storage(thread::Thread* context, Storage* st
   ASSERT_ND(storage == nullptr);  // because we are now creating it.
   LOG(INFO) << "Applying CREATE SEQUENTIAL STORAGE log: " << *this;
   std::string name(name_, name_length_);
-  SequentialMetadata metadata(header_.storage_id_, name, 0);
+  SequentialMetadata metadata(header_.storage_id_, name);
   std::unique_ptr<SequentialStorage> sequential(
     new SequentialStorage(context->get_engine(), metadata, true));
   COERCE_ERROR(sequential->initialize());

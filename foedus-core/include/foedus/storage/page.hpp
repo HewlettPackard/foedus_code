@@ -19,24 +19,23 @@ namespace storage {
  */
 struct PageHeader CXX11_FINAL {
   /**
-   * @brief Snapshot Page ID of this page.
+   * @brief Page ID of this page.
    * @details
-   * As the name suggests, this is set only when this page becomes a snapshot page.
-   * When this page image is a volatile page, there is no point to store page ID
-   * because the pointer address tells it.
+   * If this page is a snapshot page, it stores SnapshotPagePointer.
+   * If this page is a volatile page, it stores VolatilePagePointer.
    */
-  SnapshotPagePointer snapshot_page_id_;  // +8 -> 8
+  uint64_t      page_id_;     // +8 -> 8
 
   /**
    * ID of the storage this page belongs to.
    */
-  StorageId           storage_id_;        // +4 -> 16
+  StorageId     storage_id_;  // +4 -> 12
 
   /**
    * Checksum of the content of this page to detect corrupted pages.
    * Changes only when this page becomes a snapshot page.
    */
-  Checksum            checksum_;          // +4 -> 16
+  Checksum      checksum_;    // +4 -> 16
 
   // No instantiation.
   PageHeader() CXX11_FUNC_DELETE;
@@ -45,14 +44,20 @@ struct PageHeader CXX11_FINAL {
 };
 
 /**
- * @brief Just a marker to denote a memory region represents a data page.
+ * @brief Just a marker to denote that the memory region represents a data page.
  * @ingroup STORAGE
  * @details
  * We don't instantiate this object nor derive from this. This is just a marker.
- * Because PageHeader is extended in each storage, even the data_ address is not correct.
- * We thus make everything private to prevent misuse.
+ * Because derived page objects have more header properties and even the data_ is layed out
+ * differently. We thus make everything private to prevent misuse.
+ * @attention Remember, anyway we don't have RTTI for data pages. They are just byte arrays used
+ * with reinterpret_cast.
  */
 struct Page CXX11_FINAL {
+  /** At least the basic header exists in all pages. */
+  PageHeader&  get_header()              { return header_; }
+  const PageHeader&  get_header() const  { return header_; }
+
  private:
   PageHeader  header_;
   char        data_[kPageSize - sizeof(PageHeader)];

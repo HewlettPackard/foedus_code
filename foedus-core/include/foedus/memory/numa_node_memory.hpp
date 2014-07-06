@@ -69,6 +69,11 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   xct::WriteXctAccess* get_write_set_memory_piece(thread::ThreadLocalOrdinal core_ordinal) {
     return write_set_memory_pieces_[core_ordinal];
   }
+  AlignedMemory& get_lock_free_write_set_memory() { return lock_free_write_set_memory_; }
+  xct::LockFreeWriteXctAccess* get_lock_free_write_set_memory_piece(
+    thread::ThreadLocalOrdinal core_ordinal) {
+    return lock_free_write_set_memory_pieces_[core_ordinal];
+  }
   PagePoolOffsetChunk* get_page_offset_chunk_memory_piece(
     foedus::thread::ThreadLocalOrdinal core_ordinal) {
     return page_offset_chunk_memory_pieces_[core_ordinal];
@@ -100,7 +105,7 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   /** Number of loggers in this node. */
   const uint16_t                          loggers_;
 
-  /** In-memory page pool in this node. */
+  /** In-memory volatile page pool in this node. */
   PagePool                                page_pool_;
 
   /**
@@ -124,7 +129,13 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   std::vector<xct::WriteXctAccess*>       write_set_memory_pieces_;
 
   /**
-   * Memory to hold a \b local pool of pointers to free pages. Same above.
+   * Memory to keep track of lock-free write-set during transactions. Same above.
+   */
+  AlignedMemory                             lock_free_write_set_memory_;
+  std::vector<xct::LockFreeWriteXctAccess*> lock_free_write_set_memory_pieces_;
+
+  /**
+   * Memory to hold a \b local pool of pointers to free volatile pages. Same above.
    */
   AlignedMemory                           page_offset_chunk_memory_;
   std::vector<PagePoolOffsetChunk*>       page_offset_chunk_memory_pieces_;

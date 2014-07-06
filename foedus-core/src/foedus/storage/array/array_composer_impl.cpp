@@ -20,6 +20,7 @@
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_writer_impl.hpp"
+#include "foedus/storage/metadata.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_log_types.hpp"
 #include "foedus/storage/array/array_page_impl.hpp"
@@ -33,10 +34,12 @@ ArrayComposer::ArrayComposer(
     Engine *engine,
     const ArrayPartitioner* partitioner,
     snapshot::SnapshotWriter* snapshot_writer,
+    cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot)
   : engine_(engine),
     partitioner_(partitioner),
     snapshot_writer_(snapshot_writer),
+    previous_snapshot_files_(previous_snapshot_files),
     new_snapshot_(new_snapshot) {
   ASSERT_ND(partitioner);
 }
@@ -90,7 +93,7 @@ struct StreamStatus {
 };
 
 ErrorStack ArrayComposer::strawman_tournament(
-  snapshot::SortedBuffer** log_streams,
+  snapshot::SortedBuffer* const* log_streams,
   uint32_t log_streams_count,
   SnapshotPagePointer previous_root_page_pointer,
   const memory::AlignedMemorySlice& work_memory) {
@@ -159,14 +162,16 @@ ErrorStack ArrayComposer::strawman_tournament(
 }
 
 ErrorStack ArrayComposer::compose(
-  snapshot::SortedBuffer** log_streams,
+  snapshot::SortedBuffer* const* log_streams,
   uint32_t log_streams_count,
-  SnapshotPagePointer previous_root_page_pointer,
-  const memory::AlignedMemorySlice& work_memory) {
-  VLOG(0) << to_string() << " composing with " << log_streams_count << " streams."
-    << " previous_root_page_pointer=" << assorted::Hex(previous_root_page_pointer);
+  const memory::AlignedMemorySlice& work_memory,
+  Page* /*root_info_page*/) {
+  VLOG(0) << to_string() << " composing with " << log_streams_count << " streams.";
   debugging::StopWatch stop_watch;
 
+  Storage* storage = engine_->get_storage_manager().get_storage(partitioner_->get_storage_id());
+  ASSERT_ND(storage);
+  SnapshotPagePointer previous_root_page_pointer = storage->get_metadata()->root_snapshot_page_id_;
   CHECK_ERROR(strawman_tournament(
     log_streams,
     log_streams_count,
@@ -175,6 +180,15 @@ ErrorStack ArrayComposer::compose(
 
   stop_watch.stop();
   VLOG(0) << to_string() << " done in " << stop_watch.elapsed_ms() << "ms.";
+  return kRetOk;
+}
+
+ErrorStack ArrayComposer::construct_root(
+  const Page* const* /*root_info_pages*/,
+  uint32_t /*root_info_pages_count*/,
+  const memory::AlignedMemorySlice& /*work_memory*/,
+  SnapshotPagePointer* new_root_page_pointer) {
+  *new_root_page_pointer = 0;
   return kRetOk;
 }
 

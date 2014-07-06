@@ -115,6 +115,32 @@ ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* 
   return kErrorCodeOk;
 }
 
+ErrorCode PagePoolPimpl::grab_one(PagePoolOffset *offset) {
+  ASSERT_ND(is_initialized());
+  VLOG(0) << "Grabbing just one page. free_pool_count_=" << free_pool_count_;
+  *offset = 0;
+  std::lock_guard<std::mutex> guard(lock_);
+  if (free_pool_count_ == 0) {
+    LOG(WARNING) << "No more free pages left in the pool";
+    return kErrorCodeMemoryNoFreePages;
+  }
+
+  // grab from the head
+  PagePoolOffset* head = free_pool_ + free_pool_head_;
+  if (free_pool_head_ == free_pool_capacity_) {
+    // wrap around
+    free_pool_head_ = 0;
+    head = free_pool_;
+  }
+
+  // no wrap around (or no more wrap around)
+  ASSERT_ND(free_pool_head_ + 1 <= free_pool_capacity_);
+  *offset = *head;
+  ++free_pool_head_;
+  --free_pool_count_;
+  return kErrorCodeOk;
+}
+
 void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk) {
   ASSERT_ND(is_initialized());
   ASSERT_ND(chunk->size() >= desired_release_count);
@@ -148,6 +174,33 @@ void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk 
   ASSERT_ND(tail + release_count <= free_pool_capacity_);
   chunk->move_to(free_pool_ + tail, release_count);
   free_pool_count_ += release_count;
+}
+
+void PagePoolPimpl::release_one(PagePoolOffset offset) {
+  ASSERT_ND(is_initialized());
+  VLOG(0) << "Releasing just one page. free_pool_count_=" << free_pool_count_;
+  std::lock_guard<std::mutex> guard(lock_);
+  if (free_pool_count_ >= free_pool_capacity_) {
+    // this can't happen unless something is wrong! This is a critical issue from which
+    // we can't recover because page pool is inconsistent!
+    LOG(ERROR) << "PagePoolPimpl::release_one() More than full free-pool. inconsistent state!";
+    COERCE_ERROR(ERROR_STACK(kErrorCodeMemoryDuplicatePage));
+  }
+
+  // append to the tail
+  uint64_t tail = free_pool_head_ + free_pool_count_;
+  if (tail >= free_pool_capacity_) {
+    tail -= free_pool_capacity_;
+  }
+  if (tail == free_pool_capacity_) {
+    // wrap around
+    tail = 0;
+  }
+
+  // no wrap around (or no more wrap around)
+  ASSERT_ND(tail + 1 <= free_pool_capacity_);
+  free_pool_[tail] = offset;
+  ++free_pool_count_;
 }
 
 

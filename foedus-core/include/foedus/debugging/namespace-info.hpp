@@ -65,7 +65,8 @@
  * It means (at least) that many level checkings per second! Use DLOG/DVLOG then.
  *
  * @par Performance Counters
- * TODO implement
+ * See foedus::debugging::StopWatch, foedus::debugging::RdtscWatch, and
+ * related methods.
  */
 
 /**

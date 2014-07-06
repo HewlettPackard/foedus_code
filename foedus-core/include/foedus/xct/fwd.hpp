@@ -11,10 +11,11 @@
  */
 namespace foedus {
 namespace xct {
-struct  XctId;
-struct  XctAccess;
+struct  LockFreeWriteXctAccess;
 struct  WriteXctAccess;
 class   Xct;
+struct  XctAccess;
+struct  XctId;
 class   XctManager;
 class   XctManagerPimpl;
 }  // namespace xct
