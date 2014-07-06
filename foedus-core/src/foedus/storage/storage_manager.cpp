@@ -9,6 +9,8 @@
 #include "foedus/storage/storage_manager_pimpl.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/storage/array/array_storage.hpp"
+#include "foedus/storage/masstree/masstree_metadata.hpp"
+#include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/storage/sequential/sequential_metadata.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
 
@@ -87,6 +89,27 @@ ErrorStack StorageManager::create_sequential(
   Storage* tmp = nullptr;
   ErrorStack result = create_storage(metadata, &tmp, commit_epoch);
   *storage = dynamic_cast<sequential::SequentialStorage*>(tmp);
+  return result;
+}
+
+ErrorStack StorageManager::create_masstree(
+  thread::Thread* context,
+  masstree::MasstreeMetadata* metadata,
+  masstree::MasstreeStorage** storage,
+  Epoch* commit_epoch) {
+  Storage* tmp = nullptr;
+  ErrorStack result = create_storage(context, metadata, &tmp, commit_epoch);
+  *storage = dynamic_cast<masstree::MasstreeStorage*>(tmp);
+  return result;
+}
+
+ErrorStack StorageManager::create_masstree(
+  masstree::MasstreeMetadata* metadata,
+  masstree::MasstreeStorage** storage,
+  Epoch* commit_epoch) {
+  Storage* tmp = nullptr;
+  ErrorStack result = create_storage(metadata, &tmp, commit_epoch);
+  *storage = dynamic_cast<masstree::MasstreeStorage*>(tmp);
   return result;
 }
 
