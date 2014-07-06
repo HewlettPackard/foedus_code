@@ -10,6 +10,7 @@
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_partitioner_impl.hpp"
+#include "foedus/storage/masstree/masstree_partitioner_impl.hpp"
 #include "foedus/storage/sequential/sequential_partitioner_impl.hpp"
 
 namespace foedus {
@@ -31,9 +32,12 @@ Partitioner* Partitioner::create_partitioner(Engine* engine, StorageId id) {
       return new sequential::SequentialPartitioner(id);
       break;
 
+    case kMasstreeStorage:
+      return new masstree::MasstreePartitioner(id);
+      break;
+
     // TODO(Hideaki) implement
     case kHashStorage:
-    case kMasstreeStorage:
     default:
       break;
   }

@@ -10,6 +10,8 @@
 #include "foedus/storage/partitioner.hpp"
 #include "foedus/storage/array/array_composer_impl.hpp"
 #include "foedus/storage/array/array_partitioner_impl.hpp"
+#include "foedus/storage/masstree/masstree_composer_impl.hpp"
+#include "foedus/storage/masstree/masstree_partitioner_impl.hpp"
 #include "foedus/storage/sequential/sequential_composer_impl.hpp"
 #include "foedus/storage/sequential/sequential_partitioner_impl.hpp"
 
@@ -44,9 +46,17 @@ Composer* Composer::create_composer(
         previous_snapshot_files,
         new_snapshot);
       break;
+
+    case kMasstreeStorage:
+      return new masstree::MasstreeComposer(
+        engine,
+        dynamic_cast<const masstree::MasstreePartitioner*>(partitioner),
+        snapshot_writer,
+        previous_snapshot_files,
+        new_snapshot);
+      break;
     // TODO(Hideaki) implement
     case kHashStorage:
-    case kMasstreeStorage:
     default:
       break;
   }

@@ -23,6 +23,7 @@
 #include "foedus/storage/storage_log_types.hpp"
 #include "foedus/storage/storage_options.hpp"
 #include "foedus/storage/array/array_storage.hpp"
+#include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
@@ -85,6 +86,7 @@ void StorageManagerPimpl::init_storage_factories() {
   clear_storage_factories();
   // list all storage factories here
   storage_factories_.push_back(new array::ArrayStorageFactory());
+  storage_factories_.push_back(new masstree::MasstreeStorageFactory());
   storage_factories_.push_back(new sequential::SequentialStorageFactory());
 }
 
