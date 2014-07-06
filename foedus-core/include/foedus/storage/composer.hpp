@@ -10,6 +10,7 @@
 
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
+#include "foedus/cache/fwd.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
@@ -78,23 +79,39 @@ class Composer {
    * @brief Construct snapshot pages from sorted run files of one storage.
    * @param[in] log_streams Sorted runs
    * @param[in] log_streams_count Number of sorted runs
-   * @param[in] previous_root_page_pointer Not used so far
    * @param[in] work_memory Working memory to be used in this method
    * @param[out] root_info_page Returns pointers and related information that is required
    * to construct the root page. The data format depends on the composer. In all implementations,
    * the information must fit in one page (should be, otherwise we can't have a root page)
    */
   virtual ErrorStack  compose(
-    snapshot::SortedBuffer**          log_streams,
+    snapshot::SortedBuffer* const*    log_streams,
     uint32_t                          log_streams_count,
-    SnapshotPagePointer               previous_root_page_pointer,
     const memory::AlignedMemorySlice& work_memory,
     Page*                             root_info_page) = 0;
 
+  /**
+   * @brief Construct root page(s) for one storage based on the ouputs of compose().
+   * @param[in] root_info_pages Root info pages output by compose()
+   * @param[in] root_info_pages_count Number of root info pages.
+   * @param[in] work_memory Working memory to be used in this method
+   * @param[out] new_root_page_pointer Returns pointer to new root snapshot page
+   * @details
+   * When all reducers complete, the gleaner invokes this method to construct new root
+   * page(s) for the storage. This
+   */
+  virtual ErrorStack  construct_root(
+    const Page* const*  root_info_pages,
+    uint32_t            root_info_pages_count,
+    const memory::AlignedMemorySlice& work_memory,
+    SnapshotPagePointer* new_root_page_pointer) = 0;
+
+  /** factory method. */
   static Composer*    create_composer(
     Engine *engine,
     const Partitioner* partitioner,
     snapshot::SnapshotWriter* snapshot_writer,
+    cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot);
 
   friend std::ostream&    operator<<(std::ostream& o, const Composer& v);

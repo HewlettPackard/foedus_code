@@ -36,8 +36,6 @@ void SequentialStorage::describe(std::ostream* o_ptr) const {
   o << "<SequentialStorage>"
     << "<id>" << get_id() << "</id>"
     << "<name>" << get_name() << "</name>"
-    << "<head_root_page_id>" << assorted::Hex(pimpl_->metadata_.head_root_page_id_)
-      << "</head_root_page_id>"
     << pimpl_->volatile_list_
     << "</SequentialStorage>";
 }

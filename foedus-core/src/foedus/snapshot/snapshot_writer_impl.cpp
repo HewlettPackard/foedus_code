@@ -13,6 +13,7 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/fs/direct_io_file.hpp"
+#include "foedus/fs/filesystem.hpp"
 #include "foedus/snapshot/log_gleaner_impl.hpp"
 #include "foedus/snapshot/log_reducer_impl.hpp"
 #include "foedus/snapshot/snapshot.hpp"
@@ -32,7 +33,13 @@ SnapshotWriter::SnapshotWriter(Engine* engine, LogReducer* parent)
 }
 
 bool SnapshotWriter::close() {
-  return snapshot_file_->close();
+  fs::Path path = snapshot_file_->get_path();
+  bool closed = snapshot_file_->close();
+  if (!closed) {
+    return false;
+  }
+  // also fsync the file.
+  return fs::fsync(path, true);
 }
 
 void SnapshotWriter::clear_snapshot_file() {

@@ -24,6 +24,7 @@ Composer* Composer::create_composer(
   Engine *engine,
   const Partitioner* partitioner,
   snapshot::SnapshotWriter* snapshot_writer,
+  cache::SnapshotFileSet* previous_snapshot_files,
   const snapshot::Snapshot& new_snapshot) {
   switch (partitioner->get_storage_type()) {
     case kArrayStorage:
@@ -31,6 +32,7 @@ Composer* Composer::create_composer(
         engine,
         dynamic_cast<const array::ArrayPartitioner*>(partitioner),
         snapshot_writer,
+        previous_snapshot_files,
         new_snapshot);
       break;
 
@@ -39,6 +41,7 @@ Composer* Composer::create_composer(
         engine,
         dynamic_cast<const sequential::SequentialPartitioner*>(partitioner),
         snapshot_writer,
+        previous_snapshot_files,
         new_snapshot);
       break;
     // TODO(Hideaki) implement

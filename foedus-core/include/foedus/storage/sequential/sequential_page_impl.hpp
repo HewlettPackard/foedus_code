@@ -259,14 +259,21 @@ class SequentialRootPage final {
 
   /** Returns How many pointers to head pages exist in this page. */
   uint16_t            get_pointer_count()  const { return pointer_count_; }
+  const SnapshotPagePointer* get_pointers() const { return head_page_pointers_; }
+
+  void set_pointers(SnapshotPagePointer *pointers, uint16_t pointer_count) {
+    ASSERT_ND(pointer_count <= kRootPageMaxHeadPointers);
+    pointer_count_ = pointer_count;
+    std::memcpy(head_page_pointers_, pointers, sizeof(SnapshotPagePointer) * pointer_count);
+  }
 
   SnapshotPagePointer get_next_page() const { return next_page_; }
   void                set_next_page(SnapshotPagePointer page) { next_page_ = page; }
 
   /** Called only when this page is initialized. */
-  void                initialize_data_page(StorageId storage_id) {
+  void                initialize_root_page(StorageId storage_id, uint64_t page_id) {
     header_.checksum_ = 0;
-    header_.page_id_ = 0;
+    header_.page_id_ = page_id;
     header_.storage_id_ = storage_id;
     pointer_count_ = 0;
     next_page_ = 0;

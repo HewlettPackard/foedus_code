@@ -597,6 +597,16 @@ void LogReducer::MergeContext::set_tmp_sorted_buffer_array(storage::StorageId st
   ASSERT_ND(tmp_sorted_buffer_count_ > 0);
 }
 
+storage::Composer* LogReducer::create_composer(storage::StorageId storage_id) {
+  const storage::Partitioner* partitioner = parent_->get_or_create_partitioner(storage_id);
+  return storage::Composer::create_composer(
+      engine_,
+      partitioner,
+      &snapshot_writer_,
+      &previous_snapshot_files_,
+      *parent_->get_snapshot());
+}
+
 ErrorStack LogReducer::merge_sort() {
   merge_sort_check_buffer_status();
 
@@ -640,13 +650,7 @@ ErrorStack LogReducer::merge_sort() {
     context.set_tmp_sorted_buffer_array(storage_id);
 
     // run composer
-    const storage::Partitioner* partitioner = parent_->get_or_create_partitioner(storage_id);
-    std::unique_ptr< storage::Composer > composer(
-      storage::Composer::create_composer(
-        engine_,
-        partitioner,
-        &snapshot_writer_,
-        *parent_->get_snapshot()));
+    std::unique_ptr< storage::Composer > composer(create_composer(storage_id));
     uint64_t work_memory_size = composer->get_required_work_memory_size(
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_);
@@ -658,7 +662,6 @@ ErrorStack LogReducer::merge_sort() {
     CHECK_ERROR(composer->compose(
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_,
-      0,  // TODO(Hideaki): Get root page in previous snapshot.
       memory::AlignedMemorySlice(&composer_work_memory_),
       root_info_page));
 

@@ -78,7 +78,8 @@ namespace snapshot {
  * After all mappers and reducers complete, the last phase of log gleaning is to construct
  * root pages for the storages modified in this snapshotting.
  * Gleaner collects \e root-page-info from each reducer and combines them to create the
- * root page(s).
+ * root page(s). When all set, gleaner produces maps from storage ID to a new root page ID.
+ * This will be written out in a snapshot metadata file by snapshot manager.
  *
  * @note
  * This is a private implementation-details of \ref SNAPSHOT, thus file name ends with _impl.
@@ -155,6 +156,12 @@ class LogGleaner final : public DefaultInitializable {
    * processed at the end of epoch.
    */
   void add_nonrecord_log(const log::LogHeader* header);
+
+  /** Returns pointers to new root pages constructed at the end of gleaning. */
+  const std::map<storage::StorageId, storage::SnapshotPagePointer>& get_new_root_page_pointers()
+    const {
+    return new_root_page_pointers_;
+  }
 
   /**
    * Obtains partitioner for the storage.
@@ -234,6 +241,12 @@ class LogGleaner final : public DefaultInitializable {
   std::mutex     partitioners_mutex_;
 
   /**
+   * Points to new root pages constructed at the end of gleaning, one for a storage.
+   * This is one of the outputs the gleaner produces.
+   */
+  std::map<storage::StorageId, storage::SnapshotPagePointer> new_root_page_pointers_;
+
+  /**
    * buffer to collect all logs that will be centraly processed at the end of each epoch.
    * Those are engine-targetted and storage-targetted logs, which appear much less frequently.
    * Thus this buffer is quite small.
@@ -264,6 +277,7 @@ class LogGleaner final : public DefaultInitializable {
    * @brief Final sub-routine of execute()
    * @details
    * Collects what each reducer wrote and combines them to be new root page(s) for each storage.
+   * This method fills out new_root_page_pointers_ as the result.
    */
   ErrorStack construct_root_pages();
 };

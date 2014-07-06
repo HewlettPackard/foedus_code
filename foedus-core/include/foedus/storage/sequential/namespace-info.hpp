@@ -60,7 +60,7 @@
  *
  * @subsection SEQ_LAYOUT_ROOT Layout of Root Page (foedus::storage::sequential::SequentialRootPage)
  * <table>
- *  <tr><th>Fix-Sized HEADER (kHeaderSize bytes)</th></tr>
+ *  <tr><th>Fix-Sized HEADER (kRootPageHeaderSize bytes)</th></tr>
  *  <tr><td>Pointers to head pages..</td></tr>
  * </table>
  *

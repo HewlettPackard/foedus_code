@@ -26,6 +26,7 @@
 #include "foedus/snapshot/mapreduce_base_impl.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/snapshot/snapshot_writer_impl.hpp"
+#include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/condition_variable_impl.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -145,6 +146,12 @@ class LogReducer final : public MapReduceBase {
     const char* send_buffer,
     uint32_t log_count,
     uint64_t send_buffer_size);
+
+  /** These are public, but used only from LogGleaner other than itself. */
+  uint32_t get_root_info_page_count() const { return total_storage_count_; }
+  memory::AlignedMemory& get_root_info_buffer() { return root_info_buffer_; }
+  storage::Composer* create_composer(storage::StorageId storage_id);
+  memory::AlignedMemory& get_composer_work_memory() { return composer_work_memory_; }
 
  protected:
   ErrorStack  handle_initialize() override;

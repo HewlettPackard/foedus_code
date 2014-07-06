@@ -50,6 +50,7 @@ class SequentialComposer final : public virtual Composer {
     Engine *engine,
     const SequentialPartitioner* partitioner,
     snapshot::SnapshotWriter* snapshot_writer,
+    cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot);
   ~SequentialComposer() {}
 
@@ -61,11 +62,16 @@ class SequentialComposer final : public virtual Composer {
   void describe(std::ostream* o) const override;
 
   ErrorStack compose(
-    snapshot::SortedBuffer** log_streams,
+    snapshot::SortedBuffer* const* log_streams,
     uint32_t log_streams_count,
-    SnapshotPagePointer previous_root_page_pointer,
     const memory::AlignedMemorySlice& work_memory,
     Page* root_info_page) override;
+
+  ErrorStack construct_root(
+    const Page* const*  root_info_pages,
+    uint32_t            root_info_pages_count,
+    const memory::AlignedMemorySlice& work_memory,
+    SnapshotPagePointer* new_root_page_pointer) override;
 
   uint64_t get_required_work_memory_size(
     snapshot::SortedBuffer** /*log_streams*/,
@@ -77,9 +83,11 @@ class SequentialComposer final : public virtual Composer {
   Engine* const engine_;
   const SequentialPartitioner* const partitioner_;
   snapshot::SnapshotWriter* const snapshot_writer_;
+  cache::SnapshotFileSet* const previous_snapshot_files_;
   const snapshot::Snapshot& new_snapshot_;
 
   SequentialPage* allocate_page(SnapshotPagePointer *next_allocated_page_id);
+  SequentialRootPage* allocate_root_page(SnapshotPagePointer *next_allocated_page_id);
   ErrorCode fix_and_dump(SequentialPage* first_unfixed_page, SequentialPage** cur_page);
   SnapshotPagePointer to_snapshot_pointer(SnapshotLocalPageId local_id) const;
 };

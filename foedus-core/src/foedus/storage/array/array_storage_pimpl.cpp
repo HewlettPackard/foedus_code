@@ -114,7 +114,7 @@ ArrayStoragePimpl::ArrayStoragePimpl(Engine* engine, ArrayStorage* holder,
     interior_fanout_div_(kInteriorFanout) {
   ASSERT_ND(create || metadata.id_ > 0);
   ASSERT_ND(metadata.name_.size() > 0);
-  root_page_pointer_.snapshot_pointer_ = metadata.root_page_id_;
+  root_page_pointer_.snapshot_pointer_ = metadata.root_snapshot_page_id_;
   root_page_pointer_.volatile_pointer_.word = 0;
 }
 

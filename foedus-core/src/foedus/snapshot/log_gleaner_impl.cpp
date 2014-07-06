@@ -6,12 +6,14 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <chrono>
 #include <map>
 #include <ostream>
 #include <sstream>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
@@ -21,8 +23,10 @@
 #include "foedus/snapshot/log_mapper_impl.hpp"
 #include "foedus/snapshot/log_reducer_impl.hpp"
 #include "foedus/snapshot/snapshot.hpp"
+#include "foedus/storage/composer.hpp"
 #include "foedus/storage/partitioner.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
+#include "foedus/debugging/stop_watch.hpp"
 
 namespace foedus {
 namespace snapshot {
@@ -46,6 +50,7 @@ ErrorStack LogGleaner::initialize_once() {
     reducers_.push_back(new LogReducer(engine_, this, node));
   }
 
+  new_root_page_pointers_.clear();
   return kRetOk;
 }
 
@@ -58,6 +63,7 @@ ErrorStack LogGleaner::uninitialize_once() {
   batch.uninitialize_and_delete_all(&reducers_);
   nonrecord_log_buffer_.release_block();
 
+  new_root_page_pointers_.clear();
   for (std::map<storage::StorageId, storage::Partitioner*>::iterator it = partitioners_.begin();
       it != partitioners_.end(); ++it) {
     delete it->second;
@@ -174,6 +180,91 @@ ErrorStack LogGleaner::execute() {
 }
 
 ErrorStack LogGleaner::construct_root_pages() {
+  ASSERT_ND(new_root_page_pointers_.size() == 0);
+  debugging::StopWatch stop_watch;
+  const uint16_t count = reducers_.size();
+  std::vector<const storage::Page*> tmp_array(count, nullptr);
+  std::vector<uint16_t> cursors;
+  std::vector<uint16_t> buffer_sizes;
+  std::vector<const storage::Page*> buffers;
+  for (uint16_t i = 0; i < count; ++i) {
+    cursors.push_back(0);
+    buffer_sizes.push_back(reducers_[i]->get_root_info_page_count());
+    buffers.push_back(reinterpret_cast<const storage::Page*>(
+      reducers_[i]->get_root_info_buffer().get_block()));
+  }
+
+  // reuse the first reducer's work memory
+  memory::AlignedMemorySlice work_memory(&reducers_[0]->get_composer_work_memory());
+  storage::StorageId prev_storage_id = 0;
+  // each reducer's root-info-page must be sorted by storage_id, so we do kind of merge-sort here.
+  while (true) {
+    // determine which storage to process by finding the smallest storage_id
+    storage::StorageId min_storage_id = 0;
+    for (uint16_t i = 0; i < count; ++i) {
+      if (cursors[i] == buffer_sizes[i]) {
+        continue;
+      }
+      const storage::Page* root_info_page = buffers[i] + cursors[i];
+      storage::StorageId storage_id = root_info_page->get_header().storage_id_;
+      ASSERT_ND(storage_id > prev_storage_id);
+      if (min_storage_id == 0) {
+        min_storage_id = storage_id;
+      } else {
+        min_storage_id = std::min(min_storage_id, storage_id);
+      }
+    }
+
+    if (min_storage_id == 0) {
+      break;  // all reducers' all root info pages processed
+    }
+
+    // fill tmp_array
+    uint16_t input_count = 0;
+    for (uint16_t i = 0; i < count; ++i) {
+      if (cursors[i] == buffer_sizes[i]) {
+        continue;
+      }
+      const storage::Page* root_info_page = buffers[i] + cursors[i];
+      storage::StorageId storage_id = root_info_page->get_header().storage_id_;
+      if (storage_id == min_storage_id) {
+        tmp_array[input_count] = root_info_page;
+        ++input_count;
+      }
+    }
+    ASSERT_ND(input_count > 0);
+
+    std::unique_ptr< storage::Composer > composer(reducers_[0]->create_composer(min_storage_id));
+    storage::SnapshotPagePointer new_root_page_pointer;
+    CHECK_ERROR(composer->construct_root(
+      &tmp_array[0],
+      input_count,
+      work_memory,
+      &new_root_page_pointer));
+    ASSERT_ND(new_root_page_pointer > 0);
+    ASSERT_ND(new_root_page_pointers_.find(min_storage_id) == new_root_page_pointers_.end());
+    new_root_page_pointers_.insert(std::pair<storage::StorageId, storage::SnapshotPagePointer>(
+      min_storage_id, new_root_page_pointer));
+
+    // done for this storage. advance cursors
+    prev_storage_id = min_storage_id;
+    for (uint16_t i = 0; i < count; ++i) {
+      if (cursors[i] == buffer_sizes[i]) {
+        continue;
+      }
+      const storage::Page* root_info_page = buffers[i] + cursors[i];
+      storage::StorageId storage_id = root_info_page->get_header().storage_id_;
+      if (storage_id == min_storage_id) {
+        cursors[i] = cursors[i] + 1;
+      }
+    }
+  }
+
+  ASSERT_ND(new_root_page_pointers_.size() == get_partitioner_count());
+  stop_watch.stop();
+  LOG(INFO) << "constructed root pages for " << new_root_page_pointers_.size()
+    << " storages. (partitioner_count=" << get_partitioner_count() << "). "
+    << " in " << stop_watch.elapsed_ms() << "ms. "<< *this;
   return kRetOk;
 }
 
