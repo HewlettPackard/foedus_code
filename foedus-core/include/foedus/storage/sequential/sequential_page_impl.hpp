@@ -112,7 +112,7 @@ class SequentialPage final {
     header_.checksum_ = 0;
     header_.page_id_ = page_id;
     header_.storage_id_ = storage_id;
-    status_.store(0, std::memory_order_relaxed);
+    status_ = 0;
     next_page_.snapshot_pointer_ = 0;
     next_page_.volatile_pointer_.word = 0;
   }
@@ -148,10 +148,9 @@ class SequentialPage final {
     xct::XctId* owner_id_addr = reinterpret_cast<xct::XctId*>(data_ + used_data_bytes);
     *owner_id_addr = owner_id;
     std::memcpy(data_ + used_data_bytes + kRecordOverhead, payload, payload_length);
-    status_.store(
+    status_ =
       (static_cast<uint64_t>(record + 1) << 16) |
-        static_cast<uint64_t>(used_data_bytes + assorted::align8(payload_length) + kRecordOverhead),
-      std::memory_order_relaxed);
+        static_cast<uint64_t>(used_data_bytes + assorted::align8(payload_length) + kRecordOverhead);
     assert_consistent();
   }
 
@@ -187,7 +186,7 @@ class SequentialPage final {
    */
   bool                try_close_page();
 
-  uint64_t            peek_status() const { return status_.load(std::memory_order_relaxed); }
+  uint64_t            peek_status() const ALWAYS_INLINE { return status_; }
 
  private:
   /** Byte length of payload is represented in 2 bytes. */
@@ -209,7 +208,7 @@ class SequentialPage final {
    *  \li [33-48) bits: record count (thus up to 32k records per page. surely enough).
    *  \li [48-64) bits: used data bytes (not including length part, only the forward-growing part).
    */
-  std::atomic<uint64_t> status_;          // +8 ->24
+  uint64_t              status_;          // +8 ->24
 
   /**
    * Pointer to next page.

@@ -90,7 +90,15 @@ struct SequentialAppendLogType : public log::RecordLogType {
     Record* record) ALWAYS_INLINE {
     // It's a lock-free write set, so it doesn't have record info.
     ASSERT_ND(record == CXX11_NULLPTR);
-    SequentialStorage* casted = dynamic_cast<SequentialStorage*>(storage);
+    ASSERT_ND(dynamic_cast<SequentialStorage*>(storage));
+    // dynamic_cast is expensive (quite observable in CPU profile)
+    // do it only in debug mode. We are sure this is sequential storage (otherwise bug)
+    SequentialStorage* casted;
+#ifndef NDEBUG
+    casted = reinterpret_cast<SequentialStorage*>(storage);
+#else  // NDEBUG
+    casted = dynamic_cast<SequentialStorage*>(storage);
+#endif  // NDEBUG
     ASSERT_ND(casted);
     casted->apply_append_record(context, this);
   }
