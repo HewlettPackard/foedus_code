@@ -502,7 +502,7 @@ inline void ErrorStack::verify() const {
 #define WRAP_ERROR_CODE(x)\
 {\
   foedus::ErrorCode __e = x;\
-  if (UNLIKELY(__e != kErrorCodeOk)) {return ERROR_STACK(__e);}\
+  if (UNLIKELY(__e != foedus::kErrorCodeOk)) {return ERROR_STACK(__e);}\
 }
 
 /**
@@ -581,6 +581,21 @@ if (UNLIKELY(!ptr)) {\
   foedus::ErrorStack __e(x);\
   if (UNLIKELY(__e.is_error())) {\
     __e.dump_and_abort("Unexpected error happened");\
+  }\
+}
+
+
+/**
+ * @def COERCE_ERROR_CODE(x)
+ * @ingroup ERRORCODES
+ * @brief
+ * Same as COERCE_ERROR(x) except this received ErrorCode, not ErrorStack.
+ */
+#define COERCE_ERROR_CODE(x)\
+{\
+  foedus::ErrorCode __e = x;\
+  if (UNLIKELY(__e != foedus::kErrorCodeOk)) {\
+    ERROR_STACK(__e).dump_and_abort("Unexpected error happened");\
   }\
 }
 

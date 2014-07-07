@@ -161,7 +161,7 @@ ErrorStack LogReducer::dump_buffer() {
   // open a file
   fs::Path path = get_sorted_run_file_path(sorted_runs_);
   fs::DirectIoFile file(path);
-  CHECK_ERROR(file.open(false, true, true, true));
+  WRAP_ERROR_CODE(file.open(false, true, true, true));
   LOG(INFO) << to_string() << " Created a sorted run file " << path;
 
   // for each storage (ordered by storage ID), sort and dump them into the file.
@@ -346,7 +346,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage_write(
     std::memcpy(io_buffer + current_pos, record, record->header_.log_length_);
     current_pos += record->header_.log_length_;
     if (current_pos >= flush_threshold) {
-      CHECK_ERROR(dump_file->write(flush_threshold, dump_io_buffer_));
+      WRAP_ERROR_CODE(dump_file->write(flush_threshold, dump_io_buffer_));
 
       // move the fragment to beginning
       if (current_pos > flush_threshold) {
@@ -383,7 +383,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage_write(
     }
 
     ASSERT_ND(current_pos % log::FillerLogType::kLogWriteUnitSize == 0);
-    CHECK_ERROR(dump_file->write(current_pos, dump_io_buffer_));
+    WRAP_ERROR_CODE(dump_file->write(current_pos, dump_io_buffer_));
     total_written += current_pos;
   }
 
@@ -743,7 +743,7 @@ ErrorStack LogReducer::merge_sort_open_sorted_runs(LogReducer::MergeContext* con
     std::unique_ptr<fs::DirectIoFile> file_ptr(new fs::DirectIoFile(
       path,
       engine_->get_options().snapshot_.emulation_));
-    CHECK_ERROR(file_ptr->open(true, false, false, false));
+    WRAP_ERROR_CODE(file_ptr->open(true, false, false, false));
 
     context->sorted_buffers_.emplace_back(new DumpFileSortedBuffer(
       file_ptr.get(),
@@ -763,7 +763,7 @@ ErrorStack LogReducer::merge_sort_initialize_sort_buffers(LogReducer::MergeConte
       ASSERT_ND(casted);
       // the buffer hasn't loaded any data, so let's make the first read.
       uint64_t desired_reads = std::min(casted->get_buffer_size(), casted->get_total_size());
-      CHECK_ERROR(casted->get_file()->read(desired_reads, casted->get_io_buffer()));
+      WRAP_ERROR_CODE(casted->get_file()->read(desired_reads, casted->get_io_buffer()));
     } else {
       ASSERT_ND(dynamic_cast<InMemorySortedBuffer*>(buffer));
       // in-memory one has already loaded everything

@@ -81,7 +81,7 @@ class ArrayComposer final : public virtual Composer {
     SnapshotPagePointer* new_root_page_pointer) override;
 
   uint64_t get_required_work_memory_size(
-    snapshot::SortedBuffer** log_streams,
+    snapshot::SortedBuffer** /*log_streams*/,
     uint32_t log_streams_count) const override {
     return sizeof(StreamStatus) * log_streams_count + kMaxLevel * kPageSize;
   }

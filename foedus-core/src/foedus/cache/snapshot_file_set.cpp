@@ -80,9 +80,9 @@ ErrorCode SnapshotFileSet::read_page(storage::SnapshotPagePointer page_id, void*
   CHECK_ERROR_CODE(get_or_open_file(page_id, &file));
   storage::SnapshotLocalPageId local_page_id
     = storage::extract_local_page_id_from_snapshot_pointer(page_id);
-  UNWRAP_ERROR_STACK(
+  CHECK_ERROR_CODE(
     file->seek(local_page_id * sizeof(storage::Page), fs::DirectIoFile::kDirectIoSeekSet));
-  UNWRAP_ERROR_STACK(file->read_raw(sizeof(storage::Page), out));
+  CHECK_ERROR_CODE(file->read_raw(sizeof(storage::Page), out));
   return kErrorCodeOk;
 }
 

@@ -181,7 +181,7 @@ ErrorCode ArrayComposer::compose_init_context(
     // first snapshotting. So, no previous page image.
   } else {
     SnapshotPagePointer page_id = previous_root_page_pointer_;
-    for (uint8_t level = levels_ - 1; level >= 0; --level) {
+    for (uint8_t level = levels_ - 1;; --level) {  // be careful. unsigned. "level>=0" is wrong
       ASSERT_ND(page_id > 0);
       memory::PagePoolOffset inmemory_offset;
       ArrayPage* page;
@@ -203,6 +203,8 @@ ErrorCode ArrayComposer::compose_init_context(
       ASSERT_ND(page->get_node_height() == level);
       if (level > 0) {
         page_id = page->get_interior_record(next_route_.route[level]).snapshot_pointer_;
+      } else {
+        break;
       }
     }
   }

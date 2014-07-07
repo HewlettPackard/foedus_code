@@ -69,7 +69,7 @@ ErrorStack SnapshotWriter::initialize_once() {
   clear_snapshot_file();
   fs::Path path(get_snapshot_file_path());
   snapshot_file_ = new fs::DirectIoFile(path, engine_->get_options().snapshot_.emulation_);
-  CHECK_ERROR(snapshot_file_->open(true, true, true, true));
+  WRAP_ERROR_CODE(snapshot_file_->open(true, true, true, true));
 
   // write page-0. this is a dummy page which will never be read
   char* first_page = reinterpret_cast<char*>(pool_memory_.get_block());
@@ -84,7 +84,7 @@ ErrorStack SnapshotWriter::initialize_once() {
     " and these useless sentences. Maybe we put our complaints on our cafeteria here.");
   std::memcpy(first_page + 8, duh.data(), duh.size());
 
-  CHECK_ERROR(snapshot_file_->write(sizeof(storage::Page), pool_memory_));
+  WRAP_ERROR_CODE(snapshot_file_->write(sizeof(storage::Page), pool_memory_));
   allocated_pages_ = 1;
   dumped_pages_ = 1;
   return kRetOk;
@@ -119,7 +119,7 @@ ErrorCode SnapshotWriter::dump_pages(const memory::PagePoolOffset* memory_pages,
 
     // flush the buffer if full
     if (buffered + contiguous > max_buffered) {
-      UNWRAP_ERROR_STACK(snapshot_file_->write(
+      CHECK_ERROR_CODE(snapshot_file_->write(
         sizeof(storage::Page) * buffered,
         memory::AlignedMemorySlice(dump_io_buffer_, 0, sizeof(storage::Page) * buffered)));
       buffered = 0;
@@ -134,7 +134,7 @@ ErrorCode SnapshotWriter::dump_pages(const memory::PagePoolOffset* memory_pages,
   }
 
   if (buffered > 0) {
-    UNWRAP_ERROR_STACK(snapshot_file_->write(
+    CHECK_ERROR_CODE(snapshot_file_->write(
       sizeof(storage::Page) * buffered,
       memory::AlignedMemorySlice(dump_io_buffer_, 0, sizeof(storage::Page) * buffered)));
   }
@@ -146,7 +146,7 @@ ErrorCode SnapshotWriter::dump_pages(const memory::PagePoolOffset* memory_pages,
 
 ErrorCode SnapshotWriter::dump_pages(memory::PagePoolOffset from_page, uint32_t count) {
   // the data are already sequetial. no need for copying
-  UNWRAP_ERROR_STACK(snapshot_file_->write(
+  CHECK_ERROR_CODE(snapshot_file_->write(
     sizeof(storage::Page) * count,
     memory::AlignedMemorySlice(
       &pool_memory_,
