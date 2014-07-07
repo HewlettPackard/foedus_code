@@ -13,6 +13,7 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/fs/direct_io_file.hpp"
+#include "foedus/fs/filesystem.hpp"
 #include "foedus/snapshot/log_gleaner_impl.hpp"
 #include "foedus/snapshot/log_reducer_impl.hpp"
 #include "foedus/snapshot/snapshot.hpp"
@@ -32,7 +33,13 @@ SnapshotWriter::SnapshotWriter(Engine* engine, LogReducer* parent)
 }
 
 bool SnapshotWriter::close() {
-  return snapshot_file_->close();
+  fs::Path path = snapshot_file_->get_path();
+  bool closed = snapshot_file_->close();
+  if (!closed) {
+    return false;
+  }
+  // also fsync the file.
+  return fs::fsync(path, true);
 }
 
 void SnapshotWriter::clear_snapshot_file() {
@@ -62,7 +69,7 @@ ErrorStack SnapshotWriter::initialize_once() {
   clear_snapshot_file();
   fs::Path path(get_snapshot_file_path());
   snapshot_file_ = new fs::DirectIoFile(path, engine_->get_options().snapshot_.emulation_);
-  CHECK_ERROR(snapshot_file_->open(true, true, true, true));
+  WRAP_ERROR_CODE(snapshot_file_->open(true, true, true, true));
 
   // write page-0. this is a dummy page which will never be read
   char* first_page = reinterpret_cast<char*>(pool_memory_.get_block());
@@ -77,7 +84,7 @@ ErrorStack SnapshotWriter::initialize_once() {
     " and these useless sentences. Maybe we put our complaints on our cafeteria here.");
   std::memcpy(first_page + 8, duh.data(), duh.size());
 
-  CHECK_ERROR(snapshot_file_->write(sizeof(storage::Page), pool_memory_));
+  WRAP_ERROR_CODE(snapshot_file_->write(sizeof(storage::Page), pool_memory_));
   allocated_pages_ = 1;
   dumped_pages_ = 1;
   return kRetOk;
@@ -94,7 +101,9 @@ inline uint32_t count_contiguous(const memory::PagePoolOffset* array, uint32_t f
   uint32_t contiguous = 1;
   for (memory::PagePoolOffset value = array[from];
         from + contiguous < to && value == array[from + contiguous];
-        ++contiguous);
+        ++contiguous) {
+    continue;
+  }
   return contiguous;
 }
 
@@ -110,7 +119,7 @@ ErrorCode SnapshotWriter::dump_pages(const memory::PagePoolOffset* memory_pages,
 
     // flush the buffer if full
     if (buffered + contiguous > max_buffered) {
-      UNWRAP_ERROR_STACK(snapshot_file_->write(
+      CHECK_ERROR_CODE(snapshot_file_->write(
         sizeof(storage::Page) * buffered,
         memory::AlignedMemorySlice(dump_io_buffer_, 0, sizeof(storage::Page) * buffered)));
       buffered = 0;
@@ -125,7 +134,7 @@ ErrorCode SnapshotWriter::dump_pages(const memory::PagePoolOffset* memory_pages,
   }
 
   if (buffered > 0) {
-    UNWRAP_ERROR_STACK(snapshot_file_->write(
+    CHECK_ERROR_CODE(snapshot_file_->write(
       sizeof(storage::Page) * buffered,
       memory::AlignedMemorySlice(dump_io_buffer_, 0, sizeof(storage::Page) * buffered)));
   }
@@ -137,7 +146,7 @@ ErrorCode SnapshotWriter::dump_pages(const memory::PagePoolOffset* memory_pages,
 
 ErrorCode SnapshotWriter::dump_pages(memory::PagePoolOffset from_page, uint32_t count) {
   // the data are already sequetial. no need for copying
-  UNWRAP_ERROR_STACK(snapshot_file_->write(
+  CHECK_ERROR_CODE(snapshot_file_->write(
     sizeof(storage::Page) * count,
     memory::AlignedMemorySlice(
       &pool_memory_,

@@ -24,7 +24,7 @@
 #include "foedus/xct/xct_manager.hpp"
 
 /**
- * @file tpch_array_tpcb.cpp
+ * @file test_array_tpcb.cpp
  * A minimal TPC-B on array storage.
  * This test uses a tiny scaling number to quickly run the test.
  */

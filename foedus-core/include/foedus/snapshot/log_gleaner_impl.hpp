@@ -41,7 +41,7 @@ namespace snapshot {
  * Log-gleaning consists of two components; \b mapper (foedus::snapshot::LogMapper) and \b reducer
  * (foedus::snapshot::LogReducer), obviously named after the well-known map-reduce concepts.
  *
- * @section MAPPER Mapper
+ * @section GLEANER_MAPPER Mapper
  * LogGleaner launches a set of mapper threads (foedus::snapshot::LogMapper) to read log files.
  * Each LogMapper corresponds to foedus::log::Logger, the NUMA-local log writer which simply writes
  * out log entries produced by local worker threads.
@@ -49,7 +49,7 @@ namespace snapshot {
  * LogMapper \e maps each log entry to some partition and send it to a reducer corresponding to the
  * partition. For more details, see foedus::snapshot::LogMapper.
  *
- * @section REDUCER Reducer
+ * @section GLEANER_REDUCER Reducer
  * LogGleaner also launches a set of reducer threads (foedus::snapshot::LogReducer), one for each
  * NUMA node. LogReducer sorts log entries sent from LogMapper.
  * The log entries are sorted by key and ordinal (*), then processed just like
@@ -61,7 +61,7 @@ namespace snapshot {
  *
  * Ordinal-1 must be processed before ordinal 2.
  *
- * @section SYNC Synchronization
+ * @section GLEANER_SYNC Synchronization
  * LogGleaner coordinates the synchronization between mappers and reducers during snapshotting.
  * At the beginning of snapshotting, gleaner wakes up reducers and mappers. Mappers go in to sleep
  * when they process all logs. When all mappers went to sleep, reducers start to
@@ -73,6 +73,13 @@ namespace snapshot {
  * Reducers/mappers occasionally check if they are requested to stop when they get idle or complete
  * all work. They do the check at least once for a while so that the latency to stop can not be
  * catastrophic.
+ *
+ * @section GLEANER_ROOT Constructing Root Pages
+ * After all mappers and reducers complete, the last phase of log gleaning is to construct
+ * root pages for the storages modified in this snapshotting.
+ * Gleaner collects \e root-page-info from each reducer and combines them to create the
+ * root page(s). When all set, gleaner produces maps from storage ID to a new root page ID.
+ * This will be written out in a snapshot metadata file by snapshot manager.
  *
  * @note
  * This is a private implementation-details of \ref SNAPSHOT, thus file name ends with _impl.
@@ -150,23 +157,23 @@ class LogGleaner final : public DefaultInitializable {
    */
   void add_nonrecord_log(const log::LogHeader* header);
 
+  /** Returns pointers to new root pages constructed at the end of gleaning. */
+  const std::map<storage::StorageId, storage::SnapshotPagePointer>& get_new_root_page_pointers()
+    const {
+    return new_root_page_pointers_;
+  }
+
   /**
    * Obtains partitioner for the storage.
    */
   const storage::Partitioner* get_or_create_partitioner(storage::StorageId storage_id);
+  /**
+   * Returns number of partitioners created so far. After all mappers are done, this also means
+   * the number of storages processed in this snapshotting.
+   */
+  uint32_t get_partitioner_count() const { return partitioners_.size(); }
 
  private:
-  /**
-   * Request reducers and mappers to cancel the work.
-   * Blocks until all of them stop.
-   */
-  void cancel_reducers_mappers() {
-    cancel_mappers();
-    cancel_reducers();
-  }
-  void cancel_mappers();
-  void cancel_reducers();
-
   Engine* const                   engine_;
   Snapshot* const                 snapshot_;
 
@@ -234,6 +241,12 @@ class LogGleaner final : public DefaultInitializable {
   std::mutex     partitioners_mutex_;
 
   /**
+   * Points to new root pages constructed at the end of gleaning, one for a storage.
+   * This is one of the outputs the gleaner produces.
+   */
+  std::map<storage::StorageId, storage::SnapshotPagePointer> new_root_page_pointers_;
+
+  /**
    * buffer to collect all logs that will be centraly processed at the end of each epoch.
    * Those are engine-targetted and storage-targetted logs, which appear much less frequently.
    * Thus this buffer is quite small.
@@ -248,6 +261,25 @@ class LogGleaner final : public DefaultInitializable {
    * @see add_nonrecord_log()
    */
   std::atomic<uint64_t>           nonrecord_log_buffer_pos_;
+
+  /**
+   * Request reducers and mappers to cancel the work.
+   * Blocks until all of them stop.
+   */
+  void cancel_reducers_mappers() {
+    cancel_mappers();
+    cancel_reducers();
+  }
+  void cancel_mappers();
+  void cancel_reducers();
+
+  /**
+   * @brief Final sub-routine of execute()
+   * @details
+   * Collects what each reducer wrote and combines them to be new root page(s) for each storage.
+   * This method fills out new_root_page_pointers_ as the result.
+   */
+  ErrorStack construct_root_pages();
 };
 }  // namespace snapshot
 }  // namespace foedus

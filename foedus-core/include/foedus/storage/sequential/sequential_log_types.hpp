@@ -11,6 +11,7 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
+#include "foedus/cxx11.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/log/common_log_types.hpp"
@@ -19,7 +20,6 @@
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/sequential/fwd.hpp"
 #include "foedus/storage/sequential/sequential_id.hpp"
-#include "foedus/storage/sequential/sequential_page_impl.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
 #include "foedus/xct/xct_id.hpp"
 
@@ -84,17 +84,29 @@ struct SequentialAppendLogType : public log::RecordLogType {
     payload_count_ = payload_count;
     std::memcpy(payload_, payload, payload_count);
   }
-  void            apply_record(thread::Thread* /*context*/,
-                               Storage* storage, Record* record) ALWAYS_INLINE {
-    ASSERT_ND(payload_count_ < SequentialPage::kMaxPayload);
+  void            apply_record(
+    thread::Thread* context,
+    Storage* storage,
+    Record* record) ALWAYS_INLINE {
+    // It's a lock-free write set, so it doesn't have record info.
+    ASSERT_ND(record == CXX11_NULLPTR);
     ASSERT_ND(dynamic_cast<SequentialStorage*>(storage));
-    std::memcpy(record->payload_, payload_, payload_count_);
-    assorted::memory_fence_release();  // we must apply BEFORE unlock
+    // dynamic_cast is expensive (quite observable in CPU profile)
+    // do it only in debug mode. We are sure this is sequential storage (otherwise bug)
+    SequentialStorage* casted;
+#ifndef NDEBUG
+    casted = reinterpret_cast<SequentialStorage*>(storage);
+#else  // NDEBUG
+    casted = dynamic_cast<SequentialStorage*>(storage);
+#endif  // NDEBUG
+    ASSERT_ND(casted);
+    casted->apply_append_record(context, this);
   }
 
   void            assert_valid() ALWAYS_INLINE {
     assert_valid_generic();
     ASSERT_ND(header_.log_length_ == calculate_log_length(payload_count_));
+    ASSERT_ND(payload_count_ < kMaxPayload);
     ASSERT_ND(header_.get_type() == log::kLogCodeSequentialAppend);
   }
 

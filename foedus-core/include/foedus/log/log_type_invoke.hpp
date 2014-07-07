@@ -17,6 +17,7 @@
 #include "foedus/storage/storage_log_types.hpp"
 #include "foedus/storage/array/array_log_types.hpp"
 #include "foedus/storage/hash/hash_log_types.hpp"
+#include "foedus/storage/masstree/masstree_log_types.hpp"
 #include "foedus/storage/sequential/sequential_log_types.hpp"
 
 namespace foedus {

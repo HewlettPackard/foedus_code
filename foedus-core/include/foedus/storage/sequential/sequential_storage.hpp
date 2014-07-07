@@ -70,6 +70,13 @@ class SequentialStorage CXX11_FINAL : public virtual Storage {
    */
   ErrorCode  append_record(thread::Thread* context, const void *payload, uint16_t payload_count);
 
+  /**
+   * Used to apply the effect of appending to volatile list.
+   */
+  void       apply_append_record(thread::Thread* context, const SequentialAppendLogType* log_entry);
+
+  // TODO(Hideaki) Scan-access methods
+
   void       describe(std::ostream* o) const CXX11_OVERRIDE;
 
   /** Use this only if you know what you are doing. */

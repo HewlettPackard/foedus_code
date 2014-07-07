@@ -11,7 +11,6 @@
 
 #include "foedus/cxx11.hpp"
 #include "foedus/error_code.hpp"
-#include "foedus/error_stack.hpp"
 #include "foedus/fs/device_emulation_options.hpp"
 #include "foedus/fs/path.hpp"
 #include "foedus/memory/fwd.hpp"
@@ -77,7 +76,7 @@ class DirectIoFile {
    * @param[in] append whether to set initial offset at the end of the file
    * @param[in] create whether to create the file. if already exists, does nothing.
    */
-  ErrorStack      open(bool read, bool write, bool append, bool create);
+  ErrorCode       open(bool read, bool write, bool append, bool create);
 
   /** Whether the file is already and successfully opened.*/
   bool            is_opened() const { return descriptor_ != kInvalidDescriptor; }
@@ -98,9 +97,11 @@ class DirectIoFile {
    * @pre buffer.get_size() >= desired_bytes
    * @pre (buffer->get_alignment() & 0xFFF) == 0 (4kb alignment)
    */
-  ErrorStack      read(uint64_t desired_bytes, foedus::memory::AlignedMemory* buffer);
+  ErrorCode       read(uint64_t desired_bytes, foedus::memory::AlignedMemory* buffer);
   /** Memory slice version. */
-  ErrorStack      read(uint64_t desired_bytes, const foedus::memory::AlignedMemorySlice& slice);
+  ErrorCode       read(uint64_t desired_bytes, const foedus::memory::AlignedMemorySlice& slice);
+  /** A version that receives a raw pointer that has to be aligned (be careful to use this ver). */
+  ErrorCode       read_raw(uint64_t desired_bytes, void* buffer);
 
   /**
    * @brief Sequentially write the given amount of contents from the current position.
@@ -111,9 +112,11 @@ class DirectIoFile {
    * @pre buffer.get_size() >= desired_bytes
    * @pre (buffer->get_alignment() & 0xFFF) == 0 (4kb alignment)
    */
-  ErrorStack      write(uint64_t desired_bytes, const foedus::memory::AlignedMemory& buffer);
+  ErrorCode       write(uint64_t desired_bytes, const foedus::memory::AlignedMemory& buffer);
   /** Memory slice version. */
-  ErrorStack      write(uint64_t desired_bytes, const foedus::memory::AlignedMemorySlice& slice);
+  ErrorCode       write(uint64_t desired_bytes, const foedus::memory::AlignedMemorySlice& slice);
+  /** A version that receives a raw pointer that has to be aligned (be careful to use this ver). */
+  ErrorCode       write_raw(uint64_t desired_bytes, const void* buffer);
 
   /**
    * @brief Discard the content of the file after the given offset.
@@ -125,13 +128,13 @@ class DirectIoFile {
    * parts of log files (regions after durable watermark).
    * @pre is_opened()
    */
-  ErrorStack      truncate(uint64_t new_length, bool sync = false);
+  ErrorCode       truncate(uint64_t new_length, bool sync = false);
 
   /**
    * Sets the position of the next byte to be written/extracted from/to the stream.
    * @pre is_opened()
    */
-  ErrorStack      seek(uint64_t offset, SeekType seek_type);
+  ErrorCode       seek(uint64_t offset, SeekType seek_type);
 
 
   /**
@@ -148,7 +151,7 @@ class DirectIoFile {
    * @pre is_opened()
    * @pre is_write()
    */
-  ErrorStack      sync();
+  ErrorCode       sync();
 
 
   Path                    get_path() const { return path_; }

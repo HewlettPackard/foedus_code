@@ -13,6 +13,7 @@ namespace foedus {
 namespace cache {
 class   CacheManager;
 struct  CacheOptions;
+class   SnapshotFileSet;
 }  // namespace cache
 }  // namespace foedus
 #endif  // FOEDUS_CACHE_FWD_HPP_

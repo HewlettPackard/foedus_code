@@ -60,13 +60,6 @@ typedef thread::ThreadGroupId PartitionId;
  */
 typedef uint64_t SnapshotPagePointer;
 
-inline uint8_t extract_numa_node_from_snapshot_pointer(SnapshotPagePointer pointer) {
-  return static_cast<uint8_t>(pointer >> 40);
-}
-inline uint16_t extract_snapshot_id_from_snapshot_pointer(SnapshotPagePointer pointer) {
-  return static_cast<uint16_t>(pointer >> 48);
-}
-
 /**
  * @brief Represents a local page ID in each one snapshot file in some NUMA node.
  * @ingroup STORAGE
@@ -76,6 +69,17 @@ inline uint16_t extract_snapshot_id_from_snapshot_pointer(SnapshotPagePointer po
  * 0 means null pointer (which is a valid value).
  */
 typedef uint64_t SnapshotLocalPageId;
+
+inline SnapshotLocalPageId extract_local_page_id_from_snapshot_pointer(
+  SnapshotPagePointer pointer) {
+  return pointer & 0x000000FFFFFFFFFFULL;
+}
+inline uint8_t extract_numa_node_from_snapshot_pointer(SnapshotPagePointer pointer) {
+  return static_cast<uint8_t>(pointer >> 40);
+}
+inline uint16_t extract_snapshot_id_from_snapshot_pointer(SnapshotPagePointer pointer) {
+  return static_cast<uint16_t>(pointer >> 48);
+}
 
 inline void assert_valid_snapshot_local_page_id(SnapshotLocalPageId page_id) {
   ASSERT_ND(page_id < (1ULL << 40));
@@ -141,6 +145,18 @@ union VolatilePagePointer {
   } components;
 };
 
+inline VolatilePagePointer combine_volatile_page_pointer(
+  uint8_t numa_node,
+  uint8_t flags,
+  uint16_t mod_count,
+  memory::PagePoolOffset offset) {
+  VolatilePagePointer ret;
+  ret.components.numa_node = numa_node;
+  ret.components.flags = flags;
+  ret.components.mod_count = mod_count;
+  ret.components.offset = offset;
+  return ret;
+}
 
 /**
  * @brief Represents a pointer to another page (usually a child page).

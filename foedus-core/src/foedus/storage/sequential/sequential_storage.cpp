@@ -36,6 +36,7 @@ void SequentialStorage::describe(std::ostream* o_ptr) const {
   o << "<SequentialStorage>"
     << "<id>" << get_id() << "</id>"
     << "<name>" << get_name() << "</name>"
+    << pimpl_->volatile_list_
     << "</SequentialStorage>";
 }
 

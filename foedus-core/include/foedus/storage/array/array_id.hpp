@@ -52,7 +52,7 @@ struct ArrayRange {
  * @brief Byte size of header in each page of array storage.
  * @ingroup ARRAY
  */
-const uint16_t kHeaderSize = 32;
+const uint16_t kHeaderSize = 48;
 /**
  * @brief Byte size of data region in each page of array storage.
  * @ingroup ARRAY
@@ -68,6 +68,14 @@ const uint16_t kInteriorSize = 16;
  * @ingroup ARRAY
  */
 const uint16_t kInteriorFanout = (foedus::storage::kPageSize - kHeaderSize) / kInteriorSize;
+
+/**
+ * @brief Code in array storage assumes this number as the maximum number of levels.
+ * @ingroup ARRAY
+ * @details
+ * Interior page always has a big fanout close to 256, so 8 levels are more than enough.
+ */
+const uint8_t kMaxLevels = 8;
 
 }  // namespace array
 }  // namespace storage

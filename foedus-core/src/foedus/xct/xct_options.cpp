@@ -9,12 +9,14 @@ namespace xct {
 XctOptions::XctOptions() {
   max_read_set_size_ = kDefaultMaxReadSetSize;
   max_write_set_size_ = kDefaultMaxWriteSetSize;
+  max_lock_free_write_set_size_ = kDefaultMaxLockFreeWriteSetSize;
   epoch_advance_interval_ms_ = kDefaultEpochAdvanceIntervalMs;
 }
 
 ErrorStack XctOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, max_read_set_size_);
   EXTERNALIZE_LOAD_ELEMENT(element, max_write_set_size_);
+  EXTERNALIZE_LOAD_ELEMENT(element, max_lock_free_write_set_size_);
   EXTERNALIZE_LOAD_ELEMENT(element, epoch_advance_interval_ms_);
   return kRetOk;
 }
@@ -27,6 +29,9 @@ ErrorStack XctOptions::save(tinyxml2::XMLElement* element) const {
     " We pre-allocate this much memory for each NumaCoreMemory. So, don't make it too large.");
   EXTERNALIZE_SAVE_ELEMENT(element, max_write_set_size_,
     "The maximum number of write-set one transaction can have. Default is 16K records.\n"
+    " We pre-allocate this much memory for each NumaCoreMemory. So, don't make it too large.");
+  EXTERNALIZE_SAVE_ELEMENT(element, max_lock_free_write_set_size_,
+    "The maximum number of lock-free write-set one transaction can have. Default is 8K records.\n"
     " We pre-allocate this much memory for each NumaCoreMemory. So, don't make it too large.");
   EXTERNALIZE_SAVE_ELEMENT(element, epoch_advance_interval_ms_,
     "Intervals in milliseconds between epoch advancements. Default is 20 ms\n"

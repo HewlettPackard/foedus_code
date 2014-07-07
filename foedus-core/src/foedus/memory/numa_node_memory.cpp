@@ -45,6 +45,7 @@ ErrorStack NumaNodeMemory::initialize_once() {
   ASSERT_ND(core_memories_.size() == cores_);
   ASSERT_ND(read_set_memory_pieces_.size() == cores_);
   ASSERT_ND(write_set_memory_pieces_.size() == cores_);
+  ASSERT_ND(lock_free_write_set_memory_pieces_.size() == cores_);
   ASSERT_ND(page_offset_chunk_memory_pieces_.size() == cores_);
   ASSERT_ND(log_buffer_memory_pieces_.size() == cores_);
 
@@ -55,16 +56,21 @@ ErrorStack NumaNodeMemory::initialize_once() {
 ErrorStack NumaNodeMemory::initialize_read_write_set_memory() {
   uint32_t readsets = engine_->get_options().xct_.max_read_set_size_;
   uint32_t writesets = engine_->get_options().xct_.max_write_set_size_;
+  uint32_t lockfree_writesets = engine_->get_options().xct_.max_lock_free_write_set_size_;
   size_t readset_size = sizeof(xct::XctAccess) * readsets;
   size_t writeset_size = sizeof(xct::WriteXctAccess) * writesets;
+  size_t lockfree_writeset_size = sizeof(xct::LockFreeWriteXctAccess) * lockfree_writesets;
 
   CHECK_ERROR(allocate_numa_memory(cores_ * readset_size, &read_set_memory_));
   CHECK_ERROR(allocate_numa_memory(cores_ * writeset_size, &write_set_memory_));
+  CHECK_ERROR(allocate_numa_memory(cores_ * lockfree_writeset_size, &lock_free_write_set_memory_));
   for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
     read_set_memory_pieces_.push_back(reinterpret_cast<xct::XctAccess*>(
       read_set_memory_.get_block()) + (readsets * ordinal));
     write_set_memory_pieces_.push_back(reinterpret_cast<xct::WriteXctAccess*>(
       write_set_memory_.get_block()) + (writesets * ordinal));
+    lock_free_write_set_memory_pieces_.push_back(reinterpret_cast<xct::LockFreeWriteXctAccess*>(
+      lock_free_write_set_memory_.get_block()) + (lockfree_writesets * ordinal));
   }
 
   return kRetOk;
@@ -122,6 +128,8 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
   batch.uninitialize_and_delete_all(&core_memories_);
   page_offset_chunk_memory_pieces_.clear();
   page_offset_chunk_memory_.release_block();
+  lock_free_write_set_memory_pieces_.clear();
+  lock_free_write_set_memory_.release_block();
   write_set_memory_pieces_.clear();
   write_set_memory_.release_block();
   read_set_memory_pieces_.clear();

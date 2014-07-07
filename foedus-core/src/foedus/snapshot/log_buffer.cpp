@@ -100,10 +100,7 @@ ErrorCode DumpFileSortedBuffer::wind(uint64_t next_absolute_pos) {
   uint64_t desired_reads = std::min(
     buffer_size_ - read_to_relative,
     total_size_ - offset_ - read_to_relative);
-  ErrorStack er = file_->read(desired_reads, io_buffer_);
-  if (er.is_error()) {
-    return er.get_error_code();
-  }
+  CHECK_ERROR_CODE(file_->read(desired_reads, io_buffer_));
 
   offset_ += jump_distance;
   ASSERT_ND(offset_ % kAlignment == 0);

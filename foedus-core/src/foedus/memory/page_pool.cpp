@@ -49,9 +49,13 @@ thread::ThreadGroupId PagePool::get_numa_node() const { return pimpl_->numa_node
 ErrorCode   PagePool::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chunk) {
   return pimpl_->grab(desired_grab_count, chunk);
 }
+ErrorCode   PagePool::grab_one(PagePoolOffset* offset) { return pimpl_->grab_one(offset); }
+
 void        PagePool::release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk) {
   pimpl_->release(desired_release_count, chunk);
 }
+void PagePool::release_one(PagePoolOffset offset) { pimpl_->release_one(offset); }
+
 LocalPageResolver& PagePool::get_resolver() { return pimpl_->get_resolver(); }
 
 std::ostream& operator<<(std::ostream& o, const PagePool& v) {

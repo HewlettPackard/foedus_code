@@ -64,6 +64,10 @@ class SnapshotWriter final : public DefaultInitializable {
   SnapshotWriter(Engine* engine, LogReducer* parent);
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
+  /**
+   * Close the file and makes sure all writes become durable (including the directory entry).
+   * @return whether successfully closed and synced.
+   */
   bool        close();
 
   SnapshotWriter() = delete;
@@ -107,6 +111,10 @@ class SnapshotWriter final : public DefaultInitializable {
    * @details
    * This is a more efficient version that is probably used only for initial snapshotting
    * and sequential storage.
+   *
+   * @todo refactoring needed. it is inevitable to write out pages that must be updated later
+   * unless compose() is one-shot. Instead, I think only sequential dump is required.
+   * Mostly dump sequentially, then in-place updates a few pages at the end.
    */
   ErrorCode dump_pages(memory::PagePoolOffset from_page, uint32_t count);
 

@@ -112,6 +112,10 @@ class PagePool CXX11_FINAL : public virtual Initializable {
    * so as to get size() about 50%.
    */
   ErrorCode   grab(uint32_t desired_grab_count, PagePoolOffsetChunk *chunk);
+  /**
+   * Grab only one page. More expensive, but handy in some situation.
+   */
+  ErrorCode   grab_one(PagePoolOffset *offset);
 
   /**
    * @brief Returns the specified number of free pages from the chunk.
@@ -124,6 +128,10 @@ class PagePool CXX11_FINAL : public virtual Initializable {
    * so as to get size() about 50%.
    */
   void        release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
+  /**
+   * Returns only one page. More expensive, but handy in some situation.
+   */
+  void        release_one(PagePoolOffset offset);
 
   /**
    * Gives an object to resolve an offset in \e this page pool (thus \e local) to an actual

@@ -13,6 +13,7 @@
 #include "foedus/initializable.hpp"
 #include "foedus/fs/fwd.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
+#include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/thread_id.hpp"
 
@@ -56,6 +57,8 @@ class SnapshotFileSet CXX11_FINAL : public DefaultInitializable {
     snapshot::SnapshotId snapshot_id,
     thread::ThreadGroupId node_id,
     fs::DirectIoFile** out);
+
+  ErrorCode read_page(storage::SnapshotPagePointer page_id, void* out);
 
   friend std::ostream&    operator<<(std::ostream& o, const SnapshotFileSet& v);
 

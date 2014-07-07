@@ -29,7 +29,7 @@ DEFINE_TEST_CASE_PACKAGE(DirectIoFileTest, foedus.fs);
 
 TEST(DirectIoFileTest, Create) {
   DirectIoFile file(Path(std::string("testfile_") + get_random_name()));
-  COERCE_ERROR(file.open(true, true, true, true));
+  COERCE_ERROR_CODE(file.open(true, true, true, true));
   file.close();
 }
 
@@ -48,7 +48,7 @@ void test_tmpfs(std::string root) {
   EXPECT_FALSE(exists(file_path));
 
   DirectIoFile file(file_path);
-  COERCE_ERROR(file.open(true, true, true, true));
+  COERCE_ERROR_CODE(file.open(true, true, true, true));
   file.close();
   remove_all(folder_path);
   EXPECT_FALSE(exists(folder_path));
@@ -61,9 +61,9 @@ TEST(DirectIoFileTest, CreateAppend) {
   DirectIoFile file(Path(std::string("testfile_") + get_random_name()));
   memory::AlignedMemory memory(1 << 16, 1 << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
   std::memset(memory.get_block(), 1, 1 << 15);
-  COERCE_ERROR(file.open(true, true, true, true));
-  COERCE_ERROR(file.write(1 << 15, memory));
-  COERCE_ERROR(file.write(1 << 15, memory::AlignedMemorySlice(&memory, 1 << 14, 1 << 15)));
+  COERCE_ERROR_CODE(file.open(true, true, true, true));
+  COERCE_ERROR_CODE(file.write(1 << 15, memory));
+  COERCE_ERROR_CODE(file.write(1 << 15, memory::AlignedMemorySlice(&memory, 1 << 14, 1 << 15)));
   file.close();
   EXPECT_EQ(1 << 16, file_size(file.get_path()));
 }
@@ -72,11 +72,11 @@ TEST(DirectIoFileTest, CreateWrite) {
   DirectIoFile file(Path(std::string("testfile_") + get_random_name()));
   memory::AlignedMemory memory(1 << 16, 1 << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
   std::memset(memory.get_block(), 1, 1 << 16);
-  COERCE_ERROR(file.open(true, true, false, true));
-  COERCE_ERROR(file.seek(0, DirectIoFile::kDirectIoSeekSet));
-  COERCE_ERROR(file.write(1 << 15, memory));
-  COERCE_ERROR(file.seek(1 << 14, DirectIoFile::kDirectIoSeekSet));
-  COERCE_ERROR(file.write(1 << 15, memory));
+  COERCE_ERROR_CODE(file.open(true, true, false, true));
+  COERCE_ERROR_CODE(file.seek(0, DirectIoFile::kDirectIoSeekSet));
+  COERCE_ERROR_CODE(file.write(1 << 15, memory));
+  COERCE_ERROR_CODE(file.seek(1 << 14, DirectIoFile::kDirectIoSeekSet));
+  COERCE_ERROR_CODE(file.write(1 << 15, memory));
   file.close();
   EXPECT_EQ(3 << 14, file_size(file.get_path()));
 }
@@ -95,8 +95,8 @@ TEST(DirectIoFileTest, WriteWithLogBuffer) {
 
     DirectIoFile file(Path(std::string("testfile_") + get_random_name()));
     std::memset(log_buf.get_block(), 1, 1 << 12);
-    COERCE_ERROR(file.open(true, true, true, true));
-    COERCE_ERROR(file.write(1 << 12, log_buf));
+    COERCE_ERROR_CODE(file.open(true, true, true, true));
+    COERCE_ERROR_CODE(file.write(1 << 12, log_buf));
     file.close();
     EXPECT_EQ(1 << 12, file_size(file.get_path()));
 
@@ -136,8 +136,8 @@ TEST(DirectIoFileTest, WriteWithLogBufferPad) {
       log::FillerLogType::kLogWriteUnitSize - the_log->header_.log_length_);
 
     DirectIoFile file(Path(std::string("testfile_") + get_random_name()));
-    COERCE_ERROR(file.open(true, true, true, true));
-    COERCE_ERROR(file.write(log::FillerLogType::kLogWriteUnitSize, fill_buf));
+    COERCE_ERROR_CODE(file.open(true, true, true, true));
+    COERCE_ERROR_CODE(file.write(log::FillerLogType::kLogWriteUnitSize, fill_buf));
     file.close();
     EXPECT_EQ(log::FillerLogType::kLogWriteUnitSize, file_size(file.get_path()));
 

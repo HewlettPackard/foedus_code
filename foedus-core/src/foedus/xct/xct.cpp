@@ -29,6 +29,9 @@ Xct::Xct(Engine* engine, thread::ThreadId thread_id) : engine_(engine), thread_i
   write_set_ = nullptr;
   write_set_size_ = 0;
   max_write_set_size_ = 0;
+  lock_free_write_set_ = nullptr;
+  lock_free_write_set_size_ = 0;
+  max_lock_free_write_set_size_ = 0;
   isolation_level_ = kSerializable;
 }
 
@@ -43,6 +46,9 @@ void Xct::initialize(thread::ThreadId thread_id, memory::NumaCoreMemory* core_me
   write_set_ = core_memory->get_write_set_memory();
   write_set_size_ = 0;
   max_write_set_size_ = core_memory->get_write_set_size();
+  lock_free_write_set_ = core_memory->get_lock_free_write_set_memory();
+  lock_free_write_set_size_ = 0;
+  max_lock_free_write_set_size_ = core_memory->get_lock_free_write_set_size();
 }
 
 void Xct::issue_next_id(Epoch *epoch)  {
@@ -100,7 +106,9 @@ std::ostream& operator<<(std::ostream& o, const Xct& v) {
     o << "<id_>" << v.get_id() << "</id_>"
       << "<scheme_xct_>" << v.is_schema_xct() << "</scheme_xct_>"
       << "<read_set_size>" << v.get_read_set_size() << "</read_set_size>"
-      << "<write_set_size>" << v.get_write_set_size() << "</write_set_size>";
+      << "<write_set_size>" << v.get_write_set_size() << "</write_set_size>"
+      << "<lock_free_write_set_size>" << v.get_lock_free_write_set_size()
+        << "</lock_free_write_set_size>";
   }
   o << "</Xct>";
   return o;

@@ -17,9 +17,11 @@ struct  SequentialCreateLogType;
 struct  SequentialMetadata;
 class   SequentialPage;
 class   SequentialPartitioner;
+class   SequentialRootPage;
 class   SequentialStorage;
 class   SequentialStorageFactory;
 class   SequentialStoragePimpl;
+class   SequentialVolatileList;
 }  // namespace sequential
 }  // namespace storage
 }  // namespace foedus

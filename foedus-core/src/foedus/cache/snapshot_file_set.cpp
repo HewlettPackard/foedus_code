@@ -13,6 +13,7 @@
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/fs/direct_io_file.hpp"
 #include "foedus/fs/path.hpp"
+#include "foedus/storage/page.hpp"
 
 namespace foedus {
 namespace cache {
@@ -73,6 +74,18 @@ ErrorCode SnapshotFileSet::get_or_open_file(
     return kErrorCodeOk;
   }
 }
+
+ErrorCode SnapshotFileSet::read_page(storage::SnapshotPagePointer page_id, void* out) {
+  fs::DirectIoFile* file;
+  CHECK_ERROR_CODE(get_or_open_file(page_id, &file));
+  storage::SnapshotLocalPageId local_page_id
+    = storage::extract_local_page_id_from_snapshot_pointer(page_id);
+  CHECK_ERROR_CODE(
+    file->seek(local_page_id * sizeof(storage::Page), fs::DirectIoFile::kDirectIoSeekSet));
+  CHECK_ERROR_CODE(file->read_raw(sizeof(storage::Page), out));
+  return kErrorCodeOk;
+}
+
 
 std::ostream& operator<<(std::ostream& o, const SnapshotFileSet& v) {
   o << "<SnapshotFileSet>";

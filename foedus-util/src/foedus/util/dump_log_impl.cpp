@@ -104,7 +104,7 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
 
   fs::DirectIoFile file(path);
   memory::AlignedMemory buffer(1 << 24, kAlignment, memory::AlignedMemory::kPosixMemalign, 0);
-  COERCE_ERROR(file.open(true, false, false, false));
+  COERCE_ERROR_CODE(file.open(true, false, false, false));
 
   uint64_t prev_file_offset = 0;
   uint64_t buffer_size = 0;
@@ -142,8 +142,8 @@ void DumpLog::parse_log_file(uint32_t file_index, ParserCallback* callback) {
       }
       ASSERT_ND(next_reads % kAlignment == 0);
       ASSERT_ND(new_file_offset + next_reads <= file_size);
-      COERCE_ERROR(file.seek(new_file_offset, fs::DirectIoFile::kDirectIoSeekSet));
-      COERCE_ERROR(file.read(next_reads, &buffer));
+      COERCE_ERROR_CODE(file.seek(new_file_offset, fs::DirectIoFile::kDirectIoSeekSet));
+      COERCE_ERROR_CODE(file.read(next_reads, &buffer));
       prev_file_offset = new_file_offset;
       buffer_size = next_reads;
       buffer_offset = skip_after_read;

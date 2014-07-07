@@ -85,8 +85,9 @@ ErrorStack LogReducer::handle_initialize() {
   buffers_[0].status_.store(0U);
   buffers_[1].status_.store(0U);
   sorted_runs_ = 0;
+  total_storage_count_ = 0;
 
-  // we don't initialize snapshot_writer_/composer_work_memory_ yet
+  // we don't initialize snapshot_writer_/composer_work_memory_/root_info_buffer_ yet
   // because they are needed at the end of reducer.
   return kRetOk;
 }
@@ -95,6 +96,7 @@ ErrorStack LogReducer::handle_uninitialize() {
   ErrorStackBatch batch;
   batch.emprace_back(snapshot_writer_.uninitialize());
   batch.emprace_back(previous_snapshot_files_.uninitialize());
+  root_info_buffer_.release_block();
   composer_work_memory_.release_block();
   buffer_memory_.release_block();
   dump_io_buffer_.release_block();
@@ -159,7 +161,7 @@ ErrorStack LogReducer::dump_buffer() {
   // open a file
   fs::Path path = get_sorted_run_file_path(sorted_runs_);
   fs::DirectIoFile file(path);
-  CHECK_ERROR(file.open(false, true, true, true));
+  WRAP_ERROR_CODE(file.open(false, true, true, true));
   LOG(INFO) << to_string() << " Created a sorted run file " << path;
 
   // for each storage (ordered by storage ID), sort and dump them into the file.
@@ -344,7 +346,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage_write(
     std::memcpy(io_buffer + current_pos, record, record->header_.log_length_);
     current_pos += record->header_.log_length_;
     if (current_pos >= flush_threshold) {
-      CHECK_ERROR(dump_file->write(flush_threshold, dump_io_buffer_));
+      WRAP_ERROR_CODE(dump_file->write(flush_threshold, dump_io_buffer_));
 
       // move the fragment to beginning
       if (current_pos > flush_threshold) {
@@ -381,7 +383,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage_write(
     }
 
     ASSERT_ND(current_pos % log::FillerLogType::kLogWriteUnitSize == 0);
-    CHECK_ERROR(dump_file->write(current_pos, dump_io_buffer_));
+    WRAP_ERROR_CODE(dump_file->write(current_pos, dump_io_buffer_));
     total_written += current_pos;
   }
 
@@ -491,19 +493,27 @@ void LogReducer::append_log_chunk(
     << "'s buffer for storage-" << storage_id << " in " << stop_watch.elapsed() << " cycles";
 }
 
-void LogReducer::expand_sort_buffer_if_needed(uint64_t required_size) {
-  if (sort_buffer_.get_size() < required_size) {
-    LOG(WARNING) << to_string() << " automatically expanding sort_buffer from "
-      << sort_buffer_.get_size() << " to " << required_size << ". if this happens often,"
-      << " our sizing is wrong.";
-      sort_buffer_.alloc(
-        required_size,
-        memory::kHugepageSize,
-        memory::AlignedMemory::kNumaAllocOnnode,
-        numa_node_);
+void LogReducer::expand_if_needed(
+  uint64_t required_size,
+  memory::AlignedMemory *memory,
+  const std::string& name) {
+  if (memory->is_null() || memory->get_size() < required_size) {
+    if (memory->is_null()) {
+      LOG(INFO) << to_string() << " initially allocating " << name << "."
+        << assorted::Hex(required_size) << " bytes.";
+    } else {
+      LOG(WARNING) << to_string() << " automatically expanding " << name << " from "
+        << assorted::Hex(memory->get_size()) << " bytes to "
+        << assorted::Hex(required_size) << " bytes. if this happens often,"
+        << " our sizing is wrong.";
+    }
+    memory->alloc(
+      required_size,
+      memory::kHugepageSize,
+      memory::AlignedMemory::kNumaAllocOnnode,
+      numa_node_);
   }
 }
-
 void LogReducer::expand_positions_buffers_if_needed(uint64_t required_size_per_buffer) {
   ASSERT_ND(input_positions_slice_.get_size() == output_positions_slice_.get_size());
   if (input_positions_slice_.get_size() < required_size_per_buffer) {
@@ -524,19 +534,6 @@ void LogReducer::expand_positions_buffers_if_needed(uint64_t required_size_per_b
         &positions_buffers_,
         positions_buffers_.get_size() >> 1,
         positions_buffers_.get_size() >> 1);
-  }
-}
-
-void LogReducer::expand_composer_work_memory_if_needed(uint64_t required_size) {
-  if (composer_work_memory_.is_null() || composer_work_memory_.get_size() < required_size) {
-    LOG(WARNING) << to_string() << " automatically expanding composer_work_memory_ from "
-      << sort_buffer_.get_size() << " to " << required_size << ". if this happens often,"
-      << " our sizing is wrong.";
-      composer_work_memory_.alloc(
-        required_size,
-        memory::kHugepageSize,
-        memory::AlignedMemory::kNumaAllocOnnode,
-        numa_node_);
   }
 }
 
@@ -600,6 +597,16 @@ void LogReducer::MergeContext::set_tmp_sorted_buffer_array(storage::StorageId st
   ASSERT_ND(tmp_sorted_buffer_count_ > 0);
 }
 
+storage::Composer* LogReducer::create_composer(storage::StorageId storage_id) {
+  const storage::Partitioner* partitioner = parent_->get_or_create_partitioner(storage_id);
+  return storage::Composer::create_composer(
+      engine_,
+      partitioner,
+      &snapshot_writer_,
+      &previous_snapshot_files_,
+      *parent_->get_snapshot());
+}
+
 ErrorStack LogReducer::merge_sort() {
   merge_sort_check_buffer_status();
 
@@ -625,39 +632,38 @@ ErrorStack LogReducer::merge_sort() {
   CHECK_ERROR(merge_sort_open_sorted_runs(&context));
   CHECK_ERROR(merge_sort_initialize_sort_buffers(&context));
 
+  expand_root_info_buffer_if_needed(parent_->get_partitioner_count() * sizeof(storage::Page));
+
   // merge-sort each storage
   storage::StorageId prev_storage_id = 0;
-  while (true) {
-    storage::StorageId storage_id = context.get_min_storage_id();
-    if (storage_id == 0) {
-      break;
-    } else if (storage_id <= prev_storage_id) {
+  total_storage_count_ = 0;
+  for (storage::StorageId storage_id = context.get_min_storage_id();
+        storage_id > 0;
+        storage_id = context.get_min_storage_id(), ++total_storage_count_) {
+    if (storage_id <= prev_storage_id) {
       LOG(FATAL) << to_string() << " wtf. not storage sorted? " << *this;
     }
     prev_storage_id = storage_id;
 
     // collect streams for this storage
-    VLOG(0) << to_string() << " merging storage-" << storage_id;
+    VLOG(0) << to_string() << " merging storage-" << storage_id << ", num=" << total_storage_count_;
     context.set_tmp_sorted_buffer_array(storage_id);
 
     // run composer
-    const storage::Partitioner* partitioner = parent_->get_or_create_partitioner(storage_id);
-    std::unique_ptr< storage::Composer > composer(
-      storage::Composer::create_composer(
-        engine_,
-        partitioner,
-        &snapshot_writer_,
-        *parent_->get_snapshot()));
+    std::unique_ptr< storage::Composer > composer(create_composer(storage_id));
     uint64_t work_memory_size = composer->get_required_work_memory_size(
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_);
     expand_composer_work_memory_if_needed(work_memory_size);
     // snapshot_reader_.get_or_open_file();
+    ASSERT_ND(total_storage_count_ <= parent_->get_partitioner_count());
+    storage::Page* root_info_page
+      = reinterpret_cast<storage::Page*>(root_info_buffer_.get_block()) + total_storage_count_;
     CHECK_ERROR(composer->compose(
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_,
-      0,  // TODO(Hideaki): Get root page in previous snapshot.
-      memory::AlignedMemorySlice(&composer_work_memory_)));
+      memory::AlignedMemorySlice(&composer_work_memory_),
+      root_info_page));
 
     // move on to next blocks
     for (uint32_t i = 0 ; i < context.sorted_buffer_count_; ++i) {
@@ -665,10 +671,12 @@ ErrorStack LogReducer::merge_sort() {
       WRAP_ERROR_CODE(merge_sort_advance_sort_buffers(buffer, storage_id));
     }
   }
+  ASSERT_ND(total_storage_count_ <= parent_->get_partitioner_count());
 
   snapshot_writer_.close();
   merge_watch.stop();
-  LOG(INFO) << to_string() << " completed merging in " << merge_watch.elapsed_sec() << " seconds";
+  LOG(INFO) << to_string() << " completed merging in " << merge_watch.elapsed_sec() << " seconds"
+    << " . total_storage_count_=" << total_storage_count_;
   return kRetOk;
 }
 
@@ -735,7 +743,7 @@ ErrorStack LogReducer::merge_sort_open_sorted_runs(LogReducer::MergeContext* con
     std::unique_ptr<fs::DirectIoFile> file_ptr(new fs::DirectIoFile(
       path,
       engine_->get_options().snapshot_.emulation_));
-    CHECK_ERROR(file_ptr->open(true, false, false, false));
+    WRAP_ERROR_CODE(file_ptr->open(true, false, false, false));
 
     context->sorted_buffers_.emplace_back(new DumpFileSortedBuffer(
       file_ptr.get(),
@@ -755,7 +763,7 @@ ErrorStack LogReducer::merge_sort_initialize_sort_buffers(LogReducer::MergeConte
       ASSERT_ND(casted);
       // the buffer hasn't loaded any data, so let's make the first read.
       uint64_t desired_reads = std::min(casted->get_buffer_size(), casted->get_total_size());
-      CHECK_ERROR(casted->get_file()->read(desired_reads, casted->get_io_buffer()));
+      WRAP_ERROR_CODE(casted->get_file()->read(desired_reads, casted->get_io_buffer()));
     } else {
       ASSERT_ND(dynamic_cast<InMemorySortedBuffer*>(buffer));
       // in-memory one has already loaded everything
@@ -849,6 +857,7 @@ std::ostream& operator<<(std::ostream& o, const LogReducer& v) {
   o << "<LogReducer>"
     << "<id_>" << v.id_ << "</id_>"
     << "<numa_node_>" << static_cast<int>(v.numa_node_) << "</numa_node_>"
+    << "<total_storage_count_>" << v.total_storage_count_ << "</total_storage_count_>"
     << "<buffer_memory_>" << v.buffer_memory_ << "</buffer_memory_>"
     << "<sort_buffer_>" << v.sort_buffer_ << "</sort_buffer_>"
     << "<positions_buffers_>" << v.positions_buffers_ << "</positions_buffers_>"

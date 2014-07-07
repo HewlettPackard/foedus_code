@@ -12,6 +12,7 @@
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/page_resolver.hpp"
 #include "foedus/thread/fwd.hpp"
+#include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/fwd.hpp"
 
 namespace foedus {
@@ -32,6 +33,7 @@ class Thread CXX11_FINAL : public virtual Initializable {
 
   Engine*     get_engine() const;
   ThreadId    get_thread_id() const;
+  ThreadGroupId get_numa_node() const { return decompose_numa_node(get_thread_id()); }
 
   /**
    * Returns the transaction that is currently running on this thread.
@@ -42,6 +44,8 @@ class Thread CXX11_FINAL : public virtual Initializable {
 
   /** Returns the private memory repository of this thread. */
   memory::NumaCoreMemory* get_thread_memory() const;
+  /** Returns the node-shared memory repository of the NUMA node this thread belongs to. */
+  memory::NumaNodeMemory* get_node_memory() const;
 
   /**
    * @brief Returns the private log buffer for this thread.

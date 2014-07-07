@@ -26,6 +26,8 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
     kDefaultMaxReadSetSize = 1 << 16,
     /** Default value for max_write_set_size_. */
     kDefaultMaxWriteSetSize = 1 << 14,
+    /** Default value for max_lock_free_write_set_size_. */
+    kDefaultMaxLockFreeWriteSetSize = 1 << 13,
     /** Default value for epoch_advance_interval_ms_. */
     kDefaultEpochAdvanceIntervalMs = 20,
   };
@@ -46,12 +48,20 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
   uint32_t    max_read_set_size_;
 
   /**
-   * @brief The maximum number of read-set one transaction can have.
+   * @brief The maximum number of write-set one transaction can have.
    * @details
    * Default is 16K records.
    * We pre-allocate this much memory for each NumaCoreMemory. So, don't make it too large.
    */
   uint32_t    max_write_set_size_;
+
+  /**
+   * @brief The maximum number of lock-free write-set one transaction can have.
+   * @details
+   * Default is 8K records.
+   * We pre-allocate this much memory for each NumaCoreMemory. So, don't make it too large.
+   */
+  uint32_t    max_lock_free_write_set_size_;
 
   /**
    * @brief Intervals in milliseconds between epoch advancements.

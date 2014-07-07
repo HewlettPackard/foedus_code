@@ -193,9 +193,9 @@ Also, we place headers under folders in a hierarchically consistent order.
 "aaa/a.hpp", "aaa/z.hpp", "aaa/b/foo.hpp", "aaa/b/hoge.hpp", "aaa/c/ccc.hpp" in this order.
 This is a bit different from original cpplint.py implementation (we modified the script for this).
 * We also force a blank line between categories of headers. So, it should be
-Include own-header (hpp with the same path as the cpp file), <blank line>,
-Include C system headers (eg <stdint.h>, <numa.h>), <blank line>,
-Include C++ system headers (eg <string>, <iostream>) <blank line>,
+Include own-header (hpp with the same path as the cpp file), \<blank line\>,
+Include C system headers (eg \<stdint.h\>, \<numa.h\>), \<blank line\>,
+Include C++ system headers (eg \<string\>, \<iostream\>) \<blank line\>,
 Include other our headers (eg "foedus/memory/engine_memory.hpp").
 Notice that we always use angle brackets for system headers and double quotes for our headers.
 * No importing or aliasing ("using") of namespace at all, even in c++ files. You might initially

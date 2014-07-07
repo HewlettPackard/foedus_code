@@ -14,6 +14,8 @@
 #include "foedus/memory/fwd.hpp"
 #include "foedus/snapshot/fwd.hpp"
 #include "foedus/storage/composer.hpp"
+#include "foedus/storage/page.hpp"
+#include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/sequential/fwd.hpp"
 
 namespace foedus {
@@ -32,12 +34,23 @@ namespace sequential {
  * Do not include this header from a client program. There is no case client program needs to
  * access this internal class.
  */
-class SequentialComposer final : public virtual Composer {
+class SequentialComposer final : public Composer {
  public:
+  /** Output of one compose() call, which are then combined in construct_root(). */
+  struct RootInfoPage final {
+    PageHeader          header_;          // +16 -> 16
+    /** Number of pointers stored in this page. */
+    uint32_t            pointer_count_;   // +4 -> 20
+    uint32_t            dummy_;           // +4 -> 24
+    /** Pointers to head pages. */
+    SnapshotPagePointer pointers_[(kPageSize - 24) / 8];  // -> 4096
+  };
+
   SequentialComposer(
     Engine *engine,
     const SequentialPartitioner* partitioner,
     snapshot::SnapshotWriter* snapshot_writer,
+    cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot);
   ~SequentialComposer() {}
 
@@ -49,10 +62,16 @@ class SequentialComposer final : public virtual Composer {
   void describe(std::ostream* o) const override;
 
   ErrorStack compose(
-    snapshot::SortedBuffer** log_streams,
+    snapshot::SortedBuffer* const* log_streams,
     uint32_t log_streams_count,
-    SnapshotPagePointer previous_root_page_pointer,
-    const memory::AlignedMemorySlice& work_memory) override;
+    const memory::AlignedMemorySlice& work_memory,
+    Page* root_info_page) override;
+
+  ErrorStack construct_root(
+    const Page* const*  root_info_pages,
+    uint32_t            root_info_pages_count,
+    const memory::AlignedMemorySlice& work_memory,
+    SnapshotPagePointer* new_root_page_pointer) override;
 
   uint64_t get_required_work_memory_size(
     snapshot::SortedBuffer** /*log_streams*/,
@@ -61,15 +80,11 @@ class SequentialComposer final : public virtual Composer {
   }
 
  private:
-  Engine* const engine_;
-  const SequentialPartitioner* const partitioner_;
-  snapshot::SnapshotWriter* const snapshot_writer_;
-  const snapshot::Snapshot& new_snapshot_;
-
   SequentialPage* allocate_page(SnapshotPagePointer *next_allocated_page_id);
+  SequentialRootPage* allocate_root_page(SnapshotPagePointer *next_allocated_page_id);
   ErrorCode fix_and_dump(SequentialPage* first_unfixed_page, SequentialPage** cur_page);
-  SnapshotPagePointer to_snapshot_pointer(SnapshotLocalPageId local_id) const;
 };
+
 }  // namespace sequential
 }  // namespace storage
 }  // namespace foedus

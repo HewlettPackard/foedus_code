@@ -106,15 +106,31 @@ std::vector<uint64_t> ArrayStoragePimpl::calculate_required_pages(
   return pages;
 }
 
+uint8_t calculate_levels(const ArrayMetadata &metadata) {
+  uint64_t array_size = metadata.array_size_;
+  uint16_t payload = assorted::align8(metadata.payload_size_);
+  uint64_t records_per_page = kDataSize / (payload + kRecordOverhead);
+  uint8_t levels = 1;
+  for (uint64_t pages = assorted::int_div_ceil(array_size, records_per_page);
+        pages != 1;
+        pages = assorted::int_div_ceil(pages, kInteriorFanout)) {
+    ++levels;
+  }
+  return levels;
+}
+
 ArrayStoragePimpl::ArrayStoragePimpl(Engine* engine, ArrayStorage* holder,
                    const ArrayMetadata &metadata, bool create)
-  : engine_(engine), holder_(holder), metadata_(metadata), root_page_(nullptr), exist_(!create),
-    records_in_leaf_(kDataSize / (metadata.payload_size_ + kRecordOverhead)),
-    leaf_fanout_div_(records_in_leaf_),
-    interior_fanout_div_(kInteriorFanout) {
+  : engine_(engine),
+  holder_(holder),
+  metadata_(metadata),
+  root_page_(nullptr),
+  exist_(!create),
+  levels_(calculate_levels(metadata)),
+  route_finder_(levels_, metadata.payload_size_) {
   ASSERT_ND(create || metadata.id_ > 0);
   ASSERT_ND(metadata.name_.size() > 0);
-  root_page_pointer_.snapshot_pointer_ = metadata.root_page_id_;
+  root_page_pointer_.snapshot_pointer_ = metadata.root_snapshot_page_id_;
   root_page_pointer_.volatile_pointer_.word = 0;
 }
 
@@ -122,7 +138,6 @@ ErrorStack ArrayStoragePimpl::initialize_once() {
   LOG(INFO) << "Initializing an array-storage " << *holder_ << " exists=" << exist_;
   std::vector<uint64_t> pages = calculate_required_pages(
     metadata_.array_size_, metadata_.payload_size_);
-  levels_ = pages.size();
 
   if (exist_) {
     // initialize root_page_
@@ -214,8 +229,13 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
       ASSERT_ND(level == levels_ - 1);
       range.end_ = metadata_.array_size_;
     }
-    page->initialize_data_page(initial_epoch, metadata_.id_,
-                   metadata_.payload_size_, level, range);
+    page->initialize_data_page(
+      initial_epoch,
+      metadata_.id_,
+      page_pointer.word,
+      metadata_.payload_size_,
+      level,
+      range);
 
     current_pages.push_back(page);
     current_pages_ids.push_back(page_pointer);
@@ -245,7 +265,13 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     if (range.end_ > metadata_.array_size_) {
       range.end_ = metadata_.array_size_;
     }
-    page->initialize_data_page(initial_epoch, metadata_.id_, metadata_.payload_size_, 0, range);
+    page->initialize_data_page(
+      initial_epoch,
+      metadata_.id_,
+      page_pointer.word,
+      metadata_.payload_size_,
+      0,
+      range);
     current_pages[0] = page;
     current_pages_ids[0] = page_pointer;
     // current_records[0] is always 0
@@ -264,7 +290,11 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
           range.end_ = metadata_.array_size_;
         }
         interior_page->initialize_data_page(
-          initial_epoch, metadata_.id_, metadata_.payload_size_, level, interior_range);
+          initial_epoch,
+          metadata_.id_,
+          interior_pointer.word,
+          metadata_.payload_size_,
+          level, interior_range);
 
         DualPagePointer& child_pointer = interior_page->get_interior_record(0);
         child_pointer.snapshot_pointer_ = 0;
@@ -380,26 +410,6 @@ ErrorCode ArrayStoragePimpl::increment_record(
   return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
 }
 
-inline ArrayStoragePimpl::LookupRoute ArrayStoragePimpl::find_route(ArrayOffset offset) const {
-  LookupRoute ret;
-  ArrayOffset old = offset;
-  offset = leaf_fanout_div_.div64(offset);
-  ret.route[0] = old - offset * records_in_leaf_;
-  for (uint8_t level = 1; level < levels_ - 1; ++level) {
-    old = offset;
-    offset = interior_fanout_div_.div64(offset);
-    ret.route[level] = old - offset * kInteriorFanout;
-  }
-  if (levels_ > 1) {
-    // the last level is done manually because we don't need any division there
-    ASSERT_ND(offset < kInteriorFanout);
-    ret.route[levels_ - 1] = offset;
-  }
-
-  return ret;
-}
-
-
 inline ErrorCode ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset offset,
                       ArrayPage** out, uint16_t *index) {
   ASSERT_ND(is_initialized());
@@ -408,11 +418,7 @@ inline ErrorCode ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset 
   ASSERT_ND(index);
   ArrayPage* current_page = root_page_;
   ASSERT_ND(current_page->get_array_range().contains(offset));
-
-  // use efficient division to determine the route.
-  // this code originally used simple std::lldiv(), which caused 20% of CPU cost in read-only
-  // experiment. wow. The code below now costs only 6%.
-  LookupRoute route = find_route(offset);
+  LookupRoute route = route_finder_.find_route(offset);
   const memory::GlobalPageResolver& page_resolver = context->get_global_page_resolver();
   for (uint8_t level = levels_ - 1; level > 0; --level) {
     ASSERT_ND(current_page->get_array_range().contains(offset));
