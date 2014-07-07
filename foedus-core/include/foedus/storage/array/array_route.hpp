@@ -87,6 +87,7 @@ class LookupRouteFinder {
 
 inline LookupRoute LookupRouteFinder::find_route(ArrayOffset offset) const {
   LookupRoute ret;
+  ret.word = 0;
   ArrayOffset old = offset;
   offset = leaf_fanout_div_.div64(offset);
   ret.route[0] = old - offset * records_in_leaf_;
@@ -109,6 +110,7 @@ inline LookupRoute LookupRouteFinder::find_route_and_switch(
   ArrayOffset *page_starts,
   ArrayOffset *page_ends) const {
   LookupRoute ret;
+  ret.word = 0;
   ArrayOffset old = offset;
   offset = leaf_fanout_div_.div64(offset);
   *page_starts = offset * records_in_leaf_;

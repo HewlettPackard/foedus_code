@@ -36,7 +36,7 @@ struct DeviceEmulationOptions CXX11_FINAL : public virtual externalize::External
 
   /**
    * [Experiments] additional CPU cycles to busy-wait for each 1KB read. 0 (default) disables it.
-   * For example, 4kb read is seek+read*4 cycles, 1MB read is seek+read*1000 cycles.
+   * For example, 4kb read is seek+read*4 cycles, 1MB read is seek+read*1024 cycles.
    */
   uint32_t    emulated_read_kb_cycles_;
 

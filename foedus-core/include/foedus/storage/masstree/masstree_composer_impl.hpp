@@ -70,13 +70,6 @@ class MasstreeComposer final : public virtual Composer {
     uint32_t /*log_streams_count*/) const override {
     return 0;
   }
-
- private:
-  Engine* const engine_;
-  const MasstreePartitioner* const partitioner_;
-  snapshot::SnapshotWriter* const snapshot_writer_;
-  cache::SnapshotFileSet* const previous_snapshot_files_;
-  const snapshot::Snapshot& new_snapshot_;
 };
 
 }  // namespace masstree

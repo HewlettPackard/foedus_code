@@ -38,17 +38,15 @@ ArrayComposer::ArrayComposer(
     snapshot::SnapshotWriter* snapshot_writer,
     cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot)
-  : engine_(engine),
-    partitioner_(partitioner),
-    snapshot_writer_(snapshot_writer),
-    previous_snapshot_files_(previous_snapshot_files),
-    new_snapshot_(new_snapshot),
-    storage_id_(partitioner->get_storage_id()),
-    storage_(dynamic_cast<ArrayStorage*>(engine->get_storage_manager().get_storage(storage_id_))),
-    previous_root_page_pointer_(storage_->get_metadata()->root_snapshot_page_id_),
-    levels_(storage_->get_levels()),
-    route_finder_(levels_, storage_->get_payload_size()) {
+  : Composer(engine, partitioner, snapshot_writer, previous_snapshot_files, new_snapshot),
+    storage_casted_(dynamic_cast<ArrayStorage*>(storage_)),
+    levels_(storage_casted_->get_levels()),
+    route_finder_(levels_, storage_casted_->get_payload_size()) {
   ASSERT_ND(partitioner);
+  offset_intervals_[0] = route_finder_.get_records_in_leaf();
+  for (uint8_t level = 1; level < levels_; ++level) {
+    offset_intervals_[level] = offset_intervals_[level - 1] * kInteriorFanout;
+  }
 }
 void ArrayComposer::StreamStatus::init(snapshot::SortedBuffer* stream) {
   stream_ = stream;
@@ -83,7 +81,7 @@ ErrorStack ArrayComposer::compose(
 }
 
 ErrorStack ArrayComposer::compose_strawman_tournament() {
-  while (inputs_count_ != ended_inputs_count_) {
+  while (ended_inputs_count_ < inputs_count_) {
     const ArrayOverwriteLogType* entry = get_next_entry();
 
 
@@ -127,7 +125,6 @@ inline const ArrayOverwriteLogType* ArrayComposer::StreamStatus::get_entry() con
   return reinterpret_cast<const ArrayOverwriteLogType*>(buffer_ + cur_relative_pos_);
 }
 
-
 ErrorCode ArrayComposer::compose_init_context(
   RootInfoPage* root_info_page,
   const memory::AlignedMemorySlice& work_memory,
@@ -150,10 +147,6 @@ ErrorCode ArrayComposer::compose_init_context(
     inputs_[i].init(inputs[i]);
   }
 
-  std::memset(cur_path_, 0, sizeof(cur_path_));
-  cur_route_.word = 0;
-  cur_page_starts_ = 0;
-  cur_page_ends_ = 0;
   std::memset(root_info_page_, 0, kPageSize);
   root_info_page_->header_.storage_id_ = storage_id_;
 
@@ -176,33 +169,89 @@ ErrorCode ArrayComposer::compose_init_context(
     &next_page_starts_,
     &next_page_ends_);
 
-  // initialize cur_xxx with the first page.
-  if (previous_root_page_pointer_ == 0) {
-    // first snapshotting. So, no previous page image.
-  } else {
-    SnapshotPagePointer page_id = previous_root_page_pointer_;
+  // we write out all pages we allocate, so we know what the snapshot page ID will be
+  snapshot_writer_->reset_pool(nullptr, 0);
+  alloc_inmemory_offset_ = 1;
+  alloc_page_id = to_snapshot_pointer(snapshot_writer_->get_dumped_pages());
+
+  return compose_init_context_cur_path();
+}
+
+ErrorCode ArrayComposer::compose_init_context_cur_path() {
+  cur_route_.word = next_route_.word;
+  std::memset(cur_path_, 0, sizeof(cur_path_));
+  if (previous_root_page_pointer_ != 0) {
+    // there is a previous snapshot. read the previous pages
+    SnapshotPagePointer old_page_id = previous_root_page_pointer_;
     for (uint8_t level = levels_ - 1;; --level) {  // be careful. unsigned. "level>=0" is wrong
-      ASSERT_ND(page_id > 0);
+      ASSERT_ND(old_page_id > 0);
       memory::PagePoolOffset inmemory_offset;
+      SnapshotPagePointer new_page_id;
       ArrayPage* page;
       if (level == levels_ - 1) {
         // root page is separated from the buffer in snapshot_writer
         // as we don't write it out here.
         inmemory_offset = 0;
+        new_page_id = 0;
         page = root_page_;
       } else {
         inmemory_offset = snapshot_writer_->allocate_new_page();
+        new_page_id = alloc_page_id;
+        ++alloc_page_id;
+        ASSERT_ND(inmemory_offset == alloc_inmemory_offset_);
+        ++alloc_inmemory_offset_;
         page = reinterpret_cast<ArrayPage*>(snapshot_writer_->resolve(inmemory_offset));
       }
       cur_path_[level] = page;
 
       ASSERT_ND(page);
-      CHECK_ERROR_CODE(previous_snapshot_files_->read_page(page_id, page));
+      CHECK_ERROR_CODE(previous_snapshot_files_->read_page(old_page_id, page));
       ASSERT_ND(page->header().storage_id_ == storage_id_);
-      ASSERT_ND(page->header().page_id_ == page_id);
+      ASSERT_ND(page->header().page_id_ == old_page_id);
       ASSERT_ND(page->get_node_height() == level);
+      page->header().page_id_ = new_page_id;
       if (level > 0) {
-        page_id = page->get_interior_record(next_route_.route[level]).snapshot_pointer_;
+        DualPagePointer& pointer = page->get_interior_record(next_route_.route[level]);
+        old_page_id = pointer.snapshot_pointer_;
+        pointer.snapshot_pointer_ = alloc_page_id;  // we know it beforehand
+      } else {
+        break;
+      }
+    }
+  } else {
+    // first snapshotting. So, no previous page image.
+    for (uint8_t level = levels_ - 1;; --level) {
+      memory::PagePoolOffset inmemory_offset;
+      SnapshotPagePointer new_page_id;
+      ArrayPage* page;
+      if (level == levels_ - 1) {
+        // root page is separated from the buffer in snapshot_writer
+        // as we don't write it out here.
+        inmemory_offset = 0;
+        new_page_id = 0;
+        page = root_page_;
+      } else {
+        inmemory_offset = snapshot_writer_->allocate_new_page();
+        new_page_id = alloc_page_id;
+        ++alloc_page_id;
+        ASSERT_ND(inmemory_offset == alloc_inmemory_offset_);
+        ++alloc_inmemory_offset_;
+        page = reinterpret_cast<ArrayPage*>(snapshot_writer_->resolve(inmemory_offset));
+      }
+      cur_path_[level] = page;
+
+      ArrayRange range = calculate_array_range(next_route_, level);
+      page->initialize_data_page(
+        Epoch(Epoch::kEpochInitialDurable),
+        storage_id_,
+        new_page_id,
+        storage_casted_->get_payload_size(),
+        level,
+        range);
+
+      if (level > 0) {
+        DualPagePointer& pointer = page->get_interior_record(next_route_.route[level]);
+        pointer.snapshot_pointer_ = alloc_page_id;  // we know it beforehand
       } else {
         break;
       }
@@ -254,22 +303,79 @@ inline ErrorCode ArrayComposer::advance() {
     }
   }
   ASSERT_ND(next_input_ < inputs_count_);
-  update_next_route();
-  return kErrorCodeOk;
+  bool switched = update_next_route();
+  if (switched) {
+    return update_cur_path();
+  } else {
+    return kErrorCodeOk;
+  }
 }
 
-inline void ArrayComposer::update_next_route() {
+inline bool ArrayComposer::update_next_route() {
   if (next_key_ < next_page_ends_) {
     ASSERT_ND(next_key_ >= next_page_starts_);
     next_route_.route[0] = next_key_ - next_page_starts_;
     ASSERT_ND(next_route_.word == route_finder_.find_route(next_key_).word);
+    return false;
   } else {
     next_route_ = route_finder_.find_route_and_switch(
       next_key_,
       &next_page_starts_,
       &next_page_ends_);
+    return true;
   }
 }
+
+ErrorCode ArrayComposer::update_cur_path() {
+  bool switched = false;
+  for (uint8_t level = levels_ - 1;; --level) {  // be careful. unsigned. "level>=0" is wrong
+    if (!switched && cur_route_.route[level] == next_route_.route[level]) {
+      // skip non-changed path. most likely only the leaf has changed.
+      ASSERT_ND(level > 0);  // otherwise why came here?
+      if (level == 0) {
+        break;
+      } else {
+        continue;
+      }
+    }
+
+    switched = true;
+    // page switched! we have to allocate a new page and point to it.
+    // first of all, need to flush the buffer?
+    if (snapshot_writer_->is_full()) {
+      // dump everything except pages in cur_path
+    }
+    /*
+    memory::PagePoolOffset inmemory_offset;
+    SnapshotPagePointer new_page_id;
+    ArrayPage* page;
+    inmemory_offset = snapshot_writer_->allocate_new_page();
+    new_page_id = alloc_page_id;
+    ++alloc_page_id;
+    ASSERT_ND(inmemory_offset == alloc_inmemory_offset_);
+    ++alloc_inmemory_offset_;
+    page = reinterpret_cast<ArrayPage*>(snapshot_writer_->resolve(inmemory_offset));
+
+    cur_path_[level] = page;
+
+    ASSERT_ND(page);
+    CHECK_ERROR_CODE(previous_snapshot_files_->read_page(old_page_id, page));
+    ASSERT_ND(page->header().storage_id_ == storage_id_);
+    ASSERT_ND(page->header().page_id_ == old_page_id);
+    ASSERT_ND(page->get_node_height() == level);
+    page->header().page_id_ = new_page_id;
+    if (level > 0) {
+      DualPagePointer& pointer = page->get_interior_record(next_route_.route[level]);
+      old_page_id = pointer.snapshot_pointer_;
+      pointer.snapshot_pointer_ = alloc_page_id;  // we know it beforehand
+    } else {
+      break;
+    }
+    */
+  }
+  return kErrorCodeOk;
+}
+
 
 inline const ArrayOverwriteLogType* ArrayComposer::get_next_entry() const {
   ASSERT_ND(!inputs_[next_input_].ended_);
@@ -277,6 +383,21 @@ inline const ArrayOverwriteLogType* ArrayComposer::get_next_entry() const {
   ASSERT_ND(entry->offset_ == next_key_);
   ASSERT_ND(entry->header_.xct_id_ == next_xct_id_);
   return entry;
+}
+
+inline ArrayRange ArrayComposer::calculate_array_range(LookupRoute route, uint8_t level) const {
+  ASSERT_ND(level < levels_);
+  ArrayRange range;
+  range.begin_ = 0;
+  // For example, levels=2, offset_intervals_[0]=100, offset_intervals_[1]=100*253, ArraySize=10000
+  // route=[20, 50] (meaning array offset=5020)
+  // if level=1, we want to return 0-25300.
+  // if level=0, we want to return 5000~5100.
+  for (uint8_t i = level + 1; i < levels_; ++i) {
+    range.begin_ += offset_intervals_[i - 1] * route.route[i];
+  }
+  range.end_ = range.begin_ + offset_intervals_[level];
+  return range;
 }
 
 void ArrayComposer::describe(std::ostream* o_ptr) const {

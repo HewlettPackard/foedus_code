@@ -34,7 +34,7 @@ namespace array {
  * Do not include this header from a client program. There is no case client program needs to
  * access this internal class.
  */
-class ArrayComposer final : public virtual Composer {
+class ArrayComposer final : public Composer {
  public:
   /**
    * Output of one compose() call, which are then combined in construct_root().
@@ -83,14 +83,10 @@ class ArrayComposer final : public virtual Composer {
   uint64_t get_required_work_memory_size(
     snapshot::SortedBuffer** /*log_streams*/,
     uint32_t log_streams_count) const override {
-    return sizeof(StreamStatus) * log_streams_count + kMaxLevel * kPageSize;
+    return sizeof(StreamStatus) * log_streams_count + kMaxLevels * kPageSize;
   }
 
  private:
-  enum Constants {
-    kMaxLevel = 8,
-  };
-
   /** Represents one sorted input stream with its status. */
   struct StreamStatus {
     void init(snapshot::SortedBuffer* stream);
@@ -110,19 +106,16 @@ class ArrayComposer final : public virtual Composer {
     bool            ended_;
   };
 
-  Engine* const engine_;
-  const ArrayPartitioner* const partitioner_;
-  snapshot::SnapshotWriter* const snapshot_writer_;
-  cache::SnapshotFileSet* const previous_snapshot_files_;
-  const snapshot::Snapshot& new_snapshot_;
-
-  const StorageId           storage_id_;
-  ArrayStorage* const       storage_;
-  const SnapshotPagePointer previous_root_page_pointer_;
+  ArrayStorage* const       storage_casted_;
   const uint8_t             levels_;
   /** Calculates LookupRoute from offset. */
   const LookupRouteFinder   route_finder_;
 
+  /**
+   * The offset interval a single page represents in each level. index=level.
+   * So, offset_intervals[0] is the number of records in a leaf page.
+   */
+  uint64_t                  offset_intervals_[kMaxLevels];
 
   /////// variables for compose() BEGIN ///////
   // properties below are initialized in init_context() and used while compose() only
@@ -134,11 +127,9 @@ class ArrayComposer final : public virtual Composer {
   ArrayPage*                root_page_;
 
   /** path_[0] points to root, path_[1] points to its child we are now modifying..*/
-  ArrayPage*                cur_path_[kMaxLevel];
+  ArrayPage*                cur_path_[kMaxLevels];
   /** [0] means record ordinal in leaf, [1] in its parent page, [2]...*/
   LookupRoute               cur_route_;
-  ArrayOffset               cur_page_starts_;
-  ArrayOffset               cur_page_ends_;
 
   // this set of next_xxx indicates the min input to be applied next
   uint32_t                  next_input_;
@@ -148,6 +139,17 @@ class ArrayComposer final : public virtual Composer {
   LookupRoute               next_route_;
   ArrayOffset               next_page_starts_;
   ArrayOffset               next_page_ends_;
+
+  /**
+   * Offset that will be returned by \b next snapshot_writer_->allocate_new_page() call.
+   * This is used only for sanity check.
+   */
+  memory::PagePoolOffset    alloc_inmemory_offset_;
+  /**
+   * Permanent page ID of the page allocated \b next.
+   * We do know this beforehand because we will write out all pages we allocate.
+   */
+  SnapshotPagePointer       alloc_page_id;
   /////// variables during compose() END ///////
 
   // subroutines of compose()
@@ -156,11 +158,18 @@ class ArrayComposer final : public virtual Composer {
     const memory::AlignedMemorySlice& work_memory,
     snapshot::SortedBuffer* const* inputs,
     uint32_t inputs_count);
+  /** sub routine of compose_init_context to initialize cur_xxx with the first page. */
+  ErrorCode compose_init_context_cur_path();
   ErrorStack compose_strawman_tournament();
 
   ErrorCode advance() ALWAYS_INLINE;
-  void update_next_route() ALWAYS_INLINE;
+  /** @return whether next key belongs to a different page */
+  bool update_next_route() ALWAYS_INLINE;
+  ErrorCode update_cur_path();
   const ArrayOverwriteLogType* get_next_entry() const ALWAYS_INLINE;
+
+  /** @pre levels_ > level. */
+  ArrayRange calculate_array_range(LookupRoute route, uint8_t level) const ALWAYS_INLINE;
 };
 static_assert(sizeof(ArrayComposer::RootInfoPage) == kPageSize, "incorrect sizeof(RootInfoPage)");
 }  // namespace array

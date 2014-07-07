@@ -34,7 +34,7 @@ namespace sequential {
  * Do not include this header from a client program. There is no case client program needs to
  * access this internal class.
  */
-class SequentialComposer final : public virtual Composer {
+class SequentialComposer final : public Composer {
  public:
   /** Output of one compose() call, which are then combined in construct_root(). */
   struct RootInfoPage final {
@@ -80,16 +80,9 @@ class SequentialComposer final : public virtual Composer {
   }
 
  private:
-  Engine* const engine_;
-  const SequentialPartitioner* const partitioner_;
-  snapshot::SnapshotWriter* const snapshot_writer_;
-  cache::SnapshotFileSet* const previous_snapshot_files_;
-  const snapshot::Snapshot& new_snapshot_;
-
   SequentialPage* allocate_page(SnapshotPagePointer *next_allocated_page_id);
   SequentialRootPage* allocate_root_page(SnapshotPagePointer *next_allocated_page_id);
   ErrorCode fix_and_dump(SequentialPage* first_unfixed_page, SequentialPage** cur_page);
-  SnapshotPagePointer to_snapshot_pointer(SnapshotLocalPageId local_id) const;
 };
 
 }  // namespace sequential

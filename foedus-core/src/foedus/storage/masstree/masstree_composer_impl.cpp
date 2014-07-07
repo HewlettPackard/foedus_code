@@ -32,12 +32,7 @@ MasstreeComposer::MasstreeComposer(
     snapshot::SnapshotWriter* snapshot_writer,
     cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot)
-  : engine_(engine),
-    partitioner_(partitioner),
-    snapshot_writer_(snapshot_writer),
-    previous_snapshot_files_(previous_snapshot_files),
-    new_snapshot_(new_snapshot) {
-  ASSERT_ND(partitioner);
+  : Composer(engine, partitioner, snapshot_writer, previous_snapshot_files, new_snapshot) {
 }
 ErrorStack MasstreeComposer::compose(
   snapshot::SortedBuffer* const* /*log_streams*/,

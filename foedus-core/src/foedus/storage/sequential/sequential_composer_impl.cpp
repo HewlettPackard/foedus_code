@@ -31,12 +31,7 @@ SequentialComposer::SequentialComposer(
     snapshot::SnapshotWriter* snapshot_writer,
     cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot)
-  : engine_(engine),
-    partitioner_(partitioner),
-    snapshot_writer_(snapshot_writer),
-    previous_snapshot_files_(previous_snapshot_files),
-    new_snapshot_(new_snapshot) {
-  ASSERT_ND(partitioner);
+  : Composer(engine, partitioner, snapshot_writer, previous_snapshot_files, new_snapshot) {
 }
 
 /**
@@ -91,14 +86,6 @@ struct StreamStatus {
   bool            ended_;
 };
 
-SnapshotPagePointer SequentialComposer::to_snapshot_pointer(
-  SnapshotLocalPageId local_id) const {
-  return to_snapshot_page_pointer(
-    snapshot_writer_->get_snapshot_id(),
-    snapshot_writer_->get_numa_node(),
-    local_id);
-}
-
 ErrorCode SequentialComposer::fix_and_dump(
   SequentialPage* first_unfixed_page,
   SequentialPage** cur_page) {
@@ -117,6 +104,10 @@ ErrorCode SequentialComposer::fix_and_dump(
     first_unfixed_offset,
     upto_offset - first_unfixed_offset));
   if (*cur_page) {
+    // TODO(Hideaki): oops, because the excluded page already had page_id but now it's
+    // inconsistent. What we have to do here is to write out all pages anyway.
+    // Then, in-place update the specific pages later.
+    // because we do have to write out the pointer to the excluded pages, no other way.
     memory::PagePoolOffset exclude_offset =
       snapshot_writer_->resolve(reinterpret_cast<Page*>(*cur_page));
     memory::PagePoolOffset new_offset = snapshot_writer_->reset_pool(&exclude_offset, 1);
