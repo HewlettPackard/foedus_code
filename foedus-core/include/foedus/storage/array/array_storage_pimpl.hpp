@@ -20,6 +20,7 @@
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/array/array_id.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
+#include "foedus/storage/array/array_route.hpp"
 #include "foedus/storage/array/fwd.hpp"
 #include "foedus/thread/fwd.hpp"
 
@@ -36,19 +37,6 @@ namespace array {
  */
 class ArrayStoragePimpl final : public DefaultInitializable {
  public:
-  /**
-   * Compactly represents the route to reach the given offset.
-   * Fanout cannot exceed 256 (as empty-payload is not allowed, minimal entry size is 16 bytes
-   * in both leaf and interior, 4096/16=256), uint8_t is enough to represent the route.
-   * Also, interior page always has a big fanout close to 256, so 8 levels are more than enough.
-   */
-  union LookupRoute {
-    /** This is a 64bit data. */
-    uint64_t word;
-    /** [0] means record ordinal in leaf, [1] in its parent page, [2]...*/
-    uint8_t route[8];
-  };
-
   ArrayStoragePimpl() = delete;
   ArrayStoragePimpl(Engine* engine, ArrayStorage* holder, const ArrayMetadata &metadata,
             bool create);
@@ -74,8 +62,6 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   template <typename T>
   ErrorCode   increment_record(thread::Thread* context, ArrayOffset offset,
             T* value, uint16_t payload_offset);
-
-  LookupRoute find_route(ArrayOffset offset) const ALWAYS_INLINE;
 
   ErrorCode   lookup(thread::Thread* context, ArrayOffset offset,
             ArrayPage** out, uint16_t *index) ALWAYS_INLINE;
@@ -105,17 +91,12 @@ class ArrayStoragePimpl final : public DefaultInitializable {
    */
   ArrayPage*              root_page_;
 
-  /** Number of levels. */
-  uint8_t                 levels_;
-
   bool                    exist_;
 
-  /** Number of records in leaf page. */
-  const uint16_t                records_in_leaf_;
-  /** ConstDiv(records_in_leaf_) to speed up integer division in lookup(). */
-  const assorted::ConstDiv      leaf_fanout_div_;
-  /** ConstDiv(kInteriorFanout) to speed up integer division in lookup(). */
-  const assorted::ConstDiv      interior_fanout_div_;
+  /** Number of levels. */
+  const uint8_t           levels_;
+
+  LookupRouteFinder       route_finder_;
 };
 }  // namespace array
 }  // namespace storage

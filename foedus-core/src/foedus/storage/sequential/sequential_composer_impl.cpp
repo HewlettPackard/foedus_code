@@ -13,7 +13,6 @@
 #include "foedus/engine.hpp"
 #include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/debugging/stop_watch.hpp"
-#include "foedus/fs/direct_io_file.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_writer_impl.hpp"
 #include "foedus/storage/metadata.hpp"
@@ -234,11 +233,7 @@ ErrorStack SequentialComposer::construct_root(
   for (SnapshotPagePointer page_id = previous_root_page_pointer; page_id != 0;) {
     // if there already is a root page, read them all.
     // we have to anyway re-write all of them, at least the next pointer.
-    fs::DirectIoFile* file;
-    WRAP_ERROR_CODE(previous_snapshot_files_->get_or_open_file(page_id, &file));
-    SnapshotLocalPageId local_page_id = extract_local_page_id_from_snapshot_pointer(page_id);
-    CHECK_ERROR(file->seek(local_page_id * sizeof(Page), fs::DirectIoFile::kDirectIoSeekSet));
-    CHECK_ERROR(file->read(sizeof(Page), work_memory));
+    WRAP_ERROR_CODE(previous_snapshot_files_->read_page(page_id, work_memory.get_block()));
     SequentialRootPage* root_page = reinterpret_cast<SequentialRootPage*>(work_memory.get_block());
     ASSERT_ND(root_page->header().storage_id_ == partitioner_->get_storage_id());
     ASSERT_ND(root_page->header().page_id_ == page_id);

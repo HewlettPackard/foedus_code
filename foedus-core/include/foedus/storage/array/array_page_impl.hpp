@@ -112,7 +112,7 @@ class ArrayPage final {
   /** Dynamic records in this page. */
   Data                data_;
 };
-static_assert(sizeof(ArrayPage) <= kPageSize, "sizeof(ArrayPage) exceeds kPageSize");
+static_assert(sizeof(ArrayPage) == kPageSize, "sizeof(ArrayPage) is not kPageSize");
 static_assert(sizeof(ArrayPage) - sizeof(ArrayPage::Data) == kHeaderSize, "kHeaderSize is wrong");
 
 }  // namespace array

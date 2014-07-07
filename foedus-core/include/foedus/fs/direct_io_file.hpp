@@ -101,6 +101,8 @@ class DirectIoFile {
   ErrorStack      read(uint64_t desired_bytes, foedus::memory::AlignedMemory* buffer);
   /** Memory slice version. */
   ErrorStack      read(uint64_t desired_bytes, const foedus::memory::AlignedMemorySlice& slice);
+  /** A version that receives a raw pointer that has to be aligned (be careful to use this ver). */
+  ErrorStack      read_raw(uint64_t desired_bytes, void* buffer);
 
   /**
    * @brief Sequentially write the given amount of contents from the current position.
@@ -114,6 +116,8 @@ class DirectIoFile {
   ErrorStack      write(uint64_t desired_bytes, const foedus::memory::AlignedMemory& buffer);
   /** Memory slice version. */
   ErrorStack      write(uint64_t desired_bytes, const foedus::memory::AlignedMemorySlice& slice);
+  /** A version that receives a raw pointer that has to be aligned (be careful to use this ver). */
+  ErrorStack      write_raw(uint64_t desired_bytes, const void* buffer);
 
   /**
    * @brief Discard the content of the file after the given offset.

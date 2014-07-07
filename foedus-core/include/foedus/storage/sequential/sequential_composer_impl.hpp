@@ -36,7 +36,7 @@ namespace sequential {
  */
 class SequentialComposer final : public virtual Composer {
  public:
-  /** Output of compose() and result of combining multiple outputs. */
+  /** Output of one compose() call, which are then combined in construct_root(). */
   struct RootInfoPage final {
     PageHeader          header_;          // +16 -> 16
     /** Number of pointers stored in this page. */
