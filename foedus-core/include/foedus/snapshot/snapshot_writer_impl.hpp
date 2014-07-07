@@ -168,12 +168,24 @@ class SnapshotWriter final : public DefaultInitializable {
   /** The snapshot file to write to. */
   fs::DirectIoFile*               snapshot_file_;
 
-  /** This is the only page pool for all composers using this snapshot writer. */
+  /** This is the main page pool for all composers using this snapshot writer. */
   memory::AlignedMemory           pool_memory_;
   /** Same as pool_memory_.get_block(). */
   storage::Page*                  page_base_;
   /** Size of the pool in pages. */
   memory::PagePoolOffset          pool_size_;
+
+  /**
+   * This is the sub page pool for intermdiate pages (main one is for leaf pages).
+   * We separate out intermediate pages and assume that this pool can hold all
+   * intermediate pages modified in one compose() while we might flush pool_memory_
+   * multiple times for one compose().
+   */
+  memory::AlignedMemory           intermediate_memory_;
+  /** Same as intermediate_memory_.get_block(). */
+  storage::Page*                  intermediate_base_;
+  /** Size of the intermediate_memory_ in pages. */
+  memory::PagePoolOffset          intermediate_size_;
 
   /**
    * Used to sequentially write out data pages to a file.

@@ -26,7 +26,10 @@ SnapshotWriter::SnapshotWriter(Engine* engine, LogReducer* parent)
   numa_node_(parent->get_id()),
   snapshot_id_(parent_->get_parent()->get_snapshot()->id_),
   snapshot_file_(nullptr),
+  page_base_(nullptr),
   pool_size_(0),
+  intermediate_base_(nullptr),
+  intermediate_size_(0),
   dump_io_buffer_(nullptr),
   allocated_pages_(0),
   dumped_pages_(0) {
@@ -66,6 +69,17 @@ ErrorStack SnapshotWriter::initialize_once() {
     numa_node_),
   page_base_ = reinterpret_cast<storage::Page*>(pool_memory_.get_block());
   pool_size_ = pool_byte_size / sizeof(storage::Page);
+
+  uint64_t intermediate_byte_size = static_cast<uint64_t>(
+    engine_->get_options().snapshot_.snapshot_writer_intermediate_pool_size_mb_) << 20;
+  intermediate_memory_.alloc(
+    intermediate_byte_size,
+    memory::kHugepageSize,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    numa_node_),
+  intermediate_base_ = reinterpret_cast<storage::Page*>(intermediate_memory_.get_block());
+  intermediate_size_ = intermediate_byte_size / sizeof(storage::Page);
+
   clear_snapshot_file();
   fs::Path path(get_snapshot_file_path());
   snapshot_file_ = new fs::DirectIoFile(path, engine_->get_options().snapshot_.emulation_);
@@ -92,6 +106,7 @@ ErrorStack SnapshotWriter::initialize_once() {
 
 ErrorStack SnapshotWriter::uninitialize_once() {
   ErrorStackBatch batch;
+  intermediate_memory_.release_block();
   pool_memory_.release_block();
   clear_snapshot_file();
   return SUMMARIZE_ERROR_BATCH(batch);
@@ -180,6 +195,8 @@ std::ostream& operator<<(std::ostream& o, const SnapshotWriter& v) {
     << "<snapshot_id_>" << v.snapshot_id_ << "</snapshot_id_>"
     << "<pool_memory_>" << v.pool_memory_ << "</pool_memory_>"
     << "<pool_size_>" << v.pool_size_ << "</pool_size_>"
+    << "<intermediate_memory_>" << v.intermediate_memory_ << "</intermediate_memory_>"
+    << "<intermediate_size_>" << v.intermediate_size_ << "</intermediate_size_>"
     << "<allocated_pages_>" << v.allocated_pages_ << "</allocated_pages_>"
     << "<dumped_pages_>" << v.dumped_pages_ << "</dumped_pages_>"
     << "</SnapshotWriter>";
