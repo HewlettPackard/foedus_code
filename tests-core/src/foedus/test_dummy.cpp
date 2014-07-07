@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdlib>
+#include <iostream>
 namespace foedus {
 DEFINE_TEST_CASE_PACKAGE(DummyTest, foedus);
 /**
