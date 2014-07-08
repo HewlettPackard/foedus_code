@@ -616,9 +616,8 @@ ErrorStack LogReducer::merge_sort() {
   CHECK_ERROR(previous_snapshot_files_.initialize());
 
   // because now we are at the last merging phase, we will no longer dump sorted runs any more.
-  // thus, we re-use the reducer's dump IO buffer for snapshot writer's dump buffer.
-  // we still keep the ownership of the buffer in terms of uninitialization.
-  snapshot_writer_.set_dump_io_buffer(&dump_io_buffer_);
+  // thus, we release the reducer's dump IO buffer to reduce memory pressure.
+  dump_io_buffer_.release_block();
 
   MergeContext context(sorted_runs_);
   ReducerBuffer* last_buffer = get_current_buffer();

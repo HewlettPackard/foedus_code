@@ -77,11 +77,12 @@ class SnapshotWriter final : public DefaultInitializable {
 
   thread::ThreadGroupId   get_numa_node() const { return numa_node_; }
   SnapshotId              get_snapshot_id() const { return snapshot_id_; }
-  bool                    is_full() ALWAYS_INLINE { return allocated_pages_ >= pool_size_; }
-  memory::PagePoolOffset  allocate_new_page() ALWAYS_INLINE {
-    ASSERT_ND(!is_full());
-    return allocated_pages_++;
-  }
+  storage::Page*          get_page_base() { return page_base_; }
+  memory::PagePoolOffset  get_page_size() const { return pool_size_;}
+  storage::Page*          get_intermediate_base() { return intermediate_base_; }
+  memory::PagePoolOffset  get_intermediate_size() const { return intermediate_size_;}
+  storage::SnapshotPagePointer get_next_page_id() const { return next_page_id_;}
+
   storage::Page*          resolve(memory::PagePoolOffset offset) ALWAYS_INLINE {
     ASSERT_ND(offset > 0);
     ASSERT_ND(offset < pool_size_);
@@ -95,67 +96,27 @@ class SnapshotWriter final : public DefaultInitializable {
   }
 
   /**
-   * @brief Writes out in-memory pages to the snapshot file.
-   * @param[in] memory_pages in-memory pages to fix
-   * @param[in] count length of memory_pages
-   * @details
-   * All pages will be written contiguously. So, this method first stitches the in-memory pages
-   * to IO buffer then call write(). We do so even if the in-memory pages are (luckily) contiguous.
-   */
-  ErrorCode dump_pages(const memory::PagePoolOffset* memory_pages, uint32_t count);
-
-  /**
-   * @brief This is used to write out pages that are contiguous in this pool.
+   * @brief Write out pages that are contiguous in the main page pool.
    * @param[in] from_page beginning of contiguous in-memory pages to fix
    * @param[in] count number of pages to write out
-   * @details
-   * This is a more efficient version that is probably used only for initial snapshotting
-   * and sequential storage.
-   *
-   * @todo refactoring needed. it is inevitable to write out pages that must be updated later
-   * unless compose() is one-shot. Instead, I think only sequential dump is required.
-   * Mostly dump sequentially, then in-place updates a few pages at the end.
    */
-  ErrorCode dump_pages(memory::PagePoolOffset from_page, uint32_t count);
+  ErrorCode dump_pages(memory::PagePoolOffset from_page, uint32_t count) {
+    return dump_general(&pool_memory_, from_page, count);
+  }
 
   /**
-   * @brief Called when one storage is fully or partially written.
-   * @param[in] excluded_pages a small number of pages that are retained while this resetting.
-   * @param[in] excluded_count count of excluded_pages
-   * @return new page offset for excluded_pages[0]. excluded_pages[i] would be returned_value + i.
-   * @pre excluded_pages are sorted by offset in ascending order. This is trivially guaranteed
-   * if you pass pages from root to leaf order.
-   * @post next_page_ == 1 + excluded_count
-   * @details
-   * Returns all in-memory pages to the pool \b except the excluded pages.
-   * The excluded pages are given only when the storage is partially written to avoid OOM.
-   * These pages are \b moved to the beginning of the page pool, so their page offsets
-   * will \b change. The returned value (which is so far always 1) tells the new page offset for
-   * the excluded pages.
-   *
-   * We do this compaction to guarantee that there is no hole in page allocation in this object.
-   * The excluded pages are very few, so this won't cause an issue.
-   * This is the only interface in snapshot writer to return pages to pool.
-   * Compared to releasing each page, this is much more efficient.
+   * @brief Write out pages that are contiguous in the sub intermediate page pool.
+   * @param[in] from_page beginning of contiguous in-memory pages to fix
+   * @param[in] count number of pages to write out
    */
-  memory::PagePoolOffset reset_pool(
-    const memory::PagePoolOffset* excluded_pages,
-    uint32_t excluded_count);
-
-  /** for recycling dump_io_buffer. */
-  void      set_dump_io_buffer(memory::AlignedMemory* dump_io_buffer) {
-    dump_io_buffer_ = dump_io_buffer;
+  ErrorCode dump_intermediates(memory::PagePoolOffset from_page, uint32_t count) {
+    return dump_general(&intermediate_memory_, from_page, count);
   }
 
   std::string             to_string() const {
     return "SnapshotWriter-" + std::to_string(numa_node_);
   }
   friend std::ostream&    operator<<(std::ostream& o, const SnapshotWriter& v);
-
-  /** This writer has allocated this many pages since the recent reset_pool(). */
-  memory::PagePoolOffset  get_allocated_pages() const { return allocated_pages_; }
-  /** This writer has written out this many pages in total. */
-  uint64_t                get_dumped_pages() const { return dumped_pages_; }
 
  private:
   Engine* const                   engine_;
@@ -188,24 +149,16 @@ class SnapshotWriter final : public DefaultInitializable {
   memory::PagePoolOffset          intermediate_size_;
 
   /**
-   * Used to sequentially write out data pages to a file.
-   * The writer does NOT own this buffer. It's actually a second-hand buffer given by
-   * reducer (was reducer's dump IO buffer).
+   * The page that is written next will correspond to this snapshot page ID.
    */
-  memory::AlignedMemory*          dump_io_buffer_;
-
-  /**
-   * How many pages allocated from the pool. Cleared after completion of each storage.
-   * @invariant 0 <= allocated_pages_ <= pool_size_
-   */
-  memory::PagePoolOffset          allocated_pages_;
-  /**
-   * This writer has written out this many pages in total.
-   */
-  uint64_t                        dumped_pages_;
+  storage::SnapshotPagePointer    next_page_id_;
 
   void      clear_snapshot_file();
   fs::Path  get_snapshot_file_path() const;
+  ErrorCode dump_general(
+    memory::AlignedMemory* memory,
+    memory::PagePoolOffset from_page,
+    uint32_t count);
 };
 }  // namespace snapshot
 }  // namespace foedus
