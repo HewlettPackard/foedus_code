@@ -49,6 +49,8 @@ namespace foedus {
     options.log_.log_buffer_kb_ = 1 << 8;
     options.memory_.page_pool_size_mb_per_node_ = 2;
     options.memory_.private_page_pool_initial_grab_ = 32;
+    options.cache_.snapshot_cache_size_mb_per_node_ = 2;
+    options.cache_.private_snapshot_cache_initial_grab_ = 32;
     options.thread_.group_count_ = 1;
     options.thread_.thread_count_per_group_ = 2;
     return options;

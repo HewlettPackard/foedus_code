@@ -12,6 +12,7 @@
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/array/fwd.hpp"
+#include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/sequential/fwd.hpp"
 #include "foedus/thread/fwd.hpp"
 
@@ -131,6 +132,25 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
   ErrorStack  create_sequential(
     sequential::SequentialMetadata *metadata,
     sequential::SequentialStorage **storage,
+    Epoch *commit_epoch);
+
+  /**
+   * @brief Just a type-wrapper of create_storage() for masstree storages.
+   * @see create_storage()
+   */
+  ErrorStack  create_masstree(
+    thread::Thread* context,
+    masstree::MasstreeMetadata *metadata,
+    masstree::MasstreeStorage **storage,
+    Epoch *commit_epoch);
+
+  /**
+   * @brief A convenience function to impersonate as one of available threads
+   * and then invoke create_masstree().
+   */
+  ErrorStack  create_masstree(
+    masstree::MasstreeMetadata *metadata,
+    masstree::MasstreeStorage **storage,
     Epoch *commit_epoch);
 
   /**

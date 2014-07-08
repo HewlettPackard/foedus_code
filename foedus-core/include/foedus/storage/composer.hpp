@@ -8,13 +8,16 @@
 #include <iosfwd>
 #include <string>
 
+#include "foedus/compiler.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/cache/fwd.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/fwd.hpp"
+#include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
+#include "foedus/thread/thread_id.hpp"
 
 namespace foedus {
 namespace storage {
@@ -62,6 +65,12 @@ namespace storage {
  */
 class Composer {
  public:
+  Composer(
+    Engine *engine,
+    const Partitioner* partitioner,
+    snapshot::SnapshotWriter* snapshot_writer,
+    cache::SnapshotFileSet* previous_snapshot_files,
+    const snapshot::Snapshot& new_snapshot);
   virtual ~Composer() {}
 
   /** Returns a short string that briefly describes this object. */
@@ -115,7 +124,24 @@ class Composer {
     const snapshot::Snapshot& new_snapshot);
 
   friend std::ostream&    operator<<(std::ostream& o, const Composer& v);
+
+ protected:
+  Engine* const                       engine_;
+  const Partitioner* const            partitioner_;
+  snapshot::SnapshotWriter* const     snapshot_writer_;
+  cache::SnapshotFileSet* const       previous_snapshot_files_;
+  const snapshot::Snapshot&           new_snapshot_;
+  const snapshot::SnapshotId          new_snapshot_id_;
+  const StorageId                     storage_id_;
+  const thread::ThreadGroupId         numa_node_;
+  Storage* const                      storage_;
+  const SnapshotPagePointer           previous_root_page_pointer_;
+
+  inline SnapshotPagePointer to_snapshot_pointer(SnapshotLocalPageId local_id) const ALWAYS_INLINE {
+    return foedus::storage::to_snapshot_page_pointer(new_snapshot_id_, numa_node_, local_id);
+  }
 };
+
 }  // namespace storage
 }  // namespace foedus
 #endif  // FOEDUS_STORAGE_COMPOSER_HPP_

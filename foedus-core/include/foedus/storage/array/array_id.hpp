@@ -69,6 +69,14 @@ const uint16_t kInteriorSize = 16;
  */
 const uint16_t kInteriorFanout = (foedus::storage::kPageSize - kHeaderSize) / kInteriorSize;
 
+/**
+ * @brief Code in array storage assumes this number as the maximum number of levels.
+ * @ingroup ARRAY
+ * @details
+ * Interior page always has a big fanout close to 256, so 8 levels are more than enough.
+ */
+const uint8_t kMaxLevels = 8;
+
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus

@@ -4,6 +4,8 @@
  */
 #include "foedus/storage/sequential/sequential_page_impl.hpp"
 
+#include "foedus/assorted/raw_atomics.hpp"
+
 namespace foedus {
 namespace storage {
 namespace sequential {
@@ -37,7 +39,8 @@ bool SequentialPage::append_record(
       static_cast<uint64_t>(cur_earliest_epoch.value()) << 32 |
       static_cast<uint64_t>(cur_record_count + 1) << 16 |
       static_cast<uint64_t>(cur_used_bytes + record_length);
-    if (status_.compare_exchange_weak(cur_status, new_status)) {
+
+    if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(&status_, &cur_status, new_status)) {
       // CAS succeeded. put the record
       set_payload_length(cur_record_count, payload_length);
       std::memcpy(data_ + cur_used_bytes + kRecordOverhead, payload, payload_length);
@@ -64,7 +67,7 @@ bool SequentialPage::try_close_page() {
     }
 
     uint64_t new_status = cur_status | (1ULL << 31);
-    if (status_.compare_exchange_weak(cur_status, new_status)) {
+    if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(&status_, &cur_status, new_status)) {
       return true;
     }
   }

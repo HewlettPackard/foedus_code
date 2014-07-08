@@ -21,6 +21,7 @@ struct  ArrayRange;
 class   ArrayStorage;
 class   ArrayStorageFactory;
 class   ArrayStoragePimpl;
+class   LookupRouteFinder;
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus

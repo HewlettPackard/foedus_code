@@ -51,8 +51,8 @@ class ArrayPage final {
     return kDataSize / (kRecordOverhead + payload_size_);
   }
   uint16_t            get_payload_size()  const   { return payload_size_; }
-  bool                is_leaf()           const   { return node_height_ == 0; }
-  uint8_t             get_node_height()   const   { return node_height_; }
+  bool                is_leaf()           const   { return level_ == 0; }
+  uint8_t             get_level()         const   { return level_; }
   const ArrayRange&   get_array_range()   const   { return array_range_; }
   Checksum            get_checksum()      const   { return checksum_; }
   void                set_checksum(Checksum checksum)     { checksum_ = checksum; }
@@ -63,7 +63,7 @@ class ArrayPage final {
     StorageId storage_id,
     uint64_t page_id,
     uint16_t payload_size,
-    uint8_t node_height,
+    uint8_t level,
     const ArrayRange& array_range);
 
   // Record accesses
@@ -93,7 +93,7 @@ class ArrayPage final {
   uint16_t            payload_size_;  // +2 -> 18
 
   /** Height of this node, counting up from 0 (leaf). */
-  uint8_t             node_height_;   // +1 -> 19
+  uint8_t             level_;   // +1 -> 19
 
   uint8_t             reserved1_;     // +1 -> 20
   uint32_t            reserved2_;     // +4 -> 24
@@ -112,7 +112,7 @@ class ArrayPage final {
   /** Dynamic records in this page. */
   Data                data_;
 };
-static_assert(sizeof(ArrayPage) <= kPageSize, "sizeof(ArrayPage) exceeds kPageSize");
+static_assert(sizeof(ArrayPage) == kPageSize, "sizeof(ArrayPage) is not kPageSize");
 static_assert(sizeof(ArrayPage) - sizeof(ArrayPage::Data) == kHeaderSize, "kHeaderSize is wrong");
 
 }  // namespace array

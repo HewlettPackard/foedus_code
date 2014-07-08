@@ -127,17 +127,17 @@ ErrorStack LogMapper::handle_process() {
     DVLOG(1) << to_string() << " file path=" << path << ", file size=" << file_size
       << ", read_end=" << read_end;
     fs::DirectIoFile file(path, engine_->get_options().snapshot_.emulation_);
-    CHECK_ERROR(file.open(true, false, false, false));
+    WRAP_ERROR_CODE(file.open(true, false, false, false));
     DVLOG(1) << to_string() << "opened log file " << file;
 
     while (!ended && cur_offset < read_end) {  // loop for each read in the file
       WRAP_ERROR_CODE(check_cancelled());  // check per each read
       if (file.get_current_offset() != cur_offset) {
-        CHECK_ERROR(file.seek(cur_offset, fs::DirectIoFile::kDirectIoSeekSet));
+        WRAP_ERROR_CODE(file.seek(cur_offset, fs::DirectIoFile::kDirectIoSeekSet));
         DVLOG(1) << to_string() << "seeked to: " << cur_offset;
       }
       const uint64_t reads = std::min(io_buffer_.get_size(), read_end - cur_offset);
-      CHECK_ERROR(file.read(reads, &io_buffer_));
+      WRAP_ERROR_CODE(file.read(reads, &io_buffer_));
       CHECK_ERROR(handle_process_buffer(file, reads, cur_file_ordinal, &cur_offset, &first_read));
 
       if (!ended && cur_offset == read_end) {

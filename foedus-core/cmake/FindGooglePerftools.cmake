@@ -19,7 +19,7 @@
 
 find_path(GooglePerftools_ROOT_DIR
     NAMES include/google/heap-profiler.h
-    HINTS /usr /usr/local
+    HINTS $ENV{HOME}/local /usr/local /usr
 )
 
 find_library(GooglePerftools_LIBRARIES

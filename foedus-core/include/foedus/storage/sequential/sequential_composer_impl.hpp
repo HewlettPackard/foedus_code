@@ -29,14 +29,23 @@ namespace sequential {
  * We don't need to do any merge-sort as there is no order.
  * We just sequentially add them all.
  *
+ * @par Page allcation in compose()
+ * This composer sequentially writes out data pages until the main buffer in snapshot_writer_
+ * becomes full. Whenever it does, it writes out all the pages and treat the first page
+ * as one head page. So, this compose() can output more than one head pages.
+ * By doing this, we don't have to worry about any of the intermediate pages and pointer
+ * installations. Sooooo simple.
+ * The limit is of course 500 pointers (4kb), but surely it will fit.
+ * If it doesn't, we must consider allowing variable-sized root info page.
+ *
  * @note
  * This is a private implementation-details of \ref SEQUENTIAL, thus file name ends with _impl.
  * Do not include this header from a client program. There is no case client program needs to
  * access this internal class.
  */
-class SequentialComposer final : public virtual Composer {
+class SequentialComposer final : public Composer {
  public:
-  /** Output of compose() and result of combining multiple outputs. */
+  /** Output of one compose() call, which are then combined in construct_root(). */
   struct RootInfoPage final {
     PageHeader          header_;          // +16 -> 16
     /** Number of pointers stored in this page. */
@@ -80,16 +89,7 @@ class SequentialComposer final : public virtual Composer {
   }
 
  private:
-  Engine* const engine_;
-  const SequentialPartitioner* const partitioner_;
-  snapshot::SnapshotWriter* const snapshot_writer_;
-  cache::SnapshotFileSet* const previous_snapshot_files_;
-  const snapshot::Snapshot& new_snapshot_;
-
-  SequentialPage* allocate_page(SnapshotPagePointer *next_allocated_page_id);
-  SequentialRootPage* allocate_root_page(SnapshotPagePointer *next_allocated_page_id);
-  ErrorCode fix_and_dump(SequentialPage* first_unfixed_page, SequentialPage** cur_page);
-  SnapshotPagePointer to_snapshot_pointer(SnapshotLocalPageId local_id) const;
+  SequentialPage*     compose_new_head(RootInfoPage* root_info_page);
 };
 
 }  // namespace sequential

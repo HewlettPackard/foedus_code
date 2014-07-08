@@ -11,6 +11,8 @@
 #include "foedus/log/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/array/fwd.hpp"
+#include "foedus/storage/hash/fwd.hpp"
+#include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/sequential/fwd.hpp"
 
 namespace foedus {

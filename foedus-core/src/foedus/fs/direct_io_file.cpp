@@ -13,6 +13,7 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/debugging/rdtsc.hpp"
 #include "foedus/fs/device_emulation_options.hpp"
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/memory/aligned_memory.hpp"
@@ -23,7 +24,7 @@ const uint64_t kOdirectAlignment = 0x1000;
 inline bool is_odirect_aligned(uint64_t value) {
   return (value % kOdirectAlignment) == 0;
 }
-inline bool is_odirect_aligned(void* ptr) {
+inline bool is_odirect_aligned(const void* ptr) {
   return (reinterpret_cast<uintptr_t>(ptr) % kOdirectAlignment) == 0;
 }
 
@@ -38,16 +39,17 @@ DirectIoFile::~DirectIoFile() {
   close();
 }
 
-ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
+ErrorCode  DirectIoFile::open(bool read, bool write, bool append, bool create) {
   if (descriptor_ != kInvalidDescriptor) {
-    return ERROR_STACK_MSG(kErrorCodeFsAlreadyOpened, path_.c_str());
+      LOG(ERROR) << "DirectIoFile::open(): already opened. this=" << *this;
+    return kErrorCodeFsAlreadyOpened;
   }
   Path folder(path_.parent_path());
   if (!exists(folder)) {
     if (!create_directories(folder, true)) {
       LOG(ERROR) << "DirectIoFile::open(): failed to create parent folder: "
         << folder << ". err=" << assorted::os_error();
-      return ERROR_STACK_MSG(kErrorCodeFsMkdirFailed, folder.c_str());
+      return kErrorCodeFsMkdirFailed;
     }
   }
 
@@ -94,7 +96,7 @@ ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
   if (descriptor_ == kInvalidDescriptor) {
     LOG(ERROR) << "DirectIoFile::open(): failed to open: " << path_
       << ". err=" << assorted::os_error();
-    return ERROR_STACK_MSG(kErrorCodeFsFailedToOpen, path_.c_str());
+    return kErrorCodeFsFailedToOpen;
   } else {
     read_ = read;
     write_ = write;
@@ -103,7 +105,7 @@ ErrorStack DirectIoFile::open(bool read, bool write, bool append, bool create) {
       current_offset_ = file_size(path_);
     }
     LOG(INFO) << "DirectIoFile::open(): successfully opened. " << *this;
-    return kRetOk;
+    return kErrorCodeOk;
   }
 }
 
@@ -122,57 +124,59 @@ bool DirectIoFile::close() {
   }
   return false;
 }
-ErrorStack DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemory* buffer) {
+ErrorCode  DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemory* buffer) {
   return read(desired_bytes, memory::AlignedMemorySlice(buffer));
 }
-ErrorStack DirectIoFile::read(uint64_t desired_bytes, const memory::AlignedMemorySlice& buffer) {
-  if (!is_opened()) {
-    return ERROR_STACK_MSG(kErrorCodeFsNotOpened, to_string().c_str());
-  }
-  if (desired_bytes == 0) {
-    return kRetOk;
-  }
+ErrorCode  DirectIoFile::read(uint64_t desired_bytes, const memory::AlignedMemorySlice& buffer) {
   if (desired_bytes > buffer.count_) {
     LOG(ERROR) << "DirectIoFile::read(): too small buffer is given. desired_bytes="
       << desired_bytes << ", buffer=" << buffer;
-    return ERROR_STACK_MSG(kErrorCodeFsBufferTooSmall, to_string().c_str());
-  }
-  if (!is_odirect_aligned(buffer.memory_->get_alignment())
+    return kErrorCodeFsBufferTooSmall;
+  } else if (!is_odirect_aligned(buffer.memory_->get_alignment())
       || !is_odirect_aligned(buffer.get_block())
       || !is_odirect_aligned(desired_bytes)) {
     LOG(ERROR) << "DirectIoFile::read(): non-aligned input is given. buffer=" << buffer
       << ", desired_bytes=" << desired_bytes;
-    return ERROR_STACK_MSG(kErrorCodeFsBufferNotAligned, to_string().c_str());
+    return kErrorCodeFsBufferNotAligned;
+  }
+  return read_raw(desired_bytes, buffer.get_block());
+}
+ErrorCode  DirectIoFile::read_raw(uint64_t desired_bytes, void* buffer) {
+  if (!is_opened()) {
+    LOG(ERROR) << "File not opened yet, or closed. this=" << *this;
+    return kErrorCodeFsNotOpened;
+  } else if (desired_bytes == 0) {
+    return kErrorCodeOk;
   }
 
   // underlying POSIX filesystem might split the read for severel reasons. so, while loop.
   uint64_t total_read = 0;
   uint64_t remaining = desired_bytes;
   while (remaining > 0) {
-    char* position = reinterpret_cast<char*>(buffer.get_block()) + total_read;
+    char* position = reinterpret_cast<char*>(buffer) + total_read;
     ASSERT_ND(is_odirect_aligned(position));
     ssize_t read_bytes = ::read(descriptor_, position, remaining);
     if (read_bytes <= 0) {
       // zero means end of file (unexpected). negative value means error.
-      LOG(ERROR) << "DirectIoFile::read(): error. this=" << *this << " buffer=" << buffer
+      LOG(ERROR) << "DirectIoFile::read(): error. this=" << *this
         << ", total_read=" << total_read << ", desired_bytes=" << desired_bytes
         << ", remaining=" << remaining << ", read_bytes=" << read_bytes
         << ", err=" << assorted::os_error();
-      return ERROR_STACK_MSG(kErrorCodeFsTooShortRead, to_string().c_str());
+      return kErrorCodeFsTooShortRead;
     }
 
     if (static_cast<uint64_t>(read_bytes) > remaining) {
-      LOG(ERROR) << "DirectIoFile::read(): wtf? this=" << *this << " buffer=" << buffer
+      LOG(ERROR) << "DirectIoFile::read(): wtf? this=" << *this
         << ", total_read=" << total_read << ", desired_bytes=" << desired_bytes
         << ", remaining=" << remaining << ", read_bytes=" << read_bytes
         << ", err=" << assorted::os_error();
-      return ERROR_STACK_MSG(kErrorCodeFsExcessRead, to_string().c_str());
+      return kErrorCodeFsExcessRead;
     } else if (!emulation_.disable_direct_io_ && !is_odirect_aligned(read_bytes)) {
-      LOG(FATAL) << "DirectIoFile::read(): wtf2? this=" << *this << " buffer=" << buffer
+      LOG(FATAL) << "DirectIoFile::read(): wtf2? this=" << *this
         << ", total_read=" << total_read << ", desired_bytes=" << desired_bytes
         << ", remaining=" << remaining << ", read_bytes=" << read_bytes
         << ", err=" << assorted::os_error();
-      return ERROR_STACK_MSG(kErrorCodeFsResultNotAligned, to_string().c_str());
+      return kErrorCodeFsResultNotAligned;
     }
 
     total_read += read_bytes;
@@ -184,33 +188,38 @@ ErrorStack DirectIoFile::read(uint64_t desired_bytes, const memory::AlignedMemor
         << ", remaining=" << remaining;
     }
   }
-  return kRetOk;
+  if (emulation_.emulated_read_kb_cycles_ > 0) {
+    debugging::wait_rdtsc_cycles(emulation_.emulated_read_kb_cycles_ * (desired_bytes >> 10));
+  }
+  return kErrorCodeOk;
 }
 
-ErrorStack DirectIoFile::write(uint64_t desired_bytes, const memory::AlignedMemory& buffer) {
+ErrorCode  DirectIoFile::write(uint64_t desired_bytes, const memory::AlignedMemory& buffer) {
   return write(desired_bytes, memory::AlignedMemorySlice(
     const_cast<memory::AlignedMemory*>(&buffer)));
 }
 
-ErrorStack DirectIoFile::write(uint64_t desired_bytes, const memory::AlignedMemorySlice& buffer) {
-  if (!is_opened()) {
-    return ERROR_STACK_MSG(kErrorCodeFsNotOpened, to_string().c_str());
-  }
-  if (desired_bytes == 0) {
-    return kRetOk;
-  }
+ErrorCode  DirectIoFile::write(uint64_t desired_bytes, const memory::AlignedMemorySlice& buffer) {
   ASSERT_ND(buffer.is_valid());
   if (desired_bytes > buffer.count_) {
     LOG(ERROR) << "DirectIoFile::write(): too small buffer is given. desired_bytes="
       << desired_bytes << ", buffer=" << buffer;
-    return ERROR_STACK_MSG(kErrorCodeFsBufferTooSmall, to_string().c_str());
-  }
-  if (!is_odirect_aligned(buffer.memory_->get_alignment())
+    return kErrorCodeFsBufferTooSmall;
+  } else if (!is_odirect_aligned(buffer.memory_->get_alignment())
       || !is_odirect_aligned(buffer.get_block())
       || !is_odirect_aligned(desired_bytes)) {
     LOG(ERROR) << "DirectIoFile::write(): non-aligned input is given. buffer=" << buffer
       << ", desired_bytes=" << desired_bytes;
-    return ERROR_STACK_MSG(kErrorCodeFsBufferNotAligned, to_string().c_str());
+    return kErrorCodeFsBufferNotAligned;
+  }
+  return write_raw(desired_bytes, buffer.get_block());
+}
+ErrorCode  DirectIoFile::write_raw(uint64_t desired_bytes, const void* buffer) {
+  if (!is_opened()) {
+    LOG(ERROR) << "File not opened yet, or closed. this=" << *this;
+    return kErrorCodeFsNotOpened;
+  } else if (desired_bytes == 0) {
+    return kErrorCodeOk;
   }
 
   // underlying POSIX filesystem might split the write for severel reasons. so, while loop.
@@ -218,32 +227,32 @@ ErrorStack DirectIoFile::write(uint64_t desired_bytes, const memory::AlignedMemo
   uint64_t total_written = 0;
   uint64_t remaining = desired_bytes;
   while (remaining > 0) {
-    void* position = reinterpret_cast<char*>(buffer.get_block()) + total_written;
+    const void* position = reinterpret_cast<const char*>(buffer) + total_written;
     VLOG(1) << "DirectIoFile::write(). position=" << position;
     ASSERT_ND(is_odirect_aligned(position));
     ssize_t written_bytes = ::write(descriptor_, position, remaining);
     if (written_bytes < 0) {
       // negative value means error.
-      LOG(ERROR) << "DirectIoFile::write(): error. this=" << *this << " buffer=" << buffer
+      LOG(ERROR) << "DirectIoFile::write(): error. this=" << *this
         << ", total_written=" << total_written << ", desired_bytes=" << desired_bytes
         << ", remaining=" << remaining << ", written_bytes=" << written_bytes
         << ", err=" << assorted::os_error();
       // TODO(Hideaki) more error codes depending on errno. but mostly it should be disk-full
-      return ERROR_STACK_MSG(kErrorCodeFsWriteFail, to_string().c_str());
+      return kErrorCodeFsWriteFail;
     }
 
     if (static_cast<uint64_t>(written_bytes) > remaining) {
-      LOG(ERROR) << "DirectIoFile::write(): wtf? this=" << *this << " buffer=" << buffer
+      LOG(ERROR) << "DirectIoFile::write(): wtf? this=" << *this
         << ", total_written=" << total_written << ", desired_bytes=" << desired_bytes
         << ", remaining=" << remaining << ", written_bytes=" << written_bytes
         << ", err=" << assorted::os_error();
-      return ERROR_STACK_MSG(kErrorCodeFsExcessWrite, to_string().c_str());
+      return kErrorCodeFsExcessWrite;
     } else if (!emulation_.disable_direct_io_ && !is_odirect_aligned(written_bytes)) {
-      LOG(FATAL) << "DirectIoFile::write(): wtf2? this=" << *this << " buffer=" << buffer
+      LOG(FATAL) << "DirectIoFile::write(): wtf2? this=" << *this
         << ", total_written=" << total_written << ", desired_bytes=" << desired_bytes
         << ", remaining=" << remaining << ", written_bytes=" << written_bytes
         << ", err=" << assorted::os_error();
-      return ERROR_STACK_MSG(kErrorCodeFsResultNotAligned, to_string().c_str());
+      return kErrorCodeFsResultNotAligned;
     }
 
     total_written += written_bytes;
@@ -255,38 +264,41 @@ ErrorStack DirectIoFile::write(uint64_t desired_bytes, const memory::AlignedMemo
         << ", remaining=" << remaining;
     }
   }
-  return kRetOk;
+  if (emulation_.emulated_write_kb_cycles_ > 0) {
+    debugging::wait_rdtsc_cycles(emulation_.emulated_write_kb_cycles_ * (desired_bytes >> 10));
+  }
+  return kErrorCodeOk;
 }
 
-ErrorStack DirectIoFile::truncate(uint64_t new_length, bool sync) {
+ErrorCode  DirectIoFile::truncate(uint64_t new_length, bool sync) {
   if (!is_odirect_aligned(new_length)) {
     LOG(ERROR) << "DirectIoFile::truncate(): non-aligned input is given. "
       << " new_length=" << new_length;
-    return ERROR_STACK(kErrorCodeFsBufferNotAligned);
+    return kErrorCodeFsBufferNotAligned;
   }
   LOG(INFO) << "DirectIoFile::truncate(): truncating " << *this << " to " << new_length
     << " bytes..";
   if (!is_opened()) {
-    return ERROR_STACK_MSG(kErrorCodeFsNotOpened, to_string().c_str());
+    return kErrorCodeFsNotOpened;
   }
 
   if (::ftruncate(descriptor_, new_length) != 0) {
     LOG(ERROR) << "DirectIoFile::truncate(): failed. this=" << *this
       << " err=" << assorted::os_error();
-    return ERROR_STACK_MSG(kErrorCodeFsTruncateFailed, to_string().c_str());
+    return kErrorCodeFsTruncateFailed;
   }
   current_offset_ = new_length;
   if (sync) {
     LOG(INFO) << "DirectIoFile::truncate(): also fsync..";
     foedus::fs::fsync(path_, true);
   }
-  return kRetOk;
+  return kErrorCodeOk;
 }
 
-ErrorStack DirectIoFile::seek(uint64_t offset, SeekType seek_type) {
+ErrorCode  DirectIoFile::seek(uint64_t offset, SeekType seek_type) {
   if (!is_odirect_aligned(offset)) {
     LOG(ERROR) << "DirectIoFile::seek(): non-aligned input is given. offset=" << offset;
-    return ERROR_STACK(kErrorCodeFsBufferNotAligned);
+    return kErrorCodeFsBufferNotAligned;
   }
   __off_t ret;
   switch (seek_type) {
@@ -301,32 +313,36 @@ ErrorStack DirectIoFile::seek(uint64_t offset, SeekType seek_type) {
       break;
     default:
       LOG(ERROR) << "DirectIoFile::seek(): wtf?? seek_type=" << seek_type;
-      return ERROR_STACK_MSG(kErrorCodeFsBadSeekInput, to_string().c_str());
+      return kErrorCodeFsBadSeekInput;
   }
   if (ret < 0) {
-    LOG(ERROR) << "DirectIoFile::seek(): failed. err=" << assorted::os_error();
-    return ERROR_STACK_MSG(kErrorCodeFsSeekFailed, to_string().c_str());
+    LOG(ERROR) << "DirectIoFile::seek(): failed. this=" << *this << ",err=" << assorted::os_error();
+    return kErrorCodeFsSeekFailed;
   }
   current_offset_ = ret;
-  return kRetOk;
+  if (emulation_.emulated_seek_latency_cycles_ > 0) {
+    debugging::wait_rdtsc_cycles(emulation_.emulated_seek_latency_cycles_);
+  }
+  return kErrorCodeOk;
 }
 
-ErrorStack DirectIoFile::sync() {
+ErrorCode  DirectIoFile::sync() {
   if (!is_opened()) {
-    return ERROR_STACK(kErrorCodeFsNotOpened);
+    LOG(ERROR) << "File not opened yet, or closed. this=" << *this;
+    return kErrorCodeFsNotOpened;
   }
   if (!is_write()) {
-    return ERROR_STACK(kErrorCodeInvalidParameter);
+    return kErrorCodeInvalidParameter;
   }
 
   int ret = ::fsync(descriptor_);
   if (ret != 0) {
     LOG(ERROR) << "DirectIoFile::sync(): fsync failed. this=" << *this
       << ", err=" << assorted::os_error();
-    return ERROR_STACK_MSG(kErrorCodeFsSyncFailed, to_string().c_str());
+    return kErrorCodeFsSyncFailed;
   }
 
-  return kRetOk;
+  return kErrorCodeOk;
 }
 
 std::string DirectIoFile::to_string() const {

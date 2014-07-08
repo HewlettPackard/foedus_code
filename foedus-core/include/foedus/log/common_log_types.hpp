@@ -109,7 +109,7 @@ struct EngineLogType : public BaseLogType {
   /**
    * @brief Verifies the log contains essential fields set.
    */
-  void assert_valid_generic() ALWAYS_INLINE {
+  void assert_valid_generic() const ALWAYS_INLINE {
     ASSERT_ND(header_.is_valid_type());
     ASSERT_ND(header_.log_length_ != 0);
     ASSERT_ND(header_.log_length_ % 8 == 0);  // must be 8 byte aligned
@@ -162,7 +162,7 @@ struct RecordLogType : public BaseLogType {
   /**
    * @brief Verifies the log contains essential fields set.
    */
-  void assert_valid_generic() ALWAYS_INLINE {
+  void assert_valid_generic() const ALWAYS_INLINE {
     ASSERT_ND(header_.is_valid_type());
     ASSERT_ND(header_.log_length_ != 0);
     ASSERT_ND(header_.log_length_ % 8 == 0);  // must be 8 byte aligned
@@ -203,7 +203,7 @@ struct FillerLogType : public BaseLogType {
   /** Populate this log to fill up the specified byte size. */
   void    populate(uint64_t size);
 
-  void    assert_valid() ALWAYS_INLINE {
+  void    assert_valid() const ALWAYS_INLINE {
     ASSERT_ND(header_.get_type() == kLogCodeFiller);
     ASSERT_ND(header_.log_length_ >= sizeof(FillerLogType));
     ASSERT_ND(header_.log_length_ % 8 == 0);
@@ -261,7 +261,7 @@ struct EpochMarkerLogType : public EngineLogType {
   void    populate(Epoch old_epoch, Epoch new_epoch,
            uint8_t logger_numa_node, uint8_t logger_in_node_ordinal,
            uint16_t logger_id, uint32_t log_file_ordinal, uint64_t log_file_offset);
-  void    assert_valid() ALWAYS_INLINE { assert_valid_generic(); }
+  void    assert_valid() const ALWAYS_INLINE { assert_valid_generic(); }
 
   friend std::ostream& operator<<(std::ostream& o, const EpochMarkerLogType &v);
 };

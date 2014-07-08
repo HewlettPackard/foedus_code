@@ -20,6 +20,7 @@ SnapshotOptions::SnapshotOptions() {
   log_reducer_dump_io_buffer_mb_ = kDefaultLogReducerDumpIoBufferMb;
   log_reducer_read_io_buffer_kb_ = kDefaultLogReducerReadIoBufferKb;
   snapshot_writer_page_pool_size_mb_ = kDefaultSnapshotWriterPagePoolSizeMb;
+  snapshot_writer_intermediate_pool_size_mb_ = kDefaultSnapshotWriterIntermediatePoolSizeMb;
 }
 
 std::string SnapshotOptions::convert_folder_path_pattern(int node) const {
@@ -45,6 +46,7 @@ ErrorStack SnapshotOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, log_reducer_dump_io_buffer_mb_);
   EXTERNALIZE_LOAD_ELEMENT(element, log_reducer_read_io_buffer_kb_);
   EXTERNALIZE_LOAD_ELEMENT(element, snapshot_writer_page_pool_size_mb_);
+  EXTERNALIZE_LOAD_ELEMENT(element, snapshot_writer_intermediate_pool_size_mb_);
   CHECK_ERROR(get_child_element(element, "SnapshotDeviceEmulationOptions", &emulation_))
   return kRetOk;
 }
@@ -79,6 +81,9 @@ ErrorStack SnapshotOptions::save(tinyxml2::XMLElement* element) const {
   EXTERNALIZE_SAVE_ELEMENT(element, snapshot_writer_page_pool_size_mb_,
     "The size in MB of one snapshot writer, which holds data pages modified in the snapshot"
     " and them sequentially dumps them to a file for each storage.");
+  EXTERNALIZE_SAVE_ELEMENT(element, snapshot_writer_intermediate_pool_size_mb_,
+    "The size in MB of additional page pool for one snapshot writer just for holding"
+    " intermediate pages.");
   CHECK_ERROR(add_child_element(element, "SnapshotDeviceEmulationOptions",
           "[Experiments-only] Settings to emulate slower data device", emulation_));
   return kRetOk;

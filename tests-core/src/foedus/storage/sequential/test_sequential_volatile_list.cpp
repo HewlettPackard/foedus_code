@@ -30,6 +30,7 @@ namespace foedus {
 namespace storage {
 namespace sequential {
 
+DEFINE_TEST_CASE_PACKAGE(SequentialVolatileListTest, foedus.storage.sequential);
 TEST(SequentialVolatileListTest, Empty) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);

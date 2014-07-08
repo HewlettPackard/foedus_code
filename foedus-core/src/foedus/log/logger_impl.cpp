@@ -87,14 +87,14 @@ ErrorStack Logger::initialize_once() {
   // open the log file
   current_file_ = new fs::DirectIoFile(current_file_path_,
                      engine_->get_options().log_.emulation_);
-  CHECK_ERROR(current_file_->open(true, true, true, true));
+  WRAP_ERROR_CODE(current_file_->open(true, true, true, true));
   if (current_file_durable_offset_ < current_file_->get_current_offset()) {
     // there are non-durable regions as an incomplete remnant of previous execution.
     // probably there was a crash. in this case, we discard the non-durable regions.
     LOG(ERROR) << "Logger-" << id_ << "'s log file has a non-durable region. Probably there"
       << " was a crash. Will truncate it to " << current_file_durable_offset_
       << " from " << current_file_->get_current_offset();
-    CHECK_ERROR(current_file_->truncate(current_file_durable_offset_, true));  // sync right now
+    WRAP_ERROR_CODE(current_file_->truncate(current_file_durable_offset_, true));  // sync right now
   }
   ASSERT_ND(current_file_durable_offset_ == current_file_->get_current_offset());
   LOG(INFO) << "Initialized logger: " << *this;
@@ -384,7 +384,7 @@ ErrorStack Logger::log_epoch_switch(Epoch new_epoch) {
       + sizeof(EpochMarkerLogType));
     filler_log->populate(fill_buffer_.get_size() - sizeof(EpochMarkerLogType));
 
-    CHECK_ERROR(current_file_->write(fill_buffer_.get_size(), fill_buffer_));
+    WRAP_ERROR_CODE(current_file_->write(fill_buffer_.get_size(), fill_buffer_));
     no_log_epoch_ = true;
     marked_epoch_ = new_epoch;
     add_epoch_history(*epoch_marker);
@@ -475,7 +475,7 @@ ErrorStack Logger::switch_file_if_required() {
   LOG(INFO) << "Logger-" << id_ << " next file=" << current_file_path_;
   current_file_ = new fs::DirectIoFile(current_file_path_,
                       engine_->get_options().log_.emulation_);
-  CHECK_ERROR(current_file_->open(true, true, true, true));
+  WRAP_ERROR_CODE(current_file_->open(true, true, true, true));
   ASSERT_ND(current_file_->get_current_offset() == 0);
   LOG(INFO) << "Logger-" << id_ << " moved on to next file. " << *this;
   CHECK_ERROR(write_dummy_epoch_mark());
@@ -552,7 +552,7 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
       FillerLogType* end_filler_log = reinterpret_cast<FillerLogType*>(buf);
       end_filler_log->populate(end_fill_size);
     }
-    CHECK_ERROR(current_file_->write(FillerLogType::kLogWriteUnitSize, fill_buffer_));
+    WRAP_ERROR_CODE(current_file_->write(FillerLogType::kLogWriteUnitSize, fill_buffer_));
 
     buffer->advance_offset_durable(copy_size);
   }
@@ -570,7 +570,7 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
   if (middle_size > 0) {
     memory::AlignedMemorySlice subslice(buffer->buffer_memory_, from_offset, middle_size);
     VLOG(1) << "Writing middle regions: " << middle_size << " bytes. slice=" << subslice;
-    CHECK_ERROR(current_file_->write(middle_size, subslice));
+    WRAP_ERROR_CODE(current_file_->write(middle_size, subslice));
     buffer->advance_offset_durable(middle_size);
   }
 
