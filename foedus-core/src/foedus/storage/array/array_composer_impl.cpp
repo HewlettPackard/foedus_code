@@ -169,11 +169,59 @@ ErrorStack ArrayComposer::compose_finalize(RootInfoPage* root_info_page) {
 }
 
 ErrorStack ArrayComposer::construct_root(
-  const Page* const* /*root_info_pages*/,
-  uint32_t /*root_info_pages_count*/,
+  const Page* const* root_info_pages,
+  uint32_t root_info_pages_count,
   const memory::AlignedMemorySlice& /*work_memory*/,
   SnapshotPagePointer* new_root_page_pointer) {
-  *new_root_page_pointer = 0;
+  // compose() created root_info_pages that contain pointers to fill in the root page,
+  // so we just find non-zero entry and copy it to root page.
+  if (levels_ == 1) {
+    // if it's single-page array, we have already created the root page in compose().
+    ASSERT_ND(root_info_pages_count == 1);
+    const RootInfoPage* casted = reinterpret_cast<const RootInfoPage*>(root_info_pages[0]);
+    ASSERT_ND(casted->pointers_[0] != 0);
+    *new_root_page_pointer = casted->pointers_[0];
+  } else {
+    ArrayPage* root_page = reinterpret_cast<ArrayPage*>(snapshot_writer_->get_page_base());
+    SnapshotPagePointer page_id = storage_->get_metadata()->root_snapshot_page_id_;
+    SnapshotPagePointer new_page_id = snapshot_writer_->get_next_page_id();
+    *new_root_page_pointer = new_page_id;
+    if (page_id != 0) {
+      WRAP_ERROR_CODE(previous_snapshot_files_->read_page(page_id, root_page));
+      ASSERT_ND(root_page->header().storage_id_ == storage_id_);
+      ASSERT_ND(root_page->header().page_id_ == page_id);
+      root_page->header().page_id_ = new_page_id;
+    } else {
+      ArrayRange range(0, offset_intervals_[levels_ - 1]);
+      root_page->initialize_data_page(
+        new_snapshot_.base_epoch_,
+        storage_id_,
+        new_page_id,
+        payload_size_,
+        levels_ - 1,
+        range);
+    }
+
+    // overwrite pointers with root_info_pages.
+    for (uint32_t i = 0; i < root_info_pages_count; ++i) {
+      const RootInfoPage* casted = reinterpret_cast<const RootInfoPage*>(root_info_pages[i]);
+      for (uint16_t j = 0; j < kInteriorFanout; ++j) {
+        SnapshotPagePointer pointer = casted->pointers_[j];
+        if (pointer != 0) {
+          ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(pointer) == new_snapshot_id_);
+          DualPagePointer& record = root_page->get_interior_record(j);
+          record.snapshot_pointer_ = pointer;
+          // partitioning has no overlap, so this must be the only overwriting pointer
+          ASSERT_ND(record.snapshot_pointer_ == 0 ||
+            extract_snapshot_id_from_snapshot_pointer(record.snapshot_pointer_)
+              != new_snapshot_id_);
+        }
+      }
+    }
+
+    WRAP_ERROR_CODE(snapshot_writer_->dump_pages(0, 1));
+    ASSERT_ND(snapshot_writer_->get_next_page_id() == new_page_id - 1);
+  }
   return kRetOk;
 }
 
@@ -342,6 +390,8 @@ void ArrayComposer::compose_init_context_empty_cur_path() {
       range);
     cur_path_[0] = page;
   }
+  // TODO(Hideaki) In this case, if there some pages that don't have logs, they will be still
+  // non-existent in snapshot. In that case we should create all pages. Just zero-out.
 }
 
 inline ErrorCode ArrayComposer::advance() {
