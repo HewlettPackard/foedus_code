@@ -105,8 +105,7 @@ void SequentialVolatileList::append_record(
       !tail->can_insert_record(payload_count) ||
       // note: we make sure no volatile page has records from two epochs.
       // this makes us easy to drop volatile pages after snapshotting.
-      (!tail->get_record_count() > 0 &&
-            tail->get_earliest_record_epoch() != owner_id.get_epoch())) {
+      (tail->get_record_count() > 0 && tail->get_first_record_epoch() != owner_id.get_epoch())) {
     memory::PagePoolOffset new_page_offset = context->get_thread_memory()->grab_free_page();
     if (UNLIKELY(new_page_offset == 0)) {
       LOG(FATAL) << " Unexpected error. we ran out of free page while inserting to sequential"
@@ -122,13 +121,9 @@ void SequentialVolatileList::append_record(
       // this is the first access to this head pointer. Let's install the first page.
       ASSERT_ND(head_pointers_[ordinal] == nullptr);
       head_pointers_[ordinal] = new_page;
-      assorted::memory_fence_release();
       tail_pointers_[ordinal] = new_page;
     } else {
-      // change tail pointer BEFORE (with barrier) setting next pointer in ex-tail so that
-      // scanning thread can safely detect the end of list.
       tail_pointers_[ordinal] = new_page;
-      assorted::memory_fence_release();
       tail->next_page().volatile_pointer_ = new_page_pointer;
     }
     tail = tail_pointers_[ordinal];
@@ -136,8 +131,7 @@ void SequentialVolatileList::append_record(
 
   ASSERT_ND(tail &&
     tail->can_insert_record(payload_count) &&
-    (tail->get_record_count() == 0 ||
-            tail->get_earliest_record_epoch() == owner_id.get_epoch()));
+    (tail->get_record_count() == 0 || tail->get_first_record_epoch() == owner_id.get_epoch()));
   tail->append_record_nosync(owner_id, payload_count, payload);
 }
 std::ostream& operator<<(std::ostream& o, const SequentialVolatileList& v) {
@@ -146,7 +140,6 @@ std::ostream& operator<<(std::ostream& o, const SequentialVolatileList& v) {
 
   uint64_t page_count = 0;
   uint64_t record_count = 0;
-  uint64_t last_page_status = 0;
   memory::EngineMemory& memory = v.engine_->get_memory_manager();
   const memory::GlobalPageResolver& resolver = memory.get_global_page_resolver();
   for (thread::ThreadGlobalOrdinal i = 0; i < v.thread_count_; ++i) {
@@ -160,7 +153,6 @@ std::ostream& operator<<(std::ostream& o, const SequentialVolatileList& v) {
         if (next_pointer.components.offset != 0) {
           page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(next_pointer));
         } else {
-          last_page_status = page->peek_status();
           page = nullptr;
         }
       }
@@ -168,7 +160,6 @@ std::ostream& operator<<(std::ostream& o, const SequentialVolatileList& v) {
   }
   o << "<page_count>" << page_count << "</page_count>";
   o << "<record_count>" << record_count << "</record_count>";
-  o << "<last_page_status>" << assorted::Hex(last_page_status) << "</last_page_status>";
   o << "</SequentialVolatileList>";
   return o;
 }
