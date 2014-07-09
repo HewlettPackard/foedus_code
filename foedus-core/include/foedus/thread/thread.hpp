@@ -25,7 +25,7 @@ namespace thread {
 class Thread CXX11_FINAL : public virtual Initializable {
  public:
   Thread() CXX11_FUNC_DELETE;
-  explicit Thread(Engine* engine, ThreadGroupPimpl* group, ThreadId id);
+  Thread(Engine* engine, ThreadGroupPimpl* group, ThreadId id, ThreadGlobalOrdinal global_ordinal);
   ~Thread();
   ErrorStack  initialize() CXX11_OVERRIDE;
   bool        is_initialized() const CXX11_OVERRIDE;
@@ -34,6 +34,7 @@ class Thread CXX11_FINAL : public virtual Initializable {
   Engine*     get_engine() const;
   ThreadId    get_thread_id() const;
   ThreadGroupId get_numa_node() const { return decompose_numa_node(get_thread_id()); }
+  ThreadGlobalOrdinal get_thread_global_ordinal() const;
 
   /**
    * Returns the transaction that is currently running on this thread.

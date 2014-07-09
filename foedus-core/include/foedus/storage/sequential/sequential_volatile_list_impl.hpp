@@ -37,7 +37,19 @@ namespace sequential {
  *  \li The order in page does not necessarily reflect serialization order. The sequential storage
  * provides a \e set semantics rather than \e list semantics in terms of serializability
  * although it's loosely ordered.
- *  \li There is at most one thread that \e compacts the volatile list; the snapshot thread.
+ *  \li Each thread maintains its own head/tail pages so that they don't interfere each other
+ * at all. This, combined with the assumption above, makes it completely without blocking
+ * and atomic operations \b EXCEPT:
+ *  \li For scanning threads (which only rarely occur and are fundamentally slow anyways),
+ * we take an exclusive lock. Further, the scanning thread must wait until all other threads
+ * did NOT start before the scanning thread take lock. (otherwise serializability is not
+ * guaranteed). We will have something like Xct::InCommitLogEpochGuard for this purpose.
+ * As scanning threads are rare, they can wait for a while, so it's okay for other threads
+ * to complete at least one transacion before they get aware of the lock.
+ *  \li However, the above requirement is not mandatory if the scanning threads are running in
+ * snapshot mode or dirty-read mode. We just make sure that what is reads is within the
+ * epoch. Because other threads append record in serialization order to their own lists,
+ * this can be trivially achieved.
  *
  * With these assumptions, sequential storages don't require any locking for serializability.
  * Thus, we separate write-sets of sequential storages from other write-sets in transaction objects.
@@ -46,12 +58,12 @@ namespace sequential {
  * This is a private implementation-details of \ref SEQUENTIAL, thus file name ends with _impl.
  * Do not include this header from a client program. There is no case client program needs to
  * access this internal class.
+ * @todo Implement the scanning functionality as above.
  */
 class SequentialVolatileList final : public DefaultInitializable {
  public:
   SequentialVolatileList() = delete;
-  SequentialVolatileList(Engine* engine, StorageId storage_id)
-    : engine_(engine), storage_id_(storage_id), head_(nullptr), tail_(nullptr) {}
+  SequentialVolatileList(Engine* engine, StorageId storage_id);
 
   explicit SequentialVolatileList(const SequentialVolatileList& other) = delete;
   SequentialVolatileList& operator=(const SequentialVolatileList& other) = delete;
@@ -59,8 +71,17 @@ class SequentialVolatileList final : public DefaultInitializable {
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
-  SequentialPage*   get_head() const { return head_; }
-  SequentialPage*   get_tail() const { return tail_; }
+  StorageId get_storage_id() const { return storage_id_; }
+  thread::ThreadGlobalOrdinal get_thread_count() const { return thread_count_; }
+
+  SequentialPage* get_head(thread::ThreadGlobalOrdinal ordinal) const {
+    ASSERT_ND(ordinal < thread_count_);
+    return head_pointers_[ordinal];
+  }
+  SequentialPage* get_tail(thread::ThreadGlobalOrdinal ordinal) const {
+    ASSERT_ND(ordinal < thread_count_);
+    return tail_pointers_[ordinal];
+  }
 
   /**
    * @brief Appends an already-commited record to this volatile list.
@@ -82,8 +103,12 @@ class SequentialVolatileList final : public DefaultInitializable {
  private:
   Engine* const     engine_;
   const StorageId   storage_id_;
-  SequentialPage*   head_;
-  SequentialPage*   tail_;
+  const thread::ThreadGlobalOrdinal thread_count_;
+
+  /** Index is ThreadGlobalOrdinal.  */
+  SequentialPage** head_pointers_;
+  /** Index is ThreadGlobalOrdinal.  */
+  SequentialPage** tail_pointers_;
 };
 }  // namespace sequential
 }  // namespace storage

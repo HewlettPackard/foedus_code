@@ -71,6 +71,20 @@ CXX11_STATIC_ASSERT (sizeof(ThreadId) == 2, "Max thread count must be 2 bytes");
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 
 /**
+ * @typedef ThreadGlobalOrdinal
+ * @brief Typedef for a globally and contiguously numbered ID of thread.
+ * @ingroup THREAD
+ * @details
+ * ThreadId is not contiguous because its high byte is NUMA node, and that is what we use
+ * in most places. However, sometimes we need a contiguously numberd ID of thread, such
+ * as when we allocate an array of objects, one for each thread.
+ * This number is used in such cases.
+ * Be extra careful, both ThreadId and this are uint16_t, so compiler won't warn anything
+ * if we use them incorrectly.
+ */
+typedef uint16_t ThreadGlobalOrdinal;
+
+/**
  * @var kMaxThreadId
  * @brief Maximum possible value of ThreadId.
  * @ingroup THREAD
@@ -99,6 +113,15 @@ inline ThreadGroupId decompose_numa_node(ThreadId global_id) {
  */
 inline ThreadLocalOrdinal decompose_numa_local_ordinal(ThreadId global_id) {
   return global_id & 0xFF;
+}
+
+/**
+ * Calculate ThreadGlobalOrdinal from ThreadId.
+ * @ingroup THREAD
+ */
+inline ThreadGlobalOrdinal to_global_ordinal(ThreadId thread_id, uint8_t threads_per_nodes) {
+  return decompose_numa_node(thread_id) * threads_per_nodes
+    + decompose_numa_local_ordinal(thread_id);
 }
 
 /**

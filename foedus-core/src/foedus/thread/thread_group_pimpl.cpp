@@ -21,7 +21,8 @@ ErrorStack ThreadGroupPimpl::initialize_once() {
   ThreadLocalOrdinal count = engine_->get_options().thread_.thread_count_per_group_;
   for (ThreadLocalOrdinal ordinal = 0; ordinal < count; ++ordinal) {
     ThreadId id = compose_thread_id(group_id_, ordinal);
-    threads_.push_back(new Thread(engine_, this, id));
+    ThreadGlobalOrdinal global_ordinal = to_global_ordinal(id, count);
+    threads_.push_back(new Thread(engine_, this, id, global_ordinal));
     CHECK_ERROR(threads_.back()->initialize());
   }
   return kRetOk;

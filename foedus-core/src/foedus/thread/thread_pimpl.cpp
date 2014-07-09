@@ -25,9 +25,21 @@
 
 namespace foedus {
 namespace thread {
-ThreadPimpl::ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder, ThreadId id)
-  : engine_(engine), group_(group), holder_(holder), id_(id), core_memory_(nullptr),
-    log_buffer_(engine, id), current_task_(nullptr), current_xct_(engine, id) {
+ThreadPimpl::ThreadPimpl(
+  Engine* engine,
+  ThreadGroupPimpl* group,
+  Thread* holder,
+  ThreadId id,
+  ThreadGlobalOrdinal global_ordinal)
+  : engine_(engine),
+    group_(group),
+    holder_(holder),
+    id_(id),
+    global_ordinal_(global_ordinal),
+    core_memory_(nullptr),
+    log_buffer_(engine, id),
+    current_task_(nullptr),
+    current_xct_(engine, id) {
 }
 
 ErrorStack ThreadPimpl::initialize_once() {

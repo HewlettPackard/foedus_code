@@ -28,7 +28,12 @@ namespace thread {
 class ThreadPimpl final : public DefaultInitializable {
  public:
   ThreadPimpl() = delete;
-  ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder, ThreadId id);
+  ThreadPimpl(
+    Engine* engine,
+    ThreadGroupPimpl* group,
+    Thread* holder,
+    ThreadId id,
+    ThreadGlobalOrdinal global_ordinal);
   ErrorStack  initialize_once() override final;
   ErrorStack  uninitialize_once() override final;
 
@@ -63,6 +68,9 @@ class ThreadPimpl final : public DefaultInitializable {
    * Unique ID of this thread.
    */
   const ThreadId          id_;
+
+  /** globally and contiguously numbered ID of thread */
+  const ThreadGlobalOrdinal global_ordinal_;
 
   /**
    * Private memory repository of this thread.
