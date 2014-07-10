@@ -9,6 +9,8 @@
 #include "foedus/storage/storage_manager_pimpl.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/storage/array/array_storage.hpp"
+#include "foedus/storage/hash/hash_metadata.hpp"
+#include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/storage/sequential/sequential_metadata.hpp"
@@ -67,6 +69,27 @@ ErrorStack StorageManager::create_array(
   Storage* tmp = nullptr;
   ErrorStack result = create_storage(metadata, &tmp, commit_epoch);
   *storage = dynamic_cast<array::ArrayStorage*>(tmp);
+  return result;
+}
+
+ErrorStack StorageManager::create_hash(
+  thread::Thread* context,
+  hash::HashMetadata* metadata,
+  hash::HashStorage** storage,
+  Epoch* commit_epoch) {
+  Storage* tmp = nullptr;
+  ErrorStack result = create_storage(context, metadata, &tmp, commit_epoch);
+  *storage = dynamic_cast<hash::HashStorage*>(tmp);
+  return result;
+}
+
+ErrorStack StorageManager::create_hash(
+  hash::HashMetadata* metadata,
+  hash::HashStorage** storage,
+  Epoch* commit_epoch) {
+  Storage* tmp = nullptr;
+  ErrorStack result = create_storage(metadata, &tmp, commit_epoch);
+  *storage = dynamic_cast<hash::HashStorage*>(tmp);
   return result;
 }
 
