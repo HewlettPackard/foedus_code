@@ -28,7 +28,10 @@ namespace array {
 union LookupRoute {
   /** This is a 64bit data. */
   uint64_t word;
-  /** [0] means record ordinal in leaf, [1] in its parent page, [2]...*/
+  /**
+   * [0] means record ordinal in leaf, [1] in its parent page, [2]...
+   * [levels - 1] is the ordinal in root page.
+   */
   uint8_t route[8];
 };
 

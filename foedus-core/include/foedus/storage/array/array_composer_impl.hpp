@@ -83,10 +83,17 @@ class ArrayComposer final : public Composer {
   uint64_t get_required_work_memory_size(
     snapshot::SortedBuffer** /*log_streams*/,
     uint32_t log_streams_count) const override {
-    return sizeof(StreamStatus) * log_streams_count + kMaxLevels * kPageSize;
+    return sizeof(StreamStatus) * log_streams_count;
   }
 
  private:
+  enum Constants {
+    /**
+     * Put this in flags if we are using volatile pointer to intermediate page's
+     * to hold an index in intermediate buffer (relative to intermediate_base_).
+     */
+    kFlagIntermediatePointer = 0xDA,
+  };
   /** Represents one sorted input stream with its status. */
   struct StreamStatus {
     void init(snapshot::SortedBuffer* stream);
@@ -107,6 +114,7 @@ class ArrayComposer final : public Composer {
   };
 
   ArrayStorage* const       storage_casted_;
+  const uint16_t            payload_size_;
   const uint8_t             levels_;
   /** Calculates LookupRoute from offset. */
   const LookupRouteFinder   route_finder_;
@@ -119,14 +127,14 @@ class ArrayComposer final : public Composer {
 
   /////// variables for compose() BEGIN ///////
   // properties below are initialized in init_context() and used while compose() only
-  RootInfoPage*             root_info_page_;
   StreamStatus*             inputs_;
   uint32_t                  inputs_count_;
   uint32_t                  ended_inputs_count_;
-  /** root page image is separately maintained because we don't write it out in compose() */
-  ArrayPage*                root_page_;
 
-  /** path_[0] points to root, path_[1] points to its child we are now modifying..*/
+  /**
+   * path_[0] points to leaf we are now modifying, path_[1] points to its parent.
+   * cur_path_[levels_-1] is always the root page, of course.
+   */
   ArrayPage*                cur_path_[kMaxLevels];
   /** [0] means record ordinal in leaf, [1] in its parent page, [2]...*/
   LookupRoute               cur_route_;
@@ -141,26 +149,34 @@ class ArrayComposer final : public Composer {
   ArrayOffset               next_page_ends_;
 
   /**
-   * Offset that will be returned by \b next snapshot_writer_->allocate_new_page() call.
-   * This is used only for sanity check.
+   * How many pages we allocated in the main buffer of snapshot_writer.
+   * This is reset to zero for each buffer flush.
    */
-  memory::PagePoolOffset    alloc_inmemory_offset_;
+  uint32_t                  allocated_pages_;
   /**
-   * Permanent page ID of the page allocated \b next.
-   * We do know this beforehand because we will write out all pages we allocate.
+   * How many pages we allocated in the intermediate-page buffer of snapshot_writer.
+   * This is purely monotonially increasing beecause we keep intermediate pages until the end
+   * of compose().
    */
-  SnapshotPagePointer       alloc_page_id;
+  uint32_t                  allocated_intermediates_;
+  uint32_t                  max_pages_;
+  uint32_t                  max_intermediates_;
+  /** same as snapshot_writer_->get_page_base()*/
+  ArrayPage*                page_base_;
+  /** same as snapshot_writer_->get_intermediate_base()*/
+  ArrayPage*                intermediate_base_;
   /////// variables during compose() END ///////
 
   // subroutines of compose()
   ErrorCode compose_init_context(
-    RootInfoPage* root_info_page,
     const memory::AlignedMemorySlice& work_memory,
     snapshot::SortedBuffer* const* inputs,
     uint32_t inputs_count);
   /** sub routine of compose_init_context to initialize cur_xxx with the first page. */
   ErrorCode compose_init_context_cur_path();
-  ErrorStack compose_strawman_tournament();
+  /** Same as above, but for the case where there was no previous snapshot */
+  void compose_init_context_empty_cur_path();
+  ErrorStack compose_finalize(RootInfoPage* root_info_page);
 
   ErrorCode advance() ALWAYS_INLINE;
   /** @return whether next key belongs to a different page */
@@ -170,6 +186,13 @@ class ArrayComposer final : public Composer {
 
   /** @pre levels_ > level. */
   ArrayRange calculate_array_range(LookupRoute route, uint8_t level) const ALWAYS_INLINE;
+
+  ErrorCode read_or_init_page(
+    SnapshotPagePointer old_page_id,
+    SnapshotPagePointer new_page_id,
+    uint8_t level,
+    LookupRoute route,
+    ArrayPage* page) ALWAYS_INLINE;
 };
 static_assert(sizeof(ArrayComposer::RootInfoPage) == kPageSize, "incorrect sizeof(RootInfoPage)");
 }  // namespace array

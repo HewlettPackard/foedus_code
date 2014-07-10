@@ -28,6 +28,7 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
     kDefaultLogReducerDumpIoBufferMb      = 8,
     kDefaultLogReducerReadIoBufferKb      = 1024,
     kDefaultSnapshotWriterPagePoolSizeMb  = 128,
+    kDefaultSnapshotWriterIntermediatePoolSizeMb  = 16,
   };
 
   /**
@@ -111,6 +112,14 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
    * Note that the total memory consumption is this number times the number of reducers (nodes).
    */
   uint32_t                            snapshot_writer_page_pool_size_mb_;
+
+  /**
+   * The size in MB of additional page pool for one snapshot writer just for holding
+   * intermediate pages. We hold intermediate pages that have pointers to other pages
+   * separate from leaf pages. This page pool can be usually much smaller than
+   * snapshot_writer_page_pool_size_mb_.
+   */
+  uint32_t                            snapshot_writer_intermediate_pool_size_mb_;
 
   /** Settings to emulate slower data device. */
   foedus::fs::DeviceEmulationOptions  emulation_;
