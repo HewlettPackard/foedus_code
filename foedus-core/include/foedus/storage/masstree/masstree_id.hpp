@@ -38,6 +38,19 @@ const uint16_t kDataSize = foedus::storage::kPageSize - kHeaderSize;
  * @ingroup MASSTREE
  */
 const uint16_t kMaxPayload = kDataSize;
+
+/**
+ * Each key slice is an 8-byte integer. Masstree pages store and compare these key slices.
+ * @ingroup MASSTREE
+ */
+typedef uint64_t KeySlice;
+
+/**
+ * Represents a permutation of 15 keys. See Masstree paper for more details.
+ * @ingroup MASSTREE
+ */
+typedef uint64_t KeyPermutation;
+
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus
