@@ -26,7 +26,7 @@ uint64_t run(bool prefetch, const char* blocks, const uint32_t* rands) {
     const char* block = blocks + ((rands[i % kRands] & 0xFFF) << 12);
     // 813ms vs 238ms. expected.
     if (prefetch) {
-      ::_mm_hint hint = ::_MM_HINT_T0;
+      const ::_mm_hint hint = ::_MM_HINT_T0;
       // ::_mm_hint hint = ::_MM_HINT_NTA;  // this one has much less difference.
       ::_mm_prefetch(block + 0x180, hint);
       ::_mm_prefetch(block + 0x3C0, hint);
