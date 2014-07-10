@@ -4,10 +4,7 @@
  */
 
 // Just testing an expected thing.
-
-#if defined(__GNUC__)
 #include <xmmintrin.h>
-#endif  // defined(__GNUC__)
 
 #include <iostream>
 

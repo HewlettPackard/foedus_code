@@ -546,8 +546,9 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
     // pad at the end, if needed
     uint64_t end_fill_size = FillerLogType::kLogWriteUnitSize - (begin_fill_size + copy_size);
     ASSERT_ND(end_fill_size < FillerLogType::kLogWriteUnitSize);
-    // logs are all 8-byte aligned, and sizeof(FillerLogType) is 8. So this should always hold.
-    ASSERT_ND(end_fill_size == 0 || end_fill_size >= sizeof(FillerLogType));
+    // logs are all 8-byte aligned.
+    // note that FillerLogType (16 bytes) is fully populated. We use only the first 8 bytes of it.
+    ASSERT_ND(end_fill_size % 8 == 0);
     if (end_fill_size > 0) {
       FillerLogType* end_filler_log = reinterpret_cast<FillerLogType*>(buf);
       end_filler_log->populate(end_fill_size);
