@@ -27,7 +27,8 @@ Thread::~Thread() {
 }
 
 ErrorStack Thread::initialize() {
-  global_page_resolver_ = pimpl_->engine_->get_memory_manager().get_global_page_resolver();
+  global_volatile_page_resolver_
+    = pimpl_->engine_->get_memory_manager().get_global_volatile_page_resolver();
   return pimpl_->initialize();
 }
 bool Thread::is_initialized() const { return pimpl_->is_initialized(); }
@@ -46,6 +47,12 @@ xct::Xct&   Thread::get_current_xct()   { return pimpl_->current_xct_; }
 bool        Thread::is_running_xct()    const { return pimpl_->current_xct_.is_active(); }
 
 log::ThreadLogBuffer& Thread::get_thread_log_buffer() { return pimpl_->log_buffer_; }
+
+ErrorCode Thread::read_a_snapshot_page(
+  storage::SnapshotPagePointer page_id,
+  storage::Page* buffer) {
+  return pimpl_->read_a_snapshot_page(page_id, buffer);
+}
 
 std::ostream& operator<<(std::ostream& o, const Thread& v) {
   o << "Thread-" << v.get_thread_global_ordinal() << "(id=" << v.get_thread_id() << ") [";

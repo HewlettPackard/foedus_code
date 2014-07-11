@@ -53,7 +53,7 @@ ErrorStack SequentialVolatileList::uninitialize_once() {
     thread::ThreadGroupId node = i / threads_per_node;
     // we are sure these pages are from only one NUMA node, so we can easily batch-return.
     memory::NumaNodeMemory* memory = engine_->get_memory_manager().get_node_memory(node);
-    memory::PagePool& pool = memory->get_page_pool();
+    memory::PagePool& pool = memory->get_volatile_pool();
     memory::LocalPageResolver& resolver = pool.get_resolver();
     for (SequentialPage* page = head_pointers_[i]; page;) {
       ASSERT_ND(page->header().page_id_);
@@ -106,7 +106,8 @@ void SequentialVolatileList::append_record(
       // note: we make sure no volatile page has records from two epochs.
       // this makes us easy to drop volatile pages after snapshotting.
       (tail->get_record_count() > 0 && tail->get_first_record_epoch() != owner_id.get_epoch())) {
-    memory::PagePoolOffset new_page_offset = context->get_thread_memory()->grab_free_page();
+    memory::PagePoolOffset new_page_offset
+      = context->get_thread_memory()->grab_free_volatile_page();
     if (UNLIKELY(new_page_offset == 0)) {
       LOG(FATAL) << " Unexpected error. we ran out of free page while inserting to sequential"
         " storage after commit.";
@@ -114,7 +115,7 @@ void SequentialVolatileList::append_record(
     VolatilePagePointer new_page_pointer;
     new_page_pointer = combine_volatile_page_pointer(node, 0, 0, new_page_offset);
     SequentialPage* new_page = reinterpret_cast<SequentialPage*>(
-      context->get_global_page_resolver().resolve_offset(node, new_page_offset));
+      context->get_global_volatile_page_resolver().resolve_offset(node, new_page_offset));
     new_page->initialize_data_page(storage_id_, new_page_pointer.word);
 
     if (tail == nullptr) {
@@ -141,7 +142,7 @@ std::ostream& operator<<(std::ostream& o, const SequentialVolatileList& v) {
   uint64_t page_count = 0;
   uint64_t record_count = 0;
   memory::EngineMemory& memory = v.engine_->get_memory_manager();
-  const memory::GlobalPageResolver& resolver = memory.get_global_page_resolver();
+  const memory::GlobalVolatilePageResolver& resolver = memory.get_global_volatile_page_resolver();
   for (thread::ThreadGlobalOrdinal i = 0; i < v.thread_count_; ++i) {
     if (v.head_pointers_ && v.head_pointers_[i]) {
       for (SequentialPage* page = v.head_pointers_[i]; page;) {

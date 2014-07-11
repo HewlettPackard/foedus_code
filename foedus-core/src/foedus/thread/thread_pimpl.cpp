@@ -39,7 +39,8 @@ ThreadPimpl::ThreadPimpl(
     core_memory_(nullptr),
     log_buffer_(engine, id),
     current_task_(nullptr),
-    current_xct_(engine, id) {
+    current_xct_(engine, id),
+    snapshot_file_set_(engine) {
 }
 
 ErrorStack ThreadPimpl::initialize_once() {
@@ -47,6 +48,7 @@ ErrorStack ThreadPimpl::initialize_once() {
   core_memory_ = engine_->get_memory_manager().get_core_memory(id_);
   current_task_ = nullptr;
   current_xct_.initialize(id_, core_memory_);
+  CHECK_ERROR(snapshot_file_set_.initialize());
   CHECK_ERROR(log_buffer_.initialize());
   raw_thread_.initialize("Thread-", id_,
           std::thread(&ThreadPimpl::handle_tasks, this),
@@ -56,6 +58,7 @@ ErrorStack ThreadPimpl::initialize_once() {
 ErrorStack ThreadPimpl::uninitialize_once() {
   ErrorStackBatch batch;
   raw_thread_.stop();
+  batch.emprace_back(snapshot_file_set_.uninitialize());
   batch.emprace_back(log_buffer_.uninitialize());
   core_memory_ = nullptr;
   return SUMMARIZE_ERROR_BATCH(batch);

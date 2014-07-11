@@ -4,11 +4,10 @@
  */
 #include "foedus/storage/sequential/sequential_page_impl.hpp"
 
-#include "foedus/assorted/raw_atomics.hpp"
-
 namespace foedus {
 namespace storage {
 namespace sequential {
+// TODO(Hideaki) we should have stream methods for easy debugging.
 }  // namespace sequential
 }  // namespace storage
 }  // namespace foedus

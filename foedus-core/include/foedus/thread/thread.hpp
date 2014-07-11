@@ -11,6 +11,7 @@
 #include "foedus/log/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/page_resolver.hpp"
+#include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/fwd.hpp"
@@ -58,12 +59,16 @@ class Thread CXX11_FINAL : public virtual Initializable {
    * All worker threads copy the page resolver into its local memory at startup.
    * This gives the most efficient page resolve without any remote NUMA memory access.
    */
-  const memory::GlobalPageResolver& get_global_page_resolver() const {
-    return global_page_resolver_;
+  const memory::GlobalVolatilePageResolver& get_global_volatile_page_resolver() const {
+    return global_volatile_page_resolver_;
   }
+  /**
+   * Read a snapshot page using the thread-local file descriptor set.
+   */
+  ErrorCode     read_a_snapshot_page(storage::SnapshotPagePointer page_id, storage::Page* buffer);
 
   /** Returns the pimpl of this object. Use it only when you know what you are doing. */
-  ThreadPimpl*    get_pimpl() const { return pimpl_; }
+  ThreadPimpl*  get_pimpl() const { return pimpl_; }
 
   friend std::ostream& operator<<(std::ostream& o, const Thread& v);
 
@@ -75,7 +80,7 @@ class Thread CXX11_FINAL : public virtual Initializable {
    * a really low overhead to retrieve (in other words, in-lined).
    * Fortunately, it has no dependency, so containing this object wouldn't cause an issue.
    */
-  memory::GlobalPageResolver  global_page_resolver_;
+  memory::GlobalVolatilePageResolver  global_volatile_page_resolver_;
 
   ThreadPimpl*    pimpl_;
 };

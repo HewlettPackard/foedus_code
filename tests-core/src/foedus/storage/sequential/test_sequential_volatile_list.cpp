@@ -86,8 +86,8 @@ void verify_result(
   uint16_t thread_count,
   const Engine &engine,
   const SequentialVolatileList &target) {
-  const memory::GlobalPageResolver& resolver
-    = engine.get_memory_manager().get_global_page_resolver();
+  const memory::GlobalVolatilePageResolver& resolver
+    = engine.get_memory_manager().get_global_volatile_page_resolver();
 
   std::map<std::string, xct::XctId> answers;
   for (int task_id = 0; task_id < thread_count; ++task_id) {

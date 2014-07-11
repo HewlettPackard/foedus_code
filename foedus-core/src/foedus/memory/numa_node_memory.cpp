@@ -24,8 +24,12 @@ NumaNodeMemory::NumaNodeMemory(Engine* engine, thread::ThreadGroupId numa_node)
     numa_node_(numa_node),
     cores_(engine_->get_options().thread_.thread_count_per_group_),
     loggers_(engine_->get_options().log_.loggers_per_node_),
-    page_pool_(
+    volatile_pool_(
       static_cast<uint64_t>(engine->get_options().memory_.page_pool_size_mb_per_node_) << 20,
+      kHugepageSize,
+      numa_node),
+    snapshot_pool_(
+      static_cast<uint64_t>(engine->get_options().cache_.snapshot_cache_size_mb_per_node_) << 20,
       kHugepageSize,
       numa_node) {
 }
@@ -34,19 +38,22 @@ ErrorStack NumaNodeMemory::initialize_once() {
   LOG(INFO) << "Initializing NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
     << " BEFORE: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
 
-  CHECK_ERROR(page_pool_.initialize());
+  CHECK_ERROR(volatile_pool_.initialize());
+  CHECK_ERROR(snapshot_pool_.initialize());
   CHECK_ERROR(initialize_read_write_set_memory());
   CHECK_ERROR(initialize_page_offset_chunk_memory());
   CHECK_ERROR(initialize_log_buffers_memory());
   for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
     CHECK_ERROR(initialize_core_memory(ordinal));
   }
-  ASSERT_ND(page_pool_.is_initialized());
+  ASSERT_ND(volatile_pool_.is_initialized());
+  ASSERT_ND(snapshot_pool_.is_initialized());
   ASSERT_ND(core_memories_.size() == cores_);
   ASSERT_ND(read_set_memory_pieces_.size() == cores_);
   ASSERT_ND(write_set_memory_pieces_.size() == cores_);
   ASSERT_ND(lock_free_write_set_memory_pieces_.size() == cores_);
-  ASSERT_ND(page_offset_chunk_memory_pieces_.size() == cores_);
+  ASSERT_ND(volatile_offset_chunk_memory_pieces_.size() == cores_);
+  ASSERT_ND(snapshot_offset_chunk_memory_pieces_.size() == cores_);
   ASSERT_ND(log_buffer_memory_pieces_.size() == cores_);
 
   LOG(INFO) << "Initialized NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
@@ -76,7 +83,7 @@ ErrorStack NumaNodeMemory::initialize_read_write_set_memory() {
   return kRetOk;
 }
 ErrorStack NumaNodeMemory::initialize_page_offset_chunk_memory() {
-  size_t size_per_core = sizeof(PagePoolOffsetChunk);
+  size_t size_per_core = sizeof(PagePoolOffsetChunk) * 2;
   size_t total_size = size_per_core * cores_;
   LOG(INFO) << "Initializing page_offset_chunk_memory_. total_size=" << total_size << " bytes";
   if (total_size < kHugepageSize) {
@@ -84,12 +91,21 @@ ErrorStack NumaNodeMemory::initialize_page_offset_chunk_memory() {
     total_size = kHugepageSize;
     LOG(INFO) << "Allocating extra space to utilize hugepage.";
   }
-  CHECK_ERROR(allocate_numa_memory(total_size, &page_offset_chunk_memory_));
+  CHECK_ERROR(allocate_numa_memory(total_size, &volatile_offset_chunk_memory_));
+  CHECK_ERROR(allocate_numa_memory(total_size, &snapshot_offset_chunk_memory_));
   for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
-    PagePoolOffsetChunk* chunk = reinterpret_cast<PagePoolOffsetChunk*>(
-      page_offset_chunk_memory_.get_block()) + ordinal;
-    chunk->clear();
-    page_offset_chunk_memory_pieces_.push_back(chunk);
+    {
+      PagePoolOffsetChunk* chunk = reinterpret_cast<PagePoolOffsetChunk*>(
+        volatile_offset_chunk_memory_.get_block()) + ordinal;
+      chunk->clear();
+      volatile_offset_chunk_memory_pieces_.push_back(chunk);
+    }
+    {
+      PagePoolOffsetChunk* chunk = reinterpret_cast<PagePoolOffsetChunk*>(
+        snapshot_offset_chunk_memory_.get_block()) + ordinal;
+      chunk->clear();
+      snapshot_offset_chunk_memory_pieces_.push_back(chunk);
+    }
   }
 
   return kRetOk;
@@ -126,8 +142,10 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
 
   ErrorStackBatch batch;
   batch.uninitialize_and_delete_all(&core_memories_);
-  page_offset_chunk_memory_pieces_.clear();
-  page_offset_chunk_memory_.release_block();
+  volatile_offset_chunk_memory_pieces_.clear();
+  volatile_offset_chunk_memory_.release_block();
+  snapshot_offset_chunk_memory_pieces_.clear();
+  snapshot_offset_chunk_memory_.release_block();
   lock_free_write_set_memory_pieces_.clear();
   lock_free_write_set_memory_.release_block();
   write_set_memory_pieces_.clear();
@@ -136,7 +154,8 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
   read_set_memory_.release_block();
   log_buffer_memory_pieces_.clear();
   log_buffer_memory_.release_block();
-  batch.emprace_back(page_pool_.uninitialize());
+  batch.emprace_back(volatile_pool_.uninitialize());
+  batch.emprace_back(snapshot_pool_.uninitialize());
 
   LOG(INFO) << "Uninitialized NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
     << " AFTER: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);

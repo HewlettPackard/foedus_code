@@ -7,8 +7,10 @@
 #include <atomic>
 
 #include "foedus/initializable.hpp"
+#include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
 #include "foedus/memory/fwd.hpp"
+#include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
 #include "foedus/xct/xct.hpp"
@@ -52,6 +54,13 @@ class ThreadPimpl final : public DefaultInitializable {
    */
   bool        try_impersonate(ImpersonateSession *session);
 
+  /**
+   * Read a snapshot page using the thread-local file descriptor set.
+   */
+  ErrorCode   read_a_snapshot_page(
+    storage::SnapshotPagePointer page_id,
+    storage::Page* buffer) ALWAYS_INLINE;
+
   Engine* const           engine_;
 
   /**
@@ -71,6 +80,8 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /** globally and contiguously numbered ID of thread */
   const ThreadGlobalOrdinal global_ordinal_;
+
+
 
   /**
    * Private memory repository of this thread.
@@ -103,7 +114,19 @@ class ThreadPimpl final : public DefaultInitializable {
    * If this thread is not conveying any transaction, current_xct_.is_active() == false.
    */
   xct::Xct                current_xct_;
+
+  /**
+   * Each threads maintains a private set of snapshot file descriptors.
+   */
+  cache::SnapshotFileSet  snapshot_file_set_;
 };
+
+inline ErrorCode ThreadPimpl::read_a_snapshot_page(
+  storage::SnapshotPagePointer page_id,
+  storage::Page* buffer) {
+  return snapshot_file_set_.read_page(page_id, buffer);
+}
+
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_THREAD_PIMPL_HPP_

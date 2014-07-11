@@ -12,6 +12,7 @@
 namespace foedus {
 namespace cache {
 class   CacheManager;
+class   CacheManagerPimpl;
 struct  CacheOptions;
 class   SnapshotFileSet;
 }  // namespace cache

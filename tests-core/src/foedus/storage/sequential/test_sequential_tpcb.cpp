@@ -393,7 +393,7 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
         if (next_pointer.components.offset != 0) {
           EXPECT_NE(histories->get_pimpl()->volatile_list_.get_tail(i), page);
           page = reinterpret_cast<SequentialPage*>(
-            context->get_global_page_resolver().resolve_offset(next_pointer));
+            context->get_global_volatile_page_resolver().resolve_offset(next_pointer));
           EXPECT_NE(nullptr, page);
         } else {
           EXPECT_EQ(histories->get_pimpl()->volatile_list_.get_tail(i), page);

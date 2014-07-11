@@ -38,7 +38,8 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
 
   foedus::thread::ThreadGroupId   get_numa_node() const { return numa_node_; }
 
-  PagePool&                       get_page_pool() { return page_pool_; }
+  PagePool&                       get_volatile_pool() { return volatile_pool_; }
+  PagePool&                       get_snapshot_pool() { return snapshot_pool_; }
 
   // accessors for child memories
   foedus::thread::ThreadLocalOrdinal get_core_memory_count() const {
@@ -74,9 +75,13 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
     thread::ThreadLocalOrdinal core_ordinal) {
     return lock_free_write_set_memory_pieces_[core_ordinal];
   }
-  PagePoolOffsetChunk* get_page_offset_chunk_memory_piece(
+  PagePoolOffsetChunk* get_volatile_offset_chunk_memory_piece(
     foedus::thread::ThreadLocalOrdinal core_ordinal) {
-    return page_offset_chunk_memory_pieces_[core_ordinal];
+    return volatile_offset_chunk_memory_pieces_[core_ordinal];
+  }
+  PagePoolOffsetChunk* get_snapshot_offset_chunk_memory_piece(
+    foedus::thread::ThreadLocalOrdinal core_ordinal) {
+    return snapshot_offset_chunk_memory_pieces_[core_ordinal];
   }
   AlignedMemorySlice get_log_buffer_memory_piece(log::LoggerId logger) {
     return log_buffer_memory_pieces_[logger];
@@ -106,7 +111,9 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   const uint16_t                          loggers_;
 
   /** In-memory volatile page pool in this node. */
-  PagePool                                page_pool_;
+  PagePool                                volatile_pool_;
+  /** In-memory snapshot page pool in this node. */
+  PagePool                                snapshot_pool_;
 
   /**
    * List of NumaCoreMemory, one for each core in this node.
@@ -137,8 +144,14 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   /**
    * Memory to hold a \b local pool of pointers to free volatile pages. Same above.
    */
-  AlignedMemory                           page_offset_chunk_memory_;
-  std::vector<PagePoolOffsetChunk*>       page_offset_chunk_memory_pieces_;
+  AlignedMemory                           volatile_offset_chunk_memory_;
+  std::vector<PagePoolOffsetChunk*>       volatile_offset_chunk_memory_pieces_;
+
+  /**
+   * Memory to hold a \b local pool of pointers to free snapshot pages. Same above.
+   */
+  AlignedMemory                           snapshot_offset_chunk_memory_;
+  std::vector<PagePoolOffsetChunk*>       snapshot_offset_chunk_memory_pieces_;
 
   /**
    * Memory to hold a thread's log buffer. Split by each core in this node.

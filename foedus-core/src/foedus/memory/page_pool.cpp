@@ -94,7 +94,7 @@ void PageReleaseBatch::release_chunk(thread::ThreadGroupId numa_node) {
     return;
   }
 
-  engine_->get_memory_manager().get_node_memory(numa_node)->get_page_pool().release(
+  engine_->get_memory_manager().get_node_memory(numa_node)->get_volatile_pool().release(
     chunks_[numa_node]->size(), chunks_[numa_node]);
   ASSERT_ND(chunks_[numa_node]->empty());
 }
@@ -121,7 +121,7 @@ storage::VolatilePagePointer RoundRobinPageGrabBatch::grab() {
         current_node_ = 0;
       }
       ErrorCode code = engine_->get_memory_manager().get_node_memory(current_node_)->
-        get_page_pool().grab(chunk_.capacity(), &chunk_);
+        get_volatile_pool().grab(chunk_.capacity(), &chunk_);
       if (code == kErrorCodeOk) {
         break;
       }
@@ -155,7 +155,7 @@ void RoundRobinPageGrabBatch::release_all() {
     return;
   }
 
-  engine_->get_memory_manager().get_node_memory(current_node_)->get_page_pool().release(
+  engine_->get_memory_manager().get_node_memory(current_node_)->get_volatile_pool().release(
     chunk_.size(), &chunk_);
   ASSERT_ND(chunk_.empty());
 }

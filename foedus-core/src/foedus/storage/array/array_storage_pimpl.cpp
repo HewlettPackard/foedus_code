@@ -149,8 +149,8 @@ void ArrayStoragePimpl::release_pages_recursive(
   memory::PageReleaseBatch* batch, ArrayPage* page, VolatilePagePointer volatile_page_id) {
   ASSERT_ND(volatile_page_id.components.offset != 0);
   if (!page->is_leaf()) {
-    const memory::GlobalPageResolver& page_resolver
-      = engine_->get_memory_manager().get_global_page_resolver();
+    const memory::GlobalVolatilePageResolver& page_resolver
+      = engine_->get_memory_manager().get_global_volatile_page_resolver();
     for (uint16_t i = 0; i < kInteriorFanout; ++i) {
       DualPagePointer &child_pointer = page->get_interior_record(i);
       VolatilePagePointer child_page_id = child_pointer.volatile_pointer_;
@@ -217,7 +217,8 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
   std::vector<VolatilePagePointer> current_pages_ids;
   std::vector<uint16_t> current_records;
   // we grab free page in round-robbin fashion.
-  const memory::GlobalPageResolver& page_resolver = context->get_global_page_resolver();
+  const memory::GlobalVolatilePageResolver& page_resolver
+    = context->get_global_volatile_page_resolver();
   memory::RoundRobinPageGrabBatch grab_batch(engine_);
   for (uint8_t level = 0; level < levels_; ++level) {
     VolatilePagePointer page_pointer = grab_batch.grab();
@@ -419,7 +420,8 @@ inline ErrorCode ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset 
   ArrayPage* current_page = root_page_;
   ASSERT_ND(current_page->get_array_range().contains(offset));
   LookupRoute route = route_finder_.find_route(offset);
-  const memory::GlobalPageResolver& page_resolver = context->get_global_page_resolver();
+  const memory::GlobalVolatilePageResolver& page_resolver
+    = context->get_global_volatile_page_resolver();
   for (uint8_t level = levels_ - 1; level > 0; --level) {
     ASSERT_ND(current_page->get_array_range().contains(offset));
     DualPagePointer& pointer = current_page->get_interior_record(route.route[level]);
