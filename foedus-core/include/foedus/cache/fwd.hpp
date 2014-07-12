@@ -11,6 +11,7 @@
  */
 namespace foedus {
 namespace cache {
+class   CacheHashtable;
 class   CacheManager;
 class   CacheManagerPimpl;
 struct  CacheOptions;

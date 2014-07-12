@@ -7,6 +7,7 @@
 #include <atomic>
 
 #include "foedus/initializable.hpp"
+#include "foedus/cache/cache_hashtable.hpp"
 #include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
 #include "foedus/memory/fwd.hpp"
@@ -55,7 +56,18 @@ class ThreadPimpl final : public DefaultInitializable {
   bool        try_impersonate(ImpersonateSession *session);
 
   /**
+   * Find the given page in snapshot cache, reading it if not found.
+   * This method is very frequently used, so it must be very fast, thus inlined here.
+   */
+  ErrorCode   find_or_read_a_snapshot_page(
+    storage::SnapshotPagePointer page_id,
+    storage::Page** out) ALWAYS_INLINE;
+
+  /**
    * Read a snapshot page using the thread-local file descriptor set.
+   * @attention this method always READs, so no caching done. Actually, this method is used
+   * from caching module when cache miss happens. To utilize cache,
+   * use find_or_read_a_snapshot_page().
    */
   ErrorCode   read_a_snapshot_page(
     storage::SnapshotPagePointer page_id,
@@ -89,6 +101,10 @@ class ThreadPimpl final : public DefaultInitializable {
    * EngineMemory owns it in terms of that.
    */
   memory::NumaCoreMemory* core_memory_;
+  /** same above */
+  memory::NumaNodeMemory* node_memory_;
+  /** same above */
+  cache::CacheHashtable*  snapshot_cache_hashtable_;
 
   /**
    * Thread-private log buffer.
@@ -125,6 +141,12 @@ inline ErrorCode ThreadPimpl::read_a_snapshot_page(
   storage::SnapshotPagePointer page_id,
   storage::Page* buffer) {
   return snapshot_file_set_.read_page(page_id, buffer);
+}
+
+inline ErrorCode ThreadPimpl::find_or_read_a_snapshot_page(
+  storage::SnapshotPagePointer page_id,
+  storage::Page** out) {
+  return snapshot_cache_hashtable_->read_page(page_id, holder_, out);
 }
 
 }  // namespace thread

@@ -8,12 +8,15 @@
 #include <stdint.h>
 #include <xmmintrin.h>
 
+#include <iosfwd>
+
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/error_code.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/assorted/const_div.hpp"
+#include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/cache/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/memory_id.hpp"
@@ -49,21 +52,34 @@ class CacheHashtable CXX11_FINAL {
   enum Costants {
     kHopNeighbors = 32,
   };
+  union BucketStatus {
+    uint64_t                  word;
+    struct Components {
+      /**
+      * The hop bitmap in Hopscotch hashing algorithm.
+      * n-th bit means whether n-th bucket from this bucket contains an entry whose hash belongs to
+      * this bucket.
+      */
+      uint32_t                hop_bitmap;
+
+      /** Offset in cache buffer of the entry. 0 if empty bucket. */
+      memory::PagePoolOffset  offset;
+    } components;
+  };
 
   /** A bucket in the Hopscotch hashtable. */
   struct Bucket {
     /** The full key of the entry. 0 if empty bucket. */
     storage::SnapshotPagePointer  page_id_;     // +8 -> 8
+    BucketStatus                  status_;      // +8 -> 16
 
-    /**
-     * The hop bitmap in Hopscotch hashing algorithm.
-     * n-th bit means whether n-th bucket from this bucket contains an entry whose hash belongs to
-     * this bucket.
-     */
-    uint32_t                      hop_bitmap_;  // +4 -> 12
-
-    /** Offset in cache buffer of the entry. 0 if empty bucket. */
-    memory::PagePoolOffset        offset_;      // +4 -> 16
+    bool is_hop_bit_on(uint16_t hop) const {
+      return (status_.components.hop_bitmap & (1U << hop)) != 0;
+    }
+    bool atomic_status_cas(BucketStatus expected, BucketStatus desired);
+    void atomic_unset_hop_bit(uint16_t hop);
+    void atomic_set_hop_bit(uint16_t hop);
+    void atomic_empty();
   };
 
   CacheHashtable(const memory::AlignedMemory& table_memory, storage::Page* cache_base);
@@ -73,9 +89,13 @@ class CacheHashtable CXX11_FINAL {
     thread::Thread* context,
     storage::Page** out) ALWAYS_INLINE;
 
+  friend std::ostream& operator<<(std::ostream& o, const CacheHashtable& v);
+
  private:
   /** Number of buckets in this table. */
   const uint32_t            table_size_;
+  /** table_size_ is at least kHopNeighbors smaller than this. */
+  const uint32_t            physical_table_size_;
   /** to efficiently divide a number by bucket_div_. */
   const assorted::ConstDiv  bucket_div_;
   Bucket* const             buckets_;
@@ -99,9 +119,13 @@ class CacheHashtable CXX11_FINAL {
    */
   uint32_t conservatively_locate(storage::SnapshotPagePointer page_id) const ALWAYS_INLINE;
 
+  uint32_t find_next_empty_bucket(uint32_t from_bucket) const;
+
   /**
-   * Called when a cached page is not found.
+   * @brief Called when a cached page is not found.
+   * @details
    * Reads the page from snapshot file and put it as a newly cached page.
+   * This method is the core of our implementation of hopscotch algorithm.
    * We are anyway doing at least 4kb memory copy in this case, so no need for serious optimization.
    */
   ErrorCode miss(
@@ -111,7 +135,8 @@ class CacheHashtable CXX11_FINAL {
 };
 
 inline uint32_t CacheHashtable::get_bucket_number(storage::SnapshotPagePointer page_id) const {
-  uint64_t quotient = bucket_div_.div64(page_id);
+  uint64_t reversed = __builtin_bswap64(page_id);  // TODO(Hideaki) non-GCC
+  uint64_t quotient = bucket_div_.div64(reversed);
   return bucket_div_.rem64(page_id, table_size_, quotient);
 }
 
@@ -121,7 +146,7 @@ inline memory::PagePoolOffset CacheHashtable::conservatively_locate(
   uint32_t bucket_number = get_bucket_number(page_id);
   ASSERT_ND(bucket_number < table_size_);
   const Bucket& bucket = buckets_[bucket_number];
-  uint32_t hop_bitmap = bucket.hop_bitmap_;
+  uint32_t hop_bitmap = bucket.status_.components.hop_bitmap;
   if (hop_bitmap == 0) {
     return 0;
   }
@@ -130,7 +155,7 @@ inline memory::PagePoolOffset CacheHashtable::conservatively_locate(
     // if the page ID exactly matches, we can assume the offset is valid for a while.
     // but, we have to make sure the cleaner thread is not removing this now.
     // for that, we have to take a fence and then re-check page ID.
-    memory::PagePoolOffset offset = bucket.offset_;
+    memory::PagePoolOffset offset = bucket.status_.components.offset;
     // not acquire. as far as we re-check page ID BEFORE offset, it's safe.
     assorted::memory_fence_consume();
     if (bucket.page_id_ == page_id) {
@@ -147,10 +172,10 @@ inline memory::PagePoolOffset CacheHashtable::conservatively_locate(
   // now, check each bucket up to kHopNeighbors. Again, this is a probabilistic search.
   // something might happen concurrently, but we don't care.
   for (uint8_t i = 1; i < kHopNeighbors; ++i) {
-    if (bucket.hop_bitmap_ & (1 << i)) {
+    if (bucket.status_.components.hop_bitmap & (1 << i)) {
       const Bucket& another_bucket = buckets_[bucket_number + i];
       if (another_bucket.page_id_ == page_id) {
-        memory::PagePoolOffset offset = another_bucket.offset_;
+        memory::PagePoolOffset offset = another_bucket.status_.components.offset;
         assorted::memory_fence_consume();
         if (another_bucket.page_id_ == page_id) {
           return offset;

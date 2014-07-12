@@ -32,7 +32,7 @@ NumaCoreMemory::NumaCoreMemory(
     free_volatile_pool_chunk_(nullptr),
     free_snapshot_pool_chunk_(nullptr),
     volatile_pool_(nullptr),
-    snapshot_pool_(nullptr){
+    snapshot_pool_(nullptr) {
   ASSERT_ND(thread::decompose_numa_node(core_id_) == node_memory->get_numa_node());
   ASSERT_ND(core_id_ == thread::compose_thread_id(node_memory->get_numa_node(),
                           core_local_ordinal_));

@@ -176,6 +176,7 @@ ErrorStack LogMapper::handle_process_buffer(
     // In most cases, we should be just calling bucket_log().
     const log::LogHeader* header
       = reinterpret_cast<const log::LogHeader*>(buffer + pos);
+    ASSERT_ND(header->log_length_ > 0);
     ASSERT_ND(*cur_offset != 0 || pos != 0
       || header->get_type() == log::kLogCodeEpochMarker);  // file starts with marker
     // we must be starting from epoch marker.

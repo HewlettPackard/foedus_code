@@ -63,7 +63,17 @@ class Thread CXX11_FINAL : public virtual Initializable {
     return global_volatile_page_resolver_;
   }
   /**
+   * Find the given page in snapshot cache, reading it if not found.
+   */
+  ErrorCode     find_or_read_a_snapshot_page(
+    storage::SnapshotPagePointer page_id,
+    storage::Page** out);
+
+  /**
    * Read a snapshot page using the thread-local file descriptor set.
+   * @attention this method always READs, so no caching done. Actually, this method is used
+   * from caching module when cache miss happens. To utilize cache,
+   * use find_or_read_a_snapshot_page().
    */
   ErrorCode     read_a_snapshot_page(storage::SnapshotPagePointer page_id, storage::Page* buffer);
 

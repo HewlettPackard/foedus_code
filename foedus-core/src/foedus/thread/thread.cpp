@@ -53,6 +53,11 @@ ErrorCode Thread::read_a_snapshot_page(
   storage::Page* buffer) {
   return pimpl_->read_a_snapshot_page(page_id, buffer);
 }
+ErrorCode Thread::find_or_read_a_snapshot_page(
+  storage::SnapshotPagePointer page_id,
+  storage::Page** out) {
+  return pimpl_->find_or_read_a_snapshot_page(page_id, out);
+}
 
 std::ostream& operator<<(std::ostream& o, const Thread& v) {
   o << "Thread-" << v.get_thread_global_ordinal() << "(id=" << v.get_thread_id() << ") [";

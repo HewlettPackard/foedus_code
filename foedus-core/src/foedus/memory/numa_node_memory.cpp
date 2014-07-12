@@ -12,6 +12,7 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/cache/cache_hashtable.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
 #include "foedus/thread/thread_options.hpp"
@@ -31,7 +32,8 @@ NumaNodeMemory::NumaNodeMemory(Engine* engine, thread::ThreadGroupId numa_node)
     snapshot_pool_(
       static_cast<uint64_t>(engine->get_options().cache_.snapshot_cache_size_mb_per_node_) << 20,
       kHugepageSize,
-      numa_node) {
+      numa_node),
+    snapshot_cache_table_(nullptr) {
 }
 
 ErrorStack NumaNodeMemory::initialize_once() {
@@ -40,6 +42,12 @@ ErrorStack NumaNodeMemory::initialize_once() {
 
   CHECK_ERROR(volatile_pool_.initialize());
   CHECK_ERROR(snapshot_pool_.initialize());
+  uint64_t cache_hashtable_entries = snapshot_pool_.get_memory_byte_size() * 3 / storage::kPageSize;
+  CHECK_ERROR(allocate_huge_numa_memory(
+    cache_hashtable_entries * sizeof(cache::CacheHashtable::Bucket), &snapshot_hashtable_memory_));
+  snapshot_cache_table_ = new cache::CacheHashtable(
+    snapshot_hashtable_memory_,
+    snapshot_pool_.get_resolver().base_);
   CHECK_ERROR(initialize_read_write_set_memory());
   CHECK_ERROR(initialize_page_offset_chunk_memory());
   CHECK_ERROR(initialize_log_buffers_memory());
@@ -68,9 +76,11 @@ ErrorStack NumaNodeMemory::initialize_read_write_set_memory() {
   size_t writeset_size = sizeof(xct::WriteXctAccess) * writesets;
   size_t lockfree_writeset_size = sizeof(xct::LockFreeWriteXctAccess) * lockfree_writesets;
 
-  CHECK_ERROR(allocate_numa_memory(cores_ * readset_size, &read_set_memory_));
-  CHECK_ERROR(allocate_numa_memory(cores_ * writeset_size, &write_set_memory_));
-  CHECK_ERROR(allocate_numa_memory(cores_ * lockfree_writeset_size, &lock_free_write_set_memory_));
+  CHECK_ERROR(allocate_huge_numa_memory(cores_ * readset_size, &read_set_memory_));
+  CHECK_ERROR(allocate_huge_numa_memory(cores_ * writeset_size, &write_set_memory_));
+  CHECK_ERROR(allocate_huge_numa_memory(
+    cores_ * lockfree_writeset_size,
+    &lock_free_write_set_memory_));
   for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
     read_set_memory_pieces_.push_back(reinterpret_cast<xct::XctAccess*>(
       read_set_memory_.get_block()) + (readsets * ordinal));
@@ -91,8 +101,8 @@ ErrorStack NumaNodeMemory::initialize_page_offset_chunk_memory() {
     total_size = kHugepageSize;
     LOG(INFO) << "Allocating extra space to utilize hugepage.";
   }
-  CHECK_ERROR(allocate_numa_memory(total_size, &volatile_offset_chunk_memory_));
-  CHECK_ERROR(allocate_numa_memory(total_size, &snapshot_offset_chunk_memory_));
+  CHECK_ERROR(allocate_huge_numa_memory(total_size, &volatile_offset_chunk_memory_));
+  CHECK_ERROR(allocate_huge_numa_memory(total_size, &snapshot_offset_chunk_memory_));
   for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
     {
       PagePoolOffsetChunk* chunk = reinterpret_cast<PagePoolOffsetChunk*>(
@@ -112,10 +122,10 @@ ErrorStack NumaNodeMemory::initialize_page_offset_chunk_memory() {
 }
 
 ErrorStack NumaNodeMemory::initialize_log_buffers_memory() {
-  uint64_t size_per_core_ = engine_->get_options().log_.log_buffer_kb_ << 10;
+  uint64_t size_per_core_ = static_cast<uint64_t>(engine_->get_options().log_.log_buffer_kb_) << 10;
   uint64_t private_total = (cores_ * size_per_core_);
   LOG(INFO) << "Initializing log_buffer_memory_. total_size=" << private_total;
-  CHECK_ERROR(allocate_numa_memory(private_total, &log_buffer_memory_));
+  CHECK_ERROR(allocate_huge_numa_memory(private_total, &log_buffer_memory_));
   LOG(INFO) << "log_buffer_memory_ allocated. addr=" << log_buffer_memory_.get_block();
   for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
     AlignedMemorySlice piece(&log_buffer_memory_, size_per_core_ * ordinal, size_per_core_);
@@ -154,6 +164,11 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
   read_set_memory_.release_block();
   log_buffer_memory_pieces_.clear();
   log_buffer_memory_.release_block();
+  if (snapshot_cache_table_) {
+    delete snapshot_cache_table_;
+    snapshot_cache_table_ = nullptr;
+  }
+  snapshot_hashtable_memory_.release_block();
   batch.emprace_back(volatile_pool_.uninitialize());
   batch.emprace_back(snapshot_pool_.uninitialize());
 
@@ -162,9 +177,12 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 
-ErrorStack NumaNodeMemory::allocate_numa_memory(size_t size, AlignedMemory *out) {
+ErrorStack NumaNodeMemory::allocate_numa_memory_general(
+  uint64_t size,
+  uint64_t alignment,
+  AlignedMemory *out) const {
   ASSERT_ND(out);
-  out->alloc(size, 1 << 12, AlignedMemory::kNumaAllocOnnode, numa_node_);
+  out->alloc(size, alignment, AlignedMemory::kNumaAllocOnnode, numa_node_);
   if (out->is_null()) {
     return ERROR_STACK(kErrorCodeOutofmemory);
   }

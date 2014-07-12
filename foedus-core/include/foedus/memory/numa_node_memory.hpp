@@ -10,6 +10,7 @@
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/cache/fwd.hpp"
 #include "foedus/log/log_id.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/fwd.hpp"
@@ -40,6 +41,7 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
 
   PagePool&                       get_volatile_pool() { return volatile_pool_; }
   PagePool&                       get_snapshot_pool() { return snapshot_pool_; }
+  cache::CacheHashtable*          get_snapshot_cache_table() { return snapshot_cache_table_; }
 
   // accessors for child memories
   foedus::thread::ThreadLocalOrdinal get_core_memory_count() const {
@@ -57,10 +59,20 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   /**
    * Allocate a memory of the given size on this NUMA node.
    * @param[in] size byte size of the memory to acquire
+   * @param[in] alignment alignment size
    * @param[out] out allocated memory is moved to object
    * @return Expect OUTOFMEMORY error.
    */
-  ErrorStack      allocate_numa_memory(size_t size, AlignedMemory *out);
+  ErrorStack      allocate_numa_memory_general(
+    uint64_t size,
+    uint64_t alignment,
+    AlignedMemory *out) const;
+  ErrorStack      allocate_numa_memory(uint64_t size, AlignedMemory *out) const {
+    return allocate_numa_memory_general(size, 1 << 12, out);
+  }
+  ErrorStack      allocate_huge_numa_memory(uint64_t size, AlignedMemory *out) const {
+    return allocate_numa_memory_general(size, kHugepageSize, out);
+  }
 
   AlignedMemory& get_read_set_memory() { return read_set_memory_; }
   xct::XctAccess* get_read_set_memory_piece(thread::ThreadLocalOrdinal core_ordinal) {
@@ -114,6 +126,10 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   PagePool                                volatile_pool_;
   /** In-memory snapshot page pool in this node. */
   PagePool                                snapshot_pool_;
+  /** Memory for hash buckets for snapshot_cache_table_. */
+  AlignedMemory                           snapshot_hashtable_memory_;
+  /** Hashtable for in-memory snapshot page pool in this node. */
+  cache::CacheHashtable*                  snapshot_cache_table_;
 
   /**
    * List of NumaCoreMemory, one for each core in this node.

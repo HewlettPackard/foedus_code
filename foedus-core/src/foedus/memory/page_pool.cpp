@@ -58,6 +58,8 @@ void PagePool::release_one(PagePoolOffset offset) { pimpl_->release_one(offset);
 
 LocalPageResolver& PagePool::get_resolver() { return pimpl_->get_resolver(); }
 
+const AlignedMemory& PagePool::get_memory() const { return pimpl_->memory_; }
+
 std::ostream& operator<<(std::ostream& o, const PagePool& v) {
   o << v.pimpl_;
   return o;

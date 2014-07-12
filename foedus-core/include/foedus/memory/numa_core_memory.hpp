@@ -67,8 +67,8 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
   /** Same, except it's for snapshot page */
   void            release_free_snapshot_page(PagePoolOffset offset);
 
-  memory::PagePool* get_volatile_pool() { return volatile_pool_;}
-  memory::PagePool* get_snapshot_pool() { return snapshot_pool_;}
+  memory::PagePool* get_volatile_pool() { return volatile_pool_; }
+  memory::PagePool* get_snapshot_pool() { return snapshot_pool_; }
 
  private:
   /** Called when there no local free pages. */

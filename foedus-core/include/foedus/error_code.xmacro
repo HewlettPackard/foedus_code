@@ -42,7 +42,7 @@ X(kErrorCodeFsMkdirFailed,      0x020D, "FILESYS: Failed to create a directory")
 X(kErrorCodeFsTruncateFailed,   0x020E, "FILESYS: File truncation failed")
 X(kErrorCodeFsResultNotAligned, 0x020F, "FILESYS: Direct I/O operation resulted in non-aligned count of bytes. Filesyste bug?")
 
-X(kErrorCodeMemoryNoFreePages,  0x0301, "MEMORY : Not enough free pages. Check the config of MemoryOptions")
+X(kErrorCodeMemoryNoFreePages,  0x0301, "MEMORY : Not enough free volatile pages. Check the config of MemoryOptions")
 X(kErrorCodeMemoryDuplicatePage,    0x0302, "MEMORY : Duplicate entry in free-page pool.")
 X(kErrorCodeMemoryPagePoolTooSmall, 0x0303, "MEMORY : Page Pool size is too small.")
 X(kErrorCodeMemoryNumaUnavailable,  0x0304, "MEMORY : NUMA library is not available.")
@@ -74,6 +74,9 @@ X(kErrorCodeStrArrayInvalidOption,  0x0805, "STORAGE: Invalid Option for array s
 X(kErrorCodeStrWrongMetadataType,   0x0806, "STORAGE: Metadata type does not match")
 X(kErrorCodeStrUnsupportedMetadata, 0x0807, "STORAGE: This metadata type is not yet supported")
 X(kErrorCodeStrTooLongPayload,      0x0808, "STORAGE: Payload of the record is too long")
+
+X(kErrorCodeCacheNoFreePages,       0x0901, "SPCACHE: Not enough free snapshot pages. Cleaner is not catching up")
+X(kErrorCodeCacheTableFull,         0x0902, "SPCACHE: Hashtable full or too many skewed inserts")
 
 X(kErrorCodeXctReadSetOverflow,     0x0A01, "XCTION : Too large read-set. Check the config of XctOptions")
 X(kErrorCodeXctWriteSetOverflow,    0x0A02, "XCTION : Too large write-set. Check the config of XctOptions")

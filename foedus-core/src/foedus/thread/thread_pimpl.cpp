@@ -17,6 +17,8 @@
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
 #include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/thread/impersonate_task_pimpl.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/thread/thread_pool.hpp"
@@ -37,6 +39,8 @@ ThreadPimpl::ThreadPimpl(
     id_(id),
     global_ordinal_(global_ordinal),
     core_memory_(nullptr),
+    node_memory_(nullptr),
+    snapshot_cache_hashtable_(nullptr),
     log_buffer_(engine, id),
     current_task_(nullptr),
     current_xct_(engine, id),
@@ -46,6 +50,8 @@ ThreadPimpl::ThreadPimpl(
 ErrorStack ThreadPimpl::initialize_once() {
   ASSERT_ND(engine_->get_memory_manager().is_initialized());
   core_memory_ = engine_->get_memory_manager().get_core_memory(id_);
+  node_memory_ = core_memory_->get_node_memory();
+  snapshot_cache_hashtable_ = node_memory_->get_snapshot_cache_table();
   current_task_ = nullptr;
   current_xct_.initialize(id_, core_memory_);
   CHECK_ERROR(snapshot_file_set_.initialize());
@@ -61,6 +67,8 @@ ErrorStack ThreadPimpl::uninitialize_once() {
   batch.emprace_back(snapshot_file_set_.uninitialize());
   batch.emprace_back(log_buffer_.uninitialize());
   core_memory_ = nullptr;
+  node_memory_ = nullptr;
+  snapshot_cache_hashtable_ = nullptr;
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 

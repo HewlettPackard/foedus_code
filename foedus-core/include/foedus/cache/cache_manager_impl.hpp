@@ -35,6 +35,7 @@ class CacheManagerPimpl final : public DefaultInitializable {
 
   std::vector<std::thread>        cleaners_;
   std::vector<memory::PagePool*>  pools_;
+  std::vector<CacheHashtable*>    hashtables_;
 };
 }  // namespace cache
 }  // namespace foedus
