@@ -63,6 +63,7 @@ struct Page CXX11_FINAL {
   char        data_[kPageSize - sizeof(PageHeader)];
 
   // No instantiation.
+  
   Page() CXX11_FUNC_DELETE;
   Page(const Page& other) CXX11_FUNC_DELETE;
   Page& operator=(const Page& other) CXX11_FUNC_DELETE;

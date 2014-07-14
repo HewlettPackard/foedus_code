@@ -89,8 +89,8 @@ inline ErrorCode HashStoragePimpl::get_record(thread::Thread* context,
                                               const void *key, uint16_t key_length,
           void *payload, bool *exists, uint16_t payload_offset, uint16_t payload_count) {
   exists = false;
-  uint_64 bin = compute_hash(key, key_length);
-  uint_8 tag = compute_tag(key, key_length); 
+  uint64_t bin = compute_hash(key, key_length);
+  uint8_t tag = compute_tag(key, key_length); 
   for(uint_8 x=0; x<4; x++){
     uint_8 tag2 = get_tag(context, bin, x);
     if(tag == tag2) {

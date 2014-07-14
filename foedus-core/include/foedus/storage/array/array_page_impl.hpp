@@ -51,7 +51,7 @@ class ArrayPage final {
     return kDataSize / (kRecordOverhead + payload_size_);
   }
   uint16_t            get_payload_size()  const   { return payload_size_; }
-  bool                is_leaf()           const   { return level_ == 0; }
+  bool                is_leaf()           const   ;{ return level_ == 0; }
   uint8_t             get_level()         const   { return level_; }
   const ArrayRange&   get_array_range()   const   { return array_range_; }
   Checksum            get_checksum()      const   { return checksum_; }

@@ -20,7 +20,7 @@
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
-namespace storage {
+namespace storage {   
 namespace sequential {
 
 /**
@@ -79,13 +79,27 @@ class SequentialPage final {
     return length;
   }
   /** Sets byte length of payload of the specified record in this page. */
-  void                set_payload_length(uint16_t record, uint16_t length) {
+  void                
+  
+  load_length(uint16_t record, uint16_t length) {
     assert_consistent();
     PayloadLength* lengthes = reinterpret_cast<PayloadLength*>(data_ + kDataSize);
     *(lengthes - 1 - record) = length;
   }
   /** Returns byte length of the specified record in this page. */
-  uint16_t            get_record_length(uint16_t record)  const {
+  uint16_t            get_record_length(uint16_t // simple accessors
+  PageHeader&         header() { return header_; }
+  const PageHeader&   header() const { return header_; }
+  StorageId           get_storage_id()    const   { return header_.storage_id_; }
+  uint16_t            get_leaf_record_count()  const {
+    return kDataSize / (kRecordOverhead + payload_size_);
+  }
+  uint16_t            get_payload_size()  const   { return payload_size_; }
+  bool                is_leaf()           const   { return level_ == 0; }
+  uint8_t             get_level()         const   { return level_; }
+  const HashRange&   get_hash_range()   const   { return hash_range_; }
+  Checksum            get_checksum()      const   { return checksum_; }
+  void                set_checksum(Checksum checksum)     { checksum_ = checksum; }record)  const {
     return get_payload_length(record) + foedus::storage::kRecordOverhead;
   }
 
@@ -184,7 +198,19 @@ class SequentialPage final {
    * @return Whether the caller is the thread that set the flag. If this returns true,
    * the caller is responsible for installing next page. Others will spinlock for it.
    */
-  bool                try_close_page();
+  // simple accessors
+  PageHeader&         header() { return header_; }
+  const PageHeader&   header() const { return header_; }
+  StorageId           get_storage_id()    const   { return header_.storage_id_; }
+  uint16_t            get_leaf_record_count()  const {
+    return kDataSize / (kRecordOverhead + payload_size_);
+  }
+  uint16_t            get_payload_size()  const   { return payload_size_; }
+  bool                is_leaf()           const   { return level_ == 0; }
+  uint8_t             get_level()         const   { return level_; }
+  const HashRange&   get_hash_range()   const   { return hash_range_; }
+  Checksum            get_checksum()      const   { return checksum_; }
+  void                set_checksum(Checksum checksum)     { checksum_ = checksum; }bool                try_close_page();
 
   uint64_t            peek_status() const ALWAYS_INLINE { return status_; }
 
