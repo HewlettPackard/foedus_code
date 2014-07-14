@@ -48,8 +48,12 @@ class QueryTask : public thread::ImpersonateTask {
     xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
     CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
     char key[100];
-    CHECK_ERROR(hash->get_record(context, key, 100, buf, 0, 16));
-
+    ErrorCode result= hash->get_record(context, key, 100, buf, 0, 16);
+    if (result == kErrorCodeStrKeyNotFound) {
+      std::cout<<"Key not found!"<<std::endl;
+    } else if (result != kErrorCodeOk) {
+      return ERROR_STACK(result);
+    }
     Epoch commit_epoch;
     CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
     CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
@@ -76,21 +80,28 @@ TEST(HashBasicTest, CreateAndQuery) {
   cleanup_test(options);
 }
 
-TEST(HashBasicTest, CreateAndDrop) {
-  EngineOptions options = get_tiny_options();
-  Engine engine(options);
-  COERCE_ERROR(engine.initialize());
-  {
-    UninitializeGuard guard(&engine);
-    HashStorage* out;
-    Epoch commit_epoch;
-    HashMetadata meta("dd");
-    COERCE_ERROR(engine.get_storage_manager().create_hash(&meta, &out, &commit_epoch));
-    EXPECT_TRUE(out != nullptr);
-    COERCE_ERROR(engine.get_storage_manager().drop_storage(out->get_id(), &commit_epoch));
-    COERCE_ERROR(engine.uninitialize());
-  }
-  cleanup_test(options);
+// TEST(HashBasicTest, CreateAndDrop) {
+//   EngineOptions options = get_tiny_options();
+//   Engine engine(options);
+//   COERCE_ERROR(engine.initialize());
+//   {
+//     UninitializeGuard guard(&engine);
+//     HashStorage* out;
+//     Epoch commit_epoch;
+//     HashMetadata meta("dd");
+//     COERCE_ERROR(engine.get_storage_manager().create_hash(&meta, &out, &commit_epoch));
+//     EXPECT_TRUE(out != nullptr);
+//     COERCE_ERROR(engine.get_storage_manager().drop_storage(out->get_id(), &commit_epoch));
+//     COERCE_ERROR(engine.uninitialize());
+//   }
+//   cleanup_test(options);
+// }
+
+TEST(HashBasicTest, Test1) { // (name of package, test case's name) //gtest
+  int a=2*3;
+  int *array = new int[3];
+  array[1000]=6;
+  EXPECT_EQ(7, a);
 }
 
 }  // namespace hash

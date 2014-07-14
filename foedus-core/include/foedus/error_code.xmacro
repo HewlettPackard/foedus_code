@@ -78,6 +78,7 @@ X(kErrorCodeStrTooSmallPayloadBuffer, 0x0809, "STORAGE: The record's payload is 
 X(kErrorCodeStrTooShortPayload,     0x080A, "STORAGE: The record's payload is smaller than requested")
 X(kErrorCodeStrKeyAlreadyExists,    0x080B, "STORAGE: This key already exists in this storage")
 X(kErrorCodeStrKeyNotFound,         0x080C, "STORAGE: This key is not found in this storage")
+X(kErrorCodeStrCuckooTooDeep,       0x080D, "STORAGE: HASH: The cuckoo depth is too deep")
 
 X(kErrorCodeCacheNoFreePages,       0x0901, "SPCACHE: Not enough free snapshot pages. Cleaner is not catching up")
 X(kErrorCodeCacheTableFull,         0x0902, "SPCACHE: Hashtable full or too many skewed inserts")

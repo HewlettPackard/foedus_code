@@ -66,6 +66,13 @@ class HashStoragePimpl final : public DefaultInitializable {
 
   bool                    exist_;
 
+  ErrorCode write_new_record(thread::Thread* context, uint16_t bin,
+                                                    uint8_t position_in_bin, const void* key,
+                                                    uint8_t tag, const void* payload, uint16_t payload_count);
+
+  ErrorCode insert_record(thread::Thread* context, const void* key,
+                          uint16_t key_length, const void* payload, uint16_t payload_count);
+
 };
 }  // namespace hash
 }  // namespace storage

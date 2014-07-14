@@ -31,6 +31,15 @@ void HashPage::initialize_data_page(
     }
   }
 }
+
+void HashRootPage::initialize_data_page(StorageId storage_id, uint64_t page_id) {
+  header_.storage_id_ = storage_id;
+  header_.page_id_    = page_id;
+  header_.checksum_   = 0;
+  count_              = 0;
+}
+
+
 }  // namespace hash
 }  // namespace storage
 }  // na

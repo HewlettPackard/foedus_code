@@ -15,17 +15,43 @@
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
-  
+
 namespace storage {
 namespace hash {
-  
+
+class HashRootPage final {
+ public:
+  uint16_t get_count() const {
+    return count_;
+  }
+
+  DualPagePointer& get_pointer(uint16_t index) {
+    return pointers_[index];
+  }
+
+  const DualPagePointer& get_pointer(uint16_t index) const {
+    return pointers_[index];
+  }
+
+  /** Called only when this page is initialized. */
+  void                initialize_data_page(
+    StorageId storage_id,
+    uint64_t page_id);
+
+ private:
+  /** common header */
+  PageHeader          header_;        // +16 -> 16
+  uint16_t            count_;         // +2  -> 18
+  char                dummy_[14];     // +14 -> 32
+  DualPagePointer pointers_[kHashRootPageFanout];
+};
+
 struct Bin {
 public:
 private:
-  uint64_t counter;
-  uint8_t tags[32];            
-  D
-  ualPagePointer leaf_pages;  
+  uint64_t counter_;           // +8  -> 8
+  uint8_t tags_[40];           // +40 -> 48
+  DualPagePointer leaf_pages_; // +16 -> 64
 };
 
 struct BinPage {
@@ -33,20 +59,20 @@ public:
 
 private:
   PageHeader header_; // +16 -> 16
-  filler[48];    // +48 -> 64 
+  char filler[48];    // +48 -> 64
   Bin bin_list[63];   // + a lot = a lot
 };
 
 struct DataPage {
-public: 
+public:
     // A page object is never explicitly instantiated. You must reinterpret_cast.
   DataPage() = delete;
   DataPage(const DataPage& other) = delete;
   DataPage& operator=(const DataPage& other) = delete;
 
     //For the rest, can't I just get away with using what I found in sequential_page_impl.hpp and .cpp
-  
-  
+
+
   // simple accessors
   PageHeader&         header() { return header_; }
   const PageHeader&   header() const { return header_; }
@@ -63,7 +89,7 @@ public:
     pointer_count_ = 0;
     next_page_ = 0;
   }
-  
+
   void get_record_info(int position, uint32_t &offset, uint32_t length, uint32_t &key_length, uint32_t &flags){
      offset = *(uint32_t *) (data_+kPageSize-5-position*8);
      length = *(uint32_t *) (data_+kPageSize-5-position*8 +2);
@@ -76,7 +102,7 @@ private:
   DualPagePointer next_page_; // +16 -> 32
   uint64_t page_id; // +8  -> 40
   /**
-   * @brief Consists of the records at the start, the buffer zone in the middle, and record information at the end 
+   * @brief Consists of the records at the start, the buffer zone in the middle, and record information at the end
    * (including where to get each record).
    */
   char data_[kPageSize - 5];

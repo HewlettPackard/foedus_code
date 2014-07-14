@@ -18,6 +18,10 @@
 namespace foedus {
 namespace storage {
 namespace hash {
+
+  const uint32_t kHashRootPageHeaderSize = 32;
+  const uint32_t kHashRootPageFanout     = kPageSize / sizeof(DualPagePointer);
+
 }  // namespace hash
 }  // namespace storage
 }  // namespace foedus
