@@ -50,13 +50,17 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
   NumaCoreMemory* get_core_memory(foedus::thread::ThreadId id) const;
 
   /**
-   * Returns the page resolver to convert page ID to page pointer.
+   * Returns the page resolver to convert volatile page ID to page pointer.
    * Any code can get the global page resolver from engine memory, but the most efficient
    * way is to use the global page page resolver per core because
    * it never requires remote memory access.
-   * @see thread::Thread::get_global_page_resolver()
+   * Note that this is only for volatile pages. As snapshot cache is per-node, there is no
+   * global snapshot page resolver (just the node-local one should be enough).
+   * @see thread::Thread::get_global_volatile_page_resolver()
    */
-  const GlobalPageResolver& get_global_page_resolver() const { return global_page_resolver_; }
+  const GlobalVolatilePageResolver& get_global_volatile_page_resolver() const {
+    return global_volatile_page_resolver_;
+  }
 
  private:
   Engine* const                   engine_;
@@ -68,9 +72,9 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
   std::vector<NumaNodeMemory*>    node_memories_;
 
   /**
-   * Converts page ID to page pointer.
+   * Converts volatile page ID to page pointer.
    */
-  GlobalPageResolver              global_page_resolver_;
+  GlobalVolatilePageResolver      global_volatile_page_resolver_;
 
   /**
    * THP being disabled is one of the most frequent misconfiguration that reduces performance

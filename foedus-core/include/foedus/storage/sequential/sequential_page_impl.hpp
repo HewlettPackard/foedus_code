@@ -20,7 +20,7 @@
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
-namespace storage {   
+namespace storage {
 namespace sequential {
 
 /**
@@ -52,9 +52,7 @@ class SequentialPage final {
    * @note this method might return a stale information on volatile page. Use
    * barrier or atomic CAS when needed.
    */
-  uint16_t            get_record_count()  const {
-    return (peek_status() >> 16) & 0x7FFFU;  // 33-48 bits
-  }
+  uint16_t            get_record_count()  const { return record_count_; }
   /**
    * How many data bytes in this page consumed so far. Monotonically increasing.
    * When the page becomes full, we go on to next page.
@@ -62,9 +60,7 @@ class SequentialPage final {
    * @note this method might return a stale information on volatile page. Use
    * barrier or atomic CAS when needed.
    */
-  uint16_t            get_used_data_bytes() const {
-    return static_cast<uint16_t>(peek_status());  // 48-64 bits
-  }
+  uint16_t            get_used_data_bytes() const { return used_data_bytes_; }
 
   void                assert_consistent() const {
     ASSERT_ND(get_used_data_bytes() + get_record_count() * sizeof(PayloadLength) <= kDataSize);
@@ -79,27 +75,13 @@ class SequentialPage final {
     return length;
   }
   /** Sets byte length of payload of the specified record in this page. */
-  void                
-  
-  load_length(uint16_t record, uint16_t length) {
+  void                set_payload_length(uint16_t record, uint16_t length) {
     assert_consistent();
     PayloadLength* lengthes = reinterpret_cast<PayloadLength*>(data_ + kDataSize);
     *(lengthes - 1 - record) = length;
   }
   /** Returns byte length of the specified record in this page. */
-  uint16_t            get_record_length(uint16_t // simple accessors
-  PageHeader&         header() { return header_; }
-  const PageHeader&   header() const { return header_; }
-  StorageId           get_storage_id()    const   { return header_.storage_id_; }
-  uint16_t            get_leaf_record_count()  const {
-    return kDataSize / (kRecordOverhead + payload_size_);
-  }
-  uint16_t            get_payload_size()  const   { return payload_size_; }
-  bool                is_leaf()           const   { return level_ == 0; }
-  uint8_t             get_level()         const   { return level_; }
-  const HashRange&   get_hash_range()   const   { return hash_range_; }
-  Checksum            get_checksum()      const   { return checksum_; }
-  void                set_checksum(Checksum checksum)     { checksum_ = checksum; }record)  const {
+  uint16_t            get_record_length(uint16_t record)  const {
     return get_payload_length(record) + foedus::storage::kRecordOverhead;
   }
 
@@ -126,29 +108,17 @@ class SequentialPage final {
     header_.checksum_ = 0;
     header_.page_id_ = page_id;
     header_.storage_id_ = storage_id;
-    status_ = 0;
+    record_count_ = 0;
+    used_data_bytes_ = 0;
     next_page_.snapshot_pointer_ = 0;
     next_page_.volatile_pointer_.word = 0;
   }
 
   /**
-   * @brief Appends a record to this page while usual transactional processing.
-   * @return whether it successfully inserted. False if this page becomes full
-   * due to concurrent threads. In that case, the caller will allocate a new page.
-   * @details
-   * This method invokes one atomic operation to safely insert a new record in a
-   * lock-free fashion.
-   */
-  bool                append_record(
-    xct::XctId owner_id,
-    uint16_t payload_length,
-    const void* payload);
-
-  /**
-   * @brief Appends a record to this page while snapshotting.
+   * @brief Appends a record to this page.
    * @details
    * This method assumes that there is no concurrent thread modifying this page (that's how
-   * we compose pages while snapshotting) and that the page has enough space.
+   * we write both volatile and snapshot pages) and that the page has enough space.
    */
   void                append_record_nosync(
     xct::XctId owner_id,
@@ -156,15 +126,13 @@ class SequentialPage final {
     const void* payload) {
     uint16_t record = get_record_count();
     ASSERT_ND(record < kMaxSlots);
-    uint16_t used_data_bytes = get_used_data_bytes();
-    ASSERT_ND(used_data_bytes + assorted::align8(payload_length) + kRecordOverhead <= kDataSize);
+    ASSERT_ND(used_data_bytes_ + assorted::align8(payload_length) + kRecordOverhead <= kDataSize);
     set_payload_length(record, payload_length);
-    xct::XctId* owner_id_addr = reinterpret_cast<xct::XctId*>(data_ + used_data_bytes);
+    xct::XctId* owner_id_addr = reinterpret_cast<xct::XctId*>(data_ + used_data_bytes_);
     *owner_id_addr = owner_id;
-    std::memcpy(data_ + used_data_bytes + kRecordOverhead, payload, payload_length);
-    status_ =
-      (static_cast<uint64_t>(record + 1) << 16) |
-        static_cast<uint64_t>(used_data_bytes + assorted::align8(payload_length) + kRecordOverhead);
+    std::memcpy(data_ + used_data_bytes_ + kRecordOverhead, payload, payload_length);
+    ++record_count_;
+    used_data_bytes_ += assorted::align8(payload_length) + kRecordOverhead;
     assert_consistent();
   }
 
@@ -174,45 +142,19 @@ class SequentialPage final {
    * Thus, this method should be followed by append_record, which does real check and insert.
    */
   bool                can_insert_record(uint16_t payload_length) const {
-    uint16_t record_count = get_record_count();
     uint16_t record_length = assorted::align8(payload_length) + kRecordOverhead;
-    uint16_t used_data_bytes = get_used_data_bytes();
-    return used_data_bytes + record_length + sizeof(PayloadLength) * (record_count + 1) <= kDataSize
-      && record_count < kMaxSlots;
+    return used_data_bytes_ + record_length
+      + sizeof(PayloadLength) * (record_count_ + 1) <= kDataSize && record_count_ < kMaxSlots;
   }
   /**
-   * Returns the earliest epoch of records in this page (invalid epoch if no record).
-   * In a volatile sequential page, we utilize this information to efficiently discard pages
-   * after snapshotting. In snapshot pages, we don't need it thus it's not maintained.
+   * Returns the epoch of the fist record in this page (undefined behavior if no record).
+   * @pre get_record_count()
    */
-  Epoch               get_earliest_record_epoch() const {
-    if (get_record_count() == 0) {
-      return INVALID_EPOCH;
-    }
-    return Epoch(static_cast<uint32_t>(peek_status() >> 32));  // 0-32 bits
+  Epoch               get_first_record_epoch() const {
+    ASSERT_ND(get_record_count() > 0);
+    const xct::XctId* first_owner_id = reinterpret_cast<const xct::XctId*>(data_);
+    return first_owner_id->get_epoch();
   }
-
-  /**
-   * @brief Atomically sets the closed flag in status_.
-   * @post closed flag is ON (whether by this caller or concurrent callers)
-   * @return Whether the caller is the thread that set the flag. If this returns true,
-   * the caller is responsible for installing next page. Others will spinlock for it.
-   */
-  // simple accessors
-  PageHeader&         header() { return header_; }
-  const PageHeader&   header() const { return header_; }
-  StorageId           get_storage_id()    const   { return header_.storage_id_; }
-  uint16_t            get_leaf_record_count()  const {
-    return kDataSize / (kRecordOverhead + payload_size_);
-  }
-  uint16_t            get_payload_size()  const   { return payload_size_; }
-  bool                is_leaf()           const   { return level_ == 0; }
-  uint8_t             get_level()         const   { return level_; }
-  const HashRange&   get_hash_range()   const   { return hash_range_; }
-  Checksum            get_checksum()      const   { return checksum_; }
-  void                set_checksum(Checksum checksum)     { checksum_ = checksum; }bool                try_close_page();
-
-  uint64_t            peek_status() const ALWAYS_INLINE { return status_; }
 
  private:
   /** Byte length of payload is represented in 2 bytes. */
@@ -220,26 +162,12 @@ class SequentialPage final {
 
   PageHeader            header_;          // +16 -> 16
 
-  /**
-   * @brief Atomically maintained status of this page.
-   * @details
-   * This contains all the in-memory synchronization information for this page.
-   * Insertion and reads on in-memory pages access this with atomic operations
-   * or barriers. If the page is a snapshot page, no need for synchronization.
-   *
-   *  \li [0-32) bits: Earliest epoch of records in this page. This is used to efficiently
-   * discard volatile pages after snapshotting. We thus don't maintain this for snapshot pages.
-   *  \li [32-33) bits: whether this page is closed for further insertion.
-   * If this bit is ON, next_page_ is already set or being set.
-   *  \li [33-48) bits: record count (thus up to 32k records per page. surely enough).
-   *  \li [48-64) bits: used data bytes (not including length part, only the forward-growing part).
-   */
-  uint64_t              status_;          // +8 ->24
+  uint16_t              record_count_;      // +2 -> 18
+  uint16_t              used_data_bytes_;   // +2 -> 20
+  uint32_t              filler_;            // +4 -> 24
 
   /**
    * Pointer to next page.
-   * The thread that changed the status_ to 'closed' is responsible to install next page.
-   * Other threads do spin lock on this.
    * Once it is set, the pointer and the pointed page will never be changed.
    */
   DualPagePointer       next_page_;       // +16 -> 40

@@ -22,8 +22,11 @@ AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
   alloc(size, alignment, alloc_type, numa_node);
 }
 
-void AlignedMemory::alloc(uint64_t size, uint64_t alignment,
-              AllocType alloc_type, int numa_node) noexcept {
+void AlignedMemory::alloc(
+  uint64_t size,
+  uint64_t alignment,
+  AllocType alloc_type,
+  int numa_node) noexcept {
   release_block();
   ASSERT_ND(block_ == nullptr);
   size_ = size;

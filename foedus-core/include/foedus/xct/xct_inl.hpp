@@ -31,6 +31,24 @@
 namespace foedus {
 namespace xct {
 
+inline ErrorCode Xct::add_to_node_set(
+  const storage::VolatilePagePointer* pointer_address,
+  storage::VolatilePagePointer observed) {
+  ASSERT_ND(!schema_xct_);
+  ASSERT_ND(pointer_address);
+  if (isolation_level_ != kSerializable) {
+    return kErrorCodeOk;
+  } else if (UNLIKELY(node_set_size_ >= kMaxNodeSets)) {
+    return kErrorCodeXctNodeSetOverflow;
+  }
+
+  // no need for fence. the observed pointer itself is the only data to verify
+  node_set_[node_set_size_].address_ = pointer_address;
+  node_set_[node_set_size_].observed_ = observed;
+  ++node_set_size_;
+  return kErrorCodeOk;
+}
+
 inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record* record) {
   ASSERT_ND(!schema_xct_);
   ASSERT_ND(storage);

@@ -14,7 +14,7 @@ namespace memory {
 class   AlignedMemory;
 struct  AlignedMemorySlice;
 class   EngineMemory;
-struct  GlobalPageResolver;
+struct  GlobalVolatilePageResolver;
 struct  LocalPageResolver;
 struct  MemoryOptions;
 class   NumaCoreMemory;

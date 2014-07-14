@@ -86,8 +86,8 @@ void verify_result(
   uint16_t thread_count,
   const Engine &engine,
   const SequentialVolatileList &target) {
-  const memory::GlobalPageResolver& resolver
-    = engine.get_memory_manager().get_global_page_resolver();
+  const memory::GlobalVolatilePageResolver& resolver
+    = engine.get_memory_manager().get_global_volatile_page_resolver();
 
   std::map<std::string, xct::XctId> answers;
   for (int task_id = 0; task_id < thread_count; ++task_id) {
@@ -103,34 +103,36 @@ void verify_result(
     }
   }
 
-  for (SequentialPage* page = target.get_head(); page;) {
-    uint16_t record_count = page->get_record_count();
-    const char* record_pointers[kMaxSlots];
-    uint16_t payload_lengthes[kMaxSlots];
-    page->get_all_records_nosync(&record_count, record_pointers, payload_lengthes);
+  for (auto i = 0; i < target.get_thread_count(); ++i) {
+    for (SequentialPage* page = target.get_head(i); page;) {
+      uint16_t record_count = page->get_record_count();
+      const char* record_pointers[kMaxSlots];
+      uint16_t payload_lengthes[kMaxSlots];
+      page->get_all_records_nosync(&record_count, record_pointers, payload_lengthes);
 
-    for (uint16_t rec = 0; rec < record_count; ++rec) {
-      xct::XctId owner_id = *reinterpret_cast<const xct::XctId*>(record_pointers[rec]);
-      uint16_t payload_length = payload_lengthes[rec];
-      EXPECT_GT(payload_length, 0);
-      EXPECT_LE(payload_length, kMaxPayload);
-      std::string value(record_pointers[rec] + sizeof(xct::XctId), payload_length);
-      EXPECT_TRUE(answers.find(value) != answers.end()) << "found value=" << value;
-      if (answers.find(value) != answers.end()) {
-        xct::XctId correct_owner_id = answers.find(value)->second;
-        EXPECT_EQ(correct_owner_id, owner_id) << "found value=" << value;
-        answers.erase(value);
+      for (uint16_t rec = 0; rec < record_count; ++rec) {
+        xct::XctId owner_id = *reinterpret_cast<const xct::XctId*>(record_pointers[rec]);
+        uint16_t payload_length = payload_lengthes[rec];
+        EXPECT_GT(payload_length, 0);
+        EXPECT_LE(payload_length, kMaxPayload);
+        std::string value(record_pointers[rec] + sizeof(xct::XctId), payload_length);
+        EXPECT_TRUE(answers.find(value) != answers.end()) << "found value=" << value;
+        if (answers.find(value) != answers.end()) {
+          xct::XctId correct_owner_id = answers.find(value)->second;
+          EXPECT_EQ(correct_owner_id, owner_id) << "found value=" << value;
+          answers.erase(value);
+        }
       }
-    }
 
-    VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
-    if (next_pointer.components.offset != 0) {
-      EXPECT_NE(target.get_tail(), page);
-      page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(next_pointer));
-      EXPECT_NE(nullptr, page);
-    } else {
-      EXPECT_EQ(target.get_tail(), page);
-      page = nullptr;
+      VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
+      if (next_pointer.components.offset != 0) {
+        EXPECT_NE(target.get_tail(i), page);
+        page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(next_pointer));
+        EXPECT_NE(nullptr, page);
+      } else {
+        EXPECT_EQ(target.get_tail(i), page);
+        page = nullptr;
+      }
     }
   }
 

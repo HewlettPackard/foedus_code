@@ -17,6 +17,8 @@
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
 #include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/thread/impersonate_task_pimpl.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/thread/thread_pool.hpp"
@@ -25,17 +27,39 @@
 
 namespace foedus {
 namespace thread {
-ThreadPimpl::ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder, ThreadId id)
-  : engine_(engine), group_(group), holder_(holder), id_(id), core_memory_(nullptr),
-    log_buffer_(engine, id), current_task_(nullptr), current_xct_(engine, id) {
+ThreadPimpl::ThreadPimpl(
+  Engine* engine,
+  ThreadGroupPimpl* group,
+  Thread* holder,
+  ThreadId id,
+  ThreadGlobalOrdinal global_ordinal)
+  : engine_(engine),
+    group_(group),
+    holder_(holder),
+    id_(id),
+    numa_node_(decompose_numa_node(id)),
+    global_ordinal_(global_ordinal),
+    core_memory_(nullptr),
+    node_memory_(nullptr),
+    snapshot_cache_hashtable_(nullptr),
+    log_buffer_(engine, id),
+    current_task_(nullptr),
+    current_xct_(engine, id),
+    snapshot_file_set_(engine) {
 }
 
 ErrorStack ThreadPimpl::initialize_once() {
   ASSERT_ND(engine_->get_memory_manager().is_initialized());
   core_memory_ = engine_->get_memory_manager().get_core_memory(id_);
+  node_memory_ = core_memory_->get_node_memory();
+  snapshot_cache_hashtable_ = node_memory_->get_snapshot_cache_table();
   current_task_ = nullptr;
   current_xct_.initialize(id_, core_memory_);
+  CHECK_ERROR(snapshot_file_set_.initialize());
   CHECK_ERROR(log_buffer_.initialize());
+  global_volatile_page_resolver_
+    = engine_->get_memory_manager().get_global_volatile_page_resolver();
+  local_volatile_page_resolver_ = node_memory_->get_volatile_pool().get_resolver();
   raw_thread_.initialize("Thread-", id_,
           std::thread(&ThreadPimpl::handle_tasks, this),
           std::chrono::milliseconds(100));
@@ -44,8 +68,11 @@ ErrorStack ThreadPimpl::initialize_once() {
 ErrorStack ThreadPimpl::uninitialize_once() {
   ErrorStackBatch batch;
   raw_thread_.stop();
+  batch.emprace_back(snapshot_file_set_.uninitialize());
   batch.emprace_back(log_buffer_.uninitialize());
   core_memory_ = nullptr;
+  node_memory_ = nullptr;
+  snapshot_cache_hashtable_ = nullptr;
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 
@@ -96,6 +123,60 @@ bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
     DVLOG(0) << "Someone already took Thread-" << id_ << ".";
     return false;
   }
+}
+
+ErrorCode ThreadPimpl::install_a_volatile_page(
+  storage::DualPagePointer* pointer,
+  storage::Page** installed_page) {
+  ASSERT_ND(pointer->snapshot_pointer_ != 0);
+  storage::VolatilePagePointer cur_pointer = pointer->volatile_pointer_;
+  if (UNLIKELY(cur_pointer.components.offset != 0)) {  // this happens only by concurrent installs
+    VLOG(0) << "Interesting. Lost race to install a volatile page. Thread-" << id_
+      << ", snapshot page id=" << assorted::Hex(pointer->snapshot_pointer_);
+    *installed_page = global_volatile_page_resolver_.resolve_offset(cur_pointer);
+    return kErrorCodeOk;
+  }
+
+  // copy from snapshot version
+  storage::Page* snapshot_page;
+  CHECK_ERROR_CODE(find_or_read_a_snapshot_page(pointer->snapshot_pointer_, &snapshot_page));
+  memory::PagePoolOffset offset = core_memory_->grab_free_volatile_page();
+  if (UNLIKELY(offset == 0)) {
+    return kErrorCodeMemoryNoFreePages;
+  }
+  *installed_page = local_volatile_page_resolver_.resolve_offset(offset);
+  std::memcpy(*installed_page, snapshot_page, storage::kPageSize);
+
+  while (true) {
+    storage::VolatilePagePointer new_pointer;
+    new_pointer = storage::combine_volatile_page_pointer(
+      numa_node_,
+      0,
+      cur_pointer.components.mod_count + 1,
+      offset);
+    // atomically install it.
+    if (assorted::raw_atomic_compare_exchange_strong<uint64_t>(
+      &(pointer->volatile_pointer_.word),
+      &(cur_pointer.word),
+      new_pointer.word)) {
+      break;
+    } else {
+      if (cur_pointer.components.offset != 0) {
+        // someone else has installed it!
+        VLOG(0) << "Interesting. Lost race to install a volatile page. ver-b. Thread-" << id_
+          << ", snapshot page id=" << assorted::Hex(pointer->snapshot_pointer_);
+        core_memory_->release_free_volatile_page(offset);
+        *installed_page = global_volatile_page_resolver_.resolve_offset(cur_pointer);
+        break;
+      } else {
+        // This is probably a bug, but we might only change mod count for some reason.
+        LOG(WARNING) << "Very interesting. Lost race but volatile page not installed. Thread-"
+          << id_ << ", snapshot page id=" << assorted::Hex(pointer->snapshot_pointer_);
+        continue;
+      }
+    }
+  }
+  return kErrorCodeOk;
 }
 
 }  // namespace thread

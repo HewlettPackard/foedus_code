@@ -159,6 +159,19 @@ std::string get_pretty_type_name() {
   return demangle_type_name(typeid(T).name());
 }
 
+/**
+ * @brief Generate a prime or some number that is almost prime less than the given number.
+ * @ingroup ASSORTED
+ * @param[in] threshold Returns a number less than this number
+ * @details
+ * In a few places, we need a number that is a prime or at least not divided by many numbers.
+ * For example in hashing. It doesn't have to be a real prime. Instead, we want to cheaply
+ * calculate such number.
+ * This method uses a complex polynomial to generate that \e looks-like a prime.
+ * @see http://mathworld.wolfram.com/Prime-GeneratingPolynomial.html
+ */
+uint64_t generate_almost_prime_below(uint64_t threshold);
+
 }  // namespace assorted
 }  // namespace foedus
 

@@ -149,8 +149,8 @@ void ArrayStoragePimpl::release_pages_recursive(
   memory::PageReleaseBatch* batch, ArrayPage* page, VolatilePagePointer volatile_page_id) {
   ASSERT_ND(volatile_page_id.components.offset != 0);
   if (!page->is_leaf()) {
-    const memory::GlobalPageResolver& page_resolver
-      = engine_->get_memory_manager().get_global_page_resolver();
+    const memory::GlobalVolatilePageResolver& page_resolver
+      = engine_->get_memory_manager().get_global_volatile_page_resolver();
     for (uint16_t i = 0; i < kInteriorFanout; ++i) {
       DualPagePointer &child_pointer = page->get_interior_record(i);
       VolatilePagePointer child_page_id = child_pointer.volatile_pointer_;
@@ -217,7 +217,8 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
   std::vector<VolatilePagePointer> current_pages_ids;
   std::vector<uint16_t> current_records;
   // we grab free page in round-robbin fashion.
-  const memory::GlobalPageResolver& page_resolver = context->get_global_page_resolver();
+  const memory::GlobalVolatilePageResolver& page_resolver
+    = context->get_global_volatile_page_resolver();
   memory::RoundRobinPageGrabBatch grab_batch(engine_);
   for (uint8_t level = 0; level < levels_; ++level) {
     VolatilePagePointer page_pointer = grab_batch.grab();
@@ -329,13 +330,16 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
   return kRetOk;
 }
 
-inline ErrorCode ArrayStoragePimpl::locate_record(
-  thread::Thread* context, ArrayOffset offset, Record** out) {
+inline ErrorCode ArrayStoragePimpl::locate_record_for_read(
+  thread::Thread* context,
+  ArrayOffset offset,
+  Record** out,
+  bool* snapshot_record) {
   ASSERT_ND(is_initialized());
   ASSERT_ND(offset < metadata_.array_size_);
   uint16_t index = 0;
   ArrayPage* page = nullptr;
-  CHECK_ERROR_CODE(lookup(context, offset, &page, &index));
+  CHECK_ERROR_CODE(lookup_for_read(context, offset, &page, &index, snapshot_record));
   ASSERT_ND(page);
   ASSERT_ND(page->is_leaf());
   ASSERT_ND(page->get_array_range().contains(offset));
@@ -343,30 +347,73 @@ inline ErrorCode ArrayStoragePimpl::locate_record(
   return kErrorCodeOk;
 }
 
-inline ErrorCode ArrayStoragePimpl::get_record(thread::Thread* context, ArrayOffset offset,
-          void *payload, uint16_t payload_offset, uint16_t payload_count) {
+inline ErrorCode ArrayStoragePimpl::locate_record_for_write(
+  thread::Thread* context,
+  ArrayOffset offset,
+  Record** out) {
+  ASSERT_ND(is_initialized());
+  ASSERT_ND(offset < metadata_.array_size_);
+  uint16_t index = 0;
+  ArrayPage* page = nullptr;
+  CHECK_ERROR_CODE(lookup_for_write(context, offset, &page, &index));
+  ASSERT_ND(page);
+  ASSERT_ND(page->is_leaf());
+  ASSERT_ND(page->get_array_range().contains(offset));
+  *out = page->get_leaf_record(index);
+  return kErrorCodeOk;
+}
+
+inline ErrorCode ArrayStoragePimpl::get_record(
+  thread::Thread* context,
+  ArrayOffset offset,
+  void* payload,
+  uint16_t payload_offset,
+  uint16_t payload_count) {
   ASSERT_ND(payload_offset + payload_count <= metadata_.payload_size_);
   Record *record = nullptr;
-  CHECK_ERROR_CODE(locate_record(context, offset, &record));
-  return context->get_current_xct().read_record(holder_, record,
-                            payload, payload_offset, payload_count);
+  bool snapshot_record;
+  CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
+  if (snapshot_record) {
+    std::memcpy(payload, record->payload_ + payload_offset, payload_count);
+    return kErrorCodeOk;
+  } else {
+    return context->get_current_xct().read_record(
+      holder_,
+      record,
+      payload,
+      payload_offset,
+      payload_count);
+  }
 }
 
 template <typename T>
-ErrorCode ArrayStoragePimpl::get_record_primitive(thread::Thread* context, ArrayOffset offset,
-          T *payload, uint16_t payload_offset) {
+ErrorCode ArrayStoragePimpl::get_record_primitive(
+  thread::Thread* context,
+  ArrayOffset offset,
+  T *payload,
+  uint16_t payload_offset) {
   ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
   Record *record = nullptr;
-  CHECK_ERROR_CODE(locate_record(context, offset, &record));
-  return context->get_current_xct().read_record_primitive<T>(holder_, record,
-                                    payload, payload_offset);
+  bool snapshot_record;
+  CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
+  if (snapshot_record) {
+    char* ptr = record->payload_ + payload_offset;
+    *payload = *reinterpret_cast<const T*>(ptr);
+    return kErrorCodeOk;
+  } else {
+    return context->get_current_xct().read_record_primitive<T>(
+      holder_,
+      record,
+      payload,
+      payload_offset);
+  }
 }
 
 inline ErrorCode ArrayStoragePimpl::overwrite_record(thread::Thread* context, ArrayOffset offset,
       const void *payload, uint16_t payload_offset, uint16_t payload_count) {
   ASSERT_ND(payload_offset + payload_count <= metadata_.payload_size_);
   Record *record = nullptr;
-  CHECK_ERROR_CODE(locate_record(context, offset, &record));
+  CHECK_ERROR_CODE(locate_record_for_write(context, offset, &record));
 
   // write out log
   uint16_t log_length = ArrayOverwriteLogType::calculate_log_length(payload_count);
@@ -381,7 +428,7 @@ ErrorCode ArrayStoragePimpl::overwrite_record_primitive(
       thread::Thread* context, ArrayOffset offset, T payload, uint16_t payload_offset) {
   ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
   Record *record = nullptr;
-  CHECK_ERROR_CODE(locate_record(context, offset, &record));
+  CHECK_ERROR_CODE(locate_record_for_write(context, offset, &record));
 
   // write out log
   uint16_t log_length = ArrayOverwriteLogType::calculate_log_length(sizeof(T));
@@ -396,7 +443,7 @@ ErrorCode ArrayStoragePimpl::increment_record(
       thread::Thread* context, ArrayOffset offset, T* value, uint16_t payload_offset) {
   ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
   Record *record = nullptr;
-  CHECK_ERROR_CODE(locate_record(context, offset, &record));
+  CHECK_ERROR_CODE(locate_record_for_write(context, offset, &record));
 
   // this is get_record + overwrite_record
   T old_value;
@@ -410,8 +457,12 @@ ErrorCode ArrayStoragePimpl::increment_record(
   return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
 }
 
-inline ErrorCode ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset offset,
-                      ArrayPage** out, uint16_t *index) {
+inline ErrorCode ArrayStoragePimpl::lookup_for_read(
+  thread::Thread* context,
+  ArrayOffset offset,
+  ArrayPage** out,
+  uint16_t* index,
+  bool* snapshot_page) {
   ASSERT_ND(is_initialized());
   ASSERT_ND(offset < metadata_.array_size_);
   ASSERT_ND(out);
@@ -419,17 +470,79 @@ inline ErrorCode ArrayStoragePimpl::lookup(thread::Thread* context, ArrayOffset 
   ArrayPage* current_page = root_page_;
   ASSERT_ND(current_page->get_array_range().contains(offset));
   LookupRoute route = route_finder_.find_route(offset);
-  const memory::GlobalPageResolver& page_resolver = context->get_global_page_resolver();
+  const memory::GlobalVolatilePageResolver& page_resolver
+    = context->get_global_volatile_page_resolver();
+  xct::Xct& current_xct = context->get_current_xct();
+  bool followed_snapshot_pointer = false;
   for (uint8_t level = levels_ - 1; level > 0; --level) {
     ASSERT_ND(current_page->get_array_range().contains(offset));
     DualPagePointer& pointer = current_page->get_interior_record(route.route[level]);
-    // TODO(Hideaki) Add to Node-set (?)
-    if (pointer.volatile_pointer_.components.offset == 0) {
-      // TODO(Hideaki) Read the page from cache.
-      return kErrorCodeNotimplemented;
+    storage::VolatilePagePointer volatile_pointer = pointer.volatile_pointer_;
+    if (followed_snapshot_pointer) {
+      // we already followed a snapshot pointer, so everything under it is stable.
+      // just follow the snapstho pointer
+      ASSERT_ND(pointer.snapshot_pointer_ != 0);
+      ASSERT_ND(pointer.volatile_pointer_.word == 0);
+      CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
+        pointer.snapshot_pointer_,
+        reinterpret_cast<Page**>(&current_page)));
+    } else if (volatile_pointer.components.offset == 0
+      || current_xct.get_isolation_level() == xct::kDirtyReadPreferSnapshot) {
+      // then read from snapshot page. this is the beginning point to follow a snapshot pointer,
+      // so we have to take a node set in case someone else installs a new volatile pointer
+      // (after here, everything is stable).
+      ASSERT_ND(pointer.snapshot_pointer_ != 0);
+      followed_snapshot_pointer = true;
+      current_xct.add_to_node_set(&pointer.volatile_pointer_, volatile_pointer);
+      CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
+        pointer.snapshot_pointer_,
+        reinterpret_cast<Page**>(&current_page)));
     } else {
-      current_page = reinterpret_cast<ArrayPage*>(
-        page_resolver.resolve_offset(pointer.volatile_pointer_));
+      // NOTE: In Array storage, we don't have to take a node set for following a volatile pointer
+      // because we don't swap volatile pointer like Masstree's page split.
+      // The only case we change volatile pointer is for snapshot thread to drop volatile pages
+      // that are equivalent to snapshot pages, so it never affects serializability.
+      current_page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(volatile_pointer));
+    }
+  }
+  ASSERT_ND(current_page->is_leaf());
+  ASSERT_ND(current_page->get_array_range().contains(offset));
+  ASSERT_ND(current_page->get_array_range().begin_ + route.route[0] == offset);
+  *out = current_page;
+  *index = route.route[0];
+  *snapshot_page = followed_snapshot_pointer;
+  return kErrorCodeOk;
+}
+
+inline ErrorCode ArrayStoragePimpl::lookup_for_write(
+  thread::Thread* context,
+  ArrayOffset offset,
+  ArrayPage** out,
+  uint16_t* index) {
+  ASSERT_ND(is_initialized());
+  ASSERT_ND(offset < metadata_.array_size_);
+  ASSERT_ND(out);
+  ASSERT_ND(index);
+  ArrayPage* current_page = root_page_;
+  ASSERT_ND(current_page->get_array_range().contains(offset));
+  LookupRoute route = route_finder_.find_route(offset);
+  const memory::GlobalVolatilePageResolver& page_resolver
+    = context->get_global_volatile_page_resolver();
+  for (uint8_t level = levels_ - 1; level > 0; --level) {
+    ASSERT_ND(current_page->get_array_range().contains(offset));
+    DualPagePointer& pointer = current_page->get_interior_record(route.route[level]);
+    storage::VolatilePagePointer volatile_pointer = pointer.volatile_pointer_;
+    if (volatile_pointer.components.offset == 0) {
+      ASSERT_ND(pointer.snapshot_pointer_ != 0);
+      // then we have to install a new volatile page, starting from the snapshot page image.
+      // this should, hopefully, do not happen too often. if the page is worth keeping as
+      // a volatile page, snapshot thread shouldn't drop it or at least the page should
+      // come back during the grace period.
+      CHECK_ERROR_CODE(context->install_a_volatile_page(
+        &pointer,
+        reinterpret_cast<Page**>(&current_page)));
+    } else {
+      current_page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(volatile_pointer));
     }
   }
   ASSERT_ND(current_page->is_leaf());
