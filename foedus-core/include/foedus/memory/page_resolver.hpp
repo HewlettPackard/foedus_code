@@ -56,33 +56,39 @@ struct LocalPageResolver CXX11_FINAL {
 };
 
 /**
- * @brief Resolves an offset in a page pool to an actual pointer and vice versa.
+ * @brief Resolves an offset in a volatile page pool to an actual pointer and vice versa.
  * @ingroup MEMORY
  * @details
  * This class abstracts how we convert 4-byte page-pool offset plus NUMA node id to/from
  * 8-byte pointer. This method must be \b VERY efficient, thus everything is inlined.
  * This also abstracts how we access in-memory pages in other NUMA node for volatile pages.
  *
+ * \b Note Note that this is only for volatile pages. As snapshot cache is per-node, there is no
+ * global snapshot page resolver (just the node-local one should be enough).
+ *
  * This object is copiable and the copying is moderately efficient.
  * @todo global page resolve can't cheaply provide resolve_page(). Do we need it?
  */
-struct GlobalPageResolver CXX11_FINAL {
+struct GlobalVolatilePageResolver CXX11_FINAL {
   typedef storage::Page* Base;
   enum Constants {
     kMaxNumaNode = 256,
   };
-  GlobalPageResolver() : numa_node_count_(0), begin_(0), end_(0) {}
-  GlobalPageResolver(const Base *bases, uint16_t numa_node_count,
+  GlobalVolatilePageResolver() : numa_node_count_(0), begin_(0), end_(0) {}
+  GlobalVolatilePageResolver(const Base *bases, uint16_t numa_node_count,
              PagePoolOffset begin, PagePoolOffset end)
     : numa_node_count_(numa_node_count), begin_(begin), end_(end) {
     ASSERT_ND(numa_node_count <= kMaxNumaNode);
     std::memcpy(bases_, bases, sizeof(Base) * numa_node_count_);
   }
   // default assignment/copy constructors are a bit wasteful when #numa node is small, thus:
-  GlobalPageResolver(const GlobalPageResolver &other) {
+  GlobalVolatilePageResolver(const GlobalVolatilePageResolver &other) {
     operator=(other);
   }
-  GlobalPageResolver& operator=(const GlobalPageResolver &other) {
+  GlobalVolatilePageResolver& operator=(const GlobalVolatilePageResolver &other) {
+    ASSERT_ND(other.numa_node_count_ > 0);
+    ASSERT_ND(other.numa_node_count_ <= kMaxNumaNode);
+    ASSERT_ND(other.end_ > other.begin_);
     numa_node_count_ = other.numa_node_count_;
     begin_ = other.begin_;
     end_ = other.end_;

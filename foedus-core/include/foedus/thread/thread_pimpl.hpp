@@ -7,8 +7,14 @@
 #include <atomic>
 
 #include "foedus/initializable.hpp"
+#include "foedus/assorted/raw_atomics.hpp"
+#include "foedus/cache/cache_hashtable.hpp"
+#include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
 #include "foedus/memory/fwd.hpp"
+#include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/memory/page_resolver.hpp"
+#include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
 #include "foedus/xct/xct.hpp"
@@ -28,7 +34,12 @@ namespace thread {
 class ThreadPimpl final : public DefaultInitializable {
  public:
   ThreadPimpl() = delete;
-  ThreadPimpl(Engine* engine, ThreadGroupPimpl* group, Thread* holder, ThreadId id);
+  ThreadPimpl(
+    Engine* engine,
+    ThreadGroupPimpl* group,
+    Thread* holder,
+    ThreadId id,
+    ThreadGlobalOrdinal global_ordinal);
   ErrorStack  initialize_once() override final;
   ErrorStack  uninitialize_once() override final;
 
@@ -47,6 +58,21 @@ class ThreadPimpl final : public DefaultInitializable {
    */
   bool        try_impersonate(ImpersonateSession *session);
 
+  /** @copydoc foedus::thread::Thread::find_or_read_a_snapshot_page() */
+  ErrorCode   find_or_read_a_snapshot_page(
+    storage::SnapshotPagePointer page_id,
+    storage::Page** out) ALWAYS_INLINE;
+
+  /** @copydoc foedus::thread::Thread::read_a_snapshot_page() */
+  ErrorCode   read_a_snapshot_page(
+    storage::SnapshotPagePointer page_id,
+    storage::Page* buffer) ALWAYS_INLINE;
+
+  /** @copydoc foedus::thread::Thread::install_a_volatile_page() */
+  ErrorCode   install_a_volatile_page(
+    storage::DualPagePointer* pointer,
+    storage::Page** installed_page);
+
   Engine* const           engine_;
 
   /**
@@ -64,12 +90,29 @@ class ThreadPimpl final : public DefaultInitializable {
    */
   const ThreadId          id_;
 
+  /** Node this thread belongs to */
+  const ThreadGroupId     numa_node_;
+
+  /** globally and contiguously numbered ID of thread */
+  const ThreadGlobalOrdinal global_ordinal_;
+
+
+
   /**
    * Private memory repository of this thread.
    * ThreadPimpl does NOT own it, meaning it doesn't call its initialize()/uninitialize().
    * EngineMemory owns it in terms of that.
    */
   memory::NumaCoreMemory* core_memory_;
+  /** same above */
+  memory::NumaNodeMemory* node_memory_;
+  /** same above */
+  cache::CacheHashtable*  snapshot_cache_hashtable_;
+
+  /** Page resolver to convert all page ID to page pointer. */
+  memory::GlobalVolatilePageResolver global_volatile_page_resolver_;
+  /** Page resolver to convert only local page ID to page pointer. */
+  memory::LocalPageResolver local_volatile_page_resolver_;
 
   /**
    * Thread-private log buffer.
@@ -95,7 +138,25 @@ class ThreadPimpl final : public DefaultInitializable {
    * If this thread is not conveying any transaction, current_xct_.is_active() == false.
    */
   xct::Xct                current_xct_;
+
+  /**
+   * Each threads maintains a private set of snapshot file descriptors.
+   */
+  cache::SnapshotFileSet  snapshot_file_set_;
 };
+
+inline ErrorCode ThreadPimpl::read_a_snapshot_page(
+  storage::SnapshotPagePointer page_id,
+  storage::Page* buffer) {
+  return snapshot_file_set_.read_page(page_id, buffer);
+}
+
+inline ErrorCode ThreadPimpl::find_or_read_a_snapshot_page(
+  storage::SnapshotPagePointer page_id,
+  storage::Page** out) {
+  return snapshot_cache_hashtable_->read_page(page_id, holder_, out);
+}
+
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_THREAD_PIMPL_HPP_

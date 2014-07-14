@@ -43,22 +43,27 @@ ErrorStack EngineMemory::initialize_once() {
   thread::ThreadGroupId numa_nodes = options.thread_.group_count_;
   PagePoolOffset page_offset_begin = 0;
   PagePoolOffset page_offset_end = 0;
-  GlobalPageResolver::Base bases[256];
+  GlobalVolatilePageResolver::Base bases[256];
   for (thread::ThreadGroupId node = 0; node < numa_nodes; ++node) {
     ScopedNumaPreferred numa_scope(node);
     NumaNodeMemory* node_memory = new NumaNodeMemory(engine_, node);
     node_memories_.push_back(node_memory);
     CHECK_ERROR(node_memory->initialize());
-    bases[node] = node_memory->get_page_pool().get_resolver().base_;
+    PagePool& pool = node_memory->get_volatile_pool();
+    bases[node] = pool.get_resolver().base_;
     if (node == 0) {
-      page_offset_begin = node_memory->get_page_pool().get_resolver().begin_;
-      page_offset_end = node_memory->get_page_pool().get_resolver().end_;
+      page_offset_begin = pool.get_resolver().begin_;
+      page_offset_end = pool.get_resolver().end_;
     } else {
-      ASSERT_ND(page_offset_begin == node_memory->get_page_pool().get_resolver().begin_);
-      ASSERT_ND(page_offset_end == node_memory->get_page_pool().get_resolver().end_);
+      ASSERT_ND(page_offset_begin == pool.get_resolver().begin_);
+      ASSERT_ND(page_offset_end == pool.get_resolver().end_);
     }
   }
-  global_page_resolver_ = GlobalPageResolver(bases, numa_nodes, page_offset_begin, page_offset_end);
+  global_volatile_page_resolver_ = GlobalVolatilePageResolver(
+    bases,
+    numa_nodes,
+    page_offset_begin,
+    page_offset_end);
   return kRetOk;
 }
 

@@ -82,6 +82,34 @@ std::string demangle_type_name(const char* mangled_name) {
   return mangled_name;
 }
 
+uint64_t generate_almost_prime_below(uint64_t threshold) {
+  if (threshold <= 2) {
+    return 1;  // almost an invalid input...
+  } else if (threshold < 3500) {
+    // for a small number, we just use a (very) sparse prime list
+    uint16_t small_primes[] = {3677, 2347, 1361, 773, 449, 263, 151, 89, 41, 17, 2};
+    for (int i = 1;; ++i) {
+      if (threshold > small_primes[i]) {
+        return small_primes[i - 1];
+      }
+    }
+  } else {
+    // the following formula is monotonically increasing for i>=22 (which gives 3923).
+    uint64_t prev = 3677;
+    for (uint64_t i = 22;; ++i) {
+      uint64_t cur = (i * i * i * i * i - 133 * i * i * i * i + 6729 * i * i * i
+        - 158379 * i * i + 1720294 * i - 6823316) >> 2;
+      if (cur >= threshold) {
+        return prev;
+      } else if (cur <= prev) {
+        // sanity checking.
+        return prev;
+      } else {
+        prev = cur;
+      }
+    }
+  }
+}
 
 }  // namespace assorted
 }  // namespace foedus

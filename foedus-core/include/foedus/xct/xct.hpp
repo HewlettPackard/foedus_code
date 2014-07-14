@@ -18,6 +18,7 @@
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/fwd.hpp"
+#include "foedus/xct/xct_access.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
@@ -31,6 +32,10 @@ namespace xct {
  */
 class Xct {
  public:
+  enum Constants {
+    kMaxNodeSets = 256,
+  };
+
   Xct(Engine* engine, thread::ThreadId thread_id);
 
   // No copy
@@ -47,6 +52,7 @@ class Xct {
     active_ = true;
     schema_xct_ = schema_xct;
     isolation_level_ = isolation_level;
+    node_set_size_ = 0;
     read_set_size_ = 0;
     write_set_size_ = 0;
     lock_free_write_set_size_ = 0;
@@ -75,9 +81,11 @@ class Xct {
   IsolationLevel      get_isolation_level() const { return isolation_level_; }
   /** Returns the ID of this transaction, but note that it is not issued until commit time! */
   const XctId&        get_id() const { return id_; }
+  uint32_t            get_node_set_size() const { return node_set_size_; }
   uint32_t            get_read_set_size() const { return read_set_size_; }
   uint32_t            get_write_set_size() const { return write_set_size_; }
   uint32_t            get_lock_free_write_set_size() const { return lock_free_write_set_size_; }
+  const NodeAccess*   get_node_set() const { return node_set_; }
   XctAccess*          get_read_set()  { return read_set_; }
   WriteXctAccess*     get_write_set() { return write_set_; }
   LockFreeWriteXctAccess* get_lock_free_write_set() { return lock_free_write_set_; }
@@ -102,6 +110,26 @@ class Xct {
   void                issue_next_id(Epoch *epoch);
 
   /**
+   * @brief Add the given page pointer to the node set of this transaction.
+   * @details
+   * You must call this method in the following cases;
+   *  \li When following a volatile pointer that might be later swapped with the RCU protocol.
+   *  \li When following a snapshot pointer except it is under a snapshot page.
+   *
+   * To clarify, the first case does not apply to storage types that don't swap volatile pointers.
+   * So far, only \ref MASSTREE has such a swapping for page splits. All other storage types
+   * thus don't have to take node sets for this.
+   *
+   * The second case doesn't apply to snapshot pointers once we follow a snapshot pointer in the
+   * tree because everything is assured to be stable once we follow a snapshot pointer.
+   *
+   * Inlined in xct_inl.hpp.
+   */
+  ErrorCode           add_to_node_set(
+    const storage::VolatilePagePointer* pointer_address,
+    storage::VolatilePagePointer observed);
+
+  /**
    * @brief Add the given record to the read set of this transaction.
    * @details
    * You must call this method \b BEFORE reading the data, otherwise it violates the
@@ -113,12 +141,20 @@ class Xct {
   ErrorCode           add_to_read_set(storage::Storage* storage, storage::Record* record);
 
   /** add_to_read_set() plus the data read plus version check again. */
-  ErrorCode           read_record(storage::Storage* storage, storage::Record* record,
-                void *payload, uint16_t payload_offset, uint16_t payload_count);
+  ErrorCode           read_record(
+    storage::Storage* storage,
+    storage::Record* record,
+    void *payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
+
   /** read_record() for primitive types. */
   template <typename T>
-  ErrorCode           read_record_primitive(storage::Storage* storage, storage::Record* record,
-                T *payload, uint16_t payload_offset);
+  ErrorCode           read_record_primitive(
+    storage::Storage* storage,
+    storage::Record* record,
+    T *payload,
+    uint16_t payload_offset);
 
   /**
    * @brief Add the given record to the write set of this transaction.
@@ -238,6 +274,10 @@ class Xct {
   // we can easily implement it by remembering "safe" page to resume search, or just remembering
   // tail (abort if tail has changed), and then reading all record in the page.
   // as we don't have scanning accesses to sequential storage yet, low priority.
+
+  // node set should be much smaller than others, so have it as an array.
+  NodeAccess          node_set_[kMaxNodeSets];
+  uint32_t            node_set_size_;
 
   /** @copydoc get_in_commit_log_epoch() */
   Epoch               in_commit_log_epoch_;

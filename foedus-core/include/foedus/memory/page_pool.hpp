@@ -139,6 +139,9 @@ class PagePool CXX11_FINAL : public virtual Initializable {
    */
   LocalPageResolver&  get_resolver();
 
+  /** Returns the underlying memory of the pool. */
+  const AlignedMemory& get_memory() const;
+
   friend std::ostream& operator<<(std::ostream& o, const PagePool& v);
 
  private:

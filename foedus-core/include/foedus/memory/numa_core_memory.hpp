@@ -53,21 +53,32 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
   NumaNodeMemory* get_node_memory()       const { return node_memory_; }
 
   /**
-   * @brief Acquires one free page from \b local page pool.
+   * @brief Acquires one free volatile page from \b local page pool.
    * @return acquired page, or 0 if no free page is available (OUTOFMEMORY).
    * @details
    * This method does not return error code to be simple and fast.
    * Instead, The caller MUST check if the returned page is zero or not.
    */
-  PagePoolOffset  grab_free_page();
-  /** Returns one free page to \b local page pool. */
-  void            release_free_page(PagePoolOffset offset);
+  PagePoolOffset  grab_free_volatile_page();
+  /** Same, except it's for snapshot page */
+  PagePoolOffset  grab_free_snapshot_page();
+  /** Returns one free volatile page to \b local page pool. */
+  void            release_free_volatile_page(PagePoolOffset offset);
+  /** Same, except it's for snapshot page */
+  void            release_free_snapshot_page(PagePoolOffset offset);
+
+  memory::PagePool* get_volatile_pool() { return volatile_pool_; }
+  memory::PagePool* get_snapshot_pool() { return snapshot_pool_; }
 
  private:
   /** Called when there no local free pages. */
-  ErrorCode   grab_free_pages_from_node();
+  static ErrorCode  grab_free_pages_from_node(
+    PagePoolOffsetChunk* free_chunk,
+    memory::PagePool *pool);
   /** Called when there are too many local free pages. */
-  void        release_free_pages_to_node();
+  static void       release_free_pages_to_node(
+    PagePoolOffsetChunk* free_chunk,
+    memory::PagePool *pool);
 
   Engine* const           engine_;
 
@@ -84,7 +95,7 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
   /**
    * Local ordinal of the NUMA core this memory is allocated for.
    */
-  const foedus::thread::ThreadLocalOrdinal    core_local_ordinal_;
+  const thread::ThreadLocalOrdinal        core_local_ordinal_;
 
   /** Memory to keep track of read-set during transactions. */
   xct::XctAccess*                         read_set_memory_;
@@ -99,14 +110,21 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
   uint32_t                                lock_free_write_set_size_;
 
   /**
-   * @brief Holds a \b local set of pointers to free pages.
+   * @brief Holds a \b local set of pointers to free volatile pages.
    * @details
    * All page allocation/deallocation are local operations without synchronization
    * except when this chunk goes below 10% or above 90% full.
-   * When it happens, we grab/release a bunch of free pages from EngineMemory#page_pool_.
+   * When it happens, we grab/release a bunch of free pages from node memory's page pool.
    * @see PagePool
    */
-  PagePoolOffsetChunk*                    free_pool_chunk_;
+  PagePoolOffsetChunk*                    free_volatile_pool_chunk_;
+  /** Same above, but for snapshot cache. */
+  PagePoolOffsetChunk*                    free_snapshot_pool_chunk_;
+
+  /** Pointer to this NUMA node's volatile page pool */
+  memory::PagePool*                       volatile_pool_;
+  /** Pointer to this NUMA node's snapshot page pool */
+  memory::PagePool*                       snapshot_pool_;
 
   /** Private memory to hold log entries. */
   AlignedMemorySlice                      log_buffer_memory_;

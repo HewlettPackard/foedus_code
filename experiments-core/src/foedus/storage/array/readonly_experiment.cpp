@@ -69,7 +69,7 @@ class ReadTask : public thread::ImpersonateTask {
   ReadTask() {}
   ErrorStack run(thread::Thread* context) {
     Engine *engine = context->get_engine();
-    const xct::IsolationLevel isolation = xct::kDirtyReadPreferSnapshot;
+    const xct::IsolationLevel isolation = xct::kDirtyReadPreferVolatile;
     // const xct::IsolationLevel isolation = xct::kSerializable;
     CHECK_ERROR(engine->get_xct_manager().begin_xct(context, isolation));
     Epoch commit_epoch;
