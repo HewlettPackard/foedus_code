@@ -56,6 +56,272 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
   ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
   void       describe(std::ostream* o) const CXX11_OVERRIDE;
 
+  //// Masstree API
+
+  // get_record() methods
+
+  /**
+   * @brief Retrieves an entire record of the given key in this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key_length Byte size of key.
+   * @param[out] payload Buffer to receive the payload of the record.
+   * @param[in,out] payload_capacity [In] Byte size of the payload buffer, [Out] length of
+   * the payload. This is set whether the payload capacity was too small or not.
+   * @details
+   * When payload_capacity is smaller than the actual payload, this method returns
+   * kErrorCodeStrTooSmallPayloadBuffer and payload_capacity is set to be the required length.
+   * If that happens, this method does \e NOT add this record to the read set, expecting that
+   * the caller immediatelly calls it again, which does add to the read set.
+   * In other words, "too small buffer" itself is not a transactional information and it might have
+   * a false positive as a rare case.
+   *
+   * On the other hand, when the key is not found (kErrorCodeStrKeyNotFound), we add an appropriate
+   * record to \e range-lock read set because it is part of a transactional information.
+   */
+  ErrorCode   get_record(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    void* payload,
+    uint16_t* payload_capacity);
+
+  /**
+   * @brief Retrieves a part of the given key in this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key_length Byte size of key.
+   * @param[out] payload Buffer to receive the payload of the record.
+   * @param[in] payload_offset We copy from this byte position of the record.
+   * @param[in] payload_count How many bytes we copy.
+   * @pre payload_offset + payload_count must be within the record's actual payload size
+   * (returns kErrorCodeStrTooShortPayload if not)
+   */
+  ErrorCode   get_record_part(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
+
+  /**
+   * @brief Retrieves a part of the given key in this Masstree as a primitive value.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key_length Byte size of key.
+   * @param[out] payload Receive the payload of the record.
+   * @param[in] payload_offset We copy from this byte position of the record.
+   * @pre payload_offset + sizeof(PAYLOAD) must be within the record's actual payload size
+   * (returns kErrorCodeStrTooShortPayload if not)
+   * @tparam PAYLOAD primitive type of the payload. all integers and floats are allowed.
+   */
+  template <typename PAYLOAD>
+  ErrorCode   get_record_primitive(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    PAYLOAD* payload,
+    uint16_t payload_offset);
+
+  /**
+   * @brief Retrieves an entire record of the given primitive key in this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Primitive key that is evaluated in the primitive type's comparison rule.
+   * @param[out] payload Buffer to receive the payload of the record.
+   * @param[in,out] payload_capacity [In] Byte size of the payload buffer, [Out] length of
+   * the payload. This is set whether the payload capacity was too small or not.
+   */
+  ErrorCode   get_record_normalized(
+    thread::Thread* context,
+    NormalizedPrimitiveKey key,
+    void* payload,
+    uint16_t* payload_capacity);
+
+  /**
+   * @brief Retrieves a part of the given primitive key in this Masstree.
+   * @see get_record_part()
+   * @see get_record_normalized()
+   */
+  ErrorCode   get_record_part_normalized(
+    thread::Thread* context,
+    NormalizedPrimitiveKey key,
+    void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
+
+  /**
+   * @brief Retrieves a part of the given primitive key in this Masstree as a primitive value.
+   * @see get_record_normalized()
+   * @see get_record_primitive()
+   */
+  template <typename PAYLOAD>
+  ErrorCode   get_record_primitive_normalized(
+    thread::Thread* context,
+    NormalizedPrimitiveKey key,
+    PAYLOAD* payload,
+    uint16_t payload_offset);
+
+  // insert_record() methods
+
+  /**
+   * @brief Inserts a new record of the given key in this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key_length Byte size of key.
+   * @param[in] payload Value to insert.
+   * @param[in] payload_count Length of payload.
+   * @details
+   * If the key already exists, it returns kErrorCodeStrKeyAlreadyExists and also adds the
+   * found record to read set because it is part of transactional information.
+   */
+  ErrorCode   insert_record(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_count);
+
+  /**
+   * @brief Inserts a new record of the given primitive key in this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Primitive key that is evaluated in the primitive type's comparison rule.
+   * @param[in] payload Value to insert.
+   * @param[in] payload_count Length of payload.
+   */
+  ErrorCode   insert_record_normalized(
+    thread::Thread* context,
+    NormalizedPrimitiveKey key,
+    const void* payload,
+    uint16_t payload_count);
+
+  // delete_record() methods
+
+  /**
+   * @brief Deletes a record of the given key from this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key_length Byte size of key.
+   * @details
+   * When the key does not exist, it returns kErrorCodeStrKeyNotFound and also adds an appropriate
+   * record to \e range-lock read set because it is part of transactional information.
+   */
+  ErrorCode   delete_record(thread::Thread* context, const char* key, uint16_t key_length);
+
+  /**
+   * @brief Deletes a record of the given primitive key from this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Primitive key that is evaluated in the primitive type's comparison rule.
+   */
+  ErrorCode   delete_record_normalized(thread::Thread* context, NormalizedPrimitiveKey key);
+
+  // overwrite_record() methods
+
+  /**
+   * @brief Overwrites a part of one record of the given key in this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key_length Byte size of key.
+   * @param[in] payload We copy from this buffer. Must be at least payload_count.
+   * @param[in] payload_offset We overwrite to this byte position of the record.
+   * @param[in] payload_count How many bytes we overwrite.
+   * @details
+   * When payload_offset+payload_count is larger than the actual payload, this method returns
+   * kErrorCodeStrTooShortPayload. Just like get_record(), this adds to range-lock read set
+   * even when key is not found.
+   */
+  ErrorCode   overwrite_record(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
+
+  /**
+   * @brief Overwrites a part of one record of the given key in this Masstree as a primitive value.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key_length Byte size of key.
+   * @param[in] payload We copy this value.
+   * @param[in] payload_offset We overwrite to this byte position of the record.
+   * @pre payload_offset + sizeof(PAYLOAD) must be within the record's actual payload size
+   * (returns kErrorCodeStrTooShortPayload if not)
+   * @tparam PAYLOAD primitive type of the payload. all integers and floats are allowed.
+   */
+  template <typename PAYLOAD>
+  ErrorCode   overwrite_record_primitive(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    PAYLOAD payload,
+    uint16_t payload_offset);
+
+  /**
+   * @brief Overwrites a part of one record of the given primitive key in this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Primitive key that is evaluated in the primitive type's comparison rule.
+   * @param[in] payload We copy from this buffer. Must be at least payload_count.
+   * @param[in] payload_offset We overwrite to this byte position of the record.
+   * @param[in] payload_count How many bytes we overwrite.
+   * @see get_record_normalized()
+   */
+  ErrorCode   overwrite_record_normalized(
+    thread::Thread* context,
+    NormalizedPrimitiveKey key,
+    const void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
+
+  /**
+   * @brief Overwrites a part of one record of the given primitive key
+   * in this Masstree as a primitive value.
+   * @see overwrite_record_primitive()
+   * @see overwrite_record_normalized()
+   */
+  template <typename PAYLOAD>
+  ErrorCode   overwrite_record_primitive_normalized(
+    thread::Thread* context,
+    NormalizedPrimitiveKey key,
+    PAYLOAD payload,
+    uint16_t payload_offset);
+
+
+  // increment_record() methods
+
+  /**
+   * @brief This one further optimizes overwrite methods for the frequent use
+   * case of incrementing some data in primitive type.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key_length Byte size of key.
+   * @param[in,out] value (in) addendum, (out) value after addition.
+   * @param[in] payload_offset We overwrite to this byte position of the record.
+   * @pre payload_offset + sizeof(PAYLOAD) must be within the record's actual payload size
+   * (returns kErrorCodeStrTooShortPayload if not)
+   * @tparam PAYLOAD primitive type of the payload. all integers and floats are allowed.
+   */
+  template <typename PAYLOAD>
+  ErrorCode   increment_record(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    PAYLOAD* value,
+    uint16_t payload_offset);
+
+  /**
+   * @brief For primitive key.
+   * @see increment_record()
+   */
+  template <typename PAYLOAD>
+  ErrorCode   increment_record_normalized(
+    thread::Thread* context,
+    NormalizedPrimitiveKey key,
+    PAYLOAD* value,
+    uint16_t payload_offset);
+
+  // TODO(Hideaki): Extend/shrink/update methods for payload. A bit faster than delete + insert.
+
   /** Use this only if you know what you are doing. */
   MasstreeStoragePimpl*  get_pimpl() { return pimpl_; }
 

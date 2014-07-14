@@ -52,6 +52,131 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
 
   /** If this is true, initialize() reads it back from previous snapshot and logs. */
   bool                      exist_;
+
+  /** @copydoc foedus::storage::masstree::MasstreeStorage::get_record() */
+  ErrorCode get_record(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    void* payload,
+    uint16_t* payload_capacity);
+
+  /** @copydoc foedus::storage::masstree::MasstreeStorage::get_record_part() */
+  ErrorCode get_record_part(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
+
+  /** @copydoc foedus::storage::masstree::MasstreeStorage::get_record_primitive() */
+  template <typename PAYLOAD>
+  ErrorCode get_record_primitive(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    PAYLOAD* payload,
+    uint16_t payload_offset);
+
+  /** @copydoc foedus::storage::masstree::MasstreeStorage::get_record_normalized() */
+  ErrorCode get_record_normalized(
+    thread::Thread* context,
+    NormalizedPrimitiveKey key,
+    void* payload,
+    uint16_t* payload_capacity);
+
+  /** @copydoc foedus::storage::masstree::MasstreeStorage::get_record_part_normalized() */
+  ErrorCode get_record_part_normalized(
+    thread::Thread* context,
+    NormalizedPrimitiveKey key,
+    void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
+
+  /**
+   * @copydoc foedus::storage::masstree::MasstreeStorage::get_record_primitive_normalized()
+   */
+  template <typename PAYLOAD>
+  ErrorCode get_record_primitive_normalized(
+    thread::Thread* context,
+    NormalizedPrimitiveKey key,
+    PAYLOAD* payload,
+    uint16_t payload_offset);
+
+  /** @copydoc foedus::storage::masstree::MasstreeStorage::insert_record() */
+  ErrorCode insert_record(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_count);
+
+  /** @copydoc foedus::storage::masstree::MasstreeStorage::insert_record_normalized() */
+  ErrorCode insert_record_normalized(
+    thread::Thread* context,
+    NormalizedPrimitiveKey key,
+    const void* payload,
+    uint16_t payload_count);
+
+  /** @copydoc foedus::storage::masstree::MasstreeStorage::delete_record() */
+  ErrorCode delete_record(thread::Thread* context, const char* key, uint16_t key_length);
+
+  /** @copydoc foedus::storage::masstree::MasstreeStorage::delete_record_normalized() */
+  ErrorCode delete_record_normalized(thread::Thread* context, NormalizedPrimitiveKey key);
+
+  /** @copydoc foedus::storage::masstree::MasstreeStorage::overwrite_record() */
+  ErrorCode overwrite_record(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
+
+  /** @copydoc foedus::storage::masstree::MasstreeStorage::overwrite_record_primitive() */
+  template <typename PAYLOAD>
+  ErrorCode overwrite_record_primitive(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    PAYLOAD payload,
+    uint16_t payload_offset);
+
+  /** @copydoc foedus::storage::masstree::MasstreeStorage::overwrite_record_normalized() */
+  ErrorCode overwrite_record_normalized(
+    thread::Thread* context,
+    NormalizedPrimitiveKey key,
+    const void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
+
+  /**
+   * @copydoc foedus::storage::masstree::MasstreeStorage::overwrite_record_primitive_normalized()
+   */
+  template <typename PAYLOAD>
+  ErrorCode overwrite_record_primitive_normalized(
+    thread::Thread* context,
+    NormalizedPrimitiveKey key,
+    PAYLOAD payload,
+    uint16_t payload_offset);
+
+  /** @copydoc foedus::storage::masstree::MasstreeStorage::increment_record() */
+  template <typename PAYLOAD>
+  ErrorCode increment_record(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    PAYLOAD* value,
+    uint16_t payload_offset);
+
+  /** @copydoc foedus::storage::masstree::MasstreeStorage::increment_record_normalized() */
+  template <typename PAYLOAD>
+  ErrorCode increment_record_normalized(
+    thread::Thread* context,
+    NormalizedPrimitiveKey key,
+    PAYLOAD* value,
+    uint16_t payload_offset);
 };
 }  // namespace masstree
 }  // namespace storage

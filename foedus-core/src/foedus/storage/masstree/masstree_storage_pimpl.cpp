@@ -73,6 +73,197 @@ ErrorStack MasstreeStoragePimpl::create(thread::Thread* /*context*/) {
   engine_->get_storage_manager().get_pimpl()->register_storage(holder_);
   return kRetOk;
 }
+
+ErrorCode MasstreeStoragePimpl::get_record(
+  thread::Thread* /* context */,
+  const char* /* key */,
+  uint16_t /* key_length */,
+  void* /* payload */,
+  uint16_t* /* payload_capacity */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+ErrorCode MasstreeStoragePimpl::get_record_part(
+  thread::Thread* /* context */,
+  const char* /* key */,
+  uint16_t /* key_length */,
+  void* /* payload */,
+  uint16_t /* payload_offset */,
+  uint16_t /* payload_count */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+template <typename PAYLOAD>
+ErrorCode MasstreeStoragePimpl::get_record_primitive(
+  thread::Thread* /* context */,
+  const char* /* key */,
+  uint16_t /* key_length */,
+  PAYLOAD* /* payload */,
+  uint16_t /* payload_offset */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+ErrorCode MasstreeStoragePimpl::get_record_normalized(
+  thread::Thread* /* context */,
+  NormalizedPrimitiveKey /* key */,
+  void* /* payload */,
+  uint16_t* /* payload_capacity */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+ErrorCode MasstreeStoragePimpl::get_record_part_normalized(
+  thread::Thread* /* context */,
+  NormalizedPrimitiveKey /* key */,
+  void* /* payload */,
+  uint16_t /* payload_offset */,
+  uint16_t /* payload_count */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+template <typename PAYLOAD>
+ErrorCode MasstreeStoragePimpl::get_record_primitive_normalized(
+  thread::Thread* /* context */,
+  NormalizedPrimitiveKey /* key */,
+  PAYLOAD* /* payload */,
+  uint16_t /* payload_offset */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+ErrorCode MasstreeStoragePimpl::insert_record(
+  thread::Thread* /* context */,
+  const char* /* key */,
+  uint16_t /* key_length */,
+  const void* /* payload */,
+  uint16_t /* payload_count */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+ErrorCode MasstreeStoragePimpl::insert_record_normalized(
+  thread::Thread* /* context */,
+  NormalizedPrimitiveKey /* key */,
+  const void* /* payload */,
+  uint16_t /* payload_count */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+ErrorCode MasstreeStoragePimpl::delete_record(
+  thread::Thread* /* context */,
+  const char* /* key */,
+  uint16_t /* key_length */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+ErrorCode MasstreeStoragePimpl::delete_record_normalized(
+  thread::Thread* /* context */,
+  NormalizedPrimitiveKey /* key */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+ErrorCode MasstreeStoragePimpl::overwrite_record(
+  thread::Thread* /* context */,
+  const char* /* key */,
+  uint16_t /* key_length */,
+  const void* /* payload */,
+  uint16_t /* payload_offset */,
+  uint16_t /* payload_count */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+template <typename PAYLOAD>
+ErrorCode MasstreeStoragePimpl::overwrite_record_primitive(
+  thread::Thread* /* context */,
+  const char* /* key */,
+  uint16_t /* key_length */,
+  PAYLOAD /* payload */,
+  uint16_t /* payload_offset */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+ErrorCode MasstreeStoragePimpl::overwrite_record_normalized(
+  thread::Thread* /* context */,
+  NormalizedPrimitiveKey /* key */,
+  const void* /* payload */,
+  uint16_t /* payload_offset */,
+  uint16_t /* payload_count */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+template <typename PAYLOAD>
+ErrorCode MasstreeStoragePimpl::overwrite_record_primitive_normalized(
+  thread::Thread* /* context */,
+  NormalizedPrimitiveKey /* key */,
+  PAYLOAD /* payload */,
+  uint16_t /* payload_offset */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+template <typename PAYLOAD>
+ErrorCode MasstreeStoragePimpl::increment_record(
+  thread::Thread* /* context */,
+  const char* /* key */,
+  uint16_t /* key_length */,
+  PAYLOAD* /* value */,
+  uint16_t /* payload_offset */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+template <typename PAYLOAD>
+ErrorCode MasstreeStoragePimpl::increment_record_normalized(
+  thread::Thread* /* context */,
+  NormalizedPrimitiveKey /* key */,
+  PAYLOAD* /* value */,
+  uint16_t /* payload_offset */) {
+  return kErrorCodeOk;  // TODO(Hideaki) Implement
+}
+
+
+// Explicit instantiations for each payload type
+// @cond DOXYGEN_IGNORE
+#define EXPIN_1(x) template ErrorCode MasstreeStoragePimpl::get_record_primitive< x > \
+  (thread::Thread* context, const char* key, uint16_t key_length, x* payload, \
+    uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_1);
+
+#define EXPIN_2(x) template ErrorCode \
+  MasstreeStoragePimpl::get_record_primitive_normalized< x > \
+  (thread::Thread* context, NormalizedPrimitiveKey key, x* payload, uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_2);
+
+#define EXPIN_3(x) template ErrorCode \
+  MasstreeStoragePimpl::overwrite_record_primitive< x > \
+  (thread::Thread* context, const char* key, uint16_t key_length, x payload, \
+  uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_3);
+
+#define EXPIN_4(x) template ErrorCode \
+  MasstreeStoragePimpl::overwrite_record_primitive_normalized< x > \
+  (thread::Thread* context, NormalizedPrimitiveKey key, x payload, uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_4);
+
+#define EXPIN_5(x) template ErrorCode MasstreeStoragePimpl::increment_record< x > \
+  (thread::Thread* context, const char* key, uint16_t key_length, x* value, uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_5);
+
+#define EXPIN_6(x) template ErrorCode MasstreeStoragePimpl::increment_record_normalized< x > \
+  (thread::Thread* context, NormalizedPrimitiveKey key, x* value, uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_6);
+// @endcond
+
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus
