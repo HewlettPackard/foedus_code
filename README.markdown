@@ -51,7 +51,7 @@ In Fedora/RedHat/CentOS etc, run the following:
     sudo yum install libunwind libunwind-devel
     sudo yum install numactl numactl-devel google-perftools google-perftools-devel
     sudo yum install python python-*
-    sudo yum install doxygen graphviz mscgen texlive-epspdf sloccount kdevelop
+    sudo yum install doxygen texlive-eps* graphviz mscgen texlive-epspdf sloccount kdevelop
 
 For valgrind, check its version after installation.
 If it is not 3.9 or later, we recommend installing a newer one. See the section below.
