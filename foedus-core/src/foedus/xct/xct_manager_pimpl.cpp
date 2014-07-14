@@ -326,8 +326,6 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
       DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
       return false;
     }
-    // TODO(Hideaki) For data structures that have previous links, we need to check if
-    // it's latest. Array doesn't have it.
 
     // Remembers the highest epoch observed.
     commit_epoch->store_max(access.observed_owner_id_.get_epoch());
@@ -342,8 +340,16 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
     *commit_epoch = Epoch(engine_->get_log_manager().get_durable_global_epoch_weak());
   }
 
-  // TODO(Hideaki) Node set check. Now that we have persistent storages too, we need to also
-  // check the latest-ness of pages if we followed a snapshot pointer.
+  // Node set check.
+  const NodeAccess*       node_set = current_xct.get_node_set();
+  const uint32_t          node_set_size = current_xct.get_node_set_size();
+  for (uint32_t i = 0; i < node_set_size; ++i) {
+    const NodeAccess& access = node_set[i];
+    if (access.observed_.word != access.address_->word) {
+      DLOG(WARNING) << *context << " node set changed by other transaction. will abort";
+      return false;
+    }
+  }
   return true;
 }
 
@@ -384,8 +390,16 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
     }
   }
 
-  // TODO(Hideaki) Node set check. Now that we have persistent storages too, we need to also
-  // check the latest-ness of pages if we followed a snapshot pointer.
+  // Node set check.
+  const NodeAccess*       node_set = current_xct.get_node_set();
+  const uint32_t          node_set_size = current_xct.get_node_set_size();
+  for (uint32_t i = 0; i < node_set_size; ++i) {
+    const NodeAccess& access = node_set[i];
+    if (access.observed_.word != access.address_->word) {
+      DLOG(WARNING) << *context << " node set changed by other transaction. will abort";
+      return false;
+    }
+  }
   return true;
 }
 

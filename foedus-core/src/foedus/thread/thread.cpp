@@ -27,9 +27,9 @@ Thread::~Thread() {
 }
 
 ErrorStack Thread::initialize() {
-  global_volatile_page_resolver_
-    = pimpl_->engine_->get_memory_manager().get_global_volatile_page_resolver();
-  return pimpl_->initialize();
+  CHECK_ERROR(pimpl_->initialize());
+  global_volatile_page_resolver_ = pimpl_->global_volatile_page_resolver_;  // copy it from pimpl
+  return kRetOk;
 }
 bool Thread::is_initialized() const { return pimpl_->is_initialized(); }
 ErrorStack Thread::uninitialize() { return pimpl_->uninitialize(); }
@@ -58,6 +58,13 @@ ErrorCode Thread::find_or_read_a_snapshot_page(
   storage::Page** out) {
   return pimpl_->find_or_read_a_snapshot_page(page_id, out);
 }
+
+ErrorCode Thread::install_a_volatile_page(
+  storage::DualPagePointer* pointer,
+  storage::Page** installed_page) {
+  return pimpl_->install_a_volatile_page(pointer, installed_page);
+}
+
 
 std::ostream& operator<<(std::ostream& o, const Thread& v) {
   o << "Thread-" << v.get_thread_global_ordinal() << "(id=" << v.get_thread_id() << ") [";

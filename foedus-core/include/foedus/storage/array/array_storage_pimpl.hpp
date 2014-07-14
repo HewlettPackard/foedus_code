@@ -47,13 +47,31 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   ErrorStack  create(thread::Thread* context);
 
   // all per-record APIs are called so frequently, so returns ErrorCode rather than ErrorStack
-  ErrorCode   locate_record(thread::Thread* context, ArrayOffset offset,
-                Record **out) ALWAYS_INLINE;
-  ErrorCode   get_record(thread::Thread* context, ArrayOffset offset,
-          void *payload, uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE;
+  ErrorCode   locate_record_for_read(
+    thread::Thread* context,
+    ArrayOffset offset,
+    Record** out,
+    bool* snapshot_record) ALWAYS_INLINE;
+
+  ErrorCode   locate_record_for_write(
+    thread::Thread* context,
+    ArrayOffset offset,
+    Record** out) ALWAYS_INLINE;
+
+  ErrorCode   get_record(
+    thread::Thread* context,
+    ArrayOffset offset,
+    void *payload,
+    uint16_t payload_offset,
+    uint16_t payload_count) ALWAYS_INLINE;
+
   template <typename T>
-  ErrorCode   get_record_primitive(thread::Thread* context, ArrayOffset offset,
-            T *payload, uint16_t payload_offset);
+  ErrorCode   get_record_primitive(
+    thread::Thread* context,
+    ArrayOffset offset,
+    T *payload,
+    uint16_t payload_offset);
+
   ErrorCode   overwrite_record(thread::Thread* context, ArrayOffset offset,
       const void *payload, uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE;
   template <typename T>
@@ -63,8 +81,21 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   ErrorCode   increment_record(thread::Thread* context, ArrayOffset offset,
             T* value, uint16_t payload_offset);
 
-  ErrorCode   lookup(thread::Thread* context, ArrayOffset offset,
-            ArrayPage** out, uint16_t *index) ALWAYS_INLINE;
+  ErrorCode   lookup_for_read(
+    thread::Thread* context,
+    ArrayOffset offset,
+    ArrayPage** out,
+    uint16_t* index,
+    bool* snapshot_page) ALWAYS_INLINE;
+
+  /**
+   * This version always returns a volatile page, installing a new one if needed.
+   */
+  ErrorCode   lookup_for_write(
+    thread::Thread* context,
+    ArrayOffset offset,
+    ArrayPage** out,
+    uint16_t* index) ALWAYS_INLINE;
 
   /** Used only from uninitialize() */
   void        release_pages_recursive(

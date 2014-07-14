@@ -10,10 +10,29 @@
 
 #include "foedus/log/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
+#include "foedus/storage/storage_id.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace xct {
+
+/**
+ * @brief Represents a record of volatile node-access during a transaction.
+ * @ingroup XCT
+ * @details
+ * We have to track only accesses to volatile pages because snapshot pages are stable.
+ * @par POD
+ * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
+ */
+struct NodeAccess {
+  friend std::ostream& operator<<(std::ostream& o, const NodeAccess& v);
+
+  /** Address of the volatile pointer. */
+  const storage::VolatilePagePointer* address_;
+
+  /** Value of the volatile pointer as of the access. */
+  storage::VolatilePagePointer        observed_;
+};
 
 /**
  * @brief Represents a record of read-access during a transaction.

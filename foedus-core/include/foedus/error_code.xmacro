@@ -83,5 +83,6 @@ X(kErrorCodeXctWriteSetOverflow,    0x0A02, "XCTION : Too large write-set. Check
 X(kErrorCodeXctAlreadyRunning,      0x0A03, "XCTION : This thread is already running a transaction. Commit or abort it first.")
 X(kErrorCodeXctNoXct,               0x0A04, "XCTION : This thread is not running any transaction.")
 X(kErrorCodeXctRaceAbort,           0x0A05, "XCTION : Aborted a transaction because of a race condition. This is an expected error in highly contended case. You might retry the transaction.")
+X(kErrorCodeXctNodeSetOverflow,     0x0A06, "XCTION : Too large node-set. Consider using snapshot isolation.")
 
 X(kErrorCodeDbgGperftools,          0x0B01, "DEBUG  : Gperftools reported an error")

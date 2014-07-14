@@ -86,6 +86,9 @@ struct GlobalVolatilePageResolver CXX11_FINAL {
     operator=(other);
   }
   GlobalVolatilePageResolver& operator=(const GlobalVolatilePageResolver &other) {
+    ASSERT_ND(other.numa_node_count_ > 0);
+    ASSERT_ND(other.numa_node_count_ <= kMaxNumaNode);
+    ASSERT_ND(other.end_ > other.begin_);
     numa_node_count_ = other.numa_node_count_;
     begin_ = other.begin_;
     end_ = other.end_;

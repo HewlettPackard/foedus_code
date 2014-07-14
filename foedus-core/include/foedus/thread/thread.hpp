@@ -77,6 +77,22 @@ class Thread CXX11_FINAL : public virtual Initializable {
    */
   ErrorCode     read_a_snapshot_page(storage::SnapshotPagePointer page_id, storage::Page* buffer);
 
+  /**
+   * @brief Installs a volatile page to the given dual pointer as a copy of the snapshot page.
+   * @param[in,out] pointer dual pointer. volatile pointer will be modified.
+   * @param[out] installed_page physical pointer to the installed volatile page. This might point
+   * to a page installed by a concurrent thread.
+   * @pre pointer->snapshot_pointer_ != 0 (this method is for a page that already has snapshot)
+   * @pre pointer->volatile_pointer.components.offset == 0 (but not mandatory because
+   * concurrent threads might have installed it right now)
+   * @details
+   * This is called when a dual pointer has only a snapshot pointer, in other words it is "clean",
+   * to create a volatile version for modification.
+   */
+  ErrorCode     install_a_volatile_page(
+    storage::DualPagePointer* pointer,
+    storage::Page** installed_page);
+
   /** Returns the pimpl of this object. Use it only when you know what you are doing. */
   ThreadPimpl*  get_pimpl() const { return pimpl_; }
 

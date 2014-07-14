@@ -7,10 +7,13 @@
 #include <atomic>
 
 #include "foedus/initializable.hpp"
+#include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/cache/cache_hashtable.hpp"
 #include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
 #include "foedus/memory/fwd.hpp"
+#include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/memory/page_resolver.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
@@ -55,23 +58,20 @@ class ThreadPimpl final : public DefaultInitializable {
    */
   bool        try_impersonate(ImpersonateSession *session);
 
-  /**
-   * Find the given page in snapshot cache, reading it if not found.
-   * This method is very frequently used, so it must be very fast, thus inlined here.
-   */
+  /** @copydoc foedus::thread::Thread::find_or_read_a_snapshot_page() */
   ErrorCode   find_or_read_a_snapshot_page(
     storage::SnapshotPagePointer page_id,
     storage::Page** out) ALWAYS_INLINE;
 
-  /**
-   * Read a snapshot page using the thread-local file descriptor set.
-   * @attention this method always READs, so no caching done. Actually, this method is used
-   * from caching module when cache miss happens. To utilize cache,
-   * use find_or_read_a_snapshot_page().
-   */
+  /** @copydoc foedus::thread::Thread::read_a_snapshot_page() */
   ErrorCode   read_a_snapshot_page(
     storage::SnapshotPagePointer page_id,
     storage::Page* buffer) ALWAYS_INLINE;
+
+  /** @copydoc foedus::thread::Thread::install_a_volatile_page() */
+  ErrorCode   install_a_volatile_page(
+    storage::DualPagePointer* pointer,
+    storage::Page** installed_page);
 
   Engine* const           engine_;
 
@@ -90,6 +90,9 @@ class ThreadPimpl final : public DefaultInitializable {
    */
   const ThreadId          id_;
 
+  /** Node this thread belongs to */
+  const ThreadGroupId     numa_node_;
+
   /** globally and contiguously numbered ID of thread */
   const ThreadGlobalOrdinal global_ordinal_;
 
@@ -105,6 +108,11 @@ class ThreadPimpl final : public DefaultInitializable {
   memory::NumaNodeMemory* node_memory_;
   /** same above */
   cache::CacheHashtable*  snapshot_cache_hashtable_;
+
+  /** Page resolver to convert all page ID to page pointer. */
+  memory::GlobalVolatilePageResolver global_volatile_page_resolver_;
+  /** Page resolver to convert only local page ID to page pointer. */
+  memory::LocalPageResolver local_volatile_page_resolver_;
 
   /**
    * Thread-private log buffer.
