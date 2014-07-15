@@ -30,7 +30,7 @@ TEST(HashBasicTest, Create) {
     UninitializeGuard guard(&engine);
     HashStorage* out;
     Epoch commit_epoch;
-    HashMetadata meta("test");
+    HashMetadata meta("test", 8);
     COERCE_ERROR(engine.get_storage_manager().create_hash(&meta, &out, &commit_epoch));
     EXPECT_TRUE(out != nullptr);
     COERCE_ERROR(engine.uninitialize());
@@ -48,9 +48,11 @@ class QueryTask : public thread::ImpersonateTask {
     xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
     CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
     char key[100];
-    ErrorCode result= hash->get_record(context, key, 100, buf, 0, 16);
+    std::memset(key, 0, 100);
+    uint16_t payload_capacity = 16;
+    ErrorCode result = hash->get_record(context, key, 100, buf, &payload_capacity);
     if (result == kErrorCodeStrKeyNotFound) {
-      std::cout<<"Key not found!"<<std::endl;
+      std::cout << "Key not found!" << std::endl;
     } else if (result != kErrorCodeOk) {
       return ERROR_STACK(result);
     }
@@ -69,7 +71,7 @@ TEST(HashBasicTest, CreateAndQuery) {
     UninitializeGuard guard(&engine);
     HashStorage* out;
     Epoch commit_epoch;
-    HashMetadata meta("test2");
+    HashMetadata meta("test2", 8);
     COERCE_ERROR(engine.get_storage_manager().create_hash(&meta, &out, &commit_epoch));
     EXPECT_TRUE(out != nullptr);
     QueryTask task;
@@ -80,28 +82,30 @@ TEST(HashBasicTest, CreateAndQuery) {
   cleanup_test(options);
 }
 
-// TEST(HashBasicTest, CreateAndDrop) {
-//   EngineOptions options = get_tiny_options();
-//   Engine engine(options);
-//   COERCE_ERROR(engine.initialize());
-//   {
-//     UninitializeGuard guard(&engine);
-//     HashStorage* out;
-//     Epoch commit_epoch;
-//     HashMetadata meta("dd");
-//     COERCE_ERROR(engine.get_storage_manager().create_hash(&meta, &out, &commit_epoch));
-//     EXPECT_TRUE(out != nullptr);
-//     COERCE_ERROR(engine.get_storage_manager().drop_storage(out->get_id(), &commit_epoch));
-//     COERCE_ERROR(engine.uninitialize());
-//   }
-//   cleanup_test(options);
-// }
+TEST(HashBasicTest, CreateAndDrop) {
+  EngineOptions options = get_tiny_options();
+  Engine engine(options);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    HashStorage* out;
+    Epoch commit_epoch;
+    HashMetadata meta("dd", 8);
+    COERCE_ERROR(engine.get_storage_manager().create_hash(&meta, &out, &commit_epoch));
+    EXPECT_TRUE(out != nullptr);
+    COERCE_ERROR(engine.get_storage_manager().drop_storage(out->get_id(), &commit_epoch));
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
+}
 
-TEST(HashBasicTest, Test1) { // (name of package, test case's name) //gtest
-  int a=2*3;
+TEST(HashBasicTest, Test1) {  // (name of package, test case's name) //gtest
+  /*
+  int a = 2 * 3;
   int *array = new int[3];
-  array[1000]=6;
+  array[1000] = 6;
   EXPECT_EQ(7, a);
+  */
 }
 
 }  // namespace hash
