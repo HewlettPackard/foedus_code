@@ -70,18 +70,7 @@ class MasstreeIntermediatePage final {
   }
 
  private:
-  PageHeader          header_;      // +16 -> 16
-
-  /**
-   * Pointer to parent page is always only a volatile pointer, not dual pointer.
-   * We don't need to store the parent pointer in snapshot, and we can always guarantee
-   * that the parent pointer is non-null and valid unless this page is the root.
-   * We drop volatile pages only when we have dropped all volatile pages of its descendants,
-   * so there is no case where this parent pointer becomes invalid.
-   */
-  VolatilePagePointer parent_id_;   // +8  -> 24
-
-  VolatilePagePointer foster_child_id_;   // +8  -> 32
+  PageHeader          header_;      // +32 -> 32
 
   uint32_t            status_counter_;
   uint8_t             status_bits1_;
@@ -124,10 +113,7 @@ class MasstreeBoundaryPage final {
   }
 
  private:
-  PageHeader            header_;            // +16 -> 16
-
-  VolatilePagePointer   parent_id_;         // +8  -> 24
-  VolatilePagePointer   foster_child_id_;   // +8  -> 32
+  PageHeader            header_;            // +32 -> 32
 
   // +8
   uint32_t              status_counter_;

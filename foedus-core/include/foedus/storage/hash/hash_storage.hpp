@@ -125,7 +125,7 @@ class HashStorage CXX11_FINAL : public virtual Storage {
   // delete_record() methods
 
   /**
-   * @brief Deletes a record of the given key from this Masstree.
+   * @brief Deletes a record of the given key from this hash storage.
    * @param[in] context Thread context
    * @param[in] key Arbitrary length of key.
    * @param[in] key_length Byte size of key.
@@ -138,7 +138,7 @@ class HashStorage CXX11_FINAL : public virtual Storage {
   // overwrite_record() methods
 
   /**
-   * @brief Overwrites a part of one record of the given key in this Masstree.
+   * @brief Overwrites a part of one record of the given key in this hash storage.
    * @param[in] context Thread context
    * @param[in] key Arbitrary length of key.
    * @param[in] key_length Byte size of key.

@@ -127,7 +127,9 @@ bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
 
 ErrorCode ThreadPimpl::install_a_volatile_page(
   storage::DualPagePointer* pointer,
+  storage::Page*  volatile_parent_page,
   storage::Page** installed_page) {
+  ASSERT_ND(volatile_parent_page == nullptr || !volatile_parent_page->get_header().snapshot_);
   ASSERT_ND(pointer->snapshot_pointer_ != 0);
   storage::VolatilePagePointer cur_pointer = pointer->volatile_pointer_;
   if (UNLIKELY(cur_pointer.components.offset != 0)) {  // this happens only by concurrent installs
@@ -146,6 +148,13 @@ ErrorCode ThreadPimpl::install_a_volatile_page(
   }
   *installed_page = local_volatile_page_resolver_.resolve_offset(offset);
   std::memcpy(*installed_page, snapshot_page, storage::kPageSize);
+  // We copied from a snapshot page, so the snapshot flag is on.
+  ASSERT_ND((*installed_page)->get_header().snapshot_ == false);
+  // This page is a volatile page, so set the snapshot flag off and also set parent.
+  (*installed_page)->get_header().snapshot_ = false;
+  (*installed_page)->get_header().volatile_parent_ = volatile_parent_page;
+  ASSERT_ND((*installed_page)->get_header().root_ || volatile_parent_page);
+  ASSERT_ND(!(*installed_page)->get_header().root_ || volatile_parent_page == nullptr);
 
   while (true) {
     storage::VolatilePagePointer new_pointer;
@@ -167,6 +176,7 @@ ErrorCode ThreadPimpl::install_a_volatile_page(
           << ", snapshot page id=" << assorted::Hex(pointer->snapshot_pointer_);
         core_memory_->release_free_volatile_page(offset);
         *installed_page = global_volatile_page_resolver_.resolve_offset(cur_pointer);
+        ASSERT_ND((*installed_page)->get_header().snapshot_ == false);
         break;
       } else {
         // This is probably a bug, but we might only change mod count for some reason.

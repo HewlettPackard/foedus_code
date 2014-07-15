@@ -26,7 +26,7 @@ const uint16_t kMaxSlots = 1 << 15;
  * Byte size of header in each data page of sequential storage.
  * @ingroup SEQUENTIAL
  */
-const uint16_t kHeaderSize = 40;
+const uint16_t kHeaderSize = 56;
 /**
  * Byte size of data region in each data page of sequential storage.
  * @ingroup SEQUENTIAL
@@ -43,7 +43,7 @@ const uint16_t kMaxPayload = kDataSize;
  * Byte size of header in each root page of sequential storage.
  * @ingroup SEQUENTIAL
  */
-const uint16_t kRootPageHeaderSize = 32;
+const uint16_t kRootPageHeaderSize = 48;
 
 /**
  * Maximum number of head pointers in one root page.

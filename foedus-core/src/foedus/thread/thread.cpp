@@ -65,8 +65,9 @@ ErrorCode Thread::find_or_read_a_snapshot_page(
 
 ErrorCode Thread::install_a_volatile_page(
   storage::DualPagePointer* pointer,
+  storage::Page*  parent_volatile_page,
   storage::Page** installed_page) {
-  return pimpl_->install_a_volatile_page(pointer, installed_page);
+  return pimpl_->install_a_volatile_page(pointer, parent_volatile_page, installed_page);
 }
 
 

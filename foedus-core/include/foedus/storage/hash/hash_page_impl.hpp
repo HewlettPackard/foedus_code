@@ -32,6 +32,7 @@ class HashRootPage final {
   HashRootPage(const HashRootPage& other) = delete;
   HashRootPage& operator=(const HashRootPage& other) = delete;
 
+  const PageHeader&       header() const { return header_; }
   DualPagePointer&        pointer(uint16_t index) { return pointers_[index]; }
   const DualPagePointer&  pointer(uint16_t index) const { return pointers_[index]; }
 
@@ -40,7 +41,7 @@ class HashRootPage final {
 
  private:
   /** common header */
-  PageHeader          header_;        // +16 -> 16
+  PageHeader          header_;        // +32 -> 32
 
   /**
    * Pointers to child nodes.
@@ -86,6 +87,7 @@ class HashBinPage final {
     DualPagePointer data_pointer_;        // +16 -> 64
   };
 
+  const PageHeader&       header() const { return header_; }
   inline const Bin& bin(uint16_t i) const ALWAYS_INLINE {
     ASSERT_ND(i < kBinsPerPage);
     return bins_[i];
@@ -111,17 +113,17 @@ class HashBinPage final {
 
  private:
   /** common header */
-  PageHeader  header_;        // +16 -> 16
+  PageHeader  header_;        // +32 -> 32
 
   // we don't need anything else for hash bin page, but we have to make it 64bit-filled.
   // so, let's put auxiliary information for sanity-check.
 
   /** Inclusive beginning of bin number that belong to this page */
-  uint64_t    begin_bin_;   // +8 -> 24
+  uint64_t    begin_bin_;   // +8 -> 40
   /** Exclusive end of bin number that belong to this page */
-  uint64_t    end_bin_;     // +8 -> 32
+  uint64_t    end_bin_;     // +8 -> 48
 
-  char        dummy_[32];   // +32 -> 64
+  char        dummy_[16];   // +16 -> 64
 
   /**
    * Pointers to child nodes.
@@ -180,6 +182,7 @@ class HashDataPage final {
   HashDataPage& operator=(const HashDataPage& other) = delete;
 
   // simple accessors
+  const PageHeader&       header() const { return header_; }
   inline const xct::XctId&  page_owner() const ALWAYS_INLINE { return page_owner_; }
   inline xct::XctId&        page_owner() ALWAYS_INLINE { return page_owner_; }
   inline const DualPagePointer&  next_page() const ALWAYS_INLINE { return next_page_; }
@@ -203,7 +206,7 @@ class HashDataPage final {
   }
 
  private:
-  PageHeader      header_;      // +16 -> 16
+  PageHeader      header_;      // +32 -> 32
 
   /**
    * This is used for coarse-grained locking for entries in this page (including next pages).
@@ -211,24 +214,24 @@ class HashDataPage final {
    * Others just adds this to read set to be aware of new entries.
    * Note that even deletion doesn't lock it because it just puts the deletion flag.
    */
-  xct::XctId      page_owner_;  // +8 -> 24
+  xct::XctId      page_owner_;  // +8 -> 40
 
   /**
    * When records don't fit one page (eg very long key or value),
    * Could be an array of pointer here to avoid following all pages as we can have only 23 entries
    * per bin. Let's revisit later.
    */
-  DualPagePointer next_page_;   // +16 -> 40
+  DualPagePointer next_page_;   // +16 -> 56
 
   /**
    * How many records do we \e physically have in this bin.
    * @invariant record_count_ <= kMaxEntriesPerBin
    */
-  uint16_t        record_count_;  // +2 -> 42
+  uint16_t        record_count_;  // +2 -> 58
   /** High 16 bits of hash bin (Assuming #bins fits 48 bits). Used only for sanity check. */
-  uint16_t        bin_high_;  // +2 -> 44
+  uint16_t        bin_high_;  // +2 -> 60
   /** Low 32 bits of hash bin. Used only for sanity check. */
-  uint32_t        bin_low_;   // +4 -> 48
+  uint32_t        bin_low_;   // +4 -> 64
 
   /**
    * Record slots for each record. We initially planned to have this at the end of data
@@ -236,7 +239,7 @@ class HashDataPage final {
    * So, wouldn't matter to have it here always spending this negligible size.
    * When we somehow allow more entries per bin, we will revisit this.
    */
-  Slot            slots_[kMaxEntriesPerBin];  // +8*23 -> 232
+  Slot            slots_[kMaxEntriesPerBin];  // +8*23 -> 248
 
   /**
    * Contiguous record data.

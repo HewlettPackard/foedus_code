@@ -11,16 +11,36 @@
 namespace foedus {
 namespace storage {
 namespace array {
-void ArrayPage::initialize_data_page(
-  Epoch initial_epoch,
+void ArrayPage::initialize_snapshot_page(
   StorageId storage_id,
-  uint64_t page_id,
+  SnapshotPagePointer page_id,
   uint16_t payload_size,
   uint8_t level,
+  bool    root,
   const ArrayRange& array_range) {
   std::memset(this, 0, kPageSize);
-  header_.storage_id_ = storage_id;
-  header_.page_id_ = page_id;
+  header_.init_snapshot(page_id, storage_id, kArrayPageType, root);
+  payload_size_ = payload_size;
+  level_ = level;
+  array_range_ = array_range;
+}
+
+void ArrayPage::initialize_volatile_page(
+  Epoch initial_epoch,
+  StorageId storage_id,
+  VolatilePagePointer page_id,
+  uint16_t payload_size,
+  uint8_t level,
+  bool    root,
+  const ArrayRange& array_range,
+  ArrayPage* parent) {
+  std::memset(this, 0, kPageSize);
+  header_.init_volatile(
+    page_id,
+    storage_id,
+    kArrayPageType,
+    root,
+    reinterpret_cast<Page*>(parent));
   payload_size_ = payload_size;
   level_ = level;
   array_range_ = array_range;
@@ -31,6 +51,8 @@ void ArrayPage::initialize_data_page(
     }
   }
 }
+
+
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus
