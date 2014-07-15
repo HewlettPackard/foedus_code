@@ -35,6 +35,7 @@ void HashStorage::describe(std::ostream* o_ptr) const {
   o << "<HashStorage>"
     << "<id>" << get_id() << "</id>"
     << "<name>" << get_name() << "</name>"
+    << "<bin_bits>" << static_cast<int>(pimpl_->metadata_.bin_bits_) << "</bin_bits>"
     << "</HashStorage>";
 }
 
@@ -64,7 +65,8 @@ void HashStorageFactory::add_create_log(const Metadata* metadata, thread::Thread
   log_entry->populate(
     casted->id_,
     casted->name_.size(),
-    casted->name_.data());
+    casted->name_.data(),
+    casted->bin_bits_);
 }
 
 // most other methods are defined in pimpl.cpp to allow inlining

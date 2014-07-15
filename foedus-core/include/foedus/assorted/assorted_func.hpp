@@ -99,6 +99,26 @@ struct Hex {
   friend std::ostream& operator<<(std::ostream& o, const Hex& v);
 };
 
+/**
+ * @brief Write only first few bytes to stream.
+ * @ingroup ASSORTED
+ * @details
+ * Use it as follows.
+ * @code{.cpp}
+ * std::cout << Top("abcdefghijklmn", 3) << ...
+ * // outputs "abc..."
+ * @endcode
+ */
+struct Top {
+  Top(const char* data, uint32_t data_len, uint32_t max_bytes = 8)
+    : data_(data), data_len_(data_len), max_bytes_(max_bytes) {}
+
+  const char*   data_;
+  uint32_t      data_len_;
+  uint32_t      max_bytes_;
+  friend std::ostream& operator<<(std::ostream& o, const Top& v);
+};
+
 
 /**
  * @brief Equivalent to _mm_pause() or x86 PAUSE instruction.

@@ -12,11 +12,16 @@
 namespace foedus {
 namespace storage {
 namespace hash {
+class   HashBinPage;
+struct  HashCombo;
 struct  HashCreateLogType;
-struct  HashOverwriteLogType;
+class   HashDataPage;
+struct  HashDeleteLogType;
+struct  HashInsertLogType;
 struct  HashMetadata;
-class   HashPage;
+struct  HashOverwriteLogType;
 class   HashPartitioner;
+class   HashRootPage;
 class   HashStorage;
 class   HashStorageFactory;
 class   HashStoragePimpl;

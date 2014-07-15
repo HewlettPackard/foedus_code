@@ -133,4 +133,4 @@ class ArrayStoragePimpl final : public DefaultInitializable {
 }  // namespace storage
 }  // namespace foedus
 #endif  // FOEDUS_STORAGE_ARRAY_ARRAY_STORAGE_PIMPL_HPP_
-                                                                                                                                                              
+

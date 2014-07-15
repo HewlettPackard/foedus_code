@@ -13,8 +13,8 @@
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
-#include "foedus/storage/hash/hash_id.hpp"
 #include "foedus/storage/hash/fwd.hpp"
+#include "foedus/storage/hash/hash_id.hpp"
 #include "foedus/thread/fwd.hpp"
 
 namespace foedus {
@@ -50,23 +50,114 @@ class HashStorage CXX11_FINAL : public virtual Storage {
   StorageType         get_type()  const CXX11_OVERRIDE { return kHashStorage; }
   const std::string&  get_name()  const CXX11_OVERRIDE;
   const Metadata*     get_metadata()  const CXX11_OVERRIDE;
-  const HashMetadata*  get_hash_metadata()  const;
+  const HashMetadata* get_hash_metadata()  const;
   bool                exists()    const CXX11_OVERRIDE;
   ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
+  void                describe(std::ostream* o) const CXX11_OVERRIDE;
 
- 
+
+  //// Hash table API
+  // TODO(Hideaki) Add primitive-optimized versions and increment versions. Later.
+
+  // get_record() methods
+
   /**
-   * @brief Retrieves one record of the given offset in this hash storage.
+   * @brief Retrieves an entire payload of the given key in this hash storage.
    * @param[in] context Thread context
-   * @param[in] offset The offset in this hash
-   * @param[out] payload We copy the record to this address. Must be at least get_payload_size().
-   * @pre offset < get_hash_size()
+   * @param[in] key Arbitrary length of key.
+   * @param[in] key_length Byte size of key.
+   * @param[out] payload Buffer to receive the payload of the record.
+   * @param[in,out] payload_capacity [In] Byte size of the payload buffer, [Out] length of
+   * the payload. This is set whether the payload capacity was too small or not.
    * @details
-   * Equivalent to get_record(context, offset, payload, 0, get_payload_size()).
+   * When payload_capacity is smaller than the actual payload, this method returns
+   * kErrorCodeStrTooSmallPayloadBuffer and payload_capacity is set to be the required length.
+   *
+   * On the other hand, when the key is not found (kErrorCodeStrKeyNotFound), we add an appropriate
+   * bin mod counter to read set because it is part of a transactional information.
    */
-  ErrorCode  get_record(thread::Thread* context, const void *key, uint16_t key_length, void *payload, uint16_t payload_offset, uint16_t payload_count);
+  ErrorCode get_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    void* payload,
+    uint16_t* payload_capacity);
 
-  void        describe(std::ostream* o) const CXX11_OVERRIDE;
+  /**
+   * @brief Retrieves a part of the given key in this hash storage.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key.
+   * @param[in] key_length Byte size of key.
+   * @param[out] payload Buffer to receive the payload of the record.
+   * @param[in] payload_offset We copy from this byte position of the record.
+   * @param[in] payload_count How many bytes we copy.
+   * @pre payload_offset + payload_count must be within the record's actual payload size
+   * (returns kErrorCodeStrTooShortPayload if not)
+   */
+  ErrorCode get_record_part(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
+
+  // insert_record() methods
+
+  /**
+   * @brief Inserts a new record of the given key in this hash storage.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key.
+   * @param[in] key_length Byte size of key.
+   * @param[in] payload Value to insert.
+   * @param[in] payload_count Length of payload.
+   * @details
+   * If the key already exists, it returns kErrorCodeStrKeyAlreadyExists and we add an appropriate
+   * bin mod counter to read set because it is part of a transactional information.
+   */
+  ErrorCode   insert_record(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_count);
+
+  // delete_record() methods
+
+  /**
+   * @brief Deletes a record of the given key from this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key.
+   * @param[in] key_length Byte size of key.
+   * @details
+   * When the key does not exist, it returns kErrorCodeStrKeyNotFound and we add an appropriate
+   * bin mod counter to read set because it is part of a transactional information.
+   */
+  ErrorCode   delete_record(thread::Thread* context, const char* key, uint16_t key_length);
+
+  // overwrite_record() methods
+
+  /**
+   * @brief Overwrites a part of one record of the given key in this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key.
+   * @param[in] key_length Byte size of key.
+   * @param[in] payload We copy from this buffer. Must be at least payload_count.
+   * @param[in] payload_offset We overwrite to this byte position of the record.
+   * @param[in] payload_count How many bytes we overwrite.
+   * @details
+   * When payload_offset+payload_count is larger than the actual payload, this method returns
+   * kErrorCodeStrTooShortPayload. Just like others, when the key does not exist,
+   * it returns kErrorCodeStrKeyNotFound and we add an appropriate
+   * bin mod counter to read set because it is part of a transactional information.
+   */
+  ErrorCode   overwrite_record(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
 
   /** Use this only if you know what you are doing. */
   HashStoragePimpl*  get_pimpl() { return pimpl_; }

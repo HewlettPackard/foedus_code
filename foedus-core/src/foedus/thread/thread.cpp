@@ -48,6 +48,10 @@ bool        Thread::is_running_xct()    const { return pimpl_->current_xct_.is_a
 
 log::ThreadLogBuffer& Thread::get_thread_log_buffer() { return pimpl_->log_buffer_; }
 
+const memory::LocalPageResolver& Thread::get_local_volatile_page_resolver() const {
+  return pimpl_->local_volatile_page_resolver_;
+}
+
 ErrorCode Thread::read_a_snapshot_page(
   storage::SnapshotPagePointer page_id,
   storage::Page* buffer) {
