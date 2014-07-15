@@ -96,6 +96,7 @@ inline uint8_t get_tag(thread::Thread* context, uint32_t bin, uint32_t x){
   return 0;
 }
 
+int bin_size = 4;
 
 
 
@@ -105,7 +106,7 @@ inline ErrorCode HashStoragePimpl::get_record(thread::Thread* context,
   bool exists = false;
   uint64_t bin = compute_hash(key, key_length);
   uint8_t tag = compute_tag(key, key_length);
-//   for(uint8_t x=0; x<4; x++){
+//   for(uint8_t x=0; x<bin_size; x++){
 //     uint8_t tag2 = get_tag(context, bin, x);
 //     if(tag == tag2) {
 //       if(*key == get_key(context, bin, x)){
@@ -117,7 +118,7 @@ inline ErrorCode HashStoragePimpl::get_record(thread::Thread* context,
 //     }
 //   }
 //   bin = bin ^ compute_tag_hash(tag);
-//   for(uint8_t x=0; x<4; x++){
+//   for(uint8_t x=0; x<bin_size; x++){
 //     uint8_t tag2 = get_tag(context, bin, x);
 //     if(tag == tag2) {
 //       if(*key == get_key(context, bin, x)){
@@ -160,15 +161,15 @@ inline ErrorCode HashStoragePimpl::write_new_record(thread::Thread* context, uin
 }
 
 ErrorCode get_cuckoo_path(thread::Thread* context, std::vector<uint16_t>* nodes, std::vector<uint16_t>* adjacentnodes, uint16_t depth, uint64_t *place_tracker){
-    if(depth > 4) return kErrorCodeStrCuckooTooDeep; //need to define the error code //4 is max depth
+    if(depth > bin_size) return kErrorCodeStrCuckooTooDeep; //need to define the error code //bin_size is max depth
        // give place_tracker more bits
     for(uint16_t a = 0; a < nodes -> size(); a++){
-      for(uint8_t x = 0; x < 4; x++){
+      for(uint8_t x = 0; x < bin_size; x++){
         uint16_t newbin = get_other_bin(context, (*nodes)[a], x);
         adjacentnodes -> push_back(newbin); //stick adjacent nodes in new bins
-        for(uint8_t y=0; y < 4; y++){
+        for(uint8_t y=0; y < bin_size; y++){
           if(get_tag(context, newbin, y) == 0){ //If we find an end position in the path
-            (*place_tracker) *= 4;
+            (*place_tracker) *= bin_size;
             (*place_tracker) += y; //add on the information for the position used in the final bucket in path
             return kErrorCodeOk;
           }
@@ -185,7 +186,7 @@ ErrorCode execute_path(thread::Thread* context, uint16_t bin, std::vector<uint16
 //   path.pop_back();
 //   uint8_t new_bin_pos = path[path.size()-1]; // is a number from 0 to 3
 //   uint16_t newbin = get_other_bin(context, bin, bin_pos);
-//   if(path.size() > 1) CHECK_ERROR_CODE(execute_path(context, newbin, place_tracker / 4));
+//   if(path.size() > 1) CHECK_ERROR_CODE(execute_path(context, newbin, place_tracker / bin_size));
 //   (*place_tracker) ++;
 //   // TODO(Bill): need to figure out how to actually get payload and payload_count (this basically has to do with page layout I think
 //   // If I wanted to make it look good write now, I could just pretend I had functions for them (just like I did for some other things)
@@ -198,18 +199,52 @@ ErrorCode execute_path(thread::Thread* context, uint16_t bin, std::vector<uint16
   return kErrorCodeOk;
 }
 
+
+bool is_empty(int bin, int position){
+  return true;
+}
+
+void transfer(int bin, int pos, int bin2, int pos2){
+}
+
+/*
+ErrorCode bfschain(Thread::thread* context, std::vector<int> nodes, int &freebin, int &freepos){
+    std::vector<node> adjacent(0);
+    for(int x=0; x<nodes.size(); x++){ //for each bin in node set
+      for(int y = 0; y < bin_size; y++){ //for each position in bin
+        int other_bin = get_other_bin(context, nodes[x], y); //get the adjacent bin
+        for(int z=0; z<bin_size; z++){ //for each position in adjacent bin
+          if(is_empty(other_bin, z)) { //if that position is empty //NEED TO DEFINE
+            transfer(nodes[x], y, other_bin, z); //transfer into that position from the bin in the node set
+            freebin = x;
+            freepos = y;
+            return kErrorCodeOk;
+          }
+        }
+        adjacent.push_back(other_bin);
+      }
+    }
+    CHECK_ERROR_CODE(bfschain(adjacent, freebin, freepos));
+    transfer(nodes[freebin / bin_size], freebin % bin_size, adjacent[freebin], freepos);
+    freepos = freebin % bin_size;
+    freebin = freebin / bin_size;
+    return kErrorCodeOk;
+}
+*/
+
+
 ErrorCode HashStoragePimpl::insert_record(thread::Thread* context, const void* key,
                                           uint16_t key_length, const void* payload, uint16_t payload_count) {
   //Do I actually need to add anything to the read set in this function?
   uint64_t bin = compute_hash(key, key_length);
   uint8_t tag = compute_tag(key, key_length);
-  for(uint8_t x=0; x<4; x++){
+  for(uint8_t x=0; x<bin_size; x++){
     if(get_tag(context, bin, x) == 0) { //special value of tag that we need to make sure never occurs
       return write_new_record(context, bin, x, key, tag, payload, payload_count); //Needs to be written still
     }
   }
   bin = bin ^ tag;
-  for(uint8_t x=0; x<4; x++){
+  for(uint8_t x=0; x<bin_size; x++){
     if(get_tag(context, bin, x) == 0) { //special value of tag that we need to make sure never occurs
       return write_new_record(context, bin, x, key, tag, payload, payload_count); //Needs to be written still
     }
@@ -222,11 +257,11 @@ ErrorCode HashStoragePimpl::insert_record(thread::Thread* context, const void* k
   std::vector<uint16_t> adjacentnodes;
   nodes.push_back(bin);
   CHECK_ERROR_CODE(get_cuckoo_path(context, &nodes, &adjacentnodes, 0, &place_tracker));
-  //First we want to reverse place_tracker in base 4 (base 4 because we're using 4-way associativity)
+  //First we want to reverse place_tracker in base bin_size (base bin_size because we're using bin_size-way associativity)
   std::vector <uint16_t> path;
   while(place_tracker > 0){
-    path.push_back(place_tracker % 4);
-    place_tracker /= 4;
+    path.push_back(place_tracker % bin_size);
+    place_tracker /= bin_size;
   }
   //Now we're ready to execute the path
   CHECK_ERROR_CODE(execute_path(context, bin, path));
