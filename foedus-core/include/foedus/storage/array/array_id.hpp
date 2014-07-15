@@ -52,7 +52,7 @@ struct ArrayRange {
  * @brief Byte size of header in each page of array storage.
  * @ingroup ARRAY
  */
-const uint16_t kHeaderSize = 48;
+const uint16_t kHeaderSize = 64;
 /**
  * @brief Byte size of data region in each page of array storage.
  * @ingroup ARRAY

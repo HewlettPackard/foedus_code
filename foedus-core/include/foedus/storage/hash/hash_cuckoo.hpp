@@ -133,10 +133,6 @@ struct HashCombo {
   uint16_t      payload_length_;
   /** Sets only when record_ is set. Whether it came from bins_[0] (bin1, oh, 0 base) or not.  */
   bool          record_bin1_;
-  /** Did we see a snapshot bin page? */
-  bool          bin_snapshot_[2];
-  /** Did we see a snapshot data page? */
-  bool          data_snapshot_[2];
   /** We copy this BEFORE checking tags. */
   uint16_t      observed_mod_count_[2];
   /** Bitmap of tags that hit. kMaxEntriesPerBin bits < 32bit */
@@ -319,10 +315,6 @@ inline void HashCombo::init(uint64_t hash, HashTag tag, uint8_t bin_bits) {
 
   payload_length_ = 0;
   record_bin1_ = false;
-  bin_snapshot_[0] = false;
-  bin_snapshot_[1] = false;
-  data_snapshot_[0] = false;
-  data_snapshot_[1] = false;
   observed_mod_count_[0] = 0;
   observed_mod_count_[1] = 0;
   hit_bitmap_[0] = 0;

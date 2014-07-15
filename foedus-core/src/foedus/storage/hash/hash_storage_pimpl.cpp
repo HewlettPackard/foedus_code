@@ -348,8 +348,8 @@ ErrorCode HashStoragePimpl::insert_record(
   // a new volatile page. also, we need to physically create a record.
   HashDataPage* data_page = combo.data_pages_[choice];
   HashBinPage* bin_page = combo.bin_pages_[choice];
-  if (combo.data_snapshot_[choice] || data_page == nullptr) {
-    if (combo.bin_snapshot_[choice] || bin_page == nullptr) {
+  if (data_page == nullptr || data_page->header().snapshot_) {
+    if (bin_page == nullptr || bin_page->header().snapshot_) {
       // bin page too
       uint16_t pointer_index;
       HashRootPage* boundary = lookup_boundary_root(context, combo.bins_[choice], &pointer_index);
@@ -359,6 +359,7 @@ ErrorCode HashStoragePimpl::insert_record(
       if (pointer.snapshot_pointer_ != 0) {
         CHECK_ERROR_CODE(context->install_a_volatile_page(
           &pointer,
+          reinterpret_cast<Page*>(boundary),
           reinterpret_cast<Page**>(&bin_page)));
       } else {
         memory::PagePoolOffset offset = context->get_thread_memory()->grab_free_volatile_page();
@@ -394,6 +395,7 @@ ErrorCode HashStoragePimpl::insert_record(
     if (pointer.snapshot_pointer_ != 0) {
       CHECK_ERROR_CODE(context->install_a_volatile_page(
         &pointer,
+        reinterpret_cast<Page*>(bin_page),
         reinterpret_cast<Page**>(&data_page)));
     } else {
       memory::PagePoolOffset offset = context->get_thread_memory()->grab_free_volatile_page();
@@ -420,8 +422,8 @@ ErrorCode HashStoragePimpl::insert_record(
     }
   }
 
-  ASSERT_ND(bin_page);
-  ASSERT_ND(data_page);
+  ASSERT_ND(bin_page && !bin_page->header().snapshot_);
+  ASSERT_ND(data_page && !data_page->header().snapshot_);
 
   uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
   HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
@@ -445,7 +447,7 @@ ErrorCode HashStoragePimpl::delete_record(
     return kErrorCodeStrKeyNotFound;
   }
 
-  if (combo.data_snapshot_[combo.record_bin1_ ? 0 : 1]) {
+  if (combo.data_pages_[combo.record_bin1_ ? 0 : 1]->header().snapshot_) {
     // TODO(Hideaki) the data page is a snapshot page. we have to install a new volatile page
   }
 
@@ -478,7 +480,7 @@ ErrorCode HashStoragePimpl::overwrite_record(
     return kErrorCodeStrTooShortPayload;
   }
 
-  if (combo.data_snapshot_[combo.record_bin1_ ? 0 : 1]) {
+  if (combo.data_pages_[combo.record_bin1_ ? 0 : 1]->header().snapshot_) {
     // TODO(Hideaki) the data page is a snapshot page. we have to install a new volatile page
   }
 
@@ -540,7 +542,6 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, HashCombo* combo
         // then we have to follow it anyway
         combo->bin_pages_[i] = reinterpret_cast<HashBinPage*>(
           page_resolver.resolve_offset(volatile_pointer));
-        combo->bin_snapshot_[i] = false;
       }
     } else {
       // if there is a snapshot page, we have a few more choices.
@@ -551,11 +552,9 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, HashCombo* combo
         CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
           pointer.snapshot_pointer_,
           reinterpret_cast<Page**>(&combo->bin_pages_[i])));
-        combo->bin_snapshot_[i] = true;
       } else {
         combo->bin_pages_[i] = reinterpret_cast<HashBinPage*>(
           page_resolver.resolve_offset(volatile_pointer));
-        combo->bin_snapshot_[i] = false;
       }
     }
   }
@@ -564,7 +563,7 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, HashCombo* combo
   for (uint8_t i = 0; i < 2; ++i) {
     uint16_t bin_pos = combo->bins_[i] % kBinsPerPage;
     if (combo->bin_pages_[i]) {
-      bool snapshot = combo->bin_snapshot_[i];
+      bool snapshot = combo->bin_pages_[i]->header().snapshot_;
       if (i == 0 && combo->bin_pages_[1]) {
         // when we are reading from both of them we prefetch the two 64 bytes.
         // if we are reading from only one of them, no need.
@@ -599,7 +598,6 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, HashCombo* combo
               current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot)) {
           combo->data_pages_[i] = reinterpret_cast<HashDataPage*>(
             page_resolver.resolve_offset(volatile_pointer));
-          combo->data_snapshot_[i] = false;
         } else {
           if (!snapshot) {
             // if bin page is snapshot, data page is stable
@@ -608,7 +606,6 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, HashCombo* combo
           CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
             pointer.snapshot_pointer_,
             reinterpret_cast<Page**>(&combo->data_pages_[i])));
-          combo->data_snapshot_[i] = true;
         }
       } else {
         combo->data_pages_[i] = nullptr;
