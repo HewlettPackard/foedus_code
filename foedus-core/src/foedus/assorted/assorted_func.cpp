@@ -9,6 +9,7 @@
 #endif  // __GNUC__
 #include <stdint.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <sstream>
@@ -66,6 +67,19 @@ std::ostream& operator<<(std::ostream& o, const Hex& v) {
   }
   o << std::hex << std::uppercase << v.val_;
   o.flags(old_flags);
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const Top& v) {
+  for (uint32_t i = 0; i < std::min<uint32_t>(v.data_len_, v.max_bytes_); ++i) {
+    o << i << ":" << static_cast<int>(v.data_[i]);
+    if (i != 0) {
+      o << ", ";
+    }
+  }
+  if (v.data_len_ > v.max_bytes_) {
+    o << "...";
+  }
   return o;
 }
 

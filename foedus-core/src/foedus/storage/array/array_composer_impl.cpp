@@ -193,12 +193,12 @@ ErrorStack ArrayComposer::construct_root(
       root_page->header().page_id_ = new_page_id;
     } else {
       ArrayRange range(0, offset_intervals_[levels_ - 1]);
-      root_page->initialize_data_page(
-        new_snapshot_.base_epoch_,
+      root_page->initialize_snapshot_page(
         storage_id_,
         new_page_id,
         payload_size_,
         levels_ - 1,
+        true,
         range);
     }
 
@@ -359,12 +359,12 @@ void ArrayComposer::compose_init_context_empty_cur_path() {
     SnapshotPagePointer new_page_id = allocated_intermediates_;
     ++allocated_intermediates_;
     ArrayRange range = calculate_array_range(next_route_, level);
-    page->initialize_data_page(
-      new_snapshot_.base_epoch_,
+    page->initialize_snapshot_page(
       storage_id_,
       new_page_id,
       payload_size_,
       level,
+      level == levels_ - 1,
       range);
     cur_path_[level] = page;
     DualPagePointer& pointer = page->get_interior_record(next_route_.route[level]);
@@ -381,12 +381,12 @@ void ArrayComposer::compose_init_context_empty_cur_path() {
     SnapshotPagePointer new_page_id = snapshot_writer_->get_next_page_id() + allocated_pages_;
     ++allocated_pages_;
     ArrayRange range = calculate_array_range(next_route_, 0);
-    page->initialize_data_page(
-      new_snapshot_.base_epoch_,
+    page->initialize_snapshot_page(
       storage_id_,
       new_page_id,
       payload_size_,
       0,
+      0 == levels_ - 1,
       range);
     cur_path_[0] = page;
   }
@@ -541,12 +541,12 @@ inline ErrorCode ArrayComposer::read_or_init_page(
   } else {
     ASSERT_ND(previous_root_page_pointer_ == 0);
     ArrayRange range = calculate_array_range(route, level);
-    page->initialize_data_page(
-      new_snapshot_.base_epoch_,
+    page->initialize_snapshot_page(
       storage_id_,
       new_page_id,
       payload_size_,
       level,
+      level == levels_ - 1,
       range);
   }
   return kErrorCodeOk;
