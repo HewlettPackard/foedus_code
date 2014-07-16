@@ -319,10 +319,10 @@ ErrorCode HashStoragePimpl::make_room(
   HashDataPage* data_page) {
   if (data_page -> get_record_count() == kMaxEntriesPerBin) {
     uint16_t pick = rand() % kMaxEntriesPerBin;  // TODO(Bill) Need to initialize seed
-    uint16_t key_length = data_page ->slot(pick).key_length_;
-    uint32_t offset = data_page -> slot(pick).offset_;
-    Record* kickrec = data_page -> interpret_record(offset);
-    char* key = kickrec -> payload_;
+    uint16_t key_length = data_page->slot(pick).key_length_;
+    uint32_t offset = data_page->slot(pick).offset_;
+    Record* kickrec = data_page->interpret_record(offset);
+    char* key = kickrec->payload_;
     HashCombo combo(key, key_length, metadata_.bin_bits_);
     CHECK_ERROR_CODE(lookup_bin(context, &combo));
     HashDataPage* other_page = combo.data_pages_[0];
@@ -333,7 +333,7 @@ ErrorCode HashStoragePimpl::make_room(
     delete_record(context, key, key_length);
     uint8_t choice = (combo.data_pages_[0] == other_page) ? 0 : 1;
     insert_record_chosen_bin(context, key, key_length,
-                             kickrec -> payload_,
+                             kickrec->payload_,
                              combo.payload_length_ ,
                              choice, combo);
   }
@@ -456,7 +456,7 @@ ErrorCode HashStoragePimpl::insert_record(
   }
 
   // okay, the key doesn't exist in either bin.
-  // which one to install?
+  // which one to install? /
   bool bin1;
   if (combo.data_pages_[0] == nullptr) {
     // bin1 page doesnt exist, so empty. perfect for balancing.
@@ -472,7 +472,7 @@ ErrorCode HashStoragePimpl::insert_record(
   // TODO(Hideaki) if the bin/data page is a snapshot or does not exist, we have to install
   // a new volatile page. also, we need to physically create a record.
   HashDataPage* data_page = combo.data_pages_[choice];
-  if (data_page -> get_record_count() == kMaxEntriesPerBin) make_room(context, data_page);
+  if (data_page->get_record_count() == kMaxEntriesPerBin) make_room(context, data_page);
   insert_record_chosen_bin(context, key, key_length, payload, payload_count, choice, combo);
 
 //   HashBinPage* bin_page = combo.bin_pages_[choice];

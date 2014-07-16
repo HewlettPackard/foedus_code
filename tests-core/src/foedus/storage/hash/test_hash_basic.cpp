@@ -14,6 +14,7 @@
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/hash/hash_metadata.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
+#include "foedus/storage/hash/hash_cuckoo.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/xct/xct_manager.hpp"
@@ -99,14 +100,65 @@ TEST(HashBasicTest, CreateAndDrop) {
   cleanup_test(options);
 }
 
-TEST(HashBasicTest, Test1) {  // (name of package, test case's name) //gtest
-  /*
-  int a = 2 * 3;
-  int *array = new int[3];
-  array[1000] = 6;
-  EXPECT_EQ(7, a);
-  */
+// TEST(HashBasicTest, Test1) {  // (name of package, test case's name) //gtest
+//   /*
+//   int a = 2 * 3;
+//   int *array = new int[3];
+//   array[1000] = 6;
+//   EXPECT_EQ(7, a);
+//   */
+// }
+
+
+
+class InsertTask : public thread::ImpersonateTask {
+ public:
+  ErrorStack run(thread::Thread* context) {
+    HashStorage *hash =
+      dynamic_cast<HashStorage*>(
+        context->get_engine()->get_storage_manager().get_storage("testinsert"));
+    char buf[16];
+    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+    CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+    char key[100];
+    std::memset(key, 0, 100);
+    uint16_t payload_capacity = 16;
+    ErrorCode insert_result = hash->insert_record(context, key, 100, buf, payload_capacity);
+    ErrorCode read_result = hash->get_record(context, key, 100, buf, &payload_capacity);
+    if (insert_result != kErrorCodeOk){
+      std::cout<<"Insert returned error"<<std::endl<<std::endl;
+      return ErrorStack(insert_result);
+    }
+    if (read_result == kErrorCodeStrKeyNotFound){
+      std::cout<<"Insert did not lead to successful read"<<std::endl<<std::endl;
+      return ErrorStack(read_result);
+    }
+    Epoch commit_epoch;
+    CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+    CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
+    return foedus::kRetOk;
+  }
+};
+
+TEST(HashBasicTest, Test1) {
+  EngineOptions options = get_tiny_options();
+  Engine engine(options);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    HashStorage* out;
+    Epoch commit_epoch;
+    HashMetadata meta("testinsert", 8);
+    COERCE_ERROR(engine.get_storage_manager().create_hash(&meta, &out, &commit_epoch));
+    EXPECT_TRUE(out != nullptr);
+    InsertTask task;
+    thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+    COERCE_ERROR(session.get_result());
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
 }
+
 
 }  // namespace hash
 }  // namespace storage
