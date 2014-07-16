@@ -15,7 +15,6 @@
  *
  * \li [TU13] Stephen Tu, Wenting Zheng, Eddie Kohler, Barbara Liskov, and Samuel Madden.
  *   "Speedy transactions in multicore in-memory databases.", SOSP, 2013.
- * @todo IMPLEMENT
  */
 
 /**
