@@ -312,38 +312,43 @@ ErrorCode HashStoragePimpl::get_record_part(
   }
 }
 
+ErrorCode HashStoragePimpl::make_room(
+// TODO(Bill) Will go horribly wrong if we come back to a position at which we have already been
+// TODO(Bill) Add case where the path is considered too long.
+  thread::Thread* context,
+  HashDataPage* data_page) {
+  if (data_page -> get_record_count() == kMaxEntriesPerBin) {
+    uint16_t pick = rand() % kMaxEntriesPerBin;  // TODO(Bill) Need to initialize seed
+    uint16_t key_length = data_page ->slot(pick).key_length_;
+    uint32_t offset = data_page -> slot(pick).offset_;
+    Record* kickrec = data_page -> interpret_record(offset);
+    char* key = kickrec -> payload_;
+    HashCombo combo(key, key_length, metadata_.bin_bits_);
+    CHECK_ERROR_CODE(lookup_bin(context, &combo));
+    HashDataPage* other_page = combo.data_pages_[0];
+    if (other_page == data_page) {
+      other_page = combo.data_pages_[1];
+    }
+    make_room(context, other_page);
+    delete_record(context, key, key_length);
+    uint8_t choice = (combo.data_pages_[0] == other_page) ? 0 : 1;
+    insert_record_chosen_bin(context, key, key_length,
+                             kickrec -> payload_,
+                             combo.payload_length_ ,
+                             choice, combo);
+  }
+  return kErrorCodeOk;
+}
 
 
-ErrorCode HashStoragePimpl::insert_record(
+ErrorCode HashStoragePimpl::insert_record_chosen_bin(
   thread::Thread* context,
   const char* key,
   uint16_t key_length,
   const void* payload,
-  uint16_t payload_count) {
-  HashCombo combo(key, key_length, metadata_.bin_bits_);
-  CHECK_ERROR_CODE(lookup_bin(context, &combo));
-  DVLOG(3) << "insert_hash: hash=" << combo;
-  CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
-
-  if (combo.record_) {
-    // TODO(Hideaki) Add the mod counter to a special read set
-    return kErrorCodeStrKeyAlreadyExists;
-  }
-
-  // okay, the key doesn't exist in either bin.
-  // which one to install?
-  bool bin1;
-  if (combo.data_pages_[0] == nullptr) {
-    // bin1 page doesnt exist, so empty. perfect for balancing.
-    bin1 = true;
-  } else if (combo.data_pages_[1] == nullptr) {
-    bin1 = false;  // for same reason
-  } else {
-    // if both exist, compare the record count. add to less full bin for balancing
-    bin1 = (combo.data_pages_[0]->get_record_count() <= combo.data_pages_[1]->get_record_count());
-  }
-  uint8_t choice = bin1 ? 0 : 1;
-
+  uint16_t payload_count,
+  uint8_t choice,
+  HashCombo combo) {
   // TODO(Hideaki) if the bin/data page is a snapshot or does not exist, we have to install
   // a new volatile page. also, we need to physically create a record.
   HashDataPage* data_page = combo.data_pages_[choice];
@@ -428,9 +433,132 @@ ErrorCode HashStoragePimpl::insert_record(
   uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
   HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(metadata_.id_, key, key_length, bin1, payload, payload_count);
+  log_entry->populate(metadata_.id_, key, key_length, (choice == 1), payload, payload_count);
   Record* page_lock_record = reinterpret_cast<Record*>(&(data_page->page_owner()));
   return context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry);
+}
+
+
+ErrorCode HashStoragePimpl::insert_record(
+  thread::Thread* context,
+  const char* key,
+  uint16_t key_length,
+  const void* payload,
+  uint16_t payload_count) {
+  HashCombo combo(key, key_length, metadata_.bin_bits_);
+  CHECK_ERROR_CODE(lookup_bin(context, &combo));
+  DVLOG(3) << "insert_hash: hash=" << combo;
+  CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo))
+
+  if (combo.record_) {
+    // TODO(Hideaki) Add the mod counter to a special read set
+    return kErrorCodeStrKeyAlreadyExists;
+  }
+
+  // okay, the key doesn't exist in either bin.
+  // which one to install?
+  bool bin1;
+  if (combo.data_pages_[0] == nullptr) {
+    // bin1 page doesnt exist, so empty. perfect for balancing.
+    bin1 = true;
+  } else if (combo.data_pages_[1] == nullptr) {
+    bin1 = false;  // for same reason
+  } else {
+    // if both exist, compare the record count. add to less full bin for balancing
+    bin1 = (combo.data_pages_[0]->get_record_count() <= combo.data_pages_[1]->get_record_count());
+  }
+  uint8_t choice = bin1 ? 0 : 1;
+
+  // TODO(Hideaki) if the bin/data page is a snapshot or does not exist, we have to install
+  // a new volatile page. also, we need to physically create a record.
+  HashDataPage* data_page = combo.data_pages_[choice];
+  if (data_page -> get_record_count() == kMaxEntriesPerBin) make_room(context, data_page);
+  insert_record_chosen_bin(context, key, key_length, payload, payload_count, choice, combo);
+
+//   HashBinPage* bin_page = combo.bin_pages_[choice];
+//   if (data_page == nullptr || data_page->header().snapshot_) {
+//     if (bin_page == nullptr || bin_page->header().snapshot_) {
+//       // bin page too
+//       uint16_t pointer_index;
+//       HashRootPage* boundary = lookup_boundary_root(context, combo.bins_[choice], &pointer_index);
+//       DualPagePointer& pointer = boundary->pointer(pointer_index);
+//       storage::VolatilePagePointer cur_pointer = pointer.volatile_pointer_;
+//       // TODO(Hideaki) the following must be refactored to a method
+//       if (pointer.snapshot_pointer_ != 0) {
+//         CHECK_ERROR_CODE(context->install_a_volatile_page(
+//           &pointer,
+//           reinterpret_cast<Page*>(boundary),
+//           reinterpret_cast<Page**>(&bin_page)));
+//       } else {
+//         memory::PagePoolOffset offset = context->get_thread_memory()->grab_free_volatile_page();
+//         if (UNLIKELY(offset == 0)) {
+//           return kErrorCodeMemoryNoFreePages;
+//         }
+//         bin_page = reinterpret_cast<HashBinPage*>(
+//           context->get_local_volatile_page_resolver().resolve_offset(offset));
+//         VolatilePagePointer new_pointer
+//           = combine_volatile_page_pointer(context->get_numa_node(), 0, 1, offset);
+//         bin_page->initialize_page(
+//           metadata_.id_,
+//           new_pointer.word,
+//           combo.bins_[choice] / kBinsPerPage * kBinsPerPage,
+//           combo.bins_[choice] / kBinsPerPage * kBinsPerPage + kBinsPerPage);
+//         if (assorted::raw_atomic_compare_exchange_strong<uint64_t>(
+//           &(pointer.volatile_pointer_.word),
+//           &(cur_pointer.word),
+//           new_pointer.word)) {
+//           // good
+//         } else {
+//           // Then there must be a new page installed by someone else.
+//           context->get_thread_memory()->release_free_volatile_page(offset);
+//           ASSERT_ND(pointer.volatile_pointer_.components.offset != 0);
+//           bin_page = reinterpret_cast<HashBinPage*>(
+//             context->get_global_volatile_page_resolver().resolve_offset(cur_pointer));
+//         }
+//       }
+//     }
+//     // TODO(Hideaki) again, refactor
+//     DualPagePointer& pointer = bin_page->bin(combo.bins_[choice] % kBinsPerPage).data_pointer_;
+//     storage::VolatilePagePointer cur_pointer = pointer.volatile_pointer_;
+//     if (pointer.snapshot_pointer_ != 0) {
+//       CHECK_ERROR_CODE(context->install_a_volatile_page(
+//         &pointer,
+//         reinterpret_cast<Page*>(bin_page),
+//         reinterpret_cast<Page**>(&data_page)));
+//     } else {
+//       memory::PagePoolOffset offset = context->get_thread_memory()->grab_free_volatile_page();
+//       if (UNLIKELY(offset == 0)) {
+//         return kErrorCodeMemoryNoFreePages;
+//       }
+//       data_page = reinterpret_cast<HashDataPage*>(
+//         context->get_local_volatile_page_resolver().resolve_offset(offset));
+//       VolatilePagePointer new_pointer
+//         = combine_volatile_page_pointer(context->get_numa_node(), 0, 1, offset);
+//       data_page->initialize_page(metadata_.id_, new_pointer.word, combo.bins_[choice]);
+//       if (assorted::raw_atomic_compare_exchange_strong<uint64_t>(
+//         &(pointer.volatile_pointer_.word),
+//         &(cur_pointer.word),
+//         new_pointer.word)) {
+//         // good
+//       } else {
+//         // Then there must be a new page installed by someone else.
+//         context->get_thread_memory()->release_free_volatile_page(offset);
+//         ASSERT_ND(pointer.volatile_pointer_.components.offset != 0);
+//         data_page = reinterpret_cast<HashDataPage*>(
+//           context->get_global_volatile_page_resolver().resolve_offset(cur_pointer));
+//       }
+//     }
+//   }
+//
+//   ASSERT_ND(bin_page && !bin_page->header().snapshot_);
+//   ASSERT_ND(data_page && !data_page->header().snapshot_);
+//
+//   uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
+//   HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
+//     context->get_thread_log_buffer().reserve_new_log(log_length));
+//   log_entry->populate(metadata_.id_, key, key_length, bin1, payload, payload_count);
+//   Record* page_lock_record = reinterpret_cast<Record*>(&(data_page->page_owner()));
+//   return context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry);
 }
 
 ErrorCode HashStoragePimpl::delete_record(

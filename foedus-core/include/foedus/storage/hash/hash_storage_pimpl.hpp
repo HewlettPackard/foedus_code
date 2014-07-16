@@ -97,6 +97,28 @@ class HashStoragePimpl final : public DefaultInitializable {
     uint16_t payload_count);
 
   /**
+   * @brief Rearrange table elements so that there is a free position in the data_page
+   *
+   */
+  ErrorCode make_room(
+    thread::Thread* context,
+    HashDataPage* data_page);
+
+  /**
+   * @brief Inserts a record into a bin that has already been chosen.
+   * @details Assumes you have already checked that the record doesn't exist and that there
+   * is room in the bin.
+   */
+  ErrorCode insert_record_chosen_bin(
+    thread::Thread* context,
+    const char* key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_count,
+    uint8_t choice,
+    HashCombo combo);
+
+  /**
    * @brief Find a bin page that contains a bin for the hash.
    * @param[in] context Thread context
    * @param[in,out] combo Hash values. Also the result of this method.
