@@ -5,6 +5,8 @@
 #ifndef FOEDUS_STORAGE_PAGE_HPP_
 #define FOEDUS_STORAGE_PAGE_HPP_
 
+#include <cstring>
+
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
@@ -46,7 +48,7 @@ struct PageHeader CXX11_FINAL {
    * @brief Page ID of this page.
    * @details
    * If this page is a snapshot page, it stores SnapshotPagePointer.
-   * If this page is a volatile page, it stores VolatilePagePointer.
+   * If this page is a volatile page, it stores VolatilePagePointer (only numa_node/offset matters).
    */
   uint64_t      page_id_;     // +8 -> 8
 
@@ -124,7 +126,7 @@ struct PageHeader CXX11_FINAL {
   }
 
   inline void init_snapshot(
-    uint64_t page_id,
+    SnapshotPagePointer page_id,
     StorageId storage_id,
     PageType page_type,
     bool root) ALWAYS_INLINE {
@@ -164,6 +166,50 @@ struct Page CXX11_FINAL {
   Page() CXX11_FUNC_DELETE;
   Page(const Page& other) CXX11_FUNC_DELETE;
   Page& operator=(const Page& other) CXX11_FUNC_DELETE;
+};
+
+/**
+ * @brief Callback interface to initialize a volatile page.
+ * @ingroup STORAGE
+ * @details
+ * This is used when a method might initialize a volatile page (eg following a page pointer).
+ * Page initialization depends on page type and some of them needs additional parameters,
+ * so we made it this object. One virtual function call overhead, but more flexible and no
+ * need for lambda.
+ */
+struct VolatilePageInitializer {
+  VolatilePageInitializer(StorageId storage_id, PageType page_type, bool root, Page* parent)
+    : storage_id_(storage_id), page_type_(page_type), root_(root), parent_(parent) {
+  }
+  // no virtual destructor for better performance. make sure derived class doesn't need
+  // any explicit destruction.
+
+  inline void initialize(Page* page, VolatilePagePointer page_id) const ALWAYS_INLINE {
+    std::memset(page, 0, kPageSize);
+    page->get_header().init_volatile(page_id, storage_id_, page_type_, root_, parent_);
+    initialize_more(page);
+  }
+
+  /** Implement this in derived class to do additional initialization. */
+  virtual void initialize_more(Page* page) const = 0;
+
+  const StorageId storage_id_;
+  const PageType  page_type_;
+  const bool      root_;
+  Page* const     parent_;
+};
+
+/**
+ * @brief Empty implementation of VolatilePageInitializer.
+ * @ingroup STORAGE
+ * @details
+ * Use this if new page is never created (tolerate_null_page).
+ */
+struct DummyVolatilePageInitializer CXX11_FINAL : public VolatilePageInitializer {
+  DummyVolatilePageInitializer()
+    : VolatilePageInitializer(0, kUnknownPageType, true, nullptr) {
+  }
+  void initialize_more(Page* /*page*/) const CXX11_OVERRIDE {}
 };
 
 }  // namespace storage

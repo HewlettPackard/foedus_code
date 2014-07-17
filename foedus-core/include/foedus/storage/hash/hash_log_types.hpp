@@ -68,25 +68,34 @@ struct HashInsertLogType : public log::RecordLogType {
   LOG_TYPE_NO_CONSTRUCT(HashInsertLogType)
   uint16_t        key_length_;        // +2 => 18
   uint16_t        payload_count_;     // +2 => 20
+  /** Is it inserted to the primary bin, not the alternative bin. */
   bool            bin1_;              // +1 => 21
-  char            data_[3];           // +3 => 24
+  uint8_t         reserved_;          // +1 => 22
+  /**
+   * This is auxiliary. We can calculate from the key, but 2 bytes is not that big waste,
+   * and by doing this the data part is fully 8-byte aligned. Might be slightly faster.
+   */
+  uint16_t        hashtag_;           // +2 => 24
+  char            data_[8];           // +8 => 32
 
   static uint16_t calculate_log_length(uint16_t key_length, uint16_t payload_count) ALWAYS_INLINE {
     // we pad to 8 bytes so that we always have a room for FillerLogType to align.
-    return assorted::align8(21 + key_length + payload_count);
+    return assorted::align8(24 + key_length + payload_count);
   }
 
   void            populate(
     StorageId   storage_id,
     const void* key,
     uint16_t    key_length,
-    bool        bin1_,
+    bool        bin1,
+    uint16_t    hashtag,
     const void* payload,
     uint16_t    payload_count) ALWAYS_INLINE {
     header_.log_type_code_ = log::kLogCodeHashInsert;
     header_.log_length_ = calculate_log_length(key_length, payload_count);
     header_.storage_id_ = storage_id;
-    bin1_ = bin1_;
+    bin1_ = bin1;
+    hashtag_ = hashtag;
     key_length_ = key_length;
     payload_count_ = payload_count;
     std::memcpy(data_, key, key_length);
@@ -94,12 +103,11 @@ struct HashInsertLogType : public log::RecordLogType {
   }
 
   void            apply_record(
-    thread::Thread* /*context*/,
+    thread::Thread* context,
     Storage* storage,
     Record* record) ALWAYS_INLINE {
     ASSERT_ND(dynamic_cast<HashStorage*>(storage));
-    std::memcpy(record->payload_, data_ + key_length_, payload_count_);
-    // TODO(Hideaki) calculate hash and use bin1_ to find the page and then flip the slot.
+    reinterpret_cast<HashStorage*>(storage)->apply_insert_record(context, this, record);
   }
 
   void            assert_valid() ALWAYS_INLINE {
@@ -122,31 +130,36 @@ struct HashDeleteLogType : public log::RecordLogType {
   LOG_TYPE_NO_CONSTRUCT(HashDeleteLogType)
   uint16_t        key_length_;        // +2 => 18
   bool            bin1_;              // +1 => 19
-  char            data_[5];           // +5 => 24
+  /** Auxilirary, but makes the search faster. */
+  uint8_t         slot_;              // +1 => 20
+  char            data_[4];           // +4 => 24
 
   static uint16_t calculate_log_length(uint16_t key_length) ALWAYS_INLINE {
-    return assorted::align8(19 + key_length);
+    return assorted::align8(20 + key_length);
   }
 
   void            populate(
     StorageId   storage_id,
     const void* key,
     uint16_t    key_length,
-    bool        bin1) ALWAYS_INLINE {
+    bool        bin1,
+    uint16_t    slot) ALWAYS_INLINE {
+    ASSERT_ND(slot < kMaxEntriesPerBin);
     header_.log_type_code_ = log::kLogCodeHashDelete;
     header_.log_length_ = calculate_log_length(key_length);
     header_.storage_id_ = storage_id;
     bin1_ = bin1;
+    slot_ = slot;
     key_length_ = key_length;
     std::memcpy(data_, key, key_length);
   }
 
   void            apply_record(
-    thread::Thread* /*context*/,
+    thread::Thread* context,
     Storage* storage,
-    Record* /*record*/) ALWAYS_INLINE {
+    Record* record) ALWAYS_INLINE {
     ASSERT_ND(dynamic_cast<HashStorage*>(storage));
-    // TODO(Hideaki) calculate hash and use bin1_ to find the page and then flip the slot.
+    reinterpret_cast<HashStorage*>(storage)->apply_delete_record(context, this, record);
   }
 
   void            assert_valid() ALWAYS_INLINE {
@@ -170,12 +183,13 @@ struct HashOverwriteLogType : public log::RecordLogType {
   uint16_t        key_length_;        // +2 => 18
   uint16_t        payload_offset_;    // +2 => 20
   uint16_t        payload_count_;     // +2 => 22
-  uint64_t        bin1_;              // +1 => 23
-  char            data_[1];           // +1 => 24
+  bool            bin1_;              // +1 => 23
+  uint8_t         slot_;              // +1 => 24
+  char            data_[1];           // +8 => 32
 
   static uint16_t calculate_log_length(uint16_t key_length, uint16_t payload_count) ALWAYS_INLINE {
     // we pad to 8 bytes so that we always have a room for FillerLogType to align.
-    return assorted::align8(23 + key_length + payload_count);
+    return assorted::align8(24 + key_length + payload_count);
   }
 
   void            populate(
@@ -183,13 +197,16 @@ struct HashOverwriteLogType : public log::RecordLogType {
     const void* key,
     uint16_t    key_length,
     bool        bin1,
+    uint16_t    slot,
     const void* payload,
     uint16_t    payload_offset,
     uint16_t    payload_count) ALWAYS_INLINE {
+    ASSERT_ND(slot < kMaxEntriesPerBin);
     header_.log_type_code_ = log::kLogCodeHashOverwrite;
     header_.log_length_ = calculate_log_length(key_length, payload_count);
     header_.storage_id_ = storage_id;
     bin1_ = bin1;
+    slot_ = slot;
     key_length_ = key_length;
     payload_offset_ = payload_offset;
     payload_count_ = payload_count;

@@ -72,6 +72,7 @@ std::ostream& operator<<(std::ostream& o, const HashInsertLogType& v) {
     << "<key_length_>" << v.key_length_ << "</key_length_>"
     << "<key_>" << assorted::Top(v.data_, v.key_length_) << "</key_>"
     << "<bin1_>" << v.bin1_ << "</bin1_>"
+    << "<hashtag_>" << v.hashtag_ << "</hashtag_>"
     << "<payload_count_>" << v.payload_count_ << "</payload_count_>"
     << "<payload_>" << assorted::Top(v.data_ + v.key_length_, v.payload_count_) << "</payload_>"
     << "</HashInsertLogType>";

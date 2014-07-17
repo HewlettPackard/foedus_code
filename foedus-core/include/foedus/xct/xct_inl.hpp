@@ -60,8 +60,6 @@ inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record
     return kErrorCodeXctReadSetOverflow;
   }
 
-  ASSERT_ND(record->owner_id_.is_valid());
-
   // If the record is locked, we will surely abort at commit time.
   // Rather, spin here to avoid wasted effort. In our engine, lock happens in commit time,
   // so no worry about deadlock or long wait.

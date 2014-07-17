@@ -130,6 +130,8 @@ struct HashCombo {
   // the followings are set in lookup_bin method
 
   /** Only when record_ is set. */
+  uint8_t       record_slot_;
+  /** Only when record_ is set. */
   uint16_t      payload_length_;
   /** Sets only when record_ is set. Whether it came from bins_[0] (bin1, oh, 0 base) or not.  */
   bool          record_bin1_;

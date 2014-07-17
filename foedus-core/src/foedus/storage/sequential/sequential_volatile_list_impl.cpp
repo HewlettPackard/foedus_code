@@ -116,7 +116,7 @@ void SequentialVolatileList::append_record(
     new_page_pointer = combine_volatile_page_pointer(node, 0, 0, new_page_offset);
     SequentialPage* new_page = reinterpret_cast<SequentialPage*>(
       context->get_global_volatile_page_resolver().resolve_offset(node, new_page_offset));
-    new_page->initialize_data_page(storage_id_, new_page_pointer.word);
+    new_page->initialize_volatile_page(storage_id_, new_page_pointer);
 
     if (tail == nullptr) {
       // this is the first access to this head pointer. Let's install the first page.

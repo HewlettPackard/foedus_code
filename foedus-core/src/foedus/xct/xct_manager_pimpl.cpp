@@ -432,7 +432,8 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
     log::invoke_apply_record(write.log_entry_, context, write.storage_, write.record_);
     // For this reason, we put memory_fence_release() between data and owner_id writes.
     assorted::memory_fence_release();
-    ASSERT_ND(write.record_->owner_id_.before(new_xct_id));  // ordered correctly?
+    ASSERT_ND(!write.record_->owner_id_.get_epoch().is_valid() ||
+      write.record_->owner_id_.before(new_xct_id));  // ordered correctly?
     write.record_->owner_id_ = new_xct_id;  // this also unlocks
   }
   // lock-free write-set doesn't have to worry about lock or ordering.
