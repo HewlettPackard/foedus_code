@@ -79,6 +79,7 @@ X(kErrorCodeStrTooShortPayload,     0x080A, "STORAGE: The record's payload is sm
 X(kErrorCodeStrKeyAlreadyExists,    0x080B, "STORAGE: This key already exists in this storage")
 X(kErrorCodeStrKeyNotFound,         0x080C, "STORAGE: This key is not found in this storage")
 X(kErrorCodeStrCuckooTooDeep,       0x080D, "STORAGE: HASH: The cuckoo depth is too deep")
+X(kErrorCodeStrNothingToKickout,    0x080E, "STORAGE: HASH: There is nothing in the bucket to kickout")
 
 X(kErrorCodeCacheNoFreePages,       0x0901, "SPCACHE: Not enough free snapshot pages. Cleaner is not catching up")
 X(kErrorCodeCacheTableFull,         0x0902, "SPCACHE: Hashtable full or too many skewed inserts")

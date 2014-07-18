@@ -403,22 +403,47 @@ ErrorCode HashStoragePimpl::make_room(
   int depth) {
   if (depth > kMaxCuckooDepth) return kErrorCodeStrCuckooTooDeep;
   if (data_page -> get_record_count() == kMaxEntriesPerBin) {
-    uint16_t pick = 1 % kMaxEntriesPerBin;
-    // TODO(Bill) Make random. Need to initialize seed and use quicker randomness funtion
+    int hit_index = 0;  // says how many valid victim candidates we've seen
+    uint32_t bin_num = data_page->get_bin();
+    uint32_t storageid = holder_->get_hash_metadata()->id_;
+    int kickout_index = context->get_current_xct().read_frequency(bin_num, storageid).kickout_count;
+    int pick = -1;  // NOTE: This protocol will do poorly if transactions are short,
+    // because higher-indexed slots will never get the opportunity to be kicked out.
+    // It will also do poorly if two transactions kick someone out at the same time,
+    // because they will both start with the first guy. So overall, it's quite bad.
+    if (kickout_index > data_page->get_record_count()) return kErrorCodeStrNothingToKickout;
+    for (int x = 0; x < kMaxEntriesPerBin; x++) {
+      if (data_page->slot(x).flags_ & (HashDataPage::kFlagDeleted) == 0) {
+        hit_index++;
+        if (hit_index == kickout_index) {
+          pick = x;
+          x = kMaxEntriesPerBin + 1;
+        }
+      }
+    }
+    ASSERT_ND(pick!= -1);
+    // If something is deleted during the previous for loop, then we may end up using an empty slot
+    // This is kind of messy, and could possibly screw things up
+    // if wetry to use a key that doesn't exist. I worry we're not okay since we're recomputing the
+    // hash using the key instead of using the tag and bin number.
+    // Thought: do we have room for a flag saying "I'm a slot that has been created"?
+
+    // This part is silly, we should be using the tag to compute the other bin, not recomputing from
+    // scratch. TODO:(Bill) Make this part properly use tag.
     uint16_t key_length = data_page->slot(pick).key_length_;
     uint32_t offset = data_page->slot(pick).offset_;
     Record* kickrec = data_page->interpret_record(offset);
     char* key = kickrec->payload_;
     HashCombo combo(key, key_length, metadata_.bin_bits_);
     CHECK_ERROR_CODE(lookup_bin(context, true, &combo));
+    CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo)); //This will add the next
+    // data page to the reader set. If we use the tag instead to get the next data_page
+    // we will have to do it manually.
     HashDataPage* other_page = combo.data_pages_[0];
     if (other_page == data_page) {
       other_page = combo.data_pages_[1];
     }
     delete_record(context, key, key_length);
-    uint32_t bin_num = combo.bins_[combo.record_bin1_ ? 0 : 1];
-    uint32_t storageid = holder_->get_hash_metadata()->id_;
-    context->get_current_xct().subtract_frequency(bin_num, storageid);
     uint8_t choice = (combo.data_pages_[0] == other_page) ? 0 : 1;
     insert_record_chosen_bin(context, key, key_length,
                              kickrec->payload_,
@@ -447,10 +472,12 @@ ErrorCode HashStoragePimpl::insert_record_chosen_bin(
   Record* page_lock_record = reinterpret_cast<Record*>(&(data_page->page_owner()));
   uint32_t bin_num = combo.bins_[choice];
   uint32_t storageid = holder_->get_hash_metadata()->id_;
-  context->get_current_xct().add_frequency(bin_num, storageid);
-  if (context->get_current_xct().read_frequency(bin_num , storageid) + data_page->get_record_count() > kMaxEntriesPerBin) {
+  bool caused_kickout = false;
+  if (context->get_current_xct().read_frequency(bin_num , storageid).add_count + data_page->get_record_count() >= kMaxEntriesPerBin) {
     make_room(context, data_page, 0);
+    caused_kickout = true;
   }
+  context->get_current_xct().add_frequency(bin_num, storageid, caused_kickout);
   return context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry);
 }
 
@@ -496,10 +523,12 @@ ErrorCode HashStoragePimpl::insert_record(
   Record* page_lock_record = reinterpret_cast<Record*>(&(data_page->page_owner()));
   uint32_t bin_num = combo.bins_[choice];
   uint32_t storageid = holder_->get_hash_metadata()->id_;
-  context->get_current_xct().add_frequency(bin_num, storageid);
-  if (context->get_current_xct().read_frequency(bin_num , storageid) + data_page->get_record_count() > kMaxEntriesPerBin) {
+  bool caused_kickout = false;
+  if (context->get_current_xct().read_frequency(bin_num , storageid).add_count + data_page->get_record_count() > kMaxEntriesPerBin) {
     make_room(context, data_page, 0);
+    caused_kickout = true;
   }
+  context->get_current_xct().add_frequency(bin_num, storageid, caused_kickout);
   return context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry);
 }
 
@@ -514,6 +543,7 @@ ErrorCode HashStoragePimpl::delete_record(
 
   if (combo.record_ == nullptr) {
     // TODO(Hideaki) Add the mod counter to a special read set
+
     return kErrorCodeStrKeyNotFound;
   }
 
