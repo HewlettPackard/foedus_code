@@ -1,1 +1,1 @@
-add_foedus_test_individual(test_hash_basic "CreateAndQuery;CreateAndDrop;Test1")
+add_foedus_test_individual(test_hash_basic "Create;CreateAndQuery;CreateAndInsert;CreateAndInsertAndRead;CreateAndDrop;Test1")

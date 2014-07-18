@@ -89,7 +89,7 @@ struct StreamStatus {
 SequentialPage* SequentialComposer::compose_new_head(RootInfoPage* root_info_page) {
   SnapshotPagePointer head_page_id = snapshot_writer_->get_next_page_id();
   SequentialPage* page = reinterpret_cast<SequentialPage*>(snapshot_writer_->get_page_base());
-  page->initialize_data_page(storage_id_, head_page_id);
+  page->initialize_snapshot_page(storage_id_, head_page_id);
   root_info_page->pointers_[root_info_page->pointer_count_] = head_page_id;
   ++root_info_page->pointer_count_;
   return page;
@@ -134,7 +134,7 @@ ErrorStack SequentialComposer::compose(
         // snapshot pointer. No dual page pointers.
         SequentialPage* next_page = base + allocated_pages;
         ++allocated_pages;
-        next_page->initialize_data_page(storage_id_, cur_page->header().page_id_ + 1);
+        next_page->initialize_snapshot_page(storage_id_, cur_page->header().page_id_ + 1);
         cur_page->next_page().snapshot_pointer_ = next_page->header().page_id_;
         cur_page = next_page;
         ASSERT_ND(extract_numa_node_from_snapshot_pointer(cur_page->header().page_id_)
@@ -202,7 +202,7 @@ ErrorStack SequentialComposer::construct_root(
     snapshot_writer_->get_page_base());
   SequentialRootPage* cur_page = base;
   uint32_t allocated_pages = 1;
-  cur_page->initialize_root_page(storage_id_, snapshot_writer_->get_next_page_id());
+  cur_page->initialize_snapshot_page(storage_id_, snapshot_writer_->get_next_page_id());
   for (uint32_t written_pointers = 0; written_pointers < all_head_pages.size();) {
     uint16_t count_in_this_page = std::min<uint64_t>(
       all_head_pages.size() - written_pointers,
@@ -212,7 +212,7 @@ ErrorStack SequentialComposer::construct_root(
     if (written_pointers < all_head_pages.size()) {
       // we need next page in root page.
       SequentialRootPage* new_page = cur_page + 1;
-      new_page->initialize_root_page(storage_id_, cur_page->header().page_id_ + 1);
+      new_page->initialize_snapshot_page(storage_id_, cur_page->header().page_id_ + 1);
       ASSERT_ND(extract_numa_node_from_snapshot_pointer(new_page->header().page_id_)
           == snapshot_writer_->get_numa_node());
       ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(new_page->header().page_id_)

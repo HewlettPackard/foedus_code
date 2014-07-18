@@ -130,6 +130,8 @@ struct HashCombo {
   // the followings are set in lookup_bin method
 
   /** Only when record_ is set. */
+  uint8_t       record_slot_;
+  /** Only when record_ is set. */
   uint16_t      payload_length_;
   /** Sets only when record_ is set. Whether it came from bins_[0] (bin1, oh, 0 base) or not.  */
   bool          record_bin1_;
@@ -184,7 +186,8 @@ inline HashTag tag_consume(HashTag current, uint64_t slice) {
 
 /**
  * @brief Generate an integer as randomizer from the tag.
- * @ingroup HASH
+ * @ingroup HASH% kMaxEntriesPerBin;
+    // TODO(Bill) Need to
  */
 inline uint64_t tag_to_randomizer(HashTag tag) {
   return (static_cast<uint64_t>(kTagRandomizers[static_cast<uint8_t>(tag >> 8)]) << 32) |

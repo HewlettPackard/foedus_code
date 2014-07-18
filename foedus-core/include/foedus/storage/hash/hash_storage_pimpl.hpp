@@ -70,7 +70,7 @@ class HashStoragePimpl final : public DefaultInitializable {
   /** @copydoc foedus::storage::hash::HashStorage::get_record_part() */
   ErrorCode   get_record_part(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     void* payload,
     uint16_t payload_offset,
@@ -79,35 +79,44 @@ class HashStoragePimpl final : public DefaultInitializable {
   /** @copydoc foedus::storage::hash::HashStorage::insert_record() */
   ErrorCode insert_record(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     const void* payload,
     uint16_t payload_count);
 
   /** @copydoc foedus::storage::hash::HashStorage::delete_record() */
-  ErrorCode delete_record(thread::Thread* context, const char* key, uint16_t key_length);
+  ErrorCode delete_record(thread::Thread* context, const void* key, uint16_t key_length);
 
   /** @copydoc foedus::storage::hash::HashStorage::overwrite_record() */
   ErrorCode overwrite_record(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     const void* payload,
     uint16_t payload_offset,
     uint16_t payload_count);
 
+  void      apply_insert_record(
+    thread::Thread* context,
+    const HashInsertLogType* log_entry,
+    Record* record);
+  void      apply_delete_record(
+    thread::Thread* context,
+    const HashDeleteLogType* log_entry,
+    Record* record);
+
   /**
    * @brief Rearrange table elements so that there is a free position in the data_page
-   *
+   *Keeps track of how many  the transaction has added to the collection of
+   * Cuckoo bins assigned to each hash value
    */
   ErrorCode make_room(
-    thread::Thread* context,
-    HashDataPage* data_page);
+    thread::Thread* context, HashDataPage* data_page, int depth);
 
   /**
    * @brief Inserts a record into a bin that has already been chosen.
    * @details Assumes you have already checked that the record doesn't exist and that there
-   * is room in the bin.
+   * is room in the bin. Also assumes the data page has already been created for the bin.
    */
   ErrorCode insert_record_chosen_bin(
     thread::Thread* context,
@@ -116,18 +125,20 @@ class HashStoragePimpl final : public DefaultInitializable {
     const void* payload,
     uint16_t payload_count,
     uint8_t choice,
-    HashCombo combo);
+    HashCombo combo,
+    int current_depth);
 
   /**
    * @brief Find a bin page that contains a bin for the hash.
    * @param[in] context Thread context
+   * @param[in] for_write Whether we are reading these pages to modify
    * @param[in,out] combo Hash values. Also the result of this method.
    * @details
    * It might set null to out if there is no bin page created yet.
    * In this case, the pointer to the bin page is added as a node set to capture a concurrent
    * event installing a new volatile page there.
    */
-  ErrorCode     lookup_bin(thread::Thread* context, HashCombo *combo);
+  ErrorCode     lookup_bin(thread::Thread* context, bool for_write, HashCombo *combo);
 
   HashRootPage* lookup_boundary_root(
     thread::Thread* context,

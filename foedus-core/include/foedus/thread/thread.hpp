@@ -11,6 +11,7 @@
 #include "foedus/log/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/page_resolver.hpp"
+#include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
@@ -98,6 +99,44 @@ class Thread CXX11_FINAL : public virtual Initializable {
     storage::DualPagePointer* pointer,
     storage::Page*  parent_volatile_page,
     storage::Page** installed_page);
+
+  /**
+   * @brief A general method to follow (read) a page pointer.
+   * @param[in] page_initializer callback object in case we need to initialize a new volatile page.
+   * @param[in] tolerate_null_pointer when true and when both the volatile and snapshot pointers
+   * seem null, we return null page rather than creating a new volatile page.
+   * @param[in] will_modify if true, we always return a non-null volatile page. This is true
+   * when we are to modify the page, such as insert/delete.
+   * @param[in] take_node_set_snapshot if true, we add the address of volatile page pointer
+   * to node set when we do not follow a volatile pointer (null or volatile). This is usually true
+   * to make sure we get aware of new page installment by concurrent threads.
+   * If the isolation level is not serializable, we don't take node set anyways.
+   * @param[in] take_node_set_volatile if true, we add the address of volatile page pointer
+   * to node set even when we follow a volatile pointer. This is true only when the storage
+   * might have RCU-style page switching (eg Masstree).
+   * If the isolation level is not serializable, we don't take node set anyways.
+   * @param[in,out] pointer the page pointer.
+   * @param[out] page the read page.
+   * @pre !tolerate_null_pointer || !will_modify (if we are modifying the page, tolerating null
+   * pointer doesn't make sense. we should always initialize a new volatile page)
+   * @details
+   * This is the primary way to retrieve a page pointed by a pointer in various places.
+   * Depending on the current transaction's isolation level and storage type (represented by
+   * the various arguments), this does a whole lots of things to comply with our commit protocol.
+   *
+   * Remember that DualPagePointer maintains volatile and snapshot pointers.
+   * We sometimes have to install a new volatile page or add the pointer to node set
+   * for serializability. That logic is a bit too lengthy method to duplicate in each page
+   * type, so generalize it here.
+   */
+  ErrorCode     follow_page_pointer(
+    const storage::VolatilePageInitializer* page_initializer,
+    bool tolerate_null_pointer,
+    bool will_modify,
+    bool take_node_set_snapshot,
+    bool take_node_set_volatile,
+    storage::DualPagePointer* pointer,
+    storage::Page** page);
 
   /** Returns the pimpl of this object. Use it only when you know what you are doing. */
   ThreadPimpl*  get_pimpl() const { return pimpl_; }

@@ -15,6 +15,7 @@
 #include "foedus/storage/hash/hash_metadata.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/storage/hash/hash_cuckoo.hpp"
+#include "foedus/storage/hash/hash_storage_pimpl.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/xct/xct_manager.hpp"
@@ -83,6 +84,88 @@ TEST(HashBasicTest, CreateAndQuery) {
   cleanup_test(options);
 }
 
+class InsertTask : public thread::ImpersonateTask {
+ public:
+  ErrorStack run(thread::Thread* context) {
+    HashStorage *hash =
+      dynamic_cast<HashStorage*>(
+        context->get_engine()->get_storage_manager().get_storage("ggg"));
+    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+    CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+    uint64_t key = 12345ULL;
+    uint64_t data = 897565433333126ULL;
+    CHECK_ERROR(hash->insert_record(context, &key, sizeof(key), &data, sizeof(data)));
+    Epoch commit_epoch;
+    CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+    CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
+    return foedus::kRetOk;
+  }
+};
+
+TEST(HashBasicTest, CreateAndInsert) {
+  EngineOptions options = get_tiny_options();
+  Engine engine(options);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    HashStorage* out;
+    Epoch commit_epoch;
+    HashMetadata meta("ggg", 8);
+    COERCE_ERROR(engine.get_storage_manager().create_hash(&meta, &out, &commit_epoch));
+    EXPECT_TRUE(out != nullptr);
+    InsertTask task;
+    thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+    COERCE_ERROR(session.get_result());
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
+}
+
+class InsertAndReadTask : public thread::ImpersonateTask {
+ public:
+  ErrorStack run(thread::Thread* context) {
+    HashStorage *hash =
+      dynamic_cast<HashStorage*>(
+        context->get_engine()->get_storage_manager().get_storage("ggg"));
+    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+    CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+    uint64_t key = 12345ULL;
+    uint64_t data = 897565433333126ULL;
+    CHECK_ERROR(hash->insert_record(context, &key, sizeof(key), &data, sizeof(data)));
+    Epoch commit_epoch;
+    CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+
+    uint64_t data2;
+    CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+    uint16_t data_capacity = sizeof(data2);
+    CHECK_ERROR(hash->get_record(context, &key, sizeof(key), &data2, &data_capacity));
+    EXPECT_EQ(data, data2);
+    CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+
+    CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
+    return foedus::kRetOk;
+  }
+};
+
+TEST(HashBasicTest, CreateAndInsertAndRead) {
+  EngineOptions options = get_tiny_options();
+  Engine engine(options);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    HashStorage* out;
+    Epoch commit_epoch;
+    HashMetadata meta("ggg", 8);
+    COERCE_ERROR(engine.get_storage_manager().create_hash(&meta, &out, &commit_epoch));
+    EXPECT_TRUE(out != nullptr);
+    InsertAndReadTask task;
+    thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+    COERCE_ERROR(session.get_result());
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
+}
+
 TEST(HashBasicTest, CreateAndDrop) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
@@ -110,37 +193,42 @@ TEST(HashBasicTest, CreateAndDrop) {
 // }
 
 
-
-class InsertTask : public thread::ImpersonateTask {
+/**
+ * The issuse is that the kickout only works well when in different transaction.
+ */
+class InsertAndKickoutTask : public thread::ImpersonateTask {
  public:
   ErrorStack run(thread::Thread* context) {
     HashStorage *hash =
       dynamic_cast<HashStorage*>(
-        context->get_engine()->get_storage_manager().get_storage("testinsert"));
-    char buf[16];
+        context->get_engine()->get_storage_manager().get_storage("ggg"));
     xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
     CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
-    char key[100];
-    std::memset(key, 0, 100);
-    uint16_t payload_capacity = 16;
-    ErrorCode insert_result = hash->insert_record(context, key, 100, buf, payload_capacity);
-    ErrorCode read_result = hash->get_record(context, key, 100, buf, &payload_capacity);
-    if (insert_result != kErrorCodeOk){
-      std::cout<<"Insert returned error"<<std::endl<<std::endl;
-      return ErrorStack(insert_result);
-    }
-    if (read_result == kErrorCodeStrKeyNotFound){
-      std::cout<<"Insert did not lead to successful read"<<std::endl<<std::endl;
-      return ErrorStack(read_result);
-    }
+    uint64_t key = 12345ULL;
+    uint64_t data = 897565433333126ULL;
+    CHECK_ERROR(hash->insert_record(context, &key, sizeof(key), &data, sizeof(data)));
     Epoch commit_epoch;
     CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+
+    CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+    HashCombo combo(&key, sizeof(key), hash->get_hash_metadata()->bin_bits_);
+    CHECK_ERROR(hash->get_pimpl()->lookup_bin(context, true, &combo));
+    CHECK_ERROR(hash->get_pimpl()->make_room(context, combo.data_pages_[0], 0));
+    CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+
+    uint64_t data2;
+    CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+    uint16_t data_capacity = sizeof(data2);
+    CHECK_ERROR(hash->get_record(context, &key, sizeof(key), &data2, &data_capacity));
+    EXPECT_EQ(data, data2);
+    CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+
     CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
     return foedus::kRetOk;
   }
 };
 
-TEST(HashBasicTest, Test1) {
+TEST(HashBasicTest, InsertAndKickout) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
   COERCE_ERROR(engine.initialize());
@@ -148,10 +236,10 @@ TEST(HashBasicTest, Test1) {
     UninitializeGuard guard(&engine);
     HashStorage* out;
     Epoch commit_epoch;
-    HashMetadata meta("testinsert", 8);
+    HashMetadata meta("ggg", 8);
     COERCE_ERROR(engine.get_storage_manager().create_hash(&meta, &out, &commit_epoch));
     EXPECT_TRUE(out != nullptr);
-    InsertTask task;
+    InsertAndKickoutTask task;
     thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
     COERCE_ERROR(session.get_result());
     COERCE_ERROR(engine.uninitialize());

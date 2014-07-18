@@ -89,6 +89,14 @@ class Xct {
   XctAccess*          get_read_set()  { return read_set_; }
   WriteXctAccess*     get_write_set() { return write_set_; }
   LockFreeWriteXctAccess* get_lock_free_write_set() { return lock_free_write_set_; }
+  void add_frequency(uint32_t bin, uint32_t storageid) { frequency_hash_.add(bin, storageid); }
+  void subtract_frequency(uint32_t bin, uint32_t storageid) {
+    frequency_hash_.subtract(bin, storageid);
+  }
+  uint16_t read_frequency(uint32_t bin, uint32_t storageid) {
+    return frequency_hash_.read(bin, storageid);
+  }
+
 
 
   /**
@@ -247,6 +255,51 @@ class Xct {
 
   /** Level of isolation for this transaction. */
   IsolationLevel      isolation_level_;
+
+  /**
+   * @brief read(bin, storageid) promises to return a number at least as great as
+   * |inserts - deletions| run by the thread on the specified bin number in the specified
+   * storage id.
+   * @details Since FrequencyHash hashes several bins from various storage ids to the same
+   * hash-position, it will sometimes claim that the transaction has inserted more things into
+   * a given bin than it actually has. So that we can use FrequencyHash in order to know when we
+   * need to do a kickout, it is important that it never claims we have inserted fewer things into
+   * a bin than we actually have. In order to accomplish this, we don't decrement counters in the
+   * hash table except for during kickouts (to cancel out the fact that we
+   * have just incremented them).
+   *
+   * If we are inserting something into a bin, we increment the relevant counter in FrequencyHash,
+   * and then if the sum of that counter and the number of elements in the bin is too high, we
+   * call kickout. kickout will end up decrementing the relavent counter (and is the only
+   * function allowed to decrement it -- this is valid because we have just incremented it
+   * in the same context. 
+   *
+   */
+  struct FrequencyHash{
+    int* array_;  // This can take negative values as well!
+    uint32_t size_;
+    FrequencyHash(uint32_t size) {  // Size must be a power of two
+      array_ = new int[size];
+      size_ = size;
+    }
+    uint32_t hash(uint32_t a) {  // TODO(Bill) Add in an actual hash function
+      return 1;
+    }
+    void add(uint32_t bin, uint32_t storageid) {
+      uint32_t bucket = (hash(bin) ^ hash(storageid)) % size_;
+      array_[bucket]++;
+    }
+    void subtract(uint32_t bin, uint32_t storageid) {
+      uint32_t bucket = (hash(bin) ^ hash(storageid)) % size_;
+      array_[bucket]--;
+    }
+    uint16_t read(uint32_t bin, uint32_t storageid){
+      uint32_t bucket = (hash(bin) ^ hash(storageid)) % size_;
+      return array_[bucket];
+    }
+  };
+
+  FrequencyHash frequency_hash_;
 
   /** Whether the object is an active transaction. */
   bool                active_;

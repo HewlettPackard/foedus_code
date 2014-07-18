@@ -96,7 +96,7 @@ class HashStorage CXX11_FINAL : public virtual Storage {
    */
   ErrorCode get_record_part(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     void* payload,
     uint16_t payload_offset,
@@ -117,7 +117,7 @@ class HashStorage CXX11_FINAL : public virtual Storage {
    */
   ErrorCode   insert_record(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     const void* payload,
     uint16_t payload_count);
@@ -133,7 +133,7 @@ class HashStorage CXX11_FINAL : public virtual Storage {
    * When the key does not exist, it returns kErrorCodeStrKeyNotFound and we add an appropriate
    * bin mod counter to read set because it is part of a transactional information.
    */
-  ErrorCode   delete_record(thread::Thread* context, const char* key, uint16_t key_length);
+  ErrorCode   delete_record(thread::Thread* context, const void* key, uint16_t key_length);
 
   // overwrite_record() methods
 
@@ -153,11 +153,24 @@ class HashStorage CXX11_FINAL : public virtual Storage {
    */
   ErrorCode   overwrite_record(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     const void* payload,
     uint16_t payload_offset,
     uint16_t payload_count);
+
+  // log apply methods.
+  // some of them are so trivial that they are inlined in log class.
+
+  void        apply_insert_record(
+    thread::Thread* context,
+    const HashInsertLogType* log_entry,
+    Record* record);
+  void        apply_delete_record(
+    thread::Thread* context,
+    const HashDeleteLogType* log_entry,
+    Record* record);
+
 
   /** Use this only if you know what you are doing. */
   HashStoragePimpl*  get_pimpl() { return pimpl_; }

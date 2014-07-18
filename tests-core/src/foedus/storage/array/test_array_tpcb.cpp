@@ -56,6 +56,7 @@ const int kHistories =   kXctsPerThread * kMaxTestThreads;
 static_assert(kAccounts % kTellers == 0, "kAccounts must be multiply of kTellers");
 static_assert(kHistories % kAccounts == 0, "kHistories must be multiply of kAccounts");
 
+
 struct BranchData {
   int64_t     branch_balance_;
   char        other_data_[96];  // just to make it at least 100 bytes

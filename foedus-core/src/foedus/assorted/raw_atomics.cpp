@@ -54,6 +54,16 @@ bool raw_atomic_compare_exchange_strong_uint128(
 }
 #endif  // defined(__GNUC__) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_16)
 
+template <typename T>
+T raw_atomic_fetch_add(T* target, T addendum) {
+  static_assert(sizeof(T) == sizeof(std::atomic< T >), "std::atomic<T> size is not same as T??");
+  std::atomic<T>* casted = reinterpret_cast< std::atomic<T>* >(target);
+  return casted->fetch_add(addendum);
+}
+
+#define EXP_FETCH_ADD(x) template x raw_atomic_fetch_add(x *target, x addendum)
+INSTANTIATE_ALL_INTEGER_TYPES(EXP_FETCH_ADD);
+
 
 }  // namespace assorted
 }  // namespace foedus

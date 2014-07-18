@@ -69,6 +69,12 @@ const uint16_t kHashBinSize             = 64;
 const uint16_t kMaxEntriesPerBin        =
   (kHashBinSize - sizeof(DualPagePointer) - sizeof(uint16_t)) / sizeof(HashTag);
 
+
+/** @brief Maximum depth of cuckoo path
+ *  @ingroup HASH
+ */
+const uint16_t kMaxCuckooDepth = 100;
+
 /**
  * @brief Number of bins in one hash bin page.
  * @ingroup HASH
