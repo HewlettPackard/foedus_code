@@ -63,7 +63,6 @@ ErrorStack SequentialVolatileList::uninitialize_once() {
         cur_pointer.components.offset)));
       ASSERT_ND(node == cur_pointer.components.numa_node);
       VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
-      ASSERT_ND(node == next_pointer.components.numa_node);
       if (chunk.full()) {
         pool.release(chunk.size(), &chunk);
       }
@@ -71,6 +70,7 @@ ErrorStack SequentialVolatileList::uninitialize_once() {
       chunk.push_back(cur_pointer.components.offset);
 
       if (next_pointer.components.offset != 0) {
+        ASSERT_ND(node == next_pointer.components.numa_node);
         page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(
           next_pointer.components.offset));
       } else {

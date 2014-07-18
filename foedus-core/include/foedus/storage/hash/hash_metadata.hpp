@@ -31,7 +31,7 @@ struct HashMetadata CXX11_FINAL : public virtual Metadata {
     : Metadata(id, kHashStorage, name), bin_bits_(bin_bits) {
   }
   /** This one is for newly creating a storage. */
-  HashMetadata(const std::string& name, uint8_t bin_bits)
+  HashMetadata(const std::string& name, uint8_t bin_bits = 8)
     : Metadata(0, kHashStorage, name), bin_bits_(bin_bits) {
   }
   EXTERNALIZABLE(HashMetadata);

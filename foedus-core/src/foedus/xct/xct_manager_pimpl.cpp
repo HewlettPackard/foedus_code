@@ -8,9 +8,6 @@
 
 #include <algorithm>
 #include <chrono>
-#ifndef NDEBUG
-#include <set>  // only for debugging
-#endif  // NDEBUG
 #include <thread>
 #include <vector>
 
@@ -30,6 +27,7 @@
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_access.hpp"
+#include "foedus/xct/xct_inl.hpp"
 #include "foedus/xct/xct_manager.hpp"
 #include "foedus/xct/xct_options.hpp"
 
@@ -276,38 +274,35 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
   uint32_t        write_set_size = current_xct.get_write_set_size();
   DVLOG(1) << *context << " #write_sets=" << write_set_size << ", addr=" << write_set;
 
+  std::sort(write_set, write_set + write_set_size, WriteXctAccess::compare);
+
 #ifndef NDEBUG
-  // DEBUG: check equivalence of records/logs before/after sort
-  std::set< storage::Record* > dbg_records;
-  std::set< void* > dbg_logs;
-  for (uint32_t i = 0; i < write_set_size; ++i) {
-    dbg_records.insert(write_set[i].record_);
-    dbg_logs.insert(write_set[i].log_entry_);
+  // check that write sets are now sorted
+  for (uint32_t i = 1; i < write_set_size; ++i) {
+    ASSERT_ND(
+      write_set[i].record_ == write_set[i - 1].record_ ||
+      WriteXctAccess::compare(write_set[i - 1], write_set[i]));
   }
-  ASSERT_ND(dbg_records.size() == write_set_size);
-  ASSERT_ND(dbg_logs.size() == write_set_size);
 #endif  // NDEBUG
 
-  std::sort(write_set, write_set + write_set_size, WriteXctAccess::compare);
-  DVLOG(1) << *context << " sorted write set";
+  // One differences from original SILO protocol.
+  // As there might be multiple write sets on one record, we check equality of next
+  // write set and 1) lock only at the first write-set of the record, 2) unlock at the last.
 
   // lock them unconditionally. there is no risk of deadlock thanks to the sort.
   // lock bit is the highest bit of ordinal_and_status_.
   for (uint32_t i = 0; i < write_set_size; ++i) {
     DVLOG(2) << *context << " Locking " << write_set[i].storage_->get_name()
       << ":" << write_set[i].record_;
-    write_set[i].record_->owner_id_.keylock_unconditional();
+    if (i > 0 && write_set[i].record_ == write_set[i - 1].record_) {
+      DVLOG(0) << *context << " Multiple write sets on record " << write_set[i].storage_->get_name()
+        << ":" << write_set[i].record_ << ". Will lock the first one and unlock the last one";
+    } else {
+      write_set[i].record_->owner_id_.keylock_unconditional();
+    }
     ASSERT_ND(write_set[i].record_->owner_id_.is_keylocked());
   }
   DVLOG(1) << *context << " locked write set";
-
-#ifndef NDEBUG
-  for (uint32_t i = 0; i < write_set_size; ++i) {
-    ASSERT_ND(dbg_records.find(write_set[i].record_) != dbg_records.end());
-    ASSERT_ND(dbg_logs.find(write_set[i].log_entry_) != dbg_logs.end());
-    ASSERT_ND(write_set[i].record_->owner_id_.is_keylocked());
-  }
-#endif  // NDEBUG
 }
 
 bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epoch *commit_epoch) {
@@ -379,8 +374,11 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
       // write set is sorted. so we can do binary search.
       WriteXctAccess dummy;
       dummy.record_ = access.record_;
-      bool found = std::binary_search(write_set, write_set + write_set_size, dummy,
-                 WriteXctAccess::compare);
+      bool found = std::binary_search(
+        write_set,
+        write_set + write_set_size,
+        dummy,
+        WriteXctAccess::compare);
       if (!found) {
         DLOG(WARNING) << *context << " no, not me. will abort";
         return false;
@@ -434,7 +432,13 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
     assorted::memory_fence_release();
     ASSERT_ND(!write.record_->owner_id_.get_epoch().is_valid() ||
       write.record_->owner_id_.before(new_xct_id));  // ordered correctly?
-    write.record_->owner_id_ = new_xct_id;  // this also unlocks
+    if (i < write_set_size - 1 && write_set[i].record_ == write_set[i + 1].record_) {
+      DVLOG(0) << *context << " Multiple write sets on record " << write_set[i].storage_->get_name()
+        << ":" << write_set[i].record_ << ". Unlock at the last one of the write sets";
+      // keep the lock for the next write set
+    } else {
+      write.record_->owner_id_ = new_xct_id;  // this also unlocks
+    }
   }
   // lock-free write-set doesn't have to worry about lock or ordering.
   for (uint32_t i = 0; i < lock_free_write_set_size; ++i) {

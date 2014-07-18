@@ -3,21 +3,19 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 /**
- * @file foedus/storage/sequential/tpcb_experiment_seq.cpp
- * @brief TPC-B experiment on array storage with sequential storage for history
+ * @file foedus/storage/hash/tpcb_experiment_hash.cpp
+ * @brief TPC-B experiment on hash storage with sequential storage for history
  * @author kimurhid
- * @date 2014/07/07
+ * @date 2014/07/15
  * @details
- * This is just a slightly modified version of array/tpcb_experiment.cpp.
- * The only difference is that this one uses sequential storage for history table.
- *
+ * Unlike array/seq experiments that use array for main tables, this has an additional
+ * populate phase to insert required records.
  * @section RESULTS Latest Results
- * 20140701 14M tps (up from 12M of array storage even for history)
- * Also, it was 5M tps before the sequential storage optimization to avoid contentious CAS.
  */
 #include <atomic>
 #include <chrono>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -36,18 +34,19 @@
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/storage/storage_manager.hpp"
-#include "foedus/storage/array/array_metadata.hpp"
-#include "foedus/storage/array/array_storage.hpp"
+#include "foedus/storage/hash/hash_metadata.hpp"
+#include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/storage/sequential/sequential_metadata.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
 #include "foedus/thread/rendezvous_impl.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
+#include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 namespace storage {
-namespace sequential {
+namespace hash {
 
 /** number of branches (TPS scaling factor). */
 int kBranches  =   100;
@@ -63,7 +62,7 @@ const int kTellers   =   10;
 const int kAccounts  =   100000;
 const int kAccountsPerTeller = kAccounts / kTellers;
 
-const uint64_t kDurationMicro = 5000000;
+const uint64_t kDurationMicro = 1000000;
 
 static_assert(kAccounts % kTellers == 0, "kAccounts must be multiply of kTellers");
 
@@ -92,16 +91,99 @@ struct HistoryData {
   char        other_data_[24];  // just to make it at least 50 bytes
 };
 
-array::ArrayStorage*  branches      = nullptr;
-array::ArrayStorage*  accounts      = nullptr;
-array::ArrayStorage*  tellers       = nullptr;
-SequentialStorage*    histories     = nullptr;
+HashStorage*  branches      = nullptr;
+HashStorage*  accounts      = nullptr;
+HashStorage*  tellers       = nullptr;
+sequential::SequentialStorage*  histories = nullptr;
 thread::Rendezvous start_endezvous;
 bool          stop_requested;
 
+// for better performance, commit frequently.
+// (we have to sort write set at commit, so there is something nlogn)
+const uint32_t kCommitBatch = 1000;
+
+class PopulateTpcbTask : public thread::ImpersonateTask {
+ public:
+  PopulateTpcbTask(uint16_t from_branch, uint16_t to_branch)
+    : from_branch_(from_branch), to_branch_(to_branch) {
+  }
+  ErrorStack run(thread::Thread* context) {
+    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kDirtyReadPreferVolatile));
+
+    std::cout << "Populating records from branch " << from_branch_ << " to "
+      << to_branch_ << " in node-" << static_cast<int>(context->get_numa_node()) << std::endl;
+    BranchData branch;
+    std::memset(&branch, 0, sizeof(branch));
+    TellerData teller;
+    std::memset(&teller, 0, sizeof(teller));
+    AccountData account;
+    std::memset(&account, 0, sizeof(account));
+
+#ifndef NDEBUG
+    std::set<uint64_t> branch_ids;
+    std::set<uint64_t> teller_ids;
+    std::set<uint64_t> account_ids;
+#endif  // NDEBUG
+
+    for (uint64_t branch_id = from_branch_; branch_id < to_branch_; ++branch_id) {
+#ifndef NDEBUG
+    ASSERT_ND(branch_ids.find(branch_id) == branch_ids.end());
+    branch_ids.insert(branch_id);
+#endif  // NDEBUG
+      branch.branch_balance_ = 0;
+      commit_if_full(context);
+      WRAP_ERROR_CODE(branches->insert_record(context, branch_id, &branch, sizeof(branch)));
+
+      for (uint64_t teller_ordinal = 0; teller_ordinal < kTellers; ++teller_ordinal) {
+        uint64_t teller_id = kTellers * branch_id + teller_ordinal;
+#ifndef NDEBUG
+        ASSERT_ND(teller_ids.find(teller_id) == teller_ids.end());
+        teller_ids.insert(teller_id);
+#endif  // NDEBUG
+        teller.branch_id_ = branch_id;
+        commit_if_full(context);
+        WRAP_ERROR_CODE(tellers->insert_record(context, teller_id, &teller, sizeof(teller)));
+
+        for (uint64_t account_ordinal = 0;
+              account_ordinal < kAccountsPerTeller;
+              ++account_ordinal) {
+          uint64_t account_id = teller_id * kAccountsPerTeller + account_ordinal;
+#ifndef NDEBUG
+          ASSERT_ND(account_ids.find(account_id) == account_ids.end());
+          account_ids.insert(account_id);
+#endif  // NDEBUG
+          account.branch_id_ = branch_id;
+          commit_if_full(context);
+          WRAP_ERROR_CODE(accounts->insert_record(context, account_id, &account, sizeof(account)));
+        }
+      }
+    }
+    Epoch commit_epoch;
+    WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+
+    std::cout << "Populated records by " << context->get_thread_id() << std::endl;
+    return kRetOk;
+  }
+
+  ErrorCode commit_if_full(thread::Thread* context) {
+    if (context->get_current_xct().get_write_set_size() >= kCommitBatch) {
+      Epoch commit_epoch;
+      xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+      CHECK_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+      CHECK_ERROR_CODE(xct_manager.begin_xct(context, xct::kDirtyReadPreferVolatile));
+    }
+    return kErrorCodeOk;
+  }
+
+ private:
+  const uint16_t from_branch_;
+  const uint16_t to_branch_;
+};
+
 class RunTpcbTask : public thread::ImpersonateTask {
  public:
-  explicit RunTpcbTask() {
+  RunTpcbTask() {
     std::memset(tmp_history_.other_data_, 0, sizeof(tmp_history_.other_data_));
   }
   ErrorStack run(thread::Thread* context) {
@@ -161,7 +243,8 @@ class RunTpcbTask : public thread::ImpersonateTask {
     uint64_t account_id,
     int64_t amount) {
     xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-    CHECK_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+    // CHECK_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+    CHECK_ERROR_CODE(xct_manager.begin_xct(context, xct::kDirtyReadPreferVolatile));
 
     int64_t balance = amount;
     CHECK_ERROR_CODE(branches->increment_record(context, branch_id, &balance, 0));
@@ -200,7 +283,7 @@ int main_impl(int argc, char **argv) {
     profile = true;
     std::cout << "Profiling..." << std::endl;
   }
-  fs::Path folder("/dev/shm/tpcb_array_expr");
+  fs::Path folder("/dev/shm/tpcb_hash_expr");
   if (fs::exists(folder)) {
     fs::remove_all(folder);
   }
@@ -219,6 +302,7 @@ int main_impl(int argc, char **argv) {
 
   std::cout << "NUMA node count=" << static_cast<int>(options.thread_.group_count_) << std::endl;
   options.snapshot_.folder_path_pattern_ = "/dev/shm/tpcb_seq_expr/snapshot/node_$NODE$";
+  options.snapshot_.snapshot_interval_milliseconds_ = 1 << 20;  // never
   options.log_.folder_path_pattern_ = "/dev/shm/tpcb_seq_expr/log/node_$NODE$/logger_$LOGGER$";
   options.log_.loggers_per_node_ = kLoggersPerNode;
   options.debugging_.debug_log_min_threshold_
@@ -226,9 +310,9 @@ int main_impl(int argc, char **argv) {
     // = debugging::DebuggingOptions::kDebugLogWarning;
   options.debugging_.verbose_modules_ = "";
   options.debugging_.verbose_log_level_ = -1;
-  options.log_.log_buffer_kb_ = 1 << 20;  // 256MB * 16 cores = 4 GB. nothing.
+  options.log_.log_buffer_kb_ = 1 << 21;
   options.log_.log_file_size_mb_ = 1 << 10;
-  options.memory_.page_pool_size_mb_per_node_ = 1 << 13;  // 8GB per node = 16GB
+  options.memory_.page_pool_size_mb_per_node_ = 12 << 10;
   kTotalThreads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
 
   {
@@ -239,18 +323,41 @@ int main_impl(int argc, char **argv) {
       StorageManager& str_manager = engine.get_storage_manager();
       std::cout << "Creating TPC-B tables... " << std::endl;
       Epoch ep;
-      array::ArrayMetadata branch_meta("branches", sizeof(BranchData), kBranches);
-      COERCE_ERROR(str_manager.create_array(&branch_meta, &branches, &ep));
+      const float kHashFillfactor = 0.5;
+      HashMetadata branch_meta("branches");
+      branch_meta.set_capacity(kBranches, kHashFillfactor);
+      COERCE_ERROR(str_manager.create_hash(&branch_meta, &branches, &ep));
       std::cout << "Created branches " << std::endl;
-      array::ArrayMetadata teller_meta("tellers", sizeof(TellerData), kBranches * kTellers);
-      COERCE_ERROR(str_manager.create_array(&teller_meta, &tellers, &ep));
+      HashMetadata teller_meta("tellers");
+      teller_meta.set_capacity(kBranches * kTellers, kHashFillfactor);
+      COERCE_ERROR(str_manager.create_hash(&teller_meta, &tellers, &ep));
       std::cout << "Created tellers " << std::endl;
-      array::ArrayMetadata account_meta("accounts", sizeof(AccountData), kBranches * kAccounts);
-      COERCE_ERROR(str_manager.create_array(&account_meta, &accounts, &ep));
+      HashMetadata account_meta("accounts");
+      account_meta.set_capacity(kBranches * kAccounts, kHashFillfactor);
+      COERCE_ERROR(str_manager.create_hash(&account_meta, &accounts, &ep));
       std::cout << "Created accounts " << std::endl;
-      SequentialMetadata history_meta("histories");
+      sequential::SequentialMetadata history_meta("histories");
       COERCE_ERROR(str_manager.create_sequential(&history_meta, &histories, &ep));
       std::cout << "Created all!" << std::endl;
+
+      std::cout << "Now populating initial records..." << std::endl;
+      // this is done serially. we do it in different nodes, but it's just to balance out
+      // volatile pages.
+      for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
+        uint64_t branches_per_node = kBranches / options.thread_.group_count_;
+        uint64_t from_branch = branches_per_node * node;
+        uint64_t to_branch = from_branch + branches_per_node;
+        if (node == options.thread_.group_count_ - 1) {
+          to_branch = kBranches;  // in case kBranches is not multiply of node count
+        }
+        PopulateTpcbTask task(from_branch, to_branch);
+        thread::ImpersonateSession session(
+          engine.get_thread_pool().impersonate_on_numa_node(&task, node));
+        if (!session.is_valid()) {
+          COERCE_ERROR(session.invalid_cause_);
+        }
+        std::cout << "populate result=" << session.get_result() << std::endl;
+      }
 
       std::vector< RunTpcbTask* > tasks;
       std::vector< thread::ImpersonateSession > sessions;
@@ -299,10 +406,10 @@ int main_impl(int argc, char **argv) {
   return 0;
 }
 
-}  // namespace sequential
+}  // namespace hash
 }  // namespace storage
 }  // namespace foedus
 
 int main(int argc, char **argv) {
-  return foedus::storage::sequential::main_impl(argc, argv);
+  return foedus::storage::hash::main_impl(argc, argv);
 }

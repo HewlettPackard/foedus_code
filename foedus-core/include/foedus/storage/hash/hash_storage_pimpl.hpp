@@ -67,6 +67,15 @@ class HashStoragePimpl final : public DefaultInitializable {
     void* payload,
     uint16_t* payload_capacity);
 
+  /** @copydoc foedus::storage::hash::HashStorage::get_record_primitive() */
+  template <typename PAYLOAD>
+  ErrorCode   get_record_primitive(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    PAYLOAD* payload,
+    uint16_t payload_offset);
+
   /** @copydoc foedus::storage::hash::HashStorage::get_record_part() */
   ErrorCode   get_record_part(
     thread::Thread* context,
@@ -95,6 +104,24 @@ class HashStoragePimpl final : public DefaultInitializable {
     const void* payload,
     uint16_t payload_offset,
     uint16_t payload_count);
+
+  /** @copydoc foedus::storage::hash::HashStorage::overwrite_record_primitive() */
+  template <typename PAYLOAD>
+  ErrorCode   overwrite_record_primitive(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    PAYLOAD payload,
+    uint16_t payload_offset);
+
+  /** @copydoc foedus::storage::hash::HashStorage::increment_record() */
+  template <typename PAYLOAD>
+  ErrorCode   increment_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    PAYLOAD* value,
+    uint16_t payload_offset);
 
   void      apply_insert_record(
     thread::Thread* context,
