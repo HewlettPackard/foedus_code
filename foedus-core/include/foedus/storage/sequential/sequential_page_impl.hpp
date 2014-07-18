@@ -104,10 +104,15 @@ class SequentialPage final {
   const DualPagePointer&  next_page() const { return next_page_; }
 
   /** Called only when this page is initialized. */
-  void                initialize_data_page(StorageId storage_id, uint64_t page_id) {
-    header_.checksum_ = 0;
-    header_.page_id_ = page_id;
-    header_.storage_id_ = storage_id;
+  void                initialize_volatile_page(StorageId storage_id, VolatilePagePointer page_id) {
+    header_.init_volatile(page_id, storage_id, kSequentialPageType, true, nullptr);
+    record_count_ = 0;
+    used_data_bytes_ = 0;
+    next_page_.snapshot_pointer_ = 0;
+    next_page_.volatile_pointer_.word = 0;
+  }
+  void                initialize_snapshot_page(StorageId storage_id, SnapshotPagePointer page_id) {
+    header_.init_snapshot(page_id, storage_id, kSequentialPageType, false);
     record_count_ = 0;
     used_data_bytes_ = 0;
     next_page_.snapshot_pointer_ = 0;
@@ -160,17 +165,17 @@ class SequentialPage final {
   /** Byte length of payload is represented in 2 bytes. */
   typedef uint16_t PayloadLength;
 
-  PageHeader            header_;          // +16 -> 16
+  PageHeader            header_;            // +32 -> 32
 
-  uint16_t              record_count_;      // +2 -> 18
-  uint16_t              used_data_bytes_;   // +2 -> 20
-  uint32_t              filler_;            // +4 -> 24
+  uint16_t              record_count_;      // +2 -> 34
+  uint16_t              used_data_bytes_;   // +2 -> 36
+  uint32_t              filler_;            // +4 -> 40
 
   /**
    * Pointer to next page.
    * Once it is set, the pointer and the pointed page will never be changed.
    */
-  DualPagePointer       next_page_;       // +16 -> 40
+  DualPagePointer       next_page_;         // +16 -> 56
 
   /**
    * Dynamic data part in this page, which consist of 1) record part growing forward,
@@ -224,25 +229,23 @@ class SequentialRootPage final {
   void                set_next_page(SnapshotPagePointer page) { next_page_ = page; }
 
   /** Called only when this page is initialized. */
-  void                initialize_root_page(StorageId storage_id, uint64_t page_id) {
-    header_.checksum_ = 0;
-    header_.page_id_ = page_id;
-    header_.storage_id_ = storage_id;
+  void                initialize_snapshot_page(StorageId storage_id, SnapshotPagePointer page_id) {
+    header_.init_snapshot(page_id, storage_id, kSequentialRootPageType, false);
     pointer_count_ = 0;
     next_page_ = 0;
   }
 
  private:
-  PageHeader          header_;          // +16 -> 16
+  PageHeader          header_;          // +32 -> 32
 
   /**
    * How many pointers to head pages exist in this page.
    * 64bit is too much, but we don't need any other info in this page. Kind of a filler, too.
    */
-  uint64_t            pointer_count_;   // +8 -> 24
+  uint64_t            pointer_count_;   // +8 -> 40
 
   /** Pointer to next root page. */
-  SnapshotPagePointer next_page_;       // +8 -> 32
+  SnapshotPagePointer next_page_;       // +8 -> 48
 
   /** Pointers to heads of data pages. */
   SnapshotPagePointer head_page_pointers_[kRootPageMaxHeadPointers];

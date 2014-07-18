@@ -12,6 +12,7 @@
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/array/fwd.hpp"
+#include "foedus/storage/hash/fwd.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/sequential/fwd.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -112,6 +113,25 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
   ErrorStack  create_array(
     array::ArrayMetadata *metadata,
     array::ArrayStorage **storage,
+    Epoch *commit_epoch);
+
+  /**
+   * @brief Just a type-wrapper of create_storage() for hash storages.
+   * @see create_storage()
+   */
+  ErrorStack  create_hash(
+    thread::Thread* context,
+    hash::HashMetadata *metadata,
+    hash::HashStorage **storage,
+    Epoch *commit_epoch);
+
+  /**
+   * @brief A convenience function to impersonate as one of available threads
+   * and then invoke create_hash().
+   */
+  ErrorStack  create_hash(
+    hash::HashMetadata *metadata,
+    hash::HashStorage **storage,
     Epoch *commit_epoch);
 
 

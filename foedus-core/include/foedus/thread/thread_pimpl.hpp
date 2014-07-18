@@ -14,6 +14,7 @@
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_resolver.hpp"
+#include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
@@ -71,7 +72,32 @@ class ThreadPimpl final : public DefaultInitializable {
   /** @copydoc foedus::thread::Thread::install_a_volatile_page() */
   ErrorCode   install_a_volatile_page(
     storage::DualPagePointer* pointer,
+    storage::Page*  parent_volatile_page,
     storage::Page** installed_page);
+
+  /** @copydoc foedus::thread::Thread::follow_page_pointer() */
+  ErrorCode   follow_page_pointer(
+    const storage::VolatilePageInitializer* page_initializer,
+    bool tolerate_null_pointer,
+    bool will_modify,
+    bool take_node_set_snapshot,
+    bool take_node_set_volatile,
+    storage::DualPagePointer* pointer,
+    storage::Page** page);
+
+  /**
+   * @brief Subroutine of install_a_volatile_page() and follow_page_pointer() to atomically place
+   * the given new volatile page created by this thread.
+   * @param[in] new_offset offset of the new volatile page created by this thread
+   * @param[in,out] pointer the address to place a new pointer.
+   * @return placed_page point to the volatile page that is actually placed.
+   * @details
+   * Due to concurrent threads, this method might discard the given volatile page and pick
+   * a page placed by another thread. In that case, new_offset will be released to the free pool.
+   */
+  storage::Page*  place_a_new_volatile_page(
+    memory::PagePoolOffset new_offset,
+    storage::DualPagePointer* pointer);
 
   Engine* const           engine_;
 

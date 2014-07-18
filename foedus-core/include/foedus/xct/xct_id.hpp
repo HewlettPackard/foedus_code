@@ -230,7 +230,7 @@ struct XctId {
    * so that's fine.
    */
   void store_max(const XctId& other) {
-    if (before(other)) {
+    if (other.get_epoch().is_valid() && before(other)) {
       data_ = other.data_;
     }
   }

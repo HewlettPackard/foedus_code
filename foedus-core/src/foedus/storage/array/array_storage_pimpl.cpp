@@ -224,22 +224,27 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     VolatilePagePointer page_pointer = grab_batch.grab();
     ASSERT_ND(page_pointer.components.offset != 0);
     ArrayPage* page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(page_pointer));
-
+    current_pages.push_back(page);
+    current_pages_ids.push_back(page_pointer);
+  }
+  for (uint8_t level = 0; level < levels_; ++level) {
+    ArrayPage* page = current_pages[level];
     ArrayRange range(0, offset_intervals[level]);
     if (range.end_ > metadata_.array_size_) {
       ASSERT_ND(level == levels_ - 1);
       range.end_ = metadata_.array_size_;
     }
-    page->initialize_data_page(
+    bool root = (level == levels_ - 1);
+    page->initialize_volatile_page(
       initial_epoch,
       metadata_.id_,
-      page_pointer.word,
+      current_pages_ids[level],
       metadata_.payload_size_,
       level,
-      range);
+      root,
+      range,
+      root ? nullptr : current_pages[level + 1]);
 
-    current_pages.push_back(page);
-    current_pages_ids.push_back(page_pointer);
     if (level == 0) {
       current_records.push_back(0);
     } else {
@@ -266,13 +271,15 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     if (range.end_ > metadata_.array_size_) {
       range.end_ = metadata_.array_size_;
     }
-    page->initialize_data_page(
+    page->initialize_volatile_page(
       initial_epoch,
       metadata_.id_,
-      page_pointer.word,
+      page_pointer,
       metadata_.payload_size_,
       0,
-      range);
+      false,
+      range,
+      current_pages[1]);
     current_pages[0] = page;
     current_pages_ids[0] = page_pointer;
     // current_records[0] is always 0
@@ -290,12 +297,16 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
         if (range.end_ > metadata_.array_size_) {
           range.end_ = metadata_.array_size_;
         }
-        interior_page->initialize_data_page(
+        bool root = (level == levels_ - 1);
+        interior_page->initialize_volatile_page(
           initial_epoch,
           metadata_.id_,
-          interior_pointer.word,
+          interior_pointer,
           metadata_.payload_size_,
-          level, interior_range);
+          level,
+          root,
+          interior_range,
+          root ? nullptr : current_pages[level + 1]);
 
         DualPagePointer& child_pointer = interior_page->get_interior_record(0);
         child_pointer.snapshot_pointer_ = 0;
@@ -540,6 +551,7 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write(
       // come back during the grace period.
       CHECK_ERROR_CODE(context->install_a_volatile_page(
         &pointer,
+        reinterpret_cast<Page*>(current_page),
         reinterpret_cast<Page**>(&current_page)));
     } else {
       current_page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(volatile_pointer));

@@ -22,6 +22,7 @@ class   Storage;
 class   StorageFactory;
 class   StorageManager;
 class   StorageManagerPimpl;
+struct  VolatilePageInitializer;
 }  // namespace storage
 }  // namespace foedus
 #endif  // FOEDUS_STORAGE_FWD_HPP_

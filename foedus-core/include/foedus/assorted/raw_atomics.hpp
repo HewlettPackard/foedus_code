@@ -71,6 +71,15 @@ inline bool raw_atomic_compare_exchange_weak_uint128(
 }
 
 /**
+ * @brief Atomic fetch-add for raw primitive types rather than std::atomic<T>.
+ * @tparam T integer type
+ * @return result of arithmetic addition of the value and addendum
+ * @ingroup ASSORTED
+ */
+template <typename T>
+T raw_atomic_fetch_add(T* target, T addendum);
+
+/**
  * @brief Byte count of one cache line.
  * @ingroup ASSORTED
  * @details

@@ -63,7 +63,6 @@ ErrorStack SequentialVolatileList::uninitialize_once() {
         cur_pointer.components.offset)));
       ASSERT_ND(node == cur_pointer.components.numa_node);
       VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
-      ASSERT_ND(node == next_pointer.components.numa_node);
       if (chunk.full()) {
         pool.release(chunk.size(), &chunk);
       }
@@ -71,6 +70,7 @@ ErrorStack SequentialVolatileList::uninitialize_once() {
       chunk.push_back(cur_pointer.components.offset);
 
       if (next_pointer.components.offset != 0) {
+        ASSERT_ND(node == next_pointer.components.numa_node);
         page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(
           next_pointer.components.offset));
       } else {
@@ -116,7 +116,7 @@ void SequentialVolatileList::append_record(
     new_page_pointer = combine_volatile_page_pointer(node, 0, 0, new_page_offset);
     SequentialPage* new_page = reinterpret_cast<SequentialPage*>(
       context->get_global_volatile_page_resolver().resolve_offset(node, new_page_offset));
-    new_page->initialize_data_page(storage_id_, new_page_pointer.word);
+    new_page->initialize_volatile_page(storage_id_, new_page_pointer);
 
     if (tail == nullptr) {
       // this is the first access to this head pointer. Let's install the first page.
