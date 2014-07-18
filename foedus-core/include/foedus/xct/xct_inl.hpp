@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_XCT_XCT_INL_HPP_
 #define FOEDUS_XCT_XCT_INL_HPP_
+
 #include <cstring>
 #include <iosfwd>
 

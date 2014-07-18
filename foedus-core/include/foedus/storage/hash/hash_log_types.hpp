@@ -219,7 +219,10 @@ struct HashOverwriteLogType : public log::RecordLogType {
     Storage* storage,
     Record* record) ALWAYS_INLINE {
     ASSERT_ND(dynamic_cast<HashStorage*>(storage));
-    std::memcpy(record->payload_ + payload_offset_, data_ + key_length_, payload_count_);
+    std::memcpy(
+      record->payload_ + key_length_ + payload_offset_,
+      data_ + key_length_,
+      payload_count_);
   }
 
   void            assert_valid() ALWAYS_INLINE {

@@ -207,7 +207,7 @@ struct VolatilePageInitializer {
  */
 struct DummyVolatilePageInitializer CXX11_FINAL : public VolatilePageInitializer {
   DummyVolatilePageInitializer()
-    : VolatilePageInitializer(0, kUnknownPageType, true, nullptr) {
+    : VolatilePageInitializer(0, kUnknownPageType, true, CXX11_NULLPTR) {
   }
   void initialize_more(Page* /*page*/) const CXX11_OVERRIDE {}
 };

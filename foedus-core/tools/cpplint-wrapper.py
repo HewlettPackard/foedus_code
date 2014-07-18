@@ -4,13 +4,15 @@
 # Wraps Google's cpplint.py for a few additional features;
 # 1) Recursively look for files to check. cpplint.py might do this out of box in future.
 # 2) Control whether we return a non-zero exit code if there are style errros (--style-error arg).
-# 3) [TODO] Skip checking a file that had no warnings previously and has not changed since then.
+# 3) Skip checking a file that had no warnings previously and has not changed since then.
 import getopt
 import os
+import json
 import re
 import string
 import subprocess
 import sys
+import time
 import unicodedata
 
 
@@ -113,15 +115,67 @@ def get_files_recursive(folder, out_files):
             else:
                 get_files_recursive(path, out_files)
 
+def compute_dir_index(files):
+    """ Return a tuple containing a dictionary: filepath => last
+    """
+    index = {}
+    start = time.time()
+    for f in files:
+        index[f] = str(os.path.getmtime(f))
+    end = time.time()
+    sys.stdout.write('cpplint-wrapper: Checked timestamp of ' + str(len(files)) + ' files in '
+                      + str(end - start) + ' sec.\n')
+
+    return index
+
+def store_dir_index(index, path):
+    start = time.time()
+    f = open(path, 'w')
+    json.dump(index, f)
+    f.close()
+    end = time.time()
+    sys.stdout.write('cpplint-wrapper: Wrote ' + path + ' in ' + str(end - start) + ' sec.\n')
+
+def load_dir_index(path):
+    start = time.time()
+    f = open(path, 'r')
+    idx = json.load(f)
+    f.close()
+    end = time.time()
+    sys.stdout.write('cpplint-wrapper: Read ' + path + ' in ' + str(end - start) + ' sec.\n')
+    return idx
+
+def compute_diff(files, index_base, index_now):
+    new_index = {}
+
+    for f in files:
+        if not f in index_base or index_base[f] != index_now[f]:
+            new_index[f] = index_now[f]
+    return new_index
+
 def exec_cpplint(files, cpplint_arguments):
     if not files:
         sys.stdout.write('No files to check\n')
         return False
+
+    # run cpplint only for files that have been changed or had some warning previously
+    index_last = {}
+    if os.path.isfile(history_file):
+        index_last = load_dir_index(history_file)
+    index_now = compute_dir_index(files)
+    index_now = compute_diff(files, index_last, index_now)
+    if not index_now:
+        sys.stdout.write('cpplint-wrapper: No files have been changed\n')
+        return False
+
     args = [sys.executable, cpplint_file]
     args.append('--extensions=c,cc,cpp,h,hpp,cu,cuh') # cpplint's default extensions lack "hpp"
     args += cpplint_arguments
-    args += files
-    sys.stdout.write('Launching cpplint for ' + str(len(files)) + ' files.\n')
+    for f in index_now:
+        args.append(f)
+
+    sys.stdout.write('Launching cpplint for ' + str(len(index_now)) + ' files.\n')
+    # sys.stdout.write('arguments: ' + ' '.join(args) + '\n')
     # sys.stdout.write('Launching cpplint (' + cpplint_file + ') for ' + str(len(files))
     #                  + ' files. arguments: ' + ' '.join(args) + '\n')
     proc = subprocess.Popen(args, bufsize=65536, stderr=subprocess.PIPE, close_fds=True)
@@ -131,7 +185,18 @@ def exec_cpplint(files, cpplint_arguments):
         # This is annoying. Why cpplint writes this to _stderr_??
         if not line.startswith("Done processing "):
             has_error = True
+## eg.
+## /home/kimurhid/projects/foedus_code/foedus-core/include/foedus/cache/cache_hashtable.hpp:205:  Namespace should be terminated with "// namespace cache"  [readability/namespace] [5]
+## We parse the line and remember the file to be excluded from the "clean" list
+            if line.find(':') > 0:
+              f = line[:line.find(':')]
+              if f in index_now:
+                del index_now[f]
             sys.stdout.write(line)
+
+    # store the clean list to speed up next execution
+    store_dir_index(index_now, history_file)
+
     return has_error
 
 def main():
