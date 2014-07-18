@@ -384,7 +384,7 @@ ErrorCode HashStoragePimpl::insert_record_chosen_bin(
   uint32_t bin_num = combo.bins_[choice];
   uint32_t storageid = holder_->get_hash_metadata()->id_;
   context->get_current_xct().add_frequency(bin_num, storageid);
-  if (context->get_current_xct().read_frequency(bin_num , storageid) + static_cast<int>(data_page->get_record_count()) > kMaxEntriesPerBin) {
+  if (context->get_current_xct().read_frequency(bin_num , storageid) + data_page->get_record_count() > kMaxEntriesPerBin) {
     make_room(context, data_page, 0);
   }
   return context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry);
@@ -433,7 +433,7 @@ ErrorCode HashStoragePimpl::insert_record(
   uint32_t bin_num = combo.bins_[choice];
   uint32_t storageid = holder_->get_hash_metadata()->id_;
   context->get_current_xct().add_frequency(bin_num, storageid);
-  if (context->get_current_xct().read_frequency(bin_num , storageid) + static_cast<int>(data_page->get_record_count()) > kMaxEntriesPerBin) {
+  if (context->get_current_xct().read_frequency(bin_num , storageid) + data_page->get_record_count() > kMaxEntriesPerBin) {
     make_room(context, data_page, 0);
   }
   return context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry);

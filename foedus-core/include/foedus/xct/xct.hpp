@@ -272,14 +272,15 @@ class Xct {
    * and then if the sum of that counter and the number of elements in the bin is too high, we
    * call kickout. kickout will end up decrementing the relavent counter (and is the only
    * function allowed to decrement it -- this is valid because we have just incremented it
-   * in the same context. 
+   * in the same context.
    *
    */
+
   struct FrequencyHash{
-    int* array_;  // This can take negative values as well!
+    KickoutInfo* array_;
     uint32_t size_;
     FrequencyHash(uint32_t size) {  // Size must be a power of two
-      array_ = new int[size];
+      array_ = new KickoutInfo[size];
       size_ = size;
     }
     uint32_t hash(uint32_t a) {  // TODO(Bill) Add in an actual hash function
@@ -293,11 +294,25 @@ class Xct {
       uint32_t bucket = (hash(bin) ^ hash(storageid)) % size_;
       array_[bucket]--;
     }
-    uint16_t read(uint32_t bin, uint32_t storageid){
+    KickoutInfo read(uint32_t bin, uint32_t storageid){
       uint32_t bucket = (hash(bin) ^ hash(storageid)) % size_;
       return array_[bucket];
     }
   };
+
+
+  struct KickoutInfo {
+    uint32_t add_count;  // incremented every time something is added to a bin, except for when that
+    //thing needed a kickout
+    uint32_t kickout_count;  // incremented every time something is kicked out from a bin.
+    // Note: Since we know the size of the contents in the bin, these two are very similar.
+    // If we really wanted to, we could possibly combine them to one thing
+    KickoutInfo() {
+      add_count = 0;
+      kickout_count = 0;
+    }
+  };
+
 
   FrequencyHash frequency_hash_;
 
