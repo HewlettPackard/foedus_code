@@ -67,10 +67,19 @@ class HashStoragePimpl final : public DefaultInitializable {
     void* payload,
     uint16_t* payload_capacity);
 
+  /** @copydoc foedus::storage::hash::HashStorage::get_record_primitive() */
+  template <typename PAYLOAD>
+  ErrorCode   get_record_primitive(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    PAYLOAD* payload,
+    uint16_t payload_offset);
+
   /** @copydoc foedus::storage::hash::HashStorage::get_record_part() */
   ErrorCode   get_record_part(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     void* payload,
     uint16_t payload_offset,
@@ -79,33 +88,61 @@ class HashStoragePimpl final : public DefaultInitializable {
   /** @copydoc foedus::storage::hash::HashStorage::insert_record() */
   ErrorCode insert_record(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     const void* payload,
     uint16_t payload_count);
 
   /** @copydoc foedus::storage::hash::HashStorage::delete_record() */
-  ErrorCode delete_record(thread::Thread* context, const char* key, uint16_t key_length);
+  ErrorCode delete_record(thread::Thread* context, const void* key, uint16_t key_length);
 
   /** @copydoc foedus::storage::hash::HashStorage::overwrite_record() */
   ErrorCode overwrite_record(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     const void* payload,
     uint16_t payload_offset,
     uint16_t payload_count);
 
+  /** @copydoc foedus::storage::hash::HashStorage::overwrite_record_primitive() */
+  template <typename PAYLOAD>
+  ErrorCode   overwrite_record_primitive(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    PAYLOAD payload,
+    uint16_t payload_offset);
+
+  /** @copydoc foedus::storage::hash::HashStorage::increment_record() */
+  template <typename PAYLOAD>
+  ErrorCode   increment_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    PAYLOAD* value,
+    uint16_t payload_offset);
+
+  void      apply_insert_record(
+    thread::Thread* context,
+    const HashInsertLogType* log_entry,
+    Record* record);
+  void      apply_delete_record(
+    thread::Thread* context,
+    const HashDeleteLogType* log_entry,
+    Record* record);
+
   /**
    * @brief Find a bin page that contains a bin for the hash.
    * @param[in] context Thread context
+   * @param[in] for_write Whether we are reading these pages to modify
    * @param[in,out] combo Hash values. Also the result of this method.
    * @details
    * It might set null to out if there is no bin page created yet.
    * In this case, the pointer to the bin page is added as a node set to capture a concurrent
    * event installing a new volatile page there.
    */
-  ErrorCode     lookup_bin(thread::Thread* context, HashCombo *combo);
+  ErrorCode     lookup_bin(thread::Thread* context, bool for_write, HashCombo *combo);
 
   HashRootPage* lookup_boundary_root(
     thread::Thread* context,

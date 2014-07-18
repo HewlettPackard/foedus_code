@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_XCT_XCT_INL_HPP_
 #define FOEDUS_XCT_XCT_INL_HPP_
+
 #include <cstring>
 #include <iosfwd>
 
@@ -59,8 +60,6 @@ inline ErrorCode Xct::add_to_read_set(storage::Storage* storage, storage::Record
   } else if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
     return kErrorCodeXctReadSetOverflow;
   }
-
-  ASSERT_ND(record->owner_id_.is_valid());
 
   // If the record is locked, we will surely abort at commit time.
   // Rather, spin here to avoid wasted effort. In our engine, lock happens in commit time,

@@ -13,6 +13,7 @@
 
 #include "foedus/engine.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_type.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
@@ -58,7 +59,7 @@ ErrorCode HashStorage::get_record(
 
 ErrorCode HashStorage::get_record_part(
   thread::Thread* context,
-  const char* key,
+  const void* key,
   uint16_t key_length,
   void* payload,
   uint16_t payload_offset,
@@ -66,9 +67,19 @@ ErrorCode HashStorage::get_record_part(
   return pimpl_->get_record_part(context, key, key_length, payload, payload_offset, payload_count);
 }
 
+template <typename PAYLOAD>
+ErrorCode HashStorage::get_record_primitive(
+  thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
+  PAYLOAD* payload,
+  uint16_t payload_offset) {
+  return pimpl_->get_record_primitive(context, key, key_length, payload, payload_offset);
+}
+
 ErrorCode HashStorage::insert_record(
   thread::Thread* context,
-  const char* key,
+  const void* key,
   uint16_t key_length,
   const void* payload,
   uint16_t payload_count) {
@@ -77,19 +88,58 @@ ErrorCode HashStorage::insert_record(
 
 ErrorCode HashStorage::delete_record(
   thread::Thread* context,
-  const char* key,
+  const void* key,
   uint16_t key_length) {
   return pimpl_->delete_record(context, key, key_length);
 }
 
 ErrorCode HashStorage::overwrite_record(
   thread::Thread* context,
-  const char* key,
+  const void* key,
   uint16_t key_length,
   const void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
   return pimpl_->overwrite_record(context, key, key_length, payload, payload_offset, payload_count);
+}
+
+template <typename PAYLOAD>
+ErrorCode HashStorage::overwrite_record_primitive(
+  thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
+  PAYLOAD payload,
+  uint16_t payload_offset) {
+  return pimpl_->overwrite_record_primitive(
+    context,
+    key,
+    key_length,
+    payload,
+    payload_offset);
+}
+
+template <typename PAYLOAD>
+ErrorCode HashStorage::increment_record(
+  thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
+  PAYLOAD* value,
+  uint16_t payload_offset) {
+  return pimpl_->increment_record(context, key, key_length, value, payload_offset);
+}
+
+void HashStorage::apply_delete_record(
+  thread::Thread* context,
+  const HashDeleteLogType* log_entry,
+  Record* record) {
+  pimpl_->apply_delete_record(context, log_entry, record);
+}
+
+void HashStorage::apply_insert_record(
+  thread::Thread* context,
+  const HashInsertLogType* log_entry,
+  Record* record) {
+  pimpl_->apply_insert_record(context, log_entry, record);
 }
 
 HashStoragePimpl::HashStoragePimpl(Engine* engine, HashStorage* holder,
@@ -198,10 +248,11 @@ ErrorStack HashStoragePimpl::uninitialize_once() {
       for (uint32_t i = 0; i < kHashRootPageFanout; ++i) {
         DualPagePointer &child_pointer = root_page_->pointer(i);
         VolatilePagePointer child_page_id = child_pointer.volatile_pointer_;
-        ASSERT_ND(child_page_id.components.offset != 0);
-        HashRootPage* child_page = reinterpret_cast<HashRootPage*>(
-          page_resolver.resolve_offset(child_page_id));
-        release_pages_recursive_root(&release_batch, child_page, child_page_id);
+        if (child_page_id.components.offset != 0) {
+          HashRootPage* child_page = reinterpret_cast<HashRootPage*>(
+            page_resolver.resolve_offset(child_page_id));
+          release_pages_recursive_root(&release_batch, child_page, child_page_id);
+        }
       }
       release_batch.release(root_id);
     }
@@ -236,7 +287,10 @@ ErrorStack HashStoragePimpl::create(thread::Thread* context) {
     0,
     0,
     root_offset);
-  root_page_->initialize_page(metadata_.id_, root_page_pointer_.volatile_pointer_.word);
+  root_page_->initialize_volatile_page(
+    metadata_.id_,
+    root_page_pointer_.volatile_pointer_,
+    nullptr);
   if (root_pages_ > 1) {
     for (uint16_t i = 0; i < root_pages_; ++i) {
       memory::PagePoolOffset offset = memory->grab_free_volatile_page();
@@ -247,7 +301,7 @@ ErrorStack HashStoragePimpl::create(thread::Thread* context) {
         0,
         0,
         offset);
-      page->initialize_page(metadata_.id_, pointer.word);
+      page->initialize_volatile_page(metadata_.id_, pointer, root_page_);
       root_page_->pointer(i).volatile_pointer_ = pointer;
     }
   }
@@ -265,7 +319,7 @@ ErrorCode HashStoragePimpl::get_record(
   void* payload,
   uint16_t* payload_capacity) {
   HashCombo combo(key, key_length, metadata_.bin_bits_);
-  CHECK_ERROR_CODE(lookup_bin(context, &combo));
+  CHECK_ERROR_CODE(lookup_bin(context, false, &combo));
   DVLOG(3) << "get_hash: hash=" << combo;
   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
 
@@ -287,15 +341,43 @@ ErrorCode HashStoragePimpl::get_record(
   }
 }
 
+template <typename PAYLOAD>
+ErrorCode HashStoragePimpl::get_record_primitive(
+  thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
+  PAYLOAD* payload,
+  uint16_t payload_offset) {
+  HashCombo combo(key, key_length, metadata_.bin_bits_);
+  CHECK_ERROR_CODE(lookup_bin(context, false, &combo));
+  DVLOG(3) << "get_hash_primitive: hash=" << combo;
+  CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
+
+  if (combo.record_) {
+    // we already added to read set, so the only remaining thing is to read payload
+    if (combo.payload_length_ < payload_offset + sizeof(PAYLOAD)) {
+      // payload too small
+      LOG(WARNING) << "short record " << combo;  // probably this is a rare error. so warn.
+      return kErrorCodeStrTooShortPayload;
+    }
+    std::memcpy(payload, combo.record_->payload_ + key_length + payload_offset, sizeof(PAYLOAD));
+    return kErrorCodeOk;
+  } else {
+    // not found
+    // TODO(Hideaki) Add the mod counter to a special read set
+    return kErrorCodeStrKeyNotFound;
+  }
+}
+
 ErrorCode HashStoragePimpl::get_record_part(
   thread::Thread* context,
-  const char* key,
+  const void* key,
   uint16_t key_length,
   void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
   HashCombo combo(key, key_length, metadata_.bin_bits_);
-  CHECK_ERROR_CODE(lookup_bin(context, &combo));
+  CHECK_ERROR_CODE(lookup_bin(context, false, &combo));
   DVLOG(3) << "get_hash_part: hash=" << combo;
   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
 
@@ -316,17 +398,16 @@ ErrorCode HashStoragePimpl::get_record_part(
 
 ErrorCode HashStoragePimpl::insert_record(
   thread::Thread* context,
-  const char* key,
+  const void* key,
   uint16_t key_length,
   const void* payload,
   uint16_t payload_count) {
   HashCombo combo(key, key_length, metadata_.bin_bits_);
-  CHECK_ERROR_CODE(lookup_bin(context, &combo));
+  CHECK_ERROR_CODE(lookup_bin(context, true, &combo));
   DVLOG(3) << "insert_hash: hash=" << combo;
   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
 
   if (combo.record_) {
-    // TODO(Hideaki) Add the mod counter to a special read set
     return kErrorCodeStrKeyAlreadyExists;
   }
 
@@ -344,101 +425,26 @@ ErrorCode HashStoragePimpl::insert_record(
   }
   uint8_t choice = bin1 ? 0 : 1;
 
-  // TODO(Hideaki) if the bin/data page is a snapshot or does not exist, we have to install
-  // a new volatile page. also, we need to physically create a record.
-  HashDataPage* data_page = combo.data_pages_[choice];
+  // lookup_bin should have already created volatile pages for both cases
   HashBinPage* bin_page = combo.bin_pages_[choice];
-  if (data_page == nullptr || data_page->header().snapshot_) {
-    if (bin_page == nullptr || bin_page->header().snapshot_) {
-      // bin page too
-      uint16_t pointer_index;
-      HashRootPage* boundary = lookup_boundary_root(context, combo.bins_[choice], &pointer_index);
-      DualPagePointer& pointer = boundary->pointer(pointer_index);
-      storage::VolatilePagePointer cur_pointer = pointer.volatile_pointer_;
-      // TODO(Hideaki) the following must be refactored to a method
-      if (pointer.snapshot_pointer_ != 0) {
-        CHECK_ERROR_CODE(context->install_a_volatile_page(
-          &pointer,
-          reinterpret_cast<Page*>(boundary),
-          reinterpret_cast<Page**>(&bin_page)));
-      } else {
-        memory::PagePoolOffset offset = context->get_thread_memory()->grab_free_volatile_page();
-        if (UNLIKELY(offset == 0)) {
-          return kErrorCodeMemoryNoFreePages;
-        }
-        bin_page = reinterpret_cast<HashBinPage*>(
-          context->get_local_volatile_page_resolver().resolve_offset(offset));
-        VolatilePagePointer new_pointer
-          = combine_volatile_page_pointer(context->get_numa_node(), 0, 1, offset);
-        bin_page->initialize_page(
-          metadata_.id_,
-          new_pointer.word,
-          combo.bins_[choice] / kBinsPerPage * kBinsPerPage,
-          combo.bins_[choice] / kBinsPerPage * kBinsPerPage + kBinsPerPage);
-        if (assorted::raw_atomic_compare_exchange_strong<uint64_t>(
-          &(pointer.volatile_pointer_.word),
-          &(cur_pointer.word),
-          new_pointer.word)) {
-          // good
-        } else {
-          // Then there must be a new page installed by someone else.
-          context->get_thread_memory()->release_free_volatile_page(offset);
-          ASSERT_ND(pointer.volatile_pointer_.components.offset != 0);
-          bin_page = reinterpret_cast<HashBinPage*>(
-            context->get_global_volatile_page_resolver().resolve_offset(cur_pointer));
-        }
-      }
-    }
-    // TODO(Hideaki) again, refactor
-    DualPagePointer& pointer = bin_page->bin(combo.bins_[choice] % kBinsPerPage).data_pointer_;
-    storage::VolatilePagePointer cur_pointer = pointer.volatile_pointer_;
-    if (pointer.snapshot_pointer_ != 0) {
-      CHECK_ERROR_CODE(context->install_a_volatile_page(
-        &pointer,
-        reinterpret_cast<Page*>(bin_page),
-        reinterpret_cast<Page**>(&data_page)));
-    } else {
-      memory::PagePoolOffset offset = context->get_thread_memory()->grab_free_volatile_page();
-      if (UNLIKELY(offset == 0)) {
-        return kErrorCodeMemoryNoFreePages;
-      }
-      data_page = reinterpret_cast<HashDataPage*>(
-        context->get_local_volatile_page_resolver().resolve_offset(offset));
-      VolatilePagePointer new_pointer
-        = combine_volatile_page_pointer(context->get_numa_node(), 0, 1, offset);
-      data_page->initialize_page(metadata_.id_, new_pointer.word, combo.bins_[choice]);
-      if (assorted::raw_atomic_compare_exchange_strong<uint64_t>(
-        &(pointer.volatile_pointer_.word),
-        &(cur_pointer.word),
-        new_pointer.word)) {
-        // good
-      } else {
-        // Then there must be a new page installed by someone else.
-        context->get_thread_memory()->release_free_volatile_page(offset);
-        ASSERT_ND(pointer.volatile_pointer_.components.offset != 0);
-        data_page = reinterpret_cast<HashDataPage*>(
-          context->get_global_volatile_page_resolver().resolve_offset(cur_pointer));
-      }
-    }
-  }
-
   ASSERT_ND(bin_page && !bin_page->header().snapshot_);
+  HashDataPage* data_page = combo.data_pages_[choice];
   ASSERT_ND(data_page && !data_page->header().snapshot_);
 
   uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
   HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(metadata_.id_, key, key_length, bin1, payload, payload_count);
+  log_entry->populate(metadata_.id_, key, key_length, bin1, combo.tag_, payload, payload_count);
   Record* page_lock_record = reinterpret_cast<Record*>(&(data_page->page_owner()));
   return context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry);
 }
 
 ErrorCode HashStoragePimpl::delete_record(
   thread::Thread* context,
-  const char* key,
+  const void* key,
   uint16_t key_length) {
   HashCombo combo(key, key_length, metadata_.bin_bits_);
-  CHECK_ERROR_CODE(lookup_bin(context, &combo));
+  CHECK_ERROR_CODE(lookup_bin(context, true, &combo));
   DVLOG(3) << "delete_hash: hash=" << combo;
   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
 
@@ -447,26 +453,29 @@ ErrorCode HashStoragePimpl::delete_record(
     return kErrorCodeStrKeyNotFound;
   }
 
-  if (combo.data_pages_[combo.record_bin1_ ? 0 : 1]->header().snapshot_) {
-    // TODO(Hideaki) the data page is a snapshot page. we have to install a new volatile page
-  }
+#ifndef NDEBUG
+  HashBinPage* bin_page = combo.bin_pages_[combo.record_bin1_ ? 0 : 1];
+  ASSERT_ND(bin_page && !bin_page->header().snapshot_);
+  HashDataPage* data_page = combo.data_pages_[combo.record_bin1_ ? 0 : 1];
+  ASSERT_ND(data_page && !data_page->header().snapshot_);
+#endif  // NDEBUG
 
   uint16_t log_length = HashDeleteLogType::calculate_log_length(key_length);
   HashDeleteLogType* log_entry = reinterpret_cast<HashDeleteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(metadata_.id_, key, key_length, combo.record_bin1_);
+  log_entry->populate(metadata_.id_, key, key_length, combo.record_bin1_, combo.record_slot_);
   return context->get_current_xct().add_to_write_set(holder_, combo.record_, log_entry);
 }
 
 ErrorCode HashStoragePimpl::overwrite_record(
   thread::Thread* context ,
-  const char* key,
+  const void* key,
   uint16_t key_length,
   const void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
   HashCombo combo(key, key_length, metadata_.bin_bits_);
-  CHECK_ERROR_CODE(lookup_bin(context, &combo));
+  CHECK_ERROR_CODE(lookup_bin(context, true, &combo));
   DVLOG(3) << "overwrite_hash: hash=" << combo;
   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
 
@@ -480,9 +489,12 @@ ErrorCode HashStoragePimpl::overwrite_record(
     return kErrorCodeStrTooShortPayload;
   }
 
-  if (combo.data_pages_[combo.record_bin1_ ? 0 : 1]->header().snapshot_) {
-    // TODO(Hideaki) the data page is a snapshot page. we have to install a new volatile page
-  }
+#ifndef NDEBUG
+  HashBinPage* bin_page = combo.bin_pages_[combo.record_bin1_ ? 0 : 1];
+  ASSERT_ND(bin_page && !bin_page->header().snapshot_);
+  HashDataPage* data_page = combo.data_pages_[combo.record_bin1_ ? 0 : 1];
+  ASSERT_ND(data_page && !data_page->header().snapshot_);
+#endif  // NDEBUG
 
   uint16_t log_length = HashOverwriteLogType::calculate_log_length(key_length, payload_count);
   HashOverwriteLogType* log_entry = reinterpret_cast<HashOverwriteLogType*>(
@@ -492,19 +504,169 @@ ErrorCode HashStoragePimpl::overwrite_record(
     key,
     key_length,
     combo.record_bin1_,
+    combo.record_slot_,
     payload,
     payload_offset,
     payload_count);
   return context->get_current_xct().add_to_write_set(holder_, combo.record_, log_entry);
 }
 
+template <typename PAYLOAD>
+ErrorCode HashStoragePimpl::overwrite_record_primitive(
+  thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
+  PAYLOAD payload,
+  uint16_t payload_offset) {
+  HashCombo combo(key, key_length, metadata_.bin_bits_);
+  CHECK_ERROR_CODE(lookup_bin(context, true, &combo));
+  DVLOG(3) << "overwrite_hash_primitive: hash=" << combo;
+  CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
+
+  if (combo.record_ == nullptr) {
+    // TODO(Hideaki) Add the mod counter to a special read set
+    return kErrorCodeStrKeyNotFound;
+  }
+
+  if (combo.payload_length_ < payload_offset + sizeof(PAYLOAD)) {
+    LOG(WARNING) << "short record " << combo;  // probably this is a rare error. so warn.
+    return kErrorCodeStrTooShortPayload;
+  }
+
+  uint16_t log_length = HashOverwriteLogType::calculate_log_length(key_length, sizeof(PAYLOAD));
+  HashOverwriteLogType* log_entry = reinterpret_cast<HashOverwriteLogType*>(
+    context->get_thread_log_buffer().reserve_new_log(log_length));
+  log_entry->populate(
+    metadata_.id_,
+    key,
+    key_length,
+    combo.record_bin1_,
+    combo.record_slot_,
+    &payload,
+    payload_offset,
+    sizeof(PAYLOAD));
+  return context->get_current_xct().add_to_write_set(holder_, combo.record_, log_entry);
+}
+
+template <typename PAYLOAD>
+ErrorCode HashStoragePimpl::increment_record(
+  thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
+  PAYLOAD* value,
+  uint16_t payload_offset) {
+  HashCombo combo(key, key_length, metadata_.bin_bits_);
+  CHECK_ERROR_CODE(lookup_bin(context, true, &combo));
+  DVLOG(3) << "increment_hash: hash=" << combo;
+  CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
+
+  if (combo.record_ == nullptr) {
+    // TODO(Hideaki) Add the mod counter to a special read set
+    return kErrorCodeStrKeyNotFound;
+  }
+
+  if (combo.payload_length_ < payload_offset + sizeof(PAYLOAD)) {
+    LOG(WARNING) << "short record " << combo;  // probably this is a rare error. so warn.
+    return kErrorCodeStrTooShortPayload;
+  }
+
+  char* ptr = combo.record_->payload_ + key_length + payload_offset;
+  PAYLOAD old_value = *reinterpret_cast<const PAYLOAD*>(ptr);
+  *value += old_value;
+
+  uint16_t log_length = HashOverwriteLogType::calculate_log_length(key_length, sizeof(PAYLOAD));
+  HashOverwriteLogType* log_entry = reinterpret_cast<HashOverwriteLogType*>(
+    context->get_thread_log_buffer().reserve_new_log(log_length));
+  log_entry->populate(
+    metadata_.id_,
+    key,
+    key_length,
+    combo.record_bin1_,
+    combo.record_slot_,
+    value,
+    payload_offset,
+    sizeof(PAYLOAD));
+  return context->get_current_xct().add_to_write_set(holder_, combo.record_, log_entry);
+}
+
+inline HashDataPage* to_page(Record* record) {
+  // super-dirty way to obtain Page the record belongs to.
+  // because all pages are 4kb aligned, we can just divide and multiply.
+  uintptr_t int_address = reinterpret_cast<uintptr_t>(reinterpret_cast<void*>(record));
+  uint64_t aligned_address = static_cast<uint64_t>(int_address) / kPageSize * kPageSize;
+  return reinterpret_cast<HashDataPage*>(
+    reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(aligned_address)));
+}
+
+void HashStoragePimpl::apply_insert_record(
+  thread::Thread* /*context*/,
+  const HashInsertLogType* log_entry,
+  Record* record) {
+  HashDataPage* data_page = to_page(record);
+  ASSERT_ND(!data_page->header().snapshot_);
+  uint64_t bin = data_page->get_bin();
+  HashBinPage* bin_page = reinterpret_cast<HashBinPage*>(data_page->header().volatile_parent_);
+  ASSERT_ND(bin_page);
+  ASSERT_ND(!bin_page->header().snapshot_);
+  HashBinPage::Bin& the_bin = bin_page->bin(bin % kBinsPerPage);
+
+#ifndef NDEBUG
+  HashCombo combo(log_entry->data_, log_entry->key_length_, metadata_.bin_bits_);
+  ASSERT_ND(bin == combo.bins_[log_entry->bin1_ ? 0 : 1]);
+  ASSERT_ND(log_entry->hashtag_ == combo.tag_);
+#endif  // NDEBUG
+
+  // install the tag and increment the bin page's mod counter first.
+  // we do this first, so there might be false positives. but there is no serializability violation.
+  uint16_t slot = data_page->find_empty_slot(log_entry->key_length_, log_entry->payload_count_);
+  the_bin.tags_[slot] = log_entry->hashtag_;
+  assorted::raw_atomic_fetch_add<uint16_t>(&the_bin.mod_counter_, 1U);
+  data_page->add_record(
+    log_entry->header_.xct_id_,
+    slot,
+    log_entry->key_length_,
+    log_entry->payload_count_,
+    log_entry->data_);
+}
+
+void HashStoragePimpl::apply_delete_record(
+  thread::Thread* /*context*/,
+  const HashDeleteLogType* log_entry,
+  Record* record) {
+  HashDataPage* data_page = to_page(record);
+  ASSERT_ND(!data_page->header().snapshot_);
+  uint64_t bin = data_page->get_bin();
+  HashBinPage* bin_page = reinterpret_cast<HashBinPage*>(data_page->header().volatile_parent_);
+  ASSERT_ND(bin_page);
+  ASSERT_ND(!bin_page->header().snapshot_);
+  HashBinPage::Bin& the_bin = bin_page->bin(bin % kBinsPerPage);
+
+#ifndef NDEBUG
+  HashCombo combo(log_entry->data_, log_entry->key_length_, metadata_.bin_bits_);
+  ASSERT_ND(bin == combo.bins_[log_entry->bin1_ ? 0 : 1]);
+#endif  // NDEBUG
+
+  uint16_t slot = log_entry->slot_;
+  // We are deleting this record, so it should be locked
+  ASSERT_ND(data_page->get_record_count() > slot);
+  ASSERT_ND(data_page->interpret_record(slot)->owner_id_.is_keylocked());
+  ASSERT_ND((data_page->slot(slot).flags_ & HashDataPage::kFlagDeleted) == 0);
+  data_page->slot(slot).flags_ |= HashDataPage::kFlagDeleted;
+
+  // we also remove tag from bin page. this happens AFTER physically deleting it with fence.
+  // this protocol makes sure it's safe, although there might be false positive.
+  assorted::memory_fence_release();
+  the_bin.tags_[slot] = 0;
+}
+
+
 inline HashRootPage* HashStoragePimpl::lookup_boundary_root(
   thread::Thread* context,
   uint64_t bin,
   uint16_t* pointer_index) {
   uint64_t bin_page = bin / kBinsPerPage;
-  ASSERT_ND(bin_page <= kHashRootPageFanout);
   if (root_pages_ == 1) {
+    ASSERT_ND(bin_page <= kHashRootPageFanout);
     *pointer_index = bin_page;
     return root_page_;
   } else {
@@ -517,53 +679,68 @@ inline HashRootPage* HashStoragePimpl::lookup_boundary_root(
   }
 }
 
-ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, HashCombo* combo) {
-  const memory::GlobalVolatilePageResolver& page_resolver
-    = context->get_global_volatile_page_resolver();
-  xct::Xct& current_xct = context->get_current_xct();
+inline uint32_t iterate_over_tags(const HashBinPage::Bin& bin, HashTag tag) {
+  uint32_t hit_bitmap = 0;  // kMaxEntriesPerBin bits < 32bit
+  /* TODO(Hideaki) let's do SIMD and 8-byte packed operation here. Currently 7% cost here.
+  uint64_t packed =
+    static_cast<uint64_t>(tag) << 48
+    | static_cast<uint64_t>(tag) << 32
+    | static_cast<uint64_t>(tag) << 16
+    | static_cast<uint64_t>(tag);
+  if (bin.tags_[0] == tag) {
+    hit_bitmap |= (1U << 0);
+  }
+  if (bin.tags_[1] == tag) {
+    hit_bitmap |= (1U << 1);
+  }
+  if (bin.tags_[2] == tag) {
+    hit_bitmap |= (1U << 2);
+  }
+  const uint64_t *batched = static_cast<const uint64_t*>(bin.tags_ + 3);
+  for (int i = 0; i < 5; ++i) {
+    uint64_t anded = batched[i] & packed;
+  }*/
 
+  for (uint16_t tag_pos = 0; tag_pos < kMaxEntriesPerBin; ++tag_pos) {
+    if (bin.tags_[tag_pos] == tag) {
+      hit_bitmap |= (1U << tag_pos);
+    }
+  }
+  return hit_bitmap;
+}
+
+ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, bool for_write, HashCombo* combo) {
   // TODO(Hideaki) to speed up the following, we should prefetch more aggressively.
   // the code will be a bit uglier, though.
+
+  // For writes, we take care of node-set later separately.
+  // TODO(Hideaki) let's blindly load volatile pages for all writes.
+  // it simplifies this method a lot.
 
   // find bin page
   for (uint8_t i = 0; i < 2; ++i) {
     uint16_t pointer_index;
     HashRootPage* boundary = lookup_boundary_root(context, combo->bins_[i], &pointer_index);
-    // TODO(Hideaki) the follwoing logic is appearing in a few places. should become a method.
-    const DualPagePointer& pointer = boundary->pointer(pointer_index);
-    storage::VolatilePagePointer volatile_pointer = pointer.volatile_pointer_;
-    if (pointer.snapshot_pointer_ == 0) {
-      if (volatile_pointer.components.offset == 0) {
-        // oh, both null, so the page is not created yet. definitely no such record.
-        // just add the pointer to read set.
-        current_xct.add_to_node_set(&pointer.volatile_pointer_, volatile_pointer);
-        combo->bin_pages_[i] = nullptr;
-      } else {
-        // then we have to follow it anyway
-        combo->bin_pages_[i] = reinterpret_cast<HashBinPage*>(
-          page_resolver.resolve_offset(volatile_pointer));
-      }
-    } else {
-      // if there is a snapshot page, we have a few more choices.
-      if (volatile_pointer.components.offset == 0 ||
-        current_xct.get_isolation_level() == xct::kDirtyReadPreferSnapshot) {
-        // then read from snapshot page.
-        current_xct.add_to_node_set(&pointer.volatile_pointer_, volatile_pointer);
-        CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
-          pointer.snapshot_pointer_,
-          reinterpret_cast<Page**>(&combo->bin_pages_[i])));
-      } else {
-        combo->bin_pages_[i] = reinterpret_cast<HashBinPage*>(
-          page_resolver.resolve_offset(volatile_pointer));
-      }
-    }
+    HashBinPage::Initializer initializer(
+      metadata_.id_,
+      boundary,
+      combo->bins_[i] / kBinsPerPage * kBinsPerPage);
+    CHECK_ERROR_CODE(context->follow_page_pointer(
+      &initializer,
+      !for_write,  // tolerate null page for read. if that happens, we get nullptr on the bin page
+      for_write,  // always get volatile pages for writes
+      true,
+      false,
+      &(boundary->pointer(pointer_index)),
+      reinterpret_cast<Page**>(&(combo->bin_pages_[i]))));
   }
 
   // read bin pages
   for (uint8_t i = 0; i < 2; ++i) {
     uint16_t bin_pos = combo->bins_[i] % kBinsPerPage;
-    if (combo->bin_pages_[i]) {
-      bool snapshot = combo->bin_pages_[i]->header().snapshot_;
+    HashBinPage* bin_page = combo->bin_pages_[i];
+    if (bin_page) {
+      bool snapshot = bin_page->header().snapshot_;
       if (i == 0 && combo->bin_pages_[1]) {
         // when we are reading from both of them we prefetch the two 64 bytes.
         // if we are reading from only one of them, no need.
@@ -572,41 +749,27 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, HashCombo* combo
         ::_mm_prefetch(&(combo->bin_pages_[1]->bin(another_pos)), ::_MM_HINT_T0);
       }
 
-      const HashBinPage::Bin& bin = combo->bin_pages_[i]->bin(bin_pos);
+      HashBinPage::Bin& bin = combo->bin_pages_[i]->bin(bin_pos);
       // add the mod counter to read set. we must do it BEFORE reading tags
       // and then take fence (consume is enough).
       if (!snapshot) {  // if we are reading a snapshot page, doesn't matter
         combo->observed_mod_count_[i] = bin.mod_counter_;
         assorted::memory_fence_consume();
       }
-      uint32_t hit_bitmap = 0;  // kMaxEntriesPerBin bits < 32bit
-      HashTag tag = combo->tag_;
-      for (uint16_t tag_pos = 0; tag_pos < kMaxEntriesPerBin; ++tag_pos) {
-        if (bin.tags_[tag_pos] == tag) {
-          hit_bitmap |= (1U << tag_pos);
-        }
-      }
-      combo->hit_bitmap_[i] = hit_bitmap;
+      combo->hit_bitmap_[i] = iterate_over_tags(bin, combo->tag_);
 
       // obtain data pages, but not read it yet. it's done in locate_record()
-      if (hit_bitmap) {
+      if (combo->hit_bitmap_[i] || for_write) {
         // becauase it's hitting. either page must be non-null
-        const DualPagePointer& pointer = bin.data_pointer_;
-        storage::VolatilePagePointer volatile_pointer = pointer.volatile_pointer_;
-        if (pointer.snapshot_pointer_ == 0 ||
-            (volatile_pointer.components.offset != 0 &&
-              current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot)) {
-          combo->data_pages_[i] = reinterpret_cast<HashDataPage*>(
-            page_resolver.resolve_offset(volatile_pointer));
-        } else {
-          if (!snapshot) {
-            // if bin page is snapshot, data page is stable
-            current_xct.add_to_node_set(&pointer.volatile_pointer_, volatile_pointer);
-          }
-          CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
-            pointer.snapshot_pointer_,
-            reinterpret_cast<Page**>(&combo->data_pages_[i])));
-        }
+        HashDataPage::Initializer initializer(metadata_.id_, bin_page, combo->bins_[i]);
+        CHECK_ERROR_CODE(context->follow_page_pointer(
+          &initializer,
+          !for_write,  // tolerate null page for read
+          for_write,  // always get volatile pages for writes
+          !snapshot && !for_write,  // if bin page is snapshot, data page is stable
+          false,
+          &(bin.data_pointer_),
+          reinterpret_cast<Page**>(&(combo->data_pages_[i]))));
       } else {
         combo->data_pages_[i] = nullptr;
       }
@@ -653,6 +816,7 @@ inline ErrorCode HashStoragePimpl::locate_record(
         // once we exactly locate the record, no point to check other records/bin. exit
         combo->record_ = record;
         combo->record_bin1_ = (i == 0);
+        combo->record_slot_ = rec;
         combo->payload_length_ = slot.record_length_ - key_length - kRecordOverhead;
         return kErrorCodeOk;
       }
@@ -744,6 +908,37 @@ ErrorCode HashStoragePimpl::insert_record(thread::Thread* context, const void* k
 }
 */
 
+// Explicit instantiations for each payload type
+// @cond DOXYGEN_IGNORE
+#define EXPIN_2(x) template ErrorCode HashStorage::get_record_primitive< x > \
+  (thread::Thread* context, const void* key, uint16_t key_length, x* payload, \
+  uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_2);
+
+#define EXPIN_2I(x) template ErrorCode HashStoragePimpl::get_record_primitive< x > \
+  (thread::Thread* context, const void* key, uint16_t key_length, x* payload, \
+  uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_2I);
+
+#define EXPIN_3(x) template ErrorCode HashStorage::overwrite_record_primitive< x > \
+  (thread::Thread* context, const void* key, uint16_t key_length, x payload, \
+  uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_3);
+
+#define EXPIN_3I(x) template ErrorCode HashStoragePimpl::overwrite_record_primitive< x > \
+  (thread::Thread* context, const void* key, uint16_t key_length, x payload, \
+  uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_3I);
+
+#define EXPIN_5(x) template ErrorCode HashStorage::increment_record< x > \
+  (thread::Thread* context, const void* key, uint16_t key_length, x* value, uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_5);
+
+#define EXPIN_5I(x) template ErrorCode HashStoragePimpl::increment_record< x > \
+  (thread::Thread* context, const void* key, uint16_t key_length, x* value, uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_5I);
+
+// @endcond
 
 }  // namespace hash
 }  // namespace storage

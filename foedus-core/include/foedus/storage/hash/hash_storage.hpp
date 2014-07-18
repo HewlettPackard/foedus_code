@@ -83,6 +83,16 @@ class HashStorage CXX11_FINAL : public virtual Storage {
     void* payload,
     uint16_t* payload_capacity);
 
+  /** Overlord to receive key as a primitive type. */
+  template <typename KEY>
+  inline ErrorCode get_record(
+    thread::Thread* context,
+    KEY key,
+    void* payload,
+    uint16_t* payload_capacity) {
+    return get_record(context, &key, sizeof(key), payload, payload_capacity);
+  }
+
   /**
    * @brief Retrieves a part of the given key in this hash storage.
    * @param[in] context Thread context
@@ -96,11 +106,51 @@ class HashStorage CXX11_FINAL : public virtual Storage {
    */
   ErrorCode get_record_part(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     void* payload,
     uint16_t payload_offset,
     uint16_t payload_count);
+
+  /** Overlord to receive key as a primitive type. */
+  template <typename KEY>
+  inline ErrorCode get_record_part(
+    thread::Thread* context,
+    KEY key,
+    void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count) {
+    return get_record_part(context, &key, sizeof(key), payload, payload_offset, payload_count);
+  }
+
+  /**
+   * @brief Retrieves a part of the given key in this storage as a primitive value.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key.
+   * @param[in] key_length Byte size of key.
+   * @param[out] payload Receive the payload of the record.
+   * @param[in] payload_offset We copy from this byte position of the record.
+   * @pre payload_offset + sizeof(PAYLOAD) must be within the record's actual payload size
+   * (returns kErrorCodeStrTooShortPayload if not)
+   * @tparam PAYLOAD primitive type of the payload. all integers and floats are allowed.
+   */
+  template <typename PAYLOAD>
+  ErrorCode   get_record_primitive(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    PAYLOAD* payload,
+    uint16_t payload_offset);
+
+  /** Overlord to receive key as a primitive type. */
+  template <typename KEY, typename PAYLOAD>
+  inline ErrorCode get_record_primitive(
+    thread::Thread* context,
+    KEY key,
+    PAYLOAD* payload,
+    uint16_t payload_offset) {
+    return get_record_primitive<PAYLOAD>(context, &key, sizeof(key), payload, payload_offset);
+  }
 
   // insert_record() methods
 
@@ -117,10 +167,20 @@ class HashStorage CXX11_FINAL : public virtual Storage {
    */
   ErrorCode   insert_record(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     const void* payload,
     uint16_t payload_count);
+
+  /** Overlord to receive key as a primitive type. */
+  template <typename KEY>
+  inline ErrorCode insert_record(
+    thread::Thread* context,
+    KEY key,
+    const void* payload,
+    uint16_t payload_count) {
+    return insert_record(context, &key, sizeof(key), payload, payload_count);
+  }
 
   // delete_record() methods
 
@@ -133,7 +193,13 @@ class HashStorage CXX11_FINAL : public virtual Storage {
    * When the key does not exist, it returns kErrorCodeStrKeyNotFound and we add an appropriate
    * bin mod counter to read set because it is part of a transactional information.
    */
-  ErrorCode   delete_record(thread::Thread* context, const char* key, uint16_t key_length);
+  ErrorCode   delete_record(thread::Thread* context, const void* key, uint16_t key_length);
+
+  /** Overlord to receive key as a primitive type. */
+  template <typename KEY>
+  inline ErrorCode delete_record(thread::Thread* context, KEY key) {
+    return delete_record(context, &key, sizeof(key));
+  }
 
   // overwrite_record() methods
 
@@ -153,11 +219,96 @@ class HashStorage CXX11_FINAL : public virtual Storage {
    */
   ErrorCode   overwrite_record(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     const void* payload,
     uint16_t payload_offset,
     uint16_t payload_count);
+
+  /** Overlord to receive key as a primitive type. */
+  template <typename KEY>
+  inline ErrorCode overwrite_record(
+    thread::Thread* context,
+    KEY key,
+    const void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count) {
+    return overwrite_record(context, &key, sizeof(key), payload, payload_offset, payload_count);
+  }
+
+  /**
+   * @brief Overwrites a part of one record of the given key in this storage as a primitive value.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key.
+   * @param[in] key_length Byte size of key.
+   * @param[in] payload We copy this value.
+   * @param[in] payload_offset We overwrite to this byte position of the record.
+   * @pre payload_offset + sizeof(PAYLOAD) must be within the record's actual payload size
+   * (returns kErrorCodeStrTooShortPayload if not)
+   * @tparam PAYLOAD primitive type of the payload. all integers and floats are allowed.
+   */
+  template <typename PAYLOAD>
+  ErrorCode   overwrite_record_primitive(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    PAYLOAD payload,
+    uint16_t payload_offset);
+
+  /** Overlord to receive key as a primitive type. */
+  template <typename KEY, typename PAYLOAD>
+  inline ErrorCode overwrite_record_primitive(
+    thread::Thread* context,
+    KEY key,
+    PAYLOAD payload,
+    uint16_t payload_offset) {
+    return overwrite_record_primitive(context, &key, sizeof(key), payload, payload_offset);
+  }
+
+  // increment_record() methods
+
+  /**
+   * @brief This one further optimizes overwrite methods for the frequent use
+   * case of incrementing some data in primitive type.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key.
+   * @param[in] key_length Byte size of key.
+   * @param[in,out] value (in) addendum, (out) value after addition.
+   * @param[in] payload_offset We overwrite to this byte position of the record.
+   * @pre payload_offset + sizeof(PAYLOAD) must be within the record's actual payload size
+   * (returns kErrorCodeStrTooShortPayload if not)
+   * @tparam PAYLOAD primitive type of the payload. all integers and floats are allowed.
+   */
+  template <typename PAYLOAD>
+  ErrorCode   increment_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    PAYLOAD* value,
+    uint16_t payload_offset);
+
+  /** Overlord to receive key as a primitive type. */
+  template <typename KEY, typename PAYLOAD>
+  inline ErrorCode increment_record(
+    thread::Thread* context,
+    KEY key,
+    PAYLOAD* value,
+    uint16_t payload_offset) {
+    return increment_record(context, &key, sizeof(key), value, payload_offset);
+  }
+
+  // log apply methods.
+  // some of them are so trivial that they are inlined in log class.
+
+  void        apply_insert_record(
+    thread::Thread* context,
+    const HashInsertLogType* log_entry,
+    Record* record);
+  void        apply_delete_record(
+    thread::Thread* context,
+    const HashDeleteLogType* log_entry,
+    Record* record);
+
 
   /** Use this only if you know what you are doing. */
   HashStoragePimpl*  get_pimpl() { return pimpl_; }
