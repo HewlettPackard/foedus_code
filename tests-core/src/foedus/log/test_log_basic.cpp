@@ -16,6 +16,7 @@
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/xct/xct.hpp"
+#include "foedus/xct/xct_inl.hpp"
 #include "foedus/xct/xct_manager.hpp"
 
 /**
@@ -117,6 +118,7 @@ class BufferWrapAroundTask : public thread::ImpersonateTask {
       reinterpret_cast<storage::Record*>(&dummy_record),
       reinterpret_cast<RecordLogType*>(filler));
 
+    buffer.assert_consistent();
     EXPECT_EQ(0, buffer.get_offset_committed());
     EXPECT_EQ(0, buffer.get_offset_durable());
     EXPECT_EQ(kBufferSize - 128, buffer.get_offset_tail());
@@ -124,6 +126,7 @@ class BufferWrapAroundTask : public thread::ImpersonateTask {
     Epoch commit_epoch;
     WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
 
+    buffer.assert_consistent();
     EXPECT_EQ(kBufferSize - 128, buffer.get_offset_committed());
     EXPECT_EQ(kBufferSize - 128, buffer.get_offset_tail());
 
@@ -146,16 +149,19 @@ class BufferWrapAroundTask : public thread::ImpersonateTask {
       reinterpret_cast<storage::Storage*>(&dummy_record),
       reinterpret_cast<storage::Record*>(&dummy_record),
       reinterpret_cast<RecordLogType*>(filler));
+    buffer.assert_consistent();
 
     WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
     EXPECT_EQ(256, buffer.get_offset_committed());
     EXPECT_EQ(kBufferSize - 128, buffer.get_offset_durable());
     EXPECT_EQ(256, buffer.get_offset_tail());
+    buffer.assert_consistent();
 
     WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
     EXPECT_EQ(256, buffer.get_offset_committed());
     EXPECT_EQ(256, buffer.get_offset_durable());
     EXPECT_EQ(256, buffer.get_offset_tail());
+    buffer.assert_consistent();
     return kRetOk;
   }
 };
