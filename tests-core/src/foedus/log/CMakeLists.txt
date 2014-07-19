@@ -1,1 +1,2 @@
+add_foedus_test_individual(test_log_basic "WriteLog;BufferWrapAround")
 add_foedus_test_individual(test_log_options "NodePattern;LoggerPattern;BothPattern;NonePattern")

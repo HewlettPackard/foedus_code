@@ -62,6 +62,7 @@ void EpochMarkerLogType::populate(Epoch old_epoch, Epoch new_epoch,
 }
 
 void FillerLogType::populate(uint64_t size) {
+  ASSERT_ND(size < (1 << 16));
   header_.storage_id_ = 0;
   header_.log_length_ = size;
   header_.log_type_code_ = get_log_code<FillerLogType>();
