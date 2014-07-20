@@ -22,6 +22,7 @@ set(FOEDUS_CORE_SRC_BIN ${CMAKE_CURRENT_BINARY_DIR})
 mark_as_advanced(FOEDUS_CORE_SRC_ROOT FOEDUS_CORE_SRC_BIN)
 
 set(CMAKE_VERBOSE_MAKEFILE ON)
+
 message (STATUS)
 message (STATUS "Building libfoedus-core... Environments:")
 message (STATUS "========================================")

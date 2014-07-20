@@ -13,6 +13,7 @@
 #include <utility>
 
 #include "foedus/assert_nd.hpp"
+#include "foedus/assorted/endianness.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/thread.hpp"

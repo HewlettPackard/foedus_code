@@ -71,12 +71,8 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
    * @details
    * When payload_capacity is smaller than the actual payload, this method returns
    * kErrorCodeStrTooSmallPayloadBuffer and payload_capacity is set to be the required length.
-   * If that happens, this method does \e NOT add this record to the read set, expecting that
-   * the caller immediatelly calls it again, which does add to the read set.
-   * In other words, "too small buffer" itself is not a transactional information and it might have
-   * a false positive as a rare case.
    *
-   * On the other hand, when the key is not found (kErrorCodeStrKeyNotFound), we add an appropriate
+   * When the key is not found (kErrorCodeStrKeyNotFound), we also add an appropriate
    * record to \e range-lock read set because it is part of a transactional information.
    */
   ErrorCode   get_record(

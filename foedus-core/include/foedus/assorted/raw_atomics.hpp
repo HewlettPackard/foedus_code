@@ -79,16 +79,6 @@ inline bool raw_atomic_compare_exchange_weak_uint128(
 template <typename T>
 T raw_atomic_fetch_add(T* target, T addendum);
 
-/**
- * @brief Byte count of one cache line.
- * @ingroup ASSORTED
- * @details
- * Several places use this to avoid false sharing of cache lines, for example separating
- * two variables that are frequently accessed with atomic requirements.
- * @todo This should be automatically detected by cmakedefine.
- */
-const uint16_t kCachelineSize = 64;
-
 }  // namespace assorted
 }  // namespace foedus
 
