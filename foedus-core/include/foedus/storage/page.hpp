@@ -27,7 +27,7 @@ enum PageType {
   kUnknownPageType = 0,
   kArrayPageType = 1,
   kMasstreeIntermediatePageType = 2,
-  kMasstreeBoundaryPageType = 3,
+  kMasstreeBorderPageType = 3,
   kSequentialPageType = 4,
   kSequentialRootPageType = 5,
   kHashRootPageType = 6,
@@ -211,6 +211,8 @@ struct DummyVolatilePageInitializer CXX11_FINAL : public VolatilePageInitializer
   }
   void initialize_more(Page* /*page*/) const CXX11_OVERRIDE {}
 };
+
+const DummyVolatilePageInitializer kDummyPageInitializer;
 
 }  // namespace storage
 }  // namespace foedus

@@ -297,6 +297,9 @@ struct XctId {
     data_ &= kUnmaskRangelock;
   }
 
+  void set_deleted() ALWAYS_INLINE { data_ |= kDeleteBit; }
+  void set_notdeleted() ALWAYS_INLINE { data_ &= (~kDeleteBit); }
+
   bool is_deleted() const ALWAYS_INLINE { return (data_ & kDeleteBit) != 0; }
   bool is_latest() const ALWAYS_INLINE { return (data_ & kLatestBit) != 0; }
 

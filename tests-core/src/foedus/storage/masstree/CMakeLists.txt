@@ -1,0 +1,1 @@
+add_foedus_test_individual(test_masstree_basic "Create;CreateAndQuery;CreateAndInsert;CreateAndInsertAndRead;Overwrite;CreateAndDrop")

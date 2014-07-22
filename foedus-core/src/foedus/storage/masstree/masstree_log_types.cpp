@@ -62,6 +62,38 @@ std::ostream& operator<<(std::ostream& o, const MasstreeCreateLogType& v) {
   return o;
 }
 
+std::ostream& operator<<(std::ostream& o, const MasstreeInsertLogType& v) {
+  o << "<MasstreeInsertLogType>"
+    << "<key_length_>" << v.key_length_ << "</key_length_>"
+    << "<key_>" << assorted::Top(v.data_, v.key_length_) << "</key_>"
+    << "<layer_>" << static_cast<int>(v.layer_) << "</layer_>"
+    << "<payload_count_>" << v.payload_count_ << "</payload_count_>"
+    << "<payload_>" << assorted::Top(v.data_ + v.key_length_, v.payload_count_) << "</payload_>"
+    << "</MasstreeInsertLogType>";
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const MasstreeDeleteLogType& v) {
+  o << "<MasstreeDeleteLogType>"
+    << "<key_length_>" << v.key_length_ << "</key_length_>"
+    << "<key_>" << assorted::Top(v.data_, v.key_length_) << "</key_>"
+    << "<layer_>" << static_cast<int>(v.layer_) << "</layer_>"
+    << "</MasstreeDeleteLogType>";
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const MasstreeOverwriteLogType& v) {
+  o << "<MasstreeOverwriteLog>"
+    << "<key_length_>" << v.key_length_ << "</key_length_>"
+    << "<key_>" << assorted::Top(v.data_, v.key_length_) << "</key_>"
+    << "<layer_>" << static_cast<int>(v.layer_) << "</layer_>"
+    << "<payload_offset_>" << v.payload_offset_ << "</payload_offset_>"
+    << "<payload_count_>" << v.payload_count_ << "</payload_count_>"
+    << "<payload_>" << assorted::Top(v.data_ + v.key_length_, v.payload_count_) << "</payload_>"
+    << "</MasstreeOverwriteLog>";
+  return o;
+}
+
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus

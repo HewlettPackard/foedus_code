@@ -20,6 +20,7 @@
 #include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
+#include "foedus/storage/masstree/masstree_page_version.hpp"
 #include "foedus/thread/fwd.hpp"
 
 namespace foedus {
@@ -50,64 +51,23 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   MasstreeStorage* const  holder_;
   MasstreeMetadata        metadata_;
 
-  /** If this is true, initialize() reads it back from previous snapshot and logs. */
-  bool                      exist_;
-
-  /** @copydoc foedus::storage::masstree::MasstreeStorage::get_record() */
-  ErrorCode get_record(
-    thread::Thread* context,
-    const char* key,
-    uint16_t key_length,
-    void* payload,
-    uint16_t* payload_capacity);
-
-  /** @copydoc foedus::storage::masstree::MasstreeStorage::get_record_part() */
-  ErrorCode get_record_part(
-    thread::Thread* context,
-    const char* key,
-    uint16_t key_length,
-    void* payload,
-    uint16_t payload_offset,
-    uint16_t payload_count);
-
-  /** @copydoc foedus::storage::masstree::MasstreeStorage::get_record_primitive() */
-  template <typename PAYLOAD>
-  ErrorCode get_record_primitive(
-    thread::Thread* context,
-    const char* key,
-    uint16_t key_length,
-    PAYLOAD* payload,
-    uint16_t payload_offset);
-
-  /** @copydoc foedus::storage::masstree::MasstreeStorage::get_record_normalized() */
-  ErrorCode get_record_normalized(
-    thread::Thread* context,
-    NormalizedPrimitiveKey key,
-    void* payload,
-    uint16_t* payload_capacity);
-
-  /** @copydoc foedus::storage::masstree::MasstreeStorage::get_record_part_normalized() */
-  ErrorCode get_record_part_normalized(
-    thread::Thread* context,
-    NormalizedPrimitiveKey key,
-    void* payload,
-    uint16_t payload_offset,
-    uint16_t payload_count);
-
   /**
-   * @copydoc foedus::storage::masstree::MasstreeStorage::get_record_primitive_normalized()
+   * A always-existing volatile image of (probably-) root page of the first layer.
+   * This might be MasstreeIntermediatePage or MasstreeBoundaryPage.
+   * During root expansion, this variable tentatively points to a child of root, but
+   * one can/should check that situation by reading the parent pointer as described in [YANDONG12].
    */
-  template <typename PAYLOAD>
-  ErrorCode get_record_primitive_normalized(
-    thread::Thread* context,
-    NormalizedPrimitiveKey key,
-    PAYLOAD* payload,
-    uint16_t payload_offset);
+  MasstreePage*           first_root_;
+  DualPagePointer         first_root_pointer_;
+
+  /** If this is true, initialize() reads it back from previous snapshot and logs. */
+  bool                    exist_;
+
 
   /** @copydoc foedus::storage::masstree::MasstreeStorage::insert_record() */
   ErrorCode insert_record(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     const void* payload,
     uint16_t payload_count);
@@ -115,66 +75,81 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   /** @copydoc foedus::storage::masstree::MasstreeStorage::insert_record_normalized() */
   ErrorCode insert_record_normalized(
     thread::Thread* context,
-    NormalizedPrimitiveKey key,
+    KeySlice key,
     const void* payload,
-    uint16_t payload_count);
-
-  /** @copydoc foedus::storage::masstree::MasstreeStorage::delete_record() */
-  ErrorCode delete_record(thread::Thread* context, const char* key, uint16_t key_length);
-
-  /** @copydoc foedus::storage::masstree::MasstreeStorage::delete_record_normalized() */
-  ErrorCode delete_record_normalized(thread::Thread* context, NormalizedPrimitiveKey key);
-
-  /** @copydoc foedus::storage::masstree::MasstreeStorage::overwrite_record() */
-  ErrorCode overwrite_record(
-    thread::Thread* context,
-    const char* key,
-    uint16_t key_length,
-    const void* payload,
-    uint16_t payload_offset,
-    uint16_t payload_count);
-
-  /** @copydoc foedus::storage::masstree::MasstreeStorage::overwrite_record_primitive() */
-  template <typename PAYLOAD>
-  ErrorCode overwrite_record_primitive(
-    thread::Thread* context,
-    const char* key,
-    uint16_t key_length,
-    PAYLOAD payload,
-    uint16_t payload_offset);
-
-  /** @copydoc foedus::storage::masstree::MasstreeStorage::overwrite_record_normalized() */
-  ErrorCode overwrite_record_normalized(
-    thread::Thread* context,
-    NormalizedPrimitiveKey key,
-    const void* payload,
-    uint16_t payload_offset,
     uint16_t payload_count);
 
   /**
-   * @copydoc foedus::storage::masstree::MasstreeStorage::overwrite_record_primitive_normalized()
+   * Find a border node in the layer that corresponds to the given key slice.
    */
-  template <typename PAYLOAD>
-  ErrorCode overwrite_record_primitive_normalized(
+  ErrorCode find_border(
     thread::Thread* context,
-    NormalizedPrimitiveKey key,
-    PAYLOAD payload,
-    uint16_t payload_offset);
-
-  /** @copydoc foedus::storage::masstree::MasstreeStorage::increment_record() */
-  template <typename PAYLOAD>
-  ErrorCode increment_record(
+    MasstreePage* layer_root,
+    uint8_t   current_layer,
+    bool      for_writes,
+    KeySlice  slice,
+    MasstreeBorderPage** border,
+    MasstreePageVersion* border_version) ALWAYS_INLINE;
+  ErrorCode find_border_descend(
     thread::Thread* context,
-    const char* key,
+    MasstreeIntermediatePage* cur,
+    MasstreePageVersion cur_stable,
+    uint8_t   current_layer,
+    bool      for_writes,
+    KeySlice  slice,
+    MasstreeBorderPage** out);
+  ErrorCode locate_record(
+    thread::Thread* context,
+    const void* key,
     uint16_t key_length,
-    PAYLOAD* value,
-    uint16_t payload_offset);
-
-  /** @copydoc foedus::storage::masstree::MasstreeStorage::increment_record_normalized() */
-  template <typename PAYLOAD>
-  ErrorCode increment_record_normalized(
+    bool for_writes,
+    MasstreeBorderPage** out_page,
+    uint8_t* record_index);
+  ErrorCode locate_record_normalized(
     thread::Thread* context,
-    NormalizedPrimitiveKey key,
+    KeySlice key,
+    bool for_writes,
+    MasstreeBorderPage** out_page,
+    uint8_t* record_index);
+
+  ErrorCode retrieve_general(
+    thread::Thread* context,
+    MasstreeBorderPage* border,
+    uint8_t index,
+    void* payload,
+    uint16_t* payload_capacity);
+  ErrorCode retrieve_part_general(
+    thread::Thread* context,
+    MasstreeBorderPage* border,
+    uint8_t index,
+    void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
+
+  ErrorCode delete_general(
+    thread::Thread* context,
+    MasstreeBorderPage* border,
+    uint8_t index,
+    const void* be_key,
+    uint16_t key_length);
+
+  ErrorCode overwrite_general(
+    thread::Thread* context,
+    MasstreeBorderPage* border,
+    uint8_t index,
+    const void* be_key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
+
+  template <typename PAYLOAD>
+  ErrorCode increment_general(
+    thread::Thread* context,
+    MasstreeBorderPage* border,
+    uint8_t index,
+    const void* be_key,
+    uint16_t key_length,
     PAYLOAD* value,
     uint16_t payload_offset);
 };
