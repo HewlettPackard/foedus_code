@@ -129,14 +129,12 @@ class InsertAndReadTask : public thread::ImpersonateTask {
     Epoch commit_epoch;
     CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
 
-/* TODO(Hideaki) Implement
     uint64_t data2;
     CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
     uint16_t data_capacity = sizeof(data2);
     CHECK_ERROR(masstree->get_record_normalized(context, key, &data2, &data_capacity));
     EXPECT_EQ(data, data2);
     CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-*/
 
     CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
     return foedus::kRetOk;
@@ -175,7 +173,6 @@ class OverwriteTask : public thread::ImpersonateTask {
     CHECK_ERROR(masstree->insert_record_normalized(context, key, &data, sizeof(data)));
     Epoch commit_epoch;
     CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-/* TODO(Hideaki) Implement
     CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
     uint64_t data2 = 321654987ULL;
     CHECK_ERROR(masstree->overwrite_record_normalized(context, key, &data2, 0, sizeof(data2)));
@@ -186,7 +183,6 @@ class OverwriteTask : public thread::ImpersonateTask {
     CHECK_ERROR(masstree->get_record_primitive_normalized<uint64_t>(context, key, &data3, 0));
     EXPECT_EQ(data2, data3);
     CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-*/
     CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
     return foedus::kRetOk;
   }

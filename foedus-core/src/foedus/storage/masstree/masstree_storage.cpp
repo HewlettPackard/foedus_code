@@ -172,7 +172,16 @@ ErrorCode MasstreeStorage::insert_record(
   uint16_t key_length,
   const void* payload,
   uint16_t payload_count) {
-  return pimpl_->insert_record(context, key, key_length, payload, payload_count);
+  MasstreeBorderPage* border;
+  uint8_t index;
+  CHECK_ERROR_CODE(pimpl_->reserve_record(
+    context,
+    key,
+    key_length,
+    payload_count,
+    &border,
+    &index));
+  return pimpl_->insert_general(context, border, index, key, key_length, payload, payload_count);
 }
 
 ErrorCode MasstreeStorage::insert_record_normalized(
@@ -180,9 +189,16 @@ ErrorCode MasstreeStorage::insert_record_normalized(
   KeySlice key,
   const void* payload,
   uint16_t payload_count) {
-  return pimpl_->insert_record_normalized(
+  MasstreeBorderPage* border;
+  uint8_t index;
+  CHECK_ERROR_CODE(pimpl_->reserve_record_normalized(context, key, payload_count, &border, &index));
+  uint64_t be_key = assorted::htobe<uint64_t>(key);
+  return pimpl_->insert_general(
     context,
-    key,
+    border,
+    index,
+    &be_key,
+    sizeof(be_key),
     payload,
     payload_count);
 }

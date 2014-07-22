@@ -13,6 +13,7 @@
 #include "foedus/compiler.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/assorted/cacheline.hpp"
+#include "foedus/memory/fwd.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -31,6 +32,7 @@ namespace masstree {
  * @details
  * Do NOT use sizeof on this class because it is smaller than kPageSize.
  * To be a base class of two page types, this class defines only the common properties.
+ * Also, as usual, no virtual methods! We just reinterpret byte arrays.
  */
 class MasstreePage {
  public:
@@ -94,6 +96,10 @@ class MasstreePage {
       page_version_.unlock_version();
     }
   }
+
+  void              release_pages_recursive_common(
+    const memory::GlobalVolatilePageResolver& page_resolver,
+    memory::PageReleaseBatch* batch);
 
  protected:
   PageHeader          header_;      // +32 -> 32
@@ -190,6 +196,10 @@ class MasstreeIntermediatePage final : public MasstreePage {
   MiniPage&         get_minipage(uint8_t index) ALWAYS_INLINE { return mini_pages_[index]; }
   const MiniPage&   get_minipage(uint8_t index) const ALWAYS_INLINE { return mini_pages_[index]; }
 
+  void              release_pages_recursive(
+    const memory::GlobalVolatilePageResolver& page_resolver,
+    memory::PageReleaseBatch* batch);
+
  private:
   // 64
 
@@ -251,10 +261,12 @@ class MasstreeBorderPage final : public MasstreePage {
     /**
      * Stores key length excluding previous layers, but including this layer (which might be less
      * than 8!) and suffix if exists.
+     * 0 if this points to next layer.
      */
     uint16_t remaining_key_length_;
     /**
-     * length of only the pure payload. This is never smaller than sizeof(DualPagePointer)
+     * length of only the pure payload. If this is smaller than sizeof(DualPagePointer),
+     * we actually reserve at least sizeof(DualPagePointer)
      * so that we can later replace this record to next-layer pointer.
      */
     uint16_t payload_length_;
@@ -263,7 +275,14 @@ class MasstreeBorderPage final : public MasstreePage {
     /** Various bit flags of this record. */
     uint16_t flags_;
 
-    bool does_point_to_layer () const { return (flags_ & kSlotFlagLayer) != 0; }
+    bool does_point_to_layer () const ALWAYS_INLINE { return (flags_ & kSlotFlagLayer) != 0; }
+    uint16_t get_suffix_length() const ALWAYS_INLINE {
+      if (remaining_key_length_ >= sizeof(KeySlice)) {
+        return remaining_key_length_ - sizeof(KeySlice);
+      } else {
+        return 0;
+      }
+    }
   };
 
   // A page object is never explicitly instantiated. You must reinterpret_cast.
@@ -288,6 +307,39 @@ class MasstreeBorderPage final : public MasstreePage {
    */
   uint8_t find_key(
     const MasstreePageVersion &stable,
+    KeySlice slice,
+    const void* suffix,
+    uint16_t remaining) const ALWAYS_INLINE;
+
+  /**
+   * Specialized version for 8 byte native integer search. Because such a key never goes to
+   * second layer, this is much simpler.
+   */
+  uint8_t find_key_normalized(
+    uint8_t from_index,
+    uint8_t to_index,
+    KeySlice slice) const ALWAYS_INLINE;
+
+
+  /** return value for find_key_for_reserve(). POD. */
+  struct FindKeyForReserveResult {
+    enum MatchType {
+      kNotFound = 0,
+      kExactMatchLocalRecord = 1,
+      kExactMatchLayerPointer = 2,
+      kConflictingLocalRecord = 3,
+    };
+    FindKeyForReserveResult(uint8_t index, MatchType match_type)
+      : index_(index), match_type_(match_type) {}
+    uint8_t index_;
+    MatchType match_type_;
+  };
+  /**
+   * This is for the case we are looking for either the matching slot or the slot we will modify.
+   */
+  FindKeyForReserveResult find_key_for_reserve(
+    uint8_t from_index,
+    uint8_t to_index,
     KeySlice slice,
     const void* suffix,
     uint16_t remaining) const ALWAYS_INLINE;
@@ -317,6 +369,53 @@ class MasstreeBorderPage final : public MasstreePage {
     return reinterpret_cast<Record*>(data_ + offset);
   }
 
+  uint16_t calculate_suffix_length(uint16_t remaining_length) const ALWAYS_INLINE {
+    if (remaining_length >= sizeof(KeySlice)) {
+      return remaining_length - sizeof(KeySlice);
+    } else {
+      return 0;
+    }
+  }
+  uint16_t calculate_record_size(
+    uint16_t remaining_length,
+    uint16_t payload_count) const ALWAYS_INLINE {
+    uint16_t suffix_length = calculate_suffix_length(remaining_length);
+    uint16_t record_size = assorted::align8(suffix_length + payload_count) + kRecordOverhead;
+    if (record_size < kMinRecordSize) {
+      record_size = kMinRecordSize;
+    }
+    return record_size;
+  }
+
+  bool    can_accomodate(
+    uint8_t new_index,
+    uint16_t remaining_length,
+    uint16_t payload_count) const ALWAYS_INLINE {
+    if (new_index == 0) {
+      ASSERT_ND(remaining_length + payload_count <= 4000);
+      return true;
+    }
+    uint16_t record_size = calculate_record_size(remaining_length, payload_count);
+    const Slot& last_slot = get_slot(new_index - 1);
+    return (new_index + 1) * sizeof(Slot) + record_size <= last_slot.offset_;
+  }
+  /**
+   * Installs a new physical record that doesn't exist logically (delete bit on).
+   * This sets 1) slot, 2) suffix key, and 3) XctId. Payload is not set yet.
+   * This is executed as a system transaction.
+   */
+  void    reserve_record_space(
+    uint8_t index,
+    xct::XctId initial_owner_id,
+    KeySlice slice,
+    const void* suffix,
+    uint16_t remaining_length,
+    uint16_t payload_count);
+
+  void    release_pages_recursive(
+    const memory::GlobalVolatilePageResolver& page_resolver,
+    memory::PageReleaseBatch* batch);
+
  private:
   // 64
 
@@ -337,31 +436,156 @@ inline uint8_t MasstreeBorderPage::find_key(
   uint8_t key_count = stable.get_key_count();
   ASSERT_ND(key_count <= kMaxKeys);
   for (uint8_t i = 0; i < key_count; ++i) {
+    if (i == 8U && key_count > 12U) {
+      // one slot is 16 bytes. we initially prefetched 64*4 = 256 bytes = header + 12 slots.
+      // if we will read more than that, prefetch now.
+      assorted::prefetch_cachelines(data_ + 256 - 64, 4);
+    }
+
     const Slot& slot = get_slot(i);
     if (slice != slot.slice_) {
       continue;
     }
-    // prefix matched. how about suffix?
-    bool point_to_layer = slot.does_point_to_layer();
-    if (point_to_layer) {
+    // one slice might be used for up to 10 keys, length 0 to 8 and pointer to next layer.
+    if (remaining <= sizeof(KeySlice)) {
+      // no suffix nor next layer, so just compare length
+      if (slot.remaining_key_length_ == remaining) {
+        ASSERT_ND(!slot.does_point_to_layer());
+        return i;
+      } else {
+        continue;  // did not match
+      }
+    }
+    ASSERT_ND(remaining > sizeof(KeySlice));  // keep this in mind below
+
+    if (slot.does_point_to_layer()) {
       // as it points to next layer, no suffix.
       // so far we don't delete layers, so in this case the record is always valid.
+      ASSERT_ND(slot.remaining_key_length_ == 0);
       return i;
     }
-    if (slot.remaining_key_length_ != remaining) {
-      continue;  // length doesn't match. surely different.
-    } else if (remaining <= sizeof(KeySlice)) {
-      // no suffix.
-      return i;
-    } else {
-      // then compare suffix.
+
+    ASSERT_ND(!slot.does_point_to_layer());
+
+    // now, our key is > 8 bytes and we found some local record.
+    if (slot.remaining_key_length_ == remaining) {
+      // compare suffix.
       const char* record_suffix = data_ + slot.offset_ + kRecordOverhead;
       if (std::memcmp(record_suffix, suffix, remaining - sizeof(KeySlice)) == 0) {
         return i;
       }
     }
+
+    // suppose the record has > 8 bytes key. it must be the only such record in this page
+    // because otherwise we must have created a next layer!
+    if (slot.remaining_key_length_ > sizeof(KeySlice)) {
+      break;  // no more check needed
+    } else {
+      continue;
+    }
   }
   return kMaxKeys;
+}
+
+inline uint8_t MasstreeBorderPage::find_key_normalized(
+  uint8_t from_index,
+  uint8_t to_index,
+  KeySlice slice) const {
+  ASSERT_ND(to_index <= kMaxKeys);
+  ASSERT_ND(from_index <= to_index);
+  for (uint8_t i = from_index; i < to_index; ++i) {
+    if (i == 8U && to_index > 12U) {
+      assorted::prefetch_cachelines(data_ + 256 - 64, 4);
+    }
+
+    const Slot& slot = get_slot(i);
+    if (slice == slot.slice_ && slot.remaining_key_length_ == sizeof(KeySlice)) {
+      ASSERT_ND(!slot.does_point_to_layer());
+      return i;
+    }
+  }
+  return kMaxKeys;
+}
+
+inline MasstreeBorderPage::FindKeyForReserveResult MasstreeBorderPage::find_key_for_reserve(
+  uint8_t from_index,
+  uint8_t to_index,
+  KeySlice slice,
+  const void* suffix,
+  uint16_t remaining) const {
+  ASSERT_ND(to_index <= kMaxKeys);
+  ASSERT_ND(from_index <= to_index);
+  for (uint8_t i = from_index; i < to_index; ++i) {
+    if (i == 8U && to_index > 12U) {
+      assorted::prefetch_cachelines(data_ + 256 - 64, 4);
+    }
+
+    const Slot& slot = get_slot(i);
+    if (slice != slot.slice_) {
+      continue;
+    }
+    if (remaining <= sizeof(KeySlice)) {
+      if (slot.remaining_key_length_ == remaining) {
+        ASSERT_ND(!slot.does_point_to_layer());
+        return FindKeyForReserveResult(i, FindKeyForReserveResult::kExactMatchLocalRecord);
+      } else {
+        continue;
+      }
+    }
+    ASSERT_ND(remaining > sizeof(KeySlice));
+
+    if (slot.does_point_to_layer()) {
+      ASSERT_ND(slot.remaining_key_length_ == 0);
+      return FindKeyForReserveResult(i, FindKeyForReserveResult::kExactMatchLayerPointer);
+    }
+
+    ASSERT_ND(!slot.does_point_to_layer());
+
+    if (slot.remaining_key_length_ <= sizeof(KeySlice)) {
+      continue;
+    }
+
+    // now, both the searching key and this key are more than 8 bytes.
+    // whether the key really matches or not, this IS the slot we are looking for.
+    // Either 1) the keys really match, or 2) we will make this record point to next layer.
+    const char* record_suffix = data_ + slot.offset_ + kRecordOverhead;
+    if (slot.remaining_key_length_ == remaining &&
+      std::memcmp(record_suffix, suffix, remaining - sizeof(KeySlice)) == 0) {
+      // case 1)
+      return FindKeyForReserveResult(i, FindKeyForReserveResult::kExactMatchLocalRecord);
+    } else {
+      // case 2)
+      return FindKeyForReserveResult(i, FindKeyForReserveResult::kConflictingLocalRecord);
+    }
+  }
+  return FindKeyForReserveResult(kMaxKeys, FindKeyForReserveResult::kNotFound);
+}
+
+inline void MasstreeBorderPage::reserve_record_space(
+  uint8_t index,
+  xct::XctId initial_owner_id,
+  KeySlice slice,
+  const void* suffix,
+  uint16_t remaining_length,
+  uint16_t payload_count) {
+  ASSERT_ND(page_version_.is_locked());
+  ASSERT_ND(page_version_.is_inserting());
+  ASSERT_ND(page_version_.get_key_count() == index + 1U);
+  ASSERT_ND(can_accomodate(index, remaining_length, payload_count));
+  uint16_t suffix_length = calculate_suffix_length(remaining_length);
+  uint16_t record_size = calculate_record_size(remaining_length, payload_count);
+  uint16_t previous_offset = index == 0 ? 4096 - 64 : get_slot(index - 1).offset_;
+  Slot& slot = get_slot(index);
+  slot.slice_ = slice;
+  slot.remaining_key_length_ = remaining_length;
+  slot.payload_length_ = payload_count;
+  slot.offset_ = previous_offset - record_size;
+  slot.flags_ = 0;
+  Record* record = body_record(slot.offset_);
+  record->owner_id_ = initial_owner_id;
+  if (suffix_length > 0) {
+    std::memcpy(record->payload_, suffix, suffix_length);
+  }
 }
 
 }  // namespace masstree

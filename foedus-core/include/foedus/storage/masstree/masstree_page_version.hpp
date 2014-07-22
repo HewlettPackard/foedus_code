@@ -87,8 +87,17 @@ struct MasstreePageVersion CXX11_FINAL {
   }
 
   /** Layer-0 stores the first 8 byte slice, Layer-1 next 8 byte... */
-  uint8_t             get_layer() const ALWAYS_INLINE {
+  uint8_t   get_layer() const ALWAYS_INLINE {
     return (data_ & kPageVersionLayerMask) >> kPageVersionLayerShifts;
+  }
+
+  void      set_inserting() ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    data_ |= kPageVersionInsertingBit;
+  }
+  void      set_inserting_and_increment_key_count() ALWAYS_INLINE {
+    set_inserting();
+    data_ += (1ULL << kPageVersionKeyCountShifts);
   }
 
   /**

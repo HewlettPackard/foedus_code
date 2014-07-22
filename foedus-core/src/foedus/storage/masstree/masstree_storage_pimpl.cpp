@@ -71,10 +71,12 @@ ErrorStack MasstreeStoragePimpl::initialize_once() {
 
 ErrorStack MasstreeStoragePimpl::uninitialize_once() {
   LOG(INFO) << "Uninitializing an masstree-storage " << *holder_;
-  // TODO(Hideaki): release volatile pages
   if (first_root_) {
+    // release volatile pages
+    const memory::GlobalVolatilePageResolver& page_resolver
+      = engine_->get_memory_manager().get_global_volatile_page_resolver();
     memory::PageReleaseBatch release_batch(engine_);
-    release_batch.release(first_root_pointer_.volatile_pointer_);
+    first_root_->release_pages_recursive_common(page_resolver, &release_batch);
     release_batch.release_all();
     first_root_ = nullptr;
     first_root_pointer_.volatile_pointer_.word = 0;
@@ -176,14 +178,7 @@ inline ErrorCode MasstreeStoragePimpl::find_border_descend(
     DualPagePointer& pointer = minipage.pointers_[pointer_index];
 
     MasstreePage* next;
-    CHECK_ERROR_CODE(context->follow_page_pointer(
-      &kDummyPageInitializer,  // masstree doesn't create a new page except splits.
-      false,  // so, there is no null page possible
-      for_writes,  // always get volatile pages for writes
-      true,
-      false,
-      &pointer,
-      reinterpret_cast<Page**>(&next)));
+    CHECK_ERROR_CODE(follow_page(context, for_writes, &pointer, &next));
 
     next->prefetch_general();
     MasstreePageVersion next_stable(next->get_stable_version());
@@ -246,7 +241,7 @@ ErrorCode MasstreeStoragePimpl::locate_record(
     CHECK_ERROR_CODE(find_border(
       context,
       layer_root,
-      0,
+      current_layer,
       for_writes,
       slice,
       &border,
@@ -262,14 +257,7 @@ ErrorCode MasstreeStoragePimpl::locate_record(
     if (slot.does_point_to_layer()) {
       DualPagePointer& pointer = border->layer_record(slot.offset_);
       MasstreePage* next_root;
-      CHECK_ERROR_CODE(context->follow_page_pointer(
-        &kDummyPageInitializer,
-        false,
-        for_writes,
-        true,
-        false,
-        &pointer,
-        reinterpret_cast<Page**>(&next_root)));
+      CHECK_ERROR_CODE(follow_page(context, for_writes, &pointer, &next_root));
       ASSERT_ND(next_root);
       layer_root = next_root;
       continue;
@@ -290,36 +278,218 @@ ErrorCode MasstreeStoragePimpl::locate_record_normalized(
   MasstreeBorderPage* border;
   MasstreePageVersion border_version;
   CHECK_ERROR_CODE(find_border(context, first_root_, 0, for_writes, key, &border, &border_version));
-  uint8_t index = border->find_key(border_version, key, nullptr, 0);
-
+  uint8_t index = border->find_key_normalized(0, border_version.get_key_count(), key);
   if (index == MasstreeBorderPage::kMaxKeys) {
     // this means not found
+    // TODO(Hideaki) range lock
     return kErrorCodeStrKeyNotFound;
   }
-  const MasstreeBorderPage::Slot& slot = border->get_slot(index);
-  if (slot.does_point_to_layer()) {
-    // it is possible that we go on to second layer (the entire 8 bytes are prefix)
-    DualPagePointer& pointer = border->layer_record(slot.offset_);
-    MasstreePage* next_root;
-    CHECK_ERROR_CODE(context->follow_page_pointer(
-      &kDummyPageInitializer,
-      false,
-      for_writes,
-      true,
-      false,
-      &pointer,
-      reinterpret_cast<Page**>(&next_root)));
-    ASSERT_ND(next_root);
-    // in that case, we search for key '0'.
-    CHECK_ERROR_CODE(find_border(context, next_root, 1, for_writes, 0, &border, &border_version));
-    index = border->find_key(border_version, 0, nullptr, 0);
-    if (index == MasstreeBorderPage::kMaxKeys) {
-      return kErrorCodeStrKeyNotFound;
-    }
-  }
-
+  // because this is just one slice, we never go to second layer
+  ASSERT_ND(!border->get_slot(index).does_point_to_layer());
   *out_page = border;
   *record_index = index;
+  return kErrorCodeOk;
+}
+
+ErrorCode MasstreeStoragePimpl::reserve_record(
+  thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
+  uint16_t payload_count,
+  MasstreeBorderPage** out_page,
+  uint8_t* record_index) {
+  ASSERT_ND(key_length <= kMaxKeyLength);
+  MasstreePage* layer_root = first_root_;
+  for (uint16_t current_layer = 0;; ++current_layer) {
+    uint8_t remaining_length = key_length - current_layer * 8;
+    KeySlice slice;
+    if (remaining_length >= 8) {
+      slice = normalize_be_bytes_full(reinterpret_cast<const char*>(key) + current_layer * 8);
+    } else {
+      slice = normalize_be_bytes_fragment(
+        reinterpret_cast<const char*>(key) + current_layer * 8,
+        remaining_length);
+    }
+    const void* suffix = reinterpret_cast<const char*>(key) + (current_layer + 1) * 8;
+    MasstreeBorderPage* border;
+    MasstreePageVersion border_version;
+    CHECK_ERROR_CODE(find_border(
+      context,
+      layer_root,
+      current_layer,
+      true,
+      slice,
+      &border,
+      &border_version));
+    uint8_t key_count = border_version.get_key_count();
+    MasstreeBorderPage::FindKeyForReserveResult match = border->find_key_for_reserve(
+      0,
+      key_count,
+      slice,
+      suffix,
+      remaining_length);
+
+    if (match.match_type_ == MasstreeBorderPage::FindKeyForReserveResult::kExactMatchLayerPointer) {
+      ASSERT_ND(match.index_ < MasstreeBorderPage::kMaxKeys);
+      const MasstreeBorderPage::Slot& slot = border->get_slot(match.index_);
+      ASSERT_ND(slot.does_point_to_layer());
+      DualPagePointer& pointer = border->layer_record(slot.offset_);
+      MasstreePage* next_root;
+      CHECK_ERROR_CODE(follow_page(context, true, &pointer, &next_root));
+      ASSERT_ND(next_root);
+      layer_root = next_root;
+      continue;
+    } else if (match.match_type_
+      == MasstreeBorderPage::FindKeyForReserveResult::kExactMatchLocalRecord) {
+      *out_page = border;
+      *record_index = match.index_;
+      return kErrorCodeOk;
+    }
+
+    // no matching or conflicting keys. so we will create a brand new record.
+    // this is a system transaction to just create a deleted record.
+    if (match.match_type_ == MasstreeBorderPage::FindKeyForReserveResult::kNotFound) {
+      // this is the only case we are NOT sure yet.
+      // someone else might be now inserting a conflicting key or the exact key.
+      // we thus have to take a lock only in this case.
+      border->lock();
+      MasstreePageVersion& locked_version = border->get_version();
+      uint8_t updated_key_count = locked_version.get_key_count();
+      ASSERT_ND(updated_key_count >= key_count);
+      if (updated_key_count > key_count) {
+        // someone else has inserted a new record. Is it conflicting?
+        // search again, but only for newly inserted record(s)
+        match = border->find_key_for_reserve(
+          key_count,
+          updated_key_count,
+          slice,
+          suffix,
+          remaining_length);
+        key_count = updated_key_count;
+      }
+
+      if (match.match_type_ == MasstreeBorderPage::FindKeyForReserveResult::kNotFound) {
+        // okay, surely new record
+        uint8_t new_index = key_count;
+        if (border->can_accomodate(new_index, key_length, payload_count)) {
+          locked_version.set_inserting_and_increment_key_count();
+          xct::XctId initial_id;
+          // initial ID doesn't matter as it logically doesn't exist yet
+          initial_id.set_clean(
+            Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
+            0,
+            context->get_thread_id());
+          initial_id.set_deleted();
+          border->reserve_record_space(
+            new_index,
+            initial_id,
+            slice,
+            suffix,
+            remaining_length,
+            payload_count);
+        } else {
+          ASSERT_ND(false);  // TODO(Hideaki) split
+        }
+        border->unlock();
+        *out_page = border;
+        *record_index = new_index;
+        return kErrorCodeOk;
+      } else {
+        border->unlock();
+        // someone has inserted conflicting or exact record. let the following code take care
+      }
+    }
+
+    if (match.match_type_ == MasstreeBorderPage::FindKeyForReserveResult::kExactMatchLayerPointer) {
+      ASSERT_ND(match.index_ < MasstreeBorderPage::kMaxKeys);
+      const MasstreeBorderPage::Slot& slot = border->get_slot(match.index_);
+      ASSERT_ND(slot.does_point_to_layer());
+      DualPagePointer& pointer = border->layer_record(slot.offset_);
+      MasstreePage* next_root;
+      CHECK_ERROR_CODE(follow_page(context, true, &pointer, &next_root));
+      ASSERT_ND(next_root);
+      layer_root = next_root;
+      continue;
+    } else if (match.match_type_
+      == MasstreeBorderPage::FindKeyForReserveResult::kExactMatchLocalRecord) {
+      *out_page = border;
+      *record_index = match.index_;
+      return kErrorCodeOk;
+    } else {
+      ASSERT_ND(match.match_type_ ==
+        MasstreeBorderPage::FindKeyForReserveResult::kConflictingLocalRecord);
+      ASSERT_ND(false);  // TODO(Hideaki) create next layer
+    }
+  }
+}
+
+ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
+  thread::Thread* context,
+  KeySlice key,
+  uint16_t payload_count,
+  MasstreeBorderPage** out_page,
+  uint8_t* record_index) {
+  MasstreeBorderPage* border;
+  MasstreePageVersion border_version;
+  CHECK_ERROR_CODE(find_border(
+    context,
+    first_root_,
+    0,
+    true,
+    key,
+    &border,
+    &border_version));
+  // because we never go on to second layer in this case, it's either a full match or not-found
+  uint8_t key_count = border_version.get_key_count();
+  uint8_t index = border->find_key_normalized(0, key_count, key);
+
+  if (index != MasstreeBorderPage::kMaxKeys) {
+    *out_page = border;
+    *record_index = index;
+    return kErrorCodeOk;
+  }
+
+  ASSERT_ND(index == MasstreeBorderPage::kMaxKeys);
+  // same flow as reserve_record(), but much simpler
+  border->lock();
+  MasstreePageVersion& locked_version = border->get_version();
+  uint8_t updated_key_count = locked_version.get_key_count();
+  ASSERT_ND(updated_key_count >= key_count);
+  if (updated_key_count > key_count) {
+    index = border->find_key_normalized(key_count, updated_key_count, key);
+    key_count = updated_key_count;
+  }
+
+  if (index == MasstreeBorderPage::kMaxKeys) {
+    // okay, surely new record
+    uint8_t new_index = key_count;
+    if (border->can_accomodate(new_index, sizeof(KeySlice), payload_count)) {
+      locked_version.set_inserting_and_increment_key_count();
+      xct::XctId initial_id;
+      initial_id.set_clean(
+        Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
+        0,
+        context->get_thread_id());
+      initial_id.set_deleted();
+      border->reserve_record_space(
+        new_index,
+        initial_id,
+        key,
+        nullptr,
+        sizeof(KeySlice),
+        payload_count);
+    } else {
+      ASSERT_ND(false);  // TODO(Hideaki) split
+    }
+    border->unlock();
+    *out_page = border;
+    *record_index = new_index;
+  } else {
+    border->unlock();
+    // someone has inserted the exact record. this is also good.
+    *out_page = border;
+    *record_index = index;
+  }
   return kErrorCodeOk;
 }
 
@@ -330,19 +500,25 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
   void* payload,
   uint16_t* payload_capacity) {
   const MasstreeBorderPage::Slot& slot = border->get_slot(index);
-  if (slot.payload_length_ > *payload_capacity) {
+  ASSERT_ND(!slot.does_point_to_layer());
+  Record* record = border->body_record(slot.offset_);
+  if (record->owner_id_.is_deleted()) {
+    // in this case, we don't need a range lock. the physical record is surely there.
+    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
+    return kErrorCodeStrKeyNotFound;
+  } else if (slot.payload_length_ > *payload_capacity) {
     // buffer too small
     DVLOG(0) << "buffer too small??" << slot.payload_length_ << ":" << *payload_capacity;
     *payload_capacity = slot.payload_length_;
     return kErrorCodeStrTooSmallPayloadBuffer;
   }
 
-  Record* record = border->body_record(slot.offset_);
   if (!border->header().snapshot_) {
     CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
   }
   *payload_capacity = slot.payload_length_;
-  std::memcpy(payload, record->payload_ + slot.remaining_key_length_, slot.payload_length_);
+  uint16_t suffix_length = slot.get_suffix_length();
+  std::memcpy(payload, record->payload_ + suffix_length, slot.payload_length_);
   return kErrorCodeOk;
 }
 
@@ -354,38 +530,50 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
   uint16_t payload_offset,
   uint16_t payload_count) {
   const MasstreeBorderPage::Slot& slot = border->get_slot(index);
-  if (slot.payload_length_ < payload_offset + payload_count) {
+  ASSERT_ND(!slot.does_point_to_layer());
+  Record* record = border->body_record(slot.offset_);
+  if (record->owner_id_.is_deleted()) {
+    // in this case, we don't need a range lock. the physical record is surely there.
+    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
+    return kErrorCodeStrKeyNotFound;
+  } else if (slot.payload_length_ < payload_offset + payload_count) {
     LOG(WARNING) << "short record";  // probably this is a rare error. so warn.
     return kErrorCodeStrTooShortPayload;
   }
 
-  Record* record = border->body_record(slot.offset_);
   if (!border->header().snapshot_) {
     CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
   }
-  std::memcpy(
-    payload,
-    record->payload_ + slot.remaining_key_length_ + payload_offset,
-    payload_count);
+  uint16_t suffix_length = slot.get_suffix_length();
+  std::memcpy(payload, record->payload_ + suffix_length + payload_offset, payload_count);
   return kErrorCodeOk;
 }
 
-ErrorCode MasstreeStoragePimpl::insert_record(
-  thread::Thread* /* context */,
-  const void* /* key */,
-  uint16_t /* key_length */,
-  const void* /* payload */,
-  uint16_t /* payload_count */) {
-  return kErrorCodeOk;  // TODO(Hideaki) Implement
-}
+ErrorCode MasstreeStoragePimpl::insert_general(
+  thread::Thread* context,
+  MasstreeBorderPage* border,
+  uint8_t index,
+  const void* be_key,
+  uint16_t key_length,
+  const void* payload,
+  uint16_t payload_count) {
+  const MasstreeBorderPage::Slot& slot = border->get_slot(index);
+  Record* record = border->body_record(slot.offset_);
+  ASSERT_ND(record->owner_id_.is_deleted());
+  ASSERT_ND(slot.payload_length_ == payload_count);
 
+  uint16_t log_length = MasstreeInsertLogType::calculate_log_length(key_length, payload_count);
+  MasstreeInsertLogType* log_entry = reinterpret_cast<MasstreeInsertLogType*>(
+    context->get_thread_log_buffer().reserve_new_log(log_length));
+  log_entry->populate(
+    metadata_.id_,
+    be_key,
+    key_length,
+    payload,
+    payload_count,
+    border->get_layer());
 
-ErrorCode MasstreeStoragePimpl::insert_record_normalized(
-  thread::Thread* /* context */,
-  KeySlice /* key */,
-  const void* /* payload */,
-  uint16_t /* payload_count */) {
-  return kErrorCodeOk;  // TODO(Hideaki) Implement
+  return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
 }
 
 ErrorCode MasstreeStoragePimpl::delete_general(
@@ -396,7 +584,11 @@ ErrorCode MasstreeStoragePimpl::delete_general(
   uint16_t key_length) {
   const MasstreeBorderPage::Slot& slot = border->get_slot(index);
   Record* record = border->body_record(slot.offset_);
-  ASSERT_ND(!record->owner_id_.is_deleted());
+  if (record->owner_id_.is_deleted()) {
+    // in this case, we don't need a range lock. the physical record is surely there.
+    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
+    return kErrorCodeStrKeyNotFound;
+  }
   uint16_t log_length = MasstreeDeleteLogType::calculate_log_length(key_length);
   MasstreeDeleteLogType* log_entry = reinterpret_cast<MasstreeDeleteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
@@ -416,8 +608,11 @@ ErrorCode MasstreeStoragePimpl::overwrite_general(
   uint16_t payload_count) {
   const MasstreeBorderPage::Slot& slot = border->get_slot(index);
   Record* record = border->body_record(slot.offset_);
-  ASSERT_ND(!record->owner_id_.is_deleted());
-  if (slot.payload_length_ < payload_offset + payload_count) {
+  if (record->owner_id_.is_deleted()) {
+    // in this case, we don't need a range lock. the physical record is surely there.
+    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
+    return kErrorCodeStrKeyNotFound;
+  } else if (slot.payload_length_ < payload_offset + payload_count) {
     LOG(WARNING) << "short record ";  // probably this is a rare error. so warn.
     return kErrorCodeStrTooShortPayload;
   }
@@ -448,15 +643,17 @@ ErrorCode MasstreeStoragePimpl::increment_general(
   uint16_t payload_offset) {
   const MasstreeBorderPage::Slot& slot = border->get_slot(index);
   Record* record = border->body_record(slot.offset_);
-  ASSERT_ND(!record->owner_id_.is_deleted());
-  if (slot.payload_length_ < payload_offset + sizeof(PAYLOAD)) {
+  if (record->owner_id_.is_deleted()) {
+    // in this case, we don't need a range lock. the physical record is surely there.
+    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
+    return kErrorCodeStrKeyNotFound;
+  } else if (slot.payload_length_ < payload_offset + sizeof(PAYLOAD)) {
     LOG(WARNING) << "short record ";  // probably this is a rare error. so warn.
     return kErrorCodeStrTooShortPayload;
   }
 
-  uint8_t layer = border->get_layer();
-  uint16_t skipped = calculate_skipped_key_length(key_length, layer);
-  char* ptr = record->payload_ + key_length - skipped + payload_offset;
+  uint16_t suffix_length = slot.get_suffix_length();
+  char* ptr = record->payload_ + suffix_length + payload_offset;
   PAYLOAD old_value = *reinterpret_cast<const PAYLOAD*>(ptr);
   *value += old_value;
 

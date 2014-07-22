@@ -4,6 +4,8 @@
  */
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
 
+#include "foedus/memory/page_pool.hpp"
+
 namespace foedus {
 namespace storage {
 namespace masstree {
@@ -50,6 +52,68 @@ void MasstreeBorderPage::initialize_volatile_page(
       && parent->header().get_page_type() == kMasstreeBorderPageType));
   initialize_volatile_common(storage_id, page_id, kMasstreeBorderPageType, layer, parent);
 }
+
+void MasstreePage::release_pages_recursive_common(
+  const memory::GlobalVolatilePageResolver& page_resolver,
+  memory::PageReleaseBatch* batch) {
+  if (header_.get_page_type() == kMasstreeBorderPageType) {
+    MasstreeBorderPage* casted = reinterpret_cast<MasstreeBorderPage*>(this);
+    casted->release_pages_recursive(page_resolver, batch);
+  } else {
+    ASSERT_ND(header_.get_page_type() == kMasstreeIntermediatePageType);
+    MasstreeIntermediatePage* casted = reinterpret_cast<MasstreeIntermediatePage*>(this);
+    casted->release_pages_recursive(page_resolver, batch);
+  }
+}
+
+void MasstreeIntermediatePage::release_pages_recursive(
+  const memory::GlobalVolatilePageResolver& page_resolver,
+  memory::PageReleaseBatch* batch) {
+  uint16_t key_count = get_version().get_key_count();
+  ASSERT_ND(key_count <= kMaxIntermediateSeparators);
+  for (uint8_t i = 0; i < key_count + 1; ++i) {
+    MiniPage& minipage = get_minipage(i);
+    uint16_t mini_count = minipage.mini_version_.get_key_count();
+    ASSERT_ND(mini_count <= kMaxIntermediateMiniSeparators);
+    for (uint8_t j = 0; j < mini_count + 1; ++j) {
+      VolatilePagePointer& pointer = minipage.pointers_[j].volatile_pointer_;
+      if (pointer.components.offset != 0) {
+        MasstreePage* child = reinterpret_cast<MasstreePage*>(
+          page_resolver.resolve_offset(pointer));
+        child->release_pages_recursive_common(page_resolver, batch);
+        pointer.components.offset = 0;
+      }
+    }
+  }
+
+  VolatilePagePointer volatile_id;
+  volatile_id.word = header().page_id_;
+  batch->release(volatile_id);
+}
+
+void MasstreeBorderPage::release_pages_recursive(
+  const memory::GlobalVolatilePageResolver& page_resolver,
+  memory::PageReleaseBatch* batch) {
+  uint16_t key_count = get_version().get_key_count();
+  ASSERT_ND(key_count <= kMaxKeys);
+  for (uint8_t i = 0; i < key_count; ++i) {
+    const Slot& slot = get_slot(i);
+    if (slot.does_point_to_layer()) {
+      DualPagePointer& pointer = layer_record(slot.offset_);
+      if (pointer.volatile_pointer_.components.offset != 0) {
+        MasstreePage* child = reinterpret_cast<MasstreePage*>(
+          page_resolver.resolve_offset(pointer.volatile_pointer_));
+        child->release_pages_recursive_common(page_resolver, batch);
+        pointer.volatile_pointer_.components.offset = 0;
+      }
+    }
+  }
+
+  VolatilePagePointer volatile_id;
+  volatile_id.word = header().page_id_;
+  batch->release(volatile_id);
+}
+
 
 }  // namespace masstree
 }  // namespace storage

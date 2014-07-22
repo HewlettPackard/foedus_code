@@ -15,13 +15,14 @@
 #include "foedus/initializable.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
+#include "foedus/storage/page.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_page_version.hpp"
-#include "foedus/thread/fwd.hpp"
+#include "foedus/thread/thread.hpp"
 
 namespace foedus {
 namespace storage {
@@ -64,21 +65,6 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   bool                    exist_;
 
 
-  /** @copydoc foedus::storage::masstree::MasstreeStorage::insert_record() */
-  ErrorCode insert_record(
-    thread::Thread* context,
-    const void* key,
-    uint16_t key_length,
-    const void* payload,
-    uint16_t payload_count);
-
-  /** @copydoc foedus::storage::masstree::MasstreeStorage::insert_record_normalized() */
-  ErrorCode insert_record_normalized(
-    thread::Thread* context,
-    KeySlice key,
-    const void* payload,
-    uint16_t payload_count);
-
   /**
    * Find a border node in the layer that corresponds to the given key slice.
    */
@@ -90,6 +76,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     KeySlice  slice,
     MasstreeBorderPage** border,
     MasstreePageVersion* border_version) ALWAYS_INLINE;
+  /** descend subroutine of find_border() */
   ErrorCode find_border_descend(
     thread::Thread* context,
     MasstreeIntermediatePage* cur,
@@ -98,6 +85,8 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     bool      for_writes,
     KeySlice  slice,
     MasstreeBorderPage** out);
+
+  /** Identifies page and record for the key */
   ErrorCode locate_record(
     thread::Thread* context,
     const void* key,
@@ -105,6 +94,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     bool for_writes,
     MasstreeBorderPage** out_page,
     uint8_t* record_index);
+  /** Identifies page and record for the normalized key */
   ErrorCode locate_record_normalized(
     thread::Thread* context,
     KeySlice key,
@@ -112,6 +102,21 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     MasstreeBorderPage** out_page,
     uint8_t* record_index);
 
+  ErrorCode reserve_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    uint16_t payload_count,
+    MasstreeBorderPage** out_page,
+    uint8_t* record_index);
+  ErrorCode reserve_record_normalized(
+    thread::Thread* context,
+    KeySlice key,
+    uint16_t payload_count,
+    MasstreeBorderPage** out_page,
+    uint8_t* record_index);
+
+  /** implementation of get_record family. use with locate_record() */
   ErrorCode retrieve_general(
     thread::Thread* context,
     MasstreeBorderPage* border,
@@ -126,6 +131,17 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     uint16_t payload_offset,
     uint16_t payload_count);
 
+  /** implementation of insert_record family. use with \b reserve_record() */
+  ErrorCode insert_general(
+    thread::Thread* context,
+    MasstreeBorderPage* border,
+    uint8_t index,
+    const void* be_key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_count);
+
+  /** implementation of delete_record family. use with locate_record()  */
   ErrorCode delete_general(
     thread::Thread* context,
     MasstreeBorderPage* border,
@@ -133,6 +149,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     const void* be_key,
     uint16_t key_length);
 
+  /** implementation of overwrite_record family. use with locate_record()  */
   ErrorCode overwrite_general(
     thread::Thread* context,
     MasstreeBorderPage* border,
@@ -143,6 +160,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     uint16_t payload_offset,
     uint16_t payload_count);
 
+  /** implementation of increment_record family. use with locate_record()  */
   template <typename PAYLOAD>
   ErrorCode increment_general(
     thread::Thread* context,
@@ -152,6 +170,23 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     uint16_t key_length,
     PAYLOAD* value,
     uint16_t payload_offset);
+
+
+  /** Thread::follow_page_pointer() for masstree */
+  ErrorCode follow_page(
+    thread::Thread* context,
+    bool for_writes,
+    storage::DualPagePointer* pointer,
+    MasstreePage** page) ALWAYS_INLINE {
+    return context->follow_page_pointer(
+      &kDummyPageInitializer,  // masstree doesn't create a new page except splits.
+      false,  // so, there is no null page possible
+      for_writes,  // always get volatile pages for writes
+      true,
+      false,
+      pointer,
+      reinterpret_cast<Page**>(page));
+  }
 };
 }  // namespace masstree
 }  // namespace storage
