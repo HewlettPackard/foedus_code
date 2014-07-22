@@ -69,6 +69,16 @@ struct LogHeader {
   /** Another convenience method to see if the type code is non-zero and exists. */
   bool is_valid_type() const { return is_valid_log_type(get_type()); }
 
+  /** Because of the special case of FillerLogType, we must use this method to set xct_id */
+  inline void set_xct_id(xct::XctId new_xct_id) {
+    if (log_length_ >= 16) {
+      xct_id_ = new_xct_id;
+    } else {
+      // So far only log type that omits xct_id is FillerLogType.
+      ASSERT_ND(get_type() == kLogCodeFiller);
+    }
+  }
+
   friend std::ostream& operator<<(std::ostream& o, const LogHeader& v);
 };
 
@@ -178,6 +188,10 @@ STATIC_SIZE_CHECK(sizeof(RecordLogType), 16)
  * As we do direct I/O, we must do file I/O in multiply of 4kb.
  * We pad the log buffer we are about to write with this log type.
  * Log gleaner simply skips this log.
+ * This is the only log type whose size might be smaller than sizeof(FillerLogType).
+ * This happens because the common log header is 16 bytes but we have to make this log type
+ * 8 bytes able to fill every gap. For this reason, the xct_id_ property of this log
+ * must not be used.
  */
 struct FillerLogType : public BaseLogType {
   /** Constant values. */
@@ -205,7 +219,7 @@ struct FillerLogType : public BaseLogType {
 
   void    assert_valid() const ALWAYS_INLINE {
     ASSERT_ND(header_.get_type() == kLogCodeFiller);
-    ASSERT_ND(header_.log_length_ >= sizeof(FillerLogType));
+    ASSERT_ND(header_.log_length_ >= 8);  // note: it CAN be only 8, not 16 (sizeof FillerLogType)
     ASSERT_ND(header_.log_length_ % 8 == 0);
     ASSERT_ND(header_.storage_id_ == 0);
   }

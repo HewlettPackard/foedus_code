@@ -51,12 +51,18 @@
  * @ingroup COMPILER
  * @brief A function suffix to hint that the function should always be inlined. GCC's always_inline.
  */
+/**
+ * @def ASSUME_ALIGNED(ptr, alignment)
+ * @ingroup COMPILER
+ * @brief Wraps GCC's __builtin_assume_aligned.
+ */
 #ifdef __INTEL_COMPILER
 // ICC
 #define LIKELY(x)      (x)
 #define UNLIKELY(x)    (x)
 #define NO_INLINE
 #define ALWAYS_INLINE
+#define ASSUME_ALIGNED(x, y) x
 #else  // __INTEL_COMPILER
 #ifdef __GNUC__
 // GCC
@@ -64,12 +70,14 @@
 #define UNLIKELY(x)    __builtin_expect(!!(x), 0)
 #define NO_INLINE       __attribute__((noinline))
 #define ALWAYS_INLINE   __attribute__((always_inline))
+#define ASSUME_ALIGNED(x, y) __builtin_assume_aligned(x, y)
 #else  // __GNUC__
 // Others. MSVC?
 #define LIKELY(x)      (x)
 #define UNLIKELY(x)    (x)
 #define NO_INLINE
 #define ALWAYS_INLINE
+#define ASSUME_ALIGNED(x, y) x
 #endif   // __GNUC__
 #endif  // __INTEL_COMPILER
 

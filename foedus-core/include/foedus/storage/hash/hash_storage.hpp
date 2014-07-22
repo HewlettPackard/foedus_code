@@ -73,7 +73,7 @@ class HashStorage CXX11_FINAL : public virtual Storage {
    * When payload_capacity is smaller than the actual payload, this method returns
    * kErrorCodeStrTooSmallPayloadBuffer and payload_capacity is set to be the required length.
    *
-   * On the other hand, when the key is not found (kErrorCodeStrKeyNotFound), we add an appropriate
+   * When the key is not found (kErrorCodeStrKeyNotFound), we add an appropriate
    * bin mod counter to read set because it is part of a transactional information.
    */
   ErrorCode get_record(

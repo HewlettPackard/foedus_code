@@ -184,6 +184,8 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
 }
 bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch) {
   DVLOG(1) << *context << " Committing read_only";
+  ASSERT_ND(context->get_thread_log_buffer().get_offset_committed() ==
+      context->get_thread_log_buffer().get_offset_tail());
   *commit_epoch = Epoch();
   assorted::memory_fence_acquire();  // this is enough for read-only case
   return precommit_xct_verify_readonly(context, commit_epoch);
@@ -238,12 +240,7 @@ bool XctManagerPimpl::precommit_xct_schema(thread::Thread* context, Epoch* commi
     log::LogCodeKind kind = log::get_log_code_kind(code);
     LOG(INFO) << *context << " Applying schema log " << log::get_log_type_name(code)
       << ". kind=" << kind << ", log length=" << header->log_length_;
-    if (header->log_length_ >= 16) {
-      header->xct_id_ = new_xct_id;
-    } else {
-      // So far only log type that omits xct_id is FillerLogType.
-      ASSERT_ND(code == log::kLogCodeFiller);
-    }
+    header->set_xct_id(new_xct_id);
     if (kind == log::kMarkerLogs) {
       LOG(INFO) << *context << " Ignored marker log in schema xct's apply";
     } else if (kind == log::kEngineLogs) {
@@ -426,7 +423,7 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
     // We must be careful on the memory order of unlock and data write.
     // We must write data first (invoke_apply), then unlock.
     // Otherwise the correctness is not guaranteed.
-    write.log_entry_->header_.xct_id_ = new_xct_id;
+    write.log_entry_->header_.set_xct_id(new_xct_id);
     log::invoke_apply_record(write.log_entry_, context, write.storage_, write.record_);
     // For this reason, we put memory_fence_release() between data and owner_id writes.
     assorted::memory_fence_release();
@@ -444,7 +441,7 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
   for (uint32_t i = 0; i < lock_free_write_set_size; ++i) {
     LockFreeWriteXctAccess& write = lock_free_write_set[i];
     DVLOG(2) << *context << " Applying Lock-Free write " << write.storage_->get_name();
-    write.log_entry_->header_.xct_id_ = new_xct_id;
+    write.log_entry_->header_.set_xct_id(new_xct_id);
     log::invoke_apply_record(write.log_entry_, context, write.storage_, nullptr);
   }
   DVLOG(1) << *context << " applied and unlocked write set";

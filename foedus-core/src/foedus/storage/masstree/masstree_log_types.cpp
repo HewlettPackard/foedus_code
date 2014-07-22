@@ -13,6 +13,7 @@
 #include <utility>
 
 #include "foedus/assert_nd.hpp"
+#include "foedus/assorted/endianness.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/thread.hpp"
@@ -58,6 +59,38 @@ std::ostream& operator<<(std::ostream& o, const MasstreeCreateLogType& v) {
     << "<name_>" << std::string(v.name_, v.name_length_) << "</name_>"
     << "<name_length_>" << v.name_length_ << "</name_length_>"
     << "</MasstreeCreateLog>";
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const MasstreeInsertLogType& v) {
+  o << "<MasstreeInsertLogType>"
+    << "<key_length_>" << v.key_length_ << "</key_length_>"
+    << "<key_>" << assorted::Top(v.data_, v.key_length_) << "</key_>"
+    << "<layer_>" << static_cast<int>(v.layer_) << "</layer_>"
+    << "<payload_count_>" << v.payload_count_ << "</payload_count_>"
+    << "<payload_>" << assorted::Top(v.data_ + v.key_length_, v.payload_count_) << "</payload_>"
+    << "</MasstreeInsertLogType>";
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const MasstreeDeleteLogType& v) {
+  o << "<MasstreeDeleteLogType>"
+    << "<key_length_>" << v.key_length_ << "</key_length_>"
+    << "<key_>" << assorted::Top(v.data_, v.key_length_) << "</key_>"
+    << "<layer_>" << static_cast<int>(v.layer_) << "</layer_>"
+    << "</MasstreeDeleteLogType>";
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const MasstreeOverwriteLogType& v) {
+  o << "<MasstreeOverwriteLog>"
+    << "<key_length_>" << v.key_length_ << "</key_length_>"
+    << "<key_>" << assorted::Top(v.data_, v.key_length_) << "</key_>"
+    << "<layer_>" << static_cast<int>(v.layer_) << "</layer_>"
+    << "<payload_offset_>" << v.payload_offset_ << "</payload_offset_>"
+    << "<payload_count_>" << v.payload_count_ << "</payload_count_>"
+    << "<payload_>" << assorted::Top(v.data_ + v.key_length_, v.payload_count_) << "</payload_>"
+    << "</MasstreeOverwriteLog>";
   return o;
 }
 

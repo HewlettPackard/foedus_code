@@ -15,6 +15,7 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/error_code.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/assorted/cacheline.hpp"
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/cache/fwd.hpp"
@@ -166,7 +167,7 @@ inline memory::PagePoolOffset CacheHashtable::conservatively_locate(
   // Each bucket is 16 bytes, so for each 4 entries.
   for (uint8_t i = 1; i < (kHopNeighbors / 4); ++i) {
     if (((hop_bitmap >> (i * 4)) & 0xF) != 0) {
-      ::_mm_prefetch(buckets_ + bucket_number + i, ::_MM_HINT_T0);
+      assorted::prefetch_cacheline(buckets_ + bucket_number + i);
     }
   }
   // now, check each bucket up to kHopNeighbors. Again, this is a probabilistic search.

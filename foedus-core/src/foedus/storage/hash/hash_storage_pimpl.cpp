@@ -4,7 +4,6 @@
  */
 #include "foedus/storage/hash/hash_storage_pimpl.hpp"
 
-#include <xmmintrin.h>
 #include <glog/logging.h>
 
 #include <cstring>
@@ -13,6 +12,7 @@
 
 #include "foedus/engine.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/cacheline.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_type.hpp"
@@ -744,9 +744,9 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, bool for_write, 
       if (i == 0 && combo->bin_pages_[1]) {
         // when we are reading from both of them we prefetch the two 64 bytes.
         // if we are reading from only one of them, no need.
-        ::_mm_prefetch(&(combo->bin_pages_[0]->bin(bin_pos)), ::_MM_HINT_T0);
+        assorted::prefetch_cacheline(&(combo->bin_pages_[0]->bin(bin_pos)));
         uint16_t another_pos = combo->bins_[1] % kBinsPerPage;
-        ::_mm_prefetch(&(combo->bin_pages_[1]->bin(another_pos)), ::_MM_HINT_T0);
+        assorted::prefetch_cacheline(&(combo->bin_pages_[1]->bin(another_pos)));
       }
 
       HashBinPage::Bin& bin = combo->bin_pages_[i]->bin(bin_pos);

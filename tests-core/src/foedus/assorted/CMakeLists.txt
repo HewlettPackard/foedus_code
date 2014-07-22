@@ -1,3 +1,22 @@
+set(test_endianness_individual
+  RoundtripU8
+  RoundtripU16
+  RoundtripU32
+  RoundtripU64
+  RoundtripI8
+  RoundtripI16
+  RoundtripI32
+  RoundtripI64
+  ComparisonU8
+  ComparisonU16
+  ComparisonU32
+  ComparisonU64
+  ComparisonI8
+  ComparisonI16
+  ComparisonI32
+  ComparisonI64
+)
+add_foedus_test_individual(test_endianness "${test_endianness_individual}")
 set(test_raw_atomics_individual
   Uint8
   Uint16

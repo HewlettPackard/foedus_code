@@ -15,6 +15,7 @@
 
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/assorted/cacheline.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/fs/fwd.hpp"
