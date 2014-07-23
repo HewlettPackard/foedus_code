@@ -16,6 +16,7 @@ struct  DropLogType;
 struct  DualPagePointer;
 struct  Metadata;
 struct  Page;
+struct  PageVersion;
 class   Partitioner;
 struct  Record;
 class   Storage;

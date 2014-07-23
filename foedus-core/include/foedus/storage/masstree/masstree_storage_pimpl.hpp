@@ -21,7 +21,6 @@
 #include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
-#include "foedus/storage/masstree/masstree_page_version.hpp"
 #include "foedus/thread/thread.hpp"
 
 namespace foedus {
@@ -75,12 +74,12 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     bool      for_writes,
     KeySlice  slice,
     MasstreeBorderPage** border,
-    MasstreePageVersion* border_version) ALWAYS_INLINE;
+    PageVersion* border_version) ALWAYS_INLINE;
   /** descend subroutine of find_border() */
   ErrorCode find_border_descend(
     thread::Thread* context,
     MasstreeIntermediatePage* cur,
-    MasstreePageVersion cur_stable,
+    PageVersion cur_stable,
     uint8_t   current_layer,
     bool      for_writes,
     KeySlice  slice,

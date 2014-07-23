@@ -242,8 +242,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
       metadata_.payload_size_,
       level,
       root,
-      range,
-      root ? nullptr : current_pages[level + 1]);
+      range);
 
     if (level == 0) {
       current_records.push_back(0);
@@ -278,8 +277,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
       metadata_.payload_size_,
       0,
       false,
-      range,
-      current_pages[1]);
+      range);
     current_pages[0] = page;
     current_pages_ids[0] = page_pointer;
     // current_records[0] is always 0
@@ -305,8 +303,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
           metadata_.payload_size_,
           level,
           root,
-          interior_range,
-          root ? nullptr : current_pages[level + 1]);
+          interior_range);
 
         DualPagePointer& child_pointer = interior_page->get_interior_record(0);
         child_pointer.snapshot_pointer_ = 0;
@@ -577,7 +574,6 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write(
       // come back during the grace period.
       CHECK_ERROR_CODE(context->install_a_volatile_page(
         &pointer,
-        reinterpret_cast<Page*>(current_page),
         reinterpret_cast<Page**>(&current_page)));
     } else {
       current_page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(volatile_pointer));

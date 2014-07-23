@@ -84,8 +84,6 @@ class Thread CXX11_FINAL : public virtual Initializable {
   /**
    * @brief Installs a volatile page to the given dual pointer as a copy of the snapshot page.
    * @param[in,out] pointer dual pointer. volatile pointer will be modified.
-   * @param[in] parent_volatile_page Volatile pages maintain parent pointers. This is set
-   * as the parent of the new volatile page.
    * @param[out] installed_page physical pointer to the installed volatile page. This might point
    * to a page installed by a concurrent thread.
    * @pre pointer->snapshot_pointer_ != 0 (this method is for a page that already has snapshot)
@@ -97,7 +95,6 @@ class Thread CXX11_FINAL : public virtual Initializable {
    */
   ErrorCode     install_a_volatile_page(
     storage::DualPagePointer* pointer,
-    storage::Page*  parent_volatile_page,
     storage::Page** installed_page);
 
   /**

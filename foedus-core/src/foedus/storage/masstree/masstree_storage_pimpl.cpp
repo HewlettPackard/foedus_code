@@ -123,17 +123,11 @@ inline ErrorCode MasstreeStoragePimpl::find_border(
   bool      for_writes,
   KeySlice  slice,
   MasstreeBorderPage** border,
-  MasstreePageVersion* border_version) {
+  PageVersion* border_version) {
   while (true) {  // for retry
     ASSERT_ND(layer_root->get_layer() == current_layer);
     layer_root->prefetch_general();
-    MasstreePageVersion stable(layer_root->get_stable_version());
-    while (!stable.is_root()) {
-      layer_root = layer_root->get_in_layer_parent();
-      layer_root->prefetch_general();
-      stable = layer_root->get_stable_version();
-    }
-
+    PageVersion stable(layer_root->get_stable_version());
     if (stable.is_border()) {
       *border = reinterpret_cast<MasstreeBorderPage*>(layer_root);
       *border_version = stable;
@@ -162,7 +156,7 @@ inline ErrorCode MasstreeStoragePimpl::find_border(
 inline ErrorCode MasstreeStoragePimpl::find_border_descend(
   thread::Thread* context,
   MasstreeIntermediatePage* cur,
-  MasstreePageVersion cur_stable,
+  PageVersion cur_stable,
   uint8_t   current_layer,
   bool      for_writes,
   KeySlice  slice,
@@ -173,7 +167,7 @@ inline ErrorCode MasstreeStoragePimpl::find_border_descend(
     MasstreeIntermediatePage::MiniPage& minipage = cur->get_minipage(minipage_index);
 
     minipage.prefetch();
-    MasstreePageVersion mini_stable(minipage.get_stable_version());
+    PageVersion mini_stable(minipage.get_stable_version());
     uint8_t pointer_index = minipage.find_pointer(mini_stable, slice);
     DualPagePointer& pointer = minipage.pointers_[pointer_index];
 
@@ -181,7 +175,7 @@ inline ErrorCode MasstreeStoragePimpl::find_border_descend(
     CHECK_ERROR_CODE(follow_page(context, for_writes, &pointer, &next));
 
     next->prefetch_general();
-    MasstreePageVersion next_stable(next->get_stable_version());
+    PageVersion next_stable(next->get_stable_version());
 
     // check cur's version again for hand-over-hand verification
     assorted::memory_fence_acquire();
@@ -204,7 +198,7 @@ inline ErrorCode MasstreeStoragePimpl::find_border_descend(
       }
     } else {
       DVLOG(0) << "find_border encountered a changed version. retry";
-      MasstreePageVersion cur_new_stable(cur->get_stable_version());
+      PageVersion cur_new_stable(cur->get_stable_version());
       if (cur_new_stable.get_split_counter() != cur_stable.get_split_counter()) {
         // we have to retry from root in this case
         return kErrorCodeStrMasstreeRetry;
@@ -230,7 +224,7 @@ ErrorCode MasstreeStoragePimpl::locate_record(
     KeySlice slice = slice_layer(key, key_length, current_layer);
     const void* suffix = reinterpret_cast<const char*>(key) + (current_layer + 1) * 8;
     MasstreeBorderPage* border;
-    MasstreePageVersion border_version;
+    PageVersion border_version;
     CHECK_ERROR_CODE(find_border(
       context,
       layer_root,
@@ -264,7 +258,7 @@ ErrorCode MasstreeStoragePimpl::locate_record_normalized(
   MasstreeBorderPage** out_page,
   uint8_t* record_index) {
   MasstreeBorderPage* border;
-  MasstreePageVersion border_version;
+  PageVersion border_version;
   CHECK_ERROR_CODE(find_border(context, first_root_, 0, for_writes, key, &border, &border_version));
   uint8_t index = border->find_key_normalized(0, border_version.get_key_count(), key);
   if (index == MasstreeBorderPage::kMaxKeys) {
@@ -387,7 +381,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
     KeySlice slice = slice_layer(key, key_length, layer);
     const void* suffix = reinterpret_cast<const char*>(key) + (layer + 1) * 8;
     MasstreeBorderPage* border;
-    MasstreePageVersion stable;
+    PageVersion stable;
     CHECK_ERROR_CODE(find_border(context, layer_root, layer, true, slice, &border, &stable));
     uint8_t key_count = stable.get_key_count();
     MasstreeBorderPage::FindKeyForReserveResult match = border->find_key_for_reserve(
@@ -414,7 +408,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
       // someone else might be now inserting a conflicting key or the exact key.
       // we thus have to take a lock only in this case.
       border->lock();
-      MasstreePageVersion& locked_version = border->get_version();
+      PageVersion& locked_version = border->get_version();
       uint8_t updated_key_count = locked_version.get_key_count();
       ASSERT_ND(updated_key_count >= key_count);
       if (updated_key_count > key_count) {
@@ -487,7 +481,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
   MasstreeBorderPage** out_page,
   uint8_t* record_index) {
   MasstreeBorderPage* border;
-  MasstreePageVersion border_version;
+  PageVersion border_version;
   CHECK_ERROR_CODE(find_border(
     context,
     first_root_,
@@ -509,7 +503,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
   ASSERT_ND(index == MasstreeBorderPage::kMaxKeys);
   // same flow as reserve_record(), but much simpler
   border->lock();
-  MasstreePageVersion& locked_version = border->get_version();
+  PageVersion& locked_version = border->get_version();
   uint8_t updated_key_count = locked_version.get_key_count();
   ASSERT_ND(updated_key_count >= key_count);
   if (updated_key_count > key_count) {

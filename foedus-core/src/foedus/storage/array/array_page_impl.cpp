@@ -32,15 +32,13 @@ void ArrayPage::initialize_volatile_page(
   uint16_t payload_size,
   uint8_t level,
   bool    root,
-  const ArrayRange& array_range,
-  ArrayPage* parent) {
+  const ArrayRange& array_range) {
   std::memset(this, 0, kPageSize);
   header_.init_volatile(
     page_id,
     storage_id,
     kArrayPageType,
-    root,
-    reinterpret_cast<Page*>(parent));
+    root);
   payload_size_ = payload_size;
   level_ = level;
   array_range_ = array_range;

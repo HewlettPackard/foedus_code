@@ -72,7 +72,6 @@ class ThreadPimpl final : public DefaultInitializable {
   /** @copydoc foedus::thread::Thread::install_a_volatile_page() */
   ErrorCode   install_a_volatile_page(
     storage::DualPagePointer* pointer,
-    storage::Page*  parent_volatile_page,
     storage::Page** installed_page);
 
   /** @copydoc foedus::thread::Thread::follow_page_pointer() */

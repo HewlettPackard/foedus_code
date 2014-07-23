@@ -20,20 +20,12 @@ void MasstreePage::initialize_volatile_common(
     page_id,
     storage_id,
     page_type,
-    parent == nullptr,
-    reinterpret_cast<Page*>(parent));
+    parent == nullptr);
   uint64_t ver = (layer << kPageVersionLayerShifts);
-  if (parent == nullptr || parent->get_layer() == layer - 1) {
-    in_layer_parent_ = nullptr;
-    ver |= kPageVersionIsRootBit;
-  } else {
-    ASSERT_ND(parent->header_.get_page_type() == kMasstreeIntermediatePageType);
-    in_layer_parent_ = reinterpret_cast<MasstreeIntermediatePage*>(parent);
-  }
   if (page_type == kMasstreeBorderPageType) {
     ver |= kPageVersionIsBorderBit;
   }
-  page_version_.set_data(ver);
+  header_.page_version_.set_data(ver);
 }
 
 void MasstreeBorderPage::initialize_volatile_page(
@@ -69,6 +61,12 @@ void MasstreePage::release_pages_recursive_common(
 void MasstreeIntermediatePage::release_pages_recursive(
   const memory::GlobalVolatilePageResolver& page_resolver,
   memory::PageReleaseBatch* batch) {
+  if (foster_child_) {
+    reinterpret_cast<MasstreeIntermediatePage*>(foster_child_)->release_pages_recursive(
+      page_resolver,
+      batch);
+    foster_child_ = nullptr;
+  }
   uint16_t key_count = get_version().get_key_count();
   ASSERT_ND(key_count <= kMaxIntermediateSeparators);
   for (uint8_t i = 0; i < key_count + 1; ++i) {
@@ -94,6 +92,12 @@ void MasstreeIntermediatePage::release_pages_recursive(
 void MasstreeBorderPage::release_pages_recursive(
   const memory::GlobalVolatilePageResolver& page_resolver,
   memory::PageReleaseBatch* batch) {
+  if (foster_child_) {
+    reinterpret_cast<MasstreeBorderPage*>(foster_child_)->release_pages_recursive(
+      page_resolver,
+      batch);
+    foster_child_ = nullptr;
+  }
   uint16_t key_count = get_version().get_key_count();
   ASSERT_ND(key_count <= kMaxKeys);
   for (uint8_t i = 0; i < key_count; ++i) {
@@ -117,7 +121,7 @@ void MasstreeBorderPage::release_pages_recursive(
 void MasstreeBorderPage::copy_initial_record(
   const MasstreeBorderPage* copy_from,
   uint8_t copy_index) {
-  ASSERT_ND(page_version_.get_key_count() == 0);
+  ASSERT_ND(header_.page_version_.get_key_count() == 0);
   uint8_t parent_key_length = copy_from->remaining_key_length_[copy_index];
   ASSERT_ND(parent_key_length != kKeyLengthNextLayer);
   ASSERT_ND(parent_key_length > sizeof(KeySlice));
@@ -151,7 +155,7 @@ void MasstreeBorderPage::copy_initial_record(
     parent_record + remaining,
     payload_length);
 
-  page_version_.increment_key_count();
+  header_.page_version_.increment_key_count();
 }
 
 }  // namespace masstree

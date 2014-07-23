@@ -6,6 +6,7 @@ add_subdirectory(sequential)
 set_property(GLOBAL APPEND PROPERTY ALL_FOEDUS_CORE_SRC
   ${CMAKE_CURRENT_SOURCE_DIR}/composer.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/metadata.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/page.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/partitioner.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/storage.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/storage_id.cpp

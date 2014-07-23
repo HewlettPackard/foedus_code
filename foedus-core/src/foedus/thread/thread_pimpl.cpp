@@ -128,9 +128,7 @@ bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
 
 ErrorCode ThreadPimpl::install_a_volatile_page(
   storage::DualPagePointer* pointer,
-  storage::Page*  volatile_parent_page,
   storage::Page** installed_page) {
-  ASSERT_ND(volatile_parent_page == nullptr || !volatile_parent_page->get_header().snapshot_);
   ASSERT_ND(pointer->snapshot_pointer_ != 0);
 
   // copy from snapshot version
@@ -144,11 +142,8 @@ ErrorCode ThreadPimpl::install_a_volatile_page(
   std::memcpy(*installed_page, snapshot_page, storage::kPageSize);
   // We copied from a snapshot page, so the snapshot flag is on.
   ASSERT_ND((*installed_page)->get_header().snapshot_ == false);
-  // This page is a volatile page, so set the snapshot flag off and also set parent.
+  // This page is a volatile page, so set the snapshot flag off.
   (*installed_page)->get_header().snapshot_ = false;
-  (*installed_page)->get_header().volatile_parent_ = volatile_parent_page;
-  ASSERT_ND((*installed_page)->get_header().root_ || volatile_parent_page);
-  ASSERT_ND(!(*installed_page)->get_header().root_ || volatile_parent_page == nullptr);
 
   *installed_page = place_a_new_volatile_page(offset, pointer);
   return kErrorCodeOk;
@@ -260,7 +255,7 @@ ErrorCode ThreadPimpl::follow_page_pointer(
       }
     } else if (will_modify) {
       // we need a volatile page. so construct it from snapshot
-      CHECK_ERROR_CODE(install_a_volatile_page(pointer, page_initializer->parent_, page));
+      CHECK_ERROR_CODE(install_a_volatile_page(pointer, page));
     } else {
       // otherwise just use snapshot
       CHECK_ERROR_CODE(find_or_read_a_snapshot_page(pointer->snapshot_pointer_, page));

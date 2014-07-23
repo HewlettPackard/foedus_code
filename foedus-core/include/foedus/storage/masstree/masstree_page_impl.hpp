@@ -19,7 +19,6 @@
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
-#include "foedus/storage/masstree/masstree_page_version.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
@@ -46,10 +45,10 @@ class MasstreePage {
 
   KeySlice            get_low_fence() const { return low_fence_; }
   KeySlice            get_high_fence() const { return high_fence_; }
-  MasstreeIntermediatePage* get_in_layer_parent() const { return in_layer_parent_; }
+  MasstreePage*       get_foster_child() const { return foster_child_; }
 
   /** Layer-0 stores the first 8 byte slice, Layer-1 next 8 byte... */
-  uint8_t             get_layer() const { return page_version_.get_layer(); }
+  uint8_t             get_layer() const { return header_.page_version_.get_layer(); }
 
   /**
    * prefetch upto keys/separators, whether this page is border or interior.
@@ -65,11 +64,11 @@ class MasstreePage {
    * @brief Spins until we observe a non-inserting and non-splitting version.
    * @return version of this page that wasn't during modification.
    */
-  MasstreePageVersion get_stable_version() const ALWAYS_INLINE {
-    return page_version_.stable_version();
+  PageVersion get_stable_version() const ALWAYS_INLINE {
+    return header_.page_version_.stable_version();
   }
-  const MasstreePageVersion& get_version() const ALWAYS_INLINE { return page_version_; }
-  MasstreePageVersion& get_version() ALWAYS_INLINE { return page_version_; }
+  const PageVersion& get_version() const ALWAYS_INLINE { return header_.page_version_; }
+  PageVersion& get_version() ALWAYS_INLINE { return header_.page_version_; }
 
   /**
    * @brief Locks the page, spinning if necessary.
@@ -79,7 +78,7 @@ class MasstreePage {
    */
   void              lock() ALWAYS_INLINE {
     if (!header_.snapshot_) {
-      page_version_.lock_version();
+      header_.page_version_.lock_version();
     }
   }
 
@@ -93,7 +92,7 @@ class MasstreePage {
    */
   void              unlock() ALWAYS_INLINE {
     if (!header_.snapshot_) {
-      page_version_.unlock_version();
+      header_.page_version_.unlock_version();
     }
   }
 
@@ -108,15 +107,14 @@ class MasstreePage {
   KeySlice            low_fence_;   // +8 -> 40
   /** Inclusive high fence of this page. Mainly used for sanity checking */
   KeySlice            high_fence_;  // +8 -> 48
+  /** Inclusive low_fence of foster child. undefined if foster child is not set*/
+  KeySlice            foster_fence_;  // +8 -> 56
 
   /**
-   * Similar to header_.volatile_parent_. The difference is that this is null if the page
-   * is the root of a non-first layer whereas header_.volatile_parent_ points to previous layer's
-   * border node.
+   * tentative child page whose key ranges are right-half of this page.
+   * undefined if has_foster_child of page_version is false.
    */
-  MasstreeIntermediatePage* in_layer_parent_;  // +8 -> 56
-
-  MasstreePageVersion page_version_;  // +8 -> 64
+  MasstreePage*       foster_child_;  // +8 -> 64
 
   void                initialize_volatile_common(
     StorageId storage_id,
@@ -139,7 +137,7 @@ class MasstreeIntermediatePage final : public MasstreePage {
  public:
   struct MiniPage {
     // +8 -> 8
-    MasstreePageVersion mini_version_;
+    PageVersion     mini_version_;
 
     // +8*15 -> 128
     /** Same semantics as separators_ in enclosing class. */
@@ -151,13 +149,13 @@ class MasstreeIntermediatePage final : public MasstreePage {
     void prefetch() const {
       assorted::prefetch_cachelines(this, 2);
     }
-    MasstreePageVersion get_stable_version() const ALWAYS_INLINE {
+    PageVersion get_stable_version() const ALWAYS_INLINE {
       return mini_version_.stable_version();
     }
     /**
     * @brief Navigates a searching key-slice to one of pointers in this mini-page.
     */
-    uint8_t find_pointer(const MasstreePageVersion &stable, KeySlice slice) const ALWAYS_INLINE {
+    uint8_t find_pointer(const PageVersion &stable, KeySlice slice) const ALWAYS_INLINE {
       uint8_t separator_count = stable.get_key_count();
       ASSERT_ND(separator_count <= kMaxIntermediateMiniSeparators);
       for (uint8_t i = 0; i < separator_count; ++i) {
@@ -182,7 +180,7 @@ class MasstreeIntermediatePage final : public MasstreePage {
   /**
    * @brief Navigates a searching key-slice to one of the mini pages in this page.
    */
-  uint8_t find_minipage(const MasstreePageVersion &stable, KeySlice slice) const ALWAYS_INLINE {
+  uint8_t find_minipage(const PageVersion &stable, KeySlice slice) const ALWAYS_INLINE {
     uint8_t separator_count = stable.get_key_count();
     ASSERT_ND(separator_count <= kMaxIntermediateSeparators);
     for (uint8_t i = 0; i < separator_count; ++i) {
@@ -285,7 +283,7 @@ class MasstreeBorderPage final : public MasstreePage {
    * @return index of key found in this page, or kMaxKeys if not found.
    */
   uint8_t find_key(
-    const MasstreePageVersion &stable,
+    const PageVersion &stable,
     KeySlice slice,
     const void* suffix,
     uint8_t remaining) const ALWAYS_INLINE;
@@ -461,7 +459,7 @@ class MasstreeBorderPage final : public MasstreePage {
 STATIC_SIZE_CHECK(sizeof(MasstreeBorderPage), 1 << 12)
 
 inline uint8_t MasstreeBorderPage::find_key(
-  const MasstreePageVersion &stable,
+  const PageVersion &stable,
   KeySlice slice,
   const void* suffix,
   uint8_t remaining) const {
@@ -589,9 +587,9 @@ inline void MasstreeBorderPage::reserve_record_space(
   uint8_t remaining_length,
   uint16_t payload_count) {
   ASSERT_ND(remaining_length <= kKeyLengthMax);
-  ASSERT_ND(page_version_.is_locked());
-  ASSERT_ND(page_version_.is_inserting());
-  ASSERT_ND(page_version_.get_key_count() == index + 1U);
+  ASSERT_ND(header_.page_version_.is_locked());
+  ASSERT_ND(header_.page_version_.is_inserting());
+  ASSERT_ND(header_.page_version_.get_key_count() == index + 1U);
   ASSERT_ND(can_accomodate(index, remaining_length, payload_count));
   uint16_t suffix_length = calculate_suffix_length(remaining_length);
   DataOffset record_size = calculate_record_size(remaining_length, payload_count) >> 4;
