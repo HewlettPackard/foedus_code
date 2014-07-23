@@ -131,17 +131,12 @@ class BufferWrapAroundTask : public thread::ImpersonateTask {
     EXPECT_EQ(kBufferSize - 128, buffer.get_offset_committed());
     EXPECT_EQ(kBufferSize - 128, buffer.get_offset_tail());
 
-    committed_before = buffer.get_offset_committed();
-    durable_before = buffer.get_offset_durable();
-    tail_before = buffer.get_offset_tail();
-
     WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
     buffer.assert_consistent();
     // this should cause wrap around
     filler = reinterpret_cast<FillerLogType*>(buffer.reserve_new_log(256));
     filler->populate(256);
     EXPECT_EQ(kBufferSize - 128, buffer.get_offset_committed());
-    EXPECT_EQ(kBufferSize - 128, buffer.get_offset_durable());
     EXPECT_EQ(256, buffer.get_offset_tail());  // a log doesn't span the end of buffer.
     buffer.assert_consistent();
 
@@ -155,7 +150,6 @@ class BufferWrapAroundTask : public thread::ImpersonateTask {
 
     WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
     EXPECT_EQ(256, buffer.get_offset_committed());
-    EXPECT_EQ(kBufferSize - 128, buffer.get_offset_durable());
     EXPECT_EQ(256, buffer.get_offset_tail());
     buffer.assert_consistent();
 

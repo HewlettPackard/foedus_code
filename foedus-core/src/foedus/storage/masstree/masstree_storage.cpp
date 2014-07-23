@@ -11,6 +11,7 @@
 
 #include "foedus/log/thread_log_buffer_impl.hpp"
 #include "foedus/storage/masstree/masstree_log_types.hpp"
+#include "foedus/storage/masstree/masstree_retry_impl.hpp"
 #include "foedus/storage/masstree/masstree_storage_pimpl.hpp"
 #include "foedus/thread/thread.hpp"
 
@@ -75,10 +76,12 @@ ErrorCode MasstreeStorage::get_record(
   uint16_t key_length,
   void* payload,
   uint16_t* payload_capacity) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->locate_record(context, key, key_length, false, &border, &index));
-  return pimpl_->retrieve_general(context, border, index, payload, payload_capacity);
+  return masstree_retry([this, context, key, key_length, payload, payload_capacity]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->locate_record(context, key, key_length, false, &border, &index));
+    return pimpl_->retrieve_general(context, border, index, payload, payload_capacity);
+  });
 }
 
 ErrorCode MasstreeStorage::get_record_part(
@@ -88,16 +91,18 @@ ErrorCode MasstreeStorage::get_record_part(
   void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->locate_record(context, key, key_length, false, &border, &index));
-  return pimpl_->retrieve_part_general(
-    context,
-    border,
-    index,
-    payload,
-    payload_offset,
-    payload_count);
+  return masstree_retry([this, context, key, key_length, payload, payload_offset, payload_count]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->locate_record(context, key, key_length, false, &border, &index));
+    return pimpl_->retrieve_part_general(
+      context,
+      border,
+      index,
+      payload,
+      payload_offset,
+      payload_count);
+  });
 }
 
 template <typename PAYLOAD>
@@ -107,16 +112,18 @@ ErrorCode MasstreeStorage::get_record_primitive(
   uint16_t key_length,
   PAYLOAD* payload,
   uint16_t payload_offset) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->locate_record(context, key, key_length, false, &border, &index));
-  return pimpl_->retrieve_part_general(
-    context,
-    border,
-    index,
-    payload,
-    payload_offset,
-    sizeof(PAYLOAD));
+  return masstree_retry([this, context, key, key_length, payload, payload_offset]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->locate_record(context, key, key_length, false, &border, &index));
+    return pimpl_->retrieve_part_general(
+      context,
+      border,
+      index,
+      payload,
+      payload_offset,
+      sizeof(PAYLOAD));
+  });
 }
 
 ErrorCode MasstreeStorage::get_record_normalized(
@@ -124,10 +131,12 @@ ErrorCode MasstreeStorage::get_record_normalized(
   KeySlice key,
   void* payload,
   uint16_t* payload_capacity) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, false, &border, &index));
-  return pimpl_->retrieve_general(context, border, index, payload, payload_capacity);
+  return masstree_retry([this, context, key, payload, payload_capacity]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, false, &border, &index));
+    return pimpl_->retrieve_general(context, border, index, payload, payload_capacity);
+  });
 }
 
 ErrorCode MasstreeStorage::get_record_part_normalized(
@@ -136,16 +145,18 @@ ErrorCode MasstreeStorage::get_record_part_normalized(
   void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, false, &border, &index));
-  return pimpl_->retrieve_part_general(
-    context,
-    border,
-    index,
-    payload,
-    payload_offset,
-    payload_count);
+  return masstree_retry([this, context, key, payload, payload_offset, payload_count]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, false, &border, &index));
+    return pimpl_->retrieve_part_general(
+      context,
+      border,
+      index,
+      payload,
+      payload_offset,
+      payload_count);
+  });
 }
 
 template <typename PAYLOAD>
@@ -154,16 +165,18 @@ ErrorCode MasstreeStorage::get_record_primitive_normalized(
   KeySlice key,
   PAYLOAD* payload,
   uint16_t payload_offset) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, false, &border, &index));
-  return pimpl_->retrieve_part_general(
-    context,
-    border,
-    index,
-    payload,
-    payload_offset,
-    sizeof(PAYLOAD));
+  return masstree_retry([this, context, key, payload, payload_offset]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, false, &border, &index));
+    return pimpl_->retrieve_part_general(
+      context,
+      border,
+      index,
+      payload,
+      payload_offset,
+      sizeof(PAYLOAD));
+  });
 }
 
 ErrorCode MasstreeStorage::insert_record(
@@ -172,16 +185,18 @@ ErrorCode MasstreeStorage::insert_record(
   uint16_t key_length,
   const void* payload,
   uint16_t payload_count) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->reserve_record(
-    context,
-    key,
-    key_length,
-    payload_count,
-    &border,
-    &index));
-  return pimpl_->insert_general(context, border, index, key, key_length, payload, payload_count);
+  return masstree_retry([this, context, key, key_length, payload, payload_count]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->reserve_record(
+      context,
+      key,
+      key_length,
+      payload_count,
+      &border,
+      &index));
+    return pimpl_->insert_general(context, border, index, key, key_length, payload, payload_count);
+  });
 }
 
 ErrorCode MasstreeStorage::insert_record_normalized(
@@ -189,38 +204,49 @@ ErrorCode MasstreeStorage::insert_record_normalized(
   KeySlice key,
   const void* payload,
   uint16_t payload_count) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->reserve_record_normalized(context, key, payload_count, &border, &index));
-  uint64_t be_key = assorted::htobe<uint64_t>(key);
-  return pimpl_->insert_general(
-    context,
-    border,
-    index,
-    &be_key,
-    sizeof(be_key),
-    payload,
-    payload_count);
+  return masstree_retry([this, context, key, payload, payload_count]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->reserve_record_normalized(
+      context,
+      key,
+      payload_count,
+      &border,
+      &index));
+    uint64_t be_key = assorted::htobe<uint64_t>(key);
+    return pimpl_->insert_general(
+      context,
+      border,
+      index,
+      &be_key,
+      sizeof(be_key),
+      payload,
+      payload_count);
+  });
 }
 
 ErrorCode MasstreeStorage::delete_record(
   thread::Thread* context,
   const void* key,
   uint16_t key_length) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->locate_record(context, key, key_length, true, &border, &index));
-  return pimpl_->delete_general(context, border, index, key, key_length);
+  return masstree_retry([this, context, key, key_length]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->locate_record(context, key, key_length, true, &border, &index));
+    return pimpl_->delete_general(context, border, index, key, key_length);
+  });
 }
 
 ErrorCode MasstreeStorage::delete_record_normalized(
   thread::Thread* context,
   KeySlice key) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, true, &border, &index));
-  uint64_t be_key = assorted::htobe<uint64_t>(key);
-  return pimpl_->delete_general(context, border, index, &be_key, sizeof(be_key));
+  return masstree_retry([this, context, key]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, true, &border, &index));
+    uint64_t be_key = assorted::htobe<uint64_t>(key);
+    return pimpl_->delete_general(context, border, index, &be_key, sizeof(be_key));
+  });
 }
 
 ErrorCode MasstreeStorage::overwrite_record(
@@ -230,18 +256,20 @@ ErrorCode MasstreeStorage::overwrite_record(
   const void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->locate_record(context, key, key_length, true, &border, &index));
-  return pimpl_->overwrite_general(
-    context,
-    border,
-    index,
-    key,
-    key_length,
-    payload,
-    payload_offset,
-    payload_count);
+  return masstree_retry([this, context, key, key_length, payload, payload_offset, payload_count]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->locate_record(context, key, key_length, true, &border, &index));
+    return pimpl_->overwrite_general(
+      context,
+      border,
+      index,
+      key,
+      key_length,
+      payload,
+      payload_offset,
+      payload_count);
+  });
 }
 
 template <typename PAYLOAD>
@@ -251,18 +279,20 @@ ErrorCode MasstreeStorage::overwrite_record_primitive(
   uint16_t key_length,
   PAYLOAD payload,
   uint16_t payload_offset) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->locate_record(context, key, key_length, true, &border, &index));
-  return pimpl_->overwrite_general(
-    context,
-    border,
-    index,
-    key,
-    key_length,
-    &payload,
-    payload_offset,
-    sizeof(payload));
+  return masstree_retry([this, context, key, key_length, payload, payload_offset]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->locate_record(context, key, key_length, true, &border, &index));
+    return pimpl_->overwrite_general(
+      context,
+      border,
+      index,
+      key,
+      key_length,
+      &payload,
+      payload_offset,
+      sizeof(payload));
+  });
 }
 
 ErrorCode MasstreeStorage::overwrite_record_normalized(
@@ -271,19 +301,21 @@ ErrorCode MasstreeStorage::overwrite_record_normalized(
   const void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, true, &border, &index));
-  uint64_t be_key = assorted::htobe<uint64_t>(key);
-  return pimpl_->overwrite_general(
-    context,
-    border,
-    index,
-    &be_key,
-    sizeof(be_key),
-    payload,
-    payload_offset,
-    payload_count);
+  return masstree_retry([this, context, key, payload, payload_offset, payload_count]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, true, &border, &index));
+    uint64_t be_key = assorted::htobe<uint64_t>(key);
+    return pimpl_->overwrite_general(
+      context,
+      border,
+      index,
+      &be_key,
+      sizeof(be_key),
+      payload,
+      payload_offset,
+      payload_count);
+  });
 }
 
 template <typename PAYLOAD>
@@ -292,19 +324,21 @@ ErrorCode MasstreeStorage::overwrite_record_primitive_normalized(
   KeySlice key,
   PAYLOAD payload,
   uint16_t payload_offset) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, true, &border, &index));
-  uint64_t be_key = assorted::htobe<uint64_t>(key);
-  return pimpl_->overwrite_general(
-    context,
-    border,
-    index,
-    &be_key,
-    sizeof(be_key),
-    &payload,
-    payload_offset,
-    sizeof(payload));
+  return masstree_retry([this, context, key, payload, payload_offset]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, true, &border, &index));
+    uint64_t be_key = assorted::htobe<uint64_t>(key);
+    return pimpl_->overwrite_general(
+      context,
+      border,
+      index,
+      &be_key,
+      sizeof(be_key),
+      &payload,
+      payload_offset,
+      sizeof(payload));
+  });
 }
 
 template <typename PAYLOAD>
@@ -314,17 +348,19 @@ ErrorCode MasstreeStorage::increment_record(
   uint16_t key_length,
   PAYLOAD* value,
   uint16_t payload_offset) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->locate_record(context, key, key_length, true, &border, &index));
-  return pimpl_->increment_general<PAYLOAD>(
-    context,
-    border,
-    index,
-    key,
-    key_length,
-    value,
-    payload_offset);
+  return masstree_retry([this, context, key, key_length, value, payload_offset]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->locate_record(context, key, key_length, true, &border, &index));
+    return pimpl_->increment_general<PAYLOAD>(
+      context,
+      border,
+      index,
+      key,
+      key_length,
+      value,
+      payload_offset);
+  });
 }
 
 template <typename PAYLOAD>
@@ -333,18 +369,20 @@ ErrorCode MasstreeStorage::increment_record_normalized(
   KeySlice key,
   PAYLOAD* value,
   uint16_t payload_offset) {
-  MasstreeBorderPage* border;
-  uint8_t index;
-  CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, true, &border, &index));
-  uint64_t be_key = assorted::htobe<uint64_t>(key);
-  return pimpl_->increment_general<PAYLOAD>(
-    context,
-    border,
-    index,
-    &be_key,
-    sizeof(be_key),
-    value,
-    payload_offset);
+  return masstree_retry([this, context, key, value, payload_offset]() {
+    MasstreeBorderPage* border;
+    uint8_t index;
+    CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, true, &border, &index));
+    uint64_t be_key = assorted::htobe<uint64_t>(key);
+    return pimpl_->increment_general<PAYLOAD>(
+      context,
+      border,
+      index,
+      &be_key,
+      sizeof(be_key),
+      value,
+      payload_offset);
+  });
 }
 
 // Explicit instantiations for each payload type

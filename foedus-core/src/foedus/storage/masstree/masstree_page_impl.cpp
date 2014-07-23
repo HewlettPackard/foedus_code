@@ -97,9 +97,8 @@ void MasstreeBorderPage::release_pages_recursive(
   uint16_t key_count = get_version().get_key_count();
   ASSERT_ND(key_count <= kMaxKeys);
   for (uint8_t i = 0; i < key_count; ++i) {
-    const Slot& slot = get_slot(i);
-    if (slot.does_point_to_layer()) {
-      DualPagePointer& pointer = layer_record(slot.offset_)->pointer_;
+    if (does_point_to_layer(i)) {
+      DualPagePointer& pointer = *get_next_layer(i);
       if (pointer.volatile_pointer_.components.offset != 0) {
         MasstreePage* child = reinterpret_cast<MasstreePage*>(
           page_resolver.resolve_offset(pointer.volatile_pointer_));
@@ -119,40 +118,37 @@ void MasstreeBorderPage::copy_initial_record(
   const MasstreeBorderPage* copy_from,
   uint8_t copy_index) {
   ASSERT_ND(page_version_.get_key_count() == 0);
-  const MasstreeBorderPage::Slot& parent_slot = copy_from->get_slot(copy_index);
-  ASSERT_ND(parent_slot.remaining_key_length_ > sizeof(KeySlice));  // otherwise why came here
-  uint16_t remaining = parent_slot.remaining_key_length_ - sizeof(KeySlice);
-  const Record* parent_record = copy_from->body_record(parent_slot.offset_);
+  uint8_t parent_key_length = copy_from->remaining_key_length_[copy_index];
+  ASSERT_ND(parent_key_length != kKeyLengthNextLayer);
+  ASSERT_ND(parent_key_length > sizeof(KeySlice));
+  uint8_t remaining = parent_key_length - sizeof(KeySlice);
 
   // retrieve the first 8 byte (or less) as the new slice.
-  KeySlice new_slice = slice_key(reinterpret_cast<const char*>(parent_record->payload_), remaining);
-  uint16_t payload_length = parent_slot.payload_length_;
-  uint16_t suffix_length = calculate_suffix_length(remaining);
-  uint16_t record_length = calculate_record_size(remaining, payload_length);
+  const char* parent_record = copy_from->get_record(copy_index);
+  KeySlice new_slice = slice_key(parent_record, remaining);
+  uint16_t payload_length = copy_from->payload_length_[copy_index];
+  uint8_t suffix_length = calculate_suffix_length(remaining);
 
-  MasstreeBorderPage::Slot& new_slot = get_slot(0);
-  new_slot.slice_ = new_slice;
-  new_slot.flags_ = 0;
-  new_slot.remaining_key_length_ = remaining;
-  new_slot.payload_length_ = payload_length;
-  new_slot.offset_ = kDataSize - record_length;
+  slices_[0] = new_slice;
+  remaining_key_length_[0] = remaining;
+  payload_length_[0] = payload_length;
+  offsets_[0] = (kDataSize - calculate_record_size(remaining, payload_length)) >> 4;
 
-  Record* new_record = body_record(new_slot.offset_);
   // use the same xct ID. This means we also inherit deleted flag.
-  new_record->owner_id_ = parent_record->owner_id_;
+  owner_ids_[0] = copy_from->owner_ids_[copy_index];
   // but we don't want to inherit locks
-  if (new_record->owner_id_.is_keylocked()) {
-    new_record->owner_id_.release_keylock();
+  if (owner_ids_[0].is_keylocked()) {
+    owner_ids_[0].release_keylock();
   }
-  if (new_record->owner_id_.is_rangelocked()) {
-    new_record->owner_id_.release_rangelock();
+  if (owner_ids_[0].is_rangelocked()) {
+    owner_ids_[0].release_rangelock();
   }
   if (suffix_length > 0) {
-    std::memcpy(new_record->payload_, parent_record->payload_ + sizeof(KeySlice), suffix_length);
+    std::memcpy(get_record(0), parent_record + sizeof(KeySlice), suffix_length);
   }
   std::memcpy(
-    new_record->payload_ + suffix_length,
-    parent_record->payload_ + parent_slot.get_suffix_length(),
+    get_record(0) + suffix_length,
+    parent_record + remaining,
     payload_length);
 
   page_version_.increment_key_count();

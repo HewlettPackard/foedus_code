@@ -469,6 +469,9 @@ ErrorCode ArrayStoragePimpl::increment_record(
   // NOTE if we directly pass value and increment there, we might do it multiple times!
   // optimistic_read_protocol() retries if there are version mismatch.
   // so it must be idempotent. be careful!
+  // TODO(Hideaki) Only Array's increment can be the rare "write-set only" log.
+  // other increments have to check deletion bit at least.
+  // to make use of it, we should have array increment log with primitive type as parameter.
   CHECK_ERROR_CODE(xct::optimistic_read_protocol(
     &context->get_current_xct(),
     holder_,
