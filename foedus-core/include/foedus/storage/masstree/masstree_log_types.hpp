@@ -121,6 +121,7 @@ struct MasstreeInsertLogType : public log::RecordLogType {
     // (or in other places if this is recovery).
     ASSERT_ND(std::memcmp(record->payload_, data_ + skipped, key_length_ - skipped) == 0);
     std::memcpy(record->payload_ + key_length_ - skipped, data_ + key_length_, payload_count_);
+    ASSERT_ND(std::memcmp(record->payload_, data_ + skipped, key_length_ - skipped) == 0);
     record->owner_id_.set_notdeleted();
   }
 

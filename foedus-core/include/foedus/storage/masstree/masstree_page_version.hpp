@@ -99,6 +99,9 @@ struct MasstreePageVersion CXX11_FINAL {
     set_inserting();
     data_ += (1ULL << kPageVersionKeyCountShifts);
   }
+  void      increment_key_count() ALWAYS_INLINE {
+    data_ += (1ULL << kPageVersionKeyCountShifts);
+  }
 
   /**
   * @brief Spins until we observe a non-inserting and non-splitting version.

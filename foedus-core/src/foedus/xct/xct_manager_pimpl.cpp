@@ -413,6 +413,11 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
   ASSERT_ND(new_xct_id.get_epoch() == *commit_epoch);
   ASSERT_ND(new_xct_id.get_ordinal() > 0);
   ASSERT_ND(new_xct_id.is_status_bits_off());
+  ASSERT_ND(!new_xct_id.is_keylocked());
+  XctId new_deleted_xct_id = new_xct_id;
+  new_deleted_xct_id.set_deleted();  // used if the record after apply is in deleted state.
+  ASSERT_ND(!new_deleted_xct_id.is_keylocked());
+  ASSERT_ND(!new_deleted_xct_id.is_rangelocked());
 
   DVLOG(1) << *context << " generated new xct id=" << new_xct_id;
   for (uint32_t i = 0; i < write_set_size; ++i) {
@@ -434,7 +439,19 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
         << ":" << write_set[i].record_ << ". Unlock at the last one of the write sets";
       // keep the lock for the next write set
     } else {
-      write.record_->owner_id_ = new_xct_id;  // this also unlocks
+      // this also unlocks
+      if (write.record_->owner_id_.is_deleted()) {
+        // preserve delete-flag set by delete operations (so, the operation should be delete)
+        ASSERT_ND(
+          write.log_entry_->header_.get_type() == log::kLogCodeHashDelete ||
+          write.log_entry_->header_.get_type() == log::kLogCodeMasstreeDelete);
+        write.record_->owner_id_ = new_deleted_xct_id;
+      } else {
+        ASSERT_ND(
+          write.log_entry_->header_.get_type() != log::kLogCodeHashDelete &&
+          write.log_entry_->header_.get_type() != log::kLogCodeMasstreeDelete);
+        write.record_->owner_id_ = new_xct_id;
+      }
     }
   }
   // lock-free write-set doesn't have to worry about lock or ordering.

@@ -177,16 +177,20 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     thread::Thread* context,
     bool for_writes,
     storage::DualPagePointer* pointer,
-    MasstreePage** page) ALWAYS_INLINE {
-    return context->follow_page_pointer(
-      &kDummyPageInitializer,  // masstree doesn't create a new page except splits.
-      false,  // so, there is no null page possible
-      for_writes,  // always get volatile pages for writes
-      true,
-      false,
-      pointer,
-      reinterpret_cast<Page**>(page));
-  }
+    MasstreePage** page) ALWAYS_INLINE;
+  /** Follows to next layer's root page. */
+  ErrorCode follow_layer(
+    thread::Thread* context,
+    bool for_writes,
+    MasstreeBorderPage* parent,
+    uint8_t record_index,
+    MasstreePage** page) ALWAYS_INLINE;
+
+  /** Reserve a next layer as one system transaction. */
+  ErrorCode create_next_layer(
+    thread::Thread* context,
+    MasstreeBorderPage* parent,
+    uint8_t parent_index);
 };
 }  // namespace masstree
 }  // namespace storage
