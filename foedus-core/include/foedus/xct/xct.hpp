@@ -4,17 +4,27 @@
  */
 #ifndef FOEDUS_XCT_XCT_HPP_
 #define FOEDUS_XCT_XCT_HPP_
+
+#include <cstring>
 #include <iosfwd>
 
 #include "foedus/assert_nd.hpp"
+#include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/log/common_log_types.hpp"
+
+// For log verification. Only in debug mode
+#ifndef NDEBUG
+#include "foedus/log/log_type_invoke.hpp"
+#endif  // NDEBUG
+
 #include "foedus/memory/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
+#include "foedus/storage/record.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/fwd.hpp"
@@ -122,8 +132,6 @@ class Xct {
    *
    * The second case doesn't apply to snapshot pointers once we follow a snapshot pointer in the
    * tree because everything is assured to be stable once we follow a snapshot pointer.
-   *
-   * Inlined in xct_inl.hpp.
    */
   ErrorCode           add_to_node_set(
     const storage::VolatilePagePointer* pointer_address,
@@ -133,43 +141,47 @@ class Xct {
    * @brief Add the given record to the read set of this transaction.
    * @details
    * You must call this method \b BEFORE reading the data, otherwise it violates the
-   * commit protocol. This method takes an appropriate memory fence to prohibit local reordering,
+   * commit protocol.
+   */
+  ErrorCode           add_to_read_set(
+    storage::Storage* storage,
+    XctId observed_owner_id,
+    XctId* owner_id_address) ALWAYS_INLINE;
+
+  /**
+   * @brief Reads the record with appropriate version check protocol, also adding to read set.
+   * @details
+   * This method takes an appropriate memory fence to prohibit local reordering,
    * but global staleness is fine (in other words, std::memory_order_consume rather
    * than std::memory_order_acquire, although both are no-op in x86 which is TSO...).
-   * Inlined in xct_inl.hpp.
    */
-  ErrorCode           add_to_read_set(storage::Storage* storage, storage::Record* record);
-
-  /** add_to_read_set() plus the data read plus version check again. */
-  ErrorCode           read_record(
+  ErrorCode           read_record_safe(
     storage::Storage* storage,
-    storage::Record* record,
-    void *payload,
+    XctId* owner_id_address,
+    const char *payload_source,
+    void *payload_destination,
     uint16_t payload_offset,
     uint16_t payload_count);
 
-  /** read_record() for primitive types. */
-  template <typename T>
-  ErrorCode           read_record_primitive(
+  /**
+   * @brief Add the given record to the write set of this transaction.
+   */
+  ErrorCode           add_to_write_set(
     storage::Storage* storage,
-    storage::Record* record,
-    T *payload,
-    uint16_t payload_offset);
+    XctId* owner_id_address,
+    char* payload_address,
+    log::RecordLogType* log_entry) ALWAYS_INLINE;
 
   /**
    * @brief Add the given record to the write set of this transaction.
-   * @details
-   * Inlined in xct_inl.hpp.
    */
   ErrorCode           add_to_write_set(
     storage::Storage* storage,
     storage::Record* record,
-    log::RecordLogType* log_entry);
+    log::RecordLogType* log_entry) ALWAYS_INLINE;
 
   /**
    * @brief Add the given log to the lock-free write set of this transaction.
-   * @details
-   * Inlined in xct_inl.hpp.
    */
   ErrorCode           add_to_lock_free_write_set(
     storage::Storage* storage,
@@ -282,6 +294,97 @@ class Xct {
   /** @copydoc get_in_commit_log_epoch() */
   Epoch               in_commit_log_epoch_;
 };
+
+
+inline ErrorCode Xct::add_to_node_set(
+  const storage::VolatilePagePointer* pointer_address,
+  storage::VolatilePagePointer observed) {
+  ASSERT_ND(!schema_xct_);
+  ASSERT_ND(pointer_address);
+  if (isolation_level_ != kSerializable) {
+    return kErrorCodeOk;
+  } else if (UNLIKELY(node_set_size_ >= kMaxNodeSets)) {
+    return kErrorCodeXctNodeSetOverflow;
+  }
+
+  // no need for fence. the observed pointer itself is the only data to verify
+  node_set_[node_set_size_].address_ = pointer_address;
+  node_set_[node_set_size_].observed_ = observed;
+  ++node_set_size_;
+  return kErrorCodeOk;
+}
+
+inline ErrorCode Xct::add_to_read_set(
+  storage::Storage* storage,
+  XctId observed_owner_id,
+  XctId* owner_id_address) {
+  ASSERT_ND(!schema_xct_);
+  ASSERT_ND(storage);
+  ASSERT_ND(owner_id_address);
+  ASSERT_ND(!observed_owner_id.is_keylocked());
+  if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
+    return kErrorCodeXctReadSetOverflow;
+  }
+  read_set_[read_set_size_].storage_ = storage;
+  read_set_[read_set_size_].owner_id_address_ = owner_id_address;
+  read_set_[read_set_size_].observed_owner_id_ = observed_owner_id;
+  ++read_set_size_;
+  return kErrorCodeOk;
+}
+
+inline ErrorCode Xct::add_to_write_set(
+  storage::Storage* storage,
+  XctId* owner_id_address,
+  char* payload_address,
+  log::RecordLogType* log_entry) {
+  ASSERT_ND(!schema_xct_);
+  ASSERT_ND(storage);
+  ASSERT_ND(owner_id_address);
+  ASSERT_ND(payload_address);
+  ASSERT_ND(log_entry);
+  if (UNLIKELY(write_set_size_ >= max_write_set_size_)) {
+    return kErrorCodeXctWriteSetOverflow;
+  }
+
+#ifndef NDEBUG
+  log::invoke_assert_valid(log_entry);
+#endif  // NDEBUG
+
+  write_set_[write_set_size_].storage_ = storage;
+  write_set_[write_set_size_].owner_id_address_ = owner_id_address;
+  write_set_[write_set_size_].payload_address_ = payload_address;
+  write_set_[write_set_size_].log_entry_ = log_entry;
+  ++write_set_size_;
+  return kErrorCodeOk;
+}
+
+inline ErrorCode Xct::add_to_write_set(
+  storage::Storage* storage,
+  storage::Record* record,
+  log::RecordLogType* log_entry) {
+  return add_to_write_set(storage, &record->owner_id_, record->payload_, log_entry);
+}
+
+inline ErrorCode Xct::add_to_lock_free_write_set(
+  storage::Storage* storage,
+  log::RecordLogType* log_entry) {
+  ASSERT_ND(!schema_xct_);
+  ASSERT_ND(storage);
+  ASSERT_ND(log_entry);
+  if (UNLIKELY(lock_free_write_set_size_ >= max_lock_free_write_set_size_)) {
+    return kErrorCodeXctWriteSetOverflow;
+  }
+
+#ifndef NDEBUG
+  log::invoke_assert_valid(log_entry);
+#endif  // NDEBUG
+
+  lock_free_write_set_[lock_free_write_set_size_].storage_ = storage;
+  lock_free_write_set_[lock_free_write_set_size_].log_entry_ = log_entry;
+  ++lock_free_write_set_size_;
+  return kErrorCodeOk;
+}
+
 }  // namespace xct
 }  // namespace foedus
 #endif  // FOEDUS_XCT_XCT_HPP_

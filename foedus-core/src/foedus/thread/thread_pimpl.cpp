@@ -24,7 +24,6 @@
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/thread/thread_pool_pimpl.hpp"
-#include "foedus/xct/xct_inl.hpp"
 #include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {

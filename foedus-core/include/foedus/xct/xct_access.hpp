@@ -51,12 +51,12 @@ struct XctAccess {
   storage::Storage*   storage_;
 
   /** Pointer to the accessed record. */
-  storage::Record*    record_;
+  XctId*              owner_id_address_;
 
   /** sort the read set in a unique order. We use address of records as done in [TU2013]. */
   static bool compare(const XctAccess &left, const XctAccess& right) {
-    return reinterpret_cast<uintptr_t>(left.record_)
-      < reinterpret_cast<uintptr_t>(right.record_);
+    return reinterpret_cast<uintptr_t>(left.owner_id_address_)
+      < reinterpret_cast<uintptr_t>(right.owner_id_address_);
   }
 };
 
@@ -68,16 +68,25 @@ struct XctAccess {
  * @par POD
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
-struct WriteXctAccess : public XctAccess {
+struct WriteXctAccess {
   friend std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v);
+
+  /** Pointer to the storage we accessed. */
+  storage::Storage*     storage_;
+
+  /** Pointer to the accessed record. */
+  XctId*                owner_id_address_;
+
+  /** Pointer to the payload of the record. */
+  char*                 payload_address_;
 
   /** Pointer to the log entry in private log buffer for this write opereation. */
   log::RecordLogType*   log_entry_;
 
   /** sort the write set in a unique order. We use address of records as done in [TU2013]. */
   static bool compare(const WriteXctAccess &left, const WriteXctAccess& right) {
-    return reinterpret_cast<uintptr_t>(left.record_)
-      < reinterpret_cast<uintptr_t>(right.record_);
+    return reinterpret_cast<uintptr_t>(left.owner_id_address_)
+      < reinterpret_cast<uintptr_t>(right.owner_id_address_);
   }
 };
 

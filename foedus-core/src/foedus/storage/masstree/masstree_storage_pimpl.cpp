@@ -24,7 +24,7 @@
 #include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct.hpp"
-#include "foedus/xct/xct_inl.hpp"
+#include "foedus/xct/xct_optimistic_read_impl.hpp"
 
 namespace foedus {
 namespace storage {
@@ -563,23 +563,27 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
   const MasstreeBorderPage::Slot& slot = border->get_slot(index);
   ASSERT_ND(!slot.does_point_to_layer());
   Record* record = border->body_record(slot.offset_);
-  if (record->owner_id_.is_deleted()) {
-    // in this case, we don't need a range lock. the physical record is surely there.
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
-    return kErrorCodeStrKeyNotFound;
-  } else if (slot.payload_length_ > *payload_capacity) {
-    // buffer too small
-    DVLOG(0) << "buffer too small??" << slot.payload_length_ << ":" << *payload_capacity;
-    *payload_capacity = slot.payload_length_;
-    return kErrorCodeStrTooSmallPayloadBuffer;
-  }
 
-  if (!border->header().snapshot_) {
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
-  }
-  *payload_capacity = slot.payload_length_;
-  uint16_t suffix_length = slot.get_suffix_length();
-  std::memcpy(payload, record->payload_ + suffix_length, slot.payload_length_);
+  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
+    &context->get_current_xct(),
+    holder_,
+    &record->owner_id_,
+    border->header().snapshot_,
+    [record, payload, payload_capacity, slot](xct::XctId observed){
+      if (observed.is_deleted()) {
+        // in this case, we don't need a range lock. the physical record is surely there.
+        return kErrorCodeStrKeyNotFound;
+      } else if (slot.payload_length_ > *payload_capacity) {
+        // buffer too small
+        DVLOG(0) << "buffer too small??" << slot.payload_length_ << ":" << *payload_capacity;
+        *payload_capacity = slot.payload_length_;
+        return kErrorCodeStrTooSmallPayloadBuffer;
+      }
+      *payload_capacity = slot.payload_length_;
+      uint16_t suffix_length = slot.get_suffix_length();
+      std::memcpy(payload, record->payload_ + suffix_length, slot.payload_length_);
+      return kErrorCodeOk;
+    }));
   return kErrorCodeOk;
 }
 
@@ -593,20 +597,23 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
   const MasstreeBorderPage::Slot& slot = border->get_slot(index);
   ASSERT_ND(!slot.does_point_to_layer());
   Record* record = border->body_record(slot.offset_);
-  if (record->owner_id_.is_deleted()) {
-    // in this case, we don't need a range lock. the physical record is surely there.
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
-    return kErrorCodeStrKeyNotFound;
-  } else if (slot.payload_length_ < payload_offset + payload_count) {
-    LOG(WARNING) << "short record";  // probably this is a rare error. so warn.
-    return kErrorCodeStrTooShortPayload;
-  }
-
-  if (!border->header().snapshot_) {
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
-  }
-  uint16_t suffix_length = slot.get_suffix_length();
-  std::memcpy(payload, record->payload_ + suffix_length + payload_offset, payload_count);
+  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
+    &context->get_current_xct(),
+    holder_,
+    &record->owner_id_,
+    border->header().snapshot_,
+    [record, payload, payload_offset, payload_count, slot](xct::XctId /*observed*/){
+      if (record->owner_id_.is_deleted()) {
+        // in this case, we don't need a range lock. the physical record is surely there.
+        return kErrorCodeStrKeyNotFound;
+      } else if (slot.payload_length_ < payload_offset + payload_count) {
+        LOG(WARNING) << "short record";  // probably this is a rare error. so warn.
+        return kErrorCodeStrTooShortPayload;
+      }
+      uint16_t suffix_length = slot.get_suffix_length();
+      std::memcpy(payload, record->payload_ + suffix_length + payload_offset, payload_count);
+      return kErrorCodeOk;
+    }));
   return kErrorCodeOk;
 }
 
@@ -634,7 +641,11 @@ ErrorCode MasstreeStoragePimpl::insert_general(
     payload_count,
     border->get_layer());
 
-  return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
+  return context->get_current_xct().add_to_write_set(
+    holder_,
+    &record->owner_id_,
+    record->payload_,
+    log_entry);
 }
 
 ErrorCode MasstreeStoragePimpl::delete_general(
@@ -647,17 +658,29 @@ ErrorCode MasstreeStoragePimpl::delete_general(
   // TODO(Hideaki) these methods have to do another optimistic check on whether the slot
   // is now changed to next-layer pointer. only when remaining_length>8, though.
   Record* record = border->body_record(slot.offset_);
-  if (record->owner_id_.is_deleted()) {
-    // in this case, we don't need a range lock. the physical record is surely there.
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
-    return kErrorCodeStrKeyNotFound;
-  }
+  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
+    &context->get_current_xct(),
+    holder_,
+    &record->owner_id_,
+    false,
+    [](xct::XctId observed){
+      if (observed.is_deleted()) {
+        // in this case, we don't need a range lock. the physical record is surely there.
+        return kErrorCodeStrKeyNotFound;
+      } else {
+        return kErrorCodeOk;
+      }
+    }));
   uint16_t log_length = MasstreeDeleteLogType::calculate_log_length(key_length);
   MasstreeDeleteLogType* log_entry = reinterpret_cast<MasstreeDeleteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(metadata_.id_, be_key, key_length, border->get_layer());
 
-  return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
+  return context->get_current_xct().add_to_write_set(
+    holder_,
+    &record->owner_id_,
+    record->payload_,
+    log_entry);
 }
 
 ErrorCode MasstreeStoragePimpl::overwrite_general(
@@ -671,15 +694,22 @@ ErrorCode MasstreeStoragePimpl::overwrite_general(
   uint16_t payload_count) {
   const MasstreeBorderPage::Slot& slot = border->get_slot(index);
   Record* record = border->body_record(slot.offset_);
-  if (record->owner_id_.is_deleted()) {
-    // in this case, we don't need a range lock. the physical record is surely there.
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
-    return kErrorCodeStrKeyNotFound;
-  } else if (slot.payload_length_ < payload_offset + payload_count) {
-    LOG(WARNING) << "short record ";  // probably this is a rare error. so warn.
-    return kErrorCodeStrTooShortPayload;
-  }
-
+  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
+    &context->get_current_xct(),
+    holder_,
+    &record->owner_id_,
+    false,
+    [record, slot, payload_offset, payload_count](xct::XctId observed){
+      if (observed.is_deleted()) {
+        // in this case, we don't need a range lock. the physical record is surely there.
+        return kErrorCodeStrKeyNotFound;
+      } else if (slot.payload_length_ < payload_offset + payload_count) {
+        LOG(WARNING) << "short record ";  // probably this is a rare error. so warn.
+        return kErrorCodeStrTooShortPayload;
+      } else {
+        return kErrorCodeOk;
+      }
+    }));
   uint16_t log_length = MasstreeOverwriteLogType::calculate_log_length(key_length, payload_count);
   MasstreeOverwriteLogType* log_entry = reinterpret_cast<MasstreeOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
@@ -692,7 +722,11 @@ ErrorCode MasstreeStoragePimpl::overwrite_general(
     payload_count,
     border->get_layer());
 
-  return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
+  return context->get_current_xct().add_to_write_set(
+    holder_,
+    &record->owner_id_,
+    record->payload_,
+    log_entry);
 }
 
 template <typename PAYLOAD>
@@ -706,19 +740,32 @@ ErrorCode MasstreeStoragePimpl::increment_general(
   uint16_t payload_offset) {
   const MasstreeBorderPage::Slot& slot = border->get_slot(index);
   Record* record = border->body_record(slot.offset_);
-  if (record->owner_id_.is_deleted()) {
-    // in this case, we don't need a range lock. the physical record is surely there.
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(holder_, record));
-    return kErrorCodeStrKeyNotFound;
-  } else if (slot.payload_length_ < payload_offset + sizeof(PAYLOAD)) {
-    LOG(WARNING) << "short record ";  // probably this is a rare error. so warn.
-    return kErrorCodeStrTooShortPayload;
-  }
 
-  uint16_t suffix_length = slot.get_suffix_length();
-  char* ptr = record->payload_ + suffix_length + payload_offset;
-  PAYLOAD old_value = *reinterpret_cast<const PAYLOAD*>(ptr);
-  *value += old_value;
+  // NOTE if we directly pass value and increment there, we might do it multiple times!
+  // optimistic_read_protocol() retries if there are version mismatch.
+  // so it must be idempotent. be careful!
+  PAYLOAD tmp;
+  PAYLOAD* tmp_address = &tmp;
+  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
+    &context->get_current_xct(),
+    holder_,
+    &record->owner_id_,
+    false,
+    [record, slot, tmp_address, payload_offset](xct::XctId observed){
+      if (observed.is_deleted()) {
+        // in this case, we don't need a range lock. the physical record is surely there.
+        return kErrorCodeStrKeyNotFound;
+      } else if (slot.payload_length_ < payload_offset + sizeof(PAYLOAD)) {
+        LOG(WARNING) << "short record ";  // probably this is a rare error. so warn.
+        return kErrorCodeStrTooShortPayload;
+      }
+
+      uint16_t suffix_length = slot.get_suffix_length();
+      char* ptr = record->payload_ + suffix_length + payload_offset;
+      *tmp_address = *reinterpret_cast<const PAYLOAD*>(ptr);
+      return kErrorCodeOk;
+    }));
+  *value += tmp;
 
   uint16_t log_length = MasstreeOverwriteLogType::calculate_log_length(key_length, sizeof(PAYLOAD));
   MasstreeOverwriteLogType* log_entry = reinterpret_cast<MasstreeOverwriteLogType*>(
@@ -732,7 +779,11 @@ ErrorCode MasstreeStoragePimpl::increment_general(
     sizeof(PAYLOAD),
     border->get_layer());
 
-  return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
+  return context->get_current_xct().add_to_write_set(
+    holder_,
+    &record->owner_id_,
+    record->payload_,
+    log_entry);
 }
 
 // Explicit instantiations for each payload type

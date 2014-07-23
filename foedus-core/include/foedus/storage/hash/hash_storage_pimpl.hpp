@@ -22,6 +22,7 @@
 #include "foedus/storage/hash/hash_id.hpp"
 #include "foedus/storage/hash/hash_metadata.hpp"
 #include "foedus/thread/fwd.hpp"
+#include "foedus/xct/fwd.hpp"
 
 namespace foedus {
 namespace storage {
@@ -126,11 +127,13 @@ class HashStoragePimpl final : public DefaultInitializable {
   void      apply_insert_record(
     thread::Thread* context,
     const HashInsertLogType* log_entry,
-    Record* record);
+    xct::XctId* owner_id,
+    char* payload);
   void      apply_delete_record(
     thread::Thread* context,
     const HashDeleteLogType* log_entry,
-    Record* record);
+    xct::XctId* owner_id,
+    char* payload);
 
   /**
    * @brief Find a bin page that contains a bin for the hash.

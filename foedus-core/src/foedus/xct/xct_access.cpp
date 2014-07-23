@@ -23,15 +23,17 @@ std::ostream& operator<<(std::ostream& o, const NodeAccess& v) {
 std::ostream& operator<<(std::ostream& o, const XctAccess& v) {
   o << "<XctAccess><storage>" << v.storage_->get_name() << "</storage>"
     << "<observed_owner_id>" << v.observed_owner_id_ << "</observed_owner_id>"
-    << "<record_address>" << v.record_ << "</record_address>"
-    << "<current_owner_id>" << v.record_->owner_id_ << "</current_owner_id></XctAccess>";
+    << "<record_address>" << v.owner_id_address_ << "</record_address>"
+    << "<current_owner_id>" << *(v.owner_id_address_) << "</current_owner_id></XctAccess>";
   return o;
 }
 
 std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v) {
-  o << "<WriteAccess><log>";
+  o << "<WriteAccess><storage>" << v.storage_->get_name() << "</storage>"
+    << "<record_address>" << v.owner_id_address_ << "</record_address>"
+    << "<current_owner_id>" << *(v.owner_id_address_) << "</current_owner_id><log>";
   log::invoke_ostream(v.log_entry_, &o);
-  o << "</log>" << static_cast<const XctAccess&>(v) << "</WriteAccess>";
+  o << "</log></WriteAccess>";
   return o;
 }
 

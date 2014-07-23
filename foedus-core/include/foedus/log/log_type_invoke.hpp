@@ -45,8 +45,12 @@ void invoke_apply_storage(void *log_buffer, thread::Thread* context, storage::St
  * @details
  * This is inlined because this is invoked for every single record type log.
  */
-void invoke_apply_record(void *log_buffer,
-          thread::Thread* context, storage::Storage* storage, storage::Record* record);
+void invoke_apply_record(
+  void *log_buffer,
+  thread::Thread* context,
+  storage::Storage* storage,
+  xct::XctId* owner_id_address,
+  char* payload_address);
 
 /**
  * @brief Invokes the assertion logic of each log type.
@@ -68,9 +72,13 @@ void invoke_assert_valid(void *log_buffer);
 void invoke_ostream(void *buffer, std::ostream *ptr);
 
 #define X(a, b, c) case a: \
-  reinterpret_cast< c* >(buffer)->apply_record(context, storage, record); return;
-inline void invoke_apply_record(void *buffer,
-          thread::Thread* context, storage::Storage* storage, storage::Record* record) {
+  reinterpret_cast< c* >(buffer)->apply_record(context, storage, owner_id, payload); return;
+inline void invoke_apply_record(
+  void *buffer,
+  thread::Thread* context,
+  storage::Storage* storage,
+  xct::XctId* owner_id,
+  char* payload) {
   invoke_assert_valid(buffer);
   LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
   LogCode code = header->get_type();

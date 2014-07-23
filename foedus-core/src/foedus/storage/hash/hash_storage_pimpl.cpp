@@ -33,7 +33,6 @@
 #include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct.hpp"
-#include "foedus/xct/xct_inl.hpp"
 #include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
@@ -131,15 +130,17 @@ ErrorCode HashStorage::increment_record(
 void HashStorage::apply_delete_record(
   thread::Thread* context,
   const HashDeleteLogType* log_entry,
-  Record* record) {
-  pimpl_->apply_delete_record(context, log_entry, record);
+  xct::XctId* owner_id,
+  char* payload) {
+  pimpl_->apply_delete_record(context, log_entry, owner_id, payload);
 }
 
 void HashStorage::apply_insert_record(
   thread::Thread* context,
   const HashInsertLogType* log_entry,
-  Record* record) {
-  pimpl_->apply_insert_record(context, log_entry, record);
+  xct::XctId* owner_id,
+  char* payload) {
+  pimpl_->apply_insert_record(context, log_entry, owner_id, payload);
 }
 
 HashStoragePimpl::HashStoragePimpl(Engine* engine, HashStorage* holder,
@@ -589,7 +590,7 @@ ErrorCode HashStoragePimpl::increment_record(
   return context->get_current_xct().add_to_write_set(holder_, combo.record_, log_entry);
 }
 
-inline HashDataPage* to_page(Record* record) {
+inline HashDataPage* to_page(char* record) {
   // super-dirty way to obtain Page the record belongs to.
   // because all pages are 4kb aligned, we can just divide and multiply.
   uintptr_t int_address = reinterpret_cast<uintptr_t>(reinterpret_cast<void*>(record));
@@ -601,8 +602,9 @@ inline HashDataPage* to_page(Record* record) {
 void HashStoragePimpl::apply_insert_record(
   thread::Thread* /*context*/,
   const HashInsertLogType* log_entry,
-  Record* record) {
-  HashDataPage* data_page = to_page(record);
+  xct::XctId* /*owner_id*/,
+  char* payload) {
+  HashDataPage* data_page = to_page(payload);
   ASSERT_ND(!data_page->header().snapshot_);
   uint64_t bin = data_page->get_bin();
   HashBinPage* bin_page = reinterpret_cast<HashBinPage*>(data_page->header().volatile_parent_);
@@ -632,8 +634,9 @@ void HashStoragePimpl::apply_insert_record(
 void HashStoragePimpl::apply_delete_record(
   thread::Thread* /*context*/,
   const HashDeleteLogType* log_entry,
-  Record* record) {
-  HashDataPage* data_page = to_page(record);
+  xct::XctId* /*owner_id*/,
+  char* payload) {
+  HashDataPage* data_page = to_page(payload);
   ASSERT_ND(!data_page->header().snapshot_);
   uint64_t bin = data_page->get_bin();
   HashBinPage* bin_page = reinterpret_cast<HashBinPage*>(data_page->header().volatile_parent_);
@@ -794,7 +797,10 @@ inline ErrorCode HashStoragePimpl::locate_record(
     HashDataPage* data_page = combo->data_pages_[i];
 
     // add page lock for read set. before accessing records
-    current_xct.add_to_read_set(holder_, reinterpret_cast<Record*>(&data_page->page_owner()));
+    current_xct.add_to_read_set(
+      holder_,
+      data_page->page_owner().spin_while_keylocked(),
+      &data_page->page_owner());
 
     uint32_t hit_bitmap = combo->hit_bitmap_[i];
     for (uint8_t rec = 0; rec < data_page->get_record_count(); ++rec) {
@@ -810,7 +816,10 @@ inline ErrorCode HashStoragePimpl::locate_record(
       }
       // TODO(Hideaki) handle kFlagStoredInNextPages.
       Record* record = data_page->interpret_record(slot.offset_);
-      current_xct.add_to_read_set(holder_, record);
+      current_xct.add_to_read_set(
+        holder_,
+        record->owner_id_.spin_while_keylocked(),
+        &record->owner_id_);
       if (std::memcmp(record->payload_, key, key_length) == 0) {
         // okay, matched!!
         // once we exactly locate the record, no point to check other records/bin. exit

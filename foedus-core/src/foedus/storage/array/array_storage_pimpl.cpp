@@ -27,8 +27,8 @@
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct.hpp"
-#include "foedus/xct/xct_inl.hpp"
 #include "foedus/xct/xct_manager.hpp"
+#include "foedus/xct/xct_optimistic_read_impl.hpp"
 
 namespace foedus {
 namespace storage {
@@ -384,17 +384,16 @@ inline ErrorCode ArrayStoragePimpl::get_record(
   Record *record = nullptr;
   bool snapshot_record;
   CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
-  if (snapshot_record) {
-    std::memcpy(payload, record->payload_ + payload_offset, payload_count);
-    return kErrorCodeOk;
-  } else {
-    return context->get_current_xct().read_record(
-      holder_,
-      record,
-      payload,
-      payload_offset,
-      payload_count);
-  }
+  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
+    &context->get_current_xct(),
+    holder_,
+    &record->owner_id_,
+    snapshot_record,
+    [record, payload, payload_offset, payload_count](xct::XctId /*observed*/){
+      std::memcpy(payload, record->payload_ + payload_offset, payload_count);
+      return kErrorCodeOk;
+    }));
+  return kErrorCodeOk;
 }
 
 template <typename T>
@@ -407,17 +406,17 @@ ErrorCode ArrayStoragePimpl::get_record_primitive(
   Record *record = nullptr;
   bool snapshot_record;
   CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
-  if (snapshot_record) {
-    char* ptr = record->payload_ + payload_offset;
-    *payload = *reinterpret_cast<const T*>(ptr);
-    return kErrorCodeOk;
-  } else {
-    return context->get_current_xct().read_record_primitive<T>(
-      holder_,
-      record,
-      payload,
-      payload_offset);
-  }
+  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
+    &context->get_current_xct(),
+    holder_,
+    &record->owner_id_,
+    snapshot_record,
+    [record, payload, payload_offset](xct::XctId /*observed*/){
+      char* ptr = record->payload_ + payload_offset;
+      *payload = *reinterpret_cast<const T*>(ptr);
+      return kErrorCodeOk;
+    }));
+  return kErrorCodeOk;
 }
 
 inline ErrorCode ArrayStoragePimpl::overwrite_record(thread::Thread* context, ArrayOffset offset,
@@ -431,7 +430,11 @@ inline ErrorCode ArrayStoragePimpl::overwrite_record(thread::Thread* context, Ar
   ArrayOverwriteLogType* log_entry = reinterpret_cast<ArrayOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(metadata_.id_, offset, payload, payload_offset, payload_count);
-  return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
+  return context->get_current_xct().add_to_write_set(
+    holder_,
+    &record->owner_id_,
+    record->payload_,
+    log_entry);
 }
 
 template <typename T>
@@ -446,7 +449,11 @@ ErrorCode ArrayStoragePimpl::overwrite_record_primitive(
   ArrayOverwriteLogType* log_entry = reinterpret_cast<ArrayOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate_primitive<T>(metadata_.id_, offset, payload, payload_offset);
-  return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
+  return context->get_current_xct().add_to_write_set(
+    holder_,
+    &record->owner_id_,
+    record->payload_,
+    log_entry);
 }
 
 template <typename T>
@@ -457,15 +464,31 @@ ErrorCode ArrayStoragePimpl::increment_record(
   CHECK_ERROR_CODE(locate_record_for_write(context, offset, &record));
 
   // this is get_record + overwrite_record
-  T old_value;
-  CHECK_ERROR_CODE(context->get_current_xct().read_record_primitive<T>(
-    holder_, record, &old_value, payload_offset));
-  *value += old_value;
+  T tmp;
+  T* tmp_address = &tmp;
+  // NOTE if we directly pass value and increment there, we might do it multiple times!
+  // optimistic_read_protocol() retries if there are version mismatch.
+  // so it must be idempotent. be careful!
+  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
+    &context->get_current_xct(),
+    holder_,
+    &record->owner_id_,
+    false,
+    [record, tmp_address, payload_offset](xct::XctId /*observed*/){
+      char* ptr = record->payload_ + payload_offset;
+      *tmp_address = *reinterpret_cast<const T*>(ptr);
+      return kErrorCodeOk;
+    }));
+  *value += tmp;
   uint16_t log_length = ArrayOverwriteLogType::calculate_log_length(sizeof(T));
   ArrayOverwriteLogType* log_entry = reinterpret_cast<ArrayOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate_primitive<T>(metadata_.id_, offset, *value, payload_offset);
-  return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
+  return context->get_current_xct().add_to_write_set(
+    holder_,
+    &record->owner_id_,
+    record->payload_,
+    log_entry);
 }
 
 inline ErrorCode ArrayStoragePimpl::lookup_for_read(

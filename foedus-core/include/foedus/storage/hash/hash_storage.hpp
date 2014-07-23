@@ -16,6 +16,7 @@
 #include "foedus/storage/hash/fwd.hpp"
 #include "foedus/storage/hash/hash_id.hpp"
 #include "foedus/thread/fwd.hpp"
+#include "foedus/xct/fwd.hpp"
 
 namespace foedus {
 namespace storage {
@@ -303,11 +304,13 @@ class HashStorage CXX11_FINAL : public virtual Storage {
   void        apply_insert_record(
     thread::Thread* context,
     const HashInsertLogType* log_entry,
-    Record* record);
+    xct::XctId* owner_id,
+    char* payload);
   void        apply_delete_record(
     thread::Thread* context,
     const HashDeleteLogType* log_entry,
-    Record* record);
+    xct::XctId* owner_id,
+    char* payload);
 
 
   /** Use this only if you know what you are doing. */

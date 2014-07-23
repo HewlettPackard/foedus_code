@@ -15,7 +15,6 @@
 #include "foedus/storage/record.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct_access.hpp"
-#include "foedus/xct/xct_inl.hpp"
 #include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
@@ -70,8 +69,8 @@ void Xct::issue_next_id(Epoch *epoch)  {
       new_id.store_max(read_set_[i].observed_owner_id_);
     }
     for (uint32_t i = 0; i < write_set_size_; ++i) {
-      ASSERT_ND(write_set_[i].record_->owner_id_.is_keylocked());
-      new_id.store_max(write_set_[i].record_->owner_id_);
+      ASSERT_ND(write_set_[i].owner_id_address_->is_keylocked());
+      new_id.store_max(*(write_set_[i].owner_id_address_));
     }
 
     // Now, is it possible to get an ordinal one larger than this one?

@@ -16,7 +16,6 @@
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/xct/xct.hpp"
-#include "foedus/xct/xct_inl.hpp"
 #include "foedus/xct/xct_manager.hpp"
 
 /**
@@ -54,7 +53,8 @@ class WriteLogTask : public thread::ImpersonateTask {
     xct::XctId dummy_record;
     context->get_current_xct().add_to_write_set(
       reinterpret_cast<storage::Storage*>(&dummy_record),
-      reinterpret_cast<storage::Record*>(&dummy_record),
+      &dummy_record,
+      reinterpret_cast<char*>(&dummy_record),
       reinterpret_cast<RecordLogType*>(filler));
 
     EXPECT_EQ(committed_before, buffer.get_offset_committed());
@@ -115,7 +115,8 @@ class BufferWrapAroundTask : public thread::ImpersonateTask {
     xct::XctId dummy_record;
     context->get_current_xct().add_to_write_set(
       reinterpret_cast<storage::Storage*>(&dummy_record),
-      reinterpret_cast<storage::Record*>(&dummy_record),
+      &dummy_record,
+      reinterpret_cast<char*>(&dummy_record),
       reinterpret_cast<RecordLogType*>(filler));
 
     buffer.assert_consistent();
@@ -147,7 +148,8 @@ class BufferWrapAroundTask : public thread::ImpersonateTask {
     // hacky. just to make this transaction read-write.
     context->get_current_xct().add_to_write_set(
       reinterpret_cast<storage::Storage*>(&dummy_record),
-      reinterpret_cast<storage::Record*>(&dummy_record),
+      &dummy_record,
+      reinterpret_cast<char*>(&dummy_record),
       reinterpret_cast<RecordLogType*>(filler));
     buffer.assert_consistent();
 

@@ -158,7 +158,6 @@ struct XctId {
 
   XctId() : data_(0) {}
   explicit XctId(uint64_t data) : data_(data) {}
-  XctId(const XctId& other) : data_(other.data_) {}
 
   void set_clean(Epoch::EpochInteger epoch_int, uint16_t ordinal, thread::ThreadId thread_id) {
     ASSERT_ND(epoch_int < Epoch::kEpochIntOverflow);
@@ -221,6 +220,9 @@ struct XctId {
   bool operator==(const XctId &other) const ALWAYS_INLINE {
     return data_ == other.data_;
   }
+  bool operator!=(const XctId &other) const ALWAYS_INLINE {
+    return data_ != other.data_;
+  }
 
   /**
    * @brief Kind of std::max(this, other).
@@ -266,9 +268,13 @@ struct XctId {
     }
   }
   bool is_keylocked() const ALWAYS_INLINE { return (data_ & kKeylockBit) != 0; }
-  void spin_while_keylocked() const {
-    SPINLOCK_WHILE(is_keylocked()) {
+  XctId spin_while_keylocked() const ALWAYS_INLINE {
+    SPINLOCK_WHILE(true) {
       assorted::memory_fence_acquire();
+      uint64_t copied = data_;
+      if ((copied & kKeylockBit) == 0) {
+        return XctId(copied);
+      }
     }
   }
   void release_keylock() ALWAYS_INLINE {

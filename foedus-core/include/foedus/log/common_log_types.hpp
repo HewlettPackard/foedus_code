@@ -112,8 +112,11 @@ struct EngineLogType : public BaseLogType {
   void apply_storage(thread::Thread* /*context*/, storage::Storage* /*storage*/) {
     ASSERT_ND(false);
   }
-  void apply_record(thread::Thread* /*context*/,
-                    storage::Storage* /*storage*/, storage::Record* /*record*/) {
+  void apply_record(
+    thread::Thread* /*context*/,
+    storage::Storage* /*storage*/,
+    xct::XctId* /*owner_id*/,
+    char* /*payload*/) {
     ASSERT_ND(false);
   }
   /**
@@ -139,8 +142,11 @@ struct StorageLogType : public BaseLogType {
   void apply_engine(thread::Thread* /*context*/) {
     ASSERT_ND(false);
   }
-  void apply_record(thread::Thread* /*context*/,
-                    storage::Storage* /*storage*/, storage::Record* /*record*/) {
+  void apply_record(
+    thread::Thread* /*context*/,
+    storage::Storage* /*storage*/,
+    xct::XctId* /*owner_id*/,
+    char* /*payload*/) {
     ASSERT_ND(false);
   }
   /**
@@ -211,8 +217,11 @@ struct FillerLogType : public BaseLogType {
   bool    is_record_log()     const { return true; }
   void    apply_engine(thread::Thread* /*context*/) {}
   void    apply_storage(thread::Thread* /*context*/, storage::Storage* /*storage*/) {}
-  void    apply_record(thread::Thread* /*context*/,
-                       storage::Storage* /*storage*/, storage::Record* /*record*/) {}
+  void    apply_record(
+    thread::Thread* /*context*/,
+    storage::Storage* /*storage*/,
+    xct::XctId* /*owner_id*/,
+    char* /*payload*/) {}
 
   /** Populate this log to fill up the specified byte size. */
   void    populate(uint64_t size);
