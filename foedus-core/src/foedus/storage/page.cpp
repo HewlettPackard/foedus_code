@@ -28,11 +28,5 @@ std::ostream& operator<<(std::ostream& o, const PageVersion& v) {
   return o;
 }
 
-void DummyVolatilePageInitializer::initialize_more(Page* /*page*/) const {
-  ASSERT_ND(false);  // this should not be called
-  LOG(FATAL) << "DummyVolatilePageInitializer's method was called. this must not happen";
-}
-
-
 }  // namespace storage
 }  // namespace foedus

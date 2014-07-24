@@ -387,7 +387,6 @@ TEST(MasstreeBasicTest, SplitBorderNormalized) {
   cleanup_test(options);
 }
 
-
 class SplitInNextLayerTask : public thread::ImpersonateTask {
  public:
   ErrorStack run(thread::Thread* context) {

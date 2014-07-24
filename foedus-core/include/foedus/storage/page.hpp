@@ -335,12 +335,10 @@ struct DummyVolatilePageInitializer CXX11_FINAL : public VolatilePageInitializer
   DummyVolatilePageInitializer()
     : VolatilePageInitializer(0, kUnknownPageType, true) {
   }
-  void initialize_more(Page* /*page*/) const CXX11_OVERRIDE;
+  void initialize_more(Page* /*page*/) const CXX11_OVERRIDE {}
 };
 
 const DummyVolatilePageInitializer kDummyPageInitializer;
-
-
 
 inline PageVersion PageVersion::stable_version() const {
   assorted::memory_fence_acquire();
