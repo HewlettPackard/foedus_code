@@ -24,6 +24,7 @@
 
 #include "foedus/memory/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
+#include "foedus/storage/page.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
@@ -43,7 +44,8 @@ namespace xct {
 class Xct {
  public:
   enum Constants {
-    kMaxNodeSets = 256,
+    kMaxPointerSets = 256,
+    kMaxPageVersionSets = 256,
   };
 
   Xct(Engine* engine, thread::ThreadId thread_id);
@@ -62,7 +64,8 @@ class Xct {
     active_ = true;
     schema_xct_ = schema_xct;
     isolation_level_ = isolation_level;
-    node_set_size_ = 0;
+    pointer_set_size_ = 0;
+    page_version_set_size_ = 0;
     read_set_size_ = 0;
     write_set_size_ = 0;
     lock_free_write_set_size_ = 0;
@@ -91,11 +94,13 @@ class Xct {
   IsolationLevel      get_isolation_level() const { return isolation_level_; }
   /** Returns the ID of this transaction, but note that it is not issued until commit time! */
   const XctId&        get_id() const { return id_; }
-  uint32_t            get_node_set_size() const { return node_set_size_; }
+  uint32_t            get_pointer_set_size() const { return pointer_set_size_; }
+  uint32_t            get_page_version_set_size() const { return page_version_set_size_; }
   uint32_t            get_read_set_size() const { return read_set_size_; }
   uint32_t            get_write_set_size() const { return write_set_size_; }
   uint32_t            get_lock_free_write_set_size() const { return lock_free_write_set_size_; }
-  const NodeAccess*   get_node_set() const { return node_set_; }
+  const PointerAccess*   get_pointer_set() const { return pointer_set_; }
+  const PageVersionAccess*  get_page_version_set() const { return page_version_set_; }
   XctAccess*          get_read_set()  { return read_set_; }
   WriteXctAccess*     get_write_set() { return write_set_; }
   LockFreeWriteXctAccess* get_lock_free_write_set() { return lock_free_write_set_; }
@@ -120,22 +125,37 @@ class Xct {
   void                issue_next_id(Epoch *epoch);
 
   /**
-   * @brief Add the given page pointer to the node set of this transaction.
+   * @brief Add the given page pointer to the pointer set of this transaction.
    * @details
    * You must call this method in the following cases;
    *  \li When following a volatile pointer that might be later swapped with the RCU protocol.
    *  \li When following a snapshot pointer except it is under a snapshot page.
    *
    * To clarify, the first case does not apply to storage types that don't swap volatile pointers.
-   * So far, only \ref MASSTREE has such a swapping for page splits. All other storage types
-   * thus don't have to take node sets for this.
+   * So far, only \ref MASSTREE has such a swapping for root pages. All other storage types
+   * thus don't have to take pointer sets for this.
    *
    * The second case doesn't apply to snapshot pointers once we follow a snapshot pointer in the
    * tree because everything is assured to be stable once we follow a snapshot pointer.
    */
-  ErrorCode           add_to_node_set(
+  ErrorCode           add_to_pointer_set(
     const storage::VolatilePagePointer* pointer_address,
     storage::VolatilePagePointer observed);
+
+  /**
+   * @brief Add the given page version to the page version set of this transaction.
+   * @details
+   * This is similar to pointer set. The difference is that this remembers the PageVersion
+   * value we observed when we accessed the page. This can capture many more concurrency
+   * issues in the page because PageVersion contains many flags and counters.
+   * However, PageVersionAccess can't be used if the page itself might be swapped.
+   *
+   * Both PointerAccess and PageVersionAccess can be considered as "node set" in [TU2013], but
+   * for a little bit different purpose.
+   */
+  ErrorCode           add_to_page_version_set(
+    const storage::PageVersion* version_address,
+    storage::PageVersion observed);
 
   /**
    * @brief Add the given record to the read set of this transaction.
@@ -295,30 +315,51 @@ class Xct {
   // tail (abort if tail has changed), and then reading all record in the page.
   // as we don't have scanning accesses to sequential storage yet, low priority.
 
-  // node set should be much smaller than others, so have it as an array.
-  NodeAccess          node_set_[kMaxNodeSets];
-  uint32_t            node_set_size_;
+  // pointer set should be much smaller than others, so have it as an array.
+  PointerAccess       pointer_set_[kMaxPointerSets];
+  uint32_t            pointer_set_size_;
+
+  // same above
+  PageVersionAccess   page_version_set_[kMaxPageVersionSets];
+  uint32_t            page_version_set_size_;
 
   /** @copydoc get_in_commit_log_epoch() */
   Epoch               in_commit_log_epoch_;
 };
 
 
-inline ErrorCode Xct::add_to_node_set(
+inline ErrorCode Xct::add_to_pointer_set(
   const storage::VolatilePagePointer* pointer_address,
   storage::VolatilePagePointer observed) {
   ASSERT_ND(!schema_xct_);
   ASSERT_ND(pointer_address);
   if (isolation_level_ != kSerializable) {
     return kErrorCodeOk;
-  } else if (UNLIKELY(node_set_size_ >= kMaxNodeSets)) {
-    return kErrorCodeXctNodeSetOverflow;
+  } else if (UNLIKELY(pointer_set_size_ >= kMaxPointerSets)) {
+    return kErrorCodeXctPointerSetOverflow;
   }
 
   // no need for fence. the observed pointer itself is the only data to verify
-  node_set_[node_set_size_].address_ = pointer_address;
-  node_set_[node_set_size_].observed_ = observed;
-  ++node_set_size_;
+  pointer_set_[pointer_set_size_].address_ = pointer_address;
+  pointer_set_[pointer_set_size_].observed_ = observed;
+  ++pointer_set_size_;
+  return kErrorCodeOk;
+}
+
+inline ErrorCode Xct::add_to_page_version_set(
+  const storage::PageVersion* version_address,
+  storage::PageVersion observed) {
+  ASSERT_ND(!schema_xct_);
+  ASSERT_ND(version_address);
+  if (isolation_level_ != kSerializable) {
+    return kErrorCodeOk;
+  } else if (UNLIKELY(page_version_set_size_ >= kMaxPointerSets)) {
+    return kErrorCodeXctPageVersionSetOverflow;
+  }
+
+  page_version_set_[page_version_set_size_].address_ = version_address;
+  page_version_set_[page_version_set_size_].observed_ = observed;
+  ++page_version_set_size_;
   return kErrorCodeOk;
 }
 

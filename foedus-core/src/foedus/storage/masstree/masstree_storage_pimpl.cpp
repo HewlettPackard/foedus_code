@@ -136,11 +136,7 @@ inline ErrorCode MasstreeStoragePimpl::find_border(
     layer_root->prefetch_general();
     PageVersion stable(layer_root->get_stable_version());
     ErrorCode subroutine_result;
-    if (stable.has_foster_child() && layer_root->within_foster_child(slice)) {
-      // follow foster child
-      layer_root = layer_root->get_foster_child();
-      continue;
-    } else if (stable.is_border()) {
+    if (stable.is_border()) {
       subroutine_result = find_border_leaf(
         reinterpret_cast<MasstreeBorderPage*>(layer_root),
         stable,

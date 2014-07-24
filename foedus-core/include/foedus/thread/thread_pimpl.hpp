@@ -79,8 +79,8 @@ class ThreadPimpl final : public DefaultInitializable {
     const storage::VolatilePageInitializer* page_initializer,
     bool tolerate_null_pointer,
     bool will_modify,
-    bool take_node_set_snapshot,
-    bool take_node_set_volatile,
+    bool take_ptr_set_snapshot,
+    bool take_ptr_set_volatile,
     storage::DualPagePointer* pointer,
     storage::Page** page);
 

@@ -523,16 +523,16 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read(
     } else if (volatile_pointer.components.offset == 0
       || current_xct.get_isolation_level() == xct::kDirtyReadPreferSnapshot) {
       // then read from snapshot page. this is the beginning point to follow a snapshot pointer,
-      // so we have to take a node set in case someone else installs a new volatile pointer
+      // so we have to take a pointer set in case someone else installs a new volatile pointer
       // (after here, everything is stable).
       ASSERT_ND(pointer.snapshot_pointer_ != 0);
       followed_snapshot_pointer = true;
-      current_xct.add_to_node_set(&pointer.volatile_pointer_, volatile_pointer);
+      current_xct.add_to_pointer_set(&pointer.volatile_pointer_, volatile_pointer);
       CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
         pointer.snapshot_pointer_,
         reinterpret_cast<Page**>(&current_page)));
     } else {
-      // NOTE: In Array storage, we don't have to take a node set for following a volatile pointer
+      // NOTE: In Array storage, we don't have to take a ptr set for following a volatile pointer
       // because we don't swap volatile pointer like Masstree's page split.
       // The only case we change volatile pointer is for snapshot thread to drop volatile pages
       // that are equivalent to snapshot pages, so it never affects serializability.

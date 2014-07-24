@@ -88,6 +88,10 @@ class XctManagerPimpl final : public DefaultInitializable {
    * Because phase 2 is after the memory fence, no thread would take new locks while checking.
    */
   bool        precommit_xct_verify_readwrite(thread::Thread* context);
+  /** Returns false if there is any pointer set conflict */
+  bool        precommit_xct_verify_pointer_set(thread::Thread* context);
+  /** Returns false if there is any page version conflict */
+  bool        precommit_xct_verify_page_version_set(thread::Thread* context);
   /**
    * @brief Phase 3 of precommit_xct()
    * @details

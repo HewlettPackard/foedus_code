@@ -9,14 +9,21 @@
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/log/log_type.hpp"
 #include "foedus/log/log_type_invoke.hpp"
+#include "foedus/storage/page.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage.hpp"
 
 namespace foedus {
 namespace xct {
-std::ostream& operator<<(std::ostream& o, const NodeAccess& v) {
-  o << "<NodeAccess><address>" << v.address_ << "</address>"
-    << "<observed>" << assorted::Hex(v.observed_.word) << "</observed></NodeAccess>";
+std::ostream& operator<<(std::ostream& o, const PointerAccess& v) {
+  o << "<PointerAccess><address>" << v.address_ << "</address>"
+    << "<observed>" << assorted::Hex(v.observed_.word) << "</observed></PointerAccess>";
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const PageVersionAccess& v) {
+  o << "<PageVersionAccess><address>" << v.address_ << "</address>"
+    << "<observed>" << v.observed_ << "</observed></PageVersionAccess>";
   return o;
 }
 

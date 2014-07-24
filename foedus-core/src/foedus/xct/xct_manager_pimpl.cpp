@@ -332,17 +332,14 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
     *commit_epoch = Epoch(engine_->get_log_manager().get_durable_global_epoch_weak());
   }
 
-  // Node set check.
-  const NodeAccess*       node_set = current_xct.get_node_set();
-  const uint32_t          node_set_size = current_xct.get_node_set_size();
-  for (uint32_t i = 0; i < node_set_size; ++i) {
-    const NodeAccess& access = node_set[i];
-    if (access.observed_.word != access.address_->word) {
-      DLOG(WARNING) << *context << " node set changed by other transaction. will abort";
-      return false;
-    }
+  // Check Page Pointer/Version
+  if (!precommit_xct_verify_pointer_set(context)) {
+    return false;
+  } else if (!precommit_xct_verify_page_version_set(context)) {
+    return false;
+  } else {
+    return true;
   }
-  return true;
 }
 
 bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
@@ -385,13 +382,38 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
     }
   }
 
-  // Node set check.
-  const NodeAccess*       node_set = current_xct.get_node_set();
-  const uint32_t          node_set_size = current_xct.get_node_set_size();
-  for (uint32_t i = 0; i < node_set_size; ++i) {
-    const NodeAccess& access = node_set[i];
-    if (access.observed_.word != access.address_->word) {
-      DLOG(WARNING) << *context << " node set changed by other transaction. will abort";
+  // Check Page Pointer/Version
+  if (!precommit_xct_verify_pointer_set(context)) {
+    return false;
+  } else if (!precommit_xct_verify_page_version_set(context)) {
+    return false;
+  } else {
+    return true;
+  }
+}
+
+bool XctManagerPimpl::precommit_xct_verify_pointer_set(thread::Thread* context) {
+  const Xct& current_xct = context->get_current_xct();
+  const PointerAccess*    pointer_set = current_xct.get_pointer_set();
+  const uint32_t          pointer_set_size = current_xct.get_pointer_set_size();
+  for (uint32_t i = 0; i < pointer_set_size; ++i) {
+    const PointerAccess& access = pointer_set[i];
+    if (access.address_->word !=  access.observed_.word) {
+      DLOG(WARNING) << *context << " volatile ptr is changed by other transaction. will abort";
+      return false;
+    }
+  }
+  return true;
+}
+bool XctManagerPimpl::precommit_xct_verify_page_version_set(thread::Thread* context) {
+  const Xct& current_xct = context->get_current_xct();
+  const PageVersionAccess*  page_version_set = current_xct.get_page_version_set();
+  const uint32_t            page_version_set_size = current_xct.get_page_version_set_size();
+  for (uint32_t i = 0; i < page_version_set_size; ++i) {
+    const PageVersionAccess& access = page_version_set[i];
+    if (access.address_->data_ != access.observed_.data_) {
+      DLOG(WARNING) << *context << " page version is changed by other transaction. will abort"
+        " observed=" << access.observed_ << ", now=" << access.address_;
       return false;
     }
   }

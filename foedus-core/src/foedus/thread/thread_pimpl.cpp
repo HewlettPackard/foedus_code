@@ -192,16 +192,16 @@ ErrorCode Thread::follow_page_pointer(
   const storage::VolatilePageInitializer* page_initializer,
   bool tolerate_null_pointer,
   bool will_modify,
-  bool take_node_set_snapshot,
-  bool take_node_set_volatile,
+  bool take_ptr_set_snapshot,
+  bool take_ptr_set_volatile,
   storage::DualPagePointer* pointer,
   storage::Page** page) {
   return pimpl_->follow_page_pointer(
     page_initializer,
     tolerate_null_pointer,
     will_modify,
-    take_node_set_snapshot,
-    take_node_set_volatile,
+    take_ptr_set_snapshot,
+    take_ptr_set_volatile,
     pointer,
     page);
 }
@@ -210,8 +210,8 @@ ErrorCode ThreadPimpl::follow_page_pointer(
   const storage::VolatilePageInitializer* page_initializer,
   bool tolerate_null_pointer,
   bool will_modify,
-  bool take_node_set_snapshot,
-  bool take_node_set_volatile,
+  bool take_ptr_set_snapshot,
+  bool take_ptr_set_volatile,
   storage::DualPagePointer* pointer,
   storage::Page** page) {
   ASSERT_ND(!tolerate_null_pointer || !will_modify);
@@ -263,11 +263,11 @@ ErrorCode ThreadPimpl::follow_page_pointer(
     }
   }
 
-  // remember node set if needed
+  // if we follow a snapshot pointer, remember pointer set
   if (current_xct_.get_isolation_level() == xct::kSerializable) {
-    if (((*page == nullptr || followed_snapshot) && take_node_set_snapshot) ||
-        (!followed_snapshot && take_node_set_volatile)) {
-      current_xct_.add_to_node_set(&pointer->volatile_pointer_, volatile_pointer);
+    if (((*page == nullptr || followed_snapshot) && take_ptr_set_snapshot) ||
+        (!followed_snapshot && take_ptr_set_volatile)) {
+      current_xct_.add_to_pointer_set(&pointer->volatile_pointer_, volatile_pointer);
     }
   }
   return kErrorCodeOk;
