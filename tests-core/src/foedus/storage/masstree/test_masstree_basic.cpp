@@ -387,6 +387,67 @@ TEST(MasstreeBasicTest, SplitBorderNormalized) {
   cleanup_test(options);
 }
 
+
+class SplitInNextLayerTask : public thread::ImpersonateTask {
+ public:
+  ErrorStack run(thread::Thread* context) {
+    MasstreeStorage *masstree =
+      dynamic_cast<MasstreeStorage*>(
+        context->get_engine()->get_storage_manager().get_storage("ggg"));
+    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+    assorted::UniformRandom uniform_random(123456);
+    std::string keys[32];
+    std::string answers[32];
+    Epoch commit_epoch;
+    for (uint32_t rep = 0; rep < 32; ++rep) {
+      WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+      uint64_t key_int = uniform_random.next_uint64();
+      char key_string[16];
+      std::memset(key_string, 42, 8);
+      reinterpret_cast<uint64_t*>(key_string)[1] = key_int;
+      keys[rep] = std::string(key_string, 16);
+      char data[200];
+      std::memset(data, 0, 200);
+      std::memcpy(data + 123, &key_int, sizeof(key_int));
+      answers[rep] = std::string(data, 200);
+      WRAP_ERROR_CODE(masstree->insert_record(context, key_string, 16, data, sizeof(data)));
+      WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+    }
+
+    // now read
+    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+    for (uint32_t rep = 0; rep < 32; ++rep) {
+      char data[500];
+      uint16_t capacity = 500;
+      WRAP_ERROR_CODE(masstree->get_record(context, keys[rep].data(), 16, data, &capacity));
+      EXPECT_EQ(200, capacity);
+      EXPECT_EQ(answers[rep], std::string(data, 200));
+    }
+    WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+    WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
+    return foedus::kRetOk;
+  }
+};
+
+TEST(MasstreeBasicTest, SplitInNextLayer) {
+  EngineOptions options = get_tiny_options();
+  Engine engine(options);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    MasstreeStorage* out;
+    Epoch commit_epoch;
+    MasstreeMetadata meta("ggg");
+    COERCE_ERROR(engine.get_storage_manager().create_masstree(&meta, &out, &commit_epoch));
+    EXPECT_TRUE(out != nullptr);
+    SplitInNextLayerTask task;
+    thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+    COERCE_ERROR(session.get_result());
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
+}
+
 TEST(MasstreeBasicTest, CreateAndDrop) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);

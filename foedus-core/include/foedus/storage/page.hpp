@@ -43,9 +43,8 @@ const uint64_t  kPageVersionInsertingBit = (1ULL << 62);
 const uint64_t  kPageVersionSplittingBit = (1ULL << 61);
 const uint64_t  kPageVersionDeletedBit   = (1ULL << 60);
 const uint64_t  kPageVersionHasFosterChildBit    = (1ULL << 59);
-const uint64_t  kPageVersionIsBorderBit  = (1ULL << 58);
-const uint64_t  kPageVersionIsSupremumBit  = (1ULL << 57);
-const uint64_t  kPageVersionInsertionCounterMask  = 0x01F8000000000000ULL;
+const uint64_t  kPageVersionIsSupremumBit  = (1ULL << 58);
+const uint64_t  kPageVersionInsertionCounterMask  = 0x03F8000000000000ULL;
 const uint8_t   kPageVersionInsertionCounterShifts = 51;
 const uint64_t  kPageVersionSplitCounterMask      = 0x0007FFFE00000000ULL;
 const uint8_t   kPageVersionSplitCounterShifts    = 33;
@@ -56,7 +55,6 @@ const uint8_t   kPageVersionLayerShifts           = 8;
 
 const uint64_t  kPageVersionUnlockMask =
   (kPageVersionHasFosterChildBit |
-  kPageVersionIsBorderBit |
   kPageVersionKeyCountMask |
   kPageVersionLayerMask);
 
@@ -70,9 +68,8 @@ const uint64_t  kPageVersionUnlockMask =
  * \li bit-2: splitting
  * \li bit-3: (not used) deleted
  * \li bit-4: has_foster_child
- * \li bit-5: is_border
- * \li bit-6: is_high_fence_supremum
- * \li bit-[7,13): insert counter
+ * \li bit-5: is_high_fence_supremum
+ * \li bit-[6,13): insert counter
  * \li bit-[13,31): split counter (do we need this much..?)
  * \li bit-31: unused
  * \li bit-[32,48): \e physical key count (those keys might be deleted)
@@ -88,29 +85,6 @@ struct PageVersion CXX11_FINAL {
   PageVersion() ALWAYS_INLINE : data_(0) {}
   explicit PageVersion(uint64_t data) ALWAYS_INLINE : data_(data) {}
 
-  /** used only when we create a new page. don't call this for an existing page (if locked..!) */
-  void    initialize(
-    bool locked,
-    bool has_foster_child,
-    bool is_border,
-    bool is_high_fence_supremum,
-    uint8_t layer) {
-    data_ = 0;
-    if (locked) {
-      data_ |= kPageVersionLockedBit;
-    }
-    if (has_foster_child) {
-      data_ |= kPageVersionHasFosterChildBit;
-    }
-    if (is_border) {
-      data_ |= kPageVersionIsBorderBit;
-    }
-    if (is_high_fence_supremum) {
-      data_ |= kPageVersionIsSupremumBit;
-    }
-    data_ |= (static_cast<uint64_t>(layer) << kPageVersionLayerShifts);
-  }
-
   void    set_data(uint64_t data) ALWAYS_INLINE { data_ = data; }
 
   bool    is_locked() const ALWAYS_INLINE { return data_ & kPageVersionLockedBit; }
@@ -118,7 +92,6 @@ struct PageVersion CXX11_FINAL {
   bool    is_splitting() const ALWAYS_INLINE { return data_ & kPageVersionSplittingBit; }
   bool    is_deleted() const ALWAYS_INLINE { return data_ & kPageVersionDeletedBit; }
   bool    has_foster_child() const ALWAYS_INLINE { return data_ & kPageVersionHasFosterChildBit; }
-  bool    is_border() const ALWAYS_INLINE { return data_ & kPageVersionIsBorderBit; }
   bool    is_high_fence_supremum() const ALWAYS_INLINE { return data_ & kPageVersionIsSupremumBit; }
   uint32_t  get_insert_counter() const ALWAYS_INLINE {
     return (data_ & kPageVersionInsertionCounterMask) >> kPageVersionInsertionCounterShifts;
@@ -362,7 +335,7 @@ struct DummyVolatilePageInitializer CXX11_FINAL : public VolatilePageInitializer
   DummyVolatilePageInitializer()
     : VolatilePageInitializer(0, kUnknownPageType, true) {
   }
-  void initialize_more(Page* /*page*/) const CXX11_OVERRIDE {}
+  void initialize_more(Page* /*page*/) const CXX11_OVERRIDE;
 };
 
 const DummyVolatilePageInitializer kDummyPageInitializer;

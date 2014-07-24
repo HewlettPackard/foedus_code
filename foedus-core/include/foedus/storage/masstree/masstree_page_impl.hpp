@@ -45,12 +45,19 @@ class MasstreePage {
   PageHeader&         header() { return header_; }
   const PageHeader&   header() const { return header_; }
 
-  KeySlice            get_low_fence() const { return low_fence_; }
-  KeySlice            get_high_fence() const { return high_fence_; }
-  bool                is_high_fence_supremum() const {
+  bool                is_border() const ALWAYS_INLINE {
+    ASSERT_ND(header_.get_page_type() == kMasstreeBorderPageType ||
+      header_.get_page_type() == kMasstreeIntermediatePageType);
+    return header_.get_page_type() == kMasstreeBorderPageType;
+  }
+  KeySlice            get_low_fence() const ALWAYS_INLINE { return low_fence_; }
+  KeySlice            get_high_fence() const ALWAYS_INLINE { return high_fence_; }
+  bool                is_high_fence_supremum() const ALWAYS_INLINE {
     return get_version().is_high_fence_supremum();
   }
-  MasstreePage*       get_foster_child() const { return foster_child_; }
+  KeySlice            get_foster_fence() const ALWAYS_INLINE { return foster_fence_; }
+  MasstreePage*       get_foster_child() const ALWAYS_INLINE { return foster_child_; }
+  void                clear_foster();
 
   bool                within_fences(KeySlice slice) const ALWAYS_INLINE {
     return slice >= low_fence_ && (is_high_fence_supremum() || slice < high_fence_);
@@ -64,7 +71,7 @@ class MasstreePage {
   }
 
   /** Layer-0 stores the first 8 byte slice, Layer-1 next 8 byte... */
-  uint8_t             get_layer() const { return header_.page_version_.get_layer(); }
+  uint8_t             get_layer() const ALWAYS_INLINE { return header_.page_version_.get_layer(); }
 
   /**
    * prefetch upto keys/separators, whether this page is border or interior.
@@ -72,7 +79,7 @@ class MasstreePage {
    * Checking the page type itself has to read the header, so just do it conservatively.
    * 4 cachelines too much? that's a different argument...
    */
-  void                prefetch_general() const {
+  void                prefetch_general() const ALWAYS_INLINE {
     assorted::prefetch_cachelines(this, 4);  // max(border's prefetch, interior's prefetch)
   }
 
@@ -182,6 +189,10 @@ struct UnlockScope {
 class MasstreeIntermediatePage final : public MasstreePage {
  public:
   struct MiniPage {
+    MiniPage() = delete;
+    MiniPage(const MiniPage& other) = delete;
+    MiniPage& operator=(const MiniPage& other) = delete;
+
     // +8 -> 8
     PageVersion     mini_version_;
 
@@ -243,6 +254,18 @@ class MasstreeIntermediatePage final : public MasstreePage {
   void              release_pages_recursive(
     const memory::GlobalVolatilePageResolver& page_resolver,
     memory::PageReleaseBatch* batch);
+
+  void initialize_volatile_page(
+    StorageId           storage_id,
+    VolatilePagePointer page_id,
+    uint8_t             layer,
+    bool                root_in_layer,
+    KeySlice            low_fence,
+    KeySlice            high_fence,
+    bool                is_high_fence_supremum,
+    KeySlice            foster_fence,
+    MasstreePage*       foster_child,
+    bool                initially_locked);
 
  private:
   // 64

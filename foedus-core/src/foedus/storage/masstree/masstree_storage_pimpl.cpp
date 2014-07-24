@@ -49,7 +49,6 @@ MasstreeStoragePimpl::MasstreeStoragePimpl(
     engine_(engine),
     holder_(holder),
     metadata_(metadata),
-    first_root_(nullptr),
     exist_(!create) {
   ASSERT_ND(create || metadata.id_ > 0);
   ASSERT_ND(metadata.name_.size() > 0);
@@ -59,7 +58,6 @@ MasstreeStoragePimpl::MasstreeStoragePimpl(
 
 ErrorStack MasstreeStoragePimpl::initialize_once() {
   LOG(INFO) << "Initializing an masstree-storage " << *holder_ << " exists=" << exist_;
-  first_root_ = nullptr;
   first_root_pointer_.snapshot_pointer_ = 0;
   first_root_pointer_.volatile_pointer_.word = 0;
 
@@ -70,18 +68,126 @@ ErrorStack MasstreeStoragePimpl::initialize_once() {
 }
 
 ErrorStack MasstreeStoragePimpl::uninitialize_once() {
-  LOG(INFO) << "Uninitializing an masstree-storage " << *holder_;
-  if (first_root_) {
+  LOG(INFO) << "Uninitializing a masstree-storage " << *holder_;
+
+  if (first_root_pointer_.volatile_pointer_.components.offset) {
     // release volatile pages
     const memory::GlobalVolatilePageResolver& page_resolver
       = engine_->get_memory_manager().get_global_volatile_page_resolver();
+    MasstreePage* first_root = reinterpret_cast<MasstreePage*>(
+      page_resolver.resolve_offset(first_root_pointer_.volatile_pointer_));
     memory::PageReleaseBatch release_batch(engine_);
-    first_root_->release_pages_recursive_common(page_resolver, &release_batch);
+    first_root->release_pages_recursive_common(page_resolver, &release_batch);
     release_batch.release_all();
-    first_root_ = nullptr;
     first_root_pointer_.volatile_pointer_.word = 0;
   }
   return kRetOk;
+}
+
+ErrorCode MasstreeStoragePimpl::get_first_root(
+  thread::Thread* context,
+  MasstreePage** root,
+  PageVersion* version) {
+  while (true) {
+    ASSERT_ND(first_root_pointer_.volatile_pointer_.components.offset);
+    VolatilePagePointer pointer = first_root_pointer_.volatile_pointer_;
+    MasstreePage* page = reinterpret_cast<MasstreePage*>(
+      context->get_global_volatile_page_resolver().resolve_offset(pointer));
+    *version = page->get_stable_version();
+    *root = page;
+
+    // root page has a foster child... time for tree growth!
+    if (UNLIKELY(version->has_foster_child())) {
+      CHECK_ERROR_CODE(grow_root(context, &first_root_pointer_, page));
+      continue;
+    }
+
+    // a root pointer might be swapped, so add it to pointer set
+    CHECK_ERROR_CODE(
+      context->get_current_xct().add_to_pointer_set(
+        &first_root_pointer_.volatile_pointer_,
+        pointer));
+    return kErrorCodeOk;
+  }
+}
+
+ErrorCode MasstreeStoragePimpl::grow_root(
+  thread::Thread* context,
+  DualPagePointer* root_pointer,
+  MasstreePage* root) {
+  if (root->get_layer() == 0) {
+    LOG(INFO) << "growing B-tree in first layer! " << *holder_;
+  } else {
+    DVLOG(0) << "growing B-tree in non-first layer " << *holder_;
+  }
+  root->lock();
+  UnlockScope scope(root);
+  PageVersion locked_version = root->get_version();
+  if (!locked_version.has_foster_child()) {
+    LOG(INFO) << "interesting. someone else has already grown B-tree in first layer";
+    return kErrorCodeStrMasstreeRetry;
+  }
+  ASSERT_ND(root->is_locked());
+  ASSERT_ND(root->has_foster_child());
+  const memory::LocalPageResolver &resolver = context->get_local_volatile_page_resolver();
+  memory::PagePoolOffset offset = context->get_thread_memory()->grab_free_volatile_page();
+  if (offset == 0) {
+    return kErrorCodeMemoryNoFreePages;
+  }
+
+  MasstreeIntermediatePage* new_root =
+    reinterpret_cast<MasstreeIntermediatePage*>(resolver.resolve_offset(offset));
+  VolatilePagePointer new_pointer;
+  new_pointer = combine_volatile_page_pointer(
+    context->get_numa_node(),
+    kVolatilePointerFlagSwappable,  // pointer to root page might be swapped!
+    root_pointer->volatile_pointer_.components.mod_count + 1,
+    offset);
+  new_root->initialize_volatile_page(
+    metadata_.id_,
+    new_pointer,
+    root->get_layer(),
+    true,  // yes, root
+    kInfimumSlice,    // infimum slice
+    kSupremumSlice,   // high-fence is supremum
+    true,             // high-fence is supremum
+    kInfimumSlice,    // not foster key first
+    nullptr,  // no foster child
+    true);    // lock it
+  UnlockScope new_scope(new_root);
+
+  MasstreeIntermediatePage::MiniPage& mini_page = new_root->get_minipage(0);
+  MasstreePage* foster_child = root->get_foster_child();
+  mini_page.mini_version_.lock_version();
+  mini_page.mini_version_.set_inserting_and_increment_key_count();
+  mini_page.pointers_[0].volatile_pointer_ = root_pointer->volatile_pointer_;
+  mini_page.pointers_[0].volatile_pointer_.components.flags = 0;
+  ASSERT_ND(reinterpret_cast<Page*>(root) ==
+    context->get_global_volatile_page_resolver().resolve_offset(
+      mini_page.pointers_[0].volatile_pointer_));
+  mini_page.pointers_[1].volatile_pointer_.word = foster_child->header().page_id_;
+  mini_page.pointers_[1].volatile_pointer_.components.flags = 0;
+  ASSERT_ND(reinterpret_cast<Page*>(foster_child) ==
+    context->get_global_volatile_page_resolver().resolve_offset(
+      mini_page.pointers_[1].volatile_pointer_));
+  mini_page.separators_[0] = root->get_foster_fence();
+  mini_page.mini_version_.unlock_version();
+  ASSERT_ND(!new_root->is_border());
+
+  root->clear_foster();
+
+  // Let's install a pointer to the new root page
+  root_pointer->volatile_pointer_ = new_pointer;
+  root_pointer->snapshot_pointer_ = 0;
+  ASSERT_ND(reinterpret_cast<Page*>(new_root) ==
+    context->get_global_volatile_page_resolver().resolve_offset(
+      root_pointer->volatile_pointer_));
+
+  // As we have changed the pointer, we should update our pointer set too to avoid aborting myself
+  context->get_current_xct().overwrite_to_pointer_set(
+    &root_pointer->volatile_pointer_,
+    new_pointer);
+  return kErrorCodeOk;
 }
 
 ErrorStack MasstreeStoragePimpl::create(thread::Thread* context) {
@@ -97,12 +203,12 @@ ErrorStack MasstreeStoragePimpl::create(thread::Thread* context) {
   // just allocate an empty root page for the first layer
   memory::PagePoolOffset root_offset = memory->grab_free_volatile_page();
   ASSERT_ND(root_offset);
-  first_root_ = reinterpret_cast<MasstreePage*>(local_resolver.resolve_offset(root_offset));
-  MasstreeBorderPage* root_page = reinterpret_cast<MasstreeBorderPage*>(first_root_);
+  MasstreeBorderPage* root_page = reinterpret_cast<MasstreeBorderPage*>(
+    local_resolver.resolve_offset(root_offset));
   first_root_pointer_.snapshot_pointer_ = 0;
   first_root_pointer_.volatile_pointer_ = combine_volatile_page_pointer(
     context->get_numa_node(),
-    0,
+    kVolatilePointerFlagSwappable,  // pointer to root page might be swapped!
     0,
     root_offset);
   root_page->initialize_volatile_page(
@@ -130,13 +236,14 @@ inline ErrorCode MasstreeStoragePimpl::find_border(
   KeySlice  slice,
   MasstreeBorderPage** border,
   PageVersion* border_version) {
+  ASSERT_ND(layer_root->get_layer() == current_layer);
+  ASSERT_ND(layer_root->within_fences(slice));
+  layer_root->prefetch_general();
+  bool is_border = layer_root->is_border();
   while (true) {  // for retry
-    ASSERT_ND(layer_root->get_layer() == current_layer);
-    ASSERT_ND(layer_root->within_fences(slice));
-    layer_root->prefetch_general();
     PageVersion stable(layer_root->get_stable_version());
     ErrorCode subroutine_result;
-    if (stable.is_border()) {
+    if (is_border) {
       subroutine_result = find_border_leaf(
         reinterpret_cast<MasstreeBorderPage*>(layer_root),
         stable,
@@ -212,9 +319,11 @@ ErrorCode MasstreeStoragePimpl::find_border_descend(
     PageVersion mini_stable(minipage.get_stable_version());
     uint8_t pointer_index = minipage.find_pointer(mini_stable, slice);
     DualPagePointer& pointer = minipage.pointers_[pointer_index];
+    ASSERT_ND(!pointer.is_both_null());
 
     MasstreePage* next;
-    CHECK_ERROR_CODE(follow_page(context, for_writes, &pointer, &next));
+    CHECK_ERROR_CODE(follow_page(context, for_writes, false, &pointer, &next));
+    bool next_is_border = next->is_border();
 
     next->prefetch_general();
     PageVersion next_stable(next->get_stable_version());
@@ -225,7 +334,7 @@ ErrorCode MasstreeStoragePimpl::find_border_descend(
     uint64_t diff_mini = (minipage.mini_version_.data_ ^ mini_stable.data_);
     if (diff <= kPageVersionLockedBit && diff_mini <= kPageVersionLockedBit) {
       // this means nothing important has changed.
-      if (next_stable.is_border()) {
+      if (next_is_border) {
         return find_border_leaf(
           reinterpret_cast<MasstreeBorderPage*>(next),
           next_stable,
@@ -306,7 +415,9 @@ ErrorCode MasstreeStoragePimpl::locate_record(
   MasstreeBorderPage** out_page,
   uint8_t* record_index) {
   ASSERT_ND(key_length <= kMaxKeyLength);
-  MasstreePage* layer_root = first_root_;
+  MasstreePage* layer_root;
+  PageVersion root_version;
+  CHECK_ERROR_CODE(get_first_root(context, &layer_root, &root_version));
   for (uint16_t current_layer = 0;; ++current_layer) {
     uint8_t remaining_length = key_length - current_layer * 8;
     KeySlice slice = slice_layer(key, key_length, current_layer);
@@ -347,7 +458,11 @@ ErrorCode MasstreeStoragePimpl::locate_record_normalized(
   uint8_t* record_index) {
   MasstreeBorderPage* border;
   PageVersion border_version;
-  CHECK_ERROR_CODE(find_border(context, first_root_, 0, for_writes, key, &border, &border_version));
+
+  MasstreePage* layer_root;
+  PageVersion root_version;
+  CHECK_ERROR_CODE(get_first_root(context, &layer_root, &root_version));
+  CHECK_ERROR_CODE(find_border(context, layer_root, 0, for_writes, key, &border, &border_version));
   uint8_t index = border->find_key_normalized(0, border_version.get_key_count(), key);
   if (index == MasstreeBorderPage::kMaxKeys) {
     // this means not found
@@ -434,6 +549,7 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
 inline ErrorCode MasstreeStoragePimpl::follow_page(
   thread::Thread* context,
   bool for_writes,
+  bool root_in_layer,
   storage::DualPagePointer* pointer,
   MasstreePage** page) {
   return context->follow_page_pointer(
@@ -441,7 +557,7 @@ inline ErrorCode MasstreeStoragePimpl::follow_page(
     false,  // so, there is no null page possible
     for_writes,  // always get volatile pages for writes
     true,
-    false,
+    root_in_layer,  // a root pointer might be swapped, so add it to pointer set even if volatile
     pointer,
     reinterpret_cast<Page**>(page));
 }
@@ -455,8 +571,16 @@ inline ErrorCode MasstreeStoragePimpl::follow_layer(
   ASSERT_ND(record_index < MasstreeBorderPage::kMaxKeys);
   ASSERT_ND(parent->does_point_to_layer(record_index));
   DualPagePointer* pointer = parent->get_next_layer(record_index);
+  ASSERT_ND(!pointer->is_both_null());
   MasstreePage* next_root;
-  CHECK_ERROR_CODE(follow_page(context, for_writes, pointer, &next_root));
+  CHECK_ERROR_CODE(follow_page(context, for_writes, true, pointer, &next_root));
+
+  // root page has a foster child... time for tree growth!
+  if (next_root->has_foster_child()) {
+    CHECK_ERROR_CODE(grow_root(context, pointer, next_root));
+    CHECK_ERROR_CODE(follow_page(context, for_writes, true, pointer, &next_root));
+  }
+
   ASSERT_ND(next_root);
   *page = next_root;
   return kErrorCodeOk;
@@ -470,7 +594,10 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
   MasstreeBorderPage** out_page,
   uint8_t* record_index) {
   ASSERT_ND(key_length <= kMaxKeyLength);
-  MasstreePage* layer_root = first_root_;
+
+  MasstreePage* layer_root;
+  PageVersion root_version;
+  CHECK_ERROR_CODE(get_first_root(context, &layer_root, &root_version));
   for (uint16_t layer = 0;; ++layer) {
     uint8_t remaining = key_length - layer * sizeof(KeySlice);
     KeySlice slice = slice_layer(key, key_length, layer);
@@ -574,7 +701,12 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
   const uint8_t kRemaining = sizeof(KeySlice);
   MasstreeBorderPage* border;
   PageVersion version;
-  CHECK_ERROR_CODE(find_border(context, first_root_, 0, true, key, &border, &version));
+
+  MasstreePage* layer_root;
+  PageVersion root_version;
+  CHECK_ERROR_CODE(get_first_root(context, &layer_root, &root_version));
+
+  CHECK_ERROR_CODE(find_border(context, layer_root, 0, true, key, &border, &version));
   while (true) {  // retry loop for following foster child
     border->lock();
     UnlockScope scope(border);

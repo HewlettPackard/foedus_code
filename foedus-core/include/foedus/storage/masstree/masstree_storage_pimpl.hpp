@@ -52,17 +52,25 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   MasstreeMetadata        metadata_;
 
   /**
-   * A always-existing volatile image of (probably-) root page of the first layer.
+   * Root page of the first layer. Volatile pointer is always active.
    * This might be MasstreeIntermediatePage or MasstreeBoundaryPage.
-   * During root expansion, this variable tentatively points to a child of root, but
-   * one can/should check that situation by reading the parent pointer as described in [YANDONG12].
+   * When the first layer B-tree grows, this points to a new page. So, this is one of the few
+   * page pointers that might be \e swapped. Transactions thus have to add this to a pointer
+   * set even thought they are following a volatile pointer.
+   *
+   * Instead, this always points to a root. We don't need "is_root" check in [YANDONG12] and
+   * thus doesn't need a parent pointer.
    */
-  MasstreePage*           first_root_;
   DualPagePointer         first_root_pointer_;
 
   /** If this is true, initialize() reads it back from previous snapshot and logs. */
   bool                    exist_;
 
+  ErrorCode get_first_root(thread::Thread* context, MasstreePage** root, PageVersion* version);
+  ErrorCode grow_root(
+    thread::Thread* context,
+    DualPagePointer* root_pointer,
+    MasstreePage* root);
 
   /**
    * Find a border node in the layer that corresponds to the given key slice.
@@ -201,6 +209,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   ErrorCode follow_page(
     thread::Thread* context,
     bool for_writes,
+    bool root_in_layer,
     storage::DualPagePointer* pointer,
     MasstreePage** page) ALWAYS_INLINE;
   /** Follows to next layer's root page. */

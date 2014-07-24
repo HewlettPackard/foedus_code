@@ -143,6 +143,14 @@ class Xct {
     storage::VolatilePagePointer observed);
 
   /**
+   * The transaction that has updated the volatile pointer should not abort itself.
+   * So, it calls this method to apply the version it installed.
+   */
+  void                overwrite_to_pointer_set(
+    const storage::VolatilePagePointer* pointer_address,
+    storage::VolatilePagePointer observed) ALWAYS_INLINE;
+
+  /**
    * @brief Add the given page version to the page version set of this transaction.
    * @details
    * This is similar to pointer set. The difference is that this remembers the PageVersion
@@ -344,6 +352,23 @@ inline ErrorCode Xct::add_to_pointer_set(
   pointer_set_[pointer_set_size_].observed_ = observed;
   ++pointer_set_size_;
   return kErrorCodeOk;
+}
+
+inline void Xct::overwrite_to_pointer_set(
+  const storage::VolatilePagePointer* pointer_address,
+  storage::VolatilePagePointer observed) {
+  ASSERT_ND(!schema_xct_);
+  ASSERT_ND(pointer_address);
+  if (isolation_level_ != kSerializable) {
+    return;
+  }
+
+  for (uint32_t i = 0; i < pointer_set_size_; ++i) {
+    if (pointer_set_[i].address_ == pointer_address) {
+      pointer_set_[i].observed_ = observed;
+      return;
+    }
+  }
 }
 
 inline ErrorCode Xct::add_to_page_version_set(

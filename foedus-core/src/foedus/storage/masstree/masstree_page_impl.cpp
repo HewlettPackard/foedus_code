@@ -47,9 +47,6 @@ void MasstreePage::initialize_volatile_common(
   if (foster_child) {
     ver |= kPageVersionHasFosterChildBit;
   }
-  if (page_type == kMasstreeBorderPageType) {
-    ver |= kPageVersionIsBorderBit;
-  }
   if (is_high_fence_supremum) {
     ver |= kPageVersionIsSupremumBit;
   }
@@ -58,6 +55,31 @@ void MasstreePage::initialize_volatile_common(
   low_fence_ = low_fence;
   foster_fence_ = foster_fence;
   foster_child_ = foster_child;
+}
+
+void MasstreeIntermediatePage::initialize_volatile_page(
+  StorageId           storage_id,
+  VolatilePagePointer page_id,
+  uint8_t             layer,
+  bool                root_in_layer,
+  KeySlice            low_fence,
+  KeySlice            high_fence,
+  bool                is_high_fence_supremum,
+  KeySlice            foster_fence,
+  MasstreePage*       foster_child,
+  bool                initially_locked) {
+  initialize_volatile_common(
+    storage_id,
+    page_id,
+    kMasstreeIntermediatePageType,
+    layer,
+    root_in_layer,
+    low_fence,
+    high_fence,
+    is_high_fence_supremum,
+    foster_fence,
+    foster_child,
+    initially_locked);
 }
 
 void MasstreeBorderPage::initialize_volatile_page(
@@ -83,6 +105,16 @@ void MasstreeBorderPage::initialize_volatile_page(
     foster_fence,
     foster_child,
     initially_locked);
+}
+
+void MasstreePage::clear_foster() {
+  ASSERT_ND(is_locked());
+  ASSERT_ND(has_foster_child());
+  ASSERT_ND(get_foster_child());
+  header_.page_version_.data_ &= (~kPageVersionHasFosterChildBit);
+  foster_child_ = nullptr;
+  high_fence_ = foster_fence_;
+  foster_fence_ = low_fence_;
 }
 
 void MasstreePage::release_pages_recursive_common(
@@ -264,7 +296,8 @@ ErrorCode MasstreeBorderPage::split_foster(thread::Thread* context, KeySlice tri
   }
 
   DVLOG(1) << "Costed " << watch.elapsed() << " cycles to split a page. original page physical"
-    << " record count: " << key_count << "->" << header_.page_version_.get_key_count();
+    << " record count: " << static_cast<int>(key_count)
+    << "->" << header_.page_version_.get_key_count();
   return kErrorCodeOk;
 }
 
@@ -323,12 +356,12 @@ void MasstreeBorderPage::split_foster_lock_existing_records(uint8_t key_count) {
     // we have to lock them whether the record is deleted or not. all physical records.
   }
   watch.stop();
-  DVLOG(1) << "Costed " << watch.elapsed() << " cycles to lock all of " << key_count
-    << " records while splitting";
+  DVLOG(1) << "Costed " << watch.elapsed() << " cycles to lock all of "
+    << static_cast<int>(key_count) << " records while splitting";
   if (watch.elapsed() > (1ULL << 26)) {
     // if we see this often, we have to optimize this somehow.
     LOG(WARNING) << "wait, wait, it costed " << watch.elapsed() << " cycles to lock all of "
-      << key_count << " records while splitting!! that's a lot!";
+      << static_cast<int>(key_count) << " records while splitting!! that's a lot!";
   }
 }
 
