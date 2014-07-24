@@ -83,7 +83,16 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     uint8_t   current_layer,
     bool      for_writes,
     KeySlice  slice,
-    MasstreeBorderPage** out);
+    MasstreeBorderPage** out,
+    PageVersion* out_version);
+  /** similar to descend, but only for border page's foster child chain. */
+  ErrorCode find_border_leaf(
+    MasstreeBorderPage* cur,
+    PageVersion cur_stable,
+    uint8_t   current_layer,
+    KeySlice  slice,
+    MasstreeBorderPage** out,
+    PageVersion* out_version) ALWAYS_INLINE;
 
   /** Identifies page and record for the key */
   ErrorCode locate_record(
@@ -114,6 +123,23 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     uint16_t payload_count,
     MasstreeBorderPage** out_page,
     uint8_t* record_index);
+  ErrorCode reserve_record_new_record(
+    thread::Thread* context,
+    MasstreeBorderPage* border,
+    KeySlice key,
+    uint8_t remaining,
+    const void* suffix,
+    uint16_t payload_count,
+    MasstreeBorderPage** out_page,
+    uint8_t* record_index);
+  void      reserve_record_new_record_apply(
+    thread::Thread* context,
+    MasstreeBorderPage* target,
+    uint8_t target_index,
+    KeySlice slice,
+    uint8_t remaining_key_length,
+    const void* suffix,
+    uint16_t payload_count);
 
   /** implementation of get_record family. use with locate_record() */
   ErrorCode retrieve_general(

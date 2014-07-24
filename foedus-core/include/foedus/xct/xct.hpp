@@ -216,6 +216,14 @@ class Xct {
     return in_commit_log_epoch_;
   }
 
+  void                remember_previous_xct_id(XctId new_id) {
+    ASSERT_ND(id_.before(new_id));
+    id_ = new_id;
+    ASSERT_ND(id_.get_ordinal() > 0);
+    ASSERT_ND(id_.is_valid());
+    ASSERT_ND(id_.is_status_bits_off());
+  }
+
   /**
    * Automatically resets in_commit_log_epoch_ with appropriate fence.
    * This guards the range from a read-write transaction starts committing until it publishes

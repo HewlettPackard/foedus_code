@@ -55,6 +55,12 @@ const uint16_t kMaxKeyLength = 1024;
  */
 typedef uint64_t KeySlice;
 
+// infimum can be simply 0 because low-fence is inclusive.
+const KeySlice kInfimumSlice = 0;
+// setting 0xFF... to high_fence is not enough. we also set the "supremum" bit
+// to tell that this is larger than any value.
+const KeySlice kSupremumSlice = 0xFFFFFFFFFFFFFFFFULL;
+
 /**
  * @brief Order-preserving normalization for primitive key types.
  * @param[in] value the value to normalize

@@ -1,1 +1,1 @@
-add_foedus_test_individual(test_masstree_basic "Create;CreateAndQuery;CreateAndInsert;CreateAndInsertAndRead;Overwrite;NextLayer;CreateAndDrop")
+add_foedus_test_individual(test_masstree_basic "Create;CreateAndQuery;CreateAndInsert;CreateAndInsertAndRead;Overwrite;NextLayer;SplitBorder;SplitBorderNormalized;CreateAndDrop")

@@ -89,11 +89,7 @@ void Xct::issue_next_id(Epoch *epoch)  {
     new_id.set_ordinal(new_id.get_ordinal() + 1);
     new_id.set_thread_id(thread_id_);
     new_id.clear_status_bits();
-    ASSERT_ND(id_.before(new_id));
-    id_ = new_id;
-    ASSERT_ND(id_.get_ordinal() > 0);
-    ASSERT_ND(id_.is_valid());
-    ASSERT_ND(id_.is_status_bits_off());
+    remember_previous_xct_id(new_id);
     break;
   }
 }

@@ -12,6 +12,7 @@
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
 #include "foedus/epoch.hpp"
+#include "foedus/error_code.hpp"
 #include "foedus/assorted/cacheline.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/storage/page.hpp"
@@ -19,6 +20,7 @@
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
+#include "foedus/thread/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
@@ -45,7 +47,21 @@ class MasstreePage {
 
   KeySlice            get_low_fence() const { return low_fence_; }
   KeySlice            get_high_fence() const { return high_fence_; }
+  bool                is_high_fence_supremum() const {
+    return get_version().is_high_fence_supremum();
+  }
   MasstreePage*       get_foster_child() const { return foster_child_; }
+
+  bool                within_fences(KeySlice slice) const ALWAYS_INLINE {
+    return slice >= low_fence_ && (is_high_fence_supremum() || slice < high_fence_);
+  }
+  bool                within_foster_child(KeySlice slice) const ALWAYS_INLINE {
+    ASSERT_ND(within_fences(slice));
+    return has_foster_child() && slice >= foster_fence_;
+  }
+  bool                has_foster_child() const ALWAYS_INLINE {
+    return header_.page_version_.has_foster_child();
+  }
 
   /** Layer-0 stores the first 8 byte slice, Layer-1 next 8 byte... */
   uint8_t             get_layer() const { return header_.page_version_.get_layer(); }
@@ -81,6 +97,7 @@ class MasstreePage {
       header_.page_version_.lock_version();
     }
   }
+  bool              is_locked() const ALWAYS_INLINE { return header_.page_version_.is_locked(); }
 
   /**
    * @brief Unlocks the page, assuming the caller has locked it.
@@ -117,11 +134,40 @@ class MasstreePage {
   MasstreePage*       foster_child_;  // +8 -> 64
 
   void                initialize_volatile_common(
-    StorageId storage_id,
+    StorageId           storage_id,
     VolatilePagePointer page_id,
-    PageType page_type,
-    uint8_t layer,
-    MasstreePage* parent);
+    PageType            page_type,
+    uint8_t             layer,
+    bool                root_in_layer,
+    KeySlice            low_fence,
+    KeySlice            high_fence,
+    bool                is_high_fence_supremum,
+    KeySlice            foster_fence,
+    MasstreePage*       foster_child,
+    bool                initially_locked);
+};
+
+struct SplitStrategy {
+  /**
+   * whether this page seems to have had sequential insertions, in which case we do
+   * "no-record split" as optimization. This also requires the trigerring insertion key
+   * is equal or larger than the largest slice in this page.
+   */
+  bool no_record_split_;
+  uint8_t original_key_count_;
+  KeySlice smallest_slice_;
+  KeySlice largest_slice_;
+  /**
+   * This will be the new foster fence.
+   * Ideally, #records below and above this are same.
+   */
+  KeySlice mid_slice_;
+};
+
+struct UnlockScope {
+  explicit UnlockScope(MasstreePage* page) : page_(page) {}
+  ~UnlockScope() { page_->unlock(); }
+  MasstreePage* page_;
 };
 
 /**
@@ -273,10 +319,16 @@ class MasstreeBorderPage final : public MasstreePage {
   MasstreeBorderPage& operator=(const MasstreeBorderPage& other) = delete;
 
   void initialize_volatile_page(
-    StorageId storage_id,
+    StorageId           storage_id,
     VolatilePagePointer page_id,
-    uint8_t layer,
-    MasstreePage* parent);
+    uint8_t             layer,
+    bool                root_in_layer,
+    KeySlice            low_fence,
+    KeySlice            high_fence,
+    bool                is_high_fence_supremum,
+    KeySlice            foster_fence,
+    MasstreePage*       foster_child,
+    bool                initially_locked);
 
   /**
    * @brief Navigates a searching key-slice to one of the mini pages in this page.
@@ -330,6 +382,8 @@ class MasstreeBorderPage final : public MasstreePage {
     return remaining_key_length_[index] == kKeyLengthNextLayer;
   }
 
+  KeySlice get_slice(uint8_t index) const ALWAYS_INLINE { return slices_[index]; }
+
   xct::XctId* get_owner_id(uint8_t index) ALWAYS_INLINE { return owner_ids_ + index; }
   const xct::XctId* get_owner_id(uint8_t index) const ALWAYS_INLINE { return owner_ids_ + index; }
 
@@ -343,7 +397,7 @@ class MasstreeBorderPage final : public MasstreePage {
   }
   uint16_t get_payload_length(uint8_t index) const ALWAYS_INLINE { return payload_length_[index]; }
 
-  uint8_t calculate_suffix_length(uint8_t remaining_length) const ALWAYS_INLINE {
+  static uint8_t calculate_suffix_length(uint8_t remaining_length) ALWAYS_INLINE {
     ASSERT_ND(remaining_length != kKeyLengthNextLayer);
     if (remaining_length >= sizeof(KeySlice)) {
       return remaining_length - sizeof(KeySlice);
@@ -351,9 +405,9 @@ class MasstreeBorderPage final : public MasstreePage {
       return 0;
     }
   }
-  uint16_t calculate_record_size(
+  static uint16_t calculate_record_size(
     uint8_t remaining_length,
-    uint16_t payload_count) const ALWAYS_INLINE {
+    uint16_t payload_count) ALWAYS_INLINE {
     uint16_t suffix_length = calculate_suffix_length(remaining_length);
     return assorted::align16(suffix_length + payload_count);
   }
@@ -415,6 +469,14 @@ class MasstreeBorderPage final : public MasstreePage {
     }
   }
 
+  /**
+   * Splits this page as a system transaction, creating a new foster child.
+   * @pre !header_.snapshot_ (split happens to only volatile pages)
+   * @pre is_locked() (the page must be locked)
+   * @post iff successfully exits, foster_child_->is_locked()
+   */
+  ErrorCode split_foster(thread::Thread* context, KeySlice trigger);
+
  private:
   // 64
 
@@ -455,6 +517,30 @@ class MasstreeBorderPage final : public MasstreePage {
    * All records are 16-byte aligned so that we can later replace records to next-layer pointer.
    */
   char        data_[kDataSize];
+
+  /**
+   * @brief Subroutin of split_foster() to decide how we will split this page.
+   */
+  SplitStrategy split_foster_decide_strategy(uint8_t key_count, KeySlice trigger) const;
+
+  /** pre-commit the split operation as a system transaction. */
+  xct::XctId split_foster_commit_system_xct(
+    thread::Thread* context,
+    const SplitStrategy &strategy) const;
+
+  void split_foster_migrate_records(
+    xct::XctId xct_id,
+    const SplitStrategy &strategy,
+    MasstreeBorderPage* parent);
+
+  /**
+   * @brief Subroutin of split_foster()
+   * @details
+   * First, we have to lock all (physically) active records to advance versions.
+   * This is required because other transactions might be already in pre-commit phase to
+   * modify records in this page.
+   */
+  void split_foster_lock_existing_records(uint8_t key_count);
 };
 STATIC_SIZE_CHECK(sizeof(MasstreeBorderPage), 1 << 12)
 
@@ -587,7 +673,7 @@ inline void MasstreeBorderPage::reserve_record_space(
   uint8_t remaining_length,
   uint16_t payload_count) {
   ASSERT_ND(remaining_length <= kKeyLengthMax);
-  ASSERT_ND(header_.page_version_.is_locked());
+  ASSERT_ND(is_locked());
   ASSERT_ND(header_.page_version_.is_inserting());
   ASSERT_ND(header_.page_version_.get_key_count() == index + 1U);
   ASSERT_ND(can_accomodate(index, remaining_length, payload_count));
