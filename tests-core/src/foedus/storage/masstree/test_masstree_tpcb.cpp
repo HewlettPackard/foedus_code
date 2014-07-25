@@ -121,6 +121,9 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
     }
     COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
     highest_commit_epoch.store_max(commit_epoch);
+    COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+    COERCE_ERROR(branches->verify_single_thread(context));
+    COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
 
     // Create tellers
     MasstreeMetadata teller_meta("tellers");
@@ -136,6 +139,9 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
     }
     COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
     highest_commit_epoch.store_max(commit_epoch);
+    COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+    COERCE_ERROR(tellers->verify_single_thread(context));
+    COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
 
     // Create accounts
     MasstreeMetadata account_meta("accounts");
@@ -151,6 +157,9 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
     }
     COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
     highest_commit_epoch.store_max(commit_epoch);
+    COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+    COERCE_ERROR(accounts->verify_single_thread(context));
+    COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
 
     // Create histories
     sequential::SequentialMetadata history_meta("histories");
@@ -417,6 +426,12 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
   }
   ErrorStack run(thread::Thread* context) {
     xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+    COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+    COERCE_ERROR(accounts->verify_single_thread(context));
+    COERCE_ERROR(branches->verify_single_thread(context));
+    COERCE_ERROR(tellers->verify_single_thread(context));
+    COERCE_ERROR(xct_manager.abort_xct(context));
+
     CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
 
     int64_t expected_branch[kBranches];
