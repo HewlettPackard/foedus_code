@@ -15,10 +15,10 @@
 #include "foedus/test_common.hpp"
 #include "foedus/assorted/uniform_random.hpp"
 #include "foedus/storage/storage_manager.hpp"
-#include "foedus/storage/hash/hash_metadata.hpp"
-#include "foedus/storage/hash/hash_page_impl.hpp"
-#include "foedus/storage/hash/hash_storage.hpp"
-#include "foedus/storage/hash/hash_storage_pimpl.hpp"
+#include "foedus/storage/masstree/masstree_metadata.hpp"
+#include "foedus/storage/masstree/masstree_page_impl.hpp"
+#include "foedus/storage/masstree/masstree_storage.hpp"
+#include "foedus/storage/masstree/masstree_storage_pimpl.hpp"
 #include "foedus/storage/sequential/sequential_metadata.hpp"
 #include "foedus/storage/sequential/sequential_page_impl.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
@@ -31,13 +31,13 @@
 #include "foedus/xct/xct_manager.hpp"
 
 /**
- * @file test_hash_tpcb.cpp
- * Hash for main tables and sequential for history.
+ * @file test_masstree_tpcb.cpp
+ * Masstree for main tables and sequential for history.
  */
 namespace foedus {
 namespace storage {
-namespace hash {
-DEFINE_TEST_CASE_PACKAGE(HashTpcbTest, foedus.storage.hash);
+namespace masstree {
+DEFINE_TEST_CASE_PACKAGE(MasstreeTpcbTest, foedus.storage.masstree);
 
 // tiny numbers
 /** number of branches (TPS scaling factor). */
@@ -88,12 +88,16 @@ struct HistoryData {
   char        other_data_[16];  // just to make it at least 50 bytes
 };
 
-HashStorage*  branches      = nullptr;
-HashStorage*  accounts      = nullptr;
-HashStorage*  tellers       = nullptr;
+MasstreeStorage*  branches      = nullptr;
+MasstreeStorage*  accounts      = nullptr;
+MasstreeStorage*  tellers       = nullptr;
 sequential::SequentialStorage* histories = nullptr;
 bool          use_primitive_accessors = false;
 bool          use_increment = false;
+
+KeySlice nm(uint64_t key) {
+  return normalize_primitive<uint64_t>(key);
+}
 
 /** Creates TPC-B tables and populate with initial records. */
 class CreateTpcbTablesTask : public thread::ImpersonateTask {
@@ -105,25 +109,22 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
     Epoch commit_epoch;
 
     // Create branches
-    const float kHashFillFactor = 0.2;
-    HashMetadata branch_meta("branches");
-    branch_meta.set_capacity(kBranches, kHashFillFactor);
-    COERCE_ERROR(str_manager.create_hash(context, &branch_meta, &branches, &commit_epoch));
+    MasstreeMetadata branch_meta("branches");
+    COERCE_ERROR(str_manager.create_masstree(context, &branch_meta, &branches, &commit_epoch));
     EXPECT_TRUE(branches != nullptr);
     COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
     for (uint64_t i = 0; i < kBranches; ++i) {
       BranchData data;
       std::memset(&data, 0, sizeof(data));  // make valgrind happy
       data.branch_balance_ = kInitialAccountBalance * kAccounts;
-      COERCE_ERROR(branches->insert_record(context, i, &data, sizeof(data)));
+      COERCE_ERROR(branches->insert_record_normalized(context, nm(i), &data, sizeof(data)));
     }
     COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
     highest_commit_epoch.store_max(commit_epoch);
 
     // Create tellers
-    HashMetadata teller_meta("tellers");
-    teller_meta.set_capacity(kBranches * kTellers, kHashFillFactor);
-    COERCE_ERROR(str_manager.create_hash(context, &teller_meta, &tellers, &commit_epoch));
+    MasstreeMetadata teller_meta("tellers");
+    COERCE_ERROR(str_manager.create_masstree(context, &teller_meta, &tellers, &commit_epoch));
     EXPECT_TRUE(tellers != nullptr);
     COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
     for (uint64_t i = 0; i < kBranches * kTellers; ++i) {
@@ -131,15 +132,14 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
       std::memset(&data, 0, sizeof(data));  // make valgrind happy
       data.branch_id_ = i / kTellers;
       data.teller_balance_ = kInitialAccountBalance * kAccountsPerTellers;
-      COERCE_ERROR(tellers->insert_record(context, i, &data, sizeof(data)));
+      COERCE_ERROR(tellers->insert_record_normalized(context, nm(i), &data, sizeof(data)));
     }
     COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
     highest_commit_epoch.store_max(commit_epoch);
 
     // Create accounts
-    HashMetadata account_meta("accounts");
-    account_meta.set_capacity(kBranches * kAccounts, kHashFillFactor);
-    COERCE_ERROR(str_manager.create_hash(context, &account_meta, &accounts, &commit_epoch));
+    MasstreeMetadata account_meta("accounts");
+    COERCE_ERROR(str_manager.create_masstree(context, &account_meta, &accounts, &commit_epoch));
     EXPECT_TRUE(accounts != nullptr);
     COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
     for (uint64_t i = 0; i < kBranches * kAccounts; ++i) {
@@ -147,7 +147,7 @@ class CreateTpcbTablesTask : public thread::ImpersonateTask {
       std::memset(&data, 0, sizeof(data));  // make valgrind happy
       data.branch_id_ = i / kAccounts;
       data.account_balance_ = kInitialAccountBalance;
-      COERCE_ERROR(accounts->insert_record(context, i, &data, sizeof(data)));
+      COERCE_ERROR(accounts->insert_record_normalized(context, nm(i), &data, sizeof(data)));
     }
     COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
     highest_commit_epoch.store_max(commit_epoch);
@@ -240,25 +240,33 @@ class RunTpcbTask : public thread::ImpersonateTask {
     int64_t branch_balance_old = -1, branch_balance_new;
     if (use_increment) {
       branch_balance_new = amount;
-      WRAP_ERROR_CODE(branches->increment_record(context, branch_id, &branch_balance_new, 0));
+      WRAP_ERROR_CODE(branches->increment_record_normalized(
+        context,
+        nm(branch_id),
+        &branch_balance_new,
+        0));
       branch_balance_old = branch_balance_new - amount;
     } else if (use_primitive_accessors) {
-      WRAP_ERROR_CODE(branches->get_record_primitive(context, branch_id, &branch_balance_old, 0));
-      branch_balance_new = branch_balance_old + amount;
-      WRAP_ERROR_CODE(branches->overwrite_record_primitive(
+      WRAP_ERROR_CODE(branches->get_record_primitive_normalized(
         context,
-        branch_id,
+        nm(branch_id),
+        &branch_balance_old,
+        0));
+      branch_balance_new = branch_balance_old + amount;
+      WRAP_ERROR_CODE(branches->overwrite_record_primitive_normalized(
+        context,
+        nm(branch_id),
         branch_balance_new,
         0));
     } else {
       BranchData branch;
       uint16_t capacity = sizeof(branch);
-      WRAP_ERROR_CODE(branches->get_record(context, branch_id, &branch, &capacity));
+      WRAP_ERROR_CODE(branches->get_record_normalized(context, nm(branch_id), &branch, &capacity));
       branch_balance_old = branch.branch_balance_;
       branch_balance_new = branch_balance_old + amount;
-      WRAP_ERROR_CODE(branches->overwrite_record(
+      WRAP_ERROR_CODE(branches->overwrite_record_normalized(
         context,
-        branch_id,
+        nm(branch_id),
         &branch_balance_new,
         0,
         sizeof(branch_balance_new)));
@@ -268,37 +276,45 @@ class RunTpcbTask : public thread::ImpersonateTask {
     int64_t teller_balance_old = -1, teller_balance_new;
     uint64_t teller_branch_id = 0;
     if (use_increment) {
-      WRAP_ERROR_CODE(tellers->get_record_primitive(context, teller_id, &teller_branch_id, 0));
-      teller_balance_new = amount;
-      WRAP_ERROR_CODE(tellers->increment_record(
+      WRAP_ERROR_CODE(tellers->get_record_primitive_normalized(
         context,
-        teller_id,
+        nm(teller_id),
+        &teller_branch_id,
+        0));
+      teller_balance_new = amount;
+      WRAP_ERROR_CODE(tellers->increment_record_normalized<>(
+        context,
+        nm(teller_id),
         &teller_balance_new,
         sizeof(uint64_t)));
       teller_balance_old = teller_balance_new - amount;
     } else if (use_primitive_accessors) {
-      WRAP_ERROR_CODE(tellers->get_record_primitive(context, teller_id, &teller_branch_id, 0));
-      WRAP_ERROR_CODE(tellers->get_record_primitive(
+      WRAP_ERROR_CODE(tellers->get_record_primitive_normalized(
         context,
-        teller_id,
+        nm(teller_id),
+        &teller_branch_id,
+        0));
+      WRAP_ERROR_CODE(tellers->get_record_primitive_normalized(
+        context,
+        nm(teller_id),
         &teller_balance_old,
         sizeof(uint64_t)));
       teller_balance_new = teller_balance_old + amount;
-      WRAP_ERROR_CODE(tellers->overwrite_record_primitive(
+      WRAP_ERROR_CODE(tellers->overwrite_record_primitive_normalized(
         context,
-        teller_id,
+        nm(teller_id),
         teller_balance_new,
         sizeof(uint64_t)));
     } else {
       TellerData teller;
       uint16_t capacity = sizeof(teller);
-      WRAP_ERROR_CODE(tellers->get_record(context, teller_id, &teller, &capacity));
+      WRAP_ERROR_CODE(tellers->get_record_normalized(context, nm(teller_id), &teller, &capacity));
       teller_branch_id = teller.branch_id_;
       teller_balance_old = teller.teller_balance_;
       teller_balance_new = teller_balance_old + amount;
-      WRAP_ERROR_CODE(tellers->overwrite_record(
+      WRAP_ERROR_CODE(tellers->overwrite_record_normalized(
         context,
-        teller_id,
+        nm(teller_id),
         &teller_balance_new,
         sizeof(teller.branch_id_),
         sizeof(teller_balance_new)));
@@ -309,37 +325,49 @@ class RunTpcbTask : public thread::ImpersonateTask {
     int64_t account_balance_old = -1, account_balance_new;
     uint64_t account_branch_id = 0;
     if (use_increment) {
-      WRAP_ERROR_CODE(accounts->get_record_primitive(context, account_id, &account_branch_id, 0));
-      account_balance_new = amount;
-      WRAP_ERROR_CODE(accounts->increment_record(
+      WRAP_ERROR_CODE(accounts->get_record_primitive_normalized(
         context,
-        account_id,
+        nm(account_id),
+        &account_branch_id,
+        0));
+      account_balance_new = amount;
+      WRAP_ERROR_CODE(accounts->increment_record_normalized(
+        context,
+        nm(account_id),
         &account_balance_new,
         sizeof(uint64_t)));
       account_balance_old = account_balance_new - amount;
     } else if (use_primitive_accessors) {
-      WRAP_ERROR_CODE(accounts->get_record_primitive(context, account_id, &account_branch_id, 0));
-      WRAP_ERROR_CODE(accounts->get_record_primitive(
+      WRAP_ERROR_CODE(accounts->get_record_primitive_normalized(
         context,
-        account_id,
+        nm(account_id),
+        &account_branch_id,
+        0));
+      WRAP_ERROR_CODE(accounts->get_record_primitive_normalized(
+        context,
+        nm(account_id),
         &account_balance_old,
         sizeof(uint64_t)));
       account_balance_new = account_balance_old + amount;
-      WRAP_ERROR_CODE(accounts->overwrite_record_primitive(
+      WRAP_ERROR_CODE(accounts->overwrite_record_primitive_normalized(
         context,
-        account_id,
+        nm(account_id),
         account_balance_new,
         sizeof(uint64_t)));
     } else {
       AccountData account;
       uint16_t capacity = sizeof(account);
-      WRAP_ERROR_CODE(accounts->get_record(context, account_id, &account, &capacity));
+      WRAP_ERROR_CODE(accounts->get_record_normalized(
+        context,
+        nm(account_id),
+        &account,
+        &capacity));
       account_branch_id = account.branch_id_;
       account_balance_old = account.account_balance_;
       account_balance_new = account_balance_old + amount;
-      WRAP_ERROR_CODE(accounts->overwrite_record(
+      WRAP_ERROR_CODE(accounts->overwrite_record_normalized(
         context,
-        account_id,
+        nm(account_id),
         &account_balance_new,
         sizeof(account.branch_id_),
         sizeof(account_balance_new)));
@@ -457,20 +485,20 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
     for (uint64_t i = 0; i < kBranches; ++i) {
       BranchData data;
       uint16_t capacity = sizeof(data);
-      CHECK_ERROR(branches->get_record(context, i, &data, &capacity));
+      CHECK_ERROR(branches->get_record_normalized(context, nm(i), &data, &capacity));
       EXPECT_EQ(expected_branch[i], data.branch_balance_) << "branch-" << i;
     }
     for (uint64_t i = 0; i < kBranches * kTellers; ++i) {
       TellerData data;
       uint16_t capacity = sizeof(data);
-      CHECK_ERROR(tellers->get_record(context, i, &data, &capacity));
+      CHECK_ERROR(tellers->get_record_normalized(context, nm(i), &data, &capacity));
       EXPECT_EQ(i / kTellers, data.branch_id_) << i;
       EXPECT_EQ(expected_teller[i], data.teller_balance_) << "teller-" << i;
     }
     for (uint64_t i = 0; i < kBranches * kAccounts; ++i) {
       AccountData data;
       uint16_t capacity = sizeof(data);
-      CHECK_ERROR(accounts->get_record(context, i, &data, &capacity));
+      CHECK_ERROR(accounts->get_record_normalized(context, nm(i), &data, &capacity));
       EXPECT_EQ(i / kAccounts, data.branch_id_) << i;
       EXPECT_EQ(expected_account[i], data.account_balance_) << "account-" << i;
     }
@@ -530,29 +558,29 @@ void multi_thread_test(int thread_count, bool contended,
   cleanup_test(options);
 }
 
-TEST(HashTpcbTest, SingleThreadedNoContention) { multi_thread_test(1, false); }
-TEST(HashTpcbTest, TwoThreadedNoContention)    { multi_thread_test(2, false); }
-TEST(HashTpcbTest, FourThreadedNoContention)   { multi_thread_test(4, false); }
+TEST(MasstreeTpcbTest, SingleThreadedNoContention) { multi_thread_test(1, false); }
+TEST(MasstreeTpcbTest, TwoThreadedNoContention)    { multi_thread_test(2, false); }
+TEST(MasstreeTpcbTest, FourThreadedNoContention)   { multi_thread_test(4, false); }
 
-TEST(HashTpcbTest, SingleThreadedContended)    { multi_thread_test(1, true); }
-TEST(HashTpcbTest, TwoThreadedContended)       { multi_thread_test(2, true); }
-TEST(HashTpcbTest, FourThreadedContended)      { multi_thread_test(4, true); }
+TEST(MasstreeTpcbTest, SingleThreadedContended)    { multi_thread_test(1, true); }
+TEST(MasstreeTpcbTest, TwoThreadedContended)       { multi_thread_test(2, true); }
+TEST(MasstreeTpcbTest, FourThreadedContended)      { multi_thread_test(4, true); }
 
-TEST(HashTpcbTest, SingleThreadedNoContentionPrimitive) { multi_thread_test(1, false, true); }
-TEST(HashTpcbTest, TwoThreadedNoContentionPrimitive)    { multi_thread_test(2, false, true); }
-TEST(HashTpcbTest, FourThreadedNoContentionPrimitive)   { multi_thread_test(4, false, true); }
+TEST(MasstreeTpcbTest, SingleThreadedNoContentionPrimitive) { multi_thread_test(1, false, true); }
+TEST(MasstreeTpcbTest, TwoThreadedNoContentionPrimitive)    { multi_thread_test(2, false, true); }
+TEST(MasstreeTpcbTest, FourThreadedNoContentionPrimitive)   { multi_thread_test(4, false, true); }
 
-TEST(HashTpcbTest, SingleThreadedContendedPrimitive)    { multi_thread_test(1, true, true); }
-TEST(HashTpcbTest, TwoThreadedContendedPrimitive)       { multi_thread_test(2, true, true); }
-TEST(HashTpcbTest, FourThreadedContendedPrimitive)      { multi_thread_test(4, true, true); }
+TEST(MasstreeTpcbTest, SingleThreadedContendedPrimitive)    { multi_thread_test(1, true, true); }
+TEST(MasstreeTpcbTest, TwoThreadedContendedPrimitive)       { multi_thread_test(2, true, true); }
+TEST(MasstreeTpcbTest, FourThreadedContendedPrimitive)      { multi_thread_test(4, true, true); }
 
-TEST(HashTpcbTest, SingleThreadedNoContentionInc) { multi_thread_test(1, false, true, true); }
-TEST(HashTpcbTest, TwoThreadedNoContentionInc)    { multi_thread_test(2, false, true, true); }
-TEST(HashTpcbTest, FourThreadedNoContentionInc)   { multi_thread_test(4, false, true, true); }
+TEST(MasstreeTpcbTest, SingleThreadedNoContentionInc) { multi_thread_test(1, false, true, true); }
+TEST(MasstreeTpcbTest, TwoThreadedNoContentionInc)    { multi_thread_test(2, false, true, true); }
+TEST(MasstreeTpcbTest, FourThreadedNoContentionInc)   { multi_thread_test(4, false, true, true); }
 
-TEST(HashTpcbTest, SingleThreadedContendedInc)    { multi_thread_test(1, true, true, true); }
-TEST(HashTpcbTest, TwoThreadedContendedInc)       { multi_thread_test(2, true, true, true); }
-TEST(HashTpcbTest, FourThreadedContendedInc)      { multi_thread_test(4, true, true, true); }
-}  // namespace hash
+TEST(MasstreeTpcbTest, SingleThreadedContendedInc)    { multi_thread_test(1, true, true, true); }
+TEST(MasstreeTpcbTest, TwoThreadedContendedInc)       { multi_thread_test(2, true, true, true); }
+TEST(MasstreeTpcbTest, FourThreadedContendedInc)      { multi_thread_test(4, true, true, true); }
+}  // namespace masstree
 }  // namespace storage
 }  // namespace foedus
