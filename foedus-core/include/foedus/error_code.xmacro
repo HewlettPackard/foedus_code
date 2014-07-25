@@ -81,6 +81,7 @@ X(kErrorCodeStrKeyNotFound,         0x080C, "STORAGE: This key is not found in t
 X(kErrorCodeStrCuckooTooDeep,       0x080D, "STORAGE: HASH: The cuckoo depth is too deep")
 X(kErrorCodeStrMasstreeRetry,       0x0811, "STORAGE: MASSTREE: Retry search. This is an internal error code used to retry find_border.")
 X(kErrorCodeStrMasstreeTooManyRetries, 0x0812, "STORAGE: MASSTREE: Retrying too many times. Gave up")
+X(kErrorCodeStrMasstreeFailedVerification, 0x0813, "STORAGE: MASSTREE: Failed verification. Found an inconsistency")
 
 X(kErrorCodeCacheNoFreePages,       0x0901, "SPCACHE: Not enough free snapshot pages. Cleaner is not catching up")
 X(kErrorCodeCacheTableFull,         0x0902, "SPCACHE: Hashtable full or too many skewed inserts")

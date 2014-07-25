@@ -27,6 +27,12 @@ namespace foedus {
 namespace storage {
 namespace masstree {
 
+/** Used only for debugging as this is not space efficient. */
+struct HighFence {
+  KeySlice slice_;
+  bool supremum_;
+};
+
 /**
  * @brief Common base of MasstreeIntermediatePage and MasstreeBorderPage.
  * @ingroup MASSTREE
@@ -99,9 +105,9 @@ class MasstreePage {
    * After taking lock, you might want to additionally set inserting/splitting bits.
    * Those can be done just as a usual write once you get a lock.
    */
-  void              lock() ALWAYS_INLINE {
+  void              lock(bool inserting = false, bool splitting = false) ALWAYS_INLINE {
     if (!header_.snapshot_) {
-      header_.page_version_.lock_version();
+      header_.page_version_.lock_version(inserting, splitting);
     }
   }
   bool              is_locked() const ALWAYS_INLINE { return header_.page_version_.is_locked(); }
@@ -161,7 +167,7 @@ struct SplitStrategy {
    * is equal or larger than the largest slice in this page.
    */
   bool no_record_split_;
-  uint8_t original_key_count_;
+  uint16_t original_key_count_;
   KeySlice smallest_slice_;
   KeySlice largest_slice_;
   /**
@@ -171,10 +177,31 @@ struct SplitStrategy {
   KeySlice mid_slice_;
 };
 
+/**
+ * Constructed by hierarchically reading all separators and pointers in old page.
+ */
+struct IntermediateSplitStrategy {
+  /**
+   * pointers_[n] points to page that is responsible for keys
+   * separators_[n - 1] <= key < separators_[n].
+   * separators_[-1] is infimum.
+   */
+  KeySlice separators_[kMaxIntermediateMiniSeparators * (kMaxIntermediateSeparators + 1) + 1];
+  DualPagePointer pointers_[kMaxIntermediateMiniSeparators * (kMaxIntermediateSeparators + 1) + 1];
+  KeySlice mid_separator_;
+  uint16_t total_separator_count_;
+  uint16_t mid_index_;
+};
+
 struct UnlockScope {
   explicit UnlockScope(MasstreePage* page) : page_(page) {}
   ~UnlockScope() { page_->unlock(); }
   MasstreePage* page_;
+};
+struct UnlockVersionScope {
+  explicit UnlockVersionScope(PageVersion* version) : version_(version) {}
+  ~UnlockVersionScope() { version_->unlock_version(); }
+  PageVersion* version_;
 };
 
 /**
@@ -212,15 +239,14 @@ class MasstreeIntermediatePage final : public MasstreePage {
     /**
     * @brief Navigates a searching key-slice to one of pointers in this mini-page.
     */
-    uint8_t find_pointer(const PageVersion &stable, KeySlice slice) const ALWAYS_INLINE {
-      uint8_t separator_count = stable.get_key_count();
-      ASSERT_ND(separator_count <= kMaxIntermediateMiniSeparators);
-      for (uint8_t i = 0; i < separator_count; ++i) {
+    uint8_t find_pointer(uint8_t stable_separator_count, KeySlice slice) const ALWAYS_INLINE {
+      ASSERT_ND(stable_separator_count <= kMaxIntermediateMiniSeparators);
+      for (uint8_t i = 0; i < stable_separator_count; ++i) {
         if (slice < separators_[i]) {
           return i;
         }
       }
-      return separator_count;
+      return stable_separator_count;
     }
   };
 
@@ -237,19 +263,19 @@ class MasstreeIntermediatePage final : public MasstreePage {
   /**
    * @brief Navigates a searching key-slice to one of the mini pages in this page.
    */
-  uint8_t find_minipage(const PageVersion &stable, KeySlice slice) const ALWAYS_INLINE {
-    uint8_t separator_count = stable.get_key_count();
-    ASSERT_ND(separator_count <= kMaxIntermediateSeparators);
-    for (uint8_t i = 0; i < separator_count; ++i) {
+  uint8_t find_minipage(uint8_t stable_separator_count, KeySlice slice) const ALWAYS_INLINE {
+    ASSERT_ND(stable_separator_count <= kMaxIntermediateSeparators);
+    for (uint8_t i = 0; i < stable_separator_count; ++i) {
       if (slice < separators_[i]) {
         return i;
       }
     }
-    return separator_count;
+    return stable_separator_count;
   }
 
   MiniPage&         get_minipage(uint8_t index) ALWAYS_INLINE { return mini_pages_[index]; }
   const MiniPage&   get_minipage(uint8_t index) const ALWAYS_INLINE { return mini_pages_[index]; }
+  KeySlice          get_separator(uint8_t index) const ALWAYS_INLINE { return separators_[index]; }
 
   void              release_pages_recursive(
     const memory::GlobalVolatilePageResolver& page_resolver,
@@ -267,6 +293,33 @@ class MasstreeIntermediatePage final : public MasstreePage {
     MasstreePage*       foster_child,
     bool                initially_locked);
 
+  /**
+   * Splits this page as a physical-only operation, creating a new foster child.
+   * @pre !header_.snapshot_ (split happens to only volatile pages)
+   * @pre is_locked() (the page must be locked)
+   * @post the new foster_child_ is NOT locked. This is different from BorderPage.
+   */
+  ErrorCode split_foster(thread::Thread* context);
+
+  /**
+   * @brief Adopts a foster-child of given child as an entry in this page.
+   * @pre this and child pages are volatile pages (snapshot pages don't have foster child,
+   * so this is always trivially guaranteed).
+   * @details
+   * This method doesn't assume this and other pages are locked.
+   * So, when we lock child, we might find out that the foster child is already adopted.
+   * In that case, and in other cases where adoption is impossible, we do nothing.
+   * This method can also cause split.
+   */
+  ErrorCode adopt_from_child(
+    thread::Thread* context,
+    KeySlice searching_slice,
+    PageVersion cur_stable,
+    uint8_t minipage_index,
+    PageVersion mini_stable,
+    uint8_t pointer_index,
+    MasstreePage* child);
+
  private:
   // 64
 
@@ -281,6 +334,22 @@ class MasstreeIntermediatePage final : public MasstreePage {
   char                reserved_[120];    // -> 256
 
   MiniPage            mini_pages_[10];  // +384 * 10 -> 4096
+
+  ErrorCode local_rebalance(thread::Thread* context);
+  void split_foster_decide_strategy(IntermediateSplitStrategy* out) const;
+  void split_foster_migrate_records(
+    const IntermediateSplitStrategy &strategy,
+    uint16_t from,
+    uint16_t to,
+    KeySlice expected_last_separator);
+  /**
+   * Sets all mini versions with locked status without atomic operations.
+   * This can be used only when this page is first created and still privately owned.
+   * 1 atomic is 100 cycles or more, so this greatly saves.
+   */
+  void init_lock_all_mini();
+  /** Same above. */
+  void init_unlock_all_mini();
 };
 STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage::MiniPage), 128 + 256)
 STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage), 1 << 12)
@@ -358,7 +427,7 @@ class MasstreeBorderPage final : public MasstreePage {
    * @return index of key found in this page, or kMaxKeys if not found.
    */
   uint8_t find_key(
-    const PageVersion &stable,
+    uint8_t stable_key_count,
     KeySlice slice,
     const void* suffix,
     uint8_t remaining) const ALWAYS_INLINE;
@@ -406,10 +475,16 @@ class MasstreeBorderPage final : public MasstreePage {
   }
 
   KeySlice get_slice(uint8_t index) const ALWAYS_INLINE { return slices_[index]; }
+  uint16_t get_offset_in_bytes(uint8_t index) const ALWAYS_INLINE {
+    return static_cast<uint16_t>(offsets_[index]) << 4;
+  }
 
   xct::XctId* get_owner_id(uint8_t index) ALWAYS_INLINE { return owner_ids_ + index; }
   const xct::XctId* get_owner_id(uint8_t index) const ALWAYS_INLINE { return owner_ids_ + index; }
 
+  uint16_t get_remaining_key_length(uint8_t index) const ALWAYS_INLINE {
+    return remaining_key_length_[index];
+  }
   uint16_t get_suffix_length(uint8_t index) const ALWAYS_INLINE {
     ASSERT_ND(!does_point_to_layer(index));
     if (remaining_key_length_[index] <= sizeof(KeySlice)) {
@@ -568,15 +643,14 @@ class MasstreeBorderPage final : public MasstreePage {
 STATIC_SIZE_CHECK(sizeof(MasstreeBorderPage), 1 << 12)
 
 inline uint8_t MasstreeBorderPage::find_key(
-  const PageVersion &stable,
+  uint8_t stable_key_count,
   KeySlice slice,
   const void* suffix,
   uint8_t remaining) const {
-  uint8_t key_count = stable.get_key_count();
   ASSERT_ND(remaining <= kKeyLengthMax);
-  ASSERT_ND(key_count <= kMaxKeys);
-  prefetch_additional_if_needed(key_count);
-  for (uint8_t i = 0; i < key_count; ++i) {
+  ASSERT_ND(stable_key_count <= kMaxKeys);
+  prefetch_additional_if_needed(stable_key_count);
+  for (uint8_t i = 0; i < stable_key_count; ++i) {
     if (LIKELY(slice != slices_[i])) {
       continue;
     }

@@ -53,6 +53,7 @@ namespace foedus {
     options.cache_.private_snapshot_cache_initial_grab_ = 32;
     options.thread_.group_count_ = 1;
     options.thread_.thread_count_per_group_ = 2;
+    options.snapshot_.snapshot_interval_milliseconds_ = 1 << 26;  // never
     return options;
   }
 

@@ -222,6 +222,7 @@ ErrorStack MasstreeStoragePimpl::create(thread::Thread* context) {
     kInfimumSlice,    // not foster key first
     nullptr,  // no foster child
     false);  // not locked
+  ASSERT_ND(root_page->get_version().is_high_fence_supremum());
 
   exist_ = true;
   engine_->get_storage_manager().get_pimpl()->register_storage(holder_);
@@ -311,21 +312,34 @@ ErrorCode MasstreeStoragePimpl::find_border_descend(
     }
     ASSERT_ND(!cur_stable.has_foster_child() || !cur->within_foster_child(slice));
 
-
-    uint8_t minipage_index = cur->find_minipage(cur_stable, slice);
+    uint8_t minipage_index = cur->find_minipage(cur_stable.get_key_count(), slice);
     MasstreeIntermediatePage::MiniPage& minipage = cur->get_minipage(minipage_index);
 
     minipage.prefetch();
     PageVersion mini_stable(minipage.get_stable_version());
-    uint8_t pointer_index = minipage.find_pointer(mini_stable, slice);
+    uint8_t pointer_index = minipage.find_pointer(mini_stable.get_key_count(), slice);
     DualPagePointer& pointer = minipage.pointers_[pointer_index];
     ASSERT_ND(!pointer.is_both_null());
 
     MasstreePage* next;
     CHECK_ERROR_CODE(follow_page(context, for_writes, false, &pointer, &next));
-    bool next_is_border = next->is_border();
 
     next->prefetch_general();
+    bool next_is_border = next->is_border();
+    if (next->has_foster_child()) {
+      // oh, the page has foster child, so we should adopt it.
+      CHECK_ERROR_CODE(cur->adopt_from_child(
+        context,
+        slice,
+        cur_stable,
+        minipage_index,
+        mini_stable,
+        pointer_index,
+        next));
+      cur_stable = cur->get_stable_version();
+      continue;  // we could keep going with a few cautions, but retrying is simpler.
+    }
+
     PageVersion next_stable(next->get_stable_version());
 
     // check cur's version again for hand-over-hand verification
@@ -432,7 +446,8 @@ ErrorCode MasstreeStoragePimpl::locate_record(
       slice,
       &border,
       &border_version));
-    uint8_t index = border->find_key(border_version, slice, suffix, remaining_length);
+    uint8_t stable_key_count = border_version.get_key_count();
+    uint8_t index = border->find_key(stable_key_count, slice, suffix, remaining_length);
 
     if (index == MasstreeBorderPage::kMaxKeys) {
       // this means not found
@@ -546,7 +561,7 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
   return kErrorCodeOk;
 }
 
-inline ErrorCode MasstreeStoragePimpl::follow_page(
+ErrorCode MasstreeStoragePimpl::follow_page(
   thread::Thread* context,
   bool for_writes,
   bool root_in_layer,
@@ -756,7 +771,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
   uint16_t payload_count,
   MasstreeBorderPage** out_page,
   uint8_t* record_index) {
-  ASSERT_ND(border->get_version().is_locked());
+  ASSERT_ND(border->is_locked());
   uint8_t count = border->get_version().get_key_count();
   if (border->can_accomodate(count, remaining, payload_count)) {
     reserve_record_new_record_apply(context, border, count, key, remaining, suffix, payload_count);
@@ -776,7 +791,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
     }
     ASSERT_ND(target->within_fences(key) && !target->within_foster_child(key));
     count = target->get_version().get_key_count();
-    ASSERT_ND(target->find_key(border->get_version(), key, suffix, remaining)
+    ASSERT_ND(target->find_key(border->get_version().get_key_count(), key, suffix, remaining)
       == MasstreeBorderPage::kMaxKeys);
     if (!target->can_accomodate(count, remaining, payload_count)) {
       // this might happen if payload_count is huge. so far just error out.
@@ -1042,6 +1057,7 @@ ErrorCode MasstreeStoragePimpl::increment_general(
     border->get_record(index),
     log_entry);
 }
+
 
 // Explicit instantiations for each payload type
 // @cond DOXYGEN_IGNORE

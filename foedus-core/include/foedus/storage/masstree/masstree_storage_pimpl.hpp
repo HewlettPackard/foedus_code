@@ -21,6 +21,7 @@
 #include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
+#include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/thread/thread.hpp"
 
 namespace foedus {
@@ -204,6 +205,22 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     PAYLOAD* value,
     uint16_t payload_offset);
 
+  ErrorStack verify_single_thread(thread::Thread* context);
+  ErrorStack verify_single_thread_layer(
+    thread::Thread* context,
+    uint8_t layer,
+    MasstreePage* layer_root);
+  ErrorStack verify_single_thread_intermediate(
+    thread::Thread* context,
+    KeySlice low_fence,
+    HighFence high_fence,
+    MasstreeIntermediatePage* page);
+  ErrorStack verify_single_thread_border(
+    thread::Thread* context,
+    KeySlice low_fence,
+    HighFence high_fence,
+    MasstreeBorderPage* page);
+
 
   /** Thread::follow_page_pointer() for masstree */
   ErrorCode follow_page(
@@ -211,7 +228,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     bool for_writes,
     bool root_in_layer,
     storage::DualPagePointer* pointer,
-    MasstreePage** page) ALWAYS_INLINE;
+    MasstreePage** page);
   /** Follows to next layer's root page. */
   ErrorCode follow_layer(
     thread::Thread* context,

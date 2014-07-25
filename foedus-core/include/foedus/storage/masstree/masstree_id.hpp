@@ -59,6 +59,8 @@ typedef uint64_t KeySlice;
 const KeySlice kInfimumSlice = 0;
 // setting 0xFF... to high_fence is not enough. we also set the "supremum" bit
 // to tell that this is larger than any value.
+// we never use FFFFFFFFFFFFFFFF as separator, but still it can occur as key slice.
+// thus, we need the supremum bit.
 const KeySlice kSupremumSlice = 0xFFFFFFFFFFFFFFFFULL;
 
 /**

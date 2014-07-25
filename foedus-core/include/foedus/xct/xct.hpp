@@ -343,7 +343,18 @@ inline ErrorCode Xct::add_to_pointer_set(
   ASSERT_ND(pointer_address);
   if (isolation_level_ != kSerializable) {
     return kErrorCodeOk;
-  } else if (UNLIKELY(pointer_set_size_ >= kMaxPointerSets)) {
+  }
+
+  // TODO(Hideaki) even though pointer set should be small, we don't want sequential search
+  // everytime. but insertion sort requires shifting. mmm.
+  for (uint32_t i = 0; i < pointer_set_size_; ++i) {
+    if (pointer_set_[i].address_ == pointer_address) {
+      pointer_set_[i].observed_ = observed;
+      return kErrorCodeOk;
+    }
+  }
+
+  if (UNLIKELY(pointer_set_size_ >= kMaxPointerSets)) {
     return kErrorCodeXctPointerSetOverflow;
   }
 

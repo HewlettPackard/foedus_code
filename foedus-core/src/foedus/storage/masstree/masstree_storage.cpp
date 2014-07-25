@@ -385,6 +385,11 @@ ErrorCode MasstreeStorage::increment_record_normalized(
   });
 }
 
+ErrorStack MasstreeStorage::verify_single_thread(thread::Thread* context) {
+  return pimpl_->verify_single_thread(context);
+}
+
+
 // Explicit instantiations for each payload type
 // @cond DOXYGEN_IGNORE
 #define EXPIN_1(x) template ErrorCode MasstreeStorage::get_record_primitive< x > \

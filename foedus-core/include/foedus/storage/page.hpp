@@ -53,11 +53,6 @@ const uint8_t   kPageVersionKeyCountShifts        = 16;
 const uint32_t  kPageVersionLayerMask             = 0x0000FF00U;
 const uint8_t   kPageVersionLayerShifts           = 8;
 
-const uint64_t  kPageVersionUnlockMask =
-  (kPageVersionHasFosterChildBit |
-  kPageVersionKeyCountMask |
-  kPageVersionLayerMask);
-
 /**
  * @brief 64bit in-page version counter and also locking mechanism.
  * @ingroup STORAGE
@@ -119,17 +114,19 @@ struct PageVersion CXX11_FINAL {
   void      increment_key_count() ALWAYS_INLINE {
     ASSERT_ND(is_locked());
     data_ += (1ULL << kPageVersionKeyCountShifts);
+    ASSERT_ND(is_locked());
   }
   void      set_key_count(uint8_t key_count) ALWAYS_INLINE {
     ASSERT_ND(is_locked());
     data_ = (data_ & (~static_cast<uint64_t>(kPageVersionKeyCountMask)))
             | (static_cast<uint64_t>(key_count) << kPageVersionKeyCountShifts);
     ASSERT_ND(get_key_count() == key_count);
+    ASSERT_ND(is_locked());
   }
 
   void      set_splitting() ALWAYS_INLINE {
     ASSERT_ND(is_locked());
-    data_ |= kPageVersionSplittingBit;
+    data_ |= kPageVersionSplittingBit | kPageVersionInsertingBit;
   }
   void      set_has_foster_child(bool has) ALWAYS_INLINE {
     ASSERT_ND(is_locked());
@@ -152,7 +149,7 @@ struct PageVersion CXX11_FINAL {
   * After taking lock, you might want to additionally set inserting/splitting bits.
   * Those can be done just as a usual write once you get a lock.
   */
-  void lock_version() ALWAYS_INLINE;
+  void lock_version(bool inserting = false, bool splitting = false) ALWAYS_INLINE;
 
   /**
   * @brief Unlocks the given page version, assuming the caller has locked it.
@@ -352,13 +349,23 @@ inline PageVersion PageVersion::stable_version() const {
   }
 }
 
-inline void PageVersion::lock_version() {
+inline void PageVersion::lock_version(bool inserting, bool splitting) {
+  if (splitting) {
+    // when we are splitting, we are anyway affecting all readers. make sure insertion count up too
+    inserting = true;
+  }
   SPINLOCK_WHILE(true) {
     uint64_t ver = data_;
     if (ver & kPageVersionLockedBit) {
       continue;
     }
     uint64_t new_ver = ver | kPageVersionLockedBit;
+    if (inserting) {
+      new_ver |= kPageVersionInsertingBit;
+    }
+    if (splitting) {
+      new_ver |= kPageVersionSplittingBit;
+    }
     if (assorted::raw_atomic_compare_exchange_strong<uint64_t>(&data_, &ver, new_ver)) {
       ASSERT_ND(data_ & kPageVersionLockedBit);
       return;
@@ -369,18 +376,21 @@ inline void PageVersion::lock_version() {
 inline void PageVersion::unlock_version() {
   uint64_t page_version = data_;
   ASSERT_ND(page_version & kPageVersionLockedBit);
-  uint64_t base = page_version & kPageVersionUnlockMask;
-  uint64_t insertion_counter = page_version & kPageVersionInsertionCounterMask;
-  if (page_version & kPageVersionInsertingBit) {
+  page_version &= ~kPageVersionLockedBit;
+  if ((page_version & kPageVersionInsertingBit) || (page_version & kPageVersionSplittingBit)) {
+    uint64_t insertion_counter = page_version & kPageVersionInsertionCounterMask;
     insertion_counter += (1ULL << kPageVersionInsertionCounterShifts);
+    page_version = (page_version & ~kPageVersionInsertionCounterMask) | insertion_counter;
+    page_version &= ~kPageVersionInsertingBit;
   }
-  uint64_t split_counter = page_version & kPageVersionSplitCounterMask;
   if (page_version & kPageVersionSplittingBit) {
+    uint64_t split_counter = page_version & kPageVersionSplitCounterMask;
     split_counter += (1ULL << kPageVersionSplitCounterShifts);
+    page_version = (page_version & ~kPageVersionSplitCounterMask) | split_counter;
+    page_version &= ~kPageVersionSplittingBit;
   }
-  ASSERT_ND((insertion_counter & split_counter) == 0);
   assorted::memory_fence_release();
-  data_ = base | insertion_counter | split_counter;
+  data_ = page_version;
   assorted::memory_fence_release();
 }
 

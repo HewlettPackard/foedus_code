@@ -318,6 +318,9 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
 
   // TODO(Hideaki): Extend/shrink/update methods for payload. A bit faster than delete + insert.
 
+
+  ErrorStack  verify_single_thread(thread::Thread* context);
+
   /** Use this only if you know what you are doing. */
   MasstreeStoragePimpl*  get_pimpl() { return pimpl_; }
 
