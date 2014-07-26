@@ -70,7 +70,7 @@ struct HashInsertLogType : public log::RecordLogType {
   uint16_t        payload_count_;     // +2 => 20
   /** Is it inserted to the primary bin, not the alternative bin. */
   bool            bin1_;              // +1 => 21
-  uint8_t         reserved_;          // +1 => 22
+  uint8_t         slot_;          // +1 => 22
   /**
    * This is auxiliary. We can calculate from the key, but 2 bytes is not that big waste,
    * and by doing this the data part is fully 8-byte aligned. Might be slightly faster.
@@ -88,6 +88,7 @@ struct HashInsertLogType : public log::RecordLogType {
     const void* key,
     uint16_t    key_length,
     bool        bin1,
+    uint8_t     slot,
     uint16_t    hashtag,
     const void* payload,
     uint16_t    payload_count) ALWAYS_INLINE {
@@ -95,6 +96,7 @@ struct HashInsertLogType : public log::RecordLogType {
     header_.log_length_ = calculate_log_length(key_length, payload_count);
     header_.storage_id_ = storage_id;
     bin1_ = bin1;
+    slot_ = slot;
     hashtag_ = hashtag;
     key_length_ = key_length;
     payload_count_ = payload_count;
@@ -117,6 +119,33 @@ struct HashInsertLogType : public log::RecordLogType {
   }
 
   friend std::ostream& operator<<(std::ostream& o, const HashInsertLogType& v);
+};
+
+
+/**
+ * @brief Second log type of hash-storage's insert operation. Is dummy log that goes with page TID.
+ * @ingroup HASH LOGTYPE
+ *
+ */
+struct HashInsertDummyLogType : public log::RecordLogType {
+  LOG_TYPE_NO_CONSTRUCT(HashInsertDummyLogType)
+  static uint16_t calculate_log_length() ALWAYS_INLINE { return 16; }
+  void            populate(StorageId   storage_id) ALWAYS_INLINE {
+    header_.log_type_code_ = log::kLogCodeHashInsertDummy;
+    header_.log_length_ = calculate_log_length();
+    header_.storage_id_ = storage_id;
+  }
+  void            apply_record(
+    thread::Thread* context,
+    Storage* storage,
+    Record* record) ALWAYS_INLINE {
+    return;
+  }
+  void            assert_valid() ALWAYS_INLINE {
+    assert_valid_generic();
+    ASSERT_ND(header_.log_type_code_ == log::kLogCodeHashInsertDummy);
+  }
+  friend std::ostream& operator<<(std::ostream& o, const HashInsertDummyLogType& v);
 };
 
 /**

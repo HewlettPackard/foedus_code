@@ -8,6 +8,7 @@
 #include <glog/logging.h>
 
 #include <cstring>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -324,6 +325,7 @@ ErrorCode HashStoragePimpl::get_record(
   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
 
   if (combo.record_) {
+    ASSERT_ND(combo.record_->owner_id_.get_epoch().is_valid());
     // we already added to read set, so the only remaining thing is to read payload
     if (combo.payload_length_ > *payload_capacity) {
       // buffer too small
@@ -395,65 +397,117 @@ ErrorCode HashStoragePimpl::get_record_part(
 }
 
 
+void HashStoragePimpl::aaa(thread::Thread* context) {
+  for (uint64_t i = 0; i < bin_count_; ++i) {
+    uint16_t pointer_index;
+    HashRootPage* boundary = lookup_boundary_root(context, i, &pointer_index);
+    HashBinPage::Initializer initializer(
+      metadata_.id_,
+      boundary,
+      i / kBinsPerPage * kBinsPerPage);
+    HashBinPage* bin_page;
+    COERCE_ERROR_CODE(context->follow_page_pointer(
+      &initializer,
+      true,
+      false,
+      true,
+      false,
+      &(boundary->pointer(pointer_index)),
+      reinterpret_cast<Page**>(&bin_page)));
+    if (bin_page == nullptr) {
+      continue;
+    }
 
-ErrorCode HashStoragePimpl::make_room(
-// TODO(Bill) Add case where the path is considered too long.
-  thread::Thread* context,
-  HashDataPage* data_page,
-  int depth) {
-  if (depth > kMaxCuckooDepth) return kErrorCodeStrCuckooTooDeep;
-  if (data_page -> get_record_count() == kMaxEntriesPerBin) {
-    int hit_index = 0;  // says how many valid victim candidates we've seen
-    uint32_t bin_num = data_page->get_bin();
-    uint32_t storageid = holder_->get_hash_metadata()->id_;
-    int kickout_index = context->get_current_xct().read_frequency(bin_num, storageid).kickout_count;
-    int pick = -1;  // NOTE: This protocol will do poorly if transactions are short,
-    // because higher-indexed slots will never get the opportunity to be kicked out.
-    // It will also do poorly if two transactions kick someone out at the same time,
-    // because they will both start with the first guy. So overall, it's quite bad.
-    if (kickout_index > data_page->get_record_count()) return kErrorCodeStrNothingToKickout;
-    for (int x = 0; x < kMaxEntriesPerBin; x++) {
-      if (data_page->slot(x).flags_ & (HashDataPage::kFlagDeleted) == 0) {
-        hit_index++;
-        if (hit_index == kickout_index) {
-          pick = x;
-          x = kMaxEntriesPerBin + 1;
+    HashBinPage::Bin& bin = bin_page->bin(pointer_index);
+
+    // obtain data pages, but not read it yet. it's done in locate_record()
+    HashDataPage* data_page;
+    HashDataPage::Initializer initializer2(metadata_.id_, bin_page, i);
+    COERCE_ERROR_CODE(context->follow_page_pointer(
+      &initializer2,
+      true,
+      false,
+      true,
+      false,
+      &(bin.data_pointer_),
+      reinterpret_cast<Page**>(&(data_page))));
+    if (data_page) {
+      // std::cout << "reading data page - bin=" << i << std::endl;
+      // std::cout << "  keys=" << data_page->get_record_count() << ", " << std::endl;
+      for (uint16_t j = 0; j < data_page->get_record_count(); ++j) {
+        const HashDataPage::Slot &slot = data_page->slot(j);
+        if (data_page->interpret_record(slot.offset_)->owner_id_.is_keylocked()) {
+          std::cout << "  wtf.locked(bin="<<i<<") " << j<< "/"<< data_page->get_record_count() << std::endl;
         }
       }
     }
-    ASSERT_ND(pick!= -1);
-    // If something is deleted during the previous for loop, then we may end up using an empty slot
-    // This is kind of messy, and could possibly screw things up
-    // if wetry to use a key that doesn't exist. I worry we're not okay since we're recomputing the
-    // hash using the key instead of using the tag and bin number.
-    // Thought: do we have room for a flag saying "I'm a slot that has been created"?
-
-    // This part is silly, we should be using the tag to compute the other bin, not recomputing from
-    // scratch. TODO:(Bill) Make this part properly use tag.
-    uint16_t key_length = data_page->slot(pick).key_length_;
-    uint32_t offset = data_page->slot(pick).offset_;
-    Record* kickrec = data_page->interpret_record(offset);
-    char* key = kickrec->payload_;
-    HashCombo combo(key, key_length, metadata_.bin_bits_);
-    CHECK_ERROR_CODE(lookup_bin(context, true, &combo));
-    CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo)); //This will add the next
-    // data page to the reader set. If we use the tag instead to get the next data_page
-    // we will have to do it manually.
-    HashDataPage* other_page = combo.data_pages_[0];
-    if (other_page == data_page) {
-      other_page = combo.data_pages_[1];
-    }
-    delete_record(context, key, key_length);
-    uint8_t choice = (combo.data_pages_[0] == other_page) ? 0 : 1;
-    insert_record_chosen_bin(context, key, key_length,
-                             kickrec->payload_,
-                             combo.payload_length_,
-                             choice, combo, depth);
   }
-  return kErrorCodeOk;
 }
 
-ErrorCode HashStoragePimpl::insert_record_chosen_bin(
+
+ErrorStack HashStoragePimpl::make_room(
+  thread::Thread* context,
+  HashDataPage* data_page,
+  int depth) {
+  std::cout<<"-------------------------- KICKOUT"<<std::endl;
+  if (depth > kMaxCuckooDepth) return ERROR_STACK(kErrorCodeStrCuckooTooDeep);
+  int hit_index = 0;  // says how many valid victim candidates we've seen
+  uint32_t bin_num = data_page->get_bin();
+  std::cout<<"--"<<bin_num<<std::endl;
+  uint32_t storageid = holder_->get_hash_metadata()->id_;
+  int kickout_index = context->get_current_xct().read_frequency(bin_num, storageid).kickout_count;
+  int pick = -1;  // NOTE: This protocol will do poorly if transactions are short,
+  // because higher-indexed slots will never get the opportunity to be kicked out.
+  // Instead a transaction should pick a starting index, and index
+  // the victim-number modulo the size of the bin from there.
+  ASSERT_ND(data_page->get_record_count() >= kickout_index);
+  //ASSERT_ND(data_page->get_record_count() > 0);
+  if (kickout_index > data_page->get_record_count()) return ERROR_STACK(kErrorCodeStrNothingToKickout);
+  for (int x = 0; x < kMaxEntriesPerBin; x++) {
+    if ((data_page->slot(x).flags_ & HashDataPage::kFlagDeleted) == 0) {
+      hit_index++;
+      if (hit_index == kickout_index) {
+        pick = x;
+        x = kMaxEntriesPerBin + 1;
+      }
+    }
+  }
+  ASSERT_ND(pick!= -1);
+  // If something is deleted during the previous for loop, then we may end up using an empty slot
+    // This is kind of messy, and could possibly screw things up
+  // if wetry to use a key that doesn't exist. I worry we're not okay since we're recomputing the
+  // hash using the key instead of using the tag and bin number.
+  // Thought: do we have room for a flag saying "I'm a slot that has been created"?
+
+  // This part is silly, we should be using the tag to compute the other bin, not recomputing from
+  // scratch. TODO:(Bill) Make this part properly use tag.
+  uint16_t key_length = data_page->slot(pick).key_length_;
+  uint32_t offset = data_page->slot(pick).offset_;
+  Record* kickrec = data_page->interpret_record(offset);
+  // ASSERT_ND(kickrec->owner_id_.get_thread_id() == context->get_thread_id());
+  ASSERT_ND(kickrec->owner_id_.is_keylocked() == false);
+  char* key = kickrec->payload_;
+  HashCombo combo(key, key_length, metadata_.bin_bits_);
+  WRAP_ERROR_CODE(lookup_bin(context, true, &combo));
+  WRAP_ERROR_CODE(locate_record(context, key, key_length, &combo)); //This will add the next
+  // data page to the reader set. If we use the tag instead to get the next data_page
+  // we will have to do it manually.
+  HashDataPage* other_page = combo.data_pages_[0];
+  HashDataPage* other_page2 = combo.data_pages_[1]; //TODO delete
+  std::cout<<other_page->get_bin()<<" "<<other_page2->get_bin()<<std::endl;
+  if (other_page == data_page) {
+    other_page = combo.data_pages_[1];
+  }
+  WRAP_ERROR_CODE(delete_record(context, key, key_length));
+  uint8_t choice = (uint8_t)(combo.data_pages_[1] == other_page);
+  CHECK_ERROR(insert_record_chosen_bin(context, key, key_length,
+                                       kickrec->payload_,
+                                       combo.payload_length_,
+                                       choice, combo, depth));
+  return kRetOk;
+}
+
+ErrorStack HashStoragePimpl::insert_record_chosen_bin(
   thread::Thread* context,
   const char* key,
   uint16_t key_length,
@@ -467,18 +521,33 @@ ErrorCode HashStoragePimpl::insert_record_chosen_bin(
   uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
   HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(metadata_.id_, key, key_length, (choice == 1),
-                      combo.tag_, payload, payload_count);
+  uint8_t slot_pick = data_page->find_empty_slot(key_length, payload_count);
+  log_entry->populate(metadata_.id_, key, key_length, (choice == 0),
+                      slot_pick, combo.tag_, payload,
+                      payload_count); //Not sure why we flip choce for populate function?
   Record* page_lock_record = reinterpret_cast<Record*>(&(data_page->page_owner()));
   uint32_t bin_num = combo.bins_[choice];
   uint32_t storageid = holder_->get_hash_metadata()->id_;
-  bool caused_kickout = false;
   if (context->get_current_xct().read_frequency(bin_num , storageid).add_count + data_page->get_record_count() >= kMaxEntriesPerBin) {
-    make_room(context, data_page, 0);
-    caused_kickout = true;
+    context->get_current_xct().add_frequency(bin_num, storageid, true);
+    CHECK_ERROR(make_room(context, data_page, current_depth + 1));
+  } else {
+    context->get_current_xct().add_frequency(bin_num, storageid, false);
   }
-  context->get_current_xct().add_frequency(bin_num, storageid, caused_kickout);
-  return context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry);
+
+  int offset = 0;
+  if (slot_pick != 0) {
+    offset = data_page->slot(slot_pick - 1).offset_ + assorted::align8(data_page->slot(slot_pick - 1).record_length_);
+    ASSERT_ND(offset + key_length + 64 <= kPageSize - kHashDataPageHeaderSize); //picked 64 kind of randomly ...
+  }
+  // What to assert here?
+  Record* actual_record = data_page->interpret_record(offset);
+  WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry));
+  HashInsertDummyLogType* dummy_log = reinterpret_cast<HashInsertDummyLogType*>(
+    context->get_thread_log_buffer().reserve_new_log(HashInsertDummyLogType::calculate_log_length()));
+  dummy_log->populate(storageid);
+  WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, actual_record, dummy_log));
+  return kRetOk;
 }
 
 
@@ -492,7 +561,6 @@ ErrorCode HashStoragePimpl::insert_record(
   CHECK_ERROR_CODE(lookup_bin(context, true, &combo));
   DVLOG(3) << "insert_hash: hash=" << combo;
   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
-
   if (combo.record_) {
     return kErrorCodeStrKeyAlreadyExists;
   }
@@ -510,6 +578,12 @@ ErrorCode HashStoragePimpl::insert_record(
     bin1 = (combo.data_pages_[0]->get_record_count() <= combo.data_pages_[1]->get_record_count());
   }
   uint8_t choice = bin1 ? 0 : 1;
+  //ASSERT_ND(combo.data_pages_[0]->get_bin() + combo.data_pages_[1]->get_bin() != 0);
+  std::cout<<combo.data_pages_[0]->get_bin()<<" "<<combo.data_pages_[1]->get_bin()<<std::endl;
+  if (combo.data_pages_[0]->get_bin() == combo.data_pages_[1]->get_bin()) {
+    HashCombo combo2(key, key_length, metadata_.bin_bits_);
+    CHECK_ERROR_CODE(lookup_bin(context, true, &combo2));
+  }
 
   // lookup_bin should have already created volatile pages for both cases
   HashBinPage* bin_page = combo.bin_pages_[choice];
@@ -519,16 +593,29 @@ ErrorCode HashStoragePimpl::insert_record(
   uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
   HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(metadata_.id_, key, key_length, bin1, combo.tag_, payload, payload_count);
+  uint8_t slot_pick = data_page->find_empty_slot(key_length, payload_count);
+  log_entry->populate(metadata_.id_, key, key_length, bin1,
+                      slot_pick, combo.tag_, payload, payload_count);
   Record* page_lock_record = reinterpret_cast<Record*>(&(data_page->page_owner()));
   uint32_t bin_num = combo.bins_[choice];
   uint32_t storageid = holder_->get_hash_metadata()->id_;
-  bool caused_kickout = false;
-  if (context->get_current_xct().read_frequency(bin_num , storageid).add_count + data_page->get_record_count() > kMaxEntriesPerBin) {
-    make_room(context, data_page, 0);
-    caused_kickout = true;
+  if (context->get_current_xct().read_frequency(bin_num , storageid).add_count + data_page->get_record_count() >= kMaxEntriesPerBin) {
+    context->get_current_xct().add_frequency(bin_num, storageid, true);
+    UNWRAP_ERROR_STACK(make_room(context, data_page, 0));
+  } else {
+    context->get_current_xct().add_frequency(bin_num, storageid, false);
   }
-  context->get_current_xct().add_frequency(bin_num, storageid, caused_kickout);
+  int offset = 0;
+  if (slot_pick != 0) {
+    offset = data_page->slot(slot_pick - 1).offset_ + assorted::align8(data_page->slot(slot_pick - 1).record_length_);
+    ASSERT_ND(offset + key_length + 64 <= kPageSize - kHashDataPageHeaderSize); //picked 64 kind of randomly ...
+  }
+  // What to assert here?
+  Record* actual_record = data_page->interpret_record(offset);
+  HashInsertDummyLogType* dummy_log = reinterpret_cast<HashInsertDummyLogType*>(
+    context->get_thread_log_buffer().reserve_new_log(HashInsertDummyLogType::calculate_log_length()));
+  dummy_log->populate(storageid);
+  CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, actual_record, dummy_log));
   return context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry);
 }
 
@@ -697,6 +784,7 @@ void HashStoragePimpl::apply_insert_record(
   const HashInsertLogType* log_entry,
   Record* record) {
   HashDataPage* data_page = to_page(record);
+  ASSERT_ND(record->owner_id_.is_keylocked());
   ASSERT_ND(!data_page->header().snapshot_);
   uint64_t bin = data_page->get_bin();
   HashBinPage* bin_page = reinterpret_cast<HashBinPage*>(data_page->header().volatile_parent_);
@@ -715,8 +803,8 @@ void HashStoragePimpl::apply_insert_record(
   uint16_t slot = data_page->find_empty_slot(log_entry->key_length_, log_entry->payload_count_);
   the_bin.tags_[slot] = log_entry->hashtag_;
   assorted::raw_atomic_fetch_add<uint16_t>(&the_bin.mod_counter_, 1U);
+  //ASSERT_ND(!log_entry->header_.xct_id_.is_keylocked()); // NOTE: I changed this to not be true!
   data_page->add_record(
-    log_entry->header_.xct_id_,
     slot,
     log_entry->key_length_,
     log_entry->payload_count_,
@@ -742,7 +830,8 @@ void HashStoragePimpl::apply_delete_record(
 
   uint16_t slot = log_entry->slot_;
   // We are deleting this record, so it should be locked
-  ASSERT_ND(data_page->get_record_count() > slot);
+  ASSERT_ND(data_page->get_record_count() > slot); //TODO(Hideaki) Why are we asserting this?
+  ASSERT_ND(record->owner_id_.is_keylocked());
   ASSERT_ND(data_page->interpret_record(slot)->owner_id_.is_keylocked());
   ASSERT_ND((data_page->slot(slot).flags_ & HashDataPage::kFlagDeleted) == 0);
   data_page->slot(slot).flags_ |= HashDataPage::kFlagDeleted;

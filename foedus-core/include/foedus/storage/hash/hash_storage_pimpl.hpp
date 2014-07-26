@@ -40,6 +40,7 @@ class HashStoragePimpl final : public DefaultInitializable {
   HashStoragePimpl(Engine* engine, HashStorage* holder, const HashMetadata &metadata,
             bool create);
 
+  void aaa(thread::Thread* context);
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
@@ -137,7 +138,7 @@ class HashStoragePimpl final : public DefaultInitializable {
    *Keeps track of how many  the transaction has added to the collection of
    * Cuckoo bins assigned to each hash value
    */
-  ErrorCode make_room(
+  ErrorStack make_room(
     thread::Thread* context, HashDataPage* data_page, int depth);
 
   /**
@@ -145,7 +146,7 @@ class HashStoragePimpl final : public DefaultInitializable {
    * @details Assumes you have already checked that the record doesn't exist and that there
    * is room in the bin. Also assumes the data page has already been created for the bin.
    */
-  ErrorCode insert_record_chosen_bin(
+  ErrorStack insert_record_chosen_bin(
     thread::Thread* context,
     const char* key,
     uint16_t key_length,

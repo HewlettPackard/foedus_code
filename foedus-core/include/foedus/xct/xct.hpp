@@ -34,6 +34,7 @@ class Xct {
  public:
   enum Constants {
     kMaxNodeSets = 256,
+    kFrequencyHashSize = 256,
   };
 
 
@@ -63,6 +64,7 @@ class Xct {
   void                activate(IsolationLevel isolation_level, bool schema_xct = false) {
     ASSERT_ND(!active_);
     active_ = true;
+    frequency_hash_.clear();
     schema_xct_ = schema_xct;
     isolation_level_ = isolation_level;
     node_set_size_ = 0;
@@ -273,7 +275,7 @@ class Xct {
    * @brief read(bin, storageid) promises to return a number at least as great as
    * |inserts - deletions| run by the thread on the specified bin number in the specified
    * storage id.
-   * @details (out of date)
+   * @details (a little out of date -- predates kickout-counter)
    * Since FrequencyHash hashes several bins from various storage ids to the same
    * hash-position, it will sometimes claim that the transaction has inserted more things into
    * a given bin than it actually has. So that we can use FrequencyHash in order to know when we
@@ -291,27 +293,32 @@ class Xct {
    */
 
   struct FrequencyHash{
-    KickoutInfo* array_;
-    uint32_t size_;
-    FrequencyHash(uint32_t size) {  // Size must be a power of two
-      array_ = new KickoutInfo[size];
-      // QUESTION: Does that initialize everything to zero correctly??
-      size_ = size;
+    KickoutInfo array_[kFrequencyHashSize];
+    FrequencyHash() {  // Size must be a power of two
+     clear();
     }
-    uint32_t hash(uint32_t a) {  // TODO(Bill) Add in an actual hash function
-      return 1;
+    uint32_t hash(uint32_t a) {  // Borrowed from Wang
+      a = (a+0x7ed55d16) + (a<<12);
+      a = (a^0xc761c23c) ^ (a>>19);
+      a = (a+0x165667b1) + (a<<5);
+      a = (a+0xd3a2646c) ^ (a<<9);
+      a = (a+0xfd7046c5) + (a<<3);
+      a = (a^0xb55a4f09) ^ (a>>16);
+      return a;
     }
     void add(uint32_t bin, uint32_t storageid, bool caused_kickout) {
-      uint32_t bucket = (hash(bin) ^ hash(storageid)) % size_;
+      uint32_t bucket = (hash(bin) ^ hash(storageid)) % kFrequencyHashSize;
       if (!caused_kickout) array_[bucket].add_count++;
       if (caused_kickout) array_[bucket].kickout_count++;
     }
     KickoutInfo read(uint32_t bin, uint32_t storageid){
-      uint32_t bucket = (hash(bin) ^ hash(storageid)) % size_;
+      uint32_t bucket = (hash(bin) ^ hash(storageid)) % kFrequencyHashSize;
       return array_[bucket];
     }
+    void clear() {
+      for (int x = 0; x < kFrequencyHashSize; x++) array_[x] = KickoutInfo();
+    }
   };
-
 
   FrequencyHash frequency_hash_;
 

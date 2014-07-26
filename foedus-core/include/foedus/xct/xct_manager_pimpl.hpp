@@ -93,7 +93,8 @@ class XctManagerPimpl final : public DefaultInitializable {
    * @details
    * Assuming phase 1 and 2 are successfully completed, apply all changes and unlock locks.
    */
-  void        precommit_xct_apply(thread::Thread* context, Epoch *commit_epoch);
+  void        precommit_xct_apply(thread::Thread* context, Epoch *commit_epoch,
+                                  WriteXctAccess *write_set_original);
   /** unlocking all acquired locks, used when aborts. */
   void        precommit_xct_unlock(thread::Thread* context);
 

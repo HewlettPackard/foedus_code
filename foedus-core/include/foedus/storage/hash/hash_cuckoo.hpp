@@ -178,10 +178,10 @@ inline uint64_t hashinate(const void *key, uint16_t key_length) {
  */
 inline HashTag tag_consume(HashTag current, uint64_t slice) {
   return current ^
-    static_cast<uint16_t>(slice >> 48) ^
-    static_cast<uint16_t>(slice >> 32) ^
-    static_cast<uint16_t>(slice >> 16) ^
-    static_cast<uint16_t>(slice);
+    (static_cast<uint16_t>(slice >> 48) * 0xDEADU + 0xBEEFU) ^
+    (static_cast<uint16_t>(slice >> 32) * 0x8273U + 0xDA34U) ^
+    (static_cast<uint16_t>(slice >> 16) * 0xF3ACU + 0x42F9U) ^
+    (static_cast<uint16_t>(slice)  * 0xBAD0U + 0xF00DU);
 }
 
 /**

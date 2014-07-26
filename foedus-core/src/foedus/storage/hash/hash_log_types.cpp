@@ -79,6 +79,12 @@ std::ostream& operator<<(std::ostream& o, const HashInsertLogType& v) {
   return o;
 }
 
+std::ostream& operator<<(std::ostream& o, const HashInsertDummyLogType& v) {
+  o << "<HashInsertDummyLogType>"
+    << "</HashInsertDummyLogType>";
+  return o;
+}
+
 std::ostream& operator<<(std::ostream& o, const HashDeleteLogType& v) {
   o << "<HashDeleteLogType>"
     << "<key_length_>" << v.key_length_ << "</key_length_>"

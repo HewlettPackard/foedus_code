@@ -20,8 +20,7 @@
 
 namespace foedus {
 namespace xct {
-Xct::Xct(Engine* engine, thread::ThreadId thread_id) : engine_(engine), thread_id_(thread_id),
-frequency_hash_(1<<8) {
+Xct::Xct(Engine* engine, thread::ThreadId thread_id) : engine_(engine), thread_id_(thread_id) {
   id_ = XctId();
   active_ = false;
   read_set_ = nullptr;

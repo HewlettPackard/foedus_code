@@ -1,4 +1,4 @@
-add_foedus_test_individual(test_hash_basic "Create;CreateAndQuery;CreateAndInsert;CreateAndInsertAndRead;Overwrite;CreateAndDrop;Test1")
+add_foedus_test_individual(test_hash_basic "Create;CreateAndQuery;CreateAndInsert;CreateAndInsertAndRead;Overwrite;CreateAndDrop;Test1;MassInsert")
 
 set(test_hash_tpcb_individuals
   SingleThreadedNoContention

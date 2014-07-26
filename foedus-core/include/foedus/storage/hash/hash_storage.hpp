@@ -182,6 +182,7 @@ class HashStorage CXX11_FINAL : public virtual Storage {
     return insert_record(context, &key, sizeof(key), payload, payload_count);
   }
 
+  void aaa(thread::Thread* context);
   // delete_record() methods
 
   /**

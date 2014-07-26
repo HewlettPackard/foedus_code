@@ -163,7 +163,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
    * @details
    * This private log buffer is a circular buffer where the \e head is eaten by log gleaner.
    * However, log gleaner is okay to get behind, reading from log file instead (but slower).
-   * Thus, offset_head_ is advanced either by log gleaner or this thread.
+   * Thus, offset_head_ is advanced either by log gleaner ohttps://drive.google.com/?ddrp=1#my-driver this thread.
    * If the latter happens, log gleaner has to give up using in-memory logs and instead
    * read from log files.
    */

@@ -182,6 +182,7 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
     return kErrorCodeXctRaceAbort;
   }
 }
+
 bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch) {
   DVLOG(1) << *context << " Committing read_only";
   *commit_epoch = Epoch();
@@ -191,6 +192,12 @@ bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *com
 
 bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch) {
   DVLOG(1) << *context << " Committing read-write";
+
+  Xct& current_xct = context->get_current_xct();
+  uint64_t write_set_size = current_xct.get_write_set_size();
+  WriteXctAccess  write_set_copy[write_set_size];
+  for (int x = 0; x < write_set_size; x++) write_set_copy[x] = *(current_xct.get_write_set() + x);
+
   precommit_xct_lock(context);  // Phase 1
 
   // BEFORE the first fence, update the in_commit_log_epoch_ for logger
@@ -204,7 +211,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
   assorted::memory_fence_acq_rel();
   bool verified = precommit_xct_verify_readwrite(context);  // phase 2
   if (verified) {
-    precommit_xct_apply(context, commit_epoch);  // phase 3. this also unlocks
+    precommit_xct_apply(context, commit_epoch, &(write_set_copy[0]));  // phase 3. this also unlocks
     // announce log AFTER (with fence) apply, because apply sets xct_order in the logs.
     assorted::memory_fence_release();
     context->get_thread_log_buffer().publish_committed_log(*commit_epoch);
@@ -270,10 +277,10 @@ bool XctManagerPimpl::precommit_xct_schema(thread::Thread* context, Epoch* commi
 
 void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
   Xct& current_xct = context->get_current_xct();
-  WriteXctAccess* write_set = current_xct.get_write_set();
+  WriteXctAccess*  write_set = current_xct.get_write_set();
+
   uint32_t        write_set_size = current_xct.get_write_set_size();
   DVLOG(1) << *context << " #write_sets=" << write_set_size << ", addr=" << write_set;
-
   std::sort(write_set, write_set + write_set_size, WriteXctAccess::compare);
 
 #ifndef NDEBUG
@@ -287,7 +294,7 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
 
   // One differences from original SILO protocol.
   // As there might be multiple write sets on one record, we check equality of next
-  // write set and 1) lock only at the first write-set of the record, 2) unlock at the last.
+  // write set and 1) lock only at the first write-set of the record, 2) unlock at the last
 
   // lock them unconditionally. there is no risk of deadlock thanks to the sort.
   // lock bit is the highest bit of ordinal_and_status_.
@@ -303,6 +310,7 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
     ASSERT_ND(write_set[i].record_->owner_id_.is_keylocked());
   }
   DVLOG(1) << *context << " locked write set";
+
 }
 
 bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epoch *commit_epoch) {
@@ -350,7 +358,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
 
 bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
   Xct& current_xct = context->get_current_xct();
-  const WriteXctAccess*   write_set = current_xct.get_write_set();
+  WriteXctAccess*         write_set = current_xct.get_write_set();
   const uint32_t          write_set_size = current_xct.get_write_set_size();
   const XctAccess*        read_set = current_xct.get_read_set();
   const uint32_t          read_set_size = current_xct.get_read_set_size();
@@ -401,9 +409,10 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
   return true;
 }
 
-void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit_epoch) {
+void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit_epoch,
+                                          WriteXctAccess* write_set_original) {
   Xct& current_xct = context->get_current_xct();
-  WriteXctAccess* write_set = current_xct.get_write_set();
+  WriteXctAccess* write_set = write_set_original; //unsorted
   uint32_t        write_set_size = current_xct.get_write_set_size();
   LockFreeWriteXctAccess* lock_free_write_set = current_xct.get_lock_free_write_set();
   uint32_t                lock_free_write_set_size = current_xct.get_lock_free_write_set_size();
@@ -416,7 +425,8 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
   ASSERT_ND(new_xct_id.get_epoch() == *commit_epoch);
   ASSERT_ND(new_xct_id.get_ordinal() > 0);
   ASSERT_ND(new_xct_id.is_status_bits_off());
-
+//  XctId locked_new_xct_id = new_xct_id;
+//  locked_new_xct_id.keylock_unconditional();
   DVLOG(1) << *context << " generated new xct id=" << new_xct_id;
   for (uint32_t i = 0; i < write_set_size; ++i) {
     WriteXctAccess& write = write_set[i];
@@ -426,17 +436,36 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
     // We must be careful on the memory order of unlock and data write.
     // We must write data first (invoke_apply), then unlock.
     // Otherwise the correctness is not guaranteed.
-    write.log_entry_->header_.xct_id_ = new_xct_id;
+    // Also because we want to write records in order
     log::invoke_apply_record(write.log_entry_, context, write.storage_, write.record_);
     // For this reason, we put memory_fence_release() between data and owner_id writes.
     assorted::memory_fence_release();
     ASSERT_ND(!write.record_->owner_id_.get_epoch().is_valid() ||
       write.record_->owner_id_.before(new_xct_id));  // ordered correctly?
+    // Since we're applying in order, not in sorted order, it's easiest to do unlocks at once after
+//     // we can't just check if next edited record is same record
+//     // TODO: Possibly make the next few lines faster
+//     bool is_final = true;
+//     for (uint32_t x = i + 1; x < write_set_size; x++) {
+//       if (write_set[x].record_ == write_set[i].record_) is_final = false;
+//     }
+//     if (!is_final) {
+//       DVLOG(0) << *context << " Multiple write sets on record " << write_set[i].storage_->get_name()
+//         << ":" << write_set[i].record_ << ". Unlock at the last one of the write sets";
+//       // keep the lock for the next write set
+//     } else {
+//       write.record_->owner_id_ = new_xct_id;  // this also unlocks
+//     }
+  }
+  // Unlock records all at once // Be careful to only overwrite each record's ID once
+  for (uint32_t i = 0; i < write_set_size; ++i) {
+    WriteXctAccess& write = (context->get_current_xct().get_write_set())[i]; //Use sorted list
     if (i < write_set_size - 1 && write_set[i].record_ == write_set[i + 1].record_) {
       DVLOG(0) << *context << " Multiple write sets on record " << write_set[i].storage_->get_name()
         << ":" << write_set[i].record_ << ". Unlock at the last one of the write sets";
       // keep the lock for the next write set
     } else {
+      ASSERT_ND(write.record_->owner_id_.is_keylocked());
       write.record_->owner_id_ = new_xct_id;  // this also unlocks
     }
   }

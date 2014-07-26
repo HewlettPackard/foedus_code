@@ -241,7 +241,6 @@ class HashDataPage final {
 
   /** Used only for inserts when record_count is small enough. */
   inline void               add_record(
-    xct::XctId xct_id,
     uint16_t slot,
     uint16_t key_length,
     uint16_t payload_count,
@@ -254,7 +253,7 @@ class HashDataPage final {
     if (slot >= record_count_) {
       // appending at last
       ASSERT_ND(record_count_ == slot);
-      ASSERT_ND(record_count_ < kMaxEntriesPerBin);
+      ASSERT_ND(record_count_ <= kMaxEntriesPerBin);
       if (record_count_ == 0) {
         pos = 0;
       } else {
@@ -271,14 +270,14 @@ class HashDataPage final {
     slots_[slot].record_length_ = record_length;
     slots_[slot].key_length_ = key_length;
     slots_[slot].flags_ = 0;
-    interpret_record(pos)->owner_id_ = xct_id;
     std::memcpy(data_ + pos + kRecordOverhead, data, key_length + payload_count);
+//  ASSERT_ND(!interpret_record(pos)->owner_id_.is_keylocked()); NOTE: I changed this to not be true
   }
 
   /** Used only for inserts to find a slot we can insert to. */
+  /** Is called before pre-commit */
   inline uint16_t           find_empty_slot(uint16_t key_length, uint16_t payload_count) const {
     // this must be called by insert, which takes lock on the page.
-    ASSERT_ND(page_owner_.is_keylocked());
     if (record_count_ == 0) {
       return 0;
     }

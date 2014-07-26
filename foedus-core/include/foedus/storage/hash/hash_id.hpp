@@ -73,7 +73,7 @@ const uint16_t kMaxEntriesPerBin        =
 /** @brief Maximum depth of cuckoo path
  *  @ingroup HASH
  */
-const uint16_t kMaxCuckooDepth = 100;
+const uint16_t kMaxCuckooDepth = 1000;
 
 /**
  * @brief Number of bins in one hash bin page.
