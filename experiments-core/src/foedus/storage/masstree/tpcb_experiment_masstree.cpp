@@ -11,7 +11,7 @@
  * Unlike array/seq experiments that use array for main tables, this has an additional
  * populate phase to insert required records.
  * @section RESULTS Latest Results
- * 7 MTPS (2014/07/25) not bad...
+ * 8 MTPS (2014/07/25) not bad...
  * 40% of cpu costs find_border_descend. half of it prefetch cost (mm_prefetch). interesting.
  */
 #include <atomic>

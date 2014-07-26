@@ -143,6 +143,7 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     kVolatilePointerFlagSwappable,  // pointer to root page might be swapped!
     root_pointer->volatile_pointer_.components.mod_count + 1,
     offset);
+
   new_root->initialize_volatile_page(
     metadata_.id_,
     new_pointer,
@@ -156,15 +157,18 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     true);    // lock it
   UnlockScope new_scope(new_root);
 
+  new_root->get_version().set_key_count(0);
   MasstreeIntermediatePage::MiniPage& mini_page = new_root->get_minipage(0);
   MasstreePage* foster_child = root->get_foster_child();
   mini_page.mini_version_.lock_version();
-  mini_page.mini_version_.set_inserting_and_increment_key_count();
+  mini_page.mini_version_.set_key_count(1);
+  mini_page.pointers_[0].snapshot_pointer_ = 0;
   mini_page.pointers_[0].volatile_pointer_ = root_pointer->volatile_pointer_;
   mini_page.pointers_[0].volatile_pointer_.components.flags = 0;
   ASSERT_ND(reinterpret_cast<Page*>(root) ==
     context->get_global_volatile_page_resolver().resolve_offset(
       mini_page.pointers_[0].volatile_pointer_));
+  mini_page.pointers_[1].snapshot_pointer_ = 0;
   mini_page.pointers_[1].volatile_pointer_.word = foster_child->header().page_id_;
   mini_page.pointers_[1].volatile_pointer_.components.flags = 0;
   ASSERT_ND(reinterpret_cast<Page*>(foster_child) ==
@@ -312,12 +316,14 @@ ErrorCode MasstreeStoragePimpl::find_border_descend(
     }
     ASSERT_ND(!cur_stable.has_foster_child() || !cur->within_foster_child(slice));
 
-    uint8_t minipage_index = cur->find_minipage(cur_stable.get_key_count(), slice);
+    uint8_t cur_stable_key_count = cur_stable.get_key_count();
+    uint8_t minipage_index = cur->find_minipage(cur_stable_key_count, slice);
     MasstreeIntermediatePage::MiniPage& minipage = cur->get_minipage(minipage_index);
 
     minipage.prefetch();
     PageVersion mini_stable(minipage.get_stable_version());
-    uint8_t pointer_index = minipage.find_pointer(mini_stable.get_key_count(), slice);
+    uint8_t mini_stable_key_count = mini_stable.get_key_count();
+    uint8_t pointer_index = minipage.find_pointer(mini_stable_key_count, slice);
     DualPagePointer& pointer = minipage.pointers_[pointer_index];
     ASSERT_ND(!pointer.is_both_null());
 

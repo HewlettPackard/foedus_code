@@ -181,17 +181,22 @@ struct SplitStrategy {
  * Constructed by hierarchically reading all separators and pointers in old page.
  */
 struct IntermediateSplitStrategy {
+  enum Constants {
+    kMaxSeparators = 170,
+  };
   /**
    * pointers_[n] points to page that is responsible for keys
    * separators_[n - 1] <= key < separators_[n].
    * separators_[-1] is infimum.
    */
-  KeySlice separators_[kMaxIntermediateMiniSeparators * (kMaxIntermediateSeparators + 1) + 1];
-  DualPagePointer pointers_[kMaxIntermediateMiniSeparators * (kMaxIntermediateSeparators + 1) + 1];
-  KeySlice mid_separator_;
-  uint16_t total_separator_count_;
-  uint16_t mid_index_;
+  KeySlice separators_[kMaxSeparators];  // ->1360
+  DualPagePointer pointers_[kMaxSeparators];  // -> 4080
+  KeySlice mid_separator_;  // -> 4088
+  uint16_t total_separator_count_;  // -> 4090
+  uint16_t mid_index_;  // -> 4092
+  uint32_t dummy_;      // -> 4096
 };
+STATIC_SIZE_CHECK(sizeof(IntermediateSplitStrategy), 1 << 12)
 
 struct UnlockScope {
   explicit UnlockScope(MasstreePage* page) : page_(page) {}
@@ -295,11 +300,13 @@ class MasstreeIntermediatePage final : public MasstreePage {
 
   /**
    * Splits this page as a physical-only operation, creating a new foster child.
+   * @param[in] context Thread context
+   * @param[in,out] trigger_child the child page that has a foster child which caused this split.
    * @pre !header_.snapshot_ (split happens to only volatile pages)
    * @pre is_locked() (the page must be locked)
    * @post the new foster_child_ is NOT locked. This is different from BorderPage.
    */
-  ErrorCode split_foster(thread::Thread* context);
+  ErrorCode split_foster(thread::Thread* context, MasstreePage* trigger_child);
 
   /**
    * @brief Adopts a foster-child of given child as an entry in this page.
@@ -319,6 +326,9 @@ class MasstreeIntermediatePage final : public MasstreePage {
     PageVersion mini_stable,
     uint8_t pointer_index,
     MasstreePage* child);
+
+
+  void verify_separators() const;
 
  private:
   // 64
@@ -342,6 +352,10 @@ class MasstreeIntermediatePage final : public MasstreePage {
     uint16_t from,
     uint16_t to,
     KeySlice expected_last_separator);
+  void adopt_from_child_norecord_first_level(
+    uint8_t minipage_index,
+    PageVersion mini_stable,
+    MasstreePage* child);
   /**
    * Sets all mini versions with locked status without atomic operations.
    * This can be used only when this page is first created and still privately owned.

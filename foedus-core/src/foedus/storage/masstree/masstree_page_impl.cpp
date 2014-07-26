@@ -35,6 +35,7 @@ void MasstreePage::initialize_volatile_common(
   KeySlice            foster_fence,
   MasstreePage*       foster_child,
   bool                initially_locked) {
+  std::memset(this, 0, kPageSize);
   header_.init_volatile(
     page_id,
     storage_id,
@@ -55,6 +56,7 @@ void MasstreePage::initialize_volatile_common(
   low_fence_ = low_fence;
   foster_fence_ = foster_fence;
   foster_child_ = foster_child;
+  ASSERT_ND(header_.page_version_.get_key_count() == 0);
 }
 
 void MasstreeIntermediatePage::initialize_volatile_page(
@@ -409,6 +411,9 @@ void MasstreeBorderPage::split_foster_migrate_records(
   xct::XctId xct_id,
   const SplitStrategy &strategy,
   MasstreeBorderPage* parent) {
+  ASSERT_ND(!xct_id.is_deleted());
+  ASSERT_ND(!xct_id.is_keylocked());
+  ASSERT_ND(!xct_id.is_rangelocked());
   ASSERT_ND(header_.page_version_.get_key_count() == 0);
   uint8_t migrated_count = 0;
   uint16_t unused_space = kDataSize;
@@ -419,6 +424,10 @@ void MasstreeBorderPage::split_foster_migrate_records(
       remaining_key_length_[migrated_count] = parent->remaining_key_length_[i];
       payload_length_[migrated_count] = parent->payload_length_[i];
       owner_ids_[migrated_count] = xct_id;
+      if (parent->owner_ids_[i].is_deleted()) {
+        // inherit deleted flag, too
+        owner_ids_[migrated_count].set_deleted();
+      }
 
       uint16_t record_length = sizeof(DualPagePointer);
       if (remaining_key_length_[migrated_count] != kKeyLengthNextLayer) {
@@ -436,18 +445,22 @@ void MasstreeBorderPage::split_foster_migrate_records(
   header_.page_version_.set_key_count(migrated_count);
 
   // compact the parent page, too
-  uint8_t deleted_count = 0;
+  // note that we cannot physically delete records here. we can do that only while snapshotting.
   uint8_t compacted_count = 0;
   uint16_t compacted_space = kDataSize;
   // here, we utilize the fact that offset_[i] > offset_[j] iff i < j.
   // in other words, later records never overwrite previously compacted records.
   for (uint8_t i = 0; i < strategy.original_key_count_; ++i) {
-    if (parent->owner_ids_[i].is_deleted()) {
-      ++deleted_count;  // deleted records are compacted, in other words physically deleted.
-    } else if (parent->slices_[i] < strategy.mid_slice_) {
+    if (parent->slices_[i] < strategy.mid_slice_) {
       parent->slices_[compacted_count] = parent->slices_[i];
       parent->remaining_key_length_[compacted_count] = parent->remaining_key_length_[i];
       parent->payload_length_[compacted_count] = parent->payload_length_[i];
+      if (parent->owner_ids_[i].is_deleted()) {
+        parent->owner_ids_[compacted_count] = xct_id;
+        parent->owner_ids_[compacted_count].set_deleted();
+      } else {
+        parent->owner_ids_[compacted_count] = xct_id;
+      }
 
       uint16_t record_length = sizeof(DualPagePointer);
       if (parent->remaining_key_length_[migrated_count] != kKeyLengthNextLayer) {
@@ -463,7 +476,7 @@ void MasstreeBorderPage::split_foster_migrate_records(
     }
   }
   parent->header_.page_version_.set_key_count(compacted_count);
-  ASSERT_ND(deleted_count + migrated_count + compacted_count == strategy.original_key_count_);
+  ASSERT_ND(migrated_count + compacted_count == strategy.original_key_count_);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -489,7 +502,9 @@ void MasstreeIntermediatePage::init_unlock_all_mini() {
   }
 }
 
-ErrorCode MasstreeIntermediatePage::split_foster(thread::Thread* context) {
+ErrorCode MasstreeIntermediatePage::split_foster(
+  thread::Thread* context,
+  MasstreePage* trigger_child) {
   // similar to border page's split, but simpler in a few places because
   // 1) intermediate page doesn't have owner_id for each pointer (no lock concerns).
   // 2) intermediate page is already completed sorted.
@@ -503,12 +518,14 @@ ErrorCode MasstreeIntermediatePage::split_foster(thread::Thread* context) {
   get_version().set_inserting();
   get_version().set_splitting();
   DVLOG(1) << "Splitting an intermediate page... ";
+  verify_separators();
 
   memory::NumaCoreMemory* memory = context->get_thread_memory();
   memory::PagePoolOffset offset = memory->grab_free_volatile_page();
   if (offset == 0) {
     return kErrorCodeMemoryNoFreePages;
   }
+
   memory::PagePoolOffset work_offset = memory->grab_free_volatile_page();
   if (work_offset == 0) {
     memory->release_free_volatile_page(offset);
@@ -516,28 +533,54 @@ ErrorCode MasstreeIntermediatePage::split_foster(thread::Thread* context) {
   }
 
   // from now on no failure possible.
-  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
-    get_minipage(i).mini_version_.lock_version(true, true);
-  }
-
-  IntermediateSplitStrategy* strategy =
-    reinterpret_cast<IntermediateSplitStrategy*>(
-      context->get_local_volatile_page_resolver().resolve_offset(work_offset));
-  ASSERT_ND(sizeof(IntermediateSplitStrategy) <= kPageSize);
-  split_foster_decide_strategy(strategy);
 
   MasstreeIntermediatePage* new_page = reinterpret_cast<MasstreeIntermediatePage*>(
-    context->get_local_volatile_page_resolver().resolve_offset(offset));
+  context->get_local_volatile_page_resolver().resolve_offset(offset));
   VolatilePagePointer new_pointer;
   new_pointer = combine_volatile_page_pointer(context->get_numa_node(), 0, 0, offset);
   KeySlice old_foster_fence = foster_fence_;
-  KeySlice new_foster_fence = strategy->mid_separator_;
+
+  // it might be a sorted insert.
+  KeySlice new_foster_fence;
+  bool no_record_split = false;
+  const MiniPage& last_minipage = get_minipage(key_count);
+  if (trigger_child->get_foster_fence()
+      > last_minipage.separators_[last_minipage.mini_version_.get_key_count() - 1]) {
+    DVLOG(0) << "Seems like a sequential insert. let's try no-record split";
+    trigger_child->lock(true, true);
+    // we are sure only after we lock it
+    if (trigger_child->has_foster_child() && trigger_child->get_foster_fence()
+        > last_minipage.separators_[last_minipage.mini_version_.get_key_count() - 1]) {
+      DVLOG(0) << "Yes, we can do no-record split!";
+      no_record_split = true;
+      // triggering key as new separator (remember, low-fence is inclusive)
+      new_foster_fence = trigger_child->get_foster_fence();
+      // keep trigger_child locked. we have to unlock it later.
+    } else {
+      // unluckily we couldn't. fall back to usual path
+      LOG(INFO) << "Interesting no-record split failed because of concurrent threads.";
+      trigger_child->unlock();
+    }
+  }
+
+  IntermediateSplitStrategy* strategy = nullptr;
+  if (!no_record_split) {
+    for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
+      get_minipage(i).mini_version_.lock_version(true, true);
+    }
+    strategy = reinterpret_cast<IntermediateSplitStrategy*>(
+        context->get_local_volatile_page_resolver().resolve_offset(work_offset));
+    ASSERT_ND(sizeof(IntermediateSplitStrategy) <= kPageSize);
+    split_foster_decide_strategy(strategy);
+    new_foster_fence = strategy->mid_separator_;  // the new separator is the low fence of new page
+  }
+
   new_page->initialize_volatile_page(
     header_.storage_id_,
     new_pointer,
     get_layer(),
     false,
-    new_foster_fence,  // the new separator is the low fence of new page
+    new_foster_fence,
     high_fence_,          // high fence is same as this page
     is_high_fence_supremum(),
     old_foster_fence,  // inherit foster key and child
@@ -547,32 +590,46 @@ ErrorCode MasstreeIntermediatePage::split_foster(thread::Thread* context) {
   UnlockScope new_scope(new_page);
   new_page->init_lock_all_mini();
 
-  // reconstruct both old page and new page.
-  // we are copying contents from the strategy object, so no worry on overwritten source.
-  this->split_foster_migrate_records(*strategy, 0, strategy->mid_index_ + 1, new_foster_fence);
-  new_page->split_foster_migrate_records(
-    *strategy,
-    strategy->mid_index_ + 1,
-    strategy->total_separator_count_,
-    high_fence_);
+  if (!no_record_split) {
+    // reconstruct both old page and new page.
+    // we are copying contents from the strategy object, so no worry on overwritten source.
+    this->split_foster_migrate_records(*strategy, 0, strategy->mid_index_ + 1, new_foster_fence);
+    new_page->split_foster_migrate_records(
+      *strategy,
+      strategy->mid_index_ + 1,
+      strategy->total_separator_count_,
+      high_fence_);
 
-  new_page->init_unlock_all_mini();
-  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
-    get_minipage(i).mini_version_.unlock_version();
+    for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
+      get_minipage(i).mini_version_.unlock_version();
+    }
+  } else {
+    // no record split. this is it!
+    new_page->get_version().set_key_count(0);
+    new_page->get_minipage(0).mini_version_.set_key_count(0);
+    new_page->get_minipage(0).pointers_[0].snapshot_pointer_ = 0;
+    new_page->get_minipage(0).pointers_[0].volatile_pointer_.word
+      = trigger_child->get_foster_child()->header().page_id_;
+    new_page->get_minipage(0).pointers_[0].volatile_pointer_.components.flags = 0;
+    trigger_child->clear_foster();
+    trigger_child->unlock();
   }
 
+  new_page->init_unlock_all_mini();
   foster_child_ = new_page;
   foster_fence_ = new_foster_fence;
   if (!header_.page_version_.has_foster_child()) {
     header_.page_version_.set_has_foster_child(true);
   }
 
+  watch.stop();
   DVLOG(1) << "Costed " << watch.elapsed() << " cycles to split a node. original node"
     << " key count: " << static_cast<int>(key_count)
     << "->" << header_.page_version_.get_key_count()
-    << ", total separator count=" << strategy->total_separator_count_;
-
+    << (no_record_split ? " no record split" : " usual split");
   memory->release_free_volatile_page(work_offset);
+
+  verify_separators();
   return kErrorCodeOk;
 }
 
@@ -589,7 +646,8 @@ void MasstreeIntermediatePage::split_foster_decide_strategy(IntermediateSplitStr
         out->separators_[out->total_separator_count_ - 1] < mini_page.separators_[j]);
       out->separators_[out->total_separator_count_] = mini_page.separators_[j];
       out->pointers_[out->total_separator_count_] = mini_page.pointers_[j];
-      ++out->total_separator_count_;
+      ++(out->total_separator_count_);
+      ASSERT_ND(out->total_separator_count_ < IntermediateSplitStrategy::kMaxSeparators);
     }
     if (i == key_count) {
       ASSERT_ND(out->total_separator_count_ == 0 ||
@@ -601,7 +659,8 @@ void MasstreeIntermediatePage::split_foster_decide_strategy(IntermediateSplitStr
       out->separators_[out->total_separator_count_] = separators_[i];
     }
     out->pointers_[out->total_separator_count_] = mini_page.pointers_[separator_count];
-    ++out->total_separator_count_;
+    ++(out->total_separator_count_);
+    ASSERT_ND(out->total_separator_count_ < IntermediateSplitStrategy::kMaxSeparators);
   }
   out->mid_index_ = out->total_separator_count_ / 2;
   out->mid_separator_ = out->separators_[out->mid_index_];
@@ -613,11 +672,31 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
   uint16_t to,
   KeySlice expected_last_separator) {
   ASSERT_ND(is_locked());
+
+#ifndef NDEBUG
+  // for ease of debugging zero-out the page first (only data part). only for debug build.
+  for (uint8_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
+    if (i < kMaxIntermediateSeparators) {
+      separators_[i] = 0;
+    }
+    MiniPage& minipage = get_minipage(i);
+    minipage.mini_version_.set_key_count(0);
+    for (uint8_t j = 0; j <= kMaxIntermediateMiniSeparators; ++j) {
+      if (j < kMaxIntermediateMiniSeparators) {
+        minipage.separators_[j] = 0;
+      }
+      minipage.pointers_[j].snapshot_pointer_ = 0;
+      minipage.pointers_[j].volatile_pointer_.word = 0;
+    }
+  }
+#endif  // NDEBUG
+
   // construct this page. copy the separators and pointers.
   // we distribute them as much as possible in first level. if mini pages have little
   // entries to start with, following adoption would be only local.
-  float entries_per_mini = static_cast<float>(strategy.mid_index_) / kMaxIntermediateSeparators;
-  ASSERT_ND(to >= from);
+  float entries_per_mini = static_cast<float>(strategy.mid_index_)
+    / (kMaxIntermediateSeparators + 1);
+  ASSERT_ND(to > from);
   const uint16_t move_count = to - from;
 
   // it looks a bit complicated because each separator is "one-off" due to first-level separator.
@@ -628,35 +707,75 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
   MiniPage* cur_mini_page = &get_minipage(0);
   ASSERT_ND(cur_mini_page->mini_version_.is_locked());
   cur_mini_page->pointers_[0] = strategy.pointers_[from];
+  ASSERT_ND(!strategy.pointers_[from].is_both_null());
   KeySlice next_separator = strategy.separators_[from];
 
   for (uint16_t i = 1; i < move_count; ++i) {
+    uint16_t original_index = i + from;
+    ASSERT_ND(!strategy.pointers_[original_index].is_both_null());
     if (i >= next_mini_threshold && cur_mini < kMaxIntermediateSeparators) {
       // switch to next mini page. so, the separator goes to the first level
       cur_mini_page->mini_version_.set_key_count(cur_mini_separators);  // close the current
+      ASSERT_ND(cur_mini_page->mini_version_.get_key_count() <= kMaxIntermediateMiniSeparators);
+
       separators_[cur_mini] = next_separator;
 
       next_mini_threshold += entries_per_mini;
-      ++cur_mini;
       cur_mini_separators = 0;
+      ++cur_mini;
       cur_mini_page = &get_minipage(cur_mini);
       ASSERT_ND(cur_mini_page->mini_version_.is_locked());
+
+      cur_mini_page->pointers_[0] = strategy.pointers_[original_index];
     } else {
       // still the same mini page. so, the separator goes to the second level
       cur_mini_page->separators_[cur_mini_separators] = next_separator;
       ++cur_mini_separators;
       ASSERT_ND(cur_mini_separators <= kMaxIntermediateMiniSeparators);
+
+      cur_mini_page->pointers_[cur_mini_separators] = strategy.pointers_[original_index];
     }
-    uint16_t original_index = i + from;
-    cur_mini_page->pointers_[cur_mini_separators] = strategy.pointers_[original_index];
     next_separator = strategy.separators_[original_index];
   }
   cur_mini_page->mini_version_.set_key_count(cur_mini_separators);  // close the last one
+  ASSERT_ND(cur_mini_page->mini_version_.get_key_count() <= kMaxIntermediateMiniSeparators);
   get_version().set_key_count(cur_mini);
+  ASSERT_ND(get_version().get_key_count() <= kMaxIntermediateSeparators);
 
   // the last separator is ignored because it's foster-fence/high-fence.
   ASSERT_ND(next_separator == expected_last_separator);
+
+  verify_separators();
 }
+
+void MasstreeIntermediatePage::verify_separators() const {
+#ifndef NDEBUG
+  for (uint8_t i = 0; i <= get_version().get_key_count(); ++i) {
+    KeySlice low, high;
+    if (i < get_version().get_key_count()) {
+      if (i > 0) {
+        low = separators_[i - 1];
+      } else {
+        low = low_fence_;
+      }
+      high = separators_[i];
+      ASSERT_ND(separators_[i] > low);
+    } else {
+      low = separators_[get_version().get_key_count() - 1];
+      high = high_fence_;
+    }
+    const MiniPage& minipage = get_minipage(i);
+    for (uint8_t j = 0; j <= minipage.mini_version_.get_key_count(); ++j) {
+      ASSERT_ND(!minipage.pointers_[j].is_both_null());
+      if (j < minipage.mini_version_.get_key_count()) {
+        ASSERT_ND(minipage.separators_[j] > low);
+        ASSERT_ND(minipage.separators_[j] < high);
+      }
+    }
+  }
+#endif  // NDEBUG
+}
+
 /////////////////////////////////////////////////////////////////////////////////////
 ///
 ///                      Interior node's Local Rebalance
@@ -686,7 +805,6 @@ ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
   IntermediateSplitStrategy* strategy =
     reinterpret_cast<IntermediateSplitStrategy*>(
       context->get_local_volatile_page_resolver().resolve_offset(work_offset));
-  ASSERT_ND(sizeof(IntermediateSplitStrategy) <= kPageSize);
   split_foster_decide_strategy(strategy);
 
   // reconstruct this page.
@@ -702,8 +820,8 @@ ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
     << " key count: " << static_cast<int>(key_count)
     << "->" << header_.page_version_.get_key_count()
     << ", total separator count=" << count;
-
   memory->release_free_volatile_page(work_offset);
+  verify_separators();
   return kErrorCodeOk;
 }
 
@@ -726,17 +844,34 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
     // oh, then we also have to do rebalance
     // at this point we have to lock the whole page
     ASSERT_ND(cur_stable.get_key_count() <= kMaxIntermediateSeparators);
-    lock(true, true);
+    lock();
     UnlockScope scope(this);
-    if (get_version().get_key_count() == kMaxIntermediateSeparators) {
+    if (get_version().get_split_counter() != cur_stable.get_split_counter()) {
+      LOG(INFO) << "Interesting. concurrent thread has already split the entire node? retry";
+      return kErrorCodeOk;
+    } else if (get_version().get_key_count() == kMaxIntermediateSeparators) {
       // even that is impossible. let's split the whole page
-      CHECK_ERROR_CODE(split_foster(context));
+      get_version().set_splitting();
+      CHECK_ERROR_CODE(split_foster(context, child));
       return kErrorCodeOk;  // retry to re-calculate indexes. it's simpler
     }
 
     ASSERT_ND(get_version().get_key_count() < kMaxIntermediateSeparators);
-    // in this case, we locally rebalance.
-    CHECK_ERROR_CODE(local_rebalance(context));
+    // okay, it's possible to create a new first-level entry.
+    // there are a few ways to do this.
+    // 1) rebalance the whole page. in many cases this achieves the best layout for upcoming
+    // inserts. so basically we do this.
+    // 2) append to the end. this is very efficient if the inserts are sorted.
+    // quite similar to the "no-record split" optimization in border page.
+    if (get_version().get_key_count() == minipage_index &&
+        mini_stable.get_key_count() == pointer_index) {
+      // this strongly suggests that it's a sorted insert. let's do that.
+      adopt_from_child_norecord_first_level(minipage_index, mini_stable, child);
+    } else {
+      // in this case, we locally rebalance.
+      get_version().set_splitting();
+      CHECK_ERROR_CODE(local_rebalance(context));
+    }
     return kErrorCodeOk;  // retry to re-calculate indexes
   }
 
@@ -761,8 +896,13 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
     }
     ASSERT_ND(child->get_foster_child());
     ASSERT_ND(!child->get_foster_child()->header().snapshot_);
+    MasstreePage* grandchild = child->get_foster_child();
+    ASSERT_ND(grandchild->get_low_fence() == child->get_foster_fence());
+    ASSERT_ND(grandchild->get_high_fence() == child->get_high_fence());
+
+    KeySlice new_separator = child->get_foster_fence();
     VolatilePagePointer new_pointer;
-    new_pointer.word = child->get_foster_child()->header().page_id_;
+    new_pointer.word = grandchild->header().page_id_;
 
     // now we are sure we can adopt the child's foster child.
     ASSERT_ND(pointer_index <= mini_key_count);
@@ -775,26 +915,90 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
       DVLOG(1) << "Adopt with splits.";
       minipage.mini_version_.set_splitting();
       std::memmove(
-        minipage.pointers_ + pointer_index + 1,
-        minipage.pointers_ + pointer_index,
+        minipage.separators_ + pointer_index + 1,
+        minipage.separators_ + pointer_index,
         sizeof(KeySlice) * (mini_key_count - pointer_index));
       std::memmove(
+        minipage.pointers_ + pointer_index + 2,
         minipage.pointers_ + pointer_index + 1,
-        minipage.pointers_ + pointer_index,
         sizeof(DualPagePointer) * (mini_key_count - pointer_index));
     }
 
     minipage.mini_version_.set_inserting_and_increment_key_count();
     ASSERT_ND(minipage.mini_version_.get_key_count() == mini_key_count + 1);
-    minipage.separators_[pointer_index] = child->get_foster_fence();
+    ASSERT_ND(!minipage.pointers_[pointer_index].is_both_null());
+    minipage.separators_[pointer_index] = new_separator;
     minipage.pointers_[pointer_index + 1].snapshot_pointer_ = 0;
     minipage.pointers_[pointer_index + 1].volatile_pointer_ = new_pointer;
     child->clear_foster();
+    ASSERT_ND(child->get_high_fence() == new_separator);
+    ASSERT_ND(child->get_high_fence() == grandchild->get_low_fence());
+    verify_separators();
   }
 
   return kErrorCodeOk;
 }
 
+
+void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
+  uint8_t minipage_index,
+  PageVersion mini_stable,
+  MasstreePage* child) {
+  ASSERT_ND(is_locked());
+  // note that we have to lock from parent to child. otherwise deadlock possible.
+  MiniPage& minipage = get_minipage(minipage_index);
+  minipage.mini_version_.lock_version();
+  UnlockVersionScope mini_scope(&minipage.mini_version_);
+  if (minipage.mini_version_.get_split_counter() != mini_stable.get_split_counter()) {
+    LOG(INFO) << "Interesting. concurrent thread has already split the minipage? retry";
+    return;
+  }
+  ASSERT_ND(minipage.mini_version_.get_key_count() == mini_stable.get_key_count());
+  child->lock(true, true);
+  UnlockScope scope_child(child);
+  if (!child->has_foster_child()) {
+    LOG(INFO) << "Interesting. concurrent thread has already adopted? retry";
+    return;
+  }
+
+  // in this case we don't need to increment split count.
+  DVLOG(0) << "Great, sorted insert. No-split adopt";
+  get_version().set_inserting();
+
+  MasstreePage* grandchild = child->get_foster_child();
+  ASSERT_ND(grandchild->get_low_fence() == child->get_foster_fence());
+  ASSERT_ND(grandchild->get_high_fence() == child->get_high_fence());
+  KeySlice new_separator = child->get_foster_fence();
+  VolatilePagePointer new_pointer;
+  new_pointer.word = grandchild->header().page_id_;
+  MiniPage& new_minipage = mini_pages_[minipage_index + 1];
+  new_minipage.mini_version_.lock_version(true, true);
+  UnlockVersionScope new_mini_scope(&(new_minipage.mini_version_));
+
+#ifndef NDEBUG
+  // for ease of debugging zero-out the page first (only data part). only for debug build.
+  new_minipage.mini_version_.set_key_count(0);
+  for (uint8_t j = 0; j <= kMaxIntermediateMiniSeparators; ++j) {
+    if (j < kMaxIntermediateMiniSeparators) {
+      new_minipage.separators_[j] = 0;
+    }
+    new_minipage.pointers_[j].snapshot_pointer_ = 0;
+    new_minipage.pointers_[j].volatile_pointer_.word = 0;
+  }
+#endif  // NDEBUG
+
+  new_minipage.mini_version_.set_key_count(0);
+  new_minipage.pointers_[0].snapshot_pointer_ = 0;
+  new_minipage.pointers_[0].volatile_pointer_ = new_pointer;
+  child->clear_foster();
+  ASSERT_ND(child->get_high_fence() == new_separator);
+  ASSERT_ND(child->get_high_fence() == grandchild->get_low_fence());
+
+  separators_[minipage_index] = new_separator;
+  get_version().increment_key_count();
+  ASSERT_ND(get_version().get_key_count() == minipage_index + 1);
+  verify_separators();
+}
 
 }  // namespace masstree
 }  // namespace storage
