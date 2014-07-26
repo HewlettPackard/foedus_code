@@ -536,6 +536,26 @@ class MasstreeBorderPage final : public MasstreePage {
     uint16_t last_offset = static_cast<uint16_t>(offsets_[new_index - 1]) << 4;
     return record_size <= last_offset;
   }
+
+  bool    compare_key(uint8_t index, const void* be_key, uint16_t key_length) const ALWAYS_INLINE {
+    uint16_t remaining = key_length - get_layer() * sizeof(KeySlice);
+    if (remaining != remaining_key_length_[index]) {
+      return false;
+    }
+    KeySlice slice = slice_layer(be_key, key_length, get_layer());
+    if (slice != slices_[index]) {
+      return false;
+    }
+    if (remaining > sizeof(KeySlice)) {
+      return std::memcmp(
+        reinterpret_cast<const char*>(be_key) + (get_layer() + 1) * sizeof(KeySlice),
+        get_record(index),
+        remaining - sizeof(KeySlice)) == 0;
+    } else {
+      return true;
+    }
+  }
+
   /**
    * Installs a new physical record that doesn't exist logically (delete bit on).
    * This sets 1) slot, 2) suffix key, and 3) XctId. Payload is not set yet.

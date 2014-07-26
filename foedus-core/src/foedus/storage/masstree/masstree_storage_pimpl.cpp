@@ -841,6 +841,8 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
   thread::Thread* context,
   MasstreeBorderPage* border,
   uint8_t index,
+  const void* be_key,
+  uint16_t key_length,
   void* payload,
   uint16_t* payload_capacity) {
   CHECK_ERROR_CODE(xct::optimistic_read_protocol(
@@ -848,8 +850,9 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
     holder_,
     border->get_owner_id(index),
     border->header().snapshot_,
-    [border, index, payload, payload_capacity](xct::XctId observed){
-      if (border->does_point_to_layer(index)) {
+    [border, index, be_key, key_length, payload, payload_capacity](xct::XctId observed) {
+      if (border->does_point_to_layer(index) ||
+        !border->compare_key(index, be_key, key_length)) {
         return kErrorCodeStrMasstreeRetry;
       } else if (observed.is_deleted()) {
         // in this case, we don't need a range lock. the physical record is surely there.
@@ -874,6 +877,8 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
   thread::Thread* context,
   MasstreeBorderPage* border,
   uint8_t index,
+  const void* be_key,
+  uint16_t key_length,
   void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
@@ -882,8 +887,10 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
     holder_,
     border->get_owner_id(index),
     border->header().snapshot_,
-    [border, index, payload, payload_offset, payload_count](xct::XctId observed){
-      if (border->does_point_to_layer(index)) {
+    [border, index, be_key, key_length, payload, payload_offset, payload_count]
+    (xct::XctId observed) {
+      if (border->does_point_to_layer(index) ||
+        !border->compare_key(index, be_key, key_length)) {
         return kErrorCodeStrMasstreeRetry;
       } else if (observed.is_deleted()) {
         // in this case, we don't need a range lock. the physical record is surely there.
@@ -907,8 +914,23 @@ ErrorCode MasstreeStoragePimpl::insert_general(
   uint16_t key_length,
   const void* payload,
   uint16_t payload_count) {
-  xct::XctId* owner_id = border->get_owner_id(index);
-  ASSERT_ND(owner_id->is_deleted());
+  // static_cast<uint16t_t>(border->get_layer())
+  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
+    &context->get_current_xct(),
+    holder_,
+    border->get_owner_id(index),
+    false,
+    [border, index, be_key, key_length, payload_count](xct::XctId observed) {
+      if (border->does_point_to_layer(index) ||
+        border->get_payload_length(index) < payload_count ||
+        !border->compare_key(index, be_key, key_length)) {
+        return kErrorCodeStrMasstreeRetry;
+      } else if (!observed.is_deleted()) {
+        return kErrorCodeStrKeyAlreadyExists;
+      } else {
+        return kErrorCodeOk;
+      }
+    }));
   ASSERT_ND(border->get_payload_length(index) == payload_count);
 
   uint16_t log_length = MasstreeInsertLogType::calculate_log_length(key_length, payload_count);
@@ -924,7 +946,7 @@ ErrorCode MasstreeStoragePimpl::insert_general(
 
   return context->get_current_xct().add_to_write_set(
     holder_,
-    owner_id,
+    border->get_owner_id(index),
     border->get_record(index),
     log_entry);
 }
@@ -940,8 +962,9 @@ ErrorCode MasstreeStoragePimpl::delete_general(
     holder_,
     border->get_owner_id(index),
     false,
-    [border, index](xct::XctId observed){
-      if (border->does_point_to_layer(index)) {
+    [border, index, be_key, key_length](xct::XctId observed){
+      if (border->does_point_to_layer(index) ||
+        !border->compare_key(index, be_key, key_length)) {
         return kErrorCodeStrMasstreeRetry;
       } else if (observed.is_deleted()) {
         // in this case, we don't need a range lock. the physical record is surely there.
@@ -976,8 +999,9 @@ ErrorCode MasstreeStoragePimpl::overwrite_general(
     holder_,
     border->get_owner_id(index),
     false,
-    [border, index, payload_offset, payload_count](xct::XctId observed){
-      if (border->does_point_to_layer(index)) {
+    [border, index, be_key, key_length, payload_offset, payload_count](xct::XctId observed){
+      if (border->does_point_to_layer(index) ||
+        !border->compare_key(index, be_key, key_length)) {
         return kErrorCodeStrMasstreeRetry;
       } else if (observed.is_deleted()) {
         // in this case, we don't need a range lock. the physical record is surely there.
@@ -1027,8 +1051,9 @@ ErrorCode MasstreeStoragePimpl::increment_general(
     holder_,
     border->get_owner_id(index),
     false,
-    [border, index, tmp_address, payload_offset](xct::XctId observed){
-      if (border->does_point_to_layer(index)) {
+    [border, index, be_key, key_length, tmp_address, payload_offset](xct::XctId observed){
+      if (border->does_point_to_layer(index) ||
+        !border->compare_key(index, be_key, key_length)) {
         return kErrorCodeStrMasstreeRetry;
       } else if (observed.is_deleted()) {
         // in this case, we don't need a range lock. the physical record is surely there.

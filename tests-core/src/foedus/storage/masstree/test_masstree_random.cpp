@@ -6,6 +6,7 @@
 
 #include <cstring>
 #include <iostream>
+#include <set>
 #include <string>
 
 #include "foedus/engine.hpp"

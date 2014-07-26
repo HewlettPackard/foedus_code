@@ -80,7 +80,14 @@ ErrorCode MasstreeStorage::get_record(
     MasstreeBorderPage* border;
     uint8_t index;
     CHECK_ERROR_CODE(pimpl_->locate_record(context, key, key_length, false, &border, &index));
-    return pimpl_->retrieve_general(context, border, index, payload, payload_capacity);
+    return pimpl_->retrieve_general(
+      context,
+      border,
+      index,
+      key,
+      key_length,
+      payload,
+      payload_capacity);
   });
 }
 
@@ -99,6 +106,8 @@ ErrorCode MasstreeStorage::get_record_part(
       context,
       border,
       index,
+      key,
+      key_length,
       payload,
       payload_offset,
       payload_count);
@@ -120,6 +129,8 @@ ErrorCode MasstreeStorage::get_record_primitive(
       context,
       border,
       index,
+      key,
+      key_length,
       payload,
       payload_offset,
       sizeof(PAYLOAD));
@@ -135,7 +146,15 @@ ErrorCode MasstreeStorage::get_record_normalized(
     MasstreeBorderPage* border;
     uint8_t index;
     CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, false, &border, &index));
-    return pimpl_->retrieve_general(context, border, index, payload, payload_capacity);
+    uint64_t be_key = assorted::htobe<uint64_t>(key);
+    return pimpl_->retrieve_general(
+      context,
+      border,
+      index,
+      &be_key,
+      sizeof(be_key),
+      payload,
+      payload_capacity);
   });
 }
 
@@ -149,10 +168,13 @@ ErrorCode MasstreeStorage::get_record_part_normalized(
     MasstreeBorderPage* border;
     uint8_t index;
     CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, false, &border, &index));
+    uint64_t be_key = assorted::htobe<uint64_t>(key);
     return pimpl_->retrieve_part_general(
       context,
       border,
       index,
+      &be_key,
+      sizeof(be_key),
       payload,
       payload_offset,
       payload_count);
@@ -169,10 +191,13 @@ ErrorCode MasstreeStorage::get_record_primitive_normalized(
     MasstreeBorderPage* border;
     uint8_t index;
     CHECK_ERROR_CODE(pimpl_->locate_record_normalized(context, key, false, &border, &index));
+    uint64_t be_key = assorted::htobe<uint64_t>(key);
     return pimpl_->retrieve_part_general(
       context,
       border,
       index,
+      &be_key,
+      sizeof(be_key),
       payload,
       payload_offset,
       sizeof(PAYLOAD));

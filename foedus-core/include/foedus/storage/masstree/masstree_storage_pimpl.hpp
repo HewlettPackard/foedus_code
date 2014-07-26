@@ -155,12 +155,16 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     thread::Thread* context,
     MasstreeBorderPage* border,
     uint8_t index,
+    const void* be_key,
+    uint16_t key_length,
     void* payload,
     uint16_t* payload_capacity);
   ErrorCode retrieve_part_general(
     thread::Thread* context,
     MasstreeBorderPage* border,
     uint8_t index,
+    const void* be_key,
+    uint16_t key_length,
     void* payload,
     uint16_t payload_offset,
     uint16_t payload_count);
