@@ -54,7 +54,12 @@ class InsertManyNormalizedTask : public thread::ImpersonateTask {
         *reinterpret_cast<uint64_t*>(buf + 123) = key;
         WRAP_ERROR_CODE(masstree->insert_record_normalized(context, key, buf, kBufSize));
         if (i % 50 == 0) {
-          WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+          // WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+          ErrorCode c = xct_manager.precommit_xct(context, &commit_epoch);
+          if (c != kErrorCodeOk) {
+            WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+          }
+
           WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
           std::cout << "inserting:" << i << "/" << kCount << std::endl;
         }

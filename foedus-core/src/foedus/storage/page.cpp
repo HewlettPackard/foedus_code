@@ -17,9 +17,10 @@ std::ostream& operator<<(std::ostream& o, const PageVersion& v) {
     << (copied.is_locked() ? "L" : " ")
     << (copied.is_inserting() ? "I" : " ")
     << (copied.is_splitting() ? "S" : " ")
-    << (copied.is_deleted() ? "D" : " ")
+    << (copied.is_moved() ? "M" : " ")
     << (copied.has_foster_child() ? "F" : " ")
     << (copied.is_high_fence_supremum() ? "H" : " ")
+    << (copied.is_root() ? "R" : " ")
     << "</flags>"
     << "<insert_count>" << copied.get_insert_counter() << "</insert_count>"
     << "<split_count>" << copied.get_split_counter() << "</split_count>"

@@ -46,6 +46,9 @@ class SplitBorderTask : public thread::ImpersonateTask {
       answers[rep] = std::string(data, 200);
       WRAP_ERROR_CODE(masstree->insert_record(context, &key, sizeof(key), data, sizeof(data)));
       WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+      WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+      CHECK_ERROR(masstree->verify_single_thread(context));
+      WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
     }
 
     // now read

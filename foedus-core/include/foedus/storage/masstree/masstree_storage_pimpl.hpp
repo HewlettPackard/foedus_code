@@ -230,7 +230,6 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   ErrorCode follow_page(
     thread::Thread* context,
     bool for_writes,
-    bool root_in_layer,
     storage::DualPagePointer* pointer,
     MasstreePage** page);
   /** Follows to next layer's root page. */
@@ -246,6 +245,9 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     thread::Thread* context,
     MasstreeBorderPage* parent,
     uint8_t parent_index);
+
+  bool track_moved_record(xct::WriteXctAccess* write) ALWAYS_INLINE;
+  xct::XctId* track_moved_record(xct::XctId* address) ALWAYS_INLINE;
 };
 }  // namespace masstree
 }  // namespace storage

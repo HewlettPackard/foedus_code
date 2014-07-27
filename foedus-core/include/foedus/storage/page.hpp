@@ -41,9 +41,10 @@ enum PageType {
 const uint64_t  kPageVersionLockedBit    = (1ULL << 63);
 const uint64_t  kPageVersionInsertingBit = (1ULL << 62);
 const uint64_t  kPageVersionSplittingBit = (1ULL << 61);
-const uint64_t  kPageVersionDeletedBit   = (1ULL << 60);
+const uint64_t  kPageVersionMovedBit   = (1ULL << 60);
 const uint64_t  kPageVersionHasFosterChildBit    = (1ULL << 59);
 const uint64_t  kPageVersionIsSupremumBit  = (1ULL << 58);
+const uint64_t  kPageVersionIsRootBit  = (1ULL << 57);
 const uint64_t  kPageVersionInsertionCounterMask  = 0x03F8000000000000ULL;
 const uint8_t   kPageVersionInsertionCounterShifts = 51;
 const uint64_t  kPageVersionSplitCounterMask      = 0x0007FFFE00000000ULL;
@@ -61,10 +62,11 @@ const uint8_t   kPageVersionLayerShifts           = 8;
  * \li bit-0: locked
  * \li bit-1: inserting
  * \li bit-2: splitting
- * \li bit-3: (not used) deleted
+ * \li bit-3: moved
  * \li bit-4: has_foster_child
  * \li bit-5: is_high_fence_supremum
- * \li bit-[6,13): insert counter
+ * \li bit-6: is_root
+ * \li bit-[7,13): insert counter
  * \li bit-[13,31): split counter (do we need this much..?)
  * \li bit-31: unused
  * \li bit-[32,48): \e physical key count (those keys might be deleted)
@@ -85,7 +87,8 @@ struct PageVersion CXX11_FINAL {
   bool    is_locked() const ALWAYS_INLINE { return data_ & kPageVersionLockedBit; }
   bool    is_inserting() const ALWAYS_INLINE { return data_ & kPageVersionInsertingBit; }
   bool    is_splitting() const ALWAYS_INLINE { return data_ & kPageVersionSplittingBit; }
-  bool    is_deleted() const ALWAYS_INLINE { return data_ & kPageVersionDeletedBit; }
+  bool    is_moved() const ALWAYS_INLINE { return data_ & kPageVersionMovedBit; }
+  bool    is_root() const ALWAYS_INLINE { return data_ & kPageVersionIsRootBit; }
   bool    has_foster_child() const ALWAYS_INLINE { return data_ & kPageVersionHasFosterChildBit; }
   bool    is_high_fence_supremum() const ALWAYS_INLINE { return data_ & kPageVersionIsSupremumBit; }
   uint32_t  get_insert_counter() const ALWAYS_INLINE {
@@ -103,6 +106,19 @@ struct PageVersion CXX11_FINAL {
     return (data_ & kPageVersionLayerMask) >> kPageVersionLayerShifts;
   }
 
+  void      set_moved() ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    ASSERT_ND(!is_moved());
+    data_ |= kPageVersionMovedBit;
+  }
+  void      set_root(bool root) ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    if (root) {
+      data_ &= ~kPageVersionIsRootBit;
+    } else {
+      data_ |= kPageVersionIsRootBit;
+    }
+  }
   void      set_inserting() ALWAYS_INLINE {
     ASSERT_ND(is_locked());
     data_ |= kPageVersionInsertingBit;
@@ -392,6 +408,19 @@ inline void PageVersion::unlock_version() {
   assorted::memory_fence_release();
   data_ = page_version;
   assorted::memory_fence_release();
+}
+
+/**
+ * @brief super-dirty way to obtain Page the address belongs to.
+ * @ingroup STORAGE
+ * @details
+ * because all pages are 4kb aligned, we can just divide and multiply.
+ */
+inline Page* to_page(const void* address) {
+  uintptr_t int_address = reinterpret_cast<uintptr_t>(address);
+  uint64_t aligned_address = static_cast<uint64_t>(int_address) / kPageSize * kPageSize;
+  return reinterpret_cast<Page*>(
+    reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(aligned_address)));
 }
 
 }  // namespace storage

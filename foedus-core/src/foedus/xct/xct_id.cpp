@@ -16,7 +16,7 @@ std::ostream& operator<<(std::ostream& o, const XctId& v) {
       << (v.is_keylocked() ? "K" : " ")
       << (v.is_rangelocked() ? "R" : " ")
       << (v.is_deleted() ? "D" : " ")
-      << (v.is_latest() ? "L" : " ")
+      << (v.is_moved() ? "M" : " ")
     << "</status></XctId>";
   return o;
 }

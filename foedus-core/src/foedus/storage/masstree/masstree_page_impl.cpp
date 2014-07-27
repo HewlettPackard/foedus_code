@@ -36,11 +36,7 @@ void MasstreePage::initialize_volatile_common(
   MasstreePage*       foster_child,
   bool                initially_locked) {
   std::memset(this, 0, kPageSize);
-  header_.init_volatile(
-    page_id,
-    storage_id,
-    page_type,
-    root_in_layer && layer == 0);  // the true root is only the one in layer-0
+  header_.init_volatile(page_id, storage_id, page_type, root_in_layer);
   uint64_t ver = (layer << kPageVersionLayerShifts);
   if (initially_locked) {
     ver |= kPageVersionLockedBit;
@@ -50,6 +46,9 @@ void MasstreePage::initialize_volatile_common(
   }
   if (is_high_fence_supremum) {
     ver |= kPageVersionIsSupremumBit;
+  }
+  if (root_in_layer) {
+    ver |= kPageVersionIsRootBit;
   }
   header_.page_version_.set_data(ver);
   high_fence_ = high_fence;
@@ -115,6 +114,10 @@ void MasstreePage::clear_foster() {
   ASSERT_ND(get_foster_child());
   header_.page_version_.data_ &= ~(kPageVersionHasFosterChildBit | kPageVersionIsSupremumBit);
   foster_child_ = nullptr;
+  if (header_.get_page_type() == kMasstreeBorderPageType) {
+    // only border pages have foster-minor.
+    reinterpret_cast<MasstreeBorderPage*>(this)->clear_foster_minor();
+  }
   high_fence_ = foster_fence_;
   foster_fence_ = low_fence_;
 }
@@ -171,6 +174,10 @@ void MasstreeBorderPage::release_pages_recursive(
       page_resolver,
       batch);
     foster_child_ = nullptr;
+  }
+  if (foster_minor_) {
+    foster_minor_->release_pages_recursive(page_resolver, batch);
+    foster_minor_ = nullptr;
   }
   uint16_t key_count = get_version().get_key_count();
   ASSERT_ND(key_count <= kMaxKeys);
@@ -240,9 +247,19 @@ void MasstreeBorderPage::copy_initial_record(
 ///
 /////////////////////////////////////////////////////////////////////////////////////
 
-ErrorCode MasstreeBorderPage::split_foster(thread::Thread* context, KeySlice trigger) {
+ErrorCode MasstreeBorderPage::split_foster(
+  thread::Thread* context,
+  KeySlice trigger,
+  MasstreeBorderPage** target) {
   ASSERT_ND(!header_.snapshot_);
   ASSERT_ND(is_locked());
+  ASSERT_ND(!is_moved());
+  ASSERT_ND(foster_minor_ == nullptr);  // essentially same as !is_moved()
+  // a bit convoluted pre-condition. we don't allow splitting a page which had a no-record split
+  // until the page is adopted by the parent. Foster-child and foster-twin is tricky to co-exist.
+  // Anyways, this never happens because the next traversal adopts it.
+  ASSERT_ND((foster_child_ == nullptr && foster_minor_ == nullptr) ||
+      (foster_child_ != nullptr && foster_minor_ != nullptr));
   debugging::RdtscWatch watch;
 
   uint8_t key_count = header_.page_version_.get_key_count();
@@ -256,16 +273,20 @@ ErrorCode MasstreeBorderPage::split_foster(thread::Thread* context, KeySlice tri
     return kErrorCodeMemoryNoFreePages;
   }
 
-  SplitStrategy strategy = split_foster_decide_strategy(key_count, trigger);
+  memory::PagePoolOffset minor_offset = memory->grab_free_volatile_page();
+  if (minor_offset == 0) {
+    memory->release_free_volatile_page(offset);
+    return kErrorCodeMemoryNoFreePages;
+  }
+
+  BorderSplitStrategy strategy = split_foster_decide_strategy(key_count, trigger);
 
   // from now on no failure possible.
-  MasstreeBorderPage* new_page = reinterpret_cast<MasstreeBorderPage*>(
+  MasstreeBorderPage* new_foster_child = reinterpret_cast<MasstreeBorderPage*>(
     context->get_local_volatile_page_resolver().resolve_offset(offset));
-  VolatilePagePointer new_pointer;
-  new_pointer = combine_volatile_page_pointer(context->get_numa_node(), 0, 0, offset);
-  new_page->initialize_volatile_page(
+  new_foster_child->initialize_volatile_page(
     header_.storage_id_,
-    new_pointer,
+    combine_volatile_page_pointer(context->get_numa_node(), 0, 0, offset),
     get_layer(),
     false,
     strategy.mid_slice_,  // the new separator is the low fence of new page
@@ -274,10 +295,12 @@ ErrorCode MasstreeBorderPage::split_foster(thread::Thread* context, KeySlice tri
     foster_fence_,  // inherit foster key and child
     foster_child_,
     true);  // yes, lock it
-  ASSERT_ND(new_page->is_locked());
+  ASSERT_ND(new_foster_child->is_locked());
   if (strategy.no_record_split_) {
     // this one is easy because we don't have to move anything. even no lock.
     // actually, nothing to do here!
+    memory->release_free_volatile_page(minor_offset);  // we don't use the foster_minor page either
+    *target = new_foster_child;
   } else {
     // otherwise, we have to lock all records.
     // we can instead lock only moving records, but in reality we are moving almost all records
@@ -286,18 +309,61 @@ ErrorCode MasstreeBorderPage::split_foster(thread::Thread* context, KeySlice tri
     // commit the system transaction to get xct_id
     xct::XctId new_id = split_foster_commit_system_xct(context, strategy);
 
-    // from now on, it's kind of "apply" phase
-    new_page->split_foster_migrate_records(new_id, strategy, this);
+    // to foster a child, a parent must change, too.
+    MasstreeBorderPage* minor_page = reinterpret_cast<MasstreeBorderPage*>(
+      context->get_local_volatile_page_resolver().resolve_offset(minor_offset));
+    VolatilePagePointer minor_pointer;
+    minor_pointer = combine_volatile_page_pointer(context->get_numa_node(), 0, 0, minor_offset);
+    minor_page->initialize_volatile_page(
+      header_.storage_id_,
+      minor_pointer,
+      get_layer(),
+      false,
+      low_fence_,
+      strategy.mid_slice_,
+      false,
+      low_fence_,  // no foster child inherited to minor
+      nullptr,
+      true);
+    ASSERT_ND(minor_page->is_locked());
 
-    // release all record locks.
+    // from now on, it's kind of "apply" phase
+    foster_minor_ = minor_page;
+    minor_page->split_foster_migrate_records(
+      *this,
+      key_count,
+      strategy.smallest_slice_,
+      strategy.mid_slice_ - 1);  // to make it inclusive
+    new_foster_child->split_foster_migrate_records(
+      *this,
+      key_count,
+      strategy.mid_slice_,
+      strategy.largest_slice_);  // this is inclusive (to avoid supremum hassles)
+
+    // release all record locks, but set the "moved" bit so that concurrent transactions
+    // check foster-twin for read-set/write-set checks.
+    new_id.set_moved();
     assorted::memory_fence_release();
     for (uint8_t i = 0; i < key_count; ++i) {
-      owner_ids_[i] = new_id;  // unlock
+      owner_ids_[i] = new_id;  // unlock and also notify that the record has been moved
     }
     assorted::memory_fence_release();
+
+    // this page is now "moved".
+    get_version().set_moved();
+
+    // which will be the target page?
+    if (minor_page->within_fences(trigger)) {
+      *target = minor_page;
+      new_foster_child->unlock();
+    } else {
+      ASSERT_ND(new_foster_child->within_fences(trigger));
+      *target = new_foster_child;
+      minor_page->unlock();
+    }
   }
 
-  foster_child_ = new_page;
+  foster_child_ = new_foster_child;
   foster_fence_ = strategy.mid_slice_;
   if (!header_.page_version_.has_foster_child()) {
     header_.page_version_.set_has_foster_child(true);
@@ -310,10 +376,10 @@ ErrorCode MasstreeBorderPage::split_foster(thread::Thread* context, KeySlice tri
   return kErrorCodeOk;
 }
 
-SplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
+BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
   uint8_t key_count,
   KeySlice trigger) const {
-  SplitStrategy ret;
+  BorderSplitStrategy ret;
   ret.original_key_count_ = key_count;
   ret.no_record_split_ = false;
   ret.smallest_slice_ = slices_[0];
@@ -376,7 +442,7 @@ void MasstreeBorderPage::split_foster_lock_existing_records(uint8_t key_count) {
 
 xct::XctId MasstreeBorderPage::split_foster_commit_system_xct(
   thread::Thread* context,
-  const SplitStrategy &strategy) const {
+  const BorderSplitStrategy &strategy) const {
   // although this is a no-log system transaction, the protocol to determine xct_id is same.
   xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
   assorted::memory_fence_acq_rel();
@@ -408,26 +474,22 @@ xct::XctId MasstreeBorderPage::split_foster_commit_system_xct(
 }
 
 void MasstreeBorderPage::split_foster_migrate_records(
-  xct::XctId xct_id,
-  const SplitStrategy &strategy,
-  MasstreeBorderPage* parent) {
-  ASSERT_ND(!xct_id.is_deleted());
-  ASSERT_ND(!xct_id.is_keylocked());
-  ASSERT_ND(!xct_id.is_rangelocked());
+  const MasstreeBorderPage& copy_from,
+  uint8_t key_count,
+  KeySlice inclusive_from,
+  KeySlice inclusive_to) {
   ASSERT_ND(header_.page_version_.get_key_count() == 0);
   uint8_t migrated_count = 0;
   uint16_t unused_space = kDataSize;
-  for (uint8_t i = 0; i < strategy.original_key_count_; ++i) {
-    if (parent->slices_[i] >= strategy.mid_slice_) {
+  for (uint8_t i = 0; i < key_count; ++i) {
+    if (copy_from.slices_[i] >= inclusive_from && copy_from.slices_[i] <= inclusive_to) {
       // move this record.
-      slices_[migrated_count] = parent->slices_[i];
-      remaining_key_length_[migrated_count] = parent->remaining_key_length_[i];
-      payload_length_[migrated_count] = parent->payload_length_[i];
-      owner_ids_[migrated_count] = xct_id;
-      if (parent->owner_ids_[i].is_deleted()) {
-        // inherit deleted flag, too
-        owner_ids_[migrated_count].set_deleted();
-      }
+      slices_[migrated_count] = copy_from.slices_[i];
+      remaining_key_length_[migrated_count] = copy_from.remaining_key_length_[i];
+      payload_length_[migrated_count] = copy_from.payload_length_[i];
+      owner_ids_[migrated_count] = copy_from.owner_ids_[i];
+      ASSERT_ND(owner_ids_[migrated_count].is_keylocked());
+      owner_ids_[migrated_count].release_keylock();
 
       uint16_t record_length = sizeof(DualPagePointer);
       if (remaining_key_length_[migrated_count] != kKeyLengthNextLayer) {
@@ -438,45 +500,11 @@ void MasstreeBorderPage::split_foster_migrate_records(
       ASSERT_ND(unused_space >= record_length);
       unused_space -= record_length;
       offsets_[migrated_count] = unused_space >> 4;
-      std::memcpy(get_record(migrated_count), parent->get_record(i), record_length);
+      std::memcpy(get_record(migrated_count), copy_from.get_record(i), record_length);
       ++migrated_count;
     }
   }
   header_.page_version_.set_key_count(migrated_count);
-
-  // compact the parent page, too
-  // note that we cannot physically delete records here. we can do that only while snapshotting.
-  uint8_t compacted_count = 0;
-  uint16_t compacted_space = kDataSize;
-  // here, we utilize the fact that offset_[i] > offset_[j] iff i < j.
-  // in other words, later records never overwrite previously compacted records.
-  for (uint8_t i = 0; i < strategy.original_key_count_; ++i) {
-    if (parent->slices_[i] < strategy.mid_slice_) {
-      parent->slices_[compacted_count] = parent->slices_[i];
-      parent->remaining_key_length_[compacted_count] = parent->remaining_key_length_[i];
-      parent->payload_length_[compacted_count] = parent->payload_length_[i];
-      if (parent->owner_ids_[i].is_deleted()) {
-        parent->owner_ids_[compacted_count] = xct_id;
-        parent->owner_ids_[compacted_count].set_deleted();
-      } else {
-        parent->owner_ids_[compacted_count] = xct_id;
-      }
-
-      uint16_t record_length = sizeof(DualPagePointer);
-      if (parent->remaining_key_length_[migrated_count] != kKeyLengthNextLayer) {
-        record_length = calculate_record_size(
-          parent->remaining_key_length_[migrated_count],
-          parent->payload_length_[migrated_count]);
-      }
-      ASSERT_ND(compacted_space >= record_length);
-      compacted_space -= record_length;
-      parent->offsets_[compacted_count] = compacted_space >> 4;
-      std::memmove(parent->get_record(compacted_count), parent->get_record(i), record_length);
-      ++compacted_count;
-    }
-  }
-  parent->header_.page_version_.set_key_count(compacted_count);
-  ASSERT_ND(migrated_count + compacted_count == strategy.original_key_count_);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -887,7 +915,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   }
 
   // now lock the child.
-  child->lock(true, true);
+  child->lock(true, true);  // TODO(Hideaki) no need for changing split counter?
   {
     UnlockScope scope_child(child);
     if (!child->has_foster_child()) {
@@ -930,9 +958,35 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
     minipage.separators_[pointer_index] = new_separator;
     minipage.pointers_[pointer_index + 1].snapshot_pointer_ = 0;
     minipage.pointers_[pointer_index + 1].volatile_pointer_ = new_pointer;
-    child->clear_foster();
-    ASSERT_ND(child->get_high_fence() == new_separator);
-    ASSERT_ND(child->get_high_fence() == grandchild->get_low_fence());
+
+    // if the child is a border page, it has foster-twin rather than a foster child.
+    // we don't have to adopt the foster-minor because that's the child page itself,
+    // but we have to switch the pointer
+    if (child->header().get_page_type() == foedus::storage::kMasstreeBorderPageType) {
+      MasstreeBorderPage* foster_minor
+        = reinterpret_cast<MasstreeBorderPage*>(child)->get_foster_minor();
+      if (foster_minor) {
+        VolatilePagePointer minor_pointer;
+        minor_pointer.word = foster_minor->header().page_id_;
+        minor_pointer.components.mod_count
+          = minipage.pointers_[pointer_index].volatile_pointer_.components.mod_count + 1;
+        minipage.pointers_[pointer_index].snapshot_pointer_ = 0;
+        minipage.pointers_[pointer_index].volatile_pointer_ = minor_pointer;
+        // the ex-child page is now thrown away.
+        // TODO(Hideaki) it will be garbage-collected later.
+        ASSERT_ND(foster_minor->get_low_fence() == child->get_low_fence());
+        ASSERT_ND(foster_minor->get_high_fence() == new_separator);
+        ASSERT_ND(foster_minor->get_high_fence() == grandchild->get_low_fence());
+      } else {
+        child->clear_foster();
+        ASSERT_ND(child->get_high_fence() == new_separator);
+        ASSERT_ND(child->get_high_fence() == grandchild->get_low_fence());
+      }
+    } else {
+      child->clear_foster();
+      ASSERT_ND(child->get_high_fence() == new_separator);
+      ASSERT_ND(child->get_high_fence() == grandchild->get_low_fence());
+    }
     verify_separators();
   }
 
@@ -990,15 +1044,111 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   new_minipage.mini_version_.set_key_count(0);
   new_minipage.pointers_[0].snapshot_pointer_ = 0;
   new_minipage.pointers_[0].volatile_pointer_ = new_pointer;
-  child->clear_foster();
-  ASSERT_ND(child->get_high_fence() == new_separator);
-  ASSERT_ND(child->get_high_fence() == grandchild->get_low_fence());
+
+  // also handle foster-twin if it's border page
+  if (child->header().get_page_type() == foedus::storage::kMasstreeBorderPageType) {
+    MasstreeBorderPage* foster_minor
+      = reinterpret_cast<MasstreeBorderPage*>(child)->get_foster_minor();
+    if (foster_minor) {
+      VolatilePagePointer minor_pointer;
+      DualPagePointer& old_pointer = minipage.pointers_[mini_stable.get_key_count()];
+      ASSERT_ND(static_cast<uint32_t>(child->header().page_id_)
+        == old_pointer.volatile_pointer_.components.offset);
+      minor_pointer.word = foster_minor->header().page_id_;
+      minor_pointer.components.mod_count = old_pointer.volatile_pointer_.components.mod_count + 1;
+      old_pointer.snapshot_pointer_ = 0;
+      old_pointer.volatile_pointer_ = minor_pointer;
+      // the ex-child page is now thrown away.
+      // TODO(Hideaki) it will be garbage-collected later.
+      ASSERT_ND(foster_minor->get_low_fence() == child->get_low_fence());
+      ASSERT_ND(foster_minor->get_high_fence() == new_separator);
+      ASSERT_ND(foster_minor->get_high_fence() == grandchild->get_low_fence());
+    } else {
+      child->clear_foster();
+      ASSERT_ND(child->get_high_fence() == new_separator);
+      ASSERT_ND(child->get_high_fence() == grandchild->get_low_fence());
+    }
+  } else {
+    child->clear_foster();
+    ASSERT_ND(child->get_high_fence() == new_separator);
+    ASSERT_ND(child->get_high_fence() == grandchild->get_low_fence());
+  }
 
   separators_[minipage_index] = new_separator;
   get_version().increment_key_count();
   ASSERT_ND(get_version().get_key_count() == minipage_index + 1);
   verify_separators();
 }
+
+bool MasstreeBorderPage::track_moved_record(
+  xct::XctId* owner_address,
+  MasstreeBorderPage** located_page,
+  uint8_t* located_index) {
+  ASSERT_ND(is_moved());
+  ASSERT_ND(has_foster_child());
+  ASSERT_ND(foster_minor_);
+  ASSERT_ND(foster_child_);
+  ASSERT_ND(!header().snapshot_);
+  ASSERT_ND(header().get_page_type() == kMasstreeBorderPageType);
+  ASSERT_ND(owner_address >= owner_ids_);
+  ASSERT_ND(owner_address - owner_ids_ < kMaxKeys);
+  ASSERT_ND(owner_address - owner_ids_ < get_version().get_key_count());
+  uint8_t index = owner_address - owner_ids_;
+  KeySlice slice = slices_[index];
+  uint8_t remaining = remaining_key_length_[index];
+  bool originally_pointer = false;
+  if (remaining == kKeyLengthNextLayer) {
+    remaining = sizeof(KeySlice);
+    originally_pointer = true;
+  }
+  const char* suffix = get_record(index);
+
+  // recursively track. although probably it's only one level
+  MasstreeBorderPage* cur_page = this;
+  while (true) {
+    if (cur_page->is_moved()) {
+      ASSERT_ND(cur_page->has_foster_child());
+      if (cur_page->foster_minor_->within_fences(slice)) {
+        ASSERT_ND(!cur_page->foster_child_->within_fences(slice));
+        cur_page = cur_page->foster_minor_;
+      } else {
+        ASSERT_ND(cur_page->foster_child_->within_fences(slice));
+        cur_page = reinterpret_cast<MasstreeBorderPage*>(cur_page->foster_child_);
+      }
+      continue;
+    } else if (cur_page->has_foster_child() && cur_page->within_foster_child(slice)) {
+      cur_page = reinterpret_cast<MasstreeBorderPage*>(cur_page->foster_child_);
+      continue;
+    }
+
+    // now cur_page must be the page that contains the record.
+    // the only exception is
+    // 1) again the record is being moved concurrently
+    // 2) the record was moved to another layer (remaining==kKeyLengthNextLayer).
+
+    uint8_t keys = cur_page->get_version().get_key_count();
+    *located_index = cur_page->find_key(keys, slice, suffix, remaining);
+    if (*located_index == kMaxKeys) {
+      // this can happen rarely because we are not doing the stable version trick here.
+      // this is rare, so we just abort. no safety violation.
+      LOG(INFO) << "Very interesting. moved record not found due to concurrent updates";
+      *located_index = cur_page->find_key(keys, slice, suffix, remaining);
+      return false;
+    } else if (cur_page->remaining_key_length_[*located_index] == kKeyLengthNextLayer &&
+      !originally_pointer) {
+      // another rare case. the record has been moved to another layer.
+      // we can potentially track it, but not worth doing. abort.
+      LOG(INFO) << "Very interesting. moved record are now in another layer";
+      return false;
+    }
+
+    // Otherwise, this is it!
+    *located_page = cur_page;
+    break;
+  }
+  return true;
+}
+
 
 }  // namespace masstree
 }  // namespace storage

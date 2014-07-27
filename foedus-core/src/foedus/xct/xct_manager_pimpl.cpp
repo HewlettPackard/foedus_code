@@ -192,7 +192,12 @@ bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *com
 
 bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch) {
   DVLOG(1) << *context << " Committing read-write";
-  precommit_xct_lock(context);  // Phase 1
+  bool success = precommit_xct_lock(context);  // Phase 1
+  // lock can fail only when physical records went too far away
+  if (!success) {
+    DLOG(INFO) << *context << " Interesting. failed due to records moved too far away";
+    return false;
+  }
 
   // BEFORE the first fence, update the in_commit_log_epoch_ for logger
   Xct::InCommitLogEpochGuard guard(&context->get_current_xct(), get_current_global_epoch_weak());
@@ -264,56 +269,98 @@ bool XctManagerPimpl::precommit_xct_schema(thread::Thread* context, Epoch* commi
   return true;  // so far scheme xct can always commit
 }
 
-void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
+bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
   Xct& current_xct = context->get_current_xct();
   WriteXctAccess* write_set = current_xct.get_write_set();
   uint32_t        write_set_size = current_xct.get_write_set_size();
   DVLOG(1) << *context << " #write_sets=" << write_set_size << ", addr=" << write_set;
 
-  std::sort(write_set, write_set + write_set_size, WriteXctAccess::compare);
+  while (true) {  // while loop for retrying in case of moved-bit error
+    // first, check for moved-bit and track where the corresponding physical record went.
+    // we do this before locking, so it is possible that later we find it moved again.
+    // if that happens, we retry.
+    // we must not do lock-then-track to avoid deadlocks.
+    for (uint32_t i = 0; i < write_set_size; ++i) {
+      // TODO(Hideaki) if this happens often, this might be too frequent virtual method call.
+      // maybe a batched version of this? I'm not sure if this is that often, though.
+      if (UNLIKELY(write_set[i].owner_id_address_->is_moved())) {
+        bool success = write_set[i].storage_->track_moved_record(write_set + i);
+        if (!success) {
+          // this happens when the record went too far away (eg another layer in masstree).
+          // in that case, retry the whole transaction. This is rare.
+          return false;
+        }
+      }
+    }
+
+    std::sort(write_set, write_set + write_set_size, WriteXctAccess::compare);
 
 #ifndef NDEBUG
-  // check that write sets are now sorted
-  for (uint32_t i = 1; i < write_set_size; ++i) {
-    ASSERT_ND(
-      write_set[i].owner_id_address_ == write_set[i - 1].owner_id_address_ ||
-      WriteXctAccess::compare(write_set[i - 1], write_set[i]));
-  }
+    // check that write sets are now sorted
+    for (uint32_t i = 1; i < write_set_size; ++i) {
+      ASSERT_ND(
+        write_set[i].owner_id_address_ == write_set[i - 1].owner_id_address_ ||
+        WriteXctAccess::compare(write_set[i - 1], write_set[i]));
+    }
 #endif  // NDEBUG
 
-  // One differences from original SILO protocol.
-  // As there might be multiple write sets on one record, we check equality of next
-  // write set and 1) lock only at the first write-set of the record, 2) unlock at the last.
+    // One differences from original SILO protocol.
+    // As there might be multiple write sets on one record, we check equality of next
+    // write set and 1) lock only at the first write-set of the record, 2) unlock at the last.
 
-  // lock them unconditionally. there is no risk of deadlock thanks to the sort.
-  // lock bit is the highest bit of ordinal_and_status_.
-  for (uint32_t i = 0; i < write_set_size; ++i) {
-    DVLOG(2) << *context << " Locking " << write_set[i].storage_->get_name()
-      << ":" << write_set[i].owner_id_address_;
-    if (i > 0 && write_set[i].owner_id_address_ == write_set[i - 1].owner_id_address_) {
-      DVLOG(0) << *context << " Multiple write sets on record " << write_set[i].storage_->get_name()
-        << ":" << write_set[i].owner_id_address_
-        << ". Will lock the first one and unlock the last one";
-    } else {
-      write_set[i].owner_id_address_->keylock_unconditional();
+    // lock them unconditionally. there is no risk of deadlock thanks to the sort.
+    // lock bit is the highest bit of ordinal_and_status_.
+    bool needs_retry = false;
+    for (uint32_t i = 0; i < write_set_size; ++i) {
+      DVLOG(2) << *context << " Locking " << write_set[i].storage_->get_name()
+        << ":" << write_set[i].owner_id_address_;
+      if (i > 0 && write_set[i].owner_id_address_ == write_set[i - 1].owner_id_address_) {
+        DVLOG(0) << *context << " Multiple write sets on record "
+          << write_set[i].storage_->get_name()
+          << ":" << write_set[i].owner_id_address_
+          << ". Will lock the first one and unlock the last one";
+      } else {
+        bool success = write_set[i].owner_id_address_->keylock_fail_if_moved();
+        if (UNLIKELY(!success)) {
+          LOG(INFO) << *context << " Interesting. moved-bit conflict in "
+            << write_set[i].storage_->get_name()
+            << ":" << write_set[i].owner_id_address_
+            << ". This occasionally happens.";
+          // release all locks acquired so far, retry
+          for (uint32_t j = 0; j < i; ++j) {
+            write_set[i].owner_id_address_->release_keylock();
+          }
+          needs_retry = true;
+          break;
+        }
+      }
+      ASSERT_ND(!write_set[i].owner_id_address_->is_moved());
+      ASSERT_ND(write_set[i].owner_id_address_->is_keylocked());
     }
-    ASSERT_ND(write_set[i].owner_id_address_->is_keylocked());
+
+    if (!needs_retry) {
+      break;
+    }
   }
   DVLOG(1) << *context << " locked write set";
+  return true;
 }
 
 bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epoch *commit_epoch) {
   Xct& current_xct = context->get_current_xct();
-  const XctAccess*        read_set = current_xct.get_read_set();
-  const uint32_t          read_set_size = current_xct.get_read_set_size();
+  XctAccess*        read_set = current_xct.get_read_set();
+  const uint32_t    read_set_size = current_xct.get_read_set_size();
   for (uint32_t i = 0; i < read_set_size; ++i) {
     // The owning transaction has changed.
     // We don't check ordinal here because there is no change we are racing with ourselves.
-    const XctAccess& access = read_set[i];
+    XctAccess& access = read_set[i];
     DVLOG(2) << *context << "Verifying " << access.storage_->get_name()
       << ":" << access.owner_id_address_ << ". observed_xid=" << access.observed_owner_id_
         << ", now_xid=" << *access.owner_id_address_;
     ASSERT_ND(!access.observed_owner_id_.is_keylocked());  // we made it sure when we read.
+    if (UNLIKELY(access.owner_id_address_->is_moved())) {
+      access.owner_id_address_ = access.storage_->track_moved_record(access.owner_id_address_);
+    }
     if (access.observed_owner_id_ != *access.owner_id_address_) {
       DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
       return false;
@@ -346,15 +393,24 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
   Xct& current_xct = context->get_current_xct();
   const WriteXctAccess*   write_set = current_xct.get_write_set();
   const uint32_t          write_set_size = current_xct.get_write_set_size();
-  const XctAccess*        read_set = current_xct.get_read_set();
+  XctAccess*              read_set = current_xct.get_read_set();
   const uint32_t          read_set_size = current_xct.get_read_set_size();
   for (uint32_t i = 0; i < read_set_size; ++i) {
     // The owning transaction has changed.
     // We don't check ordinal here because there is no change we are racing with ourselves.
-    const XctAccess& access = read_set[i];
+    XctAccess& access = read_set[i];
     DVLOG(2) << *context << " Verifying " << access.storage_->get_name()
       << ":" << access.owner_id_address_ << ". observed_xid=" << access.observed_owner_id_
         << ", now_xid=" << *access.owner_id_address_;
+
+    // read-set has to also track moved records.
+    // however, unlike write-set locks, we don't have to do retry-loop.
+    // if the rare event (yet another concurrent split) happens, we just abort the transaction.
+    if (UNLIKELY(access.owner_id_address_->is_moved())) {
+      access.owner_id_address_ = access.storage_->track_moved_record(access.owner_id_address_);
+    }
+
+
     ASSERT_ND(!access.observed_owner_id_.is_keylocked());  // we made it sure when we read.
     if (!access.observed_owner_id_.equals_serial_order(*access.owner_id_address_)) {
       DLOG(WARNING) << *context << " read set changed by other transaction. will abort";

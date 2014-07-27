@@ -54,6 +54,16 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
   bool                exists()    const CXX11_OVERRIDE;
   ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
 
+  // this storage type doesn't use moved bit
+  bool track_moved_record(xct::WriteXctAccess* /*write*/) CXX11_OVERRIDE {
+    ASSERT_ND(false);
+    return false;
+  }
+  xct::XctId* track_moved_record(xct::XctId* /*address*/) CXX11_OVERRIDE {
+    ASSERT_ND(false);
+    return nullptr;
+  }
+
   /**
    * @brief Returns byte size of one record in this array storage without internal overheads.
    * @details

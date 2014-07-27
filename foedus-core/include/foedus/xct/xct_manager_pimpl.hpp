@@ -68,11 +68,13 @@ class XctManagerPimpl final : public DefaultInitializable {
   bool        precommit_xct_schema(thread::Thread* context, Epoch *commit_epoch);
   /**
    * @brief Phase 1 of precommit_xct()
+   * @return true if successful. false if we need to abort the transaction, in which case
+   * locks are not obtained yet (so no need for unlock).
    * @details
    * Try to lock all records we are going to write.
    * After phase 2, we take memory fence.
    */
-  void        precommit_xct_lock(thread::Thread* context);
+  bool        precommit_xct_lock(thread::Thread* context);
   /**
    * @brief Phase 2 of precommit_xct() for read-only case
    * @return true if verification succeeded. false if we need to abort.

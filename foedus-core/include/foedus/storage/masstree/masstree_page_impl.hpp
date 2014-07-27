@@ -111,6 +111,7 @@ class MasstreePage {
     }
   }
   bool              is_locked() const ALWAYS_INLINE { return header_.page_version_.is_locked(); }
+  bool              is_moved() const ALWAYS_INLINE { return header_.page_version_.is_moved(); }
 
   /**
    * @brief Unlocks the page, assuming the caller has locked it.
@@ -143,6 +144,9 @@ class MasstreePage {
   /**
    * tentative child page whose key ranges are right-half of this page.
    * undefined if has_foster_child of page_version is false.
+   * In case of intermediate page, this is the only foster child.
+   * In case of border page, this is the major foster child. minor foster child is stored
+   * in another field.
    */
   MasstreePage*       foster_child_;  // +8 -> 64
 
@@ -160,7 +164,7 @@ class MasstreePage {
     bool                initially_locked);
 };
 
-struct SplitStrategy {
+struct BorderSplitStrategy {
   /**
    * whether this page seems to have had sequential insertions, in which case we do
    * "no-record split" as optimization. This also requires the trigerring insertion key
@@ -400,7 +404,7 @@ class MasstreeBorderPage final : public MasstreePage {
     /** Maximum value for remaining_key_length_. */
     kKeyLengthMax = 254,
 
-    kHeaderSize = 1344,
+    kHeaderSize = 1352,
     kDataSize = 4096 - kHeaderSize,
   };
   /** Used in FindKeyForReserveResult */
@@ -588,6 +592,10 @@ class MasstreeBorderPage final : public MasstreePage {
     const memory::GlobalVolatilePageResolver& page_resolver,
     memory::PageReleaseBatch* batch);
 
+  MasstreeBorderPage* get_foster_minor() ALWAYS_INLINE { return foster_minor_; }
+  /** Should be used only from clear_foster(). */
+  void    clear_foster_minor() { foster_minor_ = nullptr; }
+
   /** prefetch upto 1/4 of slices. */
   void prefetch() const ALWAYS_INLINE {
     assorted::prefetch_cachelines(this, 4);
@@ -603,11 +611,24 @@ class MasstreeBorderPage final : public MasstreePage {
 
   /**
    * Splits this page as a system transaction, creating a new foster child.
+   * @param[in] context Thread context
+   * @param[in] trigger The key that triggered this split
+   * @param[out] target the page the new key will be inserted. Either foster_child or foster_minor.
    * @pre !header_.snapshot_ (split happens to only volatile pages)
    * @pre is_locked() (the page must be locked)
-   * @post iff successfully exits, foster_child_->is_locked()
+   * @post iff successfully exits, target->is_locked()
    */
-  ErrorCode split_foster(thread::Thread* context, KeySlice trigger);
+  ErrorCode split_foster(thread::Thread* context, KeySlice trigger, MasstreeBorderPage** target);
+
+  /**
+   * @return whether we could track it. the only case it fails to track is the record moved
+   * to deeper layers. we can also track it down to other layers, but it's rare. so, just retry
+   * the whole transaction.
+   */
+  bool track_moved_record(
+    xct::XctId* owner_address,
+    MasstreeBorderPage** located_page,
+    uint8_t* located_index);
 
  private:
   // 64
@@ -644,6 +665,13 @@ class MasstreeBorderPage final : public MasstreePage {
   xct::XctId  owner_ids_[kMaxKeys];               // +512 -> 1344
 
   /**
+   * When this page is fostering kids, this is the younger brother, or the new page of
+   * this page itself. This is null if the split was a no-record split.
+   * This is core of the foster-twin protocol.
+   */
+  MasstreeBorderPage*  foster_minor_;             // +8 -> 1352
+
+  /**
    * The main data region of this page. Suffix and payload contiguously.
    * Starts at the tail and grows backwards.
    * All records are 16-byte aligned so that we can later replace records to next-layer pointer.
@@ -653,17 +681,18 @@ class MasstreeBorderPage final : public MasstreePage {
   /**
    * @brief Subroutin of split_foster() to decide how we will split this page.
    */
-  SplitStrategy split_foster_decide_strategy(uint8_t key_count, KeySlice trigger) const;
+  BorderSplitStrategy split_foster_decide_strategy(uint8_t key_count, KeySlice trigger) const;
 
   /** pre-commit the split operation as a system transaction. */
   xct::XctId split_foster_commit_system_xct(
     thread::Thread* context,
-    const SplitStrategy &strategy) const;
+    const BorderSplitStrategy &strategy) const;
 
   void split_foster_migrate_records(
-    xct::XctId xct_id,
-    const SplitStrategy &strategy,
-    MasstreeBorderPage* parent);
+    const MasstreeBorderPage& copy_from,
+    uint8_t key_count,
+    KeySlice from,
+    KeySlice to);
 
   /**
    * @brief Subroutin of split_foster()

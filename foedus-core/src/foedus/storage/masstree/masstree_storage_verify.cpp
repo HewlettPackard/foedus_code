@@ -135,7 +135,7 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_intermediate(
       MasstreePage* next;
       // TODO(Hideaki) probably two versions: always follow volatile vs snapshot
       // so far check volatile only
-      WRAP_ERROR_CODE(follow_page(context, true, false, &minipage.pointers_[j], &next));
+      WRAP_ERROR_CODE(follow_page(context, true, &minipage.pointers_[j], &next));
       CHECK_AND_ASSERT(next->get_layer() == page->get_layer());
       if (next->is_border()) {
         CHECK_ERROR(verify_single_thread_border(
@@ -167,35 +167,46 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_border(
   MasstreeBorderPage* page) {
   CHECK_ERROR(verify_page_basic(page, kMasstreeBorderPageType, low_fence, high_fence));
 
-  HighFence local_high = high_fence;
   MasstreeBorderPage* foster_child
     = reinterpret_cast<MasstreeBorderPage*>(page->get_foster_child());
   if (foster_child) {
-    local_high.slice_ = page->get_foster_fence();
-    local_high.supremum_ = false;
-    CHECK_ERROR(verify_single_thread_border(context, local_high.slice_, high_fence, foster_child));
-  }
-
-  CHECK_AND_ASSERT(page->get_version().get_key_count() <= MasstreeBorderPage::kMaxKeys);
-  for (uint8_t i = 0; i < page->get_version().get_key_count(); ++i) {
-    CHECK_AND_ASSERT(!page->get_owner_id(i)->is_keylocked());
-    CHECK_AND_ASSERT(!page->get_owner_id(i)->is_rangelocked());
-    CHECK_AND_ASSERT(page->get_owner_id(i)->get_epoch().is_valid());
-    if (i == 0) {
-      CHECK_AND_ASSERT(page->get_offset_in_bytes(i) < MasstreeBorderPage::kDataSize);
+    KeySlice foster_fence = page->get_foster_fence();
+    MasstreeBorderPage* foster_minor
+      = reinterpret_cast<MasstreeBorderPage*>(page->get_foster_minor());
+    if (foster_minor) {
+      CHECK_AND_ASSERT(page->get_version().is_moved());
+      HighFence foster_fence_wrap;
+      foster_fence_wrap.slice_ = foster_fence;
+      foster_fence_wrap.supremum_ = false;
+      CHECK_ERROR(verify_single_thread_border(context, low_fence, foster_fence_wrap, foster_minor));
     } else {
-      CHECK_AND_ASSERT(page->get_offset_in_bytes(i) < page->get_offset_in_bytes(i - 1));
+      CHECK_AND_ASSERT(!page->get_version().is_moved());
     }
-    KeySlice slice = page->get_slice(i);
-    CHECK_AND_ASSERT(slice >= low_fence);
-    CHECK_AND_ASSERT(slice < local_high.slice_ || local_high.supremum_);
-    if (page->does_point_to_layer(i)) {
-      CHECK_AND_ASSERT(!page->get_next_layer(i)->is_both_null());
-      MasstreePage* next;
-      // TODO(Hideaki) probably two versions: always follow volatile vs snapshot
-      // so far check volatile only
-      WRAP_ERROR_CODE(follow_page(context, true, false, page->get_next_layer(i), &next));
-      CHECK_ERROR(verify_single_thread_layer(context, page->get_layer() + 1, next));
+    CHECK_ERROR(verify_single_thread_border(context, foster_fence, high_fence, foster_child));
+  } else {
+    CHECK_AND_ASSERT(page->get_foster_minor() == nullptr);
+    CHECK_AND_ASSERT(!page->get_version().is_moved());
+    CHECK_AND_ASSERT(page->get_version().get_key_count() <= MasstreeBorderPage::kMaxKeys);
+    for (uint8_t i = 0; i < page->get_version().get_key_count(); ++i) {
+      CHECK_AND_ASSERT(!page->get_owner_id(i)->is_keylocked());
+      CHECK_AND_ASSERT(!page->get_owner_id(i)->is_rangelocked());
+      CHECK_AND_ASSERT(page->get_owner_id(i)->get_epoch().is_valid());
+      if (i == 0) {
+        CHECK_AND_ASSERT(page->get_offset_in_bytes(i) < MasstreeBorderPage::kDataSize);
+      } else {
+        CHECK_AND_ASSERT(page->get_offset_in_bytes(i) < page->get_offset_in_bytes(i - 1));
+      }
+      KeySlice slice = page->get_slice(i);
+      CHECK_AND_ASSERT(slice >= low_fence);
+      CHECK_AND_ASSERT(slice < high_fence.slice_ || page->is_high_fence_supremum());
+      if (page->does_point_to_layer(i)) {
+        CHECK_AND_ASSERT(!page->get_next_layer(i)->is_both_null());
+        MasstreePage* next;
+        // TODO(Hideaki) probably two versions: always follow volatile vs snapshot
+        // so far check volatile only
+        WRAP_ERROR_CODE(follow_page(context, true, page->get_next_layer(i), &next));
+        CHECK_ERROR(verify_single_thread_layer(context, page->get_layer() + 1, next));
+      }
     }
   }
 
