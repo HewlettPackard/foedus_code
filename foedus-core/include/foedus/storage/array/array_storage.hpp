@@ -61,7 +61,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
   }
   xct::XctId* track_moved_record(xct::XctId* /*address*/) CXX11_OVERRIDE {
     ASSERT_ND(false);
-    return nullptr;
+    return CXX11_NULLPTR;
   }
 
   /**
