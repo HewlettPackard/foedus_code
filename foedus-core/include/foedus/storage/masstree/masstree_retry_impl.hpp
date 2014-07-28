@@ -20,9 +20,8 @@ namespace masstree {
  * @attention handler must be idempotent because this method retries.
  */
 template <typename HANDLER>
-inline ErrorCode masstree_retry(HANDLER handler) {
-  const uint32_t kMaxRetries = 1000;
-  for (uint32_t tries = 0; tries < kMaxRetries; ++tries) {
+inline ErrorCode masstree_retry(HANDLER handler, uint32_t max_retries = 1000) {
+  for (uint32_t tries = 0; tries < max_retries; ++tries) {
     ErrorCode code = handler();
     if (code == kErrorCodeStrMasstreeRetry) {
       continue;

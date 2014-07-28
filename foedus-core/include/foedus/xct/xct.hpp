@@ -407,7 +407,10 @@ inline ErrorCode Xct::add_to_read_set(
   ASSERT_ND(storage);
   ASSERT_ND(owner_id_address);
   ASSERT_ND(!observed_owner_id.is_keylocked());
-  if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
+  // TODO(Hideaki) callers should check if it's a snapshot page. or should we check here?
+  if (isolation_level_ != kSerializable) {
+    return kErrorCodeOk;
+  } else if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
     return kErrorCodeXctReadSetOverflow;
   }
   read_set_[read_set_size_].storage_ = storage;
