@@ -532,7 +532,7 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
 
     // then copy the log content, upto at most one page... is it one page? or less?
     uint64_t copy_size;
-    if (upto_offset < align_log_ceil(from_offset)) {
+    if (upto_offset <= align_log_ceil(from_offset)) {
       VLOG(1) << "whole log in less than one page.";
       copy_size = upto_offset - from_offset;
     } else {
@@ -559,7 +559,7 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
   }
 
   from_offset = buffer->get_offset_durable();
-  if (from_offset == upto_offset) {
+  if (from_offset == upto_offset || (from_offset == 0 && upto_offset == buffer->buffer_size_)) {
     return kRetOk;
   }
   // from here, "from" is assured to be aligned
@@ -576,7 +576,7 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
   }
 
   from_offset = buffer->get_offset_durable();
-  if (from_offset == upto_offset) {
+  if (from_offset == upto_offset || (from_offset == 0 && upto_offset == buffer->buffer_size_)) {
     return kRetOk;  // if upto_offset is luckily aligned, we exit here.
   }
   ASSERT_ND(is_log_aligned(from_offset));

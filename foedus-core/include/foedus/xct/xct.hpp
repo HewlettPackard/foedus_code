@@ -39,8 +39,8 @@ class Xct {
 
 
   struct KickoutInfo {
-      uint32_t add_count;  // incremented every time something is added to a bin, except for when that
-      //thing needed a kickout
+      uint32_t add_count;  // incremented every time something is added to a bin, except for when
+      // that thing needed a kickout
       uint32_t kickout_count;  // incremented every time something is kicked out from a bin.
       // Note: Since we know the size of the contents in the bin, these two are very similar.
       // If we really wanted to, we could possibly combine them to one thing
@@ -272,23 +272,21 @@ class Xct {
 
 
   /**
-   * @brief read(bin, storageid) promises to return a number at least as great as
+   * @brief read(bin, storageid).add_count promises to be a number at least as great as
    * |inserts - deletions| run by the thread on the specified bin number in the specified
-   * storage id.
-   * @details (a little out of date -- predates kickout-counter)
+   * storage id. read(bin, storageid).kickout_count promises to be a number at least as
+   * great as # kickouts at that bin so far by the thread.
+   * @details
    * Since FrequencyHash hashes several bins from various storage ids to the same
    * hash-position, it will sometimes claim that the transaction has inserted more things into
    * a given bin than it actually has. So that we can use FrequencyHash in order to know when we
    * need to do a kickout, it is important that it never claims we have inserted fewer things into
    * a bin than we actually have. In order to accomplish this, we don't decrement counters in the
-   * hash table except for during kickouts (to cancel out the fact that we
-   * have just incremented them).
+   * hash table except for deletions.
    *
-   * If we are inserting something into a bin, we increment the relevant counter in FrequencyHash,
-   * and then if the sum of that counter and the number of elements in the bin is too high, we
-   * call kickout. kickout will end up decrementing the relavent counter (and is the only
-   * function allowed to decrement it -- this is valid because we have just incremented it
-   * in the same context.
+   * If we are inserting something into a bin, we check if the sum of the relavent add_count
+   * and the number of elements in the bin is too high. If not, we increment the add_count.
+   * Otherwise, we increment kick_count which is used to determine who to kick out of the bin.
    *
    */
 
@@ -297,13 +295,15 @@ class Xct {
     FrequencyHash() {  // Size must be a power of two
      clear();
     }
-    uint32_t hash(uint32_t a) {  // Borrowed from Wang
-      a = (a+0x7ed55d16) + (a<<12);
-      a = (a^0xc761c23c) ^ (a>>19);
-      a = (a+0x165667b1) + (a<<5);
-      a = (a+0xd3a2646c) ^ (a<<9);
-      a = (a+0xfd7046c5) + (a<<3);
-      a = (a^0xb55a4f09) ^ (a>>16);
+    uint32_t hash(uint32_t a) {  // Borrowed from Wang at
+      // http://www.concentric.net/~ttwang/tech/inthash.htm
+      // which no longer seems to be active link
+      a = (a + 0x7ed55d16) + (a << 12);
+      a = (a ^ 0xc761c23c) ^ (a >> 19);
+      a = (a + 0x165667b1) + (a << 5);
+      a = (a + 0xd3a2646c) ^ (a << 9);
+      a = (a + 0xfd7046c5) + (a << 3);
+      a = (a ^ 0xb55a4f09) ^ (a >> 16);
       return a;
     }
     void add(uint32_t bin, uint32_t storageid, bool caused_kickout) {
@@ -311,7 +311,7 @@ class Xct {
       if (!caused_kickout) array_[bucket].add_count++;
       if (caused_kickout) array_[bucket].kickout_count++;
     }
-    KickoutInfo read(uint32_t bin, uint32_t storageid){
+    KickoutInfo read(uint32_t bin, uint32_t storageid) {
       uint32_t bucket = (hash(bin) ^ hash(storageid)) % kFrequencyHashSize;
       return array_[bucket];
     }

@@ -139,7 +139,7 @@ class HashStoragePimpl final : public DefaultInitializable {
    * Cuckoo bins assigned to each hash value
    */
   ErrorStack make_room(
-    thread::Thread* context, HashDataPage* data_page, int depth);
+    thread::Thread* context, HashDataPage* data_page, int depth, uint8_t *slot_pick);
 
   /**
    * @brief Inserts a record into a bin that has already been chosen.

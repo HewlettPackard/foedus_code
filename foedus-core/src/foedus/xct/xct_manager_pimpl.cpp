@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iostream>
 #include <thread>
 #include <vector>
 
@@ -196,7 +197,8 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
   Xct& current_xct = context->get_current_xct();
   uint64_t write_set_size = current_xct.get_write_set_size();
   WriteXctAccess  write_set_copy[write_set_size];
-  for (int x = 0; x < write_set_size; x++) write_set_copy[x] = *(current_xct.get_write_set() + x);
+  for (uint64_t x = 0; x < write_set_size; x++)
+    write_set_copy[x] = *(current_xct.get_write_set() + x);
 
   precommit_xct_lock(context);  // Phase 1
 
@@ -310,7 +312,6 @@ void XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
     ASSERT_ND(write_set[i].record_->owner_id_.is_keylocked());
   }
   DVLOG(1) << *context << " locked write set";
-
 }
 
 bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epoch *commit_epoch) {
@@ -412,7 +413,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
 void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit_epoch,
                                           WriteXctAccess* write_set_original) {
   Xct& current_xct = context->get_current_xct();
-  WriteXctAccess* write_set = write_set_original; //unsorted
+  WriteXctAccess* write_set = write_set_original;  // unsorted
   uint32_t        write_set_size = current_xct.get_write_set_size();
   LockFreeWriteXctAccess* lock_free_write_set = current_xct.get_lock_free_write_set();
   uint32_t                lock_free_write_set_size = current_xct.get_lock_free_write_set_size();
@@ -440,31 +441,25 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
     log::invoke_apply_record(write.log_entry_, context, write.storage_, write.record_);
     // For this reason, we put memory_fence_release() between data and owner_id writes.
     assorted::memory_fence_release();
+    ASSERT_ND(write.record_->owner_id_.is_keylocked());
     ASSERT_ND(!write.record_->owner_id_.get_epoch().is_valid() ||
       write.record_->owner_id_.before(new_xct_id));  // ordered correctly?
     // Since we're applying in order, not in sorted order, it's easiest to do unlocks at once after
-//     // we can't just check if next edited record is same record
-//     // TODO: Possibly make the next few lines faster
-//     bool is_final = true;
-//     for (uint32_t x = i + 1; x < write_set_size; x++) {
-//       if (write_set[x].record_ == write_set[i].record_) is_final = false;
-//     }
-//     if (!is_final) {
-//       DVLOG(0) << *context << " Multiple write sets on record " << write_set[i].storage_->get_name()
-//         << ":" << write_set[i].record_ << ". Unlock at the last one of the write sets";
-//       // keep the lock for the next write set
-//     } else {
-//       write.record_->owner_id_ = new_xct_id;  // this also unlocks
-//     }
   }
+
+
+  WriteXctAccess* sorted_writes = context->get_current_xct().get_write_set();
+
   // Unlock records all at once // Be careful to only overwrite each record's ID once
   for (uint32_t i = 0; i < write_set_size; ++i) {
-    WriteXctAccess& write = (context->get_current_xct().get_write_set())[i]; //Use sorted list
-    if (i < write_set_size - 1 && write_set[i].record_ == write_set[i + 1].record_) {
-      DVLOG(0) << *context << " Multiple write sets on record " << write_set[i].storage_->get_name()
-        << ":" << write_set[i].record_ << ". Unlock at the last one of the write sets";
+    WriteXctAccess& write = sorted_writes[i];  // Use sorted list
+    if (i < write_set_size - 1 && write.record_ == sorted_writes[i + 1].record_) {
+      DVLOG(0) << *context << " Multiple write sets on record "
+        << sorted_writes[i].storage_->get_name()
+        << ":" << sorted_writes[i].record_ << ". Unlock at the last one of the write sets";
       // keep the lock for the next write set
     } else {
+      ASSERT_ND(!(write.record_->owner_id_ == new_xct_id));
       ASSERT_ND(write.record_->owner_id_.is_keylocked());
       write.record_->owner_id_ = new_xct_id;  // this also unlocks
     }
