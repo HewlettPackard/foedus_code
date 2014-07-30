@@ -95,7 +95,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     MasstreeBorderPage** out,
     PageVersion* out_version);
   /** similar to descend, but only for border page's foster child chain. */
-  ErrorCode find_border_leaf(
+  void      find_border_leaf(
     MasstreeBorderPage* cur,
     PageVersion cur_stable,
     uint8_t   current_layer,

@@ -29,6 +29,7 @@ namespace masstree {
 
 /** Used only for debugging as this is not space efficient. */
 struct HighFence {
+  HighFence(KeySlice slice, bool supremum) : slice_(slice), supremum_(supremum) {}
   KeySlice slice_;
   bool supremum_;
 };
@@ -62,15 +63,21 @@ class MasstreePage {
     return get_version().is_high_fence_supremum();
   }
   KeySlice            get_foster_fence() const ALWAYS_INLINE { return foster_fence_; }
-  MasstreePage*       get_foster_child() const ALWAYS_INLINE { return foster_child_; }
-  void                clear_foster();
+  MasstreePage*       get_foster_minor() const ALWAYS_INLINE { return foster_twin_[0]; }
+  MasstreePage*       get_foster_major() const ALWAYS_INLINE { return foster_twin_[1]; }
 
   bool                within_fences(KeySlice slice) const ALWAYS_INLINE {
     return slice >= low_fence_ && (is_high_fence_supremum() || slice < high_fence_);
   }
-  bool                within_foster_child(KeySlice slice) const ALWAYS_INLINE {
+  bool                within_foster_minor(KeySlice slice) const ALWAYS_INLINE {
     ASSERT_ND(within_fences(slice));
-    return has_foster_child() && slice >= foster_fence_;
+    ASSERT_ND(has_foster_child());
+    return slice < foster_fence_;
+  }
+  bool                within_foster_major(KeySlice slice) const ALWAYS_INLINE {
+    ASSERT_ND(within_fences(slice));
+    ASSERT_ND(has_foster_child());
+    return slice >= foster_fence_;
   }
   bool                has_foster_child() const ALWAYS_INLINE {
     return header_.page_version_.has_foster_child();
@@ -112,6 +119,7 @@ class MasstreePage {
   }
   bool              is_locked() const ALWAYS_INLINE { return header_.page_version_.is_locked(); }
   bool              is_moved() const ALWAYS_INLINE { return header_.page_version_.is_moved(); }
+  bool              is_retired() const ALWAYS_INLINE { return header_.page_version_.is_retired(); }
 
   /**
    * @brief Unlocks the page, assuming the caller has locked it.
@@ -147,8 +155,12 @@ class MasstreePage {
    * In case of intermediate page, this is the only foster child.
    * In case of border page, this is the major foster child. minor foster child is stored
    * in another field.
+   *
+   * When this page is fostering kids, this is the younger brother, or the new page of
+   * this page itself. This is null if the split was a no-record split.
+   * This is core of the foster-twin protocol.
    */
-  MasstreePage*       foster_child_;  // +8 -> 64
+  MasstreePage*       foster_twin_[2];  // +16 -> 72
 
   void                initialize_volatile_common(
     StorageId           storage_id,
@@ -159,8 +171,6 @@ class MasstreePage {
     KeySlice            low_fence,
     KeySlice            high_fence,
     bool                is_high_fence_supremum,
-    KeySlice            foster_fence,
-    MasstreePage*       foster_child,
     bool                initially_locked);
 };
 
@@ -298,19 +308,17 @@ class MasstreeIntermediatePage final : public MasstreePage {
     KeySlice            low_fence,
     KeySlice            high_fence,
     bool                is_high_fence_supremum,
-    KeySlice            foster_fence,
-    MasstreePage*       foster_child,
     bool                initially_locked);
 
   /**
-   * Splits this page as a physical-only operation, creating a new foster child.
+   * Splits this page as a physical-only operation, creating a new foster twin, adopting
+   * the given child to one of them.
    * @param[in] context Thread context
    * @param[in,out] trigger_child the child page that has a foster child which caused this split.
    * @pre !header_.snapshot_ (split happens to only volatile pages)
    * @pre is_locked() (the page must be locked)
-   * @post the new foster_child_ is NOT locked. This is different from BorderPage.
    */
-  ErrorCode split_foster(thread::Thread* context, MasstreePage* trigger_child);
+  ErrorCode split_foster_and_adopt(thread::Thread* context, MasstreePage* trigger_child);
 
   /**
    * @brief Adopts a foster-child of given child as an entry in this page.
@@ -335,7 +343,7 @@ class MasstreeIntermediatePage final : public MasstreePage {
   void verify_separators() const;
 
  private:
-  // 64
+  // 72
 
   /**
    * Separators to navigate search to mini pages in this page.
@@ -343,9 +351,9 @@ class MasstreeIntermediatePage final : public MasstreePage {
    * Iff Slice < separators_[0] or key_count==0, mini_pages_[0].
    * Iff Slice >= separators_[key_count-1] or key_count==0, mini_pages_[key_count].
    */
-  KeySlice            separators_[kMaxIntermediateSeparators];  // +72 -> 136
+  KeySlice            separators_[kMaxIntermediateSeparators];  // +72 -> 144
 
-  char                reserved_[120];    // -> 256
+  char                reserved_[112];    // -> 256
 
   MiniPage            mini_pages_[10];  // +384 * 10 -> 4096
 
@@ -436,8 +444,6 @@ class MasstreeBorderPage final : public MasstreePage {
     KeySlice            low_fence,
     KeySlice            high_fence,
     bool                is_high_fence_supremum,
-    KeySlice            foster_fence,
-    MasstreePage*       foster_child,
     bool                initially_locked);
 
   /**
@@ -592,10 +598,6 @@ class MasstreeBorderPage final : public MasstreePage {
     const memory::GlobalVolatilePageResolver& page_resolver,
     memory::PageReleaseBatch* batch);
 
-  MasstreeBorderPage* get_foster_minor() ALWAYS_INLINE { return foster_minor_; }
-  /** Should be used only from clear_foster(). */
-  void    clear_foster_minor() { foster_minor_ = nullptr; }
-
   /** prefetch upto 1/4 of slices. */
   void prefetch() const ALWAYS_INLINE {
     assorted::prefetch_cachelines(this, 4);
@@ -631,7 +633,7 @@ class MasstreeBorderPage final : public MasstreePage {
     uint8_t* located_index);
 
  private:
-  // 64
+  // 72
 
   /**
    * Stores key length excluding previous layers, but including this layer (which might be less
@@ -640,7 +642,7 @@ class MasstreeBorderPage final : public MasstreePage {
    * with different length. 9- stores a suffix in this page.
    * If this points to next layer, this value is kKeyLengthNextLayer.
    */
-  uint8_t     remaining_key_length_[kMaxKeys];    // +64 -> 128
+  uint8_t     remaining_key_length_[kMaxKeys];    // +64 -> 136
 
   /**
    * Key slice of this page. remaining_key_length_ and slice_ are essential to find the record
@@ -648,28 +650,21 @@ class MasstreeBorderPage final : public MasstreePage {
    * so they are placed at the beginning and we do prefetching. slices_ are bigger, so
    * we issue another prefetch while searching when appropriate.
    */
-  KeySlice    slices_[kMaxKeys];                  // +512 -> 640
+  KeySlice    slices_[kMaxKeys];                  // +512 -> 648
 
   /** Offset of the beginning of record in data_, divided by 8. */
-  uint8_t     offsets_[kMaxKeys];                 // +64  -> 704
+  uint8_t     offsets_[kMaxKeys];                 // +64  -> 712
   /**
    * length of the payload.
    */
-  uint16_t    payload_length_[kMaxKeys];          // +128 -> 832
+  uint16_t    payload_length_[kMaxKeys];          // +128 -> 840
 
   /**
    * Lock of each record. We separate this out from record to avoid destructive change
    * while splitting and page compaction. We have to make sure xct_id is always in a separated
    * area.
    */
-  xct::XctId  owner_ids_[kMaxKeys];               // +512 -> 1344
-
-  /**
-   * When this page is fostering kids, this is the younger brother, or the new page of
-   * this page itself. This is null if the split was a no-record split.
-   * This is core of the foster-twin protocol.
-   */
-  MasstreeBorderPage*  foster_minor_;             // +8 -> 1352
+  xct::XctId  owner_ids_[kMaxKeys];               // +512 -> 1352
 
   /**
    * The main data region of this page. Suffix and payload contiguously.

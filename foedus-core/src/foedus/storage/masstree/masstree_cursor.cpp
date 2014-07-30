@@ -281,6 +281,7 @@ ErrorCode MasstreeCursor::read_cur_key() {
       cur_page->get_record(index),
       remaining - sizeof(KeySlice));
   }
+  return kErrorCodeOk;
 }
 
 
@@ -523,8 +524,6 @@ ErrorCode MasstreeCursor::increment_record(PAYLOAD* value, uint16_t payload_offs
       payload_offset);
   });
 }
-
-
 
 }  // namespace masstree
 }  // namespace storage

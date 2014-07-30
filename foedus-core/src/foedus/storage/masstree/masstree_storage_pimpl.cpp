@@ -130,9 +130,8 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   }
   root->lock(true, true);
   UnlockScope scope(root);
-  PageVersion locked_version = root->get_version();
-  if (!locked_version.has_foster_child()) {
-    LOG(INFO) << "interesting. someone else has already grown B-tree in first layer";
+  if (root->is_retired()) {
+    LOG(INFO) << "interesting. someone else has already grown B-tree";
     return kErrorCodeStrMasstreeRetry;
   }
   ASSERT_ND(root->is_locked());
@@ -160,8 +159,6 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     kInfimumSlice,    // infimum slice
     kSupremumSlice,   // high-fence is supremum
     true,             // high-fence is supremum
-    kInfimumSlice,    // not foster key first
-    nullptr,  // no foster child
     true);    // lock it
   UnlockScope new_scope(new_root);
 
@@ -169,18 +166,8 @@ ErrorCode MasstreeStoragePimpl::grow_root(
 
   new_root->get_version().set_key_count(0);
   MasstreeIntermediatePage::MiniPage& mini_page = new_root->get_minipage(0);
-  MasstreePage* right_page = root->get_foster_child();
-  MasstreePage* left_page = root;
-  MasstreePage* foster_minor = nullptr;
-  if (root->header().get_page_type() == kMasstreeBorderPageType) {
-    foster_minor = reinterpret_cast<MasstreeBorderPage*>(root)->get_foster_minor();
-    if (foster_minor) {
-      left_page = foster_minor;
-      ASSERT_ND(root->get_version().is_moved());
-    } else {
-      ASSERT_ND(!root->get_version().is_moved());
-    }
-  }
+  MasstreePage* left_page = root->get_foster_minor();
+  MasstreePage* right_page = root->get_foster_major();
   mini_page.mini_version_.lock_version();
   mini_page.mini_version_.set_key_count(1);
   mini_page.pointers_[0].snapshot_pointer_ = 0;
@@ -199,21 +186,15 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   mini_page.mini_version_.unlock_version();
   ASSERT_ND(!new_root->is_border());
 
-  if (foster_minor) {
-    // in this case, the old root page is no longer a valid page
-  } else {
-    // the old root page is still a valid page.
-    root->clear_foster();
-    // this causes the following accesses retry until they see the new pointer installed below.
-    root->get_version().set_root(false);
-  }
-
   // Let's install a pointer to the new root page
   root_pointer->volatile_pointer_ = new_pointer;
   root_pointer->snapshot_pointer_ = 0;
   ASSERT_ND(reinterpret_cast<Page*>(new_root) ==
     context->get_global_volatile_page_resolver().resolve_offset(
       root_pointer->volatile_pointer_));
+
+  // the old root page is now retired
+  root->get_version().set_retired();
   return kErrorCodeOk;
 }
 
@@ -246,8 +227,6 @@ ErrorStack MasstreeStoragePimpl::create(thread::Thread* context) {
     kInfimumSlice,    // infimum slice
     kSupremumSlice,   // high-fence is supremum
     true,             // high-fence is supremum
-    kInfimumSlice,    // not foster key first
-    nullptr,  // no foster child
     false);  // not locked
   ASSERT_ND(root_page->get_version().is_high_fence_supremum());
 
@@ -270,9 +249,9 @@ inline ErrorCode MasstreeStoragePimpl::find_border(
   bool is_border = layer_root->is_border();
   while (true) {  // for retry
     PageVersion stable(layer_root->get_stable_version());
-    ErrorCode subroutine_result;
+    ErrorCode subroutine_result = kErrorCodeOk;
     if (is_border) {
-      subroutine_result = find_border_leaf(
+      find_border_leaf(
         reinterpret_cast<MasstreeBorderPage*>(layer_root),
         stable,
         current_layer,
@@ -311,34 +290,19 @@ ErrorCode MasstreeStoragePimpl::find_border_descend(
   ASSERT_ND(cur->get_layer() == current_layer);
   while (true) {  // retry loop
     ASSERT_ND(cur->within_fences(slice));
-    if (cur_stable.has_foster_child() && cur->within_foster_child(slice)) {
-      // then we have to follow foster chain
-      MasstreeIntermediatePage* next = reinterpret_cast<MasstreeIntermediatePage*>(
-        cur->get_foster_child());
-      PageVersion next_stable(next->get_stable_version());
-
-      // check cur's version again for hand-over-hand verification
-      assorted::memory_fence_acquire();
-      uint64_t diff = (cur->get_version().data_ ^ cur_stable.data_);
-      if (diff <= kPageVersionLockedBit) {
-        // this means nothing important has changed. we can now follow foster child
-        cur = next;
-        cur_stable = next_stable;
-        continue;
+    if (cur_stable.has_foster_child()) {
+      // follow one of foster-twin.
+      ASSERT_ND(cur_stable.is_moved());
+      if (cur->within_foster_minor(slice)) {
+        cur = reinterpret_cast<MasstreeIntermediatePage*>(cur->get_foster_minor());
       } else {
-        DVLOG(0) << "find_border_descend encountered a changed version in foster child. retry";
-        PageVersion cur_new_stable(cur->get_stable_version());
-        if (cur_new_stable.get_split_counter() != cur_stable.get_split_counter()) {
-          // we have to retry from root in this case
-          return kErrorCodeStrMasstreeRetry;
-        }
-        // otherwise retry locally
-        cur_stable = cur_new_stable;
-        continue;
+        cur = reinterpret_cast<MasstreeIntermediatePage*>(cur->get_foster_major());
       }
+      cur_stable = cur->get_stable_version();
+      continue;
     }
-    ASSERT_ND(!cur_stable.has_foster_child() || !cur->within_foster_child(slice));
 
+    ASSERT_ND(!cur_stable.has_foster_child());
     uint8_t cur_stable_key_count = cur_stable.get_key_count();
     uint8_t minipage_index = cur->find_minipage(cur_stable_key_count, slice);
     MasstreeIntermediatePage::MiniPage& minipage = cur->get_minipage(minipage_index);
@@ -378,13 +342,14 @@ ErrorCode MasstreeStoragePimpl::find_border_descend(
     if (diff <= kPageVersionLockedBit && diff_mini <= kPageVersionLockedBit) {
       // this means nothing important has changed.
       if (next_is_border) {
-        return find_border_leaf(
+        find_border_leaf(
           reinterpret_cast<MasstreeBorderPage*>(next),
           next_stable,
           current_layer,
           slice,
           out,
           out_version);
+        return kErrorCodeOk;
       } else {
         return find_border_descend(
           context,
@@ -398,19 +363,14 @@ ErrorCode MasstreeStoragePimpl::find_border_descend(
       }
     } else {
       DVLOG(0) << "find_border encountered a changed version. retry";
-      PageVersion cur_new_stable(cur->get_stable_version());
-      if (cur_new_stable.get_split_counter() != cur_stable.get_split_counter()) {
-        // we have to retry from root in this case
-        return kErrorCodeStrMasstreeRetry;
-      }
-      // otherwise retry locally
-      cur_stable = cur_new_stable;
+      // always retry locally
+      cur_stable = cur->get_stable_version();
       continue;
     }
   }
 }
 
-inline ErrorCode MasstreeStoragePimpl::find_border_leaf(
+inline void MasstreeStoragePimpl::find_border_leaf(
   MasstreeBorderPage* cur,
   PageVersion cur_stable,
   uint8_t   current_layer,
@@ -420,43 +380,20 @@ inline ErrorCode MasstreeStoragePimpl::find_border_leaf(
   while (true) {  // retry loop
     ASSERT_ND(cur->get_layer() == current_layer);
     ASSERT_ND(cur->within_fences(slice));
-    if (!cur_stable.has_foster_child() ||
-      (!cur_stable.is_moved() && !cur->within_foster_child(slice))) {
-      *out = cur;
-      *out_version = cur_stable;
-      return kErrorCodeOk;
-    }
-
-    // follow one of foster-twin.
-    ASSERT_ND(cur_stable.has_foster_child());
-    MasstreeBorderPage* next;
-    if (!cur->within_foster_child(slice)) {
+    if (cur_stable.has_foster_child()) {
+      // follow one of foster-twin.
       ASSERT_ND(cur_stable.is_moved());
-      next = reinterpret_cast<MasstreeBorderPage*>(cur->get_foster_minor());
-    } else {
-      next = reinterpret_cast<MasstreeBorderPage*>(cur->get_foster_child());
-    }
-    PageVersion next_stable(next->get_stable_version());
-
-    // check cur's version again for hand-over-hand verification
-    assorted::memory_fence_acquire();
-    uint64_t diff = (cur->get_version().data_ ^ cur_stable.data_);
-    if (diff <= kPageVersionLockedBit) {
-      // this means nothing important has changed. we can now follow foster child
-      cur = next;
-      cur_stable = next_stable;
-      continue;
-    } else {
-      DVLOG(0) << "find_border_leaf encountered a changed version. retry";
-      PageVersion cur_new_stable(cur->get_stable_version());
-      if (cur_new_stable.get_split_counter() != cur_stable.get_split_counter()) {
-        // we have to retry from root in this case
-        return kErrorCodeStrMasstreeRetry;
+      if (cur->within_foster_minor(slice)) {
+        cur = reinterpret_cast<MasstreeBorderPage*>(cur->get_foster_minor());
+      } else {
+        cur = reinterpret_cast<MasstreeBorderPage*>(cur->get_foster_major());
       }
-      // otherwise retry locally
-      cur_stable = cur_new_stable;
+      cur_stable = cur->get_stable_version();
       continue;
     }
+    *out = cur;
+    *out_version = cur_stable;
+    return;
   }
 }
 ErrorCode MasstreeStoragePimpl::locate_record(
@@ -565,8 +502,6 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
       kInfimumSlice,    // infimum slice
       kSupremumSlice,   // high-fence is supremum
       true,             // high-fence is supremum
-      kInfimumSlice,    // not foster key first
-      nullptr,  // no foster child
       true);  // initially locked
     UnlockScope scope(root);
     root->copy_initial_record(parent, parent_index);
@@ -658,21 +593,13 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
     PageVersion version;
     CHECK_ERROR_CODE(find_border(context, layer_root, layer, true, slice, &border, &version));
     while (true) {  // retry loop for following foster child
-      // if, after locking, we found out that the page was split and we should follow foster child,
-      // do it.
-      if (version.has_foster_child() &&
-        (border->is_moved() || border->within_foster_child(slice))) {
-        CHECK_ERROR_CODE(find_border_leaf(
-          border,
-          version,
-          layer,
-          slice,
-          &border,
-          &version));
-        continue;
+      // if we found out that the page was split and we should follow foster child, do it.
+      while (version.has_foster_child()) {
+        find_border_leaf(border, version, layer, slice, &border, &version);
+        version = border->get_stable_version();
       }
       ASSERT_ND(!border->is_moved());
-      ASSERT_ND(!border->within_foster_child(slice));
+      ASSERT_ND(border->within_fences(slice));
 
       uint8_t count = version.get_key_count();
       MasstreeBorderPage::FindKeyForReserveResult match = border->find_key_for_reserve(
@@ -700,10 +627,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
       UnlockScope scope(border);
       // now finally we took a lock, finalizing the version. up to now, everything could happen.
       // check all of them and retry if fails.
-      if (border->get_version().get_split_counter() != version.get_split_counter() ||
-        !border->within_fences(slice) ||
-        border->within_foster_child(slice)) {
-        return kErrorCodeStrMasstreeRetry;
+      if (border->has_foster_child()) {
+        continue;  // locally retries
       }
       // even resume the searches if new record was installed (only new record area)
       if (count != version.get_key_count()) {
@@ -762,22 +687,20 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
 
   CHECK_ERROR_CODE(find_border(context, layer_root, 0, true, key, &border, &version));
   while (true) {  // retry loop for following foster child
+    // if we found out that the page was split and we should follow foster child, do it.
+    while (version.has_foster_child()) {
+      find_border_leaf(border, version, 0, key, &border, &version);
+      version = border->get_stable_version();
+    }
+
     border->lock();
     UnlockScope scope(border);
-    if (border->get_version().get_split_counter() != version.get_split_counter()) {
-      return kErrorCodeStrMasstreeRetry;
-    }
-    ASSERT_ND(border->within_fences(key));
-
-    // if, after locking, we found out that the page was split and we should follow foster child,
-    // do it.
-    if (border->get_version().has_foster_child() &&
-        (border->is_moved() || border->within_foster_child(key))) {
-      CHECK_ERROR_CODE(find_border_leaf(border, border->get_version(), 0, key, &border, &version));
+    if (version.has_foster_child()) {
       continue;
     }
+    ASSERT_ND(!border->has_foster_child());
     ASSERT_ND(!border->is_moved());
-    ASSERT_ND(!border->within_foster_child(key));
+    ASSERT_ND(border->within_fences(key));
 
     // because we never go on to second layer in this case, it's either a full match or not-found
     uint8_t count = border->get_version().get_key_count();

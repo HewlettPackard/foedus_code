@@ -229,6 +229,9 @@ class SplitIntermediateSequentialTask : public thread::ImpersonateTask {
     // one intermediate page can point to about 150 pages.
     // inserting 400 tuples surely causes 3 levels
     for (uint32_t rep = 0; rep < 400; ++rep) {
+      if (rep == 321) {
+        rep = 321;
+      }
       WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
       CHECK_ERROR(masstree->verify_single_thread(context));
       KeySlice key = normalize_primitive<uint64_t>(rep);
@@ -236,6 +239,9 @@ class SplitIntermediateSequentialTask : public thread::ImpersonateTask {
       std::memset(data, 0, 1000);
       std::memcpy(data + 123, &key, sizeof(key));
       WRAP_ERROR_CODE(masstree->insert_record_normalized(context, key, data, sizeof(data)));
+      WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+      WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+      CHECK_ERROR(masstree->verify_single_thread(context));
       WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
     }
 

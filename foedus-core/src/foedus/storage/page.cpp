@@ -21,6 +21,7 @@ std::ostream& operator<<(std::ostream& o, const PageVersion& v) {
     << (copied.has_foster_child() ? "F" : " ")
     << (copied.is_high_fence_supremum() ? "H" : " ")
     << (copied.is_root() ? "R" : " ")
+    << (copied.is_retired() ? "T" : " ")
     << "</flags>"
     << "<insert_count>" << copied.get_insert_counter() << "</insert_count>"
     << "<split_count>" << copied.get_split_counter() << "</split_count>"

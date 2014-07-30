@@ -36,9 +36,7 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_layer(
   uint8_t layer,
   MasstreePage* layer_root) {
   CHECK_AND_ASSERT(layer_root->get_layer() == layer);
-  HighFence high_fence;
-  high_fence.slice_ = kSupremumSlice;
-  high_fence.supremum_ = true;
+  HighFence high_fence(kSupremumSlice, true);
   if (layer_root->is_border()) {
     CHECK_ERROR(verify_single_thread_border(
       context,
@@ -61,17 +59,26 @@ ErrorStack verify_page_basic(
   KeySlice low_fence,
   HighFence high_fence) {
   CHECK_AND_ASSERT(!page->is_locked());
+  CHECK_AND_ASSERT(!page->is_retired());
   CHECK_AND_ASSERT(page->header().get_page_type() == page_type);
   CHECK_AND_ASSERT(page->get_low_fence() == low_fence);
   CHECK_AND_ASSERT(page->get_high_fence() == high_fence.slice_);
   CHECK_AND_ASSERT(page->is_high_fence_supremum() == high_fence.supremum_);
-  CHECK_AND_ASSERT((page->get_foster_child() && page->has_foster_child()) ||
-    (page->get_foster_child() == nullptr && !page->has_foster_child()));
+  CHECK_AND_ASSERT(
+    (page->is_moved() && page->has_foster_child()
+      && page->get_foster_major() && page->get_foster_minor()) ||
+    (!page->is_moved() && !page->has_foster_child()
+      && page->get_foster_major() == nullptr && page->get_foster_minor() == nullptr));
 
-  if (page->has_foster_child()) {
+  if (page->get_foster_major()) {
     CHECK_AND_ASSERT(!page->header().snapshot_);
-    CHECK_AND_ASSERT(!page->get_foster_child()->header().snapshot_);
-    CHECK_AND_ASSERT(page->get_foster_child()->header().get_page_type() == page_type);
+    CHECK_AND_ASSERT(!page->get_foster_major()->header().snapshot_);
+    CHECK_AND_ASSERT(page->get_foster_major()->header().get_page_type() == page_type);
+  }
+  if (page->get_foster_minor()) {
+    CHECK_AND_ASSERT(!page->header().snapshot_);
+    CHECK_AND_ASSERT(!page->get_foster_minor()->header().snapshot_);
+    CHECK_AND_ASSERT(page->get_foster_minor()->header().get_page_type() == page_type);
   }
   return kRetOk;
 }
@@ -83,43 +90,46 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_intermediate(
   MasstreeIntermediatePage* page) {
   CHECK_ERROR(verify_page_basic(page, kMasstreeIntermediatePageType, low_fence, high_fence));
 
-  HighFence local_high = high_fence;
-  MasstreeIntermediatePage* foster_child
-    = reinterpret_cast<MasstreeIntermediatePage*>(page->get_foster_child());
-  if (foster_child) {
-    local_high.slice_ = page->get_foster_fence();
-    local_high.supremum_ = false;
+  if (page->is_moved()) {
     CHECK_ERROR(verify_single_thread_intermediate(
       context,
-      local_high.slice_,
+      low_fence,
+      HighFence(page->get_foster_fence(), false),
+      reinterpret_cast<MasstreeIntermediatePage*>(page->get_foster_minor())));
+    CHECK_ERROR(verify_single_thread_intermediate(
+      context,
+      page->get_foster_fence(),
       high_fence,
-      foster_child));
+      reinterpret_cast<MasstreeIntermediatePage*>(page->get_foster_major())));
+    return kRetOk;
   }
 
-  CHECK_AND_ASSERT(page->get_version().get_key_count() <= kMaxIntermediateSeparators);
+  uint8_t key_count = page->get_version().get_key_count();
+  CHECK_AND_ASSERT(key_count <= kMaxIntermediateSeparators);
   KeySlice previous_low = low_fence;
-  for (uint8_t i = 0; i <= page->get_version().get_key_count(); ++i) {
-    HighFence mini_high;
-    if (i < page->get_version().get_key_count()) {
+  for (uint8_t i = 0; i <= key_count; ++i) {
+    HighFence mini_high(0, false);
+    if (i < key_count) {
       mini_high.slice_ = page->get_separator(i);
       mini_high.supremum_ = false;
-      CHECK_AND_ASSERT(local_high.supremum_ || mini_high.slice_ < local_high.slice_);
+      CHECK_AND_ASSERT(high_fence.supremum_ || mini_high.slice_ < high_fence.slice_);
       if (i == 0) {
         CHECK_AND_ASSERT(mini_high.slice_ > low_fence);
       } else {
         CHECK_AND_ASSERT(mini_high.slice_ > page->get_separator(i - 1));
       }
     } else {
-      mini_high = local_high;
+      mini_high = high_fence;
     }
 
     MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(i);
+    uint8_t mini_count = minipage.mini_version_.get_key_count();
     CHECK_AND_ASSERT(!minipage.mini_version_.is_locked());
-    CHECK_AND_ASSERT(minipage.mini_version_.get_key_count() <= kMaxIntermediateMiniSeparators);
+    CHECK_AND_ASSERT(mini_count <= kMaxIntermediateMiniSeparators);
     KeySlice page_low = previous_low;
-    for (uint8_t j = 0; j <= minipage.mini_version_.get_key_count(); ++j) {
-      HighFence page_high;
-      if (j < minipage.mini_version_.get_key_count()) {
+    for (uint8_t j = 0; j <= mini_count; ++j) {
+      HighFence page_high(0, false);
+      if (j < mini_count) {
         page_high.slice_ = minipage.separators_[j];
         page_high.supremum_ = false;
         CHECK_AND_ASSERT(page_high.slice_ < mini_high.slice_ || mini_high.supremum_);
@@ -166,47 +176,41 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_border(
   HighFence high_fence,
   MasstreeBorderPage* page) {
   CHECK_ERROR(verify_page_basic(page, kMasstreeBorderPageType, low_fence, high_fence));
+  if (page->is_moved()) {
+    CHECK_ERROR(verify_single_thread_border(
+      context,
+      low_fence,
+      HighFence(page->get_foster_fence(), false),
+      reinterpret_cast<MasstreeBorderPage*>(page->get_foster_minor())));
+    CHECK_ERROR(verify_single_thread_border(
+      context,
+      page->get_foster_fence(),
+      high_fence,
+      reinterpret_cast<MasstreeBorderPage*>(page->get_foster_major())));
+    return kRetOk;
+  }
 
-  MasstreeBorderPage* foster_child
-    = reinterpret_cast<MasstreeBorderPage*>(page->get_foster_child());
-  if (foster_child) {
-    KeySlice foster_fence = page->get_foster_fence();
-    MasstreeBorderPage* foster_minor
-      = reinterpret_cast<MasstreeBorderPage*>(page->get_foster_minor());
-    if (foster_minor) {
-      CHECK_AND_ASSERT(page->get_version().is_moved());
-      HighFence foster_fence_wrap;
-      foster_fence_wrap.slice_ = foster_fence;
-      foster_fence_wrap.supremum_ = false;
-      CHECK_ERROR(verify_single_thread_border(context, low_fence, foster_fence_wrap, foster_minor));
+  CHECK_AND_ASSERT(!page->is_moved());
+  CHECK_AND_ASSERT(page->get_version().get_key_count() <= MasstreeBorderPage::kMaxKeys);
+  for (uint8_t i = 0; i < page->get_version().get_key_count(); ++i) {
+    CHECK_AND_ASSERT(!page->get_owner_id(i)->is_keylocked());
+    CHECK_AND_ASSERT(!page->get_owner_id(i)->is_rangelocked());
+    CHECK_AND_ASSERT(page->get_owner_id(i)->get_epoch().is_valid());
+    if (i == 0) {
+      CHECK_AND_ASSERT(page->get_offset_in_bytes(i) < MasstreeBorderPage::kDataSize);
     } else {
-      CHECK_AND_ASSERT(!page->get_version().is_moved());
+      CHECK_AND_ASSERT(page->get_offset_in_bytes(i) < page->get_offset_in_bytes(i - 1));
     }
-    CHECK_ERROR(verify_single_thread_border(context, foster_fence, high_fence, foster_child));
-  } else {
-    CHECK_AND_ASSERT(page->get_foster_minor() == nullptr);
-    CHECK_AND_ASSERT(!page->get_version().is_moved());
-    CHECK_AND_ASSERT(page->get_version().get_key_count() <= MasstreeBorderPage::kMaxKeys);
-    for (uint8_t i = 0; i < page->get_version().get_key_count(); ++i) {
-      CHECK_AND_ASSERT(!page->get_owner_id(i)->is_keylocked());
-      CHECK_AND_ASSERT(!page->get_owner_id(i)->is_rangelocked());
-      CHECK_AND_ASSERT(page->get_owner_id(i)->get_epoch().is_valid());
-      if (i == 0) {
-        CHECK_AND_ASSERT(page->get_offset_in_bytes(i) < MasstreeBorderPage::kDataSize);
-      } else {
-        CHECK_AND_ASSERT(page->get_offset_in_bytes(i) < page->get_offset_in_bytes(i - 1));
-      }
-      KeySlice slice = page->get_slice(i);
-      CHECK_AND_ASSERT(slice >= low_fence);
-      CHECK_AND_ASSERT(slice < high_fence.slice_ || page->is_high_fence_supremum());
-      if (page->does_point_to_layer(i)) {
-        CHECK_AND_ASSERT(!page->get_next_layer(i)->is_both_null());
-        MasstreePage* next;
-        // TODO(Hideaki) probably two versions: always follow volatile vs snapshot
-        // so far check volatile only
-        WRAP_ERROR_CODE(follow_page(context, true, page->get_next_layer(i), &next));
-        CHECK_ERROR(verify_single_thread_layer(context, page->get_layer() + 1, next));
-      }
+    KeySlice slice = page->get_slice(i);
+    CHECK_AND_ASSERT(slice >= low_fence);
+    CHECK_AND_ASSERT(slice < high_fence.slice_ || page->is_high_fence_supremum());
+    if (page->does_point_to_layer(i)) {
+      CHECK_AND_ASSERT(!page->get_next_layer(i)->is_both_null());
+      MasstreePage* next;
+      // TODO(Hideaki) probably two versions: always follow volatile vs snapshot
+      // so far check volatile only
+      WRAP_ERROR_CODE(follow_page(context, true, page->get_next_layer(i), &next));
+      CHECK_ERROR(verify_single_thread_layer(context, page->get_layer() + 1, next));
     }
   }
 

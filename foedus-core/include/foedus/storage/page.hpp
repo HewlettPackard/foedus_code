@@ -45,7 +45,8 @@ const uint64_t  kPageVersionMovedBit   = (1ULL << 60);
 const uint64_t  kPageVersionHasFosterChildBit    = (1ULL << 59);
 const uint64_t  kPageVersionIsSupremumBit  = (1ULL << 58);
 const uint64_t  kPageVersionIsRootBit  = (1ULL << 57);
-const uint64_t  kPageVersionInsertionCounterMask  = 0x03F8000000000000ULL;
+const uint64_t  kPageVersionIsRetiredBit  = (1ULL << 56);
+const uint64_t  kPageVersionInsertionCounterMask  = 0x01F8000000000000ULL;
 const uint8_t   kPageVersionInsertionCounterShifts = 51;
 const uint64_t  kPageVersionSplitCounterMask      = 0x0007FFFE00000000ULL;
 const uint8_t   kPageVersionSplitCounterShifts    = 33;
@@ -63,10 +64,11 @@ const uint8_t   kPageVersionLayerShifts           = 8;
  * \li bit-1: inserting
  * \li bit-2: splitting
  * \li bit-3: moved
- * \li bit-4: has_foster_child
+ * \li bit-4: has_foster_child (same as moved. we should remove this one)
  * \li bit-5: is_high_fence_supremum
  * \li bit-6: is_root
- * \li bit-[7,13): insert counter
+ * \li bit-7: is_retired
+ * \li bit-[8,13): insert counter
  * \li bit-[13,31): split counter (do we need this much..?)
  * \li bit-31: unused
  * \li bit-[32,48): \e physical key count (those keys might be deleted)
@@ -89,6 +91,7 @@ struct PageVersion CXX11_FINAL {
   bool    is_splitting() const ALWAYS_INLINE { return data_ & kPageVersionSplittingBit; }
   bool    is_moved() const ALWAYS_INLINE { return data_ & kPageVersionMovedBit; }
   bool    is_root() const ALWAYS_INLINE { return data_ & kPageVersionIsRootBit; }
+  bool    is_retired() const ALWAYS_INLINE { return data_ & kPageVersionIsRetiredBit; }
   bool    has_foster_child() const ALWAYS_INLINE { return data_ & kPageVersionHasFosterChildBit; }
   bool    is_high_fence_supremum() const ALWAYS_INLINE { return data_ & kPageVersionIsSupremumBit; }
   uint32_t  get_insert_counter() const ALWAYS_INLINE {
@@ -110,6 +113,11 @@ struct PageVersion CXX11_FINAL {
     ASSERT_ND(is_locked());
     ASSERT_ND(!is_moved());
     data_ |= kPageVersionMovedBit;
+  }
+  void      set_retired() ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    ASSERT_ND(!is_retired());
+    data_ |= kPageVersionIsRetiredBit;
   }
   void      set_root(bool root) ALWAYS_INLINE {
     ASSERT_ND(is_locked());
