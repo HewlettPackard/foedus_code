@@ -80,6 +80,9 @@ X(kErrorCodeStrKeyAlreadyExists,    0x080B, "STORAGE: This key already exists in
 X(kErrorCodeStrKeyNotFound,         0x080C, "STORAGE: This key is not found in this storage")
 X(kErrorCodeStrCuckooTooDeep,       0x080D, "STORAGE: HASH: The cuckoo depth is too deep")
 X(kErrorCodeStrMasstreeRetry,       0x0811, "STORAGE: MASSTREE: Retry search. This is an internal error code used to retry find_border.")
+X(kErrorCodeStrMasstreeTooManyRetries, 0x0812, "STORAGE: MASSTREE: Retrying too many times. Gave up")
+X(kErrorCodeStrMasstreeFailedVerification, 0x0813, "STORAGE: MASSTREE: Failed verification. Found an inconsistency")
+X(kErrorCodeStrMasstreeCursorTooDeep, 0x0814, "STORAGE: MASSTREE: Cursor encountered a too deep path")
 
 X(kErrorCodeCacheNoFreePages,       0x0901, "SPCACHE: Not enough free snapshot pages. Cleaner is not catching up")
 X(kErrorCodeCacheTableFull,         0x0902, "SPCACHE: Hashtable full or too many skewed inserts")
@@ -89,6 +92,7 @@ X(kErrorCodeXctWriteSetOverflow,    0x0A02, "XCTION : Too large write-set. Check
 X(kErrorCodeXctAlreadyRunning,      0x0A03, "XCTION : This thread is already running a transaction. Commit or abort it first.")
 X(kErrorCodeXctNoXct,               0x0A04, "XCTION : This thread is not running any transaction.")
 X(kErrorCodeXctRaceAbort,           0x0A05, "XCTION : Aborted a transaction because of a race condition. This is an expected error in highly contended case. You might retry the transaction.")
-X(kErrorCodeXctNodeSetOverflow,     0x0A06, "XCTION : Too large node-set. Consider using snapshot isolation.")
+X(kErrorCodeXctPageVersionSetOverflow, 0x0A06, "XCTION : Too large page-version set. Consider using snapshot isolation.")
+X(kErrorCodeXctPointerSetOverflow,  0x0A07, "XCTION : Too large pointer-set. Consider using snapshot isolation.")
 
 X(kErrorCodeDbgGperftools,          0x0B01, "DEBUG  : Gperftools reported an error")

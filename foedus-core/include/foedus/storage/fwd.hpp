@@ -14,8 +14,10 @@ namespace storage {
 class   Composer;
 struct  DropLogType;
 struct  DualPagePointer;
+struct  DummyVolatilePageInitializer;
 struct  Metadata;
 struct  Page;
+struct  PageVersion;
 class   Partitioner;
 struct  Record;
 class   Storage;

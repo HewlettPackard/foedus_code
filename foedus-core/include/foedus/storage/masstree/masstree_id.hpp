@@ -55,6 +55,14 @@ const uint16_t kMaxKeyLength = 1024;
  */
 typedef uint64_t KeySlice;
 
+// infimum can be simply 0 because low-fence is inclusive.
+const KeySlice kInfimumSlice = 0;
+// setting 0xFF... to high_fence is not enough. we also set the "supremum" bit
+// to tell that this is larger than any value.
+// we never use FFFFFFFFFFFFFFFF as separator, but still it can occur as key slice.
+// thus, we need the supremum bit.
+const KeySlice kSupremumSlice = 0xFFFFFFFFFFFFFFFFULL;
+
 /**
  * @brief Order-preserving normalization for primitive key types.
  * @param[in] value the value to normalize
@@ -116,6 +124,7 @@ inline KeySlice normalize_be_bytes_full(const void* be_bytes) {
 /**
  * @brief Convert a big-endian byte array of given length to KeySlice.
  * @param[in] be_bytes a big-endian byte array.
+ * @param[in] length key length.
  * @return normalized value that preserves the value-order
  * @ingroup MASSTREE
  */
@@ -126,6 +135,40 @@ inline KeySlice normalize_be_bytes_fragment(const void* be_bytes, uint32_t lengt
   uint64_t tmp = 0;
   std::memcpy(&tmp, be_bytes, length);
   return assorted::read_bigendian<uint64_t>(&tmp);
+}
+
+/**
+ * @brief Extract a part of a big-endian byte array of given length as KeySlice.
+ * @param[in] be_bytes a big-endian byte array.
+ * @param[in] slice_length key length for this slice.
+ * @return normalized value that preserves the value-order
+ * @ingroup MASSTREE
+ */
+inline KeySlice slice_key(const void* be_bytes, uint16_t slice_length) {
+  if (slice_length >= 8) {
+    return normalize_be_bytes_full(be_bytes);
+  } else {
+    return normalize_be_bytes_fragment(be_bytes, slice_length);
+  }
+}
+
+/**
+ * @brief Extract a part of a big-endian byte array of given length as KeySlice.
+ * @param[in] be_bytes a big-endian byte array.
+ * @param[in] key_length total key length.
+ * @param[in] current_layer extract a slice for this layer.
+ * @return normalized value that preserves the value-order
+ * @ingroup MASSTREE
+ */
+inline KeySlice slice_layer(const void* be_bytes, uint16_t key_length, uint8_t current_layer) {
+  uint8_t remaining_length = key_length - current_layer * 8;
+  if (remaining_length >= 8) {
+    return normalize_be_bytes_full(reinterpret_cast<const char*>(be_bytes) + current_layer * 8);
+  } else {
+    return normalize_be_bytes_fragment(
+      reinterpret_cast<const char*>(be_bytes) + current_layer * 8,
+      remaining_length);
+  }
 }
 
 }  // namespace masstree

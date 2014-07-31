@@ -3,15 +3,16 @@
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
 /**
- * @file foedus/storage/hash/tpcb_experiment_hash.cpp
- * @brief TPC-B experiment on hash storage with sequential storage for history
+ * @file foedus/storage/masstree/tpcb_experiment_masstree.cpp
+ * @brief TPC-B experiment on masstree storage with sequential storage for history
  * @author kimurhid
- * @date 2014/07/15
+ * @date 2014/07/25
  * @details
  * Unlike array/seq experiments that use array for main tables, this has an additional
  * populate phase to insert required records.
  * @section RESULTS Latest Results
- * 8.8 MTPS. 7% CPU costs are in tag-checking.
+ * 8 MTPS (2014/07/25) not bad...
+ * 40% of cpu costs find_border_descend. half of it prefetch cost (mm_prefetch). interesting.
  */
 #include <atomic>
 #include <chrono>
@@ -35,8 +36,8 @@
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/storage/storage_manager.hpp"
-#include "foedus/storage/hash/hash_metadata.hpp"
-#include "foedus/storage/hash/hash_storage.hpp"
+#include "foedus/storage/masstree/masstree_metadata.hpp"
+#include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/storage/sequential/sequential_metadata.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
 #include "foedus/thread/rendezvous_impl.hpp"
@@ -47,7 +48,7 @@
 
 namespace foedus {
 namespace storage {
-namespace hash {
+namespace masstree {
 
 /** number of branches (TPS scaling factor). */
 int kBranches  =   100;
@@ -92,9 +93,9 @@ struct HistoryData {
   char        other_data_[24];  // just to make it at least 50 bytes
 };
 
-HashStorage*  branches      = nullptr;
-HashStorage*  accounts      = nullptr;
-HashStorage*  tellers       = nullptr;
+MasstreeStorage*  branches      = nullptr;
+MasstreeStorage*  accounts      = nullptr;
+MasstreeStorage*  tellers       = nullptr;
 sequential::SequentialStorage*  histories = nullptr;
 thread::Rendezvous start_endezvous;
 bool          stop_requested;
@@ -102,6 +103,10 @@ bool          stop_requested;
 // for better performance, commit frequently.
 // (we have to sort write set at commit, so there is something nlogn)
 const uint32_t kCommitBatch = 1000;
+
+inline KeySlice nm(uint64_t key) {
+  return normalize_primitive<uint64_t>(key);
+}
 
 class PopulateTpcbTask : public thread::ImpersonateTask {
  public:
@@ -134,7 +139,11 @@ class PopulateTpcbTask : public thread::ImpersonateTask {
 #endif  // NDEBUG
       branch.branch_balance_ = 0;
       commit_if_full(context);
-      WRAP_ERROR_CODE(branches->insert_record(context, branch_id, &branch, sizeof(branch)));
+      WRAP_ERROR_CODE(branches->insert_record_normalized(
+        context,
+        nm(branch_id),
+        &branch,
+        sizeof(branch)));
 
       for (uint64_t teller_ordinal = 0; teller_ordinal < kTellers; ++teller_ordinal) {
         uint64_t teller_id = kTellers * branch_id + teller_ordinal;
@@ -144,7 +153,11 @@ class PopulateTpcbTask : public thread::ImpersonateTask {
 #endif  // NDEBUG
         teller.branch_id_ = branch_id;
         commit_if_full(context);
-        WRAP_ERROR_CODE(tellers->insert_record(context, teller_id, &teller, sizeof(teller)));
+        WRAP_ERROR_CODE(tellers->insert_record_normalized(
+          context,
+          nm(teller_id),
+          &teller,
+          sizeof(teller)));
 
         for (uint64_t account_ordinal = 0;
               account_ordinal < kAccountsPerTeller;
@@ -156,7 +169,11 @@ class PopulateTpcbTask : public thread::ImpersonateTask {
 #endif  // NDEBUG
           account.branch_id_ = branch_id;
           commit_if_full(context);
-          WRAP_ERROR_CODE(accounts->insert_record(context, account_id, &account, sizeof(account)));
+          WRAP_ERROR_CODE(accounts->insert_record_normalized(
+            context,
+            nm(account_id),
+            &account,
+            sizeof(account)));
         }
       }
     }
@@ -248,13 +265,21 @@ class RunTpcbTask : public thread::ImpersonateTask {
     CHECK_ERROR_CODE(xct_manager.begin_xct(context, xct::kDirtyReadPreferVolatile));
 
     int64_t balance = amount;
-    CHECK_ERROR_CODE(branches->increment_record(context, branch_id, &balance, 0));
+    CHECK_ERROR_CODE(branches->increment_record_normalized(context, nm(branch_id), &balance, 0));
 
     balance = amount;
-    CHECK_ERROR_CODE(tellers->increment_record(context, teller_id, &balance, sizeof(uint64_t)));
+    CHECK_ERROR_CODE(tellers->increment_record_normalized(
+      context,
+      nm(teller_id),
+      &balance,
+      sizeof(uint64_t)));
 
     balance = amount;
-    CHECK_ERROR_CODE(accounts->increment_record(context, account_id, &balance, sizeof(uint64_t)));
+    CHECK_ERROR_CODE(accounts->increment_record_normalized(
+      context,
+      nm(account_id),
+      &balance,
+      sizeof(uint64_t)));
 
     tmp_history_.account_id_ = account_id;
     tmp_history_.branch_id_ = branch_id;
@@ -284,7 +309,7 @@ int main_impl(int argc, char **argv) {
     profile = true;
     std::cout << "Profiling..." << std::endl;
   }
-  fs::Path folder("/dev/shm/tpcb_hash_expr");
+  fs::Path folder("/dev/shm/tpcb_masstree_expr");
   if (fs::exists(folder)) {
     fs::remove_all(folder);
   }
@@ -324,18 +349,14 @@ int main_impl(int argc, char **argv) {
       StorageManager& str_manager = engine.get_storage_manager();
       std::cout << "Creating TPC-B tables... " << std::endl;
       Epoch ep;
-      const float kHashFillfactor = 0.5;
-      HashMetadata branch_meta("branches");
-      branch_meta.set_capacity(kBranches, kHashFillfactor);
-      COERCE_ERROR(str_manager.create_hash(&branch_meta, &branches, &ep));
+      MasstreeMetadata branch_meta("branches");
+      COERCE_ERROR(str_manager.create_masstree(&branch_meta, &branches, &ep));
       std::cout << "Created branches " << std::endl;
-      HashMetadata teller_meta("tellers");
-      teller_meta.set_capacity(kBranches * kTellers, kHashFillfactor);
-      COERCE_ERROR(str_manager.create_hash(&teller_meta, &tellers, &ep));
+      MasstreeMetadata teller_meta("tellers");
+      COERCE_ERROR(str_manager.create_masstree(&teller_meta, &tellers, &ep));
       std::cout << "Created tellers " << std::endl;
-      HashMetadata account_meta("accounts");
-      account_meta.set_capacity(kBranches * kAccounts, kHashFillfactor);
-      COERCE_ERROR(str_manager.create_hash(&account_meta, &accounts, &ep));
+      MasstreeMetadata account_meta("accounts");
+      COERCE_ERROR(str_manager.create_masstree(&account_meta, &accounts, &ep));
       std::cout << "Created accounts " << std::endl;
       sequential::SequentialMetadata history_meta("histories");
       COERCE_ERROR(str_manager.create_sequential(&history_meta, &histories, &ep));
@@ -407,10 +428,10 @@ int main_impl(int argc, char **argv) {
   return 0;
 }
 
-}  // namespace hash
+}  // namespace masstree
 }  // namespace storage
 }  // namespace foedus
 
 int main(int argc, char **argv) {
-  return foedus::storage::hash::main_impl(argc, argv);
+  return foedus::storage::masstree::main_impl(argc, argv);
 }

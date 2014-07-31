@@ -21,7 +21,7 @@
 #include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
-#include "foedus/storage/masstree/masstree_page_version.hpp"
+#include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/thread/thread.hpp"
 
 namespace foedus {
@@ -53,17 +53,25 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   MasstreeMetadata        metadata_;
 
   /**
-   * A always-existing volatile image of (probably-) root page of the first layer.
+   * Root page of the first layer. Volatile pointer is always active.
    * This might be MasstreeIntermediatePage or MasstreeBoundaryPage.
-   * During root expansion, this variable tentatively points to a child of root, but
-   * one can/should check that situation by reading the parent pointer as described in [YANDONG12].
+   * When the first layer B-tree grows, this points to a new page. So, this is one of the few
+   * page pointers that might be \e swapped. Transactions thus have to add this to a pointer
+   * set even thought they are following a volatile pointer.
+   *
+   * Instead, this always points to a root. We don't need "is_root" check in [YANDONG12] and
+   * thus doesn't need a parent pointer.
    */
-  MasstreePage*           first_root_;
   DualPagePointer         first_root_pointer_;
 
   /** If this is true, initialize() reads it back from previous snapshot and logs. */
   bool                    exist_;
 
+  ErrorCode get_first_root(thread::Thread* context, MasstreePage** root, PageVersion* version);
+  ErrorCode grow_root(
+    thread::Thread* context,
+    DualPagePointer* root_pointer,
+    MasstreePage* root);
 
   /**
    * Find a border node in the layer that corresponds to the given key slice.
@@ -75,16 +83,25 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     bool      for_writes,
     KeySlice  slice,
     MasstreeBorderPage** border,
-    MasstreePageVersion* border_version) ALWAYS_INLINE;
+    PageVersion* border_version) ALWAYS_INLINE;
   /** descend subroutine of find_border() */
   ErrorCode find_border_descend(
     thread::Thread* context,
     MasstreeIntermediatePage* cur,
-    MasstreePageVersion cur_stable,
+    PageVersion cur_stable,
     uint8_t   current_layer,
     bool      for_writes,
     KeySlice  slice,
-    MasstreeBorderPage** out);
+    MasstreeBorderPage** out,
+    PageVersion* out_version);
+  /** similar to descend, but only for border page's foster child chain. */
+  void      find_border_leaf(
+    MasstreeBorderPage* cur,
+    PageVersion cur_stable,
+    uint8_t   current_layer,
+    KeySlice  slice,
+    MasstreeBorderPage** out,
+    PageVersion* out_version) ALWAYS_INLINE;
 
   /** Identifies page and record for the key */
   ErrorCode locate_record(
@@ -115,18 +132,39 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     uint16_t payload_count,
     MasstreeBorderPage** out_page,
     uint8_t* record_index);
+  ErrorCode reserve_record_new_record(
+    thread::Thread* context,
+    MasstreeBorderPage* border,
+    KeySlice key,
+    uint8_t remaining,
+    const void* suffix,
+    uint16_t payload_count,
+    MasstreeBorderPage** out_page,
+    uint8_t* record_index);
+  void      reserve_record_new_record_apply(
+    thread::Thread* context,
+    MasstreeBorderPage* target,
+    uint8_t target_index,
+    KeySlice slice,
+    uint8_t remaining_key_length,
+    const void* suffix,
+    uint16_t payload_count);
 
   /** implementation of get_record family. use with locate_record() */
   ErrorCode retrieve_general(
     thread::Thread* context,
     MasstreeBorderPage* border,
     uint8_t index,
+    const void* be_key,
+    uint16_t key_length,
     void* payload,
     uint16_t* payload_capacity);
   ErrorCode retrieve_part_general(
     thread::Thread* context,
     MasstreeBorderPage* border,
     uint8_t index,
+    const void* be_key,
+    uint16_t key_length,
     void* payload,
     uint16_t payload_offset,
     uint16_t payload_count);
@@ -171,22 +209,45 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     PAYLOAD* value,
     uint16_t payload_offset);
 
+  ErrorStack verify_single_thread(thread::Thread* context);
+  ErrorStack verify_single_thread_layer(
+    thread::Thread* context,
+    uint8_t layer,
+    MasstreePage* layer_root);
+  ErrorStack verify_single_thread_intermediate(
+    thread::Thread* context,
+    KeySlice low_fence,
+    HighFence high_fence,
+    MasstreeIntermediatePage* page);
+  ErrorStack verify_single_thread_border(
+    thread::Thread* context,
+    KeySlice low_fence,
+    HighFence high_fence,
+    MasstreeBorderPage* page);
+
 
   /** Thread::follow_page_pointer() for masstree */
   ErrorCode follow_page(
     thread::Thread* context,
     bool for_writes,
     storage::DualPagePointer* pointer,
-    MasstreePage** page) ALWAYS_INLINE {
-    return context->follow_page_pointer(
-      &kDummyPageInitializer,  // masstree doesn't create a new page except splits.
-      false,  // so, there is no null page possible
-      for_writes,  // always get volatile pages for writes
-      true,
-      false,
-      pointer,
-      reinterpret_cast<Page**>(page));
-  }
+    MasstreePage** page);
+  /** Follows to next layer's root page. */
+  ErrorCode follow_layer(
+    thread::Thread* context,
+    bool for_writes,
+    MasstreeBorderPage* parent,
+    uint8_t record_index,
+    MasstreePage** page) ALWAYS_INLINE;
+
+  /** Reserve a next layer as one system transaction. */
+  ErrorCode create_next_layer(
+    thread::Thread* context,
+    MasstreeBorderPage* parent,
+    uint8_t parent_index);
+
+  bool track_moved_record(xct::WriteXctAccess* write) ALWAYS_INLINE;
+  xct::XctId* track_moved_record(xct::XctId* address) ALWAYS_INLINE;
 };
 }  // namespace masstree
 }  // namespace storage

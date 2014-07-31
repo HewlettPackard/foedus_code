@@ -4,17 +4,28 @@
  */
 #ifndef FOEDUS_XCT_XCT_HPP_
 #define FOEDUS_XCT_XCT_HPP_
+
+#include <cstring>
 #include <iosfwd>
 
 #include "foedus/assert_nd.hpp"
+#include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/log/common_log_types.hpp"
+
+// For log verification. Only in debug mode
+#ifndef NDEBUG
+#include "foedus/log/log_type_invoke.hpp"
+#endif  // NDEBUG
+
 #include "foedus/memory/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
+#include "foedus/storage/page.hpp"
+#include "foedus/storage/record.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/fwd.hpp"
@@ -33,7 +44,8 @@ namespace xct {
 class Xct {
  public:
   enum Constants {
-    kMaxNodeSets = 256,
+    kMaxPointerSets = 256,
+    kMaxPageVersionSets = 256,
   };
 
   Xct(Engine* engine, thread::ThreadId thread_id);
@@ -52,7 +64,8 @@ class Xct {
     active_ = true;
     schema_xct_ = schema_xct;
     isolation_level_ = isolation_level;
-    node_set_size_ = 0;
+    pointer_set_size_ = 0;
+    page_version_set_size_ = 0;
     read_set_size_ = 0;
     write_set_size_ = 0;
     lock_free_write_set_size_ = 0;
@@ -81,11 +94,13 @@ class Xct {
   IsolationLevel      get_isolation_level() const { return isolation_level_; }
   /** Returns the ID of this transaction, but note that it is not issued until commit time! */
   const XctId&        get_id() const { return id_; }
-  uint32_t            get_node_set_size() const { return node_set_size_; }
+  uint32_t            get_pointer_set_size() const { return pointer_set_size_; }
+  uint32_t            get_page_version_set_size() const { return page_version_set_size_; }
   uint32_t            get_read_set_size() const { return read_set_size_; }
   uint32_t            get_write_set_size() const { return write_set_size_; }
   uint32_t            get_lock_free_write_set_size() const { return lock_free_write_set_size_; }
-  const NodeAccess*   get_node_set() const { return node_set_; }
+  const PointerAccess*   get_pointer_set() const { return pointer_set_; }
+  const PageVersionAccess*  get_page_version_set() const { return page_version_set_; }
   XctAccess*          get_read_set()  { return read_set_; }
   WriteXctAccess*     get_write_set() { return write_set_; }
   LockFreeWriteXctAccess* get_lock_free_write_set() { return lock_free_write_set_; }
@@ -110,66 +125,76 @@ class Xct {
   void                issue_next_id(Epoch *epoch);
 
   /**
-   * @brief Add the given page pointer to the node set of this transaction.
+   * @brief Add the given page pointer to the pointer set of this transaction.
    * @details
    * You must call this method in the following cases;
    *  \li When following a volatile pointer that might be later swapped with the RCU protocol.
    *  \li When following a snapshot pointer except it is under a snapshot page.
    *
    * To clarify, the first case does not apply to storage types that don't swap volatile pointers.
-   * So far, only \ref MASSTREE has such a swapping for page splits. All other storage types
-   * thus don't have to take node sets for this.
+   * So far, only \ref MASSTREE has such a swapping for root pages. All other storage types
+   * thus don't have to take pointer sets for this.
    *
    * The second case doesn't apply to snapshot pointers once we follow a snapshot pointer in the
    * tree because everything is assured to be stable once we follow a snapshot pointer.
-   *
-   * Inlined in xct_inl.hpp.
    */
-  ErrorCode           add_to_node_set(
+  ErrorCode           add_to_pointer_set(
     const storage::VolatilePagePointer* pointer_address,
     storage::VolatilePagePointer observed);
+
+  /**
+   * The transaction that has updated the volatile pointer should not abort itself.
+   * So, it calls this method to apply the version it installed.
+   */
+  void                overwrite_to_pointer_set(
+    const storage::VolatilePagePointer* pointer_address,
+    storage::VolatilePagePointer observed) ALWAYS_INLINE;
+
+  /**
+   * @brief Add the given page version to the page version set of this transaction.
+   * @details
+   * This is similar to pointer set. The difference is that this remembers the PageVersion
+   * value we observed when we accessed the page. This can capture many more concurrency
+   * issues in the page because PageVersion contains many flags and counters.
+   * However, PageVersionAccess can't be used if the page itself might be swapped.
+   *
+   * Both PointerAccess and PageVersionAccess can be considered as "node set" in [TU2013], but
+   * for a little bit different purpose.
+   */
+  ErrorCode           add_to_page_version_set(
+    const storage::PageVersion* version_address,
+    storage::PageVersion observed);
 
   /**
    * @brief Add the given record to the read set of this transaction.
    * @details
    * You must call this method \b BEFORE reading the data, otherwise it violates the
-   * commit protocol. This method takes an appropriate memory fence to prohibit local reordering,
-   * but global staleness is fine (in other words, std::memory_order_consume rather
-   * than std::memory_order_acquire, although both are no-op in x86 which is TSO...).
-   * Inlined in xct_inl.hpp.
+   * commit protocol.
    */
-  ErrorCode           add_to_read_set(storage::Storage* storage, storage::Record* record);
-
-  /** add_to_read_set() plus the data read plus version check again. */
-  ErrorCode           read_record(
+  ErrorCode           add_to_read_set(
     storage::Storage* storage,
-    storage::Record* record,
-    void *payload,
-    uint16_t payload_offset,
-    uint16_t payload_count);
-
-  /** read_record() for primitive types. */
-  template <typename T>
-  ErrorCode           read_record_primitive(
-    storage::Storage* storage,
-    storage::Record* record,
-    T *payload,
-    uint16_t payload_offset);
+    XctId observed_owner_id,
+    XctId* owner_id_address) ALWAYS_INLINE;
 
   /**
    * @brief Add the given record to the write set of this transaction.
-   * @details
-   * Inlined in xct_inl.hpp.
+   */
+  ErrorCode           add_to_write_set(
+    storage::Storage* storage,
+    XctId* owner_id_address,
+    char* payload_address,
+    log::RecordLogType* log_entry) ALWAYS_INLINE;
+
+  /**
+   * @brief Add the given record to the write set of this transaction.
    */
   ErrorCode           add_to_write_set(
     storage::Storage* storage,
     storage::Record* record,
-    log::RecordLogType* log_entry);
+    log::RecordLogType* log_entry) ALWAYS_INLINE;
 
   /**
    * @brief Add the given log to the lock-free write set of this transaction.
-   * @details
-   * Inlined in xct_inl.hpp.
    */
   ErrorCode           add_to_lock_free_write_set(
     storage::Storage* storage,
@@ -202,6 +227,14 @@ class Xct {
   Epoch               get_in_commit_log_epoch() const {
     assorted::memory_fence_acquire();
     return in_commit_log_epoch_;
+  }
+
+  void                remember_previous_xct_id(XctId new_id) {
+    ASSERT_ND(id_.before(new_id));
+    id_ = new_id;
+    ASSERT_ND(id_.get_ordinal() > 0);
+    ASSERT_ND(id_.is_valid());
+    ASSERT_ND(id_.is_status_bits_off());
   }
 
   /**
@@ -275,13 +308,156 @@ class Xct {
   // tail (abort if tail has changed), and then reading all record in the page.
   // as we don't have scanning accesses to sequential storage yet, low priority.
 
-  // node set should be much smaller than others, so have it as an array.
-  NodeAccess          node_set_[kMaxNodeSets];
-  uint32_t            node_set_size_;
+  // pointer set should be much smaller than others, so have it as an array.
+  PointerAccess       pointer_set_[kMaxPointerSets];
+  uint32_t            pointer_set_size_;
+
+  // same above
+  PageVersionAccess   page_version_set_[kMaxPageVersionSets];
+  uint32_t            page_version_set_size_;
 
   /** @copydoc get_in_commit_log_epoch() */
   Epoch               in_commit_log_epoch_;
 };
+
+
+inline ErrorCode Xct::add_to_pointer_set(
+  const storage::VolatilePagePointer* pointer_address,
+  storage::VolatilePagePointer observed) {
+  ASSERT_ND(!schema_xct_);
+  ASSERT_ND(pointer_address);
+  if (isolation_level_ != kSerializable) {
+    return kErrorCodeOk;
+  }
+
+  // TODO(Hideaki) even though pointer set should be small, we don't want sequential search
+  // everytime. but insertion sort requires shifting. mmm.
+  for (uint32_t i = 0; i < pointer_set_size_; ++i) {
+    if (pointer_set_[i].address_ == pointer_address) {
+      pointer_set_[i].observed_ = observed;
+      return kErrorCodeOk;
+    }
+  }
+
+  if (UNLIKELY(pointer_set_size_ >= kMaxPointerSets)) {
+    return kErrorCodeXctPointerSetOverflow;
+  }
+
+  // no need for fence. the observed pointer itself is the only data to verify
+  pointer_set_[pointer_set_size_].address_ = pointer_address;
+  pointer_set_[pointer_set_size_].observed_ = observed;
+  ++pointer_set_size_;
+  return kErrorCodeOk;
+}
+
+inline void Xct::overwrite_to_pointer_set(
+  const storage::VolatilePagePointer* pointer_address,
+  storage::VolatilePagePointer observed) {
+  ASSERT_ND(!schema_xct_);
+  ASSERT_ND(pointer_address);
+  if (isolation_level_ != kSerializable) {
+    return;
+  }
+
+  for (uint32_t i = 0; i < pointer_set_size_; ++i) {
+    if (pointer_set_[i].address_ == pointer_address) {
+      pointer_set_[i].observed_ = observed;
+      return;
+    }
+  }
+}
+
+inline ErrorCode Xct::add_to_page_version_set(
+  const storage::PageVersion* version_address,
+  storage::PageVersion observed) {
+  ASSERT_ND(!schema_xct_);
+  ASSERT_ND(version_address);
+  if (isolation_level_ != kSerializable) {
+    return kErrorCodeOk;
+  } else if (UNLIKELY(page_version_set_size_ >= kMaxPointerSets)) {
+    return kErrorCodeXctPageVersionSetOverflow;
+  }
+
+  page_version_set_[page_version_set_size_].address_ = version_address;
+  page_version_set_[page_version_set_size_].observed_ = observed;
+  ++page_version_set_size_;
+  return kErrorCodeOk;
+}
+
+inline ErrorCode Xct::add_to_read_set(
+  storage::Storage* storage,
+  XctId observed_owner_id,
+  XctId* owner_id_address) {
+  ASSERT_ND(!schema_xct_);
+  ASSERT_ND(storage);
+  ASSERT_ND(owner_id_address);
+  ASSERT_ND(!observed_owner_id.is_keylocked());
+  // TODO(Hideaki) callers should check if it's a snapshot page. or should we check here?
+  if (isolation_level_ != kSerializable) {
+    return kErrorCodeOk;
+  } else if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
+    return kErrorCodeXctReadSetOverflow;
+  }
+  read_set_[read_set_size_].storage_ = storage;
+  read_set_[read_set_size_].owner_id_address_ = owner_id_address;
+  read_set_[read_set_size_].observed_owner_id_ = observed_owner_id;
+  ++read_set_size_;
+  return kErrorCodeOk;
+}
+
+inline ErrorCode Xct::add_to_write_set(
+  storage::Storage* storage,
+  XctId* owner_id_address,
+  char* payload_address,
+  log::RecordLogType* log_entry) {
+  ASSERT_ND(!schema_xct_);
+  ASSERT_ND(storage);
+  ASSERT_ND(owner_id_address);
+  ASSERT_ND(payload_address);
+  ASSERT_ND(log_entry);
+  if (UNLIKELY(write_set_size_ >= max_write_set_size_)) {
+    return kErrorCodeXctWriteSetOverflow;
+  }
+
+#ifndef NDEBUG
+  log::invoke_assert_valid(log_entry);
+#endif  // NDEBUG
+
+  write_set_[write_set_size_].storage_ = storage;
+  write_set_[write_set_size_].owner_id_address_ = owner_id_address;
+  write_set_[write_set_size_].payload_address_ = payload_address;
+  write_set_[write_set_size_].log_entry_ = log_entry;
+  ++write_set_size_;
+  return kErrorCodeOk;
+}
+
+inline ErrorCode Xct::add_to_write_set(
+  storage::Storage* storage,
+  storage::Record* record,
+  log::RecordLogType* log_entry) {
+  return add_to_write_set(storage, &record->owner_id_, record->payload_, log_entry);
+}
+
+inline ErrorCode Xct::add_to_lock_free_write_set(
+  storage::Storage* storage,
+  log::RecordLogType* log_entry) {
+  ASSERT_ND(!schema_xct_);
+  ASSERT_ND(storage);
+  ASSERT_ND(log_entry);
+  if (UNLIKELY(lock_free_write_set_size_ >= max_lock_free_write_set_size_)) {
+    return kErrorCodeXctWriteSetOverflow;
+  }
+
+#ifndef NDEBUG
+  log::invoke_assert_valid(log_entry);
+#endif  // NDEBUG
+
+  lock_free_write_set_[lock_free_write_set_size_].storage_ = storage;
+  lock_free_write_set_[lock_free_write_set_size_].log_entry_ = log_entry;
+  ++lock_free_write_set_size_;
+  return kErrorCodeOk;
+}
+
 }  // namespace xct
 }  // namespace foedus
 #endif  // FOEDUS_XCT_XCT_HPP_

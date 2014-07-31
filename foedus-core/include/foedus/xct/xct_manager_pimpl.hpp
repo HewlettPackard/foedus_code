@@ -68,11 +68,13 @@ class XctManagerPimpl final : public DefaultInitializable {
   bool        precommit_xct_schema(thread::Thread* context, Epoch *commit_epoch);
   /**
    * @brief Phase 1 of precommit_xct()
+   * @return true if successful. false if we need to abort the transaction, in which case
+   * locks are not obtained yet (so no need for unlock).
    * @details
    * Try to lock all records we are going to write.
    * After phase 2, we take memory fence.
    */
-  void        precommit_xct_lock(thread::Thread* context);
+  bool        precommit_xct_lock(thread::Thread* context);
   /**
    * @brief Phase 2 of precommit_xct() for read-only case
    * @return true if verification succeeded. false if we need to abort.
@@ -88,6 +90,10 @@ class XctManagerPimpl final : public DefaultInitializable {
    * Because phase 2 is after the memory fence, no thread would take new locks while checking.
    */
   bool        precommit_xct_verify_readwrite(thread::Thread* context);
+  /** Returns false if there is any pointer set conflict */
+  bool        precommit_xct_verify_pointer_set(thread::Thread* context);
+  /** Returns false if there is any page version conflict */
+  bool        precommit_xct_verify_page_version_set(thread::Thread* context);
   /**
    * @brief Phase 3 of precommit_xct()
    * @details

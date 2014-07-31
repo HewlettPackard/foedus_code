@@ -28,7 +28,6 @@
 #include "foedus/storage/sequential/sequential_storage.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct.hpp"
-#include "foedus/xct/xct_inl.hpp"
 #include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {

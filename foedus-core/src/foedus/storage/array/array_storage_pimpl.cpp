@@ -27,8 +27,8 @@
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct.hpp"
-#include "foedus/xct/xct_inl.hpp"
 #include "foedus/xct/xct_manager.hpp"
+#include "foedus/xct/xct_optimistic_read_impl.hpp"
 
 namespace foedus {
 namespace storage {
@@ -242,8 +242,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
       metadata_.payload_size_,
       level,
       root,
-      range,
-      root ? nullptr : current_pages[level + 1]);
+      range);
 
     if (level == 0) {
       current_records.push_back(0);
@@ -278,8 +277,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
       metadata_.payload_size_,
       0,
       false,
-      range,
-      current_pages[1]);
+      range);
     current_pages[0] = page;
     current_pages_ids[0] = page_pointer;
     // current_records[0] is always 0
@@ -305,8 +303,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
           metadata_.payload_size_,
           level,
           root,
-          interior_range,
-          root ? nullptr : current_pages[level + 1]);
+          interior_range);
 
         DualPagePointer& child_pointer = interior_page->get_interior_record(0);
         child_pointer.snapshot_pointer_ = 0;
@@ -384,17 +381,16 @@ inline ErrorCode ArrayStoragePimpl::get_record(
   Record *record = nullptr;
   bool snapshot_record;
   CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
-  if (snapshot_record) {
-    std::memcpy(payload, record->payload_ + payload_offset, payload_count);
-    return kErrorCodeOk;
-  } else {
-    return context->get_current_xct().read_record(
-      holder_,
-      record,
-      payload,
-      payload_offset,
-      payload_count);
-  }
+  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
+    &context->get_current_xct(),
+    holder_,
+    &record->owner_id_,
+    snapshot_record,
+    [record, payload, payload_offset, payload_count](xct::XctId /*observed*/){
+      std::memcpy(payload, record->payload_ + payload_offset, payload_count);
+      return kErrorCodeOk;
+    }));
+  return kErrorCodeOk;
 }
 
 template <typename T>
@@ -407,17 +403,17 @@ ErrorCode ArrayStoragePimpl::get_record_primitive(
   Record *record = nullptr;
   bool snapshot_record;
   CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
-  if (snapshot_record) {
-    char* ptr = record->payload_ + payload_offset;
-    *payload = *reinterpret_cast<const T*>(ptr);
-    return kErrorCodeOk;
-  } else {
-    return context->get_current_xct().read_record_primitive<T>(
-      holder_,
-      record,
-      payload,
-      payload_offset);
-  }
+  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
+    &context->get_current_xct(),
+    holder_,
+    &record->owner_id_,
+    snapshot_record,
+    [record, payload, payload_offset](xct::XctId /*observed*/){
+      char* ptr = record->payload_ + payload_offset;
+      *payload = *reinterpret_cast<const T*>(ptr);
+      return kErrorCodeOk;
+    }));
+  return kErrorCodeOk;
 }
 
 inline ErrorCode ArrayStoragePimpl::overwrite_record(thread::Thread* context, ArrayOffset offset,
@@ -431,7 +427,11 @@ inline ErrorCode ArrayStoragePimpl::overwrite_record(thread::Thread* context, Ar
   ArrayOverwriteLogType* log_entry = reinterpret_cast<ArrayOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(metadata_.id_, offset, payload, payload_offset, payload_count);
-  return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
+  return context->get_current_xct().add_to_write_set(
+    holder_,
+    &record->owner_id_,
+    record->payload_,
+    log_entry);
 }
 
 template <typename T>
@@ -446,7 +446,11 @@ ErrorCode ArrayStoragePimpl::overwrite_record_primitive(
   ArrayOverwriteLogType* log_entry = reinterpret_cast<ArrayOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate_primitive<T>(metadata_.id_, offset, payload, payload_offset);
-  return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
+  return context->get_current_xct().add_to_write_set(
+    holder_,
+    &record->owner_id_,
+    record->payload_,
+    log_entry);
 }
 
 template <typename T>
@@ -457,15 +461,34 @@ ErrorCode ArrayStoragePimpl::increment_record(
   CHECK_ERROR_CODE(locate_record_for_write(context, offset, &record));
 
   // this is get_record + overwrite_record
-  T old_value;
-  CHECK_ERROR_CODE(context->get_current_xct().read_record_primitive<T>(
-    holder_, record, &old_value, payload_offset));
-  *value += old_value;
+  T tmp;
+  T* tmp_address = &tmp;
+  // NOTE if we directly pass value and increment there, we might do it multiple times!
+  // optimistic_read_protocol() retries if there are version mismatch.
+  // so it must be idempotent. be careful!
+  // TODO(Hideaki) Only Array's increment can be the rare "write-set only" log.
+  // other increments have to check deletion bit at least.
+  // to make use of it, we should have array increment log with primitive type as parameter.
+  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
+    &context->get_current_xct(),
+    holder_,
+    &record->owner_id_,
+    false,
+    [record, tmp_address, payload_offset](xct::XctId /*observed*/){
+      char* ptr = record->payload_ + payload_offset;
+      *tmp_address = *reinterpret_cast<const T*>(ptr);
+      return kErrorCodeOk;
+    }));
+  *value += tmp;
   uint16_t log_length = ArrayOverwriteLogType::calculate_log_length(sizeof(T));
   ArrayOverwriteLogType* log_entry = reinterpret_cast<ArrayOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate_primitive<T>(metadata_.id_, offset, *value, payload_offset);
-  return context->get_current_xct().add_to_write_set(holder_, record, log_entry);
+  return context->get_current_xct().add_to_write_set(
+    holder_,
+    &record->owner_id_,
+    record->payload_,
+    log_entry);
 }
 
 inline ErrorCode ArrayStoragePimpl::lookup_for_read(
@@ -500,16 +523,16 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read(
     } else if (volatile_pointer.components.offset == 0
       || current_xct.get_isolation_level() == xct::kDirtyReadPreferSnapshot) {
       // then read from snapshot page. this is the beginning point to follow a snapshot pointer,
-      // so we have to take a node set in case someone else installs a new volatile pointer
+      // so we have to take a pointer set in case someone else installs a new volatile pointer
       // (after here, everything is stable).
       ASSERT_ND(pointer.snapshot_pointer_ != 0);
       followed_snapshot_pointer = true;
-      current_xct.add_to_node_set(&pointer.volatile_pointer_, volatile_pointer);
+      current_xct.add_to_pointer_set(&pointer.volatile_pointer_, volatile_pointer);
       CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
         pointer.snapshot_pointer_,
         reinterpret_cast<Page**>(&current_page)));
     } else {
-      // NOTE: In Array storage, we don't have to take a node set for following a volatile pointer
+      // NOTE: In Array storage, we don't have to take a ptr set for following a volatile pointer
       // because we don't swap volatile pointer like Masstree's page split.
       // The only case we change volatile pointer is for snapshot thread to drop volatile pages
       // that are equivalent to snapshot pages, so it never affects serializability.
@@ -551,7 +574,6 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write(
       // come back during the grace period.
       CHECK_ERROR_CODE(context->install_a_volatile_page(
         &pointer,
-        reinterpret_cast<Page*>(current_page),
         reinterpret_cast<Page**>(&current_page)));
     } else {
       current_page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(volatile_pointer));

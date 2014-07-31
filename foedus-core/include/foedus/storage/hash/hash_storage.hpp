@@ -16,6 +16,7 @@
 #include "foedus/storage/hash/fwd.hpp"
 #include "foedus/storage/hash/hash_id.hpp"
 #include "foedus/thread/fwd.hpp"
+#include "foedus/xct/fwd.hpp"
 
 namespace foedus {
 namespace storage {
@@ -55,6 +56,15 @@ class HashStorage CXX11_FINAL : public virtual Storage {
   ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
   void                describe(std::ostream* o) const CXX11_OVERRIDE;
 
+  // this storage type doesn't use moved bit...so far.
+  bool track_moved_record(xct::WriteXctAccess* /*write*/) CXX11_OVERRIDE {
+    ASSERT_ND(false);
+    return false;
+  }
+  xct::XctId* track_moved_record(xct::XctId* /*address*/) CXX11_OVERRIDE {
+    ASSERT_ND(false);
+    return CXX11_NULLPTR;
+  }
 
   //// Hash table API
   // TODO(Hideaki) Add primitive-optimized versions and increment versions. Later.
@@ -303,11 +313,13 @@ class HashStorage CXX11_FINAL : public virtual Storage {
   void        apply_insert_record(
     thread::Thread* context,
     const HashInsertLogType* log_entry,
-    Record* record);
+    xct::XctId* owner_id,
+    char* payload);
   void        apply_delete_record(
     thread::Thread* context,
     const HashDeleteLogType* log_entry,
-    Record* record);
+    xct::XctId* owner_id,
+    char* payload);
 
 
   /** Use this only if you know what you are doing. */

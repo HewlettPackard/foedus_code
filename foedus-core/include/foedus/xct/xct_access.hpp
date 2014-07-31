@@ -10,6 +10,7 @@
 
 #include "foedus/log/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
+#include "foedus/storage/page.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/xct/xct_id.hpp"
 
@@ -17,21 +18,49 @@ namespace foedus {
 namespace xct {
 
 /**
- * @brief Represents a record of volatile node-access during a transaction.
+ * @brief Represents a record of following a page pointer during a transaction.
  * @ingroup XCT
  * @details
- * We have to track only accesses to volatile pages because snapshot pages are stable.
+ * This is used in two cases. First, when we follow a snapshot pointer because a volatile
+ * pointer was null, then we add the address of the volatile pointer to this set
+ * so that we can get aware of the new version at precommit time.
+ * Second, if a page pointer can be swapped for some reason (usually only a root page),
+ * we add the pointer even if we are following a volatile pointer.
  * @par POD
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
-struct NodeAccess {
-  friend std::ostream& operator<<(std::ostream& o, const NodeAccess& v);
+struct PointerAccess {
+  friend std::ostream& operator<<(std::ostream& o, const PointerAccess& v);
 
   /** Address of the volatile pointer. */
   const storage::VolatilePagePointer* address_;
 
   /** Value of the volatile pointer as of the access. */
   storage::VolatilePagePointer        observed_;
+};
+
+/**
+ * @brief Represents a record of reading a page during a transaction.
+ * @ingroup XCT
+ * @details
+ * This is similar to PointerAccess. The difference is that this remembers the PageVersion
+ * value we observed when we accessed the page. This can capture many more concurrency
+ * issues in the page because PageVersion contains many flags and counters.
+ * However, PageVersionAccess can't be used if the page itself might be swapped.
+ *
+ * Both PointerAccess and PageVersionAccess can be considered as "node set" in [TU2013], but
+ * for a little bit different purpose.
+ * @par POD
+ * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
+ */
+struct PageVersionAccess {
+  friend std::ostream& operator<<(std::ostream& o, const PageVersionAccess& v);
+
+  /** Address to the page version. */
+  const storage::PageVersion* address_;
+
+  /** Value of the page version as of the access. This should be a "stable" version. */
+  storage::PageVersion        observed_;
 };
 
 /**
@@ -51,12 +80,12 @@ struct XctAccess {
   storage::Storage*   storage_;
 
   /** Pointer to the accessed record. */
-  storage::Record*    record_;
+  XctId*              owner_id_address_;
 
   /** sort the read set in a unique order. We use address of records as done in [TU2013]. */
   static bool compare(const XctAccess &left, const XctAccess& right) {
-    return reinterpret_cast<uintptr_t>(left.record_)
-      < reinterpret_cast<uintptr_t>(right.record_);
+    return reinterpret_cast<uintptr_t>(left.owner_id_address_)
+      < reinterpret_cast<uintptr_t>(right.owner_id_address_);
   }
 };
 
@@ -68,16 +97,25 @@ struct XctAccess {
  * @par POD
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
-struct WriteXctAccess : public XctAccess {
+struct WriteXctAccess {
   friend std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v);
+
+  /** Pointer to the storage we accessed. */
+  storage::Storage*     storage_;
+
+  /** Pointer to the accessed record. */
+  XctId*                owner_id_address_;
+
+  /** Pointer to the payload of the record. */
+  char*                 payload_address_;
 
   /** Pointer to the log entry in private log buffer for this write opereation. */
   log::RecordLogType*   log_entry_;
 
   /** sort the write set in a unique order. We use address of records as done in [TU2013]. */
   static bool compare(const WriteXctAccess &left, const WriteXctAccess& right) {
-    return reinterpret_cast<uintptr_t>(left.record_)
-      < reinterpret_cast<uintptr_t>(right.record_);
+    return reinterpret_cast<uintptr_t>(left.owner_id_address_)
+      < reinterpret_cast<uintptr_t>(right.owner_id_address_);
   }
 };
 

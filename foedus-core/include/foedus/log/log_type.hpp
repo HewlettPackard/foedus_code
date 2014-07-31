@@ -30,7 +30,7 @@ namespace log {
  * (remember, XctId or xct_order is finalized only at commit time, so populate() can't do it).
  * \li void apply_engine(Thread*)             : For engine-wide operation.
  * \li void apply_storage(Thread*, Storage*)  : For storage-wide operation.
- * \li void apply_record(Thread*, Storage*, Record*)   : For record-wise operation.
+ * \li void apply_record(Thread*, Storage*, XctId*, char*)   : For record-wise operation.
  * \li void assert_valid()  : For debugging (should have no cost in NDEBUG).
  * \li is_engine_log()/is_storage_log()/is_record_log()
  * \li ostream operator, preferably in xml format.

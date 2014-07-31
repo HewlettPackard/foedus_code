@@ -96,7 +96,8 @@ struct ArrayOverwriteLogType : public log::RecordLogType {
   void apply_record(
     thread::Thread* context,
     Storage* storage,
-    Record* record) const ALWAYS_INLINE;
+    xct::XctId* owner_id,
+    char* payload) const ALWAYS_INLINE;
 
   void assert_valid() const ALWAYS_INLINE;
 
@@ -137,10 +138,11 @@ inline void ArrayOverwriteLogType::populate_primitive(
 inline void ArrayOverwriteLogType::apply_record(
   thread::Thread* /*context*/,
   Storage* storage,
-  Record* record) const {
+  xct::XctId* /*owner_id*/,
+  char* payload) const {
   ASSERT_ND(payload_count_ < kDataSize);
   ASSERT_ND(dynamic_cast<ArrayStorage*>(storage));
-  std::memcpy(record->payload_ + payload_offset_, payload_, payload_count_);
+  std::memcpy(payload + payload_offset_, payload_, payload_count_);
 }
 
 inline void ArrayOverwriteLogType::assert_valid() const {

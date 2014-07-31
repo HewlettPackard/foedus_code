@@ -122,13 +122,40 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
   PagePoolOffsetChunk*                    free_snapshot_pool_chunk_;
 
   /** Pointer to this NUMA node's volatile page pool */
-  memory::PagePool*                       volatile_pool_;
+  PagePool*                               volatile_pool_;
   /** Pointer to this NUMA node's snapshot page pool */
-  memory::PagePool*                       snapshot_pool_;
+  PagePool*                               snapshot_pool_;
 
   /** Private memory to hold log entries. */
   AlignedMemorySlice                      log_buffer_memory_;
 };
+
+/**
+ * @brief Automatically invokes a page offset acquired for volatile page.
+ * @ingroup MEMORY
+ * @details
+ * This is used in places that acquire a new volatile page offset but might have to release
+ * it when there is some other error. You must NOT forget to call set_released() to avoid
+ * releasing the page when no error happens.
+ * Well, so maybe it's better to not use this class...
+ */
+struct AutoVolatilePageReleaseScope {
+  AutoVolatilePageReleaseScope(NumaCoreMemory* memory, PagePoolOffset offset)
+    : memory_(memory), offset_(offset), released_(false) {}
+  ~AutoVolatilePageReleaseScope() {
+    if (!released_) {
+      memory_->release_free_volatile_page(offset_);
+      released_ = true;
+    }
+  }
+  void set_released() {
+    released_ = true;
+  }
+  NumaCoreMemory* const memory_;
+  const PagePoolOffset  offset_;
+  bool                  released_;
+};
+
 }  // namespace memory
 }  // namespace foedus
 #endif  // FOEDUS_MEMORY_NUMA_CORE_MEMORY_HPP_

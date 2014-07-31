@@ -230,8 +230,14 @@ std::ostream& operator<<(std::ostream& o, const ThreadLogBuffer& v) {
     << "</logger_epoch_open_ended_>";
   o << "<logger_epoch_ends_>" << v.logger_epoch_ends_ << "</logger_epoch_ends_>";
   o << "<thread_epoch_marks_>";
+  int cnt = 0;
   for (auto mark : v.thread_epoch_marks_) {
     o << mark;
+    ++cnt;
+    if (cnt == 20) {
+      o << "...";
+      break;
+    }
   }
   o << "</thread_epoch_marks_>";
   o << "</ThreadLogBuffer>";

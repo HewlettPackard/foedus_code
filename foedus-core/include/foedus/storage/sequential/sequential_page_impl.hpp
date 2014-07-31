@@ -105,7 +105,7 @@ class SequentialPage final {
 
   /** Called only when this page is initialized. */
   void                initialize_volatile_page(StorageId storage_id, VolatilePagePointer page_id) {
-    header_.init_volatile(page_id, storage_id, kSequentialPageType, true, nullptr);
+    header_.init_volatile(page_id, storage_id, kSequentialPageType, true);
     record_count_ = 0;
     used_data_bytes_ = 0;
     next_page_.snapshot_pointer_ = 0;
