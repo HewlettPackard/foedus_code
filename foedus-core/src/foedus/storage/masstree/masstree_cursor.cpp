@@ -119,14 +119,16 @@ ErrorCode MasstreeCursor::open(
   end_inclusive_ = end_inclusive;
   end_key_length_ = end_key_length;
   route_count_ = 0;
-  if (end_key_length != kKeyLengthSupremum) {
+  if (!is_end_key_supremum()) {
     std::memcpy(end_key_, end_key, end_key_length);
   }
 
   search_key_length_ = begin_key_length;
   search_type_ = forward_cursor ? (begin_inclusive ? kForwardInclusive : kForwardExclusive)
                   : (begin_inclusive ? kBackwardInclusive : kBackwardExclusive);
-  std::memcpy(search_key_, begin_key, begin_key_length);
+  if (!is_search_key_extremum()) {
+    std::memcpy(search_key_, begin_key, begin_key_length);
+  }
 
   ASSERT_ND(storage_pimpl_->first_root_pointer_.volatile_pointer_.components.offset);
   VolatilePagePointer pointer = storage_pimpl_->first_root_pointer_.volatile_pointer_;
@@ -508,11 +510,18 @@ inline void MasstreeCursor::check_end_key() {
 inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key_aginst_search_key(
   KeySlice slice,
   uint8_t layer) const {
+  if (is_search_key_extremum()) {
+    if (forward_cursor_) {
+      return kCurKeyLarger;
+    } else {
+      return kCurKeySmaller;
+    }
+  }
   return compare_cur_key(slice, layer, search_key_, search_key_length_);
 }
 
 inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key_aginst_end_key() const {
-  if (end_key_length_ == kKeyLengthSupremum) {
+  if (is_end_key_supremum()) {
     return kCurKeySmaller;
   }
   uint16_t min_length = std::min(cur_key_length_, end_key_length_);
@@ -537,6 +546,7 @@ inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key(
   uint8_t layer,
   const char* full_key,
   uint16_t full_length) const {
+  ASSERT_ND(full_length >= layer * sizeof(KeySlice));
   uint16_t remaining = full_length - layer * sizeof(KeySlice);
   if (cur_key_in_layer_remaining_ == MasstreeBorderPage::kKeyLengthNextLayer) {
     // treat this case separately
@@ -595,7 +605,12 @@ inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key(
 inline ErrorCode MasstreeCursor::locate_layer(uint8_t layer) {
   MasstreePage* layer_root = cur_route()->page_;
   ASSERT_ND(layer_root->get_layer() == layer);
-  KeySlice slice = slice_layer(search_key_, search_key_length_, layer);
+  KeySlice slice;
+  if (is_search_key_extremum()) {
+    slice = forward_cursor_ ? kInfimumSlice : kSupremumSlice;
+  } else {
+    slice = slice_layer(search_key_, search_key_length_, layer);
+  }
   if (!layer_root->is_border()) {
     CHECK_ERROR_CODE(locate_descend(slice));
   }
@@ -713,10 +728,13 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
     ASSERT_ND(!cur_stable.has_foster_child());
     // find right minipage. be aware of backward-exclusive case!
     uint8_t index = 0;
-    if (is_search_key_supremum() ||
-      (cur->is_high_fence_supremum() && slice == cur->get_high_fence())) {
-      // fast path for supremum-search.
-      index = route->key_count_;
+    // fast path for supremum-search.
+    if (is_search_key_extremum()) {
+      if (forward_cursor_) {
+        index = 0;
+      } else {
+        index = route->key_count_;
+      }
     } else if (search_type_ != kBackwardExclusive) {
         for (; index < route->key_count_; ++index) {
           if (slice < cur->get_separator(index)) {
@@ -740,16 +758,13 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
       route->key_count_mini_ = route->stable_mini_.get_key_count();
 
       uint8_t index_mini = 0;
-      KeySlice next_separator;
-      if (index == route->key_count_) {
-        next_separator = cur->get_high_fence();
-      } else {
-        next_separator = cur->get_separator(index);
-      }
-
-      if (is_search_key_supremum() || slice == next_separator) {
+      if (is_search_key_extremum()) {
         // fast path for supremum-search.
-        index_mini = route->key_count_mini_;
+        if (forward_cursor_) {
+          index_mini = 0;
+        } else {
+          index_mini = route->key_count_mini_;
+        }
       } else if (search_type_ != kBackwardExclusive) {
           for (; index_mini < route->key_count_mini_; ++index_mini) {
             if (slice < minipage.separators_[index_mini]) {

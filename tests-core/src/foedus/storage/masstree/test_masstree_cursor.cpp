@@ -99,9 +99,8 @@ class OnePageTask : public thread::ImpersonateTask {
     WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
 
     WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
-    char dummy[1];
     MasstreeCursor cursor(context->get_engine(), masstree, context);
-    WRAP_ERROR_CODE(cursor.open(dummy, 0));
+    WRAP_ERROR_CODE(cursor.open());
     EXPECT_TRUE(cursor.is_valid_record());
     int count = 0;
     while (cursor.is_valid_record()) {

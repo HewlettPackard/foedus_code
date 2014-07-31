@@ -92,7 +92,7 @@ class MasstreeCursor CXX11_FINAL {
   enum Constants {
     kMaxRecords = 64,
     kMaxRoutes = kPageSize / sizeof(Route),
-    kKeyLengthSupremum = 0,
+    kKeyLengthExtremum = 0,
   };
 
   MasstreeCursor(Engine* engine, MasstreeStorage* storage, thread::Thread* context);
@@ -104,10 +104,10 @@ class MasstreeCursor CXX11_FINAL {
   bool              is_forward_cursor() const { return forward_cursor_; }
 
   ErrorCode   open(
-    const char* begin_key,
-    uint16_t begin_key_length,
-    const char* end_key = nullptr,
-    uint16_t end_key_length = kKeyLengthSupremum,
+    const char* begin_key = CXX11_NULLPTR,
+    uint16_t begin_key_length = kKeyLengthExtremum,
+    const char* end_key = CXX11_NULLPTR,
+    uint16_t end_key_length = kKeyLengthExtremum,
     bool forward_cursor = true,
     bool for_writes = true,
     bool begin_inclusive = true,
@@ -235,11 +235,11 @@ class MasstreeCursor CXX11_FINAL {
   template <typename T>
   ErrorCode allocate_if_not_exist(memory::PagePoolOffset* offset, T** pointer);
 
-  bool is_search_key_supremum() const ALWAYS_INLINE {
-    return search_key_length_ == kKeyLengthSupremum;
+  bool is_search_key_extremum() const ALWAYS_INLINE {
+    return search_key_length_ == kKeyLengthExtremum;
   }
   bool is_end_key_supremum() const ALWAYS_INLINE {
-    return end_key_length_ == kKeyLengthSupremum;
+    return end_key_length_ == kKeyLengthExtremum;
   }
 
   template<typename PAGE_TYPE>
