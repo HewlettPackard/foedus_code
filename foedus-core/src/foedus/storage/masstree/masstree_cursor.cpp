@@ -11,6 +11,8 @@
 #include <string>
 
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/memory/page_pool.hpp"
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_retry_impl.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
@@ -23,19 +25,80 @@ namespace storage {
 namespace masstree {
 
 MasstreeCursor::MasstreeCursor(Engine* engine, MasstreeStorage* storage, thread::Thread* context)
-  : engine_(engine), storage_(storage), storage_pimpl_(storage->get_pimpl()), context_(context) {
+  : engine_(engine),
+    storage_(storage),
+    storage_pimpl_(storage->get_pimpl()),
+    context_(context),
+    current_xct_(&context->get_current_xct()) {
   for_writes_ = false;
   forward_cursor_ = true;
+  reached_end_ = false;
   cur_page_address_ = nullptr;
-  cur_record_ = kMaxRecords;
-  // route_count_ = 0;
+
+  route_count_ = 0;
+  routes_ = nullptr;
+  routes_memory_offset_ = 0;
+
   end_inclusive_ = false;
   end_key_length_ = 0;
   end_key_ = nullptr;
+  end_key_memory_offset_ = 0;
+
   cur_key_length_ = 0;
+  cur_key_ = nullptr;
+  cur_key_memory_offset_ = 0;
+  cur_key_owner_id_address = nullptr;
+  cur_key_in_layer_slice_ = 0;
+  cur_key_in_layer_remaining_ = 0;
+
+  cur_payload_length_ = 0;
+  cur_payload_ = nullptr;
+  cur_payload_memory_offset_ = 0;
+
+  search_key_length_ = 0;
+  search_key_ = nullptr;
+  search_key_memory_offset_ = 0;
 }
 
-ErrorCode MasstreeCursor::seek(
+template <typename T>
+void MasstreeCursor::release_if_exist(memory::PagePoolOffset* offset, T** pointer) {
+  if (*offset) {
+    ASSERT_ND(*pointer);
+    context_->get_thread_memory()->release_free_snapshot_page(*offset);
+    *offset = 0;
+    *pointer = nullptr;
+  }
+}
+
+MasstreeCursor::~MasstreeCursor() {
+  release_if_exist(&routes_memory_offset_, &routes_);
+  release_if_exist(&search_key_memory_offset_, &search_key_);
+  release_if_exist(&cur_key_memory_offset_, &cur_key_);
+  release_if_exist(&cur_payload_memory_offset_, &cur_payload_);
+  release_if_exist(&end_key_memory_offset_, &end_key_);
+}
+
+template <typename T>
+inline ErrorCode MasstreeCursor::allocate_if_not_exist(
+  memory::PagePoolOffset* offset,
+  T** pointer) {
+  if (*offset) {
+    ASSERT_ND(*pointer);
+    return kErrorCodeOk;
+  }
+
+  ASSERT_ND(*pointer == nullptr);
+  *offset = context_->get_thread_memory()->grab_free_snapshot_page();
+  if (*offset == 0) {
+    return kErrorCodeMemoryNoFreePages;
+  }
+
+  *pointer = reinterpret_cast<T*>(
+    context_->get_thread_memory()->get_snapshot_pool()->get_resolver().resolve_offset(*offset));
+  return kErrorCodeOk;
+}
+
+ErrorCode MasstreeCursor::open(
   const char* begin_key,
   uint16_t begin_key_length,
   const char* end_key,
@@ -44,487 +107,754 @@ ErrorCode MasstreeCursor::seek(
   bool for_writes,
   bool begin_inclusive,
   bool end_inclusive) {
+  CHECK_ERROR_CODE(allocate_if_not_exist(&routes_memory_offset_, &routes_));
+  CHECK_ERROR_CODE(allocate_if_not_exist(&search_key_memory_offset_, &search_key_));
+  CHECK_ERROR_CODE(allocate_if_not_exist(&cur_key_memory_offset_, &cur_key_));
+  CHECK_ERROR_CODE(allocate_if_not_exist(&cur_payload_memory_offset_, &cur_payload_));
+  CHECK_ERROR_CODE(allocate_if_not_exist(&end_key_memory_offset_, &end_key_));
+
   forward_cursor_ = forward_cursor;
+  reached_end_ = false;
   for_writes_ = for_writes;
   end_inclusive_ = end_inclusive;
-  end_key_ = end_key;
   end_key_length_ = end_key_length;
-
-  // find the border page
-  CHECK_ERROR_CODE(masstree_retry([this, begin_key, begin_key_length]() {
-    // return seek_main(begin_key, begin_key_length, begin_inclusive);
-    // currently we just use locate_record each time we swtich page or even find a record
-    // that points to next layer.
-    uint8_t index;
-    CHECK_ERROR_CODE(storage_pimpl_->locate_record(
-      context_,
-      begin_key,
-      begin_key_length,
-      true,  // TODO(Hideaki) so far always find a volatile page. we need to change locate_record()
-      &cur_page_address_,
-      &index));
-    // read the entire page with the optimistic read protocol
-    cur_page_stable_ = cur_page_address_->get_stable_version();
-    assorted::memory_fence_consume();
-    std::memcpy(cur_page_, cur_page_address_, kPageSize);
-    assorted::memory_fence_consume();
-    PageVersion cur_page_stable_again = cur_page_address_->get_stable_version();
-    if (cur_page_stable_.data_ != cur_page_stable_again.data_) {
-      return kErrorCodeStrMasstreeRetry;
-    }
-    return kErrorCodeOk;
-  }));
-
-  // setup other variables
-  MasstreeBorderPage* cur_page = reinterpret_cast<MasstreeBorderPage*>(cur_page_);
-  cur_layer_ = cur_page->get_layer();
-  cur_page_records_ = cur_page_stable_.get_key_count();
-  std::memcpy(cur_key_, begin_key, cur_layer_ * sizeof(KeySlice));
-
-  // sort entries in this page
-  struct Sorter {
-    Sorter(MasstreeBorderPage* page) : page_(page) {}
-    bool operator() (uint8_t left, uint8_t right) {
-      KeySlice left_slice = page_->get_slice(left);
-      KeySlice right_slice = page_->get_slice(right);
-      if (left_slice < right_slice) {
-        return true;
-      } else if (left_slice == right_slice) {
-        return page_->get_remaining_key_length(left) < page_->get_remaining_key_length(right);
-      } else {
-        return false;
-      }
-    }
-    MasstreeBorderPage* page_;
-  };
-  for (uint8_t i = 0; i < cur_page_records_; ++i) {
-    cur_page_order_[i] = i;
+  route_count_ = 0;
+  if (end_key_length != kKeyLengthSupremum) {
+    std::memcpy(end_key_, end_key, end_key_length);
   }
 
-  // this sort order in page is correct even without evaluating the suffix.
-  // however, to compare with our searching key, we need to consider suffix
-  std::sort(cur_page_order_, cur_page_order_ + cur_page_records_, Sorter(cur_page));
+  search_key_length_ = begin_key_length;
+  search_type_ = forward_cursor ? (begin_inclusive ? kForwardInclusive : kForwardExclusive)
+                  : (begin_inclusive ? kBackwardInclusive : kBackwardExclusive);
+  std::memcpy(search_key_, begin_key, begin_key_length);
 
-  // TODO(Hideaki) probably we should have dedicated locate_record for cursor.
-  // otherwise we can't fully address the messes below
-  KeySlice slice = slice_layer(begin_key, begin_key_length, cur_layer_);
-  uint8_t remaining = begin_key_length - cur_layer_ * sizeof(KeySlice);
-  const char* begin_suffix = begin_key + (cur_layer_ + 1) * sizeof(KeySlice);
-  int16_t found_record;  // signed. -1 to moved to previous page
-  if (forward_cursor) {
-    found_record = kMaxRecords;
-    for (uint8_t i = 0; i < cur_page_records_; ++i) {
-      uint8_t index = cur_page_order_[i];
-      uint8_t len = cur_page->get_remaining_key_length(index);
-      ASSERT_ND(len != 255U);  // TODO(Hideaki) currently we don't handle this case
-      if (cur_page->get_owner_id(index)->is_deleted()) {
-        continue;
-      } else if (cur_page->get_slice(index) < slice) {
-        continue;
-      } else if (cur_page->get_slice(index) == slice) {
-        if (len < remaining) {
-          continue;
-        } else if (len == remaining) {
-          if (remaining > sizeof(KeySlice)) {
-            // has suffix
-            int cmp = std::memcmp(
-              cur_page->get_record(index),
-              begin_suffix,
-              remaining - sizeof(KeySlice));
-            if (cmp < 0) {
-              // the record in page was smaller, but this can be the only record that could be
-              // same as the searching key because there is only one record that has length >8
-              // of the slice (except next layer)
-              found_record = i + 1;
-              break;
-            } else if (cmp == 0) {
-              if (begin_inclusive) {
-                found_record = i;
-                break;
-              } else {
-                found_record = i + 1;
-                break;
-              }
-            } else {
-              found_record = i;
-              break;
-            }
-          } else {
-            // no suffix. so it's surely matched
-            if (begin_inclusive) {
-              found_record = i;
-              break;
-            } else {
-              found_record = i + 1;
-              break;
-            }
-          }
-        }
-      } else {
-        found_record = i;
-        break;
-      }
-    }
-  } else {
-    found_record = -1;
-    for (int16_t i = cur_page_records_ - 1; i >= 0; --i) {
-      uint8_t index = cur_page_order_[i];
-      uint8_t len = cur_page->get_remaining_key_length(index);
-      ASSERT_ND(len != 255U);  // TODO(Hideaki) currently we don't handle this case
-      if (cur_page->get_owner_id(index)->is_deleted()) {
-        continue;
-      } else if (cur_page->get_slice(index) > slice) {
-        continue;
-      } else if (cur_page->get_slice(index) == slice) {
-        if (len > remaining) {
-          continue;
-        } else if (len == remaining) {
-          if (remaining > sizeof(KeySlice)) {
-            // has suffix
-            int cmp = std::memcmp(
-              cur_page->get_record(index),
-              begin_suffix,
-              remaining - sizeof(KeySlice));
-            if (cmp > 0) {
-              found_record = i - 1;
-              break;
-            } else if (cmp == 0) {
-              if (begin_inclusive) {
-                found_record = i;
-                break;
-              } else {
-                found_record = i - 1;
-                break;
-              }
-            } else {
-              found_record = i;
-              break;
-            }
-          } else {
-            if (begin_inclusive) {
-              found_record = i;
-              break;
-            } else {
-              found_record = i - 1;
-              break;
-            }
-          }
-        }
-      } else {
-        found_record = i;
-        break;
-      }
-    }
-  }
-  // TODO(Hideaki) no, this doesn't work in case it points to next layer.
-  /*
-  if (found_record < 0 || found_record >= cur_page_records_) {
-    DVLOG(0) << "mm, going over page boundary for seek. possible only for exclusive search."
-      << ", begin_inclusive=" << begin_inclusive;
-    ASSERT_ND(!begin_inclusive);
-    // redo search to make sure we hit
-    if (found_record < 0) {
-      ASSERT_ND(!forward_cursor);
-      std::string modified_key(cumutative_prefix_, cur_layer_ * sizeof(KeySlice));
-      uint64_t be_key = assorted::htobe<uint64_t>(cur_page->get_low_fence());
-      modified_key.append(&be_key, sizeof(KeySlice));
-      CHECK_ERROR_CODE(seek(
-        modified_key.data(),
-        (cur_layer_ + 1U) * sizeof(KeySlice),
-        end_key,
-        end_key_length,
-        forward_cursor,
-        for_writes,
-        false,
-        end_inclusive));
+  ASSERT_ND(storage_pimpl_->first_root_pointer_.volatile_pointer_.components.offset);
+  VolatilePagePointer pointer = storage_pimpl_->first_root_pointer_.volatile_pointer_;
+  MasstreePage* root = reinterpret_cast<MasstreePage*>(
+    context_->get_global_volatile_page_resolver().resolve_offset(pointer));
+  PageVersion root_version;
+  CHECK_ERROR_CODE(push_route(root, &root_version));
+  CHECK_ERROR_CODE(locate_layer(0));
+  check_end_key();
+  if (is_valid_record()) {
+    // locate_xxx doesn't take care of deleted record as it can't proceed to another page.
+    // so, if the initially located record is deleted, use next() now.
+    if (cur_key_observed_owner_id_.is_deleted()) {
+      CHECK_ERROR_CODE(next());  // this also calls fetch_cur_payload()
     } else {
-      ASSERT_ND(forward_cursor);
+      fetch_cur_payload();
     }
   }
-  */
-  ASSERT_ND(found_record >= 0);
-  ASSERT_ND(found_record < cur_page_records_);
-  if (found_record < 0) {
-    found_record = 0;
-  } else if (found_record >= cur_page_records_) {
-    found_record = cur_page_records_ - 1;
-  }
-  cur_record_ = found_record;
-
-  context_->get_current_xct().add_to_page_version_set(
-    &cur_page_address_->header().page_version_,
-    cur_page_stable_);
-  CHECK_ERROR_CODE(read_cur_key());
   return kErrorCodeOk;
 }
 
-ErrorCode MasstreeCursor::read_cur_key() {
-  ASSERT_ND(is_valid_record());
-  ASSERT_ND(cur_record_ < cur_page_records_);
-  MasstreeBorderPage* cur_page = reinterpret_cast<MasstreeBorderPage*>(cur_page_);
-  uint8_t index = cur_page_order_[cur_record_];
-  context_->get_current_xct().add_to_read_set(
-    storage_,
-    // TODO(Hideaki) what if it's locked as of copying
-    *cur_page->get_owner_id(index),
-    cur_page_address_->get_owner_id(index));
-  uint8_t remaining = cur_page->get_remaining_key_length(index);
-  cur_key_length_ = cur_layer_ * sizeof(KeySlice) + remaining;
-  uint64_t be_slice = assorted::htobe<uint64_t>(cur_page->get_slice(index));
+void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, uint8_t record) {
+  // fetch everything except payload itself
+  ASSERT_ND(record < page->get_version().get_key_count());
+  cur_key_owner_id_address = page->get_owner_id(record);
+  if (!page->header().snapshot_) {
+    cur_key_observed_owner_id_ = cur_key_owner_id_address->spin_while_keylocked();
+  }
+  uint8_t remaining = page->get_remaining_key_length(record);
+  cur_key_in_layer_remaining_ = remaining;
+  cur_key_in_layer_slice_ = page->get_slice(record);
+  uint8_t layer = page->get_layer();
+  cur_key_length_ = layer * sizeof(KeySlice) + remaining;
+  uint64_t be_slice = assorted::htobe<uint64_t>(page->get_slice(record));
   std::memcpy(
-    cur_key_ + cur_layer_ * sizeof(KeySlice),
+    cur_key_ + layer * sizeof(KeySlice),
     &be_slice,
     std::min<uint64_t>(remaining, sizeof(KeySlice)));
   if (remaining > sizeof(KeySlice)) {
     std::memcpy(
-      cur_key_ + (cur_layer_ + 1) * sizeof(KeySlice),
-      cur_page->get_record(index),
+      cur_key_ + (layer + 1) * sizeof(KeySlice),
+      page->get_record(record),
       remaining - sizeof(KeySlice));
   }
-  return kErrorCodeOk;
+  cur_payload_length_ = page->get_payload_length(record);
 }
-
-
-/* TODO(Hideaki) cursor with route information.
-ErrorCode MasstreeCursor::seek_main(
-  const char* key,
-  uint16_t key_length,
-  bool key_inclusive,
-  MasstreeBorderPage** out_page,
-  uint8_t* record_index) {
-  MasstreePage* layer_root;
-  PageVersion root_version;
-  CHECK_ERROR_CODE(storage_pimpl_->get_first_root(context_, &layer_root, &root_version));
-  for (uint16_t current_layer = 0;; ++current_layer) {
-    uint8_t remaining_length = key_length - current_layer * 8;
-    KeySlice slice = slice_layer(key, key_length, current_layer);
-    const void* suffix = reinterpret_cast<const char*>(key) + (current_layer + 1) * 8;
-    MasstreeBorderPage* border;
-    PageVersion border_version;
-    CHECK_ERROR_CODE(find_border(
-      context_,
-      layer_root,
-      current_layer,
-      for_writes,
-      slice,
-      &border,
-      &border_version));
-    uint8_t stable_key_count = border_version.get_key_count();
-    uint8_t index = border->find_key(stable_key_count, slice, suffix, remaining_length);
-
-    if (index == MasstreeBorderPage::kMaxKeys) {
-      // this means not found
-      // TODO(Hideaki) range lock
-      return kErrorCodeStrKeyNotFound;
-    }
-    if (border->does_point_to_layer(index)) {
-      CHECK_ERROR_CODE(follow_layer(context, for_writes, border, index, &layer_root));
-      continue;
-    } else {
-      *out_page = border;
-      *record_index = index;
-      return kErrorCodeOk;
-    }
+void MasstreeCursor::fetch_cur_payload() {
+  ASSERT_ND(is_valid_record());
+  ASSERT_ND(cur_route()->page_->is_border());
+  ASSERT_ND(cur_route()->index_ < cur_route()->key_count_);
+  MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
+  uint8_t record = cur_route()->get_cur_original_index();
+  ASSERT_ND(record < cur_route()->key_count_);
+  uint8_t suffix_length = 0;
+  if (cur_key_in_layer_remaining_ > sizeof(KeySlice)) {
+    suffix_length = cur_key_in_layer_remaining_ - sizeof(KeySlice);
   }
-
-  CHECK_ERROR_CODE(storage_pimpl_->locate_record(
-    context_,
-    begin_key,
-    begin_key_length,
-    true,  // TODO(Hideaki) so far always find a volatile page. we need to change locate_record()
-    &border,
-    &index));
-  return kErrorCodeOk;
+  std::memcpy(
+    cur_payload_,
+    page->get_record(record) + suffix_length,
+    cur_payload_length_);
 }
-
-ErrorCode MasstreeCursor::seek_recursive(
-  MasstreePage** root,
-  PageVersion* version) {
-  while (true) {
-    ASSERT_ND(first_root_pointer_.volatile_pointer_.components.offset);
-    VolatilePagePointer pointer = first_root_pointer_.volatile_pointer_;
-    MasstreePage* page = reinterpret_cast<MasstreePage*>(
-      context->get_global_volatile_page_resolver().resolve_offset(pointer));
-    *version = page->get_stable_version();
-    *root = page;
-
-    if (!version->is_root()) {
-      // someone else has just changed the root!
-      LOG(INFO) << "Interesting. Someone has just changed the root. retry.";
-      continue;
-    } else if (UNLIKELY(version->has_foster_child())) {
-      // root page has a foster child... time for tree growth!
-      CHECK_ERROR_CODE(grow_root(context, &first_root_pointer_, page));
-      continue;
-    }
-
-    // thanks to the is_root check above, we don't need to add this to the pointer set.
-    return kErrorCodeOk;
-  }
-}
-*/
 
 ErrorCode MasstreeCursor::next() {
-  MasstreeBorderPage* cur_page = reinterpret_cast<MasstreeBorderPage*>(cur_page_);
-  if (forward_cursor_) {
-    ++cur_record_;
-    if (cur_record_ >= cur_page_records_) {
-      if (cur_page->is_high_fence_supremum()) {
-        cur_record_ = kMaxRecords;
-        return kErrorCodeOk;
-      } else {
-        // TODO(Hideaki) cursor's own traverse needed
-        cur_record_ = kMaxRecords;
-        return kErrorCodeOk;
-      }
+  if (!is_valid_record()) {
+    return kErrorCodeOk;
+  }
+
+  while (true) {
+    CHECK_ERROR_CODE(proceed_route());
+    if (is_valid_record() && cur_key_observed_owner_id_.is_deleted()) {
+      // when we follow to next layer, it is possible to locate a deleted record and stopped there.
+      // in that case, we repeat it. Don't worry, in most cases we are skipping bunch of deleted
+      // records at once.
+      continue;
+    } else {
+      break;
     }
+  }
+  check_end_key();
+  if (is_valid_record()) {
+    fetch_cur_payload();
+  }
+  return kErrorCodeOk;
+}
+
+inline ErrorCode MasstreeCursor::proceed_route() {
+  if (cur_route()->page_->is_border()) {
+    return proceed_route_border();
   } else {
-    if (cur_record_ == 0) {
-      if (cur_page->get_low_fence() == kInfimumSlice) {
-        cur_record_ = kMaxRecords;
-        return kErrorCodeOk;
+    return proceed_route_intermediate();
+  }
+}
+
+ErrorCode MasstreeCursor::proceed_route_border() {
+  Route* route = cur_route();
+  ASSERT_ND(route->page_->is_border());
+  if (route->page_->get_version().data_ != route->stable_.data_) {
+    // TODO(Hideaki) do the retry with done_upto
+    return kErrorCodeXctRaceAbort;
+  }
+  MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
+  while (true) {
+    if (forward_cursor_) {
+      ++route->index_;
+    } else {
+      --route->index_;
+    }
+    if (route->index_ < route->key_count_) {
+      fetch_cur_record(page, route->get_cur_original_index());
+      if (!route->snapshot_ &&
+        cur_key_in_layer_remaining_ != MasstreeBorderPage::kKeyLengthNextLayer) {
+        CHECK_ERROR_CODE(current_xct_->add_to_read_set(
+          storage_,
+          cur_key_observed_owner_id_,
+          cur_key_owner_id_address));
+      }
+      if (cur_key_observed_owner_id_.is_deleted()) {
+        continue;
+      }
+      route->done_upto_ = cur_key_in_layer_slice_;
+      route->done_upto_length_ = cur_key_in_layer_remaining_;
+      if (cur_key_in_layer_remaining_ == MasstreeBorderPage::kKeyLengthNextLayer) {
+        return proceed_next_layer();
       } else {
-        // TODO(Hideaki) cursor's own traverse needed
-        cur_record_ = kMaxRecords;
         return kErrorCodeOk;
       }
     } else {
-      --cur_record_;
+      return proceed_pop();
     }
   }
-  return read_cur_key();
+  return kErrorCodeOk;
+}
+
+ErrorCode MasstreeCursor::proceed_route_intermediate() {
+  Route* route = cur_route();
+  ASSERT_ND(!route->page_->is_border());
+  if (route->page_->get_version().data_ != route->stable_.data_) {
+    // TODO(Hideaki) do the retry with done_upto
+    return kErrorCodeXctRaceAbort;
+  }
+  MasstreeIntermediatePage* page = reinterpret_cast<MasstreeIntermediatePage*>(cur_route()->page_);
+  while (true) {
+    if (forward_cursor_) {
+      ++route->index_mini_;
+    } else {
+      --route->index_mini_;
+    }
+    if (page->get_minipage(route->index_).mini_version_.data_ != route->stable_mini_.data_) {
+      // TODO(Hideaki) do the retry with done_upto
+      return kErrorCodeXctRaceAbort;
+    }
+
+    if (route->index_mini_ <= route->key_count_mini_) {
+      DualPagePointer& pointer = page->get_minipage(route->index_).pointers_[route->index_mini_];
+      ASSERT_ND(!pointer.is_both_null());
+      MasstreePage* next;
+      CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, &pointer, &next));
+      PageVersion next_stable;
+      CHECK_ERROR_CODE(push_route(next, &next_stable));
+      return proceed_deeper();
+    } else {
+      if (forward_cursor_) {
+        ++route->index_;
+      } else {
+        --route->index_;
+      }
+      if (route->index_ <= route->key_count_) {
+        MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(route->index_);
+        route->stable_mini_ = minipage.get_stable_version();
+        route->key_count_mini_ = route->stable_mini_.get_key_count();
+        assorted::memory_fence_consume();
+        route->index_mini_ = forward_cursor_ ? 0 : route->key_count_mini_;
+
+        DualPagePointer& pointer = minipage.pointers_[route->index_mini_];
+        ASSERT_ND(!pointer.is_both_null());
+        MasstreePage* next;
+        CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, &pointer, &next));
+        PageVersion next_stable;
+        CHECK_ERROR_CODE(push_route(next, &next_stable));
+        return proceed_deeper();
+      } else {
+        return proceed_pop();
+      }
+    }
+  }
+  return kErrorCodeOk;
+}
+
+inline ErrorCode MasstreeCursor::proceed_pop() {
+  --route_count_;
+  if (route_count_ == 0) {
+    reached_end_ = true;
+    return kErrorCodeOk;
+  }
+  return proceed_route();
+}
+inline ErrorCode MasstreeCursor::proceed_next_layer() {
+  Route* route = cur_route();
+  ASSERT_ND(route->page_->is_border());
+  MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
+  DualPagePointer* pointer = page->get_next_layer(route->get_cur_original_index());
+  MasstreePage* next;
+  CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, pointer, &next));
+  PageVersion next_stable;
+  CHECK_ERROR_CODE(push_route(next, &next_stable));
+  return proceed_deeper();
+}
+
+inline ErrorCode MasstreeCursor::proceed_deeper() {
+  if (cur_route()->page_->is_border()) {
+    return proceed_deeper_border();
+  } else {
+    return proceed_deeper_intermediate();
+  }
+}
+inline ErrorCode MasstreeCursor::proceed_deeper_border() {
+  Route* route = cur_route();
+  ASSERT_ND(route->page_->is_border());
+  MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
+  route->index_ = forward_cursor_ ? 0 : route->key_count_ - 1;
+  uint8_t record = route->get_original_index(route->index_);
+  fetch_cur_record(page, record);
+  route->done_upto_ = cur_key_in_layer_slice_;
+  route->done_upto_length_ = cur_key_in_layer_remaining_;
+
+  if (!route->snapshot_ &&
+    cur_key_in_layer_remaining_ != MasstreeBorderPage::kKeyLengthNextLayer) {
+    CHECK_ERROR_CODE(current_xct_->add_to_read_set(
+      storage_,
+      cur_key_observed_owner_id_,
+      cur_key_owner_id_address));
+  }
+
+  if (cur_key_in_layer_remaining_ == MasstreeBorderPage::kKeyLengthNextLayer) {
+    return proceed_next_layer();
+  }
+  return kErrorCodeOk;
+}
+
+inline ErrorCode MasstreeCursor::proceed_deeper_intermediate() {
+  Route* route = cur_route();
+  ASSERT_ND(!route->page_->is_border());
+  MasstreeIntermediatePage* page = reinterpret_cast<MasstreeIntermediatePage*>(cur_route()->page_);
+  uint8_t index = forward_cursor_ ? 0 : route->key_count_;
+  MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(index);
+
+  route->stable_mini_ = minipage.get_stable_version();
+  route->key_count_mini_ = route->stable_mini_.get_key_count();
+  assorted::memory_fence_consume();
+  route->index_mini_ = forward_cursor_ ? 0 : route->key_count_mini_;
+
+  DualPagePointer& pointer = minipage.pointers_[route->index_mini_];
+  ASSERT_ND(!pointer.is_both_null());
+  MasstreePage* next;
+  CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, &pointer, &next));
+  PageVersion next_stable;
+  CHECK_ERROR_CODE(push_route(next, &next_stable));
+  return proceed_deeper();
+}
+
+inline void MasstreeCursor::Route::setup_order() {
+  ASSERT_ND(page_->is_border());
+  // sort entries in this page
+  struct Sorter {
+    explicit Sorter(const MasstreeBorderPage* target) : target_(target) {}
+    bool operator() (uint8_t left, uint8_t right) {
+      KeySlice left_slice = target_->get_slice(left);
+      KeySlice right_slice = target_->get_slice(right);
+      if (left_slice < right_slice) {
+        return true;
+      } else if (left_slice == right_slice) {
+        return target_->get_remaining_key_length(left) < target_->get_remaining_key_length(right);
+      } else {
+        return false;
+      }
+    }
+    const MasstreeBorderPage* target_;
+  };
+  for (uint8_t i = 0; i < key_count_; ++i) {
+    order_[i] = i;
+  }
+
+  // this sort order in page is correct even without evaluating the suffix.
+  // however, to compare with our searching key, we need to consider suffix
+  MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(page_);
+  std::sort(order_, order_ + key_count_, Sorter(page));
+}
+
+inline ErrorCode MasstreeCursor::push_route(MasstreePage* page, PageVersion* page_version) {
+  if (route_count_ == kMaxRoutes) {
+    return kErrorCodeStrMasstreeCursorTooDeep;
+  }
+  page->prefetch_general();
+  Route& route = routes_[route_count_];
+  while (true) {
+    *page_version = page->get_stable_version();
+    ASSERT_ND(!page_version->is_locked());
+    route.page_ = page;
+    route.index_ = kMaxRecords;
+    route.index_mini_ = kMaxRecords;
+    route.stable_ = *page_version;
+    route.key_count_ = page_version->get_key_count();
+    route.snapshot_ = page->header().snapshot_;
+    if (page->is_border() && !page_version->is_moved()) {
+      route.setup_order();
+    }
+    assorted::memory_fence_consume();
+    if (page_version->data_ == page->get_stable_version().data_) {
+      break;
+    }
+  }
+  ++route_count_;
+  // We don't need to take a page into the page version set unless we need to lock a range in it.
+  // We thus need it only for border pages. Even if an interior page changes, splits, whatever,
+  // the pre-existing border pages are already responsible for the searched key regions.
+  // this is an outstanding difference from original masstree/silo protocol.
+  if (!page->is_border() || page->header().snapshot_) {
+    return kErrorCodeOk;
+  }
+  return current_xct_->add_to_page_version_set(&page->header().page_version_, *page_version);
+}
+
+template<typename PAGE_TYPE>
+inline ErrorCode MasstreeCursor::follow_foster(
+  KeySlice slice,
+  PAGE_TYPE** cur,
+  PageVersion* version) {
+  ASSERT_ND(search_type_ == kBackwardExclusive || (*cur)->within_fences(slice));
+  ASSERT_ND(search_type_ != kBackwardExclusive
+    || (*cur)->within_fences(slice)
+    || (*cur)->get_high_fence() == slice);
+  // a bit more complicated than point queries because of exclusive cases.
+  while (UNLIKELY(version->has_foster_child())) {
+    ASSERT_ND(version->is_moved());
+    KeySlice foster_fence = (*cur)->get_foster_fence();
+    if (slice < foster_fence) {
+      *cur = reinterpret_cast<PAGE_TYPE*>((*cur)->get_foster_minor());
+    } else if (slice > foster_fence) {
+      *cur = reinterpret_cast<PAGE_TYPE*>((*cur)->get_foster_major());
+    } else {
+      ASSERT_ND(slice == foster_fence);
+      if (search_type_ == kBackwardExclusive) {
+        *cur = reinterpret_cast<PAGE_TYPE*>((*cur)->get_foster_minor());
+      } else {
+        *cur = reinterpret_cast<PAGE_TYPE*>((*cur)->get_foster_major());
+      }
+    }
+    CHECK_ERROR_CODE(push_route(*cur, version));
+  }
+  return kErrorCodeOk;
+}
+
+inline void MasstreeCursor::check_end_key() {
+  if (is_valid_record()) {
+    KeyCompareResult result = compare_cur_key_aginst_end_key();
+    ASSERT_ND(result != kCurKeyContains && result != kCurKeyBeingsWith);
+    bool ended = false;
+    if (result == kCurKeySmaller) {
+      if (!forward_cursor_) {
+        reached_end_ = true;
+      }
+    } else if (result == kCurKeyLarger) {
+      if (forward_cursor_) {
+        reached_end_ = true;
+      }
+    } else {
+      ASSERT_ND(result == kCurKeyEquals);
+      if (!end_inclusive_) {
+        reached_end_ = true;
+      }
+    }
+    if (ended) {
+      reached_end_ = true;
+    }
+  }
+}
+
+inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key_aginst_search_key(
+  KeySlice slice,
+  uint8_t layer) const {
+  return compare_cur_key(slice, layer, search_key_, search_key_length_);
+}
+
+inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key_aginst_end_key() const {
+  if (end_key_length_ == kKeyLengthSupremum) {
+    return kCurKeySmaller;
+  }
+  uint16_t min_length = std::min(cur_key_length_, end_key_length_);
+  int cmp = std::memcmp(cur_key_, end_key_, min_length);
+  if (cmp < 0) {
+    return kCurKeySmaller;
+  } else if (cmp > 0) {
+    return kCurKeyLarger;
+  } else {
+    if (cur_key_length_ > end_key_length_) {
+      return kCurKeySmaller;
+    } else if (cur_key_length_ < end_key_length_) {
+      return kCurKeyLarger;
+    } else {
+      return kCurKeyEquals;
+    }
+  }
+}
+
+inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key(
+  KeySlice slice,
+  uint8_t layer,
+  const char* full_key,
+  uint16_t full_length) const {
+  uint16_t remaining = full_length - layer * sizeof(KeySlice);
+  if (cur_key_in_layer_remaining_ == MasstreeBorderPage::kKeyLengthNextLayer) {
+    // treat this case separately
+    if (cur_key_in_layer_slice_ < slice) {
+      return kCurKeySmaller;
+    } else if (cur_key_in_layer_slice_ > slice) {
+      return kCurKeyLarger;
+    } else if (remaining < sizeof(KeySlice)) {
+      return kCurKeyLarger;
+    } else if (remaining == sizeof(KeySlice)) {
+      return kCurKeyBeingsWith;
+    } else {
+      return kCurKeyContains;
+    }
+  } else if (cur_key_in_layer_slice_ < slice) {
+    return kCurKeySmaller;
+  } else if (cur_key_in_layer_slice_ > slice) {
+    return kCurKeyLarger;
+  } else {
+    if (cur_key_in_layer_remaining_ <= sizeof(KeySlice)) {
+      // then simply length determines the <,>,== relation
+      if (cur_key_in_layer_remaining_ < remaining) {
+        return kCurKeySmaller;
+      } else if (cur_key_in_layer_remaining_ == remaining) {
+        // exactly matches.
+        return kCurKeyEquals;
+      } else {
+        return kCurKeyLarger;
+      }
+    } else if (remaining <= sizeof(KeySlice)) {
+      return kCurKeyLarger;
+    } else {
+      // we have to compare suffix. which suffix is longer?
+      uint16_t min_length = std::min<uint16_t>(remaining, cur_key_in_layer_remaining_);
+      int cmp = std::memcmp(
+        cur_key_ + layer * sizeof(KeySlice),
+        full_key + layer * sizeof(KeySlice),
+        min_length - sizeof(KeySlice));
+      if (cmp < 0) {
+        return kCurKeySmaller;
+      } else if (cmp > 0) {
+        return kCurKeyLarger;
+      } else {
+        if (cur_key_in_layer_remaining_ < remaining) {
+          return kCurKeySmaller;
+        } else if (cur_key_in_layer_remaining_ == remaining) {
+          return kCurKeyEquals;
+        } else {
+          return kCurKeyLarger;
+        }
+      }
+    }
+  }
+}
+
+inline ErrorCode MasstreeCursor::locate_layer(uint8_t layer) {
+  MasstreePage* layer_root = cur_route()->page_;
+  ASSERT_ND(layer_root->get_layer() == layer);
+  KeySlice slice = slice_layer(search_key_, search_key_length_, layer);
+  if (!layer_root->is_border()) {
+    CHECK_ERROR_CODE(locate_descend(slice));
+  }
+  return locate_border(slice);
+}
+
+ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
+  while (true) {
+    MasstreeBorderPage* border = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
+    PageVersion border_version = cur_route()->stable_;
+    CHECK_ERROR_CODE(follow_foster(slice, &border, &border_version));
+    ASSERT_ND(search_type_ == kBackwardExclusive || border->within_fences(slice));
+    ASSERT_ND(search_type_ != kBackwardExclusive
+      || border->within_fences(slice)
+      || border->get_high_fence() == slice);
+
+    Route* route = cur_route();
+    ASSERT_ND(reinterpret_cast<MasstreeBorderPage*>(route->page_) == border);
+
+    ASSERT_ND(!route->stable_.has_foster_child());
+    uint8_t layer = border->get_layer();
+    // find right record. be aware of backward-exclusive case!
+    uint8_t index;
+
+    // no need for fast-path for supremum.
+    // almost always supremum-search is for backward search, so anyway it finds it first.
+    // if we have supremum-search for forward search, we miss opportunity, but who does it...
+    if (search_type_ == kForwardExclusive || search_type_ == kForwardInclusive) {
+      for (index = 0; index < route->key_count_; ++index) {
+        uint8_t record = route->get_original_index(index);
+        fetch_cur_record(border, record);
+        KeyCompareResult result = compare_cur_key_aginst_search_key(slice, layer);
+        if (result == kCurKeySmaller ||
+          (result == kCurKeyEquals && search_type_ == kForwardExclusive)) {
+          continue;
+        }
+
+        // okay, this seems to satisfy our search.
+        // we need to add this to read set. even if it's deleted.
+        // but if that's next layer pointer, don't bother. the pointer is always valid
+        if (!route->snapshot_ &&
+          cur_key_in_layer_remaining_ != MasstreeBorderPage::kKeyLengthNextLayer) {
+          CHECK_ERROR_CODE(current_xct_->add_to_read_set(
+            storage_,
+            cur_key_observed_owner_id_,
+            cur_key_owner_id_address));
+        }
+        break;
+      }
+    } else {
+      for (index = route->key_count_ - 1; index < route->key_count_; --index) {
+        uint8_t record = route->get_original_index(index);
+        fetch_cur_record(border, record);
+        KeyCompareResult result = compare_cur_key_aginst_search_key(slice, layer);
+        if (result == kCurKeyLarger ||
+          (result == kCurKeyEquals && search_type_ == kBackwardExclusive)) {
+          continue;
+        }
+
+        if (!route->snapshot_ &&
+          cur_key_in_layer_remaining_ != MasstreeBorderPage::kKeyLengthNextLayer) {
+          CHECK_ERROR_CODE(current_xct_->add_to_read_set(
+            storage_,
+            cur_key_observed_owner_id_,
+            cur_key_owner_id_address));
+        }
+        break;
+      }
+    }
+    route->index_ = index;
+    route->done_upto_ = cur_key_in_layer_slice_;
+    route->done_upto_length_ = cur_key_in_layer_remaining_;
+
+    assorted::memory_fence_consume();
+
+    PageVersion version = border->get_stable_version();
+    if (route->stable_.data_ != version.data_) {
+      route->stable_ = version;
+      continue;
+    } else {
+      break;
+    }
+  }
+
+  if (is_valid_record() &&
+    cur_key_in_layer_remaining_ == MasstreeBorderPage::kKeyLengthNextLayer) {
+    return locate_next_layer();
+  }
+
+  return kErrorCodeOk;
 }
 
 
-KeySlice MasstreeCursor::get_key_current_slice() {
-  ASSERT_ND(is_valid_record());
-  MasstreeBorderPage* cur_page = reinterpret_cast<MasstreeBorderPage*>(cur_page_);
-  return cur_page->get_slice(get_cur_index());
-}
-
-const char* MasstreeCursor::get_key_suffix() {
-  ASSERT_ND(is_valid_record());
-  MasstreeBorderPage* cur_page = reinterpret_cast<MasstreeBorderPage*>(cur_page_);
-  return cur_page->get_record(get_cur_index());
-}
-
-uint8_t MasstreeCursor::get_key_suffix_length() {
-  ASSERT_ND(is_valid_record());
-  MasstreeBorderPage* cur_page = reinterpret_cast<MasstreeBorderPage*>(cur_page_);
-  return cur_page->get_suffix_length(get_cur_index());
-}
-
-uint16_t MasstreeCursor::get_key_length() {
-  ASSERT_ND(is_valid_record());
-  return cur_key_length_;
-}
-
-void MasstreeCursor::get_key(char* key) {
-  ASSERT_ND(is_valid_record());
-  std::memcpy(key, cur_key_, cur_key_length_);
-}
-void MasstreeCursor::get_key_part(char* key, uint16_t key_offset, uint16_t key_count) {
-  ASSERT_ND(is_valid_record());
-  ASSERT_ND(key_offset + key_count <= cur_key_length_);
-  std::memcpy(key, cur_key_ + key_offset, key_count);
-}
-
-void MasstreeCursor::get_payload(void* payload) {
-  ASSERT_ND(is_valid_record());
-  MasstreeBorderPage* cur_page = reinterpret_cast<MasstreeBorderPage*>(cur_page_);
-  std::memcpy(
-    payload,
-    cur_page->get_record(get_cur_index()) + get_key_suffix_length(),
-    get_payload_length());
-}
-
-uint16_t MasstreeCursor::get_payload_length() {
-  ASSERT_ND(is_valid_record());
-  MasstreeBorderPage* cur_page = reinterpret_cast<MasstreeBorderPage*>(cur_page_);
-  return cur_page->get_payload_length(get_cur_index());
+ErrorCode MasstreeCursor::locate_next_layer() {
+  Route* route = cur_route();
+  MasstreeBorderPage* border = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
+  DualPagePointer* pointer = border->get_next_layer(route->get_cur_original_index());
+  MasstreePage* next;
+  CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, pointer, &next));
+  PageVersion next_stable;
+  CHECK_ERROR_CODE(push_route(next, &next_stable));
+  return locate_layer(border->get_layer() + 1U);
 }
 
 
-void MasstreeCursor::get_payload_part(
-  void* payload,
-  uint16_t payload_offset,
-  uint16_t payload_count) {
-  ASSERT_ND(is_valid_record());
-  ASSERT_ND(payload_offset + payload_count <= get_payload_length());
-  MasstreeBorderPage* cur_page = reinterpret_cast<MasstreeBorderPage*>(cur_page_);
-  std::memcpy(
-    payload,
-    cur_page->get_record(get_cur_index()) + get_key_suffix_length() + payload_offset,
-    payload_count);
+ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
+  MasstreeIntermediatePage* cur = reinterpret_cast<MasstreeIntermediatePage*>(cur_route()->page_);
+  PageVersion cur_stable = cur_route()->stable_;
+  while (true) {
+    CHECK_ERROR_CODE(follow_foster(slice, &cur, &cur_stable));
+
+    Route* route = cur_route();
+    ASSERT_ND(reinterpret_cast<MasstreeIntermediatePage*>(route->page_) == cur);
+
+    ASSERT_ND(!cur_stable.has_foster_child());
+    // find right minipage. be aware of backward-exclusive case!
+    uint8_t index = 0;
+    if (is_search_key_supremum() ||
+      (cur->is_high_fence_supremum() && slice == cur->get_high_fence())) {
+      // fast path for supremum-search.
+      index = route->key_count_;
+    } else if (search_type_ != kBackwardExclusive) {
+        for (; index < route->key_count_; ++index) {
+          if (slice < cur->get_separator(index)) {
+            break;
+          }
+        }
+    } else {
+      for (; index < route->key_count_; ++index) {
+        if (slice <= cur->get_separator(index)) {
+          break;
+        }
+      }
+    }
+    route->index_ = index;
+    MasstreeIntermediatePage::MiniPage& minipage = cur->get_minipage(route->index_);
+
+    minipage.prefetch();
+    route->stable_mini_ = minipage.get_stable_version();
+    assorted::memory_fence_consume();
+    while (true) {
+      route->key_count_mini_ = route->stable_mini_.get_key_count();
+
+      uint8_t index_mini = 0;
+      KeySlice next_separator;
+      if (index == route->key_count_) {
+        next_separator = cur->get_high_fence();
+      } else {
+        next_separator = cur->get_separator(index);
+      }
+
+      if (is_search_key_supremum() || slice == next_separator) {
+        // fast path for supremum-search.
+        index_mini = route->key_count_mini_;
+      } else if (search_type_ != kBackwardExclusive) {
+          for (; index_mini < route->key_count_mini_; ++index_mini) {
+            if (slice < minipage.separators_[index_mini]) {
+              break;
+            }
+          }
+      } else {
+        for (; index_mini < route->key_count_mini_; ++index_mini) {
+          if (slice <= minipage.separators_[index_mini]) {
+            break;
+          }
+        }
+      }
+      route->index_mini_ = index_mini;
+      /*  TODO(Hideaki) do this later
+      if (search_type_ == kForwardExclusive || search_type_ == kForwardInclusive) {
+        if (index_mini == 0) {
+          done_upto_ =
+        } else {
+          done_upto_ =
+        }
+      } else {
+      }
+      */
+
+      assorted::memory_fence_consume();
+      PageVersion version_mini = minipage.get_stable_version();
+      if (route->stable_mini_.data_ != version_mini.data_) {
+        route->stable_mini_ = version_mini;
+        continue;
+      } else {
+        break;
+      }
+    }
+
+    PageVersion version = cur->get_stable_version();
+    if (route->stable_.data_ != version.data_) {
+      route->stable_ = version;
+      continue;
+    }
+
+    DualPagePointer& pointer = minipage.pointers_[route->index_mini_];
+    ASSERT_ND(!pointer.is_both_null());
+    MasstreePage* next;
+    CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, &pointer, &next));
+    PageVersion next_stable;
+    CHECK_ERROR_CODE(push_route(next, &next_stable));
+    if (next->is_border()) {
+      return kErrorCodeOk;
+    } else {
+      cur = reinterpret_cast<MasstreeIntermediatePage*>(next);
+      cur_stable = next_stable;
+    }
+  }
 }
 
-template <typename PAYLOAD>
-void MasstreeCursor::get_payload_primitive(PAYLOAD* payload, uint16_t payload_offset) {
-  ASSERT_ND(is_valid_record());
-  ASSERT_ND(payload_offset + sizeof(PAYLOAD) <= get_payload_length());
-  MasstreeBorderPage* cur_page = reinterpret_cast<MasstreeBorderPage*>(cur_page_);
-  const PAYLOAD* address = reinterpret_cast<const PAYLOAD*>(
-    cur_page->get_record(get_cur_index()) + get_key_suffix_length() + payload_offset);
-  *payload = *address;
-}
 
 ErrorCode MasstreeCursor::overwrite_record(
   const void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
-  return masstree_retry([this, payload, payload_offset, payload_count]() {
-    return storage_pimpl_->overwrite_general(
-      context_,
-      cur_page_address_,
-      get_cur_index(),
-      cur_key_,
-      cur_key_length_,
-      payload,
-      payload_offset,
-      payload_count);
-  });
+  return storage_pimpl_->overwrite_general(
+    context_,
+    cur_page_address_,
+    get_cur_index(),
+    cur_key_,
+    cur_key_length_,
+    payload,
+    payload_offset,
+    payload_count);
 }
 
 template <typename PAYLOAD>
 ErrorCode MasstreeCursor::overwrite_record_primitive(PAYLOAD payload, uint16_t payload_offset) {
-  return masstree_retry([this, payload, payload_offset]() {
-    return storage_pimpl_->overwrite_general(
-      context_,
-      cur_page_address_,
-      get_cur_index(),
-      cur_key_,
-      cur_key_length_,
-      &payload,
-      payload_offset,
-      sizeof(PAYLOAD));
-  });
+  return storage_pimpl_->overwrite_general(
+    context_,
+    cur_page_address_,
+    get_cur_index(),
+    cur_key_,
+    cur_key_length_,
+    &payload,
+    payload_offset,
+    sizeof(PAYLOAD));
 }
 
 ErrorCode MasstreeCursor::delete_record() {
-  return masstree_retry([this]() {
-    return storage_pimpl_->delete_general(
-      context_,
-      cur_page_address_,
-      get_cur_index(),
-      cur_key_,
-      cur_key_length_);
-  });
+  return storage_pimpl_->delete_general(
+    context_,
+    cur_page_address_,
+    get_cur_index(),
+    cur_key_,
+    cur_key_length_);
 }
 
 template <typename PAYLOAD>
 ErrorCode MasstreeCursor::increment_record(PAYLOAD* value, uint16_t payload_offset) {
-  return masstree_retry([this, value, payload_offset]() {
-    return storage_pimpl_->increment_general<PAYLOAD>(
-      context_,
-      cur_page_address_,
-      get_cur_index(),
-      cur_key_,
-      cur_key_length_,
-      value,
-      payload_offset);
-  });
+  return storage_pimpl_->increment_general<PAYLOAD>(
+    context_,
+    cur_page_address_,
+    get_cur_index(),
+    cur_key_,
+    cur_key_length_,
+    value,
+    payload_offset);
 }
-
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus

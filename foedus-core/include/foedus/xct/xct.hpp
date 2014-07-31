@@ -177,21 +177,6 @@ class Xct {
     XctId* owner_id_address) ALWAYS_INLINE;
 
   /**
-   * @brief Reads the record with appropriate version check protocol, also adding to read set.
-   * @details
-   * This method takes an appropriate memory fence to prohibit local reordering,
-   * but global staleness is fine (in other words, std::memory_order_consume rather
-   * than std::memory_order_acquire, although both are no-op in x86 which is TSO...).
-   */
-  ErrorCode           read_record_safe(
-    storage::Storage* storage,
-    XctId* owner_id_address,
-    const char *payload_source,
-    void *payload_destination,
-    uint16_t payload_offset,
-    uint16_t payload_count);
-
-  /**
    * @brief Add the given record to the write set of this transaction.
    */
   ErrorCode           add_to_write_set(
