@@ -12,6 +12,7 @@
 #include "foedus/assert_nd.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/engine.hpp"
+#include "foedus/assorted/endianness.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -109,9 +110,29 @@ class MasstreeCursor CXX11_FINAL {
     const char* end_key = CXX11_NULLPTR,
     uint16_t end_key_length = kKeyLengthExtremum,
     bool forward_cursor = true,
-    bool for_writes = true,
+    bool for_writes = false,
     bool begin_inclusive = true,
     bool end_inclusive = false);
+
+  ErrorCode   open_normalized(
+    KeySlice begin_key,
+    KeySlice end_key,
+    bool forward_cursor = true,
+    bool for_writes = false,
+    bool begin_inclusive = true,
+    bool end_inclusive = false) {
+    KeySlice begin_key_be = assorted::htobe<KeySlice>(begin_key);
+    KeySlice end_key_be = assorted::htobe<KeySlice>(end_key);
+    return open(
+      reinterpret_cast<const char*>(&begin_key_be),
+      sizeof(KeySlice),
+      reinterpret_cast<const char*>(&end_key_be),
+      sizeof(KeySlice),
+      forward_cursor,
+      for_writes,
+      begin_inclusive,
+      end_inclusive);
+  }
 
   bool      is_valid_record() const ALWAYS_INLINE {
     return !reached_end_ && cur_route()->is_valid_record();
