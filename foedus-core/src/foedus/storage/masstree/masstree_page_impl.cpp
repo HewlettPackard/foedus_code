@@ -170,7 +170,7 @@ void MasstreeBorderPage::release_pages_recursive(
 }
 
 
-void MasstreeBorderPage::copy_initial_record(
+void MasstreeBorderPage::initialize_layer_root(
   const MasstreeBorderPage* copy_from,
   uint8_t copy_index) {
   ASSERT_ND(header_.page_version_.get_key_count() == 0);
@@ -520,6 +520,10 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
 
   trigger_child->lock();
   UnlockScope trigger_scope(trigger_child);
+  if (trigger_child->is_retired()) {
+    LOG(INFO) << "Interesting. this child is now retired, so someone else has already adopted.";
+    return kErrorCodeOk;  // fine. the goal is already achieved
+  }
 
   uint8_t key_count = header_.page_version_.get_key_count();
   get_version().set_inserting();
@@ -714,8 +718,7 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
   // construct this page. copy the separators and pointers.
   // we distribute them as much as possible in first level. if mini pages have little
   // entries to start with, following adoption would be only local.
-  float entries_per_mini = static_cast<float>(strategy.mid_index_)
-    / (kMaxIntermediateSeparators + 1);
+  float entries_per_mini = static_cast<float>(to - from) / (kMaxIntermediateSeparators + 1);
   ASSERT_ND(to > from);
   const uint16_t move_count = to - from;
 
@@ -804,6 +807,8 @@ void MasstreeIntermediatePage::verify_separators() const {
 
 ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
   ASSERT_ND(!header_.snapshot_);
+  ASSERT_ND(!is_moved());
+  ASSERT_ND(!is_retired());
   ASSERT_ND(is_locked());
   debugging::RdtscWatch watch;
 
@@ -859,6 +864,8 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   PageVersion mini_stable,
   uint8_t pointer_index,
   MasstreePage* child) {
+  ASSERT_ND(!is_moved());
+  ASSERT_ND(!is_retired());
   ASSERT_ND(mini_stable.get_key_count() <= kMaxIntermediateMiniSeparators);
   if (mini_stable.get_key_count() == kMaxIntermediateMiniSeparators) {
     // oh, then we also have to do rebalance
@@ -957,6 +964,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
     }
 
     minipage.mini_version_.set_inserting_and_increment_key_count();
+    ASSERT_ND(minipage.mini_version_.get_key_count() <= kMaxIntermediateMiniSeparators);
     ASSERT_ND(minipage.mini_version_.get_key_count() == mini_key_count + 1);
     ASSERT_ND(!minipage.pointers_[pointer_index].is_both_null());
     minipage.separators_[pointer_index] = new_separator;
@@ -1109,7 +1117,8 @@ bool MasstreeBorderPage::track_moved_record(
       !originally_pointer) {
       // another rare case. the record has been moved to another layer.
       // we can potentially track it, but not worth doing. abort.
-      LOG(INFO) << "Very interesting. moved record are now in another layer";
+      // TODO(Hideaki) we should track even in this case.
+      VLOG(0) << "Interesting. moved record are now in another layer";
       return false;
     }
 

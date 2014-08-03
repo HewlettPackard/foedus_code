@@ -35,14 +35,15 @@ ErrorCode TpccClientTask::do_stock_level(Wid wid) {
 
   // SELECT OL_I_ID FROM ORDERLINE
   // WHERE WID=wid AND DID=did AND OID BETWEEN oid_from AND oid_to.
-  storage::masstree::KeySlice low = to_wdoid_slice(wid, did, next_oid - 20);
-  storage::masstree::KeySlice high = to_wdoid_slice(wid, did, next_oid + 1);
+  Wdol low = combine_wdol(combine_wdoid(wdid, next_oid - 20U), 0U);
+  Wdol high = combine_wdol(combine_wdoid(wdid, next_oid + 1U), 0U);
   storage::masstree::MasstreeCursor cursor(engine_, storages_.orderlines_, context_);
   CHECK_ERROR_CODE(cursor.open_normalized(low, high));
   uint16_t s_offset = offsetof(StockData, quantity_);
   while (cursor.is_valid_record()) {
-    ASSERT_ND(assorted::read_bigendian<storage::masstree::KeySlice>(cursor.get_key()) == low);
-    ASSERT_ND(cursor.get_key_length() == OrderlinePrimaryKey::kKeyLength);
+    ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) >= low);
+    ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) < high);
+    ASSERT_ND(cursor.get_key_length() == sizeof(Wdol));
     ASSERT_ND(cursor.get_payload_length() == sizeof(OrderlineData));
 
     const OrderlineData *ol_data = reinterpret_cast<const OrderlineData*>(cursor.get_payload());

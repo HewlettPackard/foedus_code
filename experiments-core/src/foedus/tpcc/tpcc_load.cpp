@@ -17,6 +17,7 @@
 #include "foedus/epoch.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/memory/aligned_memory.hpp"
+#include "foedus/memory/engine_memory.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/storage/array/array_storage.hpp"
@@ -53,11 +54,25 @@ ErrorStack TpccLoadTask::load_tables() {
   CHECK_ERROR(create_tables());
 
   CHECK_ERROR(load_warehouses());
+  LOG(INFO) << "Loaded Warehouses:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_districts());
+  LOG(INFO) << "Loaded Districts:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_customers());
+  LOG(INFO) << "Loaded Customers:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_items());
+  LOG(INFO) << "Loaded Items:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_stocks());
+  LOG(INFO) << "Loaded Strocks:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_orders());
+  LOG(INFO) << "Loaded Orders:" << engine_->get_memory_manager().dump_free_memory_stat();
+
+  WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+  CHECK_ERROR(storages_.customers_secondary_->verify_single_thread(context_));
+  CHECK_ERROR(storages_.neworders_->verify_single_thread(context_));
+  CHECK_ERROR(storages_.orderlines_->verify_single_thread(context_));
+  CHECK_ERROR(storages_.orders_->verify_single_thread(context_));
+  CHECK_ERROR(storages_.orders_secondary_->verify_single_thread(context_));
+  WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
 
   return kRetOk;
 }
@@ -65,11 +80,13 @@ ErrorStack TpccLoadTask::load_tables() {
 ErrorStack TpccLoadTask::create_tables() {
   std::memset(&storages_, 0, sizeof(storages_));
 
+  LOG(INFO) << "Initial:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(create_array(
     "customers",
     sizeof(CustomerData),
     kWarehouses * kDistricts * kCustomers,
     &storages_.customers_));
+  LOG(INFO) << "Created Customers:" << engine_->get_memory_manager().dump_free_memory_stat();
 
   CHECK_ERROR(create_masstree("customers_secondary", &storages_.customers_secondary_));
 
@@ -78,6 +95,7 @@ ErrorStack TpccLoadTask::create_tables() {
     sizeof(DistrictData),
     kWarehouses * kDistricts,
     &storages_.districts_));
+  LOG(INFO) << "Created Districts:" << engine_->get_memory_manager().dump_free_memory_stat();
 
   CHECK_ERROR(create_sequential("histories", &storages_.histories_));
   CHECK_ERROR(create_masstree("neworders", &storages_.neworders_));
@@ -90,18 +108,21 @@ ErrorStack TpccLoadTask::create_tables() {
     sizeof(ItemData),
     kItems,
     &storages_.items_));
+  LOG(INFO) << "Created Items:" << engine_->get_memory_manager().dump_free_memory_stat();
 
   CHECK_ERROR(create_array(
     "stocks",
     sizeof(StockData),
     kWarehouses * kItems,
     &storages_.stocks_));
+  LOG(INFO) << "Created Stocks:" << engine_->get_memory_manager().dump_free_memory_stat();
 
   CHECK_ERROR(create_array(
     "warehouses",
     sizeof(WarehouseData),
     kWarehouses,
     &storages_.warehouses_));
+  LOG(INFO) << "Created Warehouses:" << engine_->get_memory_manager().dump_free_memory_stat();
 
   return kRetOk;
 }
@@ -187,7 +208,7 @@ ErrorStack TpccLoadTask::load_districts() {
       Wdid wdid = combine_wdid(wid, did);
       WRAP_ERROR_CODE(storage->overwrite_record(context_, wdid, &data, 0, sizeof(data)));
       WRAP_ERROR_CODE(commit_if_full());
-      VLOG(0) << "DID = " << did << ", WID = " << wid
+      VLOG(0) << "DID = " << static_cast<int>(did) << ", WID = " << wid
         << ", Name = " << data.name_ << ", Tax = " << data.tax_;
     }
   }
@@ -285,7 +306,8 @@ ErrorStack TpccLoadTask::load_customers() {
 }
 
 ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
-  LOG(INFO) << "Loading Customer for DID=" << did << ", WID=" << wid;
+  LOG(INFO) << "Loading Customer for DID=" << static_cast<int>(did) << ", WID=" << wid
+    << ": " << engine_->get_memory_manager().dump_free_memory_stat();
 
   // insert to customers_secondary at the end after sorting
   memory::AlignedMemory secondary_keys_buffer;
@@ -385,26 +407,42 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   LOG(INFO) << "Sorted secondary entries in " << sort_watch.elapsed_us() << "us";
   auto* customers_secondary = storages_.customers_secondary_;
   const uint32_t kBatch = 100;
-  char dummy;
   for (Cid from = 0; from < kCustomers;) {
     uint32_t cur_batch_size = std::min(kBatch, kCustomers - from);
     char key_be[CustomerSecondaryKey::kKeyLength];
     *reinterpret_cast<Wid*>(key_be) = assorted::htobe<Wid>(wid);
     *reinterpret_cast<Did*>(key_be + sizeof(Wid)) = assorted::htobe<Did>(did);
-    WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
-    for (Cid i = from; i < from + cur_batch_size; ++i) {
-      std::memcpy(key_be + sizeof(Wid) + sizeof(Did), secondary_keys[i].last_, 34);
-      *reinterpret_cast<Cid*>(key_be + sizeof(Wid) + sizeof(Did) + 34)
-        = assorted::htobe<Cid>(secondary_keys[i].cid_);
-      WRAP_ERROR_CODE(customers_secondary->insert_record(
-        context_,
-        key_be,
-        sizeof(key_be),
-        &dummy,
-        0));
+    // An easy optimization for batched inserts. Trigger reserve_record for all of them,
+    // then abort and do it as a fresh transaction so that no moved-bit tracking is required.
+    for (int rep = 0; rep < 2; ++rep) {
+      WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+      for (Cid i = from; i < from + cur_batch_size; ++i) {
+        std::memcpy(key_be + sizeof(Wid) + sizeof(Did), secondary_keys[i].last_, 34);
+        *reinterpret_cast<Cid*>(key_be + sizeof(Wid) + sizeof(Did) + 34)
+          = assorted::htobe<Cid>(secondary_keys[i].cid_);
+        WRAP_ERROR_CODE(customers_secondary->insert_record(context_, key_be, sizeof(key_be)));
+      }
+      if (rep == 0) {
+        WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
+      } else {
+        WRAP_ERROR_CODE(xct_manager_->precommit_xct(context_, &ep));
+      }
     }
-    WRAP_ERROR_CODE(xct_manager_->precommit_xct(context_, &ep));
     from += cur_batch_size;
+    /*
+    ErrorCode code = xct_manager_->precommit_xct(context_, &ep);
+    if (code == kErrorCodeOk) {
+      from += cur_batch_size;
+      continue;
+    } else if (code == kErrorCodeXctRaceAbort) {
+      // TODO(Hideaki) once we implement next-layer moved-bit tracking, this will go away.
+      LOG(WARNING) << "Conservative abort while populating customer secondary index. "
+          << ", wid=" << wid << ", did=" << static_cast<int>(did);
+      continue;
+    } else {
+      return ERROR_STACK(code);
+    }
+    */
   }
   return kRetOk;
 }
@@ -419,7 +457,8 @@ ErrorStack TpccLoadTask::load_orders() {
 }
 
 ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
-  LOG(INFO) << "Loading Orders for D=" << did << ", W= " << wid << "...";
+  LOG(INFO) << "Loading Orders for D=" << static_cast<int>(did) << ", W= " << wid
+    << ": " << engine_->get_memory_manager().dump_free_memory_stat();
   // Whether the customer id for the current order is already taken.
   bool cid_array[kCustomers];
   std::memset(cid_array, 0, sizeof(cid_array));
@@ -432,10 +471,8 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
   OrderData o_data;
   OrderlineData ol_data;
   Wdid wdid = combine_wdid(wid, did);
-  char dummy;
   for (Oid oid = 0; oid < kOrders;) {
     Wdoid wdoid = combine_wdoid(wdid, oid);
-    storage::masstree::KeySlice slice = storage::masstree::normalize_primitive<Wdoid>(wdoid);
     // same as load_customers, but this time simple. one OID is the batch.
     WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
     zero_clear(&o_data);
@@ -453,21 +490,17 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
 
     if (oid >= 2100U) {   /* the last 900 orders have not been delivered) */
       o_data.carrier_id_ = 0;
-      WRAP_ERROR_CODE(neworders->insert_record_normalized(context_, slice, &dummy, 0));
+      WRAP_ERROR_CODE(neworders->insert_record_normalized(context_, wdoid));
     } else {
       o_data.carrier_id_ = o_carrier_id;
     }
 
-    WRAP_ERROR_CODE(orders->insert_record_normalized(context_, slice, &o_data, sizeof(o_data)));
-    char skey_be[OrderSecondaryKey::kKeyLength];
-    assorted::write_bigendian<Wdcid>(wdcid, skey_be);
-    assorted::write_bigendian<Oid>(oid, skey_be + sizeof(Wdcid));
-    WRAP_ERROR_CODE(orders_secondary->insert_record(context_, skey_be, sizeof(skey_be), &dummy, 0));
-    DVLOG(2) << "OID = " << oid << ", CID = " << o_cid << ", DID = " << did << ", WID = " << wid;
-
-    char ol_key_be[OrderlinePrimaryKey::kKeyLength];
-    assorted::write_bigendian<Wdoid>(wdcid, ol_key_be);
-    for (uint32_t ol = 1; ol <= o_ol_cnt; ol++) {
+    WRAP_ERROR_CODE(orders->insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
+    Wdcoid wdcoid = combine_wdcoid(wdcid, oid);
+    WRAP_ERROR_CODE(orders_secondary->insert_record_normalized(context_, wdcoid));
+    DVLOG(2) << "OID = " << oid << ", CID = " << o_cid << ", DID = "
+      << static_cast<int>(did) << ", WID = " << wid;
+    for (Ol ol = 1; ol <= o_ol_cnt; ol++) {
       zero_clear(&ol_data);
 
       // Generate Order Line Data
@@ -483,11 +516,10 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
         std::memcpy(ol_data.delivery_d_, time_str.data(), time_str.size());
       }
 
-      *reinterpret_cast<uint32_t*>(ol_key_be + sizeof(Wdoid)) = assorted::htobe<uint32_t>(ol);
-      WRAP_ERROR_CODE(orderlines->insert_record(
+      Wdol wdol = combine_wdol(wdoid, ol);
+      WRAP_ERROR_CODE(orderlines->insert_record_normalized(
         context_,
-        ol_key_be,
-        sizeof(ol_key_be),
+        wdol,
         &ol_data,
         sizeof(ol_data)));
 
@@ -501,12 +533,10 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
       continue;
     } else if (code == kErrorCodeXctRaceAbort) {
       LOG(WARNING) << "Conservative abort while populating order tables. oid=" << oid
-          << ", wid=" << wid << ", did=" << did;
-      WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
+          << ", wid=" << wid << ", did=" << static_cast<int>(did);
       continue;
     } else {
-      WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
-      WRAP_ERROR_CODE(code);
+      return ERROR_STACK(code);
     }
   }
   return kRetOk;

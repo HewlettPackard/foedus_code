@@ -55,6 +55,13 @@ inline storage::masstree::KeySlice to_wdoid_slice(Wid wid, Did did, Oid oid) {
   return storage::masstree::normalize_primitive<Wdoid>(wdoid);
 }
 
+inline storage::masstree::KeySlice to_wdol_slice(Wid wid, Did did, Oid oid, Ol ol) {
+  Wdid wdid = combine_wdid(wid, did);
+  Wdoid wdoid = combine_wdoid(wdid, oid);
+  Wdol wdol = combine_wdol(wdoid, ol);
+  return storage::masstree::normalize_primitive<Wdol>(wdol);
+}
+
 inline storage::masstree::KeySlice to_wdcid_slice(Wid wid, Did did, Cid cid) {
   Wdid wdid = combine_wdid(wid, did);
   Wdcid wdcid = combine_wdcid(wdid, cid);

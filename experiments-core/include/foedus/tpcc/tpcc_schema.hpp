@@ -46,9 +46,9 @@ struct TpccStorages {
   storage::masstree::MasstreeStorage*     neworders_;
   /** (Wid, Did, Oid) == Wdoid */
   storage::masstree::MasstreeStorage*     orders_;
-  /** (Wid, Did, Cid, Oid) */
+  /** (Wid, Did, Cid, Oid) == Wdcoid */
   storage::masstree::MasstreeStorage*     orders_secondary_;
-  /** (Wid, Did, Oid, ol) */
+  /** (Wid, Did, Oid, Ol) == Wdol */
   storage::masstree::MasstreeStorage*     orderlines_;
   /** (Iid) */
   storage::array::ArrayStorage*           items_;
@@ -63,7 +63,7 @@ struct TpccStorages {
 typedef uint16_t Wid;
 
 /** District ID (not unique across warehouses. Wid+Did is district's unique ID) */
-typedef uint16_t Did;
+typedef uint8_t Did;
 
 /** Wid and Did combined (Wid occupies more significant bits)*/
 typedef uint32_t Wdid;
@@ -91,12 +91,29 @@ inline Cid    extract_cid_from_wdcid(Wdcid id) { return static_cast<Cid>(id % kC
  */
 typedef uint32_t Oid;
 
-/** Wdid and Oid combined (Widd occupies more significant bits)*/
+/** Wdid and Oid combined (Wdid occupies more significant bits)*/
 typedef uint64_t Wdoid;
 
 inline Wdoid  combine_wdoid(Wdid wdid, Oid oid) { return static_cast<Wdoid>(wdid) * kOrders + oid; }
 inline Wdid   extract_wdid_from_wdoid(Wdoid id) { return static_cast<Wdid>(id / kOrders); }
 inline Oid    extract_oid_from_wdoid(Wdoid id) { return static_cast<Oid>(id % kOrders); }
+
+/** Wdcid + oid (be aware of order) */
+typedef uint64_t Wdcoid;
+
+inline Wdcoid combine_wdcoid(Wdcid wdcid, Oid oid) { return wdcid * kOrders + oid; }
+inline Wdcid  extract_wdcid_from_wdcoid(Wdcoid id) { return static_cast<Wdcid>(id / kOrders); }
+inline Oid    extract_oid_from_wdcoid(Wdcoid id) { return static_cast<Oid>(id % kOrders); }
+
+/** Orderline ordinal (1-25) */
+typedef uint8_t Ol;
+
+/** Wdoid and Ol combined */
+typedef uint64_t Wdol;
+
+inline Wdol  combine_wdol(Wdoid wdoid, Ol ol) { return wdoid * kOlMax + ol; }
+inline Wdid  extract_wdid_from_wdol(Wdol id) { return static_cast<Wdid>(id / kOlMax); }
+inline Ol    extract_ol_from_wdol(Wdol id) { return static_cast<Oid>(id % kOlMax); }
 
 /**
  * Item ID.
@@ -165,47 +182,6 @@ struct CustomerSecondaryKey {
     /** Length of the key. note that this doesn't contain padding as a struct. */
     kKeyLength = sizeof(Wid) + sizeof(Did) + 17 + 17 + sizeof(Cid),
   };
-
-  CustomerSecondaryKey() {}
-  CustomerSecondaryKey(Wid wid, Did did, const char* last, const char* first, Cid cid)
-    : wid_(wid), did_(did), cid_(cid) {
-    std::memcpy(last_, last, sizeof(last_));
-    std::memcpy(first_, first, sizeof(first_));
-  }
-
-  void to_big_endian(char* be_data) const ALWAYS_INLINE {
-    uint16_t offset = 0;
-    *reinterpret_cast<Wid*>(be_data + offset) = assorted::htobe<Wid>(wid_);
-    offset += sizeof(wid_);
-    *reinterpret_cast<Did*>(be_data + offset) = assorted::htobe<Did>(did_);
-    offset += sizeof(did_);
-    std::memcpy(be_data + offset, last_, sizeof(last_));
-    offset += sizeof(last_);
-    std::memcpy(be_data + offset, first_, sizeof(first_));
-    offset += sizeof(first_);
-    *reinterpret_cast<Cid*>(be_data + offset) = assorted::htobe<Cid>(cid_);
-  }
-
-  void from_big_endian(const char* be_data) ALWAYS_INLINE {
-    uint16_t offset = 0;
-    wid_ = assorted::betoh<Wid>(*reinterpret_cast<const Wid*>(be_data + offset));
-    offset += sizeof(wid_);
-    did_ = assorted::betoh<Did>(*reinterpret_cast<const Did*>(be_data + offset));
-    offset += sizeof(did_);
-    std::memcpy(last_, be_data + offset, sizeof(last_));
-    offset += sizeof(last_);
-    std::memcpy(first_, be_data + offset, sizeof(first_));
-    offset += sizeof(first_);
-    cid_ = assorted::betoh<Cid>(*reinterpret_cast<const Cid*>(be_data + offset));
-  }
-
-  char  data_[sizeof(Wid) + sizeof(Did) + 17 + 17 + sizeof(Cid)];
-
-  Wid   wid_;
-  Did   did_;
-  char  last_[17];
-  char  first_[17];
-  Cid   cid_;
 };
 
 /**
@@ -228,32 +204,6 @@ struct OrderData {
   uint32_t  carrier_id_;
   char      ol_cnt_;
   char      all_local_;
-};
-
-/**
-  * (wid, did, cid, oid).
-  * Secondary index to allow look-ups by O_W_ID, O_D_ID, O_C_ID.
-  * The last O_ID is uniquefier (different from original implementation).
-  */
-struct OrderSecondaryKey {
-  enum Constants {
-    /** Length of the key. note that this doesn't contain padding as a struct. */
-    kKeyLength = sizeof(Wdcid) + sizeof(Oid),
-  };
-
-  Wdcid wdcid_;
-  Oid oid_;
-};
-
-/** (wid, did, oid, ol). */
-struct OrderlinePrimaryKey {
-  enum Constants {
-    /** Length of the key. note that this doesn't contain padding as a struct. */
-    kKeyLength = sizeof(Wdoid) + sizeof(uint32_t),
-  };
-
-  Wdoid     wdoid_;
-  uint32_t  ol_;
 };
 
 struct OrderlineData {

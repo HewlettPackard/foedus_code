@@ -18,13 +18,13 @@ namespace foedus {
 namespace tpcc {
 
 /** Number of warehouses */
-const uint16_t kWarehouses = 100U;
+const uint16_t kWarehouses = 10U;
 
 /** Number of items per warehouse */
 const uint32_t kItems = 100000U;
 
 /** Number of districts per warehouse */
-const uint16_t kDistricts = 10U;
+const uint8_t kDistricts = 10U;
 
 /** Number of customers per district */
 const uint32_t kCustomers = 3000U;
@@ -34,6 +34,10 @@ const uint32_t kOrders = 3000U;
 
 /** Number of variations of last names. */
 const uint32_t kLnames = 1000U;
+
+const uint8_t kMinOlCount = 5U;
+const uint8_t kMaxOlCount = 15U;
+const uint8_t kOlMax = kMaxOlCount + 1U;
 
 // See Sec 5.2.2 of the TPCC spec
 const uint8_t kXctNewOrderPercent = 45U;

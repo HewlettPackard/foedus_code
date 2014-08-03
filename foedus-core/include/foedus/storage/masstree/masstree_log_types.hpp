@@ -107,7 +107,9 @@ struct MasstreeInsertLogType : public log::RecordLogType {
     payload_count_ = payload_count;
     layer_ = layer;
     std::memcpy(data_, key, key_length);
-    std::memcpy(data_ + key_length_, payload, payload_count);
+    if (payload_count > 0U) {
+      std::memcpy(data_ + key_length_, payload, payload_count);
+    }
   }
 
   void            apply_record(
@@ -121,7 +123,9 @@ struct MasstreeInsertLogType : public log::RecordLogType {
     // no need to set key in apply(). it's already set when the record is physically inserted
     // (or in other places if this is recovery).
     ASSERT_ND(std::memcmp(payload, data_ + skipped, key_length_ - skipped) == 0);
-    std::memcpy(payload + key_length_ - skipped, data_ + key_length_, payload_count_);
+    if (payload_count_ > 0U) {
+      std::memcpy(payload + key_length_ - skipped, data_ + key_length_, payload_count_);
+    }
     ASSERT_ND(std::memcmp(payload, data_ + skipped, key_length_ - skipped) == 0);
     owner_id->set_notdeleted();
   }

@@ -183,6 +183,22 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
     uint16_t payload_count);
 
   /**
+   * @brief Inserts a new record without payload of the given key in this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key that is lexicographically (big-endian) evaluated.
+   * @param[in] key_length Byte size of key.
+   * @details
+   * If the key already exists, it returns kErrorCodeStrKeyAlreadyExists and also adds the
+   * found record to read set because it is part of transactional information.
+   */
+  ErrorCode   insert_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length) ALWAYS_INLINE {
+      return insert_record(context, key, key_length, CXX11_NULLPTR, 0U);
+  }
+
+  /**
    * @brief Inserts a new record of the given primitive key in this Masstree.
    * @param[in] context Thread context
    * @param[in] key Primitive key that is evaluated in the primitive type's comparison rule.
@@ -194,6 +210,15 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
     KeySlice key,
     const void* payload,
     uint16_t payload_count);
+
+  /**
+   * @brief Inserts a new record without payload of the given primitive key in this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Primitive key that is evaluated in the primitive type's comparison rule.
+   */
+  ErrorCode   insert_record_normalized(thread::Thread* context, KeySlice key) ALWAYS_INLINE {
+    return insert_record_normalized(context, key, CXX11_NULLPTR, 0U);
+  }
 
   // delete_record() methods
 

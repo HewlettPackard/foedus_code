@@ -319,7 +319,7 @@ ErrorCode MasstreeStoragePimpl::find_border_descend(
 
     next->prefetch_general();
     bool next_is_border = next->is_border();
-    if (next->has_foster_child()) {
+    if (next->has_foster_child() && !cur->is_moved()) {
       // oh, the page has foster child, so we should adopt it.
       CHECK_ERROR_CODE(cur->adopt_from_child(
         context,
@@ -504,10 +504,15 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
       true,             // high-fence is supremum
       true);  // initially locked
     UnlockScope scope(root);
-    root->copy_initial_record(parent, parent_index);
+    root->initialize_layer_root(parent, parent_index);
+    ASSERT_ND(!root->is_moved());
+    ASSERT_ND(!root->is_retired());
 
     // point to the new page
     parent->set_next_layer(parent_index, pointer);
+    ASSERT_ND(parent->get_next_layer(parent_index)->volatile_pointer_.components.offset == offset);
+    ASSERT_ND(parent->get_next_layer(parent_index)->volatile_pointer_.components.numa_node
+      == context->get_numa_node());
 
     xct::XctId unlocked_id = *parent_lock;
     unlocked_id.release_keylock();
@@ -563,7 +568,7 @@ inline ErrorCode MasstreeStoragePimpl::follow_layer(
   CHECK_ERROR_CODE(follow_page(context, for_writes, pointer, &next_root));
 
   // root page has a foster child... time for tree growth!
-  if (next_root->has_foster_child()) {
+  if (next_root->has_foster_child() && !parent->is_moved()) {
     CHECK_ERROR_CODE(grow_root(context, pointer, next_root));
     CHECK_ERROR_CODE(follow_page(context, for_writes, pointer, &next_root));
   }
@@ -586,9 +591,9 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
   PageVersion root_version;
   CHECK_ERROR_CODE(get_first_root(context, &layer_root, &root_version));
   for (uint16_t layer = 0;; ++layer) {
-    uint8_t remaining = key_length - layer * sizeof(KeySlice);
-    KeySlice slice = slice_layer(key, key_length, layer);
-    const void* suffix = reinterpret_cast<const char*>(key) + (layer + 1) * sizeof(KeySlice);
+    const uint8_t remaining = key_length - layer * sizeof(KeySlice);
+    const KeySlice slice = slice_layer(key, key_length, layer);
+    const void* const suffix = reinterpret_cast<const char*>(key) + (layer + 1) * sizeof(KeySlice);
     MasstreeBorderPage* border;
     PageVersion version;
     CHECK_ERROR_CODE(find_border(context, layer_root, layer, true, slice, &border, &version));
@@ -599,6 +604,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         version = border->get_stable_version();
       }
       ASSERT_ND(!border->is_moved());
+      ASSERT_ND(!border->is_retired());
       ASSERT_ND(border->within_fences(slice));
 
       uint8_t count = version.get_key_count();
@@ -627,7 +633,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
       UnlockScope scope(border);
       // now finally we took a lock, finalizing the version. up to now, everything could happen.
       // check all of them and retry if fails.
-      if (border->has_foster_child()) {
+      if (border->is_moved()) {
+        version = border->unlock();
         continue;  // locally retries
       }
       // even resume the searches if new record was installed (only new record area)
@@ -649,7 +656,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         return kErrorCodeOk;
       } else if (match.match_type_ == MasstreeBorderPage::kNotFound) {
         // okay, surely new record
-        return reserve_record_new_record(
+        ErrorCode code = reserve_record_new_record(
           context,
           border,
           slice,
@@ -658,6 +665,10 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
           payload_count,
           out_page,
           record_index);
+        ASSERT_ND(!(*out_page)->is_moved());
+        ASSERT_ND(!(*out_page)->is_retired());
+        ASSERT_ND(*record_index < (*out_page)->get_version().get_key_count());
+        return code;
       } else {
         ASSERT_ND(match.match_type_ == MasstreeBorderPage::kConflictingLocalRecord);
         ASSERT_ND(match.index_ < MasstreeBorderPage::kMaxKeys);
@@ -665,6 +676,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         // this is also one system transaction.
         CHECK_ERROR_CODE(create_next_layer(context, border, match.index_));
         CHECK_ERROR_CODE(follow_layer(context, true, border, match.index_, &layer_root));
+        ASSERT_ND(!border->is_moved());
+        ASSERT_ND(!border->is_retired());
         break;  // next layer
       }
     }
@@ -771,8 +784,11 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
   uint8_t remaining_key_length,
   const void* suffix,
   uint16_t payload_count) {
-  ASSERT_ND(target->get_version().is_locked());
+  ASSERT_ND(target->is_locked());
+  ASSERT_ND(!target->is_moved());
+  ASSERT_ND(!target->is_retired());
   ASSERT_ND(target->can_accomodate(target_index, remaining_key_length, payload_count));
+  ASSERT_ND(target->get_version().get_key_count() < MasstreeBorderPage::kMaxKeys);
   target->get_version().set_inserting_and_increment_key_count();
   xct::XctId initial_id;
   initial_id.set_clean(
@@ -787,6 +803,9 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
     suffix,
     remaining_key_length,
     payload_count);
+  ASSERT_ND(target->get_version().get_key_count() <= MasstreeBorderPage::kMaxKeys);
+  ASSERT_ND(!target->is_moved());
+  ASSERT_ND(!target->is_retired());
 }
 
 ErrorCode MasstreeStoragePimpl::retrieve_general(

@@ -102,8 +102,9 @@ ErrorCode TpccClientTask::update_orderline_delivery_dates(
   const char* delivery_date,
   uint64_t* ol_amount_total,
   uint32_t* ol_count) {
-  storage::masstree::KeySlice low = to_wdoid_slice(wid, did, oid);
-  storage::masstree::KeySlice high = to_wdoid_slice(wid, did, oid + 1);
+  Wdid wdid = combine_wdid(wid, did);
+  Wdol low = combine_wdol(combine_wdoid(wdid, oid), 0U);
+  Wdol high = combine_wdol(combine_wdoid(wdid, oid + 1U), 0U);
   *ol_amount_total = 0;
   *ol_count = 0;
 
@@ -114,8 +115,9 @@ ErrorCode TpccClientTask::update_orderline_delivery_dates(
   CHECK_ERROR_CODE(cursor.open_normalized(low, high, true, true));
   while (cursor.is_valid_record()) {
     const char* key_be = cursor.get_key();
-    ASSERT_ND(assorted::read_bigendian<storage::masstree::KeySlice>(key_be) == low);
-    ASSERT_ND(cursor.get_key_length() == OrderlinePrimaryKey::kKeyLength);
+    ASSERT_ND(assorted::read_bigendian<Wdol>(key_be) >= low);
+    ASSERT_ND(assorted::read_bigendian<Wdol>(key_be) < high);
+    ASSERT_ND(cursor.get_key_length() == sizeof(Wdol));
     ASSERT_ND(cursor.get_payload_length() == sizeof(OrderlineData));
     const OrderlineData* payload = reinterpret_cast<const OrderlineData*>(cursor.get_payload());
     *ol_amount_total += payload->amount_;

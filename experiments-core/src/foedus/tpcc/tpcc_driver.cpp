@@ -16,6 +16,7 @@
 #include "foedus/error_stack.hpp"
 #include "foedus/debugging/debugging_supports.hpp"
 #include "foedus/fs/filesystem.hpp"
+#include "foedus/memory/engine_memory.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/tpcc/tpcc.hpp"
@@ -31,6 +32,7 @@ const uint64_t kDurationMicro = 5000000;  // TODO(Hideaki) make it a flag
 
 uint64_t TpccDriver::run() {
   const EngineOptions& options = engine_->get_options();
+  std::cout << engine_->get_memory_manager().dump_free_memory_stat() << std::endl;
 
   TpccLoadTask loader;
   thread::ImpersonateSession loader_session = engine_->get_thread_pool().impersonate(&loader);
@@ -38,6 +40,11 @@ uint64_t TpccDriver::run() {
     COERCE_ERROR(loader_session.invalid_cause_);
   }
   std::cout << "loader_result=" << loader_session.get_result() << std::endl;
+  if (loader_session.get_result().is_error()) {
+    COERCE_ERROR(loader_session.get_result());
+  }
+
+  std::cout << engine_->get_memory_manager().dump_free_memory_stat() << std::endl;
 
   storages_ = loader.get_storages();
   std::vector< thread::ImpersonateSession > sessions;
@@ -117,9 +124,9 @@ int driver_main(int argc, char **argv) {
     // = debugging::DebuggingOptions::kDebugLogWarning;
   options.debugging_.verbose_modules_ = "";
   options.debugging_.verbose_log_level_ = -1;
-  options.log_.log_buffer_kb_ = 1 << 20;  // 256MB * 16 cores = 4 GB. nothing.
+  options.log_.log_buffer_kb_ = 1 << 18;  // 256MB * 16 cores = 4 GB. nothing.
   options.log_.log_file_size_mb_ = 1 << 10;
-  options.memory_.page_pool_size_mb_per_node_ = 1 << 13;  // 8GB per node = 16GB
+  options.memory_.page_pool_size_mb_per_node_ = 1 << 12;  // 8GB per node = 16GB
 
   uint64_t total_processed;
   {

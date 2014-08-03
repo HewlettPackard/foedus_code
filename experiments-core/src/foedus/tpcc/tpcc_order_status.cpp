@@ -29,14 +29,16 @@ ErrorCode TpccClientTask::do_order_status(Wid wid) {
 
   // SELECT IID,SUPPLY_WID,QUANTITY,AMOUNT,DELIVERY_D FROM ORDERLINE
   // WHERE WID/DID/OID=..
-  storage::masstree::KeySlice low = to_wdoid_slice(wid, did, oid);
-  storage::masstree::KeySlice high = to_wdoid_slice(wid, did, oid + 1);
+  Wdid wdid = combine_wdid(wid, did);
+  Wdol low = combine_wdol(combine_wdoid(wdid, oid), 0U);
+  Wdol high = combine_wdol(combine_wdoid(wdid, oid + 1U), 0U);
   storage::masstree::MasstreeCursor cursor(engine_, storages_.orderlines_, context_);
   CHECK_ERROR_CODE(cursor.open_normalized(low, high));
   uint32_t cnt = 0;
   while (cursor.is_valid_record()) {
-    ASSERT_ND(assorted::read_bigendian<storage::masstree::KeySlice>(cursor.get_key()) == low);
-    ASSERT_ND(cursor.get_key_length() == OrderlinePrimaryKey::kKeyLength);
+    ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) >= low);
+    ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) < high);
+    ASSERT_ND(cursor.get_key_length() == sizeof(Wdol));
     ASSERT_ND(cursor.get_payload_length() == sizeof(OrderlineData));
 
     ++cnt;
@@ -59,17 +61,18 @@ ErrorCode TpccClientTask::do_order_status(Wid wid) {
 ErrorCode TpccClientTask::get_last_orderid_by_customer(Wid wid, Did did, Cid cid, Oid* oid) {
   // SELECT TOP 1 ... FROM ORDERS WHERE WID/DID/CID=.. ORDER BY OID DESC
   // Use the secondary index for this query.
-  storage::masstree::KeySlice low = to_wdcid_slice(wid, did, cid);
-  storage::masstree::KeySlice high = to_wdcid_slice(wid, did, cid + 1);
+  Wdid wdid = combine_wdid(wid, did);
+  Wdcoid low = combine_wdcoid(combine_wdcid(wdid, cid), 0U);
+  Wdcoid high = combine_wdcoid(combine_wdcid(wdid, cid + 1U), 0U);
   storage::masstree::MasstreeCursor cursor(engine_, storages_.orders_secondary_, context_);
   CHECK_ERROR_CODE(cursor.open_normalized(low, high));
-
   if (cursor.is_valid_record()) {
-    const char* key_be = cursor.get_key();
-    ASSERT_ND(assorted::read_bigendian<storage::masstree::KeySlice>(key_be) == low);
-    ASSERT_ND(cursor.get_key_length() == OrderSecondaryKey::kKeyLength);
+    Wdcoid key = assorted::read_bigendian<Wdcoid>(cursor.get_key());
+    ASSERT_ND(key >= low);
+    ASSERT_ND(key < high);
+    ASSERT_ND(cursor.get_key_length() == sizeof(Wdcoid));
     ASSERT_ND(cursor.get_payload_length() == 0U);
-    *oid = assorted::read_bigendian<uint32_t>(key_be + sizeof(Wdoid));
+    *oid = extract_oid_from_wdcoid(key);
     return kErrorCodeOk;
   } else {
     return kErrorCodeStrKeyNotFound;

@@ -15,15 +15,12 @@
 namespace foedus {
 namespace tpcc {
 
-const uint32_t kMinOlCount = 5;
-const uint32_t kMaxOlCount = 15;
-
 ErrorCode TpccClientTask::do_neworder(Wid wid) {
   const Did did = get_random_district_id();
   const Wdid wdid = combine_wdid(wid, did);
   const Cid cid = rnd_.non_uniform_within(1023, 0, kCustomers - 1);
   const Wdcid wdcid = combine_wdcid(wdid, cid);
-  const uint32_t ol_cnt = rnd_.uniform_within(kMinOlCount, kMaxOlCount);
+  const uint8_t ol_cnt = rnd_.uniform_within(kMinOlCount, kMaxOlCount);
 
   // New-order transaction has the "1% random rollback" rule.
   const bool will_rollback = (rnd_.uniform_within(1, 100) == 1);
@@ -69,9 +66,7 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
 
   // INSERT INTO ORDERLINE with random item.
   bool all_local_warehouse = true;
-  char ol_key_be[OrderlinePrimaryKey::kKeyLength];
-  assorted::write_bigendian<Wdoid>(wdcid, ol_key_be);
-  for (uint32_t ol = 1; ol <= ol_cnt; ++ol) {
+  for (Ol ol = 1; ol <= ol_cnt; ++ol) {
     const uint32_t quantity = rnd_.uniform_within(1, 10);
     Iid iid = rnd_.non_uniform_within(8191, 0, kItems - 1);
     if (will_rollback) {
@@ -127,11 +122,10 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
     ol_data.quantity_ = quantity;
     ol_data.supply_wid_ = supply_wid;
 
-    *reinterpret_cast<uint32_t*>(ol_key_be + sizeof(Wdoid)) = assorted::htobe<uint32_t>(ol);
-    CHECK_ERROR_CODE(orderlines->insert_record(
+    Wdol wdol = combine_wdol(wdoid, ol);
+    CHECK_ERROR_CODE(orderlines->insert_record_normalized(
       context_,
-      ol_key_be,
-      sizeof(ol_key_be),
+      wdol,
       &ol_data,
       sizeof(ol_data)));
 
@@ -155,14 +149,10 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
   o_data.entry_d_[time_str.size()] = '\0';
   o_data.ol_cnt_ = ol_cnt;
 
-  storage::masstree::KeySlice slice = storage::masstree::normalize_primitive<Wdoid>(wdoid);
-  char dummy;
-  CHECK_ERROR_CODE(orders->insert_record_normalized(context_, slice, &o_data, sizeof(o_data)));
-  CHECK_ERROR_CODE(neworders->insert_record_normalized(context_, slice, &dummy, 0));
-  char skey_be[OrderSecondaryKey::kKeyLength];
-  assorted::write_bigendian<Wdcid>(wdcid, skey_be);
-  assorted::write_bigendian<Oid>(oid, skey_be + sizeof(Wdcid));
-  CHECK_ERROR_CODE(orders_secondary->insert_record(context_, skey_be, sizeof(skey_be), &dummy, 0));
+  CHECK_ERROR_CODE(orders->insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
+  CHECK_ERROR_CODE(neworders->insert_record_normalized(context_, wdoid));
+  Wdcoid wdcoid = combine_wdcoid(wdcid, oid);
+  CHECK_ERROR_CODE(orders_secondary->insert_record_normalized(context_, wdcoid));
 
   // show output on console
   DVLOG(3) << "Neworder: : wid=" << wid << ", did=" << did << ", oid=" << oid

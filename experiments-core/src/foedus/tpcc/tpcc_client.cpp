@@ -59,7 +59,10 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
       } else if (ret == kErrorCodeXctRaceAbort) {
         // early abort for some reason.
         // this one must be retried just like usual race abort in precommit.
-        WRAP_ERROR_CODE(xct_manager.abort_xct(context));
+        if (context->is_running_xct()) {
+          WRAP_ERROR_CODE(xct_manager.abort_xct(context));
+        }
+        increment_race_aborts();
         continue;
       } else if (ret != kErrorCodeOk) {
         return ERROR_STACK(ret);  // unexpected error
@@ -68,7 +71,10 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
       Epoch ep;
       ErrorCode commit_ret = xct_manager.precommit_xct(context, &ep);
       if (commit_ret == kErrorCodeXctRaceAbort) {
-        WRAP_ERROR_CODE(xct_manager.abort_xct(context));
+        if (context->is_running_xct()) {
+          WRAP_ERROR_CODE(xct_manager.abort_xct(context));
+        }
+        increment_race_aborts();
         continue;
       } else if (commit_ret != kErrorCodeOk) {
         return ERROR_STACK(ret);  // unexpected error

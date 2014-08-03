@@ -46,12 +46,16 @@ class TpccClientTask : public thread::ImpersonateTask {
     : worker_id_(worker_id), rnd_(kRandomSeed + worker_id), processed_(0) {
     storages_ = storages;
     start_rendezvous_ = start_rendezvous;
+    user_requested_aborts_ = 0;
+    race_aborts_ = 0;
   }
 
   ErrorStack run(thread::Thread* context);
 
-  uint32_t get_user_requested_aborts() const { return user_requested_aborts; }
-  uint32_t increment_user_requested_aborts() { return ++user_requested_aborts; }
+  uint32_t get_user_requested_aborts() const { return user_requested_aborts_; }
+  uint32_t increment_user_requested_aborts() { return ++user_requested_aborts_; }
+  uint32_t get_race_aborts() const { return race_aborts_; }
+  uint32_t increment_race_aborts() { return ++race_aborts_; }
 
   void request_stop() { stop_requrested_ = true; }
 
@@ -80,7 +84,8 @@ class TpccClientTask : public thread::ImpersonateTask {
   uint64_t processed_;
 
   // statistics
-  uint32_t user_requested_aborts;
+  uint32_t user_requested_aborts_;
+  uint32_t race_aborts_;
 
   /** Run the TPCC Neworder transaction. Implemented in tpcc_neworder.cpp. */
   ErrorCode do_neworder(Wid wid);
