@@ -38,7 +38,7 @@ class TpccLoadTask : public thread::ImpersonateTask {
 
  private:
   enum Constants {
-    kCommitBatch = 100,
+    kCommitBatch = 500,
   };
 
   Engine* engine_;

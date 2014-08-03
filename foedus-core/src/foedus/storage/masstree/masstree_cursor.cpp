@@ -33,7 +33,6 @@ MasstreeCursor::MasstreeCursor(Engine* engine, MasstreeStorage* storage, thread:
   for_writes_ = false;
   forward_cursor_ = true;
   reached_end_ = false;
-  cur_page_address_ = nullptr;
 
   route_count_ = 0;
   routes_ = nullptr;
@@ -826,9 +825,10 @@ ErrorCode MasstreeCursor::overwrite_record(
   const void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
+  assert_modify();
   return storage_pimpl_->overwrite_general(
     context_,
-    cur_page_address_,
+    reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),
     cur_key_,
     cur_key_length_,
@@ -839,9 +839,10 @@ ErrorCode MasstreeCursor::overwrite_record(
 
 template <typename PAYLOAD>
 ErrorCode MasstreeCursor::overwrite_record_primitive(PAYLOAD payload, uint16_t payload_offset) {
+  assert_modify();
   return storage_pimpl_->overwrite_general(
     context_,
-    cur_page_address_,
+    reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),
     cur_key_,
     cur_key_length_,
@@ -851,9 +852,10 @@ ErrorCode MasstreeCursor::overwrite_record_primitive(PAYLOAD payload, uint16_t p
 }
 
 ErrorCode MasstreeCursor::delete_record() {
+  assert_modify();
   return storage_pimpl_->delete_general(
     context_,
-    cur_page_address_,
+    reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),
     cur_key_,
     cur_key_length_);
@@ -861,9 +863,10 @@ ErrorCode MasstreeCursor::delete_record() {
 
 template <typename PAYLOAD>
 ErrorCode MasstreeCursor::increment_record(PAYLOAD* value, uint16_t payload_offset) {
+  assert_modify();
   return storage_pimpl_->increment_general<PAYLOAD>(
     context_,
-    cur_page_address_,
+    reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),
     cur_key_,
     cur_key_length_,

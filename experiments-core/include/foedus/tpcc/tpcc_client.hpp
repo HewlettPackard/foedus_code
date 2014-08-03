@@ -38,6 +38,8 @@ class TpccClientTask : public thread::ImpersonateTask {
   enum Constants {
     kRandomSeed = 123456,
     kRandomCount = 1 << 16,
+    /** on average only 3. surely won't be more than this number */
+    kMaxCidsPerLname = 128,
   };
   TpccClientTask(
     uint32_t worker_id,
@@ -45,9 +47,11 @@ class TpccClientTask : public thread::ImpersonateTask {
     thread::Rendezvous* start_rendezvous)
     : worker_id_(worker_id), rnd_(kRandomSeed + worker_id), processed_(0) {
     storages_ = storages;
+    stop_requrested_ = false;
     start_rendezvous_ = start_rendezvous;
     user_requested_aborts_ = 0;
     race_aborts_ = 0;
+    unexpected_aborts_ = 0;
   }
 
   ErrorStack run(thread::Thread* context);
@@ -56,6 +60,8 @@ class TpccClientTask : public thread::ImpersonateTask {
   uint32_t increment_user_requested_aborts() { return ++user_requested_aborts_; }
   uint32_t get_race_aborts() const { return race_aborts_; }
   uint32_t increment_race_aborts() { return ++race_aborts_; }
+  uint32_t get_unexpected_aborts() const { return unexpected_aborts_; }
+  uint32_t increment_unexpected_aborts() { return ++unexpected_aborts_; }
 
   void request_stop() { stop_requrested_ = true; }
 
@@ -86,6 +92,10 @@ class TpccClientTask : public thread::ImpersonateTask {
   // statistics
   uint32_t user_requested_aborts_;
   uint32_t race_aborts_;
+  /** this is usually up to 1 because we stop execution as soon as this happens */
+  uint32_t unexpected_aborts_;
+
+  Cid     tmp_cids_[kMaxCidsPerLname];
 
   /** Run the TPCC Neworder transaction. Implemented in tpcc_neworder.cpp. */
   ErrorCode do_neworder(Wid wid);
@@ -129,8 +139,8 @@ class TpccClientTask : public thread::ImpersonateTask {
     */
   ErrorCode pop_neworder(Wid wid, Did did, Oid* oid);
 
-  Did get_random_district_id() ALWAYS_INLINE { return rnd_.uniform_within(0, kDistricts); }
-  Wid get_random_warehouse_id() ALWAYS_INLINE { return rnd_.uniform_within(0, kWarehouses); }
+  Did get_random_district_id() ALWAYS_INLINE { return rnd_.uniform_within(0, kDistricts - 1); }
+  Wid get_random_warehouse_id() ALWAYS_INLINE { return rnd_.uniform_within(0, kWarehouses - 1); }
 };
 }  // namespace tpcc
 }  // namespace foedus

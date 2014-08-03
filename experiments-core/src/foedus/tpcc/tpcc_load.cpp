@@ -16,6 +16,7 @@
 #include "foedus/engine.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/debugging/stop_watch.hpp"
+#include "foedus/log/log_manager.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/storage/storage_manager.hpp"
@@ -73,6 +74,12 @@ ErrorStack TpccLoadTask::load_tables() {
   CHECK_ERROR(storages_.orders_->verify_single_thread(context_));
   CHECK_ERROR(storages_.orders_secondary_->verify_single_thread(context_));
   WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
+
+  LOG(INFO) << "Loaded all tables. Waiting for flushing all logs...";
+  Epoch ep = engine_->get_xct_manager().get_current_global_epoch();
+  engine_->get_xct_manager().advance_current_global_epoch();
+  WRAP_ERROR_CODE(engine_->get_log_manager().wait_until_durable(ep));
+  LOG(INFO) << "Okay, flushed all logs.";
 
   return kRetOk;
 }
@@ -406,9 +413,8 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   sort_watch.stop();
   LOG(INFO) << "Sorted secondary entries in " << sort_watch.elapsed_us() << "us";
   auto* customers_secondary = storages_.customers_secondary_;
-  const uint32_t kBatch = 100;
   for (Cid from = 0; from < kCustomers;) {
-    uint32_t cur_batch_size = std::min(kBatch, kCustomers - from);
+    uint32_t cur_batch_size = std::min<uint32_t>(kCommitBatch, kCustomers - from);
     char key_be[CustomerSecondaryKey::kKeyLength];
     *reinterpret_cast<Wid*>(key_be) = assorted::htobe<Wid>(wid);
     *reinterpret_cast<Did*>(key_be + sizeof(Wid)) = assorted::htobe<Did>(did);
@@ -429,20 +435,6 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
       }
     }
     from += cur_batch_size;
-    /*
-    ErrorCode code = xct_manager_->precommit_xct(context_, &ep);
-    if (code == kErrorCodeOk) {
-      from += cur_batch_size;
-      continue;
-    } else if (code == kErrorCodeXctRaceAbort) {
-      // TODO(Hideaki) once we implement next-layer moved-bit tracking, this will go away.
-      LOG(WARNING) << "Conservative abort while populating customer secondary index. "
-          << ", wid=" << wid << ", did=" << static_cast<int>(did);
-      continue;
-    } else {
-      return ERROR_STACK(code);
-    }
-    */
   }
   return kRetOk;
 }
@@ -471,10 +463,10 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
   OrderData o_data;
   OrderlineData ol_data;
   Wdid wdid = combine_wdid(wid, did);
-  for (Oid oid = 0; oid < kOrders;) {
+  WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+  for (Oid oid = 0; oid < kOrders; ++oid) {
     Wdoid wdoid = combine_wdoid(wdid, oid);
-    // same as load_customers, but this time simple. one OID is the batch.
-    WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+    WRAP_ERROR_CODE(commit_if_full());
     zero_clear(&o_data);
 
     // Generate Order Data
@@ -526,19 +518,8 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
       DVLOG(2) << "OL = " << ol << ", IID = " << ol_data.iid_ << ", QUAN = " << ol_data.quantity_
         << ", AMT = " << ol_data.amount_;
     }
-
-    ErrorCode code = xct_manager_->precommit_xct(context_, &ep);
-    if (code == kErrorCodeOk) {
-      ++oid;
-      continue;
-    } else if (code == kErrorCodeXctRaceAbort) {
-      LOG(WARNING) << "Conservative abort while populating order tables. oid=" << oid
-          << ", wid=" << wid << ", did=" << static_cast<int>(did);
-      continue;
-    } else {
-      return ERROR_STACK(code);
-    }
   }
+  WRAP_ERROR_CODE(xct_manager_->precommit_xct(context_, &ep));
   return kRetOk;
 }
 

@@ -208,9 +208,6 @@ class MasstreeCursor CXX11_FINAL {
   /** full big-endian key of current search. backed by search_key_memory_offset_  */
   char*       search_key_;
 
-  /** the current border page. may or maynot be snapshot. */
-  MasstreeBorderPage* cur_page_address_;
-
   /** stable version of teh current border page as of copying cur_page_. */
   PageVersion cur_page_stable_;
 
@@ -238,6 +235,10 @@ class MasstreeCursor CXX11_FINAL {
   uint8_t       get_cur_index() const ALWAYS_INLINE {
     ASSERT_ND(is_valid_record());
     return cur_route()->get_cur_original_index();
+  }
+  MasstreePage* get_cur_page() const ALWAYS_INLINE {
+    ASSERT_ND(is_valid_record());
+    return cur_route()->page_;
   }
 
   Route*        cur_route() ALWAYS_INLINE {
@@ -281,6 +282,14 @@ class MasstreeCursor CXX11_FINAL {
   ErrorCode proceed_deeper();
   ErrorCode proceed_deeper_border();
   ErrorCode proceed_deeper_intermediate();
+
+  void assert_modify() const ALWAYS_INLINE {
+    ASSERT_ND(for_writes_);
+    ASSERT_ND(is_valid_record());
+    ASSERT_ND(!cur_route()->snapshot_);
+    ASSERT_ND(reinterpret_cast<Page*>(get_cur_page())->get_header().get_page_type()
+      == kMasstreeBorderPageType);
+  }
 };
 
 }  // namespace masstree

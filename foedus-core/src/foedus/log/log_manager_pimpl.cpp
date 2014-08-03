@@ -105,7 +105,7 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
     return kRetOk;
   }
 
-  LOG(INFO) << "Global durable epoch is about to advance from " << get_durable_global_epoch()
+  VLOG(0) << "Global durable epoch is about to advance from " << get_durable_global_epoch()
     << " to " << min_durable_epoch;
   {
     std::lock_guard<std::mutex> guard(durable_global_epoch_savepoint_mutex_);

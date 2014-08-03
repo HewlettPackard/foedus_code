@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include <iosfwd>
 #include <vector>
 
 #include "foedus/fwd.hpp"
@@ -22,10 +23,18 @@ namespace tpcc {
  */
 class TpccDriver {
  public:
+  struct Result {
+    Result() : processed_(0), user_requested_aborts_(0), race_aborts_(0), unexpected_aborts_(0) {}
+    uint64_t processed_;
+    uint64_t user_requested_aborts_;
+    uint64_t race_aborts_;
+    uint64_t unexpected_aborts_;
+    friend std::ostream& operator<<(std::ostream& o, const Result& v);
+  };
   explicit TpccDriver(Engine* engine) : engine_(engine) {
   }
 
-  uint64_t run();
+  Result run();
 
   std::vector<TpccClientTask*>& get_clients() { return clients_; }
   const TpccStorages&           get_storages() const { return storages_; }

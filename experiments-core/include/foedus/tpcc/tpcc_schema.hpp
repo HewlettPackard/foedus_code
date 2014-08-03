@@ -94,16 +94,18 @@ typedef uint32_t Oid;
 /** Wdid and Oid combined (Wdid occupies more significant bits)*/
 typedef uint64_t Wdoid;
 
-inline Wdoid  combine_wdoid(Wdid wdid, Oid oid) { return static_cast<Wdoid>(wdid) * kOrders + oid; }
-inline Wdid   extract_wdid_from_wdoid(Wdoid id) { return static_cast<Wdid>(id / kOrders); }
-inline Oid    extract_oid_from_wdoid(Wdoid id) { return static_cast<Oid>(id % kOrders); }
+inline Wdoid  combine_wdoid(Wdid wdid, Oid oid) {
+  return static_cast<Wdoid>(wdid) * kMaxOrders + oid;
+}
+inline Wdid   extract_wdid_from_wdoid(Wdoid id) { return static_cast<Wdid>(id / kMaxOrders); }
+inline Oid    extract_oid_from_wdoid(Wdoid id) { return static_cast<Oid>(id % kMaxOrders); }
 
 /** Wdcid + oid (be aware of order) */
 typedef uint64_t Wdcoid;
 
-inline Wdcoid combine_wdcoid(Wdcid wdcid, Oid oid) { return wdcid * kOrders + oid; }
-inline Wdcid  extract_wdcid_from_wdcoid(Wdcoid id) { return static_cast<Wdcid>(id / kOrders); }
-inline Oid    extract_oid_from_wdcoid(Wdcoid id) { return static_cast<Oid>(id % kOrders); }
+inline Wdcoid combine_wdcoid(Wdcid wdcid, Oid oid) { return wdcid * kMaxOrders + oid; }
+inline Wdcid  extract_wdcid_from_wdcoid(Wdcoid id) { return static_cast<Wdcid>(id / kMaxOrders); }
+inline Oid    extract_oid_from_wdcoid(Wdcoid id) { return static_cast<Oid>(id % kMaxOrders); }
 
 /** Orderline ordinal (1-25) */
 typedef uint8_t Ol;

@@ -4,6 +4,7 @@
  */
 #include "foedus/tpcc/tpcc_client.hpp"
 
+#include <iostream>
 #include <string>
 
 #include "foedus/assert_nd.hpp"
@@ -29,6 +30,7 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
   xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
 
   start_rendezvous_->wait();
+  std::cout << "TPCC Client-" << worker_id_ << " started working!" << std::endl;
   while (!stop_requrested_) {
     // currently we change wid for each transaction.
     Wid wid = rnd_.uniform_within(0, kWarehouses - 1);
@@ -39,6 +41,7 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
     // abort-retry loop
     while (!stop_requrested_) {
       rnd_.set_current_seed(rnd_seed);
+      WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
       ErrorCode ret;
       if (transaction_type <= kXctNewOrderPercent) {
         ret = do_neworder(wid);
@@ -52,35 +55,34 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
         ret = do_stock_level(wid);
       }
 
+      ASSERT_ND(context->is_running_xct());
       if (ret == kErrorCodeXctUserAbort) {
         // Fine. This is as defined in the spec.
+        WRAP_ERROR_CODE(xct_manager.abort_xct(context));
         increment_user_requested_aborts();
         break;
       } else if (ret == kErrorCodeXctRaceAbort) {
         // early abort for some reason.
         // this one must be retried just like usual race abort in precommit.
-        if (context->is_running_xct()) {
-          WRAP_ERROR_CODE(xct_manager.abort_xct(context));
-        }
+        WRAP_ERROR_CODE(xct_manager.abort_xct(context));
         increment_race_aborts();
         continue;
       } else if (ret != kErrorCodeOk) {
+        increment_unexpected_aborts();
         return ERROR_STACK(ret);  // unexpected error
       }
 
       Epoch ep;
       ErrorCode commit_ret = xct_manager.precommit_xct(context, &ep);
-      if (commit_ret == kErrorCodeXctRaceAbort) {
-        if (context->is_running_xct()) {
-          WRAP_ERROR_CODE(xct_manager.abort_xct(context));
-        }
+      ASSERT_ND(!context->is_running_xct());
+      if (commit_ret == kErrorCodeOk) {
+        break;
+      } else if (commit_ret == kErrorCodeXctRaceAbort) {
         increment_race_aborts();
         continue;
-      } else if (commit_ret != kErrorCodeOk) {
-        return ERROR_STACK(ret);  // unexpected error
       } else {
-        // okay, committed
-        break;
+        increment_unexpected_aborts();
+        return ERROR_STACK(ret);  // unexpected error
       }
     }
 
@@ -106,6 +108,8 @@ ErrorCode TpccClientTask::lookup_customer_by_id_or_name(Wid wid, Did did, Cid *c
 
 ErrorCode TpccClientTask::lookup_customer_by_name(Wid wid, Did did, const char* lname, Cid *cid) {
   char low_be[sizeof(Wid) + sizeof(Did) + 17];
+  assorted::write_bigendian<Wid>(wid, low_be);
+  assorted::write_bigendian<Did>(did, low_be + sizeof(Wid));
   std::memcpy(low_be + sizeof(Wid) + sizeof(Did), lname, 17);
 
   char high_be[sizeof(Wid) + sizeof(Did) + 17];
@@ -118,21 +122,18 @@ ErrorCode TpccClientTask::lookup_customer_by_name(Wid wid, Did did, const char* 
   storage::masstree::MasstreeCursor cursor(engine_, storages_.customers_secondary_, context_);
   CHECK_ERROR_CODE(cursor.open(low_be, sizeof(low_be), high_be, sizeof(high_be)));
 
-  // on average only 3. surely won't be more than this number
-  const uint8_t kMaxCidsPerLname = 16;
   uint8_t cid_count = 0;
-  Cid cids[kMaxCidsPerLname];
   const uint16_t offset = sizeof(Wid) + sizeof(Did) + 34;
   while (cursor.is_valid_record()) {
     const char* key_be = cursor.get_key();
-    ASSERT_ND(assorted::betoh<Wid>(*reinterpret_cast<const Wid*>(key_be) == wid));
-    ASSERT_ND(assorted::betoh<Did>(*reinterpret_cast<const Did*>(key_be + sizeof(Wid)) == did));
+    ASSERT_ND(assorted::betoh<Wid>(*reinterpret_cast<const Wid*>(key_be)) == wid);
+    ASSERT_ND(assorted::betoh<Did>(*reinterpret_cast<const Did*>(key_be + sizeof(Wid))) == did);
     ASSERT_ND(std::memcmp(key_be, low_be, sizeof(low_be)) == 0);
     Cid cid = assorted::betoh<Cid>(*reinterpret_cast<const Cid*>(key_be + offset));
     if (UNLIKELY(cid_count >= kMaxCidsPerLname)) {
       return kErrorCodeInvalidParameter;
     }
-    cids[cid_count] = cid;
+    tmp_cids_[cid_count] = cid;
     ++cid_count;
     CHECK_ERROR_CODE(cursor.next());
   }
@@ -142,7 +143,7 @@ ErrorCode TpccClientTask::lookup_customer_by_name(Wid wid, Did did, const char* 
   }
 
   // take midpoint
-  *cid = cids[cid_count / 2];
+  *cid = tmp_cids_[cid_count / 2];
   return kErrorCodeOk;
 }
 

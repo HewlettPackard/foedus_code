@@ -17,22 +17,24 @@
 namespace foedus {
 namespace tpcc {
 
-/** Number of warehouses */
-const uint16_t kWarehouses = 10U;
+/** Number of warehouses. Does not grow dynamically */
+const uint16_t kWarehouses = 2U;
 
-/** Number of items per warehouse */
+/** Number of items per warehouse. Does not grow dynamically  */
 const uint32_t kItems = 100000U;
 
-/** Number of districts per warehouse */
+/** Number of districts per warehouse. Does not grow dynamically  */
 const uint8_t kDistricts = 10U;
 
-/** Number of customers per district */
+/** Number of customers per district. Does not grow dynamically  */
 const uint32_t kCustomers = 3000U;
 
-/** Number of orders per district */
+/** Number of orders per district. Does grow dynamically. */
 const uint32_t kOrders = 3000U;
+/** Max number of orders per district */
+const uint32_t kMaxOrders = 1U << 31;
 
-/** Number of variations of last names. */
+/** Number of variations of last names. Does not grow dynamically. */
 const uint32_t kLnames = 1000U;
 
 const uint8_t kMinOlCount = 5U;

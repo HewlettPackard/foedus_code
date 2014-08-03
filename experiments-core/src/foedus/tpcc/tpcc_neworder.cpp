@@ -15,6 +15,19 @@
 namespace foedus {
 namespace tpcc {
 
+// Here, we read next_o_id optimistically, so the OID might be already taken!
+// we thus have to expect KeyAlreadyExists error. We convert it to RaceAbort error.
+// In other places, KeyAlreadyExists should not happen.
+#define CHECK_ALREADY_EXISTS(x)\
+{\
+  foedus::ErrorCode __e = x;\
+  if (__e == kErrorCodeStrKeyAlreadyExists) {\
+    return kErrorCodeXctRaceAbort;\
+  } else if (__e != kErrorCodeOk) {\
+    return __e;\
+  }\
+}
+
 ErrorCode TpccClientTask::do_neworder(Wid wid) {
   const Did did = get_random_district_id();
   const Wdid wdid = combine_wdid(wid, did);
@@ -123,7 +136,7 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
     ol_data.supply_wid_ = supply_wid;
 
     Wdol wdol = combine_wdol(wdoid, ol);
-    CHECK_ERROR_CODE(orderlines->insert_record_normalized(
+    CHECK_ALREADY_EXISTS(orderlines->insert_record_normalized(
       context_,
       wdol,
       &ol_data,
@@ -149,10 +162,10 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
   o_data.entry_d_[time_str.size()] = '\0';
   o_data.ol_cnt_ = ol_cnt;
 
-  CHECK_ERROR_CODE(orders->insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
-  CHECK_ERROR_CODE(neworders->insert_record_normalized(context_, wdoid));
+  CHECK_ALREADY_EXISTS(orders->insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
+  CHECK_ALREADY_EXISTS(neworders->insert_record_normalized(context_, wdoid));
   Wdcoid wdcoid = combine_wdcoid(wdcid, oid);
-  CHECK_ERROR_CODE(orders_secondary->insert_record_normalized(context_, wdcoid));
+  CHECK_ALREADY_EXISTS(orders_secondary->insert_record_normalized(context_, wdcoid));
 
   // show output on console
   DVLOG(3) << "Neworder: : wid=" << wid << ", did=" << did << ", oid=" << oid
