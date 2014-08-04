@@ -82,26 +82,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     uint8_t   current_layer,
     bool      for_writes,
     KeySlice  slice,
-    MasstreeBorderPage** border,
-    PageVersion* border_version) ALWAYS_INLINE;
-  /** descend subroutine of find_border() */
-  ErrorCode find_border_descend(
-    thread::Thread* context,
-    MasstreeIntermediatePage* cur,
-    PageVersion cur_stable,
-    uint8_t   current_layer,
-    bool      for_writes,
-    KeySlice  slice,
-    MasstreeBorderPage** out,
-    PageVersion* out_version);
-  /** similar to descend, but only for border page's foster child chain. */
-  void      find_border_leaf(
-    MasstreeBorderPage* cur,
-    PageVersion cur_stable,
-    uint8_t   current_layer,
-    KeySlice  slice,
-    MasstreeBorderPage** out,
-    PageVersion* out_version) ALWAYS_INLINE;
+    MasstreeBorderPage** border) ALWAYS_INLINE;
 
   /** Identifies page and record for the key */
   ErrorCode locate_record(
@@ -110,14 +91,16 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     uint16_t key_length,
     bool for_writes,
     MasstreeBorderPage** out_page,
-    uint8_t* record_index);
+    uint8_t* record_index,
+    xct::XctId* observed);
   /** Identifies page and record for the normalized key */
   ErrorCode locate_record_normalized(
     thread::Thread* context,
     KeySlice key,
     bool for_writes,
     MasstreeBorderPage** out_page,
-    uint8_t* record_index);
+    uint8_t* record_index,
+    xct::XctId* observed);
 
   ErrorCode reserve_record(
     thread::Thread* context,
@@ -159,16 +142,14 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     thread::Thread* context,
     MasstreeBorderPage* border,
     uint8_t index,
-    const void* be_key,
-    uint16_t key_length,
+    xct::XctId observed,
     void* payload,
     uint16_t* payload_capacity);
   ErrorCode retrieve_part_general(
     thread::Thread* context,
     MasstreeBorderPage* border,
     uint8_t index,
-    const void* be_key,
-    uint16_t key_length,
+    xct::XctId observed,
     void* payload,
     uint16_t payload_offset,
     uint16_t payload_count);
@@ -189,6 +170,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     thread::Thread* context,
     MasstreeBorderPage* border,
     uint8_t index,
+    xct::XctId observed,
     const void* be_key,
     uint16_t key_length);
 
@@ -197,6 +179,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     thread::Thread* context,
     MasstreeBorderPage* border,
     uint8_t index,
+    xct::XctId observed,
     const void* be_key,
     uint16_t key_length,
     const void* payload,
@@ -209,6 +192,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     thread::Thread* context,
     MasstreeBorderPage* border,
     uint8_t index,
+    xct::XctId observed,
     const void* be_key,
     uint16_t key_length,
     PAYLOAD* value,

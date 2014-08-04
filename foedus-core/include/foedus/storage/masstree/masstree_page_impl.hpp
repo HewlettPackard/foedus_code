@@ -340,9 +340,7 @@ class MasstreeIntermediatePage final : public MasstreePage {
   ErrorCode adopt_from_child(
     thread::Thread* context,
     KeySlice searching_slice,
-    PageVersion cur_stable,
     uint8_t minipage_index,
-    PageVersion mini_stable,
     uint8_t pointer_index,
     MasstreePage* child);
 
@@ -373,7 +371,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
     KeySlice expected_last_separator);
   void adopt_from_child_norecord_first_level(
     uint8_t minipage_index,
-    PageVersion mini_stable,
     MasstreePage* child);
   /**
    * Sets all mini versions with locked status without atomic operations.

@@ -19,6 +19,7 @@ namespace masstree {
  * @details
  * @attention handler must be idempotent because this method retries.
  */
+/*
 template <typename HANDLER>
 inline ErrorCode masstree_retry(HANDLER handler, uint32_t max_retries = 1000) {
   for (uint32_t tries = 0; tries < max_retries; ++tries) {
@@ -30,7 +31,8 @@ inline ErrorCode masstree_retry(HANDLER handler, uint32_t max_retries = 1000) {
   }
   return kErrorCodeStrMasstreeTooManyRetries;
 }
-
+Not used any more. No global retry required for Master-tree unlike Mass-tree
+*/
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus

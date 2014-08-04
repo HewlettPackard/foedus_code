@@ -875,6 +875,7 @@ ErrorCode MasstreeCursor::overwrite_record(
     context_,
     reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),
+    cur_key_observed_owner_id_,
     cur_key_,
     cur_key_length_,
     payload,
@@ -889,6 +890,7 @@ ErrorCode MasstreeCursor::overwrite_record_primitive(PAYLOAD payload, uint16_t p
     context_,
     reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),
+    cur_key_observed_owner_id_,
     cur_key_,
     cur_key_length_,
     &payload,
@@ -902,6 +904,7 @@ ErrorCode MasstreeCursor::delete_record() {
     context_,
     reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),
+    cur_key_observed_owner_id_,
     cur_key_,
     cur_key_length_);
 }
@@ -913,6 +916,7 @@ ErrorCode MasstreeCursor::increment_record(PAYLOAD* value, uint16_t payload_offs
     context_,
     reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),
+    cur_key_observed_owner_id_,
     cur_key_,
     cur_key_length_,
     value,

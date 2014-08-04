@@ -868,22 +868,21 @@ ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
 ErrorCode MasstreeIntermediatePage::adopt_from_child(
   thread::Thread* context,
   KeySlice searching_slice,
-  PageVersion cur_stable,
   uint8_t minipage_index,
-  PageVersion mini_stable,
   uint8_t pointer_index,
   MasstreePage* child) {
   ASSERT_ND(!is_moved());
   ASSERT_ND(!is_retired());
-  ASSERT_ND(mini_stable.get_key_count() <= kMaxIntermediateMiniSeparators);
-  if (mini_stable.get_key_count() == kMaxIntermediateMiniSeparators) {
+  MiniPage& minipage = get_minipage(minipage_index);
+  ASSERT_ND(minipage.mini_version_.get_key_count() <= kMaxIntermediateMiniSeparators);
+  if (minipage.mini_version_.get_key_count() == kMaxIntermediateMiniSeparators) {
     // oh, then we also have to do rebalance
     // at this point we have to lock the whole page
-    ASSERT_ND(cur_stable.get_key_count() <= kMaxIntermediateSeparators);
+    ASSERT_ND(get_version().get_key_count() <= kMaxIntermediateSeparators);
     lock();
     UnlockScope scope(this);
-    if (get_version().get_split_counter() != cur_stable.get_split_counter()) {
-      LOG(INFO) << "Interesting. concurrent thread has already split the entire node? retry";
+    if (is_moved()) {
+      LOG(INFO) << "Interesting. concurrent thread has already split this node? retry";
       return kErrorCodeOk;
     } else if (get_version().get_key_count() == kMaxIntermediateSeparators) {
       // even that is impossible. let's split the whole page
@@ -900,9 +899,9 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
     // 2) append to the end. this is very efficient if the inserts are sorted.
     // quite similar to the "no-record split" optimization in border page.
     if (get_version().get_key_count() == minipage_index &&
-        mini_stable.get_key_count() == pointer_index) {
+        minipage.mini_version_.get_key_count() == pointer_index) {
       // this strongly suggests that it's a sorted insert. let's do that.
-      adopt_from_child_norecord_first_level(minipage_index, mini_stable, child);
+      adopt_from_child_norecord_first_level(minipage_index, child);
     } else {
       // in this case, we locally rebalance.
       get_version().set_splitting();
@@ -912,18 +911,17 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   }
 
   // okay, then most likely this is minipage-local. good
-  MiniPage& minipage = get_minipage(minipage_index);
   minipage.mini_version_.lock_version();
   UnlockVersionScope mini_scope(&minipage.mini_version_);
   uint8_t mini_key_count = minipage.mini_version_.get_key_count();
   if (mini_key_count == kMaxIntermediateMiniSeparators ||
-    minipage.mini_version_.get_split_counter() != mini_stable.get_split_counter()) {
+    minipage.mini_version_.is_moved()) {
     LOG(INFO) << "Interesting. concurrent inserts prevented adoption. retry";
     return kErrorCodeOk;  // retry
   }
 
   // now lock the child.
-  child->lock(true, true);  // TODO(Hideaki) no need for changing split counter?
+  child->lock();
   {
     UnlockScope scope_child(child);
     if (child->get_version().is_retired()) {
@@ -998,18 +996,12 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
 
 void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   uint8_t minipage_index,
-  PageVersion mini_stable,
   MasstreePage* child) {
   ASSERT_ND(is_locked());
   // note that we have to lock from parent to child. otherwise deadlock possible.
   MiniPage& minipage = get_minipage(minipage_index);
   minipage.mini_version_.lock_version();
   UnlockVersionScope mini_scope(&minipage.mini_version_);
-  if (minipage.mini_version_.get_split_counter() != mini_stable.get_split_counter()) {
-    LOG(INFO) << "Interesting. concurrent thread has already split the minipage? retry";
-    return;
-  }
-  ASSERT_ND(minipage.mini_version_.get_key_count() == mini_stable.get_key_count());
   child->lock(true, true);
   UnlockScope scope_child(child);
   if (child->get_version().is_retired()) {
@@ -1057,7 +1049,7 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   new_minipage.pointers_[0].volatile_pointer_ = major_pointer;
 
   // also handle foster-twin if it's border page
-  DualPagePointer& old_pointer = minipage.pointers_[mini_stable.get_key_count()];
+  DualPagePointer& old_pointer = minipage.pointers_[minipage.mini_version_.get_key_count()];
   minor_pointer.components.mod_count = old_pointer.volatile_pointer_.components.mod_count + 1;
   old_pointer.snapshot_pointer_ = 0;
   old_pointer.volatile_pointer_ = minor_pointer;
