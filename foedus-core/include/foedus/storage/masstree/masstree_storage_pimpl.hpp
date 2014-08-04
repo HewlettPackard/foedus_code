@@ -125,13 +125,15 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     uint16_t key_length,
     uint16_t payload_count,
     MasstreeBorderPage** out_page,
-    uint8_t* record_index);
+    uint8_t* record_index,
+    xct::XctId* observed);
   ErrorCode reserve_record_normalized(
     thread::Thread* context,
     KeySlice key,
     uint16_t payload_count,
     MasstreeBorderPage** out_page,
-    uint8_t* record_index);
+    uint8_t* record_index,
+    xct::XctId* observed);
   ErrorCode reserve_record_new_record(
     thread::Thread* context,
     MasstreeBorderPage* border,
@@ -140,7 +142,8 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     const void* suffix,
     uint16_t payload_count,
     MasstreeBorderPage** out_page,
-    uint8_t* record_index);
+    uint8_t* record_index,
+    xct::XctId* observed);
   void      reserve_record_new_record_apply(
     thread::Thread* context,
     MasstreeBorderPage* target,
@@ -148,7 +151,8 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     KeySlice slice,
     uint8_t remaining_key_length,
     const void* suffix,
-    uint16_t payload_count);
+    uint16_t payload_count,
+    xct::XctId* observed);
 
   /** implementation of get_record family. use with locate_record() */
   ErrorCode retrieve_general(
@@ -174,6 +178,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     thread::Thread* context,
     MasstreeBorderPage* border,
     uint8_t index,
+    xct::XctId observed,
     const void* be_key,
     uint16_t key_length,
     const void* payload,

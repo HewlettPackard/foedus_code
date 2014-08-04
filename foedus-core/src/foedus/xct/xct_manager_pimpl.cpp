@@ -341,7 +341,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
               write_set[j].owner_id_address_ == write_set[j + 1].owner_id_address_) {
               // keep the lock for the next write set
             } else {
-              write_set[i].owner_id_address_->release_keylock();
+              write_set[j].owner_id_address_->release_keylock();
             }
           }
           needs_retry = true;

@@ -105,6 +105,8 @@ class MasstreePage {
   }
   const PageVersion& get_version() const ALWAYS_INLINE { return header_.page_version_; }
   PageVersion& get_version() ALWAYS_INLINE { return header_.page_version_; }
+  const PageVersion* get_version_address() const ALWAYS_INLINE { return &header_.page_version_; }
+  PageVersion* get_version_address() ALWAYS_INLINE { return &header_.page_version_; }
 
   /**
    * @brief Locks the page, spinning if necessary.

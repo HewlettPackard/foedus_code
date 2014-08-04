@@ -132,7 +132,7 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   UnlockScope scope(root);
   if (root->is_retired()) {
     LOG(INFO) << "interesting. someone else has already grown B-tree";
-    return kErrorCodeStrMasstreeRetry;
+    return kErrorCodeOk;
   }
   ASSERT_ND(root->is_locked());
   ASSERT_ND(root->has_foster_child());
@@ -425,8 +425,13 @@ ErrorCode MasstreeStoragePimpl::locate_record(
     uint8_t index = border->find_key(stable_key_count, slice, suffix, remaining_length);
 
     if (index == MasstreeBorderPage::kMaxKeys) {
-      // this means not found
-      // TODO(Hideaki) range lock
+      // this means not found. add it to page version set to protect the lack of record
+      if (!border->header().snapshot_) {
+        CHECK_ERROR_CODE(context->get_current_xct().add_to_page_version_set(
+          border->get_version_address(),
+          border_version));
+      }
+      // TODO(Hideaki) range lock rather than page-set to improve concurrency?
       return kErrorCodeStrKeyNotFound;
     }
     if (border->does_point_to_layer(index)) {
@@ -456,6 +461,11 @@ ErrorCode MasstreeStoragePimpl::locate_record_normalized(
   uint8_t index = border->find_key_normalized(0, border_version.get_key_count(), key);
   if (index == MasstreeBorderPage::kMaxKeys) {
     // this means not found
+    if (!border->header().snapshot_) {
+      CHECK_ERROR_CODE(context->get_current_xct().add_to_page_version_set(
+        border->get_version_address(),
+        border_version));
+    }
     // TODO(Hideaki) range lock
     return kErrorCodeStrKeyNotFound;
   }
@@ -584,7 +594,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
   uint16_t key_length,
   uint16_t payload_count,
   MasstreeBorderPage** out_page,
-  uint8_t* record_index) {
+  uint8_t* record_index,
+  xct::XctId* observed) {
   ASSERT_ND(key_length <= kMaxKeyLength);
 
   MasstreePage* layer_root;
@@ -624,6 +635,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         // in that case, we should do delete then insert.
         *out_page = border;
         *record_index = match.index_;
+        *observed = border->get_owner_id(match.index_)->spin_while_keylocked();
         return kErrorCodeOk;
       }
 
@@ -653,6 +665,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
       } else if (match.match_type_ == MasstreeBorderPage::kExactMatchLocalRecord) {
         *out_page = border;
         *record_index = match.index_;
+        *observed = border->get_owner_id(match.index_)->spin_while_keylocked();
         return kErrorCodeOk;
       } else if (match.match_type_ == MasstreeBorderPage::kNotFound) {
         // okay, surely new record
@@ -664,7 +677,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
           suffix,
           payload_count,
           out_page,
-          record_index);
+          record_index,
+          observed);
         ASSERT_ND(!(*out_page)->is_moved());
         ASSERT_ND(!(*out_page)->is_retired());
         ASSERT_ND(*record_index < (*out_page)->get_version().get_key_count());
@@ -689,7 +703,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
   KeySlice key,
   uint16_t payload_count,
   MasstreeBorderPage** out_page,
-  uint8_t* record_index) {
+  uint8_t* record_index,
+  xct::XctId* observed) {
   const uint8_t kRemaining = sizeof(KeySlice);
   MasstreeBorderPage* border;
   PageVersion version;
@@ -726,6 +741,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
       // in that case, we should do delete then insert.
       *out_page = border;
       *record_index = index;
+      *observed = border->get_owner_id(index)->spin_while_keylocked();
       return kErrorCodeOk;
     }
 
@@ -737,7 +753,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
       nullptr,
       payload_count,
       out_page,
-      record_index);
+      record_index,
+      observed);
   }
 }
 
@@ -749,11 +766,20 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
   const void* suffix,
   uint16_t payload_count,
   MasstreeBorderPage** out_page,
-  uint8_t* record_index) {
+  uint8_t* record_index,
+  xct::XctId* observed) {
   ASSERT_ND(border->is_locked());
   uint8_t count = border->get_version().get_key_count();
   if (border->can_accomodate(count, remaining, payload_count)) {
-    reserve_record_new_record_apply(context, border, count, key, remaining, suffix, payload_count);
+    reserve_record_new_record_apply(
+      context,
+      border,
+      count,
+      key,
+      remaining,
+      suffix,
+      payload_count,
+      observed);
     *out_page = border;
     *record_index = count;
   } else {
@@ -771,7 +797,15 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
       LOG(WARNING) << "Wait, not enough space even after splits? should be pretty rare...";
       return kErrorCodeStrTooLongPayload;
     }
-    reserve_record_new_record_apply(context, target, count, key, remaining, suffix, payload_count);
+    reserve_record_new_record_apply(
+      context,
+      target,
+      count,
+      key,
+      remaining,
+      suffix,
+      payload_count,
+      observed);
     *out_page = target;
     *record_index = count;
   }
@@ -785,7 +819,8 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
   KeySlice slice,
   uint8_t remaining_key_length,
   const void* suffix,
-  uint16_t payload_count) {
+  uint16_t payload_count,
+  xct::XctId* observed) {
   ASSERT_ND(target->is_locked());
   ASSERT_ND(!target->is_moved());
   ASSERT_ND(!target->is_retired());
@@ -798,6 +833,7 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
     0,
     context->get_thread_id());
   initial_id.set_deleted();
+  *observed = initial_id;
   target->reserve_record_space(
     target_index,
     initial_id,
@@ -818,6 +854,8 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
   uint16_t key_length,
   void* payload,
   uint16_t* payload_capacity) {
+  // here, we do NOT have to do another optimistic-read protocol because we already took
+  // the owner_id into read-set. If this read is corrupted, we will be aware of it at commit time.
   CHECK_ERROR_CODE(xct::optimistic_read_protocol(
     &context->get_current_xct(),
     holder_,
@@ -883,28 +921,20 @@ ErrorCode MasstreeStoragePimpl::insert_general(
   thread::Thread* context,
   MasstreeBorderPage* border,
   uint8_t index,
+  xct::XctId observed,
   const void* be_key,
   uint16_t key_length,
   const void* payload,
   uint16_t payload_count) {
-  // static_cast<uint16t_t>(border->get_layer())
-  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
-    &context->get_current_xct(),
+  if (!observed.is_deleted()) {
+    return kErrorCodeStrKeyAlreadyExists;
+  }
+  // TODO(Hideaki) does_point_to_layer should be a flag in XctId
+
+  CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
     holder_,
-    border->get_owner_id(index),
-    false,
-    [border, index, be_key, key_length, payload_count](xct::XctId observed) {
-      if (border->does_point_to_layer(index) ||
-        border->get_payload_length(index) < payload_count ||
-        !border->compare_key(index, be_key, key_length)) {
-        return kErrorCodeStrMasstreeRetry;
-      } else if (!observed.is_deleted()) {
-        return kErrorCodeStrKeyAlreadyExists;
-      } else {
-        return kErrorCodeOk;
-      }
-    }));
-  ASSERT_ND(border->get_payload_length(index) == payload_count);
+    observed,
+    border->get_owner_id(index)));
 
   uint16_t log_length = MasstreeInsertLogType::calculate_log_length(key_length, payload_count);
   MasstreeInsertLogType* log_entry = reinterpret_cast<MasstreeInsertLogType*>(
