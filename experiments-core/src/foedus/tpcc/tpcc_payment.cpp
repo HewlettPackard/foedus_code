@@ -65,7 +65,7 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   }
   Wdcid wdcid = combine_wdcid(combine_wdid(c_wid, c_did), cid);
 
-  std::string time_str(get_current_time_string());
+  const std::string& time_str = timestring_;
 
   // UPDATE CUSTOMER SET BALANCE-=amount,YTD_PAYMENT+=amount
   // (if C_CREDID="BC") C_DATA=...

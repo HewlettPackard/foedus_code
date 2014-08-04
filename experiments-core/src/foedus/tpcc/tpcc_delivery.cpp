@@ -19,7 +19,7 @@ namespace tpcc {
 
 ErrorCode TpccClientTask::do_delivery(Wid wid) {
   const uint32_t carrier_id = rnd_.uniform_within(1, 10);
-  std::string delivery_time(get_current_time_string());
+  const std::string& delivery_time = timestring_;
   for (Did did = 0; did < kDistricts; ++did) {
     Oid oid;
     ErrorCode ret = pop_neworder(wid, did, &oid);

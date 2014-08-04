@@ -168,7 +168,7 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   MasstreeIntermediatePage::MiniPage& mini_page = new_root->get_minipage(0);
   MasstreePage* left_page = root->get_foster_minor();
   MasstreePage* right_page = root->get_foster_major();
-  mini_page.mini_version_.lock_version();
+  mini_page.mini_version_.data_ = kPageVersionLockedBit;  // initialize + lock
   mini_page.mini_version_.set_key_count(1);
   mini_page.pointers_[0].snapshot_pointer_ = 0;
   mini_page.pointers_[0].volatile_pointer_.word = left_page->header().page_id_;

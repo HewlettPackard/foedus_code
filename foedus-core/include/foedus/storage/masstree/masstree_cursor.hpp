@@ -186,7 +186,7 @@ class MasstreeCursor CXX11_FINAL {
   /** If this value is zero, it means supremum. */
   uint16_t    search_key_length_;
   SearchType  search_type_;
-
+  uint8_t     search_key_in_layer_extremum_;
 
   /** number of higher layer pages. the current border page is not included. so, might be 0. */
   uint16_t    route_count_;
@@ -202,8 +202,8 @@ class MasstreeCursor CXX11_FINAL {
   /** full big-endian key of current record. backed by cur_key_memory_offset_  */
   char*       cur_key_;
 
-  /** full payload of current record. backed by cur_payload_memory_offset_  */
-  char*       cur_payload_;
+  /** full payload of current record. Directly points to address in current page */
+  const char* cur_payload_;
 
   /** full big-endian key of current search. backed by search_key_memory_offset_  */
   char*       search_key_;
@@ -222,7 +222,6 @@ class MasstreeCursor CXX11_FINAL {
 
   ErrorCode push_route(MasstreePage* page, PageVersion* page_version);
   void      fetch_cur_record(MasstreeBorderPage* page, uint8_t record);
-  void      fetch_cur_payload();
   void      check_end_key();
   KeyCompareResult compare_cur_key_aginst_search_key(KeySlice slice, uint8_t layer) const;
   KeyCompareResult compare_cur_key_aginst_end_key() const;

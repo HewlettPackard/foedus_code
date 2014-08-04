@@ -95,7 +95,13 @@ class TpccClientTask : public thread::ImpersonateTask {
   /** this is usually up to 1 because we stop execution as soon as this happens */
   uint32_t unexpected_aborts_;
 
+  /** Updates timestring_ only per second. */
+  uint64_t    previous_timestring_update_;
+  std::string timestring_;
+
   Cid     tmp_cids_[kMaxCidsPerLname];
+
+  void      update_timestring_if_needed();
 
   /** Run the TPCC Neworder transaction. Implemented in tpcc_neworder.cpp. */
   ErrorCode do_neworder(Wid wid);

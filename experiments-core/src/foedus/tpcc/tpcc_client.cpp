@@ -9,6 +9,7 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/assorted/endianness.hpp"
+#include "foedus/debugging/rdtsc.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/storage/masstree/masstree_cursor.hpp"
@@ -17,6 +18,14 @@
 
 namespace foedus {
 namespace tpcc {
+void TpccClientTask::update_timestring_if_needed() {
+  uint64_t now = debugging::get_rdtsc();
+  if (now  - previous_timestring_update_ > (1ULL << 30)) {
+    timestring_ = get_current_time_string();
+    previous_timestring_update_ = now;
+  }
+}
+
 ErrorStack TpccClientTask::run(thread::Thread* context) {
   context_ = context;
   engine_ = context->get_engine();
@@ -27,10 +36,13 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
   // const uint32_t *randoms = reinterpret_cast<const uint32_t*>(numbers_.get_block());
 
   processed_ = 0;
+  timestring_ = get_current_time_string();
+  previous_timestring_update_ = debugging::get_rdtsc();
   xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
 
   start_rendezvous_->wait();
   std::cout << "TPCC Client-" << worker_id_ << " started working!" << std::endl;
+
   while (!stop_requrested_) {
     // currently we change wid for each transaction.
     Wid wid = rnd_.uniform_within(0, kWarehouses - 1);
@@ -41,6 +53,7 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
     // abort-retry loop
     while (!stop_requrested_) {
       rnd_.set_current_seed(rnd_seed);
+      update_timestring_if_needed();
       WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
       ErrorCode ret;
       if (transaction_type <= kXctNewOrderPercent) {

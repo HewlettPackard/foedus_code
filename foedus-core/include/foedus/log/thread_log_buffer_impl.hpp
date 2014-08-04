@@ -126,6 +126,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
     } else if (UNLIKELY(
       head_to_tail_distance() + log_length >= buffer_size_safe_)) {
       wait_for_space(log_length);
+      ASSERT_ND(head_to_tail_distance() + log_length < buffer_size_safe_);
     }
     ASSERT_ND(head_to_tail_distance() + log_length < buffer_size_safe_);
     char *buffer = buffer_ + offset_tail_;

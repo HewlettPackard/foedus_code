@@ -502,9 +502,8 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
       if (oid >= 2100U) {
         ol_data.amount_ = 0;
       } else {
-        std::string time_str(get_current_time_string());
         ol_data.amount_ = static_cast<float>(rnd_.uniform_within(10L, 10000L)) / 100.0;
-        std::memcpy(ol_data.delivery_d_, time_str.data(), time_str.size());
+        std::memcpy(ol_data.delivery_d_, timestamp_, 26);
       }
 
       Wdol wdol = combine_wdol(wdoid, ol);

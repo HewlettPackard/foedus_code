@@ -153,7 +153,7 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
   }
 
   // INSERT INTO ORDERS and NEW_ORDERS
-  std::string time_str(get_current_time_string());
+  const std::string& time_str = timestring_;
   OrderData o_data;
   o_data.all_local_ = all_local_warehouse ? 1 : 0;
   o_data.cid_ = cid;

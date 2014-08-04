@@ -33,7 +33,7 @@ void MasstreePage::initialize_volatile_common(
   KeySlice            high_fence,
   bool                is_high_fence_supremum,
   bool                initially_locked) {
-  std::memset(this, 0, kPageSize);
+  // std::memset(this, 0, kPageSize);  // expensive
   header_.init_volatile(page_id, storage_id, page_type, root_in_layer);
   uint64_t ver = (layer << kPageVersionLayerShifts);
   if (initially_locked) {
@@ -48,6 +48,9 @@ void MasstreePage::initialize_volatile_common(
   header_.page_version_.set_data(ver);
   high_fence_ = high_fence;
   low_fence_ = low_fence;
+  foster_fence_ = low_fence;
+  foster_twin_[0] = nullptr;
+  foster_twin_[1] = nullptr;
   ASSERT_ND(header_.page_version_.get_key_count() == 0);
 }
 
@@ -488,7 +491,7 @@ void MasstreeBorderPage::split_foster_migrate_records(
 void MasstreeIntermediatePage::init_lock_all_mini() {
   ASSERT_ND(is_locked());
   for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
-    get_minipage(i).mini_version_.data_ |= (
+    get_minipage(i).mini_version_.data_ = (
       kPageVersionLockedBit |
       kPageVersionInsertingBit |
       kPageVersionSplittingBit);
@@ -526,6 +529,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   }
 
   uint8_t key_count = header_.page_version_.get_key_count();
+  ASSERT_ND(key_count == kMaxIntermediateSeparators);
   get_version().set_inserting();
   get_version().set_splitting();
   DVLOG(1) << "Splitting an intermediate page... ";
@@ -544,6 +548,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
 
   // from now on no failure possible.
   for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
+    ASSERT_ND(!get_minipage(i).mini_version_.is_moved());
     get_minipage(i).mini_version_.lock_version(true, true);
   }
 
@@ -822,8 +827,12 @@ ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
   }
 
   // from now on no failure possible.
-  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
+  for (uint16_t i = 0; i <= key_count; ++i) {
     get_minipage(i).mini_version_.lock_version(true, true);
+  }
+  // if there are minipages that are not used, initialize them now along with locking
+  for (uint16_t i = key_count + 1; i <= kMaxIntermediateSeparators; ++i) {
+    get_minipage(i).mini_version_.data_ = kPageVersionLockedBit;
   }
 
   // reuse the code of split.
@@ -1028,7 +1037,7 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   major_pointer.word = grandchild_major->header().page_id_;
 
   MiniPage& new_minipage = mini_pages_[minipage_index + 1];
-  new_minipage.mini_version_.lock_version(true, true);
+  new_minipage.mini_version_.data_ = kPageVersionLockedBit;  // initialization + lock
   UnlockVersionScope new_mini_scope(&(new_minipage.mini_version_));
 
 #ifndef NDEBUG
@@ -1043,7 +1052,7 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   }
 #endif  // NDEBUG
 
-  new_minipage.mini_version_.set_key_count(0);
+  ASSERT_ND(new_minipage.mini_version_.get_key_count() == 0);
   new_minipage.pointers_[0].snapshot_pointer_ = 0;
   new_minipage.pointers_[0].volatile_pointer_ = major_pointer;
 

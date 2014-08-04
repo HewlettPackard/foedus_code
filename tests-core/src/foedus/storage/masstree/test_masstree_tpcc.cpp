@@ -795,7 +795,7 @@ class DistrictScanTask : public thread::ImpersonateTask {
         SCOPED_TRACE(testing::Message() << "Wid=" << wid << ", Did=" << static_cast<int>(did)
           << ", index=" << name);
         {
-          // full forward scan
+          // in-district forward scan
           WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
           MasstreeCursor cursor(context->get_engine(), target, context);
           EXPECT_EQ(kErrorCodeOk, cursor.open(low, 8, high, 8));
@@ -825,7 +825,7 @@ class DistrictScanTask : public thread::ImpersonateTask {
           EXPECT_GT(count, expected_records / kDistricts / kWarehouses * 9U / 10U);
         }
         {
-          // full backward scan
+          // in-district backward scan
           WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
           MasstreeCursor cursor(context->get_engine(), target, context);
           EXPECT_EQ(kErrorCodeOk, cursor.open(

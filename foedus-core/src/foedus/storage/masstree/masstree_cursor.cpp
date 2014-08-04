@@ -51,8 +51,6 @@ MasstreeCursor::MasstreeCursor(Engine* engine, MasstreeStorage* storage, thread:
   cur_key_in_layer_remaining_ = 0;
 
   cur_payload_length_ = 0;
-  cur_payload_ = nullptr;
-  cur_payload_memory_offset_ = 0;
 
   search_key_length_ = 0;
   search_key_ = nullptr;
@@ -73,7 +71,6 @@ MasstreeCursor::~MasstreeCursor() {
   release_if_exist(&routes_memory_offset_, &routes_);
   release_if_exist(&search_key_memory_offset_, &search_key_);
   release_if_exist(&cur_key_memory_offset_, &cur_key_);
-  release_if_exist(&cur_payload_memory_offset_, &cur_payload_);
   release_if_exist(&end_key_memory_offset_, &end_key_);
 }
 
@@ -109,7 +106,6 @@ ErrorCode MasstreeCursor::open(
   CHECK_ERROR_CODE(allocate_if_not_exist(&routes_memory_offset_, &routes_));
   CHECK_ERROR_CODE(allocate_if_not_exist(&search_key_memory_offset_, &search_key_));
   CHECK_ERROR_CODE(allocate_if_not_exist(&cur_key_memory_offset_, &cur_key_));
-  CHECK_ERROR_CODE(allocate_if_not_exist(&cur_payload_memory_offset_, &cur_payload_));
   CHECK_ERROR_CODE(allocate_if_not_exist(&end_key_memory_offset_, &end_key_));
 
   forward_cursor_ = forward_cursor;
@@ -141,16 +137,14 @@ ErrorCode MasstreeCursor::open(
     // locate_xxx doesn't take care of deleted record as it can't proceed to another page.
     // so, if the initially located record is deleted, use next() now.
     if (cur_key_observed_owner_id_.is_deleted()) {
-      CHECK_ERROR_CODE(next());  // this also calls fetch_cur_payload()
-    } else {
-      fetch_cur_payload();
+      CHECK_ERROR_CODE(next());
     }
   }
   return kErrorCodeOk;
 }
 
 void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, uint8_t record) {
-  // fetch everything except payload itself
+  // fetch everything
   ASSERT_ND(record < page->get_version().get_key_count());
   cur_key_owner_id_address = page->get_owner_id(record);
   if (!page->header().snapshot_) {
@@ -158,6 +152,10 @@ void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, uint8_t record) 
     ASSERT_ND(!cur_key_observed_owner_id_.is_keylocked());
   }
   uint8_t remaining = page->get_remaining_key_length(record);
+  uint8_t suffix_length = 0;
+  if (remaining > sizeof(KeySlice)) {
+    suffix_length = remaining - sizeof(KeySlice);
+  }
   cur_key_in_layer_remaining_ = remaining;
   cur_key_in_layer_slice_ = page->get_slice(record);
   uint8_t layer = page->get_layer();
@@ -167,29 +165,11 @@ void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, uint8_t record) 
     cur_key_ + layer * sizeof(KeySlice),
     &be_slice,
     std::min<uint64_t>(remaining, sizeof(KeySlice)));
-  if (remaining > sizeof(KeySlice)) {
-    std::memcpy(
-      cur_key_ + (layer + 1) * sizeof(KeySlice),
-      page->get_record(record),
-      remaining - sizeof(KeySlice));
+  if (suffix_length > 0) {
+    std::memcpy(cur_key_ + (layer + 1) * sizeof(KeySlice), page->get_record(record), suffix_length);
   }
   cur_payload_length_ = page->get_payload_length(record);
-}
-void MasstreeCursor::fetch_cur_payload() {
-  ASSERT_ND(is_valid_record());
-  ASSERT_ND(cur_route()->page_->is_border());
-  ASSERT_ND(cur_route()->index_ < cur_route()->key_count_);
-  MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
-  uint8_t record = cur_route()->get_cur_original_index();
-  ASSERT_ND(record < cur_route()->key_count_);
-  uint8_t suffix_length = 0;
-  if (cur_key_in_layer_remaining_ > sizeof(KeySlice)) {
-    suffix_length = cur_key_in_layer_remaining_ - sizeof(KeySlice);
-  }
-  std::memcpy(
-    cur_payload_,
-    page->get_record(record) + suffix_length,
-    cur_payload_length_);
+  cur_payload_ = page->get_record(record) + suffix_length;
 }
 
 ErrorCode MasstreeCursor::next() {
@@ -211,7 +191,6 @@ ErrorCode MasstreeCursor::next() {
   }
   check_end_key();
   if (is_valid_record()) {
-    fetch_cur_payload();
     assert_route();
   }
   return kErrorCodeOk;
@@ -645,10 +624,27 @@ inline ErrorCode MasstreeCursor::locate_layer(uint8_t layer) {
   MasstreePage* layer_root = cur_route()->page_;
   ASSERT_ND(layer_root->get_layer() == layer);
   KeySlice slice;
-  if (is_search_key_extremum()) {
+  search_key_in_layer_extremum_ = false;
+  if (is_search_key_extremum() || search_key_length_ <= layer * sizeof(KeySlice)) {
     slice = forward_cursor_ ? kInfimumSlice : kSupremumSlice;
+    search_key_in_layer_extremum_ = true;
+  } else if (search_key_length_ >= (layer + 1U) * sizeof(KeySlice)) {
+    slice = assorted::read_bigendian<KeySlice>(search_key_ + layer * sizeof(KeySlice));
   } else {
-    slice = slice_layer(search_key_, search_key_length_, layer);
+    // if we don't have a full slice for this layer, cursor has to do a bit special thing.
+    // remember that we might be doing backward search.
+    if (forward_cursor_) {
+      // fill unsed bytes with 0
+      slice = kInfimumSlice;
+    } else {
+      // fill unsed bytes with FF
+      slice = kSupremumSlice;
+    }
+    std::memcpy(
+      &slice,
+      search_key_ + layer * sizeof(KeySlice),
+      search_key_length_ - layer * sizeof(KeySlice));
+    slice = assorted::read_bigendian<KeySlice>(&slice);
   }
   if (!layer_root->is_border()) {
     CHECK_ERROR_CODE(locate_descend(slice));
@@ -680,6 +676,12 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
     if (search_type_ == kForwardExclusive || search_type_ == kForwardInclusive) {
       for (index = 0; index < route->key_count_; ++index) {
         uint8_t record = route->get_original_index(index);
+        if (border->get_slice(record) < slice) {
+          // if slice is strictly smaller, we are sure it's not the record we want. skip without
+          // reading. Because of key-immutability and purely-increasing key count, this doesn't
+          // violate serializability
+          continue;
+        }
         fetch_cur_record(border, record);
         KeyCompareResult result = compare_cur_key_aginst_search_key(slice, layer);
         if (result == kCurKeySmaller ||
@@ -702,6 +704,9 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
     } else {
       for (index = route->key_count_ - 1; index < route->key_count_; --index) {
         uint8_t record = route->get_original_index(index);
+        if (border->get_slice(record) > slice) {
+          continue;
+        }
         fetch_cur_record(border, record);
         KeyCompareResult result = compare_cur_key_aginst_search_key(slice, layer);
         if (result == kCurKeyLarger ||
@@ -768,7 +773,7 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
     // find right minipage. be aware of backward-exclusive case!
     uint8_t index = 0;
     // fast path for supremum-search.
-    if (is_search_key_extremum()) {
+    if (search_key_in_layer_extremum_) {
       if (forward_cursor_) {
         index = 0;
       } else {
@@ -797,7 +802,7 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
       route->key_count_mini_ = route->stable_mini_.get_key_count();
 
       uint8_t index_mini = 0;
-      if (is_search_key_extremum()) {
+      if (search_key_in_layer_extremum_) {
         // fast path for supremum-search.
         if (forward_cursor_) {
           index_mini = 0;
