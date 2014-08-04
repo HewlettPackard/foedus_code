@@ -367,7 +367,7 @@ inline PageVersion PageVersion::stable_version() const {
   assorted::memory_fence_acquire();
   SPINLOCK_WHILE(true) {
     uint64_t ver = data_;
-    if ((ver & (kPageVersionInsertingBit | kPageVersionSplittingBit)) == 0) {
+    if ((ver & kPageVersionLockedBit) == 0U) {
       return PageVersion(ver);
     } else {
       assorted::memory_fence_acquire();

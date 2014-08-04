@@ -338,6 +338,7 @@ ErrorCode MasstreeStoragePimpl::locate_record(
       *out_page = border;
       *record_index = index;
       *observed = border->get_owner_id(index)->spin_while_keylocked();
+      assorted::memory_fence_consume();
       return kErrorCodeOk;
     }
   }
@@ -373,6 +374,7 @@ ErrorCode MasstreeStoragePimpl::locate_record_normalized(
   *out_page = border;
   *record_index = index;
   *observed = border->get_owner_id(index)->spin_while_keylocked();
+  assorted::memory_fence_consume();
   return kErrorCodeOk;
 }
 
@@ -536,6 +538,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         *out_page = border;
         *record_index = match.index_;
         *observed = border->get_owner_id(match.index_)->spin_while_keylocked();
+        assorted::memory_fence_consume();
         return kErrorCodeOk;
       }
 
@@ -565,6 +568,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         *out_page = border;
         *record_index = match.index_;
         *observed = border->get_owner_id(match.index_)->spin_while_keylocked();
+        assorted::memory_fence_consume();
         return kErrorCodeOk;
       } else if (match.match_type_ == MasstreeBorderPage::kNotFound) {
         // okay, surely new record
@@ -640,6 +644,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
       *out_page = border;
       *record_index = index;
       *observed = border->get_owner_id(index)->spin_while_keylocked();
+      assorted::memory_fence_consume();
       return kErrorCodeOk;
     }
 
