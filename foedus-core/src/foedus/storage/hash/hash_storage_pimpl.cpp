@@ -623,8 +623,8 @@ ErrorCode HashStoragePimpl::insert_record(
     context->get_thread_log_buffer().reserve_new_log(HashInsertDummyLogType::calculate_log_length()));
   dummy_log->populate(storageid);
   CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, actual_record, dummy_log));
-  std::cout << "Inserting key " << *(uint64_t*)key
-    << " with payload " << *((uint64_t*)payload) << std::endl;
+//  std::cout << "Inserting key " << *(uint64_t*)key
+//    << " with payload " << *((uint64_t*)payload) << std::endl;
   return context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry);
 }
 

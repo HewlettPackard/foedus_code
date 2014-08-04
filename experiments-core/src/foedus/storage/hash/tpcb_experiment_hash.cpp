@@ -49,12 +49,12 @@ namespace storage {
 namespace hash {
 
 /** number of branches (TPS scaling factor). */
-int kBranches  =   100;
+int kBranches  =   10;
 
 int kTotalThreads = -1;
 
 /** number of log writers per numa node */
-const int kLoggersPerNode = 8;
+const int kLoggersPerNode = 4;
 
 /** number of tellers in 1 branch. */
 const int kTellers   =   10;
@@ -310,9 +310,9 @@ int main_impl(int argc, char **argv) {
     // = debugging::DebuggingOptions::kDebugLogWarning;
   options.debugging_.verbose_modules_ = "";
   options.debugging_.verbose_log_level_ = -1;
-  options.log_.log_buffer_kb_ = 1 << 21;
+  options.log_.log_buffer_kb_ = 1 << 16;
   options.log_.log_file_size_mb_ = 1 << 10;
-  options.memory_.page_pool_size_mb_per_node_ = 12 << 10;
+  options.memory_.page_pool_size_mb_per_node_ = 1 << 10;
   kTotalThreads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
 
   {
