@@ -19,13 +19,12 @@ ErrorCode TpccClientTask::do_stock_level(Wid wid) {
   const uint32_t threshold = rnd_.uniform_within(10, 20);
 
   // SELECT D_NEXT_O_ID FROM DISTRICT WHERE D_W_ID=wid AND D_ID=did
-  uint16_t d_offset = offsetof(DistrictData, next_o_id_);
   Oid next_oid;
-  CHECK_ERROR_CODE(storages_.districts_->get_record_primitive<Oid>(
+  CHECK_ERROR_CODE(storages_.districts_next_oid_->get_record_primitive<Oid>(
     context_,
     wdid,
     &next_oid,
-    d_offset));
+    0));
 
   // SELECT COUNT(DISTINCT(s_i_id))
   // FROM ORDERLINE INNER JOIN STOCK ON (WID,IID)

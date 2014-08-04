@@ -35,11 +35,18 @@ namespace tpcc {
 /** Packages all storages in TPC-C */
 struct TpccStorages {
   /** (Wid, Did, Cid) == Wdcid */
-  storage::array::ArrayStorage*           customers_;
+  storage::array::ArrayStorage*           customers_static_;
+  storage::array::ArrayStorage*           customers_dynamic_;
+  storage::array::ArrayStorage*           customers_history_;
   /** (Wid, Did, last, first, Cid) */
   storage::masstree::MasstreeStorage*     customers_secondary_;
-  /** (Wid, Did) == Wdid */
-  storage::array::ArrayStorage*           districts_;
+  /**
+   * (Wid, Did) == Wdid. ytd/next_oid are vertically partitioned. others are static.
+   * Vertical partitioning is allowed (Section 1.4.5).
+   */
+  storage::array::ArrayStorage*           districts_static_;
+  storage::array::ArrayStorage*           districts_ytd_;
+  storage::array::ArrayStorage*           districts_next_oid_;
   /** () */
   storage::sequential::SequentialStorage* histories_;
   /** (Wid, Did, Oid) == Wdoid */
@@ -54,8 +61,9 @@ struct TpccStorages {
   storage::array::ArrayStorage*           items_;
   /** (Wid, Iid) == Sid */
   storage::array::ArrayStorage*           stocks_;
-  /** (Wid) */
-  storage::array::ArrayStorage*           warehouses_;
+  /** (Wid). ytd is vertically partitioned. others are static */
+  storage::array::ArrayStorage*           warehouses_static_;
+  storage::array::ArrayStorage*           warehouses_ytd_;
 };
 
 
@@ -131,7 +139,7 @@ inline Sid  combine_sid(Wid wid, Iid iid) { return static_cast<Sid>(wid) * kItem
 inline Wid  extract_wid_from_sid(Sid id) { return static_cast<Wid>(id / kItems); }
 inline Iid  extract_iid_from_sid(Sid id) { return static_cast<Iid>(id % kItems); }
 
-struct WarehouseData {
+struct WarehouseStaticData {
   char   name_[11];
   char   street1_[21];
   char   street2_[21];
@@ -139,10 +147,11 @@ struct WarehouseData {
   char   state_[3];
   char   zip_[10];
   double tax_;
-  double ytd_;
+// Following is vertically partitioned
+//   double ytd_;
 };
 
-struct DistrictData {
+struct DistrictStaticData {
   char   name_[11];
   char   street1_[21];
   char   street2_[21];
@@ -150,11 +159,12 @@ struct DistrictData {
   char   state_[3];
   char   zip_[10];
   double tax_;
-  uint64_t ytd_;
-  Oid    next_o_id_;
+// Followings are vertically partitioned
+//  uint64_t ytd_;
+//  Oid      next_o_id_;
 };
 
-struct CustomerData {
+struct CustomerStaticData {
   char   first_[17];
   char   middle_[3];
   char   last_[17];
@@ -168,11 +178,17 @@ struct CustomerData {
   char   credit_[3];
   double credit_lim_;
   double discount_;
+  enum Constants {
+    kHistoryDataLength = 501,
+  };
+  // char   data_[501];  vertically partitioned as customer_history
+};
+
+struct CustomerDynamicData {
   uint32_t payment_cnt_;
   uint32_t delivery_cnt_;
   uint64_t ytd_payment_;
   double balance_;
-  char   data_[501];
 };
 
 /**

@@ -32,25 +32,35 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     did = c_did;
   }
 
-  // UPDATE WAREHOUSE SET YTD=YTD+amount
+  // SELECT NAME FROM WAREHOUSE
   char w_name[11];
-  CHECK_ERROR_CODE(storages_.warehouses_->get_record(context_, wid, w_name, 0, sizeof(w_name)));
-  const uint16_t w_offset = offsetof(WarehouseData, ytd_);
-  CHECK_ERROR_CODE(storages_.warehouses_->increment_record_oneshot<double>(
+  CHECK_ERROR_CODE(storages_.warehouses_static_->get_record(
+    context_,
+    wid,
+    w_name,
+    0,
+    sizeof(w_name)));
+  // UPDATE WAREHOUSE SET YTD=YTD+amount
+  CHECK_ERROR_CODE(storages_.warehouses_ytd_->increment_record_oneshot<double>(
     context_,
     wid,
     amount,
-    w_offset));
+    0));
 
-  // UPDATE DISTRICT SET YTD=YTD+amount
+  // SELECT DISTRICT FROM WAREHOUSE
   char d_name[11];
-  CHECK_ERROR_CODE(storages_.districts_->get_record(context_, did, d_name, 0, sizeof(d_name)));
-  const uint16_t d_offset = offsetof(DistrictData, ytd_);
-  CHECK_ERROR_CODE(storages_.districts_->increment_record_oneshot<double>(
+  CHECK_ERROR_CODE(storages_.districts_static_->get_record(
+    context_,
+    did,
+    d_name,
+    0,
+    sizeof(d_name)));
+  // UPDATE DISTRICT SET YTD=YTD+amount
+  CHECK_ERROR_CODE(storages_.districts_ytd_->increment_record_oneshot<double>(
     context_,
     did,
     amount,
-    d_offset));
+    0));
 
   // get customer record.
   Cid cid;
@@ -65,36 +75,42 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
 
   const std::string& time_str = timestring_;
 
-  // UPDATE CUSTOMER SET BALANCE-=amount,YTD_PAYMENT+=amount
+  // UPDATE CUSTOMER SET BALANCE-=amount,YTD_PAYMENT+=amount,PAYMENT_CNT++
   // (if C_CREDID="BC") C_DATA=...
-  CustomerData c_data;
-  const uint16_t c_data_offset = offsetof(CustomerData, data_);
-  const uint16_t c_ytd_offset = offsetof(CustomerData, ytd_payment_);
-  auto* customers = storages_.customers_;
-  // unless c_credit="BC", we don't retrieve c_data. see section 2.5.2.2.
-  CHECK_ERROR_CODE(customers->get_record(context_, wdcid, &c_data, 0, c_data_offset));
+  // unless c_credit="BC", we don't retrieve history data. see section 2.5.2.2.
 
-  c_data.balance_ -= amount;
-  c_data.ytd_payment_ += amount;
-  // ytd_payment_/balance_ are contiguous
-  CHECK_ERROR_CODE(customers->overwrite_record(
+  CHECK_ERROR_CODE(storages_.customers_dynamic_->increment_record_oneshot<double>(
     context_,
     wdcid,
-    reinterpret_cast<char*>(&c_data) + c_ytd_offset,
-    c_ytd_offset,
-    sizeof(c_data.ytd_payment_) + sizeof(c_data.balance_)));
-  if (c_data.credit_[0] == 'B' && c_data.credit_[1] == 'C') {
+    -amount,
+    offsetof(CustomerDynamicData, balance_)));
+  CHECK_ERROR_CODE(storages_.customers_dynamic_->increment_record_oneshot<uint64_t>(
+    context_,
+    wdcid,
+    static_cast<uint64_t>(amount),
+    offsetof(CustomerDynamicData, ytd_payment_)));
+
+  char credit[3];
+  CHECK_ERROR_CODE(storages_.customers_static_->get_record(
+    context_,
+    wdcid,
+    credit,
+    offsetof(CustomerStaticData, credit_),
+    sizeof(credit)));
+
+  if (credit[0] == 'B' && credit[1] == 'C') {
     // in this case we are also retrieving and rewriting data_.
     // what/how much is faster?
     // http://zverovich.net/2013/09/07/integer-to-string-conversion-in-cplusplus.html
     // let's consider cppformat if this turns out to be bottleneck
-    CHECK_ERROR_CODE(customers->get_record(
+    char c_old_data[CustomerStaticData::kHistoryDataLength];
+    CHECK_ERROR_CODE(storages_.customers_history_->get_record(
       context_,
       wdcid,
-      reinterpret_cast<char*>(&c_data) + c_data_offset,
-      c_data_offset,
-      sizeof(c_data.data_)));
-    char c_new_data[sizeof(c_data.data_)];
+      c_old_data,
+      0,
+      sizeof(c_old_data)));
+    char c_new_data[CustomerStaticData::kHistoryDataLength];
     int written = std::snprintf(
       c_new_data,
       sizeof(c_new_data),
@@ -107,13 +123,13 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
       amount);
     std::memcpy(c_new_data + written, time_str.data(), time_str.size());
     written += time_str.size();
-    std::memcpy(c_new_data + written, c_data.data_, sizeof(c_new_data) - written - 1);
+    std::memcpy(c_new_data + written, c_old_data, sizeof(c_new_data) - written - 1);
     c_new_data[sizeof(c_new_data) - 1] = '\0';
-    CHECK_ERROR_CODE(customers->overwrite_record(
+    CHECK_ERROR_CODE(storages_.customers_history_->overwrite_record(
       context_,
       wdcid,
       c_new_data,
-      c_data_offset,
+      0,
       sizeof(c_new_data)));
   }
 

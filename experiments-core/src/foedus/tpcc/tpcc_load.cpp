@@ -89,19 +89,39 @@ ErrorStack TpccLoadTask::create_tables() {
 
   LOG(INFO) << "Initial:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(create_array(
-    "customers",
-    sizeof(CustomerData),
+    "customers_static",
+    sizeof(CustomerStaticData),
     kWarehouses * kDistricts * kCustomers,
-    &storages_.customers_));
+    &storages_.customers_static_));
+  CHECK_ERROR(create_array(
+    "customers_dynamic",
+    sizeof(CustomerDynamicData),
+    kWarehouses * kDistricts * kCustomers,
+    &storages_.customers_dynamic_));
+  CHECK_ERROR(create_array(
+    "customers_history",
+    CustomerStaticData::kHistoryDataLength,
+    kWarehouses * kDistricts * kCustomers,
+    &storages_.customers_history_));
   LOG(INFO) << "Created Customers:" << engine_->get_memory_manager().dump_free_memory_stat();
 
   CHECK_ERROR(create_masstree("customers_secondary", &storages_.customers_secondary_));
 
   CHECK_ERROR(create_array(
-    "districts",
-    sizeof(DistrictData),
+    "districts_static",
+    sizeof(DistrictStaticData),
     kWarehouses * kDistricts,
-    &storages_.districts_));
+    &storages_.districts_static_));
+  CHECK_ERROR(create_array(
+    "districts_ytd",
+    sizeof(uint64_t),
+    kWarehouses * kDistricts,
+    &storages_.districts_ytd_));
+  CHECK_ERROR(create_array(
+    "districts_next_oid",
+    sizeof(Oid),
+    kWarehouses * kDistricts,
+    &storages_.districts_next_oid_));
   LOG(INFO) << "Created Districts:" << engine_->get_memory_manager().dump_free_memory_stat();
 
   CHECK_ERROR(create_sequential("histories", &storages_.histories_));
@@ -125,10 +145,15 @@ ErrorStack TpccLoadTask::create_tables() {
   LOG(INFO) << "Created Stocks:" << engine_->get_memory_manager().dump_free_memory_stat();
 
   CHECK_ERROR(create_array(
-    "warehouses",
-    sizeof(WarehouseData),
+    "warehouses_static",
+    sizeof(WarehouseStaticData),
     kWarehouses,
-    &storages_.warehouses_));
+    &storages_.warehouses_static_));
+  CHECK_ERROR(create_array(
+    "warehouses_ytd",
+    sizeof(double),
+    kWarehouses,
+    &storages_.warehouses_ytd_));
   LOG(INFO) << "Created Warehouses:" << engine_->get_memory_manager().dump_free_memory_stat();
 
   return kRetOk;
@@ -177,9 +202,10 @@ ErrorCode TpccLoadTask::commit_if_full() {
 
 ErrorStack TpccLoadTask::load_warehouses() {
   LOG(INFO) << "Loading Warehouse";
-  WarehouseData data;
+  WarehouseStaticData data;
   Epoch ep;
-  auto* storage = storages_.warehouses_;
+  auto* static_storage = storages_.warehouses_static_;
+  auto* ytd_storage = storages_.warehouses_ytd_;
   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
   for (Wid wid = 0; wid < kWarehouses; ++wid) {
     zero_clear(&data);
@@ -188,8 +214,9 @@ ErrorStack TpccLoadTask::load_warehouses() {
     make_alpha_string(6, 10, data.name_);
     make_address(data.street1_, data.street2_, data.city_, data.state_, data.zip_);
     data.tax_ = (static_cast<float>(rnd_.uniform_within(10L, 20L))) / 100.0;
-    data.ytd_ = 3000000.00;
-    WRAP_ERROR_CODE(storage->overwrite_record(context_, wid, &data, 0, sizeof(data)));
+    double ytd = 3000000.00;
+    WRAP_ERROR_CODE(static_storage->overwrite_record(context_, wid, &data, 0, sizeof(data)));
+    WRAP_ERROR_CODE(ytd_storage->overwrite_record_primitive<double>(context_, wid, ytd, 0));
     WRAP_ERROR_CODE(commit_if_full());
     VLOG(0) << "WID = " << wid << ", Name= " << data.name_ << ", Tax = " << data.tax_;
   }
@@ -199,21 +226,25 @@ ErrorStack TpccLoadTask::load_warehouses() {
 }
 
 ErrorStack TpccLoadTask::load_districts() {
-  DistrictData data;
+  DistrictStaticData data;
   Epoch ep;
-  auto* storage = storages_.districts_;
+  auto* static_storage = storages_.districts_static_;
+  auto* ytd_storage = storages_.districts_ytd_;
+  auto* oid_storage = storages_.districts_next_oid_;
   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
   for (Wid wid = 0; wid < kWarehouses; ++wid) {
     LOG(INFO) << "Loading District Wid=" << wid;
     for (Did did = 0; did < kDistricts; ++did) {
       zero_clear(&data);
-      data.ytd_ = 30000;
-      data.next_o_id_ = kOrders;
+      uint64_t ytd = 30000;
+      Oid next_o_id = kOrders;
       make_alpha_string(6, 10, data.name_);
       make_address(data.street1_, data.street2_, data.city_, data.state_, data.zip_);
       data.tax_ = (static_cast<float>(rnd_.uniform_within(10, 20))) / 100.0;
       Wdid wdid = combine_wdid(wid, did);
-      WRAP_ERROR_CODE(storage->overwrite_record(context_, wdid, &data, 0, sizeof(data)));
+      WRAP_ERROR_CODE(static_storage->overwrite_record(context_, wdid, &data, 0, sizeof(data)));
+      WRAP_ERROR_CODE(ytd_storage->overwrite_record_primitive<uint64_t>(context_, wdid, ytd, 0));
+      WRAP_ERROR_CODE(oid_storage->overwrite_record_primitive<Oid>(context_, wdid, next_o_id, 0));
       WRAP_ERROR_CODE(commit_if_full());
       VLOG(0) << "DID = " << static_cast<int>(did) << ", WID = " << wid
         << ", Name = " << data.name_ << ", Tax = " << data.tax_;
@@ -351,14 +382,16 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
     context_->get_numa_node());
   Secondary* secondary_keys = reinterpret_cast<Secondary*>(secondary_keys_buffer.get_block());
   Epoch ep;
-  auto* customers = storages_.customers_;
   auto* histories = storages_.histories_;
   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
-  CustomerData c_data;
+  CustomerStaticData c_data;
+  CustomerDynamicData c_dynamic;
+  char c_history[CustomerStaticData::kHistoryDataLength];
   HistoryData h_data;
   const Wdid wdid = combine_wdid(wid, did);
   for (Cid cid = 0; cid < kCustomers; ++cid) {
     zero_clear(&c_data);
+    zero_clear(&c_dynamic);
     zero_clear(&h_data);
 
     // Generate Customer Data
@@ -378,15 +411,32 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
     c_data.credit_[0] = (rnd_.uniform_within(0, 1) == 0 ? 'G' : 'B');
     c_data.credit_[1] = 'C';
     c_data.credit_[2] = '\0';
-    make_alpha_string(300, 500, c_data.data_);
+    make_alpha_string(300, 500, c_history);
 
     // Prepare for putting into the database
     c_data.discount_ = (static_cast<float>(rnd_.uniform_within(0, 50))) / 100.0;
-    c_data.balance_ = -10.0;
+    c_dynamic.balance_ = -10.0;
     c_data.credit_lim_ = 50000;
 
     Wdcid wdcid = combine_wdcid(wdid, cid);
-    WRAP_ERROR_CODE(customers->overwrite_record(context_, wdcid, &c_data, 0, sizeof(c_data)));
+    WRAP_ERROR_CODE(storages_.customers_static_->overwrite_record(
+      context_,
+      wdcid,
+      &c_data,
+      0,
+      sizeof(c_data)));
+    WRAP_ERROR_CODE(storages_.customers_dynamic_->overwrite_record(
+      context_,
+      wdcid,
+      &c_dynamic,
+      0,
+      sizeof(c_dynamic)));
+    WRAP_ERROR_CODE(storages_.customers_history_->overwrite_record(
+      context_,
+      wdcid,
+      &c_history,
+      0,
+      sizeof(c_history)));
     WRAP_ERROR_CODE(commit_if_full());
     std::memcpy(secondary_keys[cid].last_, c_data.last_, sizeof(c_data.last_));
     std::memcpy(secondary_keys[cid].first_, c_data.first_, sizeof(c_data.first_));

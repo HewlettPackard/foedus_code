@@ -63,15 +63,19 @@ ErrorCode TpccClientTask::do_delivery(Wid wid) {
       &amount_total,
       &ol_count));
 
-    // UPDATE CUSTOMER SET balance+=amount_total WHERE WID/DID/CID=..
+    // UPDATE CUSTOMER SET balance+=amount_total,delivery_cnt++ WHERE WID/DID/CID=..
     // No need to update secondary index as balance is not a key.
-    const uint16_t c_offset = offsetof(CustomerData, balance_);
     Wdcid wdcid = combine_wdcid(combine_wdid(wid, did), cid);
-    CHECK_ERROR_CODE(storages_.customers_->increment_record_oneshot<double>(
+    CHECK_ERROR_CODE(storages_.customers_dynamic_->increment_record_oneshot<uint32_t>(
+      context_,
+      wdcid,
+      1U,
+      offsetof(CustomerDynamicData, delivery_cnt_)));
+    CHECK_ERROR_CODE(storages_.customers_dynamic_->increment_record_oneshot<double>(
       context_,
       wdcid,
       static_cast<double>(amount_total),
-      c_offset));
+      offsetof(CustomerDynamicData, balance_)));
 
     DVLOG(2) << "Delivery: updated: oid=" << oid << ", #ol=" << ol_count;
   }

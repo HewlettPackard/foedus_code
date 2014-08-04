@@ -18,7 +18,7 @@ namespace foedus {
 namespace tpcc {
 
 /** Number of warehouses. Does not grow dynamically */
-const uint16_t kWarehouses = 100U;
+const uint16_t kWarehouses = 2U;
 
 /** Number of items per warehouse. Does not grow dynamically  */
 const uint32_t kItems = 100000U;

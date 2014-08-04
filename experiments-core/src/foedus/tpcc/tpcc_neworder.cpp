@@ -38,10 +38,6 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
   // New-order transaction has the "1% random rollback" rule.
   const bool will_rollback = (rnd_.uniform_within(1, 100) == 1);
 
-  auto* warehouses = storages_.customers_;
-  auto* customers = storages_.customers_;
-  auto* districts = storages_.districts_;
-  auto* items = storages_.items_;
   auto* stocks = storages_.stocks_;
   auto* neworders = storages_.neworders_;
   auto* orders = storages_.orders_;
@@ -58,24 +54,36 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
 
   // SELECT TAX from WAREHOUSE
   double w_tax;
-  const uint16_t w_offset = offsetof(WarehouseData, tax_);
-  CHECK_ERROR_CODE(warehouses->get_record_primitive(context_, wid, &w_tax, w_offset));
+  const uint16_t w_offset = offsetof(WarehouseStaticData, tax_);
+  CHECK_ERROR_CODE(storages_.warehouses_static_->get_record_primitive(
+    context_,
+    wid,
+    &w_tax,
+    w_offset));
 
   // SELECT TAX FROM DISTRICT
-  // UPDATE DISTRICT SET next_o_id=next_o_id+1
   double d_tax;
-  const uint16_t d_tax_offset = offsetof(DistrictData, tax_);
-  const uint16_t d_next_oid_offset = offsetof(DistrictData, next_o_id_);
-  CHECK_ERROR_CODE(districts->get_record_primitive(context_, wdid, &d_tax, d_tax_offset));
+  const uint16_t d_tax_offset = offsetof(DistrictStaticData, tax_);
+  CHECK_ERROR_CODE(storages_.districts_static_->get_record_primitive(
+    context_,
+    wdid,
+    &d_tax,
+    d_tax_offset));
+
+  // UPDATE DISTRICT SET next_o_id=next_o_id+1
   Oid oid = 1;
-  CHECK_ERROR_CODE(districts->increment_record<Oid>(context_, wdid, &oid, d_next_oid_offset));
+  CHECK_ERROR_CODE(storages_.districts_next_oid_->increment_record<Oid>(context_, wdid, &oid, 0));
   ASSERT_ND(oid >= kOrders);
   Wdoid wdoid = combine_wdoid(wdid, oid);
 
   // SELECT DISCOUNT from CUSTOMER
   double c_discount;
-  const uint16_t c_offset = offsetof(CustomerData, discount_);
-  CHECK_ERROR_CODE(customers->get_record_primitive(context_, wdcid, &c_discount, c_offset));
+  const uint16_t c_offset = offsetof(CustomerStaticData, discount_);
+  CHECK_ERROR_CODE(storages_.customers_static_->get_record_primitive(
+    context_,
+    wdcid,
+    &c_discount,
+    c_offset));
 
   // INSERT INTO ORDERLINE with random item.
   bool all_local_warehouse = true;
@@ -99,7 +107,7 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
 
     // SELECT ... FROM ITEM WHERE IID=iid
     ItemData i_data;
-    CHECK_ERROR_CODE(items->get_record(context_, iid, &i_data, 0, sizeof(i_data)));
+    CHECK_ERROR_CODE(storages_.items_->get_record(context_, iid, &i_data, 0, sizeof(i_data)));
 
     // SELECT ... FROM STOCK WHERE WID=supply_wid AND IID=iid
     // then UPDATE quantity and remote count
