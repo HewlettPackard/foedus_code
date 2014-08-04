@@ -83,7 +83,7 @@ ErrorCode TpccClientTask::pop_neworder(Wid wid, Did did, Oid* oid) {
   storage::masstree::KeySlice low = to_wdoid_slice(wid, did, 0);
   storage::masstree::KeySlice high = to_wdoid_slice(wid, did + 1, 0);
   storage::masstree::MasstreeCursor cursor(engine_, storages_.neworders_, context_);
-  CHECK_ERROR_CODE(cursor.open_normalized(low, high, true, true));
+  CHECK_ERROR_CODE(cursor.open_normalized(low, high, false, true, false, true));
   if (cursor.is_valid_record()) {
     ASSERT_ND(cursor.get_key_length() == sizeof(Wdoid));
     Wdoid id = assorted::read_bigendian<Wdoid>(cursor.get_key());

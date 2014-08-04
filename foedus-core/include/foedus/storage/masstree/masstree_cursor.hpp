@@ -284,11 +284,33 @@ class MasstreeCursor CXX11_FINAL {
   ErrorCode proceed_deeper_intermediate();
 
   void assert_modify() const ALWAYS_INLINE {
+#ifndef NDEBUG
     ASSERT_ND(for_writes_);
     ASSERT_ND(is_valid_record());
     ASSERT_ND(!cur_route()->snapshot_);
     ASSERT_ND(reinterpret_cast<Page*>(get_cur_page())->get_header().get_page_type()
       == kMasstreeBorderPageType);
+#endif  // NDEBUG
+  }
+  void assert_route() const ALWAYS_INLINE {
+#ifndef NDEBUG
+    for (uint16_t i = 0; i + 1U < route_count_; ++i) {
+      const Route* route = routes_ + i;
+      ASSERT_ND(route->page_);
+      if (route->stable_.has_foster_child()) {
+        // then we don't use any information in this path
+      } else if (reinterpret_cast<Page*>(route->page_)->get_header().get_page_type()
+        == kMasstreeBorderPageType) {
+        ASSERT_ND(route->index_ < kMaxRecords);
+        ASSERT_ND(route->index_ < route->key_count_);
+      } else {
+        ASSERT_ND(route->index_ <= route->key_count_);
+        ASSERT_ND(route->index_ <= kMaxIntermediateSeparators);
+        ASSERT_ND(route->index_mini_ <= route->key_count_mini_);
+        ASSERT_ND(route->index_mini_ <= kMaxIntermediateMiniSeparators);
+      }
+    }
+#endif  // NDEBUG
   }
 };
 

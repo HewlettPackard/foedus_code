@@ -209,6 +209,15 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
 
   assorted::memory_fence_acq_rel();
   bool verified = precommit_xct_verify_readwrite(context);  // phase 2
+#ifndef NDEBUG
+  {
+    WriteXctAccess* write_set = context->get_current_xct().get_write_set();
+    uint32_t        write_set_size = context->get_current_xct().get_write_set_size();
+    for (uint32_t i = 0; i < write_set_size; ++i) {
+      ASSERT_ND(write_set[i].owner_id_address_->is_keylocked());
+    }
+  }
+#endif  // NDEBUG
   if (verified) {
     precommit_xct_apply(context, commit_epoch);  // phase 3. this also unlocks
     // announce log AFTER (with fence) apply, because apply sets xct_order in the logs.
@@ -328,7 +337,12 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
             << ". This occasionally happens.";
           // release all locks acquired so far, retry
           for (uint32_t j = 0; j < i; ++j) {
-            write_set[i].owner_id_address_->release_keylock();
+            if (j + 1U < i &&
+              write_set[j].owner_id_address_ == write_set[j + 1].owner_id_address_) {
+              // keep the lock for the next write set
+            } else {
+              write_set[i].owner_id_address_->release_keylock();
+            }
           }
           needs_retry = true;
           break;
@@ -343,6 +357,11 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
     }
   }
   DVLOG(1) << *context << " locked write set";
+#ifndef NDEBUG
+  for (uint32_t i = 0; i < write_set_size; ++i) {
+    ASSERT_ND(write_set[i].owner_id_address_->is_keylocked());
+  }
+#endif  // NDEBUG
   return true;
 }
 
@@ -557,7 +576,13 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context) {
     WriteXctAccess& write = write_set[i];
     DVLOG(2) << *context << " Unlocking " << write.storage_->get_name() << ":"
       << write.owner_id_address_;
-    write.owner_id_address_->release_keylock();
+    if (i < write_set_size - 1 && write.owner_id_address_ == write_set[i + 1].owner_id_address_) {
+      DVLOG(0) << *context << " Multiple write sets on record " << write_set[i].storage_->get_name()
+        << ":" << write_set[i].owner_id_address_ << ". Unlock at the last one of the write sets";
+      // keep the lock for the next write set
+    } else {
+      write.owner_id_address_->release_keylock();
+    }
   }
   assorted::memory_fence_release();
   DLOG(INFO) << *context << " unlocked write set without applying";

@@ -68,8 +68,14 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
         increment_race_aborts();
         continue;
       } else if (ret != kErrorCodeOk) {
+        WRAP_ERROR_CODE(xct_manager.abort_xct(context));
         increment_unexpected_aborts();
-        return ERROR_STACK(ret);  // unexpected error
+        if (unexpected_aborts_ > 100U) {
+          std::cout << "ERROR ERROR: Too many unexpected errors. What's happening?" << std::endl;
+          return ERROR_STACK(ret);
+        } else {
+          continue;
+        }
       }
 
       Epoch ep;
@@ -82,7 +88,12 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
         continue;
       } else {
         increment_unexpected_aborts();
-        return ERROR_STACK(ret);  // unexpected error
+        if (unexpected_aborts_ > 100U) {
+          std::cout << "ERROR ERROR: Too many unexpected errors. What's happening?" << std::endl;
+          return ERROR_STACK(ret);
+        } else {
+          continue;
+        }
       }
     }
 

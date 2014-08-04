@@ -32,7 +32,7 @@ inline void zero_clear(T* data) {
  * @param[in] num  non-uniform random number
  * @param[out] name last name string
  */
-inline void generate_lastname(int32_t num, char *name) {
+inline void generate_lastname(uint32_t num, char *name) {
   const char *n[] = {
     "BAR", "OUGHT", "ABLE", "PRI", "PRES", "ESE", "ANTI", "CALLY", "ATION", "EING"
   };
@@ -40,7 +40,9 @@ inline void generate_lastname(int32_t num, char *name) {
 
   uint8_t len = 0;
   for (int i = 0; i < 3; ++i) {
-    int32_t choice = i == 0 ? num % 10 : (i == 1 ? (num / 10) % 10 : (num / 100) % 10);
+    uint16_t choice = i == 0 ? num % 10 : (i == 1 ? (num / 10) % 10 : (num / 100) % 10);
+    ASSERT_ND(choice < 10U);
+    ASSERT_ND(len + l[choice] <= 17U);
     std::memcpy(name + len, n[choice], l[choice]);
     len += l[choice];
   }

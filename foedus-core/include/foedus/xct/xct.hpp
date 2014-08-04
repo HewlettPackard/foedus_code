@@ -44,8 +44,8 @@ namespace xct {
 class Xct {
  public:
   enum Constants {
-    kMaxPointerSets = 256,
-    kMaxPageVersionSets = 256,
+    kMaxPointerSets = 1024,
+    kMaxPageVersionSets = 1024,
   };
 
   Xct(Engine* engine, thread::ThreadId thread_id);

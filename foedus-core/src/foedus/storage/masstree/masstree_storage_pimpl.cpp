@@ -708,7 +708,9 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
 
     border->lock();
     UnlockScope scope(border);
-    if (version.has_foster_child()) {
+    if (border->has_foster_child()) {
+      version = border->get_version();
+      version.unlock_version();
       continue;
     }
     ASSERT_ND(!border->has_foster_child());

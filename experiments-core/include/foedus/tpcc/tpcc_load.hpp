@@ -98,8 +98,6 @@ class TpccLoadTask : public thread::ImpersonateTask {
   */
   ErrorStack load_orders_in_district(Wid wid, Did did);
 
-  ErrorStack load_neworders();
-
   /** Loads the Stock table. */
   ErrorStack load_stocks();
 

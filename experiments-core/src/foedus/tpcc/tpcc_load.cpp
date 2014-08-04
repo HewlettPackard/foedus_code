@@ -368,7 +368,7 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
     c_data.middle_[2] = '\0';
 
     if (cid < kLnames) {
-      generate_lastname(cid - 1, c_data.last_);
+      generate_lastname(cid, c_data.last_);
     } else {
       generate_lastname(rnd_.non_uniform_within(255, 0, kLnames - 1), c_data.last_);
     }
@@ -416,16 +416,16 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   for (Cid from = 0; from < kCustomers;) {
     uint32_t cur_batch_size = std::min<uint32_t>(kCommitBatch, kCustomers - from);
     char key_be[CustomerSecondaryKey::kKeyLength];
-    *reinterpret_cast<Wid*>(key_be) = assorted::htobe<Wid>(wid);
-    *reinterpret_cast<Did*>(key_be + sizeof(Wid)) = assorted::htobe<Did>(did);
+    assorted::write_bigendian<Wid>(wid, key_be);
+    key_be[sizeof(Wid)] = did;
     // An easy optimization for batched inserts. Trigger reserve_record for all of them,
     // then abort and do it as a fresh transaction so that no moved-bit tracking is required.
     for (int rep = 0; rep < 2; ++rep) {
       WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
       for (Cid i = from; i < from + cur_batch_size; ++i) {
         std::memcpy(key_be + sizeof(Wid) + sizeof(Did), secondary_keys[i].last_, 34);
-        *reinterpret_cast<Cid*>(key_be + sizeof(Wid) + sizeof(Did) + 34)
-          = assorted::htobe<Cid>(secondary_keys[i].cid_);
+        Cid* address = reinterpret_cast<Cid*>(key_be + sizeof(Wid) + sizeof(Did) + 34);
+        *address = assorted::htobe<Cid>(secondary_keys[i].cid_);
         WRAP_ERROR_CODE(customers_secondary->insert_record(context_, key_be, sizeof(key_be)));
       }
       if (rep == 0) {
@@ -461,13 +461,14 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
   auto* orders_secondary = storages_.orders_secondary_;
   auto* orderlines = storages_.orderlines_;
   OrderData o_data;
+  zero_clear(&o_data);
   OrderlineData ol_data;
+  zero_clear(&ol_data);
   Wdid wdid = combine_wdid(wid, did);
   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
   for (Oid oid = 0; oid < kOrders; ++oid) {
     Wdoid wdoid = combine_wdoid(wdid, oid);
     WRAP_ERROR_CODE(commit_if_full());
-    zero_clear(&o_data);
 
     // Generate Order Data
     Cid o_cid = get_permutation(cid_array);
@@ -493,8 +494,6 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
     DVLOG(2) << "OID = " << oid << ", CID = " << o_cid << ", DID = "
       << static_cast<int>(did) << ", WID = " << wid;
     for (Ol ol = 1; ol <= o_ol_cnt; ol++) {
-      zero_clear(&ol_data);
-
       // Generate Order Line Data
       make_alpha_string(24, 24, ol_data.dist_info_);
       ol_data.iid_ = rnd_.uniform_within(0, kItems - 1);

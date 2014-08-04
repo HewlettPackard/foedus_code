@@ -36,3 +36,17 @@ set(test_masstree_tpcb_individuals
   FourThreadedContendedInc
   )
 add_foedus_test_individual(test_masstree_tpcb "${test_masstree_tpcb_individuals}")
+
+set(test_masstree_tpcc_individuals
+  FullscanCustomersSecondary
+  FullscanNeworders
+  FullscanOrders
+  FullscanOrdersSecondary
+  FullscanOrderlines
+  DistrictScanCustomersSecondary
+  DistrictScanNeworders
+  DistrictScanOrders
+  DistrictScanOrdersSecondary
+  DistrictScanOrderlines
+  )
+add_foedus_test_individual(test_masstree_tpcc "${test_masstree_tpcc_individuals}")

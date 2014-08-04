@@ -56,7 +56,13 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
 
   // get customer record.
   Cid cid;
-  CHECK_ERROR_CODE(lookup_customer_by_id_or_name(c_wid, c_did, &cid));
+  ErrorCode ret_customer = lookup_customer_by_id_or_name(c_wid, c_did, &cid);
+  if (ret_customer == kErrorCodeStrKeyNotFound) {
+    DVLOG(1) << "OrderStatus: customer of random last name not found";
+    return kErrorCodeOk;  // this is a correct result
+  } else if (ret_customer != kErrorCodeOk) {
+    return ret_customer;
+  }
   Wdcid wdcid = combine_wdcid(combine_wdid(c_wid, c_did), cid);
 
   std::string time_str(get_current_time_string());

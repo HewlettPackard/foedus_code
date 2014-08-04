@@ -90,7 +90,6 @@ const uint64_t kMovedBit                    = 0x0000000000000001ULL;
 const uint64_t kUnmaskEpoch                 = 0x0000000FFFFFFFFFULL;
 const uint64_t kUnmaskOrdinal               = 0xFFFFFFF0000FFFFFULL;
 const uint64_t kUnmaskThreadId              = 0xFFFFFFFFFFF0000FULL;
-const uint64_t kUnmaskKeylock               = 0xFFFFFFFFFFFFFFF7ULL;
 const uint64_t kUnmaskRangelock             = 0xFFFFFFFFFFFFFFFBULL;
 const uint64_t kUnmaskDelete                = 0xFFFFFFFFFFFFFFFDULL;
 const uint64_t kUnmaskMoved                 = 0xFFFFFFFFFFFFFFFEULL;
@@ -259,7 +258,7 @@ struct XctId {
    */
   void keylock_unconditional() {
     SPINLOCK_WHILE(true) {
-      uint64_t expected = data_ & kUnmaskKeylock;
+      uint64_t expected = data_ & (~kKeylockBit);
       uint64_t desired = expected | kKeylockBit;
       if (assorted::raw_atomic_compare_exchange_weak(&data_, &expected, desired)) {
         ASSERT_ND(is_keylocked());
@@ -275,7 +274,7 @@ struct XctId {
    */
   bool keylock_fail_if_moved() {
     SPINLOCK_WHILE(true) {
-      uint64_t expected = data_ & kUnmaskKeylock;
+      uint64_t expected = data_ & (~kKeylockBit);
       if (UNLIKELY(expected & kMovedBit)) {
         return false;
       }
@@ -299,7 +298,7 @@ struct XctId {
   }
   void release_keylock() ALWAYS_INLINE {
     ASSERT_ND(is_keylocked());
-    data_ &= kUnmaskKeylock;
+    data_ &= (~kKeylockBit);
   }
 
   void rangelock_unconditional() {

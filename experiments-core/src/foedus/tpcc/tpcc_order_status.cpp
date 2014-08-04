@@ -15,7 +15,13 @@ ErrorCode TpccClientTask::do_order_status(Wid wid) {
   const Did did = get_random_district_id();
 
   Cid cid;
-  CHECK_ERROR_CODE(lookup_customer_by_id_or_name(wid, did, &cid));
+  ErrorCode ret_customer = lookup_customer_by_id_or_name(wid, did, &cid);
+  if (ret_customer == kErrorCodeStrKeyNotFound) {
+    DVLOG(1) << "OrderStatus: customer of random last name not found";
+    return kErrorCodeOk;  // this is a correct result
+  } else if (ret_customer != kErrorCodeOk) {
+    return ret_customer;
+  }
 
   // identify the last order by this customer
   Oid oid;
@@ -65,7 +71,7 @@ ErrorCode TpccClientTask::get_last_orderid_by_customer(Wid wid, Did did, Cid cid
   Wdcoid low = combine_wdcoid(combine_wdcid(wdid, cid), 0U);
   Wdcoid high = combine_wdcoid(combine_wdcid(wdid, cid + 1U), 0U);
   storage::masstree::MasstreeCursor cursor(engine_, storages_.orders_secondary_, context_);
-  CHECK_ERROR_CODE(cursor.open_normalized(low, high));
+  CHECK_ERROR_CODE(cursor.open_normalized(low, high, false, false, false, true));
   if (cursor.is_valid_record()) {
     Wdcoid key = assorted::read_bigendian<Wdcoid>(cursor.get_key());
     ASSERT_ND(key >= low);

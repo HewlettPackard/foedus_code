@@ -155,6 +155,7 @@ void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, uint8_t record) 
   cur_key_owner_id_address = page->get_owner_id(record);
   if (!page->header().snapshot_) {
     cur_key_observed_owner_id_ = cur_key_owner_id_address->spin_while_keylocked();
+    ASSERT_ND(!cur_key_observed_owner_id_.is_keylocked());
   }
   uint8_t remaining = page->get_remaining_key_length(record);
   cur_key_in_layer_remaining_ = remaining;
@@ -196,6 +197,7 @@ ErrorCode MasstreeCursor::next() {
     return kErrorCodeOk;
   }
 
+  assert_route();
   while (true) {
     CHECK_ERROR_CODE(proceed_route());
     if (is_valid_record() && cur_key_observed_owner_id_.is_deleted()) {
@@ -210,6 +212,7 @@ ErrorCode MasstreeCursor::next() {
   check_end_key();
   if (is_valid_record()) {
     fetch_cur_payload();
+    assert_route();
   }
   return kErrorCodeOk;
 }
@@ -265,6 +268,7 @@ ErrorCode MasstreeCursor::proceed_route_border() {
 ErrorCode MasstreeCursor::proceed_route_intermediate() {
   Route* route = cur_route();
   ASSERT_ND(!route->page_->is_border());
+  ASSERT_ND(route->index_ <= route->key_count_);
   if (route->page_->get_version().data_ != route->stable_.data_) {
     // TODO(Hideaki) do the retry with done_upto
     return kErrorCodeXctRaceAbort;
@@ -318,12 +322,34 @@ ErrorCode MasstreeCursor::proceed_route_intermediate() {
 }
 
 inline ErrorCode MasstreeCursor::proceed_pop() {
-  --route_count_;
-  if (route_count_ == 0) {
-    reached_end_ = true;
-    return kErrorCodeOk;
+  while (true) {
+    const Route& done_route = routes_[route_count_ - 1];
+    --route_count_;
+    if (route_count_ == 0) {
+      reached_end_ = true;
+      return kErrorCodeOk;
+    }
+    Route& route = routes_[route_count_ - 1];
+    if (cur_route()->stable_.is_moved()) {
+      // in case we were at a moved page, we either followed foster minor or foster major.
+      MasstreePage* done = done_route.page_;
+      MasstreePage* left = route.page_->get_foster_minor();
+      MasstreePage* right = route.page_->get_foster_major();
+      ASSERT_ND(done == left || done == right);
+      if ((forward_cursor_ && done == right) || (!forward_cursor_ && done == left)) {
+        // we checked both of foster twin. pop one more
+        continue;
+      } else {
+        // check another foster child
+        PageVersion version;
+        CHECK_ERROR_CODE(push_route(forward_cursor_ ? right : left, &version));
+        return proceed_deeper();
+      }
+    } else {
+      // otherwise, next record in this page
+      return proceed_route();
+    }
   }
-  return proceed_route();
 }
 inline ErrorCode MasstreeCursor::proceed_next_layer() {
   Route* route = cur_route();
@@ -338,15 +364,27 @@ inline ErrorCode MasstreeCursor::proceed_next_layer() {
 }
 
 inline ErrorCode MasstreeCursor::proceed_deeper() {
+  // if we are hitting a moved page, go to left or right, depending on forward cur or not
+  while (UNLIKELY(cur_route()->stable_.has_foster_child())) {
+    ASSERT_ND(cur_route()->stable_.is_moved());
+    PageVersion version;
+    MasstreePage* next_page = forward_cursor_
+      ? cur_route()->page_->get_foster_minor()
+      : cur_route()->page_->get_foster_major();
+    CHECK_ERROR_CODE(push_route(next_page, &version));
+  }
+
   if (cur_route()->page_->is_border()) {
     return proceed_deeper_border();
   } else {
     return proceed_deeper_intermediate();
   }
 }
+
 inline ErrorCode MasstreeCursor::proceed_deeper_border() {
   Route* route = cur_route();
   ASSERT_ND(route->page_->is_border());
+  ASSERT_ND(!route->stable_.has_foster_child());
   MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
   route->index_ = forward_cursor_ ? 0 : route->key_count_ - 1;
   uint8_t record = route->get_original_index(route->index_);
@@ -371,9 +409,10 @@ inline ErrorCode MasstreeCursor::proceed_deeper_border() {
 inline ErrorCode MasstreeCursor::proceed_deeper_intermediate() {
   Route* route = cur_route();
   ASSERT_ND(!route->page_->is_border());
+  ASSERT_ND(!route->stable_.has_foster_child());
   MasstreeIntermediatePage* page = reinterpret_cast<MasstreeIntermediatePage*>(cur_route()->page_);
-  uint8_t index = forward_cursor_ ? 0 : route->key_count_;
-  MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(index);
+  route->index_ = forward_cursor_ ? 0 : route->key_count_;
+  MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(route->index_);
 
   route->stable_mini_ = minipage.get_stable_version();
   route->key_count_mini_ = route->stable_mini_.get_key_count();
@@ -427,8 +466,8 @@ inline ErrorCode MasstreeCursor::push_route(MasstreePage* page, PageVersion* pag
     *page_version = page->get_stable_version();
     ASSERT_ND(!page_version->is_locked());
     route.page_ = page;
-    route.index_ = kMaxRecords;
-    route.index_mini_ = kMaxRecords;
+    route.index_ = kMaxRecords;  // must be set shortly after this method
+    route.index_mini_ = kMaxRecords;  // must be set shortly after this method
     route.stable_ = *page_version;
     route.key_count_ = page_version->get_key_count();
     route.snapshot_ = page->header().snapshot_;
@@ -445,7 +484,8 @@ inline ErrorCode MasstreeCursor::push_route(MasstreePage* page, PageVersion* pag
   // We thus need it only for border pages. Even if an interior page changes, splits, whatever,
   // the pre-existing border pages are already responsible for the searched key regions.
   // this is an outstanding difference from original masstree/silo protocol.
-  if (!page->is_border() || page->header().snapshot_) {
+  // we also don't have to consider moved pages. they are stable.
+  if (!page->is_border() || page->header().snapshot_ || route.stable_.is_moved()) {
     return kErrorCodeOk;
   }
   return current_xct_->add_to_page_version_set(&page->header().page_version_, *page_version);
@@ -509,7 +549,7 @@ inline void MasstreeCursor::check_end_key() {
 inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key_aginst_search_key(
   KeySlice slice,
   uint8_t layer) const {
-  if (is_search_key_extremum()) {
+  if (is_search_key_extremum() || search_key_length_ <= layer * sizeof(KeySlice)) {
     if (forward_cursor_) {
       return kCurKeyLarger;
     } else {
@@ -521,7 +561,7 @@ inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key_aginst_s
 
 inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key_aginst_end_key() const {
   if (is_end_key_supremum()) {
-    return kCurKeySmaller;
+    return forward_cursor_ ? kCurKeySmaller : kCurKeyLarger;
   }
   uint16_t min_length = std::min(cur_key_length_, end_key_length_);
   int cmp = std::memcmp(cur_key_, end_key_, min_length);
