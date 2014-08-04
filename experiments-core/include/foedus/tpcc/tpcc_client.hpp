@@ -101,10 +101,28 @@ class TpccClientTask : public thread::ImpersonateTask {
 
   Cid     tmp_cids_[kMaxCidsPerLname];
 
+  // For neworder. these are for showing results on stdout (part of the spec, kind of)
+  char        output_bg_[kMaxOlCount];
+  uint32_t    output_prices_[kMaxOlCount];
+  char        output_item_names_[kMaxOlCount][25];
+  uint32_t    output_quantities_[kMaxOlCount];
+  double      output_amounts_[kMaxOlCount];
+  double      output_total_;
+
   void      update_timestring_if_needed();
 
   /** Run the TPCC Neworder transaction. Implemented in tpcc_neworder.cpp. */
   ErrorCode do_neworder(Wid wid);
+  ErrorCode do_neworder_create_orderlines(
+    Wid wid,
+    Did did,
+    Oid oid,
+    double w_tax,
+    double d_tax,
+    double c_discount,
+    bool will_rollback,
+    Ol ol_cnt,
+    bool* all_local_warehouse);
 
   /** Run the TPCC Payment transaction. Implemented in tpcc_payment.cpp. */
   ErrorCode do_payment(Wid wid);

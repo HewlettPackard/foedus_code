@@ -27,7 +27,7 @@ namespace foedus {
 namespace tpcc {
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
-DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
+DEFINE_bool(single_thread_test, true, "Whether to run a single-threaded sanity test.");
 
 const uint64_t kDurationMicro = 5000000;  // TODO(Hideaki) make it a flag
 
