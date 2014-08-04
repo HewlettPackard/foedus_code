@@ -78,6 +78,15 @@ ErrorCode ArrayStorage::increment_record(thread::Thread* context, ArrayOffset of
   return pimpl_->increment_record<T>(context, offset, value, payload_offset);
 }
 
+template <typename T>
+ErrorCode ArrayStorage::increment_record_oneshot(
+  thread::Thread* context,
+  ArrayOffset offset,
+  T value,
+  uint16_t payload_offset) {
+  return pimpl_->increment_record_oneshot<T>(context, offset, value, payload_offset);
+}
+
 /**
  * Calculate leaf/interior pages we need.
  * @return index=level.
@@ -491,6 +500,27 @@ ErrorCode ArrayStoragePimpl::increment_record(
     log_entry);
 }
 
+template <typename T>
+ErrorCode ArrayStoragePimpl::increment_record_oneshot(
+  thread::Thread* context,
+  ArrayOffset offset,
+  T value,
+  uint16_t payload_offset) {
+  ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
+  Record *record = nullptr;
+  CHECK_ERROR_CODE(locate_record_for_write(context, offset, &record));
+  ValueType type = to_value_type<T>();
+  uint16_t log_length = ArrayIncrementLogType::calculate_log_length(type);
+  ArrayIncrementLogType* log_entry = reinterpret_cast<ArrayIncrementLogType*>(
+    context->get_thread_log_buffer().reserve_new_log(log_length));
+  log_entry->populate<T>(metadata_.id_, offset, value, payload_offset);
+  return context->get_current_xct().add_to_write_set(
+    holder_,
+    &record->owner_id_,
+    record->payload_,
+    log_entry);
+}
+
 inline ErrorCode ArrayStoragePimpl::lookup_for_read(
   thread::Thread* context,
   ArrayOffset offset,
@@ -616,6 +646,14 @@ INSTANTIATE_ALL_NUMERIC_TYPES(EXPLICIT_INSTANTIATION_GET_OV_IMPL);
   ArrayStoragePimpl::increment_record< x > \
   (thread::Thread* context, ArrayOffset offset, x* value, uint16_t payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPLICIT_INSTANTIATION_GET_INC_IMPL);
+
+#define EX_INC1S(x) template ErrorCode ArrayStorage::increment_record_oneshot< x > \
+  (thread::Thread* context, ArrayOffset offset, x value, uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EX_INC1S);
+
+#define EX_INC1S_IMPL(x) template ErrorCode ArrayStoragePimpl::increment_record_oneshot< x > \
+  (thread::Thread* context, ArrayOffset offset, x value, uint16_t payload_offset)
+INSTANTIATE_ALL_NUMERIC_TYPES(EX_INC1S_IMPL);
 // @endcond
 
 }  // namespace array

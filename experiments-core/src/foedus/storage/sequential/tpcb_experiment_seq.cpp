@@ -14,6 +14,7 @@
  * @section RESULTS Latest Results
  * 20140701 14M tps (up from 12M of array storage even for history)
  * Also, it was 5M tps before the sequential storage optimization to avoid contentious CAS.
+ * 20140803 16.5M tps (now uses the increment_record_oneshot() method.)
  */
 #include <atomic>
 #include <chrono>
@@ -163,14 +164,23 @@ class RunTpcbTask : public thread::ImpersonateTask {
     xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
     CHECK_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
 
-    int64_t balance = amount;
-    CHECK_ERROR_CODE(branches->increment_record(context, branch_id, &balance, 0));
+    CHECK_ERROR_CODE(branches->increment_record_oneshot<int64_t>(
+      context,
+      branch_id,
+      amount,
+      0));
 
-    balance = amount;
-    CHECK_ERROR_CODE(tellers->increment_record(context, teller_id, &balance, sizeof(uint64_t)));
+    CHECK_ERROR_CODE(tellers->increment_record_oneshot<int64_t>(
+      context,
+      teller_id,
+      amount,
+      sizeof(uint64_t)));
 
-    balance = amount;
-    CHECK_ERROR_CODE(accounts->increment_record(context, account_id, &balance, sizeof(uint64_t)));
+    CHECK_ERROR_CODE(accounts->increment_record_oneshot<int64_t>(
+      context,
+      account_id,
+      amount,
+      sizeof(uint64_t)));
 
     tmp_history_.account_id_ = account_id;
     tmp_history_.branch_id_ = branch_id;

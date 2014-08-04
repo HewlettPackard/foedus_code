@@ -35,23 +35,21 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   // UPDATE WAREHOUSE SET YTD=YTD+amount
   char w_name[11];
   CHECK_ERROR_CODE(storages_.warehouses_->get_record(context_, wid, w_name, 0, sizeof(w_name)));
-  double amount_after = amount;
   const uint16_t w_offset = offsetof(WarehouseData, ytd_);
-  CHECK_ERROR_CODE(storages_.warehouses_->increment_record<double>(
+  CHECK_ERROR_CODE(storages_.warehouses_->increment_record_oneshot<double>(
     context_,
     wid,
-    &amount_after,
+    amount,
     w_offset));
 
   // UPDATE DISTRICT SET YTD=YTD+amount
   char d_name[11];
   CHECK_ERROR_CODE(storages_.districts_->get_record(context_, did, d_name, 0, sizeof(d_name)));
-  amount_after = amount;
   const uint16_t d_offset = offsetof(DistrictData, ytd_);
-  CHECK_ERROR_CODE(storages_.districts_->increment_record<double>(
+  CHECK_ERROR_CODE(storages_.districts_->increment_record_oneshot<double>(
     context_,
     did,
-    &amount_after,
+    amount,
     d_offset));
 
   // get customer record.
@@ -106,7 +104,7 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
       wid,
       c_did,
       c_wid,
-      amount_after);
+      amount);
     std::memcpy(c_new_data + written, time_str.data(), time_str.size());
     written += time_str.size();
     std::memcpy(c_new_data + written, c_data.data_, sizeof(c_new_data) - written - 1);
