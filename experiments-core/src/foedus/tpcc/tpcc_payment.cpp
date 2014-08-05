@@ -23,7 +23,7 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   // 85% accesses the home wid/did. 15% other wid/did (wid must be !=c_wid).
   Wid wid;
   Did did;
-  const bool remote_warehouse = rnd_.uniform_within(1, 100) <= kPaymentRemotePercent;
+  const bool remote_warehouse = rnd_.uniform_within(1, 100) <= payment_remote_percent_;
   if (remote_warehouse) {
     wid = rnd_.uniform_within_except(0, kWarehouses - 1, c_wid);
     did = rnd_.uniform_within(0, kDistricts - 1);  // re-draw did.

@@ -43,9 +43,15 @@ class TpccClientTask : public thread::ImpersonateTask {
   };
   TpccClientTask(
     uint32_t worker_id,
+    uint16_t neworder_remote_percent,
+    uint16_t payment_remote_percent,
     TpccStorages storages,
     thread::Rendezvous* start_rendezvous)
-    : worker_id_(worker_id), rnd_(kRandomSeed + worker_id), processed_(0) {
+    : worker_id_(worker_id),
+      neworder_remote_percent_(neworder_remote_percent),
+      payment_remote_percent_(payment_remote_percent),
+      rnd_(kRandomSeed + worker_id),
+      processed_(0) {
     storages_ = storages;
     stop_requrested_ = false;
     start_rendezvous_ = start_rendezvous;
@@ -80,6 +86,21 @@ class TpccClientTask : public thread::ImpersonateTask {
   /** set at the beginning of run() for convenience */
   thread::Thread*   context_;
   Engine*           engine_;
+
+
+  /**
+   * Percent of each orderline that is inserted to remote warehouse.
+   * The default value is 1 (which means a little bit less than 10% of an order has some remote
+   * orderline). This corresponds to H-Store's neworder_multip/neworder_multip_mix in
+   * tpcc.properties.
+   */
+  const uint16_t    neworder_remote_percent_;
+
+  /**
+   * Percent of each payment that is inserted to remote warehouse. The default value is 5.
+   * This corresponds to H-Store's payment_multip/payment_multip_mix in tpcc.properties.
+   */
+  const uint16_t    payment_remote_percent_;
 
 
   memory::AlignedMemory numbers_;

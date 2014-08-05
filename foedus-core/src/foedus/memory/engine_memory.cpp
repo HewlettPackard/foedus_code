@@ -11,6 +11,8 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
@@ -43,29 +45,35 @@ ErrorStack EngineMemory::initialize_once() {
   }
 
   thread::ThreadGroupId numa_nodes = options.thread_.group_count_;
-  PagePoolOffset page_offset_begin = 0;
-  PagePoolOffset page_offset_end = 0;
   GlobalVolatilePageResolver::Base bases[256];
   for (thread::ThreadGroupId node = 0; node < numa_nodes; ++node) {
-    ScopedNumaPreferred numa_scope(node);
-    NumaNodeMemory* node_memory = new NumaNodeMemory(engine_, node);
-    node_memories_.push_back(node_memory);
-    CHECK_ERROR(node_memory->initialize());
-    PagePool& pool = node_memory->get_volatile_pool();
-    bases[node] = pool.get_resolver().base_;
-    if (node == 0) {
-      page_offset_begin = pool.get_resolver().begin_;
-      page_offset_end = pool.get_resolver().end_;
-    } else {
-      ASSERT_ND(page_offset_begin == pool.get_resolver().begin_);
-      ASSERT_ND(page_offset_end == pool.get_resolver().end_);
-    }
+    node_memories_.push_back(nullptr);
   }
+
+  // in a big NUMA machine (DragonHawk) the following takes too long to do in one thread.
+  // let's launch a thread for each of them.
+  std::vector<std::thread> init_threads;
+  for (thread::ThreadGroupId node = 0; node < numa_nodes; ++node) {
+    init_threads.push_back(std::thread([this, node, &bases]() {
+      ScopedNumaPreferred numa_scope(node);
+      NumaNodeMemory* node_memory = new NumaNodeMemory(engine_, node);
+      node_memories_[node] = node_memory;
+      COERCE_ERROR(node_memory->initialize());
+      PagePool& pool = node_memory->get_volatile_pool();
+      bases[node] = pool.get_resolver().base_;
+    }));
+  }
+  LOG(INFO) << "Launched threads to initialize node memory. waiting..";
+  for (auto& init_thread : init_threads) {
+    init_thread.join();
+  }
+  LOG(INFO) << "All node memories were initialized!";
+
   global_volatile_page_resolver_ = GlobalVolatilePageResolver(
     bases,
     numa_nodes,
-    page_offset_begin,
-    page_offset_end);
+    node_memories_[0]->get_volatile_pool().get_resolver().begin_,
+    node_memories_[0]->get_volatile_pool().get_resolver().end_);
   return kRetOk;
 }
 
