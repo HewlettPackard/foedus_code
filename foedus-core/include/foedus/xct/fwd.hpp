@@ -12,6 +12,7 @@
 namespace foedus {
 namespace xct {
 struct  LockFreeWriteXctAccess;
+struct  PointerAccess;
 struct  WriteXctAccess;
 class   Xct;
 struct  XctAccess;

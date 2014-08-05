@@ -85,15 +85,14 @@ const uint64_t kMaskInEpochOrder            = 0x0000000FFFFFFFF0ULL;  // ordinal
 const uint64_t kKeylockBit                  = 0x0000000000000008ULL;
 const uint64_t kRangelockBit                = 0x0000000000000004ULL;
 const uint64_t kDeleteBit                   = 0x0000000000000002ULL;
-const uint64_t kLatestBit                   = 0x0000000000000001ULL;
+const uint64_t kMovedBit                    = 0x0000000000000001ULL;
 
 const uint64_t kUnmaskEpoch                 = 0x0000000FFFFFFFFFULL;
 const uint64_t kUnmaskOrdinal               = 0xFFFFFFF0000FFFFFULL;
 const uint64_t kUnmaskThreadId              = 0xFFFFFFFFFFF0000FULL;
-const uint64_t kUnmaskKeylock               = 0xFFFFFFFFFFFFFFF7ULL;
 const uint64_t kUnmaskRangelock             = 0xFFFFFFFFFFFFFFFBULL;
 const uint64_t kUnmaskDelete                = 0xFFFFFFFFFFFFFFFDULL;
-const uint64_t kUnmaskLatest                = 0xFFFFFFFFFFFFFFFEULL;
+const uint64_t kUnmaskMoved                 = 0xFFFFFFFFFFFFFFFEULL;
 const uint64_t kUnmaskStatusBits            = 0xFFFFFFFFFFFFFFF0ULL;
 
 /**
@@ -121,8 +120,8 @@ const uint64_t kUnmaskStatusBits            = 0xFFFFFFFFFFFFFFF0ULL;
  * <tr><td>61</td><td>Key Lock bit</td><td>Lock the key.</td></tr>
  * <tr><td>62</td><td>Range Lock bit</td><td>Lock the interval from the key to next key.</td></tr>
  * <tr><td>63</td><td>Psuedo-delete bit</td><td>Logically delete the key.</td></tr>
- * <tr><td>64</td><td>(Latest bit)</td><td>So far not used. We treat snapshot differently from
- * Silo in this regard. Reserved for future/other use.</td></tr>
+ * <tr><td>64</td><td>Moved bit</td><td>This is used for the Master-tree foster-twin protocol.
+ * when a record is moved from one page to another during split.</td></tr>
  * </table>
  *
  * @par Greater than/Less than as 64-bit integer
@@ -158,7 +157,6 @@ struct XctId {
 
   XctId() : data_(0) {}
   explicit XctId(uint64_t data) : data_(data) {}
-  XctId(const XctId& other) : data_(other.data_) {}
 
   void set_clean(Epoch::EpochInteger epoch_int, uint16_t ordinal, thread::ThreadId thread_id) {
     ASSERT_ND(epoch_int < Epoch::kEpochIntOverflow);
@@ -221,6 +219,9 @@ struct XctId {
   bool operator==(const XctId &other) const ALWAYS_INLINE {
     return data_ == other.data_;
   }
+  bool operator!=(const XctId &other) const ALWAYS_INLINE {
+    return data_ != other.data_;
+  }
 
   /**
    * @brief Kind of std::max(this, other).
@@ -257,7 +258,7 @@ struct XctId {
    */
   void keylock_unconditional() {
     SPINLOCK_WHILE(true) {
-      uint64_t expected = data_ & kUnmaskKeylock;
+      uint64_t expected = data_ & (~kKeylockBit);
       uint64_t desired = expected | kKeylockBit;
       if (assorted::raw_atomic_compare_exchange_weak(&data_, &expected, desired)) {
         ASSERT_ND(is_keylocked());
@@ -265,15 +266,39 @@ struct XctId {
       }
     }
   }
+  /**
+   * Same as keylock_unconditional() except that this gives up if we find a "moved" bit
+   * on. This occasionally happens in the "moved" bit handling due to concurrent split.
+   * If this happens, we rollback.
+   * @return whether we could acquire the lock. The only failure cause is "moved" bit on.
+   */
+  bool keylock_fail_if_moved() {
+    SPINLOCK_WHILE(true) {
+      uint64_t expected = data_ & (~kKeylockBit);
+      if (UNLIKELY(expected & kMovedBit)) {
+        return false;
+      }
+      uint64_t desired = expected | kKeylockBit;
+      if (assorted::raw_atomic_compare_exchange_weak(&data_, &expected, desired)) {
+        ASSERT_ND(is_keylocked());
+        return true;
+      }
+    }
+  }
+
   bool is_keylocked() const ALWAYS_INLINE { return (data_ & kKeylockBit) != 0; }
-  void spin_while_keylocked() const {
-    SPINLOCK_WHILE(is_keylocked()) {
+  XctId spin_while_keylocked() const ALWAYS_INLINE {
+    SPINLOCK_WHILE(true) {
       assorted::memory_fence_acquire();
+      uint64_t copied = data_;
+      if ((copied & kKeylockBit) == 0) {
+        return XctId(copied);
+      }
     }
   }
   void release_keylock() ALWAYS_INLINE {
     ASSERT_ND(is_keylocked());
-    data_ &= kUnmaskKeylock;
+    data_ &= (~kKeylockBit);
   }
 
   void rangelock_unconditional() {
@@ -297,11 +322,15 @@ struct XctId {
     data_ &= kUnmaskRangelock;
   }
 
+  void set_deleted() ALWAYS_INLINE { data_ |= kDeleteBit; }
+  void set_notdeleted() ALWAYS_INLINE { data_ &= (~kDeleteBit); }
+  void set_moved() ALWAYS_INLINE { data_ |= kMovedBit; }
+
   bool is_deleted() const ALWAYS_INLINE { return (data_ & kDeleteBit) != 0; }
-  bool is_latest() const ALWAYS_INLINE { return (data_ & kLatestBit) != 0; }
+  bool is_moved() const ALWAYS_INLINE { return (data_ & kMovedBit) != 0; }
 
   bool is_status_bits_off() const ALWAYS_INLINE {
-    return !is_deleted() && !is_keylocked() && !is_latest() && !is_rangelocked();
+    return !is_deleted() && !is_keylocked() && !is_moved() && !is_rangelocked();
   }
   void clear_status_bits() ALWAYS_INLINE {
     data_ &= kUnmaskStatusBits;

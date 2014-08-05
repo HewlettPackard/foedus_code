@@ -107,9 +107,10 @@ struct HashInsertLogType : public log::RecordLogType {
   void            apply_record(
     thread::Thread* context,
     Storage* storage,
-    Record* record) ALWAYS_INLINE {
+    xct::XctId* owner_id,
+    char* payload) ALWAYS_INLINE {
     ASSERT_ND(dynamic_cast<HashStorage*>(storage));
-    reinterpret_cast<HashStorage*>(storage)->apply_insert_record(context, this, record);
+    reinterpret_cast<HashStorage*>(storage)->apply_insert_record(context, this, owner_id, payload);
   }
 
   void            assert_valid() ALWAYS_INLINE {
@@ -186,9 +187,10 @@ struct HashDeleteLogType : public log::RecordLogType {
   void            apply_record(
     thread::Thread* context,
     Storage* storage,
-    Record* record) ALWAYS_INLINE {
+    xct::XctId* owner_id,
+    char* payload) ALWAYS_INLINE {
     ASSERT_ND(dynamic_cast<HashStorage*>(storage));
-    reinterpret_cast<HashStorage*>(storage)->apply_delete_record(context, this, record);
+    reinterpret_cast<HashStorage*>(storage)->apply_delete_record(context, this, owner_id, payload);
   }
 
   void            assert_valid() ALWAYS_INLINE {
@@ -246,10 +248,11 @@ struct HashOverwriteLogType : public log::RecordLogType {
   void            apply_record(
     thread::Thread* /*context*/,
     Storage* storage,
-    Record* record) ALWAYS_INLINE {
+    xct::XctId* /*owner_id*/,
+    char* payload) ALWAYS_INLINE {
     ASSERT_ND(dynamic_cast<HashStorage*>(storage));
     std::memcpy(
-      record->payload_ + key_length_ + payload_offset_,
+      payload + key_length_ + payload_offset_,
       data_ + key_length_,
       payload_count_);
   }

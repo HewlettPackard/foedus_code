@@ -20,8 +20,7 @@ void HashRootPage::initialize_volatile_page(
     page_id,
     storage_id,
     kHashRootPageType,
-    parent == nullptr,
-    reinterpret_cast<Page*>(parent));
+    parent == nullptr);
 }
 
 }  // namespace hash

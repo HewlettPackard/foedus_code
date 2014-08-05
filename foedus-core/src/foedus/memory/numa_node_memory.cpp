@@ -7,6 +7,10 @@
 #include <numa.h>
 #include <glog/logging.h>
 
+#include <iostream>
+#include <sstream>
+#include <string>
+
 #include "foedus/assert_nd.hpp"
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
@@ -187,6 +191,21 @@ ErrorStack NumaNodeMemory::allocate_numa_memory_general(
     return ERROR_STACK(kErrorCodeOutofmemory);
   }
   return kRetOk;
+}
+
+std::string NumaNodeMemory::dump_free_memory_stat() const {
+  std::stringstream ret;
+  PagePool::Stat volatile_stat = volatile_pool_.get_stat();
+  ret << "    Volatile-Pool: " << volatile_stat.allocated_pages_ << " allocated pages, "
+    << volatile_stat.total_pages_ << " total pages, "
+    << (volatile_stat.total_pages_ - volatile_stat.allocated_pages_) << " free pages"
+    << std::endl;
+  PagePool::Stat snapshot_stat = snapshot_pool_.get_stat();
+  ret << "    Snapshot-Pool: " << snapshot_stat.allocated_pages_ << " allocated pages, "
+    << snapshot_stat.total_pages_ << " total pages, "
+    << (snapshot_stat.total_pages_ - snapshot_stat.allocated_pages_) << " free pages"
+    << std::endl;
+  return ret.str();
 }
 
 }  // namespace memory

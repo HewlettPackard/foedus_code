@@ -247,8 +247,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
       branch_balance_new = branch_balance_old + amount;
       WRAP_ERROR_CODE(branches->overwrite_record_primitive(
         context,
-        &branch_id,
-        sizeof(branch_id),
+        branch_id,
         branch_balance_new,
         0));
     } else {

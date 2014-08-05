@@ -11,6 +11,7 @@
  * Unlike array/seq experiments that use array for main tables, this has an additional
  * populate phase to insert required records.
  * @section RESULTS Latest Results
+ * 8.8 MTPS. 7% CPU costs are in tag-checking.
  */
 #include <atomic>
 #include <chrono>

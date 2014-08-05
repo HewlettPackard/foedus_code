@@ -70,8 +70,7 @@ class ArrayPage final {
     uint16_t payload_size,
     uint8_t level,
     bool    root,
-    const ArrayRange& array_range,
-    ArrayPage* parent);
+    const ArrayRange& array_range);
 
   // Record accesses
   const Record*   get_leaf_record(uint16_t record) const ALWAYS_INLINE {

@@ -36,7 +36,7 @@ void init() {
     EXPECT_FALSE(keys[i].is_valid());
     EXPECT_FALSE(keys[i].is_deleted());
     EXPECT_FALSE(keys[i].is_keylocked());
-    EXPECT_FALSE(keys[i].is_latest());
+    EXPECT_FALSE(keys[i].is_moved());
     EXPECT_FALSE(keys[i].is_rangelocked());
   }
   for (int i = 0; i < kThreads; ++i) {
@@ -61,7 +61,7 @@ TEST(XctIdLockTest, NoConflict) {
     EXPECT_FALSE(keys[i].is_valid());
     EXPECT_FALSE(keys[i].is_deleted());
     EXPECT_TRUE(keys[i].is_keylocked());
-    EXPECT_FALSE(keys[i].is_latest());
+    EXPECT_FALSE(keys[i].is_moved());
     EXPECT_FALSE(keys[i].is_rangelocked());
   }
   for (int i = 0; i < kThreads; ++i) {
@@ -85,7 +85,7 @@ TEST(XctIdLockTest, Conflict) {
     EXPECT_FALSE(keys[i / 2].is_valid());
     EXPECT_FALSE(keys[i / 2].is_deleted());
     EXPECT_TRUE(keys[i / 2].is_keylocked());
-    EXPECT_FALSE(keys[i / 2].is_latest());
+    EXPECT_FALSE(keys[i / 2].is_moved());
     EXPECT_FALSE(keys[i / 2].is_rangelocked());
     if (i % 2 == 0) {
       EXPECT_TRUE(done[i]);
@@ -101,7 +101,7 @@ TEST(XctIdLockTest, Conflict) {
     EXPECT_FALSE(keys[i / 2].is_valid());
     EXPECT_FALSE(keys[i / 2].is_deleted());
     EXPECT_TRUE(keys[i / 2].is_keylocked());
-    EXPECT_FALSE(keys[i / 2].is_latest());
+    EXPECT_FALSE(keys[i / 2].is_moved());
     EXPECT_FALSE(keys[i / 2].is_rangelocked());
     EXPECT_TRUE(done[i]);
   }

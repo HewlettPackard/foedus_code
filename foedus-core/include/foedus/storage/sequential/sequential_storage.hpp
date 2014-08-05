@@ -55,6 +55,16 @@ class SequentialStorage CXX11_FINAL : public virtual Storage {
   bool                exists()    const CXX11_OVERRIDE;
   ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
 
+  // this storage type doesn't use moved bit
+  bool track_moved_record(xct::WriteXctAccess* /*write*/) CXX11_OVERRIDE {
+    ASSERT_ND(false);
+    return false;
+  }
+  xct::XctId* track_moved_record(xct::XctId* /*address*/) CXX11_OVERRIDE {
+    ASSERT_ND(false);
+    return CXX11_NULLPTR;
+  }
+
   /**
    * @brief Append one record to this sequential storage.
    * @param[in] context Thread context

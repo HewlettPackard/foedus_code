@@ -121,6 +121,8 @@ enum StorageType {
  */
 typedef uint32_t Checksum;
 
+const uint8_t kVolatilePointerFlagSwappable = 0x02;
+
 /**
  * @brief Represents a pointer to a volatile page with modification count for preventing ABA.
  * @ingroup STORAGE
@@ -142,6 +144,17 @@ union VolatilePagePointer {
     uint8_t                 flags;
     uint16_t                mod_count;
     memory::PagePoolOffset  offset;
+
+    /**
+     * Whether this volatile page pointer might be dynamically changed except:
+     *  \li null -> valid pointer (installing a new volatile version, this happens anyways)
+     *  \li valid pointer -> null (drop after snapshot thread, which stops the world before it)
+     *
+     * In other words, this flag says whether valid pointer -> another valid pointer can happen.
+     * Such a swap can happen only in root page pointers of \ref MASSTREE so far.
+     * Pointers to the root pages of any layer have this flag on.
+     */
+    bool is_swappable() const { return flags & kVolatilePointerFlagSwappable; }
   } components;
 };
 
@@ -216,6 +229,10 @@ struct DualPagePointer {
       reinterpret_cast<uint64_t*>(this),
       reinterpret_cast<const uint64_t*>(&expected),
       reinterpret_cast<const uint64_t*>(&desired));
+  }
+
+  bool is_both_null() const {
+    return snapshot_pointer_ == 0 && volatile_pointer_.components.offset == 0;
   }
 
   SnapshotPagePointer snapshot_pointer_;

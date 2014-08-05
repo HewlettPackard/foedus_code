@@ -80,6 +80,12 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   template <typename T>
   ErrorCode   increment_record(thread::Thread* context, ArrayOffset offset,
             T* value, uint16_t payload_offset);
+  template <typename T>
+  ErrorCode  increment_record_oneshot(
+    thread::Thread* context,
+    ArrayOffset offset,
+    T value,
+    uint16_t payload_offset);
 
   ErrorCode   lookup_for_read(
     thread::Thread* context,

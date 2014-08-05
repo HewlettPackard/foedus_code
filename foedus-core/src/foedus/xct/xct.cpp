@@ -15,7 +15,6 @@
 #include "foedus/storage/record.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct_access.hpp"
-#include "foedus/xct/xct_inl.hpp"
 #include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
@@ -32,6 +31,8 @@ Xct::Xct(Engine* engine, thread::ThreadId thread_id) : engine_(engine), thread_i
   lock_free_write_set_ = nullptr;
   lock_free_write_set_size_ = 0;
   max_lock_free_write_set_size_ = 0;
+  pointer_set_size_ = 0;
+  page_version_set_size_ = 0;
   isolation_level_ = kSerializable;
 }
 
@@ -49,6 +50,8 @@ void Xct::initialize(thread::ThreadId thread_id, memory::NumaCoreMemory* core_me
   lock_free_write_set_ = core_memory->get_lock_free_write_set_memory();
   lock_free_write_set_size_ = 0;
   max_lock_free_write_set_size_ = core_memory->get_lock_free_write_set_size();
+  pointer_set_size_ = 0;
+  page_version_set_size_ = 0;
 }
 
 void Xct::issue_next_id(Epoch *epoch)  {
@@ -70,8 +73,8 @@ void Xct::issue_next_id(Epoch *epoch)  {
       new_id.store_max(read_set_[i].observed_owner_id_);
     }
     for (uint32_t i = 0; i < write_set_size_; ++i) {
-      ASSERT_ND(write_set_[i].record_->owner_id_.is_keylocked());
-      new_id.store_max(write_set_[i].record_->owner_id_);
+      ASSERT_ND(write_set_[i].owner_id_address_->is_keylocked());
+      new_id.store_max(*(write_set_[i].owner_id_address_));
     }
 
     // Now, is it possible to get an ordinal one larger than this one?
@@ -90,11 +93,7 @@ void Xct::issue_next_id(Epoch *epoch)  {
     new_id.set_ordinal(new_id.get_ordinal() + 1);
     new_id.set_thread_id(thread_id_);
     new_id.clear_status_bits();
-    ASSERT_ND(id_.before(new_id));
-    id_ = new_id;
-    ASSERT_ND(id_.get_ordinal() > 0);
-    ASSERT_ND(id_.is_valid());
-    ASSERT_ND(id_.is_status_bits_off());
+    remember_previous_xct_id(new_id);
     break;
   }
 }
@@ -107,6 +106,8 @@ std::ostream& operator<<(std::ostream& o, const Xct& v) {
       << "<scheme_xct_>" << v.is_schema_xct() << "</scheme_xct_>"
       << "<read_set_size>" << v.get_read_set_size() << "</read_set_size>"
       << "<write_set_size>" << v.get_write_set_size() << "</write_set_size>"
+      << "<pointer_set_size>" << v.get_pointer_set_size() << "</pointer_set_size>"
+      << "<page_version_set_size>" << v.get_page_version_set_size() << "</page_version_set_size>"
       << "<lock_free_write_set_size>" << v.get_lock_free_write_set_size()
         << "</lock_free_write_set_size>";
   }

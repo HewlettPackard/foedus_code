@@ -54,6 +54,16 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
   bool                exists()    const CXX11_OVERRIDE;
   ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
 
+  // this storage type doesn't use moved bit
+  bool track_moved_record(xct::WriteXctAccess* /*write*/) CXX11_OVERRIDE {
+    ASSERT_ND(false);
+    return false;
+  }
+  xct::XctId* track_moved_record(xct::XctId* /*address*/) CXX11_OVERRIDE {
+    ASSERT_ND(false);
+    return CXX11_NULLPTR;
+  }
+
   /**
    * @brief Returns byte size of one record in this array storage without internal overheads.
    * @details
@@ -164,6 +174,27 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
   template <typename T>
   ErrorCode  increment_record(thread::Thread* context, ArrayOffset offset,
             T *value, uint16_t payload_offset);
+
+  /**
+   * @brief This is a faster increment that does not return the value after increment.
+   * @param[in] context Thread context
+   * @param[in] offset The offset in this array
+   * @param[in] value addendum
+   * @param[in] payload_offset We write to this byte position of the record.
+   * @tparam T primitive type. All integers and floats are allowed.
+   * @pre payload_offset + sizeof(T) <= get_payload_size()
+   * @pre offset < get_array_size()
+   * @details
+   * This method is faster than increment_record because it doesn't rely on the current value.
+   * This uses a rare "write-set only" log.
+   * other increments have to check deletion bit at least.
+   */
+  template <typename T>
+  ErrorCode  increment_record_oneshot(
+    thread::Thread* context,
+    ArrayOffset offset,
+    T value,
+    uint16_t payload_offset);
 
   void        describe(std::ostream* o) const CXX11_OVERRIDE;
 

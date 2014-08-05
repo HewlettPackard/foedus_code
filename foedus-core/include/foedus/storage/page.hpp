@@ -7,9 +7,11 @@
 
 #include <cstring>
 
+#include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/thread_id.hpp"
@@ -27,13 +29,168 @@ enum PageType {
   kUnknownPageType = 0,
   kArrayPageType = 1,
   kMasstreeIntermediatePageType = 2,
-  kMasstreeBoundaryPageType = 3,
+  kMasstreeBorderPageType = 3,
   kSequentialPageType = 4,
   kSequentialRootPageType = 5,
   kHashRootPageType = 6,
   kHashBinPageType = 7,
   kHashDataPageType = 8,
 };
+
+// some of them are 64bit uint, so can't use enum.
+const uint64_t  kPageVersionLockedBit    = (1ULL << 63);
+const uint64_t  kPageVersionInsertingBit = (1ULL << 62);
+const uint64_t  kPageVersionSplittingBit = (1ULL << 61);
+const uint64_t  kPageVersionMovedBit   = (1ULL << 60);
+const uint64_t  kPageVersionHasFosterChildBit    = (1ULL << 59);
+const uint64_t  kPageVersionIsSupremumBit  = (1ULL << 58);
+const uint64_t  kPageVersionIsRootBit  = (1ULL << 57);
+const uint64_t  kPageVersionIsRetiredBit  = (1ULL << 56);
+const uint64_t  kPageVersionInsertionCounterMask  = 0x00F8000000000000ULL;
+const uint8_t   kPageVersionInsertionCounterShifts = 51;
+const uint64_t  kPageVersionSplitCounterMask      = 0x0007FFFE00000000ULL;
+const uint8_t   kPageVersionSplitCounterShifts    = 33;
+const uint32_t  kPageVersionKeyCountMask          = 0xFFFF0000U;
+const uint8_t   kPageVersionKeyCountShifts        = 16;
+const uint32_t  kPageVersionLayerMask             = 0x0000FF00U;
+const uint8_t   kPageVersionLayerShifts           = 8;
+
+/**
+ * @brief 64bit in-page version counter and also locking mechanism.
+ * @ingroup STORAGE
+ * @details
+ * Each page has this in the header.
+ * \li bit-0: locked
+ * \li bit-1: inserting
+ * \li bit-2: splitting
+ * \li bit-3: moved
+ * \li bit-4: has_foster_child (same as moved. we should remove this one)
+ * \li bit-5: is_high_fence_supremum
+ * \li bit-6: is_root
+ * \li bit-7: is_retired
+ * \li bit-[8,13): insert counter
+ * \li bit-[13,31): split counter (do we need this much..?)
+ * \li bit-31: unused
+ * \li bit-[32,48): \e physical key count (those keys might be deleted)
+ * \li bit-[48,56): layer (not a mutable property, placed here just to save space)
+ * \li bit-[56,64): unused
+ * Unlike [YANDONG12], this is 64bit to also contain a key count.
+ * We maintain key count and permutation differently from [YANDONG12].
+ *
+ * This object is a POD.
+ * All methods are inlined except stream.
+ */
+struct PageVersion CXX11_FINAL {
+  PageVersion() ALWAYS_INLINE : data_(0) {}
+  explicit PageVersion(uint64_t data) ALWAYS_INLINE : data_(data) {}
+
+  void    set_data(uint64_t data) ALWAYS_INLINE { data_ = data; }
+
+  bool    is_locked() const ALWAYS_INLINE { return data_ & kPageVersionLockedBit; }
+  bool    is_inserting() const ALWAYS_INLINE { return data_ & kPageVersionInsertingBit; }
+  bool    is_splitting() const ALWAYS_INLINE { return data_ & kPageVersionSplittingBit; }
+  bool    is_moved() const ALWAYS_INLINE { return data_ & kPageVersionMovedBit; }
+  bool    is_root() const ALWAYS_INLINE { return data_ & kPageVersionIsRootBit; }
+  bool    is_retired() const ALWAYS_INLINE { return data_ & kPageVersionIsRetiredBit; }
+  bool    has_foster_child() const ALWAYS_INLINE { return data_ & kPageVersionHasFosterChildBit; }
+  bool    is_high_fence_supremum() const ALWAYS_INLINE { return data_ & kPageVersionIsSupremumBit; }
+  uint32_t  get_insert_counter() const ALWAYS_INLINE {
+    return (data_ & kPageVersionInsertionCounterMask) >> kPageVersionInsertionCounterShifts;
+  }
+  uint32_t  get_split_counter() const ALWAYS_INLINE {
+    return (data_ & kPageVersionSplitCounterMask) >> kPageVersionSplitCounterShifts;
+  }
+  uint16_t  get_key_count() const ALWAYS_INLINE {
+    return (data_ & kPageVersionKeyCountMask) >> kPageVersionKeyCountShifts;
+  }
+
+  /** Layer-0 stores the first 8 byte slice, Layer-1 next 8 byte... */
+  uint8_t   get_layer() const ALWAYS_INLINE {
+    return (data_ & kPageVersionLayerMask) >> kPageVersionLayerShifts;
+  }
+
+  void      set_moved() ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    ASSERT_ND(!is_moved());
+    data_ |= kPageVersionMovedBit;
+  }
+  void      set_retired() ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    ASSERT_ND(is_moved());  // we always set moved bit first. retire must happen later.
+    ASSERT_ND(!is_retired());
+    data_ |= kPageVersionIsRetiredBit;
+  }
+  void      set_root(bool root) ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    if (root) {
+      data_ &= ~kPageVersionIsRootBit;
+    } else {
+      data_ |= kPageVersionIsRootBit;
+    }
+  }
+  void      set_inserting() ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    data_ |= kPageVersionInsertingBit;
+  }
+  void      set_inserting_and_increment_key_count() ALWAYS_INLINE {
+    set_inserting();
+    data_ += (1ULL << kPageVersionKeyCountShifts);
+  }
+  void      increment_key_count() ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    data_ += (1ULL << kPageVersionKeyCountShifts);
+    ASSERT_ND(is_locked());
+  }
+  void      set_key_count(uint8_t key_count) ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    data_ = (data_ & (~static_cast<uint64_t>(kPageVersionKeyCountMask)))
+            | (static_cast<uint64_t>(key_count) << kPageVersionKeyCountShifts);
+    ASSERT_ND(get_key_count() == key_count);
+    ASSERT_ND(is_locked());
+  }
+
+  void      set_splitting() ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    data_ |= kPageVersionSplittingBit | kPageVersionInsertingBit;
+  }
+  void      set_has_foster_child(bool has) ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    if (has) {
+      data_ |= kPageVersionHasFosterChildBit;
+    } else {
+      data_ &= ~kPageVersionHasFosterChildBit;
+    }
+  }
+
+  /**
+  * @brief Spins until we observe a non-inserting and non-splitting version.
+  * @return version of this page that wasn't during modification.
+  */
+  PageVersion stable_version() const ALWAYS_INLINE;
+
+  /**
+  * @brief Locks the page, spinning if necessary.
+  * @details
+  * After taking lock, you might want to additionally set inserting/splitting bits.
+  * Those can be done just as a usual write once you get a lock.
+  */
+  void lock_version(bool inserting = false, bool splitting = false) ALWAYS_INLINE;
+
+  /**
+  * @brief Unlocks the given page version, assuming the caller has locked it.
+  * @pre page_version_ & kPageVersionLockedBit (we must have locked it)
+  * @pre this thread locked it (can't check it, but this is the rule)
+  * @return version right after unlocking, which might become soon stale because it's unlocked
+  * @details
+  * This method also takes fences before/after unlock to make it safe.
+  */
+  PageVersion unlock_version() ALWAYS_INLINE;
+
+  friend std::ostream& operator<<(std::ostream& o, const PageVersion& v);
+
+  uint64_t data_;
+};
+STATIC_SIZE_CHECK(sizeof(PageVersion), 8)
 
 /**
  * @brief Just a marker to denote that a memory region represents a data page.
@@ -91,14 +248,9 @@ struct PageHeader CXX11_FINAL {
   Epoch         stat_latest_modify_epoch_;  // +4 -> 24
 
   /**
-   * Pointer to parent page is always only a pointer to a volatile page, not dual pointer.
-   * This is another property that doesn't have permanent meaning.
-   * We don't store the parent pointer in snapshot. Instead, a volatile page always has
-   * a parent pointer that is non-null unless this page is the root.
-   * We drop volatile pages only when we have dropped all volatile pages of its descendants,
-   * so there is no case where this parent pointer becomes invalid in volatile pages.
+   * Used in several storage types as concurrency control mechanism for the page.
    */
-  Page*         volatile_parent_;   // +8  -> 32
+  PageVersion   page_version_;   // +8  -> 32
 
   // No instantiation.
   PageHeader() CXX11_FUNC_DELETE;
@@ -111,8 +263,7 @@ struct PageHeader CXX11_FINAL {
     VolatilePagePointer page_id,
     StorageId storage_id,
     PageType page_type,
-    bool root,
-    Page* parent) ALWAYS_INLINE {
+    bool root) ALWAYS_INLINE {
     page_id_ = page_id.word;
     storage_id_ = storage_id;
     checksum_ = 0;
@@ -121,8 +272,7 @@ struct PageHeader CXX11_FINAL {
     root_ = root;
     stat_latest_modifier_ = 0;
     stat_latest_modify_epoch_ = Epoch();
-    volatile_parent_ = parent;
-    ASSERT_ND((root && parent == CXX11_NULLPTR) || (!root && parent));
+    page_version_.data_ = 0;
   }
 
   inline void init_snapshot(
@@ -138,7 +288,7 @@ struct PageHeader CXX11_FINAL {
     root_ = root;
     stat_latest_modifier_ = 0;
     stat_latest_modify_epoch_ = Epoch();
-    volatile_parent_ = CXX11_NULLPTR;
+    page_version_.data_ = 0;
   }
 };
 
@@ -178,15 +328,15 @@ struct Page CXX11_FINAL {
  * need for lambda.
  */
 struct VolatilePageInitializer {
-  VolatilePageInitializer(StorageId storage_id, PageType page_type, bool root, Page* parent)
-    : storage_id_(storage_id), page_type_(page_type), root_(root), parent_(parent) {
+  VolatilePageInitializer(StorageId storage_id, PageType page_type, bool root)
+    : storage_id_(storage_id), page_type_(page_type), root_(root) {
   }
   // no virtual destructor for better performance. make sure derived class doesn't need
   // any explicit destruction.
 
   inline void initialize(Page* page, VolatilePagePointer page_id) const ALWAYS_INLINE {
     std::memset(page, 0, kPageSize);
-    page->get_header().init_volatile(page_id, storage_id_, page_type_, root_, parent_);
+    page->get_header().init_volatile(page_id, storage_id_, page_type_, root_);
     initialize_more(page);
   }
 
@@ -196,7 +346,6 @@ struct VolatilePageInitializer {
   const StorageId storage_id_;
   const PageType  page_type_;
   const bool      root_;
-  Page* const     parent_;
 };
 
 /**
@@ -207,10 +356,90 @@ struct VolatilePageInitializer {
  */
 struct DummyVolatilePageInitializer CXX11_FINAL : public VolatilePageInitializer {
   DummyVolatilePageInitializer()
-    : VolatilePageInitializer(0, kUnknownPageType, true, CXX11_NULLPTR) {
+    : VolatilePageInitializer(0, kUnknownPageType, true) {
   }
   void initialize_more(Page* /*page*/) const CXX11_OVERRIDE {}
 };
+
+const DummyVolatilePageInitializer kDummyPageInitializer;
+
+inline PageVersion PageVersion::stable_version() const {
+  assorted::memory_fence_acquire();
+  SPINLOCK_WHILE(true) {
+    uint64_t ver = data_;
+    if ((ver & kPageVersionLockedBit) == 0U) {
+      return PageVersion(ver);
+    } else {
+      assorted::memory_fence_acquire();
+    }
+  }
+}
+
+inline void PageVersion::lock_version(bool inserting, bool splitting) {
+  if (splitting) {
+    // when we are splitting, we are anyway affecting all readers. make sure insertion count up too
+    inserting = true;
+  }
+  SPINLOCK_WHILE(true) {
+    uint64_t ver = data_;
+    if (ver & kPageVersionLockedBit) {
+      continue;
+    }
+    uint64_t new_ver = ver | kPageVersionLockedBit;
+    if (inserting) {
+      new_ver |= kPageVersionInsertingBit;
+    }
+    if (splitting) {
+      new_ver |= kPageVersionSplittingBit;
+    }
+    if (assorted::raw_atomic_compare_exchange_strong<uint64_t>(&data_, &ver, new_ver)) {
+      ASSERT_ND(data_ & kPageVersionLockedBit);
+      return;
+    }
+  }
+}
+
+inline PageVersion PageVersion::unlock_version() {
+  uint64_t page_version = data_;
+  ASSERT_ND(page_version & kPageVersionLockedBit);
+  page_version &= ~kPageVersionLockedBit;
+  if ((page_version & kPageVersionInsertingBit) || (page_version & kPageVersionSplittingBit)) {
+    // be careful on wrap around. full counter +1 -> 0
+    if ((page_version & kPageVersionInsertionCounterMask) == kPageVersionInsertionCounterMask) {
+      // full bit -> wrap around
+      page_version ^= kPageVersionInsertionCounterMask;
+    } else {
+      page_version += (1ULL << kPageVersionInsertionCounterShifts);
+    }
+    page_version &= ~kPageVersionInsertingBit;
+  }
+  if (page_version & kPageVersionSplittingBit) {
+    if ((page_version & kPageVersionSplitCounterMask) == kPageVersionSplitCounterMask) {
+      // full bit -> wrap around
+      page_version ^= kPageVersionSplitCounterMask;
+    } else {
+      page_version += (1ULL << kPageVersionSplitCounterShifts);
+    }
+    page_version &= ~kPageVersionSplittingBit;
+  }
+  assorted::memory_fence_release();
+  data_ = page_version;
+  assorted::memory_fence_release();
+  return PageVersion(page_version);
+}
+
+/**
+ * @brief super-dirty way to obtain Page the address belongs to.
+ * @ingroup STORAGE
+ * @details
+ * because all pages are 4kb aligned, we can just divide and multiply.
+ */
+inline Page* to_page(const void* address) {
+  uintptr_t int_address = reinterpret_cast<uintptr_t>(address);
+  uint64_t aligned_address = static_cast<uint64_t>(int_address) / kPageSize * kPageSize;
+  return reinterpret_cast<Page*>(
+    reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(aligned_address)));
+}
 
 }  // namespace storage
 }  // namespace foedus

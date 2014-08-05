@@ -12,8 +12,14 @@
 namespace foedus {
 namespace storage {
 namespace masstree {
+class   MasstreeBorderPage;
 struct  MasstreeCreateLogType;
+class   MasstreeCursor;
+struct  MasstreeDeleteLogType;
+struct  MasstreeInsertLogType;
+class   MasstreeIntermediatePage;
 struct  MasstreeMetadata;
+struct  MasstreeOverwriteLogType;
 class   MasstreePage;
 class   MasstreePartitioner;
 class   MasstreeStorage;

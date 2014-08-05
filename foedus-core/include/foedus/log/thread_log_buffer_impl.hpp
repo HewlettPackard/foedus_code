@@ -64,10 +64,10 @@ class ThreadLogBuffer final : public DefaultInitializable {
     }
   }
   /** Addition operator, considering wrapping around. */
-  static void advance(uint64_t buffer_size, uint64_t *target, uint64_t advance) ALWAYS_INLINE {
+  static void advance(uint64_t buffer_size, uint64_t *target, uint64_t amount) ALWAYS_INLINE {
     ASSERT_ND(*target < buffer_size);
-    ASSERT_ND(advance < buffer_size);
-    *target += advance;
+    ASSERT_ND(amount < buffer_size);
+    *target += amount;
     if (*target >= buffer_size) {
       *target -= buffer_size;
     }
@@ -126,6 +126,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
     } else if (UNLIKELY(
       head_to_tail_distance() + log_length >= buffer_size_safe_)) {
       wait_for_space(log_length);
+      ASSERT_ND(head_to_tail_distance() + log_length < buffer_size_safe_);
     }
     ASSERT_ND(head_to_tail_distance() + log_length < buffer_size_safe_);
     char *buffer = buffer_ + offset_tail_;

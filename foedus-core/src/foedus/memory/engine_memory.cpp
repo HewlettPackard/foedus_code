@@ -8,6 +8,8 @@
 #include <glog/logging.h>
 
 #include <fstream>
+#include <iostream>
+#include <sstream>
 #include <string>
 
 #include "foedus/engine.hpp"
@@ -107,6 +109,20 @@ void EngineMemory::check_transparent_hugepage_setting() const {
     << " Using an old linux without THP reduces our performance up to 30%";
 }
 
+std::string EngineMemory::dump_free_memory_stat() const {
+  std::stringstream ret;
+  ret << "  == Free memory stat ==" << std::endl;
+  thread::ThreadGroupId numa_nodes = engine_->get_options().thread_.group_count_;
+  for (thread::ThreadGroupId node = 0; node < numa_nodes; ++node) {
+    NumaNodeMemory* memory = node_memories_[node];
+    ret << " - Node_" << static_cast<int>(node) << " -" << std::endl;
+    ret << memory->dump_free_memory_stat();
+    if (node + 1U < numa_nodes) {
+      ret << std::endl;
+    }
+  }
+  return ret.str();
+}
 
 }  // namespace memory
 }  // namespace foedus

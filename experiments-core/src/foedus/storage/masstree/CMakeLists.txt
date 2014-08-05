@@ -1,0 +1,2 @@
+add_executable(tpcb_experiment_masstree ${CMAKE_CURRENT_SOURCE_DIR}/tpcb_experiment_masstree.cpp)
+target_link_libraries(tpcb_experiment_masstree ${EXPERIMENT_LIB})

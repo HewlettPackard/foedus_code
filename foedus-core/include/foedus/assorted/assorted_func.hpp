@@ -41,6 +41,12 @@ inline T align(T value) {
 template <typename T> inline T align8(T value) { return align<T, 8>(value); }
 
 /**
+ * 16-alignment.
+ * @ingroup ASSORTED
+ */
+template <typename T> inline T align16(T value) { return align<T, 16>(value); }
+
+/**
  * 64-alignment.
  * @ingroup ASSORTED
  */

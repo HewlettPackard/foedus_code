@@ -84,8 +84,6 @@ class Thread CXX11_FINAL : public virtual Initializable {
   /**
    * @brief Installs a volatile page to the given dual pointer as a copy of the snapshot page.
    * @param[in,out] pointer dual pointer. volatile pointer will be modified.
-   * @param[in] parent_volatile_page Volatile pages maintain parent pointers. This is set
-   * as the parent of the new volatile page.
    * @param[out] installed_page physical pointer to the installed volatile page. This might point
    * to a page installed by a concurrent thread.
    * @pre pointer->snapshot_pointer_ != 0 (this method is for a page that already has snapshot)
@@ -97,7 +95,6 @@ class Thread CXX11_FINAL : public virtual Initializable {
    */
   ErrorCode     install_a_volatile_page(
     storage::DualPagePointer* pointer,
-    storage::Page*  parent_volatile_page,
     storage::Page** installed_page);
 
   /**
@@ -107,14 +104,14 @@ class Thread CXX11_FINAL : public virtual Initializable {
    * seem null, we return null page rather than creating a new volatile page.
    * @param[in] will_modify if true, we always return a non-null volatile page. This is true
    * when we are to modify the page, such as insert/delete.
-   * @param[in] take_node_set_snapshot if true, we add the address of volatile page pointer
-   * to node set when we do not follow a volatile pointer (null or volatile). This is usually true
+   * @param[in] take_ptr_set_snapshot if true, we add the address of volatile page pointer
+   * to ptr set when we do not follow a volatile pointer (null or volatile). This is usually true
    * to make sure we get aware of new page installment by concurrent threads.
-   * If the isolation level is not serializable, we don't take node set anyways.
-   * @param[in] take_node_set_volatile if true, we add the address of volatile page pointer
-   * to node set even when we follow a volatile pointer. This is true only when the storage
+   * If the isolation level is not serializable, we don't take ptr set anyways.
+   * @param[in] take_ptr_set_volatile if true, we add the address of volatile page pointer
+   * to ptr set even when we follow a volatile pointer. This is true only when the storage
    * might have RCU-style page switching (eg Masstree).
-   * If the isolation level is not serializable, we don't take node set anyways.
+   * If the isolation level is not serializable, we don't take ptr set anyways.
    * @param[in,out] pointer the page pointer.
    * @param[out] page the read page.
    * @pre !tolerate_null_pointer || !will_modify (if we are modifying the page, tolerating null
@@ -125,7 +122,7 @@ class Thread CXX11_FINAL : public virtual Initializable {
    * the various arguments), this does a whole lots of things to comply with our commit protocol.
    *
    * Remember that DualPagePointer maintains volatile and snapshot pointers.
-   * We sometimes have to install a new volatile page or add the pointer to node set
+   * We sometimes have to install a new volatile page or add the pointer to ptr set
    * for serializability. That logic is a bit too lengthy method to duplicate in each page
    * type, so generalize it here.
    */
@@ -133,8 +130,8 @@ class Thread CXX11_FINAL : public virtual Initializable {
     const storage::VolatilePageInitializer* page_initializer,
     bool tolerate_null_pointer,
     bool will_modify,
-    bool take_node_set_snapshot,
-    bool take_node_set_volatile,
+    bool take_ptr_set_snapshot,
+    bool take_ptr_set_volatile,
     storage::DualPagePointer* pointer,
     storage::Page** page);
 

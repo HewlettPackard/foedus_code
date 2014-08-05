@@ -24,7 +24,6 @@
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/thread/thread_pool_pimpl.hpp"
-#include "foedus/xct/xct_inl.hpp"
 #include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
@@ -129,9 +128,7 @@ bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
 
 ErrorCode ThreadPimpl::install_a_volatile_page(
   storage::DualPagePointer* pointer,
-  storage::Page*  volatile_parent_page,
   storage::Page** installed_page) {
-  ASSERT_ND(volatile_parent_page == nullptr || !volatile_parent_page->get_header().snapshot_);
   ASSERT_ND(pointer->snapshot_pointer_ != 0);
 
   // copy from snapshot version
@@ -145,11 +142,8 @@ ErrorCode ThreadPimpl::install_a_volatile_page(
   std::memcpy(*installed_page, snapshot_page, storage::kPageSize);
   // We copied from a snapshot page, so the snapshot flag is on.
   ASSERT_ND((*installed_page)->get_header().snapshot_ == false);
-  // This page is a volatile page, so set the snapshot flag off and also set parent.
+  // This page is a volatile page, so set the snapshot flag off.
   (*installed_page)->get_header().snapshot_ = false;
-  (*installed_page)->get_header().volatile_parent_ = volatile_parent_page;
-  ASSERT_ND((*installed_page)->get_header().root_ || volatile_parent_page);
-  ASSERT_ND(!(*installed_page)->get_header().root_ || volatile_parent_page == nullptr);
 
   *installed_page = place_a_new_volatile_page(offset, pointer);
   return kErrorCodeOk;
@@ -198,16 +192,16 @@ ErrorCode Thread::follow_page_pointer(
   const storage::VolatilePageInitializer* page_initializer,
   bool tolerate_null_pointer,
   bool will_modify,
-  bool take_node_set_snapshot,
-  bool take_node_set_volatile,
+  bool take_ptr_set_snapshot,
+  bool take_ptr_set_volatile,
   storage::DualPagePointer* pointer,
   storage::Page** page) {
   return pimpl_->follow_page_pointer(
     page_initializer,
     tolerate_null_pointer,
     will_modify,
-    take_node_set_snapshot,
-    take_node_set_volatile,
+    take_ptr_set_snapshot,
+    take_ptr_set_volatile,
     pointer,
     page);
 }
@@ -216,8 +210,8 @@ ErrorCode ThreadPimpl::follow_page_pointer(
   const storage::VolatilePageInitializer* page_initializer,
   bool tolerate_null_pointer,
   bool will_modify,
-  bool take_node_set_snapshot,
-  bool take_node_set_volatile,
+  bool take_ptr_set_snapshot,
+  bool take_ptr_set_volatile,
   storage::DualPagePointer* pointer,
   storage::Page** page) {
   ASSERT_ND(!tolerate_null_pointer || !will_modify);
@@ -261,7 +255,7 @@ ErrorCode ThreadPimpl::follow_page_pointer(
       }
     } else if (will_modify) {
       // we need a volatile page. so construct it from snapshot
-      CHECK_ERROR_CODE(install_a_volatile_page(pointer, page_initializer->parent_, page));
+      CHECK_ERROR_CODE(install_a_volatile_page(pointer, page));
     } else {
       // otherwise just use snapshot
       CHECK_ERROR_CODE(find_or_read_a_snapshot_page(pointer->snapshot_pointer_, page));
@@ -269,11 +263,11 @@ ErrorCode ThreadPimpl::follow_page_pointer(
     }
   }
 
-  // remember node set if needed
+  // if we follow a snapshot pointer, remember pointer set
   if (current_xct_.get_isolation_level() == xct::kSerializable) {
-    if (((*page == nullptr || followed_snapshot) && take_node_set_snapshot) ||
-        (!followed_snapshot && take_node_set_volatile)) {
-      current_xct_.add_to_node_set(&pointer->volatile_pointer_, volatile_pointer);
+    if (((*page == nullptr || followed_snapshot) && take_ptr_set_snapshot) ||
+        (!followed_snapshot && take_ptr_set_volatile)) {
+      current_xct_.add_to_pointer_set(&pointer->volatile_pointer_, volatile_pointer);
     }
   }
   return kErrorCodeOk;

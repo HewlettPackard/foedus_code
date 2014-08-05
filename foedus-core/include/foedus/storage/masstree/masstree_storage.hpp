@@ -56,6 +56,10 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
   ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
   void       describe(std::ostream* o) const CXX11_OVERRIDE;
 
+  // this storage type does use moved bit. so this is implemented
+  bool                track_moved_record(xct::WriteXctAccess* write) CXX11_OVERRIDE;
+  xct::XctId*         track_moved_record(xct::XctId* address) CXX11_OVERRIDE;
+
   //// Masstree API
 
   // get_record() methods
@@ -63,7 +67,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
   /**
    * @brief Retrieves an entire record of the given key in this Masstree.
    * @param[in] context Thread context
-   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key Arbitrary length of key that is lexicographically (big-endian) evaluated.
    * @param[in] key_length Byte size of key.
    * @param[out] payload Buffer to receive the payload of the record.
    * @param[in,out] payload_capacity [In] Byte size of the payload buffer, [Out] length of
@@ -71,17 +75,13 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
    * @details
    * When payload_capacity is smaller than the actual payload, this method returns
    * kErrorCodeStrTooSmallPayloadBuffer and payload_capacity is set to be the required length.
-   * If that happens, this method does \e NOT add this record to the read set, expecting that
-   * the caller immediatelly calls it again, which does add to the read set.
-   * In other words, "too small buffer" itself is not a transactional information and it might have
-   * a false positive as a rare case.
    *
-   * On the other hand, when the key is not found (kErrorCodeStrKeyNotFound), we add an appropriate
+   * When the key is not found (kErrorCodeStrKeyNotFound), we also add an appropriate
    * record to \e range-lock read set because it is part of a transactional information.
    */
   ErrorCode   get_record(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     void* payload,
     uint16_t* payload_capacity);
@@ -89,7 +89,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
   /**
    * @brief Retrieves a part of the given key in this Masstree.
    * @param[in] context Thread context
-   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key Arbitrary length of key that is lexicographically (big-endian) evaluated.
    * @param[in] key_length Byte size of key.
    * @param[out] payload Buffer to receive the payload of the record.
    * @param[in] payload_offset We copy from this byte position of the record.
@@ -99,7 +99,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
    */
   ErrorCode   get_record_part(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     void* payload,
     uint16_t payload_offset,
@@ -108,7 +108,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
   /**
    * @brief Retrieves a part of the given key in this Masstree as a primitive value.
    * @param[in] context Thread context
-   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key Arbitrary length of key that is lexicographically (big-endian) evaluated.
    * @param[in] key_length Byte size of key.
    * @param[out] payload Receive the payload of the record.
    * @param[in] payload_offset We copy from this byte position of the record.
@@ -119,7 +119,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
   template <typename PAYLOAD>
   ErrorCode   get_record_primitive(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     PAYLOAD* payload,
     uint16_t payload_offset);
@@ -134,7 +134,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
    */
   ErrorCode   get_record_normalized(
     thread::Thread* context,
-    NormalizedPrimitiveKey key,
+    KeySlice key,
     void* payload,
     uint16_t* payload_capacity);
 
@@ -145,7 +145,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
    */
   ErrorCode   get_record_part_normalized(
     thread::Thread* context,
-    NormalizedPrimitiveKey key,
+    KeySlice key,
     void* payload,
     uint16_t payload_offset,
     uint16_t payload_count);
@@ -158,7 +158,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
   template <typename PAYLOAD>
   ErrorCode   get_record_primitive_normalized(
     thread::Thread* context,
-    NormalizedPrimitiveKey key,
+    KeySlice key,
     PAYLOAD* payload,
     uint16_t payload_offset);
 
@@ -167,7 +167,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
   /**
    * @brief Inserts a new record of the given key in this Masstree.
    * @param[in] context Thread context
-   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key Arbitrary length of key that is lexicographically (big-endian) evaluated.
    * @param[in] key_length Byte size of key.
    * @param[in] payload Value to insert.
    * @param[in] payload_count Length of payload.
@@ -177,10 +177,26 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
    */
   ErrorCode   insert_record(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     const void* payload,
     uint16_t payload_count);
+
+  /**
+   * @brief Inserts a new record without payload of the given key in this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key that is lexicographically (big-endian) evaluated.
+   * @param[in] key_length Byte size of key.
+   * @details
+   * If the key already exists, it returns kErrorCodeStrKeyAlreadyExists and also adds the
+   * found record to read set because it is part of transactional information.
+   */
+  ErrorCode   insert_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length) ALWAYS_INLINE {
+      return insert_record(context, key, key_length, CXX11_NULLPTR, 0U);
+  }
 
   /**
    * @brief Inserts a new record of the given primitive key in this Masstree.
@@ -191,36 +207,45 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
    */
   ErrorCode   insert_record_normalized(
     thread::Thread* context,
-    NormalizedPrimitiveKey key,
+    KeySlice key,
     const void* payload,
     uint16_t payload_count);
+
+  /**
+   * @brief Inserts a new record without payload of the given primitive key in this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Primitive key that is evaluated in the primitive type's comparison rule.
+   */
+  ErrorCode   insert_record_normalized(thread::Thread* context, KeySlice key) ALWAYS_INLINE {
+    return insert_record_normalized(context, key, CXX11_NULLPTR, 0U);
+  }
 
   // delete_record() methods
 
   /**
    * @brief Deletes a record of the given key from this Masstree.
    * @param[in] context Thread context
-   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key Arbitrary length of key that is lexicographically (big-endian) evaluated.
    * @param[in] key_length Byte size of key.
    * @details
    * When the key does not exist, it returns kErrorCodeStrKeyNotFound and also adds an appropriate
    * record to \e range-lock read set because it is part of transactional information.
    */
-  ErrorCode   delete_record(thread::Thread* context, const char* key, uint16_t key_length);
+  ErrorCode   delete_record(thread::Thread* context, const void* key, uint16_t key_length);
 
   /**
    * @brief Deletes a record of the given primitive key from this Masstree.
    * @param[in] context Thread context
    * @param[in] key Primitive key that is evaluated in the primitive type's comparison rule.
    */
-  ErrorCode   delete_record_normalized(thread::Thread* context, NormalizedPrimitiveKey key);
+  ErrorCode   delete_record_normalized(thread::Thread* context, KeySlice key);
 
   // overwrite_record() methods
 
   /**
    * @brief Overwrites a part of one record of the given key in this Masstree.
    * @param[in] context Thread context
-   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key Arbitrary length of key that is lexicographically (big-endian) evaluated.
    * @param[in] key_length Byte size of key.
    * @param[in] payload We copy from this buffer. Must be at least payload_count.
    * @param[in] payload_offset We overwrite to this byte position of the record.
@@ -232,7 +257,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
    */
   ErrorCode   overwrite_record(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     const void* payload,
     uint16_t payload_offset,
@@ -241,7 +266,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
   /**
    * @brief Overwrites a part of one record of the given key in this Masstree as a primitive value.
    * @param[in] context Thread context
-   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key Arbitrary length of key that is lexicographically (big-endian) evaluated.
    * @param[in] key_length Byte size of key.
    * @param[in] payload We copy this value.
    * @param[in] payload_offset We overwrite to this byte position of the record.
@@ -252,7 +277,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
   template <typename PAYLOAD>
   ErrorCode   overwrite_record_primitive(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     PAYLOAD payload,
     uint16_t payload_offset);
@@ -268,7 +293,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
    */
   ErrorCode   overwrite_record_normalized(
     thread::Thread* context,
-    NormalizedPrimitiveKey key,
+    KeySlice key,
     const void* payload,
     uint16_t payload_offset,
     uint16_t payload_count);
@@ -282,7 +307,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
   template <typename PAYLOAD>
   ErrorCode   overwrite_record_primitive_normalized(
     thread::Thread* context,
-    NormalizedPrimitiveKey key,
+    KeySlice key,
     PAYLOAD payload,
     uint16_t payload_offset);
 
@@ -293,7 +318,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
    * @brief This one further optimizes overwrite methods for the frequent use
    * case of incrementing some data in primitive type.
    * @param[in] context Thread context
-   * @param[in] key Arbitrary length of key that is lexicographically evaluated.
+   * @param[in] key Arbitrary length of key that is lexicographically (big-endian) evaluated.
    * @param[in] key_length Byte size of key.
    * @param[in,out] value (in) addendum, (out) value after addition.
    * @param[in] payload_offset We overwrite to this byte position of the record.
@@ -304,7 +329,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
   template <typename PAYLOAD>
   ErrorCode   increment_record(
     thread::Thread* context,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     PAYLOAD* value,
     uint16_t payload_offset);
@@ -316,11 +341,14 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
   template <typename PAYLOAD>
   ErrorCode   increment_record_normalized(
     thread::Thread* context,
-    NormalizedPrimitiveKey key,
+    KeySlice key,
     PAYLOAD* value,
     uint16_t payload_offset);
 
   // TODO(Hideaki): Extend/shrink/update methods for payload. A bit faster than delete + insert.
+
+
+  ErrorStack  verify_single_thread(thread::Thread* context);
 
   /** Use this only if you know what you are doing. */
   MasstreeStoragePimpl*  get_pimpl() { return pimpl_; }

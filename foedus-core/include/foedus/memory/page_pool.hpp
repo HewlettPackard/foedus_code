@@ -84,6 +84,11 @@ STATIC_SIZE_CHECK(sizeof(PagePoolOffsetChunk) & (sizeof(PagePoolOffsetChunk) - 1
  */
 class PagePool CXX11_FINAL : public virtual Initializable {
  public:
+  struct Stat {
+    uint64_t total_pages_;
+    uint64_t allocated_pages_;
+  };
+
   PagePool(uint64_t memory_byte_size, uint64_t memory_alignment, thread::ThreadGroupId numa_node);
   ~PagePool();
 
@@ -99,6 +104,7 @@ class PagePool CXX11_FINAL : public virtual Initializable {
   uint64_t              get_memory_byte_size() const;
   uint64_t              get_memory_alignment() const;
   thread::ThreadGroupId get_numa_node() const;
+  Stat                  get_stat() const;
 
   /**
    * @brief Adds the specified number of free pages to the chunk.

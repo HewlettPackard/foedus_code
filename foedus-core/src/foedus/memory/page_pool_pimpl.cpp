@@ -89,7 +89,7 @@ ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* 
   VLOG(0) << "Grabbing " << desired_grab_count << " pages."
     << " free_pool_count_=" << free_pool_count_;
   std::lock_guard<std::mutex> guard(lock_);
-  if (free_pool_count_ == 0) {
+  if (UNLIKELY(free_pool_count_ == 0)) {
     LOG(WARNING) << "No more free pages left in the pool";
     return kErrorCodeMemoryNoFreePages;
   }
@@ -120,7 +120,7 @@ ErrorCode PagePoolPimpl::grab_one(PagePoolOffset *offset) {
   VLOG(0) << "Grabbing just one page. free_pool_count_=" << free_pool_count_;
   *offset = 0;
   std::lock_guard<std::mutex> guard(lock_);
-  if (free_pool_count_ == 0) {
+  if (UNLIKELY(free_pool_count_ == 0)) {
     LOG(WARNING) << "No more free pages left in the pool";
     return kErrorCodeMemoryNoFreePages;
   }
@@ -214,6 +214,13 @@ std::ostream& operator<<(std::ostream& o, const PagePoolPimpl& v) {
     << "<free_pool_count_>" << v.free_pool_count_ << "</free_pool_count_>"
     << "</PagePool>";
   return o;
+}
+
+PagePool::Stat PagePoolPimpl::get_stat() const {
+  PagePool::Stat ret;
+  ret.total_pages_ = pool_size_ - pages_for_free_pool_;
+  ret.allocated_pages_ = ret.total_pages_ - free_pool_count_;
+  return ret;
 }
 
 }  // namespace memory
