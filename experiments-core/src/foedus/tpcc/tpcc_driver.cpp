@@ -34,7 +34,7 @@ DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inse
 DEFINE_int32(payment_remote_percent, 5, "Percent of each payment that is inserted to remote"
   " warehouse. The default value is 5. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
-DEFINE_bool(single_thread_test, true, "Whether to run a single-threaded sanity test.");
+DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
 
 const uint64_t kDurationMicro = 5000000;  // TODO(Hideaki) make it a flag
 

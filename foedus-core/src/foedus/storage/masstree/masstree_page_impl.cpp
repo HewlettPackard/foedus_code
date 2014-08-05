@@ -518,7 +518,6 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   ASSERT_ND(is_locked());
   ASSERT_ND(!is_moved());
   ASSERT_ND(foster_twin_[0] == nullptr && foster_twin_[1] == nullptr);  // same as !is_moved()
-  ASSERT_ND(!trigger_child->is_locked());
   debugging::RdtscWatch watch;
 
   trigger_child->lock();
@@ -871,7 +870,6 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   uint8_t minipage_index,
   uint8_t pointer_index,
   MasstreePage* child) {
-  ASSERT_ND(!is_moved());
   ASSERT_ND(!is_retired());
   MiniPage& minipage = get_minipage(minipage_index);
   ASSERT_ND(minipage.mini_version_.get_key_count() <= kMaxIntermediateMiniSeparators);

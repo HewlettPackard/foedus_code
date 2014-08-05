@@ -71,5 +71,20 @@ TEST(EndiannessTest, ComparisonI32) { test_comparison<int32_t>(); }
 TEST(EndiannessTest, ComparisonI64) { test_comparison<int64_t>(); }
 
 
+TEST(EndiannessTest, Test1) {
+  uint64_t a = 0xf1c4000038000000ULL;
+  uint64_t b = htobe<uint64_t>(a);
+  EXPECT_EQ(0x380000c4f1ULL, b);
+  uint64_t c = htobe<uint64_t>(240518218993ULL);
+  EXPECT_EQ(a, c);
+
+  uint64_t be_slice = assorted::htobe<uint64_t>(240518218993ULL);
+  char be[8];
+  std::memcpy(be, &be_slice, sizeof(uint64_t));
+  uint64_t d = read_bigendian<uint64_t>(be);
+  EXPECT_EQ(240518218993ULL, d);
+}
+
+
 }  // namespace assorted
 }  // namespace foedus

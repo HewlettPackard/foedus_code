@@ -40,6 +40,18 @@ ErrorCode TpccClientTask::do_stock_level(Wid wid) {
   CHECK_ERROR_CODE(cursor.open_normalized(low, high));
   uint16_t s_offset = offsetof(StockData, quantity_);
   while (cursor.is_valid_record()) {
+if (assorted::read_bigendian<Wdol>(cursor.get_key()) < low ||
+    assorted::read_bigendian<Wdol>(cursor.get_key()) >= high) {
+  Wdol ac = assorted::read_bigendian<Wdol>(cursor.get_key());
+  storage::masstree::MasstreeCursor c2(engine_, storages_.orderlines_, context_);
+  CHECK_ERROR_CODE(c2.open_normalized(low, high));
+  Wdol ab = assorted::read_bigendian<Wdol>(c2.get_key());
+  while (c2.is_valid_record()) {
+    Wdol aa = assorted::read_bigendian<Wdol>(c2.get_key());
+    ASSERT_ND(aa >= low);
+    ASSERT_ND(aa < high);
+  }
+}
     ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) >= low);
     ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) < high);
     ASSERT_ND(cursor.get_key_length() == sizeof(Wdol));

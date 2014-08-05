@@ -236,6 +236,7 @@ int main_impl(int argc, char **argv) {
     // = debugging::DebuggingOptions::kDebugLogWarning;
   options.debugging_.verbose_modules_ = "";
   options.debugging_.verbose_log_level_ = -1;
+  options.snapshot_.snapshot_interval_milliseconds_ = 1 << 20;
   options.log_.log_buffer_kb_ = 1 << 20;  // 256MB * 16 cores = 4 GB. nothing.
   options.log_.log_file_size_mb_ = 1 << 10;
   options.memory_.page_pool_size_mb_per_node_ = 1 << 13;  // 8GB per node = 16GB
