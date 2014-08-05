@@ -27,6 +27,13 @@ namespace foedus {
 namespace tpcc {
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
+DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inserted to remote"
+  " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
+  " remote orderline). This corresponds to H-Store's neworder_multip/neworder_multip_mix in"
+  " tpcc.properties.");
+DEFINE_int32(payment_remote_percent, 5, "Percent of each payment that is inserted to remote"
+  " warehouse. The default value is 5. This corresponds to H-Store's payment_multip/"
+  "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, true, "Whether to run a single-threaded sanity test.");
 
 const uint64_t kDurationMicro = 5000000;  // TODO(Hideaki) make it a flag
@@ -49,13 +56,20 @@ TpccDriver::Result TpccDriver::run() {
 
   std::cout << engine_->get_memory_manager().dump_free_memory_stat() << std::endl;
 
+  std::cout << "neworder_remote_percent=" << FLAGS_neworder_remote_percent << std::endl;
+  std::cout << "payment_remote_percent=" << FLAGS_payment_remote_percent << std::endl;
   storages_ = loader.get_storages();
   std::vector< thread::ImpersonateSession > sessions;
   auto& thread_pool = engine_->get_thread_pool();
   for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
     memory::ScopedNumaPreferred scope(node);
     for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
-      clients_.push_back(new TpccClientTask((node << 8U) + ordinal, storages_, &start_rendezvous_));
+      clients_.push_back(new TpccClientTask(
+        (node << 8U) + ordinal,
+        FLAGS_neworder_remote_percent,
+        FLAGS_payment_remote_percent,
+        storages_,
+        &start_rendezvous_));
       sessions.emplace_back(thread_pool.impersonate_on_numa_node(clients_.back(), node));
       if (!sessions.back().is_valid()) {
         COERCE_ERROR(sessions.back().invalid_cause_);

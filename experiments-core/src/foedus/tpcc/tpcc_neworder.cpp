@@ -132,7 +132,7 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
     }
 
     // only 1% has different wid for supplier.
-    bool remote_warehouse = (rnd_.uniform_within(1, 100) <= kNewOrderRemotePercent);
+    bool remote_warehouse = (rnd_.uniform_within(1, 100) <= neworder_remote_percent_);
     uint32_t supply_wid;
     if (remote_warehouse && kWarehouses > 1) {
         supply_wid = rnd_.uniform_within_except(0, kWarehouses - 1, wid);
