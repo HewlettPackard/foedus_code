@@ -139,7 +139,8 @@ struct HashInsertDummyLogType : public log::RecordLogType {
   void            apply_record(
     thread::Thread* context,
     Storage* storage,
-    Record* record) ALWAYS_INLINE {
+    xct::XctId* owner_id,
+    char* payload) ALWAYS_INLINE {
     return;
   }
   void            assert_valid() ALWAYS_INLINE {

@@ -543,7 +543,7 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
       write.payload_address_);
     // For this reason, we put memory_fence_release() between data and owner_id writes.
     assorted::memory_fence_release();
-    ASSERT_ND(write.record_->owner_id_.is_keylocked());
+    ASSERT_ND(write.owner_id_address_->is_keylocked());
     ASSERT_ND(!write.owner_id_address_->get_epoch().is_valid() ||
       write.owner_id_address_->before(new_xct_id));  // ordered correctly?
     // Since we're applying in order, not in sorted order, it's easiest to do unlocks at once after
@@ -555,14 +555,14 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
   // Unlock records all at once // Be careful to only overwrite each record's ID once
   for (uint32_t i = 0; i < write_set_size; ++i) {
     WriteXctAccess& write = sorted_writes[i];  // Use sorted list
-    if (i < write_set_size - 1 && write.record_ == sorted_writes[i + 1].record_) {
+    if (i < write_set_size - 1 && write.owner_id_address_ == sorted_writes[i + 1].owner_id_address_) {
       DVLOG(0) << *context << " Multiple write sets on record "
         << sorted_writes[i].storage_->get_name()
-        << ":" << sorted_writes[i].record_ << ". Unlock at the last one of the write sets";
+        << ":" << sorted_writes[i].owner_id_address_ << ". Unlock at the last one of the write sets";
       // keep the lock for the next write set
     } else {
-      ASSERT_ND(!(write.record_->owner_id_ == new_xct_id));
-      ASSERT_ND(write.record_->owner_id_.is_keylocked());
+      ASSERT_ND(!(*write.owner_id_address_ == new_xct_id));
+      ASSERT_ND(write.owner_id_address_->is_keylocked());
       // this also unlocks
       if (write.owner_id_address_->is_deleted()) {
         // preserve delete-flag set by delete operations (so, the operation should be delete)

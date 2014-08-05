@@ -140,6 +140,7 @@ class InsertAndReadTask : public thread::ImpersonateTask {
     uint16_t data_capacity = sizeof(data2);
     CHECK_ERROR(hash->get_record(context, &key, sizeof(key), &data2, &data_capacity));
     EXPECT_EQ(data, data2);
+    ASSERT_ND(data == data2);
     CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
 
     CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));

@@ -41,7 +41,6 @@ class HashStoragePimpl final : public DefaultInitializable {
   HashStoragePimpl(Engine* engine, HashStorage* holder, const HashMetadata &metadata,
             bool create);
 
-  void aaa(thread::Thread* context);
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 

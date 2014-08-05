@@ -30,8 +30,6 @@ ErrorStack  HashStorage::initialize()              { return pimpl_->initialize()
 ErrorStack  HashStorage::uninitialize()            { return pimpl_->uninitialize(); }
 ErrorStack  HashStorage::create(thread::Thread* context)   { return pimpl_->create(context); }
 
-void HashStorage::aaa(thread::Thread* context) { pimpl_->aaa(context); }
-
 void HashStorage::describe(std::ostream* o_ptr) const {
   std::ostream& o = *o_ptr;
   o << "<HashStorage>"

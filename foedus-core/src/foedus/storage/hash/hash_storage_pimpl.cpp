@@ -130,17 +130,19 @@ ErrorCode HashStorage::increment_record(
 }
 
 void HashStorage::apply_delete_record(
-  thread::Thread* context,
-  const HashDeleteLogType* log_entry,
-  Record* record) {
-  pimpl_->apply_delete_record(context, log_entry, record);
+   thread::Thread* context,
+    const HashDeleteLogType* log_entry,
+    xct::XctId* owner_id,
+    char* payload) {
+  pimpl_->apply_delete_record(context, log_entry, owner_id, payload);
 }
 
 void HashStorage::apply_insert_record(
   thread::Thread* context,
   const HashInsertLogType* log_entry,
-  Record* record) {
-  pimpl_->apply_insert_record(context, log_entry, record);
+    xct::XctId* owner_id,
+    char* payload) {
+  pimpl_->apply_insert_record(context, log_entry, owner_id, payload);
 }
 
 HashStoragePimpl::HashStoragePimpl(Engine* engine, HashStorage* holder,
@@ -396,55 +398,6 @@ ErrorCode HashStoragePimpl::get_record_part(
   }
 }
 
-// Previously used to test for corrupted writes:
-void HashStoragePimpl::aaa(thread::Thread* context) {
-  for (uint64_t i = 0; i < bin_count_; ++i) {
-    uint16_t pointer_index;
-    HashRootPage* boundary = lookup_boundary_root(context, i, &pointer_index);
-    HashBinPage::Initializer initializer(
-      metadata_.id_,
-      boundary,
-      i / kBinsPerPage * kBinsPerPage);
-    HashBinPage* bin_page;
-    COERCE_ERROR_CODE(context->follow_page_pointer(
-      &initializer,
-      true,
-      false,
-      true,
-      false,
-      &(boundary->pointer(pointer_index)),
-      reinterpret_cast<Page**>(&bin_page)));
-    if (bin_page == nullptr) {
-      continue;
-    }
-
-    HashBinPage::Bin& bin = bin_page->bin(pointer_index);
-
-    // obtain data pages, but not read it yet. it's done in locate_record()
-    HashDataPage* data_page;
-    HashDataPage::Initializer initializer2(metadata_.id_, bin_page, i);
-    COERCE_ERROR_CODE(context->follow_page_pointer(
-      &initializer2,
-      true,
-      false,
-      true,
-      false,
-      &(bin.data_pointer_),
-      reinterpret_cast<Page**>(&(data_page))));
-    if (data_page) {
-      // std::cout << "reading data page - bin=" << i << std::endl;
-      // std::cout << "  keys=" << data_page->get_record_count() << ", " << std::endl;
-      for (uint16_t j = 0; j < data_page->get_record_count(); ++j) {
-        const HashDataPage::Slot &slot = data_page->slot(j);
-        if (data_page->interpret_record(slot.offset_)->owner_id_.is_keylocked()) {
-          std::cout << "  wtf.locked(bin=" << i << ") " << j
-            << "/"<< data_page->get_record_count() << std::endl;
-        }
-      }
-    }
-  }
-}
-
 
 ErrorStack HashStoragePimpl::make_room(
   thread::Thread* context,
@@ -623,8 +576,8 @@ ErrorCode HashStoragePimpl::insert_record(
     context->get_thread_log_buffer().reserve_new_log(HashInsertDummyLogType::calculate_log_length()));
   dummy_log->populate(storageid);
   CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, actual_record, dummy_log));
-//  std::cout << "Inserting key " << *(uint64_t*)key
-//    << " with payload " << *((uint64_t*)payload) << std::endl;
+  std::cout << "Inserting key " << *(uint64_t*)key
+    << " with payload " << *((uint64_t*)payload) << std::endl;
   return context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry);
 }
 
@@ -779,24 +732,26 @@ ErrorCode HashStoragePimpl::increment_record(
   return context->get_current_xct().add_to_write_set(holder_, combo.record_, log_entry);
 }
 
-inline HashDataPage* to_page(Record* record) {
+inline HashDataPage* to_page(xct::XctId* owner_id) {
   // super-dirty way to obtain Page the record belongs to.
   // because all pages are 4kb aligned, we can just divide and multiply.
-  uintptr_t int_address = reinterpret_cast<uintptr_t>(reinterpret_cast<void*>(record));
+  uintptr_t int_address = reinterpret_cast<uintptr_t>(reinterpret_cast<void*>(owner_id));
   uint64_t aligned_address = static_cast<uint64_t>(int_address) / kPageSize * kPageSize;
   return reinterpret_cast<HashDataPage*>(
     reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(aligned_address)));
 }
 
+
 void HashStoragePimpl::apply_insert_record(
   thread::Thread* /*context*/,
   const HashInsertLogType* log_entry,
-  Record* record) {
-  HashDataPage* data_page = to_page(record);
-  ASSERT_ND(record->owner_id_.is_keylocked());
+  xct::XctId* owner_id,
+  char* payload) {
+  HashDataPage* data_page = to_page(owner_id);
+  ASSERT_ND(owner_id->is_keylocked());
   ASSERT_ND(!data_page->header().snapshot_);
   uint64_t bin = data_page->get_bin();
-  HashBinPage* bin_page = reinterpret_cast<HashBinPage*>(data_page->header().volatile_parent_);
+  HashBinPage* bin_page = reinterpret_cast<HashBinPage*>(payload);
   ASSERT_ND(bin_page);
   ASSERT_ND(!bin_page->header().snapshot_);
   HashBinPage::Bin& the_bin = bin_page->bin(bin % kBinsPerPage);
@@ -822,12 +777,18 @@ void HashStoragePimpl::apply_insert_record(
 void HashStoragePimpl::apply_delete_record(
   thread::Thread* /*context*/,
   const HashDeleteLogType* log_entry,
-  Record* record) {
-  HashDataPage* data_page = to_page(record);
+  xct::XctId* owner_id,
+  char* payload) {
+  // NOTE tentative hack! currently "payload address" for hash insert write set points to bin page
+  // so that we don't have to calculate it again.
+  HashDataPage* data_page = to_page(owner_id);
   ASSERT_ND(!data_page->header().snapshot_);
+  ASSERT_ND(data_page->header().get_page_type() == kHashDataPageType);
+
   uint64_t bin = data_page->get_bin();
-  HashBinPage* bin_page = reinterpret_cast<HashBinPage*>(data_page->header().volatile_parent_);
+  HashBinPage* bin_page = reinterpret_cast<HashBinPage*>(payload);
   ASSERT_ND(bin_page);
+  ASSERT_ND(bin_page->header().get_page_type() == kHashBinPageType);
   ASSERT_ND(!bin_page->header().snapshot_);
   HashBinPage::Bin& the_bin = bin_page->bin(bin % kBinsPerPage);
 
@@ -838,9 +799,8 @@ void HashStoragePimpl::apply_delete_record(
 
   uint16_t slot = log_entry->slot_;
   // We are deleting this record, so it should be locked
-  ASSERT_ND(data_page->get_record_count() > slot);  // TODO(Hideaki) Why are we asserting this?
-  ASSERT_ND(record == data_page->interpret_record(data_page->slot(slot).offset_));
-  ASSERT_ND(record->owner_id_.is_keylocked());
+  ASSERT_ND(data_page->get_record_count() > slot);
+  ASSERT_ND(data_page->interpret_record(slot)->owner_id_.is_keylocked());
   ASSERT_ND((data_page->slot(slot).flags_ & HashDataPage::kFlagDeleted) == 0);
   data_page->slot(slot).flags_ |= HashDataPage::kFlagDeleted;
 
@@ -849,6 +809,7 @@ void HashStoragePimpl::apply_delete_record(
   assorted::memory_fence_release();
   the_bin.tags_[slot] = 0;
 }
+
 
 
 inline HashRootPage* HashStoragePimpl::lookup_boundary_root(
@@ -914,7 +875,6 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, bool for_write, 
     HashRootPage* boundary = lookup_boundary_root(context, combo->bins_[i], &pointer_index);
     HashBinPage::Initializer initializer(
       metadata_.id_,
-      boundary,
       combo->bins_[i] / kBinsPerPage * kBinsPerPage);
     CHECK_ERROR_CODE(context->follow_page_pointer(
       &initializer,
@@ -952,7 +912,7 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, bool for_write, 
       // obtain data pages, but not read it yet. it's done in locate_record()
       if (combo->hit_bitmap_[i] || for_write) {
         // becauase it's hitting. either page must be non-null
-        HashDataPage::Initializer initializer(metadata_.id_, bin_page, combo->bins_[i]);
+        HashDataPage::Initializer initializer(metadata_.id_, combo->bins_[i]);
         CHECK_ERROR_CODE(context->follow_page_pointer(
           &initializer,
           !for_write,  // tolerate null page for read
@@ -985,7 +945,8 @@ inline ErrorCode HashStoragePimpl::locate_record(
     HashDataPage* data_page = combo->data_pages_[i];
 
     // add page lock for read set. before accessing records
-    current_xct.add_to_read_set(holder_, reinterpret_cast<Record*>(&data_page->page_owner()));
+    current_xct.add_to_read_set(holder_, data_page->page_owner(), &data_page->page_owner());
+      // TODO(Bill) For second paramater, use the first observed id
 
     uint32_t hit_bitmap = combo->hit_bitmap_[i];
     for (uint8_t rec = 0; rec < data_page->get_record_count(); ++rec) {
@@ -1001,7 +962,7 @@ inline ErrorCode HashStoragePimpl::locate_record(
       }
       // TODO(Hideaki) handle kFlagStoredInNextPages.
       Record* record = data_page->interpret_record(slot.offset_);
-      current_xct.add_to_read_set(holder_, record);
+      current_xct.add_to_read_set(holder_, record->owner_id_, &(record->owner_id_));
       if (std::memcmp(record->payload_, key, key_length) == 0) {
         // okay, matched!!
         // once we exactly locate the record, no point to check other records/bin. exit
