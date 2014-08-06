@@ -399,7 +399,7 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
   if (parent_lock->is_moved() || parent->does_point_to_layer(parent_index)) {
     // someone else has also made this to a next layer or the page itself is moved!
     // our effort was a waste, but anyway the goal was achieved.
-    LOG(INFO) << "interesting. a concurrent thread has already made "
+    VLOG(0) << "interesting. a concurrent thread has already made "
       << (parent_lock->is_moved() ? "this page moved" : " it point to next layer");
     memory->release_free_volatile_page(offset);
     parent_lock->release_keylock();
@@ -556,7 +556,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
           CHECK_ERROR_CODE(follow_layer(context, true, border, match.index_, &layer_root));
           break;  // next layer
         } else {
-          LOG(INFO) << "Because of concurrent transaction, we retry the system transaction to"
+          VLOG(0) << "Because of concurrent transaction, we retry the system transaction to"
             << " make the record into a next layer pointer";
           continue;
         }

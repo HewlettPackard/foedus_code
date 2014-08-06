@@ -26,6 +26,8 @@ void TpccClientTask::update_timestring_if_needed() {
   }
 }
 
+const uint32_t kMaxUnexpectedErrors = 1;
+
 ErrorStack TpccClientTask::run(thread::Thread* context) {
   context_ = context;
   engine_ = context->get_engine();
@@ -101,7 +103,7 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
         continue;
       } else {
         increment_unexpected_aborts();
-        if (unexpected_aborts_ > 100U) {
+        if (unexpected_aborts_ >= kMaxUnexpectedErrors) {
           std::cout << "ERROR ERROR: Too many unexpected errors. What's happening?" << std::endl;
           return ERROR_STACK(ret);
         } else {

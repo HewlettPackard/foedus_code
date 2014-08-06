@@ -508,7 +508,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   trigger_child->lock();
   UnlockScope trigger_scope(trigger_child);
   if (trigger_child->is_retired()) {
-    LOG(INFO) << "Interesting. this child is now retired, so someone else has already adopted.";
+    VLOG(0) << "Interesting. this child is now retired, so someone else has already adopted.";
     return kErrorCodeOk;  // fine. the goal is already achieved
   }
 
@@ -828,7 +828,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   lock();
   UnlockScope scope(this);
   if (is_moved()) {
-    LOG(INFO) << "Interesting. concurrent thread has already split this node? retry";
+    VLOG(0) << "Interesting. concurrent thread has already split this node? retry";
     return kErrorCodeOk;
   }
 
@@ -837,7 +837,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   ASSERT_ND(minipage.key_count_ <= kMaxIntermediateMiniSeparators);
   {
     if (minipage_index > key_count || pointer_index > minipage.key_count_) {
-      LOG(INFO) << "Interesting. there seems some change in this interior page. retry adoption";
+      VLOG(0) << "Interesting. there seems some change in this interior page. retry adoption";
       return kErrorCodeOk;
     }
 
@@ -863,7 +863,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
       separator_high = minipage.separators_[pointer_index];
     }
     if (searching_slice < separator_low || searching_slice > separator_high) {
-      LOG(INFO) << "Interesting. there seems some change in this interior page. retry adoption";
+      VLOG(0) << "Interesting. there seems some change in this interior page. retry adoption";
       return kErrorCodeOk;
     }
   }
@@ -898,7 +898,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   // okay, then most likely this is minipage-local. good
   uint8_t mini_key_count = minipage.key_count_;
   if (mini_key_count == kMaxIntermediateMiniSeparators) {
-    LOG(INFO) << "Interesting. concurrent inserts prevented adoption. retry";
+    VLOG(0) << "Interesting. concurrent inserts prevented adoption. retry";
     return kErrorCodeOk;  // retry
   }
 
@@ -907,7 +907,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   {
     UnlockScope scope_child(child);
     if (child->get_version().is_retired()) {
-      LOG(INFO) << "Interesting. concurrent inserts already adopted. retry";
+      VLOG(0) << "Interesting. concurrent inserts already adopted. retry";
       return kErrorCodeOk;  // retry
     }
     // this is guaranteed because these flag are immutable once set.
@@ -984,7 +984,7 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   child->lock(true, true);
   UnlockScope scope_child(child);
   if (child->get_version().is_retired()) {
-    LOG(INFO) << "Interesting. concurrent thread has already adopted? retry";
+    VLOG(0) << "Interesting. concurrent thread has already adopted? retry";
     return;
   }
   ASSERT_ND(child->is_moved());
@@ -1088,7 +1088,7 @@ bool MasstreeBorderPage::track_moved_record(
     if (*located_index == kMaxKeys) {
       // this can happen rarely because we are not doing the stable version trick here.
       // this is rare, so we just abort. no safety violation.
-      LOG(INFO) << "Very interesting. moved record not found due to concurrent updates";
+      VLOG(0) << "Very interesting. moved record not found due to concurrent updates";
       *located_index = cur_page->find_key(keys, slice, suffix, remaining);
       return false;
     } else if (cur_page->remaining_key_length_[*located_index] == kKeyLengthNextLayer &&

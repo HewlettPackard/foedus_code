@@ -278,14 +278,14 @@ ErrorCode MasstreeCursor::proceed_route_intermediate() {
 
       if (forward_cursor_) {
         if (UNLIKELY(next->get_low_fence() != route->latest_separator_)) {
-          LOG(INFO) << "Interesting3A. separator doesn't match. concurrent adoption. local retry.";
+          VLOG(0) << "Interesting3A. separator doesn't match. concurrent adoption. local retry.";
           proceed_route_intermediate_rebase_separator();
           continue;
         }
         new_separator = next->get_high_fence();
       } else {
         if (UNLIKELY(next->get_high_fence() != route->latest_separator_)) {
-          LOG(INFO) << "Interesting3B. separator doesn't match. concurrent adoption. local retry.";
+          VLOG(0) << "Interesting3B. separator doesn't match. concurrent adoption. local retry.";
           proceed_route_intermediate_rebase_separator();
           continue;
         }
@@ -406,7 +406,7 @@ inline ErrorCode MasstreeCursor::proceed_deeper_intermediate() {
     CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, &pointer, &next));
     if (UNLIKELY(next->get_low_fence() != separator_low ||
         next->get_high_fence() != separator_high)) {
-      LOG(INFO) << "Interesting4. first sep doesn't match. concurrent adoption. local retry.";
+      VLOG(0) << "Interesting4. first sep doesn't match. concurrent adoption. local retry.";
       continue;
     } else {
       break;
@@ -993,7 +993,7 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
     KeySlice separator_low, separator_high;
     extract_separators(&separator_low, &separator_high);
     if (UNLIKELY(slice < separator_low || slice > separator_high)) {
-      LOG(INFO) << "Interesting5. separator doesn't match. concurrent adopt. local retry.";
+      VLOG(0) << "Interesting5. separator doesn't match. concurrent adopt. local retry.";
       route->stable_ = cur->get_stable_version();
       continue;
     }
@@ -1010,7 +1010,7 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
     // what this page once covered will be forever reachable from this page.
     if (UNLIKELY(next->get_low_fence() != separator_low ||
         next->get_high_fence() != separator_high)) {
-      LOG(INFO) << "Interesting. separator doesn't match. concurrent adopt. local retry.";
+      VLOG(0) << "Interesting. separator doesn't match. concurrent adopt. local retry.";
       route->stable_ = cur->get_stable_version();
       continue;
     }

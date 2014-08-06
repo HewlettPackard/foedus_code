@@ -30,6 +30,7 @@
 namespace foedus {
 namespace tpcc {
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
+DEFINE_int32(volatile_pool_size, 8, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
@@ -269,7 +270,8 @@ int driver_main(int argc, char **argv) {
 
   options.log_.log_buffer_kb_ = 1 << 18;  // 256MB * 16 cores = 4 GB. nothing.
   options.log_.log_file_size_mb_ = 1 << 10;
-  options.memory_.page_pool_size_mb_per_node_ = 1 << 14;  // 8GB per node = 16GB
+  LOG(INFO) << "volatile_pool_size=" << FLAGS_volatile_pool_size << "GB per NUMA node";
+  options.memory_.page_pool_size_mb_per_node_ = (FLAGS_volatile_pool_size) << 10;
   options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 10;
 
   if (FLAGS_single_thread_test) {
