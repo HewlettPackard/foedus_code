@@ -12,6 +12,7 @@
 #include "foedus/assert_nd.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/engine.hpp"
+#include "foedus/assorted/endianness.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -40,26 +41,37 @@ namespace masstree {
 class MasstreeCursor CXX11_FINAL {
  public:
   struct Route {
+    enum MovedPageSearchStatus {
+      kNotMovedPage = 0,
+      kMovedPageSearchedOne = 1,
+      kMovedPageSearchedBoth = 2,
+    };
     MasstreePage* page_;
     /** version as of getting calculating order_. */
     PageVersion stable_;
-    /** only for interior. */
-    PageVersion stable_mini_;
     /** index in ordered keys. in interior, same. */
     uint8_t index_;
     /** only for interior. */
     uint8_t index_mini_;
     /** same as stable_.get_key_count() */
     uint8_t key_count_;
-    /** same as stable_mini_.get_key_count() */
+    /** only for interior. */
     uint8_t key_count_mini_;
 
-    KeySlice done_upto_;
-
-    uint8_t done_upto_length_;
+    /**
+     * Upto which separator we are done. only for interior.
+     * If forward search, we followed a pointer before this separator.
+     * If backward search, we followed a pointer after this separator.
+     * This is updated whenever we follow a pointer from this interior page,
+     * and used when we have to re-find the separator. In Master-tree, a separator never
+     * disappears from the page, so we can surely find this.
+     */
+    KeySlice latest_separator_;
 
     /** whether page_ is a snapshot page */
     bool    snapshot_;
+    /** only when stable_ indicates that this page is a moved page */
+    MovedPageSearchStatus moved_page_search_status_;
 
     /** only for border. order_[0] is the index of smallest record, [1] second smallest... */
     uint8_t order_[64];
@@ -109,12 +121,32 @@ class MasstreeCursor CXX11_FINAL {
     const char* end_key = CXX11_NULLPTR,
     uint16_t end_key_length = kKeyLengthExtremum,
     bool forward_cursor = true,
-    bool for_writes = true,
+    bool for_writes = false,
     bool begin_inclusive = true,
     bool end_inclusive = false);
 
+  ErrorCode   open_normalized(
+    KeySlice begin_key,
+    KeySlice end_key,
+    bool forward_cursor = true,
+    bool for_writes = false,
+    bool begin_inclusive = true,
+    bool end_inclusive = false) {
+    KeySlice begin_key_be = assorted::htobe<KeySlice>(begin_key);
+    KeySlice end_key_be = assorted::htobe<KeySlice>(end_key);
+    return open(
+      reinterpret_cast<const char*>(&begin_key_be),
+      sizeof(KeySlice),
+      reinterpret_cast<const char*>(&end_key_be),
+      sizeof(KeySlice),
+      forward_cursor,
+      for_writes,
+      begin_inclusive,
+      end_inclusive);
+  }
+
   bool      is_valid_record() const ALWAYS_INLINE {
-    return !reached_end_ && cur_route()->is_valid_record();
+    return route_count_ > 0 && !reached_end_ && cur_route()->is_valid_record();
   }
   const char* get_key() const ALWAYS_INLINE {
     ASSERT_ND(is_valid_record());
@@ -165,7 +197,7 @@ class MasstreeCursor CXX11_FINAL {
   /** If this value is zero, it means supremum. */
   uint16_t    search_key_length_;
   SearchType  search_type_;
-
+  uint8_t     search_key_in_layer_extremum_;
 
   /** number of higher layer pages. the current border page is not included. so, might be 0. */
   uint16_t    route_count_;
@@ -181,14 +213,11 @@ class MasstreeCursor CXX11_FINAL {
   /** full big-endian key of current record. backed by cur_key_memory_offset_  */
   char*       cur_key_;
 
-  /** full payload of current record. backed by cur_payload_memory_offset_  */
-  char*       cur_payload_;
+  /** full payload of current record. Directly points to address in current page */
+  const char* cur_payload_;
 
   /** full big-endian key of current search. backed by search_key_memory_offset_  */
   char*       search_key_;
-
-  /** the current border page. may or maynot be snapshot. */
-  MasstreeBorderPage* cur_page_address_;
 
   /** stable version of teh current border page as of copying cur_page_. */
   PageVersion cur_page_stable_;
@@ -202,9 +231,8 @@ class MasstreeCursor CXX11_FINAL {
   memory::PagePoolOffset cur_payload_memory_offset_;
   memory::PagePoolOffset search_key_memory_offset_;
 
-  ErrorCode push_route(MasstreePage* page, PageVersion* page_version);
+  ErrorCode push_route(MasstreePage* page);
   void      fetch_cur_record(MasstreeBorderPage* page, uint8_t record);
-  void      fetch_cur_payload();
   void      check_end_key();
   KeyCompareResult compare_cur_key_aginst_search_key(KeySlice slice, uint8_t layer) const;
   KeyCompareResult compare_cur_key_aginst_end_key() const;
@@ -217,6 +245,10 @@ class MasstreeCursor CXX11_FINAL {
   uint8_t       get_cur_index() const ALWAYS_INLINE {
     ASSERT_ND(is_valid_record());
     return cur_route()->get_cur_original_index();
+  }
+  MasstreePage* get_cur_page() const ALWAYS_INLINE {
+    ASSERT_ND(is_valid_record());
+    return cur_route()->page_;
   }
 
   Route*        cur_route() ALWAYS_INLINE {
@@ -242,8 +274,8 @@ class MasstreeCursor CXX11_FINAL {
     return end_key_length_ == kKeyLengthExtremum;
   }
 
-  template<typename PAGE_TYPE>
-  ErrorCode follow_foster(KeySlice slice, PAGE_TYPE** cur, PageVersion* version);
+  ErrorCode follow_foster(KeySlice slice);
+  void extract_separators(KeySlice* separator_low, KeySlice* separator_high) const ALWAYS_INLINE;
 
   // locate_xxx is for initial search
   ErrorCode locate_layer(uint8_t layer);
@@ -260,6 +292,37 @@ class MasstreeCursor CXX11_FINAL {
   ErrorCode proceed_deeper();
   ErrorCode proceed_deeper_border();
   ErrorCode proceed_deeper_intermediate();
+  void      proceed_route_intermediate_rebase_separator();
+
+  void assert_modify() const ALWAYS_INLINE {
+#ifndef NDEBUG
+    ASSERT_ND(for_writes_);
+    ASSERT_ND(is_valid_record());
+    ASSERT_ND(!cur_route()->snapshot_);
+    ASSERT_ND(reinterpret_cast<Page*>(get_cur_page())->get_header().get_page_type()
+      == kMasstreeBorderPageType);
+#endif  // NDEBUG
+  }
+  void assert_route() const ALWAYS_INLINE {
+#ifndef NDEBUG
+    for (uint16_t i = 0; i + 1U < route_count_; ++i) {
+      const Route* route = routes_ + i;
+      ASSERT_ND(route->page_);
+      if (route->stable_.has_foster_child()) {
+        // then we don't use any information in this path
+      } else if (reinterpret_cast<Page*>(route->page_)->get_header().get_page_type()
+        == kMasstreeBorderPageType) {
+        ASSERT_ND(route->index_ < kMaxRecords);
+        ASSERT_ND(route->index_ < route->key_count_);
+      } else {
+        ASSERT_ND(route->index_ <= route->key_count_);
+        ASSERT_ND(route->index_ <= kMaxIntermediateSeparators);
+        ASSERT_ND(route->index_mini_ <= route->key_count_mini_);
+        ASSERT_ND(route->index_mini_ <= kMaxIntermediateMiniSeparators);
+      }
+    }
+#endif  // NDEBUG
+  }
 };
 
 }  // namespace masstree

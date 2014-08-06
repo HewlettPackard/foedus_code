@@ -45,6 +45,8 @@ ErrorStack  PagePool::uninitialize() { return pimpl_->uninitialize(); }
 uint64_t    PagePool::get_memory_byte_size() const { return pimpl_->memory_byte_size_; }
 uint64_t    PagePool::get_memory_alignment() const { return pimpl_->memory_alignment_; }
 thread::ThreadGroupId PagePool::get_numa_node() const { return pimpl_->numa_node_; }
+PagePool::Stat PagePool::get_stat() const { return pimpl_->get_stat(); }
+
 
 ErrorCode   PagePool::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chunk) {
   return pimpl_->grab(desired_grab_count, chunk);

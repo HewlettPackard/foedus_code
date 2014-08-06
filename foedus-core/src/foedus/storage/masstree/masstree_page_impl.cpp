@@ -33,7 +33,7 @@ void MasstreePage::initialize_volatile_common(
   KeySlice            high_fence,
   bool                is_high_fence_supremum,
   bool                initially_locked) {
-  std::memset(this, 0, kPageSize);
+  // std::memset(this, 0, kPageSize);  // expensive
   header_.init_volatile(page_id, storage_id, page_type, root_in_layer);
   uint64_t ver = (layer << kPageVersionLayerShifts);
   if (initially_locked) {
@@ -48,6 +48,9 @@ void MasstreePage::initialize_volatile_common(
   header_.page_version_.set_data(ver);
   high_fence_ = high_fence;
   low_fence_ = low_fence;
+  foster_fence_ = low_fence;
+  foster_twin_[0] = nullptr;
+  foster_twin_[1] = nullptr;
   ASSERT_ND(header_.page_version_.get_key_count() == 0);
 }
 
@@ -70,6 +73,9 @@ void MasstreeIntermediatePage::initialize_volatile_page(
     high_fence,
     is_high_fence_supremum,
     initially_locked);
+  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
+    get_minipage(i).key_count_ = 0;
+  }
 }
 
 void MasstreeBorderPage::initialize_volatile_page(
@@ -121,7 +127,7 @@ void MasstreeIntermediatePage::release_pages_recursive(
   ASSERT_ND(key_count <= kMaxIntermediateSeparators);
   for (uint8_t i = 0; i < key_count + 1; ++i) {
     MiniPage& minipage = get_minipage(i);
-    uint16_t mini_count = minipage.mini_version_.get_key_count();
+    uint16_t mini_count = minipage.key_count_;
     ASSERT_ND(mini_count <= kMaxIntermediateMiniSeparators);
     for (uint8_t j = 0; j < mini_count + 1; ++j) {
       VolatilePagePointer& pointer = minipage.pointers_[j].volatile_pointer_;
@@ -170,12 +176,12 @@ void MasstreeBorderPage::release_pages_recursive(
 }
 
 
-void MasstreeBorderPage::copy_initial_record(
+void MasstreeBorderPage::initialize_layer_root(
   const MasstreeBorderPage* copy_from,
   uint8_t copy_index) {
   ASSERT_ND(header_.page_version_.get_key_count() == 0);
   ASSERT_ND(is_locked());
-  ASSERT_ND(copy_from->is_locked());
+  ASSERT_ND(copy_from->get_owner_id(copy_index)->is_keylocked());
   uint8_t parent_key_length = copy_from->remaining_key_length_[copy_index];
   ASSERT_ND(parent_key_length != kKeyLengthNextLayer);
   ASSERT_ND(parent_key_length > sizeof(KeySlice));
@@ -485,24 +491,6 @@ void MasstreeBorderPage::split_foster_migrate_records(
 ///                      Interior node's Split
 ///
 /////////////////////////////////////////////////////////////////////////////////////
-void MasstreeIntermediatePage::init_lock_all_mini() {
-  ASSERT_ND(is_locked());
-  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
-    get_minipage(i).mini_version_.data_ |= (
-      kPageVersionLockedBit |
-      kPageVersionInsertingBit |
-      kPageVersionSplittingBit);
-  }
-}
-void MasstreeIntermediatePage::init_unlock_all_mini() {
-  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
-    get_minipage(i).mini_version_.data_ &= ~(
-      kPageVersionLockedBit |
-      kPageVersionInsertingBit |
-      kPageVersionSplittingBit);
-  }
-}
-
 ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   thread::Thread* context,
   MasstreePage* trigger_child) {
@@ -515,15 +503,17 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   ASSERT_ND(is_locked());
   ASSERT_ND(!is_moved());
   ASSERT_ND(foster_twin_[0] == nullptr && foster_twin_[1] == nullptr);  // same as !is_moved()
-  ASSERT_ND(!trigger_child->is_locked());
   debugging::RdtscWatch watch;
 
   trigger_child->lock();
   UnlockScope trigger_scope(trigger_child);
+  if (trigger_child->is_retired()) {
+    VLOG(0) << "Interesting. this child is now retired, so someone else has already adopted.";
+    return kErrorCodeOk;  // fine. the goal is already achieved
+  }
 
   uint8_t key_count = header_.page_version_.get_key_count();
-  get_version().set_inserting();
-  get_version().set_splitting();
+  ASSERT_ND(key_count == kMaxIntermediateSeparators);
   DVLOG(1) << "Splitting an intermediate page... ";
   verify_separators();
 
@@ -539,17 +529,13 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   }
 
   // from now on no failure possible.
-  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
-    get_minipage(i).mini_version_.lock_version(true, true);
-  }
-
   // it might be a sorted insert.
   KeySlice new_foster_fence;
   bool no_record_split = false;
   const MiniPage& last_minipage = get_minipage(key_count);
   IntermediateSplitStrategy* strategy = nullptr;
-  if (trigger_child->get_foster_fence()
-      > last_minipage.separators_[last_minipage.mini_version_.get_key_count() - 1]) {
+  if (last_minipage.key_count_ > 0 &&
+    trigger_child->get_foster_fence() > last_minipage.separators_[last_minipage.key_count_ - 1]) {
     DVLOG(0) << "Seems like a sequential insert. let's do no-record split";
     no_record_split = true;
     // triggering key as new separator (remember, low-fence is inclusive)
@@ -580,7 +566,6 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
       i == 0 ? false : is_high_fence_supremum(),
       true);  // yes, lock it
     ASSERT_ND(twin[i]->is_locked());
-    twin[i]->init_lock_all_mini();
   }
 
 
@@ -608,8 +593,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
     major_pointer.snapshot_pointer_ = 0;
     major_pointer.volatile_pointer_.word = trigger_child->get_foster_major()->header().page_id_;
     MiniPage& new_minipage = twin[0]->get_minipage(key_count);
-    DualPagePointer& old_pointer = new_minipage.pointers_[
-      new_minipage.mini_version_.get_key_count()];
+    DualPagePointer& old_pointer = new_minipage.pointers_[new_minipage.key_count_];
     ASSERT_ND(context->get_global_volatile_page_resolver().resolve_offset(
       old_pointer.volatile_pointer_) == reinterpret_cast<Page*>(trigger_child));
     old_pointer.snapshot_pointer_ = 0;
@@ -624,13 +608,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   }
 
   for (int i = 0; i < 2; ++i) {
-    twin[i]->init_unlock_all_mini();
     twin[i]->unlock();
-  }
-
-  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
-    get_minipage(i).mini_version_.set_moved();
-    get_minipage(i).mini_version_.unlock_version();
   }
 
   if (no_record_split) {
@@ -659,8 +637,7 @@ void MasstreeIntermediatePage::split_foster_decide_strategy(IntermediateSplitStr
   uint8_t key_count = get_version().get_key_count();
   for (uint8_t i = 0; i <= key_count; ++i) {
     const MiniPage& mini_page = get_minipage(i);
-    ASSERT_ND(mini_page.mini_version_.is_locked());
-    uint8_t separator_count = mini_page.mini_version_.get_key_count();
+    uint8_t separator_count = mini_page.key_count_;
     for (uint8_t j = 0; j < separator_count; ++j) {
       ASSERT_ND(out->total_separator_count_ == 0 ||
         out->separators_[out->total_separator_count_ - 1] < mini_page.separators_[j]);
@@ -700,7 +677,7 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
       separators_[i] = 0;
     }
     MiniPage& minipage = get_minipage(i);
-    minipage.mini_version_.set_key_count(0);
+    minipage.key_count_ = 0;
     for (uint8_t j = 0; j <= kMaxIntermediateMiniSeparators; ++j) {
       if (j < kMaxIntermediateMiniSeparators) {
         minipage.separators_[j] = 0;
@@ -714,8 +691,7 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
   // construct this page. copy the separators and pointers.
   // we distribute them as much as possible in first level. if mini pages have little
   // entries to start with, following adoption would be only local.
-  float entries_per_mini = static_cast<float>(strategy.mid_index_)
-    / (kMaxIntermediateSeparators + 1);
+  float entries_per_mini = static_cast<float>(to - from) / (kMaxIntermediateSeparators + 1);
   ASSERT_ND(to > from);
   const uint16_t move_count = to - from;
 
@@ -725,7 +701,6 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
   uint8_t cur_mini = 0;
   uint8_t cur_mini_separators = 0;
   MiniPage* cur_mini_page = &get_minipage(0);
-  ASSERT_ND(cur_mini_page->mini_version_.is_locked());
   cur_mini_page->pointers_[0] = strategy.pointers_[from];
   ASSERT_ND(!strategy.pointers_[from].is_both_null());
   KeySlice next_separator = strategy.separators_[from];
@@ -735,8 +710,8 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
     ASSERT_ND(!strategy.pointers_[original_index].is_both_null());
     if (i >= next_mini_threshold && cur_mini < kMaxIntermediateSeparators) {
       // switch to next mini page. so, the separator goes to the first level
-      cur_mini_page->mini_version_.set_key_count(cur_mini_separators);  // close the current
-      ASSERT_ND(cur_mini_page->mini_version_.get_key_count() <= kMaxIntermediateMiniSeparators);
+      cur_mini_page->key_count_ = cur_mini_separators;  // close the current
+      ASSERT_ND(cur_mini_page->key_count_ <= kMaxIntermediateMiniSeparators);
 
       separators_[cur_mini] = next_separator;
 
@@ -744,8 +719,6 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
       cur_mini_separators = 0;
       ++cur_mini;
       cur_mini_page = &get_minipage(cur_mini);
-      ASSERT_ND(cur_mini_page->mini_version_.is_locked());
-
       cur_mini_page->pointers_[0] = strategy.pointers_[original_index];
     } else {
       // still the same mini page. so, the separator goes to the second level
@@ -757,8 +730,8 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
     }
     next_separator = strategy.separators_[original_index];
   }
-  cur_mini_page->mini_version_.set_key_count(cur_mini_separators);  // close the last one
-  ASSERT_ND(cur_mini_page->mini_version_.get_key_count() <= kMaxIntermediateMiniSeparators);
+  cur_mini_page->key_count_ = cur_mini_separators;  // close the last one
+  ASSERT_ND(cur_mini_page->key_count_ <= kMaxIntermediateMiniSeparators);
   get_version().set_key_count(cur_mini);
   ASSERT_ND(get_version().get_key_count() <= kMaxIntermediateSeparators);
 
@@ -785,9 +758,9 @@ void MasstreeIntermediatePage::verify_separators() const {
       high = high_fence_;
     }
     const MiniPage& minipage = get_minipage(i);
-    for (uint8_t j = 0; j <= minipage.mini_version_.get_key_count(); ++j) {
+    for (uint8_t j = 0; j <= minipage.key_count_; ++j) {
       ASSERT_ND(!minipage.pointers_[j].is_both_null());
-      if (j < minipage.mini_version_.get_key_count()) {
+      if (j < minipage.key_count_) {
         ASSERT_ND(minipage.separators_[j] > low);
         ASSERT_ND(minipage.separators_[j] < high);
       }
@@ -804,6 +777,8 @@ void MasstreeIntermediatePage::verify_separators() const {
 
 ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
   ASSERT_ND(!header_.snapshot_);
+  ASSERT_ND(!is_moved());
+  ASSERT_ND(!is_retired());
   ASSERT_ND(is_locked());
   debugging::RdtscWatch watch;
 
@@ -817,10 +792,6 @@ ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
   }
 
   // from now on no failure possible.
-  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
-    get_minipage(i).mini_version_.lock_version(true, true);
-  }
-
   // reuse the code of split.
   IntermediateSplitStrategy* strategy =
     reinterpret_cast<IntermediateSplitStrategy*>(
@@ -830,10 +801,6 @@ ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
   // reconstruct this page.
   uint16_t count = strategy->total_separator_count_;
   split_foster_migrate_records(*strategy, 0, count, high_fence_);
-
-  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
-    get_minipage(i).mini_version_.unlock_version();
-  }
 
   watch.stop();
   DVLOG(1) << "Costed " << watch.elapsed() << " cycles to rebalance a node. original"
@@ -854,64 +821,93 @@ ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
 ErrorCode MasstreeIntermediatePage::adopt_from_child(
   thread::Thread* context,
   KeySlice searching_slice,
-  PageVersion cur_stable,
   uint8_t minipage_index,
-  PageVersion mini_stable,
   uint8_t pointer_index,
   MasstreePage* child) {
-  ASSERT_ND(mini_stable.get_key_count() <= kMaxIntermediateMiniSeparators);
-  if (mini_stable.get_key_count() == kMaxIntermediateMiniSeparators) {
+  ASSERT_ND(!is_retired());
+  lock();
+  UnlockScope scope(this);
+  if (is_moved()) {
+    VLOG(0) << "Interesting. concurrent thread has already split this node? retry";
+    return kErrorCodeOk;
+  }
+
+  uint8_t key_count = get_version().get_key_count();
+  MiniPage& minipage = get_minipage(minipage_index);
+  ASSERT_ND(minipage.key_count_ <= kMaxIntermediateMiniSeparators);
+  {
+    if (minipage_index > key_count || pointer_index > minipage.key_count_) {
+      VLOG(0) << "Interesting. there seems some change in this interior page. retry adoption";
+      return kErrorCodeOk;
+    }
+
+    // TODO(Hideaki) let's make this a function.
+    KeySlice separator_low;
+    KeySlice separator_high;
+    if (pointer_index == 0) {
+      if (minipage_index == 0) {
+        separator_low = low_fence_;
+      } else {
+        separator_low = separators_[minipage_index - 1U];
+      }
+    } else {
+      separator_low = minipage.separators_[pointer_index - 1U];
+    }
+    if (pointer_index == minipage.key_count_) {
+      if (minipage_index == key_count) {
+        separator_high = high_fence_;
+      } else {
+        separator_high = separators_[minipage_index];
+      }
+    } else {
+      separator_high = minipage.separators_[pointer_index];
+    }
+    if (searching_slice < separator_low || searching_slice > separator_high) {
+      VLOG(0) << "Interesting. there seems some change in this interior page. retry adoption";
+      return kErrorCodeOk;
+    }
+  }
+
+  if (minipage.key_count_ == kMaxIntermediateMiniSeparators) {
     // oh, then we also have to do rebalance
     // at this point we have to lock the whole page
-    ASSERT_ND(cur_stable.get_key_count() <= kMaxIntermediateSeparators);
-    lock();
-    UnlockScope scope(this);
-    if (get_version().get_split_counter() != cur_stable.get_split_counter()) {
-      LOG(INFO) << "Interesting. concurrent thread has already split the entire node? retry";
-      return kErrorCodeOk;
-    } else if (get_version().get_key_count() == kMaxIntermediateSeparators) {
+    ASSERT_ND(key_count <= kMaxIntermediateSeparators);
+    if (key_count == kMaxIntermediateSeparators) {
       // even that is impossible. let's split the whole page
-      get_version().set_splitting();
       CHECK_ERROR_CODE(split_foster_and_adopt(context, child));
       return kErrorCodeOk;  // retry to re-calculate indexes. it's simpler
     }
 
-    ASSERT_ND(get_version().get_key_count() < kMaxIntermediateSeparators);
+    ASSERT_ND(key_count < kMaxIntermediateSeparators);
     // okay, it's possible to create a new first-level entry.
     // there are a few ways to do this.
     // 1) rebalance the whole page. in many cases this achieves the best layout for upcoming
     // inserts. so basically we do this.
     // 2) append to the end. this is very efficient if the inserts are sorted.
     // quite similar to the "no-record split" optimization in border page.
-    if (get_version().get_key_count() == minipage_index &&
-        mini_stable.get_key_count() == pointer_index) {
+    if (key_count == minipage_index && minipage.key_count_ == pointer_index) {
       // this strongly suggests that it's a sorted insert. let's do that.
-      adopt_from_child_norecord_first_level(minipage_index, mini_stable, child);
+      adopt_from_child_norecord_first_level(minipage_index, child);
     } else {
       // in this case, we locally rebalance.
-      get_version().set_splitting();
       CHECK_ERROR_CODE(local_rebalance(context));
     }
     return kErrorCodeOk;  // retry to re-calculate indexes
   }
 
   // okay, then most likely this is minipage-local. good
-  MiniPage& minipage = get_minipage(minipage_index);
-  minipage.mini_version_.lock_version();
-  UnlockVersionScope mini_scope(&minipage.mini_version_);
-  uint8_t mini_key_count = minipage.mini_version_.get_key_count();
-  if (mini_key_count == kMaxIntermediateMiniSeparators ||
-    minipage.mini_version_.get_split_counter() != mini_stable.get_split_counter()) {
-    LOG(INFO) << "Interesting. concurrent inserts prevented adoption. retry";
+  uint8_t mini_key_count = minipage.key_count_;
+  if (mini_key_count == kMaxIntermediateMiniSeparators) {
+    VLOG(0) << "Interesting. concurrent inserts prevented adoption. retry";
     return kErrorCodeOk;  // retry
   }
 
   // now lock the child.
-  child->lock(true, true);  // TODO(Hideaki) no need for changing split counter?
+  child->lock();
   {
     UnlockScope scope_child(child);
     if (child->get_version().is_retired()) {
-      LOG(INFO) << "Interesting. concurrent inserts already adopted. retry";
+      VLOG(0) << "Interesting. concurrent inserts already adopted. retry";
       return kErrorCodeOk;  // retry
     }
     // this is guaranteed because these flag are immutable once set.
@@ -945,7 +941,6 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
     } else {
       // we have to shift elements.
       DVLOG(1) << "Adopt with splits.";
-      minipage.mini_version_.set_splitting();
       std::memmove(
         minipage.separators_ + pointer_index + 1,
         minipage.separators_ + pointer_index,
@@ -956,8 +951,9 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
         sizeof(DualPagePointer) * (mini_key_count - pointer_index));
     }
 
-    minipage.mini_version_.set_inserting_and_increment_key_count();
-    ASSERT_ND(minipage.mini_version_.get_key_count() == mini_key_count + 1);
+    ++minipage.key_count_;
+    ASSERT_ND(minipage.key_count_ <= kMaxIntermediateMiniSeparators);
+    ASSERT_ND(minipage.key_count_ == mini_key_count + 1);
     ASSERT_ND(!minipage.pointers_[pointer_index].is_both_null());
     minipage.separators_[pointer_index] = new_separator;
     minipage.pointers_[pointer_index + 1].snapshot_pointer_ = 0;
@@ -981,22 +977,14 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
 
 void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   uint8_t minipage_index,
-  PageVersion mini_stable,
   MasstreePage* child) {
   ASSERT_ND(is_locked());
   // note that we have to lock from parent to child. otherwise deadlock possible.
   MiniPage& minipage = get_minipage(minipage_index);
-  minipage.mini_version_.lock_version();
-  UnlockVersionScope mini_scope(&minipage.mini_version_);
-  if (minipage.mini_version_.get_split_counter() != mini_stable.get_split_counter()) {
-    LOG(INFO) << "Interesting. concurrent thread has already split the minipage? retry";
-    return;
-  }
-  ASSERT_ND(minipage.mini_version_.get_key_count() == mini_stable.get_key_count());
   child->lock(true, true);
   UnlockScope scope_child(child);
   if (child->get_version().is_retired()) {
-    LOG(INFO) << "Interesting. concurrent thread has already adopted? retry";
+    VLOG(0) << "Interesting. concurrent thread has already adopted? retry";
     return;
   }
   ASSERT_ND(child->is_moved());
@@ -1020,12 +1008,10 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   major_pointer.word = grandchild_major->header().page_id_;
 
   MiniPage& new_minipage = mini_pages_[minipage_index + 1];
-  new_minipage.mini_version_.lock_version(true, true);
-  UnlockVersionScope new_mini_scope(&(new_minipage.mini_version_));
+  new_minipage.key_count_ = 0;
 
 #ifndef NDEBUG
   // for ease of debugging zero-out the page first (only data part). only for debug build.
-  new_minipage.mini_version_.set_key_count(0);
   for (uint8_t j = 0; j <= kMaxIntermediateMiniSeparators; ++j) {
     if (j < kMaxIntermediateMiniSeparators) {
       new_minipage.separators_[j] = 0;
@@ -1035,12 +1021,12 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   }
 #endif  // NDEBUG
 
-  new_minipage.mini_version_.set_key_count(0);
+  ASSERT_ND(new_minipage.key_count_ == 0);
   new_minipage.pointers_[0].snapshot_pointer_ = 0;
   new_minipage.pointers_[0].volatile_pointer_ = major_pointer;
 
   // also handle foster-twin if it's border page
-  DualPagePointer& old_pointer = minipage.pointers_[mini_stable.get_key_count()];
+  DualPagePointer& old_pointer = minipage.pointers_[minipage.key_count_];
   minor_pointer.components.mod_count = old_pointer.volatile_pointer_.components.mod_count + 1;
   old_pointer.snapshot_pointer_ = 0;
   old_pointer.volatile_pointer_ = minor_pointer;
@@ -1102,14 +1088,15 @@ bool MasstreeBorderPage::track_moved_record(
     if (*located_index == kMaxKeys) {
       // this can happen rarely because we are not doing the stable version trick here.
       // this is rare, so we just abort. no safety violation.
-      LOG(INFO) << "Very interesting. moved record not found due to concurrent updates";
+      VLOG(0) << "Very interesting. moved record not found due to concurrent updates";
       *located_index = cur_page->find_key(keys, slice, suffix, remaining);
       return false;
     } else if (cur_page->remaining_key_length_[*located_index] == kKeyLengthNextLayer &&
       !originally_pointer) {
       // another rare case. the record has been moved to another layer.
       // we can potentially track it, but not worth doing. abort.
-      LOG(INFO) << "Very interesting. moved record are now in another layer";
+      // TODO(Hideaki) we should track even in this case.
+      VLOG(0) << "Interesting. moved record are now in another layer";
       return false;
     }
 

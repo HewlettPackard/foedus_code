@@ -21,6 +21,7 @@
  *
  * @section RESULTS Latest Results
  * 20140521 12M tps
+ * NOTE: tpch_experiment_seq is more appropriate now that we have sequential for history.
  */
 #include <atomic>
 #include <chrono>

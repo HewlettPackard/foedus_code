@@ -87,12 +87,18 @@ struct HistoryData {
   char        other_data_[16];  // just to make it at least 50 bytes
 };
 
+enum AccessorType {
+  kNormal,
+  kPrimitive,
+  kIncrement,
+  kIncrementOneShot,
+};
+
 array::ArrayStorage*  branches      = nullptr;
 array::ArrayStorage*  accounts      = nullptr;
 array::ArrayStorage*  tellers       = nullptr;
 SequentialStorage*    histories     = nullptr;
-bool          use_primitive_accessors = false;
-bool          use_increment = false;
+AccessorType  accessor_type;
 
 /** Creates TPC-B tables and populate with initial records. */
 class CreateTpcbTablesTask : public thread::ImpersonateTask {
@@ -221,12 +227,14 @@ class RunTpcbTask : public thread::ImpersonateTask {
     CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
 
     int64_t branch_balance_old = -1, branch_balance_new;
-    if (use_increment) {
+    if (accessor_type == kIncrement) {
       branch_balance_new = amount;
       CHECK_ERROR(branches->increment_record<int64_t>(context, branch_id,
                               &branch_balance_new, 0));
       branch_balance_old = branch_balance_new - amount;
-    } else if (use_primitive_accessors) {
+    } else if (accessor_type == kIncrementOneShot) {
+      CHECK_ERROR(branches->increment_record_oneshot<int64_t>(context, branch_id, amount, 0));
+    } else if (accessor_type == kPrimitive) {
       CHECK_ERROR(branches->get_record_primitive<int64_t>(context, branch_id,
                                 &branch_balance_old, 0));
       branch_balance_new = branch_balance_old + amount;
@@ -240,18 +248,28 @@ class RunTpcbTask : public thread::ImpersonateTask {
       CHECK_ERROR(branches->overwrite_record(context, branch_id,
                       &branch_balance_new, 0, sizeof(branch_balance_new)));
     }
-    EXPECT_GE(branch_balance_old, 0);
+    if (accessor_type != kIncrementOneShot) {
+      EXPECT_GE(branch_balance_old, 0);
+    }
 
     int64_t teller_balance_old = -1, teller_balance_new;
     uint64_t teller_branch_id = 0;
-    if (use_increment) {
+    if (accessor_type == kIncrement) {
       CHECK_ERROR(tellers->get_record_primitive<uint64_t>(context, teller_id,
                                 &teller_branch_id, 0));
       teller_balance_new = amount;
       CHECK_ERROR(tellers->increment_record<int64_t>(context, teller_id,
                               &teller_balance_new, sizeof(uint64_t)));
       teller_balance_old = teller_balance_new - amount;
-    } else if (use_primitive_accessors) {
+    } else if (accessor_type == kIncrementOneShot) {
+      CHECK_ERROR(tellers->get_record_primitive<uint64_t>(context, teller_id,
+                                &teller_branch_id, 0));
+      CHECK_ERROR(tellers->increment_record_oneshot<int64_t>(
+        context,
+        teller_id,
+        amount,
+        sizeof(uint64_t)));
+    } else if (accessor_type == kPrimitive) {
       CHECK_ERROR(tellers->get_record_primitive<uint64_t>(context, teller_id,
                                 &teller_branch_id, 0));
       CHECK_ERROR(tellers->get_record_primitive<int64_t>(context, teller_id,
@@ -268,19 +286,29 @@ class RunTpcbTask : public thread::ImpersonateTask {
       CHECK_ERROR(tellers->overwrite_record(context, teller_id,
           &teller_balance_new, sizeof(teller.branch_id_), sizeof(teller_balance_new)));
     }
-    EXPECT_GE(teller_balance_old, 0);
+    if (accessor_type != kIncrementOneShot) {
+      EXPECT_GE(teller_balance_old, 0);
+    }
     EXPECT_EQ(branch_id, teller_branch_id);
 
     int64_t account_balance_old = -1, account_balance_new;
     uint64_t account_branch_id = 0;
-    if (use_increment) {
+    if (accessor_type == kIncrement) {
       CHECK_ERROR(accounts->get_record_primitive<uint64_t>(context, account_id,
                             &account_branch_id, 0));
       account_balance_new = amount;
       CHECK_ERROR(accounts->increment_record<int64_t>(context, account_id,
                             &account_balance_new, sizeof(uint64_t)));
       account_balance_old = account_balance_new - amount;
-    } else if (use_primitive_accessors) {
+    } else if (accessor_type == kIncrementOneShot) {
+      CHECK_ERROR(accounts->get_record_primitive<uint64_t>(context, account_id,
+                            &account_branch_id, 0));
+      CHECK_ERROR(accounts->increment_record_oneshot<int64_t>(
+        context,
+        account_id,
+        amount,
+        sizeof(uint64_t)));
+    } else if (accessor_type == kPrimitive) {
       CHECK_ERROR(accounts->get_record_primitive<uint64_t>(context, account_id,
                             &account_branch_id, 0));
       CHECK_ERROR(accounts->get_record_primitive<int64_t>(context, account_id,
@@ -297,7 +325,9 @@ class RunTpcbTask : public thread::ImpersonateTask {
       CHECK_ERROR(accounts->overwrite_record(context, account_id,
           &account_balance_new, sizeof(account.branch_id_), sizeof(account_balance_new)));
     }
-    EXPECT_GE(account_balance_old, 0);
+    if (accessor_type != kIncrementOneShot) {
+      EXPECT_GE(account_balance_old, 0);
+    }
     EXPECT_EQ(branch_id, account_branch_id);
 
     HistoryData history;
@@ -314,13 +344,19 @@ class RunTpcbTask : public thread::ImpersonateTask {
     ASSERT_ND(context->get_current_xct().get_write_set_size() > 0);
     CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
 
-    std::cout << "Committed! Thread-" << context->get_thread_id() << " Updated "
-      << " branch[" << branch_id << "] " << branch_balance_old << " -> " << branch_balance_new
-      << " teller[" << teller_id << "] " << teller_balance_old << " -> " << teller_balance_new
-      << " account[" << account_id << "] " << account_balance_old
-        << " -> " << account_balance_new
-      << " history[" << history_id << "] amount=" << amount
-      << std::endl;
+    if (accessor_type != kIncrementOneShot) {
+      std::cout << "Committed! Thread-" << context->get_thread_id() << " Updated "
+        << " branch[" << branch_id << "] " << branch_balance_old << " -> " << branch_balance_new
+        << " teller[" << teller_id << "] " << teller_balance_old << " -> " << teller_balance_new
+        << " account[" << account_id << "] " << account_balance_old
+          << " -> " << account_balance_new
+        << " history[" << history_id << "] amount=" << amount
+        << std::endl;
+    } else {
+      std::cout << "Committed! Thread-" << context->get_thread_id() << " Updated "
+        << " branch[" << branch_id << "], teller[" << teller_id << "], account[" << account_id
+          << "], history[" << history_id << "]. amount=" << amount << std::endl;
+    }
     highest_commit_epoch->store_max(commit_epoch);
     return kRetOk;
   }
@@ -436,10 +472,8 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
   int clients_;
 };
 
-void multi_thread_test(int thread_count, bool contended,
-             bool use_primitive = false, bool use_inc = false) {
-  use_primitive_accessors = use_primitive;
-  use_increment = use_inc;
+void run_test(int thread_count, bool contended, AccessorType type) {
+  accessor_type = type;
   EngineOptions options = get_tiny_options();
   options.log_.log_buffer_kb_ = 1 << 12;
   options.thread_.group_count_ = 1;
@@ -479,29 +513,37 @@ void multi_thread_test(int thread_count, bool contended,
   cleanup_test(options);
 }
 
-TEST(SequentialTpcbTest, SingleThreadedNoContention) { multi_thread_test(1, false); }
-TEST(SequentialTpcbTest, TwoThreadedNoContention)    { multi_thread_test(2, false); }
-TEST(SequentialTpcbTest, FourThreadedNoContention)   { multi_thread_test(4, false); }
+TEST(SequentialTpcbTest, SingleThreadedNoContention) { run_test(1, false, kNormal); }
+TEST(SequentialTpcbTest, TwoThreadedNoContention)    { run_test(2, false, kNormal); }
+TEST(SequentialTpcbTest, FourThreadedNoContention)   { run_test(4, false, kNormal); }
 
-TEST(SequentialTpcbTest, SingleThreadedContended)    { multi_thread_test(1, true); }
-TEST(SequentialTpcbTest, TwoThreadedContended)       { multi_thread_test(2, true); }
-TEST(SequentialTpcbTest, FourThreadedContended)      { multi_thread_test(4, true); }
+TEST(SequentialTpcbTest, SingleThreadedContended)    { run_test(1, true, kNormal); }
+TEST(SequentialTpcbTest, TwoThreadedContended)       { run_test(2, true, kNormal); }
+TEST(SequentialTpcbTest, FourThreadedContended)      { run_test(4, true, kNormal); }
 
-TEST(SequentialTpcbTest, SingleThreadedNoContentionPrimitive) { multi_thread_test(1, false, true); }
-TEST(SequentialTpcbTest, TwoThreadedNoContentionPrimitive)    { multi_thread_test(2, false, true); }
-TEST(SequentialTpcbTest, FourThreadedNoContentionPrimitive)   { multi_thread_test(4, false, true); }
+TEST(SequentialTpcbTest, SingleThreadedNoContentionPrimitive) { run_test(1, false, kPrimitive); }
+TEST(SequentialTpcbTest, TwoThreadedNoContentionPrimitive)    { run_test(2, false, kPrimitive); }
+TEST(SequentialTpcbTest, FourThreadedNoContentionPrimitive)   { run_test(4, false, kPrimitive); }
 
-TEST(SequentialTpcbTest, SingleThreadedContendedPrimitive)    { multi_thread_test(1, true, true); }
-TEST(SequentialTpcbTest, TwoThreadedContendedPrimitive)       { multi_thread_test(2, true, true); }
-TEST(SequentialTpcbTest, FourThreadedContendedPrimitive)      { multi_thread_test(4, true, true); }
+TEST(SequentialTpcbTest, SingleThreadedContendedPrimitive)    { run_test(1, true, kPrimitive); }
+TEST(SequentialTpcbTest, TwoThreadedContendedPrimitive)       { run_test(2, true, kPrimitive); }
+TEST(SequentialTpcbTest, FourThreadedContendedPrimitive)      { run_test(4, true, kPrimitive); }
 
-TEST(SequentialTpcbTest, SingleThreadedNoContentionInc) { multi_thread_test(1, false, true, true); }
-TEST(SequentialTpcbTest, TwoThreadedNoContentionInc)    { multi_thread_test(2, false, true, true); }
-TEST(SequentialTpcbTest, FourThreadedNoContentionInc)   { multi_thread_test(4, false, true, true); }
+TEST(SequentialTpcbTest, SingleThreadedNoContentionInc) { run_test(1, false, kIncrement); }
+TEST(SequentialTpcbTest, TwoThreadedNoContentionInc)    { run_test(2, false, kIncrement); }
+TEST(SequentialTpcbTest, FourThreadedNoContentionInc)   { run_test(4, false, kIncrement); }
 
-TEST(SequentialTpcbTest, SingleThreadedContendedInc)    { multi_thread_test(1, true, true, true); }
-TEST(SequentialTpcbTest, TwoThreadedContendedInc)       { multi_thread_test(2, true, true, true); }
-TEST(SequentialTpcbTest, FourThreadedContendedInc)      { multi_thread_test(4, true, true, true); }
+TEST(SequentialTpcbTest, SingleThreadedContendedInc)    { run_test(1, true, kIncrement); }
+TEST(SequentialTpcbTest, TwoThreadedContendedInc)       { run_test(2, true, kIncrement); }
+TEST(SequentialTpcbTest, FourThreadedContendedInc)      { run_test(4, true, kIncrement); }
+
+TEST(SequentialTpcbTest, SingleThreadedNoContentionInc1S) { run_test(1, false, kIncrementOneShot); }
+TEST(SequentialTpcbTest, TwoThreadedNoContentionInc1S)    { run_test(2, false, kIncrementOneShot); }
+TEST(SequentialTpcbTest, FourThreadedNoContentionInc1S)   { run_test(4, false, kIncrementOneShot); }
+
+TEST(SequentialTpcbTest, SingleThreadedContendedInc1S)    { run_test(1, true, kIncrementOneShot); }
+TEST(SequentialTpcbTest, TwoThreadedContendedInc1S)       { run_test(2, true, kIncrementOneShot); }
+TEST(SequentialTpcbTest, FourThreadedContendedInc1S)      { run_test(4, true, kIncrementOneShot); }
 }  // namespace sequential
 }  // namespace storage
 }  // namespace foedus

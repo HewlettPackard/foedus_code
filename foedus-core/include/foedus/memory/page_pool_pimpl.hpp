@@ -43,6 +43,7 @@ class PagePoolPimpl final : public DefaultInitializable {
   ErrorCode           grab_one(PagePoolOffset *offset);
   void                release_one(PagePoolOffset offset);
   LocalPageResolver&  get_resolver() { return resolver_; }
+  PagePool::Stat      get_stat() const;
 
   friend std::ostream& operator<<(std::ostream& o, const PagePoolPimpl& v);
 

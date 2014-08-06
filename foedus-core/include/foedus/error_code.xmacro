@@ -94,5 +94,6 @@ X(kErrorCodeXctNoXct,               0x0A04, "XCTION : This thread is not running
 X(kErrorCodeXctRaceAbort,           0x0A05, "XCTION : Aborted a transaction because of a race condition. This is an expected error in highly contended case. You might retry the transaction.")
 X(kErrorCodeXctPageVersionSetOverflow, 0x0A06, "XCTION : Too large page-version set. Consider using snapshot isolation.")
 X(kErrorCodeXctPointerSetOverflow,  0x0A07, "XCTION : Too large pointer-set. Consider using snapshot isolation.")
+X(kErrorCodeXctUserAbort,           0x0A08, "XCTION : User explicitly aborted a transaction.")
 
 X(kErrorCodeDbgGperftools,          0x0B01, "DEBUG  : Gperftools reported an error")

@@ -46,7 +46,7 @@ const uint64_t  kPageVersionHasFosterChildBit    = (1ULL << 59);
 const uint64_t  kPageVersionIsSupremumBit  = (1ULL << 58);
 const uint64_t  kPageVersionIsRootBit  = (1ULL << 57);
 const uint64_t  kPageVersionIsRetiredBit  = (1ULL << 56);
-const uint64_t  kPageVersionInsertionCounterMask  = 0x01F8000000000000ULL;
+const uint64_t  kPageVersionInsertionCounterMask  = 0x00F8000000000000ULL;
 const uint8_t   kPageVersionInsertionCounterShifts = 51;
 const uint64_t  kPageVersionSplitCounterMask      = 0x0007FFFE00000000ULL;
 const uint8_t   kPageVersionSplitCounterShifts    = 33;
@@ -116,6 +116,7 @@ struct PageVersion CXX11_FINAL {
   }
   void      set_retired() ALWAYS_INLINE {
     ASSERT_ND(is_locked());
+    ASSERT_ND(is_moved());  // we always set moved bit first. retire must happen later.
     ASSERT_ND(!is_retired());
     data_ |= kPageVersionIsRetiredBit;
   }
@@ -179,10 +180,11 @@ struct PageVersion CXX11_FINAL {
   * @brief Unlocks the given page version, assuming the caller has locked it.
   * @pre page_version_ & kPageVersionLockedBit (we must have locked it)
   * @pre this thread locked it (can't check it, but this is the rule)
+  * @return version right after unlocking, which might become soon stale because it's unlocked
   * @details
   * This method also takes fences before/after unlock to make it safe.
   */
-  void unlock_version() ALWAYS_INLINE;
+  PageVersion unlock_version() ALWAYS_INLINE;
 
   friend std::ostream& operator<<(std::ostream& o, const PageVersion& v);
 
@@ -365,7 +367,7 @@ inline PageVersion PageVersion::stable_version() const {
   assorted::memory_fence_acquire();
   SPINLOCK_WHILE(true) {
     uint64_t ver = data_;
-    if ((ver & (kPageVersionInsertingBit | kPageVersionSplittingBit)) == 0) {
+    if ((ver & kPageVersionLockedBit) == 0U) {
       return PageVersion(ver);
     } else {
       assorted::memory_fence_acquire();
@@ -397,25 +399,32 @@ inline void PageVersion::lock_version(bool inserting, bool splitting) {
   }
 }
 
-inline void PageVersion::unlock_version() {
+inline PageVersion PageVersion::unlock_version() {
   uint64_t page_version = data_;
   ASSERT_ND(page_version & kPageVersionLockedBit);
   page_version &= ~kPageVersionLockedBit;
   if ((page_version & kPageVersionInsertingBit) || (page_version & kPageVersionSplittingBit)) {
-    uint64_t insertion_counter = page_version & kPageVersionInsertionCounterMask;
-    insertion_counter += (1ULL << kPageVersionInsertionCounterShifts);
-    page_version = (page_version & ~kPageVersionInsertionCounterMask) | insertion_counter;
+    // be careful on wrap around. full counter +1 -> 0
+    if ((page_version & kPageVersionInsertionCounterMask) == kPageVersionInsertionCounterMask) {
+      // full bit -> wrap around
+      page_version ^= kPageVersionInsertionCounterMask;
+    } else {
+      page_version += (1ULL << kPageVersionInsertionCounterShifts);
+    }
     page_version &= ~kPageVersionInsertingBit;
   }
   if (page_version & kPageVersionSplittingBit) {
-    uint64_t split_counter = page_version & kPageVersionSplitCounterMask;
-    split_counter += (1ULL << kPageVersionSplitCounterShifts);
-    page_version = (page_version & ~kPageVersionSplitCounterMask) | split_counter;
+    if ((page_version & kPageVersionSplitCounterMask) == kPageVersionSplitCounterMask) {
+      // full bit -> wrap around
+      page_version ^= kPageVersionSplitCounterMask;
+    } else {
+      page_version += (1ULL << kPageVersionSplitCounterShifts);
+    }
     page_version &= ~kPageVersionSplittingBit;
   }
   assorted::memory_fence_release();
   data_ = page_version;
-  assorted::memory_fence_release();
+  return PageVersion(page_version);
 }
 
 /**

@@ -4,6 +4,8 @@
  */
 #ifndef FOEDUS_MEMORY_ENGINE_MEMORY_HPP_
 #define FOEDUS_MEMORY_ENGINE_MEMORY_HPP_
+
+#include <string>
 #include <vector>
 
 #include "foedus/assert_nd.hpp"
@@ -48,6 +50,9 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
     return node_memories_[group];
   }
   NumaCoreMemory* get_core_memory(foedus::thread::ThreadId id) const;
+
+  /** Report rough statistics of free memory */
+  std::string     dump_free_memory_stat() const;
 
   /**
    * Returns the page resolver to convert volatile page ID to page pointer.

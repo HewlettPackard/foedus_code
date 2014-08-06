@@ -175,6 +175,27 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
   ErrorCode  increment_record(thread::Thread* context, ArrayOffset offset,
             T *value, uint16_t payload_offset);
 
+  /**
+   * @brief This is a faster increment that does not return the value after increment.
+   * @param[in] context Thread context
+   * @param[in] offset The offset in this array
+   * @param[in] value addendum
+   * @param[in] payload_offset We write to this byte position of the record.
+   * @tparam T primitive type. All integers and floats are allowed.
+   * @pre payload_offset + sizeof(T) <= get_payload_size()
+   * @pre offset < get_array_size()
+   * @details
+   * This method is faster than increment_record because it doesn't rely on the current value.
+   * This uses a rare "write-set only" log.
+   * other increments have to check deletion bit at least.
+   */
+  template <typename T>
+  ErrorCode  increment_record_oneshot(
+    thread::Thread* context,
+    ArrayOffset offset,
+    T value,
+    uint16_t payload_offset);
+
   void        describe(std::ostream* o) const CXX11_OVERRIDE;
 
   /** Use this only if you know what you are doing. */

@@ -4,6 +4,8 @@
  */
 #ifndef FOEDUS_MEMORY_NUMA_NODE_MEMORY_HPP_
 #define FOEDUS_MEMORY_NUMA_NODE_MEMORY_HPP_
+
+#include <string>
 #include <vector>
 
 #include "foedus/cxx11.hpp"
@@ -98,6 +100,9 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   AlignedMemorySlice get_log_buffer_memory_piece(log::LoggerId logger) {
     return log_buffer_memory_pieces_[logger];
   }
+
+  /** Report rough statistics of free memory */
+  std::string         dump_free_memory_stat() const;
 
  private:
   /** initialize read-set and write-set memory. */

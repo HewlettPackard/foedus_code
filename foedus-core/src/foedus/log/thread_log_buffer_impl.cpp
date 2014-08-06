@@ -96,6 +96,7 @@ void ThreadLogBuffer::wait_for_space(uint16_t required_space) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
   }
+  ASSERT_ND(head_to_tail_distance() + required_space < buffer_size_safe_);
 }
 
 void ThreadLogBuffer::fillup_tail() {

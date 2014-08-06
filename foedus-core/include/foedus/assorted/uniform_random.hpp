@@ -4,8 +4,10 @@
  */
 #ifndef FOEDUS_ASSORTED_UNIFORM_RANDOM_HPP_
 #define FOEDUS_ASSORTED_UNIFORM_RANDOM_HPP_
+
 #include <stdint.h>
 
+#include "foedus/assert_nd.hpp"
 #include "foedus/memory/fwd.hpp"
 
 namespace foedus {
@@ -27,6 +29,10 @@ class UniformRandom {
    * NOTE both from and to are _inclusive_.
    */
   uint32_t uniform_within(uint32_t from, uint32_t to) {
+    ASSERT_ND(from <= to);
+    if (from == to) {
+      return from;
+    }
     return from + (next_uint32() % (to - from + 1));
   }
   /**
