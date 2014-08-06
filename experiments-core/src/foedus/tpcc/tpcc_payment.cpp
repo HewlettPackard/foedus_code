@@ -24,8 +24,8 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   Wid wid;
   Did did;
   const bool remote_warehouse = rnd_.uniform_within(1, 100) <= payment_remote_percent_;
-  if (remote_warehouse) {
-    wid = rnd_.uniform_within_except(0, kWarehouses - 1, c_wid);
+  if (remote_warehouse && total_warehouses_ > 1U) {
+    wid = rnd_.uniform_within_except(0, total_warehouses_ - 1, c_wid);
     did = rnd_.uniform_within(0, kDistricts - 1);  // re-draw did.
   } else {
     wid = c_wid;

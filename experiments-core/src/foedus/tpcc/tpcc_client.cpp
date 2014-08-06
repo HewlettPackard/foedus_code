@@ -4,7 +4,8 @@
  */
 #include "foedus/tpcc/tpcc_client.hpp"
 
-#include <iostream>
+#include <glog/logging.h>
+
 #include <string>
 
 #include "foedus/assert_nd.hpp"
@@ -43,11 +44,12 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
   xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
 
   start_rendezvous_->wait();
-  std::cout << "TPCC Client-" << worker_id_ << " started working!" << std::endl;
+  LOG(INFO) << "TPCC Client-" << worker_id_ << " started working! home wid="
+    << from_wid_ << "-" << to_wid_;
 
   while (!stop_requrested_) {
     // currently we change wid for each transaction.
-    Wid wid = rnd_.uniform_within(0, kWarehouses - 1);
+    Wid wid = to_wid_ <= from_wid_ ? from_wid_ : rnd_.uniform_within(from_wid_, to_wid_ - 1);
     uint16_t transaction_type = rnd_.uniform_within(1, 100);
     // remember the random seed to repeat the same transaction on abort/retry.
     uint64_t rnd_seed = rnd_.get_current_seed();
@@ -85,8 +87,8 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
       } else if (ret != kErrorCodeOk) {
         WRAP_ERROR_CODE(xct_manager.abort_xct(context));
         increment_unexpected_aborts();
-        if (unexpected_aborts_ > 100U) {
-          std::cout << "ERROR ERROR: Too many unexpected errors. What's happening?" << std::endl;
+        if (unexpected_aborts_ > kMaxUnexpectedErrors) {
+          LOG(ERROR) << "Too many unexpected errors. What's happening?";
           return ERROR_STACK(ret);
         } else {
           continue;
@@ -104,7 +106,7 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
       } else {
         increment_unexpected_aborts();
         if (unexpected_aborts_ >= kMaxUnexpectedErrors) {
-          std::cout << "ERROR ERROR: Too many unexpected errors. What's happening?" << std::endl;
+          LOG(ERROR) << "Too many unexpected errors. What's happening?";
           return ERROR_STACK(ret);
         } else {
           continue;

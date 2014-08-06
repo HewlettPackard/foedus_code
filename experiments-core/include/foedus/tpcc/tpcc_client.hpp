@@ -43,11 +43,17 @@ class TpccClientTask : public thread::ImpersonateTask {
   };
   TpccClientTask(
     uint32_t worker_id,
+    Wid total_warehouses,
+    Wid from_wid,
+    Wid to_wid,
     uint16_t neworder_remote_percent,
     uint16_t payment_remote_percent,
     TpccStorages storages,
     thread::Rendezvous* start_rendezvous)
     : worker_id_(worker_id),
+      total_warehouses_(total_warehouses),
+      from_wid_(from_wid),
+      to_wid_(to_wid),
       neworder_remote_percent_(neworder_remote_percent),
       payment_remote_percent_(payment_remote_percent),
       rnd_(kRandomSeed + worker_id),
@@ -76,6 +82,12 @@ class TpccClientTask : public thread::ImpersonateTask {
  private:
   /** unique ID of this worker from 0 to #workers-1. */
   const uint32_t    worker_id_;
+  const Wid         total_warehouses_;
+
+  /** inclusive beginning of "home" wid */
+  const Wid from_wid_;
+  /** exclusive end of "home" wid */
+  const Wid to_wid_;
 
   thread::Rendezvous* start_rendezvous_;
 
@@ -185,7 +197,9 @@ class TpccClientTask : public thread::ImpersonateTask {
   ErrorCode pop_neworder(Wid wid, Did did, Oid* oid);
 
   Did get_random_district_id() ALWAYS_INLINE { return rnd_.uniform_within(0, kDistricts - 1); }
-  Wid get_random_warehouse_id() ALWAYS_INLINE { return rnd_.uniform_within(0, kWarehouses - 1); }
+  Wid get_random_warehouse_id() ALWAYS_INLINE {
+    return rnd_.uniform_within(0, total_warehouses_ - 1);
+  }
 };
 }  // namespace tpcc
 }  // namespace foedus

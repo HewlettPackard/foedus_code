@@ -18,7 +18,10 @@ namespace foedus {
 namespace tpcc {
 
 /** Number of warehouses. Does not grow dynamically */
-const uint16_t kWarehouses = 100U;
+// const uint16_t kWarehouses = 16U;
+// kWarehouses is now a program parameter. See tpcc_driver
+/** Maximum number of warehouses. */
+const uint16_t kMaxWarehouses = (1U << 10);
 
 /** Number of items per warehouse. Does not grow dynamically  */
 const uint32_t kItems = 100000U;

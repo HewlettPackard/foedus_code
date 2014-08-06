@@ -26,12 +26,14 @@ namespace tpcc {
  */
 class TpccCreateTask : public thread::ImpersonateTask {
  public:
+  explicit TpccCreateTask(Wid total_warehouses) : total_warehouses_(total_warehouses) {}
   ErrorStack          run(thread::Thread* context);
 
   const TpccStorages& get_storages() const { return storages_; }
 
  private:
-  TpccStorages storages_;
+  const Wid     total_warehouses_;
+  TpccStorages  storages_;
 
   ErrorStack create_array(
     thread::Thread* context,
@@ -53,10 +55,12 @@ class TpccCreateTask : public thread::ImpersonateTask {
  */
 class TpccFinishupTask : public thread::ImpersonateTask {
  public:
-  explicit TpccFinishupTask(const TpccStorages& storages) : storages_(storages) {}
+  explicit TpccFinishupTask(Wid total_warehouses, const TpccStorages& storages)
+    : total_warehouses_(total_warehouses), storages_(storages) {}
   ErrorStack          run(thread::Thread* context);
 
  private:
+  const Wid total_warehouses_;
   const TpccStorages storages_;
 };
 /**
@@ -70,13 +74,15 @@ class TpccFinishupTask : public thread::ImpersonateTask {
 class TpccLoadTask : public thread::ImpersonateTask {
  public:
   TpccLoadTask(
+    Wid total_warehouses,
     const TpccStorages& storages,
     const char* timestamp,
     Wid from_wid,
     Wid to_wid,
     Iid from_iid,
     Iid to_iid)
-    : storages_(storages),
+    : total_warehouses_(total_warehouses),
+      storages_(storages),
       timestamp_(timestamp),
       from_wid_(from_wid),
       to_wid_(to_wid),
@@ -91,6 +97,7 @@ class TpccLoadTask : public thread::ImpersonateTask {
     kCommitBatch = 500,
   };
 
+  const Wid total_warehouses_;
   const TpccStorages storages_;
   /** timestamp for date fields. */
   const char* timestamp_;

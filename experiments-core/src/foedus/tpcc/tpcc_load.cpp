@@ -43,19 +43,19 @@ ErrorStack TpccCreateTask::run(thread::Thread* context) {
     context,
     "customers_static",
     sizeof(CustomerStaticData),
-    kWarehouses * kDistricts * kCustomers,
+    total_warehouses_ * kDistricts * kCustomers,
     &storages_.customers_static_));
   CHECK_ERROR(create_array(
     context,
     "customers_dynamic",
     sizeof(CustomerDynamicData),
-    kWarehouses * kDistricts * kCustomers,
+    total_warehouses_ * kDistricts * kCustomers,
     &storages_.customers_dynamic_));
   CHECK_ERROR(create_array(
     context,
     "customers_history",
     CustomerStaticData::kHistoryDataLength,
-    kWarehouses * kDistricts * kCustomers,
+    total_warehouses_ * kDistricts * kCustomers,
     &storages_.customers_history_));
   LOG(INFO) << "Created Customers:" << engine->get_memory_manager().dump_free_memory_stat();
 
@@ -68,19 +68,19 @@ ErrorStack TpccCreateTask::run(thread::Thread* context) {
     context,
     "districts_static",
     sizeof(DistrictStaticData),
-    kWarehouses * kDistricts,
+    total_warehouses_ * kDistricts,
     &storages_.districts_static_));
   CHECK_ERROR(create_array(
     context,
     "districts_ytd",
     sizeof(uint64_t),
-    kWarehouses * kDistricts,
+    total_warehouses_ * kDistricts,
     &storages_.districts_ytd_));
   CHECK_ERROR(create_array(
     context,
     "districts_next_oid",
     sizeof(Oid),
-    kWarehouses * kDistricts,
+    total_warehouses_ * kDistricts,
     &storages_.districts_next_oid_));
   LOG(INFO) << "Created Districts:" << engine->get_memory_manager().dump_free_memory_stat();
 
@@ -102,7 +102,7 @@ ErrorStack TpccCreateTask::run(thread::Thread* context) {
     context,
     "stocks",
     sizeof(StockData),
-    kWarehouses * kItems,
+    total_warehouses_ * kItems,
     &storages_.stocks_));
   LOG(INFO) << "Created Stocks:" << engine->get_memory_manager().dump_free_memory_stat();
 
@@ -110,13 +110,13 @@ ErrorStack TpccCreateTask::run(thread::Thread* context) {
     context,
     "warehouses_static",
     sizeof(WarehouseStaticData),
-    kWarehouses,
+    total_warehouses_,
     &storages_.warehouses_static_));
   CHECK_ERROR(create_array(
     context,
     "warehouses_ytd",
     sizeof(double),
-    kWarehouses,
+    total_warehouses_,
     &storages_.warehouses_ytd_));
   LOG(INFO) << "Created Warehouses:" << engine->get_memory_manager().dump_free_memory_stat();
 
@@ -182,7 +182,7 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
     storages_.customers_secondary_,
     context);
   WRAP_ERROR_CODE(cursor.open());
-  for (Wid wid = 0; wid < kWarehouses; ++wid) {
+  for (Wid wid = 0; wid < total_warehouses_; ++wid) {
     for (Did did = 0; did < kDistricts; ++did) {
       bool cid_array[kCustomers];
       std::memset(cid_array, 0, sizeof(cid_array));

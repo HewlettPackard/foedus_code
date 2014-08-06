@@ -31,6 +31,7 @@ namespace foedus {
 namespace tpcc {
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_int32(volatile_pool_size, 8, "Size of volatile memory pool per NUMA node in GB.");
+DEFINE_bool(ignore_volatile_size_warning, false, "Ignores warning on volatile_pool_size setting.");
 DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
@@ -40,8 +41,8 @@ DEFINE_int32(payment_remote_percent, 5, "Percent of each payment that is inserte
   " warehouse. The default value is 5. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
-
-const uint64_t kDurationMicro = 5000000;  // TODO(Hideaki) make it a flag
+DEFINE_int32(warehouses, 4, "Number of warehouses.");
+DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
 
 TpccDriver::Result TpccDriver::run() {
   const EngineOptions& options = engine_->get_options();
@@ -51,7 +52,7 @@ TpccDriver::Result TpccDriver::run() {
 
   {
     // first, create empty tables. this is done in single thread
-    TpccCreateTask creater;
+    TpccCreateTask creater(FLAGS_warehouses);
     thread::ImpersonateSession creater_session = engine_->get_thread_pool().impersonate(&creater);
     if (!creater_session.is_valid()) {
       COERCE_ERROR(creater_session.invalid_cause_);
@@ -82,6 +83,7 @@ TpccDriver::Result TpccDriver::run() {
       for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
         uint16_t count = tasks.size();
         tasks.push_back(new TpccLoadTask(
+          FLAGS_warehouses,
           storages_,
           timestamp,
           from_wids_[count],
@@ -114,7 +116,7 @@ TpccDriver::Result TpccDriver::run() {
 
   {
     // first, create empty tables. this is done in single thread
-    TpccFinishupTask finishup(storages_);
+    TpccFinishupTask finishup(FLAGS_warehouses, storages_);
     thread::ImpersonateSession finish_session = thread_pool.impersonate(&finishup);
     if (!finish_session.is_valid()) {
       COERCE_ERROR(finish_session.invalid_cause_);
@@ -135,8 +137,12 @@ TpccDriver::Result TpccDriver::run() {
   for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
     memory::ScopedNumaPreferred scope(node);
     for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
+      uint16_t global_ordinal = clients_.size();
       clients_.push_back(new TpccClientTask(
         (node << 8U) + ordinal,
+        FLAGS_warehouses,
+        from_wids_[global_ordinal],
+        to_wids_[global_ordinal],
         FLAGS_neworder_remote_percent,
         FLAGS_payment_remote_percent,
         storages_,
@@ -156,7 +162,7 @@ TpccDriver::Result TpccDriver::run() {
   }
   start_rendezvous_.signal();  // GO!
   LOG(INFO) << "Started!";
-  std::this_thread::sleep_for(std::chrono::microseconds(kDurationMicro));
+  std::this_thread::sleep_for(std::chrono::microseconds(FLAGS_duration_micro));
   LOG(INFO) << "Experiment ended.";
 
   Result result;
@@ -230,7 +236,7 @@ void assign_ids(
 }
 
 void TpccDriver::assign_wids() {
-  assign_ids<Wid>(kWarehouses, engine_->get_options(), &from_wids_, &to_wids_);
+  assign_ids<Wid>(FLAGS_warehouses, engine_->get_options(), &from_wids_, &to_wids_);
 }
 void TpccDriver::assign_iids() {
   assign_ids<Iid>(kItems, engine_->get_options(), &from_iids_, &to_iids_);
@@ -275,12 +281,22 @@ int driver_main(int argc, char **argv) {
   options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 10;
 
   if (FLAGS_single_thread_test) {
+    FLAGS_warehouses = 1;
     options.log_.log_buffer_kb_ = 1 << 16;
     options.log_.log_file_size_mb_ = 1 << 10;
     options.memory_.page_pool_size_mb_per_node_ = 1 << 12;
     options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 12;
     options.thread_.group_count_ = 1;
     options.thread_.thread_count_per_group_ = 1;
+  }
+
+  if (!FLAGS_ignore_volatile_size_warning) {
+    if (FLAGS_volatile_pool_size < FLAGS_warehouses * 4 / options.thread_.group_count_) {
+      LOG(FATAL) << "You have specified: warehouses=" << FLAGS_warehouses << ", which is "
+        << (static_cast<float>(FLAGS_warehouses) / options.thread_.group_count_) << " warehouses"
+        << " per NUMA node. You should specify at least "
+        << (FLAGS_warehouses * 4 / options.thread_.group_count_) << "GB for volatile_pool_size.";
+    }
   }
 
   TpccDriver::Result result;
@@ -308,7 +324,7 @@ int driver_main(int argc, char **argv) {
 std::ostream& operator<<(std::ostream& o, const TpccDriver::Result& v) {
   o << "<total_result>"
     << "<processed_>" << v.processed_ << "</processed_>"
-    << "<MTPS>" << (static_cast<double>(v.processed_) / kDurationMicro) << "</MTPS>"
+    << "<MTPS>" << (static_cast<double>(v.processed_) / FLAGS_duration_micro) << "</MTPS>"
     << "<user_requested_aborts_>" << v.user_requested_aborts_ << "</user_requested_aborts_>"
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
     << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>"
