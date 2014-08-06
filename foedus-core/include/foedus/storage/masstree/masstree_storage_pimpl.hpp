@@ -229,7 +229,10 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     uint8_t record_index,
     MasstreePage** page) ALWAYS_INLINE;
 
-  /** Reserve a next layer as one system transaction. */
+  /**
+   * Reserve a next layer as one system transaction.
+   * parent may or maynot be locked.
+   */
   ErrorCode create_next_layer(
     thread::Thread* context,
     MasstreeBorderPage* parent,

@@ -4,8 +4,6 @@
  */
 #include "foedus/tpcc/tpcc_load.hpp"
 
-#include <fcntl.h>
-#include <time.h>
 #include <glog/logging.h>
 
 #include <algorithm>
@@ -22,6 +20,7 @@
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/storage/array/array_storage.hpp"
+#include "foedus/storage/masstree/masstree_cursor.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/storage/sequential/sequential_metadata.hpp"
@@ -34,6 +33,210 @@
 
 namespace foedus {
 namespace tpcc {
+ErrorStack TpccCreateTask::run(thread::Thread* context) {
+  std::memset(&storages_, 0, sizeof(storages_));
+  debugging::StopWatch watch;
+
+  Engine* engine = context->get_engine();
+  LOG(INFO) << "Initial:" << engine->get_memory_manager().dump_free_memory_stat();
+  CHECK_ERROR(create_array(
+    context,
+    "customers_static",
+    sizeof(CustomerStaticData),
+    kWarehouses * kDistricts * kCustomers,
+    &storages_.customers_static_));
+  CHECK_ERROR(create_array(
+    context,
+    "customers_dynamic",
+    sizeof(CustomerDynamicData),
+    kWarehouses * kDistricts * kCustomers,
+    &storages_.customers_dynamic_));
+  CHECK_ERROR(create_array(
+    context,
+    "customers_history",
+    CustomerStaticData::kHistoryDataLength,
+    kWarehouses * kDistricts * kCustomers,
+    &storages_.customers_history_));
+  LOG(INFO) << "Created Customers:" << engine->get_memory_manager().dump_free_memory_stat();
+
+  CHECK_ERROR(create_masstree(
+    context,
+    "customers_secondary",
+    &storages_.customers_secondary_));
+
+  CHECK_ERROR(create_array(
+    context,
+    "districts_static",
+    sizeof(DistrictStaticData),
+    kWarehouses * kDistricts,
+    &storages_.districts_static_));
+  CHECK_ERROR(create_array(
+    context,
+    "districts_ytd",
+    sizeof(uint64_t),
+    kWarehouses * kDistricts,
+    &storages_.districts_ytd_));
+  CHECK_ERROR(create_array(
+    context,
+    "districts_next_oid",
+    sizeof(Oid),
+    kWarehouses * kDistricts,
+    &storages_.districts_next_oid_));
+  LOG(INFO) << "Created Districts:" << engine->get_memory_manager().dump_free_memory_stat();
+
+  CHECK_ERROR(create_sequential(context, "histories", &storages_.histories_));
+  CHECK_ERROR(create_masstree(context, "neworders", &storages_.neworders_));
+  CHECK_ERROR(create_masstree(context, "orders", &storages_.orders_));
+  CHECK_ERROR(create_masstree(context, "orders_secondary", &storages_.orders_secondary_));
+  CHECK_ERROR(create_masstree(context, "orderlines", &storages_.orderlines_));
+
+  CHECK_ERROR(create_array(
+    context,
+    "items",
+    sizeof(ItemData),
+    kItems,
+    &storages_.items_));
+  LOG(INFO) << "Created Items:" << engine->get_memory_manager().dump_free_memory_stat();
+
+  CHECK_ERROR(create_array(
+    context,
+    "stocks",
+    sizeof(StockData),
+    kWarehouses * kItems,
+    &storages_.stocks_));
+  LOG(INFO) << "Created Stocks:" << engine->get_memory_manager().dump_free_memory_stat();
+
+  CHECK_ERROR(create_array(
+    context,
+    "warehouses_static",
+    sizeof(WarehouseStaticData),
+    kWarehouses,
+    &storages_.warehouses_static_));
+  CHECK_ERROR(create_array(
+    context,
+    "warehouses_ytd",
+    sizeof(double),
+    kWarehouses,
+    &storages_.warehouses_ytd_));
+  LOG(INFO) << "Created Warehouses:" << engine->get_memory_manager().dump_free_memory_stat();
+
+  watch.stop();
+  LOG(INFO) << "Created TPC-C tables in " << watch.elapsed_sec() << "sec";
+  return kRetOk;
+}
+
+
+ErrorStack TpccCreateTask::create_array(
+  thread::Thread* context,
+  const std::string& name,
+  uint32_t payload_size,
+  uint64_t array_size,
+  storage::array::ArrayStorage** storage) {
+  Epoch ep;
+  storage::array::ArrayMetadata meta(name, payload_size, array_size);
+  storage::StorageManager& manager = context->get_engine()->get_storage_manager();
+  CHECK_ERROR(manager.create_array(context, &meta, storage, &ep));
+  ASSERT_ND(*storage);
+  return kRetOk;
+}
+
+ErrorStack TpccCreateTask::create_masstree(
+  thread::Thread* context,
+  const std::string& name,
+  storage::masstree::MasstreeStorage** storage) {
+  Epoch ep;
+  storage::masstree::MasstreeMetadata meta(name);
+  storage::StorageManager& manager = context->get_engine()->get_storage_manager();
+  CHECK_ERROR(manager.create_masstree(context, &meta, storage, &ep));
+  ASSERT_ND(*storage);
+  return kRetOk;
+}
+
+ErrorStack TpccCreateTask::create_sequential(
+  thread::Thread* context,
+  const std::string& name,
+  storage::sequential::SequentialStorage** storage) {
+  Epoch ep;
+  storage::sequential::SequentialMetadata meta(name);
+  storage::StorageManager& manager = context->get_engine()->get_storage_manager();
+  CHECK_ERROR(manager.create_sequential(context, &meta, storage, &ep));
+  ASSERT_ND(*storage);
+  return kRetOk;
+}
+
+ErrorStack TpccFinishupTask::run(thread::Thread* context) {
+  Engine* engine = context->get_engine();
+  WRAP_ERROR_CODE(engine->get_xct_manager().begin_xct(context, xct::kSerializable));
+  CHECK_ERROR(storages_.customers_secondary_->verify_single_thread(context));
+  CHECK_ERROR(storages_.neworders_->verify_single_thread(context));
+  CHECK_ERROR(storages_.orderlines_->verify_single_thread(context));
+  CHECK_ERROR(storages_.orders_->verify_single_thread(context));
+  CHECK_ERROR(storages_.orders_secondary_->verify_single_thread(context));
+  WRAP_ERROR_CODE(engine->get_xct_manager().abort_xct(context));
+
+
+  LOG(INFO) << "Verifying customers_secondary_ in detail..";
+  WRAP_ERROR_CODE(engine->get_xct_manager().begin_xct(context, xct::kDirtyReadPreferVolatile));
+  storage::masstree::MasstreeCursor cursor(
+    context->get_engine(),
+    storages_.customers_secondary_,
+    context);
+  WRAP_ERROR_CODE(cursor.open());
+  for (Wid wid = 0; wid < kWarehouses; ++wid) {
+    for (Did did = 0; did < kDistricts; ++did) {
+      bool cid_array[kCustomers];
+      std::memset(cid_array, 0, sizeof(cid_array));
+      for (uint32_t c = 0; c < kCustomers; ++c) {  // NOT cid
+        if (!cursor.is_valid_record()) {
+          LOG(FATAL) << "Record not exist: customers_secondary_: wid=" << wid << ", did="
+            << static_cast<int>(did) << ", c=" << c;
+        }
+        if (cursor.get_key_length() != CustomerSecondaryKey::kKeyLength) {
+          LOG(FATAL) << "Key Length wrong: customers_secondary_: wid=" << wid << ", did="
+            << static_cast<int>(did) << ", c=" << c;
+        }
+        if (cursor.get_payload_length() != 0) {
+          LOG(FATAL) << "Payload Length wrong: customers_secondary_: wid=" << wid << ", did="
+            << static_cast<int>(did) << ", c=" << c;
+        }
+        const char* key = cursor.get_key();
+        Wid wid2 = assorted::read_bigendian<Wid>(key);
+        if (wid != wid2) {
+          LOG(FATAL) << "Wid mismatch: customers_secondary_: wid=" << wid << ", did="
+            << static_cast<int>(did) << ", c=" << c << ". value=" << wid2;
+        }
+        Did did2 = assorted::read_bigendian<Did>(key + sizeof(Wid));
+        if (did != did2) {
+          LOG(FATAL) << "Did mismatch: customers_secondary_: wid=" << wid << ", did="
+            << static_cast<int>(did) << ", c=" << c << ". value=" << static_cast<int>(did2);
+        }
+        Cid cid = assorted::betoh<Cid>(
+          *reinterpret_cast<const Cid*>(key + sizeof(Wid) + sizeof(Did) + 34));
+        if (cid >= kCustomers) {
+          LOG(FATAL) << "Cid out of range: customers_secondary_: wid=" << wid << ", did="
+            << static_cast<int>(did) << ", c=" << c << ". value=" << cid;
+        }
+        if (cid_array[cid]) {
+          LOG(FATAL) << "Cid duplicate: customers_secondary_: wid=" << wid << ", did="
+            << static_cast<int>(did) << ", c=" << c << ". value=" << cid;
+        }
+        cid_array[cid] = true;
+        WRAP_ERROR_CODE(cursor.next());
+      }
+    }
+  }
+
+  WRAP_ERROR_CODE(engine->get_xct_manager().abort_xct(context));
+  LOG(INFO) << "Verified customers_secondary_ in detail.";
+
+  LOG(INFO) << "Loaded all tables. Waiting for flushing all logs...";
+  Epoch ep = engine->get_xct_manager().get_current_global_epoch();
+  engine->get_xct_manager().advance_current_global_epoch();
+  WRAP_ERROR_CODE(engine->get_log_manager().wait_until_durable(ep));
+  LOG(INFO) << "Okay, flushed all logs.";
+  return kRetOk;
+}
+
 ErrorStack TpccLoadTask::run(thread::Thread* context) {
   context_ = context;
   engine_ = context->get_engine();
@@ -46,14 +249,6 @@ ErrorStack TpccLoadTask::run(thread::Thread* context) {
 }
 
 ErrorStack TpccLoadTask::load_tables() {
-  // Initialize timestamp (for date columns)
-  time_t t_clock;
-  ::time(&t_clock);
-  timestamp_ = ::ctime(&t_clock);  // NOLINT(runtime/threadsafe_fn) no race here
-  ASSERT_ND(timestamp_);
-
-  CHECK_ERROR(create_tables());
-
   CHECK_ERROR(load_warehouses());
   LOG(INFO) << "Loaded Warehouses:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_districts());
@@ -66,128 +261,6 @@ ErrorStack TpccLoadTask::load_tables() {
   LOG(INFO) << "Loaded Strocks:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_orders());
   LOG(INFO) << "Loaded Orders:" << engine_->get_memory_manager().dump_free_memory_stat();
-
-  WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
-  CHECK_ERROR(storages_.customers_secondary_->verify_single_thread(context_));
-  CHECK_ERROR(storages_.neworders_->verify_single_thread(context_));
-  CHECK_ERROR(storages_.orderlines_->verify_single_thread(context_));
-  CHECK_ERROR(storages_.orders_->verify_single_thread(context_));
-  CHECK_ERROR(storages_.orders_secondary_->verify_single_thread(context_));
-  WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
-
-  LOG(INFO) << "Loaded all tables. Waiting for flushing all logs...";
-  Epoch ep = engine_->get_xct_manager().get_current_global_epoch();
-  engine_->get_xct_manager().advance_current_global_epoch();
-  WRAP_ERROR_CODE(engine_->get_log_manager().wait_until_durable(ep));
-  LOG(INFO) << "Okay, flushed all logs.";
-
-  return kRetOk;
-}
-
-ErrorStack TpccLoadTask::create_tables() {
-  std::memset(&storages_, 0, sizeof(storages_));
-
-  LOG(INFO) << "Initial:" << engine_->get_memory_manager().dump_free_memory_stat();
-  CHECK_ERROR(create_array(
-    "customers_static",
-    sizeof(CustomerStaticData),
-    kWarehouses * kDistricts * kCustomers,
-    &storages_.customers_static_));
-  CHECK_ERROR(create_array(
-    "customers_dynamic",
-    sizeof(CustomerDynamicData),
-    kWarehouses * kDistricts * kCustomers,
-    &storages_.customers_dynamic_));
-  CHECK_ERROR(create_array(
-    "customers_history",
-    CustomerStaticData::kHistoryDataLength,
-    kWarehouses * kDistricts * kCustomers,
-    &storages_.customers_history_));
-  LOG(INFO) << "Created Customers:" << engine_->get_memory_manager().dump_free_memory_stat();
-
-  CHECK_ERROR(create_masstree("customers_secondary", &storages_.customers_secondary_));
-
-  CHECK_ERROR(create_array(
-    "districts_static",
-    sizeof(DistrictStaticData),
-    kWarehouses * kDistricts,
-    &storages_.districts_static_));
-  CHECK_ERROR(create_array(
-    "districts_ytd",
-    sizeof(uint64_t),
-    kWarehouses * kDistricts,
-    &storages_.districts_ytd_));
-  CHECK_ERROR(create_array(
-    "districts_next_oid",
-    sizeof(Oid),
-    kWarehouses * kDistricts,
-    &storages_.districts_next_oid_));
-  LOG(INFO) << "Created Districts:" << engine_->get_memory_manager().dump_free_memory_stat();
-
-  CHECK_ERROR(create_sequential("histories", &storages_.histories_));
-  CHECK_ERROR(create_masstree("neworders", &storages_.neworders_));
-  CHECK_ERROR(create_masstree("orders", &storages_.orders_));
-  CHECK_ERROR(create_masstree("orders_secondary", &storages_.orders_secondary_));
-  CHECK_ERROR(create_masstree("orderlines", &storages_.orderlines_));
-
-  CHECK_ERROR(create_array(
-    "items",
-    sizeof(ItemData),
-    kItems,
-    &storages_.items_));
-  LOG(INFO) << "Created Items:" << engine_->get_memory_manager().dump_free_memory_stat();
-
-  CHECK_ERROR(create_array(
-    "stocks",
-    sizeof(StockData),
-    kWarehouses * kItems,
-    &storages_.stocks_));
-  LOG(INFO) << "Created Stocks:" << engine_->get_memory_manager().dump_free_memory_stat();
-
-  CHECK_ERROR(create_array(
-    "warehouses_static",
-    sizeof(WarehouseStaticData),
-    kWarehouses,
-    &storages_.warehouses_static_));
-  CHECK_ERROR(create_array(
-    "warehouses_ytd",
-    sizeof(double),
-    kWarehouses,
-    &storages_.warehouses_ytd_));
-  LOG(INFO) << "Created Warehouses:" << engine_->get_memory_manager().dump_free_memory_stat();
-
-  return kRetOk;
-}
-
-ErrorStack TpccLoadTask::create_array(
-  const std::string& name,
-  uint32_t payload_size,
-  uint64_t array_size,
-  storage::array::ArrayStorage** storage) {
-  Epoch ep;
-  storage::array::ArrayMetadata meta(name, payload_size, array_size);
-  CHECK_ERROR(engine_->get_storage_manager().create_array(context_, &meta, storage, &ep));
-  ASSERT_ND(*storage);
-  return kRetOk;
-}
-
-ErrorStack TpccLoadTask::create_masstree(
-  const std::string& name,
-  storage::masstree::MasstreeStorage** storage) {
-  Epoch ep;
-  storage::masstree::MasstreeMetadata meta(name);
-  CHECK_ERROR(engine_->get_storage_manager().create_masstree(context_, &meta, storage, &ep));
-  ASSERT_ND(*storage);
-  return kRetOk;
-}
-
-ErrorStack TpccLoadTask::create_sequential(
-  const std::string& name,
-  storage::sequential::SequentialStorage** storage) {
-  Epoch ep;
-  storage::sequential::SequentialMetadata meta(name);
-  CHECK_ERROR(engine_->get_storage_manager().create_sequential(context_, &meta, storage, &ep));
-  ASSERT_ND(*storage);
   return kRetOk;
 }
 
@@ -207,7 +280,7 @@ ErrorStack TpccLoadTask::load_warehouses() {
   auto* static_storage = storages_.warehouses_static_;
   auto* ytd_storage = storages_.warehouses_ytd_;
   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
-  for (Wid wid = 0; wid < kWarehouses; ++wid) {
+  for (Wid wid = from_wid_; wid < to_wid_; ++wid) {
     zero_clear(&data);
 
     // Generate Warehouse Data
@@ -232,7 +305,7 @@ ErrorStack TpccLoadTask::load_districts() {
   auto* ytd_storage = storages_.districts_ytd_;
   auto* oid_storage = storages_.districts_next_oid_;
   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
-  for (Wid wid = 0; wid < kWarehouses; ++wid) {
+  for (Wid wid = from_wid_; wid < to_wid_; ++wid) {
     LOG(INFO) << "Loading District Wid=" << wid;
     for (Did did = 0; did < kDistricts; ++did) {
       zero_clear(&data);
@@ -265,7 +338,7 @@ ErrorStack TpccLoadTask::load_items() {
   auto* storage = storages_.items_;
   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
   ItemData data;
-  for (Iid iid = 0; iid < kItems; ++iid) {
+  for (Iid iid = from_iid_; iid < to_iid_; ++iid) {
     zero_clear(&data);
 
     /* Generate Item Data */
@@ -298,7 +371,7 @@ ErrorStack TpccLoadTask::load_stocks() {
   auto* storage = storages_.stocks_;
   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
   StockData data;
-  for (Wid wid = 0; wid < kWarehouses; ++wid) {
+  for (Wid wid = from_wid_; wid < to_wid_; ++wid) {
       LOG(INFO) << "Loading Stock Wid=" << wid;
     bool orig[kItems];
     random_orig(orig);
@@ -335,7 +408,7 @@ ErrorStack TpccLoadTask::load_stocks() {
 }
 
 ErrorStack TpccLoadTask::load_customers() {
-  for (Wid wid = 0; wid < kWarehouses; ++wid) {
+  for (Wid wid = from_wid_; wid < to_wid_; ++wid) {
     for (Did did = 0; did < kDistricts; ++did) {
       CHECK_ERROR(load_customers_in_district(wid, did));
     }
@@ -481,7 +554,15 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
       if (rep == 0) {
         WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
       } else {
-        WRAP_ERROR_CODE(xct_manager_->precommit_xct(context_, &ep));
+        ErrorCode ret = xct_manager_->precommit_xct(context_, &ep);
+        if (ret == kErrorCodeOk) {
+          break;
+        } else if (ret == kErrorCodeXctRaceAbort) {
+          VLOG(0) << "Abort in concurrent customer load. retry";
+          --rep;
+        } else {
+          return ERROR_STACK(ret);
+        }
       }
     }
     from += cur_batch_size;
@@ -490,7 +571,7 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
 }
 
 ErrorStack TpccLoadTask::load_orders() {
-  for (Wid wid = 0; wid < kWarehouses; ++wid) {
+  for (Wid wid = from_wid_; wid < to_wid_; ++wid) {
     for (Did did = 0; did < kDistricts; ++did) {
       CHECK_ERROR(load_orders_in_district(wid, did));
     }
@@ -512,13 +593,13 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
   auto* orderlines = storages_.orderlines_;
   OrderData o_data;
   zero_clear(&o_data);
-  OrderlineData ol_data;
-  zero_clear(&ol_data);
+  OrderlineData ol_data[kOlMax];
+  std::memset(ol_data, 0, sizeof(ol_data));
   Wdid wdid = combine_wdid(wid, did);
-  WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
   for (Oid oid = 0; oid < kOrders; ++oid) {
     Wdoid wdoid = combine_wdoid(wdid, oid);
-    WRAP_ERROR_CODE(commit_if_full());
+    // unfortunately, this one is vulnerable to aborts due to concurrent loaders.
+    // especially when the tree is small, this can happen.
 
     // Generate Order Data
     Cid o_cid = get_permutation(cid_array);
@@ -533,41 +614,62 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
 
     if (oid >= 2100U) {   /* the last 900 orders have not been delivered) */
       o_data.carrier_id_ = 0;
-      WRAP_ERROR_CODE(neworders->insert_record_normalized(context_, wdoid));
     } else {
       o_data.carrier_id_ = o_carrier_id;
     }
 
-    WRAP_ERROR_CODE(orders->insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
     Wdcoid wdcoid = combine_wdcoid(wdcid, oid);
-    WRAP_ERROR_CODE(orders_secondary->insert_record_normalized(context_, wdcoid));
     DVLOG(2) << "OID = " << oid << ", CID = " << o_cid << ", DID = "
       << static_cast<int>(did) << ", WID = " << wid;
     for (Ol ol = 1; ol <= o_ol_cnt; ol++) {
       // Generate Order Line Data
-      make_alpha_string(24, 24, ol_data.dist_info_);
-      ol_data.iid_ = rnd_.uniform_within(0, kItems - 1);
-      ol_data.supply_wid_ = wid;
-      ol_data.quantity_ = 5;
+      make_alpha_string(24, 24, ol_data[ol].dist_info_);
+      ol_data[ol].iid_ = rnd_.uniform_within(0, kItems - 1);
+      ol_data[ol].supply_wid_ = wid;
+      ol_data[ol].quantity_ = 5;
       if (oid >= 2100U) {
-        ol_data.amount_ = 0;
+        ol_data[ol].amount_ = 0;
       } else {
-        ol_data.amount_ = static_cast<float>(rnd_.uniform_within(10L, 10000L)) / 100.0;
-        std::memcpy(ol_data.delivery_d_, timestamp_, 26);
+        ol_data[ol].amount_ = static_cast<float>(rnd_.uniform_within(10L, 10000L)) / 100.0;
+        std::memcpy(ol_data[ol].delivery_d_, timestamp_, 26);
       }
 
-      Wdol wdol = combine_wdol(wdoid, ol);
-      WRAP_ERROR_CODE(orderlines->insert_record_normalized(
-        context_,
-        wdol,
-        &ol_data,
-        sizeof(ol_data)));
+      DVLOG(2) << "OL = " << ol << ", IID = " << ol_data[ol].iid_ << ", QUAN = "
+        << ol_data[ol].quantity_ << ", AMT = " << ol_data[ol].amount_;
+    }
 
-      DVLOG(2) << "OL = " << ol << ", IID = " << ol_data.iid_ << ", QUAN = " << ol_data.quantity_
-        << ", AMT = " << ol_data.amount_;
+    // retry until succeed
+    uint32_t successive_aborts = 0;
+    while (true) {
+      WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+      if (o_data.carrier_id_ == 0) {
+        WRAP_ERROR_CODE(neworders->insert_record_normalized(context_, wdoid));
+      }
+      WRAP_ERROR_CODE(orders->insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
+      WRAP_ERROR_CODE(orders_secondary->insert_record_normalized(context_, wdcoid));
+      for (Ol ol = 1; ol <= o_ol_cnt; ol++) {
+        Wdol wdol = combine_wdol(wdoid, ol);
+        WRAP_ERROR_CODE(orderlines->insert_record_normalized(
+          context_,
+          wdol,
+          &(ol_data[ol]),
+          sizeof(OrderlineData)));
+      }
+      ErrorCode ret = xct_manager_->precommit_xct(context_, &ep);
+      if (ret == kErrorCodeOk) {
+        break;
+      } else if (ret == kErrorCodeXctRaceAbort) {
+        VLOG(0) << "Abort in concurrent data load. successive_aborts=" << successive_aborts;
+        ++successive_aborts;
+        if (successive_aborts % 100 == 0) {
+          LOG(WARNING) << "Lots of successive aborts: " << successive_aborts << ", thread="
+            << context_->get_thread_id();
+        }
+      } else {
+        return ERROR_STACK(ret);
+      }
     }
   }
-  WRAP_ERROR_CODE(xct_manager_->precommit_xct(context_, &ep));
   return kRetOk;
 }
 

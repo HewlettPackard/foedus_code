@@ -22,6 +22,44 @@
 namespace foedus {
 namespace tpcc {
 /**
+ * @brief Just creates empty tables.
+ */
+class TpccCreateTask : public thread::ImpersonateTask {
+ public:
+  ErrorStack          run(thread::Thread* context);
+
+  const TpccStorages& get_storages() const { return storages_; }
+
+ private:
+  TpccStorages storages_;
+
+  ErrorStack create_array(
+    thread::Thread* context,
+    const std::string& name,
+    uint32_t payload_size,
+    uint64_t array_size,
+    storage::array::ArrayStorage** storage);
+  ErrorStack create_masstree(
+    thread::Thread* context,
+    const std::string& name,
+    storage::masstree::MasstreeStorage** storage);
+  ErrorStack create_sequential(
+    thread::Thread* context,
+    const std::string& name,
+    storage::sequential::SequentialStorage** storage);
+};
+/**
+ * @brief Verify tables after data loading.
+ */
+class TpccFinishupTask : public thread::ImpersonateTask {
+ public:
+  explicit TpccFinishupTask(const TpccStorages& storages) : storages_(storages) {}
+  ErrorStack          run(thread::Thread* context);
+
+ private:
+  const TpccStorages storages_;
+};
+/**
  * @brief Main class of data load for TPC-C.
  * @details
  * Acknowledgement:
@@ -31,42 +69,49 @@ namespace tpcc {
  */
 class TpccLoadTask : public thread::ImpersonateTask {
  public:
+  TpccLoadTask(
+    const TpccStorages& storages,
+    const char* timestamp,
+    Wid from_wid,
+    Wid to_wid,
+    Iid from_iid,
+    Iid to_iid)
+    : storages_(storages),
+      timestamp_(timestamp),
+      from_wid_(from_wid),
+      to_wid_(to_wid),
+      from_iid_(from_iid),
+      to_iid_(to_iid) {}
   ErrorStack          run(thread::Thread* context);
 
   ErrorStack          load_tables();
-  const TpccStorages& get_storages() const { return storages_; }
 
  private:
   enum Constants {
     kCommitBatch = 500,
   };
 
+  const TpccStorages storages_;
+  /** timestamp for date fields. */
+  const char* timestamp_;
+  /** inclusive beginning of responsible wid */
+  const Wid from_wid_;
+  /** exclusive end of responsible wid */
+  const Wid to_wid_;
+  /** inclusive beginning of responsible iid. */
+  const Iid from_iid_;
+  /** exclusive end of responsible iid. */
+  const Iid to_iid_;
+
   Engine* engine_;
   thread::Thread* context_;
   xct::XctManager* xct_manager_;
-  /** timestamp for date fields. */
-  char* timestamp_;
-
-  TpccStorages storages_;
 
   assorted::UniformRandom rnd_;
 
   void      random_orig(bool *orig);
 
   Cid       get_permutation(bool* cid_array);
-
-  ErrorStack create_tables();
-  ErrorStack create_array(
-    const std::string& name,
-    uint32_t payload_size,
-    uint64_t array_size,
-    storage::array::ArrayStorage** storage);
-  ErrorStack create_masstree(
-    const std::string& name,
-    storage::masstree::MasstreeStorage** storage);
-  ErrorStack create_sequential(
-    const std::string& name,
-    storage::sequential::SequentialStorage** storage);
 
   ErrorCode  commit_if_full();
 

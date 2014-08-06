@@ -396,10 +396,11 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
 
   // as an independent system transaction, here we do an optimistic version check.
   parent_lock->keylock_unconditional();
-  if (parent->does_point_to_layer(parent_index)) {
-    // someone else has also made this to a next layer!
+  if (parent_lock->is_moved() || parent->does_point_to_layer(parent_index)) {
+    // someone else has also made this to a next layer or the page itself is moved!
     // our effort was a waste, but anyway the goal was achieved.
-    LOG(INFO) << "interesting. a concurrent thread has already made a next layer";
+    LOG(INFO) << "interesting. a concurrent thread has already made "
+      << (parent_lock->is_moved() ? "this page moved" : " it point to next layer");
     memory->release_free_volatile_page(offset);
     parent_lock->release_keylock();
   } else {
@@ -507,7 +508,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
     const void* const suffix = reinterpret_cast<const char*>(key) + (layer + 1) * sizeof(KeySlice);
     MasstreeBorderPage* border;
     CHECK_ERROR_CODE(find_border(context, layer_root, layer, true, slice, &border));
-    while (true) {  // retry loop for following foster child
+    while (true) {  // retry loop for following foster child and temporary failure
       // if we found out that the page was split and we should follow foster child, do it.
       while (border->has_foster_child()) {
         if (border->within_foster_minor(slice)) {
@@ -519,6 +520,9 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
       ASSERT_ND(border->within_fences(slice));
 
       uint8_t count = border->get_version().get_key_count();
+      // as done in reserve_record_new_record_apply(), we need a fence on BOTH sides.
+      // observe key count first, then verify the keys.
+      assorted::memory_fence_consume();
       MasstreeBorderPage::FindKeyForReserveResult match = border->find_key_for_reserve(
         0,
         count,
@@ -538,11 +542,33 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         *observed = border->get_owner_id(match.index_)->spin_while_keylocked();
         assorted::memory_fence_consume();
         return kErrorCodeOk;
+      } else if (match.match_type_ == MasstreeBorderPage::kConflictingLocalRecord) {
+        // in this case, we don't need a page-wide lock. because of key-immutability,
+        // this is the only place we can have a next-layer pointer for this slice.
+        // thus we just lock the record and convert it to a next-layer pointer.
+        ASSERT_ND(match.index_ < MasstreeBorderPage::kMaxKeys);
+        // this means now we have to create a next layer.
+        // this is also one system transaction.
+        CHECK_ERROR_CODE(create_next_layer(context, border, match.index_));
+        // because we do this without page lock, this might have failed. in that case,
+        // we retry.
+        if (border->does_point_to_layer(match.index_)) {
+          CHECK_ERROR_CODE(follow_layer(context, true, border, match.index_, &layer_root));
+          break;  // next layer
+        } else {
+          LOG(INFO) << "Because of concurrent transaction, we retry the system transaction to"
+            << " make the record into a next layer pointer";
+          continue;
+        }
+      } else {
+        ASSERT_ND(match.match_type_ == MasstreeBorderPage::kNotFound);
       }
 
       // no matching or conflicting keys. so we will create a brand new record.
       // this is a system transaction to just create a deleted record.
+      // for this, we need a page lock.
       border->lock();
+      border->assert_entries();
       UnlockScope scope(border);
       // now finally we took a lock, finalizing the version. up to now, everything could happen.
       // check all of them and retry if fails.
@@ -590,6 +616,9 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         // this means now we have to create a next layer.
         // this is also one system transaction.
         CHECK_ERROR_CODE(create_next_layer(context, border, match.index_));
+        border->assert_entries();
+        // because of page lock, this always succeeds (unlike the above w/o page lock)
+        ASSERT_ND(border->does_point_to_layer(match.index_));
         CHECK_ERROR_CODE(follow_layer(context, true, border, match.index_, &layer_root));
         ASSERT_ND(!border->is_moved());
         ASSERT_ND(!border->is_retired());
@@ -624,6 +653,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
     }
 
     border->lock();
+    border->assert_entries();
     UnlockScope scope(border);
     if (UNLIKELY(border->has_foster_child())) {
       continue;
@@ -727,7 +757,7 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
   ASSERT_ND(!target->is_retired());
   ASSERT_ND(target->can_accomodate(target_index, remaining_key_length, payload_count));
   ASSERT_ND(target->get_version().get_key_count() < MasstreeBorderPage::kMaxKeys);
-  target->get_version().set_inserting_and_increment_key_count();
+  target->get_version().set_inserting();
   xct::XctId initial_id;
   initial_id.set_clean(
     Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
@@ -742,9 +772,14 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
     suffix,
     remaining_key_length,
     payload_count);
+  // we increment key count AFTER installing the key because otherwise the optimistic read
+  // might see the record but find that the key doesn't match. we need a fence to prevent it.
+  assorted::memory_fence_release();
+  target->get_version().increment_key_count();
   ASSERT_ND(target->get_version().get_key_count() <= MasstreeBorderPage::kMaxKeys);
   ASSERT_ND(!target->is_moved());
   ASSERT_ND(!target->is_retired());
+  target->assert_entries();
 }
 
 ErrorCode MasstreeStoragePimpl::retrieve_general(

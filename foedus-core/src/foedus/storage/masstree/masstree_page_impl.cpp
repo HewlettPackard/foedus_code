@@ -181,7 +181,7 @@ void MasstreeBorderPage::initialize_layer_root(
   uint8_t copy_index) {
   ASSERT_ND(header_.page_version_.get_key_count() == 0);
   ASSERT_ND(is_locked());
-  ASSERT_ND(copy_from->is_locked());
+  ASSERT_ND(copy_from->get_owner_id(copy_index)->is_keylocked());
   uint8_t parent_key_length = copy_from->remaining_key_length_[copy_index];
   ASSERT_ND(parent_key_length != kKeyLengthNextLayer);
   ASSERT_ND(parent_key_length > sizeof(KeySlice));
@@ -836,10 +836,34 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   MiniPage& minipage = get_minipage(minipage_index);
   ASSERT_ND(minipage.key_count_ <= kMaxIntermediateMiniSeparators);
   {
-    Page* child_verify = context->get_global_volatile_page_resolver().resolve_offset(
-      minipage.pointers_[pointer_index].volatile_pointer_);
-    if (child != reinterpret_cast<MasstreePage*>(child_verify)) {
-      LOG(INFO) << "Interesting. there seems some change in this interior page. delay adoption";
+    if (minipage_index > key_count || pointer_index > minipage.key_count_) {
+      LOG(INFO) << "Interesting. there seems some change in this interior page. retry adoption";
+      return kErrorCodeOk;
+    }
+
+    // TODO(Hideaki) let's make this a function.
+    KeySlice separator_low;
+    KeySlice separator_high;
+    if (pointer_index == 0) {
+      if (minipage_index == 0) {
+        separator_low = low_fence_;
+      } else {
+        separator_low = separators_[minipage_index - 1U];
+      }
+    } else {
+      separator_low = minipage.separators_[pointer_index - 1U];
+    }
+    if (pointer_index == minipage.key_count_) {
+      if (minipage_index == key_count) {
+        separator_high = high_fence_;
+      } else {
+        separator_high = separators_[minipage_index];
+      }
+    } else {
+      separator_high = minipage.separators_[pointer_index];
+    }
+    if (searching_slice < separator_low || searching_slice > separator_high) {
+      LOG(INFO) << "Interesting. there seems some change in this interior page. retry adoption";
       return kErrorCodeOk;
     }
   }

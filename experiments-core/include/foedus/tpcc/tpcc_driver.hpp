@@ -44,9 +44,22 @@ class TpccDriver {
 
   std::vector<TpccClientTask*>  clients_;
 
+  /** inclusive beginning of responsible wid. index=thread ordinal */
+  std::vector<Wid>              from_wids_;
+  /** exclusive end of responsible wid. index=thread ordinal */
+  std::vector<Wid>              to_wids_;
+
+  /** inclusive beginning of responsible iid. index=thread ordinal */
+  std::vector<Iid>              from_iids_;
+  /** exclusive end of responsible iid. index=thread ordinal */
+  std::vector<Iid>              to_iids_;
+
   TpccStorages                  storages_;
 
   thread::Rendezvous            start_rendezvous_;
+
+  void assign_wids();
+  void assign_iids();
 };
 
 int driver_main(int argc, char **argv);
