@@ -224,11 +224,6 @@ struct UnlockScope {
   }
   MasstreePage* page_;
 };
-struct UnlockVersionScope {
-  explicit UnlockVersionScope(PageVersion* version) : version_(version) {}
-  ~UnlockVersionScope() { version_->unlock_version(); }
-  PageVersion* version_;
-};
 
 /**
  * @brief Represents one intermediate page in \ref MASSTREE.
@@ -247,7 +242,8 @@ class MasstreeIntermediatePage final : public MasstreePage {
     MiniPage& operator=(const MiniPage& other) = delete;
 
     // +8 -> 8
-    PageVersion     mini_version_;
+    uint8_t         key_count_;
+    uint8_t         reserved_[7];
 
     // +8*15 -> 128
     /** Same semantics as separators_ in enclosing class. */
@@ -258,9 +254,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
     /** prefetch upto separators. */
     void prefetch() const {
       assorted::prefetch_cachelines(this, 2);
-    }
-    PageVersion get_stable_version() const ALWAYS_INLINE {
-      return mini_version_.stable_version();
     }
     /**
     * @brief Navigates a searching key-slice to one of pointers in this mini-page.
@@ -372,14 +365,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
   void adopt_from_child_norecord_first_level(
     uint8_t minipage_index,
     MasstreePage* child);
-  /**
-   * Sets all mini versions with locked status without atomic operations.
-   * This can be used only when this page is first created and still privately owned.
-   * 1 atomic is 100 cycles or more, so this greatly saves.
-   */
-  void init_lock_all_mini();
-  /** Same above. */
-  void init_unlock_all_mini();
 };
 STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage::MiniPage), 128 + 256)
 STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage), 1 << 12)

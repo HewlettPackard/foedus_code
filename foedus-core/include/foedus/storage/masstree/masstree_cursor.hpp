@@ -49,15 +49,13 @@ class MasstreeCursor CXX11_FINAL {
     MasstreePage* page_;
     /** version as of getting calculating order_. */
     PageVersion stable_;
-    /** only for interior. */
-    PageVersion stable_mini_;
     /** index in ordered keys. in interior, same. */
     uint8_t index_;
     /** only for interior. */
     uint8_t index_mini_;
     /** same as stable_.get_key_count() */
     uint8_t key_count_;
-    /** same as stable_mini_.get_key_count() */
+    /** only for interior. */
     uint8_t key_count_mini_;
 
     /**
@@ -294,7 +292,7 @@ class MasstreeCursor CXX11_FINAL {
   ErrorCode proceed_deeper();
   ErrorCode proceed_deeper_border();
   ErrorCode proceed_deeper_intermediate();
-  void      proceed_route_intermediate_rebase_separator() ALWAYS_INLINE;
+  void      proceed_route_intermediate_rebase_separator();
 
   void assert_modify() const ALWAYS_INLINE {
 #ifndef NDEBUG

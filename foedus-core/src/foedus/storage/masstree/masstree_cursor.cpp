@@ -178,7 +178,7 @@ ErrorCode MasstreeCursor::proceed_route_border() {
   return kErrorCodeOk;
 }
 
-inline void MasstreeCursor::proceed_route_intermediate_rebase_separator() {
+void MasstreeCursor::proceed_route_intermediate_rebase_separator() {
   Route* route = cur_route();
   ASSERT_ND(!route->page_->is_border());
   MasstreeIntermediatePage* page = reinterpret_cast<MasstreeIntermediatePage*>(route->page_);
@@ -196,33 +196,40 @@ inline void MasstreeCursor::proceed_route_intermediate_rebase_separator() {
   }
   ASSERT_ND(route->index_ == route->key_count_ || last <= page->get_separator(route->index_));
 
+  DVLOG(0) << "rebase. new index=" << route->index_ << "/" << route->key_count_;
   if (route->index_ < route->key_count_ && last == page->get_separator(route->index_)) {
+    DVLOG(0) << "oh, matched with first level separator";
+    // we are "done" up to the last separator. which pointer to follow next?
     if (forward_cursor_) {
       ++route->index_;
       const MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(route->index_);
-      route->stable_mini_ = minipage.mini_version_.stable_version();
-      route->key_count_mini_ = route->stable_mini_.get_key_count();
+      route->key_count_mini_ = minipage.key_count_;
       route->index_mini_ =  0;
     } else {
       const MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(route->index_);
-      route->stable_mini_ = minipage.mini_version_.stable_version();
-      route->key_count_mini_ = route->stable_mini_.get_key_count();
-      route->index_mini_ =  route->key_count_mini_;
+      route->key_count_mini_ = minipage.key_count_;
+      route->index_mini_ = minipage.key_count_;
     }
     return;
   }
 
   const MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(route->index_);
-  route->stable_mini_ = minipage.mini_version_.stable_version();
-  route->key_count_mini_ = route->stable_mini_.get_key_count();
-
+  route->key_count_mini_ = minipage.key_count_;
+  DVLOG(0) << "checking second level... count=" << route->key_count_mini_;
   for (route->index_mini_ = 0; route->index_mini_ < route->key_count_mini_; ++route->index_mini_) {
     ASSERT_ND(last >= minipage.separators_[route->index_mini_]);
     if (last == minipage.separators_[route->index_mini_]) {
       break;
     }
   }
+  DVLOG(0) << "checked second level... index_mini=" << route->index_mini_;
   ASSERT_ND(route->index_mini_ < route->key_count_mini_);
+  if (forward_cursor_) {
+    // last==separators[n], so we are following pointers[n+1] next
+    ++route->index_mini_;
+  } else {
+    // last==separators[n], so we are following pointers[n] next
+  }
 }
 
 ErrorCode MasstreeCursor::proceed_route_intermediate() {
@@ -244,10 +251,10 @@ ErrorCode MasstreeCursor::proceed_route_intermediate() {
         --route->index_;
       }
       if (route->index_ > route->key_count_) {  // also a 'negative' check
+        // seems like we reached end of this page... did we?
         return proceed_pop();
       } else {
-        route->stable_mini_ = page->get_minipage(route->index_).mini_version_.stable_version();
-        route->key_count_mini_ = route->stable_mini_.get_key_count();
+        route->key_count_mini_ = page->get_minipage(route->index_).key_count_;
         if (forward_cursor_) {
           route->index_mini_ = 0;
         } else {
@@ -259,31 +266,35 @@ ErrorCode MasstreeCursor::proceed_route_intermediate() {
     // Master-tree invariant
     // verify that the next separator/page starts from the separator we followed previously.
     // as far as we check it, we don't need the hand-over-hand version verification.
-    KeySlice separator_low, separator_high;
+    KeySlice new_separator;
     MasstreePage* next;
     while (true) {
-      extract_separators(&separator_low, &separator_high);
-      if ((forward_cursor_ && separator_low != route->latest_separator_) ||
-        (!forward_cursor_ && separator_high != route->latest_separator_)) {
-        LOG(INFO) << "Interesting3. separator doesn't match. concurrent adoption. local retry.";
-        proceed_route_intermediate_rebase_separator();
-      }
-
+      ASSERT_ND(route->latest_separator_ >= page->get_low_fence());
+      ASSERT_ND(route->latest_separator_ <= page->get_high_fence());
       MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(route->index_);
       DualPagePointer& pointer = minipage.pointers_[route->index_mini_];
       ASSERT_ND(!pointer.is_both_null());
       CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, &pointer, &next));
 
-      if (UNLIKELY(next->get_low_fence() != separator_low ||
-          next->get_high_fence() != separator_high)) {
-        LOG(INFO) << "Interesting2. separator doesn't match. concurrent adoption. local retry.";
-        proceed_route_intermediate_rebase_separator();
+      if (forward_cursor_) {
+        if (UNLIKELY(next->get_low_fence() != route->latest_separator_)) {
+          LOG(INFO) << "Interesting3A. separator doesn't match. concurrent adoption. local retry.";
+          proceed_route_intermediate_rebase_separator();
+          continue;
+        }
+        new_separator = next->get_high_fence();
       } else {
-        break;
+        if (UNLIKELY(next->get_high_fence() != route->latest_separator_)) {
+          LOG(INFO) << "Interesting3B. separator doesn't match. concurrent adoption. local retry.";
+          proceed_route_intermediate_rebase_separator();
+          continue;
+        }
+        new_separator = next->get_low_fence();
       }
+      break;
     }
 
-    route->latest_separator_ = forward_cursor_ ? separator_high : separator_low;
+    route->latest_separator_ = new_separator;
     CHECK_ERROR_CODE(push_route(next));
     return proceed_deeper();
   }
@@ -385,8 +396,7 @@ inline ErrorCode MasstreeCursor::proceed_deeper_intermediate() {
   MasstreePage* next;
   KeySlice separator_low, separator_high;
   while (true) {
-    route->stable_mini_ = minipage.get_stable_version();
-    route->key_count_mini_ = route->stable_mini_.get_key_count();
+    route->key_count_mini_ = minipage.key_count_;
     assorted::memory_fence_consume();
     route->index_mini_ = forward_cursor_ ? 0 : route->key_count_mini_;
 
@@ -775,10 +785,26 @@ inline ErrorCode MasstreeCursor::locate_layer(uint8_t layer) {
       search_key_length_ - layer * sizeof(KeySlice));
     slice = assorted::read_bigendian<KeySlice>(&slice);
   }
+
   if (!layer_root->is_border()) {
     CHECK_ERROR_CODE(locate_descend(slice));
   }
-  return locate_border(slice);
+  CHECK_ERROR_CODE(locate_border(slice));
+  ASSERT_ND(!is_valid_record() ||
+    forward_cursor_ ||
+    assorted::read_bigendian<KeySlice>(cur_key_ + layer * sizeof(KeySlice)) <= slice);
+  ASSERT_ND(!is_valid_record() ||
+    !forward_cursor_ ||
+    assorted::read_bigendian<KeySlice>(cur_key_ + layer * sizeof(KeySlice)) >= slice);
+  ASSERT_ND(cur_route()->page_->get_layer() != layer ||
+    !is_valid_record() ||
+    !forward_cursor_ ||
+    cur_key_in_layer_slice_ >= slice);
+  ASSERT_ND(cur_route()->page_->get_layer() != layer ||
+    !is_valid_record() ||
+    forward_cursor_ ||
+    cur_key_in_layer_slice_ <= slice);
+  return kErrorCodeOk;
 }
 
 ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
@@ -788,6 +814,8 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
     // the only exception is that it's a backward-exclusive search and slice==high fence
     Route* route = cur_route();
     MasstreeBorderPage* border = reinterpret_cast<MasstreeBorderPage*>(route->page_);
+    ASSERT_ND(border->get_low_fence() <= slice);
+    ASSERT_ND(border->get_high_fence() >= slice);
     ASSERT_ND(search_type_ == kBackwardExclusive || border->within_fences(slice));
     ASSERT_ND(search_type_ != kBackwardExclusive
       || border->within_fences(slice)
@@ -812,6 +840,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
           continue;
         }
         fetch_cur_record(border, record);
+        ASSERT_ND(cur_key_in_layer_slice_ >= slice);
         KeyCompareResult result = compare_cur_key_aginst_search_key(slice, layer);
         if (result == kCurKeySmaller ||
           (result == kCurKeyEquals && search_type_ == kForwardExclusive)) {
@@ -837,6 +866,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
           continue;
         }
         fetch_cur_record(border, record);
+        ASSERT_ND(cur_key_in_layer_slice_ <= slice);
         KeyCompareResult result = compare_cur_key_aginst_search_key(slice, layer);
         if (result == kCurKeyLarger ||
           (result == kCurKeyEquals && search_type_ == kBackwardExclusive)) {
@@ -903,6 +933,10 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
     CHECK_ERROR_CODE(follow_foster(slice));
     Route* route = cur_route();
     MasstreeIntermediatePage* cur = reinterpret_cast<MasstreeIntermediatePage*>(route->page_);
+    ASSERT_ND(search_type_ == kBackwardExclusive || cur->within_fences(slice));
+    ASSERT_ND(search_type_ != kBackwardExclusive
+      || cur->within_fences(slice)
+      || cur->get_high_fence() == slice);
 
     ASSERT_ND(!route->stable_.has_foster_child());
     // find right minipage. be aware of backward-exclusive case!
@@ -931,9 +965,7 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
     MasstreeIntermediatePage::MiniPage& minipage = cur->get_minipage(route->index_);
 
     minipage.prefetch();
-    route->stable_mini_ = minipage.get_stable_version();
-    assorted::memory_fence_consume();
-    route->key_count_mini_ = route->stable_mini_.get_key_count();
+    route->key_count_mini_ = minipage.key_count_;
 
     uint8_t index_mini = 0;
     if (search_key_in_layer_extremum_) {
@@ -960,6 +992,11 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
 
     KeySlice separator_low, separator_high;
     extract_separators(&separator_low, &separator_high);
+    if (UNLIKELY(slice < separator_low || slice > separator_high)) {
+      LOG(INFO) << "Interesting5. separator doesn't match. concurrent adopt. local retry.";
+      route->stable_ = cur->get_stable_version();
+      continue;
+    }
     ASSERT_ND(separator_low <= slice && slice <= separator_high);
 
     DualPagePointer& pointer = minipage.pointers_[route->index_mini_];
@@ -973,13 +1010,14 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
     // what this page once covered will be forever reachable from this page.
     if (UNLIKELY(next->get_low_fence() != separator_low ||
         next->get_high_fence() != separator_high)) {
-      LOG(INFO) << "Interesting. separator doesn't match. concurrent split. local retry.";
+      LOG(INFO) << "Interesting. separator doesn't match. concurrent adopt. local retry.";
       route->stable_ = cur->get_stable_version();
       continue;
     }
 
     route->latest_separator_ = forward_cursor_ ? separator_high : separator_low;
-
+    ASSERT_ND(next->get_low_fence() <= slice);
+    ASSERT_ND(next->get_high_fence() >= slice);
     CHECK_ERROR_CODE(push_route(next));
     if (next->is_border()) {
       return kErrorCodeOk;

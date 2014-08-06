@@ -167,8 +167,7 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   MasstreeIntermediatePage::MiniPage& mini_page = new_root->get_minipage(0);
   MasstreePage* left_page = root->get_foster_minor();
   MasstreePage* right_page = root->get_foster_major();
-  mini_page.mini_version_.data_ = kPageVersionLockedBit;  // initialize + lock
-  mini_page.mini_version_.set_key_count(1);
+  mini_page.key_count_ = 1;
   mini_page.pointers_[0].snapshot_pointer_ = 0;
   mini_page.pointers_[0].volatile_pointer_.word = left_page->header().page_id_;
   mini_page.pointers_[0].volatile_pointer_.components.flags = 0;
@@ -182,7 +181,6 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     context->get_global_volatile_page_resolver().resolve_offset(
       mini_page.pointers_[1].volatile_pointer_));
   mini_page.separators_[0] = separator;
-  mini_page.mini_version_.unlock_version();
   ASSERT_ND(!new_root->is_border());
 
   // Let's install a pointer to the new root page
@@ -267,7 +265,7 @@ inline ErrorCode MasstreeStoragePimpl::find_border(
       MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(minipage_index);
 
       minipage.prefetch();
-      uint8_t key_count_mini = minipage.mini_version_.get_key_count();
+      uint8_t key_count_mini = minipage.key_count_;
       uint8_t pointer_index = minipage.find_pointer(key_count_mini, slice);
       DualPagePointer& pointer = minipage.pointers_[pointer_index];
       MasstreePage* next;
