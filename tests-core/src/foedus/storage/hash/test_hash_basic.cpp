@@ -258,6 +258,10 @@ class MassInsertTask : public thread::ImpersonateTask {
     for (uint64_t x = 0; x < fill_height; x++) {
       uint64_t key = (x*5) ^ 324326;
       uint64_t data = x;
+      std::cout << x << std::endl;
+      if (x == 1712) {
+          std::cout<<"About to break"<<std::endl;
+      }
       CHECK_ERROR(hash->get_record(context, &key, sizeof(key), &data2, &data_capacity));
       EXPECT_EQ(data, data2);
     }

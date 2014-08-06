@@ -571,9 +571,6 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
           write.log_entry_->header_.get_type() == log::kLogCodeMasstreeDelete);
         *write.owner_id_address_ = new_deleted_xct_id;
       } else {
-        ASSERT_ND(
-          write.log_entry_->header_.get_type() != log::kLogCodeHashDelete &&
-          write.log_entry_->header_.get_type() != log::kLogCodeMasstreeDelete);
         *write.owner_id_address_ = new_xct_id;
       }
     }

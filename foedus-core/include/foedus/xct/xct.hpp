@@ -487,7 +487,7 @@ inline ErrorCode Xct::add_to_write_set(
   ASSERT_ND(!schema_xct_);
   ASSERT_ND(storage);
   ASSERT_ND(owner_id_address);
-  ASSERT_ND(payload_address);
+  // ASSERT_ND(payload_address); TODO:(Hideaki) Do we need this?
   ASSERT_ND(log_entry);
   if (UNLIKELY(write_set_size_ >= max_write_set_size_)) {
     return kErrorCodeXctWriteSetOverflow;

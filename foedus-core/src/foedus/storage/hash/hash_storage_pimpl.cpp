@@ -461,6 +461,7 @@ ErrorStack HashStoragePimpl::make_room(
   return kRetOk;
 }
 
+// TODO:(Bill) Make this an error code rather than an error stack
 ErrorStack HashStoragePimpl::insert_record_chosen_bin(
   thread::Thread* context,
   const char* key,
@@ -497,14 +498,22 @@ ErrorStack HashStoragePimpl::insert_record_chosen_bin(
                       slot_pick, combo.tag_, payload,
                       payload_count);  // Not sure why we flip choice for populate function?
   Record* page_lock_record = reinterpret_cast<Record*>(&(data_page->page_owner()));
-  WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
-                                                              page_lock_record, log_entry));
+
   HashInsertDummyLogType* dummy_log = reinterpret_cast<HashInsertDummyLogType*>(
     context->get_thread_log_buffer().reserve_new_log(HashInsertDummyLogType::calculate_log_length()));
   dummy_log->populate(storageid);
-  WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, actual_record, dummy_log));
+  WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
+                                                              &actual_record->owner_id_,
+                                                              reinterpret_cast<char*>(combo.bin_pages_[choice]),
+                                                              log_entry));
   std::cout << "Moving key " << *((uint64_t*)key) << " with payload " << *((uint64_t*)payload)
     << std::endl;
+//  WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
+//                                                              page_lock_record, log_entry));
+  WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
+                                                &(data_page->page_owner()),
+                                                reinterpret_cast<char*>(combo.bin_pages_[choice]),
+                                                              dummy_log));
   return kRetOk;
 }
 
@@ -575,10 +584,17 @@ ErrorCode HashStoragePimpl::insert_record(
   HashInsertDummyLogType* dummy_log = reinterpret_cast<HashInsertDummyLogType*>(
     context->get_thread_log_buffer().reserve_new_log(HashInsertDummyLogType::calculate_log_length()));
   dummy_log->populate(storageid);
-  CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_, actual_record, dummy_log));
+  CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
+                                                              &actual_record->owner_id_,
+                                                              reinterpret_cast<char*>(bin_page), log_entry));
   std::cout << "Inserting key " << *(uint64_t*)key
     << " with payload " << *((uint64_t*)payload) << std::endl;
-  return context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry);
+
+  //return context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry);
+  // NOTE tentative hack! currently "payload address" for hash insert write set points to bin page
+  // so that we don't have to calculate it again.
+  return context->get_current_xct().add_to_write_set(holder_,  &(data_page->page_owner()),
+    nullptr,  dummy_log);
 }
 
 ErrorCode HashStoragePimpl::delete_record(
@@ -592,12 +608,11 @@ ErrorCode HashStoragePimpl::delete_record(
 
   if (combo.record_ == nullptr) {
     // TODO(Hideaki) Add the mod counter to a special read set
-
     return kErrorCodeStrKeyNotFound;
   }
 
-#ifndef NDEBUG
   HashBinPage* bin_page = combo.bin_pages_[combo.record_bin1_ ? 0 : 1];
+#ifndef NDEBUG
   ASSERT_ND(bin_page && !bin_page->header().snapshot_);
   HashDataPage* data_page = combo.data_pages_[combo.record_bin1_ ? 0 : 1];
   ASSERT_ND(data_page && !data_page->header().snapshot_);
@@ -607,7 +622,14 @@ ErrorCode HashStoragePimpl::delete_record(
   HashDeleteLogType* log_entry = reinterpret_cast<HashDeleteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(metadata_.id_, key, key_length, combo.record_bin1_, combo.record_slot_);
-  return context->get_current_xct().add_to_write_set(holder_, combo.record_, log_entry);
+  // NOTE tentative hack! currently "payload address" for hash insert write set points to bin page
+  // so that we don't have to calculate it again.
+  ASSERT_ND(log_entry->header_.get_type() == log::kLogCodeHashDelete);
+  return context->get_current_xct().add_to_write_set(
+    holder_,
+    &combo.record_->owner_id_,
+    reinterpret_cast<char*>(bin_page),
+    log_entry);
 }
 
 ErrorCode HashStoragePimpl::overwrite_record(
@@ -747,12 +769,16 @@ void HashStoragePimpl::apply_insert_record(
   const HashInsertLogType* log_entry,
   xct::XctId* owner_id,
   char* payload) {
+ // NOTE tentative hack! currently "payload address" for hash insert write set points to bin page
+  // so that we don't have to calculate it again.
   HashDataPage* data_page = to_page(owner_id);
-  ASSERT_ND(owner_id->is_keylocked());
   ASSERT_ND(!data_page->header().snapshot_);
+  ASSERT_ND(data_page->header().get_page_type() == kHashDataPageType);
+
   uint64_t bin = data_page->get_bin();
   HashBinPage* bin_page = reinterpret_cast<HashBinPage*>(payload);
   ASSERT_ND(bin_page);
+  ASSERT_ND(bin_page->header().get_page_type() == kHashBinPageType);
   ASSERT_ND(!bin_page->header().snapshot_);
   HashBinPage::Bin& the_bin = bin_page->bin(bin % kBinsPerPage);
 
@@ -772,6 +798,7 @@ void HashStoragePimpl::apply_insert_record(
     log_entry->key_length_,
     log_entry->payload_count_,
     log_entry->data_);
+  owner_id->set_notdeleted();
 }
 
 void HashStoragePimpl::apply_delete_record(
@@ -800,9 +827,11 @@ void HashStoragePimpl::apply_delete_record(
   uint16_t slot = log_entry->slot_;
   // We are deleting this record, so it should be locked
   ASSERT_ND(data_page->get_record_count() > slot);
-  ASSERT_ND(data_page->interpret_record(slot)->owner_id_.is_keylocked());
+  ASSERT_ND(owner_id->is_keylocked());
   ASSERT_ND((data_page->slot(slot).flags_ & HashDataPage::kFlagDeleted) == 0);
+  ASSERT_ND(!owner_id->is_deleted());
   data_page->slot(slot).flags_ |= HashDataPage::kFlagDeleted;
+  owner_id->set_deleted();
 
   // we also remove tag from bin page. this happens AFTER physically deleting it with fence.
   // this protocol makes sure it's safe, although there might be false positive.
