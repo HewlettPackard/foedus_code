@@ -1,0 +1,4138 @@
+diff --git a/:q b/:q
+new file mode 100644
+index 0000000..268d927
+--- /dev/null
++++ b/:q
+@@ -0,0 +1,7 @@
++f:Merge branch 'bill_develop' of http://245-1.bfc.hpl.hp.com/foedus-dev/foedus_code into bill_develop
++
++# Please enter a commit message to explain why this merge is necessary,
++# especially if it merges an updated upstream into a topic branch.
++#
++# Lines starting with '#' will be ignored, and an empty message aborts
++# the commit.
+diff --git a/:q:w b/:q:w
+new file mode 100644
+index 0000000..8370925
+--- /dev/null
++++ b/:q:w
+@@ -0,0 +1,8 @@
++erge branch 'bill_diff' of http://245-1.bfc.hpl.hp.com/foedus-dev/foedus_code into bill_develop
++
++# Please enter a commit message to explain why this merge is necessary,
++# especially if it merges an updated upstream into a topic branch.
++#
++# Lines starting with '#' will be ignored, and an empty message aborts
++# the commit.
++Tentative Commit
+diff --git a/Testing/Temporary/CTestCostData.txt b/Testing/Temporary/CTestCostData.txt
+new file mode 100644
+index 0000000..ed97d53
+--- /dev/null
++++ b/Testing/Temporary/CTestCostData.txt
+@@ -0,0 +1 @@
++---
+diff --git a/Testing/Temporary/LastTest.log b/Testing/Temporary/LastTest.log
+new file mode 100644
+index 0000000..6b086ad
+--- /dev/null
++++ b/Testing/Temporary/LastTest.log
+@@ -0,0 +1,3 @@
++Start testing: Jul 21 15:02 PDT
++----------------------------------------------------------
++End testing: Jul 21 15:02 PDT
+diff --git a/experiments-core/include/foedus/tpcc/tpcc_client.hpp b/experiments-core/include/foedus/tpcc/tpcc_client.hpp
+index dce0fe6..3ee4475 100644
+--- a/experiments-core/include/foedus/tpcc/tpcc_client.hpp
++++ b/experiments-core/include/foedus/tpcc/tpcc_client.hpp
+@@ -43,17 +43,11 @@ class TpccClientTask : public thread::ImpersonateTask {
+   };
+   TpccClientTask(
+     uint32_t worker_id,
+-    Wid total_warehouses,
+-    Wid from_wid,
+-    Wid to_wid,
+     uint16_t neworder_remote_percent,
+     uint16_t payment_remote_percent,
+     TpccStorages storages,
+     thread::Rendezvous* start_rendezvous)
+     : worker_id_(worker_id),
+-      total_warehouses_(total_warehouses),
+-      from_wid_(from_wid),
+-      to_wid_(to_wid),
+       neworder_remote_percent_(neworder_remote_percent),
+       payment_remote_percent_(payment_remote_percent),
+       rnd_(kRandomSeed + worker_id),
+@@ -82,12 +76,6 @@ class TpccClientTask : public thread::ImpersonateTask {
+  private:
+   /** unique ID of this worker from 0 to #workers-1. */
+   const uint32_t    worker_id_;
+-  const Wid         total_warehouses_;
+-
+-  /** inclusive beginning of "home" wid */
+-  const Wid from_wid_;
+-  /** exclusive end of "home" wid */
+-  const Wid to_wid_;
+ 
+   thread::Rendezvous* start_rendezvous_;
+ 
+@@ -197,9 +185,7 @@ class TpccClientTask : public thread::ImpersonateTask {
+   ErrorCode pop_neworder(Wid wid, Did did, Oid* oid);
+ 
+   Did get_random_district_id() ALWAYS_INLINE { return rnd_.uniform_within(0, kDistricts - 1); }
+-  Wid get_random_warehouse_id() ALWAYS_INLINE {
+-    return rnd_.uniform_within(0, total_warehouses_ - 1);
+-  }
++  Wid get_random_warehouse_id() ALWAYS_INLINE { return rnd_.uniform_within(0, kWarehouses - 1); }
+ };
+ }  // namespace tpcc
+ }  // namespace foedus
+diff --git a/experiments-core/include/foedus/tpcc/tpcc_driver.hpp b/experiments-core/include/foedus/tpcc/tpcc_driver.hpp
+index d804f7d..f05eec5 100644
+--- a/experiments-core/include/foedus/tpcc/tpcc_driver.hpp
++++ b/experiments-core/include/foedus/tpcc/tpcc_driver.hpp
+@@ -44,22 +44,9 @@ class TpccDriver {
+ 
+   std::vector<TpccClientTask*>  clients_;
+ 
+-  /** inclusive beginning of responsible wid. index=thread ordinal */
+-  std::vector<Wid>              from_wids_;
+-  /** exclusive end of responsible wid. index=thread ordinal */
+-  std::vector<Wid>              to_wids_;
+-
+-  /** inclusive beginning of responsible iid. index=thread ordinal */
+-  std::vector<Iid>              from_iids_;
+-  /** exclusive end of responsible iid. index=thread ordinal */
+-  std::vector<Iid>              to_iids_;
+-
+   TpccStorages                  storages_;
+ 
+   thread::Rendezvous            start_rendezvous_;
+-
+-  void assign_wids();
+-  void assign_iids();
+ };
+ 
+ int driver_main(int argc, char **argv);
+diff --git a/experiments-core/include/foedus/tpcc/tpcc_load.hpp b/experiments-core/include/foedus/tpcc/tpcc_load.hpp
+index e3e0095..07de647 100644
+--- a/experiments-core/include/foedus/tpcc/tpcc_load.hpp
++++ b/experiments-core/include/foedus/tpcc/tpcc_load.hpp
+@@ -22,48 +22,6 @@
+ namespace foedus {
+ namespace tpcc {
+ /**
+- * @brief Just creates empty tables.
+- */
+-class TpccCreateTask : public thread::ImpersonateTask {
+- public:
+-  explicit TpccCreateTask(Wid total_warehouses) : total_warehouses_(total_warehouses) {}
+-  ErrorStack          run(thread::Thread* context);
+-
+-  const TpccStorages& get_storages() const { return storages_; }
+-
+- private:
+-  const Wid     total_warehouses_;
+-  TpccStorages  storages_;
+-
+-  ErrorStack create_array(
+-    thread::Thread* context,
+-    const std::string& name,
+-    uint32_t payload_size,
+-    uint64_t array_size,
+-    storage::array::ArrayStorage** storage);
+-  ErrorStack create_masstree(
+-    thread::Thread* context,
+-    const std::string& name,
+-    storage::masstree::MasstreeStorage** storage);
+-  ErrorStack create_sequential(
+-    thread::Thread* context,
+-    const std::string& name,
+-    storage::sequential::SequentialStorage** storage);
+-};
+-/**
+- * @brief Verify tables after data loading.
+- */
+-class TpccFinishupTask : public thread::ImpersonateTask {
+- public:
+-  explicit TpccFinishupTask(Wid total_warehouses, const TpccStorages& storages)
+-    : total_warehouses_(total_warehouses), storages_(storages) {}
+-  ErrorStack          run(thread::Thread* context);
+-
+- private:
+-  const Wid total_warehouses_;
+-  const TpccStorages storages_;
+-};
+-/**
+  * @brief Main class of data load for TPC-C.
+  * @details
+  * Acknowledgement:
+@@ -73,46 +31,23 @@ class TpccFinishupTask : public thread::ImpersonateTask {
+  */
+ class TpccLoadTask : public thread::ImpersonateTask {
+  public:
+-  TpccLoadTask(
+-    Wid total_warehouses,
+-    const TpccStorages& storages,
+-    const char* timestamp,
+-    Wid from_wid,
+-    Wid to_wid,
+-    Iid from_iid,
+-    Iid to_iid)
+-    : total_warehouses_(total_warehouses),
+-      storages_(storages),
+-      timestamp_(timestamp),
+-      from_wid_(from_wid),
+-      to_wid_(to_wid),
+-      from_iid_(from_iid),
+-      to_iid_(to_iid) {}
+   ErrorStack          run(thread::Thread* context);
+ 
+   ErrorStack          load_tables();
++  const TpccStorages& get_storages() const { return storages_; }
+ 
+  private:
+   enum Constants {
+     kCommitBatch = 500,
+   };
+ 
+-  const Wid total_warehouses_;
+-  const TpccStorages storages_;
+-  /** timestamp for date fields. */
+-  const char* timestamp_;
+-  /** inclusive beginning of responsible wid */
+-  const Wid from_wid_;
+-  /** exclusive end of responsible wid */
+-  const Wid to_wid_;
+-  /** inclusive beginning of responsible iid. */
+-  const Iid from_iid_;
+-  /** exclusive end of responsible iid. */
+-  const Iid to_iid_;
+-
+   Engine* engine_;
+   thread::Thread* context_;
+   xct::XctManager* xct_manager_;
++  /** timestamp for date fields. */
++  char* timestamp_;
++
++  TpccStorages storages_;
+ 
+   assorted::UniformRandom rnd_;
+ 
+@@ -120,6 +55,19 @@ class TpccLoadTask : public thread::ImpersonateTask {
+ 
+   Cid       get_permutation(bool* cid_array);
+ 
++  ErrorStack create_tables();
++  ErrorStack create_array(
++    const std::string& name,
++    uint32_t payload_size,
++    uint64_t array_size,
++    storage::array::ArrayStorage** storage);
++  ErrorStack create_masstree(
++    const std::string& name,
++    storage::masstree::MasstreeStorage** storage);
++  ErrorStack create_sequential(
++    const std::string& name,
++    storage::sequential::SequentialStorage** storage);
++
+   ErrorCode  commit_if_full();
+ 
+   /** Loads the Item table. */
+diff --git a/experiments-core/include/foedus/tpcc/tpcc_scale.hpp b/experiments-core/include/foedus/tpcc/tpcc_scale.hpp
+index 519870d..d460125 100644
+--- a/experiments-core/include/foedus/tpcc/tpcc_scale.hpp
++++ b/experiments-core/include/foedus/tpcc/tpcc_scale.hpp
+@@ -18,10 +18,7 @@ namespace foedus {
+ namespace tpcc {
+ 
+ /** Number of warehouses. Does not grow dynamically */
+-// const uint16_t kWarehouses = 16U;
+-// kWarehouses is now a program parameter. See tpcc_driver
+-/** Maximum number of warehouses. */
+-const uint16_t kMaxWarehouses = (1U << 10);
++const uint16_t kWarehouses = 2U;
+ 
+ /** Number of items per warehouse. Does not grow dynamically  */
+ const uint32_t kItems = 100000U;
+diff --git a/experiments-core/src/foedus/storage/hash/CMakeLists.txt b/experiments-core/src/foedus/storage/hash/CMakeLists.txt
+index 0189132..93d4952 100644
+--- a/experiments-core/src/foedus/storage/hash/CMakeLists.txt
++++ b/experiments-core/src/foedus/storage/hash/CMakeLists.txt
+@@ -1,2 +1,5 @@
+ add_executable(tpcb_experiment_hash ${CMAKE_CURRENT_SOURCE_DIR}/tpcb_experiment_hash.cpp)
+ target_link_libraries(tpcb_experiment_hash ${EXPERIMENT_LIB})
++
++add_executable(kickout_experiment_hash ${CMAKE_CURRENT_SOURCE_DIR}/kickout_experiment_hash.cpp)
++target_link_libraries(kickout_experiment_hash ${EXPERIMENT_LIB})
+diff --git a/experiments-core/src/foedus/storage/hash/tpcb_experiment_hash.cpp b/experiments-core/src/foedus/storage/hash/tpcb_experiment_hash.cpp
+index aa9b5ab..b32503c 100644
+--- a/experiments-core/src/foedus/storage/hash/tpcb_experiment_hash.cpp
++++ b/experiments-core/src/foedus/storage/hash/tpcb_experiment_hash.cpp
+@@ -50,12 +50,12 @@ namespace storage {
+ namespace hash {
+ 
+ /** number of branches (TPS scaling factor). */
+-int kBranches  =   100;
++int kBranches  =   10;
+ 
+ int kTotalThreads = -1;
+ 
+ /** number of log writers per numa node */
+-const int kLoggersPerNode = 8;
++const int kLoggersPerNode = 4;
+ 
+ /** number of tellers in 1 branch. */
+ const int kTellers   =   10;
+@@ -311,9 +311,9 @@ int main_impl(int argc, char **argv) {
+     // = debugging::DebuggingOptions::kDebugLogWarning;
+   options.debugging_.verbose_modules_ = "";
+   options.debugging_.verbose_log_level_ = -1;
+-  options.log_.log_buffer_kb_ = 1 << 21;
++  options.log_.log_buffer_kb_ = 1 << 16;
+   options.log_.log_file_size_mb_ = 1 << 10;
+-  options.memory_.page_pool_size_mb_per_node_ = 12 << 10;
++  options.memory_.page_pool_size_mb_per_node_ = 1 << 10;
+   kTotalThreads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
+ 
+   {
+diff --git a/experiments-core/src/foedus/storage/sequential/tpcb_experiment_seq.cpp b/experiments-core/src/foedus/storage/sequential/tpcb_experiment_seq.cpp
+index c793f2e..a9c4d28 100644
+--- a/experiments-core/src/foedus/storage/sequential/tpcb_experiment_seq.cpp
++++ b/experiments-core/src/foedus/storage/sequential/tpcb_experiment_seq.cpp
+@@ -236,7 +236,6 @@ int main_impl(int argc, char **argv) {
+     // = debugging::DebuggingOptions::kDebugLogWarning;
+   options.debugging_.verbose_modules_ = "";
+   options.debugging_.verbose_log_level_ = -1;
+-  options.snapshot_.snapshot_interval_milliseconds_ = 1 << 20;
+   options.log_.log_buffer_kb_ = 1 << 20;  // 256MB * 16 cores = 4 GB. nothing.
+   options.log_.log_file_size_mb_ = 1 << 10;
+   options.memory_.page_pool_size_mb_per_node_ = 1 << 13;  // 8GB per node = 16GB
+diff --git a/experiments-core/src/foedus/tpcc/tpcc_client.cpp b/experiments-core/src/foedus/tpcc/tpcc_client.cpp
+index 807a9df..833b1f8 100644
+--- a/experiments-core/src/foedus/tpcc/tpcc_client.cpp
++++ b/experiments-core/src/foedus/tpcc/tpcc_client.cpp
+@@ -4,8 +4,7 @@
+  */
+ #include "foedus/tpcc/tpcc_client.hpp"
+ 
+-#include <glog/logging.h>
+-
++#include <iostream>
+ #include <string>
+ 
+ #include "foedus/assert_nd.hpp"
+@@ -27,8 +26,6 @@ void TpccClientTask::update_timestring_if_needed() {
+   }
+ }
+ 
+-const uint32_t kMaxUnexpectedErrors = 1;
+-
+ ErrorStack TpccClientTask::run(thread::Thread* context) {
+   context_ = context;
+   engine_ = context->get_engine();
+@@ -44,12 +41,11 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
+   xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+ 
+   start_rendezvous_->wait();
+-  LOG(INFO) << "TPCC Client-" << worker_id_ << " started working! home wid="
+-    << from_wid_ << "-" << to_wid_;
++  std::cout << "TPCC Client-" << worker_id_ << " started working!" << std::endl;
+ 
+   while (!stop_requrested_) {
+     // currently we change wid for each transaction.
+-    Wid wid = to_wid_ <= from_wid_ ? from_wid_ : rnd_.uniform_within(from_wid_, to_wid_ - 1);
++    Wid wid = rnd_.uniform_within(0, kWarehouses - 1);
+     uint16_t transaction_type = rnd_.uniform_within(1, 100);
+     // remember the random seed to repeat the same transaction on abort/retry.
+     uint64_t rnd_seed = rnd_.get_current_seed();
+@@ -87,8 +83,8 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
+       } else if (ret != kErrorCodeOk) {
+         WRAP_ERROR_CODE(xct_manager.abort_xct(context));
+         increment_unexpected_aborts();
+-        if (unexpected_aborts_ > kMaxUnexpectedErrors) {
+-          LOG(ERROR) << "Too many unexpected errors. What's happening?";
++        if (unexpected_aborts_ > 100U) {
++          std::cout << "ERROR ERROR: Too many unexpected errors. What's happening?" << std::endl;
+           return ERROR_STACK(ret);
+         } else {
+           continue;
+@@ -105,8 +101,8 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
+         continue;
+       } else {
+         increment_unexpected_aborts();
+-        if (unexpected_aborts_ >= kMaxUnexpectedErrors) {
+-          LOG(ERROR) << "Too many unexpected errors. What's happening?";
++        if (unexpected_aborts_ > 100U) {
++          std::cout << "ERROR ERROR: Too many unexpected errors. What's happening?" << std::endl;
+           return ERROR_STACK(ret);
+         } else {
+           continue;
+diff --git a/experiments-core/src/foedus/tpcc/tpcc_driver.cpp b/experiments-core/src/foedus/tpcc/tpcc_driver.cpp
+index 4ba6947..2902b7f 100644
+--- a/experiments-core/src/foedus/tpcc/tpcc_driver.cpp
++++ b/experiments-core/src/foedus/tpcc/tpcc_driver.cpp
+@@ -4,12 +4,8 @@
+  */
+ #include "foedus/tpcc/tpcc_driver.hpp"
+ 
+-#include <fcntl.h>
+-#include <time.h>
+ #include <gflags/gflags.h>
+-#include <glog/logging.h>
+ 
+-#include <algorithm>
+ #include <iostream>
+ #include <string>
+ #include <thread>
+@@ -30,8 +26,6 @@
+ namespace foedus {
+ namespace tpcc {
+ DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
+-DEFINE_int32(volatile_pool_size, 8, "Size of volatile memory pool per NUMA node in GB.");
+-DEFINE_bool(ignore_volatile_size_warning, false, "Ignores warning on volatile_pool_size setting.");
+ DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
+ DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inserted to remote"
+   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
+@@ -40,109 +34,38 @@ DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inse
+ DEFINE_int32(payment_remote_percent, 5, "Percent of each payment that is inserted to remote"
+   " warehouse. The default value is 5. This corresponds to H-Store's payment_multip/"
+   "payment_multip_mix in tpcc.properties.");
+-DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
+-DEFINE_int32(warehouses, 4, "Number of warehouses.");
+-DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
++DEFINE_bool(single_thread_test, true, "Whether to run a single-threaded sanity test.");
++
++const uint64_t kDurationMicro = 5000000;  // TODO(Hideaki) make it a flag
+ 
+ TpccDriver::Result TpccDriver::run() {
+   const EngineOptions& options = engine_->get_options();
+-  LOG(INFO) << engine_->get_memory_manager().dump_free_memory_stat();
+-  assign_wids();
+-  assign_iids();
+-
+-  {
+-    // first, create empty tables. this is done in single thread
+-    TpccCreateTask creater(FLAGS_warehouses);
+-    thread::ImpersonateSession creater_session = engine_->get_thread_pool().impersonate(&creater);
+-    if (!creater_session.is_valid()) {
+-      COERCE_ERROR(creater_session.invalid_cause_);
+-      return Result();
+-    }
+-    LOG(INFO) << "creator_result=" << creater_session.get_result();
+-    if (creater_session.get_result().is_error()) {
+-      COERCE_ERROR(creater_session.get_result());
+-      return Result();
+-    }
+-
+-    storages_ = creater.get_storages();
+-  }
+-
+-  auto& thread_pool = engine_->get_thread_pool();
+-  {
+-    // Initialize timestamp (for date columns)
+-    time_t t_clock;
+-    ::time(&t_clock);
+-    const char* timestamp = ::ctime(&t_clock);  // NOLINT(runtime/threadsafe_fn) no race here
+-    ASSERT_ND(timestamp);
++  std::cout << engine_->get_memory_manager().dump_free_memory_stat() << std::endl;
+ 
+-    // then, load data into the tables.
+-    // this takes long, so it's parallelized.
+-    std::vector< TpccLoadTask* > tasks;
+-    std::vector< thread::ImpersonateSession > sessions;
+-    for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
+-      for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
+-        uint16_t count = tasks.size();
+-        tasks.push_back(new TpccLoadTask(
+-          FLAGS_warehouses,
+-          storages_,
+-          timestamp,
+-          from_wids_[count],
+-          to_wids_[count],
+-          from_iids_[count],
+-          to_iids_[count]));
+-        sessions.emplace_back(thread_pool.impersonate_on_numa_node(tasks.back(), node));
+-        if (!sessions.back().is_valid()) {
+-          COERCE_ERROR(sessions.back().invalid_cause_);
+-        }
+-      }
+-    }
+-
+-    bool had_error = false;
+-    for (uint16_t i = 0; i < sessions.size(); ++i) {
+-      LOG(INFO) << "loader_result[" << i << "]=" << sessions[i].get_result();
+-      if (sessions[i].get_result().is_error()) {
+-        had_error = true;
+-      }
+-      delete tasks[i];
+-    }
+-
+-    if (had_error) {
+-      LOG(ERROR) << "Failed data load";
+-      return Result();
+-    }
+-    LOG(INFO) << "Completed data load";
++  TpccLoadTask loader;
++  thread::ImpersonateSession loader_session = engine_->get_thread_pool().impersonate(&loader);
++  if (!loader_session.is_valid()) {
++    COERCE_ERROR(loader_session.invalid_cause_);
++    return Result();
+   }
+-
+-
+-  {
+-    // first, create empty tables. this is done in single thread
+-    TpccFinishupTask finishup(FLAGS_warehouses, storages_);
+-    thread::ImpersonateSession finish_session = thread_pool.impersonate(&finishup);
+-    if (!finish_session.is_valid()) {
+-      COERCE_ERROR(finish_session.invalid_cause_);
+-      return Result();
+-    }
+-    LOG(INFO) << "finiish_result=" << finish_session.get_result();
+-    if (finish_session.get_result().is_error()) {
+-      COERCE_ERROR(finish_session.get_result());
+-      return Result();
+-    }
++  std::cout << "loader_result=" << loader_session.get_result() << std::endl;
++  if (loader_session.get_result().is_error()) {
++    COERCE_ERROR(loader_session.get_result());
++    return Result();
+   }
+ 
+-  LOG(INFO) << engine_->get_memory_manager().dump_free_memory_stat();
++  std::cout << engine_->get_memory_manager().dump_free_memory_stat() << std::endl;
+ 
+-  LOG(INFO) << "neworder_remote_percent=" << FLAGS_neworder_remote_percent;
+-  LOG(INFO) << "payment_remote_percent=" << FLAGS_payment_remote_percent;
++  std::cout << "neworder_remote_percent=" << FLAGS_neworder_remote_percent << std::endl;
++  std::cout << "payment_remote_percent=" << FLAGS_payment_remote_percent << std::endl;
++  storages_ = loader.get_storages();
+   std::vector< thread::ImpersonateSession > sessions;
++  auto& thread_pool = engine_->get_thread_pool();
+   for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
+     memory::ScopedNumaPreferred scope(node);
+     for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
+-      uint16_t global_ordinal = clients_.size();
+       clients_.push_back(new TpccClientTask(
+         (node << 8U) + ordinal,
+-        FLAGS_warehouses,
+-        from_wids_[global_ordinal],
+-        to_wids_[global_ordinal],
+         FLAGS_neworder_remote_percent,
+         FLAGS_payment_remote_percent,
+         storages_,
+@@ -153,7 +76,7 @@ TpccDriver::Result TpccDriver::run() {
+       }
+     }
+   }
+-  LOG(INFO) << "okay, launched all worker threads";
++  std::cout << "okay, launched all worker threads" << std::endl;
+ 
+   // make sure all threads are done with random number generation
+   std::this_thread::sleep_for(std::chrono::seconds(3));
+@@ -161,9 +84,9 @@ TpccDriver::Result TpccDriver::run() {
+     COERCE_ERROR(engine_->get_debug().start_profile("tpcc.prof"));
+   }
+   start_rendezvous_.signal();  // GO!
+-  LOG(INFO) << "Started!";
+-  std::this_thread::sleep_for(std::chrono::microseconds(FLAGS_duration_micro));
+-  LOG(INFO) << "Experiment ended.";
++  std::cout << "Started!" << std::endl;
++  std::this_thread::sleep_for(std::chrono::microseconds(kDurationMicro));
++  std::cout << "Experiment ended." << std::endl;
+ 
+   Result result;
+   assorted::memory_fence_acquire();
+@@ -176,8 +99,8 @@ TpccDriver::Result TpccDriver::run() {
+   if (FLAGS_profile) {
+     engine_->get_debug().stop_profile();
+   }
+-  LOG(INFO) << result;
+-  LOG(INFO) << "Shutting down...";
++  std::cout << result << std::endl;
++  std::cout << "Shutting down..." << std::endl;
+ 
+   assorted::memory_fence_release();
+   for (auto* client : clients_) {
+@@ -185,63 +108,14 @@ TpccDriver::Result TpccDriver::run() {
+   }
+   assorted::memory_fence_release();
+ 
+-  LOG(INFO) << "Total thread count=" << clients_.size();
++  std::cout << "Total thread count=" << clients_.size() << std::endl;
+   for (uint16_t i = 0; i < sessions.size(); ++i) {
+-    LOG(INFO) << "result[" << i << "]=" << sessions[i].get_result();
++    std::cout << "result[" << i << "]=" << sessions[i].get_result() << std::endl;
+     delete clients_[i];
+   }
+   return result;
+ }
+ 
+-template <typename T>
+-void assign_ids(
+-  uint64_t total_count,
+-  const EngineOptions& options,
+-  std::vector<T>* from_ids,
+-  std::vector<T>* to_ids) {
+-  // divide warehouses/items into threads as even as possible.
+-  // we explicitly specify which nodes to take which WID and assign it in the later execution
+-  // as a DORA-like partitioning.
+-  ASSERT_ND(from_ids->size() == 0);
+-  ASSERT_ND(to_ids->size() == 0);
+-  const uint16_t total_thread_count = options.thread_.get_total_thread_count();
+-  const float wids_per_thread = static_cast<float>(total_count) / total_thread_count;
+-  uint64_t assigned = 0;
+-  uint64_t min_assignments = 0xFFFFFFFFFFFFFFFFULL;
+-  uint64_t max_assignments = 0;
+-  for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
+-    for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
+-      uint64_t wids;
+-      if (node == options.thread_.group_count_ &&
+-        ordinal == options.thread_.thread_count_per_group_) {
+-        // all the remaining
+-        wids = total_count - assigned;
+-        ASSERT_ND(wids < wids_per_thread + 2);  // not too skewed
+-      } else {
+-        uint16_t thread_count = from_ids->size();
+-        wids = static_cast<uint64_t>(wids_per_thread * (thread_count + 1) - assigned);
+-      }
+-      min_assignments = std::min<uint64_t>(min_assignments, wids);
+-      max_assignments = std::max<uint64_t>(max_assignments, wids);
+-      from_ids->push_back(assigned);
+-      to_ids->push_back(assigned + wids);
+-      assigned += wids;
+-    }
+-  }
+-  ASSERT_ND(from_ids->size() == total_thread_count);
+-  ASSERT_ND(to_ids->size() == total_thread_count);
+-  ASSERT_ND(to_ids->back() == total_count);
+-  LOG(INFO) << "Assignments, min=" << min_assignments << ", max=" << max_assignments
+-    << ", threads=" << total_thread_count << ", total_count=" << total_count;
+-}
+-
+-void TpccDriver::assign_wids() {
+-  assign_ids<Wid>(FLAGS_warehouses, engine_->get_options(), &from_wids_, &to_wids_);
+-}
+-void TpccDriver::assign_iids() {
+-  assign_ids<Iid>(kItems, engine_->get_options(), &from_iids_, &to_iids_);
+-}
+-
+ int driver_main(int argc, char **argv) {
+   gflags::SetUsageMessage("TPC-C implementation for FOEDUS");
+   gflags::ParseCommandLineFlags(&argc, &argv, true);
+@@ -251,7 +125,7 @@ int driver_main(int argc, char **argv) {
+     fs::remove_all(folder);
+   }
+   if (!fs::create_directories(folder)) {
+-    std::cerr << "Couldn't create " << folder << ". err=" << assorted::os_error();
++    std::cerr << "Couldn't create " << folder << ". err=" << assorted::os_error() << std::endl;
+     return 1;
+   }
+ 
+@@ -262,7 +136,7 @@ int driver_main(int argc, char **argv) {
+   options.savepoint_.savepoint_path_ = savepoint_path.string();
+   ASSERT_ND(!fs::exists(savepoint_path));
+ 
+-  LOG(INFO) << "NUMA node count=" << static_cast<int>(options.thread_.group_count_);
++  std::cout << "NUMA node count=" << static_cast<int>(options.thread_.group_count_) << std::endl;
+   options.snapshot_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/snapshot/node_$NODE$";
+   options.log_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/log/node_$NODE$/logger_$LOGGER$";
+   options.log_.loggers_per_node_ = FLAGS_loggers_per_node;
+@@ -276,12 +150,10 @@ int driver_main(int argc, char **argv) {
+ 
+   options.log_.log_buffer_kb_ = 1 << 18;  // 256MB * 16 cores = 4 GB. nothing.
+   options.log_.log_file_size_mb_ = 1 << 10;
+-  LOG(INFO) << "volatile_pool_size=" << FLAGS_volatile_pool_size << "GB per NUMA node";
+-  options.memory_.page_pool_size_mb_per_node_ = (FLAGS_volatile_pool_size) << 10;
+-  options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 10;
++  options.memory_.page_pool_size_mb_per_node_ = 1 << 13;  // 8GB per node = 16GB
++  options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 13;
+ 
+   if (FLAGS_single_thread_test) {
+-    FLAGS_warehouses = 1;
+     options.log_.log_buffer_kb_ = 1 << 16;
+     options.log_.log_file_size_mb_ = 1 << 10;
+     options.memory_.page_pool_size_mb_per_node_ = 1 << 12;
+@@ -290,15 +162,6 @@ int driver_main(int argc, char **argv) {
+     options.thread_.thread_count_per_group_ = 1;
+   }
+ 
+-  if (!FLAGS_ignore_volatile_size_warning) {
+-    if (FLAGS_volatile_pool_size < FLAGS_warehouses * 4 / options.thread_.group_count_) {
+-      LOG(FATAL) << "You have specified: warehouses=" << FLAGS_warehouses << ", which is "
+-        << (static_cast<float>(FLAGS_warehouses) / options.thread_.group_count_) << " warehouses"
+-        << " per NUMA node. You should specify at least "
+-        << (FLAGS_warehouses * 4 / options.thread_.group_count_) << "GB for volatile_pool_size.";
+-    }
+-  }
+-
+   TpccDriver::Result result;
+   {
+     Engine engine(options);
+@@ -313,10 +176,10 @@ int driver_main(int argc, char **argv) {
+ 
+   // wait just for a bit to avoid mixing stdout
+   std::this_thread::sleep_for(std::chrono::milliseconds(50));
+-  LOG(INFO) << result;
++  std::cout << result << std::endl;
+   if (FLAGS_profile) {
+-    LOG(INFO) << "Check out the profile result: pprof --pdf tpcc tpcc.prof > prof.pdf; "
+-      "okular prof.pdf";
++    std::cout << "Check out the profile result: pprof --pdf tpcc tpcc.prof > prof.pdf; "
++      "okular prof.pdf" << std::endl;
+   }
+   return 0;
+ }
+@@ -324,7 +187,7 @@ int driver_main(int argc, char **argv) {
+ std::ostream& operator<<(std::ostream& o, const TpccDriver::Result& v) {
+   o << "<total_result>"
+     << "<processed_>" << v.processed_ << "</processed_>"
+-    << "<MTPS>" << (static_cast<double>(v.processed_) / FLAGS_duration_micro) << "</MTPS>"
++    << "<MTPS>" << (static_cast<double>(v.processed_) / kDurationMicro) << "</MTPS>"
+     << "<user_requested_aborts_>" << v.user_requested_aborts_ << "</user_requested_aborts_>"
+     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
+     << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>"
+diff --git a/experiments-core/src/foedus/tpcc/tpcc_load.cpp b/experiments-core/src/foedus/tpcc/tpcc_load.cpp
+index c92ce58..fe460a3 100644
+--- a/experiments-core/src/foedus/tpcc/tpcc_load.cpp
++++ b/experiments-core/src/foedus/tpcc/tpcc_load.cpp
+@@ -4,6 +4,8 @@
+  */
+ #include "foedus/tpcc/tpcc_load.hpp"
+ 
++#include <fcntl.h>
++#include <time.h>
+ #include <glog/logging.h>
+ 
+ #include <algorithm>
+@@ -20,7 +22,6 @@
+ #include "foedus/storage/storage_manager.hpp"
+ #include "foedus/storage/array/array_metadata.hpp"
+ #include "foedus/storage/array/array_storage.hpp"
+-#include "foedus/storage/masstree/masstree_cursor.hpp"
+ #include "foedus/storage/masstree/masstree_metadata.hpp"
+ #include "foedus/storage/masstree/masstree_storage.hpp"
+ #include "foedus/storage/sequential/sequential_metadata.hpp"
+@@ -33,237 +34,163 @@
+ 
+ namespace foedus {
+ namespace tpcc {
+-ErrorStack TpccCreateTask::run(thread::Thread* context) {
+-  std::memset(&storages_, 0, sizeof(storages_));
++ErrorStack TpccLoadTask::run(thread::Thread* context) {
++  context_ = context;
++  engine_ = context->get_engine();
++  xct_manager_ = &engine_->get_xct_manager();
+   debugging::StopWatch watch;
++  CHECK_ERROR(load_tables());
++  watch.stop();
++  LOG(INFO) << "Loaded TPC-C tables in " << watch.elapsed_sec() << "sec";
++  return kRetOk;
++}
++
++ErrorStack TpccLoadTask::load_tables() {
++  // Initialize timestamp (for date columns)
++  time_t t_clock;
++  ::time(&t_clock);
++  timestamp_ = ::ctime(&t_clock);  // NOLINT(runtime/threadsafe_fn) no race here
++  ASSERT_ND(timestamp_);
++
++  CHECK_ERROR(create_tables());
+ 
+-  Engine* engine = context->get_engine();
+-  LOG(INFO) << "Initial:" << engine->get_memory_manager().dump_free_memory_stat();
++  CHECK_ERROR(load_warehouses());
++  LOG(INFO) << "Loaded Warehouses:" << engine_->get_memory_manager().dump_free_memory_stat();
++  CHECK_ERROR(load_districts());
++  LOG(INFO) << "Loaded Districts:" << engine_->get_memory_manager().dump_free_memory_stat();
++  CHECK_ERROR(load_customers());
++  LOG(INFO) << "Loaded Customers:" << engine_->get_memory_manager().dump_free_memory_stat();
++  CHECK_ERROR(load_items());
++  LOG(INFO) << "Loaded Items:" << engine_->get_memory_manager().dump_free_memory_stat();
++  CHECK_ERROR(load_stocks());
++  LOG(INFO) << "Loaded Strocks:" << engine_->get_memory_manager().dump_free_memory_stat();
++  CHECK_ERROR(load_orders());
++  LOG(INFO) << "Loaded Orders:" << engine_->get_memory_manager().dump_free_memory_stat();
++
++  WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
++  CHECK_ERROR(storages_.customers_secondary_->verify_single_thread(context_));
++  CHECK_ERROR(storages_.neworders_->verify_single_thread(context_));
++  CHECK_ERROR(storages_.orderlines_->verify_single_thread(context_));
++  CHECK_ERROR(storages_.orders_->verify_single_thread(context_));
++  CHECK_ERROR(storages_.orders_secondary_->verify_single_thread(context_));
++  WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
++
++  LOG(INFO) << "Loaded all tables. Waiting for flushing all logs...";
++  Epoch ep = engine_->get_xct_manager().get_current_global_epoch();
++  engine_->get_xct_manager().advance_current_global_epoch();
++  WRAP_ERROR_CODE(engine_->get_log_manager().wait_until_durable(ep));
++  LOG(INFO) << "Okay, flushed all logs.";
++
++  return kRetOk;
++}
++
++ErrorStack TpccLoadTask::create_tables() {
++  std::memset(&storages_, 0, sizeof(storages_));
++
++  LOG(INFO) << "Initial:" << engine_->get_memory_manager().dump_free_memory_stat();
+   CHECK_ERROR(create_array(
+-    context,
+     "customers_static",
+     sizeof(CustomerStaticData),
+-    total_warehouses_ * kDistricts * kCustomers,
++    kWarehouses * kDistricts * kCustomers,
+     &storages_.customers_static_));
+   CHECK_ERROR(create_array(
+-    context,
+     "customers_dynamic",
+     sizeof(CustomerDynamicData),
+-    total_warehouses_ * kDistricts * kCustomers,
++    kWarehouses * kDistricts * kCustomers,
+     &storages_.customers_dynamic_));
+   CHECK_ERROR(create_array(
+-    context,
+     "customers_history",
+     CustomerStaticData::kHistoryDataLength,
+-    total_warehouses_ * kDistricts * kCustomers,
++    kWarehouses * kDistricts * kCustomers,
+     &storages_.customers_history_));
+-  LOG(INFO) << "Created Customers:" << engine->get_memory_manager().dump_free_memory_stat();
++  LOG(INFO) << "Created Customers:" << engine_->get_memory_manager().dump_free_memory_stat();
+ 
+-  CHECK_ERROR(create_masstree(
+-    context,
+-    "customers_secondary",
+-    &storages_.customers_secondary_));
++  CHECK_ERROR(create_masstree("customers_secondary", &storages_.customers_secondary_));
+ 
+   CHECK_ERROR(create_array(
+-    context,
+     "districts_static",
+     sizeof(DistrictStaticData),
+-    total_warehouses_ * kDistricts,
++    kWarehouses * kDistricts,
+     &storages_.districts_static_));
+   CHECK_ERROR(create_array(
+-    context,
+     "districts_ytd",
+     sizeof(uint64_t),
+-    total_warehouses_ * kDistricts,
++    kWarehouses * kDistricts,
+     &storages_.districts_ytd_));
+   CHECK_ERROR(create_array(
+-    context,
+     "districts_next_oid",
+     sizeof(Oid),
+-    total_warehouses_ * kDistricts,
++    kWarehouses * kDistricts,
+     &storages_.districts_next_oid_));
+-  LOG(INFO) << "Created Districts:" << engine->get_memory_manager().dump_free_memory_stat();
++  LOG(INFO) << "Created Districts:" << engine_->get_memory_manager().dump_free_memory_stat();
+ 
+-  CHECK_ERROR(create_sequential(context, "histories", &storages_.histories_));
+-  CHECK_ERROR(create_masstree(context, "neworders", &storages_.neworders_));
+-  CHECK_ERROR(create_masstree(context, "orders", &storages_.orders_));
+-  CHECK_ERROR(create_masstree(context, "orders_secondary", &storages_.orders_secondary_));
+-  CHECK_ERROR(create_masstree(context, "orderlines", &storages_.orderlines_));
++  CHECK_ERROR(create_sequential("histories", &storages_.histories_));
++  CHECK_ERROR(create_masstree("neworders", &storages_.neworders_));
++  CHECK_ERROR(create_masstree("orders", &storages_.orders_));
++  CHECK_ERROR(create_masstree("orders_secondary", &storages_.orders_secondary_));
++  CHECK_ERROR(create_masstree("orderlines", &storages_.orderlines_));
+ 
+   CHECK_ERROR(create_array(
+-    context,
+     "items",
+     sizeof(ItemData),
+     kItems,
+     &storages_.items_));
+-  LOG(INFO) << "Created Items:" << engine->get_memory_manager().dump_free_memory_stat();
++  LOG(INFO) << "Created Items:" << engine_->get_memory_manager().dump_free_memory_stat();
+ 
+   CHECK_ERROR(create_array(
+-    context,
+     "stocks",
+     sizeof(StockData),
+-    total_warehouses_ * kItems,
++    kWarehouses * kItems,
+     &storages_.stocks_));
+-  LOG(INFO) << "Created Stocks:" << engine->get_memory_manager().dump_free_memory_stat();
++  LOG(INFO) << "Created Stocks:" << engine_->get_memory_manager().dump_free_memory_stat();
+ 
+   CHECK_ERROR(create_array(
+-    context,
+     "warehouses_static",
+     sizeof(WarehouseStaticData),
+-    total_warehouses_,
++    kWarehouses,
+     &storages_.warehouses_static_));
+   CHECK_ERROR(create_array(
+-    context,
+     "warehouses_ytd",
+     sizeof(double),
+-    total_warehouses_,
++    kWarehouses,
+     &storages_.warehouses_ytd_));
+-  LOG(INFO) << "Created Warehouses:" << engine->get_memory_manager().dump_free_memory_stat();
++  LOG(INFO) << "Created Warehouses:" << engine_->get_memory_manager().dump_free_memory_stat();
+ 
+-  watch.stop();
+-  LOG(INFO) << "Created TPC-C tables in " << watch.elapsed_sec() << "sec";
+   return kRetOk;
+ }
+ 
+-
+-ErrorStack TpccCreateTask::create_array(
+-  thread::Thread* context,
++ErrorStack TpccLoadTask::create_array(
+   const std::string& name,
+   uint32_t payload_size,
+   uint64_t array_size,
+   storage::array::ArrayStorage** storage) {
+   Epoch ep;
+   storage::array::ArrayMetadata meta(name, payload_size, array_size);
+-  storage::StorageManager& manager = context->get_engine()->get_storage_manager();
+-  CHECK_ERROR(manager.create_array(context, &meta, storage, &ep));
++  CHECK_ERROR(engine_->get_storage_manager().create_array(context_, &meta, storage, &ep));
+   ASSERT_ND(*storage);
+   return kRetOk;
+ }
+ 
+-ErrorStack TpccCreateTask::create_masstree(
+-  thread::Thread* context,
++ErrorStack TpccLoadTask::create_masstree(
+   const std::string& name,
+   storage::masstree::MasstreeStorage** storage) {
+   Epoch ep;
+   storage::masstree::MasstreeMetadata meta(name);
+-  storage::StorageManager& manager = context->get_engine()->get_storage_manager();
+-  CHECK_ERROR(manager.create_masstree(context, &meta, storage, &ep));
++  CHECK_ERROR(engine_->get_storage_manager().create_masstree(context_, &meta, storage, &ep));
+   ASSERT_ND(*storage);
+   return kRetOk;
+ }
+ 
+-ErrorStack TpccCreateTask::create_sequential(
+-  thread::Thread* context,
++ErrorStack TpccLoadTask::create_sequential(
+   const std::string& name,
+   storage::sequential::SequentialStorage** storage) {
+   Epoch ep;
+   storage::sequential::SequentialMetadata meta(name);
+-  storage::StorageManager& manager = context->get_engine()->get_storage_manager();
+-  CHECK_ERROR(manager.create_sequential(context, &meta, storage, &ep));
++  CHECK_ERROR(engine_->get_storage_manager().create_sequential(context_, &meta, storage, &ep));
+   ASSERT_ND(*storage);
+   return kRetOk;
+ }
+ 
+-ErrorStack TpccFinishupTask::run(thread::Thread* context) {
+-  Engine* engine = context->get_engine();
+-  WRAP_ERROR_CODE(engine->get_xct_manager().begin_xct(context, xct::kSerializable));
+-  CHECK_ERROR(storages_.customers_secondary_->verify_single_thread(context));
+-  CHECK_ERROR(storages_.neworders_->verify_single_thread(context));
+-  CHECK_ERROR(storages_.orderlines_->verify_single_thread(context));
+-  CHECK_ERROR(storages_.orders_->verify_single_thread(context));
+-  CHECK_ERROR(storages_.orders_secondary_->verify_single_thread(context));
+-  WRAP_ERROR_CODE(engine->get_xct_manager().abort_xct(context));
+-
+-
+-  LOG(INFO) << "Verifying customers_secondary_ in detail..";
+-  WRAP_ERROR_CODE(engine->get_xct_manager().begin_xct(context, xct::kDirtyReadPreferVolatile));
+-  storage::masstree::MasstreeCursor cursor(
+-    context->get_engine(),
+-    storages_.customers_secondary_,
+-    context);
+-  WRAP_ERROR_CODE(cursor.open());
+-  for (Wid wid = 0; wid < total_warehouses_; ++wid) {
+-    for (Did did = 0; did < kDistricts; ++did) {
+-      bool cid_array[kCustomers];
+-      std::memset(cid_array, 0, sizeof(cid_array));
+-      for (uint32_t c = 0; c < kCustomers; ++c) {  // NOT cid
+-        if (!cursor.is_valid_record()) {
+-          LOG(FATAL) << "Record not exist: customers_secondary_: wid=" << wid << ", did="
+-            << static_cast<int>(did) << ", c=" << c;
+-        }
+-        if (cursor.get_key_length() != CustomerSecondaryKey::kKeyLength) {
+-          LOG(FATAL) << "Key Length wrong: customers_secondary_: wid=" << wid << ", did="
+-            << static_cast<int>(did) << ", c=" << c;
+-        }
+-        if (cursor.get_payload_length() != 0) {
+-          LOG(FATAL) << "Payload Length wrong: customers_secondary_: wid=" << wid << ", did="
+-            << static_cast<int>(did) << ", c=" << c;
+-        }
+-        const char* key = cursor.get_key();
+-        Wid wid2 = assorted::read_bigendian<Wid>(key);
+-        if (wid != wid2) {
+-          LOG(FATAL) << "Wid mismatch: customers_secondary_: wid=" << wid << ", did="
+-            << static_cast<int>(did) << ", c=" << c << ". value=" << wid2;
+-        }
+-        Did did2 = assorted::read_bigendian<Did>(key + sizeof(Wid));
+-        if (did != did2) {
+-          LOG(FATAL) << "Did mismatch: customers_secondary_: wid=" << wid << ", did="
+-            << static_cast<int>(did) << ", c=" << c << ". value=" << static_cast<int>(did2);
+-        }
+-        Cid cid = assorted::betoh<Cid>(
+-          *reinterpret_cast<const Cid*>(key + sizeof(Wid) + sizeof(Did) + 34));
+-        if (cid >= kCustomers) {
+-          LOG(FATAL) << "Cid out of range: customers_secondary_: wid=" << wid << ", did="
+-            << static_cast<int>(did) << ", c=" << c << ". value=" << cid;
+-        }
+-        if (cid_array[cid]) {
+-          LOG(FATAL) << "Cid duplicate: customers_secondary_: wid=" << wid << ", did="
+-            << static_cast<int>(did) << ", c=" << c << ". value=" << cid;
+-        }
+-        cid_array[cid] = true;
+-        WRAP_ERROR_CODE(cursor.next());
+-      }
+-    }
+-  }
+-
+-  WRAP_ERROR_CODE(engine->get_xct_manager().abort_xct(context));
+-  LOG(INFO) << "Verified customers_secondary_ in detail.";
+-
+-  LOG(INFO) << "Loaded all tables. Waiting for flushing all logs...";
+-  Epoch ep = engine->get_xct_manager().get_current_global_epoch();
+-  engine->get_xct_manager().advance_current_global_epoch();
+-  WRAP_ERROR_CODE(engine->get_log_manager().wait_until_durable(ep));
+-  LOG(INFO) << "Okay, flushed all logs.";
+-  return kRetOk;
+-}
+-
+-ErrorStack TpccLoadTask::run(thread::Thread* context) {
+-  context_ = context;
+-  engine_ = context->get_engine();
+-  xct_manager_ = &engine_->get_xct_manager();
+-  debugging::StopWatch watch;
+-  CHECK_ERROR(load_tables());
+-  watch.stop();
+-  LOG(INFO) << "Loaded TPC-C tables in " << watch.elapsed_sec() << "sec";
+-  return kRetOk;
+-}
+-
+-ErrorStack TpccLoadTask::load_tables() {
+-  CHECK_ERROR(load_warehouses());
+-  LOG(INFO) << "Loaded Warehouses:" << engine_->get_memory_manager().dump_free_memory_stat();
+-  CHECK_ERROR(load_districts());
+-  LOG(INFO) << "Loaded Districts:" << engine_->get_memory_manager().dump_free_memory_stat();
+-  CHECK_ERROR(load_customers());
+-  LOG(INFO) << "Loaded Customers:" << engine_->get_memory_manager().dump_free_memory_stat();
+-  CHECK_ERROR(load_items());
+-  LOG(INFO) << "Loaded Items:" << engine_->get_memory_manager().dump_free_memory_stat();
+-  CHECK_ERROR(load_stocks());
+-  LOG(INFO) << "Loaded Strocks:" << engine_->get_memory_manager().dump_free_memory_stat();
+-  CHECK_ERROR(load_orders());
+-  LOG(INFO) << "Loaded Orders:" << engine_->get_memory_manager().dump_free_memory_stat();
+-  return kRetOk;
+-}
+-
+ ErrorCode TpccLoadTask::commit_if_full() {
+   if (context_->get_current_xct().get_write_set_size() >= kCommitBatch) {
+     Epoch commit_epoch;
+@@ -280,7 +207,7 @@ ErrorStack TpccLoadTask::load_warehouses() {
+   auto* static_storage = storages_.warehouses_static_;
+   auto* ytd_storage = storages_.warehouses_ytd_;
+   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+-  for (Wid wid = from_wid_; wid < to_wid_; ++wid) {
++  for (Wid wid = 0; wid < kWarehouses; ++wid) {
+     zero_clear(&data);
+ 
+     // Generate Warehouse Data
+@@ -305,7 +232,7 @@ ErrorStack TpccLoadTask::load_districts() {
+   auto* ytd_storage = storages_.districts_ytd_;
+   auto* oid_storage = storages_.districts_next_oid_;
+   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+-  for (Wid wid = from_wid_; wid < to_wid_; ++wid) {
++  for (Wid wid = 0; wid < kWarehouses; ++wid) {
+     LOG(INFO) << "Loading District Wid=" << wid;
+     for (Did did = 0; did < kDistricts; ++did) {
+       zero_clear(&data);
+@@ -338,7 +265,7 @@ ErrorStack TpccLoadTask::load_items() {
+   auto* storage = storages_.items_;
+   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+   ItemData data;
+-  for (Iid iid = from_iid_; iid < to_iid_; ++iid) {
++  for (Iid iid = 0; iid < kItems; ++iid) {
+     zero_clear(&data);
+ 
+     /* Generate Item Data */
+@@ -371,7 +298,7 @@ ErrorStack TpccLoadTask::load_stocks() {
+   auto* storage = storages_.stocks_;
+   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+   StockData data;
+-  for (Wid wid = from_wid_; wid < to_wid_; ++wid) {
++  for (Wid wid = 0; wid < kWarehouses; ++wid) {
+       LOG(INFO) << "Loading Stock Wid=" << wid;
+     bool orig[kItems];
+     random_orig(orig);
+@@ -408,7 +335,7 @@ ErrorStack TpccLoadTask::load_stocks() {
+ }
+ 
+ ErrorStack TpccLoadTask::load_customers() {
+-  for (Wid wid = from_wid_; wid < to_wid_; ++wid) {
++  for (Wid wid = 0; wid < kWarehouses; ++wid) {
+     for (Did did = 0; did < kDistricts; ++did) {
+       CHECK_ERROR(load_customers_in_district(wid, did));
+     }
+@@ -554,15 +481,7 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
+       if (rep == 0) {
+         WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
+       } else {
+-        ErrorCode ret = xct_manager_->precommit_xct(context_, &ep);
+-        if (ret == kErrorCodeOk) {
+-          break;
+-        } else if (ret == kErrorCodeXctRaceAbort) {
+-          VLOG(0) << "Abort in concurrent customer load. retry";
+-          --rep;
+-        } else {
+-          return ERROR_STACK(ret);
+-        }
++        WRAP_ERROR_CODE(xct_manager_->precommit_xct(context_, &ep));
+       }
+     }
+     from += cur_batch_size;
+@@ -571,7 +490,7 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
+ }
+ 
+ ErrorStack TpccLoadTask::load_orders() {
+-  for (Wid wid = from_wid_; wid < to_wid_; ++wid) {
++  for (Wid wid = 0; wid < kWarehouses; ++wid) {
+     for (Did did = 0; did < kDistricts; ++did) {
+       CHECK_ERROR(load_orders_in_district(wid, did));
+     }
+@@ -593,13 +512,13 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
+   auto* orderlines = storages_.orderlines_;
+   OrderData o_data;
+   zero_clear(&o_data);
+-  OrderlineData ol_data[kOlMax];
+-  std::memset(ol_data, 0, sizeof(ol_data));
++  OrderlineData ol_data;
++  zero_clear(&ol_data);
+   Wdid wdid = combine_wdid(wid, did);
++  WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+   for (Oid oid = 0; oid < kOrders; ++oid) {
+     Wdoid wdoid = combine_wdoid(wdid, oid);
+-    // unfortunately, this one is vulnerable to aborts due to concurrent loaders.
+-    // especially when the tree is small, this can happen.
++    WRAP_ERROR_CODE(commit_if_full());
+ 
+     // Generate Order Data
+     Cid o_cid = get_permutation(cid_array);
+@@ -614,62 +533,41 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
+ 
+     if (oid >= 2100U) {   /* the last 900 orders have not been delivered) */
+       o_data.carrier_id_ = 0;
++      WRAP_ERROR_CODE(neworders->insert_record_normalized(context_, wdoid));
+     } else {
+       o_data.carrier_id_ = o_carrier_id;
+     }
+ 
++    WRAP_ERROR_CODE(orders->insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
+     Wdcoid wdcoid = combine_wdcoid(wdcid, oid);
++    WRAP_ERROR_CODE(orders_secondary->insert_record_normalized(context_, wdcoid));
+     DVLOG(2) << "OID = " << oid << ", CID = " << o_cid << ", DID = "
+       << static_cast<int>(did) << ", WID = " << wid;
+     for (Ol ol = 1; ol <= o_ol_cnt; ol++) {
+       // Generate Order Line Data
+-      make_alpha_string(24, 24, ol_data[ol].dist_info_);
+-      ol_data[ol].iid_ = rnd_.uniform_within(0, kItems - 1);
+-      ol_data[ol].supply_wid_ = wid;
+-      ol_data[ol].quantity_ = 5;
++      make_alpha_string(24, 24, ol_data.dist_info_);
++      ol_data.iid_ = rnd_.uniform_within(0, kItems - 1);
++      ol_data.supply_wid_ = wid;
++      ol_data.quantity_ = 5;
+       if (oid >= 2100U) {
+-        ol_data[ol].amount_ = 0;
++        ol_data.amount_ = 0;
+       } else {
+-        ol_data[ol].amount_ = static_cast<float>(rnd_.uniform_within(10L, 10000L)) / 100.0;
+-        std::memcpy(ol_data[ol].delivery_d_, timestamp_, 26);
++        ol_data.amount_ = static_cast<float>(rnd_.uniform_within(10L, 10000L)) / 100.0;
++        std::memcpy(ol_data.delivery_d_, timestamp_, 26);
+       }
+ 
+-      DVLOG(2) << "OL = " << ol << ", IID = " << ol_data[ol].iid_ << ", QUAN = "
+-        << ol_data[ol].quantity_ << ", AMT = " << ol_data[ol].amount_;
+-    }
++      Wdol wdol = combine_wdol(wdoid, ol);
++      WRAP_ERROR_CODE(orderlines->insert_record_normalized(
++        context_,
++        wdol,
++        &ol_data,
++        sizeof(ol_data)));
+ 
+-    // retry until succeed
+-    uint32_t successive_aborts = 0;
+-    while (true) {
+-      WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+-      if (o_data.carrier_id_ == 0) {
+-        WRAP_ERROR_CODE(neworders->insert_record_normalized(context_, wdoid));
+-      }
+-      WRAP_ERROR_CODE(orders->insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
+-      WRAP_ERROR_CODE(orders_secondary->insert_record_normalized(context_, wdcoid));
+-      for (Ol ol = 1; ol <= o_ol_cnt; ol++) {
+-        Wdol wdol = combine_wdol(wdoid, ol);
+-        WRAP_ERROR_CODE(orderlines->insert_record_normalized(
+-          context_,
+-          wdol,
+-          &(ol_data[ol]),
+-          sizeof(OrderlineData)));
+-      }
+-      ErrorCode ret = xct_manager_->precommit_xct(context_, &ep);
+-      if (ret == kErrorCodeOk) {
+-        break;
+-      } else if (ret == kErrorCodeXctRaceAbort) {
+-        VLOG(0) << "Abort in concurrent data load. successive_aborts=" << successive_aborts;
+-        ++successive_aborts;
+-        if (successive_aborts % 100 == 0) {
+-          LOG(WARNING) << "Lots of successive aborts: " << successive_aborts << ", thread="
+-            << context_->get_thread_id();
+-        }
+-      } else {
+-        return ERROR_STACK(ret);
+-      }
++      DVLOG(2) << "OL = " << ol << ", IID = " << ol_data.iid_ << ", QUAN = " << ol_data.quantity_
++        << ", AMT = " << ol_data.amount_;
+     }
+   }
++  WRAP_ERROR_CODE(xct_manager_->precommit_xct(context_, &ep));
+   return kRetOk;
+ }
+ 
+diff --git a/experiments-core/src/foedus/tpcc/tpcc_neworder.cpp b/experiments-core/src/foedus/tpcc/tpcc_neworder.cpp
+index 2e02ca3..14ab18f 100644
+--- a/experiments-core/src/foedus/tpcc/tpcc_neworder.cpp
++++ b/experiments-core/src/foedus/tpcc/tpcc_neworder.cpp
+@@ -134,8 +134,8 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
+     // only 1% has different wid for supplier.
+     bool remote_warehouse = (rnd_.uniform_within(1, 100) <= neworder_remote_percent_);
+     uint32_t supply_wid;
+-    if (remote_warehouse && total_warehouses_ > 1U) {
+-        supply_wid = rnd_.uniform_within_except(0, total_warehouses_ - 1, wid);
++    if (remote_warehouse && kWarehouses > 1) {
++        supply_wid = rnd_.uniform_within_except(0, kWarehouses - 1, wid);
+         *all_local_warehouse = false;
+     } else {
+         supply_wid = wid;
+diff --git a/experiments-core/src/foedus/tpcc/tpcc_payment.cpp b/experiments-core/src/foedus/tpcc/tpcc_payment.cpp
+index 70d1397..6d4addb 100644
+--- a/experiments-core/src/foedus/tpcc/tpcc_payment.cpp
++++ b/experiments-core/src/foedus/tpcc/tpcc_payment.cpp
+@@ -24,8 +24,8 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
+   Wid wid;
+   Did did;
+   const bool remote_warehouse = rnd_.uniform_within(1, 100) <= payment_remote_percent_;
+-  if (remote_warehouse && total_warehouses_ > 1U) {
+-    wid = rnd_.uniform_within_except(0, total_warehouses_ - 1, c_wid);
++  if (remote_warehouse) {
++    wid = rnd_.uniform_within_except(0, kWarehouses - 1, c_wid);
+     did = rnd_.uniform_within(0, kDistricts - 1);  // re-draw did.
+   } else {
+     wid = c_wid;
+diff --git a/foedus-core/include/foedus/assorted/uniform_random.hpp b/foedus-core/include/foedus/assorted/uniform_random.hpp
+index cc4e967..8b50cb2 100644
+--- a/foedus-core/include/foedus/assorted/uniform_random.hpp
++++ b/foedus-core/include/foedus/assorted/uniform_random.hpp
+@@ -4,10 +4,8 @@
+  */
+ #ifndef FOEDUS_ASSORTED_UNIFORM_RANDOM_HPP_
+ #define FOEDUS_ASSORTED_UNIFORM_RANDOM_HPP_
+-
+ #include <stdint.h>
+ 
+-#include "foedus/assert_nd.hpp"
+ #include "foedus/memory/fwd.hpp"
+ 
+ namespace foedus {
+@@ -29,10 +27,6 @@ class UniformRandom {
+    * NOTE both from and to are _inclusive_.
+    */
+   uint32_t uniform_within(uint32_t from, uint32_t to) {
+-    ASSERT_ND(from <= to);
+-    if (from == to) {
+-      return from;
+-    }
+     return from + (next_uint32() % (to - from + 1));
+   }
+   /**
+diff --git a/foedus-core/include/foedus/error_code.xmacro b/foedus-core/include/foedus/error_code.xmacro
+index c479248..55ca56e 100644
+--- a/foedus-core/include/foedus/error_code.xmacro
++++ b/foedus-core/include/foedus/error_code.xmacro
+@@ -79,6 +79,7 @@ X(kErrorCodeStrTooShortPayload,     0x080A, "STORAGE: The record's payload is sm
+ X(kErrorCodeStrKeyAlreadyExists,    0x080B, "STORAGE: This key already exists in this storage")
+ X(kErrorCodeStrKeyNotFound,         0x080C, "STORAGE: This key is not found in this storage")
+ X(kErrorCodeStrCuckooTooDeep,       0x080D, "STORAGE: HASH: The cuckoo depth is too deep")
++X(kErrorCodeStrNothingToKickout,    0x080E, "STORAGE: HASH: There is nothing in the bucket to kickout")
+ X(kErrorCodeStrMasstreeRetry,       0x0811, "STORAGE: MASSTREE: Retry search. This is an internal error code used to retry find_border.")
+ X(kErrorCodeStrMasstreeTooManyRetries, 0x0812, "STORAGE: MASSTREE: Retrying too many times. Gave up")
+ X(kErrorCodeStrMasstreeFailedVerification, 0x0813, "STORAGE: MASSTREE: Failed verification. Found an inconsistency")
+diff --git a/foedus-core/include/foedus/log/log_type.xmacro b/foedus-core/include/foedus/log/log_type.xmacro
+index 777686d..d21d9c0 100644
+--- a/foedus-core/include/foedus/log/log_type.xmacro
++++ b/foedus-core/include/foedus/log/log_type.xmacro
+@@ -30,6 +30,7 @@ X(kLogCodeHashCreate,     0x1027, foedus::storage::hash::HashCreateLogType)
+ X(kLogCodeHashOverwrite,  0x0028, foedus::storage::hash::HashOverwriteLogType)
+ X(kLogCodeHashInsert,     0x0029, foedus::storage::hash::HashInsertLogType)
+ X(kLogCodeHashDelete,     0x002A, foedus::storage::hash::HashDeleteLogType)
++X(kLogCodeHashInsertDummy,0x002B, foedus::storage::hash::HashInsertDummyLogType)
+ X(kLogCodeMasstreeCreate,     0x1031, foedus::storage::masstree::MasstreeCreateLogType)
+ X(kLogCodeMasstreeOverwrite,  0x0032, foedus::storage::masstree::MasstreeOverwriteLogType)
+ X(kLogCodeMasstreeInsert,     0x0033, foedus::storage::masstree::MasstreeInsertLogType)
+diff --git a/foedus-core/include/foedus/log/thread_log_buffer_impl.hpp b/foedus-core/include/foedus/log/thread_log_buffer_impl.hpp
+index 84b9442..d853ffa 100644
+--- a/foedus-core/include/foedus/log/thread_log_buffer_impl.hpp
++++ b/foedus-core/include/foedus/log/thread_log_buffer_impl.hpp
+@@ -164,7 +164,7 @@ class ThreadLogBuffer final : public DefaultInitializable {
+    * @details
+    * This private log buffer is a circular buffer where the \e head is eaten by log gleaner.
+    * However, log gleaner is okay to get behind, reading from log file instead (but slower).
+-   * Thus, offset_head_ is advanced either by log gleaner or this thread.
++   * Thus, offset_head_ is advanced either by log gleaner ohttps://drive.google.com/?ddrp=1#my-driver this thread.
+    * If the latter happens, log gleaner has to give up using in-memory logs and instead
+    * read from log files.
+    */
+diff --git a/foedus-core/include/foedus/storage/hash/fwd.hpp b/foedus-core/include/foedus/storage/hash/fwd.hpp
+index 4054531..0351d12 100644
+--- a/foedus-core/include/foedus/storage/hash/fwd.hpp
++++ b/foedus-core/include/foedus/storage/hash/fwd.hpp
+@@ -18,6 +18,7 @@ struct  HashCreateLogType;
+ class   HashDataPage;
+ struct  HashDeleteLogType;
+ struct  HashInsertLogType;
++struct  HashInsertDummyLogType;
+ struct  HashMetadata;
+ struct  HashOverwriteLogType;
+ class   HashPartitioner;
+diff --git a/foedus-core/include/foedus/storage/hash/hash_cuckoo.hpp b/foedus-core/include/foedus/storage/hash/hash_cuckoo.hpp
+index de75b07..1dfc5b6 100644
+--- a/foedus-core/include/foedus/storage/hash/hash_cuckoo.hpp
++++ b/foedus-core/include/foedus/storage/hash/hash_cuckoo.hpp
+@@ -178,15 +178,16 @@ inline uint64_t hashinate(const void *key, uint16_t key_length) {
+  */
+ inline HashTag tag_consume(HashTag current, uint64_t slice) {
+   return current ^
+-    static_cast<uint16_t>(slice >> 48) ^
+-    static_cast<uint16_t>(slice >> 32) ^
+-    static_cast<uint16_t>(slice >> 16) ^
+-    static_cast<uint16_t>(slice);
++    (static_cast<uint16_t>(slice >> 48) * 0xDEADU + 0xBEEFU) ^
++    (static_cast<uint16_t>(slice >> 32) * 0x8273U + 0xDA34U) ^
++    (static_cast<uint16_t>(slice >> 16) * 0xF3ACU + 0x42F9U) ^
++    (static_cast<uint16_t>(slice)  * 0xBAD0U + 0xF00DU);
+ }
+ 
+ /**
+  * @brief Generate an integer as randomizer from the tag.
+- * @ingroup HASH
++ * @ingroup HASH% kMaxEntriesPerBin;
++    // TODO(Bill) Need to
+  */
+ inline uint64_t tag_to_randomizer(HashTag tag) {
+   return (static_cast<uint64_t>(kTagRandomizers[static_cast<uint8_t>(tag >> 8)]) << 32) |
+diff --git a/foedus-core/include/foedus/storage/hash/hash_id.hpp b/foedus-core/include/foedus/storage/hash/hash_id.hpp
+index 08c67a1..3d9721a 100644
+--- a/foedus-core/include/foedus/storage/hash/hash_id.hpp
++++ b/foedus-core/include/foedus/storage/hash/hash_id.hpp
+@@ -69,6 +69,12 @@ const uint16_t kHashBinSize             = 64;
+ const uint16_t kMaxEntriesPerBin        =
+   (kHashBinSize - sizeof(DualPagePointer) - sizeof(uint16_t)) / sizeof(HashTag);
+ 
++
++/** @brief Maximum depth of cuckoo path
++ *  @ingroup HASH
++ */
++const uint16_t kMaxCuckooDepth = 100;
++
+ /**
+  * @brief Number of bins in one hash bin page.
+  * @ingroup HASH
+diff --git a/foedus-core/include/foedus/storage/hash/hash_log_types.hpp b/foedus-core/include/foedus/storage/hash/hash_log_types.hpp
+index 40a5bd7..a515012 100644
+--- a/foedus-core/include/foedus/storage/hash/hash_log_types.hpp
++++ b/foedus-core/include/foedus/storage/hash/hash_log_types.hpp
+@@ -70,7 +70,7 @@ struct HashInsertLogType : public log::RecordLogType {
+   uint16_t        payload_count_;     // +2 => 20
+   /** Is it inserted to the primary bin, not the alternative bin. */
+   bool            bin1_;              // +1 => 21
+-  uint8_t         reserved_;          // +1 => 22
++  uint8_t         slot_;          // +1 => 22
+   /**
+    * This is auxiliary. We can calculate from the key, but 2 bytes is not that big waste,
+    * and by doing this the data part is fully 8-byte aligned. Might be slightly faster.
+@@ -88,6 +88,7 @@ struct HashInsertLogType : public log::RecordLogType {
+     const void* key,
+     uint16_t    key_length,
+     bool        bin1,
++    uint8_t     slot,
+     uint16_t    hashtag,
+     const void* payload,
+     uint16_t    payload_count) ALWAYS_INLINE {
+@@ -95,6 +96,7 @@ struct HashInsertLogType : public log::RecordLogType {
+     header_.log_length_ = calculate_log_length(key_length, payload_count);
+     header_.storage_id_ = storage_id;
+     bin1_ = bin1;
++    slot_ = slot;
+     hashtag_ = hashtag;
+     key_length_ = key_length;
+     payload_count_ = payload_count;
+@@ -120,6 +122,34 @@ struct HashInsertLogType : public log::RecordLogType {
+   friend std::ostream& operator<<(std::ostream& o, const HashInsertLogType& v);
+ };
+ 
++
++/**
++ * @brief Second log type of hash-storage's insert operation. Is dummy log that goes with page TID.
++ * @ingroup HASH LOGTYPE
++ *
++ */
++struct HashInsertDummyLogType : public log::RecordLogType {
++  LOG_TYPE_NO_CONSTRUCT(HashInsertDummyLogType)
++  static uint16_t calculate_log_length() ALWAYS_INLINE { return 16; }
++  void            populate(StorageId   storage_id) ALWAYS_INLINE {
++    header_.log_type_code_ = log::kLogCodeHashInsertDummy;
++    header_.log_length_ = calculate_log_length();
++    header_.storage_id_ = storage_id;
++  }
++  void            apply_record(
++    thread::Thread* context,
++    Storage* storage,
++    xct::XctId* owner_id,
++    char* payload) ALWAYS_INLINE {
++    return;
++  }
++  void            assert_valid() ALWAYS_INLINE {
++    assert_valid_generic();
++    ASSERT_ND(header_.log_type_code_ == log::kLogCodeHashInsertDummy);
++  }
++  friend std::ostream& operator<<(std::ostream& o, const HashInsertDummyLogType& v);
++};
++
+ /**
+  * @brief Log type of hash-storage's delete operation.
+  * @ingroup HASH LOGTYPE
+diff --git a/foedus-core/include/foedus/storage/hash/hash_page_impl.hpp b/foedus-core/include/foedus/storage/hash/hash_page_impl.hpp
+index 9916d70..3671ecf 100644
+--- a/foedus-core/include/foedus/storage/hash/hash_page_impl.hpp
++++ b/foedus-core/include/foedus/storage/hash/hash_page_impl.hpp
+@@ -233,7 +233,6 @@ class HashDataPage final {
+ 
+   /** Used only for inserts when record_count is small enough. */
+   inline void               add_record(
+-    xct::XctId xct_id,
+     uint16_t slot,
+     uint16_t key_length,
+     uint16_t payload_count,
+@@ -246,7 +245,7 @@ class HashDataPage final {
+     if (slot >= record_count_) {
+       // appending at last
+       ASSERT_ND(record_count_ == slot);
+-      ASSERT_ND(record_count_ < kMaxEntriesPerBin);
++      ASSERT_ND(record_count_ <= kMaxEntriesPerBin);
+       if (record_count_ == 0) {
+         pos = 0;
+       } else {
+@@ -263,14 +262,14 @@ class HashDataPage final {
+     slots_[slot].record_length_ = record_length;
+     slots_[slot].key_length_ = key_length;
+     slots_[slot].flags_ = 0;
+-    interpret_record(pos)->owner_id_ = xct_id;
+     std::memcpy(data_ + pos + kRecordOverhead, data, key_length + payload_count);
++//  ASSERT_ND(!interpret_record(pos)->owner_id_.is_keylocked()); NOTE: I changed this to not be true
+   }
+ 
+   /** Used only for inserts to find a slot we can insert to. */
++  /** Is called before pre-commit */
+   inline uint16_t           find_empty_slot(uint16_t key_length, uint16_t payload_count) const {
+     // this must be called by insert, which takes lock on the page.
+-    ASSERT_ND(page_owner_.is_keylocked());
+     if (record_count_ == 0) {
+       return 0;
+     }
+diff --git a/foedus-core/include/foedus/storage/hash/hash_storage.hpp b/foedus-core/include/foedus/storage/hash/hash_storage.hpp
+index 11b9e97..036c397 100644
+--- a/foedus-core/include/foedus/storage/hash/hash_storage.hpp
++++ b/foedus-core/include/foedus/storage/hash/hash_storage.hpp
+@@ -192,7 +192,6 @@ class HashStorage CXX11_FINAL : public virtual Storage {
+     return insert_record(context, &key, sizeof(key), payload, payload_count);
+   }
+ 
+-  // delete_record() methods
+ 
+   /**
+    * @brief Deletes a record of the given key from this hash storage.
+diff --git a/foedus-core/include/foedus/storage/hash/hash_storage_pimpl.hpp b/foedus-core/include/foedus/storage/hash/hash_storage_pimpl.hpp
+index 94e8b1b..9a24f56 100644
+--- a/foedus-core/include/foedus/storage/hash/hash_storage_pimpl.hpp
++++ b/foedus-core/include/foedus/storage/hash/hash_storage_pimpl.hpp
+@@ -136,6 +136,29 @@ class HashStoragePimpl final : public DefaultInitializable {
+     char* payload);
+ 
+   /**
++   * @brief Rearrange table elements so that there is a free position in the data_page
++   *Keeps track of how many  the transaction has added to the collection of
++   * Cuckoo bins assigned to each hash value
++   */
++  ErrorStack make_room(
++    thread::Thread* context, HashDataPage* data_page, int depth, uint8_t *slot_pick);
++
++  /**
++   * @brief Inserts a record into a bin that has already been chosen.
++   * @details Assumes you have already checked that the record doesn't exist and that there
++   * is room in the bin. Also assumes the data page has already been created for the bin.
++   */
++  ErrorStack insert_record_chosen_bin(
++    thread::Thread* context,
++    const char* key,
++    uint16_t key_length,
++    const void* payload,
++    uint16_t payload_count,
++    uint8_t choice,
++    HashCombo combo,
++    int current_depth);
++
++  /**
+    * @brief Find a bin page that contains a bin for the hash.
+    * @param[in] context Thread context
+    * @param[in] for_write Whether we are reading these pages to modify
+diff --git a/foedus-core/include/foedus/storage/masstree/masstree_cursor.hpp b/foedus-core/include/foedus/storage/masstree/masstree_cursor.hpp
+index c3a9722..d0fc2e9 100644
+--- a/foedus-core/include/foedus/storage/masstree/masstree_cursor.hpp
++++ b/foedus-core/include/foedus/storage/masstree/masstree_cursor.hpp
+@@ -41,37 +41,26 @@ namespace masstree {
+ class MasstreeCursor CXX11_FINAL {
+  public:
+   struct Route {
+-    enum MovedPageSearchStatus {
+-      kNotMovedPage = 0,
+-      kMovedPageSearchedOne = 1,
+-      kMovedPageSearchedBoth = 2,
+-    };
+     MasstreePage* page_;
+     /** version as of getting calculating order_. */
+     PageVersion stable_;
++    /** only for interior. */
++    PageVersion stable_mini_;
+     /** index in ordered keys. in interior, same. */
+     uint8_t index_;
+     /** only for interior. */
+     uint8_t index_mini_;
+     /** same as stable_.get_key_count() */
+     uint8_t key_count_;
+-    /** only for interior. */
++    /** same as stable_mini_.get_key_count() */
+     uint8_t key_count_mini_;
+ 
+-    /**
+-     * Upto which separator we are done. only for interior.
+-     * If forward search, we followed a pointer before this separator.
+-     * If backward search, we followed a pointer after this separator.
+-     * This is updated whenever we follow a pointer from this interior page,
+-     * and used when we have to re-find the separator. In Master-tree, a separator never
+-     * disappears from the page, so we can surely find this.
+-     */
+-    KeySlice latest_separator_;
++    KeySlice done_upto_;
++
++    uint8_t done_upto_length_;
+ 
+     /** whether page_ is a snapshot page */
+     bool    snapshot_;
+-    /** only when stable_ indicates that this page is a moved page */
+-    MovedPageSearchStatus moved_page_search_status_;
+ 
+     /** only for border. order_[0] is the index of smallest record, [1] second smallest... */
+     uint8_t order_[64];
+@@ -146,7 +135,7 @@ class MasstreeCursor CXX11_FINAL {
+   }
+ 
+   bool      is_valid_record() const ALWAYS_INLINE {
+-    return route_count_ > 0 && !reached_end_ && cur_route()->is_valid_record();
++    return !reached_end_ && cur_route()->is_valid_record();
+   }
+   const char* get_key() const ALWAYS_INLINE {
+     ASSERT_ND(is_valid_record());
+@@ -231,7 +220,7 @@ class MasstreeCursor CXX11_FINAL {
+   memory::PagePoolOffset cur_payload_memory_offset_;
+   memory::PagePoolOffset search_key_memory_offset_;
+ 
+-  ErrorCode push_route(MasstreePage* page);
++  ErrorCode push_route(MasstreePage* page, PageVersion* page_version);
+   void      fetch_cur_record(MasstreeBorderPage* page, uint8_t record);
+   void      check_end_key();
+   KeyCompareResult compare_cur_key_aginst_search_key(KeySlice slice, uint8_t layer) const;
+@@ -274,8 +263,8 @@ class MasstreeCursor CXX11_FINAL {
+     return end_key_length_ == kKeyLengthExtremum;
+   }
+ 
+-  ErrorCode follow_foster(KeySlice slice);
+-  void extract_separators(KeySlice* separator_low, KeySlice* separator_high) const ALWAYS_INLINE;
++  template<typename PAGE_TYPE>
++  ErrorCode follow_foster(KeySlice slice, PAGE_TYPE** cur, PageVersion* version);
+ 
+   // locate_xxx is for initial search
+   ErrorCode locate_layer(uint8_t layer);
+@@ -292,7 +281,6 @@ class MasstreeCursor CXX11_FINAL {
+   ErrorCode proceed_deeper();
+   ErrorCode proceed_deeper_border();
+   ErrorCode proceed_deeper_intermediate();
+-  void      proceed_route_intermediate_rebase_separator();
+ 
+   void assert_modify() const ALWAYS_INLINE {
+ #ifndef NDEBUG
+diff --git a/foedus-core/include/foedus/storage/masstree/masstree_page_impl.hpp b/foedus-core/include/foedus/storage/masstree/masstree_page_impl.hpp
+index f96ad01..41a5e34 100644
+--- a/foedus-core/include/foedus/storage/masstree/masstree_page_impl.hpp
++++ b/foedus-core/include/foedus/storage/masstree/masstree_page_impl.hpp
+@@ -7,7 +7,6 @@
+ 
+ #include <stdint.h>
+ 
+-#include <algorithm>
+ #include <cstring>
+ 
+ #include "foedus/assert_nd.hpp"
+@@ -225,6 +224,11 @@ struct UnlockScope {
+   }
+   MasstreePage* page_;
+ };
++struct UnlockVersionScope {
++  explicit UnlockVersionScope(PageVersion* version) : version_(version) {}
++  ~UnlockVersionScope() { version_->unlock_version(); }
++  PageVersion* version_;
++};
+ 
+ /**
+  * @brief Represents one intermediate page in \ref MASSTREE.
+@@ -243,8 +247,7 @@ class MasstreeIntermediatePage final : public MasstreePage {
+     MiniPage& operator=(const MiniPage& other) = delete;
+ 
+     // +8 -> 8
+-    uint8_t         key_count_;
+-    uint8_t         reserved_[7];
++    PageVersion     mini_version_;
+ 
+     // +8*15 -> 128
+     /** Same semantics as separators_ in enclosing class. */
+@@ -256,6 +259,9 @@ class MasstreeIntermediatePage final : public MasstreePage {
+     void prefetch() const {
+       assorted::prefetch_cachelines(this, 2);
+     }
++    PageVersion get_stable_version() const ALWAYS_INLINE {
++      return mini_version_.stable_version();
++    }
+     /**
+     * @brief Navigates a searching key-slice to one of pointers in this mini-page.
+     */
+@@ -366,6 +372,14 @@ class MasstreeIntermediatePage final : public MasstreePage {
+   void adopt_from_child_norecord_first_level(
+     uint8_t minipage_index,
+     MasstreePage* child);
++  /**
++   * Sets all mini versions with locked status without atomic operations.
++   * This can be used only when this page is first created and still privately owned.
++   * 1 atomic is 100 cycles or more, so this greatly saves.
++   */
++  void init_lock_all_mini();
++  /** Same above. */
++  void init_unlock_all_mini();
+ };
+ STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage::MiniPage), 128 + 256)
+ STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage), 1 << 12)
+@@ -649,43 +663,6 @@ class MasstreeBorderPage final : public MasstreePage {
+     MasstreeBorderPage** located_page,
+     uint8_t* located_index);
+ 
+-  void assert_entries() ALWAYS_INLINE {
+-#ifndef NDEBUG
+-    ASSERT_ND(is_locked());  // the following logic holds only when this page is locked
+-    struct Sorter {
+-      explicit Sorter(const MasstreeBorderPage* target) : target_(target) {}
+-      bool operator() (uint8_t left, uint8_t right) {
+-        KeySlice left_slice = target_->get_slice(left);
+-        KeySlice right_slice = target_->get_slice(right);
+-        if (left_slice < right_slice) {
+-          return true;
+-        } else if (left_slice == right_slice) {
+-          return target_->get_remaining_key_length(left) < target_->get_remaining_key_length(right);
+-        } else {
+-          return false;
+-        }
+-      }
+-      const MasstreeBorderPage* target_;
+-    };
+-    uint8_t key_count = get_version().get_key_count();
+-    uint8_t order[kMaxKeys];
+-    for (uint8_t i = 0; i < key_count; ++i) {
+-      order[i] = i;
+-    }
+-    std::sort(order, order + key_count, Sorter(this));
+-
+-    for (uint8_t i = 1; i < key_count; ++i) {
+-      uint8_t pre = order[i - 1];
+-      uint8_t cur = order[i];
+-      ASSERT_ND(slices_[pre] <= slices_[cur]);
+-      if (slices_[pre] == slices_[cur]) {
+-        ASSERT_ND(remaining_key_length_[pre] < remaining_key_length_[cur]);
+-        ASSERT_ND(remaining_key_length_[pre] <= sizeof(KeySlice));
+-      }
+-    }
+-#endif  // NDEBUG
+-  }
+-
+  private:
+   // 72
+ 
+@@ -790,7 +767,7 @@ inline uint8_t MasstreeBorderPage::find_key(
+     // now, our key is > 8 bytes and we found some local record.
+     if (remaining_key_length_[i] == remaining) {
+       // compare suffix.
+-      const char* record_suffix = get_record(i);
++      const char* record_suffix = get_record(offsets_[i]);
+       if (std::memcmp(record_suffix, suffix, remaining - sizeof(KeySlice)) == 0) {
+         return i;
+       }
+@@ -887,7 +864,7 @@ inline void MasstreeBorderPage::reserve_record_space(
+   ASSERT_ND(remaining_length <= kKeyLengthMax);
+   ASSERT_ND(is_locked());
+   ASSERT_ND(header_.page_version_.is_inserting());
+-  ASSERT_ND(header_.page_version_.get_key_count() == index);
++  ASSERT_ND(header_.page_version_.get_key_count() == index + 1U);
+   ASSERT_ND(can_accomodate(index, remaining_length, payload_count));
+   uint16_t suffix_length = calculate_suffix_length(remaining_length);
+   DataOffset record_size = calculate_record_size(remaining_length, payload_count) >> 4;
+diff --git a/foedus-core/include/foedus/storage/masstree/masstree_storage_pimpl.hpp b/foedus-core/include/foedus/storage/masstree/masstree_storage_pimpl.hpp
+index 9d73aeb..18c359a 100644
+--- a/foedus-core/include/foedus/storage/masstree/masstree_storage_pimpl.hpp
++++ b/foedus-core/include/foedus/storage/masstree/masstree_storage_pimpl.hpp
+@@ -229,10 +229,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
+     uint8_t record_index,
+     MasstreePage** page) ALWAYS_INLINE;
+ 
+-  /**
+-   * Reserve a next layer as one system transaction.
+-   * parent may or maynot be locked.
+-   */
++  /** Reserve a next layer as one system transaction. */
+   ErrorCode create_next_layer(
+     thread::Thread* context,
+     MasstreeBorderPage* parent,
+diff --git a/foedus-core/include/foedus/storage/page.hpp b/foedus-core/include/foedus/storage/page.hpp
+index 88b9b58..f678b48 100644
+--- a/foedus-core/include/foedus/storage/page.hpp
++++ b/foedus-core/include/foedus/storage/page.hpp
+@@ -424,6 +424,7 @@ inline PageVersion PageVersion::unlock_version() {
+   }
+   assorted::memory_fence_release();
+   data_ = page_version;
++  assorted::memory_fence_release();
+   return PageVersion(page_version);
+ }
+ 
+diff --git a/foedus-core/include/foedus/xct/xct.hpp b/foedus-core/include/foedus/xct/xct.hpp
+index fd5033d..177ed07 100644
+--- a/foedus-core/include/foedus/xct/xct.hpp
++++ b/foedus-core/include/foedus/xct/xct.hpp
+@@ -46,6 +46,20 @@ class Xct {
+   enum Constants {
+     kMaxPointerSets = 1024,
+     kMaxPageVersionSets = 1024,
++    kFrequencyHashSize = 256,
++  };
++
++
++  struct KickoutInfo {
++      uint32_t add_count;  // incremented every time something is added to a bin, except for when
++      // that thing needed a kickout
++      uint32_t kickout_count;  // incremented every time something is kicked out from a bin.
++      // Note: Since we know the size of the contents in the bin, these two are very similar.
++      // If we really wanted to, we could possibly combine them to one thing
++      KickoutInfo() {
++        add_count = 0;
++        kickout_count = 0;
++      }
+   };
+ 
+   Xct(Engine* engine, thread::ThreadId thread_id);
+@@ -62,6 +76,7 @@ class Xct {
+   void                activate(IsolationLevel isolation_level, bool schema_xct = false) {
+     ASSERT_ND(!active_);
+     active_ = true;
++    frequency_hash_.clear();
+     schema_xct_ = schema_xct;
+     isolation_level_ = isolation_level;
+     pointer_set_size_ = 0;
+@@ -104,6 +119,13 @@ class Xct {
+   XctAccess*          get_read_set()  { return read_set_; }
+   WriteXctAccess*     get_write_set() { return write_set_; }
+   LockFreeWriteXctAccess* get_lock_free_write_set() { return lock_free_write_set_; }
++  void add_frequency(uint32_t bin, uint32_t storageid, bool caused_kickout) {
++    frequency_hash_.add(bin, storageid, caused_kickout);
++  }
++  KickoutInfo read_frequency(uint32_t bin, uint32_t storageid) {
++    return frequency_hash_.read(bin, storageid);
++  }
++
+ 
+ 
+   /**
+@@ -281,6 +303,58 @@ class Xct {
+   /** Level of isolation for this transaction. */
+   IsolationLevel      isolation_level_;
+ 
++
++  /**
++   * @brief read(bin, storageid).add_count promises to be a number at least as great as
++   * |inserts - deletions| run by the thread on the specified bin number in the specified
++   * storage id. read(bin, storageid).kickout_count promises to be a number at least as
++   * great as # kickouts at that bin so far by the thread.
++   * @details
++   * Since FrequencyHash hashes several bins from various storage ids to the same
++   * hash-position, it will sometimes claim that the transaction has inserted more things into
++   * a given bin than it actually has. So that we can use FrequencyHash in order to know when we
++   * need to do a kickout, it is important that it never claims we have inserted fewer things into
++   * a bin than we actually have. In order to accomplish this, we don't decrement counters in the
++   * hash table except for deletions.
++   *
++   * If we are inserting something into a bin, we check if the sum of the relavent add_count
++   * and the number of elements in the bin is too high. If not, we increment the add_count.
++   * Otherwise, we increment kick_count which is used to determine who to kick out of the bin.
++   *
++   */
++
++  struct FrequencyHash{
++    KickoutInfo array_[kFrequencyHashSize];
++    FrequencyHash() {  // Size must be a power of two
++     clear();
++    }
++    uint32_t hash(uint32_t a) {  // Borrowed from Wang at
++      // http://www.concentric.net/~ttwang/tech/inthash.htm
++      // which no longer seems to be active link
++      a = (a + 0x7ed55d16) + (a << 12);
++      a = (a ^ 0xc761c23c) ^ (a >> 19);
++      a = (a + 0x165667b1) + (a << 5);
++      a = (a + 0xd3a2646c) ^ (a << 9);
++      a = (a + 0xfd7046c5) + (a << 3);
++      a = (a ^ 0xb55a4f09) ^ (a >> 16);
++      return a;
++    }
++    void add(uint32_t bin, uint32_t storageid, bool caused_kickout) {
++      uint32_t bucket = (hash(bin) ^ hash(storageid)) % kFrequencyHashSize;
++      if (!caused_kickout) array_[bucket].add_count++;
++      if (caused_kickout) array_[bucket].kickout_count++;
++    }
++    KickoutInfo read(uint32_t bin, uint32_t storageid) {
++      uint32_t bucket = (hash(bin) ^ hash(storageid)) % kFrequencyHashSize;
++      return array_[bucket];
++    }
++    void clear() {
++      for (int x = 0; x < kFrequencyHashSize; x++) array_[x] = KickoutInfo();
++    }
++  };
++
++  FrequencyHash frequency_hash_;
++
+   /** Whether the object is an active transaction. */
+   bool                active_;
+ 
+@@ -413,7 +487,7 @@ inline ErrorCode Xct::add_to_write_set(
+   ASSERT_ND(!schema_xct_);
+   ASSERT_ND(storage);
+   ASSERT_ND(owner_id_address);
+-  ASSERT_ND(payload_address);
++  // ASSERT_ND(payload_address); TODO:(Hideaki) Do we need this?
+   ASSERT_ND(log_entry);
+   if (UNLIKELY(write_set_size_ >= max_write_set_size_)) {
+     return kErrorCodeXctWriteSetOverflow;
+diff --git a/foedus-core/include/foedus/xct/xct_manager_pimpl.hpp b/foedus-core/include/foedus/xct/xct_manager_pimpl.hpp
+index b644f34..3507ab1 100644
+--- a/foedus-core/include/foedus/xct/xct_manager_pimpl.hpp
++++ b/foedus-core/include/foedus/xct/xct_manager_pimpl.hpp
+@@ -99,7 +99,8 @@ class XctManagerPimpl final : public DefaultInitializable {
+    * @details
+    * Assuming phase 1 and 2 are successfully completed, apply all changes and unlock locks.
+    */
+-  void        precommit_xct_apply(thread::Thread* context, Epoch *commit_epoch);
++  void        precommit_xct_apply(thread::Thread* context, Epoch *commit_epoch,
++                                  WriteXctAccess *write_set_original);
+   /** unlocking all acquired locks, used when aborts. */
+   void        precommit_xct_unlock(thread::Thread* context);
+ 
+diff --git a/foedus-core/include/foedus/xct/xct_optimistic_read_impl.hpp b/foedus-core/include/foedus/xct/xct_optimistic_read_impl.hpp
+index 9d66eef..a9192ee 100644
+--- a/foedus-core/include/foedus/xct/xct_optimistic_read_impl.hpp
++++ b/foedus-core/include/foedus/xct/xct_optimistic_read_impl.hpp
+@@ -35,14 +35,18 @@ inline ErrorCode optimistic_read_protocol(
+     return kErrorCodeOk;
+   }
+ 
+-  XctId observed(owner_id_address->spin_while_keylocked());
+-  assorted::memory_fence_consume();
+-  CHECK_ERROR_CODE(handler(observed));
++  while (true) {
++    XctId observed(owner_id_address->spin_while_keylocked());
++    assorted::memory_fence_consume();
++    CHECK_ERROR_CODE(handler(observed));
++    assorted::memory_fence_consume();
++    if (observed != *owner_id_address) {
++      // this means we might have read something half-updated. try again.
++      continue;
++    }
+ 
+-  // The Masstree paper additionally has another fence and version-check and then a retry if the
+-  // version differs. However, in our protocol such thing is anyway caught in commit phase.
+-  // Thus, we have only one fence here.
+-  return xct->add_to_read_set(storage, observed, owner_id_address);
++    return xct->add_to_read_set(storage, observed, owner_id_address);
++  }
+ }
+ 
+ }  // namespace xct
+diff --git a/foedus-core/src/foedus/storage/array/array_log_types.cpp b/foedus-core/src/foedus/storage/array/array_log_types.cpp
+index 8723efe..d9f97d2 100644
+--- a/foedus-core/src/foedus/storage/array/array_log_types.cpp
++++ b/foedus-core/src/foedus/storage/array/array_log_types.cpp
+@@ -81,13 +81,6 @@ std::ostream& operator<<(std::ostream& o, const ArrayOverwriteLogType& v) {
+   return o;
+ }
+ 
+-// just to shutup pesky compiler
+-template <typename T>
+-inline T as(const void *address) {
+-  const T* casted = reinterpret_cast<const T*>(address);
+-  return *casted;
+-}
+-
+ std::ostream& operator<<(std::ostream& o, const ArrayIncrementLogType& v) {
+   o << "<ArrayIncrementLog>"
+     << "<offset_>" << v.offset_ << "</offset_>"
+@@ -96,37 +89,39 @@ std::ostream& operator<<(std::ostream& o, const ArrayIncrementLogType& v) {
+   switch (v.get_value_type()) {
+     // 32 bit data types
+     case kI8:
+-      o << "int8_t</type><addendum_>" << static_cast<int16_t>(as<int8_t>(v.addendum_));
++      o << "int8_t</type><addendum_>" << static_cast<int16_t>(
++        *reinterpret_cast<const int8_t*>(v.addendum_));
+       break;
+     case kI16:
+-      o << "int16_t</type><addendum_>" << as<int16_t>(v.addendum_);
++      o << "int16_t</type><addendum_>" << *reinterpret_cast<const int16_t*>(v.addendum_);
+       break;
+     case kI32:
+-      o << "int32_t</type><addendum_>" << as<int32_t>(v.addendum_);
++      o << "int32_t</type><addendum_>" << *reinterpret_cast<const int32_t*>(v.addendum_);
+       break;
+     case kBool:
+     case kU8:
+-      o << "uint8_t</type><addendum_>" << static_cast<uint16_t>(as<uint8_t>(v.addendum_));
++      o << "uint8_t</type><addendum_>" << static_cast<uint16_t>(
++        *reinterpret_cast<const uint8_t*>(v.addendum_));
+       break;
+     case kU16:
+-      o << "uint16_t</type><addendum_>" << as<uint16_t>(v.addendum_);
++      o << "uint16_t</type><addendum_>" << *reinterpret_cast<const uint16_t*>(v.addendum_);
+       break;
+     case kU32:
+-      o << "uint32_t</type><addendum_>" << as<uint32_t>(v.addendum_);
++      o << "uint32_t</type><addendum_>" << *reinterpret_cast<const uint32_t*>(v.addendum_);
+       break;
+     case kFloat:
+-      o << "float</type><addendum_>" << as<float>(v.addendum_);
++      o << "float</type><addendum_>" << *reinterpret_cast<const float*>(v.addendum_);
+       break;
+ 
+     // 64 bit data types
+     case kI64:
+-      o << "int64_t</type><addendum_>" << as<int64_t>(v.addendum_ + 4);
++      o << "int64_t</type><addendum_>" << *reinterpret_cast<const int64_t*>(v.addendum_ + 4);
+       break;
+     case kU64:
+-      o << "uint64_t</type><addendum_>" << as<uint64_t>(v.addendum_ + 4);
++      o << "uint64_t</type><addendum_>" << *reinterpret_cast<const uint64_t*>(v.addendum_ + 4);
+       break;
+     case kDouble:
+-      o << "double</type><addendum_>" << as<double>(v.addendum_ + 4);
++      o << "double</type><addendum_>" << *reinterpret_cast<const double*>(v.addendum_ + 4);
+       break;
+     default:
+       o << "UNKNOWN(" << v.get_value_type() << ")</type><addendum_>";
+diff --git a/foedus-core/src/foedus/storage/hash/hash_log_types.cpp b/foedus-core/src/foedus/storage/hash/hash_log_types.cpp
+index ad301ff..86d88b3 100644
+--- a/foedus-core/src/foedus/storage/hash/hash_log_types.cpp
++++ b/foedus-core/src/foedus/storage/hash/hash_log_types.cpp
+@@ -79,6 +79,12 @@ std::ostream& operator<<(std::ostream& o, const HashInsertLogType& v) {
+   return o;
+ }
+ 
++std::ostream& operator<<(std::ostream& o, const HashInsertDummyLogType& v) {
++  o << "<HashInsertDummyLogType>"
++    << "</HashInsertDummyLogType>";
++  return o;
++}
++
+ std::ostream& operator<<(std::ostream& o, const HashDeleteLogType& v) {
+   o << "<HashDeleteLogType>"
+     << "<key_length_>" << v.key_length_ << "</key_length_>"
+diff --git a/foedus-core/src/foedus/storage/hash/hash_storage_pimpl.cpp b/foedus-core/src/foedus/storage/hash/hash_storage_pimpl.cpp
+index 70a12d8..0bbe2c3 100644
+--- a/foedus-core/src/foedus/storage/hash/hash_storage_pimpl.cpp
++++ b/foedus-core/src/foedus/storage/hash/hash_storage_pimpl.cpp
+@@ -4,15 +4,16 @@
+  */
+ #include "foedus/storage/hash/hash_storage_pimpl.hpp"
+ 
++#include <xmmintrin.h>
+ #include <glog/logging.h>
+ 
+ #include <cstring>
++#include <iostream>
+ #include <string>
+ #include <vector>
+ 
+ #include "foedus/engine.hpp"
+ #include "foedus/assorted/assorted_func.hpp"
+-#include "foedus/assorted/cacheline.hpp"
+ #include "foedus/assorted/raw_atomics.hpp"
+ #include "foedus/debugging/stop_watch.hpp"
+ #include "foedus/log/log_type.hpp"
+@@ -33,6 +34,7 @@
+ #include "foedus/storage/hash/hash_storage.hpp"
+ #include "foedus/thread/thread.hpp"
+ #include "foedus/xct/xct.hpp"
++#include "foedus/xct/xct_inl.hpp"
+ #include "foedus/xct/xct_manager.hpp"
+ 
+ namespace foedus {
+@@ -128,18 +130,18 @@ ErrorCode HashStorage::increment_record(
+ }
+ 
+ void HashStorage::apply_delete_record(
+-  thread::Thread* context,
+-  const HashDeleteLogType* log_entry,
+-  xct::XctId* owner_id,
+-  char* payload) {
++   thread::Thread* context,
++    const HashDeleteLogType* log_entry,
++    xct::XctId* owner_id,
++    char* payload) {
+   pimpl_->apply_delete_record(context, log_entry, owner_id, payload);
+ }
+ 
+ void HashStorage::apply_insert_record(
+   thread::Thread* context,
+   const HashInsertLogType* log_entry,
+-  xct::XctId* owner_id,
+-  char* payload) {
++    xct::XctId* owner_id,
++    char* payload) {
+   pimpl_->apply_insert_record(context, log_entry, owner_id, payload);
+ }
+ 
+@@ -325,6 +327,7 @@ ErrorCode HashStoragePimpl::get_record(
+   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
+ 
+   if (combo.record_) {
++    ASSERT_ND(combo.record_->owner_id_.get_epoch().is_valid());
+     // we already added to read set, so the only remaining thing is to read payload
+     if (combo.payload_length_ > *payload_capacity) {
+       // buffer too small
+@@ -396,6 +399,124 @@ ErrorCode HashStoragePimpl::get_record_part(
+ }
+ 
+ 
++ErrorStack HashStoragePimpl::make_room(
++  thread::Thread* context,
++  HashDataPage* data_page,
++  int depth, uint8_t *slot_pick) {
++  if (depth > kMaxCuckooDepth) return ERROR_STACK(kErrorCodeStrCuckooTooDeep);
++  int hit_index = 0;  // says how many valid victim candidates we've seen
++  uint32_t bin_num = data_page->get_bin();
++  uint32_t storageid = holder_->get_hash_metadata()->id_;
++  int kickout_index = context->get_current_xct().read_frequency(bin_num, storageid).kickout_count;
++  int pick = -1;  // NOTE: This protocol will do poorly if transactions are short,
++  // because higher-indexed slots will never get the opportunity to be kicked out.
++  // Instead a transaction should pick a starting index, and index
++  // the victim-number modulo the size of the bin from there.
++  ASSERT_ND(data_page->get_record_count() > kickout_index);
++  if (kickout_index > data_page->get_record_count()) {
++    return ERROR_STACK(kErrorCodeStrNothingToKickout);
++  }
++  for (int x = 0; x < kMaxEntriesPerBin; x++) {
++    if ((data_page->slot(x).flags_ & HashDataPage::kFlagDeleted) == 0) {
++      hit_index++;
++      if (hit_index == kickout_index) {
++        pick = x;
++        x = kMaxEntriesPerBin + 1;
++      }
++    }
++  }
++  (*slot_pick) = pick;
++  ASSERT_ND(pick!= -1);
++  std::cout << "KICKOUT OCCURRED out of bin " << bin_num << " and slot " << pick << std::endl;
++  // If something is deleted during the previous for loop, then we may end up using an empty slot
++    // This is kind of messy, and could possibly screw things up
++  // if wetry to use a key that doesn't exist. I worry we're not okay since we're recomputing the
++  // hash using the key instead of using the tag and bin number.
++  // Thought: do we have room for a flag saying "I'm a slot that has been created"?
++
++  // This part is silly, we should be using the tag to compute the other bin, not recomputing from
++  // scratch. TODO:(Bill) Make this part properly use tag.
++  uint16_t key_length = data_page->slot(pick).key_length_;
++  uint32_t offset = data_page->slot(pick).offset_;
++  Record* kickrec = data_page->interpret_record(offset);
++  // ASSERT_ND(kickrec->owner_id_.get_thread_id() == context->get_thread_id());
++  ASSERT_ND(kickrec->owner_id_.is_keylocked() == false);
++  char* key = kickrec->payload_;
++  char* payload = (kickrec->payload_ + key_length);
++  HashCombo combo(key, key_length, metadata_.bin_bits_);
++  WRAP_ERROR_CODE(lookup_bin(context, true, &combo));
++  WRAP_ERROR_CODE(locate_record(context, key, key_length, &combo));  // This will add the next
++  // data page to the reader set. If we use the tag instead to get the next data_page
++  // we will have to do it manually.
++  HashDataPage* other_page = combo.data_pages_[0];
++  if (other_page == data_page) {
++    other_page = combo.data_pages_[1];
++  }
++  WRAP_ERROR_CODE(delete_record(context, key, key_length));
++  uint8_t choice = (uint8_t)(combo.data_pages_[1] == other_page);
++  CHECK_ERROR(insert_record_chosen_bin(context, key, key_length,
++                                       payload,
++                                       combo.payload_length_,
++                                       choice, combo, depth));
++  return kRetOk;
++}
++
++// TODO:(Bill) Make this an error code rather than an error stack
++ErrorStack HashStoragePimpl::insert_record_chosen_bin(
++  thread::Thread* context,
++  const char* key,
++  uint16_t key_length,
++  const void* payload,
++  uint16_t payload_count,
++  uint8_t choice,
++  HashCombo combo,
++  int current_depth) {
++  HashDataPage* data_page = combo.data_pages_[choice];
++  ASSERT_ND(data_page && !data_page->header().snapshot_);
++  uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
++  HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
++    context->get_thread_log_buffer().reserve_new_log(log_length));
++  uint32_t bin_num = combo.bins_[choice];
++  uint32_t storageid = holder_->get_hash_metadata()->id_;
++  uint8_t slot_pick = 0;
++  if (context->get_current_xct().read_frequency(bin_num , storageid).add_count
++      + data_page->get_record_count() >= kMaxEntriesPerBin) {
++    context->get_current_xct().add_frequency(bin_num, storageid, true);
++    CHECK_ERROR(make_room(context, data_page, current_depth + 1, &slot_pick));
++  } else {
++    context->get_current_xct().add_frequency(bin_num, storageid, false);
++    slot_pick = data_page->find_empty_slot(key_length, payload_count);
++  }
++  int offset = 0;
++  if (slot_pick != 0) {
++    offset = data_page->slot(slot_pick - 1).offset_
++      + assorted::align8(data_page->slot(slot_pick - 1).record_length_);
++  }
++  // What to assert here?
++  Record* actual_record = data_page->interpret_record(offset);
++  log_entry->populate(metadata_.id_, key, key_length, (choice == 0),
++                      slot_pick, combo.tag_, payload,
++                      payload_count);  // Not sure why we flip choice for populate function?
++  Record* page_lock_record = reinterpret_cast<Record*>(&(data_page->page_owner()));
++
++  HashInsertDummyLogType* dummy_log = reinterpret_cast<HashInsertDummyLogType*>(
++    context->get_thread_log_buffer().reserve_new_log(HashInsertDummyLogType::calculate_log_length()));
++  dummy_log->populate(storageid);
++  WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
++                                                              &actual_record->owner_id_,
++                                                              reinterpret_cast<char*>(combo.bin_pages_[choice]),
++                                                              log_entry));
++  std::cout << "Moving key " << *((uint64_t*)key) << " with payload " << *((uint64_t*)payload)
++    << std::endl;
++//  WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
++//                                                              page_lock_record, log_entry));
++  WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
++                                                &(data_page->page_owner()),
++                                                reinterpret_cast<char*>(combo.bin_pages_[choice]),
++                                                              dummy_log));
++  return kRetOk;
++}
++
+ 
+ ErrorCode HashStoragePimpl::insert_record(
+   thread::Thread* context,
+@@ -407,7 +528,6 @@ ErrorCode HashStoragePimpl::insert_record(
+   CHECK_ERROR_CODE(lookup_bin(context, true, &combo));
+   DVLOG(3) << "insert_hash: hash=" << combo;
+   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
+-
+   if (combo.record_) {
+     return kErrorCodeStrKeyAlreadyExists;
+   }
+@@ -425,26 +545,56 @@ ErrorCode HashStoragePimpl::insert_record(
+     bin1 = (combo.data_pages_[0]->get_record_count() <= combo.data_pages_[1]->get_record_count());
+   }
+   uint8_t choice = bin1 ? 0 : 1;
++  // Optional to print bin options:
++  // std::cout<<combo.data_pages_[0]->get_bin()<<" "<<combo.data_pages_[1]->get_bin()<<std::endl;
++  if (combo.data_pages_[0]->get_bin() == combo.data_pages_[1]->get_bin()) {
++    HashCombo combo2(key, key_length, metadata_.bin_bits_);
++    CHECK_ERROR_CODE(lookup_bin(context, true, &combo2));
++  }
+ 
+   // lookup_bin should have already created volatile pages for both cases
+   HashBinPage* bin_page = combo.bin_pages_[choice];
+   ASSERT_ND(bin_page && !bin_page->header().snapshot_);
+-  ASSERT_ND(bin_page->header().get_page_type() == kHashBinPageType);
+   HashDataPage* data_page = combo.data_pages_[choice];
+   ASSERT_ND(data_page && !data_page->header().snapshot_);
+-  ASSERT_ND(data_page->header().get_page_type() == kHashDataPageType);
+-
+   uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
+   HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
+     context->get_thread_log_buffer().reserve_new_log(log_length));
+-  log_entry->populate(metadata_.id_, key, key_length, bin1, combo.tag_, payload, payload_count);
++  uint32_t bin_num = combo.bins_[choice];
++  uint32_t storageid = holder_->get_hash_metadata()->id_;
++  uint8_t slot_pick = 0;
++  if (context->get_current_xct().read_frequency(bin_num , storageid).add_count +
++      data_page->get_record_count() >= kMaxEntriesPerBin) {
++    context->get_current_xct().add_frequency(bin_num, storageid, true);
++    UNWRAP_ERROR_STACK(make_room(context, data_page, 0, &slot_pick));
++  } else {
++    context->get_current_xct().add_frequency(bin_num, storageid, false);
++    slot_pick = data_page->find_empty_slot(key_length, payload_count);
++  }
++  int offset = 0;
++  if (slot_pick != 0) {
++    offset = data_page->slot(slot_pick - 1).offset_
++      + assorted::align8(data_page->slot(slot_pick - 1).record_length_);
++  }
++  // What to assert here?
++  log_entry->populate(metadata_.id_, key, key_length, bin1,
++                      slot_pick, combo.tag_, payload, payload_count);
++  Record* page_lock_record = reinterpret_cast<Record*>(&(data_page->page_owner()));
++  Record* actual_record = data_page->interpret_record(offset);
++  HashInsertDummyLogType* dummy_log = reinterpret_cast<HashInsertDummyLogType*>(
++    context->get_thread_log_buffer().reserve_new_log(HashInsertDummyLogType::calculate_log_length()));
++  dummy_log->populate(storageid);
++  CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
++                                                              &actual_record->owner_id_,
++                                                              reinterpret_cast<char*>(bin_page), log_entry));
++  std::cout << "Inserting key " << *(uint64_t*)key
++    << " with payload " << *((uint64_t*)payload) << std::endl;
++
++  //return context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry);
+   // NOTE tentative hack! currently "payload address" for hash insert write set points to bin page
+   // so that we don't have to calculate it again.
+-  return context->get_current_xct().add_to_write_set(
+-    holder_,
+-    &(data_page->page_owner()),
+-    reinterpret_cast<char*>(bin_page),
+-    log_entry);
++  return context->get_current_xct().add_to_write_set(holder_,  &(data_page->page_owner()),
++    nullptr,  dummy_log);
+ }
+ 
+ ErrorCode HashStoragePimpl::delete_record(
+@@ -474,6 +624,7 @@ ErrorCode HashStoragePimpl::delete_record(
+   log_entry->populate(metadata_.id_, key, key_length, combo.record_bin1_, combo.record_slot_);
+   // NOTE tentative hack! currently "payload address" for hash insert write set points to bin page
+   // so that we don't have to calculate it again.
++  ASSERT_ND(log_entry->header_.get_type() == log::kLogCodeHashDelete);
+   return context->get_current_xct().add_to_write_set(
+     holder_,
+     &combo.record_->owner_id_,
+@@ -612,12 +763,13 @@ inline HashDataPage* to_page(xct::XctId* owner_id) {
+     reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(aligned_address)));
+ }
+ 
++
+ void HashStoragePimpl::apply_insert_record(
+   thread::Thread* /*context*/,
+   const HashInsertLogType* log_entry,
+   xct::XctId* owner_id,
+   char* payload) {
+-  // NOTE tentative hack! currently "payload address" for hash insert write set points to bin page
++ // NOTE tentative hack! currently "payload address" for hash insert write set points to bin page
+   // so that we don't have to calculate it again.
+   HashDataPage* data_page = to_page(owner_id);
+   ASSERT_ND(!data_page->header().snapshot_);
+@@ -642,11 +794,11 @@ void HashStoragePimpl::apply_insert_record(
+   the_bin.tags_[slot] = log_entry->hashtag_;
+   assorted::raw_atomic_fetch_add<uint16_t>(&the_bin.mod_counter_, 1U);
+   data_page->add_record(
+-    log_entry->header_.xct_id_,
+     slot,
+     log_entry->key_length_,
+     log_entry->payload_count_,
+     log_entry->data_);
++  owner_id->set_notdeleted();
+ }
+ 
+ void HashStoragePimpl::apply_delete_record(
+@@ -675,9 +827,11 @@ void HashStoragePimpl::apply_delete_record(
+   uint16_t slot = log_entry->slot_;
+   // We are deleting this record, so it should be locked
+   ASSERT_ND(data_page->get_record_count() > slot);
+-  ASSERT_ND(data_page->interpret_record(slot)->owner_id_.is_keylocked());
++  ASSERT_ND(owner_id->is_keylocked());
+   ASSERT_ND((data_page->slot(slot).flags_ & HashDataPage::kFlagDeleted) == 0);
++  ASSERT_ND(!owner_id->is_deleted());
+   data_page->slot(slot).flags_ |= HashDataPage::kFlagDeleted;
++  owner_id->set_deleted();
+ 
+   // we also remove tag from bin page. this happens AFTER physically deleting it with fence.
+   // this protocol makes sure it's safe, although there might be false positive.
+@@ -686,6 +840,7 @@ void HashStoragePimpl::apply_delete_record(
+ }
+ 
+ 
++
+ inline HashRootPage* HashStoragePimpl::lookup_boundary_root(
+   thread::Thread* context,
+   uint64_t bin,
+@@ -769,9 +924,9 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, bool for_write,
+       if (i == 0 && combo->bin_pages_[1]) {
+         // when we are reading from both of them we prefetch the two 64 bytes.
+         // if we are reading from only one of them, no need.
+-        assorted::prefetch_cacheline(&(combo->bin_pages_[0]->bin(bin_pos)));
++        ::_mm_prefetch(&(combo->bin_pages_[0]->bin(bin_pos)), ::_MM_HINT_T0);
+         uint16_t another_pos = combo->bins_[1] % kBinsPerPage;
+-        assorted::prefetch_cacheline(&(combo->bin_pages_[1]->bin(another_pos)));
++        ::_mm_prefetch(&(combo->bin_pages_[1]->bin(another_pos)), ::_MM_HINT_T0);
+       }
+ 
+       HashBinPage::Bin& bin = combo->bin_pages_[i]->bin(bin_pos);
+@@ -819,10 +974,8 @@ inline ErrorCode HashStoragePimpl::locate_record(
+     HashDataPage* data_page = combo->data_pages_[i];
+ 
+     // add page lock for read set. before accessing records
+-    current_xct.add_to_read_set(
+-      holder_,
+-      data_page->page_owner().spin_while_keylocked(),
+-      &data_page->page_owner());
++    current_xct.add_to_read_set(holder_, data_page->page_owner(), &data_page->page_owner());
++      // TODO(Bill) For second paramater, use the first observed id
+ 
+     uint32_t hit_bitmap = combo->hit_bitmap_[i];
+     for (uint8_t rec = 0; rec < data_page->get_record_count(); ++rec) {
+@@ -838,10 +991,7 @@ inline ErrorCode HashStoragePimpl::locate_record(
+       }
+       // TODO(Hideaki) handle kFlagStoredInNextPages.
+       Record* record = data_page->interpret_record(slot.offset_);
+-      current_xct.add_to_read_set(
+-        holder_,
+-        record->owner_id_.spin_while_keylocked(),
+-        &record->owner_id_);
++      current_xct.add_to_read_set(holder_, record->owner_id_, &(record->owner_id_));
+       if (std::memcmp(record->payload_, key, key_length) == 0) {
+         // okay, matched!!
+         // once we exactly locate the record, no point to check other records/bin. exit
+diff --git a/foedus-core/src/foedus/storage/masstree/masstree_cursor.cpp b/foedus-core/src/foedus/storage/masstree/masstree_cursor.cpp
+index de3fd35..0a16250 100644
+--- a/foedus-core/src/foedus/storage/masstree/masstree_cursor.cpp
++++ b/foedus-core/src/foedus/storage/masstree/masstree_cursor.cpp
+@@ -94,11 +94,83 @@ inline ErrorCode MasstreeCursor::allocate_if_not_exist(
+   return kErrorCodeOk;
+ }
+ 
+-/////////////////////////////////////////////////////////////////////////////////////////
+-//
+-//      next() and proceed_xxx methods
+-//
+-/////////////////////////////////////////////////////////////////////////////////////////
++ErrorCode MasstreeCursor::open(
++  const char* begin_key,
++  uint16_t begin_key_length,
++  const char* end_key,
++  uint16_t end_key_length,
++  bool forward_cursor,
++  bool for_writes,
++  bool begin_inclusive,
++  bool end_inclusive) {
++  CHECK_ERROR_CODE(allocate_if_not_exist(&routes_memory_offset_, &routes_));
++  CHECK_ERROR_CODE(allocate_if_not_exist(&search_key_memory_offset_, &search_key_));
++  CHECK_ERROR_CODE(allocate_if_not_exist(&cur_key_memory_offset_, &cur_key_));
++  CHECK_ERROR_CODE(allocate_if_not_exist(&end_key_memory_offset_, &end_key_));
++
++  forward_cursor_ = forward_cursor;
++  reached_end_ = false;
++  for_writes_ = for_writes;
++  end_inclusive_ = end_inclusive;
++  end_key_length_ = end_key_length;
++  route_count_ = 0;
++  if (!is_end_key_supremum()) {
++    std::memcpy(end_key_, end_key, end_key_length);
++  }
++
++  search_key_length_ = begin_key_length;
++  search_type_ = forward_cursor ? (begin_inclusive ? kForwardInclusive : kForwardExclusive)
++                  : (begin_inclusive ? kBackwardInclusive : kBackwardExclusive);
++  if (!is_search_key_extremum()) {
++    std::memcpy(search_key_, begin_key, begin_key_length);
++  }
++
++  ASSERT_ND(storage_pimpl_->first_root_pointer_.volatile_pointer_.components.offset);
++  VolatilePagePointer pointer = storage_pimpl_->first_root_pointer_.volatile_pointer_;
++  MasstreePage* root = reinterpret_cast<MasstreePage*>(
++    context_->get_global_volatile_page_resolver().resolve_offset(pointer));
++  PageVersion root_version;
++  CHECK_ERROR_CODE(push_route(root, &root_version));
++  CHECK_ERROR_CODE(locate_layer(0));
++  check_end_key();
++  if (is_valid_record()) {
++    // locate_xxx doesn't take care of deleted record as it can't proceed to another page.
++    // so, if the initially located record is deleted, use next() now.
++    if (cur_key_observed_owner_id_.is_deleted()) {
++      CHECK_ERROR_CODE(next());
++    }
++  }
++  return kErrorCodeOk;
++}
++
++void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, uint8_t record) {
++  // fetch everything
++  ASSERT_ND(record < page->get_version().get_key_count());
++  cur_key_owner_id_address = page->get_owner_id(record);
++  if (!page->header().snapshot_) {
++    cur_key_observed_owner_id_ = cur_key_owner_id_address->spin_while_keylocked();
++    ASSERT_ND(!cur_key_observed_owner_id_.is_keylocked());
++  }
++  uint8_t remaining = page->get_remaining_key_length(record);
++  uint8_t suffix_length = 0;
++  if (remaining > sizeof(KeySlice)) {
++    suffix_length = remaining - sizeof(KeySlice);
++  }
++  cur_key_in_layer_remaining_ = remaining;
++  cur_key_in_layer_slice_ = page->get_slice(record);
++  uint8_t layer = page->get_layer();
++  cur_key_length_ = layer * sizeof(KeySlice) + remaining;
++  uint64_t be_slice = assorted::htobe<uint64_t>(page->get_slice(record));
++  std::memcpy(
++    cur_key_ + layer * sizeof(KeySlice),
++    &be_slice,
++    std::min<uint64_t>(remaining, sizeof(KeySlice)));
++  if (suffix_length > 0) {
++    std::memcpy(cur_key_ + (layer + 1) * sizeof(KeySlice), page->get_record(record), suffix_length);
++  }
++  cur_payload_length_ = page->get_payload_length(record);
++  cur_payload_ = page->get_record(record) + suffix_length;
++}
+ 
+ ErrorCode MasstreeCursor::next() {
+   if (!is_valid_record()) {
+@@ -134,16 +206,12 @@ inline ErrorCode MasstreeCursor::proceed_route() {
+ 
+ ErrorCode MasstreeCursor::proceed_route_border() {
+   Route* route = cur_route();
+-  ASSERT_ND(!route->stable_.is_moved());
+   ASSERT_ND(route->page_->is_border());
+-  if (UNLIKELY(route->page_->get_version().data_ != route->stable_.data_)) {
+-    // something has changed in this page.
+-    // TODO(Hideaki) until we implement range lock, we have to roll back in this case.
++  if (route->page_->get_version().data_ != route->stable_.data_) {
++    // TODO(Hideaki) do the retry with done_upto
+     return kErrorCodeXctRaceAbort;
+   }
+-
+-  PageVersion stable = route->stable_;
+-  MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(route->page_);
++  MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
+   while (true) {
+     if (forward_cursor_) {
+       ++route->index_;
+@@ -162,167 +230,100 @@ ErrorCode MasstreeCursor::proceed_route_border() {
+       if (cur_key_observed_owner_id_.is_deleted()) {
+         continue;
+       }
++      route->done_upto_ = cur_key_in_layer_slice_;
++      route->done_upto_length_ = cur_key_in_layer_remaining_;
+       if (cur_key_in_layer_remaining_ == MasstreeBorderPage::kKeyLengthNextLayer) {
+-        CHECK_ERROR_CODE(proceed_next_layer());
++        return proceed_next_layer();
++      } else {
++        return kErrorCodeOk;
+       }
+-      break;
+     } else {
+-      CHECK_ERROR_CODE(proceed_pop());
+-      break;
++      return proceed_pop();
+     }
+   }
+-  assorted::memory_fence_consume();
+-  if (UNLIKELY(page->get_version().data_ != stable.data_)) {
+-    return kErrorCodeXctRaceAbort;  // same above
+-  }
+   return kErrorCodeOk;
+ }
+ 
+-void MasstreeCursor::proceed_route_intermediate_rebase_separator() {
++ErrorCode MasstreeCursor::proceed_route_intermediate() {
+   Route* route = cur_route();
+   ASSERT_ND(!route->page_->is_border());
+-  MasstreeIntermediatePage* page = reinterpret_cast<MasstreeIntermediatePage*>(route->page_);
+-  // We do NOT update stable_ here in case it's now moved.
+-  // even if it's moved now, we can keep using this node because of the master-tree invariant.
+-  // rather, if we update the stable_, proceed_pop will be confused by that
+-  route->key_count_ = route->page_->get_version().get_key_count();
+-
+-  const KeySlice last = route->latest_separator_;
+-  ASSERT_ND(last <= page->get_high_fence() && last >= page->get_low_fence());
+-  for (route->index_ = 0; route->index_ < route->key_count_; ++route->index_) {
+-    if (last <= page->get_separator(route->index_)) {
+-      break;
+-    }
+-  }
+-  ASSERT_ND(route->index_ == route->key_count_ || last <= page->get_separator(route->index_));
+-
+-  DVLOG(0) << "rebase. new index=" << route->index_ << "/" << route->key_count_;
+-  if (route->index_ < route->key_count_ && last == page->get_separator(route->index_)) {
+-    DVLOG(0) << "oh, matched with first level separator";
+-    // we are "done" up to the last separator. which pointer to follow next?
+-    if (forward_cursor_) {
+-      ++route->index_;
+-      const MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(route->index_);
+-      route->key_count_mini_ = minipage.key_count_;
+-      route->index_mini_ =  0;
+-    } else {
+-      const MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(route->index_);
+-      route->key_count_mini_ = minipage.key_count_;
+-      route->index_mini_ = minipage.key_count_;
+-    }
+-    return;
+-  }
+-
+-  const MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(route->index_);
+-  route->key_count_mini_ = minipage.key_count_;
+-  DVLOG(0) << "checking second level... count=" << route->key_count_mini_;
+-  for (route->index_mini_ = 0; route->index_mini_ < route->key_count_mini_; ++route->index_mini_) {
+-    ASSERT_ND(last >= minipage.separators_[route->index_mini_]);
+-    if (last == minipage.separators_[route->index_mini_]) {
+-      break;
+-    }
+-  }
+-  DVLOG(0) << "checked second level... index_mini=" << route->index_mini_;
+-  ASSERT_ND(route->index_mini_ < route->key_count_mini_);
+-  if (forward_cursor_) {
+-    // last==separators[n], so we are following pointers[n+1] next
+-    ++route->index_mini_;
+-  } else {
+-    // last==separators[n], so we are following pointers[n] next
++  ASSERT_ND(route->index_ <= route->key_count_);
++  if (route->page_->get_version().data_ != route->stable_.data_) {
++    // TODO(Hideaki) do the retry with done_upto
++    return kErrorCodeXctRaceAbort;
+   }
+-}
+-
+-ErrorCode MasstreeCursor::proceed_route_intermediate() {
++  MasstreeIntermediatePage* page = reinterpret_cast<MasstreeIntermediatePage*>(cur_route()->page_);
+   while (true) {
+-    Route* route = cur_route();
+-    ASSERT_ND(!route->page_->is_border());
+-    ASSERT_ND(route->index_ <= route->key_count_);
+-    MasstreeIntermediatePage* page = reinterpret_cast<MasstreeIntermediatePage*>(route->page_);
+-
+     if (forward_cursor_) {
+       ++route->index_mini_;
+     } else {
+       --route->index_mini_;
+     }
+-    if (route->index_mini_ > route->key_count_mini_) {  // this is also a 'negative' check
+-      if (forward_cursor_) {
+-        ++route->index_;
+-      } else {
+-        --route->index_;
+-      }
+-      if (route->index_ > route->key_count_) {  // also a 'negative' check
+-        // seems like we reached end of this page... did we?
+-        return proceed_pop();
+-      } else {
+-        route->key_count_mini_ = page->get_minipage(route->index_).key_count_;
+-        if (forward_cursor_) {
+-          route->index_mini_ = 0;
+-        } else {
+-          route->index_mini_ = route->key_count_mini_;
+-        }
+-      }
++    if (page->get_minipage(route->index_).mini_version_.data_ != route->stable_mini_.data_) {
++      // TODO(Hideaki) do the retry with done_upto
++      return kErrorCodeXctRaceAbort;
+     }
+ 
+-    // Master-tree invariant
+-    // verify that the next separator/page starts from the separator we followed previously.
+-    // as far as we check it, we don't need the hand-over-hand version verification.
+-    KeySlice new_separator;
+-    MasstreePage* next;
+-    while (true) {
+-      ASSERT_ND(route->latest_separator_ >= page->get_low_fence());
+-      ASSERT_ND(route->latest_separator_ <= page->get_high_fence());
+-      MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(route->index_);
+-      DualPagePointer& pointer = minipage.pointers_[route->index_mini_];
++    if (route->index_mini_ <= route->key_count_mini_) {
++      DualPagePointer& pointer = page->get_minipage(route->index_).pointers_[route->index_mini_];
+       ASSERT_ND(!pointer.is_both_null());
++      MasstreePage* next;
+       CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, &pointer, &next));
+-
++      PageVersion next_stable;
++      CHECK_ERROR_CODE(push_route(next, &next_stable));
++      return proceed_deeper();
++    } else {
+       if (forward_cursor_) {
+-        if (UNLIKELY(next->get_low_fence() != route->latest_separator_)) {
+-          VLOG(0) << "Interesting3A. separator doesn't match. concurrent adoption. local retry.";
+-          proceed_route_intermediate_rebase_separator();
+-          continue;
+-        }
+-        new_separator = next->get_high_fence();
++        ++route->index_;
+       } else {
+-        if (UNLIKELY(next->get_high_fence() != route->latest_separator_)) {
+-          VLOG(0) << "Interesting3B. separator doesn't match. concurrent adoption. local retry.";
+-          proceed_route_intermediate_rebase_separator();
+-          continue;
+-        }
+-        new_separator = next->get_low_fence();
++        --route->index_;
++      }
++      if (route->index_ <= route->key_count_) {
++        MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(route->index_);
++        route->stable_mini_ = minipage.get_stable_version();
++        route->key_count_mini_ = route->stable_mini_.get_key_count();
++        assorted::memory_fence_consume();
++        route->index_mini_ = forward_cursor_ ? 0 : route->key_count_mini_;
++
++        DualPagePointer& pointer = minipage.pointers_[route->index_mini_];
++        ASSERT_ND(!pointer.is_both_null());
++        MasstreePage* next;
++        CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, &pointer, &next));
++        PageVersion next_stable;
++        CHECK_ERROR_CODE(push_route(next, &next_stable));
++        return proceed_deeper();
++      } else {
++        return proceed_pop();
+       }
+-      break;
+     }
+-
+-    route->latest_separator_ = new_separator;
+-    CHECK_ERROR_CODE(push_route(next));
+-    return proceed_deeper();
+   }
+   return kErrorCodeOk;
+ }
+ 
+ inline ErrorCode MasstreeCursor::proceed_pop() {
+   while (true) {
++    const Route& done_route = routes_[route_count_ - 1];
+     --route_count_;
+     if (route_count_ == 0) {
+       reached_end_ = true;
+       return kErrorCodeOk;
+     }
+     Route& route = routes_[route_count_ - 1];
+-    if (route.stable_.is_moved()) {
++    if (cur_route()->stable_.is_moved()) {
+       // in case we were at a moved page, we either followed foster minor or foster major.
+-      ASSERT_ND(route.moved_page_search_status_ == Route::kMovedPageSearchedOne ||
+-        route.moved_page_search_status_ == Route::kMovedPageSearchedBoth);
+-      if (route.moved_page_search_status_ == Route::kMovedPageSearchedBoth) {
+-        // we checked both foster children. we are done with this. so, pop again
+-        continue;
+-      }
+-      route.moved_page_search_status_ = Route::kMovedPageSearchedBoth;
++      MasstreePage* done = done_route.page_;
+       MasstreePage* left = route.page_->get_foster_minor();
+       MasstreePage* right = route.page_->get_foster_major();
+-      // check another foster child
+-      CHECK_ERROR_CODE(push_route(forward_cursor_ ? right : left));
+-      return proceed_deeper();
++      ASSERT_ND(done == left || done == right);
++      if ((forward_cursor_ && done == right) || (!forward_cursor_ && done == left)) {
++        // we checked both of foster twin. pop one more
++        continue;
++      } else {
++        // check another foster child
++        PageVersion version;
++        CHECK_ERROR_CODE(push_route(forward_cursor_ ? right : left, &version));
++        return proceed_deeper();
++      }
+     } else {
+       // otherwise, next record in this page
+       return proceed_route();
+@@ -332,15 +333,12 @@ inline ErrorCode MasstreeCursor::proceed_pop() {
+ inline ErrorCode MasstreeCursor::proceed_next_layer() {
+   Route* route = cur_route();
+   ASSERT_ND(route->page_->is_border());
+-  MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(route->page_);
+-  KeySlice record_slice = page->get_slice(route->get_cur_original_index());
+-  assorted::write_bigendian<KeySlice>(
+-    record_slice,
+-    cur_key_ + (page->get_layer() * sizeof(KeySlice)));
++  MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
+   DualPagePointer* pointer = page->get_next_layer(route->get_cur_original_index());
+   MasstreePage* next;
+   CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, pointer, &next));
+-  CHECK_ERROR_CODE(push_route(next));
++  PageVersion next_stable;
++  CHECK_ERROR_CODE(push_route(next, &next_stable));
+   return proceed_deeper();
+ }
+ 
+@@ -348,12 +346,12 @@ inline ErrorCode MasstreeCursor::proceed_deeper() {
+   // if we are hitting a moved page, go to left or right, depending on forward cur or not
+   while (UNLIKELY(cur_route()->stable_.has_foster_child())) {
+     ASSERT_ND(cur_route()->stable_.is_moved());
++    PageVersion version;
+     MasstreePage* next_page = forward_cursor_
+       ? cur_route()->page_->get_foster_minor()
+       : cur_route()->page_->get_foster_major();
+-    CHECK_ERROR_CODE(push_route(next_page));
++    CHECK_ERROR_CODE(push_route(next_page, &version));
+   }
+-  ASSERT_ND(!cur_route()->stable_.has_foster_child());
+ 
+   if (cur_route()->page_->is_border()) {
+     return proceed_deeper_border();
+@@ -370,6 +368,8 @@ inline ErrorCode MasstreeCursor::proceed_deeper_border() {
+   route->index_ = forward_cursor_ ? 0 : route->key_count_ - 1;
+   uint8_t record = route->get_original_index(route->index_);
+   fetch_cur_record(page, record);
++  route->done_upto_ = cur_key_in_layer_slice_;
++  route->done_upto_length_ = cur_key_in_layer_remaining_;
+ 
+   if (!route->snapshot_ &&
+     cur_key_in_layer_remaining_ != MasstreeBorderPage::kKeyLengthNextLayer) {
+@@ -393,64 +393,20 @@ inline ErrorCode MasstreeCursor::proceed_deeper_intermediate() {
+   route->index_ = forward_cursor_ ? 0 : route->key_count_;
+   MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(route->index_);
+ 
+-  MasstreePage* next;
+-  KeySlice separator_low, separator_high;
+-  while (true) {
+-    route->key_count_mini_ = minipage.key_count_;
+-    assorted::memory_fence_consume();
+-    route->index_mini_ = forward_cursor_ ? 0 : route->key_count_mini_;
+-
+-    extract_separators(&separator_low, &separator_high);
+-    DualPagePointer& pointer = minipage.pointers_[route->index_mini_];
+-    ASSERT_ND(!pointer.is_both_null());
+-    CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, &pointer, &next));
+-    if (UNLIKELY(next->get_low_fence() != separator_low ||
+-        next->get_high_fence() != separator_high)) {
+-      VLOG(0) << "Interesting4. first sep doesn't match. concurrent adoption. local retry.";
+-      continue;
+-    } else {
+-      break;
+-    }
+-  }
++  route->stable_mini_ = minipage.get_stable_version();
++  route->key_count_mini_ = route->stable_mini_.get_key_count();
++  assorted::memory_fence_consume();
++  route->index_mini_ = forward_cursor_ ? 0 : route->key_count_mini_;
+ 
+-  route->latest_separator_ = forward_cursor_ ? separator_high : separator_low;
+-  CHECK_ERROR_CODE(push_route(next));
++  DualPagePointer& pointer = minipage.pointers_[route->index_mini_];
++  ASSERT_ND(!pointer.is_both_null());
++  MasstreePage* next;
++  CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, &pointer, &next));
++  PageVersion next_stable;
++  CHECK_ERROR_CODE(push_route(next, &next_stable));
+   return proceed_deeper();
+ }
+ 
+-/////////////////////////////////////////////////////////////////////////////////////////
+-//
+-//      common methods
+-//
+-/////////////////////////////////////////////////////////////////////////////////////////
+-
+-void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, uint8_t record) {
+-  // fetch everything
+-  ASSERT_ND(record < page->get_version().get_key_count());
+-  cur_key_owner_id_address = page->get_owner_id(record);
+-  if (!page->header().snapshot_) {
+-    cur_key_observed_owner_id_ = cur_key_owner_id_address->spin_while_keylocked();
+-    ASSERT_ND(!cur_key_observed_owner_id_.is_keylocked());
+-  }
+-  uint8_t remaining = page->get_remaining_key_length(record);
+-  uint8_t suffix_length = 0;
+-  if (remaining > sizeof(KeySlice)) {
+-    suffix_length = remaining - sizeof(KeySlice);
+-  }
+-  cur_key_in_layer_remaining_ = remaining;
+-  cur_key_in_layer_slice_ = page->get_slice(record);
+-  uint8_t layer = page->get_layer();
+-  cur_key_length_ = layer * sizeof(KeySlice) + remaining;
+-  char* layer_key = cur_key_ + layer * sizeof(KeySlice);
+-  assorted::write_bigendian<KeySlice>(cur_key_in_layer_slice_, layer_key);
+-  ASSERT_ND(assorted::read_bigendian<KeySlice>(layer_key) == cur_key_in_layer_slice_);
+-  if (suffix_length > 0) {
+-    std::memcpy(cur_key_ + (layer + 1) * sizeof(KeySlice), page->get_record(record), suffix_length);
+-  }
+-  cur_payload_length_ = page->get_payload_length(record);
+-  cur_payload_ = page->get_record(record) + suffix_length;
+-}
+-
+ inline void MasstreeCursor::Route::setup_order() {
+   ASSERT_ND(page_->is_border());
+   // sort entries in this page
+@@ -479,38 +435,29 @@ inline void MasstreeCursor::Route::setup_order() {
+   std::sort(order_, order_ + key_count_, Sorter(page));
+ }
+ 
+-inline ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
++inline ErrorCode MasstreeCursor::push_route(MasstreePage* page, PageVersion* page_version) {
+   if (route_count_ == kMaxRoutes) {
+     return kErrorCodeStrMasstreeCursorTooDeep;
+   }
+   page->prefetch_general();
+   Route& route = routes_[route_count_];
+   while (true) {
+-    route.stable_ = page->get_stable_version();
+-    assorted::memory_fence_consume();
+-    ASSERT_ND(!route.stable_.is_locked());
++    *page_version = page->get_stable_version();
++    ASSERT_ND(!page_version->is_locked());
+     route.page_ = page;
+-    route.moved_page_search_status_ = Route::kNotMovedPage;  // if a moved page, set soon
+-    route.latest_separator_ = kInfimumSlice;  // must be set shortly after this method
+     route.index_ = kMaxRecords;  // must be set shortly after this method
+     route.index_mini_ = kMaxRecords;  // must be set shortly after this method
+-    route.key_count_ = route.stable_.get_key_count();
++    route.stable_ = *page_version;
++    route.key_count_ = page_version->get_key_count();
+     route.snapshot_ = page->header().snapshot_;
+-    if (page->is_border() && !route.stable_.is_moved()) {
++    if (page->is_border() && !page_version->is_moved()) {
+       route.setup_order();
+-      assorted::memory_fence_consume();
+-      // the setup_order must not be confused by concurrent updates
+-      if (UNLIKELY(route.stable_.data_ != page->get_version().data_)) {
+-        continue;
+-      }
+     }
+-    break;
+-  }
+-  if (route.stable_.is_moved()) {
+-    // because this method will be immediately followed by a deeper search
+-    route.moved_page_search_status_ = Route::kMovedPageSearchedOne;
++    assorted::memory_fence_consume();
++    if (page_version->data_ == page->get_stable_version().data_) {
++      break;
++    }
+   }
+-
+   ++route_count_;
+   // We don't need to take a page into the page version set unless we need to lock a range in it.
+   // We thus need it only for border pages. Even if an interior page changes, splits, whatever,
+@@ -520,70 +467,39 @@ inline ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
+   if (!page->is_border() || page->header().snapshot_ || route.stable_.is_moved()) {
+     return kErrorCodeOk;
+   }
+-  return current_xct_->add_to_page_version_set(&page->header().page_version_, route.stable_);
++  return current_xct_->add_to_page_version_set(&page->header().page_version_, *page_version);
+ }
+ 
+-inline ErrorCode MasstreeCursor::follow_foster(KeySlice slice) {
++template<typename PAGE_TYPE>
++inline ErrorCode MasstreeCursor::follow_foster(
++  KeySlice slice,
++  PAGE_TYPE** cur,
++  PageVersion* version) {
++  ASSERT_ND(search_type_ == kBackwardExclusive || (*cur)->within_fences(slice));
++  ASSERT_ND(search_type_ != kBackwardExclusive
++    || (*cur)->within_fences(slice)
++    || (*cur)->get_high_fence() == slice);
+   // a bit more complicated than point queries because of exclusive cases.
+-  while (true) {
+-    Route* route = cur_route();
+-    ASSERT_ND(search_type_ == kBackwardExclusive || route->page_->within_fences(slice));
+-    ASSERT_ND(search_type_ != kBackwardExclusive
+-      || route->page_->within_fences(slice)
+-      || route->page_->get_high_fence() == slice);
+-    if (LIKELY(!route->stable_.has_foster_child())) {
+-      break;
+-    }
+-
+-    ASSERT_ND(route->stable_.is_moved());
+-    KeySlice foster_fence = route->page_->get_foster_fence();
+-    MasstreePage* page;
++  while (UNLIKELY(version->has_foster_child())) {
++    ASSERT_ND(version->is_moved());
++    KeySlice foster_fence = (*cur)->get_foster_fence();
+     if (slice < foster_fence) {
+-      page = route->page_->get_foster_minor();
++      *cur = reinterpret_cast<PAGE_TYPE*>((*cur)->get_foster_minor());
+     } else if (slice > foster_fence) {
+-      page = route->page_->get_foster_major();
++      *cur = reinterpret_cast<PAGE_TYPE*>((*cur)->get_foster_major());
+     } else {
+       ASSERT_ND(slice == foster_fence);
+       if (search_type_ == kBackwardExclusive) {
+-        page = route->page_->get_foster_minor();
++        *cur = reinterpret_cast<PAGE_TYPE*>((*cur)->get_foster_minor());
+       } else {
+-        page = route->page_->get_foster_major();
++        *cur = reinterpret_cast<PAGE_TYPE*>((*cur)->get_foster_major());
+       }
+     }
+-    CHECK_ERROR_CODE(push_route(page));
++    CHECK_ERROR_CODE(push_route(*cur, version));
+   }
+   return kErrorCodeOk;
+ }
+ 
+-inline void MasstreeCursor::extract_separators(
+-  KeySlice* separator_low,
+-  KeySlice* separator_high) const {
+-  const Route* route = cur_route();
+-  ASSERT_ND(!route->page_->is_border());
+-  ASSERT_ND(route->index_ <= route->key_count_);
+-  ASSERT_ND(route->index_mini_ <= route->key_count_mini_);
+-  MasstreeIntermediatePage* cur = reinterpret_cast<MasstreeIntermediatePage*>(route->page_);
+-  const MasstreeIntermediatePage::MiniPage& minipage = cur->get_minipage(route->index_);
+-  if (route->index_mini_ == 0) {
+-    if (route->index_ == 0) {
+-      *separator_low = cur->get_low_fence();
+-    } else {
+-      *separator_low = cur->get_separator(route->index_ - 1U);
+-    }
+-  } else {
+-    *separator_low = minipage.separators_[route->index_mini_ - 1U];
+-  }
+-  if (route->index_mini_ == route->key_count_mini_) {
+-    if (route->index_ == route->key_count_) {
+-      *separator_high = cur->get_high_fence();
+-    } else {
+-      *separator_high = cur->get_separator(route->index_);
+-    }
+-  } else {
+-    *separator_high = minipage.separators_[route->index_mini_];
+-  }
+-}
+-
+ inline void MasstreeCursor::check_end_key() {
+   if (is_valid_record()) {
+     KeyCompareResult result = compare_cur_key_aginst_end_key();
+@@ -704,64 +620,9 @@ inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key(
+   }
+ }
+ 
+-/////////////////////////////////////////////////////////////////////////////////////////
+-//
+-//      Initial open() and locate() methods
+-//
+-/////////////////////////////////////////////////////////////////////////////////////////
+-
+-ErrorCode MasstreeCursor::open(
+-  const char* begin_key,
+-  uint16_t begin_key_length,
+-  const char* end_key,
+-  uint16_t end_key_length,
+-  bool forward_cursor,
+-  bool for_writes,
+-  bool begin_inclusive,
+-  bool end_inclusive) {
+-  CHECK_ERROR_CODE(allocate_if_not_exist(&routes_memory_offset_, &routes_));
+-  CHECK_ERROR_CODE(allocate_if_not_exist(&search_key_memory_offset_, &search_key_));
+-  CHECK_ERROR_CODE(allocate_if_not_exist(&cur_key_memory_offset_, &cur_key_));
+-  CHECK_ERROR_CODE(allocate_if_not_exist(&end_key_memory_offset_, &end_key_));
+-
+-  forward_cursor_ = forward_cursor;
+-  reached_end_ = false;
+-  for_writes_ = for_writes;
+-  end_inclusive_ = end_inclusive;
+-  end_key_length_ = end_key_length;
+-  route_count_ = 0;
+-  if (!is_end_key_supremum()) {
+-    std::memcpy(end_key_, end_key, end_key_length);
+-  }
+-
+-  search_key_length_ = begin_key_length;
+-  search_type_ = forward_cursor ? (begin_inclusive ? kForwardInclusive : kForwardExclusive)
+-                  : (begin_inclusive ? kBackwardInclusive : kBackwardExclusive);
+-  if (!is_search_key_extremum()) {
+-    std::memcpy(search_key_, begin_key, begin_key_length);
+-  }
+-
+-  ASSERT_ND(storage_pimpl_->first_root_pointer_.volatile_pointer_.components.offset);
+-  VolatilePagePointer pointer = storage_pimpl_->first_root_pointer_.volatile_pointer_;
+-  MasstreePage* root = reinterpret_cast<MasstreePage*>(
+-    context_->get_global_volatile_page_resolver().resolve_offset(pointer));
+-  CHECK_ERROR_CODE(push_route(root));
+-  CHECK_ERROR_CODE(locate_layer(0));
+-  check_end_key();
+-  if (is_valid_record()) {
+-    // locate_xxx doesn't take care of deleted record as it can't proceed to another page.
+-    // so, if the initially located record is a deleted record, use next() now.
+-    if (cur_key_observed_owner_id_.is_deleted()) {
+-      CHECK_ERROR_CODE(next());
+-    }
+-  }
+-  return kErrorCodeOk;
+-}
+-
+ inline ErrorCode MasstreeCursor::locate_layer(uint8_t layer) {
+   MasstreePage* layer_root = cur_route()->page_;
+   ASSERT_ND(layer_root->get_layer() == layer);
+-  // set up the search in this layer. What's the slice we will look for in this layer?
+   KeySlice slice;
+   search_key_in_layer_extremum_ = false;
+   if (is_search_key_extremum() || search_key_length_ <= layer * sizeof(KeySlice)) {
+@@ -785,42 +646,25 @@ inline ErrorCode MasstreeCursor::locate_layer(uint8_t layer) {
+       search_key_length_ - layer * sizeof(KeySlice));
+     slice = assorted::read_bigendian<KeySlice>(&slice);
+   }
+-
+   if (!layer_root->is_border()) {
+     CHECK_ERROR_CODE(locate_descend(slice));
+   }
+-  CHECK_ERROR_CODE(locate_border(slice));
+-  ASSERT_ND(!is_valid_record() ||
+-    forward_cursor_ ||
+-    assorted::read_bigendian<KeySlice>(cur_key_ + layer * sizeof(KeySlice)) <= slice);
+-  ASSERT_ND(!is_valid_record() ||
+-    !forward_cursor_ ||
+-    assorted::read_bigendian<KeySlice>(cur_key_ + layer * sizeof(KeySlice)) >= slice);
+-  ASSERT_ND(cur_route()->page_->get_layer() != layer ||
+-    !is_valid_record() ||
+-    !forward_cursor_ ||
+-    cur_key_in_layer_slice_ >= slice);
+-  ASSERT_ND(cur_route()->page_->get_layer() != layer ||
+-    !is_valid_record() ||
+-    forward_cursor_ ||
+-    cur_key_in_layer_slice_ <= slice);
+-  return kErrorCodeOk;
++  return locate_border(slice);
+ }
+ 
+ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
+   while (true) {
+-    CHECK_ERROR_CODE(follow_foster(slice));
+-    // Master-Tree invariant: we are in a page that contains this slice.
+-    // the only exception is that it's a backward-exclusive search and slice==high fence
+-    Route* route = cur_route();
+-    MasstreeBorderPage* border = reinterpret_cast<MasstreeBorderPage*>(route->page_);
+-    ASSERT_ND(border->get_low_fence() <= slice);
+-    ASSERT_ND(border->get_high_fence() >= slice);
++    MasstreeBorderPage* border = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
++    PageVersion border_version = cur_route()->stable_;
++    CHECK_ERROR_CODE(follow_foster(slice, &border, &border_version));
+     ASSERT_ND(search_type_ == kBackwardExclusive || border->within_fences(slice));
+     ASSERT_ND(search_type_ != kBackwardExclusive
+       || border->within_fences(slice)
+       || border->get_high_fence() == slice);
+ 
++    Route* route = cur_route();
++    ASSERT_ND(reinterpret_cast<MasstreeBorderPage*>(route->page_) == border);
++
+     ASSERT_ND(!route->stable_.has_foster_child());
+     uint8_t layer = border->get_layer();
+     // find right record. be aware of backward-exclusive case!
+@@ -829,7 +673,6 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
+     // no need for fast-path for supremum.
+     // almost always supremum-search is for backward search, so anyway it finds it first.
+     // if we have supremum-search for forward search, we miss opportunity, but who does it...
+-    // same for infimum-search for backward.
+     if (search_type_ == kForwardExclusive || search_type_ == kForwardInclusive) {
+       for (index = 0; index < route->key_count_; ++index) {
+         uint8_t record = route->get_original_index(index);
+@@ -840,7 +683,6 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
+           continue;
+         }
+         fetch_cur_record(border, record);
+-        ASSERT_ND(cur_key_in_layer_slice_ >= slice);
+         KeyCompareResult result = compare_cur_key_aginst_search_key(slice, layer);
+         if (result == kCurKeySmaller ||
+           (result == kCurKeyEquals && search_type_ == kForwardExclusive)) {
+@@ -866,7 +708,6 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
+           continue;
+         }
+         fetch_cur_record(border, record);
+-        ASSERT_ND(cur_key_in_layer_slice_ <= slice);
+         KeyCompareResult result = compare_cur_key_aginst_search_key(slice, layer);
+         if (result == kCurKeyLarger ||
+           (result == kCurKeyEquals && search_type_ == kBackwardExclusive)) {
+@@ -884,22 +725,15 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
+       }
+     }
+     route->index_ = index;
++    route->done_upto_ = cur_key_in_layer_slice_;
++    route->done_upto_length_ = cur_key_in_layer_remaining_;
++
+     assorted::memory_fence_consume();
+ 
+-    if (UNLIKELY(route->stable_.data_ != border->get_version().data_)) {
+-      PageVersion new_stable = border->get_stable_version();
+-      if (new_stable.is_moved()) {
+-        // this page has split. it IS fine thanks to Master-Tree invariant.
+-        // go deeper to one of foster child
+-        route->stable_ = new_stable;
+-        route->moved_page_search_status_ = Route::kMovedPageSearchedOne;
+-        continue;
+-      } else {
+-        // this means something has been inserted to this page.
+-        // so far we don't have range-lock (one of many todos), so we have to
+-        // rollback in this case.
+-        return kErrorCodeXctRaceAbort;
+-      }
++    PageVersion version = border->get_stable_version();
++    if (route->stable_.data_ != version.data_) {
++      route->stable_ = version;
++      continue;
+     } else {
+       break;
+     }
+@@ -916,29 +750,26 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
+ 
+ ErrorCode MasstreeCursor::locate_next_layer() {
+   Route* route = cur_route();
+-  MasstreeBorderPage* border = reinterpret_cast<MasstreeBorderPage*>(route->page_);
+-  KeySlice record_slice = border->get_slice(route->get_cur_original_index());
+-  assorted::write_bigendian<KeySlice>(
+-    record_slice,
+-    cur_key_ + (border->get_layer() * sizeof(KeySlice)));
++  MasstreeBorderPage* border = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
+   DualPagePointer* pointer = border->get_next_layer(route->get_cur_original_index());
+   MasstreePage* next;
+   CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, pointer, &next));
+-  CHECK_ERROR_CODE(push_route(next));
++  PageVersion next_stable;
++  CHECK_ERROR_CODE(push_route(next, &next_stable));
+   return locate_layer(border->get_layer() + 1U);
+ }
+ 
++
+ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
++  MasstreeIntermediatePage* cur = reinterpret_cast<MasstreeIntermediatePage*>(cur_route()->page_);
++  PageVersion cur_stable = cur_route()->stable_;
+   while (true) {
+-    CHECK_ERROR_CODE(follow_foster(slice));
++    CHECK_ERROR_CODE(follow_foster(slice, &cur, &cur_stable));
++
+     Route* route = cur_route();
+-    MasstreeIntermediatePage* cur = reinterpret_cast<MasstreeIntermediatePage*>(route->page_);
+-    ASSERT_ND(search_type_ == kBackwardExclusive || cur->within_fences(slice));
+-    ASSERT_ND(search_type_ != kBackwardExclusive
+-      || cur->within_fences(slice)
+-      || cur->get_high_fence() == slice);
++    ASSERT_ND(reinterpret_cast<MasstreeIntermediatePage*>(route->page_) == cur);
+ 
+-    ASSERT_ND(!route->stable_.has_foster_child());
++    ASSERT_ND(!cur_stable.has_foster_child());
+     // find right minipage. be aware of backward-exclusive case!
+     uint8_t index = 0;
+     // fast path for supremum-search.
+@@ -949,11 +780,11 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
+         index = route->key_count_;
+       }
+     } else if (search_type_ != kBackwardExclusive) {
+-      for (; index < route->key_count_; ++index) {
+-        if (slice < cur->get_separator(index)) {
+-          break;
++        for (; index < route->key_count_; ++index) {
++          if (slice < cur->get_separator(index)) {
++            break;
++          }
+         }
+-      }
+     } else {
+       for (; index < route->key_count_; ++index) {
+         if (slice <= cur->get_separator(index)) {
+@@ -965,73 +796,76 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
+     MasstreeIntermediatePage::MiniPage& minipage = cur->get_minipage(route->index_);
+ 
+     minipage.prefetch();
+-    route->key_count_mini_ = minipage.key_count_;
++    route->stable_mini_ = minipage.get_stable_version();
++    assorted::memory_fence_consume();
++    while (true) {
++      route->key_count_mini_ = route->stable_mini_.get_key_count();
+ 
+-    uint8_t index_mini = 0;
+-    if (search_key_in_layer_extremum_) {
+-      // fast path for supremum-search.
+-      if (forward_cursor_) {
+-        index_mini = 0;
++      uint8_t index_mini = 0;
++      if (search_key_in_layer_extremum_) {
++        // fast path for supremum-search.
++        if (forward_cursor_) {
++          index_mini = 0;
++        } else {
++          index_mini = route->key_count_mini_;
++        }
++      } else if (search_type_ != kBackwardExclusive) {
++          for (; index_mini < route->key_count_mini_; ++index_mini) {
++            if (slice < minipage.separators_[index_mini]) {
++              break;
++            }
++          }
+       } else {
+-        index_mini = route->key_count_mini_;
+-      }
+-    } else if (search_type_ != kBackwardExclusive) {
+         for (; index_mini < route->key_count_mini_; ++index_mini) {
+-          if (slice < minipage.separators_[index_mini]) {
++          if (slice <= minipage.separators_[index_mini]) {
+             break;
+           }
+         }
+-    } else {
+-      for (; index_mini < route->key_count_mini_; ++index_mini) {
+-        if (slice <= minipage.separators_[index_mini]) {
+-          break;
++      }
++      route->index_mini_ = index_mini;
++      /*  TODO(Hideaki) do this later
++      if (search_type_ == kForwardExclusive || search_type_ == kForwardInclusive) {
++        if (index_mini == 0) {
++          done_upto_ =
++        } else {
++          done_upto_ =
+         }
++      } else {
++      }
++      */
++
++      assorted::memory_fence_consume();
++      PageVersion version_mini = minipage.get_stable_version();
++      if (route->stable_mini_.data_ != version_mini.data_) {
++        route->stable_mini_ = version_mini;
++        continue;
++      } else {
++        break;
+       }
+     }
+-    route->index_mini_ = index_mini;
+ 
+-    KeySlice separator_low, separator_high;
+-    extract_separators(&separator_low, &separator_high);
+-    if (UNLIKELY(slice < separator_low || slice > separator_high)) {
+-      VLOG(0) << "Interesting5. separator doesn't match. concurrent adopt. local retry.";
+-      route->stable_ = cur->get_stable_version();
++    PageVersion version = cur->get_stable_version();
++    if (route->stable_.data_ != version.data_) {
++      route->stable_ = version;
+       continue;
+     }
+-    ASSERT_ND(separator_low <= slice && slice <= separator_high);
+ 
+     DualPagePointer& pointer = minipage.pointers_[route->index_mini_];
+     ASSERT_ND(!pointer.is_both_null());
+     MasstreePage* next;
+     CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, &pointer, &next));
+-
+-    // Master-tree invariant
+-    // verify that the followed page covers the key range we want.
+-    // as far as we check it, we don't need the hand-over-hand version verification.
+-    // what this page once covered will be forever reachable from this page.
+-    if (UNLIKELY(next->get_low_fence() != separator_low ||
+-        next->get_high_fence() != separator_high)) {
+-      VLOG(0) << "Interesting. separator doesn't match. concurrent adopt. local retry.";
+-      route->stable_ = cur->get_stable_version();
+-      continue;
+-    }
+-
+-    route->latest_separator_ = forward_cursor_ ? separator_high : separator_low;
+-    ASSERT_ND(next->get_low_fence() <= slice);
+-    ASSERT_ND(next->get_high_fence() >= slice);
+-    CHECK_ERROR_CODE(push_route(next));
++    PageVersion next_stable;
++    CHECK_ERROR_CODE(push_route(next, &next_stable));
+     if (next->is_border()) {
+       return kErrorCodeOk;
+     } else {
+-      continue;
++      cur = reinterpret_cast<MasstreeIntermediatePage*>(next);
++      cur_stable = next_stable;
+     }
+   }
+ }
+ 
+-/////////////////////////////////////////////////////////////////////////////////////////
+-//
+-//      APIs to modify current record
+-//
+-/////////////////////////////////////////////////////////////////////////////////////////
++
+ ErrorCode MasstreeCursor::overwrite_record(
+   const void* payload,
+   uint16_t payload_offset,
+diff --git a/foedus-core/src/foedus/storage/masstree/masstree_page_impl.cpp b/foedus-core/src/foedus/storage/masstree/masstree_page_impl.cpp
+index 3f793e5..20c64ca 100644
+--- a/foedus-core/src/foedus/storage/masstree/masstree_page_impl.cpp
++++ b/foedus-core/src/foedus/storage/masstree/masstree_page_impl.cpp
+@@ -73,9 +73,6 @@ void MasstreeIntermediatePage::initialize_volatile_page(
+     high_fence,
+     is_high_fence_supremum,
+     initially_locked);
+-  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
+-    get_minipage(i).key_count_ = 0;
+-  }
+ }
+ 
+ void MasstreeBorderPage::initialize_volatile_page(
+@@ -127,7 +124,7 @@ void MasstreeIntermediatePage::release_pages_recursive(
+   ASSERT_ND(key_count <= kMaxIntermediateSeparators);
+   for (uint8_t i = 0; i < key_count + 1; ++i) {
+     MiniPage& minipage = get_minipage(i);
+-    uint16_t mini_count = minipage.key_count_;
++    uint16_t mini_count = minipage.mini_version_.get_key_count();
+     ASSERT_ND(mini_count <= kMaxIntermediateMiniSeparators);
+     for (uint8_t j = 0; j < mini_count + 1; ++j) {
+       VolatilePagePointer& pointer = minipage.pointers_[j].volatile_pointer_;
+@@ -181,7 +178,7 @@ void MasstreeBorderPage::initialize_layer_root(
+   uint8_t copy_index) {
+   ASSERT_ND(header_.page_version_.get_key_count() == 0);
+   ASSERT_ND(is_locked());
+-  ASSERT_ND(copy_from->get_owner_id(copy_index)->is_keylocked());
++  ASSERT_ND(copy_from->is_locked());
+   uint8_t parent_key_length = copy_from->remaining_key_length_[copy_index];
+   ASSERT_ND(parent_key_length != kKeyLengthNextLayer);
+   ASSERT_ND(parent_key_length > sizeof(KeySlice));
+@@ -491,6 +488,24 @@ void MasstreeBorderPage::split_foster_migrate_records(
+ ///                      Interior node's Split
+ ///
+ /////////////////////////////////////////////////////////////////////////////////////
++void MasstreeIntermediatePage::init_lock_all_mini() {
++  ASSERT_ND(is_locked());
++  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
++    get_minipage(i).mini_version_.data_ = (
++      kPageVersionLockedBit |
++      kPageVersionInsertingBit |
++      kPageVersionSplittingBit);
++  }
++}
++void MasstreeIntermediatePage::init_unlock_all_mini() {
++  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
++    get_minipage(i).mini_version_.data_ &= ~(
++      kPageVersionLockedBit |
++      kPageVersionInsertingBit |
++      kPageVersionSplittingBit);
++  }
++}
++
+ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
+   thread::Thread* context,
+   MasstreePage* trigger_child) {
+@@ -503,17 +518,20 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
+   ASSERT_ND(is_locked());
+   ASSERT_ND(!is_moved());
+   ASSERT_ND(foster_twin_[0] == nullptr && foster_twin_[1] == nullptr);  // same as !is_moved()
++  ASSERT_ND(!trigger_child->is_locked());
+   debugging::RdtscWatch watch;
+ 
+   trigger_child->lock();
+   UnlockScope trigger_scope(trigger_child);
+   if (trigger_child->is_retired()) {
+-    VLOG(0) << "Interesting. this child is now retired, so someone else has already adopted.";
++    LOG(INFO) << "Interesting. this child is now retired, so someone else has already adopted.";
+     return kErrorCodeOk;  // fine. the goal is already achieved
+   }
+ 
+   uint8_t key_count = header_.page_version_.get_key_count();
+   ASSERT_ND(key_count == kMaxIntermediateSeparators);
++  get_version().set_inserting();
++  get_version().set_splitting();
+   DVLOG(1) << "Splitting an intermediate page... ";
+   verify_separators();
+ 
+@@ -529,13 +547,18 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
+   }
+ 
+   // from now on no failure possible.
++  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
++    ASSERT_ND(!get_minipage(i).mini_version_.is_moved());
++    get_minipage(i).mini_version_.lock_version(true, true);
++  }
++
+   // it might be a sorted insert.
+   KeySlice new_foster_fence;
+   bool no_record_split = false;
+   const MiniPage& last_minipage = get_minipage(key_count);
+   IntermediateSplitStrategy* strategy = nullptr;
+-  if (last_minipage.key_count_ > 0 &&
+-    trigger_child->get_foster_fence() > last_minipage.separators_[last_minipage.key_count_ - 1]) {
++  if (trigger_child->get_foster_fence()
++      > last_minipage.separators_[last_minipage.mini_version_.get_key_count() - 1]) {
+     DVLOG(0) << "Seems like a sequential insert. let's do no-record split";
+     no_record_split = true;
+     // triggering key as new separator (remember, low-fence is inclusive)
+@@ -566,6 +589,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
+       i == 0 ? false : is_high_fence_supremum(),
+       true);  // yes, lock it
+     ASSERT_ND(twin[i]->is_locked());
++    twin[i]->init_lock_all_mini();
+   }
+ 
+ 
+@@ -593,7 +617,8 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
+     major_pointer.snapshot_pointer_ = 0;
+     major_pointer.volatile_pointer_.word = trigger_child->get_foster_major()->header().page_id_;
+     MiniPage& new_minipage = twin[0]->get_minipage(key_count);
+-    DualPagePointer& old_pointer = new_minipage.pointers_[new_minipage.key_count_];
++    DualPagePointer& old_pointer = new_minipage.pointers_[
++      new_minipage.mini_version_.get_key_count()];
+     ASSERT_ND(context->get_global_volatile_page_resolver().resolve_offset(
+       old_pointer.volatile_pointer_) == reinterpret_cast<Page*>(trigger_child));
+     old_pointer.snapshot_pointer_ = 0;
+@@ -608,9 +633,15 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
+   }
+ 
+   for (int i = 0; i < 2; ++i) {
++    twin[i]->init_unlock_all_mini();
+     twin[i]->unlock();
+   }
+ 
++  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
++    get_minipage(i).mini_version_.set_moved();
++    get_minipage(i).mini_version_.unlock_version();
++  }
++
+   if (no_record_split) {
+     // trigger_child is retired.  TODO(Hideaki) GC
+     trigger_child->get_version().set_retired();
+@@ -637,7 +668,8 @@ void MasstreeIntermediatePage::split_foster_decide_strategy(IntermediateSplitStr
+   uint8_t key_count = get_version().get_key_count();
+   for (uint8_t i = 0; i <= key_count; ++i) {
+     const MiniPage& mini_page = get_minipage(i);
+-    uint8_t separator_count = mini_page.key_count_;
++    ASSERT_ND(mini_page.mini_version_.is_locked());
++    uint8_t separator_count = mini_page.mini_version_.get_key_count();
+     for (uint8_t j = 0; j < separator_count; ++j) {
+       ASSERT_ND(out->total_separator_count_ == 0 ||
+         out->separators_[out->total_separator_count_ - 1] < mini_page.separators_[j]);
+@@ -677,7 +709,7 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
+       separators_[i] = 0;
+     }
+     MiniPage& minipage = get_minipage(i);
+-    minipage.key_count_ = 0;
++    minipage.mini_version_.set_key_count(0);
+     for (uint8_t j = 0; j <= kMaxIntermediateMiniSeparators; ++j) {
+       if (j < kMaxIntermediateMiniSeparators) {
+         minipage.separators_[j] = 0;
+@@ -701,6 +733,7 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
+   uint8_t cur_mini = 0;
+   uint8_t cur_mini_separators = 0;
+   MiniPage* cur_mini_page = &get_minipage(0);
++  ASSERT_ND(cur_mini_page->mini_version_.is_locked());
+   cur_mini_page->pointers_[0] = strategy.pointers_[from];
+   ASSERT_ND(!strategy.pointers_[from].is_both_null());
+   KeySlice next_separator = strategy.separators_[from];
+@@ -710,8 +743,8 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
+     ASSERT_ND(!strategy.pointers_[original_index].is_both_null());
+     if (i >= next_mini_threshold && cur_mini < kMaxIntermediateSeparators) {
+       // switch to next mini page. so, the separator goes to the first level
+-      cur_mini_page->key_count_ = cur_mini_separators;  // close the current
+-      ASSERT_ND(cur_mini_page->key_count_ <= kMaxIntermediateMiniSeparators);
++      cur_mini_page->mini_version_.set_key_count(cur_mini_separators);  // close the current
++      ASSERT_ND(cur_mini_page->mini_version_.get_key_count() <= kMaxIntermediateMiniSeparators);
+ 
+       separators_[cur_mini] = next_separator;
+ 
+@@ -719,6 +752,8 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
+       cur_mini_separators = 0;
+       ++cur_mini;
+       cur_mini_page = &get_minipage(cur_mini);
++      ASSERT_ND(cur_mini_page->mini_version_.is_locked());
++
+       cur_mini_page->pointers_[0] = strategy.pointers_[original_index];
+     } else {
+       // still the same mini page. so, the separator goes to the second level
+@@ -730,8 +765,8 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
+     }
+     next_separator = strategy.separators_[original_index];
+   }
+-  cur_mini_page->key_count_ = cur_mini_separators;  // close the last one
+-  ASSERT_ND(cur_mini_page->key_count_ <= kMaxIntermediateMiniSeparators);
++  cur_mini_page->mini_version_.set_key_count(cur_mini_separators);  // close the last one
++  ASSERT_ND(cur_mini_page->mini_version_.get_key_count() <= kMaxIntermediateMiniSeparators);
+   get_version().set_key_count(cur_mini);
+   ASSERT_ND(get_version().get_key_count() <= kMaxIntermediateSeparators);
+ 
+@@ -758,9 +793,9 @@ void MasstreeIntermediatePage::verify_separators() const {
+       high = high_fence_;
+     }
+     const MiniPage& minipage = get_minipage(i);
+-    for (uint8_t j = 0; j <= minipage.key_count_; ++j) {
++    for (uint8_t j = 0; j <= minipage.mini_version_.get_key_count(); ++j) {
+       ASSERT_ND(!minipage.pointers_[j].is_both_null());
+-      if (j < minipage.key_count_) {
++      if (j < minipage.mini_version_.get_key_count()) {
+         ASSERT_ND(minipage.separators_[j] > low);
+         ASSERT_ND(minipage.separators_[j] < high);
+       }
+@@ -792,6 +827,14 @@ ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
+   }
+ 
+   // from now on no failure possible.
++  for (uint16_t i = 0; i <= key_count; ++i) {
++    get_minipage(i).mini_version_.lock_version(true, true);
++  }
++  // if there are minipages that are not used, initialize them now along with locking
++  for (uint16_t i = key_count + 1; i <= kMaxIntermediateSeparators; ++i) {
++    get_minipage(i).mini_version_.data_ = kPageVersionLockedBit;
++  }
++
+   // reuse the code of split.
+   IntermediateSplitStrategy* strategy =
+     reinterpret_cast<IntermediateSplitStrategy*>(
+@@ -802,6 +845,10 @@ ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
+   uint16_t count = strategy->total_separator_count_;
+   split_foster_migrate_records(*strategy, 0, count, high_fence_);
+ 
++  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
++    get_minipage(i).mini_version_.unlock_version();
++  }
++
+   watch.stop();
+   DVLOG(1) << "Costed " << watch.elapsed() << " cycles to rebalance a node. original"
+     << " key count: " << static_cast<int>(key_count)
+@@ -824,81 +871,52 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
+   uint8_t minipage_index,
+   uint8_t pointer_index,
+   MasstreePage* child) {
++  ASSERT_ND(!is_moved());
+   ASSERT_ND(!is_retired());
+-  lock();
+-  UnlockScope scope(this);
+-  if (is_moved()) {
+-    VLOG(0) << "Interesting. concurrent thread has already split this node? retry";
+-    return kErrorCodeOk;
+-  }
+-
+-  uint8_t key_count = get_version().get_key_count();
+   MiniPage& minipage = get_minipage(minipage_index);
+-  ASSERT_ND(minipage.key_count_ <= kMaxIntermediateMiniSeparators);
+-  {
+-    if (minipage_index > key_count || pointer_index > minipage.key_count_) {
+-      VLOG(0) << "Interesting. there seems some change in this interior page. retry adoption";
+-      return kErrorCodeOk;
+-    }
+-
+-    // TODO(Hideaki) let's make this a function.
+-    KeySlice separator_low;
+-    KeySlice separator_high;
+-    if (pointer_index == 0) {
+-      if (minipage_index == 0) {
+-        separator_low = low_fence_;
+-      } else {
+-        separator_low = separators_[minipage_index - 1U];
+-      }
+-    } else {
+-      separator_low = minipage.separators_[pointer_index - 1U];
+-    }
+-    if (pointer_index == minipage.key_count_) {
+-      if (minipage_index == key_count) {
+-        separator_high = high_fence_;
+-      } else {
+-        separator_high = separators_[minipage_index];
+-      }
+-    } else {
+-      separator_high = minipage.separators_[pointer_index];
+-    }
+-    if (searching_slice < separator_low || searching_slice > separator_high) {
+-      VLOG(0) << "Interesting. there seems some change in this interior page. retry adoption";
+-      return kErrorCodeOk;
+-    }
+-  }
+-
+-  if (minipage.key_count_ == kMaxIntermediateMiniSeparators) {
++  ASSERT_ND(minipage.mini_version_.get_key_count() <= kMaxIntermediateMiniSeparators);
++  if (minipage.mini_version_.get_key_count() == kMaxIntermediateMiniSeparators) {
+     // oh, then we also have to do rebalance
+     // at this point we have to lock the whole page
+-    ASSERT_ND(key_count <= kMaxIntermediateSeparators);
+-    if (key_count == kMaxIntermediateSeparators) {
++    ASSERT_ND(get_version().get_key_count() <= kMaxIntermediateSeparators);
++    lock();
++    UnlockScope scope(this);
++    if (is_moved()) {
++      LOG(INFO) << "Interesting. concurrent thread has already split this node? retry";
++      return kErrorCodeOk;
++    } else if (get_version().get_key_count() == kMaxIntermediateSeparators) {
+       // even that is impossible. let's split the whole page
++      get_version().set_splitting();
+       CHECK_ERROR_CODE(split_foster_and_adopt(context, child));
+       return kErrorCodeOk;  // retry to re-calculate indexes. it's simpler
+     }
+ 
+-    ASSERT_ND(key_count < kMaxIntermediateSeparators);
++    ASSERT_ND(get_version().get_key_count() < kMaxIntermediateSeparators);
+     // okay, it's possible to create a new first-level entry.
+     // there are a few ways to do this.
+     // 1) rebalance the whole page. in many cases this achieves the best layout for upcoming
+     // inserts. so basically we do this.
+     // 2) append to the end. this is very efficient if the inserts are sorted.
+     // quite similar to the "no-record split" optimization in border page.
+-    if (key_count == minipage_index && minipage.key_count_ == pointer_index) {
++    if (get_version().get_key_count() == minipage_index &&
++        minipage.mini_version_.get_key_count() == pointer_index) {
+       // this strongly suggests that it's a sorted insert. let's do that.
+       adopt_from_child_norecord_first_level(minipage_index, child);
+     } else {
+       // in this case, we locally rebalance.
++      get_version().set_splitting();
+       CHECK_ERROR_CODE(local_rebalance(context));
+     }
+     return kErrorCodeOk;  // retry to re-calculate indexes
+   }
+ 
+   // okay, then most likely this is minipage-local. good
+-  uint8_t mini_key_count = minipage.key_count_;
+-  if (mini_key_count == kMaxIntermediateMiniSeparators) {
+-    VLOG(0) << "Interesting. concurrent inserts prevented adoption. retry";
++  minipage.mini_version_.lock_version();
++  UnlockVersionScope mini_scope(&minipage.mini_version_);
++  uint8_t mini_key_count = minipage.mini_version_.get_key_count();
++  if (mini_key_count == kMaxIntermediateMiniSeparators ||
++    minipage.mini_version_.is_moved()) {
++    LOG(INFO) << "Interesting. concurrent inserts prevented adoption. retry";
+     return kErrorCodeOk;  // retry
+   }
+ 
+@@ -907,7 +925,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
+   {
+     UnlockScope scope_child(child);
+     if (child->get_version().is_retired()) {
+-      VLOG(0) << "Interesting. concurrent inserts already adopted. retry";
++      LOG(INFO) << "Interesting. concurrent inserts already adopted. retry";
+       return kErrorCodeOk;  // retry
+     }
+     // this is guaranteed because these flag are immutable once set.
+@@ -941,6 +959,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
+     } else {
+       // we have to shift elements.
+       DVLOG(1) << "Adopt with splits.";
++      minipage.mini_version_.set_splitting();
+       std::memmove(
+         minipage.separators_ + pointer_index + 1,
+         minipage.separators_ + pointer_index,
+@@ -951,9 +970,9 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
+         sizeof(DualPagePointer) * (mini_key_count - pointer_index));
+     }
+ 
+-    ++minipage.key_count_;
+-    ASSERT_ND(minipage.key_count_ <= kMaxIntermediateMiniSeparators);
+-    ASSERT_ND(minipage.key_count_ == mini_key_count + 1);
++    minipage.mini_version_.set_inserting_and_increment_key_count();
++    ASSERT_ND(minipage.mini_version_.get_key_count() <= kMaxIntermediateMiniSeparators);
++    ASSERT_ND(minipage.mini_version_.get_key_count() == mini_key_count + 1);
+     ASSERT_ND(!minipage.pointers_[pointer_index].is_both_null());
+     minipage.separators_[pointer_index] = new_separator;
+     minipage.pointers_[pointer_index + 1].snapshot_pointer_ = 0;
+@@ -981,10 +1000,12 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
+   ASSERT_ND(is_locked());
+   // note that we have to lock from parent to child. otherwise deadlock possible.
+   MiniPage& minipage = get_minipage(minipage_index);
++  minipage.mini_version_.lock_version();
++  UnlockVersionScope mini_scope(&minipage.mini_version_);
+   child->lock(true, true);
+   UnlockScope scope_child(child);
+   if (child->get_version().is_retired()) {
+-    VLOG(0) << "Interesting. concurrent thread has already adopted? retry";
++    LOG(INFO) << "Interesting. concurrent thread has already adopted? retry";
+     return;
+   }
+   ASSERT_ND(child->is_moved());
+@@ -1008,10 +1029,12 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
+   major_pointer.word = grandchild_major->header().page_id_;
+ 
+   MiniPage& new_minipage = mini_pages_[minipage_index + 1];
+-  new_minipage.key_count_ = 0;
++  new_minipage.mini_version_.data_ = kPageVersionLockedBit;  // initialization + lock
++  UnlockVersionScope new_mini_scope(&(new_minipage.mini_version_));
+ 
+ #ifndef NDEBUG
+   // for ease of debugging zero-out the page first (only data part). only for debug build.
++  new_minipage.mini_version_.set_key_count(0);
+   for (uint8_t j = 0; j <= kMaxIntermediateMiniSeparators; ++j) {
+     if (j < kMaxIntermediateMiniSeparators) {
+       new_minipage.separators_[j] = 0;
+@@ -1021,12 +1044,12 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
+   }
+ #endif  // NDEBUG
+ 
+-  ASSERT_ND(new_minipage.key_count_ == 0);
++  ASSERT_ND(new_minipage.mini_version_.get_key_count() == 0);
+   new_minipage.pointers_[0].snapshot_pointer_ = 0;
+   new_minipage.pointers_[0].volatile_pointer_ = major_pointer;
+ 
+   // also handle foster-twin if it's border page
+-  DualPagePointer& old_pointer = minipage.pointers_[minipage.key_count_];
++  DualPagePointer& old_pointer = minipage.pointers_[minipage.mini_version_.get_key_count()];
+   minor_pointer.components.mod_count = old_pointer.volatile_pointer_.components.mod_count + 1;
+   old_pointer.snapshot_pointer_ = 0;
+   old_pointer.volatile_pointer_ = minor_pointer;
+@@ -1088,7 +1111,7 @@ bool MasstreeBorderPage::track_moved_record(
+     if (*located_index == kMaxKeys) {
+       // this can happen rarely because we are not doing the stable version trick here.
+       // this is rare, so we just abort. no safety violation.
+-      VLOG(0) << "Very interesting. moved record not found due to concurrent updates";
++      LOG(INFO) << "Very interesting. moved record not found due to concurrent updates";
+       *located_index = cur_page->find_key(keys, slice, suffix, remaining);
+       return false;
+     } else if (cur_page->remaining_key_length_[*located_index] == kKeyLengthNextLayer &&
+diff --git a/foedus-core/src/foedus/storage/masstree/masstree_storage_pimpl.cpp b/foedus-core/src/foedus/storage/masstree/masstree_storage_pimpl.cpp
+index 699f61b..d795145 100644
+--- a/foedus-core/src/foedus/storage/masstree/masstree_storage_pimpl.cpp
++++ b/foedus-core/src/foedus/storage/masstree/masstree_storage_pimpl.cpp
+@@ -167,7 +167,8 @@ ErrorCode MasstreeStoragePimpl::grow_root(
+   MasstreeIntermediatePage::MiniPage& mini_page = new_root->get_minipage(0);
+   MasstreePage* left_page = root->get_foster_minor();
+   MasstreePage* right_page = root->get_foster_major();
+-  mini_page.key_count_ = 1;
++  mini_page.mini_version_.data_ = kPageVersionLockedBit;  // initialize + lock
++  mini_page.mini_version_.set_key_count(1);
+   mini_page.pointers_[0].snapshot_pointer_ = 0;
+   mini_page.pointers_[0].volatile_pointer_.word = left_page->header().page_id_;
+   mini_page.pointers_[0].volatile_pointer_.components.flags = 0;
+@@ -181,6 +182,7 @@ ErrorCode MasstreeStoragePimpl::grow_root(
+     context->get_global_volatile_page_resolver().resolve_offset(
+       mini_page.pointers_[1].volatile_pointer_));
+   mini_page.separators_[0] = separator;
++  mini_page.mini_version_.unlock_version();
+   ASSERT_ND(!new_root->is_border());
+ 
+   // Let's install a pointer to the new root page
+@@ -265,7 +267,7 @@ inline ErrorCode MasstreeStoragePimpl::find_border(
+       MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(minipage_index);
+ 
+       minipage.prefetch();
+-      uint8_t key_count_mini = minipage.key_count_;
++      uint8_t key_count_mini = minipage.mini_version_.get_key_count();
+       uint8_t pointer_index = minipage.find_pointer(key_count_mini, slice);
+       DualPagePointer& pointer = minipage.pointers_[pointer_index];
+       MasstreePage* next;
+@@ -396,11 +398,10 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
+ 
+   // as an independent system transaction, here we do an optimistic version check.
+   parent_lock->keylock_unconditional();
+-  if (parent_lock->is_moved() || parent->does_point_to_layer(parent_index)) {
+-    // someone else has also made this to a next layer or the page itself is moved!
++  if (parent->does_point_to_layer(parent_index)) {
++    // someone else has also made this to a next layer!
+     // our effort was a waste, but anyway the goal was achieved.
+-    VLOG(0) << "interesting. a concurrent thread has already made "
+-      << (parent_lock->is_moved() ? "this page moved" : " it point to next layer");
++    LOG(INFO) << "interesting. a concurrent thread has already made a next layer";
+     memory->release_free_volatile_page(offset);
+     parent_lock->release_keylock();
+   } else {
+@@ -508,7 +509,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
+     const void* const suffix = reinterpret_cast<const char*>(key) + (layer + 1) * sizeof(KeySlice);
+     MasstreeBorderPage* border;
+     CHECK_ERROR_CODE(find_border(context, layer_root, layer, true, slice, &border));
+-    while (true) {  // retry loop for following foster child and temporary failure
++    while (true) {  // retry loop for following foster child
+       // if we found out that the page was split and we should follow foster child, do it.
+       while (border->has_foster_child()) {
+         if (border->within_foster_minor(slice)) {
+@@ -520,9 +521,6 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
+       ASSERT_ND(border->within_fences(slice));
+ 
+       uint8_t count = border->get_version().get_key_count();
+-      // as done in reserve_record_new_record_apply(), we need a fence on BOTH sides.
+-      // observe key count first, then verify the keys.
+-      assorted::memory_fence_consume();
+       MasstreeBorderPage::FindKeyForReserveResult match = border->find_key_for_reserve(
+         0,
+         count,
+@@ -542,33 +540,11 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
+         *observed = border->get_owner_id(match.index_)->spin_while_keylocked();
+         assorted::memory_fence_consume();
+         return kErrorCodeOk;
+-      } else if (match.match_type_ == MasstreeBorderPage::kConflictingLocalRecord) {
+-        // in this case, we don't need a page-wide lock. because of key-immutability,
+-        // this is the only place we can have a next-layer pointer for this slice.
+-        // thus we just lock the record and convert it to a next-layer pointer.
+-        ASSERT_ND(match.index_ < MasstreeBorderPage::kMaxKeys);
+-        // this means now we have to create a next layer.
+-        // this is also one system transaction.
+-        CHECK_ERROR_CODE(create_next_layer(context, border, match.index_));
+-        // because we do this without page lock, this might have failed. in that case,
+-        // we retry.
+-        if (border->does_point_to_layer(match.index_)) {
+-          CHECK_ERROR_CODE(follow_layer(context, true, border, match.index_, &layer_root));
+-          break;  // next layer
+-        } else {
+-          VLOG(0) << "Because of concurrent transaction, we retry the system transaction to"
+-            << " make the record into a next layer pointer";
+-          continue;
+-        }
+-      } else {
+-        ASSERT_ND(match.match_type_ == MasstreeBorderPage::kNotFound);
+       }
+ 
+       // no matching or conflicting keys. so we will create a brand new record.
+       // this is a system transaction to just create a deleted record.
+-      // for this, we need a page lock.
+       border->lock();
+-      border->assert_entries();
+       UnlockScope scope(border);
+       // now finally we took a lock, finalizing the version. up to now, everything could happen.
+       // check all of them and retry if fails.
+@@ -616,9 +592,6 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
+         // this means now we have to create a next layer.
+         // this is also one system transaction.
+         CHECK_ERROR_CODE(create_next_layer(context, border, match.index_));
+-        border->assert_entries();
+-        // because of page lock, this always succeeds (unlike the above w/o page lock)
+-        ASSERT_ND(border->does_point_to_layer(match.index_));
+         CHECK_ERROR_CODE(follow_layer(context, true, border, match.index_, &layer_root));
+         ASSERT_ND(!border->is_moved());
+         ASSERT_ND(!border->is_retired());
+@@ -653,7 +626,6 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
+     }
+ 
+     border->lock();
+-    border->assert_entries();
+     UnlockScope scope(border);
+     if (UNLIKELY(border->has_foster_child())) {
+       continue;
+@@ -757,7 +729,7 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
+   ASSERT_ND(!target->is_retired());
+   ASSERT_ND(target->can_accomodate(target_index, remaining_key_length, payload_count));
+   ASSERT_ND(target->get_version().get_key_count() < MasstreeBorderPage::kMaxKeys);
+-  target->get_version().set_inserting();
++  target->get_version().set_inserting_and_increment_key_count();
+   xct::XctId initial_id;
+   initial_id.set_clean(
+     Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
+@@ -772,14 +744,9 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
+     suffix,
+     remaining_key_length,
+     payload_count);
+-  // we increment key count AFTER installing the key because otherwise the optimistic read
+-  // might see the record but find that the key doesn't match. we need a fence to prevent it.
+-  assorted::memory_fence_release();
+-  target->get_version().increment_key_count();
+   ASSERT_ND(target->get_version().get_key_count() <= MasstreeBorderPage::kMaxKeys);
+   ASSERT_ND(!target->is_moved());
+   ASSERT_ND(!target->is_retired());
+-  target->assert_entries();
+ }
+ 
+ ErrorCode MasstreeStoragePimpl::retrieve_general(
+diff --git a/foedus-core/src/foedus/storage/masstree/masstree_storage_verify.cpp b/foedus-core/src/foedus/storage/masstree/masstree_storage_verify.cpp
+index 9b84cec..068d702 100644
+--- a/foedus-core/src/foedus/storage/masstree/masstree_storage_verify.cpp
++++ b/foedus-core/src/foedus/storage/masstree/masstree_storage_verify.cpp
+@@ -123,7 +123,8 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_intermediate(
+     }
+ 
+     MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(i);
+-    uint8_t mini_count = minipage.key_count_;
++    uint8_t mini_count = minipage.mini_version_.get_key_count();
++    CHECK_AND_ASSERT(!minipage.mini_version_.is_locked());
+     CHECK_AND_ASSERT(mini_count <= kMaxIntermediateMiniSeparators);
+     KeySlice page_low = previous_low;
+     for (uint8_t j = 0; j <= mini_count; ++j) {
+diff --git a/foedus-core/src/foedus/xct/xct_manager_pimpl.cpp b/foedus-core/src/foedus/xct/xct_manager_pimpl.cpp
+index c487b39..9d7d83d 100644
+--- a/foedus-core/src/foedus/xct/xct_manager_pimpl.cpp
++++ b/foedus-core/src/foedus/xct/xct_manager_pimpl.cpp
+@@ -8,6 +8,7 @@
+ 
+ #include <algorithm>
+ #include <chrono>
++#include <iostream>
+ #include <thread>
+ #include <vector>
+ 
+@@ -181,6 +182,7 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
+     return kErrorCodeXctRaceAbort;
+   }
+ }
++
+ bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch) {
+   DVLOG(1) << *context << " Committing read_only";
+   ASSERT_ND(context->get_thread_log_buffer().get_offset_committed() ==
+@@ -192,6 +194,12 @@ bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *com
+ 
+ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch) {
+   DVLOG(1) << *context << " Committing read-write";
++
++  Xct& current_xct = context->get_current_xct();
++  uint64_t write_set_size = current_xct.get_write_set_size();
++  WriteXctAccess  write_set_copy[write_set_size];
++  for (uint64_t x = 0; x < write_set_size; x++)
++    write_set_copy[x] = *(current_xct.get_write_set() + x);
+   bool success = precommit_xct_lock(context);  // Phase 1
+   // lock can fail only when physical records went too far away
+   if (!success) {
+@@ -199,6 +207,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
+     return false;
+   }
+ 
++
+   // BEFORE the first fence, update the in_commit_log_epoch_ for logger
+   Xct::InCommitLogEpochGuard guard(&context->get_current_xct(), get_current_global_epoch_weak());
+ 
+@@ -219,7 +228,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
+   }
+ #endif  // NDEBUG
+   if (verified) {
+-    precommit_xct_apply(context, commit_epoch);  // phase 3. this also unlocks
++    precommit_xct_apply(context, commit_epoch, &(write_set_copy[0]));  // phase 3. this also unlocks
+     // announce log AFTER (with fence) apply, because apply sets xct_order in the logs.
+     assorted::memory_fence_release();
+     context->get_thread_log_buffer().publish_committed_log(*commit_epoch);
+@@ -280,10 +289,10 @@ bool XctManagerPimpl::precommit_xct_schema(thread::Thread* context, Epoch* commi
+ 
+ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
+   Xct& current_xct = context->get_current_xct();
+-  WriteXctAccess* write_set = current_xct.get_write_set();
++  WriteXctAccess*  write_set = current_xct.get_write_set();
++
+   uint32_t        write_set_size = current_xct.get_write_set_size();
+   DVLOG(1) << *context << " #write_sets=" << write_set_size << ", addr=" << write_set;
+-
+   while (true) {  // while loop for retrying in case of moved-bit error
+     // first, check for moved-bit and track where the corresponding physical record went.
+     // we do this before locking, so it is possible that later we find it moved again.
+@@ -315,7 +324,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
+ 
+     // One differences from original SILO protocol.
+     // As there might be multiple write sets on one record, we check equality of next
+-    // write set and 1) lock only at the first write-set of the record, 2) unlock at the last.
++    // write set and 1) lock only at the first write-set of the record, 2) unlock at the last
+ 
+     // lock them unconditionally. there is no risk of deadlock thanks to the sort.
+     // lock bit is the highest bit of ordinal_and_status_.
+@@ -331,7 +340,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
+       } else {
+         bool success = write_set[i].owner_id_address_->keylock_fail_if_moved();
+         if (UNLIKELY(!success)) {
+-          VLOG(0) << *context << " Interesting. moved-bit conflict in "
++          LOG(INFO) << *context << " Interesting. moved-bit conflict in "
+             << write_set[i].storage_->get_name()
+             << ":" << write_set[i].owner_id_address_
+             << ". This occasionally happens.";
+@@ -495,9 +504,10 @@ bool XctManagerPimpl::precommit_xct_verify_page_version_set(thread::Thread* cont
+   return true;
+ }
+ 
+-void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit_epoch) {
++void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit_epoch,
++                                          WriteXctAccess* write_set_original) {
+   Xct& current_xct = context->get_current_xct();
+-  WriteXctAccess* write_set = current_xct.get_write_set();
++  WriteXctAccess* write_set = write_set_original;  // unsorted
+   uint32_t        write_set_size = current_xct.get_write_set_size();
+   LockFreeWriteXctAccess* lock_free_write_set = current_xct.get_lock_free_write_set();
+   uint32_t                lock_free_write_set_size = current_xct.get_lock_free_write_set_size();
+@@ -515,7 +525,6 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
+   new_deleted_xct_id.set_deleted();  // used if the record after apply is in deleted state.
+   ASSERT_ND(!new_deleted_xct_id.is_keylocked());
+   ASSERT_ND(!new_deleted_xct_id.is_rangelocked());
+-
+   DVLOG(1) << *context << " generated new xct id=" << new_xct_id;
+   for (uint32_t i = 0; i < write_set_size; ++i) {
+     WriteXctAccess& write = write_set[i];
+@@ -525,7 +534,7 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
+     // We must be careful on the memory order of unlock and data write.
+     // We must write data first (invoke_apply), then unlock.
+     // Otherwise the correctness is not guaranteed.
+-    write.log_entry_->header_.set_xct_id(new_xct_id);
++    // Also because we want to write records in order
+     log::invoke_apply_record(
+       write.log_entry_,
+       context,
+@@ -534,14 +543,26 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
+       write.payload_address_);
+     // For this reason, we put memory_fence_release() between data and owner_id writes.
+     assorted::memory_fence_release();
++    ASSERT_ND(write.owner_id_address_->is_keylocked());
+     ASSERT_ND(!write.owner_id_address_->get_epoch().is_valid() ||
+       write.owner_id_address_->before(new_xct_id));  // ordered correctly?
+-    if (i < write_set_size - 1 &&
+-      write_set[i].owner_id_address_ == write_set[i + 1].owner_id_address_) {
+-      DVLOG(0) << *context << " Multiple write sets on record " << write_set[i].storage_->get_name()
+-        << ":" << write_set[i].owner_id_address_ << ". Unlock at the last one of the write sets";
++    // Since we're applying in order, not in sorted order, it's easiest to do unlocks at once after
++  }
++
++
++  WriteXctAccess* sorted_writes = context->get_current_xct().get_write_set();
++
++  // Unlock records all at once // Be careful to only overwrite each record's ID once
++  for (uint32_t i = 0; i < write_set_size; ++i) {
++    WriteXctAccess& write = sorted_writes[i];  // Use sorted list
++    if (i < write_set_size - 1 && write.owner_id_address_ == sorted_writes[i + 1].owner_id_address_) {
++      DVLOG(0) << *context << " Multiple write sets on record "
++        << sorted_writes[i].storage_->get_name()
++        << ":" << sorted_writes[i].owner_id_address_ << ". Unlock at the last one of the write sets";
+       // keep the lock for the next write set
+     } else {
++      ASSERT_ND(!(*write.owner_id_address_ == new_xct_id));
++      ASSERT_ND(write.owner_id_address_->is_keylocked());
+       // this also unlocks
+       if (write.owner_id_address_->is_deleted()) {
+         // preserve delete-flag set by delete operations (so, the operation should be delete)
+@@ -550,9 +571,6 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
+           write.log_entry_->header_.get_type() == log::kLogCodeMasstreeDelete);
+         *write.owner_id_address_ = new_deleted_xct_id;
+       } else {
+-        ASSERT_ND(
+-          write.log_entry_->header_.get_type() != log::kLogCodeHashDelete &&
+-          write.log_entry_->header_.get_type() != log::kLogCodeMasstreeDelete);
+         *write.owner_id_address_ = new_xct_id;
+       }
+     }
+diff --git a/tests-core/src/foedus/assorted/test_endianness.cpp b/tests-core/src/foedus/assorted/test_endianness.cpp
+index 96ff501..857fbd8 100644
+--- a/tests-core/src/foedus/assorted/test_endianness.cpp
++++ b/tests-core/src/foedus/assorted/test_endianness.cpp
+@@ -71,20 +71,5 @@ TEST(EndiannessTest, ComparisonI32) { test_comparison<int32_t>(); }
+ TEST(EndiannessTest, ComparisonI64) { test_comparison<int64_t>(); }
+ 
+ 
+-TEST(EndiannessTest, Test1) {
+-  uint64_t a = 0xf1c4000038000000ULL;
+-  uint64_t b = htobe<uint64_t>(a);
+-  EXPECT_EQ(0x380000c4f1ULL, b);
+-  uint64_t c = htobe<uint64_t>(240518218993ULL);
+-  EXPECT_EQ(a, c);
+-
+-  uint64_t be_slice = assorted::htobe<uint64_t>(240518218993ULL);
+-  char be[8];
+-  std::memcpy(be, &be_slice, sizeof(uint64_t));
+-  uint64_t d = read_bigendian<uint64_t>(be);
+-  EXPECT_EQ(240518218993ULL, d);
+-}
+-
+-
+ }  // namespace assorted
+ }  // namespace foedus
+diff --git a/tests-core/src/foedus/storage/array/test_array_tpcb.cpp b/tests-core/src/foedus/storage/array/test_array_tpcb.cpp
+index e7a3795..4667704 100644
+--- a/tests-core/src/foedus/storage/array/test_array_tpcb.cpp
++++ b/tests-core/src/foedus/storage/array/test_array_tpcb.cpp
+@@ -56,6 +56,7 @@ const int kHistories =   kXctsPerThread * kMaxTestThreads;
+ static_assert(kAccounts % kTellers == 0, "kAccounts must be multiply of kTellers");
+ static_assert(kHistories % kAccounts == 0, "kHistories must be multiply of kAccounts");
+ 
++
+ struct BranchData {
+   int64_t     branch_balance_;
+   char        other_data_[96];  // just to make it at least 100 bytes
+diff --git a/tests-core/src/foedus/storage/hash/CMakeLists.txt b/tests-core/src/foedus/storage/hash/CMakeLists.txt
+index 0d3565c..dbddf7a 100644
+--- a/tests-core/src/foedus/storage/hash/CMakeLists.txt
++++ b/tests-core/src/foedus/storage/hash/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-add_foedus_test_individual(test_hash_basic "Create;CreateAndQuery;CreateAndInsert;CreateAndInsertAndRead;Overwrite;CreateAndDrop;Test1")
++add_foedus_test_individual(test_hash_basic "Create;CreateAndQuery;CreateAndInsert;CreateAndInsertAndRead;Overwrite;CreateAndDrop;MassInsert")
+ 
+ set(test_hash_tpcb_individuals
+   SingleThreadedNoContention
+diff --git a/tests-core/src/foedus/storage/hash/test_hash_basic.cpp b/tests-core/src/foedus/storage/hash/test_hash_basic.cpp
+index 83cbaf7..5fa5f8b 100644
+--- a/tests-core/src/foedus/storage/hash/test_hash_basic.cpp
++++ b/tests-core/src/foedus/storage/hash/test_hash_basic.cpp
+@@ -12,8 +12,10 @@
+ #include "foedus/epoch.hpp"
+ #include "foedus/test_common.hpp"
+ #include "foedus/storage/storage_manager.hpp"
++#include "foedus/storage/hash/hash_cuckoo.hpp"
+ #include "foedus/storage/hash/hash_metadata.hpp"
+ #include "foedus/storage/hash/hash_storage.hpp"
++#include "foedus/storage/hash/hash_storage_pimpl.hpp"
+ #include "foedus/thread/thread.hpp"
+ #include "foedus/thread/thread_pool.hpp"
+ #include "foedus/xct/xct_manager.hpp"
+@@ -138,6 +140,7 @@ class InsertAndReadTask : public thread::ImpersonateTask {
+     uint16_t data_capacity = sizeof(data2);
+     CHECK_ERROR(hash->get_record(context, &key, sizeof(key), &data2, &data_capacity));
+     EXPECT_EQ(data, data2);
++    ASSERT_ND(data == data2);
+     CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+ 
+     CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
+@@ -229,15 +232,69 @@ TEST(HashBasicTest, CreateAndDrop) {
+   cleanup_test(options);
+ }
+ 
+-TEST(HashBasicTest, Test1) {  // (name of package, test case's name) //gtest
+-  /*
+-  int a = 2 * 3;
+-  int *array = new int[3];
+-  array[1000] = 6;
+-  EXPECT_EQ(7, a);
+-  */
++class MassInsertTask : public thread::ImpersonateTask {
++ public:
++  ErrorStack run(thread::Thread* context) {
++    HashStorage *hash =
++      dynamic_cast<HashStorage*>(
++        context->get_engine()->get_storage_manager().get_storage("InsertLots"));
++    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
++    Epoch commit_epoch;
++    // int fill_height = (int)((double)((1 << 8) * kMaxEntriesPerBin) * (double)1.2);
++    uint64_t fill_height = 5700;
++      CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
++      CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
++    for (uint64_t x = 0; x < fill_height; x++) {
++      CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
++      uint64_t key = (x*5) ^ 324326;
++      uint64_t data = x;
++      CHECK_ERROR(hash->insert_record(context, &key, sizeof(key), &data, sizeof(data)));
++      CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
++      std::cout << "Insert Number: " << x << " Key: " << key << std::endl;
++    }
++    uint64_t data2;
++    uint16_t data_capacity = sizeof(data2);
++    CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
++    for (uint64_t x = 0; x < fill_height; x++) {
++      uint64_t key = (x*5) ^ 324326;
++      uint64_t data = x;
++      std::cout << x << std::endl;
++      if (x == 1712) {
++          std::cout<<"About to break"<<std::endl;
++      }
++      CHECK_ERROR(hash->get_record(context, &key, sizeof(key), &data2, &data_capacity));
++      EXPECT_EQ(data, data2);
++    }
++    CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
++    CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
++    return foedus::kRetOk;
++  }
++};
++
++
++TEST(HashBasicTest, MassInsert) {
++  EngineOptions options = get_tiny_options();
++  options.debugging_.debug_log_min_threshold_ = debugging::DebuggingOptions::kDebugLogWarning;
++  options.debugging_.verbose_log_level_ = 100;
++  Engine engine(options);
++  COERCE_ERROR(engine.initialize());
++  {
++    UninitializeGuard guard(&engine);
++    HashStorage* out;
++    Epoch commit_epoch;
++    HashMetadata meta("InsertLots", 8);
++    COERCE_ERROR(engine.get_storage_manager().create_hash(&meta, &out, &commit_epoch));
++    EXPECT_TRUE(out != nullptr);
++    MassInsertTask task;
++    thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
++    COERCE_ERROR(session.get_result());
++    COERCE_ERROR(engine.uninitialize());
++  }
++  cleanup_test(options);
+ }
+ 
++
++
+ }  // namespace hash
+ }  // namespace storage
+ }  // namespace foedus
