@@ -123,8 +123,7 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_intermediate(
     }
 
     MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(i);
-    uint8_t mini_count = minipage.mini_version_.get_key_count();
-    CHECK_AND_ASSERT(!minipage.mini_version_.is_locked());
+    uint8_t mini_count = minipage.key_count_;
     CHECK_AND_ASSERT(mini_count <= kMaxIntermediateMiniSeparators);
     KeySlice page_low = previous_low;
     for (uint8_t j = 0; j <= mini_count; ++j) {

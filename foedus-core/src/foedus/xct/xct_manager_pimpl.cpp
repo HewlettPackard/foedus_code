@@ -340,7 +340,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
       } else {
         bool success = write_set[i].owner_id_address_->keylock_fail_if_moved();
         if (UNLIKELY(!success)) {
-          LOG(INFO) << *context << " Interesting. moved-bit conflict in "
+          VLOG(0) << *context << " Interesting. moved-bit conflict in "
             << write_set[i].storage_->get_name()
             << ":" << write_set[i].owner_id_address_
             << ". This occasionally happens.";

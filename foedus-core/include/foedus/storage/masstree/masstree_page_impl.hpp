@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "foedus/assert_nd.hpp"
@@ -224,11 +225,6 @@ struct UnlockScope {
   }
   MasstreePage* page_;
 };
-struct UnlockVersionScope {
-  explicit UnlockVersionScope(PageVersion* version) : version_(version) {}
-  ~UnlockVersionScope() { version_->unlock_version(); }
-  PageVersion* version_;
-};
 
 /**
  * @brief Represents one intermediate page in \ref MASSTREE.
@@ -247,7 +243,8 @@ class MasstreeIntermediatePage final : public MasstreePage {
     MiniPage& operator=(const MiniPage& other) = delete;
 
     // +8 -> 8
-    PageVersion     mini_version_;
+    uint8_t         key_count_;
+    uint8_t         reserved_[7];
 
     // +8*15 -> 128
     /** Same semantics as separators_ in enclosing class. */
@@ -258,9 +255,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
     /** prefetch upto separators. */
     void prefetch() const {
       assorted::prefetch_cachelines(this, 2);
-    }
-    PageVersion get_stable_version() const ALWAYS_INLINE {
-      return mini_version_.stable_version();
     }
     /**
     * @brief Navigates a searching key-slice to one of pointers in this mini-page.
@@ -372,14 +366,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
   void adopt_from_child_norecord_first_level(
     uint8_t minipage_index,
     MasstreePage* child);
-  /**
-   * Sets all mini versions with locked status without atomic operations.
-   * This can be used only when this page is first created and still privately owned.
-   * 1 atomic is 100 cycles or more, so this greatly saves.
-   */
-  void init_lock_all_mini();
-  /** Same above. */
-  void init_unlock_all_mini();
 };
 STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage::MiniPage), 128 + 256)
 STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage), 1 << 12)
@@ -663,6 +649,43 @@ class MasstreeBorderPage final : public MasstreePage {
     MasstreeBorderPage** located_page,
     uint8_t* located_index);
 
+  void assert_entries() ALWAYS_INLINE {
+#ifndef NDEBUG
+    ASSERT_ND(is_locked());  // the following logic holds only when this page is locked
+    struct Sorter {
+      explicit Sorter(const MasstreeBorderPage* target) : target_(target) {}
+      bool operator() (uint8_t left, uint8_t right) {
+        KeySlice left_slice = target_->get_slice(left);
+        KeySlice right_slice = target_->get_slice(right);
+        if (left_slice < right_slice) {
+          return true;
+        } else if (left_slice == right_slice) {
+          return target_->get_remaining_key_length(left) < target_->get_remaining_key_length(right);
+        } else {
+          return false;
+        }
+      }
+      const MasstreeBorderPage* target_;
+    };
+    uint8_t key_count = get_version().get_key_count();
+    uint8_t order[kMaxKeys];
+    for (uint8_t i = 0; i < key_count; ++i) {
+      order[i] = i;
+    }
+    std::sort(order, order + key_count, Sorter(this));
+
+    for (uint8_t i = 1; i < key_count; ++i) {
+      uint8_t pre = order[i - 1];
+      uint8_t cur = order[i];
+      ASSERT_ND(slices_[pre] <= slices_[cur]);
+      if (slices_[pre] == slices_[cur]) {
+        ASSERT_ND(remaining_key_length_[pre] < remaining_key_length_[cur]);
+        ASSERT_ND(remaining_key_length_[pre] <= sizeof(KeySlice));
+      }
+    }
+#endif  // NDEBUG
+  }
+
  private:
   // 72
 
@@ -767,7 +790,7 @@ inline uint8_t MasstreeBorderPage::find_key(
     // now, our key is > 8 bytes and we found some local record.
     if (remaining_key_length_[i] == remaining) {
       // compare suffix.
-      const char* record_suffix = get_record(offsets_[i]);
+      const char* record_suffix = get_record(i);
       if (std::memcmp(record_suffix, suffix, remaining - sizeof(KeySlice)) == 0) {
         return i;
       }
@@ -864,7 +887,7 @@ inline void MasstreeBorderPage::reserve_record_space(
   ASSERT_ND(remaining_length <= kKeyLengthMax);
   ASSERT_ND(is_locked());
   ASSERT_ND(header_.page_version_.is_inserting());
-  ASSERT_ND(header_.page_version_.get_key_count() == index + 1U);
+  ASSERT_ND(header_.page_version_.get_key_count() == index);
   ASSERT_ND(can_accomodate(index, remaining_length, payload_count));
   uint16_t suffix_length = calculate_suffix_length(remaining_length);
   DataOffset record_size = calculate_record_size(remaining_length, payload_count) >> 4;

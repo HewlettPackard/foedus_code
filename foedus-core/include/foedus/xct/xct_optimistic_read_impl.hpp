@@ -35,18 +35,14 @@ inline ErrorCode optimistic_read_protocol(
     return kErrorCodeOk;
   }
 
-  while (true) {
-    XctId observed(owner_id_address->spin_while_keylocked());
-    assorted::memory_fence_consume();
-    CHECK_ERROR_CODE(handler(observed));
-    assorted::memory_fence_consume();
-    if (observed != *owner_id_address) {
-      // this means we might have read something half-updated. try again.
-      continue;
-    }
+  XctId observed(owner_id_address->spin_while_keylocked());
+  assorted::memory_fence_consume();
+  CHECK_ERROR_CODE(handler(observed));
 
-    return xct->add_to_read_set(storage, observed, owner_id_address);
-  }
+  // The Masstree paper additionally has another fence and version-check and then a retry if the
+  // version differs. However, in our protocol such thing is anyway caught in commit phase.
+  // Thus, we have only one fence here.
+  return xct->add_to_read_set(storage, observed, owner_id_address);
 }
 
 }  // namespace xct

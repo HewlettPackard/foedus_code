@@ -81,6 +81,13 @@ std::ostream& operator<<(std::ostream& o, const ArrayOverwriteLogType& v) {
   return o;
 }
 
+// just to shutup pesky compiler
+template <typename T>
+inline T as(const void *address) {
+  const T* casted = reinterpret_cast<const T*>(address);
+  return *casted;
+}
+
 std::ostream& operator<<(std::ostream& o, const ArrayIncrementLogType& v) {
   o << "<ArrayIncrementLog>"
     << "<offset_>" << v.offset_ << "</offset_>"
@@ -89,39 +96,37 @@ std::ostream& operator<<(std::ostream& o, const ArrayIncrementLogType& v) {
   switch (v.get_value_type()) {
     // 32 bit data types
     case kI8:
-      o << "int8_t</type><addendum_>" << static_cast<int16_t>(
-        *reinterpret_cast<const int8_t*>(v.addendum_));
+      o << "int8_t</type><addendum_>" << static_cast<int16_t>(as<int8_t>(v.addendum_));
       break;
     case kI16:
-      o << "int16_t</type><addendum_>" << *reinterpret_cast<const int16_t*>(v.addendum_);
+      o << "int16_t</type><addendum_>" << as<int16_t>(v.addendum_);
       break;
     case kI32:
-      o << "int32_t</type><addendum_>" << *reinterpret_cast<const int32_t*>(v.addendum_);
+      o << "int32_t</type><addendum_>" << as<int32_t>(v.addendum_);
       break;
     case kBool:
     case kU8:
-      o << "uint8_t</type><addendum_>" << static_cast<uint16_t>(
-        *reinterpret_cast<const uint8_t*>(v.addendum_));
+      o << "uint8_t</type><addendum_>" << static_cast<uint16_t>(as<uint8_t>(v.addendum_));
       break;
     case kU16:
-      o << "uint16_t</type><addendum_>" << *reinterpret_cast<const uint16_t*>(v.addendum_);
+      o << "uint16_t</type><addendum_>" << as<uint16_t>(v.addendum_);
       break;
     case kU32:
-      o << "uint32_t</type><addendum_>" << *reinterpret_cast<const uint32_t*>(v.addendum_);
+      o << "uint32_t</type><addendum_>" << as<uint32_t>(v.addendum_);
       break;
     case kFloat:
-      o << "float</type><addendum_>" << *reinterpret_cast<const float*>(v.addendum_);
+      o << "float</type><addendum_>" << as<float>(v.addendum_);
       break;
 
     // 64 bit data types
     case kI64:
-      o << "int64_t</type><addendum_>" << *reinterpret_cast<const int64_t*>(v.addendum_ + 4);
+      o << "int64_t</type><addendum_>" << as<int64_t>(v.addendum_ + 4);
       break;
     case kU64:
-      o << "uint64_t</type><addendum_>" << *reinterpret_cast<const uint64_t*>(v.addendum_ + 4);
+      o << "uint64_t</type><addendum_>" << as<uint64_t>(v.addendum_ + 4);
       break;
     case kDouble:
-      o << "double</type><addendum_>" << *reinterpret_cast<const double*>(v.addendum_ + 4);
+      o << "double</type><addendum_>" << as<double>(v.addendum_ + 4);
       break;
     default:
       o << "UNKNOWN(" << v.get_value_type() << ")</type><addendum_>";

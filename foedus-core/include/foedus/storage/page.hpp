@@ -424,7 +424,6 @@ inline PageVersion PageVersion::unlock_version() {
   }
   assorted::memory_fence_release();
   data_ = page_version;
-  assorted::memory_fence_release();
   return PageVersion(page_version);
 }
 
