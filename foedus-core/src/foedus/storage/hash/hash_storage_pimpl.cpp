@@ -506,8 +506,9 @@ ErrorStack HashStoragePimpl::insert_record_chosen_bin(
                                                               &actual_record->owner_id_,
                                                               reinterpret_cast<char*>(combo.bin_pages_[choice]),
                                                               log_entry));
-  std::cout << "Moving key " << *((uint64_t*)key) << " with payload " << *((uint64_t*)payload)
-    << std::endl;
+  // NOTE tentative hack! currently "payload address" for hash insert write set points to bin page
+  // so that we don't have to calculate it again. << " with payload " << *((uint64_t*)payload)
+//  << std::endl;
 //  WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
 //                                                              page_lock_record, log_entry));
   WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
@@ -566,6 +567,7 @@ ErrorCode HashStoragePimpl::insert_record(
   if (context->get_current_xct().read_frequency(bin_num , storageid).add_count +
       data_page->get_record_count() >= kMaxEntriesPerBin) {
     context->get_current_xct().add_frequency(bin_num, storageid, true);
+    std::cout << "Starting Kickout... " << std::endl;
     UNWRAP_ERROR_STACK(make_room(context, data_page, 0, &slot_pick));
   } else {
     context->get_current_xct().add_frequency(bin_num, storageid, false);
@@ -587,8 +589,8 @@ ErrorCode HashStoragePimpl::insert_record(
   CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
                                                               &actual_record->owner_id_,
                                                               reinterpret_cast<char*>(bin_page), log_entry));
-  std::cout << "Inserting key " << *(uint64_t*)key
-    << " with payload " << *((uint64_t*)payload) << std::endl;
+  //std::cout << "Inserting key " << *(uint64_t*)key
+  // << " with payload " << *((uint64_t*)payload) << std::endl;
 
   //return context->get_current_xct().add_to_write_set(holder_, page_lock_record, log_entry);
   // NOTE tentative hack! currently "payload address" for hash insert write set points to bin page
@@ -790,7 +792,7 @@ void HashStoragePimpl::apply_insert_record(
 
   // install the tag and increment the bin page's mod counter first.
   // we do this first, so there might be false positives. but there is no serializability violation.
-  uint16_t slot = data_page->find_empty_slot(log_entry->key_length_, log_entry->payload_count_);
+  uint16_t slot = log_entry->slot_;
   the_bin.tags_[slot] = log_entry->hashtag_;
   assorted::raw_atomic_fetch_add<uint16_t>(&the_bin.mod_counter_, 1U);
   data_page->add_record(
@@ -829,7 +831,9 @@ void HashStoragePimpl::apply_delete_record(
   ASSERT_ND(data_page->get_record_count() > slot);
   ASSERT_ND(owner_id->is_keylocked());
   ASSERT_ND((data_page->slot(slot).flags_ & HashDataPage::kFlagDeleted) == 0);
-  ASSERT_ND(!owner_id->is_deleted());
+  std::cout<<owner_id<<std::endl;
+  ASSERT_ND(!owner_id->is_deleted());  // Warning here -- if you're using variable length
+  // payloads, be careful to see if that's been implemented yet!
   data_page->slot(slot).flags_ |= HashDataPage::kFlagDeleted;
   owner_id->set_deleted();
 

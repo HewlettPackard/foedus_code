@@ -535,6 +535,7 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
     // We must write data first (invoke_apply), then unlock.
     // Otherwise the correctness is not guaranteed.
     // Also because we want to write records in order
+
     log::invoke_apply_record(
       write.log_entry_,
       context,
