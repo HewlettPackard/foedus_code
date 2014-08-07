@@ -37,8 +37,8 @@ DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inse
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
   " remote orderline). This corresponds to H-Store's neworder_multip/neworder_multip_mix in"
   " tpcc.properties.");
-DEFINE_int32(payment_remote_percent, 5, "Percent of each payment that is inserted to remote"
-  " warehouse. The default value is 5. This corresponds to H-Store's payment_multip/"
+DEFINE_int32(payment_remote_percent, 15, "Percent of each payment that is inserted to remote"
+  " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
 DEFINE_int32(warehouses, 4, "Number of warehouses.");
@@ -171,12 +171,12 @@ TpccDriver::Result TpccDriver::run() {
     result.processed_ += client->get_processed();
     result.race_aborts_ += client->get_race_aborts();
     result.unexpected_aborts_ += client->get_unexpected_aborts();
+    result.largereadset_aborts_ += client->get_largereadset_aborts();
     result.user_requested_aborts_ += client->get_user_requested_aborts();
   }
   if (FLAGS_profile) {
     engine_->get_debug().stop_profile();
   }
-  LOG(INFO) << result;
   LOG(INFO) << "Shutting down...";
 
   assorted::memory_fence_release();
@@ -267,6 +267,8 @@ int driver_main(int argc, char **argv) {
   options.log_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/log/node_$NODE$/logger_$LOGGER$";
   options.log_.loggers_per_node_ = FLAGS_loggers_per_node;
   options.log_.flush_at_shutdown_ = false;
+  options.xct_.max_read_set_size_ = 1U << 18;
+  options.xct_.max_write_set_size_ = 1U << 16;
   options.snapshot_.snapshot_interval_milliseconds_ = 100000000U;
   options.debugging_.debug_log_min_threshold_
     = debugging::DebuggingOptions::kDebugLogInfo;
@@ -327,6 +329,7 @@ std::ostream& operator<<(std::ostream& o, const TpccDriver::Result& v) {
     << "<MTPS>" << (static_cast<double>(v.processed_) / FLAGS_duration_micro) << "</MTPS>"
     << "<user_requested_aborts_>" << v.user_requested_aborts_ << "</user_requested_aborts_>"
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
+    << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"
     << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>"
     << "</total_result>";
   return o;

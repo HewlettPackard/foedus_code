@@ -1,0 +1,61 @@
+http://hstore.cs.brown.edu/documentation/deployment/client-configuration/
+
+git clone http://github.com/apavlo/h-store.git
+
+ant build
+
+ssh-keygen -t dsa
+< Enter a few times >
+
+cat ~/.ssh/id_dsa.pub >> ~/.ssh/authorized_keys
+
+AND ALSO SET PERMISSION!
+chmod 644 ~/.ssh/authorized_keys
+
+/etc/ssh/sshd_config
+RSAAuthentication yes
+PubkeyAuthentication yes
+PermitEmptyPasswords yes
+
+ssh localhost date
+
+
+parameter templates and why
+
+-Dsite.jvm_asserts=false
+To increase performance
+
+-Dsite.cpu_affinity=false
+Andy's recommendation.
+
+-Dclient.blocking=false
+To increase throughput
+
+-Dclient.memory=512
+In MB. Adjust depending on machine size.
+
+-Dsite.memory=8192
+In MB. Adjust depending on machine size.
+
+-Dglobal.memory=2048
+Increase only on DragonHawk. Otherwise won't cause an issue.
+
+-Dclient.txnrate=10000
+
+-Dclient.threads_per_host=50
+Adjust depending on machine size.
+
+
+-Dneworder_multip=false
+-Dneworder_multip=true
+-Dneworder_multip_mix=1
+These can't be specified from command line. has to generate tpcc.properties.
+
+
+-Dhosts="localhost:0:0-3;localhost:1:4-7"
+Vary it
+
+Concatenated
+
+ant hstore-prepare hstore-benchmark -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false -Dclient.memory=512 -Dsite.memory=8192 -Dglobal.memory=2048 -Dclient.txnrate=10000 -Dclient.threads_per_host=50 -Dhosts="localhost:0:0-3;localhost:1:4-7"
+

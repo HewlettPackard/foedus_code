@@ -73,25 +73,32 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
       }
 
       ASSERT_ND(context->is_running_xct());
-      if (ret == kErrorCodeXctUserAbort) {
-        // Fine. This is as defined in the spec.
+      if (ret != kErrorCodeOk) {
         WRAP_ERROR_CODE(xct_manager.abort_xct(context));
-        increment_user_requested_aborts();
-        break;
-      } else if (ret == kErrorCodeXctRaceAbort) {
-        // early abort for some reason.
-        // this one must be retried just like usual race abort in precommit.
-        WRAP_ERROR_CODE(xct_manager.abort_xct(context));
-        increment_race_aborts();
-        continue;
-      } else if (ret != kErrorCodeOk) {
-        WRAP_ERROR_CODE(xct_manager.abort_xct(context));
-        increment_unexpected_aborts();
-        if (unexpected_aborts_ > kMaxUnexpectedErrors) {
-          LOG(ERROR) << "Too many unexpected errors. What's happening?";
-          return ERROR_STACK(ret);
-        } else {
+        if (ret == kErrorCodeXctUserAbort) {
+          // Fine. This is as defined in the spec.
+          increment_user_requested_aborts();
+          break;
+        } else if (ret == kErrorCodeXctRaceAbort) {
+          // early abort for some reason.
+          // this one must be retried just like usual race abort in precommit.
+          increment_race_aborts();
           continue;
+        } else if (ret == kErrorCodeXctPageVersionSetOverflow ||
+          ret == kErrorCodeXctPointerSetOverflow ||
+          ret == kErrorCodeXctReadSetOverflow ||
+          ret == kErrorCodeXctWriteSetOverflow) {
+          // this usually doesn't happen, but possible.
+          increment_largereadset_aborts();
+          continue;
+        } else {
+          increment_unexpected_aborts();
+          if (unexpected_aborts_ > kMaxUnexpectedErrors) {
+            LOG(ERROR) << "Too many unexpected errors. What's happening?";
+            return ERROR_STACK(ret);
+          } else {
+            continue;
+          }
         }
       }
 

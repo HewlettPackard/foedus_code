@@ -10,3 +10,14 @@ add_executable(tpcc
   ${CMAKE_CURRENT_SOURCE_DIR}/tpcc_stock_level.cpp
 )
 target_link_libraries(tpcc ${EXPERIMENT_LIB} gflags-static)
+
+# Copy the scripts to build folders. this is just for convenience
+configure_file(run_z820.sh run_z820.sh COPYONLY)
+configure_file(run_dl580.sh run_dl580.sh COPYONLY)
+configure_file(run_dragonhawk.sh run_dragonhawk.sh COPYONLY)
+configure_file(run_common.sh run_common.sh COPYONLY)
+
+# For H-store experiments.
+configure_file(hstore_tpcc.properties.in hstore_tpcc.properties.in COPYONLY)
+configure_file(run_z820_hstore.sh run_z820_hstore.sh COPYONLY)
+

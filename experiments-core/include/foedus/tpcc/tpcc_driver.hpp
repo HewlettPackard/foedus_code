@@ -24,10 +24,16 @@ namespace tpcc {
 class TpccDriver {
  public:
   struct Result {
-    Result() : processed_(0), user_requested_aborts_(0), race_aborts_(0), unexpected_aborts_(0) {}
+    Result()
+      : processed_(0),
+        user_requested_aborts_(0),
+        race_aborts_(0),
+        largereadset_aborts_(0),
+        unexpected_aborts_(0) {}
     uint64_t processed_;
     uint64_t user_requested_aborts_;
     uint64_t race_aborts_;
+    uint64_t largereadset_aborts_;
     uint64_t unexpected_aborts_;
     friend std::ostream& operator<<(std::ostream& o, const Result& v);
   };

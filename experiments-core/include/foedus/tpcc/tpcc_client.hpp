@@ -64,6 +64,7 @@ class TpccClientTask : public thread::ImpersonateTask {
     user_requested_aborts_ = 0;
     race_aborts_ = 0;
     unexpected_aborts_ = 0;
+    largereadset_aborts_ = 0;
   }
 
   ErrorStack run(thread::Thread* context);
@@ -74,6 +75,8 @@ class TpccClientTask : public thread::ImpersonateTask {
   uint32_t increment_race_aborts() { return ++race_aborts_; }
   uint32_t get_unexpected_aborts() const { return unexpected_aborts_; }
   uint32_t increment_unexpected_aborts() { return ++unexpected_aborts_; }
+  uint32_t get_largereadset_aborts() const { return largereadset_aborts_; }
+  uint32_t increment_largereadset_aborts() { return ++largereadset_aborts_; }
 
   void request_stop() { stop_requrested_ = true; }
 
@@ -127,6 +130,7 @@ class TpccClientTask : public thread::ImpersonateTask {
   uint32_t race_aborts_;
   /** this is usually up to 1 because we stop execution as soon as this happens */
   uint32_t unexpected_aborts_;
+  uint32_t largereadset_aborts_;
 
   /** Updates timestring_ only per second. */
   uint64_t    previous_timestring_update_;
