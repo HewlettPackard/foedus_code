@@ -197,7 +197,7 @@ public:
       uint64_t account_id = randoms[processed_ & 0xFFFF] % (kBranches * kAccounts) + extra_bits;
       account.account_balance_ = static_cast<int64_t>(random_.uniform_within(0, 1999999)) - 1000000;
       int successive_aborts = 0;
-      while (true) {
+      while (true) { //the while loop is not really needed for one thread
         //std::cout<<"Trying"<<std::endl;
         ErrorCode result_code = try_transaction(context, account_id, &account);
         if (result_code == kErrorCodeOk) {
@@ -225,18 +225,19 @@ public:
       }
       //std::cout<<"Finished a record: "<<processed_<<std::endl;
       ++processed_;
-      if ((processed_ & 0xFF) == 0) { //TODO(Bill): Why?
-        assorted::memory_fence_acquire();
-        if (stop_requested) {
-          break;
-        }
-      }
+//      if ((processed_ & 0xFF) == 0) { //TODO(Bill): Why?
+//        assorted::memory_fence_acquire();
+//        if (stop_requested) {
+//          break;
+//        }
+//      }
     }
     end = std::clock();
     double duration = ((double) (end - start)) / ((double) CLOCKS_PER_SEC);
     std::cout << "I'm done! " << context->get_thread_id()
       << ", processed=" << processed_ << " duration = " << duration
       << " TPS = " << (processed_/duration)/(1000000) << std::endl;
+    stop_requested = true;
     return kRetOk;
   }
 
@@ -333,12 +334,6 @@ int main_impl(int argc, char **argv) {
       // this is done serially. we do it in different nodes, but it's just to balance out
       // volatile pages.
       for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
-//         uint64_t branches_per_node = kBranches / options.thread_.group_count_;
-//         uint64_t from_branch = branches_per_node * node;
-//         uint64_t to_branch = from_branch + branches_per_node;
-//         if (node == options.thread_.group_count_ - 1) {
-//           to_branch = kBranches;  // in case kBranches is not multiply of node count
-//         }
         PopulateTpcbTask task(populate_to);
         thread::ImpersonateSession session(
           engine.get_thread_pool().impersonate_on_numa_node(&task, node));
@@ -353,7 +348,9 @@ int main_impl(int argc, char **argv) {
       std::vector< RunTpcbTask* > tasks;
       std::vector< thread::ImpersonateSession > sessions;
 
-      kTotalThreads = 1;
+      kTotalThreads = 1; // Only testing for 1 right now -- otherwise, different
+      // threads will be running different amounts of time (which could be interesting)
+      // but that won't work with the current benchmark settup
       for (int i = 0; i < kTotalThreads; ++i) {
         tasks.push_back(new RunTpcbTask(test_add));
         sessions.emplace_back(engine.get_thread_pool().impersonate(tasks[i]));
@@ -368,29 +365,15 @@ int main_impl(int argc, char **argv) {
         COERCE_ERROR(engine.get_debug().start_profile("tpcb_experiment_seq.prof"));
       }
       start_endezvous.signal();  // GO!
-      std::cout << "Started!" << std::endl;
-      std::this_thread::sleep_for(std::chrono::microseconds(kDurationMicro));
 
-      std::this_thread::sleep_for(std::chrono::seconds(1000));
-
-
-      std::cout << "Experiment ended." << std::endl;
-
-      uint64_t total = 0;
-      assorted::memory_fence_acquire();
-      for (int i = 0; i < kTotalThreads; ++i) {
-        total += tasks[i]->get_processed();
+     // std::this_thread::sleep_for(std::chrono::seconds(100));
+      while (stop_requested == false) {
+        std::this_thread::sleep_for(std::chrono::microseconds(10));
       }
+
       if (profile) {
-        engine.get_debug().stop_profile();
+       engine.get_debug().stop_profile();
       }
-      std::cout << "total=" << total << ", MTPS="
-        << (static_cast<double>(total)/kDurationMicro) << std::endl;
-      std::cout << "Shutting down..." << std::endl;
-
-      assorted::memory_fence_release();
-      stop_requested = true;
-      assorted::memory_fence_release();
 
       for (int i = 0; i < kTotalThreads; ++i) {
         std::cout << "result[" << i << "]=" << sessions[i].get_result() << std::endl;
