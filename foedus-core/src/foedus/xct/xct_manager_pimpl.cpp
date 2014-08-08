@@ -576,6 +576,9 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
       }
     }
   }
+//  for (uint32_t i = 0; i < write_set_size; ++i) {
+//    ASSERT_ND(!sorted_writes[i].owner_id_address_->is_keylocked());
+//  }
   // lock-free write-set doesn't have to worry about lock or ordering.
   for (uint32_t i = 0; i < lock_free_write_set_size; ++i) {
     LockFreeWriteXctAccess& write = lock_free_write_set[i];

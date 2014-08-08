@@ -94,6 +94,7 @@ void ThreadPimpl::handle_tasks() {
       ImpersonateTask* task = current_task_.load();
       if (task) {
         VLOG(0) << "Thread-" << id_ << " retrieved a task";
+        ASSERT_ND(!holder_->is_running_xct());
         ErrorStack result = task->run(holder_);
         VLOG(0) << "Thread-" << id_ << " run(task) returned. result =" << result;
         ASSERT_ND(current_task_.load() == task);

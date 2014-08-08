@@ -48,8 +48,6 @@ void HashMetadata::set_capacity(uint64_t expected_records, double preferred_fill
   }
   bin_bits_ = bits;
 }
-
-
 }  // namespace hash
 }  // namespace storage
 }  // namespace foedus

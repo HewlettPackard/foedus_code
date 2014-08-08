@@ -43,7 +43,7 @@ struct HashMetadata CXX11_FINAL : public virtual Metadata {
    * @param[in] expected_records how many records do you expect to store in this storage
    * @param[in] preferred_fillfactor average fill factor of hash bins. 0.5 or below is recommended.
    */
-  void      set_capacity(uint64_t expected_records, double preferred_fillfactor = 0.33);
+  void      set_capacity(uint64_t expected_records, double preferred_fillfactor);
 
   /**
    * Number of bins in this hash storage. Always power of two.

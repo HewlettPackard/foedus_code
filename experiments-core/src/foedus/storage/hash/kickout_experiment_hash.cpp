@@ -15,6 +15,8 @@
  */
 #include <atomic>
 #include <chrono>
+#include <cstdio>
+#include <ctime>
 #include <iostream>
 #include <set>
 #include <sstream>
@@ -104,141 +106,13 @@ bool          stop_requested;
 const uint32_t kCommitBatch = 1000;
 
 class PopulateTpcbTask : public thread::ImpersonateTask {
+ private:
+  uint64_t fill_height_;
+
  public:
 
-  PopulateTpcbTask(uint16_t from_branch, uint16_t to_branch)
-    : from_branch_(from_branch), to_branch_(to_branch) {
-  }
-
-//   ErrorStack fill(thread::Thread* context) {
-//     xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-//     WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kDirtyReadPreferVolatile));
-//
-//     std::cout << "Populating records from branch " << from_branch_ << " to "
-//       << to_branch_ << " in node-" << static_cast<int>(context->get_numa_node()) << std::endl;
-//     BranchData branch;
-//     std::memset(&branch, 0, sizeof(branch));
-//     TellerData teller;
-//     std::memset(&teller, 0, sizeof(teller));
-//     AccountData account;
-//     std::memset(&account, 0, sizeof(account));
-//
-// #ifndef NDEBUG
-//     std::set<uint64_t> branch_ids;
-//     std::set<uint64_t> teller_ids;
-//     std::set<uint64_t> account_ids;
-// #endif  // NDEBUG
-//
-//     for (uint64_t branch_id = from_branch_; branch_id < to_branch_; ++branch_id) {
-//       uint32_t random_part = 45;  // TODO:(Bill) Make this be random
-//       uint64_t actual_id = (branch_id >> 32) + random_part;
-// #ifndef NDEBUG
-//     ASSERT_ND(branch_ids.find(branch_id) == branch_ids.end());
-//     branch_ids.insert(branch_id);
-// #endif  // NDEBUG
-//       branch.branch_balance_ = actual_id;  // may as well have actual value to go with key
-//       commit_if_full(context);  // If commit batch is full, make a new transaction
-//       WRAP_ERROR_CODE(branches->insert_record(context, branch_id, &branch, sizeof(branch)));
-//
-//       // For now, we'll just stick with one record type
-// //       for (uint64_t teller_ordinal = 0; teller_ordinal < kTellers; ++teller_ordinal) {
-// //         uint64_t teller_id = kTellers * branch_id + teller_ordinal;
-// // #ifndef NDEBUG
-// //         ASSERT_ND(teller_ids.find(teller_id) == teller_ids.end());
-// //         teller_ids.insert(teller_id);
-// // #endif  // NDEBUG
-// //         teller.branch_id_ = branch_id;
-// //         commit_if_full(context); // If commit batch is full, make a new transaction
-// //         WRAP_ERROR_CODE(tellers->insert_record(context, teller_id, &teller, sizeof(teller)));
-// //
-// //         for (uint64_t account_ordinal = 0;
-// //               account_ordinal < kAccountsPerTeller;
-// //               ++account_ordinal) {
-// //           uint64_t account_id = teller_id * kAccountsPerTeller + account_ordinal;
-// // #ifndef NDEBUG
-// //           ASSERT_ND(account_ids.find(account_id) == account_ids.end());
-// //           account_ids.insert(account_id);
-// // #endif  // NDEBUG
-// //           account.branch_id_ = branch_id;
-// //           commit_if_full(context);
-// //           WRAP_ERROR_CODE(accounts->insert_record(context, account_id, &account, sizeof(account)));
-// //         }
-// //       }
-// //     }
-//     Epoch commit_epoch;
-//     WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
-//
-// //    std::cout << "Populated records by " << context->get_thread_id() << std::endl;
-//     return kRetOk;
-//   }
-//
-//   ErrorCode commit_if_full(thread::Thread* context) {
-//     if (context->get_current_xct().get_write_set_size() >= kCommitBatch) {
-//       Epoch commit_epoch;
-//       xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-//       CHECK_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
-//       CHECK_ERROR_CODE(xct_manager.begin_xct(context, xct::kDirtyReadPreferVolatile));
-//     }
-//     return kErrorCodeOk;
-//   }
-
-  ErrorStack run(thread::Thread* context) {
-    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kDirtyReadPreferVolatile));
-
-    std::cout << "Populating records from branch " << from_branch_ << " to "
-      << to_branch_ << " in node-" << static_cast<int>(context->get_numa_node()) << std::endl;
-    BranchData branch;
-    std::memset(&branch, 0, sizeof(branch));
-    TellerData teller;
-    std::memset(&teller, 0, sizeof(teller));
-    AccountData account;
-    std::memset(&account, 0, sizeof(account));
-
-#ifndef NDEBUG
-    std::set<uint64_t> branch_ids;
-    std::set<uint64_t> teller_ids;
-    std::set<uint64_t> account_ids;
-#endif  // NDEBUG
-
-    for (uint64_t branch_id = from_branch_; branch_id < to_branch_; ++branch_id) {
-#ifndef NDEBUG
-    ASSERT_ND(branch_ids.find(branch_id) == branch_ids.end());
-    branch_ids.insert(branch_id);
-#endif  // NDEBUG
-      branch.branch_balance_ = 0;
-      commit_if_full(context);
-      WRAP_ERROR_CODE(branches->insert_record(context, branch_id, &branch, 120));
-
-      for (uint64_t teller_ordinal = 0; teller_ordinal < kTellers; ++teller_ordinal) {
-        uint64_t teller_id = kTellers * branch_id + teller_ordinal;
-#ifndef NDEBUG
-        ASSERT_ND(teller_ids.find(teller_id) == teller_ids.end());
-        teller_ids.insert(teller_id);
-#endif  // NDEBUG
-        teller.branch_id_ = branch_id;
-        commit_if_full(context);
-        WRAP_ERROR_CODE(tellers->insert_record(context, teller_id, &teller, 120));
-
-        for (uint64_t account_ordinal = 0;
-              account_ordinal < kAccountsPerTeller;
-              ++account_ordinal) {
-          uint64_t account_id = teller_id * kAccountsPerTeller + account_ordinal;
-#ifndef NDEBUG
-          ASSERT_ND(account_ids.find(account_id) == account_ids.end());
-          account_ids.insert(account_id);
-#endif  // NDEBUG
-          account.branch_id_ = branch_id;
-          commit_if_full(context);
-          WRAP_ERROR_CODE(accounts->insert_record(context, account_id, &account, 120));
-        }
-      }
-    }
-    Epoch commit_epoch;
-    WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
-
-    std::cout << "Populated records by " << context->get_thread_id() << std::endl;
-    return kRetOk;
+  PopulateTpcbTask(uint64_t populate_to) {
+    fill_height_ = populate_to;
   }
 
   ErrorCode commit_if_full(thread::Thread* context) {
@@ -251,17 +125,55 @@ class PopulateTpcbTask : public thread::ImpersonateTask {
     return kErrorCodeOk;
   }
 
- private:
-  const uint16_t from_branch_;
-  const uint16_t to_branch_;
+  ErrorStack run(thread::Thread* context) {
+    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kDirtyReadPreferVolatile));
+
+    AccountData account;
+    std::memset(&account, 0, sizeof(account));
+
+#ifndef NDEBUG
+    std::set<uint64_t> account_ids;
+#endif  // NDEBUG
+
+    for (uint64_t account_id = 0; account_id < fill_height_; ++account_id) {
+      if(account_id%(1<<20) == 0) std::cout << account_id << " is id " << std::endl;
+#ifndef NDEBUG
+      ASSERT_ND(account_ids.find(account_id) == account_ids.end());
+      account_ids.insert(account_id);
+#endif  // NDEBUG
+      account.account_balance_ = account_id;
+      commit_if_full(context);
+      WRAP_ERROR_CODE(accounts->insert_record(context, account_id, &account, sizeof(account)));
+    }
+    Epoch commit_epoch;
+    WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+    ASSERT_ND(!context->is_running_xct());
+    std::cout << "Populated records by " << context->get_thread_id() << std::endl;
+    return kRetOk;
+  }
 };
 
 class RunTpcbTask : public thread::ImpersonateTask {
- public:
-  RunTpcbTask() {
+private:
+  memory::AlignedMemory numbers_;
+  assorted::UniformRandom random_;
+  uint64_t processed_;
+  uint64_t test_add_;
+  const uint32_t kRandomCount = 1 << 16;
+
+  HistoryData tmp_history_;
+
+
+public:
+  RunTpcbTask(uint64_t add_num) {
+    test_add_ = add_num;
     std::memset(tmp_history_.other_data_, 0, sizeof(tmp_history_.other_data_));
   }
-  ErrorStack run(thread::Thread* context) {  // The change: we make sure there aren't id overlaps
+  ErrorStack run(thread::Thread* context) {
+    ASSERT_ND(!context->is_running_xct());
+
+
     // pre-calculate random numbers to get rid of random number generation as bottleneck
     random_.set_current_seed(context->get_thread_id());
     CHECK_ERROR(
@@ -270,26 +182,22 @@ class RunTpcbTask : public thread::ImpersonateTask {
     random_.fill_memory(&numbers_);
     const uint32_t *randoms = reinterpret_cast<const uint32_t*>(numbers_.get_block());
 
-    BranchData branch;
-    std::memset(&branch, 0, sizeof(branch));
-    TellerData teller;
-    std::memset(&teller, 0, sizeof(teller));
     AccountData account;
     std::memset(&account, 0, sizeof(account));
 
-
     start_endezvous.wait();
+
+    std::clock_t start, end;
+    start = std::clock();
 
     processed_ = 0;
     xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-    while (true) {
+    for (uint64_t insert_num = 0; insert_num < test_add_; insert_num++) {
       uint64_t extra_bits = (processed_ + 1) << 32;
       uint64_t account_id = randoms[processed_ & 0xFFFF] % (kBranches * kAccounts) + extra_bits;
       account.account_balance_ = static_cast<int64_t>(random_.uniform_within(0, 1999999)) - 1000000;
       int successive_aborts = 0;
-      //bool keep_going = true;
-      while (!stop_requested) {
-        //keep_going = false;
+      while (true) {
         //std::cout<<"Trying"<<std::endl;
         ErrorCode result_code = try_transaction(context, account_id, &account);
         if (result_code == kErrorCodeOk) {
@@ -310,23 +218,25 @@ class RunTpcbTask : public thread::ImpersonateTask {
           }
           if (result_code != kErrorCodeOk) {
             std::cout << "Hrmmm " << result_code << std::endl;
-          }
-          ASSERT_ND(result_code == kErrorCodeOk);
+         }
+          //ASSERT_ND(result_code == kErrorCodeOk);
           COERCE_ERROR(ERROR_STACK(result_code));
-          //keep_going = true;
         }
       }
       //std::cout<<"Finished a record: "<<processed_<<std::endl;
       ++processed_;
-      if ((processed_ & 0xFF) == 0) {
+      if ((processed_ & 0xFF) == 0) { //TODO(Bill): Why?
         assorted::memory_fence_acquire();
         if (stop_requested) {
           break;
         }
       }
     }
+    end = std::clock();
+    double duration = ((double) (end - start)) / ((double) CLOCKS_PER_SEC);
     std::cout << "I'm done! " << context->get_thread_id()
-      << ", processed=" << processed_ << std::endl;
+      << ", processed=" << processed_ << " duration = " << duration
+      << " TPS = " << (processed_/duration)/(1000000) << std::endl;
     return kRetOk;
   }
 
@@ -337,12 +247,11 @@ class RunTpcbTask : public thread::ImpersonateTask {
     xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
     // CHECK_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
     CHECK_ERROR_CODE(xct_manager.begin_xct(context, xct::kDirtyReadPreferVolatile));
-
-    // TODO:(Bill) Make insertions be inserting things of type BranchData and such
     CHECK_ERROR_CODE(accounts->insert_record(context, account_id, amount, sizeof(amount)));
     tmp_history_.account_id_ = account_id; //Why do we do this?
     tmp_history_.amount_ = amount->account_balance_;
-    CHECK_ERROR_CODE(histories->append_record(context, &tmp_history_, sizeof(HistoryData)));
+
+    //CHECK_ERROR_CODE(histories->append_record(context, &tmp_history_, sizeof(HistoryData)));
 
     Epoch commit_epoch;
     CHECK_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
@@ -351,13 +260,6 @@ class RunTpcbTask : public thread::ImpersonateTask {
 
   uint64_t get_processed() const { return processed_; }
 
- private:
-  memory::AlignedMemory numbers_;
-  assorted::UniformRandom random_;
-  uint64_t processed_;
-  const uint32_t kRandomCount = 1 << 16;
-
-  HistoryData tmp_history_;
 };
 
 int main_impl(int argc, char **argv) {
@@ -384,10 +286,12 @@ int main_impl(int argc, char **argv) {
   ASSERT_ND(!fs::exists(savepoint_path));
 
   std::cout << "NUMA node count=" << static_cast<int>(options.thread_.group_count_) << std::endl;
+  options.thread_.group_count_ = 1;
+  options.thread_.thread_count_per_group_ = 1;
   options.snapshot_.folder_path_pattern_ = "/dev/shm/tpcb_seq_expr/snapshot/node_$NODE$";
-  options.snapshot_.snapshot_interval_milliseconds_ = 1 << 20;  // never
+  options.snapshot_.snapshot_interval_milliseconds_ = 1 << 27;  // never
   options.log_.folder_path_pattern_ = "/dev/shm/tpcb_seq_expr/log/node_$NODE$/logger_$LOGGER$";
-  options.log_.loggers_per_node_ = kLoggersPerNode;
+  options.log_.loggers_per_node_ = 1;
   options.debugging_.debug_log_min_threshold_
     = debugging::DebuggingOptions::kDebugLogInfo;
     // = debugging::DebuggingOptions::kDebugLogWarning;
@@ -395,59 +299,63 @@ int main_impl(int argc, char **argv) {
   options.debugging_.verbose_log_level_ = -1;
   options.log_.log_buffer_kb_ = 1 << 16;
   options.log_.log_file_size_mb_ = 1 << 10;
-  options.memory_.page_pool_size_mb_per_node_ = 1 << 10;
+  options.memory_.page_pool_size_mb_per_node_ = 4 << 10; // may be made bigger when needed
   kTotalThreads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
 
   {
     Engine engine(options);
     COERCE_ERROR(engine.initialize());
     {
+      if (kMaxEntriesPerBin != 23) {
+        std::cout << "Bin-size is wrong for test" << std::endl;
+        return 0;
+      }
+      uint64_t size = 20;
+      uint64_t record_num  = 2 << size;
+      uint64_t populate_to = (uint64_t)((double) record_num * (double) .9);  // Number of records to add during populate
+      uint64_t test_add    = (uint64_t)((double) record_num * (double) .05);;  // Number of records to add during benchmark
+
       UninitializeGuard guard(&engine);
       StorageManager& str_manager = engine.get_storage_manager();
       std::cout << "Creating TPC-B tables... " << std::endl;
       Epoch ep;
-      const float kHashFillfactor = 0.5;
-      HashMetadata branch_meta("branches");
-      branch_meta.set_capacity(kBranches, kHashFillfactor);
-      COERCE_ERROR(str_manager.create_hash(&branch_meta, &branches, &ep));
-      std::cout << "Created branches " << std::endl;
-      HashMetadata teller_meta("tellers");
-      teller_meta.set_capacity(kBranches * kTellers, kHashFillfactor);
-      COERCE_ERROR(str_manager.create_hash(&teller_meta, &tellers, &ep));
-      std::cout << "Created tellers " << std::endl;
-      HashMetadata account_meta("accounts");
-      account_meta.set_capacity(kBranches * kAccounts, kHashFillfactor);
+
+      HashMetadata account_meta("accounts", size);
       COERCE_ERROR(str_manager.create_hash(&account_meta, &accounts, &ep));
       std::cout << "Created accounts " << std::endl;
+
       sequential::SequentialMetadata history_meta("histories");
       COERCE_ERROR(str_manager.create_sequential(&history_meta, &histories, &ep));
+
       std::cout << "Created all!" << std::endl;
 
       std::cout << "Now populating initial records..." << std::endl;
       // this is done serially. we do it in different nodes, but it's just to balance out
       // volatile pages.
       for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
-        uint64_t branches_per_node = kBranches / options.thread_.group_count_;
-        uint64_t from_branch = branches_per_node * node;
-        uint64_t to_branch = from_branch + branches_per_node;
-        if (node == options.thread_.group_count_ - 1) {
-          to_branch = kBranches;  // in case kBranches is not multiply of node count
-        }
-        PopulateTpcbTask task(from_branch, to_branch);
+//         uint64_t branches_per_node = kBranches / options.thread_.group_count_;
+//         uint64_t from_branch = branches_per_node * node;
+//         uint64_t to_branch = from_branch + branches_per_node;
+//         if (node == options.thread_.group_count_ - 1) {
+//           to_branch = kBranches;  // in case kBranches is not multiply of node count
+//         }
+        PopulateTpcbTask task(populate_to);
         thread::ImpersonateSession session(
           engine.get_thread_pool().impersonate_on_numa_node(&task, node));
         if (!session.is_valid()) {
           COERCE_ERROR(session.invalid_cause_);
         }
         std::cout << "populate result=" << session.get_result() << std::endl;
+        COERCE_ERROR(session.get_result());
       }
-
+      std::cout << account_meta.get_bin_count() << std::endl;
+      std::cout << "Starting test" << std::endl;
       std::vector< RunTpcbTask* > tasks;
       std::vector< thread::ImpersonateSession > sessions;
 
-      kTotalThreads = 1; //TODO:(Bill) Fix this
+      kTotalThreads = 1;
       for (int i = 0; i < kTotalThreads; ++i) {
-        tasks.push_back(new RunTpcbTask());
+        tasks.push_back(new RunTpcbTask(test_add));
         sessions.emplace_back(engine.get_thread_pool().impersonate(tasks[i]));
         if (!sessions[i].is_valid()) {
           COERCE_ERROR(sessions[i].invalid_cause_);
@@ -462,6 +370,10 @@ int main_impl(int argc, char **argv) {
       start_endezvous.signal();  // GO!
       std::cout << "Started!" << std::endl;
       std::this_thread::sleep_for(std::chrono::microseconds(kDurationMicro));
+
+      std::this_thread::sleep_for(std::chrono::seconds(1000));
+
+
       std::cout << "Experiment ended." << std::endl;
 
       uint64_t total = 0;

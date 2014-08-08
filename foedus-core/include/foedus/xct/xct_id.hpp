@@ -254,7 +254,7 @@ struct XctId {
 
   /**
    * Lock this key, busy-waiting if already locked.
-   * This assumes there is no deadlock (sorting write set assues it).
+   * This assumes there is no deadlock (sorting write set assures it).
    */
   void keylock_unconditional() {
     SPINLOCK_WHILE(true) {
