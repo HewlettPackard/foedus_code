@@ -822,6 +822,31 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read(
   return kErrorCodeOk;
 }
 
+template <typename T>
+ErrorCode ArrayStorage::get_record_primitive_batch(
+  thread::Thread* context,
+  const ArrayStorageCache& cache,
+  uint16_t payload_offset,
+  uint16_t batch_size,
+  const ArrayOffset* offset_batch,
+  T* payload_batch) {
+  for (uint16_t cur = 0; cur < batch_size;) {
+    uint16_t chunk = batch_size - cur;
+    if (chunk > ArrayStoragePimpl::kBatchMax) {
+      chunk = ArrayStoragePimpl::kBatchMax;
+    }
+    CHECK_ERROR_CODE(ArrayStoragePimpl::get_record_primitive_batch(
+      context,
+      cache,
+      payload_offset,
+      chunk,
+      &offset_batch[cur],
+      &payload_batch[cur]));
+    cur += chunk;
+  }
+  return kErrorCodeOk;
+}
+
 ErrorCode ArrayStorage::get_record_payload_batch(
   thread::Thread* context,
   const ArrayStorageCache& cache,
@@ -844,8 +869,54 @@ ErrorCode ArrayStorage::get_record_payload_batch(
   return kErrorCodeOk;
 }
 
+template <typename T>
+inline ErrorCode ArrayStoragePimpl::get_record_primitive_batch(
+  thread::Thread* context,
+  const ArrayStorageCache& cache,
+  uint16_t payload_offset,
+  uint16_t batch_size,
+  const ArrayOffset* offset_batch,
+  T* payload_batch) {
+  ASSERT_ND(batch_size <= kBatchMax);
+  Record* record_batch[kBatchMax];
+  bool snapshot_record_batch[kBatchMax];
+  CHECK_ERROR_CODE(locate_record_for_read_batch(
+    context,
+    cache,
+    batch_size,
+    offset_batch,
+    record_batch,
+    snapshot_record_batch));
+  xct::Xct& current_xct = context->get_current_xct();
+  if (current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
+      current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
+    for (uint8_t i = 0; i < batch_size; ++i) {
+      if (!snapshot_record_batch[i]) {
+        xct::XctId observed(record_batch[i]->owner_id_.spin_while_keylocked());
+        CHECK_ERROR_CODE(current_xct.add_to_read_set(
+          cache.storage_,
+          observed,
+          &record_batch[i]->owner_id_));
+      }
+    }
+    assorted::memory_fence_consume();
+  }
+  // we anyway prefetched the first 64 bytes. if the column is not within there,
+  // let's do parallel prefetch
+  if (payload_offset + sizeof(T) + kRecordOverhead > 64) {
+    for (uint8_t i = 0; i < batch_size; ++i) {
+      assorted::prefetch_cacheline(record_batch[i]->payload_ + payload_offset);
+    }
+  }
+  for (uint8_t i = 0; i < batch_size; ++i) {
+    char* ptr = record_batch[i]->payload_ + payload_offset;
+    payload_batch[i] = *reinterpret_cast<const T*>(ptr);
+  }
+  return kErrorCodeOk;
+}
 
-ErrorCode ArrayStoragePimpl::get_record_payload_batch(
+
+inline ErrorCode ArrayStoragePimpl::get_record_payload_batch(
   thread::Thread* context,
   const ArrayStorageCache& cache,
   uint16_t batch_size,
@@ -881,7 +952,7 @@ ErrorCode ArrayStoragePimpl::get_record_payload_batch(
   return kErrorCodeOk;
 }
 
-ErrorCode ArrayStoragePimpl::locate_record_for_read_batch(
+inline ErrorCode ArrayStoragePimpl::locate_record_for_read_batch(
   thread::Thread* context,
   const ArrayStorageCache& cache,
   uint16_t batch_size,
@@ -911,7 +982,7 @@ ErrorCode ArrayStoragePimpl::locate_record_for_read_batch(
   return kErrorCodeOk;
 }
 
-ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
+inline ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
   thread::Thread* context,
   ArrayPage* root_page,
   uint8_t levels,
@@ -1020,6 +1091,18 @@ INSTANTIATE_ALL_NUMERIC_TYPES(EX_GET_CACHE);
   (thread::Thread* context, const ArrayStorageCache& cache, ArrayOffset offset, x *payload, \
   uint16_t payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EX_GET_CACHE_IMPL);
+
+
+#define EX_GET_CACHE_BATCH(x) template ErrorCode ArrayStorage::get_record_primitive_batch< x > \
+  (thread::Thread* context, const ArrayStorageCache& cache, uint16_t payload_offset, \
+  uint16_t batch_size, const ArrayOffset* offset_batch, x *payload)
+INSTANTIATE_ALL_NUMERIC_TYPES(EX_GET_CACHE_BATCH);
+
+#define EX_GET_CACHE_BATCH_IMPL(x) template ErrorCode \
+  ArrayStoragePimpl::get_record_primitive_batch< x > \
+  (thread::Thread* context, const ArrayStorageCache& cache, uint16_t payload_offset, \
+  uint16_t batch_size, const ArrayOffset* offset_batch, x *payload)
+INSTANTIATE_ALL_NUMERIC_TYPES(EX_GET_CACHE_BATCH_IMPL);
 
 #define EXPLICIT_INSTANTIATION_OV(x) template ErrorCode\
   ArrayStorage::overwrite_record_primitive< x > \

@@ -162,19 +162,27 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     uint16_t* index,
     bool* snapshot_page) ALWAYS_INLINE;
 
+  template <typename T>
+  static ErrorCode get_record_primitive_batch(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    uint16_t payload_offset,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    T* payload_batch) ALWAYS_INLINE;
   static ErrorCode get_record_payload_batch(
     thread::Thread* context,
     const ArrayStorageCache& cache,
     uint16_t batch_size,
     const ArrayOffset* offset_batch,
-    const void** payload_batch);
+    const void** payload_batch) ALWAYS_INLINE;
   static ErrorCode locate_record_for_read_batch(
     thread::Thread* context,
     const ArrayStorageCache& cache,
     uint16_t batch_size,
     const ArrayOffset* offset_batch,
     Record** out_batch,
-    bool* snapshot_page_batch);
+    bool* snapshot_page_batch) ALWAYS_INLINE;
   static ErrorCode lookup_for_read_batch(
     thread::Thread* context,
     ArrayPage* root_page,
@@ -185,7 +193,7 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     const ArrayOffset* offset_batch,
     ArrayPage** out_batch,
     uint16_t* index_batch,
-    bool* snapshot_page_batch);
+    bool* snapshot_page_batch) ALWAYS_INLINE;
 
   static ErrorCode follow_pointer_for_read(
     thread::Thread* context,

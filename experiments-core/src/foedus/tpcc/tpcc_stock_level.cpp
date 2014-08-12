@@ -40,6 +40,10 @@ ErrorCode TpccClientTask::do_stock_level(Wid wid) {
   storage::masstree::MasstreeCursor cursor(engine_, storages_.orderlines_, context_);
   CHECK_ERROR_CODE(cursor.open_normalized(low, high));
   uint16_t s_offset = offsetof(StockData, quantity_);
+
+  const uint16_t kMaxItems = kMaxOlCount * 21;
+  storage::array::ArrayOffset sids[kMaxItems];
+  uint16_t read = 0;
   while (cursor.is_valid_record()) {
     ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) >= low);
     ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) < high);
@@ -49,19 +53,23 @@ ErrorCode TpccClientTask::do_stock_level(Wid wid) {
     const OrderlineData *ol_data = reinterpret_cast<const OrderlineData*>(cursor.get_payload());
     Iid iid = ol_data->iid_;
 
-    Sid sid = combine_sid(wid, iid);
-    uint32_t quantity;
-    CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_primitive<uint32_t>(
-      context_,
-      storages_.stocks_cache_,
-      sid,
-      &quantity,
-      s_offset));
-    if (quantity < threshold) {
+    sids[read] = combine_sid(wid, iid);
+    ++read;
+    CHECK_ERROR_CODE(cursor.next());
+  }
+
+  uint32_t quantities[kMaxItems];
+  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_primitive_batch<uint32_t>(
+    context_,
+    storages_.stocks_cache_,
+    s_offset,
+    read,
+    sids,
+    quantities));
+  for (uint16_t i = 0; i < read; ++i) {
+    if (quantities[i] < threshold) {
       ++result;
     }
-
-    CHECK_ERROR_CODE(cursor.next());
   }
 
   DVLOG(2) << "Stock-Level: result=" << result;

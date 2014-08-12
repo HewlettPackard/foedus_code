@@ -286,11 +286,11 @@ struct ItemData {
 };
 
 struct StockData {
-  char dist_data_[10][25];
   uint64_t ytd_;
   uint32_t order_cnt_;
   uint32_t quantity_;
   uint32_t remote_cnt_;
+  char dist_data_[10][25];
   char data_[51];
 };
 }  // namespace tpcc
