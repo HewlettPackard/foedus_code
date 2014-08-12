@@ -276,8 +276,8 @@ struct XctId {
     uint64_t expected[2];
     uint64_t desired[2];
     for (uint16_t i = 0; i < (count / 2); ++i) {
+      uint64_t* casted = reinterpret_cast<uint64_t*>(aligned + (i * 2));
       SPINLOCK_WHILE(true) {
-        uint64_t* casted = reinterpret_cast<uint64_t*>(aligned + (i * 2));
         for (uint8_t j = 0; j < 2; ++j) {
           expected[j] = casted[j] & (~kKeylockBit);
           desired[j] = expected[j] | kKeylockBit;

@@ -28,10 +28,11 @@ INSTANTIATE_ALL_NUMERIC_TYPES(EXPLICIT_INSTANTIATION_STRONG);
 #if defined(__GNUC__) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_16)
 bool raw_atomic_compare_exchange_strong_uint128(
   uint64_t *ptr, const uint64_t *old_value, const uint64_t *new_value) {
-  return ::__sync_bool_compare_and_swap(
-    reinterpret_cast<__uint128_t*>(ptr),
-    reinterpret_cast<const __uint128_t*>(old_value),
-    reinterpret_cast<const __uint128_t*>(new_value));
+  __uint128_t* ptr_casted = reinterpret_cast<__uint128_t*>(ptr);
+  __uint128_t old_casted = *reinterpret_cast<const __uint128_t*>(old_value);
+  __uint128_t new_casted = *reinterpret_cast<const __uint128_t*>(new_value);
+  bool ret = ::__sync_bool_compare_and_swap(ptr_casted, old_casted, new_casted);
+  return ret;
 }
 #else  // defined(__GNUC__) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_16)
 bool raw_atomic_compare_exchange_strong_uint128(

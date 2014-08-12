@@ -404,11 +404,9 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
 
 void MasstreeBorderPage::split_foster_lock_existing_records(uint8_t key_count) {
   debugging::RdtscWatch watch;  // check how expensive this is
-  for (uint8_t i = 0; i < key_count; ++i) {
-    // lock in address order. so, no deadlock possible
-    owner_ids_[i].keylock_unconditional();
-    // we have to lock them whether the record is deleted or not. all physical records.
-  }
+  // lock in address order. so, no deadlock possible
+  // we have to lock them whether the record is deleted or not. all physical records.
+  xct::XctId::keylock_unconditional_batch(owner_ids_, key_count);  // lock using batches
   watch.stop();
   DVLOG(1) << "Costed " << watch.elapsed() << " cycles to lock all of "
     << static_cast<int>(key_count) << " records while splitting";
