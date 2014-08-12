@@ -163,6 +163,19 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
             T *payload, uint16_t payload_offset);
 
   /**
+   * @brief Retrieves a pointer to the entire payload.
+   * @param[in] context Thread context
+   * @param[in] offset The offset in this array
+   * @param[out] payload Sets the pointer to the payload.
+   * @pre offset < get_array_size()
+   * @details
+   * This is used to retrieve entire record without copying.
+   * The record is protected by read-set (if there is any change, it will abort at pre-commit).
+   * \b However, we might read a half-changed value in the meantime.
+   */
+  ErrorCode get_record_payload(thread::Thread* context, ArrayOffset offset, const void** payload);
+
+  /**
    * @brief Overwrites one record of the given offset in this array storage.
    * @param[in] context Thread context
    * @param[in] offset The offset in this array
@@ -263,6 +276,12 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
     ArrayOffset offset,
     T *payload,
     uint16_t payload_offset);
+
+  static ErrorCode get_record_payload(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    ArrayOffset offset,
+    const void** payload);
 
  private:
   ArrayStoragePimpl*  pimpl_;

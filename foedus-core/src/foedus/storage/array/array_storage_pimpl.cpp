@@ -61,6 +61,13 @@ ErrorCode ArrayStorage::get_record_primitive(thread::Thread* context, ArrayOffse
   return pimpl_->get_record_primitive<T>(context, offset, payload, payload_offset);
 }
 
+ErrorCode ArrayStorage::get_record_payload(
+  thread::Thread* context,
+  ArrayOffset offset,
+  const void **payload) {
+  return pimpl_->get_record_payload(context, offset, payload);
+}
+
 ErrorCode ArrayStorage::overwrite_record(thread::Thread* context, ArrayOffset offset,
       const void *payload, uint16_t payload_offset, uint16_t payload_count) {
   return pimpl_->overwrite_record(context, offset, payload, payload_offset, payload_count);
@@ -435,6 +442,25 @@ ErrorCode ArrayStoragePimpl::get_record_primitive(
   return kErrorCodeOk;
 }
 
+inline ErrorCode ArrayStoragePimpl::get_record_payload(
+  thread::Thread* context,
+  ArrayOffset offset,
+  const void** payload) {
+  Record *record = nullptr;
+  bool snapshot_record;
+  CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
+  xct::Xct& current_xct = context->get_current_xct();
+  if (!snapshot_record &&
+    current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
+    current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
+    xct::XctId observed(record->owner_id_.spin_while_keylocked());
+    assorted::memory_fence_consume();
+    CHECK_ERROR_CODE(current_xct.add_to_read_set(holder_, observed, &record->owner_id_));
+  }
+  *payload = record->payload_;
+  return kErrorCodeOk;
+}
+
 inline ErrorCode ArrayStoragePimpl::overwrite_record(thread::Thread* context, ArrayOffset offset,
       const void *payload, uint16_t payload_offset, uint16_t payload_count) {
   ASSERT_ND(payload_offset + payload_count <= metadata_.payload_size_);
@@ -659,6 +685,19 @@ ErrorCode ArrayStorage::get_record_primitive(
     payload_offset);
 }
 
+ErrorCode ArrayStorage::get_record_payload(
+  thread::Thread* context,
+  const ArrayStorageCache& cache,
+  ArrayOffset offset,
+  const void** payload) {
+  return ArrayStoragePimpl::get_record_payload(
+    context,
+    cache,
+    offset,
+    payload);
+}
+
+
 inline ErrorCode ArrayStoragePimpl::get_record(
   thread::Thread* context,
   const ArrayStorageCache& cache,
@@ -713,6 +752,26 @@ ErrorCode ArrayStoragePimpl::get_record_primitive(
       *payload = *reinterpret_cast<const T*>(ptr);
       return kErrorCodeOk;
     }));
+  return kErrorCodeOk;
+}
+
+inline ErrorCode ArrayStoragePimpl::get_record_payload(
+  thread::Thread* context,
+  const ArrayStorageCache& cache,
+  ArrayOffset offset,
+  const void** payload) {
+  Record *record = nullptr;
+  bool snapshot_record;
+  CHECK_ERROR_CODE(locate_record_for_read(context, cache, offset, &record, &snapshot_record));
+  xct::Xct& current_xct = context->get_current_xct();
+  if (!snapshot_record &&
+    current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
+    current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
+    xct::XctId observed(record->owner_id_.spin_while_keylocked());
+    assorted::memory_fence_consume();
+    CHECK_ERROR_CODE(current_xct.add_to_read_set(cache.storage_, observed, &record->owner_id_));
+  }
+  *payload = record->payload_;
   return kErrorCodeOk;
 }
 

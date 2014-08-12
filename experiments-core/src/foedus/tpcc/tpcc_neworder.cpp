@@ -159,40 +159,40 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
     // SELECT ... FROM STOCK WHERE WID=supply_wid AND IID=iid
     // then UPDATE quantity and remote count
     Sid sid = combine_sid(wid, iid);
-    StockData s_data;
     const uint16_t s_quantity_offset = offsetof(StockData, quantity_);
     const uint16_t s_remote_offset = offsetof(StockData, remote_cnt_);
+    const void* s_data_address;
     CHECK_ERROR_CODE(
-      storage::array::ArrayStorage::get_record(
+      storage::array::ArrayStorage::get_record_payload(
         context_,
         storages_.stocks_cache_,
         sid,
-        &s_data,
-        0,
-        sizeof(s_data)));
-    if (s_data.quantity_ > quantity) {
-        s_data.quantity_ -= quantity;
+        &s_data_address));
+    const StockData* s_data = reinterpret_cast<const StockData*>(s_data_address);
+    uint32_t new_quantity = s_data->quantity_;
+    if (new_quantity > quantity) {
+        new_quantity -= quantity;
     } else {
-        s_data.quantity_ += (91U - quantity);
+        new_quantity += (91U - quantity);
     }
     if (remote_warehouse) {
         // in this case we are also incrementing remote cnt
       CHECK_ERROR_CODE(storages_.stocks_->overwrite_record_primitive<uint32_t>(
         context_,
         sid,
-        s_data.remote_cnt_ + 1,
+        s_data->remote_cnt_ + 1,
         s_remote_offset));
     }
     // overwrite quantity
     CHECK_ERROR_CODE(storages_.stocks_->overwrite_record_primitive<uint32_t>(
       context_,
       sid,
-      s_data.quantity_,
+      new_quantity,
       s_quantity_offset));
 
     OrderlineData ol_data;
     ol_data.amount_ = quantity * i_data.price_ * (1.0 + w_tax + d_tax) * (1.0 - c_discount);
-    ::memcpy(ol_data.dist_info_, s_data.dist_data_[did], sizeof(ol_data.dist_info_));
+    ::memcpy(ol_data.dist_info_, s_data->dist_data_[did], sizeof(ol_data.dist_info_));
     ol_data.iid_ = iid;
     ol_data.quantity_ = quantity;
     ol_data.supply_wid_ = supply_wid;
@@ -206,7 +206,7 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
 
     // output variables
     output_bg_[ol - 1] = ::strstr(i_data.data_, "original") != NULL
-        && ::strstr(s_data.data_, "original") != NULL ? 'B' : 'G';
+        && ::strstr(s_data->data_, "original") != NULL ? 'B' : 'G';
     output_prices_[ol - 1] = i_data.price_;
     ::memcpy(output_item_names_[ol - 1], i_data.name_, sizeof(i_data.name_));
     output_quantities_[ol - 1] = quantity;

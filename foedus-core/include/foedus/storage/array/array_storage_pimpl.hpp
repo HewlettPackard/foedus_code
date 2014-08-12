@@ -74,6 +74,11 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     T *payload,
     uint16_t payload_offset);
 
+  ErrorCode   get_record_payload(
+    thread::Thread* context,
+    ArrayOffset offset,
+    const void **payload) ALWAYS_INLINE;
+
   ErrorCode   overwrite_record(thread::Thread* context, ArrayOffset offset,
       const void *payload, uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE;
   template <typename T>
@@ -130,6 +135,11 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     ArrayOffset offset,
     T *payload,
     uint16_t payload_offset);
+  static ErrorCode get_record_payload(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    ArrayOffset offset,
+    const void **payload) ALWAYS_INLINE;
   static ErrorCode locate_record_for_read(
     thread::Thread* context,
     const ArrayStorageCache& cache,
