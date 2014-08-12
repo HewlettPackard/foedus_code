@@ -34,6 +34,12 @@ namespace foedus {
    * Deletes all files created by the engine. Best effort.
    */
   void            cleanup_test(const EngineOptions& options);
+
+  /**
+   * Call this method at the beginning of a testcase that requires more than 1 NUMA node.
+   * All testcases have to pass even in a single-NUMA node machine!
+   */
+  bool            is_multi_nodes();
 }  // namespace foedus
 
 #endif  // FOEDUS_TEST_COMMON_HPP_

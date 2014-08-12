@@ -48,23 +48,24 @@ class TpccClientTask : public thread::ImpersonateTask {
     Wid to_wid,
     uint16_t neworder_remote_percent,
     uint16_t payment_remote_percent,
-    TpccStorages storages,
+    const TpccStorages& storages,
     thread::Rendezvous* start_rendezvous)
     : worker_id_(worker_id),
       total_warehouses_(total_warehouses),
       from_wid_(from_wid),
       to_wid_(to_wid),
+      storages_(storages),
       neworder_remote_percent_(neworder_remote_percent),
       payment_remote_percent_(payment_remote_percent),
       rnd_(kRandomSeed + worker_id),
       processed_(0) {
-    storages_ = storages;
     stop_requrested_ = false;
     start_rendezvous_ = start_rendezvous;
     user_requested_aborts_ = 0;
     race_aborts_ = 0;
     unexpected_aborts_ = 0;
     largereadset_aborts_ = 0;
+    storages_.assert_initialized();
   }
 
   ErrorStack run(thread::Thread* context);
@@ -81,6 +82,7 @@ class TpccClientTask : public thread::ImpersonateTask {
   void request_stop() { stop_requrested_ = true; }
 
   uint64_t get_processed() const { return processed_; }
+
 
  private:
   /** unique ID of this worker from 0 to #workers-1. */

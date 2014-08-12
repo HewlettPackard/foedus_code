@@ -20,8 +20,9 @@ ErrorCode TpccClientTask::do_stock_level(Wid wid) {
 
   // SELECT D_NEXT_O_ID FROM DISTRICT WHERE D_W_ID=wid AND D_ID=did
   Oid next_oid;
-  CHECK_ERROR_CODE(storages_.districts_next_oid_->get_record_primitive<Oid>(
+  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_primitive<Oid>(
     context_,
+    storages_.districts_next_oid_cache_,
     wdid,
     &next_oid,
     0));
@@ -50,8 +51,9 @@ ErrorCode TpccClientTask::do_stock_level(Wid wid) {
 
     Sid sid = combine_sid(wid, iid);
     uint32_t quantity;
-    CHECK_ERROR_CODE(storages_.stocks_->get_record_primitive<uint32_t>(
+    CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_primitive<uint32_t>(
       context_,
+      storages_.stocks_cache_,
       sid,
       &quantity,
       s_offset));

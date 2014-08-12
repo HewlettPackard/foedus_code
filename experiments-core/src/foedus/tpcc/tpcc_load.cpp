@@ -34,7 +34,6 @@
 namespace foedus {
 namespace tpcc {
 ErrorStack TpccCreateTask::run(thread::Thread* context) {
-  std::memset(&storages_, 0, sizeof(storages_));
   debugging::StopWatch watch;
 
   Engine* engine = context->get_engine();

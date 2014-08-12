@@ -21,6 +21,7 @@
 #include "foedus/storage/array/array_id.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/storage/array/array_route.hpp"
+#include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/array/fwd.hpp"
 #include "foedus/thread/fwd.hpp"
 
@@ -45,6 +46,7 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   ErrorStack  uninitialize_once() override;
 
   ErrorStack  create(thread::Thread* context);
+  void        report_page_distribution();
 
   // all per-record APIs are called so frequently, so returns ErrorCode rather than ErrorStack
   ErrorCode   locate_record_for_read(
@@ -112,6 +114,38 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   * @return index=level.
   */
   static std::vector<uint64_t> calculate_required_pages(uint64_t array_size, uint16_t payload);
+
+  // so far experimental...
+  static ErrorCode get_record(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    ArrayOffset offset,
+    void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count) ALWAYS_INLINE;
+  template <typename T>
+  static ErrorCode get_record_primitive(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    ArrayOffset offset,
+    T *payload,
+    uint16_t payload_offset);
+  static ErrorCode locate_record_for_read(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    ArrayOffset offset,
+    Record** out,
+    bool* snapshot_record) ALWAYS_INLINE;
+  static ErrorCode lookup_for_read(
+    thread::Thread* context,
+    ArrayPage* root_page,
+    uint8_t levels,
+    const LookupRouteFinder& route_finder,
+    const ArrayMetadata& metadata,
+    ArrayOffset offset,
+    ArrayPage** out,
+    uint16_t* index,
+    bool* snapshot_page) ALWAYS_INLINE;
 
   Engine* const           engine_;
   ArrayStorage* const     holder_;

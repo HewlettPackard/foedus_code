@@ -44,16 +44,19 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
 
   // SELECT TAX from WAREHOUSE
   double w_tax;
-  CHECK_ERROR_CODE(storages_.warehouses_static_->get_record_primitive(
+
+  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_primitive(
     context_,
+    storages_.warehouses_static_cache_,
     wid,
     &w_tax,
     offsetof(WarehouseStaticData, tax_)));
 
   // SELECT TAX FROM DISTRICT
   double d_tax;
-  CHECK_ERROR_CODE(storages_.districts_static_->get_record_primitive(
+  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_primitive(
     context_,
+    storages_.districts_static_cache_,
     wdid,
     &d_tax,
     offsetof(DistrictStaticData, tax_)));
@@ -67,8 +70,9 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
   // SELECT DISCOUNT from CUSTOMER
   double c_discount;
   const uint16_t c_offset = offsetof(CustomerStaticData, discount_);
-  CHECK_ERROR_CODE(storages_.customers_static_->get_record_primitive(
+  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_primitive(
     context_,
+    storages_.customers_static_cache_,
     wdcid,
     &c_discount,
     c_offset));
@@ -143,7 +147,14 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
 
     // SELECT ... FROM ITEM WHERE IID=iid
     ItemData i_data;
-    CHECK_ERROR_CODE(storages_.items_->get_record(context_, iid, &i_data, 0, sizeof(i_data)));
+    CHECK_ERROR_CODE(
+      storage::array::ArrayStorage::get_record(
+        context_,
+        storages_.items_cache_,
+        iid,
+        &i_data,
+        0,
+        sizeof(i_data)));
 
     // SELECT ... FROM STOCK WHERE WID=supply_wid AND IID=iid
     // then UPDATE quantity and remote count
@@ -151,7 +162,14 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
     StockData s_data;
     const uint16_t s_quantity_offset = offsetof(StockData, quantity_);
     const uint16_t s_remote_offset = offsetof(StockData, remote_cnt_);
-    CHECK_ERROR_CODE(storages_.stocks_->get_record(context_, sid, &s_data, 0, sizeof(s_data)));
+    CHECK_ERROR_CODE(
+      storage::array::ArrayStorage::get_record(
+        context_,
+        storages_.stocks_cache_,
+        sid,
+        &s_data,
+        0,
+        sizeof(s_data)));
     if (s_data.quantity_ > quantity) {
         s_data.quantity_ -= quantity;
     } else {
