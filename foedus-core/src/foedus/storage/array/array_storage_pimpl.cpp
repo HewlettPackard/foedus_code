@@ -797,7 +797,7 @@ inline ErrorCode ArrayStoragePimpl::locate_record_for_read(
   ASSERT_ND(page);
   ASSERT_ND(page->is_leaf());
   ASSERT_ND(page->get_array_range().contains(offset));
-  *out = page->get_leaf_record(index);
+  *out = page->get_leaf_record(index, cache.metadata_.payload_size_);
   return kErrorCodeOk;
 }
 
