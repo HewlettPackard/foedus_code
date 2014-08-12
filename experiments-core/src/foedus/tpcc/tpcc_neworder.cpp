@@ -9,6 +9,7 @@
 
 #include <string>
 
+#include "foedus/compiler.hpp"
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 
@@ -114,6 +115,14 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
   return kErrorCodeOk;
 }
 
+const char* kOriginalStr = "original";
+inline uint64_t as_int_aligned(const char* aligned_str) {
+  const uint64_t* str = reinterpret_cast<const uint64_t*>(ASSUME_ALIGNED(aligned_str, 8));
+  return *str;
+}
+// "original" is just 8 bytes. let's exploit it.
+const uint64_t kOriginalInt = as_int_aligned(kOriginalStr);
+
 ErrorCode TpccClientTask::do_neworder_create_orderlines(
   Wid wid,
   Did did,
@@ -204,8 +213,8 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
       sizeof(ol_data)));
 
     // output variables
-    output_bg_[ol - 1] = ::strstr(i_data->data_, "original") != NULL
-        && ::strstr(s_data->data_, "original") != NULL ? 'B' : 'G';
+    output_bg_[ol - 1] = as_int_aligned(i_data->data_) != kOriginalInt &&
+      as_int_aligned(s_data->data_) != kOriginalInt ? 'B' : 'G';
     output_prices_[ol - 1] = i_data->price_;
     std::memcpy(output_item_names_[ol - 1], i_data->name_, sizeof(i_data->name_));
     output_quantities_[ol - 1] = quantity;
