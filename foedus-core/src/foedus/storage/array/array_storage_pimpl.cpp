@@ -217,7 +217,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
   LOG(INFO) << "Newly creating an array-storage "  << *holder_ << " as epoch=" << initial_epoch;
 
   // TODO(Hideaki) This part must handle the case where RAM < Array Size
-  // So far, we just crash in RoundRobinPageGrabBatch::grab().
+  // So far, we just crash in DivvyupPageGrabBatch::grab().
 
   // we create from left, keeping cursors on each level.
   // first, create the left-most in each level
@@ -225,12 +225,12 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
   std::vector<ArrayPage*> current_pages;
   std::vector<VolatilePagePointer> current_pages_ids;
   std::vector<uint16_t> current_records;
-  // we grab free page in round-robbin fashion.
+  // we grab free page from each node evenly.
   const memory::GlobalVolatilePageResolver& page_resolver
     = context->get_global_volatile_page_resolver();
-  memory::RoundRobinPageGrabBatch grab_batch(engine_);
+  memory::DivvyupPageGrabBatch grab_batch(engine_);
   for (uint8_t level = 0; level < levels_; ++level) {
-    VolatilePagePointer page_pointer = grab_batch.grab();
+    VolatilePagePointer page_pointer = grab_batch.grab_evenly(0, pages[level]);
     ASSERT_ND(page_pointer.components.offset != 0);
     ArrayPage* page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(page_pointer));
     current_pages.push_back(page);
@@ -270,7 +270,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
 
   // then moves on to right
   for (uint64_t leaf = 1; leaf < pages[0]; ++leaf) {
-    VolatilePagePointer page_pointer = grab_batch.grab();
+    VolatilePagePointer page_pointer = grab_batch.grab_evenly(leaf, pages[0]);
     ASSERT_ND(page_pointer.components.offset != 0);
     ArrayPage* page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(page_pointer));
 
@@ -295,7 +295,8 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     for (uint8_t level = 1; level < levels_; ++level) {
       if (current_records[level] == kInteriorFanout) {
         VLOG(2) << "leaf=" << leaf << ", interior level=" << static_cast<int>(level);
-        VolatilePagePointer interior_pointer = grab_batch.grab();
+        // On same NUMA node as the leaf.
+        VolatilePagePointer interior_pointer = grab_batch.grab(page_pointer.components.numa_node);
         ASSERT_ND(interior_pointer.components.offset != 0);
         ArrayPage* interior_page = reinterpret_cast<ArrayPage*>(
           page_resolver.resolve_offset(interior_pointer));

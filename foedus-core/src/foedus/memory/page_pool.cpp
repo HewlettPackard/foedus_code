@@ -164,5 +164,62 @@ void RoundRobinPageGrabBatch::release_all() {
   ASSERT_ND(chunk_.empty());
 }
 
+
+DivvyupPageGrabBatch::DivvyupPageGrabBatch(Engine* engine)
+: engine_(engine), node_count_(engine->get_options().thread_.group_count_) {
+  chunks_ = new PagePoolOffsetChunk[node_count_];
+  for (uint16_t node = 0; node < node_count_; ++node) {
+    ASSERT_ND(chunks_[node].empty());
+  }
+}
+
+DivvyupPageGrabBatch::~DivvyupPageGrabBatch() {
+  release_all();
+  delete[] chunks_;
+  chunks_ = nullptr;
+}
+
+
+storage::VolatilePagePointer DivvyupPageGrabBatch::grab(thread::ThreadGroupId node) {
+  ASSERT_ND(node < node_count_);
+  if (chunks_[node].empty()) {
+    ErrorCode code = engine_->get_memory_manager().get_node_memory(node)->
+      get_volatile_pool().grab(chunks_[node].capacity(), chunks_ + node);
+    if (code == kErrorCodeMemoryNoFreePages) {
+      LOG(FATAL) << "NUMA node " << static_cast<int>(node) << " has no free pages. This situation "
+        " is so far not handled in DivvyupPageGrabBatch. Aborting";
+    } else if (code != kErrorCodeOk) {
+      LOG(FATAL) << "Unexpected error code.. wtf error="
+        << code << "(" << get_error_name(code) << ")";
+    }
+  }
+  storage::VolatilePagePointer ret;
+  ret.components.numa_node = node;
+  ret.components.flags = 0;
+  ret.components.mod_count = 0;
+  ret.components.offset = chunks_[node].pop_back();
+  return ret;
+}
+
+storage::VolatilePagePointer DivvyupPageGrabBatch::grab_evenly(uint64_t cur, uint64_t total) {
+  thread::ThreadGroupId node;
+  if (node_count_ == 1U) {
+    node = 0;
+  } else {
+    node = cur * node_count_ / total;
+  }
+  return grab(node);
+}
+
+void DivvyupPageGrabBatch::release_all() {
+  for (uint16_t node = 0; node < node_count_; ++node) {
+    if (chunks_[node].empty()) {
+      continue;
+    }
+    engine_->get_memory_manager().get_node_memory(node)->get_volatile_pool().release(
+      chunks_[node].size(), chunks_ + node);
+    ASSERT_ND(chunks_[node].empty());
+  }
+}
 }  // namespace memory
 }  // namespace foedus

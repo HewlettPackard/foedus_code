@@ -206,7 +206,6 @@ class PageReleaseBatch CXX11_FINAL {
   ChunkPtr        chunks_[256];
 };
 
-
 /**
  * @brief A helper class to grab a bunch of pages from multiple nodes in round-robin fashion
  * per chunk.
@@ -252,6 +251,55 @@ class RoundRobinPageGrabBatch CXX11_FINAL {
   const uint16_t          numa_node_count_;
   thread::ThreadGroupId   current_node_;
   PagePoolOffsetChunk     chunk_;
+};
+
+/**
+ * @brief A helper class to grab a bunch of pages from multiple nodes in arbitrary fashion.
+ * @ingroup MEMORY
+ * @details
+ * Similar to RoundRobinPageGrabBatch.
+ * This class doesn't specify how nodes divvy up pages. The caller has the control.
+ * Or, this class provides a method for each policy.
+ */
+class DivvyupPageGrabBatch CXX11_FINAL {
+ public:
+  explicit DivvyupPageGrabBatch(Engine* engine);
+  ~DivvyupPageGrabBatch();
+
+  // Disable default constructors
+  DivvyupPageGrabBatch() CXX11_FUNC_DELETE;
+  DivvyupPageGrabBatch(const DivvyupPageGrabBatch&) CXX11_FUNC_DELETE;
+  DivvyupPageGrabBatch& operator=(const DivvyupPageGrabBatch&) CXX11_FUNC_DELETE;
+
+  /**
+   * @brief Grabs an in-memory page in specified NUMA node.
+   * @param[in] node specify NUMA node
+   * @pre node < node_count_
+   */
+  storage::VolatilePagePointer grab(thread::ThreadGroupId node);
+
+  /**
+   * @brief Grabs an in-memory page evenly and contiguously from each NUMA node.
+   * @param[in] cur page index out of total.
+   * @param[in] total total pages to be allocated.
+   * @details
+   * For example, if total=6 and there are 2 numa nodes, cur=0,1,2 get pages from
+   * NUMA node 0, cur=3,4,5 get pages from NUMA node 1.
+   * This is the most simple policy.
+   */
+  storage::VolatilePagePointer grab_evenly(uint64_t cur, uint64_t total);
+
+  /**
+   * Called at the end to return all \e remaining pages to their pools.
+   * The grabbed pages are not returned, of course.
+   */
+  void        release_all();
+
+ private:
+  Engine* const           engine_;
+  const uint16_t          node_count_;
+  /** Chunk for each node. index is node ID. */
+  PagePoolOffsetChunk*    chunks_;
 };
 
 }  // namespace memory
