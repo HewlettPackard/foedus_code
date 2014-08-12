@@ -38,6 +38,11 @@ namespace array {
  */
 class ArrayStoragePimpl final : public DefaultInitializable {
  public:
+  enum Constants {
+    /** If you want more than this, you should loop. ArrayStorage should take care of it. */
+    kBatchMax = 16,
+  };
+
   ArrayStoragePimpl() = delete;
   ArrayStoragePimpl(Engine* engine, ArrayStorage* holder, const ArrayMetadata &metadata,
             bool create);
@@ -156,6 +161,39 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     ArrayPage** out,
     uint16_t* index,
     bool* snapshot_page) ALWAYS_INLINE;
+
+  static ErrorCode get_record_payload_batch(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    const void** payload_batch);
+  static ErrorCode locate_record_for_read_batch(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    Record** out_batch,
+    bool* snapshot_page_batch);
+  static ErrorCode lookup_for_read_batch(
+    thread::Thread* context,
+    ArrayPage* root_page,
+    uint8_t levels,
+    const LookupRouteFinder& route_finder,
+    const ArrayMetadata& metadata,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    ArrayPage** out_batch,
+    uint16_t* index_batch,
+    bool* snapshot_page_batch);
+
+  static ErrorCode follow_pointer_for_read(
+    thread::Thread* context,
+    xct::Xct* current_xct,
+    const memory::GlobalVolatilePageResolver& page_resolver,
+    DualPagePointer* pointer,
+    bool* followed_snapshot_pointer,
+    ArrayPage** out) ALWAYS_INLINE;
 
   Engine* const           engine_;
   ArrayStorage* const     holder_;

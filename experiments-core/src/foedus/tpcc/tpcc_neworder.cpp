@@ -136,11 +136,16 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
   Wdid wdid = combine_wdid(wid, did);
   Wdoid wdoid = combine_wdoid(wdid, oid);
   // INSERT INTO ORDERLINE with random item.
+
+  // first, determine list of StockID (WID+IID) and parameters.
+  uint32_t quantities[kOlMax];
+  storage::array::ArrayOffset iids[kOlMax];
+  storage::array::ArrayOffset sids[kOlMax];
   for (Ol ol = 1; ol <= ol_cnt; ++ol) {
-    const uint32_t quantity = rnd_.uniform_within(1, 10);
-    Iid iid = rnd_.non_uniform_within(8191, 0, kItems - 1);
+    quantities[ol - 1] = rnd_.uniform_within(1, 10);
+    iids[ol - 1] = rnd_.non_uniform_within(8191, 0, kItems - 1);
     if (will_rollback) {
-        DVLOG(2) << "NewOrder: 1% random rollback happened. Dummy IID=" << iid;
+        DVLOG(2) << "NewOrder: 1% random rollback happened.";
         return kErrorCodeXctUserAbort;
     }
 
@@ -153,55 +158,63 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
     } else {
         supply_wid = wid;
     }
+    sids[ol - 1] = combine_sid(supply_wid, static_cast<Iid>(iids[ol - 1]));
+  }
 
-    // SELECT ... FROM ITEM WHERE IID=iid
-    const void* i_data_address;
-    CHECK_ERROR_CODE(
-      storage::array::ArrayStorage::get_record_payload(
-        context_,
-        storages_.items_cache_,
-        iid,
-        &i_data_address));
-    const ItemData* i_data = reinterpret_cast<const ItemData*>(i_data_address);
+  // then, read stock/item in a batched way so that we can parallelize cacheline prefetches
+  // SELECT ... FROM ITEM WHERE IID=iid
+  const void* i_data_address[kOlMax];
+  CHECK_ERROR_CODE(
+    storage::array::ArrayStorage::get_record_payload_batch(
+      context_,
+      storages_.items_cache_,
+      ol_cnt,
+      iids,
+      i_data_address));
+  // SELECT ... FROM STOCK WHERE WID=supply_wid AND IID=iid
+  // then UPDATE quantity and remote count
+  const void* s_data_address[kOlMax];
+  CHECK_ERROR_CODE(
+    storage::array::ArrayStorage::get_record_payload_batch(
+      context_,
+      storages_.stocks_cache_,
+      ol_cnt,
+      sids,
+      s_data_address));
 
-    // SELECT ... FROM STOCK WHERE WID=supply_wid AND IID=iid
-    // then UPDATE quantity and remote count
-    Sid sid = combine_sid(wid, iid);
-    const uint16_t s_quantity_offset = offsetof(StockData, quantity_);
-    const uint16_t s_remote_offset = offsetof(StockData, remote_cnt_);
-    const void* s_data_address;
-    CHECK_ERROR_CODE(
-      storage::array::ArrayStorage::get_record_payload(
-        context_,
-        storages_.stocks_cache_,
-        sid,
-        &s_data_address));
-    const StockData* s_data = reinterpret_cast<const StockData*>(s_data_address);
+  const uint16_t s_quantity_offset = offsetof(StockData, quantity_);
+  const uint16_t s_remote_offset = offsetof(StockData, remote_cnt_);
+  for (Ol ol = 1; ol <= ol_cnt; ++ol) {
+    const ItemData* i_data = reinterpret_cast<const ItemData*>(i_data_address[ol - 1]);
+    const StockData* s_data = reinterpret_cast<const StockData*>(s_data_address[ol - 1]);
+    uint32_t quantity = quantities[ol - 1];
     uint32_t new_quantity = s_data->quantity_;
     if (new_quantity > quantity) {
         new_quantity -= quantity;
     } else {
         new_quantity += (91U - quantity);
     }
-    if (remote_warehouse) {
+
+    Wid supply_wid = extract_wid_from_sid(sids[ol - 1]);
+    if (supply_wid != wid) {
         // in this case we are also incrementing remote cnt
       CHECK_ERROR_CODE(storages_.stocks_->overwrite_record_primitive<uint32_t>(
         context_,
-        sid,
+        sids[ol - 1],
         s_data->remote_cnt_ + 1,
         s_remote_offset));
     }
     // overwrite quantity
     CHECK_ERROR_CODE(storages_.stocks_->overwrite_record_primitive<uint32_t>(
       context_,
-      sid,
+      sids[ol - 1],
       new_quantity,
       s_quantity_offset));
 
     OrderlineData ol_data;
     ol_data.amount_ = quantity * i_data->price_ * (1.0 + w_tax + d_tax) * (1.0 - c_discount);
     std::memcpy(ol_data.dist_info_, s_data->dist_data_[did], sizeof(ol_data.dist_info_));
-    ol_data.iid_ = iid;
+    ol_data.iid_ = iids[ol - 1];
     ol_data.quantity_ = quantity;
     ol_data.supply_wid_ = supply_wid;
 

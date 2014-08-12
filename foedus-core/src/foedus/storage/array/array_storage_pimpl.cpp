@@ -11,6 +11,7 @@
 
 #include "foedus/engine.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/cacheline.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_type.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
@@ -577,33 +578,13 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read(
   for (uint8_t level = levels_ - 1; level > 0; --level) {
     ASSERT_ND(current_page->get_array_range().contains(offset));
     DualPagePointer& pointer = current_page->get_interior_record(route.route[level]);
-    storage::VolatilePagePointer volatile_pointer = pointer.volatile_pointer_;
-    if (followed_snapshot_pointer) {
-      // we already followed a snapshot pointer, so everything under it is stable.
-      // just follow the snapstho pointer
-      ASSERT_ND(pointer.snapshot_pointer_ != 0);
-      ASSERT_ND(pointer.volatile_pointer_.word == 0);
-      CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
-        pointer.snapshot_pointer_,
-        reinterpret_cast<Page**>(&current_page)));
-    } else if (volatile_pointer.components.offset == 0
-      || current_xct.get_isolation_level() == xct::kDirtyReadPreferSnapshot) {
-      // then read from snapshot page. this is the beginning point to follow a snapshot pointer,
-      // so we have to take a pointer set in case someone else installs a new volatile pointer
-      // (after here, everything is stable).
-      ASSERT_ND(pointer.snapshot_pointer_ != 0);
-      followed_snapshot_pointer = true;
-      current_xct.add_to_pointer_set(&pointer.volatile_pointer_, volatile_pointer);
-      CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
-        pointer.snapshot_pointer_,
-        reinterpret_cast<Page**>(&current_page)));
-    } else {
-      // NOTE: In Array storage, we don't have to take a ptr set for following a volatile pointer
-      // because we don't swap volatile pointer like Masstree's page split.
-      // The only case we change volatile pointer is for snapshot thread to drop volatile pages
-      // that are equivalent to snapshot pages, so it never affects serializability.
-      current_page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(volatile_pointer));
-    }
+    CHECK_ERROR_CODE(follow_pointer_for_read(
+      context,
+      &current_xct,
+      page_resolver,
+      &pointer,
+      &followed_snapshot_pointer,
+      &current_page));
   }
   ASSERT_ND(current_page->is_leaf());
   ASSERT_ND(current_page->get_array_range().contains(offset));
@@ -824,33 +805,13 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read(
   for (uint8_t level = levels - 1; level > 0; --level) {
     ASSERT_ND(current_page->get_array_range().contains(offset));
     DualPagePointer& pointer = current_page->get_interior_record(route.route[level]);
-    storage::VolatilePagePointer volatile_pointer = pointer.volatile_pointer_;
-    if (followed_snapshot_pointer) {
-      // we already followed a snapshot pointer, so everything under it is stable.
-      // just follow the snapstho pointer
-      ASSERT_ND(pointer.snapshot_pointer_ != 0);
-      ASSERT_ND(pointer.volatile_pointer_.word == 0);
-      CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
-        pointer.snapshot_pointer_,
-        reinterpret_cast<Page**>(&current_page)));
-    } else if (volatile_pointer.components.offset == 0
-      || current_xct.get_isolation_level() == xct::kDirtyReadPreferSnapshot) {
-      // then read from snapshot page. this is the beginning point to follow a snapshot pointer,
-      // so we have to take a pointer set in case someone else installs a new volatile pointer
-      // (after here, everything is stable).
-      ASSERT_ND(pointer.snapshot_pointer_ != 0);
-      followed_snapshot_pointer = true;
-      current_xct.add_to_pointer_set(&pointer.volatile_pointer_, volatile_pointer);
-      CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
-        pointer.snapshot_pointer_,
-        reinterpret_cast<Page**>(&current_page)));
-    } else {
-      // NOTE: In Array storage, we don't have to take a ptr set for following a volatile pointer
-      // because we don't swap volatile pointer like Masstree's page split.
-      // The only case we change volatile pointer is for snapshot thread to drop volatile pages
-      // that are equivalent to snapshot pages, so it never affects serializability.
-      current_page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(volatile_pointer));
-    }
+    CHECK_ERROR_CODE(follow_pointer_for_read(
+      context,
+      &current_xct,
+      page_resolver,
+      &pointer,
+      &followed_snapshot_pointer,
+      &current_page));
   }
   ASSERT_ND(current_page->is_leaf());
   ASSERT_ND(current_page->get_array_range().contains(offset));
@@ -858,6 +819,188 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read(
   *out = current_page;
   *index = route.route[0];
   *snapshot_page = followed_snapshot_pointer;
+  return kErrorCodeOk;
+}
+
+ErrorCode ArrayStorage::get_record_payload_batch(
+  thread::Thread* context,
+  const ArrayStorageCache& cache,
+  uint16_t batch_size,
+  const ArrayOffset* offset_batch,
+  const void** payload_batch) {
+  for (uint16_t cur = 0; cur < batch_size;) {
+    uint16_t chunk = batch_size - cur;
+    if (chunk > ArrayStoragePimpl::kBatchMax) {
+      chunk = ArrayStoragePimpl::kBatchMax;
+    }
+    CHECK_ERROR_CODE(ArrayStoragePimpl::get_record_payload_batch(
+      context,
+      cache,
+      chunk,
+      &offset_batch[cur],
+      &payload_batch[cur]));
+    cur += chunk;
+  }
+  return kErrorCodeOk;
+}
+
+
+ErrorCode ArrayStoragePimpl::get_record_payload_batch(
+  thread::Thread* context,
+  const ArrayStorageCache& cache,
+  uint16_t batch_size,
+  const ArrayOffset* offset_batch,
+  const void** payload_batch) {
+  ASSERT_ND(batch_size <= kBatchMax);
+  Record* record_batch[kBatchMax];
+  bool snapshot_record_batch[kBatchMax];
+  CHECK_ERROR_CODE(locate_record_for_read_batch(
+    context,
+    cache,
+    batch_size,
+    offset_batch,
+    record_batch,
+    snapshot_record_batch));
+  xct::Xct& current_xct = context->get_current_xct();
+  if (current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
+      current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
+    for (uint8_t i = 0; i < batch_size; ++i) {
+      if (!snapshot_record_batch[i]) {
+        xct::XctId observed(record_batch[i]->owner_id_.spin_while_keylocked());
+        CHECK_ERROR_CODE(current_xct.add_to_read_set(
+          cache.storage_,
+          observed,
+          &record_batch[i]->owner_id_));
+      }
+    }
+    assorted::memory_fence_consume();
+  }
+  for (uint8_t i = 0; i < batch_size; ++i) {
+    payload_batch[i] = record_batch[i]->payload_;
+  }
+  return kErrorCodeOk;
+}
+
+ErrorCode ArrayStoragePimpl::locate_record_for_read_batch(
+  thread::Thread* context,
+  const ArrayStorageCache& cache,
+  uint16_t batch_size,
+  const ArrayOffset* offset_batch,
+  Record** out_batch,
+  bool* snapshot_page_batch) {
+  ASSERT_ND(batch_size <= kBatchMax);
+  ArrayPage* page_batch[kBatchMax];
+  uint16_t index_batch[kBatchMax];
+  CHECK_ERROR_CODE(lookup_for_read_batch(
+    context,
+    cache.root_page_,
+    cache.levels_,
+    cache.route_finder_,
+    cache.metadata_,
+    batch_size,
+    offset_batch,
+    page_batch,
+    index_batch,
+    snapshot_page_batch));
+  for (uint8_t i = 0; i < batch_size; ++i) {
+    ASSERT_ND(page_batch[i]);
+    ASSERT_ND(page_batch[i]->is_leaf());
+    ASSERT_ND(page_batch[i]->get_array_range().contains(offset_batch[i]));
+    out_batch[i] = page_batch[i]->get_leaf_record(index_batch[i], cache.metadata_.payload_size_);
+  }
+  return kErrorCodeOk;
+}
+
+ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
+  thread::Thread* context,
+  ArrayPage* root_page,
+  uint8_t levels,
+  const LookupRouteFinder& route_finder,
+  const ArrayMetadata& metadata,
+  uint16_t batch_size,
+  const ArrayOffset* offset_batch,
+  ArrayPage** out_batch,
+  uint16_t* index_batch,
+  bool* snapshot_page_batch) {
+  ASSERT_ND(batch_size <= kBatchMax);
+  LookupRoute routes[kBatchMax];
+  for (uint8_t i = 0; i < batch_size; ++i) {
+    ASSERT_ND(offset_batch[i] < metadata.array_size_);
+    routes[i] = route_finder.find_route(offset_batch[i]);
+    if (levels == 0) {
+      assorted::prefetch_cacheline(root_page->get_leaf_record(routes[i].route[0]));
+    } else {
+      assorted::prefetch_cacheline(&root_page->get_interior_record(routes[i].route[levels - 1]));
+    }
+    out_batch[i] = root_page;
+    snapshot_page_batch[i] = false;
+  }
+
+  const memory::GlobalVolatilePageResolver& page_resolver
+    = context->get_global_volatile_page_resolver();
+  xct::Xct& current_xct = context->get_current_xct();
+  for (uint8_t level = levels - 1; level > 0; --level) {
+    for (uint8_t i = 0; i < batch_size; ++i) {
+      ASSERT_ND(out_batch[i]->get_array_range().contains(offset_batch[i]));
+      DualPagePointer& pointer = out_batch[i]->get_interior_record(routes[i].route[level]);
+      CHECK_ERROR_CODE(follow_pointer_for_read(
+        context,
+        &current_xct,
+        page_resolver,
+        &pointer,
+        snapshot_page_batch + i,
+        &(out_batch[i])));
+      if (level == 1U) {
+        assorted::prefetch_cacheline(out_batch[i]->get_leaf_record(routes[i].route[0]));
+      } else {
+        assorted::prefetch_cacheline(
+          &out_batch[i]->get_interior_record(routes[i].route[levels - 1]));
+      }
+    }
+  }
+  for (uint8_t i = 0; i < batch_size; ++i) {
+    ASSERT_ND(out_batch[i]->is_leaf());
+    ASSERT_ND(out_batch[i]->get_array_range().contains(offset_batch[i]));
+    ASSERT_ND(out_batch[i]->get_array_range().begin_ + routes[i].route[0] == offset_batch[i]);
+    index_batch[i] = routes[i].route[0];
+  }
+  return kErrorCodeOk;
+}
+
+inline ErrorCode ArrayStoragePimpl::follow_pointer_for_read(
+  thread::Thread* context,
+  xct::Xct* current_xct,
+  const memory::GlobalVolatilePageResolver& page_resolver,
+  DualPagePointer* pointer,
+  bool* followed_snapshot_pointer,
+  ArrayPage** out) {
+  storage::VolatilePagePointer volatile_pointer = pointer->volatile_pointer_;
+  if (*followed_snapshot_pointer) {
+    // we already followed a snapshot pointer, so everything under it is stable.
+    // just follow the snapstho pointer
+    ASSERT_ND(pointer->snapshot_pointer_ != 0);
+    ASSERT_ND(pointer->volatile_pointer_.word == 0);
+    CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
+      pointer->snapshot_pointer_,
+      reinterpret_cast<Page**>(out)));
+  } else if (volatile_pointer.components.offset == 0
+    || current_xct->get_isolation_level() == xct::kDirtyReadPreferSnapshot) {
+    // then read from snapshot page. this is the beginning point to follow a snapshot pointer,
+    // so we have to take a pointer set in case someone else installs a new volatile pointer
+    // (after here, everything is stable).
+    ASSERT_ND(pointer->snapshot_pointer_ != 0);
+    *followed_snapshot_pointer = true;
+    current_xct->add_to_pointer_set(&(pointer->volatile_pointer_), volatile_pointer);
+    CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
+      pointer->snapshot_pointer_,
+      reinterpret_cast<Page**>(out)));
+  } else {
+    // NOTE: In Array storage, we don't have to take a ptr set for following a volatile pointer
+    // because we don't swap volatile pointer like Masstree's page split.
+    // The only case we change volatile pointer is for snapshot thread to drop volatile pages
+    // that are equivalent to snapshot pages, so it never affects serializability.
+    *out = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(volatile_pointer));
+  }
   return kErrorCodeOk;
 }
 

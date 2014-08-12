@@ -283,6 +283,13 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
     ArrayOffset offset,
     const void** payload);
 
+  static ErrorCode get_record_payload_batch(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    const void** payload_batch);
+
  private:
   ArrayStoragePimpl*  pimpl_;
 };
