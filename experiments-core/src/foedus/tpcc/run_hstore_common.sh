@@ -2,7 +2,7 @@ echo "H-store TPC-C experiments script for $machine_shortname ($machine_name)"
 echo "hstore_client_memory=$hstore_client_memory, hstore_site_memory=$hstore_site_memory, hstore_global_memory=$hstore_global_memory, hstore_client_threads_per_host=$hstore_client_threads_per_host,hstore_hosts=$hstore_hosts."
 
 # terrible assumption, but works.
-hstore_folder="~/h-store"
+hstore_folder="$HOME/h-store"
 
 payment_percents[0]=0
 payment_percents[1]=15

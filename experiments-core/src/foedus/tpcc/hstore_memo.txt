@@ -27,6 +27,8 @@ To increase performance
 
 -Dsite.cpu_affinity=false
 Andy's recommendation.
+=> Well, actually this slows it down at least on Z820.
+we should experiment both cpu affinity true and false
 
 -Dclient.blocking=false
 To increase throughput

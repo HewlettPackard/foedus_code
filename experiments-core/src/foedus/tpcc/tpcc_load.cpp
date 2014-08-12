@@ -166,6 +166,7 @@ ErrorStack TpccCreateTask::create_sequential(
 
 ErrorStack TpccFinishupTask::run(thread::Thread* context) {
   Engine* engine = context->get_engine();
+#ifndef NDEBUG
   WRAP_ERROR_CODE(engine->get_xct_manager().begin_xct(context, xct::kSerializable));
   CHECK_ERROR(storages_.customers_secondary_->verify_single_thread(context));
   CHECK_ERROR(storages_.neworders_->verify_single_thread(context));
@@ -173,7 +174,6 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
   CHECK_ERROR(storages_.orders_->verify_single_thread(context));
   CHECK_ERROR(storages_.orders_secondary_->verify_single_thread(context));
   WRAP_ERROR_CODE(engine->get_xct_manager().abort_xct(context));
-
 
   LOG(INFO) << "Verifying customers_secondary_ in detail..";
   WRAP_ERROR_CODE(engine->get_xct_manager().begin_xct(context, xct::kDirtyReadPreferVolatile));
@@ -228,6 +228,7 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
 
   WRAP_ERROR_CODE(engine->get_xct_manager().abort_xct(context));
   LOG(INFO) << "Verified customers_secondary_ in detail.";
+#endif  // NDEBUG
 
   LOG(INFO) << "Loaded all tables. Waiting for flushing all logs...";
   Epoch ep = engine->get_xct_manager().get_current_global_epoch();
