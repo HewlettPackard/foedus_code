@@ -146,15 +146,14 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
     }
 
     // SELECT ... FROM ITEM WHERE IID=iid
-    ItemData i_data;
+    const void* i_data_address;
     CHECK_ERROR_CODE(
-      storage::array::ArrayStorage::get_record(
+      storage::array::ArrayStorage::get_record_payload(
         context_,
         storages_.items_cache_,
         iid,
-        &i_data,
-        0,
-        sizeof(i_data)));
+        &i_data_address));
+    const ItemData* i_data = reinterpret_cast<const ItemData*>(i_data_address);
 
     // SELECT ... FROM STOCK WHERE WID=supply_wid AND IID=iid
     // then UPDATE quantity and remote count
@@ -191,8 +190,8 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
       s_quantity_offset));
 
     OrderlineData ol_data;
-    ol_data.amount_ = quantity * i_data.price_ * (1.0 + w_tax + d_tax) * (1.0 - c_discount);
-    ::memcpy(ol_data.dist_info_, s_data->dist_data_[did], sizeof(ol_data.dist_info_));
+    ol_data.amount_ = quantity * i_data->price_ * (1.0 + w_tax + d_tax) * (1.0 - c_discount);
+    std::memcpy(ol_data.dist_info_, s_data->dist_data_[did], sizeof(ol_data.dist_info_));
     ol_data.iid_ = iid;
     ol_data.quantity_ = quantity;
     ol_data.supply_wid_ = supply_wid;
@@ -205,10 +204,10 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
       sizeof(ol_data)));
 
     // output variables
-    output_bg_[ol - 1] = ::strstr(i_data.data_, "original") != NULL
+    output_bg_[ol - 1] = ::strstr(i_data->data_, "original") != NULL
         && ::strstr(s_data->data_, "original") != NULL ? 'B' : 'G';
-    output_prices_[ol - 1] = i_data.price_;
-    ::memcpy(output_item_names_[ol - 1], i_data.name_, sizeof(i_data.name_));
+    output_prices_[ol - 1] = i_data->price_;
+    std::memcpy(output_item_names_[ol - 1], i_data->name_, sizeof(i_data->name_));
     output_quantities_[ol - 1] = quantity;
     output_amounts_[ol - 1] = ol_data.amount_;
     output_total_ += ol_data.amount_;
