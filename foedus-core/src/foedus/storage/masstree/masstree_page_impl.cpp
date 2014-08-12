@@ -460,6 +460,11 @@ void MasstreeBorderPage::split_foster_migrate_records(
   ASSERT_ND(header_.page_version_.get_key_count() == 0);
   uint8_t migrated_count = 0;
   uint16_t unused_space = kDataSize;
+  // utilize the fact that records grow backwards.
+  // memcpy contiguous records as much as possible
+  uint16_t contiguous_copy_size = 0;
+  uint16_t contiguous_copy_to_begin = 0;
+  uint16_t contiguous_copy_from_begin = 0;
   for (uint8_t i = 0; i < key_count; ++i) {
     if (copy_from.slices_[i] >= inclusive_from && copy_from.slices_[i] <= inclusive_to) {
       // move this record.
@@ -479,10 +484,50 @@ void MasstreeBorderPage::split_foster_migrate_records(
       ASSERT_ND(unused_space >= record_length);
       unused_space -= record_length;
       offsets_[migrated_count] = unused_space >> 4;
-      std::memcpy(get_record(migrated_count), copy_from.get_record(i), record_length);
+
+      uint16_t copy_from_begin = static_cast<uint16_t>(copy_from.offsets_[i]) << 4;
+      if (contiguous_copy_size == 0) {
+        contiguous_copy_size = record_length;
+        contiguous_copy_from_begin = copy_from_begin;
+        contiguous_copy_to_begin = unused_space;
+      } else if (contiguous_copy_from_begin - record_length != copy_from_begin) {
+        // this happens when the record has shrunk (eg now points to next layer).
+        // flush contiguous data.
+        ASSERT_ND(contiguous_copy_from_begin - record_length > copy_from_begin);
+        std::memcpy(
+          data_ + contiguous_copy_to_begin,
+          copy_from.data_ + contiguous_copy_from_begin,
+          contiguous_copy_size);
+        contiguous_copy_size = record_length;
+        contiguous_copy_from_begin = copy_from_begin;
+        contiguous_copy_to_begin = unused_space;
+      } else {
+        ASSERT_ND(contiguous_copy_from_begin - record_length == copy_from_begin);
+        ASSERT_ND(contiguous_copy_to_begin >= record_length);
+        contiguous_copy_size += record_length;
+        contiguous_copy_from_begin = copy_from_begin;
+        contiguous_copy_to_begin -= record_length;
+      }
       ++migrated_count;
+    } else {
+      // oh, we didn't copy this record, so the contiguity is broken. do the copy now.
+      if (contiguous_copy_size > 0U) {
+        std::memcpy(
+          data_ + contiguous_copy_to_begin,
+          copy_from.data_ + contiguous_copy_from_begin,
+          contiguous_copy_size);
+        contiguous_copy_size = 0;
+      }
     }
   }
+  // after all, do the copy now.
+  if (contiguous_copy_size > 0U) {
+    std::memcpy(
+      data_ + contiguous_copy_to_begin,
+      copy_from.data_ + contiguous_copy_from_begin,
+      contiguous_copy_size);
+  }
+
   header_.page_version_.set_key_count(migrated_count);
 }
 

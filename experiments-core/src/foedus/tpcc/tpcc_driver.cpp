@@ -40,7 +40,7 @@ DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inse
 DEFINE_int32(payment_remote_percent, 15, "Percent of each payment that is inserted to remote"
   " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
-DEFINE_bool(single_thread_test, true, "Whether to run a single-threaded sanity test.");
+DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
 DEFINE_int32(warehouses, 4, "Number of warehouses.");
 DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
 
