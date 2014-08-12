@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <mutex>
 #include <string>
 
 #include "foedus/assert_nd.hpp"
@@ -416,6 +417,10 @@ ErrorStack TpccLoadTask::load_customers() {
   return kRetOk;
 }
 
+// synchronize data load to customer_secondary.
+// this is ideal for almost sequential inserts.
+std::mutex customer_secondary_mutex;
+
 ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   LOG(INFO) << "Loading Customer for DID=" << static_cast<int>(did) << ", WID=" << wid
     << ": " << engine_->get_memory_manager().dump_free_memory_stat();
@@ -536,6 +541,9 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   sort_watch.stop();
   LOG(INFO) << "Sorted secondary entries in " << sort_watch.elapsed_us() << "us";
   auto* customers_secondary = storages_.customers_secondary_;
+
+  // synchronize insert to customer_secondary
+  std::lock_guard<std::mutex> guard(customer_secondary_mutex);
   for (Cid from = 0; from < kCustomers;) {
     uint32_t cur_batch_size = std::min<uint32_t>(kCommitBatch, kCustomers - from);
     char key_be[CustomerSecondaryKey::kKeyLength];

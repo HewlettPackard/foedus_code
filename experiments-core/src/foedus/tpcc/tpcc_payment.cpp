@@ -33,15 +33,14 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   }
 
   // SELECT NAME FROM WAREHOUSE
-  char w_name[11];
-
-  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record(
+  const void *w_address;
+  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_payload(
     context_,
     storages_.warehouses_static_cache_,
     wid,
-    w_name,
-    0,
-    sizeof(w_name)));
+    &w_address));
+  const WarehouseStaticData* w_record = reinterpret_cast<const WarehouseStaticData*>(w_address);
+
   // UPDATE WAREHOUSE SET YTD=YTD+amount
   CHECK_ERROR_CODE(storages_.warehouses_ytd_->increment_record_oneshot<double>(
     context_,
@@ -50,14 +49,14 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     0));
 
   // SELECT NAME FROM DISTRICT
-  char d_name[11];
-  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record(
+  const void *d_address;
+  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_payload(
     context_,
     storages_.districts_static_cache_,
     did,
-    d_name,
-    0,
-    sizeof(d_name)));
+    &d_address));
+  const DistrictStaticData* d_record = reinterpret_cast<const DistrictStaticData*>(d_address);
+
   // UPDATE DISTRICT SET YTD=YTD+amount
   CHECK_ERROR_CODE(storages_.districts_ytd_->increment_record_oneshot<double>(
     context_,
@@ -93,16 +92,15 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     static_cast<uint64_t>(amount),
     offsetof(CustomerDynamicData, ytd_payment_)));
 
-  char credit[3];
-  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record(
+  const void *c_address;
+  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_payload(
     context_,
     storages_.customers_static_cache_,
     wdcid,
-    credit,
-    offsetof(CustomerStaticData, credit_),
-    sizeof(credit)));
+    &c_address));
+  const CustomerStaticData* c_record = reinterpret_cast<const CustomerStaticData*>(c_address);
 
-  if (credit[0] == 'B' && credit[1] == 'C') {
+  if (c_record->credit_[0] == 'B' && c_record->credit_[1] == 'C') {
     // in this case we are also retrieving and rewriting data_.
     // what/how much is faster?
     // http://zverovich.net/2013/09/07/integer-to-string-conversion-in-cplusplus.html
@@ -147,12 +145,12 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   h_data.did_ = did;
   h_data.wid_ = wid;
 
-  std::memcpy(h_data.data_, w_name, 10);
+  std::memcpy(h_data.data_, w_record->name_, 10);
   h_data.data_[10] = ' ';
   h_data.data_[11] = ' ';
   h_data.data_[12] = ' ';
   h_data.data_[13] = ' ';
-  std::memcpy(h_data.data_ + 14, d_name, 11);
+  std::memcpy(h_data.data_ + 14, d_record->name_, 11);
 
   std::memcpy(h_data.date_, time_str.data(), time_str.size());
   h_data.date_[time_str.size()] = '\0';
