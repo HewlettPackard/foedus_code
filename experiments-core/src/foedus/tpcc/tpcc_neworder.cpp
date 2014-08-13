@@ -10,6 +10,7 @@
 #include <string>
 
 #include "foedus/compiler.hpp"
+#include "foedus/assorted/cacheline.hpp"
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 
@@ -181,6 +182,16 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
       ol_cnt,
       sids,
       s_data_address));
+
+  // prefetch required columns. note that the first 64bytes are already prefetched
+  for (Ol ol = 1; ol <= ol_cnt; ++ol) {
+    // prefetch second half of item
+    assorted::prefetch_cacheline(reinterpret_cast<const char*>(i_data_address[ol - 1]) + 64);
+    // prefetch required columns of stock
+    const StockData* s_data = reinterpret_cast<const StockData*>(s_data_address[ol - 1]);
+    assorted::prefetch_cacheline(s_data->dist_data_[did]);
+    assorted::prefetch_cacheline(s_data->data_);
+  }
 
   const uint16_t s_quantity_offset = offsetof(StockData, quantity_);
   const uint16_t s_remote_offset = offsetof(StockData, remote_cnt_);
