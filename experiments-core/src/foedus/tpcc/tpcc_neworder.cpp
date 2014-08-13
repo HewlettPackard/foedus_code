@@ -174,21 +174,21 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
       i_data_address));
   // SELECT ... FROM STOCK WHERE WID=supply_wid AND IID=iid
   // then UPDATE quantity and remote count
-  const void* s_data_address[kOlMax];
+  storage::Record* s_records[kOlMax];
   CHECK_ERROR_CODE(
-    storage::array::ArrayStorage::get_record_payload_batch(
+    storage::array::ArrayStorage::get_record_for_write_batch(
       context_,
       storages_.stocks_cache_,
       ol_cnt,
       sids,
-      s_data_address));
+      s_records));
 
   // prefetch required columns. note that the first 64bytes are already prefetched
   for (Ol ol = 1; ol <= ol_cnt; ++ol) {
     // prefetch second half of item
     assorted::prefetch_cacheline(reinterpret_cast<const char*>(i_data_address[ol - 1]) + 64);
     // prefetch required columns of stock
-    const StockData* s_data = reinterpret_cast<const StockData*>(s_data_address[ol - 1]);
+    const StockData* s_data = reinterpret_cast<const StockData*>(s_records[ol - 1]->payload_);
     assorted::prefetch_cacheline(s_data->dist_data_[did]);
     assorted::prefetch_cacheline(s_data->data_);
   }
@@ -197,7 +197,7 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
   const uint16_t s_remote_offset = offsetof(StockData, remote_cnt_);
   for (Ol ol = 1; ol <= ol_cnt; ++ol) {
     const ItemData* i_data = reinterpret_cast<const ItemData*>(i_data_address[ol - 1]);
-    const StockData* s_data = reinterpret_cast<const StockData*>(s_data_address[ol - 1]);
+    const StockData* s_data = reinterpret_cast<const StockData*>(s_records[ol - 1]->payload_);
     uint32_t quantity = quantities[ol - 1];
     uint32_t new_quantity = s_data->quantity_;
     if (new_quantity > quantity) {
@@ -209,16 +209,20 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
     Wid supply_wid = extract_wid_from_sid(sids[ol - 1]);
     if (supply_wid != wid) {
         // in this case we are also incrementing remote cnt
-      CHECK_ERROR_CODE(storages_.stocks_->overwrite_record_primitive<uint32_t>(
+      CHECK_ERROR_CODE(storage::array::ArrayStorage::overwrite_record_primitive<uint32_t>(
         context_,
+        storages_.stocks_cache_,
         sids[ol - 1],
+        s_records[ol - 1],
         s_data->remote_cnt_ + 1,
         s_remote_offset));
     }
     // overwrite quantity
-    CHECK_ERROR_CODE(storages_.stocks_->overwrite_record_primitive<uint32_t>(
+    CHECK_ERROR_CODE(storage::array::ArrayStorage::overwrite_record_primitive<uint32_t>(
       context_,
+      storages_.stocks_cache_,
       sids[ol - 1],
+      s_records[ol - 1],
       new_quantity,
       s_quantity_offset));
 
