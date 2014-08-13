@@ -176,6 +176,20 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
   ErrorCode get_record_payload(thread::Thread* context, ArrayOffset offset, const void** payload);
 
   /**
+   * @brief Retrieves a pointer to the entire record for write (thus always in volatile page).
+   * @param[in] context Thread context
+   * @param[in] offset The offset in this array
+   * @param[out] record Sets the pointer to the record in a volatile page.
+   * @pre offset < get_array_size()
+   * @details
+   * This is used to retrieve entire record without copying and also to prepare for writes.
+   * Though "record" is a non-const pointer, of course don't directly write to it.
+   * Use overwrite_xxx etc which does the pre-commit protocol to write.
+   * This also adds to read-set.
+   */
+  ErrorCode get_record_for_write(thread::Thread* context, ArrayOffset offset, Record** record);
+
+  /**
    * @brief Overwrites one record of the given offset in this array storage.
    * @param[in] context Thread context
    * @param[in] offset The offset in this array
@@ -214,6 +228,46 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
   template <typename T>
   ErrorCode  overwrite_record_primitive(thread::Thread* context, ArrayOffset offset,
             T payload, uint16_t payload_offset);
+
+  /**
+   * @brief Overwrites a part of the pre-searched record in this array storage.
+   * @param[in] context Thread context
+   * @param[in] offset The offset in this array. Used for logging.
+   * @param[in] record Pointer to the record.
+   * @param[in] payload We copy from this buffer.
+   * @param[in] payload_offset We copy to this byte position of the record.
+   * @param[in] payload_count How many bytes we copy.
+   * @pre payload_offset + payload_count <= get_payload_size()
+   * @pre offset < get_array_size()
+   * @see get_record_for_write()
+   */
+  ErrorCode  overwrite_record(
+    thread::Thread* context,
+    ArrayOffset offset,
+    Record* record,
+    const void *payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
+
+  /**
+   * @brief Overwrites a part of pre-searched record as a primitive type
+   * in this array storage. A bit more efficient than overwrite_record().
+   * @param[in] context Thread context
+   * @param[in] offset The offset in this array. Used for logging.
+   * @param[in] record Pointer to the record.
+   * @param[in] payload The value as primitive type.
+   * @param[in] payload_offset We copy to this byte position of the record.
+   * @tparam T primitive type. All integers and floats are allowed.
+   * @pre payload_offset + sizeof(T) <= get_payload_size()
+   * @pre offset < get_array_size()
+   */
+  template <typename T>
+  ErrorCode  overwrite_record_primitive(
+    thread::Thread* context,
+    ArrayOffset offset,
+    Record* record,
+    T payload,
+    uint16_t payload_offset);
 
   /**
    * @brief This one further optimizes overwrite_record_primitive() for the frequent use
@@ -283,6 +337,30 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
     ArrayOffset offset,
     const void** payload);
 
+  static ErrorCode get_record_for_write(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    ArrayOffset offset,
+    Record** record);
+
+  static ErrorCode overwrite_record(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    ArrayOffset offset,
+    Record* record,
+    const void *payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
+
+  template <typename T>
+  static ErrorCode overwrite_record_primitive(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    ArrayOffset offset,
+    Record* record,
+    T payload,
+    uint16_t payload_offset);
+
   template <typename T>
   static ErrorCode get_record_primitive_batch(
     thread::Thread* context,
@@ -297,6 +375,12 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
     uint16_t batch_size,
     const ArrayOffset* offset_batch,
     const void** payload_batch);
+  static ErrorCode get_record_for_write_batch(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    Record** record_batch);
 
  private:
   ArrayStoragePimpl*  pimpl_;

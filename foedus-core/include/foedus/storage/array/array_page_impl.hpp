@@ -73,9 +73,7 @@ class ArrayPage final {
     const ArrayRange& array_range);
 
   // Record accesses
-  const Record*   get_leaf_record(uint16_t record) const ALWAYS_INLINE {
-    return const_cast<ArrayPage*>(this)->get_leaf_record(record);
-  }
+  /** shouldn't use this... */
   Record*         get_leaf_record(uint16_t record) ALWAYS_INLINE {
     ASSERT_ND(is_leaf());
     ASSERT_ND((record + 1) * (kRecordOverhead + payload_size_) <= kDataSize);

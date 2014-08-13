@@ -83,12 +83,33 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     thread::Thread* context,
     ArrayOffset offset,
     const void **payload) ALWAYS_INLINE;
+  ErrorCode   get_record_for_write(
+    thread::Thread* context,
+    ArrayOffset offset,
+    Record** record) ALWAYS_INLINE;
 
   ErrorCode   overwrite_record(thread::Thread* context, ArrayOffset offset,
       const void *payload, uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE;
   template <typename T>
   ErrorCode   overwrite_record_primitive(thread::Thread* context, ArrayOffset offset,
             T payload, uint16_t payload_offset);
+
+  ErrorCode   overwrite_record(
+    thread::Thread* context,
+    ArrayOffset offset,
+    Record* record,
+    const void *payload,
+    uint16_t payload_offset,
+    uint16_t payload_count) ALWAYS_INLINE;
+
+  template <typename T>
+  ErrorCode   overwrite_record_primitive(
+    thread::Thread* context,
+    ArrayOffset offset,
+    Record* record,
+    T payload,
+    uint16_t payload_offset) ALWAYS_INLINE;
+
   template <typename T>
   ErrorCode   increment_record(thread::Thread* context, ArrayOffset offset,
             T* value, uint16_t payload_offset);
@@ -145,6 +166,12 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     const ArrayStorageCache& cache,
     ArrayOffset offset,
     const void **payload) ALWAYS_INLINE;
+  static ErrorCode get_record_for_write(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    ArrayOffset offset,
+    Record** record) ALWAYS_INLINE;
+
   static ErrorCode locate_record_for_read(
     thread::Thread* context,
     const ArrayStorageCache& cache,
@@ -176,6 +203,31 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     uint16_t batch_size,
     const ArrayOffset* offset_batch,
     const void** payload_batch) ALWAYS_INLINE;
+  static ErrorCode get_record_for_write_batch(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    Record** record_batch) ALWAYS_INLINE;
+
+  static ErrorCode overwrite_record(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    ArrayOffset offset,
+    Record* record,
+    const void *payload,
+    uint16_t payload_offset,
+    uint16_t payload_count) ALWAYS_INLINE;
+
+  template <typename T>
+  static ErrorCode overwrite_record_primitive(
+    thread::Thread* context,
+    const ArrayStorageCache& cache,
+    ArrayOffset offset,
+    Record* record,
+    T payload,
+    uint16_t payload_offset) ALWAYS_INLINE;
+
   static ErrorCode locate_record_for_read_batch(
     thread::Thread* context,
     const ArrayStorageCache& cache,
@@ -194,6 +246,15 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     ArrayPage** out_batch,
     uint16_t* index_batch,
     bool* snapshot_page_batch) ALWAYS_INLINE;
+  static ErrorCode lookup_for_write_batch(
+    thread::Thread* context,
+    ArrayPage* root_page,
+    uint8_t levels,
+    const LookupRouteFinder& route_finder,
+    const ArrayMetadata& metadata,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    Record** record_batch) ALWAYS_INLINE;
 
   static ErrorCode follow_pointer_for_read(
     thread::Thread* context,
@@ -201,6 +262,11 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     const memory::GlobalVolatilePageResolver& page_resolver,
     DualPagePointer* pointer,
     bool* followed_snapshot_pointer,
+    ArrayPage** out) ALWAYS_INLINE;
+  static ErrorCode follow_pointer_for_write(
+    thread::Thread* context,
+    const memory::GlobalVolatilePageResolver& page_resolver,
+    DualPagePointer* pointer,
     ArrayPage** out) ALWAYS_INLINE;
 
   Engine* const           engine_;
