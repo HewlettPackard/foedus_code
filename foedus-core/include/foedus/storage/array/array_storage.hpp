@@ -99,6 +99,19 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
   bool                exists()    const CXX11_OVERRIDE;
   ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
 
+  /**
+   * @brief Prefetch data pages in this storage.
+   * @param[in] from inclusive begin offset of records that are specifically prefetched even in
+   * data pages.
+   * @param[in] to exclusive end offset of records that are specifically prefetched even in data
+   * pages. 0 means up to the end of the storage.
+   * @details
+   * This is to \e warmup the storage for the current core.
+   * Data pages are prefetched within from/to.
+   * So far prefetches only volatile pages, but it will also cache and prefetch snapshot pages.
+   */
+  ErrorCode prefetch_pages(thread::Thread* context, ArrayOffset from = 0, ArrayOffset to = 0);
+
   // this storage type doesn't use moved bit
   bool track_moved_record(xct::WriteXctAccess* /*write*/) CXX11_OVERRIDE {
     ASSERT_ND(false);

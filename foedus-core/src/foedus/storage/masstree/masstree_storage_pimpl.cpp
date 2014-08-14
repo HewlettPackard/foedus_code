@@ -997,7 +997,6 @@ ErrorCode MasstreeStoragePimpl::increment_general(
     log_entry);
 }
 
-
 inline bool MasstreeStoragePimpl::track_moved_record(xct::WriteXctAccess* write) {
   // We use moved bit only for volatile border pages
   MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(

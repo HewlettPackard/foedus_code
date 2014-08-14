@@ -110,7 +110,7 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
   {
     std::lock_guard<std::mutex> guard(durable_global_epoch_savepoint_mutex_);
     if (min_durable_epoch <= get_durable_global_epoch()) {
-      LOG(INFO) << "oh, I lost the race.";
+      VLOG(0) << "oh, I lost the race.";
       return kRetOk;
     }
 

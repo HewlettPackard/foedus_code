@@ -53,6 +53,14 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   ErrorStack  create(thread::Thread* context);
   void        report_page_distribution();
 
+  /** defined in array_storage_prefetch.cpp */
+  ErrorCode   prefetch_pages(thread::Thread* context, ArrayOffset from, ArrayOffset to);
+  ErrorCode   prefetch_pages_recurse(
+    thread::Thread* context,
+    ArrayOffset from,
+    ArrayOffset to,
+    ArrayPage* page);
+
   // all per-record APIs are called so frequently, so returns ErrorCode rather than ErrorStack
   ErrorCode   locate_record_for_read(
     thread::Thread* context,
@@ -145,6 +153,11 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   * @return index=level.
   */
   static std::vector<uint64_t> calculate_required_pages(uint64_t array_size, uint16_t payload);
+  /**
+   * The offset interval a single page represents in each level. index=level.
+   * So, offset_intervals[0] is the number of records in a leaf page.
+   */
+  static std::vector<uint64_t> calculate_offset_intervals(uint8_t levels, uint16_t payload);
 
   // so far experimental...
   static ErrorCode get_record(

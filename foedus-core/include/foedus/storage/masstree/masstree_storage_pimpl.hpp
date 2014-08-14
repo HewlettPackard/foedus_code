@@ -238,6 +238,15 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     MasstreeBorderPage* parent,
     uint8_t parent_index);
 
+  /** defined in masstree_storage_prefetch.cpp */
+  ErrorCode prefetch_pages_normalized(thread::Thread* context, KeySlice from, KeySlice to);
+  ErrorCode prefetch_pages_normalized_recurse(
+    thread::Thread* context,
+    KeySlice from,
+    KeySlice to,
+    MasstreePage* page);
+  ErrorCode prefetch_pages_exhaustive(thread::Thread* context, MasstreePage* page);
+
   bool track_moved_record(xct::WriteXctAccess* write) ALWAYS_INLINE;
   xct::XctId* track_moved_record(xct::XctId* address) ALWAYS_INLINE;
 };

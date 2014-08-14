@@ -30,6 +30,17 @@ ErrorStack  ArrayStorage::initialize()              { return pimpl_->initialize(
 ErrorStack  ArrayStorage::uninitialize()            { return pimpl_->uninitialize(); }
 ErrorStack  ArrayStorage::create(thread::Thread* context)   { return pimpl_->create(context); }
 
+ErrorCode   ArrayStorage::prefetch_pages(
+  thread::Thread* context,
+  ArrayOffset from,
+  ArrayOffset to) {
+  if (to == 0) {
+    to = get_array_size();
+  }
+  return pimpl_->prefetch_pages(context, from, to);
+}
+
+
 void ArrayStorage::describe(std::ostream* o_ptr) const {
   std::ostream& o = *o_ptr;
   o << "<ArrayStorage>"

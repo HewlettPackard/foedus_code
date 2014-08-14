@@ -41,6 +41,8 @@ DEFINE_int32(payment_remote_percent, 15, "Percent of each payment that is insert
   " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
+DEFINE_int32(thread_per_node, 0, "Number of threads per NUMA node. 0 uses logical count");
+DEFINE_int32(log_buffer_mb, 256, "Size in MB of log buffer for each thread");
 DEFINE_int32(warehouses, 4, "Number of warehouses.");
 DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
 
@@ -134,6 +136,7 @@ TpccDriver::Result TpccDriver::run() {
 
   LOG(INFO) << "neworder_remote_percent=" << FLAGS_neworder_remote_percent;
   LOG(INFO) << "payment_remote_percent=" << FLAGS_payment_remote_percent;
+  warmup_complete_counter_.store(0);
   std::vector< thread::ImpersonateSession > sessions;
   for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
     memory::ScopedNumaPreferred scope(node);
@@ -147,6 +150,7 @@ TpccDriver::Result TpccDriver::run() {
         FLAGS_neworder_remote_percent,
         FLAGS_payment_remote_percent,
         storages_,
+        &warmup_complete_counter_,
         &start_rendezvous_));
       sessions.emplace_back(thread_pool.impersonate_on_numa_node(clients_.back(), node));
       if (!sessions.back().is_valid()) {
@@ -154,10 +158,14 @@ TpccDriver::Result TpccDriver::run() {
       }
     }
   }
-  LOG(INFO) << "okay, launched all worker threads";
+  LOG(INFO) << "okay, launched all worker threads. waiting for completion of warmup...";
+  while (warmup_complete_counter_.load() < sessions.size()) {
+    LOG(INFO) << "Waiting for warmup completion... done=" << warmup_complete_counter_ << "/"
+      << sessions.size();
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
 
-  // make sure all threads are done with random number generation
-  std::this_thread::sleep_for(std::chrono::seconds(3));
+  LOG(INFO) << "All warmup done!";
   if (FLAGS_profile) {
     COERCE_ERROR(engine_->get_debug().start_profile("tpcc.prof"));
   }
@@ -277,11 +285,17 @@ int driver_main(int argc, char **argv) {
   options.debugging_.verbose_modules_ = "";
   options.debugging_.verbose_log_level_ = -1;
 
-  options.log_.log_buffer_kb_ = 1 << 18;  // 256MB * 16 cores = 4 GB. nothing.
+  options.log_.log_buffer_kb_ = FLAGS_log_buffer_mb << 10;
+  LOG(INFO) << "log_buffer_mb=" << FLAGS_log_buffer_mb << "MB per thread";
   options.log_.log_file_size_mb_ = 1 << 10;
   LOG(INFO) << "volatile_pool_size=" << FLAGS_volatile_pool_size << "GB per NUMA node";
   options.memory_.page_pool_size_mb_per_node_ = (FLAGS_volatile_pool_size) << 10;
   options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 10;
+
+  if (FLAGS_thread_per_node != 0) {
+    LOG(INFO) << "thread_per_node=" << FLAGS_thread_per_node;
+    options.thread_.thread_count_per_group_ = FLAGS_thread_per_node;
+  }
 
   if (FLAGS_single_thread_test) {
     FLAGS_warehouses = 1;

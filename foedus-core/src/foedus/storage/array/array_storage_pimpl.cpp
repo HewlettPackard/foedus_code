@@ -234,6 +234,18 @@ ErrorStack ArrayStoragePimpl::uninitialize_once() {
   return kRetOk;
 }
 
+std::vector<uint64_t> ArrayStoragePimpl::calculate_offset_intervals(
+  uint8_t levels,
+  uint16_t payload) {
+  const uint16_t payload_size_aligned = (assorted::align8(payload));
+
+  std::vector<uint64_t> offset_intervals;
+  offset_intervals.push_back(kDataSize / (payload_size_aligned + kRecordOverhead));
+  for (uint8_t level = 1; level < levels; ++level) {
+    offset_intervals.push_back(offset_intervals[level - 1] * kInteriorFanout);
+  }
+  return offset_intervals;
+}
 
 ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
   if (exist_) {
@@ -241,19 +253,13 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     return ERROR_STACK(kErrorCodeStrAlreadyExists);
   }
 
-  const uint16_t payload_size_aligned = (assorted::align8(metadata_.payload_size_));
-
   // Number of pages in each level. index=level.
   std::vector<uint64_t> pages = calculate_required_pages(
     metadata_.array_size_, metadata_.payload_size_);
 
-  // The offset interval a single page represents in each level. index=level.
-  // So, offset_intervals[0] is the number of records in a leaf page.
-  std::vector<uint64_t> offset_intervals;
-  offset_intervals.push_back(kDataSize / (payload_size_aligned + kRecordOverhead));
-  for (uint8_t level = 1; level < levels_; ++level) {
-    offset_intervals.push_back(offset_intervals[level - 1] * kInteriorFanout);
-  }
+  std::vector<uint64_t> offset_intervals = calculate_offset_intervals(
+    levels_,
+    metadata_.payload_size_);
   for (uint8_t level = 0; level < levels_; ++level) {
     LOG(INFO) << "Level-" << static_cast<int>(level) << " pages=" << pages[level]
       << " interval=" << offset_intervals[level];

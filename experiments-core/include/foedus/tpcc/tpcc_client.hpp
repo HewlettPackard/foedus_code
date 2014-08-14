@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <time.h>
 
+#include <atomic>
 #include <cstring>
 #include <set>
 #include <string>
@@ -49,6 +50,7 @@ class TpccClientTask : public thread::ImpersonateTask {
     uint16_t neworder_remote_percent,
     uint16_t payment_remote_percent,
     const TpccStorages& storages,
+    std::atomic<uint32_t> *warmup_complete_counter,
     thread::Rendezvous* start_rendezvous)
     : worker_id_(worker_id),
       total_warehouses_(total_warehouses),
@@ -60,6 +62,7 @@ class TpccClientTask : public thread::ImpersonateTask {
       rnd_(kRandomSeed + worker_id),
       processed_(0) {
     stop_requrested_ = false;
+    warmup_complete_counter_ = warmup_complete_counter;
     start_rendezvous_ = start_rendezvous;
     user_requested_aborts_ = 0;
     race_aborts_ = 0;
@@ -94,6 +97,7 @@ class TpccClientTask : public thread::ImpersonateTask {
   /** exclusive end of "home" wid */
   const Wid to_wid_;
 
+  std::atomic<uint32_t>* warmup_complete_counter_;
   thread::Rendezvous* start_rendezvous_;
 
   TpccStorages      storages_;
@@ -120,7 +124,6 @@ class TpccClientTask : public thread::ImpersonateTask {
   const uint16_t    payment_remote_percent_;
 
 
-  memory::AlignedMemory numbers_;
   /** thread local random. */
   assorted::UniformRandom rnd_;
 
@@ -206,6 +209,8 @@ class TpccClientTask : public thread::ImpersonateTask {
   Wid get_random_warehouse_id() ALWAYS_INLINE {
     return rnd_.uniform_within(0, total_warehouses_ - 1);
   }
+
+  ErrorStack warmup(thread::Thread* context);
 };
 }  // namespace tpcc
 }  // namespace foedus

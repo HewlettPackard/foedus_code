@@ -62,6 +62,9 @@ class TpccDriver {
 
   TpccStorages                  storages_;
 
+  /** Each worker does a warmup at beginning and increment this when done. */
+  std::atomic<uint32_t>         warmup_complete_counter_;
+  /** This is fired when warmup_complete_counter_ becomes the total worker count. */
   thread::Rendezvous            start_rendezvous_;
 
   void assign_wids();

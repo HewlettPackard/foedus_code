@@ -9,11 +9,13 @@
 #include <string>
 
 #include "foedus/assert_nd.hpp"
+#include "foedus/engine_options.hpp"
 #include "foedus/assorted/endianness.hpp"
 #include "foedus/debugging/rdtsc.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/storage/masstree/masstree_cursor.hpp"
+#include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct_manager.hpp"
 
@@ -32,12 +34,7 @@ const uint32_t kMaxUnexpectedErrors = 1;
 ErrorStack TpccClientTask::run(thread::Thread* context) {
   context_ = context;
   engine_ = context->get_engine();
-  CHECK_ERROR(
-    context->get_thread_memory()->get_node_memory()->allocate_numa_memory(
-      kRandomCount * sizeof(uint32_t), &numbers_));
-  rnd_.fill_memory(&numbers_);
-  // const uint32_t *randoms = reinterpret_cast<const uint32_t*>(numbers_.get_block());
-
+  CHECK_ERROR(warmup(context));
   processed_ = 0;
   timestring_ = get_current_time_string();
   previous_timestring_update_ = debugging::get_rdtsc();
@@ -127,7 +124,6 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
   return kRetOk;
 }
 
-
 ErrorCode TpccClientTask::lookup_customer_by_id_or_name(Wid wid, Did did, Cid *cid) {
   // 60% by name, 40% by ID
   bool by_name = rnd_.uniform_within(1, 100) <= 60;
@@ -180,6 +176,73 @@ ErrorCode TpccClientTask::lookup_customer_by_name(Wid wid, Did did, const char* 
   // take midpoint
   *cid = tmp_cids_[cid_count / 2];
   return kErrorCodeOk;
+}
+
+ErrorStack TpccClientTask::warmup(thread::Thread* context) {
+  // prefetch small tables. completely
+  WRAP_ERROR_CODE(storages_.warehouses_static_->prefetch_pages(context));
+  WRAP_ERROR_CODE(storages_.warehouses_ytd_->prefetch_pages(context));
+  WRAP_ERROR_CODE(storages_.districts_static_->prefetch_pages(context));
+  WRAP_ERROR_CODE(storages_.districts_ytd_->prefetch_pages(context));
+  WRAP_ERROR_CODE(storages_.districts_next_oid_->prefetch_pages(context));
+  WRAP_ERROR_CODE(storages_.items_->prefetch_pages(context));
+
+  // others are larger, so prefetch only records in the home warehouses
+  // within this NUMA node, the thread might switch the core. So, we actually prefetch
+  // warehouses for all workers in this node.
+  float wids_per_node =
+    static_cast<float>(total_warehouses_) / engine_->get_options().thread_.group_count_;
+  Wid wid_begin = wids_per_node * context->get_numa_node();
+  Wid wid_end = wids_per_node * (context->get_numa_node() + 1U) + 1U;
+  if (wid_end > total_warehouses_) {
+    wid_end = total_warehouses_;
+  }
+  ASSERT_ND(wid_begin <= from_wid_);
+  ASSERT_ND(to_wid_ <= wid_end);
+  {
+    // customers arrays
+    Wdcid from = combine_wdcid(combine_wdid(wid_begin, 0), 0);
+    Wdcid to = combine_wdcid(combine_wdid(wid_end, 0), 0);
+    WRAP_ERROR_CODE(storages_.customers_static_->prefetch_pages(context, from, to));
+    WRAP_ERROR_CODE(storages_.customers_dynamic_->prefetch_pages(context, from, to));
+    WRAP_ERROR_CODE(storages_.customers_history_->prefetch_pages(context, from, to));
+  }
+  {
+    // customers secondary
+    storage::masstree::KeySlice from = static_cast<storage::masstree::KeySlice>(wid_begin) << 48U;
+    storage::masstree::KeySlice to = static_cast<storage::masstree::KeySlice>(wid_end) << 48U;
+    WRAP_ERROR_CODE(storages_.customers_secondary_->prefetch_pages_normalized(context, from, to));
+  }
+  {
+    // stocks
+    Sid from = combine_sid(wid_begin, 0);
+    Sid to = combine_sid(wid_end, 0);
+    WRAP_ERROR_CODE(storages_.stocks_->prefetch_pages(context, from, to));
+  }
+  {
+    // order/neworder
+    Wdoid from = combine_wdoid(combine_wdid(wid_begin, 0), 0);
+    Wdoid to = combine_wdoid(combine_wdid(wid_end, 0), 0);
+    WRAP_ERROR_CODE(storages_.neworders_->prefetch_pages_normalized(context, from, to));
+    WRAP_ERROR_CODE(storages_.orders_->prefetch_pages_normalized(context, from, to));
+  }
+  {
+    // order_secondary
+    Wdcoid from = combine_wdcoid(combine_wdcid(combine_wdid(wid_begin, 0), 0), 0);
+    Wdcoid to = combine_wdcoid(combine_wdcid(combine_wdid(wid_end, 0), 0), 0);
+    WRAP_ERROR_CODE(storages_.orders_secondary_->prefetch_pages_normalized(context, from, to));
+  }
+  {
+    // orderlines
+    Wdol from = combine_wdol(combine_wdoid(combine_wdid(wid_begin, 0), 0), 0);
+    Wdol to = combine_wdol(combine_wdoid(combine_wdid(wid_end, 0), 0), 0);
+    WRAP_ERROR_CODE(storages_.orderlines_->prefetch_pages_normalized(context, from, to));
+  }
+
+  // storages_.customers_static_
+  // Warmup done!
+  warmup_complete_counter_->operator++();
+  return kRetOk;
 }
 
 }  // namespace tpcc

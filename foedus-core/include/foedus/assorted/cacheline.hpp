@@ -51,6 +51,19 @@ inline void prefetch_cachelines(const void* address, int cacheline_count) {
   }
 }
 
+/**
+ * @brief Prefetch multiple contiguous cachelines to L2/L3 cache.
+ * @param[in] address memory address to prefetch.
+ * @param[in] cacheline_count count of cachelines to prefetch.
+ * @ingroup ASSORTED
+ */
+inline void prefetch_l2(const void* address, int cacheline_count) {
+  for (int i = 0; i < cacheline_count; ++i) {
+    const void* shifted = reinterpret_cast<const char*>(address) + kCachelineSize * cacheline_count;
+    ::_mm_prefetch(shifted, ::_MM_HINT_T1);
+  }
+}
+
 }  // namespace assorted
 }  // namespace foedus
 
