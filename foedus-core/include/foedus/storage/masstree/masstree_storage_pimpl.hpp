@@ -67,11 +67,12 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   /** If this is true, initialize() reads it back from previous snapshot and logs. */
   bool                    exist_;
 
-  ErrorCode get_first_root(thread::Thread* context, MasstreePage** root, PageVersion* version);
+  ErrorCode get_first_root(thread::Thread* context, MasstreePage** root);
   ErrorCode grow_root(
     thread::Thread* context,
     DualPagePointer* root_pointer,
-    MasstreePage* root);
+    MasstreePage* root,
+    MasstreeIntermediatePage** new_root);
 
   /**
    * Find a border node in the layer that corresponds to the given key slice.
