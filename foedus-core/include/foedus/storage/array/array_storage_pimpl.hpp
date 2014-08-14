@@ -96,6 +96,24 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     ArrayOffset offset,
     Record** record) ALWAYS_INLINE;
 
+  template <typename T>
+  ErrorCode get_record_primitive_batch(
+    thread::Thread* context,
+    uint16_t payload_offset,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    T* payload_batch) ALWAYS_INLINE;
+  ErrorCode get_record_payload_batch(
+    thread::Thread* context,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    const void** payload_batch) ALWAYS_INLINE;
+  ErrorCode get_record_for_write_batch(
+    thread::Thread* context,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    Record** record_batch) ALWAYS_INLINE;
+
   ErrorCode   overwrite_record(thread::Thread* context, ArrayOffset offset,
       const void *payload, uint16_t payload_offset, uint16_t payload_count) ALWAYS_INLINE;
   template <typename T>
@@ -144,6 +162,25 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     ArrayPage** out,
     uint16_t* index) ALWAYS_INLINE;
 
+  ErrorCode locate_record_for_read_batch(
+    thread::Thread* context,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    Record** out_batch,
+    bool* snapshot_page_batch) ALWAYS_INLINE;
+  ErrorCode lookup_for_read_batch(
+    thread::Thread* context,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    ArrayPage** out_batch,
+    uint16_t* index_batch,
+    bool* snapshot_page_batch) ALWAYS_INLINE;
+  ErrorCode lookup_for_write_batch(
+    thread::Thread* context,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    Record** record_batch) ALWAYS_INLINE;
+
   /** Used only from uninitialize() */
   void        release_pages_recursive(
     memory::PageReleaseBatch* batch, ArrayPage* page, VolatilePagePointer volatile_page_id);
@@ -158,116 +195,6 @@ class ArrayStoragePimpl final : public DefaultInitializable {
    * So, offset_intervals[0] is the number of records in a leaf page.
    */
   static std::vector<uint64_t> calculate_offset_intervals(uint8_t levels, uint16_t payload);
-
-  // so far experimental...
-  static ErrorCode get_record(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    ArrayOffset offset,
-    void* payload,
-    uint16_t payload_offset,
-    uint16_t payload_count) ALWAYS_INLINE;
-  template <typename T>
-  static ErrorCode get_record_primitive(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    ArrayOffset offset,
-    T *payload,
-    uint16_t payload_offset);
-  static ErrorCode get_record_payload(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    ArrayOffset offset,
-    const void **payload) ALWAYS_INLINE;
-  static ErrorCode get_record_for_write(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    ArrayOffset offset,
-    Record** record) ALWAYS_INLINE;
-
-  static ErrorCode locate_record_for_read(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    ArrayOffset offset,
-    Record** out,
-    bool* snapshot_record) ALWAYS_INLINE;
-  static ErrorCode lookup_for_read(
-    thread::Thread* context,
-    ArrayPage* root_page,
-    uint8_t levels,
-    const LookupRouteFinder& route_finder,
-    const ArrayMetadata& metadata,
-    ArrayOffset offset,
-    ArrayPage** out,
-    uint16_t* index,
-    bool* snapshot_page) ALWAYS_INLINE;
-
-  template <typename T>
-  static ErrorCode get_record_primitive_batch(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    uint16_t payload_offset,
-    uint16_t batch_size,
-    const ArrayOffset* offset_batch,
-    T* payload_batch) ALWAYS_INLINE;
-  static ErrorCode get_record_payload_batch(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    uint16_t batch_size,
-    const ArrayOffset* offset_batch,
-    const void** payload_batch) ALWAYS_INLINE;
-  static ErrorCode get_record_for_write_batch(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    uint16_t batch_size,
-    const ArrayOffset* offset_batch,
-    Record** record_batch) ALWAYS_INLINE;
-
-  static ErrorCode overwrite_record(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    ArrayOffset offset,
-    Record* record,
-    const void *payload,
-    uint16_t payload_offset,
-    uint16_t payload_count) ALWAYS_INLINE;
-
-  template <typename T>
-  static ErrorCode overwrite_record_primitive(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    ArrayOffset offset,
-    Record* record,
-    T payload,
-    uint16_t payload_offset) ALWAYS_INLINE;
-
-  static ErrorCode locate_record_for_read_batch(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    uint16_t batch_size,
-    const ArrayOffset* offset_batch,
-    Record** out_batch,
-    bool* snapshot_page_batch) ALWAYS_INLINE;
-  static ErrorCode lookup_for_read_batch(
-    thread::Thread* context,
-    ArrayPage* root_page,
-    uint8_t levels,
-    const LookupRouteFinder& route_finder,
-    const ArrayMetadata& metadata,
-    uint16_t batch_size,
-    const ArrayOffset* offset_batch,
-    ArrayPage** out_batch,
-    uint16_t* index_batch,
-    bool* snapshot_page_batch) ALWAYS_INLINE;
-  static ErrorCode lookup_for_write_batch(
-    thread::Thread* context,
-    ArrayPage* root_page,
-    uint8_t levels,
-    const LookupRouteFinder& route_finder,
-    const ArrayMetadata& metadata,
-    uint16_t batch_size,
-    const ArrayOffset* offset_batch,
-    Record** record_batch) ALWAYS_INLINE;
 
   static ErrorCode follow_pointer_for_read(
     thread::Thread* context,

@@ -101,6 +101,7 @@ struct GlobalVolatilePageResolver CXX11_FINAL {
     ASSERT_ND(numa_node < numa_node_count_);
     ASSERT_ND(offset >= begin_);
     ASSERT_ND(offset < end_);
+    storage::assert_aligned_page(bases_[numa_node] + offset);
     return bases_[numa_node] + offset;
   }
   /** Resolves volatile page ID to storage::Page*. */

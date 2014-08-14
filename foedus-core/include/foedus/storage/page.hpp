@@ -440,6 +440,11 @@ inline Page* to_page(const void* address) {
     reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(aligned_address)));
 }
 
+inline void assert_aligned_page(const void* page) {
+  ASSERT_ND(page);
+  ASSERT_ND(reinterpret_cast<uintptr_t>(page) % kPageSize == 0);
+}
+
 }  // namespace storage
 }  // namespace foedus
 #endif  // FOEDUS_STORAGE_PAGE_HPP_
