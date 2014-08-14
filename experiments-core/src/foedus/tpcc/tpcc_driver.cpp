@@ -19,6 +19,7 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/debugging/debugging_supports.hpp"
+#include "foedus/debugging/stop_watch.hpp"
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/thread/thread.hpp"
@@ -30,9 +31,9 @@
 namespace foedus {
 namespace tpcc {
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
-DEFINE_int32(volatile_pool_size, 8, "Size of volatile memory pool per NUMA node in GB.");
+DEFINE_int32(volatile_pool_size, 32, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_bool(ignore_volatile_size_warning, false, "Ignores warning on volatile_pool_size setting.");
-DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
+DEFINE_int32(loggers_per_node, 4, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
   " remote orderline). This corresponds to H-Store's neworder_multip/neworder_multip_mix in"
@@ -43,7 +44,7 @@ DEFINE_int32(payment_remote_percent, 15, "Percent of each payment that is insert
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
 DEFINE_int32(thread_per_node, 0, "Number of threads per NUMA node. 0 uses logical count");
 DEFINE_int32(log_buffer_mb, 256, "Size in MB of log buffer for each thread");
-DEFINE_int32(warehouses, 4, "Number of warehouses.");
+DEFINE_int32(warehouses, 16, "Number of warehouses.");
 DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
 
 TpccDriver::Result TpccDriver::run() {
@@ -171,10 +172,13 @@ TpccDriver::Result TpccDriver::run() {
   }
   start_rendezvous_.signal();  // GO!
   LOG(INFO) << "Started!";
+  debugging::StopWatch duration;
   std::this_thread::sleep_for(std::chrono::microseconds(FLAGS_duration_micro));
   LOG(INFO) << "Experiment ended.";
 
   Result result;
+  duration.stop();
+  result.duration_sec_ = duration.elapsed_sec();
   assorted::memory_fence_acquire();
   for (auto* client : clients_) {
     result.processed_ += client->get_processed();
@@ -340,6 +344,7 @@ int driver_main(int argc, char **argv) {
 
 std::ostream& operator<<(std::ostream& o, const TpccDriver::Result& v) {
   o << "<total_result>"
+    << "<duration_sec_>" << v.duration_sec_ << "</duration_sec_>"
     << "<processed_>" << v.processed_ << "</processed_>"
     << "<MTPS>" << (static_cast<double>(v.processed_) / FLAGS_duration_micro) << "</MTPS>"
     << "<user_requested_aborts_>" << v.user_requested_aborts_ << "</user_requested_aborts_>"

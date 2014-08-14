@@ -25,11 +25,13 @@ class TpccDriver {
  public:
   struct Result {
     Result()
-      : processed_(0),
+      : duration_sec_(0),
+        processed_(0),
         user_requested_aborts_(0),
         race_aborts_(0),
         largereadset_aborts_(0),
         unexpected_aborts_(0) {}
+    double   duration_sec_;
     uint64_t processed_;
     uint64_t user_requested_aborts_;
     uint64_t race_aborts_;

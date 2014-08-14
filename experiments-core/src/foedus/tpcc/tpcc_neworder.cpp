@@ -10,9 +10,11 @@
 #include <string>
 
 #include "foedus/compiler.hpp"
+#include "foedus/engine.hpp"
 #include "foedus/assorted/cacheline.hpp"
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
+#include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 namespace tpcc {
@@ -113,7 +115,8 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
     << ". ol[0]=" << output_bg_[0]
     << "." << output_item_names_[0] << ".$" << output_prices_[0]
     << "*" << output_quantities_[0] << "." << output_amounts_[0];
-  return kErrorCodeOk;
+  Epoch ep;
+  return engine_->get_xct_manager().precommit_xct(context_, &ep);
 }
 
 const char* kOriginalStr = "original";

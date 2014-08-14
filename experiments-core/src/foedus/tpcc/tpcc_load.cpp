@@ -423,8 +423,8 @@ ErrorStack TpccLoadTask::load_customers() {
 // std::mutex customer_secondary_mutex;
 
 ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
-  LOG(INFO) << "Loading Customer for DID=" << static_cast<int>(did) << ", WID=" << wid
-    << ": " << engine_->get_memory_manager().dump_free_memory_stat();
+  LOG(INFO) << "Loading Customer for DID=" << static_cast<int>(did) << ", WID=" << wid;
+  //  << ": " << engine_->get_memory_manager().dump_free_memory_stat();
 
   // insert to customers_secondary at the end after sorting
   memory::AlignedMemory secondary_keys_buffer;
@@ -589,8 +589,8 @@ ErrorStack TpccLoadTask::load_orders() {
 }
 
 ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
-  LOG(INFO) << "Loading Orders for D=" << static_cast<int>(did) << ", W= " << wid
-    << ": " << engine_->get_memory_manager().dump_free_memory_stat();
+  LOG(INFO) << "Loading Orders for D=" << static_cast<int>(did) << ", W= " << wid;
+  //  << ": " << engine_->get_memory_manager().dump_free_memory_stat();
   // Whether the customer id for the current order is already taken.
   bool cid_array[kCustomers];
   std::memset(cid_array, 0, sizeof(cid_array));

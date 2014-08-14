@@ -10,8 +10,10 @@
 #include <cstdio>
 #include <string>
 
+#include "foedus/engine.hpp"
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
+#include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 namespace tpcc {
@@ -160,7 +162,8 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   DVLOG(2) << "Payment: wid=" << wid << ", did=" << did
     << ", cid=" << cid << ", c_wid=" << c_wid << ", c_did=" << c_did
     << ", time=" << time_str;
-  return kErrorCodeOk;
+  Epoch ep;
+  return engine_->get_xct_manager().precommit_xct(context_, &ep);
 }
 
 
