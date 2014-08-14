@@ -13,6 +13,7 @@
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/masstree/masstree_cursor.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
+#include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 namespace tpcc {
@@ -79,7 +80,8 @@ ErrorCode TpccClientTask::do_delivery(Wid wid) {
 
     DVLOG(2) << "Delivery: updated: oid=" << oid << ", #ol=" << ol_count;
   }
-  return kErrorCodeOk;
+  Epoch ep;
+  return engine_->get_xct_manager().precommit_xct(context_, &ep);
 }
 
 ErrorCode TpccClientTask::pop_neworder(Wid wid, Did did, Oid* oid) {

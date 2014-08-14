@@ -73,4 +73,13 @@ namespace foedus {
     fs::remove(fs::Path("tmp_snapshots"));
   }
 
+  bool is_multi_nodes() {
+    EngineOptions options;
+    if (options.thread_.group_count_ > 1U) {
+      return true;
+    } else {
+      std::cerr << "These tests inherently require multi NUMA nodes! skipping them." << std::endl;
+      return false;
+    }
+  }
 }  // namespace foedus

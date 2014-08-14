@@ -67,11 +67,12 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   /** If this is true, initialize() reads it back from previous snapshot and logs. */
   bool                    exist_;
 
-  ErrorCode get_first_root(thread::Thread* context, MasstreePage** root, PageVersion* version);
+  ErrorCode get_first_root(thread::Thread* context, MasstreePage** root);
   ErrorCode grow_root(
     thread::Thread* context,
     DualPagePointer* root_pointer,
-    MasstreePage* root);
+    MasstreePage* root,
+    MasstreeIntermediatePage** new_root);
 
   /**
    * Find a border node in the layer that corresponds to the given key slice.
@@ -237,6 +238,15 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
     thread::Thread* context,
     MasstreeBorderPage* parent,
     uint8_t parent_index);
+
+  /** defined in masstree_storage_prefetch.cpp */
+  ErrorCode prefetch_pages_normalized(thread::Thread* context, KeySlice from, KeySlice to);
+  ErrorCode prefetch_pages_normalized_recurse(
+    thread::Thread* context,
+    KeySlice from,
+    KeySlice to,
+    MasstreePage* page);
+  ErrorCode prefetch_pages_exhaustive(thread::Thread* context, MasstreePage* page);
 
   bool track_moved_record(xct::WriteXctAccess* write) ALWAYS_INLINE;
   xct::XctId* track_moved_record(xct::XctId* address) ALWAYS_INLINE;

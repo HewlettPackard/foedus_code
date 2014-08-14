@@ -10,8 +10,10 @@
 #include <cstdio>
 #include <string>
 
+#include "foedus/engine.hpp"
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
+#include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 namespace tpcc {
@@ -31,15 +33,17 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     wid = c_wid;
     did = c_did;
   }
+  const Wdid wdid = combine_wdid(wid, did);
 
   // SELECT NAME FROM WAREHOUSE
-  char w_name[11];
-  CHECK_ERROR_CODE(storages_.warehouses_static_->get_record(
+  const void *w_address;
+  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_payload(
     context_,
+    storages_.warehouses_static_cache_,
     wid,
-    w_name,
-    0,
-    sizeof(w_name)));
+    &w_address));
+  const WarehouseStaticData* w_record = reinterpret_cast<const WarehouseStaticData*>(w_address);
+
   // UPDATE WAREHOUSE SET YTD=YTD+amount
   CHECK_ERROR_CODE(storages_.warehouses_ytd_->increment_record_oneshot<double>(
     context_,
@@ -47,18 +51,19 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     amount,
     0));
 
-  // SELECT DISTRICT FROM WAREHOUSE
-  char d_name[11];
-  CHECK_ERROR_CODE(storages_.districts_static_->get_record(
+  // SELECT NAME FROM DISTRICT
+  const void *d_address;
+  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_payload(
     context_,
-    did,
-    d_name,
-    0,
-    sizeof(d_name)));
+    storages_.districts_static_cache_,
+    wdid,
+    &d_address));
+  const DistrictStaticData* d_record = reinterpret_cast<const DistrictStaticData*>(d_address);
+
   // UPDATE DISTRICT SET YTD=YTD+amount
   CHECK_ERROR_CODE(storages_.districts_ytd_->increment_record_oneshot<double>(
     context_,
-    did,
+    wdid,
     amount,
     0));
 
@@ -90,22 +95,23 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     static_cast<uint64_t>(amount),
     offsetof(CustomerDynamicData, ytd_payment_)));
 
-  char credit[3];
-  CHECK_ERROR_CODE(storages_.customers_static_->get_record(
+  const void *c_address;
+  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_payload(
     context_,
+    storages_.customers_static_cache_,
     wdcid,
-    credit,
-    offsetof(CustomerStaticData, credit_),
-    sizeof(credit)));
+    &c_address));
+  const CustomerStaticData* c_record = reinterpret_cast<const CustomerStaticData*>(c_address);
 
-  if (credit[0] == 'B' && credit[1] == 'C') {
+  if (c_record->credit_[0] == 'B' && c_record->credit_[1] == 'C') {
     // in this case we are also retrieving and rewriting data_.
     // what/how much is faster?
     // http://zverovich.net/2013/09/07/integer-to-string-conversion-in-cplusplus.html
     // let's consider cppformat if this turns out to be bottleneck
     char c_old_data[CustomerStaticData::kHistoryDataLength];
-    CHECK_ERROR_CODE(storages_.customers_history_->get_record(
+    CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record(
       context_,
+      storages_.customers_history_cache_,
       wdcid,
       c_old_data,
       0,
@@ -142,12 +148,12 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   h_data.did_ = did;
   h_data.wid_ = wid;
 
-  std::memcpy(h_data.data_, w_name, 10);
+  std::memcpy(h_data.data_, w_record->name_, 10);
   h_data.data_[10] = ' ';
   h_data.data_[11] = ' ';
   h_data.data_[12] = ' ';
   h_data.data_[13] = ' ';
-  std::memcpy(h_data.data_ + 14, d_name, 11);
+  std::memcpy(h_data.data_ + 14, d_record->name_, 11);
 
   std::memcpy(h_data.date_, time_str.data(), time_str.size());
   h_data.date_[time_str.size()] = '\0';
@@ -157,7 +163,8 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   DVLOG(2) << "Payment: wid=" << wid << ", did=" << did
     << ", cid=" << cid << ", c_wid=" << c_wid << ", c_did=" << c_did
     << ", time=" << time_str;
-  return kErrorCodeOk;
+  Epoch ep;
+  return engine_->get_xct_manager().precommit_xct(context_, &ep);
 }
 
 

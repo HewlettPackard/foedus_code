@@ -48,6 +48,12 @@ union LookupRoute {
  */
 class LookupRouteFinder {
  public:
+  LookupRouteFinder()
+  : levels_(0),
+    records_in_leaf_(0),
+    leaf_fanout_div_(0),
+    interior_fanout_div_(0) {
+  }
   LookupRouteFinder(uint8_t levels,  uint16_t payload_size)
     : levels_(levels),
       records_in_leaf_(kDataSize / (assorted::align8(payload_size) + kRecordOverhead)),
@@ -79,13 +85,13 @@ class LookupRouteFinder {
   uint16_t    get_records_in_leaf() const ALWAYS_INLINE { return records_in_leaf_; }
 
  private:
-  const uint8_t                 levels_;
+  uint8_t                 levels_;
   /** Number of records in leaf page. */
-  const uint16_t                records_in_leaf_;
+  uint16_t                records_in_leaf_;
   /** ConstDiv(records_in_leaf_) to speed up integer division in lookup(). */
-  const assorted::ConstDiv      leaf_fanout_div_;
+  assorted::ConstDiv      leaf_fanout_div_;
   /** ConstDiv(kInteriorFanout) to speed up integer division in lookup(). */
-  const assorted::ConstDiv      interior_fanout_div_;
+  assorted::ConstDiv      interior_fanout_div_;
 };
 
 inline LookupRoute LookupRouteFinder::find_route(ArrayOffset offset) const {

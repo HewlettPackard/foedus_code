@@ -30,6 +30,17 @@ ErrorStack  ArrayStorage::initialize()              { return pimpl_->initialize(
 ErrorStack  ArrayStorage::uninitialize()            { return pimpl_->uninitialize(); }
 ErrorStack  ArrayStorage::create(thread::Thread* context)   { return pimpl_->create(context); }
 
+ErrorCode   ArrayStorage::prefetch_pages(
+  thread::Thread* context,
+  ArrayOffset from,
+  ArrayOffset to) {
+  if (to == 0) {
+    to = get_array_size();
+  }
+  return pimpl_->prefetch_pages(context, from, to);
+}
+
+
 void ArrayStorage::describe(std::ostream* o_ptr) const {
   std::ostream& o = *o_ptr;
   o << "<ArrayStorage>"
@@ -78,6 +89,27 @@ void ArrayStorageFactory::add_create_log(const Metadata* metadata, thread::Threa
     casted->payload_size_,
     casted->name_.size(),
     casted->name_.data());
+}
+
+ArrayStorageCache::ArrayStorageCache()
+  :
+  engine_(nullptr),
+  storage_(nullptr),
+  pimpl_(nullptr),
+  root_page_(nullptr),
+  levels_(0),
+  route_finder_(0, 0) {
+}
+
+ArrayStorageCache::ArrayStorageCache(ArrayStorage* storage)
+  :
+  engine_(storage->get_pimpl()->engine_),
+  storage_(storage),
+  pimpl_(storage->get_pimpl()),
+  metadata_(pimpl_->metadata_),
+  root_page_(pimpl_->root_page_),
+  levels_(pimpl_->levels_),
+  route_finder_(pimpl_->route_finder_) {
 }
 
 // most other methods are defined in pimpl.cpp to allow inlining

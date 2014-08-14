@@ -56,6 +56,25 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
   ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
   void       describe(std::ostream* o) const CXX11_OVERRIDE;
 
+
+  /**
+   * @brief Prefetch data pages in this storage. Key Slice version (from/to are 8 bytes or less).
+   * @param[in] from inclusive begin slice of records that are specifically prefetched even in
+   * data pages.
+   * @param[in] to inclusive end slice of records that are specifically prefetched even in data
+   * pages.
+   * @details
+   * This is to \e warmup the storage for the current core.
+   * Data pages are prefetched within from/to.
+   * So far prefetches only volatile pages, but it will also cache and prefetch snapshot pages.
+   */
+  ErrorCode prefetch_pages_normalized(
+    thread::Thread* context,
+    KeySlice from = kInfimumSlice,
+    KeySlice to = kSupremumSlice);
+
+  // TODO(Hideaki) implement non key-slice version of prefetch_pages. so far this is enough, tho.
+
   // this storage type does use moved bit. so this is implemented
   bool                track_moved_record(xct::WriteXctAccess* write) CXX11_OVERRIDE;
   xct::XctId*         track_moved_record(xct::XctId* address) CXX11_OVERRIDE;

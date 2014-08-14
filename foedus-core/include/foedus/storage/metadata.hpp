@@ -44,6 +44,19 @@ struct Metadata : public virtual externalize::Externalizable {
     const std::string& name,
     SnapshotPagePointer root_snapshot_page_id)
     : id_(id), type_(type), name_(name), root_snapshot_page_id_(root_snapshot_page_id) {}
+  explicit Metadata(const Metadata& other)
+    : id_(other.id_),
+      type_(other.type_),
+      name_(other.name_),
+      root_snapshot_page_id_(other.root_snapshot_page_id_) {
+  }
+  Metadata& operator=(const Metadata& other) {
+    id_ = other.id_;
+    type_ = other.type_;
+    name_ = other.name_;
+    root_snapshot_page_id_ = other.root_snapshot_page_id_;
+    return *this;
+  }
   virtual ~Metadata() {}
 
   /**

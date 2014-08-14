@@ -9,8 +9,12 @@
 
 #include <string>
 
+#include "foedus/compiler.hpp"
+#include "foedus/engine.hpp"
+#include "foedus/assorted/cacheline.hpp"
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
+#include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 namespace tpcc {
@@ -44,16 +48,19 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
 
   // SELECT TAX from WAREHOUSE
   double w_tax;
-  CHECK_ERROR_CODE(storages_.warehouses_static_->get_record_primitive(
+
+  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_primitive(
     context_,
+    storages_.warehouses_static_cache_,
     wid,
     &w_tax,
     offsetof(WarehouseStaticData, tax_)));
 
   // SELECT TAX FROM DISTRICT
   double d_tax;
-  CHECK_ERROR_CODE(storages_.districts_static_->get_record_primitive(
+  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_primitive(
     context_,
+    storages_.districts_static_cache_,
     wdid,
     &d_tax,
     offsetof(DistrictStaticData, tax_)));
@@ -67,8 +74,9 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
   // SELECT DISCOUNT from CUSTOMER
   double c_discount;
   const uint16_t c_offset = offsetof(CustomerStaticData, discount_);
-  CHECK_ERROR_CODE(storages_.customers_static_->get_record_primitive(
+  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_primitive(
     context_,
+    storages_.customers_static_cache_,
     wdcid,
     &c_discount,
     c_offset));
@@ -107,8 +115,17 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
     << ". ol[0]=" << output_bg_[0]
     << "." << output_item_names_[0] << ".$" << output_prices_[0]
     << "*" << output_quantities_[0] << "." << output_amounts_[0];
-  return kErrorCodeOk;
+  Epoch ep;
+  return engine_->get_xct_manager().precommit_xct(context_, &ep);
 }
+
+const char* kOriginalStr = "original";
+inline uint64_t as_int_aligned(const char* aligned_str) {
+  const uint64_t* str = reinterpret_cast<const uint64_t*>(ASSUME_ALIGNED(aligned_str, 8));
+  return *str;
+}
+// "original" is just 8 bytes. let's exploit it.
+const uint64_t kOriginalInt = as_int_aligned(kOriginalStr);
 
 ErrorCode TpccClientTask::do_neworder_create_orderlines(
   Wid wid,
@@ -123,11 +140,16 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
   Wdid wdid = combine_wdid(wid, did);
   Wdoid wdoid = combine_wdoid(wdid, oid);
   // INSERT INTO ORDERLINE with random item.
+
+  // first, determine list of StockID (WID+IID) and parameters.
+  uint32_t quantities[kOlMax];
+  storage::array::ArrayOffset iids[kOlMax];
+  storage::array::ArrayOffset sids[kOlMax];
   for (Ol ol = 1; ol <= ol_cnt; ++ol) {
-    const uint32_t quantity = rnd_.uniform_within(1, 10);
-    Iid iid = rnd_.non_uniform_within(8191, 0, kItems - 1);
+    quantities[ol - 1] = rnd_.uniform_within(1, 10);
+    iids[ol - 1] = rnd_.non_uniform_within(8191, 0, kItems - 1);
     if (will_rollback) {
-        DVLOG(2) << "NewOrder: 1% random rollback happened. Dummy IID=" << iid;
+        DVLOG(2) << "NewOrder: 1% random rollback happened.";
         return kErrorCodeXctUserAbort;
     }
 
@@ -140,42 +162,77 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
     } else {
         supply_wid = wid;
     }
+    sids[ol - 1] = combine_sid(supply_wid, static_cast<Iid>(iids[ol - 1]));
+  }
 
-    // SELECT ... FROM ITEM WHERE IID=iid
-    ItemData i_data;
-    CHECK_ERROR_CODE(storages_.items_->get_record(context_, iid, &i_data, 0, sizeof(i_data)));
+  // then, read stock/item in a batched way so that we can parallelize cacheline prefetches
+  // SELECT ... FROM ITEM WHERE IID=iid
+  const void* i_data_address[kOlMax];
+  CHECK_ERROR_CODE(
+    storage::array::ArrayStorage::get_record_payload_batch(
+      context_,
+      storages_.items_cache_,
+      ol_cnt,
+      iids,
+      i_data_address));
+  // SELECT ... FROM STOCK WHERE WID=supply_wid AND IID=iid
+  // then UPDATE quantity and remote count
+  storage::Record* s_records[kOlMax];
+  CHECK_ERROR_CODE(
+    storage::array::ArrayStorage::get_record_for_write_batch(
+      context_,
+      storages_.stocks_cache_,
+      ol_cnt,
+      sids,
+      s_records));
 
-    // SELECT ... FROM STOCK WHERE WID=supply_wid AND IID=iid
-    // then UPDATE quantity and remote count
-    Sid sid = combine_sid(wid, iid);
-    StockData s_data;
-    const uint16_t s_quantity_offset = offsetof(StockData, quantity_);
-    const uint16_t s_remote_offset = offsetof(StockData, remote_cnt_);
-    CHECK_ERROR_CODE(storages_.stocks_->get_record(context_, sid, &s_data, 0, sizeof(s_data)));
-    if (s_data.quantity_ > quantity) {
-        s_data.quantity_ -= quantity;
+  // prefetch required columns. note that the first 64bytes are already prefetched
+  for (Ol ol = 1; ol <= ol_cnt; ++ol) {
+    // prefetch second half of item
+    assorted::prefetch_cacheline(reinterpret_cast<const char*>(i_data_address[ol - 1]) + 64);
+    // prefetch required columns of stock
+    const StockData* s_data = reinterpret_cast<const StockData*>(s_records[ol - 1]->payload_);
+    assorted::prefetch_cacheline(s_data->dist_data_[did]);
+    assorted::prefetch_cacheline(s_data->data_);
+  }
+
+  const uint16_t s_quantity_offset = offsetof(StockData, quantity_);
+  const uint16_t s_remote_offset = offsetof(StockData, remote_cnt_);
+  for (Ol ol = 1; ol <= ol_cnt; ++ol) {
+    const ItemData* i_data = reinterpret_cast<const ItemData*>(i_data_address[ol - 1]);
+    const StockData* s_data = reinterpret_cast<const StockData*>(s_records[ol - 1]->payload_);
+    uint32_t quantity = quantities[ol - 1];
+    uint32_t new_quantity = s_data->quantity_;
+    if (new_quantity > quantity) {
+        new_quantity -= quantity;
     } else {
-        s_data.quantity_ += (91U - quantity);
+        new_quantity += (91U - quantity);
     }
-    if (remote_warehouse) {
+
+    Wid supply_wid = extract_wid_from_sid(sids[ol - 1]);
+    if (supply_wid != wid) {
         // in this case we are also incrementing remote cnt
-      CHECK_ERROR_CODE(storages_.stocks_->overwrite_record_primitive<uint32_t>(
+      CHECK_ERROR_CODE(storage::array::ArrayStorage::overwrite_record_primitive<uint32_t>(
         context_,
-        sid,
-        s_data.remote_cnt_ + 1,
+        storages_.stocks_cache_,
+        sids[ol - 1],
+        s_records[ol - 1],
+        s_data->remote_cnt_ + 1,
         s_remote_offset));
     }
     // overwrite quantity
-    CHECK_ERROR_CODE(storages_.stocks_->overwrite_record_primitive<uint32_t>(
+    CHECK_ERROR_CODE(storage::array::ArrayStorage::overwrite_record_primitive<uint32_t>(
       context_,
-      sid,
-      s_data.quantity_,
+      storages_.stocks_cache_,
+      sids[ol - 1],
+      s_records[ol - 1],
+      new_quantity,
       s_quantity_offset));
 
     OrderlineData ol_data;
-    ol_data.amount_ = quantity * i_data.price_ * (1.0 + w_tax + d_tax) * (1.0 - c_discount);
-    ::memcpy(ol_data.dist_info_, s_data.dist_data_[did], sizeof(ol_data.dist_info_));
-    ol_data.iid_ = iid;
+    ol_data.amount_ = quantity * i_data->price_ * (1.0 + w_tax + d_tax) * (1.0 - c_discount);
+    std::memcpy(ol_data.dist_info_, s_data->dist_data_[did], sizeof(ol_data.dist_info_));
+    ol_data.iid_ = iids[ol - 1];
     ol_data.quantity_ = quantity;
     ol_data.supply_wid_ = supply_wid;
 
@@ -187,10 +244,10 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
       sizeof(ol_data)));
 
     // output variables
-    output_bg_[ol - 1] = ::strstr(i_data.data_, "original") != NULL
-        && ::strstr(s_data.data_, "original") != NULL ? 'B' : 'G';
-    output_prices_[ol - 1] = i_data.price_;
-    ::memcpy(output_item_names_[ol - 1], i_data.name_, sizeof(i_data.name_));
+    output_bg_[ol - 1] = as_int_aligned(i_data->data_) != kOriginalInt &&
+      as_int_aligned(s_data->data_) != kOriginalInt ? 'B' : 'G';
+    output_prices_[ol - 1] = i_data->price_;
+    std::memcpy(output_item_names_[ol - 1], i_data->name_, sizeof(i_data->name_));
     output_quantities_[ol - 1] = quantity;
     output_amounts_[ol - 1] = ol_data.amount_;
     output_total_ += ol_data.amount_;

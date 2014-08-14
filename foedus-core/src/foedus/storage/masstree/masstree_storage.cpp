@@ -497,6 +497,13 @@ ErrorStack MasstreeStorage::verify_single_thread(thread::Thread* context) {
   return pimpl_->verify_single_thread(context);
 }
 
+ErrorCode MasstreeStorage::prefetch_pages_normalized(
+  thread::Thread* context,
+  KeySlice from,
+  KeySlice to) {
+  return pimpl_->prefetch_pages_normalized(context, from, to);
+}
+
 
 // Explicit instantiations for each payload type
 // @cond DOXYGEN_IGNORE

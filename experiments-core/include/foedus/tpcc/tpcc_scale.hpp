@@ -56,10 +56,10 @@ const uint8_t kXctDelieveryPercent = 4U + kXctOrderStatusPercent;
  * Note that one neworder xct touches on average 10 suppliers, so in total
  * a bit less than 10% of neworder accesses remote warehouse(s).
  */
-const uint8_t kNewOrderRemotePercent = 1U;
+// const uint8_t kNewOrderRemotePercent = 1U;  this is now a program parameter
 
 /** How much of payment transaction uses remote warehouse/district? */
-const uint8_t kPaymentRemotePercent = 15U;
+// const uint8_t kPaymentRemotePercent = 15U;  this is now a program parameter
 
 }  // namespace tpcc
 }  // namespace foedus

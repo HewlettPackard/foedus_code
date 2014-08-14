@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <mutex>
 #include <string>
 
 #include "foedus/assert_nd.hpp"
@@ -34,7 +35,6 @@
 namespace foedus {
 namespace tpcc {
 ErrorStack TpccCreateTask::run(thread::Thread* context) {
-  std::memset(&storages_, 0, sizeof(storages_));
   debugging::StopWatch watch;
 
   Engine* engine = context->get_engine();
@@ -73,13 +73,13 @@ ErrorStack TpccCreateTask::run(thread::Thread* context) {
   CHECK_ERROR(create_array(
     context,
     "districts_ytd",
-    sizeof(uint64_t),
+    sizeof(DistrictYtdData),
     total_warehouses_ * kDistricts,
     &storages_.districts_ytd_));
   CHECK_ERROR(create_array(
     context,
     "districts_next_oid",
-    sizeof(Oid),
+    sizeof(DistrictNextOidData),
     total_warehouses_ * kDistricts,
     &storages_.districts_next_oid_));
   LOG(INFO) << "Created Districts:" << engine->get_memory_manager().dump_free_memory_stat();
@@ -115,7 +115,7 @@ ErrorStack TpccCreateTask::run(thread::Thread* context) {
   CHECK_ERROR(create_array(
     context,
     "warehouses_ytd",
-    sizeof(double),
+    sizeof(WarehouseYtdData),
     total_warehouses_,
     &storages_.warehouses_ytd_));
   LOG(INFO) << "Created Warehouses:" << engine->get_memory_manager().dump_free_memory_stat();
@@ -166,6 +166,8 @@ ErrorStack TpccCreateTask::create_sequential(
 
 ErrorStack TpccFinishupTask::run(thread::Thread* context) {
   Engine* engine = context->get_engine();
+// let's do this even in release. good to check abnormal state
+// #ifndef NDEBUG
   WRAP_ERROR_CODE(engine->get_xct_manager().begin_xct(context, xct::kSerializable));
   CHECK_ERROR(storages_.customers_secondary_->verify_single_thread(context));
   CHECK_ERROR(storages_.neworders_->verify_single_thread(context));
@@ -173,7 +175,6 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
   CHECK_ERROR(storages_.orders_->verify_single_thread(context));
   CHECK_ERROR(storages_.orders_secondary_->verify_single_thread(context));
   WRAP_ERROR_CODE(engine->get_xct_manager().abort_xct(context));
-
 
   LOG(INFO) << "Verifying customers_secondary_ in detail..";
   WRAP_ERROR_CODE(engine->get_xct_manager().begin_xct(context, xct::kDirtyReadPreferVolatile));
@@ -228,6 +229,7 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
 
   WRAP_ERROR_CODE(engine->get_xct_manager().abort_xct(context));
   LOG(INFO) << "Verified customers_secondary_ in detail.";
+// #endif  // NDEBUG
 
   LOG(INFO) << "Loaded all tables. Waiting for flushing all logs...";
   Epoch ep = engine->get_xct_manager().get_current_global_epoch();
@@ -416,9 +418,13 @@ ErrorStack TpccLoadTask::load_customers() {
   return kRetOk;
 }
 
+// synchronize data load to customer_secondary.
+// this is ideal for almost sequential inserts.
+// std::mutex customer_secondary_mutex;
+
 ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
-  LOG(INFO) << "Loading Customer for DID=" << static_cast<int>(did) << ", WID=" << wid
-    << ": " << engine_->get_memory_manager().dump_free_memory_stat();
+  LOG(INFO) << "Loading Customer for DID=" << static_cast<int>(did) << ", WID=" << wid;
+  //  << ": " << engine_->get_memory_manager().dump_free_memory_stat();
 
   // insert to customers_secondary at the end after sorting
   memory::AlignedMemory secondary_keys_buffer;
@@ -536,6 +542,9 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   sort_watch.stop();
   LOG(INFO) << "Sorted secondary entries in " << sort_watch.elapsed_us() << "us";
   auto* customers_secondary = storages_.customers_secondary_;
+
+  // synchronize insert to customer_secondary
+  // std::lock_guard<std::mutex> guard(customer_secondary_mutex);
   for (Cid from = 0; from < kCustomers;) {
     uint32_t cur_batch_size = std::min<uint32_t>(kCommitBatch, kCustomers - from);
     char key_be[CustomerSecondaryKey::kKeyLength];
@@ -580,8 +589,8 @@ ErrorStack TpccLoadTask::load_orders() {
 }
 
 ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
-  LOG(INFO) << "Loading Orders for D=" << static_cast<int>(did) << ", W= " << wid
-    << ": " << engine_->get_memory_manager().dump_free_memory_stat();
+  LOG(INFO) << "Loading Orders for D=" << static_cast<int>(did) << ", W= " << wid;
+  //  << ": " << engine_->get_memory_manager().dump_free_memory_stat();
   // Whether the customer id for the current order is already taken.
   bool cid_array[kCustomers];
   std::memset(cid_array, 0, sizeof(cid_array));

@@ -40,7 +40,20 @@ struct ArrayMetadata CXX11_FINAL : public virtual Metadata {
     : Metadata(0, kArrayStorage, name),
     payload_size_(payload_size), array_size_(array_size) {
   }
+  explicit ArrayMetadata(const ArrayMetadata& other)
+    : Metadata(other), payload_size_(other.payload_size_), array_size_(other.array_size_) {
+  }
+  ArrayMetadata& operator=(const ArrayMetadata& other) {
+    id_ = other.id_;
+    type_ = other.type_;
+    name_ = other.name_;
+    root_snapshot_page_id_ = other.root_snapshot_page_id_;
+    payload_size_ = other.payload_size_;
+    array_size_ = other.array_size_;
+    return *this;
+  }
   EXTERNALIZABLE(ArrayMetadata);
+
 
   Metadata* clone() const CXX11_OVERRIDE;
 

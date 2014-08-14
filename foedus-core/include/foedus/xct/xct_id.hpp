@@ -267,6 +267,39 @@ struct XctId {
     }
   }
   /**
+   * Same as keylock_unconditional, but we do it in a batch, using 128bit CAS.
+   * This halves the number of CAS calls \e if 128bit CAS is available.
+   */
+  static void keylock_unconditional_batch(XctId* aligned, uint16_t count) {
+    // TODO(Hideaki) non-gcc. but let's do it later.
+#if defined(__GNUC__) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_16)
+    uint64_t expected[2];
+    uint64_t desired[2];
+    for (uint16_t i = 0; i < (count / 2); ++i) {
+      uint64_t* casted = reinterpret_cast<uint64_t*>(aligned + (i * 2));
+      SPINLOCK_WHILE(true) {
+        for (uint8_t j = 0; j < 2; ++j) {
+          expected[j] = casted[j] & (~kKeylockBit);
+          desired[j] = expected[j] | kKeylockBit;
+        }
+        if (assorted::raw_atomic_compare_exchange_weak_uint128(casted, expected, desired)) {
+          ASSERT_ND(aligned[i * 2].is_keylocked());
+          ASSERT_ND(aligned[i * 2 + 1].is_keylocked());
+          break;
+        }
+      }
+    }
+    if (count % 2 != 0) {
+      aligned[count - 1].keylock_unconditional();
+    }
+#else  // defined(__GNUC__) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_16)
+    for (uint16_t i = 0; i < count; ++i) {
+      aligned[i].keylock_unconditional();
+    }
+#endif  // defined(__GNUC__) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_16)
+  }
+
+  /**
    * Same as keylock_unconditional() except that this gives up if we find a "moved" bit
    * on. This occasionally happens in the "moved" bit handling due to concurrent split.
    * If this happens, we rollback.

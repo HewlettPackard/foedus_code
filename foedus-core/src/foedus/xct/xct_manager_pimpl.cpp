@@ -16,6 +16,7 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/assorted/cacheline.hpp"
 #include "foedus/log/log_manager.hpp"
 #include "foedus/log/log_type_invoke.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
@@ -284,6 +285,11 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
   uint32_t        write_set_size = current_xct.get_write_set_size();
   DVLOG(1) << *context << " #write_sets=" << write_set_size << ", addr=" << write_set;
 
+  // we have to access the owner_id's pointed address. let's prefetch them in parallel
+  for (uint32_t i = 0; i < write_set_size; ++i) {
+    assorted::prefetch_cacheline(write_set[i].owner_id_address_);
+  }
+
   while (true) {  // while loop for retrying in case of moved-bit error
     // first, check for moved-bit and track where the corresponding physical record went.
     // we do this before locking, so it is possible that later we find it moved again.
@@ -414,6 +420,11 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
   const uint32_t          write_set_size = current_xct.get_write_set_size();
   XctAccess*              read_set = current_xct.get_read_set();
   const uint32_t          read_set_size = current_xct.get_read_set_size();
+  // let's prefetch owner_id in parallel
+  for (uint32_t i = 0; i < read_set_size; ++i) {
+    assorted::prefetch_cacheline(read_set[i].owner_id_address_);
+  }
+
   for (uint32_t i = 0; i < read_set_size; ++i) {
     // The owning transaction has changed.
     // We don't check ordinal here because there is no change we are racing with ourselves.

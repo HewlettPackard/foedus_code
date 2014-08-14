@@ -713,14 +713,16 @@ class MasstreeBorderPage final : public MasstreePage {
    */
   uint16_t    payload_length_[kMaxKeys];          // +128 -> 840
 
+  /** To make the following 16-bytes aligned */
+  uint64_t    dummy_;                             // +8 -> 848
+
   /**
    * Lock of each record. We separate this out from record to avoid destructive change
    * while splitting and page compaction. We have to make sure xct_id is always in a separated
    * area.
+   * This must be 16-bytes aligned to use cmpxchg16b.
    */
-  xct::XctId  owner_ids_[kMaxKeys];               // +512 -> 1352
-
-  uint64_t    dummy_;                             // +8 -> 1360 (then data is multiply of 16)
+  xct::XctId  owner_ids_[kMaxKeys];               // +512 -> 1360
 
   /**
    * The main data region of this page. Suffix and payload contiguously.

@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <time.h>
 
+#include <atomic>
 #include <cstring>
 #include <set>
 #include <string>
@@ -48,22 +49,26 @@ class TpccClientTask : public thread::ImpersonateTask {
     Wid to_wid,
     uint16_t neworder_remote_percent,
     uint16_t payment_remote_percent,
-    TpccStorages storages,
+    const TpccStorages& storages,
+    std::atomic<uint32_t> *warmup_complete_counter,
     thread::Rendezvous* start_rendezvous)
     : worker_id_(worker_id),
       total_warehouses_(total_warehouses),
       from_wid_(from_wid),
       to_wid_(to_wid),
+      storages_(storages),
       neworder_remote_percent_(neworder_remote_percent),
       payment_remote_percent_(payment_remote_percent),
       rnd_(kRandomSeed + worker_id),
       processed_(0) {
-    storages_ = storages;
     stop_requrested_ = false;
+    warmup_complete_counter_ = warmup_complete_counter;
     start_rendezvous_ = start_rendezvous;
     user_requested_aborts_ = 0;
     race_aborts_ = 0;
     unexpected_aborts_ = 0;
+    largereadset_aborts_ = 0;
+    storages_.assert_initialized();
   }
 
   ErrorStack run(thread::Thread* context);
@@ -74,10 +79,13 @@ class TpccClientTask : public thread::ImpersonateTask {
   uint32_t increment_race_aborts() { return ++race_aborts_; }
   uint32_t get_unexpected_aborts() const { return unexpected_aborts_; }
   uint32_t increment_unexpected_aborts() { return ++unexpected_aborts_; }
+  uint32_t get_largereadset_aborts() const { return largereadset_aborts_; }
+  uint32_t increment_largereadset_aborts() { return ++largereadset_aborts_; }
 
   void request_stop() { stop_requrested_ = true; }
 
   uint64_t get_processed() const { return processed_; }
+
 
  private:
   /** unique ID of this worker from 0 to #workers-1. */
@@ -89,6 +97,7 @@ class TpccClientTask : public thread::ImpersonateTask {
   /** exclusive end of "home" wid */
   const Wid to_wid_;
 
+  std::atomic<uint32_t>* warmup_complete_counter_;
   thread::Rendezvous* start_rendezvous_;
 
   TpccStorages      storages_;
@@ -115,7 +124,6 @@ class TpccClientTask : public thread::ImpersonateTask {
   const uint16_t    payment_remote_percent_;
 
 
-  memory::AlignedMemory numbers_;
   /** thread local random. */
   assorted::UniformRandom rnd_;
 
@@ -127,6 +135,7 @@ class TpccClientTask : public thread::ImpersonateTask {
   uint32_t race_aborts_;
   /** this is usually up to 1 because we stop execution as soon as this happens */
   uint32_t unexpected_aborts_;
+  uint32_t largereadset_aborts_;
 
   /** Updates timestring_ only per second. */
   uint64_t    previous_timestring_update_;
@@ -200,6 +209,8 @@ class TpccClientTask : public thread::ImpersonateTask {
   Wid get_random_warehouse_id() ALWAYS_INLINE {
     return rnd_.uniform_within(0, total_warehouses_ - 1);
   }
+
+  ErrorStack warmup(thread::Thread* context);
 };
 }  // namespace tpcc
 }  // namespace foedus

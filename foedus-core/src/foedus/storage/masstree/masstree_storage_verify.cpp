@@ -22,8 +22,7 @@ namespace masstree {
 
 ErrorStack MasstreeStoragePimpl::verify_single_thread(thread::Thread* context) {
   MasstreePage* layer_root;
-  PageVersion root_version;
-  WRAP_ERROR_CODE(get_first_root(context, &layer_root, &root_version));
+  WRAP_ERROR_CODE(get_first_root(context, &layer_root));
   CHECK_ERROR(verify_single_thread_layer(context, 0, layer_root));
   return kRetOk;
 }

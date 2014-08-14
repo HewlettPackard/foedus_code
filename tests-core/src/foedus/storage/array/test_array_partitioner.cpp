@@ -10,16 +10,60 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/test_common.hpp"
+#include "foedus/memory/engine_memory.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_log_types.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
+#include "foedus/storage/array/array_page_impl.hpp"
 #include "foedus/storage/array/array_partitioner_impl.hpp"
 #include "foedus/storage/array/array_storage.hpp"
+#include "foedus/storage/array/array_storage_pimpl.hpp"
 
 namespace foedus {
 namespace storage {
 namespace array {
 DEFINE_TEST_CASE_PACKAGE(ArrayPartitionerTest, foedus.storage.array);
+
+TEST(ArrayPartitionerTest, InitialPartition) {
+  if (!is_multi_nodes()) {
+    return;
+  }
+  EngineOptions options = get_tiny_options();
+  options.log_.log_buffer_kb_ = 1 << 10;
+  options.thread_.group_count_ = 2;
+  options.memory_.page_pool_size_mb_per_node_ = 4;
+  Engine engine(options);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    ArrayStorage* out;
+    Epoch commit_epoch;
+    ArrayMetadata meta("test5", 3000, 300);  // 1 record per page. 300 leaf pages.
+    COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &out, &commit_epoch));
+    EXPECT_TRUE(out != nullptr);
+    EXPECT_EQ(0, out->get_pimpl()->root_page_pointer_.volatile_pointer_.components.numa_node);
+    ArrayPage* root = out->get_pimpl()->root_page_;
+    EXPECT_EQ(0, root->get_interior_record(0).volatile_pointer_.components.numa_node);
+    EXPECT_EQ(1U, root->get_interior_record(1).volatile_pointer_.components.numa_node);
+    const memory::GlobalVolatilePageResolver& resolver
+      = engine.get_memory_manager().get_global_volatile_page_resolver();
+    ArrayPage* left = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(
+      root->get_interior_record(0).volatile_pointer_));
+    ArrayPage* right = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(
+      root->get_interior_record(1).volatile_pointer_));
+    for (uint16_t i = 0; i < 150; ++i) {
+      EXPECT_EQ(0, left->get_interior_record(i).volatile_pointer_.components.numa_node) << i;
+    }
+    for (uint16_t i = 150; i < kInteriorFanout; ++i) {
+      EXPECT_EQ(1U, left->get_interior_record(i).volatile_pointer_.components.numa_node) << i;
+    }
+    for (uint16_t i = 0; i < 300U - kInteriorFanout; ++i) {
+      EXPECT_EQ(1U, right->get_interior_record(i).volatile_pointer_.components.numa_node) << i;
+    }
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
+}
 
 const uint16_t kPayload = 16;
 
@@ -54,6 +98,9 @@ void CloneFunctor(ArrayPartitioner* partitioner) {
 }
 
 TEST(ArrayPartitionerTest, Clone) {
+  if (!is_multi_nodes()) {
+    return;
+  }
   execute_test(&CloneFunctor);
 }
 
@@ -64,6 +111,9 @@ void EmptyFunctor(ArrayPartitioner* partitioner) {
   partitioner->partition_batch(0, log_buffer, dummy, 0, results);
 }
 TEST(ArrayPartitionerTest, Empty) {
+  if (!is_multi_nodes()) {
+    return;
+  }
   execute_test(&EmptyFunctor);
 }
 
@@ -127,6 +177,9 @@ void PartitionBasicFunctor(ArrayPartitioner* partitioner) {
 }
 
 TEST(ArrayPartitionerTest, PartitionBasic) {
+  if (!is_multi_nodes()) {
+    return;
+  }
   execute_test(&PartitionBasicFunctor);
 }
 
@@ -145,6 +198,9 @@ void SortBasicFunctor(ArrayPartitioner* partitioner) {
 }
 
 TEST(ArrayPartitionerTest, SortBasic) {
+  if (!is_multi_nodes()) {
+    return;
+  }
   execute_test(&SortBasicFunctor);
 }
 
@@ -162,6 +218,9 @@ void SortCompactFunctor(ArrayPartitioner* partitioner) {
 }
 
 TEST(ArrayPartitionerTest, SortCompact) {
+  if (!is_multi_nodes()) {
+    return;
+  }
   execute_test(&SortCompactFunctor);
 }
 
@@ -179,6 +238,9 @@ void SortNoCompactFunctor(ArrayPartitioner* partitioner) {
 }
 
 TEST(ArrayPartitionerTest, SortNoCompact) {
+  if (!is_multi_nodes()) {
+    return;
+  }
   execute_test(&SortNoCompactFunctor);
 }
 

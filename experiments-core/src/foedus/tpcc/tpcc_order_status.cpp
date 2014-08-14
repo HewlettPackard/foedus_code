@@ -7,6 +7,7 @@
 #include <glog/logging.h>
 
 #include "foedus/storage/masstree/masstree_cursor.hpp"
+#include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 namespace tpcc {
@@ -15,10 +16,11 @@ ErrorCode TpccClientTask::do_order_status(Wid wid) {
   const Did did = get_random_district_id();
 
   Cid cid;
+  Epoch ep;
   ErrorCode ret_customer = lookup_customer_by_id_or_name(wid, did, &cid);
   if (ret_customer == kErrorCodeStrKeyNotFound) {
     DVLOG(1) << "OrderStatus: customer of random last name not found";
-    return kErrorCodeOk;  // this is a correct result
+    return engine_->get_xct_manager().precommit_xct(context_, &ep);  // this is a correct result
   } else if (ret_customer != kErrorCodeOk) {
     return ret_customer;
   }
@@ -28,7 +30,7 @@ ErrorCode TpccClientTask::do_order_status(Wid wid) {
   ErrorCode ret = get_last_orderid_by_customer(wid, did, cid, &oid);
   if (ret == kErrorCodeStrKeyNotFound) {
     DVLOG(1) << "OrderStatus: no order";
-    return kErrorCodeOk;  // this is a correct result
+    return engine_->get_xct_manager().precommit_xct(context_, &ep);  // this is a correct result
   } else if (ret != kErrorCodeOk) {
     return ret;
   }
@@ -61,7 +63,7 @@ ErrorCode TpccClientTask::do_order_status(Wid wid) {
 
   DVLOG(2) << "Order-status:" << cnt << " records. wid=" << wid
     << ", did=" << did << ", cid=" << cid << ", oid=" << oid << std::endl;
-  return kErrorCodeOk;
+  return engine_->get_xct_manager().precommit_xct(context_, &ep);
 }
 
 ErrorCode TpccClientTask::get_last_orderid_by_customer(Wid wid, Did did, Cid cid, Oid* oid) {

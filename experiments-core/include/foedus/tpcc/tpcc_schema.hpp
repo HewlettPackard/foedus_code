@@ -9,8 +9,10 @@
 
 #include <cstring>
 
+#include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
 #include "foedus/assorted/endianness.hpp"
+#include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/array/fwd.hpp"
 #include "foedus/storage/hash/fwd.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
@@ -34,10 +36,46 @@ namespace tpcc {
 
 /** Packages all storages in TPC-C */
 struct TpccStorages {
+  TpccStorages();
+  explicit TpccStorages(const TpccStorages& other);
+  TpccStorages& operator=(const TpccStorages& other);
+
+  void assert_initialized() {
+    ASSERT_ND(customers_static_);
+    customers_static_cache_.assert_initialized();
+    ASSERT_ND(customers_dynamic_);
+    customers_dynamic_cache_.assert_initialized();
+    ASSERT_ND(customers_history_);
+    customers_history_cache_.assert_initialized();
+    ASSERT_ND(customers_secondary_);
+    ASSERT_ND(districts_static_);
+    districts_static_cache_.assert_initialized();
+    ASSERT_ND(districts_ytd_);
+    districts_ytd_cache_.assert_initialized();
+    ASSERT_ND(districts_next_oid_);
+    districts_next_oid_cache_.assert_initialized();
+    ASSERT_ND(histories_);
+    ASSERT_ND(neworders_);
+    ASSERT_ND(orders_);
+    ASSERT_ND(orders_secondary_);
+    ASSERT_ND(orderlines_);
+    ASSERT_ND(items_);
+    items_cache_.assert_initialized();
+    ASSERT_ND(stocks_);
+    stocks_cache_.assert_initialized();
+    ASSERT_ND(warehouses_static_);
+    warehouses_static_cache_.assert_initialized();
+    ASSERT_ND(warehouses_ytd_);
+    warehouses_ytd_cache_.assert_initialized();
+  }
+
   /** (Wid, Did, Cid) == Wdcid */
   storage::array::ArrayStorage*           customers_static_;
+  storage::array::ArrayStorageCache       customers_static_cache_;
   storage::array::ArrayStorage*           customers_dynamic_;
+  storage::array::ArrayStorageCache       customers_dynamic_cache_;
   storage::array::ArrayStorage*           customers_history_;
+  storage::array::ArrayStorageCache       customers_history_cache_;
   /** (Wid, Did, last, first, Cid) */
   storage::masstree::MasstreeStorage*     customers_secondary_;
   /**
@@ -45,8 +83,11 @@ struct TpccStorages {
    * Vertical partitioning is allowed (Section 1.4.5).
    */
   storage::array::ArrayStorage*           districts_static_;
+  storage::array::ArrayStorageCache       districts_static_cache_;
   storage::array::ArrayStorage*           districts_ytd_;
+  storage::array::ArrayStorageCache       districts_ytd_cache_;
   storage::array::ArrayStorage*           districts_next_oid_;
+  storage::array::ArrayStorageCache       districts_next_oid_cache_;
   /** () */
   storage::sequential::SequentialStorage* histories_;
   /** (Wid, Did, Oid) == Wdoid */
@@ -59,11 +100,15 @@ struct TpccStorages {
   storage::masstree::MasstreeStorage*     orderlines_;
   /** (Iid) */
   storage::array::ArrayStorage*           items_;
+  storage::array::ArrayStorageCache       items_cache_;
   /** (Wid, Iid) == Sid */
   storage::array::ArrayStorage*           stocks_;
+  storage::array::ArrayStorageCache       stocks_cache_;
   /** (Wid). ytd is vertically partitioned. others are static */
   storage::array::ArrayStorage*           warehouses_static_;
+  storage::array::ArrayStorageCache       warehouses_static_cache_;
   storage::array::ArrayStorage*           warehouses_ytd_;
+  storage::array::ArrayStorageCache       warehouses_ytd_cache_;
 };
 
 
@@ -151,6 +196,12 @@ struct WarehouseStaticData {
 //   double ytd_;
 };
 
+struct WarehouseYtdData {
+  double ytd_;          // +8 -> 8
+  char   dummy_[48];    // +48 -> 56
+  // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
+};
+
 struct DistrictStaticData {
   char   name_[11];
   char   street1_[21];
@@ -162,6 +213,19 @@ struct DistrictStaticData {
 // Followings are vertically partitioned
 //  uint64_t ytd_;
 //  Oid      next_o_id_;
+};
+
+struct DistrictYtdData {
+  uint64_t  ytd_;          // +8 -> 8
+  char      dummy_[48];    // +48 -> 56
+  // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
+};
+
+struct DistrictNextOidData {
+  Oid       next_o_id_;    // +4 -> 4
+  uint32_t  dummy1_;       // +4 -> 8
+  char      dummy2_[48];   // +48 -> 56
+  // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
 };
 
 struct CustomerStaticData {
@@ -185,10 +249,12 @@ struct CustomerStaticData {
 };
 
 struct CustomerDynamicData {
-  uint32_t payment_cnt_;
-  uint32_t delivery_cnt_;
-  uint64_t ytd_payment_;
-  double balance_;
+  uint32_t  payment_cnt_;   // +4->4
+  uint32_t  delivery_cnt_;  // +4->8
+  uint64_t  ytd_payment_;   // +8->16
+  double    balance_;       // +8->24
+  char      dummy_[32];     // +32->56
+  // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
 };
 
 /**
@@ -241,11 +307,11 @@ struct ItemData {
 };
 
 struct StockData {
-  char dist_data_[10][25];
   uint64_t ytd_;
   uint32_t order_cnt_;
   uint32_t quantity_;
   uint32_t remote_cnt_;
+  char dist_data_[10][25];
   char data_[51];
 };
 }  // namespace tpcc

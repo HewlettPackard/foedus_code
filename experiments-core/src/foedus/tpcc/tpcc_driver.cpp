@@ -19,6 +19,7 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/debugging/debugging_supports.hpp"
+#include "foedus/debugging/stop_watch.hpp"
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/thread/thread.hpp"
@@ -30,18 +31,20 @@
 namespace foedus {
 namespace tpcc {
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
-DEFINE_int32(volatile_pool_size, 8, "Size of volatile memory pool per NUMA node in GB.");
+DEFINE_int32(volatile_pool_size, 32, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_bool(ignore_volatile_size_warning, false, "Ignores warning on volatile_pool_size setting.");
-DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
-DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inserted to remote"
+DEFINE_int32(loggers_per_node, 4, "Number of log writers per numa node.");
+DEFINE_int32(neworder_remote_percent, 0, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
   " remote orderline). This corresponds to H-Store's neworder_multip/neworder_multip_mix in"
   " tpcc.properties.");
-DEFINE_int32(payment_remote_percent, 5, "Percent of each payment that is inserted to remote"
-  " warehouse. The default value is 5. This corresponds to H-Store's payment_multip/"
+DEFINE_int32(payment_remote_percent, 0, "Percent of each payment that is inserted to remote"
+  " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
-DEFINE_int32(warehouses, 4, "Number of warehouses.");
+DEFINE_int32(thread_per_node, 0, "Number of threads per NUMA node. 0 uses logical count");
+DEFINE_int32(log_buffer_mb, 256, "Size in MB of log buffer for each thread");
+DEFINE_int32(warehouses, 16, "Number of warehouses.");
 DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
 
 TpccDriver::Result TpccDriver::run() {
@@ -65,6 +68,7 @@ TpccDriver::Result TpccDriver::run() {
     }
 
     storages_ = creater.get_storages();
+    storages_.assert_initialized();
   }
 
   auto& thread_pool = engine_->get_thread_pool();
@@ -133,6 +137,7 @@ TpccDriver::Result TpccDriver::run() {
 
   LOG(INFO) << "neworder_remote_percent=" << FLAGS_neworder_remote_percent;
   LOG(INFO) << "payment_remote_percent=" << FLAGS_payment_remote_percent;
+  warmup_complete_counter_.store(0);
   std::vector< thread::ImpersonateSession > sessions;
   for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
     memory::ScopedNumaPreferred scope(node);
@@ -146,6 +151,7 @@ TpccDriver::Result TpccDriver::run() {
         FLAGS_neworder_remote_percent,
         FLAGS_payment_remote_percent,
         storages_,
+        &warmup_complete_counter_,
         &start_rendezvous_));
       sessions.emplace_back(thread_pool.impersonate_on_numa_node(clients_.back(), node));
       if (!sessions.back().is_valid()) {
@@ -153,30 +159,42 @@ TpccDriver::Result TpccDriver::run() {
       }
     }
   }
-  LOG(INFO) << "okay, launched all worker threads";
+  LOG(INFO) << "okay, launched all worker threads. waiting for completion of warmup...";
+  while (warmup_complete_counter_.load() < sessions.size()) {
+    LOG(INFO) << "Waiting for warmup completion... done=" << warmup_complete_counter_ << "/"
+      << sessions.size();
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
 
-  // make sure all threads are done with random number generation
-  std::this_thread::sleep_for(std::chrono::seconds(3));
+  LOG(INFO) << "All warmup done!";
   if (FLAGS_profile) {
     COERCE_ERROR(engine_->get_debug().start_profile("tpcc.prof"));
   }
   start_rendezvous_.signal();  // GO!
   LOG(INFO) << "Started!";
-  std::this_thread::sleep_for(std::chrono::microseconds(FLAGS_duration_micro));
+  debugging::StopWatch duration;
+  while (duration.peek_elapsed_ns() < static_cast<uint64_t>(FLAGS_duration_micro) * 1000ULL) {
+    // sleep_for might have a spurious wakeup depending on the machine.
+    // sleep again if not yet done
+    uint64_t remaining_duration = FLAGS_duration_micro - duration.peek_elapsed_ns() / 1000ULL;
+    std::this_thread::sleep_for(std::chrono::microseconds(remaining_duration));
+  }
   LOG(INFO) << "Experiment ended.";
 
   Result result;
+  duration.stop();
+  result.duration_sec_ = duration.elapsed_sec();
   assorted::memory_fence_acquire();
   for (auto* client : clients_) {
     result.processed_ += client->get_processed();
     result.race_aborts_ += client->get_race_aborts();
     result.unexpected_aborts_ += client->get_unexpected_aborts();
+    result.largereadset_aborts_ += client->get_largereadset_aborts();
     result.user_requested_aborts_ += client->get_user_requested_aborts();
   }
   if (FLAGS_profile) {
     engine_->get_debug().stop_profile();
   }
-  LOG(INFO) << result;
   LOG(INFO) << "Shutting down...";
 
   assorted::memory_fence_release();
@@ -267,6 +285,8 @@ int driver_main(int argc, char **argv) {
   options.log_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/log/node_$NODE$/logger_$LOGGER$";
   options.log_.loggers_per_node_ = FLAGS_loggers_per_node;
   options.log_.flush_at_shutdown_ = false;
+  options.xct_.max_read_set_size_ = 1U << 18;
+  options.xct_.max_write_set_size_ = 1U << 16;
   options.snapshot_.snapshot_interval_milliseconds_ = 100000000U;
   options.debugging_.debug_log_min_threshold_
     = debugging::DebuggingOptions::kDebugLogInfo;
@@ -274,11 +294,17 @@ int driver_main(int argc, char **argv) {
   options.debugging_.verbose_modules_ = "";
   options.debugging_.verbose_log_level_ = -1;
 
-  options.log_.log_buffer_kb_ = 1 << 18;  // 256MB * 16 cores = 4 GB. nothing.
+  options.log_.log_buffer_kb_ = FLAGS_log_buffer_mb << 10;
+  LOG(INFO) << "log_buffer_mb=" << FLAGS_log_buffer_mb << "MB per thread";
   options.log_.log_file_size_mb_ = 1 << 10;
   LOG(INFO) << "volatile_pool_size=" << FLAGS_volatile_pool_size << "GB per NUMA node";
   options.memory_.page_pool_size_mb_per_node_ = (FLAGS_volatile_pool_size) << 10;
   options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 10;
+
+  if (FLAGS_thread_per_node != 0) {
+    LOG(INFO) << "thread_per_node=" << FLAGS_thread_per_node;
+    options.thread_.thread_count_per_group_ = FLAGS_thread_per_node;
+  }
 
   if (FLAGS_single_thread_test) {
     FLAGS_warehouses = 1;
@@ -323,10 +349,12 @@ int driver_main(int argc, char **argv) {
 
 std::ostream& operator<<(std::ostream& o, const TpccDriver::Result& v) {
   o << "<total_result>"
+    << "<duration_sec_>" << v.duration_sec_ << "</duration_sec_>"
     << "<processed_>" << v.processed_ << "</processed_>"
-    << "<MTPS>" << (static_cast<double>(v.processed_) / FLAGS_duration_micro) << "</MTPS>"
+    << "<MTPS>" << ((v.processed_ / v.duration_sec_) / 1000000) << "</MTPS>"
     << "<user_requested_aborts_>" << v.user_requested_aborts_ << "</user_requested_aborts_>"
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
+    << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"
     << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>"
     << "</total_result>";
   return o;

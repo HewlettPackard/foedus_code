@@ -24,10 +24,18 @@ namespace tpcc {
 class TpccDriver {
  public:
   struct Result {
-    Result() : processed_(0), user_requested_aborts_(0), race_aborts_(0), unexpected_aborts_(0) {}
+    Result()
+      : duration_sec_(0),
+        processed_(0),
+        user_requested_aborts_(0),
+        race_aborts_(0),
+        largereadset_aborts_(0),
+        unexpected_aborts_(0) {}
+    double   duration_sec_;
     uint64_t processed_;
     uint64_t user_requested_aborts_;
     uint64_t race_aborts_;
+    uint64_t largereadset_aborts_;
     uint64_t unexpected_aborts_;
     friend std::ostream& operator<<(std::ostream& o, const Result& v);
   };
@@ -56,6 +64,9 @@ class TpccDriver {
 
   TpccStorages                  storages_;
 
+  /** Each worker does a warmup at beginning and increment this when done. */
+  std::atomic<uint32_t>         warmup_complete_counter_;
+  /** This is fired when warmup_complete_counter_ becomes the total worker count. */
   thread::Rendezvous            start_rendezvous_;
 
   void assign_wids();

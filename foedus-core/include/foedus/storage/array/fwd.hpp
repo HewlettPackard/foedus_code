@@ -20,6 +20,7 @@ class   ArrayPage;
 class   ArrayPartitioner;
 struct  ArrayRange;
 class   ArrayStorage;
+struct  ArrayStorageCache;
 class   ArrayStorageFactory;
 class   ArrayStoragePimpl;
 class   LookupRouteFinder;
