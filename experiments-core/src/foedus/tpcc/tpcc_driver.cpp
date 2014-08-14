@@ -173,7 +173,12 @@ TpccDriver::Result TpccDriver::run() {
   start_rendezvous_.signal();  // GO!
   LOG(INFO) << "Started!";
   debugging::StopWatch duration;
-  std::this_thread::sleep_for(std::chrono::microseconds(FLAGS_duration_micro));
+  while (duration.peek_elapsed_ns() < static_cast<uint64_t>(FLAGS_duration_micro) * 1000ULL) {
+    // sleep_for might have a spurious wakeup depending on the machine.
+    // sleep again if not yet done
+    uint64_t remaining_duration = FLAGS_duration_micro - duration.peek_elapsed_ns() / 1000ULL;
+    std::this_thread::sleep_for(std::chrono::microseconds(remaining_duration));
+  }
   LOG(INFO) << "Experiment ended.";
 
   Result result;
@@ -346,7 +351,7 @@ std::ostream& operator<<(std::ostream& o, const TpccDriver::Result& v) {
   o << "<total_result>"
     << "<duration_sec_>" << v.duration_sec_ << "</duration_sec_>"
     << "<processed_>" << v.processed_ << "</processed_>"
-    << "<MTPS>" << (static_cast<double>(v.processed_) / FLAGS_duration_micro) << "</MTPS>"
+    << "<MTPS>" << ((v.processed_ / v.duration_sec_) / 1000000) << "</MTPS>"
     << "<user_requested_aborts_>" << v.user_requested_aborts_ << "</user_requested_aborts_>"
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
     << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"

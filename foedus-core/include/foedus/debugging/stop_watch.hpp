@@ -24,6 +24,8 @@ class StopWatch {
   /** Take another current time tick. Returns elapsed nanosec. */
   uint64_t    stop();
 
+  uint64_t    peek_elapsed_ns() const;
+
   uint64_t    elapsed_ns() const {
     return stopped_ - started_;
   }

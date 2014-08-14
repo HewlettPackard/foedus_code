@@ -23,6 +23,9 @@ uint64_t StopWatch::stop() {
   stopped_ = get_now_nanosec();
   return elapsed_ns();
 }
+uint64_t StopWatch::peek_elapsed_ns() const {
+  return get_now_nanosec() - started_;
+}
 
 }  // namespace debugging
 }  // namespace foedus
