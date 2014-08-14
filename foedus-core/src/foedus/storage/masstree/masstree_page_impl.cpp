@@ -249,8 +249,6 @@ ErrorCode MasstreeBorderPage::split_foster(
   debugging::RdtscWatch watch;
 
   uint8_t key_count = header_.page_version_.get_key_count();
-  header_.page_version_.set_splitting();
-
   DVLOG(1) << "Splitting a page... ";
 
   memory::PagePoolOffset offsets[2];
@@ -1024,7 +1022,7 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   ASSERT_ND(is_locked());
   // note that we have to lock from parent to child. otherwise deadlock possible.
   MiniPage& minipage = get_minipage(minipage_index);
-  child->lock(true, true);
+  child->lock();
   UnlockScope scope_child(child);
   if (child->get_version().is_retired()) {
     VLOG(0) << "Interesting. concurrent thread has already adopted? retry";
@@ -1035,8 +1033,6 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
 
   // in this case we don't need to increment split count.
   DVLOG(0) << "Great, sorted insert. No-split adopt";
-  get_version().set_inserting();
-
   MasstreePage* grandchild_minor = child->get_foster_minor();
   ASSERT_ND(grandchild_minor->get_low_fence() == child->get_low_fence());
   ASSERT_ND(grandchild_minor->get_high_fence() == child->get_foster_fence());

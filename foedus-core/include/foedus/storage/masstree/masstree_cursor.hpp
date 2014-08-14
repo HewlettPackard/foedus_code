@@ -132,6 +132,8 @@ class MasstreeCursor CXX11_FINAL {
     bool for_writes = false,
     bool begin_inclusive = true,
     bool end_inclusive = false) {
+    ASSERT_ND((forward_cursor && end_key >= begin_key) ||
+      (!forward_cursor && end_key <= begin_key));
     KeySlice begin_key_be = assorted::htobe<KeySlice>(begin_key);
     KeySlice end_key_be = assorted::htobe<KeySlice>(end_key);
     return open(

@@ -130,7 +130,7 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   } else {
     DVLOG(0) << "growing B-tree in non-first layer " << *holder_;
   }
-  root->lock(true, true);
+  root->lock();
   UnlockScope scope(root);
   if (root->is_retired()) {
     LOG(INFO) << "interesting. someone else has already grown B-tree";
@@ -767,7 +767,6 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
   ASSERT_ND(!target->is_retired());
   ASSERT_ND(target->can_accomodate(target_index, remaining_key_length, payload_count));
   ASSERT_ND(target->get_version().get_key_count() < MasstreeBorderPage::kMaxKeys);
-  target->get_version().set_inserting();
   xct::XctId initial_id;
   initial_id.set_clean(
     Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else

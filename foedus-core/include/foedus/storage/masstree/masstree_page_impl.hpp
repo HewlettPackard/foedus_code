@@ -115,9 +115,9 @@ class MasstreePage {
    * After taking lock, you might want to additionally set inserting/splitting bits.
    * Those can be done just as a usual write once you get a lock.
    */
-  void              lock(bool inserting = false, bool splitting = false) ALWAYS_INLINE {
+  void              lock() ALWAYS_INLINE {
     if (!header_.snapshot_) {
-      header_.page_version_.lock_version(inserting, splitting);
+      header_.page_version_.lock_version();
     }
   }
   bool              is_locked() const ALWAYS_INLINE { return header_.page_version_.is_locked(); }
@@ -888,7 +888,6 @@ inline void MasstreeBorderPage::reserve_record_space(
   ASSERT_ND(index < kMaxKeys);
   ASSERT_ND(remaining_length <= kKeyLengthMax);
   ASSERT_ND(is_locked());
-  ASSERT_ND(header_.page_version_.is_inserting());
   ASSERT_ND(header_.page_version_.get_key_count() == index);
   ASSERT_ND(can_accomodate(index, remaining_length, payload_count));
   uint16_t suffix_length = calculate_suffix_length(remaining_length);
