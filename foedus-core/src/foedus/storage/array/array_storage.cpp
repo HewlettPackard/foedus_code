@@ -90,28 +90,6 @@ void ArrayStorageFactory::add_create_log(const Metadata* metadata, thread::Threa
     casted->name_.size(),
     casted->name_.data());
 }
-
-ArrayStorageCache::ArrayStorageCache()
-  :
-  engine_(nullptr),
-  storage_(nullptr),
-  pimpl_(nullptr),
-  root_page_(nullptr),
-  levels_(0),
-  route_finder_(0, 0) {
-}
-
-ArrayStorageCache::ArrayStorageCache(ArrayStorage* storage)
-  :
-  engine_(storage->get_pimpl()->engine_),
-  storage_(storage),
-  pimpl_(storage->get_pimpl()),
-  metadata_(pimpl_->metadata_),
-  root_page_(pimpl_->root_page_),
-  levels_(pimpl_->levels_),
-  route_finder_(pimpl_->route_finder_) {
-}
-
 // most other methods are defined in pimpl.cpp to allow inlining
 
 }  // namespace array

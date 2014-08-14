@@ -14,6 +14,7 @@
 #include "foedus/debugging/rdtsc.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/masstree/masstree_cursor.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/thread.hpp"

@@ -14,6 +14,7 @@
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
+#include "foedus/storage/page.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/storage_manager_pimpl.hpp"
@@ -93,17 +94,27 @@ ErrorStack MasstreeStoragePimpl::uninitialize_once() {
 
 ErrorCode MasstreeStoragePimpl::get_first_root(thread::Thread* context, MasstreePage** root) {
   ASSERT_ND(first_root_pointer_.volatile_pointer_.components.offset);
-  VolatilePagePointer pointer = first_root_pointer_.volatile_pointer_;
+  const memory::GlobalVolatilePageResolver& resolver = context->get_global_volatile_page_resolver();
   MasstreePage* page = reinterpret_cast<MasstreePage*>(
-    context->get_global_volatile_page_resolver().resolve_offset(pointer));
-  *root = page;
+    resolver.resolve_offset(first_root_pointer_.volatile_pointer_));
+  assert_aligned_page(page);
 
-  if (UNLIKELY(page->has_foster_child())) {
+  while (UNLIKELY(page->has_foster_child())) {
     // root page has a foster child... time for tree growth!
     MasstreeIntermediatePage* new_root;
     CHECK_ERROR_CODE(grow_root(context, &first_root_pointer_, page, &new_root));
-    *root = new_root;
+    if (new_root) {
+      assert_aligned_page(new_root);
+      page = new_root;
+      break;
+    } else {
+      // someone else has already grown B-tree. retry
+      page = reinterpret_cast<MasstreePage*>(
+        resolver.resolve_offset(first_root_pointer_.volatile_pointer_));
+      assert_aligned_page(page);
+    }
   }
+  *root = page;
 
   return kErrorCodeOk;
 }
@@ -113,12 +124,13 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   DualPagePointer* root_pointer,
   MasstreePage* root,
   MasstreeIntermediatePage** new_root) {
+  *new_root = nullptr;
   if (root->get_layer() == 0) {
     LOG(INFO) << "growing B-tree in first layer! " << *holder_;
   } else {
     DVLOG(0) << "growing B-tree in non-first layer " << *holder_;
   }
-  root->lock(true, true);
+  root->lock();
   UnlockScope scope(root);
   if (root->is_retired()) {
     LOG(INFO) << "interesting. someone else has already grown B-tree";
@@ -134,12 +146,13 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     return kErrorCodeMemoryNoFreePages;
   }
   *new_root = reinterpret_cast<MasstreeIntermediatePage*>(resolver.resolve_offset(offset));
-  VolatilePagePointer new_pointer;
-  new_pointer = combine_volatile_page_pointer(
+  VolatilePagePointer new_pointer = combine_volatile_page_pointer(
     context->get_numa_node(),
     kVolatilePointerFlagSwappable,  // pointer to root page might be swapped!
     root_pointer->volatile_pointer_.components.mod_count + 1,
     offset);
+  ASSERT_ND(reinterpret_cast<Page*>(*new_root) ==
+    context->get_global_volatile_page_resolver().resolve_offset(new_pointer));
   (*new_root)->initialize_volatile_page(
     metadata_.id_,
     new_pointer,
@@ -175,7 +188,7 @@ ErrorCode MasstreeStoragePimpl::grow_root(
 
   // Let's install a pointer to the new root page
   assorted::memory_fence_release();
-  root_pointer->volatile_pointer_ = new_pointer;
+  root_pointer->volatile_pointer_.word = new_pointer.word;
   root_pointer->snapshot_pointer_ = 0;
   ASSERT_ND(reinterpret_cast<Page*>(*new_root) ==
     context->get_global_volatile_page_resolver().resolve_offset(
@@ -231,9 +244,11 @@ inline ErrorCode MasstreeStoragePimpl::find_border(
   bool      for_writes,
   KeySlice  slice,
   MasstreeBorderPage** border) {
+  assert_aligned_page(layer_root);
   MasstreePage* cur = layer_root;
   cur->prefetch_general();
   while (true) {
+    assert_aligned_page(cur);
     ASSERT_ND(cur->get_layer() == current_layer);
     ASSERT_ND(cur->within_fences(slice));
     if (UNLIKELY(cur->has_foster_child())) {
@@ -469,10 +484,16 @@ inline ErrorCode MasstreeStoragePimpl::follow_layer(
   CHECK_ERROR_CODE(follow_page(context, for_writes, pointer, &next_root));
 
   // root page has a foster child... time for tree growth!
-  if (UNLIKELY(next_root->has_foster_child() && !parent->is_moved())) {
+  while (UNLIKELY(next_root->has_foster_child() && !parent->is_moved())) {
     MasstreeIntermediatePage* new_next_root;
     CHECK_ERROR_CODE(grow_root(context, pointer, next_root, &new_next_root));
-    next_root = new_next_root;
+    if (new_next_root) {
+      next_root = new_next_root;
+      break;
+    } else {
+      // someone else has grown it. retry
+      CHECK_ERROR_CODE(follow_page(context, for_writes, pointer, &next_root));
+    }
   }
 
   ASSERT_ND(next_root);
@@ -746,7 +767,6 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
   ASSERT_ND(!target->is_retired());
   ASSERT_ND(target->can_accomodate(target_index, remaining_key_length, payload_count));
   ASSERT_ND(target->get_version().get_key_count() < MasstreeBorderPage::kMaxKeys);
-  target->get_version().set_inserting();
   xct::XctId initial_id;
   initial_id.set_clean(
     Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else

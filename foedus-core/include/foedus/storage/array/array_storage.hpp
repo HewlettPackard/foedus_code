@@ -28,44 +28,6 @@ namespace storage {
 namespace array {
 
 /**
- * So far experimental...
- * This caches a small number of variables, most likely on local cacheline.
- * @ingroup ARRAY
- */
-struct ArrayStorageCache CXX11_FINAL {
-  ArrayStorageCache();
-  explicit ArrayStorageCache(ArrayStorage *storage);
-
-  explicit ArrayStorageCache(const ArrayStorageCache& other) { operator=(other); }
-  ArrayStorageCache& operator=(const ArrayStorageCache& other) {
-    engine_ = other.engine_;
-    storage_ = other.storage_;
-    pimpl_ = other.pimpl_;
-    metadata_ = other.metadata_;
-    root_page_ = other.root_page_;
-    levels_ = other.levels_;
-    route_finder_ = other.route_finder_;
-    return *this;
-  }
-  void assert_initialized() {
-    ASSERT_ND(engine_);
-    ASSERT_ND(storage_);
-    ASSERT_ND(pimpl_);
-    ASSERT_ND(root_page_);
-    ASSERT_ND(metadata_.id_ != 0);
-    ASSERT_ND(route_finder_.get_records_in_leaf() != 0);
-  }
-
-  Engine*             engine_;
-  ArrayStorage*       storage_;
-  ArrayStoragePimpl*  pimpl_;
-  ArrayMetadata       metadata_;
-  ArrayPage*          root_page_;
-  uint8_t             levels_;
-  LookupRouteFinder   route_finder_;
-};
-
-/**
  * @brief Represents a key-value store based on a dense and regular array.
  * @ingroup ARRAY
  */
@@ -202,6 +164,25 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
    */
   ErrorCode get_record_for_write(thread::Thread* context, ArrayOffset offset, Record** record);
 
+  /** batched interface */
+  template <typename T>
+  ErrorCode get_record_primitive_batch(
+    thread::Thread* context,
+    uint16_t payload_offset,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    T *payload);
+  ErrorCode get_record_payload_batch(
+    thread::Thread* context,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    const void** payload_batch);
+  ErrorCode get_record_for_write_batch(
+    thread::Thread* context,
+    uint16_t batch_size,
+    const ArrayOffset* offset_batch,
+    Record** record_batch);
+
   /**
    * @brief Overwrites one record of the given offset in this array storage.
    * @param[in] context Thread context
@@ -325,75 +306,6 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
 
   /** Use this only if you know what you are doing. */
   ArrayStoragePimpl*  get_pimpl() { return pimpl_; }
-
-  /** So far experimental... */
-  static ErrorCode get_record(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    ArrayOffset offset,
-    void *payload,
-    uint16_t payload_offset,
-    uint16_t payload_count);
-
-  /** So far experimental... */
-  template <typename T>
-  static ErrorCode get_record_primitive(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    ArrayOffset offset,
-    T *payload,
-    uint16_t payload_offset);
-
-  static ErrorCode get_record_payload(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    ArrayOffset offset,
-    const void** payload);
-
-  static ErrorCode get_record_for_write(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    ArrayOffset offset,
-    Record** record);
-
-  static ErrorCode overwrite_record(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    ArrayOffset offset,
-    Record* record,
-    const void *payload,
-    uint16_t payload_offset,
-    uint16_t payload_count);
-
-  template <typename T>
-  static ErrorCode overwrite_record_primitive(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    ArrayOffset offset,
-    Record* record,
-    T payload,
-    uint16_t payload_offset);
-
-  template <typename T>
-  static ErrorCode get_record_primitive_batch(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    uint16_t payload_offset,
-    uint16_t batch_size,
-    const ArrayOffset* offset_batch,
-    T *payload);
-  static ErrorCode get_record_payload_batch(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    uint16_t batch_size,
-    const ArrayOffset* offset_batch,
-    const void** payload_batch);
-  static ErrorCode get_record_for_write_batch(
-    thread::Thread* context,
-    const ArrayStorageCache& cache,
-    uint16_t batch_size,
-    const ArrayOffset* offset_batch,
-    Record** record_batch);
 
  private:
   ArrayStoragePimpl*  pimpl_;

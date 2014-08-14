@@ -371,11 +371,20 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
   return true;
 }
 
+const uint16_t kReadsetPrefetchBatch = 16;
+
 bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epoch *commit_epoch) {
   Xct& current_xct = context->get_current_xct();
   XctAccess*        read_set = current_xct.get_read_set();
   const uint32_t    read_set_size = current_xct.get_read_set_size();
   for (uint32_t i = 0; i < read_set_size; ++i) {
+    // let's prefetch owner_id in parallel
+    if (i % kReadsetPrefetchBatch == 0) {
+      for (uint32_t j = i; j < i + kReadsetPrefetchBatch && j < read_set_size; ++j) {
+        assorted::prefetch_cacheline(read_set[j].owner_id_address_);
+      }
+    }
+
     // The owning transaction has changed.
     // We don't check ordinal here because there is no change we are racing with ourselves.
     XctAccess& access = read_set[i];
@@ -420,12 +429,14 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
   const uint32_t          write_set_size = current_xct.get_write_set_size();
   XctAccess*              read_set = current_xct.get_read_set();
   const uint32_t          read_set_size = current_xct.get_read_set_size();
-  // let's prefetch owner_id in parallel
   for (uint32_t i = 0; i < read_set_size; ++i) {
-    assorted::prefetch_cacheline(read_set[i].owner_id_address_);
-  }
+    // let's prefetch owner_id in parallel
+    if (i % kReadsetPrefetchBatch == 0) {
+      for (uint32_t j = i; j < i + kReadsetPrefetchBatch && j < read_set_size; ++j) {
+        assorted::prefetch_cacheline(read_set[j].owner_id_address_);
+      }
+    }
 
-  for (uint32_t i = 0; i < read_set_size; ++i) {
     // The owning transaction has changed.
     // We don't check ordinal here because there is no change we are racing with ourselves.
     XctAccess& access = read_set[i];
@@ -483,6 +494,12 @@ bool XctManagerPimpl::precommit_xct_verify_pointer_set(thread::Thread* context) 
   const PointerAccess*    pointer_set = current_xct.get_pointer_set();
   const uint32_t          pointer_set_size = current_xct.get_pointer_set_size();
   for (uint32_t i = 0; i < pointer_set_size; ++i) {
+    // let's prefetch address_ in parallel
+    if (i % kReadsetPrefetchBatch == 0) {
+      for (uint32_t j = i; j < i + kReadsetPrefetchBatch && j < pointer_set_size; ++j) {
+        assorted::prefetch_cacheline(pointer_set[j].address_);
+      }
+    }
     const PointerAccess& access = pointer_set[i];
     if (access.address_->word !=  access.observed_.word) {
       DLOG(WARNING) << *context << " volatile ptr is changed by other transaction. will abort";
@@ -496,6 +513,12 @@ bool XctManagerPimpl::precommit_xct_verify_page_version_set(thread::Thread* cont
   const PageVersionAccess*  page_version_set = current_xct.get_page_version_set();
   const uint32_t            page_version_set_size = current_xct.get_page_version_set_size();
   for (uint32_t i = 0; i < page_version_set_size; ++i) {
+    // let's prefetch address_ in parallel
+    if (i % kReadsetPrefetchBatch == 0) {
+      for (uint32_t j = i; j < i + kReadsetPrefetchBatch && j < page_version_set_size; ++j) {
+        assorted::prefetch_cacheline(page_version_set[j].address_);
+      }
+    }
     const PageVersionAccess& access = page_version_set[i];
     if (access.address_->data_ != access.observed_.data_) {
       DLOG(WARNING) << *context << " page version is changed by other transaction. will abort"

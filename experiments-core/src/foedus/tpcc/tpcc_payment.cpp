@@ -37,9 +37,8 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
 
   // SELECT NAME FROM WAREHOUSE
   const void *w_address;
-  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_payload(
+  CHECK_ERROR_CODE(storages_.warehouses_static_->get_record_payload(
     context_,
-    storages_.warehouses_static_cache_,
     wid,
     &w_address));
   const WarehouseStaticData* w_record = reinterpret_cast<const WarehouseStaticData*>(w_address);
@@ -53,9 +52,8 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
 
   // SELECT NAME FROM DISTRICT
   const void *d_address;
-  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_payload(
+  CHECK_ERROR_CODE(storages_.districts_static_->get_record_payload(
     context_,
-    storages_.districts_static_cache_,
     wdid,
     &d_address));
   const DistrictStaticData* d_record = reinterpret_cast<const DistrictStaticData*>(d_address);
@@ -96,9 +94,8 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     offsetof(CustomerDynamicData, ytd_payment_)));
 
   const void *c_address;
-  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_payload(
+  CHECK_ERROR_CODE(storages_.customers_static_->get_record_payload(
     context_,
-    storages_.customers_static_cache_,
     wdcid,
     &c_address));
   const CustomerStaticData* c_record = reinterpret_cast<const CustomerStaticData*>(c_address);
@@ -109,9 +106,8 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     // http://zverovich.net/2013/09/07/integer-to-string-conversion-in-cplusplus.html
     // let's consider cppformat if this turns out to be bottleneck
     char c_old_data[CustomerStaticData::kHistoryDataLength];
-    CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record(
+    CHECK_ERROR_CODE(storages_.customers_history_->get_record(
       context_,
-      storages_.customers_history_cache_,
       wdcid,
       c_old_data,
       0,

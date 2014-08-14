@@ -73,7 +73,7 @@ ErrorCode TpccClientTask::get_last_orderid_by_customer(Wid wid, Did did, Cid cid
   Wdcoid low = combine_wdcoid(combine_wdcid(wdid, cid), 0U);
   Wdcoid high = combine_wdcoid(combine_wdcid(wdid, cid + 1U), 0U);
   storage::masstree::MasstreeCursor cursor(engine_, storages_.orders_secondary_, context_);
-  CHECK_ERROR_CODE(cursor.open_normalized(low, high, false, false, false, true));
+  CHECK_ERROR_CODE(cursor.open_normalized(high, low, false, false, false, true));
   if (cursor.is_valid_record()) {
     Wdcoid key = assorted::read_bigendian<Wdcoid>(cursor.get_key());
     ASSERT_ND(key >= low);

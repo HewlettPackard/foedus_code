@@ -49,18 +49,16 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
   // SELECT TAX from WAREHOUSE
   double w_tax;
 
-  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_primitive(
+  CHECK_ERROR_CODE(storages_.warehouses_static_->get_record_primitive(
     context_,
-    storages_.warehouses_static_cache_,
     wid,
     &w_tax,
     offsetof(WarehouseStaticData, tax_)));
 
   // SELECT TAX FROM DISTRICT
   double d_tax;
-  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_primitive(
+  CHECK_ERROR_CODE(storages_.districts_static_->get_record_primitive(
     context_,
-    storages_.districts_static_cache_,
     wdid,
     &d_tax,
     offsetof(DistrictStaticData, tax_)));
@@ -74,9 +72,8 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
   // SELECT DISCOUNT from CUSTOMER
   double c_discount;
   const uint16_t c_offset = offsetof(CustomerStaticData, discount_);
-  CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_primitive(
+  CHECK_ERROR_CODE(storages_.customers_static_->get_record_primitive<double>(
     context_,
-    storages_.customers_static_cache_,
     wdcid,
     &c_discount,
     c_offset));
@@ -168,20 +165,16 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
   // then, read stock/item in a batched way so that we can parallelize cacheline prefetches
   // SELECT ... FROM ITEM WHERE IID=iid
   const void* i_data_address[kOlMax];
-  CHECK_ERROR_CODE(
-    storage::array::ArrayStorage::get_record_payload_batch(
+  CHECK_ERROR_CODE(storages_.items_->get_record_payload_batch(
       context_,
-      storages_.items_cache_,
       ol_cnt,
       iids,
       i_data_address));
   // SELECT ... FROM STOCK WHERE WID=supply_wid AND IID=iid
   // then UPDATE quantity and remote count
   storage::Record* s_records[kOlMax];
-  CHECK_ERROR_CODE(
-    storage::array::ArrayStorage::get_record_for_write_batch(
+  CHECK_ERROR_CODE(storages_.stocks_->get_record_for_write_batch(
       context_,
-      storages_.stocks_cache_,
       ol_cnt,
       sids,
       s_records));
@@ -212,18 +205,16 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
     Wid supply_wid = extract_wid_from_sid(sids[ol - 1]);
     if (supply_wid != wid) {
         // in this case we are also incrementing remote cnt
-      CHECK_ERROR_CODE(storage::array::ArrayStorage::overwrite_record_primitive<uint32_t>(
+      CHECK_ERROR_CODE(storages_.stocks_->overwrite_record_primitive<uint32_t>(
         context_,
-        storages_.stocks_cache_,
         sids[ol - 1],
         s_records[ol - 1],
         s_data->remote_cnt_ + 1,
         s_remote_offset));
     }
     // overwrite quantity
-    CHECK_ERROR_CODE(storage::array::ArrayStorage::overwrite_record_primitive<uint32_t>(
+    CHECK_ERROR_CODE(storages_.stocks_->overwrite_record_primitive<uint32_t>(
       context_,
-      storages_.stocks_cache_,
       sids[ol - 1],
       s_records[ol - 1],
       new_quantity,

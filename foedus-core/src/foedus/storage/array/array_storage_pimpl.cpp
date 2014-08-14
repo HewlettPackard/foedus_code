@@ -702,317 +702,9 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write(
 }
 
 // so far experimental...
-ErrorCode ArrayStorage::get_record(
-  thread::Thread* context,
-  const ArrayStorageCache& cache,
-  ArrayOffset offset,
-  void *payload,
-  uint16_t payload_offset,
-  uint16_t payload_count) {
-  return ArrayStoragePimpl::get_record(
-    context,
-    cache,
-    offset,
-    payload,
-    payload_offset,
-    payload_count);
-}
-
-template <typename T>
-ErrorCode ArrayStorage::get_record_primitive(
-  thread::Thread* context,
-  const ArrayStorageCache& cache,
-  ArrayOffset offset,
-  T *payload,
-  uint16_t payload_offset) {
-  return ArrayStoragePimpl::get_record_primitive<T>(
-    context,
-    cache,
-    offset,
-    payload,
-    payload_offset);
-}
-
-ErrorCode ArrayStorage::get_record_payload(
-  thread::Thread* context,
-  const ArrayStorageCache& cache,
-  ArrayOffset offset,
-  const void** payload) {
-  return ArrayStoragePimpl::get_record_payload(
-    context,
-    cache,
-    offset,
-    payload);
-}
-
-ErrorCode ArrayStorage::get_record_for_write(
-  thread::Thread* context,
-  const ArrayStorageCache& cache,
-  ArrayOffset offset,
-  Record** record) {
-  return ArrayStoragePimpl::get_record_for_write(
-    context,
-    cache,
-    offset,
-    record);
-}
-
-ErrorCode ArrayStorage::overwrite_record(
-  thread::Thread* context,
-  const ArrayStorageCache& cache,
-  ArrayOffset offset,
-  Record* record,
-  const void *payload,
-  uint16_t payload_offset,
-  uint16_t payload_count) {
-  return ArrayStoragePimpl::overwrite_record(
-    context,
-    cache,
-    offset,
-    record,
-    payload,
-    payload_offset,
-    payload_count);
-}
-
-template <typename T>
-ErrorCode ArrayStorage::overwrite_record_primitive(
-  thread::Thread* context,
-  const ArrayStorageCache& cache,
-  ArrayOffset offset,
-  Record* record,
-  T payload,
-  uint16_t payload_offset) {
-  return ArrayStoragePimpl::overwrite_record_primitive<T>(
-    context,
-    cache,
-    offset,
-    record,
-    payload,
-    payload_offset);
-}
-
-
-inline ErrorCode ArrayStoragePimpl::get_record(
-  thread::Thread* context,
-  const ArrayStorageCache& cache,
-  ArrayOffset offset,
-  void* payload,
-  uint16_t payload_offset,
-  uint16_t payload_count) {
-  ASSERT_ND(payload_offset + payload_count <= cache.metadata_.payload_size_);
-  Record *record = nullptr;
-  bool snapshot_record;
-  CHECK_ERROR_CODE(locate_record_for_read(
-    context,
-    cache,
-    offset,
-    &record,
-    &snapshot_record));
-  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
-    &context->get_current_xct(),
-    cache.storage_,
-    &record->owner_id_,
-    snapshot_record,
-    [record, payload, payload_offset, payload_count](xct::XctId /*observed*/){
-      std::memcpy(payload, record->payload_ + payload_offset, payload_count);
-      return kErrorCodeOk;
-    }));
-  return kErrorCodeOk;
-}
-
-template <typename T>
-ErrorCode ArrayStoragePimpl::get_record_primitive(
-  thread::Thread* context,
-  const ArrayStorageCache& cache,
-  ArrayOffset offset,
-  T *payload,
-  uint16_t payload_offset) {
-  ASSERT_ND(payload_offset + sizeof(T) <= cache.metadata_.payload_size_);
-  Record *record = nullptr;
-  bool snapshot_record;
-  CHECK_ERROR_CODE(locate_record_for_read(
-    context,
-    cache,
-    offset,
-    &record,
-    &snapshot_record));
-  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
-    &context->get_current_xct(),
-    cache.storage_,
-    &record->owner_id_,
-    snapshot_record,
-    [record, payload, payload_offset](xct::XctId /*observed*/){
-      char* ptr = record->payload_ + payload_offset;
-      *payload = *reinterpret_cast<const T*>(ptr);
-      return kErrorCodeOk;
-    }));
-  return kErrorCodeOk;
-}
-
-inline ErrorCode ArrayStoragePimpl::get_record_payload(
-  thread::Thread* context,
-  const ArrayStorageCache& cache,
-  ArrayOffset offset,
-  const void** payload) {
-  Record *record = nullptr;
-  bool snapshot_record;
-  CHECK_ERROR_CODE(locate_record_for_read(context, cache, offset, &record, &snapshot_record));
-  xct::Xct& current_xct = context->get_current_xct();
-  if (!snapshot_record &&
-    current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
-    current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
-    xct::XctId observed(record->owner_id_.spin_while_keylocked());
-    assorted::memory_fence_consume();
-    CHECK_ERROR_CODE(current_xct.add_to_read_set(cache.storage_, observed, &record->owner_id_));
-  }
-  *payload = record->payload_;
-  return kErrorCodeOk;
-}
-
-inline ErrorCode ArrayStoragePimpl::get_record_for_write(
-  thread::Thread* context,
-  const ArrayStorageCache& cache,
-  ArrayOffset offset,
-  Record** record) {
-  ArrayPage* current_page = cache.root_page_;
-  ASSERT_ND(current_page->get_array_range().contains(offset));
-  LookupRoute route = cache.route_finder_.find_route(offset);
-  const memory::GlobalVolatilePageResolver& page_resolver
-    = context->get_global_volatile_page_resolver();
-  for (uint8_t level = cache.levels_ - 1; level > 0; --level) {
-    ASSERT_ND(current_page->get_array_range().contains(offset));
-    CHECK_ERROR_CODE(follow_pointer_for_write(
-      context,
-      page_resolver,
-      &current_page->get_interior_record(route.route[level]),
-      &current_page));
-  }
-  ASSERT_ND(current_page->is_leaf());
-  ASSERT_ND(current_page->get_array_range().contains(offset));
-  ASSERT_ND(current_page->get_array_range().begin_ + route.route[0] == offset);
-  uint16_t index = route.route[0];
-  Record* rec = current_page->get_leaf_record(index, cache.metadata_.payload_size_);;
-  *record = rec;
-  xct::Xct& current_xct = context->get_current_xct();
-  if (current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
-    current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
-    xct::XctId observed(rec->owner_id_.spin_while_keylocked());
-    assorted::memory_fence_consume();
-    CHECK_ERROR_CODE(current_xct.add_to_read_set(cache.storage_, observed, &rec->owner_id_));
-  }
-  return kErrorCodeOk;
-}
-
-inline ErrorCode ArrayStoragePimpl::overwrite_record(
-  thread::Thread* context,
-  const ArrayStorageCache& cache,
-  ArrayOffset offset,
-  Record* record,
-  const void *payload,
-  uint16_t payload_offset,
-  uint16_t payload_count) {
-  uint16_t log_length = ArrayOverwriteLogType::calculate_log_length(payload_count);
-  ArrayOverwriteLogType* log_entry = reinterpret_cast<ArrayOverwriteLogType*>(
-    context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(cache.metadata_.id_, offset, payload, payload_offset, payload_count);
-  return context->get_current_xct().add_to_write_set(
-    cache.storage_,
-    &record->owner_id_,
-    record->payload_,
-    log_entry);
-}
-
-template <typename T>
-inline ErrorCode ArrayStoragePimpl::overwrite_record_primitive(
-  thread::Thread* context,
-  const ArrayStorageCache& cache,
-  ArrayOffset offset,
-  Record* record,
-  T payload,
-  uint16_t payload_offset) {
-  uint16_t log_length = ArrayOverwriteLogType::calculate_log_length(sizeof(T));
-  ArrayOverwriteLogType* log_entry = reinterpret_cast<ArrayOverwriteLogType*>(
-    context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate_primitive<T>(cache.metadata_.id_, offset, payload, payload_offset);
-  return context->get_current_xct().add_to_write_set(
-    cache.storage_,
-    &record->owner_id_,
-    record->payload_,
-    log_entry);
-}
-
-
-inline ErrorCode ArrayStoragePimpl::locate_record_for_read(
-  thread::Thread* context,
-  const ArrayStorageCache& cache,
-  ArrayOffset offset,
-  Record** out,
-  bool* snapshot_record) {
-  ASSERT_ND(offset < cache.metadata_.array_size_);
-  uint16_t index = 0;
-  ArrayPage* page = nullptr;
-  CHECK_ERROR_CODE(lookup_for_read(
-    context,
-    cache.root_page_,
-    cache.levels_,
-    cache.route_finder_,
-    cache.metadata_,
-    offset,
-    &page,
-    &index,
-    snapshot_record));
-  ASSERT_ND(page);
-  ASSERT_ND(page->is_leaf());
-  ASSERT_ND(page->get_array_range().contains(offset));
-  *out = page->get_leaf_record(index, cache.metadata_.payload_size_);
-  return kErrorCodeOk;
-}
-
-inline ErrorCode ArrayStoragePimpl::lookup_for_read(
-  thread::Thread* context,
-  ArrayPage* root_page,
-  uint8_t levels,
-  const LookupRouteFinder& route_finder,
-  const ArrayMetadata& metadata,
-  ArrayOffset offset,
-  ArrayPage** out,
-  uint16_t* index,
-  bool* snapshot_page) {
-  ASSERT_ND(offset < metadata.array_size_);
-  ASSERT_ND(out);
-  ASSERT_ND(index);
-  ArrayPage* current_page = root_page;
-  ASSERT_ND(current_page->get_array_range().contains(offset));
-  LookupRoute route = route_finder.find_route(offset);
-  const memory::GlobalVolatilePageResolver& page_resolver
-    = context->get_global_volatile_page_resolver();
-  xct::Xct& current_xct = context->get_current_xct();
-  bool followed_snapshot_pointer = false;
-  for (uint8_t level = levels - 1; level > 0; --level) {
-    ASSERT_ND(current_page->get_array_range().contains(offset));
-    DualPagePointer& pointer = current_page->get_interior_record(route.route[level]);
-    CHECK_ERROR_CODE(follow_pointer_for_read(
-      context,
-      &current_xct,
-      page_resolver,
-      &pointer,
-      &followed_snapshot_pointer,
-      &current_page));
-  }
-  ASSERT_ND(current_page->is_leaf());
-  ASSERT_ND(current_page->get_array_range().contains(offset));
-  ASSERT_ND(current_page->get_array_range().begin_ + route.route[0] == offset);
-  *out = current_page;
-  *index = route.route[0];
-  *snapshot_page = followed_snapshot_pointer;
-  return kErrorCodeOk;
-}
-
 template <typename T>
 ErrorCode ArrayStorage::get_record_primitive_batch(
   thread::Thread* context,
-  const ArrayStorageCache& cache,
   uint16_t payload_offset,
   uint16_t batch_size,
   const ArrayOffset* offset_batch,
@@ -1022,9 +714,8 @@ ErrorCode ArrayStorage::get_record_primitive_batch(
     if (chunk > ArrayStoragePimpl::kBatchMax) {
       chunk = ArrayStoragePimpl::kBatchMax;
     }
-    CHECK_ERROR_CODE(ArrayStoragePimpl::get_record_primitive_batch(
+    CHECK_ERROR_CODE(pimpl_->get_record_primitive_batch(
       context,
-      cache,
       payload_offset,
       chunk,
       &offset_batch[cur],
@@ -1036,7 +727,6 @@ ErrorCode ArrayStorage::get_record_primitive_batch(
 
 ErrorCode ArrayStorage::get_record_payload_batch(
   thread::Thread* context,
-  const ArrayStorageCache& cache,
   uint16_t batch_size,
   const ArrayOffset* offset_batch,
   const void** payload_batch) {
@@ -1045,9 +735,8 @@ ErrorCode ArrayStorage::get_record_payload_batch(
     if (chunk > ArrayStoragePimpl::kBatchMax) {
       chunk = ArrayStoragePimpl::kBatchMax;
     }
-    CHECK_ERROR_CODE(ArrayStoragePimpl::get_record_payload_batch(
+    CHECK_ERROR_CODE(pimpl_->get_record_payload_batch(
       context,
-      cache,
       chunk,
       &offset_batch[cur],
       &payload_batch[cur]));
@@ -1058,7 +747,6 @@ ErrorCode ArrayStorage::get_record_payload_batch(
 
 ErrorCode ArrayStorage::get_record_for_write_batch(
   thread::Thread* context,
-  const ArrayStorageCache& cache,
   uint16_t batch_size,
   const ArrayOffset* offset_batch,
   Record** record_batch) {
@@ -1067,9 +755,8 @@ ErrorCode ArrayStorage::get_record_for_write_batch(
     if (chunk > ArrayStoragePimpl::kBatchMax) {
       chunk = ArrayStoragePimpl::kBatchMax;
     }
-    CHECK_ERROR_CODE(ArrayStoragePimpl::get_record_for_write_batch(
+    CHECK_ERROR_CODE(pimpl_->get_record_for_write_batch(
       context,
-      cache,
       chunk,
       &offset_batch[cur],
       &record_batch[cur]));
@@ -1082,7 +769,6 @@ ErrorCode ArrayStorage::get_record_for_write_batch(
 template <typename T>
 inline ErrorCode ArrayStoragePimpl::get_record_primitive_batch(
   thread::Thread* context,
-  const ArrayStorageCache& cache,
   uint16_t payload_offset,
   uint16_t batch_size,
   const ArrayOffset* offset_batch,
@@ -1092,7 +778,6 @@ inline ErrorCode ArrayStoragePimpl::get_record_primitive_batch(
   bool snapshot_record_batch[kBatchMax];
   CHECK_ERROR_CODE(locate_record_for_read_batch(
     context,
-    cache,
     batch_size,
     offset_batch,
     record_batch,
@@ -1104,7 +789,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_primitive_batch(
       if (!snapshot_record_batch[i]) {
         xct::XctId observed(record_batch[i]->owner_id_.spin_while_keylocked());
         CHECK_ERROR_CODE(current_xct.add_to_read_set(
-          cache.storage_,
+          holder_,
           observed,
           &record_batch[i]->owner_id_));
       }
@@ -1128,7 +813,6 @@ inline ErrorCode ArrayStoragePimpl::get_record_primitive_batch(
 
 inline ErrorCode ArrayStoragePimpl::get_record_payload_batch(
   thread::Thread* context,
-  const ArrayStorageCache& cache,
   uint16_t batch_size,
   const ArrayOffset* offset_batch,
   const void** payload_batch) {
@@ -1137,7 +821,6 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload_batch(
   bool snapshot_record_batch[kBatchMax];
   CHECK_ERROR_CODE(locate_record_for_read_batch(
     context,
-    cache,
     batch_size,
     offset_batch,
     record_batch,
@@ -1149,7 +832,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload_batch(
       if (!snapshot_record_batch[i]) {
         xct::XctId observed(record_batch[i]->owner_id_.spin_while_keylocked());
         CHECK_ERROR_CODE(current_xct.add_to_read_set(
-          cache.storage_,
+          holder_,
           observed,
           &record_batch[i]->owner_id_));
       }
@@ -1164,17 +847,12 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload_batch(
 
 inline ErrorCode ArrayStoragePimpl::get_record_for_write_batch(
   thread::Thread* context,
-  const ArrayStorageCache& cache,
   uint16_t batch_size,
   const ArrayOffset* offset_batch,
   Record** record_batch) {
   ASSERT_ND(batch_size <= kBatchMax);
   CHECK_ERROR_CODE(lookup_for_write_batch(
     context,
-    cache.root_page_,
-    cache.levels_,
-    cache.route_finder_,
-    cache.metadata_,
     batch_size,
     offset_batch,
     record_batch));
@@ -1184,7 +862,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write_batch(
     for (uint8_t i = 0; i < batch_size; ++i) {
       xct::XctId observed(record_batch[i]->owner_id_.spin_while_keylocked());
       CHECK_ERROR_CODE(current_xct.add_to_read_set(
-        cache.storage_,
+        holder_,
         observed,
         &record_batch[i]->owner_id_));
     }
@@ -1195,7 +873,6 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write_batch(
 
 inline ErrorCode ArrayStoragePimpl::locate_record_for_read_batch(
   thread::Thread* context,
-  const ArrayStorageCache& cache,
   uint16_t batch_size,
   const ArrayOffset* offset_batch,
   Record** out_batch,
@@ -1205,10 +882,6 @@ inline ErrorCode ArrayStoragePimpl::locate_record_for_read_batch(
   uint16_t index_batch[kBatchMax];
   CHECK_ERROR_CODE(lookup_for_read_batch(
     context,
-    cache.root_page_,
-    cache.levels_,
-    cache.route_finder_,
-    cache.metadata_,
     batch_size,
     offset_batch,
     page_batch,
@@ -1218,17 +891,13 @@ inline ErrorCode ArrayStoragePimpl::locate_record_for_read_batch(
     ASSERT_ND(page_batch[i]);
     ASSERT_ND(page_batch[i]->is_leaf());
     ASSERT_ND(page_batch[i]->get_array_range().contains(offset_batch[i]));
-    out_batch[i] = page_batch[i]->get_leaf_record(index_batch[i], cache.metadata_.payload_size_);
+    out_batch[i] = page_batch[i]->get_leaf_record(index_batch[i], metadata_.payload_size_);
   }
   return kErrorCodeOk;
 }
 
 inline ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
   thread::Thread* context,
-  ArrayPage* root_page,
-  uint8_t levels,
-  const LookupRouteFinder& route_finder,
-  const ArrayMetadata& metadata,
   uint16_t batch_size,
   const ArrayOffset* offset_batch,
   ArrayPage** out_batch,
@@ -1237,23 +906,23 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
   ASSERT_ND(batch_size <= kBatchMax);
   LookupRoute routes[kBatchMax];
   for (uint8_t i = 0; i < batch_size; ++i) {
-    ASSERT_ND(offset_batch[i] < metadata.array_size_);
-    routes[i] = route_finder.find_route(offset_batch[i]);
-    if (levels == 0) {
-      assorted::prefetch_cacheline(root_page->get_leaf_record(
+    ASSERT_ND(offset_batch[i] < metadata_.array_size_);
+    routes[i] = route_finder_.find_route(offset_batch[i]);
+    if (levels_ == 0) {
+      assorted::prefetch_cacheline(root_page_->get_leaf_record(
         routes[i].route[0],
-        metadata.payload_size_));
+        metadata_.payload_size_));
     } else {
-      assorted::prefetch_cacheline(&root_page->get_interior_record(routes[i].route[levels - 1]));
+      assorted::prefetch_cacheline(&root_page_->get_interior_record(routes[i].route[levels_ - 1]));
     }
-    out_batch[i] = root_page;
+    out_batch[i] = root_page_;
     snapshot_page_batch[i] = false;
   }
 
   const memory::GlobalVolatilePageResolver& page_resolver
     = context->get_global_volatile_page_resolver();
   xct::Xct& current_xct = context->get_current_xct();
-  for (uint8_t level = levels - 1; level > 0; --level) {
+  for (uint8_t level = levels_ - 1; level > 0; --level) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       ASSERT_ND(out_batch[i]->get_array_range().contains(offset_batch[i]));
       DualPagePointer& pointer = out_batch[i]->get_interior_record(routes[i].route[level]);
@@ -1267,10 +936,10 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
       if (level == 1U) {
         assorted::prefetch_cacheline(out_batch[i]->get_leaf_record(
           routes[i].route[0],
-          metadata.payload_size_));
+          metadata_.payload_size_));
       } else {
         assorted::prefetch_cacheline(
-          &out_batch[i]->get_interior_record(routes[i].route[levels - 1]));
+          &out_batch[i]->get_interior_record(routes[i].route[levels_ - 1]));
       }
     }
   }
@@ -1285,10 +954,6 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
 
 inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
   thread::Thread* context,
-  ArrayPage* root_page,
-  uint8_t levels,
-  const LookupRouteFinder& route_finder,
-  const ArrayMetadata& metadata,
   uint16_t batch_size,
   const ArrayOffset* offset_batch,
   Record** record_batch) {
@@ -1296,21 +961,21 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
   ArrayPage* pages[kBatchMax];
   LookupRoute routes[kBatchMax];
   for (uint8_t i = 0; i < batch_size; ++i) {
-    ASSERT_ND(offset_batch[i] < metadata.array_size_);
-    routes[i] = route_finder.find_route(offset_batch[i]);
-    if (levels == 0) {
-      assorted::prefetch_cacheline(root_page->get_leaf_record(
+    ASSERT_ND(offset_batch[i] < metadata_.array_size_);
+    routes[i] = route_finder_.find_route(offset_batch[i]);
+    if (levels_ == 0) {
+      assorted::prefetch_cacheline(root_page_->get_leaf_record(
         routes[i].route[0],
-        metadata.payload_size_));
+        metadata_.payload_size_));
     } else {
-      assorted::prefetch_cacheline(&root_page->get_interior_record(routes[i].route[levels - 1]));
+      assorted::prefetch_cacheline(&root_page_->get_interior_record(routes[i].route[levels_ - 1]));
     }
-    pages[i] = root_page;
+    pages[i] = root_page_;
   }
 
   const memory::GlobalVolatilePageResolver& page_resolver
     = context->get_global_volatile_page_resolver();
-  for (uint8_t level = levels - 1; level > 0; --level) {
+  for (uint8_t level = levels_ - 1; level > 0; --level) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       ASSERT_ND(pages[i]->get_array_range().contains(offset_batch[i]));
       CHECK_ERROR_CODE(follow_pointer_for_write(
@@ -1321,10 +986,10 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
       if (level == 1U) {
         assorted::prefetch_cacheline(pages[i]->get_leaf_record(
           routes[i].route[0],
-          metadata.payload_size_));
+          metadata_.payload_size_));
       } else {
         assorted::prefetch_cacheline(
-          &pages[i]->get_interior_record(routes[i].route[levels - 1]));
+          &pages[i]->get_interior_record(routes[i].route[levels_ - 1]));
       }
     }
   }
@@ -1332,7 +997,7 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
     ASSERT_ND(pages[i]->is_leaf());
     ASSERT_ND(pages[i]->get_array_range().contains(offset_batch[i]));
     ASSERT_ND(pages[i]->get_array_range().begin_ + routes[i].route[0] == offset_batch[i]);
-    record_batch[i] = pages[i]->get_leaf_record(routes[i].route[0], metadata.payload_size_);
+    record_batch[i] = pages[i]->get_leaf_record(routes[i].route[0], metadata_.payload_size_);
   }
   return kErrorCodeOk;
 }
@@ -1401,28 +1066,16 @@ inline ErrorCode ArrayStoragePimpl::follow_pointer_for_write(
   (thread::Thread* context, ArrayOffset offset, x *payload, uint16_t payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPLICIT_INSTANTIATION_GET);
 
-#define EX_GET_CACHE(x) template ErrorCode ArrayStorage::get_record_primitive< x > \
-  (thread::Thread* context, const ArrayStorageCache& cache, ArrayOffset offset, x *payload, \
-  uint16_t payload_offset)
-INSTANTIATE_ALL_NUMERIC_TYPES(EX_GET_CACHE);
-
-#define EX_GET_CACHE_IMPL(x) template ErrorCode \
-  ArrayStoragePimpl::get_record_primitive< x > \
-  (thread::Thread* context, const ArrayStorageCache& cache, ArrayOffset offset, x *payload, \
-  uint16_t payload_offset)
-INSTANTIATE_ALL_NUMERIC_TYPES(EX_GET_CACHE_IMPL);
-
-
-#define EX_GET_CACHE_BATCH(x) template ErrorCode ArrayStorage::get_record_primitive_batch< x > \
-  (thread::Thread* context, const ArrayStorageCache& cache, uint16_t payload_offset, \
+#define EX_GET_BATCH(x) template ErrorCode ArrayStorage::get_record_primitive_batch< x > \
+  (thread::Thread* context, uint16_t payload_offset, \
   uint16_t batch_size, const ArrayOffset* offset_batch, x *payload)
-INSTANTIATE_ALL_NUMERIC_TYPES(EX_GET_CACHE_BATCH);
+INSTANTIATE_ALL_NUMERIC_TYPES(EX_GET_BATCH);
 
-#define EX_GET_CACHE_BATCH_IMPL(x) template ErrorCode \
+#define EX_GET_BATCH_IMPL(x) template ErrorCode \
   ArrayStoragePimpl::get_record_primitive_batch< x > \
-  (thread::Thread* context, const ArrayStorageCache& cache, uint16_t payload_offset, \
+  (thread::Thread* context, uint16_t payload_offset, \
   uint16_t batch_size, const ArrayOffset* offset_batch, x *payload)
-INSTANTIATE_ALL_NUMERIC_TYPES(EX_GET_CACHE_BATCH_IMPL);
+INSTANTIATE_ALL_NUMERIC_TYPES(EX_GET_BATCH_IMPL);
 
 #define EXPLICIT_INSTANTIATION_OV(x) template ErrorCode\
   ArrayStorage::overwrite_record_primitive< x > \
@@ -1434,22 +1087,10 @@ INSTANTIATE_ALL_NUMERIC_TYPES(EXPLICIT_INSTANTIATION_OV);
   (thread::Thread* context, ArrayOffset offset, Record* record, x payload, uint16_t payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EX_OV_REC);
 
-#define EX_OV_REC_CACHE(x) template ErrorCode\
-  ArrayStorage::overwrite_record_primitive< x > \
-  (thread::Thread* context, const ArrayStorageCache& cache, ArrayOffset offset, Record* record, \
-  x payload, uint16_t payload_offset)
-INSTANTIATE_ALL_NUMERIC_TYPES(EX_OV_REC_CACHE);
-
 #define EX_OV_REC_IMPL(x) template ErrorCode\
   ArrayStoragePimpl::overwrite_record_primitive< x > \
   (thread::Thread* context, ArrayOffset offset, Record* record, x payload, uint16_t payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EX_OV_REC_IMPL);
-
-#define EX_OV_REC_CACHE_IMPL(x) template ErrorCode\
-  ArrayStoragePimpl::overwrite_record_primitive< x > \
-  (thread::Thread* context, const ArrayStorageCache& cache, ArrayOffset offset, Record* record, \
-  x payload, uint16_t payload_offset)
-INSTANTIATE_ALL_NUMERIC_TYPES(EX_OV_REC_CACHE_IMPL);
 
 #define EXPLICIT_INSTANTIATION_INC(x) template ErrorCode ArrayStorage::increment_record< x > \
   (thread::Thread* context, ArrayOffset offset, x* value, uint16_t payload_offset)
