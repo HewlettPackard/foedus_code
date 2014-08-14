@@ -73,13 +73,13 @@ ErrorStack TpccCreateTask::run(thread::Thread* context) {
   CHECK_ERROR(create_array(
     context,
     "districts_ytd",
-    sizeof(uint64_t),
+    sizeof(DistrictYtdData),
     total_warehouses_ * kDistricts,
     &storages_.districts_ytd_));
   CHECK_ERROR(create_array(
     context,
     "districts_next_oid",
-    sizeof(Oid),
+    sizeof(DistrictNextOidData),
     total_warehouses_ * kDistricts,
     &storages_.districts_next_oid_));
   LOG(INFO) << "Created Districts:" << engine->get_memory_manager().dump_free_memory_stat();
@@ -115,7 +115,7 @@ ErrorStack TpccCreateTask::run(thread::Thread* context) {
   CHECK_ERROR(create_array(
     context,
     "warehouses_ytd",
-    sizeof(double),
+    sizeof(WarehouseYtdData),
     total_warehouses_,
     &storages_.warehouses_ytd_));
   LOG(INFO) << "Created Warehouses:" << engine->get_memory_manager().dump_free_memory_stat();

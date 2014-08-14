@@ -196,6 +196,12 @@ struct WarehouseStaticData {
 //   double ytd_;
 };
 
+struct WarehouseYtdData {
+  double ytd_;          // +8 -> 8
+  char   dummy_[48];    // +48 -> 56
+  // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
+};
+
 struct DistrictStaticData {
   char   name_[11];
   char   street1_[21];
@@ -207,6 +213,19 @@ struct DistrictStaticData {
 // Followings are vertically partitioned
 //  uint64_t ytd_;
 //  Oid      next_o_id_;
+};
+
+struct DistrictYtdData {
+  uint64_t  ytd_;          // +8 -> 8
+  char      dummy_[48];    // +48 -> 56
+  // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
+};
+
+struct DistrictNextOidData {
+  Oid       next_o_id_;    // +4 -> 4
+  uint32_t  dummy1_;       // +4 -> 8
+  char      dummy2_[48];   // +48 -> 56
+  // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
 };
 
 struct CustomerStaticData {
@@ -230,10 +249,12 @@ struct CustomerStaticData {
 };
 
 struct CustomerDynamicData {
-  uint32_t payment_cnt_;
-  uint32_t delivery_cnt_;
-  uint64_t ytd_payment_;
-  double balance_;
+  uint32_t  payment_cnt_;   // +4->4
+  uint32_t  delivery_cnt_;  // +4->8
+  uint64_t  ytd_payment_;   // +8->16
+  double    balance_;       // +8->24
+  char      dummy_[32];     // +32->56
+  // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
 };
 
 /**
