@@ -420,7 +420,7 @@ ErrorStack TpccLoadTask::load_customers() {
 
 // synchronize data load to customer_secondary.
 // this is ideal for almost sequential inserts.
-std::mutex customer_secondary_mutex;
+// std::mutex customer_secondary_mutex;
 
 ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   LOG(INFO) << "Loading Customer for DID=" << static_cast<int>(did) << ", WID=" << wid
@@ -544,7 +544,7 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   auto* customers_secondary = storages_.customers_secondary_;
 
   // synchronize insert to customer_secondary
-  std::lock_guard<std::mutex> guard(customer_secondary_mutex);
+  // std::lock_guard<std::mutex> guard(customer_secondary_mutex);
   for (Cid from = 0; from < kCustomers;) {
     uint32_t cur_batch_size = std::min<uint32_t>(kCommitBatch, kCustomers - from);
     char key_be[CustomerSecondaryKey::kKeyLength];

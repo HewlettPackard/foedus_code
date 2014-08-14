@@ -60,7 +60,8 @@ inline void prefetch_cachelines(const void* address, int cacheline_count) {
 inline void prefetch_l2(const void* address, int cacheline_count) {
   for (int i = 0; i < cacheline_count; ++i) {
     const void* shifted = reinterpret_cast<const char*>(address) + kCachelineSize * cacheline_count;
-    ::_mm_prefetch(shifted, ::_MM_HINT_T1);
+    // ::_mm_prefetch(shifted, ::_MM_HINT_T1);
+    ::_mm_prefetch(shifted, ::_MM_HINT_T0);  // this also works for L2/L3
   }
 }
 
