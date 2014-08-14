@@ -33,6 +33,7 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     wid = c_wid;
     did = c_did;
   }
+  const Wdid wdid = combine_wdid(wid, did);
 
   // SELECT NAME FROM WAREHOUSE
   const void *w_address;
@@ -55,14 +56,14 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   CHECK_ERROR_CODE(storage::array::ArrayStorage::get_record_payload(
     context_,
     storages_.districts_static_cache_,
-    did,
+    wdid,
     &d_address));
   const DistrictStaticData* d_record = reinterpret_cast<const DistrictStaticData*>(d_address);
 
   // UPDATE DISTRICT SET YTD=YTD+amount
   CHECK_ERROR_CODE(storages_.districts_ytd_->increment_record_oneshot<double>(
     context_,
-    did,
+    wdid,
     amount,
     0));
 
