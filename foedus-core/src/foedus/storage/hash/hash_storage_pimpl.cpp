@@ -979,7 +979,8 @@ inline ErrorCode HashStoragePimpl::locate_record(
 
     // add page lock for read set. before accessing records
     current_xct.add_to_read_set(holder_, data_page->page_owner(), &data_page->page_owner());
-      // TODO(Bill) For second paramater, use the first observed id
+    // Need to fence here
+    assorted::memory_fence_consume();
 
     uint32_t hit_bitmap = combo->hit_bitmap_[i];
     for (uint8_t rec = 0; rec < data_page->get_record_count(); ++rec) {
@@ -1010,88 +1011,6 @@ inline ErrorCode HashStoragePimpl::locate_record(
   return kErrorCodeOk;
 }
 
-/*
-ErrorCode get_cuckoo_path(
-  thread::Thread* context,
-  std::vector<uint16_t>* nodes,
-  std::vector<uint16_t>* adjacentnodes,
-  uint16_t depth,
-  uint64_t *place_tracker) {
-    if(depth > 4) return kErrorCodeStrCuckooTooDeep; //need to define the error code //4 is max depth
-       // give place_tracker more bits
-    for(uint16_t a = 0; a < nodes -> size(); a++){
-      for(uint8_t x = 0; x < 4; x++){
-        uint16_t newbin = get_other_bin(context, (*nodes)[a], x);
-        adjacentnodes -> push_back(newbin); //stick adjacent nodes in new bins
-        for(uint8_t y=0; y < 4; y++){
-          if(get_tag(context, newbin, y) == 0){ //If we find an end position in the path
-            (*place_tracker) *= 4;
-            (*place_tracker) += y; //add on the information for the position used in the final bucket in path
-            return kErrorCodeOk;
-          }
-        }
-        (*place_tracker) ++;
-      }
-    }
-    nodes -> resize(0);
-    return get_cuckoo_path(context, adjacentnodes, nodes, depth+1, place_tracker);
-}
-
-ErrorCode execute_path(thread::Thread* context, uint16_t bin, std::vector<uint16_t> path){ //bin is starting bin in path
-//   uint8_t bin_pos = path.back(); // is a number from 0 to 3
-//   path.pop_back();
-//   uint8_t new_bin_pos = path[path.size()-1]; // is a number from 0 to 3
-//   uint16_t newbin = get_other_bin(context, bin, bin_pos);
-//   if(path.size() > 1) CHECK_ERROR_CODE(execute_path(context, newbin, place_tracker / 4));
-//   (*place_tracker) ++;
-//   // TODO(Bill): need to figure out how to actually get payload and payload_count (this basically has to do with page layout I think
-//   // If I wanted to make it look good write now, I could just pretend I had functions for them (just like I did for some other things)
-//   // But at this point I'm too lazy to do that...
-//   // ALSO, DON'T I NEED THE LENGTH OF THE KEY? How could get_key function otherwise if we are using variable length keys...
-//   CHECK_ERROR_CODE(write_new_record(context, new_bin, new_bin_pos,
-//                                     get_key(context, bin, bin_pos),
-//                                     get_tag(context, bin, bin_pos), payload, payload_count));
-//   delete_record(context, bin, bin_pos); //function not written yet
-  return kErrorCodeOk;
-}
-
-ErrorCode HashStoragePimpl::insert_record(thread::Thread* context, const void* key,
-                                          uint16_t key_length, const void* payload, uint16_t payload_count) {
-  //Do I actually need to add anything to the read set in this function?
-  uint64_t bin = compute_hash(key, key_length);
-  uint8_t tag = compute_tag(key, key_length);
-  for(uint8_t x=0; x<4; x++){
-    if(get_tag(context, bin, x) == 0) { //special value of tag that we need to make sure never occurs
-      return write_new_record(context, bin, x, key, tag, payload, payload_count); //Needs to be written still
-    }
-  }
-  bin = bin ^ tag;
-  for(uint8_t x=0; x<4; x++){
-    if(get_tag(context, bin, x) == 0) { //special value of tag that we need to make sure never occurs
-      return write_new_record(context, bin, x, key, tag, payload, payload_count); //Needs to be written still
-    }
-  }
-  //In this case we need to build a Cuckoo Chain we should use a bfs that way we can have as few guys in the write set as possible
-  //Do we even need to add to the read set guys who we don't use in the chain?
-  //For now we'll go with the second bin, even though we should go for the emptier bin in practice
-  uint64_t place_tracker=0; //keeps track of how many nodes we've visited -- we can use that to reverse engineer the path to the node
-  std::vector<uint16_t> nodes;
-  std::vector<uint16_t> adjacentnodes;
-  nodes.push_back(bin);
-  CHECK_ERROR_CODE(get_cuckoo_path(context, &nodes, &adjacentnodes, 0, &place_tracker));
-  //First we want to reverse place_tracker in base 4 (base 4 because we're using 4-way associativity)
-  std::vector <uint16_t> path;
-  while(place_tracker > 0){
-    path.push_back(place_tracker % 4);
-    place_tracker /= 4;
-  }
-  //Now we're ready to execute the path
-  CHECK_ERROR_CODE(execute_path(context, bin, path));
-  uint16_t positioninbin=0; //TODO
-  return write_new_record(context, bin, positioninbin, key, tag, payload, payload_count);
-  //TODO(Bill): Keep track of read list in this function (do we need to?) (write list is taken care of already in write_new_record function)
-}
-*/
 
 // Explicit instantiations for each payload type
 // @cond DOXYGEN_IGNORE
