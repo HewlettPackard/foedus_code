@@ -311,14 +311,14 @@ ErrorStack TpccLoadTask::load_districts() {
     LOG(INFO) << "Loading District Wid=" << wid;
     for (Did did = 0; did < kDistricts; ++did) {
       zero_clear(&data);
-      uint64_t ytd = 30000;
+      double ytd = 30000;
       Oid next_o_id = kOrders;
       make_alpha_string(6, 10, data.name_);
       make_address(data.street1_, data.street2_, data.city_, data.state_, data.zip_);
       data.tax_ = (static_cast<float>(rnd_.uniform_within(10, 20))) / 100.0;
       Wdid wdid = combine_wdid(wid, did);
       WRAP_ERROR_CODE(static_storage->overwrite_record(context_, wdid, &data, 0, sizeof(data)));
-      WRAP_ERROR_CODE(ytd_storage->overwrite_record_primitive<uint64_t>(context_, wdid, ytd, 0));
+      WRAP_ERROR_CODE(ytd_storage->overwrite_record_primitive<double>(context_, wdid, ytd, 0));
       WRAP_ERROR_CODE(oid_storage->overwrite_record_primitive<Oid>(context_, wdid, next_o_id, 0));
       WRAP_ERROR_CODE(commit_if_full());
       VLOG(0) << "DID = " << static_cast<int>(did) << ", WID = " << wid

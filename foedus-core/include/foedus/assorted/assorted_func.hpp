@@ -15,6 +15,7 @@
 #include <typeinfo>
 
 #include "foedus/cxx11.hpp"
+#include "foedus/assorted/uniform_random.hpp"
 
 namespace foedus {
 namespace assorted {
@@ -144,12 +145,6 @@ inline void spinlock_yield() {
   asm volatile("pause" ::: "memory");  // TODO(Hideaki) but what about ARM
 #endif  // defined(__GNUC__)
 }
-/** Helper for SPINLOCK_WHILE. */
-inline void spinlock_yield_if(bool condition) {
-  if (condition) {
-    spinlock_yield();
-  }
-}
 
 /**
  * Alternative for static_assert(sizeof(foo) == sizeof(bar), "oh crap") to display sizeof(foo).
@@ -198,6 +193,15 @@ std::string get_pretty_type_name() {
  */
 uint64_t generate_almost_prime_below(uint64_t threshold);
 
+/** Helper for SPINLOCK_WHILE. */
+struct SpinlockStat {
+  SpinlockStat();
+  void yield_backoff();
+
+  uint32_t      spins_;
+  UniformRandom rnd_;
+};
+
 }  // namespace assorted
 }  // namespace foedus
 
@@ -214,7 +218,7 @@ uint64_t generate_almost_prime_below(uint64_t threshold);
  * @endcode
  */
 #define SPINLOCK_WHILE(x) \
-  for (uint8_t __spins = 0; (x); foedus::assorted::spinlock_yield_if(++__spins == 0))
+  for (foedus::assorted::SpinlockStat __spins; (x); __spins.yield_backoff())
 
 // Use __COUNTER__ to generate a unique method name
 #define STATIC_SIZE_CHECK_CONCAT_DETAIL(x, y) x##y

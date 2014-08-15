@@ -45,7 +45,7 @@ void ArrayPage::initialize_volatile_page(
   if (is_leaf()) {
     uint16_t records = get_leaf_record_count();
     for (uint16_t i = 0; i < records; ++i) {
-      get_leaf_record(i)->owner_id_.set_epoch(initial_epoch);
+      get_leaf_record(i, payload_size)->owner_id_.set_epoch(initial_epoch);
     }
   }
 }

@@ -25,7 +25,7 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   // 85% accesses the home wid/did. 15% other wid/did (wid must be !=c_wid).
   Wid wid;
   Did did;
-  const bool remote_warehouse = rnd_.uniform_within(1, 100) <= payment_remote_percent_;
+  const bool remote_warehouse = (rnd_.uniform_within(1, 100) <= payment_remote_percent_);
   if (remote_warehouse && total_warehouses_ > 1U) {
     wid = rnd_.uniform_within_except(0, total_warehouses_ - 1, c_wid);
     did = rnd_.uniform_within(0, kDistricts - 1);  // re-draw did.
@@ -34,7 +34,7 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     did = c_did;
   }
   const Wdid wdid = combine_wdid(wid, did);
-
+  // ++debug_wdid_access_[wdid];
   // SELECT NAME FROM WAREHOUSE
   const void *w_address;
   CHECK_ERROR_CODE(storages_.warehouses_static_->get_record_payload(
@@ -75,7 +75,7 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     return ret_customer;
   }
   Wdcid wdcid = combine_wdcid(combine_wdid(c_wid, c_did), cid);
-
+  // ++debug_wdcid_access_[wdcid];
   const std::string& time_str = timestring_;
 
   // UPDATE CUSTOMER SET BALANCE-=amount,YTD_PAYMENT+=amount,PAYMENT_CNT++

@@ -23,20 +23,35 @@ namespace tpcc {
  */
 class TpccDriver {
  public:
+  enum Constants {
+    kMaxWorkers = 1024,
+  };
+  struct WorkerResult {
+    uint32_t id_;
+    uint64_t processed_;
+    uint64_t user_requested_aborts_;
+    uint64_t race_aborts_;
+    uint64_t largereadset_aborts_;
+    uint64_t unexpected_aborts_;
+    friend std::ostream& operator<<(std::ostream& o, const WorkerResult& v);
+  };
   struct Result {
     Result()
       : duration_sec_(0),
+        worker_count_(0),
         processed_(0),
         user_requested_aborts_(0),
         race_aborts_(0),
         largereadset_aborts_(0),
         unexpected_aborts_(0) {}
     double   duration_sec_;
+    uint32_t worker_count_;
     uint64_t processed_;
     uint64_t user_requested_aborts_;
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
     uint64_t unexpected_aborts_;
+    WorkerResult workers_[kMaxWorkers];
     friend std::ostream& operator<<(std::ostream& o, const Result& v);
   };
   explicit TpccDriver(Engine* engine) : engine_(engine) {

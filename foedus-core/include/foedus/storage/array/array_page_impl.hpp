@@ -48,7 +48,7 @@ class ArrayPage final {
   const PageHeader&   header() const { return header_; }
   StorageId           get_storage_id()    const   { return header_.storage_id_; }
   uint16_t            get_leaf_record_count()  const {
-    return kDataSize / (kRecordOverhead + payload_size_);
+    return kDataSize / (kRecordOverhead + assorted::align8(payload_size_));
   }
   uint16_t            get_payload_size()  const   { return payload_size_; }
   bool                is_leaf()           const   { return level_ == 0; }
@@ -73,27 +73,19 @@ class ArrayPage final {
     const ArrayRange& array_range);
 
   // Record accesses
-  /** shouldn't use this... */
-  Record*         get_leaf_record(uint16_t record) ALWAYS_INLINE {
-    ASSERT_ND(is_leaf());
-    ASSERT_ND((record + 1) * (kRecordOverhead + payload_size_) <= kDataSize);
-    return reinterpret_cast<Record*>(data_.leaf_data
-      + record * (kRecordOverhead + payload_size_));
-  }
-
-  // should use these for performance.
   const Record*  get_leaf_record(uint16_t record, uint16_t payload_size) const ALWAYS_INLINE {
     ASSERT_ND(payload_size_ == payload_size);
     ASSERT_ND(is_leaf());
-    ASSERT_ND((record + 1) * (kRecordOverhead + payload_size_) <= kDataSize);
+    ASSERT_ND((record + 1) * (kRecordOverhead + assorted::align8(payload_size_)) <= kDataSize);
     return reinterpret_cast<const Record*>(
-      data_.leaf_data + record * (kRecordOverhead + payload_size));
+      data_.leaf_data + record * (kRecordOverhead + assorted::align8(payload_size_)));
   }
   Record*         get_leaf_record(uint16_t record, uint16_t payload_size) ALWAYS_INLINE {
     ASSERT_ND(payload_size_ == payload_size);
     ASSERT_ND(is_leaf());
-    ASSERT_ND((record + 1) * (kRecordOverhead + payload_size_) <= kDataSize);
-    return reinterpret_cast<Record*>(data_.leaf_data + record * (kRecordOverhead + payload_size));
+    ASSERT_ND((record + 1) * (kRecordOverhead + assorted::align8(payload_size_)) <= kDataSize);
+    return reinterpret_cast<Record*>(
+      data_.leaf_data + record * (kRecordOverhead + assorted::align8(payload_size_)));
   }
   const DualPagePointer&   get_interior_record(uint16_t record) const ALWAYS_INLINE {
     return const_cast<ArrayPage*>(this)->get_interior_record(record);

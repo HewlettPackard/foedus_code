@@ -14,6 +14,10 @@
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <thread>
+
+#include "foedus/debugging/rdtsc.hpp"
+
 namespace foedus {
 namespace assorted {
 
@@ -122,6 +126,25 @@ uint64_t generate_almost_prime_below(uint64_t threshold) {
         prev = cur;
       }
     }
+  }
+}
+
+SpinlockStat::SpinlockStat() : spins_(0) {
+  std::hash<std::thread::id> h;
+  rnd_.set_current_seed(h(std::this_thread::get_id()));
+  rnd_.next_uint32();
+}
+
+void SpinlockStat::yield_backoff() {
+  ++spins_;
+  // exponential backoff. also do yielding occasionally.
+  const uint64_t kMinSleepCycles = 1ULL << 7;  // one atomic CAS
+  const uint64_t kMaxSleepCycles = 1ULL << 12;  // even this might be too long..
+  uint64_t wait_cycles_max = spins_ < 5U ? kMinSleepCycles << spins_ : kMaxSleepCycles;
+  uint32_t wait_cycles = kMinSleepCycles + rnd_.next_uint32() % (wait_cycles_max - kMinSleepCycles);
+  debugging::wait_rdtsc_cycles(wait_cycles);
+  if (spins_ % 256U == 0) {
+    spinlock_yield();
   }
 }
 

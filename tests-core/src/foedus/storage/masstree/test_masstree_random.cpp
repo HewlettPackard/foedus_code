@@ -8,6 +8,7 @@
 #include <iostream>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
@@ -114,6 +115,100 @@ TEST(MasstreeBasicTest, InsertManyNormalized) {
     InsertManyNormalizedTask task;
     thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
     COERCE_ERROR(session.get_result());
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
+}
+
+class InsertManyNormalizedMtTask : public thread::ImpersonateTask {
+ public:
+  explicit InsertManyNormalizedMtTask(uint32_t id) : id_(id) { }
+  ErrorStack run(thread::Thread* context) {
+    MasstreeStorage *masstree =
+      dynamic_cast<MasstreeStorage*>(
+        context->get_engine()->get_storage_manager().get_storage("test2"));
+    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+
+    // insert a lot
+    const uint32_t kCount = 1000U;
+    const uint16_t kBufSize = 20;
+    char buf[kBufSize];
+    std::memset(buf, 0, kBufSize);
+    Epoch commit_epoch;
+    std::set<KeySlice> inserted;
+    {
+      assorted::UniformRandom uniform_random(123456L);
+      for (uint32_t i = 0; i < kCount; ++i) {
+        KeySlice key = normalize_primitive<uint64_t>(uniform_random.next_uint64()) * 8 + id_;
+        if (inserted.find(key) != inserted.end()) {
+          std::cout << "already inserted" << key << std::endl;
+          continue;
+        }
+        inserted.insert(key);
+        *reinterpret_cast<uint64_t*>(buf + 3) = key;
+        while (true) {
+          WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+          WRAP_ERROR_CODE(masstree->insert_record_normalized(context, key, buf, kBufSize));
+          ErrorCode code = xct_manager.precommit_xct(context, &commit_epoch);
+          if (code == kErrorCodeOk) {
+            break;
+          } else {
+            EXPECT_EQ(kErrorCodeXctRaceAbort, code) << id_ << ":" << i;
+            if (code != kErrorCodeXctRaceAbort) {
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // read it back
+    {
+      char buf2[kBufSize];
+      assorted::UniformRandom uniform_random(123456L);
+      WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kDirtyReadPreferVolatile));
+      for (uint32_t i = 0; i < kCount; ++i) {
+        KeySlice key = normalize_primitive<uint64_t>(uniform_random.next_uint64()) * 8 + id_;
+        *reinterpret_cast<uint64_t*>(buf + 3) = key;
+        uint16_t capacity = kBufSize;
+        WRAP_ERROR_CODE(masstree->get_record_normalized(context, key, buf2, &capacity));
+        EXPECT_EQ(kBufSize, capacity);
+        EXPECT_EQ(std::string(buf, kBufSize), std::string(buf2, kBufSize));
+      }
+      WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+    }
+
+    return foedus::kRetOk;
+  }
+  uint32_t id_;
+};
+
+TEST(MasstreeBasicTest, InsertManyNormalizedMt) {
+  EngineOptions options = get_tiny_options();
+  options.memory_.page_pool_size_mb_per_node_ = 64;
+  const uint32_t kThreads = 4;
+  options.thread_.thread_count_per_group_ = kThreads;
+  Engine engine(options);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    MasstreeStorage* out;
+    Epoch commit_epoch;
+    MasstreeMetadata meta("test2");
+    COERCE_ERROR(engine.get_storage_manager().create_masstree(&meta, &out, &commit_epoch));
+    EXPECT_TRUE(out != nullptr);
+    std::vector<InsertManyNormalizedMtTask*> tasks;
+    std::vector<thread::ImpersonateSession> sessions;
+    for (uint32_t i = 0; i < kThreads; ++i) {
+      tasks.push_back(new InsertManyNormalizedMtTask(i));
+      sessions.push_back(std::move(engine.get_thread_pool().impersonate(tasks.back())));
+    }
+    for (uint32_t i = 0; i < kThreads; ++i) {
+      COERCE_ERROR(sessions[i].get_result());
+    }
+    for (uint32_t i = 0; i < kThreads; ++i) {
+      delete tasks[i];
+    }
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

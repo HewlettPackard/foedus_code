@@ -27,6 +27,7 @@
 #include "foedus/tpcc/tpcc.hpp"
 #include "foedus/tpcc/tpcc_client.hpp"
 #include "foedus/tpcc/tpcc_load.hpp"
+#include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace tpcc {
@@ -181,25 +182,65 @@ TpccDriver::Result TpccDriver::run() {
   }
   LOG(INFO) << "Experiment ended.";
 
+  if (FLAGS_profile) {
+    engine_->get_debug().stop_profile();
+  }
+
   Result result;
   duration.stop();
   result.duration_sec_ = duration.elapsed_sec();
+  result.worker_count_ = clients_.size();
   assorted::memory_fence_acquire();
-  for (auto* client : clients_) {
+  for (uint32_t i = 0; i < clients_.size(); ++i) {
+    TpccClientTask* client = clients_[i];
+    result.workers_[i].id_ = client->get_worker_id();
+    result.workers_[i].processed_ = client->get_processed();
+    result.workers_[i].race_aborts_ = client->get_race_aborts();
+    result.workers_[i].unexpected_aborts_ = client->get_unexpected_aborts();
+    result.workers_[i].largereadset_aborts_ = client->get_largereadset_aborts();
+    result.workers_[i].user_requested_aborts_ = client->get_user_requested_aborts();
     result.processed_ += client->get_processed();
     result.race_aborts_ += client->get_race_aborts();
     result.unexpected_aborts_ += client->get_unexpected_aborts();
     result.largereadset_aborts_ += client->get_largereadset_aborts();
     result.user_requested_aborts_ += client->get_user_requested_aborts();
   }
-  if (FLAGS_profile) {
-    engine_->get_debug().stop_profile();
-  }
   LOG(INFO) << "Shutting down...";
+
+  // output the current memory state at the end
+  LOG(INFO) << engine_->get_memory_manager().dump_free_memory_stat();
 
   assorted::memory_fence_release();
   for (auto* client : clients_) {
     client->request_stop();
+    /*
+    {
+      uint32_t from = 0;
+      uint32_t to = 0;
+      for (uint32_t i = 0; i < kCustomers * kDistricts * kMaxWarehouses; ++i) {
+        if (client->debug_wdcid_access_[i]) {
+          to = i;
+          if (from == 0) {
+            from = i;
+          }
+        }
+      }
+      LOG(INFO) << "debug_wdcid_access[" << client->get_worker_id() << "]=" << from << "~" << to;
+    }
+    {
+      uint32_t from = 0;
+      uint32_t to = 0;
+      for (uint32_t i = 0; i < kDistricts * kMaxWarehouses; ++i) {
+        if (client->debug_wdid_access_[i]) {
+          to = i;
+          if (from == 0) {
+            from = i;
+          }
+        }
+      }
+      LOG(INFO) << "debug_wdid_access[" << client->get_worker_id() << "]=" << from << "~" << to;
+    }
+    */
   }
   assorted::memory_fence_release();
 
@@ -339,6 +380,9 @@ int driver_main(int argc, char **argv) {
 
   // wait just for a bit to avoid mixing stdout
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  for (uint32_t i = 0; i < result.worker_count_; ++i) {
+    LOG(INFO) << result.workers_[i];
+  }
   LOG(INFO) << result;
   if (FLAGS_profile) {
     LOG(INFO) << "Check out the profile result: pprof --pdf tpcc tpcc.prof > prof.pdf; "
@@ -350,13 +394,25 @@ int driver_main(int argc, char **argv) {
 std::ostream& operator<<(std::ostream& o, const TpccDriver::Result& v) {
   o << "<total_result>"
     << "<duration_sec_>" << v.duration_sec_ << "</duration_sec_>"
+    << "<worker_count_>" << v.worker_count_ << "</worker_count_>"
     << "<processed_>" << v.processed_ << "</processed_>"
     << "<MTPS>" << ((v.processed_ / v.duration_sec_) / 1000000) << "</MTPS>"
     << "<user_requested_aborts_>" << v.user_requested_aborts_ << "</user_requested_aborts_>"
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
     << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"
-    << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>"
-    << "</total_result>";
+    << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>" << std::endl;
+  o << "</total_result>";
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const TpccDriver::WorkerResult& v) {
+  o << "  <worker_><id>" << v.id_ << "</id>"
+    << "<txn>" << v.processed_ << "</txn>"
+    << "<usrab>" << v.user_requested_aborts_ << "</usrab>"
+    << "<raceab>" << v.race_aborts_ << "</raceab>"
+    << "<rsetab>" << v.largereadset_aborts_ << "</rsetab>"
+    << "<unexab>" << v.unexpected_aborts_ << "</unexab>"
+    << "</worker>";
   return o;
 }
 

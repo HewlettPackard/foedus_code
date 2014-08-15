@@ -35,6 +35,8 @@ const uint32_t kMaxUnexpectedErrors = 1;
 ErrorStack TpccClientTask::run(thread::Thread* context) {
   context_ = context;
   engine_ = context->get_engine();
+  // std::memset(debug_wdcid_access_, 0, sizeof(debug_wdcid_access_));
+  // std::memset(debug_wdid_access_, 0, sizeof(debug_wdid_access_));
   CHECK_ERROR(warmup(context));
   processed_ = 0;
   timestring_ = get_current_time_string();
@@ -167,26 +169,17 @@ ErrorCode TpccClientTask::lookup_customer_by_name(Wid wid, Did did, const char* 
 }
 
 ErrorStack TpccClientTask::warmup(thread::Thread* context) {
-  // prefetch small tables. completely
+  // prefetch small AND static tables completely
+  // we don't fully prefetch dynamic tables even if it's small because it will make
+  // later cacheline write more expensive
   WRAP_ERROR_CODE(storages_.warehouses_static_->prefetch_pages(context));
-  WRAP_ERROR_CODE(storages_.warehouses_ytd_->prefetch_pages(context));
   WRAP_ERROR_CODE(storages_.districts_static_->prefetch_pages(context));
-  WRAP_ERROR_CODE(storages_.districts_ytd_->prefetch_pages(context));
-  WRAP_ERROR_CODE(storages_.districts_next_oid_->prefetch_pages(context));
-  WRAP_ERROR_CODE(storages_.items_->prefetch_pages(context));
 
-  // others are larger, so prefetch only records in the home warehouses
-  // within this NUMA node, the thread might switch the core. So, we actually prefetch
-  // warehouses for all workers in this node.
-  float wids_per_node =
-    static_cast<float>(total_warehouses_) / engine_->get_options().thread_.group_count_;
-  Wid wid_begin = wids_per_node * context->get_numa_node();
-  Wid wid_end = wids_per_node * (context->get_numa_node() + 1U) + 1U;
-  if (wid_end > total_warehouses_) {
-    wid_end = total_warehouses_;
-  }
-  ASSERT_ND(wid_begin <= from_wid_);
-  ASSERT_ND(to_wid_ <= wid_end);
+  // item is a bit too large. let's not prefetch. no locality anyway
+  // WRAP_ERROR_CODE(storages_.items_->prefetch_pages(context));
+
+  Wid wid_begin = from_wid_;
+  Wid wid_end = to_wid_;
   {
     // customers arrays
     Wdcid from = combine_wdcid(combine_wdid(wid_begin, 0), 0);
@@ -227,7 +220,14 @@ ErrorStack TpccClientTask::warmup(thread::Thread* context) {
     WRAP_ERROR_CODE(storages_.orderlines_->prefetch_pages_normalized(context, from, to));
   }
 
-  // storages_.customers_static_
+  WRAP_ERROR_CODE(storages_.warehouses_ytd_->prefetch_pages(context, wid_begin, wid_end));
+  {
+    Wdid from = combine_wdid(wid_begin, 0);
+    Wdid to = combine_wdid(wid_end, 0);
+    WRAP_ERROR_CODE(storages_.districts_ytd_->prefetch_pages(context, from, to));
+    WRAP_ERROR_CODE(storages_.districts_next_oid_->prefetch_pages(context, from, to));
+  }
+
   // Warmup done!
   warmup_complete_counter_->operator++();
   return kRetOk;
