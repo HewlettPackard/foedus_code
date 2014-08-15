@@ -129,13 +129,14 @@ uint64_t generate_almost_prime_below(uint64_t threshold) {
   }
 }
 
-SpinlockStat::SpinlockStat() : spins_(0) {
-  std::hash<std::thread::id> h;
-  rnd_.set_current_seed(h(std::this_thread::get_id()));
-  rnd_.next_uint32();
-}
-
 void SpinlockStat::yield_backoff() {
+  if (spins_ == 0) {
+    // do the real initialization only when we couldn't get a lock.
+    // hopefully 99% cases we don't hit here.
+    std::hash<std::thread::id> h;
+    rnd_.set_current_seed(h(std::this_thread::get_id()));
+    rnd_.next_uint32();
+  }
   ++spins_;
   // exponential backoff. also do yielding occasionally.
   const uint64_t kMinSleepCycles = 1ULL << 7;  // one atomic CAS

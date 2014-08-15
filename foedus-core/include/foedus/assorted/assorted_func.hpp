@@ -195,7 +195,7 @@ uint64_t generate_almost_prime_below(uint64_t threshold);
 
 /** Helper for SPINLOCK_WHILE. */
 struct SpinlockStat {
-  SpinlockStat();
+  inline SpinlockStat() : spins_(0) {}
   void yield_backoff();
 
   uint32_t      spins_;
