@@ -150,6 +150,8 @@ inline void spinlock_yield_if(bool condition) {
     spinlock_yield();
   }
 }
+/** Helper for SPINLOCK_WHILE. */
+void spinlock_yield_backoff(uint32_t spins);
 
 /**
  * Alternative for static_assert(sizeof(foo) == sizeof(bar), "oh crap") to display sizeof(foo).
@@ -214,7 +216,7 @@ uint64_t generate_almost_prime_below(uint64_t threshold);
  * @endcode
  */
 #define SPINLOCK_WHILE(x) \
-  for (uint8_t __spins = 0; (x); foedus::assorted::spinlock_yield_if(++__spins == 0))
+  for (uint32_t __spins = 0; (x); foedus::assorted::spinlock_yield_backoff(++__spins))
 
 // Use __COUNTER__ to generate a unique method name
 #define STATIC_SIZE_CHECK_CONCAT_DETAIL(x, y) x##y
