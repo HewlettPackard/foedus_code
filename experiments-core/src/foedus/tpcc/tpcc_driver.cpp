@@ -200,6 +200,34 @@ TpccDriver::Result TpccDriver::run() {
   assorted::memory_fence_release();
   for (auto* client : clients_) {
     client->request_stop();
+    /*
+    {
+      uint32_t from = 0;
+      uint32_t to = 0;
+      for (uint32_t i = 0; i < kCustomers * kDistricts * kMaxWarehouses; ++i) {
+        if (client->debug_wdcid_access_[i]) {
+          to = i;
+          if (from == 0) {
+            from = i;
+          }
+        }
+      }
+      LOG(INFO) << "debug_wdcid_access[" << client->get_worker_id() << "]=" << from << "~" << to;
+    }
+    {
+      uint32_t from = 0;
+      uint32_t to = 0;
+      for (uint32_t i = 0; i < kDistricts * kMaxWarehouses; ++i) {
+        if (client->debug_wdid_access_[i]) {
+          to = i;
+          if (from == 0) {
+            from = i;
+          }
+        }
+      }
+      LOG(INFO) << "debug_wdid_access[" << client->get_worker_id() << "]=" << from << "~" << to;
+    }
+    */
   }
   assorted::memory_fence_release();
 

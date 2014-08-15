@@ -34,7 +34,7 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     did = c_did;
   }
   const Wdid wdid = combine_wdid(wid, did);
-
+  // ++debug_wdid_access_[wdid];
   // SELECT NAME FROM WAREHOUSE
   const void *w_address;
   CHECK_ERROR_CODE(storages_.warehouses_static_->get_record_payload(
@@ -75,7 +75,7 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     return ret_customer;
   }
   Wdcid wdcid = combine_wdcid(combine_wdid(c_wid, c_did), cid);
-
+  // ++debug_wdcid_access_[wdcid];
   const std::string& time_str = timestring_;
 
   // UPDATE CUSTOMER SET BALANCE-=amount,YTD_PAYMENT+=amount,PAYMENT_CNT++

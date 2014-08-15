@@ -73,6 +73,7 @@ class TpccClientTask : public thread::ImpersonateTask {
 
   ErrorStack run(thread::Thread* context);
 
+  uint32_t get_worker_id() const { return worker_id_; }
   uint32_t get_user_requested_aborts() const { return user_requested_aborts_; }
   uint32_t increment_user_requested_aborts() { return ++user_requested_aborts_; }
   uint32_t get_race_aborts() const { return race_aborts_; }
@@ -86,6 +87,9 @@ class TpccClientTask : public thread::ImpersonateTask {
 
   uint64_t get_processed() const { return processed_; }
 
+
+//  uint32_t    debug_wdcid_access_[kCustomers * kDistricts * kMaxWarehouses];
+//  uint32_t    debug_wdid_access_[kDistricts * kMaxWarehouses];
 
  private:
   /** unique ID of this worker from 0 to #workers-1. */
