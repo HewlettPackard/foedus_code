@@ -182,19 +182,27 @@ TpccDriver::Result TpccDriver::run() {
   }
   LOG(INFO) << "Experiment ended.";
 
+  if (FLAGS_profile) {
+    engine_->get_debug().stop_profile();
+  }
+
   Result result;
   duration.stop();
   result.duration_sec_ = duration.elapsed_sec();
+  result.worker_count_ = clients_.size();
   assorted::memory_fence_acquire();
-  for (auto* client : clients_) {
+  for (uint32_t i = 0; i < clients_.size(); ++i) {
+    TpccClientTask* client = clients_[i];
+    result.workers_[i].processed_ = client->get_processed();
+    result.workers_[i].race_aborts_ = client->get_race_aborts();
+    result.workers_[i].unexpected_aborts_ = client->get_unexpected_aborts();
+    result.workers_[i].largereadset_aborts_ = client->get_largereadset_aborts();
+    result.workers_[i].user_requested_aborts_ = client->get_user_requested_aborts();
     result.processed_ += client->get_processed();
     result.race_aborts_ += client->get_race_aborts();
     result.unexpected_aborts_ += client->get_unexpected_aborts();
     result.largereadset_aborts_ += client->get_largereadset_aborts();
     result.user_requested_aborts_ += client->get_user_requested_aborts();
-  }
-  if (FLAGS_profile) {
-    engine_->get_debug().stop_profile();
   }
   LOG(INFO) << "Shutting down...";
 
@@ -379,13 +387,25 @@ int driver_main(int argc, char **argv) {
 std::ostream& operator<<(std::ostream& o, const TpccDriver::Result& v) {
   o << "<total_result>"
     << "<duration_sec_>" << v.duration_sec_ << "</duration_sec_>"
+    << "<worker_count_>" << v.worker_count_ << "</worker_count_>"
     << "<processed_>" << v.processed_ << "</processed_>"
     << "<MTPS>" << ((v.processed_ / v.duration_sec_) / 1000000) << "</MTPS>"
     << "<user_requested_aborts_>" << v.user_requested_aborts_ << "</user_requested_aborts_>"
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
     << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"
-    << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>"
-    << "</total_result>";
+    << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>" << std::endl;
+  for (uint32_t i = 0; i < v.worker_count_; ++i) {
+    const TpccDriver::WorkerResult& v2 = v.workers_[i];
+    o << "  <worker_><id>" << i << "</id>"
+      << "<processed_>" << v2.processed_ << "</processed_>"
+      << "<kTPS>" << ((v2.processed_ / v.duration_sec_) / 1000) << "</kTPS>"
+      << "<user_requested_aborts_>" << v2.user_requested_aborts_ << "</user_requested_aborts_>"
+      << "<race_aborts_>" << v2.race_aborts_ << "</race_aborts_>"
+      << "<largereadset_aborts_>" << v2.largereadset_aborts_ << "</largereadset_aborts_>"
+      << "<unexpected_aborts_>" << v2.unexpected_aborts_ << "</unexpected_aborts_>"
+      << "</worker>" << std::endl;
+  }
+  o << "</total_result>";
   return o;
 }
 
