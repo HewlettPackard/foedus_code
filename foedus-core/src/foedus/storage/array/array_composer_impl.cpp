@@ -79,7 +79,7 @@ ErrorStack ArrayComposer::compose(
 
   while (ended_inputs_count_ < inputs_count_) {
     const ArrayOverwriteLogType* entry = get_next_entry();
-    Record* record = cur_path_[0]->get_leaf_record(cur_route_.route[0]);
+    Record* record = cur_path_[0]->get_leaf_record(cur_route_.route[0], payload_size_);
     entry->apply_record(nullptr, storage_casted_, &record->owner_id_, record->payload_);
     WRAP_ERROR_CODE(advance());
   }
