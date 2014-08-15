@@ -27,11 +27,13 @@ class TpccDriver {
     kMaxWorkers = 1024,
   };
   struct WorkerResult {
+    uint32_t id_;
     uint64_t processed_;
     uint64_t user_requested_aborts_;
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
     uint64_t unexpected_aborts_;
+    friend std::ostream& operator<<(std::ostream& o, const WorkerResult& v);
   };
   struct Result {
     Result()

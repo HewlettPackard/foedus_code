@@ -193,6 +193,7 @@ TpccDriver::Result TpccDriver::run() {
   assorted::memory_fence_acquire();
   for (uint32_t i = 0; i < clients_.size(); ++i) {
     TpccClientTask* client = clients_[i];
+    result.workers_[i].id_ = client->get_worker_id();
     result.workers_[i].processed_ = client->get_processed();
     result.workers_[i].race_aborts_ = client->get_race_aborts();
     result.workers_[i].unexpected_aborts_ = client->get_unexpected_aborts();
@@ -379,6 +380,9 @@ int driver_main(int argc, char **argv) {
 
   // wait just for a bit to avoid mixing stdout
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  for (uint32_t i = 0; i < result.worker_count_; ++i) {
+    LOG(INFO) << result.workers_[i];
+  }
   LOG(INFO) << result;
   if (FLAGS_profile) {
     LOG(INFO) << "Check out the profile result: pprof --pdf tpcc tpcc.prof > prof.pdf; "
@@ -397,18 +401,18 @@ std::ostream& operator<<(std::ostream& o, const TpccDriver::Result& v) {
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
     << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"
     << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>" << std::endl;
-  for (uint32_t i = 0; i < v.worker_count_; ++i) {
-    const TpccDriver::WorkerResult& v2 = v.workers_[i];
-    o << "  <worker_><id>" << i << "</id>"
-      << "<txn>" << v2.processed_ << "</txn>"
-      << "<kTPS>" << ((v2.processed_ / v.duration_sec_) / 1000) << "</kTPS>"
-      << "<usrab>" << v2.user_requested_aborts_ << "</usrab>"
-      << "<raceab>" << v2.race_aborts_ << "</raceab>"
-      << "<rsetab>" << v2.largereadset_aborts_ << "</rsetab>"
-      << "<unexab>" << v2.unexpected_aborts_ << "</unexab>"
-      << "</worker>" << std::endl;
-  }
   o << "</total_result>";
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const TpccDriver::WorkerResult& v) {
+  o << "  <worker_><id>" << v.id_ << "</id>"
+    << "<txn>" << v.processed_ << "</txn>"
+    << "<usrab>" << v.user_requested_aborts_ << "</usrab>"
+    << "<raceab>" << v.race_aborts_ << "</raceab>"
+    << "<rsetab>" << v.largereadset_aborts_ << "</rsetab>"
+    << "<unexab>" << v.unexpected_aborts_ << "</unexab>"
+    << "</worker>";
   return o;
 }
 
