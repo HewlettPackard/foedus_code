@@ -143,7 +143,7 @@ void SpinlockStat::yield_backoff() {
   uint64_t wait_cycles_max = spins_ < 5U ? kMinSleepCycles << spins_ : kMaxSleepCycles;
   uint32_t wait_cycles = kMinSleepCycles + rnd_.next_uint32() % (wait_cycles_max - kMinSleepCycles);
   debugging::wait_rdtsc_cycles(wait_cycles);
-  if (spins_ % 2 == 0) {
+  if (spins_ % 256U == 0) {
     spinlock_yield();
   }
 }
