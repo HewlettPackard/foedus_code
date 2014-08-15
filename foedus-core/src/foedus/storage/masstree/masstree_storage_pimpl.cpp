@@ -89,6 +89,7 @@ ErrorStack MasstreeStoragePimpl::uninitialize_once() {
     release_batch.release_all();
     first_root_pointer_.volatile_pointer_.word = 0;
   }
+
   return kRetOk;
 }
 
@@ -100,6 +101,8 @@ ErrorCode MasstreeStoragePimpl::get_first_root(thread::Thread* context, Masstree
   assert_aligned_page(page);
 
   if (UNLIKELY(page->has_foster_child())) {
+    ASSERT_ND(!first_root_owner_.is_deleted());
+    ASSERT_ND(!first_root_owner_.is_moved());
     // root page has a foster child... time for tree growth!
     MasstreeIntermediatePage* new_root;
     CHECK_ERROR_CODE(grow_root(context, &first_root_pointer_, &first_root_owner_, &new_root));
@@ -107,8 +110,8 @@ ErrorCode MasstreeStoragePimpl::get_first_root(thread::Thread* context, Masstree
       assert_aligned_page(new_root);
       page = new_root;
     } else {
-      // someone else has already grown B-tree. conservatively abort. this event is rare
-      return kErrorCodeXctRaceAbort;
+      // someone else has grown it. it's fine. we can still use the old page thanks to
+      // the immutability
     }
   }
   *root = page;
@@ -155,6 +158,8 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   if (offset == 0) {
     return kErrorCodeMemoryNoFreePages;
   }
+
+  // from here no failure possible
   VolatilePagePointer new_pointer = combine_volatile_page_pointer(
     context->get_numa_node(),
     kVolatilePointerFlagSwappable,  // pointer to root page might be swapped!
@@ -495,14 +500,14 @@ inline ErrorCode MasstreeStoragePimpl::follow_layer(
   CHECK_ERROR_CODE(follow_page(context, for_writes, pointer, &next_root));
 
   // root page has a foster child... time for tree growth!
-  if (UNLIKELY(next_root->has_foster_child() && !parent->is_moved())) {
+  if (UNLIKELY(next_root->has_foster_child())) {
     MasstreeIntermediatePage* new_next_root;
     CHECK_ERROR_CODE(grow_root(context, pointer, owner, &new_next_root));
     if (new_next_root) {
       next_root = new_next_root;
     } else {
-      // someone else has grown it. conservatively abort. this event is rare
-      return kErrorCodeXctRaceAbort;
+      // someone else has grown it. it's fine. we can still use the old page thanks to
+      // the immutability
     }
   }
 

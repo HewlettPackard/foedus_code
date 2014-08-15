@@ -148,13 +148,8 @@ class InsertManyNormalizedMtTask : public thread::ImpersonateTask {
         *reinterpret_cast<uint64_t*>(buf + 3) = key;
         while (true) {
           WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
-          ErrorCode code = masstree->insert_record_normalized(context, key, buf, kBufSize);
-          if (code == kErrorCodeXctRaceAbort) {
-            WRAP_ERROR_CODE(xct_manager.abort_xct(context));
-            continue;
-          }
-          WRAP_ERROR_CODE(code);
-          code = xct_manager.precommit_xct(context, &commit_epoch);
+          WRAP_ERROR_CODE(masstree->insert_record_normalized(context, key, buf, kBufSize));
+          ErrorCode code = xct_manager.precommit_xct(context, &commit_epoch);
           if (code == kErrorCodeOk) {
             break;
           } else {
