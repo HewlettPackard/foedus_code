@@ -177,6 +177,7 @@ struct WarehouseYtdData {
   double ytd_;          // +8 -> 8
   char   dummy_[48];    // +48 -> 56
   // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
+  char   dummy2_[64];   // another padding in case of adjacent cacheline prefetch enabled
 };
 
 struct DistrictStaticData {
@@ -193,9 +194,10 @@ struct DistrictStaticData {
 };
 
 struct DistrictYtdData {
-  uint64_t  ytd_;          // +8 -> 8
+  double    ytd_;          // +8 -> 8
   char      dummy_[48];    // +48 -> 56
   // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
+  char      dummy2_[64];   // another padding in case of adjacent cacheline prefetch enabled
 };
 
 struct DistrictNextOidData {
@@ -203,6 +205,7 @@ struct DistrictNextOidData {
   uint32_t  dummy1_;       // +4 -> 8
   char      dummy2_[48];   // +48 -> 56
   // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
+  char      dummy3_[64];   // another padding in case of adjacent cacheline prefetch enabled
 };
 
 struct CustomerStaticData {
@@ -232,6 +235,7 @@ struct CustomerDynamicData {
   double    balance_;       // +8->24
   char      dummy_[32];     // +32->56
   // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
+  // customer is many-valued, so probably one cacheline is enough..
 };
 
 /**

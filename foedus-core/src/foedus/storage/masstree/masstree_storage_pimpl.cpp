@@ -102,7 +102,7 @@ ErrorCode MasstreeStoragePimpl::get_first_root(thread::Thread* context, Masstree
   while (UNLIKELY(page->has_foster_child())) {
     // root page has a foster child... time for tree growth!
     MasstreeIntermediatePage* new_root;
-    CHECK_ERROR_CODE(grow_root(context, &first_root_pointer_, page, &new_root));
+    CHECK_ERROR_CODE(grow_root(context, &first_root_pointer_, &first_root_owner_, &new_root));
     if (new_root) {
       assert_aligned_page(new_root);
       page = new_root;
@@ -122,35 +122,48 @@ ErrorCode MasstreeStoragePimpl::get_first_root(thread::Thread* context, Masstree
 ErrorCode MasstreeStoragePimpl::grow_root(
   thread::Thread* context,
   DualPagePointer* root_pointer,
-  MasstreePage* root,
+  xct::XctId* root_pointer_owner,
   MasstreeIntermediatePage** new_root) {
   *new_root = nullptr;
+  root_pointer_owner->keylock_unconditional();
+  xct::XctIdUnlockScope owner_scope(root_pointer_owner);
+  if (root_pointer_owner->is_moved()) {
+    LOG(INFO) << "interesting. someone else has split the page that had a pointer"
+      " to a root page of the layer to be grown";
+    return kErrorCodeOk;  // retry.
+  }
+
+  // follow the pointer after taking lock on owner ID
+  const memory::GlobalVolatilePageResolver& resolver = context->get_global_volatile_page_resolver();
+  MasstreePage* root = reinterpret_cast<MasstreePage*>(
+    resolver.resolve_offset(root_pointer->volatile_pointer_));
   if (root->get_layer() == 0) {
     LOG(INFO) << "growing B-tree in first layer! " << *holder_;
   } else {
     DVLOG(0) << "growing B-tree in non-first layer " << *holder_;
   }
+
   root->lock();
   UnlockScope scope(root);
-  if (root->is_retired()) {
+  if (root->is_retired() || !root->has_foster_child()) {
     LOG(INFO) << "interesting. someone else has already grown B-tree";
-    return kErrorCodeOk;
+    return kErrorCodeOk;  // retry. most likely we will see a new pointer
   }
+
   ASSERT_ND(root->is_locked());
   ASSERT_ND(root->has_foster_child());
   memory::NumaCoreMemory* memory = context->get_thread_memory();
-  const memory::LocalPageResolver &resolver = context->get_local_volatile_page_resolver();
 
   memory::PagePoolOffset offset = memory->grab_free_volatile_page();
   if (offset == 0) {
     return kErrorCodeMemoryNoFreePages;
   }
-  *new_root = reinterpret_cast<MasstreeIntermediatePage*>(resolver.resolve_offset(offset));
   VolatilePagePointer new_pointer = combine_volatile_page_pointer(
     context->get_numa_node(),
     kVolatilePointerFlagSwappable,  // pointer to root page might be swapped!
     root_pointer->volatile_pointer_.components.mod_count + 1,
     offset);
+  *new_root = reinterpret_cast<MasstreeIntermediatePage*>(resolver.resolve_offset(new_pointer));
   ASSERT_ND(reinterpret_cast<Page*>(*new_root) ==
     context->get_global_volatile_page_resolver().resolve_offset(new_pointer));
   (*new_root)->initialize_volatile_page(
@@ -479,6 +492,7 @@ inline ErrorCode MasstreeStoragePimpl::follow_layer(
   ASSERT_ND(record_index < MasstreeBorderPage::kMaxKeys);
   ASSERT_ND(parent->does_point_to_layer(record_index));
   DualPagePointer* pointer = parent->get_next_layer(record_index);
+  xct::XctId* owner = parent->get_owner_id(record_index);
   ASSERT_ND(!pointer->is_both_null());
   MasstreePage* next_root;
   CHECK_ERROR_CODE(follow_page(context, for_writes, pointer, &next_root));
@@ -486,7 +500,7 @@ inline ErrorCode MasstreeStoragePimpl::follow_layer(
   // root page has a foster child... time for tree growth!
   while (UNLIKELY(next_root->has_foster_child() && !parent->is_moved())) {
     MasstreeIntermediatePage* new_next_root;
-    CHECK_ERROR_CODE(grow_root(context, pointer, next_root, &new_next_root));
+    CHECK_ERROR_CODE(grow_root(context, pointer, owner, &new_next_root));
     if (new_next_root) {
       next_root = new_next_root;
       break;

@@ -74,7 +74,6 @@ typedef uint32_t XctOrder;
  * In most cases this suffices. Do we need ThreadId?
  */
 inline uint16_t extract_in_epoch_ordinal(XctOrder order) { return order >> 16; }
-
 // Defines 64bit constant values for XctId.
 //                                             0123456789abcdef
 const uint64_t kMaskEpoch                   = 0xFFFFFFF000000000ULL;  // first 28 bits
@@ -257,7 +256,12 @@ struct XctId {
    * This assumes there is no deadlock (sorting write set assues it).
    */
   void keylock_unconditional() {
+    volatile uint64_t* address = reinterpret_cast<volatile uint64_t*>(&data_);
     SPINLOCK_WHILE(true) {
+      if ((*address) & kKeylockBit) {
+        assorted::memory_fence_acquire();
+        continue;
+      }
       uint64_t expected = data_ & (~kKeylockBit);
       uint64_t desired = expected | kKeylockBit;
       if (assorted::raw_atomic_compare_exchange_weak(&data_, &expected, desired)) {
@@ -306,13 +310,18 @@ struct XctId {
    * @return whether we could acquire the lock. The only failure cause is "moved" bit on.
    */
   bool keylock_fail_if_moved() {
+    volatile uint64_t* address = reinterpret_cast<volatile uint64_t*>(&data_);
     SPINLOCK_WHILE(true) {
-      uint64_t expected = data_ & (~kKeylockBit);
-      if (UNLIKELY(expected & kMovedBit)) {
+      uint64_t cur = *address;
+      if (UNLIKELY(cur & kMovedBit)) {
         return false;
       }
-      uint64_t desired = expected | kKeylockBit;
-      if (assorted::raw_atomic_compare_exchange_weak(&data_, &expected, desired)) {
+      if (cur & kKeylockBit) {
+        assorted::memory_fence_acquire();
+        continue;
+      }
+      uint64_t desired = cur | kKeylockBit;
+      if (assorted::raw_atomic_compare_exchange_weak(&data_, &cur, desired)) {
         ASSERT_ND(is_keylocked());
         return true;
       }
@@ -374,6 +383,14 @@ struct XctId {
 };
 // sizeof(XctId) must be 64 bits.
 STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))
+
+struct XctIdUnlockScope {
+  explicit XctIdUnlockScope(XctId* id) : id_(id) {}
+  ~XctIdUnlockScope() {
+    id_->release_keylock();
+  }
+  XctId* id_;
+};
 
 }  // namespace xct
 }  // namespace foedus

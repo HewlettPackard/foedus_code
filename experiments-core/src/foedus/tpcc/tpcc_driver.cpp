@@ -27,6 +27,7 @@
 #include "foedus/tpcc/tpcc.hpp"
 #include "foedus/tpcc/tpcc_client.hpp"
 #include "foedus/tpcc/tpcc_load.hpp"
+#include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace tpcc {
