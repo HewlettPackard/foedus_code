@@ -99,19 +99,16 @@ ErrorCode MasstreeStoragePimpl::get_first_root(thread::Thread* context, Masstree
     resolver.resolve_offset(first_root_pointer_.volatile_pointer_));
   assert_aligned_page(page);
 
-  while (UNLIKELY(page->has_foster_child())) {
+  if (UNLIKELY(page->has_foster_child())) {
     // root page has a foster child... time for tree growth!
     MasstreeIntermediatePage* new_root;
     CHECK_ERROR_CODE(grow_root(context, &first_root_pointer_, &first_root_owner_, &new_root));
     if (new_root) {
       assert_aligned_page(new_root);
       page = new_root;
-      break;
     } else {
-      // someone else has already grown B-tree. retry
-      page = reinterpret_cast<MasstreePage*>(
-        resolver.resolve_offset(first_root_pointer_.volatile_pointer_));
-      assert_aligned_page(page);
+      // someone else has already grown B-tree. conservatively abort. this event is rare
+      return kErrorCodeXctRaceAbort;
     }
   }
   *root = page;
@@ -498,15 +495,14 @@ inline ErrorCode MasstreeStoragePimpl::follow_layer(
   CHECK_ERROR_CODE(follow_page(context, for_writes, pointer, &next_root));
 
   // root page has a foster child... time for tree growth!
-  while (UNLIKELY(next_root->has_foster_child() && !parent->is_moved())) {
+  if (UNLIKELY(next_root->has_foster_child() && !parent->is_moved())) {
     MasstreeIntermediatePage* new_next_root;
     CHECK_ERROR_CODE(grow_root(context, pointer, owner, &new_next_root));
     if (new_next_root) {
       next_root = new_next_root;
-      break;
     } else {
-      // someone else has grown it. retry
-      CHECK_ERROR_CODE(follow_page(context, for_writes, pointer, &next_root));
+      // someone else has grown it. conservatively abort. this event is rare
+      return kErrorCodeXctRaceAbort;
     }
   }
 
