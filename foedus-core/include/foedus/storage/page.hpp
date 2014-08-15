@@ -396,15 +396,14 @@ inline Page* to_page(const void* address) {
 }
 
 inline void assert_aligned_page(const void* page) {
-#ifndef NDEBUG
   ASSERT_ND(page);
   ASSERT_ND(reinterpret_cast<uintptr_t>(page) % kPageSize == 0);
-#endif  // NDEBUG
 }
 
 inline void assert_valid_volatile_page(const Page* page, uint32_t offset) {
-#ifndef NDEBUG
   ASSERT_ND(page);
+  ASSERT_ND(offset);
+#ifndef NDEBUG
   assert_aligned_page(page);
   PageType type = page->get_header().get_page_type();
   ASSERT_ND(type >= kArrayPageType);
