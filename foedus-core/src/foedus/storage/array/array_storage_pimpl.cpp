@@ -284,7 +284,8 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
   for (uint8_t level = 0; level < levels_; ++level) {
     VolatilePagePointer page_pointer = grab_batch.grab_evenly(0, pages[level]);
     ASSERT_ND(page_pointer.components.offset != 0);
-    ArrayPage* page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(page_pointer));
+    ArrayPage* page = reinterpret_cast<ArrayPage*>(
+      page_resolver.resolve_offset_newpage(page_pointer));
     current_pages.push_back(page);
     current_pages_ids.push_back(page_pointer);
   }
@@ -324,7 +325,8 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
   for (uint64_t leaf = 1; leaf < pages[0]; ++leaf) {
     VolatilePagePointer page_pointer = grab_batch.grab_evenly(leaf, pages[0]);
     ASSERT_ND(page_pointer.components.offset != 0);
-    ArrayPage* page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(page_pointer));
+    ArrayPage* page = reinterpret_cast<ArrayPage*>(
+      page_resolver.resolve_offset_newpage(page_pointer));
 
     ArrayRange range(current_pages[0]->get_array_range().end_,
              current_pages[0]->get_array_range().end_ + offset_intervals[0]);
@@ -351,7 +353,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
         VolatilePagePointer interior_pointer = grab_batch.grab(page_pointer.components.numa_node);
         ASSERT_ND(interior_pointer.components.offset != 0);
         ArrayPage* interior_page = reinterpret_cast<ArrayPage*>(
-          page_resolver.resolve_offset(interior_pointer));
+          page_resolver.resolve_offset_newpage(interior_pointer));
         ArrayRange interior_range(current_pages[level]->get_array_range().end_,
              current_pages[level]->get_array_range().end_ + offset_intervals[level]);
         if (range.end_ > metadata_.array_size_) {

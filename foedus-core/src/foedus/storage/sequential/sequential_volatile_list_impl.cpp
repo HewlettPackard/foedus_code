@@ -115,7 +115,7 @@ void SequentialVolatileList::append_record(
     VolatilePagePointer new_page_pointer;
     new_page_pointer = combine_volatile_page_pointer(node, 0, 0, new_page_offset);
     SequentialPage* new_page = reinterpret_cast<SequentialPage*>(
-      context->get_global_volatile_page_resolver().resolve_offset(node, new_page_offset));
+      context->get_global_volatile_page_resolver().resolve_offset_newpage(node, new_page_offset));
     new_page->initialize_volatile_page(storage_id_, new_page_pointer);
 
     if (tail == nullptr) {

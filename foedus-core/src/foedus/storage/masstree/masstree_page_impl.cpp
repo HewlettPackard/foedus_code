@@ -259,7 +259,7 @@ ErrorCode MasstreeBorderPage::split_foster(
   MasstreeBorderPage* twin[2];
   for (int i = 0; i < 2; ++i) {
     twin[i] = reinterpret_cast<MasstreeBorderPage*>(
-      context->get_local_volatile_page_resolver().resolve_offset(offsets[i]));
+      context->get_local_volatile_page_resolver().resolve_offset_newpage(offsets[i]));
     foster_twin_[i] = twin[i];
     twin[i]->initialize_volatile_page(
       header_.storage_id_,
@@ -583,7 +583,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
     new_foster_fence = trigger_child->get_foster_fence();
   } else {
     strategy = reinterpret_cast<IntermediateSplitStrategy*>(
-        context->get_local_volatile_page_resolver().resolve_offset(work_offset));
+        context->get_local_volatile_page_resolver().resolve_offset_newpage(work_offset));
     ASSERT_ND(sizeof(IntermediateSplitStrategy) <= kPageSize);
     split_foster_decide_strategy(strategy);
     new_foster_fence = strategy->mid_separator_;  // the new separator is the low fence of new page
@@ -592,7 +592,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   MasstreeIntermediatePage* twin[2];
   for (int i = 0; i < 2; ++i) {
     twin[i] = reinterpret_cast<MasstreeIntermediatePage*>(
-      context->get_local_volatile_page_resolver().resolve_offset(offsets[i]));
+      context->get_local_volatile_page_resolver().resolve_offset_newpage(offsets[i]));
     foster_twin_[i] = twin[i];
     VolatilePagePointer new_pointer = combine_volatile_page_pointer(
       context->get_numa_node(), 0, 0, offsets[i]);
@@ -836,7 +836,7 @@ ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
   // reuse the code of split.
   IntermediateSplitStrategy* strategy =
     reinterpret_cast<IntermediateSplitStrategy*>(
-      context->get_local_volatile_page_resolver().resolve_offset(work_offset));
+      context->get_local_volatile_page_resolver().resolve_offset_newpage(work_offset));
   split_foster_decide_strategy(strategy);
 
   // reconstruct this page.

@@ -427,7 +427,6 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   //  << ": " << engine_->get_memory_manager().dump_free_memory_stat();
 
   // insert to customers_secondary at the end after sorting
-  memory::AlignedMemory secondary_keys_buffer;
   struct Secondary {
     char  last_[17];      // +17 -> 17
     char  first_[17];     // +17 -> 34
@@ -454,12 +453,15 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
       }
     }
   };
-  secondary_keys_buffer.alloc(
-    kCustomers * sizeof(Secondary),
-    1U << 21,
-    memory::AlignedMemory::kNumaAllocOnnode,
-    context_->get_numa_node());
-  Secondary* secondary_keys = reinterpret_cast<Secondary*>(secondary_keys_buffer.get_block());
+  if (customer_secondary_keys_buffer_.is_null()) {
+    customer_secondary_keys_buffer_.alloc(
+      kCustomers * sizeof(Secondary),
+      1U << 21,
+      memory::AlignedMemory::kNumaAllocOnnode,
+      context_->get_numa_node());
+  }
+  Secondary* secondary_keys = reinterpret_cast<Secondary*>(
+    customer_secondary_keys_buffer_.get_block());
   Epoch ep;
   auto* histories = storages_.histories_;
   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));

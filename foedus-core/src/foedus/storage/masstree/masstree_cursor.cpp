@@ -90,7 +90,8 @@ inline ErrorCode MasstreeCursor::allocate_if_not_exist(
   }
 
   *pointer = reinterpret_cast<T*>(
-    context_->get_thread_memory()->get_snapshot_pool()->get_resolver().resolve_offset(*offset));
+    context_->get_thread_memory()->get_snapshot_pool()->get_resolver().resolve_offset_newpage(
+      *offset));
   return kErrorCodeOk;
 }
 

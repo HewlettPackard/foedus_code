@@ -165,9 +165,8 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     kVolatilePointerFlagSwappable,  // pointer to root page might be swapped!
     root_pointer->volatile_pointer_.components.mod_count + 1,
     offset);
-  *new_root = reinterpret_cast<MasstreeIntermediatePage*>(resolver.resolve_offset(new_pointer));
-  ASSERT_ND(reinterpret_cast<Page*>(*new_root) ==
-    context->get_global_volatile_page_resolver().resolve_offset(new_pointer));
+  *new_root = reinterpret_cast<MasstreeIntermediatePage*>(
+    resolver.resolve_offset_newpage(new_pointer));
   (*new_root)->initialize_volatile_page(
     metadata_.id_,
     new_pointer,
@@ -206,7 +205,7 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   root_pointer->volatile_pointer_.word = new_pointer.word;
   root_pointer->snapshot_pointer_ = 0;
   ASSERT_ND(reinterpret_cast<Page*>(*new_root) ==
-    context->get_global_volatile_page_resolver().resolve_offset(
+    context->get_global_volatile_page_resolver().resolve_offset_newpage(
       root_pointer->volatile_pointer_));
 
   // the old root page is now retired
@@ -229,7 +228,7 @@ ErrorStack MasstreeStoragePimpl::create(thread::Thread* context) {
   memory::PagePoolOffset root_offset = memory->grab_free_volatile_page();
   ASSERT_ND(root_offset);
   MasstreeBorderPage* root_page = reinterpret_cast<MasstreeBorderPage*>(
-    local_resolver.resolve_offset(root_offset));
+    local_resolver.resolve_offset_newpage(root_offset));
   first_root_pointer_.snapshot_pointer_ = 0;
   first_root_pointer_.volatile_pointer_ = combine_volatile_page_pointer(
     context->get_numa_node(),
@@ -407,7 +406,8 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
   }
 
   const memory::LocalPageResolver &resolver = context->get_local_volatile_page_resolver();
-  MasstreeBorderPage* root = reinterpret_cast<MasstreeBorderPage*>(resolver.resolve_offset(offset));
+  MasstreeBorderPage* root = reinterpret_cast<MasstreeBorderPage*>(
+    resolver.resolve_offset_newpage(offset));
   DualPagePointer pointer;
   pointer.snapshot_pointer_ = 0;
   pointer.volatile_pointer_ = combine_volatile_page_pointer(context->get_numa_node(), 0, 0, offset);

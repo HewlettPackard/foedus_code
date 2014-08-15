@@ -281,7 +281,7 @@ ErrorStack HashStoragePimpl::create(thread::Thread* context) {
   // root of root
   memory::PagePoolOffset root_offset = memory->grab_free_volatile_page();
   ASSERT_ND(root_offset);
-  root_page_ = reinterpret_cast<HashRootPage*>(local_resolver.resolve_offset(root_offset));
+  root_page_ = reinterpret_cast<HashRootPage*>(local_resolver.resolve_offset_newpage(root_offset));
   root_page_pointer_.snapshot_pointer_ = 0;
   root_page_pointer_.volatile_pointer_ = combine_volatile_page_pointer(
     context->get_numa_node(),
@@ -296,7 +296,8 @@ ErrorStack HashStoragePimpl::create(thread::Thread* context) {
     for (uint16_t i = 0; i < root_pages_; ++i) {
       memory::PagePoolOffset offset = memory->grab_free_volatile_page();
       ASSERT_ND(offset);
-      HashRootPage* page = reinterpret_cast<HashRootPage*>(local_resolver.resolve_offset(offset));
+      HashRootPage* page = reinterpret_cast<HashRootPage*>(
+        local_resolver.resolve_offset_newpage(offset));
       VolatilePagePointer pointer = combine_volatile_page_pointer(
         context->get_numa_node(),
         0,

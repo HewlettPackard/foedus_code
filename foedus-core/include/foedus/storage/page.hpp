@@ -35,6 +35,7 @@ enum PageType {
   kHashRootPageType = 6,
   kHashBinPageType = 7,
   kHashDataPageType = 8,
+  kDummyLastPageType,
 };
 
 // some of them are 64bit uint, so can't use enum.
@@ -395,8 +396,23 @@ inline Page* to_page(const void* address) {
 }
 
 inline void assert_aligned_page(const void* page) {
+#ifndef NDEBUG
   ASSERT_ND(page);
   ASSERT_ND(reinterpret_cast<uintptr_t>(page) % kPageSize == 0);
+#endif  // NDEBUG
+}
+
+inline void assert_valid_volatile_page(const Page* page, uint32_t offset) {
+#ifndef NDEBUG
+  ASSERT_ND(page);
+  assert_aligned_page(page);
+  PageType type = page->get_header().get_page_type();
+  ASSERT_ND(type >= kArrayPageType);
+  ASSERT_ND(type < kDummyLastPageType);
+  VolatilePagePointer pointer;
+  pointer.word = page->get_header().page_id_;
+  ASSERT_ND(pointer.components.offset == offset);
+#endif  // NDEBUG
 }
 
 }  // namespace storage
