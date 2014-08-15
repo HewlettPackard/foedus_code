@@ -206,6 +206,9 @@ TpccDriver::Result TpccDriver::run() {
   }
   LOG(INFO) << "Shutting down...";
 
+  // output the current memory state at the end
+  LOG(INFO) << engine_->get_memory_manager().dump_free_memory_stat();
+
   assorted::memory_fence_release();
   for (auto* client : clients_) {
     client->request_stop();
@@ -397,12 +400,12 @@ std::ostream& operator<<(std::ostream& o, const TpccDriver::Result& v) {
   for (uint32_t i = 0; i < v.worker_count_; ++i) {
     const TpccDriver::WorkerResult& v2 = v.workers_[i];
     o << "  <worker_><id>" << i << "</id>"
-      << "<processed_>" << v2.processed_ << "</processed_>"
+      << "<txn>" << v2.processed_ << "</txn>"
       << "<kTPS>" << ((v2.processed_ / v.duration_sec_) / 1000) << "</kTPS>"
-      << "<user_requested_aborts_>" << v2.user_requested_aborts_ << "</user_requested_aborts_>"
-      << "<race_aborts_>" << v2.race_aborts_ << "</race_aborts_>"
-      << "<largereadset_aborts_>" << v2.largereadset_aborts_ << "</largereadset_aborts_>"
-      << "<unexpected_aborts_>" << v2.unexpected_aborts_ << "</unexpected_aborts_>"
+      << "<usrab>" << v2.user_requested_aborts_ << "</usrab>"
+      << "<raceab>" << v2.race_aborts_ << "</raceab>"
+      << "<rsetab>" << v2.largereadset_aborts_ << "</rsetab>"
+      << "<unexab>" << v2.unexpected_aborts_ << "</unexab>"
       << "</worker>" << std::endl;
   }
   o << "</total_result>";
