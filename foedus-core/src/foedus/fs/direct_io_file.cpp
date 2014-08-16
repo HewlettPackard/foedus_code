@@ -128,6 +128,7 @@ ErrorCode  DirectIoFile::read(uint64_t desired_bytes, memory::AlignedMemory* buf
   return read(desired_bytes, memory::AlignedMemorySlice(buffer));
 }
 ErrorCode  DirectIoFile::read(uint64_t desired_bytes, const memory::AlignedMemorySlice& buffer) {
+  ASSERT_ND(!emulation_.null_device_);
   if (desired_bytes > buffer.count_) {
     LOG(ERROR) << "DirectIoFile::read(): too small buffer is given. desired_bytes="
       << desired_bytes << ", buffer=" << buffer;
@@ -142,6 +143,7 @@ ErrorCode  DirectIoFile::read(uint64_t desired_bytes, const memory::AlignedMemor
   return read_raw(desired_bytes, buffer.get_block());
 }
 ErrorCode  DirectIoFile::read_raw(uint64_t desired_bytes, void* buffer) {
+  ASSERT_ND(!emulation_.null_device_);
   if (!is_opened()) {
     LOG(ERROR) << "File not opened yet, or closed. this=" << *this;
     return kErrorCodeFsNotOpened;
@@ -222,6 +224,10 @@ ErrorCode  DirectIoFile::write_raw(uint64_t desired_bytes, const void* buffer) {
     return kErrorCodeOk;
   }
 
+  if (emulation_.null_device_) {
+    return kErrorCodeOk;
+  }
+
   // underlying POSIX filesystem might split the write for severel reasons. so, while loop.
   VLOG(1) << "DirectIoFile::write(). desired_bytes=" << desired_bytes << ", buffer=" << buffer;
   uint64_t total_written = 0;
@@ -282,6 +288,11 @@ ErrorCode  DirectIoFile::truncate(uint64_t new_length, bool sync) {
     return kErrorCodeFsNotOpened;
   }
 
+  if (emulation_.null_device_) {
+    current_offset_ = new_length;
+    return kErrorCodeOk;
+  }
+
   if (::ftruncate(descriptor_, new_length) != 0) {
     LOG(ERROR) << "DirectIoFile::truncate(): failed. this=" << *this
       << " err=" << assorted::os_error();
@@ -299,6 +310,9 @@ ErrorCode  DirectIoFile::seek(uint64_t offset, SeekType seek_type) {
   if (!is_odirect_aligned(offset)) {
     LOG(ERROR) << "DirectIoFile::seek(): non-aligned input is given. offset=" << offset;
     return kErrorCodeFsBufferNotAligned;
+  }
+  if (emulation_.null_device_) {
+    return kErrorCodeOk;
   }
   __off_t ret;
   switch (seek_type) {
@@ -333,6 +347,10 @@ ErrorCode  DirectIoFile::sync() {
   }
   if (!is_write()) {
     return kErrorCodeInvalidParameter;
+  }
+
+  if (emulation_.null_device_) {
+    return kErrorCodeOk;
   }
 
   int ret = ::fsync(descriptor_);

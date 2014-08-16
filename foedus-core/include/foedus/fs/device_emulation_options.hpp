@@ -23,6 +23,7 @@ namespace fs {
 struct DeviceEmulationOptions CXX11_FINAL : public virtual externalize::Externalizable {
   DeviceEmulationOptions() {
     disable_direct_io_ = false;
+    null_device_ = false;
     emulated_seek_latency_cycles_ = 0;
     emulated_read_kb_cycles_ = 0;
     emulated_write_kb_cycles_ = 0;
@@ -30,6 +31,9 @@ struct DeviceEmulationOptions CXX11_FINAL : public virtual externalize::External
 
   /** [Experiments] Whether to disable Direct I/O and use non-direct I/O instead. */
   bool        disable_direct_io_;
+
+  /** [Experiments] as if we write out to /dev/null. Used to measure performance w/o I/O */
+  bool        null_device_;
 
   /** [Experiments] additional CPU cycles to busy-wait for each seek. 0 (default) disables it. */
   uint32_t    emulated_seek_latency_cycles_;

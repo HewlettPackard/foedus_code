@@ -166,7 +166,7 @@ storage::Page* ThreadPimpl::place_a_new_volatile_page(
         &(cur_pointer.word),
         new_pointer.word)) {
       // successfully installed
-      return local_volatile_page_resolver_.resolve_offset(new_offset);
+      return local_volatile_page_resolver_.resolve_offset_newpage(new_offset);
       break;
     } else {
       if (cur_pointer.components.offset != 0) {
@@ -225,6 +225,7 @@ ErrorCode ThreadPimpl::follow_page_pointer(
         *page = nullptr;
       } else {
         // place an empty new page
+        ASSERT_ND(page_initializer != &(storage::kDummyPageInitializer));
         memory::PagePoolOffset offset = core_memory_->grab_free_volatile_page();
         if (UNLIKELY(offset == 0)) {
           return kErrorCodeMemoryNoFreePages;
@@ -234,6 +235,7 @@ ErrorCode ThreadPimpl::follow_page_pointer(
         new_page_id.components.numa_node = numa_node_;
         new_page_id.components.offset = offset;
         page_initializer->initialize(new_page, new_page_id);
+        storage::assert_valid_volatile_page(new_page, offset);
         ASSERT_ND(new_page->get_header().snapshot_ == false);
 
         *page = place_a_new_volatile_page(offset, pointer);

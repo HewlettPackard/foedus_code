@@ -44,7 +44,8 @@ DEFINE_int32(payment_remote_percent, 0, "Percent of each payment that is inserte
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
 DEFINE_int32(thread_per_node, 0, "Number of threads per NUMA node. 0 uses logical count");
-DEFINE_int32(log_buffer_mb, 256, "Size in MB of log buffer for each thread");
+DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
+DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_int32(warehouses, 16, "Number of warehouses.");
 DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
 
@@ -321,7 +322,7 @@ int driver_main(int argc, char **argv) {
   options.savepoint_.savepoint_path_ = savepoint_path.string();
   ASSERT_ND(!fs::exists(savepoint_path));
 
-  LOG(INFO) << "NUMA node count=" << static_cast<int>(options.thread_.group_count_);
+  std::cout << "NUMA node count=" << static_cast<int>(options.thread_.group_count_) << std::endl;
   options.snapshot_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/snapshot/node_$NODE$";
   options.log_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/log/node_$NODE$/logger_$LOGGER$";
   options.log_.loggers_per_node_ = FLAGS_loggers_per_node;
@@ -336,15 +337,20 @@ int driver_main(int argc, char **argv) {
   options.debugging_.verbose_log_level_ = -1;
 
   options.log_.log_buffer_kb_ = FLAGS_log_buffer_mb << 10;
-  LOG(INFO) << "log_buffer_mb=" << FLAGS_log_buffer_mb << "MB per thread";
+  std::cout << "log_buffer_mb=" << FLAGS_log_buffer_mb << "MB per thread" << std::endl;
   options.log_.log_file_size_mb_ = 1 << 10;
-  LOG(INFO) << "volatile_pool_size=" << FLAGS_volatile_pool_size << "GB per NUMA node";
+  std::cout << "volatile_pool_size=" << FLAGS_volatile_pool_size << "GB per NUMA node" << std::endl;
   options.memory_.page_pool_size_mb_per_node_ = (FLAGS_volatile_pool_size) << 10;
   options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 10;
 
   if (FLAGS_thread_per_node != 0) {
-    LOG(INFO) << "thread_per_node=" << FLAGS_thread_per_node;
+    std::cout << "thread_per_node=" << FLAGS_thread_per_node << std::endl;
     options.thread_.thread_count_per_group_ = FLAGS_thread_per_node;
+  }
+
+  if (FLAGS_null_log_device) {
+    std::cout << "/dev/null log device" << std::endl;
+    options.log_.emulation_.null_device_ = true;
   }
 
   if (FLAGS_single_thread_test) {
@@ -385,8 +391,8 @@ int driver_main(int argc, char **argv) {
   }
   LOG(INFO) << result;
   if (FLAGS_profile) {
-    LOG(INFO) << "Check out the profile result: pprof --pdf tpcc tpcc.prof > prof.pdf; "
-      "okular prof.pdf";
+    std::cout << "Check out the profile result: pprof --pdf tpcc tpcc.prof > prof.pdf; "
+      "okular prof.pdf" << std::endl;
   }
   return 0;
 }
