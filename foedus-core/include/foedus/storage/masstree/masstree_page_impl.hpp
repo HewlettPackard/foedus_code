@@ -754,7 +754,7 @@ class MasstreeBorderPage final : public MasstreePage {
    * This is required because other transactions might be already in pre-commit phase to
    * modify records in this page.
    */
-  void split_foster_lock_existing_records(uint8_t key_count);
+  void split_foster_lock_existing_records(thread::Thread* context, uint8_t key_count);
 };
 STATIC_SIZE_CHECK(sizeof(MasstreeBorderPage), 1 << 12)
 

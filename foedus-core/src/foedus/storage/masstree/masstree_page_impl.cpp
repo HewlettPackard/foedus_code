@@ -15,6 +15,7 @@
 #include "foedus/debugging/rdtsc_watch.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
+#include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_manager.hpp"
@@ -272,7 +273,7 @@ ErrorCode MasstreeBorderPage::split_foster(
       true);  // yes, lock it
     ASSERT_ND(twin[i]->is_locked());
   }
-  split_foster_lock_existing_records(key_count);
+  split_foster_lock_existing_records(context, key_count);
   // commit the system transaction to get xct_id
   xct::XctId new_id = split_foster_commit_system_xct(context, strategy);
   if (strategy.no_record_split_) {
@@ -400,7 +401,9 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
   return ret;
 }
 
-void MasstreeBorderPage::split_foster_lock_existing_records(uint8_t key_count) {
+void MasstreeBorderPage::split_foster_lock_existing_records(
+  thread::Thread* context,
+  uint8_t key_count) {
   debugging::RdtscWatch watch;  // check how expensive this is
   // lock in address order. so, no deadlock possible
   // we have to lock them whether the record is deleted or not. all physical records.
@@ -411,7 +414,9 @@ void MasstreeBorderPage::split_foster_lock_existing_records(uint8_t key_count) {
   if (watch.elapsed() > (1ULL << 26)) {
     // if we see this often, we have to optimize this somehow.
     LOG(WARNING) << "wait, wait, it costed " << watch.elapsed() << " cycles to lock all of "
-      << static_cast<int>(key_count) << " records while splitting!! that's a lot!";
+      << static_cast<int>(key_count) << " records while splitting!! that's a lot! storage="
+      << context->get_engine()->get_storage_manager().get_storage(header_.storage_id_)->get_name()
+      << ", thread ID=" << context->get_thread_id();
   }
 }
 
