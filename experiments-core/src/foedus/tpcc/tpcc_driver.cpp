@@ -176,10 +176,25 @@ TpccDriver::Result TpccDriver::run() {
   LOG(INFO) << "Started!";
   debugging::StopWatch duration;
   while (duration.peek_elapsed_ns() < static_cast<uint64_t>(FLAGS_duration_micro) * 1000ULL) {
-    // sleep_for might have a spurious wakeup depending on the machine.
-    // sleep again if not yet done
+    // wake up for each second to show intermediate results.
     uint64_t remaining_duration = FLAGS_duration_micro - duration.peek_elapsed_ns() / 1000ULL;
-    std::this_thread::sleep_for(std::chrono::microseconds(remaining_duration));
+    if (remaining_duration > 1000000ULL) {
+      remaining_duration = 1000000ULL;
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(remaining_duration));
+    Result result;
+    result.duration_sec_ = duration.elapsed_sec();
+    result.worker_count_ = clients_.size();
+    for (uint32_t i = 0; i < clients_.size(); ++i) {
+      TpccClientTask* client = clients_[i];
+      result.processed_ += client->get_processed();
+      result.race_aborts_ += client->get_race_aborts();
+      result.unexpected_aborts_ += client->get_unexpected_aborts();
+      result.largereadset_aborts_ += client->get_largereadset_aborts();
+      result.user_requested_aborts_ += client->get_user_requested_aborts();
+    }
+    LOG(INFO) << "Intermediate report after " << result.duration_sec_ << " sec";
+    LOG(INFO) << result;
   }
   LOG(INFO) << "Experiment ended.";
 
