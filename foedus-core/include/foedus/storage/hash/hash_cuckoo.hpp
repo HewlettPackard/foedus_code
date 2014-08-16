@@ -115,8 +115,13 @@ const uint32_t kTagRandomizers[] = {
 struct HashCombo {
   HashCombo(const void *key, uint16_t key_length, uint8_t bin_bits);
 
+  HashCombo(const void* key, uint16_t key_length, uint8_t bin_bits,
+            uint64_t first_bin, HashTag tmp_tag);
+
   template <typename T>
   HashCombo(T key, uint8_t bin_bits);
+  template <typename T>
+  HashCombo(T key, uint8_t bin_bits, uint64_t first_bin, HashTag tmp_tag);
 
   void init(uint64_t hash, HashTag tag, uint8_t bin_bits);
 
@@ -306,6 +311,48 @@ inline HashCombo::HashCombo(T key, uint8_t bin_bits) {
   HashTag tmp_tag;
   uint64_t tmp_hash = hashinate_combo(key, &tmp_tag);
   init(tmp_hash, tmp_tag, bin_bits);
+}
+
+/// @brief For when we already know the tag
+inline HashCombo::HashCombo(const void* key, uint16_t key_length, uint8_t bin_bits,
+  uint64_t first_bin, HashTag tmp_tag) {
+  tag_ = tmp_tag;
+  bin_bits_ = bin_bits;
+  bins_[0] = first_bin;
+  bins_[1] = bins_[0] ^ fold_bits(tag_to_randomizer(tag_), bin_bits);
+
+  payload_length_ = 0;
+  record_bin1_ = false;
+  observed_mod_count_[0] = 0;
+  observed_mod_count_[1] = 0;
+  hit_bitmap_[0] = 0;
+  hit_bitmap_[1] = 0;
+  bin_pages_[0] = CXX11_NULLPTR;
+  bin_pages_[1] = CXX11_NULLPTR;
+  data_pages_[0] = CXX11_NULLPTR;
+  data_pages_[1] = CXX11_NULLPTR;
+  record_ = CXX11_NULLPTR;
+}
+
+/// @brief For when we already know the tag
+template <typename T>
+inline HashCombo::HashCombo(T key, uint8_t bin_bits, uint64_t first_bin, HashTag tmp_tag) {
+  tag_ = tmp_tag;
+  bin_bits_ = bin_bits;
+  bins_[0] = first_bin;
+  bins_[1] = bins_[0] ^ fold_bits(tag_to_randomizer(tag_), bin_bits);
+
+  payload_length_ = 0;
+  record_bin1_ = false;
+  observed_mod_count_[0] = 0;
+  observed_mod_count_[1] = 0;
+  hit_bitmap_[0] = 0;
+  hit_bitmap_[1] = 0;
+  bin_pages_[0] = CXX11_NULLPTR;
+  bin_pages_[1] = CXX11_NULLPTR;
+  data_pages_[0] = CXX11_NULLPTR;
+  data_pages_[1] = CXX11_NULLPTR;
+  record_ = CXX11_NULLPTR;
 }
 
 inline void HashCombo::init(uint64_t hash, HashTag tag, uint8_t bin_bits) {

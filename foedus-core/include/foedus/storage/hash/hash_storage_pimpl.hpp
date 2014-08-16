@@ -140,15 +140,16 @@ class HashStoragePimpl final : public DefaultInitializable {
    *Keeps track of how many  the transaction has added to the collection of
    * Cuckoo bins assigned to each hash value
    */
-  ErrorStack make_room(
-    thread::Thread* context, HashDataPage* data_page, int depth, uint8_t *slot_pick);
+  ErrorCode make_room(
+    thread::Thread* context, HashDataPage* data_page, int depth, uint8_t *slot_pick,
+    HashBinPage* bin_page);
 
   /**
    * @brief Inserts a record into a bin that has already been chosen.
    * @details Assumes you have already checked that the record doesn't exist and that there
    * is room in the bin. Also assumes the data page has already been created for the bin.
    */
-  ErrorStack insert_record_chosen_bin(
+  ErrorCode insert_record_chosen_bin(
     thread::Thread* context,
     const char* key,
     uint16_t key_length,

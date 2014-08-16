@@ -398,12 +398,12 @@ ErrorCode HashStoragePimpl::get_record_part(
   }
 }
 
-
-ErrorStack HashStoragePimpl::make_room(
+//TODO:(Bill) reorder variables to fit C++ style guide
+ErrorCode HashStoragePimpl::make_room(
   thread::Thread* context,
   HashDataPage* data_page,
-  int depth, uint8_t *slot_pick) {
-  if (depth > kMaxCuckooDepth) return ERROR_STACK(kErrorCodeStrCuckooTooDeep);
+  int depth, uint8_t *slot_pick, HashBinPage* bin_page) {
+  if (depth > kMaxCuckooDepth) return kErrorCodeStrCuckooTooDeep;
   int hit_index = 0;  // says how many valid victim candidates we've seen
   uint32_t bin_num = data_page->get_bin();
   uint32_t storageid = holder_->get_hash_metadata()->id_;
@@ -414,7 +414,7 @@ ErrorStack HashStoragePimpl::make_room(
   // the victim-number modulo the size of the bin from there.
   ASSERT_ND(data_page->get_record_count() > kickout_index);
   if (kickout_index > data_page->get_record_count()) {
-    return ERROR_STACK(kErrorCodeStrNothingToKickout);
+    return kErrorCodeStrNothingToKickout;
   }
   for (int x = 0; x < kMaxEntriesPerBin; x++) {
     if ((data_page->slot(x).flags_ & HashDataPage::kFlagDeleted) == 0) {
@@ -434,8 +434,6 @@ ErrorStack HashStoragePimpl::make_room(
   // hash using the key instead of using the tag and bin number.
   // Thought: do we have room for a flag saying "I'm a slot that has been created"?
 
-  // This part is silly, we should be using the tag to compute the other bin, not recomputing from
-  // scratch. TODO:(Bill) Make this part properly use tag.
   uint16_t key_length = data_page->slot(pick).key_length_;
   uint32_t offset = data_page->slot(pick).offset_;
   Record* kickrec = data_page->interpret_record(offset);
@@ -443,26 +441,30 @@ ErrorStack HashStoragePimpl::make_room(
   ASSERT_ND(kickrec->owner_id_.is_keylocked() == false);
   char* key = kickrec->payload_;
   char* payload = (kickrec->payload_ + key_length);
-  HashCombo combo(key, key_length, metadata_.bin_bits_);
-  WRAP_ERROR_CODE(lookup_bin(context, true, &combo));
-  WRAP_ERROR_CODE(locate_record(context, key, key_length, &combo));  // This will add the next
-  // data page to the reader set. If we use the tag instead to get the next data_page
-  // we will have to do it manually.
+
+  //Need to get current bin and tag
+  uint64_t current_bin = data_page->get_bin();
+  HashBinPage::Bin& the_bin = bin_page->bin(current_bin % kBinsPerPage);
+  HashTag tag = the_bin.tags_[pick];
+
+  HashCombo combo(key, key_length, metadata_.bin_bits_, current_bin, tag); // No need to recompute hash
+  CHECK_ERROR_CODE(lookup_bin(context, true, &combo));
+  CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));  // This will add the next
+  // data page to the reader set.
   HashDataPage* other_page = combo.data_pages_[0];
   if (other_page == data_page) {
     other_page = combo.data_pages_[1];
   }
-  WRAP_ERROR_CODE(delete_record(context, key, key_length));
+  CHECK_ERROR_CODE(delete_record(context, key, key_length));
   uint8_t choice = (uint8_t)(combo.data_pages_[1] == other_page);
-  CHECK_ERROR(insert_record_chosen_bin(context, key, key_length,
+  CHECK_ERROR_CODE(insert_record_chosen_bin(context, key, key_length,
                                        payload,
                                        combo.payload_length_,
                                        choice, combo, depth));
-  return kRetOk;
+  return kErrorCodeOk;
 }
 
-// TODO:(Bill) Make this an error code rather than an error stack
-ErrorStack HashStoragePimpl::insert_record_chosen_bin(
+ErrorCode HashStoragePimpl::insert_record_chosen_bin(
   thread::Thread* context,
   const char* key,
   uint16_t key_length,
@@ -482,7 +484,8 @@ ErrorStack HashStoragePimpl::insert_record_chosen_bin(
   if (context->get_current_xct().read_frequency(bin_num , storageid).add_count
       + data_page->get_record_count() >= kMaxEntriesPerBin) {
     context->get_current_xct().add_frequency(bin_num, storageid, true);
-    CHECK_ERROR(make_room(context, data_page, current_depth + 1, &slot_pick));
+    CHECK_ERROR_CODE(make_room(context, data_page, current_depth + 1, &slot_pick,
+                               combo.bin_pages_[choice]));
   } else {
     context->get_current_xct().add_frequency(bin_num, storageid, false);
     slot_pick = data_page->find_empty_slot(key_length, payload_count);
@@ -502,7 +505,7 @@ ErrorStack HashStoragePimpl::insert_record_chosen_bin(
   HashInsertDummyLogType* dummy_log = reinterpret_cast<HashInsertDummyLogType*>(
     context->get_thread_log_buffer().reserve_new_log(HashInsertDummyLogType::calculate_log_length()));
   dummy_log->populate(storageid);
-  WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
+  CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
                                                               &actual_record->owner_id_,
                                                               reinterpret_cast<char*>(combo.bin_pages_[choice]),
                                                               log_entry));
@@ -511,14 +514,15 @@ ErrorStack HashStoragePimpl::insert_record_chosen_bin(
 //  << std::endl;
 //  WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
 //                                                              page_lock_record, log_entry));
-  WRAP_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
+  CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(holder_,
                                                 &(data_page->page_owner()),
                                                 reinterpret_cast<char*>(combo.bin_pages_[choice]),
                                                               dummy_log));
-  return kRetOk;
+  return kErrorCodeOk;
 }
 
-
+//  TODO:(Bill) Check we have memory fence whenever needed after sticking things in read sets
+//  (I think it's all fine)
 ErrorCode HashStoragePimpl::insert_record(
   thread::Thread* context,
   const void* key,
@@ -568,7 +572,7 @@ ErrorCode HashStoragePimpl::insert_record(
       data_page->get_record_count() >= kMaxEntriesPerBin) {
     context->get_current_xct().add_frequency(bin_num, storageid, true);
     std::cout << "Starting Kickout... " << std::endl;
-    UNWRAP_ERROR_STACK(make_room(context, data_page, 0, &slot_pick));
+    CHECK_ERROR_CODE(make_room(context, data_page, 0, &slot_pick, bin_page));
   } else {
     context->get_current_xct().add_frequency(bin_num, storageid, false);
     slot_pick = data_page->find_empty_slot(key_length, payload_count);
@@ -979,8 +983,8 @@ inline ErrorCode HashStoragePimpl::locate_record(
 
     // add page lock for read set. before accessing records
     current_xct.add_to_read_set(holder_, data_page->page_owner(), &data_page->page_owner());
-    // Need to fence here
-    assorted::memory_fence_consume();
+    assorted::memory_fence_consume(); // Is a consume fence enough?
+    // Do I need another later in the function? TODO:(Bill) Ask Hideaki
 
     uint32_t hit_bitmap = combo->hit_bitmap_[i];
     for (uint8_t rec = 0; rec < data_page->get_record_count(); ++rec) {
