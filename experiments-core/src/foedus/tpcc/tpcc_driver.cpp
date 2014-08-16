@@ -370,6 +370,7 @@ int driver_main(int argc, char **argv) {
     FLAGS_warehouses = 1;
     options.log_.log_buffer_kb_ = 1 << 16;
     options.log_.log_file_size_mb_ = 1 << 10;
+    options.log_.loggers_per_node_ = 1;
     options.memory_.page_pool_size_mb_per_node_ = 1 << 12;
     options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 12;
     options.thread_.group_count_ = 1;

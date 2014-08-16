@@ -43,8 +43,9 @@ class MasstreeCursor CXX11_FINAL {
   struct Route {
     enum MovedPageSearchStatus {
       kNotMovedPage = 0,
-      kMovedPageSearchedOne = 1,
-      kMovedPageSearchedBoth = 2,
+      kMovedPageSearchedNeither = 1,
+      kMovedPageSearchedOne = 2,
+      kMovedPageSearchedBoth = 3,
     };
     MasstreePage* page_;
     /** version as of getting calculating order_. */

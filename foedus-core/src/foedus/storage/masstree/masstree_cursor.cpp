@@ -352,6 +352,8 @@ inline ErrorCode MasstreeCursor::proceed_deeper() {
     MasstreePage* next_page = forward_cursor_
       ? cur_route()->page_->get_foster_minor()
       : cur_route()->page_->get_foster_major();
+    ASSERT_ND(cur_route()->moved_page_search_status_ == Route::kMovedPageSearchedNeither);
+    cur_route()->moved_page_search_status_ = Route::kMovedPageSearchedOne;
     CHECK_ERROR_CODE(push_route(next_page));
   }
   ASSERT_ND(!cur_route()->stable_.has_foster_child());
@@ -481,6 +483,7 @@ inline void MasstreeCursor::Route::setup_order() {
 }
 
 inline ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
+  assert_aligned_page(page);
   if (route_count_ == kMaxRoutes) {
     return kErrorCodeStrMasstreeCursorTooDeep;
   }
@@ -491,7 +494,11 @@ inline ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
     assorted::memory_fence_consume();
     ASSERT_ND(!route.stable_.is_locked());
     route.page_ = page;
-    route.moved_page_search_status_ = Route::kNotMovedPage;  // if a moved page, set soon
+    if (route.stable_.is_moved()) {
+      route.moved_page_search_status_ = Route::kMovedPageSearchedNeither;
+    } else {
+      route.moved_page_search_status_ = Route::kNotMovedPage;
+    }
     route.latest_separator_ = kInfimumSlice;  // must be set shortly after this method
     route.index_ = kMaxRecords;  // must be set shortly after this method
     route.index_mini_ = kMaxRecords;  // must be set shortly after this method
@@ -506,10 +513,6 @@ inline ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
       }
     }
     break;
-  }
-  if (route.stable_.is_moved()) {
-    // because this method will be immediately followed by a deeper search
-    route.moved_page_search_status_ = Route::kMovedPageSearchedOne;
   }
 
   ++route_count_;
@@ -537,19 +540,29 @@ inline ErrorCode MasstreeCursor::follow_foster(KeySlice slice) {
     }
 
     ASSERT_ND(route->stable_.is_moved());
+    ASSERT_ND(route->moved_page_search_status_ == Route::kMovedPageSearchedNeither);
     KeySlice foster_fence = route->page_->get_foster_fence();
+    MasstreePage* left = route->page_->get_foster_minor();
+    MasstreePage* right = route->page_->get_foster_major();
     MasstreePage* page;
     if (slice < foster_fence) {
-      page = route->page_->get_foster_minor();
+      page = left;
     } else if (slice > foster_fence) {
-      page = route->page_->get_foster_major();
+      page = right;
     } else {
       ASSERT_ND(slice == foster_fence);
       if (search_type_ == kBackwardExclusive) {
-        page = route->page_->get_foster_minor();
+        page = left;
       } else {
-        page = route->page_->get_foster_major();
+        page = right;
       }
+    }
+    // if we are following the right foster, 1) if forward-cursor, we already skipeed left,
+    // so we are "both" done. 2) otherwise, just one of them done. vice versa.
+    if ((forward_cursor_ && page == left) || (!forward_cursor_ && page == right)) {
+      route->moved_page_search_status_ = Route::kMovedPageSearchedOne;
+    } else {
+      route->moved_page_search_status_ = Route::kMovedPageSearchedBoth;
     }
     CHECK_ERROR_CODE(push_route(page));
   }
