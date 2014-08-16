@@ -125,12 +125,19 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   xct::XctId* root_pointer_owner,
   MasstreeIntermediatePage** new_root) {
   *new_root = nullptr;
+  if (root_pointer_owner->is_keylocked()) {
+    DVLOG(0) << "interesting. someone else is growing the tree, so let him do that.";
+    // we can move on, thanks to the master-tree invariant. tree-growth is not a mandatory
+    // task to do right away
+    return kErrorCodeOk;
+  }
+
   root_pointer_owner->keylock_unconditional();
   xct::XctIdUnlockScope owner_scope(root_pointer_owner);
   if (root_pointer_owner->is_moved()) {
     LOG(INFO) << "interesting. someone else has split the page that had a pointer"
       " to a root page of the layer to be grown";
-    return kErrorCodeOk;  // retry.
+    return kErrorCodeOk;  // same above.
   }
 
   // follow the pointer after taking lock on owner ID
