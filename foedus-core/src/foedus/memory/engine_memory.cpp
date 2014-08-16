@@ -58,7 +58,7 @@ ErrorStack EngineMemory::initialize_once() {
       ScopedNumaPreferred numa_scope(node);
       NumaNodeMemory* node_memory = new NumaNodeMemory(engine_, node);
       node_memories_[node] = node_memory;
-      COERCE_ERROR(node_memory->initialize());
+      COERCE_ERROR(node_memory->initialize());  // TODO(Hideaki) collect errors
       PagePool& pool = node_memory->get_volatile_pool();
       bases[node] = pool.get_resolver().base_;
     }));
@@ -84,7 +84,23 @@ ErrorStack EngineMemory::uninitialize_once() {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
 
-  batch.uninitialize_and_delete_all(&node_memories_);
+  // even uninitialize takes long time. parallelize
+  std::vector<std::thread> uninit_threads;
+  for (uint16_t node = 0; node < node_memories_.size(); ++node) {
+    NumaNodeMemory* node_memory = node_memories_[node];
+    uninit_threads.push_back(std::thread([node_memory]() {
+      COERCE_ERROR(node_memory->uninitialize());  // TODO(Hideaki) collect errors
+    }));
+  }
+  LOG(INFO) << "Launched threads to uninitialize node memory. waiting..";
+  for (auto& uninit_thread : uninit_threads) {
+    uninit_thread.join();
+  }
+  LOG(INFO) << "All node memories were uninitialized!";
+  for (uint16_t node = 0; node < node_memories_.size(); ++node) {
+    delete node_memories_[node];
+  }
+  node_memories_.clear();
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 

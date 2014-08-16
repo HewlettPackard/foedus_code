@@ -47,9 +47,13 @@ ErrorCode  DirectIoFile::open(bool read, bool write, bool append, bool create) {
   Path folder(path_.parent_path());
   if (!exists(folder)) {
     if (!create_directories(folder, true)) {
-      LOG(ERROR) << "DirectIoFile::open(): failed to create parent folder: "
-        << folder << ". err=" << assorted::os_error();
-      return kErrorCodeFsMkdirFailed;
+      if (exists(folder)) {
+        LOG(INFO) << "Interesting. other thread has created the folder:" << folder;
+      } else {
+        LOG(ERROR) << "DirectIoFile::open(): failed to create parent folder: "
+          << folder << ". err=" << assorted::os_error();
+        return kErrorCodeFsMkdirFailed;
+      }
     }
   }
 
