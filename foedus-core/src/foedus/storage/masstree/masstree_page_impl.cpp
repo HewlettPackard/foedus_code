@@ -429,7 +429,6 @@ xct::XctId MasstreeBorderPage::split_foster_commit_system_xct(
   ASSERT_ND(new_id.get_ordinal() < 0xFFFFU);
   new_id.clear_status_bits();
   new_id.set_ordinal(new_id.get_ordinal() + 1);
-  new_id.set_thread_id(context->get_thread_id());
   context->get_current_xct().remember_previous_xct_id(new_id);
   return new_id;
 }

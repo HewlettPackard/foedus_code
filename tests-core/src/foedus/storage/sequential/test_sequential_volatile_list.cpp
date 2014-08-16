@@ -63,7 +63,7 @@ class AppendTask : public thread::ImpersonateTask {
     for (uint32_t i = 0; i < kAppendsPerThread; ++i) {
       xct::XctId owner_id;
       uint32_t epoch = kStartEpoch + (i / kAppendsPerEpoch);
-      owner_id.set_clean(epoch, i, task_id_);
+      owner_id.set_clean(epoch, i);
       std::string value("value_");
       value += std::to_string(task_id_);
       value += "_";
@@ -94,7 +94,7 @@ void verify_result(
     for (uint32_t i = 0; i < kAppendsPerThread; ++i) {
       xct::XctId owner_id;
       uint32_t epoch = kStartEpoch + (i / kAppendsPerEpoch);
-      owner_id.set_clean(epoch, i, task_id);
+      owner_id.set_clean(epoch, i);
       std::string value("value_");
       value += std::to_string(task_id);
       value += "_";

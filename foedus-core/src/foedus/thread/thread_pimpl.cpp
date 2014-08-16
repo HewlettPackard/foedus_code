@@ -55,7 +55,7 @@ ErrorStack ThreadPimpl::initialize_once() {
   node_memory_ = core_memory_->get_node_memory();
   snapshot_cache_hashtable_ = node_memory_->get_snapshot_cache_table();
   current_task_ = nullptr;
-  current_xct_.initialize(id_, core_memory_);
+  current_xct_.initialize(core_memory_);
   CHECK_ERROR(snapshot_file_set_.initialize());
   CHECK_ERROR(log_buffer_.initialize());
   global_volatile_page_resolver_

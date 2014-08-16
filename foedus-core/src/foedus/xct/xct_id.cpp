@@ -9,8 +9,8 @@
 namespace foedus {
 namespace xct {
 std::ostream& operator<<(std::ostream& o, const XctId& v) {
-  o << "<XctId><epoch>" << v.get_epoch() << "</epoch><thread_id>"
-    << v.get_thread_id() << "</thread_id>"
+  o << "<XctId><epoch>" << v.get_epoch() << "</epoch><tail_waiter>"
+    << v.get_tail_waiter() << "</tail_waiter>"
     << "<ordinal>" << v.get_ordinal() << "</ordinal>"
     << "<status>"
       << (v.is_keylocked() ? "K" : " ")

@@ -758,7 +758,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
 }
 
 void MasstreeStoragePimpl::reserve_record_new_record_apply(
-  thread::Thread* context,
+  thread::Thread* /*context*/,
   MasstreeBorderPage* target,
   uint8_t target_index,
   KeySlice slice,
@@ -774,8 +774,7 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
   xct::XctId initial_id;
   initial_id.set_clean(
     Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
-    0,
-    context->get_thread_id());
+    0);
   initial_id.set_deleted();
   *observed = initial_id;
   target->reserve_record_space(

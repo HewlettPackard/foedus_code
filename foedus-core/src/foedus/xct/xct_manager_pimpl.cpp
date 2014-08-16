@@ -540,7 +540,6 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
 
   current_xct.issue_next_id(commit_epoch);
   XctId new_xct_id = current_xct.get_id();
-  ASSERT_ND(new_xct_id.get_thread_id() == context->get_thread_id());
   ASSERT_ND(new_xct_id.get_epoch() == *commit_epoch);
   ASSERT_ND(new_xct_id.get_ordinal() > 0);
   ASSERT_ND(new_xct_id.is_status_bits_off());

@@ -78,7 +78,7 @@ inline uint16_t extract_in_epoch_ordinal(XctOrder order) { return order >> 16; }
 //                                             0123456789abcdef
 const uint64_t kMaskEpoch                   = 0xFFFFFFF000000000ULL;  // first 28 bits
 const uint64_t kMaskOrdinal                 = 0x0000000FFFF00000ULL;  // next 16 bits
-const uint64_t kMaskThreadId                = 0x00000000000FFFF0ULL;  // next 16 bits
+const uint64_t kMaskTailWaiter              = 0x00000000000FFFF0ULL;  // next 16 bits
 const uint64_t kMaskSerializer              = 0xFFFFFFFFFFFFFFF0ULL;  // above 3 serialize xcts
 const uint64_t kMaskInEpochOrder            = 0x0000000FFFFFFFF0ULL;  // ordinal and thread_id
 const uint64_t kKeylockBit                  = 0x0000000000000008ULL;
@@ -88,7 +88,7 @@ const uint64_t kMovedBit                    = 0x0000000000000001ULL;
 
 const uint64_t kUnmaskEpoch                 = 0x0000000FFFFFFFFFULL;
 const uint64_t kUnmaskOrdinal               = 0xFFFFFFF0000FFFFFULL;
-const uint64_t kUnmaskThreadId              = 0xFFFFFFFFFFF0000FULL;
+const uint64_t kUnmaskTailWaiter            = 0xFFFFFFFFFFF0000FULL;
 const uint64_t kUnmaskRangelock             = 0xFFFFFFFFFFFFFFFBULL;
 const uint64_t kUnmaskDelete                = 0xFFFFFFFFFFFFFFFDULL;
 const uint64_t kUnmaskMoved                 = 0xFFFFFFFFFFFFFFFEULL;
@@ -114,8 +114,11 @@ const uint64_t kUnmaskStatusBits            = 0xFFFFFFFFFFFFFFF0ULL;
  * Also, if there are no dependencies between transactions on each core, it could be
  * up to 64k xcts per epoch per core. See commit protocol.
  * </td></tr>
- * <tr><td>46..60</td><td>ThreadId</td><td>The recent owning transaction was on this thread.
- * 16 bits. We might not need 256 node or 256 cores, but we can't be sure for future.</td></tr>
+ * <tr><td>46..60</td><td>Tail Waiter for MCS locking</td><td>
+ * Unlike SILO, we use this thread ID for MCS locking that scales much better on big machines.
+ * This indicates the thread that is in the tail of the queue lock, which might be the owner
+ * of the lock.
+ * </td></tr>
  * <tr><td>61</td><td>Key Lock bit</td><td>Lock the key.</td></tr>
  * <tr><td>62</td><td>Range Lock bit</td><td>Lock the interval from the key to next key.</td></tr>
  * <tr><td>63</td><td>Psuedo-delete bit</td><td>Logically delete the key.</td></tr>
@@ -151,17 +154,16 @@ struct XctId {
   enum Constants {
     kShiftEpoch         = 36,
     kShiftOrdinal       = 20,
-    kShiftThreadId     = 4,
+    kShiftTailWaiter    = 4,
   };
 
   XctId() : data_(0) {}
   explicit XctId(uint64_t data) : data_(data) {}
 
-  void set_clean(Epoch::EpochInteger epoch_int, uint16_t ordinal, thread::ThreadId thread_id) {
+  void set_clean(Epoch::EpochInteger epoch_int, uint16_t ordinal) {
     ASSERT_ND(epoch_int < Epoch::kEpochIntOverflow);
     data_ = (static_cast<uint64_t>(epoch_int) << kShiftEpoch)
-      | (static_cast<uint64_t>(ordinal) << kShiftOrdinal)
-      | (static_cast<uint64_t>(thread_id) << kShiftThreadId);
+      | (static_cast<uint64_t>(ordinal) << kShiftOrdinal);
   }
 
   XctId& operator=(const XctId& other) {
@@ -187,18 +189,18 @@ struct XctId {
   void set_ordinal(uint16_t ordinal) ALWAYS_INLINE {
     data_ = (data_ & kUnmaskOrdinal) | (static_cast<uint64_t>(ordinal) << kShiftOrdinal);
   }
-  thread::ThreadId get_thread_id() const ALWAYS_INLINE {
-    return static_cast<thread::ThreadId>((data_ & kMaskThreadId) >> kShiftThreadId);
+  thread::ThreadId get_tail_waiter() const ALWAYS_INLINE {
+    return static_cast<thread::ThreadId>((data_ & kMaskTailWaiter) >> kShiftTailWaiter);
   }
-  void    set_thread_id(thread::ThreadId id) ALWAYS_INLINE {
-    data_ = (data_ & kUnmaskThreadId) | (static_cast<uint64_t>(id) << kShiftThreadId);
+  void    set_tail_waiter(thread::ThreadId id) ALWAYS_INLINE {
+    data_ = (data_ & kUnmaskTailWaiter) | (static_cast<uint64_t>(id) << kShiftTailWaiter);
   }
 
   /**
    * Returns a 32-bit integer that represents the serial order in the epoch.
    */
   XctOrder get_in_epoch_xct_order() const ALWAYS_INLINE {
-    return (data_ & kMaskInEpochOrder) >> kShiftThreadId;
+    return (data_ & kMaskInEpochOrder) >> kShiftTailWaiter;
   }
 
   /**

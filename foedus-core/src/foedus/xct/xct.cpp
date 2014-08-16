@@ -36,9 +36,8 @@ Xct::Xct(Engine* engine, thread::ThreadId thread_id) : engine_(engine), thread_i
   isolation_level_ = kSerializable;
 }
 
-void Xct::initialize(thread::ThreadId thread_id, memory::NumaCoreMemory* core_memory) {
+void Xct::initialize(memory::NumaCoreMemory* core_memory) {
   id_.set_epoch(engine_->get_savepoint_manager().get_savepoint_fast().get_current_epoch());
-  id_.set_thread_id(thread_id);
   id_.set_ordinal(0);  // ordinal 0 is possible only as a dummy "latest" XctId
   ASSERT_ND(id_.is_valid());
   read_set_ = core_memory->get_read_set_memory();
@@ -91,7 +90,6 @@ void Xct::issue_next_id(Epoch *epoch)  {
 
     ASSERT_ND(new_id.get_ordinal() < 0xFFFFU);
     new_id.set_ordinal(new_id.get_ordinal() + 1);
-    new_id.set_thread_id(thread_id_);
     new_id.clear_status_bits();
     remember_previous_xct_id(new_id);
     break;

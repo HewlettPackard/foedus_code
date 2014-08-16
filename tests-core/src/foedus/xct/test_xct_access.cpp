@@ -24,14 +24,14 @@ void* to_ptr(int val) {
 
 XctAccess create_access(int i) {
   XctAccess access;
-  access.observed_owner_id_.set_clean(i * 20, i * 12, i + 3);
+  access.observed_owner_id_.set_clean(i * 20, i * 12);
   access.storage_ = reinterpret_cast<storage::Storage*>(to_ptr(i * 1234));
   access.owner_id_address_ = reinterpret_cast<xct::XctId*>(to_ptr(i * 8452));
   return access;
 }
 void verify_access(const XctAccess &access, int i) {
   XctId tmp;
-  tmp.set_clean(i * 20, i * 12, i + 3);
+  tmp.set_clean(i * 20, i * 12);
   EXPECT_TRUE(access.observed_owner_id_.equals_all(tmp));
   EXPECT_TRUE(access.storage_ == reinterpret_cast<storage::Storage*>(to_ptr(i * 1234)));
   EXPECT_TRUE(access.owner_id_address_ == reinterpret_cast<xct::XctId*>(to_ptr(i * 8452)));
@@ -108,7 +108,7 @@ WriteXctAccess create_write_access(int i) {
 }
 void verify_access(const WriteXctAccess &access, int i) {
   XctId tmp;
-  tmp.set_clean(i * 43, i * 4, i + 1);
+  tmp.set_clean(i * 43, i * 4);
   EXPECT_TRUE(access.payload_address_  == reinterpret_cast<char*>(to_ptr(i * 542312)));
   EXPECT_TRUE(access.storage_ == reinterpret_cast<storage::Storage*>(to_ptr(i * 52223)));
   EXPECT_TRUE(access.owner_id_address_ == reinterpret_cast<xct::XctId*>(to_ptr(i * 14325)));

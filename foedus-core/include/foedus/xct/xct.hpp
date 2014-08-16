@@ -54,7 +54,7 @@ class Xct {
   Xct(const Xct& other) CXX11_FUNC_DELETE;
   Xct& operator=(const Xct& other) CXX11_FUNC_DELETE;
 
-  void initialize(thread::ThreadId thread_id, memory::NumaCoreMemory* core_memory);
+  void initialize(memory::NumaCoreMemory* core_memory);
 
   /**
    * Begins the transaction.
