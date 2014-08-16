@@ -403,7 +403,7 @@ int driver_main(int argc, char **argv) {
   for (uint32_t i = 0; i < result.worker_count_; ++i) {
     LOG(INFO) << result.workers_[i];
   }
-  LOG(INFO) << result;
+  LOG(INFO) << "final result:" << result;
   if (FLAGS_profile) {
     std::cout << "Check out the profile result: pprof --pdf tpcc tpcc.prof > prof.pdf; "
       "okular prof.pdf" << std::endl;
