@@ -26,8 +26,6 @@
  * Soem of the following source came from TpccOverBkDB by A. Fedorova:
  *   http://www.cs.sfu.ca/~fedorova/Teaching/CMPT886/Spring2007/benchtools.html
  *
- * All character arrays are 1 char longer than required to
- * account for the null character at the end of the string.
  * A few things have been changed to be more platform independent.
  */
 namespace foedus {
@@ -162,12 +160,12 @@ inline Wid  extract_wid_from_sid(Sid id) { return static_cast<Wid>(id / kItems);
 inline Iid  extract_iid_from_sid(Sid id) { return static_cast<Iid>(id % kItems); }
 
 struct WarehouseStaticData {
-  char   name_[11];
-  char   street1_[21];
-  char   street2_[21];
-  char   city_[21];
-  char   state_[3];
-  char   zip_[10];
+  char   name_[10];
+  char   street1_[20];
+  char   street2_[20];
+  char   city_[20];
+  char   state_[2];
+  char   zip_[9];
   double tax_;
 // Following is vertically partitioned
 //   double ytd_;
@@ -181,12 +179,12 @@ struct WarehouseYtdData {
 };
 
 struct DistrictStaticData {
-  char   name_[11];
-  char   street1_[21];
-  char   street2_[21];
-  char   city_[21];
-  char   state_[3];
-  char   zip_[10];
+  char   name_[10];
+  char   street1_[20];
+  char   street2_[20];
+  char   city_[20];
+  char   state_[2];
+  char   zip_[9];
   double tax_;
 // Followings are vertically partitioned
 //  uint64_t ytd_;
@@ -209,23 +207,23 @@ struct DistrictNextOidData {
 };
 
 struct CustomerStaticData {
-  char   first_[17];
-  char   middle_[3];
-  char   last_[17];
-  char   street1_[21];
-  char   street2_[21];
-  char   city_[21];
-  char   state_[3];
-  char   zip_[10];
-  char   phone_[16];
-  char   since_[26];
-  char   credit_[3];
+  char   first_[16];
+  char   middle_[2];
+  char   last_[16];
+  char   street1_[20];
+  char   street2_[20];
+  char   city_[20];
+  char   state_[2];
+  char   zip_[9];
+  char   phone_[15];
+  char   since_[25];
+  char   credit_[2];
   double credit_lim_;
   double discount_;
   enum Constants {
-    kHistoryDataLength = 501,
+    kHistoryDataLength = 500,
   };
-  // char   data_[501];  vertically partitioned as customer_history
+  // char   data_[500];  vertically partitioned as customer_history
 };
 
 struct CustomerDynamicData {
@@ -245,7 +243,7 @@ struct CustomerDynamicData {
 struct CustomerSecondaryKey {
   enum Constants {
     /** Length of the key. note that this doesn't contain padding as a struct. */
-    kKeyLength = sizeof(Wid) + sizeof(Did) + 17 + 17 + sizeof(Cid),
+    kKeyLength = sizeof(Wid) + sizeof(Did) + 16 + 16 + sizeof(Cid),
   };
 };
 
@@ -258,42 +256,42 @@ struct HistoryData {
   Did       c_did_;
   Wid       wid_;
   Did       did_;
-  char      date_[26];
+  char      date_[25];
   double    amount_;
-  char      data_[25];
+  char      data_[24];
 };
 
 struct OrderData {
-  Cid       cid_;
-  char      entry_d_[26];
-  uint32_t  carrier_id_;
-  char      ol_cnt_;
-  char      all_local_;
+  Cid       cid_;         // +4 -> 4
+  uint32_t  carrier_id_;  // +4 -> 8
+  char      entry_d_[25];  // +25 -> 33
+  char      ol_cnt_;      // +1 -> 34
+  char      all_local_;   // +1 -> 35
 };
 
 struct OrderlineData {
-  Iid     iid_;
-  Wid     supply_wid_;
-  char    delivery_d_[26];
-  char    quantity_;
-  double  amount_;
-  char    dist_info_[25];
+  Iid     iid_;           // +4 -> 4
+  Wid     supply_wid_;    // +2 -> 6
+  char    delivery_d_[25];  // +25 -> 31
+  char    quantity_;        // +1 -> 32
+  char    dist_info_[24];   // +24 -> 56
+  double  amount_;          // +8 -> 64
 };
 
 struct ItemData {
-  uint32_t  im_id_;
-  char      name_[25];
-  uint32_t  price_;
-  char      data_[51];
+  uint32_t  im_id_;     // +4 -> 4
+  uint32_t  price_;     // +4 -> 8
+  char      name_[24];  // +24 -> 32
+  char      data_[50];  // +50 -> 82
 };
 
 struct StockData {
-  uint64_t ytd_;
-  uint32_t order_cnt_;
-  uint32_t quantity_;
-  uint32_t remote_cnt_;
-  char dist_data_[10][25];
-  char data_[51];
+  uint64_t ytd_;        // +8 -> 8
+  uint32_t order_cnt_;  // +4 -> 12
+  uint32_t quantity_;   // +4 -> 16
+  uint32_t remote_cnt_;   // +4 -> 20
+  char dist_data_[10][24];  // +240 -> 260
+  char data_[50];  // +50 -> 310
 };
 }  // namespace tpcc
 }  // namespace foedus

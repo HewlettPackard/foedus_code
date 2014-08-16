@@ -150,7 +150,7 @@ class TpccClientTask : public thread::ImpersonateTask {
   // For neworder. these are for showing results on stdout (part of the spec, kind of)
   char        output_bg_[kMaxOlCount];
   uint32_t    output_prices_[kMaxOlCount];
-  char        output_item_names_[kMaxOlCount][25];
+  char        output_item_names_[kMaxOlCount][24];
   uint32_t    output_quantities_[kMaxOlCount];
   double      output_amounts_[kMaxOlCount];
   double      output_total_;
