@@ -137,7 +137,7 @@ ErrorCode MasstreeCursor::proceed_route_border() {
   Route* route = cur_route();
   ASSERT_ND(!route->stable_.is_moved());
   ASSERT_ND(route->page_->is_border());
-  if (UNLIKELY(route->page_->get_version().data_ != route->stable_.data_)) {
+  if (UNLIKELY(route->page_->get_version() != route->stable_)) {
     // something has changed in this page.
     // TODO(Hideaki) until we implement range lock, we have to roll back in this case.
     return kErrorCodeXctRaceAbort;
@@ -173,7 +173,7 @@ ErrorCode MasstreeCursor::proceed_route_border() {
     }
   }
   assorted::memory_fence_consume();
-  if (UNLIKELY(page->get_version().data_ != stable.data_)) {
+  if (UNLIKELY(page->get_version() != stable)) {
     return kErrorCodeXctRaceAbort;  // same above
   }
   return kErrorCodeOk;
@@ -507,7 +507,7 @@ inline ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
       route.setup_order();
       assorted::memory_fence_consume();
       // the setup_order must not be confused by concurrent updates
-      if (UNLIKELY(route.stable_.data_ != page->get_version().data_)) {
+      if (UNLIKELY(route.stable_ != page->get_version())) {
         continue;
       }
     }
@@ -899,7 +899,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
     route->index_ = index;
     assorted::memory_fence_consume();
 
-    if (UNLIKELY(route->stable_.data_ != border->get_version().data_)) {
+    if (UNLIKELY(route->stable_ != border->get_version())) {
       PageVersion new_stable = border->get_stable_version();
       if (new_stable.is_moved()) {
         // this page has split. it IS fine thanks to Master-Tree invariant.

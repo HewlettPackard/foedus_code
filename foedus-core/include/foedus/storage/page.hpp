@@ -15,6 +15,7 @@
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/thread_id.hpp"
+#include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace storage {
@@ -38,52 +39,62 @@ enum PageType {
   kDummyLastPageType,
 };
 
-// some of them are 64bit uint, so can't use enum.
-const uint64_t  kPageVersionLockedBit    = (1ULL << 63);
-const uint64_t  kPageVersionMovedBit   = (1ULL << 60);
-const uint64_t  kPageVersionIsRetiredBit  = (1ULL << 56);
-
 /**
- * @brief 64bit in-page version counter and also locking mechanism.
+ * @brief Just a synonym of XctId to be used as a page lock mechanism.
  * @ingroup STORAGE
  * @details
  * Each page has this in the header.
- * \li bit-0: locked
- * \li bit-3: moved
- * \li bit-7: is_retired
- * Unlike [YANDONG12], this is 64bit to also contain a key count.
+ * Unlike [YANDONG12], this is just a XctId.
  * We maintain key count and permutation differently from [YANDONG12].
+ *
+ * "is_deleted" flag is called "is_retired" to clarify what deletion means for a page.
+ * Also, epoch/ordinal has not much meaning for page. So, we only increment the ordinal part
+ * for each change. Epoch part is unused.
  *
  * This object is a POD.
  * All methods are inlined except stream.
  */
 struct PageVersion CXX11_FINAL {
-  PageVersion() ALWAYS_INLINE : data_(0) {}
-  explicit PageVersion(uint64_t data) ALWAYS_INLINE : data_(data) {}
+  PageVersion() ALWAYS_INLINE : xct_id_() {}
+  explicit PageVersion(xct::XctId xct_id) ALWAYS_INLINE : xct_id_(xct_id) {}
 
-  void    set_data(uint64_t data) ALWAYS_INLINE { data_ = data; }
+  /** used only while page initialization */
+  void    reset() ALWAYS_INLINE { xct_id_.data_ = 0; }
 
-  bool    is_locked() const ALWAYS_INLINE { return data_ & kPageVersionLockedBit; }
-  bool    is_moved() const ALWAYS_INLINE { return data_ & kPageVersionMovedBit; }
-  bool    is_retired() const ALWAYS_INLINE { return data_ & kPageVersionIsRetiredBit; }
+  bool    is_locked() const ALWAYS_INLINE { return xct_id_.is_keylocked(); }
+  bool    is_moved() const ALWAYS_INLINE { return xct_id_.is_moved(); }
+  bool    is_retired() const ALWAYS_INLINE { return xct_id_.is_deleted(); }
+
+  bool operator==(const PageVersion& other) const ALWAYS_INLINE { return xct_id_ == other.xct_id_; }
+  bool operator!=(const PageVersion& other) const ALWAYS_INLINE { return xct_id_ != other.xct_id_; }
 
   void      set_moved() ALWAYS_INLINE {
     ASSERT_ND(is_locked());
     ASSERT_ND(!is_moved());
-    data_ |= kPageVersionMovedBit;
+    xct_id_.set_moved();
   }
   void      set_retired() ALWAYS_INLINE {
     ASSERT_ND(is_locked());
     ASSERT_ND(is_moved());  // we always set moved bit first. retire must happen later.
     ASSERT_ND(!is_retired());
-    data_ |= kPageVersionIsRetiredBit;
+    xct_id_.set_deleted();
+  }
+
+  uint16_t get_version_counter() const ALWAYS_INLINE {
+    return xct_id_.get_ordinal();
+  }
+  void increment_version_counter() ALWAYS_INLINE {
+    // we do this only when we insert a new key or split, so this never overflows.
+    return xct_id_.set_ordinal(xct_id_.get_ordinal() + 1U);
   }
 
   /**
-  * @brief Spins until we observe a non-inserting and non-splitting version.
+  * @brief Spins until we observe a non-locked version.
   * @return version of this page that wasn't during modification.
   */
-  PageVersion stable_version() const ALWAYS_INLINE;
+  PageVersion stable_version() const ALWAYS_INLINE {
+    return PageVersion(xct_id_.spin_while_keylocked());
+  }
 
   /**
   * @brief Locks the page, spinning if necessary.
@@ -91,23 +102,62 @@ struct PageVersion CXX11_FINAL {
   * After taking lock, you might want to additionally set inserting/splitting bits.
   * Those can be done just as a usual write once you get a lock.
   */
-  void lock_version() ALWAYS_INLINE;
+  void lock_version() ALWAYS_INLINE {
+    xct_id_.keylock_unconditional();
+  }
+
+  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
+  void initial_lock() ALWAYS_INLINE {
+    xct_id_.initial_lock();
+  }
+  /** This doesn't use any atomic operation to unlock. only allowed when there is no race */
+  void initial_unlock() ALWAYS_INLINE {
+    xct_id_.initial_unlock();
+  }
 
   /**
   * @brief Unlocks the given page version, assuming the caller has locked it.
-  * @pre page_version_ & kPageVersionLockedBit (we must have locked it)
+  * @pre is_locked()
   * @pre this thread locked it (can't check it, but this is the rule)
-  * @return version right after unlocking, which might become soon stale because it's unlocked
   * @details
-  * This method also takes fences before/after unlock to make it safe.
+  * This method also increments the version counter to declare a change in this page.
   */
-  PageVersion unlock_version() ALWAYS_INLINE;
+  void unlock_changed() ALWAYS_INLINE {
+    increment_version_counter();
+    xct_id_.release_keylock();
+  }
+  /** this one doesn't increment the counter. used when the lock owner didn't make any change */
+  void unlock_nochange() ALWAYS_INLINE {
+    xct_id_.release_keylock();
+  }
+
 
   friend std::ostream& operator<<(std::ostream& o, const PageVersion& v);
 
-  uint64_t data_;
+  xct::XctId xct_id_;
 };
 STATIC_SIZE_CHECK(sizeof(PageVersion), 8)
+
+struct PageVersionUnlockScope {
+  explicit PageVersionUnlockScope(PageVersion* version)
+    : version_(version), changed_(false), released_(false) {}
+  ~PageVersionUnlockScope() { release(); }
+  void set_changed() { changed_ = true; }
+  void release() {
+    if (!released_) {
+      if (changed_) {
+        version_->unlock_changed();
+      } else {
+        version_->unlock_nochange();
+      }
+      released_ = true;
+    }
+  }
+
+  PageVersion* version_;
+  bool changed_;
+  bool released_;
+};
 
 /**
  * @brief Just a marker to denote that a memory region represents a data page.
@@ -190,7 +240,7 @@ struct PageHeader CXX11_FINAL {
     reserved1_ = 0;
     reserved2_ = 0;
     reserved3_ = 0;
-    page_version_.data_ = 0;
+    page_version_.reset();
   }
 
   inline void init_snapshot(
@@ -207,7 +257,7 @@ struct PageHeader CXX11_FINAL {
     reserved1_ = 0;
     reserved2_ = 0;
     reserved3_ = 0;
-    page_version_.data_ = 0;
+    page_version_.reset();
   }
 
   void      increment_key_count() ALWAYS_INLINE {
@@ -289,41 +339,6 @@ struct DummyVolatilePageInitializer CXX11_FINAL : public VolatilePageInitializer
 };
 
 const DummyVolatilePageInitializer kDummyPageInitializer;
-
-inline PageVersion PageVersion::stable_version() const {
-  assorted::memory_fence_acquire();
-  SPINLOCK_WHILE(true) {
-    uint64_t ver = data_;
-    if ((ver & kPageVersionLockedBit) == 0U) {
-      return PageVersion(ver);
-    } else {
-      assorted::memory_fence_acquire();
-    }
-  }
-}
-
-inline void PageVersion::lock_version() {
-  SPINLOCK_WHILE(true) {
-    uint64_t ver = data_;
-    if (ver & kPageVersionLockedBit) {
-      continue;
-    }
-    uint64_t new_ver = ver | kPageVersionLockedBit;
-    if (assorted::raw_atomic_compare_exchange_strong<uint64_t>(&data_, &ver, new_ver)) {
-      ASSERT_ND(data_ & kPageVersionLockedBit);
-      return;
-    }
-  }
-}
-
-inline PageVersion PageVersion::unlock_version() {
-  uint64_t page_version = data_;
-  ASSERT_ND(page_version & kPageVersionLockedBit);
-  page_version &= ~kPageVersionLockedBit;
-  assorted::memory_fence_release();
-  data_ = page_version;
-  return PageVersion(page_version);
-}
 
 /**
  * @brief super-dirty way to obtain Page the address belongs to.

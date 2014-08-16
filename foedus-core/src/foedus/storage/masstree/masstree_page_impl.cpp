@@ -36,11 +36,9 @@ void MasstreePage::initialize_volatile_common(
   // std::memset(this, 0, kPageSize);  // expensive
   header_.init_volatile(page_id, storage_id, page_type);
   header_.masstree_layer_ = layer;
-  uint64_t ver = 0;
   if (initially_locked) {
-    ver |= kPageVersionLockedBit;
+    header_.page_version_.initial_lock();
   }
-  header_.page_version_.set_data(ver);
   high_fence_ = high_fence;
   low_fence_ = low_fence;
   foster_fence_ = low_fence;
@@ -299,11 +297,11 @@ ErrorCode MasstreeBorderPage::split_foster(
   foster_fence_ = strategy.mid_slice_;
   if (within_foster_minor(trigger)) {
     *target = twin[0];
-    twin[1]->unlock();
+    twin[1]->initial_unlock();
   } else {
     ASSERT_ND(within_foster_major(trigger));
     *target = twin[1];
-    twin[0]->unlock();
+    twin[0]->initial_unlock();
   }
 
   watch.stop();
@@ -535,7 +533,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   debugging::RdtscWatch watch;
 
   trigger_child->lock();
-  UnlockScope trigger_scope(trigger_child);
+  PageVersionUnlockScope trigger_scope(trigger_child->get_version_address());
   if (trigger_child->is_retired()) {
     VLOG(0) << "Interesting. this child is now retired, so someone else has already adopted.";
     return kErrorCodeOk;  // fine. the goal is already achieved
@@ -635,15 +633,16 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   }
 
   for (int i = 0; i < 2; ++i) {
-    twin[i]->unlock();
+    twin[i]->initial_unlock();
   }
 
   if (no_record_split) {
     // trigger_child is retired.  TODO(Hideaki) GC
-    trigger_child->get_version().set_retired();
+    trigger_scope.set_changed();
+    trigger_child->set_retired();
   }
 
-  get_version().set_moved();
+  set_moved();
   foster_fence_ = new_foster_fence;
 
   watch.stop();
@@ -836,7 +835,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   MasstreePage* child) {
   ASSERT_ND(!is_retired());
   lock();
-  UnlockScope scope(this);
+  PageVersionUnlockScope scope(get_version_address());
   if (is_moved()) {
     VLOG(0) << "Interesting. concurrent thread has already split this node? retry";
     return kErrorCodeOk;
@@ -881,6 +880,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   if (minipage.key_count_ == kMaxIntermediateMiniSeparators) {
     // oh, then we also have to do rebalance
     // at this point we have to lock the whole page
+    scope.set_changed();
     ASSERT_ND(key_count <= kMaxIntermediateSeparators);
     if (key_count == kMaxIntermediateSeparators) {
       // even that is impossible. let's split the whole page
@@ -915,7 +915,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   // now lock the child.
   child->lock();
   {
-    UnlockScope scope_child(child);
+    PageVersionUnlockScope scope_child(child->get_version_address());
     if (child->get_version().is_retired()) {
       VLOG(0) << "Interesting. concurrent inserts already adopted. retry";
       return kErrorCodeOk;  // retry
@@ -981,7 +981,8 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
     ASSERT_ND(minipage.key_count_ == mini_key_count + 1);
 
     // the ex-child page now retires.
-    child->get_version().set_retired();
+    scope_child.set_changed();
+    child->set_retired();
     // TODO(Hideaki) it will be garbage-collected later.
     verify_separators();
   }
@@ -997,7 +998,7 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   // note that we have to lock from parent to child. otherwise deadlock possible.
   MiniPage& minipage = get_minipage(minipage_index);
   child->lock();
-  UnlockScope scope_child(child);
+  PageVersionUnlockScope scope_child(child->get_version_address());
   if (child->get_version().is_retired()) {
     VLOG(0) << "Interesting. concurrent thread has already adopted? retry";
     return;
@@ -1005,8 +1006,8 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   ASSERT_ND(child->is_moved());
   ASSERT_ND(child->has_foster_child());
 
-  // in this case we don't need to increment split count.
   DVLOG(0) << "Great, sorted insert. No-split adopt";
+  scope_child.set_changed();
   MasstreePage* grandchild_minor = child->get_foster_minor();
   ASSERT_ND(grandchild_minor->get_low_fence() == child->get_low_fence());
   ASSERT_ND(grandchild_minor->get_high_fence() == child->get_foster_fence());

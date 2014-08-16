@@ -12,12 +12,11 @@ namespace foedus {
 namespace storage {
 
 std::ostream& operator<<(std::ostream& o, const PageVersion& v) {
-  PageVersion copied(v.data_);
   o << "<PageVersion><flags>"
-    << (copied.is_locked() ? "L" : " ")
-    << (copied.is_moved() ? "M" : " ")
-    << (copied.is_retired() ? "T" : " ")
-    << "</flags>"
+    << (v.is_locked() ? "L" : " ")
+    << (v.is_moved() ? "M" : " ")
+    << (v.is_retired() ? "R" : " ")
+    << "</flags><ver>" << v.get_version_counter() << "</ver>"
     << "</PageVersion>";
   return o;
 }

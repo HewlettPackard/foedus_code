@@ -520,7 +520,7 @@ bool XctManagerPimpl::precommit_xct_verify_page_version_set(thread::Thread* cont
       }
     }
     const PageVersionAccess& access = page_version_set[i];
-    if (access.address_->data_ != access.observed_.data_) {
+    if (*access.address_ != access.observed_) {
       DLOG(WARNING) << *context << " page version is changed by other transaction. will abort"
         " observed=" << access.observed_ << ", now=" << access.address_;
       return false;

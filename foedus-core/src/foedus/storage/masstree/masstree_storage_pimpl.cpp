@@ -144,7 +144,7 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   }
 
   root->lock();
-  UnlockScope scope(root);
+  PageVersionUnlockScope scope(root->get_version_address());
   if (root->is_retired() || !root->has_foster_child()) {
     LOG(INFO) << "interesting. someone else has already grown B-tree";
     return kErrorCodeOk;  // retry. most likely we will see a new pointer
@@ -160,6 +160,7 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   }
 
   // from here no failure possible
+  scope.set_changed();
   VolatilePagePointer new_pointer = combine_volatile_page_pointer(
     context->get_numa_node(),
     kVolatilePointerFlagSwappable,  // pointer to root page might be swapped!
@@ -174,7 +175,6 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     kInfimumSlice,    // infimum slice
     kSupremumSlice,   // high-fence is supremum
     true);    // lock it
-  UnlockScope new_scope(*new_root);
 
   KeySlice separator = root->get_foster_fence();
 
@@ -205,10 +205,10 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   ASSERT_ND(reinterpret_cast<Page*>(*new_root) ==
     context->get_global_volatile_page_resolver().resolve_offset_newpage(
       root_pointer->volatile_pointer_));
+  (*new_root)->initial_unlock();
 
   // the old root page is now retired
-  assorted::memory_fence_release();
-  root->get_version().set_retired();
+  root->set_retired();
   return kErrorCodeOk;
 }
 
@@ -427,10 +427,10 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
       kInfimumSlice,    // infimum slice
       kSupremumSlice,   // high-fence is supremum
       true);  // initially locked
-    UnlockScope scope(root);
     root->initialize_layer_root(parent, parent_index);
     ASSERT_ND(!root->is_moved());
     ASSERT_ND(!root->is_retired());
+    root->initial_unlock();
 
     // point to the new page
     parent->set_next_layer(parent_index, pointer);
@@ -438,27 +438,16 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
     ASSERT_ND(parent->get_next_layer(parent_index)->volatile_pointer_.components.numa_node
       == context->get_numa_node());
 
-    xct::XctId unlocked_id = *parent_lock;
-    unlocked_id.release_keylock();
-    // set one next. we don't have to make the new xct id really in serialization order because
-    // this is a system transaction that doesn't change anything logically.
-    // this is just to make sure other threads get aware of this change at commit time.
-    uint16_t ordinal = unlocked_id.get_ordinal();
-    if (ordinal != 0xFFFFU) {
-      ++ordinal;
-    } else {
-      unlocked_id.set_epoch(unlocked_id.get_epoch().one_more());
-      ordinal = 0;
-    }
-    unlocked_id.set_ordinal(ordinal);
-    if (unlocked_id.is_deleted()) {
+    if (parent_lock->is_deleted()) {
       // if the original record was deleted, we inherited it in the new record too.
       // again, we didn't do anything logically.
       ASSERT_ND(root->get_owner_id(0)->is_deleted());
       // as a pointer, now it should be an active pointer.
-      unlocked_id.set_notdeleted();
+      parent_lock->set_notdeleted();
     }
-    *parent_lock = unlocked_id;  // now unlock and set the new version
+    // change ordinal just to let concurrent transactions get aware
+    parent_lock->set_ordinal(parent_lock->get_ordinal() + 1U);
+    parent_lock->release_keylock();
   }
   return kErrorCodeOk;
 }
@@ -588,7 +577,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
       // for this, we need a page lock.
       border->lock();
       border->assert_entries();
-      UnlockScope scope(border);
+      PageVersionUnlockScope scope(border->get_version_address());
       // now finally we took a lock, finalizing the version. up to now, everything could happen.
       // check all of them and retry if fails.
       if (UNLIKELY(border->is_moved())) {
@@ -605,9 +594,11 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
       }
 
       if (match.match_type_ == MasstreeBorderPage::kExactMatchLayerPointer) {
+        scope.release();
         CHECK_ERROR_CODE(follow_layer(context, true, border, match.index_, &layer_root));
         break;  // next layer
       } else if (match.match_type_ == MasstreeBorderPage::kExactMatchLocalRecord) {
+        scope.release();
         *out_page = border;
         *record_index = match.index_;
         *observed = border->get_owner_id(match.index_)->spin_while_keylocked();
@@ -615,6 +606,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         return kErrorCodeOk;
       } else if (match.match_type_ == MasstreeBorderPage::kNotFound) {
         // okay, surely new record
+        scope.set_changed();
         ErrorCode code = reserve_record_new_record(
           context,
           border,
@@ -634,6 +626,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         ASSERT_ND(match.index_ < MasstreeBorderPage::kMaxKeys);
         // this means now we have to create a next layer.
         // this is also one system transaction.
+        scope.set_changed();
         CHECK_ERROR_CODE(create_next_layer(context, border, match.index_));
         border->assert_entries();
         // because of page lock, this always succeeds (unlike the above w/o page lock)
@@ -672,7 +665,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
 
     border->lock();
     border->assert_entries();
-    UnlockScope scope(border);
+    PageVersionUnlockScope scope(border->get_version_address());
     if (UNLIKELY(border->has_foster_child())) {
       continue;
     }
@@ -687,6 +680,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
     if (index != MasstreeBorderPage::kMaxKeys) {
       // TODO(Hideaki) even if in this case, if the record space is too small, we can't insert.
       // in that case, we should do delete then insert.
+      scope.release();
       *out_page = border;
       *record_index = index;
       *observed = border->get_owner_id(index)->spin_while_keylocked();
@@ -694,6 +688,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
       return kErrorCodeOk;
     }
 
+    scope.set_changed();
     return reserve_record_new_record(
       context,
       border,
@@ -736,7 +731,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
     MasstreeBorderPage* target;
     CHECK_ERROR_CODE(border->split_foster(context, key, &target));
     ASSERT_ND(target->is_locked());
-    UnlockScope target_scope(target);
+    PageVersionUnlockScope target_scope(target->get_version_address());
     ASSERT_ND(target->within_fences(key));
     count = target->get_key_count();
     ASSERT_ND(target->find_key(border->get_key_count(), key, suffix, remaining)
@@ -746,6 +741,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
       LOG(WARNING) << "Wait, not enough space even after splits? should be pretty rare...";
       return kErrorCodeStrTooLongPayload;
     }
+    target_scope.set_changed();
     reserve_record_new_record_apply(
       context,
       target,

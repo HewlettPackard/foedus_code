@@ -127,22 +127,34 @@ class MasstreePage {
   bool              is_locked() const ALWAYS_INLINE { return header_.page_version_.is_locked(); }
   bool              is_moved() const ALWAYS_INLINE { return header_.page_version_.is_moved(); }
   bool              is_retired() const ALWAYS_INLINE { return header_.page_version_.is_retired(); }
+  void              set_moved() ALWAYS_INLINE { header_.page_version_.set_moved(); }
+  void              set_retired() ALWAYS_INLINE { header_.page_version_.set_retired(); }
 
   /**
    * @brief Unlocks the page, assuming the caller has locked it.
    * @pre !header_.snapshot_ (only for volatile pages)
    * @pre page_version_ & kPageVersionLockedBit (we must have locked it)
    * @pre this thread locked it (can't check it, but this is the rule)
-   * @return version right after unlocking, which might become soon stale because it's unlocked
    * @details
-   * This method also takes fences before/after unlock to make it safe.
+   * This method also increments the version counter to declare a change in this page.
    */
-  PageVersion       unlock() ALWAYS_INLINE {
+  void            unlock_changed() ALWAYS_INLINE {
     if (!header_.snapshot_) {
-      return header_.page_version_.unlock_version();
-    } else {
-      return header_.page_version_;
+      header_.page_version_.unlock_changed();
     }
+  }
+  /** this one doesn't increment the counter. used when the lock owner didn't make any change */
+  void            unlock_nochange() ALWAYS_INLINE {
+    if (!header_.snapshot_) {
+      header_.page_version_.unlock_nochange();
+    }
+  }
+
+  void initial_lock() ALWAYS_INLINE {
+    header_.page_version_.initial_lock();
+  }
+  void initial_unlock() ALWAYS_INLINE {
+    header_.page_version_.initial_unlock();
   }
 
   void              release_pages_recursive_common(
@@ -219,14 +231,6 @@ struct IntermediateSplitStrategy {
   uint32_t dummy_;      // -> 4096
 };
 STATIC_SIZE_CHECK(sizeof(IntermediateSplitStrategy), 1 << 12)
-
-struct UnlockScope {
-  explicit UnlockScope(MasstreePage* page) : page_(page) {}
-  ~UnlockScope() {
-    page_->unlock();
-  }
-  MasstreePage* page_;
-};
 
 /**
  * @brief Represents one intermediate page in \ref MASSTREE.

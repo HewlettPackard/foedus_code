@@ -378,6 +378,17 @@ struct XctId {
     data_ &= kUnmaskStatusBits;
   }
 
+  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
+  void initial_lock() ALWAYS_INLINE {
+    ASSERT_ND(!is_keylocked());
+    data_ |= kKeylockBit;
+  }
+  /** This doesn't use any atomic operation to unlock. only allowed when there is no race */
+  void initial_unlock() ALWAYS_INLINE {
+    ASSERT_ND(is_keylocked());
+    data_ &= (~kKeylockBit);
+  }
+
   /** The 64bit data. */
   uint64_t           data_;
 };
