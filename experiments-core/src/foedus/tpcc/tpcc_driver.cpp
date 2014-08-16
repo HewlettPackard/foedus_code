@@ -32,7 +32,7 @@
 namespace foedus {
 namespace tpcc {
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
-DEFINE_int32(volatile_pool_size, 32, "Size of volatile memory pool per NUMA node in GB.");
+DEFINE_int32(volatile_pool_size, 48, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_bool(ignore_volatile_size_warning, false, "Ignores warning on volatile_pool_size setting.");
 DEFINE_int32(loggers_per_node, 4, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 0, "Percent of each orderline that is inserted to remote"
@@ -181,7 +181,7 @@ TpccDriver::Result TpccDriver::run() {
     if (remaining_duration > 1000000ULL) {
       remaining_duration = 1000000ULL;
     }
-    std::this_thread::sleep_for(std::chrono::seconds(remaining_duration));
+    std::this_thread::sleep_for(std::chrono::microseconds(remaining_duration));
     Result result;
     result.duration_sec_ = duration.elapsed_sec();
     result.worker_count_ = clients_.size();
