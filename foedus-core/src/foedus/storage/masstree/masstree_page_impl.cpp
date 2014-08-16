@@ -30,22 +30,15 @@ void MasstreePage::initialize_volatile_common(
   VolatilePagePointer page_id,
   PageType            page_type,
   uint8_t             layer,
-  bool                root_in_layer,
   KeySlice            low_fence,
   KeySlice            high_fence,
-  bool                is_high_fence_supremum,
   bool                initially_locked) {
   // std::memset(this, 0, kPageSize);  // expensive
-  header_.init_volatile(page_id, storage_id, page_type, root_in_layer);
-  uint64_t ver = (layer << kPageVersionLayerShifts);
+  header_.init_volatile(page_id, storage_id, page_type);
+  header_.masstree_layer_ = layer;
+  uint64_t ver = 0;
   if (initially_locked) {
     ver |= kPageVersionLockedBit;
-  }
-  if (is_high_fence_supremum) {
-    ver |= kPageVersionIsSupremumBit;
-  }
-  if (root_in_layer) {
-    ver |= kPageVersionIsRootBit;
   }
   header_.page_version_.set_data(ver);
   high_fence_ = high_fence;
@@ -53,27 +46,23 @@ void MasstreePage::initialize_volatile_common(
   foster_fence_ = low_fence;
   foster_twin_[0] = nullptr;
   foster_twin_[1] = nullptr;
-  ASSERT_ND(header_.page_version_.get_key_count() == 0);
+  ASSERT_ND(get_key_count() == 0);
 }
 
 void MasstreeIntermediatePage::initialize_volatile_page(
   StorageId           storage_id,
   VolatilePagePointer page_id,
   uint8_t             layer,
-  bool                root_in_layer,
   KeySlice            low_fence,
   KeySlice            high_fence,
-  bool                is_high_fence_supremum,
   bool                initially_locked) {
   initialize_volatile_common(
     storage_id,
     page_id,
     kMasstreeIntermediatePageType,
     layer,
-    root_in_layer,
     low_fence,
     high_fence,
-    is_high_fence_supremum,
     initially_locked);
   for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
     get_minipage(i).key_count_ = 0;
@@ -84,20 +73,16 @@ void MasstreeBorderPage::initialize_volatile_page(
   StorageId           storage_id,
   VolatilePagePointer page_id,
   uint8_t             layer,
-  bool                root_in_layer,
   KeySlice            low_fence,
   KeySlice            high_fence,
-  bool                is_high_fence_supremum,
   bool                initially_locked) {
   initialize_volatile_common(
     storage_id,
     page_id,
     kMasstreeBorderPageType,
     layer,
-    root_in_layer,
     low_fence,
     high_fence,
-    is_high_fence_supremum,
     initially_locked);
 }
 
@@ -125,7 +110,7 @@ void MasstreeIntermediatePage::release_pages_recursive(
       foster_twin_[i] = nullptr;
     }
   }
-  uint16_t key_count = get_version().get_key_count();
+  uint16_t key_count = get_key_count();
   ASSERT_ND(key_count <= kMaxIntermediateSeparators);
   for (uint8_t i = 0; i < key_count + 1; ++i) {
     MiniPage& minipage = get_minipage(i);
@@ -158,7 +143,7 @@ void MasstreeBorderPage::release_pages_recursive(
       foster_twin_[i] = nullptr;
     }
   }
-  uint16_t key_count = get_version().get_key_count();
+  uint16_t key_count = get_key_count();
   ASSERT_ND(key_count <= kMaxKeys);
   for (uint8_t i = 0; i < key_count; ++i) {
     if (does_point_to_layer(i)) {
@@ -181,7 +166,7 @@ void MasstreeBorderPage::release_pages_recursive(
 void MasstreeBorderPage::initialize_layer_root(
   const MasstreeBorderPage* copy_from,
   uint8_t copy_index) {
-  ASSERT_ND(header_.page_version_.get_key_count() == 0);
+  ASSERT_ND(get_key_count() == 0);
   ASSERT_ND(is_locked());
   ASSERT_ND(copy_from->get_owner_id(copy_index)->is_keylocked());
   uint8_t parent_key_length = copy_from->remaining_key_length_[copy_index];
@@ -217,7 +202,7 @@ void MasstreeBorderPage::initialize_layer_root(
     parent_record + remaining,
     payload_length);
 
-  header_.page_version_.increment_key_count();
+  increment_key_count();
 }
 
 inline ErrorCode grab_two_free_pages(thread::Thread* context, memory::PagePoolOffset* offsets) {
@@ -250,7 +235,7 @@ ErrorCode MasstreeBorderPage::split_foster(
   ASSERT_ND(foster_twin_[0] == nullptr && foster_twin_[1] == nullptr);  // same as !is_moved()
   debugging::RdtscWatch watch;
 
-  uint8_t key_count = header_.page_version_.get_key_count();
+  uint8_t key_count = get_key_count();
   DVLOG(1) << "Splitting a page... ";
 
   memory::PagePoolOffset offsets[2];
@@ -267,10 +252,8 @@ ErrorCode MasstreeBorderPage::split_foster(
       header_.storage_id_,
       combine_volatile_page_pointer(context->get_numa_node(), 0, 0, offsets[i]),
       get_layer(),
-      false,
       i == 0 ? low_fence_ : strategy.mid_slice_,  // low-fence
       i == 0 ? strategy.mid_slice_ : high_fence_,  // high-fence
-      i == 0 ? false : is_high_fence_supremum(),  // high-fence supremum
       true);  // yes, lock it
     ASSERT_ND(twin[i]->is_locked());
   }
@@ -288,8 +271,8 @@ ErrorCode MasstreeBorderPage::split_foster(
       ASSERT_ND(twin[0]->owner_ids_[i].is_keylocked());
       twin[0]->owner_ids_[i].release_keylock();
     }
-    twin[0]->get_version().set_key_count(key_count);
-    twin[1]->get_version().set_key_count(0);
+    twin[0]->set_key_count(key_count);
+    twin[1]->set_key_count(0);
   } else {
     twin[0]->split_foster_migrate_records(
       *this,
@@ -313,7 +296,6 @@ ErrorCode MasstreeBorderPage::split_foster(
   // this page is now "moved".
   // which will be the target page?
   get_version().set_moved();
-  get_version().set_has_foster_child(true);
   foster_fence_ = strategy.mid_slice_;
   if (within_foster_minor(trigger)) {
     *target = twin[0];
@@ -327,7 +309,7 @@ ErrorCode MasstreeBorderPage::split_foster(
   watch.stop();
   DVLOG(1) << "Costed " << watch.elapsed() << " cycles to split a page. original page physical"
     << " record count: " << static_cast<int>(key_count)
-    << "->" << header_.page_version_.get_key_count();
+    << "->" << get_key_count();
   return kErrorCodeOk;
 }
 
@@ -459,7 +441,7 @@ void MasstreeBorderPage::split_foster_migrate_records(
   uint8_t key_count,
   KeySlice inclusive_from,
   KeySlice inclusive_to) {
-  ASSERT_ND(header_.page_version_.get_key_count() == 0);
+  ASSERT_ND(get_key_count() == 0);
   uint8_t migrated_count = 0;
   uint16_t unused_space = kDataSize;
   // utilize the fact that records grow backwards.
@@ -530,7 +512,7 @@ void MasstreeBorderPage::split_foster_migrate_records(
       contiguous_copy_size);
   }
 
-  header_.page_version_.set_key_count(migrated_count);
+  set_key_count(migrated_count);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -559,7 +541,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
     return kErrorCodeOk;  // fine. the goal is already achieved
   }
 
-  uint8_t key_count = header_.page_version_.get_key_count();
+  uint8_t key_count = get_key_count();
   ASSERT_ND(key_count == kMaxIntermediateSeparators);
   DVLOG(1) << "Splitting an intermediate page... ";
   verify_separators();
@@ -607,10 +589,8 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
       header_.storage_id_,
       new_pointer,
       get_layer(),
-      false,
       i == 0 ? low_fence_ : new_foster_fence,
       i == 0 ? new_foster_fence : high_fence_,
-      i == 0 ? false : is_high_fence_supremum(),
       true);  // yes, lock it
     ASSERT_ND(twin[i]->is_locked());
   }
@@ -631,8 +611,8 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
     // in this case, we can move all data in one memcpy.
     // copy everything from the end of header to the end of page
     std::memcpy(&(twin[0]->separators_), &(separators_), kPageSize - sizeof(MasstreePage));
-    twin[0]->get_version().set_key_count(key_count);
-    twin[1]->get_version().set_key_count(0);
+    twin[0]->set_key_count(key_count);
+    twin[1]->set_key_count(0);
     ASSERT_ND(new_foster_fence == trigger_child->get_foster_fence());
 
     // also adopt foster twin of trigger_child
@@ -664,13 +644,12 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   }
 
   get_version().set_moved();
-  get_version().set_has_foster_child(true);
   foster_fence_ = new_foster_fence;
 
   watch.stop();
   DVLOG(1) << "Costed " << watch.elapsed() << " cycles to split a node. original node"
     << " key count: " << static_cast<int>(key_count)
-    << "->" << header_.page_version_.get_key_count()
+    << "->" << get_key_count()
     << (no_record_split ? " no record split" : " usual split");
   memory->release_free_volatile_page(work_offset);
 
@@ -681,7 +660,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
 void MasstreeIntermediatePage::split_foster_decide_strategy(IntermediateSplitStrategy* out) const {
   ASSERT_ND(is_locked());
   out->total_separator_count_ = 0;
-  uint8_t key_count = get_version().get_key_count();
+  uint8_t key_count = get_key_count();
   for (uint8_t i = 0; i <= key_count; ++i) {
     const MiniPage& mini_page = get_minipage(i);
     uint8_t separator_count = mini_page.key_count_;
@@ -763,8 +742,8 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
   cur_mini_page->key_count_ = cur_mini_separators;  // close the last one
   ASSERT_ND(cur_mini_page->key_count_ <= kMaxIntermediateMiniSeparators);
   assorted::memory_fence_release();
-  get_version().set_key_count(cur_mini);  // set key count after all
-  ASSERT_ND(get_version().get_key_count() <= kMaxIntermediateSeparators);
+  header_.set_key_count(cur_mini);  // set key count after all
+  ASSERT_ND(get_key_count() <= kMaxIntermediateSeparators);
 
   // the last separator is ignored because it's foster-fence/high-fence.
   ASSERT_ND(next_separator == expected_last_separator);
@@ -774,9 +753,9 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
 
 void MasstreeIntermediatePage::verify_separators() const {
 #ifndef NDEBUG
-  for (uint8_t i = 0; i <= get_version().get_key_count(); ++i) {
+  for (uint8_t i = 0; i <= get_key_count(); ++i) {
     KeySlice low, high;
-    if (i < get_version().get_key_count()) {
+    if (i < get_key_count()) {
       if (i > 0) {
         low = separators_[i - 1];
       } else {
@@ -785,7 +764,7 @@ void MasstreeIntermediatePage::verify_separators() const {
       high = separators_[i];
       ASSERT_ND(separators_[i] > low);
     } else {
-      low = separators_[get_version().get_key_count() - 1];
+      low = separators_[get_key_count() - 1];
       high = high_fence_;
     }
     const MiniPage& minipage = get_minipage(i);
@@ -813,7 +792,7 @@ ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
   ASSERT_ND(is_locked());
   debugging::RdtscWatch watch;
 
-  uint8_t key_count = header_.page_version_.get_key_count();
+  uint8_t key_count = get_key_count();
   DVLOG(1) << "Rebalancing an intermediate page... ";
 
   memory::NumaCoreMemory* memory = context->get_thread_memory();
@@ -836,7 +815,7 @@ ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
   watch.stop();
   DVLOG(1) << "Costed " << watch.elapsed() << " cycles to rebalance a node. original"
     << " key count: " << static_cast<int>(key_count)
-    << "->" << header_.page_version_.get_key_count()
+    << "->" << get_key_count()
     << ", total separator count=" << count;
   memory->release_free_volatile_page(work_offset);
   verify_separators();
@@ -863,7 +842,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
     return kErrorCodeOk;
   }
 
-  uint8_t key_count = get_version().get_key_count();
+  uint8_t key_count = get_key_count();
   MiniPage& minipage = get_minipage(minipage_index);
   ASSERT_ND(minipage.key_count_ <= kMaxIntermediateMiniSeparators);
   {
@@ -1073,8 +1052,8 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   // increment key count after all with fence so that concurrent transactions never see
   // a minipage that is not ready for read
   assorted::memory_fence_release();
-  get_version().increment_key_count();
-  ASSERT_ND(get_version().get_key_count() == minipage_index + 1);
+  increment_key_count();
+  ASSERT_ND(get_key_count() == minipage_index + 1);
   verify_separators();
 }
 
@@ -1090,7 +1069,7 @@ bool MasstreeBorderPage::track_moved_record(
   ASSERT_ND(header().get_page_type() == kMasstreeBorderPageType);
   ASSERT_ND(owner_address >= owner_ids_);
   ASSERT_ND(owner_address - owner_ids_ < kMaxKeys);
-  ASSERT_ND(owner_address - owner_ids_ < get_version().get_key_count());
+  ASSERT_ND(owner_address - owner_ids_ < get_key_count());
   uint8_t index = owner_address - owner_ids_;
   KeySlice slice = slices_[index];
   uint8_t remaining = remaining_key_length_[index];
@@ -1121,7 +1100,7 @@ bool MasstreeBorderPage::track_moved_record(
     // 1) again the record is being moved concurrently
     // 2) the record was moved to another layer (remaining==kKeyLengthNextLayer).
 
-    uint8_t keys = cur_page->get_version().get_key_count();
+    uint8_t keys = cur_page->get_key_count();
     *located_index = cur_page->find_key(keys, slice, suffix, remaining);
     if (*located_index == kMaxKeys) {
       // this can happen rarely because we are not doing the stable version trick here.

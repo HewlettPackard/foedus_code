@@ -16,10 +16,9 @@ void ArrayPage::initialize_snapshot_page(
   SnapshotPagePointer page_id,
   uint16_t payload_size,
   uint8_t level,
-  bool    root,
   const ArrayRange& array_range) {
   std::memset(this, 0, kPageSize);
-  header_.init_snapshot(page_id, storage_id, kArrayPageType, root);
+  header_.init_snapshot(page_id, storage_id, kArrayPageType);
   payload_size_ = payload_size;
   level_ = level;
   array_range_ = array_range;
@@ -31,14 +30,9 @@ void ArrayPage::initialize_volatile_page(
   VolatilePagePointer page_id,
   uint16_t payload_size,
   uint8_t level,
-  bool    root,
   const ArrayRange& array_range) {
   std::memset(this, 0, kPageSize);
-  header_.init_volatile(
-    page_id,
-    storage_id,
-    kArrayPageType,
-    root);
+  header_.init_volatile(page_id, storage_id, kArrayPageType);
   payload_size_ = payload_size;
   level_ = level;
   array_range_ = array_range;

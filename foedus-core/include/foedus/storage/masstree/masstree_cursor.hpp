@@ -311,7 +311,7 @@ class MasstreeCursor CXX11_FINAL {
     for (uint16_t i = 0; i + 1U < route_count_; ++i) {
       const Route* route = routes_ + i;
       ASSERT_ND(route->page_);
-      if (route->stable_.has_foster_child()) {
+      if (route->stable_.is_moved()) {
         // then we don't use any information in this path
       } else if (reinterpret_cast<Page*>(route->page_)->get_header().get_page_type()
         == kMasstreeBorderPageType) {

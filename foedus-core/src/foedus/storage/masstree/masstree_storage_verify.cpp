@@ -103,7 +103,7 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_intermediate(
     return kRetOk;
   }
 
-  uint8_t key_count = page->get_version().get_key_count();
+  uint8_t key_count = page->get_key_count();
   CHECK_AND_ASSERT(key_count <= kMaxIntermediateSeparators);
   KeySlice previous_low = low_fence;
   for (uint8_t i = 0; i <= key_count; ++i) {
@@ -189,8 +189,8 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_border(
   }
 
   CHECK_AND_ASSERT(!page->is_moved());
-  CHECK_AND_ASSERT(page->get_version().get_key_count() <= MasstreeBorderPage::kMaxKeys);
-  for (uint8_t i = 0; i < page->get_version().get_key_count(); ++i) {
+  CHECK_AND_ASSERT(page->get_key_count() <= MasstreeBorderPage::kMaxKeys);
+  for (uint8_t i = 0; i < page->get_key_count(); ++i) {
     CHECK_AND_ASSERT(!page->get_owner_id(i)->is_keylocked());
     CHECK_AND_ASSERT(!page->get_owner_id(i)->is_rangelocked());
     CHECK_AND_ASSERT(page->get_owner_id(i)->get_epoch().is_valid());

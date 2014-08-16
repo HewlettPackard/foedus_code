@@ -40,21 +40,8 @@ enum PageType {
 
 // some of them are 64bit uint, so can't use enum.
 const uint64_t  kPageVersionLockedBit    = (1ULL << 63);
-const uint64_t  kPageVersionInsertingBit = (1ULL << 62);  // not used anymore
-const uint64_t  kPageVersionSplittingBit = (1ULL << 61);  // not used anymore
 const uint64_t  kPageVersionMovedBit   = (1ULL << 60);
-const uint64_t  kPageVersionHasFosterChildBit    = (1ULL << 59);
-const uint64_t  kPageVersionIsSupremumBit  = (1ULL << 58);
-const uint64_t  kPageVersionIsRootBit  = (1ULL << 57);
 const uint64_t  kPageVersionIsRetiredBit  = (1ULL << 56);
-const uint64_t  kPageVersionInsertionCounterMask  = 0x00F8000000000000ULL;
-const uint8_t   kPageVersionInsertionCounterShifts = 51;
-const uint64_t  kPageVersionSplitCounterMask      = 0x0007FFFE00000000ULL;
-const uint8_t   kPageVersionSplitCounterShifts    = 33;
-const uint32_t  kPageVersionKeyCountMask          = 0xFFFF0000U;
-const uint8_t   kPageVersionKeyCountShifts        = 16;
-const uint32_t  kPageVersionLayerMask             = 0x0000FF00U;
-const uint8_t   kPageVersionLayerShifts           = 8;
 
 /**
  * @brief 64bit in-page version counter and also locking mechanism.
@@ -62,19 +49,8 @@ const uint8_t   kPageVersionLayerShifts           = 8;
  * @details
  * Each page has this in the header.
  * \li bit-0: locked
- * \li bit-1: inserting (not used anymore)
- * \li bit-2: splitting (not used anymore)
  * \li bit-3: moved
- * \li bit-4: has_foster_child (same as moved. we should remove this one)
- * \li bit-5: is_high_fence_supremum
- * \li bit-6: is_root
  * \li bit-7: is_retired
- * \li bit-[8,13): insert counter (most likely no longer needed. key_count should suffice)
- * \li bit-[13,31): split counter (not used anymore)
- * \li bit-31: unused
- * \li bit-[32,48): \e physical key count (those keys might be deleted)
- * \li bit-[48,56): layer (not a mutable property, placed here just to save space)
- * \li bit-[56,64): unused
  * Unlike [YANDONG12], this is 64bit to also contain a key count.
  * We maintain key count and permutation differently from [YANDONG12].
  *
@@ -89,21 +65,7 @@ struct PageVersion CXX11_FINAL {
 
   bool    is_locked() const ALWAYS_INLINE { return data_ & kPageVersionLockedBit; }
   bool    is_moved() const ALWAYS_INLINE { return data_ & kPageVersionMovedBit; }
-  bool    is_root() const ALWAYS_INLINE { return data_ & kPageVersionIsRootBit; }
   bool    is_retired() const ALWAYS_INLINE { return data_ & kPageVersionIsRetiredBit; }
-  bool    has_foster_child() const ALWAYS_INLINE { return data_ & kPageVersionHasFosterChildBit; }
-  bool    is_high_fence_supremum() const ALWAYS_INLINE { return data_ & kPageVersionIsSupremumBit; }
-  uint32_t  get_insert_counter() const ALWAYS_INLINE {
-    return (data_ & kPageVersionInsertionCounterMask) >> kPageVersionInsertionCounterShifts;
-  }
-  uint16_t  get_key_count() const ALWAYS_INLINE {
-    return (data_ & kPageVersionKeyCountMask) >> kPageVersionKeyCountShifts;
-  }
-
-  /** Layer-0 stores the first 8 byte slice, Layer-1 next 8 byte... */
-  uint8_t   get_layer() const ALWAYS_INLINE {
-    return (data_ & kPageVersionLayerMask) >> kPageVersionLayerShifts;
-  }
 
   void      set_moved() ALWAYS_INLINE {
     ASSERT_ND(is_locked());
@@ -115,35 +77,6 @@ struct PageVersion CXX11_FINAL {
     ASSERT_ND(is_moved());  // we always set moved bit first. retire must happen later.
     ASSERT_ND(!is_retired());
     data_ |= kPageVersionIsRetiredBit;
-  }
-  void      set_root(bool root) ALWAYS_INLINE {
-    ASSERT_ND(is_locked());
-    if (root) {
-      data_ &= ~kPageVersionIsRootBit;
-    } else {
-      data_ |= kPageVersionIsRootBit;
-    }
-  }
-  void      increment_key_count() ALWAYS_INLINE {
-    ASSERT_ND(is_locked());
-    data_ += (1ULL << kPageVersionKeyCountShifts);
-    ASSERT_ND(is_locked());
-  }
-  void      set_key_count(uint8_t key_count) ALWAYS_INLINE {
-    ASSERT_ND(is_locked());
-    data_ = (data_ & (~static_cast<uint64_t>(kPageVersionKeyCountMask)))
-            | (static_cast<uint64_t>(key_count) << kPageVersionKeyCountShifts);
-    ASSERT_ND(get_key_count() == key_count);
-    ASSERT_ND(is_locked());
-  }
-
-  void      set_has_foster_child(bool has) ALWAYS_INLINE {
-    ASSERT_ND(is_locked());
-    if (has) {
-      data_ |= kPageVersionHasFosterChildBit;
-    } else {
-      data_ &= ~kPageVersionHasFosterChildBit;
-    }
   }
 
   /**
@@ -214,22 +147,22 @@ struct PageHeader CXX11_FINAL {
   bool          snapshot_;    // +1 -> 18
 
   /**
-   * Whether this page is a root page, which exists only one per storage and has no parent
-   * pointer. (some storage types looks like having multiple root pages, but actually
-   * it has only one root-of-root even in that case.)
+   * \e physical key count (those keys might be deleted) in this page.
+   * It depends on the page type what "key count" exactly means.
+   * For example, in masstree interior page, key count is a separator count, so
+   * it contains pointers of key_count_+1. In many pages, key_count=record_count.
    */
-  bool          root_;        // +1 -> 19
+  uint16_t      key_count_;   // +2 -> 20
 
   /**
-   * Which node's thread has updated this page most recently.
-   * This is one of the properties that don't have permanent meaning.
-   * We don't maintain this property transactionally. This is used only as a statistics for
-   * partitioning.
+   * used only in masstree.
+   * Layer-0 stores the first 8 byte slice, Layer-1 next 8 byte...
    */
-  thread::ThreadGroupId stat_latest_modifier_;  // +1 -> 20
+  uint8_t       masstree_layer_;  // +1 -> 21
 
-  /** Same above. When the modification happened. We use this to keep hot volatile pages. */
-  Epoch         stat_latest_modify_epoch_;  // +4 -> 24
+  uint8_t       reserved1_;       // +1 -> 22
+  uint8_t       reserved2_;       // +1 -> 23
+  uint8_t       reserved3_;       // +1 -> 24
 
   /**
    * Used in several storage types as concurrency control mechanism for the page.
@@ -246,33 +179,44 @@ struct PageHeader CXX11_FINAL {
   inline void init_volatile(
     VolatilePagePointer page_id,
     StorageId storage_id,
-    PageType page_type,
-    bool root) ALWAYS_INLINE {
+    PageType page_type) ALWAYS_INLINE {
     page_id_ = page_id.word;
     storage_id_ = storage_id;
     checksum_ = 0;
     page_type_ = page_type;
     snapshot_ = false;
-    root_ = root;
-    stat_latest_modifier_ = 0;
-    stat_latest_modify_epoch_ = Epoch();
+    key_count_ = 0;
+    masstree_layer_ = 0;
+    reserved1_ = 0;
+    reserved2_ = 0;
+    reserved3_ = 0;
     page_version_.data_ = 0;
   }
 
   inline void init_snapshot(
     SnapshotPagePointer page_id,
     StorageId storage_id,
-    PageType page_type,
-    bool root) ALWAYS_INLINE {
+    PageType page_type) ALWAYS_INLINE {
     page_id_ = page_id;
     storage_id_ = storage_id;
     checksum_ = 0;
     page_type_ = page_type;
     snapshot_ = true;
-    root_ = root;
-    stat_latest_modifier_ = 0;
-    stat_latest_modify_epoch_ = Epoch();
+    key_count_ = 0;
+    masstree_layer_ = 0;
+    reserved1_ = 0;
+    reserved2_ = 0;
+    reserved3_ = 0;
     page_version_.data_ = 0;
+  }
+
+  void      increment_key_count() ALWAYS_INLINE {
+    ASSERT_ND(page_version_.is_locked());
+    ++key_count_;
+  }
+  void      set_key_count(uint8_t key_count) ALWAYS_INLINE {
+    ASSERT_ND(page_version_.is_locked());
+    key_count_ = key_count;
   }
 };
 
@@ -312,15 +256,15 @@ struct Page CXX11_FINAL {
  * need for lambda.
  */
 struct VolatilePageInitializer {
-  VolatilePageInitializer(StorageId storage_id, PageType page_type, bool root)
-    : storage_id_(storage_id), page_type_(page_type), root_(root) {
+  VolatilePageInitializer(StorageId storage_id, PageType page_type)
+    : storage_id_(storage_id), page_type_(page_type) {
   }
   // no virtual destructor for better performance. make sure derived class doesn't need
   // any explicit destruction.
 
   inline void initialize(Page* page, VolatilePagePointer page_id) const ALWAYS_INLINE {
     std::memset(page, 0, kPageSize);
-    page->get_header().init_volatile(page_id, storage_id_, page_type_, root_);
+    page->get_header().init_volatile(page_id, storage_id_, page_type_);
     initialize_more(page);
   }
 
@@ -329,7 +273,6 @@ struct VolatilePageInitializer {
 
   const StorageId storage_id_;
   const PageType  page_type_;
-  const bool      root_;
 };
 
 /**
@@ -340,7 +283,7 @@ struct VolatilePageInitializer {
  */
 struct DummyVolatilePageInitializer CXX11_FINAL : public VolatilePageInitializer {
   DummyVolatilePageInitializer()
-    : VolatilePageInitializer(0, kUnknownPageType, true) {
+    : VolatilePageInitializer(0, kUnknownPageType) {
   }
   void initialize_more(Page* /*page*/) const CXX11_OVERRIDE {}
 };

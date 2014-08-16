@@ -61,7 +61,7 @@ class MasstreePage {
   KeySlice            get_low_fence() const ALWAYS_INLINE { return low_fence_; }
   KeySlice            get_high_fence() const ALWAYS_INLINE { return high_fence_; }
   bool                is_high_fence_supremum() const ALWAYS_INLINE {
-    return get_version().is_high_fence_supremum();
+    return high_fence_ == kSupremumSlice;
   }
   KeySlice            get_foster_fence() const ALWAYS_INLINE { return foster_fence_; }
   MasstreePage*       get_foster_minor() const ALWAYS_INLINE { return foster_twin_[0]; }
@@ -81,11 +81,15 @@ class MasstreePage {
     return slice >= foster_fence_;
   }
   bool                has_foster_child() const ALWAYS_INLINE {
-    return header_.page_version_.has_foster_child();
+    return header_.page_version_.is_moved();
   }
 
   /** Layer-0 stores the first 8 byte slice, Layer-1 next 8 byte... */
-  uint8_t             get_layer() const ALWAYS_INLINE { return header_.page_version_.get_layer(); }
+  uint8_t             get_layer() const ALWAYS_INLINE { return header_.masstree_layer_; }
+  /** \e physical key count (those keys might be deleted) in this page. */
+  uint16_t            get_key_count() const ALWAYS_INLINE { return header_.key_count_; }
+  void                set_key_count(uint16_t count) ALWAYS_INLINE { header_.set_key_count(count); }
+  void                increment_key_count() ALWAYS_INLINE { header_.increment_key_count(); }
 
   /**
    * prefetch upto keys/separators, whether this page is border or interior.
@@ -173,10 +177,8 @@ class MasstreePage {
     VolatilePagePointer page_id,
     PageType            page_type,
     uint8_t             layer,
-    bool                root_in_layer,
     KeySlice            low_fence,
     KeySlice            high_fence,
-    bool                is_high_fence_supremum,
     bool                initially_locked);
 };
 
@@ -305,10 +307,8 @@ class MasstreeIntermediatePage final : public MasstreePage {
     StorageId           storage_id,
     VolatilePagePointer page_id,
     uint8_t             layer,
-    bool                root_in_layer,
     KeySlice            low_fence,
     KeySlice            high_fence,
-    bool                is_high_fence_supremum,
     bool                initially_locked);
 
   /**
@@ -430,10 +430,8 @@ class MasstreeBorderPage final : public MasstreePage {
     StorageId           storage_id,
     VolatilePagePointer page_id,
     uint8_t             layer,
-    bool                root_in_layer,
     KeySlice            low_fence,
     KeySlice            high_fence,
-    bool                is_high_fence_supremum,
     bool                initially_locked);
 
   /**
@@ -667,7 +665,7 @@ class MasstreeBorderPage final : public MasstreePage {
       }
       const MasstreeBorderPage* target_;
     };
-    uint8_t key_count = get_version().get_key_count();
+    uint8_t key_count = get_key_count();
     uint8_t order[kMaxKeys];
     for (uint8_t i = 0; i < key_count; ++i) {
       order[i] = i;
@@ -888,7 +886,7 @@ inline void MasstreeBorderPage::reserve_record_space(
   ASSERT_ND(index < kMaxKeys);
   ASSERT_ND(remaining_length <= kKeyLengthMax);
   ASSERT_ND(is_locked());
-  ASSERT_ND(header_.page_version_.get_key_count() == index);
+  ASSERT_ND(get_key_count() == index);
   ASSERT_ND(can_accomodate(index, remaining_length, payload_count));
   uint16_t suffix_length = calculate_suffix_length(remaining_length);
   DataOffset record_size = calculate_record_size(remaining_length, payload_count) >> 4;

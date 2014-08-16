@@ -73,7 +73,7 @@ class HashBinPage final {
   /** volatile page initialize callback. */
   struct Initializer final : public VolatilePageInitializer {
     Initializer(StorageId storage_id, uint64_t begin_bin)
-      : VolatilePageInitializer(storage_id, kHashBinPageType, false),
+      : VolatilePageInitializer(storage_id, kHashBinPageType),
         begin_bin_(begin_bin) {
     }
     void initialize_more(Page* page) const override {
@@ -166,7 +166,7 @@ class HashDataPage final {
   /** volatile page initialize callback. */
   struct Initializer final : public VolatilePageInitializer {
     Initializer(StorageId storage_id, uint64_t bin)
-      : VolatilePageInitializer(storage_id, kHashDataPageType, false),
+      : VolatilePageInitializer(storage_id, kHashDataPageType),
         bin_(bin) {
     }
     void initialize_more(Page* page) const override {

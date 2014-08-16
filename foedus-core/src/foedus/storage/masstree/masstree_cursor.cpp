@@ -186,7 +186,7 @@ void MasstreeCursor::proceed_route_intermediate_rebase_separator() {
   // We do NOT update stable_ here in case it's now moved.
   // even if it's moved now, we can keep using this node because of the master-tree invariant.
   // rather, if we update the stable_, proceed_pop will be confused by that
-  route->key_count_ = route->page_->get_version().get_key_count();
+  route->key_count_ = route->page_->get_key_count();
 
   const KeySlice last = route->latest_separator_;
   ASSERT_ND(last <= page->get_high_fence() && last >= page->get_low_fence());
@@ -347,8 +347,7 @@ inline ErrorCode MasstreeCursor::proceed_next_layer() {
 
 inline ErrorCode MasstreeCursor::proceed_deeper() {
   // if we are hitting a moved page, go to left or right, depending on forward cur or not
-  while (UNLIKELY(cur_route()->stable_.has_foster_child())) {
-    ASSERT_ND(cur_route()->stable_.is_moved());
+  while (UNLIKELY(cur_route()->stable_.is_moved())) {
     MasstreePage* next_page = forward_cursor_
       ? cur_route()->page_->get_foster_minor()
       : cur_route()->page_->get_foster_major();
@@ -356,7 +355,7 @@ inline ErrorCode MasstreeCursor::proceed_deeper() {
     cur_route()->moved_page_search_status_ = Route::kMovedPageSearchedOne;
     CHECK_ERROR_CODE(push_route(next_page));
   }
-  ASSERT_ND(!cur_route()->stable_.has_foster_child());
+  ASSERT_ND(!cur_route()->stable_.is_moved());
 
   if (cur_route()->page_->is_border()) {
     return proceed_deeper_border();
@@ -368,7 +367,7 @@ inline ErrorCode MasstreeCursor::proceed_deeper() {
 inline ErrorCode MasstreeCursor::proceed_deeper_border() {
   Route* route = cur_route();
   ASSERT_ND(route->page_->is_border());
-  ASSERT_ND(!route->stable_.has_foster_child());
+  ASSERT_ND(!route->stable_.is_moved());
   MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
   route->index_ = forward_cursor_ ? 0 : route->key_count_ - 1;
   uint8_t record = route->get_original_index(route->index_);
@@ -391,7 +390,7 @@ inline ErrorCode MasstreeCursor::proceed_deeper_border() {
 inline ErrorCode MasstreeCursor::proceed_deeper_intermediate() {
   Route* route = cur_route();
   ASSERT_ND(!route->page_->is_border());
-  ASSERT_ND(!route->stable_.has_foster_child());
+  ASSERT_ND(!route->stable_.is_moved());
   MasstreeIntermediatePage* page = reinterpret_cast<MasstreeIntermediatePage*>(cur_route()->page_);
   route->index_ = forward_cursor_ ? 0 : route->key_count_;
   MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(route->index_);
@@ -429,7 +428,7 @@ inline ErrorCode MasstreeCursor::proceed_deeper_intermediate() {
 
 void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, uint8_t record) {
   // fetch everything
-  ASSERT_ND(record < page->get_version().get_key_count());
+  ASSERT_ND(record < page->get_key_count());
   cur_key_owner_id_address = page->get_owner_id(record);
   if (!page->header().snapshot_) {
     cur_key_observed_owner_id_ = cur_key_owner_id_address->spin_while_keylocked();
@@ -490,8 +489,9 @@ inline ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
   page->prefetch_general();
   Route& route = routes_[route_count_];
   while (true) {
-    route.stable_ = page->get_stable_version();
+    route.key_count_ = page->get_key_count();
     assorted::memory_fence_consume();
+    route.stable_ = page->get_stable_version();  // TODO don't need to get stable unless leaf
     ASSERT_ND(!route.stable_.is_locked());
     route.page_ = page;
     if (route.stable_.is_moved()) {
@@ -502,7 +502,6 @@ inline ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
     route.latest_separator_ = kInfimumSlice;  // must be set shortly after this method
     route.index_ = kMaxRecords;  // must be set shortly after this method
     route.index_mini_ = kMaxRecords;  // must be set shortly after this method
-    route.key_count_ = route.stable_.get_key_count();
     route.snapshot_ = page->header().snapshot_;
     if (page->is_border() && !route.stable_.is_moved()) {
       route.setup_order();
@@ -535,7 +534,7 @@ inline ErrorCode MasstreeCursor::follow_foster(KeySlice slice) {
     ASSERT_ND(search_type_ != kBackwardExclusive
       || route->page_->within_fences(slice)
       || route->page_->get_high_fence() == slice);
-    if (LIKELY(!route->stable_.has_foster_child())) {
+    if (LIKELY(!route->stable_.is_moved())) {
       break;
     }
 
@@ -835,7 +834,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
       || border->within_fences(slice)
       || border->get_high_fence() == slice);
 
-    ASSERT_ND(!route->stable_.has_foster_child());
+    ASSERT_ND(!route->stable_.is_moved());
     uint8_t layer = border->get_layer();
     // find right record. be aware of backward-exclusive case!
     uint8_t index;
@@ -952,7 +951,7 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
       || cur->within_fences(slice)
       || cur->get_high_fence() == slice);
 
-    ASSERT_ND(!route->stable_.has_foster_child());
+    ASSERT_ND(!route->stable_.is_moved());
     // find right minipage. be aware of backward-exclusive case!
     uint8_t index = 0;
     // fast path for supremum-search.

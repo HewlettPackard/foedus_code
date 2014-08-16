@@ -14,13 +14,9 @@ namespace hash {
 void HashRootPage::initialize_volatile_page(
   StorageId storage_id,
   VolatilePagePointer page_id,
-  HashRootPage* parent) {
+  HashRootPage* /*parent*/) {
   std::memset(this, 0, kPageSize);
-  header_.init_volatile(
-    page_id,
-    storage_id,
-    kHashRootPageType,
-    parent == nullptr);
+  header_.init_volatile(page_id, storage_id, kHashRootPageType);
 }
 
 }  // namespace hash

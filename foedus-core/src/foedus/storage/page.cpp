@@ -16,12 +16,8 @@ std::ostream& operator<<(std::ostream& o, const PageVersion& v) {
   o << "<PageVersion><flags>"
     << (copied.is_locked() ? "L" : " ")
     << (copied.is_moved() ? "M" : " ")
-    << (copied.has_foster_child() ? "F" : " ")
-    << (copied.is_high_fence_supremum() ? "H" : " ")
-    << (copied.is_root() ? "R" : " ")
     << (copied.is_retired() ? "T" : " ")
     << "</flags>"
-    << "<key_count>" << copied.get_key_count() << "</key_count>"
     << "</PageVersion>";
   return o;
 }

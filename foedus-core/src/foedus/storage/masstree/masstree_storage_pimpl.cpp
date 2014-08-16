@@ -171,16 +171,14 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     metadata_.id_,
     new_pointer,
     root->get_layer(),
-    true,  // yes, root
     kInfimumSlice,    // infimum slice
     kSupremumSlice,   // high-fence is supremum
-    true,             // high-fence is supremum
     true);    // lock it
   UnlockScope new_scope(*new_root);
 
   KeySlice separator = root->get_foster_fence();
 
-  (*new_root)->get_version().set_key_count(0);
+  (*new_root)->set_key_count(0);
   MasstreeIntermediatePage::MiniPage& mini_page = (*new_root)->get_minipage(0);
   MasstreePage* left_page = root->get_foster_minor();
   MasstreePage* right_page = root->get_foster_major();
@@ -239,12 +237,9 @@ ErrorStack MasstreeStoragePimpl::create(thread::Thread* context) {
     metadata_.id_,
     first_root_pointer_.volatile_pointer_,
     0,  // first layer
-    true,  // yes, root
     kInfimumSlice,    // infimum slice
     kSupremumSlice,   // high-fence is supremum
-    true,             // high-fence is supremum
     false);  // not locked
-  ASSERT_ND(root_page->get_version().is_high_fence_supremum());
 
   exist_ = true;
   engine_->get_storage_manager().get_pimpl()->register_storage(holder_);
@@ -281,7 +276,7 @@ inline ErrorCode MasstreeStoragePimpl::find_border(
       return kErrorCodeOk;
     } else {
       MasstreeIntermediatePage* page = reinterpret_cast<MasstreeIntermediatePage*>(cur);
-      uint8_t key_count = page->get_version().get_key_count();
+      uint8_t key_count = page->get_key_count();
       uint8_t minipage_index = page->find_minipage(key_count, slice);
       MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(minipage_index);
 
@@ -335,8 +330,8 @@ ErrorCode MasstreeStoragePimpl::locate_record(
       for_writes,
       slice,
       &border));
-    PageVersion border_version = border->get_stable_version();
-    uint8_t stable_key_count = border_version.get_key_count();
+    uint8_t stable_key_count = border->get_key_count();
+    PageVersion border_version = border->get_stable_version();  // TODO doesn't have to be stable
     uint8_t index = border->find_key(stable_key_count, slice, suffix, remaining_length);
 
     if (index == MasstreeBorderPage::kMaxKeys) {
@@ -374,8 +369,8 @@ ErrorCode MasstreeStoragePimpl::locate_record_normalized(
   MasstreePage* layer_root;
   CHECK_ERROR_CODE(get_first_root(context, &layer_root));
   CHECK_ERROR_CODE(find_border(context, layer_root, 0, for_writes, key, &border));
-  PageVersion border_version = border->get_stable_version();
-  uint8_t index = border->find_key_normalized(0, border_version.get_key_count(), key);
+  uint8_t index = border->find_key_normalized(0, border->get_key_count(), key);
+  PageVersion border_version = border->get_stable_version();  // TODO nostable
   if (index == MasstreeBorderPage::kMaxKeys) {
     // this means not found
     if (!border->header().snapshot_) {
@@ -429,10 +424,8 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
       metadata_.id_,
       pointer.volatile_pointer_,
       parent->get_layer() + 1,
-      true,  // yes, root
       kInfimumSlice,    // infimum slice
       kSupremumSlice,   // high-fence is supremum
-      true,             // high-fence is supremum
       true);  // initially locked
     UnlockScope scope(root);
     root->initialize_layer_root(parent, parent_index);
@@ -545,7 +538,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
       }
       ASSERT_ND(border->within_fences(slice));
 
-      uint8_t count = border->get_version().get_key_count();
+      uint8_t count = border->get_key_count();
       // as done in reserve_record_new_record_apply(), we need a fence on BOTH sides.
       // observe key count first, then verify the keys.
       assorted::memory_fence_consume();
@@ -602,11 +595,11 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         continue;  // locally retries
       }
       // even resume the searches if new record was installed (only new record area)
-      if (count != border->get_version().get_key_count()) {
-        ASSERT_ND(count < border->get_version().get_key_count());
+      if (count != border->get_key_count()) {
+        ASSERT_ND(count < border->get_key_count());
         // someone else has inserted a new record. Is it conflicting?
         // search again, but only for newly inserted record(s)
-        uint8_t new_count = border->get_version().get_key_count();
+        uint8_t new_count = border->get_key_count();
         match = border->find_key_for_reserve(count, new_count, slice, suffix, remaining);
         count = new_count;
       }
@@ -634,7 +627,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
           observed);
         ASSERT_ND(!(*out_page)->is_moved());
         ASSERT_ND(!(*out_page)->is_retired());
-        ASSERT_ND(*record_index < (*out_page)->get_version().get_key_count());
+        ASSERT_ND(*record_index < (*out_page)->get_key_count());
         return code;
       } else {
         ASSERT_ND(match.match_type_ == MasstreeBorderPage::kConflictingLocalRecord);
@@ -688,7 +681,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
     ASSERT_ND(border->within_fences(key));
 
     // because we never go on to second layer in this case, it's either a full match or not-found
-    uint8_t count = border->get_version().get_key_count();
+    uint8_t count = border->get_key_count();
     uint8_t index = border->find_key_normalized(0, count, key);
 
     if (index != MasstreeBorderPage::kMaxKeys) {
@@ -725,7 +718,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
   uint8_t* record_index,
   xct::XctId* observed) {
   ASSERT_ND(border->is_locked());
-  uint8_t count = border->get_version().get_key_count();
+  uint8_t count = border->get_key_count();
   if (border->can_accomodate(count, remaining, payload_count)) {
     reserve_record_new_record_apply(
       context,
@@ -745,8 +738,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
     ASSERT_ND(target->is_locked());
     UnlockScope target_scope(target);
     ASSERT_ND(target->within_fences(key));
-    count = target->get_version().get_key_count();
-    ASSERT_ND(target->find_key(border->get_version().get_key_count(), key, suffix, remaining)
+    count = target->get_key_count();
+    ASSERT_ND(target->find_key(border->get_key_count(), key, suffix, remaining)
       == MasstreeBorderPage::kMaxKeys);
     if (!target->can_accomodate(count, remaining, payload_count)) {
       // this might happen if payload_count is huge. so far just error out.
@@ -781,7 +774,7 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
   ASSERT_ND(!target->is_moved());
   ASSERT_ND(!target->is_retired());
   ASSERT_ND(target->can_accomodate(target_index, remaining_key_length, payload_count));
-  ASSERT_ND(target->get_version().get_key_count() < MasstreeBorderPage::kMaxKeys);
+  ASSERT_ND(target->get_key_count() < MasstreeBorderPage::kMaxKeys);
   xct::XctId initial_id;
   initial_id.set_clean(
     Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
@@ -799,8 +792,8 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
   // we increment key count AFTER installing the key because otherwise the optimistic read
   // might see the record but find that the key doesn't match. we need a fence to prevent it.
   assorted::memory_fence_release();
-  target->get_version().increment_key_count();
-  ASSERT_ND(target->get_version().get_key_count() <= MasstreeBorderPage::kMaxKeys);
+  target->increment_key_count();
+  ASSERT_ND(target->get_key_count() <= MasstreeBorderPage::kMaxKeys);
   ASSERT_ND(!target->is_moved());
   ASSERT_ND(!target->is_retired());
   target->assert_entries();

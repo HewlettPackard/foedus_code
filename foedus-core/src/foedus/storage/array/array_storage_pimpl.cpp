@@ -296,14 +296,12 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
       ASSERT_ND(level == levels_ - 1);
       range.end_ = metadata_.array_size_;
     }
-    bool root = (level == levels_ - 1);
     page->initialize_volatile_page(
       initial_epoch,
       metadata_.id_,
       current_pages_ids[level],
       metadata_.payload_size_,
       level,
-      root,
       range);
 
     if (level == 0) {
@@ -339,7 +337,6 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
       page_pointer,
       metadata_.payload_size_,
       0,
-      false,
       range);
     current_pages[0] = page;
     current_pages_ids[0] = page_pointer;
@@ -359,14 +356,12 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
         if (range.end_ > metadata_.array_size_) {
           range.end_ = metadata_.array_size_;
         }
-        bool root = (level == levels_ - 1);
         interior_page->initialize_volatile_page(
           initial_epoch,
           metadata_.id_,
           interior_pointer,
           metadata_.payload_size_,
           level,
-          root,
           interior_range);
 
         DualPagePointer& child_pointer = interior_page->get_interior_record(0);

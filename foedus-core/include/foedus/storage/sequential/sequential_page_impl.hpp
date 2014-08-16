@@ -105,14 +105,14 @@ class SequentialPage final {
 
   /** Called only when this page is initialized. */
   void                initialize_volatile_page(StorageId storage_id, VolatilePagePointer page_id) {
-    header_.init_volatile(page_id, storage_id, kSequentialPageType, true);
+    header_.init_volatile(page_id, storage_id, kSequentialPageType);
     record_count_ = 0;
     used_data_bytes_ = 0;
     next_page_.snapshot_pointer_ = 0;
     next_page_.volatile_pointer_.word = 0;
   }
   void                initialize_snapshot_page(StorageId storage_id, SnapshotPagePointer page_id) {
-    header_.init_snapshot(page_id, storage_id, kSequentialPageType, false);
+    header_.init_snapshot(page_id, storage_id, kSequentialPageType);
     record_count_ = 0;
     used_data_bytes_ = 0;
     next_page_.snapshot_pointer_ = 0;
@@ -230,7 +230,7 @@ class SequentialRootPage final {
 
   /** Called only when this page is initialized. */
   void                initialize_snapshot_page(StorageId storage_id, SnapshotPagePointer page_id) {
-    header_.init_snapshot(page_id, storage_id, kSequentialRootPageType, false);
+    header_.init_snapshot(page_id, storage_id, kSequentialRootPageType);
     pointer_count_ = 0;
     next_page_ = 0;
   }

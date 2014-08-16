@@ -61,7 +61,6 @@ class ArrayPage final {
     SnapshotPagePointer page_id,
     uint16_t payload_size,
     uint8_t level,
-    bool    root,
     const ArrayRange& array_range);
   void                initialize_volatile_page(
     Epoch initial_epoch,
@@ -69,7 +68,6 @@ class ArrayPage final {
     VolatilePagePointer page_id,
     uint16_t payload_size,
     uint8_t level,
-    bool    root,
     const ArrayRange& array_range);
 
   // Record accesses

@@ -198,7 +198,6 @@ ErrorStack ArrayComposer::construct_root(
         new_page_id,
         payload_size_,
         levels_ - 1,
-        true,
         range);
     }
 
@@ -364,7 +363,6 @@ void ArrayComposer::compose_init_context_empty_cur_path() {
       new_page_id,
       payload_size_,
       level,
-      level == levels_ - 1,
       range);
     cur_path_[level] = page;
     DualPagePointer& pointer = page->get_interior_record(next_route_.route[level]);
@@ -386,7 +384,6 @@ void ArrayComposer::compose_init_context_empty_cur_path() {
       new_page_id,
       payload_size_,
       0,
-      0 == levels_ - 1,
       range);
     cur_path_[0] = page;
   }
@@ -546,7 +543,6 @@ inline ErrorCode ArrayComposer::read_or_init_page(
       new_page_id,
       payload_size_,
       level,
-      level == levels_ - 1,
       range);
   }
   return kErrorCodeOk;
