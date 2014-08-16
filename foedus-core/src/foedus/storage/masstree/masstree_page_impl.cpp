@@ -15,6 +15,7 @@
 #include "foedus/debugging/rdtsc_watch.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
+#include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct.hpp"
