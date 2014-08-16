@@ -711,24 +711,6 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
   KeySlice expected_last_separator) {
   ASSERT_ND(is_locked());
 
-#ifndef NDEBUG
-  // for ease of debugging zero-out the page first (only data part). only for debug build.
-  for (uint8_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
-    if (i < kMaxIntermediateSeparators) {
-      separators_[i] = 0;
-    }
-    MiniPage& minipage = get_minipage(i);
-    minipage.key_count_ = 0;
-    for (uint8_t j = 0; j <= kMaxIntermediateMiniSeparators; ++j) {
-      if (j < kMaxIntermediateMiniSeparators) {
-        minipage.separators_[j] = 0;
-      }
-      minipage.pointers_[j].snapshot_pointer_ = 0;
-      minipage.pointers_[j].volatile_pointer_.word = 0;
-    }
-  }
-#endif  // NDEBUG
-
   // construct this page. copy the separators and pointers.
   // we distribute them as much as possible in first level. if mini pages have little
   // entries to start with, following adoption would be only local.
@@ -751,6 +733,7 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
     ASSERT_ND(!strategy.pointers_[original_index].is_both_null());
     if (i >= next_mini_threshold && cur_mini < kMaxIntermediateSeparators) {
       // switch to next mini page. so, the separator goes to the first level
+      assorted::memory_fence_release();  // set key count after all
       cur_mini_page->key_count_ = cur_mini_separators;  // close the current
       ASSERT_ND(cur_mini_page->key_count_ <= kMaxIntermediateMiniSeparators);
 
@@ -773,7 +756,8 @@ void MasstreeIntermediatePage::split_foster_migrate_records(
   }
   cur_mini_page->key_count_ = cur_mini_separators;  // close the last one
   ASSERT_ND(cur_mini_page->key_count_ <= kMaxIntermediateMiniSeparators);
-  get_version().set_key_count(cur_mini);
+  assorted::memory_fence_release();
+  get_version().set_key_count(cur_mini);  // set key count after all
   ASSERT_ND(get_version().get_key_count() <= kMaxIntermediateSeparators);
 
   // the last separator is ignored because it's foster-fence/high-fence.
@@ -992,9 +976,6 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
         sizeof(DualPagePointer) * (mini_key_count - pointer_index));
     }
 
-    ++minipage.key_count_;
-    ASSERT_ND(minipage.key_count_ <= kMaxIntermediateMiniSeparators);
-    ASSERT_ND(minipage.key_count_ == mini_key_count + 1);
     ASSERT_ND(!minipage.pointers_[pointer_index].is_both_null());
     minipage.separators_[pointer_index] = new_separator;
     minipage.pointers_[pointer_index + 1].snapshot_pointer_ = 0;
@@ -1006,6 +987,14 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
       = minipage.pointers_[pointer_index].volatile_pointer_.components.mod_count + 1;
     minipage.pointers_[pointer_index].snapshot_pointer_ = 0;
     minipage.pointers_[pointer_index].volatile_pointer_ = minor_pointer;
+
+    // we increase key count after above, with fence, so that concurrent transactions
+    // never see an empty slot.
+    assorted::memory_fence_release();
+    ++minipage.key_count_;
+    ASSERT_ND(minipage.key_count_ <= kMaxIntermediateMiniSeparators);
+    ASSERT_ND(minipage.key_count_ == mini_key_count + 1);
+
     // the ex-child page now retires.
     child->get_version().set_retired();
     // TODO(Hideaki) it will be garbage-collected later.
@@ -1074,6 +1063,10 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   child->get_version().set_retired();
 
   separators_[minipage_index] = new_separator;
+
+  // increment key count after all with fence so that concurrent transactions never see
+  // a minipage that is not ready for read
+  assorted::memory_fence_release();
   get_version().increment_key_count();
   ASSERT_ND(get_version().get_key_count() == minipage_index + 1);
   verify_separators();
