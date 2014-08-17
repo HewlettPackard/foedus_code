@@ -323,10 +323,9 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
 
     // One differences from original SILO protocol.
     // As there might be multiple write sets on one record, we check equality of next
-    // write set and 1) lock only at the first write-set of the record, 2) unlock at the last.
+    // write set and lock/unlock only at the last write-set of the record.
 
     // lock them unconditionally. there is no risk of deadlock thanks to the sort.
-    // lock bit is the highest bit of ordinal_and_status_.
     bool needs_retry = false;
     for (uint32_t i = 0; i < write_set_size; ++i) {
       ASSERT_ND(write_set[i].mcs_block_ == 0);
@@ -347,20 +346,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
             << ":" << write_set[i].owner_id_address_
             << ". This occasionally happens.";
           // release all locks acquired so far, retry
-          for (uint32_t j = 0; j <= i; ++j) {
-            ASSERT_ND(write_set[i].owner_id_address_->is_keylocked());
-            if (j + 1U < i &&
-              write_set[j].owner_id_address_ == write_set[j + 1].owner_id_address_) {
-              // keep the lock for the next write set
-              ASSERT_ND(write_set[j].mcs_block_ == 0);
-            } else {
-              ASSERT_ND(write_set[j].mcs_block_);
-              context->mcs_release_lock(
-                write_set[j].owner_id_address_->get_key_lock(),
-                write_set[j].mcs_block_);
-              write_set[i].mcs_block_ = 0;
-            }
-          }
+          precommit_xct_unlock(context);
           needs_retry = true;
           break;
         }
@@ -620,16 +606,11 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context) {
   assorted::memory_fence_release();
   for (uint32_t i = 0; i < write_set_size; ++i) {
     WriteXctAccess& write = write_set[i];
-    ASSERT_ND(write.owner_id_address_->is_keylocked());
-    DVLOG(2) << *context << " Unlocking " << write.storage_->get_name() << ":"
-      << write.owner_id_address_;
-    if (i < write_set_size - 1 && write.owner_id_address_ == write_set[i + 1].owner_id_address_) {
-      DVLOG(0) << *context << " Multiple write sets on record " << write_set[i].storage_->get_name()
-        << ":" << write_set[i].owner_id_address_ << ". Unlock at the last one of the write sets";
-      // keep the lock for the next write set
-      ASSERT_ND(write.mcs_block_ == 0);
-    } else {
-      ASSERT_ND(write.mcs_block_ != 0);
+    // this might be called from precommit_xct_lock(), so some of them might not be locked yet.
+    if (write.mcs_block_ != 0) {
+      DVLOG(2) << *context << " Unlocking " << write.storage_->get_name() << ":"
+        << write.owner_id_address_;
+      ASSERT_ND(write.owner_id_address_->is_keylocked());
       context->mcs_release_lock(write.owner_id_address_->get_key_lock(), write.mcs_block_);
       write.mcs_block_ = 0;
     }

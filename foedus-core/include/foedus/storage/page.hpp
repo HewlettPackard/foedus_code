@@ -140,15 +140,6 @@ struct PageVersion CXX11_FINAL {
     return lock_.acquire_lock(context);
   }
 
-  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
-  xct::McsBlockIndex initial_lock(thread::Thread* context) ALWAYS_INLINE {
-    return lock_.initial_lock(context);
-  }
-  /** This doesn't use any atomic operation to unlock. only allowed when there is no race */
-  void initial_unlock() ALWAYS_INLINE {
-    lock_.initial_unlock();
-  }
-
   /**
   * @brief Unlocks the given page version, assuming the caller has locked it.
   * @pre is_locked()

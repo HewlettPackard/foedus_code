@@ -76,58 +76,60 @@ typedef uint32_t McsBlockIndex;
  */
 class McsLock {
  public:
-  McsLock() : tail_waiter_(0), tail_waiter_block_(0) {}
-  McsLock(thread::ThreadId tail_waiter, uint16_t tail_waiter_block)
-    : tail_waiter_(tail_waiter), tail_waiter_block_(tail_waiter_block) {}
-  explicit McsLock(uint32_t int_value) { *as_int_ptr() = int_value; }
+  union McsLockData {
+    struct Components {
+      /** last waiter's thread ID */
+      thread::ThreadId  tail_waiter_;
+      /** last waiter's MCS block in the thread. 0 means no one is waiting (not locked) */
+      uint16_t          tail_waiter_block_;  // so far 16bits, so not McsBlockIndex
+    } components;
+    uint32_t word;
+  };
+  McsLock() { data_.word = 0; }
+  McsLock(thread::ThreadId tail_waiter, uint16_t tail_waiter_block) {
+    data_.components.tail_waiter_ = tail_waiter;
+    data_.components.tail_waiter_block_ = tail_waiter_block;
+  }
+  explicit McsLock(uint32_t int_value) { data_.word = int_value; }
 
   McsLock(const McsLock& other) CXX11_FUNC_DELETE;
   McsLock& operator=(const McsLock& other) CXX11_FUNC_DELETE;
 
   /** Used only for sanity check */
   uint8_t   last_1byte_addr() const ALWAYS_INLINE {
-    return reinterpret_cast<uintptr_t>(reinterpret_cast<const void*>(this));
+    // address is surely a multiply of 4. omit that part.
+    ASSERT_ND(reinterpret_cast<uintptr_t>(reinterpret_cast<const void*>(this)) % 4 == 0);
+    return reinterpret_cast<uintptr_t>(reinterpret_cast<const void*>(this)) / 4;
   }
-  uint32_t* as_int_ptr() { return reinterpret_cast<uint32_t*>(this); }
-  uint32_t  as_int() const { return *reinterpret_cast<const uint32_t*>(this); }
-  bool      is_locked() const { return tail_waiter_block_ != 0; }
+  uint32_t* as_int_ptr() { return &data_.word; }
+  uint32_t  as_int() const { return data_.word; }
+  bool      is_locked() const { return data_.components.tail_waiter_block_ != 0; }
 
   /** Equivalent to context->mcs_acquire_lock(this). Actually that's more preferred. */
-  McsBlockIndex  acquire_lock(thread::Thread* context);
+  McsBlockIndex acquire_lock(thread::Thread* context);
   /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
-  McsBlockIndex  initial_lock(thread::Thread* context);
+  McsBlockIndex initial_lock(thread::Thread* context);
   /** Equivalent to context->mcs_release_lock(this). Actually that's more preferred. */
-  void      release_lock(thread::Thread* context, McsBlockIndex block);
+  void          release_lock(thread::Thread* context, McsBlockIndex block);
 
-  /** This doesn't use any atomic operation to unlock. only allowed when there is no race */
-  void initial_unlock() ALWAYS_INLINE {
-    ASSERT_ND(is_locked());
-    tail_waiter_block_ = 0;
-    tail_waiter_ = 0;  // not needed, but easier to understand
+  thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return data_.components.tail_waiter_; }
+  McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE {
+    return data_.components.tail_waiter_block_;
   }
-
-  thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return tail_waiter_; }
-  McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE { return tail_waiter_block_; }
 
   /** used only while page initialization */
-  void    reset() ALWAYS_INLINE {
-    tail_waiter_ = 0;
-    tail_waiter_block_ = 0;
-  }
+  void    reset() ALWAYS_INLINE { data_.word = 0; }
 
   /** used only for initial_lock() */
   void    reset(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
-    tail_waiter_ = tail_waiter;
-    tail_waiter_block_ = tail_waiter_block;
+    data_.components.tail_waiter_ = tail_waiter;
+    data_.components.tail_waiter_block_ = tail_waiter_block;
   }
 
   friend std::ostream& operator<<(std::ostream& o, const McsLock& v);
 
  private:
-  /** last waiter's thread ID */
-  thread::ThreadId  tail_waiter_;
-  /** last waiter's MCS block in the thread. 0 means no one is waiting (not locked) */
-  uint16_t          tail_waiter_block_;  // so far 16bits, so not McsBlockIndex
+  McsLockData data_;
 };
 STATIC_SIZE_CHECK(sizeof(McsLock), 4)
 
@@ -323,16 +325,6 @@ struct LockableXctId {
   bool is_deleted() const ALWAYS_INLINE { return xct_id_.is_deleted(); }
   bool is_moved() const ALWAYS_INLINE { return xct_id_.is_moved(); }
   bool is_being_written() const ALWAYS_INLINE { return xct_id_.is_being_written(); }
-
-  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
-  uint32_t initial_keylock(thread::Thread* context) ALWAYS_INLINE {
-    return lock_.get_key_lock()->initial_lock(context);
-  }
-
-  /** This doesn't use any atomic operation to unlock. only allowed when there is no race */
-  void initial_keyunlock() ALWAYS_INLINE {
-    lock_.get_key_lock()->initial_unlock();
-  }
 
   /** used only while page initialization */
   void    reset() ALWAYS_INLINE {

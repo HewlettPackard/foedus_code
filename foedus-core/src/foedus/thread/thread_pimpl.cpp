@@ -303,6 +303,41 @@ inline void assert_mcs_aligned(const void* address) {
   ASSERT_ND(reinterpret_cast<uintptr_t>(address) % 4 == 0);
 }
 
+inline ThreadPimpl::McsBlock* ThreadPimpl::mcs_init_block(
+  const xct::McsLock* mcs_lock,
+  xct::McsBlockIndex block_index,
+  bool waiting) {
+  ASSERT_ND(block_index > 0);
+  McsBlock* block = mcs_blocks_ + block_index;
+  block->waiting_ = waiting;
+  block->lock_addr_tag_ = mcs_lock->last_1byte_addr();
+  block->successor_ = 0;
+  block->successor_block_ = 0;
+  return block;
+}
+
+void ThreadPimpl::mcs_toolong_wait(
+  xct::McsLock* mcs_lock,
+  ThreadId predecessor_id,
+  xct::McsBlockIndex my_block,
+  xct::McsBlockIndex pred_block) {
+  uint32_t count = current_xct_.get_write_set_size();
+  xct::WriteXctAccess* write_sets = current_xct_.get_write_set();
+  uint32_t index = count + 1;
+  for (uint32_t i = 0; i < count; ++i) {
+    if (i > 0 && write_sets[i - 1].owner_id_address_ > write_sets[i].owner_id_address_) {
+      LOG(FATAL) << "mmm? unsorted??";
+    }
+    if (write_sets[i].owner_id_address_->get_key_lock() == mcs_lock) {
+      index = i;
+    }
+  }
+  LOG(ERROR) << "I'm waiting here for long time. me=" << id_ << "(block=" << my_block << "), pred="
+    << predecessor_id << "(block=" << pred_block << "), lock=" << *mcs_lock
+    << ", lock_addr=" << mcs_lock
+    << ", write-set " << index << "/" << count;
+}
+
 xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   assert_mcs_aligned(mcs_lock);
   // so far we allow only 2^16 MCS blocks per transaction. we might increase later.
@@ -310,16 +345,27 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
   ASSERT_ND(block_index > 0);
   McsBlock* block = mcs_init_block(mcs_lock, block_index, true);
-  xct::McsLock desired(id_, block_index);
+  uint32_t desired = xct::McsLock(id_, block_index).as_int();
   uint32_t* address = mcs_lock->as_int_ptr();
   assert_mcs_aligned(address);
-  uint32_t old_int = assorted::raw_atomic_exchange<uint32_t>(address, desired.as_int());
+
+  // atomic op should imply full barrier, but make sure announcing the initialized new block.
+  assorted::memory_fence_release();
+#if defined(__GNUC__)
+  // GCC's builtin atomic. maybe a bit faster
+  uint32_t old_int = __sync_lock_test_and_set(address, desired);
+#else  // defined(__GNUC__)
+  uint32_t old_int = assorted::raw_atomic_exchange<uint32_t>(address, desired);
+#endif  // defined(__GNUC__)
+
   xct::McsLock old(old_int);
   if (!old.is_locked()) {
     // this means it was not locked.
     ASSERT_ND(mcs_lock->is_locked());
     DVLOG(2) << "Okay, got a lock uncontended. me=" << id_;
     block->waiting_ = false;
+    // atomic op should imply full barrier, but make sure
+    assorted::memory_fence_acq_rel();
     return block_index;
   }
 
@@ -344,16 +390,27 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   pred_block->successor_ = id_;
   assorted::memory_fence_release();  // set successor_, then successor_block_
   pred_block->successor_block_ = block_index;
+  assorted::memory_fence_release();
 
   // spin locally
+  uint64_t spins = 0;
   while (block->waiting_) {
     ASSERT_ND(mcs_lock->is_locked());
     assorted::memory_fence_acquire();
+    if (((++spins) & 0xFFFFFFU) == 0) {
+      assorted::spinlock_yield();
+    }
+    if (spins == 0x10000000U) {
+      // TODO(Hideaki) gggrr, I get the deadlock only when I do not put this here.
+      // wtf. gcc bug or my brain is dead. let's figure out later
+      mcs_toolong_wait(mcs_lock, predecessor_id, block_index, predecessor_block);
+    }
     continue;
   }
   DVLOG(1) << "Okay, now I hold the lock. me=" << id_ << ", ex-pred=" << predecessor_id;
   ASSERT_ND(!block->waiting_);
   ASSERT_ND(mcs_lock->is_locked());
+  assorted::memory_fence_acq_rel();
   return block_index;
 }
 
@@ -366,20 +423,8 @@ xct::McsBlockIndex ThreadPimpl::mcs_initial_lock(xct::McsLock* mcs_lock) {
   ASSERT_ND(block_index > 0);
   mcs_init_block(mcs_lock, block_index, false);
   mcs_lock->reset(id_, block_index);
+  assorted::memory_fence_acq_rel();
   return block_index;
-}
-
-inline ThreadPimpl::McsBlock* ThreadPimpl::mcs_init_block(
-  const xct::McsLock* mcs_lock,
-  xct::McsBlockIndex block_index,
-  bool waiting) {
-  ASSERT_ND(block_index > 0);
-  McsBlock* block = mcs_blocks_ + block_index;
-  block->waiting_ = waiting;
-  block->lock_addr_tag_ = mcs_lock->last_1byte_addr();
-  block->successor_ = 0;
-  block->successor_block_ = 0;
-  return block;
 }
 
 void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index) {
@@ -388,29 +433,41 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   ASSERT_ND(block_index > 0);
   ASSERT_ND(current_xct_.get_mcs_block_current() >= block_index);
   McsBlock* block = mcs_blocks_ + block_index;
+  assorted::memory_fence_acquire();
   ASSERT_ND(!block->waiting_);
   ASSERT_ND(block->lock_addr_tag_ == mcs_lock->last_1byte_addr());
   if (block->successor_block_ == 0) {
     // okay, successor "seems" nullptr (not contended), but we have to make it sure with atomic CAS
     xct::McsLock expected(id_, block_index);
-    uint32_t* exp = expected.as_int_ptr();
     uint32_t* address = mcs_lock->as_int_ptr();
-    assert_mcs_aligned(exp);
     assert_mcs_aligned(address);
-    bool swapped = assorted::raw_atomic_compare_exchange_strong<uint32_t>(address, exp, 0U);
+    uint32_t desired = xct::McsLock(0, 0).as_int();
+#if defined(__GNUC__)
+    // GCC's builtin atomic. maybe a bit faster because we don't have to give an address of expected
+    bool swapped = __sync_bool_compare_and_swap(address, expected.as_int(), desired);
+#else  // defined(__GNUC__)
+    uint32_t* exp = expected.as_int_ptr();
+    assert_mcs_aligned(exp);
+    bool swapped = assorted::raw_atomic_compare_exchange_strong<uint32_t>(address, exp, desired);
+#endif  // defined(__GNUC__)
     if (swapped) {
       // we have just unset the locked flag, but someone else might have just acquired it,
       // so we can't put assertion here.
       ASSERT_ND(id_ == 0 || mcs_lock->get_tail_waiter() != id_);
       DVLOG(2) << "Okay, release a lock uncontended. me=" << id_;
+      assorted::memory_fence_acq_rel();
       return;
     }
     DVLOG(0) << "Interesting contention on MCS release. I thought it's null, but someone has just "
       " jumped in. me=" << id_ << ", mcs_lock=" << *mcs_lock;
     // wait for someone else to set the successor
     ASSERT_ND(mcs_lock->is_locked());
+    uint64_t spins = 0;
     while (block->successor_block_ == 0) {
       ASSERT_ND(mcs_lock->is_locked());
+      if (((++spins) & 0xFFFFFFU) == 0) {
+        assorted::spinlock_yield();
+      }
       assorted::memory_fence_acquire();
       continue;
     }
@@ -425,7 +482,9 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   ASSERT_ND(succ_block->lock_addr_tag_ == mcs_lock->last_1byte_addr());
   ASSERT_ND(succ_block->waiting_);
   ASSERT_ND(mcs_lock->is_locked());
+  assorted::memory_fence_acq_rel();
   succ_block->waiting_ = false;
+  assorted::memory_fence_acq_rel();
 }
 
 
