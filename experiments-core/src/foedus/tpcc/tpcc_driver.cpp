@@ -32,8 +32,8 @@
 namespace foedus {
 namespace tpcc {
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
-DEFINE_int32(volatile_pool_size, 32, "Size of volatile memory pool per NUMA node in GB.");
-DEFINE_bool(ignore_volatile_size_warning, false, "Ignores warning on volatile_pool_size setting.");
+DEFINE_int32(volatile_pool_size, 16, "Size of volatile memory pool per NUMA node in GB.");
+DEFINE_bool(ignore_volatile_size_warning, true, "Ignores warning on volatile_pool_size setting.");
 DEFINE_int32(loggers_per_node, 4, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 0, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"

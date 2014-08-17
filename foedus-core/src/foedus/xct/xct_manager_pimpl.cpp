@@ -350,9 +350,9 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
           needs_retry = true;
           break;
         }
+        ASSERT_ND(!write_set[i].owner_id_address_->is_moved());
+        ASSERT_ND(write_set[i].owner_id_address_->is_keylocked());
       }
-      ASSERT_ND(!write_set[i].owner_id_address_->is_moved());
-      ASSERT_ND(write_set[i].owner_id_address_->is_keylocked());
     }
 
     if (!needs_retry) {
@@ -545,23 +545,26 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
       << ":" << write.owner_id_address_;
     ASSERT_ND(write.owner_id_address_->is_keylocked());
     ASSERT_ND(write.mcs_block_ != 0 ||
-      write.owner_id_address_ == write_set[i - 1].owner_id_address_);
+      write.owner_id_address_ == write_set[i + 1].owner_id_address_);
 
     // We must be careful on the memory order of unlock and data write.
     // We must write data first (invoke_apply), then unlock.
     // Otherwise the correctness is not guaranteed.
     write.log_entry_->header_.set_xct_id(new_xct_id);
-    ASSERT_ND(!write.owner_id_address_->xct_id_.is_being_written());
-    write.owner_id_address_->xct_id_.set_being_written();
-    assorted::memory_fence_release();
+    if (i > 0 && write.owner_id_address_ == write_set[i - 1].owner_id_address_) {
+      // the previous one has already set being_written and kept the lock
+      ASSERT_ND(write.owner_id_address_->xct_id_.is_being_written());
+    } else {
+      ASSERT_ND(!write.owner_id_address_->xct_id_.is_being_written());
+      write.owner_id_address_->xct_id_.set_being_written();
+      assorted::memory_fence_release();
+    }
     log::invoke_apply_record(
       write.log_entry_,
       context,
       write.storage_,
       write.owner_id_address_,
       write.payload_address_);
-    // For this reason, we put memory_fence_release() between data and owner_id writes.
-    assorted::memory_fence_release();
     ASSERT_ND(!write.owner_id_address_->xct_id_.get_epoch().is_valid() ||
       write.owner_id_address_->xct_id_.before(new_xct_id));  // ordered correctly?
     if (i < write_set_size - 1 &&
@@ -572,7 +575,8 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
       ASSERT_ND(write.mcs_block_ == 0);
     } else {
       ASSERT_ND(write.mcs_block_ != 0);
-      // this also unlocks
+      // For this reason, we put memory_fence_release() between data and owner_id writes.
+      assorted::memory_fence_release();
       if (write.owner_id_address_->xct_id_.is_deleted()) {
         // preserve delete-flag set by delete operations (so, the operation should be delete)
         ASSERT_ND(
@@ -585,6 +589,7 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
           write.log_entry_->header_.get_type() != log::kLogCodeMasstreeDelete);
         write.owner_id_address_->xct_id_ = new_xct_id;
       }
+      // also unlocks
       context->mcs_release_lock(write.owner_id_address_->get_key_lock(), write.mcs_block_);
       write.mcs_block_ = 0;
     }
