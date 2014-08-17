@@ -16,6 +16,7 @@
 
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/assorted/uniform_random.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
@@ -84,6 +85,10 @@ class TpccClientTask : public thread::ImpersonateTask {
   uint32_t increment_largereadset_aborts() { return ++largereadset_aborts_; }
 
   void request_stop() { stop_requrested_ = true; }
+  bool is_stop_requested() const {
+    assorted::memory_fence_acquire();
+    return stop_requrested_;
+  }
 
   uint64_t get_processed() const { return processed_; }
 

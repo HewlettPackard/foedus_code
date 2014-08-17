@@ -303,6 +303,7 @@ inline ErrorCode MasstreeStoragePimpl::find_border(
       } else {
         // even in this case, local retry suffices thanks to foster-twin
         VLOG(0) << "Interesting. concurrent thread affected the search. local retry";
+        assorted::memory_fence_acquire();
       }
     }
   }

@@ -32,6 +32,7 @@ void TpccClientTask::update_timestring_if_needed() {
 
 const uint32_t kMaxUnexpectedErrors = 1;
 
+
 ErrorStack TpccClientTask::run(thread::Thread* context) {
   context_ = context;
   engine_ = context->get_engine();
@@ -47,7 +48,7 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
   LOG(INFO) << "TPCC Client-" << worker_id_ << " started working! home wid="
     << from_wid_ << "-" << to_wid_;
 
-  while (!stop_requrested_) {
+  while (!is_stop_requested()) {
     // currently we change wid for each transaction.
     Wid wid = to_wid_ <= from_wid_ ? from_wid_ : rnd_.uniform_within(from_wid_, to_wid_ - 1);
     uint16_t transaction_type = rnd_.uniform_within(1, 100);
@@ -55,7 +56,7 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
     uint64_t rnd_seed = rnd_.get_current_seed();
 
     // abort-retry loop
-    while (!stop_requrested_) {
+    while (!is_stop_requested()) {
       rnd_.set_current_seed(rnd_seed);
       update_timestring_if_needed();
       WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));

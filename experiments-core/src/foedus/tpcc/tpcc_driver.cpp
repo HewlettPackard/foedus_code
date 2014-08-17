@@ -32,7 +32,7 @@
 namespace foedus {
 namespace tpcc {
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
-DEFINE_int32(volatile_pool_size, 16, "Size of volatile memory pool per NUMA node in GB.");
+DEFINE_int32(volatile_pool_size, 24, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_bool(ignore_volatile_size_warning, true, "Ignores warning on volatile_pool_size setting.");
 DEFINE_int32(loggers_per_node, 4, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 0, "Percent of each orderline that is inserted to remote"
@@ -43,11 +43,11 @@ DEFINE_int32(payment_remote_percent, 0, "Percent of each payment that is inserte
   " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
-DEFINE_int32(thread_per_node, 0, "Number of threads per NUMA node. 0 uses logical count");
+DEFINE_int32(thread_per_node, 4, "Number of threads per NUMA node. 0 uses logical count");
 DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
-DEFINE_int32(warehouses, 16, "Number of warehouses.");
-DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
+DEFINE_int32(warehouses, 8, "Number of warehouses.");
+DEFINE_int64(duration_micro, 10000000, "Duration of benchmark in microseconds.");
 
 TpccDriver::Result TpccDriver::run() {
   const EngineOptions& options = engine_->get_options();

@@ -1017,6 +1017,7 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
     extract_separators(&separator_low, &separator_high);
     if (UNLIKELY(slice < separator_low || slice > separator_high)) {
       VLOG(0) << "Interesting5. separator doesn't match. concurrent adopt. local retry.";
+      assorted::memory_fence_acquire();
       route->stable_ = cur->get_version().status_;
       continue;
     }
@@ -1034,6 +1035,7 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
     if (UNLIKELY(next->get_low_fence() != separator_low ||
         next->get_high_fence() != separator_high)) {
       VLOG(0) << "Interesting. separator doesn't match. concurrent adopt. local retry.";
+      assorted::memory_fence_acquire();
       route->stable_ = cur->get_version().status_;
       continue;
     }
