@@ -1019,6 +1019,7 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
       VLOG(0) << "Interesting5. separator doesn't match. concurrent adopt. local retry.";
       assorted::memory_fence_acquire();
       route->stable_ = cur->get_version().status_;
+      route->key_count_ = cur->get_key_count();
       continue;
     }
     ASSERT_ND(separator_low <= slice && slice <= separator_high);
@@ -1037,6 +1038,7 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
       VLOG(0) << "Interesting. separator doesn't match. concurrent adopt. local retry.";
       assorted::memory_fence_acquire();
       route->stable_ = cur->get_version().status_;
+      route->key_count_ = cur->get_key_count();
       continue;
     }
 
