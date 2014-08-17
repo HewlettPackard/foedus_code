@@ -40,9 +40,9 @@ PageVersionLockScope::PageVersionLockScope(
   changed_ = false;
   released_ = false;
   if (initial_lock) {
-    block_ = context->mcs_acquire_lock(&version->lock_);
-  } else {
     block_ = context->mcs_initial_lock(&version->lock_);
+  } else {
+    block_ = context->mcs_acquire_lock(&version->lock_);
   }
 }
 

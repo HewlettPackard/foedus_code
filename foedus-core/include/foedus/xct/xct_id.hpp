@@ -84,6 +84,10 @@ class McsLock {
   McsLock(const McsLock& other) CXX11_FUNC_DELETE;
   McsLock& operator=(const McsLock& other) CXX11_FUNC_DELETE;
 
+  /** Used only for sanity check */
+  uint8_t   last_1byte_addr() const ALWAYS_INLINE {
+    return reinterpret_cast<uintptr_t>(reinterpret_cast<const void*>(this));
+  }
   uint32_t* as_int_ptr() { return reinterpret_cast<uint32_t*>(this); }
   uint32_t  as_int() const { return *reinterpret_cast<const uint32_t*>(this); }
   bool      is_locked() const { return tail_waiter_block_ != 0; }

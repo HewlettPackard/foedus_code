@@ -184,7 +184,6 @@ class InsertManyNormalizedMtTask : public thread::ImpersonateTask {
 };
 
 TEST(MasstreeBasicTest, InsertManyNormalizedMt) {
-  /* TODO(Hideaki) debug this
   EngineOptions options = get_tiny_options();
   options.memory_.page_pool_size_mb_per_node_ = 64;
   const uint32_t kThreads = 4;
@@ -213,7 +212,6 @@ TEST(MasstreeBasicTest, InsertManyNormalizedMt) {
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
-  */
 }
 
 class InsertManyTask : public thread::ImpersonateTask {

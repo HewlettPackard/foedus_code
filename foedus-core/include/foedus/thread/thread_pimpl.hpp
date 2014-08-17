@@ -99,13 +99,6 @@ class ThreadPimpl final : public DefaultInitializable {
     memory::PagePoolOffset new_offset,
     storage::DualPagePointer* pointer);
 
-  /** Unconditionally takes MCS lock on the given mcs_lock. */
-  xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
-  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
-  xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
-  /** Unlcok an MCS lock acquired by this thread. */
-  void      mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
-
   /** Pre-allocated MCS block. we so far pre-allocate at most 2^16 nodes per thread. */
   struct McsBlock {
     /**
@@ -114,7 +107,8 @@ class ThreadPimpl final : public DefaultInitializable {
     * The lock owner updates this when it unlocks.
     */
     bool              waiting_;           // +1 -> 1
-    uint8_t           reserved1_;         // +1 -> 2
+    /** just for sanity check. last 1 byte of the MCS lock's address */
+    uint8_t           lock_addr_tag_;     // +1 -> 2
     /**
      * The successor of MCS lock queue after this thread (in other words, the thread that is
      * waiting for this thread). Successor is represented by thread ID and block,
@@ -123,6 +117,17 @@ class ThreadPimpl final : public DefaultInitializable {
     thread::ThreadId  successor_;         // +2 -> 4
     xct::McsBlockIndex  successor_block_;   // +4 -> 8
   };
+
+  /** Unconditionally takes MCS lock on the given mcs_lock. */
+  xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
+  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
+  xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
+  /** Unlcok an MCS lock acquired by this thread. */
+  void      mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
+  McsBlock* mcs_init_block(
+    const xct::McsLock* mcs_lock,
+    xct::McsBlockIndex block_index,
+    bool waiting) ALWAYS_INLINE;
 
 
   Engine* const           engine_;

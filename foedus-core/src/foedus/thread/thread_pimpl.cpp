@@ -309,11 +309,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   ASSERT_ND(current_xct_.get_mcs_block_current() < 0xFFFFU);
   xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
   ASSERT_ND(block_index > 0);
-  McsBlock* block = mcs_blocks_ + block_index;
-  block->waiting_ = true;
-  block->successor_ = 0;
-  block->successor_block_ = 0;  // this means no successor so far.
-
+  McsBlock* block = mcs_init_block(mcs_lock, block_index, true);
   xct::McsLock desired(id_, block_index);
   uint32_t* address = mcs_lock->as_int_ptr();
   assert_mcs_aligned(address);
@@ -343,11 +339,15 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   McsBlock* pred_block = predecessor->mcs_blocks_ + predecessor_block;
   ASSERT_ND(pred_block->successor_ == 0);
   ASSERT_ND(pred_block->successor_block_ == 0);
+  ASSERT_ND(pred_block->lock_addr_tag_ == block->lock_addr_tag_);
+
   pred_block->successor_ = id_;
+  assorted::memory_fence_release();  // set successor_, then successor_block_
   pred_block->successor_block_ = block_index;
 
   // spin locally
   while (block->waiting_) {
+    ASSERT_ND(mcs_lock->is_locked());
     continue;
   }
   DVLOG(1) << "Okay, now I hold the lock. me=" << id_ << ", ex-pred=" << predecessor_id;
@@ -358,16 +358,27 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
 
 xct::McsBlockIndex ThreadPimpl::mcs_initial_lock(xct::McsLock* mcs_lock) {
   assert_mcs_aligned(mcs_lock);
+  ASSERT_ND(!mcs_lock->is_locked());
   // so far we allow only 2^16 MCS blocks per transaction. we might increase later.
   ASSERT_ND(current_xct_.get_mcs_block_current() < 0xFFFFU);
   xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
   ASSERT_ND(block_index > 0);
-  McsBlock* block = mcs_blocks_ + block_index;
-  block->waiting_ = false;
-  block->successor_ = 0;
-  block->successor_block_ = 0;
+  mcs_init_block(mcs_lock, block_index, false);
   mcs_lock->reset(id_, block_index);
   return block_index;
+}
+
+inline ThreadPimpl::McsBlock* ThreadPimpl::mcs_init_block(
+  const xct::McsLock* mcs_lock,
+  xct::McsBlockIndex block_index,
+  bool waiting) {
+  ASSERT_ND(block_index > 0);
+  McsBlock* block = mcs_blocks_ + block_index;
+  block->waiting_ = waiting;
+  block->lock_addr_tag_ = mcs_lock->last_1byte_addr();
+  block->successor_ = 0;
+  block->successor_block_ = 0;
+  return block;
 }
 
 void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index) {
@@ -377,6 +388,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   ASSERT_ND(current_xct_.get_mcs_block_current() >= block_index);
   McsBlock* block = mcs_blocks_ + block_index;
   ASSERT_ND(!block->waiting_);
+  ASSERT_ND(block->lock_addr_tag_ == mcs_lock->last_1byte_addr());
   if (block->successor_block_ == 0) {
     // okay, successor "seems" nullptr (not contended), but we have to make it sure with atomic CAS
     xct::McsLock expected(id_, block_index);
@@ -395,7 +407,9 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
     DVLOG(0) << "Interesting contention on MCS release. I thought it's null, but someone has just "
       " jumped in. me=" << id_ << ", mcs_lock=" << *mcs_lock;
     // wait for someone else to set the successor
+    ASSERT_ND(mcs_lock->is_locked());
     while (block->successor_block_ == 0) {
+      ASSERT_ND(mcs_lock->is_locked());
       continue;
     }
   }
@@ -406,6 +420,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
     = engine_->get_thread_pool().get_pimpl()->get_thread(block->successor_)->get_pimpl();
   ASSERT_ND(successor->current_xct_.get_mcs_block_current() >= block->successor_block_);
   McsBlock* succ_block = successor->mcs_blocks_ + block->successor_block_;
+  ASSERT_ND(succ_block->lock_addr_tag_ == mcs_lock->last_1byte_addr());
   ASSERT_ND(succ_block->waiting_);
   ASSERT_ND(mcs_lock->is_locked());
   succ_block->waiting_ = false;
