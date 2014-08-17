@@ -348,6 +348,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   // spin locally
   while (block->waiting_) {
     ASSERT_ND(mcs_lock->is_locked());
+    assorted::memory_fence_acquire();
     continue;
   }
   DVLOG(1) << "Okay, now I hold the lock. me=" << id_ << ", ex-pred=" << predecessor_id;
@@ -410,6 +411,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
     ASSERT_ND(mcs_lock->is_locked());
     while (block->successor_block_ == 0) {
       ASSERT_ND(mcs_lock->is_locked());
+      assorted::memory_fence_acquire();
       continue;
     }
   }
