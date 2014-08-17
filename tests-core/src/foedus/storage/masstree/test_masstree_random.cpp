@@ -182,6 +182,20 @@ class InsertManyNormalizedMtTask : public thread::ImpersonateTask {
   }
   uint32_t id_;
 };
+class InsertManyNormalizedVerifyTask : public thread::ImpersonateTask {
+ public:
+  ErrorStack run(thread::Thread* context) {
+    MasstreeStorage *masstree =
+      dynamic_cast<MasstreeStorage*>(
+        context->get_engine()->get_storage_manager().get_storage("test2"));
+    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+    Epoch commit_epoch;
+    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+    CHECK_ERROR(masstree->verify_single_thread(context));
+    WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+    return kRetOk;
+  }
+};
 
 TEST(MasstreeBasicTest, InsertManyNormalizedMt) {
   EngineOptions options = get_tiny_options();
@@ -209,6 +223,8 @@ TEST(MasstreeBasicTest, InsertManyNormalizedMt) {
     for (uint32_t i = 0; i < kThreads; ++i) {
       delete tasks[i];
     }
+    InsertManyNormalizedVerifyTask verify_task;
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(&verify_task));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

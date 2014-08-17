@@ -350,7 +350,7 @@ void ThreadPimpl::mcs_toolong_wait(
   uint32_t index = count + 1;
   for (uint32_t i = 0; i < count; ++i) {
     if (i > 0 && write_sets[i - 1].owner_id_address_ > write_sets[i].owner_id_address_) {
-      LOG(FATAL) << "mmm? unsorted??";
+      LOG(ERROR) << "mmm? unsorted?? this might be not within precommit, which is possible";
     }
     if (write_sets[i].owner_id_address_->get_key_lock() == mcs_lock) {
       index = i;
