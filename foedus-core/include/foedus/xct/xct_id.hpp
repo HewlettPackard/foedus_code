@@ -14,7 +14,9 @@
 #include "foedus/epoch.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/assorted/endianness.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
+#include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 
 /**
@@ -64,37 +66,117 @@ enum IsolationLevel {
   kSerializable,
 };
 
-/**
- * Bits used to serialize (order) logs in the same epoch.
- * This is stored in many log types rather than the full XctId because epoch is implicit.
- * @ingroup XCT
- */
-typedef uint32_t XctOrder;
-/**
- * In most cases this suffices. Do we need ThreadId?
- */
-inline uint16_t extract_in_epoch_ordinal(XctOrder order) { return order >> 16; }
-// Defines 64bit constant values for XctId.
-//                                             0123456789abcdef
-const uint64_t kMaskEpoch                   = 0xFFFFFFF000000000ULL;  // first 28 bits
-const uint64_t kMaskOrdinal                 = 0x0000000FFFF00000ULL;  // next 16 bits
-const uint64_t kMaskTailWaiter              = 0x00000000000FFFF0ULL;  // next 16 bits
-const uint64_t kMaskSerializer              = 0xFFFFFFFFFFFFFFF0ULL;  // above 3 serialize xcts
-const uint64_t kMaskInEpochOrder            = 0x0000000FFFFFFFF0ULL;  // ordinal and thread_id
-const uint64_t kKeylockBit                  = 0x0000000000000008ULL;
-const uint64_t kRangelockBit                = 0x0000000000000004ULL;
-const uint64_t kDeleteBit                   = 0x0000000000000002ULL;
-const uint64_t kMovedBit                    = 0x0000000000000001ULL;
-
-const uint64_t kUnmaskEpoch                 = 0x0000000FFFFFFFFFULL;
-const uint64_t kUnmaskOrdinal               = 0xFFFFFFF0000FFFFFULL;
-const uint64_t kUnmaskTailWaiter            = 0xFFFFFFFFFFF0000FULL;
-const uint64_t kUnmaskRangelock             = 0xFFFFFFFFFFFFFFFBULL;
-const uint64_t kUnmaskDelete                = 0xFFFFFFFFFFFFFFFDULL;
-const uint64_t kUnmaskMoved                 = 0xFFFFFFFFFFFFFFFEULL;
-const uint64_t kUnmaskStatusBits            = 0xFFFFFFFFFFFFFFF0ULL;
+/** Index in thread-local MCS block. 0 means not locked. */
+typedef uint32_t McsBlockIndex;
 
 /**
+ * @brief An MCS lock data structure.
+ * @details
+ * This is the minimal unit of locking in our system.
+ */
+class McsLock {
+ public:
+  McsLock() : tail_waiter_(0), tail_waiter_block_(0) {}
+  McsLock(thread::ThreadId tail_waiter, uint16_t tail_waiter_block)
+    : tail_waiter_(tail_waiter), tail_waiter_block_(tail_waiter_block) {}
+  explicit McsLock(uint32_t int_value) { *as_int_ptr() = int_value; }
+
+  McsLock(const McsLock& other) CXX11_FUNC_DELETE;
+  McsLock& operator=(const McsLock& other) CXX11_FUNC_DELETE;
+
+  uint32_t* as_int_ptr() { return reinterpret_cast<uint32_t*>(this); }
+  uint32_t  as_int() const { return *reinterpret_cast<const uint32_t*>(this); }
+  bool      is_locked() const { return tail_waiter_block_ != 0; }
+
+  /** Equivalent to context->mcs_acquire_lock(this). Actually that's more preferred. */
+  McsBlockIndex  acquire_lock(thread::Thread* context);
+  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
+  McsBlockIndex  initial_lock(thread::Thread* context);
+  /** Equivalent to context->mcs_release_lock(this). Actually that's more preferred. */
+  void      release_lock(thread::Thread* context, McsBlockIndex block);
+
+  /** This doesn't use any atomic operation to unlock. only allowed when there is no race */
+  void initial_unlock() ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    tail_waiter_block_ = 0;
+    tail_waiter_ = 0;  // not needed, but easier to understand
+  }
+
+  thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return tail_waiter_; }
+  McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE { return tail_waiter_block_; }
+
+  /** used only while page initialization */
+  void    reset() ALWAYS_INLINE {
+    tail_waiter_ = 0;
+    tail_waiter_block_ = 0;
+  }
+
+  /** used only for initial_lock() */
+  void    reset(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
+    tail_waiter_ = tail_waiter;
+    tail_waiter_block_ = tail_waiter_block;
+  }
+
+  friend std::ostream& operator<<(std::ostream& o, const McsLock& v);
+
+ private:
+  /** last waiter's thread ID */
+  thread::ThreadId  tail_waiter_;
+  /** last waiter's MCS block in the thread. 0 means no one is waiting (not locked) */
+  uint16_t          tail_waiter_block_;  // so far 16bits, so not McsBlockIndex
+};
+STATIC_SIZE_CHECK(sizeof(McsLock), 4)
+
+/**
+ * MCS lock for key lock combined with other status; flags and range locks.
+ */
+class CombinedLock {
+ public:
+  enum Constants {
+    kMaskVersion  = 0xFFFF,
+    kRangelockBit = 1 << 17,
+    // more bits reserved for range lock implementation
+  };
+
+  CombinedLock() : key_lock_(), other_locks_(0) {}
+
+  bool is_keylocked() const ALWAYS_INLINE { return key_lock_.is_locked(); }
+  bool is_rangelocked() const ALWAYS_INLINE { return (other_locks_ & kRangelockBit) != 0; }
+
+  McsLock* get_key_lock() ALWAYS_INLINE { return &key_lock_; }
+  const McsLock* get_key_lock() const ALWAYS_INLINE { return &key_lock_; }
+
+  uint16_t get_version() const { return other_locks_ & kMaskVersion; }
+  void increment_version() {
+    ASSERT_ND(is_keylocked());
+    uint16_t version = get_version() + 1;
+    other_locks_ = (other_locks_ & (~kMaskVersion)) | version;
+  }
+
+  /** used only while page initialization */
+  void    reset() ALWAYS_INLINE {
+    key_lock_.reset();
+    other_locks_ = 0;
+  }
+
+  friend std::ostream& operator<<(std::ostream& o, const CombinedLock& v);
+
+ private:
+  McsLock   key_lock_;
+  uint32_t  other_locks_;
+};
+STATIC_SIZE_CHECK(sizeof(CombinedLock), 8)
+
+const uint64_t kXctIdDeletedBit     = 1ULL << 63;
+const uint64_t kXctIdMovedBit       = 1ULL << 62;
+const uint64_t kXctIdBeingWrittenBit = 1ULL << 61;
+const uint64_t kXctIdReservedBit    = 1ULL << 60;
+const uint64_t kXctIdMaskSerializer = 0x0FFFFFFFFFFFFFFFULL;
+const uint64_t kXctIdMaskEpoch      = 0x0FFFFFFF00000000ULL;
+const uint64_t kXctIdMaskOrdinal    = 0x00000000FFFFFFFFULL;
+
+/**
+ * TODO(Hideaki) needs to overhaul the comment. now it's 128 bits.
  * @brief Transaction ID, a 64-bit data to identify transactions and record versions.
  * @ingroup XCT
  * @details
@@ -108,22 +190,26 @@ const uint64_t kUnmaskStatusBits            = 0xFFFFFFFFFFFFFFF0ULL;
  * We don't consume full 32 bits for epoch.
  * Assuming 20ms per epoch, 28bit still represents 1 year. All epochs will be refreshed by then
  * or we can have some periodic mantainance job to make it sure.</td></tr>
- * <tr><td>29..45</td><td>Ordinal</td><td>The recent owning transaction had this ordinal
+ * <tr><td>29..44</td><td>Ordinal</td><td>The recent owning transaction had this ordinal
  * in the epoch. We assign 16 bits. Thus 64k xcts per epoch.
  * A short transaction might exceed it, but then it can just increment current epoch.
  * Also, if there are no dependencies between transactions on each core, it could be
  * up to 64k xcts per epoch per core. See commit protocol.
  * </td></tr>
- * <tr><td>46..60</td><td>Tail Waiter for MCS locking</td><td>
+ * <tr><td>45</td><td>Reserved</td><td>Reserved for later use.</td></tr>
+ * <tr><td>46</td><td>Range Lock bit</td><td>Lock the interval from the key to next key.</td></tr>
+ * <tr><td>47</td><td>Psuedo-delete bit</td><td>Logically delete the key.</td></tr>
+ * <tr><td>48</td><td>Moved bit</td><td>This is used for the Master-tree foster-twin protocol.
+ * when a record is moved from one page to another during split.</td></tr>
+ * <tr><td>49</td><td>Key Lock bit</td><td>Lock the key. This and the next tail waiter
+ * forms its own 16bit region, which is atomically swapped in MCS locking.</td></tr>
+ * <tr><td>50..64</td><td>Tail Waiter for MCS locking</td><td>
  * Unlike SILO, we use this thread ID for MCS locking that scales much better on big machines.
  * This indicates the thread that is in the tail of the queue lock, which might be the owner
  * of the lock.
+ * Also, we spend only 15bits here to make this and lockbit a 16bits region.
+ * At most 128 cores per NUMA node (50-57 NUMA node, 58-64 core).
  * </td></tr>
- * <tr><td>61</td><td>Key Lock bit</td><td>Lock the key.</td></tr>
- * <tr><td>62</td><td>Range Lock bit</td><td>Lock the interval from the key to next key.</td></tr>
- * <tr><td>63</td><td>Psuedo-delete bit</td><td>Logically delete the key.</td></tr>
- * <tr><td>64</td><td>Moved bit</td><td>This is used for the Master-tree foster-twin protocol.
- * when a record is moved from one page to another during split.</td></tr>
  * </table>
  *
  * @par Greater than/Less than as 64-bit integer
@@ -150,79 +236,43 @@ const uint64_t kUnmaskStatusBits            = 0xFFFFFFFFFFFFFFF0ULL;
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
 struct XctId {
-  /** Defines constant values. */
-  enum Constants {
-    kShiftEpoch         = 36,
-    kShiftOrdinal       = 20,
-    kShiftTailWaiter    = 4,
-  };
-
   XctId() : data_(0) {}
-  explicit XctId(uint64_t data) : data_(data) {}
 
-  void set_clean(Epoch::EpochInteger epoch_int, uint16_t ordinal) {
+  void set(Epoch::EpochInteger epoch_int, uint32_t ordinal) {
     ASSERT_ND(epoch_int < Epoch::kEpochIntOverflow);
-    data_ = (static_cast<uint64_t>(epoch_int) << kShiftEpoch)
-      | (static_cast<uint64_t>(ordinal) << kShiftOrdinal);
-  }
-
-  XctId& operator=(const XctId& other) {
-    data_ = other.data_;
-    return *this;
+    data_ = static_cast<uint64_t>(epoch_int) << 32 | ordinal;
   }
 
   Epoch   get_epoch() const ALWAYS_INLINE { return Epoch(get_epoch_int()); }
   void    set_epoch(Epoch epoch) ALWAYS_INLINE { set_epoch_int(epoch.value()); }
   Epoch::EpochInteger get_epoch_int() const ALWAYS_INLINE {
-    return static_cast<Epoch::EpochInteger>((data_ & kMaskEpoch) >> kShiftEpoch);
+    return (data_ & kXctIdMaskEpoch) >> 32;
   }
-  void    set_epoch_int(Epoch::EpochInteger epoch) ALWAYS_INLINE {
-    ASSERT_ND(epoch < Epoch::kEpochIntOverflow);
-    data_ = (data_ & kUnmaskEpoch) | (static_cast<uint64_t>(epoch) << kShiftEpoch);
+  void    set_epoch_int(Epoch::EpochInteger epoch_int) ALWAYS_INLINE {
+    ASSERT_ND(epoch_int < Epoch::kEpochIntOverflow);
+    data_ = (data_ & ~kXctIdMaskEpoch) | (static_cast<uint64_t>(epoch_int) << 32);
   }
-  bool    is_valid() const ALWAYS_INLINE { return (data_ & kMaskEpoch) != 0; }
+  bool    is_valid() const ALWAYS_INLINE { return get_epoch_int() != Epoch::kEpochInvalid; }
 
 
-  uint16_t get_ordinal() const ALWAYS_INLINE {
-    return static_cast<uint16_t>((data_ & kMaskOrdinal) >> kShiftOrdinal);
-  }
-  void set_ordinal(uint16_t ordinal) ALWAYS_INLINE {
-    data_ = (data_ & kUnmaskOrdinal) | (static_cast<uint64_t>(ordinal) << kShiftOrdinal);
-  }
-  thread::ThreadId get_tail_waiter() const ALWAYS_INLINE {
-    return static_cast<thread::ThreadId>((data_ & kMaskTailWaiter) >> kShiftTailWaiter);
-  }
-  void    set_tail_waiter(thread::ThreadId id) ALWAYS_INLINE {
-    data_ = (data_ & kUnmaskTailWaiter) | (static_cast<uint64_t>(id) << kShiftTailWaiter);
+  uint32_t  get_ordinal() const ALWAYS_INLINE { return data_; }
+  void      set_ordinal(uint32_t ordinal) ALWAYS_INLINE {
+    data_ = (data_ & (~kXctIdMaskOrdinal)) | ordinal;
   }
 
-  /**
-   * Returns a 32-bit integer that represents the serial order in the epoch.
-   */
-  XctOrder get_in_epoch_xct_order() const ALWAYS_INLINE {
-    return (data_ & kMaskInEpochOrder) >> kShiftTailWaiter;
-  }
+  void    set_being_written() ALWAYS_INLINE { data_ |= kXctIdBeingWrittenBit; }
+  void    set_write_complete() ALWAYS_INLINE { data_ &= (~kXctIdBeingWrittenBit); }
+  void    set_deleted() ALWAYS_INLINE { data_ |= kXctIdDeletedBit; }
+  void    set_notdeleted() ALWAYS_INLINE { data_ &= (~kXctIdDeletedBit); }
+  void    set_moved() ALWAYS_INLINE { data_ |= kXctIdMovedBit; }
 
-  /**
-   * Returns if epoch, thread_id, and oridnal (w/o status) are identical with the given XctId.
-   */
-  bool equals_serial_order(const XctId &other) const ALWAYS_INLINE {
-    return (data_ & kMaskSerializer) == (other.data_ & kMaskSerializer);
-  }
-  bool equals_all(const XctId &other) const ALWAYS_INLINE {
-    return data_ == other.data_;
-  }
-  /**
-   * well, it might be confusing, but not providing == is way too inconvenient.
-   * @attention PLEASE BE AWARE THAT THIS COMPARES ALL BITS!
-   * If this is not the semantics you want as "==", use the individual methods above.
-   */
-  bool operator==(const XctId &other) const ALWAYS_INLINE {
-    return data_ == other.data_;
-  }
-  bool operator!=(const XctId &other) const ALWAYS_INLINE {
-    return data_ != other.data_;
-  }
+  bool    is_being_written() const ALWAYS_INLINE { return (data_ & kXctIdBeingWrittenBit) != 0; }
+  bool    is_deleted() const ALWAYS_INLINE { return (data_ & kXctIdDeletedBit) != 0; }
+  bool    is_moved() const ALWAYS_INLINE { return (data_ & kXctIdMovedBit) != 0; }
+
+
+  bool operator==(const XctId &other) const ALWAYS_INLINE { return data_ == other.data_; }
+  bool operator!=(const XctId &other) const ALWAYS_INLINE { return data_ != other.data_; }
 
   /**
    * @brief Kind of std::max(this, other).
@@ -233,7 +283,7 @@ struct XctId {
    */
   void store_max(const XctId& other) {
     if (other.get_epoch().is_valid() && before(other)) {
-      data_ = other.data_;
+      operator=(other);
     }
   }
 
@@ -244,166 +294,62 @@ struct XctId {
    */
   bool before(const XctId &other) const ALWAYS_INLINE {
     ASSERT_ND(other.is_valid());
-    if (get_epoch().before(other.get_epoch())) {
-      return true;  // epoch is treated carefully because of wrap-around
-    } else {
-      return data_ < other.data_;  // otherwise, just an integer comparison
+    // compare epoch, then ordinal
+    if (get_epoch_int() != other.get_epoch_int()) {
+      return get_epoch().before(other.get_epoch());
     }
+    return get_ordinal() < other.get_ordinal();
   }
+
+  void clear_status_bits() { data_ &= kXctIdMaskSerializer; }
 
   friend std::ostream& operator<<(std::ostream& o, const XctId& v);
 
-  /**
-   * Lock this key, busy-waiting if already locked.
-   * This assumes there is no deadlock (sorting write set assues it).
-   */
-  void keylock_unconditional() {
-    volatile uint64_t* address = reinterpret_cast<volatile uint64_t*>(&data_);
-    SPINLOCK_WHILE(true) {
-      if ((*address) & kKeylockBit) {
-        assorted::memory_fence_acquire();
-        continue;
-      }
-      uint64_t expected = data_ & (~kKeylockBit);
-      uint64_t desired = expected | kKeylockBit;
-      if (assorted::raw_atomic_compare_exchange_weak(&data_, &expected, desired)) {
-        ASSERT_ND(is_keylocked());
-        break;
-      }
-    }
-  }
-  /**
-   * Same as keylock_unconditional, but we do it in a batch, using 128bit CAS.
-   * This halves the number of CAS calls \e if 128bit CAS is available.
-   */
-  static void keylock_unconditional_batch(XctId* aligned, uint16_t count) {
-    // TODO(Hideaki) non-gcc. but let's do it later.
-#if defined(__GNUC__) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_16)
-    uint64_t expected[2];
-    uint64_t desired[2];
-    for (uint16_t i = 0; i < (count / 2); ++i) {
-      uint64_t* casted = reinterpret_cast<uint64_t*>(aligned + (i * 2));
-      SPINLOCK_WHILE(true) {
-        for (uint8_t j = 0; j < 2; ++j) {
-          expected[j] = casted[j] & (~kKeylockBit);
-          desired[j] = expected[j] | kKeylockBit;
-        }
-        if (assorted::raw_atomic_compare_exchange_weak_uint128(casted, expected, desired)) {
-          ASSERT_ND(aligned[i * 2].is_keylocked());
-          ASSERT_ND(aligned[i * 2 + 1].is_keylocked());
-          break;
-        }
-      }
-    }
-    if (count % 2 != 0) {
-      aligned[count - 1].keylock_unconditional();
-    }
-#else  // defined(__GNUC__) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_16)
-    for (uint16_t i = 0; i < count; ++i) {
-      aligned[i].keylock_unconditional();
-    }
-#endif  // defined(__GNUC__) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_16)
-  }
-
-  /**
-   * Same as keylock_unconditional() except that this gives up if we find a "moved" bit
-   * on. This occasionally happens in the "moved" bit handling due to concurrent split.
-   * If this happens, we rollback.
-   * @return whether we could acquire the lock. The only failure cause is "moved" bit on.
-   */
-  bool keylock_fail_if_moved() {
-    volatile uint64_t* address = reinterpret_cast<volatile uint64_t*>(&data_);
-    SPINLOCK_WHILE(true) {
-      uint64_t cur = *address;
-      if (UNLIKELY(cur & kMovedBit)) {
-        return false;
-      }
-      if (cur & kKeylockBit) {
-        assorted::memory_fence_acquire();
-        continue;
-      }
-      uint64_t desired = cur | kKeylockBit;
-      if (assorted::raw_atomic_compare_exchange_weak(&data_, &cur, desired)) {
-        ASSERT_ND(is_keylocked());
-        return true;
-      }
-    }
-  }
-
-  bool is_keylocked() const ALWAYS_INLINE { return (data_ & kKeylockBit) != 0; }
-  XctId spin_while_keylocked() const ALWAYS_INLINE {
-    SPINLOCK_WHILE(true) {
-      assorted::memory_fence_acquire();
-      uint64_t copied = data_;
-      if ((copied & kKeylockBit) == 0) {
-        return XctId(copied);
-      }
-    }
-  }
-  void release_keylock() ALWAYS_INLINE {
-    ASSERT_ND(is_keylocked());
-    data_ &= (~kKeylockBit);
-  }
-
-  void rangelock_unconditional() {
-    SPINLOCK_WHILE(true) {
-      uint64_t expected = data_ & kUnmaskRangelock;
-      uint64_t desired = expected | kRangelockBit;
-      if (assorted::raw_atomic_compare_exchange_weak(&data_, &expected, desired)) {
-        ASSERT_ND(is_rangelocked());
-        break;
-      }
-    }
-  }
-  bool is_rangelocked() const ALWAYS_INLINE { return (data_ & kRangelockBit) != 0; }
-  void spin_while_rangelocked() const {
-    SPINLOCK_WHILE(is_rangelocked()) {
-      assorted::memory_fence_acquire();
-    }
-  }
-  void release_rangelock() ALWAYS_INLINE {
-    ASSERT_ND(is_rangelocked());
-    data_ &= kUnmaskRangelock;
-  }
-
-  void set_deleted() ALWAYS_INLINE { data_ |= kDeleteBit; }
-  void set_notdeleted() ALWAYS_INLINE { data_ &= (~kDeleteBit); }
-  void set_moved() ALWAYS_INLINE { data_ |= kMovedBit; }
-
-  bool is_deleted() const ALWAYS_INLINE { return (data_ & kDeleteBit) != 0; }
-  bool is_moved() const ALWAYS_INLINE { return (data_ & kMovedBit) != 0; }
-
-  bool is_status_bits_off() const ALWAYS_INLINE {
-    return !is_deleted() && !is_keylocked() && !is_moved() && !is_rangelocked();
-  }
-  void clear_status_bits() ALWAYS_INLINE {
-    data_ &= kUnmaskStatusBits;
-  }
-
-  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
-  void initial_lock() ALWAYS_INLINE {
-    ASSERT_ND(!is_keylocked());
-    data_ |= kKeylockBit;
-  }
-  /** This doesn't use any atomic operation to unlock. only allowed when there is no race */
-  void initial_unlock() ALWAYS_INLINE {
-    ASSERT_ND(is_keylocked());
-    data_ &= (~kKeylockBit);
-  }
-
-  /** The 64bit data. */
-  uint64_t           data_;
+  uint64_t            data_;
 };
 // sizeof(XctId) must be 64 bits.
 STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))
 
-struct XctIdUnlockScope {
-  explicit XctIdUnlockScope(XctId* id) : id_(id) {}
-  ~XctIdUnlockScope() {
-    id_->release_keylock();
+struct LockableXctId {
+  CombinedLock  lock_;
+  XctId         xct_id_;
+
+  McsLock* get_key_lock() ALWAYS_INLINE { return lock_.get_key_lock(); }
+  bool is_keylocked() const ALWAYS_INLINE { return lock_.is_keylocked(); }
+  bool is_deleted() const ALWAYS_INLINE { return xct_id_.is_deleted(); }
+  bool is_moved() const ALWAYS_INLINE { return xct_id_.is_moved(); }
+  bool is_being_written() const ALWAYS_INLINE { return xct_id_.is_being_written(); }
+
+  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
+  uint32_t initial_keylock(thread::Thread* context) ALWAYS_INLINE {
+    return lock_.get_key_lock()->initial_lock(context);
   }
-  XctId* id_;
+
+  /** This doesn't use any atomic operation to unlock. only allowed when there is no race */
+  void initial_keyunlock() ALWAYS_INLINE {
+    lock_.get_key_lock()->initial_unlock();
+  }
+
+  /** used only while page initialization */
+  void    reset() ALWAYS_INLINE {
+    lock_.reset();
+    xct_id_.data_ = 0;
+  }
+  friend std::ostream& operator<<(std::ostream& o, const LockableXctId& v);
 };
+
+STATIC_SIZE_CHECK(sizeof(LockableXctId), 16)
+
+struct McsLockScope {
+  McsLockScope(thread::Thread* context, LockableXctId* lock);
+  McsLockScope(thread::Thread* context, McsLock* lock);
+  ~McsLockScope();
+
+  thread::Thread* context_;
+  McsLock* lock_;
+  McsBlockIndex block_;
+};
+
 
 }  // namespace xct
 }  // namespace foedus

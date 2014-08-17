@@ -11,7 +11,11 @@
  */
 namespace foedus {
 namespace xct {
+class   CombinedLock;
+struct  LockableXctId;
 struct  LockFreeWriteXctAccess;
+class   McsLock;
+struct  McsLockScope;
 struct  PointerAccess;
 struct  WriteXctAccess;
 class   Xct;

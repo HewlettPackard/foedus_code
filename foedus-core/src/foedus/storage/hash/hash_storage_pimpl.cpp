@@ -130,7 +130,7 @@ ErrorCode HashStorage::increment_record(
 void HashStorage::apply_delete_record(
   thread::Thread* context,
   const HashDeleteLogType* log_entry,
-  xct::XctId* owner_id,
+  xct::LockableXctId* owner_id,
   char* payload) {
   pimpl_->apply_delete_record(context, log_entry, owner_id, payload);
 }
@@ -138,7 +138,7 @@ void HashStorage::apply_delete_record(
 void HashStorage::apply_insert_record(
   thread::Thread* context,
   const HashInsertLogType* log_entry,
-  xct::XctId* owner_id,
+  xct::LockableXctId* owner_id,
   char* payload) {
   pimpl_->apply_insert_record(context, log_entry, owner_id, payload);
 }
@@ -604,7 +604,7 @@ ErrorCode HashStoragePimpl::increment_record(
   return context->get_current_xct().add_to_write_set(holder_, combo.record_, log_entry);
 }
 
-inline HashDataPage* to_page(xct::XctId* owner_id) {
+inline HashDataPage* to_page(xct::LockableXctId* owner_id) {
   // super-dirty way to obtain Page the record belongs to.
   // because all pages are 4kb aligned, we can just divide and multiply.
   uintptr_t int_address = reinterpret_cast<uintptr_t>(reinterpret_cast<void*>(owner_id));
@@ -616,7 +616,7 @@ inline HashDataPage* to_page(xct::XctId* owner_id) {
 void HashStoragePimpl::apply_insert_record(
   thread::Thread* /*context*/,
   const HashInsertLogType* log_entry,
-  xct::XctId* owner_id,
+  xct::LockableXctId* owner_id,
   char* payload) {
   // NOTE tentative hack! currently "payload address" for hash insert write set points to bin page
   // so that we don't have to calculate it again.
@@ -653,7 +653,7 @@ void HashStoragePimpl::apply_insert_record(
 void HashStoragePimpl::apply_delete_record(
   thread::Thread* /*context*/,
   const HashDeleteLogType* log_entry,
-  xct::XctId* owner_id,
+  xct::LockableXctId* owner_id,
   char* payload) {
   // NOTE tentative hack! currently "payload address" for hash insert write set points to bin page
   // so that we don't have to calculate it again.
@@ -822,7 +822,7 @@ inline ErrorCode HashStoragePimpl::locate_record(
     // add page lock for read set. before accessing records
     current_xct.add_to_read_set(
       holder_,
-      data_page->page_owner().spin_while_keylocked(),
+      data_page->page_owner().xct_id_,
       &data_page->page_owner());
 
     uint32_t hit_bitmap = combo->hit_bitmap_[i];
@@ -841,7 +841,7 @@ inline ErrorCode HashStoragePimpl::locate_record(
       Record* record = data_page->interpret_record(slot.offset_);
       current_xct.add_to_read_set(
         holder_,
-        record->owner_id_.spin_while_keylocked(),
+        record->owner_id_.xct_id_,
         &record->owner_id_);
       if (std::memcmp(record->payload_, key, key_length) == 0) {
         // okay, matched!!

@@ -22,7 +22,7 @@ TEST(XctIdTest, Empty) {
 }
 TEST(XctIdTest, SetAll) {
   XctId id;
-  id.set_clean(123, 456);
+  id.set(123, 456);
   EXPECT_TRUE(id.is_valid());
   EXPECT_EQ(123, id.get_epoch_int());
   EXPECT_EQ(456, id.get_ordinal());
@@ -30,7 +30,7 @@ TEST(XctIdTest, SetAll) {
 
 TEST(XctIdTest, SetEpoch) {
   XctId id;
-  id.set_clean(123, 456);
+  id.set(123, 456);
   id.set_epoch_int(997);
   EXPECT_TRUE(id.is_valid());
   EXPECT_EQ(997, id.get_epoch_int());
@@ -42,7 +42,7 @@ TEST(XctIdTest, SetEpoch) {
 
 TEST(XctIdTest, SetOrdinal) {
   XctId id;
-  id.set_clean(123, 456);
+  id.set(123, 456);
   id.set_ordinal(5423);
   EXPECT_TRUE(id.is_valid());
   EXPECT_EQ(123, id.get_epoch_int());
@@ -51,12 +51,10 @@ TEST(XctIdTest, SetOrdinal) {
 
 TEST(XctIdTest, SetThread) {
   XctId id;
-  id.set_clean(123, 456);
-  id.set_tail_waiter(997);
+  id.set(123, 456);
   EXPECT_TRUE(id.is_valid());
   EXPECT_EQ(123, id.get_epoch_int());
   EXPECT_EQ(456, id.get_ordinal());
-  EXPECT_EQ(997, id.get_tail_waiter());
 }
 
 }  // namespace xct

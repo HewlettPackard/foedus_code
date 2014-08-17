@@ -130,7 +130,7 @@ struct Logs {
     ArrayOverwriteLogType* entry = reinterpret_cast<ArrayOverwriteLogType*>(memory_ + cur_pos_);
     char dummy[kPayload];
     entry->populate(partitioner_->get_storage_id(), offset, dummy, payload_offset, payload_count);
-    entry->header_.xct_id_.set_clean(epoch_int, ordinal);
+    entry->header_.xct_id_.set(epoch_int, ordinal);
     positions_[cur_count_] = log_buffer_.compact(entry);
     cur_pos_ += entry->header_.log_length_;
     ++cur_count_;

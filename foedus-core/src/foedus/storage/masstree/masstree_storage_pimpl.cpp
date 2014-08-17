@@ -44,7 +44,7 @@ const MasstreeMetadata* MasstreeStorage::get_masstree_metadata() const  {
 bool MasstreeStorage::track_moved_record(xct::WriteXctAccess* write) {
   return pimpl_->track_moved_record(write);
 }
-xct::XctId* MasstreeStorage::track_moved_record(xct::XctId* address) {
+xct::LockableXctId* MasstreeStorage::track_moved_record(xct::LockableXctId* address) {
   return pimpl_->track_moved_record(address);
 }
 
@@ -122,7 +122,7 @@ ErrorCode MasstreeStoragePimpl::get_first_root(thread::Thread* context, Masstree
 ErrorCode MasstreeStoragePimpl::grow_root(
   thread::Thread* context,
   DualPagePointer* root_pointer,
-  xct::XctId* root_pointer_owner,
+  xct::LockableXctId* root_pointer_owner,
   MasstreeIntermediatePage** new_root) {
   *new_root = nullptr;
   if (root_pointer_owner->is_keylocked()) {
@@ -132,8 +132,7 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     return kErrorCodeOk;
   }
 
-  root_pointer_owner->keylock_unconditional();
-  xct::XctIdUnlockScope owner_scope(root_pointer_owner);
+  xct::McsLockScope owner_scope(context, root_pointer_owner);
   if (root_pointer_owner->is_moved()) {
     LOG(INFO) << "interesting. someone else has split the page that had a pointer"
       " to a root page of the layer to be grown";
@@ -150,8 +149,7 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     DVLOG(0) << "growing B-tree in non-first layer " << *holder_;
   }
 
-  root->lock();
-  PageVersionUnlockScope scope(root->get_version_address());
+  PageVersionLockScope scope(context, root->get_version_address());
   if (root->is_retired() || !root->has_foster_child()) {
     LOG(INFO) << "interesting. someone else has already grown B-tree";
     return kErrorCodeOk;  // retry. most likely we will see a new pointer
@@ -180,12 +178,12 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     new_pointer,
     root->get_layer(),
     kInfimumSlice,    // infimum slice
-    kSupremumSlice,   // high-fence is supremum
-    true);    // lock it
+    kSupremumSlice);   // high-fence is supremum
 
   KeySlice separator = root->get_foster_fence();
 
-  (*new_root)->set_key_count(0);
+  // the new root is not locked (no need), so we directly set key_count to avoid assertion.
+  (*new_root)->header().key_count_ = 0;
   MasstreeIntermediatePage::MiniPage& mini_page = (*new_root)->get_minipage(0);
   MasstreePage* left_page = root->get_foster_minor();
   MasstreePage* right_page = root->get_foster_major();
@@ -212,7 +210,6 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   ASSERT_ND(reinterpret_cast<Page*>(*new_root) ==
     context->get_global_volatile_page_resolver().resolve_offset_newpage(
       root_pointer->volatile_pointer_));
-  (*new_root)->initial_unlock();
 
   // the old root page is now retired
   root->set_retired();
@@ -245,8 +242,7 @@ ErrorStack MasstreeStoragePimpl::create(thread::Thread* context) {
     first_root_pointer_.volatile_pointer_,
     0,  // first layer
     kInfimumSlice,    // infimum slice
-    kSupremumSlice,   // high-fence is supremum
-    false);  // not locked
+    kSupremumSlice);   // high-fence is supremum
 
   exist_ = true;
   engine_->get_storage_manager().get_pimpl()->register_storage(holder_);
@@ -283,13 +279,11 @@ inline ErrorCode MasstreeStoragePimpl::find_border(
       return kErrorCodeOk;
     } else {
       MasstreeIntermediatePage* page = reinterpret_cast<MasstreeIntermediatePage*>(cur);
-      uint8_t key_count = page->get_key_count();
-      uint8_t minipage_index = page->find_minipage(key_count, slice);
+      uint8_t minipage_index = page->find_minipage(slice);
       MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(minipage_index);
 
       minipage.prefetch();
-      uint8_t key_count_mini = minipage.key_count_;
-      uint8_t pointer_index = minipage.find_pointer(key_count_mini, slice);
+      uint8_t pointer_index = minipage.find_pointer(slice);
       DualPagePointer& pointer = minipage.pointers_[pointer_index];
       MasstreePage* next;
       CHECK_ERROR_CODE(follow_page(context, for_writes, &pointer, &next));
@@ -337,9 +331,9 @@ ErrorCode MasstreeStoragePimpl::locate_record(
       for_writes,
       slice,
       &border));
-    uint8_t stable_key_count = border->get_key_count();
-    PageVersion border_version = border->get_stable_version();  // TODO doesn't have to be stable
-    uint8_t index = border->find_key(stable_key_count, slice, suffix, remaining_length);
+    PageVersionStatus border_version = border->get_version().status_;
+    assorted::memory_fence_consume();
+    uint8_t index = border->find_key(slice, suffix, remaining_length);
 
     if (index == MasstreeBorderPage::kMaxKeys) {
       // this means not found. add it to page version set to protect the lack of record
@@ -357,7 +351,7 @@ ErrorCode MasstreeStoragePimpl::locate_record(
     } else {
       *out_page = border;
       *record_index = index;
-      *observed = border->get_owner_id(index)->spin_while_keylocked();
+      *observed = border->get_owner_id(index)->xct_id_;
       assorted::memory_fence_consume();
       return kErrorCodeOk;
     }
@@ -377,7 +371,7 @@ ErrorCode MasstreeStoragePimpl::locate_record_normalized(
   CHECK_ERROR_CODE(get_first_root(context, &layer_root));
   CHECK_ERROR_CODE(find_border(context, layer_root, 0, for_writes, key, &border));
   uint8_t index = border->find_key_normalized(0, border->get_key_count(), key);
-  PageVersion border_version = border->get_stable_version();  // TODO nostable
+  PageVersionStatus border_version = border->get_version().status_;
   if (index == MasstreeBorderPage::kMaxKeys) {
     // this means not found
     if (!border->header().snapshot_) {
@@ -392,7 +386,7 @@ ErrorCode MasstreeStoragePimpl::locate_record_normalized(
   ASSERT_ND(!border->does_point_to_layer(index));
   *out_page = border;
   *record_index = index;
-  *observed = border->get_owner_id(index)->spin_while_keylocked();
+  *observed = border->get_owner_id(index)->xct_id_;
   assorted::memory_fence_consume();
   return kErrorCodeOk;
 }
@@ -414,17 +408,16 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
   pointer.snapshot_pointer_ = 0;
   pointer.volatile_pointer_ = combine_volatile_page_pointer(context->get_numa_node(), 0, 0, offset);
 
-  xct::XctId* parent_lock = parent->get_owner_id(parent_index);
+  xct::LockableXctId* parent_lock = parent->get_owner_id(parent_index);
 
   // as an independent system transaction, here we do an optimistic version check.
-  parent_lock->keylock_unconditional();
+  xct::McsLockScope parent_scope(context, parent_lock);
   if (parent_lock->is_moved() || parent->does_point_to_layer(parent_index)) {
     // someone else has also made this to a next layer or the page itself is moved!
     // our effort was a waste, but anyway the goal was achieved.
     VLOG(0) << "interesting. a concurrent thread has already made "
       << (parent_lock->is_moved() ? "this page moved" : " it point to next layer");
     memory->release_free_volatile_page(offset);
-    parent_lock->release_keylock();
   } else {
     // initialize the root page by copying the recor
     root->initialize_volatile_page(
@@ -432,14 +425,15 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
       pointer.volatile_pointer_,
       parent->get_layer() + 1,
       kInfimumSlice,    // infimum slice
-      kSupremumSlice,   // high-fence is supremum
-      true);  // initially locked
+      kSupremumSlice);   // high-fence is supremum
+    ASSERT_ND(!root->is_locked());
     root->initialize_layer_root(parent, parent_index);
     ASSERT_ND(!root->is_moved());
     ASSERT_ND(!root->is_retired());
-    root->initial_unlock();
 
     // point to the new page
+    parent_lock->xct_id_.set_being_written();
+    assorted::memory_fence_release();
     parent->set_next_layer(parent_index, pointer);
     ASSERT_ND(parent->get_next_layer(parent_index)->volatile_pointer_.components.offset == offset);
     ASSERT_ND(parent->get_next_layer(parent_index)->volatile_pointer_.components.numa_node
@@ -450,11 +444,12 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
       // again, we didn't do anything logically.
       ASSERT_ND(root->get_owner_id(0)->is_deleted());
       // as a pointer, now it should be an active pointer.
-      parent_lock->set_notdeleted();
+      parent_lock->xct_id_.set_notdeleted();
     }
     // change ordinal just to let concurrent transactions get aware
-    parent_lock->set_ordinal(parent_lock->get_ordinal() + 1U);
-    parent_lock->release_keylock();
+    parent_lock->xct_id_.set_ordinal(parent_lock->xct_id_.get_ordinal() + 1U);
+    assorted::memory_fence_release();
+    parent_lock->xct_id_.set_write_complete();
   }
   return kErrorCodeOk;
 }
@@ -483,7 +478,7 @@ inline ErrorCode MasstreeStoragePimpl::follow_layer(
   ASSERT_ND(record_index < MasstreeBorderPage::kMaxKeys);
   ASSERT_ND(parent->does_point_to_layer(record_index));
   DualPagePointer* pointer = parent->get_next_layer(record_index);
-  xct::XctId* owner = parent->get_owner_id(record_index);
+  xct::LockableXctId* owner = parent->get_owner_id(record_index);
   ASSERT_ND(!pointer->is_both_null());
   MasstreePage* next_root;
   CHECK_ERROR_CODE(follow_page(context, for_writes, pointer, &next_root));
@@ -554,7 +549,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         // in that case, we should do delete then insert.
         *out_page = border;
         *record_index = match.index_;
-        *observed = border->get_owner_id(match.index_)->spin_while_keylocked();
+        *observed = border->get_owner_id(match.index_)->xct_id_;
         assorted::memory_fence_consume();
         return kErrorCodeOk;
       } else if (match.match_type_ == MasstreeBorderPage::kConflictingLocalRecord) {
@@ -582,9 +577,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
       // no matching or conflicting keys. so we will create a brand new record.
       // this is a system transaction to just create a deleted record.
       // for this, we need a page lock.
-      border->lock();
+      PageVersionLockScope scope(context, border->get_version_address());
       border->assert_entries();
-      PageVersionUnlockScope scope(border->get_version_address());
       // now finally we took a lock, finalizing the version. up to now, everything could happen.
       // check all of them and retry if fails.
       if (UNLIKELY(border->is_moved())) {
@@ -608,7 +602,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         scope.release();
         *out_page = border;
         *record_index = match.index_;
-        *observed = border->get_owner_id(match.index_)->spin_while_keylocked();
+        *observed = border->get_owner_id(match.index_)->xct_id_;
         assorted::memory_fence_consume();
         return kErrorCodeOk;
       } else if (match.match_type_ == MasstreeBorderPage::kNotFound) {
@@ -670,14 +664,15 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
       }
     }
 
-    border->lock();
+    PageVersionLockScope scope(context, border->get_version_address());
     border->assert_entries();
-    PageVersionUnlockScope scope(border->get_version_address());
     if (UNLIKELY(border->has_foster_child())) {
       continue;
     }
     ASSERT_ND(!border->has_foster_child());
     ASSERT_ND(!border->is_moved());
+    ASSERT_ND(border->get_foster_major() == nullptr);
+    ASSERT_ND(border->get_foster_minor() == nullptr);
     ASSERT_ND(border->within_fences(key));
 
     // because we never go on to second layer in this case, it's either a full match or not-found
@@ -690,7 +685,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
       scope.release();
       *out_page = border;
       *record_index = index;
-      *observed = border->get_owner_id(index)->spin_while_keylocked();
+      *observed = border->get_owner_id(index)->xct_id_;
       assorted::memory_fence_consume();
       return kErrorCodeOk;
     }
@@ -720,6 +715,9 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
   uint8_t* record_index,
   xct::XctId* observed) {
   ASSERT_ND(border->is_locked());
+  ASSERT_ND(!border->is_moved());
+  ASSERT_ND(border->get_foster_major() == nullptr);
+  ASSERT_ND(border->get_foster_minor() == nullptr);
   uint8_t count = border->get_key_count();
   if (border->can_accomodate(count, remaining, payload_count)) {
     reserve_record_new_record_apply(
@@ -736,19 +734,19 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
   } else {
     // have to split to make room. the newly created foster child is always the place to insert.
     MasstreeBorderPage* target;
-    CHECK_ERROR_CODE(border->split_foster(context, key, &target));
+    xct::McsBlockIndex target_lock;
+    CHECK_ERROR_CODE(border->split_foster(context, key, &target, &target_lock));
     ASSERT_ND(target->is_locked());
-    PageVersionUnlockScope target_scope(target->get_version_address());
     ASSERT_ND(target->within_fences(key));
     count = target->get_key_count();
-    ASSERT_ND(target->find_key(border->get_key_count(), key, suffix, remaining)
-      == MasstreeBorderPage::kMaxKeys);
+    ASSERT_ND(target->find_key(key, suffix, remaining) == MasstreeBorderPage::kMaxKeys);
     if (!target->can_accomodate(count, remaining, payload_count)) {
       // this might happen if payload_count is huge. so far just error out.
       LOG(WARNING) << "Wait, not enough space even after splits? should be pretty rare...";
+      context->mcs_release_lock(target->get_lock_address(), target_lock);
       return kErrorCodeStrTooLongPayload;
     }
-    target_scope.set_changed();
+    target->get_version_address()->increment_version_counter();
     reserve_record_new_record_apply(
       context,
       target,
@@ -758,6 +756,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
       suffix,
       payload_count,
       observed);
+    context->mcs_release_lock(target->get_lock_address(), target_lock);
     *out_page = target;
     *record_index = count;
   }
@@ -779,7 +778,7 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
   ASSERT_ND(target->can_accomodate(target_index, remaining_key_length, payload_count));
   ASSERT_ND(target->get_key_count() < MasstreeBorderPage::kMaxKeys);
   xct::XctId initial_id;
-  initial_id.set_clean(
+  initial_id.set(
     Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
     0);
   initial_id.set_deleted();
@@ -1031,7 +1030,7 @@ inline bool MasstreeStoragePimpl::track_moved_record(xct::WriteXctAccess* write)
   return true;
 }
 
-inline xct::XctId* MasstreeStoragePimpl::track_moved_record(xct::XctId* address) {
+inline xct::LockableXctId* MasstreeStoragePimpl::track_moved_record(xct::LockableXctId* address) {
   MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(to_page(address));
   MasstreeBorderPage* located_page;
   uint8_t located_index;

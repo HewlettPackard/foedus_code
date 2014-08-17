@@ -137,13 +137,13 @@ ErrorCode MasstreeCursor::proceed_route_border() {
   Route* route = cur_route();
   ASSERT_ND(!route->stable_.is_moved());
   ASSERT_ND(route->page_->is_border());
-  if (UNLIKELY(route->page_->get_version() != route->stable_)) {
+  if (UNLIKELY(route->page_->get_version().status_ != route->stable_)) {
     // something has changed in this page.
     // TODO(Hideaki) until we implement range lock, we have to roll back in this case.
     return kErrorCodeXctRaceAbort;
   }
 
-  PageVersion stable = route->stable_;
+  PageVersionStatus stable = route->stable_;
   MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(route->page_);
   while (true) {
     if (forward_cursor_) {
@@ -173,7 +173,7 @@ ErrorCode MasstreeCursor::proceed_route_border() {
     }
   }
   assorted::memory_fence_consume();
-  if (UNLIKELY(page->get_version() != stable)) {
+  if (UNLIKELY(page->get_version().status_ != stable)) {
     return kErrorCodeXctRaceAbort;  // same above
   }
   return kErrorCodeOk;
@@ -431,8 +431,7 @@ void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, uint8_t record) 
   ASSERT_ND(record < page->get_key_count());
   cur_key_owner_id_address = page->get_owner_id(record);
   if (!page->header().snapshot_) {
-    cur_key_observed_owner_id_ = cur_key_owner_id_address->spin_while_keylocked();
-    ASSERT_ND(!cur_key_observed_owner_id_.is_keylocked());
+    cur_key_observed_owner_id_ = cur_key_owner_id_address->xct_id_;
   }
   uint8_t remaining = page->get_remaining_key_length(record);
   uint8_t suffix_length = 0;
@@ -491,8 +490,7 @@ inline ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
   while (true) {
     route.key_count_ = page->get_key_count();
     assorted::memory_fence_consume();
-    route.stable_ = page->get_stable_version();  // TODO don't need to get stable unless leaf
-    ASSERT_ND(!route.stable_.is_locked());
+    route.stable_ = page->get_version().status_;
     route.page_ = page;
     if (route.stable_.is_moved()) {
       route.moved_page_search_status_ = Route::kMovedPageSearchedNeither;
@@ -507,7 +505,7 @@ inline ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
       route.setup_order();
       assorted::memory_fence_consume();
       // the setup_order must not be confused by concurrent updates
-      if (UNLIKELY(route.stable_ != page->get_version())) {
+      if (UNLIKELY(route.stable_ != page->get_version().status_)) {
         continue;
       }
     }
@@ -899,8 +897,8 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
     route->index_ = index;
     assorted::memory_fence_consume();
 
-    if (UNLIKELY(route->stable_ != border->get_version())) {
-      PageVersion new_stable = border->get_stable_version();
+    if (UNLIKELY(route->stable_ != border->get_version().status_)) {
+      PageVersionStatus new_stable = border->get_version().status_;
       if (new_stable.is_moved()) {
         // this page has split. it IS fine thanks to Master-Tree invariant.
         // go deeper to one of foster child
@@ -1007,7 +1005,7 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
     extract_separators(&separator_low, &separator_high);
     if (UNLIKELY(slice < separator_low || slice > separator_high)) {
       VLOG(0) << "Interesting5. separator doesn't match. concurrent adopt. local retry.";
-      route->stable_ = cur->get_stable_version();
+      route->stable_ = cur->get_version().status_;
       continue;
     }
     ASSERT_ND(separator_low <= slice && slice <= separator_high);
@@ -1024,7 +1022,7 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
     if (UNLIKELY(next->get_low_fence() != separator_low ||
         next->get_high_fence() != separator_high)) {
       VLOG(0) << "Interesting. separator doesn't match. concurrent adopt. local retry.";
-      route->stable_ = cur->get_stable_version();
+      route->stable_ = cur->get_version().status_;
       continue;
     }
 

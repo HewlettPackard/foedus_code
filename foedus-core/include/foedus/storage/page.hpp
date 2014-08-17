@@ -14,6 +14,7 @@
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
+#include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/xct_id.hpp"
 
@@ -39,12 +40,57 @@ enum PageType {
   kDummyLastPageType,
 };
 
+struct PageVersionStatus CXX11_FINAL {
+  enum Constants {
+    kRetiredBit = 1 << 31,
+    kMovedBit = 1 << 30,
+    kReservedBit1 = 1 << 29,
+    kReservedBit2 = 1 << 28,
+    kVersionMask = 0x0FFFFFFF,
+  };
+  PageVersionStatus() : status_(0) {}
+  void    reset() ALWAYS_INLINE { status_ = 0; }
+
+  bool    is_moved() const ALWAYS_INLINE { return (status_ & kMovedBit) != 0; }
+  bool    is_retired() const ALWAYS_INLINE { return (status_ & kRetiredBit) != 0; }
+
+  bool operator==(const PageVersionStatus& other) const ALWAYS_INLINE {
+    return status_ == other.status_;
+  }
+  bool operator!=(const PageVersionStatus& other) const ALWAYS_INLINE {
+    return status_ != other.status_;
+  }
+
+  void      set_moved() ALWAYS_INLINE {
+    ASSERT_ND(!is_moved());
+    status_ |= kMovedBit;
+  }
+  void      set_retired() ALWAYS_INLINE {
+    ASSERT_ND(is_moved());  // we always set moved bit first. retire must happen later.
+    ASSERT_ND(!is_retired());
+    status_ |= kRetiredBit;
+  }
+
+  uint32_t  get_version_counter() const ALWAYS_INLINE {
+    return status_ & kVersionMask;
+  }
+  void      increment_version_counter() ALWAYS_INLINE {
+    // we do this only when we insert a new key or split, so this never overflows.
+    ASSERT_ND(get_version_counter() < kVersionMask);
+    ++status_;
+  }
+
+  friend std::ostream& operator<<(std::ostream& o, const PageVersionStatus& v);
+
+  uint32_t      status_;
+};
+
 /**
  * @brief Just a synonym of XctId to be used as a page lock mechanism.
  * @ingroup STORAGE
  * @details
  * Each page has this in the header.
- * Unlike [YANDONG12], this is just a XctId.
+ * Unlike [YANDONG12], this is just a CombinedLock.
  * We maintain key count and permutation differently from [YANDONG12].
  *
  * "is_deleted" flag is called "is_retired" to clarify what deletion means for a page.
@@ -55,64 +101,52 @@ enum PageType {
  * All methods are inlined except stream.
  */
 struct PageVersion CXX11_FINAL {
-  PageVersion() ALWAYS_INLINE : xct_id_() {}
-  explicit PageVersion(xct::XctId xct_id) ALWAYS_INLINE : xct_id_(xct_id) {}
+  PageVersion() ALWAYS_INLINE : lock_(), status_() {}
 
   /** used only while page initialization */
-  void    reset() ALWAYS_INLINE { xct_id_.data_ = 0; }
+  void    reset() ALWAYS_INLINE {
+    lock_.reset();
+    status_.reset();
+  }
 
-  bool    is_locked() const ALWAYS_INLINE { return xct_id_.is_keylocked(); }
-  bool    is_moved() const ALWAYS_INLINE { return xct_id_.is_moved(); }
-  bool    is_retired() const ALWAYS_INLINE { return xct_id_.is_deleted(); }
+  bool    is_locked() const ALWAYS_INLINE { return lock_.is_locked(); }
+  bool    is_moved() const ALWAYS_INLINE { return status_.is_moved(); }
+  bool    is_retired() const ALWAYS_INLINE { return status_.is_retired(); }
 
-  bool operator==(const PageVersion& other) const ALWAYS_INLINE { return xct_id_ == other.xct_id_; }
-  bool operator!=(const PageVersion& other) const ALWAYS_INLINE { return xct_id_ != other.xct_id_; }
+  bool operator==(const PageVersion& other) const ALWAYS_INLINE { return status_ == other.status_; }
+  bool operator!=(const PageVersion& other) const ALWAYS_INLINE { return status_ != other.status_; }
 
   void      set_moved() ALWAYS_INLINE {
     ASSERT_ND(is_locked());
-    ASSERT_ND(!is_moved());
-    xct_id_.set_moved();
+    status_.set_moved();
   }
   void      set_retired() ALWAYS_INLINE {
     ASSERT_ND(is_locked());
-    ASSERT_ND(is_moved());  // we always set moved bit first. retire must happen later.
-    ASSERT_ND(!is_retired());
-    xct_id_.set_deleted();
+    status_.set_retired();
   }
 
-  uint16_t get_version_counter() const ALWAYS_INLINE {
-    return xct_id_.get_ordinal();
+  uint32_t  get_version_counter() const ALWAYS_INLINE {
+    return status_.get_version_counter();
   }
-  void increment_version_counter() ALWAYS_INLINE {
-    // we do this only when we insert a new key or split, so this never overflows.
-    return xct_id_.set_ordinal(xct_id_.get_ordinal() + 1U);
-  }
-
-  /**
-  * @brief Spins until we observe a non-locked version.
-  * @return version of this page that wasn't during modification.
-  */
-  PageVersion stable_version() const ALWAYS_INLINE {
-    return PageVersion(xct_id_.spin_while_keylocked());
+  void      increment_version_counter() ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    status_.increment_version_counter();
   }
 
   /**
   * @brief Locks the page, spinning if necessary.
-  * @details
-  * After taking lock, you might want to additionally set inserting/splitting bits.
-  * Those can be done just as a usual write once you get a lock.
   */
-  void lock_version() ALWAYS_INLINE {
-    xct_id_.keylock_unconditional();
+  xct::McsBlockIndex lock(thread::Thread* context) ALWAYS_INLINE {
+    return lock_.acquire_lock(context);
   }
 
   /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
-  void initial_lock() ALWAYS_INLINE {
-    xct_id_.initial_lock();
+  xct::McsBlockIndex initial_lock(thread::Thread* context) ALWAYS_INLINE {
+    return lock_.initial_lock(context);
   }
   /** This doesn't use any atomic operation to unlock. only allowed when there is no race */
   void initial_unlock() ALWAYS_INLINE {
-    xct_id_.initial_unlock();
+    lock_.initial_unlock();
   }
 
   /**
@@ -122,39 +156,32 @@ struct PageVersion CXX11_FINAL {
   * @details
   * This method also increments the version counter to declare a change in this page.
   */
-  void unlock_changed() ALWAYS_INLINE {
+  void unlock_changed(thread::Thread* context, xct::McsBlockIndex block) ALWAYS_INLINE {
     increment_version_counter();
-    xct_id_.release_keylock();
+    lock_.release_lock(context, block);
   }
   /** this one doesn't increment the counter. used when the lock owner didn't make any change */
-  void unlock_nochange() ALWAYS_INLINE {
-    xct_id_.release_keylock();
+  void unlock_nochange(thread::Thread* context, xct::McsBlockIndex block) ALWAYS_INLINE {
+    lock_.release_lock(context, block);
   }
 
 
   friend std::ostream& operator<<(std::ostream& o, const PageVersion& v);
 
-  xct::XctId xct_id_;
+  xct::McsLock      lock_;
+  PageVersionStatus status_;
 };
 STATIC_SIZE_CHECK(sizeof(PageVersion), 8)
 
-struct PageVersionUnlockScope {
-  explicit PageVersionUnlockScope(PageVersion* version)
-    : version_(version), changed_(false), released_(false) {}
-  ~PageVersionUnlockScope() { release(); }
+struct PageVersionLockScope {
+  PageVersionLockScope(thread::Thread* context, PageVersion* version, bool initial_lock = false);
+  ~PageVersionLockScope() { release(); }
   void set_changed() { changed_ = true; }
-  void release() {
-    if (!released_) {
-      if (changed_) {
-        version_->unlock_changed();
-      } else {
-        version_->unlock_nochange();
-      }
-      released_ = true;
-    }
-  }
+  void release();
 
+  thread::Thread* context_;
   PageVersion* version_;
+  xct::McsBlockIndex block_;
   bool changed_;
   bool released_;
 };

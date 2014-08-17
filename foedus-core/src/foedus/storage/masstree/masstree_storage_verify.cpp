@@ -191,9 +191,10 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_border(
   CHECK_AND_ASSERT(!page->is_moved());
   CHECK_AND_ASSERT(page->get_key_count() <= MasstreeBorderPage::kMaxKeys);
   for (uint8_t i = 0; i < page->get_key_count(); ++i) {
-    CHECK_AND_ASSERT(!page->get_owner_id(i)->is_keylocked());
-    CHECK_AND_ASSERT(!page->get_owner_id(i)->is_rangelocked());
-    CHECK_AND_ASSERT(page->get_owner_id(i)->get_epoch().is_valid());
+    CHECK_AND_ASSERT(!page->get_owner_id(i)->lock_.is_keylocked());
+    CHECK_AND_ASSERT(!page->get_owner_id(i)->lock_.is_rangelocked());
+    CHECK_AND_ASSERT(!page->get_owner_id(i)->xct_id_.is_being_written());
+    CHECK_AND_ASSERT(page->get_owner_id(i)->xct_id_.get_epoch().is_valid());
     if (i == 0) {
       CHECK_AND_ASSERT(page->get_offset_in_bytes(i) < MasstreeBorderPage::kDataSize);
     } else {

@@ -59,8 +59,8 @@ struct PageVersionAccess {
   /** Address to the page version. */
   const storage::PageVersion* address_;
 
-  /** Value of the page version as of the access. This should be a "stable" version. */
-  storage::PageVersion        observed_;
+  /** Value of the page version as of the access. */
+  storage::PageVersionStatus observed_;
 };
 
 /**
@@ -69,6 +69,7 @@ struct PageVersionAccess {
  * @details
  * @par POD
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
+ * TODO(Hideaki) should be renamed to ReadXctAccess. might be a bit lengthy tho.
  */
 struct XctAccess {
   friend std::ostream& operator<<(std::ostream& o, const XctAccess& v);
@@ -80,7 +81,7 @@ struct XctAccess {
   storage::Storage*   storage_;
 
   /** Pointer to the accessed record. */
-  XctId*              owner_id_address_;
+  LockableXctId*      owner_id_address_;
 
   /** sort the read set in a unique order. We use address of records as done in [TU2013]. */
   static bool compare(const XctAccess &left, const XctAccess& right) {
@@ -104,13 +105,19 @@ struct WriteXctAccess {
   storage::Storage*     storage_;
 
   /** Pointer to the accessed record. */
-  XctId*                owner_id_address_;
+  LockableXctId*        owner_id_address_;
 
   /** Pointer to the payload of the record. */
   char*                 payload_address_;
 
   /** Pointer to the log entry in private log buffer for this write opereation. */
   log::RecordLogType*   log_entry_;
+
+  /**
+   * If we have locked it, the MCS block index for the lock.
+   * 0 if not locked (or locked by adjacent write-set with same owner_id address).
+   */
+  McsBlockIndex         mcs_block_;
 
   /** sort the write set in a unique order. We use address of records as done in [TU2013]. */
   static bool compare(const WriteXctAccess &left, const WriteXctAccess& right) {

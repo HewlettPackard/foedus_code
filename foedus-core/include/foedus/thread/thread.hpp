@@ -16,6 +16,7 @@
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/fwd.hpp"
+#include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace thread {
@@ -23,6 +24,12 @@ namespace thread {
  * @brief Represents one thread running on one NUMA core.
  * @ingroup THREAD
  * @details
+ * @section THREAD_MCS MCS-Locking
+ * SILO uses a simple spin lock with atomic CAS, but we observed a HUUUGE bottleneck
+ * with it on big machines (8 sockets or 16 sockets) while it was totally fine up to 4 sockets.
+ * It causes a cache invalidation storm even with exponential backoff.
+ * The best solution is MCS locking with \e local spins. We implemented it with advices from
+ * HLINUX team.
  */
 class Thread CXX11_FINAL : public virtual Initializable {
  public:
@@ -134,6 +141,13 @@ class Thread CXX11_FINAL : public virtual Initializable {
     bool take_ptr_set_volatile,
     storage::DualPagePointer* pointer,
     storage::Page** page);
+
+  /** Unconditionally takes MCS lock on the given mcs_lock. */
+  xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
+  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
+  xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
+  /** Unlcok an MCS lock acquired by this thread. */
+  void      mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
 
   /** Returns the pimpl of this object. Use it only when you know what you are doing. */
   ThreadPimpl*  get_pimpl() const { return pimpl_; }

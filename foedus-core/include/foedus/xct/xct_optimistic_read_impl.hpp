@@ -25,17 +25,17 @@ template <typename HANDLER>
 inline ErrorCode optimistic_read_protocol(
   Xct* xct,
   storage::Storage* storage,
-  XctId* owner_id_address,
+  LockableXctId* owner_id_address,
   bool in_snapshot,
   HANDLER handler) {
   if (in_snapshot ||
     xct->get_isolation_level() == kDirtyReadPreferSnapshot ||
     xct->get_isolation_level() == kDirtyReadPreferVolatile) {
-    CHECK_ERROR_CODE(handler(*owner_id_address));
+    CHECK_ERROR_CODE(handler(owner_id_address->xct_id_));
     return kErrorCodeOk;
   }
 
-  XctId observed(owner_id_address->spin_while_keylocked());
+  XctId observed(owner_id_address->xct_id_);
   assorted::memory_fence_consume();
   CHECK_ERROR_CODE(handler(observed));
 

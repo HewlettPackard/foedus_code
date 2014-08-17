@@ -96,7 +96,7 @@ struct ArrayOverwriteLogType : public log::RecordLogType {
   void apply_record(
     thread::Thread* context,
     Storage* storage,
-    xct::XctId* owner_id,
+    xct::LockableXctId* owner_id,
     char* payload) const ALWAYS_INLINE;
 
   void assert_valid() const ALWAYS_INLINE;
@@ -169,7 +169,7 @@ struct ArrayIncrementLogType : public log::RecordLogType {
   void apply_record(
     thread::Thread* context,
     Storage* storage,
-    xct::XctId* owner_id,
+    xct::LockableXctId* owner_id,
     char* payload) const ALWAYS_INLINE;
 
   void assert_valid() const ALWAYS_INLINE;
@@ -212,7 +212,7 @@ inline void ArrayOverwriteLogType::populate_primitive(
 inline void ArrayOverwriteLogType::apply_record(
   thread::Thread* /*context*/,
   Storage* storage,
-  xct::XctId* /*owner_id*/,
+  xct::LockableXctId* /*owner_id*/,
   char* payload) const {
   ASSERT_ND(payload_count_ < kDataSize);
   ASSERT_ND(dynamic_cast<ArrayStorage*>(storage));
@@ -255,7 +255,7 @@ inline void increment(T* payload, const T* addendum) {
 inline void ArrayIncrementLogType::apply_record(
   thread::Thread* /*context*/,
   Storage* storage,
-  xct::XctId* /*owner_id*/,
+  xct::LockableXctId* /*owner_id*/,
   char* payload) const {
   ASSERT_ND(dynamic_cast<ArrayStorage*>(storage));
   switch (get_value_type()) {

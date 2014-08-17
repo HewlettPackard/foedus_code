@@ -115,7 +115,7 @@ struct EngineLogType : public BaseLogType {
   void apply_record(
     thread::Thread* /*context*/,
     storage::Storage* /*storage*/,
-    xct::XctId* /*owner_id*/,
+    xct::LockableXctId* /*owner_id*/,
     char* /*payload*/) {
     ASSERT_ND(false);
   }
@@ -145,7 +145,7 @@ struct StorageLogType : public BaseLogType {
   void apply_record(
     thread::Thread* /*context*/,
     storage::Storage* /*storage*/,
-    xct::XctId* /*owner_id*/,
+    xct::LockableXctId* /*owner_id*/,
     char* /*payload*/) {
     ASSERT_ND(false);
   }
@@ -220,7 +220,7 @@ struct FillerLogType : public BaseLogType {
   void    apply_record(
     thread::Thread* /*context*/,
     storage::Storage* /*storage*/,
-    xct::XctId* /*owner_id*/,
+    xct::LockableXctId* /*owner_id*/,
     char* /*payload*/) {}
 
   /** Populate this log to fill up the specified byte size. */

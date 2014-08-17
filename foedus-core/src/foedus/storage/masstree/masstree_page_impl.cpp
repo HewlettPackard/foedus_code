@@ -31,14 +31,10 @@ void MasstreePage::initialize_volatile_common(
   PageType            page_type,
   uint8_t             layer,
   KeySlice            low_fence,
-  KeySlice            high_fence,
-  bool                initially_locked) {
+  KeySlice            high_fence) {
   // std::memset(this, 0, kPageSize);  // expensive
   header_.init_volatile(page_id, storage_id, page_type);
   header_.masstree_layer_ = layer;
-  if (initially_locked) {
-    header_.page_version_.initial_lock();
-  }
   high_fence_ = high_fence;
   low_fence_ = low_fence;
   foster_fence_ = low_fence;
@@ -52,16 +48,14 @@ void MasstreeIntermediatePage::initialize_volatile_page(
   VolatilePagePointer page_id,
   uint8_t             layer,
   KeySlice            low_fence,
-  KeySlice            high_fence,
-  bool                initially_locked) {
+  KeySlice            high_fence) {
   initialize_volatile_common(
     storage_id,
     page_id,
     kMasstreeIntermediatePageType,
     layer,
     low_fence,
-    high_fence,
-    initially_locked);
+    high_fence);
   for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
     get_minipage(i).key_count_ = 0;
   }
@@ -72,16 +66,14 @@ void MasstreeBorderPage::initialize_volatile_page(
   VolatilePagePointer page_id,
   uint8_t             layer,
   KeySlice            low_fence,
-  KeySlice            high_fence,
-  bool                initially_locked) {
+  KeySlice            high_fence) {
   initialize_volatile_common(
     storage_id,
     page_id,
     kMasstreeBorderPageType,
     layer,
     low_fence,
-    high_fence,
-    initially_locked);
+    high_fence);
 }
 
 void MasstreePage::release_pages_recursive_common(
@@ -165,7 +157,7 @@ void MasstreeBorderPage::initialize_layer_root(
   const MasstreeBorderPage* copy_from,
   uint8_t copy_index) {
   ASSERT_ND(get_key_count() == 0);
-  ASSERT_ND(is_locked());
+  ASSERT_ND(!is_locked());  // we don't lock a new page
   ASSERT_ND(copy_from->get_owner_id(copy_index)->is_keylocked());
   uint8_t parent_key_length = copy_from->remaining_key_length_[copy_index];
   ASSERT_ND(parent_key_length != kKeyLengthNextLayer);
@@ -184,14 +176,9 @@ void MasstreeBorderPage::initialize_layer_root(
   offsets_[0] = (kDataSize - calculate_record_size(remaining, payload_length)) >> 4;
 
   // use the same xct ID. This means we also inherit deleted flag.
-  owner_ids_[0] = copy_from->owner_ids_[copy_index];
+  owner_ids_[0].xct_id_ = copy_from->owner_ids_[copy_index].xct_id_;
   // but we don't want to inherit locks
-  if (owner_ids_[0].is_keylocked()) {
-    owner_ids_[0].release_keylock();
-  }
-  if (owner_ids_[0].is_rangelocked()) {
-    owner_ids_[0].release_rangelock();
-  }
+  owner_ids_[0].lock_.reset();
   if (suffix_length > 0) {
     std::memcpy(get_record(0), parent_record + sizeof(KeySlice), suffix_length);
   }
@@ -200,7 +187,8 @@ void MasstreeBorderPage::initialize_layer_root(
     parent_record + remaining,
     payload_length);
 
-  increment_key_count();
+  // as we don't lock this page, we directly increment it to avoid is_locked assertion
+  ++header_.key_count_;
 }
 
 inline ErrorCode grab_two_free_pages(thread::Thread* context, memory::PagePoolOffset* offsets) {
@@ -226,11 +214,13 @@ inline ErrorCode grab_two_free_pages(thread::Thread* context, memory::PagePoolOf
 ErrorCode MasstreeBorderPage::split_foster(
   thread::Thread* context,
   KeySlice trigger,
-  MasstreeBorderPage** target) {
+  MasstreeBorderPage** target,
+  xct::McsBlockIndex *target_lock) {
   ASSERT_ND(!header_.snapshot_);
   ASSERT_ND(is_locked());
   ASSERT_ND(!is_moved());
   ASSERT_ND(foster_twin_[0] == nullptr && foster_twin_[1] == nullptr);  // same as !is_moved()
+  *target_lock = 0;
   debugging::RdtscWatch watch;
 
   uint8_t key_count = get_key_count();
@@ -242,6 +232,7 @@ ErrorCode MasstreeBorderPage::split_foster(
   // from now on no failure possible.
   BorderSplitStrategy strategy = split_foster_decide_strategy(key_count, trigger);
   MasstreeBorderPage* twin[2];
+  xct::McsBlockIndex twin_locks[2];
   for (int i = 0; i < 2; ++i) {
     twin[i] = reinterpret_cast<MasstreeBorderPage*>(
       context->get_local_volatile_page_resolver().resolve_offset_newpage(offsets[i]));
@@ -251,13 +242,11 @@ ErrorCode MasstreeBorderPage::split_foster(
       combine_volatile_page_pointer(context->get_numa_node(), 0, 0, offsets[i]),
       get_layer(),
       i == 0 ? low_fence_ : strategy.mid_slice_,  // low-fence
-      i == 0 ? strategy.mid_slice_ : high_fence_,  // high-fence
-      true);  // yes, lock it
+      i == 0 ? strategy.mid_slice_ : high_fence_);  // high-fence
+    twin_locks[i] = context->mcs_initial_lock(twin[i]->get_lock_address());
     ASSERT_ND(twin[i]->is_locked());
   }
-  split_foster_lock_existing_records(context, key_count);
-  // commit the system transaction to get xct_id
-  xct::XctId new_id = split_foster_commit_system_xct(context, strategy);
+  xct::McsBlockIndex head_lock = split_foster_lock_existing_records(context, key_count);
   if (strategy.no_record_split_) {
     // in this case, we can move all records in one memcpy.
     // copy everything from the end of header to the end of page
@@ -267,7 +256,7 @@ ErrorCode MasstreeBorderPage::split_foster(
       kPageSize - sizeof(MasstreePage));
     for (uint8_t i = 0; i < key_count; ++i) {
       ASSERT_ND(twin[0]->owner_ids_[i].is_keylocked());
-      twin[0]->owner_ids_[i].release_keylock();
+      twin[0]->owner_ids_[i].get_key_lock()->reset();  // no race
     }
     twin[0]->set_key_count(key_count);
     twin[1]->set_key_count(0);
@@ -286,9 +275,11 @@ ErrorCode MasstreeBorderPage::split_foster(
 
   // release all record locks, but set the "moved" bit so that concurrent transactions
   // check foster-twin for read-set/write-set checks.
+  xct::XctId new_id;
   new_id.set_moved();
   for (uint8_t i = 0; i < key_count; ++i) {
-    owner_ids_[i] = new_id;  // unlock and also notify that the record has been moved
+    owner_ids_[i].xct_id_ = new_id;
+    context->mcs_release_lock(owner_ids_[i].get_key_lock(), head_lock + i);
   }
 
   // this page is now "moved".
@@ -297,11 +288,13 @@ ErrorCode MasstreeBorderPage::split_foster(
   foster_fence_ = strategy.mid_slice_;
   if (within_foster_minor(trigger)) {
     *target = twin[0];
-    twin[1]->initial_unlock();
+    *target_lock = twin_locks[0];
+    context->mcs_release_lock(twin[1]->get_lock_address(), twin_locks[1]);
   } else {
     ASSERT_ND(within_foster_major(trigger));
     *target = twin[1];
-    twin[0]->initial_unlock();
+    *target_lock = twin_locks[1];
+    context->mcs_release_lock(twin[0]->get_lock_address(), twin_locks[0]);
   }
 
   watch.stop();
@@ -382,13 +375,22 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
   return ret;
 }
 
-void MasstreeBorderPage::split_foster_lock_existing_records(
+xct::McsBlockIndex MasstreeBorderPage::split_foster_lock_existing_records(
   thread::Thread* context,
   uint8_t key_count) {
   debugging::RdtscWatch watch;  // check how expensive this is
   // lock in address order. so, no deadlock possible
   // we have to lock them whether the record is deleted or not. all physical records.
-  xct::XctId::keylock_unconditional_batch(owner_ids_, key_count);  // lock using batches
+  xct::McsBlockIndex head_lock_index = 0;
+  for (uint8_t i = 0; i < key_count; ++i) {
+    xct::McsBlockIndex block = context->mcs_acquire_lock(owner_ids_[i].get_key_lock());
+    ASSERT_ND(block > 0);
+    if (i == 0) {
+      head_lock_index = block;
+    } else {
+      ASSERT_ND(head_lock_index + i == block);
+    }
+  }
   watch.stop();
   DVLOG(1) << "Costed " << watch.elapsed() << " cycles to lock all of "
     << static_cast<int>(key_count) << " records while splitting";
@@ -399,38 +401,7 @@ void MasstreeBorderPage::split_foster_lock_existing_records(
       << context->get_engine()->get_storage_manager().get_storage(header_.storage_id_)->get_name()
       << ", thread ID=" << context->get_thread_id();
   }
-}
-
-xct::XctId MasstreeBorderPage::split_foster_commit_system_xct(
-  thread::Thread* context,
-  const BorderSplitStrategy &strategy) const {
-  // although this is a no-log system transaction, the protocol to determine xct_id is same.
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-  assorted::memory_fence_acq_rel();
-  // as a system transaction, this is the serialization point
-  Epoch current_epoch = xct_manager.get_current_global_epoch();
-  assorted::memory_fence_acq_rel();
-
-  xct::XctId new_id = context->get_current_xct().get_id();
-  if (new_id.get_epoch().before(current_epoch)) {
-    new_id.set_epoch(current_epoch);
-    new_id.set_ordinal(0);
-  }
-  for (uint8_t i = 0; i < strategy.original_key_count_; ++i) {
-    new_id.store_max(owner_ids_[i]);
-  }
-  if (UNLIKELY(new_id.get_ordinal() == 0xFFFFU)) {
-    xct_manager.advance_current_global_epoch();
-    ASSERT_ND(current_epoch.before(xct_manager.get_current_global_epoch()));
-    current_epoch = xct_manager.get_current_global_epoch();
-    new_id.set_epoch(current_epoch);
-    new_id.set_ordinal(0);
-  }
-  ASSERT_ND(new_id.get_ordinal() < 0xFFFFU);
-  new_id.clear_status_bits();
-  new_id.set_ordinal(new_id.get_ordinal() + 1);
-  context->get_current_xct().remember_previous_xct_id(new_id);
-  return new_id;
+  return head_lock_index;
 }
 
 void MasstreeBorderPage::split_foster_migrate_records(
@@ -452,9 +423,8 @@ void MasstreeBorderPage::split_foster_migrate_records(
       slices_[migrated_count] = copy_from.slices_[i];
       remaining_key_length_[migrated_count] = copy_from.remaining_key_length_[i];
       payload_length_[migrated_count] = copy_from.payload_length_[i];
-      owner_ids_[migrated_count] = copy_from.owner_ids_[i];
-      ASSERT_ND(owner_ids_[migrated_count].is_keylocked());
-      owner_ids_[migrated_count].release_keylock();
+      owner_ids_[migrated_count].xct_id_ = copy_from.owner_ids_[i].xct_id_;
+      owner_ids_[migrated_count].lock_.reset();
 
       uint16_t record_length = sizeof(DualPagePointer);
       if (remaining_key_length_[migrated_count] != kKeyLengthNextLayer) {
@@ -531,8 +501,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   ASSERT_ND(foster_twin_[0] == nullptr && foster_twin_[1] == nullptr);  // same as !is_moved()
   debugging::RdtscWatch watch;
 
-  trigger_child->lock();
-  PageVersionUnlockScope trigger_scope(trigger_child->get_version_address());
+  PageVersionLockScope trigger_scope(context, trigger_child->get_version_address());
   if (trigger_child->is_retired()) {
     VLOG(0) << "Interesting. this child is now retired, so someone else has already adopted.";
     return kErrorCodeOk;  // fine. the goal is already achieved
@@ -575,6 +544,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   }
 
   MasstreeIntermediatePage* twin[2];
+  xct::McsBlockIndex twin_locks[2];
   for (int i = 0; i < 2; ++i) {
     twin[i] = reinterpret_cast<MasstreeIntermediatePage*>(
       context->get_local_volatile_page_resolver().resolve_offset_newpage(offsets[i]));
@@ -587,8 +557,8 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
       new_pointer,
       get_layer(),
       i == 0 ? low_fence_ : new_foster_fence,
-      i == 0 ? new_foster_fence : high_fence_,
-      true);  // yes, lock it
+      i == 0 ? new_foster_fence : high_fence_);
+    twin_locks[i] = context->mcs_initial_lock(twin[i]->get_lock_address());
     ASSERT_ND(twin[i]->is_locked());
   }
 
@@ -632,7 +602,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   }
 
   for (int i = 0; i < 2; ++i) {
-    twin[i]->initial_unlock();
+    context->mcs_release_lock(twin[i]->get_lock_address(), twin_locks[i]);
   }
 
   if (no_record_split) {
@@ -833,8 +803,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   uint8_t pointer_index,
   MasstreePage* child) {
   ASSERT_ND(!is_retired());
-  lock();
-  PageVersionUnlockScope scope(get_version_address());
+  PageVersionLockScope scope(context, get_version_address());
   if (is_moved()) {
     VLOG(0) << "Interesting. concurrent thread has already split this node? retry";
     return kErrorCodeOk;
@@ -896,7 +865,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
     // quite similar to the "no-record split" optimization in border page.
     if (key_count == minipage_index && minipage.key_count_ == pointer_index) {
       // this strongly suggests that it's a sorted insert. let's do that.
-      adopt_from_child_norecord_first_level(minipage_index, child);
+      adopt_from_child_norecord_first_level(context, minipage_index, child);
     } else {
       // in this case, we locally rebalance.
       CHECK_ERROR_CODE(local_rebalance(context));
@@ -912,9 +881,8 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   }
 
   // now lock the child.
-  child->lock();
   {
-    PageVersionUnlockScope scope_child(child->get_version_address());
+    PageVersionLockScope scope_child(context, child->get_version_address());
     if (child->get_version().is_retired()) {
       VLOG(0) << "Interesting. concurrent inserts already adopted. retry";
       return kErrorCodeOk;  // retry
@@ -943,7 +911,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
 
     // now we are sure we can adopt the child's foster twin.
     ASSERT_ND(pointer_index <= mini_key_count);
-    ASSERT_ND(pointer_index == minipage.find_pointer(mini_key_count, searching_slice));
+    ASSERT_ND(pointer_index == minipage.find_pointer(searching_slice));
     if (pointer_index == mini_key_count) {
       // this means we are appending at the end. no need for split flag.
       DVLOG(1) << "Adopt without split. lucky. sequential inserts?";
@@ -991,13 +959,13 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
 
 
 void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
+  thread::Thread* context,
   uint8_t minipage_index,
   MasstreePage* child) {
   ASSERT_ND(is_locked());
   // note that we have to lock from parent to child. otherwise deadlock possible.
   MiniPage& minipage = get_minipage(minipage_index);
-  child->lock();
-  PageVersionUnlockScope scope_child(child->get_version_address());
+  PageVersionLockScope scope_child(context, child->get_version_address());
   if (child->get_version().is_retired()) {
     VLOG(0) << "Interesting. concurrent thread has already adopted? retry";
     return;
@@ -1058,7 +1026,7 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
 }
 
 bool MasstreeBorderPage::track_moved_record(
-  xct::XctId* owner_address,
+  xct::LockableXctId* owner_address,
   MasstreeBorderPage** located_page,
   uint8_t* located_index) {
   ASSERT_ND(is_moved());
@@ -1099,14 +1067,12 @@ bool MasstreeBorderPage::track_moved_record(
     // the only exception is
     // 1) again the record is being moved concurrently
     // 2) the record was moved to another layer (remaining==kKeyLengthNextLayer).
-
-    uint8_t keys = cur_page->get_key_count();
-    *located_index = cur_page->find_key(keys, slice, suffix, remaining);
+    *located_index = cur_page->find_key(slice, suffix, remaining);
     if (*located_index == kMaxKeys) {
       // this can happen rarely because we are not doing the stable version trick here.
       // this is rare, so we just abort. no safety violation.
       VLOG(0) << "Very interesting. moved record not found due to concurrent updates";
-      *located_index = cur_page->find_key(keys, slice, suffix, remaining);
+      *located_index = cur_page->find_key(slice, suffix, remaining);
       return false;
     } else if (cur_page->remaining_key_length_[*located_index] == kKeyLengthNextLayer &&
       !originally_pointer) {

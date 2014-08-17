@@ -265,7 +265,8 @@ ErrorCode ArrayComposer::compose_init_context(
   // let's load the first pages. what's the first key/xct_id?
   next_input_ = inputs_count_;
   next_key_ = 0xFFFFFFFFFFFFFFFFULL;
-  next_xct_id_ = xct::XctId(0xFFFFFFFFFFFFFFFFULL);
+  next_xct_id_.set_epoch_int(Epoch::kEpochIntHalf - 1U);
+  next_xct_id_.set_ordinal(0xFFFFU);
   for (uint32_t i = 0; i < inputs_count_; ++i) {
     if (inputs_[i].cur_value_ < next_key_ || (
         inputs_[i].cur_value_ == next_key_ &&
@@ -417,7 +418,7 @@ inline ErrorCode ArrayComposer::advance() {
 
   next_input_ = inputs_count_;
   next_key_ = 0xFFFFFFFFFFFFFFFFULL;
-  next_xct_id_ = xct::XctId(0xFFFFFFFFFFFFFFFFULL);
+  next_xct_id_.data_ = 0xFFFFFFFFFFFFFFFFULL;
   for (uint32_t i = 0; i < inputs_count_; ++i) {
     // TODO(Hideaki): rather than checking ended each time, we should re-allocate the array when
     // some stream is ended.

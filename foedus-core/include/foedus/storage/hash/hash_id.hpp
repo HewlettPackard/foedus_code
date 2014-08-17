@@ -42,7 +42,7 @@ const uint16_t kHashBinPageHeaderSize   = 64;
  * @brief Byte size of header in data page of hash storage.
  * @ingroup HASH
  */
-const uint16_t kHashDataPageHeaderSize  = 248;
+const uint16_t kHashDataPageHeaderSize  = 256;
 
 /**
  * @brief Represents a compact \e tag of hash values.

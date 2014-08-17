@@ -69,6 +69,7 @@ class Xct {
     read_set_size_ = 0;
     write_set_size_ = 0;
     lock_free_write_set_size_ = 0;
+    mcs_block_current_ = 0;
   }
 
   /**
@@ -77,7 +78,11 @@ class Xct {
   void                deactivate() {
     ASSERT_ND(active_);
     active_ = false;
+    mcs_block_current_ = 0;
   }
+
+  uint32_t            get_mcs_block_current() const { return mcs_block_current_; }
+  uint32_t            increment_mcs_block_current() { return ++mcs_block_current_; }
 
   /** Returns whether the object is an active transaction. */
   bool                is_active() const { return active_; }
@@ -163,7 +168,7 @@ class Xct {
    */
   ErrorCode           add_to_page_version_set(
     const storage::PageVersion* version_address,
-    storage::PageVersion observed);
+    storage::PageVersionStatus observed);
 
   /**
    * @brief Add the given record to the read set of this transaction.
@@ -174,14 +179,14 @@ class Xct {
   ErrorCode           add_to_read_set(
     storage::Storage* storage,
     XctId observed_owner_id,
-    XctId* owner_id_address) ALWAYS_INLINE;
+    LockableXctId* owner_id_address) ALWAYS_INLINE;
 
   /**
    * @brief Add the given record to the write set of this transaction.
    */
   ErrorCode           add_to_write_set(
     storage::Storage* storage,
-    XctId* owner_id_address,
+    LockableXctId* owner_id_address,
     char* payload_address,
     log::RecordLogType* log_entry) ALWAYS_INLINE;
 
@@ -234,7 +239,6 @@ class Xct {
     id_ = new_id;
     ASSERT_ND(id_.get_ordinal() > 0);
     ASSERT_ND(id_.is_valid());
-    ASSERT_ND(id_.is_status_bits_off());
   }
 
   /**
@@ -289,6 +293,12 @@ class Xct {
    * storage create/drop/alter etc operations.
    */
   bool                schema_xct_;
+
+  /**
+   * How many MCS blocks we allocated in the current thread.
+   * reset to 0 at each transaction begin
+   */
+  uint32_t            mcs_block_current_;
 
   XctAccess*          read_set_;
   uint32_t            read_set_size_;
@@ -369,7 +379,7 @@ inline void Xct::overwrite_to_pointer_set(
 
 inline ErrorCode Xct::add_to_page_version_set(
   const storage::PageVersion* version_address,
-  storage::PageVersion observed) {
+  storage::PageVersionStatus observed) {
   ASSERT_ND(!schema_xct_);
   ASSERT_ND(version_address);
   if (isolation_level_ != kSerializable) {
@@ -387,11 +397,10 @@ inline ErrorCode Xct::add_to_page_version_set(
 inline ErrorCode Xct::add_to_read_set(
   storage::Storage* storage,
   XctId observed_owner_id,
-  XctId* owner_id_address) {
+  LockableXctId* owner_id_address) {
   ASSERT_ND(!schema_xct_);
   ASSERT_ND(storage);
   ASSERT_ND(owner_id_address);
-  ASSERT_ND(!observed_owner_id.is_keylocked());
   // TODO(Hideaki) callers should check if it's a snapshot page. or should we check here?
   if (isolation_level_ != kSerializable) {
     return kErrorCodeOk;
@@ -407,7 +416,7 @@ inline ErrorCode Xct::add_to_read_set(
 
 inline ErrorCode Xct::add_to_write_set(
   storage::Storage* storage,
-  XctId* owner_id_address,
+  LockableXctId* owner_id_address,
   char* payload_address,
   log::RecordLogType* log_entry) {
   ASSERT_ND(!schema_xct_);
@@ -427,6 +436,7 @@ inline ErrorCode Xct::add_to_write_set(
   write_set_[write_set_size_].owner_id_address_ = owner_id_address;
   write_set_[write_set_size_].payload_address_ = payload_address;
   write_set_[write_set_size_].log_entry_ = log_entry;
+  write_set_[write_set_size_].mcs_block_ = 0;
   ++write_set_size_;
   return kErrorCodeOk;
 }

@@ -460,7 +460,7 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
         for (uint16_t rec = 0; rec < record_count; ++rec) {
           EXPECT_EQ(payload_lengthes[rec], sizeof(HistoryData));
           const HistoryData& history = *reinterpret_cast<const HistoryData*>(
-            record_pointers[rec] + sizeof(xct::XctId));
+            record_pointers[rec] + kRecordOverhead);
           EXPECT_GE(history.amount_, kAmountRangeFrom);
           EXPECT_LE(history.amount_, kAmountRangeTo);
 
@@ -519,7 +519,9 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
     }
     for (uint32_t i = 0; i < context->get_current_xct().get_read_set_size(); ++i) {
       xct::XctAccess& access = context->get_current_xct().get_read_set()[i];
-      EXPECT_FALSE(access.observed_owner_id_.is_keylocked()) << i;
+      EXPECT_FALSE(access.observed_owner_id_.is_being_written()) << i;
+      EXPECT_FALSE(access.observed_owner_id_.is_deleted()) << i;
+      EXPECT_FALSE(access.observed_owner_id_.is_moved()) << i;
     }
 
     CHECK_ERROR(xct_manager.abort_xct(context));

@@ -105,7 +105,7 @@ class Storage : public virtual Initializable {
    * @details
    * This is enough for read-set verification.
    */
-  virtual xct::XctId*         track_moved_record(xct::XctId *address) = 0;
+  virtual xct::LockableXctId* track_moved_record(xct::LockableXctId *address) = 0;
 
   /** Just delegates to describe(). */
   friend std::ostream& operator<<(std::ostream& o, const Storage& v);

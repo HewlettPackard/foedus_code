@@ -49,7 +49,7 @@ class MasstreeCursor CXX11_FINAL {
     };
     MasstreePage* page_;
     /** version as of getting calculating order_. */
-    PageVersion stable_;
+    PageVersionStatus stable_;
     /** index in ordered keys. in interior, same. */
     uint8_t index_;
     /** only for interior. */
@@ -208,7 +208,7 @@ class MasstreeCursor CXX11_FINAL {
   uint8_t     cur_key_in_layer_remaining_;
   KeySlice    cur_key_in_layer_slice_;
   xct::XctId  cur_key_observed_owner_id_;
-  xct::XctId* cur_key_owner_id_address;
+  xct::LockableXctId* cur_key_owner_id_address;
 
   /** full big-endian key to terminate search. backed by end_key_memory_offset_ */
   char*       end_key_;
@@ -223,7 +223,7 @@ class MasstreeCursor CXX11_FINAL {
   char*       search_key_;
 
   /** stable version of teh current border page as of copying cur_page_. */
-  PageVersion cur_page_stable_;
+  PageVersionStatus cur_page_stable_;
 
   /** backed by routes_memory_offset_. */
   Route*      routes_;

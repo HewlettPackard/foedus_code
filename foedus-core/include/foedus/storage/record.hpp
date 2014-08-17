@@ -23,7 +23,7 @@ struct Record CXX11_FINAL {
    * This is also used as lock/delete flag.
    * Thus, for atomic operations, Record object must be 8-byte aligned.
    */
-  xct::XctId          owner_id_;
+  xct::LockableXctId  owner_id_;
 
   /**
    * Arbitrary payload given by the user. The size is actually meaningless (8 is just to not
@@ -40,7 +40,7 @@ struct Record CXX11_FINAL {
  * @brief Byte size of system-managed region per each record.
  * @ingroup ARRAY
  */
-const uint16_t kRecordOverhead = sizeof(xct::XctId);
+const uint16_t kRecordOverhead = sizeof(xct::LockableXctId);
 
 CXX11_STATIC_ASSERT(kRecordOverhead == sizeof(Record) - 8, "kRecordOverhead is incorrect");
 

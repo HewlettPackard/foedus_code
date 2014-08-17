@@ -34,6 +34,7 @@ Xct::Xct(Engine* engine, thread::ThreadId thread_id) : engine_(engine), thread_i
   pointer_set_size_ = 0;
   page_version_set_size_ = 0;
   isolation_level_ = kSerializable;
+  mcs_block_current_ = 0;
 }
 
 void Xct::initialize(memory::NumaCoreMemory* core_memory) {
@@ -51,11 +52,11 @@ void Xct::initialize(memory::NumaCoreMemory* core_memory) {
   max_lock_free_write_set_size_ = core_memory->get_lock_free_write_set_size();
   pointer_set_size_ = 0;
   page_version_set_size_ = 0;
+  mcs_block_current_ = 0;
 }
 
 void Xct::issue_next_id(Epoch *epoch)  {
   ASSERT_ND(id_.is_valid());
-  ASSERT_ND(id_.is_status_bits_off());
 
   while (true) {
     // invariant 1: Larger than latest XctId of this thread.
@@ -72,12 +73,12 @@ void Xct::issue_next_id(Epoch *epoch)  {
       new_id.store_max(read_set_[i].observed_owner_id_);
     }
     for (uint32_t i = 0; i < write_set_size_; ++i) {
-      ASSERT_ND(write_set_[i].owner_id_address_->is_keylocked());
-      new_id.store_max(*(write_set_[i].owner_id_address_));
+      ASSERT_ND(write_set_[i].owner_id_address_->lock_.is_keylocked());
+      new_id.store_max(write_set_[i].owner_id_address_->xct_id_);
     }
 
     // Now, is it possible to get an ordinal one larger than this one?
-    if (UNLIKELY(new_id.get_ordinal() == 0xFFFFU)) {
+    if (UNLIKELY(new_id.get_ordinal() == 0xFFFFFFFFU)) {
       // oh, that's rare.
       LOG(WARNING) << "Reached the maximum ordinal in this epoch. Advancing current epoch"
         << " just for this reason. It's rare, but not an error.";
@@ -88,9 +89,8 @@ void Xct::issue_next_id(Epoch *epoch)  {
       continue;  // try again with this epoch.
     }
 
-    ASSERT_ND(new_id.get_ordinal() < 0xFFFFU);
-    new_id.set_ordinal(new_id.get_ordinal() + 1);
-    new_id.clear_status_bits();
+    ASSERT_ND(new_id.get_ordinal() < 0xFFFFFFFFU);
+    new_id.set_ordinal(new_id.get_ordinal() + 1U);
     remember_previous_xct_id(new_id);
     break;
   }

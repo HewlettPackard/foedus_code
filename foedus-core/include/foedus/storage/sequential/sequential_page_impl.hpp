@@ -133,8 +133,10 @@ class SequentialPage final {
     ASSERT_ND(record < kMaxSlots);
     ASSERT_ND(used_data_bytes_ + assorted::align8(payload_length) + kRecordOverhead <= kDataSize);
     set_payload_length(record, payload_length);
-    xct::XctId* owner_id_addr = reinterpret_cast<xct::XctId*>(data_ + used_data_bytes_);
-    *owner_id_addr = owner_id;
+    xct::LockableXctId* owner_id_addr = reinterpret_cast<xct::LockableXctId*>(
+      data_ + used_data_bytes_);
+    owner_id_addr->xct_id_ = owner_id;
+    owner_id_addr->lock_.reset();  // not used...
     std::memcpy(data_ + used_data_bytes_ + kRecordOverhead, payload, payload_length);
     ++record_count_;
     used_data_bytes_ += assorted::align8(payload_length) + kRecordOverhead;
@@ -157,8 +159,8 @@ class SequentialPage final {
    */
   Epoch               get_first_record_epoch() const {
     ASSERT_ND(get_record_count() > 0);
-    const xct::XctId* first_owner_id = reinterpret_cast<const xct::XctId*>(data_);
-    return first_owner_id->get_epoch();
+    const xct::LockableXctId* first_owner_id = reinterpret_cast<const xct::LockableXctId*>(data_);
+    return first_owner_id->xct_id_.get_epoch();
   }
 
  private:

@@ -65,7 +65,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   DualPagePointer         first_root_pointer_;
 
   /** Lock to synchronize updates to first_root_pointer_. */
-  xct::XctId              first_root_owner_;
+  xct::LockableXctId      first_root_owner_;
 
   /** If this is true, initialize() reads it back from previous snapshot and logs. */
   bool                    exist_;
@@ -74,7 +74,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   ErrorCode grow_root(
     thread::Thread* context,
     DualPagePointer* root_pointer,
-    xct::XctId* root_pointer_owner,
+    xct::LockableXctId* root_pointer_owner,
     MasstreeIntermediatePage** new_root);
 
   /**
@@ -252,7 +252,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   ErrorCode prefetch_pages_exhaustive(thread::Thread* context, MasstreePage* page);
 
   bool track_moved_record(xct::WriteXctAccess* write) ALWAYS_INLINE;
-  xct::XctId* track_moved_record(xct::XctId* address) ALWAYS_INLINE;
+  xct::LockableXctId* track_moved_record(xct::LockableXctId* address) ALWAYS_INLINE;
 };
 }  // namespace masstree
 }  // namespace storage

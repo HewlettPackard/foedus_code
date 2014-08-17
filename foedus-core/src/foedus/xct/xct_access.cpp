@@ -12,6 +12,7 @@
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage.hpp"
+#include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace xct {
@@ -31,13 +32,14 @@ std::ostream& operator<<(std::ostream& o, const XctAccess& v) {
   o << "<XctAccess><storage>" << v.storage_->get_name() << "</storage>"
     << "<observed_owner_id>" << v.observed_owner_id_ << "</observed_owner_id>"
     << "<record_address>" << v.owner_id_address_ << "</record_address>"
-    << "<current_owner_id>" << *(v.owner_id_address_) << "</current_owner_id></XctAccess>";
+    << "<current_owner_id>" << *v.owner_id_address_ << "</current_owner_id></XctAccess>";
   return o;
 }
 
 std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v) {
   o << "<WriteAccess><storage>" << v.storage_->get_name() << "</storage>"
     << "<record_address>" << v.owner_id_address_ << "</record_address>"
+    << "<mcs_block_>" << v.mcs_block_ << "</mcs_block_>"
     << "<current_owner_id>" << *(v.owner_id_address_) << "</current_owner_id><log>";
   log::invoke_ostream(v.log_entry_, &o);
   o << "</log></WriteAccess>";

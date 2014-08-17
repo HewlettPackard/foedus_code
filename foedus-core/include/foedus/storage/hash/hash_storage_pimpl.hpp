@@ -127,12 +127,12 @@ class HashStoragePimpl final : public DefaultInitializable {
   void      apply_insert_record(
     thread::Thread* context,
     const HashInsertLogType* log_entry,
-    xct::XctId* owner_id,
+    xct::LockableXctId* owner_id,
     char* payload);
   void      apply_delete_record(
     thread::Thread* context,
     const HashDeleteLogType* log_entry,
-    xct::XctId* owner_id,
+    xct::LockableXctId* owner_id,
     char* payload);
 
   /**
