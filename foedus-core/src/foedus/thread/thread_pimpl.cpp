@@ -291,6 +291,30 @@ ErrorCode ThreadPimpl::follow_page_pointer(
 xct::McsBlockIndex Thread::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   return pimpl_->mcs_acquire_lock(mcs_lock);
 }
+xct::McsBlockIndex Thread::mcs_acquire_lock_batch(xct::McsLock** mcs_locks, uint16_t batch_size) {
+  // lock in address order. so, no deadlock possible
+  // we have to lock them whether the record is deleted or not. all physical records.
+  xct::McsBlockIndex head_lock_index = 0;
+  for (uint16_t i = 0; i < batch_size; ++i) {
+    xct::McsBlockIndex block = pimpl_->mcs_acquire_lock(mcs_locks[i]);
+    ASSERT_ND(block > 0);
+    if (i == 0) {
+      head_lock_index = block;
+    } else {
+      ASSERT_ND(head_lock_index + i == block);
+    }
+  }
+  return head_lock_index;
+}
+void Thread::mcs_release_lock_batch(
+  xct::McsLock** mcs_locks,
+  xct::McsBlockIndex head_block,
+  uint16_t batch_size) {
+  for (uint16_t i = 0; i < batch_size; ++i) {
+    pimpl_->mcs_release_lock(mcs_locks[i], head_block + i);
+  }
+}
+
 xct::McsBlockIndex Thread::mcs_initial_lock(xct::McsLock* mcs_lock) {
   return pimpl_->mcs_initial_lock(mcs_lock);
 }

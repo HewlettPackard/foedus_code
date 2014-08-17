@@ -144,10 +144,21 @@ class Thread CXX11_FINAL : public virtual Initializable {
 
   /** Unconditionally takes MCS lock on the given mcs_lock. */
   xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
+  /**
+   * Unconditionally takes multiple MCS locks.
+   * @return MCS block index of the \e first lock acqired. As this is done in a row,
+   * following locks trivially have sequential block index from it.
+   */
+  xct::McsBlockIndex  mcs_acquire_lock_batch(xct::McsLock** mcs_locks, uint16_t batch_size);
   /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
   xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
   /** Unlcok an MCS lock acquired by this thread. */
-  void      mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
+  void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
+  /** corresponds to mcs_acquire_lock_batch() */
+  void                mcs_release_lock_batch(
+    xct::McsLock** mcs_locks,
+    xct::McsBlockIndex head_block,
+    uint16_t batch_size);
 
   /** Returns the pimpl of this object. Use it only when you know what you are doing. */
   ThreadPimpl*  get_pimpl() const { return pimpl_; }

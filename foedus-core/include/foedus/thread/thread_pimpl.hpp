@@ -123,7 +123,7 @@ class ThreadPimpl final : public DefaultInitializable {
   /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
   xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
   /** Unlcok an MCS lock acquired by this thread. */
-  void      mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
+  void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
   McsBlock* mcs_init_block(
     const xct::McsLock* mcs_lock,
     xct::McsBlockIndex block_index,

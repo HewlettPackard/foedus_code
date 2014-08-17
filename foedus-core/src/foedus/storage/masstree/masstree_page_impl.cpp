@@ -279,7 +279,14 @@ ErrorCode MasstreeBorderPage::split_foster(
   new_id.set_moved();
   for (uint8_t i = 0; i < key_count; ++i) {
     owner_ids_[i].xct_id_ = new_id;
-    context->mcs_release_lock(owner_ids_[i].get_key_lock(), head_lock + i);
+  }
+  {
+    // release locks in a batch
+    xct::McsLock* mcs_locks[kMaxKeys];
+    for (uint8_t i = 0; i < key_count; ++i) {
+      mcs_locks[i] = owner_ids_[i].get_key_lock();
+    }
+    context->mcs_release_lock_batch(mcs_locks, head_lock, key_count);
   }
 
   // this page is now "moved".
@@ -381,16 +388,11 @@ xct::McsBlockIndex MasstreeBorderPage::split_foster_lock_existing_records(
   debugging::RdtscWatch watch;  // check how expensive this is
   // lock in address order. so, no deadlock possible
   // we have to lock them whether the record is deleted or not. all physical records.
-  xct::McsBlockIndex head_lock_index = 0;
+  xct::McsLock* mcs_locks[kMaxKeys];
   for (uint8_t i = 0; i < key_count; ++i) {
-    xct::McsBlockIndex block = context->mcs_acquire_lock(owner_ids_[i].get_key_lock());
-    ASSERT_ND(block > 0);
-    if (i == 0) {
-      head_lock_index = block;
-    } else {
-      ASSERT_ND(head_lock_index + i == block);
-    }
+    mcs_locks[i] = owner_ids_[i].get_key_lock();
   }
+  xct::McsBlockIndex head_lock_index = context->mcs_acquire_lock_batch(mcs_locks, key_count);
   watch.stop();
   DVLOG(1) << "Costed " << watch.elapsed() << " cycles to lock all of "
     << static_cast<int>(key_count) << " records while splitting";
