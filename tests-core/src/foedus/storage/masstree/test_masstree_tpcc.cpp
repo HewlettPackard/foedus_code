@@ -882,8 +882,7 @@ TEST(MasstreeTpccTest, DistrictScanOrdersSecondary) {
   run_test<DistrictScanTask>(false, false, false, true, false);
 }
 TEST(MasstreeTpccTest, DistrictScanOrderlines) {
-  // TODO Debug this
-  // run_test<DistrictScanTask>(false, false, false, false, true);
+  run_test<DistrictScanTask>(false, false, false, false, true);
 }
 
 }  // namespace masstree

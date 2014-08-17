@@ -500,6 +500,7 @@ inline ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
     route.latest_separator_ = kInfimumSlice;  // must be set shortly after this method
     route.index_ = kMaxRecords;  // must be set shortly after this method
     route.index_mini_ = kMaxRecords;  // must be set shortly after this method
+    route.locate_miss_in_page_ = false;
     route.snapshot_ = page->header().snapshot_;
     if (page->is_border() && !route.stable_.is_moved()) {
       route.setup_order();
@@ -758,6 +759,12 @@ ErrorCode MasstreeCursor::open(
     context_->get_global_volatile_page_resolver().resolve_offset(pointer));
   CHECK_ERROR_CODE(push_route(root));
   CHECK_ERROR_CODE(locate_layer(0));
+  if (!is_valid_record() && cur_route()->locate_miss_in_page_) {
+    // unluckily we hit the page boundary in initial locate(). let next() take care.
+    ASSERT_ND(cur_route()->page_->is_border());
+    cur_route()->index_ = forward_cursor_ ? cur_route()->key_count_ - 1 : 0;
+    CHECK_ERROR_CODE(next());
+  }
   check_end_key();
   if (is_valid_record()) {
     // locate_xxx doesn't take care of deleted record as it can't proceed to another page.
@@ -912,6 +919,11 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
         return kErrorCodeXctRaceAbort;
       }
     } else {
+      // done about this page
+      if (route->index_ >= route->key_count_) {
+        DVLOG(2) << "Initial locate() hits page boundary.";
+        route->locate_miss_in_page_ = true;
+      }
       break;
     }
   }

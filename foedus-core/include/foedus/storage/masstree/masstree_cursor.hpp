@@ -71,6 +71,13 @@ class MasstreeCursor CXX11_FINAL {
 
     /** whether page_ is a snapshot page */
     bool    snapshot_;
+    /**
+     * This is set to true when the initial locate() didn't find a matching record,
+     * hitting the page boundary. in that case, locate() stops there and open() invokes
+     * next().
+     */
+    bool    locate_miss_in_page_;
+
     /** only when stable_ indicates that this page is a moved page */
     MovedPageSearchStatus moved_page_search_status_;
 
