@@ -176,6 +176,7 @@ struct WarehouseYtdData {
   char   dummy_[40];    // +40 -> 48
   // with kRecordOverhead (16 bytes), this is 64 bytes. good for avoiding false sharing
   char   dummy2_[64];   // another padding in case of adjacent cacheline prefetch enabled
+  char   dummy3_[1920];  // even further. let's make this one record per page. it's a small table.
 };
 
 struct DistrictStaticData {

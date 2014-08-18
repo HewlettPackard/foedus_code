@@ -6,6 +6,7 @@
 #define FOEDUS_STORAGE_MASSTREE_MASSTREE_STORAGE_PIMPL_HPP_
 #include <stdint.h>
 
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -66,6 +67,15 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
 
   /** Lock to synchronize updates to first_root_pointer_. */
   xct::LockableXctId      first_root_owner_;
+
+  /**
+   * This is an optimization for structural changes in the first-layer root page.
+   * Root of first layer might be VERY contended, so it is better to take a mutex.
+   * Not all threads have to take this, and it is even not required to take this for
+   * changing the root page as we anyway use the page lock. This is to just oppotunistically prevent
+   * concurrent transactions from causing cacheline invalidation storms.
+   */
+  // std::mutex              first_root_mutex_;
 
   /** If this is true, initialize() reads it back from previous snapshot and logs. */
   bool                    exist_;

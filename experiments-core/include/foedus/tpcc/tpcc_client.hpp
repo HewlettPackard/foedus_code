@@ -70,6 +70,8 @@ class TpccClientTask : public thread::ImpersonateTask {
     unexpected_aborts_ = 0;
     largereadset_aborts_ = 0;
     storages_.assert_initialized();
+//    std::memset(stat_wids_, 0, sizeof(stat_wids_));
+//    std::memset(stat_dids_, 0, sizeof(stat_dids_));
   }
 
   ErrorStack run(thread::Thread* context);
@@ -95,6 +97,9 @@ class TpccClientTask : public thread::ImpersonateTask {
 
 //  uint32_t    debug_wdcid_access_[kCustomers * kDistricts * kMaxWarehouses];
 //  uint32_t    debug_wdid_access_[kDistricts * kMaxWarehouses];
+
+//  uint32_t  stat_wids_[kMaxWarehouses];
+//  uint32_t  stat_dids_[kDistricts];
 
  private:
   /** unique ID of this worker from 0 to #workers-1. */

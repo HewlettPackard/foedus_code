@@ -29,6 +29,8 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   if (remote_warehouse && total_warehouses_ > 1U) {
     wid = rnd_.uniform_within_except(0, total_warehouses_ - 1, c_wid);
     did = rnd_.uniform_within(0, kDistricts - 1);  // re-draw did.
+//    ++stat_wids_[wid];
+//    ++stat_dids_[did];
   } else {
     wid = c_wid;
     did = c_did;
