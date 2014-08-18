@@ -173,8 +173,8 @@ struct WarehouseStaticData {
 
 struct WarehouseYtdData {
   double ytd_;          // +8 -> 8
-  char   dummy_[48];    // +48 -> 56
-  // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
+  char   dummy_[40];    // +40 -> 48
+  // with kRecordOverhead (16 bytes), this is 64 bytes. good for avoiding false sharing
   char   dummy2_[64];   // another padding in case of adjacent cacheline prefetch enabled
 };
 
@@ -193,16 +193,16 @@ struct DistrictStaticData {
 
 struct DistrictYtdData {
   double    ytd_;          // +8 -> 8
-  char      dummy_[48];    // +48 -> 56
-  // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
+  char      dummy_[40];    // +40 -> 48
+  // with kRecordOverhead (16 bytes), this is 64 bytes. good for avoiding false sharing
   char      dummy2_[64];   // another padding in case of adjacent cacheline prefetch enabled
 };
 
 struct DistrictNextOidData {
   Oid       next_o_id_;    // +4 -> 4
   uint32_t  dummy1_;       // +4 -> 8
-  char      dummy2_[48];   // +48 -> 56
-  // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
+  char      dummy2_[40];   // +40 -> 48
+  // with kRecordOverhead (16 bytes), this is 64 bytes. good for avoiding false sharing
   char      dummy3_[64];   // another padding in case of adjacent cacheline prefetch enabled
 };
 
@@ -231,8 +231,8 @@ struct CustomerDynamicData {
   uint32_t  delivery_cnt_;  // +4->8
   uint64_t  ytd_payment_;   // +8->16
   double    balance_;       // +8->24
-  char      dummy_[32];     // +32->56
-  // with XctId (8 bytes), this is 64 bytes. good for avoiding false sharing
+  char      dummy_[24];     // +24->48
+  // with kRecordOverhead (16 bytes), this is 64 bytes. good for avoiding false sharing
   // customer is many-valued, so probably one cacheline is enough..
 };
 
