@@ -78,19 +78,19 @@ static_assert(kAccounts % kTellers == 0, "kAccounts must be multiply of kTellers
 
 struct BranchData {
   int64_t     branch_balance_;
-  char        other_data_[96];  // just to make it at least 100 bytes
+  char        other_data_[104];  // just to make it at least 100 bytes
 };
 
 struct TellerData {
   uint64_t    branch_id_;
   int64_t     teller_balance_;
-  char        other_data_[88];  // just to make it at least 100 bytes
+  char        other_data_[96];  // just to make it at least 100 bytes
 };
 
 struct AccountData {
   uint64_t    branch_id_;
   int64_t     account_balance_;
-  char        other_data_[88];  // just to make it at least 100 bytes
+  char        other_data_[96];  // just to make it at least 100 bytes
 };
 
 struct HistoryData {
@@ -98,7 +98,7 @@ struct HistoryData {
   uint64_t    teller_id_;
   uint64_t    branch_id_;
   int64_t     amount_;
-  char        other_data_[24];  // just to make it at least 50 bytes
+  char        other_data_[16];  // just to make it at least 50 bytes
 };
 
 ArrayStorage* branches      = nullptr;
@@ -108,6 +108,16 @@ ArrayStorage* histories     = nullptr;
 thread::Rendezvous start_endezvous;
 bool          stop_requested;
 
+class VerifyTpcbTask : public thread::ImpersonateTask {
+ public:
+  ErrorStack run(thread::Thread* context) {
+    CHECK_ERROR(branches->verify_single_thread(context));
+    CHECK_ERROR(tellers->verify_single_thread(context));
+    CHECK_ERROR(accounts->verify_single_thread(context));
+    CHECK_ERROR(histories->verify_single_thread(context));
+    return kRetOk;
+  }
+};
 class RunTpcbTask : public thread::ImpersonateTask {
  public:
   explicit RunTpcbTask(uint16_t history_ordinal) : history_ordinal_(history_ordinal) {
@@ -174,14 +184,23 @@ class RunTpcbTask : public thread::ImpersonateTask {
     xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
     CHECK_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
 
-    int64_t balance = amount;
-    CHECK_ERROR_CODE(branches->increment_record(context, branch_id, &balance, 0));
+    CHECK_ERROR_CODE(branches->increment_record_oneshot<int64_t>(
+      context,
+      branch_id,
+      amount,
+      0));
 
-    balance = amount;
-    CHECK_ERROR_CODE(tellers->increment_record(context, teller_id, &balance, sizeof(uint64_t)));
+    CHECK_ERROR_CODE(tellers->increment_record_oneshot<int64_t>(
+      context,
+      teller_id,
+      amount,
+      sizeof(uint64_t)));
 
-    balance = amount;
-    CHECK_ERROR_CODE(accounts->increment_record(context, account_id, &balance, sizeof(uint64_t)));
+    CHECK_ERROR_CODE(accounts->increment_record_oneshot<int64_t>(
+      context,
+      account_id,
+      amount,
+      sizeof(uint64_t)));
 
     tmp_history_.account_id_ = account_id;
     tmp_history_.branch_id_ = branch_id;
@@ -264,6 +283,11 @@ int main_impl(int argc, char **argv) {
       COERCE_ERROR(str_manager.create_array(&history_meta, &histories, &ep));
       std::cout << "Created all!" << std::endl;
 
+      {
+        VerifyTpcbTask task;
+        COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(&task));
+      }
+
       std::vector< RunTpcbTask* > tasks;
       std::vector< thread::ImpersonateSession > sessions;
       for (int i = 0; i < kTotalThreads; ++i) {
@@ -303,6 +327,10 @@ int main_impl(int argc, char **argv) {
       for (int i = 0; i < kTotalThreads; ++i) {
         std::cout << "result[" << i << "]=" << sessions[i].get_result() << std::endl;
         delete tasks[i];
+      }
+      {
+        VerifyTpcbTask task;
+        COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(&task));
       }
       COERCE_ERROR(engine.uninitialize());
     }

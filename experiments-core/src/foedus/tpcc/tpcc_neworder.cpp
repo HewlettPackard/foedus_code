@@ -97,8 +97,10 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
   o_data.all_local_ = all_local_warehouse ? 1 : 0;
   o_data.cid_ = cid;
   o_data.carrier_id_ = 0;
-  ::memcpy(o_data.entry_d_, time_str.data(), time_str.size());
-  o_data.entry_d_[time_str.size()] = '\0';
+  std::memcpy(o_data.entry_d_, time_str.data(), time_str.size());
+  if (time_str.size() < sizeof(o_data.entry_d_)) {
+    std::memset(o_data.entry_d_ + time_str.size(), 0, sizeof(o_data.entry_d_) - time_str.size());
+  }
   o_data.ol_cnt_ = ol_cnt;
 
   CHECK_ALREADY_EXISTS(orders->insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
@@ -110,7 +112,8 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
   DVLOG(3) << "Neworder: : wid=" << wid << ", did=" << did << ", oid=" << oid
     << ", cid=" << cid << ", ol_cnt=" << ol_cnt << ", total=" << output_total_
     << ". ol[0]=" << output_bg_[0]
-    << "." << output_item_names_[0] << ".$" << output_prices_[0]
+    << "." << std::string(output_item_names_[0], sizeof(output_item_names_[0]))
+    << ".$" << output_prices_[0]
     << "*" << output_quantities_[0] << "." << output_amounts_[0];
   Epoch ep;
   return engine_->get_xct_manager().precommit_xct(context_, &ep);

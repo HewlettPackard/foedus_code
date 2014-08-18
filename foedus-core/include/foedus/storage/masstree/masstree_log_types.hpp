@@ -115,10 +115,10 @@ struct MasstreeInsertLogType : public log::RecordLogType {
   void            apply_record(
     thread::Thread* /*context*/,
     Storage* storage,
-    xct::XctId* owner_id,
+    xct::LockableXctId* owner_id,
     char* payload) ALWAYS_INLINE {
     ASSERT_ND(dynamic_cast<MasstreeStorage*>(storage));
-    ASSERT_ND(owner_id->is_deleted());  // the physical record should be in 'deleted' status
+    ASSERT_ND(owner_id->xct_id_.is_deleted());  // the physical record should be in 'deleted' status
     uint16_t skipped = calculate_skipped_key_length(key_length_, layer_);
     // no need to set key in apply(). it's already set when the record is physically inserted
     // (or in other places if this is recovery).
@@ -127,7 +127,7 @@ struct MasstreeInsertLogType : public log::RecordLogType {
       std::memcpy(payload + key_length_ - skipped, data_ + key_length_, payload_count_);
     }
     ASSERT_ND(std::memcmp(payload, data_ + skipped, key_length_ - skipped) == 0);
-    owner_id->set_notdeleted();
+    owner_id->xct_id_.set_notdeleted();
   }
 
   void            assert_valid() ALWAYS_INLINE {
@@ -171,13 +171,13 @@ struct MasstreeDeleteLogType : public log::RecordLogType {
   void            apply_record(
     thread::Thread* /*context*/,
     Storage* storage,
-    xct::XctId* owner_id,
+    xct::LockableXctId* owner_id,
     char* payload) ALWAYS_INLINE {
     ASSERT_ND(dynamic_cast<MasstreeStorage*>(storage));
-    ASSERT_ND(!owner_id->is_deleted());
+    ASSERT_ND(!owner_id->xct_id_.is_deleted());
     uint16_t skipped = calculate_skipped_key_length(key_length_, layer_);
     ASSERT_ND(std::memcmp(payload, data_ + skipped, key_length_ - skipped) == 0);
-    owner_id->set_deleted();
+    owner_id->xct_id_.set_deleted();
   }
 
   void            assert_valid() ALWAYS_INLINE {
@@ -229,10 +229,10 @@ struct MasstreeOverwriteLogType : public log::RecordLogType {
   void            apply_record(
     thread::Thread* /*context*/,
     Storage* storage,
-    xct::XctId* owner_id,
+    xct::LockableXctId* owner_id,
     char* payload) ALWAYS_INLINE {
     ASSERT_ND(dynamic_cast<MasstreeStorage*>(storage));
-    ASSERT_ND(!owner_id->is_deleted());
+    ASSERT_ND(!owner_id->xct_id_.is_deleted());
 
     uint16_t skipped = calculate_skipped_key_length(key_length_, layer_);
     ASSERT_ND(std::memcmp(payload, data_ + skipped, key_length_ - skipped) == 0);

@@ -78,6 +78,9 @@ if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-D\\_FILE\\_OFFSET\\_BITS\\=64")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
 endif ()
 
+# We are seeing an weird compiler behavior on union. let's prohibit assuming string aliasing
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-strict-aliasing")
+
 # Enable GCC's built-in 128bit CAS
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcx16")
 

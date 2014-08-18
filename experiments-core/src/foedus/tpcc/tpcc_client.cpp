@@ -32,6 +32,7 @@ void TpccClientTask::update_timestring_if_needed() {
 
 const uint32_t kMaxUnexpectedErrors = 1;
 
+
 ErrorStack TpccClientTask::run(thread::Thread* context) {
   context_ = context;
   engine_ = context->get_engine();
@@ -47,7 +48,7 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
   LOG(INFO) << "TPCC Client-" << worker_id_ << " started working! home wid="
     << from_wid_ << "-" << to_wid_;
 
-  while (!stop_requrested_) {
+  while (!is_stop_requested()) {
     // currently we change wid for each transaction.
     Wid wid = to_wid_ <= from_wid_ ? from_wid_ : rnd_.uniform_within(from_wid_, to_wid_ - 1);
     uint16_t transaction_type = rnd_.uniform_within(1, 100);
@@ -55,7 +56,7 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
     uint64_t rnd_seed = rnd_.get_current_seed();
 
     // abort-retry loop
-    while (!stop_requrested_) {
+    while (!is_stop_requested()) {
       rnd_.set_current_seed(rnd_seed);
       update_timestring_if_needed();
       WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
@@ -99,8 +100,9 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
         continue;
       } else {
         increment_unexpected_aborts();
+        LOG(WARNING) << "Unexpected error: " << get_error_name(ret);
         if (unexpected_aborts_ > kMaxUnexpectedErrors) {
-          LOG(ERROR) << "Too many unexpected errors. What's happening?";
+          LOG(ERROR) << "Too many unexpected errors. What's happening?" << get_error_name(ret);
           return ERROR_STACK(ret);
         } else {
           continue;
@@ -118,7 +120,7 @@ ErrorCode TpccClientTask::lookup_customer_by_id_or_name(Wid wid, Did did, Cid *c
   // 60% by name, 40% by ID
   bool by_name = rnd_.uniform_within(1, 100) <= 60;
   if (by_name) {
-    char lastname[17];
+    char lastname[16];
     generate_lastname(rnd_.non_uniform_within(255, 0, kLnames - 1), lastname);
     CHECK_ERROR_CODE(lookup_customer_by_name(wid, did, lastname, cid));
   } else {
@@ -128,23 +130,23 @@ ErrorCode TpccClientTask::lookup_customer_by_id_or_name(Wid wid, Did did, Cid *c
 }
 
 ErrorCode TpccClientTask::lookup_customer_by_name(Wid wid, Did did, const char* lname, Cid *cid) {
-  char low_be[sizeof(Wid) + sizeof(Did) + 17];
+  char low_be[sizeof(Wid) + sizeof(Did) + 16];
   assorted::write_bigendian<Wid>(wid, low_be);
   assorted::write_bigendian<Did>(did, low_be + sizeof(Wid));
-  std::memcpy(low_be + sizeof(Wid) + sizeof(Did), lname, 17);
+  std::memcpy(low_be + sizeof(Wid) + sizeof(Did), lname, 16);
 
-  char high_be[sizeof(Wid) + sizeof(Did) + 17];
+  char high_be[sizeof(Wid) + sizeof(Did) + 16];
   std::memcpy(high_be, low_be, sizeof(high_be));
 
-  // this increment never overflows because it's NULL character (see tpcc_schema.hpp).
-  ASSERT_ND(high_be[sizeof(high_be) - 1] == '\0');
+  // this increment never overflows because it's ASCII.
+  ASSERT_ND(high_be[sizeof(high_be) - 1] + 1 > high_be[sizeof(high_be) - 1]);
   ++high_be[sizeof(high_be) - 1];
 
   storage::masstree::MasstreeCursor cursor(engine_, storages_.customers_secondary_, context_);
   CHECK_ERROR_CODE(cursor.open(low_be, sizeof(low_be), high_be, sizeof(high_be)));
 
   uint8_t cid_count = 0;
-  const uint16_t offset = sizeof(Wid) + sizeof(Did) + 34;
+  const uint16_t offset = sizeof(Wid) + sizeof(Did) + 32;
   while (cursor.is_valid_record()) {
     const char* key_be = cursor.get_key();
     ASSERT_ND(assorted::betoh<Wid>(*reinterpret_cast<const Wid*>(key_be)) == wid);

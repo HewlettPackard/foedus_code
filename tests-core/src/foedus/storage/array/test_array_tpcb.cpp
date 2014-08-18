@@ -441,7 +441,9 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
     }
     for (uint32_t i = 0; i < context->get_current_xct().get_read_set_size(); ++i) {
       xct::XctAccess& access = context->get_current_xct().get_read_set()[i];
-      EXPECT_FALSE(access.observed_owner_id_.is_keylocked()) << i;
+      EXPECT_FALSE(access.observed_owner_id_.is_being_written()) << i;
+      EXPECT_FALSE(access.observed_owner_id_.is_deleted()) << i;
+      EXPECT_FALSE(access.observed_owner_id_.is_moved()) << i;
     }
 
     CHECK_ERROR(xct_manager.abort_xct(context));

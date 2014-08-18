@@ -47,7 +47,7 @@ ErrorCode MasstreeStoragePimpl::prefetch_pages_normalized_recurse(
   }
 
   const memory::GlobalVolatilePageResolver& resolver = context->get_global_volatile_page_resolver();
-  uint8_t count = p->get_version().get_key_count();
+  uint8_t count = p->get_key_count();
   if (p->is_border()) {
     MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(p);
     for (uint8_t i = 0; i < count; ++i) {
@@ -95,7 +95,7 @@ ErrorCode MasstreeStoragePimpl::prefetch_pages_exhaustive(
   }
 
   const memory::GlobalVolatilePageResolver& resolver = context->get_global_volatile_page_resolver();
-  uint8_t count = p->get_version().get_key_count();
+  uint8_t count = p->get_key_count();
   if (p->is_border()) {
     MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(p);
     for (uint8_t i = 0; i < count; ++i) {

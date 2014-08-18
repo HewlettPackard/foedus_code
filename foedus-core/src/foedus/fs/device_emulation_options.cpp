@@ -8,6 +8,7 @@ namespace foedus {
 namespace fs {
 ErrorStack DeviceEmulationOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, disable_direct_io_);
+  EXTERNALIZE_LOAD_ELEMENT(element, null_device_);
   EXTERNALIZE_LOAD_ELEMENT(element, emulated_seek_latency_cycles_);
   EXTERNALIZE_LOAD_ELEMENT(element, emulated_read_kb_cycles_);
   EXTERNALIZE_LOAD_ELEMENT(element, emulated_write_kb_cycles_);
@@ -17,6 +18,8 @@ ErrorStack DeviceEmulationOptions::load(tinyxml2::XMLElement* element) {
 ErrorStack DeviceEmulationOptions::save(tinyxml2::XMLElement* element) const {
   EXTERNALIZE_SAVE_ELEMENT(element, disable_direct_io_,
     "Whether to disable Direct I/O and use non-direct I/O instead.");
+  EXTERNALIZE_SAVE_ELEMENT(element, null_device_,
+    "As if we write out to /dev/null. Used to measure performance w/o I/O.");
   EXTERNALIZE_SAVE_ELEMENT(element, emulated_seek_latency_cycles_,
     "additional CPU cycles to busy-wait for each seek. 0 (default) disables it.");
   EXTERNALIZE_SAVE_ELEMENT(element, emulated_read_kb_cycles_,

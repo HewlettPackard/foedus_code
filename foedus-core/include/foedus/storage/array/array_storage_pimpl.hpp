@@ -53,6 +53,8 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   ErrorStack  create(thread::Thread* context);
   void        report_page_distribution();
 
+  ErrorStack  verify_single_thread(thread::Thread* context, ArrayPage* page);
+
   /** defined in array_storage_prefetch.cpp */
   ErrorCode   prefetch_pages(thread::Thread* context, ArrayOffset from, ArrayOffset to);
   ErrorCode   prefetch_pages_recurse(

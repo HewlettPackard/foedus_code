@@ -77,7 +77,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
 
   // this storage type does use moved bit. so this is implemented
   bool                track_moved_record(xct::WriteXctAccess* write) CXX11_OVERRIDE;
-  xct::XctId*         track_moved_record(xct::XctId* address) CXX11_OVERRIDE;
+  xct::LockableXctId* track_moved_record(xct::LockableXctId* address) CXX11_OVERRIDE;
 
   //// Masstree API
 

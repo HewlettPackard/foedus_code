@@ -60,7 +60,7 @@ class SequentialStorage CXX11_FINAL : public virtual Storage {
     ASSERT_ND(false);
     return false;
   }
-  xct::XctId* track_moved_record(xct::XctId* /*address*/) CXX11_OVERRIDE {
+  xct::LockableXctId* track_moved_record(xct::LockableXctId* /*address*/) CXX11_OVERRIDE {
     ASSERT_ND(false);
     return CXX11_NULLPTR;
   }

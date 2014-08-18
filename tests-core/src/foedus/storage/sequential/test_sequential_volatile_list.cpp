@@ -63,7 +63,7 @@ class AppendTask : public thread::ImpersonateTask {
     for (uint32_t i = 0; i < kAppendsPerThread; ++i) {
       xct::XctId owner_id;
       uint32_t epoch = kStartEpoch + (i / kAppendsPerEpoch);
-      owner_id.set_clean(epoch, i, task_id_);
+      owner_id.set(epoch, i);
       std::string value("value_");
       value += std::to_string(task_id_);
       value += "_";
@@ -94,7 +94,7 @@ void verify_result(
     for (uint32_t i = 0; i < kAppendsPerThread; ++i) {
       xct::XctId owner_id;
       uint32_t epoch = kStartEpoch + (i / kAppendsPerEpoch);
-      owner_id.set_clean(epoch, i, task_id);
+      owner_id.set(epoch, i);
       std::string value("value_");
       value += std::to_string(task_id);
       value += "_";
@@ -111,15 +111,18 @@ void verify_result(
       page->get_all_records_nosync(&record_count, record_pointers, payload_lengthes);
 
       for (uint16_t rec = 0; rec < record_count; ++rec) {
-        xct::XctId owner_id = *reinterpret_cast<const xct::XctId*>(record_pointers[rec]);
+        const xct::LockableXctId* owner_id = reinterpret_cast<const xct::LockableXctId*>(
+          record_pointers[rec]);
+        ASSERT_ND(!owner_id->lock_.is_keylocked());
+        ASSERT_ND(owner_id->lock_.get_version() == 0);
         uint16_t payload_length = payload_lengthes[rec];
         EXPECT_GT(payload_length, 0);
         EXPECT_LE(payload_length, kMaxPayload);
-        std::string value(record_pointers[rec] + sizeof(xct::XctId), payload_length);
+        std::string value(record_pointers[rec] + kRecordOverhead, payload_length);
         EXPECT_TRUE(answers.find(value) != answers.end()) << "found value=" << value;
         if (answers.find(value) != answers.end()) {
           xct::XctId correct_owner_id = answers.find(value)->second;
-          EXPECT_EQ(correct_owner_id, owner_id) << "found value=" << value;
+          EXPECT_EQ(correct_owner_id, owner_id->xct_id_) << "found value=" << value;
           answers.erase(value);
         }
       }

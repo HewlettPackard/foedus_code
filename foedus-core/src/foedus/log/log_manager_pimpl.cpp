@@ -7,6 +7,7 @@
 #include <glog/logging.h>
 
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "foedus/assert_nd.hpp"
@@ -14,6 +15,7 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/fs/filesystem.hpp"
 #include "foedus/fs/path.hpp"
 #include "foedus/log/log_id.hpp"
 #include "foedus/log/log_options.hpp"
@@ -61,17 +63,39 @@ ErrorStack LogManagerPimpl::initialize_once() {
         current_ordinal++;
       }
       std::string folder = engine_->get_options().log_.convert_folder_path_pattern(group, j);
+      // to avoid race, create the root log folder now.
+      fs::Path path(folder);
+      if (!fs::exists(path)) {
+        fs::create_directories(path);
+      }
       Logger* logger = new Logger(engine_, current_logger_id, group, j,
                     fs::Path(folder), assigned_thread_ids);
       CHECK_OUTOFMEMORY(logger);
       loggers_.push_back(logger);
-      CHECK_ERROR(logger->initialize());
       ++current_logger_id;
     }
     ASSERT_ND(current_ordinal == engine_->get_options().thread_.thread_count_per_group_);
   }
   ASSERT_ND(current_logger_id == total_loggers);
   ASSERT_ND(current_logger_id == loggers_.size());
+
+  // call initialize() of each logger.
+  // this might take long, so do it in parallel.
+  std::vector<std::thread> init_threads;
+  for (thread::ThreadGroupId group = 0; group < groups_; ++group) {
+    memory::ScopedNumaPreferred numa_scope(group);
+    for (auto j = 0; j < loggers_per_node_; ++j) {
+      Logger* logger = loggers_[group * loggers_per_node_ + j];
+      init_threads.push_back(std::thread([logger]() {
+        COERCE_ERROR(logger->initialize());  // TODO(Hideaki) collect errors
+      }));
+    }
+  }
+  LOG(INFO) << "Launched threads to initialize loggers. waiting..";
+  for (auto& init_thread : init_threads) {
+    init_thread.join();
+  }
+  LOG(INFO) << "All loggers were initialized!";
   return kRetOk;
 }
 

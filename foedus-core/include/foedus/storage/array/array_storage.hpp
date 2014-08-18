@@ -79,7 +79,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
     ASSERT_ND(false);
     return false;
   }
-  xct::XctId* track_moved_record(xct::XctId* /*address*/) CXX11_OVERRIDE {
+  xct::LockableXctId* track_moved_record(xct::LockableXctId* /*address*/) CXX11_OVERRIDE {
     ASSERT_ND(false);
     return CXX11_NULLPTR;
   }
@@ -303,6 +303,8 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
     uint16_t payload_offset);
 
   void        describe(std::ostream* o) const CXX11_OVERRIDE;
+
+  ErrorStack  verify_single_thread(thread::Thread* context);
 
   /** Use this only if you know what you are doing. */
   ArrayStoragePimpl*  get_pimpl() { return pimpl_; }

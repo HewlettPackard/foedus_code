@@ -42,6 +42,13 @@ struct LocalPageResolver CXX11_FINAL {
   }
   /** Resolves offset in this pool to storage::Page*. */
   storage::Page* resolve_offset(PagePoolOffset offset) const ALWAYS_INLINE {
+    storage::Page* page = resolve_offset_newpage(offset);
+    // this is NOT a new page, so we have sanity checks
+    storage::assert_valid_volatile_page(page, offset);
+    return page;
+  }
+  /** As the name suggests, this version is for new pages, which don't have sanity checks. */
+  storage::Page* resolve_offset_newpage(PagePoolOffset offset) const ALWAYS_INLINE {
     ASSERT_ND(offset >= begin_);
     ASSERT_ND(offset < end_);
     return base_ + offset;
@@ -98,15 +105,32 @@ struct GlobalVolatilePageResolver CXX11_FINAL {
 
   /** Resolves offset plus NUMA node ID to storage::Page*. */
   storage::Page* resolve_offset(uint8_t numa_node, PagePoolOffset offset) const ALWAYS_INLINE {
+    storage::Page* page = resolve_offset_newpage(numa_node, offset);
+    // this is NOT a new page, so we have sanity checks
+    storage::assert_valid_volatile_page(page, offset);
+    return page;
+  }
+  /** Resolves volatile page ID to storage::Page*. */
+  storage::Page* resolve_offset(storage::VolatilePagePointer page_pointer) const ALWAYS_INLINE {
+    return resolve_offset(page_pointer.components.numa_node, page_pointer.components.offset);
+  }
+
+  /** As the name suggests, this version is for new pages, which don't have sanity checks. */
+  storage::Page* resolve_offset_newpage(
+    uint8_t numa_node,
+    PagePoolOffset offset) const ALWAYS_INLINE {
     ASSERT_ND(numa_node < numa_node_count_);
     ASSERT_ND(offset >= begin_);
     ASSERT_ND(offset < end_);
     storage::assert_aligned_page(bases_[numa_node] + offset);
     return bases_[numa_node] + offset;
   }
-  /** Resolves volatile page ID to storage::Page*. */
-  storage::Page* resolve_offset(storage::VolatilePagePointer page_pointer) const ALWAYS_INLINE {
-    return resolve_offset(page_pointer.components.numa_node, page_pointer.components.offset);
+  /** As the name suggests, this version is for new pages, which don't have sanity checks. */
+  storage::Page* resolve_offset_newpage(
+    storage::VolatilePagePointer page_pointer) const ALWAYS_INLINE {
+    return resolve_offset_newpage(
+      page_pointer.components.numa_node,
+      page_pointer.components.offset);
   }
 
   /** number of NUMA nodes in this engine. */

@@ -73,7 +73,7 @@ class HashBinPage final {
   /** volatile page initialize callback. */
   struct Initializer final : public VolatilePageInitializer {
     Initializer(StorageId storage_id, uint64_t begin_bin)
-      : VolatilePageInitializer(storage_id, kHashBinPageType, false),
+      : VolatilePageInitializer(storage_id, kHashBinPageType),
         begin_bin_(begin_bin) {
     }
     void initialize_more(Page* page) const override {
@@ -166,7 +166,7 @@ class HashDataPage final {
   /** volatile page initialize callback. */
   struct Initializer final : public VolatilePageInitializer {
     Initializer(StorageId storage_id, uint64_t bin)
-      : VolatilePageInitializer(storage_id, kHashDataPageType, false),
+      : VolatilePageInitializer(storage_id, kHashDataPageType),
         bin_(bin) {
     }
     void initialize_more(Page* page) const override {
@@ -205,8 +205,8 @@ class HashDataPage final {
 
   // simple accessors
   const PageHeader&         header() const { return header_; }
-  inline const xct::XctId&  page_owner() const ALWAYS_INLINE { return page_owner_; }
-  inline xct::XctId&        page_owner() ALWAYS_INLINE { return page_owner_; }
+  inline const xct::LockableXctId&  page_owner() const ALWAYS_INLINE { return page_owner_; }
+  inline xct::LockableXctId&        page_owner() ALWAYS_INLINE { return page_owner_; }
   inline const DualPagePointer&  next_page() const ALWAYS_INLINE { return next_page_; }
   inline DualPagePointer&   next_page() ALWAYS_INLINE { return next_page_; }
   inline uint16_t           get_record_count() const ALWAYS_INLINE { return record_count_; }
@@ -239,7 +239,7 @@ class HashDataPage final {
     uint16_t payload_count,
     const char *data) {
     // this must be called by insert, which takes lock on the page.
-    ASSERT_ND(page_owner_.is_keylocked());
+    ASSERT_ND(page_owner_.lock_.is_keylocked());
 
     uint16_t record_length = key_length + payload_count + kRecordOverhead;
     uint16_t pos;
@@ -263,14 +263,14 @@ class HashDataPage final {
     slots_[slot].record_length_ = record_length;
     slots_[slot].key_length_ = key_length;
     slots_[slot].flags_ = 0;
-    interpret_record(pos)->owner_id_ = xct_id;
+    interpret_record(pos)->owner_id_.xct_id_ = xct_id;
     std::memcpy(data_ + pos + kRecordOverhead, data, key_length + payload_count);
   }
 
   /** Used only for inserts to find a slot we can insert to. */
   inline uint16_t           find_empty_slot(uint16_t key_length, uint16_t payload_count) const {
     // this must be called by insert, which takes lock on the page.
-    ASSERT_ND(page_owner_.is_keylocked());
+    ASSERT_ND(page_owner_.lock_.is_keylocked());
     if (record_count_ == 0) {
       return 0;
     }
@@ -305,24 +305,24 @@ class HashDataPage final {
    * Others just adds this to read set to be aware of new entries.
    * Note that even deletion doesn't lock it because it just puts the deletion flag.
    */
-  xct::XctId      page_owner_;  // +8 -> 40
+  xct::LockableXctId page_owner_;  // +16 -> 48
 
   /**
    * When records don't fit one page (eg very long key or value),
    * Could be an array of pointer here to avoid following all pages as we can have only 23 entries
    * per bin. Let's revisit later.
    */
-  DualPagePointer next_page_;   // +16 -> 56
+  DualPagePointer next_page_;   // +16 -> 64
 
   /**
    * How many records do we \e physically have in this bin.
    * @invariant record_count_ <= kMaxEntriesPerBin
    */
-  uint16_t        record_count_;  // +2 -> 58
+  uint16_t        record_count_;  // +2 -> 66
   /** High 16 bits of hash bin (Assuming #bins fits 48 bits). Used only for sanity check. */
-  uint16_t        bin_high_;  // +2 -> 60
+  uint16_t        bin_high_;  // +2 -> 68
   /** Low 32 bits of hash bin. Used only for sanity check. */
-  uint32_t        bin_low_;   // +4 -> 64
+  uint32_t        bin_low_;   // +4 -> 72
 
   /**
    * Record slots for each record. We initially planned to have this at the end of data
@@ -330,7 +330,7 @@ class HashDataPage final {
    * So, wouldn't matter to have it here always spending this negligible size.
    * When we somehow allow more entries per bin, we will revisit this.
    */
-  Slot            slots_[kMaxEntriesPerBin];  // +8*23 -> 248
+  Slot            slots_[kMaxEntriesPerBin];  // +8*23 -> 256
 
   /**
    * Contiguous record data.

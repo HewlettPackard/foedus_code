@@ -212,7 +212,7 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
             << static_cast<int>(did) << ", c=" << c << ". value=" << static_cast<int>(did2);
         }
         Cid cid = assorted::betoh<Cid>(
-          *reinterpret_cast<const Cid*>(key + sizeof(Wid) + sizeof(Did) + 34));
+          *reinterpret_cast<const Cid*>(key + sizeof(Wid) + sizeof(Did) + 32));
         if (cid >= kCustomers) {
           LOG(FATAL) << "Cid out of range: customers_secondary_: wid=" << wid << ", did="
             << static_cast<int>(did) << ", c=" << c << ". value=" << cid;
@@ -427,12 +427,11 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   //  << ": " << engine_->get_memory_manager().dump_free_memory_stat();
 
   // insert to customers_secondary at the end after sorting
-  memory::AlignedMemory secondary_keys_buffer;
   struct Secondary {
-    char  last_[17];      // +17 -> 17
-    char  first_[17];     // +17 -> 34
-    char  padding_[2];    // +2 -> 36
-    Cid   cid_;           // +4 -> 40
+    char  last_[16];      // +16 -> 16
+    char  first_[16];     // +16 -> 32
+    Cid   cid_;           // +4 -> 36
+    char  padding_[4];    // +4 -> 40
     static bool compare(const Secondary &left, const Secondary& right) ALWAYS_INLINE {
       int cmp = std::memcmp(left.last_, right.last_, sizeof(left.last_));
       if (cmp < 0) {
@@ -446,7 +445,7 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
       } else if (cmp > 0) {
         return false;
       }
-        ASSERT_ND(left.cid_ != right.cid_);
+      ASSERT_ND(left.cid_ != right.cid_);
       if (left.cid_ < right.cid_) {
         return true;
       } else {
@@ -454,12 +453,15 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
       }
     }
   };
-  secondary_keys_buffer.alloc(
-    kCustomers * sizeof(Secondary),
-    1U << 21,
-    memory::AlignedMemory::kNumaAllocOnnode,
-    context_->get_numa_node());
-  Secondary* secondary_keys = reinterpret_cast<Secondary*>(secondary_keys_buffer.get_block());
+  if (customer_secondary_keys_buffer_.is_null()) {
+    customer_secondary_keys_buffer_.alloc(
+      kCustomers * sizeof(Secondary),
+      1U << 21,
+      memory::AlignedMemory::kNumaAllocOnnode,
+      context_->get_numa_node());
+  }
+  Secondary* secondary_keys = reinterpret_cast<Secondary*>(
+    customer_secondary_keys_buffer_.get_block());
   Epoch ep;
   auto* histories = storages_.histories_;
   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
@@ -477,7 +479,6 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
     make_alpha_string(8, 16, c_data.first_);
     c_data.middle_[0] = 'O';
     c_data.middle_[1] = 'E';
-    c_data.middle_[2] = '\0';
 
     if (cid < kLnames) {
       generate_lastname(cid, c_data.last_);
@@ -486,10 +487,9 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
     }
 
     make_address(c_data.street1_, c_data.street2_, c_data.city_, c_data.state_, c_data.zip_);
-    make_number_string(16, 16, c_data.phone_);
+    make_number_string(15, 15, c_data.phone_);
     c_data.credit_[0] = (rnd_.uniform_within(0, 1) == 0 ? 'G' : 'B');
     c_data.credit_[1] = 'C';
-    c_data.credit_[2] = '\0';
     make_alpha_string(300, 500, c_history);
 
     // Prepare for putting into the database
@@ -520,7 +520,8 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
     std::memcpy(secondary_keys[cid].last_, c_data.last_, sizeof(c_data.last_));
     std::memcpy(secondary_keys[cid].first_, c_data.first_, sizeof(c_data.first_));
     secondary_keys[cid].cid_ = cid;
-    DVLOG(2) << "CID = " << cid << ", LST = " << c_data.last_ << ", P# = " << c_data.phone_;
+    DVLOG(2) << "CID = " << cid << ", LST = " << std::string(c_data.last_, sizeof(c_data.last_))
+      << ", P# = " << std::string(c_data.phone_, sizeof(c_data.phone_));
 
     make_alpha_string(12, 24, h_data.data_);
     h_data.cid_ = cid;
@@ -529,7 +530,7 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
     h_data.wid_ = wid;
     h_data.did_ = did;
     h_data.amount_ = 10.0;
-    std::memcpy(h_data.date_, timestamp_, 26);
+    std::memcpy(h_data.date_, timestamp_, sizeof(h_data.date_));
     WRAP_ERROR_CODE(histories->append_record(context_, &h_data, sizeof(h_data)));
     WRAP_ERROR_CODE(commit_if_full());
   }
@@ -555,8 +556,8 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
     for (int rep = 0; rep < 2; ++rep) {
       WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
       for (Cid i = from; i < from + cur_batch_size; ++i) {
-        std::memcpy(key_be + sizeof(Wid) + sizeof(Did), secondary_keys[i].last_, 34);
-        Cid* address = reinterpret_cast<Cid*>(key_be + sizeof(Wid) + sizeof(Did) + 34);
+        std::memcpy(key_be + sizeof(Wid) + sizeof(Did), secondary_keys[i].last_, 32);
+        Cid* address = reinterpret_cast<Cid*>(key_be + sizeof(Wid) + sizeof(Did) + 32);
         *address = assorted::htobe<Cid>(secondary_keys[i].cid_);
         WRAP_ERROR_CODE(customers_secondary->insert_record(context_, key_be, sizeof(key_be)));
       }
@@ -619,7 +620,7 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
     o_data.cid_ = o_cid;
     o_data.all_local_ = 1;
     o_data.ol_cnt_ = o_ol_cnt;
-    std::memcpy(o_data.entry_d_, timestamp_, 26);
+    std::memcpy(o_data.entry_d_, timestamp_, sizeof(o_data.entry_d_));
 
     if (oid >= 2100U) {   /* the last 900 orders have not been delivered) */
       o_data.carrier_id_ = 0;
@@ -640,7 +641,7 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
         ol_data[ol].amount_ = 0;
       } else {
         ol_data[ol].amount_ = static_cast<float>(rnd_.uniform_within(10L, 10000L)) / 100.0;
-        std::memcpy(ol_data[ol].delivery_d_, timestamp_, 26);
+        std::memcpy(ol_data[ol].delivery_d_, timestamp_, sizeof(ol_data[ol].delivery_d_));
       }
 
       DVLOG(2) << "OL = " << ol << ", IID = " << ol_data[ol].iid_ << ", QUAN = "
@@ -703,7 +704,9 @@ int32_t TpccLoadTask::make_alpha_string(int32_t min, int32_t max, char *str) {
     str[i] = character[rnd_.uniform_within(0, 25)];
   }
   // to make sure, fill out _all_ remaining part with NULL character.
-  std::memset(str + length, 0, max - length + 1);
+  if (max > length) {
+    std::memset(str + length, 0, max - length);
+  }
   return length;
 }
 
@@ -716,8 +719,9 @@ int32_t TpccLoadTask::make_number_string(int32_t min, int32_t max, char *str) {
     str[i] = character[rnd_.uniform_within(0, 9)];
   }
   // to make sure, fill out _all_ remaining part with NULL character.
-  std::memset(str + length, 0, max - length + 1);
-
+  if (max > length) {
+    std::memset(str + length, 0, max - length);
+  }
   return length;
 }
 

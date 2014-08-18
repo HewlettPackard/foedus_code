@@ -71,6 +71,19 @@ inline bool raw_atomic_compare_exchange_weak_uint128(
 }
 
 /**
+ * @brief Atomic Swap for raw primitive types rather than std::atomic<T>.
+ * @tparam T integer type
+ * @param[in,out] ptr Points to the data to be swapped.
+ * @param[in] desired This value will be installed.
+ * @return returns the old value.
+ * @ingroup ASSORTED
+ * @details
+ * This is a non-conditional swap, which always succeeds.
+ */
+template <typename T>
+T raw_atomic_exchange(T* target, T desired);
+
+/**
  * @brief Atomic fetch-add for raw primitive types rather than std::atomic<T>.
  * @tparam T integer type
  * @return result of arithmetic addition of the value and addendum

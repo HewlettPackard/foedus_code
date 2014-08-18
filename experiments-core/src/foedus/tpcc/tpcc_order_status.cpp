@@ -6,6 +6,8 @@
 
 #include <glog/logging.h>
 
+#include <string>
+
 #include "foedus/storage/masstree/masstree_cursor.hpp"
 #include "foedus/xct/xct_manager.hpp"
 
@@ -56,7 +58,7 @@ ErrorCode TpccClientTask::do_order_status(Wid wid) {
         << ", SUPPLY_WID=" << ol_data->supply_wid_
         << ", QUANTITY=" << ol_data->quantity_
         << ", AMOUNT=" << ol_data->amount_
-        << ", DELIVERY_D=" << ol_data->delivery_d_;
+        << ", DELIVERY_D=" << std::string(ol_data->delivery_d_, sizeof(ol_data->delivery_d_));
 
     CHECK_ERROR_CODE(cursor.next());
   }

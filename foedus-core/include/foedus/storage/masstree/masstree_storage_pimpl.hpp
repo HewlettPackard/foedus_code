@@ -6,6 +6,7 @@
 #define FOEDUS_STORAGE_MASSTREE_MASSTREE_STORAGE_PIMPL_HPP_
 #include <stdint.h>
 
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -65,7 +66,16 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   DualPagePointer         first_root_pointer_;
 
   /** Lock to synchronize updates to first_root_pointer_. */
-  xct::XctId              first_root_owner_;
+  xct::LockableXctId      first_root_owner_;
+
+  /**
+   * This is an optimization for structural changes in the first-layer root page.
+   * Root of first layer might be VERY contended, so it is better to take a mutex.
+   * Not all threads have to take this, and it is even not required to take this for
+   * changing the root page as we anyway use the page lock. This is to just oppotunistically prevent
+   * concurrent transactions from causing cacheline invalidation storms.
+   */
+  // std::mutex              first_root_mutex_;
 
   /** If this is true, initialize() reads it back from previous snapshot and logs. */
   bool                    exist_;
@@ -74,7 +84,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   ErrorCode grow_root(
     thread::Thread* context,
     DualPagePointer* root_pointer,
-    xct::XctId* root_pointer_owner,
+    xct::LockableXctId* root_pointer_owner,
     MasstreeIntermediatePage** new_root);
 
   /**
@@ -252,7 +262,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   ErrorCode prefetch_pages_exhaustive(thread::Thread* context, MasstreePage* page);
 
   bool track_moved_record(xct::WriteXctAccess* write) ALWAYS_INLINE;
-  xct::XctId* track_moved_record(xct::XctId* address) ALWAYS_INLINE;
+  xct::LockableXctId* track_moved_record(xct::LockableXctId* address) ALWAYS_INLINE;
 };
 }  // namespace masstree
 }  // namespace storage

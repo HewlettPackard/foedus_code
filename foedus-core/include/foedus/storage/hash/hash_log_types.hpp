@@ -105,7 +105,7 @@ struct HashInsertLogType : public log::RecordLogType {
   void            apply_record(
     thread::Thread* context,
     Storage* storage,
-    xct::XctId* owner_id,
+    xct::LockableXctId* owner_id,
     char* payload) ALWAYS_INLINE {
     ASSERT_ND(dynamic_cast<HashStorage*>(storage));
     reinterpret_cast<HashStorage*>(storage)->apply_insert_record(context, this, owner_id, payload);
@@ -158,7 +158,7 @@ struct HashDeleteLogType : public log::RecordLogType {
   void            apply_record(
     thread::Thread* context,
     Storage* storage,
-    xct::XctId* owner_id,
+    xct::LockableXctId* owner_id,
     char* payload) ALWAYS_INLINE {
     ASSERT_ND(dynamic_cast<HashStorage*>(storage));
     reinterpret_cast<HashStorage*>(storage)->apply_delete_record(context, this, owner_id, payload);
@@ -219,7 +219,7 @@ struct HashOverwriteLogType : public log::RecordLogType {
   void            apply_record(
     thread::Thread* /*context*/,
     Storage* storage,
-    xct::XctId* /*owner_id*/,
+    xct::LockableXctId* /*owner_id*/,
     char* payload) ALWAYS_INLINE {
     ASSERT_ND(dynamic_cast<HashStorage*>(storage));
     std::memcpy(

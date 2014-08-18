@@ -16,6 +16,7 @@
 
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/assorted/uniform_random.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
@@ -69,6 +70,8 @@ class TpccClientTask : public thread::ImpersonateTask {
     unexpected_aborts_ = 0;
     largereadset_aborts_ = 0;
     storages_.assert_initialized();
+//    std::memset(stat_wids_, 0, sizeof(stat_wids_));
+//    std::memset(stat_dids_, 0, sizeof(stat_dids_));
   }
 
   ErrorStack run(thread::Thread* context);
@@ -84,12 +87,19 @@ class TpccClientTask : public thread::ImpersonateTask {
   uint32_t increment_largereadset_aborts() { return ++largereadset_aborts_; }
 
   void request_stop() { stop_requrested_ = true; }
+  bool is_stop_requested() const {
+    assorted::memory_fence_acquire();
+    return stop_requrested_;
+  }
 
   uint64_t get_processed() const { return processed_; }
 
 
 //  uint32_t    debug_wdcid_access_[kCustomers * kDistricts * kMaxWarehouses];
 //  uint32_t    debug_wdid_access_[kDistricts * kMaxWarehouses];
+
+//  uint32_t  stat_wids_[kMaxWarehouses];
+//  uint32_t  stat_dids_[kDistricts];
 
  private:
   /** unique ID of this worker from 0 to #workers-1. */
@@ -150,7 +160,7 @@ class TpccClientTask : public thread::ImpersonateTask {
   // For neworder. these are for showing results on stdout (part of the spec, kind of)
   char        output_bg_[kMaxOlCount];
   uint32_t    output_prices_[kMaxOlCount];
-  char        output_item_names_[kMaxOlCount][25];
+  char        output_item_names_[kMaxOlCount][24];
   uint32_t    output_quantities_[kMaxOlCount];
   double      output_amounts_[kMaxOlCount];
   double      output_total_;

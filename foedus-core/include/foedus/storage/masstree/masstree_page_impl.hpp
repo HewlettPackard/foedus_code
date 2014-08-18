@@ -61,7 +61,7 @@ class MasstreePage {
   KeySlice            get_low_fence() const ALWAYS_INLINE { return low_fence_; }
   KeySlice            get_high_fence() const ALWAYS_INLINE { return high_fence_; }
   bool                is_high_fence_supremum() const ALWAYS_INLINE {
-    return get_version().is_high_fence_supremum();
+    return high_fence_ == kSupremumSlice;
   }
   KeySlice            get_foster_fence() const ALWAYS_INLINE { return foster_fence_; }
   MasstreePage*       get_foster_minor() const ALWAYS_INLINE { return foster_twin_[0]; }
@@ -81,11 +81,15 @@ class MasstreePage {
     return slice >= foster_fence_;
   }
   bool                has_foster_child() const ALWAYS_INLINE {
-    return header_.page_version_.has_foster_child();
+    return header_.page_version_.is_moved();
   }
 
   /** Layer-0 stores the first 8 byte slice, Layer-1 next 8 byte... */
-  uint8_t             get_layer() const ALWAYS_INLINE { return header_.page_version_.get_layer(); }
+  uint8_t             get_layer() const ALWAYS_INLINE { return header_.masstree_layer_; }
+  /** \e physical key count (those keys might be deleted) in this page. */
+  uint16_t            get_key_count() const ALWAYS_INLINE { return header_.key_count_; }
+  void                set_key_count(uint16_t count) ALWAYS_INLINE { header_.set_key_count(count); }
+  void                increment_key_count() ALWAYS_INLINE { header_.increment_key_count(); }
 
   /**
    * prefetch upto keys/separators, whether this page is border or interior.
@@ -97,49 +101,25 @@ class MasstreePage {
     assorted::prefetch_cachelines(this, 4);  // max(border's prefetch, interior's prefetch)
   }
 
-  /**
-   * @brief Spins until we observe a non-inserting and non-splitting version.
-   * @return version of this page that wasn't during modification.
-   */
-  PageVersion get_stable_version() const ALWAYS_INLINE {
-    return header_.page_version_.stable_version();
-  }
   const PageVersion& get_version() const ALWAYS_INLINE { return header_.page_version_; }
   PageVersion& get_version() ALWAYS_INLINE { return header_.page_version_; }
   const PageVersion* get_version_address() const ALWAYS_INLINE { return &header_.page_version_; }
   PageVersion* get_version_address() ALWAYS_INLINE { return &header_.page_version_; }
+  xct::McsLock* get_lock_address() ALWAYS_INLINE { return &header_.page_version_.lock_; }
 
   /**
    * @brief Locks the page, spinning if necessary.
-   * @details
-   * After taking lock, you might want to additionally set inserting/splitting bits.
-   * Those can be done just as a usual write once you get a lock.
    */
-  void              lock() ALWAYS_INLINE {
+  void              lock(thread::Thread* context) ALWAYS_INLINE {
     if (!header_.snapshot_) {
-      header_.page_version_.lock_version();
+      header_.page_version_.lock(context);
     }
   }
   bool              is_locked() const ALWAYS_INLINE { return header_.page_version_.is_locked(); }
   bool              is_moved() const ALWAYS_INLINE { return header_.page_version_.is_moved(); }
   bool              is_retired() const ALWAYS_INLINE { return header_.page_version_.is_retired(); }
-
-  /**
-   * @brief Unlocks the page, assuming the caller has locked it.
-   * @pre !header_.snapshot_ (only for volatile pages)
-   * @pre page_version_ & kPageVersionLockedBit (we must have locked it)
-   * @pre this thread locked it (can't check it, but this is the rule)
-   * @return version right after unlocking, which might become soon stale because it's unlocked
-   * @details
-   * This method also takes fences before/after unlock to make it safe.
-   */
-  PageVersion       unlock() ALWAYS_INLINE {
-    if (!header_.snapshot_) {
-      return header_.page_version_.unlock_version();
-    } else {
-      return header_.page_version_;
-    }
-  }
+  void              set_moved() ALWAYS_INLINE { header_.page_version_.set_moved(); }
+  void              set_retired() ALWAYS_INLINE { header_.page_version_.set_retired(); }
 
   void              release_pages_recursive_common(
     const memory::GlobalVolatilePageResolver& page_resolver,
@@ -173,11 +153,8 @@ class MasstreePage {
     VolatilePagePointer page_id,
     PageType            page_type,
     uint8_t             layer,
-    bool                root_in_layer,
     KeySlice            low_fence,
-    KeySlice            high_fence,
-    bool                is_high_fence_supremum,
-    bool                initially_locked);
+    KeySlice            high_fence);
 };
 
 struct BorderSplitStrategy {
@@ -218,14 +195,6 @@ struct IntermediateSplitStrategy {
 };
 STATIC_SIZE_CHECK(sizeof(IntermediateSplitStrategy), 1 << 12)
 
-struct UnlockScope {
-  explicit UnlockScope(MasstreePage* page) : page_(page) {}
-  ~UnlockScope() {
-    page_->unlock();
-  }
-  MasstreePage* page_;
-};
-
 /**
  * @brief Represents one intermediate page in \ref MASSTREE.
  * @ingroup MASSTREE
@@ -259,14 +228,15 @@ class MasstreeIntermediatePage final : public MasstreePage {
     /**
     * @brief Navigates a searching key-slice to one of pointers in this mini-page.
     */
-    uint8_t find_pointer(uint8_t stable_separator_count, KeySlice slice) const ALWAYS_INLINE {
-      ASSERT_ND(stable_separator_count <= kMaxIntermediateMiniSeparators);
-      for (uint8_t i = 0; i < stable_separator_count; ++i) {
+    uint8_t find_pointer(KeySlice slice) const ALWAYS_INLINE {
+      uint8_t key_count = key_count_;
+      ASSERT_ND(key_count <= kMaxIntermediateMiniSeparators);
+      for (uint8_t i = 0; i < key_count; ++i) {
         if (slice < separators_[i]) {
           return i;
         }
       }
-      return stable_separator_count;
+      return key_count;
     }
   };
 
@@ -283,14 +253,15 @@ class MasstreeIntermediatePage final : public MasstreePage {
   /**
    * @brief Navigates a searching key-slice to one of the mini pages in this page.
    */
-  uint8_t find_minipage(uint8_t stable_separator_count, KeySlice slice) const ALWAYS_INLINE {
-    ASSERT_ND(stable_separator_count <= kMaxIntermediateSeparators);
-    for (uint8_t i = 0; i < stable_separator_count; ++i) {
+  uint8_t find_minipage(KeySlice slice) const ALWAYS_INLINE {
+    uint8_t key_count = get_key_count();
+    ASSERT_ND(key_count <= kMaxIntermediateSeparators);
+    for (uint8_t i = 0; i < key_count; ++i) {
       if (slice < separators_[i]) {
         return i;
       }
     }
-    return stable_separator_count;
+    return key_count;
   }
 
   MiniPage&         get_minipage(uint8_t index) ALWAYS_INLINE { return mini_pages_[index]; }
@@ -305,11 +276,8 @@ class MasstreeIntermediatePage final : public MasstreePage {
     StorageId           storage_id,
     VolatilePagePointer page_id,
     uint8_t             layer,
-    bool                root_in_layer,
     KeySlice            low_fence,
-    KeySlice            high_fence,
-    bool                is_high_fence_supremum,
-    bool                initially_locked);
+    KeySlice            high_fence);
 
   /**
    * Splits this page as a physical-only operation, creating a new foster twin, adopting
@@ -364,6 +332,7 @@ class MasstreeIntermediatePage final : public MasstreePage {
     uint16_t to,
     KeySlice expected_last_separator);
   void adopt_from_child_norecord_first_level(
+    thread::Thread* context,
     uint8_t minipage_index,
     MasstreePage* child);
 };
@@ -402,8 +371,7 @@ class MasstreeBorderPage final : public MasstreePage {
     /** Maximum value for remaining_key_length_. */
     kKeyLengthMax = 254,
 
-    kHeaderSize = 1352,
-    kDataSize = 4096 - kHeaderSize - 8,
+    kDataSize = 4096 - 1872,
   };
   /** Used in FindKeyForReserveResult */
   enum MatchType {
@@ -430,18 +398,14 @@ class MasstreeBorderPage final : public MasstreePage {
     StorageId           storage_id,
     VolatilePagePointer page_id,
     uint8_t             layer,
-    bool                root_in_layer,
     KeySlice            low_fence,
-    KeySlice            high_fence,
-    bool                is_high_fence_supremum,
-    bool                initially_locked);
+    KeySlice            high_fence);
 
   /**
    * @brief Navigates a searching key-slice to one of the mini pages in this page.
    * @return index of key found in this page, or kMaxKeys if not found.
    */
   uint8_t find_key(
-    uint8_t stable_key_count,
     KeySlice slice,
     const void* suffix,
     uint8_t remaining) const ALWAYS_INLINE;
@@ -502,11 +466,11 @@ class MasstreeBorderPage final : public MasstreePage {
     return static_cast<uint16_t>(offsets_[index]) << 4;
   }
 
-  xct::XctId* get_owner_id(uint8_t index) ALWAYS_INLINE {
+  xct::LockableXctId* get_owner_id(uint8_t index) ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
     return owner_ids_ + index;
   }
-  const xct::XctId* get_owner_id(uint8_t index) const ALWAYS_INLINE {
+  const xct::LockableXctId* get_owner_id(uint8_t index) const ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
     return owner_ids_ + index;
   }
@@ -598,7 +562,7 @@ class MasstreeBorderPage final : public MasstreePage {
 
   /** morph the specified record to a next layer pointer. this needs a record lock to execute. */
   void    set_next_layer(uint8_t index, const DualPagePointer& pointer) {
-    ASSERT_ND(get_owner_id(index)->is_keylocked());
+    ASSERT_ND(get_owner_id(index)->lock_.is_keylocked());
     ASSERT_ND(remaining_key_length_[index] > sizeof(KeySlice));
     remaining_key_length_[index] = kKeyLengthNextLayer;
     *get_next_layer(index) = pointer;
@@ -633,11 +597,16 @@ class MasstreeBorderPage final : public MasstreePage {
    * @param[in] context Thread context
    * @param[in] trigger The key that triggered this split
    * @param[out] target the page the new key will be inserted. Either foster_child or foster_minor.
+   * @param[out] target_lock this thread's MCS block index for target.
    * @pre !header_.snapshot_ (split happens to only volatile pages)
    * @pre is_locked() (the page must be locked)
-   * @post iff successfully exits, target->is_locked()
+   * @post iff successfully exits, target->is_locked(), and target_lock is the MCS block index
    */
-  ErrorCode split_foster(thread::Thread* context, KeySlice trigger, MasstreeBorderPage** target);
+  ErrorCode split_foster(
+    thread::Thread* context,
+    KeySlice trigger,
+    MasstreeBorderPage** target,
+    xct::McsBlockIndex *target_lock);
 
   /**
    * @return whether we could track it. the only case it fails to track is the record moved
@@ -645,7 +614,7 @@ class MasstreeBorderPage final : public MasstreePage {
    * the whole transaction.
    */
   bool track_moved_record(
-    xct::XctId* owner_address,
+    xct::LockableXctId* owner_address,
     MasstreeBorderPage** located_page,
     uint8_t* located_index);
 
@@ -667,7 +636,7 @@ class MasstreeBorderPage final : public MasstreePage {
       }
       const MasstreeBorderPage* target_;
     };
-    uint8_t key_count = get_version().get_key_count();
+    uint8_t key_count = get_key_count();
     uint8_t order[kMaxKeys];
     for (uint8_t i = 0; i < key_count; ++i) {
       order[i] = i;
@@ -720,9 +689,8 @@ class MasstreeBorderPage final : public MasstreePage {
    * Lock of each record. We separate this out from record to avoid destructive change
    * while splitting and page compaction. We have to make sure xct_id is always in a separated
    * area.
-   * This must be 16-bytes aligned to use cmpxchg16b.
    */
-  xct::XctId  owner_ids_[kMaxKeys];               // +512 -> 1360
+  xct::LockableXctId  owner_ids_[kMaxKeys];               // +1024 -> 1872
 
   /**
    * The main data region of this page. Suffix and payload contiguously.
@@ -736,11 +704,6 @@ class MasstreeBorderPage final : public MasstreePage {
    */
   BorderSplitStrategy split_foster_decide_strategy(uint8_t key_count, KeySlice trigger) const;
 
-  /** pre-commit the split operation as a system transaction. */
-  xct::XctId split_foster_commit_system_xct(
-    thread::Thread* context,
-    const BorderSplitStrategy &strategy) const;
-
   void split_foster_migrate_records(
     const MasstreeBorderPage& copy_from,
     uint8_t key_count,
@@ -749,24 +712,26 @@ class MasstreeBorderPage final : public MasstreePage {
 
   /**
    * @brief Subroutin of split_foster()
+   * @return MCS block index of the \e first lock acqired. As this is done in a single transaction,
+   * following locks trivially have sequential block index from it.
    * @details
    * First, we have to lock all (physically) active records to advance versions.
    * This is required because other transactions might be already in pre-commit phase to
    * modify records in this page.
    */
-  void split_foster_lock_existing_records(uint8_t key_count);
+  xct::McsBlockIndex split_foster_lock_existing_records(thread::Thread* context, uint8_t key_count);
 };
 STATIC_SIZE_CHECK(sizeof(MasstreeBorderPage), 1 << 12)
 
 inline uint8_t MasstreeBorderPage::find_key(
-  uint8_t stable_key_count,
   KeySlice slice,
   const void* suffix,
   uint8_t remaining) const {
+  uint8_t key_count = get_key_count();
   ASSERT_ND(remaining <= kKeyLengthMax);
-  ASSERT_ND(stable_key_count <= kMaxKeys);
-  prefetch_additional_if_needed(stable_key_count);
-  for (uint8_t i = 0; i < stable_key_count; ++i) {
+  ASSERT_ND(key_count <= kMaxKeys);
+  prefetch_additional_if_needed(key_count);
+  for (uint8_t i = 0; i < key_count; ++i) {
     if (LIKELY(slice != slices_[i])) {
       continue;
     }
@@ -885,10 +850,11 @@ inline void MasstreeBorderPage::reserve_record_space(
   const void* suffix,
   uint8_t remaining_length,
   uint16_t payload_count) {
+  ASSERT_ND(initial_owner_id.is_deleted());
   ASSERT_ND(index < kMaxKeys);
   ASSERT_ND(remaining_length <= kKeyLengthMax);
   ASSERT_ND(is_locked());
-  ASSERT_ND(header_.page_version_.get_key_count() == index);
+  ASSERT_ND(get_key_count() == index);
   ASSERT_ND(can_accomodate(index, remaining_length, payload_count));
   uint16_t suffix_length = calculate_suffix_length(remaining_length);
   DataOffset record_size = calculate_record_size(remaining_length, payload_count) >> 4;
@@ -902,7 +868,8 @@ inline void MasstreeBorderPage::reserve_record_space(
   remaining_key_length_[index] = remaining_length;
   payload_length_[index] = payload_count;
   offsets_[index] = previous_offset - record_size;
-  owner_ids_[index] = initial_owner_id;
+  owner_ids_[index].lock_.reset();
+  owner_ids_[index].xct_id_ = initial_owner_id;
   if (suffix_length > 0) {
     std::memcpy(get_record(index), suffix, suffix_length);
   }

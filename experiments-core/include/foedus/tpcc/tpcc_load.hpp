@@ -12,6 +12,7 @@
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/uniform_random.hpp"
+#include "foedus/memory/aligned_memory.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/impersonate_task.hpp"
@@ -115,6 +116,7 @@ class TpccLoadTask : public thread::ImpersonateTask {
   xct::XctManager* xct_manager_;
 
   assorted::UniformRandom rnd_;
+  memory::AlignedMemory customer_secondary_keys_buffer_;
 
   void      random_orig(bool *orig);
 

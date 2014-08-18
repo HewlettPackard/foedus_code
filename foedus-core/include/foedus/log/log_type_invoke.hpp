@@ -49,7 +49,7 @@ void invoke_apply_record(
   void *log_buffer,
   thread::Thread* context,
   storage::Storage* storage,
-  xct::XctId* owner_id_address,
+  xct::LockableXctId* owner_id_address,
   char* payload_address);
 
 /**
@@ -77,7 +77,7 @@ inline void invoke_apply_record(
   void *buffer,
   thread::Thread* context,
   storage::Storage* storage,
-  xct::XctId* owner_id,
+  xct::LockableXctId* owner_id,
   char* payload) {
   invoke_assert_valid(buffer);
   LogHeader* header = reinterpret_cast<LogHeader*>(buffer);

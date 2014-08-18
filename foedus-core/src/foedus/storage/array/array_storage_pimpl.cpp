@@ -284,7 +284,8 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
   for (uint8_t level = 0; level < levels_; ++level) {
     VolatilePagePointer page_pointer = grab_batch.grab_evenly(0, pages[level]);
     ASSERT_ND(page_pointer.components.offset != 0);
-    ArrayPage* page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(page_pointer));
+    ArrayPage* page = reinterpret_cast<ArrayPage*>(
+      page_resolver.resolve_offset_newpage(page_pointer));
     current_pages.push_back(page);
     current_pages_ids.push_back(page_pointer);
   }
@@ -295,14 +296,12 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
       ASSERT_ND(level == levels_ - 1);
       range.end_ = metadata_.array_size_;
     }
-    bool root = (level == levels_ - 1);
     page->initialize_volatile_page(
       initial_epoch,
       metadata_.id_,
       current_pages_ids[level],
       metadata_.payload_size_,
       level,
-      root,
       range);
 
     if (level == 0) {
@@ -324,7 +323,8 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
   for (uint64_t leaf = 1; leaf < pages[0]; ++leaf) {
     VolatilePagePointer page_pointer = grab_batch.grab_evenly(leaf, pages[0]);
     ASSERT_ND(page_pointer.components.offset != 0);
-    ArrayPage* page = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(page_pointer));
+    ArrayPage* page = reinterpret_cast<ArrayPage*>(
+      page_resolver.resolve_offset_newpage(page_pointer));
 
     ArrayRange range(current_pages[0]->get_array_range().end_,
              current_pages[0]->get_array_range().end_ + offset_intervals[0]);
@@ -337,7 +337,6 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
       page_pointer,
       metadata_.payload_size_,
       0,
-      false,
       range);
     current_pages[0] = page;
     current_pages_ids[0] = page_pointer;
@@ -351,20 +350,18 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
         VolatilePagePointer interior_pointer = grab_batch.grab(page_pointer.components.numa_node);
         ASSERT_ND(interior_pointer.components.offset != 0);
         ArrayPage* interior_page = reinterpret_cast<ArrayPage*>(
-          page_resolver.resolve_offset(interior_pointer));
+          page_resolver.resolve_offset_newpage(interior_pointer));
         ArrayRange interior_range(current_pages[level]->get_array_range().end_,
              current_pages[level]->get_array_range().end_ + offset_intervals[level]);
         if (range.end_ > metadata_.array_size_) {
           range.end_ = metadata_.array_size_;
         }
-        bool root = (level == levels_ - 1);
         interior_page->initialize_volatile_page(
           initial_epoch,
           metadata_.id_,
           interior_pointer,
           metadata_.payload_size_,
           level,
-          root,
           interior_range);
 
         DualPagePointer& child_pointer = interior_page->get_interior_record(0);
@@ -498,7 +495,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload(
   if (!snapshot_record &&
     current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
     current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
-    xct::XctId observed(record->owner_id_.spin_while_keylocked());
+    xct::XctId observed(record->owner_id_.xct_id_);
     assorted::memory_fence_consume();
     CHECK_ERROR_CODE(current_xct.add_to_read_set(holder_, observed, &record->owner_id_));
   }
@@ -514,7 +511,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write(
   xct::Xct& current_xct = context->get_current_xct();
   if (current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
     current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
-    xct::XctId observed((*record)->owner_id_.spin_while_keylocked());
+    xct::XctId observed((*record)->owner_id_.xct_id_);
     assorted::memory_fence_consume();
     CHECK_ERROR_CODE(current_xct.add_to_read_set(holder_, observed, &((*record)->owner_id_)));
   }
@@ -787,7 +784,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_primitive_batch(
       current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       if (!snapshot_record_batch[i]) {
-        xct::XctId observed(record_batch[i]->owner_id_.spin_while_keylocked());
+        xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
         CHECK_ERROR_CODE(current_xct.add_to_read_set(
           holder_,
           observed,
@@ -830,7 +827,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload_batch(
       current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       if (!snapshot_record_batch[i]) {
-        xct::XctId observed(record_batch[i]->owner_id_.spin_while_keylocked());
+        xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
         CHECK_ERROR_CODE(current_xct.add_to_read_set(
           holder_,
           observed,
@@ -860,7 +857,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write_batch(
   if (current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
       current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
     for (uint8_t i = 0; i < batch_size; ++i) {
-      xct::XctId observed(record_batch[i]->owner_id_.spin_while_keylocked());
+      xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
       CHECK_ERROR_CODE(current_xct.add_to_read_set(
         holder_,
         observed,
@@ -1059,6 +1056,37 @@ inline ErrorCode ArrayStoragePimpl::follow_pointer_for_write(
   }
   return kErrorCodeOk;
 }
+
+#define CHECK_AND_ASSERT(x) do { ASSERT_ND(x); if (!(x)) \
+  return ERROR_STACK(kErrorCodeStrArrayFailedVerification); } while (0)
+
+ErrorStack ArrayStoragePimpl::verify_single_thread(thread::Thread* context, ArrayPage* page) {
+  const memory::GlobalVolatilePageResolver& resolver = context->get_global_volatile_page_resolver();
+  if (page->is_leaf()) {
+    for (uint16_t i = 0; i < page->get_leaf_record_count(); ++i) {
+      Record* record = page->get_leaf_record(i, metadata_.payload_size_);
+      CHECK_AND_ASSERT(!record->owner_id_.is_being_written());
+      CHECK_AND_ASSERT(!record->owner_id_.is_deleted());
+      CHECK_AND_ASSERT(!record->owner_id_.is_keylocked());
+      CHECK_AND_ASSERT(!record->owner_id_.is_moved());
+      CHECK_AND_ASSERT(record->owner_id_.lock_.get_version() == 0);
+      CHECK_AND_ASSERT(record->owner_id_.lock_.get_key_lock()->get_tail_waiter() == 0);
+      CHECK_AND_ASSERT(record->owner_id_.lock_.get_key_lock()->get_tail_waiter_block() == 0);
+    }
+  } else {
+    for (uint16_t i = 0; i < kInteriorFanout; ++i) {
+      DualPagePointer &child_pointer = page->get_interior_record(i);
+      VolatilePagePointer page_id = child_pointer.volatile_pointer_;
+      if (page_id.components.offset != 0) {
+        // then recurse
+        ArrayPage* child_page = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(page_id));
+        CHECK_ERROR(verify_single_thread(context, child_page));
+      }
+    }
+  }
+  return kRetOk;
+}
+
 
 // Explicit instantiations for each type
 // @cond DOXYGEN_IGNORE

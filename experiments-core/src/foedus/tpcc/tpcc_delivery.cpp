@@ -38,17 +38,16 @@ ErrorCode TpccClientTask::do_delivery(Wid wid) {
       context_,
       wdoid,
       &cid,
-      0));
+      offsetof(OrderData, cid_)));
 
     // UPDATE ORDER SET O_CARRIER_ID=carrier_id WHERE wid/did/oid=..
     // Note that we don't have to update the secondary index
     // as O_CARRIER_ID is not included in it.
-    const uint16_t carrier_offset = offsetof(OrderData, carrier_id_);
     CHECK_ERROR_CODE(storages_.orders_->overwrite_record_primitive_normalized<uint32_t>(
       context_,
       wdoid,
       carrier_id,
-      carrier_offset));
+      offsetof(OrderData, carrier_id_)));
     // TODO(Hideaki) it's a waste to do this in two steps. but exposing more complicated APIs
     // to do read+write in one shot is arguable... is it cheating or not?
 

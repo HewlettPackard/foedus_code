@@ -198,7 +198,6 @@ ErrorStack ArrayComposer::construct_root(
         new_page_id,
         payload_size_,
         levels_ - 1,
-        true,
         range);
     }
 
@@ -266,7 +265,8 @@ ErrorCode ArrayComposer::compose_init_context(
   // let's load the first pages. what's the first key/xct_id?
   next_input_ = inputs_count_;
   next_key_ = 0xFFFFFFFFFFFFFFFFULL;
-  next_xct_id_ = xct::XctId(0xFFFFFFFFFFFFFFFFULL);
+  next_xct_id_.set_epoch_int(Epoch::kEpochIntHalf - 1U);
+  next_xct_id_.set_ordinal(0xFFFFU);
   for (uint32_t i = 0; i < inputs_count_; ++i) {
     if (inputs_[i].cur_value_ < next_key_ || (
         inputs_[i].cur_value_ == next_key_ &&
@@ -364,7 +364,6 @@ void ArrayComposer::compose_init_context_empty_cur_path() {
       new_page_id,
       payload_size_,
       level,
-      level == levels_ - 1,
       range);
     cur_path_[level] = page;
     DualPagePointer& pointer = page->get_interior_record(next_route_.route[level]);
@@ -386,7 +385,6 @@ void ArrayComposer::compose_init_context_empty_cur_path() {
       new_page_id,
       payload_size_,
       0,
-      0 == levels_ - 1,
       range);
     cur_path_[0] = page;
   }
@@ -420,7 +418,7 @@ inline ErrorCode ArrayComposer::advance() {
 
   next_input_ = inputs_count_;
   next_key_ = 0xFFFFFFFFFFFFFFFFULL;
-  next_xct_id_ = xct::XctId(0xFFFFFFFFFFFFFFFFULL);
+  next_xct_id_.data_ = 0xFFFFFFFFFFFFFFFFULL;
   for (uint32_t i = 0; i < inputs_count_; ++i) {
     // TODO(Hideaki): rather than checking ended each time, we should re-allocate the array when
     // some stream is ended.
@@ -546,7 +544,6 @@ inline ErrorCode ArrayComposer::read_or_init_page(
       new_page_id,
       payload_size_,
       level,
-      level == levels_ - 1,
       range);
   }
   return kErrorCodeOk;

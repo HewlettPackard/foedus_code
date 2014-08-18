@@ -43,12 +43,13 @@ class MasstreeCursor CXX11_FINAL {
   struct Route {
     enum MovedPageSearchStatus {
       kNotMovedPage = 0,
-      kMovedPageSearchedOne = 1,
-      kMovedPageSearchedBoth = 2,
+      kMovedPageSearchedNeither = 1,
+      kMovedPageSearchedOne = 2,
+      kMovedPageSearchedBoth = 3,
     };
     MasstreePage* page_;
     /** version as of getting calculating order_. */
-    PageVersion stable_;
+    PageVersionStatus stable_;
     /** index in ordered keys. in interior, same. */
     uint8_t index_;
     /** only for interior. */
@@ -70,6 +71,13 @@ class MasstreeCursor CXX11_FINAL {
 
     /** whether page_ is a snapshot page */
     bool    snapshot_;
+    /**
+     * This is set to true when the initial locate() didn't find a matching record,
+     * hitting the page boundary. in that case, locate() stops there and open() invokes
+     * next().
+     */
+    bool    locate_miss_in_page_;
+
     /** only when stable_ indicates that this page is a moved page */
     MovedPageSearchStatus moved_page_search_status_;
 
@@ -207,7 +215,7 @@ class MasstreeCursor CXX11_FINAL {
   uint8_t     cur_key_in_layer_remaining_;
   KeySlice    cur_key_in_layer_slice_;
   xct::XctId  cur_key_observed_owner_id_;
-  xct::XctId* cur_key_owner_id_address;
+  xct::LockableXctId* cur_key_owner_id_address;
 
   /** full big-endian key to terminate search. backed by end_key_memory_offset_ */
   char*       end_key_;
@@ -222,7 +230,7 @@ class MasstreeCursor CXX11_FINAL {
   char*       search_key_;
 
   /** stable version of teh current border page as of copying cur_page_. */
-  PageVersion cur_page_stable_;
+  PageVersionStatus cur_page_stable_;
 
   /** backed by routes_memory_offset_. */
   Route*      routes_;
@@ -310,7 +318,7 @@ class MasstreeCursor CXX11_FINAL {
     for (uint16_t i = 0; i + 1U < route_count_; ++i) {
       const Route* route = routes_ + i;
       ASSERT_ND(route->page_);
-      if (route->stable_.has_foster_child()) {
+      if (route->stable_.is_moved()) {
         // then we don't use any information in this path
       } else if (reinterpret_cast<Page*>(route->page_)->get_header().get_page_type()
         == kMasstreeBorderPageType) {

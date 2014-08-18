@@ -33,20 +33,21 @@ namespace foedus {
 namespace tpcc {
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_int32(volatile_pool_size, 32, "Size of volatile memory pool per NUMA node in GB.");
-DEFINE_bool(ignore_volatile_size_warning, false, "Ignores warning on volatile_pool_size setting.");
+DEFINE_bool(ignore_volatile_size_warning, true, "Ignores warning on volatile_pool_size setting.");
 DEFINE_int32(loggers_per_node, 4, "Number of log writers per numa node.");
-DEFINE_int32(neworder_remote_percent, 0, "Percent of each orderline that is inserted to remote"
+DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
   " remote orderline). This corresponds to H-Store's neworder_multip/neworder_multip_mix in"
   " tpcc.properties.");
-DEFINE_int32(payment_remote_percent, 0, "Percent of each payment that is inserted to remote"
+DEFINE_int32(payment_remote_percent, 15, "Percent of each payment that is inserted to remote"
   " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
 DEFINE_int32(thread_per_node, 0, "Number of threads per NUMA node. 0 uses logical count");
-DEFINE_int32(log_buffer_mb, 256, "Size in MB of log buffer for each thread");
+DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
+DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_int32(warehouses, 16, "Number of warehouses.");
-DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
+DEFINE_int64(duration_micro, 10000000, "Duration of benchmark in microseconds.");
 
 TpccDriver::Result TpccDriver::run() {
   const EngineOptions& options = engine_->get_options();
@@ -175,10 +176,23 @@ TpccDriver::Result TpccDriver::run() {
   LOG(INFO) << "Started!";
   debugging::StopWatch duration;
   while (duration.peek_elapsed_ns() < static_cast<uint64_t>(FLAGS_duration_micro) * 1000ULL) {
-    // sleep_for might have a spurious wakeup depending on the machine.
-    // sleep again if not yet done
+    // wake up for each second to show intermediate results.
     uint64_t remaining_duration = FLAGS_duration_micro - duration.peek_elapsed_ns() / 1000ULL;
+    remaining_duration = std::min<uint64_t>(remaining_duration, 1000000ULL);
     std::this_thread::sleep_for(std::chrono::microseconds(remaining_duration));
+    Result result;
+    result.duration_sec_ = static_cast<double>(duration.peek_elapsed_ns()) / 1000000000;
+    result.worker_count_ = clients_.size();
+    for (uint32_t i = 0; i < clients_.size(); ++i) {
+      TpccClientTask* client = clients_[i];
+      result.processed_ += client->get_processed();
+      result.race_aborts_ += client->get_race_aborts();
+      result.unexpected_aborts_ += client->get_unexpected_aborts();
+      result.largereadset_aborts_ += client->get_largereadset_aborts();
+      result.user_requested_aborts_ += client->get_user_requested_aborts();
+    }
+    LOG(INFO) << "Intermediate report after " << result.duration_sec_ << " sec";
+    LOG(INFO) << result;
   }
   LOG(INFO) << "Experiment ended.";
 
@@ -205,6 +219,25 @@ TpccDriver::Result TpccDriver::run() {
     result.largereadset_aborts_ += client->get_largereadset_aborts();
     result.user_requested_aborts_ += client->get_user_requested_aborts();
   }
+/*
+for (uint32_t i = 0; i < clients_.size(); ++i) {
+  TpccClientTask* client = clients_[i];
+  std::stringstream msg;
+  msg << "Client-" << i << " remote WIDS:";
+  for (uint32_t w = 0; w < FLAGS_warehouses; ++w) {
+    msg << " " << client->stat_wids_[w];
+  }
+  LOG(INFO) << msg.str();
+}
+for (uint32_t i = 0; i < clients_.size(); ++i) {
+  TpccClientTask* client = clients_[i];
+  std::stringstream msg;
+  msg << "Client-" << i << " remote DIDS:";
+  for (uint32_t d = 0; d < kDistricts; ++d) {
+    msg << " " << client->stat_dids_[d];
+  }
+  LOG(INFO) << msg.str();
+}*/
   LOG(INFO) << "Shutting down...";
 
   // output the current memory state at the end
@@ -321,7 +354,7 @@ int driver_main(int argc, char **argv) {
   options.savepoint_.savepoint_path_ = savepoint_path.string();
   ASSERT_ND(!fs::exists(savepoint_path));
 
-  LOG(INFO) << "NUMA node count=" << static_cast<int>(options.thread_.group_count_);
+  std::cout << "NUMA node count=" << static_cast<int>(options.thread_.group_count_) << std::endl;
   options.snapshot_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/snapshot/node_$NODE$";
   options.log_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/log/node_$NODE$/logger_$LOGGER$";
   options.log_.loggers_per_node_ = FLAGS_loggers_per_node;
@@ -336,21 +369,27 @@ int driver_main(int argc, char **argv) {
   options.debugging_.verbose_log_level_ = -1;
 
   options.log_.log_buffer_kb_ = FLAGS_log_buffer_mb << 10;
-  LOG(INFO) << "log_buffer_mb=" << FLAGS_log_buffer_mb << "MB per thread";
+  std::cout << "log_buffer_mb=" << FLAGS_log_buffer_mb << "MB per thread" << std::endl;
   options.log_.log_file_size_mb_ = 1 << 10;
-  LOG(INFO) << "volatile_pool_size=" << FLAGS_volatile_pool_size << "GB per NUMA node";
+  std::cout << "volatile_pool_size=" << FLAGS_volatile_pool_size << "GB per NUMA node" << std::endl;
   options.memory_.page_pool_size_mb_per_node_ = (FLAGS_volatile_pool_size) << 10;
   options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 10;
 
   if (FLAGS_thread_per_node != 0) {
-    LOG(INFO) << "thread_per_node=" << FLAGS_thread_per_node;
+    std::cout << "thread_per_node=" << FLAGS_thread_per_node << std::endl;
     options.thread_.thread_count_per_group_ = FLAGS_thread_per_node;
+  }
+
+  if (FLAGS_null_log_device) {
+    std::cout << "/dev/null log device" << std::endl;
+    options.log_.emulation_.null_device_ = true;
   }
 
   if (FLAGS_single_thread_test) {
     FLAGS_warehouses = 1;
     options.log_.log_buffer_kb_ = 1 << 16;
     options.log_.log_file_size_mb_ = 1 << 10;
+    options.log_.loggers_per_node_ = 1;
     options.memory_.page_pool_size_mb_per_node_ = 1 << 12;
     options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 12;
     options.thread_.group_count_ = 1;
@@ -383,10 +422,10 @@ int driver_main(int argc, char **argv) {
   for (uint32_t i = 0; i < result.worker_count_; ++i) {
     LOG(INFO) << result.workers_[i];
   }
-  LOG(INFO) << result;
+  LOG(INFO) << "final result:" << result;
   if (FLAGS_profile) {
-    LOG(INFO) << "Check out the profile result: pprof --pdf tpcc tpcc.prof > prof.pdf; "
-      "okular prof.pdf";
+    std::cout << "Check out the profile result: pprof --pdf tpcc tpcc.prof > prof.pdf; "
+      "okular prof.pdf" << std::endl;
   }
   return 0;
 }

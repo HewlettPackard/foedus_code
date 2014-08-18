@@ -50,7 +50,7 @@ class WriteLogTask : public thread::ImpersonateTask {
     buffer.assert_consistent();
 
     // hacky. just to make this transaction read-write.
-    xct::XctId dummy_record;
+    xct::LockableXctId dummy_record;
     context->get_current_xct().add_to_write_set(
       reinterpret_cast<storage::Storage*>(&dummy_record),
       &dummy_record,
@@ -112,7 +112,7 @@ class BufferWrapAroundTask : public thread::ImpersonateTask {
       kBufferSize - 128));
     filler->populate(kBufferSize - 128);
 
-    xct::XctId dummy_record;
+    xct::LockableXctId dummy_record;
     context->get_current_xct().add_to_write_set(
       reinterpret_cast<storage::Storage*>(&dummy_record),
       &dummy_record,
