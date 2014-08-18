@@ -197,6 +197,7 @@ struct DistrictYtdData {
   char      dummy_[40];    // +40 -> 48
   // with kRecordOverhead (16 bytes), this is 64 bytes. good for avoiding false sharing
   char      dummy2_[64];   // another padding in case of adjacent cacheline prefetch enabled
+  char      dummy3_[128];  // evne more in case it prefetches 4 cacheline
 };
 
 struct DistrictNextOidData {
@@ -205,6 +206,7 @@ struct DistrictNextOidData {
   char      dummy2_[40];   // +40 -> 48
   // with kRecordOverhead (16 bytes), this is 64 bytes. good for avoiding false sharing
   char      dummy3_[64];   // another padding in case of adjacent cacheline prefetch enabled
+  char      dummy4_[128];  // evne more in case it prefetches 4 cacheline
 };
 
 struct CustomerStaticData {
