@@ -40,6 +40,11 @@ ErrorCode   ArrayStorage::prefetch_pages(
   return pimpl_->prefetch_pages(context, from, to);
 }
 
+ErrorStack ArrayStorage::verify_single_thread(thread::Thread* context) {
+  return pimpl_->verify_single_thread(context, pimpl_->root_page_);
+}
+
+
 
 void ArrayStorage::describe(std::ostream* o_ptr) const {
   std::ostream& o = *o_ptr;

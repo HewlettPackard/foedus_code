@@ -74,23 +74,11 @@ typedef uint32_t McsBlockIndex;
  * @details
  * This is the minimal unit of locking in our system.
  */
-class McsLock {
- public:
-  union McsLockData {
-    struct Components {
-      /** last waiter's thread ID */
-      thread::ThreadId  tail_waiter_;
-      /** last waiter's MCS block in the thread. 0 means no one is waiting (not locked) */
-      uint16_t          tail_waiter_block_;  // so far 16bits, so not McsBlockIndex
-    } components;
-    uint32_t word;
-  };
-  McsLock() { data_.word = 0; }
-  McsLock(thread::ThreadId tail_waiter, uint16_t tail_waiter_block) {
-    data_.components.tail_waiter_ = tail_waiter;
-    data_.components.tail_waiter_block_ = tail_waiter_block;
+struct McsLock {
+  McsLock() { data_ = 0; }
+  McsLock(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) {
+    reset(tail_waiter, tail_waiter_block);
   }
-  explicit McsLock(uint32_t int_value) { data_.word = int_value; }
 
   McsLock(const McsLock& other) CXX11_FUNC_DELETE;
   McsLock& operator=(const McsLock& other) CXX11_FUNC_DELETE;
@@ -101,9 +89,7 @@ class McsLock {
     ASSERT_ND(reinterpret_cast<uintptr_t>(reinterpret_cast<const void*>(this)) % 4 == 0);
     return reinterpret_cast<uintptr_t>(reinterpret_cast<const void*>(this)) / 4;
   }
-  uint32_t* as_int_ptr() { return &data_.word; }
-  uint32_t  as_int() const { return data_.word; }
-  bool      is_locked() const { return data_.components.tail_waiter_block_ != 0; }
+  bool      is_locked() const { return (data_ & 0xFFFFU) != 0; }
 
   /** Equivalent to context->mcs_acquire_lock(this). Actually that's more preferred. */
   McsBlockIndex acquire_lock(thread::Thread* context);
@@ -112,24 +98,39 @@ class McsLock {
   /** Equivalent to context->mcs_release_lock(this). Actually that's more preferred. */
   void          release_lock(thread::Thread* context, McsBlockIndex block);
 
-  thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return data_.components.tail_waiter_; }
-  McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE {
-    return data_.components.tail_waiter_block_;
-  }
+  thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return data_ >> 16U; }
+  McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE { return data_ & 0xFFFFU; }
 
   /** used only while page initialization */
-  void    reset() ALWAYS_INLINE { data_.word = 0; }
+  void    reset() ALWAYS_INLINE { data_ = 0; }
 
   /** used only for initial_lock() */
   void    reset(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
-    data_.components.tail_waiter_ = tail_waiter;
-    data_.components.tail_waiter_block_ = tail_waiter_block;
+    data_ = to_int(tail_waiter, tail_waiter_block);
+  }
+
+  static uint32_t to_int(
+    thread::ThreadId tail_waiter,
+    McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
+    ASSERT_ND(tail_waiter_block <= 0xFFFFU);
+    return static_cast<uint32_t>(tail_waiter) << 16 | (tail_waiter_block & 0xFFFFU);
   }
 
   friend std::ostream& operator<<(std::ostream& o, const McsLock& v);
 
+  uint32_t data_;
+
  private:
-  McsLockData data_;
+  /** not used. GCC gives a completely weird behavior even with fno-strict-aliasing. */
+  union McsLockData {
+    struct Components {
+      /** last waiter's thread ID */
+      thread::ThreadId  tail_waiter_;
+      /** last waiter's MCS block in the thread. 0 means no one is waiting (not locked) */
+      uint16_t          tail_waiter_block_;  // so far 16bits, so not McsBlockIndex
+    } components;
+    uint32_t word;
+  };
 };
 STATIC_SIZE_CHECK(sizeof(McsLock), 4)
 

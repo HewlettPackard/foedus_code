@@ -14,7 +14,7 @@ namespace xct {
 class   CombinedLock;
 struct  LockableXctId;
 struct  LockFreeWriteXctAccess;
-class   McsLock;
+struct  McsLock;
 struct  McsLockScope;
 struct  PointerAccess;
 struct  WriteXctAccess;

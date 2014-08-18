@@ -1057,6 +1057,37 @@ inline ErrorCode ArrayStoragePimpl::follow_pointer_for_write(
   return kErrorCodeOk;
 }
 
+#define CHECK_AND_ASSERT(x) do { ASSERT_ND(x); if (!(x)) \
+  return ERROR_STACK(kErrorCodeStrArrayFailedVerification); } while (0)
+
+ErrorStack ArrayStoragePimpl::verify_single_thread(thread::Thread* context, ArrayPage* page) {
+  const memory::GlobalVolatilePageResolver& resolver = context->get_global_volatile_page_resolver();
+  if (page->is_leaf()) {
+    for (uint16_t i = 0; i < page->get_leaf_record_count(); ++i) {
+      Record* record = page->get_leaf_record(i, metadata_.payload_size_);
+      CHECK_AND_ASSERT(!record->owner_id_.is_being_written());
+      CHECK_AND_ASSERT(!record->owner_id_.is_deleted());
+      CHECK_AND_ASSERT(!record->owner_id_.is_keylocked());
+      CHECK_AND_ASSERT(!record->owner_id_.is_moved());
+      CHECK_AND_ASSERT(record->owner_id_.lock_.get_version() == 0);
+      CHECK_AND_ASSERT(record->owner_id_.lock_.get_key_lock()->get_tail_waiter() == 0);
+      CHECK_AND_ASSERT(record->owner_id_.lock_.get_key_lock()->get_tail_waiter_block() == 0);
+    }
+  } else {
+    for (uint16_t i = 0; i < kInteriorFanout; ++i) {
+      DualPagePointer &child_pointer = page->get_interior_record(i);
+      VolatilePagePointer page_id = child_pointer.volatile_pointer_;
+      if (page_id.components.offset != 0) {
+        // then recurse
+        ArrayPage* child_page = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(page_id));
+        CHECK_ERROR(verify_single_thread(context, child_page));
+      }
+    }
+  }
+  return kRetOk;
+}
+
+
 // Explicit instantiations for each type
 // @cond DOXYGEN_IGNORE
 #define EXPLICIT_INSTANTIATION_GET(x) template ErrorCode ArrayStorage::get_record_primitive< x > \
