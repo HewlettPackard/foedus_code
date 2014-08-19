@@ -44,6 +44,11 @@ DEFINE_int32(payment_remote_percent, 15, "Percent of each payment that is insert
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
 DEFINE_int32(thread_per_node, 0, "Number of threads per NUMA node. 0 uses logical count");
+DEFINE_int32(numa_nodes, 0, "Number of NUMA nodes. 0 uses physical count");
+DEFINE_bool(use_numa_alloc, true, "Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode()"
+  " to allocate memories. If false, we use usual posix_memalign() instead");
+DEFINE_bool(interleave_numa_alloc_, false, "Whether to use ::numa_alloc_interleaved()"
+  " instead of ::numa_alloc_onnode()");
 DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_int32(warehouses, 16, "Number of warehouses.");
@@ -355,6 +360,23 @@ int driver_main(int argc, char **argv) {
   ASSERT_ND(!fs::exists(savepoint_path));
 
   std::cout << "NUMA node count=" << static_cast<int>(options.thread_.group_count_) << std::endl;
+  if (FLAGS_numa_nodes != 0) {
+    std::cout << "numa_nodes specified:" << FLAGS_numa_nodes << std::endl;
+    options.thread_.group_count_ = FLAGS_numa_nodes;
+  }
+  if (!FLAGS_use_numa_alloc) {
+    std::cout << "oh, use_numa_alloc is false. are you sure?" << std::endl;
+    // this should be only for experimental purpose.
+    // if everything is working correctly, numa_alloc_onnode must be the best
+    options.memory_.use_numa_alloc_ = false;
+  } else {
+    if (FLAGS_interleave_numa_alloc_) {
+      std::cout << "oh, interleave_numa_alloc_ is true. are you sure?" << std::endl;
+      // again, numa_alloc_onnode should be better than numa_alloc_interleaved
+      options.memory_.interleave_numa_alloc_ = true;
+    }
+  }
+
   options.snapshot_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/snapshot/node_$NODE$";
   options.log_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/log/node_$NODE$/logger_$LOGGER$";
   options.log_.loggers_per_node_ = FLAGS_loggers_per_node;

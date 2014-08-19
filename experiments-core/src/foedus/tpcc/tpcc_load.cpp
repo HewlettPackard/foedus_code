@@ -252,17 +252,17 @@ ErrorStack TpccLoadTask::run(thread::Thread* context) {
 
 ErrorStack TpccLoadTask::load_tables() {
   CHECK_ERROR(load_warehouses());
-  LOG(INFO) << "Loaded Warehouses:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Warehouses:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_districts());
-  LOG(INFO) << "Loaded Districts:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Districts:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_customers());
-  LOG(INFO) << "Loaded Customers:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Customers:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_items());
-  LOG(INFO) << "Loaded Items:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Items:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_stocks());
-  LOG(INFO) << "Loaded Strocks:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Strocks:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_orders());
-  LOG(INFO) << "Loaded Orders:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Orders:" << engine_->get_memory_manager().dump_free_memory_stat();
   return kRetOk;
 }
 
