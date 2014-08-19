@@ -461,7 +461,7 @@ std::ostream& operator<<(std::ostream& o, const TpccDriver::Result& v) {
     << "<user_requested_aborts_>" << v.user_requested_aborts_ << "</user_requested_aborts_>"
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
     << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"
-    << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>" << std::endl;
+    << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>";
   o << "</total_result>";
   return o;
 }

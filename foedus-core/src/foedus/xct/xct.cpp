@@ -55,27 +55,20 @@ void Xct::initialize(memory::NumaCoreMemory* core_memory) {
   mcs_block_current_ = 0;
 }
 
-void Xct::issue_next_id(Epoch *epoch)  {
+void Xct::issue_next_id(XctId max_xct_id, Epoch *epoch)  {
   ASSERT_ND(id_.is_valid());
 
   while (true) {
     // invariant 1: Larger than latest XctId of this thread.
     XctId new_id = id_;
+    // invariant 2: Larger than every XctId of any record read or written by this transaction.
+    new_id.store_max(max_xct_id);
     // invariant 3: in the epoch
     if (new_id.get_epoch().before(*epoch)) {
       new_id.set_epoch(*epoch);
       new_id.set_ordinal(0);
     }
     ASSERT_ND(new_id.get_epoch() == *epoch);
-
-    // invariant 2: Larger than every XctId of any record read or written by this transaction.
-    for (uint32_t i = 0; i < read_set_size_; ++i) {
-      new_id.store_max(read_set_[i].observed_owner_id_);
-    }
-    for (uint32_t i = 0; i < write_set_size_; ++i) {
-      ASSERT_ND(write_set_[i].owner_id_address_->lock_.is_keylocked());
-      new_id.store_max(write_set_[i].owner_id_address_->xct_id_);
-    }
 
     // Now, is it possible to get an ordinal one larger than this one?
     if (UNLIKELY(new_id.get_ordinal() == 0xFFFFFFFFU)) {

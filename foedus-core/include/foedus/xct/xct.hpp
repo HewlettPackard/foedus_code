@@ -113,6 +113,7 @@ class Xct {
 
   /**
    * @brief Called while a successful commit of read-write or schema xct to issue a new xct id.
+   * @param[in] max_xct_id largest xct_id this transaction depends on.
    * @param[in,out] epoch (in) The \e minimal epoch this transaction has to be in. (out)
    * the epoch this transaction ended up with, which is epoch+1 only when it found ordinal is
    * full for the current epoch.
@@ -127,7 +128,7 @@ class Xct {
    * This method also advancec epoch when ordinal is full for the current epoch.
    * This method never fails.
    */
-  void                issue_next_id(Epoch *epoch);
+  void                issue_next_id(XctId max_xct_id, Epoch *epoch);
 
   /**
    * @brief Add the given page pointer to the pointer set of this transaction.

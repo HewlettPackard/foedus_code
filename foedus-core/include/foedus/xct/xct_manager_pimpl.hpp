@@ -68,13 +68,15 @@ class XctManagerPimpl final : public DefaultInitializable {
   bool        precommit_xct_schema(thread::Thread* context, Epoch *commit_epoch);
   /**
    * @brief Phase 1 of precommit_xct()
+   * @param[in] context thread context
+   * @param[out] max_xct_id largest xct_id this transaction depends on, or max(locked xct_id).
    * @return true if successful. false if we need to abort the transaction, in which case
    * locks are not obtained yet (so no need for unlock).
    * @details
    * Try to lock all records we are going to write.
    * After phase 2, we take memory fence.
    */
-  bool        precommit_xct_lock(thread::Thread* context);
+  bool        precommit_xct_lock(thread::Thread* context, XctId* max_xct_id);
   /**
    * @brief Phase 2 of precommit_xct() for read-only case
    * @return true if verification succeeded. false if we need to abort.
@@ -84,22 +86,27 @@ class XctManagerPimpl final : public DefaultInitializable {
   bool        precommit_xct_verify_readonly(thread::Thread* context, Epoch *commit_epoch);
   /**
    * @brief Phase 2 of precommit_xct() for read-write case
+   * @param[in] context thread context
+   * @param[in,out] max_xct_id largest xct_id this transaction depends on, or max(all xct_id).
    * @return true if verification succeeded. false if we need to abort.
    * @details
    * Verify the observed read set and write set against the same record.
    * Because phase 2 is after the memory fence, no thread would take new locks while checking.
    */
-  bool        precommit_xct_verify_readwrite(thread::Thread* context);
+  bool        precommit_xct_verify_readwrite(thread::Thread* context, XctId* max_xct_id);
   /** Returns false if there is any pointer set conflict */
   bool        precommit_xct_verify_pointer_set(thread::Thread* context);
   /** Returns false if there is any page version conflict */
   bool        precommit_xct_verify_page_version_set(thread::Thread* context);
   /**
    * @brief Phase 3 of precommit_xct()
+   * @param[in] context thread context
+   * @param[in] max_xct_id largest xct_id this transaction depends on, or max(all xct_id).
+   * @param[in,out] commit_epoch commit epoch of this transaction. it's finalized in this function.
    * @details
    * Assuming phase 1 and 2 are successfully completed, apply all changes and unlock locks.
    */
-  void        precommit_xct_apply(thread::Thread* context, Epoch *commit_epoch);
+  void        precommit_xct_apply(thread::Thread* context, XctId max_xct_id, Epoch *commit_epoch);
   /** unlocking all acquired locks, used when aborts. */
   void        precommit_xct_unlock(thread::Thread* context);
 

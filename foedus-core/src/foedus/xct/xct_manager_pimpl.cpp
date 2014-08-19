@@ -195,7 +195,9 @@ bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *com
 
 bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch) {
   DVLOG(1) << *context << " Committing read-write";
-  bool success = precommit_xct_lock(context);  // Phase 1
+  XctId max_xct_id;
+  max_xct_id.set(Epoch::kEpochInitialDurable, 1);  // TODO(Hideaki) not quite..
+  bool success = precommit_xct_lock(context, &max_xct_id);  // Phase 1
   // lock can fail only when physical records went too far away
   if (!success) {
     DLOG(INFO) << *context << " Interesting. failed due to records moved too far away";
@@ -211,7 +213,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
   DVLOG(1) << *context << " Acquired read-write commit epoch " << *commit_epoch;
 
   assorted::memory_fence_acq_rel();
-  bool verified = precommit_xct_verify_readwrite(context);  // phase 2
+  bool verified = precommit_xct_verify_readwrite(context, &max_xct_id);  // phase 2
 #ifndef NDEBUG
   {
     WriteXctAccess* write_set = context->get_current_xct().get_write_set();
@@ -222,7 +224,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
   }
 #endif  // NDEBUG
   if (verified) {
-    precommit_xct_apply(context, commit_epoch);  // phase 3. this also unlocks
+    precommit_xct_apply(context, max_xct_id, commit_epoch);  // phase 3. this also unlocks
     // announce log AFTER (with fence) apply, because apply sets xct_order in the logs.
     assorted::memory_fence_release();
     context->get_thread_log_buffer().publish_committed_log(*commit_epoch);
@@ -242,7 +244,9 @@ bool XctManagerPimpl::precommit_xct_schema(thread::Thread* context, Epoch* commi
   assorted::memory_fence_acq_rel();
 
   Xct& current_xct = context->get_current_xct();
-  current_xct.issue_next_id(commit_epoch);
+  XctId dummy;
+  dummy.set(Epoch::kEpochInitialDurable, 1);  // TODO(Hideaki) not quite..
+  current_xct.issue_next_id(dummy, commit_epoch);
   XctId new_xct_id = current_xct.get_id();
 
   LOG(INFO) << *context << " schema xct generated new xct id=" << new_xct_id;
@@ -281,7 +285,7 @@ bool XctManagerPimpl::precommit_xct_schema(thread::Thread* context, Epoch* commi
   return true;  // so far scheme xct can always commit
 }
 
-bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
+bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct_id) {
   Xct& current_xct = context->get_current_xct();
   WriteXctAccess* write_set = current_xct.get_write_set();
   uint32_t        write_set_size = current_xct.get_write_set_size();
@@ -352,6 +356,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context) {
         }
         ASSERT_ND(!write_set[i].owner_id_address_->is_moved());
         ASSERT_ND(write_set[i].owner_id_address_->is_keylocked());
+        max_xct_id->store_max(write_set[i].owner_id_address_->xct_id_);
       }
     }
 
@@ -419,7 +424,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
   }
 }
 
-bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
+bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, XctId* max_xct_id) {
   Xct& current_xct = context->get_current_xct();
   const WriteXctAccess*   write_set = current_xct.get_write_set();
   const uint32_t          write_set_size = current_xct.get_write_set_size();
@@ -451,6 +456,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context) {
       DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
       return false;
     }
+    max_xct_id->store_max(access.observed_owner_id_);
     if (access.owner_id_address_->is_keylocked()) {
       DVLOG(2) << *context
         << " read set contained a locked record. was it myself who locked it?";
@@ -521,7 +527,10 @@ bool XctManagerPimpl::precommit_xct_verify_page_version_set(thread::Thread* cont
   return true;
 }
 
-void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit_epoch) {
+void XctManagerPimpl::precommit_xct_apply(
+  thread::Thread* context,
+  XctId max_xct_id,
+  Epoch *commit_epoch) {
   Xct& current_xct = context->get_current_xct();
   WriteXctAccess* write_set = current_xct.get_write_set();
   uint32_t        write_set_size = current_xct.get_write_set_size();
@@ -530,7 +539,7 @@ void XctManagerPimpl::precommit_xct_apply(thread::Thread* context, Epoch *commit
   DVLOG(1) << *context << " applying and unlocking.. write_set_size=" << write_set_size
     << ", lock_free_write_set_size=" << lock_free_write_set_size;
 
-  current_xct.issue_next_id(commit_epoch);
+  current_xct.issue_next_id(max_xct_id, commit_epoch);
   XctId new_xct_id = current_xct.get_id();
   ASSERT_ND(new_xct_id.get_epoch() == *commit_epoch);
   ASSERT_ND(new_xct_id.get_ordinal() > 0);
