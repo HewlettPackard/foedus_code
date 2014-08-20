@@ -14,6 +14,7 @@
 #include "foedus/compiler.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/error_code.hpp"
+#include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/cacheline.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/storage/page.hpp"

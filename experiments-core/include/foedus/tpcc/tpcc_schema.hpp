@@ -11,7 +11,9 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
+#include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/endianness.hpp"
+#include "foedus/storage/record.hpp"
 #include "foedus/storage/array/fwd.hpp"
 #include "foedus/storage/hash/fwd.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
@@ -199,6 +201,7 @@ struct DistrictYtdData {
   char      dummy2_[64];   // another padding in case of adjacent cacheline prefetch enabled
   char      dummy3_[128];  // evne more in case it prefetches 4 cacheline
 };
+STATIC_SIZE_CHECK(sizeof(DistrictYtdData), 256 - storage::kRecordOverhead)
 
 struct DistrictNextOidData {
   Oid       next_o_id_;    // +4 -> 4
@@ -208,6 +211,7 @@ struct DistrictNextOidData {
   char      dummy3_[64];   // another padding in case of adjacent cacheline prefetch enabled
   char      dummy4_[128];  // evne more in case it prefetches 4 cacheline
 };
+STATIC_SIZE_CHECK(sizeof(DistrictNextOidData), 256 - storage::kRecordOverhead)
 
 struct CustomerStaticData {
   char   first_[16];
@@ -238,6 +242,7 @@ struct CustomerDynamicData {
   // with kRecordOverhead (16 bytes), this is 64 bytes. good for avoiding false sharing
   // customer is many-valued, so probably one cacheline is enough..
 };
+STATIC_SIZE_CHECK(sizeof(DistrictNextOidData), 256 - storage::kRecordOverhead)
 
 /**
  * (wid, did, last, first, cid).
@@ -280,6 +285,7 @@ struct OrderlineData {
   char    dist_info_[24];   // +24 -> 56
   double  amount_;          // +8 -> 64
 };
+STATIC_SIZE_CHECK(sizeof(OrderlineData), 64)
 
 struct ItemData {
   uint32_t  im_id_;     // +4 -> 4
