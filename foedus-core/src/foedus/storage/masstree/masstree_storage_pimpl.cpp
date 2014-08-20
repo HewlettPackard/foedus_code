@@ -720,7 +720,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
   ASSERT_ND(border->get_foster_major() == nullptr);
   ASSERT_ND(border->get_foster_minor() == nullptr);
   uint8_t count = border->get_key_count();
-  if (border->can_accomodate(count, remaining, payload_count)) {
+  if (!border->should_split_early(count, metadata_.border_early_split_threshold_) &&
+    border->can_accomodate(count, remaining, payload_count)) {
     reserve_record_new_record_apply(
       context,
       border,
@@ -733,6 +734,12 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
     *out_page = border;
     *record_index = count;
   } else {
+#ifndef NDEBUG
+    if (border->should_split_early(count, metadata_.border_early_split_threshold_)) {
+      LOG(INFO) << "Early split! cur count=" << static_cast<int>(count)
+        << ", storage=" << metadata_.name_;
+    }
+#endif  // NDEBUG
     // have to split to make room. the newly created foster child is always the place to insert.
     MasstreeBorderPage* target;
     xct::McsBlockIndex target_lock;

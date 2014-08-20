@@ -38,14 +38,19 @@ namespace masstree {
  */
 struct MasstreeCreateLogType : public log::StorageLogType {
   LOG_TYPE_NO_CONSTRUCT(MasstreeCreateLogType)
-  uint16_t        name_length_;       // +2 => 18
-  char            name_[6];           // +6 => 24
+  uint16_t        border_early_split_threshold_;  // +2 => 18
+  uint16_t        name_length_;       // +2 => 20
+  char            name_[4];           // +4 => 24
 
   static uint16_t calculate_log_length(uint16_t name_length) {
-    return assorted::align8(18 + name_length);
+    return assorted::align8(20 + name_length);
   }
 
-  void populate(StorageId storage_id, uint16_t name_length, const char* name);
+  void populate(
+    StorageId storage_id,
+    uint16_t border_early_split_threshold,
+    uint16_t name_length,
+    const char* name);
   void apply_storage(thread::Thread* context, Storage* storage);
   void assert_valid();
   friend std::ostream& operator<<(std::ostream& o, const MasstreeCreateLogType& v);

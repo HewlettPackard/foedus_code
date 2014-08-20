@@ -513,6 +513,21 @@ class MasstreeBorderPage final : public MasstreePage {
     return assorted::align16(suffix_length + payload_count);
   }
 
+  bool    should_split_early(uint8_t new_index, uint8_t threshold) const ALWAYS_INLINE {
+    if (LIKELY(threshold == 0 || new_index != threshold)) {  // 0 means no early split
+      return false;
+    }
+    // only when we exactly hit the threshold, we consider early split.
+    // we should do early split only when the page looks like receiving sequential inserts.
+    // if we are receiving random inserts, no point to do early split.
+    for (uint8_t i = 1; i < new_index - 1; ++i) {
+      // this is not a rigorous check, but fine.
+      if (slices_[i - 1] > slices_[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
   bool    can_accomodate(
     uint8_t new_index,
     uint8_t remaining_length,

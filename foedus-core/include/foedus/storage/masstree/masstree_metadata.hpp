@@ -26,16 +26,38 @@ namespace masstree {
  * @details
  */
 struct MasstreeMetadata CXX11_FINAL : public virtual Metadata {
-  MasstreeMetadata() : Metadata(0, kMasstreeStorage, "") {}
-  MasstreeMetadata(StorageId id, const std::string& name)
-    : Metadata(id, kMasstreeStorage, name) {
+  MasstreeMetadata() : Metadata(0, kMasstreeStorage, ""), border_early_split_threshold_(0) {}
+  MasstreeMetadata(
+    StorageId id,
+    const std::string& name,
+    uint16_t border_early_split_threshold = 0)
+    : Metadata(id, kMasstreeStorage, name),
+      border_early_split_threshold_(border_early_split_threshold) {
   }
   /** This one is for newly creating a storage. */
-  explicit MasstreeMetadata(const std::string& name) : Metadata(0, kArrayStorage, name) {
+  MasstreeMetadata(const std::string& name, uint16_t border_early_split_threshold = 0)
+    : Metadata(0, kArrayStorage, name),
+      border_early_split_threshold_(border_early_split_threshold) {
+  }
+  explicit MasstreeMetadata(const MasstreeMetadata& other)
+    : Metadata(other),
+    border_early_split_threshold_(other.border_early_split_threshold_) {
   }
   EXTERNALIZABLE(MasstreeMetadata);
 
   Metadata* clone() const CXX11_OVERRIDE;
+
+  /**
+   * @brief Kind of fill factor for border pages, bit different from usual B-tree.
+   * @details
+   * Border pages split without being full when a border page seems to receive sequential inserts
+   * and the physical key count will exactly hit this value.
+   * Once it passes this value, it goes on until it really becomes full
+   * (otherwise there is no point.. the border pages keep splitting without necessity).
+   * When the page is not receiving sequential inserts, there are also no points to split early.
+   * The default is 0, which means we never consider early split.
+   */
+  uint16_t border_early_split_threshold_;
 };
 }  // namespace masstree
 }  // namespace storage
