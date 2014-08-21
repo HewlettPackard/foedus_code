@@ -4,14 +4,20 @@
  */
 #include "foedus/debugging/debugging_supports.hpp"
 
+#ifdef HAVE_PAPI
+#include <papi.h>
+#endif  // HAVE_PAPI
+
 #include <glog/logging.h>
 #include <glog/vlog_is_on.h>
 #ifdef HAVE_GOOGLEPERFTOOLS
 #include <google/profiler.h>
 #endif  // HAVE_GOOGLEPERFTOOLS
 
+#include <cstring>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
@@ -76,6 +82,8 @@ void DebuggingSupports::uninitialize_glog() {
 
 ErrorStack DebuggingSupports::initialize_once() {
   initialize_glog();  // initialize glog at the beginning. we can use glog since now
+  std::memset(&papi_counters_, 0, sizeof(papi_counters_));
+  papi_enabled_ = false;
   return kRetOk;
 }
 ErrorStack DebuggingSupports::uninitialize_once() {
@@ -106,7 +114,70 @@ void DebuggingSupports::set_verbose_module(const std::string &module, int verbos
   LOG(INFO) << "Invoked google::SetVLOGLevel for " << module << ", level=" << verbose;
 }
 
-ErrorStack DebuggingSupports::start_profile(const std::string& output_file) {
+
+#ifdef HAVE_PAPI
+
+#define X(a, b) a,
+int kPapiEvents[] = {
+#include "foedus/debugging/papi_events.xmacro"  // NOLINT
+};
+#undef X
+const uint16_t kPapiEventCount = sizeof(kPapiEvents) / sizeof(int);
+
+#define X_QUOTE(str) #str
+#define X_EXPAND_AND_QUOTE(str) X_QUOTE(str)
+#define X(a, b) X_EXPAND_AND_QUOTE(a) ": " b,
+const char* kPapiEventNames[] = {
+#include "foedus/debugging/papi_events.xmacro"  // NOLINT
+};
+#undef X
+#undef X_EXPAND_AND_QUOTE
+#undef X_QUOTE
+
+void DebuggingSupports::start_papi_counters() {
+  int total_counters = ::PAPI_num_counters();
+  if (total_counters <= PAPI_OK) {
+    LOG(ERROR) << "PAPI is not supported in this environment. PAPI version=" << PAPI_VERSION;
+    return;
+  }
+  LOG(INFO) << "PAPI has " << total_counters << " counters. PAPI version=" << PAPI_VERSION;
+  int ret = ::PAPI_start_counters(kPapiEvents, kPapiEventCount);
+  if (ret != PAPI_OK) {
+    LOG(ERROR) << "PAPI_start_counters failed. retval=" << ret;
+  } else {
+    LOG(INFO) << "Started counting " << kPapiEventCount << " performance events via PAPI";
+    papi_enabled_ = true;
+  }
+}
+void DebuggingSupports::stop_papi_counters() {
+  if (papi_enabled_) {
+    int ret = ::PAPI_stop_counters(papi_counters_.counters_, kPapiEventCount);
+    if (ret != PAPI_OK) {
+      LOG(ERROR) << "PAPI_stop_counters failed. retval=" << ret;
+    }
+  }
+}
+std::vector<std::string> DebuggingSupports::describe_papi_counters(const PapiCounters& counters) {
+  std::vector<std::string> ret;
+  for (uint16_t i = 0; i < kPapiEventCount; ++i) {
+    ret.emplace_back(std::string(kPapiEventNames[i]) + ":" + std::to_string(counters.counters_[i]));
+  }
+  return ret;
+}
+#else  // HAVE_PAPI
+void DebuggingSupports::start_papi_counters() {
+  LOG(WARNING) << "libpapi was not linked. No PAPI profile is collected.";
+}
+void DebuggingSupports::stop_papi_counters() {}
+std::vector<std::string> DebuggingSupports::describe_papi_counters(const PapiCounters& counters) {
+  std::vector<std::string> ret;
+  ret.emplace_back("libpapi was not linked. No PAPI profile is collected");
+  return ret;
+}
+#endif  // HAVE_PAPI
+
+
+ErrorStack DebuggingSupports::start_profile(const std::string& output_file, bool papi_counters) {
 #ifdef HAVE_GOOGLEPERFTOOLS
   int ret = ::ProfilerStart(output_file.c_str());
   if (ret == 0) {
@@ -114,8 +185,14 @@ ErrorStack DebuggingSupports::start_profile(const std::string& output_file) {
     return ERROR_STACK(kErrorCodeDbgGperftools);
   }
 #else  // HAVE_GOOGLEPERFTOOLS
-  LOG(WARNING) << "Google perftools was not linked. No profile is provided";
+  LOG(WARNING) << "Google perftools was not linked. No profile is provided. " << output_file;
 #endif  // HAVE_GOOGLEPERFTOOLS
+
+  if (papi_counters) {
+    start_papi_counters();
+  } else {
+    papi_enabled_ = false;
+  }
   return kRetOk;
 }
 
@@ -123,6 +200,7 @@ void DebuggingSupports::stop_profile() {
 #ifdef HAVE_GOOGLEPERFTOOLS
   ::ProfilerStop();
 #endif  // HAVE_GOOGLEPERFTOOLS
+  stop_papi_counters();
 }
 
 }  // namespace debugging

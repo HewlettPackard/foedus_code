@@ -135,7 +135,6 @@ void ThreadPimpl::set_thread_schedule() {
     }
   }
   if (opt.overwrite_thread_schedule_) {
-    LOG(INFO) << "The default thread policy=" << policy << ", priority=" << param.__sched_priority;
     policy = opt.thread_policy_;
     param.__sched_priority = opt.thread_priority_;
     int priority_max = ::sched_get_priority_max(policy);

@@ -55,6 +55,11 @@ find_package(GooglePerftools)
 if (GOOGLEPERFTOOLS_FOUND)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_GOOGLEPERFTOOLS")
 endif (GOOGLEPERFTOOLS_FOUND)
+# Also PAPI with same cautions.
+find_package(Papi)
+if (PAPI_FOUND)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_PAPI")
+endif (PAPI_FOUND)
 
 # We do assume C++11.
 # However, external projects can link to this library even if they use C++98.
@@ -105,6 +110,10 @@ include_directories(SYSTEM
 if (GOOGLEPERFTOOLS_FOUND)
   include_directories(SYSTEM ${GooglePerftools_INCLUDE_DIR})
 endif (GOOGLEPERFTOOLS_FOUND)
+# same above
+if (PAPI_FOUND)
+  include_directories(SYSTEM ${PAPI_INCLUDE_DIR})
+endif (PAPI_FOUND)
 
 # This project contains glog so that it can compile by itself.
 # We also use gflags and gtest, but this core library itself is a pure data processing library
@@ -126,6 +135,11 @@ target_link_libraries(foedus-core ${CMAKE_THREAD_LIBS_INIT})
 if (GOOGLEPERFTOOLS_FOUND)
   target_link_libraries(foedus-core ${GooglePerftools_LIBRARIES})
 endif (GOOGLEPERFTOOLS_FOUND)
+if (PAPI_FOUND)
+  # we use dynamic library of PAPI mainly because of fPIC issue.
+  # in terms of license, it's okay to statically link (BSD-style).
+  target_link_libraries(foedus-core ${PAPI_DYNAMIC_LIBRARY})
+endif (PAPI_FOUND)
 
 # Invoke CPPLINT (if ENABLE_CPPLINT is given)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CpplintWrapper.cmake)

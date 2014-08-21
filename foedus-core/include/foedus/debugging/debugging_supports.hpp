@@ -4,7 +4,9 @@
  */
 #ifndef FOEDUS_DEBUGGING_DEBUGGING_SUPPORTS_HPP_
 #define FOEDUS_DEBUGGING_DEBUGGING_SUPPORTS_HPP_
+
 #include <string>
+#include <vector>
 
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
@@ -19,6 +21,11 @@ namespace debugging {
  */
 class DebuggingSupports CXX11_FINAL : public DefaultInitializable {
  public:
+  struct PapiCounters {
+    /** wanna use int64_t, but to align with PAPI...*/
+    long long int counters_[128];  // NOLINT[runtime/int](PAPI requirement)
+  };
+
   DebuggingSupports() CXX11_FUNC_DELETE;
   explicit DebuggingSupports(Engine* engine) : engine_(engine) {}
   ErrorStack  initialize_once() CXX11_OVERRIDE;
@@ -36,8 +43,9 @@ class DebuggingSupports CXX11_FINAL : public DefaultInitializable {
   void                set_verbose_module(const std::string &module, int verbose);
 
   /**
-   * @brief Start running a CPU profiler (gperftools).
+   * @brief Start running a CPU profiler (gperftools/PAPI).
    * @param[in] output_file path to output the profile result.
+   * @param[in] papi_counters whether to also collect PAPI counters.
    * @details
    * This feature is enabled only when you link to libprofiler.so.
    * For example, use it like this:
@@ -52,9 +60,20 @@ class DebuggingSupports CXX11_FINAL : public DefaultInitializable {
    * okular hoge.pdf
    * @endcode
    */
-  ErrorStack          start_profile(const std::string& output_file);
+  ErrorStack          start_profile(const std::string& output_file, bool papi_counters = false);
   /** Stop CPU profiling. */
   void                stop_profile();
+
+  /**
+   * Returns the profiled PAPI counters. must be called \e after stop_profile().
+   * You must call start_profile() with papi_counters=true.
+   */
+  const PapiCounters& get_papi_counters() const { return papi_counters_; }
+  /**
+   * Returns a human-readable explanation of PAPI counters.
+   * One string for one counter to avoid returning too long string.
+   */
+  static std::vector<std::string> describe_papi_counters(const PapiCounters& counters);
 
  private:
   /**
@@ -67,8 +86,13 @@ class DebuggingSupports CXX11_FINAL : public DefaultInitializable {
    * so that all other uninitialization can use glog.
    */
   void                uninitialize_glog();
+  void                start_papi_counters();
+  void                stop_papi_counters();
 
   Engine* const           engine_;
+
+  bool                    papi_enabled_;
+  PapiCounters            papi_counters_;
 };
 }  // namespace debugging
 }  // namespace foedus

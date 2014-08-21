@@ -174,6 +174,11 @@ google-perftools-devel.
 
     sudo yum install google-perftools google-perftools-devel    # RedHat/Fedora
 
+Another optional library is [PAPI](http://icl.cs.utk.edu/trac/papi/), with which FOEDUS can provide
+additional performance counters.
+
+    sudo yum install papi papi-devel papi-static    # RedHat/Fedora
+
 We use none of boost libraries. We might consider using some of the header-only boost libraries,
 but we will surely stay away from non-header-only ones (eg filesystem).
 
@@ -187,6 +192,7 @@ libfoedus-core uses a few open source libraries listed below.
 | glog         | BSD     | Static-link. Contains source code.           |
 | tinyxml2     | ZLIB    | Static-link. Contains source code.           |
 | gperftools   | BSD     | Optional dynamic-link. Distributes nothing.  |
+| papi         | BSD(?)  | Optional dynamic-link. Distributes nothing.  |
 | libnuma      | LGPL    | Dynamic-link. Distributes nothing.           |
 | glibc/stdc++ | LGPL    | Dynamic-link. Distributes nothing.           |
 

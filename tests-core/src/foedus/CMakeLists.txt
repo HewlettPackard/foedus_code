@@ -2,6 +2,7 @@
 add_library(test_common STATIC ${CMAKE_CURRENT_SOURCE_DIR}/test_common.cpp)
 
 add_subdirectory(assorted)
+add_subdirectory(debugging)
 add_subdirectory(fs)
 add_subdirectory(log)
 add_subdirectory(memory)
@@ -24,3 +25,4 @@ if(RUN_EXPENSIVE_TESTCASES)
 else(RUN_EXPENSIVE_TESTCASES)
   add_foedus_test_individual(test_headers "CheckCompiler")
 endif(RUN_EXPENSIVE_TESTCASES)
+
