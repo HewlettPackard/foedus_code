@@ -51,6 +51,7 @@ DEFINE_bool(interleave_numa_alloc, false, "Whether to use ::numa_alloc_interleav
   " instead of ::numa_alloc_onnode()");
 DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
+DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
 DEFINE_int32(warehouses, 16, "Number of warehouses.");
 DEFINE_int64(duration_micro, 10000000, "Duration of benchmark in microseconds.");
 
@@ -416,6 +417,13 @@ int driver_main(int argc, char **argv) {
     options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 12;
     options.thread_.group_count_ = 1;
     options.thread_.thread_count_per_group_ = 1;
+  }
+
+  if (FLAGS_high_priority) {
+    std::cout << "Will set highest priority to worker threads" << std::endl;
+    options.thread_.overwrite_thread_schedule_ = true;
+    options.thread_.thread_policy_ = thread::kScheduleFifo;
+    options.thread_.thread_priority_ = thread::kPriorityHighest;
   }
 
   if (!FLAGS_ignore_volatile_size_warning) {

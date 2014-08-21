@@ -52,6 +52,8 @@ class ThreadPimpl final : public DefaultInitializable {
    * it and re-sets current_task_ when it's done. It exists when exit_requested_ is set.
    */
   void        handle_tasks();
+  /** initializes the thread's policy/priority */
+  void        set_thread_schedule();
 
   /**
    * Conditionally try to occupy this thread, or impersonate. If it fails, it immediately returns.

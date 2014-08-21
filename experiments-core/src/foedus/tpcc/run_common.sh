@@ -1,5 +1,6 @@
 echo "FOEDUS TPC-C experiments script for $machine_shortname ($machine_name)"
 echo "warehouses=$warehouses, loggers_per_node=$loggers_per_node, volatile_pool_size=$volatile_pool_size, duration_micro=$duration_micro."
+echo "thread_per_node=$thread_per_node, numa_nodes=$numa_nodes, volatile_pool_size=$volatile_pool_size, duration_micro=$duration_micro."
 
 payment_percents[0]=0
 payment_percents[1]=15
@@ -15,6 +16,7 @@ payment_percents[10]=100
 
 # This argument is to measure performance without logging I/O
 null_log_device=true
+high_priority=false # To set this to true, you must add "yourname - rtprio 99" to limits.conf
 
 for remote_percent in 0 1 2 3 4 5 6 7 8 9 10
 do
@@ -27,6 +29,6 @@ do
     rm -rf /dev/shm/foedus_tpcc/
     rm -rf /tmp/libfoedus.*
     echo "./tpcc -warehouses=$warehouses -ignore_volatile_size_warning=true -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=$neworder_remote_percent -payment_remote_percent=$payment_remote_percent -volatile_pool_size=$volatile_pool_size -duration_micro=$duration_micro"
-    ./tpcc -warehouses=$warehouses -ignore_volatile_size_warning=true -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=$neworder_remote_percent -payment_remote_percent=$payment_remote_percent -volatile_pool_size=$volatile_pool_size -duration_micro=$duration_micro &> "result_tpcc_$machine_shortname.n$remote_percent.r$rep.log"
+    ./tpcc -warehouses=$warehouses -high_priority=$high_priority -ignore_volatile_size_warning=true -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=$neworder_remote_percent -payment_remote_percent=$payment_remote_percent -volatile_pool_size=$volatile_pool_size -duration_micro=$duration_micro &> "result_tpcc_$machine_shortname.n$remote_percent.r$rep.log"
   done
 done

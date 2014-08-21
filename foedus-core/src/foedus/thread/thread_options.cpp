@@ -21,11 +21,17 @@ ThreadOptions::ThreadOptions() {
     total_cores = 1;
   }
   thread_count_per_group_ = total_cores / group_count_;
+  overwrite_thread_schedule_ = false;
+  thread_policy_ = kScheduleFifo;
+  thread_priority_ = kPriorityDefault;
 }
 
 ErrorStack ThreadOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, group_count_);
   EXTERNALIZE_LOAD_ELEMENT(element, thread_count_per_group_);
+  EXTERNALIZE_LOAD_ELEMENT(element, overwrite_thread_schedule_);
+  EXTERNALIZE_LOAD_ENUM_ELEMENT(element, thread_policy_);
+  EXTERNALIZE_LOAD_ENUM_ELEMENT(element, thread_priority_);
   return kRetOk;
 }
 
@@ -38,6 +44,14 @@ ErrorStack ThreadOptions::save(tinyxml2::XMLElement* element) const {
   EXTERNALIZE_SAVE_ELEMENT(element, thread_count_per_group_,
     "Number of Thread in each ThreadGroup. Default value is hardware NUMA core count;\n"
     " ::numa_num_configured_cpus() / ::numa_num_configured_nodes()");
+  EXTERNALIZE_SAVE_ELEMENT(element, overwrite_thread_schedule_,
+    "Whether to overwrite policy/priority of worker threads.");
+  EXTERNALIZE_SAVE_ENUM_ELEMENT(element, thread_policy_,
+    "Thread policy for worker threads. ignored if overwrite_thread_schedule_==false\n"
+    "The values are compatible with pthread's values.");
+  EXTERNALIZE_SAVE_ENUM_ELEMENT(element, thread_priority_,
+    "Thread priority for worker threads. ignored if overwrite_thread_schedule_==false\n"
+    "The values are compatible with pthread's values.");
   return kRetOk;
 }
 
