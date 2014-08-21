@@ -455,6 +455,17 @@ void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, uint8_t record) 
 inline void MasstreeCursor::Route::setup_order() {
   ASSERT_ND(page_->is_border());
   // sort entries in this page
+  // we have already called prefetch_general(), which prefetches 4 cachelines (256 bytes).
+  // as we are reading up to slices_[key_count - 1], we might want to prefetch more.
+  MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(page_);
+  const uint16_t prefetched = assorted::kCachelineSize * 4;
+  const uint16_t end_of_remaining_key_length = 136U;
+  uint16_t prefetch_upto = key_count_ * sizeof(KeySlice) + end_of_remaining_key_length;
+  if (prefetch_upto > prefetched) {
+    uint16_t additional_prefetches = (prefetch_upto - prefetched) % assorted::kCachelineSize + 1;
+    char* base = reinterpret_cast<char*>(page) + prefetched;
+    assorted::prefetch_cachelines(base, additional_prefetches);
+  }
   struct Sorter {
     explicit Sorter(const MasstreeBorderPage* target) : target_(target) {}
     bool operator() (uint8_t left, uint8_t right) {
@@ -476,7 +487,6 @@ inline void MasstreeCursor::Route::setup_order() {
 
   // this sort order in page is correct even without evaluating the suffix.
   // however, to compare with our searching key, we need to consider suffix
-  MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(page_);
   std::sort(order_, order_ + key_count_, Sorter(page));
 }
 
