@@ -75,6 +75,15 @@ class AlignedMemory CXX11_FINAL {
     // kNormal,
     /** Windows's VirtualAlloc() and VirtualFree(). */
     // kVirtualAlloc,
+    /**
+     * This option is for using non-transparent 1G hugepages on NUMA node, which requires
+     * a special configuration (OS reboot required), so use this with care.
+     * Basically, this invokes numa_set_preferred() on the target node and then mmap() with
+     * MAP_HUGETLB and MAP_HUGE_1GB.
+     * See the readme about 1G hugepage setup. Unfortunately we can't do it without rebooting
+     * the linux.. crap!
+     */
+    kNumaMmapOneGbPages,
   };
 
   /** Empty constructor which allocates nothing. */

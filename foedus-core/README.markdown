@@ -132,6 +132,18 @@ it will run correctly and safely.
 
 We rely on *always* mode because we simply allocate memory via libnuma without madvise.
 
+Non-Transparent Hugepages
+--------
+TBD: Have to write up detailed instructions. This is so far a memo just for my self.
+
+Boot with "hugepagesz=1G default_hugepagesz=1G hugepages=48" (for example).
+mount -t hugetlbfs /mnt/hugetlbfs
+Now tpcc has mmap_hugepages parameter. Use it.
+Be super careful on volatile_pool_size/thread_per_node/log_buffer_mb.
+Use numastat to check if it's actually used and evenly distribtued to NUMA nodes.
+Numastat 2.08 has some bug on this, download the latest and source build.
+https://bugzilla.redhat.com/show_bug.cgi?id=987507
+
 Dependencies
 -----------
 We try hard to minimize library dependency so that at least libfoedus-core works in various

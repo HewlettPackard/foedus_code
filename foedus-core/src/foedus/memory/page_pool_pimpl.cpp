@@ -13,6 +13,7 @@
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/memory/memory_options.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/thread.hpp"
@@ -20,13 +21,12 @@
 
 namespace foedus {
 namespace memory {
-PagePoolPimpl::PagePoolPimpl(
-  uint64_t memory_byte_size,
-  uint64_t memory_alignment,
-  thread::ThreadGroupId numa_node)
-    : memory_byte_size_(memory_byte_size / memory_alignment * memory_alignment),
-    memory_alignment_(memory_alignment),
-    numa_node_(numa_node) {}
+PagePoolPimpl::PagePoolPimpl(uint64_t memory_byte_size)
+  : parent_(nullptr), memory_byte_size_(memory_byte_size) {}
+
+void PagePoolPimpl::initialize_parent(NumaNodeMemory* parent) {
+  parent_ = parent;
+}
 
 ErrorStack PagePoolPimpl::initialize_once() {
   pool_base_ = nullptr;
@@ -37,9 +37,8 @@ ErrorStack PagePoolPimpl::initialize_once() {
   free_pool_count_ = 0;
 
   LOG(INFO) << "Acquiring memory for Page Pool (" << memory_byte_size_ << " bytes) on NUMA node "
-    << static_cast<int>(numa_node_)<< "...";
-  ASSERT_ND(memory_byte_size_ % memory_alignment_ == 0);
-  memory_.alloc(memory_byte_size_, memory_alignment_, AlignedMemory::kNumaAllocOnnode, numa_node_);
+    << static_cast<int>(parent_->get_numa_node())<< "...";
+  CHECK_ERROR(parent_->allocate_huge_numa_memory(memory_byte_size_, &memory_));
   pool_base_ = reinterpret_cast<storage::Page*>(memory_.get_block());
   pool_size_ = memory_.get_size() / storage::kPageSize;
   LOG(INFO) << "Acquired memory Page Pool. " << memory_ << ". pages=" << pool_size_;
@@ -207,7 +206,7 @@ void PagePoolPimpl::release_one(PagePoolOffset offset) {
 std::ostream& operator<<(std::ostream& o, const PagePoolPimpl& v) {
   o << "<PagePool>"
     << "<memory_>" << v.memory_ << "</memory_>"
-    << "<numa_node_>" << v.numa_node_ << "</numa_node_>"
+    << "<numa_node_>" << static_cast<int>(v.parent_->get_numa_node()) << "</numa_node_>"
     << "<pages_for_free_pool_>" << v.pages_for_free_pool_ << "</pages_for_free_pool_>"
     << "<free_pool_capacity_>" << v.free_pool_capacity_ << "</free_pool_capacity_>"
     << "<free_pool_head_>" << v.free_pool_head_ << "</free_pool_head_>"

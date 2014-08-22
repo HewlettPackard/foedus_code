@@ -33,9 +33,9 @@ namespace foedus {
 namespace tpcc {
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
-DEFINE_int32(volatile_pool_size, 32, "Size of volatile memory pool per NUMA node in GB.");
+DEFINE_int32(volatile_pool_size, 20, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_bool(ignore_volatile_size_warning, true, "Ignores warning on volatile_pool_size setting.");
-DEFINE_int32(loggers_per_node, 4, "Number of log writers per numa node.");
+DEFINE_int32(loggers_per_node, 2, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
   " remote orderline). This corresponds to H-Store's neworder_multip/neworder_multip_mix in"
@@ -44,17 +44,19 @@ DEFINE_int32(payment_remote_percent, 15, "Percent of each payment that is insert
   " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
-DEFINE_int32(thread_per_node, 0, "Number of threads per NUMA node. 0 uses logical count");
+DEFINE_int32(thread_per_node, 6, "Number of threads per NUMA node. 0 uses logical count");
 DEFINE_int32(numa_nodes, 0, "Number of NUMA nodes. 0 uses physical count");
 DEFINE_bool(use_numa_alloc, true, "Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode()"
   " to allocate memories. If false, we use usual posix_memalign() instead");
 DEFINE_bool(interleave_numa_alloc, false, "Whether to use ::numa_alloc_interleaved()"
   " instead of ::numa_alloc_onnode()");
+DEFINE_bool(mmap_hugepages, false, "Whether to use mmap for 1GB hugepages."
+  " This requies special setup written in the readme.");
 DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
-DEFINE_int32(warehouses, 16, "Number of warehouses.");
-DEFINE_int64(duration_micro, 10000000, "Duration of benchmark in microseconds.");
+DEFINE_int32(warehouses, 12, "Number of warehouses.");
+DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
 
 TpccDriver::Result TpccDriver::run() {
   const EngineOptions& options = engine_->get_options();
@@ -375,7 +377,10 @@ int driver_main(int argc, char **argv) {
     std::cout << "numa_nodes specified:" << FLAGS_numa_nodes << std::endl;
     options.thread_.group_count_ = FLAGS_numa_nodes;
   }
-  if (!FLAGS_use_numa_alloc) {
+  if (FLAGS_mmap_hugepages) {
+    std::cout << "oh, mmap_hugepages is specified. " << std::endl;
+    options.memory_.use_mmap_hugepages_ = true;
+  } else if (!FLAGS_use_numa_alloc) {
     std::cout << "oh, use_numa_alloc is false. are you sure?" << std::endl;
     // this should be only for experimental purpose.
     // if everything is working correctly, numa_alloc_onnode must be the best

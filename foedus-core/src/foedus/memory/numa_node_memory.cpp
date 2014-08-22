@@ -29,13 +29,9 @@ NumaNodeMemory::NumaNodeMemory(Engine* engine, thread::ThreadGroupId numa_node)
     cores_(engine_->get_options().thread_.thread_count_per_group_),
     loggers_(engine_->get_options().log_.loggers_per_node_),
     volatile_pool_(
-      static_cast<uint64_t>(engine->get_options().memory_.page_pool_size_mb_per_node_) << 20,
-      kHugepageSize,
-      numa_node),
+      static_cast<uint64_t>(engine->get_options().memory_.page_pool_size_mb_per_node_) << 20),
     snapshot_pool_(
-      static_cast<uint64_t>(engine->get_options().cache_.snapshot_cache_size_mb_per_node_) << 20,
-      kHugepageSize,
-      numa_node),
+      static_cast<uint64_t>(engine->get_options().cache_.snapshot_cache_size_mb_per_node_) << 20),
     snapshot_cache_table_(nullptr) {
 }
 
@@ -43,7 +39,9 @@ ErrorStack NumaNodeMemory::initialize_once() {
   LOG(INFO) << "Initializing NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
     << " BEFORE: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
 
+  volatile_pool_.initialize_parent(this);
   CHECK_ERROR(volatile_pool_.initialize());
+  snapshot_pool_.initialize_parent(this);
   CHECK_ERROR(snapshot_pool_.initialize());
   uint64_t cache_hashtable_entries = snapshot_pool_.get_memory_byte_size() * 3 / storage::kPageSize;
   CHECK_ERROR(allocate_huge_numa_memory(
@@ -151,7 +149,14 @@ ErrorStack NumaNodeMemory::allocate_numa_memory_general(
   uint64_t alignment,
   AlignedMemory *out) const {
   ASSERT_ND(out);
-  out->alloc(size, alignment, AlignedMemory::kNumaAllocOnnode, numa_node_);
+  if (engine_->get_options().memory_.use_mmap_hugepages_ &&
+    alignment >= kHugepageSize
+    && size >= (1ULL << 30) * 8 / 10) {
+    LOG(INFO) << "This is a big memory allocation. Let's use the mmap hugepage (1GB pages)";
+    out->alloc(size, 1ULL << 30, AlignedMemory::kNumaMmapOneGbPages, numa_node_);
+  } else {
+    out->alloc(size, alignment, AlignedMemory::kNumaAllocOnnode, numa_node_);
+  }
   if (out->is_null()) {
     return ERROR_STACK(kErrorCodeOutofmemory);
   }

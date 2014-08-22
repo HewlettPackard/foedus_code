@@ -89,7 +89,7 @@ class PagePool CXX11_FINAL : public virtual Initializable {
     uint64_t allocated_pages_;
   };
 
-  PagePool(uint64_t memory_byte_size, uint64_t memory_alignment, thread::ThreadGroupId numa_node);
+  explicit PagePool(uint64_t memory_byte_size);
   ~PagePool();
 
   // Disable default constructors
@@ -97,12 +97,13 @@ class PagePool CXX11_FINAL : public virtual Initializable {
   PagePool(const PagePool&) CXX11_FUNC_DELETE;
   PagePool& operator=(const PagePool&) CXX11_FUNC_DELETE;
 
+  /** separated to avoid passing un-consructed object's pointer. */
+  void        initialize_parent(NumaNodeMemory* parent);
   ErrorStack  initialize() CXX11_OVERRIDE;
   bool        is_initialized() const CXX11_OVERRIDE;
   ErrorStack  uninitialize() CXX11_OVERRIDE;
 
   uint64_t              get_memory_byte_size() const;
-  uint64_t              get_memory_alignment() const;
   thread::ThreadGroupId get_numa_node() const;
   Stat                  get_stat() const;
 
