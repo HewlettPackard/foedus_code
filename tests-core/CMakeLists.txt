@@ -29,13 +29,6 @@ include_directories(SYSTEM
 function (add_foedus_test_individual targetname individual_tests)
     add_executable(${targetname} ${CMAKE_CURRENT_SOURCE_DIR}/${targetname}.cpp)
     target_link_libraries(${targetname} foedus-core gtest_main test_common ${CMAKE_THREAD_LIBS_INIT})
-    # To avoid CMAKE picking a wrong one, explicitly specify
-    if (GOOGLEPERFTOOLS_FOUND)
-      target_link_libraries(${targetname} ${GooglePerftools_LIBRARIES})
-    endif (GOOGLEPERFTOOLS_FOUND)
-    if (PAPI_FOUND)
-      target_link_libraries(${targetname} ${PAPI_DYNAMIC_LIBRARY})
-    endif (PAPI_FOUND)
 
    foreach(individual_test ${individual_tests})
     # To pick up test report xml files from Jenkins,
