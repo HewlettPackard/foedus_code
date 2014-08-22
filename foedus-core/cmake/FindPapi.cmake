@@ -5,13 +5,13 @@
 #  PAPI_DYNAMIC_LIBRARY    : Library path of PAPI dynamic library
 #  PAPI_FOUND       : True if found.
 FIND_PATH(PAPI_INCLUDE_DIR NAME papi.h
-  PATHS $ENV{HOME}/local /usr/local/include /usr/include)
+  HINTS $ENV{HOME}/local/include /usr/local/include /usr/include)
 
 FIND_LIBRARY(PAPI_STATIC_LIBRARY NAME libpapi.a
-  PATHS $ENV{HOME}/local /usr/local/lib64 /usr/lib64 /usr/local/lib /usr/lib
+  HINTS $ENV{HOME}/local/lib64 $ENV{HOME}/local/lib /usr/local/lib64 /usr/local/lib /usr/lib64 /usr/lib
 )
 FIND_LIBRARY(PAPI_DYNAMIC_LIBRARY NAME papi
-  PATHS $ENV{HOME}/local /usr/local/lib64 /usr/lib64 /usr/local/lib /usr/lib
+  HINTS $ENV{HOME}/local/lib64 $ENV{HOME}/local/lib /usr/local/lib64 /usr/local/lib /usr/lib64 /usr/lib
 )
 
 IF (PAPI_INCLUDE_DIR AND PAPI_STATIC_LIBRARY AND PAPI_DYNAMIC_LIBRARY)
