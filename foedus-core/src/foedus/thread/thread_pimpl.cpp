@@ -50,7 +50,7 @@ ThreadPimpl::ThreadPimpl(
     current_task_(nullptr),
     current_xct_(engine, id),
     snapshot_file_set_(engine),
-    mcs_blocks_(0) {
+    mcs_blocks_(nullptr) {
 }
 
 ErrorStack ThreadPimpl::initialize_once() {
@@ -65,8 +65,8 @@ ErrorStack ThreadPimpl::initialize_once() {
   global_volatile_page_resolver_
     = engine_->get_memory_manager().get_global_volatile_page_resolver();
   local_volatile_page_resolver_ = node_memory_->get_volatile_pool().get_resolver();
-  CHECK_ERROR(node_memory_->allocate_huge_numa_memory(sizeof(McsBlock) << 16, &mcs_blocks_memory_));
-  mcs_blocks_ = reinterpret_cast<McsBlock*>(mcs_blocks_memory_.get_block());
+  mcs_blocks_ = reinterpret_cast<McsBlock*>(
+    core_memory_->get_small_thread_local_memory_pieces().thread_mcs_block_memory_);
   raw_thread_.initialize("Thread-", id_,
           std::thread(&ThreadPimpl::handle_tasks, this),
           std::chrono::milliseconds(100));
@@ -79,7 +79,6 @@ ErrorStack ThreadPimpl::uninitialize_once() {
   batch.emprace_back(log_buffer_.uninitialize());
   core_memory_ = nullptr;
   node_memory_ = nullptr;
-  mcs_blocks_memory_.release_block();
   snapshot_cache_hashtable_ = nullptr;
   return SUMMARIZE_ERROR_BATCH(batch);
 }

@@ -391,8 +391,6 @@ int driver_main(int argc, char **argv) {
   options.log_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/log/node_$NODE$/logger_$LOGGER$";
   options.log_.loggers_per_node_ = FLAGS_loggers_per_node;
   options.log_.flush_at_shutdown_ = false;
-  options.xct_.max_read_set_size_ = 1U << 18;
-  options.xct_.max_write_set_size_ = 1U << 16;
   options.snapshot_.snapshot_interval_milliseconds_ = 100000000U;
   options.debugging_.debug_log_min_threshold_
     = debugging::DebuggingOptions::kDebugLogInfo;

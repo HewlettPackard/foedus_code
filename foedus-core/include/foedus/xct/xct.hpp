@@ -319,12 +319,10 @@ class Xct {
   // tail (abort if tail has changed), and then reading all record in the page.
   // as we don't have scanning accesses to sequential storage yet, low priority.
 
-  // pointer set should be much smaller than others, so have it as an array.
-  PointerAccess       pointer_set_[kMaxPointerSets];
+  PointerAccess*      pointer_set_;
   uint32_t            pointer_set_size_;
 
-  // same above
-  PageVersionAccess   page_version_set_[kMaxPageVersionSets];
+  PageVersionAccess*  page_version_set_;
   uint32_t            page_version_set_size_;
 
   /** @copydoc get_in_commit_log_epoch() */

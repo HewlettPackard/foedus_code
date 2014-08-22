@@ -208,8 +208,6 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /** Pre-allocated MCS blocks. index 0 is not used so that successor_block=0 means null. */
   McsBlock*               mcs_blocks_;
-  /** memory for mcs_blocks_ */
-  memory::AlignedMemory   mcs_blocks_memory_;
 };
 
 inline ErrorCode ThreadPimpl::read_a_snapshot_page(

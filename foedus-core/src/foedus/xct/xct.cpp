@@ -9,6 +9,7 @@
 #include <ostream>
 
 #include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/savepoint/savepoint.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
@@ -16,6 +17,7 @@
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct_access.hpp"
 #include "foedus/xct/xct_manager.hpp"
+#include "foedus/xct/xct_options.hpp"
 
 namespace foedus {
 namespace xct {
@@ -41,16 +43,22 @@ void Xct::initialize(memory::NumaCoreMemory* core_memory) {
   id_.set_epoch(engine_->get_savepoint_manager().get_savepoint_fast().get_current_epoch());
   id_.set_ordinal(0);  // ordinal 0 is possible only as a dummy "latest" XctId
   ASSERT_ND(id_.is_valid());
-  read_set_ = core_memory->get_read_set_memory();
+  memory::NumaCoreMemory:: SmallThreadLocalMemoryPieces pieces
+    = core_memory->get_small_thread_local_memory_pieces();
+  const XctOptions& xct_opt = engine_->get_options().xct_;
+  read_set_ = reinterpret_cast<XctAccess*>(pieces.xct_read_access_memory_);
   read_set_size_ = 0;
-  max_read_set_size_ = core_memory->get_read_set_size();
-  write_set_ = core_memory->get_write_set_memory();
+  max_read_set_size_ = xct_opt.max_read_set_size_;
+  write_set_ = reinterpret_cast<WriteXctAccess*>(pieces.xct_write_access_memory_);
   write_set_size_ = 0;
-  max_write_set_size_ = core_memory->get_write_set_size();
-  lock_free_write_set_ = core_memory->get_lock_free_write_set_memory();
+  max_write_set_size_ = xct_opt.max_write_set_size_;
+  lock_free_write_set_ = reinterpret_cast<LockFreeWriteXctAccess*>(
+    pieces.xct_lock_free_write_access_memory_);
   lock_free_write_set_size_ = 0;
-  max_lock_free_write_set_size_ = core_memory->get_lock_free_write_set_size();
+  max_lock_free_write_set_size_ = xct_opt.max_lock_free_write_set_size_;
+  pointer_set_ = reinterpret_cast<PointerAccess*>(pieces.xct_pointer_access_memory_);
   pointer_set_size_ = 0;
+  page_version_set_ = reinterpret_cast<PageVersionAccess*>(pieces.xct_page_version_memory_);
   page_version_set_size_ = 0;
   mcs_block_current_ = 0;
 }

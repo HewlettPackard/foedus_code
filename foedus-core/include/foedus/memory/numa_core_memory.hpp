@@ -30,22 +30,20 @@ namespace memory {
  */
 class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
  public:
+  /** Packs pointers to pieces of small_thread_local_memory_*/
+  struct SmallThreadLocalMemoryPieces {
+    char* thread_mcs_block_memory_;
+    char* xct_pointer_access_memory_;
+    char* xct_page_version_memory_;
+    char* xct_read_access_memory_;
+    char* xct_write_access_memory_;
+    char* xct_lock_free_write_access_memory_;
+  };
+
   NumaCoreMemory() CXX11_FUNC_DELETE;
   NumaCoreMemory(Engine* engine, NumaNodeMemory *node_memory, thread::ThreadId core_id);
   ErrorStack  initialize_once() CXX11_OVERRIDE;
   ErrorStack  uninitialize_once() CXX11_OVERRIDE;
-
-  /** Returns memory to keep track of read-set during transactions. */
-  xct::XctAccess* get_read_set_memory()   const { return read_set_memory_; }
-  uint32_t        get_read_set_size()     const { return read_set_size_; }
-  /** Returns memory to keep track of write-set during transactions. */
-  xct::WriteXctAccess* get_write_set_memory()  const { return write_set_memory_; }
-  uint32_t        get_write_set_size()    const { return write_set_size_; }
-  /** Returns memory to keep track of lock-free write-set during transactions. */
-  xct::LockFreeWriteXctAccess* get_lock_free_write_set_memory() const {
-    return lock_free_write_set_memory_;
-  }
-  uint32_t        get_lock_free_write_set_size() const { return lock_free_write_set_size_; }
 
   AlignedMemorySlice get_log_buffer_memory() const { return log_buffer_memory_; }
 
@@ -69,6 +67,10 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
 
   memory::PagePool* get_volatile_pool() { return volatile_pool_; }
   memory::PagePool* get_snapshot_pool() { return snapshot_pool_; }
+
+  const SmallThreadLocalMemoryPieces& get_small_thread_local_memory_pieces() const {
+    return small_thread_local_memory_pieces_;
+  }
 
  private:
   /** Called when there no local free pages. */
@@ -97,17 +99,21 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
    */
   const thread::ThreadLocalOrdinal        core_local_ordinal_;
 
-  /** Memory to keep track of read-set during transactions. */
-  xct::XctAccess*                         read_set_memory_;
-  uint32_t                                read_set_size_;
-
-  /** Memory to keep track of write-set during transactions. */
-  xct::WriteXctAccess*                    write_set_memory_;
-  uint32_t                                write_set_size_;
-
-  /** Memory to keep track of lock-free write-set during transactions. */
-  xct::LockFreeWriteXctAccess*            lock_free_write_set_memory_;
-  uint32_t                                lock_free_write_set_size_;
+  /**
+   * A tiny (still 2MB) thread local memory used for various things.
+   * To reduce # of TLB entries, we pack several small things to this 2MB.
+   * \li (used in ThreadPimpl) McsBlock(8b) * 64k : 512kb
+   * \li (used in Xct) PointerAccess(16b) * 1k : 16kb
+   * \li (used in Xct) PageVersionAccess(16b) * 1k : 16kb
+   * \li (used in Xct) XctAccess(24b) * 32k :768kb
+   * \li (used in Xct) WriteXctAccess(40b) * 8k : 320kb
+   * \li (used in Xct) LockFreeWriteXctAccess(16b) * 4k : 64kb
+   * In total within 2MB.
+   * Depending on options (esp, xct_.max_read_set_size and max_write_set_size), this might
+   * become two 2MB pages, which is not ideal. Hopefully the numbers above are sufficient.
+   */
+  memory::AlignedMemory   small_thread_local_memory_;
+  SmallThreadLocalMemoryPieces small_thread_local_memory_pieces_;
 
   /**
    * @brief Holds a \b local set of pointers to free volatile pages.
