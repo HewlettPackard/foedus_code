@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <iosfwd>
+#include <string>
 #include <vector>
 
 #include "foedus/fwd.hpp"
@@ -52,6 +53,7 @@ class TpccDriver {
     uint64_t largereadset_aborts_;
     uint64_t unexpected_aborts_;
     WorkerResult workers_[kMaxWorkers];
+    std::vector<std::string> papi_results_;
     friend std::ostream& operator<<(std::ostream& o, const Result& v);
   };
   explicit TpccDriver(Engine* engine) : engine_(engine) {

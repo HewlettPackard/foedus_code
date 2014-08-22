@@ -135,15 +135,21 @@ const char* kPapiEventNames[] = {
 #undef X_QUOTE
 
 void DebuggingSupports::start_papi_counters() {
+  papi_enabled_ = false;
+  int version = ::PAPI_library_init(PAPI_VER_CURRENT);
   int total_counters = ::PAPI_num_counters();
   if (total_counters <= PAPI_OK) {
-    LOG(ERROR) << "PAPI is not supported in this environment. PAPI version=" << PAPI_VERSION;
+    LOG(ERROR) << "PAPI is not supported in this environment. PAPI runtime version=" << version
+      << ", PAPI_VER_CURRENT=" << PAPI_VER_CURRENT;
+    ::PAPI_shutdown();
     return;
   }
-  LOG(INFO) << "PAPI has " << total_counters << " counters. PAPI version=" << PAPI_VERSION;
+  LOG(INFO) << "PAPI has " << total_counters << " counters. PAPI runtime version=" << version
+    << ", PAPI_VER_CURRENT=" << PAPI_VER_CURRENT;
   int ret = ::PAPI_start_counters(kPapiEvents, kPapiEventCount);
   if (ret != PAPI_OK) {
     LOG(ERROR) << "PAPI_start_counters failed. retval=" << ret;
+    ::PAPI_shutdown();
   } else {
     LOG(INFO) << "Started counting " << kPapiEventCount << " performance events via PAPI";
     papi_enabled_ = true;
@@ -155,6 +161,7 @@ void DebuggingSupports::stop_papi_counters() {
     if (ret != PAPI_OK) {
       LOG(ERROR) << "PAPI_stop_counters failed. retval=" << ret;
     }
+    ::PAPI_shutdown();
   }
 }
 std::vector<std::string> DebuggingSupports::describe_papi_counters(const PapiCounters& counters) {
@@ -177,7 +184,7 @@ std::vector<std::string> DebuggingSupports::describe_papi_counters(const PapiCou
 #endif  // HAVE_PAPI
 
 
-ErrorStack DebuggingSupports::start_profile(const std::string& output_file, bool papi_counters) {
+ErrorStack DebuggingSupports::start_profile(const std::string& output_file) {
 #ifdef HAVE_GOOGLEPERFTOOLS
   int ret = ::ProfilerStart(output_file.c_str());
   if (ret == 0) {
@@ -187,12 +194,6 @@ ErrorStack DebuggingSupports::start_profile(const std::string& output_file, bool
 #else  // HAVE_GOOGLEPERFTOOLS
   LOG(WARNING) << "Google perftools was not linked. No profile is provided. " << output_file;
 #endif  // HAVE_GOOGLEPERFTOOLS
-
-  if (papi_counters) {
-    start_papi_counters();
-  } else {
-    papi_enabled_ = false;
-  }
   return kRetOk;
 }
 
@@ -200,7 +201,6 @@ void DebuggingSupports::stop_profile() {
 #ifdef HAVE_GOOGLEPERFTOOLS
   ::ProfilerStop();
 #endif  // HAVE_GOOGLEPERFTOOLS
-  stop_papi_counters();
 }
 
 }  // namespace debugging

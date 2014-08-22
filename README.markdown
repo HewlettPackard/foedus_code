@@ -156,6 +156,19 @@ Enabling Transparent Hugepages (For FOEDUS Developers)
 Make sure you enable THP (Transparent Huge Page) in *always* mode.
 See the section in [foedus-core](foedus-core).
 
+Notes for PAPI on Ivy Bridge (For FOEDUS Developers)
+--------
+PAPI 5.1 (which is the version on FC19) does not support Ivy Bridge Family 6.
+You should source-build the latest PAPI.
+Make sure you have gfortran
+
+    sudo yum install gcc-gfortran
+    tar -xf papi-5.3.2.tar.gz
+    cd papi-5.3.2/src
+    ./configure --prefix=$HOME/local; make; make install
+
+Then cleanly build FOEDUS so that it picks up the latest version.
+
 
 Git Push/Branch Convention (For FOEDUS Developers)
 --------

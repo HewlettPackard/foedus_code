@@ -28,7 +28,7 @@ do
     # be careful.
     rm -rf /dev/shm/foedus_tpcc/
     rm -rf /tmp/libfoedus.*
-    echo "./tpcc -warehouses=$warehouses -ignore_volatile_size_warning=true -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=$neworder_remote_percent -payment_remote_percent=$payment_remote_percent -volatile_pool_size=$volatile_pool_size -duration_micro=$duration_micro"
+    echo "./tpcc -warehouses=$warehouses -high_priority=$high_priority -ignore_volatile_size_warning=true -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=$neworder_remote_percent -payment_remote_percent=$payment_remote_percent -volatile_pool_size=$volatile_pool_size -duration_micro=$duration_micro"
     ./tpcc -warehouses=$warehouses -high_priority=$high_priority -ignore_volatile_size_warning=true -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=$neworder_remote_percent -payment_remote_percent=$payment_remote_percent -volatile_pool_size=$volatile_pool_size -duration_micro=$duration_micro &> "result_tpcc_$machine_shortname.n$remote_percent.r$rep.log"
   done
 done

@@ -45,7 +45,6 @@ class DebuggingSupports CXX11_FINAL : public DefaultInitializable {
   /**
    * @brief Start running a CPU profiler (gperftools/PAPI).
    * @param[in] output_file path to output the profile result.
-   * @param[in] papi_counters whether to also collect PAPI counters.
    * @details
    * This feature is enabled only when you link to libprofiler.so.
    * For example, use it like this:
@@ -60,9 +59,14 @@ class DebuggingSupports CXX11_FINAL : public DefaultInitializable {
    * okular hoge.pdf
    * @endcode
    */
-  ErrorStack          start_profile(const std::string& output_file, bool papi_counters = false);
+  ErrorStack          start_profile(const std::string& output_file);
   /** Stop CPU profiling. */
   void                stop_profile();
+
+  /** Start collecting performance counters via PAPI if it's available */
+  void                start_papi_counters();
+  /** Stop collecting performance counters via PAPI */
+  void                stop_papi_counters();
 
   /**
    * Returns the profiled PAPI counters. must be called \e after stop_profile().
@@ -86,8 +90,6 @@ class DebuggingSupports CXX11_FINAL : public DefaultInitializable {
    * so that all other uninitialization can use glog.
    */
   void                uninitialize_glog();
-  void                start_papi_counters();
-  void                stop_papi_counters();
 
   Engine* const           engine_;
 

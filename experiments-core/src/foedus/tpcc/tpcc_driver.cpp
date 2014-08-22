@@ -177,6 +177,7 @@ TpccDriver::Result TpccDriver::run() {
   LOG(INFO) << "All warmup done!";
   if (FLAGS_profile) {
     COERCE_ERROR(engine_->get_debug().start_profile("tpcc.prof"));
+    engine_->get_debug().start_papi_counters();
   }
   start_rendezvous_.signal();  // GO!
   LOG(INFO) << "Started!";
@@ -204,12 +205,15 @@ TpccDriver::Result TpccDriver::run() {
 
   if (FLAGS_profile) {
     engine_->get_debug().stop_profile();
+    engine_->get_debug().stop_papi_counters();
   }
 
   Result result;
   duration.stop();
   result.duration_sec_ = duration.elapsed_sec();
   result.worker_count_ = clients_.size();
+  result.papi_results_ = debugging::DebuggingSupports::describe_papi_counters(
+    engine_->get_debug().get_papi_counters());
   assorted::memory_fence_acquire();
   for (uint32_t i = 0; i < clients_.size(); ++i) {
     TpccClientTask* client = clients_[i];
@@ -454,6 +458,10 @@ int driver_main(int argc, char **argv) {
   }
   LOG(INFO) << "final result:" << result;
   if (FLAGS_profile) {
+    LOG(INFO) << "PAPI results:";
+    for (uint16_t i = 0; i < result.papi_results_.size(); ++i) {
+      LOG(INFO) << result.papi_results_[i];
+    }
     std::cout << "Check out the profile result: pprof --pdf tpcc tpcc.prof > prof.pdf; "
       "okular prof.pdf" << std::endl;
   }

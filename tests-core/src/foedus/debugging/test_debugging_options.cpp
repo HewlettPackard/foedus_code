@@ -25,18 +25,19 @@ TEST(DebuggingOptionsTest, Profile) {
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    COERCE_ERROR(engine.get_debug().start_profile("test.prof", true));
+    engine.get_debug().start_papi_counters();
+    /*
     memory::AlignedMemory memory;
     memory.alloc(1 << 24, 1 << 21, memory::AlignedMemory::kNumaAllocOnnode, 0);
     assorted::UniformRandom rnd(1234L);
-    uint32_t pages = memory.get_size() / (1 << 12);
     uint32_t a = 0;
     for (uint64_t i = 0; i < 1000; ++i) {
-      uint32_t next = rnd.next_uint32() % pages;
-      a += *(reinterpret_cast<char*>(memory.get_block()) + (next << 12));
+      uint32_t addr = rnd.next_uint32() % (1 << 24);
+      a += *(reinterpret_cast<char*>(memory.get_block()) + addr);
     }
     std::cout << "a=" << a << std::endl;
-    engine.get_debug().stop_profile();
+    */
+    engine.get_debug().stop_papi_counters();
     DebuggingSupports::PapiCounters counters = engine.get_debug().get_papi_counters();
     std::vector<std::string> results = DebuggingSupports::describe_papi_counters(counters);
     for (const std::string& result : results) {
