@@ -462,13 +462,13 @@ int driver_main(int argc, char **argv) {
     LOG(INFO) << result.workers_[i];
   }
   LOG(INFO) << "final result:" << result;
-  if (FLAGS_profile) {
+  if (FLAGS_papi) {
+    LOG(INFO) << "PAPI results:";
     for (uint16_t i = 0; i < result.papi_results_.size(); ++i) {
       LOG(INFO) << result.papi_results_[i];
     }
   }
-  if (FLAGS_papi) {
-    LOG(INFO) << "PAPI results:";
+  if (FLAGS_profile) {
     std::cout << "Check out the profile result: pprof --pdf tpcc tpcc.prof > prof.pdf; "
       "okular prof.pdf" << std::endl;
   }
