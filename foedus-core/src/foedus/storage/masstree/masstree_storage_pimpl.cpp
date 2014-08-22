@@ -420,7 +420,7 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
       << (parent_lock->is_moved() ? "this page moved" : " it point to next layer");
     memory->release_free_volatile_page(offset);
   } else {
-    // initialize the root page by copying the recor
+    // initialize the root page by copying the record
     root->initialize_volatile_page(
       metadata_.id_,
       pointer.volatile_pointer_,
