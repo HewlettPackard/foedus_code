@@ -32,6 +32,7 @@
 namespace foedus {
 namespace tpcc {
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
+DEFINE_bool(papi, false, "Whether to profile with PAPI.");
 DEFINE_int32(volatile_pool_size, 32, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_bool(ignore_volatile_size_warning, true, "Ignores warning on volatile_pool_size setting.");
 DEFINE_int32(loggers_per_node, 4, "Number of log writers per numa node.");
@@ -177,6 +178,8 @@ TpccDriver::Result TpccDriver::run() {
   LOG(INFO) << "All warmup done!";
   if (FLAGS_profile) {
     COERCE_ERROR(engine_->get_debug().start_profile("tpcc.prof"));
+  }
+  if (FLAGS_papi) {
     engine_->get_debug().start_papi_counters();
   }
   start_rendezvous_.signal();  // GO!
@@ -205,6 +208,8 @@ TpccDriver::Result TpccDriver::run() {
 
   if (FLAGS_profile) {
     engine_->get_debug().stop_profile();
+  }
+  if (FLAGS_papi) {
     engine_->get_debug().stop_papi_counters();
   }
 
