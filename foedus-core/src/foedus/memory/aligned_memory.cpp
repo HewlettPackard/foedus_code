@@ -33,11 +33,14 @@ void* alloc_mmap_1gb_pages(uint64_t size, int numa_node) {
   ASSERT_ND(size % (1ULL << 30) == 0);
   int original_node = ::numa_preferred();
   ::numa_set_preferred(numa_node);
+  // we don't use MAP_POPULATE because it will block here and also serialize hugepage allocation!
+  // even if we run mmap in parallel, linux serializes the looooong population in all numa nodes.
+  // lame. we will memset right after this.
   void* ret = ::mmap(
     nullptr,
     size,
     PROT_READ | PROT_WRITE,
-    MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB | MAP_POPULATE | MAP_HUGE_1GB,
+    MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB | MAP_HUGE_1GB,
     -1,
     0);
   ::numa_set_preferred(original_node);  // set it back
@@ -82,9 +85,7 @@ void AlignedMemory::alloc(
   watch.stop();
 
   debugging::StopWatch watch2;
-  if (alloc_type != kNumaMmapOneGbPages) {  // for mmap, we already did it with POPULATE
-    std::memset(block_, 0, size_);  // see class comment for why we do this immediately
-  }
+  std::memset(block_, 0, size_);  // see class comment for why we do this immediately
   watch2.stop();
   LOG(INFO) << "Allocated memory in " << watch.elapsed_ns() << "+"
     << watch2.elapsed_ns() << " ns (alloc+memset)." << *this;
