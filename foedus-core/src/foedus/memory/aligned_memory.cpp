@@ -10,6 +10,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <ostream>
 
 #include "foedus/assert_nd.hpp"
@@ -29,25 +30,35 @@ AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
   alloc(size, alignment, alloc_type, numa_node);
 }
 
+/**
+ * Don't know why.. but seems like mmap is much slower if overlapped.
+ */
+std::mutex mmap_allocate_mutex;
+
 void* alloc_mmap_1gb_pages(uint64_t size, int numa_node) {
   ASSERT_ND(size % (1ULL << 30) == 0);
   int original_node = ::numa_preferred();
-  ::numa_set_preferred(numa_node);
-  // we don't use MAP_POPULATE because it will block here and also serialize hugepage allocation!
-  // even if we run mmap in parallel, linux serializes the looooong population in all numa nodes.
-  // lame. we will memset right after this.
-  char* ret = reinterpret_cast<char*>(::mmap(
-    nullptr,
-    size,
-    PROT_READ | PROT_WRITE,
-    MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB | MAP_HUGE_1GB,
-    -1,
-    0));
-  // just "touch" a few bytes per 1GB page to physically acquire the pages
-  for (uint64_t cur = 0; cur < size; cur += (1ULL << 30)) {
-    std::memset(ret + cur, 0, 8);
+  char* ret;
+  {
+    std::lock_guard<std::mutex> guard(mmap_allocate_mutex);
+    ::numa_set_preferred(numa_node);
+    // we don't use MAP_POPULATE because it will block here and also serialize hugepage allocation!
+    // even if we run mmap in parallel, linux serializes the looooong population in all numa nodes.
+    // lame. we will memset right after this.
+    ret = reinterpret_cast<char*>(::mmap(
+      nullptr,
+      size,
+      PROT_READ | PROT_WRITE,
+      MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB | MAP_HUGE_1GB,
+      -1,
+      0));
+    // just "touch" a few bytes per 1GB page to physically acquire the pages
+    for (uint64_t cur = 0; cur < size; cur += (1ULL << 30)) {
+      std::memset(ret + cur, 0, 8);
+      std::memset(ret + cur + (1ULL << 30) - 8, 0, 8);
+    }
+    ::numa_set_preferred(original_node);  // set it back
   }
-  ::numa_set_preferred(original_node);  // set it back
   return ret;
 }
 
