@@ -12,6 +12,7 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/uniform_random.hpp"
 #include "foedus/memory/memory_options.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
@@ -58,6 +59,32 @@ ErrorStack PagePoolPimpl::initialize_once() {
   for (uint64_t i = 0; i < free_pool_capacity_; ++i) {
     free_pool_[i] = pages_for_free_pool_ + i;
   }
+
+  // [experimental] randomize the free pool pointers so that we can evenly utilize all memory banks
+  // this should be an option...
+  {
+    LOG(INFO) << "Randomizing free pool...";
+    struct Randomizer {
+      PagePoolOffset  offset_;
+      uint32_t        rank_;
+      static bool compare(const Randomizer& left, const Randomizer& right) {
+        return left.rank_ < right.rank_;
+      }
+    };
+    Randomizer* randomizers = new Randomizer[free_pool_capacity_];
+    assorted::UniformRandom rnd(123456L);
+    for (uint64_t i = 0; i < free_pool_capacity_; ++i) {
+      randomizers[i].offset_ = pages_for_free_pool_ + i;
+      randomizers[i].rank_ = rnd.next_uint32();
+    }
+    std::sort(randomizers, randomizers + free_pool_capacity_, Randomizer::compare);
+    for (uint64_t i = 0; i < free_pool_capacity_; ++i) {
+      free_pool_[i] = randomizers[i].offset_;
+    }
+    delete[] randomizers;
+    LOG(INFO) << "Randomized free pool.";
+  }
+
   free_pool_head_ = 0;
   free_pool_count_ = free_pool_capacity_;
   resolver_ = LocalPageResolver(pool_base_, pages_for_free_pool_, pool_size_);

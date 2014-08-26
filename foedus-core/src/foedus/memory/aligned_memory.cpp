@@ -9,6 +9,7 @@
 #include <glog/logging.h>
 #include <sys/mman.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
