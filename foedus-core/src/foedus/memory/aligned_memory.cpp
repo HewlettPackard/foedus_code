@@ -37,13 +37,11 @@ AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
  */
 std::mutex mmap_allocate_mutex;
 
-void* alloc_mmap_1gb_pages(uint64_t size, int numa_node) {
+void* alloc_mmap_1gb_pages(uint64_t size) {
   ASSERT_ND(size % (1ULL << 30) == 0);
-  int original_node = ::numa_preferred();
   char* ret;
   {
     std::lock_guard<std::mutex> guard(mmap_allocate_mutex);
-    ::numa_set_preferred(numa_node);
     // we don't use MAP_POPULATE because it will block here and also serialize hugepage allocation!
     // even if we run mmap in parallel, linux serializes the looooong population in all numa nodes.
     // lame. we will memset right after this.
@@ -55,31 +53,8 @@ void* alloc_mmap_1gb_pages(uint64_t size, int numa_node) {
       -1,
       0));
     if (ret == nullptr) {
-      LOG(FATAL) << "mmap() failed. size=" << size << ", numa_node=" << numa_node << ", error="
-        << assorted::os_error();
+      LOG(FATAL) << "mmap() failed. size=" << size << ", error=" << assorted::os_error();
     }
-    // mbind() receives uint32_t as second parameter. So, we must repeat it for each 1GB
-    const uint32_t kChunk = 1ULL << 30;
-    for (uint64_t cur = 0; cur < size; cur += kChunk) {
-      nodemask_t mask;
-      ::nodemask_zero(&mask);
-      ::nodemask_set_compat(&mask, numa_node);
-      int64_t mbind_ret = ::mbind(
-        ret + cur,
-        kChunk,
-        MPOL_BIND,  // | MPOL_F_STATIC_NODES, (not available in older numa.h)
-        mask.n,
-        sizeof(mask) * 8,
-        MPOL_MF_MOVE);
-      if (mbind_ret) {
-        LOG(FATAL) << "mbind() failed. size=" << size << ", cur=" << cur << ", numa_node="
-          << numa_node << ", error=" << assorted::os_error();
-      }
-      // just "touch" a few bytes per 1GB page to physically acquire the pages
-      std::memset(ret + cur, 0, 8);
-      std::memset(ret + cur + kChunk - 8, 0, 8);
-    }
-    ::numa_set_preferred(original_node);  // set it back
   }
   return ret;
 }
@@ -114,7 +89,7 @@ void AlignedMemory::alloc(
       block_ = ::numa_alloc_onnode(size_, numa_node);
       break;
     case kNumaMmapOneGbPages:
-      block_ = alloc_mmap_1gb_pages(size_, numa_node);
+      block_ = alloc_mmap_1gb_pages(size_);
       break;
     default:
       ASSERT_ND(false);
@@ -122,6 +97,28 @@ void AlignedMemory::alloc(
   watch.stop();
 
   debugging::StopWatch watch2;
+  // numa_alloc_onnode might be migrated (?), so forcibly set with mbind().
+  if (alloc_type_ == kNumaAllocOnnode || alloc_type_ == kNumaMmapOneGbPages) {
+    // mbind() receives uint32_t as second parameter. So, we must repeat it for each 1GB
+    const uint32_t kChunk = 1ULL << 30;
+    for (uint64_t cur = 0; cur < size; cur += kChunk) {
+      nodemask_t mask;
+      ::nodemask_zero(&mask);
+      ::nodemask_set_compat(&mask, numa_node);
+      uint32_t chunk = std::min<uint64_t>(kChunk, size - cur);
+      int64_t mbind_ret = ::mbind(
+        reinterpret_cast<char*>(block_) + cur,
+        chunk,
+        MPOL_BIND,  // | MPOL_F_STATIC_NODES, (not available in older numa.h)
+        mask.n,
+        sizeof(mask) * 8,
+        MPOL_MF_MOVE);
+      if (mbind_ret) {
+        LOG(FATAL) << "mbind() failed. size=" << size << ", cur=" << cur << ", numa_node="
+          << numa_node << ", error=" << assorted::os_error();
+      }
+    }
+  }
   std::memset(block_, 0, size_);  // see class comment for why we do this immediately
   watch2.stop();
   LOG(INFO) << "Allocated memory in " << watch.elapsed_ns() << "+"
