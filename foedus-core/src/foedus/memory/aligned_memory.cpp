@@ -5,6 +5,7 @@
 #include "foedus/memory/aligned_memory.hpp"
 
 #include <numa.h>
+#include <numaif.h>
 #include <glog/logging.h>
 #include <sys/mman.h>
 
@@ -14,6 +15,7 @@
 #include <ostream>
 
 #include "foedus/assert_nd.hpp"
+#include "foedus/assorted/assorted_func.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 
 
@@ -49,13 +51,33 @@ void* alloc_mmap_1gb_pages(uint64_t size, int numa_node) {
       nullptr,
       size,
       PROT_READ | PROT_WRITE,
-      MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB | MAP_HUGE_1GB,
+      MAP_ANONYMOUS | MAP_PRIVATE | MAP_NORESERVE | MAP_HUGETLB | MAP_HUGE_1GB,
       -1,
       0));
-    // just "touch" a few bytes per 1GB page to physically acquire the pages
-    for (uint64_t cur = 0; cur < size; cur += (1ULL << 30)) {
+    if (ret == nullptr) {
+      LOG(FATAL) << "mmap() failed. size=" << size << ", numa_node=" << numa_node << ", error="
+        << assorted::os_error();
+    }
+    // mbind() receives uint32_t as second parameter. So, we must repeat it for each 1GB
+    const uint32_t kChunk = 1ULL << 30;
+    for (uint64_t cur = 0; cur < size; cur += kChunk) {
+      nodemask_t mask;
+      ::nodemask_zero(&mask);
+      ::nodemask_set_compat(&mask, numa_node);
+      int64_t mbind_ret = ::mbind(
+        ret + cur,
+        kChunk,
+        MPOL_BIND,  // | MPOL_F_STATIC_NODES, (not available in older numa.h)
+        mask.n,
+        sizeof(mask) * 8,
+        MPOL_MF_MOVE);
+      if (mbind_ret) {
+        LOG(FATAL) << "mbind() failed. size=" << size << ", cur=" << cur << ", numa_node="
+          << numa_node << ", error=" << assorted::os_error();
+      }
+      // just "touch" a few bytes per 1GB page to physically acquire the pages
       std::memset(ret + cur, 0, 8);
-      std::memset(ret + cur + (1ULL << 30) - 8, 0, 8);
+      std::memset(ret + cur + kChunk - 8, 0, 8);
     }
     ::numa_set_preferred(original_node);  // set it back
   }
