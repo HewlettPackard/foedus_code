@@ -61,8 +61,8 @@ ErrorStack PagePoolPimpl::initialize_once() {
   }
 
   // [experimental] randomize the free pool pointers so that we can evenly utilize all memory banks
-  // this should be an option...
-  {
+  if (false) {  // disabled for now
+    // this should be an option...
     LOG(INFO) << "Randomizing free pool...";
     struct Randomizer {
       PagePoolOffset  offset_;
