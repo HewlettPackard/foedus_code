@@ -57,8 +57,8 @@ namespace array {
 
 const uint16_t kPayload = 16;  // = 128;
 const uint64_t kDurationMicro = 10000000;
-const uint32_t kRecords = 1 << 20;
-const uint32_t kRecordsMask = 0xFFFFF;
+const uint32_t kRecords = 1 << 19;  // 1 << 20;
+const uint32_t kRecordsMask = 0x7FFFF;  // 0xFFFFF;
 
 bool start_req = false;
 bool stop_req = false;
@@ -153,6 +153,7 @@ int main_impl(int argc, char **argv) {
       std::atomic_thread_fence(std::memory_order_release);
       if (profile) {
         COERCE_ERROR(engine.get_debug().start_profile("readonly_experiment.prof"));
+        engine.get_debug().start_papi_counters();
       }
       std::cout << "all started!" << std::endl;
       ::usleep(kDurationMicro);
@@ -166,12 +167,19 @@ int main_impl(int argc, char **argv) {
       }
       if (profile) {
         engine.get_debug().stop_profile();
+        engine.get_debug().stop_papi_counters();
       }
 
       for (int i = 0; i < kThreads; ++i) {
         std::cout << "session: result[" << i << "]="
           << sessions[i].get_result() << std::endl;
         delete tasks[i];
+      }
+
+      auto papi_results = debugging::DebuggingSupports::describe_papi_counters(
+        engine.get_debug().get_papi_counters());
+      for (uint16_t i = 0; i < papi_results.size(); ++i) {
+        std::cout << papi_results[i] << std::endl;
       }
       delete[] tasks;
       std::cout << "total=" << total << ", MQPS="

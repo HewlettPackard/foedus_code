@@ -66,6 +66,7 @@ void MasstreeStorageFactory::add_create_log(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(
     casted->id_,
+    casted->border_early_split_threshold_,
     casted->name_.size(),
     casted->name_.data());
 }

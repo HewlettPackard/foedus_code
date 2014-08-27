@@ -32,9 +32,10 @@
 namespace foedus {
 namespace tpcc {
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
-DEFINE_int32(volatile_pool_size, 32, "Size of volatile memory pool per NUMA node in GB.");
+DEFINE_bool(papi, false, "Whether to profile with PAPI.");
+DEFINE_int32(volatile_pool_size, 20, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_bool(ignore_volatile_size_warning, true, "Ignores warning on volatile_pool_size setting.");
-DEFINE_int32(loggers_per_node, 4, "Number of log writers per numa node.");
+DEFINE_int32(loggers_per_node, 2, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
   " remote orderline). This corresponds to H-Store's neworder_multip/neworder_multip_mix in"
@@ -43,11 +44,19 @@ DEFINE_int32(payment_remote_percent, 15, "Percent of each payment that is insert
   " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
-DEFINE_int32(thread_per_node, 0, "Number of threads per NUMA node. 0 uses logical count");
+DEFINE_int32(thread_per_node, 6, "Number of threads per NUMA node. 0 uses logical count");
+DEFINE_int32(numa_nodes, 0, "Number of NUMA nodes. 0 uses physical count");
+DEFINE_bool(use_numa_alloc, true, "Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode()"
+  " to allocate memories. If false, we use usual posix_memalign() instead");
+DEFINE_bool(interleave_numa_alloc, false, "Whether to use ::numa_alloc_interleaved()"
+  " instead of ::numa_alloc_onnode()");
+DEFINE_bool(mmap_hugepages, false, "Whether to use mmap for 1GB hugepages."
+  " This requies special setup written in the readme.");
 DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
-DEFINE_int32(warehouses, 16, "Number of warehouses.");
-DEFINE_int64(duration_micro, 10000000, "Duration of benchmark in microseconds.");
+DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
+DEFINE_int32(warehouses, 12, "Number of warehouses.");
+DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
 
 TpccDriver::Result TpccDriver::run() {
   const EngineOptions& options = engine_->get_options();
@@ -172,6 +181,9 @@ TpccDriver::Result TpccDriver::run() {
   if (FLAGS_profile) {
     COERCE_ERROR(engine_->get_debug().start_profile("tpcc.prof"));
   }
+  if (FLAGS_papi) {
+    engine_->get_debug().start_papi_counters();
+  }
   start_rendezvous_.signal();  // GO!
   LOG(INFO) << "Started!";
   debugging::StopWatch duration;
@@ -193,17 +205,23 @@ TpccDriver::Result TpccDriver::run() {
     }
     LOG(INFO) << "Intermediate report after " << result.duration_sec_ << " sec";
     LOG(INFO) << result;
+    LOG(INFO) << engine_->get_memory_manager().dump_free_memory_stat();
   }
   LOG(INFO) << "Experiment ended.";
 
   if (FLAGS_profile) {
     engine_->get_debug().stop_profile();
   }
+  if (FLAGS_papi) {
+    engine_->get_debug().stop_papi_counters();
+  }
 
   Result result;
   duration.stop();
   result.duration_sec_ = duration.elapsed_sec();
   result.worker_count_ = clients_.size();
+  result.papi_results_ = debugging::DebuggingSupports::describe_papi_counters(
+    engine_->get_debug().get_papi_counters());
   assorted::memory_fence_acquire();
   for (uint32_t i = 0; i < clients_.size(); ++i) {
     TpccClientTask* client = clients_[i];
@@ -355,12 +373,30 @@ int driver_main(int argc, char **argv) {
   ASSERT_ND(!fs::exists(savepoint_path));
 
   std::cout << "NUMA node count=" << static_cast<int>(options.thread_.group_count_) << std::endl;
+  if (FLAGS_numa_nodes != 0) {
+    std::cout << "numa_nodes specified:" << FLAGS_numa_nodes << std::endl;
+    options.thread_.group_count_ = FLAGS_numa_nodes;
+  }
+  if (FLAGS_mmap_hugepages) {
+    std::cout << "oh, mmap_hugepages is specified. " << std::endl;
+    options.memory_.use_mmap_hugepages_ = true;
+  } else if (!FLAGS_use_numa_alloc) {
+    std::cout << "oh, use_numa_alloc is false. are you sure?" << std::endl;
+    // this should be only for experimental purpose.
+    // if everything is working correctly, numa_alloc_onnode must be the best
+    options.memory_.use_numa_alloc_ = false;
+  } else {
+    if (FLAGS_interleave_numa_alloc) {
+      std::cout << "oh, interleave_numa_alloc_ is true. are you sure?" << std::endl;
+      // again, numa_alloc_onnode should be better than numa_alloc_interleaved
+      options.memory_.interleave_numa_alloc_ = true;
+    }
+  }
+
   options.snapshot_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/snapshot/node_$NODE$";
   options.log_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/log/node_$NODE$/logger_$LOGGER$";
   options.log_.loggers_per_node_ = FLAGS_loggers_per_node;
   options.log_.flush_at_shutdown_ = false;
-  options.xct_.max_read_set_size_ = 1U << 18;
-  options.xct_.max_write_set_size_ = 1U << 16;
   options.snapshot_.snapshot_interval_milliseconds_ = 100000000U;
   options.debugging_.debug_log_min_threshold_
     = debugging::DebuggingOptions::kDebugLogInfo;
@@ -396,6 +432,13 @@ int driver_main(int argc, char **argv) {
     options.thread_.thread_count_per_group_ = 1;
   }
 
+  if (FLAGS_high_priority) {
+    std::cout << "Will set highest priority to worker threads" << std::endl;
+    options.thread_.overwrite_thread_schedule_ = true;
+    options.thread_.thread_policy_ = thread::kScheduleFifo;
+    options.thread_.thread_priority_ = thread::kPriorityHighest;
+  }
+
   if (!FLAGS_ignore_volatile_size_warning) {
     if (FLAGS_volatile_pool_size < FLAGS_warehouses * 4 / options.thread_.group_count_) {
       LOG(FATAL) << "You have specified: warehouses=" << FLAGS_warehouses << ", which is "
@@ -423,6 +466,12 @@ int driver_main(int argc, char **argv) {
     LOG(INFO) << result.workers_[i];
   }
   LOG(INFO) << "final result:" << result;
+  if (FLAGS_papi) {
+    LOG(INFO) << "PAPI results:";
+    for (uint16_t i = 0; i < result.papi_results_.size(); ++i) {
+      LOG(INFO) << result.papi_results_[i];
+    }
+  }
   if (FLAGS_profile) {
     std::cout << "Check out the profile result: pprof --pdf tpcc tpcc.prof > prof.pdf; "
       "okular prof.pdf" << std::endl;
@@ -439,7 +488,7 @@ std::ostream& operator<<(std::ostream& o, const TpccDriver::Result& v) {
     << "<user_requested_aborts_>" << v.user_requested_aborts_ << "</user_requested_aborts_>"
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
     << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"
-    << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>" << std::endl;
+    << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>";
   o << "</total_result>";
   return o;
 }

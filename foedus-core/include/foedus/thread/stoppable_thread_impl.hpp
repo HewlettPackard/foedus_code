@@ -98,6 +98,10 @@ class StoppableThread final {
   /** non-atomic is_stopped(). */
   bool is_stopped_weak() const { return stopped_.load(std::memory_order_relaxed); }
 
+  /** wraps std::thread::native_handle() */
+  template <typename HANDLE_TYPE>
+  HANDLE_TYPE native_handle() { return static_cast<HANDLE_TYPE>(thread_.native_handle()); }
+
   std::string             to_string() const;
   friend std::ostream&    operator<<(std::ostream& o, const StoppableThread& v);
 

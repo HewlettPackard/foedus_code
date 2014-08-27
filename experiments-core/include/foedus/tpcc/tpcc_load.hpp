@@ -45,6 +45,7 @@ class TpccCreateTask : public thread::ImpersonateTask {
   ErrorStack create_masstree(
     thread::Thread* context,
     const std::string& name,
+    float border_fill_factor,
     storage::masstree::MasstreeStorage** storage);
   ErrorStack create_sequential(
     thread::Thread* context,

@@ -132,6 +132,18 @@ it will run correctly and safely.
 
 We rely on *always* mode because we simply allocate memory via libnuma without madvise.
 
+Non-Transparent Hugepages
+--------
+TBD: Have to write up detailed instructions. This is so far a memo just for my self.
+
+Boot with "hugepagesz=1G default_hugepagesz=1G hugepages=48" (for example).
+mount -t hugetlbfs /mnt/hugetlbfs
+Now tpcc has mmap_hugepages parameter. Use it.
+Be super careful on volatile_pool_size/thread_per_node/log_buffer_mb.
+Use numastat to check if it's actually used and evenly distribtued to NUMA nodes.
+Numastat 2.08 has some bug on this, download the latest and source build.
+https://bugzilla.redhat.com/show_bug.cgi?id=987507
+
 Dependencies
 -----------
 We try hard to minimize library dependency so that at least libfoedus-core works in various
@@ -174,6 +186,11 @@ google-perftools-devel.
 
     sudo yum install google-perftools google-perftools-devel    # RedHat/Fedora
 
+Another optional library is [PAPI](http://icl.cs.utk.edu/trac/papi/), with which FOEDUS can provide
+additional performance counters.
+
+    sudo yum install papi papi-devel papi-static    # RedHat/Fedora
+
 We use none of boost libraries. We might consider using some of the header-only boost libraries,
 but we will surely stay away from non-header-only ones (eg filesystem).
 
@@ -187,6 +204,7 @@ libfoedus-core uses a few open source libraries listed below.
 | glog         | BSD     | Static-link. Contains source code.           |
 | tinyxml2     | ZLIB    | Static-link. Contains source code.           |
 | gperftools   | BSD     | Optional dynamic-link. Distributes nothing.  |
+| papi         | BSD(?)  | Optional dynamic-link. Distributes nothing.  |
 | libnuma      | LGPL    | Dynamic-link. Distributes nothing.           |
 | glibc/stdc++ | LGPL    | Dynamic-link. Distributes nothing.           |
 

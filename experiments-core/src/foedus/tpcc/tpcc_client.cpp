@@ -49,8 +49,7 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
     << from_wid_ << "-" << to_wid_;
 
   while (!is_stop_requested()) {
-    // currently we change wid for each transaction.
-    Wid wid = to_wid_ <= from_wid_ ? from_wid_ : rnd_.uniform_within(from_wid_, to_wid_ - 1);
+    Wid wid = from_wid_;  // home WID. some transaction randomly uses remote WID.
     uint16_t transaction_type = rnd_.uniform_within(1, 100);
     // remember the random seed to repeat the same transaction on abort/retry.
     uint64_t rnd_seed = rnd_.get_current_seed();

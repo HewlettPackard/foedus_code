@@ -133,6 +133,36 @@ inline ThreadGlobalOrdinal to_global_ordinal(ThreadId thread_id, uint8_t threads
  */
 typedef int64_t TimeoutMicrosec;
 
+/**
+ * Thread policy for worker threads. The values are compatible with pthread's values.
+ * @see http://man7.org/linux/man-pages/man3/pthread_getschedparam.3.html
+ */
+enum ThreadPolicy {
+  /** SCHED_OTHER */
+  kScheduleOther = 0,
+  /** SCHED_FIFO */
+  kScheduleFifo = 1,
+  /** SCHED_RR */
+  kScheduleRr = 2,
+  /** SCHED_BATCH */
+  kScheduleBatch = 3,
+  /** SCHED_IDLE */
+  kScheduleIdle = 5,
+  // no SCHED_DEADLINE. Too new (linux 3.14~).
+};
+/**
+ * Thread priority for worker threads. The values are compatible with pthread's values.
+ * Depending on policy, the lowest-highest might be overwritten by
+ * what sched_get_priority_max()/min returns.
+ * @see http://man7.org/linux/man-pages/man3/pthread_getschedparam.3.html
+ */
+enum ThreadPriority {
+  kPriorityIdle = 0,
+  kPriorityLowest = 1,
+  kPriorityDefault = 50,
+  kPriorityHighest = 99,
+};
+
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_THREAD_ID_HPP_

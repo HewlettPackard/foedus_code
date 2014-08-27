@@ -66,6 +66,18 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fno-pie")
 # Always 64-bit file offsets
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
 
+# These optional modules are linked in all projects.
+# We might be using something other than the ones in /usr/lib, so don't let cmake automatically pick
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${FOEDUS_CORE_SRC_ROOT}/cmake)
+find_package(GooglePerftools)
+if (GOOGLEPERFTOOLS_FOUND)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_GOOGLEPERFTOOLS")
+endif (GOOGLEPERFTOOLS_FOUND)
+find_package(Papi)
+if (PAPI_FOUND)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_PAPI")
+endif (PAPI_FOUND)
+
 # We use cpplint to conform to Google C++ style guide.
 set(ENABLE_CPPLINT true)
 

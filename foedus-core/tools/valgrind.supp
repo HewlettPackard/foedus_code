@@ -107,3 +107,52 @@
    fun:_ZNSs15_M_replace_safeEmmPKcm
    fun:_ZN6google12SetVLOGLevelEPKci
 }
+
+
+# Hideaki, 2014 Aug, Fedora 19.
+# PAPI leaves something even after calling PAPI_shutdown().
+# http://lists.eecs.utk.edu/pipermail/perfapi-devel/2009-October/002923.html
+{
+   papi_init_leak
+   Memcheck:Leak
+   ...
+   fun:PAPI_library_init
+   ...
+}
+{
+   papi_uninit
+   Memcheck:Cond
+   ...
+   fun:_papi_load_preset_table
+   ...
+}
+
+{
+   papi_uninit2
+   Memcheck:Cond
+   ...
+   fun:pfmlib_find_os
+   fun:pfm_get_pmu_info
+   ...
+}
+{
+   papi_addr
+   Memcheck:Addr8
+   ...
+   fun:_Z24GetStackTraceWithContextPPviiPKv
+   ...
+   fun:_ZN14ProfileHandler13SignalHandlerEiP9siginfo_tPv
+   ...
+   fun:intel_x86_attr2umask
+   fun:pfm_intel_x86_get_event_attr_info
+   ...
+}
+{
+   gperftools_addr
+   Memcheck:Addr4
+   ...
+   fun:_Z24GetStackTraceWithContextPPviiPKv
+   ...
+   fun:_ZN14ProfileHandler13SignalHandlerEiP9siginfo_tPv
+   ...
+}

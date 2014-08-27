@@ -31,10 +31,8 @@ namespace memory {
 class PagePoolPimpl final : public DefaultInitializable {
  public:
   PagePoolPimpl() = delete;
-  PagePoolPimpl(
-    uint64_t memory_byte_size,
-    uint64_t memory_alignment,
-    thread::ThreadGroupId numa_node);
+  explicit PagePoolPimpl(uint64_t memory_byte_size);
+  void        initialize_parent(NumaNodeMemory* parent);
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
@@ -47,14 +45,11 @@ class PagePoolPimpl final : public DefaultInitializable {
 
   friend std::ostream& operator<<(std::ostream& o, const PagePoolPimpl& v);
 
+  /** Node memory that holds this page pool */
+  NumaNodeMemory*                 parent_;
+
   /** Byte size of this page pool. */
   const uint64_t                  memory_byte_size_;
-
-  /** Byte size of this page pool. */
-  const uint64_t                  memory_alignment_;
-
-  /** The NUMA node this pool is allocated at. */
-  const thread::ThreadGroupId     numa_node_;
 
   /** The whole memory region of the pool. */
   AlignedMemory                   memory_;

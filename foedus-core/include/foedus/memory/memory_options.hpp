@@ -51,6 +51,14 @@ struct MemoryOptions CXX11_FINAL : public virtual externalize::Externalizable {
   bool        interleave_numa_alloc_;
 
   /**
+   * @brief Whether to use non-transparent hugepages for big memories (1GB huge pages).
+   * @details
+   * To use this, you have to set up \e non-transparent hugepages that requires a reboot.
+   * See the readme fore more details.
+   */
+  bool        use_mmap_hugepages_;
+
+  /**
    * @brief Size of the page pool in MB per each NUMA node.
    * @details
    * Must be multiply of 2MB. Default is 1GB.

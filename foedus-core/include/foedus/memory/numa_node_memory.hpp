@@ -76,19 +76,6 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
     return allocate_numa_memory_general(size, kHugepageSize, out);
   }
 
-  AlignedMemory& get_read_set_memory() { return read_set_memory_; }
-  xct::XctAccess* get_read_set_memory_piece(thread::ThreadLocalOrdinal core_ordinal) {
-    return read_set_memory_pieces_[core_ordinal];
-  }
-  AlignedMemory& get_write_set_memory() { return write_set_memory_; }
-  xct::WriteXctAccess* get_write_set_memory_piece(thread::ThreadLocalOrdinal core_ordinal) {
-    return write_set_memory_pieces_[core_ordinal];
-  }
-  AlignedMemory& get_lock_free_write_set_memory() { return lock_free_write_set_memory_; }
-  xct::LockFreeWriteXctAccess* get_lock_free_write_set_memory_piece(
-    thread::ThreadLocalOrdinal core_ordinal) {
-    return lock_free_write_set_memory_pieces_[core_ordinal];
-  }
   PagePoolOffsetChunk* get_volatile_offset_chunk_memory_piece(
     foedus::thread::ThreadLocalOrdinal core_ordinal) {
     return volatile_offset_chunk_memory_pieces_[core_ordinal];
@@ -105,8 +92,6 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   std::string         dump_free_memory_stat() const;
 
  private:
-  /** initialize read-set and write-set memory. */
-  ErrorStack      initialize_read_write_set_memory();
   /** initialize page_offset_chunk_memory_/page_offset_chunk_memory_pieces_. */
   ErrorStack      initialize_page_offset_chunk_memory();
   /** initialize log_buffer_memory_. */
@@ -141,26 +126,6 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
    * Index is local ordinal of the NUMA cores.
    */
   std::vector<NumaCoreMemory*>            core_memories_;
-
-  /**
-   * Memory to keep track of read-set during transactions.
-   * To better utilize HugePages, we allocate this in node level for all cores rather than in
-   * individual core level. NumaCoreMemory merely gets a piece of this memory.
-   */
-  AlignedMemory                           read_set_memory_;
-  std::vector<xct::XctAccess*>            read_set_memory_pieces_;
-
-  /**
-   * Memory to keep track of write-set during transactions. Same above.
-   */
-  AlignedMemory                           write_set_memory_;
-  std::vector<xct::WriteXctAccess*>       write_set_memory_pieces_;
-
-  /**
-   * Memory to keep track of lock-free write-set during transactions. Same above.
-   */
-  AlignedMemory                             lock_free_write_set_memory_;
-  std::vector<xct::LockFreeWriteXctAccess*> lock_free_write_set_memory_pieces_;
 
   /**
    * Memory to hold a \b local pool of pointers to free volatile pages. Same above.

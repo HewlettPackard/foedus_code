@@ -12,7 +12,9 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/uniform_random.hpp"
 #include "foedus/memory/memory_options.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/thread.hpp"
@@ -20,13 +22,12 @@
 
 namespace foedus {
 namespace memory {
-PagePoolPimpl::PagePoolPimpl(
-  uint64_t memory_byte_size,
-  uint64_t memory_alignment,
-  thread::ThreadGroupId numa_node)
-    : memory_byte_size_(memory_byte_size / memory_alignment * memory_alignment),
-    memory_alignment_(memory_alignment),
-    numa_node_(numa_node) {}
+PagePoolPimpl::PagePoolPimpl(uint64_t memory_byte_size)
+  : parent_(nullptr), memory_byte_size_(memory_byte_size) {}
+
+void PagePoolPimpl::initialize_parent(NumaNodeMemory* parent) {
+  parent_ = parent;
+}
 
 ErrorStack PagePoolPimpl::initialize_once() {
   pool_base_ = nullptr;
@@ -37,9 +38,8 @@ ErrorStack PagePoolPimpl::initialize_once() {
   free_pool_count_ = 0;
 
   LOG(INFO) << "Acquiring memory for Page Pool (" << memory_byte_size_ << " bytes) on NUMA node "
-    << static_cast<int>(numa_node_)<< "...";
-  ASSERT_ND(memory_byte_size_ % memory_alignment_ == 0);
-  memory_.alloc(memory_byte_size_, memory_alignment_, AlignedMemory::kNumaAllocOnnode, numa_node_);
+    << static_cast<int>(parent_->get_numa_node())<< "...";
+  CHECK_ERROR(parent_->allocate_huge_numa_memory(memory_byte_size_, &memory_));
   pool_base_ = reinterpret_cast<storage::Page*>(memory_.get_block());
   pool_size_ = memory_.get_size() / storage::kPageSize;
   LOG(INFO) << "Acquired memory Page Pool. " << memory_ << ". pages=" << pool_size_;
@@ -59,6 +59,32 @@ ErrorStack PagePoolPimpl::initialize_once() {
   for (uint64_t i = 0; i < free_pool_capacity_; ++i) {
     free_pool_[i] = pages_for_free_pool_ + i;
   }
+
+  // [experimental] randomize the free pool pointers so that we can evenly utilize all memory banks
+  if (false) {  // disabled for now
+    // this should be an option...
+    LOG(INFO) << "Randomizing free pool...";
+    struct Randomizer {
+      PagePoolOffset  offset_;
+      uint32_t        rank_;
+      static bool compare(const Randomizer& left, const Randomizer& right) {
+        return left.rank_ < right.rank_;
+      }
+    };
+    Randomizer* randomizers = new Randomizer[free_pool_capacity_];
+    assorted::UniformRandom rnd(123456L);
+    for (uint64_t i = 0; i < free_pool_capacity_; ++i) {
+      randomizers[i].offset_ = pages_for_free_pool_ + i;
+      randomizers[i].rank_ = rnd.next_uint32();
+    }
+    std::sort(randomizers, randomizers + free_pool_capacity_, Randomizer::compare);
+    for (uint64_t i = 0; i < free_pool_capacity_; ++i) {
+      free_pool_[i] = randomizers[i].offset_;
+    }
+    delete[] randomizers;
+    LOG(INFO) << "Randomized free pool.";
+  }
+
   free_pool_head_ = 0;
   free_pool_count_ = free_pool_capacity_;
   resolver_ = LocalPageResolver(pool_base_, pages_for_free_pool_, pool_size_);
@@ -207,7 +233,7 @@ void PagePoolPimpl::release_one(PagePoolOffset offset) {
 std::ostream& operator<<(std::ostream& o, const PagePoolPimpl& v) {
   o << "<PagePool>"
     << "<memory_>" << v.memory_ << "</memory_>"
-    << "<numa_node_>" << v.numa_node_ << "</numa_node_>"
+    << "<numa_node_>" << static_cast<int>(v.parent_->get_numa_node()) << "</numa_node_>"
     << "<pages_for_free_pool_>" << v.pages_for_free_pool_ << "</pages_for_free_pool_>"
     << "<free_pool_capacity_>" << v.free_pool_capacity_ << "</free_pool_capacity_>"
     << "<free_pool_head_>" << v.free_pool_head_ << "</free_pool_head_>"

@@ -288,8 +288,12 @@ struct XctId {
    * differ only in status bits. This method is only used for XctId generation at commit time,
    * so that's fine.
    */
-  void store_max(const XctId& other) {
-    if (other.get_epoch().is_valid() && before(other)) {
+  void store_max(const XctId& other) ALWAYS_INLINE {
+    if (!other.is_valid()) {
+      return;
+    }
+
+    if (before(other)) {
       operator=(other);
     }
   }

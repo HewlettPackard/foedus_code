@@ -56,6 +56,15 @@
  * @ingroup COMPILER
  * @brief Wraps GCC's __builtin_assume_aligned.
  */
+/**
+ * @def MAY_ALIAS
+ * @ingroup COMPILER
+ * @brief Wraps GCC's  __attribute__((__may_alias__)).
+ * @details
+ * This is \e QUITE important for us. This keyword is not for performance but for correctness.
+ * I'm seeing weird behaviors even with -fno-strict-aliasing. This keyword might help.
+ * Otherwise, we have to memcpy to type-pun everything. uggggrrr.
+ */
 #ifdef __INTEL_COMPILER
 // ICC
 #define LIKELY(x)      (x)
@@ -63,6 +72,7 @@
 #define NO_INLINE
 #define ALWAYS_INLINE
 #define ASSUME_ALIGNED(x, y) x
+#define MAY_ALIAS
 #else  // __INTEL_COMPILER
 #ifdef __GNUC__
 // GCC
@@ -71,6 +81,7 @@
 #define NO_INLINE       __attribute__((noinline))
 #define ALWAYS_INLINE   __attribute__((always_inline))
 #define ASSUME_ALIGNED(x, y) __builtin_assume_aligned(x, y)
+#define MAY_ALIAS __attribute__((__may_alias__))
 #else  // __GNUC__
 // Others. MSVC?
 #define LIKELY(x)      (x)
@@ -78,6 +89,7 @@
 #define NO_INLINE
 #define ALWAYS_INLINE
 #define ASSUME_ALIGNED(x, y) x
+#define MAY_ALIAS
 #endif   // __GNUC__
 #endif  // __INTEL_COMPILER
 

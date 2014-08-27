@@ -174,6 +174,20 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_border(
   HighFence high_fence,
   MasstreeBorderPage* page) {
   CHECK_ERROR(verify_page_basic(page, kMasstreeBorderPageType, low_fence, high_fence));
+  // check consecutive_inserts_. this should be consistent whether it's moved or not.
+  bool sorted = true;
+  for (uint8_t i = 1; i < page->get_key_count(); ++i) {
+    KeySlice prev = page->get_slice(i - 1);
+    KeySlice slice = page->get_slice(i);
+    uint8_t prev_len = page->get_remaining_key_length(i - 1);
+    uint8_t len = page->get_remaining_key_length(i);
+    if (prev > slice || (prev == slice && prev_len > len)) {
+      sorted = false;
+      break;
+    }
+  }
+  CHECK_AND_ASSERT(page->is_consecutive_inserts() == sorted);
+
   if (page->is_moved()) {
     CHECK_ERROR(verify_single_thread_border(
       context,

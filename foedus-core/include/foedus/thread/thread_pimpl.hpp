@@ -52,6 +52,8 @@ class ThreadPimpl final : public DefaultInitializable {
    * it and re-sets current_task_ when it's done. It exists when exit_requested_ is set.
    */
   void        handle_tasks();
+  /** initializes the thread's policy/priority */
+  void        set_thread_schedule();
 
   /**
    * Conditionally try to occupy this thread, or impersonate. If it fails, it immediately returns.
@@ -206,8 +208,6 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /** Pre-allocated MCS blocks. index 0 is not used so that successor_block=0 means null. */
   McsBlock*               mcs_blocks_;
-  /** memory for mcs_blocks_ */
-  memory::AlignedMemory   mcs_blocks_memory_;
 };
 
 inline ErrorCode ThreadPimpl::read_a_snapshot_page(

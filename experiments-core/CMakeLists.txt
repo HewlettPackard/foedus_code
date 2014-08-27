@@ -5,6 +5,15 @@ project(experiments_core)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../general_projects.cmake)
 set(EXPERIMENT_LIB foedus-core ${CMAKE_THREAD_LIBS_INIT})
+# To avoid CMAKE picking a wrong one, explicitly specify
+if (GOOGLEPERFTOOLS_FOUND)
+  set(EXPERIMENT_LIB ${EXPERIMENT_LIB} ${GooglePerftools_LIBRARIES})
+endif (GOOGLEPERFTOOLS_FOUND)
+# Also PAPI with same cautions.
+if (PAPI_FOUND)
+  set(EXPERIMENT_LIB ${EXPERIMENT_LIB} ${PAPI_DYNAMIC_LIBRARY})
+endif (PAPI_FOUND)
+
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_subdirectory(src)

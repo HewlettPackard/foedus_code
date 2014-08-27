@@ -74,6 +74,7 @@ void MasstreeBorderPage::initialize_volatile_page(
     layer,
     low_fence,
     high_fence);
+  consecutive_inserts_ = true;  // initially key_count = 0, so of course sorted
 }
 
 void MasstreePage::release_pages_recursive_common(
@@ -174,6 +175,7 @@ void MasstreeBorderPage::initialize_layer_root(
   remaining_key_length_[0] = remaining;
   payload_length_[0] = payload_length;
   offsets_[0] = (kDataSize - calculate_record_size(remaining, payload_length)) >> 4;
+  consecutive_inserts_ = true;
 
   // use the same xct ID. This means we also inherit deleted flag.
   owner_ids_[0].xct_id_ = copy_from->owner_ids_[copy_index].xct_id_;
@@ -260,6 +262,8 @@ ErrorCode MasstreeBorderPage::split_foster(
     }
     twin[0]->set_key_count(key_count);
     twin[1]->set_key_count(0);
+    twin[0]->consecutive_inserts_ = consecutive_inserts_;
+    twin[1]->consecutive_inserts_ = true;
   } else {
     twin[0]->split_foster_migrate_records(
       *this,
@@ -319,6 +323,8 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
   ret.no_record_split_ = false;
   ret.smallest_slice_ = slices_[0];
   ret.largest_slice_ = slices_[0];
+
+  // TODO(Hideaki) if consecutive_inserts_ is true, we can do some optimization here
   uint8_t inorder_count = 0;
   for (uint8_t i = 1; i < key_count; ++i) {
     if (slices_[i] <= ret.smallest_slice_) {
@@ -419,6 +425,7 @@ void MasstreeBorderPage::split_foster_migrate_records(
   uint16_t contiguous_copy_size = 0;
   uint16_t contiguous_copy_to_begin = 0;
   uint16_t contiguous_copy_from_begin = 0;
+  bool sofar_consecutive = true;
   for (uint8_t i = 0; i < key_count; ++i) {
     if (copy_from.slices_[i] >= inclusive_from && copy_from.slices_[i] <= inclusive_to) {
       // move this record.
@@ -427,6 +434,12 @@ void MasstreeBorderPage::split_foster_migrate_records(
       payload_length_[migrated_count] = copy_from.payload_length_[i];
       owner_ids_[migrated_count].xct_id_ = copy_from.owner_ids_[i].xct_id_;
       owner_ids_[migrated_count].lock_.reset();
+      if (sofar_consecutive && migrated_count > 0 &&
+          (slices_[migrated_count - 1] > slices_[migrated_count] ||
+            (slices_[migrated_count - 1] == slices_[migrated_count] &&
+            remaining_key_length_[migrated_count - 1] > remaining_key_length_[migrated_count]))) {
+        sofar_consecutive = false;
+      }
 
       uint16_t record_length = sizeof(DualPagePointer);
       if (remaining_key_length_[migrated_count] != kKeyLengthNextLayer) {
@@ -482,6 +495,7 @@ void MasstreeBorderPage::split_foster_migrate_records(
   }
 
   set_key_count(migrated_count);
+  consecutive_inserts_ = sofar_consecutive;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////

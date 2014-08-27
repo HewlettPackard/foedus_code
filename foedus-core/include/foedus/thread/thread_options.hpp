@@ -36,6 +36,14 @@ struct ThreadOptions CXX11_FINAL : public virtual externalize::Externalizable {
    */
   ThreadLocalOrdinal      thread_count_per_group_;
 
+  /** Whether to overwrite policy/priority of worker threads. default false. */
+  bool                    overwrite_thread_schedule_;
+
+  /** Thread policy for worker threads. ignored if overwrite_thread_schedule_==false */
+  ThreadPolicy            thread_policy_;
+  /** Thread priority for worker threads. ignored if overwrite_thread_schedule_==false */
+  ThreadPriority          thread_priority_;
+
   EXTERNALIZABLE(ThreadOptions);
 
   ThreadId                get_total_thread_count() const {

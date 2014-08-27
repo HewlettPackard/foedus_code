@@ -12,6 +12,7 @@
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/thread/thread_pimpl.hpp"
 #include "foedus/xct/xct_access.hpp"
 #include "foedus/xct/xct_id.hpp"
 #include "foedus/xct/xct_options.hpp"
@@ -26,9 +27,6 @@ NumaCoreMemory::NumaCoreMemory(
     node_memory_(node_memory),
     core_id_(core_id),
     core_local_ordinal_(thread::decompose_numa_local_ordinal(core_id)),
-    read_set_memory_(nullptr),
-    write_set_memory_(nullptr),
-    lock_free_write_set_memory_(nullptr),
     free_volatile_pool_chunk_(nullptr),
     free_snapshot_pool_chunk_(nullptr),
     volatile_pool_(nullptr),
@@ -40,13 +38,6 @@ NumaCoreMemory::NumaCoreMemory(
 
 ErrorStack NumaCoreMemory::initialize_once() {
   LOG(INFO) << "Initializing NumaCoreMemory for core " << core_id_;
-  read_set_memory_ = node_memory_->get_read_set_memory_piece(core_local_ordinal_);
-  read_set_size_ = engine_->get_options().xct_.max_read_set_size_;
-  write_set_memory_ = node_memory_->get_write_set_memory_piece(core_local_ordinal_);
-  write_set_size_ = engine_->get_options().xct_.max_write_set_size_;
-  lock_free_write_set_memory_ = node_memory_->get_lock_free_write_set_memory_piece(
-    core_local_ordinal_);
-  lock_free_write_set_size_ = engine_->get_options().xct_.max_lock_free_write_set_size_;
   free_volatile_pool_chunk_ = node_memory_->get_volatile_offset_chunk_memory_piece(
     core_local_ordinal_);
   free_snapshot_pool_chunk_ = node_memory_->get_snapshot_offset_chunk_memory_piece(
@@ -54,6 +45,37 @@ ErrorStack NumaCoreMemory::initialize_once() {
   volatile_pool_ = &node_memory_->get_volatile_pool();
   snapshot_pool_ = &node_memory_->get_snapshot_pool();
   log_buffer_memory_ = node_memory_->get_log_buffer_memory_piece(core_local_ordinal_);
+
+  // allocate small_thread_local_memory_. it's a collection of small memories
+  uint64_t memory_size = 0;
+  memory_size += sizeof(thread::ThreadPimpl::McsBlock) << 16;
+  memory_size += sizeof(xct::PageVersionAccess) * xct::Xct::kMaxPageVersionSets;
+  memory_size += sizeof(xct::PointerAccess) * xct::Xct::kMaxPointerSets;
+  const xct::XctOptions& xct_opt = engine_->get_options().xct_;
+  memory_size += sizeof(xct::XctAccess) * xct_opt.max_read_set_size_;
+  memory_size += sizeof(xct::WriteXctAccess) * xct_opt.max_write_set_size_;
+  memory_size += sizeof(xct::LockFreeWriteXctAccess)
+    * xct_opt.max_lock_free_write_set_size_;
+  if (memory_size > (1U << 21)) {
+    LOG(INFO) << "mm, small_local_memory_size is more than 2MB(" << memory_size << ")."
+      " not a big issue, but consumes one more TLB entry...";
+  }
+  CHECK_ERROR(node_memory_->allocate_huge_numa_memory(memory_size, &small_thread_local_memory_));
+  char* memory = reinterpret_cast<char*>(small_thread_local_memory_.get_block());
+  small_thread_local_memory_pieces_.thread_mcs_block_memory_ = memory;
+  memory += sizeof(thread::ThreadPimpl::McsBlock) << 16;
+  small_thread_local_memory_pieces_.xct_page_version_memory_ = memory;
+  memory += sizeof(xct::PageVersionAccess) * xct::Xct::kMaxPageVersionSets;
+  small_thread_local_memory_pieces_.xct_pointer_access_memory_ = memory;
+  memory += sizeof(xct::PointerAccess) * xct::Xct::kMaxPointerSets;
+  small_thread_local_memory_pieces_.xct_read_access_memory_ = memory;
+  memory += sizeof(xct::XctAccess) * xct_opt.max_read_set_size_;
+  small_thread_local_memory_pieces_.xct_write_access_memory_ = memory;
+  memory += sizeof(xct::WriteXctAccess) * xct_opt.max_write_set_size_;
+  small_thread_local_memory_pieces_.xct_lock_free_write_access_memory_ = memory;
+  memory += sizeof(xct::LockFreeWriteXctAccess) * xct_opt.max_lock_free_write_set_size_;
+  ASSERT_ND(reinterpret_cast<char*>(small_thread_local_memory_.get_block())
+    + memory_size == memory);
 
   // Each core starts from 50%-full free pool chunk (configurable)
   uint32_t initial_pages = engine_->get_options().memory_.private_page_pool_initial_grab_;
@@ -64,9 +86,6 @@ ErrorStack NumaCoreMemory::initialize_once() {
 ErrorStack NumaCoreMemory::uninitialize_once() {
   LOG(INFO) << "Releasing NumaCoreMemory for core " << core_id_;
   ErrorStackBatch batch;
-  read_set_memory_ = nullptr;
-  write_set_memory_ = nullptr;
-  lock_free_write_set_memory_ = nullptr;
   // return all free pages
   if (free_volatile_pool_chunk_) {
     volatile_pool_->release(free_volatile_pool_chunk_->size(), free_volatile_pool_chunk_);
@@ -79,6 +98,7 @@ ErrorStack NumaCoreMemory::uninitialize_once() {
     snapshot_pool_ = nullptr;
   }
   log_buffer_memory_.clear();
+  small_thread_local_memory_.release_block();
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 

@@ -5,7 +5,11 @@ set(test_thread_pool_individual
   ImpersonateFourFour
   ImpersonateTenFour
   ImpersonateManyFour
-  ImpersonateManyMany)
+  ImpersonateManyMany
+  SchedIdle
+  SchedNormal
+  SchedLowest
+  SchedRealtime)
 add_foedus_test_individual(test_thread_pool "${test_thread_pool_individual}")
 
 add_foedus_test_individual(test_stoppable_thread "Minimal;Wakeup;Many")

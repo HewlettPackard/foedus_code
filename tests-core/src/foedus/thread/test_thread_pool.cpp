@@ -67,5 +67,24 @@ TEST(ThreadPoolTest, ImpersonateTenFour) { run_test(10, 4); }
 TEST(ThreadPoolTest, ImpersonateManyFour) { run_test(16, 4); }
 TEST(ThreadPoolTest, ImpersonateManyMany) { run_test(16, 16); }
 
+void run_sched(ThreadPolicy policy, ThreadPriority priority) {
+  EngineOptions options = get_tiny_options();
+  options.thread_.overwrite_thread_schedule_ = true;
+  options.thread_.thread_policy_ = policy;
+  options.thread_.thread_priority_ = priority;
+  Engine engine(options);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
+}
+
+TEST(ThreadPoolTest, SchedIdle) { run_sched(kScheduleIdle, kPriorityIdle); }
+TEST(ThreadPoolTest, SchedNormal) { run_sched(kScheduleRr, kPriorityDefault); }
+TEST(ThreadPoolTest, SchedLowest) { run_sched(kScheduleRr, kPriorityLowest); }
+TEST(ThreadPoolTest, SchedRealtime) { run_sched(kScheduleFifo, kPriorityHighest); }
+
 }  // namespace thread
 }  // namespace foedus

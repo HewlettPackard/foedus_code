@@ -14,6 +14,7 @@
 #include "foedus/compiler.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/error_code.hpp"
+#include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/cacheline.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/storage/page.hpp"
@@ -402,6 +403,13 @@ class MasstreeBorderPage final : public MasstreePage {
     KeySlice            high_fence);
 
   /**
+   * Whether this page is receiving only sequential inserts.
+   * If this is true, cursor can skip its sorting phase.
+   * If this is a snapshot page, this is always true.
+   */
+  bool        is_consecutive_inserts() const { return consecutive_inserts_; }
+
+  /**
    * @brief Navigates a searching key-slice to one of the mini pages in this page.
    * @return index of key found in this page, or kMaxKeys if not found.
    */
@@ -512,6 +520,21 @@ class MasstreeBorderPage final : public MasstreePage {
     return assorted::align16(suffix_length + payload_count);
   }
 
+  bool    should_split_early(uint8_t new_index, uint8_t threshold) const ALWAYS_INLINE {
+    if (LIKELY(threshold == 0 || new_index != threshold)) {  // 0 means no early split
+      return false;
+    }
+    // only when we exactly hit the threshold, we consider early split.
+    // we should do early split only when the page looks like receiving sequential inserts.
+    // if we are receiving random inserts, no point to do early split.
+    for (uint8_t i = 1; i < new_index - 1; ++i) {
+      // this is not a rigorous check, but fine.
+      if (slices_[i - 1] > slices_[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
   bool    can_accomodate(
     uint8_t new_index,
     uint8_t remaining_length,
@@ -682,8 +705,15 @@ class MasstreeBorderPage final : public MasstreePage {
    */
   uint16_t    payload_length_[kMaxKeys];          // +128 -> 840
 
+  /**
+   * Whether this page is receiving only sequential inserts.
+   * If this is true, cursor can skip its sorting phase.
+   * If this is a snapshot page, this is always true.
+   */
+  bool        consecutive_inserts_;               // +1 -> 842
+
   /** To make the following 16-bytes aligned */
-  uint64_t    dummy_;                             // +8 -> 848
+  char        dummy_[7];                          // +7 -> 848
 
   /**
    * Lock of each record. We separate this out from record to avoid destructive change
@@ -866,6 +896,15 @@ inline void MasstreeBorderPage::reserve_record_space(
   }
   slices_[index] = slice;
   remaining_key_length_[index] = remaining_length;
+  if (index == 0) {
+    consecutive_inserts_ = true;
+  } else if (consecutive_inserts_) {
+    // do we have to turn off consecutive_inserts_ now?
+    if (slices_[index - 1] > slice ||
+      (slices_[index - 1] == slice && remaining_key_length_[index - 1] > remaining_length)) {
+      consecutive_inserts_ = false;
+    }
+  }
   payload_length_[index] = payload_count;
   offsets_[index] = previous_offset - record_size;
   owner_ids_[index].lock_.reset();

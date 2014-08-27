@@ -23,6 +23,7 @@
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/masstree/masstree_cursor.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
+#include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/storage/sequential/sequential_metadata.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
@@ -62,6 +63,7 @@ ErrorStack TpccCreateTask::run(thread::Thread* context) {
   CHECK_ERROR(create_masstree(
     context,
     "customers_secondary",
+    0,  // customer is a static table, so why not 100% fill-factor
     &storages_.customers_secondary_));
 
   CHECK_ERROR(create_array(
@@ -85,17 +87,30 @@ ErrorStack TpccCreateTask::run(thread::Thread* context) {
   LOG(INFO) << "Created Districts:" << engine->get_memory_manager().dump_free_memory_stat();
 
   CHECK_ERROR(create_sequential(context, "histories", &storages_.histories_));
-  CHECK_ERROR(create_masstree(context, "neworders", &storages_.neworders_));
-  CHECK_ERROR(create_masstree(context, "orders", &storages_.orders_));
-  CHECK_ERROR(create_masstree(context, "orders_secondary", &storages_.orders_secondary_));
-  CHECK_ERROR(create_masstree(context, "orderlines", &storages_.orderlines_));
 
-  CHECK_ERROR(create_array(
+  // orders use around 75% fill factor
+  CHECK_ERROR(create_masstree(
     context,
-    "items",
-    sizeof(ItemData),
-    kItems,
-    &storages_.items_));
+    "neworders",
+    64 * 0.75,
+    &storages_.neworders_));
+  CHECK_ERROR(create_masstree(
+    context,
+    "orders",
+    (storage::masstree::MasstreeBorderPage::kDataSize / sizeof(OrderData)) * 0.75,
+    &storages_.orders_));
+  CHECK_ERROR(create_masstree(
+    context,
+    "orders_secondary",
+    64 * 0.75,
+    &storages_.orders_secondary_));
+  CHECK_ERROR(create_masstree(
+    context,
+    "orderlines",
+    (storage::masstree::MasstreeBorderPage::kDataSize / sizeof(OrderlineData)) * 0.75,
+    &storages_.orderlines_));
+
+  CHECK_ERROR(create_array(context, "items", sizeof(ItemData), kItems, &storages_.items_));
   LOG(INFO) << "Created Items:" << engine->get_memory_manager().dump_free_memory_stat();
 
   CHECK_ERROR(create_array(
@@ -143,9 +158,10 @@ ErrorStack TpccCreateTask::create_array(
 ErrorStack TpccCreateTask::create_masstree(
   thread::Thread* context,
   const std::string& name,
+  float border_fill_factor,
   storage::masstree::MasstreeStorage** storage) {
   Epoch ep;
-  storage::masstree::MasstreeMetadata meta(name);
+  storage::masstree::MasstreeMetadata meta(name, border_fill_factor);
   storage::StorageManager& manager = context->get_engine()->get_storage_manager();
   CHECK_ERROR(manager.create_masstree(context, &meta, storage, &ep));
   ASSERT_ND(*storage);
@@ -252,17 +268,17 @@ ErrorStack TpccLoadTask::run(thread::Thread* context) {
 
 ErrorStack TpccLoadTask::load_tables() {
   CHECK_ERROR(load_warehouses());
-  LOG(INFO) << "Loaded Warehouses:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Warehouses:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_districts());
-  LOG(INFO) << "Loaded Districts:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Districts:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_customers());
-  LOG(INFO) << "Loaded Customers:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Customers:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_items());
-  LOG(INFO) << "Loaded Items:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Items:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_stocks());
-  LOG(INFO) << "Loaded Strocks:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Strocks:" << engine_->get_memory_manager().dump_free_memory_stat();
   CHECK_ERROR(load_orders());
-  LOG(INFO) << "Loaded Orders:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Orders:" << engine_->get_memory_manager().dump_free_memory_stat();
   return kRetOk;
 }
 

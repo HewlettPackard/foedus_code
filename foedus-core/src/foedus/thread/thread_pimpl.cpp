@@ -4,6 +4,8 @@
  */
 #include "foedus/thread/thread_pimpl.hpp"
 
+#include <pthread.h>
+#include <sched.h>
 #include <glog/logging.h>
 
 #include <atomic>
@@ -48,7 +50,7 @@ ThreadPimpl::ThreadPimpl(
     current_task_(nullptr),
     current_xct_(engine, id),
     snapshot_file_set_(engine),
-    mcs_blocks_(0) {
+    mcs_blocks_(nullptr) {
 }
 
 ErrorStack ThreadPimpl::initialize_once() {
@@ -63,8 +65,8 @@ ErrorStack ThreadPimpl::initialize_once() {
   global_volatile_page_resolver_
     = engine_->get_memory_manager().get_global_volatile_page_resolver();
   local_volatile_page_resolver_ = node_memory_->get_volatile_pool().get_resolver();
-  CHECK_ERROR(node_memory_->allocate_huge_numa_memory(sizeof(McsBlock) << 16, &mcs_blocks_memory_));
-  mcs_blocks_ = reinterpret_cast<McsBlock*>(mcs_blocks_memory_.get_block());
+  mcs_blocks_ = reinterpret_cast<McsBlock*>(
+    core_memory_->get_small_thread_local_memory_pieces().thread_mcs_block_memory_);
   raw_thread_.initialize("Thread-", id_,
           std::thread(&ThreadPimpl::handle_tasks, this),
           std::chrono::milliseconds(100));
@@ -77,7 +79,6 @@ ErrorStack ThreadPimpl::uninitialize_once() {
   batch.emprace_back(log_buffer_.uninitialize());
   core_memory_ = nullptr;
   node_memory_ = nullptr;
-  mcs_blocks_memory_.release_block();
   snapshot_cache_hashtable_ = nullptr;
   return SUMMARIZE_ERROR_BATCH(batch);
 }
@@ -92,6 +93,7 @@ void ThreadPimpl::handle_tasks() {
     assorted::memory_fence_acquire();
   }
   LOG(INFO) << "Thread-" << id_ << " now starts processing transactions";
+  set_thread_schedule();
   while (!raw_thread_.sleep()) {
     VLOG(0) << "Thread-" << id_ << " woke up";
     // Keeps running if the client sets a new task immediately after this.
@@ -112,6 +114,53 @@ void ThreadPimpl::handle_tasks() {
     }
   }
   LOG(INFO) << "Thread-" << id_ << " exits";
+}
+void ThreadPimpl::set_thread_schedule() {
+  // this code totally assumes pthread. maybe ifdef to handle Windows.. later!
+  pthread_t handle = raw_thread_.native_handle<pthread_t>();
+  int policy;
+  sched_param param;
+  int ret = ::pthread_getschedparam(handle, &policy, &param);
+  if (ret) {
+    LOG(FATAL) << "WTF. pthread_getschedparam() failed: error=" << assorted::os_error();
+  }
+  const ThreadOptions& opt = engine_->get_options().thread_;
+  // output the following logs just once.
+  if (id_ == 0) {
+    LOG(INFO) << "The default thread policy=" << policy << ", priority=" << param.__sched_priority;
+    if (opt.overwrite_thread_schedule_) {
+      LOG(INFO) << "Overwriting thread policy=" << opt.thread_policy_
+        << ", priority=" << opt.thread_priority_;
+    }
+  }
+  if (opt.overwrite_thread_schedule_) {
+    policy = opt.thread_policy_;
+    param.__sched_priority = opt.thread_priority_;
+    int priority_max = ::sched_get_priority_max(policy);
+    int priority_min = ::sched_get_priority_min(policy);
+    if (opt.thread_priority_ > priority_max) {
+      LOG(WARNING) << "Thread priority too large. using max value: "
+        << opt.thread_priority_ << "->" << priority_max;
+      param.__sched_priority = priority_max;
+    }
+    if (opt.thread_priority_ < priority_min) {
+      LOG(WARNING) << "Thread priority too small. using min value: "
+        << opt.thread_priority_ << "->" << priority_min;
+      param.__sched_priority = priority_min;
+    }
+    int ret2 = ::pthread_setschedparam(handle, policy, &param);
+    if (ret2 == EPERM) {
+      // this is a quite common mis-configuratrion, so let's output a friendly error message.
+      // also, not fatal. keep running, as this only affects performance.
+      LOG(WARNING) << "=========   ATTENTION: Thread-scheduling Permission Error!!!!   ==========\n"
+        " pthread_setschedparam() failed due to permission error. This means you have\n"
+        " not set appropriate rtprio to limits.conf. You cannot set priority higher than what\n"
+        " OS allows. Configure limits.conf (eg. 'kimurhid - rtprio 99') or modify ThreadOptions.\n"
+        "=============================               ATTENTION              ======================";
+    } else if (ret2) {
+      LOG(FATAL) << "WTF pthread_setschedparam() failed: error=" << assorted::os_error();
+    }
+  }
 }
 
 bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
