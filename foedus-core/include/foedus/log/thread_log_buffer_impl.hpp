@@ -123,7 +123,9 @@ class ThreadLogBuffer final : public DefaultInitializable {
       // end of the buffer. put a filler log to fill the rest.
       fillup_tail();
       ASSERT_ND(offset_tail_ == 0);
-    } else if (UNLIKELY(
+    }
+    // also make sure tail isn't too close to head (full). in that case, we wait for loggers
+    if (UNLIKELY(
       head_to_tail_distance() + log_length >= buffer_size_safe_)) {
       wait_for_space(log_length);
       ASSERT_ND(head_to_tail_distance() + log_length < buffer_size_safe_);
