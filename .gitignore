@@ -1,4 +1,6 @@
 build
+minsizerel
+minsizerel_build
 release
 release_build
 relwithdbginfo

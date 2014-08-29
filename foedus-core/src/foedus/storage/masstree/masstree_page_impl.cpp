@@ -318,37 +318,101 @@ ErrorCode MasstreeBorderPage::split_foster(
 BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
   uint8_t key_count,
   KeySlice trigger) const {
+  ASSERT_ND(key_count > 0);
   BorderSplitStrategy ret;
   ret.original_key_count_ = key_count;
   ret.no_record_split_ = false;
   ret.smallest_slice_ = slices_[0];
   ret.largest_slice_ = slices_[0];
 
-  // TODO(Hideaki) if consecutive_inserts_ is true, we can do some optimization here
-  uint8_t inorder_count = 0;
-  for (uint8_t i = 1; i < key_count; ++i) {
-    if (slices_[i] <= ret.smallest_slice_) {
-      ret.smallest_slice_ = slices_[i];
-    } else if (slices_[i] >= ret.largest_slice_) {
-      ret.largest_slice_ = slices_[i];
-      ++inorder_count;
+  // if consecutive_inserts_, we are already sure about the key distributions, so easy.
+  if (consecutive_inserts_) {
+    ret.largest_slice_ = slices_[key_count - 1];
+    if (trigger > ret.largest_slice_) {
+      ret.no_record_split_ = true;
+      DVLOG(1) << "Obviously no record split. key_count=" << static_cast<int>(key_count);
+      ret.mid_slice_ = ret.largest_slice_ + 1;
+      return ret;
+    } else {
+      DVLOG(1) << "Breaks a sequential page. key_count=" << static_cast<int>(key_count);
+      ret.mid_slice_ = slices_[key_count / 2];
+      return ret;
     }
   }
 
-  if (trigger > ret.largest_slice_ &&
-      inorder_count >= static_cast<uint32_t>(key_count) * 120U / 128U) {
-    // let's do no-record split
-    ret.no_record_split_ = true;
-    DVLOG(1) << "Yay, no record split. inorder_count=" << static_cast<int>(inorder_count)
-      << " key_count=" << static_cast<int>(key_count);
-    ret.mid_slice_ = ret.largest_slice_ + 1;
-    return ret;
-  } else if (trigger == ret.largest_slice_) {
-    DVLOG(1) << "Not a no record split, but still quite skewed. inorder_count="
-      << static_cast<int>(inorder_count) << " key_count=" << static_cast<int>(key_count);
-    ret.mid_slice_ = ret.largest_slice_ + 1;
-    return ret;
+  for (uint8_t i = 1; i < key_count; ++i) {
+    ret.smallest_slice_ = std::min<KeySlice>(slices_[i], ret.smallest_slice_);
+    ret.largest_slice_ = std::max<KeySlice>(slices_[i], ret.largest_slice_);
   }
+
+  ASSERT_ND(key_count >= 2U);  // because it's not consecutive, there must be at least 2 records.
+
+  {
+    // even if not, there is another easy case where two "tides" mix in this page;
+    // one tide from left sequentially inserts keys while another tide from right also sequentially
+    // inserts keys that are larger than left tide. This usually happens at the boundary of
+    // two largely independent partitions (eg multiple threads inserting keys of their partition).
+    // In that case, we should cleanly separate the two tides by picking the smallest key from
+    // right-tide as the separator.
+    KeySlice tides_max[2];
+    KeySlice second_tide_min = kInfimumSlice;
+    bool first_tide_broken = false;
+    bool both_tides_broken = false;
+    tides_max[0] = slices_[0];
+    // for example, consider the following case:
+    //   1 2 32 33 3 4 34 x
+    // There are two tides 1- and 32-. We detect them as follows.
+    // We initially consider 1,2,32,33 as the first tide because they are sequential.
+    // Then, "3" breaks the first tide. We then consider 1- and 32- as the two tides.
+    // If x breaks the tide again, we give up.
+    for (uint8_t i = 1; i < key_count; ++i) {
+      // look for "tide breaker" that is smaller than the max of the tide.
+      // as soon as we found two of them (meaning 3 tides or more), we give up.
+      KeySlice slice = slices_[i];
+      if (!first_tide_broken)  {
+        if (slice >= tides_max[0]) {
+          tides_max[0] = slice;
+          continue;  // ok!
+        } else {
+          // let's find where a second tide starts.
+          first_tide_broken = true;
+          uint8_t first_breaker;
+          for (first_breaker = 0; first_breaker < i; ++first_breaker) {
+            if (slices_[first_breaker] > slice) {
+              break;
+            }
+          }
+          ASSERT_ND(first_breaker < i);
+          tides_max[0] = slice;
+          ASSERT_ND(second_tide_min == kInfimumSlice);
+          second_tide_min = slices_[first_breaker];
+          tides_max[1] = slices_[i - 1];
+          ASSERT_ND(tides_max[0] < tides_max[1]);
+          ASSERT_ND(tides_max[0] < second_tide_min);
+          ASSERT_ND(second_tide_min <= tides_max[1]);
+        }
+      } else {
+        if (slice < second_tide_min && slice >= tides_max[0]) {
+          tides_max[0] = slice;
+          continue;  // fine, in the first tide
+        } else if (slice >= tides_max[1]) {
+          tides_max[1] = slice;  // okay, in the second tide
+        } else {
+          DVLOG(2) << "Oops, third tide. not the easy case";
+          both_tides_broken = true;
+          break;
+        }
+      }
+    }
+
+    ASSERT_ND(first_tide_broken);
+    if (!both_tides_broken) {
+      DVLOG(0) << "Yay, figured out two-tides meeting in a page.";
+      ret.mid_slice_ = second_tide_min;
+      return ret;
+    }
+  }
+
 
   // now we have to pick separator. as we don't sort in-page, this is approximate median selection.
   // there are a few smart algorithm out there, but we don't need that much accuracy.
