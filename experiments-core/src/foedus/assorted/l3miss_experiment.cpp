@@ -22,7 +22,7 @@
 #include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/thread/rendezvous_impl.hpp"
 
-const uint64_t kMemory = 1ULL << 34;
+const uint64_t kMemory = 12ULL << 30;
 const uint32_t kRep = 1ULL << 26;
 foedus::thread::Rendezvous start_rendezvous;
 std::atomic<int> initialized_count;
