@@ -93,7 +93,7 @@ int main(int argc, char **argv) {
   std::vector<std::thread> threads;
   for (auto node = begin_node; node < begin_node + nodes; ++node) {
     for (auto i = 0; i < cores_per_node; ++i) {
-      threads.emplace_back(std::thread(main_impl, i, begin_node + node));
+      threads.emplace_back(std::thread(main_impl, i, node));
     }
   }
   while (initialized_count < (nodes * cores_per_node)) {
