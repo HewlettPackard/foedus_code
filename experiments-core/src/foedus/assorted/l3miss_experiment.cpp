@@ -22,18 +22,23 @@
 #include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/thread/rendezvous_impl.hpp"
 
-const uint64_t kMemory = 1ULL << 32;
+const uint64_t kMemory = 1ULL << 34;
 const uint32_t kRep = 1ULL << 26;
 foedus::thread::Rendezvous start_rendezvous;
 std::atomic<int> initialized_count;
 std::mutex output_mutex;
+
+int nodes;
+int begin_node;
+int cores_per_node;
 foedus::memory::AlignedMemory::AllocType alloc_type
   = foedus::memory::AlignedMemory::kNumaAllocOnnode;
 
 uint64_t run(const char* blocks, foedus::assorted::UniformRandom* rands) {
+  uint64_t memory_per_core = kMemory / nodes;
   uint64_t ret = 0;
   for (uint32_t i = 0; i < kRep; ++i) {
-    const char* block = blocks + ((rands->next_uint32() % (kMemory >> 6)) << 6);
+    const char* block = blocks + ((rands->next_uint32() % (memory_per_core >> 6)) << 6);
     block += ret % (1 << 6);
     ret += *block;
   }
@@ -43,7 +48,8 @@ uint64_t run(const char* blocks, foedus::assorted::UniformRandom* rands) {
 void main_impl(int id, int node) {
   foedus::thread::NumaThreadScope scope(node);
   foedus::memory::AlignedMemory memory;
-  memory.alloc(kMemory, 1ULL << 30, alloc_type, node);
+  uint64_t memory_per_core = kMemory / nodes;
+  memory.alloc(memory_per_core, 1ULL << 30, alloc_type, node);
 
   foedus::assorted::UniformRandom uniform_random(id);
 
@@ -69,17 +75,17 @@ int main(int argc, char **argv) {
       << std::endl;
     return 1;
   }
-  int nodes = std::atoi(argv[1]);
+  nodes = std::atoi(argv[1]);
   if (nodes == 0 || nodes > ::numa_num_configured_nodes()) {
     std::cerr << "Invalid <nodes>:" << argv[1] << std::endl;
     return 1;
   }
-  int begin_node = std::atoi(argv[2]);
+  begin_node = std::atoi(argv[2]);
   if (begin_node + nodes > ::numa_num_configured_nodes()) {
     std::cerr << "Invalid <begin_node>:" << argv[2] << std::endl;
     return 1;
   }
-  int cores_per_node = std::atoi(argv[3]);
+  cores_per_node = std::atoi(argv[3]);
   if (cores_per_node == 0 ||
     cores_per_node > (::numa_num_configured_cpus() / ::numa_num_configured_nodes())) {
     std::cerr << "Invalid <cores_per_node>:" << argv[3] << std::endl;
