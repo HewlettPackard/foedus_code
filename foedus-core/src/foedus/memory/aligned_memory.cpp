@@ -28,9 +28,10 @@
 namespace foedus {
 namespace memory {
 AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
-               AllocType alloc_type, int numa_node) noexcept
-  : size_(0), alignment_(0), alloc_type_(kPosixMemalign), numa_node_(0), block_(nullptr) {
-  alloc(size, alignment, alloc_type, numa_node);
+               AllocType alloc_type, int numa_node, bool share) noexcept
+  : size_(0), alignment_(0), alloc_type_(kPosixMemalign), numa_node_(0),
+  share_(share), block_(nullptr) {
+  alloc(size, alignment, alloc_type, numa_node, share);
 }
 
 /**
@@ -38,33 +39,49 @@ AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
  */
 std::mutex mmap_allocate_mutex;
 
-void* alloc_mmap_1gb_pages(uint64_t size) {
-  ASSERT_ND(size % (1ULL << 30) == 0);
-  char* ret;
-  {
-    std::lock_guard<std::mutex> guard(mmap_allocate_mutex);
-    // we don't use MAP_POPULATE because it will block here and also serialize hugepage allocation!
-    // even if we run mmap in parallel, linux serializes the looooong population in all numa nodes.
-    // lame. we will memset right after this.
-    ret = reinterpret_cast<char*>(::mmap(
-      nullptr,
-      size,
-      PROT_READ | PROT_WRITE,
-      MAP_ANONYMOUS | MAP_PRIVATE | MAP_NORESERVE | MAP_HUGETLB | MAP_HUGE_1GB,
-      -1,
-      0));
-    if (ret == nullptr) {
-      LOG(FATAL) << "mmap() failed. size=" << size << ", error=" << assorted::os_error();
-    }
+char* alloc_mmap(uint64_t size, bool onegb_pages, bool share) {
+  std::lock_guard<std::mutex> guard(mmap_allocate_mutex);
+  // we don't use MAP_POPULATE because it will block here and also serialize hugepage allocation!
+  // even if we run mmap in parallel, linux serializes the looooong population in all numa nodes.
+  // lame. we will memset right after this.
+  int pagesize = (onegb_pages ? MAP_HUGE_1GB : 0);
+  int share_scope = (share ? MAP_SHARED : MAP_PRIVATE);
+  char* ret = reinterpret_cast<char*>(::mmap(
+    nullptr,
+    size,
+    PROT_READ | PROT_WRITE,
+    MAP_ANONYMOUS | share_scope | MAP_NORESERVE | MAP_HUGETLB | pagesize,
+    -1,
+    0));
+  if (ret == nullptr) {
+    LOG(FATAL) << "mmap() failed. size=" << size << ", error=" << assorted::os_error();
   }
   return ret;
+}
+
+void* alloc_mmap_1gb_pages(uint64_t size, bool share) {
+  ASSERT_ND(size % (1ULL << 30) == 0);
+  return alloc_mmap(size, true, share);
+}
+
+void* alloc_mmap_2mb_pages(uint64_t size, int node, bool share) {
+  // if allocating a private memory, we can simply use libnuma
+  if (!share) {
+    if (node < 0) {
+      return ::numa_alloc_interleaved(size);
+    } else {
+      return ::numa_alloc_onnode(size, node);
+    }
+  }
+  return alloc_mmap(size, false, share);
 }
 
 void AlignedMemory::alloc(
   uint64_t size,
   uint64_t alignment,
   AllocType alloc_type,
-  int numa_node) noexcept {
+  int numa_node,
+  bool share) noexcept {
   release_block();
   ASSERT_ND(block_ == nullptr);
   size_ = size;
@@ -78,19 +95,27 @@ void AlignedMemory::alloc(
   if (size_ % alignment != 0) {
     size_ = ((size_ / alignment) + 1) * alignment;
   }
+
+  // Use libnuma's numa_set_preferred to initialize the NUMA node of the memory.
+  // We can later do the equivalent with mbind IF the memory is not shared.
+  // mbind does nothing for shared memory. So, this is the only way
+  int original_node = ::numa_preferred();
+  ::numa_set_preferred(numa_node);
+
   debugging::StopWatch watch;
   switch (alloc_type_) {
     case kPosixMemalign:
+      ASSERT_ND(!share);  // posix_memalign can't allocate shared memory
       ::posix_memalign(&block_, alignment, size_);
       break;
     case kNumaAllocInterleaved:
-      block_ = ::numa_alloc_interleaved(size_);
+      block_ = alloc_mmap_2mb_pages(size_, -1, share);
       break;
     case kNumaAllocOnnode:
-      block_ = ::numa_alloc_onnode(size_, numa_node);
+      block_ = alloc_mmap_2mb_pages(size_, numa_node, share);
       break;
     case kNumaMmapOneGbPages:
-      block_ = alloc_mmap_1gb_pages(size_);
+      block_ = alloc_mmap_1gb_pages(size_, share);
       break;
     default:
       ASSERT_ND(false);
@@ -99,7 +124,7 @@ void AlignedMemory::alloc(
 
   debugging::StopWatch watch2;
   // numa_alloc_onnode might be migrated (?), so forcibly set with mbind().
-  if (alloc_type_ == kNumaAllocOnnode || alloc_type_ == kNumaMmapOneGbPages) {
+  if (!share && (alloc_type_ == kNumaAllocOnnode || alloc_type_ == kNumaMmapOneGbPages)) {
     // mbind() receives uint32_t as second parameter. So, we must repeat it for each 1GB
     const uint32_t kChunk = 1ULL << 30;
     for (uint64_t cur = 0; cur < size; cur += kChunk) {
@@ -119,9 +144,12 @@ void AlignedMemory::alloc(
           << numa_node << ", error=" << assorted::os_error();
       }
     }
+  } else {
+    VLOG(0) << "shared memory can't be set with mbind(). skipped";
   }
   std::memset(block_, 0, size_);  // see class comment for why we do this immediately
   watch2.stop();
+  ::numa_set_preferred(original_node);
   LOG(INFO) << "Allocated memory in " << watch.elapsed_ns() << "+"
     << watch2.elapsed_ns() << " ns (alloc+memset)." << *this;
 }
