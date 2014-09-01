@@ -30,8 +30,9 @@ const uint64_t kMemory = 12ULL << 30;
 const uint32_t kRep = 1ULL << 26;
 
 int nodes;
-int begin_node;
 int cores_per_node;
+foedus::memory::AlignedMemory::AllocType alloc_type
+  = foedus::memory::AlignedMemory::kNumaAllocOnnode;
 
 struct ProcessChannel {
   std::atomic<int>  initialized_count;
@@ -80,6 +81,7 @@ void main_impl(int id, int node) {
 }
 int process_main(int node) {
   std::cout << "Node-" << node << " started working on pid-" << ::getpid() << std::endl;
+  /*
   {
     nodemask_t mask;
     ::nodemask_zero(&mask);
@@ -88,6 +90,7 @@ int process_main(int node) {
     ::copy_nodemask_to_bitmask(&mask, &mask2);
     ::numa_bind(&mask2);
   }
+  */
   foedus::thread::NumaThreadScope scope(node);
   std::vector<std::thread> threads;
   for (auto i = 0; i < cores_per_node; ++i) {
@@ -101,10 +104,15 @@ int process_main(int node) {
   ++process_channel->exit_count;
   return 0;
 }
+void data_alloc(int node) {
+  data_memories[node].alloc(kMemory, 1ULL << 30, alloc_type, node, true);
+  std::cout << "Allocated memory for node-" << node << ":"
+    << data_memories[node].get_block() << std::endl;
+}
 
 int main(int argc, char **argv) {
   if (argc < 3) {
-    std::cerr << "Usage: ./l3miss_multip_experiment <nodes> <cores_per_node>"
+    std::cerr << "Usage: ./l3miss_multip_experiment <nodes> <cores_per_node> [<use_mmap>]"
       << std::endl;
     return 1;
   }
@@ -119,18 +127,20 @@ int main(int argc, char **argv) {
     std::cerr << "Invalid <cores_per_node>:" << argv[2] << std::endl;
     return 1;
   }
+  if (argc >= 4 && std::string(argv[3]) != std::string("false")) {
+    alloc_type = foedus::memory::AlignedMemory::kNumaMmapOneGbPages;
+  }
 
   std::cout << "Allocating data memory.." << std::endl;
   data_memories = new foedus::memory::AlignedMemory[nodes];
-  for (auto node = 0; node < nodes; ++node) {
-    data_memories[node].alloc(
-      kMemory,
-      1ULL << 30,
-      foedus::memory::AlignedMemory::kNumaMmapOneGbPages,
-      node,
-      true);
-    std::cout << "Allocated memory for node-" << node << ":"
-      << data_memories[node].get_block() << std::endl;
+  {
+    std::vector<std::thread> alloc_threads;
+    for (auto node = 0; node < nodes; ++node) {
+      alloc_threads.emplace_back(data_alloc, node);
+    }
+    for (auto& t : alloc_threads) {
+      t.join();
+    }
   }
   std::cout << "Allocated all data memory." << std::endl;
 
