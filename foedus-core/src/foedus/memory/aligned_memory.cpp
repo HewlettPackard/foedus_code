@@ -60,8 +60,11 @@ char* alloc_mmap(uint64_t size, uint64_t alignment, bool share) {
     MAP_ANONYMOUS | share_scope | MAP_NORESERVE | pagesize,
     -1,
     0));
-  if (ret == nullptr) {
-    LOG(FATAL) << "mmap() failed. size=" << size << ", error=" << assorted::os_error();
+  // when mmap() fails, it returns -1 (MAP_FAILED)
+  if (ret == nullptr || ret == MAP_FAILED) {
+    LOG(FATAL) << "mmap() failed. size=" << size << ", error=" << assorted::os_error()
+      << ". This error usually means you don't have enough hugepages allocated."
+      << " eg) sudo sh -c 'echo 196608 > /proc/sys/vm/nr_hugepages'";
   }
   return ret;
 }
