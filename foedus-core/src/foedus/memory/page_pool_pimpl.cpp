@@ -22,8 +22,8 @@
 
 namespace foedus {
 namespace memory {
-PagePoolPimpl::PagePoolPimpl(uint64_t memory_byte_size)
-  : parent_(nullptr), memory_byte_size_(memory_byte_size) {}
+PagePoolPimpl::PagePoolPimpl(uint64_t memory_byte_size, bool shared)
+  : parent_(nullptr), memory_byte_size_(memory_byte_size), shared_(shared) {}
 
 void PagePoolPimpl::initialize_parent(NumaNodeMemory* parent) {
   parent_ = parent;
@@ -39,7 +39,7 @@ ErrorStack PagePoolPimpl::initialize_once() {
 
   LOG(INFO) << "Acquiring memory for Page Pool (" << memory_byte_size_ << " bytes) on NUMA node "
     << static_cast<int>(parent_->get_numa_node())<< "...";
-  CHECK_ERROR(parent_->allocate_huge_numa_memory(memory_byte_size_, &memory_));
+  CHECK_ERROR(parent_->allocate_huge_numa_memory(memory_byte_size_, &memory_, shared_));
   pool_base_ = reinterpret_cast<storage::Page*>(memory_.get_block());
   pool_size_ = memory_.get_size() / storage::kPageSize;
   LOG(INFO) << "Acquired memory Page Pool. " << memory_ << ". pages=" << pool_size_;

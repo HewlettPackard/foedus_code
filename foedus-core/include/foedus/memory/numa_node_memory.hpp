@@ -63,17 +63,25 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
    * @param[in] size byte size of the memory to acquire
    * @param[in] alignment alignment size
    * @param[out] out allocated memory is moved to object
+   * @param[in] shared whether the memory is a shared memory
    * @return Expect OUTOFMEMORY error.
    */
   ErrorStack      allocate_numa_memory_general(
     uint64_t size,
     uint64_t alignment,
-    AlignedMemory *out) const;
-  ErrorStack      allocate_numa_memory(uint64_t size, AlignedMemory *out) const {
-    return allocate_numa_memory_general(size, 1 << 12, out);
+    AlignedMemory *out,
+    bool shared = false) const;
+  ErrorStack      allocate_numa_memory(
+    uint64_t size,
+    AlignedMemory *out,
+    bool shared = false) const {
+    return allocate_numa_memory_general(size, 1 << 12, out, shared);
   }
-  ErrorStack      allocate_huge_numa_memory(uint64_t size, AlignedMemory *out) const {
-    return allocate_numa_memory_general(size, kHugepageSize, out);
+  ErrorStack      allocate_huge_numa_memory(
+    uint64_t size,
+    AlignedMemory *out,
+    bool shared = false) const {
+    return allocate_numa_memory_general(size, kHugepageSize, out, shared);
   }
 
   PagePoolOffsetChunk* get_volatile_offset_chunk_memory_piece(

@@ -18,12 +18,12 @@ namespace foedus {
 namespace storage {
 namespace hash {
 HashStorage::HashStorage(Engine* engine, const HashMetadata &metadata, bool create)
-  : pimpl_(nullptr) {
-  pimpl_ = new HashStoragePimpl(engine, this, metadata, create);
+  : pimpl_(get_pimpl_memory_casted<HashStoragePimpl>(engine, metadata.id_)) {
+  ASSERT_ND(sizeof(HashStoragePimpl) <= kPageSize);
+  new (pimpl_) HashStoragePimpl(engine, this, metadata, create);
 }
 HashStorage::~HashStorage() {
-  delete pimpl_;
-  pimpl_ = nullptr;
+  pimpl_->~HashStoragePimpl();
 }
 
 ErrorStack  HashStorage::initialize()              { return pimpl_->initialize(); }

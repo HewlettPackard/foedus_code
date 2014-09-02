@@ -14,10 +14,18 @@ namespace storage {
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
 struct StorageOptions CXX11_FINAL : public virtual externalize::Externalizable {
+  enum Constants {
+    kDefaultMaxStorages = 1 << 9,
+  };
   /**
    * Constructs option values with default values.
    */
   StorageOptions();
+
+  /**
+   * Maximum number of storages in this database.
+   */
+  uint32_t                max_storages_;
 
   EXTERNALIZABLE(StorageOptions);
 };

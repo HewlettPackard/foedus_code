@@ -43,6 +43,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
                       MasstreeStorage* holder,
                       const MasstreeMetadata &metadata,
                       bool create);
+  ~MasstreeStoragePimpl() {}
 
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
@@ -264,6 +265,7 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   bool track_moved_record(xct::WriteXctAccess* write) ALWAYS_INLINE;
   xct::LockableXctId* track_moved_record(xct::LockableXctId* address) ALWAYS_INLINE;
 };
+static_assert(sizeof(MasstreeStoragePimpl) <= kPageSize, "MasstreeStoragePimpl is too large");
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus

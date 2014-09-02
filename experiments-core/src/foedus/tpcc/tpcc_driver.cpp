@@ -35,7 +35,7 @@
 
 namespace foedus {
 namespace tpcc {
-DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
+DEFINE_bool(fork_workers, true, "Whether to fork(2) worker threads in child processes rather"
     " than threads in the same process. This is required to scale up to 100+ cores.");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
@@ -157,8 +157,8 @@ TpccDriver::Result TpccDriver::run() {
 
   memory::AlignedMemory channel_memory;
   channel_memory.alloc(
-    1 << 21,
-    1 << 21,
+    sizeof(TpccClientChannel),
+    1 << 12,
     memory::AlignedMemory::kNumaAllocOnnode,
     0,
     FLAGS_fork_workers);
@@ -179,13 +179,13 @@ TpccDriver::Result TpccDriver::run() {
   for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
     session_memories[node].alloc(
       sizeof(thread::ImpersonateSession) * options.thread_.thread_count_per_group_,
-      1 << 21,
+      1 << 12,
       memory::AlignedMemory::kNumaAllocOnnode,
       node,
       FLAGS_fork_workers);
     clients_memories[node].alloc(
       sizeof(TpccClientTask) * options.thread_.thread_count_per_group_,
-      1 << 21,
+      1 << 12,
       memory::AlignedMemory::kNumaAllocOnnode,
       node,
       FLAGS_fork_workers);
@@ -386,7 +386,9 @@ for (uint32_t i = 0; i < clients_.size(); ++i) {
     thread::ImpersonateSession* sessions = session_ptrs[node];
     TpccClientTask* clients = clients_ptrs[node];
     for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
-      LOG(INFO) << "result[" << node << "-" << ordinal << "]=" << sessions[ordinal].get_result();
+      if (!FLAGS_fork_workers) {
+        LOG(INFO) << "result[" << node << "-" << ordinal << "]=" << sessions[ordinal].get_result();
+      }
       clients[ordinal].~TpccClientTask();
       sessions[ordinal].~ImpersonateSession();
     }
@@ -547,13 +549,20 @@ int driver_main(int argc, char **argv) {
 
   TpccDriver::Result result;
   {
-    Engine engine(options);
-    COERCE_ERROR(engine.initialize());
+    Engine* engine = new Engine(options);
+    COERCE_ERROR(engine->initialize());
     {
-      UninitializeGuard guard(&engine);
-      TpccDriver driver(&engine);
+      // UninitializeGuard guard(&engine);
+      TpccDriver driver(engine);
       result = driver.run();
-      COERCE_ERROR(engine.uninitialize());
+      // TODO(Hideaki) skip uninitialization. the tentative SOC implementation leaves
+      // page pool etc in un-synced, thus this causes an error.
+      if (!FLAGS_fork_workers) {
+        COERCE_ERROR(engine->uninitialize());
+      }
+    }
+    if (!FLAGS_fork_workers) {
+      delete engine;
     }
   }
 
@@ -572,6 +581,11 @@ int driver_main(int argc, char **argv) {
   if (FLAGS_profile) {
     std::cout << "Check out the profile result: pprof --pdf tpcc tpcc.prof > prof.pdf; "
       "okular prof.pdf" << std::endl;
+  }
+
+  if (FLAGS_fork_workers) {
+    // TODO(Hideaki) same above
+    ::exit(0);
   }
   return 0;
 }

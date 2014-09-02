@@ -41,6 +41,7 @@ class SequentialStoragePimpl final : public DefaultInitializable {
                           SequentialStorage* holder,
                           const SequentialMetadata &metadata,
                           bool create);
+  ~SequentialStoragePimpl() {}
 
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
@@ -69,6 +70,7 @@ class SequentialStoragePimpl final : public DefaultInitializable {
   /** If this is true, initialize() reads it back from previous snapshot and logs. */
   bool                      exist_;
 };
+static_assert(sizeof(SequentialStoragePimpl) <= kPageSize, "SequentialStoragePimpl is too large");
 }  // namespace sequential
 }  // namespace storage
 }  // namespace foedus

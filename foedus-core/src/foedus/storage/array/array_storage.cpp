@@ -18,12 +18,12 @@ namespace foedus {
 namespace storage {
 namespace array {
 ArrayStorage::ArrayStorage(Engine* engine, const ArrayMetadata &metadata, bool create)
-  : pimpl_(nullptr) {
-  pimpl_ = new ArrayStoragePimpl(engine, this, metadata, create);
+  : pimpl_(get_pimpl_memory_casted<ArrayStoragePimpl>(engine, metadata.id_)) {
+  ASSERT_ND(sizeof(ArrayStoragePimpl) <= kPageSize);
+  new (pimpl_) ArrayStoragePimpl(engine, this, metadata, create);
 }
 ArrayStorage::~ArrayStorage() {
-  delete pimpl_;
-  pimpl_ = nullptr;
+  pimpl_->~ArrayStoragePimpl();
 }
 
 ErrorStack  ArrayStorage::initialize()              { return pimpl_->initialize(); }

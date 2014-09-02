@@ -40,6 +40,7 @@ class HashStoragePimpl final : public DefaultInitializable {
   HashStoragePimpl() = delete;
   HashStoragePimpl(Engine* engine, HashStorage* holder, const HashMetadata &metadata,
             bool create);
+  ~HashStoragePimpl() {}
 
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
@@ -178,6 +179,7 @@ class HashStoragePimpl final : public DefaultInitializable {
   uint64_t                bin_count_;
   uint64_t                bin_pages_;
 };
+static_assert(sizeof(HashStoragePimpl) <= kPageSize, "HashStoragePimpl is too large");
 }  // namespace hash
 }  // namespace storage
 }  // namespace foedus

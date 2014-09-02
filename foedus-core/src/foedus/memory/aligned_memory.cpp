@@ -39,18 +39,25 @@ AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
  */
 std::mutex mmap_allocate_mutex;
 
-char* alloc_mmap(uint64_t size, bool onegb_pages, bool share) {
+char* alloc_mmap(uint64_t size, uint64_t alignment, bool share) {
   std::lock_guard<std::mutex> guard(mmap_allocate_mutex);
   // we don't use MAP_POPULATE because it will block here and also serialize hugepage allocation!
   // even if we run mmap in parallel, linux serializes the looooong population in all numa nodes.
   // lame. we will memset right after this.
-  int pagesize = (onegb_pages ? MAP_HUGE_1GB : 0);
+  int pagesize;
+  if (alignment >= (1ULL << 30)) {
+    pagesize = MAP_HUGE_1GB | MAP_HUGETLB;
+  } else if (alignment >= (1ULL << 21)) {
+    pagesize = MAP_HUGETLB;
+  } else {
+    pagesize = 0;
+  }
   int share_scope = (share ? MAP_SHARED : MAP_PRIVATE);
   char* ret = reinterpret_cast<char*>(::mmap(
     nullptr,
     size,
     PROT_READ | PROT_WRITE,
-    MAP_ANONYMOUS | share_scope | MAP_NORESERVE | MAP_HUGETLB | pagesize,
+    MAP_ANONYMOUS | share_scope | MAP_NORESERVE | pagesize,
     -1,
     0));
   if (ret == nullptr) {
@@ -61,10 +68,10 @@ char* alloc_mmap(uint64_t size, bool onegb_pages, bool share) {
 
 void* alloc_mmap_1gb_pages(uint64_t size, bool share) {
   ASSERT_ND(size % (1ULL << 30) == 0);
-  return alloc_mmap(size, true, share);
+  return alloc_mmap(size, 1ULL << 30, share);
 }
 
-void* alloc_mmap_2mb_pages(uint64_t size, int node, bool share) {
+void* alloc_mmap_small_pages(uint64_t size, uint64_t alignment, int node, bool share) {
   // if allocating a private memory, we can simply use libnuma
   if (!share) {
     if (node < 0) {
@@ -73,7 +80,7 @@ void* alloc_mmap_2mb_pages(uint64_t size, int node, bool share) {
       return ::numa_alloc_onnode(size, node);
     }
   }
-  return alloc_mmap(size, false, share);
+  return alloc_mmap(size, alignment, share);
 }
 
 void AlignedMemory::alloc(
@@ -109,10 +116,10 @@ void AlignedMemory::alloc(
       ::posix_memalign(&block_, alignment, size_);
       break;
     case kNumaAllocInterleaved:
-      block_ = alloc_mmap_2mb_pages(size_, -1, share);
+      block_ = alloc_mmap_small_pages(size_, alignment, -1, share);
       break;
     case kNumaAllocOnnode:
-      block_ = alloc_mmap_2mb_pages(size_, numa_node, share);
+      block_ = alloc_mmap_small_pages(size_, alignment, numa_node, share);
       break;
     case kNumaMmapOneGbPages:
       block_ = alloc_mmap_1gb_pages(size_, share);
@@ -191,6 +198,7 @@ void AlignedMemory::release_block() {
 std::ostream& operator<<(std::ostream& o, const AlignedMemory& v) {
   o << "<AlignedMemory>";
   o << "<is_null>" << v.is_null() << "</is_null>";
+  o << "<shared>" << v.is_shared() << "</shared>";
   o << "<size>" << v.get_size() << "</size>";
   o << "<alignment>" << v.get_alignment() << "</alignment>";
   o << "<alloc_type>" << v.get_alloc_type() << " (";

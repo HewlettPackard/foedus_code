@@ -28,8 +28,8 @@ void PagePoolOffsetChunk::move_to(PagePoolOffset* destination, uint32_t count) {
   size_ -= count;
 }
 
-PagePool::PagePool(uint64_t memory_byte_size) : pimpl_(nullptr) {
-  pimpl_ = new PagePoolPimpl(memory_byte_size);
+PagePool::PagePool(uint64_t memory_byte_size, bool shared) : pimpl_(nullptr) {
+  pimpl_ = new PagePoolPimpl(memory_byte_size, shared);
 }
 PagePool::~PagePool() {
   delete pimpl_;

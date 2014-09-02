@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/debugging/stop_watch.hpp"
@@ -53,6 +54,14 @@ ErrorStack StorageManagerPimpl::initialize_once() {
   std::memset(storages_, 0, sizeof(Storage*) * kInitialCapacity);
   storages_capacity_ = kInitialCapacity;
 
+  max_storages_ = engine_->get_options().storage_.max_storages_;
+  instance_memory_.alloc(
+    static_cast<uint64_t>(max_storages_) * kPageSize,
+    1 << 21,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    0,
+    true);
+
   return kRetOk;
 }
 
@@ -80,6 +89,7 @@ ErrorStack StorageManagerPimpl::uninitialize_once() {
     storages_ = nullptr;
   }
   clear_storage_factories();
+  instance_memory_.release_block();
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 

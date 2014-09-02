@@ -19,12 +19,12 @@ namespace storage {
 namespace sequential {
 SequentialStorage::SequentialStorage(
   Engine* engine, const SequentialMetadata &metadata, bool create)
-  : pimpl_(nullptr) {
-  pimpl_ = new SequentialStoragePimpl(engine, this, metadata, create);
+  : pimpl_(get_pimpl_memory_casted<SequentialStoragePimpl>(engine, metadata.id_)) {
+  ASSERT_ND(sizeof(SequentialStoragePimpl) <= kPageSize);
+  new (pimpl_) SequentialStoragePimpl(engine, this, metadata, create);
 }
 SequentialStorage::~SequentialStorage() {
-  delete pimpl_;
-  pimpl_ = nullptr;
+  pimpl_->~SequentialStoragePimpl();
 }
 
 ErrorStack  SequentialStorage::initialize()              { return pimpl_->initialize(); }

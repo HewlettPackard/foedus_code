@@ -11,6 +11,7 @@
 
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -57,6 +58,11 @@ class StorageManagerPimpl final : public DefaultInitializable {
 
   ErrorStack  clone_all_storage_metadata(snapshot::SnapshotMetadata *metadata);
 
+  void*       get_instance_memory(StorageId storage_id) {
+    return reinterpret_cast<char*>(instance_memory_.get_block())
+      + static_cast<uint64_t>(storage_id) * kPageSize;
+  }
+
   Engine* const           engine_;
 
   /**
@@ -72,6 +78,9 @@ class StorageManagerPimpl final : public DefaultInitializable {
    */
   StorageId               largest_storage_id_;
 
+  /** Same as engine_->get_options().storage_.max_storages_ */
+  StorageId               max_storages_;
+
   /**
    * Pointers of all Storage objects in this engine.
    * If there is a hole, it contains a nullptr.
@@ -81,6 +90,14 @@ class StorageManagerPimpl final : public DefaultInitializable {
    * Capacity of storages_. When we need an expansion, we do RCU and switches the pointer.
    */
   size_t                  storages_capacity_;
+
+  /**
+   * Storage instances (pimpl objects) are allocated in this shared memory.
+   * Each storage instance must be within 4kb. If the storage type requires more than 4kb,
+   * just grab a page from volatile page pools and point to it from the storage object.
+   * Remember that all pages in volatile page pools are shared.
+   */
+  memory::AlignedMemory   instance_memory_;
 
   /**
    * Storage name to pointer mapping. Accessing this, either read or write, must take mod_lock_

@@ -43,6 +43,10 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
    * The caller might later fail, so StorageId might have holes.
    */
   StorageId   issue_next_storage_id();
+  /**
+   * @brief Grab a memory for a storage object.
+   */
+  void*       get_instance_memory(StorageId storage_id);
 
   /**
    * Returns the storage of given ID.

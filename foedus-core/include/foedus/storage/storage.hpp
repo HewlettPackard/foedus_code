@@ -109,6 +109,14 @@ class Storage : public virtual Initializable {
 
   /** Just delegates to describe(). */
   friend std::ostream& operator<<(std::ostream& o, const Storage& v);
+
+ protected:
+  static void* get_pimpl_memory(Engine* engine, StorageId id);
+
+  template <typename T>
+  static T* get_pimpl_memory_casted(Engine* engine, StorageId id) {
+    return reinterpret_cast<T*>(get_pimpl_memory(engine, id));
+  }
 };
 
 /**

@@ -14,6 +14,7 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/log/common_log_types.hpp"
 #include "foedus/log/log_manager.hpp"
@@ -79,6 +80,12 @@ void ThreadLogBuffer::assert_consistent() const {
 
 void ThreadLogBuffer::wait_for_space(uint16_t required_space) {
   LOG(INFO) << "Thread-" << thread_id_ << " waiting for space to write logs..";
+  if (engine_->get_options().log_.emulation_.null_device_) {
+    // logging disabled
+    offset_head_ = offset_durable_ = offset_committed_;
+    assorted::memory_fence_release();
+    return;
+  }
   // @spinlock, but with a sleep (not in critical path, usually).
   while (head_to_tail_distance() + required_space >= buffer_size_safe_) {
     assorted::memory_fence_acquire();

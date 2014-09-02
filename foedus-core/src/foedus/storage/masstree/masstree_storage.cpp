@@ -20,12 +20,12 @@ namespace storage {
 namespace masstree {
 MasstreeStorage::MasstreeStorage(
   Engine* engine, const MasstreeMetadata &metadata, bool create)
-  : pimpl_(nullptr) {
-  pimpl_ = new MasstreeStoragePimpl(engine, this, metadata, create);
+  : pimpl_(get_pimpl_memory_casted<MasstreeStoragePimpl>(engine, metadata.id_)) {
+  ASSERT_ND(sizeof(MasstreeStoragePimpl) <= kPageSize);
+  new (pimpl_) MasstreeStoragePimpl(engine, this, metadata, create);
 }
 MasstreeStorage::~MasstreeStorage() {
-  delete pimpl_;
-  pimpl_ = nullptr;
+  pimpl_->~MasstreeStoragePimpl();
 }
 
 ErrorStack  MasstreeStorage::initialize()              { return pimpl_->initialize(); }

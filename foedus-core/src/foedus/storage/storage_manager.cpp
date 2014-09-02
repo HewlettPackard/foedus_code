@@ -34,6 +34,10 @@ Storage* StorageManager::get_storage(StorageId id) { return pimpl_->get_storage(
 Storage* StorageManager::get_storage(const std::string& name) { return pimpl_->get_storage(name); }
 
 StorageId StorageManager::issue_next_storage_id() { return pimpl_->issue_next_storage_id(); }
+void* StorageManager::get_instance_memory(StorageId storage_id) {
+  return pimpl_->get_instance_memory(storage_id);
+}
+
 ErrorStack StorageManager::drop_storage(thread::Thread* context, StorageId id,
                     Epoch *commit_epoch) {
   return pimpl_->drop_storage(context, id, commit_epoch);

@@ -46,6 +46,7 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   ArrayStoragePimpl() = delete;
   ArrayStoragePimpl(Engine* engine, ArrayStorage* holder, const ArrayMetadata &metadata,
             bool create);
+  ~ArrayStoragePimpl() {}
 
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
@@ -233,6 +234,8 @@ class ArrayStoragePimpl final : public DefaultInitializable {
 
   LookupRouteFinder       route_finder_;
 };
+static_assert(sizeof(ArrayStoragePimpl) <= kPageSize, "ArrayStoragePimpl is too large");
+
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus

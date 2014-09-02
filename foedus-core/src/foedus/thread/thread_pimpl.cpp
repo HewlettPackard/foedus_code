@@ -464,7 +464,8 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   ASSERT_ND(predecessor);
   ASSERT_ND(predecessor != this);
   ASSERT_ND(block->waiting_);
-  ASSERT_ND(predecessor->current_xct_.get_mcs_block_current() >= predecessor_block);
+  // TODO(Hideaki) because of tentative SOC implementation. we can't check this
+  // ASSERT_ND(predecessor->current_xct_.get_mcs_block_current() >= predecessor_block);
   McsBlock* pred_block = predecessor->mcs_blocks_ + predecessor_block;
   ASSERT_ND(pred_block->successor_ == 0);
   ASSERT_ND(pred_block->successor_block_ == 0);
@@ -561,7 +562,8 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
 
   ThreadPimpl* successor
     = engine_->get_thread_pool().get_pimpl()->get_thread(block->successor_)->get_pimpl();
-  ASSERT_ND(successor->current_xct_.get_mcs_block_current() >= block->successor_block_);
+  // TODO(Hideaki) because of tentative SOC implementation. we can't check this
+  // ASSERT_ND(successor->current_xct_.get_mcs_block_current() >= block->successor_block_);
   McsBlock* succ_block = successor->mcs_blocks_ + block->successor_block_;
   ASSERT_ND(succ_block->lock_addr_tag_ == mcs_lock->last_1byte_addr());
   ASSERT_ND(succ_block->waiting_);

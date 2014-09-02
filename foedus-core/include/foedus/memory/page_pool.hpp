@@ -89,7 +89,7 @@ class PagePool CXX11_FINAL : public virtual Initializable {
     uint64_t allocated_pages_;
   };
 
-  explicit PagePool(uint64_t memory_byte_size);
+  PagePool(uint64_t memory_byte_size, bool shared);
   ~PagePool();
 
   // Disable default constructors

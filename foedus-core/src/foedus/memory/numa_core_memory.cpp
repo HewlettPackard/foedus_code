@@ -61,7 +61,7 @@ ErrorStack NumaCoreMemory::initialize_once() {
     LOG(INFO) << "mm, small_local_memory_size is more than 2MB(" << memory_size << ")."
       " not a big issue, but consumes one more TLB entry...";
   }
-  CHECK_ERROR(node_memory_->allocate_huge_numa_memory(memory_size, &small_thread_local_memory_));
+  CHECK_ERROR(node_memory_->allocate_numa_memory(memory_size, &small_thread_local_memory_, true));
   char* memory = reinterpret_cast<char*>(small_thread_local_memory_.get_block());
   // "shift" 4kb for each thread on this node so that memory banks are evenly used.
   // in many architecture, 13th- or 14th- bits are memory banks (see [JEONG11])

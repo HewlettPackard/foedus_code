@@ -31,7 +31,7 @@ namespace memory {
 class PagePoolPimpl final : public DefaultInitializable {
  public:
   PagePoolPimpl() = delete;
-  explicit PagePoolPimpl(uint64_t memory_byte_size);
+  PagePoolPimpl(uint64_t memory_byte_size, bool shared);
   void        initialize_parent(NumaNodeMemory* parent);
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
@@ -50,6 +50,9 @@ class PagePoolPimpl final : public DefaultInitializable {
 
   /** Byte size of this page pool. */
   const uint64_t                  memory_byte_size_;
+
+  /** Whether this page pool can be accessed from remote node. */
+  const bool                      shared_;
 
   /** The whole memory region of the pool. */
   AlignedMemory                   memory_;
