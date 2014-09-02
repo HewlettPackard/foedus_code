@@ -273,6 +273,7 @@ TpccDriver::Result TpccDriver::run() {
     engine_->get_debug().start_papi_counters();
   }
   channel->start_flag_.store(true);
+  assorted::memory_fence_release();
   LOG(INFO) << "Started!";
   debugging::StopWatch duration;
   while (duration.peek_elapsed_ns() < static_cast<uint64_t>(FLAGS_duration_micro) * 1000ULL) {

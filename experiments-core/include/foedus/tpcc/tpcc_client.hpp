@@ -98,6 +98,7 @@ class TpccClientTask : public thread::ImpersonateTask {
   uint32_t increment_largereadset_aborts() { return ++largereadset_aborts_; }
 
   bool is_stop_requested() const {
+    assorted::memory_fence_acquire();
     return channel_->stop_flag_.load();
   }
 

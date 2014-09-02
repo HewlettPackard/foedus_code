@@ -49,6 +49,7 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
   xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
 
   while (channel_->start_flag_.load() == false) {
+    assorted::memory_fence_acquire();
     continue;
   }
   LOG(INFO) << "TPCC Client-" << worker_id_ << " started working! home wid="
