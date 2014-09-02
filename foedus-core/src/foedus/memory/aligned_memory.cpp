@@ -29,8 +29,8 @@ namespace foedus {
 namespace memory {
 AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
                AllocType alloc_type, int numa_node, bool share) noexcept
-  : size_(0), alignment_(0), alloc_type_(kPosixMemalign), numa_node_(0),
-  share_(share), block_(nullptr) {
+  : size_(0), alignment_(0), alloc_type_(kPosixMemalign), share_(share), numa_node_(0),
+  block_(nullptr) {
   alloc(size, alignment, alloc_type, numa_node, share);
 }
 

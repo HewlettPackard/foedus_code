@@ -25,7 +25,9 @@ namespace tpcc {
 void TpccClientTask::update_timestring_if_needed() {
   uint64_t now = debugging::get_rdtsc();
   if (now  - previous_timestring_update_ > (1ULL << 30)) {
-    timestring_ = get_current_time_string();
+    std::string timestr = get_current_time_string();
+    std::memcpy(timestring_, timestr.data(), timestr.size());
+    timestring_len_ = timestr.size();
     previous_timestring_update_ = now;
   }
 }
@@ -40,11 +42,15 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
   // std::memset(debug_wdid_access_, 0, sizeof(debug_wdid_access_));
   CHECK_ERROR(warmup(context));
   processed_ = 0;
-  timestring_ = get_current_time_string();
+  std::string timestr = get_current_time_string();
+  std::memcpy(timestring_, timestr.data(), timestr.size());
+  timestring_len_ = timestr.size();
   previous_timestring_update_ = debugging::get_rdtsc();
   xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
 
-  start_rendezvous_->wait();
+  while (channel_->start_flag_.load() == false) {
+    continue;
+  }
   LOG(INFO) << "TPCC Client-" << worker_id_ << " started working! home wid="
     << from_wid_ << "-" << to_wid_;
 
@@ -230,7 +236,7 @@ ErrorStack TpccClientTask::warmup(thread::Thread* context) {
   }
 
   // Warmup done!
-  warmup_complete_counter_->operator++();
+  ++(channel_->warmup_complete_counter_);
   return kRetOk;
 }
 

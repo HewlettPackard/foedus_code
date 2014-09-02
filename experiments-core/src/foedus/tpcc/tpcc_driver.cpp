@@ -6,8 +6,10 @@
 
 #include <fcntl.h>
 #include <time.h>
+#include <unistd.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
+#include <sys/wait.h>
 
 #include <algorithm>
 #include <iostream>
@@ -22,8 +24,10 @@
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/memory/engine_memory.hpp"
+#include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
+#include "foedus/thread/thread_pool_pimpl.hpp"
 #include "foedus/tpcc/tpcc.hpp"
 #include "foedus/tpcc/tpcc_client.hpp"
 #include "foedus/tpcc/tpcc_load.hpp"
@@ -31,6 +35,8 @@
 
 namespace foedus {
 namespace tpcc {
+DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
+    " than threads in the same process. This is required to scale up to 100+ cores.");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
 DEFINE_int32(volatile_pool_size, 20, "Size of volatile memory pool per NUMA node in GB.");
@@ -130,7 +136,7 @@ TpccDriver::Result TpccDriver::run() {
 
 
   {
-    // first, create empty tables. this is done in single thread
+    // Verify the loaded data. this is done in single thread
     TpccFinishupTask finishup(FLAGS_warehouses, storages_);
     thread::ImpersonateSession finish_session = thread_pool.impersonate(&finishup);
     if (!finish_session.is_valid()) {
@@ -148,13 +154,50 @@ TpccDriver::Result TpccDriver::run() {
 
   LOG(INFO) << "neworder_remote_percent=" << FLAGS_neworder_remote_percent;
   LOG(INFO) << "payment_remote_percent=" << FLAGS_payment_remote_percent;
-  warmup_complete_counter_.store(0);
-  std::vector< thread::ImpersonateSession > sessions;
+
+  memory::AlignedMemory channel_memory;
+  channel_memory.alloc(
+    1 << 21,
+    1 << 21,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    0,
+    FLAGS_fork_workers);
+  TpccClientChannel* channel = reinterpret_cast<TpccClientChannel*>(channel_memory.get_block());
+  channel->warmup_complete_counter_.store(0);
+  channel->exit_nodes_.store(0);
+  channel->start_flag_.store(false);
+  channel->stop_flag_.store(false);
+
+  memory::AlignedMemory* session_memories = new memory::AlignedMemory[options.thread_.group_count_];
+  memory::AlignedMemory* clients_memories = new memory::AlignedMemory[options.thread_.group_count_];
+  thread::ImpersonateSession* session_ptrs[256];
+  TpccClientTask* clients_ptrs[256];
+  std::memset(session_ptrs, 0, sizeof(session_ptrs));
+  std::memset(clients_ptrs, 0, sizeof(clients_ptrs));
+
+  std::vector<pid_t>  pids;
   for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
-    memory::ScopedNumaPreferred scope(node);
+    session_memories[node].alloc(
+      sizeof(thread::ImpersonateSession) * options.thread_.thread_count_per_group_,
+      1 << 21,
+      memory::AlignedMemory::kNumaAllocOnnode,
+      node,
+      FLAGS_fork_workers);
+    clients_memories[node].alloc(
+      sizeof(TpccClientTask) * options.thread_.thread_count_per_group_,
+      1 << 21,
+      memory::AlignedMemory::kNumaAllocOnnode,
+      node,
+      FLAGS_fork_workers);
+    session_ptrs[node] = reinterpret_cast<thread::ImpersonateSession*>(
+      session_memories[node].get_block());
+    clients_ptrs[node] = reinterpret_cast<TpccClientTask*>(clients_memories[node].get_block());
     for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
-      uint16_t global_ordinal = clients_.size();
-      clients_.push_back(new TpccClientTask(
+      uint16_t global_ordinal = options.thread_.thread_count_per_group_ * node + ordinal;
+      thread::ImpersonateSession* session = session_ptrs[node] + ordinal;
+      TpccClientTask* client = clients_ptrs[node] + ordinal;
+      new (session) thread::ImpersonateSession();
+      new (client) TpccClientTask(
         (node << 8U) + ordinal,
         FLAGS_warehouses,
         from_wids_[global_ordinal],
@@ -162,18 +205,63 @@ TpccDriver::Result TpccDriver::run() {
         FLAGS_neworder_remote_percent,
         FLAGS_payment_remote_percent,
         storages_,
-        &warmup_complete_counter_,
-        &start_rendezvous_));
-      sessions.emplace_back(thread_pool.impersonate_on_numa_node(clients_.back(), node));
-      if (!sessions.back().is_valid()) {
-        COERCE_ERROR(sessions.back().invalid_cause_);
+        channel);
+    }
+
+    if (FLAGS_fork_workers) {
+      pid_t pid = ::fork();
+      if (pid == -1) {
+        LOG(FATAL) << "fork() failed, error=" << foedus::assorted::os_error();
+      }
+      if (pid == 0) {
+        // child process. Do not use glog in forked processes.
+        // https://code.google.com/p/google-glog/issues/detail?id=82
+        engine_->get_debug().set_debug_log_min_threshold(
+          debugging::DebuggingOptions::kDebugLogFatal);
+        engine_->get_debug().set_debug_log_stderr_threshold(
+          debugging::DebuggingOptions::kDebugLogFatal);
+        std::cout << "child process-" << ::getpid() << " started working on node-"
+          << node << std::endl;
+        thread::NumaThreadScope scope(node);
+
+        // this is quite much a hack. needs a real implementation of SOC handling
+        std::vector<std::thread> worker_threads;
+        for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
+          thread::ImpersonateSession* session = session_ptrs[node] + ordinal;
+          TpccClientTask* client = clients_ptrs[node] + ordinal;
+          thread::ThreadId thread_id = thread::compose_thread_id(node, ordinal);
+          thread::Thread* t = thread_pool.get_pimpl()->get_thread(thread_id);
+          worker_threads.emplace_back(std::thread([t, session, client]{
+            t->hack_handle_one_task(client, session);
+          }));
+        }
+        for (auto& t : worker_threads) {
+          t.join();
+        }
+        ++channel->exit_nodes_;
+        std::cout << "child process-" << ::getpid() << " normally exit" << std::endl;
+        ::exit(0);
+      } else {
+        // parent
+        LOG(INFO) << "child process-" << pid << " has been forked";
+        pids.push_back(pid);
+      }
+    } else {
+      for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
+        thread::ImpersonateSession* session = session_ptrs[node] + ordinal;
+        TpccClientTask* client = clients_ptrs[node] + ordinal;
+        *session = thread_pool.impersonate_on_numa_node(client, node);
+        if (!session->is_valid()) {
+          COERCE_ERROR(session->invalid_cause_);
+        }
       }
     }
   }
   LOG(INFO) << "okay, launched all worker threads. waiting for completion of warmup...";
-  while (warmup_complete_counter_.load() < sessions.size()) {
-    LOG(INFO) << "Waiting for warmup completion... done=" << warmup_complete_counter_ << "/"
-      << sessions.size();
+  uint32_t total_thread_count = options.thread_.get_total_thread_count();
+  while (channel->warmup_complete_counter_.load() < total_thread_count) {
+    LOG(INFO) << "Waiting for warmup completion... done=" << channel->warmup_complete_counter_
+      << "/" << total_thread_count;
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
 
@@ -184,7 +272,7 @@ TpccDriver::Result TpccDriver::run() {
   if (FLAGS_papi) {
     engine_->get_debug().start_papi_counters();
   }
-  start_rendezvous_.signal();  // GO!
+  channel->start_flag_.store(true);
   LOG(INFO) << "Started!";
   debugging::StopWatch duration;
   while (duration.peek_elapsed_ns() < static_cast<uint64_t>(FLAGS_duration_micro) * 1000ULL) {
@@ -194,14 +282,16 @@ TpccDriver::Result TpccDriver::run() {
     std::this_thread::sleep_for(std::chrono::microseconds(remaining_duration));
     Result result;
     result.duration_sec_ = static_cast<double>(duration.peek_elapsed_ns()) / 1000000000;
-    result.worker_count_ = clients_.size();
-    for (uint32_t i = 0; i < clients_.size(); ++i) {
-      TpccClientTask* client = clients_[i];
-      result.processed_ += client->get_processed();
-      result.race_aborts_ += client->get_race_aborts();
-      result.unexpected_aborts_ += client->get_unexpected_aborts();
-      result.largereadset_aborts_ += client->get_largereadset_aborts();
-      result.user_requested_aborts_ += client->get_user_requested_aborts();
+    result.worker_count_ = total_thread_count;
+    for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
+      for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
+        TpccClientTask* client = clients_ptrs[node] + ordinal;
+        result.processed_ += client->get_processed();
+        result.race_aborts_ += client->get_race_aborts();
+        result.unexpected_aborts_ += client->get_unexpected_aborts();
+        result.largereadset_aborts_ += client->get_largereadset_aborts();
+        result.user_requested_aborts_ += client->get_user_requested_aborts();
+      }
     }
     LOG(INFO) << "Intermediate report after " << result.duration_sec_ << " sec";
     LOG(INFO) << result;
@@ -219,23 +309,27 @@ TpccDriver::Result TpccDriver::run() {
   Result result;
   duration.stop();
   result.duration_sec_ = duration.elapsed_sec();
-  result.worker_count_ = clients_.size();
+  result.worker_count_ = total_thread_count;
   result.papi_results_ = debugging::DebuggingSupports::describe_papi_counters(
     engine_->get_debug().get_papi_counters());
   assorted::memory_fence_acquire();
-  for (uint32_t i = 0; i < clients_.size(); ++i) {
-    TpccClientTask* client = clients_[i];
-    result.workers_[i].id_ = client->get_worker_id();
-    result.workers_[i].processed_ = client->get_processed();
-    result.workers_[i].race_aborts_ = client->get_race_aborts();
-    result.workers_[i].unexpected_aborts_ = client->get_unexpected_aborts();
-    result.workers_[i].largereadset_aborts_ = client->get_largereadset_aborts();
-    result.workers_[i].user_requested_aborts_ = client->get_user_requested_aborts();
-    result.processed_ += client->get_processed();
-    result.race_aborts_ += client->get_race_aborts();
-    result.unexpected_aborts_ += client->get_unexpected_aborts();
-    result.largereadset_aborts_ += client->get_largereadset_aborts();
-    result.user_requested_aborts_ += client->get_user_requested_aborts();
+  uint32_t cur_result = 0;
+  for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
+    for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
+      TpccClientTask* client = clients_ptrs[node] + ordinal;
+      result.workers_[cur_result].id_ = client->get_worker_id();
+      result.workers_[cur_result].processed_ = client->get_processed();
+      result.workers_[cur_result].race_aborts_ = client->get_race_aborts();
+      result.workers_[cur_result].unexpected_aborts_ = client->get_unexpected_aborts();
+      result.workers_[cur_result].largereadset_aborts_ = client->get_largereadset_aborts();
+      result.workers_[cur_result].user_requested_aborts_ = client->get_user_requested_aborts();
+      result.processed_ += client->get_processed();
+      result.race_aborts_ += client->get_race_aborts();
+      result.unexpected_aborts_ += client->get_unexpected_aborts();
+      result.largereadset_aborts_ += client->get_largereadset_aborts();
+      result.user_requested_aborts_ += client->get_user_requested_aborts();
+      ++cur_result;
+    }
   }
 /*
 for (uint32_t i = 0; i < clients_.size(); ++i) {
@@ -261,45 +355,44 @@ for (uint32_t i = 0; i < clients_.size(); ++i) {
   // output the current memory state at the end
   LOG(INFO) << engine_->get_memory_manager().dump_free_memory_stat();
 
-  assorted::memory_fence_release();
-  for (auto* client : clients_) {
-    client->request_stop();
-    /*
-    {
-      uint32_t from = 0;
-      uint32_t to = 0;
-      for (uint32_t i = 0; i < kCustomers * kDistricts * kMaxWarehouses; ++i) {
-        if (client->debug_wdcid_access_[i]) {
-          to = i;
-          if (from == 0) {
-            from = i;
-          }
-        }
-      }
-      LOG(INFO) << "debug_wdcid_access[" << client->get_worker_id() << "]=" << from << "~" << to;
-    }
-    {
-      uint32_t from = 0;
-      uint32_t to = 0;
-      for (uint32_t i = 0; i < kDistricts * kMaxWarehouses; ++i) {
-        if (client->debug_wdid_access_[i]) {
-          to = i;
-          if (from == 0) {
-            from = i;
-          }
-        }
-      }
-      LOG(INFO) << "debug_wdid_access[" << client->get_worker_id() << "]=" << from << "~" << to;
-    }
-    */
-  }
-  assorted::memory_fence_release();
+  channel->stop_flag_.store(true);
 
-  LOG(INFO) << "Total thread count=" << clients_.size();
-  for (uint16_t i = 0; i < sessions.size(); ++i) {
-    LOG(INFO) << "result[" << i << "]=" << sessions[i].get_result();
-    delete clients_[i];
+  if (FLAGS_fork_workers) {
+    std::vector<bool> exitted(options.thread_.group_count_, false);
+    while (channel->exit_nodes_ < options.thread_.group_count_) {
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+      LOG(INFO) << "Waiting for end... exit_count=" << channel->exit_nodes_;
+      for (uint16_t i = 0; i < pids.size(); ++i) {
+        if (exitted[i]) {
+          continue;
+        }
+        pid_t pid = pids[i];
+        int status;
+        pid_t result = ::waitpid(pid, &status, WNOHANG);
+        if (result == 0) {
+          LOG(INFO) << "  pid-" << pid << " is still alive..";
+        } else if (result == -1) {
+          LOG(FATAL) << "  pid-" << pid << " had an error! quit";
+        } else {
+          LOG(INFO) << "  pid-" << pid << " has exit with status code " << status;
+          exitted[i] = true;
+        }
+      }
+    }
+    LOG(INFO) << "All worker processes have exit!";
   }
+
+  for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
+    thread::ImpersonateSession* sessions = session_ptrs[node];
+    TpccClientTask* clients = clients_ptrs[node];
+    for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
+      LOG(INFO) << "result[" << node << "-" << ordinal << "]=" << sessions[ordinal].get_result();
+      clients[ordinal].~TpccClientTask();
+      sessions[ordinal].~ImpersonateSession();
+    }
+  }
+  delete[] session_memories;
+  delete[] clients_memories;
   return result;
 }
 
@@ -391,6 +484,10 @@ int driver_main(int argc, char **argv) {
       // again, numa_alloc_onnode should be better than numa_alloc_interleaved
       options.memory_.interleave_numa_alloc_ = true;
     }
+  }
+
+  if (FLAGS_fork_workers) {
+    std::cout << "Will fork workers in child processes" << std::endl;
   }
 
   options.snapshot_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/snapshot/node_$NODE$";

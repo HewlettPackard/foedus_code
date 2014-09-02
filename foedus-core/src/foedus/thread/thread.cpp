@@ -69,6 +69,9 @@ ErrorCode Thread::install_a_volatile_page(
   return pimpl_->install_a_volatile_page(pointer, installed_page);
 }
 
+void Thread::hack_handle_one_task(ImpersonateTask* task, ImpersonateSession* session) {
+  pimpl_->hack_handle_one_task(task, session);
+}
 
 std::ostream& operator<<(std::ostream& o, const Thread& v) {
   o << "Thread-" << v.get_thread_global_ordinal() << "(id=" << v.get_thread_id() << ") [";

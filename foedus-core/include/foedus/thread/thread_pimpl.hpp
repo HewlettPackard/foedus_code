@@ -54,6 +54,7 @@ class ThreadPimpl final : public DefaultInitializable {
   void        handle_tasks();
   /** initializes the thread's policy/priority */
   void        set_thread_schedule();
+  void        hack_handle_one_task(ImpersonateTask* task, ImpersonateSession* session);
 
   /**
    * Conditionally try to occupy this thread, or impersonate. If it fails, it immediately returns.

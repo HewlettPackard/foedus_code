@@ -61,13 +61,10 @@ class TpccDriver {
 
   Result run();
 
-  std::vector<TpccClientTask*>& get_clients() { return clients_; }
   const TpccStorages&           get_storages() const { return storages_; }
 
  private:
   Engine* const engine_;
-
-  std::vector<TpccClientTask*>  clients_;
 
   /** inclusive beginning of responsible wid. index=thread ordinal */
   std::vector<Wid>              from_wids_;

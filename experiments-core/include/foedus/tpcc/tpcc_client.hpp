@@ -30,6 +30,17 @@
 namespace foedus {
 namespace tpcc {
 /**
+ * Channel between the driver process/thread and clients process/thread.
+ * If the driver spawns client processes, this is allocated in shared memory.
+ */
+struct TpccClientChannel {
+  std::atomic<uint32_t> warmup_complete_counter_;
+  std::atomic<uint16_t> exit_nodes_;
+  std::atomic<bool> start_flag_;
+  std::atomic<bool> stop_flag_;
+};
+
+/**
  * @brief The worker thread to run transactions in the experiment.
  * @details
  * This is the canonical TPCC workload which use as the default experiment.
@@ -51,28 +62,28 @@ class TpccClientTask : public thread::ImpersonateTask {
     uint16_t neworder_remote_percent,
     uint16_t payment_remote_percent,
     const TpccStorages& storages,
-    std::atomic<uint32_t> *warmup_complete_counter,
-    thread::Rendezvous* start_rendezvous)
+    TpccClientChannel *channel)
     : worker_id_(worker_id),
       total_warehouses_(total_warehouses),
       from_wid_(from_wid),
       to_wid_(to_wid),
+      channel_(channel),
       storages_(storages),
       neworder_remote_percent_(neworder_remote_percent),
       payment_remote_percent_(payment_remote_percent),
       rnd_(kRandomSeed + worker_id),
       processed_(0) {
-    stop_requrested_ = false;
-    warmup_complete_counter_ = warmup_complete_counter;
-    start_rendezvous_ = start_rendezvous;
     user_requested_aborts_ = 0;
     race_aborts_ = 0;
     unexpected_aborts_ = 0;
     largereadset_aborts_ = 0;
+    std::memset(timestring_, 0, sizeof(timestring_));
+    timestring_len_ = 0;
     storages_.assert_initialized();
 //    std::memset(stat_wids_, 0, sizeof(stat_wids_));
 //    std::memset(stat_dids_, 0, sizeof(stat_dids_));
   }
+  ~TpccClientTask() {}
 
   ErrorStack run(thread::Thread* context);
 
@@ -86,10 +97,8 @@ class TpccClientTask : public thread::ImpersonateTask {
   uint32_t get_largereadset_aborts() const { return largereadset_aborts_; }
   uint32_t increment_largereadset_aborts() { return ++largereadset_aborts_; }
 
-  void request_stop() { stop_requrested_ = true; }
   bool is_stop_requested() const {
-    assorted::memory_fence_acquire();
-    return stop_requrested_;
+    return channel_->stop_flag_.load();
   }
 
   uint64_t get_processed() const { return processed_; }
@@ -111,12 +120,9 @@ class TpccClientTask : public thread::ImpersonateTask {
   /** exclusive end of "home" wid */
   const Wid to_wid_;
 
-  std::atomic<uint32_t>* warmup_complete_counter_;
-  thread::Rendezvous* start_rendezvous_;
+  TpccClientChannel* const channel_;
 
   TpccStorages      storages_;
-
-  bool              stop_requrested_;
 
   /** set at the beginning of run() for convenience */
   thread::Thread*   context_;
@@ -153,7 +159,9 @@ class TpccClientTask : public thread::ImpersonateTask {
 
   /** Updates timestring_ only per second. */
   uint64_t    previous_timestring_update_;
-  std::string timestring_;
+
+  char        timestring_[128];
+  uint16_t    timestring_len_;
 
   Cid     tmp_cids_[kMaxCidsPerLname];
 

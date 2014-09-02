@@ -5,6 +5,9 @@
 
 // Tests the cost of L3 cache miss using child processes.
 // Each NUMA node is spawned as a child process via fork(2).
+// This one uses mmap() even for 2MB pages (otherwise we can't share), so
+// make sure you have non-transparent hugepages.
+//   sudo sh -c 'echo 196608 > /proc/sys/vm/nr_hugepages'
 #include <numa.h>
 #include <numaif.h>
 #include <unistd.h>

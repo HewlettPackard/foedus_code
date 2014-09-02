@@ -83,6 +83,14 @@ ErrorStack ThreadPimpl::uninitialize_once() {
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 
+void ThreadPimpl::hack_handle_one_task(ImpersonateTask* task, ImpersonateSession* session) {
+  NumaThreadScope scope(numa_node_);
+  session->thread_ = holder_;
+  session->task_ = task;
+  ErrorStack result = task->run(holder_);
+  task->pimpl_->set_result(result);
+}
+
 void ThreadPimpl::handle_tasks() {
   int numa_node = static_cast<int>(decompose_numa_node(id_));
   LOG(INFO) << "Thread-" << id_ << " started running on NUMA node: " << numa_node;
