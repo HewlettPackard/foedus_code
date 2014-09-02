@@ -151,8 +151,16 @@ void AlignedMemory::alloc(
           << numa_node << ", error=" << assorted::os_error();
       }
     }
-  } else {
+  }
+
+  if (share) {
     VLOG(0) << "shared memory can't be set with mbind(). skipped";
+    // instead, use mlock() to immediately finalize physical memory allocation
+    int mlock_ret = ::mlock(block_, size_);
+    if (mlock_ret != 0) {
+      LOG(FATAL) << "mlock() failed, error=" << assorted::os_error() << ". A common error here"
+        << " is due to ulimit max-locked-memory. Add memlock -1 to limits.conf in that case.";
+    }
   }
   std::memset(block_, 0, size_);  // see class comment for why we do this immediately
   watch2.stop();
