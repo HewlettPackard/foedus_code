@@ -153,7 +153,9 @@ class TpccClientTask : public thread::ImpersonateTask {
 
   /** Updates timestring_ only per second. */
   uint64_t    previous_timestring_update_;
-  std::string timestring_;
+
+  char        timestring_[128];
+  uint16_t    timestring_len_;
 
   Cid     tmp_cids_[kMaxCidsPerLname];
 

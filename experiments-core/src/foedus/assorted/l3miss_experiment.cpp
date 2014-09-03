@@ -35,7 +35,7 @@ foedus::memory::AlignedMemory::AllocType alloc_type
   = foedus::memory::AlignedMemory::kNumaAllocOnnode;
 
 uint64_t run(const char* blocks, foedus::assorted::UniformRandom* rands) {
-  uint64_t memory_per_core = kMemory / nodes;
+  uint64_t memory_per_core = kMemory / cores_per_node;
   uint64_t ret = 0;
   for (uint32_t i = 0; i < kRep; ++i) {
     const char* block = blocks + ((rands->next_uint32() % (memory_per_core >> 6)) << 6);
@@ -48,7 +48,7 @@ uint64_t run(const char* blocks, foedus::assorted::UniformRandom* rands) {
 void main_impl(int id, int node) {
   foedus::thread::NumaThreadScope scope(node);
   foedus::memory::AlignedMemory memory;
-  uint64_t memory_per_core = kMemory / nodes;
+  uint64_t memory_per_core = kMemory / cores_per_node;
   memory.alloc(memory_per_core, 1ULL << 30, alloc_type, node);
 
   foedus::assorted::UniformRandom uniform_random(id);
