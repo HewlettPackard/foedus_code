@@ -30,12 +30,12 @@ std::mutex output_mutex;
 int nodes;
 int begin_node;
 int cores_per_node;
-uint64_t gb_per_core;
+uint64_t mb_per_core;
 foedus::memory::AlignedMemory::AllocType alloc_type
   = foedus::memory::AlignedMemory::kNumaAllocOnnode;
 
 uint64_t run(const char* blocks, foedus::assorted::UniformRandom* rands) {
-  uint64_t memory_size = gb_per_core << 30;
+  uint64_t memory_size = mb_per_core << 20;
   uint64_t ret = 0;
   for (uint32_t i = 0; i < kRep; ++i) {
     const char* block = blocks + ((rands->next_uint32() % (memory_size >> 6)) << 6);
@@ -48,7 +48,7 @@ uint64_t run(const char* blocks, foedus::assorted::UniformRandom* rands) {
 void main_impl(int id, int node) {
   foedus::thread::NumaThreadScope scope(node);
   foedus::memory::AlignedMemory memory;
-  uint64_t memory_size = gb_per_core << 30;
+  uint64_t memory_size = mb_per_core << 20;
   memory.alloc(memory_size, 1ULL << 30, foedus::memory::AlignedMemory::kNumaMmapOneGbPages, node);
 
   foedus::assorted::UniformRandom uniform_random(id);
@@ -71,7 +71,7 @@ void main_impl(int id, int node) {
 
 int main(int argc, char **argv) {
   if (argc < 5) {
-    std::cerr << "Usage: ./l3miss_experiment <nodes> <begin_node> <cores_per_node> <gb_per_core>"
+    std::cerr << "Usage: ./l3miss_experiment <nodes> <begin_node> <cores_per_node> <mb_per_core>"
       << std::endl;
     return 1;
   }
@@ -91,7 +91,7 @@ int main(int argc, char **argv) {
     std::cerr << "Invalid <cores_per_node>:" << argv[3] << std::endl;
     return 1;
   }
-  gb_per_core  = std::atoi(argv[4]);
+  mb_per_core  = std::atoi(argv[4]);
   if (argc >= 6 && std::string(argv[5]) != std::string("false")) {
     alloc_type = foedus::memory::AlignedMemory::kNumaMmapOneGbPages;
   }
