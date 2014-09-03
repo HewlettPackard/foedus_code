@@ -32,6 +32,8 @@ int begin_node;
 int cores_per_node;
 uint64_t mb_per_core;
 
+foedus::memory::AlignedMemory* data_memories;
+
 uint64_t run(const char* blocks, foedus::assorted::UniformRandom* rands) {
   uint64_t memory_size = mb_per_core << 20;
   uint64_t ret = 0;
@@ -45,9 +47,9 @@ uint64_t run(const char* blocks, foedus::assorted::UniformRandom* rands) {
 
 void main_impl(int id, int node) {
   foedus::thread::NumaThreadScope scope(node);
-  foedus::memory::AlignedMemory memory;
-  uint64_t memory_size = mb_per_core << 20;
-  memory.alloc(memory_size, 1ULL << 30, foedus::memory::AlignedMemory::kNumaAllocOnnode, node);
+  uint64_t memory_per_core = mb_per_core << 20;
+  char* memory = reinterpret_cast<char*>(data_memories[node].get_block());
+  memory += (memory_per_core * id);
 
   foedus::assorted::UniformRandom uniform_random(id);
 
@@ -55,7 +57,7 @@ void main_impl(int id, int node) {
   start_rendezvous.wait();
   {
     foedus::debugging::StopWatch stop_watch;
-    uint64_t ret = run(reinterpret_cast<char*>(memory.get_block()), &uniform_random);
+    uint64_t ret = run(memory, &uniform_random);
     stop_watch.stop();
     {
       std::lock_guard<std::mutex> guard(output_mutex);
@@ -66,6 +68,17 @@ void main_impl(int id, int node) {
     }
   }
 }
+
+void data_alloc(int node) {
+  data_memories[node].alloc(
+    (mb_per_core << 20) * cores_per_node,
+    1ULL << 30,
+    foedus::memory::AlignedMemory::kNumaAllocOnnode,
+    node);
+  std::cout << "Allocated memory for node-" << node << ":"
+    << data_memories[node].get_block() << std::endl;
+}
+
 
 int main(int argc, char **argv) {
   if (argc < 5) {
@@ -91,6 +104,19 @@ int main(int argc, char **argv) {
   }
   mb_per_core  = std::atoi(argv[4]);
 
+  std::cout << "Allocating data memory.." << std::endl;
+  data_memories = new foedus::memory::AlignedMemory[nodes];
+  {
+    std::vector<std::thread> alloc_threads;
+    for (auto node = 0; node < nodes; ++node) {
+      alloc_threads.emplace_back(data_alloc, node);
+    }
+    for (auto& t : alloc_threads) {
+      t.join();
+    }
+  }
+  std::cout << "Allocated all data memory." << std::endl;
+
   initialized_count = 0;
   std::vector<std::thread> threads;
   for (auto node = begin_node; node < begin_node + nodes; ++node) {
@@ -106,5 +132,7 @@ int main(int argc, char **argv) {
   for (auto& t : threads) {
     t.join();
   }
+  std::cout << "All done!" << std::endl;
+  delete[] data_memories;
   return 0;
 }
