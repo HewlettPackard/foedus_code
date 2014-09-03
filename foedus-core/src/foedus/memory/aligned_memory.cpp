@@ -12,8 +12,9 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
-#include <mutex>
-#include <ostream>
+#include <fstream>
+#include <iostream>
+#include <string>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
@@ -21,8 +22,14 @@
 
 
 // this is a quite new flag, so not exists in many environment. define it here.
+#ifndef MAP_HUGE_SHIFT
+#define MAP_HUGE_SHIFT  26
+#endif  // MAP_HUGE_SHIFT
+#ifndef MAP_HUGE_2MB
+#define MAP_HUGE_2MB (21 << MAP_HUGE_SHIFT)
+#endif  // MAP_HUGE_2MB
 #ifndef MAP_HUGE_1GB
-#define MAP_HUGE_1GB (30 << 26)
+#define MAP_HUGE_1GB (30 << MAP_HUGE_SHIFT)
 #endif  // MAP_HUGE_1GB
 
 namespace foedus {
@@ -34,6 +41,34 @@ AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
   alloc(size, alignment, alloc_type, numa_node, share);
 }
 
+bool already_reported_1gb = false;
+
+/** Returns 1GB hugepages were enabled. */
+bool is_1gb_hugepage_enabled() {
+  // /proc/meminfo should have "Hugepagesize:    1048576 kB"
+  // Unfortunately, sysinfo() doesn't provide this information. So, just read the whole file.
+  std::ifstream file("/proc/meminfo");
+  if (!file.is_open()) {
+    LOG(INFO) << "Mmm? failed to read /proc/meminfo";
+    return false;
+  }
+
+  std::string line;
+  while (std::getline(file, line)) {
+    if (line.find("Hugepagesize:") != std::string::npos) {
+      break;
+    }
+  }
+  file.close();
+  if (line.find("1048576 kB") != std::string::npos) {
+    if (!already_reported_1gb) {
+      LOG(INFO) << "Great, 1GB Hugepage is supported";
+      already_reported_1gb = true;
+    }
+    return true;
+  }
+  return false;
+}
 
 // std::mutex mmap_allocate_mutex;
 // No, this doesn't matter. Rather, turns out that the issue is in linux kernel:
@@ -47,9 +82,13 @@ char* alloc_mmap(uint64_t size, uint64_t alignment, bool share) {
   // lame. we will memset right after this.
   int pagesize;
   if (alignment >= (1ULL << 30)) {
-    pagesize = MAP_HUGE_1GB | MAP_HUGETLB;
+    if (is_1gb_hugepage_enabled()) {
+      pagesize = MAP_HUGE_1GB | MAP_HUGETLB;
+    } else {
+      pagesize = MAP_HUGE_2MB | MAP_HUGETLB;
+    }
   } else if (alignment >= (1ULL << 21)) {
-    pagesize = MAP_HUGETLB;
+    pagesize = MAP_HUGE_2MB | MAP_HUGETLB;
   } else {
     pagesize = 0;
   }
