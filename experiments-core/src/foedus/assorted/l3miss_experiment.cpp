@@ -105,6 +105,7 @@ int main(int argc, char **argv) {
   while (initialized_count < (nodes * cores_per_node)) {
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
+  std::cout << "Experiment has started! now start performance monitors etc" << std::endl;
   start_rendezvous.signal();
   for (auto& t : threads) {
     t.join();
