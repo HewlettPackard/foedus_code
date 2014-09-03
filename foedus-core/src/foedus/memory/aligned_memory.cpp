@@ -76,8 +76,9 @@ void* alloc_mmap_1gb_pages(uint64_t size, bool share) {
 }
 
 void* alloc_mmap_small_pages(uint64_t size, uint64_t alignment, int node, bool share) {
-  // if allocating a private memory, we can simply use libnuma
-  if (!share) {
+  // if allocating a small private memory, we can simply use libnuma
+  // this will also benefit from THP if configured.
+  if (!share && alignment < (1ULL << 30)) {
     if (node < 0) {
       return ::numa_alloc_interleaved(size);
     } else {
