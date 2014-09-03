@@ -29,13 +29,11 @@
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
 
-const uint64_t kMemory = 12ULL << 30;
 const uint32_t kRep = 1ULL << 26;
 
 int nodes;
 int cores_per_node;
-foedus::memory::AlignedMemory::AllocType alloc_type
-  = foedus::memory::AlignedMemory::kNumaAllocOnnode;
+uint64_t mb_per_core;
 
 struct ProcessChannel {
   std::atomic<int>  initialized_count;
@@ -48,7 +46,7 @@ ProcessChannel* process_channel;
 foedus::memory::AlignedMemory* data_memories;
 
 uint64_t run(const char* blocks, foedus::assorted::UniformRandom* rands) {
-  uint64_t memory_per_core = kMemory / cores_per_node;
+  uint64_t memory_per_core = mb_per_core << 20;
   uint64_t ret = 0;
   for (uint32_t i = 0; i < kRep; ++i) {
     const char* block = blocks + ((rands->next_uint32() % (memory_per_core >> 6)) << 6);
@@ -60,7 +58,7 @@ uint64_t run(const char* blocks, foedus::assorted::UniformRandom* rands) {
 
 void main_impl(int id, int node) {
   foedus::thread::NumaThreadScope scope(node);
-  uint64_t memory_per_core = kMemory / cores_per_node;
+  uint64_t memory_per_core = mb_per_core << 20;
   char* memory = reinterpret_cast<char*>(data_memories[node].get_block());
   memory += (memory_per_core * id);
 
@@ -108,14 +106,19 @@ int process_main(int node) {
   return 0;
 }
 void data_alloc(int node) {
-  data_memories[node].alloc(kMemory, 1ULL << 30, alloc_type, node, true);
+  data_memories[node].alloc(
+    (mb_per_core << 20) * cores_per_node,
+    1ULL << 30,
+    foedus::memory::AlignedMemory::kNumaAllocOnnode,
+    node,
+    true);
   std::cout << "Allocated memory for node-" << node << ":"
     << data_memories[node].get_block() << std::endl;
 }
 
 int main(int argc, char **argv) {
-  if (argc < 3) {
-    std::cerr << "Usage: ./l3miss_multip_experiment <nodes> <cores_per_node> [<use_mmap>]"
+  if (argc < 4) {
+    std::cerr << "Usage: ./l3miss_multip_experiment <nodes> <cores_per_node> <mb_per_core>"
       << std::endl;
     return 1;
   }
@@ -130,9 +133,7 @@ int main(int argc, char **argv) {
     std::cerr << "Invalid <cores_per_node>:" << argv[2] << std::endl;
     return 1;
   }
-  if (argc >= 4 && std::string(argv[3]) != std::string("false")) {
-    alloc_type = foedus::memory::AlignedMemory::kNumaMmapOneGbPages;
-  }
+  mb_per_core  = std::atoi(argv[3]);
 
   std::cout << "Allocating data memory.." << std::endl;
   data_memories = new foedus::memory::AlignedMemory[nodes];

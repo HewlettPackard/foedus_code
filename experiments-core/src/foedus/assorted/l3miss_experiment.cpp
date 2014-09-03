@@ -31,8 +31,6 @@ int nodes;
 int begin_node;
 int cores_per_node;
 uint64_t mb_per_core;
-foedus::memory::AlignedMemory::AllocType alloc_type
-  = foedus::memory::AlignedMemory::kNumaAllocOnnode;
 
 uint64_t run(const char* blocks, foedus::assorted::UniformRandom* rands) {
   uint64_t memory_size = mb_per_core << 20;
@@ -49,7 +47,7 @@ void main_impl(int id, int node) {
   foedus::thread::NumaThreadScope scope(node);
   foedus::memory::AlignedMemory memory;
   uint64_t memory_size = mb_per_core << 20;
-  memory.alloc(memory_size, 1ULL << 30, foedus::memory::AlignedMemory::kNumaMmapOneGbPages, node);
+  memory.alloc(memory_size, 1ULL << 30, foedus::memory::AlignedMemory::kNumaAllocOnnode, node);
 
   foedus::assorted::UniformRandom uniform_random(id);
 
@@ -92,9 +90,6 @@ int main(int argc, char **argv) {
     return 1;
   }
   mb_per_core  = std::atoi(argv[4]);
-  if (argc >= 6 && std::string(argv[5]) != std::string("false")) {
-    alloc_type = foedus::memory::AlignedMemory::kNumaMmapOneGbPages;
-  }
 
   initialized_count = 0;
   std::vector<std::thread> threads;
