@@ -35,7 +35,7 @@
 
 namespace foedus {
 namespace tpcc {
-DEFINE_bool(fork_workers, true, "Whether to fork(2) worker threads in child processes rather"
+DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
     " than threads in the same process. This is required to scale up to 100+ cores.");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");

@@ -34,13 +34,14 @@ AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
   alloc(size, alignment, alloc_type, numa_node, share);
 }
 
-/**
- * Don't know why.. but seems like mmap is much slower if overlapped.
- */
-std::mutex mmap_allocate_mutex;
+
+// std::mutex mmap_allocate_mutex;
+// No, this doesn't matter. Rather, turns out that the issue is in linux kernel:
+// https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/commit/?id=8382d914ebf72092aa15cdc2a5dcedb2daa0209d
+// In linux 3.15 and later, this problem gets resolved and highly parallelizable.
 
 char* alloc_mmap(uint64_t size, uint64_t alignment, bool share) {
-  std::lock_guard<std::mutex> guard(mmap_allocate_mutex);
+  // std::lock_guard<std::mutex> guard(mmap_allocate_mutex);
   // we don't use MAP_POPULATE because it will block here and also serialize hugepage allocation!
   // even if we run mmap in parallel, linux serializes the looooong population in all numa nodes.
   // lame. we will memset right after this.
