@@ -47,6 +47,8 @@ bool already_reported_1gb = false;
 bool is_1gb_hugepage_enabled() {
   // /proc/meminfo should have "Hugepagesize:    1048576 kB"
   // Unfortunately, sysinfo() doesn't provide this information. So, just read the whole file.
+  // Alternatively, we can use gethugepagesizes(3) in libhugetlbs, but I don't want to add
+  // a dependency just for that...
   std::ifstream file("/proc/meminfo");
   if (!file.is_open()) {
     LOG(INFO) << "Mmm? failed to read /proc/meminfo";
