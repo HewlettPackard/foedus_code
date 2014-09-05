@@ -58,9 +58,6 @@ class FixedString {
   template <uint MAXLEN2>
   explicit FixedString(const FixedString<MAXLEN2, CHAR>& other) CXX11_NOEXCEPT { assign(other); }
 
-  /** Copy constructor for std::string. Note that too-long strings are truncated. */
-  explicit FixedString(const std::basic_string<CHAR>& str) CXX11_NOEXCEPT { assign(str); }
-
   /** Copy constructor for char* and len. Note that too-long strings are truncated. */
   FixedString(const CHAR* str, uint32_t len) CXX11_NOEXCEPT { assign(str, len); }
 
@@ -76,11 +73,6 @@ class FixedString {
   template <uint MAXLEN2>
   FixedString& operator=(const FixedString<MAXLEN2, CHAR>& other) CXX11_NOEXCEPT {
     assign(other);
-    return *this;
-  }
-  /** Assign operator for std::string. Note that too-long strings are truncated. */
-  FixedString& operator=(const std::basic_string<CHAR>& str) CXX11_NOEXCEPT {
-    assign(str);
     return *this;
   }
 
@@ -108,17 +100,6 @@ class FixedString {
     }
     return length_ < other.length();
   }
-
-  bool operator==(const std::basic_string<CHAR>& str) const CXX11_NOEXCEPT {
-    if (length_ == 0) {
-      return str.size() == 0;
-    }
-    return length_ == str.size() && std::memcmp(data_, str.data(), length_ * sizeof(CHAR)) == 0;
-  }
-  bool operator!=(const std::basic_string<CHAR>& str) const CXX11_NOEXCEPT {
-    return !operator==(str);
-  }
-
 
   /** Assign operator for all FixedString objects. Note that too-long strings are truncated. */
   template <uint MAXLEN2>
@@ -160,6 +141,8 @@ class FixedString {
   std::basic_string<CHAR> str() const {
     return std::basic_string<CHAR>(data_, length_);
   }
+  /** Convert to a C string. */
+  const CHAR* c_str() const { return str().c_str(); }
 
   /**
    * npos is a static member constant value with the greatest possible value for uint32_t.

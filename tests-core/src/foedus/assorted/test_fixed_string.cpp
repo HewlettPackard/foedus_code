@@ -28,10 +28,10 @@ TEST(FixedStringTest, Construct) {
 
 TEST(FixedStringTest, Assign) {
   FixedString<8> str1;
-  str1 = std::string("12345");
+  str1 = "12345";
   EXPECT_EQ(std::string("12345"), str1.str());
   EXPECT_EQ(5, str1.length());
-  str1 = std::string("aabc");
+  str1 = "aabc";
   EXPECT_EQ(std::string("aabc"), str1.str());
   EXPECT_EQ(4, str1.length());
 }
@@ -39,10 +39,10 @@ TEST(FixedStringTest, Assign) {
 
 TEST(FixedStringTest, AssignTruncate) {
   FixedString<8> str1;
-  str1 = std::string("0123456789");
+  str1 = "0123456789";
   EXPECT_EQ(std::string("01234567"), str1.str());
   EXPECT_EQ(8, str1.length());
-  str1 = std::string("aabc");
+  str1 = "aabc";
   EXPECT_EQ(std::string("aabc"), str1.str());
   EXPECT_EQ(4, str1.length());
 }

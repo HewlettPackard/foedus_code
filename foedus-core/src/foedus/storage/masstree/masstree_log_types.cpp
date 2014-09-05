@@ -60,7 +60,7 @@ std::ostream& operator<<(std::ostream& o, const MasstreeCreateLogType& v) {
     << "<storage_id_>" << v.header_.storage_id_ << "</storage_id_>"
     << "<border_early_split_threshold__>"
       << v.border_early_split_threshold_ << "</border_early_split_threshold__>"
-    << "<name_>" << std::string(v.name_, v.name_length_) << "</name_>"
+    << "<name_>" << StorageName(v.name_, v.name_length_) << "</name_>"
     << "<name_length_>" << v.name_length_ << "</name_length_>"
     << "</MasstreeCreateLog>";
   return o;

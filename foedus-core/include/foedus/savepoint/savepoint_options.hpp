@@ -8,6 +8,7 @@
 
 #include "foedus/cxx11.hpp"
 #include "foedus/externalize/externalizable.hpp"
+#include "foedus/fs/filesystem.hpp"
 
 namespace foedus {
 namespace savepoint {
@@ -29,7 +30,7 @@ struct SavepointOptions CXX11_FINAL : public virtual externalize::Externalizable
    * This file is atomically and durably updated for each epoch-based commit.
    * Default is "savepoint.xml".
    */
-  std::string savepoint_path_;
+  fs::FixedPath savepoint_path_;
 
   EXTERNALIZABLE(SavepointOptions);
 };

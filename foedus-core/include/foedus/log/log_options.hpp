@@ -12,6 +12,7 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/externalize/externalizable.hpp"
 #include "foedus/fs/device_emulation_options.hpp"
+#include "foedus/fs/filesystem.hpp"
 #include "foedus/log/log_id.hpp"
 
 namespace foedus {
@@ -53,7 +54,7 @@ struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
    *
    * The default value is "logs/node_$NODE$/logger_$LOGGER$".
    */
-  std::string                 folder_path_pattern_;
+  fs::FixedPath               folder_path_pattern_;
 
   /**
    * @brief Number of loggers per NUMA node.

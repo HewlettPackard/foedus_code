@@ -25,7 +25,7 @@ namespace tpcc {
 void TpccClientTask::update_timestring_if_needed() {
   uint64_t now = debugging::get_rdtsc();
   if (now  - previous_timestring_update_ > (1ULL << 30)) {
-    timestring_ = get_current_time_string();
+    timestring_.assign(get_current_time_string());
     previous_timestring_update_ = now;
   }
 }
@@ -40,7 +40,7 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
   // std::memset(debug_wdid_access_, 0, sizeof(debug_wdid_access_));
   CHECK_ERROR(warmup(context));
   processed_ = 0;
-  timestring_ = get_current_time_string();
+  timestring_.assign(get_current_time_string());
   previous_timestring_update_ = debugging::get_rdtsc();
   xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
 

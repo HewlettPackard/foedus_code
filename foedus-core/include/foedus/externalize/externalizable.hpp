@@ -164,7 +164,7 @@ struct Externalizable {
     const assorted::FixedString<MAXLEN, CHAR>& value = assorted::FixedString<MAXLEN, CHAR>()) {
     std::string tmp_out;
     CHECK_ERROR(get_element(parent, tag, &tmp_out, optional, value.str().c_str()));
-    out->assign(tmp_out);
+    out->assign(tmp_out.data(), tmp_out.size());
     return kRetOk;
   }
 

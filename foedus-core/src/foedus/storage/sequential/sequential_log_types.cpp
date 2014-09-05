@@ -54,7 +54,7 @@ void SequentialCreateLogType::assert_valid() {
 std::ostream& operator<<(std::ostream& o, const SequentialCreateLogType& v) {
   o << "<SequentialCreateLog>"
     << "<storage_id_>" << v.header_.storage_id_ << "</storage_id_>"
-    << "<name_>" << std::string(v.name_, v.name_length_) << "</name_>"
+    << "<name_>" << StorageName(v.name_, v.name_length_) << "</name_>"
     << "<name_length_>" << v.name_length_ << "</name_length_>"
     << "</SequentialCreateLog>";
   return o;

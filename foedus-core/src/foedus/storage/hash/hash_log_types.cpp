@@ -60,7 +60,7 @@ void HashCreateLogType::assert_valid() {
 std::ostream& operator<<(std::ostream& o, const HashCreateLogType& v) {
   o << "<HashCreateLog>"
     << "<storage_id_>" << v.header_.storage_id_ << "</storage_id_>"
-    << "<name_>" << std::string(v.name_, v.name_length_) << "</name_>"
+    << "<name_>" << StorageName(v.name_, v.name_length_) << "</name_>"
     << "<name_length_>" << v.name_length_ << "</name_length_>"
     << "<bin_bits_>" << static_cast<int>(v.bin_bits_) << "</bin_bits_>"
     << "</HashCreateLog>";

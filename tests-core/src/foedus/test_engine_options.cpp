@@ -22,11 +22,11 @@ TEST(EngineOptionsTest, Copy) {
   EngineOptions options;
   EngineOptions options2;
   options2.savepoint_.savepoint_path_ = "aaa";
-  EXPECT_NE("aaa", options.savepoint_.savepoint_path_);
+  EXPECT_NE(fs::FixedPath("aaa"), options.savepoint_.savepoint_path_);
   options = options2;
-  EXPECT_EQ("aaa", options.savepoint_.savepoint_path_);
+  EXPECT_EQ(fs::FixedPath("aaa"), options.savepoint_.savepoint_path_);
   EngineOptions options3(options2);
-  EXPECT_EQ("aaa", options3.savepoint_.savepoint_path_);
+  EXPECT_EQ(fs::FixedPath("aaa"), options3.savepoint_.savepoint_path_);
 }
 
 TEST(EngineOptionsTest, Print) {

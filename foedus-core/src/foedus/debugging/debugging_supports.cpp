@@ -53,12 +53,12 @@ void DebuggingSupports::initialize_glog() {
     FLAGS_logtostderr = options.debug_log_to_stderr_;
     FLAGS_stderrthreshold = static_cast<int>(options.debug_log_stderr_threshold_);
     FLAGS_minloglevel = static_cast<int>(options.debug_log_min_threshold_);
-    FLAGS_log_dir = options.debug_log_dir_;  // This one must be BEFORE InitGoogleLogging()
+    FLAGS_log_dir = options.debug_log_dir_.str();  // This one must be BEFORE InitGoogleLogging()
     FLAGS_v = options.verbose_log_level_;
     if (options.verbose_modules_.size() > 0) {
       // Watch out for this bug, if we get a crash here:
       // https://code.google.com/p/google-glog/issues/detail?id=172
-      google::SetVLOGLevel(options.verbose_modules_.c_str(), options.verbose_log_level_);
+      google::SetVLOGLevel(options.verbose_modules_.str().c_str(), options.verbose_log_level_);
     }
     google::InitGoogleLogging("libfoedus");
     LOG(INFO) << "initialize_glog(): Initialized GLOG";
