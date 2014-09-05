@@ -56,4 +56,4 @@ set(test_const_div_individual
 )
 add_foedus_test_individual(test_const_div "${test_const_div_individual}")
 
-add_foedus_test_individual(test_fixed_string "Construct;Assign;AssignTruncate")
+add_foedus_test_individual(test_fixed_string "Construct;Assign;AssignTruncate;Copy")
