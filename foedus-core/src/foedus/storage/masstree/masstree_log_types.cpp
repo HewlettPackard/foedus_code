@@ -40,7 +40,7 @@ void MasstreeCreateLogType::populate(
 void MasstreeCreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
   ASSERT_ND(storage == nullptr);  // because we are now creating it.
   LOG(INFO) << "Applying CREATE MASSTREE STORAGE log: " << *this;
-  std::string name(name_, name_length_);
+  StorageName name(name_, name_length_);
   MasstreeMetadata metadata(header_.storage_id_, name, border_early_split_threshold_);
   std::unique_ptr<MasstreeStorage> masstree(
     new MasstreeStorage(context->get_engine(), metadata, true));

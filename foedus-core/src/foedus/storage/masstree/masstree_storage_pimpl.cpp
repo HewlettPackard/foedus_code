@@ -34,7 +34,7 @@ namespace masstree {
 bool        MasstreeStorage::is_initialized()   const  { return pimpl_->is_initialized(); }
 bool        MasstreeStorage::exists()           const  { return pimpl_->exist_; }
 StorageId   MasstreeStorage::get_id()           const  { return pimpl_->metadata_.id_; }
-const std::string& MasstreeStorage::get_name()  const  { return pimpl_->metadata_.name_; }
+const StorageName& MasstreeStorage::get_name()  const  { return pimpl_->metadata_.name_; }
 const Metadata* MasstreeStorage::get_metadata() const  { return &pimpl_->metadata_; }
 const MasstreeMetadata* MasstreeStorage::get_masstree_metadata() const  {
   return &pimpl_->metadata_;

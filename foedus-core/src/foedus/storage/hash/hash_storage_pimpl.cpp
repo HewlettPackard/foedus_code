@@ -43,7 +43,7 @@ namespace hash {
 bool        HashStorage::is_initialized()   const  { return pimpl_->is_initialized(); }
 bool        HashStorage::exists()           const  { return pimpl_->exist_; }
 StorageId   HashStorage::get_id()           const  { return pimpl_->metadata_.id_; }
-const std::string& HashStorage::get_name()  const  { return pimpl_->metadata_.name_; }
+const StorageName& HashStorage::get_name()  const  { return pimpl_->metadata_.name_; }
 const Metadata* HashStorage::get_metadata() const  { return &pimpl_->metadata_; }
 const HashMetadata* HashStorage::get_hash_metadata() const  { return &pimpl_->metadata_; }
 

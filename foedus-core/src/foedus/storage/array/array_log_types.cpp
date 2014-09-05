@@ -41,7 +41,7 @@ void ArrayCreateLogType::populate(
 void ArrayCreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
   ASSERT_ND(storage == nullptr);  // because we are now creating it.
   LOG(INFO) << "Applying CREATE ARRAY STORAGE log: " << *this;
-  std::string name(name_, name_length_);
+  StorageName name(name_, name_length_);
   ArrayMetadata metadata(header_.storage_id_, name, payload_size_, array_size_);
   std::unique_ptr<array::ArrayStorage> array(new array::ArrayStorage(context->get_engine(),
     metadata, true));

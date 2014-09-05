@@ -10,6 +10,8 @@
 
 #include <string>
 
+#include "foedus/assorted/fixed_string.hpp"
+
 namespace foedus {
 namespace externalize {
 /**
@@ -96,6 +98,20 @@ template<> struct TinyxmlGetter<std::string> {
     return tinyxml2::XML_SUCCESS;
   }
 };
+template <uint MAXLEN, typename CHAR>
+struct TinyxmlGetter< assorted::FixedString<MAXLEN, CHAR> > {
+  tinyxml2::XMLError operator()(
+    const tinyxml2::XMLElement *element,
+    assorted::FixedString<MAXLEN, CHAR> *out) {
+    const char* text = element->GetText();
+    if (text) {
+      *out = text;
+    } else {
+      out->clear();
+    }
+    return tinyxml2::XML_SUCCESS;
+  }
+};
 template<> struct TinyxmlGetter<double> {
   tinyxml2::XMLError operator()(const tinyxml2::XMLElement *element, double *out) {
     return element->QueryDoubleText(out);
@@ -121,6 +137,12 @@ template <typename T> struct TinyxmlSetter {
 template <> struct TinyxmlSetter<std::string> {
   void operator()(tinyxml2::XMLElement *element, const std::string &value) {
     element->SetText(value.c_str());
+  }
+};
+template <uint MAXLEN, typename CHAR>
+struct TinyxmlSetter< assorted::FixedString<MAXLEN, CHAR> > {
+  void operator()(tinyxml2::XMLElement *element, const assorted::FixedString<MAXLEN, CHAR> &value) {
+    element->SetText(value.str().c_str());
   }
 };
 

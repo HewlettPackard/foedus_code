@@ -13,6 +13,7 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/fixed_string.hpp"
 #include "foedus/fs/fwd.hpp"
 
 // forward declarations for tinyxml2. They should provide a header file for this...
@@ -110,6 +111,15 @@ struct Externalizable {
   static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
                   const std::string& comment, T value);
 
+  template <uint MAXLEN, typename CHAR>
+  static ErrorStack add_element(
+    tinyxml2::XMLElement* parent,
+    const std::string& tag,
+    const std::string& comment,
+    const assorted::FixedString<MAXLEN, CHAR>& value) {
+    return add_element< std::string >(parent, tag, comment, value.str());
+  }
+
   /** vector version */
   template <typename T>
   static ErrorStack add_element(tinyxml2::XMLElement* parent, const std::string& tag,
@@ -145,6 +155,18 @@ struct Externalizable {
   /** string type is bit special. */
   static ErrorStack get_element(tinyxml2::XMLElement* parent, const std::string& tag,
                   std::string* out, bool optional = false, const char* value = "");
+  template <uint MAXLEN, typename CHAR>
+  static ErrorStack get_element(
+    tinyxml2::XMLElement* parent,
+    const std::string& tag,
+    assorted::FixedString<MAXLEN, CHAR>* out,
+    bool optional = false,
+    const assorted::FixedString<MAXLEN, CHAR>& value = assorted::FixedString<MAXLEN, CHAR>()) {
+    std::string tmp_out;
+    CHECK_ERROR(get_element(parent, tag, &tmp_out, optional, value.str().c_str()));
+    out->assign(tmp_out);
+    return kRetOk;
+  }
 
   /** enum version */
   template <typename ENUM>

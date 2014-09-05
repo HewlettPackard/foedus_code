@@ -42,7 +42,7 @@ uint16_t    ArrayStorage::get_payload_size() const  { return pimpl_->metadata_.p
 ArrayOffset ArrayStorage::get_array_size()   const  { return pimpl_->metadata_.array_size_; }
 uint8_t     ArrayStorage::get_levels()       const  { return pimpl_->levels_; }
 StorageId   ArrayStorage::get_id()           const  { return pimpl_->metadata_.id_; }
-const std::string& ArrayStorage::get_name()  const  { return pimpl_->metadata_.name_; }
+const StorageName& ArrayStorage::get_name()  const  { return pimpl_->metadata_.name_; }
 const Metadata* ArrayStorage::get_metadata() const  { return &pimpl_->metadata_; }
 const ArrayMetadata* ArrayStorage::get_array_metadata() const  { return &pimpl_->metadata_; }
 

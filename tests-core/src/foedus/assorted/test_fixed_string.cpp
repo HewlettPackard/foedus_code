@@ -28,10 +28,10 @@ TEST(FixedStringTest, Construct) {
 
 TEST(FixedStringTest, Assign) {
   FixedString<8> str1;
-  str1 = "12345";
+  str1 = std::string("12345");
   EXPECT_EQ(std::string("12345"), str1.str());
   EXPECT_EQ(5, str1.length());
-  str1 = "aabc";
+  str1 = std::string("aabc");
   EXPECT_EQ(std::string("aabc"), str1.str());
   EXPECT_EQ(4, str1.length());
 }
@@ -39,10 +39,10 @@ TEST(FixedStringTest, Assign) {
 
 TEST(FixedStringTest, AssignTruncate) {
   FixedString<8> str1;
-  str1 = "0123456789";
+  str1 = std::string("0123456789");
   EXPECT_EQ(std::string("01234567"), str1.str());
   EXPECT_EQ(8, str1.length());
-  str1 = "aabc";
+  str1 = std::string("aabc");
   EXPECT_EQ(std::string("aabc"), str1.str());
   EXPECT_EQ(4, str1.length());
 }
@@ -57,6 +57,17 @@ TEST(FixedStringTest, Copy) {
   str3 = str1;
   EXPECT_EQ(std::string("1234"), str3.str());
   EXPECT_EQ(4, str3.length());
+}
+
+TEST(FixedStringTest, Compare) {
+  FixedString<8> str1("12345");
+  FixedString<12> str2("123456");
+  FixedString<16> str3("12345");
+  EXPECT_EQ(str1, str3);
+  EXPECT_NE(str2, str3);
+  EXPECT_NE(str1, str2);
+  EXPECT_LT(str1, str2);
+  EXPECT_LT(str3, str2);
 }
 
 }  // namespace assorted

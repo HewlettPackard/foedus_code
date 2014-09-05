@@ -38,18 +38,18 @@ class TpccCreateTask : public thread::ImpersonateTask {
 
   ErrorStack create_array(
     thread::Thread* context,
-    const std::string& name,
+    const storage::StorageName& name,
     uint32_t payload_size,
     uint64_t array_size,
     storage::array::ArrayStorage** storage);
   ErrorStack create_masstree(
     thread::Thread* context,
-    const std::string& name,
+    const storage::StorageName& name,
     float border_fill_factor,
     storage::masstree::MasstreeStorage** storage);
   ErrorStack create_sequential(
     thread::Thread* context,
-    const std::string& name,
+    const storage::StorageName& name,
     storage::sequential::SequentialStorage** storage);
 };
 /**

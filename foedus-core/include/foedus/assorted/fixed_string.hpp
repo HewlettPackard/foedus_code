@@ -6,7 +6,9 @@
 #define FOEDUS_ASSORTED_FIXED_STRING_HPP_
 #include <stdint.h>
 
+#include <algorithm>
 #include <cstring>
+#include <cwchar>
 #include <ostream>
 #include <string>
 
@@ -59,6 +61,17 @@ class FixedString {
   /** Copy constructor for std::string. Note that too-long strings are truncated. */
   explicit FixedString(const std::basic_string<CHAR>& str) CXX11_NOEXCEPT { assign(str); }
 
+  /** Copy constructor for char* and len. Note that too-long strings are truncated. */
+  FixedString(const CHAR* str, uint32_t len) CXX11_NOEXCEPT { assign(str, len); }
+
+  /** Copy constructor for null-terminated char*. Note that too-long strings are truncated. */
+  FixedString(const CHAR* str) CXX11_NOEXCEPT {  // NOLINT(runtime/explicit) follows std::string
+    assign(str, strlen(str));
+  }
+
+  static uint32_t strlen(const char* str) CXX11_NOEXCEPT { return std::strlen(str); }
+  static uint32_t strlen(const wchar_t* str) CXX11_NOEXCEPT { return std::wcslen(str); }
+
   /** Assign operator for all FixedString objects. Note that too-long strings are truncated. */
   template <uint MAXLEN2>
   FixedString& operator=(const FixedString<MAXLEN2, CHAR>& other) CXX11_NOEXCEPT {
@@ -76,22 +89,36 @@ class FixedString {
     if (length_ == 0) {
       return other.length() == 0;
     }
-    return length_ == other.length() && std::memcmp(data_, other.data(), length_ * sizeof(CHAR));
+    return length_ == other.length() &&
+      std::memcmp(data_, other.data(), length_ * sizeof(CHAR)) == 0;
   }
   template <uint MAXLEN2>
   bool operator!=(const FixedString<MAXLEN2, CHAR>& other) const CXX11_NOEXCEPT {
     return !operator==(other);
+  }
+  template <uint MAXLEN2>
+  bool operator<(const FixedString<MAXLEN2, CHAR>& other) const CXX11_NOEXCEPT {
+    uint32_t min_len = std::min<uint32_t>(length_, other.length());
+    if (min_len == 0) {
+      return length_ < other.length();
+    }
+    int result = std::memcmp(data_, other.data(), min_len * sizeof(CHAR));
+    if (result != 0) {
+      return result < 0;
+    }
+    return length_ < other.length();
   }
 
   bool operator==(const std::basic_string<CHAR>& str) const CXX11_NOEXCEPT {
     if (length_ == 0) {
       return str.size() == 0;
     }
-    return length_ == str.size() && std::memcmp(data_, str.data(), length_ * sizeof(CHAR));
+    return length_ == str.size() && std::memcmp(data_, str.data(), length_ * sizeof(CHAR)) == 0;
   }
   bool operator!=(const std::basic_string<CHAR>& str) const CXX11_NOEXCEPT {
     return !operator==(str);
   }
+
 
   /** Assign operator for all FixedString objects. Note that too-long strings are truncated. */
   template <uint MAXLEN2>
@@ -104,6 +131,12 @@ class FixedString {
   void      assign(const std::basic_string<CHAR>& str) CXX11_NOEXCEPT {
     length_ = str.size() > MAXLEN ? MAXLEN : str.size();
     std::memcpy(data_, str.data(), length_ * sizeof(CHAR));
+  }
+
+  /** Assign operator for char* and length. Note that too-long strings are truncated. */
+  void      assign(const CHAR* str, uint32_t len) CXX11_NOEXCEPT {
+    length_ = len > MAXLEN ? MAXLEN : len;
+    std::memcpy(data_, str, length_ * sizeof(CHAR));
   }
 
   // the following methods imitate std::string signatures.
