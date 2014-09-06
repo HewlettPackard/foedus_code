@@ -25,8 +25,8 @@
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/uniform_random.hpp"
 #include "foedus/debugging/stop_watch.hpp"
-#include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/memory_id.hpp"
+#include "foedus/memory/shared_memory.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
 
 const uint32_t kRep = 1ULL << 26;
@@ -40,10 +40,10 @@ struct ProcessChannel {
   std::atomic<bool> experiment_started;
   std::atomic<int>  exit_count;
 };
-foedus::memory::AlignedMemory process_channel_memory;
+foedus::memory::SharedMemory process_channel_memory;
 ProcessChannel* process_channel;
 
-foedus::memory::AlignedMemory* data_memories;
+foedus::memory::SharedMemory* data_memories;
 
 uint64_t run(const char* blocks, foedus::assorted::UniformRandom* rands) {
   uint64_t memory_per_core = mb_per_core << 20;
@@ -82,16 +82,6 @@ void main_impl(int id, int node) {
 }
 int process_main(int node) {
   std::cout << "Node-" << node << " started working on pid-" << ::getpid() << std::endl;
-  /*
-  {
-    nodemask_t mask;
-    ::nodemask_zero(&mask);
-    ::nodemask_set_compat(&mask, node);
-    bitmask mask2;
-    ::copy_nodemask_to_bitmask(&mask, &mask2);
-    ::numa_bind(&mask2);
-  }
-  */
   foedus::thread::NumaThreadScope scope(node);
   std::vector<std::thread> threads;
   for (auto i = 0; i < cores_per_node; ++i) {
@@ -106,12 +96,7 @@ int process_main(int node) {
   return 0;
 }
 void data_alloc(int node) {
-  data_memories[node].alloc(
-    (mb_per_core << 20) * cores_per_node,
-    1ULL << 30,
-    foedus::memory::AlignedMemory::kNumaAllocOnnode,
-    node,
-    true);
+  data_memories[node].alloc((mb_per_core << 20) * cores_per_node, node);
   std::cout << "Allocated memory for node-" << node << ":"
     << data_memories[node].get_block() << std::endl;
 }
@@ -136,7 +121,7 @@ int main(int argc, char **argv) {
   mb_per_core  = std::atoi(argv[3]);
 
   std::cout << "Allocating data memory.." << std::endl;
-  data_memories = new foedus::memory::AlignedMemory[nodes];
+  data_memories = new foedus::memory::SharedMemory[nodes];
   {
     std::vector<std::thread> alloc_threads;
     for (auto node = 0; node < nodes; ++node) {
@@ -148,12 +133,7 @@ int main(int argc, char **argv) {
   }
   std::cout << "Allocated all data memory." << std::endl;
 
-  process_channel_memory.alloc(
-    1 << 21,
-    1 << 21,
-    foedus::memory::AlignedMemory::kNumaAllocOnnode,
-    0,
-    true);
+  process_channel_memory.alloc(1 << 21, 0);
   process_channel = reinterpret_cast<ProcessChannel*>(process_channel_memory.get_block());
   process_channel->initialized_count = 0;
   process_channel->experiment_started = false;
@@ -168,6 +148,10 @@ int main(int argc, char **argv) {
       return 1;
     }
     if (pid == 0) {
+      process_channel_memory.throw_away_ownership();
+      for (auto node = 0; node < nodes; ++node) {
+        data_memories[node].throw_away_ownership();
+      }
       return process_main(node);
     } else {
       // parent
