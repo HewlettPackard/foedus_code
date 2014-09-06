@@ -38,7 +38,7 @@ namespace sequential {
 bool        SequentialStorage::is_initialized()   const  { return pimpl_->is_initialized(); }
 bool        SequentialStorage::exists()           const  { return pimpl_->exist_; }
 StorageId   SequentialStorage::get_id()           const  { return pimpl_->metadata_.id_; }
-const std::string& SequentialStorage::get_name()  const  { return pimpl_->metadata_.name_; }
+const StorageName& SequentialStorage::get_name()  const  { return pimpl_->metadata_.name_; }
 const Metadata* SequentialStorage::get_metadata() const  { return &pimpl_->metadata_; }
 const SequentialMetadata* SequentialStorage::get_sequential_metadata() const  {
   return &pimpl_->metadata_;

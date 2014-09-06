@@ -56,7 +56,7 @@ class Storage : public virtual Initializable {
   /**
    * Returns the unique name of this storage.
    */
-  virtual const std::string&  get_name() const = 0;
+  virtual const StorageName&  get_name() const = 0;
 
   /**
    * Returns the metadata of this storage.

@@ -11,6 +11,7 @@
 #include "foedus/error_code.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/assorted/fixed_string.hpp"
 #include "foedus/fs/path.hpp"
 
 namespace foedus {
@@ -61,6 +62,12 @@ enum FilePermission {
 
   kPermsNotKnown = 0xFFFF,   // present when directory_entry cache not loaded
 };
+
+/**
+ * @brief Represents a fixed (thus can be placed in shared memory) path string.
+ * @ingroup FILESYSTEM
+ */
+typedef assorted::FixedString<508> FixedPath;
 
 /**
  * @brief Analogue of boost::filesystem::file_status.

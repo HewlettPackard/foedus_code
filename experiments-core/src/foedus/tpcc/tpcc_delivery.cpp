@@ -58,7 +58,8 @@ ErrorCode TpccClientTask::do_delivery(Wid wid) {
       wid,
       did,
       oid,
-      timestring_,
+      timestring_.data(),
+      timestring_.size(),
       &amount_total,
       &ol_count));
 
@@ -103,6 +104,7 @@ ErrorCode TpccClientTask::update_orderline_delivery_dates(
   Did did,
   Oid oid,
   const char* delivery_date,
+  uint32_t delivery_date_len,
   uint64_t* ol_amount_total,
   uint32_t* ol_count) {
   Wdid wdid = combine_wdid(wid, did);
@@ -125,7 +127,7 @@ ErrorCode TpccClientTask::update_orderline_delivery_dates(
     const OrderlineData* payload = reinterpret_cast<const OrderlineData*>(cursor.get_payload());
     *ol_amount_total += payload->amount_;
     ++(*ol_count);
-    CHECK_ERROR_CODE(cursor.overwrite_record(delivery_date, offset, sizeof(payload->delivery_d_)));
+    CHECK_ERROR_CODE(cursor.overwrite_record(delivery_date, offset, delivery_date_len));
     CHECK_ERROR_CODE(cursor.next());
   }
 

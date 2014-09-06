@@ -10,6 +10,7 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/fixed_string.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/thread/thread_id.hpp"
@@ -39,6 +40,10 @@ const uint16_t kPageSize = 1 << 12;
  * The primary way to identify storages is this StorageId.
  */
 typedef uint32_t StorageId;
+
+/** Represents a unique name of a storage. Upto 60 characters so far. */
+typedef assorted::FixedString<60> StorageName;
+STATIC_SIZE_CHECK(sizeof(StorageName), 64)
 
 /**
  * @brief As partition=NUMA node, this is just a synonym of foedus::thread::ThreadGroupId.

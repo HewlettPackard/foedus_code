@@ -39,11 +39,11 @@ namespace sequential {
  */
 struct SequentialMetadata CXX11_FINAL : public virtual Metadata {
   SequentialMetadata() : Metadata(0, kSequentialStorage, "") {}
-  SequentialMetadata(StorageId id, const std::string& name)
+  SequentialMetadata(StorageId id, const StorageName& name)
     : Metadata(id, kSequentialStorage, name) {
   }
   /** This one is for newly creating a storage. */
-  explicit SequentialMetadata(const std::string& name) : Metadata(0, kArrayStorage, name) {
+  explicit SequentialMetadata(const StorageName& name) : Metadata(0, kArrayStorage, name) {
   }
   EXTERNALIZABLE(SequentialMetadata);
 

@@ -120,7 +120,7 @@ Storage* StorageManagerPimpl::get_storage(StorageId id) {
   assorted::memory_fence_acquire();  // to sync with expand
   return storages_[id];
 }
-Storage* StorageManagerPimpl::get_storage(const std::string& name) {
+Storage* StorageManagerPimpl::get_storage(const StorageName& name) {
   std::lock_guard<std::mutex> guard(mod_lock_);
   auto it = storage_names_.find(name);
   if (it == storage_names_.end()) {
@@ -152,7 +152,7 @@ ErrorStack StorageManagerPimpl::register_storage(Storage* storage) {
     return ERROR_STACK(kErrorCodeStrDuplicateStrname);
   }
   storages_[id] = storage;
-  storage_names_.insert(std::pair< std::string, Storage* >(storage->get_name(), storage));
+  storage_names_.insert(std::pair< StorageName, Storage* >(storage->get_name(), storage));
   if (id > largest_storage_id_) {
     largest_storage_id_ = id;
   }
@@ -184,7 +184,7 @@ ErrorStack StorageManagerPimpl::drop_storage(thread::Thread* context, StorageId 
 void StorageManagerPimpl::drop_storage_apply(thread::Thread* /*context*/, Storage* storage) {
   ASSERT_ND(storage);
   StorageId id = storage->get_id();
-  std::string name = storage->get_name();
+  StorageName name = storage->get_name();
   LOG(INFO) << "Dropping storage " << id << "(" << name << ")";
   COERCE_ERROR(storage->uninitialize());
   LOG(INFO) << "Uninitialized storage " << id << "(" << name << ")";
@@ -258,7 +258,7 @@ ErrorStack StorageManagerPimpl::create_storage(thread::Thread* context,
     return ERROR_STACK(kErrorCodeStrMustSeparateXct);
   }
 
-  const std::string& name = metadata->name_;
+  const StorageName& name = metadata->name_;
   {
     std::lock_guard<std::mutex> guard(mod_lock_);
     if (storage_names_.find(name) != storage_names_.end()) {

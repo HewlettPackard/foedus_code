@@ -31,7 +31,7 @@ bool        StorageManager::is_initialized() const { return pimpl_->is_initializ
 ErrorStack  StorageManager::uninitialize() { return pimpl_->uninitialize(); }
 
 Storage* StorageManager::get_storage(StorageId id) { return pimpl_->get_storage(id); }
-Storage* StorageManager::get_storage(const std::string& name) { return pimpl_->get_storage(name); }
+Storage* StorageManager::get_storage(const StorageName& name) { return pimpl_->get_storage(name); }
 
 StorageId StorageManager::issue_next_storage_id() { return pimpl_->issue_next_storage_id(); }
 void* StorageManager::get_instance_memory(StorageId storage_id) {

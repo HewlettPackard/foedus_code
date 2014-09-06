@@ -62,7 +62,7 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
    * @param[in] name Storage name
    * @return Storage object in this engine. If there is no storage with the name, nullptr.
    */
-  Storage*    get_storage(const std::string &name);
+  Storage*    get_storage(const StorageName& name);
 
   /**
    * @brief Removes the storage object.

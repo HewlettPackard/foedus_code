@@ -38,7 +38,7 @@ class StorageManagerPimpl final : public DefaultInitializable {
 
   StorageId   issue_next_storage_id();
   Storage*    get_storage(StorageId id);
-  Storage*    get_storage(const std::string &name);
+  Storage*    get_storage(const StorageName& name);
   /**
    * @brief Adds a storage object, either newly created or constructed from disk at start-up.
    * @param[in] storage an already-constructred and initialized Storage
@@ -103,7 +103,7 @@ class StorageManagerPimpl final : public DefaultInitializable {
    * Storage name to pointer mapping. Accessing this, either read or write, must take mod_lock_
    * because std::map is not thread-safe. This is why get_storage(string) is more expensive.
    */
-  std::map< std::string, Storage* >   storage_names_;
+  std::map< StorageName, Storage* >   storage_names_;
 
   /**
    * Factory objects to instantiate storage objects.

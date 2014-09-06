@@ -7,6 +7,7 @@
 #include <iosfwd>
 #include <string>
 
+#include "foedus/assorted/fixed_string.hpp"
 #include "foedus/externalize/externalizable.hpp"
 #include "foedus/storage/storage_id.hpp"
 
@@ -36,12 +37,12 @@ namespace storage {
  */
 struct Metadata : public virtual externalize::Externalizable {
   Metadata() : id_(0), type_(kInvalidStorage), name_(""), root_snapshot_page_id_(0) {}
-  Metadata(StorageId id, StorageType type, const std::string& name)
+  Metadata(StorageId id, StorageType type, const StorageName& name)
     : id_(id), type_(type), name_(name), root_snapshot_page_id_(0) {}
   Metadata(
     StorageId id,
     StorageType type,
-    const std::string& name,
+    const StorageName& name,
     SnapshotPagePointer root_snapshot_page_id)
     : id_(id), type_(type), name_(name), root_snapshot_page_id_(root_snapshot_page_id) {}
   explicit Metadata(const Metadata& other)
@@ -81,7 +82,7 @@ struct Metadata : public virtual externalize::Externalizable {
   /** type of the storage. */
   StorageType     type_;
   /** the unique name of this storage. */
-  std::string     name_;
+  StorageName     name_;
   /**
    * Pointer to a snapshotted page this storage is rooted at.
    * This is 0 until this storage has the first snapshot.

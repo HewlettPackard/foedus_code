@@ -124,8 +124,8 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
       c_did,
       c_wid,
       amount);
-    std::memcpy(c_new_data + written, timestring_, timestring_len_);
-    written += timestring_len_;
+    std::memcpy(c_new_data + written, timestring_.data(), timestring_.size());
+    written += timestring_.size();
     std::memcpy(c_new_data + written, c_old_data, sizeof(c_new_data) - written);
     CHECK_ERROR_CODE(storages_.customers_history_->overwrite_record(
       context_,
@@ -151,15 +151,15 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   h_data.data_[13] = ' ';
   std::memcpy(h_data.data_ + 14, d_record->name_, 10);
 
-  std::memcpy(h_data.date_, timestring_, timestring_len_);
-  if (timestring_len_ < sizeof(h_data.date_)) {
-    std::memset(h_data.date_ + timestring_len_, 0, sizeof(h_data.date_) - timestring_len_);
+  std::memcpy(h_data.date_, timestring_.data(), timestring_.size());
+  if (timestring_.size() < sizeof(h_data.date_)) {
+    std::memset(h_data.date_ + timestring_.size(), 0, sizeof(h_data.date_) - timestring_.size());
   }
   CHECK_ERROR_CODE(storages_.histories_->append_record(context_, &h_data, sizeof(h_data)));
 
   DVLOG(2) << "Payment: wid=" << wid << ", did=" << static_cast<int>(did)
     << ", cid=" << cid << ", c_wid=" << c_wid << ", c_did=" << static_cast<int>(c_did)
-    << ", time=" << std::string(timestring_, timestring_len_);
+    << ", time=" << timestring_.str();
   Epoch ep;
   return engine_->get_xct_manager().precommit_xct(context_, &ep);
 }

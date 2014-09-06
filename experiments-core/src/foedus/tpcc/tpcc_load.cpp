@@ -143,7 +143,7 @@ ErrorStack TpccCreateTask::run(thread::Thread* context) {
 
 ErrorStack TpccCreateTask::create_array(
   thread::Thread* context,
-  const std::string& name,
+  const storage::StorageName& name,
   uint32_t payload_size,
   uint64_t array_size,
   storage::array::ArrayStorage** storage) {
@@ -157,7 +157,7 @@ ErrorStack TpccCreateTask::create_array(
 
 ErrorStack TpccCreateTask::create_masstree(
   thread::Thread* context,
-  const std::string& name,
+  const storage::StorageName& name,
   float border_fill_factor,
   storage::masstree::MasstreeStorage** storage) {
   Epoch ep;
@@ -170,7 +170,7 @@ ErrorStack TpccCreateTask::create_masstree(
 
 ErrorStack TpccCreateTask::create_sequential(
   thread::Thread* context,
-  const std::string& name,
+  const storage::StorageName& name,
   storage::sequential::SequentialStorage** storage) {
   Epoch ep;
   storage::sequential::SequentialMetadata meta(name);

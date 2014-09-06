@@ -41,37 +41,6 @@ AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
   alloc(size, alignment, alloc_type, numa_node, share);
 }
 
-bool already_reported_1gb = false;
-
-/** Returns 1GB hugepages were enabled. */
-bool is_1gb_hugepage_enabled() {
-  // /proc/meminfo should have "Hugepagesize:    1048576 kB"
-  // Unfortunately, sysinfo() doesn't provide this information. So, just read the whole file.
-  // Alternatively, we can use gethugepagesizes(3) in libhugetlbs, but I don't want to add
-  // a dependency just for that...
-  std::ifstream file("/proc/meminfo");
-  if (!file.is_open()) {
-    LOG(INFO) << "Mmm? failed to read /proc/meminfo";
-    return false;
-  }
-
-  std::string line;
-  while (std::getline(file, line)) {
-    if (line.find("Hugepagesize:") != std::string::npos) {
-      break;
-    }
-  }
-  file.close();
-  if (line.find("1048576 kB") != std::string::npos) {
-    if (!already_reported_1gb) {
-      LOG(INFO) << "Great, 1GB Hugepage is supported";
-      already_reported_1gb = true;
-    }
-    return true;
-  }
-  return false;
-}
-
 // std::mutex mmap_allocate_mutex;
 // No, this doesn't matter. Rather, turns out that the issue is in linux kernel:
 // https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/commit/?id=8382d914ebf72092aa15cdc2a5dcedb2daa0209d
@@ -289,6 +258,29 @@ std::ostream& operator<<(std::ostream& o, const AlignedMemorySlice& v) {
   }
   o << "</AlignedMemorySlice>";
   return o;
+}
+
+bool is_1gb_hugepage_enabled() {
+  // /proc/meminfo should have "Hugepagesize:    1048576 kB"
+  // Unfortunately, sysinfo() doesn't provide this information. So, just read the whole file.
+  // Alternatively, we can use gethugepagesizes(3) in libhugetlbs, but I don't want to add
+  // a dependency just for that...
+  std::ifstream file("/proc/meminfo");
+  if (!file.is_open()) {
+    return false;
+  }
+
+  std::string line;
+  while (std::getline(file, line)) {
+    if (line.find("Hugepagesize:") != std::string::npos) {
+      break;
+    }
+  }
+  file.close();
+  if (line.find("1048576 kB") != std::string::npos) {
+    return true;
+  }
+  return false;
 }
 }  // namespace memory
 }  // namespace foedus

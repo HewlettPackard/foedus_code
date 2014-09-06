@@ -24,7 +24,7 @@ SnapshotOptions::SnapshotOptions() {
 }
 
 std::string SnapshotOptions::convert_folder_path_pattern(int node) const {
-  return assorted::replace_all(folder_path_pattern_, "$NODE$", node);
+  return assorted::replace_all(folder_path_pattern_.str(), "$NODE$", node);
 }
 
 std::string SnapshotOptions::construct_snapshot_file_path(int snapshot_id, int node) const {

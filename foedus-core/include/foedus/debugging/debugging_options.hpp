@@ -9,7 +9,9 @@
 #include <string>
 
 #include "foedus/cxx11.hpp"
+#include "foedus/assorted/fixed_string.hpp"
 #include "foedus/externalize/externalizable.hpp"
+#include "foedus/fs/filesystem.hpp"
 
 namespace foedus {
 namespace debugging {
@@ -64,7 +66,7 @@ struct DebuggingOptions CXX11_FINAL : public virtual externalize::Externalizable
    * @details
    * Default is 0. There is an API to change this setting at runtime.
    */
-  int16_t                            verbose_log_level_;
+  int16_t                             verbose_log_level_;
 
   /**
    * @brief Per-module verbose level.
@@ -75,7 +77,7 @@ struct DebuggingOptions CXX11_FINAL : public virtual externalize::Externalizable
    * matched against the filename base (that is, name ignoring .cc/.h./-inl.h)
    * Default is "". There is an API to change this setting at runtime.
    */
-  std::string                         verbose_modules_;
+  assorted::FixedString<252>          verbose_modules_;
 
   /**
    * @brief Path of the folder to write debug logs.
@@ -84,7 +86,7 @@ struct DebuggingOptions CXX11_FINAL : public virtual externalize::Externalizable
    * @attention We do NOT have API to change this setting at runtime.
    * You must configure this as a start-up option.
    */
-  std::string                         debug_log_dir_;
+  fs::FixedPath                       debug_log_dir_;
 
   EXTERNALIZABLE(DebuggingOptions);
 };

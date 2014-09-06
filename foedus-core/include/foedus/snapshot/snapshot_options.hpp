@@ -10,6 +10,7 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/externalize/externalizable.hpp"
 #include "foedus/fs/device_emulation_options.hpp"
+#include "foedus/fs/filesystem.hpp"
 
 namespace foedus {
 namespace snapshot {
@@ -50,7 +51,7 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
    *
    * The default value is "snapshots/node_$NODE$".
    */
-  std::string                         folder_path_pattern_;
+  fs::FixedPath                       folder_path_pattern_;
 
   /**
    * When the main page pool runs under this percent (roughly calculated) of free pages,
