@@ -49,12 +49,6 @@ find_package(Numa REQUIRED)
 # We also need pthread. Note that linking against libstdc with C++11 flag is not enough.
 find_package(Threads REQUIRED)
 
-# We use Boost Interprocess (IPC) for inter-SOC communications.
-# We use only its header-only portion.
-set(BOOST_DATE_TIME_NO_LIB ON) # to disable non-header-only portion
-find_package(Boost REQUIRED)
-message(STATUS "Boost include=${Boost_INCLUDE_DIRS}. We use header-only portion of boost only.")
-
 # google-perftools is optional. We use it only for performance experiments.
 # Every such code should be within #ifdef HAVE_GOOGLEPERFTOOLS.
 find_package(GooglePerftools)
@@ -111,10 +105,7 @@ include_directories(SYSTEM
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tinyxml2-2.1.0
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glog-0.3.3/src
   # We also include the BINARY folder of glog as glog generates config.h
-  ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog-0.3.3/src
-  # boost (only for ipc)
-  ${Boost_INCLUDE_DIRS}
-  )
+  ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog-0.3.3/src)
 # gperftools is optional for this library
 if (GOOGLEPERFTOOLS_FOUND)
   include_directories(SYSTEM ${GooglePerftools_INCLUDE_DIR})
