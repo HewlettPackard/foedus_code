@@ -41,7 +41,7 @@ void ArrayCreateLogType::populate(
 void ArrayCreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
   ASSERT_ND(storage == nullptr);  // because we are now creating it.
   LOG(INFO) << "Applying CREATE ARRAY STORAGE log: " << *this;
-  std::string name(name_, name_length_);
+  StorageName name(name_, name_length_);
   ArrayMetadata metadata(header_.storage_id_, name, payload_size_, array_size_);
   std::unique_ptr<array::ArrayStorage> array(new array::ArrayStorage(context->get_engine(),
     metadata, true));
@@ -59,7 +59,7 @@ void ArrayCreateLogType::assert_valid() {
 std::ostream& operator<<(std::ostream& o, const ArrayCreateLogType& v) {
   o << "<ArrayCreateLog>"
     << "<storage_id_>" << v.header_.storage_id_ << "</storage_id_>"
-    << "<name_>" << std::string(v.name_, v.name_length_) << "</name_>"
+    << "<name_>" << StorageName(v.name_, v.name_length_) << "</name_>"
     << "<name_length_>" << v.name_length_ << "</name_length_>"
     << "<array_size_>" << v.array_size_ << "</array_size_>"
     << "</ArrayCreateLog>";

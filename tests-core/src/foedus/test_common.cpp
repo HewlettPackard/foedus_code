@@ -24,16 +24,16 @@ namespace foedus {
     {
       std::stringstream str;
       str << "tmp_logs/" << uniquefier << "/node_$NODE$/logger_$LOGGER$";
-      options.log_.folder_path_pattern_ = str.str();
+      options.log_.folder_path_pattern_.assign(str.str());
     }
 
     {
       std::stringstream str;
       str << "tmp_snapshots/" << uniquefier << "/node_$NODE$";
-      options.snapshot_.folder_path_pattern_ = str.str();
+      options.snapshot_.folder_path_pattern_.assign(str.str());
     }
 
-    options.savepoint_.savepoint_path_ = std::string("tmp_savepoints/") + uniquefier + ".xml";
+    options.savepoint_.savepoint_path_.assign(std::string("tmp_savepoints/") + uniquefier + ".xml");
 
     return options;
   }
@@ -68,7 +68,7 @@ namespace foedus {
     }
   }
   void cleanup_test(const EngineOptions& options) {
-    fs::remove(fs::Path(options.savepoint_.savepoint_path_));
+    fs::remove(fs::Path(options.savepoint_.savepoint_path_.str()));
     fs::remove(fs::Path("tmp_logs"));
     fs::remove(fs::Path("tmp_snapshots"));
   }

@@ -49,7 +49,7 @@ class HashStorage CXX11_FINAL : public virtual Storage {
   // Storage interface
   StorageId           get_id()    const CXX11_OVERRIDE;
   StorageType         get_type()  const CXX11_OVERRIDE { return kHashStorage; }
-  const std::string&  get_name()  const CXX11_OVERRIDE;
+  const StorageName&  get_name()  const CXX11_OVERRIDE;
   const Metadata*     get_metadata()  const CXX11_OVERRIDE;
   const HashMetadata* get_hash_metadata()  const;
   bool                exists()    const CXX11_OVERRIDE;

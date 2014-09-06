@@ -21,7 +21,7 @@ LogOptions::LogOptions() {
 }
 
 std::string LogOptions::convert_folder_path_pattern(int node, int logger) const {
-  std::string tmp = assorted::replace_all(folder_path_pattern_, "$NODE$", node);
+  std::string tmp = assorted::replace_all(folder_path_pattern_.str(), "$NODE$", node);
   return assorted::replace_all(tmp, "$LOGGER$", logger);
 }
 

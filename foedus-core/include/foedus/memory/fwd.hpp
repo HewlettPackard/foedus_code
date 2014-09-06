@@ -25,6 +25,7 @@ class   PagePoolPimpl;
 class   PageReleaseBatch;
 class   PageResolver;
 class   RoundRobinPageGrabBatch;
+class   SharedMemory;
 }  // namespace memory
 }  // namespace foedus
 #endif  // FOEDUS_MEMORY_FWD_HPP_

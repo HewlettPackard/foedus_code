@@ -17,6 +17,7 @@
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/assorted/fixed_string.hpp"
 #include "foedus/assorted/uniform_random.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
@@ -154,8 +155,7 @@ class TpccClientTask : public thread::ImpersonateTask {
   /** Updates timestring_ only per second. */
   uint64_t    previous_timestring_update_;
 
-  char        timestring_[128];
-  uint16_t    timestring_len_;
+  assorted::FixedString<28> timestring_;
 
   Cid     tmp_cids_[kMaxCidsPerLname];
 
@@ -210,6 +210,7 @@ class TpccClientTask : public thread::ImpersonateTask {
     Did did,
     Oid oid,
     const char* delivery_date,
+    uint32_t delivery_date_len,
     uint64_t* ol_amount_total,
     uint32_t* ol_count);
 

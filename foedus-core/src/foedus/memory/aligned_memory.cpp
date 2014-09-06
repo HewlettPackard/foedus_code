@@ -12,8 +12,9 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
-#include <mutex>
-#include <ostream>
+#include <fstream>
+#include <iostream>
+#include <string>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
@@ -33,16 +34,10 @@ AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
   alloc(size, alignment, alloc_type, numa_node);
 }
 
-/**
- * Don't know why.. but seems like mmap is much slower if overlapped.
- */
-std::mutex mmap_allocate_mutex;
-
 void* alloc_mmap_1gb_pages(uint64_t size) {
   ASSERT_ND(size % (1ULL << 30) == 0);
   char* ret;
   {
-    std::lock_guard<std::mutex> guard(mmap_allocate_mutex);
     // we don't use MAP_POPULATE because it will block here and also serialize hugepage allocation!
     // even if we run mmap in parallel, linux serializes the looooong population in all numa nodes.
     // lame. we will memset right after this.
@@ -198,6 +193,29 @@ std::ostream& operator<<(std::ostream& o, const AlignedMemorySlice& v) {
   }
   o << "</AlignedMemorySlice>";
   return o;
+}
+
+bool is_1gb_hugepage_enabled() {
+  // /proc/meminfo should have "Hugepagesize:    1048576 kB"
+  // Unfortunately, sysinfo() doesn't provide this information. So, just read the whole file.
+  // Alternatively, we can use gethugepagesizes(3) in libhugetlbs, but I don't want to add
+  // a dependency just for that...
+  std::ifstream file("/proc/meminfo");
+  if (!file.is_open()) {
+    return false;
+  }
+
+  std::string line;
+  while (std::getline(file, line)) {
+    if (line.find("Hugepagesize:") != std::string::npos) {
+      break;
+    }
+  }
+  file.close();
+  if (line.find("1048576 kB") != std::string::npos) {
+    return true;
+  }
+  return false;
 }
 }  // namespace memory
 }  // namespace foedus

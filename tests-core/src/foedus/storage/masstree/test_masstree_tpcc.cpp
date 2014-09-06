@@ -251,7 +251,7 @@ class TpccLoadTask : public thread::ImpersonateTask {
   Cid       get_permutation(bool* cid_array);
 
   ErrorStack create_tables();
-  ErrorStack create_masstree(const std::string& name, MasstreeStorage** storage);
+  ErrorStack create_masstree(const storage::StorageName& name, MasstreeStorage** storage);
 
   ErrorCode  commit_if_full();
 
@@ -344,7 +344,7 @@ ErrorStack TpccLoadTask::create_tables() {
 }
 
 ErrorStack TpccLoadTask::create_masstree(
-  const std::string& name,
+  const storage::StorageName& name,
   MasstreeStorage** storage) {
   Epoch ep;
   storage::masstree::MasstreeMetadata meta(name);

@@ -96,9 +96,12 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
   o_data.all_local_ = all_local_warehouse ? 1 : 0;
   o_data.cid_ = cid;
   o_data.carrier_id_ = 0;
-  std::memcpy(o_data.entry_d_, timestring_, timestring_len_);
-  if (timestring_len_ < sizeof(o_data.entry_d_)) {
-    std::memset(o_data.entry_d_ + timestring_len_, 0, sizeof(o_data.entry_d_) - timestring_len_);
+  std::memcpy(o_data.entry_d_, timestring_.data(), timestring_.size());
+  if (timestring_.size() < sizeof(o_data.entry_d_)) {
+    std::memset(
+      o_data.entry_d_ + timestring_.size(),
+      0,
+      sizeof(o_data.entry_d_) - timestring_.size());
   }
   o_data.ol_cnt_ = ol_cnt;
 

@@ -204,6 +204,9 @@ struct AlignedMemorySlice CXX11_FINAL {
   uint64_t        count_;
 };
 
+/** Returns if 1GB hugepages were enabled. */
+bool is_1gb_hugepage_enabled();
+
 }  // namespace memory
 }  // namespace foedus
 

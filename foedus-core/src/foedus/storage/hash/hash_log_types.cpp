@@ -42,7 +42,7 @@ void HashCreateLogType::populate(
 void HashCreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
   ASSERT_ND(storage == nullptr);  // because we are now creating it.
   LOG(INFO) << "Applying CREATE HASH STORAGE log: " << *this;
-  std::string name(name_, name_length_);
+  StorageName name(name_, name_length_);
   HashMetadata metadata(header_.storage_id_, name, bin_bits_);
   std::unique_ptr<hash::HashStorage> hash(new hash::HashStorage(context->get_engine(),
     metadata, true));
@@ -60,7 +60,7 @@ void HashCreateLogType::assert_valid() {
 std::ostream& operator<<(std::ostream& o, const HashCreateLogType& v) {
   o << "<HashCreateLog>"
     << "<storage_id_>" << v.header_.storage_id_ << "</storage_id_>"
-    << "<name_>" << std::string(v.name_, v.name_length_) << "</name_>"
+    << "<name_>" << StorageName(v.name_, v.name_length_) << "</name_>"
     << "<name_length_>" << v.name_length_ << "</name_length_>"
     << "<bin_bits_>" << static_cast<int>(v.bin_bits_) << "</bin_bits_>"
     << "</HashCreateLog>";

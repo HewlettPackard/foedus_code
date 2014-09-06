@@ -234,7 +234,7 @@ int main_impl(int argc, char **argv) {
 
   fs::Path savepoint_path(folder);
   savepoint_path /= "savepoint.xml";
-  options.savepoint_.savepoint_path_ = savepoint_path.string();
+  options.savepoint_.savepoint_path_.assign(savepoint_path.string());
   ASSERT_ND(!fs::exists(savepoint_path));
 
   std::cout << "NUMA node count=" << static_cast<int>(options.thread_.group_count_) << std::endl;

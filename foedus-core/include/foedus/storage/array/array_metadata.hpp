@@ -29,14 +29,14 @@ struct ArrayMetadata CXX11_FINAL : public virtual Metadata {
     : Metadata(0, kArrayStorage, ""), payload_size_(0), array_size_(0) {}
   ArrayMetadata(
     StorageId id,
-    const std::string& name,
+    const StorageName& name,
     uint16_t payload_size,
     ArrayOffset array_size)
     : Metadata(id, kArrayStorage, name),
     payload_size_(payload_size), array_size_(array_size) {
   }
   /** This one is for newly creating a storage. */
-  ArrayMetadata(const std::string& name, uint16_t payload_size, ArrayOffset array_size)
+  ArrayMetadata(const StorageName& name, uint16_t payload_size, ArrayOffset array_size)
     : Metadata(0, kArrayStorage, name),
     payload_size_(payload_size), array_size_(array_size) {
   }

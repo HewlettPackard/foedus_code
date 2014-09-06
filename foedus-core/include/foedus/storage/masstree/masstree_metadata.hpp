@@ -29,13 +29,13 @@ struct MasstreeMetadata CXX11_FINAL : public virtual Metadata {
   MasstreeMetadata() : Metadata(0, kMasstreeStorage, ""), border_early_split_threshold_(0) {}
   MasstreeMetadata(
     StorageId id,
-    const std::string& name,
+    const StorageName& name,
     uint16_t border_early_split_threshold = 0)
     : Metadata(id, kMasstreeStorage, name),
       border_early_split_threshold_(border_early_split_threshold) {
   }
   /** This one is for newly creating a storage. */
-  MasstreeMetadata(const std::string& name, uint16_t border_early_split_threshold = 0)
+  MasstreeMetadata(const StorageName& name, uint16_t border_early_split_threshold = 0)
     : Metadata(0, kArrayStorage, name),
       border_early_split_threshold_(border_early_split_threshold) {
   }
