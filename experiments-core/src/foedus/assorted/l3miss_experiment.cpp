@@ -22,7 +22,6 @@
 #include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/thread/rendezvous_impl.hpp"
 
-const uint64_t kMemory = 12ULL << 30;
 const uint32_t kRep = 1ULL << 26;
 foedus::thread::Rendezvous start_rendezvous;
 std::atomic<int> initialized_count;
@@ -31,14 +30,15 @@ std::mutex output_mutex;
 int nodes;
 int begin_node;
 int cores_per_node;
-foedus::memory::AlignedMemory::AllocType alloc_type
-  = foedus::memory::AlignedMemory::kNumaAllocOnnode;
+uint64_t mb_per_core;
+
+foedus::memory::AlignedMemory* data_memories;
 
 uint64_t run(const char* blocks, foedus::assorted::UniformRandom* rands) {
-  uint64_t memory_per_core = kMemory / cores_per_node;
+  uint64_t memory_size = mb_per_core << 20;
   uint64_t ret = 0;
   for (uint32_t i = 0; i < kRep; ++i) {
-    const char* block = blocks + ((rands->next_uint32() % (memory_per_core >> 6)) << 6);
+    const char* block = blocks + ((rands->next_uint32() % (memory_size >> 6)) << 6);
     block += ret % (1 << 6);
     ret += *block;
   }
@@ -47,9 +47,9 @@ uint64_t run(const char* blocks, foedus::assorted::UniformRandom* rands) {
 
 void main_impl(int id, int node) {
   foedus::thread::NumaThreadScope scope(node);
-  foedus::memory::AlignedMemory memory;
-  uint64_t memory_per_core = kMemory / cores_per_node;
-  memory.alloc(memory_per_core, 1ULL << 30, alloc_type, node);
+  uint64_t memory_per_core = mb_per_core << 20;
+  char* memory = reinterpret_cast<char*>(data_memories[node].get_block());
+  memory += (memory_per_core * id);
 
   foedus::assorted::UniformRandom uniform_random(id);
 
@@ -57,7 +57,7 @@ void main_impl(int id, int node) {
   start_rendezvous.wait();
   {
     foedus::debugging::StopWatch stop_watch;
-    uint64_t ret = run(reinterpret_cast<char*>(memory.get_block()), &uniform_random);
+    uint64_t ret = run(memory, &uniform_random);
     stop_watch.stop();
     {
       std::lock_guard<std::mutex> guard(output_mutex);
@@ -69,9 +69,20 @@ void main_impl(int id, int node) {
   }
 }
 
+void data_alloc(int node) {
+  data_memories[node].alloc(
+    (mb_per_core << 20) * cores_per_node,
+    1ULL << 30,
+    foedus::memory::AlignedMemory::kNumaAllocOnnode,
+    node);
+  std::cout << "Allocated memory for node-" << node << ":"
+    << data_memories[node].get_block() << std::endl;
+}
+
+
 int main(int argc, char **argv) {
-  if (argc < 4) {
-    std::cerr << "Usage: ./l3miss_experiment <nodes> <begin_node> <cores_per_node> [<use_mmap>]"
+  if (argc < 5) {
+    std::cerr << "Usage: ./l3miss_experiment <nodes> <begin_node> <cores_per_node> <mb_per_core>"
       << std::endl;
     return 1;
   }
@@ -91,9 +102,20 @@ int main(int argc, char **argv) {
     std::cerr << "Invalid <cores_per_node>:" << argv[3] << std::endl;
     return 1;
   }
-  if (argc >= 5 && std::string(argv[4]) != std::string("false")) {
-    alloc_type = foedus::memory::AlignedMemory::kNumaMmapOneGbPages;
+  mb_per_core  = std::atoi(argv[4]);
+
+  std::cout << "Allocating data memory.." << std::endl;
+  data_memories = new foedus::memory::AlignedMemory[nodes];
+  {
+    std::vector<std::thread> alloc_threads;
+    for (auto node = 0; node < nodes; ++node) {
+      alloc_threads.emplace_back(data_alloc, node);
+    }
+    for (auto& t : alloc_threads) {
+      t.join();
+    }
   }
+  std::cout << "Allocated all data memory." << std::endl;
 
   initialized_count = 0;
   std::vector<std::thread> threads;
@@ -105,9 +127,12 @@ int main(int argc, char **argv) {
   while (initialized_count < (nodes * cores_per_node)) {
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
+  std::cout << "Experiment has started! now start performance monitors etc" << std::endl;
   start_rendezvous.signal();
   for (auto& t : threads) {
     t.join();
   }
+  std::cout << "All done!" << std::endl;
+  delete[] data_memories;
   return 0;
 }
