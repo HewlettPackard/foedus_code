@@ -59,7 +59,7 @@ uint64_t run(const char* blocks, foedus::assorted::UniformRandom* rands) {
 void main_impl(int id, int node) {
   foedus::thread::NumaThreadScope scope(node);
   uint64_t memory_per_core = mb_per_core << 20;
-  char* memory = reinterpret_cast<char*>(data_memories[node].get_block());
+  char* memory = data_memories[node].get_block();
   memory += (memory_per_core * id);
 
   foedus::assorted::UniformRandom uniform_random(id);
@@ -96,7 +96,9 @@ int process_main(int node) {
   return 0;
 }
 void data_alloc(int node) {
-  data_memories[node].alloc((mb_per_core << 20) * cores_per_node, node);
+  std::stringstream meta_path;
+  meta_path << "/tmp/foedus_l3miss_multip_experiment_" << ::getpid() << "_node_" << node;
+  data_memories[node].alloc(meta_path.str(), (mb_per_core << 20) * cores_per_node, node);
   std::cout << "Allocated memory for node-" << node << ":"
     << data_memories[node].get_block() << std::endl;
 }
@@ -133,11 +135,14 @@ int main(int argc, char **argv) {
   }
   std::cout << "Allocated all data memory." << std::endl;
 
-  process_channel_memory.alloc(1 << 21, 0);
+  std::stringstream meta_path;
+  meta_path << "/tmp/foedus_l3miss_multip_experiment_" << ::getpid() << "_channel";
+  process_channel_memory.alloc(meta_path.str(), 1 << 21, 0);
   process_channel = reinterpret_cast<ProcessChannel*>(process_channel_memory.get_block());
   process_channel->initialized_count = 0;
   process_channel->experiment_started = false;
   process_channel->exit_count = 0;
+  std::cout << "Allocated channel memory:" << process_channel_memory << std::endl;
 
   std::vector<pid_t> pids;
   std::vector<bool> exitted;
@@ -148,10 +153,6 @@ int main(int argc, char **argv) {
       return 1;
     }
     if (pid == 0) {
-      process_channel_memory.throw_away_ownership();
-      for (auto node = 0; node < nodes; ++node) {
-        data_memories[node].throw_away_ownership();
-      }
       return process_main(node);
     } else {
       // parent

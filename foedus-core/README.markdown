@@ -207,5 +207,6 @@ libfoedus-core uses a few open source libraries listed below.
 | papi         | BSD(?)  | Optional dynamic-link. Distributes nothing.  |
 | libnuma      | LGPL    | Dynamic-link. Distributes nothing.           |
 | glibc/stdc++ | LGPL    | Dynamic-link. Distributes nothing.           |
+| valgrind     | BSD     | Header-only.  Contains source code.          |
 
 For more details, see COPYING/LICENSE.txt/etc in the third-party folder.

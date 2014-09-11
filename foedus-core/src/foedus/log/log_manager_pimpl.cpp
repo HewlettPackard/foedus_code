@@ -188,7 +188,7 @@ ErrorCode LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_m
 
 
 void LogManagerPimpl::copy_logger_states(savepoint::Savepoint* new_savepoint) {
-  new_savepoint->current_log_files_.clear();
+  new_savepoint->oldest_log_files_.clear();
   new_savepoint->oldest_log_files_offset_begin_.clear();
   new_savepoint->current_log_files_.clear();
   new_savepoint->current_log_files_offset_durable_.clear();

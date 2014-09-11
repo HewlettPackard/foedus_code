@@ -75,6 +75,14 @@ struct Externalizable {
   virtual void assign(const foedus::externalize::Externalizable *other) = 0;
 
   /**
+   * @brief Load the content of this object from the given XML string.
+   * @param[in] xml XML string.
+   * @details
+   * Expect errors due to missing-elements, out-of-range values, etc.
+   */
+  ErrorStack  load_from_string(const std::string& xml);
+
+  /**
    * @brief Invokes save() and directs the resulting XML text to the given stream.
    * @param[in] ptr ostream to write to.
    */

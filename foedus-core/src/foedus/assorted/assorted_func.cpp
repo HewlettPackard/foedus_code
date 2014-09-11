@@ -8,10 +8,12 @@
 #include <cxxabi.h>
 #endif  // __GNUC__
 #include <stdint.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -60,6 +62,16 @@ std::string os_error(int error_number) {
   // TODO(Hideaki) is std::strerror thread-safe? Thre is no std::strerror_r. Windows, mmm.
   str << "[Errno " << error_number << "] " << std::strerror(error_number);
   return str.str();
+}
+
+std::string get_current_executable_path() {
+  char buf[1024];
+  ssize_t len = ::readlink("/proc/self/exe", buf, sizeof(buf));
+  if (len == -1) {
+    std::cerr << "Failed to get the path of current executable. error=" << os_error() << std::endl;
+    return "";
+  }
+  return std::string(buf, len);
 }
 
 std::ostream& operator<<(std::ostream& o, const Hex& v) {

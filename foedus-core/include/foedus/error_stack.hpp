@@ -149,6 +149,9 @@ class ErrorStack {
   /** Returns the function name of the given stack position. */
   const char*         get_func(uint16_t stack_index) const;
 
+  /** Global errno of the system as of instantiation of this error stack.*/
+  int                 get_os_errno() const;
+
   /** Output a warning to stderr if the error is not checked yet. */
   void                verify() const;
 
@@ -414,6 +417,14 @@ inline const char* ErrorStack::get_func(uint16_t stack_index) const {
   }
   ASSERT_ND(stack_index < stack_depth_);
   return funcs_[stack_index];
+}
+
+inline int ErrorStack::get_os_errno() const {
+  // Invariant: if kErrorCodeOk, no more processing
+  if (error_code_ == kErrorCodeOk) {
+    return 0;
+  }
+  return os_errno_;
 }
 
 inline void ErrorStack::verify() const {

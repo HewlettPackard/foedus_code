@@ -105,7 +105,9 @@ include_directories(SYSTEM
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tinyxml2-2.1.0
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glog-0.3.3/src
   # We also include the BINARY folder of glog as glog generates config.h
-  ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog-0.3.3/src)
+  ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog-0.3.3/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/valgrind-3.9.0/include
+  )
 # gperftools is optional for this library
 if (GOOGLEPERFTOOLS_FOUND)
   include_directories(SYSTEM ${GooglePerftools_INCLUDE_DIR})
@@ -242,3 +244,19 @@ if(DOXYGEN_FOUND)
 else(DOXYGEN_FOUND)
   add_custom_target(dox ${CMAKE_COMMAND} -E echo "Doxygen not found. No documents generated.")
 endif(DOXYGEN_FOUND)
+
+
+#############################################################################
+#
+#               Setting environment: BEGIN
+#
+#############################################################################
+add_custom_target(set-env
+  COMMAND sysctl -w kernel.shmmax=9223372036854775807
+  COMMAND sysctl -w kernel.shmall=1152921504606846720
+  COMMAND sysctl -p
+  COMMENT "Sets linux environments for FOEDUS. This is convenient to setup a test/develop environment."
+    " You need to run this with sudo. To avoid running this after each reboot, you should also set"
+    "the following in /etc/sysctl.conf: kernel.shmmax = 9223372036854775807"
+    " kernel.shmall = 1152921504606846720"
+  )

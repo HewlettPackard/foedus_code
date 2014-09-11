@@ -19,6 +19,24 @@
 
 namespace foedus {
 namespace externalize {
+
+ErrorStack Externalizable::load_from_string(const std::string& xml) {
+  tinyxml2::XMLDocument document;
+  tinyxml2::XMLError load_error = document.Parse(xml.data(), xml.size());
+  if (load_error != tinyxml2::XML_SUCCESS) {
+    std::stringstream custom_message;
+    custom_message << "xml=" << xml << ", tinyxml2 error=" << load_error
+       << ", GetErrorStr1()=" << document.GetErrorStr1()
+       << ", GetErrorStr2()=" << document.GetErrorStr2();
+    return ERROR_STACK_MSG(kErrorCodeConfParseFailed, custom_message.str().c_str());
+  } else if (!document.RootElement()) {
+    return ERROR_STACK_MSG(kErrorCodeConfEmptyXml, xml.c_str());
+  } else {
+    CHECK_ERROR(load(document.RootElement()));
+  }
+  return kRetOk;
+}
+
 void Externalizable::save_to_stream(std::ostream* ptr) const {
   std::ostream &o = *ptr;
   tinyxml2::XMLDocument doc;

@@ -27,3 +27,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -w") # same as glog
 add_subdirectory(tinyxml2-2.1.0)
 # Glog is now also a CMake project.
 add_subdirectory(glog-0.3.3)
+
+# We contain valgrind folder here, but we use it just as a header-only library.
+# We only need RUNNING_ON_VALGRIND macro from it.

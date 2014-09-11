@@ -39,12 +39,18 @@ const uint64_t kHugepageSize = 1 << 21;
  * Use this in a place you want to direct all memory allocation to a specific NUMA node.
  */
 struct ScopedNumaPreferred {
-  explicit ScopedNumaPreferred(int numa_node) {
+  ScopedNumaPreferred(int numa_node, bool retain_old = false) {
+    if (retain_old) {
+      old_value_ = ::numa_preferred();
+    } else {
+      old_value_ = -1;
+    }
     ::numa_set_preferred(numa_node);
   }
   ~ScopedNumaPreferred() {
-    ::numa_set_preferred(-1);
+    ::numa_set_preferred(old_value_);
   }
+  int old_value_;
 };
 
 }  // namespace memory
