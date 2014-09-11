@@ -97,7 +97,7 @@ void SharedMemory::alloc(const std::string& meta_path, uint64_t size, int numa_n
   shmid_ = ::shmget(
     shmkey_,
     size_,
-    IPC_CREAT | IPC_EXCL | 0666 | (running_on_valgrind ? 0 : SHM_HUGETLB));
+    IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR | (running_on_valgrind ? 0 : SHM_HUGETLB));
   if (shmid_ == -1) {
     std::cerr << "shmget() alloc failed! size=" << size_ << ", error=" << assorted::os_error()
       << ". This is usually caused by a misconfigured environment. Check the following:"

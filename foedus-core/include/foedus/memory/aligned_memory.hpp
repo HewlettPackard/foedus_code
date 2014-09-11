@@ -88,7 +88,7 @@ class AlignedMemory CXX11_FINAL {
 
   /** Empty constructor which allocates nothing. */
   AlignedMemory() CXX11_NOEXCEPT : size_(0), alignment_(0), alloc_type_(kPosixMemalign),
-    numa_node_(0), block_(CXX11_NULLPTR) {}
+    share_(false), numa_node_(0), block_(CXX11_NULLPTR) {}
 
   /**
    * Allocate an aligned memory of given size and alignment.

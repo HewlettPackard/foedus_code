@@ -6,6 +6,7 @@
 
 #include <numa.h>
 #include <numaif.h>
+#include <valgrind.h>
 #include <glog/logging.h>
 #include <sys/mman.h>
 
@@ -61,6 +62,12 @@ char* alloc_mmap(uint64_t size, uint64_t alignment, bool share) {
   } else if (alignment >= (1ULL << 21)) {
     pagesize = MAP_HUGE_2MB | MAP_HUGETLB;
   } else {
+    pagesize = 0;
+  }
+  bool running_on_valgrind = RUNNING_ON_VALGRIND;
+  if (running_on_valgrind) {
+    // if this is running under valgrind, we have to avoid using hugepages due to a bug in valgrind.
+    // When we are running on valgrind, we don't care performance anyway. So shouldn't matter.
     pagesize = 0;
   }
   int share_scope = (share ? MAP_SHARED : MAP_PRIVATE);
@@ -170,6 +177,7 @@ void AlignedMemory::alloc(
 
   if (share) {
     VLOG(0) << "shared memory can't be set with mbind(). skipped";
+    /* no need for mlock. has no effect on performance.
     // instead, use mlock() to immediately finalize physical memory allocation
     int mlock_ret = ::mlock(block_, size_);
     if (mlock_ret != 0) {
@@ -177,6 +185,7 @@ void AlignedMemory::alloc(
         << " is due to ulimit max-locked-memory. Add memlock -1 to limits.conf in that case."
         << " This is not a fatal error. We just couldn't prohibit memory swapping. going on..";
     }
+    */
   }
   std::memset(block_, 0, size_);  // see class comment for why we do this immediately
   watch2.stop();
