@@ -5,6 +5,7 @@
 #include "foedus/engine_pimpl.hpp"
 
 #include <unistd.h>
+#include <valgrind.h>
 #include <glog/logging.h>
 
 #include <algorithm>
@@ -70,6 +71,16 @@ ErrorStack EnginePimpl::initialize_once() {
   LOG(INFO) << "================== FOEDUS ENGINE ("
     << describe_short() << ") INITIALIZATION DONE ===========";
   LOG(INFO) << "================================================================================";
+
+  // In a few places, we check if we are running under valgrind and, if so, turn off
+  // optimizations valgrind can't handle (eg hugepages).
+  bool running_on_valgrind = RUNNING_ON_VALGRIND;
+  if (running_on_valgrind) {
+    LOG(INFO) << "=============== ATTENTION: VALGRIND MODE! ==================";
+    LOG(INFO) << "This Engine is running under valgrind, which disables several optimizations";
+    LOG(INFO) << "If you see this message while usual execution, something is wrong.";
+    LOG(INFO) << "=============== ATTENTION: VALGRIND MODE! ==================";
+  }
   return kRetOk;
 }
 ErrorStack EnginePimpl::uninitialize_once() {
