@@ -6,6 +6,7 @@
 #define FOEDUS_ENGINE_HPP_
 
 #include "foedus/cxx11.hpp"
+#include "foedus/engine_type.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/debugging/fwd.hpp"
@@ -82,12 +83,24 @@ class EngineOptions;
 class Engine CXX11_FINAL : public virtual Initializable {
  public:
   /**
-   * @brief Instantiates an engine object which is \b NOT initialized yet.
+   * @brief Instantiates a \b master engine object which is \b NOT initialized yet.
+   * @param[in] options Configuration of the engine
    * @details
    * To start the engine, call initialize() afterwards.
    * This constructor dose nothing but instantiation.
    */
   explicit Engine(const EngineOptions &options);
+
+  /**
+   * @brief Instantiates a \b child engine object which is \b NOT initialized yet.
+   * @param[in] type Launch type of the child engine object
+   * @param[in] master_upid Universal (or Unique) ID of the master process.
+   * @param[in] soc_id SOC-ID (or NUMA-node) of the child engine.
+   * @details
+   * Use this constructor only when you modify your main() function to capture kChildLocalSpawned
+   * launch. Otherwise, this constructor is used only internally.
+   */
+  Engine(EngineType type, uint64_t master_upid, uint16_t soc_id);
 
   /**
    * @brief Do NOT rely on this destructor to release resources. Call uninitialize() instead.
@@ -142,6 +155,21 @@ class Engine CXX11_FINAL : public virtual Initializable {
   xct::XctManager&                get_xct_manager() const;
   /** See \ref RESTART */
   restart::RestartManager&        get_restart_manager() const;
+
+  /** Returns the type of this engine object. */
+  EngineType  get_type() const;
+  /** Returns if this engine object is a master instance */
+  bool        is_master() const;
+  /** Returns if this engine object is a child instance running just as a thread */
+  bool        is_emulated_child() const;
+  /** Returns if this engine object is a child instance launched by fork */
+  bool        is_forked_child() const;
+  /** Returns if this engine object is a child instance launched by spawn */
+  bool        is_local_spawned_child() const;
+  /** Returns if this engine object is a child instance remotely launched by spawn */
+  bool        is_remote_spawned_child() const;
+  /** If this is a child instance, returns its SOC ID (NUMA node). Otherwise always 0. */
+  uint16_t    get_soc_id() const;
 
  private:
   EnginePimpl* pimpl_;

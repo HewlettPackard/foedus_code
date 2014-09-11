@@ -4,9 +4,12 @@
  */
 #ifndef FOEDUS_ENGINE_PIMPL_HPP_
 #define FOEDUS_ENGINE_PIMPL_HPP_
+
+#include <string>
 #include <vector>
 
 #include "foedus/engine_options.hpp"
+#include "foedus/engine_type.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 // This is pimpl. no need for further indirections. just include them all.
@@ -31,15 +34,21 @@ namespace foedus {
 class EnginePimpl final : public DefaultInitializable {
  public:
   EnginePimpl() = delete;
-  explicit EnginePimpl(Engine* engine, const EngineOptions &options);
+  EnginePimpl(Engine* engine, const EngineOptions &options);
+  EnginePimpl(Engine* engine, EngineType type, uint64_t master_upid, uint16_t soc_id);
+
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
-  /** Options given at boot time. Immutable once constructed. */
-  const EngineOptions             options_;
+  /** Options given at boot time. Immutable once launched */
+  EngineOptions                   options_;
 
   /** Pointer to the enclosing object. Few places would need it, but hold it in case. */
   Engine* const                   engine_;
+
+  const EngineType                type_;
+  const uint64_t                  master_upid_;
+  const uint16_t                  soc_id_;
 
 // Individual modules. Placed in initialize()/uninitialize() order
 // (remember, modules have dependencies between them).
@@ -76,6 +85,7 @@ class EnginePimpl final : public DefaultInitializable {
     children.push_back(&restart_manager_);
     return children;
   }
+  std::string describe_short() const;
 };
 }  // namespace foedus
 #endif  // FOEDUS_ENGINE_PIMPL_HPP_

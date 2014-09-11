@@ -13,6 +13,7 @@
  * SOC might be spawned as a local or remote process, so we first instantiate SOCs
  * before everything else with a special manner (partially because linux's tricky process
  * handling semantics).
+ * @see foedus::EngineType
  */
 
 /**

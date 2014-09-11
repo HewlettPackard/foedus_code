@@ -8,6 +8,9 @@ namespace foedus {
 Engine::Engine(const EngineOptions& options) : pimpl_(nullptr) {
   pimpl_ = new EnginePimpl(this, options);
 }
+Engine::Engine(EngineType type, uint64_t master_upid, uint16_t soc_id) : pimpl_(nullptr) {
+  pimpl_ = new EnginePimpl(this, type, master_upid, soc_id);
+}
 Engine::~Engine() {
   delete pimpl_;
 }
@@ -31,6 +34,14 @@ xct::XctManager&        Engine::get_xct_manager() const     { return pimpl_->xct
 bool                Engine::is_initialized() const  { return pimpl_->is_initialized(); }
 ErrorStack          Engine::initialize()            { return pimpl_->initialize(); }
 ErrorStack          Engine::uninitialize()          { return pimpl_->uninitialize(); }
+
+EngineType  Engine::get_type() const        { return pimpl_->type_; }
+bool        Engine::is_master() const       { return pimpl_->type_ == kMaster; }
+bool        Engine::is_emulated_child() const { return pimpl_->type_ == kChildEmulated; }
+bool        Engine::is_forked_child() const { return pimpl_->type_ == kChildForked; }
+bool        Engine::is_local_spawned_child() const { return pimpl_->type_ == kChildLocalSpawned; }
+bool        Engine::is_remote_spawned_child() const { return pimpl_->type_ == kChildRemoteSpawned; }
+uint16_t    Engine::get_soc_id() const      { return pimpl_->soc_id_; }
 
 
 }  // namespace foedus

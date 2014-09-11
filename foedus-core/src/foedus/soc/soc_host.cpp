@@ -15,7 +15,6 @@ ErrorStack SocHost::spawn_host(
   const EngineOptions& options,
   uint16_t node,
   SharedMemoryRepo* memories) {
-
 }
 
 void SocHost::emulate_host(
