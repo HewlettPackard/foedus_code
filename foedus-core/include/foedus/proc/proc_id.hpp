@@ -7,6 +7,8 @@
 
 #include <stdint.h>
 
+#include <utility>
+
 #include "foedus/error_stack.hpp"
 #include "foedus/assorted/fixed_string.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -23,6 +25,7 @@ namespace proc {
  * Represents a unique name of a procedure. Upto 60 characters so far.
  * It should be a globally unique name, but we do not bother checking it to avoid scalability issue.
  * Usually, all SOCs have the same set of procedures, so it's globally unique, too.
+ * @ingroup PROC
  */
 typedef assorted::FixedString<60> ProcName;
 
@@ -41,6 +44,7 @@ typedef uint32_t LocalProcId;
 /**
  * A globally unique ID of a procedure.
  * The high 32 bit is the SOC ID, low 32 bit is LocalProcId.
+ * @ingroup PROC
  */
 typedef uint64_t GlobalProcId;
 
@@ -65,7 +69,8 @@ inline LocalProcId extract_local_id_from_global_proc_id(GlobalProcId id) {
  *   const void *input_buffer,
  *   uint32_t input_len,
  *   void* output_buffer,
- *   uint32_t output_len) {
+ *   uint32_t output_buffer_size,
+ *   uint32_t* output_used) {
  *   ...
  *   return kRetOk;
  * }
@@ -74,7 +79,13 @@ inline LocalProcId extract_local_id_from_global_proc_id(GlobalProcId id) {
  * register the_proc and execute it...
  * @endcode
  */
-typedef ErrorStack (*Proc)(thread::Thread*, const void*, uint32_t, void*, uint32_t);
+typedef ErrorStack (*Proc)(thread::Thread*, const void*, uint32_t, void*, uint32_t, uint32_t*);
+
+/**
+ * Just a std::pair<ProcName, Proc>.
+ * @ingroup PROC
+ */
+typedef std::pair<ProcName, Proc> ProcAndName;
 
 }  // namespace proc
 }  // namespace foedus

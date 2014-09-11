@@ -11,8 +11,10 @@
  */
 namespace foedus {
 namespace soc {
-struct SharedMemoryRepo;
-struct SocOptions;
+struct  SharedMemoryRepo;
+class   SocManager;
+class   SocManagerPimpl;
+struct  SocOptions;
 }  // namespace soc
 }  // namespace foedus
 #endif  // FOEDUS_SOC_FWD_HPP_

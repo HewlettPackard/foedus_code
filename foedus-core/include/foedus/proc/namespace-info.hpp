@@ -43,8 +43,10 @@
  * This is the easiest way to define and execute user procedures. In fact, most test code
  * uses this handy procedure type.
  * The user simply defines a method and registers function pointer.
- * However, this type of procedures can be used only when child SOC engines are
- * of foedus::EngineType::kChildEmulated type.
+ * However, this type of procedures can be used only when:
+ *  \li child SOC engines are of foedus::EngineType::kChildEmulated type.
+ *  \li child SOC engines are of foedus::EngineType::kChildForked type and the user pre-registers
+ * the function pointer \b BEFORE the fork (Engine's initialize()).
  *
  * @par Individually registered User Procedures
  * Otherwise, the user has to register the procedures in each SOC because multiple processes

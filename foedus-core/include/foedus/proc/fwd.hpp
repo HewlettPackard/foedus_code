@@ -11,6 +11,9 @@
  */
 namespace foedus {
 namespace proc {
+class   ProcManager;
+class   ProcManagerPimpl;
+struct  ProcOptions;
 }  // namespace proc
 }  // namespace foedus
 #endif  // FOEDUS_PROC_FWD_HPP_

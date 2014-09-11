@@ -19,6 +19,7 @@
 #include "foedus/restart/restart_manager.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/snapshot/snapshot_manager.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/xct/xct_manager.hpp"
@@ -54,6 +55,12 @@ class EnginePimpl final : public DefaultInitializable {
 // (remember, modules have dependencies between them).
 
   /**
+   * SOC manager.
+   * This is a quite special module that launches child SOC engines.
+   * We have to initialize this module before everything else, even before debug_.
+   */
+  soc::SocManager                 soc_;
+  /**
    * Debugging supports.
    * @attention Because this module initializes/uninitializes basic debug logging support,
    * EnginePimpl#initialize_once() must initialize it at the beginning,
@@ -74,6 +81,7 @@ class EnginePimpl final : public DefaultInitializable {
   /** Returns in \e initialization order. */
   std::vector< Initializable* > get_children() {
     std::vector< Initializable* > children;
+    children.push_back(&soc_);
     children.push_back(&debug_);
     children.push_back(&memory_manager_);
     children.push_back(&savepoint_manager_);

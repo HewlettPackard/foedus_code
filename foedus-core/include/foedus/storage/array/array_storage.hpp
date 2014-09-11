@@ -63,6 +63,7 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
 
   /**
    * @brief Prefetch data pages in this storage.
+   * @param[in] context Thread context.
    * @param[in] from inclusive begin offset of records that are specifically prefetched even in
    * data pages.
    * @param[in] to exclusive end offset of records that are specifically prefetched even in data

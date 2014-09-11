@@ -17,6 +17,10 @@
 namespace foedus {
 namespace restart {
 ErrorStack RestartManagerPimpl::initialize_once() {
+  // Restart manager works only in master
+  if (!engine_->is_master()) {
+    return kRetOk;
+  }
   LOG(INFO) << "Initializing RestartManager..";
   if (!engine_->get_xct_manager().is_initialized()) {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
@@ -28,6 +32,9 @@ ErrorStack RestartManagerPimpl::initialize_once() {
 }
 
 ErrorStack RestartManagerPimpl::uninitialize_once() {
+  if (!engine_->is_master()) {
+    return kRetOk;
+  }
   LOG(INFO) << "Uninitializing RestartManager..";
   ErrorStackBatch batch;
   if (!engine_->get_xct_manager().is_initialized()) {

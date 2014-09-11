@@ -33,9 +33,11 @@ enum EngineType {
    * This is also handy next to emulated children, and also does not require a change
    * in main() function of the program as the forked processes start from the fork() position
    * rather than main().
-   * However, this has less flexibility on registering user-specified procedures because
-   * the user does not change the main() function. The only way to register user procedures
+   * fork() preserves address space \b as-of the fork, so if the user pre-registers function
+   * pointers \b BEFORE the fork (Engine's initialize()), they can be also available in all SOCs.
+   * However, after the fork, the only way to register user-specified procedures
    * is to provide additional shared libraries.
+   * One (probably) minor drawback: fork() is not available in Windows.
    */
   kChildForked,
 

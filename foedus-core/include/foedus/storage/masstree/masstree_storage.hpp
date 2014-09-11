@@ -59,6 +59,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
 
   /**
    * @brief Prefetch data pages in this storage. Key Slice version (from/to are 8 bytes or less).
+   * @param[in] context Thread context.
    * @param[in] from inclusive begin slice of records that are specifically prefetched even in
    * data pages.
    * @param[in] to inclusive end slice of records that are specifically prefetched even in data

@@ -170,7 +170,7 @@ struct BorderSplitStrategy {
   KeySlice largest_slice_;
   /**
    * This will be the new foster fence.
-   * Ideally, #records below and above this are same.
+   * Ideally, # of records below and above this are same.
    */
   KeySlice mid_slice_;
 };

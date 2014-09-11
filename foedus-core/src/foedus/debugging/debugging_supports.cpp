@@ -81,12 +81,19 @@ void DebuggingSupports::uninitialize_glog() {
 }
 
 ErrorStack DebuggingSupports::initialize_once() {
+  // glog is already initialized by master, so emulated child does nothing
+  if (engine_->is_emulated_child()) {
+    return kRetOk;
+  }
   initialize_glog();  // initialize glog at the beginning. we can use glog since now
   std::memset(&papi_counters_, 0, sizeof(papi_counters_));
   papi_enabled_ = false;
   return kRetOk;
 }
 ErrorStack DebuggingSupports::uninitialize_once() {
+  if (engine_->is_emulated_child()) {
+    return kRetOk;
+  }
   uninitialize_glog();  // release glog at the end. we can't use glog since now
   return kRetOk;
 }
