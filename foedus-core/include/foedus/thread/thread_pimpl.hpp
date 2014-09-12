@@ -102,32 +102,13 @@ class ThreadPimpl final : public DefaultInitializable {
     memory::PagePoolOffset new_offset,
     storage::DualPagePointer* pointer);
 
-  /** Pre-allocated MCS block. we so far pre-allocate at most 2^16 nodes per thread. */
-  struct McsBlock {
-    /**
-    * Whether this thread is waiting for some other lock owner.
-    * While this is true, the thread spins on this \e local variable.
-    * The lock owner updates this when it unlocks.
-    */
-    bool              waiting_;           // +1 -> 1
-    /** just for sanity check. last 1 byte of the MCS lock's address */
-    uint8_t           lock_addr_tag_;     // +1 -> 2
-    /**
-     * The successor of MCS lock queue after this thread (in other words, the thread that is
-     * waiting for this thread). Successor is represented by thread ID and block,
-     * the index in mcs_blocks_.
-     */
-    thread::ThreadId  successor_;         // +2 -> 4
-    xct::McsBlockIndex  successor_block_;   // +4 -> 8
-  };
-
   /** Unconditionally takes MCS lock on the given mcs_lock. */
   xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
   /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
   xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
   /** Unlcok an MCS lock acquired by this thread. */
   void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
-  McsBlock* mcs_init_block(
+  xct::McsBlock* mcs_init_block(
     const xct::McsLock* mcs_lock,
     xct::McsBlockIndex block_index,
     bool waiting) ALWAYS_INLINE;
@@ -208,7 +189,7 @@ class ThreadPimpl final : public DefaultInitializable {
   cache::SnapshotFileSet  snapshot_file_set_;
 
   /** Pre-allocated MCS blocks. index 0 is not used so that successor_block=0 means null. */
-  McsBlock*               mcs_blocks_;
+  xct::McsBlock*          mcs_blocks_;
 };
 
 inline ErrorCode ThreadPimpl::read_a_snapshot_page(

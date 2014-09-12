@@ -60,7 +60,20 @@ void DebuggingSupports::initialize_glog() {
       // https://code.google.com/p/google-glog/issues/detail?id=172
       google::SetVLOGLevel(options.verbose_modules_.str().c_str(), options.verbose_log_level_);
     }
-    google::InitGoogleLogging("libfoedus");
+
+    // Use separate log files for the master engine and soc engine.
+    // If this is an emulated child SOC engine, anyway logs go to the master's log file.
+    const char* logfile_name;
+    if (engine_->is_master()) {
+      logfile_name = "libfoedus";
+    } else {
+      // Note: Seems like InitGoogleLogging keeps the given argument without internally copying.
+      // if we give std::string.c_str() etc, this causes a problem.
+      // Thus, we need to give a really static const char*. mmm.
+      // Maybe we can have an array of size 256, defining const char* for each value? stupid..
+      logfile_name = "libfoedus_soc";  // std::to_string(engine_->get_soc_id());
+    }
+    google::InitGoogleLogging(logfile_name);
     LOG(INFO) << "initialize_glog(): Initialized GLOG";
   } else {
     LOG(INFO) << "initialize_glog(): Observed that someone else has initialized GLOG";

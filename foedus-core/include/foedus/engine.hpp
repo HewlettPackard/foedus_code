@@ -5,6 +5,8 @@
 #ifndef FOEDUS_ENGINE_HPP_
 #define FOEDUS_ENGINE_HPP_
 
+#include <string>
+
 #include "foedus/cxx11.hpp"
 #include "foedus/engine_type.hpp"
 #include "foedus/error_stack.hpp"
@@ -12,9 +14,12 @@
 #include "foedus/debugging/fwd.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
+#include "foedus/proc/fwd.hpp"
 #include "foedus/restart/fwd.hpp"
 #include "foedus/savepoint/fwd.hpp"
 #include "foedus/snapshot/fwd.hpp"
+#include "foedus/soc/fwd.hpp"
+#include "foedus/soc/soc_id.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/fwd.hpp"
@@ -40,7 +45,9 @@ class EngineOptions;
  * For example, all other sub-modules depend on \ref DEBUGGING, so the debugging module
  * is initialized at first, and uninitialized at end.
  * There must not be a cycle, obviously. Below is the list of dependencies
- *  \li All modules depend on \ref DEBUGGING.
+ *  \li \ref SOC must start up at the beginning as this is a special module.
+ *  \li All other modules depend on \ref DEBUGGING.
+ *  \li \ref PROC depends on \ref DEBUGGING and \ref SOC.
  *  \li \ref THREAD depend on \ref MEMORY.
  *  \li \ref LOG depend on \ref THREAD and \ref SAVEPOINT.
  *  \li \ref SNAPSHOT and \ref CACHE depend on \ref LOG.
@@ -51,7 +58,10 @@ class EngineOptions;
  * (transitively implied dependencies omitted, eg \ref LOG of course depends on \ref MEMORY).
  *
  * @msc
- * DBG,MEM,SP,THREAD,LOG,SNAPSHOT,CACHE,STORAGE,XCT,RESTART;
+ * SOC,DBG,PROC,MEM,SP,THREAD,LOG,SNAPSHOT,CACHE,STORAGE,XCT,RESTART;
+ * SOC<=DBG;
+ * DBG<=PROC;
+ * SOC<=PROC;
  * DBG<=MEM;
  * DBG<=SP;
  * MEM<=THREAD;
@@ -100,7 +110,7 @@ class Engine CXX11_FINAL : public virtual Initializable {
    * Use this constructor only when you modify your main() function to capture kChildLocalSpawned
    * launch. Otherwise, this constructor is used only internally.
    */
-  Engine(EngineType type, uint64_t master_upid, uint16_t soc_id);
+  Engine(EngineType type, soc::Upid master_upid, soc::SocId soc_id);
 
   /**
    * @brief Do NOT rely on this destructor to release resources. Call uninitialize() instead.
@@ -116,6 +126,8 @@ class Engine CXX11_FINAL : public virtual Initializable {
   Engine() CXX11_FUNC_DELETE;
   Engine(const Engine &) CXX11_FUNC_DELETE;
   Engine& operator=(const Engine &) CXX11_FUNC_DELETE;
+
+  std::string describe_short() const;
 
   /**
    * Starts up the database engine. This is the first method to call.
@@ -143,12 +155,16 @@ class Engine CXX11_FINAL : public virtual Initializable {
   log::LogManager&                get_log_manager() const;
   /** See \ref MEMORY */
   memory::EngineMemory&           get_memory_manager() const;
+  /** See \ref PROC */
+  proc::ProcManager&              get_proc_manager() const;
   /** See \ref THREAD */
   thread::ThreadPool&             get_thread_pool() const;
   /** See \ref SAVEPOINT */
   savepoint::SavepointManager&    get_savepoint_manager() const;
   /** See \ref SNAPSHOT */
   snapshot::SnapshotManager&      get_snapshot_manager() const;
+  /** See \ref SOC */
+  soc::SocManager&                get_soc_manager() const;
   /** See \ref STORAGE */
   storage::StorageManager&        get_storage_manager() const;
   /** See \ref XCT */
@@ -169,7 +185,16 @@ class Engine CXX11_FINAL : public virtual Initializable {
   /** Returns if this engine object is a child instance remotely launched by spawn */
   bool        is_remote_spawned_child() const;
   /** If this is a child instance, returns its SOC ID (NUMA node). Otherwise always 0. */
-  uint16_t    get_soc_id() const;
+  soc::SocId  get_soc_id() const;
+  /** Returns Universal (or Unique) ID of the master process. */
+  soc::Upid   get_master_upid() const;
+
+  /**
+   * Returns an updatable reference to options.
+   * This must be used only by SocManager during initialization.
+   * Users must not call this method.
+   */
+  EngineOptions*                  get_nonconst_options();
 
  private:
   EnginePimpl* pimpl_;

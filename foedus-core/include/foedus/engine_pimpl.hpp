@@ -16,9 +16,11 @@
 #include "foedus/debugging/debugging_supports.hpp"
 #include "foedus/log/log_manager.hpp"
 #include "foedus/memory/engine_memory.hpp"
+#include "foedus/proc/proc_manager.hpp"
 #include "foedus/restart/restart_manager.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/snapshot/snapshot_manager.hpp"
+#include "foedus/soc/soc_id.hpp"
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/thread_pool.hpp"
@@ -36,7 +38,7 @@ class EnginePimpl final : public DefaultInitializable {
  public:
   EnginePimpl() = delete;
   EnginePimpl(Engine* engine, const EngineOptions &options);
-  EnginePimpl(Engine* engine, EngineType type, uint64_t master_upid, uint16_t soc_id);
+  EnginePimpl(Engine* engine, EngineType type, soc::Upid master_upid, soc::SocId soc_id);
 
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
@@ -48,8 +50,8 @@ class EnginePimpl final : public DefaultInitializable {
   Engine* const                   engine_;
 
   const EngineType                type_;
-  const uint64_t                  master_upid_;
-  const uint16_t                  soc_id_;
+  const soc::Upid                 master_upid_;
+  const soc::SocId                soc_id_;
 
 // Individual modules. Placed in initialize()/uninitialize() order
 // (remember, modules have dependencies between them).
@@ -57,9 +59,13 @@ class EnginePimpl final : public DefaultInitializable {
   /**
    * SOC manager.
    * This is a quite special module that launches child SOC engines.
-   * We have to initialize this module before everything else, even before debug_.
+   * We have to initialize this module before everything else, even before debug_
+   * (glog 0.3.3 has an issue across fork(), see
+   *   https://code.google.com/p/google-glog/issues/detail?id=101
+   *   https://code.google.com/p/google-glog/issues/detail?id=82
+   * ).
    */
-  soc::SocManager                 soc_;
+  soc::SocManager                 soc_manager_;
   /**
    * Debugging supports.
    * @attention Because this module initializes/uninitializes basic debug logging support,
@@ -69,6 +75,7 @@ class EnginePimpl final : public DefaultInitializable {
    * before and after that.
    */
   debugging::DebuggingSupports    debug_;
+  proc::ProcManager               proc_manager_;
   memory::EngineMemory            memory_manager_;
   savepoint::SavepointManager     savepoint_manager_;
   thread::ThreadPool              thread_pool_;
@@ -81,8 +88,9 @@ class EnginePimpl final : public DefaultInitializable {
   /** Returns in \e initialization order. */
   std::vector< Initializable* > get_children() {
     std::vector< Initializable* > children;
-    children.push_back(&soc_);
+    children.push_back(&soc_manager_);
     children.push_back(&debug_);
+    children.push_back(&proc_manager_);
     children.push_back(&memory_manager_);
     children.push_back(&savepoint_manager_);
     children.push_back(&thread_pool_);

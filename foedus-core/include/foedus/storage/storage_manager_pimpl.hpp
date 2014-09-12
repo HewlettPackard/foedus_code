@@ -28,9 +28,6 @@ namespace storage {
  */
 class StorageManagerPimpl final : public DefaultInitializable {
  public:
-  /** Calculates required byte size of shared memory for this module. */
-  static uint64_t get_required_shared_memory_size(const EngineOptions& options);
-
   StorageManagerPimpl() = delete;
   explicit StorageManagerPimpl(Engine* engine) : engine_(engine) {}
   ErrorStack  initialize_once() override;

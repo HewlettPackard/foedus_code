@@ -120,7 +120,9 @@ void EngineMemory::check_transparent_hugepage_setting() const {
     if (line == "[always] madvise never") {
       LOG(INFO) << "Great, THP is in always mode";
     } else {
-      LOG(WARNING) << "THP is not in always mode ('" << line << "')."
+      // Now that we use non-transparent hugepages rather than THP, we don't output this as warning.
+      // Maybe we completely get rid of this message.
+      LOG(INFO) << "THP is not in always mode ('" << line << "')."
         << " Not enabling THP reduces our performance up to 30%. Run the following to enable it:"
         << std::endl << "  sudo su"
         << std::endl << "  echo always > /sys/kernel/mm/transparent_hugepage/enabled";

@@ -23,8 +23,9 @@ EnginePimpl::EnginePimpl(Engine* engine, const EngineOptions &options) :
   soc_id_(0),
   // although we give a pointer to engine, these objects must not access it yet.
   // even the Engine object has not set the pimpl pointer.
-  soc_(engine),
+  soc_manager_(engine),
   debug_(engine),
+  proc_manager_(engine),
   memory_manager_(engine),
   savepoint_manager_(engine),
   thread_pool_(engine),
@@ -37,14 +38,15 @@ EnginePimpl::EnginePimpl(Engine* engine, const EngineOptions &options) :
 EnginePimpl::EnginePimpl(
   Engine* engine,
   EngineType type,
-  uint64_t master_upid,
-  uint16_t soc_id) :
+  soc::Upid master_upid,
+  soc::SocId soc_id) :
   engine_(engine),
   type_(type),
   master_upid_(master_upid),
   soc_id_(soc_id),
-  soc_(engine),
+  soc_manager_(engine),
   debug_(engine),
+  proc_manager_(engine),
   memory_manager_(engine),
   savepoint_manager_(engine),
   thread_pool_(engine),

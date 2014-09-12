@@ -37,9 +37,11 @@ typedef assorted::FixedString<60> ProcName;
  * If the procedure is a system procedure, it always has the same ID in all SOCs because
  * system procedures are registered at the beginning. User procedures have larger IDs than all
  * system procedures.
- * Zero means an invalid procedure.
+ * 2^32-1 means an invalid procedure.
  */
 typedef uint32_t LocalProcId;
+
+const LocalProcId kLocalProcNotFound = -1;
 
 /**
  * A globally unique ID of a procedure.

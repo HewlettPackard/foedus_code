@@ -65,7 +65,7 @@ ErrorStack ThreadPimpl::initialize_once() {
   global_volatile_page_resolver_
     = engine_->get_memory_manager().get_global_volatile_page_resolver();
   local_volatile_page_resolver_ = node_memory_->get_volatile_pool().get_resolver();
-  mcs_blocks_ = reinterpret_cast<McsBlock*>(
+  mcs_blocks_ = reinterpret_cast<xct::McsBlock*>(
     core_memory_->get_small_thread_local_memory_pieces().thread_mcs_block_memory_);
   raw_thread_.initialize("Thread-", id_,
           std::thread(&ThreadPimpl::handle_tasks, this),
@@ -384,12 +384,12 @@ inline void assert_mcs_aligned(const void* address) {
   ASSERT_ND(reinterpret_cast<uintptr_t>(address) % 4 == 0);
 }
 
-inline ThreadPimpl::McsBlock* ThreadPimpl::mcs_init_block(
+inline xct::McsBlock* ThreadPimpl::mcs_init_block(
   const xct::McsLock* mcs_lock,
   xct::McsBlockIndex block_index,
   bool waiting) {
   ASSERT_ND(block_index > 0);
-  McsBlock* block = mcs_blocks_ + block_index;
+  xct::McsBlock* block = mcs_blocks_ + block_index;
   block->waiting_ = waiting;
   block->lock_addr_tag_ = mcs_lock->last_1byte_addr();
   block->successor_ = 0;
@@ -426,7 +426,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   ASSERT_ND(current_xct_.get_mcs_block_current() < 0xFFFFU);
   xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
   ASSERT_ND(block_index > 0);
-  McsBlock* block = mcs_init_block(mcs_lock, block_index, true);
+  xct::McsBlock* block = mcs_init_block(mcs_lock, block_index, true);
   uint32_t desired = xct::McsLock::to_int(id_, block_index);
   uint32_t* address = &(mcs_lock->data_);
   assert_mcs_aligned(address);
@@ -466,7 +466,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   ASSERT_ND(block->waiting_);
   // TODO(Hideaki) because of tentative SOC implementation. we can't check this
   // ASSERT_ND(predecessor->current_xct_.get_mcs_block_current() >= predecessor_block);
-  McsBlock* pred_block = predecessor->mcs_blocks_ + predecessor_block;
+  xct::McsBlock* pred_block = predecessor->mcs_blocks_ + predecessor_block;
   ASSERT_ND(pred_block->successor_ == 0);
   ASSERT_ND(pred_block->successor_block_ == 0);
   ASSERT_ND(pred_block->lock_addr_tag_ == block->lock_addr_tag_);
@@ -521,7 +521,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   ASSERT_ND(mcs_lock->is_locked());
   ASSERT_ND(block_index > 0);
   ASSERT_ND(current_xct_.get_mcs_block_current() >= block_index);
-  McsBlock* block = mcs_blocks_ + block_index;
+  xct::McsBlock* block = mcs_blocks_ + block_index;
   ASSERT_ND(!block->waiting_);
   ASSERT_ND(block->lock_addr_tag_ == mcs_lock->last_1byte_addr());
   if (block->successor_block_ == 0) {
@@ -564,7 +564,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
     = engine_->get_thread_pool().get_pimpl()->get_thread(block->successor_)->get_pimpl();
   // TODO(Hideaki) because of tentative SOC implementation. we can't check this
   // ASSERT_ND(successor->current_xct_.get_mcs_block_current() >= block->successor_block_);
-  McsBlock* succ_block = successor->mcs_blocks_ + block->successor_block_;
+  xct::McsBlock* succ_block = successor->mcs_blocks_ + block->successor_block_;
   ASSERT_ND(succ_block->lock_addr_tag_ == mcs_lock->last_1byte_addr());
   ASSERT_ND(succ_block->waiting_);
   ASSERT_ND(mcs_lock->is_locked());

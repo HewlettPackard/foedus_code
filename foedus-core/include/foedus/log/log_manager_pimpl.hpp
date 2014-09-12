@@ -28,9 +28,6 @@ namespace log {
  */
 class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
  public:
-  /** Calculates required byte size of shared memory for this module. */
-  static uint64_t get_required_shared_memory_size(const EngineOptions& options);
-
   LogManagerPimpl() = delete;
   explicit LogManagerPimpl(Engine* engine) : engine_(engine) {}
   ErrorStack  initialize_once() override;

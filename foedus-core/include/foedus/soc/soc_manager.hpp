@@ -19,6 +19,26 @@ namespace soc {
  * Initialization of this module is quite special because a master engine launches
  * child SOCs potentially as different processes. Also, to avoid leak of shared memory,
  * we take a bit complicated steps.
+ *
+ * @section SOC_INIT_ORDER Initialization Order
+ * When the user instantiates an Engine object, the engine is initialized in the following order:
+ *  \li Engine object constructor (which does almost nothing itself)
+ *  \li (Optional) The user pre-registers user procedures (for emulated or fork children SOCs only).
+ *  \li The user invokes Engine::initialize() of the master engine
+ *  \li \b CAUTION-FROM-HERE. SOCManager allocates shared memory of required sizes.
+ *  \li SOCManager in master engine launches child SOCs, waits for their progress.
+ *  \li SOCManager in child SOC engines attach the shared memory and acknowledge it via
+ * the shared memory.
+ *  \li \b CAUTION-UNTIL-HERE. SOCManager in master engine determines if either all SOCManagers
+ * attached the shared memory or there was some error. In either case, it marks the shared memory
+ * for reclamation (shmctl(IPC_RMID)).
+ *  \li Child SOCs move on to other modules' initialization.
+ *  \li Master SOCManager receives the result of child SOC initilization, then does remaining
+ * initialization, such as restart.
+ *
+ * Notice the annotated region. If there is an unexpected crash in master engine during this
+ * period, we \b leak shared memory until reboot or manual reclamation (ipcrm command).
+ * We must avoid it as much as possible. Be extra careful!
  */
 class SocManager CXX11_FINAL : public virtual Initializable {
  public:
@@ -33,6 +53,9 @@ class SocManager CXX11_FINAL : public virtual Initializable {
   ErrorStack  initialize() CXX11_OVERRIDE;
   bool        is_initialized() const CXX11_OVERRIDE;
   ErrorStack  uninitialize() CXX11_OVERRIDE;
+
+  /** Returns the shared memories maintained across SOCs */
+  SharedMemoryRepo* get_shared_memory_repo();
 
  private:
   SocManagerPimpl *pimpl_;

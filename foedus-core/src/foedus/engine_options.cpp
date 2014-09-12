@@ -25,6 +25,7 @@ std::vector< CHILD_PTR > get_children_impl(ENGINE_OPTION_PTR option) {
   children.push_back(&option->debugging_);
   children.push_back(&option->log_);
   children.push_back(&option->memory_);
+  children.push_back(&option->proc_);
   children.push_back(&option->restart_);
   children.push_back(&option->savepoint_);
   children.push_back(&option->snapshot_);

@@ -18,5 +18,8 @@ ErrorStack  SocManager::initialize() { return pimpl_->initialize(); }
 bool        SocManager::is_initialized() const { return pimpl_->is_initialized(); }
 ErrorStack  SocManager::uninitialize() { return pimpl_->uninitialize(); }
 
+SharedMemoryRepo* SocManager::get_shared_memory_repo() { return &pimpl_->memory_repo_; }
+
+
 }  // namespace soc
 }  // namespace foedus

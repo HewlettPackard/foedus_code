@@ -42,7 +42,7 @@ class ProcManager CXX11_FINAL : public virtual Initializable {
    * shared only when the function pointers are finalized before the fork, or in the same process.
    * So, once Engine is initialized, this method always fails.
    */
-  ErrorStack  pre_register(ProcAndName proc_and_name);
+  ErrorStack  pre_register(const ProcAndName& proc_and_name);
 
   /**
    * @brief Register a function pointer as a user procedure in the current SOC.
@@ -52,7 +52,7 @@ class ProcManager CXX11_FINAL : public virtual Initializable {
    * This can be used any time after the initialization, but it takes effect only in the current
    * SOC. Function pointers cannot be shared with other processes.
    */
-  ErrorStack  local_register(ProcAndName proc_and_name);
+  ErrorStack  local_register(const ProcAndName& proc_and_name);
 
   /**
    * @brief Register a function pointer as a user procedure in all SOCs, assuming that
@@ -64,7 +64,7 @@ class ProcManager CXX11_FINAL : public virtual Initializable {
    * However, this can be used only with kChildEmulated SOCs.
    * Most testcases and small programs that do not need high scalability can use this.
    */
-  ErrorStack  emulated_register(ProcAndName proc_and_name);
+  ErrorStack  emulated_register(const ProcAndName& proc_and_name);
 
  private:
   ProcManagerPimpl *pimpl_;
