@@ -9,6 +9,7 @@
 #endif  // __GNUC__
 #include <stdint.h>
 #include <unistd.h>
+#include <valgrind.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -150,6 +151,13 @@ void SpinlockStat::yield_backoff() {
     rnd_.next_uint32();
   }
   ++spins_;
+
+  // valgrind is single-threaded. so, we must yield as much as possible to let it run reasonably.
+  if (RUNNING_ON_VALGRIND) {
+    spinlock_yield();
+    return;
+  }
+
   // exponential backoff. also do yielding occasionally.
   const uint64_t kMinSleepCycles = 1ULL << 7;  // one atomic CAS
   const uint64_t kMaxSleepCycles = 1ULL << 12;  // even this might be too long..

@@ -5,7 +5,6 @@
 #ifndef FOEDUS_PROC_PROC_MANAGER_PIMPL_HPP_
 #define FOEDUS_PROC_PROC_MANAGER_PIMPL_HPP_
 
-#include <atomic>
 #include <vector>
 
 #include "foedus/fwd.hpp"
@@ -37,8 +36,8 @@ class ProcManagerPimpl final : public DefaultInitializable {
      * Read access via process ID does not need a lock (because we only append to the last).
      * Modifications and reads via name (because it's sorted) needs to take a lock.
      */
-    std::atomic<bool> locked_;
-    LocalProcId       count_;
+    bool        locked_;
+    LocalProcId count_;
   };
   /** All shared data in this module */
   struct SharedData {

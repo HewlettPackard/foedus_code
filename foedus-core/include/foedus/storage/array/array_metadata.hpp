@@ -62,6 +62,38 @@ struct ArrayMetadata CXX11_FINAL : public virtual Metadata {
   /** Size of this array */
   ArrayOffset         array_size_;
 };
+
+struct FixedArrayMetadata CXX11_FINAL : public FixedMetadata {
+  FixedArrayMetadata()
+    : FixedMetadata(0, kArrayStorage, ""), payload_size_(0), array_size_(0) {}
+  FixedArrayMetadata(
+    StorageId id,
+    const StorageName& name,
+    uint16_t payload_size,
+    ArrayOffset array_size)
+    : FixedMetadata(id, kArrayStorage, name),
+    payload_size_(payload_size), array_size_(array_size) {
+  }
+  /** This one is for newly creating a storage. */
+  FixedArrayMetadata(const StorageName& name, uint16_t payload_size, ArrayOffset array_size)
+    : FixedMetadata(0, kArrayStorage, name),
+    payload_size_(payload_size), array_size_(array_size) {
+  }
+
+  /** byte size of one record in this array storage without internal overheads */
+  uint16_t            payload_size_;
+  /** Size of this array */
+  ArrayOffset         array_size_;
+};
+
+struct ArrayMetadataSerializer CXX11_FINAL : public virtual MetadataSerializer {
+  ArrayMetadataSerializer() : MetadataSerializer() {}
+  explicit ArrayMetadataSerializer(FixedArrayMetadata* data)
+    : MetadataSerializer(data), data_casted_(data) {}
+  EXTERNALIZABLE(ArrayMetadataSerializer);
+  FixedArrayMetadata* data_casted_;
+};
+
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus

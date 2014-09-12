@@ -7,7 +7,7 @@
 
 /**
  * @namespace foedus::soc
- * @brief System On Chip (\b SOC) and its interprocess communication.
+ * @brief System On Chip (\b SOC) and interprocess communication (\b IPC).
  * @details
  * This module is special in many ways.
  * SOC might be spawned as a local or remote process, so we first instantiate SOCs
@@ -17,7 +17,7 @@
  */
 
 /**
- * @defgroup SOC System On Chip (SOC) and its interprocess communication
+ * @defgroup SOC SOC and IPC
  * @ingroup COMPONENTS
  * @copydoc foedus::soc
  */

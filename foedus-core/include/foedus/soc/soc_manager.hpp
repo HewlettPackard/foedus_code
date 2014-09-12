@@ -5,8 +5,11 @@
 #ifndef FOEDUS_SOC_SOC_MANAGER_HPP_
 #define FOEDUS_SOC_SOC_MANAGER_HPP_
 
+#include <vector>
+
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/proc/proc_id.hpp"
 #include "foedus/soc/fwd.hpp"
 
 namespace foedus {
@@ -42,6 +45,8 @@ namespace soc {
  */
 class SocManager CXX11_FINAL : public virtual Initializable {
  public:
+  friend class SocManagerPimpl;
+
   explicit SocManager(Engine* engine);
   ~SocManager();
 
@@ -56,6 +61,48 @@ class SocManager CXX11_FINAL : public virtual Initializable {
 
   /** Returns the shared memories maintained across SOCs */
   SharedMemoryRepo* get_shared_memory_repo();
+
+  /**
+   * @brief This should be called at the beginning of main() if the executable expects to be
+   * spawned as SOC engines.
+   * @details
+   * This method detects if the process has been spawned from FOEDUS as an SOC engine.
+   * If so, it starts running as an SOC engine and exits the process (via _exit()) when done.
+   * This should be called as early as possible like following:
+   * @code{.cpp}
+   * int main(int argc, char** argv) {
+   *   foedus::soc::SocManager::trap_spawned_soc_main();
+   *   // user code ....
+   *   return 0;
+   * }
+   * @endcode
+   *
+   * If the process has not been spawned as FOEDUS's SOC engine, this method does nothing
+   * and immediately returns.
+   */
+  static void trap_spawned_soc_main();
+  /**
+   * @brief This version also receives user-defined procedures to be registered in this SOC.
+   * @param[in] procedures user-defined procedures' name and function pointer \b in \b this
+   * \b process.
+   * @details
+   * Example:
+   * @code{.cpp}
+   * ErrorStack my_proc(foedus::thread::Thread* context, ...) {
+   *   ...
+   *   return kRetOk;
+   * }
+   * int main(int argc, char** argv) {
+   *   std::vector< foedus::proc::ProcAndName > procedures;
+   *   procedures.push_back(foedus::proc::ProcAndName("my_proc", &my_proc));
+   *   ...  // register more
+   *   foedus::soc::SocManager::trap_spawned_soc_main(procedures);
+   *   // user code ....
+   *   return 0;
+   * }
+   * @endcode
+   */
+  static void trap_spawned_soc_main(const std::vector< proc::ProcAndName >& procedures);
 
  private:
   SocManagerPimpl *pimpl_;

@@ -31,11 +31,9 @@ class ThreadPoolPimpl final : public DefaultInitializable {
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
-  ImpersonateSession  impersonate(ImpersonateTask* functor, TimeoutMicrosec timeout);
-  ImpersonateSession  impersonate_on_numa_node(ImpersonateTask* functor,
-                    ThreadGroupId numa_node, TimeoutMicrosec timeout);
-  ImpersonateSession  impersonate_on_numa_core(ImpersonateTask* functor,
-                    ThreadId numa_core, TimeoutMicrosec timeout);
+  ImpersonateSession  impersonate(ImpersonateTask* functor);
+  ImpersonateSession  impersonate_on_numa_node(ImpersonateTask* functor, ThreadGroupId numa_node);
+  ImpersonateSession  impersonate_on_numa_core(ImpersonateTask* functor, ThreadId numa_core);
 
   ThreadGroup*        get_group(ThreadGroupId numa_node) const;
   Thread*             get_thread(ThreadId id) const;

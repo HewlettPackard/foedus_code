@@ -59,8 +59,7 @@ Thread* ThreadPoolPimpl::get_thread(ThreadId id) const {
   return get_group(decompose_numa_node(id))->get_thread(decompose_numa_local_ordinal(id));
 }
 
-ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task,
-                         TimeoutMicrosec /*timeout*/) {
+ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task) {
   ImpersonateSession session(task);
   assorted::memory_fence_acquire();
   if (no_more_impersonation_) {
@@ -81,8 +80,9 @@ ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task,
   LOG(WARNING) << "Failed to impersonate. pool=" << *this;
   return session;
 }
-ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(ImpersonateTask* task,
-                  ThreadGroupId numa_node, TimeoutMicrosec /*timeout*/) {
+ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(
+  ImpersonateTask* task,
+  ThreadGroupId numa_node) {
   ImpersonateSession session(task);
   assorted::memory_fence_acquire();
   if (no_more_impersonation_) {
@@ -104,8 +104,9 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(ImpersonateTask* ta
     << "). pool=" << *this;
   return session;
 }
-ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_core(ImpersonateTask* task,
-                  ThreadId numa_core, TimeoutMicrosec /*timeout*/) {
+ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_core(
+  ImpersonateTask* task,
+  ThreadId numa_core) {
   ImpersonateSession session(task);
   assorted::memory_fence_acquire();
   if (no_more_impersonation_) {

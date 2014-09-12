@@ -4,6 +4,8 @@
  */
 #include "foedus/proc/proc_manager.hpp"
 
+#include <vector>
+
 #include "foedus/proc/proc_id.hpp"
 #include "foedus/proc/proc_manager_pimpl.hpp"
 
@@ -30,6 +32,11 @@ ErrorStack  ProcManager::local_register(const ProcAndName& proc_and_name) {
 ErrorStack  ProcManager::emulated_register(const ProcAndName& proc_and_name) {
   return pimpl_->emulated_register(proc_and_name);
 }
+
+const std::vector< ProcAndName >& ProcManager::get_pre_registered_procedures() const {
+  return pimpl_->pre_registered_procs_;
+}
+
 
 }  // namespace proc
 }  // namespace foedus

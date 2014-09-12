@@ -131,15 +131,13 @@ class ThreadPool CXX11_FINAL : public virtual Initializable {
    * back the functor from the impersonated thread (\b NOT the current thread).
    * @param[in] task the callback functor the client program should define. The pointer
    * must be valid at least until the completion of the session.
-   * @param[in] timeout how long we wait for impersonation if there is no available thread
    * @details
    * This is similar to launch a new thread that calls the functor.
    * The difference is that this doesn't actually create a thread (which is very expensive)
    * but instead just impersonates as one of the pre-allocated threads in the engine.
    * @return The resulting session.
-   * @todo currently, timeout is ignored. It behaves as if timeout=0
    */
-  ImpersonateSession  impersonate(ImpersonateTask* task, TimeoutMicrosec timeout = -1);
+  ImpersonateSession  impersonate(ImpersonateTask* task);
 
   /**
    * @brief A shorthand for impersonating a session and synchronously waiting for its end.
@@ -167,18 +165,14 @@ class ThreadPool CXX11_FINAL : public virtual Initializable {
   /**
    * Overload to specify a NUMA node to run on.
    * @see impersonate()
-   * @todo currently, timeout is ignored. It behaves as if timeout=0
    */
-  ImpersonateSession  impersonate_on_numa_node(ImpersonateTask* task,
-                    ThreadGroupId numa_node, TimeoutMicrosec timeout = -1);
+  ImpersonateSession  impersonate_on_numa_node(ImpersonateTask* task, ThreadGroupId numa_node);
 
   /**
    * Overload to specify a core to run on.
    * @see impersonate()
-   * @todo currently, timeout is ignored. It behaves as if timeout=0
    */
-  ImpersonateSession  impersonate_on_numa_core(ImpersonateTask* task,
-                    ThreadId numa_core, TimeoutMicrosec timeout = -1);
+  ImpersonateSession  impersonate_on_numa_core(ImpersonateTask* task, ThreadId numa_core);
 
   /** Returns the pimpl of this object. Use it only when you know what you are doing. */
   ThreadPoolPimpl*    get_pimpl() const { return pimpl_; }

@@ -5,6 +5,8 @@
 #ifndef FOEDUS_PROC_PROC_MANAGER_HPP_
 #define FOEDUS_PROC_PROC_MANAGER_HPP_
 
+#include <vector>
+
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/proc/fwd.hpp"
@@ -43,6 +45,9 @@ class ProcManager CXX11_FINAL : public virtual Initializable {
    * So, once Engine is initialized, this method always fails.
    */
   ErrorStack  pre_register(const ProcAndName& proc_and_name);
+
+  /** Returns procedures given to pre_register() */
+  const std::vector< ProcAndName >& get_pre_registered_procedures() const;
 
   /**
    * @brief Register a function pointer as a user procedure in the current SOC.

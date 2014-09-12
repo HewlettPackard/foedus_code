@@ -17,6 +17,7 @@ set(test_endianness_individual
   ComparisonI64
 )
 add_foedus_test_individual(test_endianness "${test_endianness_individual}")
+add_foedus_test_individual(test_dumb_spinlock "OneThread;TwoThreads;FourThreads;SixThreads;OneThreadLazy;TwoThreadsLazy;FourThreadsLazy;SixThreadsLazy")
 set(test_raw_atomics_individual
   Uint8
   Uint16

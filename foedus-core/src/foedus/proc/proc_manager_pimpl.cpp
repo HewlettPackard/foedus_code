@@ -11,6 +11,7 @@
 #include "foedus/epoch.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/assorted/dumb_spinlock.hpp"
 
 namespace foedus {
 namespace proc {
@@ -87,24 +88,16 @@ LocalProcId ProcManagerPimpl::find_by_name(const ProcName& name, SharedData* sha
 }
 
 LocalProcId ProcManagerPimpl::insert(const ProcAndName& proc_and_name, SharedData* shared_data) {
-  while (true) {
-    bool expected = false;
-    if (shared_data->control_block_->locked_.compare_exchange_weak(expected, true)) {
-      break;
-    }
-  }
-  ASSERT_ND(shared_data->control_block_->locked_.load() == true);
+  assorted::DumbSpinlock lock_scope(&shared_data->control_block_->locked_);
   LocalProcId found = find_by_name(proc_and_name.first, shared_data);
   // TODO(Hideaki) max_proc_count check.
   if (found != kLocalProcNotFound) {
-    shared_data->control_block_->locked_.store(false);  // unlock
     return kLocalProcNotFound;
   }
   LocalProcId new_id = shared_data->control_block_->count_;
   shared_data->procs_[new_id] = proc_and_name;
   ++shared_data->control_block_->count_;
   // TODO(Hideaki) insert-sort to name_sort
-  shared_data->control_block_->locked_.store(false);  // unlock
   return new_id;
 }
 

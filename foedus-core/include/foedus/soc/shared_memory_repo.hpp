@@ -50,14 +50,8 @@ struct MasterEngineStatus CXX11_FINAL {
      */
     kSharedMemoryReservedReclamation,
     /**
-     * Master engine has successfully initialized the debug module.
+     * Master engine has successfully initialized essential modules (debug/savepoint, etc).
      * Child SOCs resume their initialization after observing this status.
-     * This additional synchronization is because of the fork-related issue in glog.
-     * If SOC type is not fork, we can omit this step, but wouldn't matter.
-     */
-    kDebugModuleInitialized,
-
-    /**
      * The master is waiting for child engines to complete their initialization.
      */
     kWaitingForChildInitialization,
@@ -104,9 +98,6 @@ struct MasterEngineStatus CXX11_FINAL {
   StatusCode status_code_;
   // so far this is the only information.
 };
-CXX11_STATIC_ASSERT(
-  sizeof(MasterEngineStatus) <= (1 << 12),
-  "Size of MasterEngineStatus exceeds 4kb");
 
 /**
  * @brief Current status of a child SOC engine.
@@ -126,7 +117,7 @@ struct ChildEngineStatus CXX11_FINAL {
     kInitial = 0,
     /**
      * Child engine successfully attached shared memory and waiting for master's
-     * kDebugModuleInitialized status.
+     * kWaitingForChildInitialization status.
      */
     kSharedMemoryAttached,
     /**
@@ -168,14 +159,11 @@ struct ChildEngineStatus CXX11_FINAL {
   // so far this is the only information.
 };
 
-CXX11_STATIC_ASSERT(
-  sizeof(ChildEngineStatus) <= (1 << 12),
-  "Size of ChildEngineStatus exceeds 4kb");
-
 /**
-  * Just a set of pointers within global_memory_ for ease of use.
-  * All pointers are at least 8-byte aligned. Most of them are 4kb aligned.
-  */
+ * Just a set of pointers within global_memory_ for ease of use.
+ * All pointers are at least 8-byte aligned. Most of them are 4kb aligned.
+ * @ingroup SOC
+ */
 struct GlobalMemoryAnchors {
   enum Constants {
     kMasterStatusMemorySize = 1 << 12,
@@ -233,6 +221,7 @@ struct GlobalMemoryAnchors {
 
 /**
  * Same as GlobalMemoryAnchors except this is for node_memories_.
+ * @ingroup SOC
  */
 struct NodeMemoryAnchors {
   enum Constants {
@@ -294,6 +283,7 @@ struct NodeMemoryAnchors {
 
 /**
  * Part of NodeMemoryAnchors for each thread.
+ * @ingroup SOC
  */
 struct ThreadMemoryAnchors {
   enum Constants {
@@ -447,6 +437,13 @@ class SharedMemoryRepo CXX11_FINAL {
     SharedMemoryRepo* repo);
 };
 
+CXX11_STATIC_ASSERT(
+  sizeof(MasterEngineStatus) <= (1 << 12),
+  "Size of MasterEngineStatus exceeds 4kb");
+
+CXX11_STATIC_ASSERT(
+  sizeof(ChildEngineStatus) <= (1 << 12),
+  "Size of ChildEngineStatus exceeds 4kb");
 
 }  // namespace soc
 }  // namespace foedus
