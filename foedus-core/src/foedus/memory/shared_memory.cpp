@@ -106,6 +106,7 @@ void SharedMemory::alloc(const std::string& meta_path, uint64_t size, int numa_n
         << "sudo sysctl -w kernel.shmall=1152921504606846720;"
         << "sudo sysctl -p"
       << std::endl << " - Too few hugepages. sudo sh -c 'echo 196608 > /proc/sys/vm/nr_hugepages'"
+      << std::endl << " - Too small mlock. Check ulimit -l. Configure /etc/security/limits.conf"
       << std::endl << " - Simply larger than DRAM in the machine. "
       << std::endl << " - (Very rare) shm key conflict. "
       << std::endl;
