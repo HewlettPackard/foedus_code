@@ -68,7 +68,6 @@ class StorageManagerPimpl final : public DefaultInitializable {
    * The ownership is handed over to this manager, thus caller should NOT uninitialize/destruct.
    */
   ErrorStack  register_storage(Storage* storage);
-  ErrorStack  expand_storage_array(StorageId new_size);
 
   ErrorStack  drop_storage(thread::Thread* context, StorageId id, Epoch *commit_epoch);
   ErrorStack  drop_storage(StorageId id, Epoch *commit_epoch);
@@ -84,6 +83,7 @@ class StorageManagerPimpl final : public DefaultInitializable {
     return reinterpret_cast<char*>(instance_memory_.get_block())
       + static_cast<uint64_t>(storage_id) * kPageSize;
   }
+  uint32_t    get_max_storages() const;
 
   Engine* const           engine_;
 
@@ -108,10 +108,6 @@ class StorageManagerPimpl final : public DefaultInitializable {
    * If there is a hole, it contains a nullptr.
    */
   Storage**               storages_;
-  /**
-   * Capacity of storages_. When we need an expansion, we do RCU and switches the pointer.
-   */
-  size_t                  storages_capacity_;
 
   /**
    * Storage instances (pimpl objects) are allocated in this shared memory.

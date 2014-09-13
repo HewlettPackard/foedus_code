@@ -84,6 +84,7 @@ X(kErrorCodeStrMasstreeTooManyRetries, 0x0812, "STORAGE: MASSTREE: Retrying too 
 X(kErrorCodeStrMasstreeFailedVerification, 0x0813, "STORAGE: MASSTREE: Failed verification. Found an inconsistency")
 X(kErrorCodeStrMasstreeCursorTooDeep, 0x0814, "STORAGE: MASSTREE: Cursor encountered a too deep path")
 X(kErrorCodeStrArrayFailedVerification, 0x0821, "STORAGE: ARRAY: Failed verification. Found an inconsistency")
+X(kErrorCodeStrTooManyStorages,     0x0822, "STORAGE: Reached maximum number of storages. To register more storages, adjust StorageOptions::max_storages.")
 
 X(kErrorCodeCacheNoFreePages,       0x0901, "SPCACHE: Not enough free snapshot pages. Cleaner is not catching up")
 X(kErrorCodeCacheTableFull,         0x0902, "SPCACHE: Hashtable full or too many skewed inserts")
