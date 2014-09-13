@@ -13,6 +13,7 @@ namespace foedus {
 namespace savepoint {
 struct  Savepoint;
 class   SavepointManager;
+struct  SavepointManagerControlBlock;
 class   SavepointManagerPimpl;
 struct  SavepointOptions;
 }  // namespace savepoint

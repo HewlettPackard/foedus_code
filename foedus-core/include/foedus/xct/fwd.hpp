@@ -22,6 +22,7 @@ class   Xct;
 struct  XctAccess;
 struct  XctId;
 class   XctManager;
+struct  XctManagerControlBlock;
 class   XctManagerPimpl;
 }  // namespace xct
 }  // namespace foedus

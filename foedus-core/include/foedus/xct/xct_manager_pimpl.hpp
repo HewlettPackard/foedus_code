@@ -9,6 +9,8 @@
 #include "foedus/epoch.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/soc/shared_cond.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/thread/condition_variable_impl.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
@@ -17,6 +19,28 @@
 
 namespace foedus {
 namespace xct {
+/** Shared data in XctManagerPimpl. */
+struct XctManagerControlBlock {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  XctManagerControlBlock() = delete;
+  ~XctManagerControlBlock() = delete;
+
+  /**
+   * @brief The current epoch of the entire engine.
+   * @details
+   * Currently running (committing) transactions will use this value as their serialization point.
+   * No locks to protect this variable, but
+   * \li There should be only one thread that might update this (XctManager).
+   * \li Readers should take appropriate fence before reading this.
+   * @invariant current_global_epoch_ > 0
+   * (current_global_epoch_ begins with 1, not 0. So, epoch-0 is always an empty/dummy epoch)
+   */
+  std::atomic<Epoch::EpochInteger>  current_global_epoch_;
+
+  /** Fired (broadcast) whenever current_global_epoch_ is advanced. */
+  soc::SharedCond                   current_global_epoch_advanced_;
+};
+
 /**
  * @brief Pimpl object of XctManager.
  * @ingroup XCT
@@ -137,9 +161,13 @@ class XctManagerPimpl final : public DefaultInitializable {
 
   /**
    * This thread keeps advancing the current_global_epoch_ and durable_global_epoch_.
+   * Launched only in master engine.
    */
   thread::StoppableThread epoch_advance_thread_;
 };
+static_assert(
+  sizeof(XctManagerControlBlock) <= soc::GlobalMemoryAnchors::kXctManagerMemorySize,
+  "XctManagerControlBlock is too large.");
 }  // namespace xct
 }  // namespace foedus
 #endif  // FOEDUS_XCT_XCT_MANAGER_PIMPL_HPP_

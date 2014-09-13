@@ -230,6 +230,10 @@ void SocManagerPimpl::emulated_child_main(SocId node) {
     child_emulated_engines_[node] = nullptr;
     return;
   }
+
+  SocManagerPimpl* soc_this = soc_engine.get_soc_manager().pimpl_;
+  SharedMemoryRepo& soc_memory = soc_this->memory_repo_;
+
   // after initialize(), we can safely use glog.
   LOG(INFO) << "The emulated SOC engine-" << node << " was initialized.";
 
@@ -240,13 +244,12 @@ void SocManagerPimpl::emulated_child_main(SocId node) {
   }
 
   LOG(INFO) << "Waiting for master engine's initialization...";
-  SocManagerPimpl* soc_this = soc_engine.get_soc_manager().pimpl_;
+  soc_memory.change_child_status(node, ChildEngineStatus::kWaitingForMasterInitialization);
   COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kRunning));
   LOG(INFO) << "The emulated SOC engine-" << node << " detected that master engine has started"
     << " running.";
-  while (true) {
-    COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kWaitingForChildTerminate));
-  }
+  soc_memory.change_child_status(node, ChildEngineStatus::kRunning);
+  COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kWaitingForChildTerminate));
 
   LOG(INFO) << "Stopping the emulated SOC engine-" << node;
   ErrorStack uninit_error = soc_engine.uninitialize();
@@ -296,6 +299,9 @@ int SocManagerPimpl::forked_child_main(SocId node) {
     return EXIT_FAILURE;
   }
 
+  SocManagerPimpl* soc_this = soc_engine.get_soc_manager().pimpl_;
+  SharedMemoryRepo& soc_memory = soc_this->memory_repo_;
+
   // after initialize(), we can safely use glog.
   LOG(INFO) << "The forked SOC engine-" << node << " was initialized.";
 
@@ -306,13 +312,12 @@ int SocManagerPimpl::forked_child_main(SocId node) {
   }
 
   LOG(INFO) << "Waiting for master engine's initialization...";
-  SocManagerPimpl* soc_this = soc_engine.get_soc_manager().pimpl_;
+  soc_memory.change_child_status(node, ChildEngineStatus::kWaitingForMasterInitialization);
   COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kRunning));
   LOG(INFO) << "The forked SOC engine-" << node << " detected that master engine has started"
     << " running.";
-  while (true) {
-    COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kWaitingForChildTerminate));
-  }
+  soc_memory.change_child_status(node, ChildEngineStatus::kRunning);
+  COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kWaitingForChildTerminate));
 
   LOG(INFO) << "Stopping the forked SOC engine-" << node;
   ErrorStack uninit_error = soc_engine.uninitialize();
@@ -388,6 +393,9 @@ void SocManagerPimpl::spawned_child_main(const std::vector< proc::ProcAndName >&
     ::_exit(EXIT_FAILURE);
   }
 
+  SocManagerPimpl* soc_this = soc_engine.get_soc_manager().pimpl_;
+  SharedMemoryRepo& soc_memory = soc_this->memory_repo_;
+
   // after initialize(), we can safely use glog.
   LOG(INFO) << "The spawned SOC engine-" << node << " was initialized.";
 
@@ -397,15 +405,15 @@ void SocManagerPimpl::spawned_child_main(const std::vector< proc::ProcAndName >&
   }
 
   LOG(INFO) << "Added user procedures. Waiting for master engine's initialization...";
-  SocManagerPimpl* soc_this = soc_engine.get_soc_manager().pimpl_;
+  soc_memory.change_child_status(node, ChildEngineStatus::kWaitingForMasterInitialization);
   COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kRunning));
   LOG(INFO) << "The spawned SOC engine-" << node << " detected that master engine has started"
     << " running.";
-  while (true) {
-    COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kWaitingForChildTerminate));
-  }
+  soc_memory.change_child_status(node, ChildEngineStatus::kRunning);
+  COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kWaitingForChildTerminate));
 
   LOG(INFO) << "Stopping the spawned SOC engine-" << node;
+  soc_memory.change_child_status(node, ChildEngineStatus::kTerminated);
   ErrorStack uninit_error = soc_engine.uninitialize();
   if (uninit_error.is_error()) {
     LOG(ERROR) << "Error while uninitializing spawned SOC engine-" << node << ": " << uninit_error;

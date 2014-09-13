@@ -13,12 +13,34 @@
 #include "foedus/initializable.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/fwd.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_mutex.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 
 namespace foedus {
 namespace storage {
+/** Shared data in StorageManagerPimpl. */
+struct StorageManagerControlBlock {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  StorageManagerControlBlock() = delete;
+  ~StorageManagerControlBlock() = delete;
+
+  /**
+   * In case there are multiple threads that add/delete/expand storages,
+   * those threads take this lock.
+   * Normal threads that only read storages_ don't have to take this.
+   */
+  soc::SharedMutex        mod_lock_;
+
+  /**
+   * The largest StorageId we so far observed.
+   * This value +1 would be the ID of the storage created next.
+   */
+  StorageId               largest_storage_id_;
+};
+
 /**
  * @brief Pimpl object of StorageManager.
  * @ingroup STORAGE
@@ -112,6 +134,10 @@ class StorageManagerPimpl final : public DefaultInitializable {
    */
   std::vector< StorageFactory* >      storage_factories_;
 };
+
+static_assert(
+  sizeof(StorageManagerControlBlock) <= soc::GlobalMemoryAnchors::kStorageManagerMemorySize,
+  "StorageManagerControlBlock is too large.");
 }  // namespace storage
 }  // namespace foedus
 #endif  // FOEDUS_STORAGE_STORAGE_MANAGER_PIMPL_HPP_

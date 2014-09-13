@@ -27,11 +27,15 @@ TEST(SharedMemoryRepoTest, Alone) {
   EngineOptions options = get_tiny_options();
   EXPECT_FALSE(repo.allocate_shared_memories(options).is_error());
   EXPECT_NE(nullptr, repo.get_global_memory());
-  EXPECT_NE(nullptr, repo.get_global_memory_anchors()->epoch_status_memory_);
+  EXPECT_NE(nullptr, repo.get_global_memory_anchors()->log_manager_memory_);
+  EXPECT_NE(nullptr, repo.get_global_memory_anchors()->restart_manager_memory_);
+  EXPECT_NE(nullptr, repo.get_global_memory_anchors()->savepoint_manager_memory_);
+  EXPECT_NE(nullptr, repo.get_global_memory_anchors()->snapshot_manager_memory_);
+  EXPECT_NE(nullptr, repo.get_global_memory_anchors()->storage_manager_memory_);
+  EXPECT_NE(nullptr, repo.get_global_memory_anchors()->xct_manager_memory_);
   EXPECT_NE(nullptr, repo.get_global_memory_anchors()->master_status_memory_);
   EXPECT_NE(nullptr, repo.get_global_memory_anchors()->options_xml_);
   EXPECT_NE(0, repo.get_global_memory_anchors()->options_xml_length_);
-  EXPECT_NE(nullptr, repo.get_global_memory_anchors()->storage_manager_status_memory_);
   EXPECT_NE(nullptr, repo.get_global_memory_anchors()->storage_name_sort_memory_);
   EXPECT_NE(nullptr, repo.get_global_memory_anchors()->storage_status_memory_);
 
@@ -40,7 +44,7 @@ TEST(SharedMemoryRepoTest, Alone) {
   EXPECT_NE(nullptr, node_anchors->child_status_memory_);
   EXPECT_NE(nullptr, node_anchors->logger_status_memories_);
   EXPECT_NE(nullptr, node_anchors->volatile_pool_status_memory_);
-  EXPECT_NE(nullptr, node_anchors->proc_manager_status_memory_);
+  EXPECT_NE(nullptr, node_anchors->proc_manager_memory_);
   EXPECT_NE(nullptr, node_anchors->proc_memory_);
   EXPECT_NE(nullptr, node_anchors->proc_name_sort_memory_);
   for (uint16_t i = 0; i < options.thread_.thread_count_per_group_; ++i) {
@@ -54,11 +58,15 @@ TEST(SharedMemoryRepoTest, Alone) {
   repo.deallocate_shared_memories();
   EXPECT_EQ(nullptr, repo.get_global_memory());
   EXPECT_EQ(nullptr, repo.get_global_memory());
-  EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->epoch_status_memory_);
+  EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->log_manager_memory_);
+  EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->restart_manager_memory_);
+  EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->savepoint_manager_memory_);
+  EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->snapshot_manager_memory_);
+  EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->storage_manager_memory_);
+  EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->xct_manager_memory_);
   EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->master_status_memory_);
   EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->options_xml_);
   EXPECT_EQ(0, repo.get_global_memory_anchors()->options_xml_length_);
-  EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->storage_manager_status_memory_);
   EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->storage_name_sort_memory_);
   EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->storage_status_memory_);
 }
@@ -74,11 +82,15 @@ TEST(SharedMemoryRepoTest, Attach) {
   EXPECT_FALSE(child.attach_shared_memories(pid, 0, &child_options).is_error());
 
   EXPECT_NE(nullptr, child.get_global_memory());
-  EXPECT_NE(nullptr, child.get_global_memory_anchors()->epoch_status_memory_);
+  EXPECT_NE(nullptr, child.get_global_memory_anchors()->log_manager_memory_);
+  EXPECT_NE(nullptr, child.get_global_memory_anchors()->restart_manager_memory_);
+  EXPECT_NE(nullptr, child.get_global_memory_anchors()->savepoint_manager_memory_);
+  EXPECT_NE(nullptr, child.get_global_memory_anchors()->snapshot_manager_memory_);
+  EXPECT_NE(nullptr, child.get_global_memory_anchors()->storage_manager_memory_);
+  EXPECT_NE(nullptr, child.get_global_memory_anchors()->xct_manager_memory_);
   EXPECT_NE(nullptr, child.get_global_memory_anchors()->master_status_memory_);
   EXPECT_NE(nullptr, child.get_global_memory_anchors()->options_xml_);
   EXPECT_NE(0, child.get_global_memory_anchors()->options_xml_length_);
-  EXPECT_NE(nullptr, child.get_global_memory_anchors()->storage_manager_status_memory_);
   EXPECT_NE(nullptr, child.get_global_memory_anchors()->storage_name_sort_memory_);
   EXPECT_NE(nullptr, child.get_global_memory_anchors()->storage_status_memory_);
 
@@ -95,7 +107,7 @@ TEST(SharedMemoryRepoTest, Attach) {
   EXPECT_NE(nullptr, node_anchors->child_status_memory_);
   EXPECT_NE(nullptr, node_anchors->logger_status_memories_);
   EXPECT_NE(nullptr, node_anchors->volatile_pool_status_memory_);
-  EXPECT_NE(nullptr, node_anchors->proc_manager_status_memory_);
+  EXPECT_NE(nullptr, node_anchors->proc_manager_memory_);
   EXPECT_NE(nullptr, node_anchors->proc_memory_);
   EXPECT_NE(nullptr, node_anchors->proc_name_sort_memory_);
   for (uint16_t i = 0; i < options.thread_.thread_count_per_group_; ++i) {

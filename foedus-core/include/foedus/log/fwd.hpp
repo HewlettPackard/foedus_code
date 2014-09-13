@@ -18,6 +18,7 @@ struct  EpochMarkerLogType;
 struct  FillerLogType;
 struct  LogHeader;
 class   LogManager;
+struct  LogManagerControlBlock;
 class   LogManagerPimpl;
 struct  LogOptions;
 class   Logger;

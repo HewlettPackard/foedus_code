@@ -12,6 +12,7 @@
 namespace foedus {
 namespace restart {
 class   RestartManager;
+struct  RestartManagerControlBlock;
 class   RestartManagerPimpl;
 }  // namespace restart
 }  // namespace foedus

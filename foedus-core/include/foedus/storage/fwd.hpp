@@ -23,6 +23,7 @@ struct  Record;
 class   Storage;
 class   StorageFactory;
 class   StorageManager;
+struct  StorageManagerControlBlock;
 class   StorageManagerPimpl;
 struct  VolatilePageInitializer;
 }  // namespace storage

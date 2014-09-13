@@ -15,6 +15,7 @@ namespace foedus {
 namespace soc {
 SocOptions::SocOptions() {
   soc_type_ = kChildEmulated;
+  shared_user_memory_size_kb_ = kDefaultSharedUserMemorySizeKb;
   spawn_executable_pattern_ = "";
   spawn_ld_library_path_pattern_ = "";
 }
@@ -42,6 +43,7 @@ std::string SocOptions::convert_spawn_ld_library_path_pattern(int node) const {
 
 ErrorStack SocOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ENUM_ELEMENT(element, soc_type_);
+  EXTERNALIZE_LOAD_ELEMENT(element, shared_user_memory_size_kb_);
   EXTERNALIZE_LOAD_ELEMENT(element, spawn_executable_pattern_);
   EXTERNALIZE_LOAD_ELEMENT(element, spawn_ld_library_path_pattern_);
   return kRetOk;
@@ -51,6 +53,9 @@ ErrorStack SocOptions::save(tinyxml2::XMLElement* element) const {
   CHECK_ERROR(insert_comment(element, "Set of options for SOC manager"));
 
   EXTERNALIZE_SAVE_ENUM_ELEMENT(element, soc_type_, "How to launch SOC engine instances.");
+  EXTERNALIZE_SAVE_ELEMENT(element, shared_user_memory_size_kb_,
+    "As part of the global shared memory, we reserve this size of 'user memory' that can be"
+    " used for arbitrary purporses by the user to communicate between SOCs.");
   EXTERNALIZE_SAVE_ELEMENT(element, spawn_executable_pattern_,
     "String pattern of path of executables to spawn SOC engines in each NUMA node.\n"
     " The default value is empty, which means we use the binary of the master (/proc/self/exe).\n"
