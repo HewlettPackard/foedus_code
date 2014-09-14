@@ -84,11 +84,7 @@ class AppendTask : public thread::ImpersonateTask {
 
 void verify_result(
   uint16_t thread_count,
-  const Engine &engine,
   const SequentialVolatileList &target) {
-  const memory::GlobalVolatilePageResolver& resolver
-    = engine.get_memory_manager().get_global_volatile_page_resolver();
-
   std::map<std::string, xct::XctId> answers;
   for (int task_id = 0; task_id < thread_count; ++task_id) {
     for (uint32_t i = 0; i < kAppendsPerThread; ++i) {
@@ -103,8 +99,8 @@ void verify_result(
     }
   }
 
-  for (auto i = 0; i < target.get_thread_count(); ++i) {
-    for (SequentialPage* page = target.get_head(i); page;) {
+  target.for_every_page(
+    [&](SequentialPage* page){
       uint16_t record_count = page->get_record_count();
       const char* record_pointers[kMaxSlots];
       uint16_t payload_lengthes[kMaxSlots];
@@ -126,18 +122,8 @@ void verify_result(
           answers.erase(value);
         }
       }
-
-      VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
-      if (next_pointer.components.offset != 0) {
-        EXPECT_NE(target.get_tail(i), page);
-        page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(next_pointer));
-        EXPECT_NE(nullptr, page);
-      } else {
-        EXPECT_EQ(target.get_tail(i), page);
-        page = nullptr;
-      }
-    }
-  }
+      return kErrorCodeOk;
+  });
 
   EXPECT_EQ(0, answers.size());
   std::map<std::string, xct::XctId> empty_map;
@@ -173,7 +159,7 @@ void execute_test(uint16_t thread_count) {
       }
     }
     std::cout << "target after:" << target << std::endl;
-    verify_result(thread_count, engine, target);
+    verify_result(thread_count, target);
     COERCE_ERROR(target.uninitialize());
     COERCE_ERROR(engine.uninitialize());
   }

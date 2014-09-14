@@ -8,10 +8,19 @@
 #include <iosfwd>
 
 #include "foedus/assert_nd.hpp"
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/fwd.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/memory/page_pool.hpp"
+#include "foedus/memory/page_resolver.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/sequential/fwd.hpp"
+#include "foedus/storage/sequential/sequential_id.hpp"
+#include "foedus/storage/sequential/sequential_page_impl.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
 
@@ -62,6 +71,9 @@ namespace sequential {
  */
 class SequentialVolatileList final : public DefaultInitializable {
  public:
+  struct PointerPage {
+    memory::PagePoolOffset pointers_[kPointersPerPage];
+  };
   SequentialVolatileList() = delete;
   SequentialVolatileList(Engine* engine, StorageId storage_id);
 
@@ -72,16 +84,17 @@ class SequentialVolatileList final : public DefaultInitializable {
   ErrorStack  uninitialize_once() override;
 
   StorageId get_storage_id() const { return storage_id_; }
-  thread::ThreadGlobalOrdinal get_thread_count() const { return thread_count_; }
 
-  SequentialPage* get_head(thread::ThreadGlobalOrdinal ordinal) const {
-    ASSERT_ND(ordinal < thread_count_);
-    return head_pointers_[ordinal];
-  }
-  SequentialPage* get_tail(thread::ThreadGlobalOrdinal ordinal) const {
-    ASSERT_ND(ordinal < thread_count_);
-    return tail_pointers_[ordinal];
-  }
+  SequentialPage* get_head(
+    const memory::LocalPageResolver& resolver,
+    thread::ThreadId thread_id) const;
+  SequentialPage* get_tail(
+    const memory::LocalPageResolver& resolver,
+    thread::ThreadId thread_id) const;
+
+  memory::PagePoolOffset* get_head_pointer(thread::ThreadId thread_id) const;
+  memory::PagePoolOffset* get_tail_pointer(thread::ThreadId thread_id) const;
+
 
   /**
    * @brief Appends an already-commited record to this volatile list.
@@ -98,17 +111,56 @@ class SequentialVolatileList final : public DefaultInitializable {
     const void *payload,
     uint16_t payload_count);
 
+
+  /**
+   * @brief Traverse all pages and call back the handler for every page.
+   * @details
+   * Handler must look like "ErrorCode func(SequentialPage* page) { ... } ".
+   */
+  template <typename HANDLER>
+  ErrorCode for_every_page(HANDLER handler) const {
+    uint16_t nodes = engine_->get_options().thread_.group_count_;
+    uint16_t threads_per_node = engine_->get_options().thread_.thread_count_per_group_;
+    for (uint16_t node = 0; node < nodes; ++node) {
+      if (head_pointer_pages_cache_[node / 4] == nullptr) {
+        continue;  // in case it's not initialized yet
+      }
+      const memory::LocalPageResolver& resolver
+        = engine_->get_memory_manager().get_node_memory(node)->get_volatile_pool().get_resolver();
+      for (uint16_t local_ordinal = 0; local_ordinal < threads_per_node; ++local_ordinal) {
+        thread::ThreadId thread_id = thread::compose_thread_id(node, local_ordinal);
+        for (SequentialPage* page = get_head(resolver, thread_id); page;) {
+          ASSERT_ND(page->header().page_id_);
+          CHECK_ERROR_CODE(handler(page));
+
+          VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
+          memory::PagePoolOffset offset = next_pointer.components.offset;
+          if (offset != 0) {
+            page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(offset));
+          } else {
+            page = nullptr;
+          }
+        }
+      }
+    }
+    return kErrorCodeOk;
+  }
+
   friend std::ostream& operator<<(std::ostream& o, const SequentialVolatileList& v);
 
  private:
   Engine* const     engine_;
   const StorageId   storage_id_;
-  const thread::ThreadGlobalOrdinal thread_count_;
 
-  /** Index is ThreadGlobalOrdinal.  */
-  SequentialPage** head_pointers_;
-  /** Index is ThreadGlobalOrdinal.  */
-  SequentialPage** tail_pointers_;
+  /** @see get_pointer_page_and_index() */
+  VolatilePagePointer head_pointer_pages_[kPointerPageCount];
+  /** @see get_pointer_page_and_index() */
+  VolatilePagePointer tail_pointer_pages_[kPointerPageCount];
+
+  // these are local and read-only cache. we can safely do this because pointer pages
+  // are never replaced.
+  PointerPage*        head_pointer_pages_cache_[kPointerPageCount];
+  PointerPage*        tail_pointer_pages_cache_[kPointerPageCount];
 };
 }  // namespace sequential
 }  // namespace storage

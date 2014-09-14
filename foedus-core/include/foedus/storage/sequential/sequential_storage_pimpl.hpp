@@ -29,9 +29,6 @@ namespace storage {
 namespace sequential {
 /** Shared data of this storage type */
 struct SequentialStorageControlBlock final {
-  enum Constants {
-    kPointerPageCount = 1 << 6,
-  };
   // this is backed by shared memory. not instantiation. just reinterpret_cast.
   SequentialStorageControlBlock() = delete;
   ~SequentialStorageControlBlock() = delete;
