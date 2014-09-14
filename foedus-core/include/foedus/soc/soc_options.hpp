@@ -5,6 +5,8 @@
 #ifndef FOEDUS_SOC_SOC_OPTIONS_HPP_
 #define FOEDUS_SOC_SOC_OPTIONS_HPP_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "foedus/cxx11.hpp"
@@ -21,6 +23,11 @@ namespace soc {
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
 struct SocOptions CXX11_FINAL : public virtual externalize::Externalizable {
+  enum Constants {
+    /** default for shared_user_memory_size_kb_ */
+    kDefaultSharedUserMemorySizeKb = 4,
+  };
+
   /**
    * Constructs option values with default values.
    */
@@ -32,6 +39,12 @@ struct SocOptions CXX11_FINAL : public virtual externalize::Externalizable {
    * The default value is kChildEmulated.
    */
   EngineType    soc_type_;
+
+  /**
+   * As part of the global shared memory, we reserve this size of 'user memory' that can be
+   * used for arbitrary purporses by the user to communicate between SOCs.
+   */
+  uint64_t      shared_user_memory_size_kb_;
 
   /**
    * @brief String pattern of path of executables to spawn SOC engines in each NUMA node.

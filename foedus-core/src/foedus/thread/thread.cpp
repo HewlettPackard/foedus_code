@@ -28,7 +28,6 @@ Thread::~Thread() {
 
 ErrorStack Thread::initialize() {
   CHECK_ERROR(pimpl_->initialize());
-  global_volatile_page_resolver_ = pimpl_->global_volatile_page_resolver_;  // copy it from pimpl
   return kRetOk;
 }
 bool Thread::is_initialized() const { return pimpl_->is_initialized(); }
@@ -80,6 +79,10 @@ std::ostream& operator<<(std::ostream& o, const Thread& v) {
   o << (v.pimpl_->raw_thread_.is_stopped() ? "E" : " ");
   o << "]";
   return o;
+}
+
+const memory::GlobalVolatilePageResolver& Thread::get_global_volatile_page_resolver() const {
+  return pimpl_->engine_->get_memory_manager().get_global_volatile_page_resolver();
 }
 
 

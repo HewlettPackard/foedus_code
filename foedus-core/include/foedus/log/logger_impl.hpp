@@ -6,6 +6,7 @@
 #define FOEDUS_LOG_LOGGER_IMPL_HPP_
 #include <stdint.h>
 
+#include <atomic>
 #include <iosfwd>
 #include <string>
 #include <vector>
@@ -20,12 +21,68 @@
 #include "foedus/log/log_id.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/savepoint/fwd.hpp"
+#include "foedus/soc/shared_cond.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
 #include "foedus/thread/thread_id.hpp"
 
 namespace foedus {
 namespace log {
+
+/** Shared data of Logger */
+struct LoggerControlBlock {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  LoggerControlBlock() = delete;
+  ~LoggerControlBlock() = delete;
+
+  /**
+   * @brief Upto what epoch the logger flushed logs in \b all buffers assigned to it.
+   * @invariant durable_epoch_.is_valid()
+   * @invariant global durable epoch <= durable_epoch_ < global current epoch
+   * @details
+   * Unlike buffer.logger_epoch, this value is continuously maintained by the logger, thus
+   * no case of stale values. Actually, the global durable epoch does not advance until all
+   * loggers' durable_epoch_ advance.
+   * Hence, if some thread is idle or running a long transaction, this value could be larger
+   * than buffer.logger_epoch_. Otherwise (when the worker thread is running normal), this value
+   * is most likely smaller than buffer.logger_epoch_.
+   */
+  std::atomic< Epoch::EpochInteger >  durable_epoch_;
+  /**
+   * The logger sleeps on this conditional.
+   * When someone else (whether in same SOC or other SOC) wants to wake up this logger,
+   * they fire this. There is no 'real' condition variable as this is not about correctness.
+   * The logger simply wakes on this cond and resumes as far as it wakes up.
+   * It might be a spurrious wakeup, but doesn't matter.
+   */
+  soc::SharedCond                     wakeup_cond_;
+
+  // the followings are also shared just for savepoint.
+
+  /**
+   * @brief Ordinal of the oldest active log file of this logger.
+   * @invariant oldest_ordinal_ <= current_ordinal_
+   */
+  std::atomic< LogFileOrdinal >   oldest_ordinal_;
+  /**
+   * @brief Inclusive beginning of active region in the oldest log file.
+   * @invariant oldest_file_offset_begin_ % kLogWriteUnitSize == 0 (because we pad)
+   */
+  std::atomic< uint64_t >         oldest_file_offset_begin_;
+  /**
+   * @brief Ordinal of the log file this logger is currently appending to.
+   */
+  std::atomic< LogFileOrdinal >   current_ordinal_;
+
+  /**
+   * We called fsync on current file up to this offset.
+   * @invariant current_file_durable_offset_ <= current_file->get_current_offset()
+   * @invariant current_file_durable_offset_ % kLogWriteUnitSize == 0 (because we pad)
+   */
+  std::atomic< uint64_t >         current_file_durable_offset_;
+};
+
 /**
  * @brief A log writer that writes out buffered logs to stable storages.
  * @ingroup LOG
@@ -249,6 +306,9 @@ class Logger final : public DefaultInitializable {
   /** protects log_epoch_switch() from concurrent accesses. */
   std::mutex                      epoch_switch_mutex_;
 };
+static_assert(
+  sizeof(LoggerControlBlock) <= soc::NodeMemoryAnchors::kLoggerMemorySize,
+  "LoggerControlBlock is too large.");
 }  // namespace log
 }  // namespace foedus
 #endif  // FOEDUS_LOG_LOGGER_IMPL_HPP_

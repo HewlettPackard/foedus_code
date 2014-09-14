@@ -15,6 +15,7 @@
 #include "foedus/initializable.hpp"
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/memory/fwd.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -28,6 +29,26 @@
 namespace foedus {
 namespace storage {
 namespace array {
+/** Shared data of this storage type */
+struct ArrayStorageControlBlock final {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  ArrayStorageControlBlock() = delete;
+  ~ArrayStorageControlBlock() = delete;
+
+  /** Status of the storage */
+  StorageStatus       status_;
+  /** Points to the root page (or something equivalent). */
+  DualPagePointer     root_page_pointer_;
+  /** metadata of this storage. */
+  FixedArrayMetadata  meta_;
+
+  // Do NOT reorder members up to here. The layout must be compatible with StorageControlBlock
+  // Type-specific shared members below.
+
+  /** Number of levels. */
+  uint8_t             levels_;
+  LookupRouteFinder   route_finder_;
+};
 
 /**
  * @brief Pimpl object of ArrayStorage.
@@ -235,6 +256,9 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   LookupRouteFinder       route_finder_;
 };
 static_assert(sizeof(ArrayStoragePimpl) <= kPageSize, "ArrayStoragePimpl is too large");
+static_assert(
+  sizeof(ArrayStorageControlBlock) <= soc::GlobalMemoryAnchors::kStorageMemorySize,
+  "ArrayStorageControlBlock is too large.");
 
 }  // namespace array
 }  // namespace storage

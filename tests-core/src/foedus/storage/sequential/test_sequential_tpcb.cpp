@@ -395,8 +395,8 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
 
     // we don't have scanning API yet, so manually do it.
     std::set<uint64_t> observed_history_ids;
-    for (auto i = 0; i < histories->get_pimpl()->volatile_list_.get_thread_count(); ++i) {
-      for (SequentialPage* page = histories->get_pimpl()->volatile_list_.get_head(i); page;) {
+    WRAP_ERROR_CODE(histories->get_pimpl()->volatile_list_.for_every_page(
+      [&](SequentialPage* page){
         uint16_t record_count = page->get_record_count();
         const char* record_pointers[kMaxSlots];
         uint16_t payload_lengthes[kMaxSlots];
@@ -424,19 +424,8 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
             << history.history_id_;
           observed_history_ids.insert(history.history_id_);
         }
-
-        VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
-        if (next_pointer.components.offset != 0) {
-          EXPECT_NE(histories->get_pimpl()->volatile_list_.get_tail(i), page);
-          page = reinterpret_cast<SequentialPage*>(
-            context->get_global_volatile_page_resolver().resolve_offset(next_pointer));
-          EXPECT_NE(nullptr, page);
-        } else {
-          EXPECT_EQ(histories->get_pimpl()->volatile_list_.get_tail(i), page);
-          page = nullptr;
-        }
-      }
-    }
+        return kErrorCodeOk;
+    }));
     EXPECT_EQ(kXctsPerThread * clients_, observed_history_ids.size());
     for (int i = 0; i < kXctsPerThread * clients_; ++i) {
       EXPECT_NE(observed_history_ids.end(), observed_history_ids.find(i)) << i;

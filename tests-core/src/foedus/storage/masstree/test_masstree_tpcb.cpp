@@ -14,6 +14,8 @@
 #include "foedus/epoch.hpp"
 #include "foedus/test_common.hpp"
 #include "foedus/assorted/uniform_random.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
@@ -449,9 +451,8 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
 
     // we don't have scanning API yet, so manually do it.
     std::set<uint64_t> observed_history_ids;
-    for (auto i = 0; i < histories->get_pimpl()->volatile_list_.get_thread_count(); ++i) {
-      for (sequential::SequentialPage* page = histories->get_pimpl()->volatile_list_.get_head(i);
-           page;) {
+    WRAP_ERROR_CODE(histories->get_pimpl()->volatile_list_.for_every_page(
+      [&](sequential::SequentialPage* page){
         uint16_t record_count = page->get_record_count();
         const char* record_pointers[sequential::kMaxSlots];
         uint16_t payload_lengthes[sequential::kMaxSlots];
@@ -479,19 +480,8 @@ class VerifyTpcbTask : public thread::ImpersonateTask {
             << history.history_id_;
           observed_history_ids.insert(history.history_id_);
         }
-
-        VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
-        if (next_pointer.components.offset != 0) {
-          EXPECT_NE(histories->get_pimpl()->volatile_list_.get_tail(i), page);
-          page = reinterpret_cast<sequential::SequentialPage*>(
-            context->get_global_volatile_page_resolver().resolve_offset(next_pointer));
-          EXPECT_NE(nullptr, page);
-        } else {
-          EXPECT_EQ(histories->get_pimpl()->volatile_list_.get_tail(i), page);
-          page = nullptr;
-        }
-      }
-    }
+        return kErrorCodeOk;
+    }));
     EXPECT_EQ(kXctsPerThread * clients_, observed_history_ids.size());
     for (uint64_t i = 0; i < kXctsPerThread * clients_; ++i) {
       EXPECT_NE(observed_history_ids.end(), observed_history_ids.find(i)) << i;

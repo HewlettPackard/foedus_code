@@ -33,6 +33,10 @@
 
 namespace foedus {
 namespace storage {
+uint32_t   StorageManagerPimpl::get_max_storages() const {
+  return engine_->get_options().storage_.max_storages_;
+}
+
 ErrorStack StorageManagerPimpl::initialize_once() {
   LOG(INFO) << "Initializing StorageManager..";
   if (!engine_->get_thread_pool().is_initialized()
@@ -42,17 +46,15 @@ ErrorStack StorageManagerPimpl::initialize_once() {
 
   largest_storage_id_ = 0;
   storages_ = nullptr;
-  storages_capacity_ = 0;
   init_storage_factories();
   LOG(INFO) << "We have " << storage_factories_.size() << " types of storages";
 
-  const size_t kInitialCapacity = 1 << 12;
-  storages_ = new Storage*[kInitialCapacity];
+  uint32_t storages_capacity = engine_->get_options().storage_.max_storages_;
+  storages_ = new Storage*[storages_capacity];
   if (!storages_) {
     return ERROR_STACK(kErrorCodeOutofmemory);
   }
-  std::memset(storages_, 0, sizeof(Storage*) * kInitialCapacity);
-  storages_capacity_ = kInitialCapacity;
+  std::memset(storages_, 0, sizeof(Storage*) * storages_capacity);
 
   max_storages_ = engine_->get_options().storage_.max_storages_;
   instance_memory_.alloc(
@@ -72,7 +74,8 @@ ErrorStack StorageManagerPimpl::uninitialize_once() {
     || !engine_->get_log_manager().is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
-  for (size_t i = 0; i < storages_capacity_; ++i) {
+  uint32_t storages_capacity = engine_->get_options().storage_.max_storages_;
+  for (size_t i = 0; i < storages_capacity; ++i) {
     if (storages_[i] && storages_[i]->is_initialized()) {
       LOG(INFO) << "Invoking uninitialization for storage-" << i
         << "(" << storages_[i]->get_name() << ")";
@@ -137,11 +140,11 @@ ErrorStack StorageManagerPimpl::register_storage(Storage* storage) {
   ASSERT_ND(storage->is_initialized());
   StorageId id = storage->get_id();
   LOG(INFO) << "Adding storage of ID-" << id << "(" << storage->get_name() << ")";
-  if (storages_capacity_ <= id) {
-    CHECK_ERROR(expand_storage_array(id));
+  if (get_max_storages() <= id) {
+    return ERROR_STACK(kErrorCodeStrTooManyStorages);
   }
 
-  ASSERT_ND(storages_capacity_ > id);
+  ASSERT_ND(get_max_storages() > id);
   std::lock_guard<std::mutex> guard(mod_lock_);
   if (storages_[id]) {
     LOG(ERROR) << "Duplicate register_storage() call? ID=" << id;
@@ -219,38 +222,13 @@ ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) 
   return kRetOk;
 }
 
-
-ErrorStack StorageManagerPimpl::expand_storage_array(StorageId new_size) {
-  LOG(INFO) << "Expanding storages_. new_size=" << new_size;
-  std::lock_guard<std::mutex> guard(mod_lock_);
-  if (new_size <= storages_capacity_) {
-    LOG(INFO) << "Someone else has expanded?";
-    return kRetOk;
-  }
-
-  new_size = (new_size + 1) * 2;  // 2x margin to avoid frequent expansion.
-  Storage** new_array = new Storage*[new_size];
-  if (!new_array) {
-    return ERROR_STACK(kErrorCodeOutofmemory);
-  }
-
-  // copy and switch (fence to prevent compiler from doing something stupid)
-  std::memcpy(new_array, storages_, sizeof(Storage*) * storages_capacity_);
-  std::memset(new_array + storages_capacity_, 0,
-          sizeof(Storage*) * (new_size - storages_capacity_));
-  // we must announce the new storages_ to read-threads first because
-  // new_size > storages_capacity_.
-  assorted::memory_fence_release();
-  storages_ = new_array;
-  assorted::memory_fence_release();
-  storages_capacity_ = new_size;
-  return kRetOk;
-}
-
 ErrorStack StorageManagerPimpl::create_storage(thread::Thread* context,
                     Metadata *metadata, Storage **storage, Epoch *commit_epoch) {
   *storage = nullptr;
   StorageId id = issue_next_storage_id();
+  if (id >= get_max_storages()) {
+    return ERROR_STACK(kErrorCodeStrTooManyStorages);
+  }
   metadata->id_ = id;
   // CREATE STORAGE must be the only log in this transaction
   if (context->get_thread_log_buffer().get_offset_committed() !=

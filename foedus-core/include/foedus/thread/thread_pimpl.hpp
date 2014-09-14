@@ -6,6 +6,7 @@
 #define FOEDUS_THREAD_THREAD_PIMPL_HPP_
 #include <atomic>
 
+#include "foedus/fixed_error_stack.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/cache/cache_hashtable.hpp"
@@ -14,15 +15,55 @@
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_resolver.hpp"
+#include "foedus/proc/proc_id.hpp"
+#include "foedus/soc/shared_cond.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_mutex.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
+#include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace thread {
+/** Shared data of ThreadPimpl */
+struct ThreadControlBlock {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  ThreadControlBlock() = delete;
+  ~ThreadControlBlock() = delete;
+
+  /**
+   * The thread sleeps on this conditional when it has no task.
+   * When someone else (whether in same SOC or other SOC) wants to wake up this logger,
+   * they fire this. The 'real' condition variable is the status_.
+   */
+  soc::SharedCond     wakeup_cond_;
+
+  /**
+   * Impersonation status of this thread. Protected by the mutex in wakeup_cond_,
+   * \b not the task_mutex_ below. Use the right mutex. Otherwise a lost signal is possible.
+   */
+  ThreadStatus        status_;
+
+  /** The following variables are protected by this mutex. */
+  soc::SharedMutex    task_mutex_;
+
+  /** Name of the procedure to execute next. Empty means not set. */
+  proc::ProcName      proc_name_;
+
+  /** Byte size of input given to the procedure. */
+  uint32_t            input_len_;
+
+  /** Byte size of output as the result of the procedure. */
+  uint32_t            output_len_;
+
+  /** Error code as the result of the procedure */
+  FixedErrorStack     proc_result_;
+};
+
 /**
  * @brief Pimpl object of Thread.
  * @ingroup THREAD
@@ -204,6 +245,9 @@ inline ErrorCode ThreadPimpl::find_or_read_a_snapshot_page(
   return snapshot_cache_hashtable_->read_page(page_id, holder_, out);
 }
 
+static_assert(
+  sizeof(ThreadControlBlock) <= soc::ThreadMemoryAnchors::kThreadMemorySize,
+  "ThreadControlBlock is too large.");
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_THREAD_PIMPL_HPP_

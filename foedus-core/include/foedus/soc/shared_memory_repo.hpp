@@ -14,11 +14,20 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/log/fwd.hpp"
+#include "foedus/memory/fwd.hpp"
 #include "foedus/memory/shared_memory.hpp"
+#include "foedus/proc/fwd.hpp"
 #include "foedus/proc/proc_id.hpp"
+#include "foedus/restart/fwd.hpp"
+#include "foedus/savepoint/fwd.hpp"
+#include "foedus/snapshot/fwd.hpp"
 #include "foedus/soc/fwd.hpp"
 #include "foedus/soc/soc_id.hpp"
+#include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
+#include "foedus/thread/fwd.hpp"
+#include "foedus/xct/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
@@ -55,11 +64,6 @@ struct MasterEngineStatus CXX11_FINAL {
      * The master is waiting for child engines to complete their initialization.
      */
     kWaitingForChildInitialization,
-
-    /**
-     * The master engine is finishing up initialization, such as restart module.
-     */
-    kInitializingRest,
 
     /** Done all initialization and running transactions. */
     kRunning,
@@ -167,9 +171,13 @@ struct ChildEngineStatus CXX11_FINAL {
 struct GlobalMemoryAnchors {
   enum Constants {
     kMasterStatusMemorySize = 1 << 12,
-    kEpochStatusMemorySize = 1 << 12,
-    kStorageManagerStatusMemorySize = 1 << 12,
-    kStorageStatusSizePerStorage = 1 << 12,
+    kLogManagerMemorySize = 1 << 12,
+    kRestartManagerMemorySize = 1 << 12,
+    kSavepointManagerMemorySize = 1 << 12,
+    kSnapshotManagerMemorySize = 1 << 12,
+    kStorageManagerMemorySize = 1 << 12,
+    kXctManagerMemorySize = 1 << 12,
+    kStorageMemorySize = 1 << 12,
   };
 
   GlobalMemoryAnchors() { clear(); }
@@ -191,32 +199,41 @@ struct GlobalMemoryAnchors {
    */
   MasterEngineStatus* master_status_memory_;
 
-  /**
-   * This tiny piece of memory contains the value of current/durable epochs, snapshot/savepoint,
-   * and their synchronization mechanisms. Always 4kb.
-   */
-  void*     epoch_status_memory_;
-
-  /**
-   * This memory stores the number of storages and synchronization mechanisms
-   * for storage manager.
-   * Always 4kb.
-   */
-  void*     storage_manager_status_memory_;
+  /** Tiny memory for log manager. Always 4kb. */
+  log::LogManagerControlBlock*              log_manager_memory_;
+  /** Tiny memory for restart manager. Always 4kb. */
+  restart::RestartManagerControlBlock*      restart_manager_memory_;
+  /** Tiny memory for savepoint manager. Always 4kb. */
+  savepoint::SavepointManagerControlBlock*  savepoint_manager_memory_;
+  /** Tiny memory for snapshot manager. Always 4kb. */
+  snapshot::SnapshotManagerControlBlock*    snapshot_manager_memory_;
+  /** Tiny memory for storage manager. Always 4kb. */
+  storage::StorageManagerControlBlock*      storage_manager_memory_;
+  /** Tiny memory for xct manager. Always 4kb. */
+  xct::XctManagerControlBlock*              xct_manager_memory_;
 
   /**
    * This memory stores the ID of storages sorted by their names.
    * The size is 4 (=sizeof(StorageId)) * StorageOptions::max_storages_.
    */
-  storage::StorageId* storage_name_sort_memory_;
+  storage::StorageId*                       storage_name_sort_memory_;
 
   /**
    * Status of each storage instance is stored in this shared memory.
    * The size for one storage must be within 4kb. If the storage type requires more than 4kb,
    * just grab a page from volatile page pools and point to it from the storage object.
+   * sizeof(storage::StorageControlBlock) is exactly 4kb, so we can treat this like an array,
+   * not an array of pointers.
    * The size is 4kb * StorageOptions::max_storages_.
    */
-  void*     storage_status_memory_;
+  storage::StorageControlBlock*             storage_memories_;
+
+  /**
+   * This 'user memory' can be
+   * used for arbitrary purporses by the user to communicate between SOCs.
+   * The size is SocOptions::shared_user_memory_size_kb_.
+   */
+  void*                                     user_memory_;
 };
 
 /**
@@ -226,9 +243,9 @@ struct GlobalMemoryAnchors {
 struct NodeMemoryAnchors {
   enum Constants {
     kChildStatusMemorySize = 1 << 12,
-    kVolatilePoolStatusMemorySize = 1 << 12,
-    kLoggerStatusMemorySize = 1 << 12,
-    kProcManagerStatusMemorySize = 1 << 12,
+    kPagePoolMemorySize = 1 << 12,
+    kLoggerMemorySize = 1 << 12,
+    kProcManagerMemorySize = 1 << 12,
   };
 
   NodeMemoryAnchors() { std::memset(this, 0, sizeof(*this)); }
@@ -250,13 +267,13 @@ struct NodeMemoryAnchors {
    * PagePool's status and its synchronization mechanism for the volatile pool on this node.
    * Always 4kb.
    */
-  void*               volatile_pool_status_memory_;
+  memory::PagePoolControlBlock*   volatile_pool_status_;
 
   /**
    * ProcManagers's status and its synchronization mechanism on this node.
    * Always 4kb.
    */
-  void*               proc_manager_status_memory_;
+  proc::ProcManagerControlBlock*  proc_manager_memory_;
   /**
    * Procedure list on this node.
    * The size is sizeof(proc::ProcAndName) * ProcOptions::max_proc_count_.
@@ -273,7 +290,7 @@ struct NodeMemoryAnchors {
    * Index is node-local logger ID.
    * 4kb for each logger.
    */
-  void**              logger_status_memories_;
+  log::LoggerControlBlock** logger_memories_;
 
   /**
    * Anchors for each thread. Index is node-local thread ordinal.
@@ -287,7 +304,7 @@ struct NodeMemoryAnchors {
  */
 struct ThreadMemoryAnchors {
   enum Constants {
-    kImpersonateStatusMemorySize = 1 << 12,
+    kThreadMemorySize = 1 << 15,
     kTaskInputMemorySize = 1 << 19,
     kTaskOutputMemorySize = 1 << 19,
     kMcsLockMemorySize = 1 << 19,
@@ -301,9 +318,9 @@ struct ThreadMemoryAnchors {
 
   /**
    * Status and synchronization mechanism for impersonation of this thread.
-   * Always 4kb.
+   * Always 32kb (a bit large mainly due to the size of FixedErrorStack).
    */
-  void*           impersonate_status_memory_;
+  thread::ThreadControlBlock* thread_memory_;
 
   /**
    * Input buffer for an impersonated task.
@@ -380,6 +397,7 @@ class SharedMemoryRepo CXX11_FINAL {
 
   void*       get_global_memory() { return global_memory_.get_block(); }
   GlobalMemoryAnchors* get_global_memory_anchors() { return &global_memory_anchors_; }
+  void*       get_global_user_memory() { return global_memory_anchors_.user_memory_; }
 
   void        change_master_status(MasterEngineStatus::StatusCode new_status);
   MasterEngineStatus::StatusCode get_master_status() const;

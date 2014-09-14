@@ -4,11 +4,23 @@
  */
 #ifndef FOEDUS_RESTART_RESTART_MANAGER_PIMPL_HPP_
 #define FOEDUS_RESTART_RESTART_MANAGER_PIMPL_HPP_
+
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/restart/fwd.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+
 namespace foedus {
 namespace restart {
+/** Shared data in RestartManagerPimpl. */
+struct RestartManagerControlBlock {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  RestartManagerControlBlock() = delete;
+  ~RestartManagerControlBlock() = delete;
+
+  // nothing so far
+};
+
 /**
  * @brief Pimpl object of RestartManager.
  * @ingroup RESTART
@@ -31,6 +43,10 @@ class RestartManagerPimpl final : public DefaultInitializable {
 
   Engine* const           engine_;
 };
+
+static_assert(
+  sizeof(RestartManagerControlBlock) <= soc::GlobalMemoryAnchors::kRestartManagerMemorySize,
+  "RestartManagerControlBlock is too large.");
 }  // namespace restart
 }  // namespace foedus
 #endif  // FOEDUS_RESTART_RESTART_MANAGER_PIMPL_HPP_

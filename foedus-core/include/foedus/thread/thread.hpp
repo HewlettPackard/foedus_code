@@ -64,12 +64,9 @@ class Thread CXX11_FINAL : public virtual Initializable {
 
   /**
    * Returns the page resolver to convert page ID to page pointer.
-   * All worker threads copy the page resolver into its local memory at startup.
-   * This gives the most efficient page resolve without any remote NUMA memory access.
+   * Just a shorthand for get_engine()->get_memory_manager()->get_global_volatile_page_resolver().
    */
-  const memory::GlobalVolatilePageResolver& get_global_volatile_page_resolver() const {
-    return global_volatile_page_resolver_;
-  }
+  const memory::GlobalVolatilePageResolver& get_global_volatile_page_resolver() const;
   /** Returns page resolver to convert only local page ID to page pointer. */
   const memory::LocalPageResolver& get_local_volatile_page_resolver() const;
 
@@ -168,15 +165,6 @@ class Thread CXX11_FINAL : public virtual Initializable {
   friend std::ostream& operator<<(std::ostream& o, const Thread& v);
 
  private:
-  /**
-   * The page resolver to convert page ID to page pointer (a copy of the object in EngineMemory).
-   * As an exception to pimpl idiom, this object is allocated in Thread itself.
-   * This is because the page resolve is such a freuquently used object that must have
-   * a really low overhead to retrieve (in other words, in-lined).
-   * Fortunately, it has no dependency, so containing this object wouldn't cause an issue.
-   */
-  memory::GlobalVolatilePageResolver  global_volatile_page_resolver_;
-
   ThreadPimpl*    pimpl_;
 };
 }  // namespace thread

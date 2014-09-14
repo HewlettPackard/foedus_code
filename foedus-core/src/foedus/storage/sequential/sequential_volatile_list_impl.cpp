@@ -27,66 +27,100 @@ namespace sequential {
 
 SequentialVolatileList::SequentialVolatileList(Engine* engine, StorageId storage_id)
   : engine_(engine),
-    storage_id_(storage_id),
-    thread_count_(engine_->get_options().thread_.get_total_thread_count()),
-    head_pointers_(nullptr),
-    tail_pointers_(nullptr) {
+    storage_id_(storage_id) {
+  std::memset(head_pointer_pages_, 0, sizeof(head_pointer_pages_));
+  std::memset(tail_pointer_pages_, 0, sizeof(tail_pointer_pages_));
+  std::memset(head_pointer_pages_cache_, 0, sizeof(head_pointer_pages_cache_));
+  std::memset(tail_pointer_pages_cache_, 0, sizeof(tail_pointer_pages_cache_));
 }
 
 ErrorStack SequentialVolatileList::initialize_once() {
-  ASSERT_ND(head_pointers_ == nullptr);
-  ASSERT_ND(tail_pointers_ == nullptr);
-  head_pointers_ = new SequentialPage*[thread_count_];
-  tail_pointers_ = new SequentialPage*[thread_count_];
-  std::memset(head_pointers_, 0, sizeof(SequentialPage*) * thread_count_);
-  std::memset(tail_pointers_, 0, sizeof(SequentialPage*) * thread_count_);
+  // we pre-allocate pointer pages for all required nodes.
+  // 2^10 pointers (threads) per page : 4 nodes per page
+  std::memset(head_pointer_pages_, 0, sizeof(head_pointer_pages_));
+  std::memset(tail_pointer_pages_, 0, sizeof(tail_pointer_pages_));
+  std::memset(head_pointer_pages_cache_, 0, sizeof(head_pointer_pages_cache_));
+  std::memset(tail_pointer_pages_cache_, 0, sizeof(tail_pointer_pages_cache_));
+  uint32_t nodes = engine_->get_options().thread_.group_count_;
+  for (uint16_t p = 0; p * 4 < nodes; ++p) {
+    uint16_t node = p * 4;
+    memory::NumaNodeMemory* memory = engine_->get_memory_manager().get_node_memory(node);
+    memory::PagePool& pool = memory->get_volatile_pool();
+    memory::PagePoolOffset head_offset, tail_offset;
+    // minor todo: gracefully fail in case of out of memory
+    WRAP_ERROR_CODE(pool.grab_one(&head_offset));
+    WRAP_ERROR_CODE(pool.grab_one(&tail_offset));
+    head_pointer_pages_[p] = combine_volatile_page_pointer(node, 0, 0, head_offset);
+    tail_pointer_pages_[p] = combine_volatile_page_pointer(node, 0, 0, tail_offset);
+    void* head_page =  pool.get_resolver().resolve_offset_newpage(head_offset);
+    void* tail_page =  pool.get_resolver().resolve_offset_newpage(tail_offset);
+    std::memset(head_page, 0, kPageSize);
+    std::memset(tail_page, 0, kPageSize);
+    head_pointer_pages_cache_[p] = reinterpret_cast<PointerPage*>(head_page);
+    tail_pointer_pages_cache_[p] = reinterpret_cast<PointerPage*>(tail_page);
+  }
   return kRetOk;
 }
 
 ErrorStack SequentialVolatileList::uninitialize_once() {
-  ASSERT_ND(head_pointers_);
-  ASSERT_ND(tail_pointers_);
   // release all pages in this list.
+  uint16_t nodes = engine_->get_options().thread_.group_count_;
   uint16_t threads_per_node = engine_->get_options().thread_.thread_count_per_group_;
-  memory::PagePoolOffsetChunk chunk;
-  for (thread::ThreadGlobalOrdinal i = 0; i < thread_count_; ++i) {
-    thread::ThreadGroupId node = i / threads_per_node;
+  for (uint16_t node = 0; node < nodes; ++node) {
     // we are sure these pages are from only one NUMA node, so we can easily batch-return.
     memory::NumaNodeMemory* memory = engine_->get_memory_manager().get_node_memory(node);
     memory::PagePool& pool = memory->get_volatile_pool();
     memory::LocalPageResolver& resolver = pool.get_resolver();
-    for (SequentialPage* page = head_pointers_[i]; page;) {
-      ASSERT_ND(page->header().page_id_);
-      VolatilePagePointer cur_pointer;
-      cur_pointer.word = page->header().page_id_;
-      ASSERT_ND(page == reinterpret_cast<SequentialPage*>(resolver.resolve_offset(
-        cur_pointer.components.offset)));
-      ASSERT_ND(node == cur_pointer.components.numa_node);
-      VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
-      if (chunk.full()) {
-        pool.release(chunk.size(), &chunk);
-      }
-      ASSERT_ND(!chunk.full());
-      chunk.push_back(cur_pointer.components.offset);
+    memory::PagePoolOffsetChunk chunk;
+    for (uint16_t local_ordinal = 0; local_ordinal < threads_per_node; ++local_ordinal) {
+      thread::ThreadId thread_id = thread::compose_thread_id(node, local_ordinal);
+      for (SequentialPage* page = get_head(resolver, thread_id); page;) {
+        ASSERT_ND(page->header().page_id_);
+        VolatilePagePointer cur_pointer;
+        cur_pointer.word = page->header().page_id_;
+        ASSERT_ND(page == reinterpret_cast<SequentialPage*>(resolver.resolve_offset(
+          cur_pointer.components.offset)));
+        ASSERT_ND(node == cur_pointer.components.numa_node);
+        VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
+        if (chunk.full()) {
+          pool.release(chunk.size(), &chunk);
+        }
+        ASSERT_ND(!chunk.full());
+        chunk.push_back(cur_pointer.components.offset);
 
-      if (next_pointer.components.offset != 0) {
-        ASSERT_ND(node == next_pointer.components.numa_node);
-        page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(
-          next_pointer.components.offset));
-      } else {
-        page = nullptr;
+        if (next_pointer.components.offset != 0) {
+          ASSERT_ND(node == next_pointer.components.numa_node);
+          page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(
+            next_pointer.components.offset));
+        } else {
+          page = nullptr;
+        }
       }
     }
     if (chunk.size() > 0) {
       pool.release(chunk.size(), &chunk);
     }
+    ASSERT_ND(chunk.size() == 0);
   }
-  ASSERT_ND(chunk.size() == 0);
 
-  delete[] head_pointers_;
-  delete[] tail_pointers_;
-  head_pointers_ = nullptr;
-  tail_pointers_ = nullptr;
+  // release pointer pages
+  for (uint16_t p = 0; p * 4 < nodes; ++p) {
+    uint16_t node = p * 4;
+    memory::NumaNodeMemory* memory = engine_->get_memory_manager().get_node_memory(node);
+    memory::PagePool& pool = memory->get_volatile_pool();
+    if (head_pointer_pages_[p].components.offset) {
+      ASSERT_ND(head_pointer_pages_[p].components.numa_node == node);
+      pool.release_one(head_pointer_pages_[p].components.offset);
+    }
+    if (tail_pointer_pages_[p].components.offset) {
+      ASSERT_ND(tail_pointer_pages_[p].components.numa_node == node);
+      pool.release_one(tail_pointer_pages_[p].components.offset);
+    }
+  }
+  std::memset(head_pointer_pages_, 0, sizeof(head_pointer_pages_));
+  std::memset(tail_pointer_pages_, 0, sizeof(tail_pointer_pages_));
+  std::memset(head_pointer_pages_cache_, 0, sizeof(head_pointer_pages_cache_));
+  std::memset(tail_pointer_pages_cache_, 0, sizeof(tail_pointer_pages_cache_));
   return kRetOk;
 }
 
@@ -95,12 +129,18 @@ void SequentialVolatileList::append_record(
   xct::XctId owner_id,
   const void* payload,
   uint16_t payload_count) {
+  thread::ThreadId thread_id = context->get_thread_id();
   thread::ThreadGroupId node = context->get_numa_node();
-  thread::ThreadGlobalOrdinal ordinal = context->get_thread_global_ordinal();
 
   // the list is local to this core, so no race possible EXCEPT scanning thread
   // and snapshot thread, but they are read-only or only dropping pages.
-  SequentialPage* tail = tail_pointers_[ordinal];
+  memory::PagePoolOffset* tail_pointer = get_tail_pointer(thread_id);
+  ASSERT_ND(tail_pointer);
+  SequentialPage* tail = nullptr;
+  if (*tail_pointer != 0) {
+    tail = reinterpret_cast<SequentialPage*>(
+      context->get_local_volatile_page_resolver().resolve_offset(*tail_pointer));
+  }
   if (tail == nullptr ||
       !tail->can_insert_record(payload_count) ||
       // note: we make sure no volatile page has records from two epochs.
@@ -115,19 +155,22 @@ void SequentialVolatileList::append_record(
     VolatilePagePointer new_page_pointer;
     new_page_pointer = combine_volatile_page_pointer(node, 0, 0, new_page_offset);
     SequentialPage* new_page = reinterpret_cast<SequentialPage*>(
-      context->get_global_volatile_page_resolver().resolve_offset_newpage(node, new_page_offset));
+      context->get_local_volatile_page_resolver().resolve_offset_newpage(new_page_offset));
     new_page->initialize_volatile_page(storage_id_, new_page_pointer);
 
     if (tail == nullptr) {
       // this is the first access to this head pointer. Let's install the first page.
-      ASSERT_ND(head_pointers_[ordinal] == nullptr);
-      head_pointers_[ordinal] = new_page;
-      tail_pointers_[ordinal] = new_page;
+      ASSERT_ND(*tail_pointer == 0);
+      memory::PagePoolOffset* head_pointer = get_head_pointer(thread_id);
+      ASSERT_ND(*head_pointer == 0);
+      *head_pointer = new_page_offset;
+      *tail_pointer = new_page_offset;
     } else {
-      tail_pointers_[ordinal] = new_page;
+      ASSERT_ND(*get_head_pointer(thread_id) != 0);
+      *tail_pointer = new_page_offset;
       tail->next_page().volatile_pointer_ = new_page_pointer;
     }
-    tail = tail_pointers_[ordinal];
+    tail = new_page;
   }
 
   ASSERT_ND(tail &&
@@ -141,29 +184,56 @@ std::ostream& operator<<(std::ostream& o, const SequentialVolatileList& v) {
 
   uint64_t page_count = 0;
   uint64_t record_count = 0;
-  memory::EngineMemory& memory = v.engine_->get_memory_manager();
-  const memory::GlobalVolatilePageResolver& resolver = memory.get_global_volatile_page_resolver();
-  for (thread::ThreadGlobalOrdinal i = 0; i < v.thread_count_; ++i) {
-    if (v.head_pointers_ && v.head_pointers_[i]) {
-      for (SequentialPage* page = v.head_pointers_[i]; page;) {
-        ASSERT_ND(page->header().page_id_);
-        ++page_count;
-        record_count += page->get_record_count();
-
-        VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
-        if (next_pointer.components.offset != 0) {
-          page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(next_pointer));
-        } else {
-          page = nullptr;
-        }
-      }
-    }
-  }
+  v.for_every_page([&page_count, &record_count](SequentialPage* page){
+    ++page_count;
+    record_count += page->get_record_count();
+    return kErrorCodeOk;
+  });
   o << "<page_count>" << page_count << "</page_count>";
   o << "<record_count>" << record_count << "</record_count>";
   o << "</SequentialVolatileList>";
   return o;
 }
+
+memory::PagePoolOffset* SequentialVolatileList::get_head_pointer(thread::ThreadId thread_id) const {
+  ASSERT_ND(thread::decompose_numa_node(thread_id) < engine_->get_options().thread_.group_count_);
+  ASSERT_ND(thread::decompose_numa_local_ordinal(thread_id)
+    < engine_->get_options().thread_.thread_count_per_group_);
+  uint16_t page;
+  uint16_t index;
+  get_pointer_page_and_index(thread_id, &page, &index);
+  return head_pointer_pages_cache_[page]->pointers_ + index;
+}
+memory::PagePoolOffset* SequentialVolatileList::get_tail_pointer(thread::ThreadId thread_id) const {
+  ASSERT_ND(thread::decompose_numa_node(thread_id) < engine_->get_options().thread_.group_count_);
+  ASSERT_ND(thread::decompose_numa_local_ordinal(thread_id)
+    < engine_->get_options().thread_.thread_count_per_group_);
+  uint16_t page;
+  uint16_t index;
+  get_pointer_page_and_index(thread_id, &page, &index);
+  return tail_pointer_pages_cache_[page]->pointers_ + index;
+}
+
+SequentialPage* SequentialVolatileList::get_head(
+  const memory::LocalPageResolver& resolver,
+  thread::ThreadId thread_id) const {
+  memory::PagePoolOffset offset = *get_head_pointer(thread_id);
+  if (offset == 0) {
+    return nullptr;
+  }
+  return reinterpret_cast<SequentialPage*>(resolver.resolve_offset(offset));
+}
+
+SequentialPage* SequentialVolatileList::get_tail(
+  const memory::LocalPageResolver& resolver,
+  thread::ThreadId thread_id) const {
+  memory::PagePoolOffset offset = *get_tail_pointer(thread_id);
+  if (offset == 0) {
+    return nullptr;
+  }
+  return reinterpret_cast<SequentialPage*>(resolver.resolve_offset(offset));
+}
+
 
 }  // namespace sequential
 }  // namespace storage

@@ -12,9 +12,22 @@
 #include "foedus/fs/path.hpp"
 #include "foedus/savepoint/fwd.hpp"
 #include "foedus/savepoint/savepoint.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
 
 namespace foedus {
 namespace savepoint {
+
+/** Shared data in SavepointManagerPimpl. */
+struct SavepointManagerControlBlock {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  SavepointManagerControlBlock() = delete;
+  ~SavepointManagerControlBlock() = delete;
+
+  // not much to share... basically most data are only used in master engine.
+  Epoch::EpochInteger initial_current_epoch_;
+  Epoch::EpochInteger initial_durable_epoch_;
+};
+
 /**
  * @brief Pimpl object of SavepointManager.
  * @ingroup SAVEPOINT
@@ -44,11 +57,16 @@ class SavepointManagerPimpl final : public DefaultInitializable {
   Savepoint               savepoint_;
 
   /**
-   * Protectes against read/write accesses to savepoint_.
+   * Protects against read/write accesses to savepoint_.
    * So far exclusive mutex. We should't have frequent accesses to savepoint_, so should be ok.
    */
   mutable std::mutex      savepoint_mutex_;
 };
+
+static_assert(
+  sizeof(SavepointManagerControlBlock) <= soc::GlobalMemoryAnchors::kSavepointManagerMemorySize,
+  "SavepointManagerControlBlock is too large.");
+
 }  // namespace savepoint
 }  // namespace foedus
 #endif  // FOEDUS_SAVEPOINT_SAVEPOINT_MANAGER_PIMPL_HPP_

@@ -14,11 +14,38 @@
 #include "foedus/initializable.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/savepoint/fwd.hpp"
+#include "foedus/soc/shared_cond.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_mutex.hpp"
 #include "foedus/thread/condition_variable_impl.hpp"
 #include "foedus/thread/thread_id.hpp"
 
 namespace foedus {
 namespace log {
+
+/** Shared data in LogManagerPimpl. */
+struct LogManagerControlBlock {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  LogManagerControlBlock() = delete;
+  ~LogManagerControlBlock() = delete;
+
+  /**
+   * @brief The durable epoch of the entire engine.
+   * @invariant current_global_epoch_ > durable_global_epoch_
+   * (we need to advance current epoch to make sure the ex-current epoch is durable)
+   * @details
+   * This value indicates upto what commit-groups we can return results to client programs.
+   * This value is advanced by checking the durable epoch of each logger.
+   */
+  std::atomic<Epoch::EpochInteger>    durable_global_epoch_;
+
+  /** Fired (notify_all) whenever durable_global_epoch_ is advanced. */
+  soc::SharedCond                     durable_global_epoch_advanced_;
+
+  /** Serializes the thread to take savepoint to advance durable_global_epoch_. */
+  soc::SharedMutex                    durable_global_epoch_savepoint_mutex_;
+};
+
 /**
  * @brief Pimpl object of LogManager.
  * @ingroup LOG
@@ -70,6 +97,11 @@ class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
   /** Serializes the thread to take savepoint to advance durable_global_epoch_. */
   std::mutex                          durable_global_epoch_savepoint_mutex_;
 };
+
+static_assert(
+  sizeof(LogManagerControlBlock) <= soc::GlobalMemoryAnchors::kLogManagerMemorySize,
+  "LogManagerControlBlock is too large.");
+
 }  // namespace log
 }  // namespace foedus
 #endif  // FOEDUS_LOG_LOG_MANAGER_PIMPL_HPP_

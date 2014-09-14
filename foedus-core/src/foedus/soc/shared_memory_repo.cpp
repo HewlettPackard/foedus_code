@@ -31,14 +31,14 @@ std::string get_master_path(uint64_t master_upid) {
 
 void NodeMemoryAnchors::allocate_arrays(const EngineOptions& options) {
   deallocate_arrays();
-  logger_status_memories_ = new void*[options.log_.loggers_per_node_];
+  logger_memories_ = new log::LoggerControlBlock*[options.log_.loggers_per_node_];
   thread_anchors_ = new ThreadMemoryAnchors[options.thread_.thread_count_per_group_];
 }
 
 void NodeMemoryAnchors::deallocate_arrays() {
-  if (logger_status_memories_) {
-    delete[] logger_status_memories_;
-    logger_status_memories_ = nullptr;
+  if (logger_memories_) {
+    delete[] logger_memories_;
+    logger_memories_ = nullptr;
   }
   if (thread_anchors_) {
     delete[] thread_anchors_;
@@ -71,7 +71,7 @@ ErrorStack SharedMemoryRepo::allocate_shared_memories(const EngineOptions& optio
   uint64_t xml_size = xml.size();
 
   // construct unique meta files using PID.
-  uint64_t global_memory_size = calculate_global_memory_size(xml_size, options);
+  uint64_t global_memory_size = align_2mb(calculate_global_memory_size(xml_size, options));
   std::string global_memory_path = get_self_path() + std::string("_global");
   global_memory_.alloc(global_memory_path, global_memory_size, 0);
   if (global_memory_.is_null()) {
@@ -89,7 +89,7 @@ ErrorStack SharedMemoryRepo::allocate_shared_memories(const EngineOptions& optio
   std::memcpy(global_memory_.get_block() + sizeof(xml_size), xml.data(), xml_size);
 
   // the following is parallelized
-  uint64_t node_memory_size = calculate_node_memory_size(options);
+  uint64_t node_memory_size = align_2mb(calculate_node_memory_size(options));
   uint64_t volatile_pool_size
     = static_cast<uint64_t>(options.memory_.page_pool_size_mb_per_node_) << 20;
   std::vector< std::thread > alloc_threads;
@@ -228,17 +228,53 @@ void SharedMemoryRepo::set_global_memory_anchors(uint64_t xml_size, const Engine
   global_memory_anchors_.options_xml_length_ = xml_size;
   global_memory_anchors_.options_xml_ = base + sizeof(uint64_t);
   total += align_4kb(sizeof(uint64_t) + xml_size);
+
   global_memory_anchors_.master_status_memory_
     = reinterpret_cast<MasterEngineStatus*>(base + total);
   total += GlobalMemoryAnchors::kMasterStatusMemorySize;
-  global_memory_anchors_.epoch_status_memory_ = base + total;
-  total += GlobalMemoryAnchors::kEpochStatusMemorySize;
-  global_memory_anchors_.storage_manager_status_memory_ = base + total;
-  total += GlobalMemoryAnchors::kStorageManagerStatusMemorySize;
+
+  global_memory_anchors_.log_manager_memory_
+    = reinterpret_cast<log::LogManagerControlBlock*>(base + total);
+  total += GlobalMemoryAnchors::kLogManagerMemorySize;
+
+  global_memory_anchors_.restart_manager_memory_
+    = reinterpret_cast<restart::RestartManagerControlBlock*>(base + total);
+  total += GlobalMemoryAnchors::kRestartManagerMemorySize;
+
+  global_memory_anchors_.savepoint_manager_memory_
+    = reinterpret_cast<savepoint::SavepointManagerControlBlock*>(base + total);
+  total += GlobalMemoryAnchors::kSavepointManagerMemorySize;
+
+  global_memory_anchors_.snapshot_manager_memory_
+    = reinterpret_cast<snapshot::SnapshotManagerControlBlock*>(base + total);
+  total += GlobalMemoryAnchors::kSnapshotManagerMemorySize;
+
+  global_memory_anchors_.storage_manager_memory_
+    = reinterpret_cast<storage::StorageManagerControlBlock*>(base + total);
+  total += GlobalMemoryAnchors::kStorageManagerMemorySize;
+
+  global_memory_anchors_.xct_manager_memory_
+    = reinterpret_cast<xct::XctManagerControlBlock*>(base + total);
+  total += GlobalMemoryAnchors::kXctManagerMemorySize;
+
   global_memory_anchors_.storage_name_sort_memory_
     = reinterpret_cast<storage::StorageId*>(base + total);
   total += align_4kb(sizeof(storage::StorageId) * options.storage_.max_storages_);
-  global_memory_anchors_.storage_status_memory_ = base + total;
+
+  global_memory_anchors_.storage_memories_
+    = reinterpret_cast<storage::StorageControlBlock*>(base + total);
+  total += static_cast<uint64_t>(GlobalMemoryAnchors::kStorageMemorySize)
+    * options.storage_.max_storages_;
+
+  global_memory_anchors_.user_memory_ = base + total;
+  total += align_4kb(1024ULL * options.soc_.shared_user_memory_size_kb_);
+
+  // we have to be super careful here. let's not use assertion.
+  if (calculate_global_memory_size(xml_size, options) != total) {
+    std::cerr << "[FOEDUS] global memory size doesn't match. bug?"
+      << " allocated=" << calculate_global_memory_size(xml_size, options)
+      << ", expected=" << total << std::endl;
+  }
 }
 
 uint64_t SharedMemoryRepo::calculate_global_memory_size(
@@ -247,12 +283,17 @@ uint64_t SharedMemoryRepo::calculate_global_memory_size(
   uint64_t total = 0;
   total += align_4kb(sizeof(xml_size) + xml_size);  // options_xml_
   total += GlobalMemoryAnchors::kMasterStatusMemorySize;
-  total += GlobalMemoryAnchors::kEpochStatusMemorySize;
-  total += GlobalMemoryAnchors::kStorageManagerStatusMemorySize;
+  total += GlobalMemoryAnchors::kLogManagerMemorySize;
+  total += GlobalMemoryAnchors::kRestartManagerMemorySize;
+  total += GlobalMemoryAnchors::kSavepointManagerMemorySize;
+  total += GlobalMemoryAnchors::kSnapshotManagerMemorySize;
+  total += GlobalMemoryAnchors::kStorageManagerMemorySize;
+  total += GlobalMemoryAnchors::kXctManagerMemorySize;
   total += align_4kb(sizeof(storage::StorageId) * options.storage_.max_storages_);
-  total += static_cast<uint64_t>(GlobalMemoryAnchors::kStorageStatusSizePerStorage)
+  total += static_cast<uint64_t>(GlobalMemoryAnchors::kStorageMemorySize)
     * options.storage_.max_storages_;
-  return align_2mb(total);
+  total += align_4kb(1024ULL * options.soc_.shared_user_memory_size_kb_);
+  return total;
 }
 
 void SharedMemoryRepo::set_node_memory_anchors(SocId node, const EngineOptions& options) {
@@ -261,25 +302,25 @@ void SharedMemoryRepo::set_node_memory_anchors(SocId node, const EngineOptions& 
   uint64_t total = 0;
   anchor.child_status_memory_ = reinterpret_cast<ChildEngineStatus*>(base);
   total += NodeMemoryAnchors::kChildStatusMemorySize;
-  anchor.volatile_pool_status_memory_ = base + total;
-  total += NodeMemoryAnchors::kVolatilePoolStatusMemorySize;
+  anchor.volatile_pool_status_ = reinterpret_cast<memory::PagePoolControlBlock*>(base + total);
+  total += NodeMemoryAnchors::kPagePoolMemorySize;
 
-  anchor.proc_manager_status_memory_ = base + total;
-  total += NodeMemoryAnchors::kProcManagerStatusMemorySize;
+  anchor.proc_manager_memory_ = reinterpret_cast<proc::ProcManagerControlBlock*>(base + total);
+  total += NodeMemoryAnchors::kProcManagerMemorySize;
   anchor.proc_memory_ = reinterpret_cast<proc::ProcAndName*>(base + total);
   total += align_4kb(sizeof(proc::ProcAndName) * options.proc_.max_proc_count_);
   anchor.proc_name_sort_memory_ = reinterpret_cast<proc::LocalProcId*>(base + total);
   total += align_4kb(sizeof(proc::LocalProcId) * options.proc_.max_proc_count_);
 
   for (uint16_t i = 0; i < options.log_.loggers_per_node_; ++i) {
-    anchor.logger_status_memories_[i] = base + total;
-    total += NodeMemoryAnchors::kLoggerStatusMemorySize;
+    anchor.logger_memories_[i] = reinterpret_cast<log::LoggerControlBlock*>(base + total);
+    total += NodeMemoryAnchors::kLoggerMemorySize;
   }
 
   for (uint16_t i = 0; i < options.thread_.thread_count_per_group_; ++i) {
     ThreadMemoryAnchors& thread_anchor = anchor.thread_anchors_[i];
-    thread_anchor.impersonate_status_memory_ = base + total;
-    total += ThreadMemoryAnchors::kImpersonateStatusMemorySize;
+    thread_anchor.thread_memory_ = reinterpret_cast<thread::ThreadControlBlock*>(base + total);
+    total += ThreadMemoryAnchors::kThreadMemorySize;
     thread_anchor.task_input_memory_ = base + total;
     total += ThreadMemoryAnchors::kTaskInputMemorySize;
     thread_anchor.task_output_memory_ = base + total;
@@ -287,22 +328,32 @@ void SharedMemoryRepo::set_node_memory_anchors(SocId node, const EngineOptions& 
     thread_anchor.mcs_lock_memories_ = reinterpret_cast<xct::McsBlock*>(base + total);
     total += ThreadMemoryAnchors::kMcsLockMemorySize;
   }
+
+  // we have to be super careful here. let's not use assertion.
+  if (total != calculate_node_memory_size(options)) {
+    std::cerr << "[FOEDUS] node memory size doesn't match. bug?"
+      << " allocated=" << calculate_node_memory_size(options)
+      << ", expected=" << total << std::endl;
+  }
 }
 
 uint64_t SharedMemoryRepo::calculate_node_memory_size(const EngineOptions& options) {
   uint64_t total = 0;
   total += NodeMemoryAnchors::kChildStatusMemorySize;
-  total += NodeMemoryAnchors::kVolatilePoolStatusMemorySize;
+  total += NodeMemoryAnchors::kPagePoolMemorySize;
+  total += NodeMemoryAnchors::kProcManagerMemorySize;
+  total += align_4kb(sizeof(proc::ProcAndName) * options.proc_.max_proc_count_);
+  total += align_4kb(sizeof(proc::LocalProcId) * options.proc_.max_proc_count_);
 
   uint64_t loggers_per_node = options.log_.loggers_per_node_;
-  total += loggers_per_node * NodeMemoryAnchors::kLoggerStatusMemorySize;
+  total += loggers_per_node * NodeMemoryAnchors::kLoggerMemorySize;
 
   uint64_t threads_per_node = options.thread_.thread_count_per_group_;
-  total += threads_per_node * ThreadMemoryAnchors::kImpersonateStatusMemorySize;
+  total += threads_per_node * ThreadMemoryAnchors::kThreadMemorySize;
   total += threads_per_node * ThreadMemoryAnchors::kTaskInputMemorySize;
   total += threads_per_node * ThreadMemoryAnchors::kTaskOutputMemorySize;
   total += threads_per_node * ThreadMemoryAnchors::kMcsLockMemorySize;
-  return align_2mb(total);
+  return total;
 }
 
 void SharedMemoryRepo::change_master_status(MasterEngineStatus::StatusCode new_status) {

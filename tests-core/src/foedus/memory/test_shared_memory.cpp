@@ -61,6 +61,7 @@ TEST(SharedMemoryTest, ShareFork) {
     memory.get_block()[3] = 42;
     pid_t pid = ::fork();
     if (pid == -1) {
+      memory.mark_for_release();
       ASSERT_ND(false);
       EXPECT_TRUE(false);
     } else if (pid == 0) {

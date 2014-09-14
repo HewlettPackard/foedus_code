@@ -21,6 +21,7 @@ class   MapReduceBase;
 struct  NumaThreadScope;
 struct  Snapshot;
 class   SnapshotManager;
+struct  SnapshotManagerControlBlock;
 class   SnapshotManagerPimpl;
 struct  SnapshotMetadata;
 struct  SnapshotOptions;

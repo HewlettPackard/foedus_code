@@ -12,6 +12,7 @@
 namespace foedus {
 namespace proc {
 class   ProcManager;
+struct  ProcManagerControlBlock;
 class   ProcManagerPimpl;
 struct  ProcOptions;
 }  // namespace proc

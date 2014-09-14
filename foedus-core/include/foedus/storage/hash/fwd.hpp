@@ -23,6 +23,7 @@ struct  HashOverwriteLogType;
 class   HashPartitioner;
 class   HashRootPage;
 class   HashStorage;
+struct  HashStorageControlBlock;
 class   HashStorageFactory;
 class   HashStoragePimpl;
 }  // namespace hash
