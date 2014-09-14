@@ -37,19 +37,22 @@ TEST(SharedMemoryRepoTest, Alone) {
   EXPECT_NE(nullptr, repo.get_global_memory_anchors()->options_xml_);
   EXPECT_NE(0, repo.get_global_memory_anchors()->options_xml_length_);
   EXPECT_NE(nullptr, repo.get_global_memory_anchors()->storage_name_sort_memory_);
-  EXPECT_NE(nullptr, repo.get_global_memory_anchors()->storage_status_memory_);
+  EXPECT_NE(nullptr, repo.get_global_memory_anchors()->storage_memories_);
 
   EXPECT_NE(nullptr, repo.get_node_memory(0));
   NodeMemoryAnchors* node_anchors = repo.get_node_memory_anchors(0);
   EXPECT_NE(nullptr, node_anchors->child_status_memory_);
-  EXPECT_NE(nullptr, node_anchors->logger_status_memories_);
-  EXPECT_NE(nullptr, node_anchors->volatile_pool_status_memory_);
+  EXPECT_NE(nullptr, node_anchors->logger_memories_);
+  for (uint16_t i = 0; i < options.log_.loggers_per_node_; ++i) {
+    EXPECT_NE(nullptr, node_anchors->logger_memories_[i]);
+  }
+  EXPECT_NE(nullptr, node_anchors->volatile_pool_status_);
   EXPECT_NE(nullptr, node_anchors->proc_manager_memory_);
   EXPECT_NE(nullptr, node_anchors->proc_memory_);
   EXPECT_NE(nullptr, node_anchors->proc_name_sort_memory_);
   for (uint16_t i = 0; i < options.thread_.thread_count_per_group_; ++i) {
     ThreadMemoryAnchors* thread_anchors_ = node_anchors->thread_anchors_ + i;
-    EXPECT_NE(nullptr, thread_anchors_->impersonate_status_memory_);
+    EXPECT_NE(nullptr, thread_anchors_->thread_memory_);
     EXPECT_NE(nullptr, thread_anchors_->task_input_memory_);
     EXPECT_NE(nullptr, thread_anchors_->task_output_memory_);
     EXPECT_NE(nullptr, thread_anchors_->mcs_lock_memories_);
@@ -68,7 +71,7 @@ TEST(SharedMemoryRepoTest, Alone) {
   EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->options_xml_);
   EXPECT_EQ(0, repo.get_global_memory_anchors()->options_xml_length_);
   EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->storage_name_sort_memory_);
-  EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->storage_status_memory_);
+  EXPECT_EQ(nullptr, repo.get_global_memory_anchors()->storage_memories_);
 }
 
 TEST(SharedMemoryRepoTest, Attach) {
@@ -92,7 +95,7 @@ TEST(SharedMemoryRepoTest, Attach) {
   EXPECT_NE(nullptr, child.get_global_memory_anchors()->options_xml_);
   EXPECT_NE(0, child.get_global_memory_anchors()->options_xml_length_);
   EXPECT_NE(nullptr, child.get_global_memory_anchors()->storage_name_sort_memory_);
-  EXPECT_NE(nullptr, child.get_global_memory_anchors()->storage_status_memory_);
+  EXPECT_NE(nullptr, child.get_global_memory_anchors()->storage_memories_);
 
   EXPECT_EQ(options.thread_.group_count_, child_options.thread_.group_count_);
   EXPECT_EQ(options.thread_.thread_count_per_group_, child_options.thread_.thread_count_per_group_);
@@ -105,14 +108,17 @@ TEST(SharedMemoryRepoTest, Attach) {
   EXPECT_NE(nullptr, child.get_node_memory(0));
   NodeMemoryAnchors* node_anchors = child.get_node_memory_anchors(0);
   EXPECT_NE(nullptr, node_anchors->child_status_memory_);
-  EXPECT_NE(nullptr, node_anchors->logger_status_memories_);
-  EXPECT_NE(nullptr, node_anchors->volatile_pool_status_memory_);
+  EXPECT_NE(nullptr, node_anchors->logger_memories_);
+  for (uint16_t i = 0; i < options.log_.loggers_per_node_; ++i) {
+    EXPECT_NE(nullptr, node_anchors->logger_memories_[i]);
+  }
+  EXPECT_NE(nullptr, node_anchors->volatile_pool_status_);
   EXPECT_NE(nullptr, node_anchors->proc_manager_memory_);
   EXPECT_NE(nullptr, node_anchors->proc_memory_);
   EXPECT_NE(nullptr, node_anchors->proc_name_sort_memory_);
   for (uint16_t i = 0; i < options.thread_.thread_count_per_group_; ++i) {
     ThreadMemoryAnchors* thread_anchors_ = node_anchors->thread_anchors_ + i;
-    EXPECT_NE(nullptr, thread_anchors_->impersonate_status_memory_);
+    EXPECT_NE(nullptr, thread_anchors_->thread_memory_);
     EXPECT_NE(nullptr, thread_anchors_->task_input_memory_);
     EXPECT_NE(nullptr, thread_anchors_->task_output_memory_);
     EXPECT_NE(nullptr, thread_anchors_->mcs_lock_memories_);

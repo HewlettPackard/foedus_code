@@ -7,12 +7,14 @@
 #include <iosfwd>
 #include <string>
 
+#include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
+#include "foedus/storage/metadata.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/fwd.hpp"
@@ -164,6 +166,32 @@ class StorageFactory {
    */
   virtual void add_create_log(const Metadata *metadata, thread::Thread* context) const = 0;
 };
+
+/**
+ * A base layout of shared data for all storage types.
+ * Individual storage types define their own control blocks that is \e compatible with this layout.
+ * @attention This is not for inheritance! Rather to guarantee the layout of 'common' part.
+ * When we want to deal with a control block of unknown storage type, we reinterpret to this
+ * type and obtain common information. So, the individual storage control blocks must have
+ * a compatible layout to this.
+ */
+struct StorageControlBlock CXX11_FINAL {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  StorageControlBlock() CXX11_FUNC_DELETE;
+  ~StorageControlBlock() CXX11_FUNC_DELETE;
+
+  /** Status of the storage */
+  StorageStatus     status_;
+  /** Points to the root page (or something equivalent). */
+  DualPagePointer   root_page_pointer_;
+  /** common part of the metadata. individual storage control blocks would have derived metadata */
+  FixedMetadata     meta_;
+
+  /** Just to make this exactly 4kb. Individual control block doesn't have this. */
+  char              padding_[4096 - 8 - sizeof(DualPagePointer) - sizeof(FixedMetadata)];
+};
+
+CXX11_STATIC_ASSERT(sizeof(StorageControlBlock) == 1 << 12, "StorageControlBlock is not 4kb");
 }  // namespace storage
 }  // namespace foedus
 #endif  // FOEDUS_STORAGE_STORAGE_HPP_

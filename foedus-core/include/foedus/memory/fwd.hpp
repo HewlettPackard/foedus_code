@@ -21,6 +21,7 @@ class   NumaCoreMemory;
 class   NumaNodeMemory;
 class   PagePoolOffsetChunk;
 class   PagePool;
+struct  PagePoolControlBlock;
 class   PagePoolPimpl;
 class   PageReleaseBatch;
 class   PageResolver;

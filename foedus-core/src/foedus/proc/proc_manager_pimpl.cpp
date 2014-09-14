@@ -101,5 +101,12 @@ LocalProcId ProcManagerPimpl::insert(const ProcAndName& proc_and_name, SharedDat
   return new_id;
 }
 
+ProcManagerPimpl::SharedData* ProcManagerPimpl::get_my_data() {
+  if (engine_->is_master()) {
+    return nullptr;
+  }
+  return &soc_data_[engine_->get_soc_id()];
+}
+
 }  // namespace proc
 }  // namespace foedus

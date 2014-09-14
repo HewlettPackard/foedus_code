@@ -17,10 +17,30 @@
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
 #include "foedus/memory/page_resolver.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_mutex.hpp"
 #include "foedus/thread/thread_id.hpp"
 
 namespace foedus {
 namespace memory {
+/** Shared data in PagePoolPimpl. */
+struct PagePoolControlBlock {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  PagePoolControlBlock() = delete;
+  ~PagePoolControlBlock() = delete;
+
+  /** Inclusive head of the circular queue. Be aware of wrapping around. */
+  uint64_t                        free_pool_head_;
+  /** Number of free pages. */
+  uint64_t                        free_pool_count_;
+
+  /**
+   * grab()/release() are protected with this lock.
+   * This lock is not contentious at all because we pack many pointers in a chunk.
+   */
+  soc::SharedMutex                lock_;
+};
+
 /**
  * @brief Pimpl object of PagePool.
  * @ingroup MEMORY
@@ -95,6 +115,9 @@ class PagePoolPimpl final : public DefaultInitializable {
    */
   std::mutex                      lock_;
 };
+static_assert(
+  sizeof(PagePoolControlBlock) <= soc::NodeMemoryAnchors::kPagePoolMemorySize,
+  "PagePoolControlBlock is too large.");
 }  // namespace memory
 }  // namespace foedus
 #endif  // FOEDUS_MEMORY_PAGE_POOL_PIMPL_HPP_

@@ -31,14 +31,14 @@ std::string get_master_path(uint64_t master_upid) {
 
 void NodeMemoryAnchors::allocate_arrays(const EngineOptions& options) {
   deallocate_arrays();
-  logger_status_memories_ = new void*[options.log_.loggers_per_node_];
+  logger_memories_ = new log::LoggerControlBlock*[options.log_.loggers_per_node_];
   thread_anchors_ = new ThreadMemoryAnchors[options.thread_.thread_count_per_group_];
 }
 
 void NodeMemoryAnchors::deallocate_arrays() {
-  if (logger_status_memories_) {
-    delete[] logger_status_memories_;
-    logger_status_memories_ = nullptr;
+  if (logger_memories_) {
+    delete[] logger_memories_;
+    logger_memories_ = nullptr;
   }
   if (thread_anchors_) {
     delete[] thread_anchors_;
@@ -261,8 +261,9 @@ void SharedMemoryRepo::set_global_memory_anchors(uint64_t xml_size, const Engine
     = reinterpret_cast<storage::StorageId*>(base + total);
   total += align_4kb(sizeof(storage::StorageId) * options.storage_.max_storages_);
 
-  global_memory_anchors_.storage_status_memory_ = base + total;
-  total += static_cast<uint64_t>(GlobalMemoryAnchors::kStorageStatusSizePerStorage)
+  global_memory_anchors_.storage_memories_
+    = reinterpret_cast<storage::StorageControlBlock*>(base + total);
+  total += static_cast<uint64_t>(GlobalMemoryAnchors::kStorageMemorySize)
     * options.storage_.max_storages_;
 
   global_memory_anchors_.user_memory_ = base + total;
@@ -289,7 +290,7 @@ uint64_t SharedMemoryRepo::calculate_global_memory_size(
   total += GlobalMemoryAnchors::kStorageManagerMemorySize;
   total += GlobalMemoryAnchors::kXctManagerMemorySize;
   total += align_4kb(sizeof(storage::StorageId) * options.storage_.max_storages_);
-  total += static_cast<uint64_t>(GlobalMemoryAnchors::kStorageStatusSizePerStorage)
+  total += static_cast<uint64_t>(GlobalMemoryAnchors::kStorageMemorySize)
     * options.storage_.max_storages_;
   total += align_4kb(1024ULL * options.soc_.shared_user_memory_size_kb_);
   return total;
@@ -301,8 +302,8 @@ void SharedMemoryRepo::set_node_memory_anchors(SocId node, const EngineOptions& 
   uint64_t total = 0;
   anchor.child_status_memory_ = reinterpret_cast<ChildEngineStatus*>(base);
   total += NodeMemoryAnchors::kChildStatusMemorySize;
-  anchor.volatile_pool_status_memory_ = base + total;
-  total += NodeMemoryAnchors::kVolatilePoolStatusMemorySize;
+  anchor.volatile_pool_status_ = reinterpret_cast<memory::PagePoolControlBlock*>(base + total);
+  total += NodeMemoryAnchors::kPagePoolMemorySize;
 
   anchor.proc_manager_memory_ = reinterpret_cast<proc::ProcManagerControlBlock*>(base + total);
   total += NodeMemoryAnchors::kProcManagerMemorySize;
@@ -312,14 +313,14 @@ void SharedMemoryRepo::set_node_memory_anchors(SocId node, const EngineOptions& 
   total += align_4kb(sizeof(proc::LocalProcId) * options.proc_.max_proc_count_);
 
   for (uint16_t i = 0; i < options.log_.loggers_per_node_; ++i) {
-    anchor.logger_status_memories_[i] = base + total;
-    total += NodeMemoryAnchors::kLoggerStatusMemorySize;
+    anchor.logger_memories_[i] = reinterpret_cast<log::LoggerControlBlock*>(base + total);
+    total += NodeMemoryAnchors::kLoggerMemorySize;
   }
 
   for (uint16_t i = 0; i < options.thread_.thread_count_per_group_; ++i) {
     ThreadMemoryAnchors& thread_anchor = anchor.thread_anchors_[i];
-    thread_anchor.impersonate_status_memory_ = base + total;
-    total += ThreadMemoryAnchors::kImpersonateStatusMemorySize;
+    thread_anchor.thread_memory_ = reinterpret_cast<thread::ThreadControlBlock*>(base + total);
+    total += ThreadMemoryAnchors::kThreadMemorySize;
     thread_anchor.task_input_memory_ = base + total;
     total += ThreadMemoryAnchors::kTaskInputMemorySize;
     thread_anchor.task_output_memory_ = base + total;
@@ -339,16 +340,16 @@ void SharedMemoryRepo::set_node_memory_anchors(SocId node, const EngineOptions& 
 uint64_t SharedMemoryRepo::calculate_node_memory_size(const EngineOptions& options) {
   uint64_t total = 0;
   total += NodeMemoryAnchors::kChildStatusMemorySize;
-  total += NodeMemoryAnchors::kVolatilePoolStatusMemorySize;
+  total += NodeMemoryAnchors::kPagePoolMemorySize;
   total += NodeMemoryAnchors::kProcManagerMemorySize;
   total += align_4kb(sizeof(proc::ProcAndName) * options.proc_.max_proc_count_);
   total += align_4kb(sizeof(proc::LocalProcId) * options.proc_.max_proc_count_);
 
   uint64_t loggers_per_node = options.log_.loggers_per_node_;
-  total += loggers_per_node * NodeMemoryAnchors::kLoggerStatusMemorySize;
+  total += loggers_per_node * NodeMemoryAnchors::kLoggerMemorySize;
 
   uint64_t threads_per_node = options.thread_.thread_count_per_group_;
-  total += threads_per_node * ThreadMemoryAnchors::kImpersonateStatusMemorySize;
+  total += threads_per_node * ThreadMemoryAnchors::kThreadMemorySize;
   total += threads_per_node * ThreadMemoryAnchors::kTaskInputMemorySize;
   total += threads_per_node * ThreadMemoryAnchors::kTaskOutputMemorySize;
   total += threads_per_node * ThreadMemoryAnchors::kMcsLockMemorySize;

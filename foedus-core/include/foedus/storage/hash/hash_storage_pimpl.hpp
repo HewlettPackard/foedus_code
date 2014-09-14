@@ -15,6 +15,7 @@
 #include "foedus/initializable.hpp"
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/memory/fwd.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -27,6 +28,22 @@
 namespace foedus {
 namespace storage {
 namespace hash {
+/** Shared data of this storage type */
+struct HashStorageControlBlock final {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  HashStorageControlBlock() = delete;
+  ~HashStorageControlBlock() = delete;
+
+  /** Status of the storage */
+  StorageStatus       status_;
+  /** Points to the root page (or something equivalent). */
+  DualPagePointer     root_page_pointer_;
+  /** metadata of this storage. */
+  FixedHashMetadata  meta_;
+
+  // Do NOT reorder members up to here. The layout must be compatible with StorageControlBlock
+  // Type-specific shared members below.
+};
 
 /**
 * @brief Pimpl object of HashStorage.
@@ -180,6 +197,9 @@ class HashStoragePimpl final : public DefaultInitializable {
   uint64_t                bin_pages_;
 };
 static_assert(sizeof(HashStoragePimpl) <= kPageSize, "HashStoragePimpl is too large");
+static_assert(
+  sizeof(HashStorageControlBlock) <= soc::GlobalMemoryAnchors::kStorageMemorySize,
+  "HashStorageControlBlock is too large.");
 }  // namespace hash
 }  // namespace storage
 }  // namespace foedus

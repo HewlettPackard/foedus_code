@@ -18,6 +18,7 @@ class   ImpersonateTaskPimpl;
 class   Rendezvous;
 class   StoppableThread;
 class   Thread;
+struct  ThreadControlBlock;
 class   ThreadGroup;
 class   ThreadGroupPimpl;
 struct  ThreadOptions;

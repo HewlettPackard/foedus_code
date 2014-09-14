@@ -61,12 +61,21 @@ class ProcManagerPimpl final : public DefaultInitializable {
   ErrorStack  local_register(const ProcAndName& proc_and_name);
   ErrorStack  emulated_register(const ProcAndName& proc_and_name);
 
+  /**
+   * Returns Shared data of this SOC. Same as soc_data_[engine_->get_soc_id()].
+   * Returns null in master engine.
+   */
+  SharedData* get_my_data();
+
   static LocalProcId find_by_name(const ProcName& name, SharedData* shared_data);
   static LocalProcId insert(const ProcAndName& proc_and_name, SharedData* shared_data);
 
   Engine* const               engine_;
   std::vector< ProcAndName >  pre_registered_procs_;
-  SharedData                  shared_data_;
+  /**
+   * Shared data of all SOCs. Index is SOC ID.
+   */
+  std::vector<SharedData>     soc_data_;
 };
 static_assert(
   sizeof(ProcManagerControlBlock) <= soc::NodeMemoryAnchors::kProcManagerMemorySize,

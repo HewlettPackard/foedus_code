@@ -19,6 +19,7 @@ class   SequentialPage;
 class   SequentialPartitioner;
 class   SequentialRootPage;
 class   SequentialStorage;
+struct  SequentialStorageControlBlock;
 class   SequentialStorageFactory;
 class   SequentialStoragePimpl;
 class   SequentialVolatileList;

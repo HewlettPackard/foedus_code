@@ -22,6 +22,7 @@ struct  LogManagerControlBlock;
 class   LogManagerPimpl;
 struct  LogOptions;
 class   Logger;
+struct  LoggerControlBlock;
 struct  RecordLogType;
 struct  StorageLogType;
 class   ThreadLogBuffer;

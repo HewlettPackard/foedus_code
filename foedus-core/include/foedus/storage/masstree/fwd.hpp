@@ -23,6 +23,7 @@ struct  MasstreeOverwriteLogType;
 class   MasstreePage;
 class   MasstreePartitioner;
 class   MasstreeStorage;
+struct  MasstreeStorageControlBlock;
 class   MasstreeStorageFactory;
 class   MasstreeStoragePimpl;
 }  // namespace masstree

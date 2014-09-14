@@ -15,6 +15,7 @@
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/memory/fwd.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage.hpp"
@@ -28,6 +29,25 @@
 namespace foedus {
 namespace storage {
 namespace masstree {
+/** Shared data of this storage type */
+struct MasstreeStorageControlBlock final {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  MasstreeStorageControlBlock() = delete;
+  ~MasstreeStorageControlBlock() = delete;
+
+  /** Status of the storage */
+  StorageStatus       status_;
+  /** Points to the root page (or something equivalent). */
+  DualPagePointer     root_page_pointer_;
+  /** metadata of this storage. */
+  FixedMasstreeMetadata  meta_;
+
+  // Do NOT reorder members up to here. The layout must be compatible with StorageControlBlock
+  // Type-specific shared members below.
+
+  /** Lock to synchronize updates to root_page_pointer_. */
+  xct::LockableXctId      first_root_owner_;
+};
 
 /**
  * @brief Pimpl object of MasstreeStorage.
@@ -266,6 +286,9 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   xct::LockableXctId* track_moved_record(xct::LockableXctId* address) ALWAYS_INLINE;
 };
 static_assert(sizeof(MasstreeStoragePimpl) <= kPageSize, "MasstreeStoragePimpl is too large");
+static_assert(
+  sizeof(MasstreeStorageControlBlock) <= soc::GlobalMemoryAnchors::kStorageMemorySize,
+  "MasstreeStorageControlBlock is too large.");
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus

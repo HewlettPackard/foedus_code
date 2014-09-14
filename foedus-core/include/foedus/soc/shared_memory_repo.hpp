@@ -15,6 +15,7 @@
 #include "foedus/error_stack.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/log/fwd.hpp"
+#include "foedus/memory/fwd.hpp"
 #include "foedus/memory/shared_memory.hpp"
 #include "foedus/proc/fwd.hpp"
 #include "foedus/proc/proc_id.hpp"
@@ -25,6 +26,7 @@
 #include "foedus/soc/soc_id.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
+#include "foedus/thread/fwd.hpp"
 #include "foedus/xct/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
 
@@ -175,7 +177,7 @@ struct GlobalMemoryAnchors {
     kSnapshotManagerMemorySize = 1 << 12,
     kStorageManagerMemorySize = 1 << 12,
     kXctManagerMemorySize = 1 << 12,
-    kStorageStatusSizePerStorage = 1 << 12,
+    kStorageMemorySize = 1 << 12,
   };
 
   GlobalMemoryAnchors() { clear(); }
@@ -220,9 +222,11 @@ struct GlobalMemoryAnchors {
    * Status of each storage instance is stored in this shared memory.
    * The size for one storage must be within 4kb. If the storage type requires more than 4kb,
    * just grab a page from volatile page pools and point to it from the storage object.
+   * sizeof(storage::StorageControlBlock) is exactly 4kb, so we can treat this like an array,
+   * not an array of pointers.
    * The size is 4kb * StorageOptions::max_storages_.
    */
-  void*                                     storage_status_memory_;
+  storage::StorageControlBlock*             storage_memories_;
 
   /**
    * This 'user memory' can be
@@ -239,8 +243,8 @@ struct GlobalMemoryAnchors {
 struct NodeMemoryAnchors {
   enum Constants {
     kChildStatusMemorySize = 1 << 12,
-    kVolatilePoolStatusMemorySize = 1 << 12,
-    kLoggerStatusMemorySize = 1 << 12,
+    kPagePoolMemorySize = 1 << 12,
+    kLoggerMemorySize = 1 << 12,
     kProcManagerMemorySize = 1 << 12,
   };
 
@@ -263,13 +267,13 @@ struct NodeMemoryAnchors {
    * PagePool's status and its synchronization mechanism for the volatile pool on this node.
    * Always 4kb.
    */
-  void*               volatile_pool_status_memory_;
+  memory::PagePoolControlBlock*   volatile_pool_status_;
 
   /**
    * ProcManagers's status and its synchronization mechanism on this node.
    * Always 4kb.
    */
-  proc::ProcManagerControlBlock* proc_manager_memory_;
+  proc::ProcManagerControlBlock*  proc_manager_memory_;
   /**
    * Procedure list on this node.
    * The size is sizeof(proc::ProcAndName) * ProcOptions::max_proc_count_.
@@ -286,7 +290,7 @@ struct NodeMemoryAnchors {
    * Index is node-local logger ID.
    * 4kb for each logger.
    */
-  void**              logger_status_memories_;
+  log::LoggerControlBlock** logger_memories_;
 
   /**
    * Anchors for each thread. Index is node-local thread ordinal.
@@ -300,7 +304,7 @@ struct NodeMemoryAnchors {
  */
 struct ThreadMemoryAnchors {
   enum Constants {
-    kImpersonateStatusMemorySize = 1 << 12,
+    kThreadMemorySize = 1 << 15,
     kTaskInputMemorySize = 1 << 19,
     kTaskOutputMemorySize = 1 << 19,
     kMcsLockMemorySize = 1 << 19,
@@ -314,9 +318,9 @@ struct ThreadMemoryAnchors {
 
   /**
    * Status and synchronization mechanism for impersonation of this thread.
-   * Always 4kb.
+   * Always 32kb (a bit large mainly due to the size of FixedErrorStack).
    */
-  void*           impersonate_status_memory_;
+  thread::ThreadControlBlock* thread_memory_;
 
   /**
    * Input buffer for an impersonated task.

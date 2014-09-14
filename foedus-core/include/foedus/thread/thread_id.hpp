@@ -135,6 +135,7 @@ typedef int64_t TimeoutMicrosec;
 
 /**
  * Thread policy for worker threads. The values are compatible with pthread's values.
+ * @ingroup THREAD
  * @see http://man7.org/linux/man-pages/man3/pthread_getschedparam.3.html
  */
 enum ThreadPolicy {
@@ -154,6 +155,7 @@ enum ThreadPolicy {
  * Thread priority for worker threads. The values are compatible with pthread's values.
  * Depending on policy, the lowest-highest might be overwritten by
  * what sched_get_priority_max()/min returns.
+ * @ingroup THREAD
  * @see http://man7.org/linux/man-pages/man3/pthread_getschedparam.3.html
  */
 enum ThreadPriority {
@@ -161,6 +163,30 @@ enum ThreadPriority {
   kPriorityLowest = 1,
   kPriorityDefault = 50,
   kPriorityHighest = 99,
+};
+
+/**
+ * @brief Impersonation status of each worker thread.
+ * @ingroup THREAD
+ * @details
+ * The transition is basically only to next one.
+ * Exceptions are:
+ *  \li Every state might jump to kTerminated for whatever reason.
+ *  \li kWaitingForClient goes back to kWaitingForTask when the client picks the result up.
+ */
+enum ThreadStatus {
+  /** Initial state. The thread does nothing in this state */
+  kNotInitialized = 0,
+  /** Idle state, receiving a new task. */
+  kWaitingForTask,
+  /** A client has set a next task. The thread has not picked it up yet. */
+  kWaitingForExecution,
+  /** The thread has picked the task up and is now running. */
+  kRunningTask,
+  /** The thread has completed the task and set the result. The client has not picked it up yet. */
+  kWaitingForClient,
+  /** The thread has terminated (either error or normal, check the result to differentiate them). */
+  kTerminated,
 };
 
 }  // namespace thread
