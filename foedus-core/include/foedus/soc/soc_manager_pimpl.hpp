@@ -57,6 +57,12 @@ class SocManagerPimpl final : public DefaultInitializable {
   /** Main routine of spawned SOCs. This is invoked from user's main(), so it's static. */
   static void spawned_child_main(const std::vector< proc::ProcAndName >& procedures);
 
+  static ErrorStack child_main_common(
+    EngineType engine_type,
+    Upid master_upid,
+    SocId node,
+    const std::vector< proc::ProcAndName >& procedures);
+
   Engine* const           engine_;
   SharedMemoryRepo        memory_repo_;
 

@@ -220,42 +220,12 @@ ErrorStack SocManagerPimpl::launch_emulated_children() {
 
 void SocManagerPimpl::emulated_child_main(SocId node) {
   Upid master_upid = engine_->get_master_upid();
-  Engine soc_engine(kChildEmulated, master_upid, node);
-  child_emulated_engines_[node] = &soc_engine;
-  ErrorStack init_error = soc_engine.initialize();
-  if (init_error.is_error()) {
-    std::cerr << "[FOEDUS-Child] Failed to initialize emulated child SOC. error=" << init_error
-      << " This is an unrecoverable error. This thread quits shortly" << std::endl;
-    soc_engine.uninitialize();
-    child_emulated_engines_[node] = nullptr;
-    return;
-  }
-
-  SocManagerPimpl* soc_this = soc_engine.get_soc_manager().pimpl_;
-  SharedMemoryRepo& soc_memory = soc_this->memory_repo_;
-
-  // after initialize(), we can safely use glog.
-  LOG(INFO) << "The emulated SOC engine-" << node << " was initialized.";
-
   // We can reuse procedures pre-registered in master. Good for being a thread.
   const auto& procedures = engine_->get_proc_manager().get_pre_registered_procedures();
-  for (const auto& procedure : procedures) {
-    soc_engine.get_proc_manager().local_register(procedure);
-  }
-
-  LOG(INFO) << "Waiting for master engine's initialization...";
-  soc_memory.change_child_status(node, ChildEngineStatus::kWaitingForMasterInitialization);
-  COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kRunning));
-  LOG(INFO) << "The emulated SOC engine-" << node << " detected that master engine has started"
-    << " running.";
-  soc_memory.change_child_status(node, ChildEngineStatus::kRunning);
-  COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kWaitingForChildTerminate));
-
-  LOG(INFO) << "Stopping the emulated SOC engine-" << node;
-  ErrorStack uninit_error = soc_engine.uninitialize();
-  child_emulated_engines_[node] = nullptr;
-  if (uninit_error.is_error()) {
-    LOG(ERROR) << "Error while uninitializing emulated SOC engine-" << node << ": " << uninit_error;
+  ErrorStack ret = child_main_common(kChildEmulated, master_upid, node, procedures);
+  if (ret.is_error()) {
+    std::cerr << "[FOEDUS-Child] Emulated SOC-" << node
+      << " exits with an error: " << ret << std::endl;
   }
 }
 
@@ -290,43 +260,16 @@ ErrorStack SocManagerPimpl::launch_forked_children() {
 
 int SocManagerPimpl::forked_child_main(SocId node) {
   Upid master_upid = engine_->get_master_upid();
-  Engine soc_engine(kChildForked, master_upid, node);
-  ErrorStack init_error = soc_engine.initialize();
-  if (init_error.is_error()) {
-    std::cerr << "[FOEDUS-Child] Failed to initialize forked child SOC. error=" << init_error
-      << " This is an unrecoverable error. This process quits shortly" << std::endl;
-    soc_engine.uninitialize();
-    return EXIT_FAILURE;
-  }
-
-  SocManagerPimpl* soc_this = soc_engine.get_soc_manager().pimpl_;
-  SharedMemoryRepo& soc_memory = soc_this->memory_repo_;
-
-  // after initialize(), we can safely use glog.
-  LOG(INFO) << "The forked SOC engine-" << node << " was initialized.";
-
   // These are pre-registered before fork(), so still we can reuse.
   const auto& procedures = engine_->get_proc_manager().get_pre_registered_procedures();
-  for (const auto& procedure : procedures) {
-    soc_engine.get_proc_manager().local_register(procedure);
-  }
-
-  LOG(INFO) << "Waiting for master engine's initialization...";
-  soc_memory.change_child_status(node, ChildEngineStatus::kWaitingForMasterInitialization);
-  COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kRunning));
-  LOG(INFO) << "The forked SOC engine-" << node << " detected that master engine has started"
-    << " running.";
-  soc_memory.change_child_status(node, ChildEngineStatus::kRunning);
-  COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kWaitingForChildTerminate));
-
-  LOG(INFO) << "Stopping the forked SOC engine-" << node;
-  ErrorStack uninit_error = soc_engine.uninitialize();
-  if (uninit_error.is_error()) {
-    LOG(ERROR) << "Error while uninitializing forked SOC engine-" << node << ": " << uninit_error;
+  ErrorStack ret = child_main_common(kChildForked, master_upid, node, procedures);
+  if (ret.is_error()) {
+    std::cerr << "[FOEDUS-Child] Forked SOC-" << node
+      << " exits with an error: " << ret << std::endl;
     return EXIT_FAILURE;
+  } else {
+    return EXIT_SUCCESS;
   }
-
-  return EXIT_SUCCESS;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -384,22 +327,43 @@ void SocManagerPimpl::spawned_child_main(const std::vector< proc::ProcAndName >&
 
   Upid master_upid = std::atoll(master_upid_str);
   SocId node = std::atol(master_upid_str);
-  Engine soc_engine(kChildLocalSpawned, master_upid, node);
+  ErrorStack ret = child_main_common(kChildLocalSpawned, master_upid, node, procedures);
+  if (ret.is_error()) {
+    std::cerr << "[FOEDUS-Child] Spawned SOC-" << node
+      << " exits with an error: " << ret << std::endl;
+    ::_exit(EXIT_FAILURE);
+  } else {
+    ::_exit(EXIT_SUCCESS);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////
+//
+//              Child SOCs: common
+//
+////////////////////////////////////////////////////////////////////////////////////
+ErrorStack SocManagerPimpl::child_main_common(
+  EngineType engine_type,
+  Upid master_upid,
+  SocId node,
+  const std::vector< proc::ProcAndName >& procedures) {
+  Engine soc_engine(engine_type, master_upid, node);
   ErrorStack init_error = soc_engine.initialize();
   if (init_error.is_error()) {
-    std::cerr << "[FOEDUS-Child] Failed to initialize spawned child SOC. error=" << init_error
+    std::cerr << "[FOEDUS-Child] Failed to initialize child SOC-" << node
+      << ". error=" << init_error
       << " This is an unrecoverable error. This process quits shortly" << std::endl;
-    soc_engine.uninitialize();
-    ::_exit(EXIT_FAILURE);
+    CHECK_ERROR(soc_engine.uninitialize());
+    return init_error;
   }
 
   SocManagerPimpl* soc_this = soc_engine.get_soc_manager().pimpl_;
   SharedMemoryRepo& soc_memory = soc_this->memory_repo_;
 
   // after initialize(), we can safely use glog.
-  LOG(INFO) << "The spawned SOC engine-" << node << " was initialized.";
+  LOG(INFO) << "The SOC engine-" << node << " was initialized.";
 
-  // Add the given procedures. This is the benefit of spawn-type SOCs
+  // Add the given procedures.
   for (const proc::ProcAndName& proc_and_name : procedures) {
     soc_engine.get_proc_manager().local_register(proc_and_name);
   }
@@ -407,22 +371,21 @@ void SocManagerPimpl::spawned_child_main(const std::vector< proc::ProcAndName >&
   LOG(INFO) << "Added user procedures. Waiting for master engine's initialization...";
   soc_memory.change_child_status(node, ChildEngineStatus::kWaitingForMasterInitialization);
   COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kRunning));
-  LOG(INFO) << "The spawned SOC engine-" << node << " detected that master engine has started"
+  LOG(INFO) << "The SOC engine-" << node << " detected that master engine has started"
     << " running.";
   soc_memory.change_child_status(node, ChildEngineStatus::kRunning);
   COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kWaitingForChildTerminate));
 
-  LOG(INFO) << "Stopping the spawned SOC engine-" << node;
+  LOG(INFO) << "Stopping the SOC engine-" << node;
   soc_memory.change_child_status(node, ChildEngineStatus::kTerminated);
   ErrorStack uninit_error = soc_engine.uninitialize();
   if (uninit_error.is_error()) {
-    LOG(ERROR) << "Error while uninitializing spawned SOC engine-" << node << ": " << uninit_error;
-    ::_exit(EXIT_FAILURE);
+    LOG(ERROR) << "Error while uninitializing SOC engine-" << node << ": " << uninit_error;
+    return uninit_error;
   }
 
-  ::_exit(EXIT_SUCCESS);
+  return kRetOk;
 }
-
 
 }  // namespace soc
 }  // namespace foedus

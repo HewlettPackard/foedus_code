@@ -45,6 +45,8 @@ struct ArrayStorageControlBlock final {
   // Do NOT reorder members up to here. The layout must be compatible with StorageControlBlock
   // Type-specific shared members below.
 
+  /** Number of levels. */
+  uint8_t             levels_;
   LookupRouteFinder   route_finder_;
 };
 

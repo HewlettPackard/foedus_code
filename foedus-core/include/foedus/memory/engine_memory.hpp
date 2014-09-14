@@ -56,9 +56,7 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
 
   /**
    * Returns the page resolver to convert volatile page ID to page pointer.
-   * Any code can get the global page resolver from engine memory, but the most efficient
-   * way is to use the global page page resolver per core because
-   * it never requires remote memory access.
+   * Any code can get the global page resolver from engine memory.
    * Note that this is only for volatile pages. As snapshot cache is per-node, there is no
    * global snapshot page resolver (just the node-local one should be enough).
    * @see thread::Thread::get_global_volatile_page_resolver()
