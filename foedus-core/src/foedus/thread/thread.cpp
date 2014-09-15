@@ -9,6 +9,7 @@
 #include "foedus/engine.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/thread/thread_pimpl.hpp"
 
 namespace foedus {
@@ -83,6 +84,16 @@ std::ostream& operator<<(std::ostream& o, const Thread& v) {
 
 const memory::GlobalVolatilePageResolver& Thread::get_global_volatile_page_resolver() const {
   return pimpl_->engine_->get_memory_manager().get_global_volatile_page_resolver();
+}
+
+ThreadRef::ThreadRef()
+  : engine_(CXX11_NULLPTR), id_(0), control_block_(CXX11_NULLPTR), mcs_blocks_(CXX11_NULLPTR) {}
+
+ThreadRef::ThreadRef(Engine* engine, ThreadId id) : engine_(engine), id_(id) {
+  soc::SharedMemoryRepo* memory_repo = engine->get_soc_manager().get_shared_memory_repo();
+  soc::ThreadMemoryAnchors* anchors = memory_repo->get_thread_memory_anchors(id);
+  control_block_ = anchors->thread_memory_;
+  mcs_blocks_ = anchors->mcs_lock_memories_;
 }
 
 

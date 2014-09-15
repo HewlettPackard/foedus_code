@@ -113,6 +113,8 @@ X(kErrorCodeSocEmulateFailed,       0x0C05, "SOC    : Failed to launch emulated 
 X(kErrorCodeSocLaunchTimeout,       0x0C06, "SOC    : Timeout happend while waiting for child SOCs to start up. Probably child SOC(s) hanged.")
 X(kErrorCodeSocMasterDied,          0x0C07, "SOC    : Master engine died unexpectedly. This child engine will follow.")
 X(kErrorCodeSocMasterUnexpectedState, 0x0C08, "SOC    : The status of master engine is unexpected.")
+X(kErrorCodeSocTerminateTimeout,    0x0C09, "SOC    : Timeout happend while waiting for child SOCs to terminate. Probably child SOC(s) hanged.")
+X(kErrorCodeSocTerminateFailed,     0x0C0A, "SOC    : Failed to normally terminate some SOC(s)..")
 
 X(kErrorCodeProcPreRegisterTooLate, 0x0D01, "PROC   : Pre-register can be called only before engine initialization.")
 X(kErrorCodeProcRegisterTooEarly,   0x0D02, "PROC   : Post-register can be called only after engine initialization.")

@@ -48,6 +48,8 @@ class SocManagerPimpl final : public DefaultInitializable {
   ErrorStack  launch_spawned_children();
   /** Wait for child SOCs to start up and at least finish attaching shared memory. */
   ErrorStack  wait_for_child_attach();
+  /** Wait for child SOCs to terminate. */
+  ErrorStack  wait_for_child_terminate();
   /** Wait for master engine to finish upto the specified status. */
   ErrorStack  wait_for_master_status(MasterEngineStatus::StatusCode target_status);
   /** Main routine of emulated SOCs. */

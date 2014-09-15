@@ -28,20 +28,25 @@ void PagePoolOffsetChunk::move_to(PagePoolOffset* destination, uint32_t count) {
   size_ -= count;
 }
 
-PagePool::PagePool(uint64_t memory_byte_size, bool shared) : pimpl_(nullptr) {
-  pimpl_ = new PagePoolPimpl(memory_byte_size, shared);
+PagePool::PagePool() {
+  pimpl_ = new PagePoolPimpl();
+}
+void PagePool::attach(
+  PagePoolControlBlock* control_block,
+  void* memory,
+  uint64_t memory_size,
+  bool owns) {
+  pimpl_->attach(control_block, memory, memory_size, owns);
 }
 PagePool::~PagePool() {
   delete pimpl_;
   pimpl_ = nullptr;
 }
 
-void PagePool::initialize_parent(NumaNodeMemory* parent) {  pimpl_->initialize_parent(parent); }
 ErrorStack  PagePool::initialize() { return pimpl_->initialize(); }
 bool        PagePool::is_initialized() const { return pimpl_->is_initialized(); }
 ErrorStack  PagePool::uninitialize() { return pimpl_->uninitialize(); }
-uint64_t    PagePool::get_memory_byte_size() const { return pimpl_->memory_byte_size_; }
-thread::ThreadGroupId PagePool::get_numa_node() const { return pimpl_->parent_->get_numa_node(); }
+uint64_t    PagePool::get_memory_size() const { return pimpl_->memory_size_; }
 PagePool::Stat PagePool::get_stat() const { return pimpl_->get_stat(); }
 
 
@@ -56,8 +61,6 @@ void        PagePool::release(uint32_t desired_release_count, PagePoolOffsetChun
 void PagePool::release_one(PagePoolOffset offset) { pimpl_->release_one(offset); }
 
 LocalPageResolver& PagePool::get_resolver() { return pimpl_->get_resolver(); }
-
-const AlignedMemory& PagePool::get_memory() const { return pimpl_->memory_; }
 
 std::ostream& operator<<(std::ostream& o, const PagePool& v) {
   o << v.pimpl_;

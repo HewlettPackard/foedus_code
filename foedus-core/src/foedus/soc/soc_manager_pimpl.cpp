@@ -37,6 +37,11 @@ ErrorStack SocManagerPimpl::initialize_once() {
 
 ErrorStack SocManagerPimpl::uninitialize_once() {
   ErrorStackBatch batch;
+  if (engine_->is_master() && memory_repo_.get_global_memory() != nullptr) {
+    memory_repo_.change_master_status(MasterEngineStatus::kWaitingForChildTerminate);
+    CHECK_ERROR(wait_for_child_terminate());  // wait for children to terminate
+    memory_repo_.change_master_status(MasterEngineStatus::kTerminated);
+  }
   memory_repo_.deallocate_shared_memories();
   return SUMMARIZE_ERROR_BATCH(batch);
 }
@@ -80,7 +85,9 @@ ErrorStack SocManagerPimpl::initialize_child() {
     ::_exit(1);
   }
 
-  CHECK_ERROR(wait_for_master_status(MasterEngineStatus::kWaitingForChildInitialization));
+  // child engines could just move on, but it's safer to wait for at least the reclamation
+  // of shared memory by master engine.
+  COERCE_ERROR(wait_for_master_status(MasterEngineStatus::kSharedMemoryReservedReclamation));
   return kRetOk;
 }
 
@@ -160,6 +167,51 @@ ErrorStack SocManagerPimpl::wait_for_child_attach() {
   memory_repo_.mark_for_release();  // now it's safe. closed attaching and marked for reclaim.
   return kRetOk;
 }
+
+ErrorStack SocManagerPimpl::wait_for_child_terminate() {
+  uint16_t soc_count = engine_->get_options().thread_.group_count_;
+  const uint32_t kIntervalMillisecond = 20;
+  const uint32_t kTimeoutMillisecond = 10000;
+  uint32_t trials = 0;
+  while (true) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMillisecond));
+    bool remaining = false;
+    for (uint16_t node = 0; node < soc_count; ++node) {
+      ChildEngineStatus::StatusCode child_status = memory_repo_.get_child_status(node);
+      if (child_status == ChildEngineStatus::kRunning) {
+        // also check with waitpid(). if the child process terminated, it's fine.
+        if (child_upids_[node] != 0) {
+          int status = 0;
+          pid_t wait_ret = ::waitpid(child_upids_[node], &status, WNOHANG);
+          if (wait_ret == -1) {
+            // this is okay, too. the process has already terminated
+          } else if (WIFEXITED(status)) {
+            // this is okay
+          } else if (WIFSIGNALED(status)) {
+            std::cerr << "[FOEDUS] ERROR! child-process " << child_upids_[node] << " has been"
+              << " terminated by signal. status=" << status << std::endl;
+            memory_repo_.change_master_status(MasterEngineStatus::kFatalError);
+            return ERROR_STACK(kErrorCodeSocTerminateFailed);
+          } else {
+            remaining = true;
+          }
+        }
+      }
+    }
+
+    if (!remaining) {
+      break;  // done!
+    } else if ((++trials) * kIntervalMillisecond > kTimeoutMillisecond) {
+      std::cerr << "[FOEDUS] ERROR! Timeout happend while waiting for child SOCs to terminate."
+        " Probably child SOC(s) hanged or did not trap SOC execution (if spawned)." << std::endl;
+      memory_repo_.change_master_status(MasterEngineStatus::kFatalError);
+      return ERROR_STACK(kErrorCodeSocTerminateTimeout);
+    }
+  }
+
+  return kRetOk;
+}
+
 
 ErrorStack SocManagerPimpl::wait_for_master_status(MasterEngineStatus::StatusCode target_status) {
   ASSERT_ND(!engine_->is_master());

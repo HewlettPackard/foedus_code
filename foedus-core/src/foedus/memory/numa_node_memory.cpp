@@ -19,6 +19,8 @@
 #include "foedus/cache/cache_hashtable.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/thread/thread_options.hpp"
 
 namespace foedus {
@@ -28,12 +30,6 @@ NumaNodeMemory::NumaNodeMemory(Engine* engine, thread::ThreadGroupId numa_node)
     numa_node_(numa_node),
     cores_(engine_->get_options().thread_.thread_count_per_group_),
     loggers_(engine_->get_options().log_.loggers_per_node_),
-    volatile_pool_(
-      static_cast<uint64_t>(engine->get_options().memory_.page_pool_size_mb_per_node_) << 20,
-      true),  // volatile pool can be accessed from remote node
-    snapshot_pool_(
-      static_cast<uint64_t>(engine->get_options().cache_.snapshot_cache_size_mb_per_node_) << 20,
-      false),  // snapshot pool is SOC-local
     snapshot_cache_table_(nullptr) {
 }
 
@@ -41,11 +37,35 @@ ErrorStack NumaNodeMemory::initialize_once() {
   LOG(INFO) << "Initializing NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
     << " BEFORE: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
 
-  volatile_pool_.initialize_parent(this);
+
+  // volatile pool can be accessed from remote node
+  allocate_huge_numa_memory(
+    static_cast<uint64_t>(engine_->get_options().memory_.page_pool_size_mb_per_node_) << 20,
+    &volatile_pool_memory_,
+    true);
+  volatile_pool_control_block_.alloc(1 << 12, 1 << 12, AlignedMemory::kNumaAllocOnnode, numa_node_);
+  volatile_pool_.attach(
+    reinterpret_cast<PagePoolControlBlock*>(volatile_pool_control_block_.get_block()),
+    volatile_pool_memory_.get_block(),
+    volatile_pool_memory_.get_size(),
+    true);
+
+  // snapshot pool is SOC-local
+  allocate_huge_numa_memory(
+    static_cast<uint64_t>(engine_->get_options().cache_.snapshot_cache_size_mb_per_node_) << 20,
+    &snapshot_pool_memory_,
+    false);
+  snapshot_pool_control_block_.alloc(1 << 12, 1 << 12, AlignedMemory::kNumaAllocOnnode, numa_node_);
+  snapshot_pool_.attach(
+    reinterpret_cast<PagePoolControlBlock*>(snapshot_pool_control_block_.get_block()),
+    snapshot_pool_memory_.get_block(),
+    snapshot_pool_memory_.get_size(),
+    true);
+
   CHECK_ERROR(volatile_pool_.initialize());
-  snapshot_pool_.initialize_parent(this);
   CHECK_ERROR(snapshot_pool_.initialize());
-  uint64_t cache_hashtable_entries = snapshot_pool_.get_memory_byte_size() * 3 / storage::kPageSize;
+
+  uint64_t cache_hashtable_entries = snapshot_pool_.get_memory_size() * 3 / storage::kPageSize;
   CHECK_ERROR(allocate_huge_numa_memory(
     cache_hashtable_entries * sizeof(cache::CacheHashtable::Bucket), &snapshot_hashtable_memory_));
   snapshot_cache_table_ = new cache::CacheHashtable(
@@ -140,6 +160,10 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
   snapshot_hashtable_memory_.release_block();
   batch.emprace_back(volatile_pool_.uninitialize());
   batch.emprace_back(snapshot_pool_.uninitialize());
+  volatile_pool_memory_.release_block();
+  volatile_pool_control_block_.release_block();
+  snapshot_pool_memory_.release_block();
+  snapshot_pool_control_block_.release_block();
 
   LOG(INFO) << "Uninitialized NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
     << " AFTER: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
@@ -177,6 +201,26 @@ std::string NumaNodeMemory::dump_free_memory_stat() const {
   ret << "    Snapshot-Pool: " << snapshot_stat.allocated_pages_ << " allocated pages, "
     << snapshot_stat.total_pages_ << " total pages, "
     << (snapshot_stat.total_pages_ - snapshot_stat.allocated_pages_) << " free pages"
+    << std::endl;
+  return ret.str();
+}
+
+NumaNodeMemoryRef::NumaNodeMemoryRef(Engine* engine, thread::ThreadGroupId numa_node)
+  : engine_(engine), numa_node_(numa_node) {
+  soc::SharedMemoryRepo* memory_repo = engine->get_soc_manager().get_shared_memory_repo();
+  volatile_pool_.attach(
+    memory_repo->get_node_memory_anchors(numa_node)->volatile_pool_status_,
+    memory_repo->get_volatile_pool(numa_node),
+    static_cast<uint64_t>(engine->get_options().memory_.page_pool_size_mb_per_node_) << 20,
+    false);
+}
+
+std::string NumaNodeMemoryRef::dump_free_memory_stat() const {
+  std::stringstream ret;
+  PagePool::Stat volatile_stat = volatile_pool_.get_stat();
+  ret << "    Volatile-Pool: " << volatile_stat.allocated_pages_ << " allocated pages, "
+    << volatile_stat.total_pages_ << " total pages, "
+    << (volatile_stat.total_pages_ - volatile_stat.allocated_pages_) << " free pages"
     << std::endl;
   return ret.str();
 }

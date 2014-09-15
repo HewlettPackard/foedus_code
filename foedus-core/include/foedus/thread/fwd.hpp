@@ -21,10 +21,12 @@ class   Thread;
 struct  ThreadControlBlock;
 class   ThreadGroup;
 class   ThreadGroupPimpl;
+class   ThreadGroupRef;
 struct  ThreadOptions;
 class   ThreadPimpl;
 class   ThreadPool;
 class   ThreadPoolPimpl;
+class   ThreadRef;
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_FWD_HPP_

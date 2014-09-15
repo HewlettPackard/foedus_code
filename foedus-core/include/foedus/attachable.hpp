@@ -7,7 +7,6 @@
 
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/initializable.hpp"
 namespace foedus {
 /**
  * @brief Attachable Resources on Shared Memory.
@@ -43,7 +42,7 @@ namespace foedus {
  * If it's really needed, override the destructor.
  */
 template <typename CONTROL_BLOCK>
-class Attachable : public virtual Initializable {
+class Attachable {
  public:
   Attachable() : engine_(CXX11_NULLPTR), control_block_(CXX11_NULLPTR) {}
   explicit Attachable(Engine* engine) : engine_(engine), control_block_(CXX11_NULLPTR) {}
@@ -69,9 +68,8 @@ class Attachable : public virtual Initializable {
   /**
    * @brief Attaches to the given shared memory.
    * @param[in] control_block pointer to shared data on shared memory
-   * @pre someone has called (or at least will call before this object actually does something)
-   * initialize() of this object on the shared memory.
-   * @pre no one has called uninitialize() of this object on the shared memory.
+   * @pre someone has (or at least will before this object actually does something)
+   * initialized this object on the shared memory.
    * @details
    * This method should never fail so that we can provide a trivially copy-able semantics.
    * In many cases, this method should be just setting control_block_ as done in the

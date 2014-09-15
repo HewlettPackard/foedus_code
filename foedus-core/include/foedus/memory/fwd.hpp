@@ -19,6 +19,7 @@ struct  LocalPageResolver;
 struct  MemoryOptions;
 class   NumaCoreMemory;
 class   NumaNodeMemory;
+class   NumaNodeMemoryRef;
 class   PagePoolOffsetChunk;
 class   PagePool;
 struct  PagePoolControlBlock;

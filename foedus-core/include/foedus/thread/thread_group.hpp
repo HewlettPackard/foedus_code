@@ -4,7 +4,9 @@
  */
 #ifndef FOEDUS_THREAD_THREAD_GROUP_HPP_
 #define FOEDUS_THREAD_THREAD_GROUP_HPP_
+
 #include <iosfwd>
+#include <vector>
 
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
@@ -41,6 +43,23 @@ class ThreadGroup CXX11_FINAL : public virtual Initializable {
  private:
   ThreadGroupPimpl*       pimpl_;
 };
+
+class ThreadGroupRef CXX11_FINAL {
+ public:
+  ThreadGroupRef();
+  ThreadGroupRef(Engine* engine, ThreadGroupId group_id);
+
+  ThreadGroupId           get_group_id() const { return group_id_; }
+
+  /** Returns Thread object for the given ordinal in this group. */
+  ThreadRef*              get_thread(ThreadLocalOrdinal ordinal) const;
+
+ private:
+  Engine*                 engine_;
+  ThreadGroupId           group_id_;
+  std::vector<ThreadRef>  threads_;
+};
+
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_THREAD_GROUP_HPP_

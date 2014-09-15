@@ -167,6 +167,35 @@ class Thread CXX11_FINAL : public virtual Initializable {
  private:
   ThreadPimpl*    pimpl_;
 };
+
+/**
+ * @brief A view of Thread object for other SOCs and master engine.
+ * @ingroup THREAD
+ */
+class ThreadRef CXX11_FINAL {
+ public:
+  ThreadRef();
+  ThreadRef(Engine* engine, ThreadId id);
+
+  bool          try_impersonate(ImpersonateSession *session);
+  Engine*       get_engine() const { return engine_; }
+  ThreadId      get_thread_id() const { return id_; }
+  ThreadGroupId get_numa_node() const { return decompose_numa_node(id_); }
+  xct::McsBlock* get_mcs_blocks() const { return mcs_blocks_; }
+
+ private:
+  Engine*               engine_;
+
+  /** Unique ID of this thread. */
+  ThreadId              id_;
+
+  ThreadControlBlock*   control_block_;
+
+  /** Pre-allocated MCS blocks. index 0 is not used so that successor_block=0 means null. */
+  xct::McsBlock*        mcs_blocks_;
+};
+
+
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_THREAD_HPP_

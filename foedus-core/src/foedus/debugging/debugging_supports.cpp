@@ -21,6 +21,7 @@
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
 
 namespace foedus {
 namespace debugging {
@@ -64,7 +65,7 @@ void DebuggingSupports::initialize_glog() {
     // Use separate log files for the master engine and soc engine.
     // If this is an emulated child SOC engine, anyway logs go to the master's log file.
     const char* logfile_name;
-    if (engine_->is_master()) {
+    if (engine_->is_master() || engine_->is_emulated_child()) {
       logfile_name = "libfoedus";
     } else {
       // Note: Seems like InitGoogleLogging keeps the given argument without internally copying.

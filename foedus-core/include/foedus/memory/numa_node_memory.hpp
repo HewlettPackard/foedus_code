@@ -124,6 +124,11 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   PagePool                                volatile_pool_;
   /** In-memory snapshot page pool in this node. */
   PagePool                                snapshot_pool_;
+  AlignedMemory                           volatile_pool_control_block_;
+  AlignedMemory                           volatile_pool_memory_;
+  AlignedMemory                           snapshot_pool_control_block_;
+  AlignedMemory                           snapshot_pool_memory_;
+
   /** Memory for hash buckets for snapshot_cache_table_. */
   AlignedMemory                           snapshot_hashtable_memory_;
   /** Hashtable for in-memory snapshot page pool in this node. */
@@ -153,6 +158,35 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   AlignedMemory                           log_buffer_memory_;
   std::vector<AlignedMemorySlice>         log_buffer_memory_pieces_;
 };
+
+/**
+ * A view of NumaNodeMemory for other SOCs and master engine.
+ * @ingroup MEMHIERARCHY
+ */
+class NumaNodeMemoryRef CXX11_FINAL {
+ public:
+  NumaNodeMemoryRef() CXX11_FUNC_DELETE;
+  NumaNodeMemoryRef(Engine* engine, foedus::thread::ThreadGroupId numa_node);
+
+  foedus::thread::ThreadGroupId   get_numa_node() const { return numa_node_; }
+
+  PagePool&                       get_volatile_pool() { return volatile_pool_; }
+
+  /** Report rough statistics of free memory */
+  std::string                     dump_free_memory_stat() const;
+
+ private:
+  Engine* const                           engine_;
+
+  /**
+   * The NUMA node this memory is allocated for.
+   */
+  const foedus::thread::ThreadGroupId     numa_node_;
+
+  /** In-memory volatile page pool in this node. NOT owned. */
+  PagePool                                volatile_pool_;
+};
+
 }  // namespace memory
 }  // namespace foedus
 #endif  // FOEDUS_MEMORY_NUMA_NODE_MEMORY_HPP_

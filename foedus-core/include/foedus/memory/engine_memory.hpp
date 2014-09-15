@@ -49,6 +49,9 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
   NumaNodeMemory* get_node_memory(foedus::thread::ThreadGroupId group) const {
     return node_memories_[group];
   }
+  NumaNodeMemoryRef* get_node_memory_ref(foedus::thread::ThreadGroupId group) const {
+    return node_memory_refs_[group];
+  }
   NumaCoreMemory* get_core_memory(foedus::thread::ThreadId id) const;
 
   /** Report rough statistics of free memory */
@@ -73,6 +76,11 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
    * Index is NUMA node ID.
    */
   std::vector<NumaNodeMemory*>    node_memories_;
+
+  /**
+   * View of all node memories. We have ref objects for all SOCs even if this is a master engine.
+   */
+  std::vector<NumaNodeMemoryRef*> node_memory_refs_;
 
   /**
    * Converts volatile page ID to page pointer.

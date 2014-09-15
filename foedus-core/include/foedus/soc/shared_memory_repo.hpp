@@ -27,6 +27,7 @@
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
+#include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
 
@@ -56,14 +57,9 @@ struct MasterEngineStatus CXX11_FINAL {
     /**
      * Master engine successfully confirmed child's attach and reserved the reclamation of
      * the shared memories. No more attach to the memories is possible after this.
+     * Child SOCs resume their initialization after observing this status.
      */
     kSharedMemoryReservedReclamation,
-    /**
-     * Master engine has successfully initialized essential modules (debug/savepoint, etc).
-     * Child SOCs resume their initialization after observing this status.
-     * The master is waiting for child engines to complete their initialization.
-     */
-    kWaitingForChildInitialization,
 
     /** Done all initialization and running transactions. */
     kRunning,
@@ -407,6 +403,12 @@ class SharedMemoryRepo CXX11_FINAL {
 
   void        change_child_status(SocId node, ChildEngineStatus::StatusCode new_status);
   ChildEngineStatus::StatusCode get_child_status(SocId node) const;
+
+  ThreadMemoryAnchors* get_thread_memory_anchors(thread::ThreadId thread_id) {
+    SocId node = thread::decompose_numa_node(thread_id);
+    uint16_t thread_ordinal = thread::decompose_numa_local_ordinal(thread_id);
+    return &node_memory_anchors_[node].thread_anchors_[thread_ordinal];
+  }
 
   void*       get_volatile_pool(SocId node) { return volatile_pools_[node].get_block(); }
 
