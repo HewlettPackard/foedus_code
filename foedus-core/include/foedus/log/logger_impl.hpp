@@ -8,9 +8,12 @@
 
 #include <atomic>
 #include <iosfwd>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
+#include "foedus/attachable.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
@@ -24,7 +27,6 @@
 #include "foedus/soc/shared_cond.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/thread/fwd.hpp"
-#include "foedus/thread/stoppable_thread_impl.hpp"
 #include "foedus/thread/thread_id.hpp"
 
 namespace foedus {
@@ -35,6 +37,14 @@ struct LoggerControlBlock {
   // this is backed by shared memory. not instantiation. just reinterpret_cast.
   LoggerControlBlock() = delete;
   ~LoggerControlBlock() = delete;
+
+  void initialize() {
+    wakeup_cond_.initialize();
+    stop_requested_ = false;
+  }
+  void uninitialize() {
+    wakeup_cond_.uninitialize();
+  }
 
   /**
    * @brief Upto what epoch the logger flushed logs in \b all buffers assigned to it.
@@ -81,6 +91,9 @@ struct LoggerControlBlock {
    * @invariant current_file_durable_offset_ % kLogWriteUnitSize == 0 (because we pad)
    */
   std::atomic< uint64_t >         current_file_durable_offset_;
+
+  /** */
+  std::atomic<bool>               stop_requested_;
 };
 
 /**
@@ -90,13 +103,22 @@ struct LoggerControlBlock {
  * This is a private implementation-details of \ref LOG, thus file name ends with _impl.
  * Do not include this header from a client program unless you know what you are doing.
  */
-class Logger final : public DefaultInitializable {
+class Logger final : public DefaultInitializable, Attachable<LoggerControlBlock> {
  public:
-  Logger(Engine* engine, LoggerId id, thread::ThreadGroupId numa_node, uint8_t in_node_ordinal,
-       const fs::Path &log_folder,
-       const std::vector< thread::ThreadId > &assigned_thread_ids) : engine_(engine),
-       id_(id), numa_node_(numa_node), in_node_ordinal_(in_node_ordinal),
-       log_folder_(log_folder), assigned_thread_ids_(assigned_thread_ids) {}
+  Logger(
+    Engine* engine,
+    LoggerControlBlock* control_block,
+    LoggerId id,
+    thread::ThreadGroupId numa_node,
+    uint8_t in_node_ordinal,
+    const fs::Path &log_folder,
+    const std::vector< thread::ThreadId > &assigned_thread_ids)
+  : Attachable<LoggerControlBlock>(engine, control_block),
+    id_(id),
+    numa_node_(numa_node),
+    in_node_ordinal_(in_node_ordinal),
+    log_folder_(log_folder),
+    assigned_thread_ids_(assigned_thread_ids) {}
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
@@ -104,24 +126,8 @@ class Logger final : public DefaultInitializable {
   Logger(const Logger &other) = delete;
   Logger& operator=(const Logger &other) = delete;
 
-  /**
-   * @brief Wakes up this logger if it is sleeping.
-   */
-  void        wakeup();
-
-  /**
-   * @brief Wakes up this logger if its durable_epoch has not reached the given epoch yet.
-   * @details
-   * If this logger's durable_epoch is already same or larger than the epoch, does nothing.
-   * This method just wakes up the logger and immediately returns.
-   */
-  void        wakeup_for_durable_epoch(Epoch desired_durable_epoch);
-
   /** Returns this logger's durable epoch. */
-  Epoch       get_durable_epoch() const { return durable_epoch_; }
-
-  /** Called from log manager's copy_logger_states. */
-  void        copy_logger_state(savepoint::Savepoint *new_savepoint);
+  Epoch       get_durable_epoch() const { return Epoch(control_block_->durable_epoch_); }
 
   /** Append a new epoch history. */
   void        add_epoch_history(const EpochMarkerLogType& epoch_marker);
@@ -152,7 +158,7 @@ class Logger final : public DefaultInitializable {
    */
   LogRange get_log_range(Epoch prev_epoch, Epoch until_epoch);
 
-  LogFileOrdinal get_current_ordinal() const { return current_ordinal_; }
+  LogFileOrdinal get_current_ordinal() const { return control_block_->current_ordinal_; }
 
   std::string             to_string() const;
   friend std::ostream&    operator<<(std::ostream& o, const Logger& v);
@@ -209,14 +215,13 @@ class Logger final : public DefaultInitializable {
   /** Check invariants. This method should be wiped in NDEBUG. */
   void        assert_consistent();
 
-  Engine* const                   engine_;
   const LoggerId                  id_;
   const thread::ThreadGroupId     numa_node_;
   const uint8_t                   in_node_ordinal_;
   const fs::Path                  log_folder_;
   const std::vector< thread::ThreadId > assigned_thread_ids_;
 
-  thread::StoppableThread         logger_thread_;
+  std::thread                     logger_thread_;
 
   /**
    * @brief A local and very small aligned buffer to pad log entries to 4kb.
@@ -232,20 +237,6 @@ class Logger final : public DefaultInitializable {
    * buffer and fill the rest (at the end or at the beginning, or both).
    */
   memory::AlignedMemory           fill_buffer_;
-
-  /**
-   * @brief Upto what epoch the logger flushed logs in \b all buffers assigned to it.
-   * @invariant durable_epoch_.is_valid()
-   * @invariant global durable epoch <= durable_epoch_ < global current epoch
-   * @details
-   * Unlike buffer.logger_epoch, this value is continuously maintained by the logger, thus
-   * no case of stale values. Actually, the global durable epoch does not advance until all
-   * loggers' durable_epoch_ advance.
-   * Hence, if some thread is idle or running a long transaction, this value could be larger
-   * than buffer.logger_epoch_. Otherwise (when the worker thread is running normal), this value
-   * is most likely smaller than buffer.logger_epoch_.
-   */
-  Epoch                           durable_epoch_;
 
   /**
    * @brief Upto what epoch the logger has put epoch marker in the log file.
@@ -266,20 +257,6 @@ class Logger final : public DefaultInitializable {
   bool                            no_log_epoch_;
 
   /**
-   * @brief Ordinal of the oldest active log file of this logger.
-   * @invariant oldest_ordinal_ <= current_ordinal_
-   */
-  LogFileOrdinal                  oldest_ordinal_;
-  /**
-   * @brief Inclusive beginning of active region in the oldest log file.
-   * @invariant oldest_file_offset_begin_ % kLogWriteUnitSize == 0 (because we pad)
-   */
-  uint64_t                        oldest_file_offset_begin_;
-  /**
-   * @brief Ordinal of the log file this logger is currently appending to.
-   */
-  LogFileOrdinal                  current_ordinal_;
-  /**
    * @brief The log file this logger is currently appending to.
    */
   fs::DirectIoFile*               current_file_;
@@ -287,13 +264,6 @@ class Logger final : public DefaultInitializable {
    * [log_folder_]/[id_]_[current_ordinal_].log.
    */
   fs::Path                        current_file_path_;
-
-  /**
-   * We called fsync on current file up to this offset.
-   * @invariant current_file_durable_offset_ <= current_file->get_current_offset()
-   * @invariant current_file_durable_offset_ % kLogWriteUnitSize == 0 (because we pad)
-   */
-  uint64_t                        current_file_durable_offset_;
 
   std::vector< thread::Thread* >  assigned_threads_;
 

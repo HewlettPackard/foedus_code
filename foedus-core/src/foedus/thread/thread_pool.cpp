@@ -40,6 +40,15 @@ ImpersonateSession ThreadPool::impersonate_on_numa_node(
   return pimpl_->impersonate_on_numa_node(functor, numa_node);
 }
 
+ThreadGroupRef* ThreadPool::get_group_ref(ThreadGroupId numa_node) {
+  return pimpl_->get_group(numa_node);
+}
+
+ThreadRef* ThreadPool::get_thread_ref(ThreadId id) {
+  return pimpl_->get_thread(id);
+}
+
+
 std::ostream& operator<<(std::ostream& o, const ThreadPool& v) {
   o << *v.pimpl_;
   return o;

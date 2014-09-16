@@ -31,6 +31,7 @@
 #include "foedus/storage/hash/hash_metadata.hpp"
 #include "foedus/storage/hash/hash_page_impl.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
+#include "foedus/storage/hash/hash_storage_pimpl.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_manager.hpp"
@@ -40,12 +41,12 @@ namespace storage {
 namespace hash {
 
 // Defines HashStorage methods so that we can inline implementation calls
-bool        HashStorage::is_initialized()   const  { return pimpl_->is_initialized(); }
-bool        HashStorage::exists()           const  { return pimpl_->exist_; }
-StorageId   HashStorage::get_id()           const  { return pimpl_->metadata_.id_; }
-const StorageName& HashStorage::get_name()  const  { return pimpl_->metadata_.name_; }
-const Metadata* HashStorage::get_metadata() const  { return &pimpl_->metadata_; }
-const HashMetadata* HashStorage::get_hash_metadata() const  { return &pimpl_->metadata_; }
+bool        HashStorage::exists()           const  { return control_block_->exists(); }
+StorageId   HashStorage::get_id()           const  { return control_block_->meta_.id_; }
+StorageType HashStorage::get_type()         const  { return control_block_->meta_.type_; }
+const StorageName& HashStorage::get_name()  const  { return control_block_->meta_.name_; }
+const Metadata* HashStorage::get_metadata() const  { return &control_block_->meta_; }
+const HashMetadata* HashStorage::get_hash_metadata() const  { return &control_block_->meta_; }
 
 ErrorCode HashStorage::get_record(
   thread::Thread* context,
@@ -53,7 +54,7 @@ ErrorCode HashStorage::get_record(
   uint16_t key_length,
   void* payload,
   uint16_t* payload_capacity) {
-  return pimpl_->get_record(context, key, key_length, payload, payload_capacity);
+  return HashStoragePimpl(this).get_record(context, key, key_length, payload, payload_capacity);
 }
 
 ErrorCode HashStorage::get_record_part(
@@ -63,7 +64,8 @@ ErrorCode HashStorage::get_record_part(
   void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
-  return pimpl_->get_record_part(context, key, key_length, payload, payload_offset, payload_count);
+  return HashStoragePimpl(this).get_record_part(
+    context, key, key_length, payload, payload_offset, payload_count);
 }
 
 template <typename PAYLOAD>
@@ -73,7 +75,8 @@ ErrorCode HashStorage::get_record_primitive(
   uint16_t key_length,
   PAYLOAD* payload,
   uint16_t payload_offset) {
-  return pimpl_->get_record_primitive(context, key, key_length, payload, payload_offset);
+  return HashStoragePimpl(this).get_record_primitive(
+    context, key, key_length, payload, payload_offset);
 }
 
 ErrorCode HashStorage::insert_record(
@@ -82,14 +85,14 @@ ErrorCode HashStorage::insert_record(
   uint16_t key_length,
   const void* payload,
   uint16_t payload_count) {
-  return pimpl_->insert_record(context, key, key_length, payload, payload_count);
+  return HashStoragePimpl(this).insert_record(context, key, key_length, payload, payload_count);
 }
 
 ErrorCode HashStorage::delete_record(
   thread::Thread* context,
   const void* key,
   uint16_t key_length) {
-  return pimpl_->delete_record(context, key, key_length);
+  return HashStoragePimpl(this).delete_record(context, key, key_length);
 }
 
 ErrorCode HashStorage::overwrite_record(
@@ -99,7 +102,8 @@ ErrorCode HashStorage::overwrite_record(
   const void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
-  return pimpl_->overwrite_record(context, key, key_length, payload, payload_offset, payload_count);
+  return HashStoragePimpl(this).overwrite_record(
+    context, key, key_length, payload, payload_offset, payload_count);
 }
 
 template <typename PAYLOAD>
@@ -109,7 +113,7 @@ ErrorCode HashStorage::overwrite_record_primitive(
   uint16_t key_length,
   PAYLOAD payload,
   uint16_t payload_offset) {
-  return pimpl_->overwrite_record_primitive(
+  return HashStoragePimpl(this).overwrite_record_primitive(
     context,
     key,
     key_length,
@@ -124,7 +128,7 @@ ErrorCode HashStorage::increment_record(
   uint16_t key_length,
   PAYLOAD* value,
   uint16_t payload_offset) {
-  return pimpl_->increment_record(context, key, key_length, value, payload_offset);
+  return HashStoragePimpl(this).increment_record(context, key, key_length, value, payload_offset);
 }
 
 void HashStorage::apply_delete_record(
@@ -132,7 +136,7 @@ void HashStorage::apply_delete_record(
   const HashDeleteLogType* log_entry,
   xct::LockableXctId* owner_id,
   char* payload) {
-  pimpl_->apply_delete_record(context, log_entry, owner_id, payload);
+  HashStoragePimpl(this).apply_delete_record(context, log_entry, owner_id, payload);
 }
 
 void HashStorage::apply_insert_record(
@@ -140,38 +144,7 @@ void HashStorage::apply_insert_record(
   const HashInsertLogType* log_entry,
   xct::LockableXctId* owner_id,
   char* payload) {
-  pimpl_->apply_insert_record(context, log_entry, owner_id, payload);
-}
-
-HashStoragePimpl::HashStoragePimpl(Engine* engine, HashStorage* holder,
-                   const HashMetadata &metadata, bool create)
-  : engine_(engine),
-  holder_(holder),
-  metadata_(metadata),
-  root_page_(nullptr),
-  exist_(!create) {
-  ASSERT_ND(create || metadata.id_ > 0);
-  ASSERT_ND(metadata.name_.size() > 0);
-  root_page_pointer_.snapshot_pointer_ = metadata.root_snapshot_page_id_;
-  root_page_pointer_.volatile_pointer_.word = 0;
-}
-
-ErrorStack HashStoragePimpl::initialize_once() {
-  LOG(INFO) << "Initializing an hash-storage " << *holder_ << " exists=" << exist_;
-  bin_count_ = 1ULL << metadata_.bin_bits_;
-  bin_pages_ = assorted::int_div_ceil(bin_count_, kBinsPerPage);
-  root_pages_ = assorted::int_div_ceil(bin_pages_, kHashRootPageFanout);
-  ASSERT_ND(root_pages_ >= 1);
-  LOG(INFO) << "bin_count=" << bin_count_ << ", bin_pages=" << bin_pages_
-    << ", root_pages=" << root_pages_;
-  if (root_pages_ > kHashRootPageFanout) {
-    // we don't assume this case so far. kHashRootPageFanout^2 * 4kb just for bin pages...
-    LOG(FATAL) << "more than 2 levels root page in hash?? that's too big!" << *holder_;
-  }
-  if (exist_) {
-    // initialize root_page_
-  }
-  return kRetOk;
+  HashStoragePimpl(this).apply_insert_record(context, log_entry, owner_id, payload);
 }
 
 void HashStoragePimpl::release_pages_recursive_root(
@@ -265,13 +238,23 @@ ErrorStack HashStoragePimpl::uninitialize_once() {
 }
 
 
-ErrorStack HashStoragePimpl::create(thread::Thread* context) {
-  if (exist_) {
-    LOG(ERROR) << "This hash-storage already exists: " << *holder_;
+ErrorStack HashStoragePimpl::create() {
+  if (exists()) {
+    LOG(ERROR) << "This hash-storage already exists: " << get_name();
     return ERROR_STACK(kErrorCodeStrAlreadyExists);
   }
 
-  LOG(INFO) << "Newly creating an hash-storage " << *holder_;
+  LOG(INFO) << "Newly creating an hash-storage " << get_name();
+  control_block_->bin_count_ = 1ULL << get_bin_bits();
+  bin_pages_ = assorted::int_div_ceil(bin_count_, kBinsPerPage);
+  root_pages_ = assorted::int_div_ceil(bin_pages_, kHashRootPageFanout);
+  ASSERT_ND(root_pages_ >= 1);
+  LOG(INFO) << "bin_count=" << bin_count_ << ", bin_pages=" << bin_pages_
+    << ", root_pages=" << root_pages_;
+  if (root_pages_ > kHashRootPageFanout) {
+    // we don't assume this case so far. kHashRootPageFanout^2 * 4kb just for bin pages...
+    LOG(FATAL) << "more than 2 levels root page in hash?? that's too big!" << *holder_;
+  }
 
   // small number of root pages. we should at least have that many free pages.
   // so far grab all of them from this context. no round robbin
@@ -289,7 +272,7 @@ ErrorStack HashStoragePimpl::create(thread::Thread* context) {
     0,
     root_offset);
   root_page_->initialize_volatile_page(
-    metadata_.id_,
+    get_id(),
     root_page_pointer_.volatile_pointer_,
     nullptr);
   if (root_pages_ > 1) {
@@ -303,14 +286,13 @@ ErrorStack HashStoragePimpl::create(thread::Thread* context) {
         0,
         0,
         offset);
-      page->initialize_volatile_page(metadata_.id_, pointer, root_page_);
+      page->initialize_volatile_page(get_id(), pointer, root_page_);
       root_page_->pointer(i).volatile_pointer_ = pointer;
     }
   }
 
-  LOG(INFO) << "Newly created an hash-storage " << *holder_;
+  LOG(INFO) << "Newly created an hash-storage " << get_name();
   exist_ = true;
-  engine_->get_storage_manager().get_pimpl()->register_storage(holder_);
   return kRetOk;
 }
 
@@ -320,7 +302,7 @@ ErrorCode HashStoragePimpl::get_record(
   uint16_t key_length,
   void* payload,
   uint16_t* payload_capacity) {
-  HashCombo combo(key, key_length, metadata_.bin_bits_);
+  HashCombo combo(key, key_length, get_bin_bits());
   CHECK_ERROR_CODE(lookup_bin(context, false, &combo));
   DVLOG(3) << "get_hash: hash=" << combo;
   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
@@ -350,7 +332,7 @@ ErrorCode HashStoragePimpl::get_record_primitive(
   uint16_t key_length,
   PAYLOAD* payload,
   uint16_t payload_offset) {
-  HashCombo combo(key, key_length, metadata_.bin_bits_);
+  HashCombo combo(key, key_length, get_bin_bits());
   CHECK_ERROR_CODE(lookup_bin(context, false, &combo));
   DVLOG(3) << "get_hash_primitive: hash=" << combo;
   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
@@ -378,7 +360,7 @@ ErrorCode HashStoragePimpl::get_record_part(
   void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
-  HashCombo combo(key, key_length, metadata_.bin_bits_);
+  HashCombo combo(key, key_length, get_bin_bits());
   CHECK_ERROR_CODE(lookup_bin(context, false, &combo));
   DVLOG(3) << "get_hash_part: hash=" << combo;
   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
@@ -404,7 +386,7 @@ ErrorCode HashStoragePimpl::insert_record(
   uint16_t key_length,
   const void* payload,
   uint16_t payload_count) {
-  HashCombo combo(key, key_length, metadata_.bin_bits_);
+  HashCombo combo(key, key_length, get_bin_bits());
   CHECK_ERROR_CODE(lookup_bin(context, true, &combo));
   DVLOG(3) << "insert_hash: hash=" << combo;
   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
@@ -438,7 +420,7 @@ ErrorCode HashStoragePimpl::insert_record(
   uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
   HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(metadata_.id_, key, key_length, bin1, combo.tag_, payload, payload_count);
+  log_entry->populate(get_id(), key, key_length, bin1, combo.tag_, payload, payload_count);
   // NOTE tentative hack! currently "payload address" for hash insert write set points to bin page
   // so that we don't have to calculate it again.
   return context->get_current_xct().add_to_write_set(
@@ -452,7 +434,7 @@ ErrorCode HashStoragePimpl::delete_record(
   thread::Thread* context,
   const void* key,
   uint16_t key_length) {
-  HashCombo combo(key, key_length, metadata_.bin_bits_);
+  HashCombo combo(key, key_length, get_bin_bits());
   CHECK_ERROR_CODE(lookup_bin(context, true, &combo));
   DVLOG(3) << "delete_hash: hash=" << combo;
   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
@@ -472,11 +454,11 @@ ErrorCode HashStoragePimpl::delete_record(
   uint16_t log_length = HashDeleteLogType::calculate_log_length(key_length);
   HashDeleteLogType* log_entry = reinterpret_cast<HashDeleteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(metadata_.id_, key, key_length, combo.record_bin1_, combo.record_slot_);
+  log_entry->populate(get_id(), key, key_length, combo.record_bin1_, combo.record_slot_);
   // NOTE tentative hack! currently "payload address" for hash insert write set points to bin page
   // so that we don't have to calculate it again.
   return context->get_current_xct().add_to_write_set(
-    holder_,
+    get_id(),
     &combo.record_->owner_id_,
     reinterpret_cast<char*>(bin_page),
     log_entry);
@@ -489,7 +471,7 @@ ErrorCode HashStoragePimpl::overwrite_record(
   const void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
-  HashCombo combo(key, key_length, metadata_.bin_bits_);
+  HashCombo combo(key, key_length, get_bin_bits());
   CHECK_ERROR_CODE(lookup_bin(context, true, &combo));
   DVLOG(3) << "overwrite_hash: hash=" << combo;
   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
@@ -515,7 +497,7 @@ ErrorCode HashStoragePimpl::overwrite_record(
   HashOverwriteLogType* log_entry = reinterpret_cast<HashOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(
-    metadata_.id_,
+    get_id(),
     key,
     key_length,
     combo.record_bin1_,
@@ -523,7 +505,7 @@ ErrorCode HashStoragePimpl::overwrite_record(
     payload,
     payload_offset,
     payload_count);
-  return context->get_current_xct().add_to_write_set(holder_, combo.record_, log_entry);
+  return context->get_current_xct().add_to_write_set(get_id(), combo.record_, log_entry);
 }
 
 template <typename PAYLOAD>
@@ -533,7 +515,7 @@ ErrorCode HashStoragePimpl::overwrite_record_primitive(
   uint16_t key_length,
   PAYLOAD payload,
   uint16_t payload_offset) {
-  HashCombo combo(key, key_length, metadata_.bin_bits_);
+  HashCombo combo(key, key_length, get_bin_bits());
   CHECK_ERROR_CODE(lookup_bin(context, true, &combo));
   DVLOG(3) << "overwrite_hash_primitive: hash=" << combo;
   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
@@ -552,7 +534,7 @@ ErrorCode HashStoragePimpl::overwrite_record_primitive(
   HashOverwriteLogType* log_entry = reinterpret_cast<HashOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(
-    metadata_.id_,
+    get_id(),
     key,
     key_length,
     combo.record_bin1_,
@@ -560,7 +542,7 @@ ErrorCode HashStoragePimpl::overwrite_record_primitive(
     &payload,
     payload_offset,
     sizeof(PAYLOAD));
-  return context->get_current_xct().add_to_write_set(holder_, combo.record_, log_entry);
+  return context->get_current_xct().add_to_write_set(get_id(), combo.record_, log_entry);
 }
 
 template <typename PAYLOAD>
@@ -570,7 +552,7 @@ ErrorCode HashStoragePimpl::increment_record(
   uint16_t key_length,
   PAYLOAD* value,
   uint16_t payload_offset) {
-  HashCombo combo(key, key_length, metadata_.bin_bits_);
+  HashCombo combo(key, key_length, get_bin_bits());
   CHECK_ERROR_CODE(lookup_bin(context, true, &combo));
   DVLOG(3) << "increment_hash: hash=" << combo;
   CHECK_ERROR_CODE(locate_record(context, key, key_length, &combo));
@@ -593,7 +575,7 @@ ErrorCode HashStoragePimpl::increment_record(
   HashOverwriteLogType* log_entry = reinterpret_cast<HashOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(
-    metadata_.id_,
+    get_id(),
     key,
     key_length,
     combo.record_bin1_,
@@ -601,7 +583,7 @@ ErrorCode HashStoragePimpl::increment_record(
     value,
     payload_offset,
     sizeof(PAYLOAD));
-  return context->get_current_xct().add_to_write_set(holder_, combo.record_, log_entry);
+  return context->get_current_xct().add_to_write_set(get_id(), combo.record_, log_entry);
 }
 
 inline HashDataPage* to_page(xct::LockableXctId* owner_id) {
@@ -632,7 +614,7 @@ void HashStoragePimpl::apply_insert_record(
   HashBinPage::Bin& the_bin = bin_page->bin(bin % kBinsPerPage);
 
 #ifndef NDEBUG
-  HashCombo combo(log_entry->data_, log_entry->key_length_, metadata_.bin_bits_);
+  HashCombo combo(log_entry->data_, log_entry->key_length_, get_bin_bits());
   ASSERT_ND(bin == combo.bins_[log_entry->bin1_ ? 0 : 1]);
   ASSERT_ND(log_entry->hashtag_ == combo.tag_);
 #endif  // NDEBUG
@@ -669,7 +651,7 @@ void HashStoragePimpl::apply_delete_record(
   HashBinPage::Bin& the_bin = bin_page->bin(bin % kBinsPerPage);
 
 #ifndef NDEBUG
-  HashCombo combo(log_entry->data_, log_entry->key_length_, metadata_.bin_bits_);
+  HashCombo combo(log_entry->data_, log_entry->key_length_, get_bin_bits());
   ASSERT_ND(bin == combo.bins_[log_entry->bin1_ ? 0 : 1]);
 #endif  // NDEBUG
 
@@ -749,7 +731,7 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, bool for_write, 
     uint16_t pointer_index;
     HashRootPage* boundary = lookup_boundary_root(context, combo->bins_[i], &pointer_index);
     HashBinPage::Initializer initializer(
-      metadata_.id_,
+      get_id(),
       combo->bins_[i] / kBinsPerPage * kBinsPerPage);
     CHECK_ERROR_CODE(context->follow_page_pointer(
       &initializer,
@@ -787,7 +769,7 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, bool for_write, 
       // obtain data pages, but not read it yet. it's done in locate_record()
       if (combo->hit_bitmap_[i] || for_write) {
         // becauase it's hitting. either page must be non-null
-        HashDataPage::Initializer initializer(metadata_.id_, combo->bins_[i]);
+        HashDataPage::Initializer initializer(get_id(), combo->bins_[i]);
         CHECK_ERROR_CODE(context->follow_page_pointer(
           &initializer,
           !for_write,  // tolerate null page for read
@@ -821,7 +803,7 @@ inline ErrorCode HashStoragePimpl::locate_record(
 
     // add page lock for read set. before accessing records
     current_xct.add_to_read_set(
-      holder_,
+      get_id(),
       data_page->page_owner().xct_id_,
       &data_page->page_owner());
 
@@ -840,7 +822,7 @@ inline ErrorCode HashStoragePimpl::locate_record(
       // TODO(Hideaki) handle kFlagStoredInNextPages.
       Record* record = data_page->interpret_record(slot.offset_);
       current_xct.add_to_read_set(
-        holder_,
+        get_id(),
         record->owner_id_.xct_id_,
         &record->owner_id_);
       if (std::memcmp(record->payload_, key, key_length) == 0) {

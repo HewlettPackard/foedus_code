@@ -16,11 +16,10 @@ namespace foedus {
 namespace thread {
 Thread::Thread(
   Engine* engine,
-  ThreadGroupPimpl* group,
   ThreadId id,
   ThreadGlobalOrdinal global_ordinal)
   : pimpl_(nullptr) {
-  pimpl_ = new ThreadPimpl(engine, group, this, id, global_ordinal);
+  pimpl_ = new ThreadPimpl(engine, this, id, global_ordinal);
 }
 Thread::~Thread() {
   delete pimpl_;

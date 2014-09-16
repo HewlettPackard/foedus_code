@@ -101,6 +101,7 @@ class PagePool CXX11_FINAL : public virtual Initializable {
   bool        is_initialized() const CXX11_OVERRIDE;
   ErrorStack  uninitialize() CXX11_OVERRIDE;
 
+  storage::Page*        get_base() const;
   uint64_t              get_memory_size() const;
   Stat                  get_stat() const;
 

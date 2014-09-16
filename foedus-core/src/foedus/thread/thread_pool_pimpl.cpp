@@ -17,7 +17,6 @@
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_group.hpp"
-#include "foedus/thread/thread_group_pimpl.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/thread/thread_options.hpp"
 #include "foedus/thread/thread_pimpl.hpp"
@@ -29,13 +28,17 @@ ErrorStack ThreadPoolPimpl::initialize_once() {
   if (!engine_->get_memory_manager().is_initialized()) {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
   }
-  no_more_impersonation_ = false;
   ASSERT_ND(groups_.empty());
   const ThreadOptions &options = engine_->get_options().thread_;
   for (ThreadGroupId group_id = 0; group_id < options.group_count_; ++group_id) {
-    memory::ScopedNumaPreferred numa_scope(group_id);
-    groups_.push_back(new ThreadGroup(engine_, group_id));
-    CHECK_ERROR(groups_.back()->initialize());
+    groups_.emplace_back(ThreadGroupRef(engine_, group_id));
+  }
+
+  if (!engine_->is_master()) {
+    // initialize local thread group object
+    soc::SocId node = engine_->get_soc_id();
+    local_group_ = new ThreadGroup(engine_, node);
+    CHECK_ERROR(local_group_->initialize());
   }
   return kRetOk;
 }
@@ -46,31 +49,26 @@ ErrorStack ThreadPoolPimpl::uninitialize_once() {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
 
-  // first, announce that further impersonation is not allowed.
-  no_more_impersonation_ = true;
-  assorted::memory_fence_release();
-  batch.uninitialize_and_delete_all(&groups_);
+  groups_.clear();
+  if (local_group_) {
+    ASSERT_ND(!engine_->is_master());
+    batch.emprace_back(local_group_->uninitialize());
+    delete local_group_;
+    local_group_ = nullptr;
+  }
   return SUMMARIZE_ERROR_BATCH(batch);
 }
-ThreadGroup* ThreadPoolPimpl::get_group(ThreadGroupId numa_node) const {
-  return groups_[numa_node];
-}
-Thread* ThreadPoolPimpl::get_thread(ThreadId id) const {
+ThreadRef* ThreadPoolPimpl::get_thread(ThreadId id) {
   return get_group(decompose_numa_node(id))->get_thread(decompose_numa_local_ordinal(id));
 }
 
 ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task) {
   ImpersonateSession session(task);
-  assorted::memory_fence_acquire();
-  if (no_more_impersonation_) {
-    session.invalid_cause_ = ERROR_STACK(kErrorCodeBeingShutdown);
-    return session;
-  }
-
-  for (ThreadGroup* group : groups_) {
-    for (size_t j = 0; j < group->get_thread_count(); ++j) {
-      Thread* thread = group->get_thread(j);
-      if (thread->get_pimpl()->try_impersonate(&session)) {
+  uint16_t thread_per_group = engine_->get_options().thread_.thread_count_per_group_;
+  for (ThreadGroupRef* group : groups_) {
+    for (size_t j = 0; j < thread_per_group; ++j) {
+      ThreadRef* thread = group->get_thread(j);
+      if (thread->try_impersonate(&session)) {
         return session;
       }
     }
@@ -84,16 +82,10 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(
   ImpersonateTask* task,
   ThreadGroupId numa_node) {
   ImpersonateSession session(task);
-  assorted::memory_fence_acquire();
-  if (no_more_impersonation_) {
-    session.invalid_cause_ = ERROR_STACK(kErrorCodeBeingShutdown);
-    return session;
-  }
-
-  ThreadGroup* group = groups_[numa_node];
-  for (size_t i = 0; i < group->get_thread_count(); ++i) {
-    Thread* thread = group->get_thread(i);
-    if (thread->get_pimpl()->try_impersonate(&session)) {
+  uint16_t thread_per_group = engine_->get_options().thread_.thread_count_per_group_;
+  for (size_t i = 0; i < thread_per_group; ++i) {
+    Thread* thread = groups_[numa_node]->get_thread(i);
+    if (thread->try_impersonate(&session)) {
       return session;
     }
   }
@@ -108,14 +100,8 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_core(
   ImpersonateTask* task,
   ThreadId numa_core) {
   ImpersonateSession session(task);
-  assorted::memory_fence_acquire();
-  if (no_more_impersonation_) {
-    session.invalid_cause_ = ERROR_STACK(kErrorCodeBeingShutdown);
-    return session;
-  }
-
-  Thread* thread = get_thread(numa_core);
-  if (!thread->get_pimpl()->try_impersonate(&session)) {
+  ThreadRef* thread = get_thread(numa_core);
+  if (!thread->try_impersonate(&session)) {
     // TODO(Hideaki) : currently, timeout is ignored. It behaves as if timeout=0
     session.invalid_cause_ = ERROR_STACK(kErrorCodeTimeout);
   }
@@ -125,11 +111,12 @@ ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_core(
 
 std::ostream& operator<<(std::ostream& o, const ThreadPoolPimpl& v) {
   o << "<ThreadPool>";
-  o << "<no_more_impersonation_>" << v.no_more_impersonation_ << "</no_more_impersonation_>";
   o << "<groups>";
-  for (ThreadGroup* group : v.groups_) {
-    o << *group;
+  /*
+  for (ThreadGroupRef& group : v.groups_) {
+    o << group;
   }
+  */
   o << "</groups>";
   o << "</ThreadPool>";
   return o;

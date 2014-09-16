@@ -9,10 +9,10 @@
 #include <string>
 #include <vector>
 
+#include "foedus/attachable.hpp"
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/initializable.hpp"
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
@@ -35,12 +35,14 @@ struct ArrayStorageControlBlock final {
   ArrayStorageControlBlock() = delete;
   ~ArrayStorageControlBlock() = delete;
 
+  bool exists() const { return status_ == kExists || status_ == kMarkedForDeath; }
+
   /** Status of the storage */
   StorageStatus       status_;
   /** Points to the root page (or something equivalent). */
   DualPagePointer     root_page_pointer_;
   /** metadata of this storage. */
-  FixedArrayMetadata  meta_;
+  ArrayMetadata       meta_;
 
   // Do NOT reorder members up to here. The layout must be compatible with StorageControlBlock
   // Type-specific shared members below.
@@ -57,7 +59,7 @@ struct ArrayStorageControlBlock final {
  * A private pimpl object for ArrayStorage.
  * Do not include this header from a client program unless you know what you are doing.
  */
-class ArrayStoragePimpl final : public DefaultInitializable {
+class ArrayStoragePimpl final {
  public:
   enum Constants {
     /** If you want more than this, you should loop. ArrayStorage should take care of it. */
@@ -65,16 +67,23 @@ class ArrayStoragePimpl final : public DefaultInitializable {
   };
 
   ArrayStoragePimpl() = delete;
-  ArrayStoragePimpl(Engine* engine, ArrayStorage* holder, const ArrayMetadata &metadata,
-            bool create);
+  explicit ArrayStoragePimpl(ArrayStorage* storage)
+    : engine_(storage->get_engine()), control_block_(storage->get_control_block()) {}
+  ArrayStoragePimpl(Engine* engine, ArrayStorageControlBlock* control_block)
+    : engine_(engine), control_block_(control_block) {}
+
   ~ArrayStoragePimpl() {}
 
-  ErrorStack  initialize_once() override;
-  ErrorStack  uninitialize_once() override;
-
-  ErrorStack  create(thread::Thread* context);
   void        report_page_distribution();
 
+  bool        exists() const { return control_block_->exists(); }
+  const ArrayMetadata&    get_meta() const { return control_block_->meta_; }
+  StorageId   get_id() const { return get_meta().id_; }
+  uint16_t    get_levels() const { return control_block_->levels_; }
+  uint16_t    get_payload_size() const { return get_meta().payload_size_; }
+  ArrayOffset get_array_size() const { return get_meta().array_size_; }
+  ArrayPage*  get_root_page();
+  ErrorStack  verify_single_thread(thread::Thread* context);
   ErrorStack  verify_single_thread(thread::Thread* context, ArrayPage* page);
 
   /** defined in array_storage_prefetch.cpp */
@@ -205,9 +214,11 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     const ArrayOffset* offset_batch,
     Record** record_batch) ALWAYS_INLINE;
 
-  /** Used only from uninitialize() */
-  void        release_pages_recursive(
-    memory::PageReleaseBatch* batch, ArrayPage* page, VolatilePagePointer volatile_page_id);
+  /** Used only from drop() */
+  static void release_pages_recursive(
+    const memory::GlobalVolatilePageResolver& resolver,
+    memory::PageReleaseBatch* batch,
+    VolatilePagePointer volatile_page_id);
 
   /**
   * Calculate leaf/interior pages we need.
@@ -233,27 +244,8 @@ class ArrayStoragePimpl final : public DefaultInitializable {
     DualPagePointer* pointer,
     ArrayPage** out) ALWAYS_INLINE;
 
-  Engine* const           engine_;
-  ArrayStorage* const     holder_;
-  ArrayMetadata           metadata_;
-
-  /**
-   * Points to the root page.
-   */
-  DualPagePointer         root_page_pointer_;
-
-  /**
-   * Root page is assured to be never evicted.
-   * So, we can access the root_page_ without going through caching module.
-   */
-  ArrayPage*              root_page_;
-
-  bool                    exist_;
-
-  /** Number of levels. */
-  const uint8_t           levels_;
-
-  LookupRouteFinder       route_finder_;
+  Engine* const                   engine_;
+  ArrayStorageControlBlock* const control_block_;
 };
 static_assert(sizeof(ArrayStoragePimpl) <= kPageSize, "ArrayStoragePimpl is too large");
 static_assert(

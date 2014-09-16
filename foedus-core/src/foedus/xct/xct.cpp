@@ -36,10 +36,10 @@ Xct::Xct(Engine* engine, thread::ThreadId thread_id) : engine_(engine), thread_i
   pointer_set_size_ = 0;
   page_version_set_size_ = 0;
   isolation_level_ = kSerializable;
-  mcs_block_current_ = 0;
+  mcs_block_current_ = nullptr;
 }
 
-void Xct::initialize(memory::NumaCoreMemory* core_memory) {
+void Xct::initialize(memory::NumaCoreMemory* core_memory, uint32_t* mcs_block_current) {
   id_.set_epoch(engine_->get_savepoint_manager().get_savepoint_fast().get_current_epoch());
   id_.set_ordinal(0);  // ordinal 0 is possible only as a dummy "latest" XctId
   ASSERT_ND(id_.is_valid());
@@ -60,7 +60,8 @@ void Xct::initialize(memory::NumaCoreMemory* core_memory) {
   pointer_set_size_ = 0;
   page_version_set_ = reinterpret_cast<PageVersionAccess*>(pieces.xct_page_version_memory_);
   page_version_set_size_ = 0;
-  mcs_block_current_ = 0;
+  mcs_block_current_ = mcs_block_current;
+  *mcs_block_current_ = 0;
 }
 
 void Xct::issue_next_id(XctId max_xct_id, Epoch *epoch)  {

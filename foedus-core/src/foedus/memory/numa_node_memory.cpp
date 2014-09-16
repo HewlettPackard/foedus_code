@@ -38,23 +38,20 @@ ErrorStack NumaNodeMemory::initialize_once() {
     << " BEFORE: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
 
 
-  // volatile pool can be accessed from remote node
-  allocate_huge_numa_memory(
-    static_cast<uint64_t>(engine_->get_options().memory_.page_pool_size_mb_per_node_) << 20,
-    &volatile_pool_memory_,
-    true);
-  volatile_pool_control_block_.alloc(1 << 12, 1 << 12, AlignedMemory::kNumaAllocOnnode, numa_node_);
+  // volatile pool is placed on the shared memory
+  soc::SharedMemoryRepo* memory_repo = engine_->get_soc_manager().get_shared_memory_repo();
+  uint64_t volatile_size =
+    static_cast<uint64_t>(engine_->get_options().memory_.page_pool_size_mb_per_node_) << 20;
   volatile_pool_.attach(
-    reinterpret_cast<PagePoolControlBlock*>(volatile_pool_control_block_.get_block()),
-    volatile_pool_memory_.get_block(),
-    volatile_pool_memory_.get_size(),
+    memory_repo->get_node_memory_anchors(numa_node_)->volatile_pool_status_,
+    memory_repo->get_volatile_pool(numa_node_),
+    volatile_size,
     true);
 
   // snapshot pool is SOC-local
   allocate_huge_numa_memory(
     static_cast<uint64_t>(engine_->get_options().cache_.snapshot_cache_size_mb_per_node_) << 20,
-    &snapshot_pool_memory_,
-    false);
+    &snapshot_pool_memory_);
   snapshot_pool_control_block_.alloc(1 << 12, 1 << 12, AlignedMemory::kNumaAllocOnnode, numa_node_);
   snapshot_pool_.attach(
     reinterpret_cast<PagePoolControlBlock*>(snapshot_pool_control_block_.get_block()),
@@ -160,8 +157,6 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
   snapshot_hashtable_memory_.release_block();
   batch.emprace_back(volatile_pool_.uninitialize());
   batch.emprace_back(snapshot_pool_.uninitialize());
-  volatile_pool_memory_.release_block();
-  volatile_pool_control_block_.release_block();
   snapshot_pool_memory_.release_block();
   snapshot_pool_control_block_.release_block();
 
@@ -173,16 +168,15 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
 ErrorStack NumaNodeMemory::allocate_numa_memory_general(
   uint64_t size,
   uint64_t alignment,
-  AlignedMemory *out,
-  bool shared) const {
+  AlignedMemory *out) const {
   ASSERT_ND(out);
   if (engine_->get_options().memory_.use_mmap_hugepages_ &&
     alignment >= kHugepageSize
     && size >= (1ULL << 30) * 8 / 10) {
     LOG(INFO) << "This is a big memory allocation. Let's use the mmap hugepage (1GB pages)";
-    out->alloc(size, 1ULL << 30, AlignedMemory::kNumaMmapOneGbPages, numa_node_, shared);
+    out->alloc(size, 1ULL << 30, AlignedMemory::kNumaMmapOneGbPages, numa_node_);
   } else {
-    out->alloc(size, alignment, AlignedMemory::kNumaAllocOnnode, numa_node_, shared);
+    out->alloc(size, alignment, AlignedMemory::kNumaAllocOnnode, numa_node_);
   }
   if (out->is_null()) {
     return ERROR_STACK(kErrorCodeOutofmemory);

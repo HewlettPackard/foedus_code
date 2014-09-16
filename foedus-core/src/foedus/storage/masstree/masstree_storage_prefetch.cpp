@@ -20,10 +20,10 @@ ErrorCode MasstreeStoragePimpl::prefetch_pages_normalized(
   KeySlice to) {
   debugging::StopWatch watch;
   VLOG(0) << "Thread-" << context->get_thread_id()
-    << " prefetching " << metadata_.name_ << " from=" << from << ", to=" << to;
+    << " prefetching " << get_name() << " from=" << from << ", to=" << to;
 
   ASSERT_ND(first_root_pointer_.volatile_pointer_.components.offset);
-  VolatilePagePointer pointer = first_root_pointer_.volatile_pointer_;
+  VolatilePagePointer pointer = control_block_->root_page_pointer_.volatile_pointer_;
   MasstreePage* root_page = reinterpret_cast<MasstreePage*>(
     context->get_global_volatile_page_resolver().resolve_offset(pointer));
   prefetch_page_l2(root_page);
@@ -31,7 +31,7 @@ ErrorCode MasstreeStoragePimpl::prefetch_pages_normalized(
 
   watch.stop();
   VLOG(0) << "Thread-" << context->get_thread_id()
-    << " prefetched " << metadata_.name_ << " in " << watch.elapsed_us() << "us";
+    << " prefetched " << get_name() << " in " << watch.elapsed_us() << "us";
   return kErrorCodeOk;
 }
 

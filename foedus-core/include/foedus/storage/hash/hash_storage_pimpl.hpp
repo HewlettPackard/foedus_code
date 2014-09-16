@@ -9,10 +9,10 @@
 #include <string>
 #include <vector>
 
+#include "foedus/attachable.hpp"
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/initializable.hpp"
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
@@ -34,12 +34,14 @@ struct HashStorageControlBlock final {
   HashStorageControlBlock() = delete;
   ~HashStorageControlBlock() = delete;
 
+  bool exists() const { return status_ == kExists || status_ == kMarkedForDeath; }
+
   /** Status of the storage */
   StorageStatus       status_;
   /** Points to the root page (or something equivalent). */
   DualPagePointer     root_page_pointer_;
   /** metadata of this storage. */
-  FixedHashMetadata  meta_;
+  HashMetadata        meta_;
 
   // Do NOT reorder members up to here. The layout must be compatible with StorageControlBlock
   // Type-specific shared members below.
@@ -52,15 +54,13 @@ struct HashStorageControlBlock final {
  * A private pimpl object for HashStorage.
  * Do not include this header from a client program unless you know what you are doing.
  */
-class HashStoragePimpl final : public DefaultInitializable {
+class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
  public:
-  HashStoragePimpl() = delete;
-  HashStoragePimpl(Engine* engine, HashStorage* holder, const HashMetadata &metadata,
-            bool create);
-  ~HashStoragePimpl() {}
-
-  ErrorStack  initialize_once() override;
-  ErrorStack  uninitialize_once() override;
+  HashStoragePimpl() : Attachable<HashStorageControlBlock>() {}
+  HashStoragePimpl(HashStorage* storage)
+    : Attachable<HashStorageControlBlock>(
+      storage->get_engine(),
+      storage->get_control_block()) {}
 
   /** Used only from uninitialize() */
   void        release_pages_recursive_root(
@@ -76,7 +76,15 @@ class HashStoragePimpl final : public DefaultInitializable {
     HashDataPage* page,
     VolatilePagePointer volatile_page_id);
 
-  ErrorStack  create(thread::Thread* context);
+
+  ErrorStack  create();
+  ErrorStack  drop();
+
+  bool                exists()    const { return control_block_->exists(); }
+  StorageId           get_id()    const { return control_block_->meta_.id_; }
+  const StorageName&  get_name()  const { return control_block_->meta_.name_; }
+  const HashMetadata& get_meta()  const { return control_block_->meta_; }
+  uint8_t             get_bin_bits() const { return get_meta().bin_bits_; }
 
   /** @copydoc foedus::storage::hash::HashStorage::get_record() */
   ErrorCode   get_record(
@@ -175,26 +183,6 @@ class HashStoragePimpl final : public DefaultInitializable {
     const void* key,
     uint16_t key_length,
     HashCombo* combo) ALWAYS_INLINE;
-
-  Engine* const           engine_;
-  HashStorage* const      holder_;
-  HashMetadata            metadata_;
-
-  /**
-   * Points to the root page.
-   */
-  DualPagePointer         root_page_pointer_;
-
-  /**
-   * Root page is assured to be never evicted.
-   * So, we can access the root_page_ without going through caching module.
-   */
-  HashRootPage*           root_page_;
-
-  bool                    exist_;
-  uint32_t                root_pages_;
-  uint64_t                bin_count_;
-  uint64_t                bin_pages_;
 };
 static_assert(sizeof(HashStoragePimpl) <= kPageSize, "HashStoragePimpl is too large");
 static_assert(

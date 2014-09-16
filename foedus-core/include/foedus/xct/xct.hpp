@@ -54,7 +54,7 @@ class Xct {
   Xct(const Xct& other) CXX11_FUNC_DELETE;
   Xct& operator=(const Xct& other) CXX11_FUNC_DELETE;
 
-  void initialize(memory::NumaCoreMemory* core_memory);
+  void initialize(memory::NumaCoreMemory* core_memory, uint32_t* mcs_block_current);
 
   /**
    * Begins the transaction.
@@ -69,7 +69,7 @@ class Xct {
     read_set_size_ = 0;
     write_set_size_ = 0;
     lock_free_write_set_size_ = 0;
-    mcs_block_current_ = 0;
+    *mcs_block_current_ = 0;
   }
 
   /**
@@ -78,11 +78,11 @@ class Xct {
   void                deactivate() {
     ASSERT_ND(active_);
     active_ = false;
-    mcs_block_current_ = 0;
+    *mcs_block_current_ = 0;
   }
 
-  uint32_t            get_mcs_block_current() const { return mcs_block_current_; }
-  uint32_t            increment_mcs_block_current() { return ++mcs_block_current_; }
+  uint32_t            get_mcs_block_current() const { return *mcs_block_current_; }
+  uint32_t            increment_mcs_block_current() { return ++(*mcs_block_current_); }
 
   /** Returns whether the object is an active transaction. */
   bool                is_active() const { return active_; }
@@ -178,7 +178,7 @@ class Xct {
    * commit protocol.
    */
   ErrorCode           add_to_read_set(
-    storage::Storage* storage,
+    storage::StorageId storage_id,
     XctId observed_owner_id,
     LockableXctId* owner_id_address) ALWAYS_INLINE;
 
@@ -186,7 +186,7 @@ class Xct {
    * @brief Add the given record to the write set of this transaction.
    */
   ErrorCode           add_to_write_set(
-    storage::Storage* storage,
+    storage::StorageId storage_id,
     LockableXctId* owner_id_address,
     char* payload_address,
     log::RecordLogType* log_entry) ALWAYS_INLINE;
@@ -195,7 +195,7 @@ class Xct {
    * @brief Add the given record to the write set of this transaction.
    */
   ErrorCode           add_to_write_set(
-    storage::Storage* storage,
+    storage::StorageId storage_id,
     storage::Record* record,
     log::RecordLogType* log_entry) ALWAYS_INLINE;
 
@@ -203,7 +203,7 @@ class Xct {
    * @brief Add the given log to the lock-free write set of this transaction.
    */
   ErrorCode           add_to_lock_free_write_set(
-    storage::Storage* storage,
+    storage::StorageId storage_id,
     log::RecordLogType* log_entry);
 
   /**
@@ -298,8 +298,10 @@ class Xct {
   /**
    * How many MCS blocks we allocated in the current thread.
    * reset to 0 at each transaction begin
+   * This points to ThreadControlBlock because other SOC might check this value (so far only
+   * for sanity check).
    */
-  uint32_t            mcs_block_current_;
+  uint32_t*           mcs_block_current_;
 
   XctAccess*          read_set_;
   uint32_t            read_set_size_;
@@ -394,7 +396,7 @@ inline ErrorCode Xct::add_to_page_version_set(
 }
 
 inline ErrorCode Xct::add_to_read_set(
-  storage::Storage* storage,
+  storage::StorageId storage_id,
   XctId observed_owner_id,
   LockableXctId* owner_id_address) {
   ASSERT_ND(!schema_xct_);
@@ -406,7 +408,7 @@ inline ErrorCode Xct::add_to_read_set(
   } else if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
     return kErrorCodeXctReadSetOverflow;
   }
-  read_set_[read_set_size_].storage_ = storage;
+  read_set_[read_set_size_].storage_id_ = storage_id;
   read_set_[read_set_size_].owner_id_address_ = owner_id_address;
   read_set_[read_set_size_].observed_owner_id_ = observed_owner_id;
   ++read_set_size_;
@@ -414,7 +416,7 @@ inline ErrorCode Xct::add_to_read_set(
 }
 
 inline ErrorCode Xct::add_to_write_set(
-  storage::Storage* storage,
+  storage::StorageId storage_id,
   LockableXctId* owner_id_address,
   char* payload_address,
   log::RecordLogType* log_entry) {
@@ -431,7 +433,7 @@ inline ErrorCode Xct::add_to_write_set(
   log::invoke_assert_valid(log_entry);
 #endif  // NDEBUG
 
-  write_set_[write_set_size_].storage_ = storage;
+  write_set_[write_set_size_].storage_id_ = storage_id;
   write_set_[write_set_size_].owner_id_address_ = owner_id_address;
   write_set_[write_set_size_].payload_address_ = payload_address;
   write_set_[write_set_size_].log_entry_ = log_entry;
@@ -441,14 +443,14 @@ inline ErrorCode Xct::add_to_write_set(
 }
 
 inline ErrorCode Xct::add_to_write_set(
-  storage::Storage* storage,
+  storage::StorageId storage_id,
   storage::Record* record,
   log::RecordLogType* log_entry) {
-  return add_to_write_set(storage, &record->owner_id_, record->payload_, log_entry);
+  return add_to_write_set(storage_id, &record->owner_id_, record->payload_, log_entry);
 }
 
 inline ErrorCode Xct::add_to_lock_free_write_set(
-  storage::Storage* storage,
+    storage::StorageId storage_id,
   log::RecordLogType* log_entry) {
   ASSERT_ND(!schema_xct_);
   ASSERT_ND(storage);
@@ -461,7 +463,7 @@ inline ErrorCode Xct::add_to_lock_free_write_set(
   log::invoke_assert_valid(log_entry);
 #endif  // NDEBUG
 
-  lock_free_write_set_[lock_free_write_set_size_].storage_ = storage;
+  lock_free_write_set_[lock_free_write_set_size_].storage_id_ = storage_id;
   lock_free_write_set_[lock_free_write_set_size_].log_entry_ = log_entry;
   ++lock_free_write_set_size_;
   return kErrorCodeOk;

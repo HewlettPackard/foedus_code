@@ -10,10 +10,10 @@
 #include <string>
 #include <vector>
 
+#include "foedus/attachable.hpp"
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/initializable.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/storage/fwd.hpp"
@@ -24,6 +24,7 @@
 #include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
+#include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/thread.hpp"
 
 namespace foedus {
@@ -35,12 +36,25 @@ struct MasstreeStorageControlBlock final {
   MasstreeStorageControlBlock() = delete;
   ~MasstreeStorageControlBlock() = delete;
 
+  bool exists() const { return status_ == kExists || status_ == kMarkedForDeath; }
+
   /** Status of the storage */
   StorageStatus       status_;
-  /** Points to the root page (or something equivalent). */
+  /**
+   * Points to the root page (or something equivalent).
+   * Masstree-specific:
+   * Volatile pointer is always active.
+   * This might be MasstreeIntermediatePage or MasstreeBoundaryPage.
+   * When the first layer B-tree grows, this points to a new page. So, this is one of the few
+   * page pointers that might be \e swapped. Transactions thus have to add this to a pointer
+   * set even thought they are following a volatile pointer.
+   *
+   * Instead, this always points to a root. We don't need "is_root" check in [YANDONG12] and
+   * thus doesn't need a parent pointer.
+   */
   DualPagePointer     root_page_pointer_;
   /** metadata of this storage. */
-  FixedMasstreeMetadata  meta_;
+  MasstreeMetadata    meta_;
 
   // Do NOT reorder members up to here. The layout must be compatible with StorageControlBlock
   // Type-specific shared members below.
@@ -56,50 +70,21 @@ struct MasstreeStorageControlBlock final {
  * A private pimpl object for MasstreeStorage.
  * Do not include this header from a client program unless you know what you are doing.
  */
-class MasstreeStoragePimpl final : public DefaultInitializable {
+class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock> {
  public:
-  MasstreeStoragePimpl() = delete;
-  MasstreeStoragePimpl(Engine* engine,
-                      MasstreeStorage* holder,
-                      const MasstreeMetadata &metadata,
-                      bool create);
-  ~MasstreeStoragePimpl() {}
+  MasstreeStoragePimpl() : Attachable<MasstreeStorageControlBlock>() {}
+  MasstreeStoragePimpl(MasstreeStorage* storage)
+    : Attachable<MasstreeStorageControlBlock>(
+      storage->get_engine(),
+      storage->get_control_block()) {}
 
-  ErrorStack  initialize_once() override;
-  ErrorStack  uninitialize_once() override;
+  ErrorStack  create();
+  ErrorStack  drop();
 
-  ErrorStack  create(thread::Thread* context);
-
-  Engine* const           engine_;
-  MasstreeStorage* const  holder_;
-  MasstreeMetadata        metadata_;
-
-  /**
-   * Root page of the first layer. Volatile pointer is always active.
-   * This might be MasstreeIntermediatePage or MasstreeBoundaryPage.
-   * When the first layer B-tree grows, this points to a new page. So, this is one of the few
-   * page pointers that might be \e swapped. Transactions thus have to add this to a pointer
-   * set even thought they are following a volatile pointer.
-   *
-   * Instead, this always points to a root. We don't need "is_root" check in [YANDONG12] and
-   * thus doesn't need a parent pointer.
-   */
-  DualPagePointer         first_root_pointer_;
-
-  /** Lock to synchronize updates to first_root_pointer_. */
-  xct::LockableXctId      first_root_owner_;
-
-  /**
-   * This is an optimization for structural changes in the first-layer root page.
-   * Root of first layer might be VERY contended, so it is better to take a mutex.
-   * Not all threads have to take this, and it is even not required to take this for
-   * changing the root page as we anyway use the page lock. This is to just oppotunistically prevent
-   * concurrent transactions from causing cacheline invalidation storms.
-   */
-  // std::mutex              first_root_mutex_;
-
-  /** If this is true, initialize() reads it back from previous snapshot and logs. */
-  bool                    exist_;
+  bool                exists()    const { return control_block_->exists(); }
+  StorageId           get_id()    const { return control_block_->meta_.id_; }
+  const StorageName&  get_name()  const { return control_block_->meta_.name_; }
+  const MasstreeMetadata& get_meta()  const { return control_block_->meta_; }
 
   ErrorCode get_first_root(thread::Thread* context, MasstreePage** root);
   ErrorCode grow_root(

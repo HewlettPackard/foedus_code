@@ -10,9 +10,9 @@
 #include <string>
 
 #include "foedus/assert_nd.hpp"
+#include "foedus/attachable.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/initializable.hpp"
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
@@ -31,35 +31,33 @@ namespace array {
  * @brief Represents a key-value store based on a dense and regular array.
  * @ingroup ARRAY
  */
-class ArrayStorage CXX11_FINAL : public virtual Storage {
+class ArrayStorage CXX11_FINAL
+  : public virtual Storage, public Attachable<ArrayStorageControlBlock> {
  public:
+  ArrayStorage() : Attachable<ArrayStorageControlBlock>() {}
   /**
    * Constructs an array storage either from disk or newly create.
-   * @param[in] engine Database engine
-   * @param[in] metadata Metadata of this storage
-   * @param[in] create If true, we newly allocate this array when create() is called.
    */
-  ArrayStorage(Engine* engine, const ArrayMetadata &metadata, bool create);
-  ~ArrayStorage() CXX11_OVERRIDE;
-
-  // Disable default constructors
-  ArrayStorage() CXX11_FUNC_DELETE;
-  ArrayStorage(const ArrayStorage&) CXX11_FUNC_DELETE;
-  ArrayStorage& operator=(const ArrayStorage&) CXX11_FUNC_DELETE;
-
-  // Initializable interface
-  ErrorStack  initialize() CXX11_OVERRIDE;
-  bool        is_initialized() const CXX11_OVERRIDE;
-  ErrorStack  uninitialize() CXX11_OVERRIDE;
+  ArrayStorage(Engine* engine, ArrayStorageControlBlock* control_block)
+    : Attachable<ArrayStorageControlBlock>(engine, control_block) {
+    ASSERT_ND(get_type() == kArrayStorage || !exists());
+  }
+  ArrayStorage(Engine* engine, StorageControlBlock* control_block)
+    : Attachable<ArrayStorageControlBlock>(
+      engine,
+      reinterpret_cast<ArrayStorageControlBlock*>(control_block)) {
+    ASSERT_ND(get_type() == kArrayStorage || !exists());
+  }
 
   // Storage interface
   StorageId           get_id()    const CXX11_OVERRIDE;
-  StorageType         get_type()  const CXX11_OVERRIDE { return kArrayStorage; }
+  StorageType         get_type()  const CXX11_OVERRIDE;
   const StorageName&  get_name()  const CXX11_OVERRIDE;
   const Metadata*     get_metadata()  const CXX11_OVERRIDE;
   const ArrayMetadata*  get_array_metadata()  const;
   bool                exists()    const CXX11_OVERRIDE;
-  ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
+  ErrorStack          create() CXX11_OVERRIDE;
+  ErrorStack          drop() CXX11_OVERRIDE;
 
   /**
    * @brief Prefetch data pages in this storage.
@@ -306,25 +304,6 @@ class ArrayStorage CXX11_FINAL : public virtual Storage {
   void        describe(std::ostream* o) const CXX11_OVERRIDE;
 
   ErrorStack  verify_single_thread(thread::Thread* context);
-
-  /** Use this only if you know what you are doing. */
-  ArrayStoragePimpl*  get_pimpl() { return pimpl_; }
-
- private:
-  ArrayStoragePimpl*  pimpl_;
-};
-
-/**
- * @brief Factory object for array storages.
- * @ingroup ARRAY
- */
-class ArrayStorageFactory CXX11_FINAL : public virtual StorageFactory {
- public:
-  ~ArrayStorageFactory() {}
-  StorageType   get_type() const CXX11_OVERRIDE { return kArrayStorage; }
-  bool          is_right_metadata(const Metadata *metadata) const;
-  ErrorStack    get_instance(Engine* engine, const Metadata *metadata, Storage** storage) const;
-  void          add_create_log(const Metadata* metadata, thread::Thread* context) const;
 };
 
 }  // namespace array

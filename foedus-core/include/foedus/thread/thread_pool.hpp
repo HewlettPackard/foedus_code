@@ -177,6 +177,9 @@ class ThreadPool CXX11_FINAL : public virtual Initializable {
   /** Returns the pimpl of this object. Use it only when you know what you are doing. */
   ThreadPoolPimpl*    get_pimpl() const { return pimpl_; }
 
+  ThreadGroupRef*     get_group_ref(ThreadGroupId numa_node);
+  ThreadRef*          get_thread_ref(ThreadId id);
+
   friend  std::ostream& operator<<(std::ostream& o, const ThreadPool& v);
 
  private:

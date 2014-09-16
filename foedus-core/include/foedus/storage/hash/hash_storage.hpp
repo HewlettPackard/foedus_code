@@ -7,9 +7,9 @@
 #include <iosfwd>
 #include <string>
 
+#include "foedus/attachable.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/initializable.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -25,35 +25,33 @@ namespace hash {
  * @brief Represents a key-value store based on a dense and regular hash.
  * @ingroup HASH
  */
-class HashStorage CXX11_FINAL : public virtual Storage {
+class HashStorage CXX11_FINAL
+  : public virtual Storage, public Attachable<HashStorageControlBlock> {
  public:
+  HashStorage() : Attachable<HashStorageControlBlock>() {}
   /**
    * Constructs an hash storage either from disk or newly create.
-   * @param[in] engine Database engine
-   * @param[in] metadata Metadata of this storage
-   * @param[in] create If true, we newly allocate this hash when create() is called.
    */
-  HashStorage(Engine* engine, const HashMetadata &metadata, bool create);
-  ~HashStorage() CXX11_OVERRIDE;
-
-  // Disable default constructors
-  HashStorage() CXX11_FUNC_DELETE;
-  HashStorage(const HashStorage&) CXX11_FUNC_DELETE;
-  HashStorage& operator=(const HashStorage&) CXX11_FUNC_DELETE;
-
-  // Initializable interface
-  ErrorStack  initialize() CXX11_OVERRIDE;
-  bool        is_initialized() const CXX11_OVERRIDE;
-  ErrorStack  uninitialize() CXX11_OVERRIDE;
+  HashStorage(Engine* engine, HashStorageControlBlock* control_block)
+    : Attachable<HashStorageControlBlock>(engine, control_block) {
+    ASSERT_ND(get_type() == kHashStorage || !exists());
+  }
+  HashStorage(Engine* engine, StorageControlBlock* control_block)
+    : Attachable<HashStorageControlBlock>(
+      engine,
+      reinterpret_cast<HashStorageControlBlock*>(control_block)) {
+    ASSERT_ND(get_type() == kHashStorage || !exists());
+  }
 
   // Storage interface
   StorageId           get_id()    const CXX11_OVERRIDE;
-  StorageType         get_type()  const CXX11_OVERRIDE { return kHashStorage; }
+  StorageType         get_type()  const CXX11_OVERRIDE;
   const StorageName&  get_name()  const CXX11_OVERRIDE;
   const Metadata*     get_metadata()  const CXX11_OVERRIDE;
   const HashMetadata* get_hash_metadata()  const;
   bool                exists()    const CXX11_OVERRIDE;
-  ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
+  ErrorStack          create() CXX11_OVERRIDE;
+  ErrorStack          drop() CXX11_OVERRIDE;
   void                describe(std::ostream* o) const CXX11_OVERRIDE;
 
   // this storage type doesn't use moved bit...so far.
@@ -320,28 +318,7 @@ class HashStorage CXX11_FINAL : public virtual Storage {
     const HashDeleteLogType* log_entry,
     xct::LockableXctId* owner_id,
     char* payload);
-
-
-  /** Use this only if you know what you are doing. */
-  HashStoragePimpl*  get_pimpl() { return pimpl_; }
-
- private:
-  HashStoragePimpl*  pimpl_;
 };
-
-/**
- * @brief Factory object for hash storages.
- * @ingroup HASH
- */
-class HashStorageFactory CXX11_FINAL : public virtual StorageFactory {
- public:
-  ~HashStorageFactory() {}
-  StorageType   get_type() const CXX11_OVERRIDE { return kHashStorage; }
-  bool          is_right_metadata(const Metadata *metadata) const;
-  ErrorStack    get_instance(Engine* engine, const Metadata *metadata, Storage** storage) const;
-  void          add_create_log(const Metadata* metadata, thread::Thread* context) const;
-};
-
 }  // namespace hash
 }  // namespace storage
 }  // namespace foedus

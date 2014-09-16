@@ -36,69 +36,11 @@ namespace storage {
  * @section READ When metadata is read
  * Snapshot metadata files are read at next snapshotting and at next restart.
  */
-struct Metadata : public virtual externalize::Externalizable {
+struct Metadata {
   Metadata() : id_(0), type_(kInvalidStorage), name_(""), root_snapshot_page_id_(0) {}
   Metadata(StorageId id, StorageType type, const StorageName& name)
     : id_(id), type_(type), name_(name), root_snapshot_page_id_(0) {}
   Metadata(
-    StorageId id,
-    StorageType type,
-    const StorageName& name,
-    SnapshotPagePointer root_snapshot_page_id)
-    : id_(id), type_(type), name_(name), root_snapshot_page_id_(root_snapshot_page_id) {}
-  explicit Metadata(const Metadata& other)
-    : id_(other.id_),
-      type_(other.type_),
-      name_(other.name_),
-      root_snapshot_page_id_(other.root_snapshot_page_id_) {
-  }
-  Metadata& operator=(const Metadata& other) {
-    id_ = other.id_;
-    type_ = other.type_;
-    name_ = other.name_;
-    root_snapshot_page_id_ = other.root_snapshot_page_id_;
-    return *this;
-  }
-  virtual ~Metadata() {}
-
-  /**
-   * Constructs an equivalent metadata object and returns a pointer to it.
-   */
-  virtual Metadata* clone() const = 0;
-
-  /** common routine for the implementation of load() */
-  ErrorStack load_base(tinyxml2::XMLElement* element);
-  /** common routine for the implementation of save() */
-  ErrorStack save_base(tinyxml2::XMLElement* element) const;
-  /** common routine for the implementation of duplicate() */
-  void clone_base(Metadata* cloned) const {
-    cloned->id_ = id_;
-    cloned->type_ = type_;
-    cloned->name_ = name_;
-    cloned->root_snapshot_page_id_ = root_snapshot_page_id_;
-  }
-
-  /** the unique ID of this storage. */
-  StorageId       id_;
-  /** type of the storage. */
-  StorageType     type_;
-  /** the unique name of this storage. */
-  StorageName     name_;
-  /**
-   * Pointer to a snapshotted page this storage is rooted at.
-   * This is 0 until this storage has the first snapshot.
-   */
-  SnapshotPagePointer root_snapshot_page_id_;
-
-  /** Create an instance from the given XML element, according to the type_ tag in it. */
-  static Metadata* create_instance(tinyxml2::XMLElement* metadata_xml);
-};
-
-struct FixedMetadata {
-  FixedMetadata() : id_(0), type_(kInvalidStorage), name_(""), root_snapshot_page_id_(0) {}
-  FixedMetadata(StorageId id, StorageType type, const StorageName& name)
-    : id_(id), type_(type), name_(name), root_snapshot_page_id_(0) {}
-  FixedMetadata(
     StorageId id,
     StorageType type,
     const StorageName& name,
@@ -120,7 +62,7 @@ struct FixedMetadata {
 
 struct MetadataSerializer : public virtual externalize::Externalizable {
   MetadataSerializer() : data_(CXX11_NULLPTR) {}
-  explicit MetadataSerializer(FixedMetadata *data) : data_(data) {}
+  explicit MetadataSerializer(Metadata *data) : data_(data) {}
   virtual ~MetadataSerializer() {}
 
   /** common routine for the implementation of load() */
@@ -128,7 +70,7 @@ struct MetadataSerializer : public virtual externalize::Externalizable {
   /** common routine for the implementation of save() */
   ErrorStack save_base(tinyxml2::XMLElement* element) const;
 
-  FixedMetadata *data_;
+  Metadata *data_;
 };
 
 }  // namespace storage

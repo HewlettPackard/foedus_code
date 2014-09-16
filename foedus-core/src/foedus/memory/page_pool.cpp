@@ -48,6 +48,7 @@ bool        PagePool::is_initialized() const { return pimpl_->is_initialized(); 
 ErrorStack  PagePool::uninitialize() { return pimpl_->uninitialize(); }
 uint64_t    PagePool::get_memory_size() const { return pimpl_->memory_size_; }
 PagePool::Stat PagePool::get_stat() const { return pimpl_->get_stat(); }
+storage::Page* PagePool::get_base() const { return pimpl_->pool_base_; }
 
 
 ErrorCode   PagePool::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chunk) {

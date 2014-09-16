@@ -31,49 +31,31 @@ ErrorStack EngineMemory::initialize_once() {
   } else if (::numa_available() < 0) {
     return ERROR_STACK(kErrorCodeMemoryNumaUnavailable);
   }
-  check_transparent_hugepage_setting();
   ASSERT_ND(node_memories_.empty());
   const EngineOptions& options = engine_->get_options();
-
-  // Can we at least start up?
-  uint64_t total_threads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
-  uint64_t minimal_page_pool = total_threads * options.memory_.private_page_pool_initial_grab_
-    * storage::kPageSize;
-  if ((static_cast<uint64_t>(options.memory_.page_pool_size_mb_per_node_)
-      * options.thread_.group_count_ << 20) < minimal_page_pool) {
-    return ERROR_STACK(kErrorCodeMemoryPagePoolTooSmall);
-  }
-
   thread::ThreadGroupId numa_nodes = options.thread_.group_count_;
   GlobalVolatilePageResolver::Base bases[256];
+  uint64_t pool_begin = 0, pool_end = 0;
   for (thread::ThreadGroupId node = 0; node < numa_nodes; ++node) {
-    node_memories_.push_back(nullptr);
+    NumaNodeMemoryRef* ref = new NumaNodeMemoryRef(engine_, node);
+    node_memories_.push_back(ref);
+    bases[node] = ref->get_volatile_pool().get_base();
+    pool_begin = ref->get_volatile_pool().get_resolver().begin_;
+    pool_end = ref->get_volatile_pool().get_resolver().end_;
   }
-
-  // in a big NUMA machine (DragonHawk) the following takes too long to do in one thread.
-  // let's launch a thread for each of them.
-  std::vector<std::thread> init_threads;
-  for (thread::ThreadGroupId node = 0; node < numa_nodes; ++node) {
-    init_threads.push_back(std::thread([this, node, &bases]() {
-      ScopedNumaPreferred numa_scope(node);
-      NumaNodeMemory* node_memory = new NumaNodeMemory(engine_, node);
-      node_memories_[node] = node_memory;
-      COERCE_ERROR(node_memory->initialize());  // TODO(Hideaki) collect errors
-      PagePool& pool = node_memory->get_volatile_pool();
-      bases[node] = pool.get_resolver().base_;
-    }));
-  }
-  LOG(INFO) << "Launched threads to initialize node memory. waiting..";
-  for (auto& init_thread : init_threads) {
-    init_thread.join();
-  }
-  LOG(INFO) << "All node memories were initialized!";
-
   global_volatile_page_resolver_ = GlobalVolatilePageResolver(
     bases,
     numa_nodes,
-    node_memories_[0]->get_volatile_pool().get_resolver().begin_,
-    node_memories_[0]->get_volatile_pool().get_resolver().end_);
+    pool_begin,
+    pool_end);
+
+  // Initialize local memory.
+  if (!engine_->is_master()) {
+    soc::SocId node = engine_->get_soc_id();
+    local_memory_ = new NumaNodeMemory(engine_, node);
+    CHECK_ERROR(local_memory_->initialize());
+    LOG(INFO) << "Node memory-" << node << " was initialized!";
+  }
   return kRetOk;
 }
 
@@ -83,56 +65,17 @@ ErrorStack EngineMemory::uninitialize_once() {
   if (!engine_->get_debug().is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
-
-  // even uninitialize takes long time. parallelize
-  std::vector<std::thread> uninit_threads;
-  for (uint16_t node = 0; node < node_memories_.size(); ++node) {
-    NumaNodeMemory* node_memory = node_memories_[node];
-    uninit_threads.push_back(std::thread([node_memory]() {
-      COERCE_ERROR(node_memory->uninitialize());  // TODO(Hideaki) collect errors
-    }));
-  }
-  LOG(INFO) << "Launched threads to uninitialize node memory. waiting..";
-  for (auto& uninit_thread : uninit_threads) {
-    uninit_thread.join();
-  }
-  LOG(INFO) << "All node memories were uninitialized!";
-  for (uint16_t node = 0; node < node_memories_.size(); ++node) {
-    delete node_memories_[node];
-  }
   node_memories_.clear();
-  return SUMMARIZE_ERROR_BATCH(batch);
-}
 
-NumaCoreMemory* EngineMemory::get_core_memory(thread::ThreadId id) const {
-  thread::ThreadGroupId node = thread::decompose_numa_node(id);
-  NumaNodeMemory* node_memory = get_node_memory(node);
-  ASSERT_ND(node_memory);
-  return node_memory->get_core_memory(id);
-}
-
-void EngineMemory::check_transparent_hugepage_setting() const {
-  std::ifstream conf("/sys/kernel/mm/transparent_hugepage/enabled");
-  if (conf.is_open()) {
-    std::string line;
-    std::getline(conf, line);
-    conf.close();
-    if (line == "[always] madvise never") {
-      LOG(INFO) << "Great, THP is in always mode";
-    } else {
-      // Now that we use non-transparent hugepages rather than THP, we don't output this as warning.
-      // Maybe we completely get rid of this message.
-      LOG(INFO) << "THP is not in always mode ('" << line << "')."
-        << " Not enabling THP reduces our performance up to 30%. Run the following to enable it:"
-        << std::endl << "  sudo su"
-        << std::endl << "  echo always > /sys/kernel/mm/transparent_hugepage/enabled";
-    }
-    return;
+  // Uninitialize local memory.
+  if (!engine_->is_master() && local_memory_) {
+    soc::SocId node = engine_->get_soc_id();
+    batch.emprace_back(local_memory_->uninitialize());
+    delete local_memory_;
+    local_memory_ = nullptr;
+    LOG(INFO) << "Node memory-" << node << " was uninitialized!";
   }
-
-  LOG(WARNING) << "Could not read /sys/kernel/mm/transparent_hugepage/enabled to check"
-    << " if THP is enabled. This implies that THP is not available in this system."
-    << " Using an old linux without THP reduces our performance up to 30%";
+  return SUMMARIZE_ERROR_BATCH(batch);
 }
 
 std::string EngineMemory::dump_free_memory_stat() const {
@@ -140,7 +83,7 @@ std::string EngineMemory::dump_free_memory_stat() const {
   ret << "  == Free memory stat ==" << std::endl;
   thread::ThreadGroupId numa_nodes = engine_->get_options().thread_.group_count_;
   for (thread::ThreadGroupId node = 0; node < numa_nodes; ++node) {
-    NumaNodeMemory* memory = node_memories_[node];
+    NumaNodeMemoryRef* memory = node_memories_[node];
     ret << " - Node_" << static_cast<int>(node) << " -" << std::endl;
     ret << memory->dump_free_memory_stat();
     if (node + 1U < numa_nodes) {

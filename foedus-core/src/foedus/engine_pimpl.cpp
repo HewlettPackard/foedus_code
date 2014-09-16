@@ -9,6 +9,9 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <fstream>
+#include <iostream>
+#include <sstream>
 #include <string>
 
 #include "foedus/error_stack_batch.hpp"
@@ -66,6 +69,7 @@ std::string EnginePimpl::describe_short() const {
 }
 
 ErrorStack EnginePimpl::initialize_once() {
+  CHECK_ERROR(check_valid_options());
   for (Initializable* child : get_children()) {
     CHECK_ERROR(child->initialize());
   }
@@ -99,4 +103,50 @@ ErrorStack EnginePimpl::uninitialize_once() {
   }
   return SUMMARIZE_ERROR_BATCH(batch);
 }
+
+ErrorStack EnginePimpl::check_valid_options() {
+  CHECK_ERROR(check_minimal_pool_size());
+  CHECK_ERROR(check_transparent_hugepage_setting());
+  return kRetOk;
+}
+
+ErrorStack EnginePimpl::check_minimal_pool_size() const {
+  // Can we at least start up?
+  const thread::ThreadOptions& t = options_.thread_;
+  const memory::MemoryOptions& m = options_.memory_;
+  uint64_t total_threads = t.group_count_ * t.thread_count_per_group_;
+  uint64_t minimal_page_pool
+    = total_threads * m.private_page_pool_initial_grab_ * storage::kPageSize;
+  if ((static_cast<uint64_t>(m.page_pool_size_mb_per_node_)
+      * t.group_count_ << 20) < minimal_page_pool) {
+    return ERROR_STACK(kErrorCodeMemoryPagePoolTooSmall);
+  }
+  return kRetOk;
+}
+
+ErrorStack EnginePimpl::check_transparent_hugepage_setting() {
+  std::ifstream conf("/sys/kernel/mm/transparent_hugepage/enabled");
+  if (conf.is_open()) {
+    std::string line;
+    std::getline(conf, line);
+    conf.close();
+    if (line == "[always] madvise never") {
+      std::cout << "Great, THP is in always mode" << std::endl;
+    } else {
+      // Now that we use non-transparent hugepages rather than THP, we don't output this as
+      // warning. Maybe we completely get rid of this message.
+      std::cerr << "THP is not in always mode ('" << line << "')."
+        << " Not enabling THP reduces our performance up to 30%. Run the following to enable it:"
+        << std::endl << "  sudo sh -c 'echo always > /sys/kernel/mm/transparent_hugepage/enabled'"
+        << std::endl;
+    }
+    return;
+  }
+
+  std::cerr << "Could not read /sys/kernel/mm/transparent_hugepage/enabled to check"
+    << " if THP is enabled. This implies that THP is not available in this system."
+    << " Using an old linux without THP reduces our performance up to 30%" << std::endl;
+  return kRetOk;
+}
+
 }  // namespace foedus

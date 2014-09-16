@@ -22,42 +22,39 @@ namespace thread {
  * @details
  * Detailed description of this class.
  */
-class ThreadGroup CXX11_FINAL : public virtual Initializable {
+class ThreadGroup CXX11_FINAL : public DefaultInitializable {
  public:
   ThreadGroup() CXX11_FUNC_DELETE;
   ThreadGroup(Engine* engine, ThreadGroupId group_id);
   ~ThreadGroup();
-  ErrorStack  initialize() CXX11_OVERRIDE;
-  bool        is_initialized() const CXX11_OVERRIDE;
-  ErrorStack  uninitialize() CXX11_OVERRIDE;
+  ErrorStack  initialize_once() CXX11_OVERRIDE;
+  ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
-  ThreadGroupId           get_group_id() const;
-  memory::NumaNodeMemory* get_node_memory() const;
+  ThreadGroupId           get_group_id() const { return group_id_; }
+  memory::NumaNodeMemory* get_node_memory() const { return node_memory_; }
 
-  ThreadLocalOrdinal      get_thread_count() const;
   /** Returns Thread object for the given ordinal in this group. */
-  Thread*                 get_thread(ThreadLocalOrdinal ordinal) const;
+  Thread*                 get_thread(ThreadLocalOrdinal ordinal) const { return threads_[ordinal]; }
 
   friend  std::ostream& operator<<(std::ostream& o, const ThreadGroup& v);
 
  private:
-  ThreadGroupPimpl*       pimpl_;
-};
+  Engine* const           engine_;
 
-class ThreadGroupRef CXX11_FINAL {
- public:
-  ThreadGroupRef();
-  ThreadGroupRef(Engine* engine, ThreadGroupId group_id);
-
-  ThreadGroupId           get_group_id() const { return group_id_; }
-
-  /** Returns Thread object for the given ordinal in this group. */
-  ThreadRef*              get_thread(ThreadLocalOrdinal ordinal) const;
-
- private:
-  Engine*                 engine_;
+  /** ID of this thread group. */
   ThreadGroupId           group_id_;
-  std::vector<ThreadRef>  threads_;
+
+  /**
+   * Memory repository shared among threads in this group.
+   * ThreadGroup does NOT own it, meaning it doesn't call its initialize()/uninitialize().
+   * EngineMemory owns it in terms of that.
+   */
+  memory::NumaNodeMemory* node_memory_;
+
+  /**
+   * List of Thread in this group. Index is ThreadLocalOrdinal.
+   */
+  std::vector<Thread*>    threads_;
 };
 
 }  // namespace thread

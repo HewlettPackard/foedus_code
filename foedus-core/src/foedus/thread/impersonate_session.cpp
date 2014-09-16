@@ -43,7 +43,7 @@ ImpersonateSession::Status ImpersonateSession::wait_for(TimeoutMicrosec timeout)
 std::ostream& operator<<(std::ostream& o, const ImpersonateSession& v) {
   o << "ImpersonateSession: valid=" << v.is_valid();
   if (v.is_valid()) {
-    o << ", thread_id=" << v.thread_->get_thread_id() << ", task address=" << v.task_;
+    o << ", thread_id=" << v.thread_id_ << ", task address=" << v.task_;
   } else {
     o << ", invalid_cause=" << v.invalid_cause_;
   }

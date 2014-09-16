@@ -23,10 +23,12 @@ void SnapshotMetadata::clear() {
   valid_until_epoch_ = Epoch::kEpochInvalid;
 
   // SnapshotMetadata owns the metadata object, so we have to delete them
+  /*
   for (storage::Metadata *storage : storage_metadata_) {
     delete storage;
   }
   storage_metadata_.clear();
+  */
 }
 
 ErrorStack SnapshotMetadata::load(tinyxml2::XMLElement* element) {
@@ -34,7 +36,7 @@ ErrorStack SnapshotMetadata::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, id_);
   EXTERNALIZE_LOAD_ELEMENT(element, base_epoch_);
   EXTERNALIZE_LOAD_ELEMENT(element, valid_until_epoch_);
-
+/*
   // <storages>
   tinyxml2::XMLElement* storages = element->FirstChildElement(kStoragesTagName);
   if (!storages) {
@@ -53,6 +55,7 @@ ErrorStack SnapshotMetadata::load(tinyxml2::XMLElement* element) {
     LOG(INFO) << "Loaded metadata of " << storage_metadata_.size() << " storages";
   }
   // </storages>
+  */
   return kRetOk;
 }
 
@@ -65,7 +68,7 @@ ErrorStack SnapshotMetadata::save(tinyxml2::XMLElement* element) const {
     " If this is the first snapshot, this value is 0.");
   EXTERNALIZE_SAVE_ELEMENT(element, valid_until_epoch_,
     "This snapshot contains all the logs until this epoch.");
-
+/*
   // <storages>
   tinyxml2::XMLElement* storages = element->GetDocument()->NewElement(kStoragesTagName);
   CHECK_OUTOFMEMORY(storages);
@@ -76,6 +79,7 @@ ErrorStack SnapshotMetadata::save(tinyxml2::XMLElement* element) const {
   }
   // </storages>
   LOG(INFO) << "Written metadata of " << storage_metadata_.size() << " storages";
+  */
   return kRetOk;
 }
 

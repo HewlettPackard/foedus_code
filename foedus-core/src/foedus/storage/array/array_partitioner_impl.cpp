@@ -35,7 +35,7 @@ ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
   array_size_ = storage->get_array_size();
   bucket_size_ = array_size_ / kInteriorFanout;
   bucket_size_div_ = assorted::ConstDiv(bucket_size_);
-
+/*
   ArrayStoragePimpl* array = storage->get_pimpl();
   if (array->levels_ == 1) {
     ASSERT_ND(array->root_page_->is_leaf());
@@ -101,6 +101,7 @@ ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
       bucket_owners_[child] = most_needy;
     }
   }
+  */
 }
 
 void ArrayPartitioner::describe(std::ostream* o_ptr) const {

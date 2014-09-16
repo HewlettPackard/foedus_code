@@ -37,36 +37,23 @@ namespace sequential {
  * root pages. All the volatile part are stored as the in-memory append-only list, which is
  * totally orthogonal to snapshot pages.
  */
-struct SequentialMetadata CXX11_FINAL : public virtual Metadata {
+struct SequentialMetadata CXX11_FINAL : public Metadata {
   SequentialMetadata() : Metadata(0, kSequentialStorage, "") {}
   SequentialMetadata(StorageId id, const StorageName& name)
     : Metadata(id, kSequentialStorage, name) {
   }
   /** This one is for newly creating a storage. */
-  explicit SequentialMetadata(const StorageName& name) : Metadata(0, kSequentialStorage, name) {
-  }
-  EXTERNALIZABLE(SequentialMetadata);
-
-  Metadata* clone() const CXX11_OVERRIDE;
-};
-
-struct FixedSequentialMetadata CXX11_FINAL : public FixedMetadata {
-  FixedSequentialMetadata() : FixedMetadata(0, kSequentialStorage, "") {}
-  FixedSequentialMetadata(StorageId id, const StorageName& name)
-    : FixedMetadata(id, kSequentialStorage, name) {
-  }
-  /** This one is for newly creating a storage. */
-  explicit FixedSequentialMetadata(const StorageName& name)
-    : FixedMetadata(0, kSequentialStorage, name) {
+  explicit SequentialMetadata(const StorageName& name)
+    : Metadata(0, kSequentialStorage, name) {
   }
 };
 
 struct SequentialMetadataSerializer CXX11_FINAL : public virtual MetadataSerializer {
   SequentialMetadataSerializer() : MetadataSerializer() {}
-  explicit SequentialMetadataSerializer(FixedSequentialMetadata* data)
+  explicit SequentialMetadataSerializer(SequentialMetadata* data)
     : MetadataSerializer(data), data_casted_(data) {}
   EXTERNALIZABLE(SequentialMetadataSerializer);
-  FixedSequentialMetadata* data_casted_;
+  SequentialMetadata* data_casted_;
 };
 
 }  // namespace sequential

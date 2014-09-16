@@ -52,7 +52,7 @@ struct SnapshotMetadata CXX11_FINAL : public virtual externalize::Externalizable
    * So, SnapshotMetadata must be an independent object.
    * @see foedus::storage::Metadata::clone()
    */
-  std::vector< storage::Metadata* > storage_metadata_;
+  // std::vector< storage::Metadata* > storage_metadata_;
 
   EXTERNALIZABLE(SnapshotMetadata);
 };

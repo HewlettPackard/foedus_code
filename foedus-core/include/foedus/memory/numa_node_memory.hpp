@@ -69,19 +69,12 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   ErrorStack      allocate_numa_memory_general(
     uint64_t size,
     uint64_t alignment,
-    AlignedMemory *out,
-    bool shared = false) const;
-  ErrorStack      allocate_numa_memory(
-    uint64_t size,
-    AlignedMemory *out,
-    bool shared = false) const {
-    return allocate_numa_memory_general(size, 1 << 12, out, shared);
+    AlignedMemory *out) const;
+  ErrorStack      allocate_numa_memory(uint64_t size, AlignedMemory *out) const {
+    return allocate_numa_memory_general(size, 1 << 12, out);
   }
-  ErrorStack      allocate_huge_numa_memory(
-    uint64_t size,
-    AlignedMemory *out,
-    bool shared = false) const {
-    return allocate_numa_memory_general(size, kHugepageSize, out, shared);
+  ErrorStack      allocate_huge_numa_memory(uint64_t size, AlignedMemory *out) const {
+    return allocate_numa_memory_general(size, kHugepageSize, out);
   }
 
   PagePoolOffsetChunk* get_volatile_offset_chunk_memory_piece(
@@ -124,8 +117,6 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   PagePool                                volatile_pool_;
   /** In-memory snapshot page pool in this node. */
   PagePool                                snapshot_pool_;
-  AlignedMemory                           volatile_pool_control_block_;
-  AlignedMemory                           volatile_pool_memory_;
   AlignedMemory                           snapshot_pool_control_block_;
   AlignedMemory                           snapshot_pool_memory_;
 

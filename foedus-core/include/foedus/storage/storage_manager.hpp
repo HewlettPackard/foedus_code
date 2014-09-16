@@ -12,9 +12,13 @@
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/array/fwd.hpp"
+#include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/hash/fwd.hpp"
+#include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
+#include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/storage/sequential/fwd.hpp"
+#include "foedus/storage/sequential/sequential_storage.hpp"
 #include "foedus/thread/fwd.hpp"
 
 namespace foedus {
@@ -33,6 +37,7 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
   StorageManager(const StorageManager&) CXX11_FUNC_DELETE;
   StorageManager& operator=(const StorageManager&) CXX11_FUNC_DELETE;
 
+  Engine*     get_engine() const;
   ErrorStack  initialize() CXX11_OVERRIDE;
   bool        is_initialized() const CXX11_OVERRIDE;
   ErrorStack  uninitialize() CXX11_OVERRIDE;
@@ -43,80 +48,123 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
    * The caller might later fail, so StorageId might have holes.
    */
   StorageId   issue_next_storage_id();
-  /**
-   * @brief Grab a memory for a storage object.
-   */
-  void*       get_instance_memory(StorageId storage_id);
 
   /**
    * Returns the storage of given ID.
    * @param[in] id Storage ID
-   * @return Storage object in this engine. If there is no storage with the ID, nullptr.
+   * @return Control block of the storage in this engine. If there is no storage with the ID, the
+   * returned control block is not initialized (though not null).
    */
-  Storage*    get_storage(StorageId id);
+  StorageControlBlock* get_storage(StorageId id);
+
+  /**
+   * Returns the array storage of given ID.
+   * @param[in] id Storage ID
+   * @return Array Storage. If there is no storage with the ID, an empty object.
+   */
+  array::ArrayStorage get_array(StorageId id) {
+    return array::ArrayStorage(get_engine(), get_storage(id));
+  }
+
+  /**
+   * Returns the hash storage of given ID.
+   * @param[in] id Storage ID
+   * @return Hash Storage. If there is no storage with the ID, an empty object.
+   */
+  hash::HashStorage get_hash(StorageId id) {
+    return hash::HashStorage(get_engine(), get_storage(id));
+  }
+
+  /**
+   * Returns the sequential storage of given ID.
+   * @param[in] id Storage ID
+   * @return Sequential Storage. If there is no storage with the ID, an empty object.
+   */
+  sequential::SequentialStorage get_sequential(StorageId id) {
+    return sequential::SequentialStorage(get_engine(), get_storage(id));
+  }
+
+  /**
+   * Returns the masstree storage of given ID.
+   * @param[in] id Storage ID
+   * @return Masstree Storage. If there is no storage with the ID, an empty object.
+   */
+  masstree::MasstreeStorage get_masstree(StorageId id) {
+    return masstree::MasstreeStorage(get_engine(), get_storage(id));
+  }
 
   /**
    * Returns the storage of given name.
    * This one is convenient, but prefer get_storage(StorageId) for better performance.
    * Or, write your code so that you don't have to invoke this method too often.
    * @param[in] name Storage name
-   * @return Storage object in this engine. If there is no storage with the name, nullptr.
+   * @return Control block of the storage in this engine. If there is no storage with the name,
+   * the returned control block is not initialized (though not null).
    */
-  Storage*    get_storage(const StorageName& name);
+  StorageControlBlock* get_storage(const StorageName& name);
+
+  /**
+   * Returns the array storage of given name.
+   * @param[in] name Storage name
+   * @return Array Storage. If there is no storage with the name, an empty object.
+   */
+  array::ArrayStorage get_array(const StorageName& name) {
+    return array::ArrayStorage(get_engine(), get_storage(name));
+  }
+
+  /**
+   * Returns the hash storage of given name.
+   * @param[in] name Storage name
+   * @return Hash Storage. If there is no storage with the name, an empty object.
+   */
+  hash::HashStorage get_hash(const StorageName& name) {
+    return hash::HashStorage(get_engine(), get_storage(name));
+  }
+
+  /**
+   * Returns the sequential storage of given name.
+   * @param[in] name Storage name
+   * @return Sequential Storage. If there is no storage with the name, an empty object.
+   */
+  sequential::SequentialStorage get_sequential(const StorageName& name) {
+    return sequential::SequentialStorage(get_engine(), get_storage(name));
+  }
+
+  /**
+   * Returns the masstree storage of given name.
+   * @param[in] name Storage name
+   * @return Masstree Storage. If there is no storage with the name, an empty object.
+   */
+  masstree::MasstreeStorage get_masstree(const StorageName& name) {
+    return masstree::MasstreeStorage(get_engine(), get_storage(name));
+  }
 
   /**
    * @brief Removes the storage object.
-   * @param[in] context thread context to drop the storage
    * @param[in] id ID of the storage to remove
    * @param[out] commit_epoch The epoch at whose end the storage is really deemed as deleted.
    * @details
-   * This also invokes uninitialize/destruct.
    * This method is idempotent, although it logs warning for non-existing id.
-   */
-  ErrorStack  drop_storage(thread::Thread* context, StorageId id, Epoch *commit_epoch);
-
-  /**
-   * A convenience function to impersonate as one of available threads and invoke drop_storage().
-   * @see drop_storage()
    */
   ErrorStack  drop_storage(StorageId id, Epoch *commit_epoch);
 
   /**
    * @brief Newly creates a storage with the specified metadata and registers it to this
    * manager.
-   * @param[in] context thread context to create this storage
    * @param[in,out] metadata Specifies metadata of the newly created storage, such as name.
    * The metadata object must be an instance of derived metadata such as ArrayMetadata.
    * This method, when succeeded, changes only one property of the given metadata; id_.
-   * @param[out] storage Pointer to the created storage, if no error observed.
    * @param[out] commit_epoch The epoch at whose end the storage is really deemed as created.
    */
-  ErrorStack  create_storage(thread::Thread* context, Metadata *metadata, Storage **storage,
-                             Epoch *commit_epoch);
-
-  /**
-   * @brief A convenience function to impersonate as one of available threads
-   * and then invoke create_storage().
-   */
-  ErrorStack  create_storage(Metadata *metadata, Storage **storage, Epoch *commit_epoch);
+  ErrorStack  create_storage(Metadata *metadata, Epoch *commit_epoch);
 
   /**
    * @brief Just a type-wrapper of create_storage() for array storages.
    * @see create_storage()
    */
   ErrorStack  create_array(
-    thread::Thread* context,
     array::ArrayMetadata *metadata,
-    array::ArrayStorage **storage,
-    Epoch *commit_epoch);
-
-  /**
-   * @brief A convenience function to impersonate as one of available threads
-   * and then invoke create_array().
-   */
-  ErrorStack  create_array(
-    array::ArrayMetadata *metadata,
-    array::ArrayStorage **storage,
+    array::ArrayStorage *storage,
     Epoch *commit_epoch);
 
   /**
@@ -124,38 +172,17 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
    * @see create_storage()
    */
   ErrorStack  create_hash(
-    thread::Thread* context,
     hash::HashMetadata *metadata,
-    hash::HashStorage **storage,
+    hash::HashStorage *storage,
     Epoch *commit_epoch);
-
-  /**
-   * @brief A convenience function to impersonate as one of available threads
-   * and then invoke create_hash().
-   */
-  ErrorStack  create_hash(
-    hash::HashMetadata *metadata,
-    hash::HashStorage **storage,
-    Epoch *commit_epoch);
-
 
   /**
    * @brief Just a type-wrapper of create_storage() for sequential storages.
    * @see create_storage()
    */
   ErrorStack  create_sequential(
-    thread::Thread* context,
     sequential::SequentialMetadata *metadata,
-    sequential::SequentialStorage **storage,
-    Epoch *commit_epoch);
-
-  /**
-   * @brief A convenience function to impersonate as one of available threads
-   * and then invoke create_sequential().
-   */
-  ErrorStack  create_sequential(
-    sequential::SequentialMetadata *metadata,
-    sequential::SequentialStorage **storage,
+    sequential::SequentialStorage *storage,
     Epoch *commit_epoch);
 
   /**
@@ -163,18 +190,8 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
    * @see create_storage()
    */
   ErrorStack  create_masstree(
-    thread::Thread* context,
     masstree::MasstreeMetadata *metadata,
-    masstree::MasstreeStorage **storage,
-    Epoch *commit_epoch);
-
-  /**
-   * @brief A convenience function to impersonate as one of available threads
-   * and then invoke create_masstree().
-   */
-  ErrorStack  create_masstree(
-    masstree::MasstreeMetadata *metadata,
-    masstree::MasstreeStorage **storage,
+    masstree::MasstreeStorage *storage,
     Epoch *commit_epoch);
 
   /**

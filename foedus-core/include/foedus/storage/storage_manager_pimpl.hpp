@@ -16,6 +16,7 @@
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/shared_mutex.hpp"
 #include "foedus/storage/fwd.hpp"
+#include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 
@@ -26,6 +27,13 @@ struct StorageManagerControlBlock {
   // this is backed by shared memory. not instantiation. just reinterpret_cast.
   StorageManagerControlBlock() = delete;
   ~StorageManagerControlBlock() = delete;
+
+  void initialize() {
+    mod_lock_.initialize();
+  }
+  void uninitialize() {
+    mod_lock_.uninitialize();
+  }
 
   /**
    * In case there are multiple threads that add/delete/expand storages,
@@ -55,12 +63,9 @@ class StorageManagerPimpl final : public DefaultInitializable {
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
-  void        init_storage_factories();
-  void        clear_storage_factories();
-
   StorageId   issue_next_storage_id();
-  Storage*    get_storage(StorageId id);
-  Storage*    get_storage(const StorageName& name);
+  StorageControlBlock* get_storage(StorageId id) { return &storages_[id]; }
+  StorageControlBlock* get_storage(const StorageName& name);
   /**
    * @brief Adds a storage object, either newly created or constructed from disk at start-up.
    * @param[in] storage an already-constructred and initialized Storage
@@ -69,45 +74,16 @@ class StorageManagerPimpl final : public DefaultInitializable {
    */
   ErrorStack  register_storage(Storage* storage);
 
-  ErrorStack  drop_storage(thread::Thread* context, StorageId id, Epoch *commit_epoch);
   ErrorStack  drop_storage(StorageId id, Epoch *commit_epoch);
-  void        drop_storage_apply(thread::Thread* context, Storage* storage);
-
-  ErrorStack  create_storage(thread::Thread*, Metadata *metadata, Storage **storage,
-                             Epoch *commit_epoch);
-  ErrorStack  create_storage(Metadata *metadata, Storage **storage, Epoch *commit_epoch);
+  ErrorStack  create_storage(Metadata *metadata, Epoch *commit_epoch);
 
   ErrorStack  clone_all_storage_metadata(snapshot::SnapshotMetadata *metadata);
 
-  void*       get_instance_memory(StorageId storage_id) {
-    return reinterpret_cast<char*>(instance_memory_.get_block())
-      + static_cast<uint64_t>(storage_id) * kPageSize;
-  }
   uint32_t    get_max_storages() const;
 
   Engine* const           engine_;
 
-  /**
-   * In case there are multiple threads that add/delete/expand storages,
-   * those threads take this lock.
-   * Normal threads that only read storages_ don't have to take this.
-   */
-  std::mutex              mod_lock_;
-
-  /**
-   * The largest StorageId we so far observed.
-   * This value +1 would be the ID of the storage created next.
-   */
-  StorageId               largest_storage_id_;
-
-  /** Same as engine_->get_options().storage_.max_storages_ */
-  StorageId               max_storages_;
-
-  /**
-   * Pointers of all Storage objects in this engine.
-   * If there is a hole, it contains a nullptr.
-   */
-  Storage**               storages_;
+  StorageManagerControlBlock* control_block_;
 
   /**
    * Storage instances (pimpl objects) are allocated in this shared memory.
@@ -115,20 +91,14 @@ class StorageManagerPimpl final : public DefaultInitializable {
    * just grab a page from volatile page pools and point to it from the storage object.
    * Remember that all pages in volatile page pools are shared.
    */
-  memory::AlignedMemory   instance_memory_;
+  StorageControlBlock*    storages_;
 
   /**
-   * Storage name to pointer mapping. Accessing this, either read or write, must take mod_lock_
-   * because std::map is not thread-safe. This is why get_storage(string) is more expensive.
+   * This shared memory stores the ID of storages sorted by their names.
+   * Accessing this, either read or write, must take mod_lock_.
+   * This is why get_storage(string) is more expensive.
    */
-  std::map< StorageName, Storage* >   storage_names_;
-
-  /**
-   * Factory objects to instantiate storage objects.
-   * This is just a vector, so you must iterate over it and invoke is_right_metadata() to find
-   * the right factory for the given metadata.
-   */
-  std::vector< StorageFactory* >      storage_factories_;
+  storage::StorageId*     storage_name_sort_;
 };
 
 static_assert(

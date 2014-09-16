@@ -20,6 +20,7 @@
 #include "foedus/log/log_manager.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/savepoint/savepoint.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
 
@@ -31,7 +32,8 @@ ThreadLogBuffer::ThreadLogBuffer(Engine* engine, thread::ThreadId thread_id)
   buffer_size_ = 0;
 }
 ErrorStack ThreadLogBuffer::initialize_once() {
-  memory::NumaCoreMemory *memory = engine_->get_memory_manager().get_core_memory(thread_id_);
+  memory::NumaCoreMemory *memory
+    = engine_->get_memory_manager().get_local_memory()->get_core_memory(thread_id_);
   buffer_memory_ = memory->get_log_buffer_memory();
   buffer_ = reinterpret_cast<char*>(buffer_memory_.get_block());
   buffer_size_ = buffer_memory_.get_size();

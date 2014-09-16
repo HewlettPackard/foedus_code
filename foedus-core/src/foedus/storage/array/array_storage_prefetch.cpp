@@ -23,15 +23,16 @@ ErrorCode ArrayStoragePimpl::prefetch_pages(
   ArrayOffset to) {
   debugging::StopWatch watch;
   VLOG(0) << "Thread-" << context->get_thread_id()
-    << " prefetching " << metadata_.name_ << " from=" << from << ", to=" << to;
-  prefetch_page_l2(root_page_);
-  if (!root_page_->is_leaf()) {
-    CHECK_ERROR_CODE(prefetch_pages_recurse(context, from, to, root_page_));
+    << " prefetching " << get_meta().name_ << " from=" << from << ", to=" << to;
+  ArrayPage* root_page = get_root_page();
+  prefetch_page_l2(root_page);
+  if (!root_page->is_leaf()) {
+    CHECK_ERROR_CODE(prefetch_pages_recurse(context, from, to, root_page));
   }
 
   watch.stop();
   VLOG(0) << "Thread-" << context->get_thread_id()
-    << " prefetched " << metadata_.name_ << " in " << watch.elapsed_us() << "us";
+    << " prefetched " << get_meta().name_ << " in " << watch.elapsed_us() << "us";
   return kErrorCodeOk;
 }
 

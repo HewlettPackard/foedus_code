@@ -18,19 +18,17 @@
 namespace foedus {
 namespace storage {
 namespace masstree {
-MasstreeStorage::MasstreeStorage(
-  Engine* engine, const MasstreeMetadata &metadata, bool create)
-  : pimpl_(get_pimpl_memory_casted<MasstreeStoragePimpl>(engine, metadata.id_)) {
-  ASSERT_ND(sizeof(MasstreeStoragePimpl) <= kPageSize);
-  new (pimpl_) MasstreeStoragePimpl(engine, this, metadata, create);
-}
-MasstreeStorage::~MasstreeStorage() {
-  pimpl_->~MasstreeStoragePimpl();
+bool        MasstreeStorage::exists()           const  { return control_block_->exists(); }
+StorageId   MasstreeStorage::get_id()           const  { return control_block_->meta_.id_; }
+StorageType MasstreeStorage::get_type()         const  { return control_block_->meta_.type_; }
+const StorageName& MasstreeStorage::get_name()  const  { return control_block_->meta_.name_; }
+const Metadata* MasstreeStorage::get_metadata() const  { return &control_block_->meta_; }
+const MasstreeMetadata* MasstreeStorage::get_masstree_metadata() const  {
+  return &control_block_->meta_;
 }
 
-ErrorStack  MasstreeStorage::initialize()              { return pimpl_->initialize(); }
-ErrorStack  MasstreeStorage::uninitialize()            { return pimpl_->uninitialize(); }
-ErrorStack  MasstreeStorage::create(thread::Thread* context)   { return pimpl_->create(context); }
+ErrorStack  MasstreeStorage::create()   { return MasstreeStorage(this).create(); }
+ErrorStack  MasstreeStorage::drop()   { return MasstreeStorage(this).drop(); }
 
 void MasstreeStorage::describe(std::ostream* o_ptr) const {
   std::ostream& o = *o_ptr;
@@ -39,23 +37,7 @@ void MasstreeStorage::describe(std::ostream* o_ptr) const {
     << "<name>" << get_name() << "</name>"
     << "</MasstreeStorage>";
 }
-
-ErrorStack MasstreeStorageFactory::get_instance(Engine* engine, const Metadata* metadata,
-  Storage** storage) const {
-  ASSERT_ND(metadata);
-  const MasstreeMetadata* casted = dynamic_cast<const MasstreeMetadata*>(metadata);
-  if (casted == nullptr) {
-    LOG(INFO) << "WTF?? the metadata is null or not MasstreeMetadata object";
-    return ERROR_STACK(kErrorCodeStrWrongMetadataType);
-  }
-
-  *storage = new MasstreeStorage(engine, *casted, false);
-  return kRetOk;
-}
-bool MasstreeStorageFactory::is_right_metadata(const Metadata *metadata) const {
-  return dynamic_cast<const MasstreeMetadata*>(metadata) != nullptr;
-}
-
+/*
 void MasstreeStorageFactory::add_create_log(
   const Metadata* metadata, thread::Thread* context) const {
   const MasstreeMetadata* casted = dynamic_cast<const MasstreeMetadata*>(metadata);
@@ -70,7 +52,7 @@ void MasstreeStorageFactory::add_create_log(
     casted->name_.size(),
     casted->name_.data());
 }
-
+*/
 ErrorCode MasstreeStorage::get_record(
   thread::Thread* context,
   const void* key,
@@ -80,7 +62,7 @@ ErrorCode MasstreeStorage::get_record(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->locate_record(
+  CHECK_ERROR_CODE(MasstreeStorage(this).locate_record(
     context,
     key,
     key_length,
@@ -88,7 +70,7 @@ ErrorCode MasstreeStorage::get_record(
     &border,
     &index,
     &observed));
-  return pimpl_->retrieve_general(
+  return MasstreeStorage(this).retrieve_general(
     context,
     border,
     index,
@@ -107,7 +89,7 @@ ErrorCode MasstreeStorage::get_record_part(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->locate_record(
+  CHECK_ERROR_CODE(MasstreeStorage(this).locate_record(
     context,
     key,
     key_length,
@@ -115,7 +97,7 @@ ErrorCode MasstreeStorage::get_record_part(
     &border,
     &index,
     &observed));
-  return pimpl_->retrieve_part_general(
+  return MasstreeStorage(this).retrieve_part_general(
     context,
     border,
     index,
@@ -135,7 +117,7 @@ ErrorCode MasstreeStorage::get_record_primitive(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->locate_record(
+  CHECK_ERROR_CODE(MasstreeStorage(this).locate_record(
     context,
     key,
     key_length,
@@ -143,7 +125,7 @@ ErrorCode MasstreeStorage::get_record_primitive(
     &border,
     &index,
     &observed));
-  return pimpl_->retrieve_part_general(
+  return MasstreeStorage(this).retrieve_part_general(
     context,
     border,
     index,
@@ -161,14 +143,14 @@ ErrorCode MasstreeStorage::get_record_normalized(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->locate_record_normalized(
+  CHECK_ERROR_CODE(MasstreeStorage(this).locate_record_normalized(
     context,
     key,
     false,
     &border,
     &index,
     &observed));
-  return pimpl_->retrieve_general(
+  return MasstreeStorage(this).retrieve_general(
     context,
     border,
     index,
@@ -186,14 +168,14 @@ ErrorCode MasstreeStorage::get_record_part_normalized(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->locate_record_normalized(
+  CHECK_ERROR_CODE(MasstreeStorage(this).locate_record_normalized(
     context,
     key,
     false,
     &border,
     &index,
     &observed));
-  return pimpl_->retrieve_part_general(
+  return MasstreeStorage(this).retrieve_part_general(
     context,
     border,
     index,
@@ -212,14 +194,14 @@ ErrorCode MasstreeStorage::get_record_primitive_normalized(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->locate_record_normalized(
+  CHECK_ERROR_CODE(MasstreeStorage(this).locate_record_normalized(
     context,
     key,
     false,
     &border,
     &index,
     &observed));
-  return pimpl_->retrieve_part_general(
+  return MasstreeStorage(this).retrieve_part_general(
     context,
     border,
     index,
@@ -238,7 +220,7 @@ ErrorCode MasstreeStorage::insert_record(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->reserve_record(
+  CHECK_ERROR_CODE(MasstreeStorage(this).reserve_record(
     context,
     key,
     key_length,
@@ -246,7 +228,7 @@ ErrorCode MasstreeStorage::insert_record(
     &border,
     &index,
     &observed));
-  return pimpl_->insert_general(
+  return MasstreeStorage(this).insert_general(
     context,
     border,
     index,
@@ -265,7 +247,7 @@ ErrorCode MasstreeStorage::insert_record_normalized(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->reserve_record_normalized(
+  CHECK_ERROR_CODE(MasstreeStorage(this).reserve_record_normalized(
     context,
     key,
     payload_count,
@@ -273,7 +255,7 @@ ErrorCode MasstreeStorage::insert_record_normalized(
     &index,
     &observed));
   uint64_t be_key = assorted::htobe<uint64_t>(key);
-  return pimpl_->insert_general(
+  return MasstreeStorage(this).insert_general(
     context,
     border,
     index,
@@ -291,7 +273,7 @@ ErrorCode MasstreeStorage::delete_record(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->locate_record(
+  CHECK_ERROR_CODE(MasstreeStorage(this).locate_record(
     context,
     key,
     key_length,
@@ -299,7 +281,7 @@ ErrorCode MasstreeStorage::delete_record(
     &border,
     &index,
     &observed));
-  return pimpl_->delete_general(context, border, index, observed, key, key_length);
+  return MasstreeStorage(this).delete_general(context, border, index, observed, key, key_length);
 }
 
 ErrorCode MasstreeStorage::delete_record_normalized(
@@ -308,7 +290,7 @@ ErrorCode MasstreeStorage::delete_record_normalized(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->locate_record_normalized(
+  CHECK_ERROR_CODE(MasstreeStorage(this).locate_record_normalized(
     context,
     key,
     true,
@@ -316,7 +298,8 @@ ErrorCode MasstreeStorage::delete_record_normalized(
     &index,
     &observed));
   uint64_t be_key = assorted::htobe<uint64_t>(key);
-  return pimpl_->delete_general(context, border, index, observed, &be_key, sizeof(be_key));
+  return MasstreeStorage(this).delete_general(
+    context, border, index, observed, &be_key, sizeof(be_key));
 }
 
 ErrorCode MasstreeStorage::overwrite_record(
@@ -329,7 +312,7 @@ ErrorCode MasstreeStorage::overwrite_record(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->locate_record(
+  CHECK_ERROR_CODE(MasstreeStorage(this).locate_record(
     context,
     key,
     key_length,
@@ -337,7 +320,7 @@ ErrorCode MasstreeStorage::overwrite_record(
     &border,
     &index,
     &observed));
-  return pimpl_->overwrite_general(
+  return MasstreeStorage(this).overwrite_general(
     context,
     border,
     index,
@@ -359,7 +342,7 @@ ErrorCode MasstreeStorage::overwrite_record_primitive(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->locate_record(
+  CHECK_ERROR_CODE(MasstreeStorage(this).locate_record(
     context,
     key,
     key_length,
@@ -367,7 +350,7 @@ ErrorCode MasstreeStorage::overwrite_record_primitive(
     &border,
     &index,
     &observed));
-  return pimpl_->overwrite_general(
+  return MasstreeStorage(this).overwrite_general(
     context,
     border,
     index,
@@ -388,7 +371,7 @@ ErrorCode MasstreeStorage::overwrite_record_normalized(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->locate_record_normalized(
+  CHECK_ERROR_CODE(MasstreeStorage(this).locate_record_normalized(
     context,
     key,
     true,
@@ -396,7 +379,7 @@ ErrorCode MasstreeStorage::overwrite_record_normalized(
     &index,
     &observed));
   uint64_t be_key = assorted::htobe<uint64_t>(key);
-  return pimpl_->overwrite_general(
+  return MasstreeStorage(this).overwrite_general(
     context,
     border,
     index,
@@ -417,7 +400,7 @@ ErrorCode MasstreeStorage::overwrite_record_primitive_normalized(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->locate_record_normalized(
+  CHECK_ERROR_CODE(MasstreeStorage(this).locate_record_normalized(
     context,
     key,
     true,
@@ -425,7 +408,7 @@ ErrorCode MasstreeStorage::overwrite_record_primitive_normalized(
     &index,
     &observed));
   uint64_t be_key = assorted::htobe<uint64_t>(key);
-  return pimpl_->overwrite_general(
+  return MasstreeStorage(this).overwrite_general(
     context,
     border,
     index,
@@ -447,7 +430,7 @@ ErrorCode MasstreeStorage::increment_record(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->locate_record(
+  CHECK_ERROR_CODE(MasstreeStorage(this).locate_record(
     context,
     key,
     key_length,
@@ -455,7 +438,7 @@ ErrorCode MasstreeStorage::increment_record(
     &border,
     &index,
     &observed));
-  return pimpl_->increment_general<PAYLOAD>(
+  return MasstreeStorage(this).increment_general<PAYLOAD>(
     context,
     border,
     index,
@@ -475,7 +458,7 @@ ErrorCode MasstreeStorage::increment_record_normalized(
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
-  CHECK_ERROR_CODE(pimpl_->locate_record_normalized(
+  CHECK_ERROR_CODE(MasstreeStorage(this).locate_record_normalized(
     context,
     key,
     true,
@@ -483,7 +466,7 @@ ErrorCode MasstreeStorage::increment_record_normalized(
     &index,
     &observed));
   uint64_t be_key = assorted::htobe<uint64_t>(key);
-  return pimpl_->increment_general<PAYLOAD>(
+  return MasstreeStorage(this).increment_general<PAYLOAD>(
     context,
     border,
     index,
@@ -495,14 +478,14 @@ ErrorCode MasstreeStorage::increment_record_normalized(
 }
 
 ErrorStack MasstreeStorage::verify_single_thread(thread::Thread* context) {
-  return pimpl_->verify_single_thread(context);
+  return MasstreeStorage(this).verify_single_thread(context);
 }
 
 ErrorCode MasstreeStorage::prefetch_pages_normalized(
   thread::Thread* context,
   KeySlice from,
   KeySlice to) {
-  return pimpl_->prefetch_pages_normalized(context, from, to);
+  return MasstreeStorage(this).prefetch_pages_normalized(context, from, to);
 }
 
 

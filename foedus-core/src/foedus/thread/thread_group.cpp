@@ -10,31 +10,46 @@
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
+#include "foedus/memory/engine_memory.hpp"
 #include "foedus/thread/thread.hpp"
-#include "foedus/thread/thread_group_pimpl.hpp"
+#include "foedus/thread/thread_options.hpp"
 
 namespace foedus {
 namespace thread {
-ThreadGroup::ThreadGroup(Engine *engine, ThreadGroupId group_id) : pimpl_(nullptr) {
-  pimpl_ = new ThreadGroupPimpl(engine, group_id);
+ThreadGroup::ThreadGroup(Engine *engine, ThreadGroupId group_id)
+  : engine_(engine), group_id_(group_id) {
 }
 ThreadGroup::~ThreadGroup() {
-  delete pimpl_;
-  pimpl_ = nullptr;
 }
 
-ErrorStack ThreadGroup::initialize() { return pimpl_->initialize(); }
-bool ThreadGroup::is_initialized() const { return pimpl_->is_initialized(); }
-ErrorStack ThreadGroup::uninitialize() { return pimpl_->uninitialize(); }
-
-ThreadGroupId ThreadGroup::get_group_id() const { return pimpl_->group_id_; }
-memory::NumaNodeMemory* ThreadGroup::get_node_memory() const { return pimpl_->node_memory_; }
-ThreadLocalOrdinal ThreadGroup::get_thread_count() const { return pimpl_->threads_.size(); }
-Thread* ThreadGroup::get_thread(ThreadLocalOrdinal ordinal) const {
-  return pimpl_->threads_[ordinal];
+ErrorStack ThreadGroup::initialize_once() {
+  node_memory_ = engine_->get_memory_manager().get_local_memory();
+  ThreadLocalOrdinal count = engine_->get_options().thread_.thread_count_per_group_;
+  for (ThreadLocalOrdinal ordinal = 0; ordinal < count; ++ordinal) {
+    ThreadId id = compose_thread_id(group_id_, ordinal);
+    ThreadGlobalOrdinal global_ordinal = to_global_ordinal(id, count);
+    threads_.push_back(new Thread(engine_, this, id, global_ordinal));
+    CHECK_ERROR(threads_.back()->initialize());
+  }
+  return kRetOk;
 }
+
+ErrorStack ThreadGroup::uninitialize_once() {
+  ErrorStackBatch batch;
+  batch.uninitialize_and_delete_all(&threads_);
+  node_memory_ = nullptr;
+  return SUMMARIZE_ERROR_BATCH(batch);
+}
+
 std::ostream& operator<<(std::ostream& o, const ThreadGroup& v) {
-  o << *v.pimpl_;
+  o << "<ThreadGroup>";
+  o << "<group_id_>" << static_cast<int>(v.group_id_) << "</group_id_>";
+  o << "<threads_>";
+  for (Thread* child_thread : v.threads_) {
+    o << *child_thread;
+  }
+  o << "</threads_>";
+  o << "</ThreadGroup>";
   return o;
 }
 

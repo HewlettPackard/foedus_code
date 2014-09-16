@@ -5,6 +5,7 @@
 #ifndef FOEDUS_XCT_XCT_MANAGER_PIMPL_HPP_
 #define FOEDUS_XCT_XCT_MANAGER_PIMPL_HPP_
 #include <atomic>
+#include <thread>
 
 #include "foedus/epoch.hpp"
 #include "foedus/fwd.hpp"
@@ -25,6 +26,15 @@ struct XctManagerControlBlock {
   XctManagerControlBlock() = delete;
   ~XctManagerControlBlock() = delete;
 
+  void initialize() {
+    current_global_epoch_advanced_.initialize();
+    epoch_advance_wakeup_.initialize();
+  }
+  void uninitialize() {
+    epoch_advance_wakeup_.uninitialize();
+    current_global_epoch_advanced_.uninitialize();
+  }
+
   /**
    * @brief The current epoch of the entire engine.
    * @details
@@ -39,6 +49,11 @@ struct XctManagerControlBlock {
 
   /** Fired (broadcast) whenever current_global_epoch_ is advanced. */
   soc::SharedCond                   current_global_epoch_advanced_;
+
+  /** Fired to wakeup epoch_advance_thread_ */
+  soc::SharedCond                   epoch_advance_wakeup_;
+  /** Protected by the mutex in epoch_advance_wakeup_ */
+  std::atomic<bool>                 epoch_advance_thread_terminate_requested_;
 };
 
 /**
@@ -56,10 +71,10 @@ class XctManagerPimpl final : public DefaultInitializable {
   ErrorStack  uninitialize_once() override;
 
   Epoch       get_current_global_epoch() const {
-    return Epoch(current_global_epoch_.load());
+    return Epoch(control_block_->current_global_epoch_.load());
   }
   Epoch       get_current_global_epoch_weak() const {
-    return Epoch(current_global_epoch_.load(std::memory_order_relaxed));
+    return Epoch(control_block_->current_global_epoch_.load(std::memory_order_relaxed));
   }
 
   ErrorCode   begin_xct(thread::Thread* context, IsolationLevel isolation_level);
@@ -72,6 +87,7 @@ class XctManagerPimpl final : public DefaultInitializable {
 
   ErrorCode   wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds);
   void        advance_current_global_epoch();
+  void        wakeup_epoch_advance_thread();
 
   /**
    * @brief precommit_xct() if the transaction is read-only
@@ -141,29 +157,16 @@ class XctManagerPimpl final : public DefaultInitializable {
    * This method exits when this object's uninitialize() is called.
    */
   void        handle_epoch_advance();
+  bool        is_stop_requested() const;
 
-  Engine* const           engine_;
-
-  /**
-   * @brief The current epoch of the entire engine.
-   * @details
-   * Currently running (committing) transactions will use this value as their serialization point.
-   * No locks to protect this variable, but
-   * \li There should be only one thread that might update this (XctManager).
-   * \li Readers should take appropriate fence before reading this.
-   * @invariant current_global_epoch_ > 0
-   * (current_global_epoch_ begins with 1, not 0. So, epoch-0 is always an empty/dummy epoch)
-   */
-  std::atomic<Epoch::EpochInteger>    current_global_epoch_;
-
-  /** Fired (notify_all) whenever current_global_epoch_ is advanced. */
-  thread::ConditionVariable           current_global_epoch_advanced_;
+  Engine* const                 engine_;
+  XctManagerControlBlock* const control_block_;
 
   /**
    * This thread keeps advancing the current_global_epoch_ and durable_global_epoch_.
    * Launched only in master engine.
    */
-  thread::StoppableThread epoch_advance_thread_;
+  std::thread epoch_advance_thread_;
 };
 static_assert(
   sizeof(XctManagerControlBlock) <= soc::GlobalMemoryAnchors::kXctManagerMemorySize,

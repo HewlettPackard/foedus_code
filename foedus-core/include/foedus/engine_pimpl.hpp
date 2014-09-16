@@ -42,6 +42,7 @@ class EnginePimpl final : public DefaultInitializable {
 
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
+  ErrorStack  check_valid_options();
 
   /** Options given at boot time. Immutable once launched */
   EngineOptions                   options_;
@@ -102,6 +103,14 @@ class EnginePimpl final : public DefaultInitializable {
     return children;
   }
   std::string describe_short() const;
+
+ private:
+  /**
+   * THP being disabled is one of the most frequent misconfiguration that reduces performance
+   * for 30% or more. We output a strong warning at startup if it's not "always" mode.
+   */
+  static ErrorStack check_transparent_hugepage_setting();
+  ErrorStack check_minimal_pool_size() const;
 };
 }  // namespace foedus
 #endif  // FOEDUS_ENGINE_PIMPL_HPP_

@@ -185,6 +185,8 @@ enum ThreadStatus {
   kRunningTask,
   /** The thread has completed the task and set the result. The client has not picked it up yet. */
   kWaitingForClient,
+  /** The thread is requested to terminate */
+  kWaitingForTerminate,
   /** The thread has terminated (either error or normal, check the result to differentiate them). */
   kTerminated,
 };

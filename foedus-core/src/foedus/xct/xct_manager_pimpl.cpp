@@ -30,6 +30,7 @@
 #include "foedus/xct/xct_access.hpp"
 #include "foedus/xct/xct_manager.hpp"
 #include "foedus/xct/xct_options.hpp"
+#include "foedus/soc/soc_manager.hpp"
 
 namespace foedus {
 namespace xct {
@@ -57,18 +58,22 @@ ErrorCode   XctManager::precommit_xct(thread::Thread* context, Epoch *commit_epo
 }
 ErrorCode   XctManager::abort_xct(thread::Thread* context)  { return pimpl_->abort_xct(context); }
 
-
 ErrorStack XctManagerPimpl::initialize_once() {
   LOG(INFO) << "Initializing XctManager..";
   if (!engine_->get_storage_manager().is_initialized()) {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
   }
-  const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
-  current_global_epoch_ = savepoint.get_current_epoch().value();
-  ASSERT_ND(get_current_global_epoch().is_valid());
-  epoch_advance_thread_.initialize("epoch_advance_thread",
-    std::thread(&XctManagerPimpl::handle_epoch_advance, this),
-    std::chrono::milliseconds(engine_->get_options().xct_.epoch_advance_interval_ms_));
+  soc::SharedMemoryRepo* memory_repo = engine_->get_soc_manager().get_shared_memory_repo();
+  control_block_ = memory_repo->get_global_memory_anchors()->xct_manager_memory_;
+
+  if (engine_->is_master()) {
+    control_block_->initialize();
+    const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
+    control_block_->current_global_epoch_ = savepoint.get_current_epoch().value();
+    ASSERT_ND(get_current_global_epoch().is_valid());
+    control_block_->epoch_advance_thread_terminate_requested_ = false;
+    epoch_advance_thread_ = std::move(std::thread(&XctManagerPimpl::handle_epoch_advance, this));
+  }
   return kRetOk;
 }
 
@@ -78,8 +83,23 @@ ErrorStack XctManagerPimpl::uninitialize_once() {
   if (!engine_->get_storage_manager().is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
-  epoch_advance_thread_.stop();
+  if (engine_->is_master()) {
+    if (epoch_advance_thread_.joinable()) {
+      {
+        soc::SharedMutexScope scope(control_block_->epoch_advance_wakeup_.get_mutex());
+        control_block_->epoch_advance_thread_terminate_requested_ = true;
+        control_block_->epoch_advance_wakeup_.signal(&scope);
+      }
+      epoch_advance_thread_.join();
+    }
+    control_block_->uninitialize();
+  }
   return SUMMARIZE_ERROR_BATCH(batch);
+}
+
+bool XctManagerPimpl::is_stop_requested() const {
+  ASSERT_ND(engine_->is_master());
+  return control_block_->epoch_advance_thread_terminate_requested_;
 }
 
 void XctManagerPimpl::handle_epoch_advance() {
@@ -89,26 +109,47 @@ void XctManagerPimpl::handle_epoch_advance() {
     assorted::memory_fence_acquire();
   }
   LOG(INFO) << "epoch_advance_thread now starts processing.";
-  while (!epoch_advance_thread_.sleep()) {
+  uint64_t interval_nanosec = engine_->get_options().xct_.epoch_advance_interval_ms_ * 1000000ULL;
+  while (!is_stop_requested()) {
+    {
+      soc::SharedMutexScope scope(control_block_->epoch_advance_wakeup_.get_mutex());
+      if (is_stop_requested()) {
+        break;
+      }
+      control_block_->epoch_advance_wakeup_.timedwait(&scope, interval_nanosec);
+    }
+    if (is_stop_requested()) {
+      break;
+    }
     VLOG(1) << "epoch_advance_thread. current_global_epoch_=" << get_current_global_epoch();
     ASSERT_ND(get_current_global_epoch().is_valid());
-    current_global_epoch_advanced_.notify_all([this]{
-      current_global_epoch_ = get_current_global_epoch().one_more().value();
-    });
+    {
+      soc::SharedMutexScope scope(control_block_->current_global_epoch_advanced_.get_mutex());
+      control_block_->current_global_epoch_ = get_current_global_epoch().one_more().value();
+      control_block_->current_global_epoch_advanced_.broadcast(&scope);
+    }
     engine_->get_log_manager().wakeup_loggers();
   }
   LOG(INFO) << "epoch_advance_thread ended.";
 }
 
+
+void XctManagerPimpl::wakeup_epoch_advance_thread() {
+  soc::SharedMutexScope scope(control_block_->epoch_advance_wakeup_.get_mutex());
+  control_block_->epoch_advance_wakeup_.signal(&scope);  // hurrrrry up!
+}
+
 void XctManagerPimpl::advance_current_global_epoch() {
   Epoch now = get_current_global_epoch();
   LOG(INFO) << "Requesting to immediately advance epoch. current_global_epoch_=" << now << "...";
-  if (now == get_current_global_epoch()) {
-    epoch_advance_thread_.wakeup();  // hurrrrry up!
-    if (now != get_current_global_epoch()) {
-      current_global_epoch_advanced_.wait([this, now]{
-        return now != get_current_global_epoch();
-      });
+  while (now == get_current_global_epoch()) {
+    wakeup_epoch_advance_thread();
+    {
+      soc::SharedMutexScope scope(control_block_->current_global_epoch_advanced_.get_mutex());
+      if (now != get_current_global_epoch()) {
+        break;
+      }
+      control_block_->current_global_epoch_advanced_.wait(&scope);
     }
   }
 
@@ -118,7 +159,7 @@ void XctManagerPimpl::advance_current_global_epoch() {
 ErrorCode XctManagerPimpl::wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds) {
   assorted::memory_fence_acquire();
   if (commit_epoch < get_current_global_epoch()) {
-    epoch_advance_thread_.wakeup();
+    wakeup_epoch_advance_thread();
   }
 
   return engine_->get_log_manager().wait_until_durable(commit_epoch, wait_microseconds);

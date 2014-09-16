@@ -26,13 +26,18 @@
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/proc/proc_manager.hpp"
 #include "foedus/soc/soc_manager.hpp"
+#include "foedus/thread/numa_thread_scope.hpp"
 
 namespace foedus {
 namespace soc {
 // SOC manager is initialized at first even before debug module.
 // So, we can't use glog yet.
 ErrorStack SocManagerPimpl::initialize_once() {
-  return kRetOk;
+  if (engine_->is_master()) {
+    return initialize_master();
+  } else {
+    return initialize_child();
+  }
 }
 
 ErrorStack SocManagerPimpl::uninitialize_once() {
@@ -399,6 +404,7 @@ ErrorStack SocManagerPimpl::child_main_common(
   Upid master_upid,
   SocId node,
   const std::vector< proc::ProcAndName >& procedures) {
+  thread::NumaThreadScope scope(node);
   Engine soc_engine(engine_type, master_upid, node);
   ErrorStack init_error = soc_engine.initialize();
   if (init_error.is_error()) {

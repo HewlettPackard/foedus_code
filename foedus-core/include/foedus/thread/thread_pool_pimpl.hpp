@@ -13,6 +13,7 @@
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/thread/thread_pool.hpp"
+#include "foedus/thread/thread_ref.hpp"
 
 namespace foedus {
 namespace thread {
@@ -27,7 +28,7 @@ namespace thread {
 class ThreadPoolPimpl final : public DefaultInitializable {
  public:
   ThreadPoolPimpl() = delete;
-  explicit ThreadPoolPimpl(Engine* engine) : engine_(engine) {}
+  explicit ThreadPoolPimpl(Engine* engine) : engine_(engine), local_group_(nullptr) {}
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
@@ -35,26 +36,25 @@ class ThreadPoolPimpl final : public DefaultInitializable {
   ImpersonateSession  impersonate_on_numa_node(ImpersonateTask* functor, ThreadGroupId numa_node);
   ImpersonateSession  impersonate_on_numa_core(ImpersonateTask* functor, ThreadId numa_core);
 
-  ThreadGroup*        get_group(ThreadGroupId numa_node) const;
-  Thread*             get_thread(ThreadId id) const;
+  ThreadGroupRef*     get_group(ThreadGroupId numa_node) { return &groups_[numa_node]; }
+  ThreadGroup*        get_local_group() const { return local_group_; }
+  ThreadRef*          get_thread(ThreadId id);
 
   friend  std::ostream& operator<<(std::ostream& o, const ThreadPoolPimpl& v);
 
   Engine* const               engine_;
 
   /**
-   * List of ThreadGroup, one for each NUMA node in this engine.
-   * Index is ThreadGroupId.
+   * Thread group of the local SOC engine.
+   * If this is a master engine, null.
    */
-  std::vector<ThreadGroup*>   groups_;
+  ThreadGroup*                local_group_;
 
   /**
-   * @brief Whether this thread pool has stopped allowing further impersonation.
-   * @details
-   * As the first step to terminate the entire engine, uninitialize() sets this to true,
-   * prohibiting further impersonations from client code.
+   * List of all thread groups, one for each NUMA node in this engine.
+   * Index is ThreadGroupId.
    */
-  bool                        no_more_impersonation_;
+  std::vector<ThreadGroupRef> groups_;
 };
 }  // namespace thread
 }  // namespace foedus

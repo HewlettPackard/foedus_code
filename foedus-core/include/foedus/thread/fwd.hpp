@@ -20,7 +20,6 @@ class   StoppableThread;
 class   Thread;
 struct  ThreadControlBlock;
 class   ThreadGroup;
-class   ThreadGroupPimpl;
 class   ThreadGroupRef;
 struct  ThreadOptions;
 class   ThreadPimpl;

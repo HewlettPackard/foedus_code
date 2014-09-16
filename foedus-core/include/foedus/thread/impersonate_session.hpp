@@ -55,15 +55,16 @@ struct ImpersonateSession CXX11_FINAL {
     kTimeout,
   };
 
-  ImpersonateSession() : thread_(CXX11_NULLPTR), task_(CXX11_NULLPTR), invalid_cause_() {}
+  ImpersonateSession()
+    : thread_id_(0), impersonated_(false), task_(CXX11_NULLPTR), invalid_cause_() {}
   explicit ImpersonateSession(ImpersonateTask* task)
-    : thread_(CXX11_NULLPTR), task_(task), invalid_cause_() {}
+    : thread_id_(0), impersonated_(false), task_(task), invalid_cause_() {}
   ~ImpersonateSession() {}
 
   /**
    * Returns if the impersonation succeeded.
    */
-  bool        is_valid() const { return thread_ != CXX11_NULLPTR; }
+  bool        is_valid() const { return impersonated_; }
 
   /**
    * @brief Waits until the completion of the asynchronous session and retrieves the result.
@@ -96,8 +97,10 @@ struct ImpersonateSession CXX11_FINAL {
 
   friend std::ostream& operator<<(std::ostream& o, const ImpersonateSession& v);
 
-  /** The impersonated thread. If impersonation failed, NULL. */
-  Thread*             thread_;
+  /** ID of the impersonated thread. If impersonation failed, no meaningful value. */
+  thread::ThreadId    thread_id_;
+  /** Whether impersonation succeded. */
+  bool                impersonated_;
 
   /** The impersonated task running on this session. */
   ImpersonateTask*    task_;
