@@ -33,7 +33,8 @@ void SequentialCreateLogType::populate(
   name_length_ = name_length;
   std::memcpy(name_, name, name_length);
 }
-void SequentialCreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
+void SequentialCreateLogType::apply_storage(thread::Thread* context, StorageId storage_id) {
+  /* TODO(Hideaki) During surgery
   ASSERT_ND(storage == nullptr);  // because we are now creating it.
   LOG(INFO) << "Applying CREATE SEQUENTIAL STORAGE log: " << *this;
   StorageName name(name_, name_length_);
@@ -44,6 +45,7 @@ void SequentialCreateLogType::apply_storage(thread::Thread* context, Storage* st
   COERCE_ERROR(sequential->create(context));
   sequential.release();  // No error, so take over the ownership from unique_ptr.
   LOG(INFO) << "Applied CREATE SEQUENTIAL STORAGE log: " << *this;
+  */
 }
 
 void SequentialCreateLogType::assert_valid() {

@@ -22,7 +22,7 @@ ErrorCode MasstreeStoragePimpl::prefetch_pages_normalized(
   VLOG(0) << "Thread-" << context->get_thread_id()
     << " prefetching " << get_name() << " from=" << from << ", to=" << to;
 
-  ASSERT_ND(first_root_pointer_.volatile_pointer_.components.offset);
+  ASSERT_ND(control_block_->root_page_pointer_.volatile_pointer_.components.offset);
   VolatilePagePointer pointer = control_block_->root_page_pointer_.volatile_pointer_;
   MasstreePage* root_page = reinterpret_cast<MasstreePage*>(
     context->get_global_volatile_page_resolver().resolve_offset(pointer));

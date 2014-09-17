@@ -39,7 +39,8 @@ void HashCreateLogType::populate(
   bin_bits_ = bin_bits;
 }
 
-void HashCreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
+void HashCreateLogType::apply_storage(thread::Thread* context, StorageId storage_id) {
+  /* TODO(Hideaki) During surgery
   ASSERT_ND(storage == nullptr);  // because we are now creating it.
   LOG(INFO) << "Applying CREATE HASH STORAGE log: " << *this;
   StorageName name(name_, name_length_);
@@ -50,6 +51,7 @@ void HashCreateLogType::apply_storage(thread::Thread* context, Storage* storage)
   COERCE_ERROR(hash->create(context));
   hash.release();  // No error, so take over the ownership from unique_ptr.
   LOG(INFO) << "Applied CREATE HASH STORAGE log: " << *this;
+  */
 }
 
 void HashCreateLogType::assert_valid() {

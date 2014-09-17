@@ -75,6 +75,15 @@ class FixedErrorStack {
   /** Describe this object to the given stream. */
   void                output(std::ostream* ptr) const;
 
+  void                clear() { error_code_ = kErrorCodeOk; }
+
+  /**
+   * Instantiates an ErrorStack object based on this object.
+   * We can't generate a completely same object (ErrorStack needs const char* pointers),
+   * so we put much of information as custom error message.
+   */
+  ErrorStack          to_error_stack() const;
+
   friend std::ostream& operator<<(std::ostream& o, const FixedErrorStack& obj);
 
  private:

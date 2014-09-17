@@ -400,7 +400,7 @@ inline ErrorCode Xct::add_to_read_set(
   XctId observed_owner_id,
   LockableXctId* owner_id_address) {
   ASSERT_ND(!schema_xct_);
-  ASSERT_ND(storage);
+  ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   // TODO(Hideaki) callers should check if it's a snapshot page. or should we check here?
   if (isolation_level_ != kSerializable) {
@@ -421,7 +421,7 @@ inline ErrorCode Xct::add_to_write_set(
   char* payload_address,
   log::RecordLogType* log_entry) {
   ASSERT_ND(!schema_xct_);
-  ASSERT_ND(storage);
+  ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   ASSERT_ND(payload_address);
   ASSERT_ND(log_entry);
@@ -453,7 +453,7 @@ inline ErrorCode Xct::add_to_lock_free_write_set(
     storage::StorageId storage_id,
   log::RecordLogType* log_entry) {
   ASSERT_ND(!schema_xct_);
-  ASSERT_ND(storage);
+  ASSERT_ND(storage_id != 0);
   ASSERT_ND(log_entry);
   if (UNLIKELY(lock_free_write_set_size_ >= max_lock_free_write_set_size_)) {
     return kErrorCodeXctWriteSetOverflow;

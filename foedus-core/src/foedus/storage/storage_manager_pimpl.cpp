@@ -25,10 +25,15 @@
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_log_types.hpp"
 #include "foedus/storage/storage_options.hpp"
+#include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/storage/array/array_storage.hpp"
+#include "foedus/storage/hash/hash_metadata.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
+#include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
+#include "foedus/storage/sequential/sequential_metadata.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
+#include "foedus/thread/thread_pool.hpp"
 #include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
@@ -91,7 +96,7 @@ StorageControlBlock* StorageManagerPimpl::get_storage(const StorageName& name) {
   return &storages_[0];  // storage ID 0 is always not-initialized
 }
 
-
+/* TODO(Hideaki) During surgery
 ErrorStack StorageManagerPimpl::register_storage(Storage* storage) {
   ASSERT_ND(storage);
   ASSERT_ND(storage->is_initialized());
@@ -116,8 +121,10 @@ ErrorStack StorageManagerPimpl::register_storage(Storage* storage) {
   ASSERT_ND(id <= control_block_->largest_storage_id_);
   return kRetOk;
 }
+*/
 
 ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) {
+  /* TODO(Hideaki) During surgery
   // DROP STORAGE must be the only log in this transaction
   if (context->get_thread_log_buffer().get_offset_committed() !=
     context->get_thread_log_buffer().get_offset_tail()) {
@@ -129,6 +136,11 @@ ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) 
 
   CHECK_ERROR(engine_->get_xct_manager().begin_schema_xct(context));
 
+  StorageName name = storage->get_name();
+  LOG(INFO) << "Dropping storage " << id << "(" << name << ")";
+  COERCE_ERROR(storage->uninitialize());
+  LOG(INFO) << "Uninitialized storage " << id << "(" << name << ")";
+
   // write out log
   DropLogType* log_entry = reinterpret_cast<DropLogType*>(
     context->get_thread_log_buffer().reserve_new_log(sizeof(DropLogType)));
@@ -136,33 +148,24 @@ ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) 
 
   // commit invokes apply
   CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, commit_epoch));
-  return kRetOk;
-}
-void StorageManagerPimpl::drop_storage_apply(thread::Thread* /*context*/, Storage* storage) {
-  ASSERT_ND(storage);
-  StorageId id = storage->get_id();
-  StorageName name = storage->get_name();
-  LOG(INFO) << "Dropping storage " << id << "(" << name << ")";
-  COERCE_ERROR(storage->uninitialize());
-  LOG(INFO) << "Uninitialized storage " << id << "(" << name << ")";
-
-  storages_[id] = nullptr;
-  delete storage;
   LOG(INFO) << "Droped storage " << id << "(" << name << ")";
+  */
+  return kRetOk;
 }
 
 ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit_epoch) {
-  *storage = nullptr;
   StorageId id = issue_next_storage_id();
   if (id >= get_max_storages()) {
     return ERROR_STACK(kErrorCodeStrTooManyStorages);
   }
   metadata->id_ = id;
+  /* TODO(Hideaki) During surgery
   // CREATE STORAGE must be the only log in this transaction
   if (context->get_thread_log_buffer().get_offset_committed() !=
     context->get_thread_log_buffer().get_offset_tail()) {
     return ERROR_STACK(kErrorCodeStrMustSeparateXct);
   }
+  */
 
   const StorageName& name = metadata->name_;
   if (get_storage(name)) {
@@ -170,27 +173,63 @@ ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit
     return ERROR_STACK(kErrorCodeStrDuplicateStrname);
   }
 
-  StorageFactory* the_factory = nullptr;
-  for (StorageFactory* factory : storage_factories_) {
-    if (factory->is_right_metadata(metadata)) {
-      the_factory = factory;
+  ASSERT_ND(!get_storage(id)->exists());
+  ErrorStack create_error;
+  switch (metadata->type_) {
+    case kArrayStorage:
+      *reinterpret_cast<array::ArrayMetadata*>(&storages_[id].meta_)
+        = *static_cast<array::ArrayMetadata*>(metadata);
+      create_error = array::ArrayStorage(engine_, storages_ + id).create();
       break;
-    }
+    case kHashStorage:
+      *reinterpret_cast<hash::HashMetadata*>(&storages_[id].meta_)
+        = *static_cast<hash::HashMetadata*>(metadata);
+      create_error = hash::HashStorage(engine_, storages_ + id).create();
+      break;
+    case kMasstreeStorage:
+      *reinterpret_cast<masstree::MasstreeMetadata*>(&storages_[id].meta_)
+        = *static_cast<masstree::MasstreeMetadata*>(metadata);
+      create_error = masstree::MasstreeStorage(engine_, storages_ + id).create();
+      break;
+    case kSequentialStorage:
+      *reinterpret_cast<sequential::SequentialMetadata*>(&storages_[id].meta_)
+        = *static_cast<sequential::SequentialMetadata*>(metadata);
+      create_error = sequential::SequentialStorage(engine_, storages_ + id).create();
+      break;
+    default:
+      return ERROR_STACK(kErrorCodeStrUnsupportedMetadata);
   }
+  CHECK_ERROR(create_error);
 
+  /* TODO(Hideaki) During surgery
   CHECK_ERROR(engine_->get_xct_manager().begin_schema_xct(context));
   the_factory->add_create_log(metadata, context);  // write out log
 
   // commit invokes apply
   CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, commit_epoch));
+  */
 
   // to avoid mixing normal operations on the new storage in this epoch, advance epoch now.
   engine_->get_xct_manager().advance_current_global_epoch();
 
-  *storage = get_storage(id);
-  ASSERT_ND(*storage);
-  ASSERT_ND((*storage)->get_type() == the_factory->get_type());
+  ASSERT_ND(get_storage(id)->exists());
+  // ASSERT_ND((*storage)->get_type() == the_factory->get_type());
   return kRetOk;
+}
+
+bool StorageManagerPimpl::track_moved_record(StorageId storage_id, xct::WriteXctAccess* write) {
+  // so far only Masstree has tracking
+  ASSERT_ND(storages_[storage_id].exists());
+  ASSERT_ND(storages_[storage_id].meta_.type_ == kMasstreeStorage);
+  return masstree::MasstreeStorage(engine_, storages_ + storage_id).track_moved_record(write);
+}
+
+xct::LockableXctId* StorageManagerPimpl::track_moved_record(
+  StorageId storage_id,
+  xct::LockableXctId* address) {
+  ASSERT_ND(storages_[storage_id].exists());
+  ASSERT_ND(storages_[storage_id].meta_.type_ == kMasstreeStorage);
+  return masstree::MasstreeStorage(engine_, storages_ + storage_id).track_moved_record(address);
 }
 
 ErrorStack StorageManagerPimpl::clone_all_storage_metadata(

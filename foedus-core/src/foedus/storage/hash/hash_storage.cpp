@@ -28,7 +28,7 @@ void HashStorage::describe(std::ostream* o_ptr) const {
     << "<bin_bits>" << static_cast<int>(control_block_->meta_.bin_bits_) << "</bin_bits>"
     << "</HashStorage>";
 }
-/*
+/* TODO(Hideaki) During surgery
 void HashStorageFactory::add_create_log(const Metadata* metadata, thread::Thread* context) const {
   const HashMetadata* casted = dynamic_cast<const HashMetadata*>(metadata);
   ASSERT_ND(casted);

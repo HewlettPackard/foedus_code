@@ -13,8 +13,8 @@
 #include "foedus/log/thread_log_buffer_impl.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
-#include "foedus/memory/page_pool.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/memory/page_pool.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_manager.hpp"
@@ -57,18 +57,22 @@ ErrorStack MasstreeStoragePimpl::drop() {
 }
 
 ErrorCode MasstreeStoragePimpl::get_first_root(thread::Thread* context, MasstreePage** root) {
-  ASSERT_ND(first_root_pointer_.volatile_pointer_.components.offset);
+  ASSERT_ND(get_first_root_pointer().volatile_pointer_.components.offset);
   const memory::GlobalVolatilePageResolver& resolver = context->get_global_volatile_page_resolver();
   MasstreePage* page = reinterpret_cast<MasstreePage*>(
     resolver.resolve_offset(control_block_->root_page_pointer_.volatile_pointer_));
   assert_aligned_page(page);
 
   if (UNLIKELY(page->has_foster_child())) {
-    ASSERT_ND(!first_root_owner_.is_deleted());
-    ASSERT_ND(!first_root_owner_.is_moved());
+    ASSERT_ND(!get_first_root_owner().is_deleted());
+    ASSERT_ND(!get_first_root_owner().is_moved());
     // root page has a foster child... time for tree growth!
     MasstreeIntermediatePage* new_root;
-    CHECK_ERROR_CODE(grow_root(context, &first_root_pointer_, &first_root_owner_, &new_root));
+    CHECK_ERROR_CODE(grow_root(
+      context,
+      &get_first_root_pointer(),
+      &get_first_root_owner(),
+      &new_root));
     if (new_root) {
       assert_aligned_page(new_root);
       page = new_root;
@@ -107,9 +111,9 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   MasstreePage* root = reinterpret_cast<MasstreePage*>(
     resolver.resolve_offset(root_pointer->volatile_pointer_));
   if (root->get_layer() == 0) {
-    LOG(INFO) << "growing B-tree in first layer! " << *holder_;
+    LOG(INFO) << "growing B-tree in first layer! " << get_name();
   } else {
-    DVLOG(0) << "growing B-tree in non-first layer " << *holder_;
+    DVLOG(0) << "growing B-tree in non-first layer " << get_name();
   }
 
   PageVersionLockScope scope(context, root->get_version_address());
@@ -192,7 +196,8 @@ ErrorStack MasstreeStoragePimpl::create() {
   const memory::LocalPageResolver &local_resolver = pool.get_resolver();
 
   // just allocate an empty root page for the first layer
-  memory::PagePoolOffset root_offset = pool.grab_one();
+  memory::PagePoolOffset root_offset;
+  WRAP_ERROR_CODE(pool.grab_one(&root_offset));
   ASSERT_ND(root_offset);
   MasstreeBorderPage* root_page = reinterpret_cast<MasstreeBorderPage*>(
     local_resolver.resolve_offset_newpage(root_offset));
@@ -785,7 +790,7 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
   }
   // TODO(Hideaki) does_point_to_layer should be a flag in XctId
   CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
-    holder_,
+    get_id(),
     observed,
     border->get_owner_id(index)));
 
@@ -818,7 +823,7 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
   }
   // TODO(Hideaki) does_point_to_layer should be a flag in XctId
   CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
-    holder_,
+    get_id(),
     observed,
     border->get_owner_id(index)));
   if (border->get_payload_length(index) < payload_offset + payload_count) {
@@ -845,7 +850,7 @@ ErrorCode MasstreeStoragePimpl::insert_general(
   // TODO(Hideaki) does_point_to_layer should be a flag in XctId
 
   CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
-    holder_,
+    get_id(),
     observed,
     border->get_owner_id(index)));
 
@@ -912,7 +917,7 @@ ErrorCode MasstreeStoragePimpl::overwrite_general(
   }
   // TODO(Hideaki) does_point_to_layer should be a flag in XctId
   CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
-    holder_,
+    get_id(),
     observed,
     border->get_owner_id(index)));
 
@@ -955,7 +960,7 @@ ErrorCode MasstreeStoragePimpl::increment_general(
   }
   // TODO(Hideaki) does_point_to_layer should be a flag in XctId
   CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
-    holder_,
+    get_id(),
     observed,
     border->get_owner_id(index)));
 

@@ -18,6 +18,7 @@
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/array/array_id.hpp"
 #include "foedus/storage/array/array_route.hpp"
+#include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/array/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
 
@@ -113,7 +114,7 @@ class ArrayComposer final : public Composer {
     bool            ended_;
   };
 
-  ArrayStorage* const       storage_casted_;
+  ArrayStorage              storage_casted_;
   const uint16_t            payload_size_;
   const uint8_t             levels_;
   /** Calculates LookupRoute from offset. */

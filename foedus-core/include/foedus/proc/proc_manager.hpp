@@ -32,6 +32,13 @@ class ProcManager CXX11_FINAL : public virtual Initializable {
   bool        is_initialized() const CXX11_OVERRIDE;
   ErrorStack  uninitialize() CXX11_OVERRIDE;
 
+  /**
+   * @brief Returns the function pointer of the specified procedure.
+   * @param[in] name Name of the procedure that has been registered via one of the following methods
+   * @param[out] out Function pointer of the procedure.
+   * @return Error if the given procedure name is not found.
+   */
+  ErrorStack  get_proc(const ProcName& name, Proc* out);
 
   /**
    * @brief Pre-register a function pointer as a user procedure so that all SOCs will have it

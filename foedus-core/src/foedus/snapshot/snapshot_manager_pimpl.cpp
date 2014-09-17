@@ -183,6 +183,7 @@ ErrorStack SnapshotManagerPimpl::glean_logs(Snapshot* new_snapshot) {
 }
 
 ErrorStack SnapshotManagerPimpl::snapshot_metadata(Snapshot *new_snapshot) {
+  /* TODO(Hideaki) During surgery
   // construct metadata object
   SnapshotMetadata metadata;
   metadata.id_ = new_snapshot->id_;
@@ -226,6 +227,7 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(Snapshot *new_snapshot) {
   fs::fsync(file, true);
   stop_watch.stop();
   LOG(INFO) << "fsynced the file and the folder! elapsed=" << stop_watch.elapsed_ms() << "ms.";
+  */
   return kRetOk;
 }
 

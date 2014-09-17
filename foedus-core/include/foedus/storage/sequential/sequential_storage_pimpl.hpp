@@ -7,13 +7,15 @@
 #include <stdint.h>
 
 #include "foedus/assert_nd.hpp"
+#include "foedus/attachable.hpp"
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/initializable.hpp"
+#include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/fwd.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
@@ -21,6 +23,8 @@
 #include "foedus/storage/sequential/fwd.hpp"
 #include "foedus/storage/sequential/sequential_id.hpp"
 #include "foedus/storage/sequential/sequential_metadata.hpp"
+#include "foedus/storage/sequential/sequential_page_impl.hpp"
+#include "foedus/storage/sequential/sequential_storage.hpp"
 #include "foedus/thread/fwd.hpp"
 
 namespace foedus {
@@ -51,9 +55,9 @@ struct SequentialStorageControlBlock final {
    * This means we can waste 64*2=128 volatile pages (=512kb) per one sequential storage..
    * shouldn't be a big issue.
    */
-  VolatilePagePointer   head_pointers_page_[kPointerPageCount];
+  VolatilePagePointer   head_pointer_pages_[kPointerPageCount];
   /** Same above, but for tail pointers. */
-  VolatilePagePointer   tail_pointers_page_[kPointerPageCount];
+  VolatilePagePointer   tail_pointer_pages_[kPointerPageCount];
 };
 
 /**
@@ -98,21 +102,24 @@ struct SequentialStorageControlBlock final {
  * access this internal class.
  * @todo Implement the scanning functionality as above.
  */
-class SequentialStoragePimpl final {
+class SequentialStoragePimpl final : public Attachable<SequentialStorageControlBlock> {
  public:
   struct PointerPage {
     memory::PagePoolOffset pointers_[kPointersPerPage];
   };
   SequentialStoragePimpl() = delete;
   explicit SequentialStoragePimpl(SequentialStorage* storage)
-    : engine_(storage->get_engine()), control_block_(storage->get_control_block()) {
+    : Attachable<SequentialStorageControlBlock>(
+      storage->get_engine(),
+      storage->get_control_block()) {
   }
   SequentialStoragePimpl(Engine* engine, SequentialStorageControlBlock* control_block)
-    : engine_(engine), control_block_(control_block) {
+    : Attachable<SequentialStorageControlBlock>(engine, control_block) {
   }
 
   bool        exists() const { return control_block_->exists(); }
   StorageId   get_id() const { return control_block_->meta_.id_; }
+  const StorageName& get_name() const { return control_block_->meta_.name_; }
   ErrorStack  create();
   ErrorStack  drop();
 
@@ -173,10 +180,6 @@ class SequentialStoragePimpl final {
     }
     return kErrorCodeOk;
   }
-
- private:
-  Engine* const                         engine_;
-  SequentialStorageControlBlock* const  control_block_;
 };
 
 static_assert(sizeof(SequentialStoragePimpl) <= kPageSize, "SequentialStoragePimpl is too large");

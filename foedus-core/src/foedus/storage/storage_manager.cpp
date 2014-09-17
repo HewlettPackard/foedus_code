@@ -40,12 +40,22 @@ StorageControlBlock* StorageManager::get_storage(const StorageName& name) {
 
 StorageId StorageManager::issue_next_storage_id() { return pimpl_->issue_next_storage_id(); }
 
+const StorageName kEmptyString;
+const StorageName& StorageManager::get_name(StorageId id) {
+  StorageControlBlock* block = get_storage(id);
+  if (block->exists()) {
+    return block->meta_.name_;
+  } else {
+    return kEmptyString;
+  }
+}
+
 ErrorStack StorageManager::drop_storage(StorageId id, Epoch *commit_epoch) {
   return pimpl_->drop_storage(id, commit_epoch);
 }
 
 ErrorStack StorageManager::create_storage(Metadata *metadata, Epoch *commit_epoch) {
-  return pimpl_->create_storage(metadata, storage, commit_epoch);
+  return pimpl_->create_storage(metadata, commit_epoch);
 }
 
 ErrorStack StorageManager::create_array(
@@ -84,6 +94,17 @@ ErrorStack StorageManager::create_masstree(
   *storage = get_masstree(metadata->id_);
   return kRetOk;
 }
+
+bool StorageManager::track_moved_record(StorageId storage_id, xct::WriteXctAccess* write) {
+  return pimpl_->track_moved_record(storage_id, write);
+}
+
+xct::LockableXctId* StorageManager::track_moved_record(
+  StorageId storage_id,
+  xct::LockableXctId* address) {
+  return pimpl_->track_moved_record(storage_id, address);
+}
+
 
 ErrorStack StorageManager::clone_all_storage_metadata(snapshot::SnapshotMetadata *metadata) {
   return pimpl_->clone_all_storage_metadata(metadata);

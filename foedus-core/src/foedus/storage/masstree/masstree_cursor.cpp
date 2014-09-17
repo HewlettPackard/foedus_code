@@ -24,10 +24,9 @@ namespace foedus {
 namespace storage {
 namespace masstree {
 
-MasstreeCursor::MasstreeCursor(Engine* engine, MasstreeStorage* storage, thread::Thread* context)
-  : engine_(engine),
-    storage_(storage),
-    storage_pimpl_(storage->get_pimpl()),
+MasstreeCursor::MasstreeCursor(MasstreeStorage storage, thread::Thread* context)
+  : engine_(storage.get_engine()),
+    storage_(storage.get_engine(), storage.get_control_block()),
     context_(context),
     current_xct_(&context->get_current_xct()) {
   for_writes_ = false;
@@ -156,7 +155,7 @@ ErrorCode MasstreeCursor::proceed_route_border() {
       if (!route->snapshot_ &&
         cur_key_in_layer_remaining_ != MasstreeBorderPage::kKeyLengthNextLayer) {
         CHECK_ERROR_CODE(current_xct_->add_to_read_set(
-          storage_,
+          storage_.get_id(),
           cur_key_observed_owner_id_,
           cur_key_owner_id_address));
       }
@@ -275,7 +274,8 @@ ErrorCode MasstreeCursor::proceed_route_intermediate() {
       MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(route->index_);
       DualPagePointer& pointer = minipage.pointers_[route->index_mini_];
       ASSERT_ND(!pointer.is_both_null());
-      CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, &pointer, &next));
+      CHECK_ERROR_CODE(
+        MasstreeStoragePimpl(&storage_).follow_page(context_, for_writes_, &pointer, &next));
 
       if (forward_cursor_) {
         if (UNLIKELY(next->get_low_fence() != route->latest_separator_)) {
@@ -340,7 +340,8 @@ inline ErrorCode MasstreeCursor::proceed_next_layer() {
     cur_key_ + (page->get_layer() * sizeof(KeySlice)));
   DualPagePointer* pointer = page->get_next_layer(route->get_cur_original_index());
   MasstreePage* next;
-  CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, pointer, &next));
+  CHECK_ERROR_CODE(
+    MasstreeStoragePimpl(&storage_).follow_page(context_, for_writes_, pointer, &next));
   CHECK_ERROR_CODE(push_route(next));
   return proceed_deeper();
 }
@@ -376,7 +377,7 @@ inline ErrorCode MasstreeCursor::proceed_deeper_border() {
   if (!route->snapshot_ &&
     cur_key_in_layer_remaining_ != MasstreeBorderPage::kKeyLengthNextLayer) {
     CHECK_ERROR_CODE(current_xct_->add_to_read_set(
-      storage_,
+      storage_.get_id(),
       cur_key_observed_owner_id_,
       cur_key_owner_id_address));
   }
@@ -405,7 +406,8 @@ inline ErrorCode MasstreeCursor::proceed_deeper_intermediate() {
     extract_separators(&separator_low, &separator_high);
     DualPagePointer& pointer = minipage.pointers_[route->index_mini_];
     ASSERT_ND(!pointer.is_both_null());
-    CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, &pointer, &next));
+    CHECK_ERROR_CODE(
+      MasstreeStoragePimpl(&storage_).follow_page(context_, for_writes_, &pointer, &next));
     if (UNLIKELY(next->get_low_fence() != separator_low ||
         next->get_high_fence() != separator_high)) {
       VLOG(0) << "Interesting4. first sep doesn't match. concurrent adoption. local retry.";
@@ -769,8 +771,8 @@ ErrorCode MasstreeCursor::open(
     std::memcpy(search_key_, begin_key, begin_key_length);
   }
 
-  ASSERT_ND(storage_pimpl_->first_root_pointer_.volatile_pointer_.components.offset);
-  VolatilePagePointer pointer = storage_pimpl_->first_root_pointer_.volatile_pointer_;
+  ASSERT_ND(storage_.get_control_block()->root_page_pointer_.volatile_pointer_.components.offset);
+  VolatilePagePointer pointer = storage_.get_control_block()->root_page_pointer_.volatile_pointer_;
   MasstreePage* root = reinterpret_cast<MasstreePage*>(
     context_->get_global_volatile_page_resolver().resolve_offset(pointer));
   CHECK_ERROR_CODE(push_route(root));
@@ -887,7 +889,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
         if (!route->snapshot_ &&
           cur_key_in_layer_remaining_ != MasstreeBorderPage::kKeyLengthNextLayer) {
           CHECK_ERROR_CODE(current_xct_->add_to_read_set(
-            storage_,
+            storage_.get_id(),
             cur_key_observed_owner_id_,
             cur_key_owner_id_address));
         }
@@ -910,7 +912,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
         if (!route->snapshot_ &&
           cur_key_in_layer_remaining_ != MasstreeBorderPage::kKeyLengthNextLayer) {
           CHECK_ERROR_CODE(current_xct_->add_to_read_set(
-            storage_,
+            storage_.get_id(),
             cur_key_observed_owner_id_,
             cur_key_owner_id_address));
         }
@@ -962,7 +964,8 @@ ErrorCode MasstreeCursor::locate_next_layer() {
     cur_key_ + (border->get_layer() * sizeof(KeySlice)));
   DualPagePointer* pointer = border->get_next_layer(route->get_cur_original_index());
   MasstreePage* next;
-  CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, pointer, &next));
+  CHECK_ERROR_CODE(
+    MasstreeStoragePimpl(&storage_).follow_page(context_, for_writes_, pointer, &next));
   CHECK_ERROR_CODE(push_route(next));
   return locate_layer(border->get_layer() + 1U);
 }
@@ -1043,7 +1046,8 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
     DualPagePointer& pointer = minipage.pointers_[route->index_mini_];
     ASSERT_ND(!pointer.is_both_null());
     MasstreePage* next;
-    CHECK_ERROR_CODE(storage_pimpl_->follow_page(context_, for_writes_, &pointer, &next));
+    CHECK_ERROR_CODE(
+      MasstreeStoragePimpl(&storage_).follow_page(context_, for_writes_, &pointer, &next));
 
     // Master-tree invariant
     // verify that the followed page covers the key range we want.
@@ -1080,7 +1084,7 @@ ErrorCode MasstreeCursor::overwrite_record(
   uint16_t payload_offset,
   uint16_t payload_count) {
   assert_modify();
-  return storage_pimpl_->overwrite_general(
+  return MasstreeStoragePimpl(&storage_).overwrite_general(
     context_,
     reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),
@@ -1095,7 +1099,7 @@ ErrorCode MasstreeCursor::overwrite_record(
 template <typename PAYLOAD>
 ErrorCode MasstreeCursor::overwrite_record_primitive(PAYLOAD payload, uint16_t payload_offset) {
   assert_modify();
-  return storage_pimpl_->overwrite_general(
+  return MasstreeStoragePimpl(&storage_).overwrite_general(
     context_,
     reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),
@@ -1109,7 +1113,7 @@ ErrorCode MasstreeCursor::overwrite_record_primitive(PAYLOAD payload, uint16_t p
 
 ErrorCode MasstreeCursor::delete_record() {
   assert_modify();
-  return storage_pimpl_->delete_general(
+  return MasstreeStoragePimpl(&storage_).delete_general(
     context_,
     reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),
@@ -1121,7 +1125,7 @@ ErrorCode MasstreeCursor::delete_record() {
 template <typename PAYLOAD>
 ErrorCode MasstreeCursor::increment_record(PAYLOAD* value, uint16_t payload_offset) {
   assert_modify();
-  return storage_pimpl_->increment_general<PAYLOAD>(
+  return MasstreeStoragePimpl(&storage_).increment_general<PAYLOAD>(
     context_,
     reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),

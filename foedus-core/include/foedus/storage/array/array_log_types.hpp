@@ -54,7 +54,7 @@ struct ArrayCreateLogType : public log::StorageLogType {
 
   void populate(StorageId storage_id, ArrayOffset array_size,
       uint16_t payload_size, uint16_t name_length, const char* name);
-  void apply_storage(thread::Thread* context, Storage* storage);
+  void apply_storage(thread::Thread* context, StorageId storage_id);
   void assert_valid();
   friend std::ostream& operator<<(std::ostream& o, const ArrayCreateLogType& v);
 };
@@ -95,7 +95,7 @@ struct ArrayOverwriteLogType : public log::RecordLogType {
 
   void apply_record(
     thread::Thread* context,
-    Storage* storage,
+    StorageId storage_id,
     xct::LockableXctId* owner_id,
     char* payload) const ALWAYS_INLINE;
 
@@ -168,7 +168,7 @@ struct ArrayIncrementLogType : public log::RecordLogType {
 
   void apply_record(
     thread::Thread* context,
-    Storage* storage,
+    StorageId storage_id,
     xct::LockableXctId* owner_id,
     char* payload) const ALWAYS_INLINE;
 
@@ -211,11 +211,10 @@ inline void ArrayOverwriteLogType::populate_primitive(
 
 inline void ArrayOverwriteLogType::apply_record(
   thread::Thread* /*context*/,
-  Storage* storage,
+  StorageId /*storage_id*/,
   xct::LockableXctId* /*owner_id*/,
   char* payload) const {
   ASSERT_ND(payload_count_ < kDataSize);
-  ASSERT_ND(dynamic_cast<ArrayStorage*>(storage));
   std::memcpy(payload + payload_offset_, payload_, payload_count_);
 }
 
@@ -254,10 +253,9 @@ inline void increment(T* payload, const T* addendum) {
 
 inline void ArrayIncrementLogType::apply_record(
   thread::Thread* /*context*/,
-  Storage* storage,
+  StorageId /*storage_id*/,
   xct::LockableXctId* /*owner_id*/,
   char* payload) const {
-  ASSERT_ND(dynamic_cast<ArrayStorage*>(storage));
   switch (get_value_type()) {
     // 32 bit data types
     case kI8:

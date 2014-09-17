@@ -77,6 +77,8 @@ class StorageManagerPimpl final : public DefaultInitializable {
   ErrorStack  drop_storage(StorageId id, Epoch *commit_epoch);
   ErrorStack  create_storage(Metadata *metadata, Epoch *commit_epoch);
 
+  bool                track_moved_record(StorageId storage_id, xct::WriteXctAccess *write);
+  xct::LockableXctId* track_moved_record(StorageId storage_id, xct::LockableXctId *address);
   ErrorStack  clone_all_storage_metadata(snapshot::SnapshotMetadata *metadata);
 
   uint32_t    get_max_storages() const;

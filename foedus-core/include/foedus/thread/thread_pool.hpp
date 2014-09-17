@@ -11,6 +11,7 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/proc/proc_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/impersonate_session.hpp"
 #include "foedus/thread/impersonate_task.hpp"
@@ -127,52 +128,46 @@ class ThreadPool CXX11_FINAL : public virtual Initializable {
   ErrorStack  uninitialize() CXX11_OVERRIDE;
 
   /**
-   * @brief Impersonate as one of pre-allocated threads in this engine, calling
-   * back the functor from the impersonated thread (\b NOT the current thread).
-   * @param[in] task the callback functor the client program should define. The pointer
-   * must be valid at least until the completion of the session.
+   * @brief Impersonate as one of pre-allocated threads in this engine, executing
+   * the procedure on the impersonated thread (\b NOT the current thread).
+   * @param[in] proc_name the name of the procedure to run on this thread.
+   * @param[in] task_input input data of arbitrary format for the procedure.
+   * @param[in] task_input_size byte size of the input data to copy into the thread's memory.
+   * @param[out] session the session to run on this thread. On success, the session receives a
+   * ticket so that the caller can wait for the completion.
    * @details
    * This is similar to launch a new thread that calls the functor.
    * The difference is that this doesn't actually create a thread (which is very expensive)
    * but instead just impersonates as one of the pre-allocated threads in the engine.
-   * @return The resulting session.
+   * @return whether successfully impersonated.
    */
-  ImpersonateSession  impersonate(ImpersonateTask* task);
-
-  /**
-   * @brief A shorthand for impersonating a session and synchronously waiting for its end.
-   * @details
-   * Useful for a single and synchronous task invocation.
-   * This is equivalent to the following impersonate() invocation.
-   * @code{.cpp}
-   * ImpersonateSession session = pool.impersonate(task);
-   * if (!session.is_valid()) {
-   *   return session.invalid_cause_;
-   * }
-   * return session.get_result();
-   * @endcode{.cpp}
-   * @return Error code of the impersonation or (if impersonation succeeds) of the task.
-   * This returns kRetOk iff impersonation and the task succeed.
-   */
-  ErrorStack          impersonate_synchronous(ImpersonateTask* task) {
-    ImpersonateSession session = impersonate(task);
-    if (!session.is_valid()) {
-      return session.invalid_cause_;
-    }
-    return session.get_result();
-  }
+  bool impersonate(
+    const proc::ProcName& proc_name,
+    const void* task_input,
+    uint64_t task_input_size,
+    ImpersonateSession *session);
 
   /**
    * Overload to specify a NUMA node to run on.
    * @see impersonate()
    */
-  ImpersonateSession  impersonate_on_numa_node(ImpersonateTask* task, ThreadGroupId numa_node);
+  bool impersonate_on_numa_node(
+    ThreadGroupId node,
+    const proc::ProcName& proc_name,
+    const void* task_input,
+    uint64_t task_input_size,
+    ImpersonateSession *session);
 
   /**
    * Overload to specify a core to run on.
    * @see impersonate()
    */
-  ImpersonateSession  impersonate_on_numa_core(ImpersonateTask* task, ThreadId numa_core);
+  bool impersonate_on_numa_core(
+    ThreadId core,
+    const proc::ProcName& proc_name,
+    const void* task_input,
+    uint64_t task_input_size,
+    ImpersonateSession *session);
 
   /** Returns the pimpl of this object. Use it only when you know what you are doing. */
   ThreadPoolPimpl*    get_pimpl() const { return pimpl_; }

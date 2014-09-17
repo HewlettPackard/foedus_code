@@ -28,7 +28,7 @@ ErrorStack ThreadGroup::initialize_once() {
   for (ThreadLocalOrdinal ordinal = 0; ordinal < count; ++ordinal) {
     ThreadId id = compose_thread_id(group_id_, ordinal);
     ThreadGlobalOrdinal global_ordinal = to_global_ordinal(id, count);
-    threads_.push_back(new Thread(engine_, this, id, global_ordinal));
+    threads_.push_back(new Thread(engine_, id, global_ordinal));
     CHECK_ERROR(threads_.back()->initialize());
   }
   return kRetOk;

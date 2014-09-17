@@ -22,6 +22,7 @@
 #include "foedus/storage/hash/fwd.hpp"
 #include "foedus/storage/hash/hash_id.hpp"
 #include "foedus/storage/hash/hash_metadata.hpp"
+#include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/fwd.hpp"
 
@@ -45,6 +46,11 @@ struct HashStorageControlBlock final {
 
   // Do NOT reorder members up to here. The layout must be compatible with StorageControlBlock
   // Type-specific shared members below.
+
+  // these are static auxiliary variables. doesn't have to be shared actually, but easier.
+  uint32_t            root_pages_;
+  uint64_t            bin_count_;
+  uint64_t            bin_pages_;
 };
 
 /**
@@ -57,7 +63,7 @@ struct HashStorageControlBlock final {
 class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
  public:
   HashStoragePimpl() : Attachable<HashStorageControlBlock>() {}
-  HashStoragePimpl(HashStorage* storage)
+  explicit HashStoragePimpl(HashStorage* storage)
     : Attachable<HashStorageControlBlock>(
       storage->get_engine(),
       storage->get_control_block()) {}
@@ -79,12 +85,16 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
 
   ErrorStack  create();
   ErrorStack  drop();
+  HashRootPage* get_root_page();
 
   bool                exists()    const { return control_block_->exists(); }
   StorageId           get_id()    const { return control_block_->meta_.id_; }
   const StorageName&  get_name()  const { return control_block_->meta_.name_; }
   const HashMetadata& get_meta()  const { return control_block_->meta_; }
   uint8_t             get_bin_bits() const { return get_meta().bin_bits_; }
+  uint32_t            get_root_pages() const { return control_block_->root_pages_; }
+  uint64_t            get_bin_count() const { return control_block_->bin_count_; }
+  uint64_t            get_bin_pages() const { return control_block_->bin_pages_; }
 
   /** @copydoc foedus::storage::hash::HashStorage::get_record() */
   ErrorCode   get_record(

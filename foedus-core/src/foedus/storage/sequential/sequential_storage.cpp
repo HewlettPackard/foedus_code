@@ -38,7 +38,8 @@ void SequentialStorage::describe(std::ostream* o_ptr) const {
   std::ostream& o = *o_ptr;
   uint64_t page_count = 0;
   uint64_t record_count = 0;
-  SequentialStoragePimpl(this).for_every_page([&page_count, &record_count](SequentialPage* page){
+  SequentialStoragePimpl pimpl(const_cast<SequentialStorage*>(this));
+  pimpl.for_every_page([&page_count, &record_count](SequentialPage* page){
     ++page_count;
     record_count += page->get_record_count();
     return kErrorCodeOk;
@@ -51,7 +52,7 @@ void SequentialStorage::describe(std::ostream* o_ptr) const {
     << "</SequentialStorage>";
 }
 
-/*
+/* TODO(Hideaki) During surgery
 void SequentialStorageFactory::add_create_log(
   const Metadata* metadata, thread::Thread* context) const {
   const SequentialMetadata* casted = dynamic_cast<const SequentialMetadata*>(metadata);

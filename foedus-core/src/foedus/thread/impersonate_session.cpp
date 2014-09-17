@@ -10,42 +10,94 @@
 #include "foedus/thread/impersonate_task.hpp"
 #include "foedus/thread/impersonate_task_pimpl.hpp"
 #include "foedus/thread/thread.hpp"
+#include "foedus/thread/thread_pimpl.hpp"
+#include "foedus/thread/thread_ref.hpp"
 
 namespace foedus {
 namespace thread {
 
+ImpersonateSession::ImpersonateSession(ImpersonateSession&& other) {
+  ticket_ = other.ticket_;
+  thread_ = other.thread_;
+  other.ticket_ = 0;
+  other.thread_ = nullptr;
+}
+
+ImpersonateSession& ImpersonateSession::operator=(ImpersonateSession&& other) {
+  ticket_ = other.ticket_;
+  thread_ = other.thread_;
+  other.ticket_ = 0;
+  other.thread_ = nullptr;
+  return *this;
+}
+
+
 ErrorStack ImpersonateSession::get_result() {
-  ASSERT_ND(is_valid());
   wait();
-  return task_->pimpl_->result_;
-}
-void ImpersonateSession::wait() const {
-  ASSERT_ND(is_valid());
-  task_->pimpl_->rendezvous_.wait();
-}
-ImpersonateSession::Status ImpersonateSession::wait_for(TimeoutMicrosec timeout) const {
-  if (!is_valid()) {
-    return ImpersonateSession::kInvalidSession;
-  } else if (timeout < 0) {
-    // this means unconditional wait.
-    wait();
-    return ImpersonateSession::kReady;
-  } else {
-    bool done = task_->pimpl_->rendezvous_.wait_for(std::chrono::microseconds(timeout));
-    if (!done) {
-      return ImpersonateSession::kTimeout;
-    } else {
-      return ImpersonateSession::kReady;
+  if (is_valid()) {
+    ThreadControlBlock* block = thread_->get_control_block();
+    if (block->current_ticket_ != ticket_ || block->status_ != kWaitingForClientRelease) {
+      return ERROR_STACK(kErrorCodeSessionExpired);
     }
+    return block->proc_result_.to_error_stack();
+  } else {
+    return ERROR_STACK(kErrorCodeSessionExpired);
   }
 }
+void ImpersonateSession::get_output(void* output_buffer) {
+  std::memcpy(output_buffer, thread_->get_task_output_memory(), get_output_size());
+}
+
+uint64_t ImpersonateSession::get_output_size() {
+  return thread_->get_control_block()->output_len_;
+}
+
+void ImpersonateSession::wait() const {
+  if (!is_valid() || !is_running()) {
+    return;
+  }
+  ThreadControlBlock* block = thread_->get_control_block();
+  while (is_running()) {
+    soc::SharedMutexScope scope(block->task_complete_cond_.get_mutex());
+    if (!is_running()) {
+      break;
+    }
+    block->task_complete_cond_.timedwait(&scope, 100000000ULL);
+  }
+}
+
+bool ImpersonateSession::is_running() const {
+  ASSERT_ND(thread_->get_control_block()->current_ticket_ >= ticket_);
+  if (thread_->get_control_block()->current_ticket_ != ticket_) {
+    return false;
+  }
+  return (thread_->get_control_block()->status_ == kWaitingForExecution ||
+    thread_->get_control_block()->status_ == kRunningTask);
+}
+
+void ImpersonateSession::release() {
+  if (!is_valid()) {
+    return;
+  }
+
+  wait();
+  ThreadControlBlock* block = thread_->get_control_block();
+  if (block->current_ticket_ == ticket_ && block->status_ == kWaitingForClientRelease) {
+    soc::SharedMutexScope scope(block->wakeup_cond_.get_mutex());
+    if (block->current_ticket_ == ticket_ && block->status_ == kWaitingForClientRelease) {
+      block->status_ = kWaitingForTask;
+    }
+  }
+
+  ticket_ = 0;
+  thread_ = nullptr;
+}
+
 
 std::ostream& operator<<(std::ostream& o, const ImpersonateSession& v) {
   o << "ImpersonateSession: valid=" << v.is_valid();
   if (v.is_valid()) {
-    o << ", thread_id=" << v.thread_id_ << ", task address=" << v.task_;
-  } else {
-    o << ", invalid_cause=" << v.invalid_cause_;
+    o << ", thread_id=" << v.thread_->get_thread_id();
   }
   return o;
 }

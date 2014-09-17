@@ -31,7 +31,6 @@
 #include "foedus/storage/hash/hash_metadata.hpp"
 #include "foedus/storage/hash/hash_page_impl.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
-#include "foedus/storage/hash/hash_storage_pimpl.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_manager.hpp"
@@ -207,33 +206,30 @@ void HashStoragePimpl::release_pages_recursive_data(
   batch->release(volatile_page_id);
 }
 
-ErrorStack HashStoragePimpl::uninitialize_once() {
-  LOG(INFO) << "Uninitializing an hash-storage " << *holder_;
-  if (root_page_) {
-    LOG(INFO) << "Releasing all in-memory pages...";
-    const memory::GlobalVolatilePageResolver& page_resolver
-      = engine_->get_memory_manager().get_global_volatile_page_resolver();
-    memory::PageReleaseBatch release_batch(engine_);
-    VolatilePagePointer root_id = root_page_pointer_.volatile_pointer_;
-    if (root_pages_ == 1) {
-      release_pages_recursive_root(&release_batch, root_page_, root_id);
-    } else {
-      // child is still a root page, which should be always in-memory
-      for (uint32_t i = 0; i < kHashRootPageFanout; ++i) {
-        DualPagePointer &child_pointer = root_page_->pointer(i);
-        VolatilePagePointer child_page_id = child_pointer.volatile_pointer_;
-        if (child_page_id.components.offset != 0) {
-          HashRootPage* child_page = reinterpret_cast<HashRootPage*>(
-            page_resolver.resolve_offset(child_page_id));
-          release_pages_recursive_root(&release_batch, child_page, child_page_id);
-        }
+ErrorStack HashStoragePimpl::drop() {
+  LOG(INFO) << "Uninitializing an hash-storage " << get_name();
+  const memory::GlobalVolatilePageResolver& page_resolver
+    = engine_->get_memory_manager().get_global_volatile_page_resolver();
+  memory::PageReleaseBatch release_batch(engine_);
+  VolatilePagePointer root_id = control_block_->root_page_pointer_.volatile_pointer_;
+  HashRootPage* root_page = get_root_page();
+  if (get_root_pages() == 1) {
+    release_pages_recursive_root(&release_batch, root_page, root_id);
+  } else {
+    // child is still a root page, which should be always in-memory
+    for (uint32_t i = 0; i < kHashRootPageFanout; ++i) {
+      DualPagePointer &child_pointer = root_page->pointer(i);
+      VolatilePagePointer child_page_id = child_pointer.volatile_pointer_;
+      if (child_page_id.components.offset != 0) {
+        HashRootPage* child_page = reinterpret_cast<HashRootPage*>(
+          page_resolver.resolve_offset(child_page_id));
+        release_pages_recursive_root(&release_batch, child_page, child_page_id);
       }
-      release_batch.release(root_id);
     }
-    release_batch.release_all();
-    root_page_ = nullptr;
-    root_page_pointer_.volatile_pointer_.word = 0;
+    release_batch.release(root_id);
   }
+  release_batch.release_all();
+  control_block_->root_page_pointer_.volatile_pointer_.word = 0;
   return kRetOk;
 }
 
@@ -246,54 +242,67 @@ ErrorStack HashStoragePimpl::create() {
 
   LOG(INFO) << "Newly creating an hash-storage " << get_name();
   control_block_->bin_count_ = 1ULL << get_bin_bits();
-  bin_pages_ = assorted::int_div_ceil(bin_count_, kBinsPerPage);
-  root_pages_ = assorted::int_div_ceil(bin_pages_, kHashRootPageFanout);
-  ASSERT_ND(root_pages_ >= 1);
-  LOG(INFO) << "bin_count=" << bin_count_ << ", bin_pages=" << bin_pages_
-    << ", root_pages=" << root_pages_;
-  if (root_pages_ > kHashRootPageFanout) {
+  control_block_->bin_pages_ = assorted::int_div_ceil(get_bin_count(), kBinsPerPage);
+  const uint32_t root_pages = assorted::int_div_ceil(get_bin_pages(), kHashRootPageFanout);;
+  control_block_->root_pages_ = root_pages;
+  ASSERT_ND(root_pages >= 1);
+  LOG(INFO) << "bin_count=" << get_bin_count() << ", bin_pages=" << get_bin_pages()
+    << ", root_pages=" << root_pages;
+  if (root_pages > kHashRootPageFanout) {
     // we don't assume this case so far. kHashRootPageFanout^2 * 4kb just for bin pages...
-    LOG(FATAL) << "more than 2 levels root page in hash?? that's too big!" << *holder_;
+    LOG(FATAL) << "more than 2 levels root page in hash?? that's too big!" << get_name();
   }
 
   // small number of root pages. we should at least have that many free pages.
-  // so far grab all of them from this context. no round robbin
-  memory::NumaCoreMemory* memory = context->get_thread_memory();
-  const memory::LocalPageResolver &local_resolver = context->get_local_volatile_page_resolver();
+  // so far grab all of them from node 0. no round robbin
+  memory::PagePool& pool = engine_->get_memory_manager().get_node_memory(0)->get_volatile_pool();
+  const memory::LocalPageResolver &local_resolver = pool.get_resolver();
 
   // root of root
-  memory::PagePoolOffset root_offset = memory->grab_free_volatile_page();
+  memory::PagePoolOffset root_offset;
+  WRAP_ERROR_CODE(pool.grab_one(&root_offset));
   ASSERT_ND(root_offset);
-  root_page_ = reinterpret_cast<HashRootPage*>(local_resolver.resolve_offset_newpage(root_offset));
-  root_page_pointer_.snapshot_pointer_ = 0;
-  root_page_pointer_.volatile_pointer_ = combine_volatile_page_pointer(
-    context->get_numa_node(),
+  HashRootPage* root_page = reinterpret_cast<HashRootPage*>(
+    local_resolver.resolve_offset_newpage(root_offset));
+  control_block_->root_page_pointer_.snapshot_pointer_ = 0;
+  control_block_->root_page_pointer_.volatile_pointer_ = combine_volatile_page_pointer(
+    0,
     0,
     0,
     root_offset);
-  root_page_->initialize_volatile_page(
+  root_page->initialize_volatile_page(
     get_id(),
-    root_page_pointer_.volatile_pointer_,
+    control_block_->root_page_pointer_.volatile_pointer_,
     nullptr);
-  if (root_pages_ > 1) {
-    for (uint16_t i = 0; i < root_pages_; ++i) {
-      memory::PagePoolOffset offset = memory->grab_free_volatile_page();
+  if (root_pages > 1U) {
+    memory::PagePoolOffsetChunk chunk;
+    chunk.clear();
+    ASSERT_ND(chunk.capacity() >= root_pages);
+    WRAP_ERROR_CODE(pool.grab(root_pages, &chunk));
+    for (uint16_t i = 0; i < root_pages; ++i) {
+      memory::PagePoolOffset offset = chunk.pop_back();
       ASSERT_ND(offset);
       HashRootPage* page = reinterpret_cast<HashRootPage*>(
         local_resolver.resolve_offset_newpage(offset));
       VolatilePagePointer pointer = combine_volatile_page_pointer(
-        context->get_numa_node(),
+        0,
         0,
         0,
         offset);
-      page->initialize_volatile_page(get_id(), pointer, root_page_);
-      root_page_->pointer(i).volatile_pointer_ = pointer;
+      page->initialize_volatile_page(get_id(), pointer, root_page);
+      root_page->pointer(i).volatile_pointer_ = pointer;
     }
   }
 
   LOG(INFO) << "Newly created an hash-storage " << get_name();
-  exist_ = true;
+  control_block_->status_ = kExists;
   return kRetOk;
+}
+
+HashRootPage* HashStoragePimpl::get_root_page() {
+  return reinterpret_cast<HashRootPage*>(
+    engine_->get_memory_manager().get_global_volatile_page_resolver().resolve_offset(
+      control_block_->root_page_pointer_.volatile_pointer_));
 }
 
 ErrorCode HashStoragePimpl::get_record(
@@ -424,7 +433,7 @@ ErrorCode HashStoragePimpl::insert_record(
   // NOTE tentative hack! currently "payload address" for hash insert write set points to bin page
   // so that we don't have to calculate it again.
   return context->get_current_xct().add_to_write_set(
-    holder_,
+    get_id(),
     &(data_page->page_owner()),
     reinterpret_cast<char*>(bin_page),
     log_entry);
@@ -674,13 +683,13 @@ inline HashRootPage* HashStoragePimpl::lookup_boundary_root(
   uint64_t bin,
   uint16_t* pointer_index) {
   uint64_t bin_page = bin / kBinsPerPage;
-  if (root_pages_ == 1) {
+  if (get_root_pages() == 1) {
     ASSERT_ND(bin_page <= kHashRootPageFanout);
     *pointer_index = bin_page;
-    return root_page_;
+    return get_root_page();
   } else {
     uint64_t child_root = bin_page / kHashRootPageFanout;
-    VolatilePagePointer pointer = root_page_->pointer(child_root).volatile_pointer_;
+    VolatilePagePointer pointer = get_root_page()->pointer(child_root).volatile_pointer_;
     ASSERT_ND(pointer.components.offset != 0);
     *pointer_index = bin_page % kHashRootPageFanout;
     return reinterpret_cast<HashRootPage*>(

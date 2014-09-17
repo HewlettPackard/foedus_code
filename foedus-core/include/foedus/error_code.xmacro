@@ -23,6 +23,7 @@ X(kErrorCodeDepedentModuleUnavailableUninit,    0x0006, "GENERAL: A dependent mo
 X(kErrorCodeBeingShutdown,          0x0007, "GENERAL: The engine is being shutdown.")
 X(kErrorCodeTimeout,                0x0008, "GENERAL: Timeout.")
 X(kErrorCodeNotimplemented,         0x0009, "GENERAL: Not implemented yet.")
+X(kErrorCodeSessionExpired,         0x000A, "GENERAL: The session has expired.")
 
 X(kErrorCodeEngineInvalidOption,    0x0101, "ENGINE : Invalid Option")
 
@@ -121,4 +122,5 @@ X(kErrorCodeProcRegisterTooEarly,   0x0D02, "PROC   : Post-register can be calle
 X(kErrorCodeProcRegisterUnsupportedSocType, 0x0D03, "PROC   : This registration type cannot be used for this SOC type.")
 X(kErrorCodeProcRegisterMasterOnly, 0x0D04, "PROC   : This registration type can be invoked only at master engine.")
 X(kErrorCodeProcRegisterChildOnly,  0x0D05, "PROC   : This registration type can be invoked only at child engine.")
+X(kErrorCodeProcNotFound,           0x0D06, "PROC   : The specified procedure name is not found in this engine.")
 

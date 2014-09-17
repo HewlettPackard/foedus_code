@@ -12,29 +12,54 @@
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/assorted/dumb_spinlock.hpp"
+#include "foedus/soc/soc_manager.hpp"
 
 namespace foedus {
 namespace proc {
 ErrorStack ProcManagerPimpl::initialize_once() {
-  // nothing to do in master engine. procedures are registered in SOC engines.
-  if (engine_->is_master()) {
-    return kRetOk;
+  // attach shared memories of all SOCs
+  all_soc_procs_.clear();
+  soc::SocId soc_count = engine_->get_options().thread_.group_count_;
+  soc::SharedMemoryRepo* memory_repo = engine_->get_soc_manager().get_shared_memory_repo();
+  for (soc::SocId node = 0; node < soc_count; ++node) {
+    soc::NodeMemoryAnchors* anchors = memory_repo->get_node_memory_anchors(node);
+    SharedData data;
+    data.control_block_ = anchors->proc_manager_memory_;
+    data.name_sort_ = anchors->proc_name_sort_memory_;
+    data.procs_ = anchors->proc_memory_;
+    all_soc_procs_.push_back(data);
   }
 
-  LOG(INFO) << "Initializing ProcManager(" << engine_->describe_short() << ")..";
+  if (!engine_->is_master()) {
+    LOG(INFO) << "Initializing ProcManager(" << engine_->describe_short() << ")..";
+    soc::SocId node = engine_->get_soc_id();
+    all_soc_procs_[node].control_block_->initialize();
+  }
+
   // TODO(Hideaki) load shared libraries
   return kRetOk;
 }
 
 ErrorStack ProcManagerPimpl::uninitialize_once() {
-  if (engine_->is_master()) {
-    return kRetOk;
-  }
-
-  LOG(INFO) << "Uninitializing ProcManager(" << engine_->describe_short() << ")..";
   ErrorStackBatch batch;
   // TODO(Hideaki) unload shared libraries
+  if (!engine_->is_master()) {
+    LOG(INFO) << "Uninitializing ProcManager(" << engine_->describe_short() << ")..";
+    return kRetOk;
+  }
+  all_soc_procs_.clear();
   return SUMMARIZE_ERROR_BATCH(batch);
+}
+
+
+ErrorStack  ProcManagerPimpl::get_proc(const ProcName& name, Proc* out) {
+  soc::SocId node = engine_->get_soc_id();
+  LocalProcId id = find_by_name(name, &all_soc_procs_[node]);
+  if (id == kLocalProcNotFound) {
+    return ERROR_STACK_MSG(kErrorCodeProcNotFound, name.c_str());
+  }
+  *out = all_soc_procs_[node].procs_[id].second;
+  return kRetOk;
 }
 
 ErrorStack  ProcManagerPimpl::pre_register(const ProcAndName& proc_and_name) {
@@ -88,7 +113,7 @@ LocalProcId ProcManagerPimpl::find_by_name(const ProcName& name, SharedData* sha
 }
 
 LocalProcId ProcManagerPimpl::insert(const ProcAndName& proc_and_name, SharedData* shared_data) {
-  assorted::DumbSpinlock lock_scope(&shared_data->control_block_->locked_);
+  soc::SharedMutexScope lock_scope(&shared_data->control_block_->lock_);
   LocalProcId found = find_by_name(proc_and_name.first, shared_data);
   // TODO(Hideaki) max_proc_count check.
   if (found != kLocalProcNotFound) {
@@ -101,12 +126,7 @@ LocalProcId ProcManagerPimpl::insert(const ProcAndName& proc_and_name, SharedDat
   return new_id;
 }
 
-ProcManagerPimpl::SharedData* ProcManagerPimpl::get_my_data() {
-  if (engine_->is_master()) {
-    return nullptr;
-  }
-  return &soc_data_[engine_->get_soc_id()];
-}
+
 
 }  // namespace proc
 }  // namespace foedus

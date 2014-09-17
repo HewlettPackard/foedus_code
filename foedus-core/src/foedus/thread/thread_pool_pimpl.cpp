@@ -62,51 +62,47 @@ ThreadRef* ThreadPoolPimpl::get_thread(ThreadId id) {
   return get_group(decompose_numa_node(id))->get_thread(decompose_numa_local_ordinal(id));
 }
 
-ImpersonateSession ThreadPoolPimpl::impersonate(ImpersonateTask* task) {
-  ImpersonateSession session(task);
+
+bool ThreadPoolPimpl::impersonate(
+  const proc::ProcName& proc_name,
+  const void* task_input,
+  uint64_t task_input_size,
+  ImpersonateSession *session) {
   uint16_t thread_per_group = engine_->get_options().thread_.thread_count_per_group_;
-  for (ThreadGroupRef* group : groups_) {
+  for (ThreadGroupRef& group : groups_) {
     for (size_t j = 0; j < thread_per_group; ++j) {
-      ThreadRef* thread = group->get_thread(j);
-      if (thread->try_impersonate(&session)) {
-        return session;
+      ThreadRef* thread = group.get_thread(j);
+      if (thread->try_impersonate(proc_name, task_input, task_input_size, session)) {
+        return true;
       }
     }
   }
-  // TODO(Hideaki) : currently, timeout is ignored. It behaves as if timeout=0
-  session.invalid_cause_ = ERROR_STACK(kErrorCodeTimeout);
-  LOG(WARNING) << "Failed to impersonate. pool=" << *this;
-  return session;
+  return false;
 }
-ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_node(
-  ImpersonateTask* task,
-  ThreadGroupId numa_node) {
-  ImpersonateSession session(task);
+bool ThreadPoolPimpl::impersonate_on_numa_node(
+  ThreadGroupId node,
+  const proc::ProcName& proc_name,
+  const void* task_input,
+  uint64_t task_input_size,
+  ImpersonateSession *session) {
   uint16_t thread_per_group = engine_->get_options().thread_.thread_count_per_group_;
-  for (size_t i = 0; i < thread_per_group; ++i) {
-    Thread* thread = groups_[numa_node]->get_thread(i);
-    if (thread->try_impersonate(&session)) {
-      return session;
+  ThreadGroupRef& group = groups_[node];
+  for (size_t j = 0; j < thread_per_group; ++j) {
+    ThreadRef* thread = group.get_thread(j);
+    if (thread->try_impersonate(proc_name, task_input, task_input_size, session)) {
+      return true;
     }
   }
-  // TODO(Hideaki) : currently, timeout is ignored. It behaves as if timeout=0
-  session.invalid_cause_ = ERROR_STACK(kErrorCodeTimeout);
-  LOG(WARNING) << "Failed to impersonate(node="
-    << static_cast<int>(numa_node)
-    << "). pool=" << *this;
-  return session;
+  return false;
 }
-ImpersonateSession ThreadPoolPimpl::impersonate_on_numa_core(
-  ImpersonateTask* task,
-  ThreadId numa_core) {
-  ImpersonateSession session(task);
-  ThreadRef* thread = get_thread(numa_core);
-  if (!thread->try_impersonate(&session)) {
-    // TODO(Hideaki) : currently, timeout is ignored. It behaves as if timeout=0
-    session.invalid_cause_ = ERROR_STACK(kErrorCodeTimeout);
-  }
-  LOG(WARNING) << "Failed to impersonate(core=" << numa_core << "). pool=" << *this;
-  return session;
+bool ThreadPoolPimpl::impersonate_on_numa_core(
+  ThreadId core,
+  const proc::ProcName& proc_name,
+  const void* task_input,
+  uint64_t task_input_size,
+  ImpersonateSession *session) {
+  ThreadRef* thread = get_thread(core);
+  return thread->try_impersonate(proc_name, task_input, task_input_size, session);
 }
 
 std::ostream& operator<<(std::ostream& o, const ThreadPoolPimpl& v) {

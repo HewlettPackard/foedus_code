@@ -32,9 +32,23 @@ class ThreadPoolPimpl final : public DefaultInitializable {
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
-  ImpersonateSession  impersonate(ImpersonateTask* functor);
-  ImpersonateSession  impersonate_on_numa_node(ImpersonateTask* functor, ThreadGroupId numa_node);
-  ImpersonateSession  impersonate_on_numa_core(ImpersonateTask* functor, ThreadId numa_core);
+  bool impersonate(
+    const proc::ProcName& proc_name,
+    const void* task_input,
+    uint64_t task_input_size,
+    ImpersonateSession *session);
+  bool impersonate_on_numa_node(
+    ThreadGroupId node,
+    const proc::ProcName& proc_name,
+    const void* task_input,
+    uint64_t task_input_size,
+    ImpersonateSession *session);
+  bool impersonate_on_numa_core(
+    ThreadId core,
+    const proc::ProcName& proc_name,
+    const void* task_input,
+    uint64_t task_input_size,
+    ImpersonateSession *session);
 
   ThreadGroupRef*     get_group(ThreadGroupId numa_node) { return &groups_[numa_node]; }
   ThreadGroup*        get_local_group() const { return local_group_; }

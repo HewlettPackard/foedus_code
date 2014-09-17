@@ -18,6 +18,7 @@
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
+#include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
 
@@ -115,11 +116,11 @@ class MasstreeCursor CXX11_FINAL {
     kKeyLengthExtremum = 0,
   };
 
-  MasstreeCursor(Engine* engine, MasstreeStorage* storage, thread::Thread* context);
+  MasstreeCursor(MasstreeStorage storage, thread::Thread* context);
   ~MasstreeCursor();
 
   thread::Thread*   get_context() { return context_; }
-  MasstreeStorage*  get_storage() { return storage_; }
+  MasstreeStorage&  get_storage() { return storage_; }
   bool              is_for_writes() const { return for_writes_; }
   bool              is_forward_cursor() const { return forward_cursor_; }
 
@@ -188,9 +189,8 @@ class MasstreeCursor CXX11_FINAL {
   ErrorCode increment_record(PAYLOAD* value, uint16_t payload_offset);
 
  private:
-  Engine* const engine_;
-  MasstreeStorage* const storage_;
-  MasstreeStoragePimpl* const storage_pimpl_;
+  Engine* const         engine_;
+  MasstreeStorage       storage_;
   thread::Thread* const context_;
   xct::Xct* const current_xct_;
 

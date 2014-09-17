@@ -11,8 +11,8 @@
 #include "foedus/snapshot/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
-#include "foedus/storage/array/fwd.hpp"
 #include "foedus/storage/array/array_storage.hpp"
+#include "foedus/storage/array/fwd.hpp"
 #include "foedus/storage/hash/fwd.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
@@ -20,6 +20,7 @@
 #include "foedus/storage/sequential/fwd.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
 #include "foedus/thread/fwd.hpp"
+#include "foedus/xct/fwd.hpp"
 
 namespace foedus {
 namespace storage {
@@ -48,6 +49,12 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
    * The caller might later fail, so StorageId might have holes.
    */
   StorageId   issue_next_storage_id();
+
+  /**
+   * @brief Returns the name of the given storage ID.
+   * @return name of the storage. If the ID doesn't exist, an empty string.
+   */
+  const StorageName& get_name(StorageId id);
 
   /**
    * Returns the storage of given ID.
@@ -201,6 +208,18 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
    * but at some point we must do something.
    */
   ErrorStack  clone_all_storage_metadata(snapshot::SnapshotMetadata *metadata);
+
+  /**
+   * @brief Resolves a "moved" record for a write set of the given storage ID.
+   * @see Storage::track_moved_record()
+   */
+  bool                track_moved_record(StorageId storage_id, xct::WriteXctAccess *write);
+
+  /**
+   * @brief Resolves a "moved" record's xct_id only for the given storage ID.
+   * @see Storage::track_moved_record()
+   */
+  xct::LockableXctId* track_moved_record(StorageId storage_id, xct::LockableXctId *address);
 
   /** Returns pimpl object. Use this only if you know what you are doing. */
   StorageManagerPimpl* get_pimpl() { return pimpl_; }

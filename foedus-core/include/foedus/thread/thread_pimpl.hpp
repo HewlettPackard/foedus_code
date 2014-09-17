@@ -38,6 +38,11 @@ struct ThreadControlBlock {
   void initialize() {
     status_ = kNotInitialized;
     mcs_block_current_ = 0;
+    current_ticket_ = 0;
+    proc_name_.clear();
+    input_len_ = 0;
+    output_len_ = 0;
+    proc_result_.clear();
     wakeup_cond_.initialize();
     task_mutex_.initialize();
     task_complete_cond_.initialize();
@@ -71,6 +76,13 @@ struct ThreadControlBlock {
 
   /** The following variables are protected by this mutex. */
   soc::SharedMutex    task_mutex_;
+
+  /**
+   * The most recently issued impersonation ticket.
+   * A session with this ticket has an exclusive ownership until it changes the status_
+   * to kWaitingForTask.
+   */
+  ThreadTicket        current_ticket_;
 
   /** Name of the procedure to execute next. Empty means not set. */
   proc::ProcName      proc_name_;
@@ -120,14 +132,7 @@ class ThreadPimpl final : public DefaultInitializable {
   void        handle_tasks();
   /** initializes the thread's policy/priority */
   void        set_thread_schedule();
-  void        hack_handle_one_task(ImpersonateTask* task, ImpersonateSession* session);
-
-  /**
-   * Conditionally try to occupy this thread, or impersonate. If it fails, it immediately returns.
-   * @param[in] session the session to run on this thread
-   * @return whether successfully impersonated.
-   */
-  bool        try_impersonate(ImpersonateSession *session);
+  bool        is_stop_requested() const { return control_block_->status_ == kWaitingForTerminate; }
 
   /** @copydoc foedus::thread::Thread::find_or_read_a_snapshot_page() */
   ErrorCode   find_or_read_a_snapshot_page(

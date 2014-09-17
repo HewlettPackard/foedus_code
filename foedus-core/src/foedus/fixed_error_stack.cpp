@@ -60,6 +60,16 @@ void FixedErrorStack::output(std::ostream* ptr) const {
   }
 }
 
+ErrorStack FixedErrorStack::to_error_stack() const {
+  if (!is_error()) {
+    return kRetOk;
+  }
+  std::stringstream msg;
+  output(&msg);
+  return ERROR_STACK_MSG(error_code_, msg.str().c_str());
+}
+
+
 std::ostream& operator<<(std::ostream& o, const FixedErrorStack& obj) {
   obj.output(&o);
   return o;

@@ -160,8 +160,6 @@ class Thread CXX11_FINAL : public virtual Initializable {
   /** Returns the pimpl of this object. Use it only when you know what you are doing. */
   ThreadPimpl*  get_pimpl() const { return pimpl_; }
 
-  void          hack_handle_one_task(ImpersonateTask* task, ImpersonateSession* session);
-
   friend std::ostream& operator<<(std::ostream& o, const Thread& v);
 
  private:

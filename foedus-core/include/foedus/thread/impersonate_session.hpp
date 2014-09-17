@@ -41,40 +41,45 @@ namespace thread {
  * Actually, this class is based on std::shared_future just to provide copy semantics
  * for non-C++11 clients. Additional overheads shouldn't matter, hopeully.
  *
- * @par POD
- * This object is a POD. It's trivially copiable/moveable.
+ * @par Copy/Move
+ * This object is not copy-able because the destructor closes the session in shared memory.
+ * However, it is moveable, which moves the ownership (available only with C++11 though).
  */
 struct ImpersonateSession CXX11_FINAL {
-  /** Result of wait_for() */
-  enum Status {
-    /** If called for an invalid session. */
-    kInvalidSession = 0,
-    /** The session has completed. */
-    kReady,
-    /** Timeout duration has elapsed. */
-    kTimeout,
-  };
+  ImpersonateSession() : thread_(CXX11_NULLPTR), ticket_(0) {}
+  ~ImpersonateSession() { release(); }
 
-  ImpersonateSession()
-    : thread_id_(0), impersonated_(false), task_(CXX11_NULLPTR), invalid_cause_() {}
-  explicit ImpersonateSession(ImpersonateTask* task)
-    : thread_id_(0), impersonated_(false), task_(task), invalid_cause_() {}
-  ~ImpersonateSession() {}
+  // Not copy-able
+  ImpersonateSession(const ImpersonateSession& other) CXX11_FUNC_DELETE;
+  ImpersonateSession& operator=(const ImpersonateSession& other) CXX11_FUNC_DELETE;
+
+#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
+  // but move-able (only in C++11)
+  ImpersonateSession(ImpersonateSession&& other);
+  ImpersonateSession& operator=(ImpersonateSession&& other);
+#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 
   /**
    * Returns if the impersonation succeeded.
    */
-  bool        is_valid() const { return impersonated_; }
+  bool        is_valid() const { return thread_ != CXX11_NULLPTR && ticket_ != 0; }
+  /** Returns if the task is still running*/
+  bool        is_running() const;
 
   /**
    * @brief Waits until the completion of the asynchronous session and retrieves the result.
    * @details
    * It effectively calls wait() in order to wait for the result.
    * The behavior is undefined if is_valid()== false.
-   * This is analogous to std::future::get().
    * @pre is_valid()==true
    */
   ErrorStack  get_result();
+  /** Returns the byte size of output */
+  uint64_t    get_output_size();
+  /**
+   * Copies the output to the given buffer, whose size must be at least get_output_size().
+   */
+  void        get_output(void* output_buffer);
 
   /**
    * @brief Blocks until the completion of the asynchronous session.
@@ -87,26 +92,24 @@ struct ImpersonateSession CXX11_FINAL {
   void        wait() const;
 
   /**
-   * @brief Waits for the completion of the asynchronous session, blocking until specified timeout
-   * duration has elapsed or the session completes, whichever comes first.
-   * @param[in] timeout timeout duration in microseconds.
+   * @brief Releases all resources and ownerships this session has acquired.
    * @details
-   * This is analogous to std::future::wait_for() although we don't provide std::chrono.
+   * This method is idempotent, you can call it in any state and many times.
+   * Actually, this is also called from the destructor.
+   * This method might block if the session is still running.
+   * We do not allow the user to discard this session without completing the currently running task.
+   * @attention Once you invoke this method, you can't call get_result(), get_output(),
+   * get_output_size() any longer.
    */
-  Status      wait_for(TimeoutMicrosec timeout) const;
+  void        release();
 
   friend std::ostream& operator<<(std::ostream& o, const ImpersonateSession& v);
 
-  /** ID of the impersonated thread. If impersonation failed, no meaningful value. */
-  thread::ThreadId    thread_id_;
-  /** Whether impersonation succeded. */
-  bool                impersonated_;
+  /** The impersonated thread. If impersonation failed, null. */
+  thread::ThreadRef*    thread_;
 
-  /** The impersonated task running on this session. */
-  ImpersonateTask*    task_;
-
-  /** If impersonation failed, this indicates why it failed. */
-  ErrorStack          invalid_cause_;
+  /** The ticket issued as of impersonation. If impersonation failed, 0. */
+  thread::ThreadTicket  ticket_;
 };
 }  // namespace thread
 }  // namespace foedus

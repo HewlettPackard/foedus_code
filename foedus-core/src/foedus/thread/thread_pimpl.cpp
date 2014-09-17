@@ -22,6 +22,8 @@
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/proc/proc_id.hpp"
+#include "foedus/proc/proc_manager.hpp"
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/thread/impersonate_task_pimpl.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
@@ -99,49 +101,70 @@ ErrorStack ThreadPimpl::uninitialize_once() {
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 
-void ThreadPimpl::hack_handle_one_task(ImpersonateTask* task, ImpersonateSession* session) {
-  NumaThreadScope scope(numa_node_);
-  session->thread_id_ = id_;
-  session->task_ = task;
-  ErrorStack result = task->run(holder_);
-  task->pimpl_->set_result(result);
-}
-
 void ThreadPimpl::handle_tasks() {
   int numa_node = static_cast<int>(decompose_numa_node(id_));
   LOG(INFO) << "Thread-" << id_ << " started running on NUMA node: " << numa_node;
   NumaThreadScope scope(numa_node);
   // Actual xct processing can't start until XctManager is initialized.
-  SPINLOCK_WHILE(!raw_thread_.is_stop_requested()
+  SPINLOCK_WHILE(!is_stop_requested()
     && !engine_->get_xct_manager().is_initialized()) {
     assorted::memory_fence_acquire();
   }
   LOG(INFO) << "Thread-" << id_ << " now starts processing transactions";
   set_thread_schedule();
-  while (!raw_thread_.sleep()) {
-    VLOG(0) << "Thread-" << id_ << " woke up";
-    // Keeps running if the client sets a new task immediately after this.
-    while (!raw_thread_.is_stop_requested()) {
-      ImpersonateTask* task = current_task_.load();
-      if (task) {
-        VLOG(0) << "Thread-" << id_ << " retrieved a task";
-        ErrorStack result = task->run(holder_);
-        VLOG(0) << "Thread-" << id_ << " run(task) returned. result =" << result;
-        ASSERT_ND(current_task_.load() == task);
-        current_task_.store(nullptr);  // start receiving next task
-        task->pimpl_->set_result(result);  // this wakes up the client
-        VLOG(0) << "Thread-" << id_ << " finished a task. result =" << result;
-      } else {
-        // NULL functor is the signal to terminate
+  control_block_->status_ = kWaitingForTask;
+  while (!is_stop_requested()) {
+    {
+      soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());
+      if (is_stop_requested() || control_block_->status_ == kWaitingForExecution) {
         break;
       }
+      control_block_->wakeup_cond_.timedwait(&scope, 10000000ULL);
+    }
+    VLOG(0) << "Thread-" << id_ << " woke up";
+    if (control_block_->status_ == kWaitingForExecution) {
+      control_block_->output_len_ = 0;
+      control_block_->status_ = kRunningTask;
+      const proc::ProcName& proc_name = control_block_->proc_name_;
+      VLOG(0) << "Thread-" << id_ << " retrieved a task: " << proc_name;
+      proc::Proc proc = nullptr;
+      ErrorStack result = engine_->get_proc_manager().get_proc(proc_name, &proc);
+      if (result.is_error()) {
+        // control_block_->proc_result_
+        LOG(ERROR) << "Thread-" << id_ << " couldn't find procedure: " << proc_name;
+      } else {
+        uint32_t output_used = 0;
+        result = proc(
+          holder_,
+          task_input_memory_,
+          control_block_->input_len_,
+          task_output_memory_,
+          soc::ThreadMemoryAnchors::kTaskOutputMemorySize,
+          &output_used);
+        VLOG(0) << "Thread-" << id_ << " run(task) returned. result =" << result
+          << ", output_used=" << output_used;
+        control_block_->output_len_ = output_used;
+      }
+      if (result.is_error()) {
+        control_block_->proc_result_.wrap(result);
+      } else {
+        control_block_->proc_result_.clear();
+      }
+      control_block_->status_ = kWaitingForClientRelease;
+      {
+        // Wakeup the client if it's waiting.
+        soc::SharedMutexScope scope(control_block_->task_complete_cond_.get_mutex());
+        control_block_->task_complete_cond_.signal(&scope);
+      }
+      VLOG(0) << "Thread-" << id_ << " finished a task. result =" << result;
     }
   }
+  control_block_->status_ = kTerminated;
   LOG(INFO) << "Thread-" << id_ << " exits";
 }
 void ThreadPimpl::set_thread_schedule() {
   // this code totally assumes pthread. maybe ifdef to handle Windows.. later!
-  pthread_t handle = raw_thread_.native_handle<pthread_t>();
+  pthread_t handle = static_cast<pthread_t>(raw_thread_.native_handle());
   int policy;
   sched_param param;
   int ret = ::pthread_getschedparam(handle, &policy, &param);
@@ -184,23 +207,6 @@ void ThreadPimpl::set_thread_schedule() {
     } else if (ret2) {
       LOG(FATAL) << "WTF pthread_setschedparam() failed: error=" << assorted::os_error();
     }
-  }
-}
-
-bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
-  ImpersonateTask* task = nullptr;
-  session->thread_ = holder_;
-  if (current_task_.compare_exchange_strong(task, session->task_)) {
-    // successfully acquired.
-    VLOG(0) << "Impersonation succeeded for Thread-" << id_ << ".";
-    raw_thread_.wakeup();
-    return true;
-  } else {
-    // no, someone else took it.
-    ASSERT_ND(task);
-    session->thread_ = nullptr;
-    DVLOG(0) << "Someone already took Thread-" << id_ << ".";
-    return false;
   }
 }
 
@@ -470,6 +476,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
 
   ASSERT_ND(mcs_lock->is_locked());
   ThreadId predecessor_id = old.get_tail_waiter();
+  ASSERT_ND(predecessor_id != id_);
   xct::McsBlockIndex predecessor_block = old.get_tail_waiter_block();
   DVLOG(0) << "mm, contended, we have to wait.. me=" << id_ << " pred=" << predecessor_id;
   ASSERT_ND(decompose_numa_node(predecessor_id) < engine_->get_options().thread_.group_count_);
@@ -478,7 +485,6 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
 
   ThreadRef* predecessor = engine_->get_thread_pool().get_thread_ref(predecessor_id);
   ASSERT_ND(predecessor);
-  ASSERT_ND(predecessor != this);
   ASSERT_ND(block->waiting_);
   ASSERT_ND(predecessor->get_control_block()->mcs_block_current_ >= predecessor_block);
   xct::McsBlock* pred_block = predecessor->get_mcs_blocks() + predecessor_block;

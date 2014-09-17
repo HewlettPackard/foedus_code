@@ -23,6 +23,10 @@ ErrorStack  ProcManager::initialize() { return pimpl_->initialize(); }
 bool        ProcManager::is_initialized() const { return pimpl_->is_initialized(); }
 ErrorStack  ProcManager::uninitialize() { return pimpl_->uninitialize(); }
 
+ErrorStack  ProcManager::get_proc(const ProcName& name, Proc* out) {
+  return pimpl_->get_proc(name, out);
+}
+
 ErrorStack  ProcManager::pre_register(const ProcAndName& proc_and_name) {
   return pimpl_->pre_register(proc_and_name);
 }

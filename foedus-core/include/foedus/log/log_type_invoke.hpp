@@ -37,7 +37,7 @@ void invoke_apply_engine(void *log_buffer, thread::Thread* context);
  * @details
  * This is not inlined because this log kind appears much more infrequently.
  */
-void invoke_apply_storage(void *log_buffer, thread::Thread* context, storage::Storage* storage);
+void invoke_apply_storage(void *log_buffer, thread::Thread* context, storage::StorageId id);
 
 /**
  * @brief Invokes the apply logic for a record-wise log type.
@@ -48,7 +48,7 @@ void invoke_apply_storage(void *log_buffer, thread::Thread* context, storage::St
 void invoke_apply_record(
   void *log_buffer,
   thread::Thread* context,
-  storage::Storage* storage,
+  storage::StorageId storage_id,
   xct::LockableXctId* owner_id_address,
   char* payload_address);
 
@@ -72,11 +72,11 @@ void invoke_assert_valid(void *log_buffer);
 void invoke_ostream(void *buffer, std::ostream *ptr);
 
 #define X(a, b, c) case a: \
-  reinterpret_cast< c* >(buffer)->apply_record(context, storage, owner_id, payload); return;
+  reinterpret_cast< c* >(buffer)->apply_record(context, storage_id, owner_id, payload); return;
 inline void invoke_apply_record(
   void *buffer,
   thread::Thread* context,
-  storage::Storage* storage,
+  storage::StorageId storage_id,
   xct::LockableXctId* owner_id,
   char* payload) {
   invoke_assert_valid(buffer);

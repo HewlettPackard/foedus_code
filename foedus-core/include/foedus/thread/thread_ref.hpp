@@ -9,6 +9,7 @@
 
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
+#include "foedus/proc/proc_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/fwd.hpp"
@@ -26,13 +27,24 @@ class ThreadRef CXX11_FINAL {
 
   /**
    * Conditionally try to occupy this thread, or impersonate. If it fails, it immediately returns.
-   * @param[in] session the session to run on this thread
+   * @param[in] proc_name the name of the procedure to run on this thread.
+   * @param[in] task_input input data of arbitrary format for the procedure.
+   * @param[in] task_input_size byte size of the input data to copy into the thread's memory.
+   * @param[out] session the session to run on this thread. On success, the session receives a
+   * ticket so that the caller can wait for the completion.
    * @return whether successfully impersonated.
    */
-  bool          try_impersonate(ImpersonateSession *session);
+  bool          try_impersonate(
+    const proc::ProcName& proc_name,
+    const void* task_input,
+    uint64_t task_input_size,
+    ImpersonateSession *session);
+
   Engine*       get_engine() const { return engine_; }
   ThreadId      get_thread_id() const { return id_; }
   ThreadGroupId get_numa_node() const { return decompose_numa_node(id_); }
+  void*         get_task_input_memory() const { return task_input_memory_; }
+  void*         get_task_output_memory() const { return task_output_memory_; }
   xct::McsBlock* get_mcs_blocks() const { return mcs_blocks_; }
   ThreadControlBlock* get_control_block() const { return control_block_; }
 
@@ -43,6 +55,8 @@ class ThreadRef CXX11_FINAL {
   ThreadId              id_;
 
   ThreadControlBlock*   control_block_;
+  void*                 task_input_memory_;
+  void*                 task_output_memory_;
 
   /** Pre-allocated MCS blocks. index 0 is not used so that successor_block=0 means null. */
   xct::McsBlock*        mcs_blocks_;

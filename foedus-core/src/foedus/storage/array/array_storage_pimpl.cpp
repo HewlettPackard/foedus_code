@@ -59,7 +59,7 @@ ErrorCode   ArrayStorage::prefetch_pages(
 ErrorStack ArrayStorage::verify_single_thread(thread::Thread* context) {
   return ArrayStoragePimpl(this).verify_single_thread(context);
 }
-/*
+/* TODO(Hideaki) During surgery
 void ArrayStorageFactory::add_create_log(const Metadata* metadata, thread::Thread* context) const {
   const ArrayMetadata* casted = dynamic_cast<const ArrayMetadata*>(metadata);
   ASSERT_ND(casted);
@@ -325,7 +325,7 @@ ErrorStack ArrayStorage::create() {
     ArrayPage* page = current_pages[level];
     ArrayRange range(0, offset_intervals[level]);
     if (range.end_ > array_size) {
-      ASSERT_ND(level == levels_ - 1);
+      ASSERT_ND(level == levels - 1);
       range.end_ = array_size;
     }
     page->initialize_volatile_page(
@@ -347,9 +347,9 @@ ErrorStack ArrayStorage::create() {
       child_pointer.volatile_pointer_.components.mod_count = 0;
     }
   }
-  ASSERT_ND(current_pages.size() == levels_);
-  ASSERT_ND(current_pages_ids.size() == levels_);
-  ASSERT_ND(current_records.size() == levels_);
+  ASSERT_ND(current_pages.size() == levels);
+  ASSERT_ND(current_pages_ids.size() == levels);
+  ASSERT_ND(current_records.size() == levels);
 
   // then moves on to right
   for (uint64_t leaf = 1; leaf < pages[0]; ++leaf) {

@@ -26,6 +26,7 @@ namespace storage {
 namespace array {
 
 ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
+  /* TODO(Hideaki) During surgery
   ArrayStorage* storage = dynamic_cast<ArrayStorage*>(
     engine->get_storage_manager().get_storage(id));
   ASSERT_ND(storage);
@@ -35,7 +36,7 @@ ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
   array_size_ = storage->get_array_size();
   bucket_size_ = array_size_ / kInteriorFanout;
   bucket_size_div_ = assorted::ConstDiv(bucket_size_);
-/*
+
   ArrayStoragePimpl* array = storage->get_pimpl();
   if (array->levels_ == 1) {
     ASSERT_ND(array->root_page_->is_leaf());

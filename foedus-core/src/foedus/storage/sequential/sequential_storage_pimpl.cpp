@@ -17,6 +17,7 @@
 #include "foedus/log/thread_log_buffer_impl.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/memory_id.hpp"
+#include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_manager.hpp"
@@ -59,7 +60,7 @@ ErrorCode SequentialStorage::append_record(
 void SequentialStorage::apply_append_record(
   thread::Thread* context,
   const SequentialAppendLogType* log_entry) {
-  volatile_list_.append_record(
+  SequentialStoragePimpl(this).append_record(
     context,
     log_entry->header_.xct_id_,
     log_entry->payload_,
@@ -67,7 +68,7 @@ void SequentialStorage::apply_append_record(
 }
 
 ErrorStack SequentialStoragePimpl::drop() {
-  LOG(INFO) << "Uninitializing an sequential-storage " << *this;
+  LOG(INFO) << "Uninitializing an sequential-storage " << get_name();
   // release all pages in this list.
   uint16_t nodes = engine_->get_options().thread_.group_count_;
   uint16_t threads_per_node = engine_->get_options().thread_.thread_count_per_group_;
@@ -114,26 +115,26 @@ ErrorStack SequentialStoragePimpl::drop() {
     memory::NumaNodeMemoryRef* memory = engine_->get_memory_manager().get_node_memory(node);
     memory::PagePool& pool = memory->get_volatile_pool();
     if (control_block_->head_pointer_pages_[p].components.offset) {
-      ASSERT_ND(head_pointer_pages_[p].components.numa_node == node);
+      ASSERT_ND(control_block_->head_pointer_pages_[p].components.numa_node == node);
       pool.release_one(control_block_->head_pointer_pages_[p].components.offset);
     }
     if (control_block_->tail_pointer_pages_[p].components.offset) {
-      ASSERT_ND(tail_pointer_pages_[p].components.numa_node == node);
+      ASSERT_ND(control_block_->tail_pointer_pages_[p].components.numa_node == node);
       pool.release_one(control_block_->tail_pointer_pages_[p].components.offset);
     }
   }
-  std::memset(control_block_->head_pointer_pages_, 0, sizeof(head_pointer_pages_));
-  std::memset(control_block_->tail_pointer_pages_, 0, sizeof(tail_pointer_pages_));
+  std::memset(control_block_->head_pointer_pages_, 0, sizeof(control_block_->head_pointer_pages_));
+  std::memset(control_block_->tail_pointer_pages_, 0, sizeof(control_block_->tail_pointer_pages_));
   return kRetOk;
 }
 
 ErrorStack SequentialStoragePimpl::create() {
   if (exists()) {
-    LOG(ERROR) << "This sequential-storage already exists: " << *this;
+    LOG(ERROR) << "This sequential-storage already exists: " << get_name();
     return ERROR_STACK(kErrorCodeStrAlreadyExists);
   }
 
-  LOG(INFO) << "Newly created an sequential-storage " << *this;
+  LOG(INFO) << "Newly created an sequential-storage " << get_name();
   std::memset(control_block_->head_pointer_pages_, 0, sizeof(control_block_->head_pointer_pages_));
   std::memset(control_block_->tail_pointer_pages_, 0, sizeof(control_block_->tail_pointer_pages_));
   // we pre-allocate pointer pages for all required nodes.

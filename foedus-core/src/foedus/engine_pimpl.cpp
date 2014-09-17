@@ -140,7 +140,7 @@ ErrorStack EnginePimpl::check_transparent_hugepage_setting() {
         << std::endl << "  sudo sh -c 'echo always > /sys/kernel/mm/transparent_hugepage/enabled'"
         << std::endl;
     }
-    return;
+    return kRetOk;
   }
 
   std::cerr << "Could not read /sys/kernel/mm/transparent_hugepage/enabled to check"

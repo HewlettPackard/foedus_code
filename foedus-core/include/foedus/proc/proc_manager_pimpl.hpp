@@ -12,6 +12,7 @@
 #include "foedus/proc/fwd.hpp"
 #include "foedus/proc/proc_id.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_mutex.hpp"
 
 namespace foedus {
 namespace proc {
@@ -23,13 +24,21 @@ struct ProcManagerControlBlock {
   ProcManagerControlBlock() = delete;
   ~ProcManagerControlBlock() = delete;
 
+  void initialize() {
+    lock_.initialize();
+    count_ = 0;
+  }
+  void uninitialize() {
+    lock_.uninitialize();
+  }
+
   /**
-    * A simple spin lock to protect data.
-    * Read access via process ID does not need a lock (because we only append to the last).
-    * Modifications and reads via name (because it's sorted) needs to take a lock.
-    */
-  bool        locked_;
-  LocalProcId count_;
+   * Mutex to protect data.
+   * Read access via process ID does not need a lock (because we only append to the last).
+   * Modifications and reads via name (because it's sorted) needs to take a lock.
+   */
+  soc::SharedMutex  lock_;
+  LocalProcId       count_;
 };
 
 /**
@@ -57,15 +66,10 @@ class ProcManagerPimpl final : public DefaultInitializable {
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
+  ErrorStack  get_proc(const ProcName& name, Proc* out);
   ErrorStack  pre_register(const ProcAndName& proc_and_name);
   ErrorStack  local_register(const ProcAndName& proc_and_name);
   ErrorStack  emulated_register(const ProcAndName& proc_and_name);
-
-  /**
-   * Returns Shared data of this SOC. Same as soc_data_[engine_->get_soc_id()].
-   * Returns null in master engine.
-   */
-  SharedData* get_my_data();
 
   static LocalProcId find_by_name(const ProcName& name, SharedData* shared_data);
   static LocalProcId insert(const ProcAndName& proc_and_name, SharedData* shared_data);
@@ -75,7 +79,7 @@ class ProcManagerPimpl final : public DefaultInitializable {
   /**
    * Shared data of all SOCs. Index is SOC ID.
    */
-  std::vector<SharedData>     soc_data_;
+  std::vector< SharedData >   all_soc_procs_;
 };
 static_assert(
   sizeof(ProcManagerControlBlock) <= soc::NodeMemoryAnchors::kProcManagerMemorySize,

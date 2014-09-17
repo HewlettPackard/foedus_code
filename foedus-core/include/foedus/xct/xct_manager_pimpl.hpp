@@ -160,7 +160,7 @@ class XctManagerPimpl final : public DefaultInitializable {
   bool        is_stop_requested() const;
 
   Engine* const                 engine_;
-  XctManagerControlBlock* const control_block_;
+  XctManagerControlBlock*       control_block_;
 
   /**
    * This thread keeps advancing the current_global_epoch_ and durable_global_epoch_.

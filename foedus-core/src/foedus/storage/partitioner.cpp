@@ -21,6 +21,7 @@ std::ostream& operator<<(std::ostream& o, const Partitioner& v) {
 }
 
 Partitioner* Partitioner::create_partitioner(Engine* engine, StorageId id) {
+  /* TODO(Hideaki) During surgery
   Storage* storage = engine->get_storage_manager().get_storage(id);
   ASSERT_ND(storage);
   switch (storage->get_type()) {
@@ -41,6 +42,7 @@ Partitioner* Partitioner::create_partitioner(Engine* engine, StorageId id) {
     default:
       break;
   }
+  */
   return nullptr;
 }
 
