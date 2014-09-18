@@ -21,7 +21,6 @@
 #include "foedus/storage/sequential/sequential_page_impl.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
 #include "foedus/storage/sequential/sequential_storage_pimpl.hpp"
-#include "foedus/storage/sequential/sequential_volatile_list_impl.hpp"
 #include "foedus/thread/rendezvous_impl.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"

@@ -169,7 +169,8 @@ struct GlobalMemoryAnchors {
     kMasterStatusMemorySize = 1 << 12,
     kLogManagerMemorySize = 1 << 12,
     kRestartManagerMemorySize = 1 << 12,
-    kSavepointManagerMemorySize = 1 << 12,
+    /** 3 << 19 is for FixedSavepoint. It's about 1.5MB */
+    kSavepointManagerMemorySize = (3 << 19) + (1 << 12),
     kSnapshotManagerMemorySize = 1 << 12,
     kStorageManagerMemorySize = 1 << 12,
     kXctManagerMemorySize = 1 << 12,

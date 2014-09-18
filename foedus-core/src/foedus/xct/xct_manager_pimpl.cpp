@@ -68,8 +68,8 @@ ErrorStack XctManagerPimpl::initialize_once() {
 
   if (engine_->is_master()) {
     control_block_->initialize();
-    const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
-    control_block_->current_global_epoch_ = savepoint.get_current_epoch().value();
+    control_block_->current_global_epoch_
+      = engine_->get_savepoint_manager().get_initial_current_epoch().value();
     ASSERT_ND(get_current_global_epoch().is_valid());
     control_block_->epoch_advance_thread_terminate_requested_ = false;
     epoch_advance_thread_ = std::move(std::thread(&XctManagerPimpl::handle_epoch_advance, this));

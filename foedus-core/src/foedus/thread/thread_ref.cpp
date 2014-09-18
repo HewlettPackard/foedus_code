@@ -6,6 +6,8 @@
 
 #include <glog/logging.h>
 
+#include <ostream>
+
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
@@ -76,6 +78,24 @@ ThreadGroupRef::ThreadGroupRef(Engine* engine, ThreadGroupId group_id)
   for (uint16_t i = 0; i < count; ++i) {
     threads_.emplace_back(ThreadRef(engine, compose_thread_id(group_id, i)));
   }
+}
+std::ostream& operator<<(std::ostream& o, const ThreadGroupRef& v) {
+  o << "<ThreadGroupRef>";
+  o << "<group_id_>" << static_cast<int>(v.get_group_id()) << "</group_id_>";
+  o << "<threads_>";
+  for (const ThreadRef& child_thread : v.threads_) {
+    o << child_thread;
+  }
+  o << "</threads_>";
+  o << "</ThreadGroup>";
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const ThreadRef& v) {
+  o << "ThreadRef-" << v.get_thread_id() << "[";
+  o << "status=" << (v.get_control_block()->status_);
+  o << "]";
+  return o;
 }
 
 

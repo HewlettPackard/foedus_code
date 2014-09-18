@@ -61,7 +61,6 @@ ErrorStack ThreadPimpl::initialize_once() {
 
   soc::ThreadMemoryAnchors* anchors
     = engine_->get_soc_manager().get_shared_memory_repo()->get_thread_memory_anchors(id_);
-    anchors->thread_memory_;
   control_block_ = anchors->thread_memory_;
   control_block_->initialize();
   task_input_memory_ = anchors->task_input_memory_;
@@ -146,7 +145,7 @@ void ThreadPimpl::handle_tasks() {
         control_block_->output_len_ = output_used;
       }
       if (result.is_error()) {
-        control_block_->proc_result_.wrap(result);
+        control_block_->proc_result_.from_error_stack(result);
       } else {
         control_block_->proc_result_.clear();
       }

@@ -72,20 +72,16 @@ ErrorStack Logger::initialize_once() {
     << static_cast<int>(numa_node_);
 
   // Initialize the values from the latest savepoint.
-  // this is during initialization. no race.
-  const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
-  // durable epoch from savepoint
-  control_block_->durable_epoch_ = savepoint.get_durable_epoch().value();
+  savepoint::LoggerSavepointInfo info = engine_->get_savepoint_manager().get_logger_savepoint(id_);
+  // durable epoch from initial savepoint
+  control_block_->durable_epoch_
+    = engine_->get_savepoint_manager().get_initial_durable_epoch().value();
   marked_epoch_ = get_durable_epoch().one_more();
   no_log_epoch_ = false;
-  ASSERT_ND(savepoint.oldest_log_files_.size() > id_);
-  ASSERT_ND(savepoint.current_log_files_.size() > id_);
-  ASSERT_ND(savepoint.current_log_files_offset_durable_.size() > id_);
-  ASSERT_ND(savepoint.oldest_log_files_offset_begin_.size() > id_);
-  control_block_->oldest_ordinal_ = savepoint.oldest_log_files_[id_];  // ordinal/length too
-  control_block_->current_ordinal_ = savepoint.current_log_files_[id_];
-  control_block_->current_file_durable_offset_ = savepoint.current_log_files_offset_durable_[id_];
-  control_block_->oldest_file_offset_begin_ = savepoint.oldest_log_files_offset_begin_[id_];
+  control_block_->oldest_ordinal_ = info.oldest_log_file_;  // ordinal/length too
+  control_block_->current_ordinal_ = info.current_log_file_;
+  control_block_->current_file_durable_offset_ = info.current_log_file_offset_durable_;
+  control_block_->oldest_file_offset_begin_ = info.oldest_log_file_offset_begin_;
   current_file_path_ = construct_suffixed_log_path(control_block_->current_ordinal_);
   // open the log file
   current_file_ = new fs::DirectIoFile(current_file_path_,

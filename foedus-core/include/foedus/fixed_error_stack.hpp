@@ -84,6 +84,9 @@ class FixedErrorStack {
    */
   ErrorStack          to_error_stack() const;
 
+  /** Convert ErrorStack to this object. Opposite of to_error_stack */
+  void                from_error_stack(const ErrorStack& other);
+
   friend std::ostream& operator<<(std::ostream& o, const FixedErrorStack& obj);
 
  private:

@@ -54,6 +54,22 @@ void Savepoint::populate_empty(log::LoggerId logger_count) {
   assert_epoch_values();
 }
 
+void FixedSavepoint::update(
+  uint16_t node_count,
+  uint16_t loggers_per_node_count,
+  const Savepoint& src) {
+  node_count_ = node_count;
+  loggers_per_node_count_ = loggers_per_node_count;
+  current_epoch_ = src.current_epoch_;
+  durable_epoch_ = src.durable_epoch_;
+  uint32_t count = get_total_logger_count();
+  for (uint32_t i = 0; i < count; ++i) {
+    logger_info_[i].oldest_log_file_ = src.oldest_log_files_[i];
+    logger_info_[i].oldest_log_file_offset_begin_ = src.oldest_log_files_offset_begin_[i];
+    logger_info_[i].current_log_file_ = src.current_log_files_[i];
+    logger_info_[i].current_log_file_offset_durable_ = src.current_log_files_offset_durable_[i];
+  }
+}
 
 }  // namespace savepoint
 }  // namespace foedus

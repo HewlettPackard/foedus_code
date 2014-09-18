@@ -20,6 +20,7 @@
 #include "foedus/snapshot/log_gleaner_impl.hpp"
 #include "foedus/snapshot/snapshot_metadata.hpp"
 #include "foedus/snapshot/snapshot_options.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/metadata.hpp"
 #include "foedus/storage/storage_manager.hpp"
 
@@ -34,14 +35,19 @@ ErrorStack SnapshotManagerPimpl::initialize_once() {
   if (!engine_->get_log_manager().is_initialized()) {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
   }
-  snapshot_epoch_.store(Epoch::kEpochInvalid);
-  // TODO(Hideaki): get snapshot status from savepoint
-  previous_snapshot_id_ = kNullSnapshotId;
-  immediate_snapshot_requested_.store(false);
-  previous_snapshot_time_ = std::chrono::system_clock::now();
-  snapshot_thread_.initialize("Snapshot",
-          std::thread(&SnapshotManagerPimpl::handle_snapshot, this),
-          std::chrono::milliseconds(100));
+  control_block_ = engine_->get_soc_manager().get_shared_memory_repo()->
+    get_global_memory_anchors()->snapshot_manager_memory_;
+  if (engine_->is_master()) {
+    control_block_->initialize();
+    snapshot_epoch_.store(Epoch::kEpochInvalid);
+    // TODO(Hideaki): get snapshot status from savepoint
+    previous_snapshot_id_ = kNullSnapshotId;
+    immediate_snapshot_requested_.store(false);
+    previous_snapshot_time_ = std::chrono::system_clock::now();
+    snapshot_thread_.initialize("Snapshot",
+            std::thread(&SnapshotManagerPimpl::handle_snapshot, this),
+            std::chrono::milliseconds(100));
+  }
   return kRetOk;
 }
 
@@ -51,7 +57,10 @@ ErrorStack SnapshotManagerPimpl::uninitialize_once() {
   if (!engine_->get_log_manager().is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
-  snapshot_thread_.stop();
+  if (engine_->is_master()) {
+    snapshot_thread_.stop();
+    control_block_->uninitialize();
+  }
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 

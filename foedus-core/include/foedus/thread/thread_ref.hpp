@@ -5,6 +5,7 @@
 #ifndef FOEDUS_THREAD_THREAD_REF_HPP_
 #define FOEDUS_THREAD_THREAD_REF_HPP_
 
+#include <iosfwd>
 #include <vector>
 
 #include "foedus/cxx11.hpp"
@@ -48,6 +49,8 @@ class ThreadRef CXX11_FINAL {
   xct::McsBlock* get_mcs_blocks() const { return mcs_blocks_; }
   ThreadControlBlock* get_control_block() const { return control_block_; }
 
+  friend std::ostream& operator<<(std::ostream& o, const ThreadRef& v);
+
  private:
   Engine*               engine_;
 
@@ -76,6 +79,8 @@ class ThreadGroupRef CXX11_FINAL {
 
   /** Returns Thread object for the given ordinal in this group. */
   ThreadRef*              get_thread(ThreadLocalOrdinal ordinal) { return &threads_[ordinal]; }
+
+  friend std::ostream& operator<<(std::ostream& o, const ThreadGroupRef& v);
 
  private:
   Engine*                 engine_;

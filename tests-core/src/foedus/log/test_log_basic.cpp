@@ -52,7 +52,7 @@ class WriteLogTask : public thread::ImpersonateTask {
     // hacky. just to make this transaction read-write.
     xct::LockableXctId dummy_record;
     context->get_current_xct().add_to_write_set(
-      reinterpret_cast<storage::Storage*>(&dummy_record),
+      12345,
       &dummy_record,
       reinterpret_cast<char*>(&dummy_record),
       reinterpret_cast<RecordLogType*>(filler));

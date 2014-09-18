@@ -40,7 +40,7 @@ Xct::Xct(Engine* engine, thread::ThreadId thread_id) : engine_(engine), thread_i
 }
 
 void Xct::initialize(memory::NumaCoreMemory* core_memory, uint32_t* mcs_block_current) {
-  id_.set_epoch(engine_->get_savepoint_manager().get_savepoint_fast().get_current_epoch());
+  id_.set_epoch(engine_->get_savepoint_manager().get_initial_current_epoch());
   id_.set_ordinal(0);  // ordinal 0 is possible only as a dummy "latest" XctId
   ASSERT_ND(id_.is_valid());
   memory::NumaCoreMemory:: SmallThreadLocalMemoryPieces pieces

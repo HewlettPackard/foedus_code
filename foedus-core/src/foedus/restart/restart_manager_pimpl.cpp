@@ -12,33 +12,35 @@
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/log/log_manager.hpp"
 #include "foedus/snapshot/snapshot_manager.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 namespace restart {
 ErrorStack RestartManagerPimpl::initialize_once() {
-  // Restart manager works only in master
-  if (!engine_->is_master()) {
-    return kRetOk;
-  }
-  LOG(INFO) << "Initializing RestartManager..";
   if (!engine_->get_xct_manager().is_initialized()) {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
   }
+  control_block_ = engine_->get_soc_manager().get_shared_memory_repo()->
+    get_global_memory_anchors()->restart_manager_memory_;
 
-  // after all other initializations, we trigger recovery procedure.
-  CHECK_ERROR(recover());
+  // Restart manager works only in master
+  if (engine_->is_master()) {
+    LOG(INFO) << "Initializing RestartManager..";
+
+    // after all other initializations, we trigger recovery procedure.
+    CHECK_ERROR(recover());
+  }
   return kRetOk;
 }
 
 ErrorStack RestartManagerPimpl::uninitialize_once() {
-  if (!engine_->is_master()) {
-    return kRetOk;
-  }
-  LOG(INFO) << "Uninitializing RestartManager..";
   ErrorStackBatch batch;
   if (!engine_->get_xct_manager().is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
+  }
+  if (engine_->is_master()) {
+    LOG(INFO) << "Uninitializing RestartManager..";
   }
   return SUMMARIZE_ERROR_BATCH(batch);
 }

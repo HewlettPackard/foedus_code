@@ -49,10 +49,10 @@ struct LogManagerControlBlock {
    */
   std::atomic<Epoch::EpochInteger>    durable_global_epoch_;
 
-  /** Fired (notify_all) whenever durable_global_epoch_ is advanced. */
+  /** Fired (broadcast) whenever durable_global_epoch_ is advanced. */
   soc::SharedCond                     durable_global_epoch_advanced_;
 
-  /** Serializes the thread to take savepoint to advance durable_global_epoch_. */
+  /** To-be-removed Serializes the thread to take savepoint to advance durable_global_epoch_. */
   soc::SharedMutex                    durable_global_epoch_savepoint_mutex_;
 };
 
@@ -81,6 +81,7 @@ class LogManagerPimpl final : public DefaultInitializable {
   Epoch       get_durable_global_epoch_weak() const {
     return Epoch(control_block_->durable_global_epoch_.load(std::memory_order_relaxed));
   }
+  void        announce_new_durable_global_epoch(Epoch new_epoch);
 
 
   Engine* const               engine_;

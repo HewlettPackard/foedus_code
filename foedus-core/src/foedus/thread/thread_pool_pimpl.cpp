@@ -108,11 +108,9 @@ bool ThreadPoolPimpl::impersonate_on_numa_core(
 std::ostream& operator<<(std::ostream& o, const ThreadPoolPimpl& v) {
   o << "<ThreadPool>";
   o << "<groups>";
-  /*
-  for (ThreadGroupRef& group : v.groups_) {
+  for (const ThreadGroupRef& group : v.groups_) {
     o << group;
   }
-  */
   o << "</groups>";
   o << "</ThreadPool>";
   return o;

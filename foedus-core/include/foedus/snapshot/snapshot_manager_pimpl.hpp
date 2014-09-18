@@ -32,6 +32,13 @@ struct SnapshotManagerControlBlock {
   SnapshotManagerControlBlock() = delete;
   ~SnapshotManagerControlBlock() = delete;
 
+  void initialize() {
+    snapshot_taken_.initialize();
+  }
+  void uninitialize() {
+    snapshot_taken_.uninitialize();
+  }
+
   /**
    * The most recently snapshot-ed epoch, all logs upto this epoch is safe to delete.
    * If not snapshot has been taken, invalid epoch.
@@ -141,6 +148,8 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
   fs::Path    get_snapshot_metadata_file_path(SnapshotId snapshot_id) const;
 
   Engine* const           engine_;
+
+  SnapshotManagerControlBlock*  control_block_;
 
   /**
    * The most recently snapshot-ed epoch, all logs upto this epoch is safe to delete.

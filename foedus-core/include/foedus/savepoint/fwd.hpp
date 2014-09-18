@@ -11,6 +11,8 @@
  */
 namespace foedus {
 namespace savepoint {
+struct  FixedSavepoint;
+struct  LoggerSavepointInfo;
 struct  Savepoint;
 class   SavepointManager;
 struct  SavepointManagerControlBlock;

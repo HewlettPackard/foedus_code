@@ -21,7 +21,6 @@
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
-#include "foedus/savepoint/savepoint.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
 
 namespace foedus {
@@ -39,9 +38,8 @@ ErrorStack ThreadLogBuffer::initialize_once() {
   buffer_size_ = buffer_memory_.get_size();
   buffer_size_safe_ = buffer_size_ - 64;
 
-  const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
-  last_epoch_ = savepoint.get_current_epoch();
-  logger_epoch_ = savepoint.get_current_epoch();
+  last_epoch_ = engine_->get_savepoint_manager().get_initial_current_epoch();
+  logger_epoch_ = last_epoch_;
   logger_epoch_ends_ = 0;
   logger_epoch_open_ended_ = true;
   offset_head_ = 0;

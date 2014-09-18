@@ -17,7 +17,7 @@ endif (PAPI_FOUND)
 
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
-add_subdirectory(src)
+# add_subdirectory(src)
 
 # Experiments code might be exempted from cpplint later when we think it's too tedious,
 # but fow now we enable cpplint to experiments code, too.

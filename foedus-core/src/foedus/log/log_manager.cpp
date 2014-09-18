@@ -26,6 +26,10 @@ Epoch       LogManager::get_durable_global_epoch() const {
 Epoch       LogManager::get_durable_global_epoch_weak() const {
   return pimpl_->get_durable_global_epoch_weak();
 }
+void LogManager::announce_new_durable_global_epoch(Epoch new_epoch) {
+  pimpl_->announce_new_durable_global_epoch(new_epoch);
+}
+
 ErrorCode   LogManager::wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds) {
   return pimpl_->wait_until_durable(commit_epoch, wait_microseconds);
 }

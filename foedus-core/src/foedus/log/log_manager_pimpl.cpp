@@ -62,13 +62,12 @@ ErrorStack LogManagerPimpl::initialize_once() {
     }
   }
 
-
   if (engine_->is_master()) {
     // In master, we initialize the control block. No local loggers.
     // Initialize durable_global_epoch_
     control_block_->initialize();
-    control_block_->durable_global_epoch_ = engine_->get_savepoint_manager().get_savepoint_fast().
-      get_durable_epoch().value();
+    control_block_->durable_global_epoch_
+      = engine_->get_savepoint_manager().get_initial_durable_epoch().value();
     LOG(INFO) << "durable_global_epoch_=" << get_durable_global_epoch();
   } else {
     // In SOC, we don't have to initialize the control block, but have to launch local loggers.
@@ -232,6 +231,12 @@ ErrorCode LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_m
 
   VLOG(0) << "durable epoch advanced. durable_global_epoch_=" << get_durable_global_epoch();
   return kErrorCodeOk;
+}
+void LogManagerPimpl::announce_new_durable_global_epoch(Epoch new_epoch) {
+  ASSERT_ND(new_epoch >= Epoch(control_block_->durable_global_epoch_));
+  soc::SharedMutexScope scope(control_block_->durable_global_epoch_advanced_.get_mutex());
+  control_block_->durable_global_epoch_ = new_epoch.value();
+  control_block_->durable_global_epoch_advanced_.broadcast(&scope);
 }
 
 
