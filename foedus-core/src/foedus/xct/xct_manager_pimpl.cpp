@@ -108,15 +108,16 @@ void XctManagerPimpl::handle_epoch_advance() {
   SPINLOCK_WHILE(!is_stop_requested() && !is_initialized()) {
     assorted::memory_fence_acquire();
   }
-  LOG(INFO) << "epoch_advance_thread now starts processing.";
   uint64_t interval_nanosec = engine_->get_options().xct_.epoch_advance_interval_ms_ * 1000000ULL;
+  LOG(INFO) << "epoch_advance_thread now starts processing. interval_nanosec=" << interval_nanosec;
   while (!is_stop_requested()) {
     {
       soc::SharedMutexScope scope(control_block_->epoch_advance_wakeup_.get_mutex());
       if (is_stop_requested()) {
         break;
       }
-      control_block_->epoch_advance_wakeup_.timedwait(&scope, interval_nanosec);
+      bool signaled = control_block_->epoch_advance_wakeup_.timedwait(&scope, interval_nanosec);
+      VLOG(1) << "epoch_advance_thread. wokeup with " << (signaled ? "signal" : "timeout");
     }
     if (is_stop_requested()) {
       break;

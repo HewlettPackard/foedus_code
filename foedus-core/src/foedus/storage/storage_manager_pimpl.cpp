@@ -38,6 +38,28 @@
 
 namespace foedus {
 namespace storage {
+
+template <typename HANDLER>
+ErrorStack storage_pseudo_polymorph(Engine* engine, StorageControlBlock* block, HANDLER handler) {
+  StorageType type = block->meta_.type_;
+  if (type == kArrayStorage) {
+    array::ArrayStorage obj(engine, block);
+    CHECK_ERROR(handler(&obj));
+  } else if (type == kHashStorage) {
+    hash::HashStorage obj(engine, block);
+    CHECK_ERROR(handler(&obj));
+  } else if (type == kMasstreeStorage) {
+    masstree::MasstreeStorage obj(engine, block);
+    CHECK_ERROR(handler(&obj));
+  } else if (type == kSequentialStorage) {
+    sequential::SequentialStorage obj(engine, block);
+    CHECK_ERROR(handler(&obj));
+  } else {
+    return ERROR_STACK(kErrorCodeStrUnsupportedMetadata);
+  }
+  return kRetOk;
+}
+
 uint32_t   StorageManagerPimpl::get_max_storages() const {
   return engine_->get_options().storage_.max_storages_;
 }
@@ -95,6 +117,9 @@ StorageControlBlock* StorageManagerPimpl::get_storage(const StorageName& name) {
   LOG(WARNING) << "Requested storage name '" << name << "' was not found";
   return &storages_[0];  // storage ID 0 is always not-initialized
 }
+bool StorageManagerPimpl::exists(const StorageName& name) {
+  return get_storage(name)->exists();
+}
 
 /* TODO(Hideaki) During surgery
 ErrorStack StorageManagerPimpl::register_storage(Storage* storage) {
@@ -130,17 +155,33 @@ ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) 
     context->get_thread_log_buffer().get_offset_tail()) {
     return ERROR_STACK(kErrorCodeStrMustSeparateXct);
   }
+  */
 
   // to avoid mixing with normal operations on the storage in this epoch, advance epoch now.
   engine_->get_xct_manager().advance_current_global_epoch();
 
+  StorageControlBlock* block = storages_ +id;
+  if (!block->exists()) {
+    LOG(ERROR) << "This storage ID does not exist or has been already dropped: " << id;
+    return ERROR_STACK(kErrorCodeStrAlreadyDropped);
+  }
+
+  /* TODO(Hideaki) During surgery
   CHECK_ERROR(engine_->get_xct_manager().begin_schema_xct(context));
+  */
 
-  StorageName name = storage->get_name();
+  StorageName name = block->meta_.name_;
   LOG(INFO) << "Dropping storage " << id << "(" << name << ")";
-  COERCE_ERROR(storage->uninitialize());
-  LOG(INFO) << "Uninitialized storage " << id << "(" << name << ")";
+  ErrorStack drop_error = storage_pseudo_polymorph(
+    engine_,
+    block,
+    [](Storage* obj){ return obj->drop(); });
+  if (drop_error.is_error()) {
+    LOG(ERROR) << "Failed to drop storage " << id << "(" << name << ")";
+    return drop_error;
+  }
 
+  /* TODO(Hideaki) During surgery
   // write out log
   DropLogType* log_entry = reinterpret_cast<DropLogType*>(
     context->get_thread_log_buffer().reserve_new_log(sizeof(DropLogType)));
@@ -148,8 +189,10 @@ ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) 
 
   // commit invokes apply
   CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, commit_epoch));
-  LOG(INFO) << "Droped storage " << id << "(" << name << ")";
   */
+  block->status_ = kDropped;
+  ASSERT_ND(!block->exists());
+  LOG(INFO) << "Dropped storage " << id << "(" << name << ")";
   return kRetOk;
 }
 
@@ -168,37 +211,17 @@ ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit
   */
 
   const StorageName& name = metadata->name_;
-  if (get_storage(name)) {
+  if (exists(name)) {
     LOG(ERROR) << "This storage name already exists: " << name;
     return ERROR_STACK(kErrorCodeStrDuplicateStrname);
   }
 
   ASSERT_ND(!get_storage(id)->exists());
-  ErrorStack create_error;
-  switch (metadata->type_) {
-    case kArrayStorage:
-      *reinterpret_cast<array::ArrayMetadata*>(&storages_[id].meta_)
-        = *static_cast<array::ArrayMetadata*>(metadata);
-      create_error = array::ArrayStorage(engine_, storages_ + id).create();
-      break;
-    case kHashStorage:
-      *reinterpret_cast<hash::HashMetadata*>(&storages_[id].meta_)
-        = *static_cast<hash::HashMetadata*>(metadata);
-      create_error = hash::HashStorage(engine_, storages_ + id).create();
-      break;
-    case kMasstreeStorage:
-      *reinterpret_cast<masstree::MasstreeMetadata*>(&storages_[id].meta_)
-        = *static_cast<masstree::MasstreeMetadata*>(metadata);
-      create_error = masstree::MasstreeStorage(engine_, storages_ + id).create();
-      break;
-    case kSequentialStorage:
-      *reinterpret_cast<sequential::SequentialMetadata*>(&storages_[id].meta_)
-        = *static_cast<sequential::SequentialMetadata*>(metadata);
-      create_error = sequential::SequentialStorage(engine_, storages_ + id).create();
-      break;
-    default:
-      return ERROR_STACK(kErrorCodeStrUnsupportedMetadata);
-  }
+  storages_[id].meta_.type_ = metadata->type_;
+  ErrorStack create_error = storage_pseudo_polymorph(
+    engine_,
+    storages_ + id,
+    [metadata](Storage* obj){ return obj->create(*metadata); });
   CHECK_ERROR(create_error);
 
   /* TODO(Hideaki) During surgery

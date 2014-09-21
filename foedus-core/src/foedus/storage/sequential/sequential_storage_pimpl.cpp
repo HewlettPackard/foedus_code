@@ -128,13 +128,13 @@ ErrorStack SequentialStoragePimpl::drop() {
   return kRetOk;
 }
 
-ErrorStack SequentialStoragePimpl::create() {
+ErrorStack SequentialStoragePimpl::create(const SequentialMetadata& metadata) {
   if (exists()) {
     LOG(ERROR) << "This sequential-storage already exists: " << get_name();
     return ERROR_STACK(kErrorCodeStrAlreadyExists);
   }
 
-  LOG(INFO) << "Newly created an sequential-storage " << get_name();
+  control_block_->meta_ = metadata;
   std::memset(control_block_->head_pointer_pages_, 0, sizeof(control_block_->head_pointer_pages_));
   std::memset(control_block_->tail_pointer_pages_, 0, sizeof(control_block_->tail_pointer_pages_));
   // we pre-allocate pointer pages for all required nodes.
@@ -158,6 +158,7 @@ ErrorStack SequentialStoragePimpl::create() {
   }
 
   control_block_->status_ = kExists;
+  LOG(INFO) << "Newly created an sequential-storage " << get_name();
   return kRetOk;
 }
 

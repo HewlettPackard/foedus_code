@@ -16,6 +16,7 @@
 #include "foedus/assorted/uniform_random.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/proc/proc_manager.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_page_impl.hpp"

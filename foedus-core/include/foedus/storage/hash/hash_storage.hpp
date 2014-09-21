@@ -50,7 +50,7 @@ class HashStorage CXX11_FINAL
   const Metadata*     get_metadata()  const CXX11_OVERRIDE;
   const HashMetadata* get_hash_metadata()  const;
   bool                exists()    const CXX11_OVERRIDE;
-  ErrorStack          create() CXX11_OVERRIDE;
+  ErrorStack          create(const Metadata &metadata) CXX11_OVERRIDE;
   ErrorStack          drop() CXX11_OVERRIDE;
   void                describe(std::ostream* o) const CXX11_OVERRIDE;
 

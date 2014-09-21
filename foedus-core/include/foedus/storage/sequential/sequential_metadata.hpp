@@ -46,6 +46,9 @@ struct SequentialMetadata CXX11_FINAL : public Metadata {
   explicit SequentialMetadata(const StorageName& name)
     : Metadata(0, kSequentialStorage, name) {
   }
+
+  std::string describe() const CXX11_OVERRIDE;
+  friend std::ostream& operator<<(std::ostream& o, const SequentialMetadata& v);
 };
 
 struct SequentialMetadataSerializer CXX11_FINAL : public virtual MetadataSerializer {

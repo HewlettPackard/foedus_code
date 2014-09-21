@@ -194,7 +194,7 @@ void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk 
 }
 
 void PagePoolPimpl::release_one(PagePoolOffset offset) {
-  ASSERT_ND(is_initialized());
+  ASSERT_ND(is_initialized() || !owns_);
   VLOG(0) << "Releasing just one page. free_pool_count_=" << free_pool_count();
   soc::SharedMutexScope guard(&control_block_->lock_);
   if (free_pool_count() >= free_pool_capacity_) {

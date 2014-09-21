@@ -64,8 +64,9 @@ class StorageManagerPimpl final : public DefaultInitializable {
   ErrorStack  uninitialize_once() override;
 
   StorageId   issue_next_storage_id();
-  StorageControlBlock* get_storage(StorageId id) { return &storages_[id]; }
-  StorageControlBlock* get_storage(const StorageName& name);
+  StorageControlBlock*  get_storage(StorageId id) { return &storages_[id]; }
+  StorageControlBlock*  get_storage(const StorageName& name);
+  bool                  exists(const StorageName& name);
   /**
    * @brief Adds a storage object, either newly created or constructed from disk at start-up.
    * @param[in] storage an already-constructred and initialized Storage

@@ -87,7 +87,7 @@ ErrorStack SavepointManagerPimpl::uninitialize_once() {
 
 ErrorStack SavepointManagerPimpl::take_savepoint(Epoch new_global_durable_epoch) {
   while (get_saved_durable_epoch() < new_global_durable_epoch) {
-    if (get_requested_durable_epoch() >= new_global_durable_epoch) {
+    if (get_requested_durable_epoch() < new_global_durable_epoch) {
       soc::SharedMutexScope scope(control_block_->save_wakeup_.get_mutex());
       if (get_requested_durable_epoch() < new_global_durable_epoch) {
         control_block_->requested_durable_epoch_ = new_global_durable_epoch.value();
@@ -151,7 +151,7 @@ void SavepointManagerPimpl::savepoint_main() {
       {
         soc::SharedMutexScope scope(control_block_->save_done_event_.get_mutex());
         control_block_->saved_durable_epoch_ = new_durable_epoch.value();
-        control_block_->save_done_event_.wait(&scope);
+        control_block_->save_done_event_.broadcast(&scope);
       }
     }
   }

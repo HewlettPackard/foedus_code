@@ -22,6 +22,7 @@
 #include "foedus/log/log_manager.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/engine_memory.hpp"
+#include "foedus/proc/proc_manager.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/masstree/masstree_cursor.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"

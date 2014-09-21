@@ -41,6 +41,9 @@ struct MasstreeMetadata CXX11_FINAL : public Metadata {
       border_early_split_threshold_(border_early_split_threshold) {
   }
 
+  std::string describe() const CXX11_OVERRIDE;
+  friend std::ostream& operator<<(std::ostream& o, const MasstreeMetadata& v);
+
   /**
    * @brief Kind of fill factor for border pages, bit different from usual B-tree.
    * @details

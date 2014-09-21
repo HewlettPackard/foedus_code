@@ -272,11 +272,12 @@ std::vector<uint64_t> ArrayStoragePimpl::calculate_offset_intervals(
   return offset_intervals;
 }
 
-ErrorStack ArrayStorage::create() {
+ErrorStack ArrayStorage::create(const Metadata &metadata) {
   if (exists()) {
     LOG(ERROR) << "This array-storage already exists: " << *this;
     return ERROR_STACK(kErrorCodeStrAlreadyExists);
   }
+  control_block_->meta_ = dynamic_cast<const ArrayMetadata&>(metadata);
   const ArrayMetadata& meta = control_block_->meta_;
   const uint16_t levels = calculate_levels(meta);
   const ArrayOffset array_size = meta.array_size_;

@@ -26,8 +26,8 @@ const SequentialMetadata* SequentialStorage::get_sequential_metadata() const  {
   return &control_block_->meta_;
 }
 
-ErrorStack SequentialStorage::create() {
-  return SequentialStoragePimpl(this).create();
+ErrorStack SequentialStorage::create(const Metadata &metadata) {
+  return SequentialStoragePimpl(this).create(dynamic_cast<const SequentialMetadata&>(metadata));
 }
 
 ErrorStack SequentialStorage::drop() {

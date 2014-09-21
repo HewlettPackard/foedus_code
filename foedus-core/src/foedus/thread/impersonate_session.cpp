@@ -7,8 +7,6 @@
 #include <chrono>
 #include <iostream>
 
-#include "foedus/thread/impersonate_task.hpp"
-#include "foedus/thread/impersonate_task_pimpl.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pimpl.hpp"
 #include "foedus/thread/thread_ref.hpp"

@@ -73,13 +73,14 @@ class Storage {
   /**
    * @brief Newly creates this storage and registers it in the storage manager.
    * @pre exists() == false
+   * @param[in] metadata Metadata of this storage
    * @details
    * This is invoked from storage manager's create_xxx methods.
    * Depending on the storage type, this might take a long time to finish.
    * For a newly created storage, the instasnce of this object is an empty and
    * trivial-to-instantiate (thus no exception) until we call this method.
    */
-  virtual ErrorStack          create() = 0;
+  virtual ErrorStack          create(const Metadata &metadata) = 0;
 
   virtual ErrorStack          drop() = 0;
 

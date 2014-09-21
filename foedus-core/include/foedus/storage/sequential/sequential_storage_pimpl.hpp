@@ -120,7 +120,7 @@ class SequentialStoragePimpl final : public Attachable<SequentialStorageControlB
   bool        exists() const { return control_block_->exists(); }
   StorageId   get_id() const { return control_block_->meta_.id_; }
   const StorageName& get_name() const { return control_block_->meta_.name_; }
-  ErrorStack  create();
+  ErrorStack  create(const SequentialMetadata& metadata);
   ErrorStack  drop();
 
   SequentialPage* get_head(

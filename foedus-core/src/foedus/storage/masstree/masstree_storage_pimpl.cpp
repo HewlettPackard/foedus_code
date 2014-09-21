@@ -183,13 +183,13 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   return kErrorCodeOk;
 }
 
-ErrorStack MasstreeStoragePimpl::create() {
+ErrorStack MasstreeStoragePimpl::create(const MasstreeMetadata& metadata) {
   if (exists()) {
     LOG(ERROR) << "This masstree-storage already exists: " << get_name();
     return ERROR_STACK(kErrorCodeStrAlreadyExists);
   }
 
-  LOG(INFO) << "Newly created an masstree-storage " << get_name();
+  control_block_->meta_ = metadata;
   const uint16_t kDummyNode = 0;  // whatever. just pick from the first node
   memory::PagePool& pool
     = engine_->get_memory_manager().get_node_memory(kDummyNode)->get_volatile_pool();
@@ -215,6 +215,7 @@ ErrorStack MasstreeStoragePimpl::create() {
     kSupremumSlice);   // high-fence is supremum
 
   control_block_->status_ = kExists;
+  LOG(INFO) << "Newly created an masstree-storage " << get_name();
   return kRetOk;
 }
 

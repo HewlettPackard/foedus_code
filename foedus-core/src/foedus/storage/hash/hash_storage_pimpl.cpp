@@ -234,12 +234,13 @@ ErrorStack HashStoragePimpl::drop() {
 }
 
 
-ErrorStack HashStoragePimpl::create() {
+ErrorStack HashStoragePimpl::create(const HashMetadata& metadata) {
   if (exists()) {
     LOG(ERROR) << "This hash-storage already exists: " << get_name();
     return ERROR_STACK(kErrorCodeStrAlreadyExists);
   }
 
+  control_block_->meta_ = metadata;
   LOG(INFO) << "Newly creating an hash-storage " << get_name();
   control_block_->bin_count_ = 1ULL << get_bin_bits();
   control_block_->bin_pages_ = assorted::int_div_ceil(get_bin_count(), kBinsPerPage);

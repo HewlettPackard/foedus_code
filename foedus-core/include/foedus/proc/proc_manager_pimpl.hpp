@@ -5,6 +5,7 @@
 #ifndef FOEDUS_PROC_PROC_MANAGER_PIMPL_HPP_
 #define FOEDUS_PROC_PROC_MANAGER_PIMPL_HPP_
 
+#include <string>
 #include <vector>
 
 #include "foedus/fwd.hpp"
@@ -66,10 +67,13 @@ class ProcManagerPimpl final : public DefaultInitializable {
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
+  std::string describe_registered_procs() const;
   ErrorStack  get_proc(const ProcName& name, Proc* out);
   ErrorStack  pre_register(const ProcAndName& proc_and_name);
   ErrorStack  local_register(const ProcAndName& proc_and_name);
   ErrorStack  emulated_register(const ProcAndName& proc_and_name);
+  SharedData* get_local_data();
+  const SharedData* get_local_data() const;
 
   static LocalProcId find_by_name(const ProcName& name, SharedData* shared_data);
   static LocalProcId insert(const ProcAndName& proc_and_name, SharedData* shared_data);

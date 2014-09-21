@@ -9,12 +9,15 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread>
 
 #include "foedus/error_stack_batch.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
 
 namespace foedus {
 
@@ -69,9 +72,56 @@ std::string EnginePimpl::describe_short() const {
 }
 
 ErrorStack EnginePimpl::initialize_once() {
-  CHECK_ERROR(check_valid_options());
-  for (Initializable* child : get_children()) {
-    CHECK_ERROR(child->initialize());
+  if (is_master()) {
+    CHECK_ERROR(check_valid_options());
+  }
+  // SOC manager is special. We must initialize it first.
+  CHECK_ERROR(soc_manager_.initialize());
+  on_module_initialized(kSoc);
+
+  // The following can assume SOC manager is already initialized
+  for (ModulePtr& module : get_modules()) {
+    // During initialization, SOCs wait for master's initialization before their init.
+    if (!is_master()) {
+      CHECK_ERROR(soc_manager_.wait_for_master_module(true, module.type_));
+    }
+    CHECK_ERROR(module.ptr_->initialize());
+    on_module_initialized(module.type_);
+    // Then master waits for SOCs before moving on to next module.
+    if (is_master()) {
+      CHECK_ERROR(soc_manager_.wait_for_children_module(true, module.type_));
+    }
+  }
+  if (is_master()) {
+    soc::SharedMemoryRepo* repo = soc_manager_.get_shared_memory_repo();
+    repo->change_master_status(soc::MasterEngineStatus::kRunning);
+    // wait for children's kRunning status
+    // TODO(Hideaki) should be a function in soc manager
+    uint16_t soc_count = engine_->get_options().thread_.group_count_;
+    while (true) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      assorted::memory_fence_acq_rel();
+      bool error_happened = false;
+      bool remaining = false;
+      for (uint16_t node = 0; node < soc_count; ++node) {
+        soc::ChildEngineStatus* status = repo->get_node_memory_anchors(node)->child_status_memory_;
+        if (status->status_code_ == soc::ChildEngineStatus::kFatalError) {
+          error_happened = true;
+          break;
+        }
+        if (status->status_code_ == soc::ChildEngineStatus::kRunning) {
+          continue;  // ok
+        }
+        remaining = true;
+      }
+
+      if (error_happened) {
+        LOG(ERROR) << "[FOEDUS] ERROR! error while waiting child kRunning";
+        return ERROR_STACK(kErrorCodeSocChildInitFailed);
+      } else if (!remaining) {
+        break;
+      }
+    }
   }
   LOG(INFO) << "================================================================================";
   LOG(INFO) << "================== FOEDUS ENGINE ("
@@ -94,13 +144,30 @@ ErrorStack EnginePimpl::uninitialize_once() {
   LOG(INFO) << "=================== FOEDUS ENGINE ("
     << describe_short() << ") EXITTING...... ================";
   LOG(INFO) << "================================================================================";
+  if (is_master()) {
+    soc_manager_.get_shared_memory_repo()->change_master_status(
+      soc::MasterEngineStatus::kWaitingForChildTerminate);
+  }
   ErrorStackBatch batch;
   // uninit in reverse order of initialization
-  auto children = get_children();
-  std::reverse(children.begin(), children.end());
-  for (Initializable* child : children) {
-    CHECK_ERROR(child->uninitialize());
+  auto modules = get_modules();
+  std::reverse(modules.begin(), modules.end());
+  for (ModulePtr& module : modules) {
+    // During uninitialization, master waits for SOCs' uninitialization before its uninit.
+    if (is_master()) {
+      batch.emprace_back(soc_manager_.wait_for_children_module(false, module.type_));
+    }
+    batch.emprace_back(module.ptr_->uninitialize());
+    on_module_uninitialized(module.type_);
+    // Then SOCs wait for master before moving on to next module.
+    if (!is_master()) {
+      batch.emprace_back(soc_manager_.wait_for_master_module(false, module.type_));
+    }
   }
+
+  // SOC manager is special. We must uninitialize it at last.
+  batch.emprace_back(soc_manager_.uninitialize());
+  // after that, we can't even set status. shared memory has been detached.
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 
@@ -125,6 +192,7 @@ ErrorStack EnginePimpl::check_minimal_pool_size() const {
 }
 
 ErrorStack EnginePimpl::check_transparent_hugepage_setting() {
+  /* we don't warn about THP anymore. We anyway use pre-allocated hugepages
   std::ifstream conf("/sys/kernel/mm/transparent_hugepage/enabled");
   if (conf.is_open()) {
     std::string line;
@@ -146,7 +214,26 @@ ErrorStack EnginePimpl::check_transparent_hugepage_setting() {
   std::cerr << "Could not read /sys/kernel/mm/transparent_hugepage/enabled to check"
     << " if THP is enabled. This implies that THP is not available in this system."
     << " Using an old linux without THP reduces our performance up to 30%" << std::endl;
+  */
   return kRetOk;
+}
+
+void EnginePimpl::on_module_initialized(ModuleType module) {
+  soc::SharedMemoryRepo* repo = soc_manager_.get_shared_memory_repo();
+  if (is_master()) {
+    repo->get_global_memory_anchors()->master_status_memory_->change_init_atomic(module);
+  } else {
+    repo->get_node_memory_anchors(soc_id_)->child_status_memory_->change_init_atomic(module);
+  }
+}
+
+void EnginePimpl::on_module_uninitialized(ModuleType module) {
+  soc::SharedMemoryRepo* repo = soc_manager_.get_shared_memory_repo();
+  if (is_master()) {
+    repo->get_global_memory_anchors()->master_status_memory_->change_uninit_atomic(module);
+  } else {
+    repo->get_node_memory_anchors(soc_id_)->child_status_memory_->change_uninit_atomic(module);
+  }
 }
 
 }  // namespace foedus

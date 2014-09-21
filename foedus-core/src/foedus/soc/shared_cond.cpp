@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <time.h>
+#include <sys/time.h>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
@@ -84,8 +85,12 @@ void SharedCond::wait(SharedMutexScope* scope) {
 bool SharedCond::timedwait(SharedMutexScope* scope, uint64_t timeout_nanosec) {
   common_assert(scope);
   struct timespec timeout;
-  timeout.tv_sec = timeout_nanosec / 1000000000ULL;
-  timeout.tv_nsec = timeout_nanosec % 1000000000ULL;
+  struct timeval now;
+  ::gettimeofday(&now, CXX11_NULLPTR);
+  timeout.tv_sec = now.tv_sec + (timeout_nanosec / 1000000000ULL);
+  timeout.tv_nsec = now.tv_usec * 1000ULL + timeout_nanosec % 1000000000ULL;
+  timeout.tv_sec += (timeout.tv_nsec) / 1000000000ULL;
+  timeout.tv_nsec %= 1000000000ULL;
 
   assorted::memory_fence_acq_rel();
   ++waiters_;

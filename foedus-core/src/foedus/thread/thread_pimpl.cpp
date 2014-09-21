@@ -25,7 +25,6 @@
 #include "foedus/proc/proc_id.hpp"
 #include "foedus/proc/proc_manager.hpp"
 #include "foedus/soc/soc_manager.hpp"
-#include "foedus/thread/impersonate_task_pimpl.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
@@ -84,8 +83,12 @@ ErrorStack ThreadPimpl::initialize_once() {
 ErrorStack ThreadPimpl::uninitialize_once() {
   ErrorStackBatch batch;
   {
-    soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());
-    control_block_->status_ = kWaitingForTerminate;
+    {
+      soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());
+      control_block_->status_ = kWaitingForTerminate;
+      control_block_->wakeup_cond_.signal(&scope);
+    }
+    LOG(INFO) << "Thread-" << id_ << " requested to terminate";
     if (raw_thread_.joinable()) {
       raw_thread_.join();
     }
@@ -102,7 +105,8 @@ ErrorStack ThreadPimpl::uninitialize_once() {
 
 void ThreadPimpl::handle_tasks() {
   int numa_node = static_cast<int>(decompose_numa_node(id_));
-  LOG(INFO) << "Thread-" << id_ << " started running on NUMA node: " << numa_node;
+  LOG(INFO) << "Thread-" << id_ << " started running on NUMA node: " << numa_node
+    << " control_block address=" << control_block_;
   NumaThreadScope scope(numa_node);
   // Actual xct processing can't start until XctManager is initialized.
   SPINLOCK_WHILE(!is_stop_requested()
@@ -118,9 +122,10 @@ void ThreadPimpl::handle_tasks() {
       if (is_stop_requested() || control_block_->status_ == kWaitingForExecution) {
         break;
       }
-      control_block_->wakeup_cond_.timedwait(&scope, 10000000ULL);
+      VLOG(0) << "Thread-" << id_ << " sleeping...";
+      control_block_->wakeup_cond_.timedwait(&scope, 100000000ULL);
     }
-    VLOG(0) << "Thread-" << id_ << " woke up";
+    VLOG(0) << "Thread-" << id_ << " woke up. status=" << control_block_->status_;
     if (control_block_->status_ == kWaitingForExecution) {
       control_block_->output_len_ = 0;
       control_block_->status_ = kRunningTask;

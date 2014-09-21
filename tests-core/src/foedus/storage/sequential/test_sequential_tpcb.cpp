@@ -14,6 +14,7 @@
 #include "foedus/epoch.hpp"
 #include "foedus/test_common.hpp"
 #include "foedus/assorted/uniform_random.hpp"
+#include "foedus/proc/proc_manager.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/storage/array/array_storage.hpp"

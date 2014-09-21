@@ -11,6 +11,7 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/test_common.hpp"
+#include "foedus/proc/proc_manager.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/sequential/sequential_metadata.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
@@ -28,11 +29,11 @@ TEST(SequentialBasicTest, Create) {
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    SequentialStorage* out;
-    Epoch commit_epoch;
     SequentialMetadata meta("test");
-    COERCE_ERROR(engine.get_storage_manager().create_sequential(&meta, &out, &commit_epoch));
-    EXPECT_TRUE(out != nullptr);
+    SequentialStorage storage;
+    Epoch epoch;
+    COERCE_ERROR(engine.get_storage_manager().create_sequential(&meta, &storage, &epoch));
+    EXPECT_TRUE(storage.exists());
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -44,51 +45,57 @@ TEST(SequentialBasicTest, CreateAndDrop) {
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    SequentialStorage* out;
-    Epoch commit_epoch;
     SequentialMetadata meta("dd");
-    COERCE_ERROR(engine.get_storage_manager().create_sequential(&meta, &out, &commit_epoch));
-    EXPECT_TRUE(out != nullptr);
-    COERCE_ERROR(engine.get_storage_manager().drop_storage(out->get_id(), &commit_epoch));
+    SequentialStorage storage;
+    Epoch epoch;
+    COERCE_ERROR(engine.get_storage_manager().create_sequential(&meta, &storage, &epoch));
+    EXPECT_TRUE(storage.exists());
+    COERCE_ERROR(engine.get_storage_manager().drop_storage(storage.get_id(), &epoch));
+    EXPECT_FALSE(storage.exists());
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
 }
 
-class WriteTask : public thread::ImpersonateTask {
- public:
-  ErrorStack run(thread::Thread* context) {
-    SequentialStorage *sequential =
-      dynamic_cast<SequentialStorage*>(
-        context->get_engine()->get_storage_manager().get_storage("test3"));
-    char buf[16];
-    std::memset(buf, 2, 16);
-    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+ErrorStack write_task(
+  thread::Thread* context,
+  const void* /*input_buffer*/,
+  uint32_t /*input_len*/,
+  void* /*output_buffer*/,
+  uint32_t /*output_buffer_size*/,
+  uint32_t* /*output_used*/) {
+  SequentialStorage sequential
+    = context->get_engine()->get_storage_manager().get_sequential("test3");
+  EXPECT_TRUE(sequential.exists());
+  char buf[16];
+  std::memset(buf, 2, 16);
+  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
 
-    WRAP_ERROR_CODE(sequential->append_record(context, buf, 16));
+  WRAP_ERROR_CODE(sequential.append_record(context, buf, 16));
 
-    Epoch commit_epoch;
-    WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
-    WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
-    return foedus::kRetOk;
-  }
-};
+  Epoch commit_epoch;
+  WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
+  return foedus::kRetOk;
+}
 
 TEST(SequentialBasicTest, CreateAndWrite) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
+  engine.get_proc_manager().pre_register(proc::ProcAndName("write_task", write_task));
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    SequentialStorage* out;
-    Epoch commit_epoch;
     SequentialMetadata meta("test3");
-    COERCE_ERROR(engine.get_storage_manager().create_sequential(&meta, &out, &commit_epoch));
-    EXPECT_TRUE(out != nullptr);
-    WriteTask task;
-    thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+    SequentialStorage storage;
+    Epoch epoch;
+    COERCE_ERROR(engine.get_storage_manager().create_sequential(&meta, &storage, &epoch));
+    EXPECT_TRUE(storage.exists());
+    thread::ImpersonateSession session;
+    EXPECT_TRUE(engine.get_thread_pool().impersonate("write_task", nullptr, 0, &session));
     COERCE_ERROR(session.get_result());
+    session.release();
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

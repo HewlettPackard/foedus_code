@@ -52,6 +52,8 @@ class SocManagerPimpl final : public DefaultInitializable {
   ErrorStack  wait_for_child_terminate();
   /** Wait for master engine to finish upto the specified status. */
   ErrorStack  wait_for_master_status(MasterEngineStatus::StatusCode target_status);
+  ErrorStack  wait_for_master_module(bool init, ModuleType module);
+  ErrorStack  wait_for_children_module(bool init, ModuleType module);
   /** Main routine of emulated SOCs. */
   void        emulated_child_main(SocId node);
   /** Main routine of forked SOCs. @return exit code as a process */

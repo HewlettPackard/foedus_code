@@ -7,6 +7,7 @@
 #include <iosfwd>
 #include <string>
 
+#include "foedus/assert_nd.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/assorted/fixed_string.hpp"
 #include "foedus/externalize/externalizable.hpp"
@@ -46,6 +47,9 @@ struct Metadata {
     const StorageName& name,
     SnapshotPagePointer root_snapshot_page_id)
     : id_(id), type_(type), name_(name), root_snapshot_page_id_(root_snapshot_page_id) {}
+
+  /** polymorphic to_string operator. */
+  virtual std::string describe() const { return "ERROR! Base Metadata method shouldn't be called"; }
 
   /** the unique ID of this storage. */
   StorageId       id_;

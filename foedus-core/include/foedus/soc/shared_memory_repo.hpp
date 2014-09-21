@@ -11,8 +11,10 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/cxx11.hpp"
+#include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack.hpp"
+#include "foedus/module_type.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
@@ -95,7 +97,24 @@ struct MasterEngineStatus CXX11_FINAL {
     return status_code_;
   }
 
+  void change_init_atomic(ModuleType value) {
+    ASSERT_ND(static_cast<int>(initialized_modules_) == static_cast<int>(value) - 1);
+    assorted::memory_fence_acq_rel();
+    initialized_modules_ = value;
+    assorted::memory_fence_acq_rel();
+  }
+  void change_uninit_atomic(ModuleType value) {
+    ASSERT_ND(static_cast<int>(uninitialized_modules_) == static_cast<int>(value) + 1);
+    assorted::memory_fence_acq_rel();
+    uninitialized_modules_ = value;
+    assorted::memory_fence_acq_rel();
+  }
+
   StatusCode status_code_;
+  /** The module that has been most recently initialized in master. Used to synchronize init. */
+  ModuleType initialized_modules_;
+  /** The module that has been most recently closed in master. Used to synchronize uninit. */
+  ModuleType uninitialized_modules_;
   // so far this is the only information.
 };
 
@@ -155,7 +174,24 @@ struct ChildEngineStatus CXX11_FINAL {
     return status_code_;
   }
 
+  void change_init_atomic(ModuleType value) {
+    ASSERT_ND(static_cast<int>(initialized_modules_) == static_cast<int>(value) - 1);
+    assorted::memory_fence_acq_rel();
+    initialized_modules_ = value;
+    assorted::memory_fence_acq_rel();
+  }
+  void change_uninit_atomic(ModuleType value) {
+    ASSERT_ND(static_cast<int>(uninitialized_modules_) == static_cast<int>(value) + 1);
+    assorted::memory_fence_acq_rel();
+    uninitialized_modules_ = value;
+    assorted::memory_fence_acq_rel();
+  }
+
   StatusCode status_code_;
+  /** The module that has been most recently initialized in this node. Used to synchronize init. */
+  ModuleType initialized_modules_;
+  /** The module that has been most recently closed in this node. Used to synchronize uninit. */
+  ModuleType uninitialized_modules_;
   // so far this is the only information.
 };
 

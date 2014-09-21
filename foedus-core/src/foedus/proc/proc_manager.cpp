@@ -4,6 +4,7 @@
  */
 #include "foedus/proc/proc_manager.hpp"
 
+#include <string>
 #include <vector>
 
 #include "foedus/proc/proc_id.hpp"
@@ -39,6 +40,9 @@ ErrorStack  ProcManager::emulated_register(const ProcAndName& proc_and_name) {
 
 const std::vector< ProcAndName >& ProcManager::get_pre_registered_procedures() const {
   return pimpl_->pre_registered_procs_;
+}
+std::string ProcManager::describe_registered_procs() const {
+  return pimpl_->describe_registered_procs();
 }
 
 

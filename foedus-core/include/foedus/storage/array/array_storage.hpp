@@ -56,7 +56,7 @@ class ArrayStorage CXX11_FINAL
   const Metadata*     get_metadata()  const CXX11_OVERRIDE;
   const ArrayMetadata*  get_array_metadata()  const;
   bool                exists()    const CXX11_OVERRIDE;
-  ErrorStack          create() CXX11_OVERRIDE;
+  ErrorStack          create(const Metadata &metadata) CXX11_OVERRIDE;
   ErrorStack          drop() CXX11_OVERRIDE;
 
   /**

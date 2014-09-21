@@ -132,7 +132,10 @@ class ThreadPimpl final : public DefaultInitializable {
   void        handle_tasks();
   /** initializes the thread's policy/priority */
   void        set_thread_schedule();
-  bool        is_stop_requested() const { return control_block_->status_ == kWaitingForTerminate; }
+  bool        is_stop_requested() const {
+    assorted::memory_fence_acquire();
+    return control_block_->status_ == kWaitingForTerminate;
+  }
 
   /** @copydoc foedus::thread::Thread::find_or_read_a_snapshot_page() */
   ErrorCode   find_or_read_a_snapshot_page(

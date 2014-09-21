@@ -47,6 +47,9 @@ struct HashMetadata CXX11_FINAL : public Metadata {
    */
   uint64_t  get_bin_count() const { return 1ULL << bin_bits_; }
 
+  std::string describe() const CXX11_OVERRIDE;
+  friend std::ostream& operator<<(std::ostream& o, const HashMetadata& v);
+
   /**
    * Number of bins in exponent of two.
    * Recommended to use set_capacity() to set this value.

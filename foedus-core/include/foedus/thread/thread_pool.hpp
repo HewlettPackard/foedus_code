@@ -14,7 +14,6 @@
 #include "foedus/proc/proc_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/impersonate_session.hpp"
-#include "foedus/thread/impersonate_task.hpp"
 
 namespace foedus {
 namespace thread {
@@ -146,6 +145,32 @@ class ThreadPool CXX11_FINAL : public virtual Initializable {
     const void* task_input,
     uint64_t task_input_size,
     ImpersonateSession *session);
+
+  /**
+   * @brief A shorthand for impersonating a session and synchronously waiting for its end.
+   * @details
+   * Useful for a single and synchronous task invocation.
+   * This is equivalent to the following impersonate() invocation.
+   * @code{.cpp}
+   * ImpersonateSession session;
+   * if (!pool.impersonate(proc_name, task_input, task_input_size, &session)) {
+   *   return ERROR_STACK(kErrorCodeThrNoThreadAvailable);
+   * }
+   * return session.get_result();
+   * @endcode{.cpp}
+   * @return Error code of the impersonation or (if impersonation succeeds) of the task.
+   * This returns kRetOk iff impersonation and the task succeed.
+   */
+  ErrorStack          impersonate_synchronous(
+    const proc::ProcName& proc_name,
+    const void* task_input = CXX11_NULLPTR,
+    uint64_t task_input_size = 0) {
+    ImpersonateSession session;
+    if (!impersonate(proc_name, task_input, task_input_size, &session)) {
+      return ERROR_STACK(kErrorCodeThrNoThreadAvailable);
+    }
+    return session.get_result();
+  }
 
   /**
    * Overload to specify a NUMA node to run on.

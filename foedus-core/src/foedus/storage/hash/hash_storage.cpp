@@ -17,7 +17,9 @@
 namespace foedus {
 namespace storage {
 namespace hash {
-ErrorStack  HashStorage::create() { return HashStoragePimpl(this).create(); }
+ErrorStack  HashStorage::create(const Metadata &metadata) {
+  return HashStoragePimpl(this).create(dynamic_cast<const HashMetadata&>(metadata));
+}
 ErrorStack  HashStorage::drop() { return HashStoragePimpl(this).drop(); }
 
 void HashStorage::describe(std::ostream* o_ptr) const {

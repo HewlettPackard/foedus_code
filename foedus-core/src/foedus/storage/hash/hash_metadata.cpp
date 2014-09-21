@@ -4,11 +4,25 @@
  */
 #include "foedus/storage/hash/hash_metadata.hpp"
 
+#include <iostream>
+#include <sstream>
+#include <string>
+
 #include "foedus/externalize/externalizable.hpp"
 
 namespace foedus {
 namespace storage {
 namespace hash {
+std::string HashMetadata::describe() const {
+  std::stringstream o;
+  o << HashMetadataSerializer(const_cast<HashMetadata*>(this));
+  return o.str();
+}
+std::ostream& operator<<(std::ostream& o, const HashMetadata& v) {
+  o << HashMetadataSerializer(const_cast<HashMetadata*>(&v));
+  return o;
+}
+
 ErrorStack HashMetadataSerializer::load(tinyxml2::XMLElement* element) {
   CHECK_ERROR(load_base(element));
   CHECK_ERROR(get_element(element, "bin_bits_", &data_casted_->bin_bits_))

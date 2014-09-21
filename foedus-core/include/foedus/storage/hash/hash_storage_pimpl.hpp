@@ -83,7 +83,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     VolatilePagePointer volatile_page_id);
 
 
-  ErrorStack  create();
+  ErrorStack  create(const HashMetadata& metadata);
   ErrorStack  drop();
   HashRootPage* get_root_page();
 
