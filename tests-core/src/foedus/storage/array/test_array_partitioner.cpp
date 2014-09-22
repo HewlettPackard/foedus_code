@@ -36,7 +36,7 @@ TEST(ArrayPartitionerTest, InitialPartition) {
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    ArrayStorage* out;
+    ArrayStorage out;
     Epoch commit_epoch;
     ArrayMetadata meta("test5", 3000, 300);  // 1 record per page. 300 leaf pages.
     COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &out, &commit_epoch));

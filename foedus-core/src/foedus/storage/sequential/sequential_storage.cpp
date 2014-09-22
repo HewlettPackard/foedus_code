@@ -27,7 +27,7 @@ const SequentialMetadata* SequentialStorage::get_sequential_metadata() const  {
 }
 
 ErrorStack SequentialStorage::create(const Metadata &metadata) {
-  return SequentialStoragePimpl(this).create(dynamic_cast<const SequentialMetadata&>(metadata));
+  return SequentialStoragePimpl(this).create(static_cast<const SequentialMetadata&>(metadata));
 }
 
 ErrorStack SequentialStorage::drop() {

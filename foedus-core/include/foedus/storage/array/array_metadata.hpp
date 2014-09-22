@@ -41,7 +41,7 @@ struct ArrayMetadata CXX11_FINAL : public Metadata {
     payload_size_(payload_size), array_size_(array_size) {
   }
 
-  std::string describe() const CXX11_OVERRIDE;
+  std::string describe() const;
   friend std::ostream& operator<<(std::ostream& o, const ArrayMetadata& v);
 
   /** byte size of one record in this array storage without internal overheads */

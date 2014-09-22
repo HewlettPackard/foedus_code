@@ -33,9 +33,9 @@ void LogManager::announce_new_durable_global_epoch(Epoch new_epoch) {
 ErrorCode   LogManager::wait_until_durable(Epoch commit_epoch, int64_t wait_microseconds) {
   return pimpl_->wait_until_durable(commit_epoch, wait_microseconds);
 }
-Logger&     LogManager::get_logger(LoggerId logger_id) {
-  ASSERT_ND(logger_id < pimpl_->loggers_.size());
-  return *(pimpl_->loggers_[logger_id]);
+LoggerRef   LogManager::get_logger(LoggerId logger_id) {
+  ASSERT_ND(logger_id < pimpl_->logger_refs_.size());
+  return pimpl_->logger_refs_[logger_id];
 }
 
 ErrorStack LogManager::refresh_global_durable_epoch() {

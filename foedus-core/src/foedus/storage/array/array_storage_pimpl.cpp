@@ -277,7 +277,7 @@ ErrorStack ArrayStorage::create(const Metadata &metadata) {
     LOG(ERROR) << "This array-storage already exists: " << *this;
     return ERROR_STACK(kErrorCodeStrAlreadyExists);
   }
-  control_block_->meta_ = dynamic_cast<const ArrayMetadata&>(metadata);
+  control_block_->meta_ = static_cast<const ArrayMetadata&>(metadata);
   const ArrayMetadata& meta = control_block_->meta_;
   const uint16_t levels = calculate_levels(meta);
   const ArrayOffset array_size = meta.array_size_;

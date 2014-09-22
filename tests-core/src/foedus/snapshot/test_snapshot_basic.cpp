@@ -51,7 +51,7 @@ TEST(SnapshotBasicTest, Empty) {
     EXPECT_EQ(engine.get_snapshot_manager().get_previous_snapshot_id(), metadata.id_);
     EXPECT_EQ(Epoch::kEpochInvalid, metadata.base_epoch_);
     EXPECT_NE(Epoch::kEpochInvalid, metadata.valid_until_epoch_);
-    EXPECT_EQ(0, metadata.storage_metadata_.size());
+    EXPECT_EQ(0, metadata.largest_storage_id_);
 
     COERCE_ERROR(engine.uninitialize());
   }
@@ -78,16 +78,15 @@ TEST(SnapshotBasicTest, OneArrayCreate) {
     EXPECT_EQ(engine.get_snapshot_manager().get_previous_snapshot_id(), metadata.id_);
     EXPECT_EQ(Epoch::kEpochInvalid, metadata.base_epoch_);
     EXPECT_GE(Epoch(metadata.valid_until_epoch_), commit_epoch);
-    EXPECT_EQ(1, metadata.storage_metadata_.size());
+    EXPECT_EQ(1U, metadata.largest_storage_id_);
 
-    storage::array::ArrayMetadata *array = dynamic_cast<storage::array::ArrayMetadata*>(
-      metadata.storage_metadata_[0]);
-    EXPECT_TRUE(array != nullptr);
-    EXPECT_EQ(out->get_id(), array->id_);
-    EXPECT_EQ(out->get_name(), array->name_);
-    EXPECT_EQ(out->get_type(), array->type_);
-    EXPECT_EQ(out->get_array_size(), array->array_size_);
-    EXPECT_EQ(out->get_payload_size(), array->payload_size_);
+    storage::array::ArrayMetadata *array = reinterpret_cast<storage::array::ArrayMetadata*>(
+      metadata.get_metadata(1));
+    EXPECT_EQ(out.get_id(), array->id_);
+    EXPECT_EQ(out.get_name(), array->name_);
+    EXPECT_EQ(out.get_type(), array->type_);
+    EXPECT_EQ(out.get_array_size(), array->array_size_);
+    EXPECT_EQ(out.get_payload_size(), array->payload_size_);
 
     COERCE_ERROR(engine.uninitialize());
   }
@@ -119,28 +118,26 @@ TEST(SnapshotBasicTest, TwoArrayCreate) {
     EXPECT_EQ(engine.get_snapshot_manager().get_previous_snapshot_id(), metadata.id_);
     EXPECT_EQ(Epoch::kEpochInvalid, metadata.base_epoch_);
     EXPECT_GE(Epoch(metadata.valid_until_epoch_), commit_epoch);
-    EXPECT_EQ(2, metadata.storage_metadata_.size());
+    EXPECT_EQ(2U, metadata.largest_storage_id_);
 
     {
-      storage::array::ArrayMetadata array = dynamic_cast<storage::array::ArrayMetadata*>(
-        metadata.storage_metadata_[0]);
-      EXPECT_TRUE(array != nullptr);
-      EXPECT_EQ(out.get_id(), array.id_);
-      EXPECT_EQ(out.get_name(), array.name_);
-      EXPECT_EQ(out.get_type(), array.type_);
-      EXPECT_EQ(out.get_array_size(), array.array_size_);
-      EXPECT_EQ(out.get_payload_size(), array.payload_size_);
+      storage::array::ArrayMetadata* array = reinterpret_cast<storage::array::ArrayMetadata*>(
+        metadata.get_metadata(1));
+      EXPECT_EQ(out.get_id(), array->id_);
+      EXPECT_EQ(out.get_name(), array->name_);
+      EXPECT_EQ(out.get_type(), array->type_);
+      EXPECT_EQ(out.get_array_size(), array->array_size_);
+      EXPECT_EQ(out.get_payload_size(), array->payload_size_);
     }
 
     {
-      storage::array::ArrayMetadata array = dynamic_cast<storage::array::ArrayMetadata*>(
-        metadata.storage_metadata_[1]);
-      EXPECT_TRUE(array != nullptr);
-      EXPECT_EQ(out2.get_id(), array.id_);
-      EXPECT_EQ(out2.get_name(), array.name_);
-      EXPECT_EQ(out2.get_type(), array.type_);
-      EXPECT_EQ(out2.get_array_size(), array.array_size_);
-      EXPECT_EQ(out2.get_payload_size(), array.payload_size_);
+      storage::array::ArrayMetadata* array = reinterpret_cast<storage::array::ArrayMetadata*>(
+        metadata.get_metadata(2));
+      EXPECT_EQ(out2.get_id(), array->id_);
+      EXPECT_EQ(out2.get_name(), array->name_);
+      EXPECT_EQ(out2.get_type(), array->type_);
+      EXPECT_EQ(out2.get_array_size(), array->array_size_);
+      EXPECT_EQ(out2.get_payload_size(), array->payload_size_);
     }
 
     COERCE_ERROR(engine.uninitialize());

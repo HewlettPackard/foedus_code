@@ -101,7 +101,7 @@ void LogMapper::pre_handle_complete() {
 ErrorStack LogMapper::handle_process() {
   const Epoch base_epoch = parent_->get_snapshot()->base_epoch_;
   const Epoch until_epoch = parent_->get_snapshot()->valid_until_epoch_;
-  log::Logger& logger = engine_->get_log_manager().get_logger(id_);
+  log::LoggerRef logger = engine_->get_log_manager().get_logger(id_);
   const log::Logger::LogRange log_range = logger.get_log_range(base_epoch, until_epoch);
   log::LogFileOrdinal cur_file_ordinal = log_range.begin_file_ordinal;
   uint64_t cur_offset = log_range.begin_offset;

@@ -41,7 +41,7 @@ struct MasstreeMetadata CXX11_FINAL : public Metadata {
       border_early_split_threshold_(border_early_split_threshold) {
   }
 
-  std::string describe() const CXX11_OVERRIDE;
+  std::string describe() const;
   friend std::ostream& operator<<(std::ostream& o, const MasstreeMetadata& v);
 
   /**

@@ -30,7 +30,7 @@ const MasstreeMetadata* MasstreeStorage::get_masstree_metadata() const  {
 }
 
 ErrorStack  MasstreeStorage::create(const Metadata &metadata) {
-  return MasstreeStoragePimpl(this).create(dynamic_cast<const MasstreeMetadata&>(metadata));
+  return MasstreeStoragePimpl(this).create(static_cast<const MasstreeMetadata&>(metadata));
 }
 ErrorStack  MasstreeStorage::drop()   { return MasstreeStoragePimpl(this).drop(); }
 

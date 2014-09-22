@@ -11,6 +11,7 @@
 #include "foedus/initializable.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/log/log_id.hpp"
+#include "foedus/log/logger_ref.hpp"
 #include "foedus/savepoint/fwd.hpp"
 
 namespace foedus {
@@ -51,9 +52,9 @@ class LogManager CXX11_FINAL : public virtual Initializable {
   void        wakeup_loggers();
 
   /**
-   * Returns a logger instance of the given ID.
+   * Returns a reference to the logger of the given ID.
    */
-  Logger&     get_logger(LoggerId logger_id);
+  LoggerRef   get_logger(LoggerId logger_id);
 
   /**
    * @brief Returns the durable epoch of the entire engine.

@@ -47,7 +47,7 @@ struct SequentialMetadata CXX11_FINAL : public Metadata {
     : Metadata(0, kSequentialStorage, name) {
   }
 
-  std::string describe() const CXX11_OVERRIDE;
+  std::string describe() const;
   friend std::ostream& operator<<(std::ostream& o, const SequentialMetadata& v);
 };
 
