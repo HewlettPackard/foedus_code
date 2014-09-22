@@ -169,15 +169,10 @@ void execute_test(uint16_t thread_count) {
       }
     }
     std::cout << "target after:" << target << std::endl;
-    {
-      thread::ImpersonateSession session;
-      EXPECT_TRUE(engine.get_thread_pool().impersonate(
-        "verify_result",
-        &thread_count,
-        sizeof(thread_count),
-        &session));
-      COERCE_ERROR(session.get_result());
-    }
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(
+      "verify_result",
+      &thread_count,
+      sizeof(thread_count)));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

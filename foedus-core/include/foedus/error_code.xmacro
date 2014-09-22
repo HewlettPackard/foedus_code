@@ -87,6 +87,7 @@ X(kErrorCodeStrMasstreeCursorTooDeep, 0x0814, "STORAGE: MASSTREE: Cursor encount
 X(kErrorCodeStrArrayFailedVerification, 0x0821, "STORAGE: ARRAY: Failed verification. Found an inconsistency")
 X(kErrorCodeStrTooManyStorages,     0x0822, "STORAGE: Reached maximum number of storages. To register more storages, adjust StorageOptions::max_storages.")
 X(kErrorCodeStrAlreadyDropped,      0x0823, "STORAGE: This storage does not exist or has been already dropped")
+X(kErrorCodeStrEmptyName,           0x0824, "STORAGE: Storage name is empty")
 
 X(kErrorCodeCacheNoFreePages,       0x0901, "SPCACHE: Not enough free snapshot pages. Cleaner is not catching up")
 X(kErrorCodeCacheTableFull,         0x0902, "SPCACHE: Hashtable full or too many skewed inserts")

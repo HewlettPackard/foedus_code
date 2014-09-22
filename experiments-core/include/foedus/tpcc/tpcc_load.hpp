@@ -15,7 +15,6 @@
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/thread/fwd.hpp"
-#include "foedus/thread/impersonate_task.hpp"
 #include "foedus/tpcc/tpcc_scale.hpp"
 #include "foedus/tpcc/tpcc_schema.hpp"
 #include "foedus/xct/fwd.hpp"

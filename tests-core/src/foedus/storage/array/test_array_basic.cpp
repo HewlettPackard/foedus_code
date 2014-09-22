@@ -71,10 +71,7 @@ TEST(ArrayBasicTest, CreateAndQuery) {
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    thread::ImpersonateSession session;
-    EXPECT_TRUE(engine.get_thread_pool().impersonate("query_task", nullptr, 0, &session));
-    COERCE_ERROR(session.get_result());
-    session.release();
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("query_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -131,10 +128,7 @@ TEST(ArrayBasicTest, CreateAndWrite) {
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    thread::ImpersonateSession session;
-    EXPECT_TRUE(engine.get_thread_pool().impersonate("write_task", nullptr, 0, &session));
-    COERCE_ERROR(session.get_result());
-    session.release();
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("write_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -188,10 +182,7 @@ TEST(ArrayBasicTest, CreateAndReadWrite) {
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    thread::ImpersonateSession session;
-    EXPECT_TRUE(engine.get_thread_pool().impersonate("read_write_task", nullptr, 0, &session));
-    COERCE_ERROR(session.get_result());
-    session.release();
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("read_write_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

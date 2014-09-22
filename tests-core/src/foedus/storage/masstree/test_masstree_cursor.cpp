@@ -67,10 +67,7 @@ TEST(MasstreeBasicTest, Empty) {
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager().create_masstree(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    thread::ImpersonateSession session;
-    EXPECT_TRUE(engine.get_thread_pool().impersonate("empty_task", nullptr, 0, &session));
-    COERCE_ERROR(session.get_result());
-    session.release();
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("empty_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -146,10 +143,7 @@ TEST(MasstreeBasicTest, OnePage) {
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager().create_masstree(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    thread::ImpersonateSession session;
-    EXPECT_TRUE(engine.get_thread_pool().impersonate("one_page_task", nullptr, 0, &session));
-    COERCE_ERROR(session.get_result());
-    session.release();
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("one_page_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

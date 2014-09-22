@@ -73,19 +73,19 @@ const uint8_t kOlMax = kMaxOlCount + 1U;
 /** Packages all storages in TPC-C */
 struct TpccStorages {
   /** (Wid, Did, last, first, Cid) */
-  MasstreeStorage*     customers_secondary_;
+  MasstreeStorage      customers_secondary_;
   uint32_t             customers_secondary_count_;
   /** (Wid, Did, Oid) == Wdoid */
-  MasstreeStorage*     neworders_;
+  MasstreeStorage      neworders_;
   uint32_t             neworders_count_;
   /** (Wid, Did, Oid) == Wdoid */
-  MasstreeStorage*     orders_;
+  MasstreeStorage      orders_;
   uint32_t             orders_count_;
   /** (Wid, Did, Cid, Oid) == Wdcoid */
-  MasstreeStorage*     orders_secondary_;
+  MasstreeStorage      orders_secondary_;
   uint32_t             orders_secondary_count_;
   /** (Wid, Did, Oid, Ol) == Wdol */
-  MasstreeStorage*     orderlines_;
+  MasstreeStorage      orderlines_;
   uint32_t             orderlines_count_;
 };
 /** Set in TpccLoadTask::run() */
@@ -215,14 +215,15 @@ inline void zero_clear(T* data) {
   std::memset(data, 0, sizeof(T));
 }
 
-class TpccLoadTask : public thread::ImpersonateTask {
+bool load_customers_secondary;
+bool load_neworders;
+bool load_orders;
+bool load_orders_secondary;
+bool load_orderlines;
+
+class TpccLoadTask {
  public:
-  TpccLoadTask(
-    bool load_customers_secondary,
-    bool load_neworders,
-    bool load_orders,
-    bool load_orders_secondary,
-    bool load_orderlines);
+  TpccLoadTask();
   ErrorStack          run(thread::Thread* context);
 
   ErrorStack          load_tables();
@@ -237,22 +238,14 @@ class TpccLoadTask : public thread::ImpersonateTask {
   /** timestamp for date fields. */
   char* timestamp_;
 
-  TpccStorages storages_;
-
   assorted::UniformRandom rnd_;
-
-  bool load_customers_secondary_;
-  bool load_neworders_;
-  bool load_orders_;
-  bool load_orders_secondary_;
-  bool load_orderlines_;
 
   void      random_orig(bool *orig);
 
   Cid       get_permutation(bool* cid_array);
 
   ErrorStack create_tables();
-  ErrorStack create_masstree(const storage::StorageName& name, MasstreeStorage** storage);
+  ErrorStack create_masstree(const storage::StorageName& name, MasstreeStorage* storage);
 
   ErrorCode  commit_if_full();
 
@@ -268,7 +261,7 @@ class TpccLoadTask : public thread::ImpersonateTask {
   ErrorStack load_customers_in_district(Wid wid, Did did);
 
   /** Loads the Orders and Order_Line Tables */
-  ErrorStack load_orders();
+  ErrorStack load_orders_data();
 
   /**
   *  Loads the Orders table.
@@ -281,18 +274,7 @@ class TpccLoadTask : public thread::ImpersonateTask {
   /** Make a string of letter */
   int32_t    make_alpha_string(int32_t min, int32_t max, char *str);
 };
-TpccLoadTask::TpccLoadTask(
-  bool load_customers_secondary,
-  bool load_neworders,
-  bool load_orders,
-  bool load_orders_secondary,
-  bool load_orderlines) {
-  load_customers_secondary_ = load_customers_secondary;
-  load_neworders_ = load_neworders;
-  load_orders_ = load_orders;
-  load_orders_secondary_ = load_orders_secondary;
-  load_orderlines_ = load_orderlines;
-
+TpccLoadTask::TpccLoadTask() {
   // Initialize timestamp (for date columns)
   time_t t_clock;
   ::time(&t_clock);
@@ -310,7 +292,6 @@ ErrorStack TpccLoadTask::run(thread::Thread* context) {
   watch.stop();
   LOG(INFO) << "Loaded TPC-C tables in " << watch.elapsed_sec() << "sec";
   engine_->get_debug().set_debug_log_min_threshold(debugging::DebuggingOptions::kDebugLogInfo);
-  storages = storages_;
   return kRetOk;
 }
 
@@ -318,39 +299,40 @@ ErrorStack TpccLoadTask::load_tables() {
   CHECK_ERROR(create_tables());
 
   CHECK_ERROR(load_customers());
-  CHECK_ERROR(load_orders());
+  CHECK_ERROR(load_orders_data());
 
   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
-  CHECK_ERROR(storages_.customers_secondary_->verify_single_thread(context_));
-  CHECK_ERROR(storages_.neworders_->verify_single_thread(context_));
-  CHECK_ERROR(storages_.orderlines_->verify_single_thread(context_));
-  CHECK_ERROR(storages_.orders_->verify_single_thread(context_));
-  CHECK_ERROR(storages_.orders_secondary_->verify_single_thread(context_));
+  CHECK_ERROR(storages.customers_secondary_.verify_single_thread(context_));
+  CHECK_ERROR(storages.neworders_.verify_single_thread(context_));
+  CHECK_ERROR(storages.orderlines_.verify_single_thread(context_));
+  CHECK_ERROR(storages.orders_.verify_single_thread(context_));
+  CHECK_ERROR(storages.orders_secondary_.verify_single_thread(context_));
   WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
   LOG(INFO) << "Loaded all:" << engine_->get_memory_manager().dump_free_memory_stat();
   return kRetOk;
 }
 
 ErrorStack TpccLoadTask::create_tables() {
-  std::memset(&storages_, 0, sizeof(storages_));
+  std::memset(&storages, 0, sizeof(storages));
 
   LOG(INFO) << "Initial:" << engine_->get_memory_manager().dump_free_memory_stat();
-  CHECK_ERROR(create_masstree("customers_secondary", &storages_.customers_secondary_));
-  CHECK_ERROR(create_masstree("neworders", &storages_.neworders_));
-  CHECK_ERROR(create_masstree("orders", &storages_.orders_));
-  CHECK_ERROR(create_masstree("orders_secondary", &storages_.orders_secondary_));
-  CHECK_ERROR(create_masstree("orderlines", &storages_.orderlines_));
+  CHECK_ERROR(create_masstree("customers_secondary", &storages.customers_secondary_));
+  CHECK_ERROR(create_masstree("neworders", &storages.neworders_));
+  CHECK_ERROR(create_masstree("orders", &storages.orders_));
+  CHECK_ERROR(create_masstree("orders_secondary", &storages.orders_secondary_));
+  CHECK_ERROR(create_masstree("orderlines", &storages.orderlines_));
 
   return kRetOk;
 }
 
 ErrorStack TpccLoadTask::create_masstree(
   const storage::StorageName& name,
-  MasstreeStorage** storage) {
+  MasstreeStorage* storage) {
   Epoch ep;
   storage::masstree::MasstreeMetadata meta(name);
-  CHECK_ERROR(engine_->get_storage_manager().create_masstree(context_, &meta, storage, &ep));
-  ASSERT_ND(*storage);
+  EXPECT_FALSE(storage->exists());
+  CHECK_ERROR(engine_->get_storage_manager().create_masstree(&meta, storage, &ep));
+  EXPECT_TRUE(storage->exists());
   return kRetOk;
 }
 
@@ -364,7 +346,7 @@ ErrorCode TpccLoadTask::commit_if_full() {
 }
 
 ErrorStack TpccLoadTask::load_customers() {
-  if (!load_customers_secondary_) {
+  if (!load_customers_secondary) {
     return kRetOk;
   }
   for (Wid wid = 0; wid < kWarehouses; ++wid) {
@@ -430,7 +412,7 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   std::sort(secondary_keys, secondary_keys + kCustomers, Secondary::compare);
   sort_watch.stop();
   LOG(INFO) << "Sorted secondary entries in " << sort_watch.elapsed_us() << "us";
-  auto* customers_secondary = storages_.customers_secondary_;
+  MasstreeStorage customers_secondary = storages.customers_secondary_;
   for (Cid from = 0; from < kCustomers;) {
     uint32_t cur_batch_size = std::min<uint32_t>(kCommitBatch, kCustomers - from);
     char key_be[CustomerSecondaryKey::kKeyLength];
@@ -445,7 +427,7 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
         // note: this one might not be aligned
         Cid* address = reinterpret_cast<Cid*>(key_be + sizeof(Wid) + sizeof(Did) + 34);
         *address = assorted::htobe<Cid>(secondary_keys[i].cid_);
-        WRAP_ERROR_CODE(customers_secondary->insert_record(context_, key_be, sizeof(key_be)));
+        WRAP_ERROR_CODE(customers_secondary.insert_record(context_, key_be, sizeof(key_be)));
       }
       if (rep == 0) {
         WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
@@ -455,12 +437,12 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
     }
     from += cur_batch_size;
   }
-  storages_.customers_secondary_count_ += kCustomers;
+  storages.customers_secondary_count_ += kCustomers;
   return kRetOk;
 }
 
-ErrorStack TpccLoadTask::load_orders() {
-  if (!load_neworders_ && !load_orders_ && !load_orders_secondary_ && !load_orderlines_) {
+ErrorStack TpccLoadTask::load_orders_data() {
+  if (!load_neworders && !load_orders && !load_orders_secondary && !load_orderlines) {
     return kRetOk;
   }
   for (Wid wid = 0; wid < kWarehouses; ++wid) {
@@ -479,10 +461,10 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
   std::memset(cid_array, 0, sizeof(cid_array));
 
   Epoch ep;
-  auto* neworders = storages_.neworders_;
-  auto* orders = storages_.orders_;
-  auto* orders_secondary = storages_.orders_secondary_;
-  auto* orderlines = storages_.orderlines_;
+  auto neworders = storages.neworders_;
+  auto orders = storages.orders_;
+  auto orders_secondary = storages.orders_secondary_;
+  auto orderlines = storages.orderlines_;
   OrderData o_data;
   zero_clear(&o_data);
   OrderlineData ol_data;
@@ -506,26 +488,26 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
 
     if (oid >= 2100U) {   /* the last 900 orders have not been delivered) */
       o_data.carrier_id_ = 0;
-      if (load_neworders_) {
-        WRAP_ERROR_CODE(neworders->insert_record_normalized(context_, wdoid));
-          ++storages_.neworders_count_;
+      if (load_neworders) {
+        WRAP_ERROR_CODE(neworders.insert_record_normalized(context_, wdoid));
+          ++storages.neworders_count_;
       }
     } else {
       o_data.carrier_id_ = o_carrier_id;
     }
 
-    if (load_orders_) {
-      WRAP_ERROR_CODE(orders->insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
-        ++storages_.orders_count_;
+    if (load_orders) {
+      WRAP_ERROR_CODE(orders.insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
+        ++storages.orders_count_;
     }
     Wdcoid wdcoid = combine_wdcoid(wdcid, oid);
-    if (load_orders_secondary_) {
-      WRAP_ERROR_CODE(orders_secondary->insert_record_normalized(context_, wdcoid));
-        ++storages_.orders_secondary_count_;
+    if (load_orders_secondary) {
+      WRAP_ERROR_CODE(orders_secondary.insert_record_normalized(context_, wdcoid));
+        ++storages.orders_secondary_count_;
     }
     DVLOG(2) << "OID = " << oid << ", CID = " << o_cid << ", DID = "
       << static_cast<int>(did) << ", WID = " << wid;
-    if (load_orderlines_) {
+    if (load_orderlines) {
       for (Ol ol = 1; ol <= o_ol_cnt; ol++) {
         // Generate Order Line Data
         make_alpha_string(24, 24, ol_data.dist_info_);
@@ -541,12 +523,12 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
         }
 
         Wdol wdol = combine_wdol(wdoid, ol);
-        WRAP_ERROR_CODE(orderlines->insert_record_normalized(
+        WRAP_ERROR_CODE(orderlines.insert_record_normalized(
           context_,
           wdol,
           &ol_data,
           sizeof(ol_data)));
-        ++storages_.orderlines_count_;
+        ++storages.orderlines_count_;
 
         DVLOG(2) << "OL = " << ol << ", IID = " << ol_data.iid_ << ", QUAN = " << ol_data.quantity_
           << ", AMT = " << ol_data.amount_;
@@ -593,14 +575,29 @@ Cid TpccLoadTask::get_permutation(bool* cid_array) {
   }
 }
 
+ErrorStack tpcc_load_task(
+  thread::Thread* context,
+  const void* /*input_buffer*/,
+  uint32_t /*input_len*/,
+  void* /*output_buffer*/,
+  uint32_t /*output_buffer_size*/,
+  uint32_t* /*output_used*/) {
+  return TpccLoadTask().run(context);
+}
 
-template <typename TASK>
 void run_test(
-  bool load_customers_secondary,
-  bool load_neworders,
-  bool load_orders,
-  bool load_orders_secondary,
-  bool load_orderlines) {
+  proc::Proc proc,
+  bool load_customers_secondary_arg,
+  bool load_neworders_arg,
+  bool load_orders_arg,
+  bool load_orders_secondary_arg,
+  bool load_orderlines_arg) {
+  load_customers_secondary = load_customers_secondary_arg;
+  load_neworders = load_neworders_arg;
+  load_orders = load_orders_arg;
+  load_orders_secondary = load_orders_secondary_arg;
+  load_orderlines = load_orderlines_arg;
+
   EngineOptions options = get_tiny_options();
   options.thread_.group_count_ = 1;
   options.thread_.thread_count_per_group_ = 1;
@@ -609,281 +606,277 @@ void run_test(
   options.memory_.page_pool_size_mb_per_node_ = 1 << 7;
   options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 4;
   Engine engine(options);
+  engine.get_proc_manager().pre_register("the_task", proc);
+  engine.get_proc_manager().pre_register("tpcc_load_task", tpcc_load_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    {
-      TpccLoadTask task(
-        load_customers_secondary,
-        load_neworders,
-        load_orders,
-        load_orders_secondary,
-        load_orderlines);
-      COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(&task));
-    }
-
-    {
-      TASK task;
-      COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(&task));
-    }
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("tpcc_load_task"));
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("the_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
 }
 
-MasstreeStorage* get_scan_target(uint32_t* expected_records_out, std::string* name) {
-  MasstreeStorage* target;
+MasstreeStorage get_scan_target(uint32_t* expected_records_out, std::string* name) {
+  MasstreeStorage target;
   uint32_t expected_records;
   if (storages.customers_secondary_count_) {
     target = storages.customers_secondary_;
     expected_records = storages.customers_secondary_count_;
     EXPECT_EQ(kCustomers * kDistricts * kWarehouses, expected_records);
-    *name = "customers_secondary_";
+    *name = "customers_secondary";
   } else if (storages.neworders_count_) {
     target = storages.neworders_;
     expected_records = storages.neworders_count_;
     // about 30% neworder
     EXPECT_GT(expected_records, kOrders * kDistricts * kWarehouses * 29ULL / 100ULL);
     EXPECT_LT(expected_records, kOrders * kDistricts * kWarehouses * 31ULL / 100ULL);
-    *name = "neworders_";
+    *name = "neworders";
   } else if (storages.orders_count_) {
     target = storages.orders_;
     expected_records = storages.orders_count_;
     EXPECT_EQ(kOrders * kDistricts * kWarehouses, expected_records);
-    *name = "orders_";
+    *name = "orders";
   } else if (storages.orders_secondary_count_) {
     target = storages.orders_secondary_;
     expected_records = storages.orders_secondary_count_;
     EXPECT_EQ(kOrders * kDistricts * kWarehouses, expected_records);
-    *name = "orders_secondary_";
+    *name = "orders_secondary";
   } else {
     target = storages.orderlines_;
     expected_records = storages.orderlines_count_;
     // about 10 OL per order
     EXPECT_GT(expected_records, kOrders * kDistricts * kWarehouses * 9ULL);
     EXPECT_LT(expected_records, kOrders * kDistricts * kWarehouses * 11ULL);
-    *name = "orderlines_";
+    *name = "orderlines";
   }
   *expected_records_out = expected_records;
   return target;
 }
 
-class FullscanTask : public thread::ImpersonateTask {
- public:
-  ErrorStack run(thread::Thread* context) {
-    uint32_t expected_records;
-    std::string name;
-    MasstreeStorage* target = get_scan_target(&expected_records, &name);
+ErrorStack full_scan_task(
+  thread::Thread* context,
+  const void* /*input_buffer*/,
+  uint32_t /*input_len*/,
+  void* /*output_buffer*/,
+  uint32_t /*output_buffer_size*/,
+  uint32_t* /*output_used*/) {
+  uint32_t expected_records;
+  std::string name;
+  MasstreeStorage target = get_scan_target(&expected_records, &name);
 
-    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-    const uint32_t kBatch = 200;
-    SCOPED_TRACE(testing::Message() << "Full scan, index=" << name);
-    {
-      // full forward scan
-      WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
-      MasstreeCursor cursor(context->get_engine(), target, context);
-      EXPECT_EQ(kErrorCodeOk, cursor.open());
-      Epoch commit_epoch;
-      uint32_t count = 0;
-      char prev_key[100];
-      uint32_t prev_key_length = 0;
-      while (cursor.is_valid_record()) {
-        if (count > 0) {
-          EXPECT_LT(
-            std::string(prev_key, prev_key_length),
-            std::string(cursor.get_key(), cursor.get_key_length()));
-        }
-        prev_key_length = cursor.get_key_length();
-        ASSERT_ND(prev_key_length <= 100U);
-        std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
-        ++count;
-        if ((count % kBatch) == 0U) {
-          EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch)) << count;
-          WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
-        }
-        EXPECT_EQ(kErrorCodeOk, cursor.next()) << count;
+  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  const uint32_t kBatch = 200;
+  SCOPED_TRACE(testing::Message() << "Full scan, index=" << name);
+  {
+    // full forward scan
+    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+    MasstreeCursor cursor(target, context);
+    EXPECT_EQ(kErrorCodeOk, cursor.open());
+    Epoch commit_epoch;
+    uint32_t count = 0;
+    char prev_key[100];
+    uint32_t prev_key_length = 0;
+    while (cursor.is_valid_record()) {
+      if (count > 0) {
+        EXPECT_LT(
+          std::string(prev_key, prev_key_length),
+          std::string(cursor.get_key(), cursor.get_key_length()));
       }
-      EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch));
-      EXPECT_EQ(expected_records, count);
-    }
-    {
-      // full backward scan
-      WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
-      MasstreeCursor cursor(context->get_engine(), target, context);
-      EXPECT_EQ(kErrorCodeOk, cursor.open(
-        nullptr,
-        MasstreeCursor::kKeyLengthExtremum,
-        nullptr,
-        MasstreeCursor::kKeyLengthExtremum,
-        false));
-      Epoch commit_epoch;
-      uint32_t count = 0;
-      char prev_key[100];
-      uint32_t prev_key_length = 0;
-      while (cursor.is_valid_record()) {
-        if (count > 0) {
-          EXPECT_GT(
-            std::string(prev_key, prev_key_length),
-            std::string(cursor.get_key(), cursor.get_key_length()));
-        }
-        prev_key_length = cursor.get_key_length();
-        ASSERT_ND(prev_key_length <= 100U);
-        std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
-        ++count;
-        if ((count % kBatch) == 0U) {
-          EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch)) << count;
-          WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
-        }
-        EXPECT_EQ(kErrorCodeOk, cursor.next()) << count;
+      prev_key_length = cursor.get_key_length();
+      ASSERT_ND(prev_key_length <= 100U);
+      std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
+      ++count;
+      if ((count % kBatch) == 0U) {
+        EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch)) << count;
+        WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
       }
-      EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch));
-      EXPECT_EQ(expected_records, count);
+      EXPECT_EQ(kErrorCodeOk, cursor.next()) << count;
     }
-    return kRetOk;
+    EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch));
+    EXPECT_EQ(expected_records, count);
   }
-};
+  {
+    // full backward scan
+    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+    MasstreeCursor cursor(target, context);
+    EXPECT_EQ(kErrorCodeOk, cursor.open(
+      nullptr,
+      MasstreeCursor::kKeyLengthExtremum,
+      nullptr,
+      MasstreeCursor::kKeyLengthExtremum,
+      false));
+    Epoch commit_epoch;
+    uint32_t count = 0;
+    char prev_key[100];
+    uint32_t prev_key_length = 0;
+    while (cursor.is_valid_record()) {
+      if (count > 0) {
+        EXPECT_GT(
+          std::string(prev_key, prev_key_length),
+          std::string(cursor.get_key(), cursor.get_key_length()));
+      }
+      prev_key_length = cursor.get_key_length();
+      ASSERT_ND(prev_key_length <= 100U);
+      std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
+      ++count;
+      if ((count % kBatch) == 0U) {
+        EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch)) << count;
+        WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+      }
+      EXPECT_EQ(kErrorCodeOk, cursor.next()) << count;
+    }
+    EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch));
+    EXPECT_EQ(expected_records, count);
+  }
+  return kRetOk;
+}
 
 TEST(MasstreeTpccTest, FullscanCustomersSecondary) {
-  run_test<FullscanTask>(true, false, false, false, false);
+  run_test(full_scan_task, true, false, false, false, false);
 }
 TEST(MasstreeTpccTest, FullscanNeworders) {
-  run_test<FullscanTask>(false, true, false, false, false);
+  run_test(full_scan_task, false, true, false, false, false);
 }
 TEST(MasstreeTpccTest, FullscanOrders) {
-  run_test<FullscanTask>(false, false, true, false, false);
+  run_test(full_scan_task, false, false, true, false, false);
 }
 TEST(MasstreeTpccTest, FullscanOrdersSecondary) {
-  run_test<FullscanTask>(false, false, false, true, false);
+  run_test(full_scan_task, false, false, false, true, false);
 }
 TEST(MasstreeTpccTest, FullscanOrderlines) {
-  run_test<FullscanTask>(false, false, false, false, true);
+  run_test(full_scan_task, false, false, false, false, true);
 }
 
-class DistrictScanTask : public thread::ImpersonateTask {
- public:
-  ErrorStack run(thread::Thread* context) {
-    uint32_t expected_records;
-    std::string name;
-    MasstreeStorage* target = get_scan_target(&expected_records, &name);
+ErrorStack district_scan_task(
+  thread::Thread* context,
+  const void* /*input_buffer*/,
+  uint32_t /*input_len*/,
+  void* /*output_buffer*/,
+  uint32_t /*output_buffer_size*/,
+  uint32_t* /*output_used*/) {
+  uint32_t expected_records;
+  std::string name;
+  MasstreeStorage target = get_scan_target(&expected_records, &name);
 
-    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-    const uint32_t kBatch = 200;
-    for (Wid wid = 0; wid < kWarehouses; ++wid) {
-      for (Did did = 0; did < kDistricts; ++did) {
-        char low[8];
-        char high[8];
-        std::memset(low, 0, 8);
-        std::memset(high, 0, 8);
-        Wdid wdid = combine_wdid(wid, did);
-        Wdid wdid_h = combine_wdid(wid, did + 1U);
-        if (storages.customers_secondary_count_) {
-          assorted::write_bigendian<Wid>(wid, low);
-          assorted::write_bigendian<Did>(did, low + sizeof(Wid));
-          assorted::write_bigendian<Wid>(wid, high);
-          assorted::write_bigendian<Did>(did + 1U, high + sizeof(Wid));
-        } else if (storages.neworders_count_ || storages.orders_count_) {
-          assorted::write_bigendian<Wdoid>(combine_wdoid(wdid, 0), low);
-          assorted::write_bigendian<Wdoid>(combine_wdoid(wdid_h, 0), high);
-        } else if (storages.orders_secondary_count_) {
-          assorted::write_bigendian<Wdcoid>(combine_wdcoid(combine_wdcid(wdid, 0), 0), low);
-          assorted::write_bigendian<Wdcoid>(combine_wdcoid(combine_wdcid(wdid_h, 0), 0), high);
-        } else {
-          assorted::write_bigendian<Wdol>(combine_wdol(combine_wdoid(wdid, 0), 0), low);
-          assorted::write_bigendian<Wdol>(combine_wdol(combine_wdoid(wdid_h, 0), 0), high);
-        }
-        std::string low_str(low, 8);
-        std::string high_str(high, 8);
-        SCOPED_TRACE(testing::Message() << "Wid=" << wid << ", Did=" << static_cast<int>(did)
-          << ", index=" << name);
-        {
-          // in-district forward scan
-          WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
-          MasstreeCursor cursor(context->get_engine(), target, context);
-          EXPECT_EQ(kErrorCodeOk, cursor.open(low, 8, high, 8));
-          Epoch commit_epoch;
-          uint32_t count = 0;
-          char prev_key[100];
-          uint32_t prev_key_length = 0;
-          while (cursor.is_valid_record()) {
-            std::string cur_key(cursor.get_key(), cursor.get_key_length());
-            if (count > 0) {
-              EXPECT_LT(std::string(prev_key, prev_key_length), cur_key);
-            }
-            EXPECT_GE(cur_key, low_str);
-            EXPECT_LT(cur_key, high_str);
-            prev_key_length = cursor.get_key_length();
-            ASSERT_ND(prev_key_length <= 100U);
-            std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
-            ++count;
-            if ((count % kBatch) == 0U) {
-              EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch)) << count;
-              WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
-            }
-            EXPECT_EQ(kErrorCodeOk, cursor.next()) << count;
+  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  const uint32_t kBatch = 200;
+  for (Wid wid = 0; wid < kWarehouses; ++wid) {
+    for (Did did = 0; did < kDistricts; ++did) {
+      char low[8];
+      char high[8];
+      std::memset(low, 0, 8);
+      std::memset(high, 0, 8);
+      Wdid wdid = combine_wdid(wid, did);
+      Wdid wdid_h = combine_wdid(wid, did + 1U);
+      if (storages.customers_secondary_count_) {
+        assorted::write_bigendian<Wid>(wid, low);
+        assorted::write_bigendian<Did>(did, low + sizeof(Wid));
+        assorted::write_bigendian<Wid>(wid, high);
+        assorted::write_bigendian<Did>(did + 1U, high + sizeof(Wid));
+      } else if (storages.neworders_count_ || storages.orders_count_) {
+        assorted::write_bigendian<Wdoid>(combine_wdoid(wdid, 0), low);
+        assorted::write_bigendian<Wdoid>(combine_wdoid(wdid_h, 0), high);
+      } else if (storages.orders_secondary_count_) {
+        assorted::write_bigendian<Wdcoid>(combine_wdcoid(combine_wdcid(wdid, 0), 0), low);
+        assorted::write_bigendian<Wdcoid>(combine_wdcoid(combine_wdcid(wdid_h, 0), 0), high);
+      } else {
+        assorted::write_bigendian<Wdol>(combine_wdol(combine_wdoid(wdid, 0), 0), low);
+        assorted::write_bigendian<Wdol>(combine_wdol(combine_wdoid(wdid_h, 0), 0), high);
+      }
+      std::string low_str(low, 8);
+      std::string high_str(high, 8);
+      SCOPED_TRACE(testing::Message() << "Wid=" << wid << ", Did=" << static_cast<int>(did)
+        << ", index=" << name);
+      {
+        // in-district forward scan
+        WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+        MasstreeCursor cursor(target, context);
+        EXPECT_EQ(kErrorCodeOk, cursor.open(low, 8, high, 8));
+        Epoch commit_epoch;
+        uint32_t count = 0;
+        char prev_key[100];
+        uint32_t prev_key_length = 0;
+        while (cursor.is_valid_record()) {
+          std::string cur_key(cursor.get_key(), cursor.get_key_length());
+          if (count > 0) {
+            EXPECT_LT(std::string(prev_key, prev_key_length), cur_key);
           }
-          EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch));
-          EXPECT_LT(count, expected_records / kDistricts / kWarehouses * 11U / 10U);
-          EXPECT_GT(count, expected_records / kDistricts / kWarehouses * 9U / 10U);
-        }
-        {
-          // in-district backward scan
-          WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
-          MasstreeCursor cursor(context->get_engine(), target, context);
-          EXPECT_EQ(kErrorCodeOk, cursor.open(
-            high,
-            8,
-            low,
-            8,
-            false,
-            false,
-            false,
-            true));
-          Epoch commit_epoch;
-          uint32_t count = 0;
-          char prev_key[100];
-          uint32_t prev_key_length = 0;
-          while (cursor.is_valid_record()) {
-            std::string cur_key(cursor.get_key(), cursor.get_key_length());
-            if (count > 0) {
-              EXPECT_GT(std::string(prev_key, prev_key_length), cur_key);
-            }
-            EXPECT_GE(cur_key, low_str);
-            EXPECT_LT(cur_key, high_str);
-            prev_key_length = cursor.get_key_length();
-            ASSERT_ND(prev_key_length <= 100U);
-            std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
-            ++count;
-            if ((count % kBatch) == 0U) {
-              EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch)) << count;
-              WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
-            }
-            EXPECT_EQ(kErrorCodeOk, cursor.next()) << count;
+          EXPECT_GE(cur_key, low_str);
+          EXPECT_LT(cur_key, high_str);
+          prev_key_length = cursor.get_key_length();
+          ASSERT_ND(prev_key_length <= 100U);
+          std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
+          ++count;
+          if ((count % kBatch) == 0U) {
+            EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch)) << count;
+            WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
           }
-          EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch));
-          EXPECT_LT(count, expected_records / kDistricts / kWarehouses * 11U / 10U);
-          EXPECT_GT(count, expected_records / kDistricts / kWarehouses * 9U / 10U);
+          EXPECT_EQ(kErrorCodeOk, cursor.next()) << count;
         }
+        EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch));
+        EXPECT_LT(count, expected_records / kDistricts / kWarehouses * 11U / 10U);
+        EXPECT_GT(count, expected_records / kDistricts / kWarehouses * 9U / 10U);
+      }
+      {
+        // in-district backward scan
+        WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+        MasstreeCursor cursor(target, context);
+        EXPECT_EQ(kErrorCodeOk, cursor.open(
+          high,
+          8,
+          low,
+          8,
+          false,
+          false,
+          false,
+          true));
+        Epoch commit_epoch;
+        uint32_t count = 0;
+        char prev_key[100];
+        uint32_t prev_key_length = 0;
+        while (cursor.is_valid_record()) {
+          std::string cur_key(cursor.get_key(), cursor.get_key_length());
+          if (count > 0) {
+            EXPECT_GT(std::string(prev_key, prev_key_length), cur_key);
+          }
+          EXPECT_GE(cur_key, low_str);
+          EXPECT_LT(cur_key, high_str);
+          prev_key_length = cursor.get_key_length();
+          ASSERT_ND(prev_key_length <= 100U);
+          std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
+          ++count;
+          if ((count % kBatch) == 0U) {
+            EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch)) << count;
+            WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+          }
+          EXPECT_EQ(kErrorCodeOk, cursor.next()) << count;
+        }
+        EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch));
+        EXPECT_LT(count, expected_records / kDistricts / kWarehouses * 11U / 10U);
+        EXPECT_GT(count, expected_records / kDistricts / kWarehouses * 9U / 10U);
       }
     }
-    return kRetOk;
   }
-};
+  return kRetOk;
+}
 
 
 TEST(MasstreeTpccTest, DistrictScanCustomersSecondary) {
-  run_test<DistrictScanTask>(true, false, false, false, false);
+  run_test(district_scan_task, true, false, false, false, false);
 }
 TEST(MasstreeTpccTest, DistrictScanNeworders) {
-  run_test<DistrictScanTask>(false, true, false, false, false);
+  run_test(district_scan_task, false, true, false, false, false);
 }
 TEST(MasstreeTpccTest, DistrictScanOrders) {
-  run_test<DistrictScanTask>(false, false, true, false, false);
+  run_test(district_scan_task, false, false, true, false, false);
 }
 TEST(MasstreeTpccTest, DistrictScanOrdersSecondary) {
-  run_test<DistrictScanTask>(false, false, false, true, false);
+  run_test(district_scan_task, false, false, false, true, false);
 }
 TEST(MasstreeTpccTest, DistrictScanOrderlines) {
-  run_test<DistrictScanTask>(false, false, false, false, true);
+  run_test(district_scan_task, false, false, false, false, true);
 }
 
 }  // namespace masstree

@@ -105,9 +105,9 @@ class SharedCond CXX11_FINAL {
   pthread_cond_t      cond_;
   pthread_condattr_t  attr_;
   /** Number of waitors. */
-  volatile uint32_t   waiters_;
+  uint32_t            waiters_;
   /** Number of notifiers, used to safely destruct this object. */
-  volatile uint32_t   notifiers_;
+  uint32_t            notifiers_;
 
   void common_assert(SharedMutexScope* scope);
 };

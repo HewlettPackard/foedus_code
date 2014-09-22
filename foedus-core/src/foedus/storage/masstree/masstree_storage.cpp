@@ -18,7 +18,9 @@
 namespace foedus {
 namespace storage {
 namespace masstree {
-bool        MasstreeStorage::exists()           const  { return control_block_->exists(); }
+bool        MasstreeStorage::exists()           const  {
+  return control_block_ != nullptr && control_block_->exists();
+}
 StorageId   MasstreeStorage::get_id()           const  { return control_block_->meta_.id_; }
 StorageType MasstreeStorage::get_type()         const  { return control_block_->meta_.type_; }
 const StorageName& MasstreeStorage::get_name()  const  { return control_block_->meta_.name_; }

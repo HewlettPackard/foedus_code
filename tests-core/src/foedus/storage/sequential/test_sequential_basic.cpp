@@ -92,10 +92,7 @@ TEST(SequentialBasicTest, CreateAndWrite) {
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager().create_sequential(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    thread::ImpersonateSession session;
-    EXPECT_TRUE(engine.get_thread_pool().impersonate("write_task", nullptr, 0, &session));
-    COERCE_ERROR(session.get_result());
-    session.release();
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("write_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

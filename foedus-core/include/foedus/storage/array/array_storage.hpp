@@ -48,6 +48,14 @@ class ArrayStorage CXX11_FINAL
       reinterpret_cast<ArrayStorageControlBlock*>(control_block)) {
     ASSERT_ND(get_type() == kArrayStorage || !exists());
   }
+  ArrayStorage(const ArrayStorage& other)
+    : Attachable<ArrayStorageControlBlock>(other.engine_, other.control_block_) {
+  }
+  ArrayStorage& operator=(const ArrayStorage& other) {
+    engine_ = other.engine_;
+    control_block_ = other.control_block_;
+    return *this;
+  }
 
   // Storage interface
   StorageId           get_id()    const CXX11_OVERRIDE;

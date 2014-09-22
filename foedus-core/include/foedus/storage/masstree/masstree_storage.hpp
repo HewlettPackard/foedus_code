@@ -43,6 +43,14 @@ class MasstreeStorage CXX11_FINAL
       reinterpret_cast<MasstreeStorageControlBlock*>(control_block)) {
     ASSERT_ND(get_type() == kMasstreeStorage || !exists());
   }
+  MasstreeStorage(const MasstreeStorage& other)
+    : Attachable<MasstreeStorageControlBlock>(other.engine_, other.control_block_) {
+  }
+  MasstreeStorage& operator=(const MasstreeStorage& other) {
+    engine_ = other.engine_;
+    control_block_ = other.control_block_;
+    return *this;
+  }
 
   // Storage interface
   StorageId           get_id()    const CXX11_OVERRIDE;

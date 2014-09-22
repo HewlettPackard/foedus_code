@@ -22,7 +22,6 @@
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/thread/fwd.hpp"
-#include "foedus/thread/impersonate_task.hpp"
 #include "foedus/thread/rendezvous_impl.hpp"
 #include "foedus/tpcc/tpcc.hpp"
 #include "foedus/tpcc/tpcc_scale.hpp"

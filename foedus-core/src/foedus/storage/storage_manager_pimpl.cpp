@@ -118,7 +118,14 @@ StorageControlBlock* StorageManagerPimpl::get_storage(const StorageName& name) {
   return &storages_[0];  // storage ID 0 is always not-initialized
 }
 bool StorageManagerPimpl::exists(const StorageName& name) {
-  return get_storage(name)->exists();
+  soc::SharedMutexScope guard(&control_block_->mod_lock_);
+  // TODO(Hideaki) so far sequential search
+  for (uint32_t i = 0; i <= control_block_->largest_storage_id_; ++i) {
+    if (storages_[i].meta_.name_ == name) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /* TODO(Hideaki) During surgery
@@ -200,6 +207,9 @@ ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit
   StorageId id = issue_next_storage_id();
   if (id >= get_max_storages()) {
     return ERROR_STACK(kErrorCodeStrTooManyStorages);
+  }
+  if (metadata->name_.empty()) {
+    return ERROR_STACK(kErrorCodeStrEmptyName);
   }
   metadata->id_ = id;
   /* TODO(Hideaki) During surgery

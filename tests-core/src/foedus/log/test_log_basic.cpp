@@ -89,11 +89,7 @@ TEST(LogBasicTest, WriteLog) {
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    {
-      thread::ImpersonateSession session;
-      EXPECT_TRUE(engine.get_thread_pool().impersonate("test_write_log", nullptr, 0, &session));
-      COERCE_ERROR(session.get_result());
-    }
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("test_write_log"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -184,15 +180,7 @@ TEST(LogBasicTest, BufferWrapAround) {
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    {
-      thread::ImpersonateSession session;
-      EXPECT_TRUE(engine.get_thread_pool().impersonate(
-        "test_buffer_wrap_around",
-        nullptr,
-        0,
-        &session));
-      COERCE_ERROR(session.get_result());
-    }
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("test_buffer_wrap_around"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

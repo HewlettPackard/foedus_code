@@ -77,10 +77,7 @@ TEST(HashBasicTest, CreateAndQuery) {
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager().create_hash(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    thread::ImpersonateSession session;
-    EXPECT_TRUE(engine.get_thread_pool().impersonate("query_task", nullptr, 0, &session));
-    COERCE_ERROR(session.get_result());
-    session.release();
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("query_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -117,10 +114,7 @@ TEST(HashBasicTest, CreateAndInsert) {
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager().create_hash(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    thread::ImpersonateSession session;
-    EXPECT_TRUE(engine.get_thread_pool().impersonate("insert_task", nullptr, 0, &session));
-    COERCE_ERROR(session.get_result());
-    session.release();
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("insert_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -165,10 +159,7 @@ TEST(HashBasicTest, CreateAndInsertAndRead) {
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager().create_hash(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    thread::ImpersonateSession session;
-    EXPECT_TRUE(engine.get_thread_pool().impersonate("insert_and_read_task", nullptr, 0, &session));
-    COERCE_ERROR(session.get_result());
-    session.release();
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("insert_and_read_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -217,10 +208,7 @@ TEST(HashBasicTest, Overwrite) {
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager().create_hash(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    thread::ImpersonateSession session;
-    EXPECT_TRUE(engine.get_thread_pool().impersonate("overwrite_task", nullptr, 0, &session));
-    COERCE_ERROR(session.get_result());
-    session.release();
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("overwrite_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

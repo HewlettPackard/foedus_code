@@ -42,6 +42,14 @@ class SequentialStorage CXX11_FINAL
       reinterpret_cast<SequentialStorageControlBlock*>(control_block)) {
       ASSERT_ND(get_type() == kSequentialStorage || !exists());
   }
+  SequentialStorage(const SequentialStorage& other)
+    : Attachable<SequentialStorageControlBlock>(other.engine_, other.control_block_) {
+  }
+  SequentialStorage& operator=(const SequentialStorage& other) {
+    engine_ = other.engine_;
+    control_block_ = other.control_block_;
+    return *this;
+  }
 
   // Storage interface
   StorageId           get_id()    const CXX11_OVERRIDE;

@@ -119,11 +119,13 @@ void ThreadPimpl::handle_tasks() {
   while (!is_stop_requested()) {
     {
       soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());
-      if (is_stop_requested() || control_block_->status_ == kWaitingForExecution) {
+      if (is_stop_requested()) {
         break;
       }
-      VLOG(0) << "Thread-" << id_ << " sleeping...";
-      control_block_->wakeup_cond_.timedwait(&scope, 100000000ULL);
+      if (control_block_->status_ == kWaitingForTask) {
+        VLOG(0) << "Thread-" << id_ << " sleeping...";
+        control_block_->wakeup_cond_.timedwait(&scope, 100000000ULL);
+      }
     }
     VLOG(0) << "Thread-" << id_ << " woke up. status=" << control_block_->status_;
     if (control_block_->status_ == kWaitingForExecution) {
@@ -163,6 +165,7 @@ void ThreadPimpl::handle_tasks() {
       VLOG(0) << "Thread-" << id_ << " finished a task. result =" << result;
     }
   }
+  ASSERT_ND(is_stop_requested());
   control_block_->status_ = kTerminated;
   LOG(INFO) << "Thread-" << id_ << " exits";
 }
