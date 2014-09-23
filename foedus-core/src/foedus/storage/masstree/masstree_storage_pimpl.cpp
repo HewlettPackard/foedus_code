@@ -152,8 +152,10 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   // the new root is not locked (no need), so we directly set key_count to avoid assertion.
   (*new_root)->header().key_count_ = 0;
   MasstreeIntermediatePage::MiniPage& mini_page = (*new_root)->get_minipage(0);
-  MasstreePage* left_page = root->get_foster_minor();
-  MasstreePage* right_page = root->get_foster_major();
+  MasstreePage* left_page
+    = reinterpret_cast<MasstreePage*>(context->resolve(root->get_foster_minor()));
+  MasstreePage* right_page
+    = reinterpret_cast<MasstreePage*>(context->resolve(root->get_foster_major()));
   mini_page.key_count_ = 1;
   mini_page.pointers_[0].snapshot_pointer_ = 0;
   mini_page.pointers_[0].volatile_pointer_.word = left_page->header().page_id_;
@@ -236,9 +238,9 @@ inline ErrorCode MasstreeStoragePimpl::find_border(
     if (UNLIKELY(cur->has_foster_child())) {
       // follow one of foster-twin.
       if (cur->within_foster_minor(slice)) {
-        cur = cur->get_foster_minor();
+        cur = reinterpret_cast<MasstreePage*>(context->resolve(cur->get_foster_minor()));
       } else {
-        cur = cur->get_foster_major();
+        cur = reinterpret_cast<MasstreePage*>(context->resolve(cur->get_foster_major()));
       }
       ASSERT_ND(cur->within_fences(slice));
       continue;
@@ -493,9 +495,9 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
       // if we found out that the page was split and we should follow foster child, do it.
       while (border->has_foster_child()) {
         if (border->within_foster_minor(slice)) {
-          border = reinterpret_cast<MasstreeBorderPage*>(border->get_foster_minor());
+          border = context->resolve_cast<MasstreeBorderPage>(border->get_foster_minor());
         } else {
-          border = reinterpret_cast<MasstreeBorderPage*>(border->get_foster_major());
+          border = context->resolve_cast<MasstreeBorderPage>(border->get_foster_major());
         }
       }
       ASSERT_ND(border->within_fences(slice));
@@ -629,9 +631,9 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
     // if we found out that the page was split and we should follow foster child, do it.
     while (border->has_foster_child()) {
       if (border->within_foster_minor(key)) {
-        border = reinterpret_cast<MasstreeBorderPage*>(border->get_foster_minor());
+        border = context->resolve_cast<MasstreeBorderPage>(border->get_foster_minor());
       } else {
-        border = reinterpret_cast<MasstreeBorderPage*>(border->get_foster_major());
+        border = context->resolve_cast<MasstreeBorderPage>(border->get_foster_major());
       }
     }
 
@@ -642,8 +644,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
     }
     ASSERT_ND(!border->has_foster_child());
     ASSERT_ND(!border->is_moved());
-    ASSERT_ND(border->get_foster_major() == nullptr);
-    ASSERT_ND(border->get_foster_minor() == nullptr);
+    ASSERT_ND(border->get_foster_major().is_null());
+    ASSERT_ND(border->get_foster_minor().is_null());
     ASSERT_ND(border->within_fences(key));
 
     // because we never go on to second layer in this case, it's either a full match or not-found
@@ -687,8 +689,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
   xct::XctId* observed) {
   ASSERT_ND(border->is_locked());
   ASSERT_ND(!border->is_moved());
-  ASSERT_ND(border->get_foster_major() == nullptr);
-  ASSERT_ND(border->get_foster_minor() == nullptr);
+  ASSERT_ND(border->get_foster_major().is_null());
+  ASSERT_ND(border->get_foster_minor().is_null());
   uint8_t count = border->get_key_count();
   if (!border->should_split_early(count, get_meta().border_early_split_threshold_) &&
     border->can_accomodate(count, remaining, payload_count)) {
@@ -1000,7 +1002,7 @@ inline bool MasstreeStoragePimpl::track_moved_record(xct::WriteXctAccess* write)
   ASSERT_ND(page == reinterpret_cast<MasstreeBorderPage*>(to_page(write->payload_address_)));
   MasstreeBorderPage* located_page;
   uint8_t located_index;
-  if (!page->track_moved_record(write->owner_id_address_, &located_page, &located_index)) {
+  if (!page->track_moved_record(engine_, write->owner_id_address_, &located_page, &located_index)) {
     return false;
   }
   write->owner_id_address_ = located_page->get_owner_id(located_index);
@@ -1012,7 +1014,7 @@ inline xct::LockableXctId* MasstreeStoragePimpl::track_moved_record(xct::Lockabl
   MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(to_page(address));
   MasstreeBorderPage* located_page;
   uint8_t located_index;
-  if (!page->track_moved_record(address, &located_page, &located_index)) {
+  if (!page->track_moved_record(engine_, address, &located_page, &located_index)) {
     return nullptr;
   }
   return located_page->get_owner_id(located_index);

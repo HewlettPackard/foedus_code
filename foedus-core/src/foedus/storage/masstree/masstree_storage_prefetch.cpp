@@ -41,8 +41,10 @@ ErrorCode MasstreeStoragePimpl::prefetch_pages_normalized_recurse(
   KeySlice to,
   MasstreePage* p) {
   if (p->has_foster_child()) {
-    CHECK_ERROR_CODE(prefetch_pages_normalized_recurse(context, from, to, p->get_foster_minor()));
-    CHECK_ERROR_CODE(prefetch_pages_normalized_recurse(context, from, to, p->get_foster_major()));
+    MasstreePage* minor = reinterpret_cast<MasstreePage*>(context->resolve(p->get_foster_minor()));
+    MasstreePage* major = reinterpret_cast<MasstreePage*>(context->resolve(p->get_foster_major()));
+    CHECK_ERROR_CODE(prefetch_pages_normalized_recurse(context, from, to, minor));
+    CHECK_ERROR_CODE(prefetch_pages_normalized_recurse(context, from, to, major));
     return kErrorCodeOk;
   }
 
@@ -89,8 +91,10 @@ ErrorCode MasstreeStoragePimpl::prefetch_pages_exhaustive(
   thread::Thread* context,
   MasstreePage* p) {
   if (p->has_foster_child()) {
-    CHECK_ERROR_CODE(prefetch_pages_exhaustive(context, p->get_foster_minor()));
-    CHECK_ERROR_CODE(prefetch_pages_exhaustive(context, p->get_foster_major()));
+    MasstreePage* minor = context->resolve_cast<MasstreePage>(p->get_foster_minor());
+    MasstreePage* major = context->resolve_cast<MasstreePage>(p->get_foster_major());
+    CHECK_ERROR_CODE(prefetch_pages_exhaustive(context, minor));
+    CHECK_ERROR_CODE(prefetch_pages_exhaustive(context, major));
     return kErrorCodeOk;
   }
 

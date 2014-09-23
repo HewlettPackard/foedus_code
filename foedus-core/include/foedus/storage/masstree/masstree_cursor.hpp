@@ -269,7 +269,6 @@ class MasstreeCursor CXX11_FINAL {
     ASSERT_ND(route_count_ > 0);
     return routes_ + route_count_ - 1;
   }
-  ErrorCode     search_layer();
 
   template <typename T>
   void release_if_exist(memory::PagePoolOffset* offset, T** pointer);
@@ -303,6 +302,8 @@ class MasstreeCursor CXX11_FINAL {
   ErrorCode proceed_deeper_border();
   ErrorCode proceed_deeper_intermediate();
   void      proceed_route_intermediate_rebase_separator();
+
+  MasstreePage* resolve(VolatilePagePointer ptr) const;
 
   void assert_modify() const ALWAYS_INLINE {
 #ifndef NDEBUG

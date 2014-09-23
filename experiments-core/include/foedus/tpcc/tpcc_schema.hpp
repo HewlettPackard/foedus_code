@@ -39,24 +39,7 @@ struct TpccStorages {
   TpccStorages();
 
 
-  void assert_initialized() {
-    ASSERT_ND(customers_static_.exists());
-    ASSERT_ND(customers_dynamic_.exists());
-    ASSERT_ND(customers_history_.exists());
-    ASSERT_ND(customers_secondary_.exists());
-    ASSERT_ND(districts_static_.exists());
-    ASSERT_ND(districts_ytd_.exists());
-    ASSERT_ND(districts_next_oid_.exists());
-    ASSERT_ND(histories_.exists());
-    ASSERT_ND(neworders_.exists());
-    ASSERT_ND(orders_.exists());
-    ASSERT_ND(orders_secondary_.exists());
-    ASSERT_ND(orderlines_.exists());
-    ASSERT_ND(items_.exists());
-    ASSERT_ND(stocks_.exists());
-    ASSERT_ND(warehouses_static_.exists());
-    ASSERT_ND(warehouses_ytd_.exists());
-  }
+  void assert_initialized();
   void initialize_tables(Engine* engine);
 
   /** (Wid, Did, Cid) == Wdcid */

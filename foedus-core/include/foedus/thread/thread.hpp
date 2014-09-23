@@ -70,6 +70,28 @@ class Thread CXX11_FINAL : public virtual Initializable {
   /** Returns page resolver to convert only local page ID to page pointer. */
   const memory::LocalPageResolver& get_local_volatile_page_resolver() const;
 
+  /** Shorthand for get_global_volatile_page_resolver.resolve_offset() */
+  storage::Page* resolve(storage::VolatilePagePointer ptr) const;
+  /** Shorthand for get_global_volatile_page_resolver.resolve_offset_newpage() */
+  storage::Page* resolve_newpage(storage::VolatilePagePointer ptr) const;
+  /** Shorthand for get_local_volatile_page_resolver.resolve_offset() */
+  storage::Page* resolve(memory::PagePoolOffset offset) const;
+  /** Shorthand for get_local_volatile_page_resolver.resolve_offset_newpage() */
+  storage::Page* resolve_newpage(memory::PagePoolOffset offset) const;
+  /** resolve() plus reinterpret_cast */
+  template <typename P> P* resolve_cast(storage::VolatilePagePointer ptr) const {
+    return reinterpret_cast<P*>(resolve(ptr));
+  }
+  template <typename P> P* resolve_newpage_cast(storage::VolatilePagePointer ptr) const {
+    return reinterpret_cast<P*>(resolve_newpage(ptr));
+  }
+  template <typename P> P* resolve_cast(memory::PagePoolOffset offset) const {
+    return reinterpret_cast<P*>(resolve(offset));
+  }
+  template <typename P> P* resolve_newpage_cast(memory::PagePoolOffset offset) const {
+    return reinterpret_cast<P*>(resolve_newpage(offset));
+  }
+
   /**
    * Find the given page in snapshot cache, reading it if not found.
    */

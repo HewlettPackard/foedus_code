@@ -76,8 +76,22 @@ std::ostream& operator<<(std::ostream& o, const Thread& v) {
 }
 
 const memory::GlobalVolatilePageResolver& Thread::get_global_volatile_page_resolver() const {
-  return pimpl_->engine_->get_memory_manager().get_global_volatile_page_resolver();
+  return pimpl_->global_volatile_page_resolver_;
 }
+
+storage::Page* Thread::resolve(storage::VolatilePagePointer ptr) const {
+  return get_global_volatile_page_resolver().resolve_offset(ptr);
+}
+storage::Page* Thread::resolve_newpage(storage::VolatilePagePointer ptr) const {
+  return get_global_volatile_page_resolver().resolve_offset_newpage(ptr);
+}
+storage::Page* Thread::resolve(memory::PagePoolOffset offset) const {
+  return get_local_volatile_page_resolver().resolve_offset(offset);
+}
+storage::Page* Thread::resolve_newpage(memory::PagePoolOffset offset) const {
+  return get_local_volatile_page_resolver().resolve_offset_newpage(offset);
+}
+
 
 }  // namespace thread
 }  // namespace foedus
