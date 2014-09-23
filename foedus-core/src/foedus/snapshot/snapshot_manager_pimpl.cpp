@@ -152,7 +152,7 @@ void SnapshotManagerPimpl::trigger_snapshot_immediate(bool wait_completion) {
       LOG(INFO) << "Waiting for the completion of snapshot... before=" << before;
       {
         soc::SharedMutexScope scope(control_block_->snapshot_taken_.get_mutex());
-        control_block_->snapshot_taken_.wait(&scope);
+        control_block_->snapshot_taken_.timedwait(&scope, 10000000ULL);
       }
     } else {
       break;

@@ -85,7 +85,7 @@ struct MasterEngineStatus CXX11_FINAL {
 
   /** Update the value of status_code_ with fence */
   void change_status_atomic(StatusCode new_status) {
-    ASSERT_ND(new_status == kFatalError ||
+    ASSERT_ND(new_status == kFatalError || new_status == kWaitingForChildTerminate ||
       static_cast<int>(new_status) == static_cast<int>(status_code_) + 1);
     assorted::memory_fence_acq_rel();
     status_code_ = new_status;

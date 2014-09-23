@@ -144,7 +144,7 @@ ErrorStack EnginePimpl::uninitialize_once() {
   LOG(INFO) << "=================== FOEDUS ENGINE ("
     << describe_short() << ") EXITTING...... ================";
   LOG(INFO) << "================================================================================";
-  if (is_master()) {
+  if (is_master() && soc_manager_.is_initialized()) {
     soc_manager_.get_shared_memory_repo()->change_master_status(
       soc::MasterEngineStatus::kWaitingForChildTerminate);
   }
