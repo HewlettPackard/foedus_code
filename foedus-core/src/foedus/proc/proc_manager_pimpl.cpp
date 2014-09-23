@@ -89,7 +89,8 @@ ErrorStack  ProcManagerPimpl::pre_register(const ProcAndName& proc_and_name) {
     return ERROR_STACK(kErrorCodeProcRegisterUnsupportedSocType);
   }
   pre_registered_procs_.push_back(proc_and_name);
-  LOG(INFO) << "pre-registered a user procedure: " << proc_and_name.first;
+  // This is BEFORE the init, so we shouldn't use GLOG
+  // LOG(INFO) << "pre-registered a user procedure: " << proc_and_name.first;
   return kRetOk;
 }
 ErrorStack  ProcManagerPimpl::local_register(const ProcAndName& proc_and_name) {
