@@ -77,8 +77,8 @@ struct XctAccess {
   /** Transaction ID of the record observed as of the access. */
   XctId               observed_owner_id_;
 
-  /** Pointer to the storage we accessed. */
-  storage::Storage*   storage_;
+  /** The storage we accessed. */
+  storage::StorageId  storage_id_;
 
   /** Pointer to the accessed record. */
   LockableXctId*      owner_id_address_;
@@ -101,8 +101,8 @@ struct XctAccess {
 struct WriteXctAccess {
   friend std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v);
 
-  /** Pointer to the storage we accessed. */
-  storage::Storage*     storage_;
+  /** The storage we accessed. */
+  storage::StorageId    storage_id_;
 
   /** Pointer to the accessed record. */
   LockableXctId*        owner_id_address_;
@@ -142,8 +142,8 @@ struct WriteXctAccess {
 struct LockFreeWriteXctAccess {
   friend std::ostream& operator<<(std::ostream& o, const LockFreeWriteXctAccess& v);
 
-  /** Pointer to the storage we accessed. */
-  storage::Storage*     storage_;
+  /** The storage we accessed. */
+  storage::StorageId    storage_id_;
 
   /** Pointer to the log entry in private log buffer for this write opereation. */
   log::RecordLogType*   log_entry_;

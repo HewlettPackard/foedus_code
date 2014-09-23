@@ -22,7 +22,6 @@ class   SequentialStorage;
 struct  SequentialStorageControlBlock;
 class   SequentialStorageFactory;
 class   SequentialStoragePimpl;
-class   SequentialVolatileList;
 }  // namespace sequential
 }  // namespace storage
 }  // namespace foedus

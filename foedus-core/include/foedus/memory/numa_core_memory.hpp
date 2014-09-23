@@ -32,7 +32,6 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
  public:
   /** Packs pointers to pieces of small_thread_local_memory_*/
   struct SmallThreadLocalMemoryPieces {
-    char* thread_mcs_block_memory_;
     char* xct_pointer_access_memory_;
     char* xct_page_version_memory_;
     char* xct_read_access_memory_;
@@ -102,7 +101,6 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
   /**
    * A tiny (still 2MB) thread local memory used for various things.
    * To reduce # of TLB entries, we pack several small things to this 2MB.
-   * \li (used in ThreadPimpl) McsBlock(8b) * 64k : 512kb
    * \li (used in Xct) PointerAccess(16b) * 1k : 16kb
    * \li (used in Xct) PageVersionAccess(16b) * 1k : 16kb
    * \li (used in Xct) XctAccess(24b) * 32k :768kb

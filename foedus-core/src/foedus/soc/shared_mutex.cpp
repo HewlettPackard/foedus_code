@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <time.h>
+#include <sys/time.h>
 
 #include "foedus/assert_nd.hpp"
 
@@ -59,8 +60,12 @@ bool SharedMutex::timedlock(uint64_t timeout_nanosec) {
 
   ASSERT_ND(initialized_);
   struct timespec timeout;
-  timeout.tv_sec = timeout_nanosec / 1000000000ULL;
-  timeout.tv_nsec = timeout_nanosec % 1000000000ULL;
+  struct timeval now;
+  ::gettimeofday(&now, CXX11_NULLPTR);
+  timeout.tv_sec = now.tv_sec + (timeout_nanosec / 1000000000ULL);
+  timeout.tv_nsec = now.tv_usec * 1000ULL + timeout_nanosec % 1000000000ULL;
+  timeout.tv_sec += (timeout.tv_nsec) / 1000000000ULL;
+  timeout.tv_nsec %= 1000000000ULL;
   int ret = ::pthread_mutex_timedlock(&mutex_, &timeout);
   ASSERT_ND(ret == 0 || ret == ETIMEDOUT);
   return ret == 0;

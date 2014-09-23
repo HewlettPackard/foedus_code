@@ -17,45 +17,42 @@
 namespace foedus {
 namespace storage {
 namespace sequential {
-SequentialStorage::SequentialStorage(
-  Engine* engine, const SequentialMetadata &metadata, bool create)
-  : pimpl_(get_pimpl_memory_casted<SequentialStoragePimpl>(engine, metadata.id_)) {
-  ASSERT_ND(sizeof(SequentialStoragePimpl) <= kPageSize);
-  new (pimpl_) SequentialStoragePimpl(engine, this, metadata, create);
-}
-SequentialStorage::~SequentialStorage() {
-  pimpl_->~SequentialStoragePimpl();
+bool        SequentialStorage::exists()           const  { return control_block_->exists(); }
+StorageId   SequentialStorage::get_id()           const  { return control_block_->meta_.id_; }
+StorageType SequentialStorage::get_type()         const  { return control_block_->meta_.type_; }
+const StorageName& SequentialStorage::get_name()  const  { return control_block_->meta_.name_; }
+const Metadata* SequentialStorage::get_metadata() const  { return &control_block_->meta_; }
+const SequentialMetadata* SequentialStorage::get_sequential_metadata() const  {
+  return &control_block_->meta_;
 }
 
-ErrorStack  SequentialStorage::initialize()              { return pimpl_->initialize(); }
-ErrorStack  SequentialStorage::uninitialize()            { return pimpl_->uninitialize(); }
-ErrorStack  SequentialStorage::create(thread::Thread* context)   { return pimpl_->create(context); }
+ErrorStack SequentialStorage::create(const Metadata &metadata) {
+  return SequentialStoragePimpl(this).create(static_cast<const SequentialMetadata&>(metadata));
+}
+
+ErrorStack SequentialStorage::drop() {
+  return SequentialStoragePimpl(this).drop();
+}
 
 void SequentialStorage::describe(std::ostream* o_ptr) const {
   std::ostream& o = *o_ptr;
+  uint64_t page_count = 0;
+  uint64_t record_count = 0;
+  SequentialStoragePimpl pimpl(const_cast<SequentialStorage*>(this));
+  pimpl.for_every_page([&page_count, &record_count](SequentialPage* page){
+    ++page_count;
+    record_count += page->get_record_count();
+    return kErrorCodeOk;
+  });
   o << "<SequentialStorage>"
     << "<id>" << get_id() << "</id>"
     << "<name>" << get_name() << "</name>"
-    << pimpl_->volatile_list_
+    << "<page_count>" << page_count << "</page_count>"
+    << "<record_count>" << record_count << "</record_count>"
     << "</SequentialStorage>";
 }
 
-ErrorStack SequentialStorageFactory::get_instance(Engine* engine, const Metadata* metadata,
-  Storage** storage) const {
-  ASSERT_ND(metadata);
-  const SequentialMetadata* casted = dynamic_cast<const SequentialMetadata*>(metadata);
-  if (casted == nullptr) {
-    LOG(INFO) << "WTF?? the metadata is null or not SequentialMetadata object";
-    return ERROR_STACK(kErrorCodeStrWrongMetadataType);
-  }
-
-  *storage = new SequentialStorage(engine, *casted, false);
-  return kRetOk;
-}
-bool SequentialStorageFactory::is_right_metadata(const Metadata *metadata) const {
-  return dynamic_cast<const SequentialMetadata*>(metadata) != nullptr;
-}
-
+/* TODO(Hideaki) During surgery
 void SequentialStorageFactory::add_create_log(
   const Metadata* metadata, thread::Thread* context) const {
   const SequentialMetadata* casted = dynamic_cast<const SequentialMetadata*>(metadata);
@@ -69,6 +66,7 @@ void SequentialStorageFactory::add_create_log(
     casted->name_.size(),
     casted->name_.data());
 }
+*/
 
 // most other methods are defined in pimpl.cpp to allow inlining
 

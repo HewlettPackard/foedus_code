@@ -60,6 +60,36 @@ void FixedErrorStack::output(std::ostream* ptr) const {
   }
 }
 
+ErrorStack FixedErrorStack::to_error_stack() const {
+  if (!is_error()) {
+    return kRetOk;
+  }
+  std::stringstream msg;
+  output(&msg);
+  return ERROR_STACK_MSG(error_code_, msg.str().c_str());
+}
+
+void FixedErrorStack::from_error_stack(const ErrorStack& other) {
+  if (!other.is_error()) {
+    clear();
+    return;
+  }
+
+  error_code_ = other.get_error_code();
+  os_errno_ = other.get_os_errno();
+  stack_depth_ = other.get_stack_depth();
+  custom_message_.clear();
+  if (other.get_custom_message()) {
+    custom_message_ = other.get_custom_message();
+  }
+  for (uint16_t i = 0; i < stack_depth_; ++i) {
+    filenames_[i] = other.get_filename(i);
+    funcs_[i] = other.get_func(i);
+    linenums_[i] = other.get_linenum(i);
+  }
+}
+
+
 std::ostream& operator<<(std::ostream& o, const FixedErrorStack& obj) {
   obj.output(&o);
   return o;

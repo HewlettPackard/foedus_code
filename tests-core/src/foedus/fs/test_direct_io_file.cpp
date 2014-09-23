@@ -87,11 +87,10 @@ TEST(DirectIoFileTest, WriteWithLogBuffer) {
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    memory::EngineMemory& memory = engine.get_memory_manager();
-    EXPECT_EQ(options.thread_.group_count_, memory.get_node_memory_count());
 
-    memory::NumaNodeMemory* node_memory = memory.get_node_memory(0);
-    memory::AlignedMemorySlice log_buf = node_memory->get_log_buffer_memory_piece(0);
+    memory::AlignedMemory memory;
+    memory.alloc(1U << 12 , 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
+    memory::AlignedMemorySlice log_buf(&memory);
 
     DirectIoFile file(Path(std::string("testfile_") + get_random_name()));
     std::memset(log_buf.get_block(), 1, 1 << 12);
@@ -111,15 +110,16 @@ TEST(DirectIoFileTest, WriteWithLogBufferPad) {
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    memory::EngineMemory& memory = engine.get_memory_manager();
-    EXPECT_EQ(options.thread_.group_count_, memory.get_node_memory_count());
-
-    memory::NumaNodeMemory* node_memory = memory.get_node_memory(0);
-    memory::AlignedMemorySlice log_buf = node_memory->get_log_buffer_memory_piece(0);
+    memory::AlignedMemory memory;
+    memory.alloc(1U << 12 , 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
+    memory::AlignedMemorySlice log_buf(&memory);
 
     memory::AlignedMemory fill_buf;
-    COERCE_ERROR(node_memory->allocate_numa_memory(log::FillerLogType::kLogWriteUnitSize,
-                            &fill_buf));
+    fill_buf.alloc(
+      log::FillerLogType::kLogWriteUnitSize,
+      1U << 12,
+      memory::AlignedMemory::kNumaAllocOnnode,
+      0);
 
     storage::array::ArrayOverwriteLogType* the_log =
       reinterpret_cast< storage::array::ArrayOverwriteLogType* >(log_buf.get_block());

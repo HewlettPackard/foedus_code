@@ -20,9 +20,9 @@
 #include "foedus/assorted/fixed_string.hpp"
 #include "foedus/assorted/uniform_random.hpp"
 #include "foedus/memory/aligned_memory.hpp"
+#include "foedus/soc/shared_rendezvous.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/thread/fwd.hpp"
-#include "foedus/thread/impersonate_task.hpp"
 #include "foedus/thread/rendezvous_impl.hpp"
 #include "foedus/tpcc/tpcc.hpp"
 #include "foedus/tpcc/tpcc_scale.hpp"
@@ -35,11 +35,32 @@ namespace tpcc {
  * If the driver spawns client processes, this is allocated in shared memory.
  */
 struct TpccClientChannel {
+  void initialize() {
+    start_rendezvous_.initialize();
+    warmup_complete_counter_.store(0);
+    exit_nodes_.store(0);
+    stop_flag_.store(false);
+  }
+  void uninitialize() {
+    start_rendezvous_.uninitialize();
+  }
+  /** This is fired when warmup_complete_counter_ becomes the total worker count. */
+  soc::SharedRendezvous start_rendezvous_;
   std::atomic<uint32_t> warmup_complete_counter_;
   std::atomic<uint16_t> exit_nodes_;
-  std::atomic<bool> start_flag_;
   std::atomic<bool> stop_flag_;
 };
+
+/**
+ * Invoke TpccClientTask, which defines Inputs/Outputs.
+ */
+ErrorStack tpcc_client_task(
+  thread::Thread* context,
+  const void* input_buffer,
+  uint32_t input_len,
+  void* output_buffer,
+  uint32_t output_buffer_size,
+  uint32_t* output_used);
 
 /**
  * @brief The worker thread to run transactions in the experiment.
@@ -47,7 +68,7 @@ struct TpccClientChannel {
  * This is the canonical TPCC workload which use as the default experiment.
  * We also have various focused/modified workload to evaluate specific aspects.
  */
-class TpccClientTask : public thread::ImpersonateTask {
+class TpccClientTask {
  public:
   enum Constants {
     kRandomSeed = 123456,
@@ -55,30 +76,39 @@ class TpccClientTask : public thread::ImpersonateTask {
     /** on average only 3. surely won't be more than this number */
     kMaxCidsPerLname = 128,
   };
-  TpccClientTask(
-    uint32_t worker_id,
-    Wid total_warehouses,
-    Wid from_wid,
-    Wid to_wid,
-    uint16_t neworder_remote_percent,
-    uint16_t payment_remote_percent,
-    const TpccStorages& storages,
-    TpccClientChannel *channel)
-    : worker_id_(worker_id),
-      total_warehouses_(total_warehouses),
-      from_wid_(from_wid),
-      to_wid_(to_wid),
-      channel_(channel),
-      storages_(storages),
-      neworder_remote_percent_(neworder_remote_percent),
-      payment_remote_percent_(payment_remote_percent),
-      rnd_(kRandomSeed + worker_id),
-      processed_(0) {
-    user_requested_aborts_ = 0;
-    race_aborts_ = 0;
-    unexpected_aborts_ = 0;
-    largereadset_aborts_ = 0;
-    storages_.assert_initialized();
+  struct Inputs {
+    uint32_t worker_id_;
+    Wid total_warehouses_;
+    Wid from_wid_;
+    Wid to_wid_;
+    uint16_t neworder_remote_percent_;
+    uint16_t payment_remote_percent_;
+  };
+  struct Outputs {
+    /** How many transactions processed so far*/
+    uint64_t processed_;
+
+    // statistics
+    uint32_t user_requested_aborts_;
+    uint32_t race_aborts_;
+    /** this is usually up to 1 because we stop execution as soon as this happens */
+    uint32_t unexpected_aborts_;
+    uint32_t largereadset_aborts_;
+  };
+  TpccClientTask(const Inputs& inputs, Outputs* outputs)
+    : worker_id_(inputs.worker_id_),
+      total_warehouses_(inputs.total_warehouses_),
+      from_wid_(inputs.from_wid_),
+      to_wid_(inputs.to_wid_),
+      outputs_(outputs),
+      neworder_remote_percent_(inputs.neworder_remote_percent_),
+      payment_remote_percent_(inputs.payment_remote_percent_),
+      rnd_(kRandomSeed + inputs.worker_id_) {
+    outputs_->processed_ = 0;
+    outputs_->user_requested_aborts_ = 0;
+    outputs_->race_aborts_ = 0;
+    outputs_->unexpected_aborts_ = 0;
+    outputs_->largereadset_aborts_ = 0;
 //    std::memset(stat_wids_, 0, sizeof(stat_wids_));
 //    std::memset(stat_dids_, 0, sizeof(stat_dids_));
   }
@@ -87,21 +117,21 @@ class TpccClientTask : public thread::ImpersonateTask {
   ErrorStack run(thread::Thread* context);
 
   uint32_t get_worker_id() const { return worker_id_; }
-  uint32_t get_user_requested_aborts() const { return user_requested_aborts_; }
-  uint32_t increment_user_requested_aborts() { return ++user_requested_aborts_; }
-  uint32_t get_race_aborts() const { return race_aborts_; }
-  uint32_t increment_race_aborts() { return ++race_aborts_; }
-  uint32_t get_unexpected_aborts() const { return unexpected_aborts_; }
-  uint32_t increment_unexpected_aborts() { return ++unexpected_aborts_; }
-  uint32_t get_largereadset_aborts() const { return largereadset_aborts_; }
-  uint32_t increment_largereadset_aborts() { return ++largereadset_aborts_; }
+  uint32_t get_user_requested_aborts() const { return outputs_->user_requested_aborts_; }
+  uint32_t increment_user_requested_aborts() { return ++outputs_->user_requested_aborts_; }
+  uint32_t get_race_aborts() const { return outputs_->race_aborts_; }
+  uint32_t increment_race_aborts() { return ++outputs_->race_aborts_; }
+  uint32_t get_unexpected_aborts() const { return outputs_->unexpected_aborts_; }
+  uint32_t increment_unexpected_aborts() { return ++outputs_->unexpected_aborts_; }
+  uint32_t get_largereadset_aborts() const { return outputs_->largereadset_aborts_; }
+  uint32_t increment_largereadset_aborts() { return ++outputs_->largereadset_aborts_; }
 
   bool is_stop_requested() const {
     assorted::memory_fence_acquire();
     return channel_->stop_flag_.load();
   }
 
-  uint64_t get_processed() const { return processed_; }
+  uint64_t get_processed() const { return outputs_->processed_; }
 
 
 //  uint32_t    debug_wdcid_access_[kCustomers * kDistricts * kMaxWarehouses];
@@ -120,13 +150,14 @@ class TpccClientTask : public thread::ImpersonateTask {
   /** exclusive end of "home" wid */
   const Wid to_wid_;
 
-  TpccClientChannel* const channel_;
+  TpccClientChannel* channel_;
 
   TpccStorages      storages_;
 
   /** set at the beginning of run() for convenience */
   thread::Thread*   context_;
   Engine*           engine_;
+  Outputs* const    outputs_;
 
 
   /**
@@ -146,16 +177,6 @@ class TpccClientTask : public thread::ImpersonateTask {
 
   /** thread local random. */
   assorted::UniformRandom rnd_;
-
-  /** How many transactions processed so far*/
-  uint64_t processed_;
-
-  // statistics
-  uint32_t user_requested_aborts_;
-  uint32_t race_aborts_;
-  /** this is usually up to 1 because we stop execution as soon as this happens */
-  uint32_t unexpected_aborts_;
-  uint32_t largereadset_aborts_;
 
   /** Updates timestring_ only per second. */
   uint64_t    previous_timestring_update_;

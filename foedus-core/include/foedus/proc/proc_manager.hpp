@@ -5,6 +5,7 @@
 #ifndef FOEDUS_PROC_PROC_MANAGER_HPP_
 #define FOEDUS_PROC_PROC_MANAGER_HPP_
 
+#include <string>
 #include <vector>
 
 #include "foedus/fwd.hpp"
@@ -32,6 +33,13 @@ class ProcManager CXX11_FINAL : public virtual Initializable {
   bool        is_initialized() const CXX11_OVERRIDE;
   ErrorStack  uninitialize() CXX11_OVERRIDE;
 
+  /**
+   * @brief Returns the function pointer of the specified procedure.
+   * @param[in] name Name of the procedure that has been registered via one of the following methods
+   * @param[out] out Function pointer of the procedure.
+   * @return Error if the given procedure name is not found.
+   */
+  ErrorStack  get_proc(const ProcName& name, Proc* out);
 
   /**
    * @brief Pre-register a function pointer as a user procedure so that all SOCs will have it
@@ -45,6 +53,10 @@ class ProcManager CXX11_FINAL : public virtual Initializable {
    * So, once Engine is initialized, this method always fails.
    */
   ErrorStack  pre_register(const ProcAndName& proc_and_name);
+  /** Just a synonym. */
+  ErrorStack  pre_register(const ProcName& name, Proc proc) {
+    return pre_register(ProcAndName(name, proc));
+  }
 
   /** Returns procedures given to pre_register() */
   const std::vector< ProcAndName >& get_pre_registered_procedures() const;
@@ -70,6 +82,9 @@ class ProcManager CXX11_FINAL : public virtual Initializable {
    * Most testcases and small programs that do not need high scalability can use this.
    */
   ErrorStack  emulated_register(const ProcAndName& proc_and_name);
+
+  /** For debug uses only. Returns a summary of procedures registered in this engine */
+  std::string describe_registered_procs() const;
 
  private:
   ProcManagerPimpl *pimpl_;

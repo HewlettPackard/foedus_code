@@ -9,17 +9,17 @@
 #include "foedus/engine.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/thread/thread_pimpl.hpp"
 
 namespace foedus {
 namespace thread {
 Thread::Thread(
   Engine* engine,
-  ThreadGroupPimpl* group,
   ThreadId id,
   ThreadGlobalOrdinal global_ordinal)
   : pimpl_(nullptr) {
-  pimpl_ = new ThreadPimpl(engine, group, this, id, global_ordinal);
+  pimpl_ = new ThreadPimpl(engine, this, id, global_ordinal);
 }
 Thread::~Thread() {
   delete pimpl_;
@@ -68,21 +68,28 @@ ErrorCode Thread::install_a_volatile_page(
   return pimpl_->install_a_volatile_page(pointer, installed_page);
 }
 
-void Thread::hack_handle_one_task(ImpersonateTask* task, ImpersonateSession* session) {
-  pimpl_->hack_handle_one_task(task, session);
-}
-
 std::ostream& operator<<(std::ostream& o, const Thread& v) {
   o << "Thread-" << v.get_thread_global_ordinal() << "(id=" << v.get_thread_id() << ") [";
-  o << (v.pimpl_->current_task_.load() ? "I" : " ");
-  o << (v.pimpl_->raw_thread_.is_stop_requested() ? "R" : " ");
-  o << (v.pimpl_->raw_thread_.is_stopped() ? "E" : " ");
+  o << "status=" << (v.pimpl_->control_block_->status_);
   o << "]";
   return o;
 }
 
 const memory::GlobalVolatilePageResolver& Thread::get_global_volatile_page_resolver() const {
-  return pimpl_->engine_->get_memory_manager().get_global_volatile_page_resolver();
+  return pimpl_->global_volatile_page_resolver_;
+}
+
+storage::Page* Thread::resolve(storage::VolatilePagePointer ptr) const {
+  return get_global_volatile_page_resolver().resolve_offset(ptr);
+}
+storage::Page* Thread::resolve_newpage(storage::VolatilePagePointer ptr) const {
+  return get_global_volatile_page_resolver().resolve_offset_newpage(ptr);
+}
+storage::Page* Thread::resolve(memory::PagePoolOffset offset) const {
+  return get_local_volatile_page_resolver().resolve_offset(offset);
+}
+storage::Page* Thread::resolve_newpage(memory::PagePoolOffset offset) const {
+  return get_local_volatile_page_resolver().resolve_offset_newpage(offset);
 }
 
 

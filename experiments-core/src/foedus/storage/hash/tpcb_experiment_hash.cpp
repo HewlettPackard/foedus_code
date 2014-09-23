@@ -34,12 +34,15 @@
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/proc/proc_manager.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_rendezvous.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/hash/hash_metadata.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/storage/sequential/sequential_metadata.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
-#include "foedus/thread/rendezvous_impl.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/xct/xct.hpp"
@@ -92,18 +95,23 @@ struct HistoryData {
   char        other_data_[24];  // just to make it at least 50 bytes
 };
 
-HashStorage*  branches      = nullptr;
-HashStorage*  accounts      = nullptr;
-HashStorage*  tellers       = nullptr;
-sequential::SequentialStorage*  histories = nullptr;
-thread::Rendezvous start_endezvous;
-bool          stop_requested;
+struct ExperimentControlBlock {
+  void initialize() {
+    start_rendezvous_.initialize();
+    stop_requested_ = false;
+  }
+  void uninitialize() {
+    start_rendezvous_.uninitialize();
+  }
+  soc::SharedRendezvous start_rendezvous_;
+  bool                  stop_requested_;
+};
 
 // for better performance, commit frequently.
 // (we have to sort write set at commit, so there is something nlogn)
 const uint32_t kCommitBatch = 1000;
 
-class PopulateTpcbTask : public thread::ImpersonateTask {
+class PopulateTpcbTask {
  public:
   PopulateTpcbTask(uint16_t from_branch, uint16_t to_branch)
     : from_branch_(from_branch), to_branch_(to_branch) {
@@ -121,6 +129,11 @@ class PopulateTpcbTask : public thread::ImpersonateTask {
     AccountData account;
     std::memset(&account, 0, sizeof(account));
 
+    StorageManager& st = context->get_engine()->get_storage_manager();
+    HashStorage branches = st.get_hash("branches");
+    HashStorage tellers = st.get_hash("tellers");
+    HashStorage accounts = st.get_hash("accounts");
+
 #ifndef NDEBUG
     std::set<uint64_t> branch_ids;
     std::set<uint64_t> teller_ids;
@@ -134,7 +147,7 @@ class PopulateTpcbTask : public thread::ImpersonateTask {
 #endif  // NDEBUG
       branch.branch_balance_ = 0;
       commit_if_full(context);
-      WRAP_ERROR_CODE(branches->insert_record(context, branch_id, &branch, sizeof(branch)));
+      WRAP_ERROR_CODE(branches.insert_record(context, branch_id, &branch, sizeof(branch)));
 
       for (uint64_t teller_ordinal = 0; teller_ordinal < kTellers; ++teller_ordinal) {
         uint64_t teller_id = kTellers * branch_id + teller_ordinal;
@@ -144,7 +157,7 @@ class PopulateTpcbTask : public thread::ImpersonateTask {
 #endif  // NDEBUG
         teller.branch_id_ = branch_id;
         commit_if_full(context);
-        WRAP_ERROR_CODE(tellers->insert_record(context, teller_id, &teller, sizeof(teller)));
+        WRAP_ERROR_CODE(tellers.insert_record(context, teller_id, &teller, sizeof(teller)));
 
         for (uint64_t account_ordinal = 0;
               account_ordinal < kAccountsPerTeller;
@@ -156,7 +169,7 @@ class PopulateTpcbTask : public thread::ImpersonateTask {
 #endif  // NDEBUG
           account.branch_id_ = branch_id;
           commit_if_full(context);
-          WRAP_ERROR_CODE(accounts->insert_record(context, account_id, &account, sizeof(account)));
+          WRAP_ERROR_CODE(accounts.insert_record(context, account_id, &account, sizeof(account)));
         }
       }
     }
@@ -182,12 +195,28 @@ class PopulateTpcbTask : public thread::ImpersonateTask {
   const uint16_t to_branch_;
 };
 
-class RunTpcbTask : public thread::ImpersonateTask {
+ErrorStack populate_task(
+  thread::Thread* context,
+  const void* input_buffer,
+  uint32_t input_len,
+  void* /*output_buffer*/,
+  uint32_t /*output_buffer_size*/,
+  uint32_t* /*output_used*/) {
+  ASSERT_ND(input_len == sizeof(uint64_t) * 2);
+  uint64_t from = reinterpret_cast<const uint64_t*>(input_buffer)[0];
+  uint64_t to = reinterpret_cast<const uint64_t*>(input_buffer)[1];
+  PopulateTpcbTask task(from, to);
+  return task.run(context);
+}
+
+class RunTpcbTask {
  public:
   RunTpcbTask() {
     std::memset(tmp_history_.other_data_, 0, sizeof(tmp_history_.other_data_));
   }
   ErrorStack run(thread::Thread* context) {
+    ExperimentControlBlock* control = reinterpret_cast<ExperimentControlBlock*>(
+      context->get_engine()->get_soc_manager().get_shared_memory_repo()->get_global_user_memory());
     // pre-calculate random numbers to get rid of random number generation as bottleneck
     random_.set_current_seed(context->get_thread_id());
     CHECK_ERROR(
@@ -196,7 +225,14 @@ class RunTpcbTask : public thread::ImpersonateTask {
     random_.fill_memory(&numbers_);
     const uint32_t *randoms = reinterpret_cast<const uint32_t*>(numbers_.get_block());
 
-    start_endezvous.wait();
+
+    StorageManager& st = context->get_engine()->get_storage_manager();
+    branches_ = st.get_hash("branches");
+    tellers_ = st.get_hash("tellers");
+    accounts_ = st.get_hash("accounts");
+    histories_ = st.get_sequential("histories");
+
+    control->start_rendezvous_.wait();
 
     processed_ = 0;
     xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
@@ -206,7 +242,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
       uint64_t branch_id = account_id / kAccounts;
       int64_t  amount = static_cast<int64_t>(random_.uniform_within(0, 1999999)) - 1000000;
       int successive_aborts = 0;
-      while (!stop_requested) {
+      while (!control->stop_requested_) {
         ErrorCode result_code = try_transaction(context, branch_id, teller_id, account_id, amount);
         if (result_code == kErrorCodeOk) {
           break;
@@ -227,7 +263,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
       ++processed_;
       if ((processed_ & 0xFF) == 0) {
         assorted::memory_fence_acquire();
-        if (stop_requested) {
+        if (control->stop_requested_) {
           break;
         }
       }
@@ -248,19 +284,19 @@ class RunTpcbTask : public thread::ImpersonateTask {
     CHECK_ERROR_CODE(xct_manager.begin_xct(context, xct::kDirtyReadPreferVolatile));
 
     int64_t balance = amount;
-    CHECK_ERROR_CODE(branches->increment_record(context, branch_id, &balance, 0));
+    CHECK_ERROR_CODE(branches_.increment_record(context, branch_id, &balance, 0));
 
     balance = amount;
-    CHECK_ERROR_CODE(tellers->increment_record(context, teller_id, &balance, sizeof(uint64_t)));
+    CHECK_ERROR_CODE(tellers_.increment_record(context, teller_id, &balance, sizeof(uint64_t)));
 
     balance = amount;
-    CHECK_ERROR_CODE(accounts->increment_record(context, account_id, &balance, sizeof(uint64_t)));
+    CHECK_ERROR_CODE(accounts_.increment_record(context, account_id, &balance, sizeof(uint64_t)));
 
     tmp_history_.account_id_ = account_id;
     tmp_history_.branch_id_ = branch_id;
     tmp_history_.teller_id_ = teller_id;
     tmp_history_.amount_ = amount;
-    CHECK_ERROR_CODE(histories->append_record(context, &tmp_history_, sizeof(HistoryData)));
+    CHECK_ERROR_CODE(histories_.append_record(context, &tmp_history_, sizeof(HistoryData)));
 
     Epoch commit_epoch;
     CHECK_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
@@ -276,7 +312,26 @@ class RunTpcbTask : public thread::ImpersonateTask {
   const uint32_t kRandomCount = 1 << 16;
 
   HistoryData tmp_history_;
+  HashStorage branches_;
+  HashStorage tellers_;
+  HashStorage accounts_;
+  sequential::SequentialStorage histories_;
 };
+
+ErrorStack run_task(
+  thread::Thread* context,
+  const void* /*input_buffer*/,
+  uint32_t /*input_len*/,
+  void* output_buffer,
+  uint32_t output_buffer_size,
+  uint32_t* output_used) {
+  RunTpcbTask task;
+  CHECK_ERROR(task.run(context));
+  ASSERT_ND(output_buffer_size >= sizeof(uint64_t));
+  *output_used = sizeof(uint64_t);
+  *reinterpret_cast<uint64_t*>(output_buffer) = task.get_processed();
+  return kRetOk;
+}
 
 int main_impl(int argc, char **argv) {
   bool profile = false;
@@ -318,6 +373,8 @@ int main_impl(int argc, char **argv) {
 
   {
     Engine engine(options);
+    engine.get_proc_manager().pre_register("run_task", run_task);
+    engine.get_proc_manager().pre_register("populate_task", populate_task);
     COERCE_ERROR(engine.initialize());
     {
       UninitializeGuard guard(&engine);
@@ -327,18 +384,18 @@ int main_impl(int argc, char **argv) {
       const float kHashFillfactor = 0.5;
       HashMetadata branch_meta("branches");
       branch_meta.set_capacity(kBranches, kHashFillfactor);
-      COERCE_ERROR(str_manager.create_hash(&branch_meta, &branches, &ep));
+      COERCE_ERROR(str_manager.create_storage(&branch_meta, &ep));
       std::cout << "Created branches " << std::endl;
       HashMetadata teller_meta("tellers");
       teller_meta.set_capacity(kBranches * kTellers, kHashFillfactor);
-      COERCE_ERROR(str_manager.create_hash(&teller_meta, &tellers, &ep));
+      COERCE_ERROR(str_manager.create_storage(&teller_meta, &ep));
       std::cout << "Created tellers " << std::endl;
       HashMetadata account_meta("accounts");
       account_meta.set_capacity(kBranches * kAccounts, kHashFillfactor);
-      COERCE_ERROR(str_manager.create_hash(&account_meta, &accounts, &ep));
+      COERCE_ERROR(str_manager.create_storage(&account_meta, &ep));
       std::cout << "Created accounts " << std::endl;
       sequential::SequentialMetadata history_meta("histories");
-      COERCE_ERROR(str_manager.create_sequential(&history_meta, &histories, &ep));
+      COERCE_ERROR(str_manager.create_storage(&history_meta, &ep));
       std::cout << "Created all!" << std::endl;
 
       std::cout << "Now populating initial records..." << std::endl;
@@ -351,23 +408,32 @@ int main_impl(int argc, char **argv) {
         if (node == options.thread_.group_count_ - 1) {
           to_branch = kBranches;  // in case kBranches is not multiply of node count
         }
-        PopulateTpcbTask task(from_branch, to_branch);
-        thread::ImpersonateSession session(
-          engine.get_thread_pool().impersonate_on_numa_node(&task, node));
-        if (!session.is_valid()) {
-          COERCE_ERROR(session.invalid_cause_);
-        }
+        uint64_t inputs[2];
+        inputs[0] = from_branch;
+        inputs[1] = to_branch;
+        thread::ImpersonateSession session;
+        bool ret = engine.get_thread_pool().impersonate_on_numa_node(
+          node,
+          "populate_task",
+          inputs,
+          sizeof(inputs),
+          &session);
+        ASSERT_ND(ret);
+        COERCE_ERROR(session.get_result());
         std::cout << "populate result=" << session.get_result() << std::endl;
+        session.release();
       }
 
-      std::vector< RunTpcbTask* > tasks;
+      ExperimentControlBlock* control = reinterpret_cast<ExperimentControlBlock*>(
+        engine.get_soc_manager().get_shared_memory_repo()->get_global_user_memory());
+      control->initialize();
+
       std::vector< thread::ImpersonateSession > sessions;
       for (int i = 0; i < kTotalThreads; ++i) {
-        tasks.push_back(new RunTpcbTask());
-        sessions.emplace_back(engine.get_thread_pool().impersonate(tasks[i]));
-        if (!sessions[i].is_valid()) {
-          COERCE_ERROR(sessions[i].invalid_cause_);
-        }
+        thread::ImpersonateSession session;
+        bool ret = engine.get_thread_pool().impersonate("run_task", nullptr, 0, &session);
+        ASSERT_ND(ret);
+        sessions.emplace_back(std::move(session));
       }
 
       // make sure all threads are done with random number generation
@@ -375,31 +441,28 @@ int main_impl(int argc, char **argv) {
       if (profile) {
         COERCE_ERROR(engine.get_debug().start_profile("tpcb_experiment_seq.prof"));
       }
-      start_endezvous.signal();  // GO!
+      control->start_rendezvous_.signal();  // GO!
       std::cout << "Started!" << std::endl;
       std::this_thread::sleep_for(std::chrono::microseconds(kDurationMicro));
       std::cout << "Experiment ended." << std::endl;
 
-      uint64_t total = 0;
-      assorted::memory_fence_acquire();
-      for (int i = 0; i < kTotalThreads; ++i) {
-        total += tasks[i]->get_processed();
-      }
+      assorted::memory_fence_release();
+      control->stop_requested_ = true;
+      assorted::memory_fence_release();
       if (profile) {
         engine.get_debug().stop_profile();
+      }
+      uint64_t total = 0;
+      for (int i = 0; i < kTotalThreads; ++i) {
+        std::cout << "session: result[" << i << "]=" << sessions[i].get_result() << std::endl;
+        uint64_t processed;
+        sessions[i].get_output(&processed);
+        total += processed;
+        sessions[i].release();
       }
       std::cout << "total=" << total << ", MTPS="
         << (static_cast<double>(total)/kDurationMicro) << std::endl;
       std::cout << "Shutting down..." << std::endl;
-
-      assorted::memory_fence_release();
-      stop_requested = true;
-      assorted::memory_fence_release();
-
-      for (int i = 0; i < kTotalThreads; ++i) {
-        std::cout << "result[" << i << "]=" << sessions[i].get_result() << std::endl;
-        delete tasks[i];
-      }
       COERCE_ERROR(engine.uninitialize());
     }
   }

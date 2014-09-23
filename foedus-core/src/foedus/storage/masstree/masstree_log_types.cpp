@@ -37,7 +37,8 @@ void MasstreeCreateLogType::populate(
   name_length_ = name_length;
   std::memcpy(name_, name, name_length);
 }
-void MasstreeCreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
+void MasstreeCreateLogType::apply_storage(thread::Thread* context, StorageId storage_id) {
+  /* TODO(Hideaki) During surgery
   ASSERT_ND(storage == nullptr);  // because we are now creating it.
   LOG(INFO) << "Applying CREATE MASSTREE STORAGE log: " << *this;
   StorageName name(name_, name_length_);
@@ -48,6 +49,7 @@ void MasstreeCreateLogType::apply_storage(thread::Thread* context, Storage* stor
   COERCE_ERROR(masstree->create(context));
   masstree.release();  // No error, so take over the ownership from unique_ptr.
   LOG(INFO) << "Applied CREATE MASSTREE STORAGE log: " << *this;
+  */
 }
 
 void MasstreeCreateLogType::assert_valid() {

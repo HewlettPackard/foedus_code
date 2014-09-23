@@ -12,8 +12,11 @@
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/test_common.hpp"
+#include "foedus/proc/proc_manager.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_rendezvous.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/thread/impersonate_session.hpp"
-#include "foedus/thread/rendezvous_impl.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 
@@ -21,38 +24,47 @@ namespace foedus {
 namespace thread {
 DEFINE_TEST_CASE_PACKAGE(ThreadPoolTest, foedus.thread);
 
-struct DummyTask : public ImpersonateTask {
-  explicit DummyTask(Rendezvous *rendezvous) : rendezvous_(rendezvous) {}
-  ErrorStack run(Thread* /*context*/) {
-    rendezvous_->wait();
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    return kRetOk;
-  }
-  Rendezvous *rendezvous_;
-};
+ErrorStack dummy_task(
+  thread::Thread* context,
+  const void* /*input_buffer*/,
+  uint32_t /*input_len*/,
+  void* /*output_buffer*/,
+  uint32_t /*output_buffer_size*/,
+  uint32_t* /*output_used*/) {
+  void* user_memory
+    = context->get_engine()->get_soc_manager().get_shared_memory_repo()->get_global_user_memory();
+  soc::SharedRendezvous* rendezvous = reinterpret_cast<soc::SharedRendezvous*>(user_memory);
+  rendezvous->wait();
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  return kRetOk;
+}
 
 void run_test(int pooled_count, int impersonate_count) {
   EngineOptions options = get_tiny_options();
   options.thread_.thread_count_per_group_ = pooled_count;
   Engine engine(options);
+  engine.get_proc_manager().pre_register("dummy_task", dummy_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
+    // Use global user memory for rendezvous.
+    void* user_memory = engine.get_soc_manager().get_shared_memory_repo()->get_global_user_memory();
+    soc::SharedRendezvous* rendezvous = reinterpret_cast<soc::SharedRendezvous*>(user_memory);
     for (int rep = 0; rep < 10; ++rep) {
-      Rendezvous rendezvous;
-      std::vector<DummyTask*> tasks;
+      rendezvous->initialize();
       std::vector<ImpersonateSession> sessions;
       for (int i = 0; i < impersonate_count; ++i) {
-        tasks.push_back(new DummyTask(&rendezvous));
-        sessions.push_back(engine.get_thread_pool().impersonate(tasks[i]));
+        thread::ImpersonateSession session;
+        EXPECT_TRUE(engine.get_thread_pool().impersonate("dummy_task", nullptr, 0, &session));
+        sessions.emplace_back(std::move(session));
       }
 
-      rendezvous.signal();
+      rendezvous->signal();
 
       for (int i = 0; i < impersonate_count; ++i) {
         COERCE_ERROR(sessions[i].get_result());
-        delete tasks[i];
       }
+      rendezvous->uninitialize();
     }
     COERCE_ERROR(engine.uninitialize());
   }

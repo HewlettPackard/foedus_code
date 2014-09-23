@@ -42,6 +42,7 @@ class RestartManagerPimpl final : public DefaultInitializable {
   ErrorStack  recover();
 
   Engine* const           engine_;
+  RestartManagerControlBlock* control_block_;
 };
 
 static_assert(

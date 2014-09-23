@@ -53,6 +53,7 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_layer(
 }
 
 ErrorStack verify_page_basic(
+  thread::Thread* context,
   MasstreePage* page,
   PageType page_type,
   KeySlice low_fence,
@@ -65,19 +66,21 @@ ErrorStack verify_page_basic(
   CHECK_AND_ASSERT(page->is_high_fence_supremum() == high_fence.supremum_);
   CHECK_AND_ASSERT(
     (page->is_moved() && page->has_foster_child()
-      && page->get_foster_major() && page->get_foster_minor()) ||
+      && !page->get_foster_major().is_null() && !page->get_foster_minor().is_null()) ||
     (!page->is_moved() && !page->has_foster_child()
-      && page->get_foster_major() == nullptr && page->get_foster_minor() == nullptr));
+      && page->get_foster_major().is_null() && page->get_foster_minor().is_null()));
 
-  if (page->get_foster_major()) {
+  if (!page->get_foster_major().is_null()) {
     CHECK_AND_ASSERT(!page->header().snapshot_);
-    CHECK_AND_ASSERT(!page->get_foster_major()->header().snapshot_);
-    CHECK_AND_ASSERT(page->get_foster_major()->header().get_page_type() == page_type);
+    CHECK_AND_ASSERT(!context->resolve(page->get_foster_major())->get_header().snapshot_);
+    CHECK_AND_ASSERT(context->resolve(page->get_foster_major())->get_header().get_page_type()
+      == page_type);
   }
-  if (page->get_foster_minor()) {
+  if (!page->get_foster_minor().is_null()) {
     CHECK_AND_ASSERT(!page->header().snapshot_);
-    CHECK_AND_ASSERT(!page->get_foster_minor()->header().snapshot_);
-    CHECK_AND_ASSERT(page->get_foster_minor()->header().get_page_type() == page_type);
+    CHECK_AND_ASSERT(!context->resolve(page->get_foster_minor())->get_header().snapshot_);
+    CHECK_AND_ASSERT(context->resolve(page->get_foster_minor())->get_header().get_page_type()
+      == page_type);
   }
   return kRetOk;
 }
@@ -87,19 +90,20 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_intermediate(
   KeySlice low_fence,
   HighFence high_fence,
   MasstreeIntermediatePage* page) {
-  CHECK_ERROR(verify_page_basic(page, kMasstreeIntermediatePageType, low_fence, high_fence));
+  CHECK_ERROR(
+    verify_page_basic(context, page, kMasstreeIntermediatePageType, low_fence, high_fence));
 
   if (page->is_moved()) {
     CHECK_ERROR(verify_single_thread_intermediate(
       context,
       low_fence,
       HighFence(page->get_foster_fence(), false),
-      reinterpret_cast<MasstreeIntermediatePage*>(page->get_foster_minor())));
+      context->resolve_cast<MasstreeIntermediatePage>(page->get_foster_minor())));
     CHECK_ERROR(verify_single_thread_intermediate(
       context,
       page->get_foster_fence(),
       high_fence,
-      reinterpret_cast<MasstreeIntermediatePage*>(page->get_foster_major())));
+      context->resolve_cast<MasstreeIntermediatePage>(page->get_foster_major())));
     return kRetOk;
   }
 
@@ -173,7 +177,7 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_border(
   KeySlice low_fence,
   HighFence high_fence,
   MasstreeBorderPage* page) {
-  CHECK_ERROR(verify_page_basic(page, kMasstreeBorderPageType, low_fence, high_fence));
+  CHECK_ERROR(verify_page_basic(context, page, kMasstreeBorderPageType, low_fence, high_fence));
   // check consecutive_inserts_. this should be consistent whether it's moved or not.
   bool sorted = true;
   for (uint8_t i = 1; i < page->get_key_count(); ++i) {
@@ -193,12 +197,12 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_border(
       context,
       low_fence,
       HighFence(page->get_foster_fence(), false),
-      reinterpret_cast<MasstreeBorderPage*>(page->get_foster_minor())));
+      context->resolve_cast<MasstreeBorderPage>(page->get_foster_minor())));
     CHECK_ERROR(verify_single_thread_border(
       context,
       page->get_foster_fence(),
       high_fence,
-      reinterpret_cast<MasstreeBorderPage*>(page->get_foster_major())));
+      context->resolve_cast<MasstreeBorderPage>(page->get_foster_major())));
     return kRetOk;
   }
 

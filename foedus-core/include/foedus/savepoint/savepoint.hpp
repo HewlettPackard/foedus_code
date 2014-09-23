@@ -6,6 +6,7 @@
 #define FOEDUS_SAVEPOINT_SAVEPOINT_HPP_
 #include <vector>
 
+#include "foedus/assert_nd.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/externalize/externalizable.hpp"
@@ -48,7 +49,6 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
    * @invariant Epoch(current_epoch_) > Epoch(durable_epoch_)
    */
   Epoch::EpochInteger             durable_epoch_;
-
 
   // for all the following, index is LoggerId
 
@@ -94,6 +94,64 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
   /** Check invariants on current_epoch_/durable_epoch_ */
   void        assert_epoch_values() const;
 };
+/** Information in savepoint for one logger. */
+struct LoggerSavepointInfo {
+  /**
+  * @brief Ordinal of the oldest active log file in each logger.
+  * @invariant oldest_log_files_[x] <= current_log_files_[x]
+  * @details
+  * Each logger writes out files suffixed with ordinal (eg ".0", ".1"...).
+  * The older logs files are deactivated and deleted after log gleaner consumes them.
+  * This variable indicates the oldest active file for each logger.
+  */
+  log::LogFileOrdinal oldest_log_file_;
+
+  /** Indicates the log file each logger is currently appending to. */
+  log::LogFileOrdinal current_log_file_;
+
+  /** Indicates the inclusive beginning of active region in the oldest log file. */
+  uint64_t            oldest_log_file_offset_begin_;
+
+  /**
+  * Indicates the exclusive end of durable region in the current log file.
+  * In other words, epochs are larger than durable_epoch_ from this offset.
+  * During restart, current log files are truncated to this size to discard incomplete logs.
+  */
+  uint64_t            current_log_file_offset_durable_;
+};
+
+/**
+ * @brief Savepoint that can be stored in shared memory.
+ * @ingroup SAVEPOINT
+ */
+struct FixedSavepoint CXX11_FINAL {
+  // only for reinterpret_cast
+  FixedSavepoint() CXX11_FUNC_DELETE;
+  ~FixedSavepoint() CXX11_FUNC_DELETE;
+
+  Epoch::EpochInteger             current_epoch_;
+  Epoch::EpochInteger             durable_epoch_;
+
+  /** Number of NUMA nodes. the information is availble elsewhere, but easier to duplicate here. */
+  uint16_t                        node_count_;
+  /** Number of loggers per node. same above. */
+  uint16_t                        loggers_per_node_count_;
+
+  /**
+   * Stores all loggers' information. We allocate memory enough for the largest number of loggers.
+   * In reality, we are just reading/writing a small piece of it.
+   * 24b * 64k = 1.5MB.
+   */
+  LoggerSavepointInfo             logger_info_[1U << 16];
+
+  uint32_t                        get_total_logger_count() const {
+    return static_cast<uint32_t>(node_count_) * loggers_per_node_count_;
+  }
+
+  /** Write out the content of the given Savepoint to this object */
+  void update(uint16_t node_count, uint16_t loggers_per_node_count, const Savepoint& src);
+};
+
 }  // namespace savepoint
 }  // namespace foedus
 #endif  // FOEDUS_SAVEPOINT_SAVEPOINT_HPP_

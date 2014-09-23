@@ -35,6 +35,32 @@ struct ThreadControlBlock {
   ThreadControlBlock() = delete;
   ~ThreadControlBlock() = delete;
 
+  void initialize() {
+    status_ = kNotInitialized;
+    mcs_block_current_ = 0;
+    current_ticket_ = 0;
+    proc_name_.clear();
+    input_len_ = 0;
+    output_len_ = 0;
+    proc_result_.clear();
+    wakeup_cond_.initialize();
+    task_mutex_.initialize();
+    task_complete_cond_.initialize();
+  }
+  void uninitialize() {
+    task_complete_cond_.uninitialize();
+    task_mutex_.uninitialize();
+    wakeup_cond_.uninitialize();
+  }
+
+  /**
+   * How many MCS blocks we allocated in this thread's current xct.
+   * reset to 0 at each transaction begin.
+   * This is in shared memory because other SOC might check this value (so far only
+   * for sanity check).
+   */
+  uint32_t            mcs_block_current_;
+
   /**
    * The thread sleeps on this conditional when it has no task.
    * When someone else (whether in same SOC or other SOC) wants to wake up this logger,
@@ -51,6 +77,13 @@ struct ThreadControlBlock {
   /** The following variables are protected by this mutex. */
   soc::SharedMutex    task_mutex_;
 
+  /**
+   * The most recently issued impersonation ticket.
+   * A session with this ticket has an exclusive ownership until it changes the status_
+   * to kWaitingForTask.
+   */
+  ThreadTicket        current_ticket_;
+
   /** Name of the procedure to execute next. Empty means not set. */
   proc::ProcName      proc_name_;
 
@@ -62,6 +95,11 @@ struct ThreadControlBlock {
 
   /** Error code as the result of the procedure */
   FixedErrorStack     proc_result_;
+
+  /**
+   * When the current task has been completed, the thread signals this.
+   */
+  soc::SharedCond     task_complete_cond_;
 };
 
 /**
@@ -79,7 +117,6 @@ class ThreadPimpl final : public DefaultInitializable {
   ThreadPimpl() = delete;
   ThreadPimpl(
     Engine* engine,
-    ThreadGroupPimpl* group,
     Thread* holder,
     ThreadId id,
     ThreadGlobalOrdinal global_ordinal);
@@ -95,14 +132,10 @@ class ThreadPimpl final : public DefaultInitializable {
   void        handle_tasks();
   /** initializes the thread's policy/priority */
   void        set_thread_schedule();
-  void        hack_handle_one_task(ImpersonateTask* task, ImpersonateSession* session);
-
-  /**
-   * Conditionally try to occupy this thread, or impersonate. If it fails, it immediately returns.
-   * @param[in] session the session to run on this thread
-   * @return whether successfully impersonated.
-   */
-  bool        try_impersonate(ImpersonateSession *session);
+  bool        is_stop_requested() const {
+    assorted::memory_fence_acquire();
+    return control_block_->status_ == kWaitingForTerminate;
+  }
 
   /** @copydoc foedus::thread::Thread::find_or_read_a_snapshot_page() */
   ErrorCode   find_or_read_a_snapshot_page(
@@ -163,11 +196,6 @@ class ThreadPimpl final : public DefaultInitializable {
   Engine* const           engine_;
 
   /**
-   * The thread group (NUMA node) this thread belongs to.
-   */
-  ThreadGroupPimpl* const group_;
-
-  /**
    * The public object that holds this pimpl object.
    */
   Thread* const           holder_;
@@ -206,16 +234,8 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /**
    * Encapsulates raw thread object.
-   * This is initialized/uninitialized in initialize()/uninitialize().
    */
-  StoppableThread         raw_thread_;
-
-  /**
-   * The task this thread is currently running or will run when it wakes up.
-   * Only one caller can impersonate a thread at once.
-   * If this thread is not impersonated, null.
-   */
-  std::atomic<ImpersonateTask*>   current_task_;
+  std::thread             raw_thread_;
 
   /**
    * Current transaction this thread is conveying.
@@ -228,6 +248,10 @@ class ThreadPimpl final : public DefaultInitializable {
    * Each threads maintains a private set of snapshot file descriptors.
    */
   cache::SnapshotFileSet  snapshot_file_set_;
+
+  ThreadControlBlock*     control_block_;
+  void*                   task_input_memory_;
+  void*                   task_output_memory_;
 
   /** Pre-allocated MCS blocks. index 0 is not used so that successor_block=0 means null. */
   xct::McsBlock*          mcs_blocks_;

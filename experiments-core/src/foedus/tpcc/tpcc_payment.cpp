@@ -39,14 +39,14 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   // ++debug_wdid_access_[wdid];
   // SELECT NAME FROM WAREHOUSE
   const void *w_address;
-  CHECK_ERROR_CODE(storages_.warehouses_static_->get_record_payload(
+  CHECK_ERROR_CODE(storages_.warehouses_static_.get_record_payload(
     context_,
     wid,
     &w_address));
   const WarehouseStaticData* w_record = reinterpret_cast<const WarehouseStaticData*>(w_address);
 
   // UPDATE WAREHOUSE SET YTD=YTD+amount
-  CHECK_ERROR_CODE(storages_.warehouses_ytd_->increment_record_oneshot<double>(
+  CHECK_ERROR_CODE(storages_.warehouses_ytd_.increment_record_oneshot<double>(
     context_,
     wid,
     amount,
@@ -54,14 +54,14 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
 
   // SELECT NAME FROM DISTRICT
   const void *d_address;
-  CHECK_ERROR_CODE(storages_.districts_static_->get_record_payload(
+  CHECK_ERROR_CODE(storages_.districts_static_.get_record_payload(
     context_,
     wdid,
     &d_address));
   const DistrictStaticData* d_record = reinterpret_cast<const DistrictStaticData*>(d_address);
 
   // UPDATE DISTRICT SET YTD=YTD+amount
-  CHECK_ERROR_CODE(storages_.districts_ytd_->increment_record_oneshot<double>(
+  CHECK_ERROR_CODE(storages_.districts_ytd_.increment_record_oneshot<double>(
     context_,
     wdid,
     amount,
@@ -83,19 +83,19 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   // (if C_CREDID="BC") C_DATA=...
   // unless c_credit="BC", we don't retrieve history data. see section 2.5.2.2.
 
-  CHECK_ERROR_CODE(storages_.customers_dynamic_->increment_record_oneshot<double>(
+  CHECK_ERROR_CODE(storages_.customers_dynamic_.increment_record_oneshot<double>(
     context_,
     wdcid,
     -amount,
     offsetof(CustomerDynamicData, balance_)));
-  CHECK_ERROR_CODE(storages_.customers_dynamic_->increment_record_oneshot<uint64_t>(
+  CHECK_ERROR_CODE(storages_.customers_dynamic_.increment_record_oneshot<uint64_t>(
     context_,
     wdcid,
     static_cast<uint64_t>(amount),
     offsetof(CustomerDynamicData, ytd_payment_)));
 
   const void *c_address;
-  CHECK_ERROR_CODE(storages_.customers_static_->get_record_payload(
+  CHECK_ERROR_CODE(storages_.customers_static_.get_record_payload(
     context_,
     wdcid,
     &c_address));
@@ -107,7 +107,7 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     // http://zverovich.net/2013/09/07/integer-to-string-conversion-in-cplusplus.html
     // let's consider cppformat if this turns out to be bottleneck
     char c_old_data[CustomerStaticData::kHistoryDataLength];
-    CHECK_ERROR_CODE(storages_.customers_history_->get_record(
+    CHECK_ERROR_CODE(storages_.customers_history_.get_record(
       context_,
       wdcid,
       c_old_data,
@@ -127,7 +127,7 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     std::memcpy(c_new_data + written, timestring_.data(), timestring_.size());
     written += timestring_.size();
     std::memcpy(c_new_data + written, c_old_data, sizeof(c_new_data) - written);
-    CHECK_ERROR_CODE(storages_.customers_history_->overwrite_record(
+    CHECK_ERROR_CODE(storages_.customers_history_.overwrite_record(
       context_,
       wdcid,
       c_new_data,
@@ -155,7 +155,7 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   if (timestring_.size() < sizeof(h_data.date_)) {
     std::memset(h_data.date_ + timestring_.size(), 0, sizeof(h_data.date_) - timestring_.size());
   }
-  CHECK_ERROR_CODE(storages_.histories_->append_record(context_, &h_data, sizeof(h_data)));
+  CHECK_ERROR_CODE(storages_.histories_.append_record(context_, &h_data, sizeof(h_data)));
 
   DVLOG(2) << "Payment: wid=" << wid << ", did=" << static_cast<int>(did)
     << ", cid=" << cid << ", c_wid=" << c_wid << ", c_did=" << static_cast<int>(c_did)

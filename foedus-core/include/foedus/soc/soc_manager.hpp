@@ -9,6 +9,7 @@
 
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/module_type.hpp"
 #include "foedus/proc/proc_id.hpp"
 #include "foedus/soc/fwd.hpp"
 
@@ -61,6 +62,15 @@ class SocManager CXX11_FINAL : public virtual Initializable {
 
   /** Returns the shared memories maintained across SOCs */
   SharedMemoryRepo* get_shared_memory_repo();
+
+  /**
+   * @brief Wait for master engine to finish init/uninit the module.
+   */
+  ErrorStack  wait_for_master_module(bool init, ModuleType module);
+  /**
+   * @brief Wait for other engines to finish init/uninit the module.
+   */
+  ErrorStack  wait_for_children_module(bool init, ModuleType module);
 
   /**
    * @brief This should be called at the beginning of main() if the executable expects to be

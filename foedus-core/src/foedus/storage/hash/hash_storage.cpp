@@ -17,44 +17,20 @@
 namespace foedus {
 namespace storage {
 namespace hash {
-HashStorage::HashStorage(Engine* engine, const HashMetadata &metadata, bool create)
-  : pimpl_(get_pimpl_memory_casted<HashStoragePimpl>(engine, metadata.id_)) {
-  ASSERT_ND(sizeof(HashStoragePimpl) <= kPageSize);
-  new (pimpl_) HashStoragePimpl(engine, this, metadata, create);
+ErrorStack  HashStorage::create(const Metadata &metadata) {
+  return HashStoragePimpl(this).create(static_cast<const HashMetadata&>(metadata));
 }
-HashStorage::~HashStorage() {
-  pimpl_->~HashStoragePimpl();
-}
-
-ErrorStack  HashStorage::initialize()              { return pimpl_->initialize(); }
-ErrorStack  HashStorage::uninitialize()            { return pimpl_->uninitialize(); }
-ErrorStack  HashStorage::create(thread::Thread* context)   { return pimpl_->create(context); }
+ErrorStack  HashStorage::drop() { return HashStoragePimpl(this).drop(); }
 
 void HashStorage::describe(std::ostream* o_ptr) const {
   std::ostream& o = *o_ptr;
   o << "<HashStorage>"
     << "<id>" << get_id() << "</id>"
     << "<name>" << get_name() << "</name>"
-    << "<bin_bits>" << static_cast<int>(pimpl_->metadata_.bin_bits_) << "</bin_bits>"
+    << "<bin_bits>" << static_cast<int>(control_block_->meta_.bin_bits_) << "</bin_bits>"
     << "</HashStorage>";
 }
-
-ErrorStack HashStorageFactory::get_instance(Engine* engine, const Metadata* metadata,
-  Storage** storage) const {
-  ASSERT_ND(metadata);
-  const HashMetadata* casted = dynamic_cast<const HashMetadata*>(metadata);
-  if (casted == nullptr) {
-    LOG(INFO) << "WTF?? the metadata is null or not HashMetadata object";
-    return ERROR_STACK(kErrorCodeStrWrongMetadataType);
-  }
-
-  *storage = new HashStorage(engine, *casted, false);
-  return kRetOk;
-}
-bool HashStorageFactory::is_right_metadata(const Metadata *metadata) const {
-  return dynamic_cast<const HashMetadata*>(metadata) != nullptr;
-}
-
+/* TODO(Hideaki) During surgery
 void HashStorageFactory::add_create_log(const Metadata* metadata, thread::Thread* context) const {
   const HashMetadata* casted = dynamic_cast<const HashMetadata*>(metadata);
   ASSERT_ND(casted);
@@ -68,7 +44,7 @@ void HashStorageFactory::add_create_log(const Metadata* metadata, thread::Thread
     casted->name_.data(),
     casted->bin_bits_);
 }
-
+*/
 // most other methods are defined in pimpl.cpp to allow inlining
 
 }  // namespace hash

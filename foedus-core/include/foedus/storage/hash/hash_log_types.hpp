@@ -11,14 +11,17 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
+#include "foedus/engine.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/log/common_log_types.hpp"
 #include "foedus/log/log_type.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_id.hpp"
+#include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/hash/fwd.hpp"
 #include "foedus/storage/hash/hash_id.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
+#include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 /**
@@ -51,7 +54,7 @@ struct HashCreateLogType : public log::StorageLogType {
   }
 
   void populate(StorageId storage_id, uint16_t name_length, const char* name, uint8_t bin_bits);
-  void apply_storage(thread::Thread* context, Storage* storage);
+  void apply_storage(thread::Thread* context, StorageId storage_id);
   void assert_valid();
   friend std::ostream& operator<<(std::ostream& o, const HashCreateLogType& v);
 };
@@ -104,11 +107,11 @@ struct HashInsertLogType : public log::RecordLogType {
 
   void            apply_record(
     thread::Thread* context,
-    Storage* storage,
+    StorageId storage_id,
     xct::LockableXctId* owner_id,
     char* payload) ALWAYS_INLINE {
-    ASSERT_ND(dynamic_cast<HashStorage*>(storage));
-    reinterpret_cast<HashStorage*>(storage)->apply_insert_record(context, this, owner_id, payload);
+    HashStorage storage = context->get_engine()->get_storage_manager().get_hash(storage_id);
+    storage.apply_insert_record(context, this, owner_id, payload);
   }
 
   void            assert_valid() ALWAYS_INLINE {
@@ -157,11 +160,11 @@ struct HashDeleteLogType : public log::RecordLogType {
 
   void            apply_record(
     thread::Thread* context,
-    Storage* storage,
+    StorageId storage_id,
     xct::LockableXctId* owner_id,
     char* payload) ALWAYS_INLINE {
-    ASSERT_ND(dynamic_cast<HashStorage*>(storage));
-    reinterpret_cast<HashStorage*>(storage)->apply_delete_record(context, this, owner_id, payload);
+    HashStorage storage = context->get_engine()->get_storage_manager().get_hash(storage_id);
+    storage.apply_delete_record(context, this, owner_id, payload);
   }
 
   void            assert_valid() ALWAYS_INLINE {
@@ -218,10 +221,9 @@ struct HashOverwriteLogType : public log::RecordLogType {
 
   void            apply_record(
     thread::Thread* /*context*/,
-    Storage* storage,
+    StorageId /*storage_id*/,
     xct::LockableXctId* /*owner_id*/,
     char* payload) ALWAYS_INLINE {
-    ASSERT_ND(dynamic_cast<HashStorage*>(storage));
     std::memcpy(
       payload + key_length_ + payload_offset_,
       data_ + key_length_,

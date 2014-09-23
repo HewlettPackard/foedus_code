@@ -11,8 +11,10 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/cxx11.hpp"
+#include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack.hpp"
+#include "foedus/module_type.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
@@ -27,6 +29,7 @@
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
+#include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
 
@@ -56,14 +59,9 @@ struct MasterEngineStatus CXX11_FINAL {
     /**
      * Master engine successfully confirmed child's attach and reserved the reclamation of
      * the shared memories. No more attach to the memories is possible after this.
+     * Child SOCs resume their initialization after observing this status.
      */
     kSharedMemoryReservedReclamation,
-    /**
-     * Master engine has successfully initialized essential modules (debug/savepoint, etc).
-     * Child SOCs resume their initialization after observing this status.
-     * The master is waiting for child engines to complete their initialization.
-     */
-    kWaitingForChildInitialization,
 
     /** Done all initialization and running transactions. */
     kRunning,
@@ -99,7 +97,24 @@ struct MasterEngineStatus CXX11_FINAL {
     return status_code_;
   }
 
+  void change_init_atomic(ModuleType value) {
+    ASSERT_ND(static_cast<int>(initialized_modules_) == static_cast<int>(value) - 1);
+    assorted::memory_fence_acq_rel();
+    initialized_modules_ = value;
+    assorted::memory_fence_acq_rel();
+  }
+  void change_uninit_atomic(ModuleType value) {
+    ASSERT_ND(static_cast<int>(uninitialized_modules_) == static_cast<int>(value) + 1);
+    assorted::memory_fence_acq_rel();
+    uninitialized_modules_ = value;
+    assorted::memory_fence_acq_rel();
+  }
+
   StatusCode status_code_;
+  /** The module that has been most recently initialized in master. Used to synchronize init. */
+  ModuleType initialized_modules_;
+  /** The module that has been most recently closed in master. Used to synchronize uninit. */
+  ModuleType uninitialized_modules_;
   // so far this is the only information.
 };
 
@@ -159,7 +174,24 @@ struct ChildEngineStatus CXX11_FINAL {
     return status_code_;
   }
 
+  void change_init_atomic(ModuleType value) {
+    ASSERT_ND(static_cast<int>(initialized_modules_) == static_cast<int>(value) - 1);
+    assorted::memory_fence_acq_rel();
+    initialized_modules_ = value;
+    assorted::memory_fence_acq_rel();
+  }
+  void change_uninit_atomic(ModuleType value) {
+    ASSERT_ND(static_cast<int>(uninitialized_modules_) == static_cast<int>(value) + 1);
+    assorted::memory_fence_acq_rel();
+    uninitialized_modules_ = value;
+    assorted::memory_fence_acq_rel();
+  }
+
   StatusCode status_code_;
+  /** The module that has been most recently initialized in this node. Used to synchronize init. */
+  ModuleType initialized_modules_;
+  /** The module that has been most recently closed in this node. Used to synchronize uninit. */
+  ModuleType uninitialized_modules_;
   // so far this is the only information.
 };
 
@@ -173,7 +205,8 @@ struct GlobalMemoryAnchors {
     kMasterStatusMemorySize = 1 << 12,
     kLogManagerMemorySize = 1 << 12,
     kRestartManagerMemorySize = 1 << 12,
-    kSavepointManagerMemorySize = 1 << 12,
+    /** 3 << 19 is for FixedSavepoint. It's about 1.5MB */
+    kSavepointManagerMemorySize = (3 << 19) + (1 << 12),
     kSnapshotManagerMemorySize = 1 << 12,
     kStorageManagerMemorySize = 1 << 12,
     kXctManagerMemorySize = 1 << 12,
@@ -244,7 +277,7 @@ struct NodeMemoryAnchors {
   enum Constants {
     kChildStatusMemorySize = 1 << 12,
     kPagePoolMemorySize = 1 << 12,
-    kLoggerMemorySize = 1 << 12,
+    kLoggerMemorySize = 1 << 21,
     kProcManagerMemorySize = 1 << 12,
   };
 
@@ -407,6 +440,12 @@ class SharedMemoryRepo CXX11_FINAL {
 
   void        change_child_status(SocId node, ChildEngineStatus::StatusCode new_status);
   ChildEngineStatus::StatusCode get_child_status(SocId node) const;
+
+  ThreadMemoryAnchors* get_thread_memory_anchors(thread::ThreadId thread_id) {
+    SocId node = thread::decompose_numa_node(thread_id);
+    uint16_t thread_ordinal = thread::decompose_numa_local_ordinal(thread_id);
+    return &node_memory_anchors_[node].thread_anchors_[thread_ordinal];
+  }
 
   void*       get_volatile_pool(SocId node) { return volatile_pools_[node].get_block(); }
 

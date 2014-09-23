@@ -6,14 +6,16 @@
 #define FOEDUS_STORAGE_SEQUENTIAL_SEQUENTIAL_STORAGE_PIMPL_HPP_
 #include <stdint.h>
 
-#include <string>
-#include <vector>
-
+#include "foedus/assert_nd.hpp"
+#include "foedus/attachable.hpp"
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/initializable.hpp"
+#include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/fwd.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
@@ -21,7 +23,8 @@
 #include "foedus/storage/sequential/fwd.hpp"
 #include "foedus/storage/sequential/sequential_id.hpp"
 #include "foedus/storage/sequential/sequential_metadata.hpp"
-#include "foedus/storage/sequential/sequential_volatile_list_impl.hpp"
+#include "foedus/storage/sequential/sequential_page_impl.hpp"
+#include "foedus/storage/sequential/sequential_storage.hpp"
 #include "foedus/thread/fwd.hpp"
 
 namespace foedus {
@@ -33,12 +36,14 @@ struct SequentialStorageControlBlock final {
   SequentialStorageControlBlock() = delete;
   ~SequentialStorageControlBlock() = delete;
 
+  bool exists() const { return status_ == kExists || status_ == kMarkedForDeath; }
+
   /** Status of the storage */
   StorageStatus       status_;
   /** Points to the root page (or something equivalent). */
   DualPagePointer     root_page_pointer_;
   /** metadata of this storage. */
-  FixedSequentialMetadata  meta_;
+  SequentialMetadata  meta_;
 
   // Do NOT reorder members up to here. The layout must be compatible with StorageControlBlock
   // Type-specific shared members below.
@@ -50,54 +55,133 @@ struct SequentialStorageControlBlock final {
    * This means we can waste 64*2=128 volatile pages (=512kb) per one sequential storage..
    * shouldn't be a big issue.
    */
-  VolatilePagePointer   head_pointers_page_[kPointerPageCount];
+  VolatilePagePointer   head_pointer_pages_[kPointerPageCount];
   /** Same above, but for tail pointers. */
-  VolatilePagePointer   tail_pointers_page_[kPointerPageCount];
+  VolatilePagePointer   tail_pointer_pages_[kPointerPageCount];
 };
 
 /**
- * @brief Pimpl object of SequentialStorage.
+ * @brief Lock-free list of records stored in the volatile part of sequential storage.
  * @ingroup SEQUENTIAL
  * @details
- * A private pimpl object for SequentialStorage.
- * Do not include this header from a client program unless you know what you are doing.
+ * Volatile parts of sequential storages are completely separated from stable snapshot pages
+ * and maintained as a \e lock-free list of SequentialPage.
+ *
+ * The append of record in page involves one atomic CAS, and append of a new page involves
+ * one atomic CAS too. Because this list is an append/scan only list, this is way simpler
+ * than typical lock-free lists.
+ *
+ * @section SEQ_VOL_LIST_CONCUR Concurrency Control
+ * In this volatile list, we assume the following things to simplify concurrency control:
+ *
+ *  \li Each SequentialPage contains records only in one epoch. When epoch switches,
+ * we insert new records to new page even if the page is almost vacant.
+ *  \li The order in page does not necessarily reflect serialization order. The sequential storage
+ * provides a \e set semantics rather than \e list semantics in terms of serializability
+ * although it's loosely ordered.
+ *  \li Each thread maintains its own head/tail pages so that they don't interfere each other
+ * at all. This, combined with the assumption above, makes it completely without blocking
+ * and atomic operations \b EXCEPT:
+ *  \li For scanning threads (which only rarely occur and are fundamentally slow anyways),
+ * we take an exclusive lock. Further, the scanning thread must wait until all other threads
+ * did NOT start before the scanning thread take lock. (otherwise serializability is not
+ * guaranteed). We will have something like Xct::InCommitLogEpochGuard for this purpose.
+ * As scanning threads are rare, they can wait for a while, so it's okay for other threads
+ * to complete at least one transacion before they get aware of the lock.
+ *  \li However, the above requirement is not mandatory if the scanning threads are running in
+ * snapshot mode or dirty-read mode. We just make sure that what is reads is within the
+ * epoch. Because other threads append record in serialization order to their own lists,
+ * this can be trivially achieved.
+ *
+ * With these assumptions, sequential storages don't require any locking for serializability.
+ * Thus, we separate write-sets of sequential storages from other write-sets in transaction objects.
+ *
+ * @note
+ * This is a private implementation-details of \ref SEQUENTIAL, thus file name ends with _impl.
+ * Do not include this header from a client program. There is no case client program needs to
+ * access this internal class.
+ * @todo Implement the scanning functionality as above.
  */
-class SequentialStoragePimpl final : public DefaultInitializable {
+class SequentialStoragePimpl final : public Attachable<SequentialStorageControlBlock> {
  public:
+  struct PointerPage {
+    memory::PagePoolOffset pointers_[kPointersPerPage];
+  };
   SequentialStoragePimpl() = delete;
-  SequentialStoragePimpl(Engine* engine,
-                          SequentialStorage* holder,
-                          const SequentialMetadata &metadata,
-                          bool create);
-  ~SequentialStoragePimpl() {}
+  explicit SequentialStoragePimpl(SequentialStorage* storage)
+    : Attachable<SequentialStorageControlBlock>(
+      storage->get_engine(),
+      storage->get_control_block()) {
+  }
+  SequentialStoragePimpl(Engine* engine, SequentialStorageControlBlock* control_block)
+    : Attachable<SequentialStorageControlBlock>(engine, control_block) {
+  }
 
-  ErrorStack  initialize_once() override;
-  ErrorStack  uninitialize_once() override;
+  bool        exists() const { return control_block_->exists(); }
+  StorageId   get_id() const { return control_block_->meta_.id_; }
+  const StorageName& get_name() const { return control_block_->meta_.name_; }
+  ErrorStack  create(const SequentialMetadata& metadata);
+  ErrorStack  drop();
 
-  ErrorStack  create(thread::Thread* context);
+  SequentialPage* get_head(
+    const memory::LocalPageResolver& resolver,
+    thread::ThreadId thread_id) const;
+  SequentialPage* get_tail(
+    const memory::LocalPageResolver& resolver,
+    thread::ThreadId thread_id) const;
 
-  ErrorCode   append_record(thread::Thread* context, const void *payload, uint16_t payload_count);
+  memory::PagePoolOffset* get_head_pointer(thread::ThreadId thread_id) const;
+  memory::PagePoolOffset* get_tail_pointer(thread::ThreadId thread_id) const;
 
-  void        apply_append_record(
-    thread::Thread* context,
-    const SequentialAppendLogType* log_entry);
-
-  Engine* const             engine_;
-  SequentialStorage* const  holder_;
-  SequentialMetadata        metadata_;
 
   /**
-   * @brief A separate lock-free in-memory list of volatile records.
+   * @brief Appends an already-commited record to this volatile list.
    * @details
-   * This separate list maintains records in the sequential storage until they are
-   * snapshotted. When the records are snapshotted, the snapshot thread scans this list
-   * and drops snapshotted records (of course atomically with installing the snapshot versions).
+   * This method is guaranteed to succeed, so it does not return error code,
+   * which is essential to be used after commit.
+   * Actually, there is one very rare case this method might fail: we need a new page
+   * and the page pool has zero free page. However, we can trivially avoid this case
+   * by checking if we have at least one free page in \e thread-local cache during pre-commit.
    */
-  SequentialVolatileList    volatile_list_;
+  void        append_record(
+    thread::Thread* context,
+    xct::XctId owner_id,
+    const void *payload,
+    uint16_t payload_count);
 
-  /** If this is true, initialize() reads it back from previous snapshot and logs. */
-  bool                      exist_;
+
+  /**
+   * @brief Traverse all pages and call back the handler for every page.
+   * @details
+   * Handler must look like "ErrorCode func(SequentialPage* page) { ... } ".
+   */
+  template <typename HANDLER>
+  ErrorCode for_every_page(HANDLER handler) const {
+    uint16_t nodes = engine_->get_options().thread_.group_count_;
+    uint16_t threads_per_node = engine_->get_options().thread_.thread_count_per_group_;
+    for (uint16_t node = 0; node < nodes; ++node) {
+      const memory::LocalPageResolver& resolver
+        = engine_->get_memory_manager().get_node_memory(node)->get_volatile_pool().get_resolver();
+      for (uint16_t local_ordinal = 0; local_ordinal < threads_per_node; ++local_ordinal) {
+        thread::ThreadId thread_id = thread::compose_thread_id(node, local_ordinal);
+        for (SequentialPage* page = get_head(resolver, thread_id); page;) {
+          ASSERT_ND(page->header().page_id_);
+          CHECK_ERROR_CODE(handler(page));
+
+          VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
+          memory::PagePoolOffset offset = next_pointer.components.offset;
+          if (offset != 0) {
+            page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(offset));
+          } else {
+            page = nullptr;
+          }
+        }
+      }
+    }
+    return kErrorCodeOk;
+  }
 };
+
 static_assert(sizeof(SequentialStoragePimpl) <= kPageSize, "SequentialStoragePimpl is too large");
 static_assert(
   sizeof(SequentialStorageControlBlock) <= soc::GlobalMemoryAnchors::kStorageMemorySize,

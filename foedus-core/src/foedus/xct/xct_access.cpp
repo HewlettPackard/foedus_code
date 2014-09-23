@@ -29,7 +29,7 @@ std::ostream& operator<<(std::ostream& o, const PageVersionAccess& v) {
 }
 
 std::ostream& operator<<(std::ostream& o, const XctAccess& v) {
-  o << "<XctAccess><storage>" << v.storage_->get_name() << "</storage>"
+  o << "<XctAccess><storage>" << v.storage_id_ << "</storage>"
     << "<observed_owner_id>" << v.observed_owner_id_ << "</observed_owner_id>"
     << "<record_address>" << v.owner_id_address_ << "</record_address>"
     << "<current_owner_id>" << *v.owner_id_address_ << "</current_owner_id></XctAccess>";
@@ -37,7 +37,7 @@ std::ostream& operator<<(std::ostream& o, const XctAccess& v) {
 }
 
 std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v) {
-  o << "<WriteAccess><storage>" << v.storage_->get_name() << "</storage>"
+  o << "<WriteAccess><storage>" << v.storage_id_ << "</storage>"
     << "<record_address>" << v.owner_id_address_ << "</record_address>"
     << "<mcs_block_>" << v.mcs_block_ << "</mcs_block_>"
     << "<current_owner_id>" << *(v.owner_id_address_) << "</current_owner_id><log>";
@@ -48,7 +48,7 @@ std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v) {
 
 std::ostream& operator<<(std::ostream& o, const LockFreeWriteXctAccess& v) {
   o << "<LockFreeWriteXctAccess>"
-    << "<storage>" << v.storage_->get_id() << "</storage>";
+    << "<storage>" << v.storage_id_ << "</storage>";
   log::invoke_ostream(v.log_entry_, &o);
   o << "</LockFreeWriteXctAccess>";
   return o;

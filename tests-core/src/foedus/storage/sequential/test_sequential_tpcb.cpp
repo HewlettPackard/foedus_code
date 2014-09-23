@@ -14,6 +14,10 @@
 #include "foedus/epoch.hpp"
 #include "foedus/test_common.hpp"
 #include "foedus/assorted/uniform_random.hpp"
+#include "foedus/proc/proc_manager.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_rendezvous.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/storage/array/array_storage.hpp"
@@ -21,8 +25,6 @@
 #include "foedus/storage/sequential/sequential_page_impl.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
 #include "foedus/storage/sequential/sequential_storage_pimpl.hpp"
-#include "foedus/storage/sequential/sequential_volatile_list_impl.hpp"
-#include "foedus/thread/rendezvous_impl.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/xct/xct.hpp"
@@ -94,87 +96,92 @@ enum AccessorType {
   kIncrementOneShot,
 };
 
-array::ArrayStorage*  branches      = nullptr;
-array::ArrayStorage*  accounts      = nullptr;
-array::ArrayStorage*  tellers       = nullptr;
-SequentialStorage*    histories     = nullptr;
+array::ArrayStorage  branches;
+array::ArrayStorage  accounts;
+array::ArrayStorage  tellers;
+SequentialStorage    histories;
 AccessorType  accessor_type;
+int thread_count;
+bool contended;
+soc::SharedRendezvous start_rendezvous;
 
 /** Creates TPC-B tables and populate with initial records. */
-class CreateTpcbTablesTask : public thread::ImpersonateTask {
- public:
-  ErrorStack run(thread::Thread* context) {
-    StorageManager& str_manager = context->get_engine()->get_storage_manager();
-    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-    Epoch highest_commit_epoch;
-    Epoch commit_epoch;
+ErrorStack create_tpcb_tables_task(
+  thread::Thread* context,
+  const void* /*input_buffer*/,
+  uint32_t /*input_len*/,
+  void* /*output_buffer*/,
+  uint32_t /*output_buffer_size*/,
+  uint32_t* /*output_used*/) {
+  StorageManager& str_manager = context->get_engine()->get_storage_manager();
+  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  Epoch highest_commit_epoch;
+  Epoch commit_epoch;
 
-    // Create branches
-    array::ArrayMetadata branch_meta("branches", sizeof(BranchData), kBranches);
-    COERCE_ERROR(str_manager.create_array(context, &branch_meta, &branches, &commit_epoch));
-    EXPECT_TRUE(branches != nullptr);
-    COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
-    for (int i = 0; i < kBranches; ++i) {
-      BranchData data;
-      std::memset(&data, 0, sizeof(data));  // make valgrind happy
-      data.branch_balance_ = kInitialAccountBalance * kAccounts;
-      COERCE_ERROR(branches->overwrite_record(context, i, &data));
-    }
-    COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-    highest_commit_epoch.store_max(commit_epoch);
-
-    // Create tellers
-    array::ArrayMetadata teller_meta("tellers", sizeof(TellerData), kBranches * kTellers);
-    COERCE_ERROR(str_manager.create_array(context, &teller_meta, &tellers, &commit_epoch));
-    EXPECT_TRUE(tellers != nullptr);
-    COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
-    for (int i = 0; i < kBranches * kTellers; ++i) {
-      TellerData data;
-      std::memset(&data, 0, sizeof(data));  // make valgrind happy
-      data.branch_id_ = i / kTellers;
-      data.teller_balance_ = kInitialAccountBalance * kAccountsPerTellers;
-      COERCE_ERROR(tellers->overwrite_record(context, i, &data));
-    }
-    COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-    highest_commit_epoch.store_max(commit_epoch);
-
-    // Create accounts
-    array::ArrayMetadata account_meta("accounts", sizeof(AccountData), kBranches * kAccounts);
-    COERCE_ERROR(str_manager.create_array(context, &account_meta, &accounts, &commit_epoch));
-    EXPECT_TRUE(accounts != nullptr);
-    COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
-    for (int i = 0; i < kBranches * kAccounts; ++i) {
-      AccountData data;
-      std::memset(&data, 0, sizeof(data));  // make valgrind happy
-      data.branch_id_ = i / kAccounts;
-      data.account_balance_ = kInitialAccountBalance;
-      COERCE_ERROR(accounts->overwrite_record(context, i, &data));
-    }
-    COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-    highest_commit_epoch.store_max(commit_epoch);
-
-    // Create histories
-    SequentialMetadata history_meta("histories");
-    COERCE_ERROR(str_manager.create_sequential(context, &history_meta, &histories, &commit_epoch));
-    EXPECT_TRUE(histories != nullptr);
-    COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
-    COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-    highest_commit_epoch.store_max(commit_epoch);
-
-    CHECK_ERROR(xct_manager.wait_for_commit(highest_commit_epoch));
-    return kRetOk;
+  // Create branches
+  array::ArrayMetadata branch_meta("branches", sizeof(BranchData), kBranches);
+  COERCE_ERROR(str_manager.create_array(&branch_meta, &branches, &commit_epoch));
+  EXPECT_TRUE(branches.exists());
+  COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+  for (int i = 0; i < kBranches; ++i) {
+    BranchData data;
+    std::memset(&data, 0, sizeof(data));  // make valgrind happy
+    data.branch_balance_ = kInitialAccountBalance * kAccounts;
+    COERCE_ERROR(branches.overwrite_record(context, i, &data));
   }
-};
+  COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+  highest_commit_epoch.store_max(commit_epoch);
+
+  // Create tellers
+  array::ArrayMetadata teller_meta("tellers", sizeof(TellerData), kBranches * kTellers);
+  COERCE_ERROR(str_manager.create_array(&teller_meta, &tellers, &commit_epoch));
+  EXPECT_TRUE(tellers.exists());
+  COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+  for (int i = 0; i < kBranches * kTellers; ++i) {
+    TellerData data;
+    std::memset(&data, 0, sizeof(data));  // make valgrind happy
+    data.branch_id_ = i / kTellers;
+    data.teller_balance_ = kInitialAccountBalance * kAccountsPerTellers;
+    COERCE_ERROR(tellers.overwrite_record(context, i, &data));
+  }
+  COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+  highest_commit_epoch.store_max(commit_epoch);
+
+  // Create accounts
+  array::ArrayMetadata account_meta("accounts", sizeof(AccountData), kBranches * kAccounts);
+  COERCE_ERROR(str_manager.create_array(&account_meta, &accounts, &commit_epoch));
+  EXPECT_TRUE(accounts.exists());
+  COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+  for (int i = 0; i < kBranches * kAccounts; ++i) {
+    AccountData data;
+    std::memset(&data, 0, sizeof(data));  // make valgrind happy
+    data.branch_id_ = i / kAccounts;
+    data.account_balance_ = kInitialAccountBalance;
+    COERCE_ERROR(accounts.overwrite_record(context, i, &data));
+  }
+  COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+  highest_commit_epoch.store_max(commit_epoch);
+
+  // Create histories
+  SequentialMetadata history_meta("histories");
+  COERCE_ERROR(str_manager.create_sequential(&history_meta, &histories, &commit_epoch));
+  EXPECT_TRUE(histories.exists());
+  COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+  COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+  highest_commit_epoch.store_max(commit_epoch);
+
+  CHECK_ERROR(xct_manager.wait_for_commit(highest_commit_epoch));
+  return kRetOk;
+}
 
 /** run TPC-B queries. */
-class RunTpcbTask : public thread::ImpersonateTask {
+class RunTpcbTask {
  public:
-  RunTpcbTask(int client_id, bool contended, thread::Rendezvous* start_rendezvous)
-    : client_id_(client_id), contended_(contended), start_rendezvous_(start_rendezvous) {
+  explicit RunTpcbTask(int client_id) : client_id_(client_id) {
     ASSERT_ND(client_id < kMaxTestThreads);
   }
   ErrorStack run(thread::Thread* context) {
-    start_rendezvous_->wait();
+    start_rendezvous.wait();
     assorted::UniformRandom rand;
     rand.set_current_seed(client_id_);
     Epoch highest_commit_epoch;
@@ -182,7 +189,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
     xct::XctId prev_xct_id;
     for (int i = 0; i < kXctsPerThread; ++i) {
       uint64_t account_id;
-      if (contended_) {
+      if (contended) {
         account_id = rand.next_uint32() % (kBranches * kAccounts);
       } else {
         const uint64_t accounts_per_thread = (kBranches * kAccounts / kMaxTestThreads);
@@ -229,23 +236,23 @@ class RunTpcbTask : public thread::ImpersonateTask {
     int64_t branch_balance_old = -1, branch_balance_new;
     if (accessor_type == kIncrement) {
       branch_balance_new = amount;
-      CHECK_ERROR(branches->increment_record<int64_t>(context, branch_id,
+      CHECK_ERROR(branches.increment_record<int64_t>(context, branch_id,
                               &branch_balance_new, 0));
       branch_balance_old = branch_balance_new - amount;
     } else if (accessor_type == kIncrementOneShot) {
-      CHECK_ERROR(branches->increment_record_oneshot<int64_t>(context, branch_id, amount, 0));
+      CHECK_ERROR(branches.increment_record_oneshot<int64_t>(context, branch_id, amount, 0));
     } else if (accessor_type == kPrimitive) {
-      CHECK_ERROR(branches->get_record_primitive<int64_t>(context, branch_id,
+      CHECK_ERROR(branches.get_record_primitive<int64_t>(context, branch_id,
                                 &branch_balance_old, 0));
       branch_balance_new = branch_balance_old + amount;
-      CHECK_ERROR(branches->overwrite_record_primitive<int64_t>(context, branch_id,
+      CHECK_ERROR(branches.overwrite_record_primitive<int64_t>(context, branch_id,
                         branch_balance_new, 0));
     } else {
       BranchData branch;
-      CHECK_ERROR(branches->get_record(context, branch_id, &branch));
+      CHECK_ERROR(branches.get_record(context, branch_id, &branch));
       branch_balance_old = branch.branch_balance_;
       branch_balance_new = branch_balance_old + amount;
-      CHECK_ERROR(branches->overwrite_record(context, branch_id,
+      CHECK_ERROR(branches.overwrite_record(context, branch_id,
                       &branch_balance_new, 0, sizeof(branch_balance_new)));
     }
     if (accessor_type != kIncrementOneShot) {
@@ -255,35 +262,35 @@ class RunTpcbTask : public thread::ImpersonateTask {
     int64_t teller_balance_old = -1, teller_balance_new;
     uint64_t teller_branch_id = 0;
     if (accessor_type == kIncrement) {
-      CHECK_ERROR(tellers->get_record_primitive<uint64_t>(context, teller_id,
+      CHECK_ERROR(tellers.get_record_primitive<uint64_t>(context, teller_id,
                                 &teller_branch_id, 0));
       teller_balance_new = amount;
-      CHECK_ERROR(tellers->increment_record<int64_t>(context, teller_id,
+      CHECK_ERROR(tellers.increment_record<int64_t>(context, teller_id,
                               &teller_balance_new, sizeof(uint64_t)));
       teller_balance_old = teller_balance_new - amount;
     } else if (accessor_type == kIncrementOneShot) {
-      CHECK_ERROR(tellers->get_record_primitive<uint64_t>(context, teller_id,
+      CHECK_ERROR(tellers.get_record_primitive<uint64_t>(context, teller_id,
                                 &teller_branch_id, 0));
-      CHECK_ERROR(tellers->increment_record_oneshot<int64_t>(
+      CHECK_ERROR(tellers.increment_record_oneshot<int64_t>(
         context,
         teller_id,
         amount,
         sizeof(uint64_t)));
     } else if (accessor_type == kPrimitive) {
-      CHECK_ERROR(tellers->get_record_primitive<uint64_t>(context, teller_id,
+      CHECK_ERROR(tellers.get_record_primitive<uint64_t>(context, teller_id,
                                 &teller_branch_id, 0));
-      CHECK_ERROR(tellers->get_record_primitive<int64_t>(context, teller_id,
+      CHECK_ERROR(tellers.get_record_primitive<int64_t>(context, teller_id,
                               &teller_balance_old, sizeof(uint64_t)));
       teller_balance_new = teller_balance_old + amount;
-      CHECK_ERROR(tellers->overwrite_record_primitive<int64_t>(context, teller_id,
+      CHECK_ERROR(tellers.overwrite_record_primitive<int64_t>(context, teller_id,
           teller_balance_new, sizeof(uint64_t)));
     } else {
       TellerData teller;
-      CHECK_ERROR(tellers->get_record(context, teller_id, &teller));
+      CHECK_ERROR(tellers.get_record(context, teller_id, &teller));
       teller_branch_id = teller.branch_id_;
       teller_balance_old = teller.teller_balance_;
       teller_balance_new = teller_balance_old + amount;
-      CHECK_ERROR(tellers->overwrite_record(context, teller_id,
+      CHECK_ERROR(tellers.overwrite_record(context, teller_id,
           &teller_balance_new, sizeof(teller.branch_id_), sizeof(teller_balance_new)));
     }
     if (accessor_type != kIncrementOneShot) {
@@ -294,35 +301,35 @@ class RunTpcbTask : public thread::ImpersonateTask {
     int64_t account_balance_old = -1, account_balance_new;
     uint64_t account_branch_id = 0;
     if (accessor_type == kIncrement) {
-      CHECK_ERROR(accounts->get_record_primitive<uint64_t>(context, account_id,
+      CHECK_ERROR(accounts.get_record_primitive<uint64_t>(context, account_id,
                             &account_branch_id, 0));
       account_balance_new = amount;
-      CHECK_ERROR(accounts->increment_record<int64_t>(context, account_id,
+      CHECK_ERROR(accounts.increment_record<int64_t>(context, account_id,
                             &account_balance_new, sizeof(uint64_t)));
       account_balance_old = account_balance_new - amount;
     } else if (accessor_type == kIncrementOneShot) {
-      CHECK_ERROR(accounts->get_record_primitive<uint64_t>(context, account_id,
+      CHECK_ERROR(accounts.get_record_primitive<uint64_t>(context, account_id,
                             &account_branch_id, 0));
-      CHECK_ERROR(accounts->increment_record_oneshot<int64_t>(
+      CHECK_ERROR(accounts.increment_record_oneshot<int64_t>(
         context,
         account_id,
         amount,
         sizeof(uint64_t)));
     } else if (accessor_type == kPrimitive) {
-      CHECK_ERROR(accounts->get_record_primitive<uint64_t>(context, account_id,
+      CHECK_ERROR(accounts.get_record_primitive<uint64_t>(context, account_id,
                             &account_branch_id, 0));
-      CHECK_ERROR(accounts->get_record_primitive<int64_t>(context, account_id,
+      CHECK_ERROR(accounts.get_record_primitive<int64_t>(context, account_id,
                             &account_balance_old, sizeof(uint64_t)));
       account_balance_new = account_balance_old + amount;
-      CHECK_ERROR(accounts->overwrite_record_primitive<int64_t>(context, account_id,
+      CHECK_ERROR(accounts.overwrite_record_primitive<int64_t>(context, account_id,
           account_balance_new, sizeof(uint64_t)));
     } else {
       AccountData account;
-      CHECK_ERROR(accounts->get_record(context, account_id, &account));
+      CHECK_ERROR(accounts.get_record(context, account_id, &account));
       account_branch_id = account.branch_id_;
       account_balance_old = account.account_balance_;
       account_balance_new = account_balance_old + amount;
-      CHECK_ERROR(accounts->overwrite_record(context, account_id,
+      CHECK_ERROR(accounts.overwrite_record(context, account_id,
           &account_balance_new, sizeof(account.branch_id_), sizeof(account_balance_new)));
     }
     if (accessor_type != kIncrementOneShot) {
@@ -337,7 +344,7 @@ class RunTpcbTask : public thread::ImpersonateTask {
     history.teller_id_ = teller_id;
     history.amount_ = amount;
     std::memset(history.other_data_, 0, sizeof(history.other_data_));  // make valgrind happy
-    CHECK_ERROR(histories->append_record(context, &history, sizeof(history)));
+    CHECK_ERROR(histories.append_record(context, &history, sizeof(history)));
 
     Epoch commit_epoch;
     ASSERT_ND(context->get_current_xct().get_read_set_size() > 0);
@@ -370,135 +377,141 @@ class RunTpcbTask : public thread::ImpersonateTask {
 };
 
 
+ErrorStack run_tpcb_task(
+  thread::Thread* context,
+  const void* input_buffer,
+  uint32_t input_len,
+  void* /*output_buffer*/,
+  uint32_t /*output_buffer_size*/,
+  uint32_t* /*output_used*/) {
+  EXPECT_EQ(sizeof(int), input_len);
+  return RunTpcbTask(*reinterpret_cast<const int*>(input_buffer)).run(context);
+}
+
 /** Verify TPC-B results. */
-class VerifyTpcbTask : public thread::ImpersonateTask {
- public:
-  explicit VerifyTpcbTask(int clients) : clients_(clients) {
-    ASSERT_ND(clients <= kMaxTestThreads);
+ErrorStack verify_tpcb_task(
+  thread::Thread* context,
+  const void* /*input_buffer*/,
+  uint32_t /*input_len*/,
+  void* /*output_buffer*/,
+  uint32_t /*output_buffer_size*/,
+  uint32_t* /*output_used*/) {
+  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+
+  int64_t expected_branch[kBranches];
+  int64_t expected_teller[kBranches * kTellers];
+  int64_t expected_account[kBranches * kAccounts];
+  for (int i = 0; i < kBranches; ++i) {
+    expected_branch[i] = kInitialAccountBalance * kAccounts;
   }
-  ErrorStack run(thread::Thread* context) {
-    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-    CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
-
-    int64_t expected_branch[kBranches];
-    int64_t expected_teller[kBranches * kTellers];
-    int64_t expected_account[kBranches * kAccounts];
-    for (int i = 0; i < kBranches; ++i) {
-      expected_branch[i] = kInitialAccountBalance * kAccounts;
-    }
-    for (int i = 0; i < kBranches * kTellers; ++i) {
-      expected_teller[i] = kInitialAccountBalance * kAccountsPerTellers;
-    }
-    for (int i = 0; i < kBranches * kAccounts; ++i) {
-      expected_account[i] = kInitialAccountBalance;
-    }
-
-    // we don't have scanning API yet, so manually do it.
-    std::set<uint64_t> observed_history_ids;
-    WRAP_ERROR_CODE(histories->get_pimpl()->volatile_list_.for_every_page(
-      [&](SequentialPage* page){
-        uint16_t record_count = page->get_record_count();
-        const char* record_pointers[kMaxSlots];
-        uint16_t payload_lengthes[kMaxSlots];
-        page->get_all_records_nosync(&record_count, record_pointers, payload_lengthes);
-
-        for (uint16_t rec = 0; rec < record_count; ++rec) {
-          EXPECT_EQ(payload_lengthes[rec], sizeof(HistoryData));
-          const HistoryData& history = *reinterpret_cast<const HistoryData*>(
-            record_pointers[rec] + kRecordOverhead);
-          EXPECT_GE(history.amount_, kAmountRangeFrom);
-          EXPECT_LE(history.amount_, kAmountRangeTo);
-
-          EXPECT_LT(history.branch_id_, kBranches);
-          EXPECT_LT(history.teller_id_, kBranches * kTellers);
-          EXPECT_LT(history.account_id_, kBranches * kAccounts);
-
-          EXPECT_EQ(history.branch_id_, history.teller_id_ / kTellers);
-          EXPECT_EQ(history.branch_id_, history.account_id_ / kAccounts);
-          EXPECT_EQ(history.teller_id_, history.account_id_ / kAccountsPerTellers);
-
-          expected_branch[history.branch_id_] += history.amount_;
-          expected_teller[history.teller_id_] += history.amount_;
-          expected_account[history.account_id_] += history.amount_;
-          EXPECT_EQ(observed_history_ids.end(), observed_history_ids.find(history.history_id_))
-            << history.history_id_;
-          observed_history_ids.insert(history.history_id_);
-        }
-        return kErrorCodeOk;
-    }));
-    EXPECT_EQ(kXctsPerThread * clients_, observed_history_ids.size());
-    for (int i = 0; i < kXctsPerThread * clients_; ++i) {
-      EXPECT_NE(observed_history_ids.end(), observed_history_ids.find(i)) << i;
-    }
-
-    for (int i = 0; i < kBranches; ++i) {
-      BranchData data;
-      CHECK_ERROR(branches->get_record(context, i, &data));
-      EXPECT_EQ(expected_branch[i], data.branch_balance_) << "branch-" << i;
-    }
-    for (int i = 0; i < kBranches * kTellers; ++i) {
-      TellerData data;
-      CHECK_ERROR(tellers->get_record(context, i, &data));
-      EXPECT_EQ(i / kTellers, data.branch_id_) << i;
-      EXPECT_EQ(expected_teller[i], data.teller_balance_) << "teller-" << i;
-    }
-    for (int i = 0; i < kBranches * kAccounts; ++i) {
-      AccountData data;
-      CHECK_ERROR(accounts->get_record(context, i, &data));
-      EXPECT_EQ(i / kAccounts, data.branch_id_) << i;
-      EXPECT_EQ(expected_account[i], data.account_balance_) << "account-" << i;
-    }
-    for (uint32_t i = 0; i < context->get_current_xct().get_read_set_size(); ++i) {
-      xct::XctAccess& access = context->get_current_xct().get_read_set()[i];
-      EXPECT_FALSE(access.observed_owner_id_.is_being_written()) << i;
-      EXPECT_FALSE(access.observed_owner_id_.is_deleted()) << i;
-      EXPECT_FALSE(access.observed_owner_id_.is_moved()) << i;
-    }
-
-    CHECK_ERROR(xct_manager.abort_xct(context));
-    return foedus::kRetOk;
+  for (int i = 0; i < kBranches * kTellers; ++i) {
+    expected_teller[i] = kInitialAccountBalance * kAccountsPerTellers;
+  }
+  for (int i = 0; i < kBranches * kAccounts; ++i) {
+    expected_account[i] = kInitialAccountBalance;
   }
 
- private:
-  int clients_;
-};
+  // we don't have scanning API yet, so manually do it.
+  std::set<uint64_t> observed_history_ids;
+  WRAP_ERROR_CODE(sequential::SequentialStoragePimpl(
+    context->get_engine(), histories.get_control_block()).for_every_page(
+    [&](SequentialPage* page){
+      uint16_t record_count = page->get_record_count();
+      const char* record_pointers[kMaxSlots];
+      uint16_t payload_lengthes[kMaxSlots];
+      page->get_all_records_nosync(&record_count, record_pointers, payload_lengthes);
 
-void run_test(int thread_count, bool contended, AccessorType type) {
+      for (uint16_t rec = 0; rec < record_count; ++rec) {
+        EXPECT_EQ(payload_lengthes[rec], sizeof(HistoryData));
+        const HistoryData& history = *reinterpret_cast<const HistoryData*>(
+          record_pointers[rec] + kRecordOverhead);
+        EXPECT_GE(history.amount_, kAmountRangeFrom);
+        EXPECT_LE(history.amount_, kAmountRangeTo);
+
+        EXPECT_LT(history.branch_id_, kBranches);
+        EXPECT_LT(history.teller_id_, kBranches * kTellers);
+        EXPECT_LT(history.account_id_, kBranches * kAccounts);
+
+        EXPECT_EQ(history.branch_id_, history.teller_id_ / kTellers);
+        EXPECT_EQ(history.branch_id_, history.account_id_ / kAccounts);
+        EXPECT_EQ(history.teller_id_, history.account_id_ / kAccountsPerTellers);
+
+        expected_branch[history.branch_id_] += history.amount_;
+        expected_teller[history.teller_id_] += history.amount_;
+        expected_account[history.account_id_] += history.amount_;
+        EXPECT_EQ(observed_history_ids.end(), observed_history_ids.find(history.history_id_))
+          << history.history_id_;
+        observed_history_ids.insert(history.history_id_);
+      }
+      return kErrorCodeOk;
+  }));
+  EXPECT_EQ(kXctsPerThread * thread_count, observed_history_ids.size());
+  for (int i = 0; i < kXctsPerThread * thread_count; ++i) {
+    EXPECT_NE(observed_history_ids.end(), observed_history_ids.find(i)) << i;
+  }
+
+  for (int i = 0; i < kBranches; ++i) {
+    BranchData data;
+    CHECK_ERROR(branches.get_record(context, i, &data));
+    EXPECT_EQ(expected_branch[i], data.branch_balance_) << "branch-" << i;
+  }
+  for (int i = 0; i < kBranches * kTellers; ++i) {
+    TellerData data;
+    CHECK_ERROR(tellers.get_record(context, i, &data));
+    EXPECT_EQ(i / kTellers, data.branch_id_) << i;
+    EXPECT_EQ(expected_teller[i], data.teller_balance_) << "teller-" << i;
+  }
+  for (int i = 0; i < kBranches * kAccounts; ++i) {
+    AccountData data;
+    CHECK_ERROR(accounts.get_record(context, i, &data));
+    EXPECT_EQ(i / kAccounts, data.branch_id_) << i;
+    EXPECT_EQ(expected_account[i], data.account_balance_) << "account-" << i;
+  }
+  for (uint32_t i = 0; i < context->get_current_xct().get_read_set_size(); ++i) {
+    xct::XctAccess& access = context->get_current_xct().get_read_set()[i];
+    EXPECT_FALSE(access.observed_owner_id_.is_being_written()) << i;
+    EXPECT_FALSE(access.observed_owner_id_.is_deleted()) << i;
+    EXPECT_FALSE(access.observed_owner_id_.is_moved()) << i;
+  }
+
+  CHECK_ERROR(xct_manager.abort_xct(context));
+  return foedus::kRetOk;
+}
+
+void run_test(int thread_count_arg, bool contended_arg, AccessorType type) {
+  thread_count = thread_count_arg;
+  contended = contended_arg;
   accessor_type = type;
   EngineOptions options = get_tiny_options();
   options.log_.log_buffer_kb_ = 1 << 12;
   options.thread_.group_count_ = 1;
   options.thread_.thread_count_per_group_ = thread_count;
   Engine engine(options);
+  engine.get_proc_manager().pre_register("create_tpcb_tables_task", create_tpcb_tables_task);
+  engine.get_proc_manager().pre_register("run_tpcb_task", run_tpcb_task);
+  engine.get_proc_manager().pre_register("verify_tpcb_task", verify_tpcb_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    {
-      CreateTpcbTablesTask task;
-      COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(&task));
-    }
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("create_tpcb_tables_task"));
 
     {
-      thread::Rendezvous start_rendezvous;
-      std::vector<RunTpcbTask*> tasks;
+      start_rendezvous.initialize();
       std::vector<thread::ImpersonateSession> sessions;
       for (int i = 0; i < thread_count; ++i) {
-        tasks.push_back(new RunTpcbTask(i, contended, &start_rendezvous));
-        sessions.emplace_back(engine.get_thread_pool().impersonate(tasks[i]));
-        if (!sessions[i].is_valid()) {
-          COERCE_ERROR(sessions[i].invalid_cause_);
-        }
+        thread::ImpersonateSession session;
+        EXPECT_TRUE(engine.get_thread_pool().impersonate("run_tpcb_task", &i, sizeof(i), &session));
+        sessions.emplace_back(std::move(session));
       }
       start_rendezvous.signal();
       for (int i = 0; i < thread_count; ++i) {
         COERCE_ERROR(sessions[i].get_result());
-        delete tasks[i];
+        sessions[i].release();
       }
+      start_rendezvous.uninitialize();
     }
-    {
-      VerifyTpcbTask task(thread_count);
-      COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(&task));
-    }
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("verify_tpcb_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <time.h>
+#include <sys/time.h>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
@@ -64,49 +65,50 @@ void SharedCond::common_assert(SharedMutexScope* scope) {
   ASSERT_ND(scope->get_mutex() == &mutex_);
 }
 
+void ugly_atomic_inc(uint32_t* address) {
+  reinterpret_cast< std::atomic<uint32_t>* >(address)->fetch_add(1U);
+}
+void ugly_atomic_dec(uint32_t* address) {
+  reinterpret_cast< std::atomic<uint32_t>* >(address)->fetch_sub(1U);
+}
+
 void SharedCond::wait(SharedMutexScope* scope) {
   common_assert(scope);
 
-  assorted::memory_fence_acq_rel();
-  ++waiters_;
+  ugly_atomic_inc(&waiters_);
 
-  assorted::memory_fence_acq_rel();
   // probably pthread_cond_wait implies a full fence, but to make sure.
   int ret = ::pthread_cond_wait(&cond_, mutex_.get_raw_mutex());
   ASSERT_ND(ret == 0);
-  assorted::memory_fence_acq_rel();
 
   ASSERT_ND(waiters_ > 0);
-  --waiters_;
-  assorted::memory_fence_acq_rel();
+  ugly_atomic_dec(&waiters_);
 }
 
 bool SharedCond::timedwait(SharedMutexScope* scope, uint64_t timeout_nanosec) {
   common_assert(scope);
   struct timespec timeout;
-  timeout.tv_sec = timeout_nanosec / 1000000000ULL;
-  timeout.tv_nsec = timeout_nanosec % 1000000000ULL;
+  struct timeval now;
+  ::gettimeofday(&now, CXX11_NULLPTR);
+  timeout.tv_sec = now.tv_sec + (timeout_nanosec / 1000000000ULL);
+  timeout.tv_nsec = now.tv_usec * 1000ULL + timeout_nanosec % 1000000000ULL;
+  timeout.tv_sec += (timeout.tv_nsec) / 1000000000ULL;
+  timeout.tv_nsec %= 1000000000ULL;
 
-  assorted::memory_fence_acq_rel();
-  ++waiters_;
+  ugly_atomic_inc(&waiters_);
 
-  assorted::memory_fence_acq_rel();
   int ret = ::pthread_cond_timedwait(&cond_, mutex_.get_raw_mutex(), &timeout);
   ASSERT_ND(ret == 0 || ret == ETIMEDOUT);
-  assorted::memory_fence_acq_rel();
 
   ASSERT_ND(waiters_ > 0);
-  --waiters_;
-  assorted::memory_fence_acq_rel();
+  ugly_atomic_dec(&waiters_);
   return ret == 0;
 }
 
 void SharedCond::broadcast(SharedMutexScope* scope) {
   common_assert(scope);
 
-  assorted::memory_fence_acq_rel();
-  ++notifiers_;
-  assorted::memory_fence_acq_rel();
+  ugly_atomic_inc(&notifiers_);
 
   // to avoid the glibc 2.18 pthread bug in broadcast, we use signal, one by one.
   scope->unlock();
@@ -117,17 +119,13 @@ void SharedCond::broadcast(SharedMutexScope* scope) {
     assorted::spinlock_yield();
   }
 
-  assorted::memory_fence_acq_rel();
-  --notifiers_;
-  assorted::memory_fence_acq_rel();
+  ugly_atomic_dec(&notifiers_);
 }
 
 void SharedCond::signal(SharedMutexScope* scope) {
   common_assert(scope);
 
-  assorted::memory_fence_acq_rel();
-  ++notifiers_;
-  assorted::memory_fence_acq_rel();
+  ugly_atomic_inc(&notifiers_);
 
   scope->unlock();
   if (waiters_ > 0) {
@@ -135,9 +133,7 @@ void SharedCond::signal(SharedMutexScope* scope) {
     ASSERT_ND(ret == 0);
   }
 
-  assorted::memory_fence_acq_rel();
-  --notifiers_;
-  assorted::memory_fence_acq_rel();
+  ugly_atomic_dec(&notifiers_);
 }
 
 }  // namespace soc

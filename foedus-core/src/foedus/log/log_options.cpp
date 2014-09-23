@@ -25,6 +25,17 @@ std::string LogOptions::convert_folder_path_pattern(int node, int logger) const 
   return assorted::replace_all(tmp, "$LOGGER$", logger);
 }
 
+std::string LogOptions::construct_suffixed_log_path(
+  int node,
+  int logger,
+  LogFileOrdinal ordinal) const {
+  std::string folder = convert_folder_path_pattern(node, logger);
+  std::stringstream path_str;
+  path_str << folder << "/" << logger << "_" << ordinal << ".log";
+  return path_str.str();
+}
+
+
 ErrorStack LogOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, folder_path_pattern_);
   EXTERNALIZE_LOAD_ELEMENT(element, loggers_per_node_);

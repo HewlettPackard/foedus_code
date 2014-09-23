@@ -24,13 +24,15 @@ void DropLogType::populate(StorageId storage_id) {
   header_.log_length_ = sizeof(DropLogType);
   header_.storage_id_ = storage_id;
 }
-void DropLogType::apply_storage(thread::Thread* context, Storage* storage) {
+void DropLogType::apply_storage(thread::Thread* context, StorageId storage_id) {
+  /* TODO(Hideaki) During surgery
   ASSERT_ND(storage);  // because we are now dropping it.
   ASSERT_ND(header_.storage_id_ > 0);
   ASSERT_ND(header_.storage_id_ == storage->get_id());
   LOG(INFO) << "Applying DROP STORAGE log: " << *this;
   context->get_engine()->get_storage_manager().get_pimpl()->drop_storage_apply(context, storage);
   LOG(INFO) << "Applied DROP STORAGE log: " << *this;
+  */
 }
 
 void DropLogType::assert_valid() {

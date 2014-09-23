@@ -134,7 +134,7 @@ class Composer {
   const snapshot::SnapshotId          new_snapshot_id_;
   const StorageId                     storage_id_;
   const thread::ThreadGroupId         numa_node_;
-  Storage* const                      storage_;
+  StorageControlBlock* const          storage_;
   const SnapshotPagePointer           previous_root_page_pointer_;
 
   inline SnapshotPagePointer to_snapshot_pointer(SnapshotLocalPageId local_id) const ALWAYS_INLINE {

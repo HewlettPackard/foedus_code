@@ -43,6 +43,9 @@
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/proc/proc_manager.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/storage/array/array_storage.hpp"
@@ -60,15 +63,24 @@ const uint64_t kDurationMicro = 10000000;
 const uint32_t kRecords = 1 << 19;  // 1 << 20;
 const uint32_t kRecordsMask = 0x7FFFF;  // 0xFFFFF;
 
-bool start_req = false;
-bool stop_req = false;
-ArrayStorage *storage = nullptr;
+struct ExperimentControlBlock {
+  void initialize() {
+    start_req = false;
+    stop_req = false;
+  }
+  void uninitialize() {
+  }
+  bool start_req;
+  bool stop_req;
+};
 
-class ReadTask : public thread::ImpersonateTask {
+class ReadTask {
  public:
   ReadTask() {}
   ErrorStack run(thread::Thread* context) {
     Engine *engine = context->get_engine();
+    ExperimentControlBlock* control = reinterpret_cast<ExperimentControlBlock*>(
+      engine->get_soc_manager().get_shared_memory_repo()->get_global_user_memory());
     const xct::IsolationLevel isolation = xct::kDirtyReadPreferVolatile;
     // const xct::IsolationLevel isolation = xct::kSerializable;
     CHECK_ERROR(engine->get_xct_manager().begin_xct(context, isolation));
@@ -81,22 +93,22 @@ class ReadTask : public thread::ImpersonateTask {
         kRandomCount * sizeof(uint32_t), &numbers_));
     random_.fill_memory(&numbers_);
     const uint32_t *randoms = reinterpret_cast<const uint32_t*>(numbers_.get_block());
-    while (!start_req) {
+    while (!control->start_req) {
       std::atomic_thread_fence(std::memory_order_acquire);
     }
 
-    ArrayStorage *array = dynamic_cast<ArrayStorage*>(storage);
+    ArrayStorage array = engine->get_storage_manager().get_array("aaa");
     char buf[kPayload];
     processed_ = 0;
     while (true) {
       uint64_t id = randoms[processed_ & 0xFFFF] & kRecordsMask;
-      WRAP_ERROR_CODE(array->get_record(context, id, buf, 0, kPayload));
+      WRAP_ERROR_CODE(array.get_record(context, id, buf, 0, kPayload));
       ++processed_;
       if ((processed_ & 0xFFFF) == 0) {
         CHECK_ERROR(engine->get_xct_manager().precommit_xct(context, &commit_epoch));
         CHECK_ERROR(engine->get_xct_manager().begin_xct(context, isolation));
         std::atomic_thread_fence(std::memory_order_acquire);
-        if (stop_req) {
+        if (control->stop_req) {
           break;
         }
       }
@@ -116,6 +128,21 @@ class ReadTask : public thread::ImpersonateTask {
   const uint32_t kRandomCountMod = 0x7FFFF;
 };
 
+ErrorStack read_task(
+  thread::Thread* context,
+  const void* /*input_buffer*/,
+  uint32_t /*input_len*/,
+  void* output_buffer,
+  uint32_t output_buffer_size,
+  uint32_t* output_used) {
+  ReadTask task;
+  CHECK_ERROR(task.run(context));
+  ASSERT_ND(output_buffer_size >= sizeof(task.processed_));
+  *output_used = sizeof(task.processed_);
+  *reinterpret_cast<uint64_t*>(output_buffer) = task.processed_;
+  return kRetOk;
+}
+
 int main_impl(int argc, char **argv) {
   bool profile = false;
   if (argc >= 2 && std::string(argv[1]) == "--profile") {
@@ -131,25 +158,29 @@ int main_impl(int argc, char **argv) {
   const int kThreads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
   {
     Engine engine(options);
+    engine.get_proc_manager().pre_register("read_task", read_task);
     COERCE_ERROR(engine.initialize());
     {
       UninitializeGuard guard(&engine);
       Epoch commit_epoch;
       ArrayMetadata meta("aaa", kPayload, kRecords);
+      ArrayStorage storage;
       COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &storage, &commit_epoch));
+      ASSERT_ND(storage.exists());
 
-      typedef ReadTask* TaskPtr;
-      TaskPtr* tasks = new TaskPtr[kThreads];
-      thread::ImpersonateSession sessions[kThreads];
+      ExperimentControlBlock* control = reinterpret_cast<ExperimentControlBlock*>(
+        engine.get_soc_manager().get_shared_memory_repo()->get_global_user_memory());
+      control->initialize();
+
+      std::vector<thread::ImpersonateSession> sessions;
       for (int i = 0; i < kThreads; ++i) {
-        tasks[i] = new ReadTask();
-        sessions[i] = engine.get_thread_pool().impersonate(tasks[i]);
-        if (!sessions[i].is_valid()) {
-          COERCE_ERROR(sessions[i].invalid_cause_);
-        }
+        thread::ImpersonateSession session;
+        bool ret = engine.get_thread_pool().impersonate("read_task", nullptr, 0, &session);
+        ASSERT_ND(ret);
+        sessions.emplace_back(std::move(session));
       }
       ::usleep(1000000);
-      start_req = true;
+      control->start_req = true;
       std::atomic_thread_fence(std::memory_order_release);
       if (profile) {
         COERCE_ERROR(engine.get_debug().start_profile("readonly_experiment.prof"));
@@ -157,23 +188,22 @@ int main_impl(int argc, char **argv) {
       }
       std::cout << "all started!" << std::endl;
       ::usleep(kDurationMicro);
-      stop_req = true;
+      control->stop_req = true;
       std::atomic_thread_fence(std::memory_order_release);
 
-      uint64_t total = 0;
       std::atomic_thread_fence(std::memory_order_acquire);
-      for (int i = 0; i < kThreads; ++i) {
-        total += tasks[i]->processed_;
-      }
       if (profile) {
         engine.get_debug().stop_profile();
         engine.get_debug().stop_papi_counters();
       }
 
+      uint64_t total = 0;
       for (int i = 0; i < kThreads; ++i) {
-        std::cout << "session: result[" << i << "]="
-          << sessions[i].get_result() << std::endl;
-        delete tasks[i];
+        std::cout << "session: result[" << i << "]=" << sessions[i].get_result() << std::endl;
+        uint64_t processed;
+        sessions[i].get_output(&processed);
+        total += processed;
+        sessions[i].release();
       }
 
       auto papi_results = debugging::DebuggingSupports::describe_papi_counters(
@@ -181,7 +211,6 @@ int main_impl(int argc, char **argv) {
       for (uint16_t i = 0; i < papi_results.size(); ++i) {
         std::cout << papi_results[i] << std::endl;
       }
-      delete[] tasks;
       std::cout << "total=" << total << ", MQPS="
         << (static_cast<double>(total)/kDurationMicro) << std::endl;
       COERCE_ERROR(engine.uninitialize());

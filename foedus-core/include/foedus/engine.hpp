@@ -11,6 +11,7 @@
 #include "foedus/engine_type.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/module_type.hpp"
 #include "foedus/debugging/fwd.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/memory/fwd.hpp"

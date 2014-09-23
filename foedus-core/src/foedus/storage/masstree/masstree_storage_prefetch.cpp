@@ -20,10 +20,10 @@ ErrorCode MasstreeStoragePimpl::prefetch_pages_normalized(
   KeySlice to) {
   debugging::StopWatch watch;
   VLOG(0) << "Thread-" << context->get_thread_id()
-    << " prefetching " << metadata_.name_ << " from=" << from << ", to=" << to;
+    << " prefetching " << get_name() << " from=" << from << ", to=" << to;
 
-  ASSERT_ND(first_root_pointer_.volatile_pointer_.components.offset);
-  VolatilePagePointer pointer = first_root_pointer_.volatile_pointer_;
+  ASSERT_ND(control_block_->root_page_pointer_.volatile_pointer_.components.offset);
+  VolatilePagePointer pointer = control_block_->root_page_pointer_.volatile_pointer_;
   MasstreePage* root_page = reinterpret_cast<MasstreePage*>(
     context->get_global_volatile_page_resolver().resolve_offset(pointer));
   prefetch_page_l2(root_page);
@@ -31,7 +31,7 @@ ErrorCode MasstreeStoragePimpl::prefetch_pages_normalized(
 
   watch.stop();
   VLOG(0) << "Thread-" << context->get_thread_id()
-    << " prefetched " << metadata_.name_ << " in " << watch.elapsed_us() << "us";
+    << " prefetched " << get_name() << " in " << watch.elapsed_us() << "us";
   return kErrorCodeOk;
 }
 
@@ -41,8 +41,10 @@ ErrorCode MasstreeStoragePimpl::prefetch_pages_normalized_recurse(
   KeySlice to,
   MasstreePage* p) {
   if (p->has_foster_child()) {
-    CHECK_ERROR_CODE(prefetch_pages_normalized_recurse(context, from, to, p->get_foster_minor()));
-    CHECK_ERROR_CODE(prefetch_pages_normalized_recurse(context, from, to, p->get_foster_major()));
+    MasstreePage* minor = reinterpret_cast<MasstreePage*>(context->resolve(p->get_foster_minor()));
+    MasstreePage* major = reinterpret_cast<MasstreePage*>(context->resolve(p->get_foster_major()));
+    CHECK_ERROR_CODE(prefetch_pages_normalized_recurse(context, from, to, minor));
+    CHECK_ERROR_CODE(prefetch_pages_normalized_recurse(context, from, to, major));
     return kErrorCodeOk;
   }
 
@@ -89,8 +91,10 @@ ErrorCode MasstreeStoragePimpl::prefetch_pages_exhaustive(
   thread::Thread* context,
   MasstreePage* p) {
   if (p->has_foster_child()) {
-    CHECK_ERROR_CODE(prefetch_pages_exhaustive(context, p->get_foster_minor()));
-    CHECK_ERROR_CODE(prefetch_pages_exhaustive(context, p->get_foster_major()));
+    MasstreePage* minor = context->resolve_cast<MasstreePage>(p->get_foster_minor());
+    MasstreePage* major = context->resolve_cast<MasstreePage>(p->get_foster_major());
+    CHECK_ERROR_CODE(prefetch_pages_exhaustive(context, minor));
+    CHECK_ERROR_CODE(prefetch_pages_exhaustive(context, major));
     return kErrorCodeOk;
   }
 

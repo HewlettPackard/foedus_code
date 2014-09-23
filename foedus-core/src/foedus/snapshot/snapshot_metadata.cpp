@@ -10,23 +10,20 @@
 #include <memory>
 
 #include "foedus/externalize/externalizable.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/storage/metadata.hpp"
 
 namespace foedus {
 namespace snapshot {
 
-const char* kChildTagName = "storage";
 const char* kStoragesTagName = "storages";
 void SnapshotMetadata::clear() {
   id_ = kNullSnapshotId;
   base_epoch_ = Epoch::kEpochInvalid;
   valid_until_epoch_ = Epoch::kEpochInvalid;
-
-  // SnapshotMetadata owns the metadata object, so we have to delete them
-  for (storage::Metadata *storage : storage_metadata_) {
-    delete storage;
-  }
-  storage_metadata_.clear();
+  largest_storage_id_ = 0;
+  storage_control_blocks_ = nullptr;
+  storage_control_blocks_memory_.release_block();
 }
 
 ErrorStack SnapshotMetadata::load(tinyxml2::XMLElement* element) {
@@ -34,23 +31,30 @@ ErrorStack SnapshotMetadata::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, id_);
   EXTERNALIZE_LOAD_ELEMENT(element, base_epoch_);
   EXTERNALIZE_LOAD_ELEMENT(element, valid_until_epoch_);
+  EXTERNALIZE_LOAD_ELEMENT(element, largest_storage_id_);
+
+  uint64_t memory_size
+    = static_cast<uint64_t>(largest_storage_id_ + 1) * soc::GlobalMemoryAnchors::kStorageMemorySize;
+  storage_control_blocks_memory_.alloc(
+    memory_size,
+    1 << 12,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    0);
+  storage_control_blocks_ = reinterpret_cast<storage::StorageControlBlock*>(
+    storage_control_blocks_memory_.get_block());
+  std::memset(storage_control_blocks_, 0, storage_control_blocks_memory_.get_size());
 
   // <storages>
   tinyxml2::XMLElement* storages = element->FirstChildElement(kStoragesTagName);
   if (!storages) {
-    // <storages> tag is missing. treat it at no storages. but weird!
+    // <storages> tag is missing. treat it as no storages. but weird!
     LOG(ERROR) << "WAIT, the snapshot metadata file doesn't have " << kStoragesTagName
       << " element? that's weird. It'll be treated as empty, but this shouldn't happen!";
   } else {
-    for (tinyxml2::XMLElement* child = storages->FirstChildElement(kChildTagName);
-      child; child = child->NextSiblingElement(kChildTagName)) {
-      std::unique_ptr<storage::Metadata> metadata(storage::Metadata::create_instance(child));
-      CHECK_ERROR(metadata->load(child));
-      VLOG(0) << "Loaded metadata of storage-" << metadata->id_ << " from snapshot file";
-      // No error, so take over the ownership from unique_ptr and put it in our vector.
-      storage_metadata_.push_back(metadata.release());
-    }
-    LOG(INFO) << "Loaded metadata of " << storage_metadata_.size() << " storages";
+    CHECK_ERROR(storage::MetadataSerializer::load_all_storages_from_xml(
+      largest_storage_id_,
+      storages,
+      storage_control_blocks_));
   }
   // </storages>
   return kRetOk;
@@ -65,18 +69,23 @@ ErrorStack SnapshotMetadata::save(tinyxml2::XMLElement* element) const {
     " If this is the first snapshot, this value is 0.");
   EXTERNALIZE_SAVE_ELEMENT(element, valid_until_epoch_,
     "This snapshot contains all the logs until this epoch.");
+  EXTERNALIZE_SAVE_ELEMENT(element, largest_storage_id_,
+    "The largest StorageId we so far observed.");
 
   // <storages>
   tinyxml2::XMLElement* storages = element->GetDocument()->NewElement(kStoragesTagName);
   CHECK_OUTOFMEMORY(storages);
   element->InsertEndChild(storages);
   CHECK_ERROR(insert_comment(storages, "Metadata of all storages"));
-  for (storage::Metadata *child : storage_metadata_) {
-    CHECK_ERROR(add_child_element(storages, kChildTagName, "", *child));
-  }
+  CHECK_ERROR(storage::MetadataSerializer::save_all_storages_to_xml(
+    largest_storage_id_,
+    storages,
+    storage_control_blocks_));
   // </storages>
-  LOG(INFO) << "Written metadata of " << storage_metadata_.size() << " storages";
   return kRetOk;
+}
+void SnapshotMetadata::assign(const externalize::Externalizable* /*other*/) {
+  ASSERT_ND(false);  // should not be called
 }
 
 }  // namespace snapshot

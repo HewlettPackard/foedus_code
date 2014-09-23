@@ -4,6 +4,7 @@
  */
 #include "foedus/proc/proc_manager.hpp"
 
+#include <string>
 #include <vector>
 
 #include "foedus/proc/proc_id.hpp"
@@ -23,6 +24,10 @@ ErrorStack  ProcManager::initialize() { return pimpl_->initialize(); }
 bool        ProcManager::is_initialized() const { return pimpl_->is_initialized(); }
 ErrorStack  ProcManager::uninitialize() { return pimpl_->uninitialize(); }
 
+ErrorStack  ProcManager::get_proc(const ProcName& name, Proc* out) {
+  return pimpl_->get_proc(name, out);
+}
+
 ErrorStack  ProcManager::pre_register(const ProcAndName& proc_and_name) {
   return pimpl_->pre_register(proc_and_name);
 }
@@ -35,6 +40,9 @@ ErrorStack  ProcManager::emulated_register(const ProcAndName& proc_and_name) {
 
 const std::vector< ProcAndName >& ProcManager::get_pre_registered_procedures() const {
   return pimpl_->pre_registered_procs_;
+}
+std::string ProcManager::describe_registered_procs() const {
+  return pimpl_->describe_registered_procs();
 }
 
 

@@ -22,7 +22,9 @@
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
-#include "foedus/thread/impersonate_task_pimpl.hpp"
+#include "foedus/proc/proc_id.hpp"
+#include "foedus/proc/proc_manager.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
@@ -33,12 +35,10 @@ namespace foedus {
 namespace thread {
 ThreadPimpl::ThreadPimpl(
   Engine* engine,
-  ThreadGroupPimpl* group,
   Thread* holder,
   ThreadId id,
   ThreadGlobalOrdinal global_ordinal)
   : engine_(engine),
-    group_(group),
     holder_(holder),
     id_(id),
     numa_node_(decompose_numa_node(id)),
@@ -47,85 +47,131 @@ ThreadPimpl::ThreadPimpl(
     node_memory_(nullptr),
     snapshot_cache_hashtable_(nullptr),
     log_buffer_(engine, id),
-    current_task_(nullptr),
     current_xct_(engine, id),
     snapshot_file_set_(engine),
+    control_block_(nullptr),
+    task_input_memory_(nullptr),
+    task_output_memory_(nullptr),
     mcs_blocks_(nullptr) {
 }
 
 ErrorStack ThreadPimpl::initialize_once() {
   ASSERT_ND(engine_->get_memory_manager().is_initialized());
-  core_memory_ = engine_->get_memory_manager().get_core_memory(id_);
-  node_memory_ = core_memory_->get_node_memory();
+
+  soc::ThreadMemoryAnchors* anchors
+    = engine_->get_soc_manager().get_shared_memory_repo()->get_thread_memory_anchors(id_);
+  control_block_ = anchors->thread_memory_;
+  control_block_->initialize();
+  task_input_memory_ = anchors->task_input_memory_;
+  task_output_memory_ = anchors->task_output_memory_;
+  mcs_blocks_ = anchors->mcs_lock_memories_;
+
+  node_memory_ = engine_->get_memory_manager().get_local_memory();
+  core_memory_ = node_memory_->get_core_memory(id_);
   snapshot_cache_hashtable_ = node_memory_->get_snapshot_cache_table();
-  current_task_ = nullptr;
-  current_xct_.initialize(core_memory_);
+  current_xct_.initialize(core_memory_, &control_block_->mcs_block_current_);
   CHECK_ERROR(snapshot_file_set_.initialize());
   CHECK_ERROR(log_buffer_.initialize());
   global_volatile_page_resolver_
     = engine_->get_memory_manager().get_global_volatile_page_resolver();
   local_volatile_page_resolver_ = node_memory_->get_volatile_pool().get_resolver();
-  mcs_blocks_ = reinterpret_cast<xct::McsBlock*>(
-    core_memory_->get_small_thread_local_memory_pieces().thread_mcs_block_memory_);
-  raw_thread_.initialize("Thread-", id_,
-          std::thread(&ThreadPimpl::handle_tasks, this),
-          std::chrono::milliseconds(100));
+
+  control_block_->status_ = kRunningTask;
+  raw_thread_ = std::move(std::thread(&ThreadPimpl::handle_tasks, this));
   return kRetOk;
 }
 ErrorStack ThreadPimpl::uninitialize_once() {
   ErrorStackBatch batch;
-  raw_thread_.stop();
+  {
+    {
+      soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());
+      control_block_->status_ = kWaitingForTerminate;
+      control_block_->wakeup_cond_.signal(&scope);
+    }
+    LOG(INFO) << "Thread-" << id_ << " requested to terminate";
+    if (raw_thread_.joinable()) {
+      raw_thread_.join();
+    }
+    control_block_->status_ = kTerminated;
+  }
   batch.emprace_back(snapshot_file_set_.uninitialize());
   batch.emprace_back(log_buffer_.uninitialize());
   core_memory_ = nullptr;
   node_memory_ = nullptr;
   snapshot_cache_hashtable_ = nullptr;
+  control_block_->uninitialize();
   return SUMMARIZE_ERROR_BATCH(batch);
-}
-
-void ThreadPimpl::hack_handle_one_task(ImpersonateTask* task, ImpersonateSession* session) {
-  NumaThreadScope scope(numa_node_);
-  session->thread_ = holder_;
-  session->task_ = task;
-  ErrorStack result = task->run(holder_);
-  task->pimpl_->set_result(result);
 }
 
 void ThreadPimpl::handle_tasks() {
   int numa_node = static_cast<int>(decompose_numa_node(id_));
-  LOG(INFO) << "Thread-" << id_ << " started running on NUMA node: " << numa_node;
+  LOG(INFO) << "Thread-" << id_ << " started running on NUMA node: " << numa_node
+    << " control_block address=" << control_block_;
   NumaThreadScope scope(numa_node);
   // Actual xct processing can't start until XctManager is initialized.
-  SPINLOCK_WHILE(!raw_thread_.is_stop_requested()
+  SPINLOCK_WHILE(!is_stop_requested()
     && !engine_->get_xct_manager().is_initialized()) {
     assorted::memory_fence_acquire();
   }
   LOG(INFO) << "Thread-" << id_ << " now starts processing transactions";
   set_thread_schedule();
-  while (!raw_thread_.sleep()) {
-    VLOG(0) << "Thread-" << id_ << " woke up";
-    // Keeps running if the client sets a new task immediately after this.
-    while (!raw_thread_.is_stop_requested()) {
-      ImpersonateTask* task = current_task_.load();
-      if (task) {
-        VLOG(0) << "Thread-" << id_ << " retrieved a task";
-        ErrorStack result = task->run(holder_);
-        VLOG(0) << "Thread-" << id_ << " run(task) returned. result =" << result;
-        ASSERT_ND(current_task_.load() == task);
-        current_task_.store(nullptr);  // start receiving next task
-        task->pimpl_->set_result(result);  // this wakes up the client
-        VLOG(0) << "Thread-" << id_ << " finished a task. result =" << result;
-      } else {
-        // NULL functor is the signal to terminate
+  control_block_->status_ = kWaitingForTask;
+  while (!is_stop_requested()) {
+    {
+      soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());
+      if (is_stop_requested()) {
         break;
       }
+      if (control_block_->status_ == kWaitingForTask) {
+        VLOG(0) << "Thread-" << id_ << " sleeping...";
+        control_block_->wakeup_cond_.timedwait(&scope, 100000000ULL);
+      }
+    }
+    VLOG(0) << "Thread-" << id_ << " woke up. status=" << control_block_->status_;
+    if (control_block_->status_ == kWaitingForExecution) {
+      control_block_->output_len_ = 0;
+      control_block_->status_ = kRunningTask;
+      const proc::ProcName& proc_name = control_block_->proc_name_;
+      VLOG(0) << "Thread-" << id_ << " retrieved a task: " << proc_name;
+      proc::Proc proc = nullptr;
+      ErrorStack result = engine_->get_proc_manager().get_proc(proc_name, &proc);
+      if (result.is_error()) {
+        // control_block_->proc_result_
+        LOG(ERROR) << "Thread-" << id_ << " couldn't find procedure: " << proc_name;
+      } else {
+        uint32_t output_used = 0;
+        result = proc(
+          holder_,
+          task_input_memory_,
+          control_block_->input_len_,
+          task_output_memory_,
+          soc::ThreadMemoryAnchors::kTaskOutputMemorySize,
+          &output_used);
+        VLOG(0) << "Thread-" << id_ << " run(task) returned. result =" << result
+          << ", output_used=" << output_used;
+        control_block_->output_len_ = output_used;
+      }
+      if (result.is_error()) {
+        control_block_->proc_result_.from_error_stack(result);
+      } else {
+        control_block_->proc_result_.clear();
+      }
+      control_block_->status_ = kWaitingForClientRelease;
+      {
+        // Wakeup the client if it's waiting.
+        soc::SharedMutexScope scope(control_block_->task_complete_cond_.get_mutex());
+        control_block_->task_complete_cond_.signal(&scope);
+      }
+      VLOG(0) << "Thread-" << id_ << " finished a task. result =" << result;
     }
   }
+  ASSERT_ND(is_stop_requested());
+  control_block_->status_ = kTerminated;
   LOG(INFO) << "Thread-" << id_ << " exits";
 }
 void ThreadPimpl::set_thread_schedule() {
   // this code totally assumes pthread. maybe ifdef to handle Windows.. later!
-  pthread_t handle = raw_thread_.native_handle<pthread_t>();
+  pthread_t handle = static_cast<pthread_t>(raw_thread_.native_handle());
   int policy;
   sched_param param;
   int ret = ::pthread_getschedparam(handle, &policy, &param);
@@ -168,23 +214,6 @@ void ThreadPimpl::set_thread_schedule() {
     } else if (ret2) {
       LOG(FATAL) << "WTF pthread_setschedparam() failed: error=" << assorted::os_error();
     }
-  }
-}
-
-bool ThreadPimpl::try_impersonate(ImpersonateSession *session) {
-  ImpersonateTask* task = nullptr;
-  session->thread_ = holder_;
-  if (current_task_.compare_exchange_strong(task, session->task_)) {
-    // successfully acquired.
-    VLOG(0) << "Impersonation succeeded for Thread-" << id_ << ".";
-    raw_thread_.wakeup();
-    return true;
-  } else {
-    // no, someone else took it.
-    ASSERT_ND(task);
-    session->thread_ = nullptr;
-    DVLOG(0) << "Someone already took Thread-" << id_ << ".";
-    return false;
   }
 }
 
@@ -454,19 +483,18 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
 
   ASSERT_ND(mcs_lock->is_locked());
   ThreadId predecessor_id = old.get_tail_waiter();
+  ASSERT_ND(predecessor_id != id_);
   xct::McsBlockIndex predecessor_block = old.get_tail_waiter_block();
   DVLOG(0) << "mm, contended, we have to wait.. me=" << id_ << " pred=" << predecessor_id;
   ASSERT_ND(decompose_numa_node(predecessor_id) < engine_->get_options().thread_.group_count_);
   ASSERT_ND(decompose_numa_local_ordinal(predecessor_id) <
     engine_->get_options().thread_.thread_count_per_group_);
-  ThreadPimpl* predecessor
-    = engine_->get_thread_pool().get_pimpl()->get_thread(predecessor_id)->get_pimpl();
+
+  ThreadRef* predecessor = engine_->get_thread_pool().get_thread_ref(predecessor_id);
   ASSERT_ND(predecessor);
-  ASSERT_ND(predecessor != this);
   ASSERT_ND(block->waiting_);
-  // TODO(Hideaki) because of tentative SOC implementation. we can't check this
-  // ASSERT_ND(predecessor->current_xct_.get_mcs_block_current() >= predecessor_block);
-  xct::McsBlock* pred_block = predecessor->mcs_blocks_ + predecessor_block;
+  ASSERT_ND(predecessor->get_control_block()->mcs_block_current_ >= predecessor_block);
+  xct::McsBlock* pred_block = predecessor->get_mcs_blocks() + predecessor_block;
   ASSERT_ND(pred_block->successor_ == 0);
   ASSERT_ND(pred_block->successor_block_ == 0);
   ASSERT_ND(pred_block->lock_addr_tag_ == block->lock_addr_tag_);
@@ -560,11 +588,9 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   DVLOG(1) << "Okay, I have a successor. me=" << id_ << ", succ=" << block->successor_;
   ASSERT_ND(block->successor_ != id_);
 
-  ThreadPimpl* successor
-    = engine_->get_thread_pool().get_pimpl()->get_thread(block->successor_)->get_pimpl();
-  // TODO(Hideaki) because of tentative SOC implementation. we can't check this
-  // ASSERT_ND(successor->current_xct_.get_mcs_block_current() >= block->successor_block_);
-  xct::McsBlock* succ_block = successor->mcs_blocks_ + block->successor_block_;
+  ThreadRef* successor = engine_->get_thread_pool().get_thread_ref(block->successor_);
+  ASSERT_ND(successor->get_control_block()->mcs_block_current_ >= block->successor_block_);
+  xct::McsBlock* succ_block = successor->get_mcs_blocks() + block->successor_block_;
   ASSERT_ND(succ_block->lock_addr_tag_ == mcs_lock->last_1byte_addr());
   ASSERT_ND(succ_block->waiting_);
   ASSERT_ND(mcs_lock->is_locked());

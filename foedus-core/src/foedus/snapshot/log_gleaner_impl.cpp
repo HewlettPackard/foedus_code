@@ -24,6 +24,8 @@
 #include "foedus/snapshot/log_mapper_impl.hpp"
 #include "foedus/snapshot/log_reducer_impl.hpp"
 #include "foedus/snapshot/snapshot.hpp"
+#include "foedus/snapshot/snapshot_manager.hpp"
+#include "foedus/snapshot/snapshot_manager_pimpl.hpp"
 #include "foedus/storage/composer.hpp"
 #include "foedus/storage/partitioner.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
@@ -73,10 +75,10 @@ ErrorStack LogGleaner::uninitialize_once() {
 }
 
 bool LogGleaner::is_stop_requested() const {
-  return gleaner_thread_->is_stop_requested();
+  return engine_->get_snapshot_manager().get_pimpl()->is_stop_requested();
 }
 void LogGleaner::wakeup() {
-  gleaner_thread_->wakeup();
+  engine_->get_snapshot_manager().get_pimpl()->wakeup();
 }
 
 void LogGleaner::cancel_mappers() {
@@ -135,7 +137,8 @@ ErrorStack LogGleaner::execute() {
   LOG(INFO) << "Waiting for completion of mappers and reducers init.. " << *this;
 
   // the last one will wake me up.
-  while (!gleaner_thread_->sleep()) {
+  while (!is_stop_requested()) {
+    engine_->get_snapshot_manager().get_pimpl()->sleep_a_while();
     ASSERT_ND(ready_to_start_count_ <= mappers_.size() + reducers_.size());
     if (is_all_ready_to_start()) {
       break;
@@ -149,10 +152,11 @@ ErrorStack LogGleaner::execute() {
 
   // then, wait until all mappers/reducers are done
   bool terminated_mappers = false;
-  while (!gleaner_thread_->sleep() && error_count_ == 0) {
+  while (error_count_ == 0) {
     if (is_stop_requested() || is_all_completed()) {
       break;
     }
+    engine_->get_snapshot_manager().get_pimpl()->sleep_a_while();
     if (!terminated_mappers && is_all_mappers_completed()) {
       // as soon as all mappers complete, uninitialize them to release unused memories.
       // the last phase of reducers consume lots of resource, so this might help a bit.
@@ -314,7 +318,7 @@ std::string LogGleaner::to_string() const {
 }
 std::ostream& operator<<(std::ostream& o, const LogGleaner& v) {
   o << "<LogGleaner>"
-    << *v.snapshot_ << *v.gleaner_thread_
+    << *v.snapshot_
     << "<ready_to_start_count_>" << v.ready_to_start_count_ << "</ready_to_start_count_>"
     << "<completed_count_>" << v.completed_count_ << "</completed_count_>"
     << "<completed_mapper_count_>" << v.completed_mapper_count_ << "</completed_mapper_count_>"

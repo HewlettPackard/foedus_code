@@ -41,7 +41,7 @@ typedef assorted::FixedString<60> ProcName;
  */
 typedef uint32_t LocalProcId;
 
-const LocalProcId kLocalProcNotFound = -1;
+const LocalProcId kLocalProcInvalid = -1;
 
 /**
  * A globally unique ID of a procedure.

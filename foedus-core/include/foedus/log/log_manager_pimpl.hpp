@@ -13,6 +13,7 @@
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/log/fwd.hpp"
+#include "foedus/log/logger_ref.hpp"
 #include "foedus/savepoint/fwd.hpp"
 #include "foedus/soc/shared_cond.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
@@ -29,6 +30,15 @@ struct LogManagerControlBlock {
   LogManagerControlBlock() = delete;
   ~LogManagerControlBlock() = delete;
 
+  void initialize() {
+    durable_global_epoch_advanced_.initialize();
+    durable_global_epoch_savepoint_mutex_.initialize();
+  }
+  void uninitialize() {
+    durable_global_epoch_savepoint_mutex_.uninitialize();
+    durable_global_epoch_advanced_.uninitialize();
+  }
+
   /**
    * @brief The durable epoch of the entire engine.
    * @invariant current_global_epoch_ > durable_global_epoch_
@@ -39,10 +49,10 @@ struct LogManagerControlBlock {
    */
   std::atomic<Epoch::EpochInteger>    durable_global_epoch_;
 
-  /** Fired (notify_all) whenever durable_global_epoch_ is advanced. */
+  /** Fired (broadcast) whenever durable_global_epoch_ is advanced. */
   soc::SharedCond                     durable_global_epoch_advanced_;
 
-  /** Serializes the thread to take savepoint to advance durable_global_epoch_. */
+  /** To-be-removed Serializes the thread to take savepoint to advance durable_global_epoch_. */
   soc::SharedMutex                    durable_global_epoch_savepoint_mutex_;
 };
 
@@ -53,10 +63,10 @@ struct LogManagerControlBlock {
  * A private pimpl object for LogManager.
  * Do not include this header from a client program unless you know what you are doing.
  */
-class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
+class LogManagerPimpl final : public DefaultInitializable {
  public:
   LogManagerPimpl() = delete;
-  explicit LogManagerPimpl(Engine* engine) : engine_(engine) {}
+  explicit LogManagerPimpl(Engine* engine);
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
@@ -65,10 +75,13 @@ class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
   ErrorStack  refresh_global_durable_epoch();
   void        copy_logger_states(savepoint::Savepoint *new_savepoint);
 
-  Epoch       get_durable_global_epoch() const { return Epoch(durable_global_epoch_.load()); }
-  Epoch       get_durable_global_epoch_weak() const {
-    return Epoch(durable_global_epoch_.load(std::memory_order_relaxed));
+  Epoch       get_durable_global_epoch() const {
+    return Epoch(control_block_->durable_global_epoch_.load());
   }
+  Epoch       get_durable_global_epoch_weak() const {
+    return Epoch(control_block_->durable_global_epoch_.load(std::memory_order_relaxed));
+  }
+  void        announce_new_durable_global_epoch(Epoch new_epoch);
 
 
   Engine* const               engine_;
@@ -77,25 +90,15 @@ class LogManagerPimpl CXX11_FINAL : public DefaultInitializable {
   uint16_t                    loggers_per_node_;
 
   /**
-   * Log writers.
+   * Local log writers. Index is local logger ordinal.
+   * Empty in master engine.
    */
   std::vector< Logger* >      loggers_;
 
-  /**
-   * @brief The durable epoch of the entire engine.
-   * @invariant current_global_epoch_ > durable_global_epoch_
-   * (we need to advance current epoch to make sure the ex-current epoch is durable)
-   * @details
-   * This value indicates upto what commit-groups we can return results to client programs.
-   * This value is advanced by checking the durable epoch of each logger.
-   */
-  std::atomic<Epoch::EpochInteger>    durable_global_epoch_;
+  /** All log writers. Index is global logger ordinal. */
+  std::vector< LoggerRef >    logger_refs_;
 
-  /** Fired (notify_all) whenever durable_global_epoch_ is advanced. */
-  thread::ConditionVariable           durable_global_epoch_advanced_;
-
-  /** Serializes the thread to take savepoint to advance durable_global_epoch_. */
-  std::mutex                          durable_global_epoch_savepoint_mutex_;
+  LogManagerControlBlock*     control_block_;
 };
 
 static_assert(

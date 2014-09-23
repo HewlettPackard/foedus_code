@@ -9,8 +9,11 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/externalize/externalizable.hpp"
+#include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/storage/fwd.hpp"
+#include "foedus/storage/storage.hpp"
+#include "foedus/storage/storage_id.hpp"
 
 namespace foedus {
 namespace snapshot {
@@ -26,10 +29,15 @@ namespace snapshot {
  * We read it at restart.
  */
 struct SnapshotMetadata CXX11_FINAL : public virtual externalize::Externalizable {
-  SnapshotMetadata() { clear(); }
-  ~SnapshotMetadata() { clear(); }
-
   void clear();
+  storage::Metadata* get_metadata(storage::StorageId id) {
+    return &storage_control_blocks_[id].meta_;
+  }
+
+  ErrorStack load(tinyxml2::XMLElement* element) CXX11_OVERRIDE;
+  ErrorStack save(tinyxml2::XMLElement* element) const CXX11_OVERRIDE;
+  const char* get_tag_name() const CXX11_OVERRIDE { return "SnapshotMetadata"; }
+  void assign(const foedus::externalize::Externalizable *other) CXX11_OVERRIDE;
 
   /** Equivalent to Snapshot::id_. */
   SnapshotId  id_;
@@ -40,21 +48,18 @@ struct SnapshotMetadata CXX11_FINAL : public virtual externalize::Externalizable
   /** Equivalent to Snapshot::valid_until_epoch_. */
   Epoch::EpochInteger valid_until_epoch_;
 
-  /**
-   * @brief metadata of all storages.
-   * @details
-   * SnapshotMetadata \b owns the pointed objects, so these will be deleted when this vector
-   * is cleared. Thus, you must not put a pointer to an existing
-   * metadata object owned by existing storage.
-   * You should call "clone()" method of them to obtain a copy of it.
-   * The reason why SnapshotMetadata these objects is that there aren't any backing storage
-   * object of the metadata when we are loading SnapshotMetadata from an xml file.
-   * So, SnapshotMetadata must be an independent object.
-   * @see foedus::storage::Metadata::clone()
-   */
-  std::vector< storage::Metadata* > storage_metadata_;
+  /** The largest StorageId we so far observed. */
+  storage::StorageId  largest_storage_id_;
 
-  EXTERNALIZABLE(SnapshotMetadata);
+  /**
+   * @brief control block of all storages.
+   * @details
+   * This is a copy of the shared memory, so .
+   */
+  storage::StorageControlBlock* storage_control_blocks_;
+
+  /** Memory backing storage_control_blocks_ */
+  memory::AlignedMemory storage_control_blocks_memory_;
 };
 }  // namespace snapshot
 }  // namespace foedus

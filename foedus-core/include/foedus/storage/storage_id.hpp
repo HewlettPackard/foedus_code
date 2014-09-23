@@ -179,8 +179,21 @@ union VolatilePagePointer {
      */
     bool is_swappable() const { return flags & kVolatilePointerFlagSwappable; }
   } components;
+
+  bool is_null() const { return components.offset == 0; }
+  void set(uint8_t numa_node, uint8_t flags, uint16_t mod_count, memory::PagePoolOffset offset) {
+    components.numa_node = numa_node;
+    components.flags = flags;
+    components.mod_count = mod_count;
+    components.offset = offset;
+  }
 };
 
+inline VolatilePagePointer construct_volatile_page_pointer(uint64_t word) {
+  VolatilePagePointer pointer;
+  pointer.word = word;
+  return pointer;
+}
 inline VolatilePagePointer combine_volatile_page_pointer(
   uint8_t numa_node,
   uint8_t flags,

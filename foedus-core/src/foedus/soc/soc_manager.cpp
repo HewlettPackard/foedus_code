@@ -33,6 +33,13 @@ void SocManager::trap_spawned_soc_main(const std::vector< proc::ProcAndName >& p
   SocManagerPimpl::spawned_child_main(procedures);
 }
 
+ErrorStack SocManager::wait_for_children_module(bool init, ModuleType module) {
+  return pimpl_->wait_for_children_module(init, module);
+}
+
+ErrorStack SocManager::wait_for_master_module(bool init, ModuleType module) {
+  return pimpl_->wait_for_master_module(init, module);
+}
 
 }  // namespace soc
 }  // namespace foedus

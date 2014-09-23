@@ -15,11 +15,6 @@ std::ostream& operator<<(std::ostream& o, const Storage& v) {
   v.describe(&o);
   return o;
 }
-void* Storage::get_pimpl_memory(Engine* engine, StorageId id) {
-  void* memory = engine->get_storage_manager().get_instance_memory(id);
-  std::memset(memory, 0, kPageSize);
-  return memory;
-}
 
 }  // namespace storage
 }  // namespace foedus

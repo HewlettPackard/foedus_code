@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <glog/logging.h>
+#include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
@@ -26,17 +27,26 @@
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/proc/proc_manager.hpp"
 #include "foedus/soc/soc_manager.hpp"
+#include "foedus/thread/numa_thread_scope.hpp"
 
 namespace foedus {
 namespace soc {
 // SOC manager is initialized at first even before debug module.
 // So, we can't use glog yet.
 ErrorStack SocManagerPimpl::initialize_once() {
-  return kRetOk;
+  if (engine_->is_master()) {
+    return initialize_master();
+  } else {
+    return initialize_child();
+  }
 }
 
 ErrorStack SocManagerPimpl::uninitialize_once() {
   ErrorStackBatch batch;
+  if (engine_->is_master() && memory_repo_.get_global_memory() != nullptr) {
+    CHECK_ERROR(wait_for_child_terminate());  // wait for children to terminate
+    memory_repo_.change_master_status(MasterEngineStatus::kTerminated);
+  }
   memory_repo_.deallocate_shared_memories();
   return SUMMARIZE_ERROR_BATCH(batch);
 }
@@ -52,7 +62,22 @@ ErrorStack SocManagerPimpl::initialize_master() {
   child_emulated_engines_.clear();
   child_emulated_threads_.clear();
   std::memset(child_upids_, 0, sizeof(child_upids_));
-  memory_repo_.change_master_status(MasterEngineStatus::kSharedMemoryAllocated);
+
+  // set initial value of initialize/uninitialize status now
+  {
+    MasterEngineStatus* status = memory_repo_.get_global_memory_anchors()->master_status_memory_;
+    status->status_code_ = MasterEngineStatus::kSharedMemoryAllocated;
+    status->initialized_modules_ = kInvalid;
+    status->uninitialized_modules_ = kDummyTail;
+  }
+  uint16_t soc_count = engine_->get_options().thread_.group_count_;
+  for (uint16_t node = 0; node < soc_count; ++node) {
+    ChildEngineStatus* status = memory_repo_.get_node_memory_anchors(node)->child_status_memory_;
+    status->status_code_ = ChildEngineStatus::kInitial;
+    status->initialized_modules_ = kInvalid;
+    status->uninitialized_modules_ = kDummyTail;
+  }
+
   EngineType soc_type = engine_->get_options().soc_.soc_type_;
   if (soc_type == kChildForked) {
     CHECK_ERROR(launch_forked_children());
@@ -79,8 +104,11 @@ ErrorStack SocManagerPimpl::initialize_child() {
       << " This is an unrecoverable error. This process quits shortly" << std::endl;
     ::_exit(1);
   }
+  memory_repo_.change_child_status(soc_id, ChildEngineStatus::kSharedMemoryAttached);
 
-  CHECK_ERROR(wait_for_master_status(MasterEngineStatus::kWaitingForChildInitialization));
+  // child engines could just move on, but it's safer to wait for at least the reclamation
+  // of shared memory by master engine.
+  COERCE_ERROR(wait_for_master_status(MasterEngineStatus::kSharedMemoryReservedReclamation));
   return kRetOk;
 }
 
@@ -97,6 +125,7 @@ ErrorStack SocManagerPimpl::wait_for_child_attach() {
   const uint32_t kIntervalMillisecond = 20;
   const uint32_t kTimeoutMillisecond = 10000;
   uint32_t trials = 0;
+  bool child_as_process = engine_->get_options().soc_.soc_type_ != kChildEmulated;
   while (true) {
     std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMillisecond));
     bool error_happened = false;
@@ -114,26 +143,28 @@ ErrorStack SocManagerPimpl::wait_for_child_attach() {
         error_happened = true;
         break;
       }
-      // if we launched the child as a process, let's also check with waitpid()
-      // this doesn't do anything if they are emulated children
-      if (!error_happened && child_upids_[node] != 0) {
-        int status = 0;
-        pid_t wait_ret = ::waitpid(child_upids_[node], &status, WNOHANG);
-        if (wait_ret == -1) {
-          std::cerr << "[FOEDUS] FATAL! waitpid() for child-process " << child_upids_[node]
-            << " failed." << std::endl;
-          error_happened = true;
-          break;
-        } else if (WIFEXITED(status)) {
-          std::cerr << "[FOEDUS] FATAL! child-process " << child_upids_[node] << " has exit"
-            << " unexpectedly. status=" << status << std::endl;
-          error_happened = true;
-          break;
-        } else if (WIFSIGNALED(status)) {
-          std::cerr << "[FOEDUS] FATAL! child-process " << child_upids_[node] << " has been"
-            << " terminated by signal. status=" << status << std::endl;
-          error_happened = true;
-          break;
+      if (child_as_process) {
+        // if we launched the child as a process, let's also check with waitpid()
+        // this doesn't do anything if they are emulated children
+        if (!error_happened && child_upids_[node] != 0) {
+          int status = 0;
+          pid_t wait_ret = ::waitpid(child_upids_[node], &status, WNOHANG | __WALL);
+          if (wait_ret == -1) {
+            std::cerr << "[FOEDUS] FATAL! waitpid() for child-process " << child_upids_[node]
+              << " failed. os error=" << assorted::os_error() << std::endl;
+            error_happened = true;
+            break;
+          } else if (WIFEXITED(status)) {
+            std::cerr << "[FOEDUS] FATAL! child-process " << child_upids_[node] << " has exit"
+              << " unexpectedly. status=" << status << std::endl;
+            error_happened = true;
+            break;
+          } else if (WIFSIGNALED(status)) {
+            std::cerr << "[FOEDUS] FATAL! child-process " << child_upids_[node] << " has been"
+              << " terminated by signal. status=" << status << std::endl;
+            error_happened = true;
+            break;
+          }
         }
       }
     }
@@ -161,9 +192,69 @@ ErrorStack SocManagerPimpl::wait_for_child_attach() {
   return kRetOk;
 }
 
+ErrorStack SocManagerPimpl::wait_for_child_terminate() {
+  uint16_t soc_count = engine_->get_options().thread_.group_count_;
+  const uint32_t kIntervalMillisecond = 20;
+  const uint32_t kTimeoutMillisecond = 10000;
+  uint32_t trials = 0;
+  bool child_as_process = engine_->get_options().soc_.soc_type_ != kChildEmulated;
+  while (true) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMillisecond));
+    bool remaining = false;
+    for (uint16_t node = 0; node < soc_count; ++node) {
+      ChildEngineStatus::StatusCode child_status = memory_repo_.get_child_status(node);
+      if (!child_as_process) {
+        if (child_status == ChildEngineStatus::kTerminated
+          || child_status == ChildEngineStatus::kFatalError) {
+          if (child_emulated_threads_[node].joinable()) {
+            child_emulated_threads_[node].join();
+          }
+        } else {
+          if (child_emulated_threads_[node].joinable()) {
+            remaining = true;
+          }
+        }
+        continue;
+      }
+      if (child_status == ChildEngineStatus::kRunning) {
+        // also check with waitpid(). if the child process terminated, it's fine.
+        if (child_upids_[node] != 0) {
+          int status = 0;
+          pid_t wait_ret = ::waitpid(child_upids_[node], &status, WNOHANG | __WALL);
+          if (wait_ret == -1) {
+            // this is okay, too. the process has already terminated
+          } else if (WIFEXITED(status)) {
+            // this is okay
+          } else if (WIFSIGNALED(status)) {
+            std::cerr << "[FOEDUS] ERROR! child-process " << child_upids_[node] << " has been"
+              << " terminated by signal. status=" << status << std::endl;
+            memory_repo_.change_master_status(MasterEngineStatus::kFatalError);
+            return ERROR_STACK(kErrorCodeSocTerminateFailed);
+          } else {
+            remaining = true;
+          }
+        }
+      }
+    }
+
+    if (!remaining) {
+      break;  // done!
+    } else if ((++trials) * kIntervalMillisecond > kTimeoutMillisecond) {
+      std::cerr << "[FOEDUS] ERROR! Timeout happend while waiting for child SOCs to terminate."
+        " Probably child SOC(s) hanged or did not trap SOC execution (if spawned)." << std::endl;
+      memory_repo_.change_master_status(MasterEngineStatus::kFatalError);
+      return ERROR_STACK(kErrorCodeSocTerminateTimeout);
+    }
+  }
+
+  return kRetOk;
+}
+
+
 ErrorStack SocManagerPimpl::wait_for_master_status(MasterEngineStatus::StatusCode target_status) {
   ASSERT_ND(!engine_->is_master());
   const uint32_t kIntervalMillisecond = 10;
+//  bool child_as_process = engine_->get_options().soc_.soc_type_ != kChildEmulated;
   while (true) {
     std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMillisecond));
     MasterEngineStatus::StatusCode master_status = memory_repo_.get_master_status();
@@ -174,27 +265,139 @@ ErrorStack SocManagerPimpl::wait_for_master_status(MasterEngineStatus::StatusCod
     } else if (static_cast<int>(master_status) > static_cast<int>(target_status)) {
       return ERROR_STACK(kErrorCodeSocMasterUnexpectedState);
     }
+/*
+  this doesn't work because waitpid is only for child processes.
+  As an alternative to die when parent dies, we use prctl().
+    if (child_as_process) {
+      // Also check parent's process status.
+      Upid master_upid = engine_->get_master_upid();
+      int status = 0;
+      pid_t wait_ret = ::waitpid(master_upid, &status, WNOHANG);
+      if (wait_ret == -1) {
+        std::cerr << "[FOEDUS-Child] FATAL! waitpid() for master-process " << master_upid
+          << " failed. os error:" << assorted::os_error() << std::endl;
+        return ERROR_STACK(kErrorCodeSocMasterDied);
+      } else if (WIFEXITED(status)) {
+        std::cerr << "[FOEDUS-Child] FATAL! master-process " << master_upid << " has exit"
+          << " unexpectedly. status=" << status << std::endl;
+        return ERROR_STACK(kErrorCodeSocMasterDied);
+      } else if (WIFSIGNALED(status)) {
+        std::cerr << "[FOEDUS-Child] FATAL! master-process " << master_upid << " has been"
+          << " terminated by signal. status=" << status << std::endl;
+        return ERROR_STACK(kErrorCodeSocMasterDied);
+      }
+    }
+*/
+  }
+  return kRetOk;
+}
+ErrorStack SocManagerPimpl::wait_for_master_module(bool init, ModuleType desired) {
+  // if parent dies, children automatically die. So, no additional checks here.
+  const uint32_t kWarnSleeps = 400;
+  for (uint32_t count = 0;; ++count) {
+    if (count > 0 && count % kWarnSleeps == 0) {
+      LOG(WARNING) << "Suspiciously long wait for master " << (init ? "" : "un") << "initializing"
+        << " module-" << desired << ". count=" << count;
+    }
+    assorted::memory_fence_acq_rel();
+    ModuleType cur;
+    if (init) {
+      cur = memory_repo_.get_global_memory_anchors()->master_status_memory_->initialized_modules_;
+    } else {
+      cur = memory_repo_.get_global_memory_anchors()->master_status_memory_->uninitialized_modules_;
+    }
+    if (cur == desired) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  return kRetOk;
+}
+ErrorStack SocManagerPimpl::wait_for_children_module(bool init, ModuleType desired) {
+  ASSERT_ND(desired != kSoc);  // this method assumes SOC manager is active
+  uint16_t soc_count = engine_->get_options().thread_.group_count_;
+  bool child_as_process = engine_->get_options().soc_.soc_type_ != kChildEmulated;
 
-    // Also check parent's process status.
-    Upid master_upid = engine_->get_master_upid();
-    int status = 0;
-    pid_t wait_ret = ::waitpid(master_upid, &status, WNOHANG);
-    if (wait_ret == -1) {
-      std::cerr << "[FOEDUS-Child] FATAL! waitpid() for master-process " << master_upid
-        << " failed." << std::endl;
-      return ERROR_STACK(kErrorCodeSocMasterDied);
-    } else if (WIFEXITED(status)) {
-      std::cerr << "[FOEDUS-Child] FATAL! master-process " << master_upid << " has exit"
-        << " unexpectedly. status=" << status << std::endl;
-      return ERROR_STACK(kErrorCodeSocMasterDied);
-    } else if (WIFSIGNALED(status)) {
-      std::cerr << "[FOEDUS-Child] FATAL! master-process " << master_upid << " has been"
-        << " terminated by signal. status=" << status << std::endl;
-      return ERROR_STACK(kErrorCodeSocMasterDied);
+  // TODO(Hideaki) should be a function in soc manager
+  // We also check if the child died unexpectedly
+  const uint32_t kWarnSleeps = 400;
+  for (uint32_t count = 0;; ++count) {
+    if (count > 0 && count % kWarnSleeps == 0) {
+      LOG(WARNING) << "Suspiciously long wait for child " << (init ? "" : "un") << "initializing"
+        << " module-" << desired << ". count=" << count;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    assorted::memory_fence_acq_rel();
+    bool error_happened = false;
+    bool remaining = false;
+    for (uint16_t node = 0; node < soc_count; ++node) {
+      soc::ChildEngineStatus* status
+        = memory_repo_.get_node_memory_anchors(node)->child_status_memory_;
+      if (status->status_code_ == soc::ChildEngineStatus::kFatalError) {
+        error_happened = true;
+        break;
+      }
+      if (init) {
+        if (status->initialized_modules_ == desired) {
+          continue;  // ok
+        } else if (static_cast<int>(status->initialized_modules_)
+            > static_cast<int>(desired)) {
+          LOG(ERROR) << "[FOEDUS] child init went too far??";
+          error_happened = true;
+          break;
+        }
+      } else {
+        if (status->uninitialized_modules_ == desired) {
+          continue;  // ok
+        } else if (static_cast<int>(status->uninitialized_modules_)
+            < static_cast<int>(desired)) {
+          LOG(ERROR) << "[FOEDUS] ERROR! child uninit went too far??";
+          error_happened = true;
+          break;
+        }
+      }
+      remaining = true;
+      if (child_as_process) {
+        // TODO(Hideaki) check child process status with waitpid
+        if (child_upids_[node] != 0) {
+          int status = 0;
+          pid_t wait_ret = ::waitpid(child_upids_[node], &status, WNOHANG | __WALL);
+          if (wait_ret == -1) {
+            // this is okay, too. the process has already terminated
+            error_happened = true;
+            LOG(ERROR) << "waitpid() while waiting for child module status failed";
+            break;
+          } else if (WIFEXITED(status)) {
+            // this is okay
+            error_happened = true;
+            LOG(ERROR) << "child process has already exist while waiting for child module status";
+            break;
+          } else if (WIFSIGNALED(status)) {
+            error_happened = true;
+            LOG(ERROR) << "child process has already exist while waiting for child module status";
+            break;
+            LOG(ERROR) << "child-process " << child_upids_[node] << " has been"
+              << " terminated by signal. status=" << status;
+            break;
+          }
+        }
+      }
+    }
+
+    if (error_happened) {
+      LOG(ERROR) << "Error encountered in wait_for_children_module";
+      if (init) {
+        return ERROR_STACK(kErrorCodeSocChildInitFailed);
+      } else {
+        return ERROR_STACK(kErrorCodeSocChildUninitFailed);
+      }
+    } else if (!remaining) {
+      break;
     }
   }
   return kRetOk;
 }
+
 
 ////////////////////////////////////////////////////////////////////////////////////
 //
@@ -347,6 +550,14 @@ ErrorStack SocManagerPimpl::child_main_common(
   Upid master_upid,
   SocId node,
   const std::vector< proc::ProcAndName >& procedures) {
+  thread::NumaThreadScope scope(node);
+
+  // In order to make sure child processes die as soon as the parent dies,
+  // we use prctl.
+  if (engine_type != kChildEmulated) {
+    ::prctl(PR_SET_PDEATHSIG, SIGHUP);
+  }
+
   Engine soc_engine(engine_type, master_upid, node);
   ErrorStack init_error = soc_engine.initialize();
   if (init_error.is_error()) {
@@ -364,11 +575,13 @@ ErrorStack SocManagerPimpl::child_main_common(
   LOG(INFO) << "The SOC engine-" << node << " was initialized.";
 
   // Add the given procedures.
+  proc::ProcManager& procm = soc_engine.get_proc_manager();
   for (const proc::ProcAndName& proc_and_name : procedures) {
-    soc_engine.get_proc_manager().local_register(proc_and_name);
+    COERCE_ERROR(procm.local_register(proc_and_name));
   }
 
-  LOG(INFO) << "Added user procedures. Waiting for master engine's initialization...";
+  LOG(INFO) << "Added user procedures: " << procm.describe_registered_procs()
+    << ". Waiting for master engine's initialization...";
   soc_memory.change_child_status(node, ChildEngineStatus::kWaitingForMasterInitialization);
   COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kRunning));
   LOG(INFO) << "The SOC engine-" << node << " detected that master engine has started"

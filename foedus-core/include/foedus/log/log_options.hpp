@@ -92,6 +92,8 @@ struct LogOptions CXX11_FINAL : public virtual externalize::Externalizable {
 
   /** converts folder_path_pattern_ into a string with the given IDs. */
   std::string     convert_folder_path_pattern(int node, int logger) const;
+  /** construct full path of individual log file (log_folder/LOGGERID_ORDINAL.log) */
+  std::string     construct_suffixed_log_path(int node, int logger, LogFileOrdinal ordinal) const;
 
   EXTERNALIZABLE(LogOptions);
 };

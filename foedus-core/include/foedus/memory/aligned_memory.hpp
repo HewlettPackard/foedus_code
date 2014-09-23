@@ -88,7 +88,7 @@ class AlignedMemory CXX11_FINAL {
 
   /** Empty constructor which allocates nothing. */
   AlignedMemory() CXX11_NOEXCEPT : size_(0), alignment_(0), alloc_type_(kPosixMemalign),
-    share_(false), numa_node_(0), block_(CXX11_NULLPTR) {}
+    numa_node_(0), block_(CXX11_NULLPTR) {}
 
   /**
    * Allocate an aligned memory of given size and alignment.
@@ -98,13 +98,12 @@ class AlignedMemory CXX11_FINAL {
    * @param[in] alloc_type specifies type of new/delete
    * @param[in] numa_node if alloc_type_ is kNumaAllocOnnode, the NUMA node to allocate at.
    * Otherwise ignored.
-   * @param[in] share Whether to share the \e anonymous memory with child processes.
    * @attention When memory allocation fails for some reason (eg Out-Of-Memory), this constructor
    * does NOT fail nor throws an exception. Instead, it sets the block_ NULL.
    * So, the caller is responsible for checking it after construction.
    */
   AlignedMemory(uint64_t size, uint64_t alignment,
-    AllocType alloc_type, int numa_node, bool share = false) CXX11_NOEXCEPT;
+    AllocType alloc_type, int numa_node) CXX11_NOEXCEPT;
 
   // Disable default constructors
   AlignedMemory(const AlignedMemory &other) CXX11_FUNC_DELETE;
@@ -126,13 +125,11 @@ class AlignedMemory CXX11_FINAL {
 
   /** Allocate a memory, releasing the current memory if exists. */
   void        alloc(uint64_t size, uint64_t alignment,
-            AllocType alloc_type, int numa_node, bool share = false) CXX11_NOEXCEPT;
+            AllocType alloc_type, int numa_node) CXX11_NOEXCEPT;
   /** Returns the memory block. */
   void*       get_block() const { return block_; }
   /** Returns if this object doesn't hold a valid memory block. */
   bool        is_null() const { return block_ == CXX11_NULLPTR; }
-  /** Returns if this memory can be accessed from remote node. */
-  bool        is_shared() const { return share_; }
   /** Returns the byte size of the memory block. */
   uint64_t    get_size() const { return size_; }
   /** Returns the alignment of the memory block. */
@@ -154,8 +151,6 @@ class AlignedMemory CXX11_FINAL {
   uint64_t    alignment_;
   /** type of new/delete operation for the block .*/
   AllocType   alloc_type_;
-  /** Whether to share the \e anonymous memory with child processes. */
-  bool        share_;
   /** if alloc_type_ is kNumaAllocOnnode, the NUMA node this memory was allocated at. */
   int         numa_node_;
   /** Allocated memory block. */

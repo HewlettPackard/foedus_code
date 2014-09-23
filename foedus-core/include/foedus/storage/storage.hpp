@@ -41,10 +41,8 @@ namespace storage {
  * this object and calls create().
  * To retrieve an existing storage, bluh bluh
  */
-class Storage : public virtual Initializable {
+class Storage {
  public:
-  virtual ~Storage() {}
-
   /**
    * Returns the unique ID of this storage.
    */
@@ -75,13 +73,16 @@ class Storage : public virtual Initializable {
   /**
    * @brief Newly creates this storage and registers it in the storage manager.
    * @pre exists() == false
+   * @param[in] metadata Metadata of this storage
    * @details
    * This is invoked from storage manager's create_xxx methods.
    * Depending on the storage type, this might take a long time to finish.
    * For a newly created storage, the instasnce of this object is an empty and
    * trivial-to-instantiate (thus no exception) until we call this method.
    */
-  virtual ErrorStack          create(thread::Thread* context) = 0;
+  virtual ErrorStack          create(const Metadata &metadata) = 0;
+
+  virtual ErrorStack          drop() = 0;
 
   /**
    * Implementation of ostream operator.
@@ -111,60 +112,6 @@ class Storage : public virtual Initializable {
 
   /** Just delegates to describe(). */
   friend std::ostream& operator<<(std::ostream& o, const Storage& v);
-
- protected:
-  static void* get_pimpl_memory(Engine* engine, StorageId id);
-
-  template <typename T>
-  static T* get_pimpl_memory_casted(Engine* engine, StorageId id) {
-    return reinterpret_cast<T*>(get_pimpl_memory(engine, id));
-  }
-};
-
-/**
- * @brief Interface to instantiate a storage.
- * @ingroup STORAGE
- * @details
- * This is an interface of factory classes for storage classes.
- * One reason to have a factory class in this case is to encapsulate error handling during
- * instantiation, which is impossible if we simply invoke C++ constructors.
- */
-class StorageFactory {
- public:
-  virtual ~StorageFactory() {}
-
-  /**
-   * Returns the type of storages this factory creates.
-   */
-  virtual StorageType  get_type() const = 0;
-
-  /**
-   * @brief Tells if the given metadata object satisfies the requirement of the storage.
-   * @param[in] metadata metadata object of a derived class
-   * @details
-   * For example, ArrayStorageFactory receive only ArrayMetadata.
-   * The storage manager checks with all storage factories for each instantiation request
-   * to identify the right factory class (a bit wasteful, but storage creation is a rare event).
-   */
-  virtual bool is_right_metadata(const Metadata *metadata) const = 0;
-
-  /**
-   * @brief Instantiate a storage object with the given metadata.
-   * @param[in] engine database engine
-   * @param[in] metadata metadata of the newly instantiated storage object
-   * @param[out] storage set only when this method succeeds. otherwise null.
-   * @pre is_right_metadata(metadata)
-   * @details
-   * This method verifies the metadata object and might return errors for various reasons.
-   */
-  virtual ErrorStack get_instance(Engine* engine, const Metadata *metadata,
-                                  Storage** storage) const = 0;
-
-  /**
-   * Adds a log entry for newly creating the storage to the context's log buffer.
-   * @pre is_right_metadata(metadata)
-   */
-  virtual void add_create_log(const Metadata *metadata, thread::Thread* context) const = 0;
 };
 
 /**
@@ -180,15 +127,17 @@ struct StorageControlBlock CXX11_FINAL {
   StorageControlBlock() CXX11_FUNC_DELETE;
   ~StorageControlBlock() CXX11_FUNC_DELETE;
 
+  bool exists() const { return status_ == kExists || status_ == kMarkedForDeath; }
+
   /** Status of the storage */
   StorageStatus     status_;
   /** Points to the root page (or something equivalent). */
   DualPagePointer   root_page_pointer_;
   /** common part of the metadata. individual storage control blocks would have derived metadata */
-  FixedMetadata     meta_;
+  Metadata          meta_;
 
   /** Just to make this exactly 4kb. Individual control block doesn't have this. */
-  char              padding_[4096 - 8 - sizeof(DualPagePointer) - sizeof(FixedMetadata)];
+  char              padding_[4096 - 8 - sizeof(DualPagePointer) - sizeof(Metadata)];
 };
 
 CXX11_STATIC_ASSERT(sizeof(StorageControlBlock) == 1 << 12, "StorageControlBlock is not 4kb");

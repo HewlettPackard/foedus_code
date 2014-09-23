@@ -25,7 +25,7 @@ void* to_ptr(int val) {
 XctAccess create_access(int i) {
   XctAccess access;
   access.observed_owner_id_.set(i * 20, i * 12);
-  access.storage_ = reinterpret_cast<storage::Storage*>(to_ptr(i * 1234));
+  access.storage_id_ = i * 1234U;
   access.owner_id_address_ = reinterpret_cast<xct::LockableXctId*>(to_ptr(i * 8452));
   return access;
 }
@@ -33,7 +33,7 @@ void verify_access(const XctAccess &access, int i) {
   XctId tmp;
   tmp.set(i * 20, i * 12);
   EXPECT_TRUE(access.observed_owner_id_ == tmp);
-  EXPECT_TRUE(access.storage_ == reinterpret_cast<storage::Storage*>(to_ptr(i * 1234)));
+  EXPECT_EQ(i * 1234U, access.storage_id_);
   EXPECT_TRUE(access.owner_id_address_ == reinterpret_cast<xct::LockableXctId*>(to_ptr(i * 8452)));
 }
 
@@ -101,14 +101,14 @@ TEST(XctAccessTest, RandomReadSet) {
 WriteXctAccess create_write_access(int i) {
   WriteXctAccess access;
   access.payload_address_ = reinterpret_cast<char*>(to_ptr(i * 542312));
-  access.storage_ = reinterpret_cast<storage::Storage*>(to_ptr(i * 52223));
+  access.storage_id_ = i * 52223ULL;
   access.owner_id_address_ = reinterpret_cast<xct::LockableXctId*>(to_ptr(i * 14325));
   access.log_entry_ = reinterpret_cast<log::RecordLogType*>(to_ptr(i * 5423423));
   return access;
 }
 void verify_access(const WriteXctAccess &access, int i) {
   EXPECT_TRUE(access.payload_address_  == reinterpret_cast<char*>(to_ptr(i * 542312)));
-  EXPECT_TRUE(access.storage_ == reinterpret_cast<storage::Storage*>(to_ptr(i * 52223)));
+  EXPECT_EQ(i * 52223ULL, access.storage_id_);
   EXPECT_TRUE(access.owner_id_address_ == reinterpret_cast<xct::LockableXctId*>(to_ptr(i * 14325)));
   EXPECT_TRUE(access.log_entry_ == to_ptr(i * 5423423));
 }

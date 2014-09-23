@@ -34,7 +34,7 @@ namespace thread {
 class Thread CXX11_FINAL : public virtual Initializable {
  public:
   Thread() CXX11_FUNC_DELETE;
-  Thread(Engine* engine, ThreadGroupPimpl* group, ThreadId id, ThreadGlobalOrdinal global_ordinal);
+  Thread(Engine* engine, ThreadId id, ThreadGlobalOrdinal global_ordinal);
   ~Thread();
   ErrorStack  initialize() CXX11_OVERRIDE;
   bool        is_initialized() const CXX11_OVERRIDE;
@@ -69,6 +69,28 @@ class Thread CXX11_FINAL : public virtual Initializable {
   const memory::GlobalVolatilePageResolver& get_global_volatile_page_resolver() const;
   /** Returns page resolver to convert only local page ID to page pointer. */
   const memory::LocalPageResolver& get_local_volatile_page_resolver() const;
+
+  /** Shorthand for get_global_volatile_page_resolver.resolve_offset() */
+  storage::Page* resolve(storage::VolatilePagePointer ptr) const;
+  /** Shorthand for get_global_volatile_page_resolver.resolve_offset_newpage() */
+  storage::Page* resolve_newpage(storage::VolatilePagePointer ptr) const;
+  /** Shorthand for get_local_volatile_page_resolver.resolve_offset() */
+  storage::Page* resolve(memory::PagePoolOffset offset) const;
+  /** Shorthand for get_local_volatile_page_resolver.resolve_offset_newpage() */
+  storage::Page* resolve_newpage(memory::PagePoolOffset offset) const;
+  /** resolve() plus reinterpret_cast */
+  template <typename P> P* resolve_cast(storage::VolatilePagePointer ptr) const {
+    return reinterpret_cast<P*>(resolve(ptr));
+  }
+  template <typename P> P* resolve_newpage_cast(storage::VolatilePagePointer ptr) const {
+    return reinterpret_cast<P*>(resolve_newpage(ptr));
+  }
+  template <typename P> P* resolve_cast(memory::PagePoolOffset offset) const {
+    return reinterpret_cast<P*>(resolve(offset));
+  }
+  template <typename P> P* resolve_newpage_cast(memory::PagePoolOffset offset) const {
+    return reinterpret_cast<P*>(resolve_newpage(offset));
+  }
 
   /**
    * Find the given page in snapshot cache, reading it if not found.
@@ -160,13 +182,12 @@ class Thread CXX11_FINAL : public virtual Initializable {
   /** Returns the pimpl of this object. Use it only when you know what you are doing. */
   ThreadPimpl*  get_pimpl() const { return pimpl_; }
 
-  void          hack_handle_one_task(ImpersonateTask* task, ImpersonateSession* session);
-
   friend std::ostream& operator<<(std::ostream& o, const Thread& v);
 
  private:
   ThreadPimpl*    pimpl_;
 };
+
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_THREAD_HPP_

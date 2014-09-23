@@ -32,6 +32,20 @@ typedef uint16_t LoggerId;
  */
 typedef uint32_t LogFileOrdinal;
 
+/**
+ * a contiguous range of log entries that might span multiple files.
+ * @ingroup LOG
+ */
+struct LogRange {
+  LogFileOrdinal  begin_file_ordinal;
+  LogFileOrdinal  end_file_ordinal;
+  uint64_t        begin_offset;
+  uint64_t        end_offset;
+  bool is_empty() const {
+    return begin_file_ordinal == end_file_ordinal && begin_offset == end_offset;
+  }
+};
+
 }  // namespace log
 }  // namespace foedus
 #endif  // FOEDUS_LOG_LOG_ID_HPP_

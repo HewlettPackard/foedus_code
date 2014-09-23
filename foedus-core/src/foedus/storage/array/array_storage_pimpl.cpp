@@ -36,55 +36,95 @@ namespace storage {
 namespace array {
 
 // Defines ArrayStorage methods so that we can inline implementation calls
-bool        ArrayStorage::is_initialized()   const  { return pimpl_->is_initialized(); }
-bool        ArrayStorage::exists()           const  { return pimpl_->exist_; }
-uint16_t    ArrayStorage::get_payload_size() const  { return pimpl_->metadata_.payload_size_; }
-ArrayOffset ArrayStorage::get_array_size()   const  { return pimpl_->metadata_.array_size_; }
-uint8_t     ArrayStorage::get_levels()       const  { return pimpl_->levels_; }
-StorageId   ArrayStorage::get_id()           const  { return pimpl_->metadata_.id_; }
-const StorageName& ArrayStorage::get_name()  const  { return pimpl_->metadata_.name_; }
-const Metadata* ArrayStorage::get_metadata() const  { return &pimpl_->metadata_; }
-const ArrayMetadata* ArrayStorage::get_array_metadata() const  { return &pimpl_->metadata_; }
+bool        ArrayStorage::exists()           const  { return control_block_->exists(); }
+uint16_t    ArrayStorage::get_payload_size() const  { return control_block_->meta_.payload_size_; }
+ArrayOffset ArrayStorage::get_array_size()   const  { return control_block_->meta_.array_size_; }
+uint8_t     ArrayStorage::get_levels()       const  { return control_block_->levels_; }
+StorageId   ArrayStorage::get_id()           const  { return control_block_->meta_.id_; }
+StorageType ArrayStorage::get_type()         const  { return control_block_->meta_.type_; }
+const StorageName& ArrayStorage::get_name()  const  { return control_block_->meta_.name_; }
+const Metadata* ArrayStorage::get_metadata() const  { return &control_block_->meta_; }
+const ArrayMetadata* ArrayStorage::get_array_metadata() const  { return &control_block_->meta_; }
+
+ErrorCode   ArrayStorage::prefetch_pages(
+  thread::Thread* context,
+  ArrayOffset from,
+  ArrayOffset to) {
+  if (to == 0) {
+    to = get_array_size();
+  }
+  return ArrayStoragePimpl(this).prefetch_pages(context, from, to);
+}
+
+ErrorStack ArrayStorage::verify_single_thread(thread::Thread* context) {
+  return ArrayStoragePimpl(this).verify_single_thread(context);
+}
+/* TODO(Hideaki) During surgery
+void ArrayStorageFactory::add_create_log(const Metadata* metadata, thread::Thread* context) const {
+  const ArrayMetadata* casted = dynamic_cast<const ArrayMetadata*>(metadata);
+  ASSERT_ND(casted);
+
+  uint16_t log_length = ArrayCreateLogType::calculate_log_length(casted->name_.size());
+  ArrayCreateLogType* log_entry = reinterpret_cast<ArrayCreateLogType*>(
+    context->get_thread_log_buffer().reserve_new_log(log_length));
+  log_entry->populate(
+    casted->id_,
+    casted->array_size_,
+    casted->payload_size_,
+    casted->name_.size(),
+    casted->name_.data());
+}
+*/
 
 ErrorCode ArrayStorage::get_record(
   thread::Thread* context, ArrayOffset offset, void *payload) {
-  return get_record(context, offset, payload, 0, pimpl_->metadata_.payload_size_);
+  return get_record(context, offset, payload, 0, get_payload_size());
 }
 
 ErrorCode ArrayStorage::get_record(thread::Thread* context, ArrayOffset offset,
           void *payload, uint16_t payload_offset, uint16_t payload_count) {
-  return pimpl_->get_record(context, offset, payload, payload_offset, payload_count);
+  return ArrayStoragePimpl(this).get_record(
+    context, offset, payload, payload_offset, payload_count);
 }
 
 template <typename T>
 ErrorCode ArrayStorage::get_record_primitive(thread::Thread* context, ArrayOffset offset,
           T *payload, uint16_t payload_offset) {
-  return pimpl_->get_record_primitive<T>(context, offset, payload, payload_offset);
+  return ArrayStoragePimpl(this).get_record_primitive<T>(context, offset, payload, payload_offset);
 }
 
 ErrorCode ArrayStorage::get_record_payload(
   thread::Thread* context,
   ArrayOffset offset,
   const void **payload) {
-  return pimpl_->get_record_payload(context, offset, payload);
+  return ArrayStoragePimpl(this).get_record_payload(context, offset, payload);
 }
 
 ErrorCode ArrayStorage::get_record_for_write(
   thread::Thread* context,
   ArrayOffset offset,
   Record** record) {
-  return pimpl_->get_record_for_write(context, offset, record);
+  return ArrayStoragePimpl(this).get_record_for_write(context, offset, record);
 }
 
 ErrorCode ArrayStorage::overwrite_record(thread::Thread* context, ArrayOffset offset,
       const void *payload, uint16_t payload_offset, uint16_t payload_count) {
-  return pimpl_->overwrite_record(context, offset, payload, payload_offset, payload_count);
+  return ArrayStoragePimpl(this).overwrite_record(
+    context,
+    offset,
+    payload,
+    payload_offset,
+    payload_count);
 }
 
 template <typename T>
 ErrorCode ArrayStorage::overwrite_record_primitive(thread::Thread* context, ArrayOffset offset,
           T payload, uint16_t payload_offset) {
-  return pimpl_->overwrite_record_primitive<T>(context, offset, payload, payload_offset);
+  return ArrayStoragePimpl(this).overwrite_record_primitive<T>(
+    context,
+    offset,
+    payload,
+    payload_offset);
 }
 
 ErrorCode ArrayStorage::overwrite_record(
@@ -94,7 +134,7 @@ ErrorCode ArrayStorage::overwrite_record(
   const void *payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
-  return pimpl_->overwrite_record(
+  return ArrayStoragePimpl(this).overwrite_record(
     context,
     offset,
     record,
@@ -110,7 +150,7 @@ ErrorCode ArrayStorage::overwrite_record_primitive(
   Record* record,
   T payload,
   uint16_t payload_offset) {
-  return pimpl_->overwrite_record_primitive<T>(
+  return ArrayStoragePimpl(this).overwrite_record_primitive<T>(
     context,
     offset,
     record,
@@ -121,7 +161,7 @@ ErrorCode ArrayStorage::overwrite_record_primitive(
 template <typename T>
 ErrorCode ArrayStorage::increment_record(thread::Thread* context, ArrayOffset offset,
           T* value, uint16_t payload_offset) {
-  return pimpl_->increment_record<T>(context, offset, value, payload_offset);
+  return ArrayStoragePimpl(this).increment_record<T>(context, offset, value, payload_offset);
 }
 
 template <typename T>
@@ -130,7 +170,18 @@ ErrorCode ArrayStorage::increment_record_oneshot(
   ArrayOffset offset,
   T value,
   uint16_t payload_offset) {
-  return pimpl_->increment_record_oneshot<T>(context, offset, value, payload_offset);
+  return ArrayStoragePimpl(this).increment_record_oneshot<T>(
+    context,
+    offset,
+    value,
+    payload_offset);
+}
+
+ArrayPage* ArrayStoragePimpl::get_root_page() {
+  // Array storage is guaranteed to keep the root page as a volatile page.
+  return reinterpret_cast<ArrayPage*>(
+    engine_->get_memory_manager().get_global_volatile_page_resolver().resolve_offset(
+    control_block_->root_page_pointer_.volatile_pointer_));
 }
 
 /**
@@ -174,46 +225,21 @@ uint8_t calculate_levels(const ArrayMetadata &metadata) {
   return levels;
 }
 
-ArrayStoragePimpl::ArrayStoragePimpl(Engine* engine, ArrayStorage* holder,
-                   const ArrayMetadata &metadata, bool create)
-  : engine_(engine),
-  holder_(holder),
-  metadata_(metadata),
-  root_page_(nullptr),
-  exist_(!create),
-  levels_(calculate_levels(metadata)),
-  route_finder_(levels_, metadata.payload_size_) {
-  ASSERT_ND(create || metadata.id_ > 0);
-  ASSERT_ND(metadata.name_.size() > 0);
-  root_page_pointer_.snapshot_pointer_ = metadata.root_snapshot_page_id_;
-  root_page_pointer_.volatile_pointer_.word = 0;
-}
-
-ErrorStack ArrayStoragePimpl::initialize_once() {
-  LOG(INFO) << "Initializing an array-storage " << *holder_ << " exists=" << exist_;
-  std::vector<uint64_t> pages = calculate_required_pages(
-    metadata_.array_size_, metadata_.payload_size_);
-
-  if (exist_) {
-    // initialize root_page_
-  }
-  return kRetOk;
-}
-
 void ArrayStoragePimpl::release_pages_recursive(
-  memory::PageReleaseBatch* batch, ArrayPage* page, VolatilePagePointer volatile_page_id) {
+  const memory::GlobalVolatilePageResolver& resolver,
+  memory::PageReleaseBatch* batch,
+  VolatilePagePointer volatile_page_id) {
   ASSERT_ND(volatile_page_id.components.offset != 0);
+  ArrayPage* page = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(volatile_page_id));
   if (!page->is_leaf()) {
-    const memory::GlobalVolatilePageResolver& page_resolver
-      = engine_->get_memory_manager().get_global_volatile_page_resolver();
     for (uint16_t i = 0; i < kInteriorFanout; ++i) {
       DualPagePointer &child_pointer = page->get_interior_record(i);
       VolatilePagePointer child_page_id = child_pointer.volatile_pointer_;
       if (child_page_id.components.offset != 0) {
         // then recurse
         ArrayPage* child_page = reinterpret_cast<ArrayPage*>(
-          page_resolver.resolve_offset(child_page_id));
-        release_pages_recursive(batch, child_page, child_page_id);
+          resolver.resolve_offset(child_page_id));
+        release_pages_recursive(resolver, batch, child_page_id);
         child_pointer.volatile_pointer_.word = 0;
       }
     }
@@ -221,16 +247,15 @@ void ArrayStoragePimpl::release_pages_recursive(
   batch->release(volatile_page_id);
 }
 
-ErrorStack ArrayStoragePimpl::uninitialize_once() {
-  LOG(INFO) << "Uninitializing an array-storage " << *holder_;
-  if (root_page_) {
-    LOG(INFO) << "Releasing all in-memory pages...";
-    memory::PageReleaseBatch release_batch(engine_);
-    release_pages_recursive(&release_batch, root_page_, root_page_pointer_.volatile_pointer_);
-    release_batch.release_all();
-    root_page_ = nullptr;
-    root_page_pointer_.volatile_pointer_.word = 0;
-  }
+ErrorStack ArrayStorage::drop() {
+  LOG(INFO) << "Uninitializing an array-storage " << *this;
+  memory::PageReleaseBatch release_batch(engine_);
+  ArrayStoragePimpl::release_pages_recursive(
+    engine_->get_memory_manager().get_global_volatile_page_resolver(),
+    &release_batch,
+    control_block_->root_page_pointer_.volatile_pointer_);
+  release_batch.release_all();
+  control_block_->root_page_pointer_.volatile_pointer_.word = 0;
   return kRetOk;
 }
 
@@ -247,26 +272,34 @@ std::vector<uint64_t> ArrayStoragePimpl::calculate_offset_intervals(
   return offset_intervals;
 }
 
-ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
-  if (exist_) {
-    LOG(ERROR) << "This array-storage already exists: " << *holder_;
+ErrorStack ArrayStorage::create(const Metadata &metadata) {
+  if (exists()) {
+    LOG(ERROR) << "This array-storage already exists: " << *this;
     return ERROR_STACK(kErrorCodeStrAlreadyExists);
   }
+  control_block_->meta_ = static_cast<const ArrayMetadata&>(metadata);
+  const ArrayMetadata& meta = control_block_->meta_;
+  const uint16_t levels = calculate_levels(meta);
+  const ArrayOffset array_size = meta.array_size_;
+  control_block_->levels_ = levels;
+  control_block_->route_finder_ = LookupRouteFinder(levels, get_payload_size());
+  control_block_->root_page_pointer_.snapshot_pointer_ = meta.root_snapshot_page_id_;
+  control_block_->root_page_pointer_.volatile_pointer_.word = 0;
 
   // Number of pages in each level. index=level.
-  std::vector<uint64_t> pages = calculate_required_pages(
-    metadata_.array_size_, metadata_.payload_size_);
+  std::vector<uint64_t> pages = ArrayStoragePimpl::calculate_required_pages(
+    array_size, get_payload_size());
 
-  std::vector<uint64_t> offset_intervals = calculate_offset_intervals(
-    levels_,
-    metadata_.payload_size_);
-  for (uint8_t level = 0; level < levels_; ++level) {
+  std::vector<uint64_t> offset_intervals = ArrayStoragePimpl::calculate_offset_intervals(
+    levels,
+    get_payload_size());
+  for (uint8_t level = 0; level < levels; ++level) {
     LOG(INFO) << "Level-" << static_cast<int>(level) << " pages=" << pages[level]
       << " interval=" << offset_intervals[level];
   }
 
   Epoch initial_epoch = engine_->get_xct_manager().get_current_global_epoch();
-  LOG(INFO) << "Newly creating an array-storage "  << *holder_ << " as epoch=" << initial_epoch;
+  LOG(INFO) << "Newly creating an array-storage "  << *this << " as epoch=" << initial_epoch;
 
   // TODO(Hideaki) This part must handle the case where RAM < Array Size
   // So far, we just crash in DivvyupPageGrabBatch::grab().
@@ -279,9 +312,9 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
   std::vector<uint16_t> current_records;
   // we grab free page from each node evenly.
   const memory::GlobalVolatilePageResolver& page_resolver
-    = context->get_global_volatile_page_resolver();
+    = engine_->get_memory_manager().get_global_volatile_page_resolver();
   memory::DivvyupPageGrabBatch grab_batch(engine_);
-  for (uint8_t level = 0; level < levels_; ++level) {
+  for (uint8_t level = 0; level < levels; ++level) {
     VolatilePagePointer page_pointer = grab_batch.grab_evenly(0, pages[level]);
     ASSERT_ND(page_pointer.components.offset != 0);
     ArrayPage* page = reinterpret_cast<ArrayPage*>(
@@ -289,18 +322,18 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     current_pages.push_back(page);
     current_pages_ids.push_back(page_pointer);
   }
-  for (uint8_t level = 0; level < levels_; ++level) {
+  for (uint8_t level = 0; level < levels; ++level) {
     ArrayPage* page = current_pages[level];
     ArrayRange range(0, offset_intervals[level]);
-    if (range.end_ > metadata_.array_size_) {
-      ASSERT_ND(level == levels_ - 1);
-      range.end_ = metadata_.array_size_;
+    if (range.end_ > array_size) {
+      ASSERT_ND(level == levels - 1);
+      range.end_ = array_size;
     }
     page->initialize_volatile_page(
       initial_epoch,
-      metadata_.id_,
+      get_id(),
       current_pages_ids[level],
-      metadata_.payload_size_,
+      get_payload_size(),
       level,
       range);
 
@@ -315,9 +348,9 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
       child_pointer.volatile_pointer_.components.mod_count = 0;
     }
   }
-  ASSERT_ND(current_pages.size() == levels_);
-  ASSERT_ND(current_pages_ids.size() == levels_);
-  ASSERT_ND(current_records.size() == levels_);
+  ASSERT_ND(current_pages.size() == levels);
+  ASSERT_ND(current_pages_ids.size() == levels);
+  ASSERT_ND(current_records.size() == levels);
 
   // then moves on to right
   for (uint64_t leaf = 1; leaf < pages[0]; ++leaf) {
@@ -328,14 +361,14 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
 
     ArrayRange range(current_pages[0]->get_array_range().end_,
              current_pages[0]->get_array_range().end_ + offset_intervals[0]);
-    if (range.end_ > metadata_.array_size_) {
-      range.end_ = metadata_.array_size_;
+    if (range.end_ > array_size) {
+      range.end_ = array_size;
     }
     page->initialize_volatile_page(
       initial_epoch,
-      metadata_.id_,
+      get_id(),
       page_pointer,
-      metadata_.payload_size_,
+      get_payload_size(),
       0,
       range);
     current_pages[0] = page;
@@ -343,7 +376,7 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     // current_records[0] is always 0
 
     // push it up to parent, potentially up to root
-    for (uint8_t level = 1; level < levels_; ++level) {
+    for (uint8_t level = 1; level < levels; ++level) {
       if (current_records[level] == kInteriorFanout) {
         VLOG(2) << "leaf=" << leaf << ", interior level=" << static_cast<int>(level);
         // On same NUMA node as the leaf.
@@ -353,14 +386,14 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
           page_resolver.resolve_offset_newpage(interior_pointer));
         ArrayRange interior_range(current_pages[level]->get_array_range().end_,
              current_pages[level]->get_array_range().end_ + offset_intervals[level]);
-        if (range.end_ > metadata_.array_size_) {
-          range.end_ = metadata_.array_size_;
+        if (range.end_ > array_size) {
+          range.end_ = array_size;
         }
         interior_page->initialize_volatile_page(
           initial_epoch,
-          metadata_.id_,
+          get_id(),
           interior_pointer,
-          metadata_.payload_size_,
+          get_payload_size(),
           level,
           interior_range);
 
@@ -386,24 +419,14 @@ ErrorStack ArrayStoragePimpl::create(thread::Thread* context) {
     }
   }
 
-  root_page_pointer_.snapshot_pointer_ = 0;
-  root_page_pointer_.volatile_pointer_ = current_pages_ids[levels_ - 1];
-  root_page_pointer_.volatile_pointer_.components.flags = 0;
-  root_page_pointer_.volatile_pointer_.components.mod_count = 0;
-  root_page_ = current_pages[levels_ - 1];
-  LOG(INFO) << "Newly created an array-storage " << *holder_;
+  control_block_->root_page_pointer_.snapshot_pointer_ = 0;
+  control_block_->root_page_pointer_.volatile_pointer_ = current_pages_ids[levels - 1];
+  control_block_->root_page_pointer_.volatile_pointer_.components.flags = 0;
+  control_block_->root_page_pointer_.volatile_pointer_.components.mod_count = 0;
+  LOG(INFO) << "Newly created an array-storage " << *this;
 
-  // check the page distribution and report it in log.
-  // it might be better to do it only in debug mode. but quite handy in experiments.
-  report_page_distribution();
-
-  exist_ = true;
-  engine_->get_storage_manager().get_pimpl()->register_storage(holder_);
+  control_block_->status_ = kExists;
   return kRetOk;
-}
-
-void ArrayStoragePimpl::report_page_distribution() {
-  // TODO(Hideaki) let's do this later...
 }
 
 inline ErrorCode ArrayStoragePimpl::locate_record_for_read(
@@ -411,15 +434,15 @@ inline ErrorCode ArrayStoragePimpl::locate_record_for_read(
   ArrayOffset offset,
   Record** out,
   bool* snapshot_record) {
-  ASSERT_ND(is_initialized());
-  ASSERT_ND(offset < metadata_.array_size_);
+  ASSERT_ND(exists());
+  ASSERT_ND(offset < get_array_size());
   uint16_t index = 0;
   ArrayPage* page = nullptr;
   CHECK_ERROR_CODE(lookup_for_read(context, offset, &page, &index, snapshot_record));
   ASSERT_ND(page);
   ASSERT_ND(page->is_leaf());
   ASSERT_ND(page->get_array_range().contains(offset));
-  *out = page->get_leaf_record(index, metadata_.payload_size_);
+  *out = page->get_leaf_record(index, get_payload_size());
   return kErrorCodeOk;
 }
 
@@ -427,15 +450,15 @@ inline ErrorCode ArrayStoragePimpl::locate_record_for_write(
   thread::Thread* context,
   ArrayOffset offset,
   Record** out) {
-  ASSERT_ND(is_initialized());
-  ASSERT_ND(offset < metadata_.array_size_);
+  ASSERT_ND(exists());
+  ASSERT_ND(offset < get_array_size());
   uint16_t index = 0;
   ArrayPage* page = nullptr;
   CHECK_ERROR_CODE(lookup_for_write(context, offset, &page, &index));
   ASSERT_ND(page);
   ASSERT_ND(page->is_leaf());
   ASSERT_ND(page->get_array_range().contains(offset));
-  *out = page->get_leaf_record(index, metadata_.payload_size_);
+  *out = page->get_leaf_record(index, get_payload_size());
   return kErrorCodeOk;
 }
 
@@ -445,13 +468,13 @@ inline ErrorCode ArrayStoragePimpl::get_record(
   void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
-  ASSERT_ND(payload_offset + payload_count <= metadata_.payload_size_);
+  ASSERT_ND(payload_offset + payload_count <= get_payload_size());
   Record *record = nullptr;
   bool snapshot_record;
   CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
   CHECK_ERROR_CODE(xct::optimistic_read_protocol(
     &context->get_current_xct(),
-    holder_,
+    get_id(),
     &record->owner_id_,
     snapshot_record,
     [record, payload, payload_offset, payload_count](xct::XctId /*observed*/){
@@ -467,13 +490,13 @@ ErrorCode ArrayStoragePimpl::get_record_primitive(
   ArrayOffset offset,
   T *payload,
   uint16_t payload_offset) {
-  ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
+  ASSERT_ND(payload_offset + sizeof(T) <= get_payload_size());
   Record *record = nullptr;
   bool snapshot_record;
   CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
   CHECK_ERROR_CODE(xct::optimistic_read_protocol(
     &context->get_current_xct(),
-    holder_,
+    get_id(),
     &record->owner_id_,
     snapshot_record,
     [record, payload, payload_offset](xct::XctId /*observed*/){
@@ -497,7 +520,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload(
     current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
     xct::XctId observed(record->owner_id_.xct_id_);
     assorted::memory_fence_consume();
-    CHECK_ERROR_CODE(current_xct.add_to_read_set(holder_, observed, &record->owner_id_));
+    CHECK_ERROR_CODE(current_xct.add_to_read_set(get_id(), observed, &record->owner_id_));
   }
   *payload = record->payload_;
   return kErrorCodeOk;
@@ -513,7 +536,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write(
     current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
     xct::XctId observed((*record)->owner_id_.xct_id_);
     assorted::memory_fence_consume();
-    CHECK_ERROR_CODE(current_xct.add_to_read_set(holder_, observed, &((*record)->owner_id_)));
+    CHECK_ERROR_CODE(current_xct.add_to_read_set(get_id(), observed, &((*record)->owner_id_)));
   }
   return kErrorCodeOk;
 }
@@ -521,7 +544,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write(
 
 inline ErrorCode ArrayStoragePimpl::overwrite_record(thread::Thread* context, ArrayOffset offset,
       const void *payload, uint16_t payload_offset, uint16_t payload_count) {
-  ASSERT_ND(payload_offset + payload_count <= metadata_.payload_size_);
+  ASSERT_ND(payload_offset + payload_count <= get_payload_size());
   Record *record = nullptr;
   CHECK_ERROR_CODE(locate_record_for_write(context, offset, &record));
   return overwrite_record(context, offset, record, payload, payload_offset, payload_count);
@@ -530,7 +553,7 @@ inline ErrorCode ArrayStoragePimpl::overwrite_record(thread::Thread* context, Ar
 template <typename T>
 ErrorCode ArrayStoragePimpl::overwrite_record_primitive(
       thread::Thread* context, ArrayOffset offset, T payload, uint16_t payload_offset) {
-  ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
+  ASSERT_ND(payload_offset + sizeof(T) <= get_payload_size());
   Record *record = nullptr;
   CHECK_ERROR_CODE(locate_record_for_write(context, offset, &record));
   return overwrite_record_primitive<T>(context, offset, record, payload, payload_offset);
@@ -546,9 +569,9 @@ inline ErrorCode ArrayStoragePimpl::overwrite_record(
   uint16_t log_length = ArrayOverwriteLogType::calculate_log_length(payload_count);
   ArrayOverwriteLogType* log_entry = reinterpret_cast<ArrayOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(metadata_.id_, offset, payload, payload_offset, payload_count);
+  log_entry->populate(get_id(), offset, payload, payload_offset, payload_count);
   return context->get_current_xct().add_to_write_set(
-    holder_,
+    get_id(),
     &record->owner_id_,
     record->payload_,
     log_entry);
@@ -564,9 +587,9 @@ inline ErrorCode ArrayStoragePimpl::overwrite_record_primitive(
   uint16_t log_length = ArrayOverwriteLogType::calculate_log_length(sizeof(T));
   ArrayOverwriteLogType* log_entry = reinterpret_cast<ArrayOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate_primitive<T>(metadata_.id_, offset, payload, payload_offset);
+  log_entry->populate_primitive<T>(get_id(), offset, payload, payload_offset);
   return context->get_current_xct().add_to_write_set(
-    holder_,
+    get_id(),
     &record->owner_id_,
     record->payload_,
     log_entry);
@@ -575,7 +598,7 @@ inline ErrorCode ArrayStoragePimpl::overwrite_record_primitive(
 template <typename T>
 ErrorCode ArrayStoragePimpl::increment_record(
       thread::Thread* context, ArrayOffset offset, T* value, uint16_t payload_offset) {
-  ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
+  ASSERT_ND(payload_offset + sizeof(T) <= get_payload_size());
   Record *record = nullptr;
   CHECK_ERROR_CODE(locate_record_for_write(context, offset, &record));
 
@@ -590,7 +613,7 @@ ErrorCode ArrayStoragePimpl::increment_record(
   // to make use of it, we should have array increment log with primitive type as parameter.
   CHECK_ERROR_CODE(xct::optimistic_read_protocol(
     &context->get_current_xct(),
-    holder_,
+    get_id(),
     &record->owner_id_,
     false,
     [record, tmp_address, payload_offset](xct::XctId /*observed*/){
@@ -602,9 +625,9 @@ ErrorCode ArrayStoragePimpl::increment_record(
   uint16_t log_length = ArrayOverwriteLogType::calculate_log_length(sizeof(T));
   ArrayOverwriteLogType* log_entry = reinterpret_cast<ArrayOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate_primitive<T>(metadata_.id_, offset, *value, payload_offset);
+  log_entry->populate_primitive<T>(get_id(), offset, *value, payload_offset);
   return context->get_current_xct().add_to_write_set(
-    holder_,
+    get_id(),
     &record->owner_id_,
     record->payload_,
     log_entry);
@@ -616,16 +639,16 @@ ErrorCode ArrayStoragePimpl::increment_record_oneshot(
   ArrayOffset offset,
   T value,
   uint16_t payload_offset) {
-  ASSERT_ND(payload_offset + sizeof(T) <= metadata_.payload_size_);
+  ASSERT_ND(payload_offset + sizeof(T) <= get_payload_size());
   Record *record = nullptr;
   CHECK_ERROR_CODE(locate_record_for_write(context, offset, &record));
   ValueType type = to_value_type<T>();
   uint16_t log_length = ArrayIncrementLogType::calculate_log_length(type);
   ArrayIncrementLogType* log_entry = reinterpret_cast<ArrayIncrementLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate<T>(metadata_.id_, offset, value, payload_offset);
+  log_entry->populate<T>(get_id(), offset, value, payload_offset);
   return context->get_current_xct().add_to_write_set(
-    holder_,
+    get_id(),
     &record->owner_id_,
     record->payload_,
     log_entry);
@@ -637,18 +660,19 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read(
   ArrayPage** out,
   uint16_t* index,
   bool* snapshot_page) {
-  ASSERT_ND(is_initialized());
-  ASSERT_ND(offset < metadata_.array_size_);
+  ASSERT_ND(exists());
+  ASSERT_ND(offset < get_array_size());
   ASSERT_ND(out);
   ASSERT_ND(index);
-  ArrayPage* current_page = root_page_;
+  ArrayPage* current_page = get_root_page();
+  uint16_t levels = get_levels();
   ASSERT_ND(current_page->get_array_range().contains(offset));
-  LookupRoute route = route_finder_.find_route(offset);
+  LookupRoute route = control_block_->route_finder_.find_route(offset);
   const memory::GlobalVolatilePageResolver& page_resolver
     = context->get_global_volatile_page_resolver();
   xct::Xct& current_xct = context->get_current_xct();
   bool followed_snapshot_pointer = false;
-  for (uint8_t level = levels_ - 1; level > 0; --level) {
+  for (uint8_t level = levels - 1; level > 0; --level) {
     ASSERT_ND(current_page->get_array_range().contains(offset));
     DualPagePointer& pointer = current_page->get_interior_record(route.route[level]);
     CHECK_ERROR_CODE(follow_pointer_for_read(
@@ -673,16 +697,17 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write(
   ArrayOffset offset,
   ArrayPage** out,
   uint16_t* index) {
-  ASSERT_ND(is_initialized());
-  ASSERT_ND(offset < metadata_.array_size_);
+  ASSERT_ND(exists());
+  ASSERT_ND(offset < get_array_size());
   ASSERT_ND(out);
   ASSERT_ND(index);
-  ArrayPage* current_page = root_page_;
+  ArrayPage* current_page = get_root_page();
+  uint16_t levels = get_levels();
   ASSERT_ND(current_page->get_array_range().contains(offset));
-  LookupRoute route = route_finder_.find_route(offset);
+  LookupRoute route = control_block_->route_finder_.find_route(offset);
   const memory::GlobalVolatilePageResolver& page_resolver
     = context->get_global_volatile_page_resolver();
-  for (uint8_t level = levels_ - 1; level > 0; --level) {
+  for (uint8_t level = levels - 1; level > 0; --level) {
     ASSERT_ND(current_page->get_array_range().contains(offset));
     CHECK_ERROR_CODE(follow_pointer_for_write(
       context,
@@ -706,12 +731,13 @@ ErrorCode ArrayStorage::get_record_primitive_batch(
   uint16_t batch_size,
   const ArrayOffset* offset_batch,
   T* payload_batch) {
+  ArrayStoragePimpl pimpl(this);
   for (uint16_t cur = 0; cur < batch_size;) {
     uint16_t chunk = batch_size - cur;
     if (chunk > ArrayStoragePimpl::kBatchMax) {
       chunk = ArrayStoragePimpl::kBatchMax;
     }
-    CHECK_ERROR_CODE(pimpl_->get_record_primitive_batch(
+    CHECK_ERROR_CODE(pimpl.get_record_primitive_batch(
       context,
       payload_offset,
       chunk,
@@ -727,12 +753,13 @@ ErrorCode ArrayStorage::get_record_payload_batch(
   uint16_t batch_size,
   const ArrayOffset* offset_batch,
   const void** payload_batch) {
+  ArrayStoragePimpl pimpl(this);
   for (uint16_t cur = 0; cur < batch_size;) {
     uint16_t chunk = batch_size - cur;
     if (chunk > ArrayStoragePimpl::kBatchMax) {
       chunk = ArrayStoragePimpl::kBatchMax;
     }
-    CHECK_ERROR_CODE(pimpl_->get_record_payload_batch(
+    CHECK_ERROR_CODE(pimpl.get_record_payload_batch(
       context,
       chunk,
       &offset_batch[cur],
@@ -747,12 +774,13 @@ ErrorCode ArrayStorage::get_record_for_write_batch(
   uint16_t batch_size,
   const ArrayOffset* offset_batch,
   Record** record_batch) {
+  ArrayStoragePimpl pimpl(this);
   for (uint16_t cur = 0; cur < batch_size;) {
     uint16_t chunk = batch_size - cur;
     if (chunk > ArrayStoragePimpl::kBatchMax) {
       chunk = ArrayStoragePimpl::kBatchMax;
     }
-    CHECK_ERROR_CODE(pimpl_->get_record_for_write_batch(
+    CHECK_ERROR_CODE(pimpl.get_record_for_write_batch(
       context,
       chunk,
       &offset_batch[cur],
@@ -786,7 +814,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_primitive_batch(
       if (!snapshot_record_batch[i]) {
         xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
         CHECK_ERROR_CODE(current_xct.add_to_read_set(
-          holder_,
+          get_id(),
           observed,
           &record_batch[i]->owner_id_));
       }
@@ -829,7 +857,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload_batch(
       if (!snapshot_record_batch[i]) {
         xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
         CHECK_ERROR_CODE(current_xct.add_to_read_set(
-          holder_,
+          get_id(),
           observed,
           &record_batch[i]->owner_id_));
       }
@@ -859,7 +887,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write_batch(
     for (uint8_t i = 0; i < batch_size; ++i) {
       xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
       CHECK_ERROR_CODE(current_xct.add_to_read_set(
-        holder_,
+        get_id(),
         observed,
         &record_batch[i]->owner_id_));
     }
@@ -888,7 +916,7 @@ inline ErrorCode ArrayStoragePimpl::locate_record_for_read_batch(
     ASSERT_ND(page_batch[i]);
     ASSERT_ND(page_batch[i]->is_leaf());
     ASSERT_ND(page_batch[i]->get_array_range().contains(offset_batch[i]));
-    out_batch[i] = page_batch[i]->get_leaf_record(index_batch[i], metadata_.payload_size_);
+    out_batch[i] = page_batch[i]->get_leaf_record(index_batch[i], get_payload_size());
   }
   return kErrorCodeOk;
 }
@@ -902,24 +930,26 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
   bool* snapshot_page_batch) {
   ASSERT_ND(batch_size <= kBatchMax);
   LookupRoute routes[kBatchMax];
+  ArrayPage* root_page = get_root_page();
+  uint16_t levels = get_levels();
   for (uint8_t i = 0; i < batch_size; ++i) {
-    ASSERT_ND(offset_batch[i] < metadata_.array_size_);
-    routes[i] = route_finder_.find_route(offset_batch[i]);
-    if (levels_ == 0) {
-      assorted::prefetch_cacheline(root_page_->get_leaf_record(
+    ASSERT_ND(offset_batch[i] < get_array_size());
+    routes[i] = control_block_->route_finder_.find_route(offset_batch[i]);
+    if (levels == 0) {
+      assorted::prefetch_cacheline(root_page->get_leaf_record(
         routes[i].route[0],
-        metadata_.payload_size_));
+        get_payload_size()));
     } else {
-      assorted::prefetch_cacheline(&root_page_->get_interior_record(routes[i].route[levels_ - 1]));
+      assorted::prefetch_cacheline(&root_page->get_interior_record(routes[i].route[levels - 1]));
     }
-    out_batch[i] = root_page_;
+    out_batch[i] = root_page;
     snapshot_page_batch[i] = false;
   }
 
   const memory::GlobalVolatilePageResolver& page_resolver
     = context->get_global_volatile_page_resolver();
   xct::Xct& current_xct = context->get_current_xct();
-  for (uint8_t level = levels_ - 1; level > 0; --level) {
+  for (uint8_t level = levels - 1; level > 0; --level) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       ASSERT_ND(out_batch[i]->get_array_range().contains(offset_batch[i]));
       DualPagePointer& pointer = out_batch[i]->get_interior_record(routes[i].route[level]);
@@ -933,10 +963,10 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
       if (level == 1U) {
         assorted::prefetch_cacheline(out_batch[i]->get_leaf_record(
           routes[i].route[0],
-          metadata_.payload_size_));
+          get_payload_size()));
       } else {
         assorted::prefetch_cacheline(
-          &out_batch[i]->get_interior_record(routes[i].route[levels_ - 1]));
+          &out_batch[i]->get_interior_record(routes[i].route[levels - 1]));
       }
     }
   }
@@ -957,22 +987,26 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
   ASSERT_ND(batch_size <= kBatchMax);
   ArrayPage* pages[kBatchMax];
   LookupRoute routes[kBatchMax];
+  ArrayPage* root_page = get_root_page();
+  uint16_t levels = get_levels();
   for (uint8_t i = 0; i < batch_size; ++i) {
-    ASSERT_ND(offset_batch[i] < metadata_.array_size_);
-    routes[i] = route_finder_.find_route(offset_batch[i]);
-    if (levels_ == 0) {
-      assorted::prefetch_cacheline(root_page_->get_leaf_record(
+    ASSERT_ND(offset_batch[i] < get_array_size());
+    routes[i] = control_block_->route_finder_.find_route(offset_batch[i]);
+    if (levels == 0) {
+      assorted::prefetch_cacheline(
+        root_page->get_leaf_record(
         routes[i].route[0],
-        metadata_.payload_size_));
+        get_payload_size()));
     } else {
-      assorted::prefetch_cacheline(&root_page_->get_interior_record(routes[i].route[levels_ - 1]));
+      assorted::prefetch_cacheline(
+        &root_page->get_interior_record(routes[i].route[levels - 1]));
     }
-    pages[i] = root_page_;
+    pages[i] = root_page;
   }
 
   const memory::GlobalVolatilePageResolver& page_resolver
     = context->get_global_volatile_page_resolver();
-  for (uint8_t level = levels_ - 1; level > 0; --level) {
+  for (uint8_t level = levels - 1; level > 0; --level) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       ASSERT_ND(pages[i]->get_array_range().contains(offset_batch[i]));
       CHECK_ERROR_CODE(follow_pointer_for_write(
@@ -983,10 +1017,10 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
       if (level == 1U) {
         assorted::prefetch_cacheline(pages[i]->get_leaf_record(
           routes[i].route[0],
-          metadata_.payload_size_));
+          get_payload_size()));
       } else {
         assorted::prefetch_cacheline(
-          &pages[i]->get_interior_record(routes[i].route[levels_ - 1]));
+          &pages[i]->get_interior_record(routes[i].route[levels - 1]));
       }
     }
   }
@@ -994,7 +1028,7 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
     ASSERT_ND(pages[i]->is_leaf());
     ASSERT_ND(pages[i]->get_array_range().contains(offset_batch[i]));
     ASSERT_ND(pages[i]->get_array_range().begin_ + routes[i].route[0] == offset_batch[i]);
-    record_batch[i] = pages[i]->get_leaf_record(routes[i].route[0], metadata_.payload_size_);
+    record_batch[i] = pages[i]->get_leaf_record(routes[i].route[0], get_payload_size());
   }
   return kErrorCodeOk;
 }
@@ -1060,11 +1094,14 @@ inline ErrorCode ArrayStoragePimpl::follow_pointer_for_write(
 #define CHECK_AND_ASSERT(x) do { ASSERT_ND(x); if (!(x)) \
   return ERROR_STACK(kErrorCodeStrArrayFailedVerification); } while (0)
 
+ErrorStack ArrayStoragePimpl::verify_single_thread(thread::Thread* context) {
+  return verify_single_thread(context, get_root_page());
+}
 ErrorStack ArrayStoragePimpl::verify_single_thread(thread::Thread* context, ArrayPage* page) {
   const memory::GlobalVolatilePageResolver& resolver = context->get_global_volatile_page_resolver();
   if (page->is_leaf()) {
     for (uint16_t i = 0; i < page->get_leaf_record_count(); ++i) {
-      Record* record = page->get_leaf_record(i, metadata_.payload_size_);
+      Record* record = page->get_leaf_record(i, get_payload_size());
       CHECK_AND_ASSERT(!record->owner_id_.is_being_written());
       CHECK_AND_ASSERT(!record->owner_id_.is_deleted());
       CHECK_AND_ASSERT(!record->owner_id_.is_keylocked());

@@ -92,6 +92,18 @@ typedef uint16_t ThreadGlobalOrdinal;
 const ThreadId kMaxThreadId = 0xFFFF;
 
 /**
+ * @typedef ThreadTicket
+ * @brief Typedef for a monotonically increasing ticket for thread impersonation.
+ * @ingroup THREAD
+ * @details
+ * For every impersonation, the thread increments this value in its control block.
+ * Each session receives the ticket and checks the ticket whenever it checks the status
+ * of the thread. This is required to avoid double-free and modifying input/output data
+ * of other sessions.
+ */
+typedef uint64_t ThreadTicket;
+
+/**
  * Returns a globally unique ID of Thread (core) for the given node and ordinal in the node.
  * @ingroup THREAD
  */
@@ -172,7 +184,8 @@ enum ThreadPriority {
  * The transition is basically only to next one.
  * Exceptions are:
  *  \li Every state might jump to kTerminated for whatever reason.
- *  \li kWaitingForClient goes back to kWaitingForTask when the client picks the result up.
+ *  \li kWaitingForClientRelease goes back to kWaitingForTask when the client picks the result up
+ * and closes the session.
  */
 enum ThreadStatus {
   /** Initial state. The thread does nothing in this state */
@@ -184,7 +197,9 @@ enum ThreadStatus {
   /** The thread has picked the task up and is now running. */
   kRunningTask,
   /** The thread has completed the task and set the result. The client has not picked it up yet. */
-  kWaitingForClient,
+  kWaitingForClientRelease,
+  /** The thread is requested to terminate */
+  kWaitingForTerminate,
   /** The thread has terminated (either error or normal, check the result to differentiate them). */
   kTerminated,
 };

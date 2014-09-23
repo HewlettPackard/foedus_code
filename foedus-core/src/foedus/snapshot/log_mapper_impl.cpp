@@ -101,8 +101,8 @@ void LogMapper::pre_handle_complete() {
 ErrorStack LogMapper::handle_process() {
   const Epoch base_epoch = parent_->get_snapshot()->base_epoch_;
   const Epoch until_epoch = parent_->get_snapshot()->valid_until_epoch_;
-  log::Logger& logger = engine_->get_log_manager().get_logger(id_);
-  const log::Logger::LogRange log_range = logger.get_log_range(base_epoch, until_epoch);
+  log::LoggerRef logger = engine_->get_log_manager().get_logger(id_);
+  const log::LogRange log_range = logger.get_log_range(base_epoch, until_epoch);
   log::LogFileOrdinal cur_file_ordinal = log_range.begin_file_ordinal;
   uint64_t cur_offset = log_range.begin_offset;
   if (log_range.is_empty()) {
@@ -115,7 +115,10 @@ ErrorStack LogMapper::handle_process() {
   bool ended = false;
   bool first_read = true;
   while (!ended) {  // loop for log file switch
-    fs::Path path = logger.construct_suffixed_log_path(cur_file_ordinal);
+    fs::Path path(engine_->get_options().log_.construct_suffixed_log_path(
+      numa_node_,
+      id_,
+      cur_file_ordinal));
     uint64_t file_size = fs::file_size(path);
     uint64_t read_end;
     if (cur_file_ordinal == log_range.end_file_ordinal) {
