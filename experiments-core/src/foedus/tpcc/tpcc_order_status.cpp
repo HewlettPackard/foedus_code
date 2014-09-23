@@ -42,7 +42,7 @@ ErrorCode TpccClientTask::do_order_status(Wid wid) {
   Wdid wdid = combine_wdid(wid, did);
   Wdol low = combine_wdol(combine_wdoid(wdid, oid), 0U);
   Wdol high = combine_wdol(combine_wdoid(wdid, oid + 1U), 0U);
-  storage::masstree::MasstreeCursor cursor(engine_, storages_.orderlines_, context_);
+  storage::masstree::MasstreeCursor cursor(storages_.orderlines_, context_);
   CHECK_ERROR_CODE(cursor.open_normalized(low, high));
   uint32_t cnt = 0;
   while (cursor.is_valid_record()) {
@@ -74,7 +74,7 @@ ErrorCode TpccClientTask::get_last_orderid_by_customer(Wid wid, Did did, Cid cid
   Wdid wdid = combine_wdid(wid, did);
   Wdcoid low = combine_wdcoid(combine_wdcid(wdid, cid), 0U);
   Wdcoid high = combine_wdcoid(combine_wdcid(wdid, cid + 1U), 0U);
-  storage::masstree::MasstreeCursor cursor(engine_, storages_.orders_secondary_, context_);
+  storage::masstree::MasstreeCursor cursor(storages_.orders_secondary_, context_);
   CHECK_ERROR_CODE(cursor.open_normalized(high, low, false, false, false, true));
   if (cursor.is_valid_record()) {
     Wdcoid key = assorted::read_bigendian<Wdcoid>(cursor.get_key());

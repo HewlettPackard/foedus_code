@@ -24,6 +24,7 @@ X(kErrorCodeBeingShutdown,          0x0007, "GENERAL: The engine is being shutdo
 X(kErrorCodeTimeout,                0x0008, "GENERAL: Timeout.")
 X(kErrorCodeNotimplemented,         0x0009, "GENERAL: Not implemented yet.")
 X(kErrorCodeSessionExpired,         0x000A, "GENERAL: The session has expired.")
+X(kErrorCodeUserDefined,            0x000B, "GENERAL: User-defined error. The meaning of this error depends on the user code.")
 
 X(kErrorCodeEngineInvalidOption,    0x0101, "ENGINE : Invalid Option")
 

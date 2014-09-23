@@ -24,46 +24,41 @@ namespace tpcc {
 /**
  * @brief Just creates empty tables.
  */
-class TpccCreateTask : public thread::ImpersonateTask {
+ErrorStack create_all(Engine* engine, Wid total_warehouses);
+
+ErrorStack create_array(
+  Engine* engine,
+  const storage::StorageName& name,
+  uint32_t payload_size,
+  uint64_t array_size);
+ErrorStack create_masstree(
+  Engine* engine,
+  const storage::StorageName& name,
+  float border_fill_factor);
+ErrorStack create_sequential(Engine* engine, const storage::StorageName& name);
+
+class TpccFinishupTask {
  public:
-  explicit TpccCreateTask(Wid total_warehouses) : total_warehouses_(total_warehouses) {}
-  ErrorStack          run(thread::Thread* context);
-
-  const TpccStorages& get_storages() const { return storages_; }
-
- private:
-  const Wid     total_warehouses_;
-  TpccStorages  storages_;
-
-  ErrorStack create_array(
-    thread::Thread* context,
-    const storage::StorageName& name,
-    uint32_t payload_size,
-    uint64_t array_size,
-    storage::array::ArrayStorage** storage);
-  ErrorStack create_masstree(
-    thread::Thread* context,
-    const storage::StorageName& name,
-    float border_fill_factor,
-    storage::masstree::MasstreeStorage** storage);
-  ErrorStack create_sequential(
-    thread::Thread* context,
-    const storage::StorageName& name,
-    storage::sequential::SequentialStorage** storage);
-};
-/**
- * @brief Verify tables after data loading.
- */
-class TpccFinishupTask : public thread::ImpersonateTask {
- public:
-  explicit TpccFinishupTask(Wid total_warehouses, const TpccStorages& storages)
-    : total_warehouses_(total_warehouses), storages_(storages) {}
+  explicit TpccFinishupTask(Wid total_warehouses) : total_warehouses_(total_warehouses) {}
   ErrorStack          run(thread::Thread* context);
 
  private:
   const Wid total_warehouses_;
-  const TpccStorages storages_;
+  TpccStorages storages_;
 };
+
+/**
+ * @brief Verify tables after data loading.
+ * Only input is total_warehouses(Wid). No output.
+ */
+ErrorStack tpcc_finishup_task(
+  thread::Thread* context,
+  const void* input_buffer,
+  uint32_t input_len,
+  void* output_buffer,
+  uint32_t output_buffer_size,
+  uint32_t* output_used);
+
 /**
  * @brief Main class of data load for TPC-C.
  * @details
@@ -72,18 +67,24 @@ class TpccFinishupTask : public thread::ImpersonateTask {
  *   http://www.cs.sfu.ca/~fedorova/Teaching/CMPT886/Spring2007/benchtools.html
  * Several things have been changed to adjust it for C++ and FOEDUS.
  */
-class TpccLoadTask : public thread::ImpersonateTask {
+class TpccLoadTask {
  public:
+  struct Inputs {
+    Wid total_warehouses_;
+    assorted::FixedString<28> timestamp_;
+    Wid from_wid_;
+    Wid to_wid_;
+    Iid from_iid_;
+    Iid to_iid_;
+  };
   TpccLoadTask(
     Wid total_warehouses,
-    const TpccStorages& storages,
-    const char* timestamp,
+    const assorted::FixedString<28>& timestamp,
     Wid from_wid,
     Wid to_wid,
     Iid from_iid,
     Iid to_iid)
     : total_warehouses_(total_warehouses),
-      storages_(storages),
       timestamp_(timestamp),
       from_wid_(from_wid),
       to_wid_(to_wid),
@@ -99,9 +100,9 @@ class TpccLoadTask : public thread::ImpersonateTask {
   };
 
   const Wid total_warehouses_;
-  const TpccStorages storages_;
+  TpccStorages storages_;
   /** timestamp for date fields. */
-  const char* timestamp_;
+  const assorted::FixedString<28> timestamp_;
   /** inclusive beginning of responsible wid */
   const Wid from_wid_;
   /** exclusive end of responsible wid */
@@ -166,6 +167,19 @@ class TpccLoadTask : public thread::ImpersonateTask {
   /** Make a string of letter */
   int32_t    make_number_string(int32_t min, int32_t max, char *str);
 };
+
+/**
+ * Load data into TPCC tables.
+ * Input is TpccLoadTask::Inputs, not output.
+ */
+ErrorStack tpcc_load_task(
+  thread::Thread* context,
+  const void* input_buffer,
+  uint32_t input_len,
+  void* output_buffer,
+  uint32_t output_buffer_size,
+  uint32_t* output_used);
+
 }  // namespace tpcc
 }  // namespace foedus
 

@@ -80,6 +80,8 @@ struct ImpersonateSession CXX11_FINAL {
    * Copies the output to the given buffer, whose size must be at least get_output_size().
    */
   void        get_output(void* output_buffer);
+  /** Returns the pointer to the raw output buffer on shared memory. */
+  const void* get_raw_output_buffer();
 
   /**
    * @brief Blocks until the completion of the asynchronous session.

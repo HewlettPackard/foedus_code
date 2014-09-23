@@ -45,6 +45,9 @@ ErrorStack ImpersonateSession::get_result() {
 void ImpersonateSession::get_output(void* output_buffer) {
   std::memcpy(output_buffer, thread_->get_task_output_memory(), get_output_size());
 }
+const void* ImpersonateSession::get_raw_output_buffer() {
+  return thread_->get_task_output_memory();
+}
 
 uint64_t ImpersonateSession::get_output_size() {
   return thread_->get_control_block()->output_len_;

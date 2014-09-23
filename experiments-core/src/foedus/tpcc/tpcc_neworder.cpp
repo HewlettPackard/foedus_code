@@ -42,14 +42,14 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
   // New-order transaction has the "1% random rollback" rule.
   const bool will_rollback = (rnd_.uniform_within(1, 100) == 1);
 
-  auto* neworders = storages_.neworders_;
-  auto* orders = storages_.orders_;
-  auto* orders_secondary = storages_.orders_secondary_;
+  auto neworders = storages_.neworders_;
+  auto orders = storages_.orders_;
+  auto orders_secondary = storages_.orders_secondary_;
 
   // SELECT TAX from WAREHOUSE
   double w_tax;
 
-  CHECK_ERROR_CODE(storages_.warehouses_static_->get_record_primitive(
+  CHECK_ERROR_CODE(storages_.warehouses_static_.get_record_primitive(
     context_,
     wid,
     &w_tax,
@@ -57,7 +57,7 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
 
   // SELECT TAX FROM DISTRICT
   double d_tax;
-  CHECK_ERROR_CODE(storages_.districts_static_->get_record_primitive(
+  CHECK_ERROR_CODE(storages_.districts_static_.get_record_primitive(
     context_,
     wdid,
     &d_tax,
@@ -65,14 +65,14 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
 
   // UPDATE DISTRICT SET next_o_id=next_o_id+1
   Oid oid = 1;
-  CHECK_ERROR_CODE(storages_.districts_next_oid_->increment_record<Oid>(context_, wdid, &oid, 0));
+  CHECK_ERROR_CODE(storages_.districts_next_oid_.increment_record<Oid>(context_, wdid, &oid, 0));
   ASSERT_ND(oid >= kOrders);
   Wdoid wdoid = combine_wdoid(wdid, oid);
 
   // SELECT DISCOUNT from CUSTOMER
   double c_discount;
   const uint16_t c_offset = offsetof(CustomerStaticData, discount_);
-  CHECK_ERROR_CODE(storages_.customers_static_->get_record_primitive<double>(
+  CHECK_ERROR_CODE(storages_.customers_static_.get_record_primitive<double>(
     context_,
     wdcid,
     &c_discount,
@@ -105,10 +105,10 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
   }
   o_data.ol_cnt_ = ol_cnt;
 
-  CHECK_ALREADY_EXISTS(orders->insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
-  CHECK_ALREADY_EXISTS(neworders->insert_record_normalized(context_, wdoid));
+  CHECK_ALREADY_EXISTS(orders.insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
+  CHECK_ALREADY_EXISTS(neworders.insert_record_normalized(context_, wdoid));
   Wdcoid wdcoid = combine_wdcoid(wdcid, oid);
-  CHECK_ALREADY_EXISTS(orders_secondary->insert_record_normalized(context_, wdcoid));
+  CHECK_ALREADY_EXISTS(orders_secondary.insert_record_normalized(context_, wdcoid));
 
   // show output on console
   DVLOG(3) << "Neworder: : wid=" << wid << ", did=" << did << ", oid=" << oid
@@ -170,7 +170,7 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
   // then, read stock/item in a batched way so that we can parallelize cacheline prefetches
   // SELECT ... FROM ITEM WHERE IID=iid
   const void* i_data_address[kOlMax];
-  CHECK_ERROR_CODE(storages_.items_->get_record_payload_batch(
+  CHECK_ERROR_CODE(storages_.items_.get_record_payload_batch(
       context_,
       ol_cnt,
       iids,
@@ -178,7 +178,7 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
   // SELECT ... FROM STOCK WHERE WID=supply_wid AND IID=iid
   // then UPDATE quantity and remote count
   storage::Record* s_records[kOlMax];
-  CHECK_ERROR_CODE(storages_.stocks_->get_record_for_write_batch(
+  CHECK_ERROR_CODE(storages_.stocks_.get_record_for_write_batch(
       context_,
       ol_cnt,
       sids,
@@ -210,7 +210,7 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
     Wid supply_wid = extract_wid_from_sid(sids[ol - 1]);
     if (supply_wid != wid) {
         // in this case we are also incrementing remote cnt
-      CHECK_ERROR_CODE(storages_.stocks_->overwrite_record_primitive<uint32_t>(
+      CHECK_ERROR_CODE(storages_.stocks_.overwrite_record_primitive<uint32_t>(
         context_,
         sids[ol - 1],
         s_records[ol - 1],
@@ -218,7 +218,7 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
         s_remote_offset));
     }
     // overwrite quantity
-    CHECK_ERROR_CODE(storages_.stocks_->overwrite_record_primitive<uint32_t>(
+    CHECK_ERROR_CODE(storages_.stocks_.overwrite_record_primitive<uint32_t>(
       context_,
       sids[ol - 1],
       s_records[ol - 1],
@@ -233,7 +233,7 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
     ol_data.supply_wid_ = supply_wid;
 
     Wdol wdol = combine_wdol(wdoid, ol);
-    CHECK_ALREADY_EXISTS(storages_.orderlines_->insert_record_normalized(
+    CHECK_ALREADY_EXISTS(storages_.orderlines_.insert_record_normalized(
       context_,
       wdol,
       &ol_data,

@@ -61,8 +61,6 @@ class TpccDriver {
 
   Result run();
 
-  const TpccStorages&           get_storages() const { return storages_; }
-
  private:
   Engine* const engine_;
 
@@ -75,13 +73,6 @@ class TpccDriver {
   std::vector<Iid>              from_iids_;
   /** exclusive end of responsible iid. index=thread ordinal */
   std::vector<Iid>              to_iids_;
-
-  TpccStorages                  storages_;
-
-  /** Each worker does a warmup at beginning and increment this when done. */
-  std::atomic<uint32_t>         warmup_complete_counter_;
-  /** This is fired when warmup_complete_counter_ becomes the total worker count. */
-  thread::Rendezvous            start_rendezvous_;
 
   void assign_wids();
   void assign_iids();

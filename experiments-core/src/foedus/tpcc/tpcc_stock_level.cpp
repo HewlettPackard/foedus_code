@@ -21,7 +21,7 @@ ErrorCode TpccClientTask::do_stock_level(Wid wid) {
 
   // SELECT D_NEXT_O_ID FROM DISTRICT WHERE D_W_ID=wid AND D_ID=did
   Oid next_oid;
-  CHECK_ERROR_CODE(storages_.districts_next_oid_->get_record_primitive<Oid>(
+  CHECK_ERROR_CODE(storages_.districts_next_oid_.get_record_primitive<Oid>(
     context_,
     wdid,
     &next_oid,
@@ -37,7 +37,7 @@ ErrorCode TpccClientTask::do_stock_level(Wid wid) {
   // WHERE WID=wid AND DID=did AND OID BETWEEN oid_from AND oid_to.
   Wdol low = combine_wdol(combine_wdoid(wdid, next_oid - 20U), 0U);
   Wdol high = combine_wdol(combine_wdoid(wdid, next_oid + 1U), 0U);
-  storage::masstree::MasstreeCursor cursor(engine_, storages_.orderlines_, context_);
+  storage::masstree::MasstreeCursor cursor(storages_.orderlines_, context_);
   CHECK_ERROR_CODE(cursor.open_normalized(low, high));
   uint16_t s_offset = offsetof(StockData, quantity_);
 
@@ -59,7 +59,7 @@ ErrorCode TpccClientTask::do_stock_level(Wid wid) {
   }
 
   uint32_t quantities[kMaxItems];
-  CHECK_ERROR_CODE(storages_.stocks_->get_record_primitive_batch<uint32_t>(
+  CHECK_ERROR_CODE(storages_.stocks_.get_record_primitive_batch<uint32_t>(
     context_,
     s_offset,
     read,
