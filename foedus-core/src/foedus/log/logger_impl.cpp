@@ -57,12 +57,6 @@ inline uint64_t align_log_floor(uint64_t offset) {
   }
 }
 
-fs::Path Logger::construct_suffixed_log_path(LogFileOrdinal ordinal) const {
-  std::stringstream path_str;
-  path_str << log_folder_.string() << "/" << id_ << "_" << ordinal << ".log";
-  return fs::Path(path_str.str());
-}
-
 ErrorStack Logger::initialize_once() {
   control_block_->initialize();
   // clear all variables
@@ -76,13 +70,16 @@ ErrorStack Logger::initialize_once() {
   // durable epoch from initial savepoint
   control_block_->durable_epoch_
     = engine_->get_savepoint_manager().get_initial_durable_epoch().value();
-  marked_epoch_ = get_durable_epoch().one_more();
-  no_log_epoch_ = false;
+  control_block_->marked_epoch_ = get_durable_epoch().one_more();
+  control_block_->no_log_epoch_ = false;
   control_block_->oldest_ordinal_ = info.oldest_log_file_;  // ordinal/length too
   control_block_->current_ordinal_ = info.current_log_file_;
   control_block_->current_file_durable_offset_ = info.current_log_file_offset_durable_;
   control_block_->oldest_file_offset_begin_ = info.oldest_log_file_offset_begin_;
-  current_file_path_ = construct_suffixed_log_path(control_block_->current_ordinal_);
+  current_file_path_ = engine_->get_options().log_.construct_suffixed_log_path(
+    numa_node_,
+    id_,
+    control_block_->current_ordinal_);
   // open the log file
   current_file_ = new fs::DirectIoFile(current_file_path_,
                      engine_->get_options().log_.emulation_);
@@ -370,28 +367,29 @@ ErrorStack Logger::update_durable_epoch() {
   return kRetOk;
 }
 ErrorStack Logger::write_dummy_epoch_mark() {
-  no_log_epoch_ = false;  // to forcibly write out the epoch mark this case
+  control_block_->no_log_epoch_ = false;  // to forcibly write out the epoch mark this case
   CHECK_ERROR(log_epoch_switch(get_durable_epoch().one_more()));
   LOG(INFO) << "Logger-" << id_ << " wrote out a dummy epoch marker at the beginning";
   return kRetOk;
 }
 
 ErrorStack Logger::log_epoch_switch(Epoch new_epoch) {
-  ASSERT_ND(marked_epoch_ <= new_epoch);
+  ASSERT_ND(control_block_->marked_epoch_ <= new_epoch);
   VLOG(0) << "Writing epoch marker for Logger-" << id_
-    << ". marked_epoch_=" << marked_epoch_ << " new_epoch=" << new_epoch;
+    << ". marked_epoch_=" << control_block_->marked_epoch_ << " new_epoch=" << new_epoch;
   DVLOG(1) << *this;
 
-  if (no_log_epoch_) {
+  if (control_block_->no_log_epoch_) {
     VLOG(0) << "Logger-" << id_ << " had no log in this epoch. not writing an epoch mark."
       << " durable ep=" << get_durable_epoch() << ", new_epoch=" << new_epoch
-      << " marked ep=" << marked_epoch_;
+      << " marked ep=" << control_block_->marked_epoch_;
   } else {
     // Use fill buffer to write out the epoch mark log
     std::lock_guard<std::mutex> guard(epoch_switch_mutex_);
     char* buf = reinterpret_cast<char*>(fill_buffer_.get_block());
     EpochMarkerLogType* epoch_marker = reinterpret_cast<EpochMarkerLogType*>(buf);
-    epoch_marker->populate(marked_epoch_, new_epoch, numa_node_, in_node_ordinal_, id_,
+    epoch_marker->populate(
+      control_block_->marked_epoch_, new_epoch, numa_node_, in_node_ordinal_, id_,
                  control_block_->current_ordinal_, current_file_->get_current_offset());
 
     // Fill it up to 4kb and write. A bit wasteful, but happens only once per epoch
@@ -400,72 +398,12 @@ ErrorStack Logger::log_epoch_switch(Epoch new_epoch) {
     filler_log->populate(fill_buffer_.get_size() - sizeof(EpochMarkerLogType));
 
     WRAP_ERROR_CODE(current_file_->write(fill_buffer_.get_size(), fill_buffer_));
-    no_log_epoch_ = true;
-    marked_epoch_ = new_epoch;
+    control_block_->no_log_epoch_ = true;
+    control_block_->marked_epoch_ = new_epoch;
     add_epoch_history(*epoch_marker);
   }
   assert_consistent();
   return kRetOk;
-}
-void Logger::add_epoch_history(const EpochMarkerLogType& epoch_marker) {
-  ASSERT_ND(epoch_histories_.size() == 0
-    || epoch_histories_.back().new_epoch_ ==  epoch_marker.old_epoch_);
-  // the first epoch marker is allowed only if it's a dummy marker.
-  // this simplifies the detection of first epoch marker
-  if (!epoch_histories_.empty() && epoch_marker.old_epoch_ == epoch_marker.new_epoch_) {
-    LOG(INFO) << "Ignored a dummy epoch marker while replaying epoch marker log on Logger-"
-      << id_ << ". marker=" << epoch_marker;
-  } else {
-    epoch_histories_.emplace_back(EpochHistory(epoch_marker));
-  }
-}
-Logger::LogRange Logger::get_log_range(Epoch prev_epoch, Epoch until_epoch) {
-  // TODO(Hideaki) binary search. we assume there are not many epoch histories, so not urgent.
-  ASSERT_ND(until_epoch <= get_durable_epoch());
-  Logger::LogRange result;
-
-  // to make sure we have an epoch mark, we update marked_epoch_
-  if (marked_epoch_ < get_durable_epoch().one_more()) {
-    no_log_epoch_ = false;  // to forcibly write out the epoch mark this case
-    COERCE_ERROR(log_epoch_switch(get_durable_epoch().one_more()));
-  }
-  ASSERT_ND(marked_epoch_ > until_epoch);
-
-  std::size_t pos = 0;
-  result.begin_file_ordinal = 0;
-  result.begin_offset = 0;
-  if (prev_epoch.is_valid()) {
-    // first, locate the prev_epoch
-    for (; pos < epoch_histories_.size(); ++pos) {
-      if (epoch_histories_[pos].new_epoch_ > prev_epoch) {
-        result.begin_file_ordinal = epoch_histories_[pos].log_file_ordinal_;
-        result.begin_offset = epoch_histories_[pos].log_file_offset_;
-        break;
-      }
-    }
-    if (pos == epoch_histories_.size()) {
-      LOG(FATAL) << "No epoch mark found for " << prev_epoch << " in logger-" << id_;
-    }
-  }
-
-  // next, locate until_epoch. we might not find it if the logger was idle for a while.
-  // in that case, the current file/ordinal is used.
-  for (; pos < epoch_histories_.size(); ++pos) {
-    if (epoch_histories_[pos].new_epoch_ > until_epoch) {
-      result.end_file_ordinal = epoch_histories_[pos].log_file_ordinal_;
-      result.end_offset = epoch_histories_[pos].log_file_offset_;
-      break;
-    }
-  }
-
-  if (pos == epoch_histories_.size() && !result.is_empty()) {
-    LOG(FATAL) << "No epoch mark found for " << until_epoch << " in logger-" << id_;
-  }
-
-  ASSERT_ND(result.begin_file_ordinal <= result.end_file_ordinal);
-  ASSERT_ND(result.begin_file_ordinal < result.end_file_ordinal
-    || result.begin_offset <= result.end_offset);
-  return result;
 }
 
 ErrorStack Logger::switch_file_if_required() {
@@ -486,7 +424,10 @@ ErrorStack Logger::switch_file_if_required() {
     return ERROR_STACK_MSG(kErrorCodeFsSyncFailed, to_string().c_str());
   }
 
-  current_file_path_ = construct_suffixed_log_path(++control_block_->current_ordinal_);
+  current_file_path_ = engine_->get_options().log_.construct_suffixed_log_path(
+    numa_node_,
+    id_,
+    ++control_block_->current_ordinal_);
   LOG(INFO) << "Logger-" << id_ << " next file=" << current_file_path_;
   current_file_ = new fs::DirectIoFile(current_file_path_,
                       engine_->get_options().log_.emulation_);
@@ -500,14 +441,14 @@ ErrorStack Logger::switch_file_if_required() {
 ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
   assert_consistent();
   Epoch write_epoch = get_durable_epoch().one_more();
-  if (marked_epoch_ != write_epoch) {
-    no_log_epoch_ = false;
+  if (control_block_->marked_epoch_ != write_epoch) {
+    control_block_->no_log_epoch_ = false;
     CHECK_ERROR(log_epoch_switch(write_epoch));
-    ASSERT_ND(marked_epoch_ == write_epoch);
+    ASSERT_ND(control_block_->marked_epoch_ == write_epoch);
   }
 
   CHECK_ERROR(switch_file_if_required());
-  no_log_epoch_ = false;
+  control_block_->no_log_epoch_ = false;
   uint64_t from_offset = buffer->get_offset_durable();
   VLOG(0) << "Writing out Thread-" << buffer->get_thread_id() << "'s log. from_offset="
     << from_offset << ", upto_offset=" << upto_offset << ", write_epoch=" << write_epoch;
@@ -621,8 +562,8 @@ void Logger::assert_consistent() {
   ASSERT_ND(get_durable_epoch().is_valid());
   ASSERT_ND(!engine_->get_xct_manager().is_initialized() ||
     get_durable_epoch() < engine_->get_xct_manager().get_current_global_epoch());
-  ASSERT_ND(marked_epoch_.is_valid());
-  ASSERT_ND(marked_epoch_ <= get_durable_epoch().one_more());
+  ASSERT_ND(control_block_->marked_epoch_.is_valid());
+  ASSERT_ND(control_block_->marked_epoch_ <= get_durable_epoch().one_more());
   ASSERT_ND(is_log_aligned(control_block_->oldest_file_offset_begin_));
   ASSERT_ND(current_file_ == nullptr || is_log_aligned(current_file_->get_current_offset()));
   ASSERT_ND(is_log_aligned(control_block_->current_file_durable_offset_));
@@ -647,8 +588,8 @@ std::ostream& operator<<(std::ostream& o, const Logger& v) {
   }
   o << "</assigned_thread_ids_>";
   o << "<durable_epoch_>" << v.get_durable_epoch() << "</durable_epoch_>"
-    << "<marked_epoch_>" << v.marked_epoch_ << "</marked_epoch_>"
-    << "<no_log_epoch_>" << v.no_log_epoch_ << "</no_log_epoch_>"
+    << "<marked_epoch_>" << v.control_block_->marked_epoch_ << "</marked_epoch_>"
+    << "<no_log_epoch_>" << v.control_block_->no_log_epoch_ << "</no_log_epoch_>"
     << "<oldest_ordinal_>" << v.control_block_->oldest_ordinal_ << "</oldest_ordinal_>"
     << "<oldest_file_offset_begin_>" << v.control_block_->oldest_file_offset_begin_
       << "</oldest_file_offset_begin_>"
@@ -672,14 +613,10 @@ std::ostream& operator<<(std::ostream& o, const Logger& v) {
   }
   o << "</current_file_length_>";
 
-  o << "<epoch_history_count>" << v.epoch_histories_.size() << "</epoch_history_count>";
-  /* too noisy
-  o << "<epoch_histories_>";
-  for (auto epoch_history : v.epoch_histories_) {
-    o << epoch_history;
-  }
-  o << "</epoch_histories_>";
-  */
+  o << "<epoch_history_head>"
+    << v.control_block_->epoch_history_head_ << "</epoch_history_head>";
+  o << "<epoch_history_count>"
+    << v.control_block_->epoch_history_count_ << "</epoch_history_count>";
   o << "</Logger>";
   return o;
 }

@@ -277,7 +277,7 @@ struct NodeMemoryAnchors {
   enum Constants {
     kChildStatusMemorySize = 1 << 12,
     kPagePoolMemorySize = 1 << 12,
-    kLoggerMemorySize = 1 << 12,
+    kLoggerMemorySize = 1 << 21,
     kProcManagerMemorySize = 1 << 12,
   };
 

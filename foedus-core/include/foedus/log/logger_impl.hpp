@@ -22,6 +22,7 @@
 #include "foedus/log/epoch_history.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/log/log_id.hpp"
+#include "foedus/log/logger_ref.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/savepoint/fwd.hpp"
 #include "foedus/soc/shared_cond.hpp"
@@ -34,17 +35,37 @@ namespace log {
 
 /** Shared data of Logger */
 struct LoggerControlBlock {
+  enum Constants {
+    /**
+     * Max number of active epoch histories.
+     * 64k * 24b = 1536 kb. adjust kLoggerMemorySize according to this.
+     */
+    kMaxEpochHistory = 1 << 16,
+  };
+
   // this is backed by shared memory. not instantiation. just reinterpret_cast.
   LoggerControlBlock() = delete;
   ~LoggerControlBlock() = delete;
 
   void initialize() {
     wakeup_cond_.initialize();
+    epoch_history_mutex_.initialize();
     stop_requested_ = false;
+    epoch_history_head_ = 0;
+    epoch_history_count_ = 0;
   }
   void uninitialize() {
+    epoch_history_mutex_.uninitialize();
     wakeup_cond_.uninitialize();
   }
+
+
+  bool is_epoch_history_empty() const { return epoch_history_count_ == 0; }
+  uint32_t get_tail_epoch_history() const {
+    return wrap_epoch_history_index(epoch_history_head_ + epoch_history_count_ - 1U);
+  }
+
+  static uint32_t wrap_epoch_history_index(uint32_t index) { return index % kMaxEpochHistory; }
 
   /**
    * @brief Upto what epoch the logger flushed logs in \b all buffers assigned to it.
@@ -67,6 +88,24 @@ struct LoggerControlBlock {
    * It might be a spurrious wakeup, but doesn't matter.
    */
   soc::SharedCond                     wakeup_cond_;
+
+  /**
+   * @brief Upto what epoch the logger has put epoch marker in the log file.
+   * @invariant marked_epoch_.is_valid()
+   * @invariant marked_epoch_ <= durable_epoch_.one_more()
+   * @details
+   * Usually, this value is always same as durable_epoch_.one_more().
+   * This value becomes smaller than that if the logger had no log to write out
+   * when it advanced durable_epoch_. In that case, writing out an epoch marker is a waste
+   * (eg when the system is idle for long time, there will be tons of empty epochs),
+   * so we do not write out the epoch marker and let this value remain same.
+   * When the logger later writes out a log, it checks this value and writes out an epoch mark.
+   * @see no_log_epoch_
+   */
+  Epoch                           marked_epoch_;
+
+  /** Whether so far this logger has not written out any log since previous epoch switch. */
+  bool                            no_log_epoch_;
 
   // the followings are also shared just for savepoint.
 
@@ -92,8 +131,23 @@ struct LoggerControlBlock {
    */
   std::atomic< uint64_t >         current_file_durable_offset_;
 
-  /** */
+  /** Whether this logger should terminate */
   std::atomic<bool>               stop_requested_;
+
+  /** the followings are covered this mutex */
+  soc::SharedMutex  epoch_history_mutex_;
+
+  /** index of the oldest history in epoch_histories_ */
+  uint32_t          epoch_history_head_;
+  /** number of active entries in epoch_histories_ . */
+  uint32_t          epoch_history_count_;
+
+  /**
+   * Remembers all epoch switching in this logger.
+   * This forms a circular buffer starting from epoch_history_head_.
+   * After log gleaning, we can move head forward and reduce epoch_history_count_.
+   */
+  EpochHistory      epoch_histories_[kMaxEpochHistory];
 };
 
 /**
@@ -103,7 +157,7 @@ struct LoggerControlBlock {
  * This is a private implementation-details of \ref LOG, thus file name ends with _impl.
  * Do not include this header from a client program unless you know what you are doing.
  */
-class Logger final : public DefaultInitializable, Attachable<LoggerControlBlock> {
+class Logger final : public DefaultInitializable, public LoggerRef {
  public:
   Logger(
     Engine* engine,
@@ -113,10 +167,7 @@ class Logger final : public DefaultInitializable, Attachable<LoggerControlBlock>
     uint8_t in_node_ordinal,
     const fs::Path &log_folder,
     const std::vector< thread::ThreadId > &assigned_thread_ids)
-  : Attachable<LoggerControlBlock>(engine, control_block),
-    id_(id),
-    numa_node_(numa_node),
-    in_node_ordinal_(in_node_ordinal),
+  : LoggerRef(engine, control_block, id, numa_node, in_node_ordinal),
     log_folder_(log_folder),
     assigned_thread_ids_(assigned_thread_ids) {}
   ErrorStack  initialize_once() override;
@@ -126,44 +177,10 @@ class Logger final : public DefaultInitializable, Attachable<LoggerControlBlock>
   Logger(const Logger &other) = delete;
   Logger& operator=(const Logger &other) = delete;
 
-  /** Returns this logger's durable epoch. */
-  Epoch       get_durable_epoch() const { return Epoch(control_block_->durable_epoch_); }
-
-  /** Append a new epoch history. */
-  void        add_epoch_history(const EpochMarkerLogType& epoch_marker);
-
-  /** a contiguous range of log entries that might span multiple files. */
-  struct LogRange {
-    LogFileOrdinal  begin_file_ordinal;
-    LogFileOrdinal  end_file_ordinal;
-    uint64_t        begin_offset;
-    uint64_t        end_offset;
-    bool is_empty() const {
-      return begin_file_ordinal == end_file_ordinal && begin_offset == end_offset;
-    }
-  };
-
-  /**
-   * @brief Constructs the range of log entries that represent the given epoch ranges.
-   * @param[in] prev_epoch Log entries until this epoch are skipped.
-   * An invalid epoch means from the beginning.
-   * @param[in] until_epoch Log entries until this epoch are contained.
-   * Must be valid.
-   * @return log range that contains all logs (prev_epoch, until_epoch].
-   * In other owrds, from prev_epoch-exclusive and to until_epoch-inclusive.
-   * @details
-   * In case there is no ending epoch marker (only when marked_epoch_ < durable_epoch_.one_more())
-   * this method writes out a new epoch marker. This method is called only for each snapshotting,
-   * so it shouldn't be too big a waste.
-   */
-  LogRange get_log_range(Epoch prev_epoch, Epoch until_epoch);
-
   LogFileOrdinal get_current_ordinal() const { return control_block_->current_ordinal_; }
 
   std::string             to_string() const;
   friend std::ostream&    operator<<(std::ostream& o, const Logger& v);
-
-  fs::Path    construct_suffixed_log_path(LogFileOrdinal ordinal) const;
 
  private:
   /**
@@ -215,9 +232,6 @@ class Logger final : public DefaultInitializable, Attachable<LoggerControlBlock>
   /** Check invariants. This method should be wiped in NDEBUG. */
   void        assert_consistent();
 
-  const LoggerId                  id_;
-  const thread::ThreadGroupId     numa_node_;
-  const uint8_t                   in_node_ordinal_;
   const fs::Path                  log_folder_;
   const std::vector< thread::ThreadId > assigned_thread_ids_;
 
@@ -239,24 +253,6 @@ class Logger final : public DefaultInitializable, Attachable<LoggerControlBlock>
   memory::AlignedMemory           fill_buffer_;
 
   /**
-   * @brief Upto what epoch the logger has put epoch marker in the log file.
-   * @invariant marked_epoch_.is_valid()
-   * @invariant marked_epoch_ <= durable_epoch_.one_more()
-   * @details
-   * Usually, this value is always same as durable_epoch_.one_more().
-   * This value becomes smaller than that if the logger had no log to write out
-   * when it advanced durable_epoch_. In that case, writing out an epoch marker is a waste
-   * (eg when the system is idle for long time, there will be tons of empty epochs),
-   * so we do not write out the epoch marker and let this value remain same.
-   * When the logger later writes out a log, it checks this value and writes out an epoch mark.
-   * @see no_log_epoch_
-   */
-  Epoch                           marked_epoch_;
-
-  /** Whether so far this logger has not written out any log since previous epoch switch. */
-  bool                            no_log_epoch_;
-
-  /**
    * @brief The log file this logger is currently appending to.
    */
   fs::DirectIoFile*               current_file_;
@@ -266,12 +262,6 @@ class Logger final : public DefaultInitializable, Attachable<LoggerControlBlock>
   fs::Path                        current_file_path_;
 
   std::vector< thread::Thread* >  assigned_threads_;
-
-  /**
-   * Remembers all epoch switching in this logger.
-   * @todo concurrency protection. we might switch to circular buffer.
-   */
-  std::vector< EpochHistory >     epoch_histories_;
 
   /** protects log_epoch_switch() from concurrent accesses. */
   std::mutex                      epoch_switch_mutex_;

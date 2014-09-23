@@ -268,23 +268,26 @@ xct::LockableXctId* StorageManagerPimpl::track_moved_record(
 ErrorStack StorageManagerPimpl::clone_all_storage_metadata(
   snapshot::SnapshotMetadata *metadata) {
   debugging::StopWatch stop_watch;
-  StorageId largest_storage_id_copy = control_block_->largest_storage_id_;
+  metadata->largest_storage_id_ = control_block_->largest_storage_id_;
   assorted::memory_fence_acq_rel();
-  for (StorageId id = 1; id <= largest_storage_id_copy; ++id) {
-    // TODO(Hideaki): Here, we assume deleted storages are still registered with some
-    // "pseudo-delete" flag, which is not implemented yet.
-    // Otherwise, we can't easily treat storage deletion in an epoch in-between two snapshots.
-    if (storages_[id].exists()) {
-      // TODO(Hideaki) not implemented
-      // metadata->storage_metadata_.push_back(storages_[id].meta_->clone());
-    }
-  }
+
+  // not just the metadata, just copy the whole control block.
+  // this is a single memcpy, which should be much more efficient.
+  uint64_t memory_size
+    = static_cast<uint64_t>(metadata->largest_storage_id_ + 1)
+      * soc::GlobalMemoryAnchors::kStorageMemorySize;
+  metadata->storage_control_blocks_memory_.alloc(
+    memory_size,
+    1 << 12,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    0);
+  metadata->storage_control_blocks_ = reinterpret_cast<storage::StorageControlBlock*>(
+    metadata->storage_control_blocks_memory_.get_block());
+  std::memcpy(metadata->storage_control_blocks_, storages_, memory_size);
+
   stop_watch.stop();
-  /*
-  LOG(INFO) << "Duplicated metadata of " << metadata->storage_metadata_.size()
-    << " storages (largest_storage_id_=" << largest_storage_id_copy << ") in "
-    << stop_watch.elapsed_ms() << " milliseconds";
-    */
+  LOG(INFO) << "Duplicated metadata of " << metadata->largest_storage_id_
+    << " storages  in " << stop_watch.elapsed_ms() << " milliseconds";
   return kRetOk;
 }
 

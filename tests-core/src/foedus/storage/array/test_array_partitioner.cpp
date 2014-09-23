@@ -40,13 +40,14 @@ TEST(ArrayPartitionerTest, InitialPartition) {
     Epoch commit_epoch;
     ArrayMetadata meta("test5", 3000, 300);  // 1 record per page. 300 leaf pages.
     COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &out, &commit_epoch));
-    EXPECT_TRUE(out != nullptr);
-    EXPECT_EQ(0, out->get_pimpl()->root_page_pointer_.volatile_pointer_.components.numa_node);
-    ArrayPage* root = out->get_pimpl()->root_page_;
-    EXPECT_EQ(0, root->get_interior_record(0).volatile_pointer_.components.numa_node);
-    EXPECT_EQ(1U, root->get_interior_record(1).volatile_pointer_.components.numa_node);
+    EXPECT_TRUE(out.exists());
+    VolatilePagePointer root_ptr = out.get_control_block()->root_page_pointer_.volatile_pointer_;
+    EXPECT_EQ(0, root_ptr.components.numa_node);
     const memory::GlobalVolatilePageResolver& resolver
       = engine.get_memory_manager().get_global_volatile_page_resolver();
+    ArrayPage* root = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(root_ptr));
+    EXPECT_EQ(0, root->get_interior_record(0).volatile_pointer_.components.numa_node);
+    EXPECT_EQ(1U, root->get_interior_record(1).volatile_pointer_.components.numa_node);
     ArrayPage* left = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(
       root->get_interior_record(0).volatile_pointer_));
     ArrayPage* right = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(
@@ -75,13 +76,13 @@ void execute_test(TestFunctor functor, uint64_t array_size = 1024) {
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    ArrayStorage* out;
+    ArrayStorage out;
     Epoch commit_epoch;
     ArrayMetadata meta("test", kPayload, array_size);
     COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &out, &commit_epoch));
-    EXPECT_TRUE(out != nullptr);
+    EXPECT_TRUE(out.exists());
     ArrayPartitioner* partitioner =
-      reinterpret_cast<ArrayPartitioner*>(Partitioner::create_partitioner(&engine, out->get_id()));
+      reinterpret_cast<ArrayPartitioner*>(Partitioner::create_partitioner(&engine, out.get_id()));
     EXPECT_TRUE(partitioner != nullptr);
     functor(partitioner);
     delete partitioner;

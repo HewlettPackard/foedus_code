@@ -34,7 +34,7 @@ ErrorStack SnapshotMetadata::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, largest_storage_id_);
 
   uint64_t memory_size
-    = static_cast<uint64_t>(largest_storage_id_) * soc::GlobalMemoryAnchors::kStorageMemorySize;
+    = static_cast<uint64_t>(largest_storage_id_ + 1) * soc::GlobalMemoryAnchors::kStorageMemorySize;
   storage_control_blocks_memory_.alloc(
     memory_size,
     1 << 12,

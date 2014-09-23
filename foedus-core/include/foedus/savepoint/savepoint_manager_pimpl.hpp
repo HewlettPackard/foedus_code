@@ -107,7 +107,7 @@ class SavepointManagerPimpl final : public DefaultInitializable {
   void savepoint_main();
   bool is_stop_requested() { return savepoint_thread_stop_requested_; }
 
-  /** The thread to take */
+  /** The thread to take savepoints */
   std::thread             savepoint_thread_;
 
   std::atomic<bool>       savepoint_thread_stop_requested_;

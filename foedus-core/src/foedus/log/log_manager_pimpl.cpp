@@ -54,11 +54,16 @@ ErrorStack LogManagerPimpl::initialize_once() {
 
   // attach logger_refs
   const uint16_t cores_per_logger = total_threads / total_loggers;
-  for (thread::ThreadGroupId group = 0; group < groups_; ++group) {
-    soc::NodeMemoryAnchors* node_anchors = memory_repo->get_node_memory_anchors(group);
+  for (thread::ThreadGroupId node = 0; node < groups_; ++node) {
+    soc::NodeMemoryAnchors* node_anchors = memory_repo->get_node_memory_anchors(node);
     for (uint16_t j = 0; j < loggers_per_node_; ++j) {
       LoggerControlBlock* logger_block = node_anchors->logger_memories_[j];
-      logger_refs_.emplace_back(LoggerRef(engine_, logger_block));
+      logger_refs_.emplace_back(LoggerRef(
+        engine_,
+        logger_block,
+        node * loggers_per_node_ + j,
+        node,
+        j));
     }
   }
 
@@ -105,7 +110,7 @@ ErrorStack LogManagerPimpl::initialize_once() {
     // this might take long, so do it in parallel.
     std::vector<std::thread> init_threads;
     for (auto j = 0; j < loggers_per_node_; ++j) {
-      Logger* logger = loggers_[node * loggers_per_node_ + j];
+      Logger* logger = loggers_[j];
       init_threads.push_back(std::thread([logger]() {
         COERCE_ERROR(logger->initialize());  // TODO(Hideaki) collect errors
       }));

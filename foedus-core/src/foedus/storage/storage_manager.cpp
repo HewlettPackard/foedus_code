@@ -71,7 +71,6 @@ ErrorStack StorageManager::create_hash(
   hash::HashMetadata* metadata,
   hash::HashStorage* storage,
   Epoch* commit_epoch) {
-  Storage* tmp = nullptr;
   CHECK_ERROR(create_storage(metadata, commit_epoch));
   *storage = get_hash(metadata->id_);
   return kRetOk;

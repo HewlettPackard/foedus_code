@@ -65,6 +65,9 @@ ErrorStack EngineMemory::uninitialize_once() {
   if (!engine_->get_debug().is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
+  for (auto* ref : node_memories_) {
+    delete ref;
+  }
   node_memories_.clear();
 
   // Uninitialize local memory.

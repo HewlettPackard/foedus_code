@@ -67,7 +67,6 @@ ErrorStack ArrayComposer::compose(
   uint32_t log_streams_count,
   const memory::AlignedMemorySlice& work_memory,
   Page* root_info_page) {
-  /* TODO(Hideaki) During surgery
   VLOG(0) << to_string() << " composing with " << log_streams_count << " streams.";
   debugging::StopWatch stop_watch;
 
@@ -83,7 +82,7 @@ ErrorStack ArrayComposer::compose(
   while (ended_inputs_count_ < inputs_count_) {
     const ArrayOverwriteLogType* entry = get_next_entry();
     Record* record = cur_path_[0]->get_leaf_record(cur_route_.route[0], payload_size_);
-    entry->apply_record(nullptr, storage_casted_, &record->owner_id_, record->payload_);
+    entry->apply_record(nullptr, storage_id_, &record->owner_id_, record->payload_);
     WRAP_ERROR_CODE(advance());
   }
 
@@ -102,12 +101,10 @@ ErrorStack ArrayComposer::compose(
 
   stop_watch.stop();
   VLOG(0) << to_string() << " done in " << stop_watch.elapsed_ms() << "ms.";
-  */
   return kRetOk;
 }
 
 ErrorStack ArrayComposer::compose_finalize(RootInfoPage* root_info_page) {
-  /* TODO(Hideaki) During surgery
   ASSERT_ND(levels_ > 1);
   // flush the main buffer. now we finalized all leaf pages
   if (allocated_pages_ > 0) {
@@ -169,7 +166,6 @@ ErrorStack ArrayComposer::compose_finalize(RootInfoPage* root_info_page) {
   // TODO(Hideaki): in terms of constructing snapshots, we are done already.
   // however, we must do one more thing for in-memory storage; installing
   // the new pointers to volatile pages and drop child volatile pages if possible.
-*/
   return kRetOk;
 }
 
@@ -178,7 +174,6 @@ ErrorStack ArrayComposer::construct_root(
   uint32_t root_info_pages_count,
   const memory::AlignedMemorySlice& /*work_memory*/,
   SnapshotPagePointer* new_root_page_pointer) {
-  /* TODO(Hideaki) During surgery
   // compose() created root_info_pages that contain pointers to fill in the root page,
   // so we just find non-zero entry and copy it to root page.
   if (levels_ == 1) {
@@ -189,7 +184,7 @@ ErrorStack ArrayComposer::construct_root(
     *new_root_page_pointer = casted->pointers_[0];
   } else {
     ArrayPage* root_page = reinterpret_cast<ArrayPage*>(snapshot_writer_->get_page_base());
-    SnapshotPagePointer page_id = storage_->meta_->root_snapshot_page_id_;
+    SnapshotPagePointer page_id = storage_->meta_.root_snapshot_page_id_;
     SnapshotPagePointer new_page_id = snapshot_writer_->get_next_page_id();
     *new_root_page_pointer = new_page_id;
     if (page_id != 0) {
@@ -227,7 +222,6 @@ ErrorStack ArrayComposer::construct_root(
     WRAP_ERROR_CODE(snapshot_writer_->dump_pages(0, 1));
     ASSERT_ND(snapshot_writer_->get_next_page_id() == new_page_id - 1);
   }
-  */
   return kRetOk;
 }
 
@@ -261,7 +255,6 @@ ErrorCode ArrayComposer::compose_init_context(
   const memory::AlignedMemorySlice& work_memory,
   snapshot::SortedBuffer* const* inputs,
   uint32_t inputs_count) {
-  /* TODO(Hideaki) During surgery
   // so far this is the only use of work_memory in this composer
   inputs_ = reinterpret_cast<StreamStatus*>(work_memory.get_block());
   inputs_count_ = inputs_count;
@@ -306,11 +299,9 @@ ErrorCode ArrayComposer::compose_init_context(
     compose_init_context_empty_cur_path();
     return kErrorCodeOk;
   }
-  */
 }
 
 ErrorCode ArrayComposer::compose_init_context_cur_path() {
-  /* TODO(Hideaki) During surgery
   ASSERT_ND(allocated_intermediates_ == 0);
   ASSERT_ND(allocated_pages_ == 0);
   ASSERT_ND(previous_root_page_pointer_ != 0);
@@ -357,11 +348,9 @@ ErrorCode ArrayComposer::compose_init_context_cur_path() {
       break;
     }
   }
-  */
   return kErrorCodeOk;
 }
 void ArrayComposer::compose_init_context_empty_cur_path() {
-  /* TODO(Hideaki) During surgery
   ASSERT_ND(allocated_intermediates_ == 0);
   ASSERT_ND(allocated_pages_ == 0);
   ASSERT_ND(previous_root_page_pointer_ == 0);
@@ -402,11 +391,9 @@ void ArrayComposer::compose_init_context_empty_cur_path() {
   }
   // TODO(Hideaki) In this case, if there some pages that don't have logs, they will be still
   // non-existent in snapshot. In that case we should create all pages. Just zero-out.
-  */
 }
 
 inline ErrorCode ArrayComposer::advance() {
-  /* TODO(Hideaki) During surgery
   ASSERT_ND(!inputs_[next_input_].ended_);
   // advance the chosen stream
   CHECK_ERROR_CODE(inputs_[next_input_].next());
@@ -455,7 +442,6 @@ inline ErrorCode ArrayComposer::advance() {
   } else {
     return kErrorCodeOk;
   }
-  */
 }
 
 inline bool ArrayComposer::update_next_route() {
@@ -474,7 +460,6 @@ inline bool ArrayComposer::update_next_route() {
 }
 
 ErrorCode ArrayComposer::update_cur_path() {
-  /* TODO(Hideaki) During surgery
   bool switched = false;
   // Example: levels = 3 (root-intermediate-leaf)
   // cur[2] = 10, cur[1] = 30, cur[0] = 43
@@ -536,7 +521,6 @@ ErrorCode ArrayComposer::update_cur_path() {
     }
     cur_path_[level] = page;
   }
-  */
   return kErrorCodeOk;
 }
 
@@ -546,7 +530,6 @@ inline ErrorCode ArrayComposer::read_or_init_page(
   uint8_t level,
   LookupRoute route,
   ArrayPage* page) {
-  /* TODO(Hideaki) During surgery
   if (old_page_id != 0) {
     ASSERT_ND(previous_root_page_pointer_ != 0);
     CHECK_ERROR_CODE(previous_snapshot_files_->read_page(old_page_id, page));
@@ -564,7 +547,6 @@ inline ErrorCode ArrayComposer::read_or_init_page(
       level,
       range);
   }
-  */
   return kErrorCodeOk;
 }
 
