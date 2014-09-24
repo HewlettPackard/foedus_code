@@ -41,22 +41,7 @@ void MasstreeStorage::describe(std::ostream* o_ptr) const {
     << "<name>" << get_name() << "</name>"
     << "</MasstreeStorage>";
 }
-/* TODO(Hideaki) During surgery
-void MasstreeStorageFactory::add_create_log(
-  const Metadata* metadata, thread::Thread* context) const {
-  const MasstreeMetadata* casted = dynamic_cast<const MasstreeMetadata*>(metadata);
-  ASSERT_ND(casted);
 
-  uint16_t log_length = MasstreeCreateLogType::calculate_log_length(casted->name_.size());
-  MasstreeCreateLogType* log_entry = reinterpret_cast<MasstreeCreateLogType*>(
-    context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(
-    casted->id_,
-    casted->border_early_split_threshold_,
-    casted->name_.size(),
-    casted->name_.data());
-}
-*/
 ErrorCode MasstreeStorage::get_record(
   thread::Thread* context,
   const void* key,

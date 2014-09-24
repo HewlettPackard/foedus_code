@@ -13,6 +13,8 @@
 #include <utility>
 
 #include "foedus/assert_nd.hpp"
+#include "foedus/engine.hpp"
+#include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/thread/thread.hpp"
 
@@ -38,19 +40,25 @@ void ArrayCreateLogType::populate(
   name_length_ = name_length;
   std::memcpy(name_, name, name_length);
 }
-void ArrayCreateLogType::apply_storage(thread::Thread* context, StorageId storage_id) {
-  /* TODO(Hideaki) During surgery
-  ASSERT_ND(storage == nullptr);  // because we are now creating it.
+void ArrayCreateLogType::apply_storage(Engine* engine, StorageId storage_id) {
+  ASSERT_ND(storage_id > 0);
   LOG(INFO) << "Applying CREATE ARRAY STORAGE log: " << *this;
   StorageName name(name_, name_length_);
   ArrayMetadata metadata(header_.storage_id_, name, payload_size_, array_size_);
-  std::unique_ptr<array::ArrayStorage> array(new array::ArrayStorage(context->get_engine(),
-    metadata, true));
-  COERCE_ERROR(array->initialize());
-  COERCE_ERROR(array->create(context));
-  array.release();  // No error, so take over the ownership from unique_ptr.
+  engine->get_storage_manager().create_storage_apply(&metadata);
   LOG(INFO) << "Applied CREATE ARRAY STORAGE log: " << *this;
-  */
+}
+
+void ArrayCreateLogType::construct(const Metadata* metadata, void* buffer) {
+  ASSERT_ND(metadata->type_ == kArrayStorage);
+  const ArrayMetadata* casted = static_cast<const ArrayMetadata*>(metadata);
+  ArrayCreateLogType* log_entry = reinterpret_cast<ArrayCreateLogType*>(buffer);
+  log_entry->populate(
+    casted->id_,
+    casted->array_size_,
+    casted->payload_size_,
+    casted->name_.size(),
+    casted->name_.data());
 }
 
 void ArrayCreateLogType::assert_valid() {

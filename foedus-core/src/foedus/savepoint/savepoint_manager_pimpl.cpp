@@ -14,6 +14,7 @@
 #include "foedus/fs/path.hpp"
 #include "foedus/log/log_manager.hpp"
 #include "foedus/log/log_manager_pimpl.hpp"
+#include "foedus/log/meta_log_buffer.hpp"
 #include "foedus/savepoint/savepoint_options.hpp"
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/xct/xct_manager.hpp"
@@ -140,6 +141,10 @@ void SavepointManagerPimpl::savepoint_main() {
       Epoch new_durable_epoch = get_requested_durable_epoch();
       new_savepoint.durable_epoch_ = new_durable_epoch.value();
       engine_->get_log_manager().copy_logger_states(&new_savepoint);
+      log::MetaLogControlBlock* metalog_block = engine_->get_soc_manager().get_shared_memory_repo()
+        ->get_global_memory_anchors()->meta_logger_memory_;
+      new_savepoint.meta_log_oldest_offset_ = metalog_block->oldest_offset_;
+      new_savepoint.meta_log_durable_offset_ = metalog_block->durable_offset_;
       new_savepoint.assert_epoch_values();
 
       VLOG(0) << "Writing a savepoint...";

@@ -37,7 +37,7 @@ void invoke_apply_engine(void *log_buffer, thread::Thread* context);
  * @details
  * This is not inlined because this log kind appears much more infrequently.
  */
-void invoke_apply_storage(void *log_buffer, thread::Thread* context, storage::StorageId id);
+void invoke_apply_storage(void *log_buffer, Engine* engine, storage::StorageId id);
 
 /**
  * @brief Invokes the apply logic for a record-wise log type.

@@ -14,6 +14,7 @@
 #include "foedus/initializable.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/log/logger_ref.hpp"
+#include "foedus/log/meta_log_buffer.hpp"
 #include "foedus/savepoint/fwd.hpp"
 #include "foedus/soc/shared_cond.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
@@ -97,6 +98,11 @@ class LogManagerPimpl final : public DefaultInitializable {
 
   /** All log writers. Index is global logger ordinal. */
   std::vector< LoggerRef >    logger_refs_;
+
+  /** Metadata log writer. Instantiated only in master */
+  MetaLogger*                 meta_logger_;
+  /** Metadata log buffer. Exists in all engines */
+  MetaLogBuffer               meta_buffer_;
 
   LogManagerControlBlock*     control_block_;
 };

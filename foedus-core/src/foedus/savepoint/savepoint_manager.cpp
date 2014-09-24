@@ -35,6 +35,12 @@ LoggerSavepointInfo SavepointManager::get_logger_savepoint(log::LoggerId logger_
   return pimpl_->get_logger_savepoint(logger_id);
 }
 
+void SavepointManager::get_meta_logger_offsets(
+  uint64_t* oldest_offset,
+  uint64_t* durable_offset) const {
+  *oldest_offset = pimpl_->control_block_->savepoint_.meta_log_oldest_offset_;
+  *durable_offset = pimpl_->control_block_->savepoint_.meta_log_durable_offset_;
+}
 
 }  // namespace savepoint
 }  // namespace foedus

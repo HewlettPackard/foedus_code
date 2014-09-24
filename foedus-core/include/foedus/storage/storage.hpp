@@ -13,6 +13,7 @@
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/log/fwd.hpp"
+#include "foedus/soc/shared_mutex.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/metadata.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -129,6 +130,22 @@ struct StorageControlBlock CXX11_FINAL {
 
   bool exists() const { return status_ == kExists || status_ == kMarkedForDeath; }
 
+  void initialize() {
+    status_mutex_.initialize();
+    status_ = kNotExists;
+    root_page_pointer_.snapshot_pointer_ = 0;
+    root_page_pointer_.volatile_pointer_.word = 0;
+  }
+  void uninitialize() {
+    status_mutex_.uninitialize();
+  }
+
+  /**
+   * The mutext to protect changing the status. Reading the status is not protected,
+   * so we have to make sure we don't suddenly drop a storage.
+   * We first change the status to kMarkedForDeath, then drop it after a while.
+   */
+  soc::SharedMutex  status_mutex_;
   /** Status of the storage */
   StorageStatus     status_;
   /** Points to the root page (or something equivalent). */
@@ -137,7 +154,8 @@ struct StorageControlBlock CXX11_FINAL {
   Metadata          meta_;
 
   /** Just to make this exactly 4kb. Individual control block doesn't have this. */
-  char              padding_[4096 - 8 - sizeof(DualPagePointer) - sizeof(Metadata)];
+  char              padding_[
+    4096 - sizeof(soc::SharedMutex) - 8 - sizeof(DualPagePointer) - sizeof(Metadata)];
 };
 
 CXX11_STATIC_ASSERT(sizeof(StorageControlBlock) == 1 << 12, "StorageControlBlock is not 4kb");

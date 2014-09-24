@@ -53,9 +53,15 @@ const StorageName& StorageManager::get_name(StorageId id) {
 ErrorStack StorageManager::drop_storage(StorageId id, Epoch *commit_epoch) {
   return pimpl_->drop_storage(id, commit_epoch);
 }
+void StorageManager::drop_storage_apply(StorageId id) {
+  pimpl_->drop_storage_apply(id);
+}
 
 ErrorStack StorageManager::create_storage(Metadata *metadata, Epoch *commit_epoch) {
   return pimpl_->create_storage(metadata, commit_epoch);
+}
+void StorageManager::create_storage_apply(Metadata* metadata) {
+  pimpl_->create_storage_apply(metadata);
 }
 
 ErrorStack StorageManager::create_array(

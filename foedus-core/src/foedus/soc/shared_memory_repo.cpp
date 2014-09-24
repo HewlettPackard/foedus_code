@@ -237,6 +237,10 @@ void SharedMemoryRepo::set_global_memory_anchors(uint64_t xml_size, const Engine
     = reinterpret_cast<log::LogManagerControlBlock*>(base + total);
   total += GlobalMemoryAnchors::kLogManagerMemorySize;
 
+  global_memory_anchors_.meta_logger_memory_
+    = reinterpret_cast<log::MetaLogControlBlock*>(base + total);
+  total += GlobalMemoryAnchors::kMetaLoggerSize;
+
   global_memory_anchors_.restart_manager_memory_
     = reinterpret_cast<restart::RestartManagerControlBlock*>(base + total);
   total += GlobalMemoryAnchors::kRestartManagerMemorySize;
@@ -284,6 +288,7 @@ uint64_t SharedMemoryRepo::calculate_global_memory_size(
   total += align_4kb(sizeof(xml_size) + xml_size);  // options_xml_
   total += GlobalMemoryAnchors::kMasterStatusMemorySize;
   total += GlobalMemoryAnchors::kLogManagerMemorySize;
+  total += GlobalMemoryAnchors::kMetaLoggerSize;
   total += GlobalMemoryAnchors::kRestartManagerMemorySize;
   total += GlobalMemoryAnchors::kSavepointManagerMemorySize;
   total += GlobalMemoryAnchors::kSnapshotManagerMemorySize;

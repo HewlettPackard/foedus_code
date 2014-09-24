@@ -109,7 +109,7 @@ struct EngineLogType : public BaseLogType {
   bool    is_engine_log()     const { return true; }
   bool    is_storage_log()    const { return false; }
   bool    is_record_log()     const { return false; }
-  void apply_storage(thread::Thread* /*context*/, storage::StorageId /*storage_id*/) {
+  void apply_storage(Engine* /*engine*/, storage::StorageId /*storage_id*/) {
     ASSERT_ND(false);
   }
   void apply_record(
@@ -172,7 +172,7 @@ struct RecordLogType : public BaseLogType {
   void apply_engine(thread::Thread* /*context*/) {
     ASSERT_ND(false);
   }
-  void apply_storage(thread::Thread* /*context*/, storage::StorageId /*storage_id*/) {
+  void apply_storage(Engine* /*engine*/, storage::StorageId /*storage_id*/) {
     ASSERT_ND(false);
   }
   /**
@@ -216,7 +216,7 @@ struct FillerLogType : public BaseLogType {
   bool    is_storage_log()    const { return true; }
   bool    is_record_log()     const { return true; }
   void    apply_engine(thread::Thread* /*context*/) {}
-  void    apply_storage(thread::Thread* /*context*/, storage::StorageId /*storage_id*/) {}
+  void    apply_storage(Engine* /*engine*/, storage::StorageId /*storage_id*/) {}
   void    apply_record(
     thread::Thread* /*context*/,
     storage::StorageId /*storage_id*/,

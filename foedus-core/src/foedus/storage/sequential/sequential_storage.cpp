@@ -52,22 +52,6 @@ void SequentialStorage::describe(std::ostream* o_ptr) const {
     << "</SequentialStorage>";
 }
 
-/* TODO(Hideaki) During surgery
-void SequentialStorageFactory::add_create_log(
-  const Metadata* metadata, thread::Thread* context) const {
-  const SequentialMetadata* casted = dynamic_cast<const SequentialMetadata*>(metadata);
-  ASSERT_ND(casted);
-
-  uint16_t log_length = SequentialCreateLogType::calculate_log_length(casted->name_.size());
-  SequentialCreateLogType* log_entry = reinterpret_cast<SequentialCreateLogType*>(
-    context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(
-    casted->id_,
-    casted->name_.size(),
-    casted->name_.data());
-}
-*/
-
 // most other methods are defined in pimpl.cpp to allow inlining
 
 }  // namespace sequential

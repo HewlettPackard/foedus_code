@@ -154,6 +154,8 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
    * This method is idempotent, although it logs warning for non-existing id.
    */
   ErrorStack  drop_storage(StorageId id, Epoch *commit_epoch);
+  /** This is called while restart to apply DROP STORAGE logs. */
+  void        drop_storage_apply(StorageId id);
 
   /**
    * @brief Newly creates a storage with the specified metadata and registers it to this
@@ -164,6 +166,8 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
    * @param[out] commit_epoch The epoch at whose end the storage is really deemed as created.
    */
   ErrorStack  create_storage(Metadata *metadata, Epoch *commit_epoch);
+  /** This is called while restart to apply CREATE STORAGE logs. */
+  void        create_storage_apply(Metadata *metadata);
 
   /**
    * @brief Just a type-wrapper of create_storage() for array storages.

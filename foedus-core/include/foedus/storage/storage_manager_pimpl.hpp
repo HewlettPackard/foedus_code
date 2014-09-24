@@ -67,16 +67,11 @@ class StorageManagerPimpl final : public DefaultInitializable {
   StorageControlBlock*  get_storage(StorageId id) { return &storages_[id]; }
   StorageControlBlock*  get_storage(const StorageName& name);
   bool                  exists(const StorageName& name);
-  /**
-   * @brief Adds a storage object, either newly created or constructed from disk at start-up.
-   * @param[in] storage an already-constructred and initialized Storage
-   * @details
-   * The ownership is handed over to this manager, thus caller should NOT uninitialize/destruct.
-   */
-  ErrorStack  register_storage(Storage* storage);
 
   ErrorStack  drop_storage(StorageId id, Epoch *commit_epoch);
+  void        drop_storage_apply(StorageId id);
   ErrorStack  create_storage(Metadata *metadata, Epoch *commit_epoch);
+  void        create_storage_apply(Metadata *metadata);
 
   bool                track_moved_record(StorageId storage_id, xct::WriteXctAccess *write);
   xct::LockableXctId* track_moved_record(StorageId storage_id, xct::LockableXctId *address);

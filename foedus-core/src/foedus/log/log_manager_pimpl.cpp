@@ -20,6 +20,7 @@
 #include "foedus/log/log_id.hpp"
 #include "foedus/log/log_options.hpp"
 #include "foedus/log/logger_impl.hpp"
+#include "foedus/log/meta_logger_impl.hpp"
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/savepoint/savepoint.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
@@ -29,7 +30,8 @@
 
 namespace foedus {
 namespace log {
-LogManagerPimpl::LogManagerPimpl(Engine* engine) : engine_(engine), control_block_(nullptr) {}
+LogManagerPimpl::LogManagerPimpl(Engine* engine)
+  : engine_(engine), meta_logger_(nullptr), control_block_(nullptr) {}
 
 ErrorStack LogManagerPimpl::initialize_once() {
   groups_ = engine_->get_options().thread_.group_count_;
@@ -67,6 +69,10 @@ ErrorStack LogManagerPimpl::initialize_once() {
     }
   }
 
+  // meta_buffer_ exists in all engines
+  meta_buffer_.set_engine(engine_);
+  meta_buffer_.attach(memory_repo->get_global_memory_anchors()->meta_logger_memory_);
+
   if (engine_->is_master()) {
     // In master, we initialize the control block. No local loggers.
     // Initialize durable_global_epoch_
@@ -74,6 +80,8 @@ ErrorStack LogManagerPimpl::initialize_once() {
     control_block_->durable_global_epoch_
       = engine_->get_savepoint_manager().get_initial_durable_epoch().value();
     LOG(INFO) << "durable_global_epoch_=" << get_durable_global_epoch();
+    meta_logger_ = new MetaLogger(engine_);
+    CHECK_ERROR(meta_logger_->initialize());
   } else {
     // In SOC, we don't have to initialize the control block, but have to launch local loggers.
     // evenly distribute loggers to NUMA nodes, then to cores.
@@ -134,6 +142,13 @@ ErrorStack LogManagerPimpl::uninitialize_once() {
   }
   if (engine_->is_master()) {
     ASSERT_ND(loggers_.empty());
+    if (meta_logger_) {
+      batch.emprace_back(meta_logger_->uninitialize());
+      delete meta_logger_;
+      meta_logger_ = nullptr;
+    }
+  } else {
+    ASSERT_ND(meta_logger_ == nullptr);
   }
   batch.uninitialize_and_delete_all(&loggers_);
   logger_refs_.clear();

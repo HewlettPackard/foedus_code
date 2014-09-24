@@ -35,6 +35,9 @@ std::string LogOptions::construct_suffixed_log_path(
   return path_str.str();
 }
 
+std::string LogOptions::construct_meta_log_path() const {
+  return convert_folder_path_pattern(0, 0) + std::string("/meta.log");
+}
 
 ErrorStack LogOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, folder_path_pattern_);

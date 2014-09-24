@@ -38,6 +38,9 @@ class SavepointManager CXX11_FINAL : public virtual Initializable {
    */
   LoggerSavepointInfo       get_logger_savepoint(log::LoggerId logger_id);
 
+  /** Returns the saved information of metadata logger in lateset savepoint */
+  void get_meta_logger_offsets(uint64_t* oldest_offset, uint64_t* durable_offset) const;
+
   Epoch get_initial_current_epoch() const;
   Epoch get_initial_durable_epoch() const;
   Epoch get_saved_durable_epoch() const;

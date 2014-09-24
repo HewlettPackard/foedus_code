@@ -97,6 +97,9 @@ class LogManager CXX11_FINAL : public virtual Initializable {
    */
   ErrorStack  refresh_global_durable_epoch();
 
+  MetaLogger*     get_meta_logger();
+  MetaLogBuffer*  get_meta_buffer();
+
  private:
   LogManagerPimpl *pimpl_;
 };

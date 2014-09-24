@@ -39,19 +39,24 @@ void HashCreateLogType::populate(
   bin_bits_ = bin_bits;
 }
 
-void HashCreateLogType::apply_storage(thread::Thread* context, StorageId storage_id) {
-  /* TODO(Hideaki) During surgery
-  ASSERT_ND(storage == nullptr);  // because we are now creating it.
+void HashCreateLogType::apply_storage(Engine* engine, StorageId storage_id) {
+  ASSERT_ND(storage_id > 0);
   LOG(INFO) << "Applying CREATE HASH STORAGE log: " << *this;
   StorageName name(name_, name_length_);
   HashMetadata metadata(header_.storage_id_, name, bin_bits_);
-  std::unique_ptr<hash::HashStorage> hash(new hash::HashStorage(context->get_engine(),
-    metadata, true));
-  COERCE_ERROR(hash->initialize());
-  COERCE_ERROR(hash->create(context));
-  hash.release();  // No error, so take over the ownership from unique_ptr.
+  engine->get_storage_manager().create_storage_apply(&metadata);
   LOG(INFO) << "Applied CREATE HASH STORAGE log: " << *this;
-  */
+}
+
+void HashCreateLogType::construct(const Metadata* metadata, void* buffer) {
+  ASSERT_ND(metadata->type_ == kHashStorage);
+  const HashMetadata* casted = static_cast<const HashMetadata*>(metadata);
+  HashCreateLogType* log_entry = reinterpret_cast<HashCreateLogType*>(buffer);
+  log_entry->populate(
+    casted->id_,
+    casted->name_.size(),
+    casted->name_.data(),
+    casted->bin_bits_);
 }
 
 void HashCreateLogType::assert_valid() {

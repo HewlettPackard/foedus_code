@@ -204,6 +204,7 @@ struct GlobalMemoryAnchors {
   enum Constants {
     kMasterStatusMemorySize = 1 << 12,
     kLogManagerMemorySize = 1 << 12,
+    kMetaLoggerSize = 1 << 13,
     kRestartManagerMemorySize = 1 << 12,
     /** 3 << 19 is for FixedSavepoint. It's about 1.5MB */
     kSavepointManagerMemorySize = (3 << 19) + (1 << 12),
@@ -234,6 +235,8 @@ struct GlobalMemoryAnchors {
 
   /** Tiny memory for log manager. Always 4kb. */
   log::LogManagerControlBlock*              log_manager_memory_;
+  /** Tiny memory for metadata logger. Always 4kb. */
+  log::MetaLogControlBlock*                 meta_logger_memory_;
   /** Tiny memory for restart manager. Always 4kb. */
   restart::RestartManagerControlBlock*      restart_manager_memory_;
   /** Tiny memory for savepoint manager. Always 4kb. */

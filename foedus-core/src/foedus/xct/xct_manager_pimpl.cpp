@@ -277,6 +277,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
   return verified;
 }
 bool XctManagerPimpl::precommit_xct_schema(thread::Thread* context, Epoch* commit_epoch) {
+  /*
   LOG(INFO) << *context << " committing a schema transaction";
 
   Xct::InCommitLogEpochGuard guard(&context->get_current_xct(), get_current_global_epoch_weak());
@@ -322,7 +323,7 @@ bool XctManagerPimpl::precommit_xct_schema(thread::Thread* context, Epoch* commi
 
   // schema xct doesn't have apply phase because it is separately applied.
   context->get_thread_log_buffer().publish_committed_log(*commit_epoch);
-
+  */
   return true;  // so far scheme xct can always commit
 }
 

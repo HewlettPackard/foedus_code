@@ -37,6 +37,7 @@ struct ArrayStorageControlBlock final {
 
   bool exists() const { return status_ == kExists || status_ == kMarkedForDeath; }
 
+  soc::SharedMutex    status_mutex_;
   /** Status of the storage */
   StorageStatus       status_;
   /** Points to the root page (or something equivalent). */

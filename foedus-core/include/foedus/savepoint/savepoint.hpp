@@ -50,6 +50,11 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
    */
   Epoch::EpochInteger             durable_epoch_;
 
+  /** Offset from which metadata log entries are not gleaned yet */
+  uint64_t                        meta_log_oldest_offset_;
+  /** Offset upto which metadata log entries are fsynced */
+  uint64_t                        meta_log_durable_offset_;
+
   // for all the following, index is LoggerId
 
   /**
@@ -83,6 +88,7 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
   bool                                consistent(log::LoggerId logger_count) const {
     assert_epoch_values();
     return (current_epoch_ >= durable_epoch_
+      && meta_log_oldest_offset_ <= meta_log_durable_offset_
       && oldest_log_files_.size() == logger_count
       && oldest_log_files_offset_begin_.size() == logger_count
       && current_log_files_.size() == logger_count
@@ -136,6 +142,9 @@ struct FixedSavepoint CXX11_FINAL {
   uint16_t                        node_count_;
   /** Number of loggers per node. same above. */
   uint16_t                        loggers_per_node_count_;
+
+  uint64_t                        meta_log_oldest_offset_;
+  uint64_t                        meta_log_durable_offset_;
 
   /**
    * Stores all loggers' information. We allocate memory enough for the largest number of loggers.

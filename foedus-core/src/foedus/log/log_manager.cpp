@@ -45,5 +45,13 @@ void LogManager::copy_logger_states(savepoint::Savepoint* new_savepoint) {
   pimpl_->copy_logger_states(new_savepoint);
 }
 
+MetaLogBuffer* LogManager::get_meta_buffer() {
+  return &pimpl_->meta_buffer_;
+}
+
+MetaLogger* LogManager::get_meta_logger() {
+  return pimpl_->meta_logger_;
+}
+
 }  // namespace log
 }  // namespace foedus

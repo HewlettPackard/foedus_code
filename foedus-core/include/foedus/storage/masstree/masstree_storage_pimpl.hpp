@@ -38,6 +38,7 @@ struct MasstreeStorageControlBlock final {
 
   bool exists() const { return status_ == kExists || status_ == kMarkedForDeath; }
 
+  soc::SharedMutex    status_mutex_;
   /** Status of the storage */
   StorageStatus       status_;
   /**

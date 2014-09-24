@@ -59,22 +59,6 @@ ErrorCode   ArrayStorage::prefetch_pages(
 ErrorStack ArrayStorage::verify_single_thread(thread::Thread* context) {
   return ArrayStoragePimpl(this).verify_single_thread(context);
 }
-/* TODO(Hideaki) During surgery
-void ArrayStorageFactory::add_create_log(const Metadata* metadata, thread::Thread* context) const {
-  const ArrayMetadata* casted = dynamic_cast<const ArrayMetadata*>(metadata);
-  ASSERT_ND(casted);
-
-  uint16_t log_length = ArrayCreateLogType::calculate_log_length(casted->name_.size());
-  ArrayCreateLogType* log_entry = reinterpret_cast<ArrayCreateLogType*>(
-    context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(
-    casted->id_,
-    casted->array_size_,
-    casted->payload_size_,
-    casted->name_.size(),
-    casted->name_.data());
-}
-*/
 
 ErrorCode ArrayStorage::get_record(
   thread::Thread* context, ArrayOffset offset, void *payload) {
@@ -237,8 +221,6 @@ void ArrayStoragePimpl::release_pages_recursive(
       VolatilePagePointer child_page_id = child_pointer.volatile_pointer_;
       if (child_page_id.components.offset != 0) {
         // then recurse
-        ArrayPage* child_page = reinterpret_cast<ArrayPage*>(
-          resolver.resolve_offset(child_page_id));
         release_pages_recursive(resolver, batch, child_page_id);
         child_pointer.volatile_pointer_.word = 0;
       }

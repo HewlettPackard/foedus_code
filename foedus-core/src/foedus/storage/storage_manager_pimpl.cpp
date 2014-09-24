@@ -17,6 +17,7 @@
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_manager.hpp"
+#include "foedus/log/meta_log_buffer.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
 #include "foedus/snapshot/snapshot_metadata.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
@@ -25,12 +26,16 @@
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_log_types.hpp"
 #include "foedus/storage/storage_options.hpp"
+#include "foedus/storage/array/array_log_types.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/storage/array/array_storage.hpp"
+#include "foedus/storage/hash/hash_log_types.hpp"
 #include "foedus/storage/hash/hash_metadata.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
+#include "foedus/storage/masstree/masstree_log_types.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
+#include "foedus/storage/sequential/sequential_log_types.hpp"
 #include "foedus/storage/sequential/sequential_metadata.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
 #include "foedus/thread/thread_pool.hpp"
@@ -128,54 +133,12 @@ bool StorageManagerPimpl::exists(const StorageName& name) {
   return false;
 }
 
-/* TODO(Hideaki) During surgery
-ErrorStack StorageManagerPimpl::register_storage(Storage* storage) {
-  ASSERT_ND(storage);
-  ASSERT_ND(storage->is_initialized());
-  StorageId id = storage->get_id();
-  LOG(INFO) << "Adding storage of ID-" << id << "(" << storage->get_name() << ")";
-  if (get_max_storages() <= id) {
-    return ERROR_STACK(kErrorCodeStrTooManyStorages);
-  }
-
-  ASSERT_ND(get_max_storages() > id);
-  if (get_storage(id)) {
-    LOG(ERROR) << "Duplicate register_storage() call? ID=" << id;
-    return ERROR_STACK(kErrorCodeStrDuplicateStrid);
-  }
-  if (get_storage(storage->get_name())) {
-    LOG(ERROR) << "Duplicate register_storage() call? Name=" << storage->get_name();
-    return ERROR_STACK(kErrorCodeStrDuplicateStrname);
-  }
-  storages_[id] = storage;
-  // TODO(Hideaki) storage name map not used yet
-  // storage_names_.insert(std::pair< StorageName, Storage* >(storage->get_name(), storage));
-  ASSERT_ND(id <= control_block_->largest_storage_id_);
-  return kRetOk;
-}
-*/
-
 ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) {
-  /* TODO(Hideaki) During surgery
-  // DROP STORAGE must be the only log in this transaction
-  if (context->get_thread_log_buffer().get_offset_committed() !=
-    context->get_thread_log_buffer().get_offset_tail()) {
-    return ERROR_STACK(kErrorCodeStrMustSeparateXct);
-  }
-  */
-
-  // to avoid mixing with normal operations on the storage in this epoch, advance epoch now.
-  engine_->get_xct_manager().advance_current_global_epoch();
-
-  StorageControlBlock* block = storages_ +id;
+  StorageControlBlock* block = storages_ + id;
   if (!block->exists()) {
     LOG(ERROR) << "This storage ID does not exist or has been already dropped: " << id;
     return ERROR_STACK(kErrorCodeStrAlreadyDropped);
   }
-
-  /* TODO(Hideaki) During surgery
-  CHECK_ERROR(engine_->get_xct_manager().begin_schema_xct(context));
-  */
 
   StorageName name = block->meta_.name_;
   LOG(INFO) << "Dropping storage " << id << "(" << name << ")";
@@ -188,22 +151,53 @@ ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) 
     return drop_error;
   }
 
-  /* TODO(Hideaki) During surgery
-  // write out log
-  DropLogType* log_entry = reinterpret_cast<DropLogType*>(
-    context->get_thread_log_buffer().reserve_new_log(sizeof(DropLogType)));
-  log_entry->populate(id);
+  char log_buffer[1 << 12];
+  DropLogType* drop_log = reinterpret_cast<DropLogType*>(log_buffer);
+  drop_log->populate(id);
+  engine_->get_log_manager().get_meta_buffer()->commit(drop_log, commit_epoch);
 
-  // commit invokes apply
-  CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, commit_epoch));
-  */
+  ASSERT_ND(commit_epoch->is_valid());
   block->status_ = kDropped;
   ASSERT_ND(!block->exists());
+  block->uninitialize();
   LOG(INFO) << "Dropped storage " << id << "(" << name << ")";
   return kRetOk;
 }
 
+void StorageManagerPimpl::drop_storage_apply(StorageId id) {
+  // this method is called only while restart, so no race.
+  StorageControlBlock* block = storages_ + id;
+  ASSERT_ND(!block->exists());
+  ErrorStack drop_error = storage_pseudo_polymorph(
+    engine_,
+    block,
+    [](Storage* obj){ return obj->drop(); });
+  if (drop_error.is_error()) {
+    LOG(FATAL) << "drop_storage_apply() failed. " << drop_error
+      << " Failed to restart the engine";
+  }
+  block->status_ = kDropped;
+  ASSERT_ND(!block->exists());
+  block->uninitialize();
+}
+
+void construct_create_log(Metadata* meta, void* buffer) {
+  StorageType type = meta->type_;
+  if (type == kArrayStorage) {
+    array::ArrayCreateLogType::construct(meta, buffer);
+  } else if (type == kHashStorage) {
+    hash::HashCreateLogType::construct(meta, buffer);
+  } else if (type == kMasstreeStorage) {
+    masstree::MasstreeCreateLogType::construct(meta, buffer);
+  } else if (type == kSequentialStorage) {
+    sequential::SequentialCreateLogType::construct(meta, buffer);
+  } else {
+    LOG(FATAL) << "WTF:" << type;
+  }
+}
+
 ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit_epoch) {
+  *commit_epoch = INVALID_EPOCH;
   StorageId id = issue_next_storage_id();
   if (id >= get_max_storages()) {
     return ERROR_STACK(kErrorCodeStrTooManyStorages);
@@ -212,13 +206,6 @@ ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit
     return ERROR_STACK(kErrorCodeStrEmptyName);
   }
   metadata->id_ = id;
-  /* TODO(Hideaki) During surgery
-  // CREATE STORAGE must be the only log in this transaction
-  if (context->get_thread_log_buffer().get_offset_committed() !=
-    context->get_thread_log_buffer().get_offset_tail()) {
-    return ERROR_STACK(kErrorCodeStrMustSeparateXct);
-  }
-  */
 
   const StorageName& name = metadata->name_;
   if (exists(name)) {
@@ -226,6 +213,7 @@ ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit
     return ERROR_STACK(kErrorCodeStrDuplicateStrname);
   }
 
+  get_storage(id)->initialize();
   ASSERT_ND(!get_storage(id)->exists());
   storages_[id].meta_.type_ = metadata->type_;
   ErrorStack create_error = storage_pseudo_polymorph(
@@ -234,20 +222,40 @@ ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit
     [metadata](Storage* obj){ return obj->create(*metadata); });
   CHECK_ERROR(create_error);
 
-  /* TODO(Hideaki) During surgery
-  CHECK_ERROR(engine_->get_xct_manager().begin_schema_xct(context));
-  the_factory->add_create_log(metadata, context);  // write out log
+  char log_buffer[1 << 12];
+  construct_create_log(metadata, log_buffer);
+  log::StorageLogType* create_log = reinterpret_cast<log::StorageLogType*>(log_buffer);
+  engine_->get_log_manager().get_meta_buffer()->commit(create_log, commit_epoch);
 
-  // commit invokes apply
-  CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, commit_epoch));
-  */
+  ASSERT_ND(commit_epoch->is_valid());
+  ASSERT_ND(get_storage(id)->exists());
+  return kRetOk;
+}
 
-  // to avoid mixing normal operations on the new storage in this epoch, advance epoch now.
-  engine_->get_xct_manager().advance_current_global_epoch();
+void StorageManagerPimpl::create_storage_apply(Metadata *metadata) {
+  // this method is called only while restart, so no race.
+  ASSERT_ND(metadata->id_ > 0);
+  ASSERT_ND(!metadata->name_.empty());
+  StorageId id = metadata->id_;
+  if (id > control_block_->largest_storage_id_) {
+    control_block_->largest_storage_id_ = id;
+  }
+
+  ASSERT_ND(!exists(metadata->name_));
+
+  get_storage(id)->initialize();
+  ASSERT_ND(!get_storage(id)->exists());
+  storages_[id].meta_.type_ = metadata->type_;
+  ErrorStack create_error = storage_pseudo_polymorph(
+    engine_,
+    storages_ + id,
+    [metadata](Storage* obj){ return obj->create(*metadata); });
+  if (create_error.is_error()) {
+    LOG(FATAL) << "create_storage_apply() failed. " << create_error
+      << " Failed to restart the engine";
+  }
 
   ASSERT_ND(get_storage(id)->exists());
-  // ASSERT_ND((*storage)->get_type() == the_factory->get_type());
-  return kRetOk;
 }
 
 bool StorageManagerPimpl::track_moved_record(StorageId storage_id, xct::WriteXctAccess* write) {

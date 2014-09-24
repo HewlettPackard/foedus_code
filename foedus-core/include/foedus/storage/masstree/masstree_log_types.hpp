@@ -51,7 +51,8 @@ struct MasstreeCreateLogType : public log::StorageLogType {
     uint16_t border_early_split_threshold,
     uint16_t name_length,
     const char* name);
-  void apply_storage(thread::Thread* context, StorageId storage_id);
+  static void construct(const Metadata* metadata, void* buffer);
+  void apply_storage(Engine* engine, StorageId storage_id);
   void assert_valid();
   friend std::ostream& operator<<(std::ostream& o, const MasstreeCreateLogType& v);
 };
