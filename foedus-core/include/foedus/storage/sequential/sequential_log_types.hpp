@@ -12,15 +12,18 @@
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
+#include "foedus/engine.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/log/common_log_types.hpp"
 #include "foedus/log/log_type.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_id.hpp"
+#include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/sequential/fwd.hpp"
 #include "foedus/storage/sequential/sequential_id.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
+#include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 /**
@@ -52,7 +55,8 @@ struct SequentialCreateLogType : public log::StorageLogType {
   }
 
   void populate(StorageId storage_id, uint16_t name_length, const char* name);
-  void apply_storage(thread::Thread* context, Storage* storage);
+  static void construct(const Metadata* metadata, void* buffer);
+  void apply_storage(Engine* engine, StorageId storage_id);
   void assert_valid();
   friend std::ostream& operator<<(std::ostream& o, const SequentialCreateLogType& v);
 };
@@ -86,23 +90,15 @@ struct SequentialAppendLogType : public log::RecordLogType {
   }
   void            apply_record(
     thread::Thread* context,
-    Storage* storage,
+    StorageId storage_id,
     xct::LockableXctId* owner_id,
     char* payload) ALWAYS_INLINE {
     // It's a lock-free write set, so it doesn't have record info.
     ASSERT_ND(owner_id == CXX11_NULLPTR);
     ASSERT_ND(payload == CXX11_NULLPTR);
-    ASSERT_ND(dynamic_cast<SequentialStorage*>(storage));
-    // dynamic_cast is expensive (quite observable in CPU profile)
-    // do it only in debug mode. We are sure this is sequential storage (otherwise bug)
-    SequentialStorage* casted;
-#ifndef NDEBUG
-    casted = reinterpret_cast<SequentialStorage*>(storage);
-#else  // NDEBUG
-    casted = dynamic_cast<SequentialStorage*>(storage);
-#endif  // NDEBUG
-    ASSERT_ND(casted);
-    casted->apply_append_record(context, this);
+    SequentialStorage storage
+      = context->get_engine()->get_storage_manager().get_sequential(storage_id);
+    storage.apply_append_record(context, this);
   }
 
   void            assert_valid() ALWAYS_INLINE {

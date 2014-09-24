@@ -33,7 +33,7 @@ ErrorCode TpccClientTask::do_delivery(Wid wid) {
     // SELECT CID FROM ORDER WHERE wid/did/oid=..
     storage::masstree::KeySlice wdoid = to_wdoid_slice(wid, did, oid);
     Cid cid;
-    CHECK_ERROR_CODE(storages_.orders_->get_record_primitive_normalized<Cid>(
+    CHECK_ERROR_CODE(storages_.orders_.get_record_primitive_normalized<Cid>(
       context_,
       wdoid,
       &cid,
@@ -42,7 +42,7 @@ ErrorCode TpccClientTask::do_delivery(Wid wid) {
     // UPDATE ORDER SET O_CARRIER_ID=carrier_id WHERE wid/did/oid=..
     // Note that we don't have to update the secondary index
     // as O_CARRIER_ID is not included in it.
-    CHECK_ERROR_CODE(storages_.orders_->overwrite_record_primitive_normalized<uint32_t>(
+    CHECK_ERROR_CODE(storages_.orders_.overwrite_record_primitive_normalized<uint32_t>(
       context_,
       wdoid,
       carrier_id,
@@ -66,12 +66,12 @@ ErrorCode TpccClientTask::do_delivery(Wid wid) {
     // UPDATE CUSTOMER SET balance+=amount_total,delivery_cnt++ WHERE WID/DID/CID=..
     // No need to update secondary index as balance is not a key.
     Wdcid wdcid = combine_wdcid(combine_wdid(wid, did), cid);
-    CHECK_ERROR_CODE(storages_.customers_dynamic_->increment_record_oneshot<uint32_t>(
+    CHECK_ERROR_CODE(storages_.customers_dynamic_.increment_record_oneshot<uint32_t>(
       context_,
       wdcid,
       1U,
       offsetof(CustomerDynamicData, delivery_cnt_)));
-    CHECK_ERROR_CODE(storages_.customers_dynamic_->increment_record_oneshot<double>(
+    CHECK_ERROR_CODE(storages_.customers_dynamic_.increment_record_oneshot<double>(
       context_,
       wdcid,
       static_cast<double>(amount_total),
@@ -86,7 +86,7 @@ ErrorCode TpccClientTask::do_delivery(Wid wid) {
 ErrorCode TpccClientTask::pop_neworder(Wid wid, Did did, Oid* oid) {
   storage::masstree::KeySlice low = to_wdoid_slice(wid, did, 0);
   storage::masstree::KeySlice high = to_wdoid_slice(wid, did + 1, 0);
-  storage::masstree::MasstreeCursor cursor(engine_, storages_.neworders_, context_);
+  storage::masstree::MasstreeCursor cursor(storages_.neworders_, context_);
   CHECK_ERROR_CODE(cursor.open_normalized(high, low, false, true, false, true));
   if (cursor.is_valid_record()) {
     ASSERT_ND(cursor.get_key_length() == sizeof(Wdoid));
@@ -116,7 +116,7 @@ ErrorCode TpccClientTask::update_orderline_delivery_dates(
   // SELECT SUM(ol_amount) FROM ORDERLINE WHERE wid/did/oid=..
   // UPDATE ORDERLINE SET DELIVERY_D=delivery_time WHERE wid/did/oid=..
   const uint16_t offset = offsetof(OrderlineData, delivery_d_);
-  storage::masstree::MasstreeCursor cursor(engine_, storages_.orderlines_, context_);
+  storage::masstree::MasstreeCursor cursor(storages_.orderlines_, context_);
   CHECK_ERROR_CODE(cursor.open_normalized(low, high, true, true));
   while (cursor.is_valid_record()) {
     const char* key_be = cursor.get_key();

@@ -24,7 +24,7 @@ namespace array {
  * @brief Metadata of an array storage.
  * @ingroup ARRAY
  */
-struct ArrayMetadata CXX11_FINAL : public virtual Metadata {
+struct ArrayMetadata CXX11_FINAL : public Metadata {
   ArrayMetadata()
     : Metadata(0, kArrayStorage, ""), payload_size_(0), array_size_(0) {}
   ArrayMetadata(
@@ -40,28 +40,24 @@ struct ArrayMetadata CXX11_FINAL : public virtual Metadata {
     : Metadata(0, kArrayStorage, name),
     payload_size_(payload_size), array_size_(array_size) {
   }
-  explicit ArrayMetadata(const ArrayMetadata& other)
-    : Metadata(other), payload_size_(other.payload_size_), array_size_(other.array_size_) {
-  }
-  ArrayMetadata& operator=(const ArrayMetadata& other) {
-    id_ = other.id_;
-    type_ = other.type_;
-    name_ = other.name_;
-    root_snapshot_page_id_ = other.root_snapshot_page_id_;
-    payload_size_ = other.payload_size_;
-    array_size_ = other.array_size_;
-    return *this;
-  }
-  EXTERNALIZABLE(ArrayMetadata);
 
-
-  Metadata* clone() const CXX11_OVERRIDE;
+  std::string describe() const;
+  friend std::ostream& operator<<(std::ostream& o, const ArrayMetadata& v);
 
   /** byte size of one record in this array storage without internal overheads */
   uint16_t            payload_size_;
   /** Size of this array */
   ArrayOffset         array_size_;
 };
+
+struct ArrayMetadataSerializer CXX11_FINAL : public virtual MetadataSerializer {
+  ArrayMetadataSerializer() : MetadataSerializer() {}
+  explicit ArrayMetadataSerializer(ArrayMetadata* data)
+    : MetadataSerializer(data), data_casted_(data) {}
+  EXTERNALIZABLE(ArrayMetadataSerializer);
+  ArrayMetadata* data_casted_;
+};
+
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus

@@ -24,7 +24,7 @@ namespace hash {
  * @brief Metadata of an hash storage.
  * @ingroup HASH
  */
-struct HashMetadata CXX11_FINAL : public virtual Metadata {
+struct HashMetadata CXX11_FINAL : public Metadata {
   HashMetadata()
     : Metadata(0, kHashStorage, ""), bin_bits_(8) {}
   HashMetadata(StorageId id, const StorageName& name, uint8_t bin_bits)
@@ -34,9 +34,6 @@ struct HashMetadata CXX11_FINAL : public virtual Metadata {
   HashMetadata(const StorageName& name, uint8_t bin_bits = 8)
     : Metadata(0, kHashStorage, name), bin_bits_(bin_bits) {
   }
-  EXTERNALIZABLE(HashMetadata);
-
-  Metadata* clone() const CXX11_OVERRIDE;
 
   /**
    * Use this method to set an appropriate value for bin_bits_.
@@ -50,6 +47,9 @@ struct HashMetadata CXX11_FINAL : public virtual Metadata {
    */
   uint64_t  get_bin_count() const { return 1ULL << bin_bits_; }
 
+  std::string describe() const;
+  friend std::ostream& operator<<(std::ostream& o, const HashMetadata& v);
+
   /**
    * Number of bins in exponent of two.
    * Recommended to use set_capacity() to set this value.
@@ -57,6 +57,15 @@ struct HashMetadata CXX11_FINAL : public virtual Metadata {
    */
   uint8_t   bin_bits_;
 };
+
+struct HashMetadataSerializer CXX11_FINAL : public virtual MetadataSerializer {
+  HashMetadataSerializer() : MetadataSerializer() {}
+  explicit HashMetadataSerializer(HashMetadata* data)
+    : MetadataSerializer(data), data_casted_(data) {}
+  EXTERNALIZABLE(HashMetadataSerializer);
+  HashMetadata* data_casted_;
+};
+
 }  // namespace hash
 }  // namespace storage
 }  // namespace foedus

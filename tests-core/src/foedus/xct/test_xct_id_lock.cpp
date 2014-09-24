@@ -15,8 +15,8 @@
 #include "foedus/epoch.hpp"
 #include "foedus/test_common.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/proc/proc_manager.hpp"
 #include "foedus/thread/impersonate_session.hpp"
-#include "foedus/thread/impersonate_task.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/xct/xct_id.hpp"
@@ -56,90 +56,100 @@ void init() {
   done_count = 0;
   signaled = false;
 }
-
-class NoConflictTask : public thread::ImpersonateTask {
- public:
-  explicit NoConflictTask(int id) : id_(id) {}
-  ErrorStack run(thread::Thread* context)  {
-    XctManager& xct_manager = context->get_engine()->get_xct_manager();
-    WRAP_ERROR_CODE(xct_manager.begin_xct(context, kSerializable));
-    McsBlockIndex block = context->mcs_acquire_lock(keys[id_].get_key_lock());
-    locked[id_] = true;
-    ++locked_count;
-    while (!signaled) {
-      sleep_enough();
-      assorted::memory_fence_acquire();
-    }
-    context->mcs_release_lock(keys[id_].get_key_lock(), block);
-    WRAP_ERROR_CODE(xct_manager.abort_xct(context));
-    done[id_] = true;
-    ++done_count;
-    return foedus::kRetOk;
+ErrorStack no_conflict_task(
+  thread::Thread* context,
+  const void* input_buffer,
+  uint32_t input_len,
+  void* /*output_buffer*/,
+  uint32_t /*output_buffer_size*/,
+  uint32_t* /*output_used*/) {
+  EXPECT_EQ(input_len, sizeof(int));
+  int id = *reinterpret_cast<const int*>(input_buffer);
+  XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  WRAP_ERROR_CODE(xct_manager.begin_xct(context, kSerializable));
+  McsBlockIndex block = context->mcs_acquire_lock(keys[id].get_key_lock());
+  locked[id] = true;
+  ++locked_count;
+  while (!signaled) {
+    sleep_enough();
+    assorted::memory_fence_acquire();
   }
-  int id_;
-};
+  context->mcs_release_lock(keys[id].get_key_lock(), block);
+  WRAP_ERROR_CODE(xct_manager.abort_xct(context));
+  done[id] = true;
+  ++done_count;
+  return foedus::kRetOk;
+}
 
 
-class ConflictTask : public thread::ImpersonateTask {
- public:
-  explicit ConflictTask(int id) : id_(id) {}
-  ErrorStack run(thread::Thread* context) {
-    int l = id_ < kThreads / 2 ? id_ : id_ - kThreads / 2;
-    XctManager& xct_manager = context->get_engine()->get_xct_manager();
-    WRAP_ERROR_CODE(xct_manager.begin_xct(context, kSerializable));
-    McsBlockIndex block = context->mcs_acquire_lock(keys[l].get_key_lock());
-    locked[id_] = true;
-    ++locked_count;
-    while (!signaled) {
-      sleep_enough();
-      assorted::memory_fence_acquire();
-    }
-    context->mcs_release_lock(keys[l].get_key_lock(), block);
-    WRAP_ERROR_CODE(xct_manager.abort_xct(context));
-    done[id_] = true;
-    ++done_count;
-    return foedus::kRetOk;
+ErrorStack conflict_task(
+  thread::Thread* context,
+  const void* input_buffer,
+  uint32_t input_len,
+  void* /*output_buffer*/,
+  uint32_t /*output_buffer_size*/,
+  uint32_t* /*output_used*/) {
+  EXPECT_EQ(input_len, sizeof(int));
+  int id = *reinterpret_cast<const int*>(input_buffer);
+  int l = id < kThreads / 2 ? id : id - kThreads / 2;
+  XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  WRAP_ERROR_CODE(xct_manager.begin_xct(context, kSerializable));
+  McsBlockIndex block = context->mcs_acquire_lock(keys[l].get_key_lock());
+  locked[id] = true;
+  ++locked_count;
+  while (!signaled) {
+    sleep_enough();
+    assorted::memory_fence_acquire();
   }
-  int id_;
-};
+  context->mcs_release_lock(keys[l].get_key_lock(), block);
+  WRAP_ERROR_CODE(xct_manager.abort_xct(context));
+  done[id] = true;
+  ++done_count;
+  return foedus::kRetOk;
+}
 
 
-class RandomTask : public thread::ImpersonateTask {
- public:
-  explicit RandomTask(int id) : id_(id) {}
-  ErrorStack run(thread::Thread* context) {
-    assorted::UniformRandom r(id_);
-    XctManager& xct_manager = context->get_engine()->get_xct_manager();
-    WRAP_ERROR_CODE(xct_manager.begin_xct(context, kSerializable));
-    for (uint32_t i = 0; i < 1000; ++i) {
-      uint32_t k = r.uniform_within(0, kKeys - 1);
-      McsBlockIndex block = context->mcs_acquire_lock(keys[k].get_key_lock());
-      context->mcs_release_lock(keys[k].get_key_lock(), block);
-    }
-    WRAP_ERROR_CODE(xct_manager.abort_xct(context));
-    ++done_count;
-    done[id_] = true;
-    return foedus::kRetOk;
+ErrorStack random_task(
+  thread::Thread* context,
+  const void* input_buffer,
+  uint32_t input_len,
+  void* /*output_buffer*/,
+  uint32_t /*output_buffer_size*/,
+  uint32_t* /*output_used*/) {
+  EXPECT_EQ(input_len, sizeof(int));
+  int id = *reinterpret_cast<const int*>(input_buffer);
+  assorted::UniformRandom r(id);
+  XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  WRAP_ERROR_CODE(xct_manager.begin_xct(context, kSerializable));
+  for (uint32_t i = 0; i < 1000; ++i) {
+    uint32_t k = r.uniform_within(0, kKeys - 1);
+    McsBlockIndex block = context->mcs_acquire_lock(keys[k].get_key_lock());
+    context->mcs_release_lock(keys[k].get_key_lock(), block);
   }
-  int id_;
-};
+  WRAP_ERROR_CODE(xct_manager.abort_xct(context));
+  ++done_count;
+  done[id] = true;
+  return foedus::kRetOk;
+}
 
 TEST(XctIdLockTest, NoConflict) {
   EngineOptions options = get_tiny_options();
   options.thread_.thread_count_per_group_ = kThreads;
   Engine engine(options);
+  engine.get_proc_manager().pre_register("no_conflict_task", no_conflict_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
     init();
-    std::vector<NoConflictTask*> tasks;
     std::vector<thread::ImpersonateSession> sessions;
     for (int i = 0; i < kThreads; ++i) {
-      tasks.push_back(new NoConflictTask(i));
-      sessions.emplace_back(engine.get_thread_pool().impersonate(tasks.back()));
-      if (!sessions.back().is_valid()) {
-        COERCE_ERROR(sessions.back().invalid_cause_);
-      }
+      thread::ImpersonateSession session;
+      EXPECT_TRUE(engine.get_thread_pool().impersonate(
+        "no_conflict_task",
+        &i,
+        sizeof(i),
+        &session));
+      sessions.emplace_back(std::move(session));
     }
 
     while (locked_count < kThreads) {
@@ -166,10 +176,8 @@ TEST(XctIdLockTest, NoConflict) {
       EXPECT_FALSE(keys[i].is_keylocked());
     }
     for (int i = 0; i < kThreads; ++i) {
-      if (sessions[i].get_result().is_error()) {
-        COERCE_ERROR(sessions[i].get_result());
-      }
-      delete tasks[i];
+      COERCE_ERROR(sessions[i].get_result());
+      sessions[i].release();
     }
     COERCE_ERROR(engine.uninitialize());
   }
@@ -180,28 +188,32 @@ TEST(XctIdLockTest, Conflict) {
   EngineOptions options = get_tiny_options();
   options.thread_.thread_count_per_group_ = kThreads;
   Engine engine(options);
+  engine.get_proc_manager().pre_register("conflict_task", conflict_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
     init();
-    std::vector<ConflictTask*> tasks;
     std::vector<thread::ImpersonateSession> sessions;
     for (int i = 0; i < kThreads / 2; ++i) {
-      tasks.push_back(new ConflictTask(i));
-      sessions.emplace_back(engine.get_thread_pool().impersonate(tasks.back()));
-      if (!sessions.back().is_valid()) {
-        COERCE_ERROR(sessions.back().invalid_cause_);
-      }
+      thread::ImpersonateSession session;
+      EXPECT_TRUE(engine.get_thread_pool().impersonate(
+        "conflict_task",
+        &i,
+        sizeof(i),
+        &session));
+      sessions.emplace_back(std::move(session));
     }
     while (locked_count < kThreads / 2) {
       sleep_enough();
     }
     for (int i = kThreads / 2; i < kThreads; ++i) {
-      tasks.push_back(new ConflictTask(i));
-      sessions.emplace_back(engine.get_thread_pool().impersonate(tasks.back()));
-      if (!sessions.back().is_valid()) {
-        COERCE_ERROR(sessions.back().invalid_cause_);
-      }
+      thread::ImpersonateSession session;
+      EXPECT_TRUE(engine.get_thread_pool().impersonate(
+        "conflict_task",
+        &i,
+        sizeof(i),
+        &session));
+      sessions.emplace_back(std::move(session));
     }
     for (int i = 0; i < 4; ++i) {
       sleep_enough();
@@ -231,10 +243,8 @@ TEST(XctIdLockTest, Conflict) {
       EXPECT_FALSE(keys[i].is_keylocked()) << i;
     }
     for (int i = 0; i < kThreads; ++i) {
-      if (sessions[i].get_result().is_error()) {
-        COERCE_ERROR(sessions[i].get_result());
-      }
-      delete tasks[i];
+      COERCE_ERROR(sessions[i].get_result());
+      sessions[i].release();
     }
 
     COERCE_ERROR(engine.uninitialize());
@@ -246,18 +256,20 @@ TEST(XctIdLockTest, Random) {
   EngineOptions options = get_tiny_options();
   options.thread_.thread_count_per_group_ = kThreads;
   Engine engine(options);
+  engine.get_proc_manager().pre_register("random_task", random_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
     init();
-    std::vector<RandomTask*> tasks;
     std::vector<thread::ImpersonateSession> sessions;
     for (int i = 0; i < kThreads; ++i) {
-      tasks.push_back(new RandomTask(i));
-      sessions.emplace_back(engine.get_thread_pool().impersonate(tasks.back()));
-      if (!sessions.back().is_valid()) {
-        COERCE_ERROR(sessions.back().invalid_cause_);
-      }
+      thread::ImpersonateSession session;
+      EXPECT_TRUE(engine.get_thread_pool().impersonate(
+        "random_task",
+        &i,
+        sizeof(i),
+        &session));
+      sessions.emplace_back(std::move(session));
     }
 
     while (done_count < kThreads) {
@@ -276,10 +288,8 @@ TEST(XctIdLockTest, Random) {
     }
     assorted::memory_fence_release();
     for (int i = 0; i < kThreads; ++i) {
-      if (sessions[i].get_result().is_error()) {
-        COERCE_ERROR(sessions[i].get_result());
-      }
-      delete tasks[i];
+      COERCE_ERROR(sessions[i].get_result());
+      sessions[i].release();
     }
     COERCE_ERROR(engine.uninitialize());
   }

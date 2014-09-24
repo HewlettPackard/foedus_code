@@ -6,11 +6,15 @@
 
 #include <ostream>
 
+#include "foedus/engine.hpp"
+#include "foedus/storage/storage_manager.hpp"
+
 namespace foedus {
 namespace storage {
 std::ostream& operator<<(std::ostream& o, const Storage& v) {
   v.describe(&o);
   return o;
 }
+
 }  // namespace storage
 }  // namespace foedus

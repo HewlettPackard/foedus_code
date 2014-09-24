@@ -57,6 +57,22 @@ const uint16_t kRootPageMaxHeadPointers = (foedus::storage::kPageSize - kRootPag
  */
 const uint16_t kRootPageDataSize = foedus::storage::kPageSize - kRootPageHeaderSize;
 
+/**
+ * Each poiner page can contain 2^10 pointers (as the node is implicit, PagePoolOffset suffices)
+ * and we can have at most 2^16 cores. Thus we have 2^6 pointers here.
+ * This means we can waste 64*2=128 volatile pages (=512kb) per one sequential storage..
+ * shouldn't be a big issue.
+ * @ingroup SEQUENTIAL
+ */
+const uint16_t kPointerPageCount = 1U << 6;
+const uint16_t kPointersPerPage = 1U << 10;
+
+/** Calculate the page/index of the thread-private head/tail pointer. */
+inline void get_pointer_page_and_index(uint16_t thread_id, uint16_t *page, uint16_t *index) {
+  *page = thread_id / kPointersPerPage;
+  *index = thread_id % kPointersPerPage;
+}
+
 }  // namespace sequential
 }  // namespace storage
 }  // namespace foedus

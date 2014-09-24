@@ -18,12 +18,28 @@ ErrorStack  SavepointManager::initialize() { return pimpl_->initialize(); }
 bool        SavepointManager::is_initialized() const { return pimpl_->is_initialized(); }
 ErrorStack  SavepointManager::uninitialize() { return pimpl_->uninitialize(); }
 
-const Savepoint& SavepointManager::get_savepoint_fast() const {
-  return pimpl_->get_savepoint_fast();
+Epoch SavepointManager::get_initial_current_epoch() const {
+  return pimpl_->get_initial_current_epoch();
 }
-Savepoint SavepointManager::get_savepoint_safe() const { return pimpl_->get_savepoint_safe(); }
+Epoch SavepointManager::get_initial_durable_epoch() const {
+  return pimpl_->get_initial_durable_epoch();
+}
+Epoch SavepointManager::get_saved_durable_epoch() const {
+  return pimpl_->get_saved_durable_epoch();
+}
+
 ErrorStack SavepointManager::take_savepoint(Epoch new_global_durable_epoch) {
   return pimpl_->take_savepoint(new_global_durable_epoch);
+}
+LoggerSavepointInfo SavepointManager::get_logger_savepoint(log::LoggerId logger_id) {
+  return pimpl_->get_logger_savepoint(logger_id);
+}
+
+void SavepointManager::get_meta_logger_offsets(
+  uint64_t* oldest_offset,
+  uint64_t* durable_offset) const {
+  *oldest_offset = pimpl_->control_block_->savepoint_.meta_log_oldest_offset_;
+  *durable_offset = pimpl_->control_block_->savepoint_.meta_log_durable_offset_;
 }
 
 }  // namespace savepoint

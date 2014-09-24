@@ -171,7 +171,7 @@ ErrorStack SequentialComposer::construct_root(
   debugging::StopWatch stop_watch;
 
   std::vector<SnapshotPagePointer> all_head_pages;
-  SnapshotPagePointer previous_root_page_pointer = storage_->get_metadata()->root_snapshot_page_id_;
+  SnapshotPagePointer previous_root_page_pointer = storage_->meta_.root_snapshot_page_id_;
   for (SnapshotPagePointer page_id = previous_root_page_pointer; page_id != 0;) {
     // if there already is a root page, read them all.
     // we have to anyway re-write all of them, at least the next pointer.

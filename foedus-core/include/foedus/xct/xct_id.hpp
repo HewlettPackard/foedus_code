@@ -69,6 +69,26 @@ enum IsolationLevel {
 /** Index in thread-local MCS block. 0 means not locked. */
 typedef uint32_t McsBlockIndex;
 
+/** Pre-allocated MCS block. we so far pre-allocate at most 2^16 nodes per thread. */
+struct McsBlock {
+  /**
+   * Whether this thread is waiting for some other lock owner.
+   * While this is true, the thread spins on this \e local variable.
+   * The lock owner updates this when it unlocks.
+   */
+  bool              waiting_;           // +1 -> 1
+  /** just for sanity check. last 1 byte of the MCS lock's address */
+  uint8_t           lock_addr_tag_;     // +1 -> 2
+  /**
+   * The successor of MCS lock queue after this thread (in other words, the thread that is
+   * waiting for this thread). Successor is represented by thread ID and block,
+   * the index in mcs_blocks_.
+   */
+  thread::ThreadId  successor_;         // +2 -> 4
+  McsBlockIndex     successor_block_;   // +4 -> 8
+};
+
+
 /**
  * @brief An MCS lock data structure.
  * @details

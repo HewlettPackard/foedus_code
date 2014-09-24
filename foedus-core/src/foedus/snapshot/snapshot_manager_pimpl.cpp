@@ -20,6 +20,7 @@
 #include "foedus/snapshot/log_gleaner_impl.hpp"
 #include "foedus/snapshot/snapshot_metadata.hpp"
 #include "foedus/snapshot/snapshot_options.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/metadata.hpp"
 #include "foedus/storage/storage_manager.hpp"
 
@@ -34,14 +35,18 @@ ErrorStack SnapshotManagerPimpl::initialize_once() {
   if (!engine_->get_log_manager().is_initialized()) {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
   }
-  snapshot_epoch_.store(Epoch::kEpochInvalid);
-  // TODO(Hideaki): get snapshot status from savepoint
-  previous_snapshot_id_ = kNullSnapshotId;
-  immediate_snapshot_requested_.store(false);
-  previous_snapshot_time_ = std::chrono::system_clock::now();
-  snapshot_thread_.initialize("Snapshot",
-          std::thread(&SnapshotManagerPimpl::handle_snapshot, this),
-          std::chrono::milliseconds(100));
+  control_block_ = engine_->get_soc_manager().get_shared_memory_repo()->
+    get_global_memory_anchors()->snapshot_manager_memory_;
+  if (engine_->is_master()) {
+    control_block_->initialize();
+    control_block_->snapshot_epoch_.store(Epoch::kEpochInvalid);
+    // TODO(Hideaki): get snapshot status from savepoint
+    control_block_->previous_snapshot_id_ = kNullSnapshotId;
+    control_block_->immediate_snapshot_requested_.store(false);
+    control_block_->previous_snapshot_time_ = std::chrono::system_clock::now();
+    stop_requested_ = false;
+    snapshot_thread_ = std::move(std::thread(&SnapshotManagerPimpl::handle_snapshot, this));
+  }
   return kRetOk;
 }
 
@@ -51,31 +56,53 @@ ErrorStack SnapshotManagerPimpl::uninitialize_once() {
   if (!engine_->get_log_manager().is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
-  snapshot_thread_.stop();
+  if (engine_->is_master()) {
+    if (snapshot_thread_.joinable()) {
+      stop_requested_ = true;
+      wakeup();
+      snapshot_thread_.join();
+    }
+    control_block_->uninitialize();
+  }
   return SUMMARIZE_ERROR_BATCH(batch);
+}
+
+void SnapshotManagerPimpl::sleep_a_while() {
+  soc::SharedMutexScope scope(control_block_->snapshot_wakeup_.get_mutex());
+  if (!is_stop_requested()) {
+    control_block_->snapshot_wakeup_.timedwait(&scope, 100000000ULL);
+  }
+}
+void SnapshotManagerPimpl::wakeup() {
+  soc::SharedMutexScope scope(control_block_->snapshot_wakeup_.get_mutex());
+  control_block_->snapshot_wakeup_.signal(&scope);
 }
 
 void SnapshotManagerPimpl::handle_snapshot() {
   LOG(INFO) << "Snapshot thread started";
   // The actual snapshotting can't start until all other modules are initialized.
-  SPINLOCK_WHILE(!snapshot_thread_.is_stop_requested() && !engine_->is_initialized()) {
+  SPINLOCK_WHILE(!is_stop_requested() && !engine_->is_initialized()) {
     assorted::memory_fence_acquire();
   }
 
   LOG(INFO) << "Snapshot thread now starts taking snapshot";
-  while (!snapshot_thread_.sleep()) {
+  while (!is_stop_requested()) {
+    sleep_a_while();
+    if (is_stop_requested()) {
+      break;
+    }
     // should we start snapshotting? or keep sleeping?
     bool triggered = false;
-    std::chrono::system_clock::time_point until = previous_snapshot_time_ +
+    std::chrono::system_clock::time_point until = control_block_->previous_snapshot_time_ +
       std::chrono::milliseconds(get_option().snapshot_interval_milliseconds_);
     Epoch durable_epoch = engine_->get_log_manager().get_durable_global_epoch();
     Epoch previous_epoch = get_snapshot_epoch();
     if (previous_epoch.is_valid() && previous_epoch == durable_epoch) {
       LOG(INFO) << "Current snapshot is already latest. durable_epoch=" << durable_epoch;
-    } else if (immediate_snapshot_requested_) {
+    } else if (control_block_->immediate_snapshot_requested_) {
       // if someone requested immediate snapshot, do it.
       triggered = true;
-      immediate_snapshot_requested_.store(false);
+      control_block_->immediate_snapshot_requested_.store(false);
       LOG(INFO) << "Immediate snapshot request detected. snapshotting..";
     } else if (std::chrono::system_clock::now() >= until) {
       triggered = true;
@@ -94,9 +121,13 @@ void SnapshotManagerPimpl::handle_snapshot() {
 
       // done. notify waiters if exist
       Epoch::EpochInteger epoch_after = new_snapshot_epoch.value();
-      previous_snapshot_id_ = new_snapshot.id_;
-      previous_snapshot_time_ = std::chrono::system_clock::now();
-      snapshot_taken_.notify_all([this, epoch_after]{ snapshot_epoch_.store(epoch_after); });
+      control_block_->previous_snapshot_id_ = new_snapshot.id_;
+      control_block_->previous_snapshot_time_ = std::chrono::system_clock::now();
+      {
+        soc::SharedMutexScope scope(control_block_->snapshot_taken_.get_mutex());
+        control_block_->snapshot_epoch_ = epoch_after;
+        control_block_->snapshot_taken_.broadcast(&scope);
+      }
     } else {
       VLOG(1) << "Snapshotting not triggered. going to sleep again";
     }
@@ -114,13 +145,20 @@ void SnapshotManagerPimpl::trigger_snapshot_immediate(bool wait_completion) {
     return;
   }
 
-  immediate_snapshot_requested_.store(true);
-  snapshot_thread_.wakeup();
-  if (wait_completion) {
-    LOG(INFO) << "Waiting for the completion of snapshot... before=" << before;
-    snapshot_taken_.wait([this, before]{ return before != get_snapshot_epoch(); });
-    LOG(INFO) << "Observed the completion of snapshot! after=" << get_snapshot_epoch();
+  while (before == get_snapshot_epoch() && !is_stop_requested()) {
+    control_block_->immediate_snapshot_requested_.store(true);
+    wakeup();
+    if (wait_completion) {
+      LOG(INFO) << "Waiting for the completion of snapshot... before=" << before;
+      {
+        soc::SharedMutexScope scope(control_block_->snapshot_taken_.get_mutex());
+        control_block_->snapshot_taken_.timedwait(&scope, 10000000ULL);
+      }
+    } else {
+      break;
+    }
   }
+  LOG(INFO) << "Observed the completion of snapshot! after=" << get_snapshot_epoch();
 }
 
 ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapshot) {
@@ -135,10 +173,10 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
 
   // determine the snapshot ID
   SnapshotId snapshot_id;
-  if (previous_snapshot_id_ == kNullSnapshotId) {
+  if (control_block_->previous_snapshot_id_ == kNullSnapshotId) {
     snapshot_id = 1;
   } else {
-    snapshot_id = increment(previous_snapshot_id_);
+    snapshot_id = increment(control_block_->previous_snapshot_id_);
   }
   LOG(INFO) << "Issued ID for this snapshot:" << snapshot_id;
   new_snapshot->id_ = snapshot_id;
@@ -164,13 +202,12 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
 ErrorStack SnapshotManagerPimpl::glean_logs(Snapshot* new_snapshot) {
   // Log gleaner is an object allocated/deallocated per snapshotting.
   // Make sure we call uninitialize even when there occurs an error.
-  LogGleaner gleaner(engine_, new_snapshot, &snapshot_thread_);
+  LogGleaner gleaner(engine_, new_snapshot);
   CHECK_ERROR(gleaner.initialize());
   ErrorStack result;
   {
     UninitializeGuard guard(&gleaner);
-    // Gleaner runs on this thread (snapshot_thread_), so also receives the thread object
-    // to check for termination request.
+    // Gleaner runs on this thread (snapshot_thread_)
     result = gleaner.execute();
     if (result.is_error()) {
       LOG(ERROR) << "Log Gleaner encountered either an error or early termination request";
@@ -192,16 +229,17 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(Snapshot *new_snapshot) {
 
   // we modified the root page. install it.
   uint32_t installed_root_pages_count = 0;
-  for (storage::Metadata* meta : metadata.storage_metadata_) {
-    const auto& it = new_snapshot->new_root_page_pointers_.find(meta->id_);
+  for (storage::StorageId id = 1; id <= metadata.largest_storage_id_; ++id) {
+    const auto& it = new_snapshot->new_root_page_pointers_.find(id);
     if (it != new_snapshot->new_root_page_pointers_.end()) {
       storage::SnapshotPagePointer new_pointer = it->second;
+      storage::Metadata* meta = metadata.get_metadata(id);
       ASSERT_ND(new_pointer != meta->root_snapshot_page_id_);
       meta->root_snapshot_page_id_ = new_pointer;
       ++installed_root_pages_count;
     }
   }
-  LOG(INFO) << "Out of " << metadata.storage_metadata_.size() << " storages, "
+  LOG(INFO) << "Out of " << metadata.largest_storage_id_ << " storages, "
     << installed_root_pages_count << " changed their root pages.";
   ASSERT_ND(installed_root_pages_count == new_snapshot->new_root_page_pointers_.size());
 

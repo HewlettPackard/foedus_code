@@ -14,12 +14,13 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/log/common_log_types.hpp"
 #include "foedus/log/log_manager.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
-#include "foedus/savepoint/savepoint.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
 
 namespace foedus {
@@ -30,15 +31,15 @@ ThreadLogBuffer::ThreadLogBuffer(Engine* engine, thread::ThreadId thread_id)
   buffer_size_ = 0;
 }
 ErrorStack ThreadLogBuffer::initialize_once() {
-  memory::NumaCoreMemory *memory = engine_->get_memory_manager().get_core_memory(thread_id_);
+  memory::NumaCoreMemory *memory
+    = engine_->get_memory_manager().get_local_memory()->get_core_memory(thread_id_);
   buffer_memory_ = memory->get_log_buffer_memory();
   buffer_ = reinterpret_cast<char*>(buffer_memory_.get_block());
   buffer_size_ = buffer_memory_.get_size();
   buffer_size_safe_ = buffer_size_ - 64;
 
-  const savepoint::Savepoint &savepoint = engine_->get_savepoint_manager().get_savepoint_fast();
-  last_epoch_ = savepoint.get_current_epoch();
-  logger_epoch_ = savepoint.get_current_epoch();
+  last_epoch_ = engine_->get_savepoint_manager().get_initial_current_epoch();
+  logger_epoch_ = last_epoch_;
   logger_epoch_ends_ = 0;
   logger_epoch_open_ended_ = true;
   offset_head_ = 0;
@@ -79,6 +80,12 @@ void ThreadLogBuffer::assert_consistent() const {
 
 void ThreadLogBuffer::wait_for_space(uint16_t required_space) {
   LOG(INFO) << "Thread-" << thread_id_ << " waiting for space to write logs..";
+  if (engine_->get_options().log_.emulation_.null_device_) {
+    // logging disabled
+    offset_head_ = offset_durable_ = offset_committed_;
+    assorted::memory_fence_release();
+    return;
+  }
   // @spinlock, but with a sleep (not in critical path, usually).
   while (head_to_tail_distance() + required_space >= buffer_size_safe_) {
     assorted::memory_fence_acquire();

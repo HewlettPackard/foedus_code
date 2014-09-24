@@ -10,11 +10,12 @@
 #include <string>
 #include <vector>
 
+#include "foedus/attachable.hpp"
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/initializable.hpp"
 #include "foedus/memory/fwd.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage.hpp"
@@ -23,38 +24,27 @@
 #include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
+#include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/thread.hpp"
 
 namespace foedus {
 namespace storage {
 namespace masstree {
+/** Shared data of this storage type */
+struct MasstreeStorageControlBlock final {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  MasstreeStorageControlBlock() = delete;
+  ~MasstreeStorageControlBlock() = delete;
 
-/**
- * @brief Pimpl object of MasstreeStorage.
- * @ingroup MASSTREE
- * @details
- * A private pimpl object for MasstreeStorage.
- * Do not include this header from a client program unless you know what you are doing.
- */
-class MasstreeStoragePimpl final : public DefaultInitializable {
- public:
-  MasstreeStoragePimpl() = delete;
-  MasstreeStoragePimpl(Engine* engine,
-                      MasstreeStorage* holder,
-                      const MasstreeMetadata &metadata,
-                      bool create);
+  bool exists() const { return status_ == kExists || status_ == kMarkedForDeath; }
 
-  ErrorStack  initialize_once() override;
-  ErrorStack  uninitialize_once() override;
-
-  ErrorStack  create(thread::Thread* context);
-
-  Engine* const           engine_;
-  MasstreeStorage* const  holder_;
-  MasstreeMetadata        metadata_;
-
+  soc::SharedMutex    status_mutex_;
+  /** Status of the storage */
+  StorageStatus       status_;
   /**
-   * Root page of the first layer. Volatile pointer is always active.
+   * Points to the root page (or something equivalent).
+   * Masstree-specific:
+   * Volatile pointer is always active.
    * This might be MasstreeIntermediatePage or MasstreeBoundaryPage.
    * When the first layer B-tree grows, this points to a new page. So, this is one of the few
    * page pointers that might be \e swapped. Transactions thus have to add this to a pointer
@@ -63,22 +53,41 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
    * Instead, this always points to a root. We don't need "is_root" check in [YANDONG12] and
    * thus doesn't need a parent pointer.
    */
-  DualPagePointer         first_root_pointer_;
+  DualPagePointer     root_page_pointer_;
+  /** metadata of this storage. */
+  MasstreeMetadata    meta_;
 
-  /** Lock to synchronize updates to first_root_pointer_. */
-  xct::LockableXctId      first_root_owner_;
+  // Do NOT reorder members up to here. The layout must be compatible with StorageControlBlock
+  // Type-specific shared members below.
 
-  /**
-   * This is an optimization for structural changes in the first-layer root page.
-   * Root of first layer might be VERY contended, so it is better to take a mutex.
-   * Not all threads have to take this, and it is even not required to take this for
-   * changing the root page as we anyway use the page lock. This is to just oppotunistically prevent
-   * concurrent transactions from causing cacheline invalidation storms.
-   */
-  // std::mutex              first_root_mutex_;
+  /** Lock to synchronize updates to root_page_pointer_. */
+  xct::LockableXctId  first_root_owner_;
+};
 
-  /** If this is true, initialize() reads it back from previous snapshot and logs. */
-  bool                    exist_;
+/**
+ * @brief Pimpl object of MasstreeStorage.
+ * @ingroup MASSTREE
+ * @details
+ * A private pimpl object for MasstreeStorage.
+ * Do not include this header from a client program unless you know what you are doing.
+ */
+class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock> {
+ public:
+  MasstreeStoragePimpl() : Attachable<MasstreeStorageControlBlock>() {}
+  explicit MasstreeStoragePimpl(MasstreeStorage* storage)
+    : Attachable<MasstreeStorageControlBlock>(
+      storage->get_engine(),
+      storage->get_control_block()) {}
+
+  ErrorStack  create(const MasstreeMetadata& metadata);
+  ErrorStack  drop();
+
+  bool                exists()    const { return control_block_->exists(); }
+  StorageId           get_id()    const { return control_block_->meta_.id_; }
+  const StorageName&  get_name()  const { return control_block_->meta_.name_; }
+  const MasstreeMetadata& get_meta()  const { return control_block_->meta_; }
+  DualPagePointer& get_first_root_pointer() { return control_block_->root_page_pointer_; }
+  xct::LockableXctId& get_first_root_owner() { return control_block_->first_root_owner_; }
 
   ErrorCode get_first_root(thread::Thread* context, MasstreePage** root);
   ErrorCode grow_root(
@@ -264,6 +273,10 @@ class MasstreeStoragePimpl final : public DefaultInitializable {
   bool track_moved_record(xct::WriteXctAccess* write) ALWAYS_INLINE;
   xct::LockableXctId* track_moved_record(xct::LockableXctId* address) ALWAYS_INLINE;
 };
+static_assert(sizeof(MasstreeStoragePimpl) <= kPageSize, "MasstreeStoragePimpl is too large");
+static_assert(
+  sizeof(MasstreeStorageControlBlock) <= soc::GlobalMemoryAnchors::kStorageMemorySize,
+  "MasstreeStorageControlBlock is too large.");
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus

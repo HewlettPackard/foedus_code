@@ -11,13 +11,44 @@
 
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/fwd.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_mutex.hpp"
 #include "foedus/storage/fwd.hpp"
+#include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 
 namespace foedus {
 namespace storage {
+/** Shared data in StorageManagerPimpl. */
+struct StorageManagerControlBlock {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  StorageManagerControlBlock() = delete;
+  ~StorageManagerControlBlock() = delete;
+
+  void initialize() {
+    mod_lock_.initialize();
+  }
+  void uninitialize() {
+    mod_lock_.uninitialize();
+  }
+
+  /**
+   * In case there are multiple threads that add/delete/expand storages,
+   * those threads take this lock.
+   * Normal threads that only read storages_ don't have to take this.
+   */
+  soc::SharedMutex        mod_lock_;
+
+  /**
+   * The largest StorageId we so far observed.
+   * This value +1 would be the ID of the storage created next.
+   */
+  StorageId               largest_storage_id_;
+};
+
 /**
  * @brief Pimpl object of StorageManager.
  * @ingroup STORAGE
@@ -32,69 +63,45 @@ class StorageManagerPimpl final : public DefaultInitializable {
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
-  void        init_storage_factories();
-  void        clear_storage_factories();
-
   StorageId   issue_next_storage_id();
-  Storage*    get_storage(StorageId id);
-  Storage*    get_storage(const StorageName& name);
-  /**
-   * @brief Adds a storage object, either newly created or constructed from disk at start-up.
-   * @param[in] storage an already-constructred and initialized Storage
-   * @details
-   * The ownership is handed over to this manager, thus caller should NOT uninitialize/destruct.
-   */
-  ErrorStack  register_storage(Storage* storage);
-  ErrorStack  expand_storage_array(StorageId new_size);
+  StorageControlBlock*  get_storage(StorageId id) { return &storages_[id]; }
+  StorageControlBlock*  get_storage(const StorageName& name);
+  bool                  exists(const StorageName& name);
 
-  ErrorStack  drop_storage(thread::Thread* context, StorageId id, Epoch *commit_epoch);
   ErrorStack  drop_storage(StorageId id, Epoch *commit_epoch);
-  void        drop_storage_apply(thread::Thread* context, Storage* storage);
+  void        drop_storage_apply(StorageId id);
+  ErrorStack  create_storage(Metadata *metadata, Epoch *commit_epoch);
+  void        create_storage_apply(Metadata *metadata);
 
-  ErrorStack  create_storage(thread::Thread*, Metadata *metadata, Storage **storage,
-                             Epoch *commit_epoch);
-  ErrorStack  create_storage(Metadata *metadata, Storage **storage, Epoch *commit_epoch);
-
+  bool                track_moved_record(StorageId storage_id, xct::WriteXctAccess *write);
+  xct::LockableXctId* track_moved_record(StorageId storage_id, xct::LockableXctId *address);
   ErrorStack  clone_all_storage_metadata(snapshot::SnapshotMetadata *metadata);
+
+  uint32_t    get_max_storages() const;
 
   Engine* const           engine_;
 
-  /**
-   * In case there are multiple threads that add/delete/expand storages,
-   * those threads take this lock.
-   * Normal threads that only read storages_ don't have to take this.
-   */
-  std::mutex              mod_lock_;
+  StorageManagerControlBlock* control_block_;
 
   /**
-   * The largest StorageId we so far observed.
-   * This value +1 would be the ID of the storage created next.
+   * Storage instances (pimpl objects) are allocated in this shared memory.
+   * Each storage instance must be within 4kb. If the storage type requires more than 4kb,
+   * just grab a page from volatile page pools and point to it from the storage object.
+   * Remember that all pages in volatile page pools are shared.
    */
-  StorageId               largest_storage_id_;
+  StorageControlBlock*    storages_;
 
   /**
-   * Pointers of all Storage objects in this engine.
-   * If there is a hole, it contains a nullptr.
+   * This shared memory stores the ID of storages sorted by their names.
+   * Accessing this, either read or write, must take mod_lock_.
+   * This is why get_storage(string) is more expensive.
    */
-  Storage**               storages_;
-  /**
-   * Capacity of storages_. When we need an expansion, we do RCU and switches the pointer.
-   */
-  size_t                  storages_capacity_;
-
-  /**
-   * Storage name to pointer mapping. Accessing this, either read or write, must take mod_lock_
-   * because std::map is not thread-safe. This is why get_storage(string) is more expensive.
-   */
-  std::map< StorageName, Storage* >   storage_names_;
-
-  /**
-   * Factory objects to instantiate storage objects.
-   * This is just a vector, so you must iterate over it and invoke is_right_metadata() to find
-   * the right factory for the given metadata.
-   */
-  std::vector< StorageFactory* >      storage_factories_;
+  storage::StorageId*     storage_name_sort_;
 };
+
+static_assert(
+  sizeof(StorageManagerControlBlock) <= soc::GlobalMemoryAnchors::kStorageManagerMemorySize,
+  "StorageManagerControlBlock is too large.");
 }  // namespace storage
 }  // namespace foedus
 #endif  // FOEDUS_STORAGE_STORAGE_MANAGER_PIMPL_HPP_

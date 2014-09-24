@@ -8,8 +8,6 @@
 #include <stdint.h>
 
 #include <iosfwd>
-#include <mutex>
-#include <vector>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/fwd.hpp"
@@ -17,10 +15,37 @@
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
 #include "foedus/memory/page_resolver.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_mutex.hpp"
 #include "foedus/thread/thread_id.hpp"
 
 namespace foedus {
 namespace memory {
+/** Shared data in PagePoolPimpl. */
+struct PagePoolControlBlock {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  PagePoolControlBlock() = delete;
+  ~PagePoolControlBlock() = delete;
+
+  void initialize() {
+    lock_.initialize();
+  }
+  void uninitialize() {
+    lock_.uninitialize();
+  }
+
+  /** Inclusive head of the circular queue. Be aware of wrapping around. */
+  uint64_t                        free_pool_head_;
+  /** Number of free pages. */
+  uint64_t                        free_pool_count_;
+
+  /**
+   * grab()/release() are protected with this lock.
+   * This lock is not contentious at all because we pack many pointers in a chunk.
+   */
+  soc::SharedMutex                lock_;
+};
+
 /**
  * @brief Pimpl object of PagePool.
  * @ingroup MEMORY
@@ -30,9 +55,8 @@ namespace memory {
  */
 class PagePoolPimpl final : public DefaultInitializable {
  public:
-  PagePoolPimpl() = delete;
-  explicit PagePoolPimpl(uint64_t memory_byte_size);
-  void        initialize_parent(NumaNodeMemory* parent);
+  PagePoolPimpl();
+  void attach(PagePoolControlBlock* control_block, void* memory, uint64_t memory_size, bool owns);
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
@@ -42,17 +66,23 @@ class PagePoolPimpl final : public DefaultInitializable {
   void                release_one(PagePoolOffset offset);
   LocalPageResolver&  get_resolver() { return resolver_; }
   PagePool::Stat      get_stat() const;
+  uint64_t&           free_pool_head() { return control_block_->free_pool_head_;}
+  uint64_t            free_pool_head() const { return control_block_->free_pool_head_;}
+  uint64_t&           free_pool_count() { return control_block_->free_pool_count_;}
+  uint64_t            free_pool_count() const { return control_block_->free_pool_count_;}
 
   friend std::ostream& operator<<(std::ostream& o, const PagePoolPimpl& v);
 
-  /** Node memory that holds this page pool */
-  NumaNodeMemory*                 parent_;
-
-  /** Byte size of this page pool. */
-  const uint64_t                  memory_byte_size_;
+  PagePoolControlBlock*           control_block_;
 
   /** The whole memory region of the pool. */
-  AlignedMemory                   memory_;
+  void*                           memory_;
+
+  /** Byte size of this page pool. */
+  uint64_t                        memory_size_;
+
+  /** Whether this engine owns this page pool. If not, initialize just attaches */
+  bool                            owns_;
 
   /**
    * An object to resolve an offset in \e this page pool (thus \e local) to an actual
@@ -81,17 +111,10 @@ class PagePoolPimpl final : public DefaultInitializable {
   PagePoolOffset*                 free_pool_;
   /** Size of free_pool_. Immutable once initialized. */
   uint64_t                        free_pool_capacity_;
-  /** Inclusive head of the circular queue. Be aware of wrapping around. */
-  uint64_t                        free_pool_head_;
-  /** Number of free pages. */
-  uint64_t                        free_pool_count_;
-
-  /**
-   * grab()/release() are protected with this lock.
-   * This lock is not contentious at all because we pack many pointers in a chunk.
-   */
-  std::mutex                      lock_;
 };
+static_assert(
+  sizeof(PagePoolControlBlock) <= soc::NodeMemoryAnchors::kPagePoolMemorySize,
+  "PagePoolControlBlock is too large.");
 }  // namespace memory
 }  // namespace foedus
 #endif  // FOEDUS_MEMORY_PAGE_POOL_PIMPL_HPP_

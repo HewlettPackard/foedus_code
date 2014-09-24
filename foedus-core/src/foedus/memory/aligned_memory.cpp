@@ -6,6 +6,7 @@
 
 #include <numa.h>
 #include <numaif.h>
+#include <valgrind.h>
 #include <glog/logging.h>
 #include <sys/mman.h>
 
@@ -22,37 +23,85 @@
 
 
 // this is a quite new flag, so not exists in many environment. define it here.
+#ifndef MAP_HUGE_SHIFT
+#define MAP_HUGE_SHIFT  26
+#endif  // MAP_HUGE_SHIFT
+#ifndef MAP_HUGE_2MB
+#define MAP_HUGE_2MB (21 << MAP_HUGE_SHIFT)
+#endif  // MAP_HUGE_2MB
 #ifndef MAP_HUGE_1GB
-#define MAP_HUGE_1GB (30 << 26)
+#define MAP_HUGE_1GB (30 << MAP_HUGE_SHIFT)
 #endif  // MAP_HUGE_1GB
 
 namespace foedus {
 namespace memory {
 AlignedMemory::AlignedMemory(uint64_t size, uint64_t alignment,
                AllocType alloc_type, int numa_node) noexcept
-  : size_(0), alignment_(0), alloc_type_(kPosixMemalign), numa_node_(0), block_(nullptr) {
+  : size_(0), alignment_(0), alloc_type_(kPosixMemalign), numa_node_(0),
+  block_(nullptr) {
   alloc(size, alignment, alloc_type, numa_node);
+}
+
+// std::mutex mmap_allocate_mutex;
+// No, this doesn't matter. Rather, turns out that the issue is in linux kernel:
+// https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/commit/?id=8382d914ebf72092aa15cdc2a5dcedb2daa0209d
+// In linux 3.15 and later, this problem gets resolved and highly parallelizable.
+
+char* alloc_mmap(uint64_t size, uint64_t alignment) {
+  // std::lock_guard<std::mutex> guard(mmap_allocate_mutex);
+  // we don't use MAP_POPULATE because it will block here and also serialize hugepage allocation!
+  // even if we run mmap in parallel, linux serializes the looooong population in all numa nodes.
+  // lame. we will memset right after this.
+  int pagesize;
+  if (alignment >= (1ULL << 30)) {
+    if (is_1gb_hugepage_enabled()) {
+      pagesize = MAP_HUGE_1GB | MAP_HUGETLB;
+    } else {
+      pagesize = MAP_HUGE_2MB | MAP_HUGETLB;
+    }
+  } else if (alignment >= (1ULL << 21)) {
+    pagesize = MAP_HUGE_2MB | MAP_HUGETLB;
+  } else {
+    pagesize = 0;
+  }
+  bool running_on_valgrind = RUNNING_ON_VALGRIND;
+  if (running_on_valgrind) {
+    // if this is running under valgrind, we have to avoid using hugepages due to a bug in valgrind.
+    // When we are running on valgrind, we don't care performance anyway. So shouldn't matter.
+    pagesize = 0;
+  }
+  char* ret = reinterpret_cast<char*>(::mmap(
+    nullptr,
+    size,
+    PROT_READ | PROT_WRITE,
+    MAP_ANONYMOUS | MAP_PRIVATE | MAP_NORESERVE | pagesize,
+    -1,
+    0));
+  // when mmap() fails, it returns -1 (MAP_FAILED)
+  if (ret == nullptr || ret == MAP_FAILED) {
+    LOG(FATAL) << "mmap() failed. size=" << size << ", error=" << assorted::os_error()
+      << ". This error usually means you don't have enough hugepages allocated."
+      << " eg) sudo sh -c 'echo 196608 > /proc/sys/vm/nr_hugepages'";
+  }
+  return ret;
 }
 
 void* alloc_mmap_1gb_pages(uint64_t size) {
   ASSERT_ND(size % (1ULL << 30) == 0);
-  char* ret;
-  {
-    // we don't use MAP_POPULATE because it will block here and also serialize hugepage allocation!
-    // even if we run mmap in parallel, linux serializes the looooong population in all numa nodes.
-    // lame. we will memset right after this.
-    ret = reinterpret_cast<char*>(::mmap(
-      nullptr,
-      size,
-      PROT_READ | PROT_WRITE,
-      MAP_ANONYMOUS | MAP_PRIVATE | MAP_NORESERVE | MAP_HUGETLB | MAP_HUGE_1GB,
-      -1,
-      0));
-    if (ret == nullptr) {
-      LOG(FATAL) << "mmap() failed. size=" << size << ", error=" << assorted::os_error();
+  return alloc_mmap(size, 1ULL << 30);
+}
+
+void* alloc_mmap_small_pages(uint64_t size, uint64_t alignment, int node) {
+  // if allocating a small private memory, we can simply use libnuma
+  // this will also benefit from THP if configured.
+  if (alignment < (1ULL << 30)) {
+    if (node < 0) {
+      return ::numa_alloc_interleaved(size);
+    } else {
+      return ::numa_alloc_onnode(size, node);
     }
   }
-  return ret;
+  return alloc_mmap(size, alignment);
 }
 
 void AlignedMemory::alloc(
@@ -73,16 +122,23 @@ void AlignedMemory::alloc(
   if (size_ % alignment != 0) {
     size_ = ((size_ / alignment) + 1) * alignment;
   }
+
+  // Use libnuma's numa_set_preferred to initialize the NUMA node of the memory.
+  // We can later do the equivalent with mbind IF the memory is not shared.
+  // mbind does nothing for shared memory. So, this is the only way
+  int original_node = ::numa_preferred();
+  ::numa_set_preferred(numa_node);
+
   debugging::StopWatch watch;
   switch (alloc_type_) {
     case kPosixMemalign:
       ::posix_memalign(&block_, alignment, size_);
       break;
     case kNumaAllocInterleaved:
-      block_ = ::numa_alloc_interleaved(size_);
+      block_ = alloc_mmap_small_pages(size_, alignment, -1);
       break;
     case kNumaAllocOnnode:
-      block_ = ::numa_alloc_onnode(size_, numa_node);
+      block_ = alloc_mmap_small_pages(size_, alignment, numa_node);
       break;
     case kNumaMmapOneGbPages:
       block_ = alloc_mmap_1gb_pages(size_);
@@ -115,8 +171,10 @@ void AlignedMemory::alloc(
       }
     }
   }
+
   std::memset(block_, 0, size_);  // see class comment for why we do this immediately
   watch2.stop();
+  ::numa_set_preferred(original_node);
   LOG(INFO) << "Allocated memory in " << watch.elapsed_ns() << "+"
     << watch2.elapsed_ns() << " ns (alloc+memset)." << *this;
 }

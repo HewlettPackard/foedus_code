@@ -11,6 +11,7 @@
 #include "foedus/initializable.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/log/log_id.hpp"
+#include "foedus/log/logger_ref.hpp"
 #include "foedus/savepoint/fwd.hpp"
 
 namespace foedus {
@@ -51,9 +52,9 @@ class LogManager CXX11_FINAL : public virtual Initializable {
   void        wakeup_loggers();
 
   /**
-   * Returns a logger instance of the given ID.
+   * Returns a reference to the logger of the given ID.
    */
-  Logger&     get_logger(LoggerId logger_id);
+  LoggerRef   get_logger(LoggerId logger_id);
 
   /**
    * @brief Returns the durable epoch of the entire engine.
@@ -66,6 +67,10 @@ class LogManager CXX11_FINAL : public virtual Initializable {
   Epoch       get_durable_global_epoch() const;
   /** Non-atomic version of the method. */
   Epoch       get_durable_global_epoch_weak() const;
+  /**
+   * Sets the new global durable epoch and also wakes up threads that were waiting for it.
+   */
+  void        announce_new_durable_global_epoch(Epoch new_epoch);
 
   /**
    * @brief Synchronously blocks until the durable global epoch reaches the given commit
@@ -91,6 +96,9 @@ class LogManager CXX11_FINAL : public virtual Initializable {
    * or may not advance the global durable epoch. This method recalculates global durable epoch.
    */
   ErrorStack  refresh_global_durable_epoch();
+
+  MetaLogger*     get_meta_logger();
+  MetaLogBuffer*  get_meta_buffer();
 
  private:
   LogManagerPimpl *pimpl_;

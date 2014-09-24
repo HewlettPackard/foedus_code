@@ -37,28 +37,24 @@ namespace memory {
 class EngineMemory CXX11_FINAL : public DefaultInitializable {
  public:
   EngineMemory() CXX11_FUNC_DELETE;
-  explicit EngineMemory(Engine* engine) : engine_(engine) {}
+  explicit EngineMemory(Engine* engine) : engine_(engine), local_memory_(CXX11_NULLPTR) {}
   ErrorStack  initialize_once() CXX11_OVERRIDE;
   ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
   // accessors for child memories
-  foedus::thread::ThreadGroupId get_node_memory_count() const {
-    ASSERT_ND(node_memories_.size() <= foedus::thread::kMaxThreadGroupId);
-    return static_cast<foedus::thread::ThreadGroupId>(node_memories_.size());
+  NumaNodeMemory* get_local_memory() const {
+    return local_memory_;
   }
-  NumaNodeMemory* get_node_memory(foedus::thread::ThreadGroupId group) const {
+  NumaNodeMemoryRef* get_node_memory(foedus::thread::ThreadGroupId group) const {
     return node_memories_[group];
   }
-  NumaCoreMemory* get_core_memory(foedus::thread::ThreadId id) const;
 
   /** Report rough statistics of free memory */
   std::string     dump_free_memory_stat() const;
 
   /**
    * Returns the page resolver to convert volatile page ID to page pointer.
-   * Any code can get the global page resolver from engine memory, but the most efficient
-   * way is to use the global page page resolver per core because
-   * it never requires remote memory access.
+   * Any code can get the global page resolver from engine memory.
    * Note that this is only for volatile pages. As snapshot cache is per-node, there is no
    * global snapshot page resolver (just the node-local one should be enough).
    * @see thread::Thread::get_global_volatile_page_resolver()
@@ -71,21 +67,20 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
   Engine* const                   engine_;
 
   /**
-   * List of NumaNodeMemory, one for each NUMA socket in the machine.
-   * Index is NUMA node ID.
+   * NumaNodeMemory of this SOC engine.
+   * Null if master engine.
    */
-  std::vector<NumaNodeMemory*>    node_memories_;
+  NumaNodeMemory*                 local_memory_;
+
+  /**
+   * View of all node memories. We have ref objects for all SOCs even if this is a master engine.
+   */
+  std::vector<NumaNodeMemoryRef*> node_memories_;
 
   /**
    * Converts volatile page ID to page pointer.
    */
   GlobalVolatilePageResolver      global_volatile_page_resolver_;
-
-  /**
-   * THP being disabled is one of the most frequent misconfiguration that reduces performance
-   * for 30% or more. We output a strong warning at startup if it's not "always" mode.
-   */
-  void check_transparent_hugepage_setting() const;
 };
 }  // namespace memory
 }  // namespace foedus

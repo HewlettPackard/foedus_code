@@ -88,8 +88,8 @@ namespace snapshot {
  */
 class LogGleaner final : public DefaultInitializable {
  public:
-  explicit LogGleaner(Engine* engine, Snapshot* snapshot, thread::StoppableThread* gleaner_thread)
-    : engine_(engine), snapshot_(snapshot), gleaner_thread_(gleaner_thread) {}
+  explicit LogGleaner(Engine* engine, Snapshot* snapshot)
+    : engine_(engine), snapshot_(snapshot) {}
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
@@ -176,12 +176,6 @@ class LogGleaner final : public DefaultInitializable {
  private:
   Engine* const                   engine_;
   Snapshot* const                 snapshot_;
-
-  /**
-   * The thread that will call execute(). execute() occasionally checks
-   * if this thread has been requested to stop, and exit if that happens.
-   */
-  thread::StoppableThread* const  gleaner_thread_;
 
   /**
    * rendezvous point after all mappers/reducers complete initialization.

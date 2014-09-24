@@ -14,9 +14,11 @@
 #include "foedus/externalize/externalizable.hpp"
 #include "foedus/log/log_options.hpp"
 #include "foedus/memory/memory_options.hpp"
+#include "foedus/proc/proc_options.hpp"
 #include "foedus/restart/restart_options.hpp"
 #include "foedus/savepoint/savepoint_options.hpp"
 #include "foedus/snapshot/snapshot_options.hpp"
+#include "foedus/soc/soc_options.hpp"
 #include "foedus/storage/storage_options.hpp"
 #include "foedus/thread/thread_options.hpp"
 #include "foedus/xct/xct_options.hpp"
@@ -67,9 +69,11 @@ struct EngineOptions CXX11_FINAL : public virtual externalize::Externalizable {
   debugging::DebuggingOptions debugging_;
   log::LogOptions             log_;
   memory::MemoryOptions       memory_;
+  proc::ProcOptions           proc_;
   restart::RestartOptions     restart_;
   savepoint::SavepointOptions savepoint_;
   snapshot::SnapshotOptions   snapshot_;
+  soc::SocOptions             soc_;
   storage::StorageOptions     storage_;
   thread::ThreadOptions       thread_;
   xct::XctOptions             xct_;

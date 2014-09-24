@@ -7,6 +7,7 @@
 #include "foedus/epoch.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/log/log_id.hpp"
 #include "foedus/savepoint/fwd.hpp"
 namespace foedus {
 namespace savepoint {
@@ -29,24 +30,20 @@ class SavepointManager CXX11_FINAL : public virtual Initializable {
   ErrorStack  uninitialize() CXX11_OVERRIDE;
 
   /**
-   * @brief Returns a copy of the current progress of the entire engine.
+   * @brief Returns the saved information of the given logger in latest savepoint.
    * @details
    * Note that this is a read-only access, which might see a stale information if it's
    * in race condition. However, we take a lock before copying the entire information.
    * Thus, this method is slow but safe. No garbage information returned.
-   * @see get_savepoint_fast()
    */
-  Savepoint get_savepoint_safe() const;
+  LoggerSavepointInfo       get_logger_savepoint(log::LoggerId logger_id);
 
-  /**
-   * @brief Returns a reference of the current progress of the entire engine.
-   * @details
-   * This is a read-only and \e unsafe access in race condition.
-   * This method doesn't take any lock. Thus, this method is fast but unsafe.
-   * Use it only when it's appropriate.
-   * @see get_savepoint_safe()
-   */
-  const Savepoint& get_savepoint_fast() const;
+  /** Returns the saved information of metadata logger in lateset savepoint */
+  void get_meta_logger_offsets(uint64_t* oldest_offset, uint64_t* durable_offset) const;
+
+  Epoch get_initial_current_epoch() const;
+  Epoch get_initial_durable_epoch() const;
+  Epoch get_saved_durable_epoch() const;
 
   /**
    * @brief Atomically and durably takes a savepoint for the given epoch advancement.

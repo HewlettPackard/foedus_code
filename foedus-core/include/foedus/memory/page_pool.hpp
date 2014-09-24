@@ -89,22 +89,20 @@ class PagePool CXX11_FINAL : public virtual Initializable {
     uint64_t allocated_pages_;
   };
 
-  explicit PagePool(uint64_t memory_byte_size);
+  PagePool();
   ~PagePool();
+  void attach(PagePoolControlBlock* control_block, void* memory, uint64_t memory_size, bool owns);
 
   // Disable default constructors
-  PagePool() CXX11_FUNC_DELETE;
   PagePool(const PagePool&) CXX11_FUNC_DELETE;
   PagePool& operator=(const PagePool&) CXX11_FUNC_DELETE;
 
-  /** separated to avoid passing un-consructed object's pointer. */
-  void        initialize_parent(NumaNodeMemory* parent);
   ErrorStack  initialize() CXX11_OVERRIDE;
   bool        is_initialized() const CXX11_OVERRIDE;
   ErrorStack  uninitialize() CXX11_OVERRIDE;
 
-  uint64_t              get_memory_byte_size() const;
-  thread::ThreadGroupId get_numa_node() const;
+  storage::Page*        get_base() const;
+  uint64_t              get_memory_size() const;
   Stat                  get_stat() const;
 
   /**
@@ -145,9 +143,6 @@ class PagePool CXX11_FINAL : public virtual Initializable {
    * pointer and vice versa.
    */
   LocalPageResolver&  get_resolver();
-
-  /** Returns the underlying memory of the pool. */
-  const AlignedMemory& get_memory() const;
 
   friend std::ostream& operator<<(std::ostream& o, const PagePool& v);
 

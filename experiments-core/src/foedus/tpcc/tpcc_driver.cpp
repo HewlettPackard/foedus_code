@@ -6,8 +6,10 @@
 
 #include <fcntl.h>
 #include <time.h>
+#include <unistd.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
+#include <sys/wait.h>
 
 #include <algorithm>
 #include <iostream>
@@ -22,8 +24,13 @@
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/memory/engine_memory.hpp"
+#include "foedus/proc/proc_manager.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/soc_manager.hpp"
+#include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
+#include "foedus/thread/thread_pool_pimpl.hpp"
 #include "foedus/tpcc/tpcc.hpp"
 #include "foedus/tpcc/tpcc_client.hpp"
 #include "foedus/tpcc/tpcc_load.hpp"
@@ -31,11 +38,13 @@
 
 namespace foedus {
 namespace tpcc {
+DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
+    " than threads in the same process. This is required to scale up to 100+ cores.");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
-DEFINE_int32(volatile_pool_size, 20, "Size of volatile memory pool per NUMA node in GB.");
+DEFINE_int32(volatile_pool_size, 8, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_bool(ignore_volatile_size_warning, true, "Ignores warning on volatile_pool_size setting.");
-DEFINE_int32(loggers_per_node, 2, "Number of log writers per numa node.");
+DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
   " remote orderline). This corresponds to H-Store's neworder_multip/neworder_multip_mix in"
@@ -44,8 +53,8 @@ DEFINE_int32(payment_remote_percent, 15, "Percent of each payment that is insert
   " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
-DEFINE_int32(thread_per_node, 6, "Number of threads per NUMA node. 0 uses logical count");
-DEFINE_int32(numa_nodes, 0, "Number of NUMA nodes. 0 uses physical count");
+DEFINE_int32(thread_per_node, 2, "Number of threads per NUMA node. 0 uses logical count");
+DEFINE_int32(numa_nodes, 2, "Number of NUMA nodes. 0 uses physical count");
 DEFINE_bool(use_numa_alloc, true, "Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode()"
   " to allocate memories. If false, we use usual posix_memalign() instead");
 DEFINE_bool(interleave_numa_alloc, false, "Whether to use ::numa_alloc_interleaved()"
@@ -55,7 +64,7 @@ DEFINE_bool(mmap_hugepages, false, "Whether to use mmap for 1GB hugepages."
 DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
-DEFINE_int32(warehouses, 12, "Number of warehouses.");
+DEFINE_int32(warehouses, 4, "Number of warehouses.");
 DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
 
 TpccDriver::Result TpccDriver::run() {
@@ -66,20 +75,12 @@ TpccDriver::Result TpccDriver::run() {
 
   {
     // first, create empty tables. this is done in single thread
-    TpccCreateTask creater(FLAGS_warehouses);
-    thread::ImpersonateSession creater_session = engine_->get_thread_pool().impersonate(&creater);
-    if (!creater_session.is_valid()) {
-      COERCE_ERROR(creater_session.invalid_cause_);
+    ErrorStack create_result = create_all(engine_, FLAGS_warehouses);
+    LOG(INFO) << "creator_result=" << create_result;
+    if (create_result.is_error()) {
+      COERCE_ERROR(create_result);
       return Result();
     }
-    LOG(INFO) << "creator_result=" << creater_session.get_result();
-    if (creater_session.get_result().is_error()) {
-      COERCE_ERROR(creater_session.get_result());
-      return Result();
-    }
-
-    storages_ = creater.get_storages();
-    storages_.assert_initialized();
   }
 
   auto& thread_pool = engine_->get_thread_pool();
@@ -92,23 +93,28 @@ TpccDriver::Result TpccDriver::run() {
 
     // then, load data into the tables.
     // this takes long, so it's parallelized.
-    std::vector< TpccLoadTask* > tasks;
     std::vector< thread::ImpersonateSession > sessions;
     for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
       for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
-        uint16_t count = tasks.size();
-        tasks.push_back(new TpccLoadTask(
-          FLAGS_warehouses,
-          storages_,
-          timestamp,
-          from_wids_[count],
-          to_wids_[count],
-          from_iids_[count],
-          to_iids_[count]));
-        sessions.emplace_back(thread_pool.impersonate_on_numa_node(tasks.back(), node));
-        if (!sessions.back().is_valid()) {
-          COERCE_ERROR(sessions.back().invalid_cause_);
+        uint16_t count = sessions.size();
+        TpccLoadTask::Inputs inputs;
+        inputs.total_warehouses_ = FLAGS_warehouses;
+        inputs.timestamp_ = timestamp;
+        inputs.from_wid_ = from_wids_[count];
+        inputs.to_wid_ = to_wids_[count];
+        inputs.from_iid_ = from_iids_[count];
+        inputs.to_iid_ = to_iids_[count];
+        thread::ImpersonateSession session;
+        bool ret = thread_pool.impersonate_on_numa_node(
+          node,
+          "tpcc_load_task",
+          &inputs,
+          sizeof(inputs),
+          &session);
+        if (!ret) {
+          LOG(FATAL) << "Couldn't impersonate";
         }
+        sessions.emplace_back(std::move(session));
       }
     }
 
@@ -118,7 +124,7 @@ TpccDriver::Result TpccDriver::run() {
       if (sessions[i].get_result().is_error()) {
         had_error = true;
       }
-      delete tasks[i];
+      sessions[i].release();
     }
 
     if (had_error) {
@@ -129,51 +135,60 @@ TpccDriver::Result TpccDriver::run() {
   }
 
 
-  {
-    // first, create empty tables. this is done in single thread
-    TpccFinishupTask finishup(FLAGS_warehouses, storages_);
-    thread::ImpersonateSession finish_session = thread_pool.impersonate(&finishup);
-    if (!finish_session.is_valid()) {
-      COERCE_ERROR(finish_session.invalid_cause_);
-      return Result();
-    }
-    LOG(INFO) << "finiish_result=" << finish_session.get_result();
-    if (finish_session.get_result().is_error()) {
-      COERCE_ERROR(finish_session.get_result());
-      return Result();
-    }
+  // Verify the loaded data. this is done in single thread
+  Wid total_warehouses = FLAGS_warehouses;
+  ErrorStack finishup_result = thread_pool.impersonate_synchronous(
+    "tpcc_finishup_task",
+    &total_warehouses,
+    sizeof(total_warehouses));
+  LOG(INFO) << "finish_result=" << finishup_result;
+  if (finishup_result.is_error()) {
+    COERCE_ERROR(finishup_result);
+    return Result();
   }
 
   LOG(INFO) << engine_->get_memory_manager().dump_free_memory_stat();
 
   LOG(INFO) << "neworder_remote_percent=" << FLAGS_neworder_remote_percent;
   LOG(INFO) << "payment_remote_percent=" << FLAGS_payment_remote_percent;
-  warmup_complete_counter_.store(0);
+
+  TpccClientChannel* channel = reinterpret_cast<TpccClientChannel*>(
+    engine_->get_soc_manager().get_shared_memory_repo()->get_global_user_memory());
+  channel->initialize();
+
   std::vector< thread::ImpersonateSession > sessions;
+  std::vector< const TpccClientTask::Outputs* > outputs;
+
   for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
-    memory::ScopedNumaPreferred scope(node);
     for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
-      uint16_t global_ordinal = clients_.size();
-      clients_.push_back(new TpccClientTask(
-        (node << 8U) + ordinal,
-        FLAGS_warehouses,
-        from_wids_[global_ordinal],
-        to_wids_[global_ordinal],
-        FLAGS_neworder_remote_percent,
-        FLAGS_payment_remote_percent,
-        storages_,
-        &warmup_complete_counter_,
-        &start_rendezvous_));
-      sessions.emplace_back(thread_pool.impersonate_on_numa_node(clients_.back(), node));
-      if (!sessions.back().is_valid()) {
-        COERCE_ERROR(sessions.back().invalid_cause_);
+      uint16_t global_ordinal = options.thread_.thread_count_per_group_ * node + ordinal;
+      TpccClientTask::Inputs inputs;
+      inputs.worker_id_ = (node << 8U) + ordinal;
+      inputs.total_warehouses_ = FLAGS_warehouses;
+      inputs.from_wid_ = from_wids_[global_ordinal];
+      inputs.to_wid_ = to_wids_[global_ordinal];
+      inputs.neworder_remote_percent_ = FLAGS_neworder_remote_percent;
+      inputs.payment_remote_percent_ = FLAGS_payment_remote_percent;
+      thread::ImpersonateSession session;
+      bool ret = thread_pool.impersonate_on_numa_node(
+        node,
+        "tpcc_client_task",
+        &inputs,
+        sizeof(inputs),
+        &session);
+      if (!ret) {
+        LOG(FATAL) << "Couldn't impersonate";
       }
+      outputs.push_back(
+        reinterpret_cast<const TpccClientTask::Outputs*>(session.get_raw_output_buffer()));
+      sessions.emplace_back(std::move(session));
     }
   }
   LOG(INFO) << "okay, launched all worker threads. waiting for completion of warmup...";
-  while (warmup_complete_counter_.load() < sessions.size()) {
-    LOG(INFO) << "Waiting for warmup completion... done=" << warmup_complete_counter_ << "/"
-      << sessions.size();
+  uint32_t total_thread_count = options.thread_.get_total_thread_count();
+  while (channel->warmup_complete_counter_.load() < total_thread_count) {
+    LOG(INFO) << "Waiting for warmup completion... done=" << channel->warmup_complete_counter_
+      << "/" << total_thread_count;
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
 
@@ -184,7 +199,8 @@ TpccDriver::Result TpccDriver::run() {
   if (FLAGS_papi) {
     engine_->get_debug().start_papi_counters();
   }
-  start_rendezvous_.signal();  // GO!
+  channel->start_rendezvous_.signal();
+  assorted::memory_fence_release();
   LOG(INFO) << "Started!";
   debugging::StopWatch duration;
   while (duration.peek_elapsed_ns() < static_cast<uint64_t>(FLAGS_duration_micro) * 1000ULL) {
@@ -194,14 +210,14 @@ TpccDriver::Result TpccDriver::run() {
     std::this_thread::sleep_for(std::chrono::microseconds(remaining_duration));
     Result result;
     result.duration_sec_ = static_cast<double>(duration.peek_elapsed_ns()) / 1000000000;
-    result.worker_count_ = clients_.size();
-    for (uint32_t i = 0; i < clients_.size(); ++i) {
-      TpccClientTask* client = clients_[i];
-      result.processed_ += client->get_processed();
-      result.race_aborts_ += client->get_race_aborts();
-      result.unexpected_aborts_ += client->get_unexpected_aborts();
-      result.largereadset_aborts_ += client->get_largereadset_aborts();
-      result.user_requested_aborts_ += client->get_user_requested_aborts();
+    result.worker_count_ = total_thread_count;
+    for (uint32_t i = 0; i < sessions.size(); ++i) {
+      const TpccClientTask::Outputs* output = outputs[i];
+      result.processed_ += output->processed_;
+      result.race_aborts_ += output->race_aborts_;
+      result.unexpected_aborts_ += output->unexpected_aborts_;
+      result.largereadset_aborts_ += output->largereadset_aborts_;
+      result.user_requested_aborts_ += output->user_requested_aborts_;
     }
     LOG(INFO) << "Intermediate report after " << result.duration_sec_ << " sec";
     LOG(INFO) << result;
@@ -219,23 +235,23 @@ TpccDriver::Result TpccDriver::run() {
   Result result;
   duration.stop();
   result.duration_sec_ = duration.elapsed_sec();
-  result.worker_count_ = clients_.size();
+  result.worker_count_ = total_thread_count;
   result.papi_results_ = debugging::DebuggingSupports::describe_papi_counters(
     engine_->get_debug().get_papi_counters());
   assorted::memory_fence_acquire();
-  for (uint32_t i = 0; i < clients_.size(); ++i) {
-    TpccClientTask* client = clients_[i];
-    result.workers_[i].id_ = client->get_worker_id();
-    result.workers_[i].processed_ = client->get_processed();
-    result.workers_[i].race_aborts_ = client->get_race_aborts();
-    result.workers_[i].unexpected_aborts_ = client->get_unexpected_aborts();
-    result.workers_[i].largereadset_aborts_ = client->get_largereadset_aborts();
-    result.workers_[i].user_requested_aborts_ = client->get_user_requested_aborts();
-    result.processed_ += client->get_processed();
-    result.race_aborts_ += client->get_race_aborts();
-    result.unexpected_aborts_ += client->get_unexpected_aborts();
-    result.largereadset_aborts_ += client->get_largereadset_aborts();
-    result.user_requested_aborts_ += client->get_user_requested_aborts();
+  for (uint32_t i = 0; i < sessions.size(); ++i) {
+    const TpccClientTask::Outputs* output = outputs[i];
+    result.workers_[i].id_ = i;
+    result.workers_[i].processed_ = output->processed_;
+    result.workers_[i].race_aborts_ = output->race_aborts_;
+    result.workers_[i].unexpected_aborts_ = output->unexpected_aborts_;
+    result.workers_[i].largereadset_aborts_ = output->largereadset_aborts_;
+    result.workers_[i].user_requested_aborts_ = output->user_requested_aborts_;
+    result.processed_ += output->processed_;
+    result.race_aborts_ += output->race_aborts_;
+    result.unexpected_aborts_ += output->unexpected_aborts_;
+    result.largereadset_aborts_ += output->largereadset_aborts_;
+    result.user_requested_aborts_ += output->user_requested_aborts_;
   }
 /*
 for (uint32_t i = 0; i < clients_.size(); ++i) {
@@ -261,45 +277,13 @@ for (uint32_t i = 0; i < clients_.size(); ++i) {
   // output the current memory state at the end
   LOG(INFO) << engine_->get_memory_manager().dump_free_memory_stat();
 
-  assorted::memory_fence_release();
-  for (auto* client : clients_) {
-    client->request_stop();
-    /*
-    {
-      uint32_t from = 0;
-      uint32_t to = 0;
-      for (uint32_t i = 0; i < kCustomers * kDistricts * kMaxWarehouses; ++i) {
-        if (client->debug_wdcid_access_[i]) {
-          to = i;
-          if (from == 0) {
-            from = i;
-          }
-        }
-      }
-      LOG(INFO) << "debug_wdcid_access[" << client->get_worker_id() << "]=" << from << "~" << to;
-    }
-    {
-      uint32_t from = 0;
-      uint32_t to = 0;
-      for (uint32_t i = 0; i < kDistricts * kMaxWarehouses; ++i) {
-        if (client->debug_wdid_access_[i]) {
-          to = i;
-          if (from == 0) {
-            from = i;
-          }
-        }
-      }
-      LOG(INFO) << "debug_wdid_access[" << client->get_worker_id() << "]=" << from << "~" << to;
-    }
-    */
-  }
-  assorted::memory_fence_release();
+  channel->stop_flag_.store(true);
 
-  LOG(INFO) << "Total thread count=" << clients_.size();
-  for (uint16_t i = 0; i < sessions.size(); ++i) {
+  for (uint32_t i = 0; i < sessions.size(); ++i) {
     LOG(INFO) << "result[" << i << "]=" << sessions[i].get_result();
-    delete clients_[i];
+    sessions[i].release();
   }
+  channel->uninitialize();
   return result;
 }
 
@@ -353,6 +337,14 @@ void TpccDriver::assign_iids() {
 }
 
 int driver_main(int argc, char **argv) {
+  std::vector< proc::ProcAndName > procs;
+  procs.emplace_back("tpcc_client_task", tpcc_client_task);
+  procs.emplace_back("tpcc_finishup_task", tpcc_finishup_task);
+  procs.emplace_back("tpcc_load_task", tpcc_load_task);
+  {
+    // In case the main() was called for exec()-style SOC engines.
+    soc::SocManager::trap_spawned_soc_main(procs);
+  }
   gflags::SetUsageMessage("TPC-C implementation for FOEDUS");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
@@ -391,6 +383,11 @@ int driver_main(int argc, char **argv) {
       // again, numa_alloc_onnode should be better than numa_alloc_interleaved
       options.memory_.interleave_numa_alloc_ = true;
     }
+  }
+
+  if (FLAGS_fork_workers) {
+    std::cout << "Will fork workers in child processes" << std::endl;
+    options.soc_.soc_type_ = kChildForked;
   }
 
   options.snapshot_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/snapshot/node_$NODE$";
@@ -450,13 +447,23 @@ int driver_main(int argc, char **argv) {
 
   TpccDriver::Result result;
   {
-    Engine engine(options);
-    COERCE_ERROR(engine.initialize());
+    Engine* engine = new Engine(options);
+    for (const proc::ProcAndName& proc : procs) {
+      engine->get_proc_manager().pre_register(proc);
+    }
+    COERCE_ERROR(engine->initialize());
     {
-      UninitializeGuard guard(&engine);
-      TpccDriver driver(&engine);
+      // UninitializeGuard guard(&engine);
+      TpccDriver driver(engine);
       result = driver.run();
-      COERCE_ERROR(engine.uninitialize());
+      // TODO(Hideaki) skip uninitialization. the tentative SOC implementation leaves
+      // page pool etc in un-synced, thus this causes an error.
+      if (!FLAGS_fork_workers) {
+        COERCE_ERROR(engine->uninitialize());
+      }
+    }
+    if (!FLAGS_fork_workers) {
+      delete engine;
     }
   }
 
@@ -475,6 +482,11 @@ int driver_main(int argc, char **argv) {
   if (FLAGS_profile) {
     std::cout << "Check out the profile result: pprof --pdf tpcc tpcc.prof > prof.pdf; "
       "okular prof.pdf" << std::endl;
+  }
+
+  if (FLAGS_fork_workers) {
+    // TODO(Hideaki) same above
+    ::exit(0);
   }
   return 0;
 }

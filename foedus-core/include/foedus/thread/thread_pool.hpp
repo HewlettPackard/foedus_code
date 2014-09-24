@@ -11,9 +11,9 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/proc/proc_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/impersonate_session.hpp"
-#include "foedus/thread/impersonate_task.hpp"
 
 namespace foedus {
 namespace thread {
@@ -127,19 +127,24 @@ class ThreadPool CXX11_FINAL : public virtual Initializable {
   ErrorStack  uninitialize() CXX11_OVERRIDE;
 
   /**
-   * @brief Impersonate as one of pre-allocated threads in this engine, calling
-   * back the functor from the impersonated thread (\b NOT the current thread).
-   * @param[in] task the callback functor the client program should define. The pointer
-   * must be valid at least until the completion of the session.
-   * @param[in] timeout how long we wait for impersonation if there is no available thread
+   * @brief Impersonate as one of pre-allocated threads in this engine, executing
+   * the procedure on the impersonated thread (\b NOT the current thread).
+   * @param[in] proc_name the name of the procedure to run on this thread.
+   * @param[in] task_input input data of arbitrary format for the procedure.
+   * @param[in] task_input_size byte size of the input data to copy into the thread's memory.
+   * @param[out] session the session to run on this thread. On success, the session receives a
+   * ticket so that the caller can wait for the completion.
    * @details
    * This is similar to launch a new thread that calls the functor.
    * The difference is that this doesn't actually create a thread (which is very expensive)
    * but instead just impersonates as one of the pre-allocated threads in the engine.
-   * @return The resulting session.
-   * @todo currently, timeout is ignored. It behaves as if timeout=0
+   * @return whether successfully impersonated.
    */
-  ImpersonateSession  impersonate(ImpersonateTask* task, TimeoutMicrosec timeout = -1);
+  bool impersonate(
+    const proc::ProcName& proc_name,
+    const void* task_input,
+    uint64_t task_input_size,
+    ImpersonateSession *session);
 
   /**
    * @brief A shorthand for impersonating a session and synchronously waiting for its end.
@@ -147,19 +152,22 @@ class ThreadPool CXX11_FINAL : public virtual Initializable {
    * Useful for a single and synchronous task invocation.
    * This is equivalent to the following impersonate() invocation.
    * @code{.cpp}
-   * ImpersonateSession session = pool.impersonate(task);
-   * if (!session.is_valid()) {
-   *   return session.invalid_cause_;
+   * ImpersonateSession session;
+   * if (!pool.impersonate(proc_name, task_input, task_input_size, &session)) {
+   *   return ERROR_STACK(kErrorCodeThrNoThreadAvailable);
    * }
    * return session.get_result();
    * @endcode{.cpp}
    * @return Error code of the impersonation or (if impersonation succeeds) of the task.
    * This returns kRetOk iff impersonation and the task succeed.
    */
-  ErrorStack          impersonate_synchronous(ImpersonateTask* task) {
-    ImpersonateSession session = impersonate(task);
-    if (!session.is_valid()) {
-      return session.invalid_cause_;
+  ErrorStack          impersonate_synchronous(
+    const proc::ProcName& proc_name,
+    const void* task_input = CXX11_NULLPTR,
+    uint64_t task_input_size = 0) {
+    ImpersonateSession session;
+    if (!impersonate(proc_name, task_input, task_input_size, &session)) {
+      return ERROR_STACK(kErrorCodeThrNoThreadAvailable);
     }
     return session.get_result();
   }
@@ -167,21 +175,30 @@ class ThreadPool CXX11_FINAL : public virtual Initializable {
   /**
    * Overload to specify a NUMA node to run on.
    * @see impersonate()
-   * @todo currently, timeout is ignored. It behaves as if timeout=0
    */
-  ImpersonateSession  impersonate_on_numa_node(ImpersonateTask* task,
-                    ThreadGroupId numa_node, TimeoutMicrosec timeout = -1);
+  bool impersonate_on_numa_node(
+    ThreadGroupId node,
+    const proc::ProcName& proc_name,
+    const void* task_input,
+    uint64_t task_input_size,
+    ImpersonateSession *session);
 
   /**
    * Overload to specify a core to run on.
    * @see impersonate()
-   * @todo currently, timeout is ignored. It behaves as if timeout=0
    */
-  ImpersonateSession  impersonate_on_numa_core(ImpersonateTask* task,
-                    ThreadId numa_core, TimeoutMicrosec timeout = -1);
+  bool impersonate_on_numa_core(
+    ThreadId core,
+    const proc::ProcName& proc_name,
+    const void* task_input,
+    uint64_t task_input_size,
+    ImpersonateSession *session);
 
   /** Returns the pimpl of this object. Use it only when you know what you are doing. */
   ThreadPoolPimpl*    get_pimpl() const { return pimpl_; }
+
+  ThreadGroupRef*     get_group_ref(ThreadGroupId numa_node);
+  ThreadRef*          get_thread_ref(ThreadId id);
 
   friend  std::ostream& operator<<(std::ostream& o, const ThreadPool& v);
 

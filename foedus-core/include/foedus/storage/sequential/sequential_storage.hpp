@@ -8,9 +8,9 @@
 #include <iosfwd>
 #include <string>
 
+#include "foedus/attachable.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/initializable.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -25,35 +25,41 @@ namespace sequential {
  * @brief Represents an append/scan-only store.
  * @ingroup SEQUENTIAL
  */
-class SequentialStorage CXX11_FINAL : public virtual Storage {
+class SequentialStorage CXX11_FINAL
+  : public virtual Storage, public Attachable<SequentialStorageControlBlock> {
  public:
+  SequentialStorage() : Attachable<SequentialStorageControlBlock>() {}
   /**
    * Constructs an sequential storage either from disk or newly create.
-   * @param[in] engine Database engine
-   * @param[in] metadata Metadata of this storage
-   * @param[in] create If true, we newly allocate this sequential when create() is called.
    */
-  SequentialStorage(Engine* engine, const SequentialMetadata &metadata, bool create);
-  ~SequentialStorage() CXX11_OVERRIDE;
-
-  // Disable default constructors
-  SequentialStorage() CXX11_FUNC_DELETE;
-  SequentialStorage(const SequentialStorage&) CXX11_FUNC_DELETE;
-  SequentialStorage& operator=(const SequentialStorage&) CXX11_FUNC_DELETE;
-
-  // Initializable interface
-  ErrorStack  initialize() CXX11_OVERRIDE;
-  bool        is_initialized() const CXX11_OVERRIDE;
-  ErrorStack  uninitialize() CXX11_OVERRIDE;
+  SequentialStorage(Engine* engine, SequentialStorageControlBlock* control_block)
+    : Attachable<SequentialStorageControlBlock>(engine, control_block) {
+      ASSERT_ND(get_type() == kSequentialStorage || !exists());
+    }
+  SequentialStorage(Engine* engine, StorageControlBlock* control_block)
+    : Attachable<SequentialStorageControlBlock>(
+      engine,
+      reinterpret_cast<SequentialStorageControlBlock*>(control_block)) {
+      ASSERT_ND(get_type() == kSequentialStorage || !exists());
+  }
+  SequentialStorage(const SequentialStorage& other)
+    : Attachable<SequentialStorageControlBlock>(other.engine_, other.control_block_) {
+  }
+  SequentialStorage& operator=(const SequentialStorage& other) {
+    engine_ = other.engine_;
+    control_block_ = other.control_block_;
+    return *this;
+  }
 
   // Storage interface
   StorageId           get_id()    const CXX11_OVERRIDE;
-  StorageType         get_type()  const CXX11_OVERRIDE { return kSequentialStorage; }
+  StorageType         get_type()  const CXX11_OVERRIDE;
   const StorageName&  get_name()  const CXX11_OVERRIDE;
   const Metadata*     get_metadata()  const CXX11_OVERRIDE;
   const SequentialMetadata*  get_sequential_metadata()  const;
   bool                exists()    const CXX11_OVERRIDE;
-  ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
+  ErrorStack          create(const Metadata &metadata) CXX11_OVERRIDE;
+  ErrorStack          drop() CXX11_OVERRIDE;
 
   // this storage type doesn't use moved bit
   bool track_moved_record(xct::WriteXctAccess* /*write*/) CXX11_OVERRIDE {
@@ -88,27 +94,7 @@ class SequentialStorage CXX11_FINAL : public virtual Storage {
   // TODO(Hideaki) Scan-access methods
 
   void       describe(std::ostream* o) const CXX11_OVERRIDE;
-
-  /** Use this only if you know what you are doing. */
-  SequentialStoragePimpl*  get_pimpl() { return pimpl_; }
-
- private:
-  SequentialStoragePimpl*  pimpl_;
 };
-
-/**
- * @brief Factory object for sequential storages.
- * @ingroup SEQUENTIAL
- */
-class SequentialStorageFactory CXX11_FINAL : public virtual StorageFactory {
- public:
-  ~SequentialStorageFactory() {}
-  StorageType   get_type() const CXX11_OVERRIDE { return kSequentialStorage; }
-  bool          is_right_metadata(const Metadata *metadata) const;
-  ErrorStack    get_instance(Engine* engine, const Metadata *metadata, Storage** storage) const;
-  void          add_create_log(const Metadata* metadata, thread::Thread* context) const;
-};
-
 }  // namespace sequential
 }  // namespace storage
 }  // namespace foedus

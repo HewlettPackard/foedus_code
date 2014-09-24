@@ -7,12 +7,15 @@
 #include <iosfwd>
 #include <string>
 
+#include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/log/fwd.hpp"
+#include "foedus/soc/shared_mutex.hpp"
 #include "foedus/storage/fwd.hpp"
+#include "foedus/storage/metadata.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/fwd.hpp"
@@ -39,10 +42,8 @@ namespace storage {
  * this object and calls create().
  * To retrieve an existing storage, bluh bluh
  */
-class Storage : public virtual Initializable {
+class Storage {
  public:
-  virtual ~Storage() {}
-
   /**
    * Returns the unique ID of this storage.
    */
@@ -73,13 +74,16 @@ class Storage : public virtual Initializable {
   /**
    * @brief Newly creates this storage and registers it in the storage manager.
    * @pre exists() == false
+   * @param[in] metadata Metadata of this storage
    * @details
    * This is invoked from storage manager's create_xxx methods.
    * Depending on the storage type, this might take a long time to finish.
    * For a newly created storage, the instasnce of this object is an empty and
    * trivial-to-instantiate (thus no exception) until we call this method.
    */
-  virtual ErrorStack          create(thread::Thread* context) = 0;
+  virtual ErrorStack          create(const Metadata &metadata) = 0;
+
+  virtual ErrorStack          drop() = 0;
 
   /**
    * Implementation of ostream operator.
@@ -112,50 +116,49 @@ class Storage : public virtual Initializable {
 };
 
 /**
- * @brief Interface to instantiate a storage.
- * @ingroup STORAGE
- * @details
- * This is an interface of factory classes for storage classes.
- * One reason to have a factory class in this case is to encapsulate error handling during
- * instantiation, which is impossible if we simply invoke C++ constructors.
+ * A base layout of shared data for all storage types.
+ * Individual storage types define their own control blocks that is \e compatible with this layout.
+ * @attention This is not for inheritance! Rather to guarantee the layout of 'common' part.
+ * When we want to deal with a control block of unknown storage type, we reinterpret to this
+ * type and obtain common information. So, the individual storage control blocks must have
+ * a compatible layout to this.
  */
-class StorageFactory {
- public:
-  virtual ~StorageFactory() {}
+struct StorageControlBlock CXX11_FINAL {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  StorageControlBlock() CXX11_FUNC_DELETE;
+  ~StorageControlBlock() CXX11_FUNC_DELETE;
+
+  bool exists() const { return status_ == kExists || status_ == kMarkedForDeath; }
+
+  void initialize() {
+    status_mutex_.initialize();
+    status_ = kNotExists;
+    root_page_pointer_.snapshot_pointer_ = 0;
+    root_page_pointer_.volatile_pointer_.word = 0;
+  }
+  void uninitialize() {
+    status_mutex_.uninitialize();
+  }
 
   /**
-   * Returns the type of storages this factory creates.
+   * The mutext to protect changing the status. Reading the status is not protected,
+   * so we have to make sure we don't suddenly drop a storage.
+   * We first change the status to kMarkedForDeath, then drop it after a while.
    */
-  virtual StorageType  get_type() const = 0;
+  soc::SharedMutex  status_mutex_;
+  /** Status of the storage */
+  StorageStatus     status_;
+  /** Points to the root page (or something equivalent). */
+  DualPagePointer   root_page_pointer_;
+  /** common part of the metadata. individual storage control blocks would have derived metadata */
+  Metadata          meta_;
 
-  /**
-   * @brief Tells if the given metadata object satisfies the requirement of the storage.
-   * @param[in] metadata metadata object of a derived class
-   * @details
-   * For example, ArrayStorageFactory receive only ArrayMetadata.
-   * The storage manager checks with all storage factories for each instantiation request
-   * to identify the right factory class (a bit wasteful, but storage creation is a rare event).
-   */
-  virtual bool is_right_metadata(const Metadata *metadata) const = 0;
-
-  /**
-   * @brief Instantiate a storage object with the given metadata.
-   * @param[in] engine database engine
-   * @param[in] metadata metadata of the newly instantiated storage object
-   * @param[out] storage set only when this method succeeds. otherwise null.
-   * @pre is_right_metadata(metadata)
-   * @details
-   * This method verifies the metadata object and might return errors for various reasons.
-   */
-  virtual ErrorStack get_instance(Engine* engine, const Metadata *metadata,
-                                  Storage** storage) const = 0;
-
-  /**
-   * Adds a log entry for newly creating the storage to the context's log buffer.
-   * @pre is_right_metadata(metadata)
-   */
-  virtual void add_create_log(const Metadata *metadata, thread::Thread* context) const = 0;
+  /** Just to make this exactly 4kb. Individual control block doesn't have this. */
+  char              padding_[
+    4096 - sizeof(soc::SharedMutex) - 8 - sizeof(DualPagePointer) - sizeof(Metadata)];
 };
+
+CXX11_STATIC_ASSERT(sizeof(StorageControlBlock) == 1 << 12, "StorageControlBlock is not 4kb");
 }  // namespace storage
 }  // namespace foedus
 #endif  // FOEDUS_STORAGE_STORAGE_HPP_

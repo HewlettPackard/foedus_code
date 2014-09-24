@@ -21,6 +21,7 @@
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
 
 namespace foedus {
 namespace debugging {
@@ -60,7 +61,20 @@ void DebuggingSupports::initialize_glog() {
       // https://code.google.com/p/google-glog/issues/detail?id=172
       google::SetVLOGLevel(options.verbose_modules_.str().c_str(), options.verbose_log_level_);
     }
-    google::InitGoogleLogging("libfoedus");
+
+    // Use separate log files for the master engine and soc engine.
+    // If this is an emulated child SOC engine, anyway logs go to the master's log file.
+    const char* logfile_name;
+    if (engine_->is_master() || engine_->is_emulated_child()) {
+      logfile_name = "libfoedus";
+    } else {
+      // Note: Seems like InitGoogleLogging keeps the given argument without internally copying.
+      // if we give std::string.c_str() etc, this causes a problem.
+      // Thus, we need to give a really static const char*. mmm.
+      // Maybe we can have an array of size 256, defining const char* for each value? stupid..
+      logfile_name = "libfoedus_soc";  // std::to_string(engine_->get_soc_id());
+    }
+    google::InitGoogleLogging(logfile_name);
     LOG(INFO) << "initialize_glog(): Initialized GLOG";
   } else {
     LOG(INFO) << "initialize_glog(): Observed that someone else has initialized GLOG";
@@ -81,12 +95,19 @@ void DebuggingSupports::uninitialize_glog() {
 }
 
 ErrorStack DebuggingSupports::initialize_once() {
+  // glog is already initialized by master, so emulated child does nothing
+  if (engine_->is_emulated_child()) {
+    return kRetOk;
+  }
   initialize_glog();  // initialize glog at the beginning. we can use glog since now
   std::memset(&papi_counters_, 0, sizeof(papi_counters_));
   papi_enabled_ = false;
   return kRetOk;
 }
 ErrorStack DebuggingSupports::uninitialize_once() {
+  if (engine_->is_emulated_child()) {
+    return kRetOk;
+  }
   uninitialize_glog();  // release glog at the end. we can't use glog since now
   return kRetOk;
 }

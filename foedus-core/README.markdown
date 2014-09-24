@@ -137,7 +137,7 @@ Non-Transparent Hugepages
 TBD: Have to write up detailed instructions. This is so far a memo just for my self.
 
 Boot with "hugepagesz=1G default_hugepagesz=1G hugepages=48" (for example).
-mount -t hugetlbfs /mnt/hugetlbfs
+Linux 3.16 and later can dynamically allocate 1G hugepages (though hugepagesz needs reboot).
 Now tpcc has mmap_hugepages parameter. Use it.
 Be super careful on volatile_pool_size/thread_per_node/log_buffer_mb.
 Use numastat to check if it's actually used and evenly distribtued to NUMA nodes.
@@ -207,5 +207,6 @@ libfoedus-core uses a few open source libraries listed below.
 | papi         | BSD(?)  | Optional dynamic-link. Distributes nothing.  |
 | libnuma      | LGPL    | Dynamic-link. Distributes nothing.           |
 | glibc/stdc++ | LGPL    | Dynamic-link. Distributes nothing.           |
+| valgrind     | BSD     | Header-only.  Contains valgrind.h only.      |
 
 For more details, see COPYING/LICENSE.txt/etc in the third-party folder.

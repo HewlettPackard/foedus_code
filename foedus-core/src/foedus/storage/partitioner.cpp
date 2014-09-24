@@ -21,9 +21,9 @@ std::ostream& operator<<(std::ostream& o, const Partitioner& v) {
 }
 
 Partitioner* Partitioner::create_partitioner(Engine* engine, StorageId id) {
-  Storage* storage = engine->get_storage_manager().get_storage(id);
-  ASSERT_ND(storage);
-  switch (storage->get_type()) {
+  StorageControlBlock* block = engine->get_storage_manager().get_storage(id);
+  ASSERT_ND(block->exists());
+  switch (block->meta_.type_) {
     case kArrayStorage:
       return new array::ArrayPartitioner(engine, id);
       break;

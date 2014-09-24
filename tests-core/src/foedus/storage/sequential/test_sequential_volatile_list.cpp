@@ -15,15 +15,18 @@
 #include "foedus/epoch.hpp"
 #include "foedus/test_common.hpp"
 #include "foedus/memory/engine_memory.hpp"
+#include "foedus/proc/proc_manager.hpp"
+#include "foedus/storage/storage_manager.hpp"
+#include "foedus/storage/sequential/sequential_metadata.hpp"
 #include "foedus/storage/sequential/sequential_page_impl.hpp"
-#include "foedus/storage/sequential/sequential_volatile_list_impl.hpp"
-#include "foedus/thread/rendezvous_impl.hpp"
+#include "foedus/storage/sequential/sequential_storage.hpp"
+#include "foedus/storage/sequential/sequential_storage_pimpl.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 
 /**
  * @file test_sequential_volatile_list.cpp
- * This specifically tests SequentialVolatileList class, which is a part of sequential storage.
+ * This specifically tests the volatile part of sequential storage.
  */
 
 namespace foedus {
@@ -37,10 +40,10 @@ TEST(SequentialVolatileListTest, Empty) {
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    storage::StorageId storage_id = 1;
-    SequentialVolatileList target(&engine, storage_id);
-    COERCE_ERROR(target.initialize());
-    COERCE_ERROR(target.uninitialize());
+    SequentialMetadata meta("test_seq");
+    SequentialStorage storage;
+    Epoch epoch;
+    COERCE_ERROR(engine.get_storage_manager().create_sequential(&meta, &storage, &epoch));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -50,45 +53,45 @@ const uint32_t kAppendsPerThread = 2000;
 const uint32_t kStartEpoch = 3;
 const uint32_t kAppendsPerEpoch = 100;
 
-class AppendTask : public thread::ImpersonateTask {
- public:
-  explicit AppendTask(
-    int task_id,
-    thread::Rendezvous* start_rendezvous,
-    SequentialVolatileList *target)
-    : task_id_(task_id), start_rendezvous_(start_rendezvous), target_(target) {
+ErrorStack append_task(
+  thread::Thread* context,
+  const void* input_buffer,
+  uint32_t input_len,
+  void* /*output_buffer*/,
+  uint32_t /*output_buffer_size*/,
+  uint32_t* /*output_used*/) {
+  EXPECT_EQ(sizeof(uint32_t), input_len);
+  uint32_t task_id = *reinterpret_cast<const uint32_t*>(input_buffer);
+  SequentialStorage target = context->get_engine()->get_storage_manager().get_sequential("seq");
+  EXPECT_TRUE(target.exists());
+  SequentialStoragePimpl pimpl(&target);
+  for (uint32_t i = 0; i < kAppendsPerThread; ++i) {
+    xct::XctId owner_id;
+    uint32_t epoch = kStartEpoch + (i / kAppendsPerEpoch);
+    owner_id.set(epoch, i);
+    std::string value("value_");
+    value += std::to_string(task_id);
+    value += "_";
+    value += std::to_string(i);
+    const char* payload = value.data();
+    uint16_t payload_length = value.size();
+    pimpl.append_record(context, owner_id, payload, payload_length);
   }
-  ErrorStack run(thread::Thread* context) {
-    start_rendezvous_->wait();
-    for (uint32_t i = 0; i < kAppendsPerThread; ++i) {
-      xct::XctId owner_id;
-      uint32_t epoch = kStartEpoch + (i / kAppendsPerEpoch);
-      owner_id.set(epoch, i);
-      std::string value("value_");
-      value += std::to_string(task_id_);
-      value += "_";
-      value += std::to_string(i);
-      const char* payload = value.data();
-      uint16_t payload_length = value.size();
-      target_->append_record(context, owner_id, payload, payload_length);
-    }
 
-    return foedus::kRetOk;
-  }
+  return foedus::kRetOk;
+}
 
- private:
-  const int task_id_;
-  thread::Rendezvous* const start_rendezvous_;
-  SequentialVolatileList* const target_;
-};
-
-void verify_result(
-  uint16_t thread_count,
-  const Engine &engine,
-  const SequentialVolatileList &target) {
-  const memory::GlobalVolatilePageResolver& resolver
-    = engine.get_memory_manager().get_global_volatile_page_resolver();
-
+ErrorStack verify_result(
+  thread::Thread* context,
+  const void* input_buffer,
+  uint32_t input_len,
+  void* /*output_buffer*/,
+  uint32_t /*output_buffer_size*/,
+  uint32_t* /*output_used*/) {
+  EXPECT_EQ(sizeof(uint16_t), input_len);
+  uint16_t thread_count = *reinterpret_cast<const uint16_t*>(input_buffer);
+  SequentialStorage target = context->get_engine()->get_storage_manager().get_sequential("seq");
+  EXPECT_TRUE(target.exists());
   std::map<std::string, xct::XctId> answers;
   for (int task_id = 0; task_id < thread_count; ++task_id) {
     for (uint32_t i = 0; i < kAppendsPerThread; ++i) {
@@ -103,8 +106,9 @@ void verify_result(
     }
   }
 
-  for (auto i = 0; i < target.get_thread_count(); ++i) {
-    for (SequentialPage* page = target.get_head(i); page;) {
+  SequentialStoragePimpl pimpl(&target);
+  pimpl.for_every_page(
+    [&](SequentialPage* page){
       uint16_t record_count = page->get_record_count();
       const char* record_pointers[kMaxSlots];
       uint16_t payload_lengthes[kMaxSlots];
@@ -126,55 +130,49 @@ void verify_result(
           answers.erase(value);
         }
       }
-
-      VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
-      if (next_pointer.components.offset != 0) {
-        EXPECT_NE(target.get_tail(i), page);
-        page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(next_pointer));
-        EXPECT_NE(nullptr, page);
-      } else {
-        EXPECT_EQ(target.get_tail(i), page);
-        page = nullptr;
-      }
-    }
-  }
+      return kErrorCodeOk;
+  });
 
   EXPECT_EQ(0, answers.size());
   std::map<std::string, xct::XctId> empty_map;
   EXPECT_EQ(empty_map, answers);
+  return kRetOk;
 }
 
 void execute_test(uint16_t thread_count) {
   EngineOptions options = get_tiny_options();
   options.thread_.thread_count_per_group_ = thread_count;
   Engine engine(options);
+  engine.get_proc_manager().pre_register(proc::ProcAndName("append_task", append_task));
+  engine.get_proc_manager().pre_register(proc::ProcAndName("verify_result", verify_result));
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    storage::StorageId storage_id = 1;
-    SequentialVolatileList target(&engine, storage_id);
-    COERCE_ERROR(target.initialize());
+    SequentialMetadata meta("seq");
+    SequentialStorage target;
+    Epoch epoch;
+    COERCE_ERROR(engine.get_storage_manager().create_sequential(&meta, &target, &epoch));
     std::cout << "target before:" << target << std::endl;
     {
-      thread::Rendezvous start_rendezvous;
-      std::vector<AppendTask*> tasks;
       std::vector<thread::ImpersonateSession> sessions;
-      for (int i = 0; i < thread_count; ++i) {
-        tasks.push_back(new AppendTask(i, &start_rendezvous, &target));
-        sessions.emplace_back(engine.get_thread_pool().impersonate(tasks[i]));
-        if (!sessions[i].is_valid()) {
-          COERCE_ERROR(sessions[i].invalid_cause_);
-        }
+      for (uint32_t task_id = 0; task_id < thread_count; ++task_id) {
+        thread::ImpersonateSession session;
+        EXPECT_TRUE(engine.get_thread_pool().impersonate(
+          "append_task",
+          &task_id,
+          sizeof(task_id),
+          &session));
+        sessions.emplace_back(std::move(session));
       }
-      start_rendezvous.signal();
       for (int i = 0; i < thread_count; ++i) {
         COERCE_ERROR(sessions[i].get_result());
-        delete tasks[i];
       }
     }
     std::cout << "target after:" << target << std::endl;
-    verify_result(thread_count, engine, target);
-    COERCE_ERROR(target.uninitialize());
+    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(
+      "verify_result",
+      &thread_count,
+      sizeof(thread_count)));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

@@ -6,6 +6,7 @@
 #define FOEDUS_THREAD_THREAD_PIMPL_HPP_
 #include <atomic>
 
+#include "foedus/fixed_error_stack.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/cache/cache_hashtable.hpp"
@@ -14,15 +15,93 @@
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_resolver.hpp"
+#include "foedus/proc/proc_id.hpp"
+#include "foedus/soc/shared_cond.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_mutex.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
+#include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace thread {
+/** Shared data of ThreadPimpl */
+struct ThreadControlBlock {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  ThreadControlBlock() = delete;
+  ~ThreadControlBlock() = delete;
+
+  void initialize() {
+    status_ = kNotInitialized;
+    mcs_block_current_ = 0;
+    current_ticket_ = 0;
+    proc_name_.clear();
+    input_len_ = 0;
+    output_len_ = 0;
+    proc_result_.clear();
+    wakeup_cond_.initialize();
+    task_mutex_.initialize();
+    task_complete_cond_.initialize();
+  }
+  void uninitialize() {
+    task_complete_cond_.uninitialize();
+    task_mutex_.uninitialize();
+    wakeup_cond_.uninitialize();
+  }
+
+  /**
+   * How many MCS blocks we allocated in this thread's current xct.
+   * reset to 0 at each transaction begin.
+   * This is in shared memory because other SOC might check this value (so far only
+   * for sanity check).
+   */
+  uint32_t            mcs_block_current_;
+
+  /**
+   * The thread sleeps on this conditional when it has no task.
+   * When someone else (whether in same SOC or other SOC) wants to wake up this logger,
+   * they fire this. The 'real' condition variable is the status_.
+   */
+  soc::SharedCond     wakeup_cond_;
+
+  /**
+   * Impersonation status of this thread. Protected by the mutex in wakeup_cond_,
+   * \b not the task_mutex_ below. Use the right mutex. Otherwise a lost signal is possible.
+   */
+  ThreadStatus        status_;
+
+  /** The following variables are protected by this mutex. */
+  soc::SharedMutex    task_mutex_;
+
+  /**
+   * The most recently issued impersonation ticket.
+   * A session with this ticket has an exclusive ownership until it changes the status_
+   * to kWaitingForTask.
+   */
+  ThreadTicket        current_ticket_;
+
+  /** Name of the procedure to execute next. Empty means not set. */
+  proc::ProcName      proc_name_;
+
+  /** Byte size of input given to the procedure. */
+  uint32_t            input_len_;
+
+  /** Byte size of output as the result of the procedure. */
+  uint32_t            output_len_;
+
+  /** Error code as the result of the procedure */
+  FixedErrorStack     proc_result_;
+
+  /**
+   * When the current task has been completed, the thread signals this.
+   */
+  soc::SharedCond     task_complete_cond_;
+};
+
 /**
  * @brief Pimpl object of Thread.
  * @ingroup THREAD
@@ -38,7 +117,6 @@ class ThreadPimpl final : public DefaultInitializable {
   ThreadPimpl() = delete;
   ThreadPimpl(
     Engine* engine,
-    ThreadGroupPimpl* group,
     Thread* holder,
     ThreadId id,
     ThreadGlobalOrdinal global_ordinal);
@@ -54,13 +132,10 @@ class ThreadPimpl final : public DefaultInitializable {
   void        handle_tasks();
   /** initializes the thread's policy/priority */
   void        set_thread_schedule();
-
-  /**
-   * Conditionally try to occupy this thread, or impersonate. If it fails, it immediately returns.
-   * @param[in] session the session to run on this thread
-   * @return whether successfully impersonated.
-   */
-  bool        try_impersonate(ImpersonateSession *session);
+  bool        is_stop_requested() const {
+    assorted::memory_fence_acquire();
+    return control_block_->status_ == kWaitingForTerminate;
+  }
 
   /** @copydoc foedus::thread::Thread::find_or_read_a_snapshot_page() */
   ErrorCode   find_or_read_a_snapshot_page(
@@ -101,32 +176,13 @@ class ThreadPimpl final : public DefaultInitializable {
     memory::PagePoolOffset new_offset,
     storage::DualPagePointer* pointer);
 
-  /** Pre-allocated MCS block. we so far pre-allocate at most 2^16 nodes per thread. */
-  struct McsBlock {
-    /**
-    * Whether this thread is waiting for some other lock owner.
-    * While this is true, the thread spins on this \e local variable.
-    * The lock owner updates this when it unlocks.
-    */
-    bool              waiting_;           // +1 -> 1
-    /** just for sanity check. last 1 byte of the MCS lock's address */
-    uint8_t           lock_addr_tag_;     // +1 -> 2
-    /**
-     * The successor of MCS lock queue after this thread (in other words, the thread that is
-     * waiting for this thread). Successor is represented by thread ID and block,
-     * the index in mcs_blocks_.
-     */
-    thread::ThreadId  successor_;         // +2 -> 4
-    xct::McsBlockIndex  successor_block_;   // +4 -> 8
-  };
-
   /** Unconditionally takes MCS lock on the given mcs_lock. */
   xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
   /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
   xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
   /** Unlcok an MCS lock acquired by this thread. */
   void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
-  McsBlock* mcs_init_block(
+  xct::McsBlock* mcs_init_block(
     const xct::McsLock* mcs_lock,
     xct::McsBlockIndex block_index,
     bool waiting) ALWAYS_INLINE;
@@ -138,11 +194,6 @@ class ThreadPimpl final : public DefaultInitializable {
 
 
   Engine* const           engine_;
-
-  /**
-   * The thread group (NUMA node) this thread belongs to.
-   */
-  ThreadGroupPimpl* const group_;
 
   /**
    * The public object that holds this pimpl object.
@@ -183,16 +234,8 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /**
    * Encapsulates raw thread object.
-   * This is initialized/uninitialized in initialize()/uninitialize().
    */
-  StoppableThread         raw_thread_;
-
-  /**
-   * The task this thread is currently running or will run when it wakes up.
-   * Only one caller can impersonate a thread at once.
-   * If this thread is not impersonated, null.
-   */
-  std::atomic<ImpersonateTask*>   current_task_;
+  std::thread             raw_thread_;
 
   /**
    * Current transaction this thread is conveying.
@@ -206,8 +249,12 @@ class ThreadPimpl final : public DefaultInitializable {
    */
   cache::SnapshotFileSet  snapshot_file_set_;
 
+  ThreadControlBlock*     control_block_;
+  void*                   task_input_memory_;
+  void*                   task_output_memory_;
+
   /** Pre-allocated MCS blocks. index 0 is not used so that successor_block=0 means null. */
-  McsBlock*               mcs_blocks_;
+  xct::McsBlock*          mcs_blocks_;
 };
 
 inline ErrorCode ThreadPimpl::read_a_snapshot_page(
@@ -222,6 +269,9 @@ inline ErrorCode ThreadPimpl::find_or_read_a_snapshot_page(
   return snapshot_cache_hashtable_->read_page(page_id, holder_, out);
 }
 
+static_assert(
+  sizeof(ThreadControlBlock) <= soc::ThreadMemoryAnchors::kThreadMemorySize,
+  "ThreadControlBlock is too large.");
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_THREAD_PIMPL_HPP_

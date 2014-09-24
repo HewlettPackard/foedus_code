@@ -25,8 +25,9 @@ namespace masstree {
  * @ingroup MASSTREE
  * @details
  */
-struct MasstreeMetadata CXX11_FINAL : public virtual Metadata {
-  MasstreeMetadata() : Metadata(0, kMasstreeStorage, ""), border_early_split_threshold_(0) {}
+struct MasstreeMetadata CXX11_FINAL : public Metadata {
+  MasstreeMetadata() :
+    Metadata(0, kMasstreeStorage, ""), border_early_split_threshold_(0) {}
   MasstreeMetadata(
     StorageId id,
     const StorageName& name,
@@ -36,16 +37,12 @@ struct MasstreeMetadata CXX11_FINAL : public virtual Metadata {
   }
   /** This one is for newly creating a storage. */
   MasstreeMetadata(const StorageName& name, uint16_t border_early_split_threshold = 0)
-    : Metadata(0, kArrayStorage, name),
+    : Metadata(0, kMasstreeStorage, name),
       border_early_split_threshold_(border_early_split_threshold) {
   }
-  explicit MasstreeMetadata(const MasstreeMetadata& other)
-    : Metadata(other),
-    border_early_split_threshold_(other.border_early_split_threshold_) {
-  }
-  EXTERNALIZABLE(MasstreeMetadata);
 
-  Metadata* clone() const CXX11_OVERRIDE;
+  std::string describe() const;
+  friend std::ostream& operator<<(std::ostream& o, const MasstreeMetadata& v);
 
   /**
    * @brief Kind of fill factor for border pages, bit different from usual B-tree.
@@ -59,6 +56,16 @@ struct MasstreeMetadata CXX11_FINAL : public virtual Metadata {
    */
   uint16_t border_early_split_threshold_;
 };
+
+struct MasstreeMetadataSerializer CXX11_FINAL : public virtual MetadataSerializer {
+  MasstreeMetadataSerializer() : MetadataSerializer() {}
+  explicit MasstreeMetadataSerializer(MasstreeMetadata* data)
+    : MetadataSerializer(data), data_casted_(data) {}
+  EXTERNALIZABLE(MasstreeMetadataSerializer);
+  MasstreeMetadata* data_casted_;
+};
+
+
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus

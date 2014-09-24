@@ -12,26 +12,63 @@
 #include <utility>
 
 #include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_manager.hpp"
+#include "foedus/log/meta_log_buffer.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
 #include "foedus/snapshot/snapshot_metadata.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/metadata.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_log_types.hpp"
 #include "foedus/storage/storage_options.hpp"
+#include "foedus/storage/array/array_log_types.hpp"
+#include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/storage/array/array_storage.hpp"
+#include "foedus/storage/hash/hash_log_types.hpp"
+#include "foedus/storage/hash/hash_metadata.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
+#include "foedus/storage/masstree/masstree_log_types.hpp"
+#include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
+#include "foedus/storage/sequential/sequential_log_types.hpp"
+#include "foedus/storage/sequential/sequential_metadata.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
-#include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 namespace storage {
+
+template <typename HANDLER>
+ErrorStack storage_pseudo_polymorph(Engine* engine, StorageControlBlock* block, HANDLER handler) {
+  StorageType type = block->meta_.type_;
+  if (type == kArrayStorage) {
+    array::ArrayStorage obj(engine, block);
+    CHECK_ERROR(handler(&obj));
+  } else if (type == kHashStorage) {
+    hash::HashStorage obj(engine, block);
+    CHECK_ERROR(handler(&obj));
+  } else if (type == kMasstreeStorage) {
+    masstree::MasstreeStorage obj(engine, block);
+    CHECK_ERROR(handler(&obj));
+  } else if (type == kSequentialStorage) {
+    sequential::SequentialStorage obj(engine, block);
+    CHECK_ERROR(handler(&obj));
+  } else {
+    return ERROR_STACK(kErrorCodeStrUnsupportedMetadata);
+  }
+  return kRetOk;
+}
+
+uint32_t   StorageManagerPimpl::get_max_storages() const {
+  return engine_->get_options().storage_.max_storages_;
+}
+
 ErrorStack StorageManagerPimpl::initialize_once() {
   LOG(INFO) << "Initializing StorageManager..";
   if (!engine_->get_thread_pool().is_initialized()
@@ -39,20 +76,18 @@ ErrorStack StorageManagerPimpl::initialize_once() {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
   }
 
-  largest_storage_id_ = 0;
-  storages_ = nullptr;
-  storages_capacity_ = 0;
-  init_storage_factories();
-  LOG(INFO) << "We have " << storage_factories_.size() << " types of storages";
+  // attach shared memories
+  soc::GlobalMemoryAnchors* anchors
+    = engine_->get_soc_manager().get_shared_memory_repo()->get_global_memory_anchors();
+  control_block_ = anchors->storage_manager_memory_;
+  storages_ = anchors->storage_memories_;
+  storage_name_sort_ = anchors->storage_name_sort_memory_;
 
-  const size_t kInitialCapacity = 1 << 12;
-  storages_ = new Storage*[kInitialCapacity];
-  if (!storages_) {
-    return ERROR_STACK(kErrorCodeOutofmemory);
+  if (engine_->is_master()) {
+    // initialize the shared memory. only on master engine
+    control_block_->initialize();
+    control_block_->largest_storage_id_ = 0;
   }
-  std::memset(storages_, 0, sizeof(Storage*) * kInitialCapacity);
-  storages_capacity_ = kInitialCapacity;
-
   return kRetOk;
 }
 
@@ -63,267 +98,206 @@ ErrorStack StorageManagerPimpl::uninitialize_once() {
     || !engine_->get_log_manager().is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
-  for (size_t i = 0; i < storages_capacity_; ++i) {
-    if (storages_[i] && storages_[i]->is_initialized()) {
-      LOG(INFO) << "Invoking uninitialization for storage-" << i
-        << "(" << storages_[i]->get_name() << ")";
-      batch.emprace_back(storages_[i]->uninitialize());
-    }
+  if (engine_->is_master()) {
+    control_block_->uninitialize();
   }
-  {
-    std::lock_guard<std::mutex> guard(mod_lock_);
-    for (auto it = storage_names_.begin(); it != storage_names_.end(); ++it) {
-      delete it->second;
-    }
-    storage_names_.clear();
-    delete[] storages_;
-    storages_ = nullptr;
-  }
-  clear_storage_factories();
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 
-void StorageManagerPimpl::init_storage_factories() {
-  clear_storage_factories();
-  // list all storage factories here
-  storage_factories_.push_back(new array::ArrayStorageFactory());
-  storage_factories_.push_back(new masstree::MasstreeStorageFactory());
-  storage_factories_.push_back(new sequential::SequentialStorageFactory());
-  storage_factories_.push_back(new hash::HashStorageFactory());
-}
-
-void StorageManagerPimpl::clear_storage_factories() {
-  for (StorageFactory* factory : storage_factories_) {
-    delete factory;
-  }
-  storage_factories_.clear();
-}
-
 StorageId StorageManagerPimpl::issue_next_storage_id() {
-  std::lock_guard<std::mutex> guard(mod_lock_);  // implies fence too
-  ++largest_storage_id_;
-  LOG(INFO) << "Incremented largest_storage_id_: " << largest_storage_id_;
-  return largest_storage_id_;
+  soc::SharedMutexScope guard(&control_block_->mod_lock_);  // implies fence too
+  ++control_block_->largest_storage_id_;
+  LOG(INFO) << "Incremented largest_storage_id_: " << control_block_->largest_storage_id_;
+  return control_block_->largest_storage_id_;
 }
 
-Storage* StorageManagerPimpl::get_storage(StorageId id) {
-  assorted::memory_fence_acquire();  // to sync with expand
-  return storages_[id];
+StorageControlBlock* StorageManagerPimpl::get_storage(const StorageName& name) {
+  soc::SharedMutexScope guard(&control_block_->mod_lock_);
+  // TODO(Hideaki) so far sequential search
+  for (uint32_t i = 0; i <= control_block_->largest_storage_id_; ++i) {
+    if (storages_[i].meta_.name_ == name) {
+      return &storages_[i];
+    }
+  }
+  LOG(WARNING) << "Requested storage name '" << name << "' was not found";
+  return &storages_[0];  // storage ID 0 is always not-initialized
 }
-Storage* StorageManagerPimpl::get_storage(const StorageName& name) {
-  std::lock_guard<std::mutex> guard(mod_lock_);
-  auto it = storage_names_.find(name);
-  if (it == storage_names_.end()) {
-    LOG(WARNING) << "Requested storage name '" << name << "' was not found";
-    return nullptr;
-  } else {
-    return it->second;
+bool StorageManagerPimpl::exists(const StorageName& name) {
+  soc::SharedMutexScope guard(&control_block_->mod_lock_);
+  // TODO(Hideaki) so far sequential search
+  for (uint32_t i = 0; i <= control_block_->largest_storage_id_; ++i) {
+    if (storages_[i].meta_.name_ == name) {
+      return true;
+    }
   }
+  return false;
 }
-
-
-ErrorStack StorageManagerPimpl::register_storage(Storage* storage) {
-  ASSERT_ND(storage);
-  ASSERT_ND(storage->is_initialized());
-  StorageId id = storage->get_id();
-  LOG(INFO) << "Adding storage of ID-" << id << "(" << storage->get_name() << ")";
-  if (storages_capacity_ <= id) {
-    CHECK_ERROR(expand_storage_array(id));
-  }
-
-  ASSERT_ND(storages_capacity_ > id);
-  std::lock_guard<std::mutex> guard(mod_lock_);
-  if (storages_[id]) {
-    LOG(ERROR) << "Duplicate register_storage() call? ID=" << id;
-    return ERROR_STACK(kErrorCodeStrDuplicateStrid);
-  }
-  if (storage_names_.find(storage->get_name()) != storage_names_.end()) {
-    LOG(ERROR) << "Duplicate register_storage() call? Name=" << storage->get_name();
-    return ERROR_STACK(kErrorCodeStrDuplicateStrname);
-  }
-  storages_[id] = storage;
-  storage_names_.insert(std::pair< StorageName, Storage* >(storage->get_name(), storage));
-  if (id > largest_storage_id_) {
-    largest_storage_id_ = id;
-  }
-  return kRetOk;
-}
-
-ErrorStack StorageManagerPimpl::drop_storage(thread::Thread* context, StorageId id,
-                       Epoch *commit_epoch) {
-  // DROP STORAGE must be the only log in this transaction
-  if (context->get_thread_log_buffer().get_offset_committed() !=
-    context->get_thread_log_buffer().get_offset_tail()) {
-    return ERROR_STACK(kErrorCodeStrMustSeparateXct);
-  }
-
-  // to avoid mixing with normal operations on the storage in this epoch, advance epoch now.
-  engine_->get_xct_manager().advance_current_global_epoch();
-
-  CHECK_ERROR(engine_->get_xct_manager().begin_schema_xct(context));
-
-  // write out log
-  DropLogType* log_entry = reinterpret_cast<DropLogType*>(
-    context->get_thread_log_buffer().reserve_new_log(sizeof(DropLogType)));
-  log_entry->populate(id);
-
-  // commit invokes apply
-  CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, commit_epoch));
-  return kRetOk;
-}
-void StorageManagerPimpl::drop_storage_apply(thread::Thread* /*context*/, Storage* storage) {
-  ASSERT_ND(storage);
-  StorageId id = storage->get_id();
-  StorageName name = storage->get_name();
-  LOG(INFO) << "Dropping storage " << id << "(" << name << ")";
-  COERCE_ERROR(storage->uninitialize());
-  LOG(INFO) << "Uninitialized storage " << id << "(" << name << ")";
-
-  std::lock_guard<std::mutex> guard(mod_lock_);
-  storage_names_.erase(name);
-  storages_[id] = nullptr;
-  delete storage;
-  LOG(INFO) << "Droped storage " << id << "(" << name << ")";
-}
-
-/** A task to drop a task. Used from impersonate version of drop_storage(). */
-class DropStorageTask final : public foedus::thread::ImpersonateTask {
- public:
-  DropStorageTask(StorageManagerPimpl* pimpl, StorageId id, Epoch *commit_epoch)
-    : pimpl_(pimpl), id_(id), commit_epoch_(commit_epoch) {}
-  ErrorStack run(thread::Thread* context) override {
-    CHECK_ERROR(pimpl_->drop_storage(context, id_, commit_epoch_));
-    return kRetOk;
-  }
-
- private:
-  StorageManagerPimpl* pimpl_;
-  StorageId id_;
-  Epoch *commit_epoch_;
-};
 
 ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) {
-  DropStorageTask task(this, id, commit_epoch);
-  thread::ImpersonateSession session = engine_->get_thread_pool().impersonate(&task);
-  CHECK_ERROR(session.get_result());
+  StorageControlBlock* block = storages_ + id;
+  if (!block->exists()) {
+    LOG(ERROR) << "This storage ID does not exist or has been already dropped: " << id;
+    return ERROR_STACK(kErrorCodeStrAlreadyDropped);
+  }
+
+  StorageName name = block->meta_.name_;
+  LOG(INFO) << "Dropping storage " << id << "(" << name << ")";
+  ErrorStack drop_error = storage_pseudo_polymorph(
+    engine_,
+    block,
+    [](Storage* obj){ return obj->drop(); });
+  if (drop_error.is_error()) {
+    LOG(ERROR) << "Failed to drop storage " << id << "(" << name << ")";
+    return drop_error;
+  }
+
+  char log_buffer[1 << 12];
+  std::memset(log_buffer, 0, sizeof(log_buffer));
+  DropLogType* drop_log = reinterpret_cast<DropLogType*>(log_buffer);
+  drop_log->populate(id);
+  engine_->get_log_manager().get_meta_buffer()->commit(drop_log, commit_epoch);
+
+  ASSERT_ND(commit_epoch->is_valid());
+  block->status_ = kDropped;
+  ASSERT_ND(!block->exists());
+  block->uninitialize();
+  LOG(INFO) << "Dropped storage " << id << "(" << name << ")";
   return kRetOk;
 }
 
-
-ErrorStack StorageManagerPimpl::expand_storage_array(StorageId new_size) {
-  LOG(INFO) << "Expanding storages_. new_size=" << new_size;
-  std::lock_guard<std::mutex> guard(mod_lock_);
-  if (new_size <= storages_capacity_) {
-    LOG(INFO) << "Someone else has expanded?";
-    return kRetOk;
+void StorageManagerPimpl::drop_storage_apply(StorageId id) {
+  // this method is called only while restart, so no race.
+  StorageControlBlock* block = storages_ + id;
+  ASSERT_ND(!block->exists());
+  ErrorStack drop_error = storage_pseudo_polymorph(
+    engine_,
+    block,
+    [](Storage* obj){ return obj->drop(); });
+  if (drop_error.is_error()) {
+    LOG(FATAL) << "drop_storage_apply() failed. " << drop_error
+      << " Failed to restart the engine";
   }
-
-  new_size = (new_size + 1) * 2;  // 2x margin to avoid frequent expansion.
-  Storage** new_array = new Storage*[new_size];
-  if (!new_array) {
-    return ERROR_STACK(kErrorCodeOutofmemory);
-  }
-
-  // copy and switch (fence to prevent compiler from doing something stupid)
-  std::memcpy(new_array, storages_, sizeof(Storage*) * storages_capacity_);
-  std::memset(new_array + storages_capacity_, 0,
-          sizeof(Storage*) * (new_size - storages_capacity_));
-  // we must announce the new storages_ to read-threads first because
-  // new_size > storages_capacity_.
-  assorted::memory_fence_release();
-  storages_ = new_array;
-  assorted::memory_fence_release();
-  storages_capacity_ = new_size;
-  return kRetOk;
+  block->status_ = kDropped;
+  ASSERT_ND(!block->exists());
+  block->uninitialize();
 }
 
-ErrorStack StorageManagerPimpl::create_storage(thread::Thread* context,
-                    Metadata *metadata, Storage **storage, Epoch *commit_epoch) {
-  *storage = nullptr;
+void construct_create_log(Metadata* meta, void* buffer) {
+  StorageType type = meta->type_;
+  if (type == kArrayStorage) {
+    array::ArrayCreateLogType::construct(meta, buffer);
+  } else if (type == kHashStorage) {
+    hash::HashCreateLogType::construct(meta, buffer);
+  } else if (type == kMasstreeStorage) {
+    masstree::MasstreeCreateLogType::construct(meta, buffer);
+  } else if (type == kSequentialStorage) {
+    sequential::SequentialCreateLogType::construct(meta, buffer);
+  } else {
+    LOG(FATAL) << "WTF:" << type;
+  }
+}
+
+ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit_epoch) {
+  *commit_epoch = INVALID_EPOCH;
   StorageId id = issue_next_storage_id();
-  metadata->id_ = id;
-  // CREATE STORAGE must be the only log in this transaction
-  if (context->get_thread_log_buffer().get_offset_committed() !=
-    context->get_thread_log_buffer().get_offset_tail()) {
-    return ERROR_STACK(kErrorCodeStrMustSeparateXct);
+  if (id >= get_max_storages()) {
+    return ERROR_STACK(kErrorCodeStrTooManyStorages);
   }
+  if (metadata->name_.empty()) {
+    return ERROR_STACK(kErrorCodeStrEmptyName);
+  }
+  metadata->id_ = id;
 
   const StorageName& name = metadata->name_;
-  {
-    std::lock_guard<std::mutex> guard(mod_lock_);
-    if (storage_names_.find(name) != storage_names_.end()) {
-      LOG(ERROR) << "This storage name already exists: " << name;
-      return ERROR_STACK(kErrorCodeStrDuplicateStrname);
-    }
+  if (exists(name)) {
+    LOG(ERROR) << "This storage name already exists: " << name;
+    return ERROR_STACK(kErrorCodeStrDuplicateStrname);
   }
 
-  StorageFactory* the_factory = nullptr;
-  for (StorageFactory* factory : storage_factories_) {
-    if (factory->is_right_metadata(metadata)) {
-      the_factory = factory;
-      break;
-    }
-  }
+  get_storage(id)->initialize();
+  ASSERT_ND(!get_storage(id)->exists());
+  storages_[id].meta_.type_ = metadata->type_;
+  ErrorStack create_error = storage_pseudo_polymorph(
+    engine_,
+    storages_ + id,
+    [metadata](Storage* obj){ return obj->create(*metadata); });
+  CHECK_ERROR(create_error);
 
-  CHECK_ERROR(engine_->get_xct_manager().begin_schema_xct(context));
-  the_factory->add_create_log(metadata, context);  // write out log
+  char log_buffer[1 << 12];
+  std::memset(log_buffer, 0, sizeof(log_buffer));
+  construct_create_log(metadata, log_buffer);
+  log::StorageLogType* create_log = reinterpret_cast<log::StorageLogType*>(log_buffer);
+  engine_->get_log_manager().get_meta_buffer()->commit(create_log, commit_epoch);
 
-  // commit invokes apply
-  CHECK_ERROR(engine_->get_xct_manager().precommit_xct(context, commit_epoch));
-
-  // to avoid mixing normal operations on the new storage in this epoch, advance epoch now.
-  engine_->get_xct_manager().advance_current_global_epoch();
-
-  *storage = get_storage(id);
-  ASSERT_ND(*storage);
-  ASSERT_ND((*storage)->get_type() == the_factory->get_type());
+  ASSERT_ND(commit_epoch->is_valid());
+  ASSERT_ND(get_storage(id)->exists());
   return kRetOk;
 }
 
-/** A task to create an array. Used from impersonate version of create_array(). */
-class CreateStorageTask final : public foedus::thread::ImpersonateTask {
- public:
-  CreateStorageTask(StorageManagerPimpl* pimpl,
-                    Metadata *metadata, Storage **storage, Epoch *commit_epoch)
-    : pimpl_(pimpl), metadata_(metadata), storage_(storage), commit_epoch_(commit_epoch) {}
-  ErrorStack run(thread::Thread* context) override {
-    *storage_ = nullptr;
-    CHECK_ERROR(pimpl_->create_storage(context, metadata_, storage_, commit_epoch_));
-    return kRetOk;
+void StorageManagerPimpl::create_storage_apply(Metadata *metadata) {
+  // this method is called only while restart, so no race.
+  ASSERT_ND(metadata->id_ > 0);
+  ASSERT_ND(!metadata->name_.empty());
+  StorageId id = metadata->id_;
+  if (id > control_block_->largest_storage_id_) {
+    control_block_->largest_storage_id_ = id;
   }
 
- private:
-  StorageManagerPimpl* const pimpl_;
-  Metadata* const metadata_;
-  Storage** const storage_;
-  Epoch* const commit_epoch_;
-};
+  ASSERT_ND(!exists(metadata->name_));
 
-ErrorStack StorageManagerPimpl::create_storage(
-  Metadata *metadata, Storage **storage, Epoch *commit_epoch) {
-  CreateStorageTask task(this, metadata, storage, commit_epoch);
-  thread::ImpersonateSession session = engine_->get_thread_pool().impersonate(&task);
-  CHECK_ERROR(session.get_result());
-  return kRetOk;
+  get_storage(id)->initialize();
+  ASSERT_ND(!get_storage(id)->exists());
+  storages_[id].meta_.type_ = metadata->type_;
+  ErrorStack create_error = storage_pseudo_polymorph(
+    engine_,
+    storages_ + id,
+    [metadata](Storage* obj){ return obj->create(*metadata); });
+  if (create_error.is_error()) {
+    LOG(FATAL) << "create_storage_apply() failed. " << create_error
+      << " Failed to restart the engine";
+  }
+
+  ASSERT_ND(get_storage(id)->exists());
+}
+
+bool StorageManagerPimpl::track_moved_record(StorageId storage_id, xct::WriteXctAccess* write) {
+  // so far only Masstree has tracking
+  ASSERT_ND(storages_[storage_id].exists());
+  ASSERT_ND(storages_[storage_id].meta_.type_ == kMasstreeStorage);
+  return masstree::MasstreeStorage(engine_, storages_ + storage_id).track_moved_record(write);
+}
+
+xct::LockableXctId* StorageManagerPimpl::track_moved_record(
+  StorageId storage_id,
+  xct::LockableXctId* address) {
+  ASSERT_ND(storages_[storage_id].exists());
+  ASSERT_ND(storages_[storage_id].meta_.type_ == kMasstreeStorage);
+  return masstree::MasstreeStorage(engine_, storages_ + storage_id).track_moved_record(address);
 }
 
 ErrorStack StorageManagerPimpl::clone_all_storage_metadata(
   snapshot::SnapshotMetadata *metadata) {
   debugging::StopWatch stop_watch;
-  StorageId largest_storage_id_copy = largest_storage_id_;
+  metadata->largest_storage_id_ = control_block_->largest_storage_id_;
   assorted::memory_fence_acq_rel();
-  for (StorageId id = 1; id <= largest_storage_id_copy; ++id) {
-    // TODO(Hideaki): Here, we assume deleted storages are still registered with some
-    // "pseudo-delete" flag, which is not implemented yet.
-    // Otherwise, we can't easily treat storage deletion in an epoch in-between two snapshots.
-    if (storages_[id]) {
-      metadata->storage_metadata_.push_back(storages_[id]->get_metadata()->clone());
-    }
-  }
+
+  // not just the metadata, just copy the whole control block.
+  // this is a single memcpy, which should be much more efficient.
+  uint64_t memory_size
+    = static_cast<uint64_t>(metadata->largest_storage_id_ + 1)
+      * soc::GlobalMemoryAnchors::kStorageMemorySize;
+  metadata->storage_control_blocks_memory_.alloc(
+    memory_size,
+    1 << 12,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    0);
+  metadata->storage_control_blocks_ = reinterpret_cast<storage::StorageControlBlock*>(
+    metadata->storage_control_blocks_memory_.get_block());
+  std::memcpy(metadata->storage_control_blocks_, storages_, memory_size);
+
   stop_watch.stop();
-  LOG(INFO) << "Duplicated metadata of " << metadata->storage_metadata_.size()
-    << " storages (largest_storage_id_=" << largest_storage_id_copy << ") in "
-    << stop_watch.elapsed_ms() << " milliseconds";
+  LOG(INFO) << "Duplicated metadata of " << metadata->largest_storage_id_
+    << " storages  in " << stop_watch.elapsed_ms() << " milliseconds";
   return kRetOk;
 }
 

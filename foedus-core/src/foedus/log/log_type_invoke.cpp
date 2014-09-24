@@ -24,8 +24,8 @@ void invoke_apply_engine(void *buffer, thread::Thread* context) {
 #undef X
 
 #define X(a, b, c) case a: \
-  reinterpret_cast< c* >(buffer)->apply_storage(context, storage); return;
-void invoke_apply_storage(void *buffer, thread::Thread* context, storage::Storage* storage) {
+  reinterpret_cast< c* >(buffer)->apply_storage(engine, storage_id); return;
+void invoke_apply_storage(void *buffer, Engine* engine, storage::StorageId storage_id) {
   invoke_assert_valid(buffer);
   LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
   LogCode code = header->get_type();

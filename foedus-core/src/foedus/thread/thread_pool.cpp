@@ -24,19 +24,40 @@ ErrorStack ThreadPool::initialize() { return pimpl_->initialize(); }
 bool ThreadPool::is_initialized() const { return pimpl_->is_initialized(); }
 ErrorStack ThreadPool::uninitialize() { return pimpl_->uninitialize(); }
 
-ImpersonateSession ThreadPool::impersonate(ImpersonateTask* functor, TimeoutMicrosec timeout) {
-  return pimpl_->impersonate(functor, timeout);
+bool ThreadPool::impersonate(
+  const proc::ProcName& proc_name,
+  const void* task_input,
+  uint64_t task_input_size,
+  ImpersonateSession *session) {
+  return pimpl_->impersonate(proc_name, task_input, task_input_size, session);
 }
 
-ImpersonateSession ThreadPool::impersonate_on_numa_core(
-  ImpersonateTask* functor, ThreadId numa_core, TimeoutMicrosec timeout) {
-  return pimpl_->impersonate_on_numa_core(functor, numa_core, timeout);
+bool ThreadPool::impersonate_on_numa_node(
+  ThreadGroupId node,
+  const proc::ProcName& proc_name,
+  const void* task_input,
+  uint64_t task_input_size,
+  ImpersonateSession *session) {
+  return pimpl_->impersonate_on_numa_node(node, proc_name, task_input, task_input_size, session);
 }
 
-ImpersonateSession ThreadPool::impersonate_on_numa_node(
-  ImpersonateTask* functor, ThreadGroupId numa_node, TimeoutMicrosec timeout) {
-  return pimpl_->impersonate_on_numa_node(functor, numa_node, timeout);
+bool ThreadPool::impersonate_on_numa_core(
+  ThreadId core,
+  const proc::ProcName& proc_name,
+  const void* task_input,
+  uint64_t task_input_size,
+  ImpersonateSession *session) {
+  return pimpl_->impersonate_on_numa_core(core, proc_name, task_input, task_input_size, session);
 }
+
+ThreadGroupRef* ThreadPool::get_group_ref(ThreadGroupId numa_node) {
+  return pimpl_->get_group(numa_node);
+}
+
+ThreadRef* ThreadPool::get_thread_ref(ThreadId id) {
+  return pimpl_->get_thread(id);
+}
+
 
 std::ostream& operator<<(std::ostream& o, const ThreadPool& v) {
   o << *v.pimpl_;

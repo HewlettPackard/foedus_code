@@ -102,6 +102,7 @@
  * @note C++98 : nothing.
  */
 #ifdef DISABLE_CXX11_IN_PUBLIC_HEADERS
+#include <cstddef>  // for NULL
 #define CXX11_FUNC_DELETE
 #define CXX11_FUNC_DEFAULT
 #define CXX11_CONSTEXPR

@@ -8,6 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "foedus/epoch.hpp"
@@ -17,11 +18,77 @@
 #include "foedus/snapshot/fwd.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
+#include "foedus/soc/shared_cond.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_mutex.hpp"
 #include "foedus/thread/condition_variable_impl.hpp"
-#include "foedus/thread/stoppable_thread_impl.hpp"
 
 namespace foedus {
 namespace snapshot {
+
+/** Shared data in SnapshotManagerPimpl. */
+struct SnapshotManagerControlBlock {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  SnapshotManagerControlBlock() = delete;
+  ~SnapshotManagerControlBlock() = delete;
+
+  void initialize() {
+    snapshot_taken_.initialize();
+    snapshot_wakeup_.initialize();
+  }
+  void uninitialize() {
+    snapshot_wakeup_.uninitialize();
+    snapshot_taken_.uninitialize();
+  }
+
+  Epoch get_snapshot_epoch() const { return Epoch(snapshot_epoch_.load()); }
+  Epoch get_snapshot_epoch_weak() const {
+    return Epoch(snapshot_epoch_.load(std::memory_order_relaxed));
+  }
+  SnapshotId get_previous_snapshot_id() const { return previous_snapshot_id_.load(); }
+  SnapshotId get_previous_snapshot_id_weak() const {
+    return previous_snapshot_id_.load(std::memory_order_relaxed);
+  }
+
+  /**
+   * The most recently snapshot-ed epoch, all logs upto this epoch is safe to delete.
+   * If not snapshot has been taken, invalid epoch.
+   * This is equivalent to snapshots_.back().valid_entil_epoch_ with empty check.
+   */
+  std::atomic< Epoch::EpochInteger >  snapshot_epoch_;
+
+  /**
+   * When a caller wants to immediately invoke snapshot, it calls trigger_snapshot_immediate(),
+   * which sets this value and then wakes up snapshot_thread_.
+   * snapshot_thread_ sees this value, unsets it, then immediately start snapshotting.
+   */
+  std::atomic<bool>               immediate_snapshot_requested_;
+
+
+  /**
+   * When snapshot_thread_ took snapshot last time.
+   * Read and written only by snapshot_thread_.
+   */
+  std::chrono::system_clock::time_point   previous_snapshot_time_;
+
+  /**
+   * ID of previously completed snapshot. kNullSnapshotId if no snapshot has been taken.
+   * Used to issue a next snapshot ID.
+   */
+  std::atomic<SnapshotId>         previous_snapshot_id_;
+
+  /** Fired (notify_all) whenever snapshotting is completed. */
+  soc::SharedCond                 snapshot_taken_;
+
+  /**
+   * Snapshot thread sleeps on this condition variable.
+   * The real variable is immediate_snapshot_requested_.
+   */
+  soc::SharedCond                 snapshot_wakeup_;
+};
+
+
+
 /**
  * @brief Pimpl object of SnapshotManager.
  * @ingroup SNAPSHOT
@@ -39,26 +106,28 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
   /** shorthand for engine_->get_options().snapshot_. */
   const SnapshotOptions& get_option() const;
 
-  Epoch get_snapshot_epoch() const { return Epoch(snapshot_epoch_.load()); }
-  Epoch get_snapshot_epoch_weak() const {
-    return Epoch(snapshot_epoch_.load(std::memory_order_relaxed));
-  }
+  Epoch get_snapshot_epoch() const { return control_block_->get_snapshot_epoch(); }
+  Epoch get_snapshot_epoch_weak() const  { return control_block_->get_snapshot_epoch_weak(); }
 
-  SnapshotId get_previous_snapshot_id() const { return previous_snapshot_id_.load(); }
-  SnapshotId get_previous_snapshot_id_weak() const {
-    return previous_snapshot_id_.load(std::memory_order_relaxed);
+  SnapshotId get_previous_snapshot_id() const { return control_block_->get_previous_snapshot_id(); }
+  SnapshotId get_previous_snapshot_id_weak() const  {
+    return control_block_->get_previous_snapshot_id_weak();
   }
 
   void    trigger_snapshot_immediate(bool wait_completion);
 
   SnapshotId issue_next_snapshot_id() {
-    if (previous_snapshot_id_ == kNullSnapshotId) {
-      previous_snapshot_id_ = 1;
+    if (control_block_->previous_snapshot_id_ == kNullSnapshotId) {
+      control_block_->previous_snapshot_id_ = 1;
     } else {
-      previous_snapshot_id_ = increment(previous_snapshot_id_);
+      control_block_->previous_snapshot_id_ = increment(control_block_->previous_snapshot_id_);
     }
-    return previous_snapshot_id_;
+    return control_block_->previous_snapshot_id_;
   }
+
+  void wakeup();
+  void sleep_a_while();
+  bool is_stop_requested() const { return stop_requested_; }
 
   /**
    * @brief Main routine for snapshot_thread_.
@@ -100,47 +169,28 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
 
   Engine* const           engine_;
 
-  /**
-   * The most recently snapshot-ed epoch, all logs upto this epoch is safe to delete.
-   * If not snapshot has been taken, invalid epoch.
-   * This is equivalent to snapshots_.back().valid_entil_epoch_ with empty check.
-   */
-  std::atomic< Epoch::EpochInteger >  snapshot_epoch_;
-
-  /**
-   * When a caller wants to immediately invoke snapshot, it calls (),
-   * which sets this value and then wakes up snapshot_thread_.
-   * snapshot_thread_ sees this value, unsets it, then immediately start snapshotting.
-   */
-  std::atomic<bool>               immediate_snapshot_requested_;
-
-  /**
-   * When snapshot_thread_ took snapshot last time.
-   * Read and written only by snapshot_thread_.
-   */
-  std::chrono::system_clock::time_point   previous_snapshot_time_;
-
-  /**
-   * ID of previously completed snapshot. kNullSnapshotId if no snapshot has been taken.
-   * Used to issue a next snapshot ID.
-   */
-  std::atomic<SnapshotId>         previous_snapshot_id_;
+  SnapshotManagerControlBlock*  control_block_;
 
   /**
    * All previously taken snapshots.
    * Access to this data must be protected with mutex.
    */
-  std::vector< Snapshot >         snapshots_;
+  std::vector< Snapshot >   snapshots_;
+
+  std::atomic<bool>         stop_requested_;
 
   /**
    * The thread that occasionally wakes up and serves as the main managing thread for
    * snapshotting, which consists of several child threads and multiple phases.
+   * Launched only in master engine.
    */
-  thread::StoppableThread         snapshot_thread_;
-
-  /** Fired (notify_all) whenever snapshotting is completed. */
-  thread::ConditionVariable       snapshot_taken_;
+  std::thread               snapshot_thread_;
 };
+
+static_assert(
+  sizeof(SnapshotManagerControlBlock) <= soc::GlobalMemoryAnchors::kSnapshotManagerMemorySize,
+  "SnapshotManagerControlBlock is too large.");
+
 }  // namespace snapshot
 }  // namespace foedus
 #endif  // FOEDUS_SNAPSHOT_SNAPSHOT_MANAGER_PIMPL_HPP_

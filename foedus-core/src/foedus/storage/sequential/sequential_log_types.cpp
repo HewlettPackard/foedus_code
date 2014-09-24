@@ -33,17 +33,23 @@ void SequentialCreateLogType::populate(
   name_length_ = name_length;
   std::memcpy(name_, name, name_length);
 }
-void SequentialCreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
-  ASSERT_ND(storage == nullptr);  // because we are now creating it.
+void SequentialCreateLogType::apply_storage(Engine* engine, StorageId storage_id) {
+  ASSERT_ND(storage_id > 0);
   LOG(INFO) << "Applying CREATE SEQUENTIAL STORAGE log: " << *this;
   StorageName name(name_, name_length_);
   SequentialMetadata metadata(header_.storage_id_, name);
-  std::unique_ptr<SequentialStorage> sequential(
-    new SequentialStorage(context->get_engine(), metadata, true));
-  COERCE_ERROR(sequential->initialize());
-  COERCE_ERROR(sequential->create(context));
-  sequential.release();  // No error, so take over the ownership from unique_ptr.
+  engine->get_storage_manager().create_storage_apply(&metadata);
   LOG(INFO) << "Applied CREATE SEQUENTIAL STORAGE log: " << *this;
+}
+
+void SequentialCreateLogType::construct(const Metadata* metadata, void* buffer) {
+  ASSERT_ND(metadata->type_ == kSequentialStorage);
+  const SequentialMetadata* casted = static_cast<const SequentialMetadata*>(metadata);
+  SequentialCreateLogType* log_entry = reinterpret_cast<SequentialCreateLogType*>(buffer);
+  log_entry->populate(
+    casted->id_,
+    casted->name_.size(),
+    casted->name_.data());
 }
 
 void SequentialCreateLogType::assert_valid() {

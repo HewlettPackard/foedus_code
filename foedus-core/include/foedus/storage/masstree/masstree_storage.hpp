@@ -8,6 +8,7 @@
 #include <iosfwd>
 #include <string>
 
+#include "foedus/attachable.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
@@ -25,40 +26,47 @@ namespace masstree {
  * @brief Represents a Masstree storage.
  * @ingroup MASSTREE
  */
-class MasstreeStorage CXX11_FINAL : public virtual Storage {
+class MasstreeStorage CXX11_FINAL
+  : public virtual Storage, public Attachable<MasstreeStorageControlBlock> {
  public:
+  MasstreeStorage() : Attachable<MasstreeStorageControlBlock>() {}
   /**
    * Constructs an masstree storage either from disk or newly create.
-   * @param[in] engine Database engine
-   * @param[in] metadata Metadata of this storage
-   * @param[in] create If true, we newly allocate this masstree when create() is called.
    */
-  MasstreeStorage(Engine* engine, const MasstreeMetadata &metadata, bool create);
-  ~MasstreeStorage() CXX11_OVERRIDE;
-
-  // Disable default constructors
-  MasstreeStorage() CXX11_FUNC_DELETE;
-  MasstreeStorage(const MasstreeStorage&) CXX11_FUNC_DELETE;
-  MasstreeStorage& operator=(const MasstreeStorage&) CXX11_FUNC_DELETE;
-
-  // Initializable interface
-  ErrorStack  initialize() CXX11_OVERRIDE;
-  bool        is_initialized() const CXX11_OVERRIDE;
-  ErrorStack  uninitialize() CXX11_OVERRIDE;
+  MasstreeStorage(Engine* engine, MasstreeStorageControlBlock* control_block)
+    : Attachable<MasstreeStorageControlBlock>(engine, control_block) {
+    ASSERT_ND(get_type() == kMasstreeStorage || !exists());
+  }
+  MasstreeStorage(Engine* engine, StorageControlBlock* control_block)
+    : Attachable<MasstreeStorageControlBlock>(
+      engine,
+      reinterpret_cast<MasstreeStorageControlBlock*>(control_block)) {
+    ASSERT_ND(get_type() == kMasstreeStorage || !exists());
+  }
+  MasstreeStorage(const MasstreeStorage& other)
+    : Attachable<MasstreeStorageControlBlock>(other.engine_, other.control_block_) {
+  }
+  MasstreeStorage& operator=(const MasstreeStorage& other) {
+    engine_ = other.engine_;
+    control_block_ = other.control_block_;
+    return *this;
+  }
 
   // Storage interface
   StorageId           get_id()    const CXX11_OVERRIDE;
-  StorageType         get_type()  const CXX11_OVERRIDE { return kMasstreeStorage; }
+  StorageType         get_type()  const CXX11_OVERRIDE;
   const StorageName&  get_name()  const CXX11_OVERRIDE;
   const Metadata*     get_metadata()  const CXX11_OVERRIDE;
   const MasstreeMetadata*  get_masstree_metadata()  const;
   bool                exists()    const CXX11_OVERRIDE;
-  ErrorStack          create(thread::Thread* context) CXX11_OVERRIDE;
+  ErrorStack          create(const Metadata &metadata) CXX11_OVERRIDE;
+  ErrorStack          drop() CXX11_OVERRIDE;
   void       describe(std::ostream* o) const CXX11_OVERRIDE;
 
 
   /**
    * @brief Prefetch data pages in this storage. Key Slice version (from/to are 8 bytes or less).
+   * @param[in] context Thread context.
    * @param[in] from inclusive begin slice of records that are specifically prefetched even in
    * data pages.
    * @param[in] to inclusive end slice of records that are specifically prefetched even in data
@@ -368,27 +376,7 @@ class MasstreeStorage CXX11_FINAL : public virtual Storage {
 
 
   ErrorStack  verify_single_thread(thread::Thread* context);
-
-  /** Use this only if you know what you are doing. */
-  MasstreeStoragePimpl*  get_pimpl() { return pimpl_; }
-
- private:
-  MasstreeStoragePimpl*  pimpl_;
 };
-
-/**
- * @brief Factory object for masstree storages.
- * @ingroup MASSTREE
- */
-class MasstreeStorageFactory CXX11_FINAL : public virtual StorageFactory {
- public:
-  ~MasstreeStorageFactory() {}
-  StorageType   get_type() const CXX11_OVERRIDE { return kMasstreeStorage; }
-  bool          is_right_metadata(const Metadata *metadata) const;
-  ErrorStack    get_instance(Engine* engine, const Metadata *metadata, Storage** storage) const;
-  void          add_create_log(const Metadata* metadata, thread::Thread* context) const;
-};
-
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus

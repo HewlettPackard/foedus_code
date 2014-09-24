@@ -14,6 +14,7 @@ namespace xct {
 class   CombinedLock;
 struct  LockableXctId;
 struct  LockFreeWriteXctAccess;
+struct  McsBlock;
 struct  McsLock;
 struct  McsLockScope;
 struct  PointerAccess;
@@ -22,6 +23,7 @@ class   Xct;
 struct  XctAccess;
 struct  XctId;
 class   XctManager;
+struct  XctManagerControlBlock;
 class   XctManagerPimpl;
 }  // namespace xct
 }  // namespace foedus

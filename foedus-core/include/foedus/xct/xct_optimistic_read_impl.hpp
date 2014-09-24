@@ -7,6 +7,7 @@
 
 #include "foedus/error_stack.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/storage/storage_id.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_access.hpp"
 
@@ -24,7 +25,7 @@ namespace xct {
 template <typename HANDLER>
 inline ErrorCode optimistic_read_protocol(
   Xct* xct,
-  storage::Storage* storage,
+  storage::StorageId storage_id,
   LockableXctId* owner_id_address,
   bool in_snapshot,
   HANDLER handler) {
@@ -42,7 +43,7 @@ inline ErrorCode optimistic_read_protocol(
   // The Masstree paper additionally has another fence and version-check and then a retry if the
   // version differs. However, in our protocol such thing is anyway caught in commit phase.
   // Thus, we have only one fence here.
-  return xct->add_to_read_set(storage, observed, owner_id_address);
+  return xct->add_to_read_set(storage_id, observed, owner_id_address);
 }
 
 }  // namespace xct

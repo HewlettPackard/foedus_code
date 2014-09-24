@@ -27,6 +27,8 @@
 #include "foedus/storage/array/array_log_types.hpp"
 #include "foedus/storage/array/array_page_impl.hpp"
 #include "foedus/storage/array/array_partitioner_impl.hpp"
+#include "foedus/storage/array/array_storage.hpp"
+#include "foedus/storage/array/array_storage_pimpl.hpp"
 
 namespace foedus {
 namespace storage {
@@ -39,9 +41,9 @@ ArrayComposer::ArrayComposer(
     cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot)
   : Composer(engine, partitioner, snapshot_writer, previous_snapshot_files, new_snapshot),
-    storage_casted_(dynamic_cast<ArrayStorage*>(storage_)),
-    payload_size_(storage_casted_->get_payload_size()),
-    levels_(storage_casted_->get_levels()),
+    storage_casted_(engine_, storage_),
+    payload_size_(storage_casted_.get_payload_size()),
+    levels_(storage_casted_.get_levels()),
     route_finder_(levels_, payload_size_) {
   ASSERT_ND(partitioner);
   offset_intervals_[0] = route_finder_.get_records_in_leaf();
@@ -80,7 +82,7 @@ ErrorStack ArrayComposer::compose(
   while (ended_inputs_count_ < inputs_count_) {
     const ArrayOverwriteLogType* entry = get_next_entry();
     Record* record = cur_path_[0]->get_leaf_record(cur_route_.route[0], payload_size_);
-    entry->apply_record(nullptr, storage_casted_, &record->owner_id_, record->payload_);
+    entry->apply_record(nullptr, storage_id_, &record->owner_id_, record->payload_);
     WRAP_ERROR_CODE(advance());
   }
 
@@ -164,7 +166,6 @@ ErrorStack ArrayComposer::compose_finalize(RootInfoPage* root_info_page) {
   // TODO(Hideaki): in terms of constructing snapshots, we are done already.
   // however, we must do one more thing for in-memory storage; installing
   // the new pointers to volatile pages and drop child volatile pages if possible.
-
   return kRetOk;
 }
 
@@ -183,7 +184,7 @@ ErrorStack ArrayComposer::construct_root(
     *new_root_page_pointer = casted->pointers_[0];
   } else {
     ArrayPage* root_page = reinterpret_cast<ArrayPage*>(snapshot_writer_->get_page_base());
-    SnapshotPagePointer page_id = storage_->get_metadata()->root_snapshot_page_id_;
+    SnapshotPagePointer page_id = storage_->meta_.root_snapshot_page_id_;
     SnapshotPagePointer new_page_id = snapshot_writer_->get_next_page_id();
     *new_root_page_pointer = new_page_id;
     if (page_id != 0) {

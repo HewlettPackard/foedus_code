@@ -13,7 +13,9 @@
 #include <utility>
 
 #include "foedus/assert_nd.hpp"
+#include "foedus/engine.hpp"
 #include "foedus/assorted/endianness.hpp"
+#include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/thread.hpp"
@@ -37,17 +39,24 @@ void MasstreeCreateLogType::populate(
   name_length_ = name_length;
   std::memcpy(name_, name, name_length);
 }
-void MasstreeCreateLogType::apply_storage(thread::Thread* context, Storage* storage) {
-  ASSERT_ND(storage == nullptr);  // because we are now creating it.
+void MasstreeCreateLogType::apply_storage(Engine* engine, StorageId storage_id) {
+  ASSERT_ND(storage_id > 0);
   LOG(INFO) << "Applying CREATE MASSTREE STORAGE log: " << *this;
   StorageName name(name_, name_length_);
   MasstreeMetadata metadata(header_.storage_id_, name, border_early_split_threshold_);
-  std::unique_ptr<MasstreeStorage> masstree(
-    new MasstreeStorage(context->get_engine(), metadata, true));
-  COERCE_ERROR(masstree->initialize());
-  COERCE_ERROR(masstree->create(context));
-  masstree.release();  // No error, so take over the ownership from unique_ptr.
+  engine->get_storage_manager().create_storage_apply(&metadata);
   LOG(INFO) << "Applied CREATE MASSTREE STORAGE log: " << *this;
+}
+
+void MasstreeCreateLogType::construct(const Metadata* metadata, void* buffer) {
+  ASSERT_ND(metadata->type_ == kMasstreeStorage);
+  const MasstreeMetadata* casted = static_cast<const MasstreeMetadata*>(metadata);
+  MasstreeCreateLogType* log_entry = reinterpret_cast<MasstreeCreateLogType*>(buffer);
+  log_entry->populate(
+    casted->id_,
+    casted->border_early_split_threshold_,
+    casted->name_.size(),
+    casted->name_.data());
 }
 
 void MasstreeCreateLogType::assert_valid() {

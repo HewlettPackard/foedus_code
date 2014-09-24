@@ -27,10 +27,15 @@ include_directories(SYSTEM
 #   http://baoilleach.blogspot.com/2013/06/using-ctest-with-multiple-tests-in.html
 #   http://smspillaz.wordpress.com/2012/07/05/unit-test-autodiscovery-with-cmake-and-google-test/
 function (add_foedus_test_individual targetname individual_tests)
-    add_executable(${targetname} ${CMAKE_CURRENT_SOURCE_DIR}/${targetname}.cpp)
-    target_link_libraries(${targetname} foedus-core gtest_main test_common ${CMAKE_THREAD_LIBS_INIT})
+  add_foedus_test_individual_without_valgrind("${targetname}" "${individual_tests}")
+  add_foedus_test_individual_valgrind("${targetname}" "${individual_tests}")
+endfunction()
 
-   foreach(individual_test ${individual_tests})
+function (add_foedus_test_individual_without_valgrind targetname individual_tests)
+  add_executable(${targetname} ${CMAKE_CURRENT_SOURCE_DIR}/${targetname}.cpp)
+  target_link_libraries(${targetname} foedus-core gtest_main test_common ${CMAKE_THREAD_LIBS_INIT})
+
+  foreach(individual_test ${individual_tests})
     # To pick up test report xml files from Jenkins,
     # Set "test-reports/*.xml" as the report file filter.
     add_test(
@@ -38,7 +43,29 @@ function (add_foedus_test_individual targetname individual_tests)
       COMMAND ${targetname}
         --gtest_filter=*.${individual_test}
         --gtest_output=xml:${FOEDUS_TEST_REPORT_DIR}/${targetname}_${individual_test}.xml)
+    if(${enable_valgrind})
+      # also add valgrind version. This version takes long, so you might want to exclude
+      # them from ctest by "ctest -E valgrind".
+      # To pick up valgrind report xml files from Jenkins,
+      # Set "valgrind-reports/*.xml" as the valgrind plugin filter.
+      add_test(
+        NAME valgrind_${targetname}_${individual_test}
+        COMMAND
+          ${MEMORYCHECK_COMMAND}
+          --xml=yes --xml-file=${FOEDUS_VALGRIND_REPORT_DIR}/${targetname}_${individual_test}.xml
+          --error-exitcode=1 --leak-check=full --gen-suppressions=all
+          # removed --show-leak-kinds=all, which is supported only by valgrind 3.9 and later
+          --suppressions=${FOEDUS_CORE_SRC_ROOT}/tools/valgrind.supp
+          ./${targetname}
+          --gtest_filter=*.${individual_test}
+          --gtest_output=xml:${FOEDUS_TEST_REPORT_DIR}/valgrind_${targetname}_${individual_test}.xml
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+    endif()
+  endforeach(individual_test individual_tests)
+endfunction()
 
+function (add_foedus_test_individual_valgrind targetname individual_tests)
+  foreach(individual_test ${individual_tests})
     # also add valgrind version. This version takes long, so you might want to exclude
     # them from ctest by "ctest -E valgrind".
     # To pick up valgrind report xml files from Jenkins,
@@ -55,7 +82,7 @@ function (add_foedus_test_individual targetname individual_tests)
         --gtest_filter=*.${individual_test}
         --gtest_output=xml:${FOEDUS_TEST_REPORT_DIR}/valgrind_${targetname}_${individual_test}.xml
       WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-   endforeach(individual_test individual_tests)
+  endforeach(individual_test individual_tests)
 endfunction()
 
 add_subdirectory(src)

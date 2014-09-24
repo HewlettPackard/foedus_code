@@ -7,6 +7,7 @@ add_subdirectory(fs)
 add_subdirectory(log)
 add_subdirectory(memory)
 add_subdirectory(snapshot)
+add_subdirectory(soc)
 add_subdirectory(storage)
 add_subdirectory(thread)
 add_subdirectory(xct)
@@ -25,4 +26,5 @@ if(RUN_EXPENSIVE_TESTCASES)
 else(RUN_EXPENSIVE_TESTCASES)
   add_foedus_test_individual(test_headers "CheckCompiler")
 endif(RUN_EXPENSIVE_TESTCASES)
+
 

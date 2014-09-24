@@ -15,6 +15,7 @@
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/common_log_types.hpp"
 #include "foedus/memory/aligned_memory.hpp"
+#include "foedus/memory/engine_memory.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_log_types.hpp"
 #include "foedus/storage/array/array_page_impl.hpp"
@@ -26,27 +27,30 @@ namespace storage {
 namespace array {
 
 ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
-  ArrayStorage* storage = dynamic_cast<ArrayStorage*>(
-    engine->get_storage_manager().get_storage(id));
-  ASSERT_ND(storage);
+  ArrayStorage storage = engine->get_storage_manager().get_array(id);
+  ASSERT_ND(storage.exists());
 
-  array_id_ = storage->get_id();
-  array_levels_ = storage->get_levels();
-  array_size_ = storage->get_array_size();
+  array_id_ = id;
+  array_levels_ = storage.get_levels();
+  array_size_ = storage.get_array_size();
   bucket_size_ = array_size_ / kInteriorFanout;
   bucket_size_div_ = assorted::ConstDiv(bucket_size_);
 
-  ArrayStoragePimpl* array = storage->get_pimpl();
+  ArrayStorageControlBlock* array = storage.get_control_block();
+  const memory::GlobalVolatilePageResolver& resolver
+    = engine->get_memory_manager().get_global_volatile_page_resolver();
+  ArrayPage* root_page = reinterpret_cast<ArrayPage*>(
+    resolver.resolve_offset(array->root_page_pointer_.volatile_pointer_));
   if (array->levels_ == 1) {
-    ASSERT_ND(array->root_page_->is_leaf());
+    ASSERT_ND(root_page->is_leaf());
     array_single_page_ = true;
   } else {
-    ASSERT_ND(!array->root_page_->is_leaf());
+    ASSERT_ND(!root_page->is_leaf());
     array_single_page_ = false;
 
     // how many direct children does this root page have?
     std::vector<uint64_t> pages = ArrayStoragePimpl::calculate_required_pages(
-      array_size_, storage->get_payload_size());
+      array_size_, storage.get_payload_size());
     ASSERT_ND(pages.size() == array->levels_);
     ASSERT_ND(pages[pages.size() - 1] == 1);  // root page
     uint16_t direct_children = pages[pages.size() - 2];
@@ -59,7 +63,7 @@ ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
     if (direct_children < total_partitions) {
       LOG(ERROR) << "Warning-like error: This array doesn't have enough direct children in root"
         " page to assign partitions. #partitions=" << total_partitions << ", #direct children="
-        << direct_children << ". array=" << *storage;
+        << direct_children << ". array=" << storage;
     }
 
     // two paths. first path simply sees volatile/snapshot pointer and determines owner.
@@ -68,7 +72,7 @@ ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
     const uint16_t excessive_count = (direct_children / total_partitions) + 1;
     std::vector<uint16_t> excessive_children;
     for (uint16_t child = 0; child < direct_children; ++child) {
-      const DualPagePointer &pointer = array->root_page_->get_interior_record(child);
+      const DualPagePointer &pointer = root_page->get_interior_record(child);
       PartitionId partition;
       if (pointer.volatile_pointer_.components.offset != 0) {
         partition = pointer.volatile_pointer_.components.numa_node;

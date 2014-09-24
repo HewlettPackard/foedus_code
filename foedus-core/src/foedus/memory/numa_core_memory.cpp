@@ -49,7 +49,6 @@ ErrorStack NumaCoreMemory::initialize_once() {
   // allocate small_thread_local_memory_. it's a collection of small memories
   uint64_t memory_size = 0;
   memory_size += static_cast<uint64_t>(core_local_ordinal_) << 12;
-  memory_size += sizeof(thread::ThreadPimpl::McsBlock) << 16;
   memory_size += sizeof(xct::PageVersionAccess) * xct::Xct::kMaxPageVersionSets;
   memory_size += sizeof(xct::PointerAccess) * xct::Xct::kMaxPointerSets;
   const xct::XctOptions& xct_opt = engine_->get_options().xct_;
@@ -61,13 +60,11 @@ ErrorStack NumaCoreMemory::initialize_once() {
     LOG(INFO) << "mm, small_local_memory_size is more than 2MB(" << memory_size << ")."
       " not a big issue, but consumes one more TLB entry...";
   }
-  CHECK_ERROR(node_memory_->allocate_huge_numa_memory(memory_size, &small_thread_local_memory_));
+  CHECK_ERROR(node_memory_->allocate_numa_memory(memory_size, &small_thread_local_memory_));
   char* memory = reinterpret_cast<char*>(small_thread_local_memory_.get_block());
   // "shift" 4kb for each thread on this node so that memory banks are evenly used.
   // in many architecture, 13th- or 14th- bits are memory banks (see [JEONG11])
   memory += static_cast<uint64_t>(core_local_ordinal_) << 12;
-  small_thread_local_memory_pieces_.thread_mcs_block_memory_ = memory;
-  memory += sizeof(thread::ThreadPimpl::McsBlock) << 16;
   small_thread_local_memory_pieces_.xct_page_version_memory_ = memory;
   memory += sizeof(xct::PageVersionAccess) * xct::Xct::kMaxPageVersionSets;
   small_thread_local_memory_pieces_.xct_pointer_access_memory_ = memory;

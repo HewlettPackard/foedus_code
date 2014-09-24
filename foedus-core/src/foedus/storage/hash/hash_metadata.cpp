@@ -4,28 +4,35 @@
  */
 #include "foedus/storage/hash/hash_metadata.hpp"
 
+#include <iostream>
+#include <sstream>
+#include <string>
+
 #include "foedus/externalize/externalizable.hpp"
 
 namespace foedus {
 namespace storage {
 namespace hash {
-ErrorStack HashMetadata::load(tinyxml2::XMLElement* element) {
+std::string HashMetadata::describe() const {
+  std::stringstream o;
+  o << HashMetadataSerializer(const_cast<HashMetadata*>(this));
+  return o.str();
+}
+std::ostream& operator<<(std::ostream& o, const HashMetadata& v) {
+  o << HashMetadataSerializer(const_cast<HashMetadata*>(&v));
+  return o;
+}
+
+ErrorStack HashMetadataSerializer::load(tinyxml2::XMLElement* element) {
   CHECK_ERROR(load_base(element));
-  EXTERNALIZE_LOAD_ELEMENT(element, bin_bits_);
+  CHECK_ERROR(get_element(element, "bin_bits_", &data_casted_->bin_bits_))
   return kRetOk;
 }
 
-ErrorStack HashMetadata::save(tinyxml2::XMLElement* element) const {
+ErrorStack HashMetadataSerializer::save(tinyxml2::XMLElement* element) const {
   CHECK_ERROR(save_base(element));
-  EXTERNALIZE_SAVE_ELEMENT(element, bin_bits_, "");
+  CHECK_ERROR(add_element(element, "bin_bits_", "", data_casted_->bin_bits_));
   return kRetOk;
-}
-
-Metadata* HashMetadata::clone() const {
-  HashMetadata* cloned = new HashMetadata();
-  clone_base(cloned);
-  cloned->bin_bits_ = bin_bits_;
-  return cloned;
 }
 
 void HashMetadata::set_capacity(uint64_t expected_records, double preferred_fillfactor) {

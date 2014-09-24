@@ -87,6 +87,14 @@ std::string os_error();
 std::string os_error(int error_number);
 
 /**
+ * @brief Returns the full path of current executable.
+ * @ingroup ASSORTED
+ * @details
+ * This relies on linux /proc/self/exe. Not sure how to port it to Windows..
+ */
+std::string get_current_executable_path();
+
+/**
  * @brief Convenient way of writing hex integers to stream.
  * @ingroup ASSORTED
  * @details

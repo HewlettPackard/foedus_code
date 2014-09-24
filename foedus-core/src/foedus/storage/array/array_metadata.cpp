@@ -4,32 +4,37 @@
  */
 #include "foedus/storage/array/array_metadata.hpp"
 
+#include <iostream>
+#include <sstream>
+#include <string>
+
 #include "foedus/externalize/externalizable.hpp"
 namespace foedus {
 namespace storage {
 namespace array {
-ErrorStack ArrayMetadata::load(tinyxml2::XMLElement* element) {
+std::string ArrayMetadata::describe() const {
+  std::stringstream o;
+  o << ArrayMetadataSerializer(const_cast<ArrayMetadata*>(this));
+  return o.str();
+}
+std::ostream& operator<<(std::ostream& o, const ArrayMetadata& v) {
+  o << ArrayMetadataSerializer(const_cast<ArrayMetadata*>(&v));
+  return o;
+}
+
+ErrorStack ArrayMetadataSerializer::load(tinyxml2::XMLElement* element) {
   CHECK_ERROR(load_base(element));
-  EXTERNALIZE_LOAD_ELEMENT(element, payload_size_);
-  EXTERNALIZE_LOAD_ELEMENT(element, array_size_);
+  CHECK_ERROR(get_element(element, "payload_size_", &data_casted_->payload_size_))
+  CHECK_ERROR(get_element(element, "array_size_", &data_casted_->array_size_))
   return kRetOk;
 }
 
-ErrorStack ArrayMetadata::save(tinyxml2::XMLElement* element) const {
+ErrorStack ArrayMetadataSerializer::save(tinyxml2::XMLElement* element) const {
   CHECK_ERROR(save_base(element));
-  EXTERNALIZE_SAVE_ELEMENT(element, payload_size_, "");
-  EXTERNALIZE_SAVE_ELEMENT(element, array_size_, "");
+  CHECK_ERROR(add_element(element, "payload_size_", "", data_casted_->payload_size_));
+  CHECK_ERROR(add_element(element, "array_size_", "", data_casted_->array_size_));
   return kRetOk;
 }
-
-Metadata* ArrayMetadata::clone() const {
-  ArrayMetadata* cloned = new ArrayMetadata();
-  clone_base(cloned);
-  cloned->payload_size_ = payload_size_;
-  cloned->array_size_ = array_size_;
-  return cloned;
-}
-
 
 }  // namespace array
 }  // namespace storage

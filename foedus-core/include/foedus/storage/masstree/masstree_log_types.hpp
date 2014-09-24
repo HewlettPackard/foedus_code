@@ -51,7 +51,8 @@ struct MasstreeCreateLogType : public log::StorageLogType {
     uint16_t border_early_split_threshold,
     uint16_t name_length,
     const char* name);
-  void apply_storage(thread::Thread* context, Storage* storage);
+  static void construct(const Metadata* metadata, void* buffer);
+  void apply_storage(Engine* engine, StorageId storage_id);
   void assert_valid();
   friend std::ostream& operator<<(std::ostream& o, const MasstreeCreateLogType& v);
 };
@@ -119,10 +120,9 @@ struct MasstreeInsertLogType : public log::RecordLogType {
 
   void            apply_record(
     thread::Thread* /*context*/,
-    Storage* storage,
+    StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
     char* payload) ALWAYS_INLINE {
-    ASSERT_ND(dynamic_cast<MasstreeStorage*>(storage));
     ASSERT_ND(owner_id->xct_id_.is_deleted());  // the physical record should be in 'deleted' status
     uint16_t skipped = calculate_skipped_key_length(key_length_, layer_);
     // no need to set key in apply(). it's already set when the record is physically inserted
@@ -175,10 +175,9 @@ struct MasstreeDeleteLogType : public log::RecordLogType {
 
   void            apply_record(
     thread::Thread* /*context*/,
-    Storage* storage,
+    StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
     char* payload) ALWAYS_INLINE {
-    ASSERT_ND(dynamic_cast<MasstreeStorage*>(storage));
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
     uint16_t skipped = calculate_skipped_key_length(key_length_, layer_);
     ASSERT_ND(std::memcmp(payload, data_ + skipped, key_length_ - skipped) == 0);
@@ -233,10 +232,9 @@ struct MasstreeOverwriteLogType : public log::RecordLogType {
 
   void            apply_record(
     thread::Thread* /*context*/,
-    Storage* storage,
+    StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
     char* payload) ALWAYS_INLINE {
-    ASSERT_ND(dynamic_cast<MasstreeStorage*>(storage));
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
 
     uint16_t skipped = calculate_skipped_key_length(key_length_, layer_);

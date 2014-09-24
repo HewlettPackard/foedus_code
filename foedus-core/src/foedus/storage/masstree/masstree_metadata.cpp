@@ -4,28 +4,37 @@
  */
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 
+#include <iostream>
+#include <sstream>
+#include <string>
+
 #include "foedus/externalize/externalizable.hpp"
 
 namespace foedus {
 namespace storage {
 namespace masstree {
-ErrorStack MasstreeMetadata::load(tinyxml2::XMLElement* element) {
+std::string MasstreeMetadata::describe() const {
+  std::stringstream o;
+  o << MasstreeMetadataSerializer(const_cast<MasstreeMetadata*>(this));
+  return o.str();
+}
+std::ostream& operator<<(std::ostream& o, const MasstreeMetadata& v) {
+  o << MasstreeMetadataSerializer(const_cast<MasstreeMetadata*>(&v));
+  return o;
+}
+
+ErrorStack MasstreeMetadataSerializer::load(tinyxml2::XMLElement* element) {
   CHECK_ERROR(load_base(element));
-  EXTERNALIZE_LOAD_ELEMENT(element, border_early_split_threshold_);
+  CHECK_ERROR(get_element(
+    element, "border_early_split_threshold_", &data_casted_->border_early_split_threshold_))
   return kRetOk;
 }
 
-ErrorStack MasstreeMetadata::save(tinyxml2::XMLElement* element) const {
+ErrorStack MasstreeMetadataSerializer::save(tinyxml2::XMLElement* element) const {
   CHECK_ERROR(save_base(element));
-  EXTERNALIZE_SAVE_ELEMENT(element, border_early_split_threshold_, "");
+  CHECK_ERROR(add_element(
+    element, "border_early_split_threshold_", "", data_casted_->border_early_split_threshold_));
   return kRetOk;
-}
-
-Metadata* MasstreeMetadata::clone() const {
-  MasstreeMetadata* cloned = new MasstreeMetadata();
-  clone_base(cloned);
-  cloned->border_early_split_threshold_ = border_early_split_threshold_;
-  return cloned;
 }
 
 }  // namespace masstree

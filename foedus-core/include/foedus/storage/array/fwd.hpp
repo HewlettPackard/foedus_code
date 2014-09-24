@@ -21,6 +21,7 @@ class   ArrayPartitioner;
 struct  ArrayRange;
 class   ArrayStorage;
 struct  ArrayStorageCache;
+struct  ArrayStorageControlBlock;
 class   ArrayStorageFactory;
 class   ArrayStoragePimpl;
 class   LookupRouteFinder;

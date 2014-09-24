@@ -14,6 +14,7 @@
 #include "foedus/compiler.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/error_code.hpp"
+#include "foedus/fwd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/cacheline.hpp"
 #include "foedus/memory/fwd.hpp"
@@ -65,8 +66,8 @@ class MasstreePage {
     return high_fence_ == kSupremumSlice;
   }
   KeySlice            get_foster_fence() const ALWAYS_INLINE { return foster_fence_; }
-  MasstreePage*       get_foster_minor() const ALWAYS_INLINE { return foster_twin_[0]; }
-  MasstreePage*       get_foster_major() const ALWAYS_INLINE { return foster_twin_[1]; }
+  VolatilePagePointer get_foster_minor() const ALWAYS_INLINE { return foster_twin_[0]; }
+  VolatilePagePointer get_foster_major() const ALWAYS_INLINE { return foster_twin_[1]; }
 
   bool                within_fences(KeySlice slice) const ALWAYS_INLINE {
     return slice >= low_fence_ && (is_high_fence_supremum() || slice < high_fence_);
@@ -147,7 +148,7 @@ class MasstreePage {
    * this page itself. This is null if the split was a no-record split.
    * This is core of the foster-twin protocol.
    */
-  MasstreePage*       foster_twin_[2];  // +16 -> 72
+  VolatilePagePointer foster_twin_[2];  // +16 -> 72
 
   void                initialize_volatile_common(
     StorageId           storage_id,
@@ -170,7 +171,7 @@ struct BorderSplitStrategy {
   KeySlice largest_slice_;
   /**
    * This will be the new foster fence.
-   * Ideally, #records below and above this are same.
+   * Ideally, # of records below and above this are same.
    */
   KeySlice mid_slice_;
 };
@@ -637,6 +638,7 @@ class MasstreeBorderPage final : public MasstreePage {
    * the whole transaction.
    */
   bool track_moved_record(
+    Engine* engine,
     xct::LockableXctId* owner_address,
     MasstreeBorderPage** located_page,
     uint8_t* located_index);
