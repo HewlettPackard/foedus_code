@@ -103,7 +103,7 @@ ErrorStack MetadataSerializer::load_all_storages_from_xml(
     CHECK_ERROR(get_element(element, "id_", &id))
     ASSERT_ND(id > 0);
     ASSERT_ND(id <= largest_storage_id);
-    StorageType type;
+    StorageType type = kInvalidStorage;
     CHECK_ERROR(get_enum_element(element, "type_", &type));
 
     VLOG(0) << "Loading metadata of storage-" << id << " from xml";

@@ -152,6 +152,7 @@ ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) 
   }
 
   char log_buffer[1 << 12];
+  std::memset(log_buffer, 0, sizeof(log_buffer));
   DropLogType* drop_log = reinterpret_cast<DropLogType*>(log_buffer);
   drop_log->populate(id);
   engine_->get_log_manager().get_meta_buffer()->commit(drop_log, commit_epoch);
@@ -223,6 +224,7 @@ ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit
   CHECK_ERROR(create_error);
 
   char log_buffer[1 << 12];
+  std::memset(log_buffer, 0, sizeof(log_buffer));
   construct_create_log(metadata, log_buffer);
   log::StorageLogType* create_log = reinterpret_cast<log::StorageLogType*>(log_buffer);
   engine_->get_log_manager().get_meta_buffer()->commit(create_log, commit_epoch);
