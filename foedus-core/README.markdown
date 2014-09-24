@@ -72,10 +72,13 @@ Here is a minimal example program to create a key-value storage and query on it.
     const uint16_t kPayload = 16;
     const uint32_t kRecords = 1 << 20;
     const char* kName = "myarray";
+    const char* kProc = "myproc";
+
     ErrorStack my_proc(
-      thread::Thread context,
-      const void input_buffer, uint32_t input_len,
-      void output_buffer, uint32_t output_buffer_size, uint32_t output_used) {
+        thread::Thread context,
+        const void input_buffer, uint32_t input_len,
+        void output_buffer, uint32_t output_buffer_size, uint32_t output_used) {
+      foedus::Engine* engine = context->get_engine();
       foedus::storage::array::ArrayStorage array(engine, kName);
       foedus::xct::XctManager* xct_manager = engine->get_xct_manager();
       WRAP_ERROR_CODE(xct_manager->begin_xct(context, foedus::xct::kSerializable));
@@ -90,14 +93,14 @@ Here is a minimal example program to create a key-value storage and query on it.
     int main(int argc, char argv) {
       foedus::EngineOptions options;
       foedus::Engine engine(options);
-      engine.get_proc_manager()->pre_register("my_proc", my_proc);
+      engine.get_proc_manager()->pre_register(kProc, my_proc);
       COERCE_ERROR(engine.initialize());
 
       foedus::UninitializeGuard guard(&engine);
       foedus::Epoch create_epoch;
       foedus::storage::array::ArrayMetadata meta(kName, kPayload, kRecords);
       COERCE_ERROR(engine.get_storage_manager()->create_storage(&meta, &create_epoch));
-      foedus::ErrorStack result = engine.get_thread_pool()->impersonate_synchronous("my_proc");
+      foedus::ErrorStack result = engine.get_thread_pool()->impersonate_synchronous(kProc);
       std::cout << "result=" << result << std::endl;
       COERCE_ERROR(engine.uninitialize());
 
