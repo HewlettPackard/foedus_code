@@ -23,7 +23,7 @@ ErrorStack ProcManagerPimpl::initialize_once() {
   // attach shared memories of all SOCs
   all_soc_procs_.clear();
   soc::SocId soc_count = engine_->get_options().thread_.group_count_;
-  soc::SharedMemoryRepo* memory_repo = engine_->get_soc_manager().get_shared_memory_repo();
+  soc::SharedMemoryRepo* memory_repo = engine_->get_soc_manager()->get_shared_memory_repo();
   for (soc::SocId node = 0; node < soc_count; ++node) {
     soc::NodeMemoryAnchors* anchors = memory_repo->get_node_memory_anchors(node);
     SharedData data;

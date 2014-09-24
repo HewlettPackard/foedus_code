@@ -45,7 +45,7 @@ void ArrayCreateLogType::apply_storage(Engine* engine, StorageId storage_id) {
   LOG(INFO) << "Applying CREATE ARRAY STORAGE log: " << *this;
   StorageName name(name_, name_length_);
   ArrayMetadata metadata(header_.storage_id_, name, payload_size_, array_size_);
-  engine->get_storage_manager().create_storage_apply(&metadata);
+  engine->get_storage_manager()->create_storage_apply(&metadata);
   LOG(INFO) << "Applied CREATE ARRAY STORAGE log: " << *this;
 }
 

@@ -410,7 +410,7 @@ ErrorStack SocManagerPimpl::launch_emulated_children() {
 void SocManagerPimpl::emulated_child_main(SocId node) {
   Upid master_upid = engine_->get_master_upid();
   // We can reuse procedures pre-registered in master. Good for being a thread.
-  const auto& procedures = engine_->get_proc_manager().get_pre_registered_procedures();
+  const auto& procedures = engine_->get_proc_manager()->get_pre_registered_procedures();
   ErrorStack ret = child_main_common(kChildEmulated, master_upid, node, procedures);
   if (ret.is_error()) {
     std::cerr << "[FOEDUS-Child] Emulated SOC-" << node
@@ -450,7 +450,7 @@ ErrorStack SocManagerPimpl::launch_forked_children() {
 int SocManagerPimpl::forked_child_main(SocId node) {
   Upid master_upid = engine_->get_master_upid();
   // These are pre-registered before fork(), so still we can reuse.
-  const auto& procedures = engine_->get_proc_manager().get_pre_registered_procedures();
+  const auto& procedures = engine_->get_proc_manager()->get_pre_registered_procedures();
   ErrorStack ret = child_main_common(kChildForked, master_upid, node, procedures);
   if (ret.is_error()) {
     std::cerr << "[FOEDUS-Child] Forked SOC-" << node
@@ -554,19 +554,19 @@ ErrorStack SocManagerPimpl::child_main_common(
     return init_error;
   }
 
-  SocManagerPimpl* soc_this = soc_engine.get_soc_manager().pimpl_;
+  SocManagerPimpl* soc_this = soc_engine.get_soc_manager()->pimpl_;
   SharedMemoryRepo& soc_memory = soc_this->memory_repo_;
 
   // after initialize(), we can safely use glog.
   LOG(INFO) << "The SOC engine-" << node << " was initialized.";
 
   // Add the given procedures.
-  proc::ProcManager& procm = soc_engine.get_proc_manager();
+  proc::ProcManager* procm = soc_engine.get_proc_manager();
   for (const proc::ProcAndName& proc_and_name : procedures) {
-    COERCE_ERROR(procm.local_register(proc_and_name));
+    COERCE_ERROR(procm->local_register(proc_and_name));
   }
 
-  LOG(INFO) << "Added user procedures: " << procm.describe_registered_procs()
+  LOG(INFO) << "Added user procedures: " << procm->describe_registered_procs()
     << ". Waiting for master engine's initialization...";
   soc_memory.change_child_status(node, ChildEngineStatus::kWaitingForMasterInitialization);
   COERCE_ERROR(soc_this->wait_for_master_status(MasterEngineStatus::kRunning));

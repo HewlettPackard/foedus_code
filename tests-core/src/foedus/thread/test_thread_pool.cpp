@@ -32,7 +32,7 @@ ErrorStack dummy_task(
   uint32_t /*output_buffer_size*/,
   uint32_t* /*output_used*/) {
   void* user_memory
-    = context->get_engine()->get_soc_manager().get_shared_memory_repo()->get_global_user_memory();
+    = context->get_engine()->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory();
   soc::SharedRendezvous* rendezvous = reinterpret_cast<soc::SharedRendezvous*>(user_memory);
   rendezvous->wait();
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -43,19 +43,20 @@ void run_test(int pooled_count, int impersonate_count) {
   EngineOptions options = get_tiny_options();
   options.thread_.thread_count_per_group_ = pooled_count;
   Engine engine(options);
-  engine.get_proc_manager().pre_register("dummy_task", dummy_task);
+  engine.get_proc_manager()->pre_register("dummy_task", dummy_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
     // Use global user memory for rendezvous.
-    void* user_memory = engine.get_soc_manager().get_shared_memory_repo()->get_global_user_memory();
+    void* user_memory
+      = engine.get_soc_manager()->get_shared_memory_repo()->get_global_user_memory();
     soc::SharedRendezvous* rendezvous = reinterpret_cast<soc::SharedRendezvous*>(user_memory);
     for (int rep = 0; rep < 10; ++rep) {
       rendezvous->initialize();
       std::vector<ImpersonateSession> sessions;
       for (int i = 0; i < impersonate_count; ++i) {
         thread::ImpersonateSession session;
-        EXPECT_TRUE(engine.get_thread_pool().impersonate("dummy_task", nullptr, 0, &session));
+        EXPECT_TRUE(engine.get_thread_pool()->impersonate("dummy_task", nullptr, 0, &session));
         sessions.emplace_back(std::move(session));
       }
 

@@ -33,14 +33,14 @@ ErrorStack split_border_task(
   void* /*output_buffer*/,
   uint32_t /*output_buffer_size*/,
   uint32_t* /*output_used*/) {
-  MasstreeStorage masstree = context->get_engine()->get_storage_manager().get_masstree("ggg");
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   assorted::UniformRandom uniform_random(123456);
   uint64_t keys[32];
   std::string answers[32];
   Epoch commit_epoch;
   for (uint32_t rep = 0; rep < 32; ++rep) {
-    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
     uint64_t key = uniform_random.next_uint64();
     keys[rep] = key;
     char data[200];
@@ -48,14 +48,14 @@ ErrorStack split_border_task(
     std::memcpy(data + 123, &key, sizeof(key));
     answers[rep] = std::string(data, 200);
     WRAP_ERROR_CODE(masstree.insert_record(context, &key, sizeof(key), data, sizeof(data)));
-    WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
-    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+    WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
     CHECK_ERROR(masstree.verify_single_thread(context));
-    WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+    WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
   }
 
   // now read
-  WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   for (uint32_t rep = 0; rep < 32; ++rep) {
     uint64_t key = keys[rep];
     char data[500];
@@ -64,28 +64,28 @@ ErrorStack split_border_task(
     EXPECT_EQ(200, capacity);
     EXPECT_EQ(answers[rep], std::string(data, 200));
   }
-  WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
-  WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   CHECK_ERROR(masstree.verify_single_thread(context));
-  WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
-  WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   return foedus::kRetOk;
 }
 
 TEST(MasstreeBasicTest, SplitBorder) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
-  engine.get_proc_manager().pre_register("split_border_task", split_border_task);
+  engine.get_proc_manager()->pre_register("split_border_task", split_border_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
     MasstreeMetadata meta("ggg");
     MasstreeStorage storage;
     Epoch epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_masstree(&meta, &storage, &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("split_border_task"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("split_border_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -99,14 +99,14 @@ ErrorStack split_border_normalized_task(
   void* /*output_buffer*/,
   uint32_t /*output_buffer_size*/,
   uint32_t* /*output_used*/) {
-  MasstreeStorage masstree = context->get_engine()->get_storage_manager().get_masstree("ggg");
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   assorted::UniformRandom uniform_random(123456);
   KeySlice keys[32];
   std::string answers[32];
   Epoch commit_epoch;
   for (uint32_t rep = 0; rep < 32; ++rep) {
-    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
     KeySlice key = normalize_primitive<uint64_t>(uniform_random.next_uint64());
     keys[rep] = key;
     char data[200];
@@ -114,11 +114,11 @@ ErrorStack split_border_normalized_task(
     std::memcpy(data + 123, &key, sizeof(key));
     answers[rep] = std::string(data, 200);
     WRAP_ERROR_CODE(masstree.insert_record_normalized(context, key, data, sizeof(data)));
-    WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+    WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
   }
 
   // now read
-  WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   for (uint32_t rep = 0; rep < 32; ++rep) {
     KeySlice key = keys[rep];
     char data[500];
@@ -127,28 +127,28 @@ ErrorStack split_border_normalized_task(
     EXPECT_EQ(200, capacity);
     EXPECT_EQ(answers[rep], std::string(data, 200));
   }
-  WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
-  WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   CHECK_ERROR(masstree.verify_single_thread(context));
-  WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
-  WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   return foedus::kRetOk;
 }
 
 TEST(MasstreeBasicTest, SplitBorderNormalized) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
-  engine.get_proc_manager().pre_register("the_task", split_border_normalized_task);
+  engine.get_proc_manager()->pre_register("the_task", split_border_normalized_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
     MasstreeMetadata meta("ggg");
     MasstreeStorage storage;
     Epoch epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_masstree(&meta, &storage, &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("the_task"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("the_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -161,14 +161,14 @@ ErrorStack split_in_next_layer_task(
   void* /*output_buffer*/,
   uint32_t /*output_buffer_size*/,
   uint32_t* /*output_used*/) {
-  MasstreeStorage masstree = context->get_engine()->get_storage_manager().get_masstree("ggg");
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   assorted::UniformRandom uniform_random(123456);
   std::string keys[32];
   std::string answers[32];
   Epoch commit_epoch;
   for (uint32_t rep = 0; rep < 32; ++rep) {
-    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
     uint64_t key_int = uniform_random.next_uint64();
     char key_string[16];
     std::memset(key_string, 42, 8);
@@ -179,11 +179,11 @@ ErrorStack split_in_next_layer_task(
     std::memcpy(data + 123, &key_int, sizeof(key_int));
     answers[rep] = std::string(data, 200);
     WRAP_ERROR_CODE(masstree.insert_record(context, key_string, 16, data, sizeof(data)));
-    WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+    WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
   }
 
   // now read
-  WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   for (uint32_t rep = 0; rep < 32; ++rep) {
     char data[500];
     uint16_t capacity = 500;
@@ -191,28 +191,28 @@ ErrorStack split_in_next_layer_task(
     EXPECT_EQ(200, capacity);
     EXPECT_EQ(answers[rep], std::string(data, 200));
   }
-  WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
-  WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   CHECK_ERROR(masstree.verify_single_thread(context));
-  WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
-  WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   return foedus::kRetOk;
 }
 
 TEST(MasstreeBasicTest, SplitInNextLayer) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
-  engine.get_proc_manager().pre_register("split_in_next_layer_task", split_in_next_layer_task);
+  engine.get_proc_manager()->pre_register("split_in_next_layer_task", split_in_next_layer_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
     MasstreeMetadata meta("ggg");
     MasstreeStorage storage;
     Epoch epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_masstree(&meta, &storage, &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("split_in_next_layer_task"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("split_in_next_layer_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -225,8 +225,8 @@ ErrorStack split_intermediate_sequential_task(
   void* /*output_buffer*/,
   uint32_t /*output_buffer_size*/,
   uint32_t* /*output_used*/) {
-  MasstreeStorage masstree = context->get_engine()->get_storage_manager().get_masstree("ggg");
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   Epoch commit_epoch;
   // 1000 bytes payload -> only 2 tuples per page.
   // one intermediate page can point to about 150 pages.
@@ -235,21 +235,21 @@ ErrorStack split_intermediate_sequential_task(
     if (rep == 321) {
       rep = 321;
     }
-    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
     CHECK_ERROR(masstree.verify_single_thread(context));
     KeySlice key = normalize_primitive<uint64_t>(rep);
     char data[1000];
     std::memset(data, 0, 1000);
     std::memcpy(data + 123, &key, sizeof(key));
     WRAP_ERROR_CODE(masstree.insert_record_normalized(context, key, data, sizeof(data)));
-    WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
-    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+    WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
     CHECK_ERROR(masstree.verify_single_thread(context));
-    WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+    WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
   }
 
   // now read
-  WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   for (uint32_t rep = 0; rep < 400; ++rep) {
     KeySlice key = normalize_primitive<uint64_t>(rep);
     char data[1000];
@@ -261,28 +261,28 @@ ErrorStack split_intermediate_sequential_task(
     std::memcpy(correct_data + 123, &key, sizeof(key));
     EXPECT_EQ(std::string(correct_data, 1000), std::string(data, capacity)) << rep;
   }
-  WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
-  WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   CHECK_ERROR(masstree.verify_single_thread(context));
-  WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
-  WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   return foedus::kRetOk;
 }
 
 TEST(MasstreeBasicTest, SplitIntermediateSequential) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
-  engine.get_proc_manager().pre_register("the_task", split_intermediate_sequential_task);
+  engine.get_proc_manager()->pre_register("the_task", split_intermediate_sequential_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
     MasstreeMetadata meta("ggg");
     MasstreeStorage storage;
     Epoch epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_masstree(&meta, &storage, &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("the_task"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("the_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

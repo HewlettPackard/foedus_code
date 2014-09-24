@@ -32,7 +32,7 @@ TEST(SequentialBasicTest, Create) {
     SequentialMetadata meta("test");
     SequentialStorage storage;
     Epoch epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_sequential(&meta, &storage, &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_sequential(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
     COERCE_ERROR(engine.uninitialize());
   }
@@ -48,9 +48,9 @@ TEST(SequentialBasicTest, CreateAndDrop) {
     SequentialMetadata meta("dd");
     SequentialStorage storage;
     Epoch epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_sequential(&meta, &storage, &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_sequential(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    COERCE_ERROR(engine.get_storage_manager().drop_storage(storage.get_id(), &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->drop_storage(storage.get_id(), &epoch));
     EXPECT_FALSE(storage.exists());
     COERCE_ERROR(engine.uninitialize());
   }
@@ -65,34 +65,34 @@ ErrorStack write_task(
   uint32_t /*output_buffer_size*/,
   uint32_t* /*output_used*/) {
   SequentialStorage sequential
-    = context->get_engine()->get_storage_manager().get_sequential("test3");
+    = context->get_engine()->get_storage_manager()->get_sequential("test3");
   EXPECT_TRUE(sequential.exists());
   char buf[16];
   std::memset(buf, 2, 16);
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-  WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
 
   WRAP_ERROR_CODE(sequential.append_record(context, buf, 16));
 
   Epoch commit_epoch;
-  WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
-  WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   return foedus::kRetOk;
 }
 
 TEST(SequentialBasicTest, CreateAndWrite) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
-  engine.get_proc_manager().pre_register(proc::ProcAndName("write_task", write_task));
+  engine.get_proc_manager()->pre_register(proc::ProcAndName("write_task", write_task));
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
     SequentialMetadata meta("test3");
     SequentialStorage storage;
     Epoch epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_sequential(&meta, &storage, &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_sequential(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("write_task"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("write_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

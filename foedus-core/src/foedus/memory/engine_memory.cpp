@@ -26,7 +26,7 @@ namespace foedus {
 namespace memory {
 ErrorStack EngineMemory::initialize_once() {
   LOG(INFO) << "Initializing EngineMemory..";
-  if (!engine_->get_debug().is_initialized()) {
+  if (!engine_->get_debug()->is_initialized()) {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
   } else if (::numa_available() < 0) {
     return ERROR_STACK(kErrorCodeMemoryNumaUnavailable);
@@ -39,9 +39,9 @@ ErrorStack EngineMemory::initialize_once() {
   for (thread::ThreadGroupId node = 0; node < numa_nodes; ++node) {
     NumaNodeMemoryRef* ref = new NumaNodeMemoryRef(engine_, node);
     node_memories_.push_back(ref);
-    bases[node] = ref->get_volatile_pool().get_base();
-    pool_begin = ref->get_volatile_pool().get_resolver().begin_;
-    pool_end = ref->get_volatile_pool().get_resolver().end_;
+    bases[node] = ref->get_volatile_pool()->get_base();
+    pool_begin = ref->get_volatile_pool()->get_resolver().begin_;
+    pool_end = ref->get_volatile_pool()->get_resolver().end_;
   }
   global_volatile_page_resolver_ = GlobalVolatilePageResolver(
     bases,
@@ -62,7 +62,7 @@ ErrorStack EngineMemory::initialize_once() {
 ErrorStack EngineMemory::uninitialize_once() {
   LOG(INFO) << "Uninitializing EngineMemory..";
   ErrorStackBatch batch;
-  if (!engine_->get_debug().is_initialized()) {
+  if (!engine_->get_debug()->is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
   for (auto* ref : node_memories_) {

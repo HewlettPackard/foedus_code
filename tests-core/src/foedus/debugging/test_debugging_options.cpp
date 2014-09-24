@@ -25,7 +25,7 @@ TEST(DebuggingOptionsTest, Profile) {
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    engine.get_debug().start_papi_counters();
+    engine.get_debug()->start_papi_counters();
     /*
     memory::AlignedMemory memory;
     memory.alloc(1 << 24, 1 << 21, memory::AlignedMemory::kNumaAllocOnnode, 0);
@@ -37,8 +37,8 @@ TEST(DebuggingOptionsTest, Profile) {
     }
     std::cout << "a=" << a << std::endl;
     */
-    engine.get_debug().stop_papi_counters();
-    DebuggingSupports::PapiCounters counters = engine.get_debug().get_papi_counters();
+    engine.get_debug()->stop_papi_counters();
+    DebuggingSupports::PapiCounters counters = engine.get_debug()->get_papi_counters();
     std::vector<std::string> results = DebuggingSupports::describe_papi_counters(counters);
     for (const std::string& result : results) {
       std::cout << result << std::endl;

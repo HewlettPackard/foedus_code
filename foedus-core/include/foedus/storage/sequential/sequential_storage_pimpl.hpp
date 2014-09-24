@@ -162,7 +162,7 @@ class SequentialStoragePimpl final : public Attachable<SequentialStorageControlB
     uint16_t threads_per_node = engine_->get_options().thread_.thread_count_per_group_;
     for (uint16_t node = 0; node < nodes; ++node) {
       const memory::LocalPageResolver& resolver
-        = engine_->get_memory_manager().get_node_memory(node)->get_volatile_pool().get_resolver();
+        = engine_->get_memory_manager()->get_node_memory(node)->get_volatile_pool()->get_resolver();
       for (uint16_t local_ordinal = 0; local_ordinal < threads_per_node; ++local_ordinal) {
         thread::ThreadId thread_id = thread::compose_thread_id(node, local_ordinal);
         for (SequentialPage* page = get_head(resolver, thread_id); page;) {

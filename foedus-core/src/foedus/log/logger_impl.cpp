@@ -66,10 +66,10 @@ ErrorStack Logger::initialize_once() {
     << static_cast<int>(numa_node_);
 
   // Initialize the values from the latest savepoint.
-  savepoint::LoggerSavepointInfo info = engine_->get_savepoint_manager().get_logger_savepoint(id_);
+  savepoint::LoggerSavepointInfo info = engine_->get_savepoint_manager()->get_logger_savepoint(id_);
   // durable epoch from initial savepoint
   control_block_->durable_epoch_
-    = engine_->get_savepoint_manager().get_initial_durable_epoch().value();
+    = engine_->get_savepoint_manager()->get_initial_durable_epoch().value();
   control_block_->marked_epoch_ = get_durable_epoch().one_more();
   control_block_->no_log_epoch_ = false;
   control_block_->oldest_ordinal_ = info.oldest_log_file_;  // ordinal/length too
@@ -100,12 +100,12 @@ ErrorStack Logger::initialize_once() {
   // which threads are assigned to me?
   for (auto thread_id : assigned_thread_ids_) {
     assigned_threads_.push_back(
-      engine_->get_thread_pool().get_pimpl()->get_local_group()->get_thread(
+      engine_->get_thread_pool()->get_pimpl()->get_local_group()->get_thread(
         thread::decompose_numa_local_ordinal(thread_id)));
   }
 
   // grab a buffer to pad incomplete blocks for direct file I/O
-  CHECK_ERROR(engine_->get_memory_manager().get_local_memory()->allocate_numa_memory(
+  CHECK_ERROR(engine_->get_memory_manager()->get_local_memory()->allocate_numa_memory(
     FillerLogType::kLogWriteUnitSize, &fill_buffer_));
   ASSERT_ND(!fill_buffer_.is_null());
   ASSERT_ND(fill_buffer_.get_size() >= FillerLogType::kLogWriteUnitSize);
@@ -146,7 +146,7 @@ void Logger::handle_logger() {
   LOG(INFO) << "Logger-" << id_ << " started. pin on NUMA node-" << static_cast<int>(numa_node_);
   thread::NumaThreadScope scope(numa_node_);
   // The actual logging can't start until XctManager is initialized.
-  SPINLOCK_WHILE(!engine_->get_xct_manager().is_initialized()) {
+  SPINLOCK_WHILE(!engine_->get_xct_manager()->is_initialized()) {
     assorted::memory_fence_acquire();
   }
 
@@ -270,7 +270,7 @@ ErrorStack Logger::handle_logger_once(bool *more_log_to_process) {
 
 Epoch Logger::calculate_min_durable_epoch() {
   assert_consistent();
-  const Epoch current_global_epoch = engine_->get_xct_manager().get_current_global_epoch();
+  const Epoch current_global_epoch = engine_->get_xct_manager()->get_current_global_epoch();
   ASSERT_ND(current_global_epoch.is_valid());
   assorted::memory_fence_acquire();  // necessary. following is AFTER this.
 
@@ -368,7 +368,7 @@ ErrorStack Logger::update_durable_epoch() {
     // finally, let the log manager re-calculate the global durable epoch.
     // this may or may not result in new global durable epoch
     assorted::memory_fence_release();
-    CHECK_ERROR(engine_->get_log_manager().refresh_global_durable_epoch());
+    CHECK_ERROR(engine_->get_log_manager()->refresh_global_durable_epoch());
     DVLOG(0) << "After: " << *this;
   } else {
     VLOG(1) << "Logger-" << id_ << " couldn't update durable_epoch_";
@@ -572,8 +572,8 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
 
 void Logger::assert_consistent() {
   ASSERT_ND(get_durable_epoch().is_valid());
-  ASSERT_ND(!engine_->get_xct_manager().is_initialized() ||
-    get_durable_epoch() < engine_->get_xct_manager().get_current_global_epoch());
+  ASSERT_ND(!engine_->get_xct_manager()->is_initialized() ||
+    get_durable_epoch() < engine_->get_xct_manager()->get_current_global_epoch());
   ASSERT_ND(control_block_->marked_epoch_.is_valid());
   ASSERT_ND(control_block_->marked_epoch_ <= get_durable_epoch().one_more());
   ASSERT_ND(is_log_aligned(control_block_->oldest_file_offset_begin_));

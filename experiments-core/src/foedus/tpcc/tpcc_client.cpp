@@ -62,14 +62,14 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
   engine_ = context->get_engine();
   storages_.initialize_tables(engine_);
   channel_ = reinterpret_cast<TpccClientChannel*>(
-    engine_->get_soc_manager().get_shared_memory_repo()->get_global_user_memory());
+    engine_->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
   // std::memset(debug_wdcid_access_, 0, sizeof(debug_wdcid_access_));
   // std::memset(debug_wdid_access_, 0, sizeof(debug_wdid_access_));
   CHECK_ERROR(warmup(context));
   outputs_->processed_ = 0;
   timestring_.assign(get_current_time_string());
   previous_timestring_update_ = debugging::get_rdtsc();
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
 
   channel_->start_rendezvous_.wait();
   LOG(INFO) << "TPCC Client-" << worker_id_ << " started working! home wid="
@@ -85,7 +85,7 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
     while (!is_stop_requested()) {
       rnd_.set_current_seed(rnd_seed);
       update_timestring_if_needed();
-      WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+      WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
       ErrorCode ret;
       if (transaction_type <= kXctNewOrderPercent) {
         ret = do_neworder(wid);
@@ -105,7 +105,7 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
       }
 
       if (context->is_running_xct()) {
-        WRAP_ERROR_CODE(xct_manager.abort_xct(context));
+        WRAP_ERROR_CODE(xct_manager->abort_xct(context));
       }
 
       ASSERT_ND(!context->is_running_xct());

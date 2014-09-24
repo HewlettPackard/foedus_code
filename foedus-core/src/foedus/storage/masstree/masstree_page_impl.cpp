@@ -471,7 +471,7 @@ xct::McsBlockIndex MasstreeBorderPage::split_foster_lock_existing_records(
     // if we see this often, we have to optimize this somehow.
     LOG(WARNING) << "wait, wait, it costed " << watch.elapsed() << " cycles to lock all of "
       << static_cast<int>(key_count) << " records while splitting!! that's a lot! storage="
-      << context->get_engine()->get_storage_manager().get_name(header_.storage_id_)
+      << context->get_engine()->get_storage_manager()->get_name(header_.storage_id_)
       << ", thread ID=" << context->get_thread_id();
   }
   return head_lock_index;
@@ -1131,7 +1131,7 @@ bool MasstreeBorderPage::track_moved_record(
   // recursively track. although probably it's only one level
   MasstreeBorderPage* cur_page = this;
   const memory::GlobalVolatilePageResolver& resolver
-    = engine->get_memory_manager().get_global_volatile_page_resolver();
+    = engine->get_memory_manager()->get_global_volatile_page_resolver();
   while (true) {
     if (cur_page->is_moved()) {
       ASSERT_ND(cur_page->has_foster_child());

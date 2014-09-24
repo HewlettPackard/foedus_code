@@ -44,7 +44,7 @@ ErrorStack MasstreeStoragePimpl::drop() {
   if (control_block_->root_page_pointer_.volatile_pointer_.components.offset) {
     // release volatile pages
     const memory::GlobalVolatilePageResolver& page_resolver
-      = engine_->get_memory_manager().get_global_volatile_page_resolver();
+      = engine_->get_memory_manager()->get_global_volatile_page_resolver();
     MasstreePage* first_root = reinterpret_cast<MasstreePage*>(
       page_resolver.resolve_offset(control_block_->root_page_pointer_.volatile_pointer_));
     memory::PageReleaseBatch release_batch(engine_);
@@ -193,13 +193,13 @@ ErrorStack MasstreeStoragePimpl::create(const MasstreeMetadata& metadata) {
 
   control_block_->meta_ = metadata;
   const uint16_t kDummyNode = 0;  // whatever. just pick from the first node
-  memory::PagePool& pool
-    = engine_->get_memory_manager().get_node_memory(kDummyNode)->get_volatile_pool();
-  const memory::LocalPageResolver &local_resolver = pool.get_resolver();
+  memory::PagePool* pool
+    = engine_->get_memory_manager()->get_node_memory(kDummyNode)->get_volatile_pool();
+  const memory::LocalPageResolver &local_resolver = pool->get_resolver();
 
   // just allocate an empty root page for the first layer
   memory::PagePoolOffset root_offset;
-  WRAP_ERROR_CODE(pool.grab_one(&root_offset));
+  WRAP_ERROR_CODE(pool->grab_one(&root_offset));
   ASSERT_ND(root_offset);
   MasstreeBorderPage* root_page = reinterpret_cast<MasstreeBorderPage*>(
     local_resolver.resolve_offset_newpage(root_offset));

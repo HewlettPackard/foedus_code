@@ -69,7 +69,7 @@ DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
 
 TpccDriver::Result TpccDriver::run() {
   const EngineOptions& options = engine_->get_options();
-  LOG(INFO) << engine_->get_memory_manager().dump_free_memory_stat();
+  LOG(INFO) << engine_->get_memory_manager()->dump_free_memory_stat();
   assign_wids();
   assign_iids();
 
@@ -83,7 +83,7 @@ TpccDriver::Result TpccDriver::run() {
     }
   }
 
-  auto& thread_pool = engine_->get_thread_pool();
+  auto* thread_pool = engine_->get_thread_pool();
   {
     // Initialize timestamp (for date columns)
     time_t t_clock;
@@ -105,7 +105,7 @@ TpccDriver::Result TpccDriver::run() {
         inputs.from_iid_ = from_iids_[count];
         inputs.to_iid_ = to_iids_[count];
         thread::ImpersonateSession session;
-        bool ret = thread_pool.impersonate_on_numa_node(
+        bool ret = thread_pool->impersonate_on_numa_node(
           node,
           "tpcc_load_task",
           &inputs,
@@ -137,7 +137,7 @@ TpccDriver::Result TpccDriver::run() {
 
   // Verify the loaded data. this is done in single thread
   Wid total_warehouses = FLAGS_warehouses;
-  ErrorStack finishup_result = thread_pool.impersonate_synchronous(
+  ErrorStack finishup_result = thread_pool->impersonate_synchronous(
     "tpcc_finishup_task",
     &total_warehouses,
     sizeof(total_warehouses));
@@ -147,13 +147,13 @@ TpccDriver::Result TpccDriver::run() {
     return Result();
   }
 
-  LOG(INFO) << engine_->get_memory_manager().dump_free_memory_stat();
+  LOG(INFO) << engine_->get_memory_manager()->dump_free_memory_stat();
 
   LOG(INFO) << "neworder_remote_percent=" << FLAGS_neworder_remote_percent;
   LOG(INFO) << "payment_remote_percent=" << FLAGS_payment_remote_percent;
 
   TpccClientChannel* channel = reinterpret_cast<TpccClientChannel*>(
-    engine_->get_soc_manager().get_shared_memory_repo()->get_global_user_memory());
+    engine_->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
   channel->initialize();
 
   std::vector< thread::ImpersonateSession > sessions;
@@ -170,7 +170,7 @@ TpccDriver::Result TpccDriver::run() {
       inputs.neworder_remote_percent_ = FLAGS_neworder_remote_percent;
       inputs.payment_remote_percent_ = FLAGS_payment_remote_percent;
       thread::ImpersonateSession session;
-      bool ret = thread_pool.impersonate_on_numa_node(
+      bool ret = thread_pool->impersonate_on_numa_node(
         node,
         "tpcc_client_task",
         &inputs,
@@ -194,10 +194,10 @@ TpccDriver::Result TpccDriver::run() {
 
   LOG(INFO) << "All warmup done!";
   if (FLAGS_profile) {
-    COERCE_ERROR(engine_->get_debug().start_profile("tpcc.prof"));
+    COERCE_ERROR(engine_->get_debug()->start_profile("tpcc.prof"));
   }
   if (FLAGS_papi) {
-    engine_->get_debug().start_papi_counters();
+    engine_->get_debug()->start_papi_counters();
   }
   channel->start_rendezvous_.signal();
   assorted::memory_fence_release();
@@ -221,15 +221,15 @@ TpccDriver::Result TpccDriver::run() {
     }
     LOG(INFO) << "Intermediate report after " << result.duration_sec_ << " sec";
     LOG(INFO) << result;
-    LOG(INFO) << engine_->get_memory_manager().dump_free_memory_stat();
+    LOG(INFO) << engine_->get_memory_manager()->dump_free_memory_stat();
   }
   LOG(INFO) << "Experiment ended.";
 
   if (FLAGS_profile) {
-    engine_->get_debug().stop_profile();
+    engine_->get_debug()->stop_profile();
   }
   if (FLAGS_papi) {
-    engine_->get_debug().stop_papi_counters();
+    engine_->get_debug()->stop_papi_counters();
   }
 
   Result result;
@@ -237,7 +237,7 @@ TpccDriver::Result TpccDriver::run() {
   result.duration_sec_ = duration.elapsed_sec();
   result.worker_count_ = total_thread_count;
   result.papi_results_ = debugging::DebuggingSupports::describe_papi_counters(
-    engine_->get_debug().get_papi_counters());
+    engine_->get_debug()->get_papi_counters());
   assorted::memory_fence_acquire();
   for (uint32_t i = 0; i < sessions.size(); ++i) {
     const TpccClientTask::Outputs* output = outputs[i];
@@ -275,7 +275,7 @@ for (uint32_t i = 0; i < clients_.size(); ++i) {
   LOG(INFO) << "Shutting down...";
 
   // output the current memory state at the end
-  LOG(INFO) << engine_->get_memory_manager().dump_free_memory_stat();
+  LOG(INFO) << engine_->get_memory_manager()->dump_free_memory_stat();
 
   channel->stop_flag_.store(true);
 
@@ -449,7 +449,7 @@ int driver_main(int argc, char **argv) {
   {
     Engine* engine = new Engine(options);
     for (const proc::ProcAndName& proc : procs) {
-      engine->get_proc_manager().pre_register(proc);
+      engine->get_proc_manager()->pre_register(proc);
     }
     COERCE_ERROR(engine->initialize());
     {

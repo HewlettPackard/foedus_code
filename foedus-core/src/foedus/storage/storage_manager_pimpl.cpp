@@ -71,14 +71,14 @@ uint32_t   StorageManagerPimpl::get_max_storages() const {
 
 ErrorStack StorageManagerPimpl::initialize_once() {
   LOG(INFO) << "Initializing StorageManager..";
-  if (!engine_->get_thread_pool().is_initialized()
-    || !engine_->get_log_manager().is_initialized()) {
+  if (!engine_->get_thread_pool()->is_initialized()
+    || !engine_->get_log_manager()->is_initialized()) {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
   }
 
   // attach shared memories
   soc::GlobalMemoryAnchors* anchors
-    = engine_->get_soc_manager().get_shared_memory_repo()->get_global_memory_anchors();
+    = engine_->get_soc_manager()->get_shared_memory_repo()->get_global_memory_anchors();
   control_block_ = anchors->storage_manager_memory_;
   storages_ = anchors->storage_memories_;
   storage_name_sort_ = anchors->storage_name_sort_memory_;
@@ -94,8 +94,8 @@ ErrorStack StorageManagerPimpl::initialize_once() {
 ErrorStack StorageManagerPimpl::uninitialize_once() {
   LOG(INFO) << "Uninitializing StorageManager..";
   ErrorStackBatch batch;
-  if (!engine_->get_thread_pool().is_initialized()
-    || !engine_->get_log_manager().is_initialized()) {
+  if (!engine_->get_thread_pool()->is_initialized()
+    || !engine_->get_log_manager()->is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
   if (engine_->is_master()) {
@@ -155,7 +155,7 @@ ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) 
   std::memset(log_buffer, 0, sizeof(log_buffer));
   DropLogType* drop_log = reinterpret_cast<DropLogType*>(log_buffer);
   drop_log->populate(id);
-  engine_->get_log_manager().get_meta_buffer()->commit(drop_log, commit_epoch);
+  engine_->get_log_manager()->get_meta_buffer()->commit(drop_log, commit_epoch);
 
   ASSERT_ND(commit_epoch->is_valid());
   block->status_ = kDropped;
@@ -227,7 +227,7 @@ ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit
   std::memset(log_buffer, 0, sizeof(log_buffer));
   construct_create_log(metadata, log_buffer);
   log::StorageLogType* create_log = reinterpret_cast<log::StorageLogType*>(log_buffer);
-  engine_->get_log_manager().get_meta_buffer()->commit(create_log, commit_epoch);
+  engine_->get_log_manager()->get_meta_buffer()->commit(create_log, commit_epoch);
 
   ASSERT_ND(commit_epoch->is_valid());
   ASSERT_ND(get_storage(id)->exists());

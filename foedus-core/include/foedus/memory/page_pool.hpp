@@ -142,7 +142,7 @@ class PagePool CXX11_FINAL : public virtual Initializable {
    * Gives an object to resolve an offset in \e this page pool (thus \e local) to an actual
    * pointer and vice versa.
    */
-  LocalPageResolver&  get_resolver();
+  const LocalPageResolver& get_resolver() const;
 
   friend std::ostream& operator<<(std::ostream& o, const PagePool& v);
 

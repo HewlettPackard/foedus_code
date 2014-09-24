@@ -56,25 +56,25 @@ ThreadPimpl::ThreadPimpl(
 }
 
 ErrorStack ThreadPimpl::initialize_once() {
-  ASSERT_ND(engine_->get_memory_manager().is_initialized());
+  ASSERT_ND(engine_->get_memory_manager()->is_initialized());
 
   soc::ThreadMemoryAnchors* anchors
-    = engine_->get_soc_manager().get_shared_memory_repo()->get_thread_memory_anchors(id_);
+    = engine_->get_soc_manager()->get_shared_memory_repo()->get_thread_memory_anchors(id_);
   control_block_ = anchors->thread_memory_;
   control_block_->initialize();
   task_input_memory_ = anchors->task_input_memory_;
   task_output_memory_ = anchors->task_output_memory_;
   mcs_blocks_ = anchors->mcs_lock_memories_;
 
-  node_memory_ = engine_->get_memory_manager().get_local_memory();
+  node_memory_ = engine_->get_memory_manager()->get_local_memory();
   core_memory_ = node_memory_->get_core_memory(id_);
   snapshot_cache_hashtable_ = node_memory_->get_snapshot_cache_table();
   current_xct_.initialize(core_memory_, &control_block_->mcs_block_current_);
   CHECK_ERROR(snapshot_file_set_.initialize());
   CHECK_ERROR(log_buffer_.initialize());
   global_volatile_page_resolver_
-    = engine_->get_memory_manager().get_global_volatile_page_resolver();
-  local_volatile_page_resolver_ = node_memory_->get_volatile_pool().get_resolver();
+    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
+  local_volatile_page_resolver_ = node_memory_->get_volatile_pool()->get_resolver();
 
   control_block_->status_ = kRunningTask;
   raw_thread_ = std::move(std::thread(&ThreadPimpl::handle_tasks, this));
@@ -110,7 +110,7 @@ void ThreadPimpl::handle_tasks() {
   NumaThreadScope scope(numa_node);
   // Actual xct processing can't start until XctManager is initialized.
   SPINLOCK_WHILE(!is_stop_requested()
-    && !engine_->get_xct_manager().is_initialized()) {
+    && !engine_->get_xct_manager()->is_initialized()) {
     assorted::memory_fence_acquire();
   }
   LOG(INFO) << "Thread-" << id_ << " now starts processing transactions";
@@ -134,7 +134,7 @@ void ThreadPimpl::handle_tasks() {
       const proc::ProcName& proc_name = control_block_->proc_name_;
       VLOG(0) << "Thread-" << id_ << " retrieved a task: " << proc_name;
       proc::Proc proc = nullptr;
-      ErrorStack result = engine_->get_proc_manager().get_proc(proc_name, &proc);
+      ErrorStack result = engine_->get_proc_manager()->get_proc(proc_name, &proc);
       if (result.is_error()) {
         // control_block_->proc_result_
         LOG(ERROR) << "Thread-" << id_ << " couldn't find procedure: " << proc_name;
@@ -490,7 +490,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   ASSERT_ND(decompose_numa_local_ordinal(predecessor_id) <
     engine_->get_options().thread_.thread_count_per_group_);
 
-  ThreadRef* predecessor = engine_->get_thread_pool().get_thread_ref(predecessor_id);
+  ThreadRef* predecessor = engine_->get_thread_pool()->get_thread_ref(predecessor_id);
   ASSERT_ND(predecessor);
   ASSERT_ND(block->waiting_);
   ASSERT_ND(predecessor->get_control_block()->mcs_block_current_ >= predecessor_block);
@@ -588,7 +588,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   DVLOG(1) << "Okay, I have a successor. me=" << id_ << ", succ=" << block->successor_;
   ASSERT_ND(block->successor_ != id_);
 
-  ThreadRef* successor = engine_->get_thread_pool().get_thread_ref(block->successor_);
+  ThreadRef* successor = engine_->get_thread_pool()->get_thread_ref(block->successor_);
   ASSERT_ND(successor->get_control_block()->mcs_block_current_ >= block->successor_block_);
   xct::McsBlock* succ_block = successor->get_mcs_blocks() + block->successor_block_;
   ASSERT_ND(succ_block->lock_addr_tag_ == mcs_lock->last_1byte_addr());

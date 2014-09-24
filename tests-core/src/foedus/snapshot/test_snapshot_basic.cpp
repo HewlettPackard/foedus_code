@@ -30,10 +30,10 @@ namespace snapshot {
 DEFINE_TEST_CASE_PACKAGE(SnapshotBasicTest, foedus.snapshot);
 
 ErrorStack read_metadata_file(Engine* engine, SnapshotMetadata *metadata) {
-  SnapshotManager& manager = engine->get_snapshot_manager();
-  SnapshotId snapshot_id = manager.get_previous_snapshot_id();
+  SnapshotManager* manager = engine->get_snapshot_manager();
+  SnapshotId snapshot_id = manager->get_previous_snapshot_id();
   EXPECT_NE(kNullSnapshotId, snapshot_id);
-  fs::Path file = manager.get_pimpl()->get_snapshot_metadata_file_path(snapshot_id);
+  fs::Path file = manager->get_pimpl()->get_snapshot_metadata_file_path(snapshot_id);
   CHECK_ERROR(metadata->load_from_file(file));
   return kRetOk;
 }
@@ -44,11 +44,11 @@ TEST(SnapshotBasicTest, Empty) {
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    engine.get_snapshot_manager().trigger_snapshot_immediate(true);
+    engine.get_snapshot_manager()->trigger_snapshot_immediate(true);
 
     SnapshotMetadata metadata;
     COERCE_ERROR(read_metadata_file(&engine, &metadata));
-    EXPECT_EQ(engine.get_snapshot_manager().get_previous_snapshot_id(), metadata.id_);
+    EXPECT_EQ(engine.get_snapshot_manager()->get_previous_snapshot_id(), metadata.id_);
     EXPECT_EQ(Epoch::kEpochInvalid, metadata.base_epoch_);
     EXPECT_NE(Epoch::kEpochInvalid, metadata.valid_until_epoch_);
     EXPECT_EQ(0, metadata.largest_storage_id_);
@@ -67,15 +67,15 @@ TEST(SnapshotBasicTest, OneArrayCreate) {
     storage::array::ArrayStorage out;
     Epoch commit_epoch;
     storage::array::ArrayMetadata meta("test", 16, 100);
-    COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &out, &commit_epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_array(&meta, &out, &commit_epoch));
     EXPECT_TRUE(out.exists());
     EXPECT_TRUE(commit_epoch.is_valid());
-    COERCE_ERROR(engine.get_xct_manager().wait_for_commit(commit_epoch));
-    engine.get_snapshot_manager().trigger_snapshot_immediate(true);
+    COERCE_ERROR(engine.get_xct_manager()->wait_for_commit(commit_epoch));
+    engine.get_snapshot_manager()->trigger_snapshot_immediate(true);
 
     SnapshotMetadata metadata;
     COERCE_ERROR(read_metadata_file(&engine, &metadata));
-    EXPECT_EQ(engine.get_snapshot_manager().get_previous_snapshot_id(), metadata.id_);
+    EXPECT_EQ(engine.get_snapshot_manager()->get_previous_snapshot_id(), metadata.id_);
     EXPECT_EQ(Epoch::kEpochInvalid, metadata.base_epoch_);
     EXPECT_GE(Epoch(metadata.valid_until_epoch_), commit_epoch);
     EXPECT_EQ(1U, metadata.largest_storage_id_);
@@ -102,20 +102,20 @@ TEST(SnapshotBasicTest, TwoArrayCreate) {
     storage::array::ArrayStorage out;
     Epoch commit_epoch;
     storage::array::ArrayMetadata meta("test", 16, 10);
-    COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &out, &commit_epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_array(&meta, &out, &commit_epoch));
     EXPECT_TRUE(out.exists());
     storage::array::ArrayStorage out2;
     storage::array::ArrayMetadata meta2("test2", 50, 20);
-    COERCE_ERROR(engine.get_storage_manager().create_array(&meta2, &out2, &commit_epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_array(&meta2, &out2, &commit_epoch));
     EXPECT_TRUE(out2.exists());
 
     EXPECT_TRUE(commit_epoch.is_valid());
-    COERCE_ERROR(engine.get_xct_manager().wait_for_commit(commit_epoch));
-    engine.get_snapshot_manager().trigger_snapshot_immediate(true);
+    COERCE_ERROR(engine.get_xct_manager()->wait_for_commit(commit_epoch));
+    engine.get_snapshot_manager()->trigger_snapshot_immediate(true);
 
     SnapshotMetadata metadata;
     COERCE_ERROR(read_metadata_file(&engine, &metadata));
-    EXPECT_EQ(engine.get_snapshot_manager().get_previous_snapshot_id(), metadata.id_);
+    EXPECT_EQ(engine.get_snapshot_manager()->get_previous_snapshot_id(), metadata.id_);
     EXPECT_EQ(Epoch::kEpochInvalid, metadata.base_epoch_);
     EXPECT_GE(Epoch(metadata.valid_until_epoch_), commit_epoch);
     EXPECT_EQ(2U, metadata.largest_storage_id_);

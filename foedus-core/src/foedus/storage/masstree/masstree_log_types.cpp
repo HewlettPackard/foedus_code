@@ -44,7 +44,7 @@ void MasstreeCreateLogType::apply_storage(Engine* engine, StorageId storage_id) 
   LOG(INFO) << "Applying CREATE MASSTREE STORAGE log: " << *this;
   StorageName name(name_, name_length_);
   MasstreeMetadata metadata(header_.storage_id_, name, border_early_split_threshold_);
-  engine->get_storage_manager().create_storage_apply(&metadata);
+  engine->get_storage_manager()->create_storage_apply(&metadata);
   LOG(INFO) << "Applied CREATE MASSTREE STORAGE log: " << *this;
 }
 

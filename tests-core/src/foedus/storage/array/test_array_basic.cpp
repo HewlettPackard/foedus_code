@@ -32,7 +32,7 @@ TEST(ArrayBasicTest, Create) {
     ArrayMetadata meta("test", 16, 100);
     ArrayStorage storage;
     Epoch epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &storage, &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_array(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
     COERCE_ERROR(engine.uninitialize());
   }
@@ -46,32 +46,32 @@ ErrorStack query_task(
   void* /*output_buffer*/,
   uint32_t /*output_buffer_size*/,
   uint32_t* /*output_used*/) {
-  ArrayStorage array = context->get_engine()->get_storage_manager().get_array("test2");
+  ArrayStorage array = context->get_engine()->get_storage_manager()->get_array("test2");
   char buf[16];
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-  CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+  CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
 
   CHECK_ERROR(array.get_record(context, 24, buf));
 
   Epoch commit_epoch;
-  CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-  CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
+  CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+  CHECK_ERROR(xct_manager->wait_for_commit(commit_epoch));
   return foedus::kRetOk;
 }
 
 TEST(ArrayBasicTest, CreateAndQuery) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
-  engine.get_proc_manager().pre_register("query_task", query_task);
+  engine.get_proc_manager()->pre_register("query_task", query_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
     ArrayMetadata meta("test2", 16, 100);
     ArrayStorage storage;
     Epoch epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &storage, &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_array(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("query_task"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("query_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -86,9 +86,9 @@ TEST(ArrayBasicTest, CreateAndDrop) {
     ArrayMetadata meta("dd", 16, 100);
     ArrayStorage storage;
     Epoch epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &storage, &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_array(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    COERCE_ERROR(engine.get_storage_manager().drop_storage(storage.get_id(), &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->drop_storage(storage.get_id(), &epoch));
     EXPECT_FALSE(storage.exists());
     COERCE_ERROR(engine.uninitialize());
   }
@@ -102,33 +102,33 @@ ErrorStack write_task(
   void* /*output_buffer*/,
   uint32_t /*output_buffer_size*/,
   uint32_t* /*output_used*/) {
-  ArrayStorage array = context->get_engine()->get_storage_manager().get_array("test3");
+  ArrayStorage array = context->get_engine()->get_storage_manager()->get_array("test3");
   char buf[16];
   std::memset(buf, 2, 16);
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-  CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+  CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
 
   CHECK_ERROR(array.overwrite_record(context, 24, buf));
 
   Epoch commit_epoch;
-  CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-  CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
+  CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+  CHECK_ERROR(xct_manager->wait_for_commit(commit_epoch));
   return foedus::kRetOk;
 }
 
 TEST(ArrayBasicTest, CreateAndWrite) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
-  engine.get_proc_manager().pre_register("write_task", write_task);
+  engine.get_proc_manager()->pre_register("write_task", write_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
     ArrayMetadata meta("test3", 16, 100);
     ArrayStorage storage;
     Epoch epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &storage, &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_array(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("write_task"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("write_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -141,11 +141,11 @@ ErrorStack read_write_task(
   void* /*output_buffer*/,
   uint32_t /*output_buffer_size*/,
   uint32_t* /*output_used*/) {
-  ArrayStorage array = context->get_engine()->get_storage_manager().get_array("test4");
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  ArrayStorage array = context->get_engine()->get_storage_manager()->get_array("test4");
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
 
   // Write values first
-  CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+  CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
   for (int i = 0; i < 100; ++i) {
     uint64_t buf[2];
     buf[0] = i * 46 + 123;
@@ -153,19 +153,19 @@ ErrorStack read_write_task(
     CHECK_ERROR(array.overwrite_record(context, i, buf));
   }
   Epoch commit_epoch;
-  CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-  CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
+  CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+  CHECK_ERROR(xct_manager->wait_for_commit(commit_epoch));
 
   // Then, read values
-  CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+  CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
   for (int i = 0; i < 100; ++i) {
     uint64_t buf[2];
     CHECK_ERROR(array.get_record(context, i, buf));
     EXPECT_EQ(i * 46 + 123, buf[0]);
     EXPECT_EQ(i * 6534 + 665, buf[1]);
   }
-  CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
-  CHECK_ERROR(xct_manager.wait_for_commit(commit_epoch));
+  CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+  CHECK_ERROR(xct_manager->wait_for_commit(commit_epoch));
   return foedus::kRetOk;
 }
 
@@ -173,16 +173,16 @@ TEST(ArrayBasicTest, CreateAndReadWrite) {
   EngineOptions options = get_tiny_options();
   options.log_.log_buffer_kb_ = 1 << 10;  // larger to do all writes in one shot
   Engine engine(options);
-  engine.get_proc_manager().pre_register("read_write_task", read_write_task);
+  engine.get_proc_manager()->pre_register("read_write_task", read_write_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
     ArrayMetadata meta("test4", 16, 100);
     ArrayStorage storage;
     Epoch epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &storage, &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_array(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("read_write_task"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("read_write_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

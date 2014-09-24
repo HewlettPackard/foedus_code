@@ -28,7 +28,7 @@ ThreadRef::ThreadRef()
   mcs_blocks_(nullptr) {}
 
 ThreadRef::ThreadRef(Engine* engine, ThreadId id) : engine_(engine), id_(id) {
-  soc::SharedMemoryRepo* memory_repo = engine->get_soc_manager().get_shared_memory_repo();
+  soc::SharedMemoryRepo* memory_repo = engine->get_soc_manager()->get_shared_memory_repo();
   soc::ThreadMemoryAnchors* anchors = memory_repo->get_thread_memory_anchors(id);
   control_block_ = anchors->thread_memory_;
   task_input_memory_ = anchors->task_input_memory_;

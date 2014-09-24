@@ -73,7 +73,7 @@ ErrorCode TpccClientTask::do_stock_level(Wid wid) {
 
   DVLOG(2) << "Stock-Level: result=" << result;
   Epoch ep;
-  return engine_->get_xct_manager().precommit_xct(context_, &ep);
+  return engine_->get_xct_manager()->precommit_xct(context_, &ep);
 }
 }  // namespace tpcc
 }  // namespace foedus

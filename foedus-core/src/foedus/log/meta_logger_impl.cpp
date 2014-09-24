@@ -20,7 +20,7 @@ namespace log {
 
 ErrorStack MetaLogger::initialize_once() {
   ASSERT_ND(engine_->is_master());
-  control_block_ = engine_->get_soc_manager().get_shared_memory_repo()
+  control_block_ = engine_->get_soc_manager()->get_shared_memory_repo()
         ->get_global_memory_anchors()->meta_logger_memory_;
   control_block_->initialize();
   std::memset(control_block_->buffer_, 0, sizeof(control_block_->buffer_));
@@ -30,7 +30,7 @@ ErrorStack MetaLogger::initialize_once() {
     fs::create_directories(path.parent_path());
   }
 
-  engine_->get_savepoint_manager().get_meta_logger_offsets(
+  engine_->get_savepoint_manager()->get_meta_logger_offsets(
     &control_block_->oldest_offset_,
     &control_block_->durable_offset_);
 

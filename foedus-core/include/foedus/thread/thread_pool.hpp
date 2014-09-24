@@ -91,7 +91,7 @@ namespace thread {
  *
  *     foedus::UninitializeGuard guard(&engine);
  *     MyTask task;
- *     foedus::thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
+ *     foedus::thread::ImpersonateSession session = engine.get_thread_pool()->impersonate(&task);
  *     if (session.is_valid()) {
  *         std::cout << "result=" << session.get_result() << std::endl;
  *     } else {

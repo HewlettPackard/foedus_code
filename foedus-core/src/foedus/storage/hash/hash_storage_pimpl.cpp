@@ -152,7 +152,7 @@ void HashStoragePimpl::release_pages_recursive_root(
   VolatilePagePointer volatile_page_id) {
   // child is bin page
   const memory::GlobalVolatilePageResolver& page_resolver
-    = engine_->get_memory_manager().get_global_volatile_page_resolver();
+    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
   for (uint32_t i = 0; i < kHashRootPageFanout; ++i) {
     DualPagePointer &child_pointer = page->pointer(i);
     VolatilePagePointer child_page_id = child_pointer.volatile_pointer_;
@@ -172,7 +172,7 @@ void HashStoragePimpl::release_pages_recursive_bin(
   VolatilePagePointer volatile_page_id) {
   ASSERT_ND(volatile_page_id.components.offset != 0);
   const memory::GlobalVolatilePageResolver& page_resolver
-    = engine_->get_memory_manager().get_global_volatile_page_resolver();
+    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
   for (uint16_t i = 0; i < kBinsPerPage; ++i) {
     DualPagePointer &child_pointer = page->bin(i).data_pointer_;
     VolatilePagePointer child_page_id = child_pointer.volatile_pointer_;
@@ -192,7 +192,7 @@ void HashStoragePimpl::release_pages_recursive_data(
   VolatilePagePointer volatile_page_id) {
   ASSERT_ND(volatile_page_id.components.offset != 0);
   const memory::GlobalVolatilePageResolver& page_resolver
-    = engine_->get_memory_manager().get_global_volatile_page_resolver();
+    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
 
   DualPagePointer &next_pointer = page->next_page();
   VolatilePagePointer next_page_id = next_pointer.volatile_pointer_;
@@ -209,7 +209,7 @@ void HashStoragePimpl::release_pages_recursive_data(
 ErrorStack HashStoragePimpl::drop() {
   LOG(INFO) << "Uninitializing an hash-storage " << get_name();
   const memory::GlobalVolatilePageResolver& page_resolver
-    = engine_->get_memory_manager().get_global_volatile_page_resolver();
+    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
   memory::PageReleaseBatch release_batch(engine_);
   VolatilePagePointer root_id = control_block_->root_page_pointer_.volatile_pointer_;
   HashRootPage* root_page = get_root_page();
@@ -256,12 +256,12 @@ ErrorStack HashStoragePimpl::create(const HashMetadata& metadata) {
 
   // small number of root pages. we should at least have that many free pages.
   // so far grab all of them from node 0. no round robbin
-  memory::PagePool& pool = engine_->get_memory_manager().get_node_memory(0)->get_volatile_pool();
-  const memory::LocalPageResolver &local_resolver = pool.get_resolver();
+  memory::PagePool* pool = engine_->get_memory_manager()->get_node_memory(0)->get_volatile_pool();
+  const memory::LocalPageResolver &local_resolver = pool->get_resolver();
 
   // root of root
   memory::PagePoolOffset root_offset;
-  WRAP_ERROR_CODE(pool.grab_one(&root_offset));
+  WRAP_ERROR_CODE(pool->grab_one(&root_offset));
   ASSERT_ND(root_offset);
   HashRootPage* root_page = reinterpret_cast<HashRootPage*>(
     local_resolver.resolve_offset_newpage(root_offset));
@@ -279,7 +279,7 @@ ErrorStack HashStoragePimpl::create(const HashMetadata& metadata) {
     memory::PagePoolOffsetChunk chunk;
     chunk.clear();
     ASSERT_ND(chunk.capacity() >= root_pages);
-    WRAP_ERROR_CODE(pool.grab(root_pages, &chunk));
+    WRAP_ERROR_CODE(pool->grab(root_pages, &chunk));
     for (uint16_t i = 0; i < root_pages; ++i) {
       memory::PagePoolOffset offset = chunk.pop_back();
       ASSERT_ND(offset);
@@ -302,7 +302,7 @@ ErrorStack HashStoragePimpl::create(const HashMetadata& metadata) {
 
 HashRootPage* HashStoragePimpl::get_root_page() {
   return reinterpret_cast<HashRootPage*>(
-    engine_->get_memory_manager().get_global_volatile_page_resolver().resolve_offset(
+    engine_->get_memory_manager()->get_global_volatile_page_resolver().resolve_offset(
       control_block_->root_page_pointer_.volatile_pointer_));
 }
 

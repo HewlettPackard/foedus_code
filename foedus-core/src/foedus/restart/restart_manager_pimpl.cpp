@@ -18,10 +18,10 @@
 namespace foedus {
 namespace restart {
 ErrorStack RestartManagerPimpl::initialize_once() {
-  if (!engine_->get_xct_manager().is_initialized()) {
+  if (!engine_->get_xct_manager()->is_initialized()) {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
   }
-  control_block_ = engine_->get_soc_manager().get_shared_memory_repo()->
+  control_block_ = engine_->get_soc_manager()->get_shared_memory_repo()->
     get_global_memory_anchors()->restart_manager_memory_;
 
   // Restart manager works only in master
@@ -36,7 +36,7 @@ ErrorStack RestartManagerPimpl::initialize_once() {
 
 ErrorStack RestartManagerPimpl::uninitialize_once() {
   ErrorStackBatch batch;
-  if (!engine_->get_xct_manager().is_initialized()) {
+  if (!engine_->get_xct_manager()->is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
   if (engine_->is_master()) {
@@ -46,8 +46,8 @@ ErrorStack RestartManagerPimpl::uninitialize_once() {
 }
 
 ErrorStack RestartManagerPimpl::recover() {
-  Epoch durable_epoch = engine_->get_log_manager().get_durable_global_epoch();
-  Epoch snapshot_epoch = engine_->get_snapshot_manager().get_snapshot_epoch();
+  Epoch durable_epoch = engine_->get_log_manager()->get_durable_global_epoch();
+  Epoch snapshot_epoch = engine_->get_snapshot_manager()->get_snapshot_epoch();
   LOG(INFO) << "Recovering the database... durable_epoch=" << durable_epoch
     << ", snapshot_epoch=" << snapshot_epoch;
 

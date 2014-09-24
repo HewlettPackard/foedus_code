@@ -39,7 +39,7 @@ ErrorStack NumaNodeMemory::initialize_once() {
 
 
   // volatile pool is placed on the shared memory
-  soc::SharedMemoryRepo* memory_repo = engine_->get_soc_manager().get_shared_memory_repo();
+  soc::SharedMemoryRepo* memory_repo = engine_->get_soc_manager()->get_shared_memory_repo();
   uint64_t volatile_size =
     static_cast<uint64_t>(engine_->get_options().memory_.page_pool_size_mb_per_node_) << 20;
   volatile_pool_.attach(
@@ -201,7 +201,7 @@ std::string NumaNodeMemory::dump_free_memory_stat() const {
 
 NumaNodeMemoryRef::NumaNodeMemoryRef(Engine* engine, thread::ThreadGroupId numa_node)
   : engine_(engine), numa_node_(numa_node) {
-  soc::SharedMemoryRepo* memory_repo = engine->get_soc_manager().get_shared_memory_repo();
+  soc::SharedMemoryRepo* memory_repo = engine->get_soc_manager()->get_shared_memory_repo();
   volatile_pool_.attach(
     memory_repo->get_node_memory_anchors(numa_node)->volatile_pool_status_,
     memory_repo->get_volatile_pool(numa_node),

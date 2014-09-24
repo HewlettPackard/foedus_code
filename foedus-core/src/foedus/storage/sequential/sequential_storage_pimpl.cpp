@@ -74,9 +74,9 @@ ErrorStack SequentialStoragePimpl::drop() {
   uint16_t threads_per_node = engine_->get_options().thread_.thread_count_per_group_;
   for (uint16_t node = 0; node < nodes; ++node) {
     // we are sure these pages are from only one NUMA node, so we can easily batch-return.
-    memory::NumaNodeMemoryRef* memory = engine_->get_memory_manager().get_node_memory(node);
-    memory::PagePool& pool = memory->get_volatile_pool();
-    memory::LocalPageResolver& resolver = pool.get_resolver();
+    memory::NumaNodeMemoryRef* memory = engine_->get_memory_manager()->get_node_memory(node);
+    memory::PagePool* pool = memory->get_volatile_pool();
+    const memory::LocalPageResolver& resolver = pool->get_resolver();
     memory::PagePoolOffsetChunk chunk;
     for (uint16_t local_ordinal = 0; local_ordinal < threads_per_node; ++local_ordinal) {
       thread::ThreadId thread_id = thread::compose_thread_id(node, local_ordinal);
@@ -89,7 +89,7 @@ ErrorStack SequentialStoragePimpl::drop() {
         ASSERT_ND(node == cur_pointer.components.numa_node);
         VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
         if (chunk.full()) {
-          pool.release(chunk.size(), &chunk);
+          pool->release(chunk.size(), &chunk);
         }
         ASSERT_ND(!chunk.full());
         chunk.push_back(cur_pointer.components.offset);
@@ -104,7 +104,7 @@ ErrorStack SequentialStoragePimpl::drop() {
       }
     }
     if (chunk.size() > 0) {
-      pool.release(chunk.size(), &chunk);
+      pool->release(chunk.size(), &chunk);
     }
     ASSERT_ND(chunk.size() == 0);
   }
@@ -112,15 +112,15 @@ ErrorStack SequentialStoragePimpl::drop() {
   // release pointer pages
   for (uint16_t p = 0; p * 4 < nodes; ++p) {
     uint16_t node = p * 4;
-    memory::NumaNodeMemoryRef* memory = engine_->get_memory_manager().get_node_memory(node);
-    memory::PagePool& pool = memory->get_volatile_pool();
+    memory::NumaNodeMemoryRef* memory = engine_->get_memory_manager()->get_node_memory(node);
+    memory::PagePool* pool = memory->get_volatile_pool();
     if (control_block_->head_pointer_pages_[p].components.offset) {
       ASSERT_ND(control_block_->head_pointer_pages_[p].components.numa_node == node);
-      pool.release_one(control_block_->head_pointer_pages_[p].components.offset);
+      pool->release_one(control_block_->head_pointer_pages_[p].components.offset);
     }
     if (control_block_->tail_pointer_pages_[p].components.offset) {
       ASSERT_ND(control_block_->tail_pointer_pages_[p].components.numa_node == node);
-      pool.release_one(control_block_->tail_pointer_pages_[p].components.offset);
+      pool->release_one(control_block_->tail_pointer_pages_[p].components.offset);
     }
   }
   std::memset(control_block_->head_pointer_pages_, 0, sizeof(control_block_->head_pointer_pages_));
@@ -143,16 +143,16 @@ ErrorStack SequentialStoragePimpl::create(const SequentialMetadata& metadata) {
   uint32_t nodes = engine_->get_options().thread_.group_count_;
   for (uint16_t p = 0; p * 4 < nodes; ++p) {
     uint16_t node = p * 4;
-    memory::NumaNodeMemoryRef* memory = engine_->get_memory_manager().get_node_memory(node);
-    memory::PagePool& pool = memory->get_volatile_pool();
+    memory::NumaNodeMemoryRef* memory = engine_->get_memory_manager()->get_node_memory(node);
+    memory::PagePool* pool = memory->get_volatile_pool();
     memory::PagePoolOffset head_offset, tail_offset;
     // minor todo: gracefully fail in case of out of memory
-    WRAP_ERROR_CODE(pool.grab_one(&head_offset));
-    WRAP_ERROR_CODE(pool.grab_one(&tail_offset));
+    WRAP_ERROR_CODE(pool->grab_one(&head_offset));
+    WRAP_ERROR_CODE(pool->grab_one(&tail_offset));
     control_block_->head_pointer_pages_[p] = combine_volatile_page_pointer(node, 0, 0, head_offset);
     control_block_->tail_pointer_pages_[p] = combine_volatile_page_pointer(node, 0, 0, tail_offset);
-    void* head_page =  pool.get_resolver().resolve_offset_newpage(head_offset);
-    void* tail_page =  pool.get_resolver().resolve_offset_newpage(tail_offset);
+    void* head_page =  pool->get_resolver().resolve_offset_newpage(head_offset);
+    void* tail_page =  pool->get_resolver().resolve_offset_newpage(tail_offset);
     std::memset(head_page, 0, kPageSize);
     std::memset(tail_page, 0, kPageSize);
   }
@@ -225,7 +225,7 @@ memory::PagePoolOffset* SequentialStoragePimpl::get_head_pointer(thread::ThreadI
   uint16_t index;
   get_pointer_page_and_index(thread_id, &page, &index);
   const memory::GlobalVolatilePageResolver& resolver
-    = engine_->get_memory_manager().get_global_volatile_page_resolver();
+    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
   PointerPage* head_page
     = reinterpret_cast<PointerPage*>(resolver.resolve_offset_newpage(
       control_block_->head_pointer_pages_[page]));
@@ -239,7 +239,7 @@ memory::PagePoolOffset* SequentialStoragePimpl::get_tail_pointer(thread::ThreadI
   uint16_t index;
   get_pointer_page_and_index(thread_id, &page, &index);
   const memory::GlobalVolatilePageResolver& resolver
-    = engine_->get_memory_manager().get_global_volatile_page_resolver();
+    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
   PointerPage* tail_page
     = reinterpret_cast<PointerPage*>(resolver.resolve_offset_newpage(
       control_block_->tail_pointer_pages_[page]));

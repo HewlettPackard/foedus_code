@@ -48,14 +48,14 @@ ErrorStack init_task(
   void* /*output_buffer*/,
   uint32_t /*output_buffer_size*/,
   uint32_t* /*output_used*/) {
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-  storage::StorageManager& str_manager = context->get_engine()->get_storage_manager();
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+  storage::StorageManager* str_manager = context->get_engine()->get_storage_manager();
   Epoch commit_epoch;
   storage::array::ArrayStorage storage;
   storage::array::ArrayMetadata meta("test", sizeof(Payload), kRecords);
-  CHECK_ERROR(str_manager.create_array(&meta, &storage, &commit_epoch));
+  CHECK_ERROR(str_manager->create_array(&meta, &storage, &commit_epoch));
 
-  CHECK_ERROR(xct_manager.begin_xct(context, kSerializable));
+  CHECK_ERROR(xct_manager->begin_xct(context, kSerializable));
 
   for (int i = 0; i < kRecords; ++i) {
     Payload payload;
@@ -64,7 +64,7 @@ ErrorStack init_task(
     CHECK_ERROR(storage.overwrite_record(context, i, &payload));
   }
 
-  CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+  CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
   return kRetOk;
 }
 
@@ -73,8 +73,8 @@ ErrorStack try_transaction(
   storage::array::ArrayStorage* storage,
   uint64_t offset,
   uint64_t amount) {
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-  CHECK_ERROR(xct_manager.begin_xct(context, kSerializable));
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+  CHECK_ERROR(xct_manager->begin_xct(context, kSerializable));
   Payload payload;
   CHECK_ERROR(storage->get_record(context, offset, &payload));
   EXPECT_EQ(offset, payload.id_);
@@ -82,7 +82,7 @@ ErrorStack try_transaction(
   CHECK_ERROR(storage->overwrite_record(context, offset, &payload));
 
   Epoch commit_epoch;
-  CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+  CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
   return kRetOk;
 }
 
@@ -97,12 +97,12 @@ ErrorStack test_task(
   uint64_t offset = reinterpret_cast<const uint64_t*>(input_buffer)[0];
   uint64_t amount = reinterpret_cast<const uint64_t*>(input_buffer)[1];
   void* user_memory
-    = context->get_engine()->get_soc_manager().get_shared_memory_repo()->get_global_user_memory();
+    = context->get_engine()->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory();
   soc::SharedRendezvous* rendezvous = reinterpret_cast<soc::SharedRendezvous*>(user_memory);
   rendezvous->wait();
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-  storage::StorageManager& str_manager = context->get_engine()->get_storage_manager();
-  storage::array::ArrayStorage storage = str_manager.get_array("test");
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+  storage::StorageManager* str_manager = context->get_engine()->get_storage_manager();
+  storage::array::ArrayStorage storage = str_manager->get_array("test");
   while (true) {
     ErrorStack error_stack = try_transaction(context, &storage, offset, amount);
     if (!error_stack.is_error()) {
@@ -110,7 +110,7 @@ ErrorStack test_task(
     } else if (error_stack.get_error_code() == kErrorCodeXctRaceAbort) {
       // abort and retry
       if (context->is_running_xct()) {
-        CHECK_ERROR(xct_manager.abort_xct(context));
+        CHECK_ERROR(xct_manager->abort_xct(context));
       }
     } else {
       COERCE_ERROR(error_stack);
@@ -129,27 +129,27 @@ ErrorStack get_all_records_task(
   ASSERT_ND(output_buffer_size >= sizeof(Payload) * kRecords);
   *output_used = sizeof(Payload) * kRecords;
   Payload* output = reinterpret_cast<Payload*>(output_buffer);
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-  CHECK_ERROR(xct_manager.begin_xct(context, kSerializable));
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+  CHECK_ERROR(xct_manager->begin_xct(context, kSerializable));
 
-  storage::StorageManager& str_manager = context->get_engine()->get_storage_manager();
-  storage::array::ArrayStorage storage = str_manager.get_array("test");
+  storage::StorageManager* str_manager = context->get_engine()->get_storage_manager();
+  storage::array::ArrayStorage storage = str_manager->get_array("test");
   for (int i = 0; i < kRecords; ++i) {
     CHECK_ERROR(storage.get_record(context, i, output + i));
   }
 
   Epoch commit_epoch;
-  CHECK_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+  CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
   return kRetOk;
 }
 
 template <typename ASSIGN_FUNC>
 void run_test(Engine *engine, ASSIGN_FUNC assign_func) {
-  COERCE_ERROR(engine->get_thread_pool().impersonate_synchronous("init_task"));
+  COERCE_ERROR(engine->get_thread_pool()->impersonate_synchronous("init_task"));
   {
     soc::SharedRendezvous* start_rendezvous
       = reinterpret_cast<soc::SharedRendezvous*>(
-        engine->get_soc_manager().get_shared_memory_repo()->get_global_user_memory());
+        engine->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
     start_rendezvous->initialize();
     std::vector<thread::ImpersonateSession> sessions;
     for (int i = 0; i < kThreads; ++i) {
@@ -157,7 +157,7 @@ void run_test(Engine *engine, ASSIGN_FUNC assign_func) {
       uint64_t inputs[2];
       inputs[0] = assign_func(i);
       inputs[1] = i * 20 + 4;
-      EXPECT_TRUE(engine->get_thread_pool().impersonate(
+      EXPECT_TRUE(engine->get_thread_pool()->impersonate(
         "test_task",
         inputs,
         sizeof(inputs),
@@ -180,7 +180,7 @@ void run_test(Engine *engine, ASSIGN_FUNC assign_func) {
   Payload payloads[kRecords];
   {
     thread::ImpersonateSession session;
-    EXPECT_TRUE(engine->get_thread_pool().impersonate(
+    EXPECT_TRUE(engine->get_thread_pool()->impersonate(
       "get_all_records_task",
       nullptr,
       0,
@@ -201,9 +201,9 @@ void test_main(ASSIGN_FUNC assign_func) {
   EngineOptions options = get_tiny_options();
   options.thread_.thread_count_per_group_ = kThreads;
   Engine engine(options);
-  engine.get_proc_manager().pre_register("init_task", init_task);
-  engine.get_proc_manager().pre_register("test_task", test_task);
-  engine.get_proc_manager().pre_register("get_all_records_task", get_all_records_task);
+  engine.get_proc_manager()->pre_register("init_task", init_task);
+  engine.get_proc_manager()->pre_register("test_task", test_task);
+  engine.get_proc_manager()->pre_register("get_all_records_task", get_all_records_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);

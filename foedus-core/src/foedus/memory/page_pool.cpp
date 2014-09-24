@@ -61,7 +61,7 @@ void        PagePool::release(uint32_t desired_release_count, PagePoolOffsetChun
 }
 void PagePool::release_one(PagePoolOffset offset) { pimpl_->release_one(offset); }
 
-LocalPageResolver& PagePool::get_resolver() { return pimpl_->get_resolver(); }
+const LocalPageResolver& PagePool::get_resolver() const { return pimpl_->get_resolver(); }
 
 std::ostream& operator<<(std::ostream& o, const PagePool& v) {
   o << v.pimpl_;
@@ -99,7 +99,7 @@ void PageReleaseBatch::release_chunk(thread::ThreadGroupId numa_node) {
     return;
   }
 
-  engine_->get_memory_manager().get_node_memory(numa_node)->get_volatile_pool().release(
+  engine_->get_memory_manager()->get_node_memory(numa_node)->get_volatile_pool()->release(
     chunks_[numa_node]->size(), chunks_[numa_node]);
   ASSERT_ND(chunks_[numa_node]->empty());
 }
@@ -125,8 +125,8 @@ storage::VolatilePagePointer RoundRobinPageGrabBatch::grab() {
       if (current_node_ >= numa_node_count_) {
         current_node_ = 0;
       }
-      ErrorCode code = engine_->get_memory_manager().get_node_memory(current_node_)->
-        get_volatile_pool().grab(chunk_.capacity(), &chunk_);
+      ErrorCode code = engine_->get_memory_manager()->get_node_memory(current_node_)->
+        get_volatile_pool()->grab(chunk_.capacity(), &chunk_);
       if (code == kErrorCodeOk) {
         break;
       }
@@ -160,7 +160,7 @@ void RoundRobinPageGrabBatch::release_all() {
     return;
   }
 
-  engine_->get_memory_manager().get_node_memory(current_node_)->get_volatile_pool().release(
+  engine_->get_memory_manager()->get_node_memory(current_node_)->get_volatile_pool()->release(
     chunk_.size(), &chunk_);
   ASSERT_ND(chunk_.empty());
 }
@@ -184,8 +184,8 @@ DivvyupPageGrabBatch::~DivvyupPageGrabBatch() {
 storage::VolatilePagePointer DivvyupPageGrabBatch::grab(thread::ThreadGroupId node) {
   ASSERT_ND(node < node_count_);
   if (chunks_[node].empty()) {
-    ErrorCode code = engine_->get_memory_manager().get_node_memory(node)->
-      get_volatile_pool().grab(chunks_[node].capacity(), chunks_ + node);
+    ErrorCode code = engine_->get_memory_manager()->get_node_memory(node)->
+      get_volatile_pool()->grab(chunks_[node].capacity(), chunks_ + node);
     if (code == kErrorCodeMemoryNoFreePages) {
       LOG(FATAL) << "NUMA node " << static_cast<int>(node) << " has no free pages. This situation "
         " is so far not handled in DivvyupPageGrabBatch. Aborting";
@@ -217,7 +217,7 @@ void DivvyupPageGrabBatch::release_all() {
     if (chunks_[node].empty()) {
       continue;
     }
-    engine_->get_memory_manager().get_node_memory(node)->get_volatile_pool().release(
+    engine_->get_memory_manager()->get_node_memory(node)->get_volatile_pool()->release(
       chunks_[node].size(), chunks_ + node);
     ASSERT_ND(chunks_[node].empty());
   }

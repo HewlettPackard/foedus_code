@@ -40,8 +40,8 @@ ErrorStack LogManagerPimpl::initialize_once() {
   const uint16_t total_threads = engine_->get_options().thread_.get_total_thread_count();
   LOG(INFO) << "Initializing LogManager. #loggers_per_node=" << loggers_per_node_
     << ", #NUMA-nodes=" << static_cast<int>(groups_) << ", #total_threads=" << total_threads;
-  if (!engine_->get_thread_pool().is_initialized()
-    || !engine_->get_savepoint_manager().is_initialized()) {
+  if (!engine_->get_thread_pool()->is_initialized()
+    || !engine_->get_savepoint_manager()->is_initialized()) {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
   }
   // see comments in LogOptions#log_paths_
@@ -51,7 +51,7 @@ ErrorStack LogManagerPimpl::initialize_once() {
   }
 
   // attach control block
-  soc::SharedMemoryRepo* memory_repo = engine_->get_soc_manager().get_shared_memory_repo();
+  soc::SharedMemoryRepo* memory_repo = engine_->get_soc_manager()->get_shared_memory_repo();
   control_block_ = memory_repo->get_global_memory_anchors()->log_manager_memory_;
 
   // attach logger_refs
@@ -78,7 +78,7 @@ ErrorStack LogManagerPimpl::initialize_once() {
     // Initialize durable_global_epoch_
     control_block_->initialize();
     control_block_->durable_global_epoch_
-      = engine_->get_savepoint_manager().get_initial_durable_epoch().value();
+      = engine_->get_savepoint_manager()->get_initial_durable_epoch().value();
     LOG(INFO) << "durable_global_epoch_=" << get_durable_global_epoch();
     meta_logger_ = new MetaLogger(engine_);
     CHECK_ERROR(meta_logger_->initialize());
@@ -136,8 +136,8 @@ ErrorStack LogManagerPimpl::initialize_once() {
 ErrorStack LogManagerPimpl::uninitialize_once() {
   LOG(INFO) << "Uninitializing LogManager..";
   ErrorStackBatch batch;
-  if (!engine_->get_thread_pool().is_initialized()
-    || !engine_->get_savepoint_manager().is_initialized()) {
+  if (!engine_->get_thread_pool()->is_initialized()
+    || !engine_->get_savepoint_manager()->is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
   if (engine_->is_master()) {
@@ -186,7 +186,7 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
       return kRetOk;
     }
 
-    CHECK_ERROR(engine_->get_savepoint_manager().take_savepoint(min_durable_epoch));
+    CHECK_ERROR(engine_->get_savepoint_manager()->take_savepoint(min_durable_epoch));
 
     // set durable_global_epoch_ within the SharedCond's mutex scope, and then broadcast.
     // this is required to avoid lost signals.

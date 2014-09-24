@@ -22,7 +22,7 @@
 namespace foedus {
 namespace savepoint {
 ErrorStack SavepointManagerPimpl::initialize_once() {
-  control_block_ = engine_->get_soc_manager().get_shared_memory_repo()->
+  control_block_ = engine_->get_soc_manager()->get_shared_memory_repo()->
     get_global_memory_anchors()->savepoint_manager_memory_;
   if (engine_->is_master()) {
     // Savepoint takes place only in master
@@ -137,11 +137,11 @@ void SavepointManagerPimpl::savepoint_main() {
     }
     if (control_block_->requested_durable_epoch_ != control_block_->saved_durable_epoch_) {
       Savepoint new_savepoint = Savepoint();
-      new_savepoint.current_epoch_ = engine_->get_xct_manager().get_current_global_epoch().value();
+      new_savepoint.current_epoch_ = engine_->get_xct_manager()->get_current_global_epoch().value();
       Epoch new_durable_epoch = get_requested_durable_epoch();
       new_savepoint.durable_epoch_ = new_durable_epoch.value();
-      engine_->get_log_manager().copy_logger_states(&new_savepoint);
-      log::MetaLogControlBlock* metalog_block = engine_->get_soc_manager().get_shared_memory_repo()
+      engine_->get_log_manager()->copy_logger_states(&new_savepoint);
+      log::MetaLogControlBlock* metalog_block = engine_->get_soc_manager()->get_shared_memory_repo()
         ->get_global_memory_anchors()->meta_logger_memory_;
       new_savepoint.meta_log_oldest_offset_ = metalog_block->oldest_offset_;
       new_savepoint.meta_log_durable_offset_ = metalog_block->durable_offset_;
@@ -152,7 +152,7 @@ void SavepointManagerPimpl::savepoint_main() {
       COERCE_ERROR(new_savepoint.save_to_file(savepoint_path_));
       update_shared_savepoint(new_savepoint);  // also write to shared memory
       VLOG(1) << "Wrote a savepoint.";
-      engine_->get_log_manager().announce_new_durable_global_epoch(new_durable_epoch);
+      engine_->get_log_manager()->announce_new_durable_global_epoch(new_durable_epoch);
       {
         soc::SharedMutexScope scope(control_block_->save_done_event_.get_mutex());
         control_block_->saved_durable_epoch_ = new_durable_epoch.value();

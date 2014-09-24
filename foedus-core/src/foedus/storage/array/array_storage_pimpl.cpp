@@ -164,7 +164,7 @@ ErrorCode ArrayStorage::increment_record_oneshot(
 ArrayPage* ArrayStoragePimpl::get_root_page() {
   // Array storage is guaranteed to keep the root page as a volatile page.
   return reinterpret_cast<ArrayPage*>(
-    engine_->get_memory_manager().get_global_volatile_page_resolver().resolve_offset(
+    engine_->get_memory_manager()->get_global_volatile_page_resolver().resolve_offset(
     control_block_->root_page_pointer_.volatile_pointer_));
 }
 
@@ -233,7 +233,7 @@ ErrorStack ArrayStorage::drop() {
   LOG(INFO) << "Uninitializing an array-storage " << *this;
   memory::PageReleaseBatch release_batch(engine_);
   ArrayStoragePimpl::release_pages_recursive(
-    engine_->get_memory_manager().get_global_volatile_page_resolver(),
+    engine_->get_memory_manager()->get_global_volatile_page_resolver(),
     &release_batch,
     control_block_->root_page_pointer_.volatile_pointer_);
   release_batch.release_all();
@@ -280,7 +280,7 @@ ErrorStack ArrayStorage::create(const Metadata &metadata) {
       << " interval=" << offset_intervals[level];
   }
 
-  Epoch initial_epoch = engine_->get_xct_manager().get_current_global_epoch();
+  Epoch initial_epoch = engine_->get_xct_manager()->get_current_global_epoch();
   LOG(INFO) << "Newly creating an array-storage "  << *this << " as epoch=" << initial_epoch;
 
   // TODO(Hideaki) This part must handle the case where RAM < Array Size
@@ -294,7 +294,7 @@ ErrorStack ArrayStorage::create(const Metadata &metadata) {
   std::vector<uint16_t> current_records;
   // we grab free page from each node evenly.
   const memory::GlobalVolatilePageResolver& page_resolver
-    = engine_->get_memory_manager().get_global_volatile_page_resolver();
+    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
   memory::DivvyupPageGrabBatch grab_batch(engine_);
   for (uint8_t level = 0; level < levels; ++level) {
     VolatilePagePointer page_pointer = grab_batch.grab_evenly(0, pages[level]);

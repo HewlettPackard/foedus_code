@@ -34,8 +34,8 @@ ErrorStack test_write_log(
   void* /*output_buffer*/,
   uint32_t /*output_buffer_size*/,
   uint32_t* /*output_used*/) {
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-  WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   ThreadLogBuffer& buffer = context->get_thread_log_buffer();
 
   uint64_t committed_before = buffer.get_offset_committed();
@@ -67,14 +67,14 @@ ErrorStack test_write_log(
   EXPECT_EQ(tail_before + 400 + 512, buffer.get_offset_tail());
 
   Epoch commit_epoch;
-  WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
   buffer.assert_consistent();
 
   EXPECT_EQ(committed_before + 400 + 512, buffer.get_offset_committed());
   EXPECT_EQ(tail_before + 400 + 512, buffer.get_offset_tail());
   buffer.assert_consistent();
 
-  WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   EXPECT_EQ(committed_before + 400 + 512, buffer.get_offset_committed());
   EXPECT_EQ(tail_before + 400 + 512, buffer.get_offset_tail());
   EXPECT_EQ(buffer.get_offset_durable(), tail_before + 400 + 512);
@@ -85,11 +85,11 @@ ErrorStack test_write_log(
 TEST(LogBasicTest, WriteLog) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
-  engine.get_proc_manager().pre_register(proc::ProcAndName("test_write_log", test_write_log));
+  engine.get_proc_manager()->pre_register(proc::ProcAndName("test_write_log", test_write_log));
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("test_write_log"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("test_write_log"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -102,8 +102,8 @@ ErrorStack test_buffer_wrap_around(
   void* /*output_buffer*/,
   uint32_t /*output_buffer_size*/,
   uint32_t* /*output_used*/) {
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-  WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   ThreadLogBuffer& buffer = context->get_thread_log_buffer();
 
   uint64_t committed_before = buffer.get_offset_committed();
@@ -132,13 +132,13 @@ ErrorStack test_buffer_wrap_around(
   EXPECT_EQ(kBufferSize - 128, buffer.get_offset_tail());
 
   Epoch commit_epoch;
-  WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
   buffer.assert_consistent();
   EXPECT_EQ(kBufferSize - 128, buffer.get_offset_committed());
   EXPECT_EQ(kBufferSize - 128, buffer.get_offset_tail());
 
-  WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   buffer.assert_consistent();
   // this should cause wrap around
   filler = reinterpret_cast<FillerLogType*>(buffer.reserve_new_log(256));
@@ -155,12 +155,12 @@ ErrorStack test_buffer_wrap_around(
     reinterpret_cast<RecordLogType*>(filler));
   buffer.assert_consistent();
 
-  WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
   EXPECT_EQ(256, buffer.get_offset_committed());
   EXPECT_EQ(256, buffer.get_offset_tail());
   buffer.assert_consistent();
 
-  WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   EXPECT_EQ(256, buffer.get_offset_committed());
   EXPECT_EQ(256, buffer.get_offset_durable());
   EXPECT_EQ(256, buffer.get_offset_tail());
@@ -174,13 +174,13 @@ TEST(LogBasicTest, BufferWrapAround) {
   // make it extremely small so that we can test wrap around
   options.log_.log_buffer_kb_ = 16;
   Engine engine(options);
-  engine.get_proc_manager().pre_register(proc::ProcAndName(
+  engine.get_proc_manager()->pre_register(proc::ProcAndName(
     "test_buffer_wrap_around",
     test_buffer_wrap_around));
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("test_buffer_wrap_around"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("test_buffer_wrap_around"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
