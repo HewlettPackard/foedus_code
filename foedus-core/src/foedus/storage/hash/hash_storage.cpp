@@ -9,7 +9,9 @@
 #include <iostream>
 #include <string>
 
+#include "foedus/engine.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/hash/hash_log_types.hpp"
 #include "foedus/storage/hash/hash_storage_pimpl.hpp"
 #include "foedus/thread/thread.hpp"
@@ -17,6 +19,12 @@
 namespace foedus {
 namespace storage {
 namespace hash {
+HashStorage::HashStorage(Engine* engine, const StorageName& name) {
+  engine_ = engine;
+  control_block_
+    = reinterpret_cast<HashStorageControlBlock*>(engine->get_storage_manager()->get_storage(name));
+}
+
 ErrorStack  HashStorage::create(const Metadata &metadata) {
   return HashStoragePimpl(this).create(static_cast<const HashMetadata&>(metadata));
 }

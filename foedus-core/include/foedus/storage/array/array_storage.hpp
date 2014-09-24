@@ -48,6 +48,8 @@ class ArrayStorage CXX11_FINAL
       reinterpret_cast<ArrayStorageControlBlock*>(control_block)) {
     ASSERT_ND(get_type() == kArrayStorage || !exists());
   }
+  /** Shorthand for engine->get_storage_manager()->get_array(name) */
+  ArrayStorage(Engine* engine, const StorageName& name);
   ArrayStorage(const ArrayStorage& other)
     : Attachable<ArrayStorageControlBlock>(other.engine_, other.control_block_) {
   }

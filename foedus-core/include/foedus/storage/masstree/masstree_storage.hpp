@@ -43,6 +43,8 @@ class MasstreeStorage CXX11_FINAL
       reinterpret_cast<MasstreeStorageControlBlock*>(control_block)) {
     ASSERT_ND(get_type() == kMasstreeStorage || !exists());
   }
+  /** Shorthand for engine->get_storage_manager()->get_masstree(name) */
+  MasstreeStorage(Engine* engine, const StorageName& name);
   MasstreeStorage(const MasstreeStorage& other)
     : Attachable<MasstreeStorageControlBlock>(other.engine_, other.control_block_) {
   }

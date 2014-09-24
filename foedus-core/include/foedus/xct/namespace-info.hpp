@@ -15,19 +15,15 @@
  * First thing first. Here's a minimal example to start \e one transaction in the engine.
  * @code{.cpp}
  * // Example to start and commit one transaction
- * class MyTask : public foedus::thread::ImpersonateTask {
- *  public:
- *   MyTask() {}
- *   foedus::ErrorStack run(foedus::thread::Thread* context) {
- *     foedus::Engine *engine = context->get_engine();
- *     foedus::xct::XctManager* xct_manager = engine->get_xct_manager();
- *     WRAP_ERROR_CODE(xct_manager->begin_xct(context, foedus::xct::kSerializable));
- *     ... // read/modify data. See storage module's document for examples.
- *     foedus::Epoch commit_epoch;
- *     WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
- *     WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
- *     return foedus::kRetOk;
- *   }
+ * foedus::ErrorStack run_my_task(foedus::thread::Thread* context, ...) {
+ *   foedus::Engine *engine = context->get_engine();
+ *   foedus::xct::XctManager* xct_manager = engine->get_xct_manager();
+ *   WRAP_ERROR_CODE(xct_manager->begin_xct(context, foedus::xct::kSerializable));
+ *   ... // read/modify data. See storage module's document for examples.
+ *   foedus::Epoch commit_epoch;
+ *   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+ *   WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
+ *   return foedus::kRetOk;
  * }
  * @endcode
  *

@@ -46,62 +46,62 @@ namespace thread {
  *
  * @section IMPERSONATE Impersonation
  * Our API to execute transactions consists of the following three concepts:
- *  \li \b Task (ImpersonateTask) is an arbitrary user-defined code to run in our engine.
- *  \li \b Session (ImpersonateSession) is a one-to-one mapping between a task and a pooled thread
- * that continues until the completion of the task.
+ *  \li \b Procedure (\ref PROC) is an arbitrary user-defined code to run in our engine.
+ *  \li \b Session (ImpersonateSession) is a one-to-one mapping between a procedure and a pooled
+ * thread that continues until the completion of the procedure.
  *  \li \b Impersonation (ThreadPool#impersonate()) is an action to create a session for the
- * given task.
+ * given procedure.
  *
  * In order to start a user transaction or a series of user transactions on some thread,
- * the user first defines the task as a class that derives from ImpersonateTask.
+ * the user first defines the procedure as a function as defined in \ref PROC.
  * Then, the user calls ThreadPool#impersonate() to impersonate one of the pre-allocated
- * threads for the task.
+ * threads for the procedure.
  *
- * When the thread is impersonated, it starts runninng the task asynchronously.
+ * When the thread is impersonated, it starts runninng the procedure asynchronously.
  * The original client thread, which invoked the impersonation, immediately returns
  * with ImpersonateSession object for the acquired session.
- * The original thread can choose to either synchronously wait for the completion of the task or
- * do other stuffs, such as launching more sessions.
+ * The original thread can choose to either synchronously wait for the completion of the procedure
+ * or do other stuffs, such as launching more sessions (be it the same procedure or not).
  *
- * This means that a use code doesn't have to do \b anything to run the tasks on an arbitrary
+ * This means that a use code doesn't have to do \b anything to run the procedures on an arbitrary
  * number of threads. Everything is encapsulated in the ThreadPool class and its related classes.
  *
  * @section EX Examples
- * Below is a trivial example to define a task and submit impersonation request.
+ * Below is a trivial example to define a procedure and submit impersonation request.
  * @code{.cpp}
  * #include "foedus/engine.hpp"
  * #include "foedus/engine_options.hpp"
+ * #include "foedus/proc/proc_manager.hpp"
  * #include "foedus/thread/thread_pool.hpp"
  * #include "foedus/thread/thread.hpp"
  *
- * class MyTask : public foedus::thread::ImpersonateTask {
- * public:
- *     foedus::ErrorStack run(foedus::thread::Thread* context) {
- *         std::cout << "Ya!" << std::endl;
- *         return foedus::kRetOk;
- *     }
- * };
+ * ErrorStack my_proc(
+ *   thread::Thread* context,
+ *   const void *input_buffer,
+ *   uint32_t input_len,
+ *   void* output_buffer,
+ *   uint32_t output_buffer_size,
+ *   uint32_t* output_used) {
+ *   std::cout << "Ya!" << std::endl;
+ *   return foedus::kRetOk;
+ * }
  *
  * int main(int argc, char **argv) {
- *     foedus::EngineOptions options;
- *     foedus::Engine engine(options);
- *     if (engine.initialize().is_error()) {
- *         return 1;
- *     }
+ *   foedus::EngineOptions options;
+ *   foedus::Engine engine(options);
+ *   engine.get_proc_manager()->pre_register("my_proc", my_proc);
+ *   if (engine.initialize().is_error()) {
+ *     return 1;
+ *   }
  *
- *     foedus::UninitializeGuard guard(&engine);
- *     MyTask task;
- *     foedus::thread::ImpersonateSession session = engine.get_thread_pool()->impersonate(&task);
- *     if (session.is_valid()) {
- *         std::cout << "result=" << session.get_result() << std::endl;
- *     } else {
- *         std::cout << "session didn't start=" << session.invalid_cause_ << std::endl;
- *     }
- *     if (engine.uninitialize().is_error()) {
- *         return 1;
- *     }
+ *   foedus::UninitializeGuard guard(&engine);
+ *   foedus::ErrorStack result = engine.get_thread_pool()->impersonate_synchronous("my_proc");
+ *   std::cout << "result=" << result << std::endl;
+ *   if (engine.uninitialize().is_error()) {
+ *     return 1;
+ *   }
  *
- *     return 0;
+ *   return 0;
  * }
  * @endcode
  */
@@ -112,7 +112,7 @@ namespace thread {
  * @details
  * This is the main API class of thread package.
  * Its gut is impersonate() which allows client programs to create a new session
- * (ImpersonateSession) that runs user-defined functions (ImpersonateTask).
+ * (ImpersonateSession) that runs user-defined procedures (\ref PROC).
  * The sessions are executed on pre-allocated threads in the engine.
  * We throttle sessions, meaning impersonate() blocks when there is no available
  * thread. To avoid waiting too long, impersonate() receives timeout parameter.
@@ -161,7 +161,7 @@ class ThreadPool CXX11_FINAL : public virtual Initializable {
    * @return Error code of the impersonation or (if impersonation succeeds) of the task.
    * This returns kRetOk iff impersonation and the task succeed.
    */
-  ErrorStack          impersonate_synchronous(
+  ErrorStack impersonate_synchronous(
     const proc::ProcName& proc_name,
     const void* task_input = CXX11_NULLPTR,
     uint64_t task_input_size = 0) {
@@ -184,6 +184,22 @@ class ThreadPool CXX11_FINAL : public virtual Initializable {
     ImpersonateSession *session);
 
   /**
+   * @brief A shorthand for impersonating a session and synchronously waiting for its end.
+   * @see impersonate_synchronous()
+   */
+  ErrorStack impersonate_on_numa_node_synchronous(
+    ThreadGroupId node,
+    const proc::ProcName& proc_name,
+    const void* task_input = CXX11_NULLPTR,
+    uint64_t task_input_size = 0) {
+    ImpersonateSession session;
+    if (!impersonate_on_numa_node(node, proc_name, task_input, task_input_size, &session)) {
+      return ERROR_STACK(kErrorCodeThrNoThreadAvailable);
+    }
+    return session.get_result();
+  }
+
+  /**
    * Overload to specify a core to run on.
    * @see impersonate()
    */
@@ -193,6 +209,22 @@ class ThreadPool CXX11_FINAL : public virtual Initializable {
     const void* task_input,
     uint64_t task_input_size,
     ImpersonateSession *session);
+
+  /**
+   * @brief A shorthand for impersonating a session and synchronously waiting for its end.
+   * @see impersonate_synchronous()
+   */
+  ErrorStack impersonate_on_numa_core_synchronous(
+    ThreadId core,
+    const proc::ProcName& proc_name,
+    const void* task_input = CXX11_NULLPTR,
+    uint64_t task_input_size = 0) {
+    ImpersonateSession session;
+    if (!impersonate_on_numa_core(core, proc_name, task_input, task_input_size, &session)) {
+      return ERROR_STACK(kErrorCodeThrNoThreadAvailable);
+    }
+    return session.get_result();
+  }
 
   /** Returns the pimpl of this object. Use it only when you know what you are doing. */
   ThreadPoolPimpl*    get_pimpl() const { return pimpl_; }

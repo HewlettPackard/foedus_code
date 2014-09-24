@@ -7,9 +7,17 @@
 #include <ostream>
 #include <string>
 
+#include "foedus/engine.hpp"
+#include "foedus/storage/storage_manager.hpp"
+
 namespace foedus {
 namespace storage {
 namespace array {
+ArrayStorage::ArrayStorage(Engine* engine, const StorageName& name) {
+  engine_ = engine;
+  control_block_
+    = reinterpret_cast<ArrayStorageControlBlock*>(engine->get_storage_manager()->get_storage(name));
+}
 
 void ArrayStorage::describe(std::ostream* o_ptr) const {
   std::ostream& o = *o_ptr;
