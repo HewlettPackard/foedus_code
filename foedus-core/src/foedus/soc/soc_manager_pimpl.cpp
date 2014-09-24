@@ -154,14 +154,9 @@ ErrorStack SocManagerPimpl::wait_for_child_attach() {
               << " failed. os error=" << assorted::os_error() << std::endl;
             error_happened = true;
             break;
-          } else if (WIFEXITED(status)) {
+          } else if (wait_ret != 0) {
             std::cerr << "[FOEDUS] FATAL! child-process " << child_upids_[node] << " has exit"
               << " unexpectedly. status=" << status << std::endl;
-            error_happened = true;
-            break;
-          } else if (WIFSIGNALED(status)) {
-            std::cerr << "[FOEDUS] FATAL! child-process " << child_upids_[node] << " has been"
-              << " terminated by signal. status=" << status << std::endl;
             error_happened = true;
             break;
           }
@@ -223,15 +218,13 @@ ErrorStack SocManagerPimpl::wait_for_child_terminate() {
           pid_t wait_ret = ::waitpid(child_upids_[node], &status, WNOHANG | __WALL);
           if (wait_ret == -1) {
             // this is okay, too. the process has already terminated
-          } else if (WIFEXITED(status)) {
-            // this is okay
+          } else if (wait_ret == 0) {
+            remaining = true;
           } else if (WIFSIGNALED(status)) {
             std::cerr << "[FOEDUS] ERROR! child-process " << child_upids_[node] << " has been"
               << " terminated by signal. status=" << status << std::endl;
             memory_repo_.change_master_status(MasterEngineStatus::kFatalError);
             return ERROR_STACK(kErrorCodeSocTerminateFailed);
-          } else {
-            remaining = true;
           }
         }
       }
@@ -367,17 +360,10 @@ ErrorStack SocManagerPimpl::wait_for_children_module(bool init, ModuleType desir
             error_happened = true;
             LOG(ERROR) << "waitpid() while waiting for child module status failed";
             break;
-          } else if (WIFEXITED(status)) {
+          } else if (wait_ret != 0) {
             // this is okay
             error_happened = true;
-            LOG(ERROR) << "child process has already exist while waiting for child module status";
-            break;
-          } else if (WIFSIGNALED(status)) {
-            error_happened = true;
-            LOG(ERROR) << "child process has already exist while waiting for child module status";
-            break;
-            LOG(ERROR) << "child-process " << child_upids_[node] << " has been"
-              << " terminated by signal. status=" << status;
+            LOG(ERROR) << "child process has already exit while waiting for child module status";
             break;
           }
         }
