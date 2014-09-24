@@ -59,10 +59,9 @@ class Xct {
   /**
    * Begins the transaction.
    */
-  void                activate(IsolationLevel isolation_level, bool schema_xct = false) {
+  void                activate(IsolationLevel isolation_level) {
     ASSERT_ND(!active_);
     active_ = true;
-    schema_xct_ = schema_xct;
     isolation_level_ = isolation_level;
     pointer_set_size_ = 0;
     page_version_set_size_ = 0;
@@ -86,11 +85,6 @@ class Xct {
 
   /** Returns whether the object is an active transaction. */
   bool                is_active() const { return active_; }
-  /**
-   * Whether the transaction is a schema-modification transaction, which issues only
-   * storage create/drop/alter etc operations.
-   */
-  bool                is_schema_xct() const { return schema_xct_; }
   /** Returns if this transaction makes no writes. */
   bool                is_read_only() const {
     return write_set_size_ == 0 && lock_free_write_set_size_ == 0;
@@ -112,7 +106,7 @@ class Xct {
 
 
   /**
-   * @brief Called while a successful commit of read-write or schema xct to issue a new xct id.
+   * @brief Called while a successful commit of xct to issue a new xct id.
    * @param[in] max_xct_id largest xct_id this transaction depends on.
    * @param[in,out] epoch (in) The \e minimal epoch this transaction has to be in. (out)
    * the epoch this transaction ended up with, which is epoch+1 only when it found ordinal is
@@ -290,12 +284,6 @@ class Xct {
   bool                active_;
 
   /**
-   * Whether the transaction is a schema-modification transaction, which issues only
-   * storage create/drop/alter etc operations.
-   */
-  bool                schema_xct_;
-
-  /**
    * How many MCS blocks we allocated in the current thread.
    * reset to 0 at each transaction begin
    * This points to ThreadControlBlock because other SOC might check this value (so far only
@@ -335,7 +323,6 @@ class Xct {
 inline ErrorCode Xct::add_to_pointer_set(
   const storage::VolatilePagePointer* pointer_address,
   storage::VolatilePagePointer observed) {
-  ASSERT_ND(!schema_xct_);
   ASSERT_ND(pointer_address);
   if (isolation_level_ != kSerializable) {
     return kErrorCodeOk;
@@ -364,7 +351,6 @@ inline ErrorCode Xct::add_to_pointer_set(
 inline void Xct::overwrite_to_pointer_set(
   const storage::VolatilePagePointer* pointer_address,
   storage::VolatilePagePointer observed) {
-  ASSERT_ND(!schema_xct_);
   ASSERT_ND(pointer_address);
   if (isolation_level_ != kSerializable) {
     return;
@@ -381,7 +367,6 @@ inline void Xct::overwrite_to_pointer_set(
 inline ErrorCode Xct::add_to_page_version_set(
   const storage::PageVersion* version_address,
   storage::PageVersionStatus observed) {
-  ASSERT_ND(!schema_xct_);
   ASSERT_ND(version_address);
   if (isolation_level_ != kSerializable) {
     return kErrorCodeOk;
@@ -399,7 +384,6 @@ inline ErrorCode Xct::add_to_read_set(
   storage::StorageId storage_id,
   XctId observed_owner_id,
   LockableXctId* owner_id_address) {
-  ASSERT_ND(!schema_xct_);
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   // TODO(Hideaki) callers should check if it's a snapshot page. or should we check here?
@@ -420,7 +404,6 @@ inline ErrorCode Xct::add_to_write_set(
   LockableXctId* owner_id_address,
   char* payload_address,
   log::RecordLogType* log_entry) {
-  ASSERT_ND(!schema_xct_);
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   ASSERT_ND(payload_address);
@@ -452,7 +435,6 @@ inline ErrorCode Xct::add_to_write_set(
 inline ErrorCode Xct::add_to_lock_free_write_set(
     storage::StorageId storage_id,
   log::RecordLogType* log_entry) {
-  ASSERT_ND(!schema_xct_);
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(log_entry);
   if (UNLIKELY(lock_free_write_set_size_ >= max_lock_free_write_set_size_)) {

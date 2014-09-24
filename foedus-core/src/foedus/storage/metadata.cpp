@@ -137,7 +137,7 @@ ErrorStack MetadataSerializer::save_all_storages_to_xml(
   tinyxml2::XMLElement* parent,
   StorageControlBlock* blocks) {
   uint32_t saved_count = 0;
-  for (storage::StorageId id = 1; id < largest_storage_id; ++id) {
+  for (storage::StorageId id = 1; id <= largest_storage_id; ++id) {
     if (!blocks[id].exists()) {
       continue;
     }

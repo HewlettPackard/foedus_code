@@ -78,7 +78,6 @@ class XctManagerPimpl final : public DefaultInitializable {
   }
 
   ErrorCode   begin_xct(thread::Thread* context, IsolationLevel isolation_level);
-  ErrorCode   begin_schema_xct(thread::Thread* context);
   /**
    * This is the gut of commit protocol. It's mostly same as [TU2013].
    */
@@ -102,10 +101,6 @@ class XctManagerPimpl final : public DefaultInitializable {
    * See [TU2013] for the full protocol in this case.
    */
   bool        precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch);
-  /**
-   * @brief precommit_xct() if the transaction is a schema transaction
-   */
-  bool        precommit_xct_schema(thread::Thread* context, Epoch *commit_epoch);
   /**
    * @brief Phase 1 of precommit_xct()
    * @param[in] context thread context

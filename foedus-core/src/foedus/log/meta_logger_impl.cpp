@@ -36,6 +36,7 @@ ErrorStack MetaLogger::initialize_once() {
 
   // Open log file
   current_file_ = new fs::DirectIoFile(path, engine_->get_options().log_.emulation_);
+  WRAP_ERROR_CODE(current_file_->open(true, true, true, true));
   if (control_block_->durable_offset_ < current_file_->get_current_offset()) {
     LOG(ERROR) << "Meta log file has a non-durable region. Probably there"
       << " was a crash. Will truncate it to " << control_block_->durable_offset_

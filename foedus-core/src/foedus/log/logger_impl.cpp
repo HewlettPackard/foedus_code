@@ -253,6 +253,18 @@ ErrorStack Logger::handle_logger_once(bool *more_log_to_process) {
   }
 
   CHECK_ERROR(update_durable_epoch());
+
+  if (control_block_->marked_epoch_update_requested_) {
+    control_block_->marked_epoch_update_requested_ = false;
+    LOG(INFO) << "Logger-" << id_ << ": someone requested me to write out an epoch mark right now.";
+    if (control_block_->marked_epoch_ == get_durable_epoch().one_more()) {
+      LOG(INFO) << "Logger-" << id_ << " but the marked epoch is already the latest. nothing to do";
+    } else {
+      LOG(INFO) << "Logger-" << id_ << " Okay, okay, will do";
+      control_block_->no_log_epoch_ = false;  // to forcibly write out the epoch mark this case
+      CHECK_ERROR(log_epoch_switch(get_durable_epoch().one_more()));
+    }
+  }
   return kRetOk;
 }
 

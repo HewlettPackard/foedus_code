@@ -51,6 +51,7 @@ struct LoggerControlBlock {
     wakeup_cond_.initialize();
     epoch_history_mutex_.initialize();
     stop_requested_ = false;
+    marked_epoch_update_requested_ = false;
     epoch_history_head_ = 0;
     epoch_history_count_ = 0;
   }
@@ -103,6 +104,11 @@ struct LoggerControlBlock {
    * @see no_log_epoch_
    */
   Epoch                           marked_epoch_;
+  /**
+   * Occasionally (only during log gleaning), we need a recent marked epoch immediately.
+   * The logger creates one if it sees this true.
+   */
+  std::atomic<bool>               marked_epoch_update_requested_;
 
   /** Whether so far this logger has not written out any log since previous epoch switch. */
   bool                            no_log_epoch_;

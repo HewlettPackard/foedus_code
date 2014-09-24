@@ -80,6 +80,8 @@ LogRange LoggerRef::get_log_range(Epoch prev_epoch, Epoch until_epoch) {
   while (control_block_->marked_epoch_ <= until_epoch) {
     LOG(INFO) << "Logger-" << id_ << " does not have an epoch mark for "
       << until_epoch << ". Waiting for the logger to catch up...";
+    control_block_->marked_epoch_update_requested_ = true;
+    wakeup();
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     assorted::memory_fence_acquire();
   }

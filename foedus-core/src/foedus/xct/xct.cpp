@@ -103,7 +103,6 @@ std::ostream& operator<<(std::ostream& o, const Xct& v) {
     << "<active_>" << v.is_active() << "</active_>";
   if (v.is_active()) {
     o << "<id_>" << v.get_id() << "</id_>"
-      << "<scheme_xct_>" << v.is_schema_xct() << "</scheme_xct_>"
       << "<read_set_size>" << v.get_read_set_size() << "</read_set_size>"
       << "<write_set_size>" << v.get_write_set_size() << "</write_set_size>"
       << "<pointer_set_size>" << v.get_pointer_set_size() << "</pointer_set_size>"

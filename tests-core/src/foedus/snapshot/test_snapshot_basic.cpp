@@ -59,7 +59,6 @@ TEST(SnapshotBasicTest, Empty) {
 }
 
 TEST(SnapshotBasicTest, OneArrayCreate) {
-  /* TODO(Hideaki) During surgery
   EngineOptions options = get_tiny_options();
   Engine engine(options);
   COERCE_ERROR(engine.initialize());
@@ -82,7 +81,7 @@ TEST(SnapshotBasicTest, OneArrayCreate) {
     EXPECT_EQ(1U, metadata.largest_storage_id_);
 
     storage::array::ArrayMetadata *array = reinterpret_cast<storage::array::ArrayMetadata*>(
-      metadata.get_metadata(1));
+      metadata.get_metadata(out.get_id()));
     EXPECT_EQ(out.get_id(), array->id_);
     EXPECT_EQ(out.get_name(), array->name_);
     EXPECT_EQ(out.get_type(), array->type_);
@@ -92,11 +91,9 @@ TEST(SnapshotBasicTest, OneArrayCreate) {
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
-  */
 }
 
 TEST(SnapshotBasicTest, TwoArrayCreate) {
-  /* TODO(Hideaki) During surgery
   EngineOptions options = get_tiny_options();
   Engine engine(options);
   COERCE_ERROR(engine.initialize());
@@ -125,7 +122,7 @@ TEST(SnapshotBasicTest, TwoArrayCreate) {
 
     {
       storage::array::ArrayMetadata* array = reinterpret_cast<storage::array::ArrayMetadata*>(
-        metadata.get_metadata(1));
+        metadata.get_metadata(out.get_id()));
       EXPECT_EQ(out.get_id(), array->id_);
       EXPECT_EQ(out.get_name(), array->name_);
       EXPECT_EQ(out.get_type(), array->type_);
@@ -135,7 +132,7 @@ TEST(SnapshotBasicTest, TwoArrayCreate) {
 
     {
       storage::array::ArrayMetadata* array = reinterpret_cast<storage::array::ArrayMetadata*>(
-        metadata.get_metadata(2));
+        metadata.get_metadata(out2.get_id()));
       EXPECT_EQ(out2.get_id(), array->id_);
       EXPECT_EQ(out2.get_name(), array->name_);
       EXPECT_EQ(out2.get_type(), array->type_);
@@ -146,7 +143,6 @@ TEST(SnapshotBasicTest, TwoArrayCreate) {
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
-  */
 }
 
 }  // namespace snapshot
