@@ -75,10 +75,10 @@ ErrorStack LogGleaner::uninitialize_once() {
 }
 
 bool LogGleaner::is_stop_requested() const {
-  return engine_->get_snapshot_manager().get_pimpl()->is_stop_requested();
+  return engine_->get_snapshot_manager()->get_pimpl()->is_stop_requested();
 }
 void LogGleaner::wakeup() {
-  engine_->get_snapshot_manager().get_pimpl()->wakeup();
+  engine_->get_snapshot_manager()->get_pimpl()->wakeup();
 }
 
 void LogGleaner::cancel_mappers() {
@@ -138,7 +138,7 @@ ErrorStack LogGleaner::execute() {
 
   // the last one will wake me up.
   while (!is_stop_requested()) {
-    engine_->get_snapshot_manager().get_pimpl()->sleep_a_while();
+    engine_->get_snapshot_manager()->get_pimpl()->sleep_a_while();
     ASSERT_ND(ready_to_start_count_ <= mappers_.size() + reducers_.size());
     if (is_all_ready_to_start()) {
       break;
@@ -156,7 +156,7 @@ ErrorStack LogGleaner::execute() {
     if (is_stop_requested() || is_all_completed()) {
       break;
     }
-    engine_->get_snapshot_manager().get_pimpl()->sleep_a_while();
+    engine_->get_snapshot_manager()->get_pimpl()->sleep_a_while();
     if (!terminated_mappers && is_all_mappers_completed()) {
       // as soon as all mappers complete, uninitialize them to release unused memories.
       // the last phase of reducers consume lots of resource, so this might help a bit.

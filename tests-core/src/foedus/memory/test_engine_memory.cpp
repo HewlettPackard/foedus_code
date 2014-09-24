@@ -26,17 +26,17 @@ TEST(EngineMemoryTest, SingleNode) {
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    EngineMemory& memory = engine.get_memory_manager();
-    EXPECT_TRUE(memory.get_local_memory() == nullptr);
-    EXPECT_TRUE(memory.get_node_memory(0) != nullptr);
-    NumaNodeMemoryRef* ref = memory.get_node_memory(0);
+    EngineMemory* memory = engine.get_memory_manager();
+    EXPECT_TRUE(memory->get_local_memory() == nullptr);
+    EXPECT_TRUE(memory->get_node_memory(0) != nullptr);
+    NumaNodeMemoryRef* ref = memory->get_node_memory(0);
     EXPECT_EQ(0, ref->get_numa_node());
-    PagePool& volatile_pool = ref->get_volatile_pool();
-    EXPECT_EQ(1U << 21, volatile_pool.get_memory_size());
+    PagePool* volatile_pool = ref->get_volatile_pool();
+    EXPECT_EQ(1U << 21, volatile_pool->get_memory_size());
 
-    const GlobalVolatilePageResolver& resolver = memory.get_global_volatile_page_resolver();
+    const GlobalVolatilePageResolver& resolver = memory->get_global_volatile_page_resolver();
     EXPECT_EQ(1U, resolver.numa_node_count_);
-    EXPECT_EQ(volatile_pool.get_base(), resolver.bases_[0]);
+    EXPECT_EQ(volatile_pool->get_base(), resolver.bases_[0]);
     EXPECT_GT(resolver.begin_, 0);
     EXPECT_LT(resolver.begin_, resolver.end_);
     COERCE_ERROR(engine.uninitialize());
@@ -55,22 +55,22 @@ TEST(EngineMemoryTest, TwoNodes) {
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    EngineMemory& memory = engine.get_memory_manager();
-    EXPECT_TRUE(memory.get_local_memory() == nullptr);
-    EXPECT_TRUE(memory.get_node_memory(0) != nullptr);
-    EXPECT_TRUE(memory.get_node_memory(1) != nullptr);
+    EngineMemory* memory = engine.get_memory_manager();
+    EXPECT_TRUE(memory->get_local_memory() == nullptr);
+    EXPECT_TRUE(memory->get_node_memory(0) != nullptr);
+    EXPECT_TRUE(memory->get_node_memory(1) != nullptr);
     NumaNodeMemoryRef* ref[2];
     for (uint16_t i = 0; i < 2U; ++i) {
-      ref[i] = memory.get_node_memory(i);
+      ref[i] = memory->get_node_memory(i);
       EXPECT_EQ(i, ref[i]->get_numa_node());
-      PagePool& volatile_pool = ref[i]->get_volatile_pool();
-      EXPECT_EQ(1U << 21, volatile_pool.get_memory_size());
+      PagePool* volatile_pool = ref[i]->get_volatile_pool();
+      EXPECT_EQ(1U << 21, volatile_pool->get_memory_size());
     }
 
-    const GlobalVolatilePageResolver& resolver = memory.get_global_volatile_page_resolver();
+    const GlobalVolatilePageResolver& resolver = memory->get_global_volatile_page_resolver();
     EXPECT_EQ(2U, resolver.numa_node_count_);
     for (uint16_t i = 0; i < 2U; ++i) {
-      EXPECT_EQ(ref[i]->get_volatile_pool().get_base(), resolver.bases_[i]);
+      EXPECT_EQ(ref[i]->get_volatile_pool()->get_base(), resolver.bases_[i]);
     }
     EXPECT_GT(resolver.begin_, 0);
     EXPECT_LT(resolver.begin_, resolver.end_);

@@ -27,7 +27,7 @@ void DropLogType::populate(StorageId storage_id) {
 void DropLogType::apply_storage(Engine* engine, StorageId storage_id) {
   ASSERT_ND(storage_id > 0);
   LOG(INFO) << "Applying DROP STORAGE log: " << *this;
-  engine->get_storage_manager().drop_storage_apply(storage_id);
+  engine->get_storage_manager()->drop_storage_apply(storage_id);
   LOG(INFO) << "Applied DROP STORAGE log: " << *this;
 }
 

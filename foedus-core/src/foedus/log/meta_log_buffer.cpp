@@ -26,8 +26,8 @@ void MetaLogBuffer::commit(BaseLogType* metalog, Epoch* commit_epoch) {
 
     // To avoid mixing with normal operations on the storage in this epoch, advance epoch.
     // This happens within the mutex, so this is assured to be the only metadata log in the epoch.
-    engine_->get_xct_manager().advance_current_global_epoch();
-    *commit_epoch = engine_->get_xct_manager().get_current_global_epoch();
+    engine_->get_xct_manager()->advance_current_global_epoch();
+    *commit_epoch = engine_->get_xct_manager()->get_current_global_epoch();
     LOG(INFO) << "Issued an epoch for the metadata log: " << *commit_epoch << "...";
     metalog->header_.xct_id_.set_epoch(*commit_epoch);
 

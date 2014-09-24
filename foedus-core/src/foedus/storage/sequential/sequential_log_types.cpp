@@ -38,7 +38,7 @@ void SequentialCreateLogType::apply_storage(Engine* engine, StorageId storage_id
   LOG(INFO) << "Applying CREATE SEQUENTIAL STORAGE log: " << *this;
   StorageName name(name_, name_length_);
   SequentialMetadata metadata(header_.storage_id_, name);
-  engine->get_storage_manager().create_storage_apply(&metadata);
+  engine->get_storage_manager()->create_storage_apply(&metadata);
   LOG(INFO) << "Applied CREATE SEQUENTIAL STORAGE log: " << *this;
 }
 

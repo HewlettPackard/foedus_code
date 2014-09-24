@@ -151,27 +151,27 @@ class Engine CXX11_FINAL : public virtual Initializable {
   /** @see EngineOptions */
   const EngineOptions&            get_options() const;
   /** See \ref DEBUGGING */
-  debugging::DebuggingSupports&   get_debug() const;
+  debugging::DebuggingSupports*   get_debug() const;
   /** See \ref LOG */
-  log::LogManager&                get_log_manager() const;
+  log::LogManager*                get_log_manager() const;
   /** See \ref MEMORY */
-  memory::EngineMemory&           get_memory_manager() const;
+  memory::EngineMemory*           get_memory_manager() const;
   /** See \ref PROC */
-  proc::ProcManager&              get_proc_manager() const;
+  proc::ProcManager*              get_proc_manager() const;
   /** See \ref THREAD */
-  thread::ThreadPool&             get_thread_pool() const;
+  thread::ThreadPool*             get_thread_pool() const;
   /** See \ref SAVEPOINT */
-  savepoint::SavepointManager&    get_savepoint_manager() const;
+  savepoint::SavepointManager*    get_savepoint_manager() const;
   /** See \ref SNAPSHOT */
-  snapshot::SnapshotManager&      get_snapshot_manager() const;
+  snapshot::SnapshotManager*      get_snapshot_manager() const;
   /** See \ref SOC */
-  soc::SocManager&                get_soc_manager() const;
+  soc::SocManager*                get_soc_manager() const;
   /** See \ref STORAGE */
-  storage::StorageManager&        get_storage_manager() const;
+  storage::StorageManager*        get_storage_manager() const;
   /** See \ref XCT */
-  xct::XctManager&                get_xct_manager() const;
+  xct::XctManager*                get_xct_manager() const;
   /** See \ref RESTART */
-  restart::RestartManager&        get_restart_manager() const;
+  restart::RestartManager*        get_restart_manager() const;
 
   /** Returns the type of this engine object. */
   EngineType  get_type() const;

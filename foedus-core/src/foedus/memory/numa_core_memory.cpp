@@ -42,8 +42,8 @@ ErrorStack NumaCoreMemory::initialize_once() {
     core_local_ordinal_);
   free_snapshot_pool_chunk_ = node_memory_->get_snapshot_offset_chunk_memory_piece(
     core_local_ordinal_);
-  volatile_pool_ = &node_memory_->get_volatile_pool();
-  snapshot_pool_ = &node_memory_->get_snapshot_pool();
+  volatile_pool_ = node_memory_->get_volatile_pool();
+  snapshot_pool_ = node_memory_->get_snapshot_pool();
   log_buffer_memory_ = node_memory_->get_log_buffer_memory_piece(core_local_ordinal_);
 
   // allocate small_thread_local_memory_. it's a collection of small memories

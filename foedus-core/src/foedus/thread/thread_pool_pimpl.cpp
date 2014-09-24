@@ -25,7 +25,7 @@
 namespace foedus {
 namespace thread {
 ErrorStack ThreadPoolPimpl::initialize_once() {
-  if (!engine_->get_memory_manager().is_initialized()) {
+  if (!engine_->get_memory_manager()->is_initialized()) {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
   }
   ASSERT_ND(groups_.empty());
@@ -45,7 +45,7 @@ ErrorStack ThreadPoolPimpl::initialize_once() {
 
 ErrorStack ThreadPoolPimpl::uninitialize_once() {
   ErrorStackBatch batch;
-  if (!engine_->get_memory_manager().is_initialized()) {
+  if (!engine_->get_memory_manager()->is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
 

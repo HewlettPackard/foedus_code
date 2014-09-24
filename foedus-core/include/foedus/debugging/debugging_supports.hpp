@@ -49,9 +49,9 @@ class DebuggingSupports CXX11_FINAL : public DefaultInitializable {
    * This feature is enabled only when you link to libprofiler.so.
    * For example, use it like this:
    * @code{.cpp}
-   * CHECK_ERROR(engine.get_debug().start_profile("hoge.prof"));
+   * CHECK_ERROR(engine.get_debug()->start_profile("hoge.prof"));
    * for (int i = 0; i < 1000000; ++i) do_something();
-   * engine.get_debug().stop_profile("hoge.prof");
+   * engine.get_debug()->stop_profile("hoge.prof");
    * @endcode
    * Then, after the execution,
    * @code{.sh}

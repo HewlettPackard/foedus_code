@@ -43,7 +43,7 @@ TEST(SequentialVolatileListTest, Empty) {
     SequentialMetadata meta("test_seq");
     SequentialStorage storage;
     Epoch epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_sequential(&meta, &storage, &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_sequential(&meta, &storage, &epoch));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -62,7 +62,7 @@ ErrorStack append_task(
   uint32_t* /*output_used*/) {
   EXPECT_EQ(sizeof(uint32_t), input_len);
   uint32_t task_id = *reinterpret_cast<const uint32_t*>(input_buffer);
-  SequentialStorage target = context->get_engine()->get_storage_manager().get_sequential("seq");
+  SequentialStorage target = context->get_engine()->get_storage_manager()->get_sequential("seq");
   EXPECT_TRUE(target.exists());
   SequentialStoragePimpl pimpl(&target);
   for (uint32_t i = 0; i < kAppendsPerThread; ++i) {
@@ -90,7 +90,7 @@ ErrorStack verify_result(
   uint32_t* /*output_used*/) {
   EXPECT_EQ(sizeof(uint16_t), input_len);
   uint16_t thread_count = *reinterpret_cast<const uint16_t*>(input_buffer);
-  SequentialStorage target = context->get_engine()->get_storage_manager().get_sequential("seq");
+  SequentialStorage target = context->get_engine()->get_storage_manager()->get_sequential("seq");
   EXPECT_TRUE(target.exists());
   std::map<std::string, xct::XctId> answers;
   for (int task_id = 0; task_id < thread_count; ++task_id) {
@@ -143,21 +143,21 @@ void execute_test(uint16_t thread_count) {
   EngineOptions options = get_tiny_options();
   options.thread_.thread_count_per_group_ = thread_count;
   Engine engine(options);
-  engine.get_proc_manager().pre_register(proc::ProcAndName("append_task", append_task));
-  engine.get_proc_manager().pre_register(proc::ProcAndName("verify_result", verify_result));
+  engine.get_proc_manager()->pre_register(proc::ProcAndName("append_task", append_task));
+  engine.get_proc_manager()->pre_register(proc::ProcAndName("verify_result", verify_result));
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
     SequentialMetadata meta("seq");
     SequentialStorage target;
     Epoch epoch;
-    COERCE_ERROR(engine.get_storage_manager().create_sequential(&meta, &target, &epoch));
+    COERCE_ERROR(engine.get_storage_manager()->create_sequential(&meta, &target, &epoch));
     std::cout << "target before:" << target << std::endl;
     {
       std::vector<thread::ImpersonateSession> sessions;
       for (uint32_t task_id = 0; task_id < thread_count; ++task_id) {
         thread::ImpersonateSession session;
-        EXPECT_TRUE(engine.get_thread_pool().impersonate(
+        EXPECT_TRUE(engine.get_thread_pool()->impersonate(
           "append_task",
           &task_id,
           sizeof(task_id),
@@ -169,7 +169,7 @@ void execute_test(uint16_t thread_count) {
       }
     }
     std::cout << "target after:" << target << std::endl;
-    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous(
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous(
       "verify_result",
       &thread_count,
       sizeof(thread_count)));

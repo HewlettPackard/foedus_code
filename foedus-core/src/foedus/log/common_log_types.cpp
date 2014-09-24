@@ -41,7 +41,7 @@ std::ostream& operator<<(std::ostream& o, const EpochMarkerLogType& v) {
 }
 
 void EpochMarkerLogType::apply_engine(thread::Thread* context) {
-  log::LoggerRef logger = context->get_engine()->get_log_manager().get_logger(logger_id_);
+  log::LoggerRef logger = context->get_engine()->get_log_manager()->get_logger(logger_id_);
   logger.add_epoch_history(*this);
 }
 

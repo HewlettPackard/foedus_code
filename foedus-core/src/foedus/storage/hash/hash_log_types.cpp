@@ -44,7 +44,7 @@ void HashCreateLogType::apply_storage(Engine* engine, StorageId storage_id) {
   LOG(INFO) << "Applying CREATE HASH STORAGE log: " << *this;
   StorageName name(name_, name_length_);
   HashMetadata metadata(header_.storage_id_, name, bin_bits_);
-  engine->get_storage_manager().create_storage_apply(&metadata);
+  engine->get_storage_manager()->create_storage_apply(&metadata);
   LOG(INFO) << "Applied CREATE HASH STORAGE log: " << *this;
 }
 

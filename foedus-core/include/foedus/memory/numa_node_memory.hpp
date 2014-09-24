@@ -41,8 +41,8 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
 
   foedus::thread::ThreadGroupId   get_numa_node() const { return numa_node_; }
 
-  PagePool&                       get_volatile_pool() { return volatile_pool_; }
-  PagePool&                       get_snapshot_pool() { return snapshot_pool_; }
+  PagePool*                       get_volatile_pool() { return &volatile_pool_; }
+  PagePool*                       get_snapshot_pool() { return &snapshot_pool_; }
   cache::CacheHashtable*          get_snapshot_cache_table() { return snapshot_cache_table_; }
 
   // accessors for child memories
@@ -161,7 +161,7 @@ class NumaNodeMemoryRef CXX11_FINAL {
 
   foedus::thread::ThreadGroupId   get_numa_node() const { return numa_node_; }
 
-  PagePool&                       get_volatile_pool() { return volatile_pool_; }
+  PagePool*                       get_volatile_pool() { return &volatile_pool_; }
 
   /** Report rough statistics of free memory */
   std::string                     dump_free_memory_stat() const;

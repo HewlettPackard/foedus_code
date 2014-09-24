@@ -40,7 +40,7 @@ Xct::Xct(Engine* engine, thread::ThreadId thread_id) : engine_(engine), thread_i
 }
 
 void Xct::initialize(memory::NumaCoreMemory* core_memory, uint32_t* mcs_block_current) {
-  id_.set_epoch(engine_->get_savepoint_manager().get_initial_current_epoch());
+  id_.set_epoch(engine_->get_savepoint_manager()->get_initial_current_epoch());
   id_.set_ordinal(0);  // ordinal 0 is possible only as a dummy "latest" XctId
   ASSERT_ND(id_.is_valid());
   memory::NumaCoreMemory:: SmallThreadLocalMemoryPieces pieces
@@ -84,10 +84,10 @@ void Xct::issue_next_id(XctId max_xct_id, Epoch *epoch)  {
       // oh, that's rare.
       LOG(WARNING) << "Reached the maximum ordinal in this epoch. Advancing current epoch"
         << " just for this reason. It's rare, but not an error.";
-      engine_->get_xct_manager().advance_current_global_epoch();
-      ASSERT_ND(epoch->before(engine_->get_xct_manager().get_current_global_epoch()));
+      engine_->get_xct_manager()->advance_current_global_epoch();
+      ASSERT_ND(epoch->before(engine_->get_xct_manager()->get_current_global_epoch()));
       // we have already issued fence by now, so we can use nonatomic version.
-      *epoch = engine_->get_xct_manager().get_current_global_epoch_weak();
+      *epoch = engine_->get_xct_manager()->get_current_global_epoch_weak();
       continue;  // try again with this epoch.
     }
 

@@ -10,6 +10,7 @@
 #include <string>
 
 #include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/masstree/masstree_log_types.hpp"
 #include "foedus/storage/masstree/masstree_retry_impl.hpp"
 #include "foedus/storage/masstree/masstree_storage_pimpl.hpp"
@@ -18,6 +19,13 @@
 namespace foedus {
 namespace storage {
 namespace masstree {
+MasstreeStorage::MasstreeStorage(Engine* engine, const StorageName& name) {
+  engine_ = engine;
+  control_block_
+    = reinterpret_cast<MasstreeStorageControlBlock*>(
+        engine->get_storage_manager()->get_storage(name));
+}
+
 bool        MasstreeStorage::exists()           const  {
   return control_block_ != nullptr && control_block_->exists();
 }

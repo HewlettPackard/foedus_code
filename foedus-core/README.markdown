@@ -61,6 +61,7 @@ Here is a minimal example program to create a key-value storage and query on it.
     #include "foedus/engine.hpp"
     #include "foedus/engine_options.hpp"
     #include "foedus/epoch.hpp"
+    #include "foedus/proc/proc_manager.hpp"
     #include "foedus/storage/storage_manager.hpp"
     #include "foedus/storage/array/array_metadata.hpp"
     #include "foedus/storage/array/array_storage.hpp"
@@ -71,35 +72,35 @@ Here is a minimal example program to create a key-value storage and query on it.
     const uint16_t kPayload = 16;
     const uint32_t kRecords = 1 << 20;
     const char* kName = "myarray";
+    ErrorStack my_proc(
+      thread::Thread context,
+      const void input_buffer, uint32_t input_len,
+      void output_buffer, uint32_t output_buffer_size, uint32_t output_used) {
+      foedus::storage::array::ArrayStorage array(engine, kName);
+      foedus::xct::XctManager* xct_manager = engine->get_xct_manager();
+      WRAP_ERROR_CODE(xct_manager->begin_xct(context, foedus::xct::kSerializable));
+      char buf[kPayload];
+      WRAP_ERROR_CODE(array.get_record(context, 123, buf));
+      foedus::Epoch commit_epoch;
+      WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+      WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
+      return foedus::kRetOk;
+    }
 
-    foedus::storage::array::ArrayStorage *array;
-
-    class MyTask : public foedus::thread::ImpersonateTask {
-     public:
-      foedus::ErrorStack run(foedus::thread::Thread* context) {
-        foedus::xct::XctManager& xct_manager = engine->get_xct_manager();
-        WRAP_ERROR_CODE(xct_manager.begin_xct(context, foedus::xct::kSerializable));
-        char buf[kPayload];
-        WRAP_ERROR_CODE(array->get_record(context, 123, buf));
-        foedus::Epoch commit_epoch;
-        WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
-        WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
-        return foedus::kRetOk;
-      }
-    };
-
-    int main(int argc, char **argv) {
+    int main(int argc, char argv) {
       foedus::EngineOptions options;
       foedus::Engine engine(options);
+      engine.get_proc_manager()->pre_register("my_proc", my_proc);
       COERCE_ERROR(engine.initialize());
 
-      foedus::Epoch create_array_epoch;
+      foedus::UninitializeGuard guard(&engine);
+      foedus::Epoch create_epoch;
       foedus::storage::array::ArrayMetadata meta(kName, kPayload, kRecords);
-      COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &array, &create_array_epoch));
-      MyTask task;
-      foedus::thread::ImpersonateSession session = engine.get_thread_pool().impersonate(&task);
-      std::cout << "session: result=" << session.get_result() << std::endl;
+      COERCE_ERROR(engine.get_storage_manager()->create_storage(&meta, &create_epoch));
+      foedus::ErrorStack result = engine.get_thread_pool()->impersonate_synchronous("my_proc");
+      std::cout << "result=" << result << std::endl;
       COERCE_ERROR(engine.uninitialize());
+
       return 0;
     }
 

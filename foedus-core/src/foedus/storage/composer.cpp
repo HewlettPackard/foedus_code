@@ -42,7 +42,7 @@ Composer::Composer(
   new_snapshot_id_(new_snapshot.id_),
   storage_id_(partitioner->get_storage_id()),
   numa_node_(snapshot_writer->get_numa_node()),
-  storage_(engine->get_storage_manager().get_storage(storage_id_)),
+  storage_(engine->get_storage_manager()->get_storage(storage_id_)),
   previous_root_page_pointer_(storage_->meta_.root_snapshot_page_id_) {
   ASSERT_ND(partitioner);
 }

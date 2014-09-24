@@ -32,13 +32,13 @@ ThreadLogBuffer::ThreadLogBuffer(Engine* engine, thread::ThreadId thread_id)
 }
 ErrorStack ThreadLogBuffer::initialize_once() {
   memory::NumaCoreMemory *memory
-    = engine_->get_memory_manager().get_local_memory()->get_core_memory(thread_id_);
+    = engine_->get_memory_manager()->get_local_memory()->get_core_memory(thread_id_);
   buffer_memory_ = memory->get_log_buffer_memory();
   buffer_ = reinterpret_cast<char*>(buffer_memory_.get_block());
   buffer_size_ = buffer_memory_.get_size();
   buffer_size_safe_ = buffer_size_ - 64;
 
-  last_epoch_ = engine_->get_savepoint_manager().get_initial_current_epoch();
+  last_epoch_ = engine_->get_savepoint_manager()->get_initial_current_epoch();
   logger_epoch_ = last_epoch_;
   logger_epoch_ends_ = 0;
   logger_epoch_open_ended_ = true;
@@ -98,7 +98,7 @@ void ThreadLogBuffer::wait_for_space(uint16_t required_space) {
     } else {
       LOG(WARNING) << "Thread-" << thread_id_ << " logger is getting behind. sleeping "
         << " for a while.." << *this;
-      engine_->get_log_manager().wakeup_loggers();
+      engine_->get_log_manager()->wakeup_loggers();
       // TODO(Hideaki) this duration should be configurable.
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }

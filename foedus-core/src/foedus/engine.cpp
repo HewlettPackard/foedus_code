@@ -30,21 +30,20 @@ EngineOptions* Engine::get_nonconst_options()       {
 }
 
 
-debugging::DebuggingSupports& Engine::get_debug() const     { return pimpl_->debug_; }
-log::LogManager&        Engine::get_log_manager() const     { return pimpl_->log_manager_; }
-memory::EngineMemory&   Engine::get_memory_manager() const  { return pimpl_->memory_manager_; }
-proc::ProcManager&      Engine::get_proc_manager() const    { return pimpl_->proc_manager_; }
-
-thread::ThreadPool&     Engine::get_thread_pool() const     { return pimpl_->thread_pool_; }
-savepoint::SavepointManager& Engine::get_savepoint_manager() const {
-  return pimpl_->savepoint_manager_;
+debugging::DebuggingSupports* Engine::get_debug() const     { return &pimpl_->debug_; }
+log::LogManager*        Engine::get_log_manager() const     { return &pimpl_->log_manager_; }
+memory::EngineMemory*   Engine::get_memory_manager() const  { return &pimpl_->memory_manager_; }
+proc::ProcManager*      Engine::get_proc_manager() const    { return &pimpl_->proc_manager_; }
+thread::ThreadPool*     Engine::get_thread_pool() const     { return &pimpl_->thread_pool_; }
+savepoint::SavepointManager* Engine::get_savepoint_manager() const {
+  return &pimpl_->savepoint_manager_;
 }
-snapshot::SnapshotManager& Engine::get_snapshot_manager() const {
-  return pimpl_->snapshot_manager_;
+snapshot::SnapshotManager* Engine::get_snapshot_manager() const {
+  return &pimpl_->snapshot_manager_;
 }
-soc::SocManager& Engine::get_soc_manager() const { return pimpl_->soc_manager_; }
-storage::StorageManager&    Engine::get_storage_manager() const { return pimpl_->storage_manager_; }
-xct::XctManager&        Engine::get_xct_manager() const     { return pimpl_->xct_manager_; }
+soc::SocManager* Engine::get_soc_manager() const { return &pimpl_->soc_manager_; }
+storage::StorageManager* Engine::get_storage_manager() const { return &pimpl_->storage_manager_; }
+xct::XctManager*        Engine::get_xct_manager() const     { return &pimpl_->xct_manager_; }
 
 bool                Engine::is_initialized() const  { return pimpl_->is_initialized(); }
 ErrorStack          Engine::initialize()            { return pimpl_->initialize(); }

@@ -97,7 +97,7 @@ inline ErrorCode MasstreeCursor::allocate_if_not_exist(
 
 MasstreePage* MasstreeCursor::resolve(VolatilePagePointer ptr) const {
   return reinterpret_cast<MasstreePage*>(
-    engine_->get_memory_manager().get_global_volatile_page_resolver().resolve_offset(ptr));
+    engine_->get_memory_manager()->get_global_volatile_page_resolver().resolve_offset(ptr));
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////

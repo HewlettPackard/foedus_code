@@ -80,10 +80,10 @@ class ReadTask {
   ErrorStack run(thread::Thread* context) {
     Engine *engine = context->get_engine();
     ExperimentControlBlock* control = reinterpret_cast<ExperimentControlBlock*>(
-      engine->get_soc_manager().get_shared_memory_repo()->get_global_user_memory());
+      engine->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
     const xct::IsolationLevel isolation = xct::kDirtyReadPreferVolatile;
     // const xct::IsolationLevel isolation = xct::kSerializable;
-    CHECK_ERROR(engine->get_xct_manager().begin_xct(context, isolation));
+    CHECK_ERROR(engine->get_xct_manager()->begin_xct(context, isolation));
     Epoch commit_epoch;
 
     // pre-calculate random numbers to get rid of random number generation as bottleneck
@@ -97,7 +97,7 @@ class ReadTask {
       std::atomic_thread_fence(std::memory_order_acquire);
     }
 
-    ArrayStorage array = engine->get_storage_manager().get_array("aaa");
+    ArrayStorage array = engine->get_storage_manager()->get_array("aaa");
     char buf[kPayload];
     processed_ = 0;
     while (true) {
@@ -105,8 +105,8 @@ class ReadTask {
       WRAP_ERROR_CODE(array.get_record(context, id, buf, 0, kPayload));
       ++processed_;
       if ((processed_ & 0xFFFF) == 0) {
-        CHECK_ERROR(engine->get_xct_manager().precommit_xct(context, &commit_epoch));
-        CHECK_ERROR(engine->get_xct_manager().begin_xct(context, isolation));
+        CHECK_ERROR(engine->get_xct_manager()->precommit_xct(context, &commit_epoch));
+        CHECK_ERROR(engine->get_xct_manager()->begin_xct(context, isolation));
         std::atomic_thread_fence(std::memory_order_acquire);
         if (control->stop_req) {
           break;
@@ -114,7 +114,7 @@ class ReadTask {
       }
     }
 
-    CHECK_ERROR(engine->get_xct_manager().precommit_xct(context, &commit_epoch));
+    CHECK_ERROR(engine->get_xct_manager()->precommit_xct(context, &commit_epoch));
     numbers_.release_block();
     std::cout << "I'm done! " << context->get_thread_id()
       << ", processed=" << processed_ << std::endl;
@@ -158,24 +158,24 @@ int main_impl(int argc, char **argv) {
   const int kThreads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
   {
     Engine engine(options);
-    engine.get_proc_manager().pre_register("read_task", read_task);
+    engine.get_proc_manager()->pre_register("read_task", read_task);
     COERCE_ERROR(engine.initialize());
     {
       UninitializeGuard guard(&engine);
       Epoch commit_epoch;
       ArrayMetadata meta("aaa", kPayload, kRecords);
       ArrayStorage storage;
-      COERCE_ERROR(engine.get_storage_manager().create_array(&meta, &storage, &commit_epoch));
+      COERCE_ERROR(engine.get_storage_manager()->create_array(&meta, &storage, &commit_epoch));
       ASSERT_ND(storage.exists());
 
       ExperimentControlBlock* control = reinterpret_cast<ExperimentControlBlock*>(
-        engine.get_soc_manager().get_shared_memory_repo()->get_global_user_memory());
+        engine.get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
       control->initialize();
 
       std::vector<thread::ImpersonateSession> sessions;
       for (int i = 0; i < kThreads; ++i) {
         thread::ImpersonateSession session;
-        bool ret = engine.get_thread_pool().impersonate("read_task", nullptr, 0, &session);
+        bool ret = engine.get_thread_pool()->impersonate("read_task", nullptr, 0, &session);
         ASSERT_ND(ret);
         sessions.emplace_back(std::move(session));
       }
@@ -183,8 +183,8 @@ int main_impl(int argc, char **argv) {
       control->start_req = true;
       std::atomic_thread_fence(std::memory_order_release);
       if (profile) {
-        COERCE_ERROR(engine.get_debug().start_profile("readonly_experiment.prof"));
-        engine.get_debug().start_papi_counters();
+        COERCE_ERROR(engine.get_debug()->start_profile("readonly_experiment.prof"));
+        engine.get_debug()->start_papi_counters();
       }
       std::cout << "all started!" << std::endl;
       ::usleep(kDurationMicro);
@@ -193,8 +193,8 @@ int main_impl(int argc, char **argv) {
 
       std::atomic_thread_fence(std::memory_order_acquire);
       if (profile) {
-        engine.get_debug().stop_profile();
-        engine.get_debug().stop_papi_counters();
+        engine.get_debug()->stop_profile();
+        engine.get_debug()->stop_papi_counters();
       }
 
       uint64_t total = 0;
@@ -207,7 +207,7 @@ int main_impl(int argc, char **argv) {
       }
 
       auto papi_results = debugging::DebuggingSupports::describe_papi_counters(
-        engine.get_debug().get_papi_counters());
+        engine.get_debug()->get_papi_counters());
       for (uint16_t i = 0; i < papi_results.size(); ++i) {
         std::cout << papi_results[i] << std::endl;
       }

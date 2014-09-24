@@ -74,7 +74,7 @@ ErrorStack tpcc_load_task(
 ErrorStack create_all(Engine* engine, Wid total_warehouses) {
   debugging::StopWatch watch;
 
-  LOG(INFO) << "Initial:" << engine->get_memory_manager().dump_free_memory_stat();
+  LOG(INFO) << "Initial:" << engine->get_memory_manager()->dump_free_memory_stat();
   CHECK_ERROR(create_array(
     engine,
     "customers_static",
@@ -90,7 +90,7 @@ ErrorStack create_all(Engine* engine, Wid total_warehouses) {
     "customers_history",
     CustomerStaticData::kHistoryDataLength,
     total_warehouses * kDistricts * kCustomers));
-  LOG(INFO) << "Created Customers:" << engine->get_memory_manager().dump_free_memory_stat();
+  LOG(INFO) << "Created Customers:" << engine->get_memory_manager()->dump_free_memory_stat();
 
   CHECK_ERROR(create_masstree(
     engine,
@@ -112,7 +112,7 @@ ErrorStack create_all(Engine* engine, Wid total_warehouses) {
     "districts_next_oid",
     sizeof(DistrictNextOidData),
     total_warehouses * kDistricts));
-  LOG(INFO) << "Created Districts:" << engine->get_memory_manager().dump_free_memory_stat();
+  LOG(INFO) << "Created Districts:" << engine->get_memory_manager()->dump_free_memory_stat();
 
   CHECK_ERROR(create_sequential(engine, "histories"));
 
@@ -135,14 +135,14 @@ ErrorStack create_all(Engine* engine, Wid total_warehouses) {
     (storage::masstree::MasstreeBorderPage::kDataSize / sizeof(OrderlineData)) * 0.75));
 
   CHECK_ERROR(create_array(engine, "items", sizeof(ItemData), kItems));
-  LOG(INFO) << "Created Items:" << engine->get_memory_manager().dump_free_memory_stat();
+  LOG(INFO) << "Created Items:" << engine->get_memory_manager()->dump_free_memory_stat();
 
   CHECK_ERROR(create_array(
     engine,
     "stocks",
     sizeof(StockData),
     total_warehouses * kItems));
-  LOG(INFO) << "Created Stocks:" << engine->get_memory_manager().dump_free_memory_stat();
+  LOG(INFO) << "Created Stocks:" << engine->get_memory_manager()->dump_free_memory_stat();
 
   CHECK_ERROR(create_array(
     engine,
@@ -154,7 +154,7 @@ ErrorStack create_all(Engine* engine, Wid total_warehouses) {
     "warehouses_ytd",
     sizeof(WarehouseYtdData),
     total_warehouses));
-  LOG(INFO) << "Created Warehouses:" << engine->get_memory_manager().dump_free_memory_stat();
+  LOG(INFO) << "Created Warehouses:" << engine->get_memory_manager()->dump_free_memory_stat();
 
   watch.stop();
   LOG(INFO) << "Created TPC-C tables in " << watch.elapsed_sec() << "sec";
@@ -169,7 +169,7 @@ ErrorStack create_array(
   uint64_t array_size) {
   Epoch ep;
   storage::array::ArrayMetadata meta(name, payload_size, array_size);
-  return engine->get_storage_manager().create_storage(&meta, &ep);
+  return engine->get_storage_manager()->create_storage(&meta, &ep);
 }
 
 ErrorStack create_masstree(
@@ -178,13 +178,13 @@ ErrorStack create_masstree(
   float border_fill_factor) {
   Epoch ep;
   storage::masstree::MasstreeMetadata meta(name, border_fill_factor);
-  return engine->get_storage_manager().create_storage(&meta, &ep);
+  return engine->get_storage_manager()->create_storage(&meta, &ep);
 }
 
 ErrorStack create_sequential(Engine* engine, const storage::StorageName& name) {
   Epoch ep;
   storage::sequential::SequentialMetadata meta(name);
-  return engine->get_storage_manager().create_storage(&meta, &ep);
+  return engine->get_storage_manager()->create_storage(&meta, &ep);
 }
 
 ErrorStack TpccFinishupTask::run(thread::Thread* context) {
@@ -192,16 +192,16 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
   storages_.initialize_tables(engine);
 // let's do this even in release. good to check abnormal state
 // #ifndef NDEBUG
-  WRAP_ERROR_CODE(engine->get_xct_manager().begin_xct(context, xct::kSerializable));
+  WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kSerializable));
   CHECK_ERROR(storages_.customers_secondary_.verify_single_thread(context));
   CHECK_ERROR(storages_.neworders_.verify_single_thread(context));
   CHECK_ERROR(storages_.orderlines_.verify_single_thread(context));
   CHECK_ERROR(storages_.orders_.verify_single_thread(context));
   CHECK_ERROR(storages_.orders_secondary_.verify_single_thread(context));
-  WRAP_ERROR_CODE(engine->get_xct_manager().abort_xct(context));
+  WRAP_ERROR_CODE(engine->get_xct_manager()->abort_xct(context));
 
   LOG(INFO) << "Verifying customers_secondary_ in detail..";
-  WRAP_ERROR_CODE(engine->get_xct_manager().begin_xct(context, xct::kDirtyReadPreferVolatile));
+  WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kDirtyReadPreferVolatile));
   storage::masstree::MasstreeCursor cursor(storages_.customers_secondary_, context);
   WRAP_ERROR_CODE(cursor.open());
   for (Wid wid = 0; wid < total_warehouses_; ++wid) {
@@ -248,14 +248,14 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
     }
   }
 
-  WRAP_ERROR_CODE(engine->get_xct_manager().abort_xct(context));
+  WRAP_ERROR_CODE(engine->get_xct_manager()->abort_xct(context));
   LOG(INFO) << "Verified customers_secondary_ in detail.";
 // #endif  // NDEBUG
 
   LOG(INFO) << "Loaded all tables. Waiting for flushing all logs...";
-  Epoch ep = engine->get_xct_manager().get_current_global_epoch();
-  engine->get_xct_manager().advance_current_global_epoch();
-  WRAP_ERROR_CODE(engine->get_log_manager().wait_until_durable(ep));
+  Epoch ep = engine->get_xct_manager()->get_current_global_epoch();
+  engine->get_xct_manager()->advance_current_global_epoch();
+  WRAP_ERROR_CODE(engine->get_log_manager()->wait_until_durable(ep));
   LOG(INFO) << "Okay, flushed all logs.";
   return kRetOk;
 }
@@ -264,7 +264,7 @@ ErrorStack TpccLoadTask::run(thread::Thread* context) {
   context_ = context;
   engine_ = context->get_engine();
   storages_.initialize_tables(engine_);
-  xct_manager_ = &engine_->get_xct_manager();
+  xct_manager_ = engine_->get_xct_manager();
   debugging::StopWatch watch;
   CHECK_ERROR(load_tables());
   watch.stop();
@@ -274,17 +274,17 @@ ErrorStack TpccLoadTask::run(thread::Thread* context) {
 
 ErrorStack TpccLoadTask::load_tables() {
   CHECK_ERROR(load_warehouses());
-  VLOG(0) << "Loaded Warehouses:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Warehouses:" << engine_->get_memory_manager()->dump_free_memory_stat();
   CHECK_ERROR(load_districts());
-  VLOG(0) << "Loaded Districts:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Districts:" << engine_->get_memory_manager()->dump_free_memory_stat();
   CHECK_ERROR(load_customers());
-  VLOG(0) << "Loaded Customers:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Customers:" << engine_->get_memory_manager()->dump_free_memory_stat();
   CHECK_ERROR(load_items());
-  VLOG(0) << "Loaded Items:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Items:" << engine_->get_memory_manager()->dump_free_memory_stat();
   CHECK_ERROR(load_stocks());
-  VLOG(0) << "Loaded Strocks:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Strocks:" << engine_->get_memory_manager()->dump_free_memory_stat();
   CHECK_ERROR(load_orders());
-  VLOG(0) << "Loaded Orders:" << engine_->get_memory_manager().dump_free_memory_stat();
+  VLOG(0) << "Loaded Orders:" << engine_->get_memory_manager()->dump_free_memory_stat();
   return kRetOk;
 }
 
@@ -446,7 +446,7 @@ ErrorStack TpccLoadTask::load_customers() {
 
 ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   LOG(INFO) << "Loading Customer for DID=" << static_cast<int>(did) << ", WID=" << wid;
-  //  << ": " << engine_->get_memory_manager().dump_free_memory_stat();
+  //  << ": " << engine_->get_memory_manager()->dump_free_memory_stat();
 
   // insert to customers_secondary at the end after sorting
   struct Secondary {
@@ -613,7 +613,7 @@ ErrorStack TpccLoadTask::load_orders() {
 
 ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
   LOG(INFO) << "Loading Orders for D=" << static_cast<int>(did) << ", W= " << wid;
-  //  << ": " << engine_->get_memory_manager().dump_free_memory_stat();
+  //  << ": " << engine_->get_memory_manager()->dump_free_memory_stat();
   // Whether the customer id for the current order is already taken.
   bool cid_array[kCustomers];
   std::memset(cid_array, 0, sizeof(cid_array));

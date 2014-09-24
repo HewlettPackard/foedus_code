@@ -32,10 +32,10 @@ const SnapshotOptions& SnapshotManagerPimpl::get_option() const {
 
 ErrorStack SnapshotManagerPimpl::initialize_once() {
   LOG(INFO) << "Initializing SnapshotManager..";
-  if (!engine_->get_log_manager().is_initialized()) {
+  if (!engine_->get_log_manager()->is_initialized()) {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
   }
-  control_block_ = engine_->get_soc_manager().get_shared_memory_repo()->
+  control_block_ = engine_->get_soc_manager()->get_shared_memory_repo()->
     get_global_memory_anchors()->snapshot_manager_memory_;
   if (engine_->is_master()) {
     control_block_->initialize();
@@ -53,7 +53,7 @@ ErrorStack SnapshotManagerPimpl::initialize_once() {
 ErrorStack SnapshotManagerPimpl::uninitialize_once() {
   LOG(INFO) << "Uninitializing SnapshotManager..";
   ErrorStackBatch batch;
-  if (!engine_->get_log_manager().is_initialized()) {
+  if (!engine_->get_log_manager()->is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
   if (engine_->is_master()) {
@@ -95,7 +95,7 @@ void SnapshotManagerPimpl::handle_snapshot() {
     bool triggered = false;
     std::chrono::system_clock::time_point until = control_block_->previous_snapshot_time_ +
       std::chrono::milliseconds(get_option().snapshot_interval_milliseconds_);
-    Epoch durable_epoch = engine_->get_log_manager().get_durable_global_epoch();
+    Epoch durable_epoch = engine_->get_log_manager()->get_durable_global_epoch();
     Epoch previous_epoch = get_snapshot_epoch();
     if (previous_epoch.is_valid() && previous_epoch == durable_epoch) {
       LOG(INFO) << "Current snapshot is already latest. durable_epoch=" << durable_epoch;
@@ -139,7 +139,7 @@ void SnapshotManagerPimpl::handle_snapshot() {
 void SnapshotManagerPimpl::trigger_snapshot_immediate(bool wait_completion) {
   LOG(INFO) << "Requesting to immediately take a snapshot...";
   Epoch before = get_snapshot_epoch();
-  Epoch durable_epoch = engine_->get_log_manager().get_durable_global_epoch();
+  Epoch durable_epoch = engine_->get_log_manager()->get_durable_global_epoch();
   if (before.is_valid() && before == durable_epoch) {
     LOG(INFO) << "Current snapshot is already latest. durable_epoch=" << durable_epoch;
     return;
@@ -162,7 +162,7 @@ void SnapshotManagerPimpl::trigger_snapshot_immediate(bool wait_completion) {
 }
 
 ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapshot) {
-  Epoch durable_epoch = engine_->get_log_manager().get_durable_global_epoch();
+  Epoch durable_epoch = engine_->get_log_manager()->get_durable_global_epoch();
   Epoch previous_epoch = get_snapshot_epoch();
   LOG(INFO) << "Taking a new snapshot. durable_epoch=" << durable_epoch
     << ". previous_snapshot=" << previous_epoch;
@@ -225,7 +225,7 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(Snapshot *new_snapshot) {
   metadata.id_ = new_snapshot->id_;
   metadata.base_epoch_ = new_snapshot->base_epoch_.value();
   metadata.valid_until_epoch_ = new_snapshot->valid_until_epoch_.value();
-  CHECK_ERROR(engine_->get_storage_manager().clone_all_storage_metadata(&metadata));
+  CHECK_ERROR(engine_->get_storage_manager()->clone_all_storage_metadata(&metadata));
 
   // we modified the root page. install it.
   uint32_t installed_root_pages_count = 0;

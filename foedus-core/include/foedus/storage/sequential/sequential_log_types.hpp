@@ -97,7 +97,7 @@ struct SequentialAppendLogType : public log::RecordLogType {
     ASSERT_ND(owner_id == CXX11_NULLPTR);
     ASSERT_ND(payload == CXX11_NULLPTR);
     SequentialStorage storage
-      = context->get_engine()->get_storage_manager().get_sequential(storage_id);
+      = context->get_engine()->get_storage_manager()->get_sequential(storage_id);
     storage.apply_append_record(context, this);
   }
 

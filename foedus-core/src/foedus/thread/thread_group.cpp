@@ -23,7 +23,7 @@ ThreadGroup::~ThreadGroup() {
 }
 
 ErrorStack ThreadGroup::initialize_once() {
-  node_memory_ = engine_->get_memory_manager().get_local_memory();
+  node_memory_ = engine_->get_memory_manager()->get_local_memory();
   ThreadLocalOrdinal count = engine_->get_options().thread_.thread_count_per_group_;
   for (ThreadLocalOrdinal ordinal = 0; ordinal < count; ++ordinal) {
     ThreadId id = compose_thread_id(group_id_, ordinal);

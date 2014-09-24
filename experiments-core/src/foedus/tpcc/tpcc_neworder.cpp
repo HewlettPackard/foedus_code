@@ -118,7 +118,7 @@ ErrorCode TpccClientTask::do_neworder(Wid wid) {
     << ".$" << output_prices_[0]
     << "*" << output_quantities_[0] << "." << output_amounts_[0];
   Epoch ep;
-  return engine_->get_xct_manager().precommit_xct(context_, &ep);
+  return engine_->get_xct_manager()->precommit_xct(context_, &ep);
 }
 
 const char* kOriginalStr = "original";

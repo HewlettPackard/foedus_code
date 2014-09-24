@@ -117,8 +117,8 @@ class PopulateTpcbTask {
     : from_branch_(from_branch), to_branch_(to_branch) {
   }
   ErrorStack run(thread::Thread* context) {
-    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kDirtyReadPreferVolatile));
+    xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
 
     std::cout << "Populating records from branch " << from_branch_ << " to "
       << to_branch_ << " in node-" << static_cast<int>(context->get_numa_node()) << std::endl;
@@ -129,10 +129,10 @@ class PopulateTpcbTask {
     AccountData account;
     std::memset(&account, 0, sizeof(account));
 
-    StorageManager& st = context->get_engine()->get_storage_manager();
-    HashStorage branches = st.get_hash("branches");
-    HashStorage tellers = st.get_hash("tellers");
-    HashStorage accounts = st.get_hash("accounts");
+    StorageManager* st = context->get_engine()->get_storage_manager();
+    HashStorage branches = st->get_hash("branches");
+    HashStorage tellers = st->get_hash("tellers");
+    HashStorage accounts = st->get_hash("accounts");
 
 #ifndef NDEBUG
     std::set<uint64_t> branch_ids;
@@ -174,7 +174,7 @@ class PopulateTpcbTask {
       }
     }
     Epoch commit_epoch;
-    WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+    WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
     std::cout << "Populated records by " << context->get_thread_id() << std::endl;
     return kRetOk;
@@ -183,9 +183,9 @@ class PopulateTpcbTask {
   ErrorCode commit_if_full(thread::Thread* context) {
     if (context->get_current_xct().get_write_set_size() >= kCommitBatch) {
       Epoch commit_epoch;
-      xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-      CHECK_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
-      CHECK_ERROR_CODE(xct_manager.begin_xct(context, xct::kDirtyReadPreferVolatile));
+      xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+      CHECK_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+      CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
     }
     return kErrorCodeOk;
   }
@@ -216,7 +216,7 @@ class RunTpcbTask {
   }
   ErrorStack run(thread::Thread* context) {
     ExperimentControlBlock* control = reinterpret_cast<ExperimentControlBlock*>(
-      context->get_engine()->get_soc_manager().get_shared_memory_repo()->get_global_user_memory());
+      context->get_engine()->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
     // pre-calculate random numbers to get rid of random number generation as bottleneck
     random_.set_current_seed(context->get_thread_id());
     CHECK_ERROR(
@@ -226,16 +226,16 @@ class RunTpcbTask {
     const uint32_t *randoms = reinterpret_cast<const uint32_t*>(numbers_.get_block());
 
 
-    StorageManager& st = context->get_engine()->get_storage_manager();
-    branches_ = st.get_hash("branches");
-    tellers_ = st.get_hash("tellers");
-    accounts_ = st.get_hash("accounts");
-    histories_ = st.get_sequential("histories");
+    StorageManager* st = context->get_engine()->get_storage_manager();
+    branches_ = st->get_hash("branches");
+    tellers_ = st->get_hash("tellers");
+    accounts_ = st->get_hash("accounts");
+    histories_ = st->get_sequential("histories");
 
     control->start_rendezvous_.wait();
 
     processed_ = 0;
-    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+    xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
     while (true) {
       uint64_t account_id = randoms[processed_ & 0xFFFF] % (kBranches * kAccounts);
       uint64_t teller_id = account_id / kAccountsPerTeller;
@@ -249,7 +249,7 @@ class RunTpcbTask {
         } else if (result_code == kErrorCodeXctRaceAbort) {
           // abort and retry
           if (context->is_running_xct()) {
-            CHECK_ERROR(xct_manager.abort_xct(context));
+            CHECK_ERROR(xct_manager->abort_xct(context));
           }
           if ((++successive_aborts & 0xFF) == 0) {
             std::cerr << "Thread-" << context->get_thread_id() << " having "
@@ -279,9 +279,9 @@ class RunTpcbTask {
     uint64_t teller_id,
     uint64_t account_id,
     int64_t amount) {
-    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-    // CHECK_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
-    CHECK_ERROR_CODE(xct_manager.begin_xct(context, xct::kDirtyReadPreferVolatile));
+    xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+    // CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+    CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
 
     int64_t balance = amount;
     CHECK_ERROR_CODE(branches_.increment_record(context, branch_id, &balance, 0));
@@ -299,7 +299,7 @@ class RunTpcbTask {
     CHECK_ERROR_CODE(histories_.append_record(context, &tmp_history_, sizeof(HistoryData)));
 
     Epoch commit_epoch;
-    CHECK_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+    CHECK_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
     return kErrorCodeOk;
   }
 
@@ -373,29 +373,29 @@ int main_impl(int argc, char **argv) {
 
   {
     Engine engine(options);
-    engine.get_proc_manager().pre_register("run_task", run_task);
-    engine.get_proc_manager().pre_register("populate_task", populate_task);
+    engine.get_proc_manager()->pre_register("run_task", run_task);
+    engine.get_proc_manager()->pre_register("populate_task", populate_task);
     COERCE_ERROR(engine.initialize());
     {
       UninitializeGuard guard(&engine);
-      StorageManager& str_manager = engine.get_storage_manager();
+      StorageManager* str_manager = engine.get_storage_manager();
       std::cout << "Creating TPC-B tables... " << std::endl;
       Epoch ep;
       const float kHashFillfactor = 0.5;
       HashMetadata branch_meta("branches");
       branch_meta.set_capacity(kBranches, kHashFillfactor);
-      COERCE_ERROR(str_manager.create_storage(&branch_meta, &ep));
+      COERCE_ERROR(str_manager->create_storage(&branch_meta, &ep));
       std::cout << "Created branches " << std::endl;
       HashMetadata teller_meta("tellers");
       teller_meta.set_capacity(kBranches * kTellers, kHashFillfactor);
-      COERCE_ERROR(str_manager.create_storage(&teller_meta, &ep));
+      COERCE_ERROR(str_manager->create_storage(&teller_meta, &ep));
       std::cout << "Created tellers " << std::endl;
       HashMetadata account_meta("accounts");
       account_meta.set_capacity(kBranches * kAccounts, kHashFillfactor);
-      COERCE_ERROR(str_manager.create_storage(&account_meta, &ep));
+      COERCE_ERROR(str_manager->create_storage(&account_meta, &ep));
       std::cout << "Created accounts " << std::endl;
       sequential::SequentialMetadata history_meta("histories");
-      COERCE_ERROR(str_manager.create_storage(&history_meta, &ep));
+      COERCE_ERROR(str_manager->create_storage(&history_meta, &ep));
       std::cout << "Created all!" << std::endl;
 
       std::cout << "Now populating initial records..." << std::endl;
@@ -412,7 +412,7 @@ int main_impl(int argc, char **argv) {
         inputs[0] = from_branch;
         inputs[1] = to_branch;
         thread::ImpersonateSession session;
-        bool ret = engine.get_thread_pool().impersonate_on_numa_node(
+        bool ret = engine.get_thread_pool()->impersonate_on_numa_node(
           node,
           "populate_task",
           inputs,
@@ -425,13 +425,13 @@ int main_impl(int argc, char **argv) {
       }
 
       ExperimentControlBlock* control = reinterpret_cast<ExperimentControlBlock*>(
-        engine.get_soc_manager().get_shared_memory_repo()->get_global_user_memory());
+        engine.get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
       control->initialize();
 
       std::vector< thread::ImpersonateSession > sessions;
       for (int i = 0; i < kTotalThreads; ++i) {
         thread::ImpersonateSession session;
-        bool ret = engine.get_thread_pool().impersonate("run_task", nullptr, 0, &session);
+        bool ret = engine.get_thread_pool()->impersonate("run_task", nullptr, 0, &session);
         ASSERT_ND(ret);
         sessions.emplace_back(std::move(session));
       }
@@ -439,7 +439,7 @@ int main_impl(int argc, char **argv) {
       // make sure all threads are done with random number generation
       std::this_thread::sleep_for(std::chrono::seconds(1));
       if (profile) {
-        COERCE_ERROR(engine.get_debug().start_profile("tpcb_experiment_seq.prof"));
+        COERCE_ERROR(engine.get_debug()->start_profile("tpcb_experiment_seq.prof"));
       }
       control->start_rendezvous_.signal();  // GO!
       std::cout << "Started!" << std::endl;
@@ -450,7 +450,7 @@ int main_impl(int argc, char **argv) {
       control->stop_requested_ = true;
       assorted::memory_fence_release();
       if (profile) {
-        engine.get_debug().stop_profile();
+        engine.get_debug()->stop_profile();
       }
       uint64_t total = 0;
       for (int i = 0; i < kTotalThreads; ++i) {

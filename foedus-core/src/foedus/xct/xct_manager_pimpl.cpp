@@ -57,16 +57,16 @@ ErrorCode   XctManager::abort_xct(thread::Thread* context)  { return pimpl_->abo
 
 ErrorStack XctManagerPimpl::initialize_once() {
   LOG(INFO) << "Initializing XctManager..";
-  if (!engine_->get_storage_manager().is_initialized()) {
+  if (!engine_->get_storage_manager()->is_initialized()) {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
   }
-  soc::SharedMemoryRepo* memory_repo = engine_->get_soc_manager().get_shared_memory_repo();
+  soc::SharedMemoryRepo* memory_repo = engine_->get_soc_manager()->get_shared_memory_repo();
   control_block_ = memory_repo->get_global_memory_anchors()->xct_manager_memory_;
 
   if (engine_->is_master()) {
     control_block_->initialize();
     control_block_->current_global_epoch_
-      = engine_->get_savepoint_manager().get_initial_current_epoch().value();
+      = engine_->get_savepoint_manager()->get_initial_current_epoch().value();
     ASSERT_ND(get_current_global_epoch().is_valid());
     control_block_->epoch_advance_thread_terminate_requested_ = false;
     epoch_advance_thread_ = std::move(std::thread(&XctManagerPimpl::handle_epoch_advance, this));
@@ -77,7 +77,7 @@ ErrorStack XctManagerPimpl::initialize_once() {
 ErrorStack XctManagerPimpl::uninitialize_once() {
   LOG(INFO) << "Uninitializing XctManager..";
   ErrorStackBatch batch;
-  if (!engine_->get_storage_manager().is_initialized()) {
+  if (!engine_->get_storage_manager()->is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
   if (engine_->is_master()) {
@@ -126,7 +126,7 @@ void XctManagerPimpl::handle_epoch_advance() {
       control_block_->current_global_epoch_ = get_current_global_epoch().one_more().value();
       control_block_->current_global_epoch_advanced_.broadcast(&scope);
     }
-    engine_->get_log_manager().wakeup_loggers();
+    engine_->get_log_manager()->wakeup_loggers();
   }
   LOG(INFO) << "epoch_advance_thread ended.";
 }
@@ -160,7 +160,7 @@ ErrorCode XctManagerPimpl::wait_for_commit(Epoch commit_epoch, int64_t wait_micr
     wakeup_epoch_advance_thread();
   }
 
-  return engine_->get_log_manager().wait_until_durable(commit_epoch, wait_microseconds);
+  return engine_->get_log_manager()->wait_until_durable(commit_epoch, wait_microseconds);
 }
 
 
@@ -266,7 +266,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
     assorted::prefetch_cacheline(write_set[i].owner_id_address_);
   }
 
-  storage::StorageManager& st = engine_->get_storage_manager();
+  storage::StorageManager* st = engine_->get_storage_manager();
   while (true) {  // while loop for retrying in case of moved-bit error
     // first, check for moved-bit and track where the corresponding physical record went.
     // we do this before locking, so it is possible that later we find it moved again.
@@ -276,7 +276,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
       // TODO(Hideaki) if this happens often, this might be too frequent virtual method call.
       // maybe a batched version of this? I'm not sure if this is that often, though.
       if (UNLIKELY(write_set[i].owner_id_address_->is_moved())) {
-        bool success = st.track_moved_record(write_set[i].storage_id_, write_set + i);
+        bool success = st->track_moved_record(write_set[i].storage_id_, write_set + i);
         if (!success) {
           // this happens when the record went too far away (eg another layer in masstree).
           // in that case, retry the whole transaction. This is rare.
@@ -304,12 +304,12 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
     bool needs_retry = false;
     for (uint32_t i = 0; i < write_set_size; ++i) {
       ASSERT_ND(write_set[i].mcs_block_ == 0);
-      DVLOG(2) << *context << " Locking " << st.get_name(write_set[i].storage_id_)
+      DVLOG(2) << *context << " Locking " << st->get_name(write_set[i].storage_id_)
         << ":" << write_set[i].owner_id_address_;
       if (i < write_set_size - 1 &&
         write_set[i].owner_id_address_ == write_set[i + 1].owner_id_address_) {
         DVLOG(0) << *context << " Multiple write sets on record "
-          << st.get_name(write_set[i].storage_id_)
+          << st->get_name(write_set[i].storage_id_)
           << ":" << write_set[i].owner_id_address_
           << ". Will lock/unlock at the last one";
       } else {
@@ -317,7 +317,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
           write_set[i].owner_id_address_->get_key_lock());
         if (UNLIKELY(write_set[i].owner_id_address_->is_moved())) {
           VLOG(0) << *context << " Interesting. moved-bit conflict in "
-            << st.get_name(write_set[i].storage_id_)
+            << st->get_name(write_set[i].storage_id_)
             << ":" << write_set[i].owner_id_address_
             << ". This occasionally happens.";
           // release all locks acquired so far, retry
@@ -350,7 +350,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
   Xct& current_xct = context->get_current_xct();
   XctAccess*        read_set = current_xct.get_read_set();
   const uint32_t    read_set_size = current_xct.get_read_set_size();
-  storage::StorageManager& st = engine_->get_storage_manager();
+  storage::StorageManager* st = engine_->get_storage_manager();
   for (uint32_t i = 0; i < read_set_size; ++i) {
     // let's prefetch owner_id in parallel
     if (i % kReadsetPrefetchBatch == 0) {
@@ -362,11 +362,11 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
     // The owning transaction has changed.
     // We don't check ordinal here because there is no change we are racing with ourselves.
     XctAccess& access = read_set[i];
-    DVLOG(2) << *context << "Verifying " << st.get_name(access.storage_id_)
+    DVLOG(2) << *context << "Verifying " << st->get_name(access.storage_id_)
       << ":" << access.owner_id_address_ << ". observed_xid=" << access.observed_owner_id_
         << ", now_xid=" << access.owner_id_address_->xct_id_;
     if (UNLIKELY(access.owner_id_address_->is_moved())) {
-      access.owner_id_address_ = st.track_moved_record(
+      access.owner_id_address_ = st->track_moved_record(
         access.storage_id_,
         access.owner_id_address_);
     }
@@ -385,7 +385,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
       << " Read-only higest epoch was empty. The transaction has no read set??";
     // In this case, set already-durable epoch. We don't have to use atomic version because
     // it's just conservatively telling how long it should wait.
-    *commit_epoch = Epoch(engine_->get_log_manager().get_durable_global_epoch_weak());
+    *commit_epoch = Epoch(engine_->get_log_manager()->get_durable_global_epoch_weak());
   }
 
   // Check Page Pointer/Version
@@ -402,7 +402,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
   Xct& current_xct = context->get_current_xct();
   XctAccess*              read_set = current_xct.get_read_set();
   const uint32_t          read_set_size = current_xct.get_read_set_size();
-  storage::StorageManager& st = engine_->get_storage_manager();
+  storage::StorageManager* st = engine_->get_storage_manager();
   for (uint32_t i = 0; i < read_set_size; ++i) {
     // let's prefetch owner_id in parallel
     if (i % kReadsetPrefetchBatch == 0) {
@@ -414,7 +414,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
     // The owning transaction has changed.
     // We don't check ordinal here because there is no change we are racing with ourselves.
     XctAccess& access = read_set[i];
-    DVLOG(2) << *context << " Verifying " << st.get_name(access.storage_id_)
+    DVLOG(2) << *context << " Verifying " << st->get_name(access.storage_id_)
       << ":" << access.owner_id_address_ << ". observed_xid=" << access.observed_owner_id_
         << ", now_xid=" << access.owner_id_address_->xct_id_;
 
@@ -422,7 +422,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
     // however, unlike write-set locks, we don't have to do retry-loop.
     // if the rare event (yet another concurrent split) happens, we just abort the transaction.
     if (UNLIKELY(access.owner_id_address_->is_moved())) {
-      access.owner_id_address_ = st.track_moved_record(
+      access.owner_id_address_ = st->track_moved_record(
         access.storage_id_,
         access.owner_id_address_);
     }
@@ -508,7 +508,7 @@ void XctManagerPimpl::precommit_xct_apply(
   for (uint32_t i = 0; i < write_set_size; ++i) {
     WriteXctAccess& write = write_set[i];
     DVLOG(2) << *context << " Applying/Unlocking "
-      << engine_->get_storage_manager().get_name(write.storage_id_)
+      << engine_->get_storage_manager()->get_name(write.storage_id_)
       << ":" << write.owner_id_address_;
     ASSERT_ND(write.owner_id_address_->is_keylocked());
     ASSERT_ND(write.mcs_block_ != 0 ||
@@ -537,7 +537,7 @@ void XctManagerPimpl::precommit_xct_apply(
     if (i < write_set_size - 1 &&
       write.owner_id_address_ == write_set[i + 1].owner_id_address_) {
       DVLOG(0) << *context << " Multiple write sets on record "
-        << engine_->get_storage_manager().get_name(write_set[i].storage_id_)
+        << engine_->get_storage_manager()->get_name(write_set[i].storage_id_)
         << ":" << write_set[i].owner_id_address_ << ". Unlock at the last one of the write sets";
       // keep the lock for the next write set
       ASSERT_ND(write.mcs_block_ == 0);
@@ -566,7 +566,7 @@ void XctManagerPimpl::precommit_xct_apply(
   for (uint32_t i = 0; i < lock_free_write_set_size; ++i) {
     LockFreeWriteXctAccess& write = lock_free_write_set[i];
     DVLOG(2) << *context << " Applying Lock-Free write "
-      << engine_->get_storage_manager().get_name(write.storage_id_);
+      << engine_->get_storage_manager()->get_name(write.storage_id_);
     write.log_entry_->header_.set_xct_id(new_xct_id);
     log::invoke_apply_record(write.log_entry_, context, write.storage_id_, nullptr, nullptr);
   }
@@ -583,7 +583,7 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context) {
     // this might be called from precommit_xct_lock(), so some of them might not be locked yet.
     if (write.mcs_block_ != 0) {
       DVLOG(2) << *context << " Unlocking "
-        << engine_->get_storage_manager().get_name(write.storage_id_) << ":"
+        << engine_->get_storage_manager()->get_name(write.storage_id_) << ":"
         << write.owner_id_address_;
       ASSERT_ND(write.owner_id_address_->is_keylocked());
       context->mcs_release_lock(write.owner_id_address_->get_key_lock(), write.mcs_block_);

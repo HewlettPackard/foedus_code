@@ -109,8 +109,8 @@ ErrorStack create_tpcb_tables_task(
   void* /*output_buffer*/,
   uint32_t /*output_buffer_size*/,
   uint32_t* /*output_used*/) {
-  StorageManager& str_manager = context->get_engine()->get_storage_manager();
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  StorageManager* str_manager = context->get_engine()->get_storage_manager();
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   Epoch highest_commit_epoch;
   Epoch commit_epoch;
 
@@ -118,24 +118,24 @@ ErrorStack create_tpcb_tables_task(
   const float kHashFillFactor = 0.2;
   HashMetadata branch_meta("branches");
   branch_meta.set_capacity(kBranches, kHashFillFactor);
-  COERCE_ERROR(str_manager.create_hash(&branch_meta, &branches, &commit_epoch));
+  COERCE_ERROR(str_manager->create_hash(&branch_meta, &branches, &commit_epoch));
   EXPECT_TRUE(branches.exists());
-  COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+  COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
   for (uint64_t i = 0; i < kBranches; ++i) {
     BranchData data;
     std::memset(&data, 0, sizeof(data));  // make valgrind happy
     data.branch_balance_ = kInitialAccountBalance * kAccounts;
     COERCE_ERROR(branches.insert_record(context, i, &data, sizeof(data)));
   }
-  COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+  COERCE_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
   highest_commit_epoch.store_max(commit_epoch);
 
   // Create tellers
   HashMetadata teller_meta("tellers");
   teller_meta.set_capacity(kBranches * kTellers, kHashFillFactor);
-  COERCE_ERROR(str_manager.create_hash(&teller_meta, &tellers, &commit_epoch));
+  COERCE_ERROR(str_manager->create_hash(&teller_meta, &tellers, &commit_epoch));
   EXPECT_TRUE(tellers.exists());
-  COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+  COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
   for (uint64_t i = 0; i < kBranches * kTellers; ++i) {
     TellerData data;
     std::memset(&data, 0, sizeof(data));  // make valgrind happy
@@ -143,15 +143,15 @@ ErrorStack create_tpcb_tables_task(
     data.teller_balance_ = kInitialAccountBalance * kAccountsPerTellers;
     COERCE_ERROR(tellers.insert_record(context, i, &data, sizeof(data)));
   }
-  COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+  COERCE_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
   highest_commit_epoch.store_max(commit_epoch);
 
   // Create accounts
   HashMetadata account_meta("accounts");
   account_meta.set_capacity(kBranches * kAccounts, kHashFillFactor);
-  COERCE_ERROR(str_manager.create_hash(&account_meta, &accounts, &commit_epoch));
+  COERCE_ERROR(str_manager->create_hash(&account_meta, &accounts, &commit_epoch));
   EXPECT_TRUE(accounts.exists());
-  COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+  COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
   for (uint64_t i = 0; i < kBranches * kAccounts; ++i) {
     AccountData data;
     std::memset(&data, 0, sizeof(data));  // make valgrind happy
@@ -159,18 +159,18 @@ ErrorStack create_tpcb_tables_task(
     data.account_balance_ = kInitialAccountBalance;
     COERCE_ERROR(accounts.insert_record(context, i, &data, sizeof(data)));
   }
-  COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+  COERCE_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
   highest_commit_epoch.store_max(commit_epoch);
 
   // Create histories
   sequential::SequentialMetadata history_meta("histories");
-  COERCE_ERROR(str_manager.create_sequential(&history_meta, &histories, &commit_epoch));
+  COERCE_ERROR(str_manager->create_sequential(&history_meta, &histories, &commit_epoch));
   EXPECT_TRUE(histories.exists());
-  COERCE_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
-  COERCE_ERROR(xct_manager.precommit_xct(context, &commit_epoch));
+  COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
+  COERCE_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
   highest_commit_epoch.store_max(commit_epoch);
 
-  CHECK_ERROR(xct_manager.wait_for_commit(highest_commit_epoch));
+  CHECK_ERROR(xct_manager->wait_for_commit(highest_commit_epoch));
   return kRetOk;
 }
 
@@ -185,7 +185,7 @@ class RunTpcbTask {
     assorted::UniformRandom rand;
     rand.set_current_seed(client_id_);
     Epoch highest_commit_epoch;
-    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+    xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
     xct::XctId prev_xct_id;
     for (int i = 0; i < kXctsPerThread; ++i) {
       uint64_t account_id;
@@ -215,7 +215,7 @@ class RunTpcbTask {
         } else if (error_stack.get_error_code() == kErrorCodeXctRaceAbort) {
           // abort and retry
           if (context->get_current_xct().is_active()) {
-            CHECK_ERROR(xct_manager.abort_xct(context));
+            CHECK_ERROR(xct_manager->abort_xct(context));
           }
         } else {
           std::cout << "Unexpected error! Thread-" << context->get_thread_id()
@@ -230,7 +230,7 @@ class RunTpcbTask {
         }
       }
     }
-    CHECK_ERROR(xct_manager.wait_for_commit(highest_commit_epoch));
+    CHECK_ERROR(xct_manager->wait_for_commit(highest_commit_epoch));
     return foedus::kRetOk;
   }
 
@@ -242,8 +242,8 @@ class RunTpcbTask {
     uint64_t account_id,
     uint64_t history_id,
     int64_t amount) {
-    xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+    xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
 
     int64_t branch_balance_old = -1, branch_balance_new;
     if (use_increment) {
@@ -367,7 +367,7 @@ class RunTpcbTask {
     Epoch commit_epoch;
     ASSERT_ND(context->get_current_xct().get_read_set_size() > 0);
     ASSERT_ND(context->get_current_xct().get_write_set_size() > 0);
-    WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+    WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
     std::cout << "Committed! Thread-" << context->get_thread_id() << " Updated "
       << " branch[" << branch_id << "] " << branch_balance_old << " -> " << branch_balance_new
@@ -404,8 +404,8 @@ ErrorStack verify_tpcb_task(
   void* /*output_buffer*/,
   uint32_t /*output_buffer_size*/,
   uint32_t* /*output_used*/) {
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
-  CHECK_ERROR(xct_manager.begin_xct(context, xct::kSerializable));
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+  CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
 
   int64_t expected_branch[kBranches];
   int64_t expected_teller[kBranches * kTellers];
@@ -486,7 +486,7 @@ ErrorStack verify_tpcb_task(
     EXPECT_FALSE(access.observed_owner_id_.is_moved()) << i;
   }
 
-  CHECK_ERROR(xct_manager.abort_xct(context));
+  CHECK_ERROR(xct_manager->abort_xct(context));
   return foedus::kRetOk;
 }
 
@@ -502,20 +502,21 @@ void multi_thread_test(int thread_count_arg, bool contended_arg,
   options.thread_.group_count_ = 1;
   options.thread_.thread_count_per_group_ = thread_count;
   Engine engine(options);
-  engine.get_proc_manager().pre_register("create_tpcb_tables_task", create_tpcb_tables_task);
-  engine.get_proc_manager().pre_register("run_tpcb_task", run_tpcb_task);
-  engine.get_proc_manager().pre_register("verify_tpcb_task", verify_tpcb_task);
+  engine.get_proc_manager()->pre_register("create_tpcb_tables_task", create_tpcb_tables_task);
+  engine.get_proc_manager()->pre_register("run_tpcb_task", run_tpcb_task);
+  engine.get_proc_manager()->pre_register("verify_tpcb_task", verify_tpcb_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("create_tpcb_tables_task"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("create_tpcb_tables_task"));
 
     {
       start_rendezvous.initialize();
       std::vector<thread::ImpersonateSession> sessions;
       for (int i = 0; i < thread_count; ++i) {
         thread::ImpersonateSession session;
-        EXPECT_TRUE(engine.get_thread_pool().impersonate("run_tpcb_task", &i, sizeof(i), &session));
+        EXPECT_TRUE(
+          engine.get_thread_pool()->impersonate("run_tpcb_task", &i, sizeof(i), &session));
         sessions.emplace_back(std::move(session));
       }
       start_rendezvous.signal();
@@ -525,7 +526,7 @@ void multi_thread_test(int thread_count_arg, bool contended_arg,
       }
       start_rendezvous.uninitialize();
     }
-    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("verify_tpcb_task"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("verify_tpcb_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

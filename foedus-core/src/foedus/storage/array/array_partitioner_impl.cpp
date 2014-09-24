@@ -27,7 +27,7 @@ namespace storage {
 namespace array {
 
 ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
-  ArrayStorage storage = engine->get_storage_manager().get_array(id);
+  ArrayStorage storage = engine->get_storage_manager()->get_array(id);
   ASSERT_ND(storage.exists());
 
   array_id_ = id;
@@ -38,7 +38,7 @@ ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
 
   ArrayStorageControlBlock* array = storage.get_control_block();
   const memory::GlobalVolatilePageResolver& resolver
-    = engine->get_memory_manager().get_global_volatile_page_resolver();
+    = engine->get_memory_manager()->get_global_volatile_page_resolver();
   ArrayPage* root_page = reinterpret_cast<ArrayPage*>(
     resolver.resolve_offset(array->root_page_pointer_.volatile_pointer_));
   if (array->levels_ == 1) {

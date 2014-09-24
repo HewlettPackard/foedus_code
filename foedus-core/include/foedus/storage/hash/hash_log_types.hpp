@@ -111,7 +111,7 @@ struct HashInsertLogType : public log::RecordLogType {
     StorageId storage_id,
     xct::LockableXctId* owner_id,
     char* payload) ALWAYS_INLINE {
-    HashStorage storage = context->get_engine()->get_storage_manager().get_hash(storage_id);
+    HashStorage storage = context->get_engine()->get_storage_manager()->get_hash(storage_id);
     storage.apply_insert_record(context, this, owner_id, payload);
   }
 
@@ -164,7 +164,7 @@ struct HashDeleteLogType : public log::RecordLogType {
     StorageId storage_id,
     xct::LockableXctId* owner_id,
     char* payload) ALWAYS_INLINE {
-    HashStorage storage = context->get_engine()->get_storage_manager().get_hash(storage_id);
+    HashStorage storage = context->get_engine()->get_storage_manager()->get_hash(storage_id);
     storage.apply_delete_record(context, this, owner_id, payload);
   }
 

@@ -64,7 +64,7 @@ class PagePoolPimpl final : public DefaultInitializable {
   void                release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
   ErrorCode           grab_one(PagePoolOffset *offset);
   void                release_one(PagePoolOffset offset);
-  LocalPageResolver&  get_resolver() { return resolver_; }
+  const LocalPageResolver& get_resolver() const { return resolver_; }
   PagePool::Stat      get_stat() const;
   uint64_t&           free_pool_head() { return control_block_->free_pool_head_;}
   uint64_t            free_pool_head() const { return control_block_->free_pool_head_;}

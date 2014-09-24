@@ -42,6 +42,8 @@ class HashStorage CXX11_FINAL
       reinterpret_cast<HashStorageControlBlock*>(control_block)) {
     ASSERT_ND(get_type() == kHashStorage || !exists());
   }
+  /** Shorthand for engine->get_storage_manager()->get_hash(name) */
+  HashStorage(Engine* engine, const StorageName& name);
   HashStorage(const HashStorage& other)
     : Attachable<HashStorageControlBlock>(other.engine_, other.control_block_) {
   }

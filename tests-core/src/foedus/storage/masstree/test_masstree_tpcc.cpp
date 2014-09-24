@@ -285,13 +285,13 @@ TpccLoadTask::TpccLoadTask() {
 ErrorStack TpccLoadTask::run(thread::Thread* context) {
   context_ = context;
   engine_ = context->get_engine();
-  engine_->get_debug().set_debug_log_min_threshold(debugging::DebuggingOptions::kDebugLogWarning);
-  xct_manager_ = &engine_->get_xct_manager();
+  engine_->get_debug()->set_debug_log_min_threshold(debugging::DebuggingOptions::kDebugLogWarning);
+  xct_manager_ = engine_->get_xct_manager();
   debugging::StopWatch watch;
   CHECK_ERROR(load_tables());
   watch.stop();
   LOG(INFO) << "Loaded TPC-C tables in " << watch.elapsed_sec() << "sec";
-  engine_->get_debug().set_debug_log_min_threshold(debugging::DebuggingOptions::kDebugLogInfo);
+  engine_->get_debug()->set_debug_log_min_threshold(debugging::DebuggingOptions::kDebugLogInfo);
   return kRetOk;
 }
 
@@ -308,14 +308,14 @@ ErrorStack TpccLoadTask::load_tables() {
   CHECK_ERROR(storages.orders_.verify_single_thread(context_));
   CHECK_ERROR(storages.orders_secondary_.verify_single_thread(context_));
   WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
-  LOG(INFO) << "Loaded all:" << engine_->get_memory_manager().dump_free_memory_stat();
+  LOG(INFO) << "Loaded all:" << engine_->get_memory_manager()->dump_free_memory_stat();
   return kRetOk;
 }
 
 ErrorStack TpccLoadTask::create_tables() {
   std::memset(&storages, 0, sizeof(storages));
 
-  LOG(INFO) << "Initial:" << engine_->get_memory_manager().dump_free_memory_stat();
+  LOG(INFO) << "Initial:" << engine_->get_memory_manager()->dump_free_memory_stat();
   CHECK_ERROR(create_masstree("customers_secondary", &storages.customers_secondary_));
   CHECK_ERROR(create_masstree("neworders", &storages.neworders_));
   CHECK_ERROR(create_masstree("orders", &storages.orders_));
@@ -331,7 +331,7 @@ ErrorStack TpccLoadTask::create_masstree(
   Epoch ep;
   storage::masstree::MasstreeMetadata meta(name);
   EXPECT_FALSE(storage->exists());
-  CHECK_ERROR(engine_->get_storage_manager().create_masstree(&meta, storage, &ep));
+  CHECK_ERROR(engine_->get_storage_manager()->create_masstree(&meta, storage, &ep));
   EXPECT_TRUE(storage->exists());
   return kRetOk;
 }
@@ -359,7 +359,7 @@ ErrorStack TpccLoadTask::load_customers() {
 
 ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   LOG(INFO) << "Loading Customer for DID=" << static_cast<int>(did) << ", WID=" << wid
-    << ": " << engine_->get_memory_manager().dump_free_memory_stat();
+    << ": " << engine_->get_memory_manager()->dump_free_memory_stat();
 
   // insert to customers_secondary at the end after sorting
   memory::AlignedMemory secondary_keys_buffer;
@@ -455,7 +455,7 @@ ErrorStack TpccLoadTask::load_orders_data() {
 
 ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
   LOG(INFO) << "Loading Orders for D=" << static_cast<int>(did) << ", W= " << wid
-    << ": " << engine_->get_memory_manager().dump_free_memory_stat();
+    << ": " << engine_->get_memory_manager()->dump_free_memory_stat();
   // Whether the customer id for the current order is already taken.
   bool cid_array[kCustomers];
   std::memset(cid_array, 0, sizeof(cid_array));
@@ -606,13 +606,13 @@ void run_test(
   options.memory_.page_pool_size_mb_per_node_ = 1 << 7;
   options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 4;
   Engine engine(options);
-  engine.get_proc_manager().pre_register("the_task", proc);
-  engine.get_proc_manager().pre_register("tpcc_load_task", tpcc_load_task);
+  engine.get_proc_manager()->pre_register("the_task", proc);
+  engine.get_proc_manager()->pre_register("tpcc_load_task", tpcc_load_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("tpcc_load_task"));
-    COERCE_ERROR(engine.get_thread_pool().impersonate_synchronous("the_task"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("tpcc_load_task"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("the_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -666,12 +666,12 @@ ErrorStack full_scan_task(
   std::string name;
   MasstreeStorage target = get_scan_target(&expected_records, &name);
 
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   const uint32_t kBatch = 200;
   SCOPED_TRACE(testing::Message() << "Full scan, index=" << name);
   {
     // full forward scan
-    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
     MasstreeCursor cursor(target, context);
     EXPECT_EQ(kErrorCodeOk, cursor.open());
     Epoch commit_epoch;
@@ -689,17 +689,17 @@ ErrorStack full_scan_task(
       std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
       ++count;
       if ((count % kBatch) == 0U) {
-        EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch)) << count;
-        WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+        EXPECT_EQ(kErrorCodeOk, xct_manager->precommit_xct(context, &commit_epoch)) << count;
+        WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
       }
       EXPECT_EQ(kErrorCodeOk, cursor.next()) << count;
     }
-    EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch));
+    EXPECT_EQ(kErrorCodeOk, xct_manager->precommit_xct(context, &commit_epoch));
     EXPECT_EQ(expected_records, count);
   }
   {
     // full backward scan
-    WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
     MasstreeCursor cursor(target, context);
     EXPECT_EQ(kErrorCodeOk, cursor.open(
       nullptr,
@@ -722,12 +722,12 @@ ErrorStack full_scan_task(
       std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
       ++count;
       if ((count % kBatch) == 0U) {
-        EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch)) << count;
-        WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+        EXPECT_EQ(kErrorCodeOk, xct_manager->precommit_xct(context, &commit_epoch)) << count;
+        WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
       }
       EXPECT_EQ(kErrorCodeOk, cursor.next()) << count;
     }
-    EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch));
+    EXPECT_EQ(kErrorCodeOk, xct_manager->precommit_xct(context, &commit_epoch));
     EXPECT_EQ(expected_records, count);
   }
   return kRetOk;
@@ -760,7 +760,7 @@ ErrorStack district_scan_task(
   std::string name;
   MasstreeStorage target = get_scan_target(&expected_records, &name);
 
-  xct::XctManager& xct_manager = context->get_engine()->get_xct_manager();
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   const uint32_t kBatch = 200;
   for (Wid wid = 0; wid < kWarehouses; ++wid) {
     for (Did did = 0; did < kDistricts; ++did) {
@@ -791,7 +791,7 @@ ErrorStack district_scan_task(
         << ", index=" << name);
       {
         // in-district forward scan
-        WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+        WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
         MasstreeCursor cursor(target, context);
         EXPECT_EQ(kErrorCodeOk, cursor.open(low, 8, high, 8));
         Epoch commit_epoch;
@@ -810,18 +810,18 @@ ErrorStack district_scan_task(
           std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
           ++count;
           if ((count % kBatch) == 0U) {
-            EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch)) << count;
-            WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+            EXPECT_EQ(kErrorCodeOk, xct_manager->precommit_xct(context, &commit_epoch)) << count;
+            WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
           }
           EXPECT_EQ(kErrorCodeOk, cursor.next()) << count;
         }
-        EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch));
+        EXPECT_EQ(kErrorCodeOk, xct_manager->precommit_xct(context, &commit_epoch));
         EXPECT_LT(count, expected_records / kDistricts / kWarehouses * 11U / 10U);
         EXPECT_GT(count, expected_records / kDistricts / kWarehouses * 9U / 10U);
       }
       {
         // in-district backward scan
-        WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+        WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
         MasstreeCursor cursor(target, context);
         EXPECT_EQ(kErrorCodeOk, cursor.open(
           high,
@@ -848,12 +848,12 @@ ErrorStack district_scan_task(
           std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
           ++count;
           if ((count % kBatch) == 0U) {
-            EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch)) << count;
-            WRAP_ERROR_CODE(xct_manager.begin_xct(context, xct::kSerializable));
+            EXPECT_EQ(kErrorCodeOk, xct_manager->precommit_xct(context, &commit_epoch)) << count;
+            WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
           }
           EXPECT_EQ(kErrorCodeOk, cursor.next()) << count;
         }
-        EXPECT_EQ(kErrorCodeOk, xct_manager.precommit_xct(context, &commit_epoch));
+        EXPECT_EQ(kErrorCodeOk, xct_manager->precommit_xct(context, &commit_epoch));
         EXPECT_LT(count, expected_records / kDistricts / kWarehouses * 11U / 10U);
         EXPECT_GT(count, expected_records / kDistricts / kWarehouses * 9U / 10U);
       }

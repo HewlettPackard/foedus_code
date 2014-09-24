@@ -15,19 +15,15 @@
  * First thing first. Here's a minimal example to start \e one transaction in the engine.
  * @code{.cpp}
  * // Example to start and commit one transaction
- * class MyTask : public foedus::thread::ImpersonateTask {
- *  public:
- *   MyTask() {}
- *   foedus::ErrorStack run(foedus::thread::Thread* context) {
- *     foedus::Engine *engine = context->get_engine();
- *     foedus::xct::XctManager& xct_manager = engine->get_xct_manager();
- *     WRAP_ERROR_CODE(xct_manager.begin_xct(context, foedus::xct::kSerializable));
- *     ... // read/modify data. See storage module's document for examples.
- *     foedus::Epoch commit_epoch;
- *     WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
- *     WRAP_ERROR_CODE(xct_manager.wait_for_commit(commit_epoch));
- *     return foedus::kRetOk;
- *   }
+ * foedus::ErrorStack run_my_task(foedus::thread::Thread* context, ...) {
+ *   foedus::Engine *engine = context->get_engine();
+ *   foedus::xct::XctManager* xct_manager = engine->get_xct_manager();
+ *   WRAP_ERROR_CODE(xct_manager->begin_xct(context, foedus::xct::kSerializable));
+ *   ... // read/modify data. See storage module's document for examples.
+ *   foedus::Epoch commit_epoch;
+ *   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+ *   WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
+ *   return foedus::kRetOk;
  * }
  * @endcode
  *
@@ -41,13 +37,13 @@
  * // Example to start and commit several transactions
  * foedus::Epoch highest_commit_epoch;
  * for (int i = 0; i < 1000; ++i) {
- *   WRAP_ERROR_CODE(xct_manager.begin_xct(context, foedus::xct::kSerializable));
+ *   WRAP_ERROR_CODE(xct_manager->begin_xct(context, foedus::xct::kSerializable));
  *   ... // read/modify data. See storage module's document for examples.
  *   foedus::Epoch commit_epoch;
- *   WRAP_ERROR_CODE(xct_manager.precommit_xct(context, &commit_epoch));
+ *   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
  *   highest_commit_epoch.store_max(commit_epoch);
  * }
- * CHECK_ERROR(xct_manager.wait_for_commit(highest_commit_epoch));
+ * CHECK_ERROR(xct_manager->wait_for_commit(highest_commit_epoch));
  * @endcode
  * In this case, we invoke wait_for_commit() for the largest commit epoch just once at the end.
  * This dramatically improves the throughput at the cost of latency of individual transactions.

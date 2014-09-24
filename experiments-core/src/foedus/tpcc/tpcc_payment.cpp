@@ -161,7 +161,7 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
     << ", cid=" << cid << ", c_wid=" << c_wid << ", c_did=" << static_cast<int>(c_did)
     << ", time=" << timestring_.str();
   Epoch ep;
-  return engine_->get_xct_manager().precommit_xct(context_, &ep);
+  return engine_->get_xct_manager()->precommit_xct(context_, &ep);
 }
 
 
