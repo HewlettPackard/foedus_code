@@ -40,6 +40,8 @@ namespace foedus {
 namespace tpcc {
 DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
     " than threads in the same process. This is required to scale up to 100+ cores.");
+DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) worker threads in child"
+    " processes on replicated binaries. This is required to scale up to 16 sockets.");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
 DEFINE_int32(volatile_pool_size, 8, "Size of volatile memory pool per NUMA node in GB.");
@@ -253,25 +255,6 @@ TpccDriver::Result TpccDriver::run() {
     result.largereadset_aborts_ += output->largereadset_aborts_;
     result.user_requested_aborts_ += output->user_requested_aborts_;
   }
-/*
-for (uint32_t i = 0; i < clients_.size(); ++i) {
-  TpccClientTask* client = clients_[i];
-  std::stringstream msg;
-  msg << "Client-" << i << " remote WIDS:";
-  for (uint32_t w = 0; w < FLAGS_warehouses; ++w) {
-    msg << " " << client->stat_wids_[w];
-  }
-  LOG(INFO) << msg.str();
-}
-for (uint32_t i = 0; i < clients_.size(); ++i) {
-  TpccClientTask* client = clients_[i];
-  std::stringstream msg;
-  msg << "Client-" << i << " remote DIDS:";
-  for (uint32_t d = 0; d < kDistricts; ++d) {
-    msg << " " << client->stat_dids_[d];
-  }
-  LOG(INFO) << msg.str();
-}*/
   LOG(INFO) << "Shutting down...";
 
   // output the current memory state at the end
@@ -336,6 +319,7 @@ void TpccDriver::assign_iids() {
   assign_ids<Iid>(kItems, engine_->get_options(), &from_iids_, &to_iids_);
 }
 
+/** This method just constructs options and gives it to engine object. Nothing more */
 int driver_main(int argc, char **argv) {
   std::vector< proc::ProcAndName > procs;
   procs.emplace_back("tpcc_client_task", tpcc_client_task);
@@ -383,11 +367,6 @@ int driver_main(int argc, char **argv) {
       // again, numa_alloc_onnode should be better than numa_alloc_interleaved
       options.memory_.interleave_numa_alloc_ = true;
     }
-  }
-
-  if (FLAGS_fork_workers) {
-    std::cout << "Will fork workers in child processes" << std::endl;
-    options.soc_.soc_type_ = kChildForked;
   }
 
   options.snapshot_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/snapshot/node_$NODE$";
@@ -445,25 +424,26 @@ int driver_main(int argc, char **argv) {
     }
   }
 
+  if (FLAGS_fork_workers) {
+    std::cout << "Will fork workers in child processes" << std::endl;
+    options.soc_.soc_type_ = kChildForked;
+  } else if (FLAGS_exec_duplicates) {
+    std::cout << "Will duplicate binaries and exec workers in child processes" << std::endl;
+    options.soc_.soc_type_ = kChildLocalSpawned;
+  }
+
   TpccDriver::Result result;
   {
-    Engine* engine = new Engine(options);
+    Engine engine(options);
     for (const proc::ProcAndName& proc : procs) {
-      engine->get_proc_manager()->pre_register(proc);
+      engine.get_proc_manager()->pre_register(proc);
     }
-    COERCE_ERROR(engine->initialize());
+    COERCE_ERROR(engine.initialize());
     {
-      // UninitializeGuard guard(&engine);
-      TpccDriver driver(engine);
+      UninitializeGuard guard(&engine);
+      TpccDriver driver(&engine);
       result = driver.run();
-      // TODO(Hideaki) skip uninitialization. the tentative SOC implementation leaves
-      // page pool etc in un-synced, thus this causes an error.
-      if (!FLAGS_fork_workers) {
-        COERCE_ERROR(engine->uninitialize());
-      }
-    }
-    if (!FLAGS_fork_workers) {
-      delete engine;
+      COERCE_ERROR(engine.uninitialize());
     }
   }
 
@@ -484,10 +464,6 @@ int driver_main(int argc, char **argv) {
       "okular prof.pdf" << std::endl;
   }
 
-  if (FLAGS_fork_workers) {
-    // TODO(Hideaki) same above
-    ::exit(0);
-  }
   return 0;
 }
 

@@ -80,6 +80,13 @@ class TpccDriver {
 
 int driver_main(int argc, char **argv);
 
+/**
+ * What this method does is VERY hacky.
+ * This does manual binary replication because linux currently lacks user/kernel
+ * text replication to NUMA nodes.
+ */
+void replicate_binaries(EngineOptions* options);
+
 }  // namespace tpcc
 }  // namespace foedus
 #endif  // FOEDUS_TPCC_TPCC_DRIVER_HPP_

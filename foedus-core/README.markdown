@@ -75,9 +75,9 @@ Here is a minimal example program to create a key-value storage and query on it.
     const char* kProc = "myproc";
 
     ErrorStack my_proc(
-        thread::Thread context,
-        const void input_buffer, uint32_t input_len,
-        void output_buffer, uint32_t output_buffer_size, uint32_t output_used) {
+        thread::Thread* context,
+        const void* input_buffer, uint32_t input_len,
+        void* output_buffer, uint32_t output_buffer_size, uint32_t* output_used) {
       foedus::Engine* engine = context->get_engine();
       foedus::storage::array::ArrayStorage array(engine, kName);
       foedus::xct::XctManager* xct_manager = engine->get_xct_manager();

@@ -7,6 +7,7 @@ add_executable(tpcc
   ${CMAKE_CURRENT_SOURCE_DIR}/tpcc_neworder.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/tpcc_order_status.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/tpcc_payment.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/tpcc_replicate_binaries.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/tpcc_schema.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/tpcc_stock_level.cpp
 )
