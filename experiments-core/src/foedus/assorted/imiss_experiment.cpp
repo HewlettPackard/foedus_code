@@ -12,12 +12,14 @@
 
 #include <numa.h>
 #include <numaif.h>
+#include <papi.h>
 #include <stdint.h>
 #include <unistd.h>
 #include <sys/wait.h>
 
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -43,14 +45,17 @@
 #define REP15E(X) REP14E(X) REP14E(X)
 #define REP16E(X) REP15E(X) REP15E(X)
 #define REP17E(X) REP16E(X) REP16E(X)
-// #define REP18E(X) REP17E(X) REP17E(X)
+#define REP18E(X) REP17E(X) REP17E(X)
 // #define REP19E(X) REP18E(X) REP18E(X)
 // #define REP20E(X) REP19E(X) REP19E(X)
+// #define REP21E(X) REP20E(X) REP20E(X)
+// #define REP22E(X) REP21E(X) REP21E(X)
 
 int32_t the_stupid_func(int32_t val) {
   REP17E(asm("mov %1, %0\n\t add $1, %0" : "=r" (val) : "r" (val)););
   return val;
 }
+
 
 int nodes;
 int processes_per_node;
@@ -61,8 +66,12 @@ int process_main(int node, int p) {
   std::cout << "Proc-" << node << "-" << p << " started working on pid-" << ::getpid() << std::endl;
   foedus::debugging::StopWatch watch;
   int val = node + p;
+  void* func_ptr = reinterpret_cast<void*>(&the_stupid_func);
+  char buffer[1<<16];
+  std::memcpy(buffer, func_ptr, sizeof(buffer));
   for (int rep = 0; rep < reps; ++rep) {
     val = the_stupid_func(val);
+    std::memcpy(func_ptr, buffer, sizeof(buffer));
   }
   watch.stop();
   std::cout << "Proc-" << node << "-" << p << " took " << watch.elapsed_ms() << "ms."
@@ -78,6 +87,29 @@ int main(int argc, const char** argv) {
   nodes = std::atoi(argv[1]);
   processes_per_node = std::atoi(argv[2]);
   reps = std::atoi(argv[3]);
+
+  int version = ::PAPI_library_init(PAPI_VER_CURRENT);
+  int total_counters = ::PAPI_num_counters();
+  if (total_counters <= PAPI_OK) {
+    std::cerr << "PAPI is not supported in this environment. PAPI runtime version=" << version
+      << ", PAPI_VER_CURRENT=" << PAPI_VER_CURRENT << std::endl;
+    ::PAPI_shutdown();
+    return 1;
+  }
+  int kPapiEvents[] = { PAPI_L1_ICM, PAPI_L2_ICM, PAPI_TLB_IM };
+  const int kPapiEventCount = 3;
+
+  std::cout << "PAPI has " << total_counters << " counters. PAPI runtime version=" << version
+    << ", PAPI_VER_CURRENT=" << PAPI_VER_CURRENT << std::endl;
+  int papi_stat_ret = ::PAPI_start_counters(kPapiEvents, kPapiEventCount);
+  if (papi_stat_ret != PAPI_OK) {
+    std::cerr << "PAPI_start_counters failed. retval=" << papi_stat_ret;
+    ::PAPI_shutdown();
+    return 1;
+  } else {
+    std::cout << "Started counting " << kPapiEventCount
+      << "performance events via PAPI" << std::endl;
+  }
 
   std::vector<pid_t> pids;
   std::vector<bool> exitted;
@@ -123,6 +155,12 @@ int main(int argc, const char** argv) {
     }
   }
   std::cout << "All done!" << std::endl;
+
+  long long int counters[kPapiEventCount];
+  ::PAPI_stop_counters(counters, kPapiEventCount);
+  std::cout << "PAPI:PAPI_L1_ICM=" << counters[0] << std::endl;
+  std::cout << "PAPI:PAPI_L2_ICM=" << counters[1] << std::endl;
+  std::cout << "PAPI:PAPI_TLB_IM=" << counters[2] << std::endl;
   return 0;
 }
 
