@@ -141,16 +141,16 @@ namespace foedus {
     tinyxml2::XMLElement* root = doc.NewElement("testsuites");
     root->SetAttribute("name", "AllTests");
     root->SetAttribute("tests", 1);
-    root->SetAttribute("failures", 0);
-    root->SetAttribute("errors", 1);
+    root->SetAttribute("failures", 1);
+    root->SetAttribute("errors", 0);
     root->SetAttribute("time", 0);
     doc.InsertFirstChild(root);
 
     tinyxml2::XMLElement* suite = doc.NewElement("testsuite");
     suite->SetAttribute("name", (gtest_package_name + "." + gtest_test_case_name).c_str());
     suite->SetAttribute("tests", 1);
-    suite->SetAttribute("failures", 0);
-    suite->SetAttribute("errors", 1);
+    suite->SetAttribute("failures", 1);
+    suite->SetAttribute("errors", 0);
     suite->SetAttribute("disabled", 0);
     suite->SetAttribute("time", 0);
     root->InsertFirstChild(suite);
@@ -162,7 +162,7 @@ namespace foedus {
     testcase->SetAttribute("time", 0);
     suite->InsertFirstChild(testcase);
 
-    tinyxml2::XMLElement* test = doc.NewElement("error");
+    tinyxml2::XMLElement* test = doc.NewElement("failure");
     test->SetAttribute("type", to_signal_name(sig).c_str());
     test->SetAttribute("message", details.c_str());
     testcase->InsertFirstChild(test);

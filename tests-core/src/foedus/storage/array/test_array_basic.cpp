@@ -191,3 +191,6 @@ TEST(ArrayBasicTest, CreateAndReadWrite) {
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus
+
+
+TEST_MAIN_CAPTURE_SIGNALS(ArrayBasicTest, foedus.storage.array);

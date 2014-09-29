@@ -110,3 +110,5 @@ TEST(SharedRendezvousTest, Many) {
 
 }  // namespace soc
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(SharedRendezvousTest, foedus.soc);

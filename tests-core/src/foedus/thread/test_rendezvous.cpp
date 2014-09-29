@@ -109,3 +109,5 @@ TEST(RendezvousTest, Many) {
 
 }  // namespace thread
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(RendezvousTest, foedus.thread);

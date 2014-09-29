@@ -88,3 +88,5 @@ TEST(EndiannessTest, Test1) {
 
 }  // namespace assorted
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(EndiannessTest, foedus.assorted);

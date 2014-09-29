@@ -7,6 +7,7 @@
 #include <iostream>
 
 #include "foedus/epoch.hpp"
+#include "foedus/test_common.hpp"
 
 namespace foedus {
 DEFINE_TEST_CASE_PACKAGE(EpochTest, foedus);
@@ -39,3 +40,5 @@ TEST(EpochTest, Comparison) {
 }
 
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(EpochTest, foedus);

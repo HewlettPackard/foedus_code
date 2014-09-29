@@ -148,3 +148,5 @@ TEST(DirectIoFileTest, WriteWithLogBufferPad) {
 
 }  // namespace fs
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(DirectIoFileTest, foedus.fs);

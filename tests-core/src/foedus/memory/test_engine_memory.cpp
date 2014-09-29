@@ -81,3 +81,5 @@ TEST(EngineMemoryTest, TwoNodes) {
 
 }  // namespace memory
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(EngineMemoryTest, foedus.memory);

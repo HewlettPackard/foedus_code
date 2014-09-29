@@ -248,3 +248,5 @@ TEST(ArrayPartitionerTest, SortNoCompact) {
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(ArrayPartitionerTest, foedus.storage.array);

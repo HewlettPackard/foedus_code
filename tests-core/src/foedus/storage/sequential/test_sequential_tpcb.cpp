@@ -552,3 +552,5 @@ TEST(SequentialTpcbTest, FourThreadedContendedInc1S)      { run_test(4, true, kI
 }  // namespace sequential
 }  // namespace storage
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(SequentialTpcbTest, foedus.storage.sequential);

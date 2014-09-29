@@ -55,7 +55,7 @@ ErrorStack empty_task(
   return foedus::kRetOk;
 }
 
-TEST(MasstreeBasicTest, Empty) {
+TEST(MasstreeCursorTest, Empty) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
   engine.get_proc_manager()->pre_register("empty_task", empty_task);
@@ -131,7 +131,7 @@ ErrorStack one_page_task(
 }
 
 
-TEST(MasstreeBasicTest, OnePage) {
+TEST(MasstreeCursorTest, OnePage) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
   engine.get_proc_manager()->pre_register("one_page_task", one_page_task);
@@ -149,11 +149,13 @@ TEST(MasstreeBasicTest, OnePage) {
   cleanup_test(options);
 }
 
-TEST(MasstreeBasicTest, OneLayer) {
+TEST(MasstreeCursorTest, OneLayer) {
 }
-TEST(MasstreeBasicTest, TwoLayers) {
+TEST(MasstreeCursorTest, TwoLayers) {
 }
 
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(MasstreeCursorTest, foedus.storage.masstree);

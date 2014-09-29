@@ -316,3 +316,5 @@ TEST(MasstreeBasicTest, CreateAndDrop) {
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(MasstreeBasicTest, foedus.storage.masstree);

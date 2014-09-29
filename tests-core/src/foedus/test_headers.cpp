@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "foedus/test_common.hpp"
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/fs/path.hpp"
 
@@ -104,3 +105,5 @@ TEST(HeadersTest, IndependenceCXX98) {
 }
 
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(HeadersTest, foedus);

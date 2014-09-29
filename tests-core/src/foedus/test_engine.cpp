@@ -58,3 +58,5 @@ TEST(EngineTest, RestartManyTimes) {
 }
 
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(EngineTest, foedus);

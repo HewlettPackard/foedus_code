@@ -50,3 +50,5 @@ TEST(LogOptionsTest, NonePattern) {
 
 }  // namespace log
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(LogOptionsTest, foedus.log);

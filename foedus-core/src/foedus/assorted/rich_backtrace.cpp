@@ -94,6 +94,7 @@ std::vector<std::string> get_backtrace(bool rich) {
     }
     ret.emplace_back(str);
   }
+  ::free(traces);
   return ret;
 }
 

@@ -101,3 +101,5 @@ TEST(SequentialBasicTest, CreateAndWrite) {
 }  // namespace sequential
 }  // namespace storage
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(SequentialBasicTest, foedus.storage.sequential);

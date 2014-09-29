@@ -234,3 +234,5 @@ TEST(HashBasicTest, CreateAndDrop) {
 }  // namespace hash
 }  // namespace storage
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(HashBasicTest, foedus.storage.hash);
