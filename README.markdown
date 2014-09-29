@@ -1,7 +1,7 @@
 [Super-build] FOEDUS: Fast Optimistic Engine for Data Unification Services
 =================================
 
-Overviewf
+Overview
 --------
 FOEDUS is a new transactional key-value library developped at Hewlett-Packard Labs that is optimized
 for a large number of CPU cores and NVRAM storage. It is a handy C++ library you can
@@ -45,6 +45,9 @@ Current Build Status on Jenkins (For FOEDUS Developers)
 Building Development Environment (For FOEDUS Developers)
 --------
 We recommend newer Fedora, Ubuntu/Debian, etc.
+There are a few things you have to configure with sudo permission.
+See the *Environment Setup* section in [foedus-core](foedus-core).
+
 In Fedora/RedHat/CentOS etc, run the following:
 
     sudo yum install gcc gcc-c++ libstdc* cmake glibc glibc-* valgrind valgrind-devel
@@ -149,12 +152,6 @@ on the machine would like it.
 (the cmake script searches in this order: ~/local, /usr/local, /usr)
 * (Optional) Edit your environment variable to see $HOME/local/bin before /usr/bin.
 This is useful when you type "valgrind" in terminal, which might not happen often.
-
-
-Enabling Transparent Hugepages (For FOEDUS Developers)
---------
-Make sure you enable THP (Transparent Huge Page) in *always* mode.
-See the section in [foedus-core](foedus-core).
 
 Notes for PAPI on Ivy Bridge (For FOEDUS Developers)
 --------

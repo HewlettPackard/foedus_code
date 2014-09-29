@@ -91,19 +91,6 @@ void* alloc_mmap_1gb_pages(uint64_t size) {
   return alloc_mmap(size, 1ULL << 30);
 }
 
-void* alloc_mmap_small_pages(uint64_t size, uint64_t alignment, int node) {
-  // if allocating a small private memory, we can simply use libnuma
-  // this will also benefit from THP if configured.
-  if (alignment < (1ULL << 30)) {
-    if (node < 0) {
-      return ::numa_alloc_interleaved(size);
-    } else {
-      return ::numa_alloc_onnode(size, node);
-    }
-  }
-  return alloc_mmap(size, alignment);
-}
-
 void AlignedMemory::alloc(
   uint64_t size,
   uint64_t alignment,
@@ -119,7 +106,7 @@ void AlignedMemory::alloc(
   if (alloc_type_ == kNumaMmapOneGbPages) {
     alignment = 1ULL << 30;
   }
-  if (size_ % alignment != 0) {
+  if (size_ == 0 || size_ % alignment != 0) {
     size_ = ((size_ / alignment) + 1) * alignment;
   }
 
@@ -134,11 +121,9 @@ void AlignedMemory::alloc(
     case kPosixMemalign:
       ::posix_memalign(&block_, alignment, size_);
       break;
-    case kNumaAllocInterleaved:
-      block_ = alloc_mmap_small_pages(size_, alignment, -1);
-      break;
+    case kNumaAllocInterleaved:  // actually we no longer support this.. no reason to use this.
     case kNumaAllocOnnode:
-      block_ = alloc_mmap_small_pages(size_, alignment, numa_node);
+      block_ = alloc_mmap(size_, alignment);
       break;
     case kNumaMmapOneGbPages:
       block_ = alloc_mmap_1gb_pages(size_);
@@ -149,29 +134,6 @@ void AlignedMemory::alloc(
   watch.stop();
 
   debugging::StopWatch watch2;
-  // numa_alloc_onnode might be migrated (?), so forcibly set with mbind().
-  if (alloc_type_ == kNumaAllocOnnode || alloc_type_ == kNumaMmapOneGbPages) {
-    // mbind() receives uint32_t as second parameter. So, we must repeat it for each 1GB
-    const uint32_t kChunk = 1ULL << 30;
-    for (uint64_t cur = 0; cur < size; cur += kChunk) {
-      nodemask_t mask;
-      ::nodemask_zero(&mask);
-      ::nodemask_set_compat(&mask, numa_node);
-      uint32_t chunk = std::min<uint64_t>(kChunk, size - cur);
-      int64_t mbind_ret = ::mbind(
-        reinterpret_cast<char*>(block_) + cur,
-        chunk,
-        MPOL_BIND,  // | MPOL_F_STATIC_NODES, (not available in older numa.h)
-        mask.n,
-        sizeof(mask) * 8,
-        MPOL_MF_MOVE);
-      if (mbind_ret) {
-        LOG(FATAL) << "mbind() failed. size=" << size << ", cur=" << cur << ", numa_node="
-          << numa_node << ", error=" << assorted::os_error();
-      }
-    }
-  }
-
   std::memset(block_, 0, size_);  // see class comment for why we do this immediately
   watch2.stop();
   ::numa_set_preferred(original_node);
@@ -201,8 +163,6 @@ void AlignedMemory::release_block() {
         break;
       case kNumaAllocInterleaved:
       case kNumaAllocOnnode:
-        ::numa_free(block_, size_);
-        break;
       case kNumaMmapOneGbPages:
         ::munmap(block_, size_);
         break;

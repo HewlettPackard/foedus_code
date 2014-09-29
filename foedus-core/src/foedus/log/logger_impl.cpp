@@ -146,21 +146,21 @@ void Logger::handle_logger() {
   LOG(INFO) << "Logger-" << id_ << " started. pin on NUMA node-" << static_cast<int>(numa_node_);
   thread::NumaThreadScope scope(numa_node_);
   // The actual logging can't start until XctManager is initialized.
-  SPINLOCK_WHILE(!engine_->get_xct_manager()->is_initialized()) {
+  SPINLOCK_WHILE(!is_stop_requested() && !engine_->get_xct_manager()->is_initialized()) {
     assorted::memory_fence_acquire();
   }
 
   LOG(INFO) << "Logger-" << id_ << " now starts logging";
-  while (!control_block_->stop_requested_) {
+  while (!is_stop_requested()) {
     {
       soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());
-      if (!control_block_->stop_requested_) {
+      if (!is_stop_requested()) {
         control_block_->wakeup_cond_.timedwait(&scope, 10000000ULL);
       }
     }
     const int kMaxIterations = 100;
     int iterations = 0;
-    while (!control_block_->stop_requested_) {
+    while (!is_stop_requested()) {
       assert_consistent();
       bool more_log_to_process = false;
       COERCE_ERROR(handle_logger_once(&more_log_to_process));
@@ -632,7 +632,6 @@ std::ostream& operator<<(std::ostream& o, const Logger& v) {
   o << "</Logger>";
   return o;
 }
-
 
 }  // namespace log
 }  // namespace foedus

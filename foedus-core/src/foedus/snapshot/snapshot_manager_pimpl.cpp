@@ -115,19 +115,6 @@ void SnapshotManagerPimpl::handle_snapshot() {
       Snapshot new_snapshot;
       // TODO(Hideaki): graceful error handling
       COERCE_ERROR(handle_snapshot_triggered(&new_snapshot));
-      Epoch new_snapshot_epoch = new_snapshot.valid_until_epoch_;
-      ASSERT_ND(new_snapshot_epoch.is_valid() &&
-        (!get_snapshot_epoch().is_valid() || new_snapshot_epoch > get_snapshot_epoch()));
-
-      // done. notify waiters if exist
-      Epoch::EpochInteger epoch_after = new_snapshot_epoch.value();
-      control_block_->previous_snapshot_id_ = new_snapshot.id_;
-      control_block_->previous_snapshot_time_ = std::chrono::system_clock::now();
-      {
-        soc::SharedMutexScope scope(control_block_->snapshot_taken_.get_mutex());
-        control_block_->snapshot_epoch_ = epoch_after;
-        control_block_->snapshot_taken_.broadcast(&scope);
-      }
     } else {
       VLOG(1) << "Snapshotting not triggered. going to sleep again";
     }
@@ -196,6 +183,19 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
   // Finally, write out the metadata file.
   CHECK_ERROR(snapshot_metadata(new_snapshot));
 
+  Epoch new_snapshot_epoch = new_snapshot->valid_until_epoch_;
+  ASSERT_ND(new_snapshot_epoch.is_valid() &&
+    (!get_snapshot_epoch().is_valid() || new_snapshot_epoch > get_snapshot_epoch()));
+
+  // done. notify waiters if exist
+  Epoch::EpochInteger epoch_after = new_snapshot_epoch.value();
+  control_block_->previous_snapshot_id_ = snapshot_id;
+  control_block_->previous_snapshot_time_ = std::chrono::system_clock::now();
+  {
+    soc::SharedMutexScope scope(control_block_->snapshot_taken_.get_mutex());
+    control_block_->snapshot_epoch_ = epoch_after;
+    control_block_->snapshot_taken_.broadcast(&scope);
+  }
   return kRetOk;
 }
 

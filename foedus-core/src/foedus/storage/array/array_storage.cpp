@@ -13,6 +13,12 @@
 namespace foedus {
 namespace storage {
 namespace array {
+ArrayStorage::ArrayStorage(Engine* engine, StorageId id) {
+  engine_ = engine;
+  control_block_
+    = reinterpret_cast<ArrayStorageControlBlock*>(engine->get_storage_manager()->get_storage(id));
+}
+
 ArrayStorage::ArrayStorage(Engine* engine, const StorageName& name) {
   engine_ = engine;
   control_block_

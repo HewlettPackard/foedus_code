@@ -31,7 +31,7 @@ struct Snapshot {
   SnapshotId  id_;
 
   /**
-   * This snapshot was taken based on another snapshot that is valid_until this epoch.
+   * This snapshot was taken on top of previous snapshot that is valid_until this epoch.
    * If this is the first snapshot, this is an invalid epoch.
    */
   Epoch base_epoch_;
