@@ -6,8 +6,27 @@
 
 #include <cstdlib>
 #include <iostream>
+
+#include "foedus/assert_nd.hpp"
+#include "foedus/test_common.hpp"
+
 namespace foedus {
 DEFINE_TEST_CASE_PACKAGE(DummyTest, foedus);
+
+void func3() {
+  // Disabled usually. Enable only when to test Jenkins.
+  // std::abort();
+  std::abort();
+}
+
+void func2() {
+  func3();
+}
+
+void func1() {
+  func2();
+}
+
 /**
  * Just to see if Jenkins can pick up aborted testcases.
  * This is a bit trickier than it should be.
@@ -18,10 +37,11 @@ DEFINE_TEST_CASE_PACKAGE(DummyTest, foedus);
  *   https://code.google.com/p/googletest/issues/detail?id=311
  */
 TEST(DummyTest, Abort) {
-  // Disabled usually. Enable only when to test Jenkins.
-  // std::abort();
+  func1();
 }
 TEST(DummyTest, NotAbort) {
 }
 
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(DummyTest, foedus);

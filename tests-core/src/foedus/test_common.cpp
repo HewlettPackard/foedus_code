@@ -2,13 +2,21 @@
  * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
  * The license and distribution terms for this file are placed in LICENSE.txt.
  */
+#include "foedus/test_common.hpp"
+
+#include <execinfo.h>
+#include <signal.h>
+#include <tinyxml2.h>
+#include <unistd.h>
+
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "foedus/engine_options.hpp"
-#include "foedus/test_common.hpp"
+#include "foedus/assorted/rich_backtrace.hpp"
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/fs/path.hpp"
 
@@ -81,5 +89,176 @@ namespace foedus {
       std::cerr << "These tests inherently require multi NUMA nodes! skipping them." << std::endl;
       return false;
     }
+  }
+
+
+  std::string to_signal_name(int sig) {
+    switch (sig) {
+    case SIGHUP    : return "Hangup (POSIX).";
+    case SIGINT    : return "Interrupt (ANSI).";
+    case SIGQUIT   : return "Quit (POSIX).";
+    case SIGILL    : return "Illegal instruction (ANSI).";
+    case SIGTRAP   : return "Trace trap (POSIX).";
+    case SIGABRT   : return "Abort (ANSI).";
+    case SIGBUS    : return "BUS error (4.2 BSD).";
+    case SIGFPE    : return "Floating-point exception (ANSI).";
+    case SIGKILL   : return "Kill, unblockable (POSIX).";
+    case SIGUSR1   : return "User-defined signal 1 (POSIX).";
+    case SIGSEGV   : return "Segmentation violation (ANSI).";
+    case SIGUSR2   : return "User-defined signal 2 (POSIX).";
+    case SIGPIPE   : return "Broken pipe (POSIX).";
+    case SIGALRM   : return "Alarm clock (POSIX).";
+    case SIGTERM   : return "Termination (ANSI).";
+    case SIGSTKFLT : return "Stack fault.";
+    case SIGCHLD   : return "Child status has changed (POSIX).";
+    case SIGCONT   : return "Continue (POSIX).";
+    case SIGSTOP   : return "Stop, unblockable (POSIX).";
+    case SIGTSTP   : return "Keyboard stop (POSIX).";
+    case SIGTTIN   : return "Background read from tty (POSIX).";
+    case SIGTTOU   : return "Background write to tty (POSIX).";
+    case SIGURG    : return "Urgent condition on socket (4.2 BSD).";
+    case SIGXCPU   : return "CPU limit exceeded (4.2 BSD).";
+    case SIGXFSZ   : return "File size limit exceeded (4.2 BSD).";
+    case SIGVTALRM : return "Virtual alarm clock (4.2 BSD).";
+    case SIGPROF   : return "Profiling alarm clock (4.2 BSD).";
+    case SIGWINCH  : return "Window size change (4.3 BSD, Sun).";
+    case SIGIO   : return "I/O now possible (4.2 BSD).";
+    case SIGPWR    : return "Power failure restart (System V).";
+    case SIGSYS    : return "Bad system call.";
+    default:
+      return "UNKNOWN";
+    }
+  }
+  std::string gtest_xml_path;
+  std::string gtest_individual_test;
+  std::string gtest_test_case_name;
+  std::string gtest_package_name;
+  std::string generate_failure_xml(int sig, const std::string& details) {
+    // The XML must be in JUnit format
+    // https://svn.jenkins-ci.org/trunk/hudson/dtkit/dtkit-format/dtkit-junit-model/src/main/resources/com/thalesgroup/dtkit/junit/model/xsd/junit-4.xsd
+    // http://windyroad.com.au/dl/Open%20Source/JUnit.xsd
+    tinyxml2::XMLDocument doc;
+    tinyxml2::XMLElement* root = doc.NewElement("testsuites");
+    root->SetAttribute("name", "AllTests");
+    root->SetAttribute("tests", 1);
+    root->SetAttribute("failures", 0);
+    root->SetAttribute("errors", 1);
+    root->SetAttribute("time", 0);
+    doc.InsertFirstChild(root);
+
+    tinyxml2::XMLElement* suite = doc.NewElement("testsuite");
+    suite->SetAttribute("name", (gtest_package_name + "." + gtest_test_case_name).c_str());
+    suite->SetAttribute("tests", 1);
+    suite->SetAttribute("failures", 0);
+    suite->SetAttribute("errors", 1);
+    suite->SetAttribute("disabled", 0);
+    suite->SetAttribute("time", 0);
+    root->InsertFirstChild(suite);
+
+    tinyxml2::XMLElement* testcase = doc.NewElement("testcase");
+    testcase->SetAttribute("name", gtest_individual_test.c_str());
+    testcase->SetAttribute("status", "run");
+    testcase->SetAttribute("classname", (gtest_package_name + "." + gtest_test_case_name).c_str());
+    testcase->SetAttribute("time", 0);
+    suite->InsertFirstChild(testcase);
+
+    tinyxml2::XMLElement* test = doc.NewElement("error");
+    test->SetAttribute("type", to_signal_name(sig).c_str());
+    test->SetAttribute("message", details.c_str());
+    testcase->InsertFirstChild(test);
+
+    tinyxml2::XMLPrinter printer;
+    doc.Print(&printer);
+    return printer.CStr();
+  }
+  static void handle_signals(int sig, siginfo_t* si, void* /*unused*/) {
+    std::stringstream str;
+    str << "================================================================" << std::endl;
+    str << "====   SIGNAL Received While Running Testcase" << std::endl;
+    str << "====   SIGNAL Code=" << sig << "("<< to_signal_name(sig) << ")" << std::endl;
+    str << "====   At address=" << si->si_addr << std::endl;
+    str << "================================================================" << std::endl;
+
+    std::vector<std::string> traces = assorted::get_backtrace(true);
+
+    str << "=== Stack frame (length=" << traces.size() << ")" << std::endl;
+    for (uint16_t i = 0; i < traces.size(); ++i) {
+      str << "- [" << i << "/" << traces.size() << "] " << traces[i] << std::endl;
+    }
+
+    std::string details = str.str();
+    std::cerr << details;
+
+    if (gtest_xml_path.size() == 0) {
+      std::cerr << "XML Output file was not specified, so we exit as a usual crash" << std::endl;
+      ::exit(1);
+    } else {
+      std::cerr << "Converting the signal to a testcase failure in " << gtest_xml_path << std::endl;
+      // We exit with a normal return value because this is a testcase failure, likely assertions.
+      // We report this error in the result XML, but let the build itself go through.
+      std::string xml = generate_failure_xml(sig, details);
+      std::cerr << "Xml content: " << std::endl << xml << std::endl;
+
+      std::ofstream out;
+      out.open(gtest_xml_path, std::ios_base::out | std::ios_base::trunc);
+      if (!out.is_open()) {
+        std::cerr << "Couldn't open xml file. os_error= " << assorted::os_error() << std::endl;
+        ::exit(1);
+      }
+      out << xml;
+      out.flush();
+      out.close();
+      std::cerr << "Wrote out result xml file. Now exitting.." << std::endl;
+      ::exit(1);
+    }
+  }
+  void register_signal_handlers(
+    const char* test_case_name,
+    const char* package_name,
+    int argc,
+    char** argv) {
+
+    std::cout << "****************************************************************" << std::endl;
+    std::cout << "*****  Started FOEDUS Unit Testcase " << std::endl;
+    std::cout << "*****  Testcase name: " << test_case_name << std::endl;
+    std::cout << "*****  Test Package name: " << package_name << std::endl;
+    std::cout << "*****  Arguments (argc=" << argc << "): " << std::endl;
+
+    gtest_test_case_name = test_case_name;
+    gtest_package_name = package_name;
+    gtest_xml_path = "";
+    gtest_individual_test = "";
+    for (int i = 0; i < argc; ++i) {
+      std::cout << "*****    argv[" << i << "]: " << argv[i] << std::endl;
+      std::string str(argv[i]);
+      if (str.find("--gtest_output=xml:") == 0) {
+        gtest_xml_path = str.substr(std::string("--gtest_output=xml:").size());
+      } else if (str.find("--gtest_filter=*.") == 0) {
+        gtest_individual_test = str.substr(std::string("--gtest_filter=*.").size());
+      }
+    }
+    if (gtest_xml_path.size() > 0) {
+      std::cout << "*****  XML Output: " << gtest_xml_path << std::endl;
+    } else {
+      std::cout << "*****  XML Output file was not specified. Executed manually?" << std::endl;
+    }
+    if (gtest_individual_test.size() > 0) {
+      std::cout << "*****  Running an individual test: " << gtest_individual_test << std::endl;
+    } else {
+      std::cout << "*****  Individual test was not specified. Executed manually?" << std::endl;
+    }
+    std::cout << "****************************************************************" << std::endl;
+
+    struct sigaction sa;
+    sa.sa_flags = SA_SIGINFO;
+    ::sigemptyset(&sa.sa_mask);
+    sa.sa_sigaction = handle_signals;
+
+    // we do not capture all signals. Only the followings are considered as 'expected'
+    // testcase failures.
+    ::sigaction(SIGABRT, &sa, nullptr);
+    ::sigaction(SIGBUS, &sa, nullptr);
+    ::sigaction(SIGFPE, &sa, nullptr);
+    ::sigaction(SIGSEGV, &sa, nullptr);
   }
 }  // namespace foedus

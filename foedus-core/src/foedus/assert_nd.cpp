@@ -4,17 +4,22 @@
  */
 #include "foedus/assert_nd.hpp"
 
-#include <execinfo.h>
-#include <unistd.h>
-
-#include <cstdlib>
 #include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "foedus/assorted/rich_backtrace.hpp"
+
 namespace foedus {
 void print_backtrace() {
-  void *array[16];
-  int size = ::backtrace(array, 16);
-  std::cerr << "================== Dumping " << size << " stack frames..." << std::endl;
-  // to avoid malloc issue while backtrace_symbols(), we use backtrace_symbols_fd.
-  ::backtrace_symbols_fd(array, size, STDERR_FILENO);
+  std::vector<std::string> traces = assorted::get_backtrace(true);
+  std::stringstream str;
+  str << "=== Stack frame (length=" << traces.size() << ")" << std::endl;
+  for (uint16_t i = 0; i < traces.size(); ++i) {
+    str << "- [" << i << "/" << traces.size() << "] " << traces[i] << std::endl;
+  }
+  std::cerr << str.str();
 }
+
 }  // namespace foedus
