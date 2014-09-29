@@ -22,6 +22,78 @@ Unfortunately, even if users configure it right, some storage device sacrifices 
 sake of performance. So is some file system. For those environments, we cannot guarantee ACID.
 
 
+Environment Setup (ATTENTION! Read this before using FOEDUS!)
+--------
+Unfortunately, there are a few things you have to setup in your environment.
+These setups require sudo permission, so FOEDUS does not set them up itself.
+If you get any error, make sure you setup the followings.
+
+* Allocate enough hugepages.
+
+FOEDUS uses non-transparent hugepages for most memory allocations.
+If the machine does not have enough hugepages, it will not even start up.
+Check your current configuration as follows.
+
+    # Check your current Hugepage setting
+    more /proc/sys/vm/nr_hugepages
+    more /proc/meminfo
+
+Depending on the size of volatile pool and logger buffer you specify in the configuration,
+adjust the number of hugepages as follows.
+
+    # Change the number depending on hugepage size and required memory size.
+    # The following command allocates 2GB if Hugepagesize is 2048 kB.
+    sudo sh -c 'echo 1000 > /proc/sys/vm/nr_hugepages'
+
+Note that we no longer rely on transparent hugepages (THP), every hugepage allocation is via
+mmap and shmget. Thus, the user has to explicitly pre-allocate hugepages as above.
+We made this decision for a few reasons. First, a rumor says future linux will purge THP.
+Second, there are several performance issues in THP, including lack of 1GB hugepages and compaction.
+Third, many other large-scale software uses non-transparent hugepages. Mixing THP and
+non-transparent hugepages is known to have several issues, so we do not use THP to be a good
+citizen. Hence, we now recommend to disable THP.
+
+
+* Increase maximum shared memory size.
+
+The default maximum of shared memory is ridiculously small.
+We recommend to set an infinitely large number as follows:
+
+    sudo sysctl -w kernel.shmmax=9223372036854775807;sudo sysctl -w kernel.shmall=1152921504606846720;sudo sysctl -p
+
+The above command is effective only until reboot. In order to make it permanent, add
+the following entries to /etc/sysctl.conf:
+
+    # Add these entries to /etc/sysctl.conf.
+    kernel.shmmax = 9223372036854775807
+    kernel.shmall = 1152921504606846720
+
+If you have some reason to set a smaller number, carefully calculate required sizes and
+replace the above numbers.
+
+
+* Configure ulimit
+
+There are a few ulimit settings you have to increase.
+Some of these settings has a ridiculously small default value, so FOEDUS will not start up
+otherwise.
+
+    # Check your current ulimit setting
+    ulimit -a
+
+    # Add these entries to /etc/security/limits.conf.
+    <your_user_name>  - nofile -1
+    <your_user_name>  - nproc 655360
+    <your_user_name>  - rtprio 99
+    <your_user_name>  - memlock -1
+
+This will not take effect until you log-in again.
+If you want to immediately apply the values without log out, one workaround is:
+
+    # Note, even this does not work for already-running sessions/GUIs. re-login to make sure.
+    sudo -i -u <your_user_name>
+
+
 Compilation
 --------
 (If you get a compilation error for missing libraries, refer to Dependencies section.)
@@ -50,7 +122,6 @@ libfoedus-core from C++98/03 projects without problems although some APIs are no
 If you are to enable C++11, on the other hand, add the following in your CMakeLists.
 
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 
 Get Started
 -----------
@@ -114,6 +185,7 @@ For more details, start from <a href="modules.html">Module List</a> and
 <a href="namespaces.html">Namespace List</a>.
 
 
+<!-- We no longer use transparent hugepages. Commented out.
 Enabling Transparent Hugepages (THP)
 --------
 Our library is geared to intensively exploit Hugepages via
@@ -135,18 +207,7 @@ If your linux distro does not support THP, the performance will significantly de
 it will run correctly and safely.
 
 We rely on *always* mode because we simply allocate memory via libnuma without madvise.
-
-Non-Transparent Hugepages
---------
-TBD: Have to write up detailed instructions. This is so far a memo just for my self.
-
-Boot with "hugepagesz=1G default_hugepagesz=1G hugepages=48" (for example).
-Linux 3.16 and later can dynamically allocate 1G hugepages (though hugepagesz needs reboot).
-Now tpcc has mmap_hugepages parameter. Use it.
-Be super careful on volatile_pool_size/thread_per_node/log_buffer_mb.
-Use numastat to check if it's actually used and evenly distribtued to NUMA nodes.
-Numastat 2.08 has some bug on this, download the latest and source build.
-https://bugzilla.redhat.com/show_bug.cgi?id=987507
+-->
 
 Dependencies
 -----------

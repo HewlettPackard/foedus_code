@@ -184,6 +184,7 @@ class Logger final : public DefaultInitializable, public LoggerRef {
   Logger& operator=(const Logger &other) = delete;
 
   LogFileOrdinal get_current_ordinal() const { return control_block_->current_ordinal_; }
+  bool is_stop_requested() const { return control_block_->stop_requested_; }
 
   std::string             to_string() const;
   friend std::ostream&    operator<<(std::ostream& o, const Logger& v);

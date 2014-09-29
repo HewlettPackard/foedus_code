@@ -156,7 +156,7 @@ int main(int argc, const char** argv) {
   }
   std::cout << "All done!" << std::endl;
 
-  long long int counters[kPapiEventCount];
+  long long int counters[kPapiEventCount];  // NOLINT[runtime/int] PAPI API requirement
   ::PAPI_stop_counters(counters, kPapiEventCount);
   std::cout << "PAPI:PAPI_L1_ICM=" << counters[0] << std::endl;
   std::cout << "PAPI:PAPI_L2_ICM=" << counters[1] << std::endl;

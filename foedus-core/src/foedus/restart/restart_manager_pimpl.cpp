@@ -12,8 +12,10 @@
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/log/log_manager.hpp"
 #include "foedus/snapshot/snapshot_manager.hpp"
+#include "foedus/snapshot/snapshot_manager_pimpl.hpp"
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/xct/xct_manager.hpp"
+#include "foedus/savepoint/savepoint_manager.hpp"
 
 namespace foedus {
 namespace restart {
@@ -67,6 +69,11 @@ ErrorStack RestartManagerPimpl::recover() {
     return kRetOk;
   }
 
+  LOG(INFO) << "There are logs that are durable but not yet snapshotted. Launching snapshot..";
+  snapshot::SnapshotManagerPimpl* snapshot_pimpl = engine_->get_snapshot_manager()->get_pimpl();
+  snapshot::Snapshot snapshot;
+  CHECK_ERROR(snapshot_pimpl->handle_snapshot_triggered(&snapshot));
+  LOG(INFO) << "Finished initial snapshot during start-up. Now we can start processing transaction";
   return kRetOk;
 }
 

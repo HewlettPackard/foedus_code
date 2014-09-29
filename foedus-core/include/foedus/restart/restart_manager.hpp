@@ -10,9 +10,15 @@
 namespace foedus {
 namespace restart {
 /**
- * @brief Restart manager, which recovers the state of database by re-playing transaction
- * logs at start-up.
+ * @brief Restart manager, which recovers the state of database by invoking log-gleaner
+ * at start-up.
  * @ingroup RESTART
+ * @details
+ * @par Simplistic Restart
+ * A DBMS usually has a complex ('sophisticated') restart routine especially if they try to reduce
+ * start-up time. On the other hand, FOEDUS simply invokes the log gleaner just like a periodic
+ * snapshot. This is a huge saving in code complexity. As far as we optimize the log gleaner,
+ * the start-up time is not slower than typical replay-every-log-style traditional restart, either.
  */
 class RestartManager CXX11_FINAL : public virtual Initializable {
  public:
