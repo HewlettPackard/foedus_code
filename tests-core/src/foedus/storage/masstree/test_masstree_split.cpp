@@ -73,7 +73,7 @@ ErrorStack split_border_task(
   return foedus::kRetOk;
 }
 
-TEST(MasstreeBasicTest, SplitBorder) {
+TEST(MasstreeSplitTest, SplitBorder) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
   engine.get_proc_manager()->pre_register("split_border_task", split_border_task);
@@ -136,7 +136,7 @@ ErrorStack split_border_normalized_task(
   return foedus::kRetOk;
 }
 
-TEST(MasstreeBasicTest, SplitBorderNormalized) {
+TEST(MasstreeSplitTest, SplitBorderNormalized) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
   engine.get_proc_manager()->pre_register("the_task", split_border_normalized_task);
@@ -200,7 +200,7 @@ ErrorStack split_in_next_layer_task(
   return foedus::kRetOk;
 }
 
-TEST(MasstreeBasicTest, SplitInNextLayer) {
+TEST(MasstreeSplitTest, SplitInNextLayer) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
   engine.get_proc_manager()->pre_register("split_in_next_layer_task", split_in_next_layer_task);
@@ -270,7 +270,7 @@ ErrorStack split_intermediate_sequential_task(
   return foedus::kRetOk;
 }
 
-TEST(MasstreeBasicTest, SplitIntermediateSequential) {
+TEST(MasstreeSplitTest, SplitIntermediateSequential) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
   engine.get_proc_manager()->pre_register("the_task", split_intermediate_sequential_task);
@@ -291,3 +291,5 @@ TEST(MasstreeBasicTest, SplitIntermediateSequential) {
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(MasstreeSplitTest, foedus.storage.masstree);

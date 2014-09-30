@@ -59,3 +59,5 @@ TEST(XctIdTest, SetThread) {
 
 }  // namespace xct
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(XctIdTest, foedus.xct);

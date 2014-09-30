@@ -40,6 +40,41 @@ namespace foedus {
    * All testcases have to pass even in a single-NUMA node machine!
    */
   bool            is_multi_nodes();
+
+  /**
+   * Register signal handlers to capture signals during testcase execution.
+   */
+  void            register_signal_handlers(
+    const char* test_case_name,
+    const char* package_name,
+    int argc,
+    char** argv);
 }  // namespace foedus
+
+#define TEST_QUOTE(str) #str
+#define TEST_EXPAND_AND_QUOTE(str) TEST_QUOTE(str)
+
+/**
+ * Put this macro to define a main() that registers signal handlers.
+ * This is required to convert assertion failures (crashes) to failed tests and provide more
+ * detailed information in google-test's result xml file.
+ * This really should be a built-in feature in gtest...
+ *
+ * But, I'm not sure if I should blame ctest, jenkins, or gtest (or all of them).
+ * Related URLs:
+ *   https://groups.google.com/forum/#!topic/googletestframework/NK5cAEqsioY
+ *   https://code.google.com/p/googletest/issues/detail?id=342
+ *   https://code.google.com/p/googletest/issues/detail?id=311
+ */
+#define TEST_MAIN_CAPTURE_SIGNALS(test_case_name, package_name) \
+  int main(int argc, char **argv) { \
+    foedus::register_signal_handlers( \
+      TEST_EXPAND_AND_QUOTE(test_case_name), \
+      TEST_EXPAND_AND_QUOTE(package_name), \
+      argc, \
+      argv); \
+    ::testing::InitGoogleTest(&argc, argv); \
+    return RUN_ALL_TESTS(); \
+  }
 
 #endif  // FOEDUS_TEST_COMMON_HPP_

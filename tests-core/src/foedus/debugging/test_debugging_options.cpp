@@ -50,3 +50,5 @@ TEST(DebuggingOptionsTest, Profile) {
 
 }  // namespace debugging
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(DebuggingOptionsTest, foedus.debugging);

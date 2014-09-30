@@ -188,3 +188,5 @@ TEST(LogBasicTest, BufferWrapAround) {
 
 }  // namespace log
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(LogBasicTest, foedus.log);

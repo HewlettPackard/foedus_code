@@ -541,3 +541,5 @@ TEST(ArrayTpcbTest, FourThreadedContendedInc1S)      { run_test(4, true, kIncrem
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(ArrayTpcbTest, foedus.storage.array);

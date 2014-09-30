@@ -11,11 +11,11 @@
 #include "foedus/epoch.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/log/log_manager.hpp"
+#include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/snapshot/snapshot_manager.hpp"
 #include "foedus/snapshot/snapshot_manager_pimpl.hpp"
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/xct/xct_manager.hpp"
-#include "foedus/savepoint/savepoint_manager.hpp"
 
 namespace foedus {
 namespace restart {

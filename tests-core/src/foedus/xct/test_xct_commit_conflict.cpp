@@ -231,3 +231,5 @@ TEST(XctCommitConflictTest, ExtremeConflict) {
 
 }  // namespace xct
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(XctCommitConflictTest, foedus.xct);

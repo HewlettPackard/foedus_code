@@ -9,5 +9,6 @@ endif ()
 include_directories(
     ${CMAKE_SOURCE_DIR}/foedus-core/include
     ${CMAKE_BINARY_DIR}/third_party/gflags-2.1.1/include
+    ${CMAKE_SOURCE_DIR}/foedus-core/third_party/tinyxml2-2.1.0
     ${CMAKE_SOURCE_DIR}/foedus-core/third_party/glog-0.3.3/src
     ${CMAKE_BINARY_DIR}/foedus-core/third_party/glog-0.3.3/src)

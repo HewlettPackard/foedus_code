@@ -90,3 +90,5 @@ TEST(StoppableThreadTest, Many) {
 
 }  // namespace thread
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(StoppableThreadTest, foedus.thread);

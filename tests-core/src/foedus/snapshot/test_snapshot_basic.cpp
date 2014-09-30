@@ -147,3 +147,5 @@ TEST(SnapshotBasicTest, TwoArrayCreate) {
 
 }  // namespace snapshot
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(SnapshotBasicTest, foedus.snapshot);

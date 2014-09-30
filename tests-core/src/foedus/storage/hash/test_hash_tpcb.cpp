@@ -558,3 +558,5 @@ TEST(HashTpcbTest, FourThreadedContendedInc)      { multi_thread_test(4, true, t
 }  // namespace hash
 }  // namespace storage
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(HashTpcbTest, foedus.storage.hash);

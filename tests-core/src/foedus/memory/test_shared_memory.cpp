@@ -165,3 +165,5 @@ TEST(SharedMemoryTest, ShareSpawn) {
 
 }  // namespace memory
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(SharedMemoryTest, foedus.memory);

@@ -298,3 +298,5 @@ TEST(XctIdLockTest, Random) {
 
 }  // namespace xct
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(XctIdLockTest, foedus.xct);

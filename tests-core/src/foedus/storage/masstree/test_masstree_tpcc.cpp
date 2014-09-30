@@ -882,3 +882,5 @@ TEST(MasstreeTpccTest, DistrictScanOrderlines) {
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(MasstreeTpccTest, foedus.storage.masstree);

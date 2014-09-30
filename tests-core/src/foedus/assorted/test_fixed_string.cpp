@@ -72,3 +72,5 @@ TEST(FixedStringTest, Compare) {
 
 }  // namespace assorted
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(FixedStringTest, foedus.assorted);

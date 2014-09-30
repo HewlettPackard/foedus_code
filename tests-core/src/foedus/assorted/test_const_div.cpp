@@ -65,3 +65,5 @@ TEST(ConstDivTest, TestRandom) {
 }
 }  // namespace assorted
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(ConstDivTest, foedus.assorted);

@@ -130,3 +130,5 @@ TEST(SharedMemoryRepoTest, Attach) {
 
 }  // namespace soc
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(SharedMemoryRepoTest, foedus.soc);

@@ -106,3 +106,5 @@ TEST(SharedMutexTest, SharedMemoryFork) {
 
 }  // namespace soc
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(SharedMutexTest, foedus.soc);

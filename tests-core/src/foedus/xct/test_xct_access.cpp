@@ -174,3 +174,5 @@ TEST(XctAccessTest, RandomWriteSet) {
 }
 }  // namespace xct
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(XctAccessTest, foedus.xct);

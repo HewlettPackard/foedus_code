@@ -72,3 +72,5 @@ TEST(DumbSpinlockTest, SixThreadsLazy) { test(6, true); }
 
 }  // namespace assorted
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(DumbSpinlockTest, foedus.assorted);

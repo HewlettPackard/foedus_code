@@ -136,3 +136,5 @@ TEST(RawAtomicsTest, Int64Weak) { CasTest<int64_t>(true).test(); }
 
 }  // namespace assorted
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(RawAtomicsTest, foedus.assorted);

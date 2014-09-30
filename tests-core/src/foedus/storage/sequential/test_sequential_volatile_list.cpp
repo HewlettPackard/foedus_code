@@ -185,3 +185,5 @@ TEST(SequentialVolatileListTest, FourThreads) { execute_test(4); }
 }  // namespace sequential
 }  // namespace storage
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(SequentialVolatileListTest, foedus.storage.sequential);

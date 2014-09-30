@@ -602,3 +602,5 @@ TEST(MasstreeTpcbTest, FourThreadedContendedInc)      { multi_thread_test(4, tru
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(MasstreeTpcbTest, foedus.storage.masstree);

@@ -101,3 +101,5 @@ TEST(ThreadPoolTest, SchedRealtime) { run_sched(kScheduleFifo, kPriorityHighest)
 
 }  // namespace thread
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(ThreadPoolTest, foedus.thread);

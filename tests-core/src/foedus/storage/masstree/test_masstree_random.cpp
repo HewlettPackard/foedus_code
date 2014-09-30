@@ -102,7 +102,7 @@ ErrorStack insert_many_normalized_task(
   return foedus::kRetOk;
 }
 
-TEST(MasstreeBasicTest, InsertManyNormalized) {
+TEST(MasstreeRandomTest, InsertManyNormalized) {
   EngineOptions options = get_tiny_options();
   options.memory_.page_pool_size_mb_per_node_ = 64;
   Engine engine(options);
@@ -203,7 +203,7 @@ ErrorStack insert_many_normalized_verify_task(
   return kRetOk;
 }
 
-TEST(MasstreeBasicTest, InsertManyNormalizedMt) {
+TEST(MasstreeRandomTest, InsertManyNormalizedMt) {
   EngineOptions options = get_tiny_options();
   options.memory_.page_pool_size_mb_per_node_ = 64;
   const uint32_t kThreads = 4;
@@ -322,7 +322,7 @@ ErrorStack insert_many_task(
   return foedus::kRetOk;
 }
 
-TEST(MasstreeBasicTest, InsertMany) {
+TEST(MasstreeRandomTest, InsertMany) {
   /* TODO(Hideaki) implemented next-layer moved bit tracking
   EngineOptions options = get_tiny_options();
   options.memory_.page_pool_size_mb_per_node_ = 64;
@@ -347,3 +347,5 @@ TEST(MasstreeBasicTest, InsertMany) {
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus
+
+TEST_MAIN_CAPTURE_SIGNALS(MasstreeRandomTest, foedus.storage.masstree);
