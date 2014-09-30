@@ -16,7 +16,6 @@ DEFINE_TEST_CASE_PACKAGE(DummyTest, foedus);
 void func3() {
   // Disabled usually. Enable only when to test Jenkins.
   // std::abort();
-  std::abort();
 }
 
 void func2() {
