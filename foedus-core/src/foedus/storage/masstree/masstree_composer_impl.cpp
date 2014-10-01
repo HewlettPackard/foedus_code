@@ -28,11 +28,11 @@ namespace masstree {
 
 MasstreeComposer::MasstreeComposer(
     Engine *engine,
-    const MasstreePartitioner* partitioner,
+    StorageId storage_id,
     snapshot::SnapshotWriter* snapshot_writer,
     cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot)
-  : Composer(engine, partitioner, snapshot_writer, previous_snapshot_files, new_snapshot) {
+  : Composer(engine, storage_id, snapshot_writer, previous_snapshot_files, new_snapshot) {
 }
 ErrorStack MasstreeComposer::compose(
   snapshot::SortedBuffer* const* /*log_streams*/,
@@ -61,7 +61,6 @@ ErrorStack MasstreeComposer::construct_root(
 void MasstreeComposer::describe(std::ostream* o_ptr) const {
   std::ostream &o = *o_ptr;
   o << "<MasstreeComposer>"
-      << "<partitioner_>" << partitioner_ << "</partitioner_>"
       << "<snapshot_writer_>" << snapshot_writer_ << "</snapshot_writer_>"
       << "<new_snapshot>" << new_snapshot_ << "</new_snapshot>"
     << "</MasstreeComposer>";
@@ -69,7 +68,7 @@ void MasstreeComposer::describe(std::ostream* o_ptr) const {
 
 std::string MasstreeComposer::to_string() const {
   return std::string("MasstreeComposer:storage-")
-    + std::to_string(partitioner_->get_storage_id());
+    + std::to_string(storage_id_);
 }
 
 }  // namespace masstree

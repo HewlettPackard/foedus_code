@@ -14,6 +14,7 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/snapshot/fwd.hpp"
+#include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 
 namespace foedus {
@@ -30,25 +31,16 @@ class LogReducerRef {
     control_block_ = CXX11_NULLPTR;
     buffers_[0] = CXX11_NULLPTR;
     buffers_[1] = CXX11_NULLPTR;
-  }
-  explicit LogReducerRef(Engine* engine) : engine_(engine) {
-    control_block_ = CXX11_NULLPTR;
-    buffers_[0] = CXX11_NULLPTR;
-    buffers_[1] = CXX11_NULLPTR;
+    root_info_pages_ = CXX11_NULLPTR;
   }
   LogReducerRef(Engine* engine, uint16_t node);
 
   uint16_t    get_id() const;
   std::string to_string() const;
   void        clear();
+  uint32_t    get_total_storage_count() const;
+  storage::Page* get_root_info_pages() { return root_info_pages_; }
   friend std::ostream&    operator<<(std::ostream& o, const LogReducerRef& v);
-
-  void attach(Engine* engine, LogReducerControlBlock* control_block, void** buffers) {
-    engine_ = engine;
-    control_block_ = control_block;
-    buffers_[0] = buffers[0];
-    buffers_[1] = buffers[1];
-  }
 
   /**
    * @brief Append the log entries of one storage in the given buffer to this reducer's buffer.
@@ -78,6 +70,7 @@ class LogReducerRef {
   Engine*                 engine_;
   LogReducerControlBlock* control_block_;
   void*                   buffers_[2];
+  storage::Page*          root_info_pages_;
 };
 
 }  // namespace snapshot

@@ -40,13 +40,13 @@ LogReducer::LogReducer(Engine* engine)
 : MapReduceBase(engine, engine->get_soc_id()),
   snapshot_writer_(engine_, this),
   previous_snapshot_files_(engine_),
-  sorted_runs_(0),
-  total_storage_count_(0) {
+  sorted_runs_(0) {
   soc::NodeMemoryAnchors* anchors = engine->get_soc_manager()->get_shared_memory_repo()->
     get_node_memory_anchors(numa_node_);
   control_block_ = anchors->log_reducer_memory_;
   buffers_[0] = anchors->log_reducer_buffers_[0];
   buffers_[1] = anchors->log_reducer_buffers_[1];
+  root_info_pages_ = anchors->log_reducer_root_info_pages_;
 }
 
 ErrorStack LogReducer::initialize_once() {
@@ -87,9 +87,8 @@ ErrorStack LogReducer::initialize_once() {
     positions_buffers_.get_size() >> 1);
 
   sorted_runs_ = 0;
-  total_storage_count_ = 0;
 
-  // we don't initialize snapshot_writer_/composer_work_memory_/root_info_buffer_ yet
+  // we don't initialize snapshot_writer_/composer_work_memory_ yet
   // because they are needed at the end of reducer.
   return kRetOk;
 }
@@ -98,7 +97,6 @@ ErrorStack LogReducer::uninitialize_once() {
   ErrorStackBatch batch;
   batch.emprace_back(snapshot_writer_.uninitialize());
   batch.emprace_back(previous_snapshot_files_.uninitialize());
-  root_info_buffer_.release_block();
   composer_work_memory_.release_block();
   dump_io_buffer_.release_block();
   sort_buffer_.release_block();
@@ -504,10 +502,9 @@ void LogReducer::MergeContext::set_tmp_sorted_buffer_array(storage::StorageId st
 }
 
 storage::Composer* LogReducer::create_composer(storage::StorageId storage_id) {
-  const storage::Partitioner* partitioner = parent_->get_or_create_partitioner(storage_id);
   return storage::Composer::create_composer(
       engine_,
-      partitioner,
+      storage_id,
       &snapshot_writer_,
       &previous_snapshot_files_,
       *parent_->get_snapshot());
@@ -539,21 +536,20 @@ ErrorStack LogReducer::merge_sort() {
   CHECK_ERROR(merge_sort_open_sorted_runs(&context));
   CHECK_ERROR(merge_sort_initialize_sort_buffers(&context));
 
-  expand_root_info_buffer_if_needed(parent_->get_partitioner_count() * sizeof(storage::Page));
-
   // merge-sort each storage
   storage::StorageId prev_storage_id = 0;
-  total_storage_count_ = 0;
+  control_block_->total_storage_count_ = 0;
   for (storage::StorageId storage_id = context.get_min_storage_id();
         storage_id > 0;
-        storage_id = context.get_min_storage_id(), ++total_storage_count_) {
+        storage_id = context.get_min_storage_id(), ++control_block_->total_storage_count_) {
     if (storage_id <= prev_storage_id) {
       LOG(FATAL) << to_string() << " wtf. not storage sorted? " << *this;
     }
     prev_storage_id = storage_id;
 
     // collect streams for this storage
-    VLOG(0) << to_string() << " merging storage-" << storage_id << ", num=" << total_storage_count_;
+    VLOG(0) << to_string() << " merging storage-" << storage_id << ", num="
+      << control_block_->total_storage_count_;
     context.set_tmp_sorted_buffer_array(storage_id);
 
     // run composer
@@ -563,9 +559,8 @@ ErrorStack LogReducer::merge_sort() {
       context.tmp_sorted_buffer_count_);
     expand_composer_work_memory_if_needed(work_memory_size);
     // snapshot_reader_.get_or_open_file();
-    ASSERT_ND(total_storage_count_ <= parent_->get_partitioner_count());
-    storage::Page* root_info_page
-      = reinterpret_cast<storage::Page*>(root_info_buffer_.get_block()) + total_storage_count_;
+    ASSERT_ND(control_block_->total_storage_count_ <= get_max_storage_count());
+    storage::Page* root_info_page = root_info_pages_ + control_block_->total_storage_count_;
     CHECK_ERROR(composer->compose(
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_,
@@ -578,12 +573,12 @@ ErrorStack LogReducer::merge_sort() {
       WRAP_ERROR_CODE(merge_sort_advance_sort_buffers(buffer, storage_id));
     }
   }
-  ASSERT_ND(total_storage_count_ <= parent_->get_partitioner_count());
+  ASSERT_ND(control_block_->total_storage_count_ <= get_max_storage_count());
 
   snapshot_writer_.close();
   merge_watch.stop();
   LOG(INFO) << to_string() << " completed merging in " << merge_watch.elapsed_sec() << " seconds"
-    << " . total_storage_count_=" << total_storage_count_;
+    << " . total_storage_count_=" << control_block_->total_storage_count_;
   return kRetOk;
 }
 
@@ -766,7 +761,7 @@ std::ostream& operator<<(std::ostream& o, const LogReducer& v) {
   o << "<LogReducer>"
     << "<id_>" << v.get_id() << "</id_>"
     << "<numa_node>" << v.get_numa_node() << "</numa_node>"
-    << "<total_storage_count_>" << v.total_storage_count_ << "</total_storage_count_>"
+    << "<total_storage_count>" << v.control_block_->total_storage_count_ << "</total_storage_count>"
     << "<sort_buffer_>" << v.sort_buffer_ << "</sort_buffer_>"
     << "<positions_buffers_>" << v.positions_buffers_ << "</positions_buffers_>"
     << "<current_buffer_>" << v.control_block_->current_buffer_ << "</current_buffer_>"
@@ -774,6 +769,11 @@ std::ostream& operator<<(std::ostream& o, const LogReducer& v) {
     << "</LogReducer>";
   return o;
 }
+
+uint32_t LogReducer::get_max_storage_count() const {
+  return engine_->get_options().storage_.max_storages_;
+}
+
 
 }  // namespace snapshot
 }  // namespace foedus

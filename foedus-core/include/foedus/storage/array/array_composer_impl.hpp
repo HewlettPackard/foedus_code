@@ -56,7 +56,7 @@ class ArrayComposer final : public Composer {
 
   ArrayComposer(
     Engine *engine,
-    const ArrayPartitioner* partitioner,
+    StorageId storage_id,
     snapshot::SnapshotWriter* snapshot_writer,
     cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot);

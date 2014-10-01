@@ -27,11 +27,11 @@ namespace sequential {
 
 SequentialComposer::SequentialComposer(
     Engine *engine,
-    const SequentialPartitioner* partitioner,
+    StorageId storage_id,
     snapshot::SnapshotWriter* snapshot_writer,
     cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot)
-  : Composer(engine, partitioner, snapshot_writer, previous_snapshot_files, new_snapshot) {
+  : Composer(engine, storage_id, snapshot_writer, previous_snapshot_files, new_snapshot) {
 }
 
 /**
@@ -105,7 +105,7 @@ ErrorStack SequentialComposer::compose(
   // this compose() emits just one pointer to the head page.
   std::memset(root_info_page, 0, sizeof(Page));
   RootInfoPage* root_info_page_casted = reinterpret_cast<RootInfoPage*>(root_info_page);
-  root_info_page_casted->header_.storage_id_ = partitioner_->get_storage_id();
+  root_info_page_casted->header_.storage_id_ = storage_id_;
   root_info_page_casted->pointer_count_ = 0;
 
   // Everytime it's full, we write out all pages. much simpler than other storage types.
@@ -177,7 +177,7 @@ ErrorStack SequentialComposer::construct_root(
     // we have to anyway re-write all of them, at least the next pointer.
     WRAP_ERROR_CODE(previous_snapshot_files_->read_page(page_id, work_memory.get_block()));
     SequentialRootPage* root_page = reinterpret_cast<SequentialRootPage*>(work_memory.get_block());
-    ASSERT_ND(root_page->header().storage_id_ == partitioner_->get_storage_id());
+    ASSERT_ND(root_page->header().storage_id_ == storage_id_);
     ASSERT_ND(root_page->header().page_id_ == page_id);
     for (uint16_t i = 0; i < root_page->get_pointer_count(); ++i) {
       all_head_pages.push_back(root_page->get_pointers()[i]);
@@ -188,7 +188,7 @@ ErrorStack SequentialComposer::construct_root(
   // each root_info_page contains one or more pointers to head pages.
   for (uint32_t i = 0; i < root_info_pages_count; ++i) {
     const RootInfoPage* info_page = reinterpret_cast<const RootInfoPage*>(root_info_pages[i]);
-    ASSERT_ND(info_page->header_.storage_id_ == partitioner_->get_storage_id());
+    ASSERT_ND(info_page->header_.storage_id_ == storage_id_);
     ASSERT_ND(info_page->pointer_count_ > 0);
     for (uint32_t j = 0; j < info_page->pointer_count_; ++j) {
       ASSERT_ND(info_page->pointers_[j] != 0);
@@ -240,7 +240,6 @@ ErrorStack SequentialComposer::construct_root(
 void SequentialComposer::describe(std::ostream* o_ptr) const {
   std::ostream &o = *o_ptr;
   o << "<SequentialComposer>"
-      << "<partitioner_>" << partitioner_ << "</partitioner_>"
       << "<snapshot_writer_>" << snapshot_writer_ << "</snapshot_writer_>"
       << "<new_snapshot>" << new_snapshot_ << "</new_snapshot>"
     << "</SequentialComposer>";
@@ -248,7 +247,7 @@ void SequentialComposer::describe(std::ostream* o_ptr) const {
 
 std::string SequentialComposer::to_string() const {
   return std::string("SequentialComposer:storage-")
-    + std::to_string(partitioner_->get_storage_id());
+    + std::to_string(storage_id_);
 }
 
 }  // namespace sequential

@@ -24,6 +24,7 @@ LogReducerRef::LogReducerRef(Engine* engine, uint16_t node) {
   control_block_ = anchors->log_reducer_memory_;
   buffers_[0] = anchors->log_reducer_buffers_[0];
   buffers_[1] = anchors->log_reducer_buffers_[1];
+  root_info_pages_ = anchors->log_reducer_root_info_pages_;
 }
 
 uint16_t    LogReducerRef::get_id() const {
@@ -37,6 +38,9 @@ void LogReducerRef::clear() {
   control_block_->clear();
 }
 
+uint32_t LogReducerRef::get_total_storage_count() const {
+  return control_block_->total_storage_count_;
+}
 
 uint32_t    LogReducerRef::get_current_buffer_index_atomic() const {
   return control_block_->current_buffer_;

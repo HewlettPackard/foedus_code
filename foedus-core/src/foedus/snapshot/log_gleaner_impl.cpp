@@ -110,13 +110,16 @@ ErrorStack LogGleaner::construct_root_pages() {
   std::vector<const storage::Page*> buffers;
   for (uint16_t i = 0; i < count; ++i) {
     cursors.push_back(0);
-    buffer_sizes.push_back(reducers_[i]->get_root_info_page_count());
-    buffers.push_back(reinterpret_cast<const storage::Page*>(
-      reducers_[i]->get_root_info_buffer().get_block()));
+    LogReducerRef reducer(engine_, i);
+    buffer_sizes.push_back(reducer.get_total_storage_count());
+    buffers.push_back(reducer.get_root_info_pages());
   }
 
-  // reuse the first reducer's work memory
-  memory::AlignedMemorySlice work_memory(&reducers_[0]->get_composer_work_memory());
+  // Combining the root page info doesn't require much memory, so this size should be enough.
+  memory::AlignedMemory work_memory;
+  work_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
+  memory::AlignedMemorySlice work_memory_slice(&work_memory);
+
   storage::StorageId prev_storage_id = 0;
   // each reducer's root-info-page must be sorted by storage_id, so we do kind of merge-sort here.
   while (true) {
@@ -160,7 +163,7 @@ ErrorStack LogGleaner::construct_root_pages() {
     CHECK_ERROR(composer->construct_root(
       &tmp_array[0],
       input_count,
-      work_memory,
+      work_memory_slice,
       &new_root_page_pointer));
     ASSERT_ND(new_root_page_pointer > 0);
     ASSERT_ND(new_root_page_pointers_.find(min_storage_id) == new_root_page_pointers_.end());

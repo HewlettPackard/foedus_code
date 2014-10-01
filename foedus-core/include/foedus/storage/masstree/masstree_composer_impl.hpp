@@ -40,7 +40,7 @@ class MasstreeComposer final : public virtual Composer {
 
   MasstreeComposer(
     Engine *engine,
-    const MasstreePartitioner* partitioner,
+    StorageId storage_id,
     snapshot::SnapshotWriter* snapshot_writer,
     cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot);

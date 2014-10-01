@@ -19,6 +19,7 @@ struct  Metadata;
 struct  Page;
 struct  PageVersion;
 class   Partitioner;
+struct  PartitionerMetadata;
 struct  Record;
 class   Storage;
 struct  StorageControlBlock;

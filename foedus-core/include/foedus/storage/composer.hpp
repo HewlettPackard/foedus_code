@@ -67,7 +67,7 @@ class Composer {
  public:
   Composer(
     Engine *engine,
-    const Partitioner* partitioner,
+    StorageId storage_id,
     snapshot::SnapshotWriter* snapshot_writer,
     cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot);
@@ -118,7 +118,7 @@ class Composer {
   /** factory method. */
   static Composer*    create_composer(
     Engine *engine,
-    const Partitioner* partitioner,
+    StorageId storage_id,
     snapshot::SnapshotWriter* snapshot_writer,
     cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot);
@@ -127,7 +127,6 @@ class Composer {
 
  protected:
   Engine* const                       engine_;
-  const Partitioner* const            partitioner_;
   snapshot::SnapshotWriter* const     snapshot_writer_;
   cache::SnapshotFileSet* const       previous_snapshot_files_;
   const snapshot::Snapshot&           new_snapshot_;

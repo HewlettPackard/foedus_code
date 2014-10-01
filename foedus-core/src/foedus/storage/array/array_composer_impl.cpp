@@ -36,16 +36,15 @@ namespace array {
 
 ArrayComposer::ArrayComposer(
     Engine *engine,
-    const ArrayPartitioner* partitioner,
+    StorageId storage_id,
     snapshot::SnapshotWriter* snapshot_writer,
     cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot)
-  : Composer(engine, partitioner, snapshot_writer, previous_snapshot_files, new_snapshot),
+  : Composer(engine, storage_id, snapshot_writer, previous_snapshot_files, new_snapshot),
     storage_casted_(engine_, storage_),
     payload_size_(storage_casted_.get_payload_size()),
     levels_(storage_casted_.get_levels()),
     route_finder_(levels_, payload_size_) {
-  ASSERT_ND(partitioner);
   offset_intervals_[0] = route_finder_.get_records_in_leaf();
   for (uint8_t level = 1; level < levels_; ++level) {
     offset_intervals_[level] = offset_intervals_[level - 1] * kInteriorFanout;
@@ -576,14 +575,13 @@ inline ArrayRange ArrayComposer::calculate_array_range(LookupRoute route, uint8_
 void ArrayComposer::describe(std::ostream* o_ptr) const {
   std::ostream &o = *o_ptr;
   o << "<ArrayComposer>"
-      << "<partitioner_>" << partitioner_ << "</partitioner_>"
       << "<snapshot_writer_>" << snapshot_writer_ << "</snapshot_writer_>"
       << "<new_snapshot>" << new_snapshot_ << "</new_snapshot>"
     << "</ArrayComposer>";
 }
 
 std::string ArrayComposer::to_string() const {
-  return std::string("ArrayComposer:storage-") + std::to_string(partitioner_->get_storage_id())
+  return std::string("ArrayComposer:storage-") + std::to_string(storage_id_)
     + std::string(":writer-") + snapshot_writer_->to_string();
 }
 

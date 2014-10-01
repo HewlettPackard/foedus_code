@@ -16,6 +16,7 @@ namespace storage {
 struct StorageOptions CXX11_FINAL : public virtual externalize::Externalizable {
   enum Constants {
     kDefaultMaxStorages = 1 << 9,
+    kDefaultPartitionerDataMemoryMb = 1,
   };
   /**
    * Constructs option values with default values.
@@ -26,6 +27,13 @@ struct StorageOptions CXX11_FINAL : public virtual externalize::Externalizable {
    * Maximum number of storages in this database.
    */
   uint32_t                max_storages_;
+
+  /**
+   * Size in MB of a shared memory buffer allocated for all partitioners during log gleaning.
+   * Increase this value when you have a large number of storages that have large partitioning
+   * information (eg. long keys).
+   */
+  uint32_t                partitioner_data_memory_mb_;
 
   EXTERNALIZABLE(StorageOptions);
 };

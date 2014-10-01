@@ -9,11 +9,13 @@
 
 #include <iosfwd>
 
+#include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/snapshot/log_buffer.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
+#include "foedus/soc/shared_mutex.hpp"
 #include "foedus/storage/storage_id.hpp"
 
 namespace foedus {
@@ -146,6 +148,52 @@ class Partitioner {
 
   /** Just delegates to describe(). */
   friend std::ostream& operator<<(std::ostream& o, const Partitioner& v);
+};
+
+/**
+ * @brief Tiny metadata of partitioner for every storage used while log gleaning.
+ * @ingroup STORAGE
+ * @details
+ * The metadata is tiny because it just points to a data block in a separate partitioner data block,
+ * which is variable-sized. Think of Masstree's partitioning information for example. we have to
+ * store keys, so we can't statically determine the size.
+ * We allocate an array of this object on shared memory so that all mappers/reducers can
+ * access the partitioner information.
+ *
+ * @par Index-0 Entry
+ * As storage-id 0 doesn't exist, we use the first entry as metadata of the data block.
+ * data_size_ is the end of already-taken regions. When we initialize a new partitioner,
+ * we lock initialize_mutex_ and increment data_size_.
+ */
+struct PartitionerMetadata {
+  // This object is placed on shared memory. We only reinterpret them.
+  PartitionerMetadata() CXX11_FUNC_DELETE;
+  ~PartitionerMetadata() CXX11_FUNC_DELETE;
+
+  /**
+   * Serialize concurrent initialization of this partitioner.
+   * This is taken only when initialized_ is false or might be false.
+   * As far as one observes initialized_==true, he doesn't have to take mutex.
+   */
+  soc::SharedMutex  initialize_mutex_;
+  /**
+   * Whether this partitioner information (metadata+data) has been initialized.
+   * When this is false, only initialized_ and initialize_mutex_ can be safely accessed.
+   */
+  bool              initialized_;
+  /** Type of the storage. For convenience. */
+  StorageType       type_;
+  /** ID of the storage. For convenience. */
+  StorageId         id_;
+  /**
+   * Relative offset from the beginning of partitioner data block that points to
+   * variable-sized partitioner data.
+   */
+  uint32_t          data_offset_;
+  /**
+   * The size of the partitioner data.
+   */
+  uint32_t          data_size_;
 };
 
 }  // namespace storage

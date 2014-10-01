@@ -226,7 +226,7 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
  public:
   SnapshotManagerPimpl() = delete;
   explicit SnapshotManagerPimpl(Engine* engine)
-    : engine_(engine), gleaner_(nullptr), local_reducer_(nullptr) {}
+    : engine_(engine), local_reducer_(nullptr) {}
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
@@ -330,9 +330,6 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
    * Read and written only by snapshot_thread_.
    */
   std::chrono::system_clock::time_point   previous_snapshot_time_;
-
-  /** The log gleaner. Populated only in master engine, null otherwise. */
-  LogGleaner*                 gleaner_;
 
   /** Mappers in this node. Index is logger ordinal. Empty in master engine. */
   std::vector<LogMapper*>     local_mappers_;

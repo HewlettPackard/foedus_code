@@ -57,7 +57,7 @@ class SequentialComposer final : public Composer {
 
   SequentialComposer(
     Engine *engine,
-    const SequentialPartitioner* partitioner,
+    StorageId storage_id,
     snapshot::SnapshotWriter* snapshot_writer,
     cache::SnapshotFileSet* previous_snapshot_files,
     const snapshot::Snapshot& new_snapshot);

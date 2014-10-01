@@ -56,12 +56,6 @@ ErrorStack SnapshotManagerPimpl::initialize_once() {
     control_block_->gleaner_.all_count_ = reducer_count + mapper_count;
   }
 
-  // initialize gleaner_
-  if (engine_->is_master()) {
-    gleaner_ = new LogGleaner(engine_);
-    CHECK_ERROR(gleaner_->initialize());
-  }
-
   // in child engines, we instantiate local mappers/reducer objects (but not the threads yet)
   previous_snapshot_time_ = std::chrono::system_clock::now();
   stop_requested_ = false;
@@ -115,12 +109,6 @@ ErrorStack SnapshotManagerPimpl::uninitialize_once() {
     local_mappers_.clear();
   }
 
-  if (gleaner_) {
-    ASSERT_ND(engine_->is_master());
-    batch.emprace_back(gleaner_->uninitialize());
-    delete gleaner_;
-    gleaner_ = nullptr;
-  }
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 

@@ -139,6 +139,7 @@ struct LogReducerControlBlock {
     current_buffer_ = 0;
     buffer_status_[0].store(0U);
     buffer_status_[1].store(0U);
+    total_storage_count_ = 0;
   }
   void uninitialize() {
   }
@@ -170,6 +171,13 @@ struct LogReducerControlBlock {
    * This value increases for every buffer switch.
    */
   std::atomic<uint32_t> current_buffer_;
+
+  /**
+   * Set at the end of merge_sort().
+   * Total number of storages this reducer has merged and composed.
+   * This is also the number of root-info pages this reducer has produced.
+   */
+  std::atomic<uint32_t> total_storage_count_;
 
   /** ID of this reducer (or numa node ID). not mutable, just for convenience. */
   uint16_t              id_;
@@ -260,15 +268,9 @@ class LogReducer final : public MapReduceBase {
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
-  /** One LogReducer corresponds to one NUMA node (partition). */
-  uint16_t              get_numa_node() const { return get_id(); }
   friend std::ostream&    operator<<(std::ostream& o, const LogReducer& v);
 
-  /** These are public, but used only from LogGleaner other than itself. */
-  uint32_t get_root_info_page_count() const { return total_storage_count_; }
-  memory::AlignedMemory& get_root_info_buffer() { return root_info_buffer_; }
   storage::Composer* create_composer(storage::StorageId storage_id);
-  memory::AlignedMemory& get_composer_work_memory() { return composer_work_memory_; }
 
  protected:
   ErrorStack  handle_process() override;
@@ -321,6 +323,13 @@ class LogReducer final : public MapReduceBase {
   void*                   buffers_[2];
 
   /**
+   * This is the 'output' of the reducer in this node.
+   * Each page contains a root-info page of one storage processed in the reducer.
+   * Size is StorageOptions::max_storages_ * 4kb.
+   */
+  storage::Page*          root_info_pages_;
+
+  /**
    * Writes out composed snapshot pages to a new snapshot file.
    */
   SnapshotWriter          snapshot_writer_;
@@ -339,12 +348,6 @@ class LogReducer final : public MapReduceBase {
    * This is automatically extended when needed.
    */
   memory::AlignedMemory   sort_buffer_;
-
-  /**
-   * Used to store information output from composers to construct root pages.
-   * 4kb * storages. This is automatically extended when needed.
-   */
-  memory::AlignedMemory   root_info_buffer_;
 
   /**
    * Used to temporarily store input/output positions of all log entries for one storage.
@@ -372,13 +375,6 @@ class LogReducer final : public MapReduceBase {
    */
   uint32_t      sorted_runs_;
 
-  /**
-   * Set at the end of merge_sort().
-   * Total number of storages this reducer has merged and composed.
-   * This is also the number of root-info pages this reducer has produced.
-   */
-  uint32_t      total_storage_count_;
-
   void expand_if_needed(
     uint64_t required_size,
     memory::AlignedMemory *memory,
@@ -388,9 +384,6 @@ class LogReducer final : public MapReduceBase {
   }
   void expand_composer_work_memory_if_needed(uint64_t required_size) {
     expand_if_needed(required_size, &composer_work_memory_, "composer_work_memory_");
-  }
-  void expand_root_info_buffer_if_needed(uint64_t required_size) {
-    expand_if_needed(required_size, &root_info_buffer_, "root_info_buffer_");
   }
   /** This one is a bit special. */
   void expand_positions_buffers_if_needed(uint64_t required_size_per_buffer);
@@ -482,6 +475,8 @@ class LogReducer final : public MapReduceBase {
   ErrorCode   merge_sort_advance_sort_buffers(
     SortedBuffer* buffer,
     storage::StorageId processed_storage_id) const;
+
+  uint32_t    get_max_storage_count() const;
 };
 
 
