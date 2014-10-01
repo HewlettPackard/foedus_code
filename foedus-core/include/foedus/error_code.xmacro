@@ -65,6 +65,7 @@ X(kErrorCodeLogInvalidLogType,      0x0503, "LOG    : LOG_TYPE_INVALID")
 
 X(kErrorCodeSnapshotInvalidLogEnd,  0x0601, "SNAPSHT: Inconsistent end of log entry detected.")
 X(kErrorCodeSnapshotCancelled,      0x0602, "SNAPSHT: (internal error code) Snapshot task cancelled.")
+X(kErrorCodeSnapshotExitTimeout,    0x0603, "SNAPSHT: Snapshot mappers/reducers take too long time to respond to exit request. Timeout happened.")
 
 X(kErrorCodeSpInconsistentSavepoint, 0x0701, "SAVEPNT: Savepoint file is not consistent with other configurations. Check the number of loggers.")
 

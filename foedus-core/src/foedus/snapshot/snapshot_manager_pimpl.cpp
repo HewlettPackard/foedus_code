@@ -18,11 +18,15 @@
 #include "foedus/fs/path.hpp"
 #include "foedus/log/log_manager.hpp"
 #include "foedus/snapshot/log_gleaner_impl.hpp"
+#include "foedus/snapshot/log_mapper_impl.hpp"
+#include "foedus/snapshot/log_reducer_impl.hpp"
+#include "foedus/snapshot/log_reducer_ref.hpp"
 #include "foedus/snapshot/snapshot_metadata.hpp"
 #include "foedus/snapshot/snapshot_options.hpp"
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/metadata.hpp"
 #include "foedus/storage/storage_manager.hpp"
+#include "foedus/thread/numa_thread_scope.hpp"
 
 namespace foedus {
 namespace snapshot {
@@ -35,17 +39,46 @@ ErrorStack SnapshotManagerPimpl::initialize_once() {
   if (!engine_->get_log_manager()->is_initialized()) {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
   }
-  control_block_ = engine_->get_soc_manager()->get_shared_memory_repo()->
-    get_global_memory_anchors()->snapshot_manager_memory_;
+  soc::SharedMemoryRepo* repo = engine_->get_soc_manager()->get_shared_memory_repo();
+  control_block_ = repo->get_global_memory_anchors()->snapshot_manager_memory_;
   if (engine_->is_master()) {
     control_block_->initialize();
     control_block_->snapshot_epoch_.store(Epoch::kEpochInvalid);
     // TODO(Hideaki): get snapshot status from savepoint
     control_block_->previous_snapshot_id_ = kNullSnapshotId;
     control_block_->immediate_snapshot_requested_.store(false);
-    control_block_->previous_snapshot_time_ = std::chrono::system_clock::now();
-    stop_requested_ = false;
+
+    const EngineOptions& options = engine_->get_options();
+    uint32_t reducer_count = options.thread_.group_count_;
+    uint32_t mapper_count = reducer_count * options.log_.loggers_per_node_;
+    control_block_->gleaner_.reducers_count_ = reducer_count;
+    control_block_->gleaner_.mappers_count_ = mapper_count;
+    control_block_->gleaner_.all_count_ = reducer_count + mapper_count;
+  }
+
+  // initialize gleaner_
+  if (engine_->is_master()) {
+    gleaner_ = new LogGleaner(engine_);
+    CHECK_ERROR(gleaner_->initialize());
+  }
+
+  // in child engines, we instantiate local mappers/reducer objects (but not the threads yet)
+  previous_snapshot_time_ = std::chrono::system_clock::now();
+  stop_requested_ = false;
+  if (!engine_->is_master()) {
+    local_reducer_ = new LogReducer(engine_);
+    CHECK_ERROR(local_reducer_->initialize());
+    for (uint16_t i = 0; i < engine_->get_options().log_.loggers_per_node_; ++i) {
+      local_mappers_.push_back(new LogMapper(engine_, i));
+      CHECK_ERROR(local_mappers_[i]->initialize());
+    }
+  }
+
+  // Launch the daemon thread at last
+  if (engine_->is_master()) {
     snapshot_thread_ = std::move(std::thread(&SnapshotManagerPimpl::handle_snapshot, this));
+  } else {
+    snapshot_thread_ = std::move(std::thread(&SnapshotManagerPimpl::handle_snapshot_child, this));
   }
   return kRetOk;
 }
@@ -56,13 +89,37 @@ ErrorStack SnapshotManagerPimpl::uninitialize_once() {
   if (!engine_->get_log_manager()->is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
-  if (engine_->is_master()) {
-    if (snapshot_thread_.joinable()) {
-      stop_requested_ = true;
+  if (snapshot_thread_.joinable()) {
+    stop_requested_ = true;
+    if (engine_->is_master()) {
       wakeup();
-      snapshot_thread_.join();
+    } else {
+      control_block_->wakeup_snapshot_children();
     }
+    snapshot_thread_.join();
+  }
+  if (engine_->is_master()) {
     control_block_->uninitialize();
+    ASSERT_ND(local_reducer_ == nullptr);
+    ASSERT_ND(local_mappers_.size() == 0);
+  } else {
+    if (local_reducer_) {
+      batch.emprace_back(local_reducer_->uninitialize());
+      delete local_reducer_;
+      local_reducer_ = nullptr;
+    }
+    for (LogMapper* mapper : local_mappers_) {
+      batch.emprace_back(mapper->uninitialize());
+      delete mapper;
+    }
+    local_mappers_.clear();
+  }
+
+  if (gleaner_) {
+    ASSERT_ND(engine_->is_master());
+    batch.emprace_back(gleaner_->uninitialize());
+    delete gleaner_;
+    gleaner_ = nullptr;
   }
   return SUMMARIZE_ERROR_BATCH(batch);
 }
@@ -79,13 +136,13 @@ void SnapshotManagerPimpl::wakeup() {
 }
 
 void SnapshotManagerPimpl::handle_snapshot() {
-  LOG(INFO) << "Snapshot thread started";
+  LOG(INFO) << "Snapshot daemon started";
   // The actual snapshotting can't start until all other modules are initialized.
   SPINLOCK_WHILE(!is_stop_requested() && !engine_->is_initialized()) {
     assorted::memory_fence_acquire();
   }
 
-  LOG(INFO) << "Snapshot thread now starts taking snapshot";
+  LOG(INFO) << "Snapshot daemon now starts taking snapshot";
   while (!is_stop_requested()) {
     sleep_a_while();
     if (is_stop_requested()) {
@@ -93,7 +150,7 @@ void SnapshotManagerPimpl::handle_snapshot() {
     }
     // should we start snapshotting? or keep sleeping?
     bool triggered = false;
-    std::chrono::system_clock::time_point until = control_block_->previous_snapshot_time_ +
+    std::chrono::system_clock::time_point until = previous_snapshot_time_ +
       std::chrono::milliseconds(get_option().snapshot_interval_milliseconds_);
     Epoch durable_epoch = engine_->get_log_manager()->get_durable_global_epoch();
     Epoch previous_epoch = get_snapshot_epoch();
@@ -120,8 +177,30 @@ void SnapshotManagerPimpl::handle_snapshot() {
     }
   }
 
-  LOG(INFO) << "Snapshot thread ended. ";
+  LOG(INFO) << "Snapshot daemon ended. ";
 }
+
+void SnapshotManagerPimpl::handle_snapshot_child() {
+  LOG(INFO) << "Child snapshot daemon-" << engine_->get_soc_id() << " started";
+  thread::NumaThreadScope scope(engine_->get_soc_id());
+  while (!is_stop_requested()) {
+    {
+      soc::SharedMutexScope scope(control_block_->snapshot_children_wakeup_.get_mutex());
+      if (!is_stop_requested() && !is_gleaning()) {
+        control_block_->snapshot_children_wakeup_.timedwait(&scope, 100000000ULL);
+      }
+    }
+    if (is_stop_requested()) {
+      break;
+    } else if (!is_gleaning()) {
+      continue;
+    }
+    LOG(INFO) << "Child snapshot daemon-" << engine_->get_soc_id() << " received a request";
+  }
+
+  LOG(INFO) << "Child snapshot daemon-" << engine_->get_soc_id() << " ended";
+}
+
 
 void SnapshotManagerPimpl::trigger_snapshot_immediate(bool wait_completion) {
   LOG(INFO) << "Requesting to immediately take a snapshot...";
@@ -149,6 +228,7 @@ void SnapshotManagerPimpl::trigger_snapshot_immediate(bool wait_completion) {
 }
 
 ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapshot) {
+  ASSERT_ND(engine_->is_master());
   Epoch durable_epoch = engine_->get_log_manager()->get_durable_global_epoch();
   Epoch previous_epoch = get_snapshot_epoch();
   LOG(INFO) << "Taking a new snapshot. durable_epoch=" << durable_epoch
@@ -190,7 +270,7 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
   // done. notify waiters if exist
   Epoch::EpochInteger epoch_after = new_snapshot_epoch.value();
   control_block_->previous_snapshot_id_ = snapshot_id;
-  control_block_->previous_snapshot_time_ = std::chrono::system_clock::now();
+  previous_snapshot_time_ = std::chrono::system_clock::now();
   {
     soc::SharedMutexScope scope(control_block_->snapshot_taken_.get_mutex());
     control_block_->snapshot_epoch_ = epoch_after;
@@ -201,21 +281,14 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
 
 ErrorStack SnapshotManagerPimpl::glean_logs(Snapshot* new_snapshot) {
   // Log gleaner is an object allocated/deallocated per snapshotting.
-  // Make sure we call uninitialize even when there occurs an error.
+  // Gleaner runs on this thread (snapshot_thread_)
   LogGleaner gleaner(engine_, new_snapshot);
-  CHECK_ERROR(gleaner.initialize());
-  ErrorStack result;
-  {
-    UninitializeGuard guard(&gleaner);
-    // Gleaner runs on this thread (snapshot_thread_)
-    result = gleaner.execute();
-    if (result.is_error()) {
-      LOG(ERROR) << "Log Gleaner encountered either an error or early termination request";
-    }
-    // the output is list of pointers to new root pages
-    new_snapshot->new_root_page_pointers_ = gleaner.get_new_root_page_pointers();
-    CHECK_ERROR(gleaner.uninitialize());
+  ErrorStack result = gleaner.execute();
+  if (result.is_error()) {
+    LOG(ERROR) << "Log Gleaner encountered either an error or early termination request";
   }
+  // the output is list of pointers to new root pages
+  new_snapshot->new_root_page_pointers_ = gleaner.get_new_root_page_pointers();
   return result;
 }
 

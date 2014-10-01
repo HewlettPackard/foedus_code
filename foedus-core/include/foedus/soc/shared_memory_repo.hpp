@@ -280,6 +280,7 @@ struct NodeMemoryAnchors {
   enum Constants {
     kChildStatusMemorySize = 1 << 12,
     kPagePoolMemorySize = 1 << 12,
+    kLogReducerMemorySize = 1 << 12,
     kLoggerMemorySize = 1 << 21,
     kProcManagerMemorySize = 1 << 12,
   };
@@ -320,6 +321,19 @@ struct NodeMemoryAnchors {
    * The size is 4 (=sizeof(LocalProcId)) * ProcOptions::max_proc_count_.
    */
   proc::LocalProcId*  proc_name_sort_memory_;
+
+  /**
+   * Tiny control memory for LogReducer in this node.
+   * Always 4kb.
+   * The reducer buffers are allocated separately below.
+   */
+  snapshot::LogReducerControlBlock* log_reducer_memory_;
+
+  /**
+   * Actual buffers for LogReducer. Two for switching.
+   * Size is SnapshotOptions::log_reducer_buffer_mb_ in total of the two.
+   */
+  void*               log_reducer_buffers_[2];
 
   /**
    * Status and synchronization mechanism for loggers on this node.

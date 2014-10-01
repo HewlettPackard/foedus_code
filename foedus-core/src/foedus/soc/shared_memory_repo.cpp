@@ -317,6 +317,14 @@ void SharedMemoryRepo::set_node_memory_anchors(SocId node, const EngineOptions& 
   anchor.proc_name_sort_memory_ = reinterpret_cast<proc::LocalProcId*>(base + total);
   total += align_4kb(sizeof(proc::LocalProcId) * options.proc_.max_proc_count_);
 
+  anchor.log_reducer_memory_ = reinterpret_cast<snapshot::LogReducerControlBlock*>(base + total);
+  total += NodeMemoryAnchors::kLogReducerMemorySize;
+  uint64_t reducer_buffer_size
+    = static_cast<uint64_t>(options.snapshot_.log_reducer_buffer_mb_) << 20;
+  anchor.log_reducer_buffers_[0] = base + total;
+  anchor.log_reducer_buffers_[1] = base + total + (reducer_buffer_size / 2);
+  total += reducer_buffer_size;
+
   for (uint16_t i = 0; i < options.log_.loggers_per_node_; ++i) {
     anchor.logger_memories_[i] = reinterpret_cast<log::LoggerControlBlock*>(base + total);
     total += NodeMemoryAnchors::kLoggerMemorySize;
@@ -349,6 +357,8 @@ uint64_t SharedMemoryRepo::calculate_node_memory_size(const EngineOptions& optio
   total += NodeMemoryAnchors::kProcManagerMemorySize;
   total += align_4kb(sizeof(proc::ProcAndName) * options.proc_.max_proc_count_);
   total += align_4kb(sizeof(proc::LocalProcId) * options.proc_.max_proc_count_);
+  total += NodeMemoryAnchors::kLogReducerMemorySize;
+  total += static_cast<uint64_t>(options.snapshot_.log_reducer_buffer_mb_) << 20;
 
   uint64_t loggers_per_node = options.log_.loggers_per_node_;
   total += loggers_per_node * NodeMemoryAnchors::kLoggerMemorySize;

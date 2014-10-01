@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "foedus/assert_nd.hpp"
+#include "foedus/attachable.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
@@ -21,6 +22,8 @@
 #include "foedus/log/log_id.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/fwd.hpp"
+#include "foedus/snapshot/log_gleaner_ref.hpp"
+#include "foedus/snapshot/snapshot_manager_pimpl.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -86,12 +89,9 @@ namespace snapshot {
  * Do not include this header from a client program. There is no case client program needs to
  * access this internal class.
  */
-class LogGleaner final : public DefaultInitializable {
+class LogGleaner final : public LogGleanerRef {
  public:
-  explicit LogGleaner(Engine* engine, Snapshot* snapshot)
-    : engine_(engine), snapshot_(snapshot) {}
-  ErrorStack  initialize_once() override;
-  ErrorStack  uninitialize_once() override;
+  LogGleaner(Engine* engine, Snapshot* snapshot, SnapshotManagerPimpl* manager);
 
   LogGleaner() = delete;
   LogGleaner(const LogGleaner &other) = delete;
@@ -102,60 +102,6 @@ class LogGleaner final : public DefaultInitializable {
 
   std::string             to_string() const;
   friend std::ostream&    operator<<(std::ostream& o, const LogGleaner& v);
-
-  Snapshot*               get_snapshot() { return snapshot_; }
-  LogReducer*             get_reducer(thread::ThreadGroupId partition) {
-    return reducers_[partition];
-  }
-
-  bool                    is_stop_requested() const;
-  void                    wakeup();
-
-  uint16_t increment_ready_to_start_count() {
-    ASSERT_ND(ready_to_start_count_ < get_all_count());
-    return ++ready_to_start_count_;
-  }
-  uint16_t increment_completed_count() {
-    ASSERT_ND(completed_count_ < get_all_count());
-    return ++completed_count_;
-  }
-  uint16_t increment_completed_mapper_count() {
-    ASSERT_ND(completed_mapper_count_ < get_mappers_count());
-    return ++completed_mapper_count_;
-  }
-  uint16_t increment_error_count() {
-    ASSERT_ND(error_count_ < get_all_count());
-    return ++error_count_;
-  }
-  uint16_t increment_exit_count() {
-    ASSERT_ND(exit_count_ < get_all_count());
-    return ++exit_count_;
-  }
-
-  void clear_counts() {
-    ready_to_start_count_.store(0U);
-    completed_count_.store(0U);
-    completed_mapper_count_.store(0U);
-    error_count_.store(0U);
-    exit_count_.store(0U);
-    nonrecord_log_buffer_pos_.store(0U);
-  }
-
-  bool is_all_ready_to_start() const { return ready_to_start_count_ >= get_all_count(); }
-  bool is_all_completed() const { return completed_count_ >= get_all_count(); }
-  bool is_all_mappers_completed() const { return completed_mapper_count_ >= mappers_.size(); }
-  uint16_t get_mappers_count() const { return mappers_.size(); }
-  uint16_t get_reducers_count() const { return reducers_.size(); }
-  uint16_t get_all_count() const { return mappers_.size() + reducers_.size(); }
-
-  /** Called from mappers/reducers to wait until processing starts (or cancelled). */
-  void wait_for_start() { start_processing_.wait(); }
-
-  /**
-   * Atomically copy the given non-record log to this gleaner's buffer, which will be centraly
-   * processed at the end of epoch.
-   */
-  void add_nonrecord_log(const log::LogHeader* header);
 
   /** Returns pointers to new root pages constructed at the end of gleaning. */
   const std::map<storage::StorageId, storage::SnapshotPagePointer>& get_new_root_page_pointers()
@@ -174,52 +120,8 @@ class LogGleaner final : public DefaultInitializable {
   uint32_t get_partitioner_count() const { return partitioners_.size(); }
 
  private:
-  Engine* const                   engine_;
   Snapshot* const                 snapshot_;
-
-  /**
-   * rendezvous point after all mappers/reducers complete initialization.
-   * signalled when is_all_ready_to_start() becomes true.
-   */
-  thread::Rendezvous              start_processing_;
-
-  // on the other hand, mappers/reducers can wake up gleaner by accessing gleaner_thread.
-
-  /**
-   * count of mappers/reducers that are ready to start processing (finished initialization).
-   * the gleaner thread is woken up when this becomes mappers_.size() + reducers_.size().
-   */
-  std::atomic<uint16_t>           ready_to_start_count_;
-
-  /**
-   * count of mappers/reducers that have completed processing the current epoch.
-   * the gleaner thread is woken up when this becomes mappers_.size() + reducers_.size().
-   * the gleaner thread sets this to zero and starts next epoch.
-   */
-  std::atomic<uint16_t>           completed_count_;
-
-  /**
-   * We also have a separate count for mappers only to know if all mappers are done.
-   * Reducers can go into sleep only after all mappers went into sleep (otherwise reducers
-   * might receive more logs!), so they have to also check this.
-   */
-  std::atomic<uint16_t>           completed_mapper_count_;
-
-  /**
-   * count of mappers/reducers that have exitted with some error.
-   * if there happens any error, gleaner cancels all mappers/reducers.
-   */
-  std::atomic<uint16_t>           error_count_;
-  /**
-   * count of mappers/reducers that have exitted.
-   * for sanity check only.
-   */
-  std::atomic<uint16_t>           exit_count_;
-
-  /** Mappers. Index is LoggerId. */
-  std::vector<LogMapper*>         mappers_;
-  /** Reducers. Index is NUMA node ID (partition). */
-  std::vector<LogReducer*>        reducers_;
+  SnapshotManagerPimpl*           manager_;
 
   /**
    * Objects to partition log entries. Partitioners are added by mappers when they observe a
@@ -240,32 +142,14 @@ class LogGleaner final : public DefaultInitializable {
    */
   std::map<storage::StorageId, storage::SnapshotPagePointer> new_root_page_pointers_;
 
-  /**
-   * buffer to collect all logs that will be centraly processed at the end of each epoch.
-   * Those are engine-targetted and storage-targetted logs, which appear much less frequently.
-   * Thus this buffer is quite small.
-   */
-  memory::AlignedMemory           nonrecord_log_buffer_;
-
-  /**
-   * number of bytes copied into nonrecord_log_buffer_.
-   * A mapper that got a non-record log atomically incrementes this value and copies into
-   * nonrecord_log_buffer_ from the previous value as byte position.
-   * As logs don't overlap, we don't need any mutex.
-   * @see add_nonrecord_log()
-   */
-  std::atomic<uint64_t>           nonrecord_log_buffer_pos_;
+  /** Before starting log gleaner, this method resets all shared memory to initialized state. */
+  void      clear_all();
 
   /**
    * Request reducers and mappers to cancel the work.
-   * Blocks until all of them stop.
+   * Blocks until all of them stop (or timeout).
    */
-  void cancel_reducers_mappers() {
-    cancel_mappers();
-    cancel_reducers();
-  }
-  void cancel_mappers();
-  void cancel_reducers();
+  ErrorStack cancel_reducers_mappers();
 
   /**
    * @brief Final sub-routine of execute()
@@ -275,6 +159,7 @@ class LogGleaner final : public DefaultInitializable {
    */
   ErrorStack construct_root_pages();
 };
+
 }  // namespace snapshot
 }  // namespace foedus
 #endif  // FOEDUS_SNAPSHOT_LOG_GLEANER_IMPL_HPP_

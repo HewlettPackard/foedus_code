@@ -26,6 +26,117 @@
 namespace foedus {
 namespace snapshot {
 
+/** Shared data for LogGleaner. */
+struct LogGleanerControlBlock {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  LogGleanerControlBlock() = delete;
+  ~LogGleanerControlBlock() = delete;
+
+  void initialize() {
+    gleaner_wakeup_.initialize();
+    mappers_wakeup_.initialize();
+    reducers_wakeup_.initialize();
+    clear_counts();
+    mappers_count_ = 0;
+    reducers_count_ = 0;
+    all_count_ = 0;
+  }
+  void uninitialize() {
+    reducers_wakeup_.uninitialize();
+    mappers_wakeup_.uninitialize();
+    gleaner_wakeup_.uninitialize();
+  }
+  void clear_counts() {
+    completed_count_ = 0;
+    completed_mapper_count_ = 0;
+    error_count_ = 0;
+    exit_count_ = 0;
+    snapshot_id_ = 0;
+    gleaning_ = false;
+    cancelled_ = false;
+  }
+
+  /**
+  * If this returns true, all mappers and reducers should exit as soon as possible.
+  * Gleaner 'does its best' to wait for the exit of them, and then exit asap, too.
+  */
+  bool is_error() const { return error_count_ > 0 || cancelled_; }
+
+  /**
+  * Gleaner sleeps on this condition when it's waiting for next step.
+  * The real conditions are variables that indicate the next step (error_count_, exit_count_,
+  * completed_count_ etc).
+  */
+  soc::SharedCond                 gleaner_wakeup_;
+
+  /**
+  * All mappers sleep on this condition when they are waiting for next step.
+  * The real conditions are variables that indicate the next step (error_count_, exit_count_,
+  * completed_count_ etc).
+  */
+  soc::SharedCond                 mappers_wakeup_;
+
+  /**
+  * All reducers sleep on this condition when they are waiting for next step.
+  * The real conditions are variables that indicate the next step (error_count_, exit_count_,
+  * completed_count_ etc).
+  */
+  soc::SharedCond                 reducers_wakeup_;
+
+  /** ID of the snapshot now taking. */
+  std::atomic< SnapshotId >         snapshot_id_;
+
+  /**
+   * This snapshot was taken on top of previous snapshot that is valid_until this epoch.
+   * If this is the first snapshot, this is an invalid epoch.
+   */
+  std::atomic< Epoch::EpochInteger > base_epoch_;
+
+  /**
+   * This snapshot contains all the logs until this epoch.
+   * @invariant valid_until_epoch_.is_valid()
+   */
+  std::atomic< Epoch::EpochInteger > valid_until_epoch_;
+
+  /** Whether the log gleaner is now running. */
+  std::atomic<bool>               gleaning_;
+  /** Whether the log gleaner has been cancalled. */
+  std::atomic<bool>               cancelled_;
+
+  /**
+   * count of mappers/reducers that have completed processing the current epoch.
+   * the gleaner thread is woken up when this becomes mappers_.size() + reducers_.size().
+   * the gleaner thread sets this to zero and starts next epoch.
+   */
+  std::atomic<uint16_t>           completed_count_;
+
+  /**
+  * We also have a separate count for mappers only to know if all mappers are done.
+  * Reducers can go into sleep only after all mappers went into sleep (otherwise reducers
+  * might receive more logs!), so they have to also check this.
+  */
+  std::atomic<uint16_t>           completed_mapper_count_;
+
+  /**
+  * count of mappers/reducers that have exitted with some error.
+  * if there happens any error, gleaner cancels all mappers/reducers.
+  */
+  std::atomic<uint16_t>           error_count_;
+
+  /**
+  * count of mappers/reducers that have exitted.
+  * for sanity check only.
+  */
+  std::atomic<uint16_t>           exit_count_;
+
+  /** Total number of mappers. Not a mutable information, just for convenience. */
+  uint16_t                        mappers_count_;
+  /** Total number of mappers. Not a mutable information, just for convenience. */
+  uint16_t                        reducers_count_;
+  /** mappers_count_ + reducers_count_. Not a mutable information, just for convenience. */
+  uint16_t                        all_count_;
+};
+
 /** Shared data in SnapshotManagerPimpl. */
 struct SnapshotManagerControlBlock {
   // this is backed by shared memory. not instantiation. just reinterpret_cast.
@@ -35,8 +146,12 @@ struct SnapshotManagerControlBlock {
   void initialize() {
     snapshot_taken_.initialize();
     snapshot_wakeup_.initialize();
+    snapshot_children_wakeup_.initialize();
+    gleaner_.initialize();
   }
   void uninitialize() {
+    gleaner_.uninitialize();
+    snapshot_children_wakeup_.uninitialize();
     snapshot_wakeup_.uninitialize();
     snapshot_taken_.uninitialize();
   }
@@ -48,6 +163,15 @@ struct SnapshotManagerControlBlock {
   SnapshotId get_previous_snapshot_id() const { return previous_snapshot_id_.load(); }
   SnapshotId get_previous_snapshot_id_weak() const {
     return previous_snapshot_id_.load(std::memory_order_relaxed);
+  }
+
+  /**
+   * Fires snapshot_children_wakeup_.
+   * This is n-to-n condition variable, so expect spurrious wakeups.
+   */
+  void wakeup_snapshot_children() {
+    soc::SharedMutexScope scope(snapshot_children_wakeup_.get_mutex());
+    snapshot_children_wakeup_.broadcast(&scope);
   }
 
   /**
@@ -66,12 +190,6 @@ struct SnapshotManagerControlBlock {
 
 
   /**
-   * When snapshot_thread_ took snapshot last time.
-   * Read and written only by snapshot_thread_.
-   */
-  std::chrono::system_clock::time_point   previous_snapshot_time_;
-
-  /**
    * ID of previously completed snapshot. kNullSnapshotId if no snapshot has been taken.
    * Used to issue a next snapshot ID.
    */
@@ -85,9 +203,17 @@ struct SnapshotManagerControlBlock {
    * The real variable is immediate_snapshot_requested_.
    */
   soc::SharedCond                 snapshot_wakeup_;
+
+  /**
+   * Child snapshot managers (the ones in SOC engines) sleep on this condition until
+   * the master snapshot manager requests them to launch mappers/reducers for snapshot.
+   * The real condition is the various status flag in gleaner_.
+   */
+  soc::SharedCond                 snapshot_children_wakeup_;
+
+  /** Gleaner-related variables */
+  LogGleanerControlBlock          gleaner_;
 };
-
-
 
 /**
  * @brief Pimpl object of SnapshotManager.
@@ -99,7 +225,8 @@ struct SnapshotManagerControlBlock {
 class SnapshotManagerPimpl final : public DefaultInitializable {
  public:
   SnapshotManagerPimpl() = delete;
-  explicit SnapshotManagerPimpl(Engine* engine) : engine_(engine) {}
+  explicit SnapshotManagerPimpl(Engine* engine)
+    : engine_(engine), gleaner_(nullptr), local_reducer_(nullptr) {}
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
@@ -128,9 +255,10 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
   void wakeup();
   void sleep_a_while();
   bool is_stop_requested() const { return stop_requested_; }
+  bool is_gleaning() const { return control_block_->gleaner_.gleaning_; }
 
   /**
-   * @brief Main routine for snapshot_thread_.
+   * @brief Main routine for snapshot_thread_ in master engine.
    * @details
    * This method keeps taking snapshot periodically.
    * When there are no logs in all the private buffers for a while, it goes into sleep.
@@ -142,6 +270,13 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
    * In other words, this function is the main routine of snapshotting.
    */
   ErrorStack  handle_snapshot_triggered(Snapshot *new_snapshot);
+
+  /**
+   * @brief Main routine for snapshot_thread_ in child engines.
+   * @details
+   * All this does is to launch mappers/reducers threads when asked by master engine.
+   */
+  void        handle_snapshot_child();
 
   /**
    * Phase-2 of handle_snapshot_triggered().
@@ -174,17 +309,35 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
   /**
    * All previously taken snapshots.
    * Access to this data must be protected with mutex.
+   * This is populated only in master engine.
    */
   std::vector< Snapshot >   snapshots_;
 
+  /** To locally shutdown snapshot_thread_. This is not a shared memory. */
   std::atomic<bool>         stop_requested_;
 
   /**
-   * The thread that occasionally wakes up and serves as the main managing thread for
+   * The daemon thread of snapshot manager.
+   * In master engine, this occasionally wakes up and serves as the main managing thread for
    * snapshotting, which consists of several child threads and multiple phases.
-   * Launched only in master engine.
+   * In child engine, this receives requests from master engine's snapshot_thread_ and launch
+   * mappers/reducers in this node.
    */
   std::thread               snapshot_thread_;
+
+  /**
+   * When snapshot_thread_ took snapshot last time.
+   * Read and written only by snapshot_thread_.
+   */
+  std::chrono::system_clock::time_point   previous_snapshot_time_;
+
+  /** The log gleaner. Populated only in master engine, null otherwise. */
+  LogGleaner*                 gleaner_;
+
+  /** Mappers in this node. Index is logger ordinal. Empty in master engine. */
+  std::vector<LogMapper*>     local_mappers_;
+  /** Reducer in this node. Null in master engine. */
+  LogReducer*                 local_reducer_;
 };
 
 static_assert(
