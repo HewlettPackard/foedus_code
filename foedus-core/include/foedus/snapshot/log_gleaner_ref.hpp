@@ -12,6 +12,7 @@
 #include "foedus/fwd.hpp"
 #include "foedus/snapshot/fwd.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
+#include "foedus/storage/fwd.hpp"
 
 namespace foedus {
 namespace snapshot {
@@ -23,11 +24,11 @@ class LogGleanerRef : public Attachable<LogGleanerControlBlock> {
  public:
   LogGleanerRef();
   explicit LogGleanerRef(Engine* engine);
-  LogGleanerRef(Engine* engine, LogGleanerControlBlock* block);
 
   bool        is_error() const;
   void        wakeup();
 
+  const Snapshot& get_cur_snapshot() const;
   SnapshotId  get_snapshot_id() const;
   Epoch       get_base_epoch() const;
   Epoch       get_valid_until_epoch() const;
@@ -43,6 +44,10 @@ class LogGleanerRef : public Attachable<LogGleanerControlBlock> {
   uint16_t get_mappers_count() const;
   uint16_t get_reducers_count() const;
   uint16_t get_all_count() const;
+
+ protected:
+  storage::PartitionerMetadata* partitioner_metadata_;
+  void*                         partitioner_data_;
 };
 
 }  // namespace snapshot

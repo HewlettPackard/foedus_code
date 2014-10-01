@@ -118,6 +118,21 @@ enum StorageType {
 };
 
 /**
+ * @brief Gives a string representation of StorageType.
+ * @ingroup STORAGE
+ */
+inline const char* to_storage_type_name(StorageType type) {
+  switch (type) {
+  case kInvalidStorage: return "Invalid";
+  case kArrayStorage: return "Array";
+  case kHashStorage: return "Hash";
+  case kMasstreeStorage: return "Masstree";
+  case kSequentialStorage: return "Sequential";
+  default: return "Unknown";
+  }
+}
+
+/**
  * @brief Status of a storage.
  * @ingroup STORAGE
  */

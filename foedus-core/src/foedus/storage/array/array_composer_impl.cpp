@@ -34,14 +34,8 @@ namespace foedus {
 namespace storage {
 namespace array {
 
-ArrayComposer::ArrayComposer(
-    Engine *engine,
-    StorageId storage_id,
-    snapshot::SnapshotWriter* snapshot_writer,
-    cache::SnapshotFileSet* previous_snapshot_files,
-    const snapshot::Snapshot& new_snapshot)
-  : Composer(engine, storage_id, snapshot_writer, previous_snapshot_files, new_snapshot),
-    storage_casted_(engine_, storage_),
+ArrayComposer::ArrayComposer(Composer *parent)
+  : storage_casted_(engine_, storage_),
     payload_size_(storage_casted_.get_payload_size()),
     levels_(storage_casted_.get_levels()),
     route_finder_(levels_, payload_size_) {
@@ -572,17 +566,8 @@ inline ArrayRange ArrayComposer::calculate_array_range(LookupRoute route, uint8_
   return range;
 }
 
-void ArrayComposer::describe(std::ostream* o_ptr) const {
-  std::ostream &o = *o_ptr;
-  o << "<ArrayComposer>"
-      << "<snapshot_writer_>" << snapshot_writer_ << "</snapshot_writer_>"
-      << "<new_snapshot>" << new_snapshot_ << "</new_snapshot>"
-    << "</ArrayComposer>";
-}
-
 std::string ArrayComposer::to_string() const {
-  return std::string("ArrayComposer:storage-") + std::to_string(storage_id_)
-    + std::string(":writer-") + snapshot_writer_->to_string();
+  return std::string("ArrayComposer-") + std::to_string(storage_id_);
 }
 
 }  // namespace array

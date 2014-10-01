@@ -11,15 +11,10 @@
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_writer_impl.hpp"
 #include "foedus/storage/metadata.hpp"
-#include "foedus/storage/partitioner.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_composer_impl.hpp"
-#include "foedus/storage/array/array_partitioner_impl.hpp"
-#include "foedus/storage/masstree/masstree_composer_impl.hpp"
-#include "foedus/storage/masstree/masstree_partitioner_impl.hpp"
 #include "foedus/storage/sequential/sequential_composer_impl.hpp"
-#include "foedus/storage/sequential/sequential_partitioner_impl.hpp"
 
 namespace foedus {
 namespace storage {
@@ -33,12 +28,11 @@ Composer::Composer(
   StorageId storage_id,
   snapshot::SnapshotWriter* snapshot_writer,
   cache::SnapshotFileSet* previous_snapshot_files,
-  const snapshot::Snapshot& new_snapshot)
+  snapshot::SnapshotId new_snapshot_id)
   : engine_(engine),
   snapshot_writer_(snapshot_writer),
   previous_snapshot_files_(previous_snapshot_files),
-  new_snapshot_(new_snapshot),
-  new_snapshot_id_(new_snapshot.id_),
+  new_snapshot_id_(new_snapshot_id),
   storage_id_(storage_id),
   numa_node_(snapshot_writer->get_numa_node()),
   storage_(engine->get_storage_manager()->get_storage(storage_id_)),
@@ -50,7 +44,7 @@ Composer* Composer::create_composer(
   StorageId storage_id,
   snapshot::SnapshotWriter* snapshot_writer,
   cache::SnapshotFileSet* previous_snapshot_files,
-  const snapshot::Snapshot& new_snapshot) {
+  snapshot::SnapshotId new_snapshot_id) {
   switch (engine->get_storage_manager()->get_storage(storage_id)->meta_.type_) {
     case kArrayStorage:
       return new array::ArrayComposer(
@@ -58,7 +52,7 @@ Composer* Composer::create_composer(
         storage_id,
         snapshot_writer,
         previous_snapshot_files,
-        new_snapshot);
+        new_snapshot_id);
       break;
 
     case kSequentialStorage:
@@ -67,18 +61,11 @@ Composer* Composer::create_composer(
         storage_id,
         snapshot_writer,
         previous_snapshot_files,
-        new_snapshot);
+        new_snapshot_id);
       break;
 
-    case kMasstreeStorage:
-      return new masstree::MasstreeComposer(
-        engine,
-        storage_id,
-        snapshot_writer,
-        previous_snapshot_files,
-        new_snapshot);
-      break;
     // TODO(Hideaki) implement
+    case kMasstreeStorage:
     case kHashStorage:
     default:
       break;

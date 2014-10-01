@@ -30,46 +30,7 @@ namespace masstree {
  * Do not include this header from a client program. There is no case client program needs to
  * access this internal class.
  */
-class MasstreeComposer final : public virtual Composer {
- public:
-  /** Output of one compose() call, which are then combined in construct_root(). */
-  struct RootInfoPage final {
-    PageHeader          header_;          // +16 -> 16
-    // TODO(Hideaki): properties
-  };
-
-  MasstreeComposer(
-    Engine *engine,
-    StorageId storage_id,
-    snapshot::SnapshotWriter* snapshot_writer,
-    cache::SnapshotFileSet* previous_snapshot_files,
-    const snapshot::Snapshot& new_snapshot);
-  ~MasstreeComposer() {}
-
-  MasstreeComposer() = delete;
-  explicit MasstreeComposer(const MasstreePartitioner& other) = delete;
-  MasstreeComposer& operator=(const MasstreePartitioner& other) = delete;
-
-  std::string to_string() const override;
-  void describe(std::ostream* o) const override;
-
-  ErrorStack compose(
-    snapshot::SortedBuffer* const* log_streams,
-    uint32_t log_streams_count,
-    const memory::AlignedMemorySlice& work_memory,
-    Page* root_info_page) override;
-
-  ErrorStack construct_root(
-    const Page* const*  root_info_pages,
-    uint32_t            root_info_pages_count,
-    const memory::AlignedMemorySlice& work_memory,
-    SnapshotPagePointer* new_root_page_pointer) override;
-
-  uint64_t get_required_work_memory_size(
-    snapshot::SortedBuffer** /*log_streams*/,
-    uint32_t /*log_streams_count*/) const override {
-    return 0;
-  }
+class MasstreeComposer final {
 };
 
 }  // namespace masstree

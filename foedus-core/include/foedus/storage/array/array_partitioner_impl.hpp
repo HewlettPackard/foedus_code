@@ -55,25 +55,20 @@ namespace array {
  * Do not include this header from a client program. There is no case client program needs to
  * access this internal class.
  */
-class ArrayPartitioner final : public virtual Partitioner {
+class ArrayPartitioner final {
  public:
-  ArrayPartitioner(Engine *engine, StorageId id);
-  ArrayPartitioner(const ArrayPartitioner& other) {
-    std::memcpy(this, &other, sizeof(ArrayPartitioner));
-  }
-  ~ArrayPartitioner() {}
-  StorageId get_storage_id() const override { return array_id_; }
-  StorageType get_storage_type() const override { return kArrayStorage; }
-  Partitioner* clone() const override { return new ArrayPartitioner(*this); }
-  void describe(std::ostream* o) const override;
+  explicit ArrayPartitioner(Partitioner* parent);
 
-  bool is_partitionable() const override { return !array_single_page_; }
+  void describe(std::ostream* o) const;
+
+  void design_partition();
+  bool is_partitionable() const;
   void partition_batch(
     PartitionId                     local_partition,
     const snapshot::LogBuffer&      log_buffer,
     const snapshot::BufferPosition* log_positions,
     uint32_t                        logs_count,
-    PartitionId*                    results) const override;
+    PartitionId*                    results) const;
 
   void sort_batch(
     const snapshot::LogBuffer&        log_buffer,
@@ -82,16 +77,23 @@ class ArrayPartitioner final : public virtual Partitioner {
     const memory::AlignedMemorySlice& sort_buffer,
     Epoch                             base_epoch,
     snapshot::BufferPosition*         output_buffer,
-    uint32_t*                         written_count) const override;
+    uint32_t*                         written_count) const;
 
-  uint64_t  get_required_sort_buffer_size(uint32_t log_count) const override;
+  uint64_t  get_required_sort_buffer_size(uint32_t log_count) const;
 
   uint8_t   get_array_levels() const { return array_levels_; }
   const PartitionId* get_bucket_owners() const { return bucket_owners_; }
 
  private:
-  /** only for sanity check */
-  StorageId             array_id_;
+  Partitioner*          parent_;
+  ArrayPartitionerData* data_;
+};
+
+struct ArrayPartitionerData final {
+  // only for reinterpret_cast
+  ArrayPartitionerData() = delete;
+  ~ArrayPartitionerData() = delete;
+
   /** whether this array has only one page, so no interior page nor partitioning. */
   bool                  array_single_page_;
   uint8_t               array_levels_;
@@ -108,6 +110,8 @@ class ArrayPartitioner final : public virtual Partitioner {
   /** partition of each bucket. */
   PartitionId           bucket_owners_[kInteriorFanout];
 };
+
+
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus

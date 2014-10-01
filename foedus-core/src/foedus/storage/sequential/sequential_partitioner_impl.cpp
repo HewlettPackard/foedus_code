@@ -14,7 +14,6 @@ namespace sequential {
 void SequentialPartitioner::describe(std::ostream* o_ptr) const {
   std::ostream &o = *o_ptr;
   o << "<SequentialPartitioner>"
-    << "<id_>" << sequential_id_ << "</id_>"
     << "</SequentialPartitioner>";
 }
 

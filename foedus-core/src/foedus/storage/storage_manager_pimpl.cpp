@@ -278,7 +278,6 @@ xct::LockableXctId* StorageManagerPimpl::track_moved_record(
 ErrorStack StorageManagerPimpl::clone_all_storage_metadata(
   snapshot::SnapshotMetadata *metadata) {
   debugging::StopWatch stop_watch;
-  metadata->largest_storage_id_ = control_block_->largest_storage_id_;
   assorted::memory_fence_acq_rel();
 
   // not just the metadata, just copy the whole control block.

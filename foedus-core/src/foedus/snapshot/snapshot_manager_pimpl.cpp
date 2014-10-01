@@ -225,6 +225,7 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
     (!previous_epoch.is_valid() || durable_epoch > previous_epoch));
   new_snapshot->base_epoch_ = previous_epoch;
   new_snapshot->valid_until_epoch_ = durable_epoch;
+  new_snapshot->max_storage_id_ = engine_->get_storage_manager()->get_largest_storage_id();
 
   // determine the snapshot ID
   SnapshotId snapshot_id;
@@ -240,16 +241,17 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
   // The procedures below will take long time, so we keep checking our "is_stop_requested"
   // and stops our child threads when it happens.
 
-  // First, we determine partitioning policy for each storage so that we can scatter-gather
-  // logs to each partition.
+  // For each storage that was modified in this snapshotting,
+  // this holds the pointer to new root page.
+  std::map<storage::StorageId, storage::SnapshotPagePointer> new_root_page_pointers;
 
-  // Second, we initiate log gleaners that do scatter-gather and consume the logs.
+  // Log gleaners design partitioning and do scatter-gather to consume the logs.
   // This will create snapshot files at each partition and tell us the new root pages of
   // each storage.
-  CHECK_ERROR(glean_logs(new_snapshot));
+  CHECK_ERROR(glean_logs(*new_snapshot, &new_root_page_pointers));
 
   // Finally, write out the metadata file.
-  CHECK_ERROR(snapshot_metadata(new_snapshot));
+  CHECK_ERROR(snapshot_metadata(*new_snapshot));
 
   Epoch new_snapshot_epoch = new_snapshot->valid_until_epoch_;
   ASSERT_ND(new_snapshot_epoch.is_valid() &&
@@ -267,7 +269,9 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
   return kRetOk;
 }
 
-ErrorStack SnapshotManagerPimpl::glean_logs(Snapshot* new_snapshot) {
+ErrorStack SnapshotManagerPimpl::glean_logs(
+  const Snapshot& new_snapshot,
+  std::map<storage::StorageId, storage::SnapshotPagePointer>* new_root_page_pointers) {
   // Log gleaner is an object allocated/deallocated per snapshotting.
   // Gleaner runs on this thread (snapshot_thread_)
   LogGleaner gleaner(engine_, new_snapshot);
@@ -276,23 +280,26 @@ ErrorStack SnapshotManagerPimpl::glean_logs(Snapshot* new_snapshot) {
     LOG(ERROR) << "Log Gleaner encountered either an error or early termination request";
   }
   // the output is list of pointers to new root pages
-  new_snapshot->new_root_page_pointers_ = gleaner.get_new_root_page_pointers();
+  *new_root_page_pointers = gleaner.get_new_root_page_pointers();
   return result;
 }
 
-ErrorStack SnapshotManagerPimpl::snapshot_metadata(Snapshot *new_snapshot) {
+ErrorStack SnapshotManagerPimpl::snapshot_metadata(
+  const Snapshot& new_snapshot,
+  const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers) {
   // construct metadata object
   SnapshotMetadata metadata;
-  metadata.id_ = new_snapshot->id_;
-  metadata.base_epoch_ = new_snapshot->base_epoch_.value();
-  metadata.valid_until_epoch_ = new_snapshot->valid_until_epoch_.value();
+  metadata.id_ = new_snapshot.id_;
+  metadata.base_epoch_ = new_snapshot.base_epoch_.value();
+  metadata.valid_until_epoch_ = new_snapshot.valid_until_epoch_.value();
+  metadata.largest_storage_id_ = new_snapshot.max_storage_id_;
   CHECK_ERROR(engine_->get_storage_manager()->clone_all_storage_metadata(&metadata));
 
   // we modified the root page. install it.
   uint32_t installed_root_pages_count = 0;
   for (storage::StorageId id = 1; id <= metadata.largest_storage_id_; ++id) {
-    const auto& it = new_snapshot->new_root_page_pointers_.find(id);
-    if (it != new_snapshot->new_root_page_pointers_.end()) {
+    const auto& it = new_root_page_pointers.find(id);
+    if (it != new_root_page_pointers.end()) {
       storage::SnapshotPagePointer new_pointer = it->second;
       storage::Metadata* meta = metadata.get_metadata(id);
       ASSERT_ND(new_pointer != meta->root_snapshot_page_id_);
@@ -302,7 +309,7 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(Snapshot *new_snapshot) {
   }
   LOG(INFO) << "Out of " << metadata.largest_storage_id_ << " storages, "
     << installed_root_pages_count << " changed their root pages.";
-  ASSERT_ND(installed_root_pages_count == new_snapshot->new_root_page_pointers_.size());
+  ASSERT_ND(installed_root_pages_count == new_snapshot.new_root_page_pointers_.size());
 
   // save it to a file
   fs::Path folder(get_option().get_primary_folder_path());
@@ -313,7 +320,7 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(Snapshot *new_snapshot) {
     }
   }
 
-  fs::Path file = get_snapshot_metadata_file_path(new_snapshot->id_);
+  fs::Path file = get_snapshot_metadata_file_path(new_snapshot.id_);
   LOG(INFO) << "New snapshot metadata file fullpath=" << file;
 
   debugging::StopWatch stop_watch;

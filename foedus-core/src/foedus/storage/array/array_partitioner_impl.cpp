@@ -119,6 +119,10 @@ void ArrayPartitioner::describe(std::ostream* o_ptr) const {
   o << "</ArrayPartitioner>";
 }
 
+bool ArrayPartitioner::is_partitionable() const {
+  return !data_->array_single_page_;
+}
+
 void ArrayPartitioner::partition_batch(
   PartitionId /*local_partition*/,
   const snapshot::LogBuffer&      log_buffer,

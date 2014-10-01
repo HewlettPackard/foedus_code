@@ -18,6 +18,7 @@ struct  ArrayMetadata;
 struct  ArrayOverwriteLogType;
 class   ArrayPage;
 class   ArrayPartitioner;
+struct  ArrayPartitionerData;
 struct  ArrayRange;
 class   ArrayStorage;
 struct  ArrayStorageCache;

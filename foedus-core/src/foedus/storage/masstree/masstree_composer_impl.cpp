@@ -61,8 +61,6 @@ ErrorStack MasstreeComposer::construct_root(
 void MasstreeComposer::describe(std::ostream* o_ptr) const {
   std::ostream &o = *o_ptr;
   o << "<MasstreeComposer>"
-      << "<snapshot_writer_>" << snapshot_writer_ << "</snapshot_writer_>"
-      << "<new_snapshot>" << new_snapshot_ << "</new_snapshot>"
     << "</MasstreeComposer>";
 }
 

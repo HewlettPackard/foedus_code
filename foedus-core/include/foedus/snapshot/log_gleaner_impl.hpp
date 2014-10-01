@@ -91,7 +91,8 @@ namespace snapshot {
  */
 class LogGleaner final : public LogGleanerRef {
  public:
-  LogGleaner(Engine* engine, Snapshot* snapshot, SnapshotManagerPimpl* manager);
+  LogGleaner(Engine* engine, const Snapshot& new_snapshot);
+  ~LogGleaner();
 
   LogGleaner() = delete;
   LogGleaner(const LogGleaner &other) = delete;
@@ -120,8 +121,8 @@ class LogGleaner final : public LogGleanerRef {
   uint32_t get_partitioner_count() const { return partitioners_.size(); }
 
  private:
-  Snapshot* const                 snapshot_;
-  SnapshotManagerPimpl*           manager_;
+  /** The snapshot we are now taking. */
+  const Snapshot                  new_snapshot_;
 
   /**
    * Objects to partition log entries. Partitioners are added by mappers when they observe a
@@ -144,6 +145,16 @@ class LogGleaner final : public LogGleanerRef {
 
   /** Before starting log gleaner, this method resets all shared memory to initialized state. */
   void      clear_all();
+
+  /**
+   * As the first step, this method investigates existing storages and determines the partitioning
+   * policy for them.
+   */
+  ErrorStack design_partitions();
+  /**
+   * design_partitions() invokes this to parallelize the partitioning.
+   */
+  void design_partitions_run(storage::StorageId from, storage::StorageId count, ErrorStack* result);
 
   /**
    * Request reducers and mappers to cancel the work.

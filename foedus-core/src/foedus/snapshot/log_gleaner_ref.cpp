@@ -10,15 +10,19 @@
 namespace foedus {
 namespace snapshot {
 
-LogGleanerRef::LogGleanerRef() : Attachable<LogGleanerControlBlock>() {}
+LogGleanerRef::LogGleanerRef() : Attachable<LogGleanerControlBlock>() {
+  partitioner_metadata_ = nullptr;
+  partitioner_data_ = nullptr;
+}
 LogGleanerRef::LogGleanerRef(Engine* engine)
   : Attachable<LogGleanerControlBlock>() {
   engine_ = engine;
-  control_block_ =  &engine_->get_soc_manager()->get_shared_memory_repo()->
-    get_global_memory_anchors()->snapshot_manager_memory_->gleaner_;
+  soc::GlobalMemoryAnchors* anchors
+    = engine_->get_soc_manager()->get_shared_memory_repo()->get_global_memory_anchors();
+  control_block_ =  &anchors->snapshot_manager_memory_->gleaner_;
+  partitioner_metadata_ = anchors->partitioner_metadata_;
+  partitioner_data_ = anchors->partitioner_data_;
 }
-LogGleanerRef::LogGleanerRef(Engine* engine, LogGleanerControlBlock* block)
-  : Attachable<LogGleanerControlBlock>(engine, block) {}
 
 uint16_t LogGleanerRef::increment_completed_count() {
   ASSERT_ND(control_block_->completed_count_ < control_block_->all_count_);
@@ -54,11 +58,11 @@ uint16_t LogGleanerRef::get_all_count() const { return control_block_->all_count
 bool LogGleanerRef::is_error() const { return control_block_->is_error(); }
 void LogGleanerRef::wakeup() {
 }
-SnapshotId LogGleanerRef::get_snapshot_id() const { return control_block_->snapshot_id_; }
-Epoch LogGleanerRef::get_base_epoch() const { return Epoch(control_block_->base_epoch_); }
-Epoch LogGleanerRef::get_valid_until_epoch() const {
-  return Epoch(control_block_->valid_until_epoch_);
-}
+
+const Snapshot& LogGleanerRef::get_cur_snapshot() const { return control_block_->cur_snapshot_; }
+SnapshotId LogGleanerRef::get_snapshot_id() const { return get_cur_snapshot().id_; }
+Epoch LogGleanerRef::get_base_epoch() const { return get_cur_snapshot().base_epoch_; }
+Epoch LogGleanerRef::get_valid_until_epoch() const { return get_cur_snapshot().valid_until_epoch_; }
 
 
 }  // namespace snapshot

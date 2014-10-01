@@ -6,7 +6,6 @@
 #define FOEDUS_SNAPSHOT_SNAPSHOT_HPP_
 
 #include <iosfwd>
-#include <map>
 
 #include "foedus/epoch.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
@@ -20,7 +19,7 @@ namespace snapshot {
  * into snapshot file(s).
  * @ingroup SNAPSHOT
  * @details
- * This is POD.
+ * This is POD and no heap-allocated data, so it can be directly placed in shared memory.
  */
 struct Snapshot {
   /**
@@ -42,14 +41,16 @@ struct Snapshot {
    */
   Epoch valid_until_epoch_;
 
-  /**
-   * For each storage that was modified in this snapshotting,
-   * this holds the pointer to new root page.
-   * This is filled in at the end of LogGleaner.
-   */
-  std::map<storage::StorageId, storage::SnapshotPagePointer> new_root_page_pointers_;
+  /** Largest storage ID as of starting to take the snapshot. */
+  storage::StorageId max_storage_id_;
 
   friend std::ostream& operator<<(std::ostream& o, const Snapshot& v);
+  void clear() {
+    id_ = 0;
+    base_epoch_ = INVALID_EPOCH;
+    valid_until_epoch_ = INVALID_EPOCH;
+    max_storage_id_ = 0;
+  }
 };
 }  // namespace snapshot
 }  // namespace foedus

@@ -20,11 +20,9 @@
 
 namespace foedus {
 namespace snapshot {
-SnapshotWriter::SnapshotWriter(Engine* engine, LogReducer* parent)
+SnapshotWriter::SnapshotWriter(Engine* engine, uint16_t numa_node)
   : engine_(engine),
-  parent_(parent),
-  numa_node_(parent->get_id()),
-  snapshot_id_(parent_->get_parent()->get_snapshot()->id_),
+  numa_node_(numa_node),
   snapshot_file_(nullptr),
   page_base_(nullptr),
   pool_size_(0),

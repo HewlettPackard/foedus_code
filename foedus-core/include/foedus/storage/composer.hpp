@@ -63,26 +63,14 @@ namespace storage {
  * can start using the snapshot pages.
  * Composers also drop volatile pointers if possible, reducing pressures to volatile page pool.
  */
-class Composer {
+class Composer CXX11_FINAL {
  public:
-  Composer(
-    Engine *engine,
-    StorageId storage_id,
-    snapshot::SnapshotWriter* snapshot_writer,
-    cache::SnapshotFileSet* previous_snapshot_files,
-    const snapshot::Snapshot& new_snapshot);
-  virtual ~Composer() {}
-
-  /** Returns a short string that briefly describes this object. */
-  virtual std::string to_string() const = 0;
-
-  /** Writes out a detailed description of this object to stream. */
-  virtual void        describe(std::ostream* o) const = 0;
+  Composer(Engine *engine, StorageId storage_id);
 
   /** Returns the size of working memory this composer needs. */
-  virtual uint64_t    get_required_work_memory_size(
+  uint64_t    get_required_work_memory_size(
     snapshot::SortedBuffer**  log_streams,
-    uint32_t                  log_streams_count) const = 0;
+    uint32_t                  log_streams_count) const;
 
   /**
    * @brief Construct snapshot pages from sorted run files of one storage.
@@ -93,11 +81,11 @@ class Composer {
    * to construct the root page. The data format depends on the composer. In all implementations,
    * the information must fit in one page (should be, otherwise we can't have a root page)
    */
-  virtual ErrorStack  compose(
+  ErrorStack  compose(
     snapshot::SortedBuffer* const*    log_streams,
     uint32_t                          log_streams_count,
     const memory::AlignedMemorySlice& work_memory,
-    Page*                             root_info_page) = 0;
+    Page*                             root_info_page);
 
   /**
    * @brief Construct root page(s) for one storage based on the ouputs of compose().
@@ -109,19 +97,11 @@ class Composer {
    * When all reducers complete, the gleaner invokes this method to construct new root
    * page(s) for the storage. This
    */
-  virtual ErrorStack  construct_root(
+  ErrorStack  construct_root(
     const Page* const*  root_info_pages,
     uint32_t            root_info_pages_count,
     const memory::AlignedMemorySlice& work_memory,
-    SnapshotPagePointer* new_root_page_pointer) = 0;
-
-  /** factory method. */
-  static Composer*    create_composer(
-    Engine *engine,
-    StorageId storage_id,
-    snapshot::SnapshotWriter* snapshot_writer,
-    cache::SnapshotFileSet* previous_snapshot_files,
-    const snapshot::Snapshot& new_snapshot);
+    SnapshotPagePointer* new_root_page_pointer);
 
   friend std::ostream&    operator<<(std::ostream& o, const Composer& v);
 
@@ -129,7 +109,6 @@ class Composer {
   Engine* const                       engine_;
   snapshot::SnapshotWriter* const     snapshot_writer_;
   cache::SnapshotFileSet* const       previous_snapshot_files_;
-  const snapshot::Snapshot&           new_snapshot_;
   const snapshot::SnapshotId          new_snapshot_id_;
   const StorageId                     storage_id_;
   const thread::ThreadGroupId         numa_node_;

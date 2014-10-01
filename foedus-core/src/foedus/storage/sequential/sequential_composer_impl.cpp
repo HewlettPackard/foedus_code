@@ -25,13 +25,7 @@ namespace foedus {
 namespace storage {
 namespace sequential {
 
-SequentialComposer::SequentialComposer(
-    Engine *engine,
-    StorageId storage_id,
-    snapshot::SnapshotWriter* snapshot_writer,
-    cache::SnapshotFileSet* previous_snapshot_files,
-    const snapshot::Snapshot& new_snapshot)
-  : Composer(engine, storage_id, snapshot_writer, previous_snapshot_files, new_snapshot) {
+SequentialComposer::SequentialComposer(Composer *parent) {
 }
 
 /**
@@ -140,7 +134,7 @@ ErrorStack SequentialComposer::compose(
         ASSERT_ND(extract_numa_node_from_snapshot_pointer(cur_page->header().page_id_)
             == snapshot_writer_->get_numa_node());
         ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(cur_page->header().page_id_)
-            == new_snapshot_.id_);
+            == new_snapshot_id_);
       }
     }
 
@@ -216,7 +210,7 @@ ErrorStack SequentialComposer::construct_root(
       ASSERT_ND(extract_numa_node_from_snapshot_pointer(new_page->header().page_id_)
           == snapshot_writer_->get_numa_node());
       ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(new_page->header().page_id_)
-          == new_snapshot_.id_);
+          == new_snapshot_id_);
       cur_page->set_next_page(new_page->header().page_id_);
       cur_page = new_page;
       ++allocated_pages;
@@ -237,17 +231,8 @@ ErrorStack SequentialComposer::construct_root(
   return kRetOk;
 }
 
-void SequentialComposer::describe(std::ostream* o_ptr) const {
-  std::ostream &o = *o_ptr;
-  o << "<SequentialComposer>"
-      << "<snapshot_writer_>" << snapshot_writer_ << "</snapshot_writer_>"
-      << "<new_snapshot>" << new_snapshot_ << "</new_snapshot>"
-    << "</SequentialComposer>";
-}
-
 std::string SequentialComposer::to_string() const {
-  return std::string("SequentialComposer:storage-")
-    + std::to_string(storage_id_);
+  return std::string("SequentialComposer-") + std::to_string(storage_id_);
 }
 
 }  // namespace sequential

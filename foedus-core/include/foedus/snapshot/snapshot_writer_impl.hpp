@@ -61,7 +61,8 @@ namespace snapshot {
  */
 class SnapshotWriter final : public DefaultInitializable {
  public:
-  SnapshotWriter(Engine* engine, LogReducer* parent);
+  SnapshotWriter(Engine* engine, uint16_t numa_node);
+
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
   /**
@@ -75,8 +76,7 @@ class SnapshotWriter final : public DefaultInitializable {
   SnapshotWriter& operator=(const SnapshotWriter &other) = delete;
 
 
-  thread::ThreadGroupId   get_numa_node() const { return numa_node_; }
-  SnapshotId              get_snapshot_id() const { return snapshot_id_; }
+  uint16_t                get_numa_node() const { return numa_node_; }
   storage::Page*          get_page_base() { return page_base_; }
   memory::PagePoolOffset  get_page_size() const { return pool_size_;}
   storage::Page*          get_intermediate_base() { return intermediate_base_; }
@@ -120,11 +120,10 @@ class SnapshotWriter final : public DefaultInitializable {
 
  private:
   Engine* const                   engine_;
-  LogReducer* const               parent_;
-  /** Also parent's ID. One NUMA node = one reducer = one snapshot writer. */
-  const thread::ThreadGroupId     numa_node_;
-  /** Same as parent_->get_parent()->get_snapshot()->id_. Stored for convenience. */
-  const SnapshotId                snapshot_id_;
+  /** NUMA node for allocated memories. */
+  const uint16_t                  numa_node_;
+  /** Id of the snapshot this is currently writing for. */
+  SnapshotId                      snapshot_id_;
 
   /** The snapshot file to write to. */
   fs::DirectIoFile*               snapshot_file_;

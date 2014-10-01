@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <map>
 #include <string>
 #include <thread>
 #include <vector>
@@ -33,25 +34,19 @@ struct LogGleanerControlBlock {
   ~LogGleanerControlBlock() = delete;
 
   void initialize() {
-    gleaner_wakeup_.initialize();
-    mappers_wakeup_.initialize();
-    reducers_wakeup_.initialize();
     clear_counts();
     mappers_count_ = 0;
     reducers_count_ = 0;
     all_count_ = 0;
   }
   void uninitialize() {
-    reducers_wakeup_.uninitialize();
-    mappers_wakeup_.uninitialize();
-    gleaner_wakeup_.uninitialize();
   }
   void clear_counts() {
+    cur_snapshot_.clear();
     completed_count_ = 0;
     completed_mapper_count_ = 0;
     error_count_ = 0;
     exit_count_ = 0;
-    snapshot_id_ = 0;
     gleaning_ = false;
     cancelled_ = false;
   }
@@ -62,46 +57,13 @@ struct LogGleanerControlBlock {
   */
   bool is_error() const { return error_count_ > 0 || cancelled_; }
 
-  /**
-  * Gleaner sleeps on this condition when it's waiting for next step.
-  * The real conditions are variables that indicate the next step (error_count_, exit_count_,
-  * completed_count_ etc).
-  */
-  soc::SharedCond                 gleaner_wakeup_;
-
-  /**
-  * All mappers sleep on this condition when they are waiting for next step.
-  * The real conditions are variables that indicate the next step (error_count_, exit_count_,
-  * completed_count_ etc).
-  */
-  soc::SharedCond                 mappers_wakeup_;
-
-  /**
-  * All reducers sleep on this condition when they are waiting for next step.
-  * The real conditions are variables that indicate the next step (error_count_, exit_count_,
-  * completed_count_ etc).
-  */
-  soc::SharedCond                 reducers_wakeup_;
-
-  /** ID of the snapshot now taking. */
-  std::atomic< SnapshotId >         snapshot_id_;
-
-  /**
-   * This snapshot was taken on top of previous snapshot that is valid_until this epoch.
-   * If this is the first snapshot, this is an invalid epoch.
-   */
-  std::atomic< Epoch::EpochInteger > base_epoch_;
-
-  /**
-   * This snapshot contains all the logs until this epoch.
-   * @invariant valid_until_epoch_.is_valid()
-   */
-  std::atomic< Epoch::EpochInteger > valid_until_epoch_;
-
   /** Whether the log gleaner is now running. */
   std::atomic<bool>               gleaning_;
   /** Whether the log gleaner has been cancalled. */
   std::atomic<bool>               cancelled_;
+
+  /** The snapshot we are now taking. */
+  Snapshot                        cur_snapshot_;
 
   /**
    * count of mappers/reducers that have completed processing the current epoch.
@@ -279,21 +241,25 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
   void        handle_snapshot_child();
 
   /**
-   * Phase-2 of handle_snapshot_triggered().
+   * Sub-routine of handle_snapshot_triggered().
    * Read log files, distribute them to each partition, and construct snapshot files at
    * each partition.
    * After successful completion, all snapshot files become also durable
    * (LogGleaner's uninitialize() makes it sure).
    * Thus, now we can start installing pointers to the new snapshot file pages.
    */
-  ErrorStack  glean_logs(Snapshot *new_snapshot);
+  ErrorStack  glean_logs(
+    const Snapshot& new_snapshot,
+    std::map<storage::StorageId, storage::SnapshotPagePointer>* new_root_page_pointers);
 
   /**
-   * Phase-3 of handle_snapshot_triggered().
+   * Sub-routine of handle_snapshot_triggered().
    * Write out a snapshot metadata file that contains metadata of all storages
    * and a few other global metadata.
    */
-  ErrorStack  snapshot_metadata(Snapshot *new_snapshot);
+  ErrorStack  snapshot_metadata(
+    const Snapshot& new_snapshot,
+    const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers);
 
   // @todo Phase-4 to install pointers to snapshot pages and drop volatile pages.
 

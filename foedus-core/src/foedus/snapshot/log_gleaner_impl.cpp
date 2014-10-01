@@ -26,16 +26,27 @@
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_manager.hpp"
 #include "foedus/snapshot/snapshot_manager_pimpl.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/composer.hpp"
 #include "foedus/storage/partitioner.hpp"
+#include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
 
 namespace foedus {
 namespace snapshot {
 
-LogGleaner::LogGleaner(Engine* engine, Snapshot* snapshot, SnapshotManagerPimpl* manager)
-  : LogGleanerRef(engine), snapshot_(snapshot), manager_(manager) {
+LogGleaner::LogGleaner(Engine* engine, const Snapshot& new_snapshot)
+  : LogGleanerRef(engine),
+    new_snapshot_(new_snapshot) {
 }
+LogGleaner::~LogGleaner() {
+  if (partitioner_metadata_) {
+    for (storage::StorageId i = 0; i <= new_snapshot_.max_storage_id_; ++i) {
+      partitioner_metadata_[i].uninitialize();
+    }
+  }
+}
+
 ErrorStack LogGleaner::cancel_reducers_mappers() {
   if (is_all_exitted()) {
     VLOG(0) << "All mappers/reducers have already exitted. " << *this;
@@ -56,23 +67,49 @@ ErrorStack LogGleaner::cancel_reducers_mappers() {
 
 void LogGleaner::clear_all() {
   control_block_->clear_counts();
+  control_block_->cur_snapshot_ = new_snapshot_;
   uint16_t node_count = engine_->get_options().thread_.group_count_;
   for (uint16_t node = 0; node < node_count; ++node) {
     LogReducerRef reducer(engine_, node);
     reducer.clear();
   }
+  for (storage::StorageId i = 0; i <= new_snapshot_.max_storage_id_; ++i) {
+    partitioner_metadata_[i].initialize();
+  }
+}
+
+ErrorStack LogGleaner::design_partitions() {
+  // so far single threaded to debug easily.
+  // but, let's prepare for parallelization so that we can switch later.
+  ErrorStack result;
+  design_partitions_run(1U, new_snapshot_.max_storage_id_, &result);
+  return result;
+}
+
+void LogGleaner::design_partitions_run(
+  storage::StorageId from,
+  storage::StorageId count,
+  ErrorStack* result) {
+  *result = kRetOk;
+
 }
 
 ErrorStack LogGleaner::execute() {
-  LOG(INFO) << "gleaner_thread_ starts running: " << *this;
+  LOG(INFO) << "Gleaner starts running: snapshot_id=" << get_snapshot_id();
   clear_all();
 
+  LOG(INFO) << "Gleaner Step 1: Design partitions for all storages...";
+  // Another approach is to delay this step until some mapper really needs it so that we can
+  // skip partition-designing for storages that weren't modified.
+  // However, it requires synchronization in mapper/reducer and this step is anyway fast enough.
+  // So, we so far simply design partitions for all of them.
+  CHECK_ERROR(design_partitions());
+
+  LOG(INFO) << "Gleaner Step 2: Run mappers/reducers...";
   // Request each node's snapshot manager to launch mappers/reducers threads
   control_block_->gleaning_ = true;
-  control_block_->snapshot_id_ = snapshot_->id_;
-  control_block_->base_epoch_ = snapshot_->base_epoch_.value();
-  control_block_->valid_until_epoch_ = snapshot_->valid_until_epoch_.value();
-  manager_->control_block_->wakeup_snapshot_children();
+  engine_->get_soc_manager()->get_shared_memory_repo()->get_global_memory_anchors()->
+    snapshot_manager_memory_->wakeup_snapshot_children();
 
   // then, wait until all mappers/reducers are done
   while (!is_error() && !is_all_completed()) {
@@ -83,6 +120,7 @@ ErrorStack LogGleaner::execute() {
 
   control_block_->gleaning_ = false;
 
+  LOG(INFO) << "Gleaner Step 3: Combine outputs from reducers (root page info)..." << *this;
   if (is_error()) {
     LOG(ERROR) << "Some mapper/reducer got an error. " << *this;
   } else if (!is_all_completed()) {
@@ -92,11 +130,10 @@ ErrorStack LogGleaner::execute() {
     CHECK_ERROR(construct_root_pages());
   }
 
-  LOG(INFO) << "gleaner stopping.. cancelling reducers and mappers: " << *this;
+  LOG(INFO) << "Gleaner Step 4: Uninitializing...";
   CHECK_ERROR(cancel_reducers_mappers());
   ASSERT_ND(is_all_exitted());
-  LOG(INFO) << "gleaner ends: " << *this;
-
+  LOG(INFO) << "Gleaner ends";
   return kRetOk;
 }
 
@@ -218,7 +255,6 @@ const storage::Partitioner* LogGleaner::get_or_create_partitioner(storage::Stora
   }
 }
 
-
 std::string LogGleaner::to_string() const {
   std::stringstream stream;
   stream << *this;
@@ -226,7 +262,7 @@ std::string LogGleaner::to_string() const {
 }
 std::ostream& operator<<(std::ostream& o, const LogGleaner& v) {
   o << "<LogGleaner>"
-    << *v.snapshot_
+    << v.new_snapshot_
     << "<completed_count_>" << v.control_block_->completed_count_ << "</completed_count_>"
     << "<completed_mapper_count_>"
       << v.control_block_->completed_mapper_count_ << "</completed_mapper_count_>"

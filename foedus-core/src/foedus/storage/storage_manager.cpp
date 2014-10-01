@@ -39,6 +39,9 @@ StorageControlBlock* StorageManager::get_storage(const StorageName& name) {
 }
 
 StorageId StorageManager::issue_next_storage_id() { return pimpl_->issue_next_storage_id(); }
+StorageId StorageManager::get_largest_storage_id() {
+  return pimpl_->control_block_->largest_storage_id_;
+}
 
 const StorageName kEmptyString;
 const StorageName& StorageManager::get_name(StorageId id) {

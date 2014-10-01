@@ -43,7 +43,7 @@ namespace sequential {
  * Do not include this header from a client program. There is no case client program needs to
  * access this internal class.
  */
-class SequentialComposer final : public Composer {
+class SequentialComposer final {
  public:
   /** Output of one compose() call, which are then combined in construct_root(). */
   struct RootInfoPage final {
@@ -55,36 +55,25 @@ class SequentialComposer final : public Composer {
     SnapshotPagePointer pointers_[(kPageSize - 24) / 8];  // -> 4096
   };
 
-  SequentialComposer(
-    Engine *engine,
-    StorageId storage_id,
-    snapshot::SnapshotWriter* snapshot_writer,
-    cache::SnapshotFileSet* previous_snapshot_files,
-    const snapshot::Snapshot& new_snapshot);
-  ~SequentialComposer() {}
+  explicit SequentialComposer(Composer *parent);
 
-  SequentialComposer() = delete;
-  explicit SequentialComposer(const SequentialPartitioner& other) = delete;
-  SequentialComposer& operator=(const SequentialPartitioner& other) = delete;
-
-  std::string to_string() const override;
-  void describe(std::ostream* o) const override;
+  std::string to_string() const;
 
   ErrorStack compose(
     snapshot::SortedBuffer* const* log_streams,
     uint32_t log_streams_count,
     const memory::AlignedMemorySlice& work_memory,
-    Page* root_info_page) override;
+    Page* root_info_page);
 
   ErrorStack construct_root(
     const Page* const*  root_info_pages,
     uint32_t            root_info_pages_count,
     const memory::AlignedMemorySlice& work_memory,
-    SnapshotPagePointer* new_root_page_pointer) override;
+    SnapshotPagePointer* new_root_page_pointer);
 
   uint64_t get_required_work_memory_size(
     snapshot::SortedBuffer** /*log_streams*/,
-    uint32_t /*log_streams_count*/) const override {
+    uint32_t /*log_streams_count*/) const {
     return 0;
   }
 
