@@ -35,7 +35,6 @@ PartitionerMetadata* PartitionerMetadata::get_index0_metadata(Engine* engine) {
 }
 
 void* PartitionerMetadata::locate_data(Engine* engine) {
-  ASSERT_ND(valid_);
   ASSERT_ND(data_size_ > 0);
   ASSERT_ND(data_offset_ + data_size_
     <= engine->get_options().storage_.partitioner_data_memory_mb_ * (1ULL << 20));

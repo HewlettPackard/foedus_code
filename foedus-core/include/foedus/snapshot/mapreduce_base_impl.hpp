@@ -52,6 +52,7 @@ class MapReduceBase : public DefaultInitializable {
 
   /** Start executing */
   void          launch_thread();
+  void          join_thread();
 
  protected:
   Engine* const                   engine_;

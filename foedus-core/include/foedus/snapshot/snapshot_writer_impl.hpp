@@ -11,8 +11,8 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
+#include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/initializable.hpp"
 #include "foedus/fs/fwd.hpp"
 #include "foedus/fs/path.hpp"
 #include "foedus/memory/aligned_memory.hpp"
@@ -59,12 +59,19 @@ namespace snapshot {
  * Do not include this header from a client program. There is no case client program needs to
  * access this internal class.
  */
-class SnapshotWriter final : public DefaultInitializable {
+class SnapshotWriter final {
  public:
-  SnapshotWriter(Engine* engine, uint16_t numa_node);
+  SnapshotWriter(
+    Engine* engine,
+    uint16_t numa_node,
+    SnapshotId snapshot_id,
+    memory::AlignedMemory* pool_memory,
+    memory::AlignedMemory* intermediate_memory,
+    bool append = false);
+  ~SnapshotWriter() { close(); }
 
-  ErrorStack  initialize_once() override;
-  ErrorStack  uninitialize_once() override;
+  /** Open the file so that the writer can start writing. */
+  ErrorStack  open();
   /**
    * Close the file and makes sure all writes become durable (including the directory entry).
    * @return whether successfully closed and synced.
@@ -102,7 +109,7 @@ class SnapshotWriter final : public DefaultInitializable {
    * @param[in] count number of pages to write out
    */
   ErrorCode dump_pages(memory::PagePoolOffset from_page, uint32_t count) {
-    return dump_general(&pool_memory_, from_page, count);
+    return dump_general(pool_memory_, from_page, count);
   }
 
   /**
@@ -111,11 +118,11 @@ class SnapshotWriter final : public DefaultInitializable {
    * @param[in] count number of pages to write out
    */
   ErrorCode dump_intermediates(memory::PagePoolOffset from_page, uint32_t count) {
-    return dump_general(&intermediate_memory_, from_page, count);
+    return dump_general(intermediate_memory_, from_page, count);
   }
 
   std::string             to_string() const {
-    return "SnapshotWriter-" + std::to_string(numa_node_);
+    return "SnapshotWriter-" + std::to_string(numa_node_) + (append_ ? "(append)" : "");
   }
   friend std::ostream&    operator<<(std::ostream& o, const SnapshotWriter& v);
 
@@ -123,18 +130,17 @@ class SnapshotWriter final : public DefaultInitializable {
   Engine* const                   engine_;
   /** NUMA node for allocated memories. */
   const uint16_t                  numa_node_;
-  /** Id of the snapshot this is currently writing for. */
-  SnapshotId                      snapshot_id_;
-
-  /** The snapshot file to write to. */
-  fs::DirectIoFile*               snapshot_file_;
+  /** Whether we are appending to an existing file. */
+  const bool                      append_;
+  /** ID of the snapshot this writer is currently working on. */
+  const SnapshotId                snapshot_id_;
 
   /** This is the main page pool for all composers using this snapshot writer. */
-  memory::AlignedMemory           pool_memory_;
+  const memory::AlignedMemorySlice  pool_memory_;
   /** Same as pool_memory_.get_block(). */
-  storage::Page*                  page_base_;
+  storage::Page* const            page_base_;
   /** Size of the pool in pages. */
-  memory::PagePoolOffset          pool_size_;
+  const memory::PagePoolOffset    pool_size_;
 
   /**
    * This is the sub page pool for intermdiate pages (main one is for leaf pages).
@@ -142,21 +148,23 @@ class SnapshotWriter final : public DefaultInitializable {
    * intermediate pages modified in one compose() while we might flush pool_memory_
    * multiple times for one compose().
    */
-  memory::AlignedMemory           intermediate_memory_;
+  const memory::AlignedMemorySlice  intermediate_memory_;
   /** Same as intermediate_memory_.get_block(). */
-  storage::Page*                  intermediate_base_;
+  storage::Page* const            intermediate_base_;
   /** Size of the intermediate_memory_ in pages. */
-  memory::PagePoolOffset          intermediate_size_;
+  const memory::PagePoolOffset    intermediate_size_;
+
+  /** The snapshot file to write to. */
+  fs::DirectIoFile*               snapshot_file_;
 
   /**
    * The page that is written next will correspond to this snapshot page ID.
    */
   storage::SnapshotPagePointer    next_page_id_;
 
-  void      clear_snapshot_file();
   fs::Path  get_snapshot_file_path() const;
   ErrorCode dump_general(
-    memory::AlignedMemory* memory,
+    const memory::AlignedMemorySlice& slice,
     memory::PagePoolOffset from_page,
     uint32_t count);
 };

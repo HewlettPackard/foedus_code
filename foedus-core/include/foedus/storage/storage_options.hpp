@@ -32,6 +32,7 @@ struct StorageOptions CXX11_FINAL : public virtual externalize::Externalizable {
    * Size in MB of a shared memory buffer allocated for all partitioners during log gleaning.
    * Increase this value when you have a large number of storages that have large partitioning
    * information (eg. long keys).
+   * So far, this must be less than 4GB.
    */
   uint32_t                partitioner_data_memory_mb_;
 

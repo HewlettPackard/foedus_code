@@ -172,6 +172,7 @@ void SnapshotManagerPimpl::handle_snapshot() {
 void SnapshotManagerPimpl::handle_snapshot_child() {
   LOG(INFO) << "Child snapshot daemon-" << engine_->get_soc_id() << " started";
   thread::NumaThreadScope scope(engine_->get_soc_id());
+  SnapshotId previous_id = control_block_->gleaner_.cur_snapshot_.id_;
   while (!is_stop_requested()) {
     {
       soc::SharedMutexScope scope(control_block_->snapshot_children_wakeup_.get_mutex());
@@ -181,10 +182,25 @@ void SnapshotManagerPimpl::handle_snapshot_child() {
     }
     if (is_stop_requested()) {
       break;
-    } else if (!is_gleaning()) {
+    } else if (!is_gleaning() || previous_id == control_block_->gleaner_.cur_snapshot_.id_) {
       continue;
     }
-    LOG(INFO) << "Child snapshot daemon-" << engine_->get_soc_id() << " received a request";
+    SnapshotId current_id = control_block_->gleaner_.cur_snapshot_.id_;
+    LOG(INFO) << "Child snapshot daemon-" << engine_->get_soc_id() << " received a request"
+      << " for snapshot-" << current_id;
+    local_reducer_->launch_thread();
+    for (LogMapper* mapper : local_mappers_) {
+      mapper->launch_thread();
+    }
+    LOG(INFO) << "Child snapshot daemon-" << engine_->get_soc_id() << " launched mappers/reducer"
+      " for snapshot-" << current_id;
+    for (LogMapper* mapper : local_mappers_) {
+      mapper->join_thread();
+    }
+    local_reducer_->join_thread();
+    LOG(INFO) << "Child snapshot daemon-" << engine_->get_soc_id() << " joined mappers/reducer"
+      " for snapshot-" << current_id;
+    previous_id = current_id;
   }
 
   LOG(INFO) << "Child snapshot daemon-" << engine_->get_soc_id() << " ended";

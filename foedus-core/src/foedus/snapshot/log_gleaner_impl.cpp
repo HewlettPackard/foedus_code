@@ -73,8 +73,11 @@ void LogGleaner::clear_all() {
     LogReducerRef reducer(engine_, node);
     reducer.clear();
   }
-  for (storage::StorageId i = 0; i <= new_snapshot_.max_storage_id_; ++i) {
-    partitioner_metadata_[i].initialize();
+  partitioner_metadata_[0].data_offset_ = 0;
+  ASSERT_ND(partitioner_metadata_[0].data_size_
+    == engine_->get_options().storage_.partitioner_data_memory_mb_ * (1ULL << 20));
+  for (storage::StorageId i = 1; i <= new_snapshot_.max_storage_id_; ++i) {
+    partitioner_metadata_[i].clear_counts();
   }
 }
 
@@ -150,6 +153,7 @@ ErrorStack LogGleaner::execute() {
 ErrorStack LogGleaner::construct_root_pages() {
   ASSERT_ND(new_root_page_pointers_.size() == 0);
   debugging::StopWatch stop_watch;
+
   const uint16_t count = control_block_->reducers_count_;
   std::vector<const storage::Page*> tmp_array(count, nullptr);
   std::vector<uint16_t> cursors;
@@ -166,6 +170,27 @@ ErrorStack LogGleaner::construct_root_pages() {
   memory::AlignedMemory work_memory;
   work_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
   memory::AlignedMemorySlice work_memory_slice(&work_memory);
+
+
+  // composers read snapshot files.
+  cache::SnapshotFileSet fileset(engine_);
+  CHECK_ERROR(fileset.initialize());
+  UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
+
+  // composers need SnapshotWriter to write out to.
+  // As construct_root() just writes out root pages, it won't require large buffer.
+  // Especially, no buffer for intermediate pages required.
+  memory::AlignedMemory writer_pool_memory;
+  writer_pool_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
+  memory::AlignedMemory writer_intermediate_memory;
+  writer_intermediate_memory.alloc(1U << 12, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
+
+  SnapshotWriter snapshot_writer(
+    engine_,
+    0,
+    get_snapshot_id(),
+    &writer_pool_memory,
+    &writer_intermediate_memory);
 
   storage::StorageId prev_storage_id = 0;
   // each reducer's root-info-page must be sorted by storage_id, so we do kind of merge-sort here.
@@ -208,6 +233,8 @@ ErrorStack LogGleaner::construct_root_pages() {
     storage::Composer composer(engine_, min_storage_id);
     storage::SnapshotPagePointer new_root_page_pointer;
     CHECK_ERROR(composer.construct_root(
+      &snapshot_writer,
+      &fileset,
       &tmp_array[0],
       input_count,
       work_memory_slice,
@@ -230,6 +257,9 @@ ErrorStack LogGleaner::construct_root_pages() {
       }
     }
   }
+
+  snapshot_writer.close();
+  CHECK_ERROR(fileset.uninitialize());
 
   stop_watch.stop();
   LOG(INFO) << "constructed root pages for " << new_root_page_pointers_.size()

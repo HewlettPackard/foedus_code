@@ -362,6 +362,16 @@ class LogReducer final : public MapReduceBase {
    */
   memory::AlignedMemory   composer_work_memory_;
 
+  /** Main page pool for SnapshotWriter. */
+  memory::AlignedMemory   writer_pool_memory_;
+  /**
+   * Sub page pool for intermdiate pages in SnapshotWriter (main one is for leaf pages).
+   * We separate out intermediate pages and assume that this pool can hold all
+   * intermediate pages modified in one compose() while we might flush pool_memory_
+   * multiple times for one compose().
+   */
+  memory::AlignedMemory   writer_intermediate_memory_;
+
   /**
    * How many buffers written out as a temporary file.
    * If this number is zero when all mappers complete, the reducer does not bother writing out

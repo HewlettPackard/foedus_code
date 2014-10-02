@@ -178,8 +178,8 @@ ErrorStack SequentialComposer::construct_root(
   for (SnapshotPagePointer page_id = previous_root_page_pointer; page_id != 0;) {
     // if there already is a root page, read them all.
     // we have to anyway re-write all of them, at least the next pointer.
-    WRAP_ERROR_CODE(previous_snapshot_files->read_page(page_id, work_memory.get_block()));
     SequentialRootPage* root_page = reinterpret_cast<SequentialRootPage*>(work_memory.get_block());
+    WRAP_ERROR_CODE(previous_snapshot_files->read_page(page_id, root_page));
     ASSERT_ND(root_page->header().storage_id_ == storage_id_);
     ASSERT_ND(root_page->header().page_id_ == page_id);
     for (uint16_t i = 0; i < root_page->get_pointer_count(); ++i) {

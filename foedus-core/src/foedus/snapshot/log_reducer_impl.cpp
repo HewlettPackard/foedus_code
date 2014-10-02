@@ -85,6 +85,18 @@ ErrorStack LogReducer::initialize_once() {
     positions_buffers_.get_size() >> 1,
     positions_buffers_.get_size() >> 1);
 
+  writer_pool_memory_.alloc(
+    static_cast<uint64_t>(option.snapshot_writer_page_pool_size_mb_) << 20,
+    memory::kHugepageSize,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    numa_node_);
+
+  writer_intermediate_memory_.alloc(
+    static_cast<uint64_t>(option.snapshot_writer_intermediate_pool_size_mb_) << 20,
+    memory::kHugepageSize,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    numa_node_),
+
   sorted_runs_ = 0;
 
   // we don't initialize snapshot_writer_/composer_work_memory_ yet
@@ -95,6 +107,8 @@ ErrorStack LogReducer::initialize_once() {
 ErrorStack LogReducer::uninitialize_once() {
   ErrorStackBatch batch;
   batch.emprace_back(previous_snapshot_files_.uninitialize());
+  writer_intermediate_memory_.release_block();
+  writer_pool_memory_.release_block();
   composer_work_memory_.release_block();
   dump_io_buffer_.release_block();
   sort_buffer_.release_block();
@@ -504,9 +518,13 @@ ErrorStack LogReducer::merge_sort() {
 
   // The writer to writes out composed snapshot pages to a new snapshot file.
   // we use it only during merge_sort().
-  SnapshotWriter snapshot_writer(engine_, numa_node_);
-  CHECK_ERROR(snapshot_writer.initialize());
-  UninitializeGuard guard(&snapshot_writer, UninitializeGuard::kWarnIfUninitializeError);
+  SnapshotWriter snapshot_writer(
+    engine_,
+    numa_node_,
+    parent_.get_snapshot_id(),
+    &writer_pool_memory_,
+    &writer_intermediate_memory_);
+  CHECK_ERROR(snapshot_writer.open());
 
   CHECK_ERROR(previous_snapshot_files_.initialize());
 
@@ -570,7 +588,6 @@ ErrorStack LogReducer::merge_sort() {
   ASSERT_ND(control_block_->total_storage_count_ <= get_max_storage_count());
 
   snapshot_writer.close();
-  CHECK_ERROR(snapshot_writer.uninitialize());
   merge_watch.stop();
   LOG(INFO) << to_string() << " completed merging in " << merge_watch.elapsed_sec() << " seconds"
     << " . total_storage_count_=" << control_block_->total_storage_count_;

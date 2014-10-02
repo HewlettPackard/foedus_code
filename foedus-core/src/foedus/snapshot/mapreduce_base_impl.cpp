@@ -29,6 +29,15 @@ void MapReduceBase::launch_thread() {
   thread_ = std::move(std::thread(&MapReduceBase::handle, this));
 }
 
+void MapReduceBase::join_thread() {
+  LOG(INFO) << "Waiting for the completion of thread: " << to_string();
+  if (thread_.joinable()) {
+    thread_.join();
+  }
+  LOG(INFO) << "Observed completion of thread: " << to_string();
+}
+
+
 ErrorCode MapReduceBase::check_cancelled() const {
   if (parent_.is_error()) {
     return kErrorCodeSnapshotCancelled;

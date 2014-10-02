@@ -177,12 +177,15 @@ struct PartitionerMetadata CXX11_FINAL {
 
   void initialize() {
     mutex_.initialize();
-    valid_ = false;
-    data_offset_ = 0;
-    data_size_ = 0;
+    clear_counts();
   }
   void uninitialize() {
     mutex_.uninitialize();
+  }
+  void clear_counts() {
+    valid_ = false;
+    data_offset_ = 0;
+    data_size_ = 0;
   }
 
   /**
