@@ -16,6 +16,7 @@
 #include "foedus/log/common_log_types.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/engine_memory.hpp"
+#include "foedus/storage/partitioner.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_log_types.hpp"
 #include "foedus/storage/array/array_page_impl.hpp"
@@ -26,39 +27,78 @@ namespace foedus {
 namespace storage {
 namespace array {
 
-ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
-  ArrayStorage storage = engine->get_storage_manager()->get_array(id);
+ArrayPartitioner::ArrayPartitioner(Partitioner* parent)
+  : engine_(parent->get_engine()),
+    id_(parent->get_storage_id()),
+    metadata_(PartitionerMetadata::get_metadata(engine_, id_)) {
+  if (metadata_->valid_) {
+    data_ = reinterpret_cast<ArrayPartitionerData*>(metadata_->locate_data(engine_));
+  } else {
+    data_ = nullptr;
+  }
+}
+
+ArrayOffset ArrayPartitioner::get_array_size() const {
+  ASSERT_ND(data_);
+  return data_->array_size_;
+}
+
+uint8_t ArrayPartitioner::get_array_levels() const {
+  ASSERT_ND(data_);
+  return data_->array_levels_;
+}
+const PartitionId* ArrayPartitioner::get_bucket_owners() const {
+  ASSERT_ND(data_);
+  return data_->bucket_owners_;
+}
+const assorted::ConstDiv& ArrayPartitioner::get_bucket_size_div() const {
+  ASSERT_ND(data_);
+  return data_->bucket_size_div_;
+}
+
+bool ArrayPartitioner::is_partitionable() const {
+  ASSERT_ND(data_);
+  return !data_->array_single_page_;
+}
+
+ErrorStack ArrayPartitioner::design_partition() {
+  ASSERT_ND(data_ == nullptr);
+  ArrayStorage storage(engine_, id_);
   ASSERT_ND(storage.exists());
 
-  array_id_ = id;
-  array_levels_ = storage.get_levels();
-  array_size_ = storage.get_array_size();
-  bucket_size_ = array_size_ / kInteriorFanout;
-  bucket_size_div_ = assorted::ConstDiv(bucket_size_);
+  soc::SharedMutexScope mutex_scope(&metadata_->mutex_);
+  ASSERT_ND(!metadata_->valid_);
+  WRAP_ERROR_CODE(metadata_->allocate_data(engine_, &mutex_scope, sizeof(ArrayPartitionerData)));
+  data_ = reinterpret_cast<ArrayPartitionerData*>(metadata_->locate_data(engine_));
+
+  data_->array_levels_ = storage.get_levels();
+  data_->array_size_ = storage.get_array_size();
+  data_->bucket_size_ = data_->array_size_ / kInteriorFanout;
+  data_->bucket_size_div_ = assorted::ConstDiv(data_->bucket_size_);
 
   ArrayStorageControlBlock* array = storage.get_control_block();
   const memory::GlobalVolatilePageResolver& resolver
-    = engine->get_memory_manager()->get_global_volatile_page_resolver();
+    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
   ArrayPage* root_page = reinterpret_cast<ArrayPage*>(
     resolver.resolve_offset(array->root_page_pointer_.volatile_pointer_));
   if (array->levels_ == 1) {
     ASSERT_ND(root_page->is_leaf());
-    array_single_page_ = true;
+    data_->array_single_page_ = true;
   } else {
     ASSERT_ND(!root_page->is_leaf());
-    array_single_page_ = false;
+    data_->array_single_page_ = false;
 
     // how many direct children does this root page have?
     std::vector<uint64_t> pages = ArrayStoragePimpl::calculate_required_pages(
-      array_size_, storage.get_payload_size());
+      data_->array_size_, storage.get_payload_size());
     ASSERT_ND(pages.size() == array->levels_);
     ASSERT_ND(pages[pages.size() - 1] == 1);  // root page
     uint16_t direct_children = pages[pages.size() - 2];
 
     // do we have enough direct children? if not, some partition will not receive buckets.
     // Although it's not a critical error, let's log it as an error.
-    uint16_t total_partitions = engine->get_options().thread_.group_count_;
-    ASSERT_ND(total_partitions > 1);  // if not, why we are coming here. it's a waste.
+    uint16_t total_partitions = engine_->get_options().thread_.group_count_;
+    ASSERT_ND(total_partitions > 1U);  // if not, why we are coming here. it's a waste.
 
     if (direct_children < total_partitions) {
       LOG(ERROR) << "Warning-like error: This array doesn't have enough direct children in root"
@@ -87,7 +127,7 @@ ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
         excessive_children.push_back(child);
       } else {
         ++counts[partition];
-        bucket_owners_[child] = partition;
+        data_->bucket_owners_[child] = partition;
       }
     }
 
@@ -102,25 +142,11 @@ ArrayPartitioner::ArrayPartitioner(Engine* engine, StorageId id) {
       }
 
       ++counts[most_needy];
-      bucket_owners_[child] = most_needy;
+      data_->bucket_owners_[child] = most_needy;
     }
   }
-}
-
-void ArrayPartitioner::describe(std::ostream* o_ptr) const {
-  std::ostream &o = *o_ptr;
-  o << "<ArrayPartitioner>"
-      << "<array_id_>" << array_id_ << "</array_id_>"
-      << "<array_size_>" << array_size_ << "</array_size_>"
-      << "<bucket_size_>" << bucket_size_ << "</bucket_size_>";
-  for (uint16_t i = 0; i < kInteriorFanout; ++i) {
-    o << "<range bucket=\"" << i << "\" partition=\"" << bucket_owners_[i] << "\" />";
-  }
-  o << "</ArrayPartitioner>";
-}
-
-bool ArrayPartitioner::is_partitionable() const {
-  return !data_->array_single_page_;
+  metadata_->valid_ = true;
+  return kRetOk;
 }
 
 void ArrayPartitioner::partition_batch(
@@ -134,11 +160,11 @@ void ArrayPartitioner::partition_batch(
     const ArrayOverwriteLogType *log = reinterpret_cast<const ArrayOverwriteLogType*>(
       log_buffer.resolve(log_positions[i]));
     ASSERT_ND(log->header_.log_type_code_ == log::kLogCodeArrayOverwrite);
-    ASSERT_ND(log->header_.storage_id_ == array_id_);
-    ASSERT_ND(log->offset_ < array_size_);
-    uint64_t bucket = bucket_size_div_.div64(log->offset_);
+    ASSERT_ND(log->header_.storage_id_ == id_);
+    ASSERT_ND(log->offset_ < get_array_size());
+    uint64_t bucket = get_bucket_size_div().div64(log->offset_);
     ASSERT_ND(bucket < kInteriorFanout);
-    results[i] = bucket_owners_[bucket];
+    results[i] = get_bucket_owners()[bucket];
   }
 }
 
@@ -263,11 +289,27 @@ void ArrayPartitioner::sort_batch(
   }
 
   stop_watch_entire.stop();
-  VLOG(0) << "Array-" << array_id_ << " sort_batch() done in  " << stop_watch_entire.elapsed_ms()
+  VLOG(0) << "Array-" << id_ << " sort_batch() done in  " << stop_watch_entire.elapsed_ms()
       << "ms  for " << log_positions_count << " log entries, compacted them to"
         << result_count << " log entries";
   *written_count = result_count;
 }
+
+std::ostream& operator<<(std::ostream& o, const ArrayPartitioner& v) {
+  o << "<ArrayPartitioner>";
+  if (v.data_) {
+    o << "<array_size_>" << v.data_->array_size_ << "</array_size_>"
+      << "<bucket_size_>" << v.data_->bucket_size_ << "</bucket_size_>";
+    for (uint16_t i = 0; i < kInteriorFanout; ++i) {
+      o << "<range bucket=\"" << i << "\" partition=\"" << v.data_->bucket_owners_[i] << "\" />";
+    }
+  } else {
+    o << "Not yet designed";
+  }
+  o << "</ArrayPartitioner>";
+  return o;
+}
+
 }  // namespace array
 }  // namespace storage
 }  // namespace foedus

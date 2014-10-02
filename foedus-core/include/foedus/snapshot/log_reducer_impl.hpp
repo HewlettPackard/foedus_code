@@ -268,9 +268,8 @@ class LogReducer final : public MapReduceBase {
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
+  std::string to_string() const override { return std::string("Reducer-") + std::to_string(id_); }
   friend std::ostream&    operator<<(std::ostream& o, const LogReducer& v);
-
-  storage::Composer* create_composer(storage::StorageId storage_id);
 
  protected:
   ErrorStack  handle_process() override;
@@ -329,10 +328,6 @@ class LogReducer final : public MapReduceBase {
    */
   storage::Page*          root_info_pages_;
 
-  /**
-   * Writes out composed snapshot pages to a new snapshot file.
-   */
-  SnapshotWriter          snapshot_writer_;
   /**
    * To read previous snapshot versions.
    */

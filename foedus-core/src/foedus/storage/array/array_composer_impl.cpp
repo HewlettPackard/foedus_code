@@ -35,16 +35,10 @@ namespace storage {
 namespace array {
 
 ArrayComposer::ArrayComposer(Composer *parent)
-  : storage_casted_(engine_, storage_),
-    payload_size_(storage_casted_.get_payload_size()),
-    levels_(storage_casted_.get_levels()),
-    route_finder_(levels_, payload_size_) {
-  offset_intervals_[0] = route_finder_.get_records_in_leaf();
-  for (uint8_t level = 1; level < levels_; ++level) {
-    offset_intervals_[level] = offset_intervals_[level - 1] * kInteriorFanout;
-  }
+  : engine_(parent->get_engine()), storage_id_(parent->get_storage_id()) {
 }
-void ArrayComposer::StreamStatus::init(snapshot::SortedBuffer* stream) {
+
+void ArrayStreamStatus::init(snapshot::SortedBuffer* stream) {
   stream_ = stream;
   buffer_ = stream->get_buffer();
   buffer_size_ = stream->get_buffer_size();
@@ -55,26 +49,141 @@ void ArrayComposer::StreamStatus::init(snapshot::SortedBuffer* stream) {
   read_entry();
 }
 
+uint64_t ArrayComposer::get_required_work_memory_size(
+  snapshot::SortedBuffer** /*log_streams*/,
+  uint32_t log_streams_count) const {
+  return sizeof(ArrayStreamStatus) * log_streams_count;
+}
+
 ErrorStack ArrayComposer::compose(
-  snapshot::SortedBuffer* const* log_streams,
-  uint32_t log_streams_count,
+  snapshot::SnapshotWriter*         snapshot_writer,
+  cache::SnapshotFileSet*           previous_snapshot_files,
+  snapshot::SortedBuffer* const*    log_streams,
+  uint32_t                          log_streams_count,
   const memory::AlignedMemorySlice& work_memory,
-  Page* root_info_page) {
+  Page*                             root_info_page) {
   VLOG(0) << to_string() << " composing with " << log_streams_count << " streams.";
   debugging::StopWatch stop_watch;
 
-  RootInfoPage* root_info_page_casted = reinterpret_cast<RootInfoPage*>(root_info_page);
-  std::memset(root_info_page_casted, 0, kPageSize);
-  root_info_page_casted->header_.storage_id_ = storage_id_;
-
-  WRAP_ERROR_CODE(compose_init_context(
-    work_memory,
+  ArrayComposeContext context(
+    engine_,
+    storage_id_,
+    snapshot_writer,
+    previous_snapshot_files,
     log_streams,
-    log_streams_count));
+    log_streams_count,
+    work_memory,
+    root_info_page);
+  CHECK_ERROR(context.execute());
+
+  stop_watch.stop();
+  VLOG(0) << to_string() << " done in " << stop_watch.elapsed_ms() << "ms.";
+  return kRetOk;
+}
+
+ErrorStack ArrayComposer::construct_root(
+  snapshot::SnapshotWriter*         snapshot_writer,
+  cache::SnapshotFileSet*           previous_snapshot_files,
+  const Page* const*                root_info_pages,
+  uint32_t                          root_info_pages_count,
+  const memory::AlignedMemorySlice& /*work_memory*/,
+  SnapshotPagePointer*              new_root_page_pointer) {
+  // compose() created root_info_pages that contain pointers to fill in the root page,
+  // so we just find non-zero entry and copy it to root page.
+  ArrayStorage storage(engine_, storage_id_);
+
+  uint8_t levels = storage.get_levels();
+  uint16_t payload_size = storage.get_payload_size();
+  snapshot::SnapshotId new_snapshot_id = snapshot_writer->get_snapshot_id();
+  if (levels == 1U) {
+    // if it's single-page array, we have already created the root page in compose().
+    ASSERT_ND(root_info_pages_count == 1U);
+    const ArrayRootInfoPage* casted
+      = reinterpret_cast<const ArrayRootInfoPage*>(root_info_pages[0]);
+    ASSERT_ND(casted->pointers_[0] != 0);
+    *new_root_page_pointer = casted->pointers_[0];
+  } else {
+    ArrayPage* root_page = reinterpret_cast<ArrayPage*>(snapshot_writer->get_page_base());
+    SnapshotPagePointer page_id = storage.get_metadata()->root_snapshot_page_id_;
+    SnapshotPagePointer new_page_id = snapshot_writer->get_next_page_id();
+    *new_root_page_pointer = new_page_id;
+    if (page_id != 0) {
+      WRAP_ERROR_CODE(previous_snapshot_files->read_page(page_id, root_page));
+      ASSERT_ND(root_page->header().storage_id_ == storage_id_);
+      ASSERT_ND(root_page->header().page_id_ == page_id);
+      root_page->header().page_id_ = new_page_id;
+    } else {
+      uint64_t root_interval = LookupRouteFinder(levels, payload_size).get_records_in_leaf();
+      for (uint8_t level = 1; level < levels; ++level) {
+        root_interval *= kInteriorFanout;
+      }
+      ArrayRange range(0, root_interval);
+      root_page->initialize_snapshot_page(
+        storage_id_,
+        new_page_id,
+        payload_size,
+        levels - 1,
+        range);
+    }
+
+    // overwrite pointers with root_info_pages.
+    for (uint32_t i = 0; i < root_info_pages_count; ++i) {
+      const ArrayRootInfoPage* casted
+        = reinterpret_cast<const ArrayRootInfoPage*>(root_info_pages[i]);
+      for (uint16_t j = 0; j < kInteriorFanout; ++j) {
+        SnapshotPagePointer pointer = casted->pointers_[j];
+        if (pointer != 0) {
+          ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(pointer) == new_snapshot_id);
+          DualPagePointer& record = root_page->get_interior_record(j);
+          record.snapshot_pointer_ = pointer;
+          // partitioning has no overlap, so this must be the only overwriting pointer
+          ASSERT_ND(record.snapshot_pointer_ == 0 ||
+            extract_snapshot_id_from_snapshot_pointer(record.snapshot_pointer_)
+              != new_snapshot_id);
+        }
+      }
+    }
+
+    WRAP_ERROR_CODE(snapshot_writer->dump_pages(0, 1));
+    ASSERT_ND(snapshot_writer->get_next_page_id() == new_page_id - 1);
+  }
+  return kRetOk;
+}
+
+
+
+ArrayComposeContext::ArrayComposeContext(
+  Engine*                           engine,
+  StorageId                         storage_id,
+  snapshot::SnapshotWriter*         snapshot_writer,
+  cache::SnapshotFileSet*           previous_snapshot_files,
+  snapshot::SortedBuffer* const*    log_streams,
+  uint32_t                          log_streams_count,
+  const memory::AlignedMemorySlice& work_memory,
+  Page*                             root_info_page)
+  : engine_(engine),
+    storage_id_(storage_id),
+    snapshot_writer_(snapshot_writer),
+    previous_snapshot_files_(previous_snapshot_files),
+    root_info_page_(reinterpret_cast<ArrayRootInfoPage*>(root_info_page)),
+    // so far this is the only use of work_memory (an array of pointers) in this composer
+    inputs_(reinterpret_cast<ArrayStreamStatus*>(work_memory.get_block())),
+    inputs_count_(log_streams_count) {
+  for (uint32_t i = 0; i < log_streams_count; ++i) {
+    inputs_[i].init(log_streams[i]);
+  }
+}
+
+ErrorStack ArrayComposeContext::execute() {
+  std::memset(root_info_page_, 0, kPageSize);
+  root_info_page_->header_.storage_id_ = storage_id_;
+  CHECK_ERROR(init_more());
 
   while (ended_inputs_count_ < inputs_count_) {
     const ArrayOverwriteLogType* entry = get_next_entry();
-    Record* record = cur_path_[0]->get_leaf_record(cur_route_.route[0], payload_size_);
+    Record* record = cur_path_[0]->get_leaf_record(
+      cur_route_.route[0],
+      payload_size_);
     entry->apply_record(nullptr, storage_id_, &record->owner_id_, record->payload_);
     WRAP_ERROR_CODE(advance());
   }
@@ -87,17 +196,14 @@ ErrorStack ArrayComposer::compose(
     ASSERT_ND(cur_path_[0] == page_base_);
     ASSERT_ND(snapshot_writer_->get_next_page_id() == page_base_[0].header().page_id_);
     WRAP_ERROR_CODE(snapshot_writer_->dump_pages(0, 1));
-    root_info_page_casted->pointers_[0] = page_base_[0].header().page_id_;
+    root_info_page_->pointers_[0] = page_base_[0].header().page_id_;
   } else {
-    CHECK_ERROR(compose_finalize(root_info_page_casted));
+    CHECK_ERROR(finalize());
   }
-
-  stop_watch.stop();
-  VLOG(0) << to_string() << " done in " << stop_watch.elapsed_ms() << "ms.";
   return kRetOk;
 }
 
-ErrorStack ArrayComposer::compose_finalize(RootInfoPage* root_info_page) {
+ErrorStack ArrayComposeContext::finalize() {
   ASSERT_ND(levels_ > 1);
   // flush the main buffer. now we finalized all leaf pages
   if (allocated_pages_ > 0) {
@@ -150,7 +256,7 @@ ErrorStack ArrayComposer::compose_finalize(RootInfoPage* root_info_page) {
       ASSERT_ND(pointer.volatile_pointer_.components.flags == kFlagIntermediatePointer);
       ASSERT_ND(pointer.volatile_pointer_.components.offset < allocated_intermediates_);
       SnapshotPagePointer page_id = base_pointer + pointer.volatile_pointer_.components.offset;
-      root_info_page->pointers_[j] = page_id;
+      root_info_page_->pointers_[j] = page_id;
       pointer.snapshot_pointer_ = page_id;
       pointer.volatile_pointer_.word = 0;
     }
@@ -162,63 +268,7 @@ ErrorStack ArrayComposer::compose_finalize(RootInfoPage* root_info_page) {
   return kRetOk;
 }
 
-ErrorStack ArrayComposer::construct_root(
-  const Page* const* root_info_pages,
-  uint32_t root_info_pages_count,
-  const memory::AlignedMemorySlice& /*work_memory*/,
-  SnapshotPagePointer* new_root_page_pointer) {
-  // compose() created root_info_pages that contain pointers to fill in the root page,
-  // so we just find non-zero entry and copy it to root page.
-  if (levels_ == 1) {
-    // if it's single-page array, we have already created the root page in compose().
-    ASSERT_ND(root_info_pages_count == 1);
-    const RootInfoPage* casted = reinterpret_cast<const RootInfoPage*>(root_info_pages[0]);
-    ASSERT_ND(casted->pointers_[0] != 0);
-    *new_root_page_pointer = casted->pointers_[0];
-  } else {
-    ArrayPage* root_page = reinterpret_cast<ArrayPage*>(snapshot_writer_->get_page_base());
-    SnapshotPagePointer page_id = storage_->meta_.root_snapshot_page_id_;
-    SnapshotPagePointer new_page_id = snapshot_writer_->get_next_page_id();
-    *new_root_page_pointer = new_page_id;
-    if (page_id != 0) {
-      WRAP_ERROR_CODE(previous_snapshot_files_->read_page(page_id, root_page));
-      ASSERT_ND(root_page->header().storage_id_ == storage_id_);
-      ASSERT_ND(root_page->header().page_id_ == page_id);
-      root_page->header().page_id_ = new_page_id;
-    } else {
-      ArrayRange range(0, offset_intervals_[levels_ - 1]);
-      root_page->initialize_snapshot_page(
-        storage_id_,
-        new_page_id,
-        payload_size_,
-        levels_ - 1,
-        range);
-    }
-
-    // overwrite pointers with root_info_pages.
-    for (uint32_t i = 0; i < root_info_pages_count; ++i) {
-      const RootInfoPage* casted = reinterpret_cast<const RootInfoPage*>(root_info_pages[i]);
-      for (uint16_t j = 0; j < kInteriorFanout; ++j) {
-        SnapshotPagePointer pointer = casted->pointers_[j];
-        if (pointer != 0) {
-          ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(pointer) == new_snapshot_id_);
-          DualPagePointer& record = root_page->get_interior_record(j);
-          record.snapshot_pointer_ = pointer;
-          // partitioning has no overlap, so this must be the only overwriting pointer
-          ASSERT_ND(record.snapshot_pointer_ == 0 ||
-            extract_snapshot_id_from_snapshot_pointer(record.snapshot_pointer_)
-              != new_snapshot_id_);
-        }
-      }
-    }
-
-    WRAP_ERROR_CODE(snapshot_writer_->dump_pages(0, 1));
-    ASSERT_ND(snapshot_writer_->get_next_page_id() == new_page_id - 1);
-  }
-  return kRetOk;
-}
-
-inline ErrorCode ArrayComposer::StreamStatus::next() {
+inline ErrorCode ArrayStreamStatus::next() {
   ASSERT_ND(!ended_);
   cur_absolute_pos_ += cur_length_;
   cur_relative_pos_ += cur_length_;
@@ -232,7 +282,7 @@ inline ErrorCode ArrayComposer::StreamStatus::next() {
   read_entry();
   return kErrorCodeOk;
 }
-inline void ArrayComposer::StreamStatus::read_entry() {
+inline void ArrayStreamStatus::read_entry() {
   const ArrayOverwriteLogType* entry = get_entry();
   ASSERT_ND(entry->header_.get_type() == log::kLogCodeArrayOverwrite);
   ASSERT_ND(entry->header_.log_length_ > 0);
@@ -240,21 +290,22 @@ inline void ArrayComposer::StreamStatus::read_entry() {
   cur_xct_id_ = entry->header_.xct_id_;
   cur_length_ = entry->header_.log_length_;
 }
-inline const ArrayOverwriteLogType* ArrayComposer::StreamStatus::get_entry() const {
+inline const ArrayOverwriteLogType* ArrayStreamStatus::get_entry() const {
   return reinterpret_cast<const ArrayOverwriteLogType*>(buffer_ + cur_relative_pos_);
 }
 
-ErrorCode ArrayComposer::compose_init_context(
-  const memory::AlignedMemorySlice& work_memory,
-  snapshot::SortedBuffer* const* inputs,
-  uint32_t inputs_count) {
-  // so far this is the only use of work_memory in this composer
-  inputs_ = reinterpret_cast<StreamStatus*>(work_memory.get_block());
-  inputs_count_ = inputs_count;
-  ended_inputs_count_ = 0;
-  for (uint32_t i = 0; i < inputs_count; ++i) {
-    inputs_[i].init(inputs[i]);
+ErrorStack ArrayComposeContext::init_more() {
+  ArrayStorage storage = engine_->get_storage_manager()->get_array(storage_id_);
+  payload_size_ = storage.get_payload_size();
+  levels_ = storage.get_levels();
+  route_finder_ = LookupRouteFinder(levels_, payload_size_);
+  previous_root_page_pointer_ = storage.get_metadata()->root_snapshot_page_id_;
+  offset_intervals_[0] = route_finder_.get_records_in_leaf();
+  for (uint8_t level = 1; level < levels_; ++level) {
+    offset_intervals_[level] = offset_intervals_[level - 1] * kInteriorFanout;
   }
+
+  ended_inputs_count_ = 0;
 
   // let's load the first pages. what's the first key/xct_id?
   next_input_ = inputs_count_;
@@ -287,14 +338,14 @@ ErrorCode ArrayComposer::compose_init_context(
   cur_route_.word = next_route_.word;
   std::memset(cur_path_, 0, sizeof(cur_path_));
   if (previous_root_page_pointer_ != 0) {
-    return compose_init_context_cur_path();
+    CHECK_ERROR(init_context_cur_path());
   } else {
-    compose_init_context_empty_cur_path();
-    return kErrorCodeOk;
+    init_context_empty_cur_path();
   }
+  return kRetOk;
 }
 
-ErrorCode ArrayComposer::compose_init_context_cur_path() {
+ErrorStack ArrayComposeContext::init_context_cur_path() {
   ASSERT_ND(allocated_intermediates_ == 0);
   ASSERT_ND(allocated_pages_ == 0);
   ASSERT_ND(previous_root_page_pointer_ != 0);
@@ -320,7 +371,7 @@ ErrorCode ArrayComposer::compose_init_context_cur_path() {
     }
     cur_path_[level] = page;
 
-    CHECK_ERROR_CODE(previous_snapshot_files_->read_page(old_page_id, page));
+    WRAP_ERROR_CODE(previous_snapshot_files_->read_page(old_page_id, page));
     ASSERT_ND(page->header().storage_id_ == storage_id_);
     ASSERT_ND(page->header().page_id_ == old_page_id);
     ASSERT_ND(page->get_level() == level);
@@ -341,9 +392,9 @@ ErrorCode ArrayComposer::compose_init_context_cur_path() {
       break;
     }
   }
-  return kErrorCodeOk;
+  return kRetOk;
 }
-void ArrayComposer::compose_init_context_empty_cur_path() {
+void ArrayComposeContext::init_context_empty_cur_path() {
   ASSERT_ND(allocated_intermediates_ == 0);
   ASSERT_ND(allocated_pages_ == 0);
   ASSERT_ND(previous_root_page_pointer_ == 0);
@@ -386,7 +437,7 @@ void ArrayComposer::compose_init_context_empty_cur_path() {
   // non-existent in snapshot. In that case we should create all pages. Just zero-out.
 }
 
-inline ErrorCode ArrayComposer::advance() {
+inline ErrorCode ArrayComposeContext::advance() {
   ASSERT_ND(!inputs_[next_input_].ended_);
   // advance the chosen stream
   CHECK_ERROR_CODE(inputs_[next_input_].next());
@@ -437,7 +488,7 @@ inline ErrorCode ArrayComposer::advance() {
   }
 }
 
-inline bool ArrayComposer::update_next_route() {
+inline bool ArrayComposeContext::update_next_route() {
   if (next_key_ < next_page_ends_) {
     ASSERT_ND(next_key_ >= next_page_starts_);
     next_route_.route[0] = next_key_ - next_page_starts_;
@@ -452,7 +503,7 @@ inline bool ArrayComposer::update_next_route() {
   }
 }
 
-ErrorCode ArrayComposer::update_cur_path() {
+ErrorCode ArrayComposeContext::update_cur_path() {
   bool switched = false;
   // Example: levels = 3 (root-intermediate-leaf)
   // cur[2] = 10, cur[1] = 30, cur[0] = 43
@@ -517,7 +568,7 @@ ErrorCode ArrayComposer::update_cur_path() {
   return kErrorCodeOk;
 }
 
-inline ErrorCode ArrayComposer::read_or_init_page(
+inline ErrorCode ArrayComposeContext::read_or_init_page(
   SnapshotPagePointer old_page_id,
   SnapshotPagePointer new_page_id,
   uint8_t level,
@@ -543,7 +594,7 @@ inline ErrorCode ArrayComposer::read_or_init_page(
   return kErrorCodeOk;
 }
 
-inline const ArrayOverwriteLogType* ArrayComposer::get_next_entry() const {
+inline const ArrayOverwriteLogType* ArrayComposeContext::get_next_entry() const {
   ASSERT_ND(!inputs_[next_input_].ended_);
   const ArrayOverwriteLogType* entry = inputs_[next_input_].get_entry();
   ASSERT_ND(entry->offset_ == next_key_);
@@ -551,7 +602,9 @@ inline const ArrayOverwriteLogType* ArrayComposer::get_next_entry() const {
   return entry;
 }
 
-inline ArrayRange ArrayComposer::calculate_array_range(LookupRoute route, uint8_t level) const {
+inline ArrayRange ArrayComposeContext::calculate_array_range(
+  LookupRoute route,
+  uint8_t level) const {
   ASSERT_ND(level < levels_);
   ArrayRange range;
   range.begin_ = 0;

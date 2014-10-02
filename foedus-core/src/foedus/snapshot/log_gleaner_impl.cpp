@@ -91,7 +91,17 @@ void LogGleaner::design_partitions_run(
   storage::StorageId count,
   ErrorStack* result) {
   *result = kRetOk;
-
+  LOG(INFO) << "Determining partitions for Storage-" << from << " to " << (from + count - 1) << ".";
+  for (storage::StorageId id = from; id < from + count; ++id) {
+    storage::Partitioner partitioner(engine_, id);
+    ErrorStack ret = partitioner.design_partition();
+    if (ret.is_error()) {
+      LOG(ERROR) << "Error while determining partitions for storage-" << id << ":" << ret;
+      *result = ret;
+      break;
+    }
+  }
+  LOG(INFO) << "Determined partitions for Storage-" << from << " to " << (from + count - 1) << ".";
 }
 
 ErrorStack LogGleaner::execute() {
@@ -195,9 +205,9 @@ ErrorStack LogGleaner::construct_root_pages() {
     }
     ASSERT_ND(input_count > 0);
 
-    std::unique_ptr< storage::Composer > composer(reducers_[0]->create_composer(min_storage_id));
+    storage::Composer composer(engine_, min_storage_id);
     storage::SnapshotPagePointer new_root_page_pointer;
-    CHECK_ERROR(composer->construct_root(
+    CHECK_ERROR(composer.construct_root(
       &tmp_array[0],
       input_count,
       work_memory_slice,
@@ -221,38 +231,10 @@ ErrorStack LogGleaner::construct_root_pages() {
     }
   }
 
-  ASSERT_ND(new_root_page_pointers_.size() == get_partitioner_count());
   stop_watch.stop();
   LOG(INFO) << "constructed root pages for " << new_root_page_pointers_.size()
-    << " storages. (partitioner_count=" << get_partitioner_count() << "). "
-    << " in " << stop_watch.elapsed_ms() << "ms. "<< *this;
+    << " storages. in " << stop_watch.elapsed_ms() << "ms. "<< *this;
   return kRetOk;
-}
-
-const storage::Partitioner* LogGleaner::get_or_create_partitioner(storage::StorageId storage_id) {
-  {
-    std::lock_guard<std::mutex> guard(partitioners_mutex_);
-    auto it = partitioners_.find(storage_id);
-    if (it != partitioners_.end()) {
-      return it->second;
-    }
-  }
-
-  // not found, let's create a new one, but out of the critical section to avoid contention.
-  storage::Partitioner* partitioner = storage::Partitioner::create_partitioner(engine_, storage_id);
-  {
-    std::lock_guard<std::mutex> guard(partitioners_mutex_);
-    auto it = partitioners_.find(storage_id);
-    if (it != partitioners_.end()) {
-      // oh, someone has just added it!
-      delete partitioner;
-      return it->second;
-    } else {
-      partitioners_.insert(std::pair<storage::StorageId, storage::Partitioner*>(
-        storage_id, partitioner));
-      return partitioner;
-    }
-  }
 }
 
 std::string LogGleaner::to_string() const {
@@ -266,7 +248,6 @@ std::ostream& operator<<(std::ostream& o, const LogGleaner& v) {
     << "<completed_count_>" << v.control_block_->completed_count_ << "</completed_count_>"
     << "<completed_mapper_count_>"
       << v.control_block_->completed_mapper_count_ << "</completed_mapper_count_>"
-    << "<partitioner_count>" << v.get_partitioner_count() << "</partitioner_count>"
     << "<error_count_>" << v.control_block_->error_count_ << "</error_count_>"
     << "<exit_count_>" << v.control_block_->exit_count_ << "</exit_count_>";
   o << "</LogGleaner>";

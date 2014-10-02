@@ -38,7 +38,6 @@ namespace snapshot {
 
 LogReducer::LogReducer(Engine* engine)
 : MapReduceBase(engine, engine->get_soc_id()),
-  snapshot_writer_(engine_, this),
   previous_snapshot_files_(engine_),
   sorted_runs_(0) {
   soc::NodeMemoryAnchors* anchors = engine->get_soc_manager()->get_shared_memory_repo()->
@@ -95,7 +94,6 @@ ErrorStack LogReducer::initialize_once() {
 
 ErrorStack LogReducer::uninitialize_once() {
   ErrorStackBatch batch;
-  batch.emprace_back(snapshot_writer_.uninitialize());
   batch.emprace_back(previous_snapshot_files_.uninitialize());
   composer_work_memory_.release_block();
   dump_io_buffer_.release_block();
@@ -280,13 +278,13 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
   ASSERT_ND(cur_rec_total == records);
 
   // Now, sort these log records by key and then ordinal. we use the partitioner object for this.
-  const storage::Partitioner* partitioner = parent_->get_or_create_partitioner(storage_id);
-  ASSERT_ND(partitioner);
-  expand_sort_buffer_if_needed(partitioner->get_required_sort_buffer_size(records));
+  storage::Partitioner partitioner(engine_, storage_id);
+  ASSERT_ND(partitioner.is_valid());
+  expand_sort_buffer_if_needed(partitioner.get_required_sort_buffer_size(records));
   BufferPosition* outputs = reinterpret_cast<BufferPosition*>(
     output_positions_slice_.get_block());
   uint32_t written_count = 0;
-  partitioner->sort_batch(
+  partitioner.sort_batch(
     buffer,
     inputs,
     records,
@@ -501,21 +499,15 @@ void LogReducer::MergeContext::set_tmp_sorted_buffer_array(storage::StorageId st
   ASSERT_ND(tmp_sorted_buffer_count_ > 0);
 }
 
-storage::Composer* LogReducer::create_composer(storage::StorageId storage_id) {
-  return storage::Composer::create_composer(
-      engine_,
-      storage_id,
-      &snapshot_writer_,
-      &previous_snapshot_files_,
-      *parent_->get_snapshot());
-}
-
 ErrorStack LogReducer::merge_sort() {
   merge_sort_check_buffer_status();
 
-  // we initialize snapshot_writer here rather than reducer's initialize() because
+  // The writer to writes out composed snapshot pages to a new snapshot file.
   // we use it only during merge_sort().
-  CHECK_ERROR(snapshot_writer_.initialize());
+  SnapshotWriter snapshot_writer(engine_, numa_node_);
+  CHECK_ERROR(snapshot_writer.initialize());
+  UninitializeGuard guard(&snapshot_writer, UninitializeGuard::kWarnIfUninitializeError);
+
   CHECK_ERROR(previous_snapshot_files_.initialize());
 
   // because now we are at the last merging phase, we will no longer dump sorted runs any more.
@@ -553,15 +545,17 @@ ErrorStack LogReducer::merge_sort() {
     context.set_tmp_sorted_buffer_array(storage_id);
 
     // run composer
-    std::unique_ptr< storage::Composer > composer(create_composer(storage_id));
-    uint64_t work_memory_size = composer->get_required_work_memory_size(
+    storage::Composer composer(engine_, storage_id);
+    uint64_t work_memory_size = composer.get_required_work_memory_size(
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_);
     expand_composer_work_memory_if_needed(work_memory_size);
     // snapshot_reader_.get_or_open_file();
     ASSERT_ND(control_block_->total_storage_count_ <= get_max_storage_count());
     storage::Page* root_info_page = root_info_pages_ + control_block_->total_storage_count_;
-    CHECK_ERROR(composer->compose(
+    CHECK_ERROR(composer.compose(
+      &snapshot_writer,
+      &previous_snapshot_files_,
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_,
       memory::AlignedMemorySlice(&composer_work_memory_),
@@ -575,7 +569,8 @@ ErrorStack LogReducer::merge_sort() {
   }
   ASSERT_ND(control_block_->total_storage_count_ <= get_max_storage_count());
 
-  snapshot_writer_.close();
+  snapshot_writer.close();
+  CHECK_ERROR(snapshot_writer.uninitialize());
   merge_watch.stop();
   LOG(INFO) << to_string() << " completed merging in " << merge_watch.elapsed_sec() << " seconds"
     << " . total_storage_count_=" << control_block_->total_storage_count_;

@@ -10,6 +10,7 @@
 #include <cstring>
 #include <iosfwd>
 
+#include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/memory/fwd.hpp"
@@ -59,9 +60,7 @@ class ArrayPartitioner final {
  public:
   explicit ArrayPartitioner(Partitioner* parent);
 
-  void describe(std::ostream* o) const;
-
-  void design_partition();
+  ErrorStack design_partition();
   bool is_partitionable() const;
   void partition_batch(
     PartitionId                     local_partition,
@@ -81,12 +80,18 @@ class ArrayPartitioner final {
 
   uint64_t  get_required_sort_buffer_size(uint32_t log_count) const;
 
-  uint8_t   get_array_levels() const { return array_levels_; }
-  const PartitionId* get_bucket_owners() const { return bucket_owners_; }
+  ArrayOffset get_array_size() const;
+  uint8_t   get_array_levels() const;
+  const PartitionId* get_bucket_owners() const;
+  const assorted::ConstDiv& get_bucket_size_div() const;
+
+  friend std::ostream& operator<<(std::ostream& o, const ArrayPartitioner& v);
 
  private:
-  Partitioner*          parent_;
-  ArrayPartitionerData* data_;
+  Engine* const               engine_;
+  const StorageId             id_;
+  PartitionerMetadata* const  metadata_;
+  ArrayPartitionerData*       data_;
 };
 
 struct ArrayPartitionerData final {

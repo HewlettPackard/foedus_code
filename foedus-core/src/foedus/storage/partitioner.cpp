@@ -10,13 +10,13 @@
 
 #include "foedus/engine.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_partitioner_impl.hpp"
 #include "foedus/storage/masstree/masstree_partitioner_impl.hpp"
 #include "foedus/storage/sequential/sequential_partitioner_impl.hpp"
-#include "foedus/soc/soc_manager.hpp"
-#include "foedus/soc/shared_memory_repo.hpp"
 
 namespace foedus {
 namespace storage {
@@ -34,6 +34,40 @@ PartitionerMetadata* PartitionerMetadata::get_index0_metadata(Engine* engine) {
   return anchors->partitioner_metadata_;
 }
 
+void* PartitionerMetadata::locate_data(Engine* engine) {
+  ASSERT_ND(valid_);
+  ASSERT_ND(data_size_ > 0);
+  ASSERT_ND(data_offset_ + data_size_
+    <= engine->get_options().storage_.partitioner_data_memory_mb_ * (1ULL << 20));
+  soc::GlobalMemoryAnchors* anchors
+    = engine->get_soc_manager()->get_shared_memory_repo()->get_global_memory_anchors();
+  char* buffer = reinterpret_cast<char*>(anchors->partitioner_data_);
+  return buffer + data_offset_;
+}
+
+ErrorCode PartitionerMetadata::allocate_data(
+  Engine* engine,
+  soc::SharedMutexScope* locked,
+  uint32_t data_size) {
+  ASSERT_ND(!valid_);
+  ASSERT_ND(data_size > 0);
+  ASSERT_ND(data_size_ == 0);
+  ASSERT_ND(data_offset_ == 0);
+  ASSERT_ND(locked->get_mutex() == &mutex_);
+  ASSERT_ND(locked->is_locked_by_me());
+  PartitionerMetadata* index0 = get_index0_metadata(engine);
+  ASSERT_ND(index0->data_offset_ <= index0->data_size_);
+  soc::SharedMutexScope index0_scope(&index0->mutex_);
+  if (index0->data_offset_ + data_size > index0->data_size_) {
+    return kErrorCodeStrPartitionerDataMemoryTooSmall;
+  }
+  data_offset_ = index0->data_offset_;
+  data_size_ = data_size;
+  index0->data_offset_ += data_size;
+  return kErrorCodeOk;
+}
+
+
 Partitioner::Partitioner(Engine* engine, StorageId id)
   : Attachable< PartitionerMetadata >(engine, PartitionerMetadata::get_metadata(engine, id)) {
   id_ = id;
@@ -42,6 +76,7 @@ Partitioner::Partitioner(Engine* engine, StorageId id)
 }
 
 const PartitionerMetadata& Partitioner::get_metadata() const { return *control_block_; }
+bool  Partitioner::is_valid() const { return control_block_->valid_; }
 
 bool Partitioner::is_partitionable() {
   switch (type_) {
@@ -59,20 +94,17 @@ bool Partitioner::is_partitionable() {
   }
 }
 
-void Partitioner::design_partition() {
+ErrorStack Partitioner::design_partition() {
   switch (type_) {
   case kArrayStorage:
-    array::ArrayPartitioner(this).design_partition();
-    break;
-  case kHashStorage:
-    break;
-  case kMasstreeStorage:
-    break;
+    return array::ArrayPartitioner(this).design_partition();
   case kSequentialStorage:
-    sequential::SequentialPartitioner(this).design_partition();
-    break;
+    return sequential::SequentialPartitioner(this).design_partition();
+  case kHashStorage:
+  case kMasstreeStorage:
   default:
     LOG(FATAL) << "Unsupported storage type:" << type_;
+    return kRetOk;
   }
 }
 

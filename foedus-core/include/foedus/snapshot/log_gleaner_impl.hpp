@@ -9,7 +9,6 @@
 #include <atomic>
 #include <iosfwd>
 #include <map>
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -110,32 +109,9 @@ class LogGleaner final : public LogGleanerRef {
     return new_root_page_pointers_;
   }
 
-  /**
-   * Obtains partitioner for the storage.
-   */
-  const storage::Partitioner* get_or_create_partitioner(storage::StorageId storage_id);
-  /**
-   * Returns number of partitioners created so far. After all mappers are done, this also means
-   * the number of storages processed in this snapshotting.
-   */
-  uint32_t get_partitioner_count() const { return partitioners_.size(); }
-
  private:
   /** The snapshot we are now taking. */
   const Snapshot                  new_snapshot_;
-
-  /**
-   * Objects to partition log entries. Partitioners are added by mappers when they observe a
-   * new Storage ID. Once added to here, a partitioner gets never changed.
-   * If there is only one partition (NUMA node), this is not used.
-   */
-  std::map<storage::StorageId, storage::Partitioner*> partitioners_;
-
-  /**
-   * Protects read/write to partitioners_. Insertion to partitioners_ should do heavy construction
-   * out of this mutex to avoid contention.
-   */
-  std::mutex     partitioners_mutex_;
 
   /**
    * Points to new root pages constructed at the end of gleaning, one for a storage.

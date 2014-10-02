@@ -7,6 +7,7 @@
 #include <glog/logging.h>
 
 #include <chrono>
+#include <map>
 #include <string>
 
 #include "foedus/engine.hpp"
@@ -251,7 +252,7 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
   CHECK_ERROR(glean_logs(*new_snapshot, &new_root_page_pointers));
 
   // Finally, write out the metadata file.
-  CHECK_ERROR(snapshot_metadata(*new_snapshot));
+  CHECK_ERROR(snapshot_metadata(*new_snapshot, new_root_page_pointers));
 
   Epoch new_snapshot_epoch = new_snapshot->valid_until_epoch_;
   ASSERT_ND(new_snapshot_epoch.is_valid() &&
@@ -309,7 +310,7 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(
   }
   LOG(INFO) << "Out of " << metadata.largest_storage_id_ << " storages, "
     << installed_root_pages_count << " changed their root pages.";
-  ASSERT_ND(installed_root_pages_count == new_snapshot.new_root_page_pointers_.size());
+  ASSERT_ND(installed_root_pages_count == new_root_page_pointers.size());
 
   // save it to a file
   fs::Path folder(get_option().get_primary_folder_path());

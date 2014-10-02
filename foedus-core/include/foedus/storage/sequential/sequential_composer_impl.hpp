@@ -60,16 +60,20 @@ class SequentialComposer final {
   std::string to_string() const;
 
   ErrorStack compose(
-    snapshot::SortedBuffer* const* log_streams,
-    uint32_t log_streams_count,
+    snapshot::SnapshotWriter*         snapshot_writer,
+    cache::SnapshotFileSet*           previous_snapshot_files,
+    snapshot::SortedBuffer* const*    log_streams,
+    uint32_t                          log_streams_count,
     const memory::AlignedMemorySlice& work_memory,
-    Page* root_info_page);
+    Page*                             root_info_page);
 
   ErrorStack construct_root(
-    const Page* const*  root_info_pages,
-    uint32_t            root_info_pages_count,
+    snapshot::SnapshotWriter*         snapshot_writer,
+    cache::SnapshotFileSet*           previous_snapshot_files,
+    const Page* const*                root_info_pages,
+    uint32_t                          root_info_pages_count,
     const memory::AlignedMemorySlice& work_memory,
-    SnapshotPagePointer* new_root_page_pointer);
+    SnapshotPagePointer*              new_root_page_pointer);
 
   uint64_t get_required_work_memory_size(
     snapshot::SortedBuffer** /*log_streams*/,
@@ -78,7 +82,12 @@ class SequentialComposer final {
   }
 
  private:
-  SequentialPage*     compose_new_head(RootInfoPage* root_info_page);
+  SequentialPage*     compose_new_head(
+    snapshot::SnapshotWriter* snapshot_writer,
+    RootInfoPage* root_info_page);
+
+  Engine* const   engine_;
+  const StorageId storage_id_;
 };
 
 }  // namespace sequential

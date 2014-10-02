@@ -379,9 +379,9 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
 
     // if there are multiple partitions, we first partition log entries.
     if (multi_partitions) {
-      const storage::Partitioner* partitioner = parent_->get_or_create_partitioner(
-        bucket->storage_id_);
-      if (partitioner->is_partitionable()) {
+      storage::Partitioner partitioner(engine_, bucket->storage_id_);
+      ASSERT_ND(partitioner.is_valid());
+      if (partitioner.is_partitionable()) {
         // calculate partitions
         for (uint32_t i = 0; i < bucket->counts_; ++i) {
           position_array[i] = bucket->log_positions_[i];
@@ -390,7 +390,7 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
           ASSERT_ND(log_buffer.resolve(position_array[i])->header_.storage_id_
             == hashlist.storage_id_);
         }
-        partitioner->partition_batch(
+        partitioner.partition_batch(
           numa_node_,
           log_buffer,
           position_array,

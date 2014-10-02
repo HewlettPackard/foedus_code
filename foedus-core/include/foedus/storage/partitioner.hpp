@@ -12,6 +12,7 @@
 #include "foedus/attachable.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
+#include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/snapshot/log_buffer.hpp"
@@ -66,9 +67,9 @@ class Partitioner CXX11_FINAL : public Attachable<PartitionerMetadata> {
 
   /** Returns tiny metadata of the partitioner in shared memory. */
   const PartitionerMetadata& get_metadata() const;
-
-  StorageId get_storage_id() const { return id_;}
-  StorageType get_storage_type() const { return type_; }
+  bool        is_valid()          const;
+  StorageId   get_storage_id()    const { return id_;}
+  StorageType get_storage_type()  const { return type_; }
 
   /**
    * @brief returns if this storage is partitionable.
@@ -87,7 +88,7 @@ class Partitioner CXX11_FINAL : public Attachable<PartitionerMetadata> {
    * This method puts the resulting data in shared memory.
    * This method should be called only once per snapshot.
    */
-  void design_partition();
+  ErrorStack design_partition();
 
   /**
    * @brief Identifies the partition of each log record in a batched fashion.
@@ -166,8 +167,8 @@ class Partitioner CXX11_FINAL : public Attachable<PartitionerMetadata> {
  *
  * @par Index-0 Entry
  * As storage-id 0 doesn't exist, we use the first entry as metadata of the data block.
- * data_size_ is the end of already-taken regions. When we initialize a new partitioner,
- * we lock mutex_ and increment data_size_.
+ * data_offset_ is the end of already-taken regions while data_size_ is the .
+ * When we initialize a new partitioner, we lock mutex_ and increment data_offset_.
  */
 struct PartitionerMetadata CXX11_FINAL {
   // This object is placed on shared memory. We only reinterpret them.
@@ -204,6 +205,24 @@ struct PartitionerMetadata CXX11_FINAL {
    * The size of the partitioner data.
    */
   uint32_t          data_size_;
+
+  /**
+   * Returns the partitioner data pointed from this metadata.
+   * @pre valid_
+   * @pre data_size_ > 0
+   */
+  void* locate_data(Engine* engine);
+
+  /**
+   * Allocates a patitioner data in shared memory of the given size.
+   * @pre !valid_ (if it's already constructed, why are we allocating again?)
+   * @pre locked->is_locked_by_me(), locked->get_mutex() == &mutex_ (the caller must own the mutex)
+   * @pre data_size > 0
+   * @post data_offset_ is set and index0-entry's data_offset_ is incremented.
+   * @post data_size_ == data_size
+   * The only possible error is memory running out (kErrorCodeStrPartitionerDataMemoryTooSmall).
+   */
+  ErrorCode allocate_data(Engine* engine, soc::SharedMutexScope* locked, uint32_t data_size);
 
   /**
    * Returns the shared memory for the given storage ID.

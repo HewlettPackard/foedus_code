@@ -32,7 +32,7 @@ namespace snapshot {
  *
  * @par Compose Phase
  * This first phase is invoked by the composers, loading prior snapshot pages and modifying them.
- * Here, snapshot writers behave just a usual in-memory page pool.
+ * Here, snapshot writers behave just as a usual in-memory page pool.
  * This part depends on composer, so the snapshot writer calls composer's method.
  *
  * @par Fix Phase
@@ -82,6 +82,7 @@ class SnapshotWriter final : public DefaultInitializable {
   storage::Page*          get_intermediate_base() { return intermediate_base_; }
   memory::PagePoolOffset  get_intermediate_size() const { return intermediate_size_;}
   storage::SnapshotPagePointer get_next_page_id() const { return next_page_id_;}
+  SnapshotId              get_snapshot_id() const { return snapshot_id_; }
 
   storage::Page*          resolve(memory::PagePoolOffset offset) ALWAYS_INLINE {
     ASSERT_ND(offset > 0);

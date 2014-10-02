@@ -90,6 +90,7 @@ X(kErrorCodeStrArrayFailedVerification, 0x0821, "STORAGE: ARRAY: Failed verifica
 X(kErrorCodeStrTooManyStorages,     0x0822, "STORAGE: Reached maximum number of storages. To register more storages, adjust StorageOptions::max_storages.")
 X(kErrorCodeStrAlreadyDropped,      0x0823, "STORAGE: This storage does not exist or has been already dropped")
 X(kErrorCodeStrEmptyName,           0x0824, "STORAGE: Storage name is empty")
+X(kErrorCodeStrPartitionerDataMemoryTooSmall, 0x0825, "STORAGE: Memory for Partitioners ran out during snapshot. Increase StorageOptions::partitioner_data_memory_mb_")
 
 X(kErrorCodeCacheNoFreePages,       0x0901, "SPCACHE: Not enough free snapshot pages. Cleaner is not catching up")
 X(kErrorCodeCacheTableFull,         0x0902, "SPCACHE: Hashtable full or too many skewed inserts")

@@ -9,6 +9,7 @@
 
 #include <iosfwd>
 
+#include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/storage/partitioner.hpp"
@@ -35,9 +36,9 @@ namespace sequential {
  */
 class SequentialPartitioner final {
  public:
-  explicit SequentialPartitioner(Partitioner* /*parent*/) {}
-  void describe(std::ostream* o) const;
+  explicit SequentialPartitioner(Partitioner* parent);
 
+  ErrorStack design_partition();
   bool is_partitionable() const { return true; }
   void partition_batch(
     PartitionId                     local_partition,
@@ -56,6 +57,13 @@ class SequentialPartitioner final {
     uint32_t*                         written_count) const;
 
   uint64_t  get_required_sort_buffer_size(uint32_t /*log_count*/) const { return 0; }
+
+  friend std::ostream& operator<<(std::ostream& o, const SequentialPartitioner& v);
+
+ private:
+  Engine* const               engine_;
+  const StorageId             id_;
+  PartitionerMetadata* const  metadata_;
 };
 }  // namespace sequential
 }  // namespace storage
