@@ -268,6 +268,7 @@ libfoedus-core uses a few open source libraries listed below.
 |:------------:|---------|----------------------------------------------|
 | glog         | BSD     | Static-link. Contains source code.           |
 | tinyxml2     | ZLIB    | Static-link. Contains source code.           |
+| libbacktrace | BSD     | Static-link.  Contains source code.          |
 | gperftools   | BSD     | Optional dynamic-link. Distributes nothing.  |
 | papi         | BSD(?)  | Optional dynamic-link. Distributes nothing.  |
 | libnuma      | LGPL    | Dynamic-link. Distributes nothing.           |

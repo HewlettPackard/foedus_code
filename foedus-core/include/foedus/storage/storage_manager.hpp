@@ -49,6 +49,8 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
    * The caller might later fail, so StorageId might have holes.
    */
   StorageId   issue_next_storage_id();
+  /** Returns the largest StorageId that does or did exist. */
+  StorageId   get_largest_storage_id();
 
   /**
    * @brief Returns the name of the given storage ID.

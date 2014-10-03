@@ -62,30 +62,27 @@ namespace storage {
  * These are written to the snapshot pointer part of DualPagePointer so that transactions
  * can start using the snapshot pages.
  * Composers also drop volatile pointers if possible, reducing pressures to volatile page pool.
+ *
+ * @par Shared memory, No virtual methods
+ * Like Partitioner, no virtual methods allowed. We just do switch-case.
  */
-class Composer {
+class Composer CXX11_FINAL {
  public:
-  Composer(
-    Engine *engine,
-    const Partitioner* partitioner,
-    snapshot::SnapshotWriter* snapshot_writer,
-    cache::SnapshotFileSet* previous_snapshot_files,
-    const snapshot::Snapshot& new_snapshot);
-  virtual ~Composer() {}
+  Composer(Engine *engine, StorageId storage_id);
 
-  /** Returns a short string that briefly describes this object. */
-  virtual std::string to_string() const = 0;
-
-  /** Writes out a detailed description of this object to stream. */
-  virtual void        describe(std::ostream* o) const = 0;
+  Engine*   get_engine() { return engine_; }
+  StorageId get_storage_id() const { return storage_id_; }
+  StorageType get_storage_type() const { return storage_type_; }
 
   /** Returns the size of working memory this composer needs. */
-  virtual uint64_t    get_required_work_memory_size(
+  uint64_t    get_required_work_memory_size(
     snapshot::SortedBuffer**  log_streams,
-    uint32_t                  log_streams_count) const = 0;
+    uint32_t                  log_streams_count);
 
   /**
    * @brief Construct snapshot pages from sorted run files of one storage.
+   * @param[in] snapshot_writer Writes out composed pages
+   * @param[in] previous_snapshot_files To read existing snapshots
    * @param[in] log_streams Sorted runs
    * @param[in] log_streams_count Number of sorted runs
    * @param[in] work_memory Working memory to be used in this method
@@ -93,14 +90,18 @@ class Composer {
    * to construct the root page. The data format depends on the composer. In all implementations,
    * the information must fit in one page (should be, otherwise we can't have a root page)
    */
-  virtual ErrorStack  compose(
+  ErrorStack  compose(
+    snapshot::SnapshotWriter*         snapshot_writer,
+    cache::SnapshotFileSet*           previous_snapshot_files,
     snapshot::SortedBuffer* const*    log_streams,
     uint32_t                          log_streams_count,
     const memory::AlignedMemorySlice& work_memory,
-    Page*                             root_info_page) = 0;
+    Page*                             root_info_page);
 
   /**
    * @brief Construct root page(s) for one storage based on the ouputs of compose().
+   * @param[in] snapshot_writer Writes out composed pages
+   * @param[in] previous_snapshot_files To read existing snapshots
    * @param[in] root_info_pages Root info pages output by compose()
    * @param[in] root_info_pages_count Number of root info pages.
    * @param[in] work_memory Working memory to be used in this method
@@ -109,37 +110,20 @@ class Composer {
    * When all reducers complete, the gleaner invokes this method to construct new root
    * page(s) for the storage. This
    */
-  virtual ErrorStack  construct_root(
-    const Page* const*  root_info_pages,
-    uint32_t            root_info_pages_count,
+  ErrorStack  construct_root(
+    snapshot::SnapshotWriter*         snapshot_writer,
+    cache::SnapshotFileSet*           previous_snapshot_files,
+    const Page* const*                root_info_pages,
+    uint32_t                          root_info_pages_count,
     const memory::AlignedMemorySlice& work_memory,
-    SnapshotPagePointer* new_root_page_pointer) = 0;
-
-  /** factory method. */
-  static Composer*    create_composer(
-    Engine *engine,
-    const Partitioner* partitioner,
-    snapshot::SnapshotWriter* snapshot_writer,
-    cache::SnapshotFileSet* previous_snapshot_files,
-    const snapshot::Snapshot& new_snapshot);
+    SnapshotPagePointer*              new_root_page_pointer);
 
   friend std::ostream&    operator<<(std::ostream& o, const Composer& v);
 
- protected:
+ private:
   Engine* const                       engine_;
-  const Partitioner* const            partitioner_;
-  snapshot::SnapshotWriter* const     snapshot_writer_;
-  cache::SnapshotFileSet* const       previous_snapshot_files_;
-  const snapshot::Snapshot&           new_snapshot_;
-  const snapshot::SnapshotId          new_snapshot_id_;
   const StorageId                     storage_id_;
-  const thread::ThreadGroupId         numa_node_;
-  StorageControlBlock* const          storage_;
-  const SnapshotPagePointer           previous_root_page_pointer_;
-
-  inline SnapshotPagePointer to_snapshot_pointer(SnapshotLocalPageId local_id) const ALWAYS_INLINE {
-    return foedus::storage::to_snapshot_page_pointer(new_snapshot_id_, numa_node_, local_id);
-  }
+  const StorageType                   storage_type_;
 };
 
 }  // namespace storage

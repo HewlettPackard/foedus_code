@@ -11,11 +11,18 @@ namespace foedus {
 namespace storage {
 namespace sequential {
 
-void SequentialPartitioner::describe(std::ostream* o_ptr) const {
-  std::ostream &o = *o_ptr;
-  o << "<SequentialPartitioner>"
-    << "<id_>" << sequential_id_ << "</id_>"
-    << "</SequentialPartitioner>";
+SequentialPartitioner::SequentialPartitioner(Partitioner* parent)
+  : engine_(parent->get_engine()),
+    id_(parent->get_storage_id()),
+    metadata_(PartitionerMetadata::get_metadata(engine_, id_)) {
+}
+
+ErrorStack SequentialPartitioner::design_partition() {
+  // no data required for SequentialPartitioner
+  metadata_->data_offset_ = 0;
+  metadata_->data_size_ = 0;
+  metadata_->valid_ = true;
+  return kRetOk;
 }
 
 void SequentialPartitioner::partition_batch(
@@ -42,6 +49,14 @@ void SequentialPartitioner::sort_batch(
   std::memcpy(output_buffer, log_positions, sizeof(snapshot::BufferPosition) * log_positions_count);
   *written_count = log_positions_count;
 }
+
+
+std::ostream& operator<<(std::ostream& o, const SequentialPartitioner& /*v*/) {
+  o << "<SequentialPartitioner>"
+    << "</SequentialPartitioner>";
+  return o;
+}
+
 }  // namespace sequential
 }  // namespace storage
 }  // namespace foedus

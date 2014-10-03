@@ -6,17 +6,19 @@
 #define FOEDUS_SNAPSHOT_MAPREDUCE_BASE_IMPL_HPP_
 #include <stdint.h>
 
+#include <atomic>
 #include <iosfwd>
 #include <string>
+#include <thread>
 
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/log/log_id.hpp"
 #include "foedus/snapshot/fwd.hpp"
+#include "foedus/snapshot/log_gleaner_ref.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/thread/fwd.hpp"
-#include "foedus/thread/stoppable_thread_impl.hpp"
 
 namespace foedus {
 namespace snapshot {
@@ -35,54 +37,43 @@ namespace snapshot {
  */
 class MapReduceBase : public DefaultInitializable {
  public:
-  MapReduceBase(Engine* engine, LogGleaner* parent, uint16_t id, thread::ThreadGroupId numa_node)
-    : engine_(engine), parent_(parent), id_(id), numa_node_(numa_node) {}
-
-  ErrorStack  initialize_once() override final;
-  ErrorStack  uninitialize_once() override final;
+  MapReduceBase(Engine* engine, uint16_t id);
 
   MapReduceBase() = delete;
   MapReduceBase(const MapReduceBase &other) = delete;
   MapReduceBase& operator=(const MapReduceBase &other) = delete;
 
-  LogGleaner*   get_parent() const { return parent_; }
-  void          request_stop() { thread_.request_stop(); }
-  void          wait_for_stop() { thread_.wait_for_stop(); }
+  LogGleanerRef*  get_parent() { return &parent_; }
+  uint16_t        get_id() const { return id_; }
+  uint16_t        get_numa_node() const { return numa_node_; }
 
   /** Expects "LogReducer-x", "LogMapper-y" etc. Used only for logging/debugging. */
   virtual std::string to_string() const = 0;
 
+  /** Start executing */
+  void          launch_thread();
+  void          join_thread();
+
  protected:
   Engine* const                   engine_;
-  LogGleaner* const               parent_;
+  LogGleanerRef                   parent_;
   /** Unique ID of this mapper or reducer. */
   const uint16_t                  id_;
-  const thread::ThreadGroupId     numa_node_;
+  const uint16_t                  numa_node_;
+  /** only for sanity check */
+  std::atomic<bool>               running_;
 
-  thread::StoppableThread         thread_;
+  std::thread                     thread_;
 
   /** Implements the specific logics in derived class. */
   virtual ErrorStack  handle_process() = 0;
 
-  /** additional initialization  in derived class called at the beginning of handle() */
-  virtual ErrorStack  handle_initialize() = 0;
-
-  /**
-   * additional uninitialization in derived class called at the end of handle().
-   * This one must be idempotent as we call this again at uninitialize() in case of error-exit.
-   */
-  virtual ErrorStack  handle_uninitialize() = 0;
-
-  /** Main routine */
-  void                handle();
-
-  /** called from handle() when all processing is done. */
-  void                handle_complete();
-  /** to add anything specific to derived class at the beginning of handle_complete() */
-  virtual void        pre_handle_complete() {}
-
   /** Derived class's handle_process() should occasionally call this to exit if it's cancelled. */
   ErrorCode           check_cancelled() const;
+
+ private:
+  /** Main routine */
+  void                handle();
 };
 }  // namespace snapshot
 }  // namespace foedus

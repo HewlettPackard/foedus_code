@@ -12,9 +12,12 @@ namespace foedus {
 namespace assorted {
 
 /**
- * Returns the backtrace information of the current stack.
+ * @brief Returns the backtrace information of the current stack.
+ * @details
  * If rich flag is given, the backtrace information is converted to human-readable format
  * as much as possible via addr2line (which is linux-only).
+ * Also, this method does not care about out-of-memory situation.
+ * When you are really concerned with it, just use ::backtrace(), ::backtrace_symbols_fd() etc.
  */
 std::vector<std::string> get_backtrace(bool rich = true);
 

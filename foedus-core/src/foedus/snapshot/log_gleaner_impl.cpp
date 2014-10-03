@@ -26,180 +26,172 @@
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_manager.hpp"
 #include "foedus/snapshot/snapshot_manager_pimpl.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/composer.hpp"
 #include "foedus/storage/partitioner.hpp"
+#include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
 
 namespace foedus {
 namespace snapshot {
 
-ErrorStack LogGleaner::initialize_once() {
-  LOG(INFO) << "Initializing Log Gleaner";
-  clear_counts();
-  // 2MB ought to be enough for everyone
-  nonrecord_log_buffer_.alloc(1 << 21, 1 << 21, memory::AlignedMemory::kNumaAllocInterleaved, 0);
-  ASSERT_ND(!nonrecord_log_buffer_.is_null());
-
-  const EngineOptions& options = engine_->get_options();
-  const thread::ThreadGroupId numa_nodes = options.thread_.group_count_;
-  for (thread::ThreadGroupId node = 0; node < numa_nodes; ++node) {
-    memory::ScopedNumaPreferred numa_scope(node);
-    for (uint16_t ordinal = 0; ordinal < options.log_.loggers_per_node_; ++ordinal) {
-      log::LoggerId logger_id = options.log_.loggers_per_node_ * node + ordinal;
-      mappers_.push_back(new LogMapper(engine_, this, logger_id, node));
+LogGleaner::LogGleaner(Engine* engine, const Snapshot& new_snapshot)
+  : LogGleanerRef(engine),
+    new_snapshot_(new_snapshot) {
+}
+LogGleaner::~LogGleaner() {
+  if (partitioner_metadata_) {
+    for (storage::StorageId i = 0; i <= new_snapshot_.max_storage_id_; ++i) {
+      partitioner_metadata_[i].uninitialize();
     }
-
-    reducers_.push_back(new LogReducer(engine_, this, node));
   }
+}
 
-  new_root_page_pointers_.clear();
+ErrorStack LogGleaner::cancel_reducers_mappers() {
+  if (is_all_exitted()) {
+    VLOG(0) << "All mappers/reducers have already exitted. " << *this;
+    return kRetOk;
+  }
+  LOG(INFO) << "Requesting all mappers/reducers threads to stop.. " << *this;
+  control_block_->cancelled_ = true;
+  const uint32_t kTimeoutSleeps = 3000U;
+  uint32_t count = 0;
+  while (!is_all_exitted()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    if (++count > kTimeoutSleeps) {
+      return ERROR_STACK(kErrorCodeSnapshotExitTimeout);
+    }
+  }
   return kRetOk;
 }
 
-ErrorStack LogGleaner::uninitialize_once() {
-  LOG(INFO) << "Uninitializing Log Gleaner";
-  ErrorStackBatch batch;
-  // note: at this point, mappers_/reducers_ are most likely already stopped (unless there were
-  // unexpected errors). We do it again to make sure.
-  batch.uninitialize_and_delete_all(&mappers_);
-  batch.uninitialize_and_delete_all(&reducers_);
-  nonrecord_log_buffer_.release_block();
-
-  new_root_page_pointers_.clear();
-  for (std::map<storage::StorageId, storage::Partitioner*>::iterator it = partitioners_.begin();
-      it != partitioners_.end(); ++it) {
-    delete it->second;
+void LogGleaner::clear_all() {
+  control_block_->clear_counts();
+  control_block_->cur_snapshot_ = new_snapshot_;
+  uint16_t node_count = engine_->get_options().thread_.group_count_;
+  for (uint16_t node = 0; node < node_count; ++node) {
+    LogReducerRef reducer(engine_, node);
+    reducer.clear();
   }
-  partitioners_.clear();
-  return SUMMARIZE_ERROR_BATCH(batch);
+  partitioner_metadata_[0].data_offset_ = 0;
+  ASSERT_ND(partitioner_metadata_[0].data_size_
+    == engine_->get_options().storage_.partitioner_data_memory_mb_ * (1ULL << 20));
+  for (storage::StorageId i = 1; i <= new_snapshot_.max_storage_id_; ++i) {
+    partitioner_metadata_[i].clear_counts();
+  }
 }
 
-bool LogGleaner::is_stop_requested() const {
-  return engine_->get_snapshot_manager()->get_pimpl()->is_stop_requested();
-}
-void LogGleaner::wakeup() {
-  engine_->get_snapshot_manager()->get_pimpl()->wakeup();
+ErrorStack LogGleaner::design_partitions() {
+  // so far single threaded to debug easily.
+  // but, let's prepare for parallelization so that we can switch later.
+  ErrorStack result;
+  design_partitions_run(1U, new_snapshot_.max_storage_id_, &result);
+  return result;
 }
 
-void LogGleaner::cancel_mappers() {
-  // first, request to stop all of them before waiting for them.
-  LOG(INFO) << "Requesting mappers to stop.. " << *this;
-  for (LogMapper* mapper : mappers_) {
-    if (mapper->is_initialized()) {
-      mapper->request_stop();
-    } else {
-      LOG(WARNING) << "This mapper is not initilized.. During error handling?" << *mapper;
+void LogGleaner::design_partitions_run(
+  storage::StorageId from,
+  storage::StorageId count,
+  ErrorStack* result) {
+  *result = kRetOk;
+  LOG(INFO) << "Determining partitions for Storage-" << from << " to " << (from + count - 1) << ".";
+  for (storage::StorageId id = from; id < from + count; ++id) {
+    storage::Partitioner partitioner(engine_, id);
+    ErrorStack ret = partitioner.design_partition();
+    if (ret.is_error()) {
+      LOG(ERROR) << "Error while determining partitions for storage-" << id << ":" << ret;
+      *result = ret;
+      break;
     }
   }
-
-  LOG(INFO) << "Requested mappers to stop. Now blocking.." << *this;
-  for (LogMapper* mapper : mappers_) {
-    if (mapper->is_initialized()) {
-      mapper->wait_for_stop();
-      mapper->uninitialize();
-    }
-  }
-  LOG(INFO) << "All mappers stopped." << *this;
-}
-void LogGleaner::cancel_reducers() {
-  // first, request to stop all of them before waiting for them.
-  LOG(INFO) << "Requesting reducers to stop.. " << *this;
-  for (LogReducer* reducer : reducers_) {
-    if (reducer->is_initialized()) {
-      reducer->request_stop();
-    } else {
-      LOG(WARNING) << "This reducer is not initilized.. During error handling?" << *reducer;
-    }
-  }
-
-  LOG(INFO) << "Requested reducers to stop. Now blocking.." << *this;
-  for (LogReducer* reducer : reducers_) {
-    if (reducer->is_initialized()) {
-      reducer->wait_for_stop();
-      reducer->uninitialize();
-    }
-  }
-  LOG(INFO) << "All reducers stopped." << *this;
+  LOG(INFO) << "Determined partitions for Storage-" << from << " to " << (from + count - 1) << ".";
 }
 
 ErrorStack LogGleaner::execute() {
-  LOG(INFO) << "gleaner_thread_ starts running: " << *this;
-  clear_counts();
+  LOG(INFO) << "Gleaner starts running: snapshot_id=" << get_snapshot_id();
+  clear_all();
 
-  // initialize mappers and reducers. This launches the threads.
-  for (LogMapper* mapper : mappers_) {
-    CHECK_ERROR(mapper->initialize());
-  }
-  for (LogReducer* reducer : reducers_) {
-    CHECK_ERROR(reducer->initialize());
-  }
-  // Wait for completion of mapper/reducer initialization.
-  LOG(INFO) << "Waiting for completion of mappers and reducers init.. " << *this;
+  LOG(INFO) << "Gleaner Step 1: Design partitions for all storages...";
+  // Another approach is to delay this step until some mapper really needs it so that we can
+  // skip partition-designing for storages that weren't modified.
+  // However, it requires synchronization in mapper/reducer and this step is anyway fast enough.
+  // So, we so far simply design partitions for all of them.
+  CHECK_ERROR(design_partitions());
 
-  // the last one will wake me up.
-  while (!is_stop_requested()) {
-    engine_->get_snapshot_manager()->get_pimpl()->sleep_a_while();
-    ASSERT_ND(ready_to_start_count_ <= mappers_.size() + reducers_.size());
-    if (is_all_ready_to_start()) {
-      break;
-    }
-  }
-
-  LOG(INFO) << "Initialized mappers and reducers: " << *this;
-
-  // now let's start!
-  start_processing_.signal();
+  LOG(INFO) << "Gleaner Step 2: Run mappers/reducers...";
+  // Request each node's snapshot manager to launch mappers/reducers threads
+  control_block_->gleaning_ = true;
+  engine_->get_soc_manager()->get_shared_memory_repo()->get_global_memory_anchors()->
+    snapshot_manager_memory_->wakeup_snapshot_children();
 
   // then, wait until all mappers/reducers are done
-  bool terminated_mappers = false;
-  while (error_count_ == 0) {
-    if (is_stop_requested() || is_all_completed()) {
-      break;
-    }
-    engine_->get_snapshot_manager()->get_pimpl()->sleep_a_while();
-    if (!terminated_mappers && is_all_mappers_completed()) {
-      // as soon as all mappers complete, uninitialize them to release unused memories.
-      // the last phase of reducers consume lots of resource, so this might help a bit.
-      LOG(INFO) << "All mappers are done. Let's immediately release their resources...: " << *this;
-      cancel_mappers();
-      terminated_mappers = true;
-    }
+  while (!is_error() && !is_all_completed()) {
+    // snapshot is an infrequent operation, doesn't have to wake up immediately.
+    // just sleep for a while
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
-  if (error_count_ > 0) {
+  control_block_->gleaning_ = false;
+
+  LOG(INFO) << "Gleaner Step 3: Combine outputs from reducers (root page info)..." << *this;
+  if (is_error()) {
     LOG(ERROR) << "Some mapper/reducer got an error. " << *this;
   } else if (!is_all_completed()) {
-    LOG(WARNING) << "gleaner_thread_ stopped without completion. cancelled? " << *this;
+    LOG(WARNING) << "gleaner stopped without completion. cancelled? " << *this;
   } else {
     LOG(INFO) << "All mappers/reducers successfully done. Now on to the final phase." << *this;
     CHECK_ERROR(construct_root_pages());
   }
 
-  LOG(INFO) << "gleaner_thread_ stopping.. cancelling reducers and mappers: " << *this;
-  cancel_reducers_mappers();
-  ASSERT_ND(exit_count_.load() == mappers_.size() + reducers_.size());
-  LOG(INFO) << "gleaner_thread_ ends: " << *this;
-
+  LOG(INFO) << "Gleaner Step 4: Uninitializing...";
+  CHECK_ERROR(cancel_reducers_mappers());
+  ASSERT_ND(is_all_exitted());
+  LOG(INFO) << "Gleaner ends";
   return kRetOk;
 }
 
 ErrorStack LogGleaner::construct_root_pages() {
   ASSERT_ND(new_root_page_pointers_.size() == 0);
   debugging::StopWatch stop_watch;
-  const uint16_t count = reducers_.size();
+
+  const uint16_t count = control_block_->reducers_count_;
   std::vector<const storage::Page*> tmp_array(count, nullptr);
   std::vector<uint16_t> cursors;
   std::vector<uint16_t> buffer_sizes;
   std::vector<const storage::Page*> buffers;
   for (uint16_t i = 0; i < count; ++i) {
     cursors.push_back(0);
-    buffer_sizes.push_back(reducers_[i]->get_root_info_page_count());
-    buffers.push_back(reinterpret_cast<const storage::Page*>(
-      reducers_[i]->get_root_info_buffer().get_block()));
+    LogReducerRef reducer(engine_, i);
+    buffer_sizes.push_back(reducer.get_total_storage_count());
+    buffers.push_back(reducer.get_root_info_pages());
   }
 
-  // reuse the first reducer's work memory
-  memory::AlignedMemorySlice work_memory(&reducers_[0]->get_composer_work_memory());
+  // Combining the root page info doesn't require much memory, so this size should be enough.
+  memory::AlignedMemory work_memory;
+  work_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
+  memory::AlignedMemorySlice work_memory_slice(&work_memory);
+
+
+  // composers read snapshot files.
+  cache::SnapshotFileSet fileset(engine_);
+  CHECK_ERROR(fileset.initialize());
+  UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
+
+  // composers need SnapshotWriter to write out to.
+  // As construct_root() just writes out root pages, it won't require large buffer.
+  // Especially, no buffer for intermediate pages required.
+  memory::AlignedMemory writer_pool_memory;
+  writer_pool_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
+  memory::AlignedMemory writer_intermediate_memory;
+  writer_intermediate_memory.alloc(1U << 12, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
+
+  SnapshotWriter snapshot_writer(
+    engine_,
+    0,
+    get_snapshot_id(),
+    &writer_pool_memory,
+    &writer_intermediate_memory);
+
   storage::StorageId prev_storage_id = 0;
   // each reducer's root-info-page must be sorted by storage_id, so we do kind of merge-sort here.
   while (true) {
@@ -238,12 +230,14 @@ ErrorStack LogGleaner::construct_root_pages() {
     }
     ASSERT_ND(input_count > 0);
 
-    std::unique_ptr< storage::Composer > composer(reducers_[0]->create_composer(min_storage_id));
+    storage::Composer composer(engine_, min_storage_id);
     storage::SnapshotPagePointer new_root_page_pointer;
-    CHECK_ERROR(composer->construct_root(
+    CHECK_ERROR(composer.construct_root(
+      &snapshot_writer,
+      &fileset,
       &tmp_array[0],
       input_count,
-      work_memory,
+      work_memory_slice,
       &new_root_page_pointer));
     ASSERT_ND(new_root_page_pointer > 0);
     ASSERT_ND(new_root_page_pointers_.find(min_storage_id) == new_root_page_pointers_.end());
@@ -264,52 +258,14 @@ ErrorStack LogGleaner::construct_root_pages() {
     }
   }
 
-  ASSERT_ND(new_root_page_pointers_.size() == get_partitioner_count());
+  snapshot_writer.close();
+  CHECK_ERROR(fileset.uninitialize());
+
   stop_watch.stop();
   LOG(INFO) << "constructed root pages for " << new_root_page_pointers_.size()
-    << " storages. (partitioner_count=" << get_partitioner_count() << "). "
-    << " in " << stop_watch.elapsed_ms() << "ms. "<< *this;
+    << " storages. in " << stop_watch.elapsed_ms() << "ms. "<< *this;
   return kRetOk;
 }
-
-void LogGleaner::add_nonrecord_log(const log::LogHeader* header) {
-  ASSERT_ND(header->get_kind() != log::kEngineLogs || header->get_kind() != log::kStorageLogs);
-  uint64_t begins_at = nonrecord_log_buffer_pos_.fetch_add(header->log_length_);
-  // we so far assume nonrecord_log_buffer_ is always big enough.
-  // TODO(Hideaki) : automatic growing if needed. Very rare, though.
-  ASSERT_ND(begins_at + header->log_length_ <= nonrecord_log_buffer_.get_size());
-  std::memcpy(
-    static_cast<char*>(nonrecord_log_buffer_.get_block()) + begins_at,
-    header,
-    header->log_length_);
-}
-
-const storage::Partitioner* LogGleaner::get_or_create_partitioner(storage::StorageId storage_id) {
-  {
-    std::lock_guard<std::mutex> guard(partitioners_mutex_);
-    auto it = partitioners_.find(storage_id);
-    if (it != partitioners_.end()) {
-      return it->second;
-    }
-  }
-
-  // not found, let's create a new one, but out of the critical section to avoid contention.
-  storage::Partitioner* partitioner = storage::Partitioner::create_partitioner(engine_, storage_id);
-  {
-    std::lock_guard<std::mutex> guard(partitioners_mutex_);
-    auto it = partitioners_.find(storage_id);
-    if (it != partitioners_.end()) {
-      // oh, someone has just added it!
-      delete partitioner;
-      return it->second;
-    } else {
-      partitioners_.insert(std::pair<storage::StorageId, storage::Partitioner*>(
-        storage_id, partitioner));
-      return partitioner;
-    }
-  }
-}
-
 
 std::string LogGleaner::to_string() const {
   std::stringstream stream;
@@ -318,25 +274,12 @@ std::string LogGleaner::to_string() const {
 }
 std::ostream& operator<<(std::ostream& o, const LogGleaner& v) {
   o << "<LogGleaner>"
-    << *v.snapshot_
-    << "<ready_to_start_count_>" << v.ready_to_start_count_ << "</ready_to_start_count_>"
-    << "<completed_count_>" << v.completed_count_ << "</completed_count_>"
-    << "<completed_mapper_count_>" << v.completed_mapper_count_ << "</completed_mapper_count_>"
-    << "<partitioner_count>" << v.get_partitioner_count() << "</partitioner_count>"
-    << "<error_count_>" << v.error_count_ << "</error_count_>"
-    << "<exit_count_>" << v.exit_count_ << "</exit_count_>"
-    << "<nonrecord_log_buffer_pos_>"
-      << v.nonrecord_log_buffer_pos_ << "</nonrecord_log_buffer_pos_>";
-  o << "<Mappers>";
-  for (auto mapper : v.mappers_) {
-    o << *mapper;
-  }
-  o << "</Mappers>";
-  o << "<Reducers>";
-  for (auto reducer : v.reducers_) {
-    o << *reducer;
-  }
-  o << "</Reducers>";
+    << v.new_snapshot_
+    << "<completed_count_>" << v.control_block_->completed_count_ << "</completed_count_>"
+    << "<completed_mapper_count_>"
+      << v.control_block_->completed_mapper_count_ << "</completed_mapper_count_>"
+    << "<error_count_>" << v.control_block_->error_count_ << "</error_count_>"
+    << "<exit_count_>" << v.control_block_->exit_count_ << "</exit_count_>";
   o << "</LogGleaner>";
   return o;
 }

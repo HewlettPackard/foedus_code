@@ -29,34 +29,38 @@
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/snapshot/log_gleaner_impl.hpp"
 #include "foedus/snapshot/snapshot.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/composer.hpp"
 #include "foedus/storage/partitioner.hpp"
 
 namespace foedus {
 namespace snapshot {
 
-ErrorStack LogReducer::handle_initialize() {
+LogReducer::LogReducer(Engine* engine)
+: MapReduceBase(engine, engine->get_soc_id()),
+  previous_snapshot_files_(engine_),
+  sorted_runs_(0) {
+  soc::NodeMemoryAnchors* anchors = engine->get_soc_manager()->get_shared_memory_repo()->
+    get_node_memory_anchors(numa_node_);
+  control_block_ = anchors->log_reducer_memory_;
+  buffers_[0] = anchors->log_reducer_buffers_[0];
+  buffers_[1] = anchors->log_reducer_buffers_[1];
+  root_info_pages_ = anchors->log_reducer_root_info_pages_;
+}
+
+ErrorStack LogReducer::initialize_once() {
+  control_block_->initialize();
+  control_block_->id_ = engine_->get_soc_id();
+
   const SnapshotOptions& option = engine_->get_options().snapshot_;
 
   uint64_t buffer_size = static_cast<uint64_t>(option.log_reducer_buffer_mb_) << 20;
-  buffer_memory_.alloc(
-    buffer_size,
-    memory::kHugepageSize,
-    memory::AlignedMemory::kNumaAllocOnnode,
-    numa_node_);
-  uint64_t half_size = buffer_size >> 1;
-  buffers_[0].buffer_slice_ = memory::AlignedMemorySlice(&buffer_memory_, 0, half_size);
-  buffers_[0].status_.store(0);
-  buffers_[1].buffer_slice_ = memory::AlignedMemorySlice(&buffer_memory_, half_size, half_size);
-  buffers_[1].status_.store(0);
-  ASSERT_ND(!buffer_memory_.is_null());
-
   uint64_t dump_buffer_size = static_cast<uint64_t>(option.log_reducer_dump_io_buffer_mb_) << 20;
   dump_io_buffer_.alloc(
     dump_buffer_size,
     memory::kHugepageSize,
     memory::AlignedMemory::kNumaAllocOnnode,
-    numa_node_);
+    get_numa_node());
   ASSERT_ND(!dump_io_buffer_.is_null());
 
   // start from 1/16 of the main buffer. Should be big enough.
@@ -64,14 +68,14 @@ ErrorStack LogReducer::handle_initialize() {
     buffer_size >> 4,
     memory::kHugepageSize,
     memory::AlignedMemory::kNumaAllocOnnode,
-    numa_node_);
+    get_numa_node());
 
   // start from 1/16 of the main buffer. Should be big enough.
   positions_buffers_.alloc(
     buffer_size >> 4,
     memory::kHugepageSize,
     memory::AlignedMemory::kNumaAllocOnnode,
-    numa_node_);
+    get_numa_node());
   input_positions_slice_ = memory::AlignedMemorySlice(
     &positions_buffers_,
     0,
@@ -81,56 +85,66 @@ ErrorStack LogReducer::handle_initialize() {
     positions_buffers_.get_size() >> 1,
     positions_buffers_.get_size() >> 1);
 
-  current_buffer_ = 0;
-  buffers_[0].status_.store(0U);
-  buffers_[1].status_.store(0U);
-  sorted_runs_ = 0;
-  total_storage_count_ = 0;
+  writer_pool_memory_.alloc(
+    static_cast<uint64_t>(option.snapshot_writer_page_pool_size_mb_) << 20,
+    memory::kHugepageSize,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    numa_node_);
 
-  // we don't initialize snapshot_writer_/composer_work_memory_/root_info_buffer_ yet
+  writer_intermediate_memory_.alloc(
+    static_cast<uint64_t>(option.snapshot_writer_intermediate_pool_size_mb_) << 20,
+    memory::kHugepageSize,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    numa_node_),
+
+  sorted_runs_ = 0;
+
+  // we don't initialize snapshot_writer_/composer_work_memory_ yet
   // because they are needed at the end of reducer.
   return kRetOk;
 }
 
-ErrorStack LogReducer::handle_uninitialize() {
+ErrorStack LogReducer::uninitialize_once() {
   ErrorStackBatch batch;
-  batch.emprace_back(snapshot_writer_.uninitialize());
   batch.emprace_back(previous_snapshot_files_.uninitialize());
-  root_info_buffer_.release_block();
+  writer_intermediate_memory_.release_block();
+  writer_pool_memory_.release_block();
   composer_work_memory_.release_block();
-  buffer_memory_.release_block();
   dump_io_buffer_.release_block();
   sort_buffer_.release_block();
   positions_buffers_.release_block();
+  control_block_->uninitialize();
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 
 ErrorStack LogReducer::handle_process() {
-  while (!thread_.sleep()) {
+  while (true) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
     WRAP_ERROR_CODE(check_cancelled());
-    if (parent_->is_all_mappers_completed()) {
+    if (parent_.is_all_mappers_completed()) {
       break;
     }
     // should I switch the current buffer?
     // this is while, not if, in case the new current buffer becomes full while this reducer is
     // dumping the old current buffer.
-    while (get_current_buffer()->is_no_more_writers()) {
+    while (control_block_->get_current_buffer_status().is_no_more_writers()) {
       WRAP_ERROR_CODE(check_cancelled());
       // okay, let's switch now. As this thread dumps the buffer as soon as this happens,
       // only one of the buffers can be full.
-      if (get_non_current_buffer()->status_.load() != 0) {
+      if (!control_block_->get_non_current_buffer_status().is_clear()) {
         LOG(FATAL) << to_string() << " wtf. both buffers are in use, can't happen";
       }
-      LOG(INFO) << to_string() << " switching buffer. current_buffer_=" << current_buffer_;
-      current_buffer_.fetch_add(1U);
-      ASSERT_ND(sorted_runs_ + 1U == current_buffer_.load());
+      LOG(INFO) << to_string() << " switching buffer. current_buffer_="
+        << control_block_->current_buffer_;
+      control_block_->current_buffer_.fetch_add(1U);
+      ASSERT_ND(sorted_runs_ + 1U == control_block_->current_buffer_);
       // Then, immediately start dumping the full buffer.
       CHECK_ERROR(dump_buffer());
     }
   }
 
   LOG(INFO) << to_string() << " all mappers are done, this reducer starts the merge-sort phase.";
-  ASSERT_ND(parent_->is_all_mappers_completed());
+  ASSERT_ND(parent_.is_all_mappers_completed());
   WRAP_ERROR_CODE(check_cancelled());
   CHECK_ERROR(merge_sort());
 
@@ -141,20 +155,20 @@ ErrorStack LogReducer::handle_process() {
 ErrorStack LogReducer::dump_buffer() {
   LOG(INFO) << "Sorting and dumping " << to_string() << "'s buffer to a file."
     << " current sorted_runs_=" << sorted_runs_;
-  ReducerBuffer& buffer = buffers_[sorted_runs_ % 2];
-  if (!buffer.is_no_more_writers()) {
+  uint32_t buffer_index = sorted_runs_ % 2;
+  if (!control_block_->get_buffer_status_atomic(buffer_index).is_no_more_writers()) {
     LOG(FATAL) << "wtf. this buffer is still open for writers";
   }
 
-  dump_buffer_wait_for_writers(buffer);
+  dump_buffer_wait_for_writers(buffer_index);
   WRAP_ERROR_CODE(check_cancelled());
 
-  BufferStatus final_status = buffer.get_status();
+  ReducerBufferStatus final_status = control_block_->get_buffer_status_atomic(buffer_index);
   debugging::StopWatch stop_watch;
   LOG(INFO) << to_string() << " Started sort/dump " <<
     from_buffer_position(final_status.components.tail_position_) << " bytes of logs";
 
-  char* const base = reinterpret_cast<char*>(buffer.buffer_slice_.get_block());
+  char* const base = reinterpret_cast<char*>(buffers_[buffer_index]);
   std::map<storage::StorageId, std::vector<BufferPosition> > blocks;
   dump_buffer_scan_block_headers(base, final_status.components.tail_position_, &blocks);
 
@@ -185,13 +199,13 @@ ErrorStack LogReducer::dump_buffer() {
   // note that this reducer has to do the buffer switch before mapper can really start using it.
   // this reducer immediately checks if it should do so right after this function.
   ++sorted_runs_;
-  buffer.status_.store(0);
+  control_block_->buffer_status_[buffer_index] = 0;
   return kRetOk;
 }
 
-ErrorStack LogReducer::dump_buffer_wait_for_writers(const ReducerBuffer& buffer) const {
+ErrorStack LogReducer::dump_buffer_wait_for_writers(uint32_t buffer_index) const {
   debugging::StopWatch wait_watch;
-  SPINLOCK_WHILE(buffer.get_status().components.active_writers_ > 0) {
+  SPINLOCK_WHILE(control_block_->get_buffer_status_atomic(buffer_index).get_active_writers() > 0) {
     WRAP_ERROR_CODE(check_cancelled());
   }
   wait_watch.stop();
@@ -278,18 +292,18 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
   ASSERT_ND(cur_rec_total == records);
 
   // Now, sort these log records by key and then ordinal. we use the partitioner object for this.
-  const storage::Partitioner* partitioner = parent_->get_or_create_partitioner(storage_id);
-  ASSERT_ND(partitioner);
-  expand_sort_buffer_if_needed(partitioner->get_required_sort_buffer_size(records));
+  storage::Partitioner partitioner(engine_, storage_id);
+  ASSERT_ND(partitioner.is_valid());
+  expand_sort_buffer_if_needed(partitioner.get_required_sort_buffer_size(records));
   BufferPosition* outputs = reinterpret_cast<BufferPosition*>(
     output_positions_slice_.get_block());
   uint32_t written_count = 0;
-  partitioner->sort_batch(
+  partitioner.sort_batch(
     buffer,
     inputs,
     records,
     memory::AlignedMemorySlice(&sort_buffer_),
-    parent_->get_snapshot()->base_epoch_,
+    parent_.get_base_epoch(),
     outputs,
     &written_count);
 
@@ -394,104 +408,6 @@ ErrorStack LogReducer::dump_buffer_sort_storage_write(
   return kRetOk;
 }
 
-void LogReducer::append_log_chunk(
-  storage::StorageId storage_id,
-  const char* send_buffer,
-  uint32_t log_count,
-  uint64_t send_buffer_size) {
-  DVLOG(1) << "Appending a block of " << send_buffer_size << " bytes (" << log_count
-    << " entries) to " << to_string() << "'s buffer for storage-" << storage_id;
-  debugging::RdtscWatch stop_watch;
-
-  const uint64_t required_size = send_buffer_size + sizeof(BlockHeader);
-  ReducerBuffer* buffer = nullptr;
-  uint64_t begin_position = 0;
-  while (true) {
-    uint32_t buffer_index = current_buffer_.load();
-    buffer = &buffers_[buffer_index % 2];
-
-    // If even the current buffer is marked as no more writers, the reducer is getting behind.
-    // Mappers have to wait, potentially for a long time. So, let's just sleep.
-    BufferStatus cur_status = buffer->get_status();
-    if (cur_status.components.flags_ & kFlagNoMoreWriters) {
-      current_buffer_changed_.wait([this, buffer_index]{
-        return current_buffer_.load() > buffer_index;
-      });
-      continue;
-    }
-
-    // the buffer is now full. let's mark this buffer full and
-    // then wake up reducer to do switch.
-    if (cur_status.components.tail_position_ + required_size > buffer->buffer_slice_.get_size()) {
-      BufferStatus new_status = cur_status;
-      new_status.components.flags_ |= kFlagNoMoreWriters;
-      if (!buffer->status_.compare_exchange_strong(cur_status.word, new_status.word)) {
-        // if CAS fails, someone else might have already done it. retry
-        continue;
-      }
-
-      thread_.wakeup();
-      continue;
-    }
-
-    // okay, "looks like" we can append our log. make it sure with atomic CAS
-    BufferStatus new_status = cur_status;
-    ++new_status.components.active_writers_;
-    new_status.components.tail_position_ += to_buffer_position(required_size);
-    if (!buffer->status_.compare_exchange_strong(cur_status.word, new_status.word)) {
-      // someone else did something. retry
-      continue;
-    }
-
-    // okay, we atomically reserved the space.
-    begin_position = from_buffer_position(cur_status.components.tail_position_);
-    break;
-  }
-
-  ASSERT_ND(buffer);
-
-  // now start copying. this might take a few tens of microseconds if it's 1MB and on another
-  // NUMA node.
-  debugging::RdtscWatch copy_watch;
-  char* destination = reinterpret_cast<char*>(buffer->buffer_slice_.get_block()) + begin_position;
-  BlockHeader header;
-  header.storage_id_ = storage_id;
-  header.log_count_ = log_count;
-  header.block_length_ = to_buffer_position(required_size);
-  header.magic_word_ = kBlockHeaderMagicWord;
-  std::memcpy(destination, &header, sizeof(BlockHeader));
-  std::memcpy(destination + sizeof(BlockHeader), send_buffer, send_buffer_size);
-  copy_watch.stop();
-  DVLOG(1) << "memcpy of " << send_buffer_size << " bytes took "
-    << copy_watch.elapsed() << " cycles";
-
-  // done, let's decrement the active_writers_ to declare we are done.
-  while (true) {
-    BufferStatus cur_status = buffer->get_status();
-    BufferStatus new_status = cur_status;
-    ASSERT_ND(new_status.components.active_writers_ > 0);
-    --new_status.components.active_writers_;
-    if (!buffer->status_.compare_exchange_strong(cur_status.word, new_status.word)) {
-      // if CAS fails, someone else might have already done it. retry
-      continue;
-    }
-
-    // okay, decremented. let's exit.
-
-    // Disabled. for now the reducer does spin. so no need for wakeup
-    // if (new_status.components.active_writers_ == 0
-    //   && (new_status.components.flags_ & kFlagNoMoreWriters)) {
-    //   // if this was the last writer and the buffer was already closed for new writers,
-    //   // the reducer might be waiting for us. let's wake her up
-    //   thread_.wakeup();
-    // }
-    break;
-  }
-
-  stop_watch.stop();
-  DVLOG(1) << "Completed appending a block of " << send_buffer_size << " bytes to " << to_string()
-    << "'s buffer for storage-" << storage_id << " in " << stop_watch.elapsed() << " cycles";
-}
 
 void LogReducer::expand_if_needed(
   uint64_t required_size,
@@ -511,7 +427,7 @@ void LogReducer::expand_if_needed(
       required_size,
       memory::kHugepageSize,
       memory::AlignedMemory::kNumaAllocOnnode,
-      numa_node_);
+      get_numa_node());
   }
 }
 void LogReducer::expand_positions_buffers_if_needed(uint64_t required_size_per_buffer) {
@@ -525,7 +441,7 @@ void LogReducer::expand_positions_buffers_if_needed(uint64_t required_size_per_b
         new_size,
         memory::kHugepageSize,
         memory::AlignedMemory::kNumaAllocOnnode,
-        numa_node_);
+        get_numa_node());
       input_positions_slice_ = memory::AlignedMemorySlice(
         &positions_buffers_,
         0,
@@ -541,10 +457,10 @@ fs::Path LogReducer::get_sorted_run_file_path(uint32_t sorted_run) const {
   // sorted_run_<snapshot id>_<node id>_<sorted run>.tmp is the file name
   std::stringstream file_name;
   file_name << "/sorted_run_"
-    << parent_->get_snapshot()->id_ << "_"
-    << static_cast<int>(numa_node_) << "_"
+    << parent_.get_snapshot_id() << "_"
+    << static_cast<int>(get_numa_node()) << "_"
     << static_cast<int>(sorted_run) << ".tmp";
-  fs::Path path(engine_->get_options().snapshot_.convert_folder_path_pattern(numa_node_));
+  fs::Path path(engine_->get_options().snapshot_.convert_folder_path_pattern(get_numa_node()));
   path /= file_name.str();
   return path;
 }
@@ -597,22 +513,19 @@ void LogReducer::MergeContext::set_tmp_sorted_buffer_array(storage::StorageId st
   ASSERT_ND(tmp_sorted_buffer_count_ > 0);
 }
 
-storage::Composer* LogReducer::create_composer(storage::StorageId storage_id) {
-  const storage::Partitioner* partitioner = parent_->get_or_create_partitioner(storage_id);
-  return storage::Composer::create_composer(
-      engine_,
-      partitioner,
-      &snapshot_writer_,
-      &previous_snapshot_files_,
-      *parent_->get_snapshot());
-}
-
 ErrorStack LogReducer::merge_sort() {
   merge_sort_check_buffer_status();
 
-  // we initialize snapshot_writer here rather than reducer's initialize() because
+  // The writer to writes out composed snapshot pages to a new snapshot file.
   // we use it only during merge_sort().
-  CHECK_ERROR(snapshot_writer_.initialize());
+  SnapshotWriter snapshot_writer(
+    engine_,
+    numa_node_,
+    parent_.get_snapshot_id(),
+    &writer_pool_memory_,
+    &writer_intermediate_memory_);
+  CHECK_ERROR(snapshot_writer.open());
+
   CHECK_ERROR(previous_snapshot_files_.initialize());
 
   // because now we are at the last merging phase, we will no longer dump sorted runs any more.
@@ -620,10 +533,12 @@ ErrorStack LogReducer::merge_sort() {
   dump_io_buffer_.release_block();
 
   MergeContext context(sorted_runs_);
-  ReducerBuffer* last_buffer = get_current_buffer();
+  uint32_t last_buffer_index = control_block_->current_buffer_;
 
   LOG(INFO) << to_string() << " merge sorting " << sorted_runs_ << " sorted runs and the current"
-    << " buffer which has " << last_buffer->get_status().components.tail_position_ << " bytes";
+    << " buffer which has "
+    << control_block_->get_buffer_status_atomic(last_buffer_index).components.tail_position_
+    << " bytes";
   debugging::StopWatch merge_watch;
 
   // prepare the input streams for composers
@@ -631,34 +546,34 @@ ErrorStack LogReducer::merge_sort() {
   CHECK_ERROR(merge_sort_open_sorted_runs(&context));
   CHECK_ERROR(merge_sort_initialize_sort_buffers(&context));
 
-  expand_root_info_buffer_if_needed(parent_->get_partitioner_count() * sizeof(storage::Page));
-
   // merge-sort each storage
   storage::StorageId prev_storage_id = 0;
-  total_storage_count_ = 0;
+  control_block_->total_storage_count_ = 0;
   for (storage::StorageId storage_id = context.get_min_storage_id();
         storage_id > 0;
-        storage_id = context.get_min_storage_id(), ++total_storage_count_) {
+        storage_id = context.get_min_storage_id(), ++control_block_->total_storage_count_) {
     if (storage_id <= prev_storage_id) {
       LOG(FATAL) << to_string() << " wtf. not storage sorted? " << *this;
     }
     prev_storage_id = storage_id;
 
     // collect streams for this storage
-    VLOG(0) << to_string() << " merging storage-" << storage_id << ", num=" << total_storage_count_;
+    VLOG(0) << to_string() << " merging storage-" << storage_id << ", num="
+      << control_block_->total_storage_count_;
     context.set_tmp_sorted_buffer_array(storage_id);
 
     // run composer
-    std::unique_ptr< storage::Composer > composer(create_composer(storage_id));
-    uint64_t work_memory_size = composer->get_required_work_memory_size(
+    storage::Composer composer(engine_, storage_id);
+    uint64_t work_memory_size = composer.get_required_work_memory_size(
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_);
     expand_composer_work_memory_if_needed(work_memory_size);
     // snapshot_reader_.get_or_open_file();
-    ASSERT_ND(total_storage_count_ <= parent_->get_partitioner_count());
-    storage::Page* root_info_page
-      = reinterpret_cast<storage::Page*>(root_info_buffer_.get_block()) + total_storage_count_;
-    CHECK_ERROR(composer->compose(
+    ASSERT_ND(control_block_->total_storage_count_ <= get_max_storage_count());
+    storage::Page* root_info_page = root_info_pages_ + control_block_->total_storage_count_;
+    CHECK_ERROR(composer.compose(
+      &snapshot_writer,
+      &previous_snapshot_files_,
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_,
       memory::AlignedMemorySlice(&composer_work_memory_),
@@ -670,29 +585,29 @@ ErrorStack LogReducer::merge_sort() {
       WRAP_ERROR_CODE(merge_sort_advance_sort_buffers(buffer, storage_id));
     }
   }
-  ASSERT_ND(total_storage_count_ <= parent_->get_partitioner_count());
+  ASSERT_ND(control_block_->total_storage_count_ <= get_max_storage_count());
 
-  snapshot_writer_.close();
+  snapshot_writer.close();
   merge_watch.stop();
   LOG(INFO) << to_string() << " completed merging in " << merge_watch.elapsed_sec() << " seconds"
-    << " . total_storage_count_=" << total_storage_count_;
+    << " . total_storage_count_=" << control_block_->total_storage_count_;
   return kRetOk;
 }
 
 
 void LogReducer::merge_sort_check_buffer_status() const {
-  ASSERT_ND(sorted_runs_ == current_buffer_.load());
-  if (get_non_current_buffer()->get_status().components.tail_position_ > 0 ||
-      get_non_current_buffer()->get_status().components.active_writers_ > 0) {
+  ASSERT_ND(sorted_runs_ == control_block_->current_buffer_);
+  if (control_block_->get_non_current_buffer_status().components.tail_position_ > 0 ||
+      control_block_->get_non_current_buffer_status().components.active_writers_ > 0) {
     LOG(FATAL) << to_string() << " non-current buffer still has some data. this must not happen"
       << " at merge_sort step.";
   }
-  const ReducerBuffer* last_buffer = get_current_buffer();
-  if (last_buffer->get_status().components.active_writers_ > 0) {
+  ReducerBufferStatus cur_status = control_block_->get_current_buffer_status();
+  if (cur_status.components.active_writers_ > 0) {
     LOG(FATAL) << to_string() << " last buffer is still being written. this must not happen"
       << " at merge_sort step.";
   }
-  ASSERT_ND(!last_buffer->is_no_more_writers());  // it should be still active
+  ASSERT_ND(!cur_status.is_no_more_writers());  // it should be still active
 }
 
 void LogReducer::merge_sort_allocate_io_buffers(LogReducer::MergeContext* context) const {
@@ -708,7 +623,7 @@ void LogReducer::merge_sort_allocate_io_buffers(LogReducer::MergeContext* contex
     size_total,
     memory::kHugepageSize,
     memory::AlignedMemory::kNumaAllocOnnode,
-    numa_node_);
+    get_numa_node());
   for (uint32_t i = 0; i < context->sorted_buffer_count_; ++i) {
     context->io_buffers_.emplace_back(memory::AlignedMemorySlice(
       &context->io_memory_,
@@ -721,11 +636,13 @@ void LogReducer::merge_sort_allocate_io_buffers(LogReducer::MergeContext* contex
 }
 
 ErrorStack LogReducer::merge_sort_open_sorted_runs(LogReducer::MergeContext* context) const {
-  const ReducerBuffer* last_buffer = get_current_buffer();
+  uint32_t last_buffer_index = control_block_->current_buffer_;
+  ReducerBufferStatus buffer_status = control_block_->get_buffer_status_atomic(last_buffer_index);
+  void* last_buffer = buffers_[last_buffer_index % 2];
   // always the last buffer (no cost)
   context->sorted_buffers_.emplace_back(new InMemorySortedBuffer(
-    reinterpret_cast<char*>(last_buffer->buffer_slice_.get_block()),
-    from_buffer_position(last_buffer->get_status().components.tail_position_)));
+    reinterpret_cast<char*>(last_buffer),
+    from_buffer_position(buffer_status.components.tail_position_)));
 
   // sorted run files
   ASSERT_ND(context->io_buffers_.size() == sorted_runs_);
@@ -854,17 +771,19 @@ ErrorCode LogReducer::merge_sort_advance_sort_buffers(
 
 std::ostream& operator<<(std::ostream& o, const LogReducer& v) {
   o << "<LogReducer>"
-    << "<id_>" << v.id_ << "</id_>"
-    << "<numa_node_>" << static_cast<int>(v.numa_node_) << "</numa_node_>"
-    << "<total_storage_count_>" << v.total_storage_count_ << "</total_storage_count_>"
-    << "<buffer_memory_>" << v.buffer_memory_ << "</buffer_memory_>"
+    << "<id_>" << v.get_id() << "</id_>"
+    << "<numa_node>" << v.get_numa_node() << "</numa_node>"
+    << "<total_storage_count>" << v.control_block_->total_storage_count_ << "</total_storage_count>"
     << "<sort_buffer_>" << v.sort_buffer_ << "</sort_buffer_>"
     << "<positions_buffers_>" << v.positions_buffers_ << "</positions_buffers_>"
-    << "<current_buffer_>" << v.current_buffer_ << "</current_buffer_>"
+    << "<current_buffer_>" << v.control_block_->current_buffer_ << "</current_buffer_>"
     << "<sorted_runs_>" << v.sorted_runs_ << "</sorted_runs_>"
-    << "<thread_>" << v.thread_ << "</thread_>"
     << "</LogReducer>";
   return o;
+}
+
+uint32_t LogReducer::get_max_storage_count() const {
+  return engine_->get_options().storage_.max_storages_;
 }
 
 

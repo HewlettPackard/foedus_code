@@ -1,6 +1,6 @@
 add_foedus_test_individual(test_array_basic "CreateAndQuery;CreateAndDrop;CreateAndWrite;CreateAndReadWrite")
 
-add_foedus_test_individual(test_array_partitioner "InitialPartition;Clone;PartitionBasic;SortBasic;SortCompact;SortNoCompact")
+add_foedus_test_individual(test_array_partitioner "InitialPartition;Empty;PartitionBasic;SortBasic;SortCompact;SortNoCompact")
 
 set(test_array_tpcb_individuals
   SingleThreadedNoContention

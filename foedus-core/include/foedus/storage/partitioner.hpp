@@ -9,11 +9,15 @@
 
 #include <iosfwd>
 
+#include "foedus/attachable.hpp"
+#include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
+#include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/snapshot/log_buffer.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
+#include "foedus/soc/shared_mutex.hpp"
 #include "foedus/storage/storage_id.hpp"
 
 namespace foedus {
@@ -28,7 +32,7 @@ namespace storage {
  * order.
  * All methods in this object are in a batched style to avoid overheads per small log entry.
  *
- * @section PARTITION_ALGO Partitioning Algorithm
+ * @par Partitioning Algorithm
  * So far, create_partitioner() receives only the engine object and ID to design partitioning.
  * This means we can use only information available in the status-quo of the storage in the engine,
  * such as which node owns which volatile/snapshot page.
@@ -36,41 +40,36 @@ namespace storage {
  * we might want to explore smarter partitioning that utilizes, say, log entries.
  * (but that will be complex/expensive!)
  *
- * @section SORT_ALGO Sorting Algorithm
+ * @par Sorting Algorithm
  * Sorting algorithm \e may use metadata specific to the storage (not just storage type).
  * For example, if we somehow know that every key in the storage is 8 byte, we can do something
  * very efficient. Or, in some case the requirement of sorting itself might depend on the storage.
  *
- * For more details of how individual storage types implement them, see the derived classes.
+ * @par Shared memory, No virtual methods
+ * Unfortunately, virtual methods are hard to use in multi-process and multi-node environment.
+ * All dynamic data of Partitioner is stored in shared memory as explained in PartitionerMetadata.
+ * Thus, Partitioner has no virtual methods. It just does switch-case on the storage type and
+ * invokes methods in individual partitioners (which aren't derived classes of this).
+ *
+ * For more details of how individual storage types implement them, see the individual partitioners.
  */
-class Partitioner {
+class Partitioner CXX11_FINAL : public Attachable<PartitionerMetadata> {
  public:
   /**
   * @brief Instantiate an instance for the given storage.
   * @param[in] engine Engine
   * @param[in] id ID of the storage
   * @details
-  * This method not only creates an object but also designs partitioning
-  * so that following calls to partition_batch() will just follow pre-deteremined
-  * partitioning policy efficiently.
+  * This method only attaches to a shared memory, so it has no cost.
+  * You can instantiate Partitioner anywhere you like.
   */
-  static Partitioner* create_partitioner(Engine* engine, StorageId id);
+  Partitioner(Engine* engine, StorageId id);
 
-  virtual ~Partitioner() {}
-
-  virtual StorageId get_storage_id() const = 0;
-  virtual StorageType get_storage_type() const = 0;
-
-  /**
-   * @brief Clone this object, usually in order to get local copy on the same NUMA node.
-   * @return Cloned object of the same type.
-   * @details
-   * If we have just one partitioner object for each storage, all mappers in all NUMA nodes have
-   * to use the same object, most likely causing expensinve inter NUMA node communications.
-   * Partitioner object is anyway small and created only once for each storage and mapper, thus
-   * each mapper instead invokes this method within NumaScope to get a local copy.
-   */
-  virtual Partitioner* clone() const = 0;
+  /** Returns tiny metadata of the partitioner in shared memory. */
+  const PartitionerMetadata& get_metadata() const;
+  bool        is_valid()          const;
+  StorageId   get_storage_id()    const { return id_;}
+  StorageType get_storage_type()  const { return type_; }
 
   /**
    * @brief returns if this storage is partitionable.
@@ -81,7 +80,15 @@ class Partitioner {
    * Similarly, if there is only one NUMA node (partition), the caller also skips partitioning,
    * but in that case the caller even skips instantiating partitioners.
    */
-  virtual bool is_partitionable() const = 0;
+  bool is_partitionable();
+
+  /**
+   * @brief Determines partitioning scheme for this storage.
+   * @details
+   * This method puts the resulting data in shared memory.
+   * This method should be called only once per snapshot.
+   */
+  ErrorStack design_partition();
 
   /**
    * @brief Identifies the partition of each log record in a batched fashion.
@@ -96,12 +103,12 @@ class Partitioner {
    * create_partitioner(). For better performance, logs_count is usually at least thousands.
    * Assume the scale when you optimize the implementation in derived classes.
    */
-  virtual void partition_batch(
+  void partition_batch(
     PartitionId                     local_partition,
     const snapshot::LogBuffer&      log_buffer,
     const snapshot::BufferPosition* log_positions,
     uint32_t                        logs_count,
-    PartitionId*                    results) const = 0;
+    PartitionId*                    results);
 
   /**
    * @brief Called from log reducer to sort log entries by keys.
@@ -127,25 +134,108 @@ class Partitioner {
    * one log. In that case, written_count becomes smaller than log_positions_count_.
    * @see get_required_sort_buffer_size()
    */
-  virtual void                sort_batch(
+  void                sort_batch(
     const snapshot::LogBuffer&        log_buffer,
     const snapshot::BufferPosition*   log_positions,
     uint32_t                          logs_count,
     const memory::AlignedMemorySlice& sort_buffer,
     Epoch                             base_epoch,
     snapshot::BufferPosition*         output_buffer,
-    uint32_t*                         written_count) const = 0;
+    uint32_t*                         written_count);
 
   /** Returns required size of sort buffer for sort_batch() */
-  virtual uint64_t            get_required_sort_buffer_size(uint32_t log_count) const = 0;
+  uint64_t            get_required_sort_buffer_size(uint32_t log_count);
+
+  friend std::ostream& operator<<(std::ostream& o, const Partitioner& v);
+
+ private:
+  /** ID of the storage. */
+  StorageId         id_;
+  /** Type of the storage. For convenience. */
+  StorageType       type_;
+};
+
+/**
+ * @brief Tiny metadata of partitioner for every storage used while log gleaning.
+ * @ingroup STORAGE
+ * @details
+ * The metadata is tiny because it just points to a data block in a separate partitioner data block,
+ * which is variable-sized. Think of Masstree's partitioning information for example. we have to
+ * store keys, so we can't statically determine the size.
+ * We allocate an array of this object on shared memory so that all mappers/reducers can
+ * access the partitioner information.
+ *
+ * @par Index-0 Entry
+ * As storage-id 0 doesn't exist, we use the first entry as metadata of the data block.
+ * data_offset_ is the end of already-taken regions while data_size_ is the .
+ * When we initialize a new partitioner, we lock mutex_ and increment data_offset_.
+ */
+struct PartitionerMetadata CXX11_FINAL {
+  // This object is placed on shared memory. We only reinterpret them.
+  PartitionerMetadata() CXX11_FUNC_DELETE;
+  ~PartitionerMetadata() CXX11_FUNC_DELETE;
+
+  void initialize() {
+    mutex_.initialize();
+    clear_counts();
+  }
+  void uninitialize() {
+    mutex_.uninitialize();
+  }
+  void clear_counts() {
+    valid_ = false;
+    data_offset_ = 0;
+    data_size_ = 0;
+  }
 
   /**
-   * Implementation of ostream operator.
+   * Serialize concurrent initialization of this partitioner.
+   * This is taken only when valid_ is false or might be false.
+   * As far as one observes valid_==true, he doesn't have to take mutex.
    */
-  virtual void describe(std::ostream* o) const = 0;
+  soc::SharedMutex  mutex_;
+  /**
+   * Whether this partitioner information (metadata+data) has been constructed.
+   * When this is false, only valid_ and mutex_ can be safely accessed.
+   */
+  bool              valid_;
+  /**
+   * Relative offset from the beginning of partitioner data block that points to
+   * variable-sized partitioner data.
+   */
+  uint32_t          data_offset_;
+  /**
+   * The size of the partitioner data.
+   */
+  uint32_t          data_size_;
 
-  /** Just delegates to describe(). */
-  friend std::ostream& operator<<(std::ostream& o, const Partitioner& v);
+  /**
+   * Returns the partitioner data pointed from this metadata.
+   * @pre valid_
+   * @pre data_size_ > 0
+   */
+  void* locate_data(Engine* engine);
+
+  /**
+   * Allocates a patitioner data in shared memory of the given size.
+   * @pre !valid_ (if it's already constructed, why are we allocating again?)
+   * @pre locked->is_locked_by_me(), locked->get_mutex() == &mutex_ (the caller must own the mutex)
+   * @pre data_size > 0
+   * @post data_offset_ is set and index0-entry's data_offset_ is incremented.
+   * @post data_size_ == data_size
+   * The only possible error is memory running out (kErrorCodeStrPartitionerDataMemoryTooSmall).
+   */
+  ErrorCode allocate_data(Engine* engine, soc::SharedMutexScope* locked, uint32_t data_size);
+
+  /**
+   * Returns the shared memory for the given storage ID.
+   * @pre id > 0
+   */
+  static PartitionerMetadata* get_metadata(Engine* engine, StorageId id);
+  /** Returns the special index-0 entry that manages data block allocation for partitioners */
+  static PartitionerMetadata* get_index0_metadata(Engine* engine);
+
+  friend std::ostream& operator<<(std::ostream& o, const PartitionerMetadata& v);
 };
 
 }  // namespace storage
