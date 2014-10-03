@@ -117,9 +117,9 @@ int on_backtrace_full_callback(
 
   std::vector<std::string>* ret = reinterpret_cast< std::vector<std::string>* >(data);
   std::stringstream str;
-  str << " in ";
+  str << "in ";
   if (function) {
-    str << function << "() ";
+    str << demangle_type_name(function) << " ";
   } else {
     str << "??? ";
   }
@@ -135,7 +135,6 @@ int on_backtrace_full_callback(
 
 std::vector<std::string> get_backtrace(bool rich) {
   std::vector<std::string> ret;
-
   if (rich) {
     // try to use the shiny new libbacktrace
     backtrace_state* state = ::backtrace_create_state(
@@ -151,7 +150,7 @@ std::vector<std::string> get_backtrace(bool rich) {
         on_backtrace_full_error,
         &ret);
       if (full_result == 0) {
-        return ret;
+        // return ret;
       }
     }
     std::cerr << "[FOEDUS] libbacktrace failed, so falling back to good old"

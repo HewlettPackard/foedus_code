@@ -48,3 +48,10 @@ add_subdirectory(gtest-1.7.0)
 ## THE SOFTWARE.
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -w") # to statically link from libfoedus.so
 add_subdirectory(libbacktrace)
+# This is the version in apitrace github as of 2014/10/02
+# plus this patch:
+#   https://gcc.gnu.org/ml/gcc-patches/2013-10/msg01445.html
+# Without this, I got sigsegv in read_uint32() just like this:
+#   https://groups.google.com/forum/#!topic/golang-nuts/hSEBs6Blo8U
+# I also tried to apply the entire libbacktrace from recent gcc repo, but so many things were
+# changed and caused other issues. Hence, just applying this patch.
