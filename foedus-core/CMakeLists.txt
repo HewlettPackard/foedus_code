@@ -101,6 +101,8 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include) # our main include fold
 include_directories(SYSTEM
   # libnuma
   ${NUMA_INCLUDE_DIR}
+  # libbacktrace
+  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libbacktrace
   # tinyxml2
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tinyxml2-2.1.0
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glog-0.3.3/src
@@ -131,7 +133,8 @@ add_library(foedus-core SHARED ${TMP_ALL_FOEDUS_CORE_SRC})
 add_library(foedus-core-static STATIC ${TMP_ALL_FOEDUS_CORE_SRC})
 
 set(foedus-dependencies)
-# Link to libglog, libnuma, libgperftools (if found)
+# Link to libbacktrace, libglog, libnuma, libgperftools (if found)
+set(foedus-dependencies ${foedus-dependencies} backtrace)
 set(foedus-dependencies ${foedus-dependencies} glog-static)
 set(foedus-dependencies ${foedus-dependencies} ${NUMA_LIBRARY})
 set(foedus-dependencies ${foedus-dependencies} tinyxml2static)

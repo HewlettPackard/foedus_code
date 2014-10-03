@@ -27,6 +27,8 @@
  * @brief Cross-compiler UNUSED macro for the same purpose as ASSERT_ND(x).
  */
 namespace foedus {
+  /** Helper function to report what assertion failed to stderr. */
+  void print_assert(const char* file, const char* func, int line, const char* description);
   /** Prints out backtrace. This method is best-effort, maybe do nothing in some compiler/OS. */
   void print_backtrace();
 }  // namespace foedus
@@ -37,7 +39,12 @@ namespace foedus {
 #else  // NDEBUG
 #include <cassert>
 #ifndef ASSERT_ND_NOBACKTRACE
-#define ASSERT_ND(x) do { if (!(x)) { foedus::print_backtrace(); assert(x); } } while (0)
+#define ASSERT_QUOTE(str) #str
+#define ASSERT_EXPAND_AND_QUOTE(str) ASSERT_QUOTE(str)
+#define ASSERT_ND(x) do { if (!(x)) { \
+  foedus::print_assert(__FILE__, __FUNCTION__, __LINE__, ASSERT_QUOTE(x)); \
+  foedus::print_backtrace(); \
+  assert(x); } } while (0)
 #else  // ASSERT_ND_NOBACKTRACE
 #define ASSERT_ND(x) assert(x)
 #endif  // ASSERT_ND_NOBACKTRACE
