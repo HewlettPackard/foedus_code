@@ -249,6 +249,17 @@ struct GlobalMemoryAnchors {
   xct::XctManagerControlBlock*              xct_manager_memory_;
 
   /**
+   * Tiny metadata memory for partitioners. It points to blocks in the following data memory.
+   * The size is sizeof(storage::PartitionerMetadata) *  StorageOptions::max_storages_.
+   */
+  storage::PartitionerMetadata*             partitioner_metadata_;
+  /**
+   * Data block to place detailed information of partitioners.
+   * The size is StorageOptions::partitioner_data_memory_mb_.
+   */
+  void*                                     partitioner_data_;
+
+  /**
    * This memory stores the ID of storages sorted by their names.
    * The size is 4 (=sizeof(StorageId)) * StorageOptions::max_storages_.
    */
@@ -280,6 +291,7 @@ struct NodeMemoryAnchors {
   enum Constants {
     kChildStatusMemorySize = 1 << 12,
     kPagePoolMemorySize = 1 << 12,
+    kLogReducerMemorySize = 1 << 12,
     kLoggerMemorySize = 1 << 21,
     kProcManagerMemorySize = 1 << 12,
   };
@@ -320,6 +332,26 @@ struct NodeMemoryAnchors {
    * The size is 4 (=sizeof(LocalProcId)) * ProcOptions::max_proc_count_.
    */
   proc::LocalProcId*  proc_name_sort_memory_;
+
+  /**
+   * Tiny control memory for LogReducer in this node.
+   * Always 4kb.
+   * The reducer buffers are allocated separately below.
+   */
+  snapshot::LogReducerControlBlock* log_reducer_memory_;
+
+  /**
+   * Actual buffers for LogReducer. Two for switching.
+   * Size is SnapshotOptions::log_reducer_buffer_mb_ in total of the two.
+   */
+  void*               log_reducer_buffers_[2];
+
+  /**
+   * This is the 'output' of the reducer in this node.
+   * Each page contains a root-info page of one storage processed in the reducer.
+   * Size is StorageOptions::max_storages_ * 4kb.
+   */
+  storage::Page*      log_reducer_root_info_pages_;
 
   /**
    * Status and synchronization mechanism for loggers on this node.

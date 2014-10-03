@@ -9,6 +9,7 @@
 
 #include <iosfwd>
 
+#include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/storage/partitioner.hpp"
@@ -33,22 +34,18 @@ namespace sequential {
  * Do not include this header from a client program. There is no case client program needs to
  * access this internal class.
  */
-class SequentialPartitioner final : public virtual Partitioner {
+class SequentialPartitioner final {
  public:
-  explicit SequentialPartitioner(StorageId id) : sequential_id_(id) {}
-  ~SequentialPartitioner() {}
-  StorageId get_storage_id() const override { return sequential_id_; }
-  StorageType get_storage_type() const override { return kSequentialStorage; }
-  Partitioner* clone() const override { return new SequentialPartitioner(sequential_id_); }
-  void describe(std::ostream* o) const override;
+  explicit SequentialPartitioner(Partitioner* parent);
 
-  bool is_partitionable() const override { return true; }
+  ErrorStack design_partition();
+  bool is_partitionable() const { return true; }
   void partition_batch(
     PartitionId                     local_partition,
     const snapshot::LogBuffer&      log_buffer,
     const snapshot::BufferPosition* log_positions,
     uint32_t                        logs_count,
-    PartitionId*                    results) const override;
+    PartitionId*                    results) const;
 
   void sort_batch(
     const snapshot::LogBuffer&        log_buffer,
@@ -57,13 +54,16 @@ class SequentialPartitioner final : public virtual Partitioner {
     const memory::AlignedMemorySlice& sort_buffer,
     Epoch                             base_epoch,
     snapshot::BufferPosition*         output_buffer,
-    uint32_t*                         written_count) const override;
+    uint32_t*                         written_count) const;
 
-  uint64_t  get_required_sort_buffer_size(uint32_t /*log_count*/) const override { return 0; }
+  uint64_t  get_required_sort_buffer_size(uint32_t /*log_count*/) const { return 0; }
+
+  friend std::ostream& operator<<(std::ostream& o, const SequentialPartitioner& v);
 
  private:
-  /** only for sanity check */
-  StorageId             sequential_id_;
+  Engine* const               engine_;
+  const StorageId             id_;
+  PartitionerMetadata* const  metadata_;
 };
 }  // namespace sequential
 }  // namespace storage

@@ -15,6 +15,8 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/storage/page.hpp"
+#include "foedus/storage/partitioner.hpp"
 
 namespace foedus {
 namespace soc {
@@ -261,6 +263,12 @@ void SharedMemoryRepo::set_global_memory_anchors(uint64_t xml_size, const Engine
     = reinterpret_cast<xct::XctManagerControlBlock*>(base + total);
   total += GlobalMemoryAnchors::kXctManagerMemorySize;
 
+  global_memory_anchors_.partitioner_metadata_
+    = reinterpret_cast<storage::PartitionerMetadata*>(base + total);
+  total += align_4kb(sizeof(storage::PartitionerMetadata) * options.storage_.max_storages_);
+  global_memory_anchors_.partitioner_data_ = base + total;
+  total += static_cast<uint64_t>(options.storage_.partitioner_data_memory_mb_) << 20;
+
   global_memory_anchors_.storage_name_sort_memory_
     = reinterpret_cast<storage::StorageId*>(base + total);
   total += align_4kb(sizeof(storage::StorageId) * options.storage_.max_storages_);
@@ -294,6 +302,8 @@ uint64_t SharedMemoryRepo::calculate_global_memory_size(
   total += GlobalMemoryAnchors::kSnapshotManagerMemorySize;
   total += GlobalMemoryAnchors::kStorageManagerMemorySize;
   total += GlobalMemoryAnchors::kXctManagerMemorySize;
+  total += align_4kb(sizeof(storage::PartitionerMetadata) * options.storage_.max_storages_);
+  total += static_cast<uint64_t>(options.storage_.partitioner_data_memory_mb_) << 20;
   total += align_4kb(sizeof(storage::StorageId) * options.storage_.max_storages_);
   total += static_cast<uint64_t>(GlobalMemoryAnchors::kStorageMemorySize)
     * options.storage_.max_storages_;
@@ -316,6 +326,17 @@ void SharedMemoryRepo::set_node_memory_anchors(SocId node, const EngineOptions& 
   total += align_4kb(sizeof(proc::ProcAndName) * options.proc_.max_proc_count_);
   anchor.proc_name_sort_memory_ = reinterpret_cast<proc::LocalProcId*>(base + total);
   total += align_4kb(sizeof(proc::LocalProcId) * options.proc_.max_proc_count_);
+
+  anchor.log_reducer_memory_ = reinterpret_cast<snapshot::LogReducerControlBlock*>(base + total);
+  total += NodeMemoryAnchors::kLogReducerMemorySize;
+  uint64_t reducer_buffer_size
+    = static_cast<uint64_t>(options.snapshot_.log_reducer_buffer_mb_) << 20;
+  anchor.log_reducer_buffers_[0] = base + total;
+  anchor.log_reducer_buffers_[1] = base + total + (reducer_buffer_size / 2);
+  total += reducer_buffer_size;
+
+  anchor.log_reducer_root_info_pages_ = reinterpret_cast<storage::Page*>(base + total);
+  total += options.storage_.max_storages_ * 4096ULL;
 
   for (uint16_t i = 0; i < options.log_.loggers_per_node_; ++i) {
     anchor.logger_memories_[i] = reinterpret_cast<log::LoggerControlBlock*>(base + total);
@@ -349,6 +370,9 @@ uint64_t SharedMemoryRepo::calculate_node_memory_size(const EngineOptions& optio
   total += NodeMemoryAnchors::kProcManagerMemorySize;
   total += align_4kb(sizeof(proc::ProcAndName) * options.proc_.max_proc_count_);
   total += align_4kb(sizeof(proc::LocalProcId) * options.proc_.max_proc_count_);
+  total += NodeMemoryAnchors::kLogReducerMemorySize;
+  total += static_cast<uint64_t>(options.snapshot_.log_reducer_buffer_mb_) << 20;
+  total += options.storage_.max_storages_ * 4096ULL;
 
   uint64_t loggers_per_node = options.log_.loggers_per_node_;
   total += loggers_per_node * NodeMemoryAnchors::kLoggerMemorySize;

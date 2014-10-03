@@ -62,6 +62,9 @@ namespace foedus {
     options.thread_.group_count_ = 1;
     options.thread_.thread_count_per_group_ = 2;
     options.snapshot_.snapshot_interval_milliseconds_ = 1 << 26;  // never
+    options.snapshot_.log_reducer_buffer_mb_ = 2;
+    options.snapshot_.snapshot_writer_page_pool_size_mb_ = 2;
+    options.storage_.max_storages_ = 128;
     return options;
   }
 

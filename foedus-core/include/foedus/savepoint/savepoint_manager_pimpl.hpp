@@ -33,7 +33,7 @@ struct SavepointManagerControlBlock {
     savepoint_mutex_.initialize();
   }
   void uninitialize() {
-    savepoint_mutex_.initialize();
+    savepoint_mutex_.uninitialize();
     save_done_event_.uninitialize();
     save_wakeup_.uninitialize();
   }

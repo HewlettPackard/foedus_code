@@ -31,7 +31,21 @@
 namespace foedus {
 namespace snapshot {
 
-ErrorStack LogMapper::handle_initialize() {
+/**
+ * Unique ID of this log mapper. One log mapper corresponds to one logger, so this ID is also
+ * the corresponding logger's ID (log::LoggerId).
+ */
+uint16_t calculate_logger_id(Engine* engine, uint16_t local_ordinal) {
+  return engine->get_options().log_.loggers_per_node_ * engine->get_soc_id() + local_ordinal;
+}
+
+LogMapper::LogMapper(Engine* engine, uint16_t local_ordinal)
+  : MapReduceBase(engine, calculate_logger_id(engine, local_ordinal)),
+    processed_log_count_(0) {
+  clear_storage_buckets();
+}
+
+ErrorStack LogMapper::initialize_once() {
   const SnapshotOptions& option = engine_->get_options().snapshot_;
 
   uint64_t io_buffer_size = static_cast<uint64_t>(option.log_mapper_io_buffer_mb_) << 20;
@@ -82,7 +96,7 @@ ErrorStack LogMapper::handle_initialize() {
   return kRetOk;
 }
 
-ErrorStack LogMapper::handle_uninitialize() {
+ErrorStack LogMapper::uninitialize_once() {
   ErrorStackBatch batch;
   io_buffer_.release_block();
   buckets_memory_.release_block();
@@ -91,22 +105,16 @@ ErrorStack LogMapper::handle_uninitialize() {
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 
-void LogMapper::pre_handle_complete() {
-  uint16_t value_after = parent_->increment_completed_mapper_count();
-  if (value_after == parent_->get_mappers_count()) {
-    LOG(INFO) << "wait_for_next_epoch(): " << to_string() << " was the last mapper.";
-  }
-}
-
 ErrorStack LogMapper::handle_process() {
-  const Epoch base_epoch = parent_->get_snapshot()->base_epoch_;
-  const Epoch until_epoch = parent_->get_snapshot()->valid_until_epoch_;
+  const Epoch base_epoch = parent_.get_base_epoch();
+  const Epoch until_epoch = parent_.get_valid_until_epoch();
   log::LoggerRef logger = engine_->get_log_manager()->get_logger(id_);
   const log::LogRange log_range = logger.get_log_range(base_epoch, until_epoch);
   log::LogFileOrdinal cur_file_ordinal = log_range.begin_file_ordinal;
   uint64_t cur_offset = log_range.begin_offset;
   if (log_range.is_empty()) {
     LOG(INFO) << to_string() << " has no logs to process";
+    report_completion();
     return kRetOk;
   }
 
@@ -158,14 +166,21 @@ ErrorStack LogMapper::handle_process() {
     file.close();
   }
   VLOG(0) << to_string() << " processed " << processed_log_count_ << " log entries";
+  report_completion();
   return kRetOk;
+}
+void LogMapper::report_completion() {
+  uint16_t value_after = parent_.increment_completed_mapper_count();
+  if (value_after == parent_.get_mappers_count()) {
+    LOG(INFO) << "All mappers done. " << to_string() << " was the last mapper.";
+  }
 }
 
 ErrorStack LogMapper::handle_process_buffer(
   const fs::DirectIoFile &file, uint64_t buffered_bytes, log::LogFileOrdinal cur_file_ordinal,
   uint64_t *cur_offset, bool *first_read) {
-  const Epoch base_epoch = parent_->get_snapshot()->base_epoch_;  // only for assertions
-  const Epoch until_epoch = parent_->get_snapshot()->valid_until_epoch_;  // only for assertions
+  const Epoch base_epoch = parent_.get_base_epoch();  // only for assertions
+  const Epoch until_epoch = parent_.get_valid_until_epoch();  // only for assertions
   const uint64_t file_len = fs::file_size(file.get_path());
 
   // many temporary memory are used only within this method and completely cleared out
@@ -184,6 +199,9 @@ ErrorStack LogMapper::handle_process_buffer(
       || header->get_type() == log::kLogCodeEpochMarker);  // file starts with marker
     // we must be starting from epoch marker.
     ASSERT_ND(!*first_read || header->get_type() == log::kLogCodeEpochMarker);
+    ASSERT_ND(header->get_kind() == log::kRecordLogs
+      || header->get_type() == log::kLogCodeEpochMarker
+      || header->get_type() == log::kLogCodeFiller);
 
     if (UNLIKELY(header->log_length_ > buffered_bytes - pos)) {
       // if a log goes beyond this read, stop processing here and read from that offset again.
@@ -214,9 +232,6 @@ ErrorStack LogMapper::handle_process_buffer(
       }
     } else if (UNLIKELY(header->get_type() == log::kLogCodeFiller)) {
       // skip filler log
-    } else if (UNLIKELY(header->get_kind() != log::kRecordLogs)) {
-      // every thing other than record-targetted logs is processed at the end of epoch.
-      parent_->add_nonrecord_log(header);
     } else {
       bool bucketed = bucket_log(header->storage_id_, pos);
       if (UNLIKELY(!bucketed)) {
@@ -366,9 +381,9 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
 
     // if there are multiple partitions, we first partition log entries.
     if (multi_partitions) {
-      const storage::Partitioner* partitioner = parent_->get_or_create_partitioner(
-        bucket->storage_id_);
-      if (partitioner->is_partitionable()) {
+      storage::Partitioner partitioner(engine_, bucket->storage_id_);
+      ASSERT_ND(partitioner.is_valid());
+      if (partitioner.is_partitionable()) {
         // calculate partitions
         for (uint32_t i = 0; i < bucket->counts_; ++i) {
           position_array[i] = bucket->log_positions_[i];
@@ -377,7 +392,7 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
           ASSERT_ND(log_buffer.resolve(position_array[i])->header_.storage_id_
             == hashlist.storage_id_);
         }
-        partitioner->partition_batch(
+        partitioner.partition_batch(
           numa_node_,
           log_buffer,
           position_array,
@@ -470,8 +485,8 @@ void LogMapper::send_bucket_partition_buffer(
   if (written == 0) {
     return;
   }
-  LogReducer* reducer = parent_->get_reducer(partition);
-  reducer->append_log_chunk(bucket.storage_id_, send_buffer, log_count, written);
+  LogReducerRef reducer(engine_, partition);
+  reducer.append_log_chunk(bucket.storage_id_, send_buffer, log_count, written);
 }
 
 
@@ -482,7 +497,6 @@ std::ostream& operator<<(std::ostream& o, const LogMapper& v) {
     << "<buckets_allocated_count_>" << v.buckets_allocated_count_ << "</buckets_allocated_count_>"
     << "<hashlist_allocated_count>" << v.hashlist_allocated_count_ << "</hashlist_allocated_count>"
     << "<processed_log_count_>" << v.processed_log_count_ << "</processed_log_count_>"
-    << "<thread_>" << v.thread_ << "</thread_>"
     << "</LogMapper>";
   return o;
 }

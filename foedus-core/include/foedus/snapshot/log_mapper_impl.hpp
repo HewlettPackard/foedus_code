@@ -59,28 +59,18 @@ namespace snapshot {
  */
 class LogMapper final : public MapReduceBase {
  public:
-  LogMapper(Engine* engine, LogGleaner* parent, log::LoggerId id, thread::ThreadGroupId numa_node)
-    : MapReduceBase(engine, parent, id, numa_node),
-      processed_log_count_(0) {
-    clear_storage_buckets();
-  }
+  LogMapper(Engine* engine, uint16_t local_ordinal);
 
-  /**
-   * Unique ID of this log mapper. One log mapper corresponds to one logger, so this ID is also
-   * the corresponding logger's ID (log::LoggerId).
-   */
-  log::LoggerId           get_id() const { return id_; }
+  ErrorStack  initialize_once() override;
+  ErrorStack  uninitialize_once() override;
+
   std::string             to_string() const override {
     return std::string("LogMapper-") + std::to_string(id_);
   }
   friend std::ostream&    operator<<(std::ostream& o, const LogMapper& v);
 
  protected:
-  ErrorStack  handle_initialize() override;
-  ErrorStack  handle_uninitialize() override;
   ErrorStack  handle_process() override;
-
-  void        pre_handle_complete() override;
 
  private:
   enum Constsants {
@@ -321,6 +311,8 @@ class LogMapper final : public MapReduceBase {
   }
   /** Insert the new BucketHashList. This shouldn't be called often. */
   void add_storage_hashlist(BucketHashList* new_hashlist);
+
+  void report_completion();
 };
 
 

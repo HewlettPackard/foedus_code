@@ -17,6 +17,12 @@
 namespace foedus {
 namespace storage {
 namespace sequential {
+SequentialStorage::SequentialStorage(Engine* engine, StorageId id) {
+  engine_ = engine;
+  control_block_
+    = reinterpret_cast<SequentialStorageControlBlock*>(
+        engine->get_storage_manager()->get_storage(id));
+}
 SequentialStorage::SequentialStorage(Engine* engine, const StorageName& name) {
   engine_ = engine;
   control_block_

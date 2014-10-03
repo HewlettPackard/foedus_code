@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "foedus/attachable.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/assorted/cacheline.hpp"
@@ -24,9 +25,12 @@
 #include "foedus/log/log_id.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/fwd.hpp"
+#include "foedus/snapshot/log_reducer_ref.hpp"
 #include "foedus/snapshot/mapreduce_base_impl.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/snapshot/snapshot_writer_impl.hpp"
+#include "foedus/soc/shared_cond.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/condition_variable_impl.hpp"
@@ -34,6 +38,152 @@
 
 namespace foedus {
 namespace snapshot {
+
+enum ReducerConstants {
+  /**
+   * A bit-wise flag in ReducerBufferStatus's flags_.
+   * If this bit is on, no more mappers can enter the buffer as a new writer.
+   */
+  kFlagNoMoreWriters = 0x0001,
+  /** @see BlockHeader::magic_word_ */
+  kBlockHeaderMagicWord = 0xDEADBEEF,
+  /** @see DumpStorageHeaderFiller */
+  kStorageHeaderFillerMagicWord = 0x8BADF00D,
+  /** @see DumpStorageHeaderReal */
+  kStorageHeaderRealMagicWord = 0xCAFEBABE,
+};
+
+/**
+ * Compactly represents important status informations of a reducer buffer.
+ * Concurrent threads use atomic CAS to change any of these information.
+ * Last 32 bits are tail position of the buffer in bytes divided by 8, so at most 32 GB buffer.
+ * @ingroup SNAPSHOT
+ */
+union ReducerBufferStatus {
+  uint64_t word;
+  struct Components {
+    uint16_t        active_writers_;
+    uint16_t        flags_;
+    BufferPosition  tail_position_;
+  } components;
+
+  bool is_no_more_writers() const {
+    return (components.flags_ & kFlagNoMoreWriters) != 0;
+  }
+  bool is_clear() const { return word == 0; }
+  uint16_t get_active_writers() const { return components.active_writers_; }
+};
+
+/**
+  * All buffer blocks sent via append_log_chunk() put this header at first.
+  */
+struct BlockHeader {
+  storage::StorageId  storage_id_;
+  uint32_t            log_count_;
+  BufferPosition      block_length_;
+  /** just for sanity check. */
+  uint32_t            magic_word_;
+};
+
+/**
+  * All storage blocks in dump file start with this header.
+  * This base object MUST be within 8 bytes so that DumpStorageHeaderFiller is within 8 bytes.
+  */
+struct DumpStorageHeaderBase {
+  /**
+    * This is used to identify the storage block is a dummy (filler) one or a real one.
+    * This must be either kStorageHeaderFillerMagicWord or kStorageHeaderRealMagicWord.
+    */
+  uint32_t            magic_word_;
+  /**
+    * Length of this block \e including the header.
+    */
+  BufferPosition      block_length_;
+};
+
+/**
+  * A storage block in dump file that actually stores some storage.
+  * The magic word for this is kStorageHeaderDummyMagicWord.
+  */
+struct DumpStorageHeaderReal : public DumpStorageHeaderBase {
+  storage::StorageId  storage_id_;
+  uint32_t            log_count_;
+};
+
+/**
+  * @brief A header for a dummy storage block that fills the gap between the end of
+  * previous storage block and the beginning of next storage block.
+  * @details
+  * Such a dummy storage is needed to guarantee aligned (4kb) writes on DirectIoFile.
+  * (we can also do it without dummy blocks by retaining the "fragment" until the next
+  * storage block, but the complexity isn't worth it. 4kb for each storage? nothing.)
+  * This object MUST be 8 bytes so that it can fill any gap (all log entries are 8-byte aligned).
+  * The magic word for this is kStorageHeaderFillerMagicWord.
+  */
+struct DumpStorageHeaderFiller : public DumpStorageHeaderBase {};
+
+/**
+ * Shared data for LogReducer. One instance in each node memory.
+ * The actual reducer buffers are allocated separately because they are much bigger.
+ * @ingroup SNAPSHOT
+ */
+struct LogReducerControlBlock {
+  // this is backed by shared memory. not instantiation. just reinterpret_cast.
+  LogReducerControlBlock() = delete;
+  ~LogReducerControlBlock() = delete;
+
+  void initialize() {
+    clear();
+  }
+  void clear() {
+    current_buffer_ = 0;
+    buffer_status_[0].store(0U);
+    buffer_status_[1].store(0U);
+    total_storage_count_ = 0;
+  }
+  void uninitialize() {
+  }
+
+  ReducerBufferStatus get_buffer_status_atomic(uint32_t index) const {
+    ReducerBufferStatus ret;
+    ret.word = buffer_status_[index % 2].load();
+    return ret;
+  }
+  std::atomic<uint64_t>* get_buffer_status_address(uint32_t index) {
+    return &buffer_status_[index % 2];
+  }
+
+  ReducerBufferStatus get_current_buffer_status() const {
+    return get_buffer_status_atomic(current_buffer_);
+  }
+  ReducerBufferStatus get_non_current_buffer_status() const {
+    return get_buffer_status_atomic(current_buffer_ + 1U);
+  }
+
+  /**
+   * Status of the two reducer buffers.
+   * actually of type ReducerBufferStatus.
+   */
+  std::atomic<uint64_t> buffer_status_[2];
+
+  /**
+   * buffers_[current_buffer_ % 2] is the buffer mappers should append to.
+   * This value increases for every buffer switch.
+   */
+  std::atomic<uint32_t> current_buffer_;
+
+  /**
+   * Set at the end of merge_sort().
+   * Total number of storages this reducer has merged and composed.
+   * This is also the number of root-info pages this reducer has produced.
+   */
+  std::atomic<uint32_t> total_storage_count_;
+
+  /** ID of this reducer (or numa node ID). not mutable, just for convenience. */
+  uint16_t              id_;
+};
+
+
 /**
  * @brief A log reducer, which receives log entries sent from mappers
  * and applies them to construct new snapshot files.
@@ -113,157 +263,18 @@ namespace snapshot {
  */
 class LogReducer final : public MapReduceBase {
  public:
-  LogReducer(Engine* engine, LogGleaner* parent, thread::ThreadGroupId numa_node)
-    : MapReduceBase(engine, parent, numa_node, numa_node),
-      snapshot_writer_(engine_, this),
-      previous_snapshot_files_(engine_),
-      sorted_runs_(0),
-      total_storage_count_(0),
-      current_buffer_(0) {}
+  explicit LogReducer(Engine* engine);
 
-  /** One LogReducer corresponds to one NUMA node (partition). */
-  thread::ThreadGroupId   get_id() const { return id_; }
-  std::string             to_string() const override {
-    return std::string("LogReducer-") + std::to_string(id_);
-  }
+  ErrorStack  initialize_once() override;
+  ErrorStack  uninitialize_once() override;
+
+  std::string to_string() const override { return std::string("Reducer-") + std::to_string(id_); }
   friend std::ostream&    operator<<(std::ostream& o, const LogReducer& v);
 
-  /**
-   * @brief Append the log entries of one storage in the given buffer to this reducer's buffer.
-   * @param[in] storage_id all log entries are of this storage
-   * @param[in] send_buffer contains log entries to copy
-   * @param[in] log_count number of log entries to copy
-   * @param[in] send_buffer_size byte count to copy
-   * @details
-   * This is the interface via which mappers send log entries to reducers.
-   * Internally, this atomically changes the status of the current reducer buffer to reserve
-   * a contiguous space and then copy without blocking other mappers.
-   * If this methods hits a situation where the current buffer becomes full, this methods
-   * wakes up the reducer and lets it switch the current buffer.
-   * All log entries are contiguously copied. One block doesn't span two buffers.
-   */
-  void append_log_chunk(
-    storage::StorageId storage_id,
-    const char* send_buffer,
-    uint32_t log_count,
-    uint64_t send_buffer_size);
-
-  /** These are public, but used only from LogGleaner other than itself. */
-  uint32_t get_root_info_page_count() const { return total_storage_count_; }
-  memory::AlignedMemory& get_root_info_buffer() { return root_info_buffer_; }
-  storage::Composer* create_composer(storage::StorageId storage_id);
-  memory::AlignedMemory& get_composer_work_memory() { return composer_work_memory_; }
-
  protected:
-  ErrorStack  handle_initialize() override;
-  ErrorStack  handle_uninitialize() override;
   ErrorStack  handle_process() override;
 
  private:
-  enum Constants {
-    /**
-     * A bit-wise flag in BufferStatus's flags_.
-     * If this bit is on, no more mappers can enter the buffer as a new writer.
-     */
-    kFlagNoMoreWriters = 0x0001,
-    /** @see BlockHeader::magic_word_ */
-    kBlockHeaderMagicWord = 0xDEADBEEF,
-    /** @see DumpStorageHeaderFiller */
-    kStorageHeaderFillerMagicWord = 0x8BADF00D,
-    /** @see DumpStorageHeaderReal */
-    kStorageHeaderRealMagicWord = 0xCAFEBABE,
-  };
-  /**
-   * Compactly represents important status informations of a reducer buffer.
-   * Concurrent threads use atomic CAS to change any of these information.
-   * Last 32 bits are tail position of the buffer in bytes divided by 8, so at most 32 GB buffer.
-   */
-  union BufferStatus {
-    uint64_t word;
-    struct Components {
-      uint16_t        active_writers_;
-      uint16_t        flags_;
-      BufferPosition  tail_position_;
-    } components;
-  };
-
-  /**
-   * All buffer blocks sent via append_log_chunk() put this header at first.
-   */
-  struct BlockHeader {
-    storage::StorageId  storage_id_;
-    uint32_t            log_count_;
-    BufferPosition      block_length_;
-    /** just for sanity check. */
-    uint32_t            magic_word_;
-  };
-
-  /**
-   * All storage blocks in dump file start with this header.
-   * This base object MUST be within 8 bytes so that DumpStorageHeaderFiller is within 8 bytes.
-   */
-  struct DumpStorageHeaderBase {
-    /**
-     * This is used to identify the storage block is a dummy (filler) one or a real one.
-     * This must be either kStorageHeaderFillerMagicWord or kStorageHeaderRealMagicWord.
-     */
-    uint32_t            magic_word_;
-    /**
-     * Length of this block \e including the header.
-     */
-    BufferPosition      block_length_;
-  };
-
-  /**
-   * A storage block in dump file that actually stores some storage.
-   * The magic word for this is kStorageHeaderDummyMagicWord.
-   */
-  struct DumpStorageHeaderReal : public DumpStorageHeaderBase {
-    storage::StorageId  storage_id_;
-    uint32_t            log_count_;
-  };
-
-  /**
-   * @brief A header for a dummy storage block that fills the gap between the end of
-   * previous storage block and the beginning of next storage block.
-   * @details
-   * Such a dummy storage is needed to guarantee aligned (4kb) writes on DirectIoFile.
-   * (we can also do it without dummy blocks by retaining the "fragment" until the next
-   * storage block, but the complexity isn't worth it. 4kb for each storage? nothing.)
-   * This object MUST be 8 bytes so that it can fill any gap (all log entries are 8-byte aligned).
-   * The magic word for this is kStorageHeaderFillerMagicWord.
-   */
-  struct DumpStorageHeaderFiller : public DumpStorageHeaderBase {};
-
-  struct ReducerBuffer {
-    memory::AlignedMemorySlice  buffer_slice_;
-
-    std::atomic<uint64_t>       status_;  // actually of type BufferStatus
-
-    char filler_to_avoid_false_sharing_[
-      assorted::kCachelineSize
-      - sizeof(memory::AlignedMemorySlice)
-      - sizeof(std::atomic<uint64_t>)];
-
-
-    BufferStatus get_status() const {
-      BufferStatus ret;
-      ret.word = status_.load();
-      return ret;
-    }
-    BufferStatus get_status_weak() const {
-      BufferStatus ret;
-      ret.word = status_.load(std::memory_order_relaxed);
-      return ret;
-    }
-    bool        is_no_more_writers() const {
-      return (get_status().components.flags_ & kFlagNoMoreWriters) != 0;
-    }
-    bool        is_no_more_writers_weak() const {
-      return (get_status_weak().components.flags_ & kFlagNoMoreWriters) != 0;
-    }
-  };
-
   /**
    * Context object used throughout merge_sort().
    */
@@ -302,19 +313,25 @@ class LogReducer final : public MapReduceBase {
     void                set_tmp_sorted_buffer_array(storage::StorageId storage_id);
   };
 
+  LogReducerControlBlock* control_block_;
+
   /**
-   * Writes out composed snapshot pages to a new snapshot file.
+   * The reducer buffer is split into two so that reducers can always work on completely filled
+   * buffer while mappers keep appending to another buffer.
    */
-  SnapshotWriter          snapshot_writer_;
+  void*                   buffers_[2];
+
+  /**
+   * This is the 'output' of the reducer in this node.
+   * Each page contains a root-info page of one storage processed in the reducer.
+   * Size is StorageOptions::max_storages_ * 4kb.
+   */
+  storage::Page*          root_info_pages_;
+
   /**
    * To read previous snapshot versions.
    */
   cache::SnapshotFileSet  previous_snapshot_files_;
-
-  /**
-   * Underlying memory of reducer buffer.
-   */
-  memory::AlignedMemory   buffer_memory_;
 
   /**
    * Buffer for writing out a sorted run.
@@ -326,12 +343,6 @@ class LogReducer final : public MapReduceBase {
    * This is automatically extended when needed.
    */
   memory::AlignedMemory   sort_buffer_;
-
-  /**
-   * Used to store information output from composers to construct root pages.
-   * 4kb * storages. This is automatically extended when needed.
-   */
-  memory::AlignedMemory   root_info_buffer_;
 
   /**
    * Used to temporarily store input/output positions of all log entries for one storage.
@@ -351,12 +362,15 @@ class LogReducer final : public MapReduceBase {
    */
   memory::AlignedMemory   composer_work_memory_;
 
+  /** Main page pool for SnapshotWriter. */
+  memory::AlignedMemory   writer_pool_memory_;
   /**
-   * The reducer buffer is split into two so that reducers can always work on completely filled
-   * buffer while mappers keep appending to another buffer.
-   * @see current_buffer_
+   * Sub page pool for intermdiate pages in SnapshotWriter (main one is for leaf pages).
+   * We separate out intermediate pages and assume that this pool can hold all
+   * intermediate pages modified in one compose() while we might flush pool_memory_
+   * multiple times for one compose().
    */
-  ReducerBuffer buffers_[2];
+  memory::AlignedMemory   writer_intermediate_memory_;
 
   /**
    * How many buffers written out as a temporary file.
@@ -365,34 +379,6 @@ class LogReducer final : public MapReduceBase {
    * For now, this value should be always same as current_buffer_.
    */
   uint32_t      sorted_runs_;
-
-  /**
-   * Set at the end of merge_sort().
-   * Total number of storages this reducer has merged and composed.
-   * This is also the number of root-info pages this reducer has produced.
-   */
-  uint32_t      total_storage_count_;
-
-  /**
-   * buffers_[current_buffer_ % 2] is the buffer mappers should append to.
-   * This value increases for every buffer switch.
-   */
-  std::atomic<uint32_t>   current_buffer_;
-
-  /**
-   * Fired (notify_all) whenever current_buffer_ is switched.
-   * Used by mappers to wait for available buffer.
-   */
-  thread::ConditionVariable current_buffer_changed_;
-
-  ReducerBuffer* get_non_current_buffer() { return &buffers_[(current_buffer_ + 1) % 2]; }
-  ReducerBuffer* get_current_buffer() { return &buffers_[current_buffer_ % 2]; }
-  const ReducerBuffer* get_non_current_buffer() const {
-    return &buffers_[(current_buffer_ + 1) % 2];
-  }
-  const ReducerBuffer* get_current_buffer() const {
-    return &buffers_[current_buffer_ % 2];
-  }
 
   void expand_if_needed(
     uint64_t required_size,
@@ -403,9 +389,6 @@ class LogReducer final : public MapReduceBase {
   }
   void expand_composer_work_memory_if_needed(uint64_t required_size) {
     expand_if_needed(required_size, &composer_work_memory_, "composer_work_memory_");
-  }
-  void expand_root_info_buffer_if_needed(uint64_t required_size) {
-    expand_if_needed(required_size, &root_info_buffer_, "root_info_buffer_");
   }
   /** This one is a bit special. */
   void expand_positions_buffers_if_needed(uint64_t required_size_per_buffer);
@@ -430,7 +413,7 @@ class LogReducer final : public MapReduceBase {
    * however, buffer dumping happens only occasionally, so the difference is not that significant.
    * thus, we simply spin here.
    */
-  ErrorStack dump_buffer_wait_for_writers(const ReducerBuffer& buffer) const;
+  ErrorStack dump_buffer_wait_for_writers(uint32_t buffer_index) const;
 
   /**
    * Second sub routine of dump_buffer().
@@ -497,7 +480,15 @@ class LogReducer final : public MapReduceBase {
   ErrorCode   merge_sort_advance_sort_buffers(
     SortedBuffer* buffer,
     storage::StorageId processed_storage_id) const;
+
+  uint32_t    get_max_storage_count() const;
 };
+
+
+static_assert(
+  sizeof(LogReducerControlBlock) <= soc::NodeMemoryAnchors::kLogReducerMemorySize,
+  "LogReducerControlBlock is too large.");
+
 }  // namespace snapshot
 }  // namespace foedus
 #endif  // FOEDUS_SNAPSHOT_LOG_REDUCER_IMPL_HPP_

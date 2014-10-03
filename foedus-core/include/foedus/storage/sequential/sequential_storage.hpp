@@ -42,6 +42,8 @@ class SequentialStorage CXX11_FINAL
       reinterpret_cast<SequentialStorageControlBlock*>(control_block)) {
       ASSERT_ND(get_type() == kSequentialStorage || !exists());
   }
+  /** Shorthand for engine->get_storage_manager()->get_sequential(id) */
+  SequentialStorage(Engine* engine, StorageId id);
   /** Shorthand for engine->get_storage_manager()->get_sequential(name) */
   SequentialStorage(Engine* engine, const StorageName& name);
   SequentialStorage(const SequentialStorage& other)
