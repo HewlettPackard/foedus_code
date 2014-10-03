@@ -83,7 +83,6 @@ class ArrayPartitioner final {
   ArrayOffset get_array_size() const;
   uint8_t   get_array_levels() const;
   const PartitionId* get_bucket_owners() const;
-  const assorted::ConstDiv& get_bucket_size_div() const;
 
   friend std::ostream& operator<<(std::ostream& o, const ArrayPartitioner& v);
 
@@ -108,9 +107,6 @@ struct ArrayPartitionerData final {
 
   /** bucket = offset / bucket_size_. */
   ArrayOffset           bucket_size_;
-
-  /** ConstDiv(bucket_size_) to speed up integer division in partition_batch(). */
-  assorted::ConstDiv    bucket_size_div_;
 
   /** partition of each bucket. */
   PartitionId           bucket_owners_[kInteriorFanout];

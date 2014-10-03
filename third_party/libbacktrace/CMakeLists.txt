@@ -138,9 +138,11 @@ add_library (backtrace
     ${FORMAT_FILE}
     ${VIEW_FILE}
     ${ALLOC_FILE}
+    atomic.c
     fileline.c
     posix.c
     print.c
+    sort.c
     state.c
 )
 

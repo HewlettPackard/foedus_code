@@ -199,7 +199,9 @@ ErrorStack LogMapper::handle_process_buffer(
       || header->get_type() == log::kLogCodeEpochMarker);  // file starts with marker
     // we must be starting from epoch marker.
     ASSERT_ND(!*first_read || header->get_type() == log::kLogCodeEpochMarker);
-    ASSERT_ND(header->get_kind() == log::kRecordLogs);
+    ASSERT_ND(header->get_kind() == log::kRecordLogs
+      || header->get_type() == log::kLogCodeEpochMarker
+      || header->get_type() == log::kLogCodeFiller);
 
     if (UNLIKELY(header->log_length_ > buffered_bytes - pos)) {
       // if a log goes beyond this read, stop processing here and read from that offset again.

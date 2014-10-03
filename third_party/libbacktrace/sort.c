@@ -1,4 +1,4 @@
-/* mmapio.c -- File views using mmap.
+/* sort.c -- Sort without allocating memory
    Copyright (C) 2012-2014 Free Software Foundation, Inc.
    Written by Ian Lance Taylor, Google.
 
@@ -32,69 +32,77 @@ POSSIBILITY OF SUCH DAMAGE.  */
 
 #include "config.h"
 
-#include <errno.h>
+#include <stddef.h>
 #include <sys/types.h>
-#include <sys/mman.h>
-#include <unistd.h>
 
 #include "backtrace.h"
 #include "internal.h"
 
-#ifndef MAP_FAILED
-#define MAP_FAILED ((void *)-1)
-#endif
+/* The GNU glibc version of qsort allocates memory, which we must not
+   do if we are invoked by a signal handler.  So provide our own
+   sort.  */
 
-/* This file implements file views and memory allocation when mmap is
-   available.  */
-
-/* Create a view of SIZE bytes from DESCRIPTOR at OFFSET.  */
-
-int
-backtrace_get_view (struct backtrace_state *state ATTRIBUTE_UNUSED,
-		    int descriptor, off_t offset, size_t size,
-		    backtrace_error_callback error_callback,
-		    void *data, struct backtrace_view *view)
+static void
+swap (char *a, char *b, size_t size)
 {
-  size_t pagesize;
-  unsigned int inpage;
-  off_t pageoff;
-  void *map;
+  size_t i;
 
-  pagesize = getpagesize ();
-  inpage = offset % pagesize;
-  pageoff = offset - inpage;
-
-  size += inpage;
-  size = (size + (pagesize - 1)) & ~ (pagesize - 1);
-
-  map = mmap (NULL, size, PROT_READ, MAP_PRIVATE, descriptor, pageoff);
-  if (map == MAP_FAILED)
+  for (i = 0; i < size; i++, a++, b++)
     {
-      error_callback (data, "mmap", errno);
-      return 0;
+      char t;
+
+      t = *a;
+      *a = *b;
+      *b = t;
     }
-
-  view->data = (char *) map + inpage;
-  view->base = map;
-  view->len = size;
-
-  return 1;
 }
 
-/* Release a view read by backtrace_get_view.  */
-
 void
-backtrace_release_view (struct backtrace_state *state ATTRIBUTE_UNUSED,
-			struct backtrace_view *view,
-			backtrace_error_callback error_callback,
-			void *data)
+backtrace_qsort (void *basearg, size_t count, size_t size,
+		 int (*compar) (const void *, const void *))
 {
-  union {
-    const void *cv;
-    void *v;
-  } const_cast;
+  char *base = (char *) basearg;
+  size_t i;
+  size_t mid;
 
-  const_cast.cv = view->base;
-  if (munmap (const_cast.v, view->len) < 0)
-    error_callback (data, "munmap", errno);
+ tail_recurse:
+  if (count < 2)
+    return;
+
+  /* The symbol table and DWARF tables, which is all we use this
+     routine for, tend to be roughly sorted.  Pick the middle element
+     in the array as our pivot point, so that we are more likely to
+     cut the array in half for each recursion step.  */
+  swap (base, base + (count / 2) * size, size);
+
+  mid = 0;
+  for (i = 1; i < count; i++)
+    {
+      if ((*compar) (base, base + i * size) > 0)
+	{
+	  ++mid;
+	  if (i != mid)
+	    swap (base + mid * size, base + i * size, size);
+	}
+    }
+
+  if (mid > 0)
+    swap (base, base + mid * size, size);
+
+  /* Recurse with the smaller array, loop with the larger one.  That
+     ensures that our maximum stack depth is log count.  */
+  if (2 * mid < count)
+    {
+      backtrace_qsort (base, mid, size, compar);
+      base += (mid + 1) * size;
+      count -= mid + 1;
+      goto tail_recurse;
+    }
+  else
+    {
+      backtrace_qsort (base + (mid + 1) * size, count - (mid + 1),
+		       size, compar);
+      count = mid;
+      goto tail_recurse;
+    }
 }

@@ -51,11 +51,6 @@ const PartitionId* ArrayPartitioner::get_bucket_owners() const {
   ASSERT_ND(data_);
   return data_->bucket_owners_;
 }
-const assorted::ConstDiv& ArrayPartitioner::get_bucket_size_div() const {
-  ASSERT_ND(data_);
-  return data_->bucket_size_div_;
-}
-
 bool ArrayPartitioner::is_partitionable() const {
   ASSERT_ND(data_);
   return !data_->array_single_page_;
@@ -74,7 +69,6 @@ ErrorStack ArrayPartitioner::design_partition() {
   data_->array_levels_ = storage.get_levels();
   data_->array_size_ = storage.get_array_size();
   data_->bucket_size_ = data_->array_size_ / kInteriorFanout;
-  data_->bucket_size_div_ = assorted::ConstDiv(data_->bucket_size_);
 
   ArrayStorageControlBlock* array = storage.get_control_block();
   const memory::GlobalVolatilePageResolver& resolver
@@ -156,13 +150,15 @@ void ArrayPartitioner::partition_batch(
   uint32_t                        logs_count,
   PartitionId*                    results) const {
   ASSERT_ND(is_partitionable());
+  ASSERT_ND(data_->bucket_size_ > 0);
+  assorted::ConstDiv bucket_size_div(data_->bucket_size_);
   for (uint32_t i = 0; i < logs_count; ++i) {
     const ArrayOverwriteLogType *log = reinterpret_cast<const ArrayOverwriteLogType*>(
       log_buffer.resolve(log_positions[i]));
     ASSERT_ND(log->header_.log_type_code_ == log::kLogCodeArrayOverwrite);
     ASSERT_ND(log->header_.storage_id_ == id_);
     ASSERT_ND(log->offset_ < get_array_size());
-    uint64_t bucket = get_bucket_size_div().div64(log->offset_);
+    uint64_t bucket = bucket_size_div.div64(log->offset_);
     ASSERT_ND(bucket < kInteriorFanout);
     results[i] = get_bucket_owners()[bucket];
   }
