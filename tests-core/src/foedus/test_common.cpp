@@ -136,7 +136,7 @@ namespace foedus {
   std::string gtest_individual_test;
   std::string gtest_test_case_name;
   std::string gtest_package_name;
-  std::string generate_failure_xml(int sig, const std::string& details) {
+  std::string generate_failure_xml(const std::string& type, const std::string& details) {
     // The XML must be in JUnit format
     // https://svn.jenkins-ci.org/trunk/hudson/dtkit/dtkit-format/dtkit-junit-model/src/main/resources/com/thalesgroup/dtkit/junit/model/xsd/junit-4.xsd
     // http://windyroad.com.au/dl/Open%20Source/JUnit.xsd
@@ -166,13 +166,16 @@ namespace foedus {
     suite->InsertFirstChild(testcase);
 
     tinyxml2::XMLElement* test = doc.NewElement("failure");
-    test->SetAttribute("type", to_signal_name(sig).c_str());
+    test->SetAttribute("type", type.c_str());
     test->SetAttribute("message", details.c_str());
     testcase->InsertFirstChild(test);
 
     tinyxml2::XMLPrinter printer;
     doc.Print(&printer);
     return printer.CStr();
+  }
+  std::string generate_failure_xml(int sig, const std::string& details) {
+    return generate_failure_xml(to_signal_name(sig), details);
   }
   static void handle_signals(int sig, siginfo_t* si, void* /*unused*/) {
     std::stringstream str;
@@ -263,5 +266,29 @@ namespace foedus {
     ::sigaction(SIGBUS, &sa, nullptr);
     ::sigaction(SIGFPE, &sa, nullptr);
     ::sigaction(SIGSEGV, &sa, nullptr);
+    // Not surprisingly, SIGKILL/SIGSTOP cannot be captured:
+    //  http://man7.org/linux/man-pages/man2/sigaction.2.html
+    // This means we cannot capture timeout-kill by ctest which uses STOP (see kwsys/ProcessUNIX.c).
+    // as we ignore exit-code of ctest in jenkins, this means timeout is silent. mm...
+    // As a compromise, we pre-populate result xml as follows.
+  }
+
+  void pre_populate_error_result_xml() {
+    if (gtest_xml_path.size() > 0) {
+      std::string xml = generate_failure_xml(
+        std::string("Pre-populated Error. Test timeout happned?"),
+        std::string("This is an initially written gtest xml before test execution."
+        " If you are receiving this result, most likely the process has disappeared without trace."
+        " This can happen when ctest kills the process via SIGSTOP, or someone killed the process"
+        " via SIGKILL, etc."));
+
+      std::ofstream out;
+      out.open(gtest_xml_path, std::ios_base::out | std::ios_base::trunc);
+      if (out.is_open()) {
+        out << xml;
+        out.flush();
+        out.close();
+      }
+    }
   }
 }  // namespace foedus

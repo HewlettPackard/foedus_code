@@ -49,6 +49,13 @@ namespace foedus {
     const char* package_name,
     int argc,
     char** argv);
+
+  /**
+   * As the name suggests, we write out an gtest's result xml file with error state so that
+   * jenkins will get aware of some error if the process disappears without any trace,
+   * for example ctest killed it (via SIGSTOP, which can't be captured) for timeout.
+   */
+  void            pre_populate_error_result_xml();
 }  // namespace foedus
 
 #define TEST_QUOTE(str) #str
@@ -73,6 +80,7 @@ namespace foedus {
       TEST_EXPAND_AND_QUOTE(package_name), \
       argc, \
       argv); \
+    foedus::pre_populate_error_result_xml(); \
     ::testing::InitGoogleTest(&argc, argv); \
     return RUN_ALL_TESTS(); \
   }
