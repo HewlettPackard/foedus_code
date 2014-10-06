@@ -8,12 +8,15 @@
 #include <stdint.h>
 
 #include <iosfwd>
+#include <string>
+#include <vector>
 
 #include "foedus/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/storage/partitioner.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
+#include "foedus/storage/masstree/masstree_storage.hpp"
 
 namespace foedus {
 namespace storage {
@@ -152,6 +155,22 @@ struct MasstreePartitionerData final {
  * MasstreePartitionerData. Hence, we can use vector/string/etc in this struct.
  */
 struct MasstreePartitionerInDesignData final {
+  struct BranchPage {
+    MasstreePage*       page_;
+    std::string         prefix_;
+    uint32_t            fanout_;
+  };
+  MasstreePartitionerInDesignData(Engine* engine, StorageId id);
+
+  /** Follows a volatile page pointer. If there isn't, follows snapshot page. */
+  MasstreePage* follow_pointer(DualPagePointer* ptr);
+
+  Engine* const           engine_;
+  const StorageId         id_;
+  const MasstreeStorage   storage_;
+  const memory::GlobalVolatilePageResolver& volatile_resolver_;
+
+  std::vector<BranchPage> branch_pages_;
 };
 
 }  // namespace masstree

@@ -26,10 +26,13 @@ void PagePoolOffsetChunk::push_back(const PagePoolOffset* begin, const PagePoolO
 void PagePoolOffsetChunk::move_to(PagePoolOffset* destination, uint32_t count) {
   ASSERT_ND(size_ >= count);
   std::memcpy(destination, chunk_ + (size_ - count), count * sizeof(PagePoolOffset));
+  // we move from the tail of this chunk. so, just decrementing the count is enough.
+  // no need to move the remainings back to the beginning
   size_ -= count;
 }
 
 uint32_t PagePoolOffsetAndEpochChunk::get_safe_offset_count(const Epoch& threshold) const {
+  ASSERT_ND(is_sorted());
   OffsetAndEpoch dummy;
   dummy.safe_epoch_ = threshold.value();
   struct CompareEpoch {
@@ -45,11 +48,27 @@ uint32_t PagePoolOffsetAndEpochChunk::get_safe_offset_count(const Epoch& thresho
 
 void PagePoolOffsetAndEpochChunk::move_to(PagePoolOffset* destination, uint32_t count) {
   ASSERT_ND(size_ >= count);
-  // we can't do memcpy.
+  // we can't do memcpy. Just copy one by one
   for (uint32_t i = 0; i < count; ++i) {
     destination[i] = chunk_[i].offset_;
   }
+  // Also, unlike PagePoolOffsetChunk, we copied from the head (we have to because epoch matters).
+  // So, we also have to move remainings to the beginning
+  if (size_ > count) {
+    std::memmove(chunk_, chunk_ + count, (size_ - count) * sizeof(OffsetAndEpoch));
+  }
   size_ -= count;
+  ASSERT_ND(is_sorted());
+}
+
+bool PagePoolOffsetAndEpochChunk::is_sorted() const {
+  for (uint32_t i = 1; i < size_; ++i) {
+    ASSERT_ND(chunk_[i].offset_);
+    if (Epoch(chunk_[i - 1U].safe_epoch_) > Epoch(chunk_[i].safe_epoch_)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 

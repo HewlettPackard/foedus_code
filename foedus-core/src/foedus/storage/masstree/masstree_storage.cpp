@@ -19,6 +19,12 @@
 namespace foedus {
 namespace storage {
 namespace masstree {
+MasstreeStorage::MasstreeStorage(Engine* engine, StorageId id) {
+  engine_ = engine;
+  control_block_
+    = reinterpret_cast<MasstreeStorageControlBlock*>(
+        engine->get_storage_manager()->get_storage(id));
+}
 MasstreeStorage::MasstreeStorage(Engine* engine, const StorageName& name) {
   engine_ = engine;
   control_block_

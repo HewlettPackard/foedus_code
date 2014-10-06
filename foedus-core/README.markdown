@@ -93,7 +93,6 @@ If you want to immediately apply the values without log out, one workaround is:
     # Note, even this does not work for already-running sessions/GUIs. re-login to make sure.
     sudo -i -u <your_user_name>
 
-
 Compilation
 --------
 (If you get a compilation error for missing libraries, refer to Dependencies section.)
@@ -258,6 +257,12 @@ additional performance counters.
 
 We use none of boost libraries. We might consider using some of the header-only boost libraries,
 but we will surely stay away from non-header-only ones (eg filesystem).
+
+One last optional package is tmpwatch to clean up /tmp where we output glog log files.
+
+    sudo yum install tmpwatch
+    sudo /usr/bin/tmpwatch -am 24 /tmp  # If you want, set this up as a cron job
+
 
 Licensing
 --------

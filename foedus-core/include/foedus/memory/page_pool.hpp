@@ -83,6 +83,7 @@ class PagePoolOffsetAndEpochChunk {
   bool                    empty() const   { return size_ == 0; }
   bool                    full()  const   { return size_ == PagePoolOffsetChunk::kMaxSize; }
   void                    clear()         { size_ = 0; }
+  bool                    is_sorted() const;  // only for assertion
 
   /**
    * @pre empty() || Epoch(chunk_[size_ - 1U].safe_epoch_) <= safe_epoch, meaning
