@@ -125,7 +125,7 @@ ErrorStack LogGleaner::execute() {
     snapshot_manager_memory_->wakeup_snapshot_children();
 
   // then, wait until all mappers/reducers are done
-  while (!is_error() && !is_all_completed()) {
+  SPINLOCK_WHILE(!is_error() && !is_all_completed()) {
     // snapshot is an infrequent operation, doesn't have to wake up immediately.
     // just sleep for a while
     std::this_thread::sleep_for(std::chrono::milliseconds(10));

@@ -47,14 +47,6 @@ class PagePoolOffsetChunk {
   bool                    full()  const   { return size_ == kMaxSize; }
   void                    clear()         { size_ = 0; }
 
-  PagePoolOffset&         operator[](uint32_t index) {
-    ASSERT_ND(index < size_);
-    return chunk_[index];
-  }
-  PagePoolOffset          operator[](uint32_t index) const {
-    ASSERT_ND(index < size_);
-    return chunk_[index];
-  }
   PagePoolOffset          pop_back() {
     ASSERT_ND(!empty());
     return chunk_[--size_];
@@ -70,9 +62,54 @@ class PagePoolOffsetChunk {
   uint32_t        size_;
   PagePoolOffset  chunk_[kMaxSize];
 };
-STATIC_SIZE_CHECK(sizeof(PagePoolOffset), 4)
-// Size of PagePoolOffsetChunk should be power of two (<=> x & (x-1) == 0)
-STATIC_SIZE_CHECK(sizeof(PagePoolOffsetChunk) & (sizeof(PagePoolOffsetChunk) - 1), 0)
+
+/**
+ * @brief Used to store an epoch value with each entry in PagePoolOffsetChunk.
+ * @ingroup MEMORY
+ * @details
+ * This is used where the page offset can be passed around after some epoch, for example
+ * "retired" pages that must be kept intact until next-next epoch.
+ */
+class PagePoolOffsetAndEpochChunk {
+ public:
+  struct OffsetAndEpoch {
+    PagePoolOffset      offset_;
+    Epoch::EpochInteger safe_epoch_;
+  };
+  PagePoolOffsetAndEpochChunk() : size_(0) {}
+
+  uint32_t                capacity() const { return PagePoolOffsetChunk::kMaxSize; }
+  uint32_t                size()  const   { return size_; }
+  bool                    empty() const   { return size_ == 0; }
+  bool                    full()  const   { return size_ == PagePoolOffsetChunk::kMaxSize; }
+  void                    clear()         { size_ = 0; }
+
+  /**
+   * @pre empty() || Epoch(chunk_[size_ - 1U].safe_epoch_) <= safe_epoch, meaning
+   * you cannot specify safe_epoch below what you have already specified.
+   */
+  void                    push_back(PagePoolOffset offset, const Epoch& safe_epoch) {
+    ASSERT_ND(!full());
+    ASSERT_ND(empty() || Epoch(chunk_[size_ - 1U].safe_epoch_) <= safe_epoch);
+    chunk_[size_].offset_ = offset;
+    chunk_[size_].safe_epoch_ = safe_epoch.value();
+    ++size_;
+  }
+  /** Note that the destination is PagePoolOffset* because that's the only usecase. */
+  void                    move_to(PagePoolOffset* destination, uint32_t count);
+  /**
+   * Returns the number of offsets (always from index-0) whose safe_epoch_ is \e strictly-before
+   * the given epoch. This method does binary search assuming that chunk_ is sorted by safe_epoch_.
+   * @param[in] threshold epoch that is deemed as unsafe to return.
+   * @return number of offsets whose safe_epoch_ < threshold
+   */
+  uint32_t                get_safe_offset_count(const Epoch& threshold) const;
+
+ private:
+  uint32_t        size_;
+  uint32_t        dummy_;
+  OffsetAndEpoch  chunk_[PagePoolOffsetChunk::kMaxSize];
+};
 
 /**
  * @brief Page pool for volatile read/write store (VolatilePage) and
@@ -133,6 +170,10 @@ class PagePool CXX11_FINAL : public virtual Initializable {
    * so as to get size() about 50%.
    */
   void        release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
+
+  /** Overload for PagePoolOffsetAndEpochChunk. */
+  void        release(uint32_t desired_release_count, PagePoolOffsetAndEpochChunk* chunk);
+
   /**
    * Returns only one page. More expensive, but handy in some situation.
    */
@@ -297,6 +338,12 @@ class DivvyupPageGrabBatch CXX11_FINAL {
   /** Chunk for each node. index is node ID. */
   PagePoolOffsetChunk*    chunks_;
 };
+
+
+STATIC_SIZE_CHECK(sizeof(PagePoolOffset), 4)
+// Size of PagePoolOffsetChunk should be power of two (<=> x & (x-1) == 0)
+STATIC_SIZE_CHECK(sizeof(PagePoolOffsetChunk) & (sizeof(PagePoolOffsetChunk) - 1), 0)
+STATIC_SIZE_CHECK(sizeof(PagePoolOffsetChunk) * 2U, sizeof(PagePoolOffsetAndEpochChunk))
 
 }  // namespace memory
 }  // namespace foedus

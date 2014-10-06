@@ -685,9 +685,11 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   }
 
   if (no_record_split) {
-    // trigger_child is retired.  TODO(Hideaki) GC
+    // trigger_child is retired.
     trigger_scope.set_changed();
     trigger_child->set_retired();
+    context->collect_retired_volatile_page(
+      construct_volatile_page_pointer(trigger_child->header().page_id_));
   }
 
   set_moved();
@@ -1029,7 +1031,8 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
     // the ex-child page now retires.
     scope_child.set_changed();
     child->set_retired();
-    // TODO(Hideaki) it will be garbage-collected later.
+    context->collect_retired_volatile_page(
+      construct_volatile_page_pointer(child->header().page_id_));
     verify_separators();
   }
 
@@ -1091,8 +1094,10 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   old_pointer.snapshot_pointer_ = 0;
   old_pointer.volatile_pointer_ = minor_pointer;
   // the ex-child page is now thrown away.
-  // TODO(Hideaki) it will be garbage-collected later.
+  // it will be garbage-collected later.
   child->get_version().set_retired();
+  context->collect_retired_volatile_page(
+    construct_volatile_page_pointer(child->header().page_id_));
 
   separators_[minipage_index] = new_separator;
 

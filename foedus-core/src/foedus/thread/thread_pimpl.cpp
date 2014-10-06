@@ -366,6 +366,55 @@ ErrorCode ThreadPimpl::follow_page_pointer(
   return kErrorCodeOk;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+///
+///      Retired page handling methods
+///
+////////////////////////////////////////////////////////////////////////////////
+void ThreadPimpl::collect_retired_volatile_page(storage::VolatilePagePointer ptr) {
+  ASSERT_ND(is_volatile_page_retired(ptr));
+  uint16_t node = ptr.components.numa_node;
+  Epoch current_epoch = engine_->get_xct_manager()->get_current_global_epoch_weak();
+  Epoch safe_epoch = current_epoch.one_more().one_more();
+  memory::PagePoolOffsetAndEpochChunk* chunk = core_memory_->get_retired_volatile_pool_chunk(node);
+  if (chunk->full()) {
+    flush_retired_volatile_page(node, current_epoch, chunk);
+  }
+  chunk->push_back(ptr.components.offset, safe_epoch);
+}
+
+void ThreadPimpl::flush_retired_volatile_page(
+  uint16_t node,
+  Epoch current_epoch,
+  memory::PagePoolOffsetAndEpochChunk* chunk) {
+  if (chunk->size() == 0) {
+    return;
+  }
+  uint32_t safe_count = chunk->get_safe_offset_count(current_epoch);
+  while (safe_count < chunk->size() / 10U) {
+    LOG(INFO) << "Thread-" << id_ << " can return only" << safe_count << " out of " << chunk->size()
+      << " retired pages to node-" << node  << " in epoch=" << current_epoch
+      << ". This means the thread received so many retired pages in a short time period."
+      << " Will adavance an epoch to safely return the retired pages."
+      << " This should be a rare event.";
+    engine_->get_xct_manager()->advance_current_global_epoch();
+    current_epoch = engine_->get_xct_manager()->get_current_global_epoch();
+    LOG(INFO) << "okay, advanced epoch. now we should be able to return more pages";
+    safe_count = chunk->get_safe_offset_count(current_epoch);
+  }
+
+  VLOG(0) << "Thread-" << id_ << " batch-returning retired volatile pages to node-" << node
+    << " safe_count/count=" << safe_count << "/" << chunk->size() << ". epoch=" << current_epoch;
+  memory::PagePool* volatile_pool
+    = engine_->get_memory_manager()->get_node_memory(node)->get_volatile_pool();
+  volatile_pool->release(safe_count, chunk);
+  ASSERT_ND(!chunk->full());
+}
+
+bool ThreadPimpl::is_volatile_page_retired(storage::VolatilePagePointer ptr) {
+  storage::Page* page = global_volatile_page_resolver_.resolve_offset(ptr);
+  return page->get_header().page_version_.is_retired();
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 ///

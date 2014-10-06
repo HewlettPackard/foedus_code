@@ -200,8 +200,7 @@ namespace foedus {
       ::exit(1);
     } else {
       std::cerr << "Converting the signal to a testcase failure in " << gtest_xml_path << std::endl;
-      // We exit with a normal return value because this is a testcase failure, likely assertions.
-      // We report this error in the result XML, but let the build itself go through.
+      // We report this error in the result XML.
       std::string xml = generate_failure_xml(sig, details);
       std::cerr << "Xml content: " << std::endl << xml << std::endl;
 

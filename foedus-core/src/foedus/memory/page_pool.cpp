@@ -6,6 +6,7 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "foedus/engine.hpp"
@@ -27,6 +28,30 @@ void PagePoolOffsetChunk::move_to(PagePoolOffset* destination, uint32_t count) {
   std::memcpy(destination, chunk_ + (size_ - count), count * sizeof(PagePoolOffset));
   size_ -= count;
 }
+
+uint32_t PagePoolOffsetAndEpochChunk::get_safe_offset_count(const Epoch& threshold) const {
+  OffsetAndEpoch dummy;
+  dummy.safe_epoch_ = threshold.value();
+  struct CompareEpoch {
+    bool operator() (const OffsetAndEpoch& left, const OffsetAndEpoch& right) {
+      return Epoch(left.safe_epoch_) < Epoch(right.safe_epoch_);
+    }
+  };
+  const OffsetAndEpoch* result = std::lower_bound(chunk_, chunk_ + size_, dummy, CompareEpoch());
+  ASSERT_ND(result);
+  ASSERT_ND(result - chunk_ <= size_);
+  return result - chunk_;
+}
+
+void PagePoolOffsetAndEpochChunk::move_to(PagePoolOffset* destination, uint32_t count) {
+  ASSERT_ND(size_ >= count);
+  // we can't do memcpy.
+  for (uint32_t i = 0; i < count; ++i) {
+    destination[i] = chunk_[i].offset_;
+  }
+  size_ -= count;
+}
+
 
 PagePool::PagePool() {
   pimpl_ = new PagePoolPimpl();
@@ -59,6 +84,10 @@ ErrorCode   PagePool::grab_one(PagePoolOffset* offset) { return pimpl_->grab_one
 void        PagePool::release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk) {
   pimpl_->release(desired_release_count, chunk);
 }
+void        PagePool::release(uint32_t desired_release_count, PagePoolOffsetAndEpochChunk* chunk) {
+  pimpl_->release(desired_release_count, chunk);
+}
+
 void PagePool::release_one(PagePoolOffset offset) { pimpl_->release_one(offset); }
 
 const LocalPageResolver& PagePool::get_resolver() const { return pimpl_->get_resolver(); }

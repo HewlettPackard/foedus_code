@@ -61,7 +61,12 @@ class PagePoolPimpl final : public DefaultInitializable {
   ErrorStack  uninitialize_once() override;
 
   ErrorCode           grab(uint32_t desired_grab_count, PagePoolOffsetChunk *chunk);
+
+  template <typename CHUNK>
+  void                release_impl(uint32_t desired_release_count, CHUNK* chunk);
   void                release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
+  void                release(uint32_t desired_release_count, PagePoolOffsetAndEpochChunk* chunk);
+
   ErrorCode           grab_one(PagePoolOffset *offset);
   void                release_one(PagePoolOffset offset);
   const LocalPageResolver& get_resolver() const { return resolver_; }

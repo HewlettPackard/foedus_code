@@ -68,6 +68,11 @@ ErrorCode Thread::install_a_volatile_page(
   return pimpl_->install_a_volatile_page(pointer, installed_page);
 }
 
+void Thread::collect_retired_volatile_page(storage::VolatilePagePointer ptr) {
+  pimpl_->collect_retired_volatile_page(ptr);
+}
+
+
 std::ostream& operator<<(std::ostream& o, const Thread& v) {
   o << "Thread-" << v.get_thread_global_ordinal() << "(id=" << v.get_thread_id() << ") [";
   o << "status=" << (v.pimpl_->control_block_->status_);

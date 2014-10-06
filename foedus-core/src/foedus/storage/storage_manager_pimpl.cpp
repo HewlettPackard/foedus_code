@@ -117,6 +117,20 @@ ErrorStack StorageManagerPimpl::uninitialize_once() {
       anchors->partitioner_metadata_[i].uninitialize();
     }
 
+    // drop all existing storages just for releasing memories.
+    // this is not a real drop, so we just invoke drop_apply
+    uint32_t dropped = 0;
+    for (storage::StorageId i = 1; i <= control_block_->largest_storage_id_; ++i) {
+      if (storages_[i].exists()) {
+        // TODO(Hideaki) we should have a separate method for this once we add "marked-for-death"
+        // feature.
+        drop_storage_apply(i);
+        ++dropped;
+        ASSERT_ND(!storages_[i].exists());
+      }
+    }
+    LOG(INFO) << "Uninitialized " << dropped << " storages";
+
     control_block_->uninitialize();
   }
   return SUMMARIZE_ERROR_BATCH(batch);
@@ -186,7 +200,7 @@ ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) 
 void StorageManagerPimpl::drop_storage_apply(StorageId id) {
   // this method is called only while restart, so no race.
   StorageControlBlock* block = storages_ + id;
-  ASSERT_ND(!block->exists());
+  ASSERT_ND(block->exists());
   ErrorStack drop_error = storage_pseudo_polymorph(
     engine_,
     block,

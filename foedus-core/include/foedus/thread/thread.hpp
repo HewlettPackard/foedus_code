@@ -161,6 +161,15 @@ class Thread CXX11_FINAL : public virtual Initializable {
     storage::DualPagePointer* pointer,
     storage::Page** page);
 
+  /**
+   * @brief Keeps the specified volatile page as retired as of the current epoch.
+   * @param[in] ptr the volatile page that has been retired
+   * @pre in the page ptr points to, is_retired()==true.
+   * @details
+   * This thread buffers such pages and returns to volatile page pool when it is safe to do so.
+   */
+  void          collect_retired_volatile_page(storage::VolatilePagePointer ptr);
+
   /** Unconditionally takes MCS lock on the given mcs_lock. */
   xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
   /**

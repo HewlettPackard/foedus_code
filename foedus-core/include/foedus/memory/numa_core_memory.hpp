@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "foedus/cxx11.hpp"
+#include "foedus/epoch.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
@@ -66,6 +67,7 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
 
   memory::PagePool* get_volatile_pool() { return volatile_pool_; }
   memory::PagePool* get_snapshot_pool() { return snapshot_pool_; }
+  PagePoolOffsetAndEpochChunk* get_retired_volatile_pool_chunk(uint16_t node);
 
   const SmallThreadLocalMemoryPieces& get_small_thread_local_memory_pieces() const {
     return small_thread_local_memory_pieces_;
@@ -106,8 +108,9 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
    * \li (used in Xct) XctAccess(24b) * 32k :768kb
    * \li (used in Xct) WriteXctAccess(40b) * 8k : 320kb
    * \li (used in Xct) LockFreeWriteXctAccess(16b) * 4k : 64kb
-   * In total within 2MB.
-   * Depending on options (esp, xct_.max_read_set_size and max_write_set_size), this might
+   * \li (used in Xct) Retired pages(PagePoolOffsetAndEpochChunk=32kb) * #-of-nodes : 32kb * #nodes
+   * In total within 2MB in most cases.
+   * Depending on options (esp, #nodes, xct_.max_read_set_size and max_write_set_size), this might
    * become two 2MB pages, which is not ideal. Hopefully the numbers above are sufficient.
    */
   memory::AlignedMemory   small_thread_local_memory_;
@@ -124,6 +127,16 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
   PagePoolOffsetChunk*                    free_volatile_pool_chunk_;
   /** Same above, but for snapshot cache. */
   PagePoolOffsetChunk*                    free_snapshot_pool_chunk_;
+
+  /**
+   * @brief Holds locally cached page offset of retired pages that will be returned to
+   * page pools.
+   * @details
+   * This is an array of PagePoolOffsetAndEpochChunk whose index is node ID.
+   * When this thread observes a full chunk, the thread batch-returns the
+   * offsets to the volatile page pool upto a safe epoch (current global epoch - 2).
+   */
+  PagePoolOffsetAndEpochChunk*            retired_volatile_pool_chunks_;
 
   /** Pointer to this NUMA node's volatile page pool */
   PagePool*                               volatile_pool_;
