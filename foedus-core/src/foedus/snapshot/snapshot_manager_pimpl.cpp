@@ -87,6 +87,7 @@ ErrorStack SnapshotManagerPimpl::uninitialize_once() {
   if (snapshot_thread_.joinable()) {
     stop_requested_ = true;
     if (engine_->is_master()) {
+      control_block_->gleaner_.cancelled_ = true;
       wakeup();
     } else {
       control_block_->wakeup_snapshot_children();

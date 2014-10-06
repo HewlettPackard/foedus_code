@@ -22,6 +22,8 @@ struct  MasstreeMetadata;
 struct  MasstreeOverwriteLogType;
 class   MasstreePage;
 class   MasstreePartitioner;
+struct  MasstreePartitionerData;
+struct  MasstreePartitionerInDesignData;
 class   MasstreeStorage;
 struct  MasstreeStorageControlBlock;
 class   MasstreeStorageFactory;

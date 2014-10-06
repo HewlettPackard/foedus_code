@@ -176,6 +176,23 @@ class ThreadPimpl final : public DefaultInitializable {
     memory::PagePoolOffset new_offset,
     storage::DualPagePointer* pointer);
 
+
+  /** @copydoc foedus::thread::Thread::collect_retired_volatile_page() */
+  void          collect_retired_volatile_page(storage::VolatilePagePointer ptr);
+
+  /**
+   * Subroutine of collect_retired_volatile_page() in case the chunk becomes full.
+   * Returns the chunk to volatile pool upto safe epoch. If there aren't enough pages to safely
+   * return, advance the epoch (which should be very rare, tho).
+   */
+  void          flush_retired_volatile_page(
+    uint16_t node,
+    Epoch current_epoch,
+    memory::PagePoolOffsetAndEpochChunk* chunk);
+
+  /** Subroutine of collect_retired_volatile_page() just for assertion */
+  bool          is_volatile_page_retired(storage::VolatilePagePointer ptr);
+
   /** Unconditionally takes MCS lock on the given mcs_lock. */
   xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
   /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */

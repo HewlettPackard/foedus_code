@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -22,7 +23,23 @@
 
 namespace foedus {
   std::string get_random_name() {
-    return fs::unique_name("%%%%_%%%%_%%%%_%%%%");
+    // to further randomize the name, we use hash of executable's path and its parameter.
+    // we run many concurrent testcases, but all of them have different executable or parameters.
+
+    std::string seed;
+    std::ifstream in;
+    in.open("/proc/self/cmdline", std::ios_base::in);
+    if (!in.is_open()) {
+      // there are cases where /proc/self/cmdline doesn't work. in that case just executable path
+      seed = assorted::get_current_executable_path();
+    } else {
+      std::getline(in, seed);
+      in.close();
+    }
+
+    std::hash<std::string> h1;
+    uint64_t differentiator = h1(seed);
+    return fs::unique_name("%%%%_%%%%_%%%%_%%%%", differentiator);
   }
 
   EngineOptions get_randomized_paths() {
@@ -136,7 +153,7 @@ namespace foedus {
   std::string gtest_individual_test;
   std::string gtest_test_case_name;
   std::string gtest_package_name;
-  std::string generate_failure_xml(int sig, const std::string& details) {
+  std::string generate_failure_xml(const std::string& type, const std::string& details) {
     // The XML must be in JUnit format
     // https://svn.jenkins-ci.org/trunk/hudson/dtkit/dtkit-format/dtkit-junit-model/src/main/resources/com/thalesgroup/dtkit/junit/model/xsd/junit-4.xsd
     // http://windyroad.com.au/dl/Open%20Source/JUnit.xsd
@@ -166,13 +183,16 @@ namespace foedus {
     suite->InsertFirstChild(testcase);
 
     tinyxml2::XMLElement* test = doc.NewElement("failure");
-    test->SetAttribute("type", to_signal_name(sig).c_str());
+    test->SetAttribute("type", type.c_str());
     test->SetAttribute("message", details.c_str());
     testcase->InsertFirstChild(test);
 
     tinyxml2::XMLPrinter printer;
     doc.Print(&printer);
     return printer.CStr();
+  }
+  std::string generate_failure_xml(int sig, const std::string& details) {
+    return generate_failure_xml(to_signal_name(sig), details);
   }
   static void handle_signals(int sig, siginfo_t* si, void* /*unused*/) {
     std::stringstream str;
@@ -197,8 +217,7 @@ namespace foedus {
       ::exit(1);
     } else {
       std::cerr << "Converting the signal to a testcase failure in " << gtest_xml_path << std::endl;
-      // We exit with a normal return value because this is a testcase failure, likely assertions.
-      // We report this error in the result XML, but let the build itself go through.
+      // We report this error in the result XML.
       std::string xml = generate_failure_xml(sig, details);
       std::cerr << "Xml content: " << std::endl << xml << std::endl;
 
@@ -263,5 +282,29 @@ namespace foedus {
     ::sigaction(SIGBUS, &sa, nullptr);
     ::sigaction(SIGFPE, &sa, nullptr);
     ::sigaction(SIGSEGV, &sa, nullptr);
+    // Not surprisingly, SIGKILL/SIGSTOP cannot be captured:
+    //  http://man7.org/linux/man-pages/man2/sigaction.2.html
+    // This means we cannot capture timeout-kill by ctest which uses STOP (see kwsys/ProcessUNIX.c).
+    // as we ignore exit-code of ctest in jenkins, this means timeout is silent. mm...
+    // As a compromise, we pre-populate result xml as follows.
+  }
+
+  void pre_populate_error_result_xml() {
+    if (gtest_xml_path.size() > 0) {
+      std::string xml = generate_failure_xml(
+        std::string("Pre-populated Error. Test timeout happned?"),
+        std::string("This is an initially written gtest xml before test execution."
+        " If you are receiving this result, most likely the process has disappeared without trace."
+        " This can happen when ctest kills the process via SIGSTOP, or someone killed the process"
+        " via SIGKILL, etc."));
+
+      std::ofstream out;
+      out.open(gtest_xml_path, std::ios_base::out | std::ios_base::trunc);
+      if (out.is_open()) {
+        out << xml;
+        out.flush();
+        out.close();
+      }
+    }
   }
 }  // namespace foedus

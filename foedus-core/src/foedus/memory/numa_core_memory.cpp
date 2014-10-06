@@ -29,6 +29,7 @@ NumaCoreMemory::NumaCoreMemory(
     core_local_ordinal_(thread::decompose_numa_local_ordinal(core_id)),
     free_volatile_pool_chunk_(nullptr),
     free_snapshot_pool_chunk_(nullptr),
+    retired_volatile_pool_chunks_(nullptr),
     volatile_pool_(nullptr),
     snapshot_pool_(nullptr) {
   ASSERT_ND(thread::decompose_numa_node(core_id_) == node_memory->get_numa_node());
@@ -52,10 +53,12 @@ ErrorStack NumaCoreMemory::initialize_once() {
   memory_size += sizeof(xct::PageVersionAccess) * xct::Xct::kMaxPageVersionSets;
   memory_size += sizeof(xct::PointerAccess) * xct::Xct::kMaxPointerSets;
   const xct::XctOptions& xct_opt = engine_->get_options().xct_;
+  const uint16_t nodes = engine_->get_options().thread_.group_count_;
   memory_size += sizeof(xct::XctAccess) * xct_opt.max_read_set_size_;
   memory_size += sizeof(xct::WriteXctAccess) * xct_opt.max_write_set_size_;
   memory_size += sizeof(xct::LockFreeWriteXctAccess)
     * xct_opt.max_lock_free_write_set_size_;
+  memory_size += sizeof(memory::PagePoolOffsetAndEpochChunk) * nodes;
   if (memory_size > (1U << 21)) {
     LOG(INFO) << "mm, small_local_memory_size is more than 2MB(" << memory_size << ")."
       " not a big issue, but consumes one more TLB entry...";
@@ -75,8 +78,14 @@ ErrorStack NumaCoreMemory::initialize_once() {
   memory += sizeof(xct::WriteXctAccess) * xct_opt.max_write_set_size_;
   small_thread_local_memory_pieces_.xct_lock_free_write_access_memory_ = memory;
   memory += sizeof(xct::LockFreeWriteXctAccess) * xct_opt.max_lock_free_write_set_size_;
+  retired_volatile_pool_chunks_ = reinterpret_cast<PagePoolOffsetAndEpochChunk*>(memory);
+  memory += sizeof(memory::PagePoolOffsetAndEpochChunk) * nodes;;
   ASSERT_ND(reinterpret_cast<char*>(small_thread_local_memory_.get_block())
     + memory_size == memory);
+
+  for (uint16_t node = 0; node < nodes; ++node) {
+    retired_volatile_pool_chunks_[node].clear();
+  }
 
   // Each core starts from 50%-full free pool chunk (configurable)
   uint32_t initial_pages = engine_->get_options().memory_.private_page_pool_initial_grab_;
@@ -88,6 +97,15 @@ ErrorStack NumaCoreMemory::uninitialize_once() {
   LOG(INFO) << "Releasing NumaCoreMemory for core " << core_id_;
   ErrorStackBatch batch;
   // return all free pages
+  if (retired_volatile_pool_chunks_) {
+    const uint16_t nodes = engine_->get_options().thread_.group_count_;
+    for (uint16_t node = 0; node < nodes; ++node) {
+      PagePoolOffsetAndEpochChunk* chunk = retired_volatile_pool_chunks_ + node;
+      volatile_pool_->release(chunk->size(), chunk);
+      ASSERT_ND(chunk->empty());
+    }
+    retired_volatile_pool_chunks_ = nullptr;
+  }
   if (free_volatile_pool_chunk_) {
     volatile_pool_->release(free_volatile_pool_chunk_->size(), free_volatile_pool_chunk_);
     free_volatile_pool_chunk_ = nullptr;
@@ -149,6 +167,10 @@ void NumaCoreMemory::release_free_pages_to_node(
   memory::PagePool *pool) {
   uint32_t desired = free_chunk->size() / 2;
   pool->release(desired, free_chunk);
+}
+
+PagePoolOffsetAndEpochChunk* NumaCoreMemory::get_retired_volatile_pool_chunk(uint16_t node) {
+  return retired_volatile_pool_chunks_ + node;
 }
 
 }  // namespace memory

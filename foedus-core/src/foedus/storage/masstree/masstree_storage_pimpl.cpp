@@ -182,6 +182,8 @@ ErrorCode MasstreeStoragePimpl::grow_root(
 
   // the old root page is now retired
   root->set_retired();
+  context->collect_retired_volatile_page(
+    construct_volatile_page_pointer(root->header().page_id_));
   return kErrorCodeOk;
 }
 

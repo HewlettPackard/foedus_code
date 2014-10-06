@@ -6,6 +6,7 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "foedus/engine.hpp"
@@ -25,8 +26,51 @@ void PagePoolOffsetChunk::push_back(const PagePoolOffset* begin, const PagePoolO
 void PagePoolOffsetChunk::move_to(PagePoolOffset* destination, uint32_t count) {
   ASSERT_ND(size_ >= count);
   std::memcpy(destination, chunk_ + (size_ - count), count * sizeof(PagePoolOffset));
+  // we move from the tail of this chunk. so, just decrementing the count is enough.
+  // no need to move the remainings back to the beginning
   size_ -= count;
 }
+
+uint32_t PagePoolOffsetAndEpochChunk::get_safe_offset_count(const Epoch& threshold) const {
+  ASSERT_ND(is_sorted());
+  OffsetAndEpoch dummy;
+  dummy.safe_epoch_ = threshold.value();
+  struct CompareEpoch {
+    bool operator() (const OffsetAndEpoch& left, const OffsetAndEpoch& right) {
+      return Epoch(left.safe_epoch_) < Epoch(right.safe_epoch_);
+    }
+  };
+  const OffsetAndEpoch* result = std::lower_bound(chunk_, chunk_ + size_, dummy, CompareEpoch());
+  ASSERT_ND(result);
+  ASSERT_ND(result - chunk_ <= size_);
+  return result - chunk_;
+}
+
+void PagePoolOffsetAndEpochChunk::move_to(PagePoolOffset* destination, uint32_t count) {
+  ASSERT_ND(size_ >= count);
+  // we can't do memcpy. Just copy one by one
+  for (uint32_t i = 0; i < count; ++i) {
+    destination[i] = chunk_[i].offset_;
+  }
+  // Also, unlike PagePoolOffsetChunk, we copied from the head (we have to because epoch matters).
+  // So, we also have to move remainings to the beginning
+  if (size_ > count) {
+    std::memmove(chunk_, chunk_ + count, (size_ - count) * sizeof(OffsetAndEpoch));
+  }
+  size_ -= count;
+  ASSERT_ND(is_sorted());
+}
+
+bool PagePoolOffsetAndEpochChunk::is_sorted() const {
+  for (uint32_t i = 1; i < size_; ++i) {
+    ASSERT_ND(chunk_[i].offset_);
+    if (Epoch(chunk_[i - 1U].safe_epoch_) > Epoch(chunk_[i].safe_epoch_)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 
 PagePool::PagePool() {
   pimpl_ = new PagePoolPimpl();
@@ -59,6 +103,10 @@ ErrorCode   PagePool::grab_one(PagePoolOffset* offset) { return pimpl_->grab_one
 void        PagePool::release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk) {
   pimpl_->release(desired_release_count, chunk);
 }
+void        PagePool::release(uint32_t desired_release_count, PagePoolOffsetAndEpochChunk* chunk) {
+  pimpl_->release(desired_release_count, chunk);
+}
+
 void PagePool::release_one(PagePoolOffset offset) { pimpl_->release_one(offset); }
 
 const LocalPageResolver& PagePool::get_resolver() const { return pimpl_->get_resolver(); }

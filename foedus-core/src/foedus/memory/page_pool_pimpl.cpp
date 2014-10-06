@@ -159,7 +159,8 @@ ErrorCode PagePoolPimpl::grab_one(PagePoolOffset *offset) {
   return kErrorCodeOk;
 }
 
-void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk) {
+template <typename CHUNK>
+void PagePoolPimpl::release_impl(uint32_t desired_release_count, CHUNK* chunk) {
   ASSERT_ND(chunk->size() >= desired_release_count);
   VLOG(0) << "Releasing " << desired_release_count << " pages."
     << " free_pool_count_=" << free_pool_count();
@@ -191,6 +192,12 @@ void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk 
   ASSERT_ND(tail + release_count <= free_pool_capacity_);
   chunk->move_to(free_pool_ + tail, release_count);
   free_pool_count() += release_count;
+}
+void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk) {
+  release_impl<PagePoolOffsetChunk>(desired_release_count, chunk);
+}
+void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetAndEpochChunk* chunk) {
+  release_impl<PagePoolOffsetAndEpochChunk>(desired_release_count, chunk);
 }
 
 void PagePoolPimpl::release_one(PagePoolOffset offset) {
