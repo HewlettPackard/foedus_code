@@ -194,13 +194,19 @@ SpaceInfo   space(const Path& p);
  * Equivalent to unique_path("%%%%-%%%%-%%%%-%%%%").
  * @ingroup FILESYSTEM
  */
-std::string unique_name();
+std::string unique_name(uint64_t differentiator = 0);
 /**
  * Returns a randomly generated file name with the given template.
  * @ingroup FILESYSTEM
  * @param[in] model file name template where % will be replaced with random hex numbers.
+ * @param[in] differentiator optional parameter to further randomize this method.
+ * @details
+ * We use std::chrono::high_resolution_clock::now() to get a random seed.
+ * \b However, even high_resolution_clock sometimes has low precision depending on environment.
+ * When you are concerned with a conflict (eg running many concurrent testcases), also give
+ * a differentiator.
  */
-std::string unique_name(const std::string& model);
+std::string unique_name(const std::string& model, uint64_t differentiator = 0);
 
 /**
  * @brief Makes the content and metadata of the file durable all the way up to devices.

@@ -158,17 +158,19 @@ SpaceInfo space(const Path& p) {
   return info;
 }
 
-std::string unique_name() {
-  return unique_name("%%%%-%%%%-%%%%-%%%%");
+std::string unique_name(uint64_t differentiator) {
+  return unique_name("%%%%-%%%%-%%%%-%%%%", differentiator);
 }
-std::string unique_name(const std::string& model) {
+std::string unique_name(const std::string& model, uint64_t differentiator) {
   const char* kHexChars = "0123456789abcdef";
-  unsigned int seed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+  uint64_t seed64 = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+  seed64 ^= differentiator;
+  uint32_t seed32 = (seed64 >> 32) ^ seed64;
   std::string s(model);
   for (size_t i = 0; i < s.size(); ++i) {
     if (s[i] == '%') {                 // digit request
-      seed = ::rand_r(&seed);
-      s[i] = kHexChars[seed & 0xf];  // convert to hex digit and replace
+      seed32 = ::rand_r(&seed32);
+      s[i] = kHexChars[seed32 & 0xf];  // convert to hex digit and replace
     }
   }
   return s;

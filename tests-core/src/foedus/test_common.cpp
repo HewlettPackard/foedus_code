@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -22,7 +23,23 @@
 
 namespace foedus {
   std::string get_random_name() {
-    return fs::unique_name("%%%%_%%%%_%%%%_%%%%");
+    // to further randomize the name, we use hash of executable's path and its parameter.
+    // we run many concurrent testcases, but all of them have different executable or parameters.
+
+    std::string seed;
+    std::ifstream in;
+    in.open("/proc/self/cmdline", std::ios_base::in);
+    if (!in.is_open()) {
+      // there are cases where /proc/self/cmdline doesn't work. in that case just executable path
+      seed = assorted::get_current_executable_path();
+    } else {
+      std::getline(in, seed);
+      in.close();
+    }
+
+    std::hash<std::string> h1;
+    uint64_t differentiator = h1(seed);
+    return fs::unique_name("%%%%_%%%%_%%%%_%%%%", differentiator);
   }
 
   EngineOptions get_randomized_paths() {
