@@ -75,14 +75,15 @@ namespace masstree {
  * pointer or border->next_layer pointer). We start with n=0 and continue with n++ until we find a
  * sufficiently large number of pointers or exhaustively touch all pages if the masstree is tiny.
  * When there are \e x nodes, we continue until we find \e x*kPartitionThresholdPerNode
- * records/pointers or more. It is so far a compile-time parameter. The larger, the more granular
+ * pointers or more. It is so far a compile-time parameter. The larger, the more granular
  * the partitioning detection. The smaller, the less the footprint/overhead of partitioner.
  *
  * @par Determining partition for each pointer
  * For each pointer from branch pages, we determine the owner node simply based on the last updater
  * of the pointed page, which is a rough statistics in the page header (no correctness guaranteed).
- * For each record in branch pages, the owner node is simply the last committer in XctId.
- * If we have contiguous pointers/records of the same owner node, we merge them to one partition.
+ * We assume all records (not pointers to next layer) in branch pages are implicitly owned by
+ * the previous pointer. In other words, we ignore records while designing partitions.
+ * If we have contiguous pointers of the same owner node, we merge them to one partition.
  *
  * @par Expected issues
  * The scheme above is so simple and easy to implement/maintain.
@@ -102,7 +103,7 @@ class MasstreePartitioner final {
  public:
   enum Constants {
     /**
-     * We stop collecting branch pages when we find this number of records/pointers per node.
+     * We stop collecting branch pages when we find this number of pointers per node.
      */
     kPartitionThresholdPerNode = 8,
   };
@@ -215,24 +216,6 @@ struct MasstreePartitionerInDesignData final {
     /** NUMA node that seems to own this page. this is not a final decision. */
     uint16_t                owner_node_;
   };
-  /**
-   * Represent a key-range covered by a record.
-   * A border page contains both pointers and records, so a record also represents a range.
-   * The question is whether a record should have the same weight as a pointer in the same page..
-   * So far we assume so, but we might reconsider later.
-   */
-  struct BranchRecord {
-    BranchRecord() {}
-    BranchRecord(const std::string& record_key, uint16_t owner_node)
-      : record_key_(record_key), owner_node_(owner_node) {}
-    /**
-     * Full key of the record.
-     * The record is considered to represent the half-open interval [record_key_, next_key_).
-     */
-    std::string record_key_;
-    /** NUMA node that seems to own this record. this is not a final decision. */
-    uint16_t    owner_node_;
-  };
   /** Finalized partition info */
   struct Partition {
     Partition() {}
@@ -265,11 +248,11 @@ struct MasstreePartitionerInDesignData final {
   uint32_t    get_output_size() const;
 
   /** Follows a volatile page pointer. If there isn't, follows snapshot page. */
-  ErrorStack read_page(const DualPagePointer& ptr, memory::PagePoolOffset offset);
+  ErrorStack  read_page(const DualPagePointer& ptr, memory::PagePoolOffset offset);
   /** Consume a branch page at the beginning of enumerated_pages_ and add pointers/records in it */
-  ErrorStack pop_and_explore_branch_page();
+  ErrorStack  pop_and_explore_branch_page();
   /** Adds the given pointer to enumerated_pages_ */
-  ErrorStack push_branch_page(const DualPagePointer& ptr, const std::string& prefix);
+  ErrorStack  push_branch_page(const DualPagePointer& ptr, const std::string& prefix);
 
   MasstreePage* resolve_tmp_page(memory::PagePoolOffset offset);
 
@@ -277,7 +260,7 @@ struct MasstreePartitionerInDesignData final {
    * When this becomes desired_branches_ or larger, we stop enumeration.
    */
   uint32_t      get_branch_count() const {
-    return enumerated_pages_.size() + enumerated_records_.size();
+    return active_pages_.size() + terminal_pages_.size();
   }
 
   Engine* const           engine_;
@@ -293,13 +276,17 @@ struct MasstreePartitionerInDesignData final {
   // above are const, below are dynamic
 
   /**
-   * All branch pages enumerated so far, in the order of enumeration.
+   * All branch pages to be explored, in the order of enumeration.
    * Newly enumerated pages are appended at last, and the earliest-enumerated page
    * is dequeued from the top to spawn pages pointed from it. So, it's a FIFO queue.
    */
-  std::queue<BranchPage>    enumerated_pages_;
-  /** All branch records enumerated so far. */
-  std::vector<BranchRecord> enumerated_records_;
+  std::queue<BranchPage>    active_pages_;
+  /**
+   * All branch pages that were already checked out to find pointers, but didn't have any pointers.
+   * This means it's a boundary page with only records, from which we can't digg down further.
+   * We keep them in a separate vector.
+   */
+  std::vector<BranchPage>   terminal_pages_;
 
   /** design() populates this as a result */
   std::vector<Partition>    designed_partitions_;

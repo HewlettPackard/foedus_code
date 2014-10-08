@@ -355,6 +355,16 @@ ErrorStack MasstreePartitionerInDesignData::initialize() {
 }
 
 MasstreePartitionerInDesignData::~MasstreePartitionerInDesignData() {
+  // as this is a private memory, we don't have to return to page pool.
+  // this is mainly for sanity check so that page pool can check if it received back all.
+  while (!active_pages_.empty()) {
+    BranchPage popped = active_pages_.front();
+    tmp_pages_.release_one(popped.tmp_page_offset_);
+  }
+  for (const BranchPage& page : terminal_pages_) {
+    tmp_pages_.release_one(page.tmp_page_offset_);
+  }
+  terminal_pages_.clear();
   COERCE_ERROR(tmp_pages_.uninitialize());  // this never returns an error
 }
 
@@ -366,12 +376,12 @@ ErrorStack MasstreePartitionerInDesignData::enumerate() {
     << "). Enumerating branch pages...";
 
   // digg down each page until we find enough branch pages or there are no more pages
-  while (!enumerated_pages_.empty() && get_branch_count() < desired_branches_) {
+  while (!active_pages_.empty() && get_branch_count() < desired_branches_) {
     CHECK_ERROR(pop_and_explore_branch_page());
   }
 
-  LOG(INFO) << "Masstree-" << storage_.get_id() << " enumerated " << enumerated_pages_.size()
-    << " branch pages and " << enumerated_records_.size() << " branch records.";
+  LOG(INFO) << "Masstree-" << storage_.get_id() << " found active-pages=" << active_pages_.size()
+    << " terminal pages=" << terminal_pages_.size() << " during enumeration phase.";
   return kRetOk;
 }
 
@@ -379,25 +389,30 @@ ErrorStack MasstreePartitionerInDesignData::design() {
   designed_partitions_.clear();
   // First, order all enumerated pages/records by key. simply std::map
   std::map<std::string, uint16_t> sorted;  // <low_key, owner_node>
-  while (!enumerated_pages_.empty()) {
-    BranchPage popped = enumerated_pages_.front();
+  while (!active_pages_.empty()) {
+    BranchPage popped = active_pages_.front();
     MasstreePage* tmp_page = resolve_tmp_page(popped.tmp_page_offset_);
     std::string low_key = append_slice_to_prefix(popped.prefix_, tmp_page->get_low_fence());
     if (sorted.find(low_key) != sorted.end()) {
-      LOG(ERROR) << "Masstree-" << storage_.get_id() << " has dup entries in enumerated_pages_"
+      LOG(ERROR) << "Masstree-" << storage_.get_id() << " has duplicate entries in active_pages_"
         << " with the same key: " << assorted::HexString(low_key);
       return ERROR_STACK(kErrorCodeInternalError);
     }
     sorted.insert(std::pair<std::string, uint16_t>(low_key, popped.owner_node_));
+    tmp_pages_.release_one(popped.tmp_page_offset_);
   }
-  for (const BranchRecord& record : enumerated_records_) {
-    if (sorted.find(record.record_key_) != sorted.end()) {
+  for (const BranchPage& page : terminal_pages_) {
+    MasstreePage* tmp_page = resolve_tmp_page(page.tmp_page_offset_);
+    std::string low_key = append_slice_to_prefix(page.prefix_, tmp_page->get_low_fence());
+    if (sorted.find(low_key) != sorted.end()) {
       LOG(ERROR) << "Masstree-" << storage_.get_id() << " has duplicate entries in"
-        << " enumerated_records_ with the same key: " << assorted::HexString(record.record_key_);
+        << " terminal_pages_ with the same key: " << assorted::HexString(low_key);
       return ERROR_STACK(kErrorCodeInternalError);
     }
-    sorted.insert(std::pair<std::string, uint16_t>(record.record_key_, record.owner_node_));
+    sorted.insert(std::pair<std::string, uint16_t>(low_key, page.owner_node_));
+    tmp_pages_.release_one(page.tmp_page_offset_);
   }
+  terminal_pages_.clear();
 
   // assure the beginning entry.
   if (sorted.find("") == sorted.end()) {
@@ -469,15 +484,16 @@ ErrorStack MasstreePartitionerInDesignData::push_branch_page(
   // this is not an atomically/transactionally maintained info, but enough for partitioning.
   MasstreePage* tmp_page = resolve_tmp_page(offset);
   uint16_t page_owner = tmp_page->header().stat_last_updater_node_;
-  enumerated_pages_.emplace(prefix, offset, page_owner);
+  active_pages_.emplace(prefix, offset, page_owner);
   return kRetOk;
 }
 
 ErrorStack MasstreePartitionerInDesignData::pop_and_explore_branch_page() {
-  ASSERT_ND(!enumerated_pages_.empty());
-  BranchPage popped = enumerated_pages_.front();
+  ASSERT_ND(!active_pages_.empty());
+  BranchPage popped = active_pages_.front();
   MasstreePage* page = resolve_tmp_page(popped.tmp_page_offset_);
   uint32_t key_count = page->get_key_count();
+  bool found_any_pointer = false;
   if (page->is_border()) {
     MasstreeBorderPage* casted = reinterpret_cast<MasstreeBorderPage*>(page);
     for (uint32_t i = 0; i < key_count; ++i) {
@@ -485,12 +501,10 @@ ErrorStack MasstreePartitionerInDesignData::pop_and_explore_branch_page() {
         // go in to next layer. prefix now has 8 more bytes
         std::string prefix(append_slice_to_prefix(popped.prefix_, casted->get_slice(i)));
         CHECK_ERROR(push_branch_page(*casted->get_next_layer(i), prefix));
-      } else {
-        // this is just one record. consider that this covers from this key to next key.
-        std::string record_key(get_full_key(*casted, i, popped.prefix_));
-        // we assume the record is simply owned by the page.
-        enumerated_records_.emplace_back(record_key, popped.owner_node_);
+        found_any_pointer = true;
       }
+      // Records are simply ignored. This implies that the records are owned by pointer
+      // before this record because we store low_key.
     }
   } else {
     // in an intermediate page, everything is a pointer with the same prefix. simpler.
@@ -500,12 +514,18 @@ ErrorStack MasstreePartitionerInDesignData::pop_and_explore_branch_page() {
       uint8_t mini_count = minipage.key_count_;
       for (uint8_t j = 0; j <= mini_count; ++j) {
         CHECK_ERROR(push_branch_page(minipage.pointers_[j], popped.prefix_));
+        found_any_pointer = true;
       }
     }
   }
 
-  // the popped page is no longer needed. release it.
-  tmp_pages_.release_one(popped.tmp_page_offset_);
+  if (found_any_pointer) {
+    // the popped page is no longer needed. release it.
+    tmp_pages_.release_one(popped.tmp_page_offset_);
+  } else {
+    // we still need it to represent this key range. store it as a terminal page
+    terminal_pages_.emplace_back(popped);
+  }
   return kRetOk;
 }
 ErrorStack MasstreePartitionerInDesignData::read_page(

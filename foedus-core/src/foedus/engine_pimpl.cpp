@@ -153,6 +153,9 @@ ErrorStack EnginePimpl::uninitialize_once() {
   auto modules = get_modules();
   std::reverse(modules.begin(), modules.end());
   for (ModulePtr& module : modules) {
+    if (!module.ptr_->is_initialized()) {
+      continue;
+    }
     // During uninitialization, master waits for SOCs' uninitialization before its uninit.
     if (is_master()) {
       batch.emprace_back(soc_manager_.wait_for_children_module(false, module.type_));
