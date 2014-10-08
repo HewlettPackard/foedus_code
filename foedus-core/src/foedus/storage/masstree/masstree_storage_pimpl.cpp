@@ -869,6 +869,7 @@ ErrorCode MasstreeStoragePimpl::insert_general(
     payload,
     payload_count,
     border->get_layer());
+  border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_write_set(
     get_id(),
@@ -898,6 +899,7 @@ ErrorCode MasstreeStoragePimpl::delete_general(
   MasstreeDeleteLogType* log_entry = reinterpret_cast<MasstreeDeleteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(get_id(), be_key, key_length, border->get_layer());
+  border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_write_set(
     get_id(),
@@ -941,6 +943,7 @@ ErrorCode MasstreeStoragePimpl::overwrite_general(
     payload_offset,
     payload_count,
     border->get_layer());
+  border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_write_set(
     get_id(),
@@ -989,6 +992,7 @@ ErrorCode MasstreeStoragePimpl::increment_general(
     payload_offset,
     sizeof(PAYLOAD),
     border->get_layer());
+  border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_write_set(
     get_id(),

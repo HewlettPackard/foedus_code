@@ -155,6 +155,7 @@ void ArrayPartitioner::partition_batch(
   for (uint32_t i = 0; i < logs_count; ++i) {
     const ArrayOverwriteLogType *log = reinterpret_cast<const ArrayOverwriteLogType*>(
       log_buffer.resolve(log_positions[i]));
+    // TODO(Hideaki) increment log type
     ASSERT_ND(log->header_.log_type_code_ == log::kLogCodeArrayOverwrite);
     ASSERT_ND(log->header_.storage_id_ == id_);
     ASSERT_ND(log->offset_ < get_array_size());

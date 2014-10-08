@@ -135,7 +135,7 @@ ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* 
 }
 
 ErrorCode PagePoolPimpl::grab_one(PagePoolOffset *offset) {
-  VLOG(0) << "Grabbing just one page. free_pool_count_=" << free_pool_count();
+  VLOG(1) << "Grabbing just one page. free_pool_count_=" << free_pool_count();
   *offset = 0;
   soc::SharedMutexScope guard(&control_block_->lock_);
   if (UNLIKELY(free_pool_count() == 0)) {
@@ -202,7 +202,7 @@ void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetAndEpo
 
 void PagePoolPimpl::release_one(PagePoolOffset offset) {
   ASSERT_ND(is_initialized() || !owns_);
-  VLOG(0) << "Releasing just one page. free_pool_count_=" << free_pool_count();
+  VLOG(1) << "Releasing just one page. free_pool_count_=" << free_pool_count();
   soc::SharedMutexScope guard(&control_block_->lock_);
   if (free_pool_count() >= free_pool_capacity_) {
     // this can't happen unless something is wrong! This is a critical issue from which

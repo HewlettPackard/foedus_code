@@ -95,6 +95,21 @@ void LogGleaner::design_partitions_run(
   ErrorStack* result) {
   *result = kRetOk;
   LOG(INFO) << "Determining partitions for Storage-" << from << " to " << (from + count - 1) << ".";
+
+  // working memory while designing. we auto-extend if the partitioner requests so.
+  memory::AlignedMemory work_memory;
+  work_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
+
+  // To read from snapshot pages while designing. This must be thread-private. So we instantiate
+  // for each design_partitions_run()
+  cache::SnapshotFileSet fileset(engine_);
+  *result = fileset.initialize();
+  if (result->is_error()) {
+    LOG(ERROR) << "fileset.initialize() failed!" << *result;
+    return;
+  }
+  UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
+
   for (storage::StorageId id = from; id < from + count; ++id) {
     storage::Partitioner partitioner(engine_, id);
     ErrorStack ret = partitioner.design_partition();
@@ -104,6 +119,13 @@ void LogGleaner::design_partitions_run(
       break;
     }
   }
+
+  *result = fileset.uninitialize();
+  if (result->is_error()) {
+    LOG(ERROR) << "fileset.uninitialize() failed!" << *result;
+    return;
+  }
+  work_memory.release_block();
   LOG(INFO) << "Determined partitions for Storage-" << from << " to " << (from + count - 1) << ".";
 }
 
