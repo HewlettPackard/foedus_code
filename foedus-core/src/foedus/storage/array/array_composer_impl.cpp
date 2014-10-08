@@ -180,11 +180,18 @@ ErrorStack ArrayComposeContext::execute() {
   CHECK_ERROR(init_more());
 
   while (ended_inputs_count_ < inputs_count_) {
-    const ArrayOverwriteLogType* entry = get_next_entry();
     Record* record = cur_path_[0]->get_leaf_record(
       cur_route_.route[0],
       payload_size_);
-    entry->apply_record(nullptr, storage_id_, &record->owner_id_, record->payload_);
+    const ArrayCommonUpdateLogType* entry = get_next_entry();
+    if (entry->header_.get_type() == log::kLogCodeArrayOverwrite) {
+      const ArrayOverwriteLogType* casted = reinterpret_cast<const ArrayOverwriteLogType*>(entry);
+      casted->apply_record(nullptr, storage_id_, &record->owner_id_, record->payload_);
+    } else {
+      ASSERT_ND(entry->header_.get_type() == log::kLogCodeArrayIncrement);
+      const ArrayIncrementLogType* casted = reinterpret_cast<const ArrayIncrementLogType*>(entry);
+      casted->apply_record(nullptr, storage_id_, &record->owner_id_, record->payload_);
+    }
     WRAP_ERROR_CODE(advance());
   }
 
@@ -283,15 +290,16 @@ inline ErrorCode ArrayStreamStatus::next() {
   return kErrorCodeOk;
 }
 inline void ArrayStreamStatus::read_entry() {
-  const ArrayOverwriteLogType* entry = get_entry();
-  ASSERT_ND(entry->header_.get_type() == log::kLogCodeArrayOverwrite);
+  const ArrayCommonUpdateLogType* entry = get_entry();
+  ASSERT_ND(entry->header_.get_type() == log::kLogCodeArrayOverwrite
+    || entry->header_.get_type() == log::kLogCodeArrayIncrement);
   ASSERT_ND(entry->header_.log_length_ > 0);
   cur_value_ = entry->offset_;
   cur_xct_id_ = entry->header_.xct_id_;
   cur_length_ = entry->header_.log_length_;
 }
-inline const ArrayOverwriteLogType* ArrayStreamStatus::get_entry() const {
-  return reinterpret_cast<const ArrayOverwriteLogType*>(buffer_ + cur_relative_pos_);
+inline const ArrayCommonUpdateLogType* ArrayStreamStatus::get_entry() const {
+  return reinterpret_cast<const ArrayCommonUpdateLogType*>(buffer_ + cur_relative_pos_);
 }
 
 ErrorStack ArrayComposeContext::init_more() {
@@ -594,9 +602,9 @@ inline ErrorCode ArrayComposeContext::read_or_init_page(
   return kErrorCodeOk;
 }
 
-inline const ArrayOverwriteLogType* ArrayComposeContext::get_next_entry() const {
+inline const ArrayCommonUpdateLogType* ArrayComposeContext::get_next_entry() const {
   ASSERT_ND(!inputs_[next_input_].ended_);
-  const ArrayOverwriteLogType* entry = inputs_[next_input_].get_entry();
+  const ArrayCommonUpdateLogType* entry = inputs_[next_input_].get_entry();
   ASSERT_ND(entry->offset_ == next_key_);
   ASSERT_ND(entry->header_.xct_id_ == next_xct_id_);
   return entry;

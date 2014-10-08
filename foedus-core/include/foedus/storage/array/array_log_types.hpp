@@ -61,15 +61,27 @@ struct ArrayCreateLogType : public log::StorageLogType {
 };
 
 /**
+ * @brief A base class for ArrayOverwriteLogType/ArrayIncrementLogType.
+ * @ingroup ARRAY LOGTYPE
+ * @details
+ * This just defines ArrayOffset as the first data. We use this class only where we just
+ * need to access the array offset.
+ */
+struct ArrayCommonUpdateLogType : public log::RecordLogType {
+  LOG_TYPE_NO_CONSTRUCT(ArrayCommonUpdateLogType)
+  ArrayOffset     offset_;            // +8 => 24
+  // payload_offset_ is also a common property, but we can't include it here for alignment.
+};
+
+/**
  * @brief Log type of array-storage's overwrite operation.
  * @ingroup ARRAY LOGTYPE
  * @details
  * This is a modification operation in array.
  * It simply invokes memcpy to the payload.
  */
-struct ArrayOverwriteLogType : public log::RecordLogType {
+struct ArrayOverwriteLogType : public ArrayCommonUpdateLogType {
   LOG_TYPE_NO_CONSTRUCT(ArrayOverwriteLogType)
-  ArrayOffset     offset_;            // +8 => 24
   uint16_t        payload_offset_;    // +2 => 26
   uint16_t        payload_count_;     // +2 => 28
   char            payload_[4];        // +4 => 32
@@ -142,9 +154,8 @@ template <> inline ValueType to_value_type<double>() { return kDouble ; }
  * without relying on the current value.
  * For that, we remember the addendum in primitive format.
  */
-struct ArrayIncrementLogType : public log::RecordLogType {
+struct ArrayIncrementLogType : public ArrayCommonUpdateLogType {
   LOG_TYPE_NO_CONSTRUCT(ArrayIncrementLogType)
-  ArrayOffset     offset_;            // +8 => 24
   uint16_t        payload_offset_;    // +2 => 26
   uint16_t        value_type_;        // +2 => 28
   char            addendum_[4];       // +4 => 32
@@ -153,7 +164,7 @@ struct ArrayIncrementLogType : public log::RecordLogType {
     if (value_type < kI64) {
       return 32;  // in this case we store it in first bytes of addendum
     } else {
-      return 40;  // in this case we store it in 42th-bytes (28-32th bytes are not used)
+      return 40;  // in this case we store it in 32th-bytes (28-32th bytes are not used)
     }
   }
 
@@ -166,12 +177,23 @@ struct ArrayIncrementLogType : public log::RecordLogType {
 
   ValueType get_value_type() const ALWAYS_INLINE { return static_cast<ValueType>(value_type_); }
   bool is_64b_type() const ALWAYS_INLINE { return get_value_type() >= kI64; }
+  void*       addendum_64() { return addendum_ + 4; }
+  const void* addendum_64() const { return addendum_ + 4; }
 
   void apply_record(
     thread::Thread* context,
     StorageId storage_id,
     xct::LockableXctId* owner_id,
     char* payload) const ALWAYS_INLINE;
+
+  /**
+   * A special optimization for increment logs in log gleaner.
+   * Two increment logs on the same array offset can be merged to reduce # of log entries.
+   * @pre storage_id_ == other.storage_id_
+   * @pre value_type_ == other.value_type_
+   * @pre payload_offset_ == other.payload_offset_
+   */
+  void merge(const ArrayIncrementLogType& other) ALWAYS_INLINE;
 
   void assert_valid() const ALWAYS_INLINE;
 
@@ -311,6 +333,56 @@ inline void ArrayIncrementLogType::apply_record(
       increment<double>(
         reinterpret_cast<double*>(payload + payload_offset_),
         reinterpret_cast<const double*>(addendum_ + 4));
+      break;
+    default:
+      ASSERT_ND(false);
+      break;
+  }
+}
+
+template <typename T>
+inline void add_to(void* destination, const void* added) {
+  *(reinterpret_cast< T* >(destination)) += *(reinterpret_cast< const T* >(added));
+}
+
+inline void ArrayIncrementLogType::merge(const ArrayIncrementLogType& other) {
+  ASSERT_ND(header_.storage_id_ == other.header_.storage_id_);
+  ASSERT_ND(value_type_ == other.value_type_);
+  ASSERT_ND(payload_offset_ == other.payload_offset_);
+  switch (get_value_type()) {
+    // 32 bit data types
+    case kI8:
+      add_to<int8_t>(addendum_, other.addendum_);
+      break;
+    case kI16:
+      add_to<int16_t>(addendum_, other.addendum_);
+      break;
+    case kI32:
+      add_to<int32_t>(addendum_, other.addendum_);
+      break;
+    case kBool:
+    case kU8:
+      add_to<uint8_t>(addendum_, other.addendum_);
+      break;
+    case kU16:
+      add_to<uint16_t>(addendum_, other.addendum_);
+      break;
+    case kU32:
+      add_to<uint32_t>(addendum_, other.addendum_);
+      break;
+    case kFloat:
+      add_to<float>(addendum_, other.addendum_);
+      break;
+
+    // 64 bit data types
+    case kI64:
+      add_to<int64_t>(addendum_64(), other.addendum_64());
+      break;
+    case kU64:
+      add_to<uint64_t>(addendum_64(), other.addendum_64());
+      break;
+    case kDouble:
+      add_to<double>(addendum_64(), other.addendum_64());
       break;
     default:
       ASSERT_ND(false);

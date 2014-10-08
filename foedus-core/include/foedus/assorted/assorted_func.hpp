@@ -109,9 +109,28 @@ struct Hex {
   template<typename T>
   Hex(T val, int fix_digits = -1) : val_(static_cast<uint64_t>(val)), fix_digits_(fix_digits) {}
 
-  uint64_t val_;
-  int fix_digits_;
+  uint64_t    val_;
+  int         fix_digits_;
   friend std::ostream& operator<<(std::ostream& o, const Hex& v);
+};
+
+/**
+ * @brief Equivalent to std::hex in case the stream doesn't support it.
+ * @ingroup ASSORTED
+ * @details
+ * Use it as follows.
+ * @code{.cpp}
+ * std::cout << Hex("aabc") << ...
+ * // will output "0x61616263".
+ * @endcode
+ */
+struct HexString {
+  HexString(const std::string& str, uint32_t max_bytes = 64U)
+    : str_(str), max_bytes_(max_bytes) {}
+
+  std::string str_;
+  uint32_t    max_bytes_;
+  friend std::ostream& operator<<(std::ostream& o, const HexString& v);
 };
 
 /**

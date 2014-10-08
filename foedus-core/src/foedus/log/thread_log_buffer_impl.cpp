@@ -237,9 +237,10 @@ std::ostream& operator<<(std::ostream& o, const ThreadLogBuffer& v) {
   o << "<logger_epoch_open_ended_>" << v.logger_epoch_open_ended_
     << "</logger_epoch_open_ended_>";
   o << "<logger_epoch_ends_>" << v.logger_epoch_ends_ << "</logger_epoch_ends_>";
+  /* disabled this info because iteration below is not safe on concurrent accesses.
   o << "<thread_epoch_marks_>";
   int cnt = 0;
-  for (auto mark : v.thread_epoch_marks_) {
+  for (const auto& mark : v.thread_epoch_marks_) {
     o << mark;
     ++cnt;
     if (cnt == 20) {
@@ -248,6 +249,7 @@ std::ostream& operator<<(std::ostream& o, const ThreadLogBuffer& v) {
     }
   }
   o << "</thread_epoch_marks_>";
+  */
   o << "</ThreadLogBuffer>";
   return o;
 }

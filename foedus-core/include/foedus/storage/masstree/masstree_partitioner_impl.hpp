@@ -8,11 +8,15 @@
 #include <stdint.h>
 
 #include <iosfwd>
+#include <queue>
 #include <string>
 #include <vector>
 
 #include "foedus/fwd.hpp"
+#include "foedus/initializable.hpp"
+#include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/memory/fwd.hpp"
+#include "foedus/memory/page_pool.hpp"
 #include "foedus/storage/partitioner.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
@@ -71,14 +75,15 @@ namespace masstree {
  * pointer or border->next_layer pointer). We start with n=0 and continue with n++ until we find a
  * sufficiently large number of pointers or exhaustively touch all pages if the masstree is tiny.
  * When there are \e x nodes, we continue until we find \e x*kPartitionThresholdPerNode
- * records/pointers or more. It is so far a compile-time parameter. The larger, the more granular
+ * pointers or more. It is so far a compile-time parameter. The larger, the more granular
  * the partitioning detection. The smaller, the less the footprint/overhead of partitioner.
  *
  * @par Determining partition for each pointer
  * For each pointer from branch pages, we determine the owner node simply based on the last updater
  * of the pointed page, which is a rough statistics in the page header (no correctness guaranteed).
- * For each record in branch pages, the owner node is simply the last committer in XctId.
- * If we have contiguous pointers/records of the same owner node, we merge them to one partition.
+ * We assume all records (not pointers to next layer) in branch pages are implicitly owned by
+ * the previous pointer. In other words, we ignore records while designing partitions.
+ * If we have contiguous pointers of the same owner node, we merge them to one partition.
  *
  * @par Expected issues
  * The scheme above is so simple and easy to implement/maintain.
@@ -95,17 +100,21 @@ namespace masstree {
  * access this internal class.
  */
 class MasstreePartitioner final {
+ public:
   enum Constants {
     /**
-     * We stop collecting branch pages when we find this number of records/pointers per node.
+     * We stop collecting branch pages when we find this number of pointers per node.
      */
     kPartitionThresholdPerNode = 8,
   };
 
- public:
   explicit MasstreePartitioner(Partitioner* parent);
 
-  ErrorStack design_partition();
+  ErrorStack  design_partition(
+    memory::AlignedMemory* work_memory,
+    cache::SnapshotFileSet* snapshot_files);
+  uint64_t    get_required_design_buffer_size() const;
+
   bool is_partitionable() const;
   void partition_batch(
     PartitionId                     local_partition,
@@ -142,11 +151,39 @@ class MasstreePartitioner final {
  * We can't use any std::vector, std::string, etc.
  */
 struct MasstreePartitionerData final {
+  struct PartitionHeader {
+    /** byte offset of the low-key relative to get_key_region() */
+    uint32_t  key_offset_;
+    /** byte length of the low-key */
+    uint16_t  key_length_;
+    /** partition owner */
+    uint16_t  node_;
+  };
+
   // only for reinterpret_cast
   MasstreePartitionerData() = delete;
   ~MasstreePartitionerData() = delete;
 
+  char* get_key_region() { return reinterpret_cast<char*>(partitions_ + partition_count_); }
+  const char* get_key_region() const {
+    return reinterpret_cast<const char*>(partitions_ + partition_count_);
+  }
+  const char* get_partition_key(uint16_t partition) const {
+    return get_key_region() + partitions_[partition].key_offset_;
+  }
+
+  /** Returns the partition (node ID) that should contain the key */
+  uint16_t find_partition(const char* key, uint16_t key_length) const;
+
   // Note that you can't do sizeof(MasstreePartitionerData).
+
+  uint16_t  partition_count_;
+  char      padding_[6];
+  /**
+   * this is actually of size partition_count_. further partitions_[partition_count_] and later
+   * are used to store low-key.
+   */
+  PartitionHeader partitions_[1];
 };
 
 /**
@@ -155,22 +192,113 @@ struct MasstreePartitionerData final {
  * MasstreePartitionerData. Hence, we can use vector/string/etc in this struct.
  */
 struct MasstreePartitionerInDesignData final {
+  /**
+   * Represents a branch page.
+   */
   struct BranchPage {
-    MasstreePage*       page_;
-    std::string         prefix_;
-    uint32_t            fanout_;
+    BranchPage() {}
+    BranchPage(
+      const std::string& prefix,
+      memory::PagePoolOffset tmp_page_offset,
+      uint16_t owner_node)
+      : prefix_(prefix), tmp_page_offset_(tmp_page_offset), owner_node_(owner_node) {}
+    /*
+     * If the page is layer-1 or deeper, this stores the 8*layer bytes prefix.
+     */
+    std::string             prefix_;
+
+    /**
+     * Only for branch page. offset in tmp_pages_ that points to a copy of this page.
+     * 0 if record_.
+     */
+    memory::PagePoolOffset  tmp_page_offset_;
+
+    /** NUMA node that seems to own this page. this is not a final decision. */
+    uint16_t                owner_node_;
   };
-  MasstreePartitionerInDesignData(Engine* engine, StorageId id);
+  /** Finalized partition info */
+  struct Partition {
+    Partition() {}
+    Partition(const std::string& low_key, uint16_t owner_node)
+      : low_key_(low_key), owner_node_(owner_node) {}
+    std::string low_key_;
+    uint16_t    owner_node_;
+  };
+
+  MasstreePartitionerInDesignData(
+    Engine* engine,
+    StorageId id,
+    memory::AlignedMemory* work_memory,
+    cache::SnapshotFileSet* snapshot_files);
+  ~MasstreePartitionerInDesignData();
+
+  ErrorStack  initialize();
+
+  /** Phase-1. Enumerate enough branch pages as inputs */
+  ErrorStack  enumerate();
+
+  /** Phase-2. Finalize partition in designed_partitions_ based on enumerated info. */
+  ErrorStack  design();
+
+  /**
+   * Phase-3. Last step. Copy the designed partition information to a shared memory.
+   */
+  void        copy_output(MasstreePartitionerData* destination) const;
+  /** Caller must reserve this size before invoking copy_output */
+  uint32_t    get_output_size() const;
 
   /** Follows a volatile page pointer. If there isn't, follows snapshot page. */
-  MasstreePage* follow_pointer(DualPagePointer* ptr);
+  ErrorStack  read_page(const DualPagePointer& ptr, memory::PagePoolOffset offset);
+  /** Consume a branch page at the beginning of enumerated_pages_ and add pointers/records in it */
+  ErrorStack  pop_and_explore_branch_page();
+  /** Adds the given pointer to enumerated_pages_ */
+  ErrorStack  push_branch_page(const DualPagePointer& ptr, const std::string& prefix);
+
+  MasstreePage* resolve_tmp_page(memory::PagePoolOffset offset);
+
+  /**
+   * When this becomes desired_branches_ or larger, we stop enumeration.
+   */
+  uint32_t      get_branch_count() const {
+    return active_pages_.size() + terminal_pages_.size();
+  }
 
   Engine* const           engine_;
   const StorageId         id_;
   const MasstreeStorage   storage_;
+  /** Memory for tmp_pages_. */
+  memory::AlignedMemory* const  work_memory_;
+  /** To read from snapshot pages. */
+  cache::SnapshotFileSet* const snapshot_files_;
+  const uint32_t          desired_branches_;
   const memory::GlobalVolatilePageResolver& volatile_resolver_;
 
-  std::vector<BranchPage> branch_pages_;
+  // above are const, below are dynamic
+
+  /**
+   * All branch pages to be explored, in the order of enumeration.
+   * Newly enumerated pages are appended at last, and the earliest-enumerated page
+   * is dequeued from the top to spawn pages pointed from it. So, it's a FIFO queue.
+   */
+  std::queue<BranchPage>    active_pages_;
+  /**
+   * All branch pages that were already checked out to find pointers, but didn't have any pointers.
+   * This means it's a boundary page with only records, from which we can't digg down further.
+   * We keep them in a separate vector.
+   */
+  std::vector<BranchPage>   terminal_pages_;
+
+  /** design() populates this as a result */
+  std::vector<Partition>    designed_partitions_;
+
+  /** Actually of PagePoolControlBlock. */
+  char                      tmp_pages_control_block_[128];  // so far this is more than enough
+  /**
+   * Everything design_partition() reads is a copied image of pages stored here.
+   * It's a small page pool just enough for desired_branches_ plus a few more pages (in case
+   * the last ).
+   */
+  memory::PagePool          tmp_pages_;
 };
 
 }  // namespace masstree

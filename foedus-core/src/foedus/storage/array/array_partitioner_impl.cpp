@@ -153,9 +153,10 @@ void ArrayPartitioner::partition_batch(
   ASSERT_ND(data_->bucket_size_ > 0);
   assorted::ConstDiv bucket_size_div(data_->bucket_size_);
   for (uint32_t i = 0; i < logs_count; ++i) {
-    const ArrayOverwriteLogType *log = reinterpret_cast<const ArrayOverwriteLogType*>(
+    const ArrayCommonUpdateLogType *log = reinterpret_cast<const ArrayCommonUpdateLogType*>(
       log_buffer.resolve(log_positions[i]));
-    ASSERT_ND(log->header_.log_type_code_ == log::kLogCodeArrayOverwrite);
+    ASSERT_ND(log->header_.log_type_code_ == log::kLogCodeArrayOverwrite
+        || log->header_.log_type_code_ == log::kLogCodeArrayIncrement);
     ASSERT_ND(log->header_.storage_id_ == id_);
     ASSERT_ND(log->offset_ < get_array_size());
     uint64_t bucket = bucket_size_div.div64(log->offset_);
@@ -225,9 +226,10 @@ void ArrayPartitioner::sort_batch(
   const Epoch::EpochInteger base_epoch_int = base_epoch.value();
   SortEntry* entries = reinterpret_cast<SortEntry*>(sort_buffer.get_block());
   for (uint32_t i = 0; i < log_positions_count; ++i) {
-    const ArrayOverwriteLogType* log_entry = reinterpret_cast<const ArrayOverwriteLogType*>(
+    const ArrayCommonUpdateLogType* log_entry = reinterpret_cast<const ArrayCommonUpdateLogType*>(
       log_buffer.resolve(log_positions[i]));
-    ASSERT_ND(log_entry->header_.log_type_code_ == log::kLogCodeArrayOverwrite);
+    ASSERT_ND(log_entry->header_.log_type_code_ == log::kLogCodeArrayOverwrite
+      || log_entry->header_.log_type_code_ == log::kLogCodeArrayIncrement);
     uint16_t compressed_epoch;
     const Epoch::EpochInteger epoch = log_entry->header_.xct_id_.get_epoch_int();
     if (epoch >= base_epoch_int) {
@@ -261,24 +263,43 @@ void ArrayPartitioner::sort_batch(
     // compact the logs if the same offset appears in a row, and covers the same data region.
     // because we sorted it by offset and then ordinal, later logs can overwrite the earlier one.
     if (entries[i].get_offset() == entries[i - 1].get_offset()) {
-      // is the data region same or superseded?
-      const ArrayOverwriteLogType* prev = reinterpret_cast<const ArrayOverwriteLogType*>(
-        log_buffer.resolve(entries[i - 1].get_position()));
-      const ArrayOverwriteLogType* next = reinterpret_cast<const ArrayOverwriteLogType*>(
-        log_buffer.resolve(entries[i].get_position()));
-      uint16_t prev_begin = prev->payload_offset_;
-      uint16_t prev_end = prev_begin + prev->payload_count_;
-      uint16_t next_begin = next->payload_offset_;
-      uint16_t next_end = next_begin + next->payload_count_;
-      if (next_begin <= prev_begin && next_end >= prev_end) {
-        --result_count;
-      }
+      log::RecordLogType* prev_p = log_buffer.resolve(entries[i - 1].get_position());
+      const log::RecordLogType* next_p = log_buffer.resolve(entries[i].get_position());
+      if (prev_p->header_.log_type_code_ != next_p->header_.log_type_code_) {
+        // increment log can be superseded by overwrite log,
+        // overwrite log can be merged with increment log.
+        // however, these usecases are probably much less frequent than the following.
+        // so, we don't compact this case so far.
+      } else if (prev_p->header_.get_type() == log::kLogCodeArrayOverwrite) {
+        // two overwrite logs might be compacted
+        const ArrayOverwriteLogType* prev = reinterpret_cast<const ArrayOverwriteLogType*>(prev_p);
+        const ArrayOverwriteLogType* next = reinterpret_cast<const ArrayOverwriteLogType*>(next_p);
+        // is the data region same or superseded?
+        uint16_t prev_begin = prev->payload_offset_;
+        uint16_t prev_end = prev_begin + prev->payload_count_;
+        uint16_t next_begin = next->payload_offset_;
+        uint16_t next_end = next_begin + next->payload_count_;
+        if (next_begin <= prev_begin && next_end >= prev_end) {
+          --result_count;
+        }
 
-      // the logic checks data range against only the previous entry.
-      // we might have a situation where 3 or more log entries have the same array offset
-      // and the data regions are like following
-      // Log 1: [4, 8) bytes, Log 2: [8, 12) bytes, Log 3: [4, 8) bytes
-      // If we check further, Log 3 can eliminate Log 1. However, the check is expensive..
+        // the logic checks data range against only the previous entry.
+        // we might have a situation where 3 or more log entries have the same array offset
+        // and the data regions are like following
+        // Log 1: [4, 8) bytes, Log 2: [8, 12) bytes, Log 3: [4, 8) bytes
+        // If we check further, Log 3 can eliminate Log 1. However, the check is expensive..
+      } else {
+        // two increment logs of same type/offset can be merged into one.
+        ASSERT_ND(prev_p->header_.get_type() == log::kLogCodeArrayIncrement);
+        ArrayIncrementLogType* prev = reinterpret_cast<ArrayIncrementLogType*>(prev_p);
+        const ArrayIncrementLogType* next = reinterpret_cast<const ArrayIncrementLogType*>(next_p);
+        if (prev->value_type_ == next->value_type_
+          && prev->payload_offset_ == next->payload_offset_) {
+          // add up the next's addendum to prev, then delete next.
+          prev->merge(*next);
+          --result_count;
+        }
+      }
     }
     output_buffer[result_count] = entries[i].get_position();
     ++result_count;

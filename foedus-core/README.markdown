@@ -82,7 +82,7 @@ otherwise.
     ulimit -a
 
     # Add these entries to /etc/security/limits.conf.
-    <your_user_name>  - nofile -1
+    <your_user_name>  - nofile 655360
     <your_user_name>  - nproc 655360
     <your_user_name>  - rtprio 99
     <your_user_name>  - memlock -1
@@ -182,31 +182,6 @@ API Documents
 -----------
 For more details, start from <a href="modules.html">Module List</a> and
 <a href="namespaces.html">Namespace List</a>.
-
-
-<!-- We no longer use transparent hugepages. Commented out.
-Enabling Transparent Hugepages (THP)
---------
-Our library is geared to intensively exploit Hugepages via
-[THP](https://access.redhat.com/site/documentation/en-US/Red_Hat_Enterprise_Linux/6/html/Performance_Tuning_Guide/s-memory-transhuge.html)
-(Transparent Huge Pages).
-You should enable THP in *always* mode to maximize its performance.
-Make sure you enable THP (Transparent Huge Page) in *always* mode as follows.
-
-    sudo su
-    echo always > /sys/kernel/mm/transparent_hugepage/enabled
-
-To check if THP is enabled in always mode, run some experiments
-(e.g. experiments-core/src/foedus/storage/array/readonly_experiment)
-and watch for the value of *AnonHugePages* in /proc/meminfo before/during the experiments.
-
-If the value does not change, you have not enabled THP in always mode.
-We are consistently seeing *20-25%* of performance difference with and without properly enabled THP.
-If your linux distro does not support THP, the performance will significantly degrade although
-it will run correctly and safely.
-
-We rely on *always* mode because we simply allocate memory via libnuma without madvise.
--->
 
 Dependencies
 -----------

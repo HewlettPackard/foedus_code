@@ -87,6 +87,25 @@ std::ostream& operator<<(std::ostream& o, const Hex& v) {
   return o;
 }
 
+std::ostream& operator<<(std::ostream& o, const HexString& v) {
+  std::ios::fmtflags old_flags = o.flags();
+  o << "0x";
+  o.width(2);
+  o.fill('0');
+  o << std::hex << std::uppercase;
+  for (uint32_t i = 0; i < v.str_.size() && i < v.max_bytes_; ++i) {
+    if (i > 0 && i % 8U == 0) {
+      o << " ";  // put space for every 8 bytes for readability
+    }
+    o << static_cast<uint16_t>(v.str_[i]);
+  }
+  o.flags(old_flags);
+  if (v.max_bytes_ != -1U && v.str_.size() > v.max_bytes_) {
+    o << " ...(" << (v.str_.size() - v.max_bytes_) << " more bytes)";
+  }
+  return o;
+}
+
 std::ostream& operator<<(std::ostream& o, const Top& v) {
   for (uint32_t i = 0; i < std::min<uint32_t>(v.data_len_, v.max_bytes_); ++i) {
     o << i << ":" << static_cast<int>(v.data_[i]);

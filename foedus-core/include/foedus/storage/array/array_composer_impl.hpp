@@ -88,7 +88,7 @@ struct ArrayStreamStatus final {
   void init(snapshot::SortedBuffer* stream);
   ErrorCode next() ALWAYS_INLINE;
   void read_entry() ALWAYS_INLINE;
-  const ArrayOverwriteLogType* get_entry() const ALWAYS_INLINE;
+  const ArrayCommonUpdateLogType* get_entry() const ALWAYS_INLINE;
 
   snapshot::SortedBuffer* stream_;
   const char*     buffer_;
@@ -141,7 +141,7 @@ class ArrayComposeContext {
   /** @return whether next key belongs to a different page */
   bool update_next_route() ALWAYS_INLINE;
   ErrorCode update_cur_path();
-  const ArrayOverwriteLogType* get_next_entry() const ALWAYS_INLINE;
+  const ArrayCommonUpdateLogType* get_next_entry() const ALWAYS_INLINE;
 
   /** @pre levels_ > level. */
   ArrayRange calculate_array_range(LookupRoute route, uint8_t level) const ALWAYS_INLINE;

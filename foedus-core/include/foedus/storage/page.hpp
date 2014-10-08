@@ -228,7 +228,13 @@ struct PageHeader CXX11_FINAL {
    */
   uint8_t       masstree_layer_;  // +1 -> 21
 
-  uint8_t       reserved1_;       // +1 -> 22
+  /**
+   * A loosely maintained statistics for volatile pages.
+   * The NUMA node of the thread that has most recently tried to update this page.
+   * This is not atomically/transactionally maintained and should be used only as a stat.
+   * Depending on page type, this might not be even maintained (eg implicit in sequential pages).
+   */
+  uint8_t       stat_last_updater_node_;       // +1 -> 22
   uint8_t       reserved2_;       // +1 -> 23
   uint8_t       reserved3_;       // +1 -> 24
 
@@ -255,7 +261,7 @@ struct PageHeader CXX11_FINAL {
     snapshot_ = false;
     key_count_ = 0;
     masstree_layer_ = 0;
-    reserved1_ = 0;
+    stat_last_updater_node_ = page_id.components.numa_node;
     reserved2_ = 0;
     reserved3_ = 0;
     page_version_.reset();
@@ -272,7 +278,7 @@ struct PageHeader CXX11_FINAL {
     snapshot_ = true;
     key_count_ = 0;
     masstree_layer_ = 0;
-    reserved1_ = 0;
+    stat_last_updater_node_ = extract_numa_node_from_snapshot_pointer(page_id);
     reserved2_ = 0;
     reserved3_ = 0;
     page_version_.reset();

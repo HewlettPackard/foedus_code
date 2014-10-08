@@ -12,6 +12,7 @@
 namespace foedus {
 namespace storage {
 namespace array {
+struct  ArrayCommonUpdateLogType;
 struct  ArrayCreateLogType;
 struct  ArrayIncrementLogType;
 struct  ArrayMetadata;

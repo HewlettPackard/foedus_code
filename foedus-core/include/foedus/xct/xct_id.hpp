@@ -161,8 +161,8 @@ class CombinedLock {
  public:
   enum Constants {
     kMaskVersion  = 0xFFFF,
+    // 17th-24th bits reserved for range lock implementation
     kRangelockBit = 1 << 17,
-    // more bits reserved for range lock implementation
   };
 
   CombinedLock() : key_lock_(), other_locks_(0) {}
@@ -172,6 +172,16 @@ class CombinedLock {
 
   McsLock* get_key_lock() ALWAYS_INLINE { return &key_lock_; }
   const McsLock* get_key_lock() const ALWAYS_INLINE { return &key_lock_; }
+
+  /** Not used yet... */
+  /*
+   * Highest 1 byte represents a loosely maintained NUMA-node of the last locker.
+   * This is only used as statistics in partitioning. Not atomically updated.
+   */
+  // uint8_t get_node_stat() const { return (other_locks_ & 0xFF000000U) >> 24;}
+  // void set_node_stat(uint8_t node) {
+  //  other_locks_ = (other_locks_ & (0x00FFFFFFU)) | (static_cast<uint32_t>(node) << 24);
+  // }
 
   uint16_t get_version() const { return other_locks_ & kMaskVersion; }
   void increment_version() {

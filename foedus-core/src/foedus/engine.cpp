@@ -56,6 +56,7 @@ bool        Engine::is_forked_child() const { return pimpl_->type_ == kChildFork
 bool        Engine::is_local_spawned_child() const { return pimpl_->type_ == kChildLocalSpawned; }
 bool        Engine::is_remote_spawned_child() const { return pimpl_->type_ == kChildRemoteSpawned; }
 soc::SocId  Engine::get_soc_id() const      { return pimpl_->soc_id_; }
+soc::SocId  Engine::get_soc_count() const   { return pimpl_->options_.thread_.group_count_; }
 soc::Upid   Engine::get_master_upid() const { return pimpl_->master_upid_; }
 
 }  // namespace foedus

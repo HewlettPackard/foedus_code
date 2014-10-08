@@ -187,6 +187,8 @@ class Engine CXX11_FINAL : public virtual Initializable {
   bool        is_remote_spawned_child() const;
   /** If this is a child instance, returns its SOC ID (NUMA node). Otherwise always 0. */
   soc::SocId  get_soc_id() const;
+  /** Shorthand for get_options().thread_.group_count_ */
+  soc::SocId  get_soc_count() const;
   /** Returns Universal (or Unique) ID of the master process. */
   soc::Upid   get_master_upid() const;
 
