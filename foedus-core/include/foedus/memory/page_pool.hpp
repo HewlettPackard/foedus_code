@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include <iosfwd>
+#include <string>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/cxx11.hpp"
@@ -142,6 +143,9 @@ class PagePool CXX11_FINAL : public virtual Initializable {
   storage::Page*        get_base() const;
   uint64_t              get_memory_size() const;
   Stat                  get_stat() const;
+  std::string           get_debug_pool_name() const;
+  /** Call this anytime after attach() */
+  void                  set_debug_pool_name(const std::string& name);
 
   /**
    * @brief Adds the specified number of free pages to the chunk.

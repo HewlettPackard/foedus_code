@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <string>
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
@@ -93,7 +94,8 @@ ErrorStack  PagePool::uninitialize() { return pimpl_->uninitialize(); }
 uint64_t    PagePool::get_memory_size() const { return pimpl_->memory_size_; }
 PagePool::Stat PagePool::get_stat() const { return pimpl_->get_stat(); }
 storage::Page* PagePool::get_base() const { return pimpl_->pool_base_; }
-
+std::string PagePool::get_debug_pool_name() const { return pimpl_->get_debug_pool_name(); }
+void PagePool::set_debug_pool_name(const std::string& name) { pimpl_->set_debug_pool_name(name); }
 
 ErrorCode   PagePool::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chunk) {
   return pimpl_->grab(desired_grab_count, chunk);

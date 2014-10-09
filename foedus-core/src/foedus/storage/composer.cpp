@@ -31,12 +31,11 @@ Composer::Composer(Engine *engine, StorageId storage_id)
     storage_id_(storage_id),
     storage_type_(engine_->get_storage_manager()->get_storage(storage_id_)->meta_.type_) {}
 
+
 ErrorStack Composer::compose(const ComposeArguments& args) {
   switch (storage_type_) {
-    case kArrayStorage:
-      return array::ArrayComposer(this).compose(args);
-    case kSequentialStorage:
-      return sequential::SequentialComposer(this).compose(args);
+    case kArrayStorage: return array::ArrayComposer(this).compose(args);
+    case kSequentialStorage: return sequential::SequentialComposer(this).compose(args);
     // TODO(Hideaki) implement
     case kMasstreeStorage:
     case kHashStorage:
@@ -47,10 +46,8 @@ ErrorStack Composer::compose(const ComposeArguments& args) {
 
 ErrorStack Composer::construct_root(const ConstructRootArguments& args) {
   switch (storage_type_) {
-    case kArrayStorage:
-      return array::ArrayComposer(this).construct_root(args);
-    case kSequentialStorage:
-      return sequential::SequentialComposer(this).construct_root(args);
+    case kArrayStorage: return array::ArrayComposer(this).construct_root(args);
+    case kSequentialStorage: return sequential::SequentialComposer(this).construct_root(args);
     // TODO(Hideaki) implement
     case kMasstreeStorage:
     case kHashStorage:

@@ -94,6 +94,20 @@ ErrorStack ThreadPimpl::uninitialize_once() {
     }
     control_block_->status_ = kTerminated;
   }
+  {
+    // release retired volatile pages. we do this in thread module rather than in memory module
+    // because this has to happen before NumaNodeMemory of any node is uninitialized.
+    for (uint16_t node = 0; node < engine_->get_soc_count(); ++node) {
+      memory::PagePoolOffsetAndEpochChunk* chunk
+        = core_memory_->get_retired_volatile_pool_chunk(node);
+      memory::PagePool* volatile_pool
+        = engine_->get_memory_manager()->get_node_memory(node)->get_volatile_pool();
+      if (!chunk->empty()) {
+        volatile_pool->release(chunk->size(), chunk);
+      }
+      ASSERT_ND(chunk->empty());
+    }
+  }
   batch.emprace_back(snapshot_file_set_.uninitialize());
   batch.emprace_back(log_buffer_.uninitialize());
   core_memory_ = nullptr;

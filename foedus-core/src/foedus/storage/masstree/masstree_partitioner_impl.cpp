@@ -341,6 +341,8 @@ ErrorStack MasstreePartitionerInDesignData::initialize() {
     work_memory_->get_block(),
     work_memory_->get_size(),
     true);
+  tmp_pages_.set_debug_pool_name(
+    std::string("Masstree-partitioner-tmp_pages_") + std::to_string(id_));
   CHECK_ERROR(tmp_pages_.initialize());
   return kRetOk;
 }

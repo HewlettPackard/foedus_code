@@ -47,6 +47,9 @@ ErrorStack NumaNodeMemory::initialize_once() {
     memory_repo->get_volatile_pool(numa_node_),
     volatile_size,
     true);
+  volatile_pool_.set_debug_pool_name(
+    std::string("VolatilePool-")
+    + std::to_string(static_cast<int>(numa_node_)));
 
   // snapshot pool is SOC-local
   allocate_huge_numa_memory(
@@ -58,6 +61,9 @@ ErrorStack NumaNodeMemory::initialize_once() {
     snapshot_pool_memory_.get_block(),
     snapshot_pool_memory_.get_size(),
     true);
+  snapshot_pool_.set_debug_pool_name(
+    std::string("SnapshotPool-")
+    + std::to_string(static_cast<int>(numa_node_)));
 
   CHECK_ERROR(volatile_pool_.initialize());
   CHECK_ERROR(snapshot_pool_.initialize());

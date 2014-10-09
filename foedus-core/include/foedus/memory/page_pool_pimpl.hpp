@@ -8,10 +8,12 @@
 #include <stdint.h>
 
 #include <iosfwd>
+#include <string>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/assorted/fixed_string.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
 #include "foedus/memory/page_resolver.hpp"
@@ -38,6 +40,9 @@ struct PagePoolControlBlock {
   uint64_t                        free_pool_head_;
   /** Number of free pages. */
   uint64_t                        free_pool_count_;
+
+  /** just for debugging/logging. concise description of this pool instance. eg "VolatilePool-3". */
+  assorted::FixedString<60>       debug_pool_name_;
 
   /**
    * grab()/release() are protected with this lock.
@@ -75,6 +80,23 @@ class PagePoolPimpl final : public DefaultInitializable {
   uint64_t            free_pool_head() const { return control_block_->free_pool_head_;}
   uint64_t&           free_pool_count() { return control_block_->free_pool_count_;}
   uint64_t            free_pool_count() const { return control_block_->free_pool_count_;}
+
+  std::string         get_debug_pool_name() const {
+    if (control_block_) {
+      if (!control_block_->debug_pool_name_.empty()) {
+        return control_block_->debug_pool_name_.str();
+      } else {
+        return "Unnamed";
+      }
+    } else {
+      return "Not-attached";
+    }
+  }
+  void                set_debug_pool_name(const std::string& name) {
+    if (control_block_) {
+      control_block_->debug_pool_name_.assign(name);
+    }
+  }
 
   friend std::ostream& operator<<(std::ostream& o, const PagePoolPimpl& v);
 
