@@ -93,31 +93,25 @@ SequentialPage* SequentialComposer::compose_new_head(
   return page;
 }
 
-ErrorStack SequentialComposer::compose(
-  snapshot::SnapshotWriter*         snapshot_writer,
-  cache::SnapshotFileSet*           /*previous_snapshot_files*/,
-  snapshot::SortedBuffer* const*    log_streams,
-  uint32_t                          log_streams_count,
-  const memory::AlignedMemorySlice& /*work_memory*/,
-  Page*                             root_info_page) {
+ErrorStack SequentialComposer::compose(const Composer::ComposeArguments& args) {
   debugging::StopWatch stop_watch;
-
   // this compose() emits just one pointer to the head page.
-  std::memset(root_info_page, 0, sizeof(Page));
-  RootInfoPage* root_info_page_casted = reinterpret_cast<RootInfoPage*>(root_info_page);
+  std::memset(args.root_info_page_, 0, sizeof(Page));
+  RootInfoPage* root_info_page_casted = reinterpret_cast<RootInfoPage*>(args.root_info_page_);
   root_info_page_casted->header_.storage_id_ = storage_id_;
   root_info_page_casted->pointer_count_ = 0;
 
   // Everytime it's full, we write out all pages. much simpler than other storage types.
   // No intermediate pages to track any information.
+  snapshot::SnapshotWriter* snapshot_writer = args.snapshot_writer_;
   SequentialPage* base = reinterpret_cast<SequentialPage*>(snapshot_writer->get_page_base());
   SequentialPage* cur_page = compose_new_head(snapshot_writer, root_info_page_casted);
   uint32_t allocated_pages = 1;
   const uint32_t max_pages = snapshot_writer->get_page_size();
-  VLOG(0) << to_string() << " composing with " << log_streams_count << " streams.";
-  for (uint32_t i = 0; i < log_streams_count; ++i) {
+  VLOG(0) << to_string() << " composing with " << args.log_streams_count_ << " streams.";
+  for (uint32_t i = 0; i < args.log_streams_count_; ++i) {
     StreamStatus status;
-    status.init(log_streams[i]);
+    status.init(args.log_streams_[i]);
     const SequentialAppendLogType* entry = status.get_entry();
 
     // need to allocate a new page?
@@ -163,23 +157,19 @@ ErrorStack SequentialComposer::compose(
   return kRetOk;
 }
 
-ErrorStack SequentialComposer::construct_root(
-  snapshot::SnapshotWriter*         snapshot_writer,
-  cache::SnapshotFileSet*           previous_snapshot_files,
-  const Page* const*                root_info_pages,
-  uint32_t                          root_info_pages_count,
-  const memory::AlignedMemorySlice& work_memory,
-  SnapshotPagePointer*              new_root_page_pointer) {
+ErrorStack SequentialComposer::construct_root(const Composer::ConstructRootArguments& args) {
   debugging::StopWatch stop_watch;
 
+  snapshot::SnapshotWriter* snapshot_writer = args.snapshot_writer_;
   std::vector<SnapshotPagePointer> all_head_pages;
   SequentialStorage storage(engine_, storage_id_);
   SnapshotPagePointer previous_root_page_pointer = storage.get_metadata()->root_snapshot_page_id_;
   for (SnapshotPagePointer page_id = previous_root_page_pointer; page_id != 0;) {
     // if there already is a root page, read them all.
     // we have to anyway re-write all of them, at least the next pointer.
-    SequentialRootPage* root_page = reinterpret_cast<SequentialRootPage*>(work_memory.get_block());
-    WRAP_ERROR_CODE(previous_snapshot_files->read_page(page_id, root_page));
+    SequentialRootPage* root_page = reinterpret_cast<SequentialRootPage*>(
+      args.work_memory_.get_block());
+    WRAP_ERROR_CODE(args.previous_snapshot_files_->read_page(page_id, root_page));
     ASSERT_ND(root_page->header().storage_id_ == storage_id_);
     ASSERT_ND(root_page->header().page_id_ == page_id);
     for (uint16_t i = 0; i < root_page->get_pointer_count(); ++i) {
@@ -189,8 +179,8 @@ ErrorStack SequentialComposer::construct_root(
   }
 
   // each root_info_page contains one or more pointers to head pages.
-  for (uint32_t i = 0; i < root_info_pages_count; ++i) {
-    const RootInfoPage* info_page = reinterpret_cast<const RootInfoPage*>(root_info_pages[i]);
+  for (uint32_t i = 0; i < args.root_info_pages_count_; ++i) {
+    const RootInfoPage* info_page = reinterpret_cast<const RootInfoPage*>(args.root_info_pages_[i]);
     ASSERT_ND(info_page->header_.storage_id_ == storage_id_);
     ASSERT_ND(info_page->pointer_count_ > 0);
     for (uint32_t j = 0; j < info_page->pointer_count_; ++j) {
@@ -235,7 +225,7 @@ ErrorStack SequentialComposer::construct_root(
   stop_watch.stop();
   VLOG(0) << to_string() << " construct_root() done in " << stop_watch.elapsed_us() << "us."
     << " total head page pointers=" << all_head_pages.size()
-    << ". new root head page=" << assorted::Hex(*new_root_page_pointer)
+    << ". new root head page=" << assorted::Hex(*args.new_root_page_pointer_)
     << ". root_page_count=" << allocated_pages;
   return kRetOk;
 }

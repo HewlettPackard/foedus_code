@@ -143,25 +143,20 @@ ErrorStack ArrayPartitioner::design_partition() {
   return kRetOk;
 }
 
-void ArrayPartitioner::partition_batch(
-  PartitionId /*local_partition*/,
-  const snapshot::LogBuffer&      log_buffer,
-  const snapshot::BufferPosition* log_positions,
-  uint32_t                        logs_count,
-  PartitionId*                    results) const {
+void ArrayPartitioner::partition_batch(const Partitioner::PartitionBatchArguments& args) const {
   ASSERT_ND(is_partitionable());
   ASSERT_ND(data_->bucket_size_ > 0);
   assorted::ConstDiv bucket_size_div(data_->bucket_size_);
-  for (uint32_t i = 0; i < logs_count; ++i) {
+  for (uint32_t i = 0; i < args.logs_count_; ++i) {
     const ArrayCommonUpdateLogType *log = reinterpret_cast<const ArrayCommonUpdateLogType*>(
-      log_buffer.resolve(log_positions[i]));
+      args.log_buffer_.resolve(args.log_positions_[i]));
     ASSERT_ND(log->header_.log_type_code_ == log::kLogCodeArrayOverwrite
         || log->header_.log_type_code_ == log::kLogCodeArrayIncrement);
     ASSERT_ND(log->header_.storage_id_ == id_);
     ASSERT_ND(log->offset_ < get_array_size());
     uint64_t bucket = bucket_size_div.div64(log->offset_);
     ASSERT_ND(bucket < kInteriorFanout);
-    results[i] = get_bucket_owners()[bucket];
+    args.results_[i] = get_bucket_owners()[bucket];
   }
 }
 
@@ -203,31 +198,24 @@ uint64_t ArrayPartitioner::get_required_sort_buffer_size(uint32_t log_count) con
   return sizeof(SortEntry) * log_count;
 }
 
-void ArrayPartitioner::sort_batch(
-    const snapshot::LogBuffer&        log_buffer,
-    const snapshot::BufferPosition*   log_positions,
-    uint32_t                          log_positions_count,
-    const memory::AlignedMemorySlice& sort_buffer,
-    Epoch                             base_epoch,
-    snapshot::BufferPosition*         output_buffer,
-    uint32_t*                         written_count) const {
-  if (log_positions_count == 0) {
-    *written_count = 0;
+void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) const {
+  if (args.logs_count_ == 0) {
+    *args.written_count_ = 0;
     return;
-  } else if (sort_buffer.get_size() < sizeof(SortEntry) * log_positions_count) {
-    LOG(FATAL) << "Sort buffer is too small! log count=" << log_positions_count
-      << ", buffer= " << sort_buffer
-      << ", required=" << get_required_sort_buffer_size(log_positions_count);
+  } else if (args.sort_buffer_.get_size() < sizeof(SortEntry) * args.logs_count_) {
+    LOG(FATAL) << "Sort buffer is too small! log count=" << args.logs_count_
+      << ", buffer= " << args.sort_buffer_
+      << ", required=" << get_required_sort_buffer_size(args.logs_count_);
   }
 
   debugging::StopWatch stop_watch_entire;
 
   ASSERT_ND(sizeof(SortEntry) == 16);
-  const Epoch::EpochInteger base_epoch_int = base_epoch.value();
-  SortEntry* entries = reinterpret_cast<SortEntry*>(sort_buffer.get_block());
-  for (uint32_t i = 0; i < log_positions_count; ++i) {
+  const Epoch::EpochInteger base_epoch_int = args.base_epoch_.value();
+  SortEntry* entries = reinterpret_cast<SortEntry*>(args.sort_buffer_.get_block());
+  for (uint32_t i = 0; i < args.logs_count_; ++i) {
     const ArrayCommonUpdateLogType* log_entry = reinterpret_cast<const ArrayCommonUpdateLogType*>(
-      log_buffer.resolve(log_positions[i]));
+      args.log_buffer_.resolve(args.log_positions_[i]));
     ASSERT_ND(log_entry->header_.log_type_code_ == log::kLogCodeArrayOverwrite
       || log_entry->header_.log_type_code_ == log::kLogCodeArrayIncrement);
     uint16_t compressed_epoch;
@@ -244,7 +232,7 @@ void ArrayPartitioner::sort_batch(
       log_entry->offset_,
       compressed_epoch,
       log_entry->header_.xct_id_.get_ordinal(),
-      log_positions[i]);
+      args.log_positions_[i]);
   }
 
   debugging::StopWatch stop_watch;
@@ -252,19 +240,18 @@ void ArrayPartitioner::sort_batch(
   // Actually, we need only 12-bytes sorting, so perhaps doing without __uint128_t is faster?
   std::sort(
     reinterpret_cast<__uint128_t*>(entries),
-    reinterpret_cast<__uint128_t*>(entries + log_positions_count));
+    reinterpret_cast<__uint128_t*>(entries + args.logs_count_));
   stop_watch.stop();
-  VLOG(0) << "Sorted " << log_positions_count
-    << " log entries in " << stop_watch.elapsed_ms() << "ms";
+  VLOG(0) << "Sorted " << args.logs_count_ << " log entries in " << stop_watch.elapsed_ms() << "ms";
 
   uint32_t result_count = 1;
-  output_buffer[0] = entries[0].get_position();
-  for (uint32_t i = 1; i < log_positions_count; ++i) {
+  args.output_buffer_[0] = entries[0].get_position();
+  for (uint32_t i = 1; i < args.logs_count_; ++i) {
     // compact the logs if the same offset appears in a row, and covers the same data region.
     // because we sorted it by offset and then ordinal, later logs can overwrite the earlier one.
     if (entries[i].get_offset() == entries[i - 1].get_offset()) {
-      log::RecordLogType* prev_p = log_buffer.resolve(entries[i - 1].get_position());
-      const log::RecordLogType* next_p = log_buffer.resolve(entries[i].get_position());
+      log::RecordLogType* prev_p = args.log_buffer_.resolve(entries[i - 1].get_position());
+      const log::RecordLogType* next_p = args.log_buffer_.resolve(entries[i].get_position());
       if (prev_p->header_.log_type_code_ != next_p->header_.log_type_code_) {
         // increment log can be superseded by overwrite log,
         // overwrite log can be merged with increment log.
@@ -301,15 +288,15 @@ void ArrayPartitioner::sort_batch(
         }
       }
     }
-    output_buffer[result_count] = entries[i].get_position();
+    args.output_buffer_[result_count] = entries[i].get_position();
     ++result_count;
   }
 
   stop_watch_entire.stop();
   VLOG(0) << "Array-" << id_ << " sort_batch() done in  " << stop_watch_entire.elapsed_ms()
-      << "ms  for " << log_positions_count << " log entries, compacted them to"
+      << "ms  for " << args.logs_count_ << " log entries, compacted them to"
         << result_count << " log entries";
-  *written_count = result_count;
+  *args.written_count_ = result_count;
 }
 
 std::ostream& operator<<(std::ostream& o, const ArrayPartitioner& v) {

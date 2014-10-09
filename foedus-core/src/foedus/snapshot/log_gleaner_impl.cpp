@@ -254,13 +254,14 @@ ErrorStack LogGleaner::construct_root_pages() {
 
     storage::Composer composer(engine_, min_storage_id);
     storage::SnapshotPagePointer new_root_page_pointer;
-    CHECK_ERROR(composer.construct_root(
+    storage::Composer::ConstructRootArguments args = {
       &snapshot_writer,
       &fileset,
       &tmp_array[0],
       input_count,
       work_memory_slice,
-      &new_root_page_pointer));
+      &new_root_page_pointer};
+    CHECK_ERROR(composer.construct_root(args));
     ASSERT_ND(new_root_page_pointer > 0);
     ASSERT_ND(new_root_page_pointers_.find(min_storage_id) == new_root_page_pointers_.end());
     new_root_page_pointers_.insert(std::pair<storage::StorageId, storage::SnapshotPagePointer>(

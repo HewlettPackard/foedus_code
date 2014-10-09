@@ -298,14 +298,15 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
   BufferPosition* outputs = reinterpret_cast<BufferPosition*>(
     output_positions_slice_.get_block());
   uint32_t written_count = 0;
-  partitioner.sort_batch(
+  storage::Partitioner::SortBatchArguments args = {
     buffer,
     inputs,
-    records,
+    static_cast<uint32_t>(records),
     memory::AlignedMemorySlice(&sort_buffer_),
     parent_.get_base_epoch(),
     outputs,
-    &written_count);
+    &written_count};
+  partitioner.sort_batch(args);
 
   // write them out to the file
   CHECK_ERROR(dump_buffer_sort_storage_write(
@@ -571,13 +572,14 @@ ErrorStack LogReducer::merge_sort() {
     // snapshot_reader_.get_or_open_file();
     ASSERT_ND(control_block_->total_storage_count_ <= get_max_storage_count());
     storage::Page* root_info_page = root_info_pages_ + control_block_->total_storage_count_;
-    CHECK_ERROR(composer.compose(
+    storage::Composer::ComposeArguments args = {
       &snapshot_writer,
       &previous_snapshot_files_,
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_,
       memory::AlignedMemorySlice(&composer_work_memory_),
-      root_info_page));
+      root_info_page};
+    CHECK_ERROR(composer.compose(args));
 
     // move on to next blocks
     for (uint32_t i = 0 ; i < context.sorted_buffer_count_; ++i) {

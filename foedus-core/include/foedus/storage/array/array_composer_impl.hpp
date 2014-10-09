@@ -41,21 +41,8 @@ class ArrayComposer final {
 
   std::string to_string() const;
 
-  ErrorStack compose(
-    snapshot::SnapshotWriter*         snapshot_writer,
-    cache::SnapshotFileSet*           previous_snapshot_files,
-    snapshot::SortedBuffer* const*    log_streams,
-    uint32_t                          log_streams_count,
-    const memory::AlignedMemorySlice& work_memory,
-    Page*                             root_info_page);
-
-  ErrorStack construct_root(
-    snapshot::SnapshotWriter*         snapshot_writer,
-    cache::SnapshotFileSet*           previous_snapshot_files,
-    const Page* const*                root_info_pages,
-    uint32_t                          root_info_pages_count,
-    const memory::AlignedMemorySlice& work_memory,
-    SnapshotPagePointer*              new_root_page_pointer);
+  ErrorStack compose(const Composer::ComposeArguments& args);
+  ErrorStack construct_root(const Composer::ConstructRootArguments& args);
 
   uint64_t get_required_work_memory_size(
     snapshot::SortedBuffer** log_streams,

@@ -90,41 +90,61 @@ class Partitioner CXX11_FINAL : public Attachable<PartitionerMetadata> {
    */
   ErrorStack design_partition();
 
+  /** Arguments for partition_batch() */
+  struct PartitionBatchArguments {
+    /** The node the caller (mapper) resides in. */
+    PartitionId                     local_partition_;
+    /** Converts from positions to physical pointers. */
+    const snapshot::LogBuffer&      log_buffer_;
+    /** positions of log records. All of them must be logs of this storage. */
+    const snapshot::BufferPosition* log_positions_;
+    /** number of entries to process. */
+    uint32_t                        logs_count_;
+    /** [OUT] this method will set the partition of logs[i] to results[i]. */
+    PartitionId*                    results_;
+  };
+
   /**
    * @brief Identifies the partition of each log record in a batched fashion.
-   * @param[in] local_partition The node the caller (mapper) resides in.
-   * @param[in] log_buffer Converts from positions to physical pointers.
-   * @param[in] log_positions positions of log records. All of them must be logs of this storage.
-   * @param[in] logs_count number of entries to process.
-   * @param[out] results this method will set the partition of logs[i] to results[i].
    * @pre !is_partitionable(): in this case, it's waste of time. check it before calling this.
    * @details
    * Each storage type implements this method based on the statistics passed to
    * create_partitioner(). For better performance, logs_count is usually at least thousands.
    * Assume the scale when you optimize the implementation in derived classes.
    */
-  void partition_batch(
-    PartitionId                     local_partition,
-    const snapshot::LogBuffer&      log_buffer,
-    const snapshot::BufferPosition* log_positions,
-    uint32_t                        logs_count,
-    PartitionId*                    results);
+  void partition_batch(const PartitionBatchArguments& args);
+
+  /** Arguments for sort_batch() */
+  struct SortBatchArguments {
+    /** Converts from positions to physical pointers. */
+    const snapshot::LogBuffer&        log_buffer_;
+    /** positions of log records. All of them must be logs of this storage. */
+    const snapshot::BufferPosition*   log_positions_;
+    /** number of entries to process. */
+    uint32_t                          logs_count_;
+    /** For whatever purpose, the implementation can use this buffer as temporary working space. */
+    memory::AlignedMemorySlice        sort_buffer_;
+    /**
+     * All log entries in this inputs are assured to be after this epoch.
+     * Also, it is assured to be within 2^16 from this epoch.
+     * Even with 10 milliseconds per epoch, this corresponds to more than 10 hours.
+     * Snapshot surely happens more often than that.
+     */
+    Epoch                             base_epoch_;
+    /**
+     * sorted results are written to this variable.
+     * the buffer size is at least of log_positions_count_.
+     */
+    snapshot::BufferPosition*         output_buffer_;
+    /**
+     * [OUT] how many logs written to output_buffer. If there was no compaction,
+     * this will be same as log_positions_count_.
+     */
+    uint32_t*                         written_count_;
+  };
 
   /**
    * @brief Called from log reducer to sort log entries by keys.
-   * @param[in] log_buffer Converts from positions to physical pointers.
-   * @param[in] log_positions positions of log records. All of them must be logs of this storage.
-   * @param[in] logs_count number of entries to process.
-   * @param[in] sort_buffer For whatever purpose, the implementation can use this buffer as
-   * temporary working space.
-   * @param[in] base_epoch All log entries in this inputs are assured to be after this epoch.
-   * Also, it is assured to be within 2^16 from this epoch.
-   * Even with 10 milliseconds per epoch, this corresponds to more than 10 hours.
-   * Snapshot surely happens more often than that.
-   * @param[out] output_buffer sorted results are written to this variable.
-   * the buffer size is at least of log_positions_count_.
-   * @param[out] written_count how many logs written to output_buffer. If there was no compaction,
-   * this will be same as log_positions_count_.
    * @details
    * All log entries passed to this method are for this storage.
    * Each storage type implements an efficient and batched way of sorting all log entries
@@ -134,14 +154,7 @@ class Partitioner CXX11_FINAL : public Attachable<PartitionerMetadata> {
    * one log. In that case, written_count becomes smaller than log_positions_count_.
    * @see get_required_sort_buffer_size()
    */
-  void                sort_batch(
-    const snapshot::LogBuffer&        log_buffer,
-    const snapshot::BufferPosition*   log_positions,
-    uint32_t                          logs_count,
-    const memory::AlignedMemorySlice& sort_buffer,
-    Epoch                             base_epoch,
-    snapshot::BufferPosition*         output_buffer,
-    uint32_t*                         written_count);
+  void                sort_batch(const SortBatchArguments& args);
 
   /** Returns required size of sort buffer for sort_batch() */
   uint64_t            get_required_sort_buffer_size(uint32_t log_count);

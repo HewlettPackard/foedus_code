@@ -107,70 +107,34 @@ ErrorStack Partitioner::design_partition() {
   }
 }
 
-void Partitioner::partition_batch(
-  PartitionId                     local_partition,
-  const snapshot::LogBuffer&      log_buffer,
-  const snapshot::BufferPosition* log_positions,
-  uint32_t                        logs_count,
-  PartitionId*                    results) {
+void Partitioner::partition_batch(const Partitioner::PartitionBatchArguments& args) {
   switch (type_) {
   case kArrayStorage:
-    array::ArrayPartitioner(this).partition_batch(
-      local_partition,
-      log_buffer,
-      log_positions,
-      logs_count,
-      results);
+    array::ArrayPartitioner(this).partition_batch(args);
     break;
   case kHashStorage:
     break;
   case kMasstreeStorage:
     break;
   case kSequentialStorage:
-    sequential::SequentialPartitioner(this).partition_batch(
-      local_partition,
-      log_buffer,
-      log_positions,
-      logs_count,
-      results);
+    sequential::SequentialPartitioner(this).partition_batch(args);
     break;
   default:
     LOG(FATAL) << "Unsupported storage type:" << type_;
   }
 }
 
-void Partitioner::sort_batch(
-  const snapshot::LogBuffer&        log_buffer,
-  const snapshot::BufferPosition*   log_positions,
-  uint32_t                          logs_count,
-  const memory::AlignedMemorySlice& sort_buffer,
-  Epoch                             base_epoch,
-  snapshot::BufferPosition*         output_buffer,
-  uint32_t*                         written_count) {
+void Partitioner::sort_batch(const Partitioner::SortBatchArguments& args) {
   switch (type_) {
   case kArrayStorage:
-    array::ArrayPartitioner(this).sort_batch(
-      log_buffer,
-      log_positions,
-      logs_count,
-      sort_buffer,
-      base_epoch,
-      output_buffer,
-      written_count);
+    array::ArrayPartitioner(this).sort_batch(args);
     break;
   case kHashStorage:
     break;
   case kMasstreeStorage:
     break;
   case kSequentialStorage:
-    sequential::SequentialPartitioner(this).sort_batch(
-      log_buffer,
-      log_positions,
-      logs_count,
-      sort_buffer,
-      base_epoch,
-      output_buffer,
-      written_count);
+    sequential::SequentialPartitioner(this).sort_batch(args);
     break;
   default:
     LOG(FATAL) << "Unsupported storage type:" << type_;
