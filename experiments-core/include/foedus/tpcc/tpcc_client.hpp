@@ -20,6 +20,7 @@
 #include "foedus/assorted/fixed_string.hpp"
 #include "foedus/assorted/uniform_random.hpp"
 #include "foedus/memory/aligned_memory.hpp"
+#include "foedus/proc/proc_id.hpp"
 #include "foedus/soc/shared_rendezvous.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -54,13 +55,7 @@ struct TpccClientChannel {
 /**
  * Invoke TpccClientTask, which defines Inputs/Outputs.
  */
-ErrorStack tpcc_client_task(
-  thread::Thread* context,
-  const void* input_buffer,
-  uint32_t input_len,
-  void* output_buffer,
-  uint32_t output_buffer_size,
-  uint32_t* output_used);
+ErrorStack tpcc_client_task(const proc::ProcArguments& args);
 
 /**
  * @brief The worker thread to run transactions in the experiment.

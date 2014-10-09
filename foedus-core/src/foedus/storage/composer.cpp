@@ -31,30 +31,11 @@ Composer::Composer(Engine *engine, StorageId storage_id)
     storage_id_(storage_id),
     storage_type_(engine_->get_storage_manager()->get_storage(storage_id_)->meta_.type_) {}
 
-ErrorStack Composer::compose(
-  snapshot::SnapshotWriter*         snapshot_writer,
-  cache::SnapshotFileSet*           previous_snapshot_files,
-  snapshot::SortedBuffer* const*    log_streams,
-  uint32_t                          log_streams_count,
-  const memory::AlignedMemorySlice& work_memory,
-  Page*                             root_info_page) {
+
+ErrorStack Composer::compose(const ComposeArguments& args) {
   switch (storage_type_) {
-    case kArrayStorage:
-      return array::ArrayComposer(this).compose(
-        snapshot_writer,
-        previous_snapshot_files,
-        log_streams,
-        log_streams_count,
-        work_memory,
-        root_info_page);
-    case kSequentialStorage:
-      return sequential::SequentialComposer(this).compose(
-        snapshot_writer,
-        previous_snapshot_files,
-        log_streams,
-        log_streams_count,
-        work_memory,
-        root_info_page);
+    case kArrayStorage: return array::ArrayComposer(this).compose(args);
+    case kSequentialStorage: return sequential::SequentialComposer(this).compose(args);
     // TODO(Hideaki) implement
     case kMasstreeStorage:
     case kHashStorage:
@@ -63,30 +44,10 @@ ErrorStack Composer::compose(
   }
 }
 
-ErrorStack Composer::construct_root(
-  snapshot::SnapshotWriter*         snapshot_writer,
-  cache::SnapshotFileSet*           previous_snapshot_files,
-  const Page* const*                root_info_pages,
-  uint32_t                          root_info_pages_count,
-  const memory::AlignedMemorySlice& work_memory,
-  SnapshotPagePointer* new_root_page_pointer) {
+ErrorStack Composer::construct_root(const ConstructRootArguments& args) {
   switch (storage_type_) {
-    case kArrayStorage:
-      return array::ArrayComposer(this).construct_root(
-        snapshot_writer,
-        previous_snapshot_files,
-        root_info_pages,
-        root_info_pages_count,
-        work_memory,
-        new_root_page_pointer);
-    case kSequentialStorage:
-      return sequential::SequentialComposer(this).construct_root(
-        snapshot_writer,
-        previous_snapshot_files,
-        root_info_pages,
-        root_info_pages_count,
-        work_memory,
-        new_root_page_pointer);
+    case kArrayStorage: return array::ArrayComposer(this).construct_root(args);
+    case kSequentialStorage: return sequential::SequentialComposer(this).construct_root(args);
     // TODO(Hideaki) implement
     case kMasstreeStorage:
     case kHashStorage:

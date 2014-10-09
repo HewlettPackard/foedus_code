@@ -41,13 +41,8 @@ TEST(MasstreeBasicTest, Create) {
   cleanup_test(options);
 }
 
-ErrorStack query_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack query_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("test2");
   char buf[16];
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
@@ -85,13 +80,8 @@ TEST(MasstreeBasicTest, CreateAndQuery) {
   cleanup_test(options);
 }
 
-ErrorStack insert_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack insert_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
@@ -126,13 +116,8 @@ TEST(MasstreeBasicTest, CreateAndInsert) {
   cleanup_test(options);
 }
 
-ErrorStack insert_read_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack insert_read_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
@@ -175,13 +160,8 @@ TEST(MasstreeBasicTest, CreateAndInsertAndRead) {
   cleanup_test(options);
 }
 
-ErrorStack overwrite_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack overwrite_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
@@ -226,13 +206,8 @@ TEST(MasstreeBasicTest, Overwrite) {
   cleanup_test(options);
 }
 
-ErrorStack next_layer_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack next_layer_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));

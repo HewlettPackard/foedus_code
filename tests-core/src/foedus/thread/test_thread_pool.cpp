@@ -24,13 +24,8 @@ namespace foedus {
 namespace thread {
 DEFINE_TEST_CASE_PACKAGE(ThreadPoolTest, foedus.thread);
 
-ErrorStack dummy_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack dummy_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   void* user_memory
     = context->get_engine()->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory();
   soc::SharedRendezvous* rendezvous = reinterpret_cast<soc::SharedRendezvous*>(user_memory);

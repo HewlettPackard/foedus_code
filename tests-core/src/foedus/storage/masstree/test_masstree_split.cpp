@@ -26,13 +26,8 @@ namespace storage {
 namespace masstree {
 DEFINE_TEST_CASE_PACKAGE(MasstreeSplitTest, foedus.storage.masstree);
 
-ErrorStack split_border_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack split_border_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   assorted::UniformRandom uniform_random(123456);
@@ -92,13 +87,8 @@ TEST(MasstreeSplitTest, SplitBorder) {
 }
 
 
-ErrorStack split_border_normalized_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack split_border_normalized_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   assorted::UniformRandom uniform_random(123456);
@@ -154,13 +144,8 @@ TEST(MasstreeSplitTest, SplitBorderNormalized) {
   cleanup_test(options);
 }
 
-ErrorStack split_in_next_layer_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack split_in_next_layer_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   assorted::UniformRandom uniform_random(123456);
@@ -218,13 +203,8 @@ TEST(MasstreeSplitTest, SplitInNextLayer) {
   cleanup_test(options);
 }
 
-ErrorStack split_intermediate_sequential_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack split_intermediate_sequential_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   Epoch commit_epoch;

@@ -35,32 +35,23 @@
 
 namespace foedus {
 namespace tpcc {
-ErrorStack tpcc_finishup_task(
-  thread::Thread* context,
-  const void* input_buffer,
-  uint32_t input_len,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
-  if (input_len != sizeof(Wid)) {
+ErrorStack tpcc_finishup_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  if (args.input_len_ != sizeof(Wid)) {
     return ERROR_STACK(kErrorCodeUserDefined);
   }
-  Wid total_warehouses = *reinterpret_cast<const Wid*>(input_buffer);
+  Wid total_warehouses = *reinterpret_cast<const Wid*>(args.input_buffer_);
   TpccFinishupTask task(total_warehouses);
   return task.run(context);
 }
 
-ErrorStack tpcc_load_task(
-  thread::Thread* context,
-  const void* input_buffer,
-  uint32_t input_len,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
-  if (input_len != sizeof(TpccLoadTask::Inputs)) {
+ErrorStack tpcc_load_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  if (args.input_len_ != sizeof(TpccLoadTask::Inputs)) {
     return ERROR_STACK(kErrorCodeUserDefined);
   }
-  const TpccLoadTask::Inputs* inputs = reinterpret_cast<const TpccLoadTask::Inputs*>(input_buffer);
+  const TpccLoadTask::Inputs* inputs = reinterpret_cast<const TpccLoadTask::Inputs*>(
+    args.input_buffer_);
   TpccLoadTask task(
     inputs->total_warehouses_,
     inputs->timestamp_,

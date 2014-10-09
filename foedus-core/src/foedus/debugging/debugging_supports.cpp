@@ -197,7 +197,8 @@ void DebuggingSupports::start_papi_counters() {
   LOG(WARNING) << "libpapi was not linked. No PAPI profile is collected.";
 }
 void DebuggingSupports::stop_papi_counters() {}
-std::vector<std::string> DebuggingSupports::describe_papi_counters(const PapiCounters& counters) {
+std::vector<std::string> DebuggingSupports::describe_papi_counters(
+  const PapiCounters& /*counters*/) {
   std::vector<std::string> ret;
   ret.emplace_back("libpapi was not linked. No PAPI profile is collected");
   return ret;

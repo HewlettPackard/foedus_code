@@ -39,13 +39,8 @@ TEST(HashBasicTest, Create) {
   cleanup_test(options);
 }
 
-ErrorStack query_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack query_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   HashStorage hash = context->get_engine()->get_storage_manager()->get_hash("test2");
   char buf[16];
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
@@ -83,13 +78,8 @@ TEST(HashBasicTest, CreateAndQuery) {
   cleanup_test(options);
 }
 
-ErrorStack insert_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack insert_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   HashStorage hash = context->get_engine()->get_storage_manager()->get_hash("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
@@ -120,13 +110,8 @@ TEST(HashBasicTest, CreateAndInsert) {
   cleanup_test(options);
 }
 
-ErrorStack insert_and_read_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack insert_and_read_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   HashStorage hash = context->get_engine()->get_storage_manager()->get_hash("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
@@ -165,13 +150,8 @@ TEST(HashBasicTest, CreateAndInsertAndRead) {
   cleanup_test(options);
 }
 
-ErrorStack overwrite_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack overwrite_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   HashStorage hash = context->get_engine()->get_storage_manager()->get_hash("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));

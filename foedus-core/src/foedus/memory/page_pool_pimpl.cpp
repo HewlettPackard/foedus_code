@@ -31,6 +31,9 @@ void PagePoolPimpl::attach(
   uint64_t memory_size,
   bool owns) {
   control_block_ = control_block;
+  if (owns) {
+    control_block_->debug_pool_name_.clear();
+  }
   memory_ = memory;
   memory_size_ = memory_size;
   owns_ = owns;
@@ -47,9 +50,10 @@ void PagePoolPimpl::attach(
 
 ErrorStack PagePoolPimpl::initialize_once() {
   if (owns_) {
-    LOG(INFO) << "total_pages=" << pool_size_ << ", pages_for_free_pool_=" << pages_for_free_pool_;
+    LOG(INFO) << get_debug_pool_name()
+      << " - total_pages=" << pool_size_ << ", pages_for_free_pool_=" << pages_for_free_pool_;
     control_block_->initialize();
-    LOG(INFO) << "Constructing circular free pool...";
+    LOG(INFO) << get_debug_pool_name() << " - Constructing circular free pool...";
     // all pages after pages_for_free_pool_-th page is in the free pool at first
     for (uint64_t i = 0; i < free_pool_capacity_; ++i) {
       free_pool_[i] = pages_for_free_pool_ + i;
@@ -59,7 +63,7 @@ ErrorStack PagePoolPimpl::initialize_once() {
     // memory banks
     if (false) {  // disabled for now
       // this should be an option...
-      LOG(INFO) << "Randomizing free pool...";
+      LOG(INFO) << get_debug_pool_name() << " - Randomizing free pool...";
       struct Randomizer {
         PagePoolOffset  offset_;
         uint32_t        rank_;
@@ -78,12 +82,12 @@ ErrorStack PagePoolPimpl::initialize_once() {
         free_pool_[i] = randomizers[i].offset_;
       }
       delete[] randomizers;
-      LOG(INFO) << "Randomized free pool.";
+      LOG(INFO) << get_debug_pool_name() << " - Randomized free pool.";
     }
 
     control_block_->free_pool_head_ = 0;
     control_block_->free_pool_count_ = free_pool_capacity_;
-    LOG(INFO) << "Constructed circular free pool.";
+    LOG(INFO) << get_debug_pool_name() << " - Constructed circular free pool.";
   }
 
   return kRetOk;
@@ -93,10 +97,12 @@ ErrorStack PagePoolPimpl::uninitialize_once() {
   if (owns_) {
     if (free_pool_count() != free_pool_capacity_) {
       // This is not a memory leak as we anyway releases everything, but it's a smell of bug.
-      LOG(WARNING) << "Page Pool has not received back all free pages by its uninitialization!!"
+      LOG(WARNING) << get_debug_pool_name()
+        << " - Page Pool has not received back all free pages by its uninitialization!!"
         << " count=" << free_pool_count() << ", capacity=" << free_pool_capacity_;
     } else {
-      LOG(INFO) << "Page Pool has received back all free pages. No suspicious behavior.";
+      LOG(INFO) << get_debug_pool_name()
+        << " - Page Pool has received back all free pages. No suspicious behavior.";
     }
     control_block_->uninitialize();
   }
@@ -105,11 +111,12 @@ ErrorStack PagePoolPimpl::uninitialize_once() {
 
 ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chunk) {
   ASSERT_ND(chunk->size() + desired_grab_count <= chunk->capacity());
-  VLOG(0) << "Grabbing " << desired_grab_count << " pages."
-    << " free_pool_count_=" << free_pool_count();
+  VLOG(0) << get_debug_pool_name() << " - Grabbing " << desired_grab_count << " pages."
+    << " free_pool_count_=" << free_pool_count()
+    << "->" << (free_pool_count() - desired_grab_count);
   soc::SharedMutexScope guard(&control_block_->lock_);
   if (UNLIKELY(free_pool_count() == 0)) {
-    LOG(WARNING) << "No more free pages left in the pool";
+    LOG(WARNING) << get_debug_pool_name() << " - No more free pages left in the pool";
     return kErrorCodeMemoryNoFreePages;
   }
 
@@ -135,11 +142,13 @@ ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* 
 }
 
 ErrorCode PagePoolPimpl::grab_one(PagePoolOffset *offset) {
-  VLOG(1) << "Grabbing just one page. free_pool_count_=" << free_pool_count();
+  VLOG(1) << get_debug_pool_name()
+    << " - Grabbing just one page. free_pool_count_=" << free_pool_count() << "->"
+    << (free_pool_count() - 1);
   *offset = 0;
   soc::SharedMutexScope guard(&control_block_->lock_);
   if (UNLIKELY(free_pool_count() == 0)) {
-    LOG(WARNING) << "No more free pages left in the pool";
+    LOG(WARNING) << get_debug_pool_name() << " - No more free pages left in the pool";
     return kErrorCodeMemoryNoFreePages;
   }
 
@@ -162,13 +171,15 @@ ErrorCode PagePoolPimpl::grab_one(PagePoolOffset *offset) {
 template <typename CHUNK>
 void PagePoolPimpl::release_impl(uint32_t desired_release_count, CHUNK* chunk) {
   ASSERT_ND(chunk->size() >= desired_release_count);
-  VLOG(0) << "Releasing " << desired_release_count << " pages."
-    << " free_pool_count_=" << free_pool_count();
+  VLOG(0) << get_debug_pool_name() << " - Releasing " << desired_release_count << " pages."
+    << " free_pool_count_=" << free_pool_count() << "->"
+    << (free_pool_count() + desired_release_count);
   soc::SharedMutexScope guard(&control_block_->lock_);
   if (free_pool_count() + desired_release_count > free_pool_capacity_) {
     // this can't happen unless something is wrong! This is a critical issue from which
     // we can't recover because page pool is inconsistent!
-    LOG(ERROR) << "PagePoolPimpl::release() More than full free-pool. inconsistent state!";
+    LOG(ERROR) << get_debug_pool_name()
+      << " - PagePoolPimpl::release() More than full free-pool. inconsistent state!";
     // TODO(Hideaki) Minor: Do a duplicate-check here to identify the problemetic pages.
     COERCE_ERROR(ERROR_STACK(kErrorCodeMemoryDuplicatePage));
   }
@@ -202,12 +213,14 @@ void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetAndEpo
 
 void PagePoolPimpl::release_one(PagePoolOffset offset) {
   ASSERT_ND(is_initialized() || !owns_);
-  VLOG(1) << "Releasing just one page. free_pool_count_=" << free_pool_count();
+  VLOG(1) << get_debug_pool_name() << " - Releasing just one page. free_pool_count_="
+    << free_pool_count() << "->" << (free_pool_count() + 1);
   soc::SharedMutexScope guard(&control_block_->lock_);
   if (free_pool_count() >= free_pool_capacity_) {
     // this can't happen unless something is wrong! This is a critical issue from which
     // we can't recover because page pool is inconsistent!
-    LOG(ERROR) << "PagePoolPimpl::release_one() More than full free-pool. inconsistent state!";
+    LOG(ERROR) << get_debug_pool_name()
+      << " - PagePoolPimpl::release_one() More than full free-pool. inconsistent state!";
     COERCE_ERROR(ERROR_STACK(kErrorCodeMemoryDuplicatePage));
   }
 
@@ -230,6 +243,7 @@ void PagePoolPimpl::release_one(PagePoolOffset offset) {
 
 std::ostream& operator<<(std::ostream& o, const PagePoolPimpl& v) {
   o << "<PagePool>"
+    << "<name_>" << v.get_debug_pool_name() << "</name_>"
     << "<memory_>" << v.memory_ << "</memory_>"
     << "<memory_size>" << v.memory_size_ << "</memory_size>"
     << "<owns_>" << v.owns_ << "</owns_>"

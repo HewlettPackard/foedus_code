@@ -79,44 +79,53 @@ class Composer CXX11_FINAL {
     snapshot::SortedBuffer**  log_streams,
     uint32_t                  log_streams_count);
 
+  /** Arguments for compose() */
+  struct ComposeArguments {
+    /** Writes out composed pages. */
+    snapshot::SnapshotWriter*         snapshot_writer_;
+    /** To read existing snapshots. */
+    cache::SnapshotFileSet*           previous_snapshot_files_;
+    /** Sorted runs. */
+    snapshot::SortedBuffer* const*    log_streams_;
+    /** Number of sorted runs. */
+    uint32_t                          log_streams_count_;
+    /** Working memory to be used in this method. */
+    memory::AlignedMemorySlice        work_memory_;
+    /**
+     * [OUT] Returns pointers and related information that is required
+     * to construct the root page. The data format depends on the composer. In all implementations,
+     * the information must fit in one page (should be, otherwise we can't have a root page)
+     */
+    Page*                             root_info_page_;
+  };
   /**
    * @brief Construct snapshot pages from sorted run files of one storage.
-   * @param[in] snapshot_writer Writes out composed pages
-   * @param[in] previous_snapshot_files To read existing snapshots
-   * @param[in] log_streams Sorted runs
-   * @param[in] log_streams_count Number of sorted runs
-   * @param[in] work_memory Working memory to be used in this method
-   * @param[out] root_info_page Returns pointers and related information that is required
-   * to construct the root page. The data format depends on the composer. In all implementations,
-   * the information must fit in one page (should be, otherwise we can't have a root page)
    */
-  ErrorStack  compose(
-    snapshot::SnapshotWriter*         snapshot_writer,
-    cache::SnapshotFileSet*           previous_snapshot_files,
-    snapshot::SortedBuffer* const*    log_streams,
-    uint32_t                          log_streams_count,
-    const memory::AlignedMemorySlice& work_memory,
-    Page*                             root_info_page);
+  ErrorStack  compose(const ComposeArguments& args);
+
+  /** Arguments for construct_root() */
+  struct ConstructRootArguments {
+    /** Writes out composed pages. */
+    snapshot::SnapshotWriter*         snapshot_writer_;
+    /** To read existing snapshots. */
+    cache::SnapshotFileSet*           previous_snapshot_files_;
+    /** Root info pages output by compose() */
+    const Page* const*                root_info_pages_;
+    /** Number of root info pages. */
+    uint32_t                          root_info_pages_count_;
+    /** Working memory to be used in this method. */
+    memory::AlignedMemorySlice        work_memory_;
+    /** [OUT] Returns pointer to new root snapshot page/ */
+    SnapshotPagePointer*              new_root_page_pointer_;
+  };
 
   /**
    * @brief Construct root page(s) for one storage based on the ouputs of compose().
-   * @param[in] snapshot_writer Writes out composed pages
-   * @param[in] previous_snapshot_files To read existing snapshots
-   * @param[in] root_info_pages Root info pages output by compose()
-   * @param[in] root_info_pages_count Number of root info pages.
-   * @param[in] work_memory Working memory to be used in this method
-   * @param[out] new_root_page_pointer Returns pointer to new root snapshot page
    * @details
    * When all reducers complete, the gleaner invokes this method to construct new root
    * page(s) for the storage. This
    */
-  ErrorStack  construct_root(
-    snapshot::SnapshotWriter*         snapshot_writer,
-    cache::SnapshotFileSet*           previous_snapshot_files,
-    const Page* const*                root_info_pages,
-    uint32_t                          root_info_pages_count,
-    const memory::AlignedMemorySlice& work_memory,
-    SnapshotPagePointer*              new_root_page_pointer);
+  ErrorStack  construct_root(const ConstructRootArguments& args);
 
   friend std::ostream&    operator<<(std::ostream& o, const Composer& v);
 

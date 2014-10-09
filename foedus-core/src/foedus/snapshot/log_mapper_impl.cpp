@@ -392,12 +392,13 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
           ASSERT_ND(log_buffer.resolve(position_array[i])->header_.storage_id_
             == hashlist.storage_id_);
         }
-        partitioner.partition_batch(
-          numa_node_,
+        storage::Partitioner::PartitionBatchArguments args = {
+          static_cast< storage::PartitionId >(numa_node_),
           log_buffer,
           position_array,
           bucket->counts_,
-          partition_array);
+          partition_array};
+        partitioner.partition_batch(args);
 
         // sort the log positions by the calculated partitions
         std::memset(sort_array, 0, sizeof(PartitionSortEntry) * bucket->counts_);

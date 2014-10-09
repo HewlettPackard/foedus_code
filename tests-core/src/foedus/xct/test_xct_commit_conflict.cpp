@@ -41,13 +41,8 @@ const int kRecords = 10;
 const int kThreads = 10;
 static_assert(kRecords >= kThreads, "booo!");
 
-ErrorStack init_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack init_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   storage::StorageManager* str_manager = context->get_engine()->get_storage_manager();
   Epoch commit_epoch;
@@ -86,16 +81,11 @@ ErrorStack try_transaction(
   return kRetOk;
 }
 
-ErrorStack test_task(
-  thread::Thread* context,
-  const void* input_buffer,
-  uint32_t input_len,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
-  EXPECT_EQ(input_len, sizeof(uint64_t) * 2U);
-  uint64_t offset = reinterpret_cast<const uint64_t*>(input_buffer)[0];
-  uint64_t amount = reinterpret_cast<const uint64_t*>(input_buffer)[1];
+ErrorStack test_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  EXPECT_EQ(args.input_len_, sizeof(uint64_t) * 2U);
+  uint64_t offset = reinterpret_cast<const uint64_t*>(args.input_buffer_)[0];
+  uint64_t amount = reinterpret_cast<const uint64_t*>(args.input_buffer_)[1];
   void* user_memory
     = context->get_engine()->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory();
   soc::SharedRendezvous* rendezvous = reinterpret_cast<soc::SharedRendezvous*>(user_memory);
@@ -119,16 +109,11 @@ ErrorStack test_task(
   return kRetOk;
 }
 
-ErrorStack get_all_records_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* output_buffer,
-  uint32_t output_buffer_size,
-  uint32_t* output_used) {
-  ASSERT_ND(output_buffer_size >= sizeof(Payload) * kRecords);
-  *output_used = sizeof(Payload) * kRecords;
-  Payload* output = reinterpret_cast<Payload*>(output_buffer);
+ErrorStack get_all_records_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  ASSERT_ND(args.output_buffer_size_ >= sizeof(Payload) * kRecords);
+  *args.output_used_ = sizeof(Payload) * kRecords;
+  Payload* output = reinterpret_cast<Payload*>(args.output_buffer_);
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   CHECK_ERROR(xct_manager->begin_xct(context, kSerializable));
 

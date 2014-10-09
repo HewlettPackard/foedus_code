@@ -98,11 +98,11 @@ ErrorStack NumaCoreMemory::uninitialize_once() {
   ErrorStackBatch batch;
   // return all free pages
   if (retired_volatile_pool_chunks_) {
-    const uint16_t nodes = engine_->get_options().thread_.group_count_;
-    for (uint16_t node = 0; node < nodes; ++node) {
+    // this should be already released in ThreadPimpl's uninitialize.
+    // we can't do it here because uninitialization of node/core memories are parallelized
+    for (uint16_t node = 0; node < engine_->get_soc_count(); ++node) {
       PagePoolOffsetAndEpochChunk* chunk = retired_volatile_pool_chunks_ + node;
-      volatile_pool_->release(chunk->size(), chunk);
-      ASSERT_ND(chunk->empty());
+      ASSERT_ND(chunk->empty());  // just sanity check
     }
     retired_volatile_pool_chunks_ = nullptr;
   }

@@ -150,22 +150,17 @@ bool MasstreePartitioner::is_partitionable() const {
   return data_->partition_count_ > 1U;
 }
 
-void MasstreePartitioner::partition_batch(
-  PartitionId                     /*local_partition*/,
-  const snapshot::LogBuffer&      log_buffer,
-  const snapshot::BufferPosition* log_positions,
-  uint32_t                        logs_count,
-  PartitionId*                    results) const {
+void MasstreePartitioner::partition_batch(const Partitioner::PartitionBatchArguments& args) const {
   debugging::RdtscWatch stop_watch;
-  for (uint32_t i = 0; i < logs_count; ++i) {
-    const log::RecordLogType* rec = log_buffer.resolve(log_positions[i]);
+  for (uint32_t i = 0; i < args.logs_count_; ++i) {
+    const log::RecordLogType* rec = args.log_buffer_.resolve(args.log_positions_[i]);
     uint16_t key_length;
     const char* key = extract_log_key(rec, &key_length);
-    results[i] = data_->find_partition(key, key_length);
+    args.results_[i] = data_->find_partition(key, key_length);
   }
   stop_watch.stop();
   VLOG(0) << "Masstree-:" << id_ << " took " << stop_watch.elapsed() << "cycles"
-    << " to partition " << logs_count << " entries. #partitions=" << data_->partition_count_;
+    << " to partition " << args.logs_count_ << " entries. #partitions=" << data_->partition_count_;
   // if these binary searches are too costly, let's optimize them.
 }
 
@@ -190,14 +185,7 @@ struct SortEntry {
 uint64_t MasstreePartitioner::get_required_sort_buffer_size(uint32_t /*log_count*/) const {
   return 0;
 }
-void MasstreePartitioner::sort_batch(
-  const snapshot::LogBuffer&        log_buffer,
-  const snapshot::BufferPosition*   log_positions,
-  uint32_t                          logs_count,
-  const memory::AlignedMemorySlice& /* sort_buffer*/,
-  Epoch                             /* base_epoch */,
-  snapshot::BufferPosition*         output_buffer,
-  uint32_t*                         written_count) const {
+void MasstreePartitioner::sort_batch(const Partitioner::SortBatchArguments& args) const {
   debugging::StopWatch stop_watch_entire;
 
   // Unlike array's sort_batch, we don't do any advanced optimization here.
@@ -248,15 +236,18 @@ void MasstreePartitioner::sort_batch(
     const snapshot::LogBuffer& log_buffer_;
   };
 
-  std::memcpy(output_buffer, log_positions, logs_count * sizeof(snapshot::BufferPosition));
-  Comparator comparator(log_buffer);
-  std::sort(output_buffer, output_buffer + logs_count, comparator);
+  std::memcpy(
+    args.output_buffer_,
+    args.log_positions_,
+    args.logs_count_ * sizeof(snapshot::BufferPosition));
+  Comparator comparator(args.log_buffer_);
+  std::sort(args.output_buffer_, args.output_buffer_ + args.logs_count_, comparator);
 
   // No compaction for masstree yet. Anyway this method is not optimized
-  *written_count = logs_count;
+  *args.written_count_ = args.logs_count_;
   stop_watch_entire.stop();
   VLOG(0) << "Masstree-" << id_ << " sort_batch() done in  " << stop_watch_entire.elapsed_ms()
-      << "ms  for " << logs_count << " log entries";
+      << "ms  for " << args.logs_count_ << " log entries";
 }
 
 std::ostream& operator<<(std::ostream& o, const MasstreePartitioner& v) {
@@ -350,6 +341,8 @@ ErrorStack MasstreePartitionerInDesignData::initialize() {
     work_memory_->get_block(),
     work_memory_->get_size(),
     true);
+  tmp_pages_.set_debug_pool_name(
+    std::string("Masstree-partitioner-tmp_pages_") + std::to_string(id_));
   CHECK_ERROR(tmp_pages_.initialize());
   return kRetOk;
 }

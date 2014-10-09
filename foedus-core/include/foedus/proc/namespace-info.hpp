@@ -25,10 +25,7 @@
  * @par Procedure signature
  * Every procedure has the following function signature.
  * @code{.cpp}
- * ErrorStack procedure(
- *   thread::Thread* context,
- *   const void *input_buffer, uint32_t input_len,
- *   void* output_buffer, uint32_t output_buffer_size, uint32_t* output_used);
+ * ErrorStack procedure(const ProcArguments& args);
  * @endcode
  * \li \b context is the thread context of the pre-allocated thread that runs the impersonated
  * session (see \ref THREADPOOL for more details about impersonation).

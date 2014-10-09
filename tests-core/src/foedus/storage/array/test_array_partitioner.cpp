@@ -94,7 +94,8 @@ void EmptyFunctor(Partitioner partitioner) {
   snapshot::BufferPosition dummy[1];
   snapshot::LogBuffer log_buffer(nullptr);
   PartitionId results[1];
-  partitioner.partition_batch(0, log_buffer, dummy, 0, results);
+  Partitioner::PartitionBatchArguments args = { 0, log_buffer, dummy, 0, results };
+  partitioner.partition_batch(args);
 }
 TEST(ArrayPartitionerTest, Empty) {
   if (!is_multi_nodes()) {
@@ -123,23 +124,25 @@ struct Logs {
   }
 
   void partition_batch() {
-    partitioner_.partition_batch(
+    Partitioner::PartitionBatchArguments args = {
       0,
       log_buffer_,
       positions_,
       cur_count_,
-      partition_results_);
+      partition_results_};
+    partitioner_.partition_batch(args);
   }
   uint32_t sort_batch(Epoch::EpochInteger base_epoch) {
     uint32_t written_count = 0;
-    partitioner_.sort_batch(
+    Partitioner::SortBatchArguments args = {
       log_buffer_,
       positions_,
       cur_count_,
       memory::AlignedMemorySlice(&sort_buffer_),
       Epoch(base_epoch),
       sort_results_,
-      &written_count);
+      &written_count};
+    partitioner_.sort_batch(args);
     return written_count;
   }
 

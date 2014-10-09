@@ -102,7 +102,7 @@ include_directories(SYSTEM
   # libnuma
   ${NUMA_INCLUDE_DIR}
   # libbacktrace
-  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libbacktrace
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libbacktrace
   # tinyxml2
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tinyxml2-2.1.0
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glog-0.3.3/src

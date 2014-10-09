@@ -116,13 +116,8 @@ struct ExperimentControlBlock {
   bool                  stop_requested_;
 };
 
-ErrorStack verify_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack verify_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   StorageManager* st = context->get_engine()->get_storage_manager();
   CHECK_ERROR(st->get_array("branches").verify_single_thread(context));
   CHECK_ERROR(st->get_array("tellers").verify_single_thread(context));
@@ -247,18 +242,12 @@ class RunTpcbTask {
   ArrayStorage histories_;
 };
 
-ErrorStack run_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* output_buffer,
-  uint32_t output_buffer_size,
-  uint32_t* output_used) {
+ErrorStack run_task(const proc::ProcArguments& args) {
   RunTpcbTask task;
-  CHECK_ERROR(task.run(context));
-  ASSERT_ND(output_buffer_size >= sizeof(uint64_t));
-  *output_used = sizeof(uint64_t);
-  *reinterpret_cast<uint64_t*>(output_buffer) = task.get_processed();
+  CHECK_ERROR(task.run(args.context_));
+  ASSERT_ND(args.output_buffer_size_ >= sizeof(uint64_t));
+  *args.output_used_ = sizeof(uint64_t);
+  *reinterpret_cast<uint64_t*>(args.output_buffer_) = task.get_processed();
   return kRetOk;
 }
 

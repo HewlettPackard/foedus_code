@@ -116,21 +116,8 @@ class MasstreePartitioner final {
   uint64_t    get_required_design_buffer_size() const;
 
   bool is_partitionable() const;
-  void partition_batch(
-    PartitionId                     local_partition,
-    const snapshot::LogBuffer&      log_buffer,
-    const snapshot::BufferPosition* log_positions,
-    uint32_t                        logs_count,
-    PartitionId*                    results) const;
-
-  void sort_batch(
-    const snapshot::LogBuffer&        log_buffer,
-    const snapshot::BufferPosition*   log_positions,
-    uint32_t                          logs_count,
-    const memory::AlignedMemorySlice& sort_buffer,
-    Epoch                             base_epoch,
-    snapshot::BufferPosition*         output_buffer,
-    uint32_t*                         written_count) const;
+  void partition_batch(const Partitioner::PartitionBatchArguments& args) const;
+  void sort_batch(const Partitioner::SortBatchArguments& args) const;
 
   uint64_t  get_required_sort_buffer_size(uint32_t log_count) const;
 

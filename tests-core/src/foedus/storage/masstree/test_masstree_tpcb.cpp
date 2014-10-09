@@ -108,13 +108,8 @@ KeySlice nm(uint64_t key) {
 }
 
 /** Creates TPC-B tables and populate with initial records. */
-ErrorStack create_tpcb_tables_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack create_tpcb_tables_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   StorageManager* str_manager = context->get_engine()->get_storage_manager();
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   Epoch highest_commit_epoch;
@@ -424,25 +419,15 @@ class RunTpcbTask {
 };
 
 
-ErrorStack run_tpcb_task(
-  thread::Thread* context,
-  const void* input_buffer,
-  uint32_t input_len,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
-  EXPECT_EQ(sizeof(int), input_len);
-  return RunTpcbTask(*reinterpret_cast<const int*>(input_buffer)).run(context);
+ErrorStack run_tpcb_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  EXPECT_EQ(sizeof(int), args.input_len_);
+  return RunTpcbTask(*reinterpret_cast<const int*>(args.input_buffer_)).run(context);
 }
 
 /** Verify TPC-B results. */
-ErrorStack verify_tpcb_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack verify_tpcb_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
   COERCE_ERROR(accounts.verify_single_thread(context));

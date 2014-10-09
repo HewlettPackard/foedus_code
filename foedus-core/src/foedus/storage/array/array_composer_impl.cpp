@@ -55,25 +55,19 @@ uint64_t ArrayComposer::get_required_work_memory_size(
   return sizeof(ArrayStreamStatus) * log_streams_count;
 }
 
-ErrorStack ArrayComposer::compose(
-  snapshot::SnapshotWriter*         snapshot_writer,
-  cache::SnapshotFileSet*           previous_snapshot_files,
-  snapshot::SortedBuffer* const*    log_streams,
-  uint32_t                          log_streams_count,
-  const memory::AlignedMemorySlice& work_memory,
-  Page*                             root_info_page) {
-  VLOG(0) << to_string() << " composing with " << log_streams_count << " streams.";
+ErrorStack ArrayComposer::compose(const Composer::ComposeArguments& args) {
+  VLOG(0) << to_string() << " composing with " << args.log_streams_count_ << " streams.";
   debugging::StopWatch stop_watch;
 
   ArrayComposeContext context(
     engine_,
     storage_id_,
-    snapshot_writer,
-    previous_snapshot_files,
-    log_streams,
-    log_streams_count,
-    work_memory,
-    root_info_page);
+    args.snapshot_writer_,
+    args.previous_snapshot_files_,
+    args.log_streams_,
+    args.log_streams_count_,
+    args.work_memory_,
+    args.root_info_page_);
   CHECK_ERROR(context.execute());
 
   stop_watch.stop();
@@ -81,34 +75,28 @@ ErrorStack ArrayComposer::compose(
   return kRetOk;
 }
 
-ErrorStack ArrayComposer::construct_root(
-  snapshot::SnapshotWriter*         snapshot_writer,
-  cache::SnapshotFileSet*           previous_snapshot_files,
-  const Page* const*                root_info_pages,
-  uint32_t                          root_info_pages_count,
-  const memory::AlignedMemorySlice& /*work_memory*/,
-  SnapshotPagePointer*              new_root_page_pointer) {
+ErrorStack ArrayComposer::construct_root(const Composer::ConstructRootArguments& args) {
   // compose() created root_info_pages that contain pointers to fill in the root page,
   // so we just find non-zero entry and copy it to root page.
   ArrayStorage storage(engine_, storage_id_);
 
   uint8_t levels = storage.get_levels();
   uint16_t payload_size = storage.get_payload_size();
-  snapshot::SnapshotId new_snapshot_id = snapshot_writer->get_snapshot_id();
+  snapshot::SnapshotId new_snapshot_id = args.snapshot_writer_->get_snapshot_id();
   if (levels == 1U) {
     // if it's single-page array, we have already created the root page in compose().
-    ASSERT_ND(root_info_pages_count == 1U);
+    ASSERT_ND(args.root_info_pages_count_ == 1U);
     const ArrayRootInfoPage* casted
-      = reinterpret_cast<const ArrayRootInfoPage*>(root_info_pages[0]);
+      = reinterpret_cast<const ArrayRootInfoPage*>(args.root_info_pages_[0]);
     ASSERT_ND(casted->pointers_[0] != 0);
-    *new_root_page_pointer = casted->pointers_[0];
+    *args.new_root_page_pointer_ = casted->pointers_[0];
   } else {
-    ArrayPage* root_page = reinterpret_cast<ArrayPage*>(snapshot_writer->get_page_base());
+    ArrayPage* root_page = reinterpret_cast<ArrayPage*>(args.snapshot_writer_->get_page_base());
     SnapshotPagePointer page_id = storage.get_metadata()->root_snapshot_page_id_;
-    SnapshotPagePointer new_page_id = snapshot_writer->get_next_page_id();
-    *new_root_page_pointer = new_page_id;
+    SnapshotPagePointer new_page_id = args.snapshot_writer_->get_next_page_id();
+    *args.new_root_page_pointer_ = new_page_id;
     if (page_id != 0) {
-      WRAP_ERROR_CODE(previous_snapshot_files->read_page(page_id, root_page));
+      WRAP_ERROR_CODE(args.previous_snapshot_files_->read_page(page_id, root_page));
       ASSERT_ND(root_page->header().storage_id_ == storage_id_);
       ASSERT_ND(root_page->header().page_id_ == page_id);
       root_page->header().page_id_ = new_page_id;
@@ -127,9 +115,9 @@ ErrorStack ArrayComposer::construct_root(
     }
 
     // overwrite pointers with root_info_pages.
-    for (uint32_t i = 0; i < root_info_pages_count; ++i) {
+    for (uint32_t i = 0; i < args.root_info_pages_count_; ++i) {
       const ArrayRootInfoPage* casted
-        = reinterpret_cast<const ArrayRootInfoPage*>(root_info_pages[i]);
+        = reinterpret_cast<const ArrayRootInfoPage*>(args.root_info_pages_[i]);
       for (uint16_t j = 0; j < kInteriorFanout; ++j) {
         SnapshotPagePointer pointer = casted->pointers_[j];
         if (pointer != 0) {
@@ -144,8 +132,8 @@ ErrorStack ArrayComposer::construct_root(
       }
     }
 
-    WRAP_ERROR_CODE(snapshot_writer->dump_pages(0, 1));
-    ASSERT_ND(snapshot_writer->get_next_page_id() == new_page_id - 1);
+    WRAP_ERROR_CODE(args.snapshot_writer_->dump_pages(0, 1));
+    ASSERT_ND(args.snapshot_writer_->get_next_page_id() == new_page_id - 1);
   }
   return kRetOk;
 }
