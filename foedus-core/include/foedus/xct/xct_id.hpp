@@ -91,8 +91,13 @@ struct McsBlock {
 
 /**
  * @brief An MCS lock data structure.
+ * @ingroup XCT
  * @details
  * This is the minimal unit of locking in our system.
+ * Unlike SILO, we employ MCS locking that scales much better on big machines.
+ * This object stores \e tail-waiter, which indicates the thread that is in the tail of the queue
+ * lock, which \e might be the owner of the lock.
+ * The MCS-lock nodes are pre-allocated for each thread and placed in shared memory.
  */
 struct McsLock {
   McsLock() { data_ = 0; }
@@ -152,10 +157,17 @@ struct McsLock {
     uint32_t word;
   };
 };
-STATIC_SIZE_CHECK(sizeof(McsLock), 4)
 
 /**
- * MCS lock for key lock combined with other status; flags and range locks.
+ * @brief MCS lock for key lock combined with other status; flags and range locks.
+ * @ingroup XCT
+ * @details
+ * @par Range Lock
+ * Unlike SILO [TU13], we use range-lock bit for protecting a gap rather than a node set, which
+ * is unnecessarily conservative. It basically works same as key lock. One thing to remember is that
+ * each B-tree page has an inclusive low-fence key and an exclusive high-fence key.
+ * Range lock can protect a region from low-fence to the first key and a region from last key to
+ * high-fence key.
  */
 class CombinedLock {
  public:
@@ -202,7 +214,6 @@ class CombinedLock {
   McsLock   key_lock_;
   uint32_t  other_locks_;
 };
-STATIC_SIZE_CHECK(sizeof(CombinedLock), 8)
 
 const uint64_t kXctIdDeletedBit     = 1ULL << 63;
 const uint64_t kXctIdMovedBit       = 1ULL << 62;
@@ -213,44 +224,36 @@ const uint64_t kXctIdMaskEpoch      = 0x0FFFFFFF00000000ULL;
 const uint64_t kXctIdMaskOrdinal    = 0x00000000FFFFFFFFULL;
 
 /**
- * TODO(Hideaki) needs to overhaul the comment. now it's 128 bits.
- * @brief Transaction ID, a 64-bit data to identify transactions and record versions.
+ * @brief Persistent status part of Transaction ID
  * @ingroup XCT
  * @details
- * This object is basically equivalent to what [TU13] Sec 4.2 defines.
- * The difference is described below.
+ * Unlike what [TU13] Sec 4.2 defines, FOEDUS's TID is 128 bit to contain more information.
+ * XctId represents a half (64bit) of TID that is used to represent persistent status of the record,
+ * such as record versions. The locking-mechanism part is separated to another half; CombinedLock.
  *
  * @par Bit Assignments
  * <table>
  * <tr><th>Bits</th><th>Name</th><th>Description</th></tr>
- * <tr><td>1..28</td><td>Epoch</td><td>The recent owning transaction was in this Epoch.
+ * <tr><td>1</td><td>Psuedo-delete bit</td><td>Whether te key is logically non-existent.</td></tr>
+ * <tr><td>2</td><td>Moved bit</td><td>This is used for the Master-tree foster-twin protocol.
+ * when a record is moved from one page to another during split.</td></tr>
+ * <tr><td>3</td><td>BeingWritten</td><td>Before we start applying modifications to a record,
+ * we set true to this so that optimistic-read can easily check for half-updated value.
+ * After the modification, we set false to this. Of course with appropriate fences.</td></tr>
+ * <tr><td>4</td><td>Reserved</td><td>Reserved for later use.</td></tr>
+ * <tr><td>5..32</td><td>Epoch</td><td>The recent owning transaction was in this Epoch.
  * We don't consume full 32 bits for epoch.
  * Assuming 20ms per epoch, 28bit still represents 1 year. All epochs will be refreshed by then
  * or we can have some periodic mantainance job to make it sure.</td></tr>
- * <tr><td>29..44</td><td>Ordinal</td><td>The recent owning transaction had this ordinal
- * in the epoch. We assign 16 bits. Thus 64k xcts per epoch.
- * A short transaction might exceed it, but then it can just increment current epoch.
- * Also, if there are no dependencies between transactions on each core, it could be
- * up to 64k xcts per epoch per core. See commit protocol.
- * </td></tr>
- * <tr><td>45</td><td>Reserved</td><td>Reserved for later use.</td></tr>
- * <tr><td>46</td><td>Range Lock bit</td><td>Lock the interval from the key to next key.</td></tr>
- * <tr><td>47</td><td>Psuedo-delete bit</td><td>Logically delete the key.</td></tr>
- * <tr><td>48</td><td>Moved bit</td><td>This is used for the Master-tree foster-twin protocol.
- * when a record is moved from one page to another during split.</td></tr>
- * <tr><td>49</td><td>Key Lock bit</td><td>Lock the key. This and the next tail waiter
- * forms its own 16bit region, which is atomically swapped in MCS locking.</td></tr>
- * <tr><td>50..64</td><td>Tail Waiter for MCS locking</td><td>
- * Unlike SILO, we use this thread ID for MCS locking that scales much better on big machines.
- * This indicates the thread that is in the tail of the queue lock, which might be the owner
- * of the lock.
- * Also, we spend only 15bits here to make this and lockbit a 16bits region.
- * At most 128 cores per NUMA node (50-57 NUMA node, 58-64 core).
+ * <tr><td>33..64</td><td>Ordinal</td><td>The recent owning transaction had this ordinal
+ * in the epoch. We assign 32 bits. Thus we no longer have the case where we have to
+ * increment current epoch even when there are many dependencies between transactions.
+ * We still have the machanism to do so, but in reality it won't be triggered.
  * </td></tr>
  * </table>
  *
  * @par Greater than/Less than as 64-bit integer
- * The first 60 bits represent the serialization order of the transaction. Sometimes not exactly
+ * The last 60 bits represent the serialization order of the transaction. Sometimes not exactly
  * the chronological order, but enough to assure serializability, see discussion in Sec 4.2 of
  * [TU13]. This class thus provides before() method to check \e strict order of
  * two instantances. Be aware of the following things, though:
@@ -262,12 +265,9 @@ const uint64_t kXctIdMaskOrdinal    = 0x00000000FFFFFFFFULL;
  *  \li We can \e NOT provide "equals" semantics via simple integer comparison. 61th- bits are
  * status bits, thus we have to mask it. equals_serial_order() does it.
  *
- * @par Range Lock
- * Unlike Sile [TU13], we use range-lock bit for protecting a gap rather than a node set, which
- * is unnecessarily conservative. It basically works same as key lock. One thing to remember is that
- * each B-tree page has an inclusive low-fence key and an exclusive high-fence key.
- * Range lock can protect a region from low-fence to the first key and a region from last key to
- * high-fence key.
+ * @par No Thread-ID
+ * This is one difference from SILO. FOEDUS's XctID does not store thread-ID of last commit.
+ * We don't use it for any purpose.
  *
  * @par POD
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
@@ -348,11 +348,28 @@ struct XctId {
 
   uint64_t            data_;
 };
-// sizeof(XctId) must be 64 bits.
-STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))
 
+/**
+ * @brief Transaction ID, a 128-bit data to manage record versions and provide locking mechanism.
+ * @ingroup XCT
+ * @details
+ * This object contains a quite more information compared to SILO [TU13]'s TID.
+ * We spend more bits on ordinals and epochs for larger environments, and also employ MCS-locking
+ * to be more scalable. Thus, now it's 128-bits.
+ * It's not a negligible size, but still compact. Also, 16-bytes sometimes reduce false cacheline
+ * sharing (well, then you might ask making it 64 bytes... but that's too much).
+ *
+ * @par CombinedLock and XctId
+ * CombinedLock provides the locking mechanism, namely MCS locking.
+ * XctId provides the record version information protected by the lock.
+ *
+ * @par POD
+ * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
+ */
 struct LockableXctId {
+  /** the first 64bit: Locking part of TID */
   CombinedLock  lock_;
+  /** the second 64bit: Persistent status part of TID. */
   XctId         xct_id_;
 
   McsLock* get_key_lock() ALWAYS_INLINE { return lock_.get_key_lock(); }
@@ -369,8 +386,6 @@ struct LockableXctId {
   friend std::ostream& operator<<(std::ostream& o, const LockableXctId& v);
 };
 
-STATIC_SIZE_CHECK(sizeof(LockableXctId), 16)
-
 struct McsLockScope {
   McsLockScope(thread::Thread* context, LockableXctId* lock);
   McsLockScope(thread::Thread* context, McsLock* lock);
@@ -381,6 +396,11 @@ struct McsLockScope {
   McsBlockIndex block_;
 };
 
+// sizeof(XctId) must be 64 bits.
+STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))
+STATIC_SIZE_CHECK(sizeof(CombinedLock), 8)
+STATIC_SIZE_CHECK(sizeof(McsLock), 4)
+STATIC_SIZE_CHECK(sizeof(LockableXctId), 16)
 
 }  // namespace xct
 }  // namespace foedus

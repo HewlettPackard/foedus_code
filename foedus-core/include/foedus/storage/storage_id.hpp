@@ -100,6 +100,8 @@ inline SnapshotPagePointer to_snapshot_page_pointer(
       | local_page_id;
 }
 
+void describe_snapshot_pointer(std::ostream* o, SnapshotPagePointer pointer);
+
 /**
  * @brief Type of the storage, such as hash.
  * @ingroup STORAGE
@@ -203,6 +205,7 @@ union VolatilePagePointer {
     components.offset = offset;
   }
 };
+void describe_volatile_pointer(std::ostream* o, VolatilePagePointer pointer);
 
 inline VolatilePagePointer construct_volatile_page_pointer(uint64_t word) {
   VolatilePagePointer pointer;
