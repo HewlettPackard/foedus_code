@@ -28,13 +28,8 @@ namespace storage {
 namespace masstree {
 DEFINE_TEST_CASE_PACKAGE(MasstreeRandomTest, foedus.storage.masstree);
 
-ErrorStack insert_many_normalized_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack insert_many_normalized_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("test2");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
 
@@ -123,15 +118,10 @@ TEST(MasstreeRandomTest, InsertManyNormalized) {
   cleanup_test(options);
 }
 
-ErrorStack insert_many_normalized_mt_task(
-  thread::Thread* context,
-  const void* input_buffer,
-  uint32_t input_len,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
-  EXPECT_EQ(sizeof(uint32_t), input_len);
-  uint32_t id = *reinterpret_cast<const uint32_t*>(input_buffer);
+ErrorStack insert_many_normalized_mt_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  EXPECT_EQ(sizeof(uint32_t), args.input_len_);
+  uint32_t id = *reinterpret_cast<const uint32_t*>(args.input_buffer_);
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("test2");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
 
@@ -187,13 +177,8 @@ ErrorStack insert_many_normalized_mt_task(
   return foedus::kRetOk;
 }
 
-ErrorStack insert_many_normalized_verify_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack insert_many_normalized_verify_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("test2");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   Epoch commit_epoch;
@@ -241,13 +226,8 @@ TEST(MasstreeRandomTest, InsertManyNormalizedMt) {
   cleanup_test(options);
 }
 
-ErrorStack insert_many_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack insert_many_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("test2");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
 

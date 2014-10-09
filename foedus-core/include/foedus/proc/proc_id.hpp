@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "foedus/error_stack.hpp"
+#include "foedus/fwd.hpp"
 #include "foedus/assorted/fixed_string.hpp"
 #include "foedus/thread/fwd.hpp"
 
@@ -61,18 +62,33 @@ inline LocalProcId extract_local_id_from_global_proc_id(GlobalProcId id) {
 }
 
 /**
+ * @brief Set of arguments, both inputs and outputs, given to each procedure.
+ * @ingroup PROC
+ */
+struct ProcArguments {
+  /** [IN] Database Engine */
+  Engine*         engine_;
+  /** [IN] Thread on which the procedure is running */
+  thread::Thread* context_;
+  /** [IN] Arbitrary user input given to the procedure */
+  const void*     input_buffer_;
+  /** [IN] Byte length of input_buffer_ */
+  uint32_t        input_len_;
+  /** [OUT] Arbitrary user output buffer given to the procedure */
+  void*           output_buffer_;
+  /** [IN] Byte length of output_buffer_ capacity */
+  uint32_t        output_buffer_size_;
+  /** [OUT] Byte length of output_buffer_ actually written */
+  uint32_t*       output_used_;
+};
+
+/**
  * @brief A function pointer of a user/system stored procedure.
  * @ingroup PROC
  * @details
  * For example, define your procedure as follows:
  * @code{.cpp}
- * ErrorStack my_proc(
- *   thread::Thread* context,
- *   const void *input_buffer,
- *   uint32_t input_len,
- *   void* output_buffer,
- *   uint32_t output_buffer_size,
- *   uint32_t* output_used) {
+ * ErrorStack my_proc(const ProcArguments& args) {
  *   ...
  *   return kRetOk;
  * }
@@ -81,7 +97,7 @@ inline LocalProcId extract_local_id_from_global_proc_id(GlobalProcId id) {
  * register the_proc and execute it...
  * @endcode
  */
-typedef ErrorStack (*Proc)(thread::Thread*, const void*, uint32_t, void*, uint32_t, uint32_t*);
+typedef ErrorStack (*Proc)(const ProcArguments& args);
 
 /**
  * Just a std::pair<ProcName, Proc>.

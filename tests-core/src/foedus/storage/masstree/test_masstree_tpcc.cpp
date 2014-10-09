@@ -575,13 +575,8 @@ Cid TpccLoadTask::get_permutation(bool* cid_array) {
   }
 }
 
-ErrorStack tpcc_load_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack tpcc_load_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   return TpccLoadTask().run(context);
 }
 
@@ -655,13 +650,8 @@ MasstreeStorage get_scan_target(uint32_t* expected_records_out, std::string* nam
   return target;
 }
 
-ErrorStack full_scan_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack full_scan_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   uint32_t expected_records;
   std::string name;
   MasstreeStorage target = get_scan_target(&expected_records, &name);
@@ -749,13 +739,8 @@ TEST(MasstreeTpccTest, FullscanOrderlines) {
   run_test(full_scan_task, false, false, false, false, true);
 }
 
-ErrorStack district_scan_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack district_scan_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   uint32_t expected_records;
   std::string name;
   MasstreeStorage target = get_scan_target(&expected_records, &name);

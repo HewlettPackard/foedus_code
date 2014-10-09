@@ -35,15 +35,10 @@ KeySlice nm(uint64_t key) { return normalize_primitive<uint64_t>(key); }
  * First half is done in node-0, second half is done in node-1.
  * So, this procedure is called twice.
  */
-ErrorStack populate_task(
-  thread::Thread* context,
-  const void* input_buffer,
-  uint32_t input_len,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
-  EXPECT_EQ(sizeof(uint32_t), input_len);
-  uint32_t table_size = *reinterpret_cast<const uint32_t*>(input_buffer);
+ErrorStack populate_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  EXPECT_EQ(sizeof(uint32_t), args.input_len_);
+  uint32_t table_size = *reinterpret_cast<const uint32_t*>(args.input_buffer_);
   MasstreeStorage storage(context->get_engine(), kTableName);
   EXPECT_TRUE(storage.exists());
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();

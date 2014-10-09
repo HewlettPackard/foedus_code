@@ -39,13 +39,8 @@ TEST(ArrayBasicTest, Create) {
   cleanup_test(options);
 }
 
-ErrorStack query_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack query_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   ArrayStorage array = context->get_engine()->get_storage_manager()->get_array("test2");
   char buf[16];
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
@@ -95,13 +90,8 @@ TEST(ArrayBasicTest, CreateAndDrop) {
   cleanup_test(options);
 }
 
-ErrorStack write_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack write_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   ArrayStorage array = context->get_engine()->get_storage_manager()->get_array("test3");
   char buf[16];
   std::memset(buf, 2, 16);
@@ -134,13 +124,8 @@ TEST(ArrayBasicTest, CreateAndWrite) {
   cleanup_test(options);
 }
 
-ErrorStack read_write_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack read_write_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   ArrayStorage array = context->get_engine()->get_storage_manager()->get_array("test4");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
 

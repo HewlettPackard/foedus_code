@@ -13,6 +13,7 @@
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/uniform_random.hpp"
 #include "foedus/memory/aligned_memory.hpp"
+#include "foedus/proc/proc_id.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/tpcc/tpcc_scale.hpp"
@@ -51,13 +52,7 @@ class TpccFinishupTask {
  * @brief Verify tables after data loading.
  * Only input is total_warehouses(Wid). No output.
  */
-ErrorStack tpcc_finishup_task(
-  thread::Thread* context,
-  const void* input_buffer,
-  uint32_t input_len,
-  void* output_buffer,
-  uint32_t output_buffer_size,
-  uint32_t* output_used);
+ErrorStack tpcc_finishup_task(const proc::ProcArguments& args);
 
 /**
  * @brief Main class of data load for TPC-C.
@@ -172,13 +167,7 @@ class TpccLoadTask {
  * Load data into TPCC tables.
  * Input is TpccLoadTask::Inputs, not output.
  */
-ErrorStack tpcc_load_task(
-  thread::Thread* context,
-  const void* input_buffer,
-  uint32_t input_len,
-  void* output_buffer,
-  uint32_t output_buffer_size,
-  uint32_t* output_used);
+ErrorStack tpcc_load_task(const proc::ProcArguments& args);
 
 }  // namespace tpcc
 }  // namespace foedus

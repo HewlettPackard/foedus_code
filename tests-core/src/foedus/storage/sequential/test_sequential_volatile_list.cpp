@@ -53,15 +53,10 @@ const uint32_t kAppendsPerThread = 2000;
 const uint32_t kStartEpoch = 3;
 const uint32_t kAppendsPerEpoch = 100;
 
-ErrorStack append_task(
-  thread::Thread* context,
-  const void* input_buffer,
-  uint32_t input_len,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
-  EXPECT_EQ(sizeof(uint32_t), input_len);
-  uint32_t task_id = *reinterpret_cast<const uint32_t*>(input_buffer);
+ErrorStack append_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  EXPECT_EQ(sizeof(uint32_t), args.input_len_);
+  uint32_t task_id = *reinterpret_cast<const uint32_t*>(args.input_buffer_);
   SequentialStorage target = context->get_engine()->get_storage_manager()->get_sequential("seq");
   EXPECT_TRUE(target.exists());
   SequentialStoragePimpl pimpl(&target);
@@ -81,15 +76,10 @@ ErrorStack append_task(
   return foedus::kRetOk;
 }
 
-ErrorStack verify_result(
-  thread::Thread* context,
-  const void* input_buffer,
-  uint32_t input_len,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
-  EXPECT_EQ(sizeof(uint16_t), input_len);
-  uint16_t thread_count = *reinterpret_cast<const uint16_t*>(input_buffer);
+ErrorStack verify_result(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  EXPECT_EQ(sizeof(uint16_t), args.input_len_);
+  uint16_t thread_count = *reinterpret_cast<const uint16_t*>(args.input_buffer_);
   SequentialStorage target = context->get_engine()->get_storage_manager()->get_sequential("seq");
   EXPECT_TRUE(target.exists());
   std::map<std::string, xct::XctId> answers;

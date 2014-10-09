@@ -213,16 +213,11 @@ class PopulateTpcbTask {
   const uint16_t to_branch_;
 };
 
-ErrorStack populate_task(
-  thread::Thread* context,
-  const void* input_buffer,
-  uint32_t input_len,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
-  ASSERT_ND(input_len == sizeof(uint64_t) * 2);
-  uint64_t from = reinterpret_cast<const uint64_t*>(input_buffer)[0];
-  uint64_t to = reinterpret_cast<const uint64_t*>(input_buffer)[1];
+ErrorStack populate_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  ASSERT_ND(args.input_len_ == sizeof(uint64_t) * 2);
+  uint64_t from = reinterpret_cast<const uint64_t*>(args.input_buffer_)[0];
+  uint64_t to = reinterpret_cast<const uint64_t*>(args.input_buffer_)[1];
   PopulateTpcbTask task(from, to);
   return task.run(context);
 }
@@ -343,18 +338,13 @@ class RunTpcbTask {
   sequential::SequentialStorage histories_;
 };
 
-ErrorStack run_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* output_buffer,
-  uint32_t output_buffer_size,
-  uint32_t* output_used) {
+ErrorStack run_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   RunTpcbTask task;
   CHECK_ERROR(task.run(context));
-  ASSERT_ND(output_buffer_size >= sizeof(uint64_t));
-  *output_used = sizeof(uint64_t);
-  *reinterpret_cast<uint64_t*>(output_buffer) = task.get_processed();
+  ASSERT_ND(args.output_buffer_size_ >= sizeof(uint64_t));
+  *args.output_used_ = sizeof(uint64_t);
+  *reinterpret_cast<uint64_t*>(args.output_buffer_) = task.get_processed();
   return kRetOk;
 }
 

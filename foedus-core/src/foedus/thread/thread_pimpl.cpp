@@ -154,13 +154,16 @@ void ThreadPimpl::handle_tasks() {
         LOG(ERROR) << "Thread-" << id_ << " couldn't find procedure: " << proc_name;
       } else {
         uint32_t output_used = 0;
-        result = proc(
+        proc::ProcArguments args = {
+          engine_,
           holder_,
           task_input_memory_,
           control_block_->input_len_,
           task_output_memory_,
           soc::ThreadMemoryAnchors::kTaskOutputMemorySize,
-          &output_used);
+          &output_used,
+        };
+        result = proc(args);
         VLOG(0) << "Thread-" << id_ << " run(task) returned. result =" << result
           << ", output_used=" << output_used;
         control_block_->output_len_ = output_used;

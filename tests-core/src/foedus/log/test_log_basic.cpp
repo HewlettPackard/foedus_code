@@ -27,13 +27,8 @@ namespace foedus {
 namespace log {
 DEFINE_TEST_CASE_PACKAGE(LogBasicTest, foedus.log);
 
-ErrorStack test_write_log(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack test_write_log(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   ThreadLogBuffer& buffer = context->get_thread_log_buffer();
@@ -95,13 +90,8 @@ TEST(LogBasicTest, WriteLog) {
   cleanup_test(options);
 }
 
-ErrorStack test_buffer_wrap_around(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
+ErrorStack test_buffer_wrap_around(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   ThreadLogBuffer& buffer = context->get_thread_log_buffer();

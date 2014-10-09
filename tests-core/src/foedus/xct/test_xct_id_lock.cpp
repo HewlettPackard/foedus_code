@@ -56,15 +56,10 @@ void init() {
   done_count = 0;
   signaled = false;
 }
-ErrorStack no_conflict_task(
-  thread::Thread* context,
-  const void* input_buffer,
-  uint32_t input_len,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
-  EXPECT_EQ(input_len, sizeof(int));
-  int id = *reinterpret_cast<const int*>(input_buffer);
+ErrorStack no_conflict_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  EXPECT_EQ(args.input_len_, sizeof(int));
+  int id = *reinterpret_cast<const int*>(args.input_buffer_);
   XctManager* xct_manager = context->get_engine()->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, kSerializable));
   McsBlockIndex block = context->mcs_acquire_lock(keys[id].get_key_lock());
@@ -82,15 +77,10 @@ ErrorStack no_conflict_task(
 }
 
 
-ErrorStack conflict_task(
-  thread::Thread* context,
-  const void* input_buffer,
-  uint32_t input_len,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
-  EXPECT_EQ(input_len, sizeof(int));
-  int id = *reinterpret_cast<const int*>(input_buffer);
+ErrorStack conflict_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  EXPECT_EQ(args.input_len_, sizeof(int));
+  int id = *reinterpret_cast<const int*>(args.input_buffer_);
   int l = id < kThreads / 2 ? id : id - kThreads / 2;
   XctManager* xct_manager = context->get_engine()->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, kSerializable));
@@ -109,15 +99,10 @@ ErrorStack conflict_task(
 }
 
 
-ErrorStack random_task(
-  thread::Thread* context,
-  const void* input_buffer,
-  uint32_t input_len,
-  void* /*output_buffer*/,
-  uint32_t /*output_buffer_size*/,
-  uint32_t* /*output_used*/) {
-  EXPECT_EQ(input_len, sizeof(int));
-  int id = *reinterpret_cast<const int*>(input_buffer);
+ErrorStack random_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  EXPECT_EQ(args.input_len_, sizeof(int));
+  int id = *reinterpret_cast<const int*>(args.input_buffer_);
   assorted::UniformRandom r(id);
   XctManager* xct_manager = context->get_engine()->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, kSerializable));

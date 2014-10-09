@@ -128,18 +128,12 @@ class ReadTask {
   const uint32_t kRandomCountMod = 0x7FFFF;
 };
 
-ErrorStack read_task(
-  thread::Thread* context,
-  const void* /*input_buffer*/,
-  uint32_t /*input_len*/,
-  void* output_buffer,
-  uint32_t output_buffer_size,
-  uint32_t* output_used) {
+ErrorStack read_task(const proc::ProcArguments& args) {
   ReadTask task;
-  CHECK_ERROR(task.run(context));
-  ASSERT_ND(output_buffer_size >= sizeof(task.processed_));
-  *output_used = sizeof(task.processed_);
-  *reinterpret_cast<uint64_t*>(output_buffer) = task.processed_;
+  CHECK_ERROR(task.run(args.context_));
+  ASSERT_ND(args.output_buffer_size_ >= sizeof(task.processed_));
+  *args.output_used_ = sizeof(task.processed_);
+  *reinterpret_cast<uint64_t*>(args.output_buffer_) = task.processed_;
   return kRetOk;
 }
 
