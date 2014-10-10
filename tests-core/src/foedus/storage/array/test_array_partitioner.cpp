@@ -10,6 +10,7 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/test_common.hpp"
+#include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_log_types.hpp"
@@ -82,7 +83,15 @@ void execute_test(TestFunctor functor, uint64_t array_size = 1024) {
     COERCE_ERROR(engine.get_storage_manager()->create_array(&meta, &out, &commit_epoch));
     EXPECT_TRUE(out.exists());
     Partitioner partitioner(&engine, out.get_id());
-    COERCE_ERROR(partitioner.design_partition());
+    memory::AlignedMemory work_memory;
+    work_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
+    cache::SnapshotFileSet fileset(&engine);
+    COERCE_ERROR(fileset.initialize())
+    Partitioner::DesignPartitionArguments args = {
+      memory::AlignedMemorySlice(&work_memory),
+      &fileset};
+    COERCE_ERROR(partitioner.design_partition(args));
+    COERCE_ERROR(fileset.uninitialize());
     EXPECT_TRUE(partitioner.is_valid());
     functor(partitioner);
     COERCE_ERROR(engine.uninitialize());

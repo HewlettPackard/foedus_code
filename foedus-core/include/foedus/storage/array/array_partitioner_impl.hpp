@@ -60,7 +60,8 @@ class ArrayPartitioner final {
  public:
   explicit ArrayPartitioner(Partitioner* parent);
 
-  ErrorStack design_partition();
+  ErrorStack design_partition(const Partitioner::DesignPartitionArguments& args);
+  uint64_t   get_required_design_buffer_size() const { return 0; }
   bool is_partitionable() const;
   void partition_batch(const Partitioner::PartitionBatchArguments& args) const;
   void sort_batch(const Partitioner::SortBatchArguments& args) const;

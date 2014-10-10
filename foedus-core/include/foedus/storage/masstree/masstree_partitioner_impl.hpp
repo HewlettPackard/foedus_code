@@ -110,9 +110,7 @@ class MasstreePartitioner final {
 
   explicit MasstreePartitioner(Partitioner* parent);
 
-  ErrorStack  design_partition(
-    memory::AlignedMemory* work_memory,
-    cache::SnapshotFileSet* snapshot_files);
+  ErrorStack  design_partition(const Partitioner::DesignPartitionArguments& args);
   uint64_t    get_required_design_buffer_size() const;
 
   bool is_partitionable() const;
@@ -179,29 +177,36 @@ struct MasstreePartitionerData final {
  * MasstreePartitionerData. Hence, we can use vector/string/etc in this struct.
  */
 struct MasstreePartitionerInDesignData final {
-  /**
-   * Represents a branch page.
-   */
-  struct BranchPage {
-    BranchPage() {}
-    BranchPage(
-      const std::string& prefix,
-      memory::PagePoolOffset tmp_page_offset,
-      uint16_t owner_node)
-      : prefix_(prefix), tmp_page_offset_(tmp_page_offset), owner_node_(owner_node) {}
+  /** Represents a branch page. */
+  struct BranchPageBase {
+    BranchPageBase() {}
+    BranchPageBase(const std::string& prefix, KeySlice low_fence, uint16_t owner_node)
+      : prefix_(prefix), low_fence_(low_fence), owner_node_(owner_node) {}
     /*
      * If the page is layer-1 or deeper, this stores the 8*layer bytes prefix.
      */
     std::string             prefix_;
-
-    /**
-     * Only for branch page. offset in tmp_pages_ that points to a copy of this page.
-     * 0 if record_.
-     */
-    memory::PagePoolOffset  tmp_page_offset_;
+    /** low_fence of the page, which will be used to construct low_key */
+    KeySlice                low_fence_;
 
     /** NUMA node that seems to own this page. this is not a final decision. */
     uint16_t                owner_node_;
+  };
+  /**
+   * Represents an active (which has a page image in tmp_pages_) branch page.
+   */
+  struct BranchPage : public BranchPageBase {
+    BranchPage() {}
+    BranchPage(
+      const std::string& prefix,
+      KeySlice low_fence,
+      memory::PagePoolOffset tmp_page_offset,
+      uint16_t owner_node)
+      : BranchPageBase(prefix, low_fence, owner_node), tmp_page_offset_(tmp_page_offset) {}
+    /**
+     * Only for branch page. offset in tmp_pages_ that points to a copy of this page.
+     */
+    memory::PagePoolOffset  tmp_page_offset_;
   };
   /** Finalized partition info */
   struct Partition {
@@ -215,7 +220,7 @@ struct MasstreePartitionerInDesignData final {
   MasstreePartitionerInDesignData(
     Engine* engine,
     StorageId id,
-    memory::AlignedMemory* work_memory,
+    memory::AlignedMemorySlice work_memory,
     cache::SnapshotFileSet* snapshot_files);
   ~MasstreePartitionerInDesignData();
 
@@ -254,7 +259,7 @@ struct MasstreePartitionerInDesignData final {
   const StorageId         id_;
   const MasstreeStorage   storage_;
   /** Memory for tmp_pages_. */
-  memory::AlignedMemory* const  work_memory_;
+  const memory::AlignedMemorySlice work_memory_;
   /** To read from snapshot pages. */
   cache::SnapshotFileSet* const snapshot_files_;
   const uint32_t          desired_branches_;
@@ -273,13 +278,13 @@ struct MasstreePartitionerInDesignData final {
    * This means it's a boundary page with only records, from which we can't digg down further.
    * We keep them in a separate vector.
    */
-  std::vector<BranchPage>   terminal_pages_;
+  std::vector<BranchPageBase> terminal_pages_;
 
   /** design() populates this as a result */
   std::vector<Partition>    designed_partitions_;
 
   /** Actually of PagePoolControlBlock. */
-  char                      tmp_pages_control_block_[128];  // so far this is more than enough
+  char                      tmp_pages_control_block_[256];  // so far this is more than enough
   /**
    * Everything design_partition() reads is a copied image of pages stored here.
    * It's a small page pool just enough for desired_branches_ plus a few more pages (in case

@@ -181,7 +181,9 @@ void PagePoolPimpl::release_impl(uint32_t desired_release_count, CHUNK* chunk) {
     LOG(ERROR) << get_debug_pool_name()
       << " - PagePoolPimpl::release() More than full free-pool. inconsistent state!";
     // TODO(Hideaki) Minor: Do a duplicate-check here to identify the problemetic pages.
-    COERCE_ERROR(ERROR_STACK(kErrorCodeMemoryDuplicatePage));
+    // crash here only in debug mode. otherwise just log the error
+    ASSERT_ND(free_pool_count() + desired_release_count <= free_pool_capacity_);
+    return;
   }
 
   // append to the tail

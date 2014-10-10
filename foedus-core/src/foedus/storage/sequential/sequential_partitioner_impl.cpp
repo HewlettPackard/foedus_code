@@ -17,7 +17,8 @@ SequentialPartitioner::SequentialPartitioner(Partitioner* parent)
     metadata_(PartitionerMetadata::get_metadata(engine_, id_)) {
 }
 
-ErrorStack SequentialPartitioner::design_partition() {
+ErrorStack SequentialPartitioner::design_partition(
+  const Partitioner::DesignPartitionArguments& /*args*/) {
   // no data required for SequentialPartitioner
   metadata_->data_offset_ = 0;
   metadata_->data_size_ = 0;

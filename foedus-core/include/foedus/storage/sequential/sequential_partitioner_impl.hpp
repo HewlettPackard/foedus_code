@@ -38,7 +38,8 @@ class SequentialPartitioner final {
  public:
   explicit SequentialPartitioner(Partitioner* parent);
 
-  ErrorStack design_partition();
+  ErrorStack design_partition(const Partitioner::DesignPartitionArguments& args);
+  uint64_t   get_required_design_buffer_size() const { return 0; }
   bool is_partitionable() const { return true; }
   void partition_batch(const Partitioner::PartitionBatchArguments& args) const;
   void sort_batch(const Partitioner::SortBatchArguments& args) const;

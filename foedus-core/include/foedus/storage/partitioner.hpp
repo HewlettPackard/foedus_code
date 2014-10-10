@@ -14,6 +14,7 @@
 #include "foedus/epoch.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
+#include "foedus/cache/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/snapshot/log_buffer.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
@@ -82,13 +83,22 @@ class Partitioner CXX11_FINAL : public Attachable<PartitionerMetadata> {
    */
   bool is_partitionable();
 
+  /** Arguments for design_partition() */
+  struct DesignPartitionArguments {
+    /** Temporary memory at least of size get_required_design_buffer_size() */
+    memory::AlignedMemorySlice work_memory_;
+    cache::SnapshotFileSet* snapshot_files_;
+  };
+
   /**
    * @brief Determines partitioning scheme for this storage.
    * @details
    * This method puts the resulting data in shared memory.
    * This method should be called only once per snapshot.
    */
-  ErrorStack design_partition();
+  ErrorStack design_partition(const DesignPartitionArguments& args);
+  /** Returns the minimum temporary memory size for design_partition() */
+  uint64_t   get_required_design_buffer_size();
 
   /** Arguments for partition_batch() */
   struct PartitionBatchArguments {
