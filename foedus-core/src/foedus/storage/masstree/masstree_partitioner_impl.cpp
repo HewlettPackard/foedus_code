@@ -19,6 +19,7 @@
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
+#include "foedus/memory/page_pool_pimpl.hpp"  // only for static size check. a bit wasteful.
 #include "foedus/memory/page_resolver.hpp"
 #include "foedus/storage/masstree/masstree_log_types.hpp"
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
@@ -37,7 +38,15 @@ namespace masstree {
 inline std::string append_slice_to_prefix(const std::string& prefix, KeySlice slice) {
   char appendix[sizeof(slice)];
   assorted::write_bigendian<KeySlice>(slice, appendix);
-  return prefix + std::string(appendix, sizeof(slice));
+  uint16_t trailing_nulls;
+  for (trailing_nulls = 0; trailing_nulls < sizeof(slice); ++trailing_nulls) {
+    if (appendix[sizeof(slice) - trailing_nulls - 1U] != 0) {
+      break;
+    }
+  }
+  ASSERT_ND(trailing_nulls <= sizeof(slice));
+  ASSERT_ND((trailing_nulls == sizeof(slice)) == (slice == 0));
+  return prefix + std::string(appendix, sizeof(slice) - trailing_nulls);
 }
 
 inline std::string get_full_key(
@@ -117,26 +126,29 @@ MasstreePartitioner::MasstreePartitioner(Partitioner* parent)
 }
 
 ErrorStack MasstreePartitioner::design_partition(
-  memory::AlignedMemory* work_memory,
-  cache::SnapshotFileSet* snapshot_files) {
+  const Partitioner::DesignPartitionArguments& args) {
   // Almost all implementation details are in MasstreePartitionerInDesignData
-  MasstreePartitionerInDesignData context(engine_, id_, work_memory, snapshot_files);
+  MasstreePartitionerInDesignData context(engine_, id_, args.work_memory_, args.snapshot_files_);
   CHECK_ERROR(context.initialize());
   CHECK_ERROR(context.enumerate());
   CHECK_ERROR(context.design());
   uint32_t required_size = context.get_output_size();
   required_size = assorted::align64(required_size);
 
-  // let's allocate this size in partitioner data. we need to take mutex for this
+  // let's allocate this size in partitioner data.
   {
-    PartitionerMetadata* size_metadata = PartitionerMetadata::get_index0_metadata(engine_);
-    soc::SharedMutexScope size_scope(&size_metadata->mutex_);
-    WRAP_ERROR_CODE(metadata_->allocate_data(engine_, &size_scope, required_size));
-  }
-  data_ = reinterpret_cast<MasstreePartitionerData*>(metadata_->locate_data(engine_));
-  LOG(INFO) << "Allocated " << required_size << " bytes for partitioner data of Masstree-" << id_;
+    soc::SharedMutexScope scope(&metadata_->mutex_);  // protect this metadata
+    if (metadata_->valid_) {
+      // someone has already initialized this??
+      LOG(FATAL) << "Masstree-" << id_ << " partition already designed??:" << *this;
+    }
+    WRAP_ERROR_CODE(metadata_->allocate_data(engine_, &scope, required_size));
+    data_ = reinterpret_cast<MasstreePartitionerData*>(metadata_->locate_data(engine_));
+    LOG(INFO) << "Allocated " << required_size << " bytes for partitioner data of Masstree-" << id_;
 
-  context.copy_output(data_);
+    context.copy_output(data_);
+    metadata_->valid_ = true;
+  }
   LOG(INFO) << "Masstree-" << id_ << " partitions:" << *this;
   return kRetOk;
 }
@@ -259,7 +271,7 @@ std::ostream& operator<<(std::ostream& o, const MasstreePartitioner& v) {
       const MasstreePartitionerData::PartitionHeader& partition = v.data_->partitions_[i];
       o << std::endl << "  <partition key_offset=\"" << partition.key_offset_
         << "\" key_length=\"" << partition.key_length_
-        << "\" node=\"" << partition.key_length_ << "\">"
+        << "\" node=\"" << partition.node_ << "\">"
         << assorted::HexString(std::string(v.data_->get_partition_key(i), partition.key_length_))
         << "</partition>";
     }
@@ -319,7 +331,7 @@ uint16_t MasstreePartitionerData::find_partition(const char* key, uint16_t key_l
 MasstreePartitionerInDesignData::MasstreePartitionerInDesignData(
   Engine* engine,
   StorageId id,
-  memory::AlignedMemory* work_memory,
+  memory::AlignedMemorySlice work_memory,
   cache::SnapshotFileSet* snapshot_files)
   : engine_(engine),
     id_(id),
@@ -329,17 +341,18 @@ MasstreePartitionerInDesignData::MasstreePartitionerInDesignData(
     desired_branches_(
       engine_->get_soc_count() * MasstreePartitioner::kPartitionThresholdPerNode),
     volatile_resolver_(engine_->get_memory_manager()->get_global_volatile_page_resolver()) {
+  std::memset(tmp_pages_control_block_, 0, sizeof(tmp_pages_control_block_));
   ASSERT_ND(storage_.exists());
 }
 
 ErrorStack MasstreePartitionerInDesignData::initialize() {
-  if (work_memory_->get_size() < 2ULL * kPageSize * desired_branches_) {
+  if (work_memory_.get_size() < 2ULL * kPageSize * desired_branches_) {
     return ERROR_STACK_MSG(kErrorCodeInvalidParameter, "work_memory too small");
   }
   tmp_pages_.attach(
     reinterpret_cast<memory::PagePoolControlBlock*>(tmp_pages_control_block_),
-    work_memory_->get_block(),
-    work_memory_->get_size(),
+    work_memory_.get_block(),
+    work_memory_.get_size(),
     true);
   tmp_pages_.set_debug_pool_name(
     std::string("Masstree-partitioner-tmp_pages_") + std::to_string(id_));
@@ -352,10 +365,9 @@ MasstreePartitionerInDesignData::~MasstreePartitionerInDesignData() {
   // this is mainly for sanity check so that page pool can check if it received back all.
   while (!active_pages_.empty()) {
     BranchPage popped = active_pages_.front();
+    active_pages_.pop();
+    ASSERT_ND(popped.tmp_page_offset_);
     tmp_pages_.release_one(popped.tmp_page_offset_);
-  }
-  for (const BranchPage& page : terminal_pages_) {
-    tmp_pages_.release_one(page.tmp_page_offset_);
   }
   terminal_pages_.clear();
   COERCE_ERROR(tmp_pages_.uninitialize());  // this never returns an error
@@ -384,26 +396,29 @@ ErrorStack MasstreePartitionerInDesignData::design() {
   std::map<std::string, uint16_t> sorted;  // <low_key, owner_node>
   while (!active_pages_.empty()) {
     BranchPage popped = active_pages_.front();
-    MasstreePage* tmp_page = resolve_tmp_page(popped.tmp_page_offset_);
-    std::string low_key = append_slice_to_prefix(popped.prefix_, tmp_page->get_low_fence());
+    active_pages_.pop();
+    ASSERT_ND(popped.tmp_page_offset_);
+    tmp_pages_.release_one(popped.tmp_page_offset_);
+    std::string low_key = append_slice_to_prefix(popped.prefix_, popped.low_fence_);
+    DVLOG(1) << "Masstree-" << storage_.get_id() << " active page offset="
+      << popped.tmp_page_offset_ << ":" << assorted::HexString(low_key);
     if (sorted.find(low_key) != sorted.end()) {
       LOG(ERROR) << "Masstree-" << storage_.get_id() << " has duplicate entries in active_pages_"
         << " with the same key: " << assorted::HexString(low_key);
       return ERROR_STACK(kErrorCodeInternalError);
     }
     sorted.insert(std::pair<std::string, uint16_t>(low_key, popped.owner_node_));
-    tmp_pages_.release_one(popped.tmp_page_offset_);
   }
-  for (const BranchPage& page : terminal_pages_) {
-    MasstreePage* tmp_page = resolve_tmp_page(page.tmp_page_offset_);
-    std::string low_key = append_slice_to_prefix(page.prefix_, tmp_page->get_low_fence());
+  for (const BranchPageBase& page : terminal_pages_) {
+    std::string low_key = append_slice_to_prefix(page.prefix_, page.low_fence_);
+    DVLOG(1) << "Masstree-" << storage_.get_id() << " termina page:"
+      << assorted::HexString(low_key);
     if (sorted.find(low_key) != sorted.end()) {
       LOG(ERROR) << "Masstree-" << storage_.get_id() << " has duplicate entries in"
         << " terminal_pages_ with the same key: " << assorted::HexString(low_key);
       return ERROR_STACK(kErrorCodeInternalError);
     }
     sorted.insert(std::pair<std::string, uint16_t>(low_key, page.owner_node_));
-    tmp_pages_.release_one(page.tmp_page_offset_);
   }
   terminal_pages_.clear();
 
@@ -463,6 +478,7 @@ void MasstreePartitionerInDesignData::copy_output(MasstreePartitionerData* desti
 MasstreePage* MasstreePartitionerInDesignData::resolve_tmp_page(memory::PagePoolOffset offset) {
   // the real page offset is different from that of this temporary pool, so use
   // resolve_offset_newpage to bypass assertion.
+  ASSERT_ND(offset);
   return reinterpret_cast<MasstreePage*>(tmp_pages_.get_resolver().resolve_offset_newpage(offset));
 }
 
@@ -477,14 +493,21 @@ ErrorStack MasstreePartitionerInDesignData::push_branch_page(
   // this is not an atomically/transactionally maintained info, but enough for partitioning.
   MasstreePage* tmp_page = resolve_tmp_page(offset);
   uint16_t page_owner = tmp_page->header().stat_last_updater_node_;
-  active_pages_.emplace(prefix, offset, page_owner);
+  ASSERT_ND(page_owner < engine_->get_soc_count());
+  DVLOG(1) << "Masstree-" << storage_.get_id() << " push offset=" << offset << ":"
+    << assorted::HexString(append_slice_to_prefix(prefix, tmp_page->get_low_fence()));
+  active_pages_.emplace(prefix, tmp_page->get_low_fence(), offset, page_owner);
   return kRetOk;
 }
 
 ErrorStack MasstreePartitionerInDesignData::pop_and_explore_branch_page() {
   ASSERT_ND(!active_pages_.empty());
   BranchPage popped = active_pages_.front();
+  active_pages_.pop();
   MasstreePage* page = resolve_tmp_page(popped.tmp_page_offset_);
+
+  DVLOG(1) << "Masstree-" << storage_.get_id() << " pop offset=" << popped.tmp_page_offset_ << ":"
+    << assorted::HexString(append_slice_to_prefix(popped.prefix_, page->get_low_fence()));
   uint32_t key_count = page->get_key_count();
   bool found_any_pointer = false;
   if (page->is_border()) {
@@ -512,12 +535,10 @@ ErrorStack MasstreePartitionerInDesignData::pop_and_explore_branch_page() {
     }
   }
 
-  if (found_any_pointer) {
-    // the popped page is no longer needed. release it.
-    tmp_pages_.release_one(popped.tmp_page_offset_);
-  } else {
-    // we still need it to represent this key range. store it as a terminal page
-    terminal_pages_.emplace_back(popped);
+  tmp_pages_.release_one(popped.tmp_page_offset_);
+  if (!found_any_pointer) {
+    // we still need it to represent this key range. store it as a terminal page, but w/o page image
+    terminal_pages_.emplace_back(popped.prefix_, popped.low_fence_, popped.owner_node_);
   }
   return kRetOk;
 }
@@ -564,6 +585,10 @@ ErrorStack MasstreePartitionerInDesignData::read_page(
   }
   return kRetOk;
 }
+
+static_assert(
+  sizeof(memory::PagePoolControlBlock) <= 256,
+  "MasstreePartitionerInDesignData::tmp_pages_control_block_ too small.");
 
 }  // namespace masstree
 }  // namespace storage

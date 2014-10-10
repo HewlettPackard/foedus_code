@@ -56,7 +56,8 @@ bool ArrayPartitioner::is_partitionable() const {
   return !data_->array_single_page_;
 }
 
-ErrorStack ArrayPartitioner::design_partition() {
+ErrorStack ArrayPartitioner::design_partition(
+  const Partitioner::DesignPartitionArguments& /*args*/) {
   ASSERT_ND(data_ == nullptr);
   ArrayStorage storage(engine_, id_);
   ASSERT_ND(storage.exists());

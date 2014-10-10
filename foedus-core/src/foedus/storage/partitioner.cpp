@@ -89,25 +89,38 @@ bool Partitioner::is_partitionable() {
   }
 }
 
-ErrorStack Partitioner::design_partition() {
+ErrorStack Partitioner::design_partition(const DesignPartitionArguments& args) {
   switch (type_) {
-  case kArrayStorage: return array::ArrayPartitioner(this).design_partition();
-  case kSequentialStorage: return sequential::SequentialPartitioner(this).design_partition();
+  case kArrayStorage: return array::ArrayPartitioner(this).design_partition(args);
+  case kSequentialStorage: return sequential::SequentialPartitioner(this).design_partition(args);
+  case kMasstreeStorage: return masstree::MasstreePartitioner(this).design_partition(args);
   case kHashStorage:
-  case kMasstreeStorage:
   default:
     LOG(FATAL) << "Unsupported storage type:" << type_;
     return kRetOk;
   }
 }
+uint64_t Partitioner::get_required_design_buffer_size() {
+  switch (type_) {
+  case kArrayStorage: return array::ArrayPartitioner(this).get_required_design_buffer_size();
+  case kSequentialStorage: return sequential::SequentialPartitioner(this).
+      get_required_design_buffer_size();
+  case kMasstreeStorage: return masstree::MasstreePartitioner(this).
+      get_required_design_buffer_size();
+  case kHashStorage:
+  default:
+    LOG(FATAL) << "Unsupported storage type:" << type_;
+    return 0;
+  }
+}
+
 
 void Partitioner::partition_batch(const Partitioner::PartitionBatchArguments& args) {
   switch (type_) {
   case kArrayStorage: return array::ArrayPartitioner(this).partition_batch(args);
   case kHashStorage:
     break;
-  case kMasstreeStorage:
-    break;
+  case kMasstreeStorage: return masstree::MasstreePartitioner(this).partition_batch(args);
   case kSequentialStorage: return sequential::SequentialPartitioner(this).partition_batch(args);
   default:
     LOG(FATAL) << "Unsupported storage type:" << type_;
@@ -119,8 +132,7 @@ void Partitioner::sort_batch(const Partitioner::SortBatchArguments& args) {
   case kArrayStorage: return array::ArrayPartitioner(this).sort_batch(args);
   case kHashStorage:
     break;
-  case kMasstreeStorage:
-    break;
+  case kMasstreeStorage: return masstree::MasstreePartitioner(this).sort_batch(args);
   case kSequentialStorage: return sequential::SequentialPartitioner(this).sort_batch(args);
   default:
     LOG(FATAL) << "Unsupported storage type:" << type_;

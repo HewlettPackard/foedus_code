@@ -51,4 +51,4 @@ set(test_masstree_tpcc_individuals
   )
 add_foedus_test_individual(test_masstree_tpcc "${test_masstree_tpcc_individuals}")
 
-add_foedus_test_individual(test_masstree_partitioner "Empty")
+add_foedus_test_individual(test_masstree_partitioner "Empty;PartitionBasic;SortBasic")

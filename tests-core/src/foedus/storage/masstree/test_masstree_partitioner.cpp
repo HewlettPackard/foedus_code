@@ -61,7 +61,7 @@ ErrorStack populate_task(const proc::ProcArguments& args) {
 
 
 typedef void (*TestFunctor)(Partitioner partitioner);
-void execute_test(TestFunctor functor, uint32_t table_size) {
+void execute_test(TestFunctor functor, uint32_t table_size = 1024) {
   EngineOptions options = get_tiny_options();
   options.thread_.group_count_ = 2;  // otherwise we can't test partitioning
   options.thread_.thread_count_per_group_ = 1;
@@ -82,12 +82,18 @@ void execute_test(TestFunctor functor, uint32_t table_size) {
         &table_size,
         sizeof(table_size)));
     }
-    /*
     Partitioner partitioner(&engine, out.get_id());
-    COERCE_ERROR(partitioner.design_partition());
+    memory::AlignedMemory work_memory;
+    work_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
+    cache::SnapshotFileSet fileset(&engine);
+    COERCE_ERROR(fileset.initialize())
+    Partitioner::DesignPartitionArguments args = {
+      memory::AlignedMemorySlice(&work_memory),
+      &fileset};
+    COERCE_ERROR(partitioner.design_partition(args));
+    COERCE_ERROR(fileset.uninitialize());
     EXPECT_TRUE(partitioner.is_valid());
     functor(partitioner);
-    */
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -106,20 +112,21 @@ TEST(MasstreePartitionerTest, Empty) {
   }
   execute_test(&EmptyFunctor, 1024);
 }
-/*
+
 template <int LOG_COUNT>
 struct Logs {
   explicit Logs(Partitioner partitioner)
   : log_buffer_(memory_), partitioner_(partitioner), cur_pos_(0), cur_count_(0) {
-    std::memset(memory_, 0xDA, LOG_COUNT * 128);  // fill with garbage
+    std::memset(memory_, 0xDA, sizeof(memory_));  // fill with garbage
     sort_buffer_.alloc(LOG_COUNT * 16, 1 << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
   }
 
-  void add_log(Epoch::EpochInteger epoch_int, uint16_t ordinal,
-               MasstreeOffset offset, uint16_t payload_offset, uint16_t payload_count) {
-    MasstreeOverwriteLogType* entry = reinterpret_cast<MasstreeOverwriteLogType*>(memory_ + cur_pos_);
-    char dummy[kPayload];
-    entry->populate(partitioner_.get_storage_id(), offset, dummy, payload_offset, payload_count);
+  void add_log(Epoch::EpochInteger epoch_int, uint32_t ordinal, uint32_t key) {
+    MasstreeInsertLogType* entry = reinterpret_cast<MasstreeInsertLogType*>(memory_ + cur_pos_);
+    char key_be[sizeof(KeySlice)];
+    assorted::write_bigendian<KeySlice>(nm(key), key_be);
+    uint32_t data = key;
+    entry->populate(partitioner_.get_storage_id(), key_be, sizeof(key_be), &data, sizeof(data), 0);
     entry->header_.xct_id_.set(epoch_int, ordinal);
     positions_[cur_count_] = log_buffer_.compact(entry);
     cur_pos_ += entry->header_.log_length_;
@@ -161,11 +168,17 @@ struct Logs {
 };
 
 void PartitionBasicFunctor(Partitioner partitioner) {
-  std::unique_ptr< Logs<16> > logs(new Logs<16>(partitioner));
-  for (int i = 0; i < 16; ++i) {
-    logs->add_log(2, i, 123 - i, 4, 8);
+  std::unique_ptr< Logs<64> > logs(new Logs<64>(partitioner));
+  for (int i = 0; i < 64; ++i) {
+    logs->add_log(2, i + 1, i * 16);
   }
   logs->partition_batch();
+  for (int i = 0; i < 28; ++i) {  // maybe the partition design is a bit inaccurate, so not 32
+    EXPECT_EQ(0, logs->partition_results_[i]) << i;
+  }
+  for (int i = 36; i < 64; ++i) {  // same above
+    EXPECT_EQ(1, logs->partition_results_[i]) << i;
+  }
 }
 
 TEST(MasstreePartitionerTest, PartitionBasic) {
@@ -177,15 +190,14 @@ TEST(MasstreePartitionerTest, PartitionBasic) {
 
 
 void SortBasicFunctor(Partitioner partitioner) {
-  std::unique_ptr< Logs<16> > logs(new Logs<16>(partitioner));
-  for (int i = 0; i < 16; ++i) {
-    // epoch/ordinal is ordered, but offsets are reverse-ordered
-    logs->add_log(2 + i, i, 123 - i, 4, 8);
+  std::unique_ptr< Logs<64> > logs(new Logs<64>(partitioner));
+  for (int i = 0; i < 64; ++i) {
+    logs->add_log(2, i + 1, 1024 - i * 16);
   }
-  EXPECT_EQ(16, logs->sort_batch(2));
-  for (int i = 0; i < 16; ++i) {
+  EXPECT_EQ(64, logs->sort_batch(2));
+  for (int i = 0; i < 64; ++i) {
     // results should be reverse-ordered
-    EXPECT_EQ(logs->positions_[15 - i], logs->sort_results_[i]);
+    EXPECT_EQ(logs->positions_[63 - i], logs->sort_results_[i]) << i;
   }
 }
 
@@ -195,7 +207,6 @@ TEST(MasstreePartitionerTest, SortBasic) {
   }
   execute_test(&SortBasicFunctor);
 }
-*/
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus
