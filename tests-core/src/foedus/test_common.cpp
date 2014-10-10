@@ -209,6 +209,18 @@ namespace foedus {
       str << "- [" << i << "/" << traces.size() << "] " << traces[i] << std::endl;
     }
 
+    std::string dump_info = ErrorStack::get_recent_dump_and_abort();
+    if (dump_info.size() > 0) {
+      str << std::endl << "**** There was an ErrorStack::dump_and_abort() call that probably"
+        << " caused this signal: ****" << std::endl << dump_info;
+    }
+
+    std::string assert_info = get_recent_assert_backtrace();
+    if (assert_info.size() > 0) {
+      str << std::endl << "**** There was an assertion failure that probably caused this signal"
+        << ": ****" << std::endl << assert_info;
+    }
+
     std::string details = str.str();
     std::cerr << details;
 

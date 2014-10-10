@@ -10,6 +10,7 @@
 
 #include <cstring>
 #include <iosfwd>
+#include <string>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
@@ -158,8 +159,14 @@ class ErrorStack {
   /** Describe this object to the given stream. */
   void                output(std::ostream* ptr) const;
 
-  /** Describe this object to std::cerr and then abort. */
+  /**
+   * Describe this object to std::cerr and then abort.
+   * This also leaves the dump information in static variable so that a signal handler pick it up.
+   */
   void                dump_and_abort(const char *abort_message) const;
+  /** Signal handler can get the dump information via this. */
+  static std::string  get_recent_dump_and_abort();
+
 
   friend std::ostream& operator<<(std::ostream& o, const ErrorStack& obj);
 

@@ -7,7 +7,10 @@
 #include <glog/logging.h>
 
 #include <iostream>
+#include <sstream>
+#include <string>
 
+#include "foedus/assert_nd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 
 namespace foedus {
@@ -37,12 +40,26 @@ void ErrorStack::output(std::ostream* ptr) const {
   }
 }
 
+/**
+ * Leaves recent dump information in a static global variable so that a signal handler can pick it.
+ */
+std::string static_recent_dump_and_abort;
+
 void ErrorStack::dump_and_abort(const char *abort_message) const {
-  LOG(FATAL) << "FATAL:" << abort_message << std::endl << *this << std::endl;
+  std::stringstream str;
+  str << "foedus::ErrorStack::dump_and_abort: " << abort_message << std::endl << *this << std::endl;
+  str << print_backtrace();
+
+  static_recent_dump_and_abort += str.str();
+  LOG(FATAL) << str.str();
   ASSERT_ND(false);
   std::cout.flush();
   std::cerr.flush();
   std::abort();
+}
+
+std::string ErrorStack::get_recent_dump_and_abort() {
+  return static_recent_dump_and_abort;
 }
 
 std::ostream& operator<<(std::ostream& o, const ErrorStack& obj) {

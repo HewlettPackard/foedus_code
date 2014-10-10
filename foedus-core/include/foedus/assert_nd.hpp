@@ -5,6 +5,8 @@
 #ifndef FOEDUS_ASSERT_ND_HPP_
 #define FOEDUS_ASSERT_ND_HPP_
 
+#include <string>
+
 /**
  * @def ASSERT_ND(x)
  * @ingroup IDIOMS
@@ -27,10 +29,23 @@
  * @brief Cross-compiler UNUSED macro for the same purpose as ASSERT_ND(x).
  */
 namespace foedus {
-  /** Helper function to report what assertion failed to stderr. */
-  void print_assert(const char* file, const char* func, int line, const char* description);
+  /** Helper function to report what assertion failed. */
+  std::string print_assert(const char* file, const char* func, int line, const char* description);
   /** Prints out backtrace. This method is best-effort, maybe do nothing in some compiler/OS. */
-  void print_backtrace();
+  std::string print_backtrace();
+
+  /**
+   * print_assert() + print_backtrace().
+   * It also leaves the info in a global variable so that signal handler can show that later.
+   */
+  void print_assert_backtrace(
+    const char* file,
+    const char* func,
+    int line,
+    const char* description);
+
+  /** Retrieves the info left by print_assert_backtrace(). Called by signal handler */
+  std::string get_recent_assert_backtrace();
 }  // namespace foedus
 
 #ifdef NDEBUG
@@ -42,9 +57,9 @@ namespace foedus {
 #define ASSERT_QUOTE(str) #str
 #define ASSERT_EXPAND_AND_QUOTE(str) ASSERT_QUOTE(str)
 #define ASSERT_ND(x) do { if (!(x)) { \
-  foedus::print_assert(__FILE__, __FUNCTION__, __LINE__, ASSERT_QUOTE(x)); \
-  foedus::print_backtrace(); \
-  assert(x); } } while (0)
+  foedus::print_assert_backtrace(__FILE__, __FUNCTION__, __LINE__, ASSERT_QUOTE(x)); \
+  assert(x); \
+  } } while (0)
 #else  // ASSERT_ND_NOBACKTRACE
 #define ASSERT_ND(x) assert(x)
 #endif  // ASSERT_ND_NOBACKTRACE
