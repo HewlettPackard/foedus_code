@@ -43,8 +43,6 @@ ErrorStack populate_task(const proc::ProcArguments& args) {
   EXPECT_TRUE(storage.exists());
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   Epoch commit_epoch;
-
-  // Create branches
   COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
   for (uint64_t i = 0; i < table_size / 2U; ++i) {
     uint32_t id = i + (context->get_thread_id() == 0 ? 0 : table_size / 2U);
