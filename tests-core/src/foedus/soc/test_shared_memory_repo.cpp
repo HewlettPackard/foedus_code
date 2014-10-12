@@ -25,7 +25,9 @@ TEST(SharedMemoryRepoTest, Alone) {
   SharedMemoryRepo repo;
   EXPECT_EQ(nullptr, repo.get_global_memory());
   EngineOptions options = get_tiny_options();
-  EXPECT_FALSE(repo.allocate_shared_memories(options).is_error());
+  Upid pid = ::getpid();
+  Eid eid = 1234;
+  EXPECT_FALSE(repo.allocate_shared_memories(pid, eid, options).is_error());
   EXPECT_NE(nullptr, repo.get_global_memory());
   EXPECT_NE(nullptr, repo.get_global_memory_anchors()->log_manager_memory_);
   EXPECT_NE(nullptr, repo.get_global_memory_anchors()->restart_manager_memory_);
@@ -77,12 +79,13 @@ TEST(SharedMemoryRepoTest, Alone) {
 TEST(SharedMemoryRepoTest, Attach) {
   SharedMemoryRepo repo;
   EngineOptions options = get_tiny_options();
-  EXPECT_FALSE(repo.allocate_shared_memories(options).is_error());
-
   Upid pid = ::getpid();
+  Eid eid = 1235;
+  EXPECT_FALSE(repo.allocate_shared_memories(pid, eid, options).is_error());
+
   SharedMemoryRepo child;
   EngineOptions child_options;
-  EXPECT_FALSE(child.attach_shared_memories(pid, 0, &child_options).is_error());
+  EXPECT_FALSE(child.attach_shared_memories(pid, eid, 0, &child_options).is_error());
 
   EXPECT_NE(nullptr, child.get_global_memory());
   EXPECT_NE(nullptr, child.get_global_memory_anchors()->log_manager_memory_);

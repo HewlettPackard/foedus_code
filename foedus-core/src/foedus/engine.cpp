@@ -13,8 +13,9 @@ namespace foedus {
 Engine::Engine(const EngineOptions& options) : pimpl_(nullptr) {
   pimpl_ = new EnginePimpl(this, options);
 }
-Engine::Engine(EngineType type, uint64_t master_upid, uint16_t soc_id) : pimpl_(nullptr) {
-  pimpl_ = new EnginePimpl(this, type, master_upid, soc_id);
+Engine::Engine(EngineType type, uint64_t master_upid, Eid master_eid, uint16_t soc_id)
+  : pimpl_(nullptr) {
+  pimpl_ = new EnginePimpl(this, type, master_upid, master_eid, soc_id);
 }
 Engine::~Engine() {
   delete pimpl_;
@@ -58,5 +59,6 @@ bool        Engine::is_remote_spawned_child() const { return pimpl_->type_ == kC
 soc::SocId  Engine::get_soc_id() const      { return pimpl_->soc_id_; }
 soc::SocId  Engine::get_soc_count() const   { return pimpl_->options_.thread_.group_count_; }
 soc::Upid   Engine::get_master_upid() const { return pimpl_->master_upid_; }
+Eid         Engine::get_master_eid() const  { return pimpl_->master_eid_; }
 
 }  // namespace foedus

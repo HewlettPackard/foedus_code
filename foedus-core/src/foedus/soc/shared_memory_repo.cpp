@@ -21,14 +21,15 @@
 namespace foedus {
 namespace soc {
 
-std::string get_self_path() {
-  pid_t pid = ::getpid();
-  std::string pid_str = std::to_string(pid);
-  return std::string("/tmp/libfoedus_shm_") + pid_str;
+std::string get_self_path(uint64_t upid, Eid eid) {
+  std::string pid_str = std::to_string(upid);
+  std::string eid_str = std::to_string(eid);
+  return std::string("/tmp/libfoedus_shm_") + pid_str + std::string("_") + eid_str;
 }
-std::string get_master_path(uint64_t master_upid) {
+std::string get_master_path(uint64_t master_upid, Eid master_eid) {
   std::string pid_str = std::to_string(master_upid);
-  return std::string("/tmp/libfoedus_shm_") + pid_str;
+  std::string eid_str = std::to_string(master_eid);
+  return std::string("/tmp/libfoedus_shm_") + pid_str + std::string("_") + eid_str;
 }
 
 void NodeMemoryAnchors::allocate_arrays(const EngineOptions& options) {
@@ -52,20 +53,24 @@ uint64_t align_4kb(uint64_t value) { return assorted::align< uint64_t, (1U << 12
 uint64_t align_2mb(uint64_t value) { return assorted::align< uint64_t, (1U << 21) >(value); }
 
 void SharedMemoryRepo::allocate_one_node(
+  uint64_t upid,
+  Eid eid,
   uint16_t node,
   uint64_t node_memory_size,
   uint64_t volatile_pool_size,
   ErrorStack* alloc_result,
   SharedMemoryRepo* repo) {
   // NEVER do COERCE_ERROR here. We must responsibly release shared memory even on errors.
-  std::string node_memory_path = get_self_path() + std::string("_node_") + std::to_string(node);
+  std::string node_memory_path
+    = get_self_path(upid, eid) + std::string("_node_") + std::to_string(node);
   *alloc_result = repo->node_memories_[node].alloc(node_memory_path, node_memory_size, node);
   if (alloc_result->is_error()) {
     repo->node_memories_[node].release_block();
     return;
   }
 
-  std::string volatile_pool_path = get_self_path() + std::string("_vpool_") + std::to_string(node);
+  std::string volatile_pool_path
+    = get_self_path(upid, eid) + std::string("_vpool_") + std::to_string(node);
   *alloc_result = repo->volatile_pools_[node].alloc(volatile_pool_path, volatile_pool_size, node);
   if (alloc_result->is_error()) {
     repo->node_memories_[node].release_block();
@@ -73,7 +78,10 @@ void SharedMemoryRepo::allocate_one_node(
   }
 }
 
-ErrorStack SharedMemoryRepo::allocate_shared_memories(const EngineOptions& options) {
+ErrorStack SharedMemoryRepo::allocate_shared_memories(
+  uint64_t upid,
+  Eid eid,
+  const EngineOptions& options) {
   deallocate_shared_memories();
   init_empty(options);
 
@@ -85,7 +93,7 @@ ErrorStack SharedMemoryRepo::allocate_shared_memories(const EngineOptions& optio
 
   // construct unique meta files using PID.
   uint64_t global_memory_size = align_2mb(calculate_global_memory_size(xml_size, options));
-  std::string global_memory_path = get_self_path() + std::string("_global");
+  std::string global_memory_path = get_self_path(upid, eid) + std::string("_global");
   CHECK_ERROR(global_memory_.alloc(global_memory_path, global_memory_size, 0));
 
   // from now on, be very careful to not exit without releasing this shared memory.
@@ -106,6 +114,8 @@ ErrorStack SharedMemoryRepo::allocate_shared_memories(const EngineOptions& optio
   for (uint16_t node = 0; node < soc_count_; ++node) {
     alloc_threads.emplace_back(std::thread(
       SharedMemoryRepo::allocate_one_node,
+      upid,
+      eid,
       node,
       node_memory_size,
       volatile_pool_size,
@@ -139,11 +149,12 @@ ErrorStack SharedMemoryRepo::allocate_shared_memories(const EngineOptions& optio
 
 ErrorStack SharedMemoryRepo::attach_shared_memories(
   uint64_t master_upid,
+  Eid master_eid,
   SocId my_soc_id,
   EngineOptions* options) {
   deallocate_shared_memories();
 
-  std::string base = get_master_path(master_upid);
+  std::string base = get_master_path(master_upid, master_eid);
   std::string global_memory_path = base + std::string("_global");
   global_memory_.attach(global_memory_path);
   if (global_memory_.is_null()) {

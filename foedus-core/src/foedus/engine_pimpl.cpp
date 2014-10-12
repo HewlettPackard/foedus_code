@@ -26,6 +26,8 @@ EnginePimpl::EnginePimpl(Engine* engine, const EngineOptions &options) :
   engine_(engine),
   type_(kMaster),
   master_upid_(::getpid()),
+  // simply the pointer value of Engine object as identifier.
+  master_eid_(reinterpret_cast<uintptr_t>(reinterpret_cast<void*>(engine))),
   soc_id_(0),
   // although we give a pointer to engine, these objects must not access it yet.
   // even the Engine object has not set the pimpl pointer.
@@ -45,10 +47,12 @@ EnginePimpl::EnginePimpl(
   Engine* engine,
   EngineType type,
   soc::Upid master_upid,
+  Eid master_eid,
   soc::SocId soc_id) :
   engine_(engine),
   type_(type),
   master_upid_(master_upid),
+  master_eid_(master_eid),
   soc_id_(soc_id),
   soc_manager_(engine),
   debug_(engine),
