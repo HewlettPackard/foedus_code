@@ -526,6 +526,7 @@ class SharedMemoryRepo CXX11_FINAL {
     uint16_t node,
     uint64_t node_memory_size,
     uint64_t volatile_pool_size,
+    ErrorStack* alloc_result,
     SharedMemoryRepo* repo);
 };
 

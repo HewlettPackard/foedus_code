@@ -35,7 +35,7 @@ TEST(SharedMemoryTest, Alone) {
   EXPECT_TRUE(memory.get_block() == nullptr);
   EXPECT_TRUE(memory.is_null());
   std::string meta_path = base_path() + std::string("_alone");
-  memory.alloc(meta_path, 1ULL << 21, 0);
+  COERCE_ERROR(memory.alloc(meta_path, 1ULL << 21, 0));
   EXPECT_TRUE(memory.get_block() != nullptr);
   EXPECT_EQ(1ULL << 21, memory.get_size());
   EXPECT_EQ(meta_path, memory.get_meta_path());
@@ -57,7 +57,7 @@ TEST(SharedMemoryTest, ShareFork) {
     EXPECT_TRUE(memory.get_block() == nullptr);
     EXPECT_TRUE(memory.is_null());
     std::string meta_path = base_path() + std::string("_share_fork");
-    memory.alloc(meta_path, 1ULL << 21, 0);
+    COERCE_ERROR(memory.alloc(meta_path, 1ULL << 21, 0));
     memory.get_block()[3] = 42;
     pid_t pid = ::fork();
     if (pid == -1) {
@@ -122,7 +122,7 @@ TEST(SharedMemoryTest, ShareSpawn) {
   EXPECT_TRUE(memory.get_block() == nullptr);
   EXPECT_TRUE(memory.is_null());
   std::string meta_path = base_path() + std::string("_share_spawn");
-  memory.alloc(meta_path, 1ULL << 21, 0);
+  COERCE_ERROR(memory.alloc(meta_path, 1ULL << 21, 0));
   memory.get_block()[3] = 42;
 
 

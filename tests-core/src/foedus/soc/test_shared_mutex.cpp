@@ -37,7 +37,7 @@ std::string base_path() {
 TEST(SharedMutexTest, SharedMemoryAlone) {
   memory::SharedMemory memory;
   std::string meta_path = base_path() + std::string("_SharedMemoryAlone");
-  memory.alloc(meta_path, 1ULL << 21, 0);
+  COERCE_ERROR(memory.alloc(meta_path, 1ULL << 21, 0));
   memory.mark_for_release();
   EXPECT_NE(nullptr, memory.get_block());
   void* block = memory.get_block();
@@ -56,7 +56,7 @@ TEST(SharedMutexTest, SharedMemoryAlone) {
 TEST(SharedMutexTest, SharedMemoryFork) {
   memory::SharedMemory memory;
   std::string meta_path = base_path() + std::string("_SharedMemoryFork");
-  memory.alloc(meta_path, 1ULL << 21, 0);
+  COERCE_ERROR(memory.alloc(meta_path, 1ULL << 21, 0));
   EXPECT_NE(nullptr, memory.get_block());
   char* block = reinterpret_cast<char*>(memory.get_block());
 

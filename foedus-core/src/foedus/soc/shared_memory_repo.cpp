@@ -55,11 +55,22 @@ void SharedMemoryRepo::allocate_one_node(
   uint16_t node,
   uint64_t node_memory_size,
   uint64_t volatile_pool_size,
+  ErrorStack* alloc_result,
   SharedMemoryRepo* repo) {
+  // NEVER do COERCE_ERROR here. We must responsibly release shared memory even on errors.
   std::string node_memory_path = get_self_path() + std::string("_node_") + std::to_string(node);
-  repo->node_memories_[node].alloc(node_memory_path, node_memory_size, node);
+  *alloc_result = repo->node_memories_[node].alloc(node_memory_path, node_memory_size, node);
+  if (alloc_result->is_error()) {
+    repo->node_memories_[node].release_block();
+    return;
+  }
+
   std::string volatile_pool_path = get_self_path() + std::string("_vpool_") + std::to_string(node);
-  repo->volatile_pools_[node].alloc(volatile_pool_path, volatile_pool_size, node);
+  *alloc_result = repo->volatile_pools_[node].alloc(volatile_pool_path, volatile_pool_size, node);
+  if (alloc_result->is_error()) {
+    repo->node_memories_[node].release_block();
+    repo->volatile_pools_[node].release_block();
+  }
 }
 
 ErrorStack SharedMemoryRepo::allocate_shared_memories(const EngineOptions& options) {
@@ -75,13 +86,9 @@ ErrorStack SharedMemoryRepo::allocate_shared_memories(const EngineOptions& optio
   // construct unique meta files using PID.
   uint64_t global_memory_size = align_2mb(calculate_global_memory_size(xml_size, options));
   std::string global_memory_path = get_self_path() + std::string("_global");
-  global_memory_.alloc(global_memory_path, global_memory_size, 0);
-  if (global_memory_.is_null()) {
-    deallocate_shared_memories();
-    std::cerr << "[FOEDUS] Failed to allocate global shared memory. os_error="
-      << assorted::os_error() << std::endl;
-    return ERROR_STACK(kErrorCodeSocShmAllocFailed);
-  }
+  CHECK_ERROR(global_memory_.alloc(global_memory_path, global_memory_size, 0));
+
+  // from now on, be very careful to not exit without releasing this shared memory.
 
   set_global_memory_anchors(xml_size, options);
   global_memory_anchors_.master_status_memory_->status_code_ = MasterEngineStatus::kInitial;
@@ -94,6 +101,7 @@ ErrorStack SharedMemoryRepo::allocate_shared_memories(const EngineOptions& optio
   uint64_t node_memory_size = align_2mb(calculate_node_memory_size(options));
   uint64_t volatile_pool_size
     = static_cast<uint64_t>(options.memory_.page_pool_size_mb_per_node_) << 20;
+  ErrorStack alloc_results[kMaxSocs];
   std::vector< std::thread > alloc_threads;
   for (uint16_t node = 0; node < soc_count_; ++node) {
     alloc_threads.emplace_back(std::thread(
@@ -101,22 +109,25 @@ ErrorStack SharedMemoryRepo::allocate_shared_memories(const EngineOptions& optio
       node,
       node_memory_size,
       volatile_pool_size,
+      alloc_results + node,
       this));
   }
 
+  ErrorStack last_error;
   bool failed = false;
   for (uint16_t node = 0; node < soc_count_; ++node) {
     alloc_threads[node].join();
-    if (node_memories_[node].is_null() || volatile_pools_[node].is_null()) {
-      std::cerr << "[FOEDUS] Failed to allocate node shared memory. os_error="
-        << assorted::os_error() << std::endl;
+    if (alloc_results[node].is_error()) {
+      std::cerr << "[FOEDUS] Failed to allocate node shared memory for node-" << node
+        << ". " << alloc_results[node] << std::endl;
+      last_error = alloc_results[node];
       failed = true;
     }
   }
 
   if (failed) {
     deallocate_shared_memories();
-    return ERROR_STACK(kErrorCodeSocShmAllocFailed);
+    return last_error;
   }
 
   for (uint16_t node = 0; node < soc_count_; ++node) {

@@ -98,7 +98,10 @@ int process_main(int node) {
 void data_alloc(int node) {
   std::stringstream meta_path;
   meta_path << "/tmp/foedus_l3miss_multip_experiment_" << ::getpid() << "_node_" << node;
-  data_memories[node].alloc(meta_path.str(), (mb_per_core << 20) * cores_per_node, node);
+  COERCE_ERROR(data_memories[node].alloc(
+    meta_path.str(),
+    (mb_per_core << 20) * cores_per_node,
+    node));
   std::cout << "Allocated memory for node-" << node << ":"
     << data_memories[node].get_block() << std::endl;
 }
@@ -137,7 +140,7 @@ int main(int argc, char **argv) {
 
   std::stringstream meta_path;
   meta_path << "/tmp/foedus_l3miss_multip_experiment_" << ::getpid() << "_channel";
-  process_channel_memory.alloc(meta_path.str(), 1 << 21, 0);
+  COERCE_ERROR(process_channel_memory.alloc(meta_path.str(), 1 << 21, 0));
   process_channel = reinterpret_cast<ProcessChannel*>(process_channel_memory.get_block());
   process_channel->initialized_count = 0;
   process_channel->experiment_started = false;

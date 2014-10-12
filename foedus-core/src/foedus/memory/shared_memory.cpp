@@ -17,6 +17,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 
 #include "foedus/assert_nd.hpp"
@@ -53,9 +54,8 @@ bool SharedMemory::is_owned() const {
   return owner_pid_ != 0 && owner_pid_ == ::getpid();
 }
 
-void SharedMemory::alloc(const std::string& meta_path, uint64_t size, int numa_node) {
+ErrorStack SharedMemory::alloc(const std::string& meta_path, uint64_t size, int numa_node) {
   release_block();
-  ASSERT_ND(block_ == nullptr);
 
   if (size % (1ULL << 21) != 0) {
     size = ((size_ >> 21) + 1ULL) << 21;
@@ -64,13 +64,13 @@ void SharedMemory::alloc(const std::string& meta_path, uint64_t size, int numa_n
   // create a meta file. we must first create it then generate key.
   // shmkey will change whenever we modify the file.
   if (fs::exists(fs::Path(meta_path))) {
-    std::cerr << "Shared memory meta file already exists:" << meta_path << std::endl;
-    return;
+    std::string msg = std::string("Shared memory meta file already exists:") + meta_path;
+    return ERROR_STACK_MSG(kErrorCodeSocShmAllocFailed, msg.c_str());
   }
   std::ofstream file(meta_path, std::ofstream::binary);
   if (!file.is_open()) {
-    std::cerr << "Failed to create shared memory meta file:" << meta_path << std::endl;
-    return;
+    std::string msg = std::string("Failed to create shared memory meta file:") + meta_path;
+    return ERROR_STACK_MSG(kErrorCodeSocShmAllocFailed, msg.c_str());
   }
   // Write out the size/node of the shared memory in the meta file
   file.write(reinterpret_cast<char*>(&size), sizeof(size));
@@ -99,33 +99,27 @@ void SharedMemory::alloc(const std::string& meta_path, uint64_t size, int numa_n
     size_,
     IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR | (running_on_valgrind ? 0 : SHM_HUGETLB));
   if (shmid_ == -1) {
-    std::cerr << "shmget() alloc failed! size=" << size_ << ", error=" << assorted::os_error()
-      << ". This is usually caused by a misconfigured environment. Check the following:"
-      << std::endl << " - Too small kernel.shmmax/kernel.shmmin. "
-        << "sudo sysctl -w kernel.shmmax=9223372036854775807;"
-        << "sudo sysctl -w kernel.shmall=1152921504606846720;"
-        << "sudo sysctl -p"
-      << std::endl << " - Too few hugepages. sudo sh -c 'echo 196608 > /proc/sys/vm/nr_hugepages'"
-      << std::endl << " - Too small mlock. Check ulimit -l. Configure /etc/security/limits.conf"
-      << std::endl << " - Simply larger than DRAM in the machine. "
-      << std::endl << " - (Very rare) shm key conflict. "
-      << std::endl;
-    return;
+    std::string msg = std::string("shmget() failed! size=") + std::to_string(size_)
+      + std::string(", os_error=") + assorted::os_error() + std::string(", meta_path=") + meta_path;
+    return ERROR_STACK_MSG(kErrorCodeSocShmAllocFailed, msg.c_str());
   }
 
   block_ = reinterpret_cast<char*>(::shmat(shmid_, nullptr, 0));
 
   if (block_ == reinterpret_cast<void*>(-1)) {
     block_ = nullptr;
-    std::cerr << "shmat alloc failed!" << *this << ", error=" << assorted::os_error() << std::endl;
+    std::stringstream msg;
+    msg << "shmat alloc failed!" << *this << ", error=" << assorted::os_error();
     release_block();
-    return;
+    std::string str = msg.str();
+    return ERROR_STACK_MSG(kErrorCodeSocShmAllocFailed, str.c_str());
   }
 
   std::memset(block_, 0, size_);  // see class comment for why we do this immediately
   // This memset takes a very long time due to the issue in linux kernel:
   // https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/commit/?id=8382d914ebf72092aa15cdc2a5dcedb2daa0209d
   // In linux 3.15 and later, this problem gets resolved and highly parallelizable.
+  return kRetOk;
 }
 
 void SharedMemory::attach(const std::string& meta_path) {
