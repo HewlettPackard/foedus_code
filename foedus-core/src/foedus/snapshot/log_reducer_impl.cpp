@@ -565,7 +565,7 @@ ErrorStack LogReducer::merge_sort() {
 
     // run composer
     storage::Composer composer(engine_, storage_id);
-    uint64_t work_memory_size = composer.get_required_work_memory_size(
+    uint64_t work_memory_size = composer.get_required_work_memory_size_compose(
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_);
     expand_composer_work_memory_if_needed(work_memory_size);

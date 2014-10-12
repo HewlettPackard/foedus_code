@@ -11,6 +11,7 @@
 #include "foedus/attachable.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
+#include "foedus/storage/composer.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -98,6 +99,9 @@ class SequentialStorage CXX11_FINAL
   // TODO(Hideaki) Scan-access methods
 
   void       describe(std::ostream* o) const CXX11_OVERRIDE;
+
+  /** Implementation of Composer::replace_pointers() */
+  ErrorStack replace_pointers(const Composer::ReplacePointersArguments& args);
 };
 }  // namespace sequential
 }  // namespace storage

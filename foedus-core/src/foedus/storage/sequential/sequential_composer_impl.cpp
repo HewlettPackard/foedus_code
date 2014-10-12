@@ -21,6 +21,7 @@
 #include "foedus/storage/sequential/sequential_log_types.hpp"
 #include "foedus/storage/sequential/sequential_page_impl.hpp"
 #include "foedus/storage/sequential/sequential_partitioner_impl.hpp"
+#include "foedus/storage/sequential/sequential_storage.hpp"
 
 namespace foedus {
 namespace storage {
@@ -233,6 +234,11 @@ ErrorStack SequentialComposer::construct_root(const Composer::ConstructRootArgum
 std::string SequentialComposer::to_string() const {
   return std::string("SequentialComposer-") + std::to_string(storage_id_);
 }
+
+ErrorStack SequentialComposer::replace_pointers(const Composer::ReplacePointersArguments& args) {
+  return SequentialStorage(engine_, storage_id_).replace_pointers(args);
+}
+
 
 }  // namespace sequential
 }  // namespace storage

@@ -43,6 +43,8 @@ class SnapshotFileSet CXX11_FINAL : public DefaultInitializable {
   ErrorStack  uninitialize_once() CXX11_OVERRIDE;
   void        close_all();
 
+  Engine*     get_engine() { return engine_; }
+
   SnapshotFileSet() CXX11_FUNC_DELETE;
   SnapshotFileSet(const SnapshotFileSet &other) CXX11_FUNC_DELETE;
   SnapshotFileSet& operator=(const SnapshotFileSet &other) CXX11_FUNC_DELETE;

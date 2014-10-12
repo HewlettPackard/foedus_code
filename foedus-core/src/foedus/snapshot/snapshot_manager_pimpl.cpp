@@ -18,6 +18,9 @@
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/fs/path.hpp"
 #include "foedus/log/log_manager.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/memory/page_pool.hpp"
 #include "foedus/snapshot/log_gleaner_impl.hpp"
 #include "foedus/snapshot/log_mapper_impl.hpp"
 #include "foedus/snapshot/log_reducer_impl.hpp"
@@ -25,6 +28,7 @@
 #include "foedus/snapshot/snapshot_metadata.hpp"
 #include "foedus/snapshot/snapshot_options.hpp"
 #include "foedus/soc/soc_manager.hpp"
+#include "foedus/storage/composer.hpp"
 #include "foedus/storage/metadata.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
@@ -268,8 +272,11 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
   // each storage.
   CHECK_ERROR(glean_logs(*new_snapshot, &new_root_page_pointers));
 
-  // Finally, write out the metadata file.
+  // Write out the metadata file.
   CHECK_ERROR(snapshot_metadata(*new_snapshot, new_root_page_pointers));
+
+  // install pointers to snapshot pages and drop volatile pages.
+  CHECK_ERROR(replace_pointers(*new_snapshot, new_root_page_pointers));
 
   Epoch new_snapshot_epoch = new_snapshot->valid_until_epoch_;
   ASSERT_ND(new_snapshot_epoch.is_valid() &&
@@ -359,6 +366,85 @@ fs::Path SnapshotManagerPimpl::get_snapshot_metadata_file_path(SnapshotId snapsh
   file /= std::string("snapshot_metadata_")
     + std::to_string(snapshot_id) + std::string(".xml");
   return file;
+}
+
+ErrorStack SnapshotManagerPimpl::replace_pointers(
+  const Snapshot& new_snapshot,
+  const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers) {
+  // To speed up, this method should be parallelized at least for per-storage.
+  LOG(INFO) << "Installing new snapshot pointers and dropping volatile pointers...";
+  debugging::StopWatch stop_watch;
+
+  // To avoid invoking volatile pool for every dropped page, we cache them in chunks
+  memory::AlignedMemory chunks_memory;
+  chunks_memory.alloc(
+    sizeof(memory::PagePoolOffsetChunk) * engine_->get_soc_count(),
+    1U << 12,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    0);
+  memory::PagePoolOffsetChunk* dropped_chunks = reinterpret_cast<memory::PagePoolOffsetChunk*>(
+    chunks_memory.get_block());
+  for (uint16_t node = 0; node < engine_->get_soc_count(); ++node) {
+    dropped_chunks[node].clear();
+  }
+
+  // For whatever use.. this is automatically expanded by the replace_pointers() implementation.
+  memory::AlignedMemory work_memory;
+  work_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
+
+  cache::SnapshotFileSet fileset(engine_);
+  CHECK_ERROR(fileset.initialize());
+
+  // initializations done.
+  // below, we should release the resources before exiting. So, let's not just use CHECK_ERROR.
+  ErrorStack result;
+  uint64_t installed_count_total = 0;
+  uint64_t dropped_count_total = 0;
+  for (storage::StorageId id = 1; id <= new_snapshot.max_storage_id_; ++id) {
+    const auto& it = new_root_page_pointers.find(id);
+    if (it != new_root_page_pointers.end()) {
+      storage::SnapshotPagePointer new_root_page_pointer = it->second;
+      storage::Composer composer(engine_, id);
+      uint64_t installed_count = 0;
+      uint64_t dropped_count = 0;
+      storage::Composer::ReplacePointersArguments args = {
+        &fileset,
+        new_snapshot.valid_until_epoch_,
+        new_root_page_pointer,
+        &work_memory,
+        dropped_chunks,
+        &installed_count,
+        &dropped_count};
+      result = composer.replace_pointers(args);
+      if (result.is_error()) {
+        LOG(ERROR) << "composer.replace_pointers() failed with storage-" << id << ":" << result;
+        break;
+      }
+      installed_count_total += installed_count;
+      dropped_count_total += dropped_count;
+    }
+  }
+
+  stop_watch.stop();
+  LOG(INFO) << "Installed " << installed_count_total << " new snapshot pointers and "
+    << dropped_count_total << " dropped volatile pointers in "
+    << stop_watch.elapsed_ms() << "ms.";
+
+  ErrorStack fileset_error = fileset.uninitialize();
+  if (fileset_error.is_error()) {
+    LOG(WARNING) << "Failed to close snapshot fileset. weird. " << fileset_error;
+  }
+  for (uint16_t node = 0; node < engine_->get_soc_count(); ++node) {
+    memory::PagePoolOffsetChunk* chunk = dropped_chunks + node;
+    memory::PagePool* volatile_pool
+      = engine_->get_memory_manager()->get_node_memory(node)->get_volatile_pool();
+    if (!chunk->empty()) {
+      volatile_pool->release(chunk->size(), chunk);
+    }
+    ASSERT_ND(chunk->empty());
+  }
+  chunks_memory.release_block();
+  return result;
 }
 
 }  // namespace snapshot

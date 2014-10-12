@@ -49,7 +49,7 @@ void ArrayStreamStatus::init(snapshot::SortedBuffer* stream) {
   read_entry();
 }
 
-uint64_t ArrayComposer::get_required_work_memory_size(
+uint64_t ArrayComposer::get_required_work_memory_size_compose(
   snapshot::SortedBuffer** /*log_streams*/,
   uint32_t log_streams_count) const {
   return sizeof(ArrayStreamStatus) * log_streams_count;
@@ -617,6 +617,11 @@ inline ArrayRange ArrayComposeContext::calculate_array_range(
 
 std::string ArrayComposer::to_string() const {
   return std::string("ArrayComposer-") + std::to_string(storage_id_);
+}
+
+
+ErrorStack ArrayComposer::replace_pointers(const Composer::ReplacePointersArguments& args) {
+  return ArrayStorage(engine_, storage_id_).replace_pointers(args);
 }
 
 }  // namespace array

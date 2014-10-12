@@ -261,7 +261,13 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
     const Snapshot& new_snapshot,
     const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers);
 
-  // @todo Phase-4 to install pointers to snapshot pages and drop volatile pages.
+  /**
+   * Sub-routine of handle_snapshot_triggered().
+   * install pointers to snapshot pages and drop volatile pages.
+   */
+  ErrorStack  replace_pointers(
+    const Snapshot& new_snapshot,
+    const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers);
 
   /**
    * each snapshot has a snapshot-metadata file "snapshot_metadata_<SNAPSHOT_ID>.xml"

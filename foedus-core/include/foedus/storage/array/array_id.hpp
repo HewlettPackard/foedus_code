@@ -41,6 +41,10 @@ struct ArrayRange {
   ArrayRange(ArrayOffset begin, ArrayOffset end) : begin_(begin), end_(end) {}
 
   bool    contains(ArrayOffset offset) const { return offset >= begin_ && offset < end_; }
+  bool    operator==(const ArrayRange& other) const {
+    return begin_ == other.begin_ && end_ == other.end_;
+  }
+  bool    operator!=(const ArrayRange& other) const { return !(this->operator==(other)); }
 
   /** Inclusive beginning of the offset range. */
   ArrayOffset begin_;

@@ -9,6 +9,7 @@
 
 #include "foedus/engine.hpp"
 #include "foedus/storage/storage_manager.hpp"
+#include "foedus/storage/array/array_storage_pimpl.hpp"
 
 namespace foedus {
 namespace storage {
@@ -33,6 +34,11 @@ void ArrayStorage::describe(std::ostream* o_ptr) const {
     << "<payload_size>" << get_payload_size() << "</payload_size>"
     << "<array_size>" << get_array_size() << "</array_size>"
     << "</ArrayStorage>";
+}
+
+
+ErrorStack ArrayStorage::replace_pointers(const Composer::ReplacePointersArguments& args) {
+  return ArrayStoragePimpl(this).replace_pointers(args);
 }
 
 // most other methods are defined in pimpl.cpp to allow inlining
