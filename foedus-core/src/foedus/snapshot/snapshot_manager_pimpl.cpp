@@ -408,8 +408,8 @@ ErrorStack SnapshotManagerPimpl::replace_pointers(
       uint64_t installed_count = 0;
       uint64_t dropped_count = 0;
       storage::Composer::ReplacePointersArguments args = {
+        new_snapshot,
         &fileset,
-        new_snapshot.valid_until_epoch_,
         new_root_page_pointer,
         &work_memory,
         dropped_chunks,

@@ -18,6 +18,7 @@
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/memory/page_pool.hpp"
+#include "foedus/snapshot/snapshot.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/storage_manager_pimpl.hpp"
@@ -1106,6 +1107,11 @@ ErrorStack ArrayStoragePimpl::verify_single_thread(thread::Thread* context, Arra
   return kRetOk;
 }
 
+/////////////////////////////////////////////////////////////////////////////
+///
+///  Composer related methods
+///
+/////////////////////////////////////////////////////////////////////////////
 ArrayPage* ArrayStoragePimpl::resolve_volatile(VolatilePagePointer pointer) {
   if (pointer.is_null()) {
     return nullptr;
@@ -1123,6 +1129,8 @@ ErrorStack ArrayStoragePimpl::replace_pointers(const Composer::ReplacePointersAr
   // Second, we iterate through all existing volatile pages to 1) install snapshot pages
   // and 2) drop volatile pages of level-3 or deeper (if the storage has only 2 levels, keeps all).
   // this "level-3 or deeper" is a configuration per storage.
+  // Even if the volatile page is deeper than that, we keep them if it contains newer modification,
+  // including descendants (so, probably we will keep higher levels anyways).
   VolatilePagePointer root_volatile_pointer = control_block_->root_page_pointer_.volatile_pointer_;
   ArrayPage* volatile_page = resolve_volatile(root_volatile_pointer);
   if (volatile_page == nullptr) {
@@ -1130,82 +1138,124 @@ ErrorStack ArrayStoragePimpl::replace_pointers(const Composer::ReplacePointersAr
     return kRetOk;
   }
 
-  if (get_snapshot_drop_volatile_pages_threshold() == 0) {
-    // then drop even the root volatile page.
-    LOG(INFO) << "Storage-" << get_id() << " doesn't want to keep even root volatile page.";
-    drop_volatile_recurse(args, root_volatile_pointer, volatile_page);
-    return kRetOk;
+  if (volatile_page->is_leaf()) {
+    replace_pointers_leaf(args, &control_block_->root_page_pointer_, volatile_page);
+  } else {
+    bool kept_volatile;
+    CHECK_ERROR(replace_pointers_recurse(
+      args,
+      &control_block_->root_page_pointer_,
+      &kept_volatile,
+      volatile_page));
   }
-  uint16_t keep = get_snapshot_drop_volatile_pages_threshold() - 1U;
-
-  // we need only one page of work memory.
-  ASSERT_ND(args.work_memory_->get_size() >= sizeof(ArrayPage));
-  ArrayPage* snapshot_page = reinterpret_cast<ArrayPage*>(args.work_memory_->get_block());
-  WRAP_ERROR_CODE(args.read_snapshot_page(args.new_root_page_pointer_, snapshot_page));
-  return replace_pointers_recurse(args, keep, volatile_page, snapshot_page);
+  return kRetOk;
 }
 
 ErrorStack ArrayStoragePimpl::replace_pointers_recurse(
   const Composer::ReplacePointersArguments& args,
-  uint16_t keep,
-  ArrayPage* volatile_page,
-  ArrayPage* snapshot_page) {
-  ASSERT_ND(volatile_page);
-  ASSERT_ND(snapshot_page);
-  ASSERT_ND(volatile_page->get_level() == snapshot_page->get_level());
-  ASSERT_ND(volatile_page->get_array_range() == snapshot_page->get_array_range());
-  if (volatile_page->is_leaf()) {
-    return kRetOk;
-  }
+  DualPagePointer* pointer,
+  bool* kept_volatile,
+  ArrayPage* volatile_page) {
+  ASSERT_ND(!volatile_page->header().snapshot_);
+  ASSERT_ND(!volatile_page->is_leaf());
+  *kept_volatile = false;
 
-  // First, set snapshot pointers.
-  for (uint16_t i = 0; i < kInteriorFanout; ++i) {
-    DualPagePointer &child_pointer = volatile_page->get_interior_record(i);
-    SnapshotPagePointer new_pointer = snapshot_page->get_interior_record(i).snapshot_pointer_;
-    if (new_pointer == 0) {
-      ASSERT_ND(child_pointer.snapshot_pointer_ == 0);
-      child_pointer.snapshot_pointer_ = 0;
-    } else {
-      child_pointer.snapshot_pointer_ = new_pointer;
-    }
+  // Explore/replace children first because we need to know if there is new modification
+  // in that case, we must keep this volatile page, too.
+  ASSERT_ND(!volatile_page->is_leaf());
+  bool to_keep_volatile = is_to_keep_volatile(volatile_page->get_level());
+  if (to_keep_volatile) {
+    *kept_volatile = true;
   }
-
-  // Now we no longer need snapshot_page. We will overwrite the buffer to read more pages
   for (uint16_t i = 0; i < kInteriorFanout; ++i) {
     DualPagePointer &child_pointer = volatile_page->get_interior_record(i);
     if (!child_pointer.volatile_pointer_.is_null()) {
       ArrayPage* child_page = resolve_volatile(child_pointer.volatile_pointer_);
-      if (keep == 0) {
-        // just drop volatile pages below here.
-        drop_volatile_recurse(args, child_pointer.volatile_pointer_, child_page);
-        child_pointer.volatile_pointer_.components.offset = 0;
+      bool child_kept = false;
+      if (child_page->is_leaf()) {
+        child_kept = replace_pointers_leaf(args, pointer, volatile_page);
       } else {
-        // we keep this volatile page, so we have to recurse
-        WRAP_ERROR_CODE(args.read_snapshot_page(child_pointer.snapshot_pointer_, snapshot_page));
-        CHECK_ERROR(replace_pointers_recurse(args, keep - 1U, child_page, snapshot_page));
+        CHECK_ERROR(replace_pointers_recurse(args, &child_pointer, &child_kept, child_page));
       }
-    }
-  }
-  return kRetOk;
-}
-void ArrayStoragePimpl::drop_volatile_recurse(
-  const Composer::ReplacePointersArguments& args,
-  VolatilePagePointer volatile_pointer,
-  ArrayPage* volatile_page) {
-  ASSERT_ND(!volatile_page->header().snapshot_);
-  if (!volatile_page->is_leaf()) {
-    for (uint16_t i = 0; i < kInteriorFanout; ++i) {
-      DualPagePointer &child_pointer = volatile_page->get_interior_record(i);
-      if (!child_pointer.volatile_pointer_.is_null()) {
-        ArrayPage* child_page = resolve_volatile(child_pointer.volatile_pointer_);
-        drop_volatile_recurse(args, child_pointer.volatile_pointer_, child_page);
-        // will be anyway dropped, but to make sure.
-        child_pointer.volatile_pointer_.components.offset = 0;
+
+      if (child_kept) {
+        *kept_volatile = true;
       }
     }
   }
 
-  args.drop_volatile_page(volatile_pointer);
+  if (!*kept_volatile) {
+    // We just drop this volatile page. done.
+    args.drop_volatile_page(pointer->volatile_pointer_);
+    pointer->volatile_pointer_.components.offset = 0;
+    return kRetOk;
+  }
+
+  // Then we have to keep this volatile page.
+  // if the snapshot pointer points to a newly created page, we have to reflect install
+  // new snapshot pointers. So, read the snapshot page.
+  snapshot::SnapshotId snapshot_id
+    = extract_snapshot_id_from_snapshot_pointer(pointer->snapshot_pointer_);
+  if (snapshot_id != args.snapshot_.id_) {
+    DVLOG(1) << "This is not part of this snapshot, so no new pointers to install.";
+    return kRetOk;
+  }
+
+  DVLOG(1) << "The new snapshot covers this page. Let's install new snapshot pointers";
+  ASSERT_ND(args.work_memory_->get_size() >= sizeof(ArrayPage));
+  ArrayPage* snapshot_page = reinterpret_cast<ArrayPage*>(args.work_memory_->get_block());
+  WRAP_ERROR_CODE(args.read_snapshot_page(pointer->snapshot_pointer_, snapshot_page));
+  ASSERT_ND(volatile_page->get_level() == snapshot_page->get_level());
+  ASSERT_ND(volatile_page->get_array_range() == snapshot_page->get_array_range());
+  for (uint16_t i = 0; i < kInteriorFanout; ++i) {
+    DualPagePointer &child_pointer = volatile_page->get_interior_record(i);
+    SnapshotPagePointer new_pointer = snapshot_page->get_interior_record(i).snapshot_pointer_;
+    if (new_pointer != child_pointer.snapshot_pointer_) {
+      ASSERT_ND(new_pointer != 0);  // no transition from have-snapshot-page to no-snapshot-page
+      child_pointer.snapshot_pointer_ = new_pointer;
+      ++(*args.installed_count_);
+    }
+  }
+  // Now we no longer need snapshot_page. This is why we need only one-page of work memory
+  return kRetOk;
+}
+
+bool ArrayStoragePimpl::replace_pointers_leaf(
+  const Composer::ReplacePointersArguments& args,
+  DualPagePointer* pointer,
+  ArrayPage* volatile_page) {
+  ASSERT_ND(!volatile_page->header().snapshot_);
+  ASSERT_ND(volatile_page->is_leaf());
+  if (is_to_keep_volatile(volatile_page->get_level())) {
+    return true;
+  }
+  bool kept_volatile = false;
+  for (uint16_t i = 0; i < volatile_page->get_leaf_record_count(); ++i) {
+    Record* record = volatile_page->get_leaf_record(i, get_payload_size());
+    Epoch epoch = record->owner_id_.xct_id_.get_epoch();
+    if (epoch.is_valid() && epoch > args.snapshot_.valid_until_epoch_) {
+      // new record exists! so we must keep this volatile page
+      kept_volatile = true;
+      break;
+    }
+  }
+  if (!kept_volatile) {
+    args.drop_volatile_page(pointer->volatile_pointer_);
+    pointer->volatile_pointer_.components.offset = 0;
+  } else {
+    DVLOG(1) << "Couldn't drop a leaf volatile page that has a recent modification";
+  }
+  return kept_volatile;
+}
+bool ArrayStoragePimpl::is_to_keep_volatile(uint16_t level) {
+  uint16_t threshold = get_snapshot_drop_volatile_pages_threshold();
+  uint16_t array_levels = get_levels();
+  ASSERT_ND(level < array_levels);
+  // examples:
+  // when threshold=0, all levels (0~array_levels-1) should return false.
+  // when threshold=1, only root level (array_levels-1) should return true
+  // when threshold=2, upto array_levels-2..
+  return threshold >= array_levels - level;
 }
 
 

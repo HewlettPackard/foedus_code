@@ -15,6 +15,7 @@
 #include "foedus/cache/fwd.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/fwd.hpp"
+#include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -130,10 +131,10 @@ class Composer CXX11_FINAL {
 
   /** Arguments for replace_pointers() */
   struct ReplacePointersArguments {
+    /** The new snapshot. All newly created snapshot pages are of this snapshot */
+    snapshot::Snapshot            snapshot_;
     /** To read the new snapshot. */
     cache::SnapshotFileSet*       snapshot_files_;
-    /** Epochs until this value are taken as a snapshot */
-    Epoch                         until_epoch_;
     /** Pointer to new root snapshot page */
     SnapshotPagePointer           new_root_page_pointer_;
     /** Working memory to be used in this method. Automatically expand if needed. */

@@ -19,6 +19,7 @@
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
+#include "foedus/snapshot/snapshot.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/storage_manager_pimpl.hpp"
@@ -299,7 +300,8 @@ ErrorStack SequentialStoragePimpl::replace_pointers(
         // all volatile pages/records are appended in epoch order, so no need to check further.
         SequentialPage* head = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(offset));
         ASSERT_ND(head->get_record_count() > 0);
-        if (head->get_record_count() > 0 && head->get_first_record_epoch() > args.until_epoch_) {
+        if (head->get_record_count() > 0
+          && head->get_first_record_epoch() > args.snapshot_.valid_until_epoch_) {
           VLOG(0) << "Thread-" << thread_id << " in sequential-" << get_id() << " keeps volatile"
             << " pages at and after epoch-" << head->get_first_record_epoch();
           break;
