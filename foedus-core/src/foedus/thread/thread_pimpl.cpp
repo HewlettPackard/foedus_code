@@ -76,7 +76,9 @@ ErrorStack ThreadPimpl::initialize_once() {
     = engine_->get_memory_manager()->get_global_volatile_page_resolver();
   local_volatile_page_resolver_ = node_memory_->get_volatile_pool()->get_resolver();
 
+  raw_thread_set_ = false;
   raw_thread_ = std::move(std::thread(&ThreadPimpl::handle_tasks, this));
+  raw_thread_set_ = true;
   return kRetOk;
 }
 ErrorStack ThreadPimpl::uninitialize_once() {
@@ -182,6 +184,11 @@ void ThreadPimpl::handle_tasks() {
 }
 void ThreadPimpl::set_thread_schedule() {
   // this code totally assumes pthread. maybe ifdef to handle Windows.. later!
+  SPINLOCK_WHILE(raw_thread_set_ == false) {
+    // as the copy to raw_thread_ might happen after the launched thread getting here,
+    // we check it and spin. This is mainly to make valgrind happy.
+    continue;
+  }
   pthread_t handle = static_cast<pthread_t>(raw_thread_.native_handle());
   int policy;
   sched_param param;

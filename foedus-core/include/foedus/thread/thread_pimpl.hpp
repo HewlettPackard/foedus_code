@@ -253,6 +253,8 @@ class ThreadPimpl final : public DefaultInitializable {
    * Encapsulates raw thread object.
    */
   std::thread             raw_thread_;
+  /** Just to make sure raw_thread_ is set. Otherwise pthread_getschedparam will complain. */
+  std::atomic<bool>       raw_thread_set_;
 
   /**
    * Current transaction this thread is conveying.
