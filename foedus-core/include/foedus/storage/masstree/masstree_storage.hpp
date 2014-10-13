@@ -29,6 +29,10 @@ namespace masstree {
 class MasstreeStorage CXX11_FINAL
   : public virtual Storage, public Attachable<MasstreeStorageControlBlock> {
  public:
+  typedef MasstreeStoragePimpl   ThisPimpl;
+  typedef MasstreeCreateLogType  ThisCreateLogType;
+  typedef MasstreeMetadata       ThisMetadata;
+
   MasstreeStorage() : Attachable<MasstreeStorageControlBlock>() {}
   /**
    * Constructs an masstree storage either from disk or newly create.

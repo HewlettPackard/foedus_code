@@ -28,6 +28,10 @@ namespace hash {
 class HashStorage CXX11_FINAL
   : public virtual Storage, public Attachable<HashStorageControlBlock> {
  public:
+  typedef HashStoragePimpl   ThisPimpl;
+  typedef HashCreateLogType  ThisCreateLogType;
+  typedef HashMetadata       ThisMetadata;
+
   HashStorage() : Attachable<HashStorageControlBlock>() {}
   /**
    * Constructs an hash storage either from disk or newly create.

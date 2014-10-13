@@ -27,6 +27,7 @@
 #include "foedus/snapshot/log_reducer_impl.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/storage/partitioner.hpp"
+#include "foedus/storage/storage_manager.hpp"
 
 namespace foedus {
 namespace snapshot {
@@ -370,6 +371,13 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
     tmp_partition_array_slice_.get_block());
   LogBuffer log_buffer(reinterpret_cast<char*>(io_buffer_.get_block()));
   const bool multi_partitions = engine_->get_options().thread_.group_count_ > 1;
+
+  if (!engine_->get_storage_manager()->get_storage(hashlist.storage_id_)->exists()) {
+    // We ignore such logs in snapshot. As DROP STORAGE immediately becomes durable,
+    // There is no point to collect logs for the storage.
+    LOG(INFO) << "These logs are sent to a dropped storage.. ignore them";
+    return;
+  }
 
   uint64_t log_count = 0;  // just for reporting
   debugging::StopWatch stop_watch;

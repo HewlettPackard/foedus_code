@@ -35,6 +35,10 @@ namespace array {
 class ArrayStorage CXX11_FINAL
   : public virtual Storage, public Attachable<ArrayStorageControlBlock> {
  public:
+  typedef ArrayStoragePimpl   ThisPimpl;
+  typedef ArrayCreateLogType  ThisCreateLogType;
+  typedef ArrayMetadata       ThisMetadata;
+
   ArrayStorage() : Attachable<ArrayStorageControlBlock>() {}
   /**
    * Constructs an array storage either from disk or newly create.

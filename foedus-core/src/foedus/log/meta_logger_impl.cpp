@@ -110,6 +110,7 @@ void MetaLogger::meta_logger_main() {
     assorted::memory_fence_release();
     control_block_->buffer_used_ = 0;
     assorted::memory_fence_release();
+    control_block_->durable_offset_ += write_size;
   }
   LOG(INFO) << "Meta-logger terminated";
 }

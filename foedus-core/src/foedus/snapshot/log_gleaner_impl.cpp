@@ -110,7 +110,11 @@ void LogGleaner::design_partitions_run(
   }
   UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
 
+  storage::StorageManager* stm = engine_->get_storage_manager();
   for (storage::StorageId id = from; id < from + count; ++id) {
+    if (!stm->get_storage(id)->exists()) {
+      continue;
+    }
     storage::Partitioner partitioner(engine_, id);
     storage::Partitioner::DesignPartitionArguments args = { &work_memory, &fileset};
     ErrorStack ret = partitioner.design_partition(args);

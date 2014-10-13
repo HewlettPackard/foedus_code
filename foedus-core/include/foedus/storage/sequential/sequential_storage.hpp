@@ -29,6 +29,10 @@ namespace sequential {
 class SequentialStorage CXX11_FINAL
   : public virtual Storage, public Attachable<SequentialStorageControlBlock> {
  public:
+  typedef SequentialStoragePimpl   ThisPimpl;
+  typedef SequentialCreateLogType  ThisCreateLogType;
+  typedef SequentialMetadata       ThisMetadata;
+
   SequentialStorage() : Attachable<SequentialStorageControlBlock>() {}
   /**
    * Constructs an sequential storage either from disk or newly create.

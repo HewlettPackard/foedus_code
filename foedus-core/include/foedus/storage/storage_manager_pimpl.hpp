@@ -73,6 +73,8 @@ class StorageManagerPimpl final : public DefaultInitializable {
   void        drop_storage_apply(StorageId id);
   ErrorStack  create_storage(Metadata *metadata, Epoch *commit_epoch);
   void        create_storage_apply(const Metadata& metadata);
+  template <typename STORAGE>
+  ErrorStack  create_storage_and_log(const Metadata* meta, Epoch *commit_epoch);
 
   bool                track_moved_record(StorageId storage_id, xct::WriteXctAccess *write);
   xct::LockableXctId* track_moved_record(StorageId storage_id, xct::LockableXctId *address);
