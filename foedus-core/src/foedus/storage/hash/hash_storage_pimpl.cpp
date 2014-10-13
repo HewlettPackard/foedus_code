@@ -14,6 +14,7 @@
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/cacheline.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
+#include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_type.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
@@ -296,6 +297,54 @@ ErrorStack HashStoragePimpl::create(const HashMetadata& metadata) {
   }
 
   LOG(INFO) << "Newly created an hash-storage " << get_name();
+  control_block_->status_ = kExists;
+  return kRetOk;
+}
+
+ErrorStack HashStoragePimpl::load(const StorageControlBlock& snapshot_block) {
+  control_block_->meta_ = static_cast<const HashMetadata&>(snapshot_block.meta_);
+  const HashMetadata& meta = control_block_->meta_;
+  control_block_->bin_count_ = 1ULL << get_bin_bits();
+  control_block_->bin_pages_ = assorted::int_div_ceil(get_bin_count(), kBinsPerPage);
+  const uint32_t root_pages = assorted::int_div_ceil(get_bin_pages(), kHashRootPageFanout);;
+  control_block_->root_pages_ = root_pages;
+  ASSERT_ND(root_pages >= 1);
+  ASSERT_ND(root_pages <= kHashRootPageFanout);
+  control_block_->root_page_pointer_.snapshot_pointer_ = meta.root_snapshot_page_id_;
+  control_block_->root_page_pointer_.volatile_pointer_.word = 0;
+
+  // Root pages always have volatile versions.
+  // Construct them from snapshot version.
+  cache::SnapshotFileSet fileset(engine_);
+  CHECK_ERROR(fileset.initialize());
+  UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
+
+  // root of root
+  VolatilePagePointer volatile_pointer;
+  HashRootPage* volatile_root;
+  CHECK_ERROR(engine_->get_memory_manager()->load_one_volatile_page(
+    &fileset,
+    meta.root_snapshot_page_id_,
+    &volatile_pointer,
+    reinterpret_cast<Page**>(&volatile_root)));
+  control_block_->root_page_pointer_.volatile_pointer_ = volatile_pointer;
+  if (root_pages > 1U) {
+    for (uint16_t i = 0; i < root_pages; ++i) {
+      DualPagePointer& child_pointer = volatile_root->pointer(i);
+      if (child_pointer.snapshot_pointer_ != 0) {
+        Page* child;
+        CHECK_ERROR(engine_->get_memory_manager()->load_one_volatile_page(
+          &fileset,
+          child_pointer.snapshot_pointer_,
+          &child_pointer.volatile_pointer_,
+          &child));
+      }
+    }
+  }
+
+  CHECK_ERROR(fileset.uninitialize());
+
+  LOG(INFO) << "Loaded a hash-storage " << get_name();
   control_block_->status_ = kExists;
   return kRetOk;
 }

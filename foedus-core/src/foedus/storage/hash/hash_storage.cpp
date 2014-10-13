@@ -28,6 +28,9 @@ HashStorage::HashStorage(Engine* engine, const StorageName& name) {
 ErrorStack  HashStorage::create(const Metadata &metadata) {
   return HashStoragePimpl(this).create(static_cast<const HashMetadata&>(metadata));
 }
+ErrorStack HashStorage::load(const StorageControlBlock& snapshot_block) {
+  return HashStoragePimpl(this).load(snapshot_block);
+}
 ErrorStack  HashStorage::drop() { return HashStoragePimpl(this).drop(); }
 
 void HashStorage::describe(std::ostream* o_ptr) const {

@@ -18,6 +18,10 @@
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/fs/path.hpp"
 #include "foedus/log/log_manager.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/memory/page_pool.hpp"
+#include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/snapshot/log_gleaner_impl.hpp"
 #include "foedus/snapshot/log_mapper_impl.hpp"
 #include "foedus/snapshot/log_reducer_impl.hpp"
@@ -25,9 +29,11 @@
 #include "foedus/snapshot/snapshot_metadata.hpp"
 #include "foedus/snapshot/snapshot_options.hpp"
 #include "foedus/soc/soc_manager.hpp"
+#include "foedus/storage/composer.hpp"
 #include "foedus/storage/metadata.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
+#include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 namespace snapshot {
@@ -44,9 +50,13 @@ ErrorStack SnapshotManagerPimpl::initialize_once() {
   control_block_ = repo->get_global_memory_anchors()->snapshot_manager_memory_;
   if (engine_->is_master()) {
     control_block_->initialize();
-    control_block_->snapshot_epoch_.store(Epoch::kEpochInvalid);
-    // TODO(Hideaki): get snapshot status from savepoint
-    control_block_->previous_snapshot_id_ = kNullSnapshotId;
+    // get snapshot status from savepoint
+    control_block_->snapshot_epoch_
+      = engine_->get_savepoint_manager()->get_latest_snapshot_epoch().value();
+    control_block_->previous_snapshot_id_
+      = engine_->get_savepoint_manager()->get_latest_snapshot_id();
+    LOG(INFO) << "Latest snapshot: id=" << control_block_->previous_snapshot_id_ << ", epoch="
+      << control_block_->snapshot_epoch_;
     control_block_->immediate_snapshot_requested_.store(false);
 
     const EngineOptions& options = engine_->get_options();
@@ -268,8 +278,14 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
   // each storage.
   CHECK_ERROR(glean_logs(*new_snapshot, &new_root_page_pointers));
 
-  // Finally, write out the metadata file.
+  // Write out the metadata file.
   CHECK_ERROR(snapshot_metadata(*new_snapshot, new_root_page_pointers));
+
+  // Invokes savepoint module to make sure this snapshot has "happened".
+  CHECK_ERROR(snapshot_savepoint(*new_snapshot));
+
+  // install pointers to snapshot pages and drop volatile pages.
+  CHECK_ERROR(replace_pointers(*new_snapshot, new_root_page_pointers));
 
   Epoch new_snapshot_epoch = new_snapshot->valid_until_epoch_;
   ASSERT_ND(new_snapshot_epoch.is_valid() &&
@@ -353,12 +369,128 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(
   return kRetOk;
 }
 
+ErrorStack SnapshotManagerPimpl::read_snapshot_metadata(
+  SnapshotId snapshot_id,
+  SnapshotMetadata* out) {
+  fs::Path file = get_snapshot_metadata_file_path(snapshot_id);
+  LOG(INFO) << "Reading snapshot metadata file fullpath=" << file;
+
+  debugging::StopWatch stop_watch;
+  CHECK_ERROR(out->load_from_file(file));
+  stop_watch.stop();
+  LOG(INFO) << "Read a snapshot metadata file. size=" << fs::file_size(file) << " bytes"
+    << ", elapsed time to read+parse=" << stop_watch.elapsed_ms() << "ms.";
+
+  ASSERT_ND(out->id_ == snapshot_id);
+  return kRetOk;
+}
+
+ErrorStack SnapshotManagerPimpl::snapshot_savepoint(const Snapshot& new_snapshot) {
+  LOG(INFO) << "Taking savepoint to include this new snapshot....";
+  CHECK_ERROR(engine_->get_savepoint_manager()->take_savepoint_after_snapshot(
+    new_snapshot.id_,
+    new_snapshot.valid_until_epoch_));
+  ASSERT_ND(engine_->get_savepoint_manager()->get_latest_snapshot_id() == new_snapshot.id_);
+  ASSERT_ND(engine_->get_savepoint_manager()->get_latest_snapshot_epoch()
+    == new_snapshot.valid_until_epoch_);
+  return kRetOk;
+}
+
 fs::Path SnapshotManagerPimpl::get_snapshot_metadata_file_path(SnapshotId snapshot_id) const {
   fs::Path folder(get_option().get_primary_folder_path());
   fs::Path file(folder);
   file /= std::string("snapshot_metadata_")
     + std::to_string(snapshot_id) + std::string(".xml");
   return file;
+}
+
+ErrorStack SnapshotManagerPimpl::replace_pointers(
+  const Snapshot& new_snapshot,
+  const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers) {
+  // To speed up, this method should be parallelized at least for per-storage.
+  LOG(INFO) << "Installing new snapshot pointers and dropping volatile pointers...";
+
+  // To avoid invoking volatile pool for every dropped page, we cache them in chunks
+  memory::AlignedMemory chunks_memory;
+  chunks_memory.alloc(
+    sizeof(memory::PagePoolOffsetChunk) * engine_->get_soc_count(),
+    1U << 12,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    0);
+  memory::PagePoolOffsetChunk* dropped_chunks = reinterpret_cast<memory::PagePoolOffsetChunk*>(
+    chunks_memory.get_block());
+  for (uint16_t node = 0; node < engine_->get_soc_count(); ++node) {
+    dropped_chunks[node].clear();
+  }
+
+  // For whatever use.. this is automatically expanded by the replace_pointers() implementation.
+  memory::AlignedMemory work_memory;
+  work_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
+
+  cache::SnapshotFileSet fileset(engine_);
+  CHECK_ERROR(fileset.initialize());
+
+  // initializations done.
+  // below, we should release the resources before exiting. So, let's not just use CHECK_ERROR.
+  ErrorStack result;
+  uint64_t installed_count_total = 0;
+  uint64_t dropped_count_total = 0;
+  // So far, we pause transaction executions during this step to simplify the algorithm.
+  // Without this simplification, not only this thread but also normal transaction executions
+  // have to do several complex and expensive checks.
+  engine_->get_xct_manager()->pause_accepting_xct();
+  // It will take a while for individual worker threads to complete the currently running xcts.
+  // Just wait for a while to let that happen.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));  // almost forever in OLTP xcts.
+  LOG(INFO) << "Paused transaction executions to safely drop volatile pages and waited enough"
+    << " to let currently running xcts end. Now start replace pointers.";
+  debugging::StopWatch stop_watch;
+  for (storage::StorageId id = 1; id <= new_snapshot.max_storage_id_; ++id) {
+    const auto& it = new_root_page_pointers.find(id);
+    if (it != new_root_page_pointers.end()) {
+      storage::SnapshotPagePointer new_root_page_pointer = it->second;
+      storage::Composer composer(engine_, id);
+      uint64_t installed_count = 0;
+      uint64_t dropped_count = 0;
+      storage::Composer::ReplacePointersArguments args = {
+        new_snapshot,
+        &fileset,
+        new_root_page_pointer,
+        &work_memory,
+        dropped_chunks,
+        &installed_count,
+        &dropped_count};
+      result = composer.replace_pointers(args);
+      if (result.is_error()) {
+        LOG(ERROR) << "composer.replace_pointers() failed with storage-" << id << ":" << result;
+        break;
+      }
+      installed_count_total += installed_count;
+      dropped_count_total += dropped_count;
+    }
+  }
+  engine_->get_xct_manager()->resume_accepting_xct();
+
+  stop_watch.stop();
+  LOG(INFO) << "Installed " << installed_count_total << " new snapshot pointers and "
+    << dropped_count_total << " dropped volatile pointers in "
+    << stop_watch.elapsed_ms() << "ms.";
+
+  ErrorStack fileset_error = fileset.uninitialize();
+  if (fileset_error.is_error()) {
+    LOG(WARNING) << "Failed to close snapshot fileset. weird. " << fileset_error;
+  }
+  for (uint16_t node = 0; node < engine_->get_soc_count(); ++node) {
+    memory::PagePoolOffsetChunk* chunk = dropped_chunks + node;
+    memory::PagePool* volatile_pool
+      = engine_->get_memory_manager()->get_node_memory(node)->get_volatile_pool();
+    if (!chunk->empty()) {
+      volatile_pool->release(chunk->size(), chunk);
+    }
+    ASSERT_ND(chunk->empty());
+  }
+  chunks_memory.release_block();
+  return result;
 }
 
 }  // namespace snapshot

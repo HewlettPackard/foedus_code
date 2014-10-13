@@ -433,18 +433,24 @@ class SharedMemoryRepo CXX11_FINAL {
   SharedMemoryRepo& operator=(const SharedMemoryRepo &other) CXX11_FUNC_DELETE;
 
   /** Master process creates shared memories by calling this method*/
-  ErrorStack  allocate_shared_memories(const EngineOptions& options);
+  ErrorStack  allocate_shared_memories(uint64_t upid, Eid eid, const EngineOptions& options);
 
   /**
    * Child processes (emulated or not) set a reference to shared memory and receive
    * the EngnieOption value by calling this method.
-   * @param[in] master_upid Universal (or Unique) ID of the master process. This is the only
+   * @param[in] master_upid Universal (or Unique) ID of the master process. This is the
+   * parameter that has to be passed from the master process to child processes.
+   * @param[in] master_eid Engine ID of the master process. This is another
    * parameter that has to be passed from the master process to child processes.
    * @param[in] my_soc_id SOC ID of this node.
    * @param[out] options One of the shared memory contains the EngineOption values.
    * This method also retrieves them from the shared memory.
    */
-  ErrorStack  attach_shared_memories(uint64_t master_upid, SocId my_soc_id, EngineOptions* options);
+  ErrorStack  attach_shared_memories(
+    uint64_t master_upid,
+    Eid master_eid,
+    SocId my_soc_id,
+    EngineOptions* options);
 
   /**
    * @brief Marks shared memories as being removed so that it will be reclaimed when all processes
@@ -523,9 +529,12 @@ class SharedMemoryRepo CXX11_FINAL {
 
   /** subroutine of allocate_shared_memories() launched on its own thread */
   static void allocate_one_node(
+    uint64_t upid,
+    Eid eid,
     uint16_t node,
     uint64_t node_memory_size,
     uint64_t volatile_pool_size,
+    ErrorStack* alloc_result,
     SharedMemoryRepo* repo);
 };
 

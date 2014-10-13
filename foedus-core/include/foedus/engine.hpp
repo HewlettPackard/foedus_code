@@ -106,12 +106,13 @@ class Engine CXX11_FINAL : public virtual Initializable {
    * @brief Instantiates a \b child engine object which is \b NOT initialized yet.
    * @param[in] type Launch type of the child engine object
    * @param[in] master_upid Universal (or Unique) ID of the master process.
+   * @param[in] master_eid Engine ID of the master engine.
    * @param[in] soc_id SOC-ID (or NUMA-node) of the child engine.
    * @details
    * Use this constructor only when you modify your main() function to capture kChildLocalSpawned
    * launch. Otherwise, this constructor is used only internally.
    */
-  Engine(EngineType type, soc::Upid master_upid, soc::SocId soc_id);
+  Engine(EngineType type, soc::Upid master_upid, Eid master_eid, soc::SocId soc_id);
 
   /**
    * @brief Do NOT rely on this destructor to release resources. Call uninitialize() instead.
@@ -191,6 +192,8 @@ class Engine CXX11_FINAL : public virtual Initializable {
   soc::SocId  get_soc_count() const;
   /** Returns Universal (or Unique) ID of the master process. */
   soc::Upid   get_master_upid() const;
+  /** Returns Engine ID of the master engine. */
+  Eid         get_master_eid() const;
 
   /**
    * Returns an updatable reference to options.

@@ -76,8 +76,9 @@ ErrorStack ThreadPimpl::initialize_once() {
     = engine_->get_memory_manager()->get_global_volatile_page_resolver();
   local_volatile_page_resolver_ = node_memory_->get_volatile_pool()->get_resolver();
 
-  control_block_->status_ = kRunningTask;
+  raw_thread_set_ = false;
   raw_thread_ = std::move(std::thread(&ThreadPimpl::handle_tasks, this));
+  raw_thread_set_ = true;
   return kRetOk;
 }
 ErrorStack ThreadPimpl::uninitialize_once() {
@@ -122,13 +123,8 @@ void ThreadPimpl::handle_tasks() {
   LOG(INFO) << "Thread-" << id_ << " started running on NUMA node: " << numa_node
     << " control_block address=" << control_block_;
   NumaThreadScope scope(numa_node);
-  // Actual xct processing can't start until XctManager is initialized.
-  SPINLOCK_WHILE(!is_stop_requested()
-    && !engine_->get_xct_manager()->is_initialized()) {
-    assorted::memory_fence_acquire();
-  }
-  LOG(INFO) << "Thread-" << id_ << " now starts processing transactions";
   set_thread_schedule();
+  ASSERT_ND(control_block_->status_ == kNotInitialized);
   control_block_->status_ = kWaitingForTask;
   while (!is_stop_requested()) {
     {
@@ -188,6 +184,11 @@ void ThreadPimpl::handle_tasks() {
 }
 void ThreadPimpl::set_thread_schedule() {
   // this code totally assumes pthread. maybe ifdef to handle Windows.. later!
+  SPINLOCK_WHILE(raw_thread_set_ == false) {
+    // as the copy to raw_thread_ might happen after the launched thread getting here,
+    // we check it and spin. This is mainly to make valgrind happy.
+    continue;
+  }
   pthread_t handle = static_cast<pthread_t>(raw_thread_.native_handle());
   int policy;
   sched_param param;
@@ -252,6 +253,12 @@ ErrorCode ThreadPimpl::install_a_volatile_page(
   ASSERT_ND((*installed_page)->get_header().snapshot_ == false);
   // This page is a volatile page, so set the snapshot flag off.
   (*installed_page)->get_header().snapshot_ = false;
+  storage::VolatilePagePointer volatile_pointer = storage::combine_volatile_page_pointer(
+    numa_node_,
+    0,
+    0,
+    offset);
+  (*installed_page)->get_header().page_id_ = volatile_pointer.word;  // and correct page ID
 
   *installed_page = place_a_new_volatile_page(offset, pointer);
   return kErrorCodeOk;

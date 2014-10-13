@@ -17,8 +17,10 @@
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
+#include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/debugging/debugging_supports.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/storage/page.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/thread_id.hpp"
 
@@ -94,6 +96,35 @@ std::string EngineMemory::dump_free_memory_stat() const {
     }
   }
   return ret.str();
+}
+
+ErrorStack EngineMemory::grab_one_volatile_page(
+  thread::ThreadGroupId node,
+  storage::VolatilePagePointer* pointer,
+  storage::Page** page) {
+  PagePool* pool = get_node_memory(node)->get_volatile_pool();
+  PagePoolOffset offset;
+  WRAP_ERROR_CODE(pool->grab_one(&offset));
+  *page = pool->get_resolver().resolve_offset_newpage(offset);
+  pointer->components.numa_node = node;
+  pointer->components.flags = 0;
+  pointer->components.mod_count = 0;
+  pointer->components.offset = offset;
+  return kRetOk;
+}
+
+ErrorStack EngineMemory::load_one_volatile_page(
+  cache::SnapshotFileSet* fileset,
+  storage::SnapshotPagePointer snapshot_pointer,
+  storage::VolatilePagePointer* pointer,
+  storage::Page** page) {
+  ASSERT_ND(snapshot_pointer != 0);
+  thread::ThreadGroupId node = storage::extract_numa_node_from_snapshot_pointer(snapshot_pointer);
+  CHECK_ERROR(grab_one_volatile_page(node, pointer, page));
+  WRAP_ERROR_CODE(fileset->read_page(snapshot_pointer, page));
+  (*page)->get_header().snapshot_ = false;
+  (*page)->get_header().page_id_ = pointer->word;
+  return kRetOk;
 }
 
 }  // namespace memory

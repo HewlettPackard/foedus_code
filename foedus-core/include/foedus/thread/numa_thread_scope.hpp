@@ -4,7 +4,11 @@
  */
 #ifndef FOEDUS_THREAD_NUMA_THREAD_SCOPE_HPP_
 #define FOEDUS_THREAD_NUMA_THREAD_SCOPE_HPP_
+
 #include <numa.h>
+
+#include "foedus/assorted/mod_numa_node.hpp"
+
 namespace foedus {
 namespace thread {
 /**
@@ -15,6 +19,7 @@ namespace thread {
  */
 struct NumaThreadScope {
   explicit NumaThreadScope(int numa_node) {
+    numa_node = assorted::mod_numa_node(numa_node);
     ::numa_run_on_node(numa_node);
     ::numa_set_localalloc();
   }

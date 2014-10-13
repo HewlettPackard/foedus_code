@@ -8,6 +8,9 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/engine.hpp"
+#include "foedus/cache/snapshot_file_set.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_writer_impl.hpp"
 #include "foedus/storage/metadata.hpp"
@@ -56,22 +59,57 @@ ErrorStack Composer::construct_root(const ConstructRootArguments& args) {
   }
 }
 
-uint64_t Composer::get_required_work_memory_size(
+ErrorStack Composer::replace_pointers(const ReplacePointersArguments& args) {
+  switch (storage_type_) {
+    case kArrayStorage:  return array::ArrayComposer(this).replace_pointers(args);
+    case kSequentialStorage: return sequential::SequentialComposer(this).replace_pointers(args);
+    // TODO(Hideaki) implement
+    case kMasstreeStorage:
+    case kHashStorage:
+    default:
+      return kRetOk;
+  }
+}
+
+uint64_t Composer::get_required_work_memory_size_compose(
   snapshot::SortedBuffer** log_streams,
   uint32_t log_streams_count) {
   switch (storage_type_) {
     case kArrayStorage:
       return array::ArrayComposer(this).
-         get_required_work_memory_size(log_streams, log_streams_count);
+         get_required_work_memory_size_compose(log_streams, log_streams_count);
     case kSequentialStorage:
       return sequential::SequentialComposer(this).
-        get_required_work_memory_size(log_streams, log_streams_count);
+        get_required_work_memory_size_compose(log_streams, log_streams_count);
     // TODO(Hideaki) implement
     case kMasstreeStorage:
     case kHashStorage:
     default:
       return 0;
   }
+}
+
+void Composer::ReplacePointersArguments::drop_volatile_page(VolatilePagePointer pointer) const {
+  uint16_t node = pointer.components.numa_node;
+  ASSERT_ND(node < snapshot_files_->get_engine()->get_soc_count());
+  ASSERT_ND(pointer.components.offset > 0);
+  memory::PagePoolOffsetChunk* chunk = dropped_chunks_ + node;
+  if (chunk->full()) {
+    Engine* engine = snapshot_files_->get_engine();
+    memory::PagePool* pool
+      = engine->get_memory_manager()->get_node_memory(node)->get_volatile_pool();
+    pool->release(chunk->size(), chunk);
+    ASSERT_ND(chunk->empty());
+  }
+  ASSERT_ND(!chunk->full());
+  chunk->push_back(pointer.components.offset);
+  ++(*dropped_count_);
+}
+
+ErrorCode Composer::ReplacePointersArguments::read_snapshot_page(
+  SnapshotPagePointer pointer,
+  void* out) const {
+  return snapshot_files_->read_page(pointer, out);
 }
 
 }  // namespace storage

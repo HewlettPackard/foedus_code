@@ -71,8 +71,8 @@ ErrorStack RestartManagerPimpl::recover() {
 
   LOG(INFO) << "There are logs that are durable but not yet snapshotted. Launching snapshot..";
   snapshot::SnapshotManagerPimpl* snapshot_pimpl = engine_->get_snapshot_manager()->get_pimpl();
-  snapshot::Snapshot snapshot;
-  CHECK_ERROR(snapshot_pimpl->handle_snapshot_triggered(&snapshot));
+  snapshot::Snapshot the_snapshot;
+  CHECK_ERROR(snapshot_pimpl->handle_snapshot_triggered(&the_snapshot));
   LOG(INFO) << "Finished initial snapshot during start-up. Now we can start processing transaction";
   return kRetOk;
 }

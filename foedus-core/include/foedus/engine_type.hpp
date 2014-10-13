@@ -4,7 +4,17 @@
  */
 #ifndef FOEDUS_ENGINE_TYPE_HPP_
 #define FOEDUS_ENGINE_TYPE_HPP_
+
+#include <stdint.h>
+
 namespace foedus {
+
+/**
+ * An Engine ID to differentiate two Engine objects instantiated in the same process.
+ * This and soc::Upid uniquely identify an Engine instance.
+ */
+typedef uint64_t Eid;
+
 /**
  * @brief Type of an engine instance of how to launch it.
  * @ingroup ENGINE

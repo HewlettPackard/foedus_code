@@ -19,6 +19,7 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/mod_numa_node.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 
 
@@ -114,7 +115,7 @@ void AlignedMemory::alloc(
   // We can later do the equivalent with mbind IF the memory is not shared.
   // mbind does nothing for shared memory. So, this is the only way
   int original_node = ::numa_preferred();
-  ::numa_set_preferred(numa_node);
+  ::numa_set_preferred(assorted::mod_numa_node(numa_node));
 
   debugging::StopWatch watch;
   switch (alloc_type_) {

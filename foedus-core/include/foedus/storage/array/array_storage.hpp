@@ -14,6 +14,7 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/const_div.hpp"
+#include "foedus/storage/composer.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -69,6 +70,7 @@ class ArrayStorage CXX11_FINAL
   const ArrayMetadata*  get_array_metadata()  const;
   bool                exists()    const CXX11_OVERRIDE;
   ErrorStack          create(const Metadata &metadata) CXX11_OVERRIDE;
+  ErrorStack          load(const StorageControlBlock& snapshot_block);
   ErrorStack          drop() CXX11_OVERRIDE;
 
   /**
@@ -314,6 +316,9 @@ class ArrayStorage CXX11_FINAL
     uint16_t payload_offset);
 
   void        describe(std::ostream* o) const CXX11_OVERRIDE;
+
+  /** Implementation of Composer::replace_pointers() */
+  ErrorStack  replace_pointers(const Composer::ReplacePointersArguments& args);
 
   ErrorStack  verify_single_thread(thread::Thread* context);
 };

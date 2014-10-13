@@ -19,6 +19,7 @@
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
+#include "foedus/snapshot/snapshot.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/storage_manager_pimpl.hpp"
@@ -135,6 +136,21 @@ ErrorStack SequentialStoragePimpl::create(const SequentialMetadata& metadata) {
   }
 
   control_block_->meta_ = metadata;
+  CHECK_ERROR(initialize_head_tail_pages());
+  control_block_->status_ = kExists;
+  LOG(INFO) << "Newly created a sequential-storage " << get_name();
+  return kRetOk;
+}
+ErrorStack SequentialStoragePimpl::load(const StorageControlBlock& snapshot_block) {
+  control_block_->meta_ = static_cast<const SequentialMetadata&>(snapshot_block.meta_);
+  CHECK_ERROR(initialize_head_tail_pages());
+  control_block_->root_page_pointer_.snapshot_pointer_
+    = control_block_->meta_.root_snapshot_page_id_;
+  control_block_->status_ = kExists;
+  LOG(INFO) << "Loaded a sequential-storage " << get_name();
+  return kRetOk;
+}
+ErrorStack SequentialStoragePimpl::initialize_head_tail_pages() {
   std::memset(control_block_->head_pointer_pages_, 0, sizeof(control_block_->head_pointer_pages_));
   std::memset(control_block_->tail_pointer_pages_, 0, sizeof(control_block_->tail_pointer_pages_));
   // we pre-allocate pointer pages for all required nodes.
@@ -156,9 +172,6 @@ ErrorStack SequentialStoragePimpl::create(const SequentialMetadata& metadata) {
     std::memset(head_page, 0, kPageSize);
     std::memset(tail_page, 0, kPageSize);
   }
-
-  control_block_->status_ = kExists;
-  LOG(INFO) << "Newly created an sequential-storage " << get_name();
   return kRetOk;
 }
 
@@ -264,6 +277,71 @@ SequentialPage* SequentialStoragePimpl::get_tail(
     return nullptr;
   }
   return reinterpret_cast<SequentialPage*>(resolver.resolve_offset(offset));
+}
+
+ErrorStack SequentialStoragePimpl::replace_pointers(
+  const Composer::ReplacePointersArguments& args) {
+  // In sequential, there is only one snapshot pointer to install, the root page.
+  control_block_->root_page_pointer_.snapshot_pointer_ = args.new_root_page_pointer_;
+  ++(*args.installed_count_);
+
+  // other than that, it's just about dropping volatile pages. easy.
+  // no need to determine what volatile pages to keep, or install snapshot pages to them.
+  uint16_t nodes = engine_->get_options().thread_.group_count_;
+  uint16_t threads_per_node = engine_->get_options().thread_.thread_count_per_group_;
+  for (uint16_t node = 0; node < nodes; ++node) {
+    const memory::LocalPageResolver& resolver
+      = engine_->get_memory_manager()->get_node_memory(node)->get_volatile_pool()->get_resolver();
+    for (uint16_t local_ordinal = 0; local_ordinal < threads_per_node; ++local_ordinal) {
+      thread::ThreadId thread_id = thread::compose_thread_id(node, local_ordinal);
+      memory::PagePoolOffset* head_ptr = get_head_pointer(thread_id);
+      memory::PagePoolOffset* tail_ptr = get_tail_pointer(thread_id);
+      memory::PagePoolOffset tail_offset = *tail_ptr;
+      if ((*head_ptr) == 0) {
+        ASSERT_ND(tail_offset == 0);
+        VLOG(0) << "No volatile pages for thread-" << thread_id << " in sequential-" << get_id();
+        continue;
+      }
+
+      ASSERT_ND(tail_offset != 0);
+      while (true) {
+        memory::PagePoolOffset offset = *head_ptr;
+        ASSERT_ND(offset != 0);
+
+        // if the page is newer than the snapshot, keep them.
+        // all volatile pages/records are appended in epoch order, so no need to check further.
+        SequentialPage* head = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(offset));
+        ASSERT_ND(head->get_record_count() > 0);
+        if (head->get_record_count() > 0
+          && head->get_first_record_epoch() > args.snapshot_.valid_until_epoch_) {
+          VLOG(0) << "Thread-" << thread_id << " in sequential-" << get_id() << " keeps volatile"
+            << " pages at and after epoch-" << head->get_first_record_epoch();
+          break;
+        }
+
+        // okay, drop this
+        memory::PagePoolOffset next = head->next_page().volatile_pointer_.components.offset;
+        ASSERT_ND(next != offset);
+        ASSERT_ND(head->next_page().volatile_pointer_.components.numa_node == node);
+        args.drop_volatile_page(combine_volatile_page_pointer(node, 0, 0, offset));
+        if (next == 0) {
+          // it was the tail
+          ASSERT_ND(tail_offset == offset);
+          VLOG(0) << "Thread-" << thread_id << " in sequential-" << get_id() << " dropped all"
+            << " volatile pages";
+          *head_ptr = 0;
+          *tail_ptr = 0;
+          break;
+        } else {
+          // move head
+          *head_ptr = next;
+          DVLOG(1) << "Thread-" << thread_id << " in sequential-" << get_id() << " dropped a"
+            << " page.";
+        }
+      }
+    }
+  }
+  return kRetOk;
 }
 
 }  // namespace sequential

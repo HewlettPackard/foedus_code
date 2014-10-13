@@ -13,10 +13,12 @@
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/cache/fwd.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/page_pool.hpp"
 #include "foedus/memory/page_resolver.hpp"
+#include "foedus/storage/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 
 namespace foedus {
@@ -62,6 +64,27 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
   const GlobalVolatilePageResolver& get_global_volatile_page_resolver() const {
     return global_volatile_page_resolver_;
   }
+
+  /**
+   * A convenience function to grab one free volatile page from the given node.
+   * DO NOT USE THIS METHOD in a frequently invoked place. You should use the batched interface
+   * to avoid mutex each time. This method is used only where performance doesn't matter.
+   */
+  ErrorStack grab_one_volatile_page(
+    foedus::thread::ThreadGroupId node,
+    storage::VolatilePagePointer* pointer,
+    storage::Page** page);
+
+  /**
+   * Another convenience method that also reads an existing snapshot page to the volatile page.
+   * Again, its performance is not optimized at all. Do not abuse.
+   * In fact, this is used only for one-time initialization code.
+   */
+  ErrorStack load_one_volatile_page(
+    cache::SnapshotFileSet* fileset,
+    storage::SnapshotPagePointer snapshot_pointer,
+    storage::VolatilePagePointer* pointer,
+    storage::Page** page);
 
  private:
   Engine* const                   engine_;

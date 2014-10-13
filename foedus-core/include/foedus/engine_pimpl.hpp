@@ -47,7 +47,12 @@ class EnginePimpl final : public DefaultInitializable {
 
   EnginePimpl() = delete;
   EnginePimpl(Engine* engine, const EngineOptions &options);
-  EnginePimpl(Engine* engine, EngineType type, soc::Upid master_upid, soc::SocId soc_id);
+  EnginePimpl(
+    Engine* engine,
+    EngineType type,
+    soc::Upid master_upid,
+    Eid master_eid,
+    soc::SocId soc_id);
 
   bool        is_master() const { return type_ == kMaster; }
   ErrorStack  initialize_once() override;
@@ -67,6 +72,7 @@ class EnginePimpl final : public DefaultInitializable {
 
   const EngineType                type_;
   const soc::Upid                 master_upid_;
+  const Eid                       master_eid_;
   const soc::SocId                soc_id_;
 
 // Individual modules. Placed in initialize()/uninitialize() order

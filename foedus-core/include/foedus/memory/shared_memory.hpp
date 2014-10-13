@@ -13,6 +13,7 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/cxx11.hpp"
+#include "foedus/error_stack.hpp"
 
 namespace foedus {
 namespace memory {
@@ -111,7 +112,7 @@ class SharedMemory CXX11_FINAL {
    * does NOT fail nor throws an exception. Instead, it sets the block_ NULL.
    * So, the caller is responsible for checking it after construction.
    */
-  void        alloc(const std::string& meta_path, uint64_t size, int numa_node);
+  ErrorStack  alloc(const std::string& meta_path, uint64_t size, int numa_node);
   /**
    * @brief Attach an already-allocated shared memory so that this object points to the memory.
    * @param[in] meta_path Path of the temporary meta file that contains memory size and

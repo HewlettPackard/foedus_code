@@ -52,7 +52,10 @@ ErrorStack SocManagerPimpl::uninitialize_once() {
 }
 
 ErrorStack SocManagerPimpl::initialize_master() {
-  ErrorStack alloc_error = memory_repo_.allocate_shared_memories(engine_->get_options());
+  ErrorStack alloc_error = memory_repo_.allocate_shared_memories(
+    engine_->get_master_upid(),
+    engine_->get_master_eid(),
+    engine_->get_options());
   if (alloc_error.is_error()) {
     memory_repo_.deallocate_shared_memories();
     return alloc_error;
@@ -92,10 +95,12 @@ ErrorStack SocManagerPimpl::initialize_master() {
 
 ErrorStack SocManagerPimpl::initialize_child() {
   Upid master_upid = engine_->get_master_upid();
+  Eid master_eid = engine_->get_master_eid();
   SocId soc_id = engine_->get_soc_id();
   pid_t pid = ::getpid();
   ErrorStack attach_error = memory_repo_.attach_shared_memories(
     master_upid,
+    master_eid,
     soc_id,
     engine_->get_nonconst_options());
   if (attach_error.is_error()) {
@@ -409,9 +414,10 @@ ErrorStack SocManagerPimpl::launch_emulated_children() {
 
 void SocManagerPimpl::emulated_child_main(SocId node) {
   Upid master_upid = engine_->get_master_upid();
+  Eid master_eid = engine_->get_master_eid();
   // We can reuse procedures pre-registered in master. Good for being a thread.
   const auto& procedures = engine_->get_proc_manager()->get_pre_registered_procedures();
-  ErrorStack ret = child_main_common(kChildEmulated, master_upid, node, procedures);
+  ErrorStack ret = child_main_common(kChildEmulated, master_upid, master_eid, node, procedures);
   if (ret.is_error()) {
     std::cerr << "[FOEDUS-Child] Emulated SOC-" << node
       << " exits with an error: " << ret << std::endl;
@@ -449,9 +455,10 @@ ErrorStack SocManagerPimpl::launch_forked_children() {
 
 int SocManagerPimpl::forked_child_main(SocId node) {
   Upid master_upid = engine_->get_master_upid();
+  Eid master_eid = engine_->get_master_eid();
   // These are pre-registered before fork(), so still we can reuse.
   const auto& procedures = engine_->get_proc_manager()->get_pre_registered_procedures();
-  ErrorStack ret = child_main_common(kChildForked, master_upid, node, procedures);
+  ErrorStack ret = child_main_common(kChildForked, master_upid, master_eid, node, procedures);
   if (ret.is_error()) {
     std::cerr << "[FOEDUS-Child] Forked SOC-" << node
       << " exits with an error: " << ret << std::endl;
@@ -468,6 +475,7 @@ int SocManagerPimpl::forked_child_main(SocId node) {
 ////////////////////////////////////////////////////////////////////////////////////
 ErrorStack SocManagerPimpl::launch_spawned_children() {
   Upid master_upid = engine_->get_master_upid();
+  Eid master_eid = engine_->get_master_eid();
   uint16_t soc_count = engine_->get_options().thread_.group_count_;
   for (uint16_t node = 0; node < soc_count; ++node) {
     posix_spawn_file_actions_t file_actions;
@@ -480,6 +488,8 @@ ErrorStack SocManagerPimpl::launch_spawned_children() {
     ld_env += ld_path;
     std::string pid_env("FOEDUS_MASTER_UPID=");
     pid_env += std::to_string(master_upid);
+    std::string eid_env("FOEDUS_MASTER_EID=");
+    eid_env += std::to_string(master_eid);
     std::string soc_id_env("FOEDUS_SOC_ID=");
     soc_id_env += std::to_string(node);
 
@@ -487,6 +497,7 @@ ErrorStack SocManagerPimpl::launch_spawned_children() {
     char* const envp[] = {
       const_cast<char*>(ld_env.c_str()),
       const_cast<char*>(pid_env.c_str()),
+      const_cast<char*>(eid_env.c_str()),
       const_cast<char*>(soc_id_env.c_str()),
       nullptr};
 
@@ -509,14 +520,16 @@ ErrorStack SocManagerPimpl::launch_spawned_children() {
 
 void SocManagerPimpl::spawned_child_main(const std::vector< proc::ProcAndName >& procedures) {
   const char* master_upid_str = std::getenv("FOEDUS_MASTER_UPID");
+  const char* master_eid_str = std::getenv("FOEDUS_MASTER_EID");
   const char* soc_id_str = std::getenv("FOEDUS_SOC_ID");
-  if (master_upid_str == nullptr || soc_id_str == nullptr) {
+  if (master_upid_str == nullptr || master_eid_str == nullptr || soc_id_str == nullptr) {
     return;  // not launched as an SOC engine. exit
   }
 
   Upid master_upid = std::atoll(master_upid_str);
+  Eid master_eid = std::atoll(master_eid_str);
   SocId node = std::atol(master_upid_str);
-  ErrorStack ret = child_main_common(kChildLocalSpawned, master_upid, node, procedures);
+  ErrorStack ret = child_main_common(kChildLocalSpawned, master_upid, master_eid, node, procedures);
   if (ret.is_error()) {
     std::cerr << "[FOEDUS-Child] Spawned SOC-" << node
       << " exits with an error: " << ret << std::endl;
@@ -534,6 +547,7 @@ void SocManagerPimpl::spawned_child_main(const std::vector< proc::ProcAndName >&
 ErrorStack SocManagerPimpl::child_main_common(
   EngineType engine_type,
   Upid master_upid,
+  Eid master_eid,
   SocId node,
   const std::vector< proc::ProcAndName >& procedures) {
   thread::NumaThreadScope scope(node);
@@ -544,7 +558,7 @@ ErrorStack SocManagerPimpl::child_main_common(
     ::prctl(PR_SET_PDEATHSIG, SIGHUP);
   }
 
-  Engine soc_engine(engine_type, master_upid, node);
+  Engine soc_engine(engine_type, master_upid, master_eid, node);
   ErrorStack init_error = soc_engine.initialize();
   if (init_error.is_error()) {
     std::cerr << "[FOEDUS-Child] Failed to initialize child SOC-" << node

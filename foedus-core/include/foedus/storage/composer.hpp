@@ -9,11 +9,13 @@
 #include <string>
 
 #include "foedus/compiler.hpp"
+#include "foedus/epoch.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/cache/fwd.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/fwd.hpp"
+#include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -74,8 +76,8 @@ class Composer CXX11_FINAL {
   StorageId get_storage_id() const { return storage_id_; }
   StorageType get_storage_type() const { return storage_type_; }
 
-  /** Returns the size of working memory this composer needs. */
-  uint64_t    get_required_work_memory_size(
+  /** Returns the size of working memory this composer needs in compose(). */
+  uint64_t    get_required_work_memory_size_compose(
     snapshot::SortedBuffer**  log_streams,
     uint32_t                  log_streams_count);
 
@@ -126,6 +128,51 @@ class Composer CXX11_FINAL {
    * page(s) for the storage. This
    */
   ErrorStack  construct_root(const ConstructRootArguments& args);
+
+  /** Arguments for replace_pointers() */
+  struct ReplacePointersArguments {
+    /** The new snapshot. All newly created snapshot pages are of this snapshot */
+    snapshot::Snapshot            snapshot_;
+    /** To read the new snapshot. */
+    cache::SnapshotFileSet*       snapshot_files_;
+    /** Pointer to new root snapshot page */
+    SnapshotPagePointer           new_root_page_pointer_;
+    /** Working memory to be used in this method. Automatically expand if needed. */
+    memory::AlignedMemory*        work_memory_;
+    /**
+     * Caches dropped pages to avoid returning every single page.
+     * This is an array of PagePoolOffsetChunk whose index is node ID.
+     * For each dropped page, we add it to this chunk and batch-return them to the
+     * volatile pool when it becomes full or after processing all storages.
+     */
+    memory::PagePoolOffsetChunk*  dropped_chunks_;
+    /** [OUT] Number of snapshot pages that were installed */
+    uint64_t*                     installed_count_;
+    /** [OUT] Number of volatile pages that were dropped */
+    uint64_t*                     dropped_count_;
+
+    /**
+     * Returns (might cache) the given pointer to volatile pool.
+     */
+    void drop_volatile_page(VolatilePagePointer pointer) const;
+    /** Same as snapshot_files_->read_page(pointer, out) */
+    ErrorCode read_snapshot_page(SnapshotPagePointer pointer, void* out) const;
+  };
+
+  /**
+   * @brief Installs new snapshot pages and drops volatile pages that
+   * have not been modified since the snapshotted epoch.
+   * @details
+   * This is called after pausing transaction executions, so this method does not worry about
+   * concurrent reads/writes while running this. Otherwise this method becomes
+   * very complex and/or expensive. It's just milliseconds for each several minutes, so should
+   * be fine to pause transactions.
+   * Also, this method is best-effort in many aspects. It might not drop some volatile pages
+   * that were not logically modified, or it might not install some of snapshot pages to pointers
+   * in volatile pages. In long run, it will be done at next snapshot,
+   * so it's okay to be opportunistic.
+   */
+  ErrorStack  replace_pointers(const ReplacePointersArguments& args);
 
   friend std::ostream&    operator<<(std::ostream& o, const Composer& v);
 

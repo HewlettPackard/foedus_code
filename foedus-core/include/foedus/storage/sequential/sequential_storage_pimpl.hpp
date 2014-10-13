@@ -17,6 +17,7 @@
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/storage/composer.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -97,6 +98,11 @@ struct SequentialStorageControlBlock final {
  * With these assumptions, sequential storages don't require any locking for serializability.
  * Thus, we separate write-sets of sequential storages from other write-sets in transaction objects.
  *
+ *
+ * @par Page replacement policy after snapshot
+ * This is an append-optimized storage, so there is no point to keep volatile pages for future use.
+ * We thus drop all volatile pages that were snapshot.
+ *
  * @note
  * This is a private implementation-details of \ref SEQUENTIAL, thus file name ends with _impl.
  * Do not include this header from a client program. There is no case client program needs to
@@ -122,6 +128,8 @@ class SequentialStoragePimpl final : public Attachable<SequentialStorageControlB
   StorageId   get_id() const { return control_block_->meta_.id_; }
   const StorageName& get_name() const { return control_block_->meta_.name_; }
   ErrorStack  create(const SequentialMetadata& metadata);
+  ErrorStack  load(const StorageControlBlock& snapshot_block);
+  ErrorStack  initialize_head_tail_pages();
   ErrorStack  drop();
 
   SequentialPage* get_head(
@@ -150,6 +158,7 @@ class SequentialStoragePimpl final : public Attachable<SequentialStorageControlB
     const void *payload,
     uint16_t payload_count);
 
+  ErrorStack replace_pointers(const Composer::ReplacePointersArguments& args);
 
   /**
    * @brief Traverse all pages and call back the handler for every page.

@@ -9,6 +9,7 @@
 #include "foedus/initializable.hpp"
 #include "foedus/log/log_id.hpp"
 #include "foedus/savepoint/fwd.hpp"
+#include "foedus/snapshot/snapshot_id.hpp"
 namespace foedus {
 namespace savepoint {
 /**
@@ -44,6 +45,8 @@ class SavepointManager CXX11_FINAL : public virtual Initializable {
   Epoch get_initial_current_epoch() const;
   Epoch get_initial_durable_epoch() const;
   Epoch get_saved_durable_epoch() const;
+  snapshot::SnapshotId get_latest_snapshot_id() const;
+  Epoch get_latest_snapshot_epoch() const;
 
   /**
    * @brief Atomically and durably takes a savepoint for the given epoch advancement.
@@ -55,6 +58,16 @@ class SavepointManager CXX11_FINAL : public virtual Initializable {
    * not yet committed.
    */
   ErrorStack      take_savepoint(Epoch new_global_durable_epoch);
+
+  /**
+   * @brief Takes a savepoint just to remember the newly taken snapshot.
+   * @details
+   * This is only called from snapshot manager after it writes out all snapshot files and
+   * metadata. The new snapshot is deemed as effective once this method completes.
+   */
+  ErrorStack      take_savepoint_after_snapshot(
+    snapshot::SnapshotId new_snapshot_id,
+    Epoch new_snapshot_epoch);
 
  private:
   SavepointManagerPimpl *pimpl_;

@@ -9,6 +9,7 @@
 #include <string>
 
 #include "foedus/engine.hpp"
+#include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/log/log_type.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
 #include "foedus/memory/engine_memory.hpp"
@@ -222,6 +223,33 @@ ErrorStack MasstreeStoragePimpl::create(const MasstreeMetadata& metadata) {
   LOG(INFO) << "Newly created an masstree-storage " << get_name();
   return kRetOk;
 }
+ErrorStack MasstreeStoragePimpl::load(const StorageControlBlock& snapshot_block) {
+  control_block_->meta_ = static_cast<const MasstreeMetadata&>(snapshot_block.meta_);
+  const MasstreeMetadata& meta = control_block_->meta_;
+  control_block_->root_page_pointer_.snapshot_pointer_ = meta.root_snapshot_page_id_;
+  control_block_->root_page_pointer_.volatile_pointer_.word = 0;
+
+  // So far we assume the root page always has a volatile version.
+  // Create it now.
+  VolatilePagePointer volatile_pointer;
+  Page* volatile_root;
+  cache::SnapshotFileSet fileset(engine_);
+  CHECK_ERROR(fileset.initialize());
+  UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
+  CHECK_ERROR(engine_->get_memory_manager()->load_one_volatile_page(
+    &fileset,
+    meta.root_snapshot_page_id_,
+    &volatile_pointer,
+    &volatile_root));
+  CHECK_ERROR(fileset.uninitialize());
+
+  volatile_pointer.components.flags = kVolatilePointerFlagSwappable;
+  control_block_->root_page_pointer_.volatile_pointer_ = volatile_pointer;
+  control_block_->status_ = kExists;
+  LOG(INFO) << "Loaded a masstree-storage " << get_meta();
+  return kRetOk;
+}
+
 
 inline ErrorCode MasstreeStoragePimpl::find_border(
   thread::Thread* context,

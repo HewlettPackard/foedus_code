@@ -17,6 +17,8 @@ XctManager::~XctManager() {
 ErrorStack  XctManager::initialize() { return pimpl_->initialize(); }
 bool        XctManager::is_initialized() const { return pimpl_->is_initialized(); }
 ErrorStack  XctManager::uninitialize() { return pimpl_->uninitialize(); }
+void        XctManager::pause_accepting_xct() { pimpl_->pause_accepting_xct(); }
+void        XctManager::resume_accepting_xct() { pimpl_->resume_accepting_xct(); }
 
 }  // namespace xct
 }  // namespace foedus

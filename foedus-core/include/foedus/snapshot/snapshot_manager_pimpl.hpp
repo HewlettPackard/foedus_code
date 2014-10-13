@@ -203,6 +203,8 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
     return control_block_->get_previous_snapshot_id_weak();
   }
 
+  ErrorStack read_snapshot_metadata(SnapshotId snapshot_id, SnapshotMetadata* out);
+
   void    trigger_snapshot_immediate(bool wait_completion);
 
   SnapshotId issue_next_snapshot_id() {
@@ -261,7 +263,20 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
     const Snapshot& new_snapshot,
     const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers);
 
-  // @todo Phase-4 to install pointers to snapshot pages and drop volatile pages.
+  /**
+   * Sub-routine of handle_snapshot_triggered().
+   * Invokes the savepoint module to take savepoint pointing to this snapshot.
+   * Until that, the snapshot is not yet deemed as "happened".
+   */
+  ErrorStack  snapshot_savepoint(const Snapshot& new_snapshot);
+
+  /**
+   * Sub-routine of handle_snapshot_triggered().
+   * install pointers to snapshot pages and drop volatile pages.
+   */
+  ErrorStack  replace_pointers(
+    const Snapshot& new_snapshot,
+    const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers);
 
   /**
    * each snapshot has a snapshot-metadata file "snapshot_metadata_<SNAPSHOT_ID>.xml"

@@ -16,6 +16,7 @@
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/storage/composer.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -75,12 +76,17 @@ class ArrayStoragePimpl final {
 
   ~ArrayStoragePimpl() {}
 
+  ErrorStack  load(const StorageControlBlock& snapshot_block);
+
   void        report_page_distribution();
 
   bool        exists() const { return control_block_->exists(); }
   const ArrayMetadata&    get_meta() const { return control_block_->meta_; }
   StorageId   get_id() const { return get_meta().id_; }
   uint16_t    get_levels() const { return control_block_->levels_; }
+  uint16_t    get_snapshot_drop_volatile_pages_threshold() const {
+    return get_meta().snapshot_drop_volatile_pages_threshold_;
+  }
   uint16_t    get_payload_size() const { return get_meta().payload_size_; }
   ArrayOffset get_array_size() const { return get_meta().array_size_; }
   ArrayPage*  get_root_page();
@@ -244,6 +250,21 @@ class ArrayStoragePimpl final {
     const memory::GlobalVolatilePageResolver& page_resolver,
     DualPagePointer* pointer,
     ArrayPage** out) ALWAYS_INLINE;
+
+  // composer-related
+  ArrayPage*  resolve_volatile(VolatilePagePointer pointer);
+  ErrorStack  replace_pointers(const Composer::ReplacePointersArguments& args);
+  ErrorStack  replace_pointers_recurse(
+    const Composer::ReplacePointersArguments& args,
+    DualPagePointer* pointer,
+    bool* kept_volatile,
+    ArrayPage* volatile_page);
+  /** also returns if we kept the volatile leaf page */
+  bool        replace_pointers_leaf(
+    const Composer::ReplacePointersArguments& args,
+    DualPagePointer* pointer,
+    ArrayPage* volatile_page);
+  bool        is_to_keep_volatile(uint16_t level);
 
   Engine* const                   engine_;
   ArrayStorageControlBlock* const control_block_;

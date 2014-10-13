@@ -42,9 +42,15 @@ const SequentialMetadata* SequentialStorage::get_sequential_metadata() const  {
 ErrorStack SequentialStorage::create(const Metadata &metadata) {
   return SequentialStoragePimpl(this).create(static_cast<const SequentialMetadata&>(metadata));
 }
-
+ErrorStack SequentialStorage::load(const StorageControlBlock& snapshot_block) {
+  return SequentialStoragePimpl(this).load(snapshot_block);
+}
 ErrorStack SequentialStorage::drop() {
   return SequentialStoragePimpl(this).drop();
+}
+
+ErrorStack SequentialStorage::replace_pointers(const Composer::ReplacePointersArguments& args) {
+  return SequentialStoragePimpl(this).replace_pointers(args);
 }
 
 void SequentialStorage::describe(std::ostream* o_ptr) const {

@@ -43,6 +43,12 @@ class SnapshotManager CXX11_FINAL : public virtual Initializable {
   SnapshotId get_previous_snapshot_id_weak() const;
 
   /**
+   * Read the snapshot metadata file that contains storages as of the snapshot.
+   * This is used only when the engine starts up.
+   */
+  ErrorStack read_snapshot_metadata(SnapshotId snapshot_id, SnapshotMetadata* out);
+
+  /**
    * @brief Immediately take a snapshot
    * @param[in] wait_completion whether to block until the completion of entire snapshotting
    * @details

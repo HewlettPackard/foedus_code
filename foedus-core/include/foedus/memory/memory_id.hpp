@@ -4,8 +4,12 @@
  */
 #ifndef FOEDUS_MEMORY_MEMORY_ID_HPP_
 #define FOEDUS_MEMORY_MEMORY_ID_HPP_
+
 #include <numa.h>
 #include <stdint.h>
+
+#include "foedus/assorted/mod_numa_node.hpp"
+
 /**
  * @file foedus/memory/memory_id.hpp
  * @brief Definitions of IDs in this package and a few related constant values.
@@ -45,6 +49,9 @@ struct ScopedNumaPreferred {
     } else {
       old_value_ = -1;
     }
+    // in order to run even on a non-numa machine or a machine with fewer sockets,
+    // we allow specifying arbitrary numa_node. we just take rem.
+    numa_node = assorted::mod_numa_node(numa_node);
     ::numa_set_preferred(numa_node);
   }
   ~ScopedNumaPreferred() {

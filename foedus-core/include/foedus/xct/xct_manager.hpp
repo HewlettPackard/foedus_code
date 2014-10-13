@@ -87,6 +87,11 @@ class XctManager CXX11_FINAL : public virtual Initializable {
    */
   ErrorCode   abort_xct(thread::Thread* context);
 
+  /** Pause all begin_xct until you call resume_accepting_xct() */
+  void        pause_accepting_xct();
+  /** Make sure you call this after pause_accepting_xct(). */
+  void        resume_accepting_xct();
+
  private:
   XctManagerPimpl *pimpl_;
 };

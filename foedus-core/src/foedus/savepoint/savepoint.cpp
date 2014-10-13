@@ -13,11 +13,15 @@ void Savepoint::assert_epoch_values() const {
   ASSERT_ND(Epoch(current_epoch_).is_valid());
   ASSERT_ND(Epoch(durable_epoch_).is_valid());
   ASSERT_ND(Epoch(current_epoch_) > Epoch(durable_epoch_));
+  ASSERT_ND(!Epoch(latest_snapshot_epoch_).is_valid() ||
+    Epoch(latest_snapshot_epoch_) <= Epoch(durable_epoch_));
 }
 
 ErrorStack Savepoint::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, current_epoch_);
   EXTERNALIZE_LOAD_ELEMENT(element, durable_epoch_);
+  EXTERNALIZE_LOAD_ELEMENT(element, latest_snapshot_id_);
+  EXTERNALIZE_LOAD_ELEMENT(element, latest_snapshot_epoch_);
   EXTERNALIZE_LOAD_ELEMENT(element, meta_log_oldest_offset_);
   EXTERNALIZE_LOAD_ELEMENT(element, meta_log_durable_offset_);
   EXTERNALIZE_LOAD_ELEMENT(element, oldest_log_files_);
@@ -35,6 +39,9 @@ ErrorStack Savepoint::save(tinyxml2::XMLElement* element) const {
   EXTERNALIZE_SAVE_ELEMENT(element, current_epoch_, "Current epoch of the entire engine.");
   EXTERNALIZE_SAVE_ELEMENT(element, durable_epoch_,
                "Latest epoch whose logs were all flushed to disk");
+  EXTERNALIZE_SAVE_ELEMENT(element, latest_snapshot_id_, "The most recent complete snapshot.");
+  EXTERNALIZE_SAVE_ELEMENT(element, latest_snapshot_epoch_,
+              "The most recently snapshot-ed epoch, all logs upto this epoch is safe to delete.");
   EXTERNALIZE_SAVE_ELEMENT(element, meta_log_oldest_offset_,
                "Offset from which metadata log entries are not gleaned yet");
   EXTERNALIZE_SAVE_ELEMENT(element, meta_log_durable_offset_,
@@ -53,6 +60,8 @@ ErrorStack Savepoint::save(tinyxml2::XMLElement* element) const {
 void Savepoint::populate_empty(log::LoggerId logger_count) {
   current_epoch_ = Epoch::kEpochInitialCurrent;
   durable_epoch_ = Epoch::kEpochInitialDurable;
+  latest_snapshot_id_ = snapshot::kNullSnapshotId;
+  latest_snapshot_epoch_ = Epoch::kEpochInvalid;
   meta_log_oldest_offset_ = 0;
   meta_log_durable_offset_ = 0;
   oldest_log_files_.resize(logger_count, 0);
@@ -70,6 +79,8 @@ void FixedSavepoint::update(
   loggers_per_node_count_ = loggers_per_node_count;
   current_epoch_ = src.current_epoch_;
   durable_epoch_ = src.durable_epoch_;
+  latest_snapshot_id_ = src.latest_snapshot_id_;
+  latest_snapshot_epoch_ = src.latest_snapshot_epoch_;
   meta_log_oldest_offset_ = src.meta_log_oldest_offset_;
   meta_log_durable_offset_ = src.meta_log_durable_offset_;
   uint32_t count = get_total_logger_count();

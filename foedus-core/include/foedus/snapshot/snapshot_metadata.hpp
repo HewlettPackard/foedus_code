@@ -54,7 +54,7 @@ struct SnapshotMetadata CXX11_FINAL : public virtual externalize::Externalizable
   /**
    * @brief control block of all storages.
    * @details
-   * This is a copy of the shared memory, so .
+   * This is a copy of the shared memory, so no need to delete.
    */
   storage::StorageControlBlock* storage_control_blocks_;
 

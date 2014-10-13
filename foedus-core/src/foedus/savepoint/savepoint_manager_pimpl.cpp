@@ -105,6 +105,26 @@ ErrorStack SavepointManagerPimpl::take_savepoint(Epoch new_global_durable_epoch)
   }
   return kRetOk;
 }
+ErrorStack SavepointManagerPimpl::take_savepoint_after_snapshot(
+  snapshot::SnapshotId new_snapshot_id,
+  Epoch new_snapshot_epoch) {
+  while (get_latest_snapshot_id() != new_snapshot_id) {
+    {
+      soc::SharedMutexScope scope(control_block_->save_wakeup_.get_mutex());
+      control_block_->new_snapshot_id_ = new_snapshot_id;
+      control_block_->new_snapshot_epoch_ = new_snapshot_epoch.value();
+      control_block_->save_wakeup_.signal(&scope);
+    }
+    {
+      soc::SharedMutexScope scope(control_block_->save_done_event_.get_mutex());
+      control_block_->save_done_event_.wait(&scope);
+    }
+  }
+  ASSERT_ND(get_latest_snapshot_id() == new_snapshot_id);
+  ASSERT_ND(get_latest_snapshot_epoch() == new_snapshot_epoch);
+  return kRetOk;
+}
+
 void SavepointManagerPimpl::update_shared_savepoint(const Savepoint& src) {
   // write with mutex to not let readers see garbage.
   // there is only one writer anyway, btw.
@@ -128,19 +148,27 @@ void SavepointManagerPimpl::savepoint_main() {
     {
       soc::SharedMutexScope scope(control_block_->save_wakeup_.get_mutex());
       if (!is_stop_requested() &&
-        control_block_->requested_durable_epoch_ == control_block_->saved_durable_epoch_) {
+        control_block_->requested_durable_epoch_ == control_block_->saved_durable_epoch_ &&
+        control_block_->new_snapshot_id_ == snapshot::kNullSnapshotId) {
         control_block_->save_wakeup_.timedwait(&scope, 100000000ULL);
       }
     }
     if (is_stop_requested()) {
       break;
     }
-    if (control_block_->requested_durable_epoch_ != control_block_->saved_durable_epoch_) {
+    if (control_block_->new_snapshot_id_ != snapshot::kNullSnapshotId ||
+      control_block_->requested_durable_epoch_ != control_block_->saved_durable_epoch_) {
       Savepoint new_savepoint = Savepoint();
       new_savepoint.current_epoch_ = engine_->get_xct_manager()->get_current_global_epoch().value();
       Epoch new_durable_epoch = get_requested_durable_epoch();
       new_savepoint.durable_epoch_ = new_durable_epoch.value();
       engine_->get_log_manager()->copy_logger_states(&new_savepoint);
+
+      new_savepoint.latest_snapshot_id_ = control_block_->new_snapshot_id_;
+      new_savepoint.latest_snapshot_epoch_ = control_block_->new_snapshot_epoch_;
+      control_block_->new_snapshot_id_ = snapshot::kNullSnapshotId;
+      control_block_->new_snapshot_epoch_ = Epoch::kEpochInvalid;
+
       log::MetaLogControlBlock* metalog_block = engine_->get_soc_manager()->get_shared_memory_repo()
         ->get_global_memory_anchors()->meta_logger_memory_;
       new_savepoint.meta_log_oldest_offset_ = metalog_block->oldest_offset_;

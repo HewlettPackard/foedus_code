@@ -64,6 +64,7 @@ class MasstreeStorage CXX11_FINAL
   const MasstreeMetadata*  get_masstree_metadata()  const;
   bool                exists()    const CXX11_OVERRIDE;
   ErrorStack          create(const Metadata &metadata) CXX11_OVERRIDE;
+  ErrorStack          load(const StorageControlBlock& snapshot_block);
   ErrorStack          drop() CXX11_OVERRIDE;
   void       describe(std::ostream* o) const CXX11_OVERRIDE;
 

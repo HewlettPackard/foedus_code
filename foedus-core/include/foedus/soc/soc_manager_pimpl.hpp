@@ -64,6 +64,7 @@ class SocManagerPimpl final : public DefaultInitializable {
   static ErrorStack child_main_common(
     EngineType engine_type,
     Upid master_upid,
+    Eid master_eid,
     SocId node,
     const std::vector< proc::ProcAndName >& procedures);
 

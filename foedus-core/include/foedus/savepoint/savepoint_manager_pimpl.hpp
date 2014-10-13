@@ -31,6 +31,8 @@ struct SavepointManagerControlBlock {
     save_wakeup_.initialize();
     save_done_event_.initialize();
     savepoint_mutex_.initialize();
+    new_snapshot_id_ = snapshot::kNullSnapshotId;
+    new_snapshot_epoch_ = Epoch::kEpochInvalid;
   }
   void uninitialize() {
     savepoint_mutex_.uninitialize();
@@ -63,16 +65,27 @@ struct SavepointManagerControlBlock {
   soc::SharedCond     save_done_event_;
 
   /**
-   * The content of latest savepoint.
-   * This is kind of big, but most part of it is unused.
-   */
-  FixedSavepoint      savepoint_;
-  /**
    * Read/write to savepoint_ is protected with this mutex.
    * There is anyway only one writer to savepoint_, but this is required to make sure
    * readers don't see half-updated garbage.
    */
   soc::SharedMutex    savepoint_mutex_;
+
+  /**
+   * The ID of the new snapshot to remember.
+   * Set from take_savepoint_after_snapshot to request taking a new snapshot just for
+   * updating snapshot ID in savepoint file.
+   * kNullSnapshotId if not requested.
+   */
+  snapshot::SnapshotId  new_snapshot_id_;
+  /** Set with new_snapshot_id_ */
+  Epoch::EpochInteger   new_snapshot_epoch_;
+
+  /**
+   * The content of latest savepoint.
+   * This is kind of big, but most part of it is unused.
+   */
+  FixedSavepoint      savepoint_;
 };
 
 /**
@@ -92,12 +105,21 @@ class SavepointManagerPimpl final : public DefaultInitializable {
   Epoch get_initial_current_epoch() const { return Epoch(control_block_->initial_current_epoch_); }
   Epoch get_initial_durable_epoch() const { return Epoch(control_block_->initial_durable_epoch_); }
   Epoch get_saved_durable_epoch() const { return Epoch(control_block_->saved_durable_epoch_); }
+  snapshot::SnapshotId get_latest_snapshot_id() const {
+    return control_block_->savepoint_.latest_snapshot_id_;
+  }
+  Epoch get_latest_snapshot_epoch() const {
+    return Epoch(control_block_->savepoint_.latest_snapshot_epoch_);
+  }
   Epoch get_requested_durable_epoch() const {
     return Epoch(control_block_->requested_durable_epoch_);
   }
   void                update_shared_savepoint(const Savepoint& src);
   LoggerSavepointInfo get_logger_savepoint(log::LoggerId logger_id);
   ErrorStack          take_savepoint(Epoch new_global_durable_epoch);
+  ErrorStack          take_savepoint_after_snapshot(
+    snapshot::SnapshotId new_snapshot_id,
+    Epoch new_snapshot_epoch);
 
   Engine* const           engine_;
   SavepointManagerControlBlock* control_block_;
