@@ -129,11 +129,15 @@ TEST(XctIdLockTest, NoConflict) {
     std::vector<thread::ImpersonateSession> sessions;
     for (int i = 0; i < kThreads; ++i) {
       thread::ImpersonateSession session;
-      EXPECT_TRUE(engine.get_thread_pool()->impersonate(
+      bool ret = engine.get_thread_pool()->impersonate(
         "no_conflict_task",
         &i,
         sizeof(i),
-        &session));
+        &session);
+      EXPECT_TRUE(ret);
+      EXPECT_TRUE(session.is_valid());
+      ASSERT_ND(ret);
+      ASSERT_ND(session.is_valid());
       sessions.emplace_back(std::move(session));
     }
 
@@ -186,6 +190,8 @@ TEST(XctIdLockTest, Conflict) {
         &i,
         sizeof(i),
         &session));
+      EXPECT_TRUE(session.is_valid());
+      ASSERT_ND(session.is_valid());
       sessions.emplace_back(std::move(session));
     }
     while (locked_count < kThreads / 2) {
@@ -198,6 +204,8 @@ TEST(XctIdLockTest, Conflict) {
         &i,
         sizeof(i),
         &session));
+      EXPECT_TRUE(session.is_valid());
+      ASSERT_ND(session.is_valid());
       sessions.emplace_back(std::move(session));
     }
     for (int i = 0; i < 4; ++i) {
@@ -249,11 +257,15 @@ TEST(XctIdLockTest, Random) {
     std::vector<thread::ImpersonateSession> sessions;
     for (int i = 0; i < kThreads; ++i) {
       thread::ImpersonateSession session;
-      EXPECT_TRUE(engine.get_thread_pool()->impersonate(
+      bool ret = engine.get_thread_pool()->impersonate(
         "random_task",
         &i,
         sizeof(i),
-        &session));
+        &session);
+      EXPECT_TRUE(ret);
+      EXPECT_TRUE(session.is_valid());
+      ASSERT_ND(ret);
+      ASSERT_ND(session.is_valid());
       sessions.emplace_back(std::move(session));
     }
 

@@ -76,7 +76,6 @@ ErrorStack ThreadPimpl::initialize_once() {
     = engine_->get_memory_manager()->get_global_volatile_page_resolver();
   local_volatile_page_resolver_ = node_memory_->get_volatile_pool()->get_resolver();
 
-  control_block_->status_ = kRunningTask;
   raw_thread_ = std::move(std::thread(&ThreadPimpl::handle_tasks, this));
   return kRetOk;
 }
@@ -122,14 +121,8 @@ void ThreadPimpl::handle_tasks() {
   LOG(INFO) << "Thread-" << id_ << " started running on NUMA node: " << numa_node
     << " control_block address=" << control_block_;
   NumaThreadScope scope(numa_node);
-  // Actual xct processing can't start until XctManager is initialized.
-  SPINLOCK_WHILE(!is_stop_requested()
-    && !engine_->get_xct_manager()->is_initialized()) {
-    assorted::memory_fence_acquire();
-  }
-  LOG(INFO) << "Thread-" << id_ << " now starts processing transactions";
   set_thread_schedule();
-  control_block_->status_ = kWaitingForTask;
+  ASSERT_ND(control_block_->status_ == kWaitingForTask);
   while (!is_stop_requested()) {
     {
       soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());

@@ -188,10 +188,8 @@ enum ThreadPriority {
  * and closes the session.
  */
 enum ThreadStatus {
-  /** Initial state. The thread does nothing in this state */
-  kNotInitialized = 0,
-  /** Idle state, receiving a new task. */
-  kWaitingForTask,
+  /** Idle state, receiving a new task. Also an initial state */
+  kWaitingForTask = 0,
   /** A client has set a next task. The thread has not picked it up yet. */
   kWaitingForExecution,
   /** The thread has picked the task up and is now running. */
