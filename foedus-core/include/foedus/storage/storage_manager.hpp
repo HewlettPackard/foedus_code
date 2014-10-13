@@ -169,7 +169,7 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
    */
   ErrorStack  create_storage(Metadata *metadata, Epoch *commit_epoch);
   /** This is called while restart to apply CREATE STORAGE logs. */
-  void        create_storage_apply(Metadata *metadata);
+  void        create_storage_apply(const Metadata& metadata);
 
   /**
    * @brief Just a type-wrapper of create_storage() for array storages.

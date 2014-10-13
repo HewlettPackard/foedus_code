@@ -18,6 +18,7 @@
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/array/array_id.hpp"
+#include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/array/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
@@ -43,18 +44,8 @@ namespace array {
  */
 struct ArrayCreateLogType : public log::StorageLogType {
   LOG_TYPE_NO_CONSTRUCT(ArrayCreateLogType)
-  ArrayOffset     array_size_;        // +8 => 24
-  uint16_t        payload_size_;      // +2 => 26
-  uint16_t        name_length_;       // +2 => 28
-  char            name_[4];           // +4 => 32
+  ArrayMetadata   metadata_;
 
-  static uint16_t calculate_log_length(uint16_t name_length) {
-    return assorted::align8(28 + name_length);
-  }
-
-  void populate(StorageId storage_id, ArrayOffset array_size,
-      uint16_t payload_size, uint16_t name_length, const char* name);
-  static void construct(const Metadata* metadata, void* buffer);
   void apply_storage(Engine* engine, StorageId storage_id);
   void assert_valid();
   friend std::ostream& operator<<(std::ostream& o, const ArrayCreateLogType& v);

@@ -9,6 +9,7 @@
 #include <iosfwd>
 
 #include "foedus/log/common_log_types.hpp"
+#include "foedus/storage/metadata.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/fwd.hpp"
@@ -37,6 +38,24 @@ struct DropLogType : public log::StorageLogType {
   void assert_valid();
   friend std::ostream& operator<<(std::ostream& o, const DropLogType& v);
 };
+
+/**
+ * @brief Base type for CREATE STORAGE operation.
+ * @ingroup STORAGE LOGTYPE
+ * @details
+ * This is not an actual log type that is used. Individual storages have their own create-log type,
+ * which is \e compatible, not derived, to this. Just like Metadata and individual metadata types,
+ * this is just to provide a common view.
+ */
+struct CreateLogType CXX11_FINAL : public log::StorageLogType {
+  LOG_TYPE_NO_CONSTRUCT(CreateLogType)
+  Metadata        metadata_;
+
+  void apply_storage(Engine* engine, StorageId storage_id);
+  void assert_valid();
+  friend std::ostream& operator<<(std::ostream& o, const CreateLogType& v);
+};
+
 
 }  // namespace storage
 }  // namespace foedus

@@ -158,7 +158,7 @@ void SavepointManagerPimpl::savepoint_main() {
     }
     if (control_block_->new_snapshot_id_ != snapshot::kNullSnapshotId ||
       control_block_->requested_durable_epoch_ != control_block_->saved_durable_epoch_) {
-      Savepoint new_savepoint = Savepoint();
+      Savepoint new_savepoint;
       new_savepoint.current_epoch_ = engine_->get_xct_manager()->get_current_global_epoch().value();
       Epoch new_durable_epoch = get_requested_durable_epoch();
       new_savepoint.durable_epoch_ = new_durable_epoch.value();
@@ -171,6 +171,8 @@ void SavepointManagerPimpl::savepoint_main() {
 
       log::MetaLogControlBlock* metalog_block = engine_->get_soc_manager()->get_shared_memory_repo()
         ->get_global_memory_anchors()->meta_logger_memory_;
+      // TODO(Hideaki) Here, we should update oldest_offset_ by checking where the snapshot_epoch
+      // ends. So far we don't update this, but metalog is anyway tiny, so isn't a big issue.
       new_savepoint.meta_log_oldest_offset_ = metalog_block->oldest_offset_;
       new_savepoint.meta_log_durable_offset_ = metalog_block->durable_offset_;
       new_savepoint.assert_epoch_values();

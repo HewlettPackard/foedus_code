@@ -14,6 +14,7 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/engine.hpp"
+#include "foedus/storage/storage_log_types.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/thread/thread.hpp"
@@ -22,57 +23,17 @@ namespace foedus {
 namespace storage {
 namespace array {
 
-void ArrayCreateLogType::populate(
-  StorageId storage_id,
-  ArrayOffset array_size,
-  uint16_t payload_size,
-  uint16_t name_length,
-  const char* name) {
-  ASSERT_ND(storage_id > 0);
-  ASSERT_ND(array_size > 0);
-  ASSERT_ND(name_length > 0);
-  ASSERT_ND(name);
-  header_.log_type_code_ = log::kLogCodeArrayCreate;
-  header_.log_length_ = calculate_log_length(name_length);
-  header_.storage_id_ = storage_id;
-  array_size_ = array_size;
-  payload_size_ = payload_size;
-  name_length_ = name_length;
-  std::memcpy(name_, name, name_length);
-}
 void ArrayCreateLogType::apply_storage(Engine* engine, StorageId storage_id) {
-  ASSERT_ND(storage_id > 0);
-  LOG(INFO) << "Applying CREATE ARRAY STORAGE log: " << *this;
-  StorageName name(name_, name_length_);
-  ArrayMetadata metadata(header_.storage_id_, name, payload_size_, array_size_);
-  engine->get_storage_manager()->create_storage_apply(&metadata);
-  LOG(INFO) << "Applied CREATE ARRAY STORAGE log: " << *this;
-}
-
-void ArrayCreateLogType::construct(const Metadata* metadata, void* buffer) {
-  ASSERT_ND(metadata->type_ == kArrayStorage);
-  const ArrayMetadata* casted = static_cast<const ArrayMetadata*>(metadata);
-  ArrayCreateLogType* log_entry = reinterpret_cast<ArrayCreateLogType*>(buffer);
-  log_entry->populate(
-    casted->id_,
-    casted->array_size_,
-    casted->payload_size_,
-    casted->name_.size(),
-    casted->name_.data());
+  reinterpret_cast<CreateLogType*>(this)->apply_storage(engine, storage_id);
 }
 
 void ArrayCreateLogType::assert_valid() {
-  assert_valid_generic();
-  ASSERT_ND(header_.log_length_ == calculate_log_length(name_length_));
+  reinterpret_cast<CreateLogType*>(this)->assert_valid();
+  ASSERT_ND(header_.log_length_ == sizeof(ArrayCreateLogType));
   ASSERT_ND(header_.get_type() == log::get_log_code<ArrayCreateLogType>());
 }
 std::ostream& operator<<(std::ostream& o, const ArrayCreateLogType& v) {
-  o << "<ArrayCreateLog>"
-    << "<storage_id_>" << v.header_.storage_id_ << "</storage_id_>"
-    << "<name_>" << StorageName(v.name_, v.name_length_) << "</name_>"
-    << "<name_length_>" << v.name_length_ << "</name_length_>"
-    << "<array_size_>" << v.array_size_ << "</array_size_>"
-    << "</ArrayCreateLog>";
+  o << "<ArrayCreateLog>" << v.metadata_ << "</ArrayCreateLog>";
   return o;
 }
 

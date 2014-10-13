@@ -12,6 +12,7 @@
 namespace foedus {
 namespace storage {
 class   Composer;
+struct  CreateLogType;
 struct  DropLogType;
 struct  DualPagePointer;
 struct  DummyVolatilePageInitializer;

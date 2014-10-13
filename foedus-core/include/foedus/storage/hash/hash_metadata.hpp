@@ -26,13 +26,13 @@ namespace hash {
  */
 struct HashMetadata CXX11_FINAL : public Metadata {
   HashMetadata()
-    : Metadata(0, kHashStorage, ""), bin_bits_(8) {}
+    : Metadata(0, kHashStorage, ""), bin_bits_(8), pad1_(0), pad2_(0), pad3_(0) {}
   HashMetadata(StorageId id, const StorageName& name, uint8_t bin_bits)
-    : Metadata(id, kHashStorage, name), bin_bits_(bin_bits) {
+    : Metadata(id, kHashStorage, name), bin_bits_(bin_bits), pad1_(0), pad2_(0), pad3_(0) {
   }
   /** This one is for newly creating a storage. */
   HashMetadata(const StorageName& name, uint8_t bin_bits = 8)
-    : Metadata(0, kHashStorage, name), bin_bits_(bin_bits) {
+    : Metadata(0, kHashStorage, name), bin_bits_(bin_bits), pad1_(0), pad2_(0), pad3_(0) {
   }
 
   /**
@@ -56,6 +56,11 @@ struct HashMetadata CXX11_FINAL : public Metadata {
    * @invariant 8 <= bin_bits_ < 48
    */
   uint8_t   bin_bits_;
+
+  // just for valgrind when this metadata is written to file. ggr
+  uint8_t   pad1_;
+  uint16_t  pad2_;
+  uint32_t  pad3_;
 };
 
 struct HashMetadataSerializer CXX11_FINAL : public virtual MetadataSerializer {

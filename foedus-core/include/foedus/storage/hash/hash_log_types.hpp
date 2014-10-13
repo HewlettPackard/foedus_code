@@ -20,6 +20,7 @@
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/hash/fwd.hpp"
 #include "foedus/storage/hash/hash_id.hpp"
+#include "foedus/storage/hash/hash_metadata.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct_id.hpp"
@@ -45,16 +46,8 @@ namespace hash {
  */
 struct HashCreateLogType : public log::StorageLogType {
   LOG_TYPE_NO_CONSTRUCT(HashCreateLogType)
-  uint16_t        name_length_;       // +2 => 18
-  uint8_t         bin_bits_;          // +1 => 19
-  char            name_[5];           // +5 => 24
+  HashMetadata    metadata_;
 
-  static uint16_t calculate_log_length(uint16_t name_length) {
-    return assorted::align8(19 + name_length);
-  }
-
-  void populate(StorageId storage_id, uint16_t name_length, const char* name, uint8_t bin_bits);
-  static void construct(const Metadata* metadata, void* buffer);
   void apply_storage(Engine* engine, StorageId storage_id);
   void assert_valid();
   friend std::ostream& operator<<(std::ostream& o, const HashCreateLogType& v);

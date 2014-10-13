@@ -278,19 +278,13 @@ void StorageManagerPimpl::drop_storage_apply(StorageId id) {
   block->uninitialize();
 }
 
-void construct_create_log(Metadata* meta, void* buffer) {
-  StorageType type = meta->type_;
-  if (type == kArrayStorage) {
-    array::ArrayCreateLogType::construct(meta, buffer);
-  } else if (type == kHashStorage) {
-    hash::HashCreateLogType::construct(meta, buffer);
-  } else if (type == kMasstreeStorage) {
-    masstree::MasstreeCreateLogType::construct(meta, buffer);
-  } else if (type == kSequentialStorage) {
-    sequential::SequentialCreateLogType::construct(meta, buffer);
-  } else {
-    LOG(FATAL) << "WTF:" << type;
-  }
+template <typename CREATE_LOG, typename METADATA>
+void construct_create_log(const Metadata& meta, void* buffer) {
+  CREATE_LOG* create_log = reinterpret_cast<CREATE_LOG*>(buffer);
+  create_log->header_.storage_id_ = meta.id_;
+  create_log->header_.log_type_code_ = log::get_log_code<CREATE_LOG>();
+  create_log->header_.log_length_ = sizeof(CREATE_LOG);
+  create_log->metadata_ = reinterpret_cast<const METADATA&>(meta);
 }
 
 ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit_epoch) {
@@ -321,8 +315,28 @@ ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit
 
   char log_buffer[1 << 12];
   std::memset(log_buffer, 0, sizeof(log_buffer));
-  construct_create_log(metadata, log_buffer);
-  log::StorageLogType* create_log = reinterpret_cast<log::StorageLogType*>(log_buffer);
+  metadata->name_.zero_fill_remaining();  // make valgrind overload happy.
+  if (metadata->type_ == kArrayStorage) {
+    construct_create_log< array::ArrayCreateLogType, array::ArrayMetadata >(*metadata, log_buffer);
+  } else if (metadata->type_ == kHashStorage) {
+    construct_create_log< hash::HashCreateLogType, hash::HashMetadata >(*metadata, log_buffer);
+  } else if (metadata->type_ == kMasstreeStorage) {
+    construct_create_log< masstree::MasstreeCreateLogType, masstree::MasstreeMetadata >(
+      *metadata,
+      log_buffer);
+  } else if (metadata->type_ == kSequentialStorage) {
+    construct_create_log< sequential::SequentialCreateLogType, sequential::SequentialMetadata >(
+      *metadata,
+      log_buffer);
+  } else {
+    LOG(FATAL) << "WTF:" << metadata->type_;
+  }
+
+  CreateLogType* create_log = reinterpret_cast<CreateLogType*>(log_buffer);
+  ASSERT_ND(create_log->header_.storage_id_ == id);
+  ASSERT_ND(create_log->metadata_.id_ == id);
+  ASSERT_ND(create_log->metadata_.type_ == metadata->type_);
+  ASSERT_ND(create_log->metadata_.name_ == name);
   engine_->get_log_manager()->get_meta_buffer()->commit(create_log, commit_epoch);
 
   ASSERT_ND(commit_epoch->is_valid());
@@ -330,24 +344,24 @@ ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit
   return kRetOk;
 }
 
-void StorageManagerPimpl::create_storage_apply(Metadata *metadata) {
+void StorageManagerPimpl::create_storage_apply(const Metadata& metadata) {
   // this method is called only while restart, so no race.
-  ASSERT_ND(metadata->id_ > 0);
-  ASSERT_ND(!metadata->name_.empty());
-  StorageId id = metadata->id_;
+  ASSERT_ND(metadata.id_ > 0);
+  ASSERT_ND(!metadata.name_.empty());
+  StorageId id = metadata.id_;
   if (id > control_block_->largest_storage_id_) {
     control_block_->largest_storage_id_ = id;
   }
 
-  ASSERT_ND(!exists(metadata->name_));
+  ASSERT_ND(!exists(metadata.name_));
 
   get_storage(id)->initialize();
   ASSERT_ND(!get_storage(id)->exists());
-  storages_[id].meta_.type_ = metadata->type_;
+  storages_[id].meta_.type_ = metadata.type_;
   ErrorStack create_error = storage_pseudo_polymorph(
     engine_,
     storages_ + id,
-    [metadata](Storage* obj){ return obj->create(*metadata); });
+    [metadata](Storage* obj){ return obj->create(metadata); });
   if (create_error.is_error()) {
     LOG(FATAL) << "create_storage_apply() failed. " << create_error
       << " Failed to restart the engine";

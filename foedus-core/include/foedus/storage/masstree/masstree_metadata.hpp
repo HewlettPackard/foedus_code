@@ -27,18 +27,18 @@ namespace masstree {
  */
 struct MasstreeMetadata CXX11_FINAL : public Metadata {
   MasstreeMetadata() :
-    Metadata(0, kMasstreeStorage, ""), border_early_split_threshold_(0) {}
+    Metadata(0, kMasstreeStorage, ""), border_early_split_threshold_(0), pad1_(0), pad2_(0) {}
   MasstreeMetadata(
     StorageId id,
     const StorageName& name,
     uint16_t border_early_split_threshold = 0)
     : Metadata(id, kMasstreeStorage, name),
-      border_early_split_threshold_(border_early_split_threshold) {
+      border_early_split_threshold_(border_early_split_threshold), pad1_(0), pad2_(0) {
   }
   /** This one is for newly creating a storage. */
   MasstreeMetadata(const StorageName& name, uint16_t border_early_split_threshold = 0)
     : Metadata(0, kMasstreeStorage, name),
-      border_early_split_threshold_(border_early_split_threshold) {
+      border_early_split_threshold_(border_early_split_threshold), pad1_(0), pad2_(0) {
   }
 
   std::string describe() const;
@@ -55,6 +55,10 @@ struct MasstreeMetadata CXX11_FINAL : public Metadata {
    * The default is 0, which means we never consider early split.
    */
   uint16_t border_early_split_threshold_;
+
+  // just for valgrind when this metadata is written to file. ggr
+  uint16_t pad1_;
+  uint32_t pad2_;
 };
 
 struct MasstreeMetadataSerializer CXX11_FINAL : public virtual MetadataSerializer {

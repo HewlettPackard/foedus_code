@@ -32,6 +32,7 @@ struct ArrayMetadata CXX11_FINAL : public Metadata {
     : Metadata(0, kArrayStorage, ""),
     payload_size_(0),
     snapshot_drop_volatile_pages_threshold_(kDefaultSnapshotDropVolatilePagesThreshold),
+    padding_(0),
     array_size_(0) {}
   ArrayMetadata(
     StorageId id,
@@ -41,6 +42,7 @@ struct ArrayMetadata CXX11_FINAL : public Metadata {
     : Metadata(id, kArrayStorage, name),
     payload_size_(payload_size),
     snapshot_drop_volatile_pages_threshold_(kDefaultSnapshotDropVolatilePagesThreshold),
+    padding_(0),
     array_size_(array_size) {
   }
   /** This one is for newly creating a storage. */
@@ -48,6 +50,7 @@ struct ArrayMetadata CXX11_FINAL : public Metadata {
     : Metadata(0, kArrayStorage, name),
     payload_size_(payload_size),
     snapshot_drop_volatile_pages_threshold_(kDefaultSnapshotDropVolatilePagesThreshold),
+    padding_(0),
     array_size_(array_size) {
   }
 
@@ -64,6 +67,7 @@ struct ArrayMetadata CXX11_FINAL : public Metadata {
    * If it doesn't, the user (you) chooses the right value per storage.
    */
   uint16_t            snapshot_drop_volatile_pages_threshold_;
+  uint32_t            padding_;  // to make valgrind happy
   /** Size of this array */
   ArrayOffset         array_size_;
 };

@@ -256,10 +256,6 @@ ErrorStack ArrayComposeContext::finalize() {
       pointer.volatile_pointer_.word = 0;
     }
   }
-
-  // TODO(Hideaki): in terms of constructing snapshots, we are done already.
-  // however, we must do one more thing for in-memory storage; installing
-  // the new pointers to volatile pages and drop child volatile pages if possible.
   return kRetOk;
 }
 

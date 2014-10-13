@@ -40,6 +40,11 @@ class RestartManagerPimpl final : public DefaultInitializable {
    * @pre is_initialized(), and all other modules in the engine is_initialized().
    */
   ErrorStack  recover();
+  /**
+   * Redo metadata operation (create/drop storage) since the latest snapshot.
+   * Essentially this is the only thing the restart manager has to do.
+   */
+  ErrorStack  redo_meta_logs(Epoch durable_epoch, Epoch snapshot_epoch);
 
   Engine* const           engine_;
   RestartManagerControlBlock* control_block_;
