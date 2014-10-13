@@ -21,6 +21,7 @@
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
+#include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/snapshot/log_gleaner_impl.hpp"
 #include "foedus/snapshot/log_mapper_impl.hpp"
 #include "foedus/snapshot/log_reducer_impl.hpp"
@@ -49,9 +50,13 @@ ErrorStack SnapshotManagerPimpl::initialize_once() {
   control_block_ = repo->get_global_memory_anchors()->snapshot_manager_memory_;
   if (engine_->is_master()) {
     control_block_->initialize();
-    control_block_->snapshot_epoch_.store(Epoch::kEpochInvalid);
-    // TODO(Hideaki): get snapshot status from savepoint
-    control_block_->previous_snapshot_id_ = kNullSnapshotId;
+    // get snapshot status from savepoint
+    control_block_->snapshot_epoch_
+      = engine_->get_savepoint_manager()->get_latest_snapshot_epoch().value();
+    control_block_->previous_snapshot_id_
+      = engine_->get_savepoint_manager()->get_latest_snapshot_id();
+    LOG(INFO) << "Latest snapshot: id=" << control_block_->previous_snapshot_id_ << ", epoch="
+      << control_block_->snapshot_epoch_;
     control_block_->immediate_snapshot_requested_.store(false);
 
     const EngineOptions& options = engine_->get_options();
@@ -276,6 +281,9 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
   // Write out the metadata file.
   CHECK_ERROR(snapshot_metadata(*new_snapshot, new_root_page_pointers));
 
+  // Invokes savepoint module to make sure this snapshot has "happened".
+  CHECK_ERROR(snapshot_savepoint(*new_snapshot));
+
   // install pointers to snapshot pages and drop volatile pages.
   CHECK_ERROR(replace_pointers(*new_snapshot, new_root_page_pointers));
 
@@ -358,6 +366,17 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(
   fs::fsync(file, true);
   stop_watch.stop();
   LOG(INFO) << "fsynced the file and the folder! elapsed=" << stop_watch.elapsed_ms() << "ms.";
+  return kRetOk;
+}
+
+ErrorStack SnapshotManagerPimpl::snapshot_savepoint(const Snapshot& new_snapshot) {
+  LOG(INFO) << "Taking savepoint to include this new snapshot....";
+  CHECK_ERROR(engine_->get_savepoint_manager()->take_savepoint_after_snapshot(
+    new_snapshot.id_,
+    new_snapshot.valid_until_epoch_));
+  ASSERT_ND(engine_->get_savepoint_manager()->get_latest_snapshot_id() == new_snapshot.id_);
+  ASSERT_ND(engine_->get_savepoint_manager()->get_latest_snapshot_epoch()
+    == new_snapshot.valid_until_epoch_);
   return kRetOk;
 }
 

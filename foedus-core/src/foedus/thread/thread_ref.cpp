@@ -45,6 +45,14 @@ bool ThreadRef::try_impersonate(
     LOG(WARNING) << "This session is already attached to some thread. Releasing the current one..";
     session->release();
   }
+  if (UNLIKELY(control_block_->status_ == kNotInitialized)) {
+    // The worker thread has not started working.
+    // In this case, wait until it's initialized.
+    while (control_block_->status_ == kNotInitialized) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      assorted::memory_fence_acquire();
+    }
+  }
   if (control_block_->status_ != kWaitingForTask) {
     DVLOG(0) << "(fast path) Someone already took Thread-" << id_ << ".";
     return false;

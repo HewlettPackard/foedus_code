@@ -11,6 +11,7 @@
 #include "foedus/epoch.hpp"
 #include "foedus/externalize/externalizable.hpp"
 #include "foedus/log/log_id.hpp"
+#include "foedus/snapshot/snapshot_id.hpp"
 
 namespace foedus {
 namespace savepoint {
@@ -49,6 +50,18 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
    * @invariant Epoch(current_epoch_) > Epoch(durable_epoch_)
    */
   Epoch::EpochInteger             durable_epoch_;
+
+  /**
+   * The most recent complete snapshot.
+   * kNullSnapshotId if no snapshot has been taken yet.
+   */
+  snapshot::SnapshotId            latest_snapshot_id_;
+  /**
+   * The most recently snapshot-ed epoch, all logs upto this epoch is safe to delete.
+   * If not snapshot has been taken, invalid epoch.
+   * This is equivalent to snapshots_.back().valid_entil_epoch_ with empty check.
+   */
+  Epoch::EpochInteger             latest_snapshot_epoch_;
 
   /** Offset from which metadata log entries are not gleaned yet */
   uint64_t                        meta_log_oldest_offset_;
@@ -137,6 +150,8 @@ struct FixedSavepoint CXX11_FINAL {
 
   Epoch::EpochInteger             current_epoch_;
   Epoch::EpochInteger             durable_epoch_;
+  snapshot::SnapshotId            latest_snapshot_id_;
+  Epoch::EpochInteger             latest_snapshot_epoch_;
 
   /** Number of NUMA nodes. the information is availble elsewhere, but easier to duplicate here. */
   uint16_t                        node_count_;

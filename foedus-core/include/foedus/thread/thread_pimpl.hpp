@@ -36,7 +36,7 @@ struct ThreadControlBlock {
   ~ThreadControlBlock() = delete;
 
   void initialize() {
-    status_ = kWaitingForTask;
+    status_ = kNotInitialized;
     mcs_block_current_ = 0;
     current_ticket_ = 0;
     proc_name_.clear();

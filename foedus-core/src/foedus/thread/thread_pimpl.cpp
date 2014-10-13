@@ -122,7 +122,8 @@ void ThreadPimpl::handle_tasks() {
     << " control_block address=" << control_block_;
   NumaThreadScope scope(numa_node);
   set_thread_schedule();
-  ASSERT_ND(control_block_->status_ == kWaitingForTask);
+  ASSERT_ND(control_block_->status_ == kNotInitialized);
+  control_block_->status_ = kWaitingForTask;
   while (!is_stop_requested()) {
     {
       soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());

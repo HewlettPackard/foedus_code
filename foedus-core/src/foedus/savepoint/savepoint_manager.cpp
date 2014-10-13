@@ -27,10 +27,22 @@ Epoch SavepointManager::get_initial_durable_epoch() const {
 Epoch SavepointManager::get_saved_durable_epoch() const {
   return pimpl_->get_saved_durable_epoch();
 }
+snapshot::SnapshotId SavepointManager::get_latest_snapshot_id() const {
+  return pimpl_->get_latest_snapshot_id();
+}
+Epoch SavepointManager::get_latest_snapshot_epoch() const {
+  return pimpl_->get_latest_snapshot_epoch();
+}
 
 ErrorStack SavepointManager::take_savepoint(Epoch new_global_durable_epoch) {
   return pimpl_->take_savepoint(new_global_durable_epoch);
 }
+ErrorStack SavepointManager::take_savepoint_after_snapshot(
+  snapshot::SnapshotId new_snapshot_id,
+  Epoch new_snapshot_epoch) {
+  return pimpl_->take_savepoint_after_snapshot(new_snapshot_id, new_snapshot_epoch);
+}
+
 LoggerSavepointInfo SavepointManager::get_logger_savepoint(log::LoggerId logger_id) {
   return pimpl_->get_logger_savepoint(logger_id);
 }

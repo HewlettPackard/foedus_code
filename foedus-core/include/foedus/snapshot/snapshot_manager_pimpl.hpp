@@ -263,6 +263,13 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
 
   /**
    * Sub-routine of handle_snapshot_triggered().
+   * Invokes the savepoint module to take savepoint pointing to this snapshot.
+   * Until that, the snapshot is not yet deemed as "happened".
+   */
+  ErrorStack  snapshot_savepoint(const Snapshot& new_snapshot);
+
+  /**
+   * Sub-routine of handle_snapshot_triggered().
    * install pointers to snapshot pages and drop volatile pages.
    */
   ErrorStack  replace_pointers(
