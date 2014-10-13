@@ -32,6 +32,7 @@
 #include "foedus/storage/metadata.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
+#include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 namespace snapshot {
@@ -373,7 +374,6 @@ ErrorStack SnapshotManagerPimpl::replace_pointers(
   const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers) {
   // To speed up, this method should be parallelized at least for per-storage.
   LOG(INFO) << "Installing new snapshot pointers and dropping volatile pointers...";
-  debugging::StopWatch stop_watch;
 
   // To avoid invoking volatile pool for every dropped page, we cache them in chunks
   memory::AlignedMemory chunks_memory;
@@ -400,6 +400,16 @@ ErrorStack SnapshotManagerPimpl::replace_pointers(
   ErrorStack result;
   uint64_t installed_count_total = 0;
   uint64_t dropped_count_total = 0;
+  // So far, we pause transaction executions during this step to simplify the algorithm.
+  // Without this simplification, not only this thread but also normal transaction executions
+  // have to do several complex and expensive checks.
+  engine_->get_xct_manager()->pause_accepting_xct();
+  // It will take a while for individual worker threads to complete the currently running xcts.
+  // Just wait for a while to let that happen.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));  // almost forever in OLTP xcts.
+  LOG(INFO) << "Paused transaction executions to safely drop volatile pages and waited enough"
+    << " to let currently running xcts end. Now start replace pointers.";
+  debugging::StopWatch stop_watch;
   for (storage::StorageId id = 1; id <= new_snapshot.max_storage_id_; ++id) {
     const auto& it = new_root_page_pointers.find(id);
     if (it != new_root_page_pointers.end()) {
@@ -424,6 +434,7 @@ ErrorStack SnapshotManagerPimpl::replace_pointers(
       dropped_count_total += dropped_count;
     }
   }
+  engine_->get_xct_manager()->resume_accepting_xct();
 
   stop_watch.stop();
   LOG(INFO) << "Installed " << installed_count_total << " new snapshot pointers and "

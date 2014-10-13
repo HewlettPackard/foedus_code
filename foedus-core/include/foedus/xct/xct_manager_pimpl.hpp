@@ -29,6 +29,7 @@ struct XctManagerControlBlock {
   void initialize() {
     current_global_epoch_advanced_.initialize();
     epoch_advance_wakeup_.initialize();
+    new_transaction_paused_ = false;
   }
   void uninitialize() {
     epoch_advance_wakeup_.uninitialize();
@@ -54,6 +55,19 @@ struct XctManagerControlBlock {
   soc::SharedCond                   epoch_advance_wakeup_;
   /** Protected by the mutex in epoch_advance_wakeup_ */
   std::atomic<bool>                 epoch_advance_thread_terminate_requested_;
+
+  /**
+   * @brief If true, all new requests to begin_xct() will be paused until this becomes false.
+   * @details
+   * This is the mechanism for very rare events that need to separate out all concurrent transaction
+   * executions, such as drop-volatile-page step after snapshotting.
+   * This does not affect an already running transaction, so the snapshot thread must wait
+   * for long enough after setting this value.
+   * Also, the worker threads simply check-with-sleep to wait until this becomes false, not
+   * SharedCond.
+   * This is used only once per several minutes, so no need for optimization. Keep it simple!
+   */
+  std::atomic<bool>                 new_transaction_paused_;
 };
 
 /**
@@ -153,6 +167,12 @@ class XctManagerPimpl final : public DefaultInitializable {
    */
   void        handle_epoch_advance();
   bool        is_stop_requested() const;
+
+  /** Pause all begin_xct until you call resume_accepting_xct() */
+  void        pause_accepting_xct();
+  /** Make sure you call this after pause_accepting_xct(). */
+  void        resume_accepting_xct();
+  void        wait_until_resume_accepting_xct(thread::Thread* context);
 
   Engine* const                 engine_;
   XctManagerControlBlock*       control_block_;

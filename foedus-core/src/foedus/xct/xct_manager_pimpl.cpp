@@ -169,6 +169,9 @@ ErrorCode XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel iso
   if (current_xct.is_active()) {
     return kErrorCodeXctAlreadyRunning;
   }
+  if (UNLIKELY(control_block_->new_transaction_paused_.load())) {
+    wait_until_resume_accepting_xct(context);
+  }
   DLOG(INFO) << *context << " Began new transaction";
   current_xct.activate(isolation_level);
   ASSERT_ND(current_xct.get_mcs_block_current() == 0);
@@ -178,6 +181,22 @@ ErrorCode XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel iso
   ASSERT_ND(current_xct.get_write_set_size() == 0);
   ASSERT_ND(current_xct.get_lock_free_write_set_size() == 0);
   return kErrorCodeOk;
+}
+
+void XctManagerPimpl::pause_accepting_xct() {
+  control_block_->new_transaction_paused_.store(true);
+}
+void XctManagerPimpl::resume_accepting_xct() {
+  control_block_->new_transaction_paused_.store(false);
+}
+
+void XctManagerPimpl::wait_until_resume_accepting_xct(thread::Thread* context) {
+  LOG(INFO) << *context << " realized that new transactions are not accepted now."
+    << " waits until it is allowed to start a new transaction";
+  // no complex thing here. just sleep-check. this happens VERY infrequently.
+  while (control_block_->new_transaction_paused_.load()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
 }
 
 ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_epoch) {
