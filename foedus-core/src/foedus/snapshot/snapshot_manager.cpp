@@ -31,6 +31,11 @@ SnapshotId SnapshotManager::get_previous_snapshot_id_weak() const {
   return pimpl_->get_previous_snapshot_id_weak();
 }
 
+ErrorStack SnapshotManager::read_snapshot_metadata(SnapshotId snapshot_id, SnapshotMetadata* out) {
+  return pimpl_->read_snapshot_metadata(snapshot_id, out);
+}
+
+
 void SnapshotManager::trigger_snapshot_immediate(bool wait_completion) {
   pimpl_->trigger_snapshot_immediate(wait_completion);
 }

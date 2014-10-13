@@ -19,6 +19,8 @@
 #include "foedus/log/log_manager.hpp"
 #include "foedus/log/meta_log_buffer.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/savepoint/savepoint_manager.hpp"
+#include "foedus/snapshot/snapshot_manager.hpp"
 #include "foedus/snapshot/snapshot_metadata.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/soc_manager.hpp"
@@ -97,7 +99,69 @@ ErrorStack StorageManagerPimpl::initialize_once() {
     // set the size of partitioner data
     anchors->partitioner_metadata_[0].data_size_
       = engine_->get_options().storage_.partitioner_data_memory_mb_ * (1ULL << 20);
+    // Then, initialize storages with latest snapshot
+    CHECK_ERROR(initialize_read_latest_snapshot());
   }
+  return kRetOk;
+}
+
+ErrorStack StorageManagerPimpl::initialize_read_latest_snapshot() {
+  ASSERT_ND(engine_->is_master());
+  LOG(INFO) << "Initializing list of storages with latest snapshot file...";
+  snapshot::SnapshotId snapshot_id = engine_->get_savepoint_manager()->get_latest_snapshot_id();
+  if (snapshot_id == snapshot::kNullSnapshotId) {
+    LOG(INFO) << "There was no previous snapshot. start from empty storages";
+    return kRetOk;
+  }
+
+  snapshot::SnapshotMetadata metadata;
+  CHECK_ERROR(engine_->get_snapshot_manager()->read_snapshot_metadata(snapshot_id, &metadata));
+  LOG(INFO) << "Latest snapshot contains " << metadata.largest_storage_id_ << " storages";
+  control_block_->largest_storage_id_ = metadata.largest_storage_id_;
+
+  debugging::StopWatch stop_watch;
+  uint32_t active_storages = 0;
+  for (uint32_t id = 1; id < control_block_->largest_storage_id_; ++id) {
+    StorageControlBlock* block = storages_ + id;
+    const StorageControlBlock& snapshot_block = metadata.storage_control_blocks_[id];
+    if (snapshot_block.status_ != kExists) {
+      VLOG(0) << "Storage-" << id << " is a dropped storage.";
+      block->status_ = kNotExists;
+    } else {
+      VLOG(0) << "Storage-" << id << " exists in the snapshot.";
+      ASSERT_ND(snapshot_block.meta_.id_ == id);
+      ASSERT_ND(!snapshot_block.meta_.name_.empty());
+      ASSERT_ND(!exists(snapshot_block.meta_.name_));
+      block->initialize();
+      block->root_page_pointer_.snapshot_pointer_ = snapshot_block.meta_.root_snapshot_page_id_;
+      block->root_page_pointer_.volatile_pointer_.components.offset = 0;
+
+      block->meta_.type_ = snapshot_block.meta_.type_;
+      switch (snapshot_block.meta_.type_) {
+      case kArrayStorage:
+        CHECK_ERROR(array::ArrayStorage(engine_, block).load(snapshot_block));
+        break;
+      case kHashStorage:
+        CHECK_ERROR(hash::HashStorage(engine_, block).load(snapshot_block));
+        break;
+      case kMasstreeStorage:
+        CHECK_ERROR(masstree::MasstreeStorage(engine_, block).load(snapshot_block));
+        break;
+      case kSequentialStorage:
+        CHECK_ERROR(sequential::SequentialStorage(engine_, block).load(snapshot_block));
+        break;
+      default:
+        return ERROR_STACK(kErrorCodeStrUnsupportedMetadata);
+      }
+
+      ASSERT_ND(get_storage(id)->exists());
+
+      ++active_storages;
+    }
+  }
+  stop_watch.stop();
+  LOG(INFO) << "Found " << active_storages
+    << " active storages  in " << stop_watch.elapsed_ms() << " milliseconds";
   return kRetOk;
 }
 

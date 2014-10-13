@@ -136,6 +136,21 @@ ErrorStack SequentialStoragePimpl::create(const SequentialMetadata& metadata) {
   }
 
   control_block_->meta_ = metadata;
+  CHECK_ERROR(initialize_head_tail_pages());
+  control_block_->status_ = kExists;
+  LOG(INFO) << "Newly created a sequential-storage " << get_name();
+  return kRetOk;
+}
+ErrorStack SequentialStoragePimpl::load(const StorageControlBlock& snapshot_block) {
+  control_block_->meta_ = static_cast<const SequentialMetadata&>(snapshot_block.meta_);
+  CHECK_ERROR(initialize_head_tail_pages());
+  control_block_->root_page_pointer_.snapshot_pointer_
+    = control_block_->meta_.root_snapshot_page_id_;
+  control_block_->status_ = kExists;
+  LOG(INFO) << "Loaded a sequential-storage " << get_name();
+  return kRetOk;
+}
+ErrorStack SequentialStoragePimpl::initialize_head_tail_pages() {
   std::memset(control_block_->head_pointer_pages_, 0, sizeof(control_block_->head_pointer_pages_));
   std::memset(control_block_->tail_pointer_pages_, 0, sizeof(control_block_->tail_pointer_pages_));
   // we pre-allocate pointer pages for all required nodes.
@@ -157,9 +172,6 @@ ErrorStack SequentialStoragePimpl::create(const SequentialMetadata& metadata) {
     std::memset(head_page, 0, kPageSize);
     std::memset(tail_page, 0, kPageSize);
   }
-
-  control_block_->status_ = kExists;
-  LOG(INFO) << "Newly created an sequential-storage " << get_name();
   return kRetOk;
 }
 

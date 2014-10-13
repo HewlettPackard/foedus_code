@@ -76,6 +76,8 @@ class ArrayStoragePimpl final {
 
   ~ArrayStoragePimpl() {}
 
+  ErrorStack  load(const StorageControlBlock& snapshot_block);
+
   void        report_page_distribution();
 
   bool        exists() const { return control_block_->exists(); }

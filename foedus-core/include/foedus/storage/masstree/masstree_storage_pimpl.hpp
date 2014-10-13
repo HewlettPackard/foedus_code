@@ -80,6 +80,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
       storage->get_control_block()) {}
 
   ErrorStack  create(const MasstreeMetadata& metadata);
+  ErrorStack  load(const StorageControlBlock& snapshot_block);
   ErrorStack  drop();
 
   bool                exists()    const { return control_block_->exists(); }

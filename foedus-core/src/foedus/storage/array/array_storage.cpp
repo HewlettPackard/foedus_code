@@ -26,6 +26,10 @@ ArrayStorage::ArrayStorage(Engine* engine, const StorageName& name) {
     = reinterpret_cast<ArrayStorageControlBlock*>(engine->get_storage_manager()->get_storage(name));
 }
 
+ErrorStack ArrayStorage::load(const StorageControlBlock& snapshot_block) {
+  return ArrayStoragePimpl(this).load(snapshot_block);
+}
+
 void ArrayStorage::describe(std::ostream* o_ptr) const {
   std::ostream& o = *o_ptr;
   o << "<ArrayStorage>"

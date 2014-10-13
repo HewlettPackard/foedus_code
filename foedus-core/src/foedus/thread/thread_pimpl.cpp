@@ -246,6 +246,12 @@ ErrorCode ThreadPimpl::install_a_volatile_page(
   ASSERT_ND((*installed_page)->get_header().snapshot_ == false);
   // This page is a volatile page, so set the snapshot flag off.
   (*installed_page)->get_header().snapshot_ = false;
+  storage::VolatilePagePointer volatile_pointer = storage::combine_volatile_page_pointer(
+    numa_node_,
+    0,
+    0,
+    offset);
+  (*installed_page)->get_header().page_id_ = volatile_pointer.word;  // and correct page ID
 
   *installed_page = place_a_new_volatile_page(offset, pointer);
   return kErrorCodeOk;

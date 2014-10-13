@@ -203,6 +203,8 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
     return control_block_->get_previous_snapshot_id_weak();
   }
 
+  ErrorStack read_snapshot_metadata(SnapshotId snapshot_id, SnapshotMetadata* out);
+
   void    trigger_snapshot_immediate(bool wait_completion);
 
   SnapshotId issue_next_snapshot_id() {

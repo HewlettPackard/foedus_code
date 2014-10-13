@@ -61,6 +61,7 @@ class StorageManagerPimpl final : public DefaultInitializable {
   StorageManagerPimpl() = delete;
   explicit StorageManagerPimpl(Engine* engine) : engine_(engine) {}
   ErrorStack  initialize_once() override;
+  ErrorStack  initialize_read_latest_snapshot();
   ErrorStack  uninitialize_once() override;
 
   StorageId   issue_next_storage_id();

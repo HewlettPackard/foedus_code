@@ -85,6 +85,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
 
 
   ErrorStack  create(const HashMetadata& metadata);
+  ErrorStack  load(const StorageControlBlock& snapshot_block);
   ErrorStack  drop();
   HashRootPage* get_root_page();
 

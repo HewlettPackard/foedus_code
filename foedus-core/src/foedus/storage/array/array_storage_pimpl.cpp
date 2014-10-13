@@ -12,11 +12,13 @@
 #include "foedus/engine.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/cacheline.hpp"
+#include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_type.hpp"
 #include "foedus/log/thread_log_buffer_impl.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/memory_id.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/storage/record.hpp"
@@ -411,6 +413,36 @@ ErrorStack ArrayStorage::create(const Metadata &metadata) {
   control_block_->status_ = kExists;
   return kRetOk;
 }
+
+ErrorStack ArrayStoragePimpl::load(const StorageControlBlock& snapshot_block) {
+  control_block_->meta_ = static_cast<const ArrayMetadata&>(snapshot_block.meta_);
+  const ArrayMetadata& meta = control_block_->meta_;
+  const uint16_t levels = calculate_levels(meta);
+  control_block_->levels_ = levels;
+  control_block_->route_finder_ = LookupRouteFinder(levels, get_payload_size());
+  control_block_->root_page_pointer_.snapshot_pointer_ = meta.root_snapshot_page_id_;
+  control_block_->root_page_pointer_.volatile_pointer_.word = 0;
+
+  // So far we assume the root page always has a volatile version.
+  // Create it now.
+  VolatilePagePointer volatile_pointer;
+  Page* volatile_root;
+  cache::SnapshotFileSet fileset(engine_);
+  CHECK_ERROR(fileset.initialize());
+  UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
+  CHECK_ERROR(engine_->get_memory_manager()->load_one_volatile_page(
+    &fileset,
+    meta.root_snapshot_page_id_,
+    &volatile_pointer,
+    &volatile_root));
+  CHECK_ERROR(fileset.uninitialize());
+
+  control_block_->root_page_pointer_.volatile_pointer_ = volatile_pointer;
+  control_block_->status_ = kExists;
+  LOG(INFO) << "Loaded an array-storage-" << get_meta();
+  return kRetOk;
+}
+
 
 inline ErrorCode ArrayStoragePimpl::locate_record_for_read(
   thread::Thread* context,

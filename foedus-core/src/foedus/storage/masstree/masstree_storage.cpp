@@ -46,6 +46,9 @@ const MasstreeMetadata* MasstreeStorage::get_masstree_metadata() const  {
 ErrorStack  MasstreeStorage::create(const Metadata &metadata) {
   return MasstreeStoragePimpl(this).create(static_cast<const MasstreeMetadata&>(metadata));
 }
+ErrorStack MasstreeStorage::load(const StorageControlBlock& snapshot_block) {
+  return MasstreeStoragePimpl(this).load(snapshot_block);
+}
 ErrorStack  MasstreeStorage::drop()   { return MasstreeStoragePimpl(this).drop(); }
 
 void MasstreeStorage::describe(std::ostream* o_ptr) const {

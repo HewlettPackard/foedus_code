@@ -369,6 +369,22 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(
   return kRetOk;
 }
 
+ErrorStack SnapshotManagerPimpl::read_snapshot_metadata(
+  SnapshotId snapshot_id,
+  SnapshotMetadata* out) {
+  fs::Path file = get_snapshot_metadata_file_path(snapshot_id);
+  LOG(INFO) << "Reading snapshot metadata file fullpath=" << file;
+
+  debugging::StopWatch stop_watch;
+  CHECK_ERROR(out->load_from_file(file));
+  stop_watch.stop();
+  LOG(INFO) << "Read a snapshot metadata file. size=" << fs::file_size(file) << " bytes"
+    << ", elapsed time to read+parse=" << stop_watch.elapsed_ms() << "ms.";
+
+  ASSERT_ND(out->id_ == snapshot_id);
+  return kRetOk;
+}
+
 ErrorStack SnapshotManagerPimpl::snapshot_savepoint(const Snapshot& new_snapshot) {
   LOG(INFO) << "Taking savepoint to include this new snapshot....";
   CHECK_ERROR(engine_->get_savepoint_manager()->take_savepoint_after_snapshot(
