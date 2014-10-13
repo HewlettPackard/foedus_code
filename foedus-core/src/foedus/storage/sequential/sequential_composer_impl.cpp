@@ -169,7 +169,7 @@ ErrorStack SequentialComposer::construct_root(const Composer::ConstructRootArgum
     // if there already is a root page, read them all.
     // we have to anyway re-write all of them, at least the next pointer.
     SequentialRootPage* root_page = reinterpret_cast<SequentialRootPage*>(
-      args.work_memory_.get_block());
+      args.work_memory_->get_block());
     WRAP_ERROR_CODE(args.previous_snapshot_files_->read_page(page_id, root_page));
     ASSERT_ND(root_page->header().storage_id_ == storage_id_);
     ASSERT_ND(root_page->header().page_id_ == page_id);

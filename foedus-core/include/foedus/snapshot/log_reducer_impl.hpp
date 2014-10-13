@@ -384,12 +384,6 @@ class LogReducer final : public MapReduceBase {
     uint64_t required_size,
     memory::AlignedMemory *memory,
     const std::string& name);
-  void expand_sort_buffer_if_needed(uint64_t required_size) {
-    expand_if_needed(required_size, &sort_buffer_, "sort_buffer_");
-  }
-  void expand_composer_work_memory_if_needed(uint64_t required_size) {
-    expand_if_needed(required_size, &composer_work_memory_, "composer_work_memory_");
-  }
   /** This one is a bit special. */
   void expand_positions_buffers_if_needed(uint64_t required_size_per_buffer);
 

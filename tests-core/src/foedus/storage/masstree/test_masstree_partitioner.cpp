@@ -85,9 +85,7 @@ void execute_test(TestFunctor functor, uint32_t table_size = 1024) {
     work_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
     cache::SnapshotFileSet fileset(&engine);
     COERCE_ERROR(fileset.initialize())
-    Partitioner::DesignPartitionArguments args = {
-      memory::AlignedMemorySlice(&work_memory),
-      &fileset};
+    Partitioner::DesignPartitionArguments args = { &work_memory, &fileset};
     COERCE_ERROR(partitioner.design_partition(args));
     COERCE_ERROR(fileset.uninitialize());
     EXPECT_TRUE(partitioner.is_valid());
@@ -146,7 +144,7 @@ struct Logs {
       log_buffer_,
       positions_,
       cur_count_,
-      memory::AlignedMemorySlice(&sort_buffer_),
+      &sort_buffer_,
       Epoch(base_epoch),
       sort_results_,
       &written_count};

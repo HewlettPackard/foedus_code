@@ -71,24 +71,6 @@ ErrorStack Composer::replace_pointers(const ReplacePointersArguments& args) {
   }
 }
 
-uint64_t Composer::get_required_work_memory_size_compose(
-  snapshot::SortedBuffer** log_streams,
-  uint32_t log_streams_count) {
-  switch (storage_type_) {
-    case kArrayStorage:
-      return array::ArrayComposer(this).
-         get_required_work_memory_size_compose(log_streams, log_streams_count);
-    case kSequentialStorage:
-      return sequential::SequentialComposer(this).
-        get_required_work_memory_size_compose(log_streams, log_streams_count);
-    // TODO(Hideaki) implement
-    case kMasstreeStorage:
-    case kHashStorage:
-    default:
-      return 0;
-  }
-}
-
 void Composer::ReplacePointersArguments::drop_volatile_page(VolatilePagePointer pointer) const {
   uint16_t node = pointer.components.numa_node;
   ASSERT_ND(node < snapshot_files_->get_engine()->get_soc_count());

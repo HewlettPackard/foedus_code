@@ -294,7 +294,6 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
   // Now, sort these log records by key and then ordinal. we use the partitioner object for this.
   storage::Partitioner partitioner(engine_, storage_id);
   ASSERT_ND(partitioner.is_valid());
-  expand_sort_buffer_if_needed(partitioner.get_required_sort_buffer_size(records));
   BufferPosition* outputs = reinterpret_cast<BufferPosition*>(
     output_positions_slice_.get_block());
   uint32_t written_count = 0;
@@ -302,7 +301,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
     buffer,
     inputs,
     static_cast<uint32_t>(records),
-    memory::AlignedMemorySlice(&sort_buffer_),
+    &sort_buffer_,
     parent_.get_base_epoch(),
     outputs,
     &written_count};
@@ -565,10 +564,6 @@ ErrorStack LogReducer::merge_sort() {
 
     // run composer
     storage::Composer composer(engine_, storage_id);
-    uint64_t work_memory_size = composer.get_required_work_memory_size_compose(
-      context.tmp_sorted_buffer_array_,
-      context.tmp_sorted_buffer_count_);
-    expand_composer_work_memory_if_needed(work_memory_size);
     // snapshot_reader_.get_or_open_file();
     ASSERT_ND(control_block_->total_storage_count_ <= get_max_storage_count());
     storage::Page* root_info_page = root_info_pages_ + control_block_->total_storage_count_;
@@ -577,7 +572,7 @@ ErrorStack LogReducer::merge_sort() {
       &previous_snapshot_files_,
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_,
-      memory::AlignedMemorySlice(&composer_work_memory_),
+      &composer_work_memory_,
       root_info_page};
     CHECK_ERROR(composer.compose(args));
 

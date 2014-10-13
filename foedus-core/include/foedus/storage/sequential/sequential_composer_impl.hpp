@@ -63,12 +63,6 @@ class SequentialComposer final {
   ErrorStack construct_root(const Composer::ConstructRootArguments& args);
   ErrorStack replace_pointers(const Composer::ReplacePointersArguments& args);
 
-  uint64_t get_required_work_memory_size_compose(
-    snapshot::SortedBuffer** /*log_streams*/,
-    uint32_t /*log_streams_count*/) const {
-    return 0;
-  }
-
  private:
   SequentialPage*     compose_new_head(
     snapshot::SnapshotWriter* snapshot_writer,

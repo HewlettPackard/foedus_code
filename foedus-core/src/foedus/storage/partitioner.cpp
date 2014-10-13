@@ -100,20 +100,6 @@ ErrorStack Partitioner::design_partition(const DesignPartitionArguments& args) {
     return kRetOk;
   }
 }
-uint64_t Partitioner::get_required_design_buffer_size() {
-  switch (type_) {
-  case kArrayStorage: return array::ArrayPartitioner(this).get_required_design_buffer_size();
-  case kSequentialStorage: return sequential::SequentialPartitioner(this).
-      get_required_design_buffer_size();
-  case kMasstreeStorage: return masstree::MasstreePartitioner(this).
-      get_required_design_buffer_size();
-  case kHashStorage:
-  default:
-    LOG(FATAL) << "Unsupported storage type:" << type_;
-    return 0;
-  }
-}
-
 
 void Partitioner::partition_batch(const Partitioner::PartitionBatchArguments& args) {
   switch (type_) {
@@ -138,23 +124,6 @@ void Partitioner::sort_batch(const Partitioner::SortBatchArguments& args) {
     LOG(FATAL) << "Unsupported storage type:" << type_;
   }
 }
-
-uint64_t Partitioner::get_required_sort_buffer_size(uint32_t log_count) {
-  switch (type_) {
-  case kArrayStorage:
-    return array::ArrayPartitioner(this).get_required_sort_buffer_size(log_count);
-  case kHashStorage:
-    return 0;
-  case kMasstreeStorage:
-    return 0;
-  case kSequentialStorage:
-    return sequential::SequentialPartitioner(this).get_required_sort_buffer_size(log_count);
-  default:
-    LOG(FATAL) << "Unsupported storage type:" << type_;
-    return 0;
-  }
-}
-
 
 std::ostream& operator<<(std::ostream& o, const Partitioner& v) {
   o << "<Partitioner>"

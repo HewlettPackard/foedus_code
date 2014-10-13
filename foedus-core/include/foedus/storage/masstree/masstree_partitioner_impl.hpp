@@ -111,13 +111,9 @@ class MasstreePartitioner final {
   explicit MasstreePartitioner(Partitioner* parent);
 
   ErrorStack  design_partition(const Partitioner::DesignPartitionArguments& args);
-  uint64_t    get_required_design_buffer_size() const;
-
   bool is_partitionable() const;
   void partition_batch(const Partitioner::PartitionBatchArguments& args) const;
   void sort_batch(const Partitioner::SortBatchArguments& args) const;
-
-  uint64_t  get_required_sort_buffer_size(uint32_t log_count) const;
 
   friend std::ostream& operator<<(std::ostream& o, const MasstreePartitioner& v);
 
@@ -220,7 +216,7 @@ struct MasstreePartitionerInDesignData final {
   MasstreePartitionerInDesignData(
     Engine* engine,
     StorageId id,
-    memory::AlignedMemorySlice work_memory,
+    memory::AlignedMemory* work_memory,
     cache::SnapshotFileSet* snapshot_files);
   ~MasstreePartitionerInDesignData();
 
@@ -259,7 +255,7 @@ struct MasstreePartitionerInDesignData final {
   const StorageId         id_;
   const MasstreeStorage   storage_;
   /** Memory for tmp_pages_. */
-  const memory::AlignedMemorySlice work_memory_;
+  memory::AlignedMemory*  work_memory_;
   /** To read from snapshot pages. */
   cache::SnapshotFileSet* const snapshot_files_;
   const uint32_t          desired_branches_;

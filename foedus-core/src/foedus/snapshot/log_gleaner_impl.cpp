@@ -112,15 +112,7 @@ void LogGleaner::design_partitions_run(
 
   for (storage::StorageId id = from; id < from + count; ++id) {
     storage::Partitioner partitioner(engine_, id);
-    uint64_t required_size = partitioner.get_required_design_buffer_size();
-    if (required_size > work_memory.get_size()) {
-      LOG(INFO) << "auto-expanding work memory for design_partition()... " << required_size;
-      work_memory.alloc(required_size, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
-    }
-
-    storage::Partitioner::DesignPartitionArguments args = {
-      memory::AlignedMemorySlice(&work_memory),
-      &fileset};
+    storage::Partitioner::DesignPartitionArguments args = { &work_memory, &fileset};
     ErrorStack ret = partitioner.design_partition(args);
     if (ret.is_error()) {
       LOG(ERROR) << "Error while determining partitions for storage-" << id << ":" << ret;
@@ -200,8 +192,6 @@ ErrorStack LogGleaner::construct_root_pages() {
   // Combining the root page info doesn't require much memory, so this size should be enough.
   memory::AlignedMemory work_memory;
   work_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
-  memory::AlignedMemorySlice work_memory_slice(&work_memory);
-
 
   // composers read snapshot files.
   cache::SnapshotFileSet fileset(engine_);
@@ -268,7 +258,7 @@ ErrorStack LogGleaner::construct_root_pages() {
       &fileset,
       &tmp_array[0],
       input_count,
-      work_memory_slice,
+      &work_memory,
       &new_root_page_pointer};
     CHECK_ERROR(composer.construct_root(args));
     ASSERT_ND(new_root_page_pointer > 0);

@@ -192,28 +192,23 @@ struct SortEntry {
   char data_[16];
 };
 
-uint64_t ArrayPartitioner::get_required_sort_buffer_size(uint32_t log_count) const {
-  // we so far sort them in one path.
-  // to save memory, we could do multi-path merge-sort.
-  // however, in reality each log has many bytes, so log_count is not that big.
-  return sizeof(SortEntry) * log_count;
-}
-
 void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) const {
   if (args.logs_count_ == 0) {
     *args.written_count_ = 0;
     return;
-  } else if (args.sort_buffer_.get_size() < sizeof(SortEntry) * args.logs_count_) {
-    LOG(FATAL) << "Sort buffer is too small! log count=" << args.logs_count_
-      << ", buffer= " << args.sort_buffer_
-      << ", required=" << get_required_sort_buffer_size(args.logs_count_);
   }
+
+
+  // we so far sort them in one path.
+  // to save memory, we could do multi-path merge-sort.
+  // however, in reality each log has many bytes, so log_count is not that big.
+  args.work_memory_->assure_capacity(sizeof(SortEntry) * args.logs_count_);
 
   debugging::StopWatch stop_watch_entire;
 
   ASSERT_ND(sizeof(SortEntry) == 16);
   const Epoch::EpochInteger base_epoch_int = args.base_epoch_.value();
-  SortEntry* entries = reinterpret_cast<SortEntry*>(args.sort_buffer_.get_block());
+  SortEntry* entries = reinterpret_cast<SortEntry*>(args.work_memory_->get_block());
   for (uint32_t i = 0; i < args.logs_count_; ++i) {
     const ArrayCommonUpdateLogType* log_entry = reinterpret_cast<const ArrayCommonUpdateLogType*>(
       args.log_buffer_.resolve(args.log_positions_[i]));

@@ -49,16 +49,11 @@ void ArrayStreamStatus::init(snapshot::SortedBuffer* stream) {
   read_entry();
 }
 
-uint64_t ArrayComposer::get_required_work_memory_size_compose(
-  snapshot::SortedBuffer** /*log_streams*/,
-  uint32_t log_streams_count) const {
-  return sizeof(ArrayStreamStatus) * log_streams_count;
-}
-
 ErrorStack ArrayComposer::compose(const Composer::ComposeArguments& args) {
   VLOG(0) << to_string() << " composing with " << args.log_streams_count_ << " streams.";
   debugging::StopWatch stop_watch;
 
+  args.work_memory_->assure_capacity(sizeof(ArrayStreamStatus) * args.log_streams_count_);
   ArrayComposeContext context(
     engine_,
     storage_id_,
@@ -147,7 +142,7 @@ ArrayComposeContext::ArrayComposeContext(
   cache::SnapshotFileSet*           previous_snapshot_files,
   snapshot::SortedBuffer* const*    log_streams,
   uint32_t                          log_streams_count,
-  const memory::AlignedMemorySlice& work_memory,
+  memory::AlignedMemory*            work_memory,
   Page*                             root_info_page)
   : engine_(engine),
     storage_id_(storage_id),
@@ -155,7 +150,7 @@ ArrayComposeContext::ArrayComposeContext(
     previous_snapshot_files_(previous_snapshot_files),
     root_info_page_(reinterpret_cast<ArrayRootInfoPage*>(root_info_page)),
     // so far this is the only use of work_memory (an array of pointers) in this composer
-    inputs_(reinterpret_cast<ArrayStreamStatus*>(work_memory.get_block())),
+    inputs_(reinterpret_cast<ArrayStreamStatus*>(work_memory->get_block())),
     inputs_count_(log_streams_count) {
   for (uint32_t i = 0; i < log_streams_count; ++i) {
     inputs_[i].init(log_streams[i]);
