@@ -151,7 +151,7 @@ class Storage : public Attachable<CONTROL_BLOCK> {
    * Returns whether this storage is already created.
    */
   bool                exists() const {
-    return this->control_block_ != nullptr &&
+    return this->control_block_ != CXX11_NULLPTR &&
       reinterpret_cast<const StorageControlBlock*>(this->control_block_)->exists();
   }
 
