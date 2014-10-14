@@ -4,16 +4,17 @@
  */
 #include "foedus/storage/storage.hpp"
 
-#include <ostream>
-
 #include "foedus/engine.hpp"
 #include "foedus/storage/storage_manager.hpp"
 
 namespace foedus {
 namespace storage {
-std::ostream& operator<<(std::ostream& o, const Storage& v) {
-  v.describe(&o);
-  return o;
+
+StorageControlBlock* get_storage_control_block(Engine* engine, StorageId id) {
+  return engine->get_storage_manager()->get_storage(id);
+}
+StorageControlBlock* get_storage_control_block(Engine* engine, const StorageName& name) {
+  return engine->get_storage_manager()->get_storage(name);
 }
 
 }  // namespace storage

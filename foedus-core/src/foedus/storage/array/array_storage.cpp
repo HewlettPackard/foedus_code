@@ -14,30 +14,41 @@
 namespace foedus {
 namespace storage {
 namespace array {
-ArrayStorage::ArrayStorage(Engine* engine, StorageId id) {
-  engine_ = engine;
-  control_block_
-    = reinterpret_cast<ArrayStorageControlBlock*>(engine->get_storage_manager()->get_storage(id));
-}
 
-ArrayStorage::ArrayStorage(Engine* engine, const StorageName& name) {
-  engine_ = engine;
-  control_block_
-    = reinterpret_cast<ArrayStorageControlBlock*>(engine->get_storage_manager()->get_storage(name));
+ArrayStorage::ArrayStorage() : Storage<ArrayStorageControlBlock>() {}
+ArrayStorage::ArrayStorage(Engine* engine, ArrayStorageControlBlock* control_block)
+  : Storage<ArrayStorageControlBlock>(engine, control_block) {
+  ASSERT_ND(get_type() == kArrayStorage || !exists());
+}
+ArrayStorage::ArrayStorage(Engine* engine, StorageControlBlock* control_block)
+  : Storage<ArrayStorageControlBlock>(engine, control_block) {
+  ASSERT_ND(get_type() == kArrayStorage || !exists());
+}
+ArrayStorage::ArrayStorage(Engine* engine, StorageId id)
+  : Storage<ArrayStorageControlBlock>(engine, id) {}
+ArrayStorage::ArrayStorage(Engine* engine, const StorageName& name)
+  : Storage<ArrayStorageControlBlock>(engine, name) {}
+ArrayStorage::ArrayStorage(const ArrayStorage& other)
+  : Storage<ArrayStorageControlBlock>(other.engine_, other.control_block_) {
+}
+ArrayStorage& ArrayStorage::operator=(const ArrayStorage& other) {
+  engine_ = other.engine_;
+  control_block_ = other.control_block_;
+  return *this;
 }
 
 ErrorStack ArrayStorage::load(const StorageControlBlock& snapshot_block) {
   return ArrayStoragePimpl(this).load(snapshot_block);
 }
 
-void ArrayStorage::describe(std::ostream* o_ptr) const {
-  std::ostream& o = *o_ptr;
+std::ostream& operator<<(std::ostream& o, const ArrayStorage& v) {
   o << "<ArrayStorage>"
-    << "<id>" << get_id() << "</id>"
-    << "<name>" << get_name() << "</name>"
-    << "<payload_size>" << get_payload_size() << "</payload_size>"
-    << "<array_size>" << get_array_size() << "</array_size>"
+    << "<id>" << v.get_id() << "</id>"
+    << "<name>" << v.get_name() << "</name>"
+    << "<payload_size>" << v.get_payload_size() << "</payload_size>"
+    << "<array_size>" << v.get_array_size() << "</array_size>"
     << "</ArrayStorage>";
+  return o;
 }
 
 

@@ -39,14 +39,9 @@ namespace storage {
 namespace array {
 
 // Defines ArrayStorage methods so that we can inline implementation calls
-bool        ArrayStorage::exists()           const  { return control_block_->exists(); }
 uint16_t    ArrayStorage::get_payload_size() const  { return control_block_->meta_.payload_size_; }
 ArrayOffset ArrayStorage::get_array_size()   const  { return control_block_->meta_.array_size_; }
 uint8_t     ArrayStorage::get_levels()       const  { return control_block_->levels_; }
-StorageId   ArrayStorage::get_id()           const  { return control_block_->meta_.id_; }
-StorageType ArrayStorage::get_type()         const  { return control_block_->meta_.type_; }
-const StorageName& ArrayStorage::get_name()  const  { return control_block_->meta_.name_; }
-const Metadata* ArrayStorage::get_metadata() const  { return &control_block_->meta_; }
 const ArrayMetadata* ArrayStorage::get_array_metadata() const  { return &control_block_->meta_; }
 
 ErrorCode   ArrayStorage::prefetch_pages(

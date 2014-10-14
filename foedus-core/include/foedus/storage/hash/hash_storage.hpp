@@ -25,59 +25,28 @@ namespace hash {
  * @brief Represents a key-value store based on a dense and regular hash.
  * @ingroup HASH
  */
-class HashStorage CXX11_FINAL
-  : public virtual Storage, public Attachable<HashStorageControlBlock> {
+class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
  public:
   typedef HashStoragePimpl   ThisPimpl;
   typedef HashCreateLogType  ThisCreateLogType;
   typedef HashMetadata       ThisMetadata;
 
-  HashStorage() : Attachable<HashStorageControlBlock>() {}
-  /**
-   * Constructs an hash storage either from disk or newly create.
-   */
-  HashStorage(Engine* engine, HashStorageControlBlock* control_block)
-    : Attachable<HashStorageControlBlock>(engine, control_block) {
-    ASSERT_ND(get_type() == kHashStorage || !exists());
-  }
-  HashStorage(Engine* engine, StorageControlBlock* control_block)
-    : Attachable<HashStorageControlBlock>(
-      engine,
-      reinterpret_cast<HashStorageControlBlock*>(control_block)) {
-    ASSERT_ND(get_type() == kHashStorage || !exists());
-  }
-  /** Shorthand for engine->get_storage_manager()->get_hash(name) */
+  HashStorage();
+  HashStorage(Engine* engine, HashStorageControlBlock* control_block);
+  HashStorage(Engine* engine, StorageControlBlock* control_block);
+  HashStorage(Engine* engine, StorageId id);
   HashStorage(Engine* engine, const StorageName& name);
-  HashStorage(const HashStorage& other)
-    : Attachable<HashStorageControlBlock>(other.engine_, other.control_block_) {
-  }
-  HashStorage& operator=(const HashStorage& other) {
-    engine_ = other.engine_;
-    control_block_ = other.control_block_;
-    return *this;
-  }
+  HashStorage(const HashStorage& other);
+  HashStorage& operator=(const HashStorage& other);
 
   // Storage interface
-  StorageId           get_id()    const CXX11_OVERRIDE;
-  StorageType         get_type()  const CXX11_OVERRIDE;
-  const StorageName&  get_name()  const CXX11_OVERRIDE;
-  const Metadata*     get_metadata()  const CXX11_OVERRIDE;
   const HashMetadata* get_hash_metadata()  const;
-  bool                exists()    const CXX11_OVERRIDE;
-  ErrorStack          create(const Metadata &metadata) CXX11_OVERRIDE;
+  ErrorStack          create(const Metadata &metadata);
   ErrorStack          load(const StorageControlBlock& snapshot_block);
-  ErrorStack          drop() CXX11_OVERRIDE;
-  void                describe(std::ostream* o) const CXX11_OVERRIDE;
+  ErrorStack          drop();
+  friend std::ostream& operator<<(std::ostream& o, const HashStorage& v);
 
   // this storage type doesn't use moved bit...so far.
-  bool track_moved_record(xct::WriteXctAccess* /*write*/) CXX11_OVERRIDE {
-    ASSERT_ND(false);
-    return false;
-  }
-  xct::LockableXctId* track_moved_record(xct::LockableXctId* /*address*/) CXX11_OVERRIDE {
-    ASSERT_ND(false);
-    return CXX11_NULLPTR;
-  }
 
   //// Hash table API
   // TODO(Hideaki) Add primitive-optimized versions and increment versions. Later.

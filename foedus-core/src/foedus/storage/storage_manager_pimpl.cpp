@@ -238,13 +238,17 @@ ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) 
 
   StorageName name = block->meta_.name_;
   LOG(INFO) << "Dropping storage " << id << "(" << name << ")";
-  ErrorStack drop_error = storage_pseudo_polymorph(
-    engine_,
-    block,
-    [](Storage* obj){ return obj->drop(); });
-  if (drop_error.is_error()) {
-    LOG(ERROR) << "Failed to drop storage " << id << "(" << name << ")";
-    return drop_error;
+  StorageType type = block->meta_.type_;
+  if (type == kArrayStorage) {
+    CHECK_ERROR(array::ArrayStorage(engine_, block).drop());
+  } else if (type == kHashStorage) {
+    CHECK_ERROR(hash::HashStorage(engine_, block).drop());
+  } else if (type == kMasstreeStorage) {
+    CHECK_ERROR(masstree::MasstreeStorage(engine_, block).drop());
+  } else if (type == kSequentialStorage) {
+    CHECK_ERROR(sequential::SequentialStorage(engine_, block).drop());
+  } else {
+    LOG(FATAL) << "WTF:" << type;
   }
 
   char log_buffer[1 << 12];
@@ -265,13 +269,17 @@ void StorageManagerPimpl::drop_storage_apply(StorageId id) {
   // this method is called only while restart, so no race.
   StorageControlBlock* block = storages_ + id;
   ASSERT_ND(block->exists());
-  ErrorStack drop_error = storage_pseudo_polymorph(
-    engine_,
-    block,
-    [](Storage* obj){ return obj->drop(); });
-  if (drop_error.is_error()) {
-    LOG(FATAL) << "drop_storage_apply() failed. " << drop_error
-      << " Failed to restart the engine";
+  StorageType type = block->meta_.type_;
+  if (type == kArrayStorage) {
+    COERCE_ERROR(array::ArrayStorage(engine_, block).drop());
+  } else if (type == kHashStorage) {
+    COERCE_ERROR(hash::HashStorage(engine_, block).drop());
+  } else if (type == kMasstreeStorage) {
+    COERCE_ERROR(masstree::MasstreeStorage(engine_, block).drop());
+  } else if (type == kSequentialStorage) {
+    COERCE_ERROR(sequential::SequentialStorage(engine_, block).drop());
+  } else {
+    LOG(FATAL) << "WTF:" << type;
   }
   block->status_ = kDropped;
   ASSERT_ND(!block->exists());

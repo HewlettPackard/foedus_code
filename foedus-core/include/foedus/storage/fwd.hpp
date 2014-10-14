@@ -22,7 +22,6 @@ struct  PageVersion;
 class   Partitioner;
 struct  PartitionerMetadata;
 struct  Record;
-class   Storage;
 struct  StorageControlBlock;
 class   StorageFactory;
 class   StorageManager;

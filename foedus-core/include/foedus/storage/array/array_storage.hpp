@@ -32,50 +32,25 @@ namespace array {
  * @brief Represents a key-value store based on a dense and regular array.
  * @ingroup ARRAY
  */
-class ArrayStorage CXX11_FINAL
-  : public virtual Storage, public Attachable<ArrayStorageControlBlock> {
+class ArrayStorage CXX11_FINAL : public Storage<ArrayStorageControlBlock> {
  public:
   typedef ArrayStoragePimpl   ThisPimpl;
   typedef ArrayCreateLogType  ThisCreateLogType;
   typedef ArrayMetadata       ThisMetadata;
 
-  ArrayStorage() : Attachable<ArrayStorageControlBlock>() {}
-  /**
-   * Constructs an array storage either from disk or newly create.
-   */
-  ArrayStorage(Engine* engine, ArrayStorageControlBlock* control_block)
-    : Attachable<ArrayStorageControlBlock>(engine, control_block) {
-    ASSERT_ND(get_type() == kArrayStorage || !exists());
-  }
-  ArrayStorage(Engine* engine, StorageControlBlock* control_block)
-    : Attachable<ArrayStorageControlBlock>(
-      engine,
-      reinterpret_cast<ArrayStorageControlBlock*>(control_block)) {
-    ASSERT_ND(get_type() == kArrayStorage || !exists());
-  }
-  /** Shorthand for engine->get_storage_manager()->get_array(id) */
+  ArrayStorage();
+  ArrayStorage(Engine* engine, ArrayStorageControlBlock* control_block);
+  ArrayStorage(Engine* engine, StorageControlBlock* control_block);
   ArrayStorage(Engine* engine, StorageId id);
-  /** Shorthand for engine->get_storage_manager()->get_array(name) */
   ArrayStorage(Engine* engine, const StorageName& name);
-  ArrayStorage(const ArrayStorage& other)
-    : Attachable<ArrayStorageControlBlock>(other.engine_, other.control_block_) {
-  }
-  ArrayStorage& operator=(const ArrayStorage& other) {
-    engine_ = other.engine_;
-    control_block_ = other.control_block_;
-    return *this;
-  }
+  ArrayStorage(const ArrayStorage& other);
+  ArrayStorage& operator=(const ArrayStorage& other);
 
   // Storage interface
-  StorageId           get_id()    const CXX11_OVERRIDE;
-  StorageType         get_type()  const CXX11_OVERRIDE;
-  const StorageName&  get_name()  const CXX11_OVERRIDE;
-  const Metadata*     get_metadata()  const CXX11_OVERRIDE;
   const ArrayMetadata*  get_array_metadata()  const;
-  bool                exists()    const CXX11_OVERRIDE;
-  ErrorStack          create(const Metadata &metadata) CXX11_OVERRIDE;
+  ErrorStack          create(const Metadata &metadata);
   ErrorStack          load(const StorageControlBlock& snapshot_block);
-  ErrorStack          drop() CXX11_OVERRIDE;
+  ErrorStack          drop();
 
   /**
    * @brief Prefetch data pages in this storage.
@@ -92,14 +67,6 @@ class ArrayStorage CXX11_FINAL
   ErrorCode prefetch_pages(thread::Thread* context, ArrayOffset from = 0, ArrayOffset to = 0);
 
   // this storage type doesn't use moved bit
-  bool track_moved_record(xct::WriteXctAccess* /*write*/) CXX11_OVERRIDE {
-    ASSERT_ND(false);
-    return false;
-  }
-  xct::LockableXctId* track_moved_record(xct::LockableXctId* /*address*/) CXX11_OVERRIDE {
-    ASSERT_ND(false);
-    return CXX11_NULLPTR;
-  }
 
   /**
    * @brief Returns byte size of one record in this array storage without internal overheads.
@@ -319,7 +286,8 @@ class ArrayStorage CXX11_FINAL
     T value,
     uint16_t payload_offset);
 
-  void        describe(std::ostream* o) const CXX11_OVERRIDE;
+
+  friend std::ostream& operator<<(std::ostream& o, const ArrayStorage& v);
 
   /** Implementation of Composer::replace_pointers() */
   ErrorStack  replace_pointers(const Composer::ReplacePointersArguments& args);

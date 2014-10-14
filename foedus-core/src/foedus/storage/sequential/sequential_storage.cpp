@@ -17,24 +17,29 @@
 namespace foedus {
 namespace storage {
 namespace sequential {
-SequentialStorage::SequentialStorage(Engine* engine, StorageId id) {
-  engine_ = engine;
-  control_block_
-    = reinterpret_cast<SequentialStorageControlBlock*>(
-        engine->get_storage_manager()->get_storage(id));
+
+SequentialStorage::SequentialStorage() : Storage<SequentialStorageControlBlock>() {}
+SequentialStorage::SequentialStorage(Engine* engine, SequentialStorageControlBlock* control_block)
+  : Storage<SequentialStorageControlBlock>(engine, control_block) {
+  ASSERT_ND(get_type() == kSequentialStorage || !exists());
 }
-SequentialStorage::SequentialStorage(Engine* engine, const StorageName& name) {
-  engine_ = engine;
-  control_block_
-    = reinterpret_cast<SequentialStorageControlBlock*>(
-        engine->get_storage_manager()->get_storage(name));
+SequentialStorage::SequentialStorage(Engine* engine, StorageControlBlock* control_block)
+  : Storage<SequentialStorageControlBlock>(engine, control_block) {
+    ASSERT_ND(get_type() == kSequentialStorage || !exists());
+}
+SequentialStorage::SequentialStorage(Engine* engine, StorageId id)
+  : Storage<SequentialStorageControlBlock>(engine, id) {}
+SequentialStorage::SequentialStorage(Engine* engine, const StorageName& name)
+  : Storage<SequentialStorageControlBlock>(engine, name) {}
+SequentialStorage::SequentialStorage(const SequentialStorage& other)
+  : Storage<SequentialStorageControlBlock>(other.engine_, other.control_block_) {
+}
+SequentialStorage& SequentialStorage::operator=(const SequentialStorage& other) {
+  engine_ = other.engine_;
+  control_block_ = other.control_block_;
+  return *this;
 }
 
-bool        SequentialStorage::exists()           const  { return control_block_->exists(); }
-StorageId   SequentialStorage::get_id()           const  { return control_block_->meta_.id_; }
-StorageType SequentialStorage::get_type()         const  { return control_block_->meta_.type_; }
-const StorageName& SequentialStorage::get_name()  const  { return control_block_->meta_.name_; }
-const Metadata* SequentialStorage::get_metadata() const  { return &control_block_->meta_; }
 const SequentialMetadata* SequentialStorage::get_sequential_metadata() const  {
   return &control_block_->meta_;
 }
@@ -53,22 +58,22 @@ ErrorStack SequentialStorage::replace_pointers(const Composer::ReplacePointersAr
   return SequentialStoragePimpl(this).replace_pointers(args);
 }
 
-void SequentialStorage::describe(std::ostream* o_ptr) const {
-  std::ostream& o = *o_ptr;
+std::ostream& operator<<(std::ostream& o, const SequentialStorage& v) {
   uint64_t page_count = 0;
   uint64_t record_count = 0;
-  SequentialStoragePimpl pimpl(const_cast<SequentialStorage*>(this));
+  SequentialStoragePimpl pimpl(const_cast<SequentialStorage*>(&v));
   pimpl.for_every_page([&page_count, &record_count](SequentialPage* page){
     ++page_count;
     record_count += page->get_record_count();
     return kErrorCodeOk;
   });
   o << "<SequentialStorage>"
-    << "<id>" << get_id() << "</id>"
-    << "<name>" << get_name() << "</name>"
+    << "<id>" << v.get_id() << "</id>"
+    << "<name>" << v.get_name() << "</name>"
     << "<page_count>" << page_count << "</page_count>"
     << "<record_count>" << record_count << "</record_count>"
     << "</SequentialStorage>";
+  return o;
 }
 
 // most other methods are defined in pimpl.cpp to allow inlining

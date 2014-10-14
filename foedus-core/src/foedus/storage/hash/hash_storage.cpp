@@ -19,11 +19,29 @@
 namespace foedus {
 namespace storage {
 namespace hash {
-HashStorage::HashStorage(Engine* engine, const StorageName& name) {
-  engine_ = engine;
-  control_block_
-    = reinterpret_cast<HashStorageControlBlock*>(engine->get_storage_manager()->get_storage(name));
+
+HashStorage::HashStorage() : Storage<HashStorageControlBlock>() {}
+HashStorage::HashStorage(Engine* engine, HashStorageControlBlock* control_block)
+  : Storage<HashStorageControlBlock>(engine, control_block) {
+  ASSERT_ND(get_type() == kHashStorage || !exists());
 }
+HashStorage::HashStorage(Engine* engine, StorageControlBlock* control_block)
+  : Storage<HashStorageControlBlock>(engine, control_block) {
+  ASSERT_ND(get_type() == kHashStorage || !exists());
+}
+HashStorage::HashStorage(Engine* engine, StorageId id)
+  : Storage<HashStorageControlBlock>(engine, id) {}
+HashStorage::HashStorage(Engine* engine, const StorageName& name)
+  : Storage<HashStorageControlBlock>(engine, name) {}
+HashStorage::HashStorage(const HashStorage& other)
+  : Storage<HashStorageControlBlock>(other.engine_, other.control_block_) {
+}
+HashStorage& HashStorage::operator=(const HashStorage& other) {
+  engine_ = other.engine_;
+  control_block_ = other.control_block_;
+  return *this;
+}
+
 
 ErrorStack  HashStorage::create(const Metadata &metadata) {
   return HashStoragePimpl(this).create(static_cast<const HashMetadata&>(metadata));
@@ -33,13 +51,13 @@ ErrorStack HashStorage::load(const StorageControlBlock& snapshot_block) {
 }
 ErrorStack  HashStorage::drop() { return HashStoragePimpl(this).drop(); }
 
-void HashStorage::describe(std::ostream* o_ptr) const {
-  std::ostream& o = *o_ptr;
+std::ostream& operator<<(std::ostream& o, const HashStorage& v) {
   o << "<HashStorage>"
-    << "<id>" << get_id() << "</id>"
-    << "<name>" << get_name() << "</name>"
-    << "<bin_bits>" << static_cast<int>(control_block_->meta_.bin_bits_) << "</bin_bits>"
+    << "<id>" << v.get_id() << "</id>"
+    << "<name>" << v.get_name() << "</name>"
+    << "<bin_bits>" << static_cast<int>(v.control_block_->meta_.bin_bits_) << "</bin_bits>"
     << "</HashStorage>";
+  return o;
 }
 // most other methods are defined in pimpl.cpp to allow inlining
 

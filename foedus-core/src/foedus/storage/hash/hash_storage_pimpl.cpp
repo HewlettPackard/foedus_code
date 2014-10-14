@@ -41,11 +41,6 @@ namespace storage {
 namespace hash {
 
 // Defines HashStorage methods so that we can inline implementation calls
-bool        HashStorage::exists()           const  { return control_block_->exists(); }
-StorageId   HashStorage::get_id()           const  { return control_block_->meta_.id_; }
-StorageType HashStorage::get_type()         const  { return control_block_->meta_.type_; }
-const StorageName& HashStorage::get_name()  const  { return control_block_->meta_.name_; }
-const Metadata* HashStorage::get_metadata() const  { return &control_block_->meta_; }
 const HashMetadata* HashStorage::get_hash_metadata() const  { return &control_block_->meta_; }
 
 ErrorCode HashStorage::get_record(
