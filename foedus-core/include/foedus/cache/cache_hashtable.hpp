@@ -138,7 +138,7 @@ class CacheHashtable CXX11_FINAL {
 inline uint32_t CacheHashtable::get_bucket_number(storage::SnapshotPagePointer page_id) const {
   uint64_t reversed = __builtin_bswap64(page_id);  // TODO(Hideaki) non-GCC
   uint64_t quotient = bucket_div_.div64(reversed);
-  return bucket_div_.rem64(page_id, table_size_, quotient);
+  return bucket_div_.rem64(reversed, table_size_, quotient);
 }
 
 inline memory::PagePoolOffset CacheHashtable::conservatively_locate(

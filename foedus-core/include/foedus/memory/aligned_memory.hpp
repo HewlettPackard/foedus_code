@@ -130,6 +130,7 @@ class AlignedMemory CXX11_FINAL {
   /**
    * If the current size is smaller than the given size, automatically expands.
    * This is useful for temporary work buffer.
+   * @pre !is_null(), so you have to first alloc(). Because otherwise we don't know have to alloc.
    * @attention When expanded, the memory address changes.
    * @return only possible error is out-of-memory
    */

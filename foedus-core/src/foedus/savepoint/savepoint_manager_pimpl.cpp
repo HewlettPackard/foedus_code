@@ -164,10 +164,15 @@ void SavepointManagerPimpl::savepoint_main() {
       new_savepoint.durable_epoch_ = new_durable_epoch.value();
       engine_->get_log_manager()->copy_logger_states(&new_savepoint);
 
-      new_savepoint.latest_snapshot_id_ = control_block_->new_snapshot_id_;
-      new_savepoint.latest_snapshot_epoch_ = control_block_->new_snapshot_epoch_;
-      control_block_->new_snapshot_id_ = snapshot::kNullSnapshotId;
-      control_block_->new_snapshot_epoch_ = Epoch::kEpochInvalid;
+      if (control_block_->new_snapshot_id_ != snapshot::kNullSnapshotId) {
+        new_savepoint.latest_snapshot_id_ = control_block_->new_snapshot_id_;
+        new_savepoint.latest_snapshot_epoch_ = control_block_->new_snapshot_epoch_;
+        control_block_->new_snapshot_id_ = snapshot::kNullSnapshotId;
+        control_block_->new_snapshot_epoch_ = Epoch::kEpochInvalid;
+      } else {
+        new_savepoint.latest_snapshot_id_ = control_block_->savepoint_.latest_snapshot_id_;
+        new_savepoint.latest_snapshot_epoch_ = control_block_->savepoint_.latest_snapshot_epoch_;
+      }
 
       log::MetaLogControlBlock* metalog_block = engine_->get_soc_manager()->get_shared_memory_repo()
         ->get_global_memory_anchors()->meta_logger_memory_;

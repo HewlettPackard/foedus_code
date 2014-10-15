@@ -63,9 +63,16 @@ class LogReducerRef {
     uint64_t send_buffer_size);
 
  protected:
+  const Snapshot& get_cur_snapshot() const;
   uint64_t  get_buffer_size() const;
   uint32_t  get_current_buffer_index_atomic() const;
   void*     get_buffer(uint32_t index) const;
+  /** used only in debug mode */
+  bool      verify_log_chunk(
+    storage::StorageId storage_id,
+    const char* send_buffer,
+    uint32_t log_count,
+    uint64_t send_buffer_size) const;
 
   Engine*                 engine_;
   LogReducerControlBlock* control_block_;

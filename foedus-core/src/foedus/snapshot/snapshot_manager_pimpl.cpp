@@ -335,6 +335,7 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(
     const auto& it = new_root_page_pointers.find(id);
     if (it != new_root_page_pointers.end()) {
       storage::SnapshotPagePointer new_pointer = it->second;
+      ASSERT_ND(new_pointer != 0);
       storage::Metadata* meta = metadata.get_metadata(id);
       ASSERT_ND(new_pointer != meta->root_snapshot_page_id_);
       meta->root_snapshot_page_id_ = new_pointer;

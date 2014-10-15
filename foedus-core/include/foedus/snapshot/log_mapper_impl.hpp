@@ -95,7 +95,7 @@ class LogMapper final : public MapReduceBase {
    * Stores bunch of byte positions in IO buffer to one storage.
    */
   struct Bucket final {
-    inline bool is_full() const ALWAYS_INLINE { return counts_ < kBucketMaxCount; }
+    inline bool is_full() const ALWAYS_INLINE { return counts_ >= kBucketMaxCount; }
 
     /** This bucket stores log positions for this storage. */
     storage::StorageId  storage_id_;   // +4 => 4

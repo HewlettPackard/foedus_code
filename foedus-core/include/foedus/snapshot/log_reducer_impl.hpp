@@ -45,12 +45,6 @@ enum ReducerConstants {
    * If this bit is on, no more mappers can enter the buffer as a new writer.
    */
   kFlagNoMoreWriters = 0x0001,
-  /** @see BlockHeader::magic_word_ */
-  kBlockHeaderMagicWord = 0xDEADBEEF,
-  /** @see DumpStorageHeaderFiller */
-  kStorageHeaderFillerMagicWord = 0x8BADF00D,
-  /** @see DumpStorageHeaderReal */
-  kStorageHeaderRealMagicWord = 0xCAFEBABE,
 };
 
 /**
@@ -75,40 +69,50 @@ union ReducerBufferStatus {
 };
 
 /**
-  * All buffer blocks sent via append_log_chunk() put this header at first.
-  */
-struct BlockHeader {
-  storage::StorageId  storage_id_;
-  uint32_t            log_count_;
-  BufferPosition      block_length_;
-  /** just for sanity check. */
+ * @brief All log blocks in mapper/reducers start with this header.
+ * @ingroup SNAPSHOT
+ * @details
+ * This base object MUST be within 8 bytes so that FillerBlockHeader is within 8 bytes.
+ * As logs are multiply of 8 bytes, 8-byte filler header can fill any gap.
+ */
+struct BlockHeaderBase {
+  enum Constants {
+    /** @see FullBlockHeader::magic_word_ */
+    kFullBlockHeaderMagicWord = 0xDEADBEEF,
+    /** @see FillerBlockHeader::magic_word_ */
+    kFillerBlockHeaderMagicWord = 0x8BADF00D,
+  };
+  bool is_full_block() const {
+    ASSERT_ND(magic_word_ == kFullBlockHeaderMagicWord
+      || magic_word_ == kFillerBlockHeaderMagicWord);
+    return magic_word_ == kFullBlockHeaderMagicWord;
+  }
+  bool is_filler() const {
+    ASSERT_ND(magic_word_ == kFullBlockHeaderMagicWord
+      || magic_word_ == kFillerBlockHeaderMagicWord);
+    return magic_word_ == kFillerBlockHeaderMagicWord;
+  }
+
+  /**
+   * This is used to identify the storage block is a dummy (filler) one or a full one.
+   * This must be either kFullBlockHeaderMagicWord or kFillerBlockHeaderMagicWord.
+   */
   uint32_t            magic_word_;
+  /** Length (in 8-bytes) of this block \e including the header. */
+  BufferPosition      block_length_;
 };
 
 /**
-  * All storage blocks in dump file start with this header.
-  * This base object MUST be within 8 bytes so that DumpStorageHeaderFiller is within 8 bytes.
-  */
-struct DumpStorageHeaderBase {
-  /**
-    * This is used to identify the storage block is a dummy (filler) one or a real one.
-    * This must be either kStorageHeaderFillerMagicWord or kStorageHeaderRealMagicWord.
-    */
-  uint32_t            magic_word_;
-  /**
-    * Length of this block \e including the header.
-    */
-  BufferPosition      block_length_;
-};
-
-/**
-  * A storage block in dump file that actually stores some storage.
-  * The magic word for this is kStorageHeaderDummyMagicWord.
-  */
-struct DumpStorageHeaderReal : public DumpStorageHeaderBase {
+ * @brief All blocks that have content start with this header.
+ * @ingroup SNAPSHOT
+ * @details
+ * Either that's an in-memory block or a block in dumped file, we use this header.
+ */
+struct FullBlockHeader : BlockHeaderBase {
   storage::StorageId  storage_id_;
   uint32_t            log_count_;
 };
+
 
 /**
   * @brief A header for a dummy storage block that fills the gap between the end of
@@ -118,9 +122,9 @@ struct DumpStorageHeaderReal : public DumpStorageHeaderBase {
   * (we can also do it without dummy blocks by retaining the "fragment" until the next
   * storage block, but the complexity isn't worth it. 4kb for each storage? nothing.)
   * This object MUST be 8 bytes so that it can fill any gap (all log entries are 8-byte aligned).
-  * The magic word for this is kStorageHeaderFillerMagicWord.
+  * The magic word for this is kFillerBlockHeaderMagicWord.
   */
-struct DumpStorageHeaderFiller : public DumpStorageHeaderBase {};
+struct FillerBlockHeader : public BlockHeaderBase {};
 
 /**
  * Shared data for LogReducer. One instance in each node memory.
@@ -279,10 +283,15 @@ class LogReducer final : public MapReduceBase {
    * Context object used throughout merge_sort().
    */
   struct MergeContext {
-    explicit MergeContext(uint32_t sorted_buffer_count);
+    explicit MergeContext(uint32_t dumped_files_count_);
     ~MergeContext();
 
-    const uint32_t                            sorted_buffer_count_;
+    /**
+     * Number of sorted runs dumped to files.
+     * After populating sorted_buffers_, this number should be come sorted_buffers_.size() - 1
+     * because of the in-memory sorted buffer.
+     */
+    const uint32_t                            dumped_files_count_;
     memory::AlignedMemory                     io_memory_;
     std::vector< memory::AlignedMemorySlice > io_buffers_;
 
@@ -355,12 +364,6 @@ class LogReducer final : public MapReduceBase {
   memory::AlignedMemorySlice input_positions_slice_;
   /** Half of positions_buffers_ used for output buffer for batch-sorting method. */
   memory::AlignedMemorySlice output_positions_slice_;
-
-  /**
-   * Temporary work memory for composers during merge_sort().
-   * Automatically expanded if needed.
-   */
-  memory::AlignedMemory   composer_work_memory_;
 
   /** Main page pool for SnapshotWriter. */
   memory::AlignedMemory   writer_pool_memory_;

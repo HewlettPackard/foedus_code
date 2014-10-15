@@ -82,6 +82,9 @@ void LogGleaner::clear_all() {
 }
 
 ErrorStack LogGleaner::design_partitions() {
+  if (engine_->get_soc_count() == 1U) {
+    return kRetOk;  // no partitioning needed
+  }
   // so far single threaded to debug easily.
   // but, let's prepare for parallelization so that we can switch later.
   ErrorStack result;
@@ -215,7 +218,9 @@ ErrorStack LogGleaner::construct_root_pages() {
     0,
     get_snapshot_id(),
     &writer_pool_memory,
-    &writer_intermediate_memory);
+    &writer_intermediate_memory,
+    true);  // we append to the node-0 snapshot file.
+  CHECK_ERROR(snapshot_writer.open());
 
   storage::StorageId prev_storage_id = 0;
   // each reducer's root-info-page must be sorted by storage_id, so we do kind of merge-sort here.

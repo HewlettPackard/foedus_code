@@ -66,11 +66,15 @@ ErrorCode SnapshotFileSet::get_or_open_file(
     fs::Path path(engine_->get_options().snapshot_.construct_snapshot_file_path(
       snapshot_id,
       node_id));
-    std::pair< thread::ThreadGroupId, fs::DirectIoFile* > entry(
-      node_id,
-      new fs::DirectIoFile( path));
+    fs::DirectIoFile* file = new fs::DirectIoFile(path);
+    ErrorCode open_error = file->open(true, false, false, false);
+    if (open_error != kErrorCodeOk) {
+      delete file;
+      return open_error;
+    }
+    std::pair< thread::ThreadGroupId, fs::DirectIoFile* > entry(node_id, file);
     the_map.insert(entry);
-    *out = entry.second;
+    *out = file;
     return kErrorCodeOk;
   }
 }
@@ -83,6 +87,7 @@ ErrorCode SnapshotFileSet::read_page(storage::SnapshotPagePointer page_id, void*
   CHECK_ERROR_CODE(
     file->seek(local_page_id * sizeof(storage::Page), fs::DirectIoFile::kDirectIoSeekSet));
   CHECK_ERROR_CODE(file->read_raw(sizeof(storage::Page), out));
+  ASSERT_ND(reinterpret_cast<storage::Page*>(out)->get_header().page_id_ == page_id);
   return kErrorCodeOk;
 }
 

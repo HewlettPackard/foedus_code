@@ -60,19 +60,29 @@ struct LogBuffer {
  * Finally, the buffer fundamentally has a limited size. It can't contain all the data at once.
  * Thus, we use absolute (byte position in entire file) and relative (byte position in buffer)
  * positions. In in-memory buffer, these two are the same.
+ * To simplify, let "entire file size" or "file size" mean the file size in on-disk buffer,
+ * the buffer size in in-memory buffer.
+ *
+ * @par Buffer window, offset, and byte positions
  */
 class SortedBuffer {
  public:
   SortedBuffer(char* buffer, uint64_t buffer_size, uint64_t total_size)
-    : buffer_(buffer), buffer_size_(buffer_size), offset_(0), total_size_(total_size) {
-      set_current_block(0, 0, 0, 0);
-      assert_checks();
+    : buffer_(buffer),
+      buffer_size_(buffer_size),
+      offset_(0),
+      total_size_(total_size),
+      cur_block_storage_id_(0),
+      cur_block_log_count_(0),
+      cur_block_abosulte_begin_(0),
+      cur_block_abosulte_end_(0) {
+    assert_checks();
   }
   virtual ~SortedBuffer() {}
 
   uint64_t    to_relative_pos(uint64_t absolute_pos) const {
     ASSERT_ND(absolute_pos >= offset_);
-    ASSERT_ND(absolute_pos < offset_ + buffer_size_);
+    ASSERT_ND(absolute_pos <= offset_ + buffer_size_);
     return absolute_pos - offset_;
   }
 
@@ -87,7 +97,13 @@ class SortedBuffer {
   /** Returns the size of buffer memory. */
   uint64_t    get_buffer_size() const { return buffer_size_; }
 
-  /** Returns the absolute byte position of the beginning of the memory. */
+  /**
+   * @brief Returns the absolute byte position of the buffer's beginning in the entire file.
+   * @details
+   * For example, buffer size = 1MB, file size = 1GB. Now we are reading 3200KB-4224KB region.
+   * In that case, this returns 3200KB.
+   * This value changes when the caller invokes wind() to shifts the buffer window.
+   */
   uint64_t    get_offset() const { return offset_; }
 
   /** Returns the total size of the underlying stream (eg file size). */
@@ -95,7 +111,10 @@ class SortedBuffer {
 
   storage::StorageId  get_cur_block_storage_id() const { return cur_block_storage_id_; }
   uint32_t            get_cur_block_log_count() const { return cur_block_log_count_; }
+
+  /** Current storage block's beginning in absolute byte position in the file. */
   uint64_t            get_cur_block_abosulte_begin() const { return cur_block_abosulte_begin_; }
+  /** Current storage block's end in absolute byte position in the file. */
   uint64_t            get_cur_block_abosulte_end() const { return cur_block_abosulte_end_; }
 
   void        set_current_block(
@@ -110,6 +129,7 @@ class SortedBuffer {
     assert_checks();
   }
   bool        is_valid_current_block() const { return cur_block_storage_id_ != 0; }
+  void        invalidate_current_block() { cur_block_storage_id_ = 0; }
 
   /**
    * @brief Loads next data block to be consumed by the caller (composer).
@@ -139,8 +159,7 @@ class SortedBuffer {
     if (cur_block_storage_id_ != 0) {
       ASSERT_ND(cur_block_log_count_ > 0);
       ASSERT_ND(cur_block_abosulte_begin_ <= cur_block_abosulte_end_);
-      ASSERT_ND(cur_block_abosulte_begin_ + offset_ < total_size_);
-      ASSERT_ND(cur_block_abosulte_end_ + offset_ <= total_size_);
+      ASSERT_ND(cur_block_abosulte_end_ <= total_size_);
 
       // did we overlook the begin/end of the block?
       ASSERT_ND(cur_block_abosulte_begin_ <= offset_ + buffer_size_);
@@ -151,13 +170,17 @@ class SortedBuffer {
  protected:
   char* const         buffer_;
   const uint64_t      buffer_size_;
+  /** see get_offset() */
   uint64_t            offset_;
+  /** see get_total_size() */
   const uint64_t      total_size_;
 
   /** If this is zero, this buffer is not set for reading any block. */
   storage::StorageId  cur_block_storage_id_;
   uint32_t            cur_block_log_count_;
+  /** see get_cur_block_abosulte_begin() */
   uint64_t            cur_block_abosulte_begin_;
+  /** see get_cur_block_abosulte_end() */
   uint64_t            cur_block_abosulte_end_;
 
   void describe_base_elements(std::ostream* o) const;

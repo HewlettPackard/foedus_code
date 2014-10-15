@@ -48,6 +48,7 @@ class ArrayComposer final {
  private:
   Engine* const             engine_;
   const StorageId           storage_id_;
+  const ArrayStorage        storage_;
 };
 
 /**
@@ -136,10 +137,14 @@ class ArrayComposeContext {
     uint8_t level,
     LookupRoute route,
     ArrayPage* page) ALWAYS_INLINE;
+  /** used only in debug mode */
+  bool verify_cur_path() const;
+  bool verify_snapshot_pointer(storage::SnapshotPagePointer pointer);
 
   // these properties are initialized in constructor and never changed afterwards
   Engine* const                   engine_;
   const StorageId                 storage_id_;
+  const ArrayStorage              storage_;
   snapshot::SnapshotWriter* const snapshot_writer_;
   cache::SnapshotFileSet*  const  previous_snapshot_files_;
   /** The final output of the compose() call */

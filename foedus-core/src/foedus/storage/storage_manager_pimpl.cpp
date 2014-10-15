@@ -121,7 +121,7 @@ ErrorStack StorageManagerPimpl::initialize_read_latest_snapshot() {
 
   debugging::StopWatch stop_watch;
   uint32_t active_storages = 0;
-  for (uint32_t id = 1; id < control_block_->largest_storage_id_; ++id) {
+  for (uint32_t id = 1; id <= control_block_->largest_storage_id_; ++id) {
     StorageControlBlock* block = storages_ + id;
     const StorageControlBlock& snapshot_block = metadata.storage_control_blocks_[id];
     if (snapshot_block.status_ != kExists) {

@@ -115,11 +115,17 @@ ErrorCode SnapshotWriter::dump_general(
 #ifndef NDEBUG
   storage::Page* base = reinterpret_cast<storage::Page*>(slice.get_block());
   for (memory::PagePoolOffset i = 0; i < count; ++i) {
-    storage::SnapshotLocalPageId correct_local_page_id = next_page_id_ + i;
-    storage::SnapshotPagePointer correct_page_id
-      = storage::to_snapshot_page_pointer(snapshot_id_, numa_node_, correct_local_page_id);
+    storage::SnapshotLocalPageId correct_local_page_id
+      = storage::extract_local_page_id_from_snapshot_pointer(next_page_id_) + i;
     storage::Page* page = base + from_page + i;
-    ASSERT_ND(page->get_header().page_id_ == correct_page_id);
+    uint64_t page_id = page->get_header().page_id_;
+    storage::SnapshotLocalPageId local_page_id
+      = storage::extract_local_page_id_from_snapshot_pointer(page_id);
+    uint16_t node = storage::extract_numa_node_from_snapshot_pointer(page_id);
+    uint16_t snapshot_id = storage::extract_snapshot_id_from_snapshot_pointer(page_id);
+    ASSERT_ND(local_page_id == correct_local_page_id);
+    ASSERT_ND(node == numa_node_);
+    ASSERT_ND(snapshot_id == snapshot_id_);
   }
 #endif  // NDEBUG
   CHECK_ERROR_CODE(snapshot_file_->write(

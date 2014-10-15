@@ -50,10 +50,10 @@ class SnapshotFileSet CXX11_FINAL : public DefaultInitializable {
   SnapshotFileSet& operator=(const SnapshotFileSet &other) CXX11_FUNC_DELETE;
 
   ErrorCode get_or_open_file(storage::SnapshotPagePointer page_pointer, fs::DirectIoFile** out) {
-    return get_or_open_file(
-      storage::extract_snapshot_id_from_snapshot_pointer(page_pointer),
-      storage::extract_numa_node_from_snapshot_pointer(page_pointer),
-      out);
+    snapshot::SnapshotId snapshot_id
+      = storage::extract_snapshot_id_from_snapshot_pointer(page_pointer);
+    thread::ThreadGroupId node_id = storage::extract_numa_node_from_snapshot_pointer(page_pointer);
+    return get_or_open_file(snapshot_id, node_id, out);
   }
   ErrorCode get_or_open_file(
     snapshot::SnapshotId snapshot_id,

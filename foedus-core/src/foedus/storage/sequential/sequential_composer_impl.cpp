@@ -37,10 +37,12 @@ SequentialComposer::SequentialComposer(Composer *parent)
 struct StreamStatus {
   void init(snapshot::SortedBuffer* stream) {
     stream_ = stream;
+  stream_->assert_checks();
     buffer_ = stream->get_buffer();
     buffer_size_ = stream->get_buffer_size();
     cur_absolute_pos_ = stream->get_cur_block_abosulte_begin();
-    cur_relative_pos_ = stream->get_offset();
+    ASSERT_ND(cur_absolute_pos_ >= stream->get_offset());
+    cur_relative_pos_ = cur_absolute_pos_ - stream->get_offset();
     end_absolute_pos_ = stream->get_cur_block_abosulte_end();
     ended_ = false;
     read_entry();
@@ -121,7 +123,7 @@ ErrorStack SequentialComposer::compose(const Composer::ComposeArguments& args) {
       if (allocated_pages >= max_pages) {
         // dump everything and allocate a new head page
         WRAP_ERROR_CODE(snapshot_writer->dump_pages(0, allocated_pages));
-        ASSERT_ND(snapshot_writer->get_next_page_id() == cur_page->header().page_id_ + 1);
+        ASSERT_ND(snapshot_writer->get_next_page_id() == cur_page->header().page_id_ + 1ULL);
         cur_page = compose_new_head(snapshot_writer, root_info_page_casted);
         allocated_pages = 1;
       } else {
@@ -129,7 +131,7 @@ ErrorStack SequentialComposer::compose(const Composer::ComposeArguments& args) {
         // snapshot pointer. No dual page pointers.
         SequentialPage* next_page = base + allocated_pages;
         ++allocated_pages;
-        next_page->initialize_snapshot_page(storage_id_, cur_page->header().page_id_ + 1);
+        next_page->initialize_snapshot_page(storage_id_, cur_page->header().page_id_ + 1ULL);
         cur_page->next_page().snapshot_pointer_ = next_page->header().page_id_;
         cur_page = next_page;
         ASSERT_ND(extract_numa_node_from_snapshot_pointer(cur_page->header().page_id_)
@@ -150,7 +152,7 @@ ErrorStack SequentialComposer::compose(const Composer::ComposeArguments& args) {
   }
   // dump everything
   WRAP_ERROR_CODE(snapshot_writer->dump_pages(0, allocated_pages));
-  ASSERT_ND(snapshot_writer->get_next_page_id() == cur_page->header().page_id_ + 1);
+  ASSERT_ND(snapshot_writer->get_next_page_id() == cur_page->header().page_id_ + 1ULL);
 
   stop_watch.stop();
   VLOG(0) << to_string() << " compose() done in " << stop_watch.elapsed_ms() << "ms. #head pages="
@@ -221,7 +223,7 @@ ErrorStack SequentialComposer::construct_root(const Composer::ConstructRootArgum
 
   // write out the new root pages
   WRAP_ERROR_CODE(snapshot_writer->dump_pages(0, allocated_pages));
-  ASSERT_ND(snapshot_writer->get_next_page_id() == cur_page->header().page_id_ + 1);
+  ASSERT_ND(snapshot_writer->get_next_page_id() == cur_page->header().page_id_ + 1ULL);
 
   stop_watch.stop();
   VLOG(0) << to_string() << " construct_root() done in " << stop_watch.elapsed_us() << "us."

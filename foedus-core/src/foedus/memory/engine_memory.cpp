@@ -121,7 +121,7 @@ ErrorStack EngineMemory::load_one_volatile_page(
   ASSERT_ND(snapshot_pointer != 0);
   thread::ThreadGroupId node = storage::extract_numa_node_from_snapshot_pointer(snapshot_pointer);
   CHECK_ERROR(grab_one_volatile_page(node, pointer, page));
-  WRAP_ERROR_CODE(fileset->read_page(snapshot_pointer, page));
+  WRAP_ERROR_CODE(fileset->read_page(snapshot_pointer, *page));
   (*page)->get_header().snapshot_ = false;
   (*page)->get_header().page_id_ = pointer->word;
   return kRetOk;
