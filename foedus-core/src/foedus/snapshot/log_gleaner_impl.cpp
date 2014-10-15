@@ -119,7 +119,7 @@ void LogGleaner::design_partitions_run(
       continue;
     }
     storage::Partitioner partitioner(engine_, id);
-    storage::Partitioner::DesignPartitionArguments args = { &work_memory, &fileset};
+    storage::Partitioner::DesignPartitionArguments args = { &work_memory, &fileset };
     ErrorStack ret = partitioner.design_partition(args);
     if (ret.is_error()) {
       LOG(ERROR) << "Error while determining partitions for storage-" << id << ":" << ret;

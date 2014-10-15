@@ -322,7 +322,7 @@ ErrorStack SequentialStoragePimpl::replace_pointers(
         // okay, drop this
         memory::PagePoolOffset next = head->next_page().volatile_pointer_.components.offset;
         ASSERT_ND(next != offset);
-        ASSERT_ND(head->next_page().volatile_pointer_.components.numa_node == node);
+        ASSERT_ND(next == 0 || head->next_page().volatile_pointer_.components.numa_node == node);
         args.drop_volatile_page(combine_volatile_page_pointer(node, 0, 0, offset));
         if (next == 0) {
           // it was the tail

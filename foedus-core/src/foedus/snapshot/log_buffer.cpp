@@ -23,7 +23,7 @@ std::ostream& operator<<(std::ostream& o, const SortedBuffer& v) {
 
 void SortedBuffer::describe_base_elements(std::ostream* optr) const {
   std::ostream& o = *optr;
-  o << "<buffer_>" << buffer_ << "</buffer_>"
+  o << "<buffer_>" << reinterpret_cast<const void*>(buffer_) << "</buffer_>"
     << "<buffer_size_>" << buffer_size_ << "</buffer_size_>"
     << "<offset_>" << offset_ << "</offset_>"
     << "<total_size_>" << total_size_ << "</total_size_>"

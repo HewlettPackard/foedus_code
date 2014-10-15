@@ -83,8 +83,8 @@ struct ArrayPartitionerData final {
   ArrayPartitionerData() = delete;
   ~ArrayPartitionerData() = delete;
 
-  /** whether this array has only one page, so no interior page nor partitioning. */
-  bool                  array_single_page_;
+  /** if false, every record goes to node-0. single-page array, only one SOC, etc. */
+  bool                  partitionable_;
   uint8_t               array_levels_;
 
   /** Size of the entire array. */

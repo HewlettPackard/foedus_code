@@ -68,6 +68,7 @@ class Partitioner CXX11_FINAL : public Attachable<PartitionerMetadata> {
 
   /** Returns tiny metadata of the partitioner in shared memory. */
   const PartitionerMetadata& get_metadata() const;
+  /** whether this object is ready for partitioning. if only sorting is needed, it doesn't matter */
   bool        is_valid()          const;
   StorageId   get_storage_id()    const { return id_;}
   StorageType get_storage_type()  const { return type_; }

@@ -181,7 +181,18 @@ ErrorStack LogReducer::dump_buffer() {
   for (auto& kv : blocks) {
     WRAP_ERROR_CODE(check_cancelled());
     LogBuffer log_buffer(base);
-    CHECK_ERROR(dump_buffer_sort_storage(log_buffer, kv.first, kv.second, &file));
+    storage::StorageId storage_id = kv.first;
+    uint32_t written_count;
+    CHECK_ERROR(dump_buffer_sort_storage(log_buffer, storage_id, kv.second, &written_count));
+    // write them out to the file
+    BufferPosition* outputs
+      = reinterpret_cast<BufferPosition*>(output_positions_slice_.get_block());
+    CHECK_ERROR(dump_buffer_sort_storage_write(
+      log_buffer,
+      storage_id,
+      outputs,
+      written_count,
+      &file));
   }
 
   // we don't need fsync here. if there is a failure during snapshotting,
@@ -251,7 +262,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
   const LogBuffer &buffer,
   storage::StorageId storage_id,
   const std::vector<BufferPosition>& log_positions,
-  fs::DirectIoFile *dump_file) {
+  uint32_t* written_count) {
   // first, count how many log entries are there. this is quick as we have a statistics
   // in the header.
   uint64_t records = 0;
@@ -282,7 +293,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
       log::RecordLogType* record = buffer.resolve(record_pos);
       ASSERT_ND(record->header_.storage_id_ == storage_id);
       ASSERT_ND(record->header_.log_length_ > 0);
-      inputs[cur_rec_total] = to_buffer_position(record_pos);
+      inputs[cur_rec_total] = record_pos;
       ++cur_rec_total;
       record_pos += to_buffer_position(record->header_.log_length_);
     }
@@ -292,28 +303,44 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
 
   // Now, sort these log records by key and then ordinal. we use the partitioner object for this.
   storage::Partitioner partitioner(engine_, storage_id);
-  ASSERT_ND(partitioner.is_valid());
-  BufferPosition* outputs = reinterpret_cast<BufferPosition*>(
-    output_positions_slice_.get_block());
-  uint32_t written_count = 0;
+  BufferPosition* pos = reinterpret_cast<BufferPosition*>(output_positions_slice_.get_block());
+  *written_count = 0;
   storage::Partitioner::SortBatchArguments args = {
     buffer,
     inputs,
     static_cast<uint32_t>(records),
     &sort_buffer_,
     parent_.get_base_epoch(),
-    outputs,
-    &written_count};
+    pos,
+    written_count};
   partitioner.sort_batch(args);
-
-  // write them out to the file
-  CHECK_ERROR(dump_buffer_sort_storage_write(
-    buffer,
-    storage_id,
-    outputs,
-    written_count,
-    dump_file));
   return kRetOk;
+}
+
+uint64_t LogReducer::dump_block_header(
+  const LogBuffer &buffer,
+  storage::StorageId storage_id,
+  const BufferPosition* sorted_logs,
+  uint32_t log_count,
+  void* destination) const {
+  // figuring out the block length is a bit expensive. we have to go through all log entries.
+  // but, snapshotting happens only once per minutes, and all of these are in-memory operations.
+  // I hope this isn't a big cost. (let's keep an eye on it, though)
+  debugging::StopWatch length_watch;
+  uint64_t total_bytes = sizeof(FullBlockHeader);
+  for (uint32_t i = 0; i < log_count; ++i) {
+    total_bytes += buffer.resolve(sorted_logs[i])->header_.log_length_;
+  }
+  length_watch.stop();
+  LOG(INFO) << to_string() << " iterated over " << log_count
+    << " log records to figure out block length in "<< length_watch.elapsed_us() << "us";
+
+  FullBlockHeader* header = reinterpret_cast<FullBlockHeader*>(destination);
+  header->storage_id_ = storage_id;
+  header->log_count_ = log_count;
+  header->magic_word_ = BlockHeaderBase::kFullBlockHeaderMagicWord;
+  header->block_length_ = to_buffer_position(total_bytes);
+  return total_bytes;
 }
 
 ErrorStack LogReducer::dump_buffer_sort_storage_write(
@@ -328,26 +355,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage_write(
   // to keep it aligned, the bytes after this threshold have to be retained and copied over to
   // the beginning of the buffer.
   const uint64_t flush_threshold = dump_io_buffer_.get_size() - (1 << 16);
-  uint64_t total_bytes;
-  {
-    // figuring out the block length is a bit expensive. we have to go through all log entries.
-    // but, snapshotting happens only once per minutes, and all of these are in-memory operations.
-    // I hope this isn't a big cost. (let's keep an eye on it, though)
-    debugging::StopWatch length_watch;
-    total_bytes = sizeof(FullBlockHeader);
-    for (uint32_t i = 0; i < log_count; ++i) {
-      total_bytes += buffer.resolve(sorted_logs[i])->header_.log_length_;
-    }
-    length_watch.stop();
-    LOG(INFO) << to_string() << " iterated over " << log_count
-      << " log records to figure out block length in "<< length_watch.elapsed_us() << "us";
-
-    FullBlockHeader* header = reinterpret_cast<FullBlockHeader*>(io_buffer);
-    header->storage_id_ = storage_id;
-    header->log_count_ = log_count;
-    header->magic_word_ = BlockHeaderBase::kFullBlockHeaderMagicWord;
-    header->block_length_ = to_buffer_position(total_bytes);
-  }
+  uint64_t total_bytes = dump_block_header(buffer, storage_id, sorted_logs, log_count, io_buffer);
   uint64_t total_written = 0;
   uint64_t current_pos = sizeof(FullBlockHeader);
   for (uint32_t i = 0; i < log_count; ++i) {
@@ -513,6 +521,7 @@ void LogReducer::MergeContext::set_tmp_sorted_buffer_array(storage::StorageId st
 
 ErrorStack LogReducer::merge_sort() {
   merge_sort_check_buffer_status();
+  CHECK_ERROR(merge_sort_dump_last_buffer());
 
   // The writer to writes out composed snapshot pages to a new snapshot file.
   // we use it only during merge_sort().
@@ -531,11 +540,8 @@ ErrorStack LogReducer::merge_sort() {
   dump_io_buffer_.release_block();
 
   MergeContext context(sorted_runs_);
-  uint32_t last_buffer_index = control_block_->current_buffer_;
-
   LOG(INFO) << to_string() << " merge sorting " << sorted_runs_ << " sorted runs and the current"
-    << " buffer which has "
-    << control_block_->get_buffer_status_atomic(last_buffer_index).components.tail_position_
+    << " buffer which has " << control_block_->get_current_buffer_status().get_tail_position()
     << " bytes";
   debugging::StopWatch merge_watch;
 
@@ -636,6 +642,53 @@ void LogReducer::merge_sort_allocate_io_buffers(LogReducer::MergeContext* contex
   alloc_watch.stop();
   LOG(INFO) << to_string() << " allocated IO buffers (" << size_total << " bytes in total) "
     << " in " << alloc_watch.elapsed_us() << "us";
+}
+ErrorStack LogReducer::merge_sort_dump_last_buffer() {
+  uint16_t last = control_block_->current_buffer_ % 2;
+  BufferPosition last_pos = control_block_->get_buffer_status_atomic(last).get_tail_position();
+  LOG(INFO) << to_string() << " sorting the last buffer in memory (" << last_pos * 8 << "B)...";
+  debugging::StopWatch watch;
+
+  // Reuse most of dump_buffer_xxx methods
+  char* const base = reinterpret_cast<char*>(buffers_[last]);
+  char* const other = reinterpret_cast<char*>(buffers_[last + 1]);
+  std::map<storage::StorageId, std::vector<BufferPosition> > blocks;
+  dump_buffer_scan_block_headers(base, last_pos, &blocks);
+  uint64_t other_bytes = 0;
+  for (auto& kv : blocks) {
+    LogBuffer buffer(base);
+    storage::StorageId storage_id = kv.first;
+    uint32_t count;
+    CHECK_ERROR(dump_buffer_sort_storage(buffer, storage_id, kv.second, &count));
+    BufferPosition* pos = reinterpret_cast<BufferPosition*>(output_positions_slice_.get_block());
+
+      // The only difference is here. Output the sorted result to the other buffer, not to file.
+    uint64_t total_bytes = dump_block_header(buffer, storage_id, pos, count, other);
+    uint64_t current_pos = sizeof(FullBlockHeader);
+    for (uint32_t i = 0; i < count; ++i) {
+      const log::RecordLogType* record = buffer.resolve(pos[i]);
+      ASSERT_ND(current_pos % 8 == 0);
+      ASSERT_ND(record->header_.storage_id_ == storage_id);
+      ASSERT_ND(record->header_.log_length_ > 0);
+      ASSERT_ND(record->header_.log_length_ % 8 == 0);
+      std::memcpy(other + current_pos, record, record->header_.log_length_);
+      current_pos += record->header_.log_length_;
+    }
+    ASSERT_ND(total_bytes == current_pos);  // now we went over all logs again
+    other_bytes += total_bytes;
+  }
+
+  // We wrote out to the other buffer, switch the current.
+  ++control_block_->current_buffer_;
+  ReducerBufferStatus other_status;
+  other_status.components.active_writers_ = 0;
+  other_status.components.flags_ = kFlagNoMoreWriters;
+  other_status.components.tail_position_ = to_buffer_position(other_bytes);
+  control_block_->buffer_status_[control_block_->current_buffer_ % 2] = other_status.word;
+  watch.stop();
+  LOG(INFO) << to_string() << " sorted the last buffer in memory (" << last_pos * 8 << "B -> "
+    << other_bytes << "B)  in " << watch.elapsed_ms() << "ms";
+  return kRetOk;
 }
 
 ErrorStack LogReducer::merge_sort_open_sorted_runs(LogReducer::MergeContext* context) const {

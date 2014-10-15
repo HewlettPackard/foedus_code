@@ -66,6 +66,7 @@ union ReducerBufferStatus {
   }
   bool is_clear() const { return word == 0; }
   uint16_t get_active_writers() const { return components.active_writers_; }
+  BufferPosition get_tail_position() const { return components.tail_position_; }
 };
 
 /**
@@ -425,22 +426,35 @@ class LogReducer final : public MapReduceBase {
 
   /**
    * Third sub routine of dump_buffer().
-   * For the specified storage, sort all log entries in key-and-ordinal order, then dump
-   * them to the file.
+   * For the specified storage, sort all log entries in key-and-ordinal order.
+   * Outputs are written_count and output_positions_slice_ (written to the member variable)
    */
   ErrorStack dump_buffer_sort_storage(
     const LogBuffer &buffer,
     storage::StorageId storage_id,
     const std::vector<BufferPosition>& log_positions,
-    fs::DirectIoFile *dump_file);
+    uint32_t* written_count);
 
-  /** Sub routine of dump_buffer_sort_storage to write the sorted logs to the file. */
+  /**
+   * Fourth sub routine of dump_buffer().
+   * Write the sorted logs to the file.
+   */
   ErrorStack dump_buffer_sort_storage_write(
     const LogBuffer &buffer,
     storage::StorageId storage_id,
     const BufferPosition* sorted_logs,
     uint32_t log_count,
     fs::DirectIoFile *dump_file);
+  /**
+   * figure out the total length by iterating over all blocks and write out block header.
+   * returns the total number of bytes calculated.
+   */
+  uint64_t dump_block_header(
+    const LogBuffer &buffer,
+    storage::StorageId storage_id,
+    const BufferPosition* sorted_logs,
+    uint32_t log_count,
+    void* destination) const;
 
   /**
    * @brief Called at the end of the reducer to construct a snapshot file
@@ -455,13 +469,19 @@ class LogReducer final : public MapReduceBase {
 
   /** just sanity checks. */
   void        merge_sort_check_buffer_status() const;
+  /**
+   * First sub routine that sorts the active in-memory buffer just like dump_buffer.
+   * The difference is that this does not write out a file. It outputs to the other
+   * in-memory buffer to avoid file I/O.
+   */
+  ErrorStack  merge_sort_dump_last_buffer();
 
   /**
-   * First sub routine of merge_sort() which allocates I/O buffers to read from sorted run files.
+   * Second sub routine of merge_sort() which allocates I/O buffers to read from sorted run files.
    */
   void        merge_sort_allocate_io_buffers(MergeContext* context) const;
   /**
-   * Second sub routine that opens the files with the I/O buffers.
+   * Third sub routine that opens the files with the I/O buffers.
    */
   ErrorStack  merge_sort_open_sorted_runs(MergeContext* context) const;
   /**

@@ -3,5 +3,17 @@
 # For now disabled valgrind. Let's fix it when we get more easily reproducible situation.
 add_foedus_test_individual_without_valgrind(test_snapshot_basic "Empty;OneArrayCreate;TwoArrayCreate")
 
-add_foedus_test_individual(test_snapshot_array "OverwritesOneLogger")
-# add_foedus_test_individual(test_snapshot_array "OverwritesOneLogger;OverwritesTwoLoggers;OverwritesTwoPartitions")
+set(test_snapshot_array_individuals
+  OverwritesOneLogger
+  OverwritesTwoLoggers
+  OverwritesTwoPartitions
+  IncrementsOneLogger
+  IncrementsTwoLoggers
+  IncrementsTwoPartitions
+  IncrementsTwiceOneLogger
+  IncrementsTwiceTwoLoggers
+  IncrementsTwiceTwoPartitions
+  )
+add_foedus_test_individual(test_snapshot_array "${test_snapshot_array_individuals}")
+
+add_foedus_test_individual(test_snapshot_sequential "AppendsOneLogger;AppendsTwoLoggers;AppendsTwoPartitions")

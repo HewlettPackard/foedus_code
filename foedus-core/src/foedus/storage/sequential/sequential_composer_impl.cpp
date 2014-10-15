@@ -198,7 +198,8 @@ ErrorStack SequentialComposer::construct_root(const Composer::ConstructRootArgum
     snapshot_writer->get_page_base());
   SequentialRootPage* cur_page = base;
   uint32_t allocated_pages = 1;
-  cur_page->initialize_snapshot_page(storage_id_, snapshot_writer->get_next_page_id());
+  SnapshotPagePointer root_of_root_page_id = snapshot_writer->get_next_page_id();
+  cur_page->initialize_snapshot_page(storage_id_, root_of_root_page_id);
   for (uint32_t written_pointers = 0; written_pointers < all_head_pages.size();) {
     uint16_t count_in_this_page = std::min<uint64_t>(
       all_head_pages.size() - written_pointers,
@@ -223,7 +224,8 @@ ErrorStack SequentialComposer::construct_root(const Composer::ConstructRootArgum
 
   // write out the new root pages
   WRAP_ERROR_CODE(snapshot_writer->dump_pages(0, allocated_pages));
-  ASSERT_ND(snapshot_writer->get_next_page_id() == cur_page->header().page_id_ + 1ULL);
+  ASSERT_ND(snapshot_writer->get_next_page_id() == root_of_root_page_id + allocated_pages);
+  *args.new_root_page_pointer_ = root_of_root_page_id;
 
   stop_watch.stop();
   VLOG(0) << to_string() << " construct_root() done in " << stop_watch.elapsed_us() << "us."

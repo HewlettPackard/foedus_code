@@ -53,7 +53,7 @@ const PartitionId* ArrayPartitioner::get_bucket_owners() const {
 }
 bool ArrayPartitioner::is_partitionable() const {
   ASSERT_ND(data_);
-  return !data_->array_single_page_;
+  return data_->partitionable_;
 }
 
 ErrorStack ArrayPartitioner::design_partition(
@@ -61,6 +61,7 @@ ErrorStack ArrayPartitioner::design_partition(
   ASSERT_ND(data_ == nullptr);
   ArrayStorage storage(engine_, id_);
   ASSERT_ND(storage.exists());
+  ArrayStorageControlBlock* control_block = storage.get_control_block();
 
   soc::SharedMutexScope mutex_scope(&metadata_->mutex_);
   ASSERT_ND(!metadata_->valid_);
@@ -69,83 +70,99 @@ ErrorStack ArrayPartitioner::design_partition(
 
   data_->array_levels_ = storage.get_levels();
   data_->array_size_ = storage.get_array_size();
-  data_->bucket_size_ = data_->array_size_ / kInteriorFanout;
 
-  ArrayStorageControlBlock* array = storage.get_control_block();
+  if (storage.get_levels() == 1U || engine_->get_soc_count() == 1U) {
+    // No partitioning needed.
+    data_->bucket_owners_[0] = 0;
+    data_->partitionable_ = false;
+    data_->bucket_size_ = data_->array_size_;
+    metadata_->valid_ = true;
+    return kRetOk;
+  }
+
+  data_->partitionable_ = true;
+  ASSERT_ND(storage.get_levels() >= 2U);
+
+  // bucket size is interval that corresponds to a direct child of root.
+  // eg) levels==2 : leaf, levels==3: leaf*kInteriorFanout, ...
+  data_->bucket_size_ = control_block->route_finder_.get_records_in_leaf();
+  for (uint32_t level = 1; level < storage.get_levels() - 1U; ++level) {
+    data_->bucket_size_ *= kInteriorFanout;
+  }
+
   const memory::GlobalVolatilePageResolver& resolver
     = engine_->get_memory_manager()->get_global_volatile_page_resolver();
+  // root page is guaranteed to have volatile version.
   ArrayPage* root_page = reinterpret_cast<ArrayPage*>(
-    resolver.resolve_offset(array->root_page_pointer_.volatile_pointer_));
-  if (array->levels_ == 1) {
-    ASSERT_ND(root_page->is_leaf());
-    data_->array_single_page_ = true;
-  } else {
-    ASSERT_ND(!root_page->is_leaf());
-    data_->array_single_page_ = false;
+    resolver.resolve_offset(control_block->root_page_pointer_.volatile_pointer_));
+  ASSERT_ND(!root_page->is_leaf());
 
-    // how many direct children does this root page have?
-    std::vector<uint64_t> pages = ArrayStoragePimpl::calculate_required_pages(
-      data_->array_size_, storage.get_payload_size());
-    ASSERT_ND(pages.size() == array->levels_);
-    ASSERT_ND(pages[pages.size() - 1] == 1);  // root page
-    uint16_t direct_children = pages[pages.size() - 2];
+  // how many direct children does this root page have?
+  uint16_t direct_children = storage.get_array_size() / data_->bucket_size_ + 1U;
+  if (storage.get_array_size() % data_->bucket_size_ != 0) {
+    ++direct_children;
+  }
 
-    // do we have enough direct children? if not, some partition will not receive buckets.
-    // Although it's not a critical error, let's log it as an error.
-    uint16_t total_partitions = engine_->get_options().thread_.group_count_;
-    ASSERT_ND(total_partitions > 1U);  // if not, why we are coming here. it's a waste.
+  // do we have enough direct children? if not, some partition will not receive buckets.
+  // Although it's not a critical error, let's log it as an error.
+  uint16_t total_partitions = engine_->get_options().thread_.group_count_;
+  ASSERT_ND(total_partitions > 1U);  // if not, why we are coming here. it's a waste.
 
-    if (direct_children < total_partitions) {
-      LOG(ERROR) << "Warning-like error: This array doesn't have enough direct children in root"
-        " page to assign partitions. #partitions=" << total_partitions << ", #direct children="
-        << direct_children << ". array=" << storage;
+  if (direct_children < total_partitions) {
+    LOG(ERROR) << "Warning-like error: This array doesn't have enough direct children in root"
+      " page to assign partitions. #partitions=" << total_partitions << ", #direct children="
+      << direct_children << ". array=" << storage;
+  }
+
+  // two paths. first path simply sees volatile/snapshot pointer and determines owner.
+  // second path addresses excessive assignments, off loading them to needy ones.
+  std::vector<uint16_t> counts(total_partitions, 0);
+  const uint16_t excessive_count = (direct_children / total_partitions) + 1;
+  std::vector<uint16_t> excessive_children;
+  for (uint16_t child = 0; child < direct_children; ++child) {
+    const DualPagePointer &pointer = root_page->get_interior_record(child);
+    PartitionId partition;
+    if (pointer.volatile_pointer_.components.offset != 0) {
+      partition = pointer.volatile_pointer_.components.numa_node;
+    } else {
+      // if no volatile page, see snapshot page owner.
+      partition = extract_numa_node_from_snapshot_pointer(pointer.snapshot_pointer_);
+      // this ignores the case where neither snapshot/volatile page is there.
+      // however, as we create all pages at ArrayStorage::create(), this so far never happens.
     }
-
-    // two paths. first path simply sees volatile/snapshot pointer and determines owner.
-    // second path addresses excessive assignments, off loading them to needy ones.
-    std::vector<uint16_t> counts(total_partitions, 0);
-    const uint16_t excessive_count = (direct_children / total_partitions) + 1;
-    std::vector<uint16_t> excessive_children;
-    for (uint16_t child = 0; child < direct_children; ++child) {
-      const DualPagePointer &pointer = root_page->get_interior_record(child);
-      PartitionId partition;
-      if (pointer.volatile_pointer_.components.offset != 0) {
-        partition = pointer.volatile_pointer_.components.numa_node;
-      } else {
-        // if no volatile page, see snapshot page owner.
-        partition = extract_numa_node_from_snapshot_pointer(pointer.snapshot_pointer_);
-        // this ignores the case where neither snapshot/volatile page is there.
-        // however, as we create all pages at ArrayStorage::create(), this so far never happens.
-      }
-      ASSERT_ND(partition < total_partitions);
-      if (counts[partition] >= excessive_count) {
-        excessive_children.push_back(child);
-      } else {
-        ++counts[partition];
-        data_->bucket_owners_[child] = partition;
-      }
-    }
-
-    // just add it to the one with least assignments.
-    // a stupid loop, but this part won't be a bottleneck (only 250 elements).
-    for (uint16_t child : excessive_children) {
-      PartitionId most_needy = 0;
-      for (PartitionId partition = 1; partition < total_partitions; ++partition) {
-        if (counts[partition] < counts[most_needy]) {
-          most_needy = partition;
-        }
-      }
-
-      ++counts[most_needy];
-      data_->bucket_owners_[child] = most_needy;
+    ASSERT_ND(partition < total_partitions);
+    if (counts[partition] >= excessive_count) {
+      excessive_children.push_back(child);
+    } else {
+      ++counts[partition];
+      data_->bucket_owners_[child] = partition;
     }
   }
+
+  // just add it to the one with least assignments.
+  // a stupid loop, but this part won't be a bottleneck (only 250 elements).
+  for (uint16_t child : excessive_children) {
+    PartitionId most_needy = 0;
+    for (PartitionId partition = 1; partition < total_partitions; ++partition) {
+      if (counts[partition] < counts[most_needy]) {
+        most_needy = partition;
+      }
+    }
+
+    ++counts[most_needy];
+    data_->bucket_owners_[child] = most_needy;
+  }
+
   metadata_->valid_ = true;
   return kRetOk;
 }
 
 void ArrayPartitioner::partition_batch(const Partitioner::PartitionBatchArguments& args) const {
-  ASSERT_ND(is_partitionable());
+  if (!is_partitionable()) {
+    std::memset(args.results_, 0, sizeof(PartitionId) * args.logs_count_);
+    return;
+  }
+
   ASSERT_ND(data_->bucket_size_ > 0);
   assorted::ConstDiv bucket_size_div(data_->bucket_size_);
   for (uint32_t i = 0; i < args.logs_count_; ++i) {
@@ -246,8 +263,8 @@ void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) c
     // compact the logs if the same offset appears in a row, and covers the same data region.
     // because we sorted it by offset and then ordinal, later logs can overwrite the earlier one.
     if (entries[i].get_offset() == entries[i - 1].get_offset()) {
-      log::RecordLogType* prev_p = args.log_buffer_.resolve(entries[i - 1].get_position());
-      const log::RecordLogType* next_p = args.log_buffer_.resolve(entries[i].get_position());
+      const log::RecordLogType* prev_p = args.log_buffer_.resolve(entries[i - 1].get_position());
+      log::RecordLogType* next_p = args.log_buffer_.resolve(entries[i].get_position());
       if (prev_p->header_.log_type_code_ != next_p->header_.log_type_code_) {
         // increment log can be superseded by overwrite log,
         // overwrite log can be merged with increment log.
@@ -274,12 +291,12 @@ void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) c
       } else {
         // two increment logs of same type/offset can be merged into one.
         ASSERT_ND(prev_p->header_.get_type() == log::kLogCodeArrayIncrement);
-        ArrayIncrementLogType* prev = reinterpret_cast<ArrayIncrementLogType*>(prev_p);
-        const ArrayIncrementLogType* next = reinterpret_cast<const ArrayIncrementLogType*>(next_p);
+        const ArrayIncrementLogType* prev = reinterpret_cast<const ArrayIncrementLogType*>(prev_p);
+        ArrayIncrementLogType* next = reinterpret_cast<ArrayIncrementLogType*>(next_p);
         if (prev->value_type_ == next->value_type_
           && prev->payload_offset_ == next->payload_offset_) {
-          // add up the next's addendum to prev, then delete next.
-          prev->merge(*next);
+          // add up the prev's addendum to next, then delete prev.
+          next->merge(*prev);
           --result_count;
         }
       }
