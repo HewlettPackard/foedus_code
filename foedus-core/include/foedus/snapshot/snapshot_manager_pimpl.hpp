@@ -38,6 +38,7 @@ struct LogGleanerControlBlock {
     mappers_count_ = 0;
     reducers_count_ = 0;
     all_count_ = 0;
+    terminating_ = false;
   }
   void uninitialize() {
   }
@@ -55,12 +56,14 @@ struct LogGleanerControlBlock {
   * If this returns true, all mappers and reducers should exit as soon as possible.
   * Gleaner 'does its best' to wait for the exit of them, and then exit asap, too.
   */
-  bool is_error() const { return error_count_ > 0 || cancelled_; }
+  bool is_error() const { return error_count_ > 0 || cancelled_ || terminating_; }
 
   /** Whether the log gleaner is now running. */
   std::atomic<bool>               gleaning_;
   /** Whether the log gleaner has been cancalled. */
   std::atomic<bool>               cancelled_;
+  /** Whether the engine is being terminated. */
+  std::atomic<bool>               terminating_;
 
   /** The snapshot we are now taking. */
   Snapshot                        cur_snapshot_;

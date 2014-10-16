@@ -39,13 +39,6 @@ LogGleaner::LogGleaner(Engine* engine, const Snapshot& new_snapshot)
   : LogGleanerRef(engine),
     new_snapshot_(new_snapshot) {
 }
-LogGleaner::~LogGleaner() {
-  if (partitioner_metadata_) {
-    for (storage::StorageId i = 0; i <= new_snapshot_.max_storage_id_; ++i) {
-      partitioner_metadata_[i].uninitialize();
-    }
-  }
-}
 
 ErrorStack LogGleaner::cancel_reducers_mappers() {
   if (is_all_exitted()) {
@@ -56,7 +49,7 @@ ErrorStack LogGleaner::cancel_reducers_mappers() {
   control_block_->cancelled_ = true;
   const uint32_t kTimeoutSleeps = 3000U;
   uint32_t count = 0;
-  while (!is_all_exitted()) {
+  while (!is_all_exitted() && !is_error()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     if (++count > kTimeoutSleeps) {
       return ERROR_STACK(kErrorCodeSnapshotExitTimeout);
@@ -82,9 +75,6 @@ void LogGleaner::clear_all() {
 }
 
 ErrorStack LogGleaner::design_partitions() {
-  if (engine_->get_soc_count() == 1U) {
-    return kRetOk;  // no partitioning needed
-  }
   // so far single threaded to debug easily.
   // but, let's prepare for parallelization so that we can switch later.
   ErrorStack result;
@@ -175,7 +165,7 @@ ErrorStack LogGleaner::execute() {
 
   LOG(INFO) << "Gleaner Step 4: Uninitializing...";
   CHECK_ERROR(cancel_reducers_mappers());
-  ASSERT_ND(is_all_exitted());
+  ASSERT_ND(is_error() || is_all_exitted());
   LOG(INFO) << "Gleaner ends";
   return kRetOk;
 }

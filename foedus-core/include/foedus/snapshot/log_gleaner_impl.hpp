@@ -91,7 +91,6 @@ namespace snapshot {
 class LogGleaner final : public LogGleanerRef {
  public:
   LogGleaner(Engine* engine, const Snapshot& new_snapshot);
-  ~LogGleaner();
 
   LogGleaner() = delete;
   LogGleaner(const LogGleaner &other) = delete;

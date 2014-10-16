@@ -31,6 +31,7 @@ ArrayPartitioner::ArrayPartitioner(Partitioner* parent)
   : engine_(parent->get_engine()),
     id_(parent->get_storage_id()),
     metadata_(PartitionerMetadata::get_metadata(engine_, id_)) {
+  ASSERT_ND(metadata_->mutex_.is_initialized());
   if (metadata_->valid_) {
     data_ = reinterpret_cast<ArrayPartitionerData*>(metadata_->locate_data(engine_));
   } else {
@@ -58,6 +59,7 @@ bool ArrayPartitioner::is_partitionable() const {
 
 ErrorStack ArrayPartitioner::design_partition(
   const Partitioner::DesignPartitionArguments& /*args*/) {
+  ASSERT_ND(metadata_->mutex_.is_initialized());
   ASSERT_ND(data_ == nullptr);
   ArrayStorage storage(engine_, id_);
   ASSERT_ND(storage.exists());

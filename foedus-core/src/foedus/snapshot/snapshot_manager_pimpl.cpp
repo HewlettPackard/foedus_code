@@ -31,6 +31,7 @@
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/composer.hpp"
 #include "foedus/storage/metadata.hpp"
+#include "foedus/storage/partitioner.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/xct/xct_manager.hpp"
@@ -65,6 +66,20 @@ ErrorStack SnapshotManagerPimpl::initialize_once() {
     control_block_->gleaner_.reducers_count_ = reducer_count;
     control_block_->gleaner_.mappers_count_ = mapper_count;
     control_block_->gleaner_.all_count_ = reducer_count + mapper_count;
+
+    // also initialize the shared memory for partitioner
+    uint32_t max_storages = engine_->get_options().storage_.max_storages_;
+    storage::PartitionerMetadata* partitioner_metadata
+      = repo->get_global_memory_anchors()->partitioner_metadata_;
+    for (storage::StorageId i = 0; i < max_storages; ++i) {
+      storage::PartitionerMetadata* meta = partitioner_metadata + i;
+      ASSERT_ND(!meta->mutex_.is_initialized());
+      meta->initialize();
+      ASSERT_ND(meta->mutex_.is_initialized());
+    }
+    // set the size of partitioner data
+    repo->get_global_memory_anchors()->partitioner_metadata_[0].data_size_
+      = engine_->get_options().storage_.partitioner_data_memory_mb_ * (1ULL << 20);
   }
 
   // in child engines, we instantiate local mappers/reducer objects (but not the threads yet)
@@ -95,9 +110,11 @@ ErrorStack SnapshotManagerPimpl::uninitialize_once() {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
   if (snapshot_thread_.joinable()) {
+    // whether from master or not, just make sure all reducers/mappers notice that it's closing
     stop_requested_ = true;
+    control_block_->gleaner_.cancelled_ = true;
+    control_block_->gleaner_.terminating_ = true;
     if (engine_->is_master()) {
-      control_block_->gleaner_.cancelled_ = true;
       wakeup();
     } else {
       control_block_->wakeup_snapshot_children();
@@ -105,6 +122,16 @@ ErrorStack SnapshotManagerPimpl::uninitialize_once() {
     snapshot_thread_.join();
   }
   if (engine_->is_master()) {
+    // also uninitialize the shared memory for partitioner
+    soc::GlobalMemoryAnchors* anchors
+      = engine_->get_soc_manager()->get_shared_memory_repo()->get_global_memory_anchors();
+    uint32_t max_storages = engine_->get_options().storage_.max_storages_;
+    for (storage::StorageId i = 0; i < max_storages; ++i) {
+      ASSERT_ND(anchors->partitioner_metadata_[i].mutex_.is_initialized());
+      anchors->partitioner_metadata_[i].uninitialize();
+      ASSERT_ND(!anchors->partitioner_metadata_[i].mutex_.is_initialized());
+    }
+
     control_block_->uninitialize();
     ASSERT_ND(local_reducer_ == nullptr);
     ASSERT_ND(local_mappers_.size() == 0);
@@ -170,8 +197,10 @@ void SnapshotManagerPimpl::handle_snapshot() {
 
     if (triggered) {
       Snapshot new_snapshot;
-      // TODO(Hideaki): graceful error handling
-      COERCE_ERROR(handle_snapshot_triggered(&new_snapshot));
+      ErrorStack stack = handle_snapshot_triggered(&new_snapshot);
+      if (stack.is_error()) {
+        LOG(ERROR) << "Snapshot failed:" << stack;
+      }
     } else {
       VLOG(1) << "Snapshotting not triggered. going to sleep again";
     }
@@ -333,10 +362,10 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(
   uint32_t installed_root_pages_count = 0;
   for (storage::StorageId id = 1; id <= metadata.largest_storage_id_; ++id) {
     const auto& it = new_root_page_pointers.find(id);
+    storage::Metadata* meta = metadata.get_metadata(id);
     if (it != new_root_page_pointers.end()) {
       storage::SnapshotPagePointer new_pointer = it->second;
       ASSERT_ND(new_pointer != 0);
-      storage::Metadata* meta = metadata.get_metadata(id);
       ASSERT_ND(new_pointer != meta->root_snapshot_page_id_);
       meta->root_snapshot_page_id_ = new_pointer;
       ++installed_root_pages_count;
@@ -450,6 +479,7 @@ ErrorStack SnapshotManagerPimpl::replace_pointers(
     const auto& it = new_root_page_pointers.find(id);
     if (it != new_root_page_pointers.end()) {
       storage::SnapshotPagePointer new_root_page_pointer = it->second;
+      ASSERT_ND(new_root_page_pointer != 0);
       storage::Composer composer(engine_, id);
       uint64_t installed_count = 0;
       uint64_t dropped_count = 0;
@@ -466,6 +496,10 @@ ErrorStack SnapshotManagerPimpl::replace_pointers(
         LOG(ERROR) << "composer.replace_pointers() failed with storage-" << id << ":" << result;
         break;
       }
+      ASSERT_ND(engine_->get_storage_manager()->get_storage(id)->root_page_pointer_.
+        snapshot_pointer_ == new_root_page_pointer);
+      ASSERT_ND(engine_->get_storage_manager()->get_storage(id)->meta_.root_snapshot_page_id_
+        == new_root_page_pointer);
       installed_count_total += installed_count;
       dropped_count_total += dropped_count;
     }

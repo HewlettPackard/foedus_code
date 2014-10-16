@@ -34,6 +34,8 @@ class SocManagerPimpl final : public DefaultInitializable {
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
+  void        report_engine_fatal_error();
+
   /** Called as part of initialize_once() if this is a master engine */
   ErrorStack  initialize_master();
 

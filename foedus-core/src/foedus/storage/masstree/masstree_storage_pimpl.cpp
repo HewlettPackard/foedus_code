@@ -233,15 +233,25 @@ ErrorStack MasstreeStoragePimpl::load(const StorageControlBlock& snapshot_block)
   // Create it now.
   VolatilePagePointer volatile_pointer;
   Page* volatile_root;
-  cache::SnapshotFileSet fileset(engine_);
-  CHECK_ERROR(fileset.initialize());
-  UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
-  CHECK_ERROR(engine_->get_memory_manager()->load_one_volatile_page(
-    &fileset,
-    meta.root_snapshot_page_id_,
-    &volatile_pointer,
-    &volatile_root));
-  CHECK_ERROR(fileset.uninitialize());
+  if (meta.root_snapshot_page_id_ != 0) {
+    cache::SnapshotFileSet fileset(engine_);
+    CHECK_ERROR(fileset.initialize());
+    UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
+    CHECK_ERROR(engine_->get_memory_manager()->load_one_volatile_page(
+      &fileset,
+      meta.root_snapshot_page_id_,
+      &volatile_pointer,
+      &volatile_root));
+    CHECK_ERROR(fileset.uninitialize());
+  } else {
+    LOG(INFO) << "This is an empty masstree: " << get_meta();
+    CHECK_ERROR(engine_->get_memory_manager()->grab_one_volatile_page(
+      0,
+      &volatile_pointer,
+      &volatile_root));
+    MasstreeBorderPage* casted = reinterpret_cast<MasstreeBorderPage*>(volatile_root);
+    casted->initialize_volatile_page(get_id(), volatile_pointer, 0, kInfimumSlice, kSupremumSlice);
+  }
 
   volatile_pointer.components.flags = kVolatilePointerFlagSwappable;
   control_block_->root_page_pointer_.volatile_pointer_ = volatile_pointer;

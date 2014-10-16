@@ -99,8 +99,7 @@ ErrorStack LogReducer::initialize_once() {
 
   sorted_runs_ = 0;
 
-  // we don't initialize snapshot_writer_/composer_work_memory_ yet
-  // because they are needed at the end of reducer.
+  CHECK_ERROR(previous_snapshot_files_.initialize());
   return kRetOk;
 }
 
@@ -532,8 +531,6 @@ ErrorStack LogReducer::merge_sort() {
     &writer_pool_memory_,
     &writer_intermediate_memory_);
   CHECK_ERROR(snapshot_writer.open());
-
-  CHECK_ERROR(previous_snapshot_files_.initialize());
 
   // because now we are at the last merging phase, we will no longer dump sorted runs any more.
   // thus, we release the reducer's dump IO buffer to reduce memory pressure.

@@ -18,6 +18,7 @@ set(FOEDUS_VERSION "0.1.0")
 # No in-source build please. Terminate it as soon as possible if it happens.
 include(${CMAKE_CURRENT_SOURCE_DIR}/foedus-core/cmake/WarnInSrcBuild.cmake)
 
+set(CMAKE_COLOR_MAKEFILE ON)
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
 # A few projects other than foedus-core refer to foedus-core. Give a global variable for them.

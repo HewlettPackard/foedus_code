@@ -195,7 +195,6 @@ TEST(SnapshotArrayTest, IncrementsTwoPartitions) { test_run(kInc, true, true); }
 TEST(SnapshotArrayTest, IncrementsTwiceOneLogger) { test_run(kInc2, false, false); }
 TEST(SnapshotArrayTest, IncrementsTwiceTwoLoggers) { test_run(kInc2, true, false); }
 TEST(SnapshotArrayTest, IncrementsTwiceTwoPartitions) { test_run(kInc2, true, true); }
-
 }  // namespace snapshot
 }  // namespace foedus
 

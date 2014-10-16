@@ -85,7 +85,7 @@ bool create_directories(const Path& p, bool sync) {
   if (parent.empty()) {
     return false;
   }
-  if (!create_directories(parent, sync)) {
+  if (!create_directories(parent, sync) && !exists(parent)) {
     return false;
   }
   // now ancestors exist.
@@ -164,6 +164,7 @@ std::string unique_name(uint64_t differentiator) {
 std::string unique_name(const std::string& model, uint64_t differentiator) {
   const char* kHexChars = "0123456789abcdef";
   uint64_t seed64 = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+  seed64 += ::getpid();  // further use process ID to randomize. may help.
   seed64 ^= differentiator;
   uint32_t seed32 = (seed64 >> 32) ^ seed64;
   std::string s(model);

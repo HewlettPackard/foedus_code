@@ -1151,6 +1151,7 @@ ArrayPage* ArrayStoragePimpl::resolve_volatile(VolatilePagePointer pointer) {
 
 ErrorStack ArrayStoragePimpl::replace_pointers(const Composer::ReplacePointersArguments& args) {
   // First, install the root page snapshot pointer.
+  control_block_->meta_.root_snapshot_page_id_ = args.new_root_page_pointer_;
   control_block_->root_page_pointer_.snapshot_pointer_ = args.new_root_page_pointer_;
   ++(*args.installed_count_);
 

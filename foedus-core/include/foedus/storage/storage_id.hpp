@@ -198,6 +198,7 @@ union VolatilePagePointer {
   } components;
 
   bool is_null() const { return components.offset == 0; }
+  void clear() { word = 0; }
   void set(uint8_t numa_node, uint8_t flags, uint16_t mod_count, memory::PagePoolOffset offset) {
     components.numa_node = numa_node;
     components.flags = flags;

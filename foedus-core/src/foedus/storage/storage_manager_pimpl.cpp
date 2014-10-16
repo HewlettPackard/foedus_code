@@ -91,14 +91,6 @@ ErrorStack StorageManagerPimpl::initialize_once() {
     control_block_->initialize();
     control_block_->largest_storage_id_ = 0;
 
-    // also initialize the shared memory for partitioner
-    uint32_t max_storages = get_max_storages();
-    for (storage::StorageId i = 0; i < max_storages; ++i) {
-      anchors->partitioner_metadata_[i].initialize();
-    }
-    // set the size of partitioner data
-    anchors->partitioner_metadata_[0].data_size_
-      = engine_->get_options().storage_.partitioner_data_memory_mb_ * (1ULL << 20);
     // Then, initialize storages with latest snapshot
     CHECK_ERROR(initialize_read_latest_snapshot());
   }
@@ -173,14 +165,6 @@ ErrorStack StorageManagerPimpl::uninitialize_once() {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
   if (engine_->is_master()) {
-    // also uninitialize the shared memory for partitioner
-    soc::GlobalMemoryAnchors* anchors
-      = engine_->get_soc_manager()->get_shared_memory_repo()->get_global_memory_anchors();
-    uint32_t max_storages = get_max_storages();
-    for (storage::StorageId i = 0; i < max_storages; ++i) {
-      anchors->partitioner_metadata_[i].uninitialize();
-    }
-
     // drop all existing storages just for releasing memories.
     // this is not a real drop, so we just invoke drop_apply
     uint32_t dropped = 0;
