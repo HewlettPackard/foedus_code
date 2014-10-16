@@ -109,18 +109,7 @@ ErrorStack SnapshotManagerPimpl::uninitialize_once() {
   if (!engine_->get_log_manager()->is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
-  if (snapshot_thread_.joinable()) {
-    // whether from master or not, just make sure all reducers/mappers notice that it's closing
-    stop_requested_ = true;
-    control_block_->gleaner_.cancelled_ = true;
-    control_block_->gleaner_.terminating_ = true;
-    if (engine_->is_master()) {
-      wakeup();
-    } else {
-      control_block_->wakeup_snapshot_children();
-    }
-    snapshot_thread_.join();
-  }
+  stop_snapshot_thread();
   if (engine_->is_master()) {
     // also uninitialize the shared memory for partitioner
     soc::GlobalMemoryAnchors* anchors
@@ -149,6 +138,22 @@ ErrorStack SnapshotManagerPimpl::uninitialize_once() {
   }
 
   return SUMMARIZE_ERROR_BATCH(batch);
+}
+void SnapshotManagerPimpl::stop_snapshot_thread() {
+  LOG(INFO) << "Stopping the snapshot thread...";
+  if (snapshot_thread_.joinable()) {
+    // whether from master or not, just make sure all reducers/mappers notice that it's closing
+    stop_requested_ = true;
+    control_block_->gleaner_.cancelled_ = true;
+    control_block_->gleaner_.terminating_ = true;
+    if (engine_->is_master()) {
+      wakeup();
+    } else {
+      control_block_->wakeup_snapshot_children();
+    }
+    snapshot_thread_.join();
+  }
+  LOG(INFO) << "Stopped the snapshot thread.";
 }
 
 void SnapshotManagerPimpl::sleep_a_while() {
@@ -274,6 +279,7 @@ void SnapshotManagerPimpl::trigger_snapshot_immediate(bool wait_completion) {
 
 ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapshot) {
   ASSERT_ND(engine_->is_master());
+  ASSERT_ND(engine_->get_storage_manager()->is_initialized());  // snapshot relied on storage module
   Epoch durable_epoch = engine_->get_log_manager()->get_durable_global_epoch();
   Epoch previous_epoch = get_snapshot_epoch();
   LOG(INFO) << "Taking a new snapshot. durable_epoch=" << durable_epoch
@@ -283,6 +289,8 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
   new_snapshot->base_epoch_ = previous_epoch;
   new_snapshot->valid_until_epoch_ = durable_epoch;
   new_snapshot->max_storage_id_ = engine_->get_storage_manager()->get_largest_storage_id();
+  ASSERT_ND(new_snapshot->max_storage_id_
+    >= control_block_->gleaner_.cur_snapshot_.max_storage_id_);
 
   // determine the snapshot ID
   SnapshotId snapshot_id;
@@ -362,6 +370,7 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(
   uint32_t installed_root_pages_count = 0;
   for (storage::StorageId id = 1; id <= metadata.largest_storage_id_; ++id) {
     const auto& it = new_root_page_pointers.find(id);
+    ASSERT_ND(metadata.storage_control_blocks_[id].is_valid_status());
     storage::Metadata* meta = metadata.get_metadata(id);
     if (it != new_root_page_pointers.end()) {
       storage::SnapshotPagePointer new_pointer = it->second;

@@ -164,8 +164,11 @@ void test_run(const proc::ProcName& proc_name, bool multiple_loggers, bool multi
         }
       }
 
+      EXPECT_TRUE(out.exists());
       COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("verify_task"));
+      EXPECT_TRUE(out.exists());
       engine.get_snapshot_manager()->trigger_snapshot_immediate(true);
+      EXPECT_TRUE(out.exists());
 
       COERCE_ERROR(engine.uninitialize());
     }

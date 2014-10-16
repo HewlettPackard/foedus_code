@@ -47,27 +47,6 @@
 namespace foedus {
 namespace storage {
 
-template <typename HANDLER>
-ErrorStack storage_pseudo_polymorph(Engine* engine, StorageControlBlock* block, HANDLER handler) {
-  StorageType type = block->meta_.type_;
-  if (type == kArrayStorage) {
-    array::ArrayStorage obj(engine, block);
-    CHECK_ERROR(handler(&obj));
-  } else if (type == kHashStorage) {
-    hash::HashStorage obj(engine, block);
-    CHECK_ERROR(handler(&obj));
-  } else if (type == kMasstreeStorage) {
-    masstree::MasstreeStorage obj(engine, block);
-    CHECK_ERROR(handler(&obj));
-  } else if (type == kSequentialStorage) {
-    sequential::SequentialStorage obj(engine, block);
-    CHECK_ERROR(handler(&obj));
-  } else {
-    return ERROR_STACK(kErrorCodeStrUnsupportedMetadata);
-  }
-  return kRetOk;
-}
-
 uint32_t   StorageManagerPimpl::get_max_storages() const {
   return engine_->get_options().storage_.max_storages_;
 }
@@ -242,7 +221,7 @@ ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) 
   engine_->get_log_manager()->get_meta_buffer()->commit(drop_log, commit_epoch);
 
   ASSERT_ND(commit_epoch->is_valid());
-  block->status_ = kDropped;
+  block->status_ = kMarkedForDeath;
   ASSERT_ND(!block->exists());
   block->uninitialize();
   LOG(INFO) << "Dropped storage " << id << "(" << name << ")";
@@ -250,7 +229,6 @@ ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) 
 }
 
 void StorageManagerPimpl::drop_storage_apply(StorageId id) {
-  // this method is called only while restart, so no race.
   StorageControlBlock* block = storages_ + id;
   ASSERT_ND(block->exists());
   StorageType type = block->meta_.type_;
@@ -265,7 +243,7 @@ void StorageManagerPimpl::drop_storage_apply(StorageId id) {
   } else {
     LOG(FATAL) << "WTF:" << type;
   }
-  block->status_ = kDropped;
+  block->status_ = kMarkedForDeath;
   ASSERT_ND(!block->exists());
   block->uninitialize();
 }
@@ -279,7 +257,9 @@ ErrorStack StorageManagerPimpl::create_storage_and_log(const Metadata* meta, Epo
   StorageControlBlock* block = storages_ + id;
   STORAGE storage(engine_, block);
   const TheMetadata* casted_meta = reinterpret_cast< const TheMetadata *>(meta);
+  ASSERT_ND(!block->exists());
   CHECK_ERROR(storage.create(*casted_meta));
+  ASSERT_ND(block->exists());
 
   if (commit_epoch) {
     // if commit_epoch is null, it means "apply-only" mode in restart. do not log then

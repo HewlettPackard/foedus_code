@@ -209,6 +209,16 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
   ErrorStack read_snapshot_metadata(SnapshotId snapshot_id, SnapshotMetadata* out);
 
   void    trigger_snapshot_immediate(bool wait_completion);
+  /**
+   * This is a hidden API called at the beginning of engine shutdown (namely restart manager).
+   * Snapshot Manager initializes before Storage because it must \e read previous snapshot,
+   * but it must stop snapshot thread before Storage because the snapshot thread relies on
+   * storage module. To solve the issue, we call this method from restart manager's uninit to
+   * stop snapshot thread.
+   * This method is also called by snapshot manager's own uninit() in case restart manager
+   * didn't initialize. Thus, this method must be idempotent.
+   */
+  void    stop_snapshot_thread();
 
   SnapshotId issue_next_snapshot_id() {
     if (control_block_->previous_snapshot_id_ == kNullSnapshotId) {

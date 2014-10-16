@@ -143,13 +143,12 @@ enum StorageStatus {
   kNotExists = 0,
   /** The storage has been created and ready for use. */
   kExists,
-  /** The storage has been marked for drop and can't be used. */
-  kMarkedForDeath,
   /**
-   * The storage has been completely dropped and there is no reference to this storage in
+   * The storage has been marked for drop and can't be used.
+   * The status becomes kNotExists at next restart.
    * the system. So far there is no path from this state to kNotExists. No reuse of StorageId.
    */
-  kDropped,
+  kMarkedForDeath,
 };
 
 /**

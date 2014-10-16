@@ -48,6 +48,9 @@ ErrorStack RestartManagerPimpl::uninitialize_once() {
   }
   if (engine_->is_master()) {
     LOG(INFO) << "Uninitializing RestartManager..";
+    // restart manager essentially has nothing to release, but because this is the first module
+    // to uninit, we place "stop them first" kind of operations here.
+    engine_->get_snapshot_manager()->get_pimpl()->stop_snapshot_thread();  // stop snapshot thread
   }
   return SUMMARIZE_ERROR_BATCH(batch);
 }

@@ -42,7 +42,10 @@ struct StorageControlBlock CXX11_FINAL {
   StorageControlBlock() CXX11_FUNC_DELETE;
   ~StorageControlBlock() CXX11_FUNC_DELETE;
 
-  bool exists() const { return status_ == kExists || status_ == kMarkedForDeath; }
+  bool exists() const { return status_ == kExists; }
+  bool is_valid_status() const {
+    return status_ == kNotExists || status_ == kExists || status_ == kMarkedForDeath;
+  }
 
   void initialize() {
     status_mutex_.initialize();

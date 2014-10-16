@@ -98,8 +98,8 @@ namespace foedus {
   }
   void cleanup_test(const EngineOptions& options) {
     fs::Path savepoint_path(options.savepoint_.savepoint_path_.str());
-    fs::Path uniquet_root = savepoint_path.parent_path();
-    fs::remove(uniquet_root);
+    fs::Path unique_root = savepoint_path.parent_path();
+    fs::remove_all(unique_root);
   }
 
   bool is_multi_nodes() {
