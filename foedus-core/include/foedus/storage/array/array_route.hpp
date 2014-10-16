@@ -51,8 +51,8 @@ class LookupRouteFinder {
   LookupRouteFinder()
   : levels_(0),
     records_in_leaf_(0),
-    leaf_fanout_div_(0),
-    interior_fanout_div_(0) {
+    leaf_fanout_div_(1),
+    interior_fanout_div_(1) {
   }
   LookupRouteFinder(uint8_t levels,  uint16_t payload_size)
     : levels_(levels),

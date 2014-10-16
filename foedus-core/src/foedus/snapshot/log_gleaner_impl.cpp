@@ -39,13 +39,6 @@ LogGleaner::LogGleaner(Engine* engine, const Snapshot& new_snapshot)
   : LogGleanerRef(engine),
     new_snapshot_(new_snapshot) {
 }
-LogGleaner::~LogGleaner() {
-  if (partitioner_metadata_) {
-    for (storage::StorageId i = 0; i <= new_snapshot_.max_storage_id_; ++i) {
-      partitioner_metadata_[i].uninitialize();
-    }
-  }
-}
 
 ErrorStack LogGleaner::cancel_reducers_mappers() {
   if (is_all_exitted()) {
@@ -56,7 +49,7 @@ ErrorStack LogGleaner::cancel_reducers_mappers() {
   control_block_->cancelled_ = true;
   const uint32_t kTimeoutSleeps = 3000U;
   uint32_t count = 0;
-  while (!is_all_exitted()) {
+  while (!is_all_exitted() && !is_error()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     if (++count > kTimeoutSleeps) {
       return ERROR_STACK(kErrorCodeSnapshotExitTimeout);
@@ -110,17 +103,13 @@ void LogGleaner::design_partitions_run(
   }
   UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
 
+  storage::StorageManager* stm = engine_->get_storage_manager();
   for (storage::StorageId id = from; id < from + count; ++id) {
-    storage::Partitioner partitioner(engine_, id);
-    uint64_t required_size = partitioner.get_required_design_buffer_size();
-    if (required_size > work_memory.get_size()) {
-      LOG(INFO) << "auto-expanding work memory for design_partition()... " << required_size;
-      work_memory.alloc(required_size, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
+    if (!stm->get_storage(id)->exists()) {
+      continue;
     }
-
-    storage::Partitioner::DesignPartitionArguments args = {
-      memory::AlignedMemorySlice(&work_memory),
-      &fileset};
+    storage::Partitioner partitioner(engine_, id);
+    storage::Partitioner::DesignPartitionArguments args = { &work_memory, &fileset };
     ErrorStack ret = partitioner.design_partition(args);
     if (ret.is_error()) {
       LOG(ERROR) << "Error while determining partitions for storage-" << id << ":" << ret;
@@ -176,7 +165,7 @@ ErrorStack LogGleaner::execute() {
 
   LOG(INFO) << "Gleaner Step 4: Uninitializing...";
   CHECK_ERROR(cancel_reducers_mappers());
-  ASSERT_ND(is_all_exitted());
+  ASSERT_ND(is_error() || is_all_exitted());
   LOG(INFO) << "Gleaner ends";
   return kRetOk;
 }
@@ -200,8 +189,6 @@ ErrorStack LogGleaner::construct_root_pages() {
   // Combining the root page info doesn't require much memory, so this size should be enough.
   memory::AlignedMemory work_memory;
   work_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
-  memory::AlignedMemorySlice work_memory_slice(&work_memory);
-
 
   // composers read snapshot files.
   cache::SnapshotFileSet fileset(engine_);
@@ -221,7 +208,9 @@ ErrorStack LogGleaner::construct_root_pages() {
     0,
     get_snapshot_id(),
     &writer_pool_memory,
-    &writer_intermediate_memory);
+    &writer_intermediate_memory,
+    true);  // we append to the node-0 snapshot file.
+  CHECK_ERROR(snapshot_writer.open());
 
   storage::StorageId prev_storage_id = 0;
   // each reducer's root-info-page must be sorted by storage_id, so we do kind of merge-sort here.
@@ -268,7 +257,7 @@ ErrorStack LogGleaner::construct_root_pages() {
       &fileset,
       &tmp_array[0],
       input_count,
-      work_memory_slice,
+      &work_memory,
       &new_root_page_pointer};
     CHECK_ERROR(composer.construct_root(args));
     ASSERT_ND(new_root_page_pointer > 0);

@@ -63,7 +63,7 @@ void StorageManager::drop_storage_apply(StorageId id) {
 ErrorStack StorageManager::create_storage(Metadata *metadata, Epoch *commit_epoch) {
   return pimpl_->create_storage(metadata, commit_epoch);
 }
-void StorageManager::create_storage_apply(Metadata* metadata) {
+void StorageManager::create_storage_apply(const Metadata& metadata) {
   pimpl_->create_storage_apply(metadata);
 }
 

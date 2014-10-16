@@ -152,11 +152,6 @@ ErrorStack MasstreePartitioner::design_partition(
   LOG(INFO) << "Masstree-" << id_ << " partitions:" << *this;
   return kRetOk;
 }
-uint64_t MasstreePartitioner::get_required_design_buffer_size() const {
-  uint32_t desired_branches
-    = engine_->get_soc_count() * MasstreePartitioner::kPartitionThresholdPerNode;
-  return 2ULL * kPageSize * desired_branches;
-}
 
 bool MasstreePartitioner::is_partitionable() const {
   return data_->partition_count_ > 1U;
@@ -193,10 +188,6 @@ struct SortEntry {
   snapshot::BufferPosition  position_;
 };
 
-// this doesn't use work memory so far.
-uint64_t MasstreePartitioner::get_required_sort_buffer_size(uint32_t /*log_count*/) const {
-  return 0;
-}
 void MasstreePartitioner::sort_batch(const Partitioner::SortBatchArguments& args) const {
   debugging::StopWatch stop_watch_entire;
 
@@ -331,7 +322,7 @@ uint16_t MasstreePartitionerData::find_partition(const char* key, uint16_t key_l
 MasstreePartitionerInDesignData::MasstreePartitionerInDesignData(
   Engine* engine,
   StorageId id,
-  memory::AlignedMemorySlice work_memory,
+  memory::AlignedMemory* work_memory,
   cache::SnapshotFileSet* snapshot_files)
   : engine_(engine),
     id_(id),
@@ -341,18 +332,17 @@ MasstreePartitionerInDesignData::MasstreePartitionerInDesignData(
     desired_branches_(
       engine_->get_soc_count() * MasstreePartitioner::kPartitionThresholdPerNode),
     volatile_resolver_(engine_->get_memory_manager()->get_global_volatile_page_resolver()) {
+  work_memory_->assure_capacity(2ULL * kPageSize * desired_branches_);
   std::memset(tmp_pages_control_block_, 0, sizeof(tmp_pages_control_block_));
   ASSERT_ND(storage_.exists());
 }
 
 ErrorStack MasstreePartitionerInDesignData::initialize() {
-  if (work_memory_.get_size() < 2ULL * kPageSize * desired_branches_) {
-    return ERROR_STACK_MSG(kErrorCodeInvalidParameter, "work_memory too small");
-  }
+  ASSERT_ND(work_memory_->get_size() >= 2ULL * kPageSize * desired_branches_);
   tmp_pages_.attach(
     reinterpret_cast<memory::PagePoolControlBlock*>(tmp_pages_control_block_),
-    work_memory_.get_block(),
-    work_memory_.get_size(),
+    work_memory_->get_block(),
+    work_memory_->get_size(),
     true);
   tmp_pages_.set_debug_pool_name(
     std::string("Masstree-partitioner-tmp_pages_") + std::to_string(id_));

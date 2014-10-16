@@ -141,6 +141,27 @@ void AlignedMemory::alloc(
   LOG(INFO) << "Allocated memory in " << watch.elapsed_ns() << "+"
     << watch2.elapsed_ns() << " ns (alloc+memset)." << *this;
 }
+ErrorCode AlignedMemory::assure_capacity(uint64_t required_size, double expand_margin) noexcept {
+  if (is_null()) {
+    LOG(FATAL) << "Misuse of assure_capacity. Can't extend a null buffer";
+    return kErrorCodeInvalidParameter;
+  }
+  if (size_ >= required_size) {
+    return kErrorCodeOk;
+  }
+  if (expand_margin < 1) {
+    expand_margin = 1;
+  }
+  uint64_t expanded = required_size * expand_margin;
+  VLOG(0) << "Expanding work memory from " << size_ << " to " << expanded;
+  alloc(expanded, alignment_, alloc_type_, numa_node_);
+  if (is_null()) {
+    LOG(ERROR) << "Out of memory error while expanding work memory from "
+      << size_ << " to " << expanded;
+    return kErrorCodeOutofmemory;
+  }
+  return kErrorCodeOk;
+}
 
 
 AlignedMemory::AlignedMemory(AlignedMemory &&other) noexcept : block_(nullptr) {

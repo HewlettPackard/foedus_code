@@ -143,13 +143,12 @@ enum StorageStatus {
   kNotExists = 0,
   /** The storage has been created and ready for use. */
   kExists,
-  /** The storage has been marked for drop and can't be used. */
-  kMarkedForDeath,
   /**
-   * The storage has been completely dropped and there is no reference to this storage in
+   * The storage has been marked for drop and can't be used.
+   * The status becomes kNotExists at next restart.
    * the system. So far there is no path from this state to kNotExists. No reuse of StorageId.
    */
-  kDropped,
+  kMarkedForDeath,
 };
 
 /**
@@ -198,6 +197,7 @@ union VolatilePagePointer {
   } components;
 
   bool is_null() const { return components.offset == 0; }
+  void clear() { word = 0; }
   void set(uint8_t numa_node, uint8_t flags, uint16_t mod_count, memory::PagePoolOffset offset) {
     components.numa_node = numa_node;
     components.flags = flags;

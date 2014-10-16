@@ -56,6 +56,7 @@ class EnginePimpl final : public DefaultInitializable {
 
   bool        is_master() const { return type_ == kMaster; }
   ErrorStack  initialize_once() override;
+  ErrorStack  initialize_modules();
   ErrorStack  uninitialize_once() override;
   ErrorStack  check_valid_options();
 

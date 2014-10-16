@@ -11,7 +11,9 @@
 
 #include "foedus/debugging/rdtsc_watch.hpp"
 #include "foedus/debugging/stop_watch.hpp"
+#include "foedus/log/common_log_types.hpp"
 #include "foedus/snapshot/log_reducer_impl.hpp"
+#include "foedus/snapshot/snapshot_manager_pimpl.hpp"
 #include "foedus/soc/soc_manager.hpp"
 
 namespace foedus {
@@ -58,6 +60,50 @@ void*       LogReducerRef::get_buffer(uint32_t index) const {
   return anchors->log_reducer_buffers_[index % 2];
 }
 
+const Snapshot& LogReducerRef::get_cur_snapshot() const {
+  return engine_->get_soc_manager()->get_shared_memory_repo()->get_global_memory_anchors()->
+    snapshot_manager_memory_->gleaner_.cur_snapshot_;
+}
+
+bool        LogReducerRef::verify_log_chunk(
+  storage::StorageId storage_id,
+  const char* send_buffer,
+  uint32_t log_count,
+  uint64_t send_buffer_size) const {
+  uint32_t real_log_count = 0;
+  uint64_t cur = 0;
+  const Snapshot& cur_snapshot = get_cur_snapshot();
+  ASSERT_ND(cur_snapshot.id_ != kNullSnapshotId);
+  ASSERT_ND(cur_snapshot.valid_until_epoch_.is_valid());
+  ASSERT_ND(cur_snapshot.max_storage_id_ > 0);
+  ASSERT_ND(cur_snapshot.max_storage_id_ >= storage_id);
+  while (cur < send_buffer_size) {
+    const log::BaseLogType* entry = reinterpret_cast<const log::BaseLogType*>(send_buffer + cur);
+    log::LogCode type = entry->header_.get_type();
+    log::LogCodeKind kind = entry->header_.get_kind();
+    ASSERT_ND(type != log::kLogCodeInvalid);
+    ASSERT_ND(type != log::kLogCodeEpochMarker);  // should have been skipped in mapper.
+    ASSERT_ND(entry->header_.log_length_ > 0);
+    ASSERT_ND(entry->header_.log_length_ % 8 == 0);
+    cur += entry->header_.log_length_;
+    ++real_log_count;
+    if (type == log::kLogCodeFiller) {
+      continue;
+    } else {
+      ASSERT_ND(entry->header_.storage_id_ == storage_id);
+      ASSERT_ND(entry->header_.xct_id_.is_valid());
+      ASSERT_ND(entry->header_.xct_id_.get_ordinal() > 0);
+      ASSERT_ND(kind == log::kRecordLogs);
+      Epoch epoch = entry->header_.xct_id_.get_epoch();
+      ASSERT_ND(!cur_snapshot.base_epoch_.is_valid() || epoch > cur_snapshot.base_epoch_);
+      ASSERT_ND(epoch <= cur_snapshot.valid_until_epoch_);
+    }
+  }
+  ASSERT_ND(real_log_count == log_count);
+  ASSERT_ND(cur == send_buffer_size);
+  return true;
+}
+
 void        LogReducerRef::append_log_chunk(
   storage::StorageId storage_id,
   const char* send_buffer,
@@ -65,9 +111,10 @@ void        LogReducerRef::append_log_chunk(
   uint64_t send_buffer_size) {
   DVLOG(1) << "Appending a block of " << send_buffer_size << " bytes (" << log_count
     << " entries) to " << to_string() << "'s buffer for storage-" << storage_id;
+  ASSERT_ND(verify_log_chunk(storage_id, send_buffer, log_count, send_buffer_size));
   debugging::RdtscWatch stop_watch;
 
-  const uint64_t required_size = send_buffer_size + sizeof(BlockHeader);
+  const uint64_t required_size = send_buffer_size + sizeof(FullBlockHeader);
   uint32_t buffer_index = 0;
   uint64_t begin_position = 0;
   while (true) {
@@ -120,13 +167,13 @@ void        LogReducerRef::append_log_chunk(
   void* buffer = get_buffer(buffer_index);
   debugging::RdtscWatch copy_watch;
   char* destination = reinterpret_cast<char*>(buffer) + begin_position;
-  BlockHeader header;
+  FullBlockHeader header;
   header.storage_id_ = storage_id;
   header.log_count_ = log_count;
   header.block_length_ = to_buffer_position(required_size);
-  header.magic_word_ = kBlockHeaderMagicWord;
-  std::memcpy(destination, &header, sizeof(BlockHeader));
-  std::memcpy(destination + sizeof(BlockHeader), send_buffer, send_buffer_size);
+  header.magic_word_ = BlockHeaderBase::kFullBlockHeaderMagicWord;
+  std::memcpy(destination, &header, sizeof(FullBlockHeader));
+  std::memcpy(destination + sizeof(FullBlockHeader), send_buffer, send_buffer_size);
   copy_watch.stop();
   DVLOG(1) << "memcpy of " << send_buffer_size << " bytes took "
     << copy_watch.elapsed() << " cycles";

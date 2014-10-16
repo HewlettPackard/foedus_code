@@ -47,27 +47,6 @@
 namespace foedus {
 namespace storage {
 
-template <typename HANDLER>
-ErrorStack storage_pseudo_polymorph(Engine* engine, StorageControlBlock* block, HANDLER handler) {
-  StorageType type = block->meta_.type_;
-  if (type == kArrayStorage) {
-    array::ArrayStorage obj(engine, block);
-    CHECK_ERROR(handler(&obj));
-  } else if (type == kHashStorage) {
-    hash::HashStorage obj(engine, block);
-    CHECK_ERROR(handler(&obj));
-  } else if (type == kMasstreeStorage) {
-    masstree::MasstreeStorage obj(engine, block);
-    CHECK_ERROR(handler(&obj));
-  } else if (type == kSequentialStorage) {
-    sequential::SequentialStorage obj(engine, block);
-    CHECK_ERROR(handler(&obj));
-  } else {
-    return ERROR_STACK(kErrorCodeStrUnsupportedMetadata);
-  }
-  return kRetOk;
-}
-
 uint32_t   StorageManagerPimpl::get_max_storages() const {
   return engine_->get_options().storage_.max_storages_;
 }
@@ -91,14 +70,6 @@ ErrorStack StorageManagerPimpl::initialize_once() {
     control_block_->initialize();
     control_block_->largest_storage_id_ = 0;
 
-    // also initialize the shared memory for partitioner
-    uint32_t max_storages = get_max_storages();
-    for (storage::StorageId i = 0; i < max_storages; ++i) {
-      anchors->partitioner_metadata_[i].initialize();
-    }
-    // set the size of partitioner data
-    anchors->partitioner_metadata_[0].data_size_
-      = engine_->get_options().storage_.partitioner_data_memory_mb_ * (1ULL << 20);
     // Then, initialize storages with latest snapshot
     CHECK_ERROR(initialize_read_latest_snapshot());
   }
@@ -121,7 +92,7 @@ ErrorStack StorageManagerPimpl::initialize_read_latest_snapshot() {
 
   debugging::StopWatch stop_watch;
   uint32_t active_storages = 0;
-  for (uint32_t id = 1; id < control_block_->largest_storage_id_; ++id) {
+  for (uint32_t id = 1; id <= control_block_->largest_storage_id_; ++id) {
     StorageControlBlock* block = storages_ + id;
     const StorageControlBlock& snapshot_block = metadata.storage_control_blocks_[id];
     if (snapshot_block.status_ != kExists) {
@@ -173,14 +144,6 @@ ErrorStack StorageManagerPimpl::uninitialize_once() {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
   if (engine_->is_master()) {
-    // also uninitialize the shared memory for partitioner
-    soc::GlobalMemoryAnchors* anchors
-      = engine_->get_soc_manager()->get_shared_memory_repo()->get_global_memory_anchors();
-    uint32_t max_storages = get_max_storages();
-    for (storage::StorageId i = 0; i < max_storages; ++i) {
-      anchors->partitioner_metadata_[i].uninitialize();
-    }
-
     // drop all existing storages just for releasing memories.
     // this is not a real drop, so we just invoke drop_apply
     uint32_t dropped = 0;
@@ -238,13 +201,17 @@ ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) 
 
   StorageName name = block->meta_.name_;
   LOG(INFO) << "Dropping storage " << id << "(" << name << ")";
-  ErrorStack drop_error = storage_pseudo_polymorph(
-    engine_,
-    block,
-    [](Storage* obj){ return obj->drop(); });
-  if (drop_error.is_error()) {
-    LOG(ERROR) << "Failed to drop storage " << id << "(" << name << ")";
-    return drop_error;
+  StorageType type = block->meta_.type_;
+  if (type == kArrayStorage) {
+    CHECK_ERROR(array::ArrayStorage(engine_, block).drop());
+  } else if (type == kHashStorage) {
+    CHECK_ERROR(hash::HashStorage(engine_, block).drop());
+  } else if (type == kMasstreeStorage) {
+    CHECK_ERROR(masstree::MasstreeStorage(engine_, block).drop());
+  } else if (type == kSequentialStorage) {
+    CHECK_ERROR(sequential::SequentialStorage(engine_, block).drop());
+  } else {
+    LOG(FATAL) << "WTF:" << type;
   }
 
   char log_buffer[1 << 12];
@@ -254,7 +221,7 @@ ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) 
   engine_->get_log_manager()->get_meta_buffer()->commit(drop_log, commit_epoch);
 
   ASSERT_ND(commit_epoch->is_valid());
-  block->status_ = kDropped;
+  block->status_ = kMarkedForDeath;
   ASSERT_ND(!block->exists());
   block->uninitialize();
   LOG(INFO) << "Dropped storage " << id << "(" << name << ")";
@@ -262,35 +229,55 @@ ErrorStack StorageManagerPimpl::drop_storage(StorageId id, Epoch *commit_epoch) 
 }
 
 void StorageManagerPimpl::drop_storage_apply(StorageId id) {
-  // this method is called only while restart, so no race.
   StorageControlBlock* block = storages_ + id;
   ASSERT_ND(block->exists());
-  ErrorStack drop_error = storage_pseudo_polymorph(
-    engine_,
-    block,
-    [](Storage* obj){ return obj->drop(); });
-  if (drop_error.is_error()) {
-    LOG(FATAL) << "drop_storage_apply() failed. " << drop_error
-      << " Failed to restart the engine";
+  StorageType type = block->meta_.type_;
+  if (type == kArrayStorage) {
+    COERCE_ERROR(array::ArrayStorage(engine_, block).drop());
+  } else if (type == kHashStorage) {
+    COERCE_ERROR(hash::HashStorage(engine_, block).drop());
+  } else if (type == kMasstreeStorage) {
+    COERCE_ERROR(masstree::MasstreeStorage(engine_, block).drop());
+  } else if (type == kSequentialStorage) {
+    COERCE_ERROR(sequential::SequentialStorage(engine_, block).drop());
+  } else {
+    LOG(FATAL) << "WTF:" << type;
   }
-  block->status_ = kDropped;
+  block->status_ = kMarkedForDeath;
   ASSERT_ND(!block->exists());
   block->uninitialize();
 }
 
-void construct_create_log(Metadata* meta, void* buffer) {
-  StorageType type = meta->type_;
-  if (type == kArrayStorage) {
-    array::ArrayCreateLogType::construct(meta, buffer);
-  } else if (type == kHashStorage) {
-    hash::HashCreateLogType::construct(meta, buffer);
-  } else if (type == kMasstreeStorage) {
-    masstree::MasstreeCreateLogType::construct(meta, buffer);
-  } else if (type == kSequentialStorage) {
-    sequential::SequentialCreateLogType::construct(meta, buffer);
-  } else {
-    LOG(FATAL) << "WTF:" << type;
+template <typename STORAGE>
+ErrorStack StorageManagerPimpl::create_storage_and_log(const Metadata* meta, Epoch *commit_epoch) {
+  typedef typename STORAGE::ThisMetadata TheMetadata;
+  typedef typename STORAGE::ThisCreateLogType TheLogType;
+
+  StorageId id = meta->id_;
+  StorageControlBlock* block = storages_ + id;
+  STORAGE storage(engine_, block);
+  const TheMetadata* casted_meta = reinterpret_cast< const TheMetadata *>(meta);
+  ASSERT_ND(!block->exists());
+  CHECK_ERROR(storage.create(*casted_meta));
+  ASSERT_ND(block->exists());
+
+  if (commit_epoch) {
+    // if commit_epoch is null, it means "apply-only" mode in restart. do not log then
+    char log_buffer[sizeof(TheLogType)];
+    std::memset(log_buffer, 0, sizeof(log_buffer));
+    TheLogType* create_log = reinterpret_cast<TheLogType*>(log_buffer);
+    create_log->header_.storage_id_ = id;
+    create_log->header_.log_type_code_ = log::get_log_code<TheLogType>();
+    create_log->header_.log_length_ = sizeof(TheLogType);
+    create_log->metadata_ = *casted_meta;
+    ASSERT_ND(create_log->header_.storage_id_ == id);
+    ASSERT_ND(create_log->metadata_.id_ == id);
+    ASSERT_ND(create_log->metadata_.type_ == meta->type_);
+    ASSERT_ND(create_log->metadata_.name_ == meta->name_);
+
+    engine_->get_log_manager()->get_meta_buffer()->commit(create_log, commit_epoch);
   }
+  return kRetOk;
 }
 
 ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit_epoch) {
@@ -313,43 +300,55 @@ ErrorStack StorageManagerPimpl::create_storage(Metadata *metadata, Epoch *commit
   get_storage(id)->initialize();
   ASSERT_ND(!get_storage(id)->exists());
   storages_[id].meta_.type_ = metadata->type_;
-  ErrorStack create_error = storage_pseudo_polymorph(
-    engine_,
-    storages_ + id,
-    [metadata](Storage* obj){ return obj->create(*metadata); });
-  CHECK_ERROR(create_error);
 
-  char log_buffer[1 << 12];
-  std::memset(log_buffer, 0, sizeof(log_buffer));
-  construct_create_log(metadata, log_buffer);
-  log::StorageLogType* create_log = reinterpret_cast<log::StorageLogType*>(log_buffer);
-  engine_->get_log_manager()->get_meta_buffer()->commit(create_log, commit_epoch);
+  metadata->name_.zero_fill_remaining();  // make valgrind overload happy.
+  ErrorStack result;
+  if (metadata->type_ == kArrayStorage) {
+    result = create_storage_and_log< array::ArrayStorage >(metadata, commit_epoch);
+  } else if (metadata->type_ == kHashStorage) {
+    result = create_storage_and_log< hash::HashStorage >(metadata, commit_epoch);
+  } else if (metadata->type_ == kMasstreeStorage) {
+    result = create_storage_and_log< masstree::MasstreeStorage >(metadata, commit_epoch);
+  } else if (metadata->type_ == kSequentialStorage) {
+    result = create_storage_and_log< sequential::SequentialStorage >(metadata, commit_epoch);
+  } else {
+    LOG(FATAL) << "WTF:" << metadata->type_;
+  }
+  CHECK_ERROR(result);
 
   ASSERT_ND(commit_epoch->is_valid());
   ASSERT_ND(get_storage(id)->exists());
   return kRetOk;
 }
 
-void StorageManagerPimpl::create_storage_apply(Metadata *metadata) {
+void StorageManagerPimpl::create_storage_apply(const Metadata& metadata) {
   // this method is called only while restart, so no race.
-  ASSERT_ND(metadata->id_ > 0);
-  ASSERT_ND(!metadata->name_.empty());
-  StorageId id = metadata->id_;
+  ASSERT_ND(metadata.id_ > 0);
+  ASSERT_ND(!metadata.name_.empty());
+  StorageId id = metadata.id_;
   if (id > control_block_->largest_storage_id_) {
     control_block_->largest_storage_id_ = id;
   }
 
-  ASSERT_ND(!exists(metadata->name_));
+  ASSERT_ND(!exists(metadata.name_));
 
   get_storage(id)->initialize();
   ASSERT_ND(!get_storage(id)->exists());
-  storages_[id].meta_.type_ = metadata->type_;
-  ErrorStack create_error = storage_pseudo_polymorph(
-    engine_,
-    storages_ + id,
-    [metadata](Storage* obj){ return obj->create(*metadata); });
-  if (create_error.is_error()) {
-    LOG(FATAL) << "create_storage_apply() failed. " << create_error
+  storages_[id].meta_.type_ = metadata.type_;
+  ErrorStack result;
+  if (metadata.type_ == kArrayStorage) {
+    result = create_storage_and_log< array::ArrayStorage >(&metadata, nullptr);
+  } else if (metadata.type_ == kHashStorage) {
+    result = create_storage_and_log< hash::HashStorage >(&metadata, nullptr);
+  } else if (metadata.type_ == kMasstreeStorage) {
+    result = create_storage_and_log< masstree::MasstreeStorage >(&metadata, nullptr);
+  } else if (metadata.type_ == kSequentialStorage) {
+    result = create_storage_and_log< sequential::SequentialStorage >(&metadata, nullptr);
+  } else {
+    LOG(FATAL) << "WTF:" << metadata.type_;
+  }
+  if (result.is_error()) {
+    LOG(FATAL) << "create_storage_apply() failed. " << result
       << " Failed to restart the engine";
   }
 

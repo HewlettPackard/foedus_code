@@ -82,20 +82,17 @@ ErrorStack EnginePimpl::initialize_once() {
   // SOC manager is special. We must initialize it first.
   CHECK_ERROR(soc_manager_.initialize());
   on_module_initialized(kSoc);
+  ErrorStack module_initialize_error = initialize_modules();
+  if (module_initialize_error.is_error()) {
+    LOG(ERROR) << "*******************************************************************************";
+    LOG(ERROR) << "*** ERROR while module initailization in " << describe_short() << ". "
+      << module_initialize_error << "";
+    LOG(ERROR) << "*******************************************************************************";
+    soc_manager_.report_engine_fatal_error();
+    CHECK_ERROR(module_initialize_error);
+  }
 
   // The following can assume SOC manager is already initialized
-  for (ModulePtr& module : get_modules()) {
-    // During initialization, SOCs wait for master's initialization before their init.
-    if (!is_master()) {
-      CHECK_ERROR(soc_manager_.wait_for_master_module(true, module.type_));
-    }
-    CHECK_ERROR(module.ptr_->initialize());
-    on_module_initialized(module.type_);
-    // Then master waits for SOCs before moving on to next module.
-    if (is_master()) {
-      CHECK_ERROR(soc_manager_.wait_for_children_module(true, module.type_));
-    }
-  }
   if (is_master()) {
     soc::SharedMemoryRepo* repo = soc_manager_.get_shared_memory_repo();
     repo->change_master_status(soc::MasterEngineStatus::kRunning);
@@ -121,6 +118,7 @@ ErrorStack EnginePimpl::initialize_once() {
 
       if (error_happened) {
         LOG(ERROR) << "[FOEDUS] ERROR! error while waiting child kRunning";
+        soc_manager_.report_engine_fatal_error();
         return ERROR_STACK(kErrorCodeSocChildInitFailed);
       } else if (!remaining) {
         break;
@@ -140,6 +138,22 @@ ErrorStack EnginePimpl::initialize_once() {
     LOG(INFO) << "This Engine is running under valgrind, which disables several optimizations";
     LOG(INFO) << "If you see this message while usual execution, something is wrong.";
     LOG(INFO) << "=============== ATTENTION: VALGRIND MODE! ==================";
+  }
+  return kRetOk;
+}
+ErrorStack EnginePimpl::initialize_modules() {
+  ASSERT_ND(soc_manager_.is_initialized());
+  for (ModulePtr& module : get_modules()) {
+    // During initialization, SOCs wait for master's initialization before their init.
+    if (!is_master()) {
+      CHECK_ERROR(soc_manager_.wait_for_master_module(true, module.type_));
+    }
+    CHECK_ERROR(module.ptr_->initialize());
+    on_module_initialized(module.type_);
+    // Then master waits for SOCs before moving on to next module.
+    if (is_master()) {
+      CHECK_ERROR(soc_manager_.wait_for_children_module(true, module.type_));
+    }
   }
   return kRetOk;
 }

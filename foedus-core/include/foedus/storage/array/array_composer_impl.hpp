@@ -45,13 +45,10 @@ class ArrayComposer final {
   ErrorStack construct_root(const Composer::ConstructRootArguments& args);
   ErrorStack replace_pointers(const Composer::ReplacePointersArguments& args);
 
-  uint64_t get_required_work_memory_size_compose(
-    snapshot::SortedBuffer** log_streams,
-    uint32_t log_streams_count) const;
-
  private:
   Engine* const             engine_;
   const StorageId           storage_id_;
+  const ArrayStorage        storage_;
 };
 
 /**
@@ -111,7 +108,7 @@ class ArrayComposeContext {
     cache::SnapshotFileSet*           previous_snapshot_files,
     snapshot::SortedBuffer* const*    log_streams,
     uint32_t                          log_streams_count,
-    const memory::AlignedMemorySlice& work_memory,
+    memory::AlignedMemory*            work_memory,
     Page*                             root_info_page);
 
   ErrorStack execute();
@@ -140,10 +137,14 @@ class ArrayComposeContext {
     uint8_t level,
     LookupRoute route,
     ArrayPage* page) ALWAYS_INLINE;
+  /** used only in debug mode */
+  bool verify_cur_path() const;
+  bool verify_snapshot_pointer(storage::SnapshotPagePointer pointer);
 
   // these properties are initialized in constructor and never changed afterwards
   Engine* const                   engine_;
   const StorageId                 storage_id_;
+  const ArrayStorage              storage_;
   snapshot::SnapshotWriter* const snapshot_writer_;
   cache::SnapshotFileSet*  const  previous_snapshot_files_;
   /** The final output of the compose() call */

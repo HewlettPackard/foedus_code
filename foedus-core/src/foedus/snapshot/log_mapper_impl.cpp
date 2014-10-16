@@ -27,6 +27,7 @@
 #include "foedus/snapshot/log_reducer_impl.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/storage/partitioner.hpp"
+#include "foedus/storage/storage_manager.hpp"
 
 namespace foedus {
 namespace snapshot {
@@ -225,7 +226,9 @@ ErrorStack LogMapper::handle_process_buffer(
       ASSERT_ND(!base_epoch.is_valid() || marker->new_epoch_ >= base_epoch);
       ASSERT_ND(marker->new_epoch_ <= until_epoch);
       if (*first_read) {
-        ASSERT_ND(!base_epoch.is_valid() || marker->old_epoch_ <= base_epoch);
+        ASSERT_ND(!base_epoch.is_valid()
+          || marker->old_epoch_ <= base_epoch  // otherwise we skipped some logs
+          || marker->old_epoch_ == marker->new_epoch_);  // the first marker (old==new) is ok
         *first_read = false;
       } else {
         ASSERT_ND(!base_epoch.is_valid() || marker->old_epoch_ >= base_epoch);
@@ -369,7 +372,14 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
   storage::PartitionId* partition_array = reinterpret_cast<storage::PartitionId*>(
     tmp_partition_array_slice_.get_block());
   LogBuffer log_buffer(reinterpret_cast<char*>(io_buffer_.get_block()));
-  const bool multi_partitions = engine_->get_options().thread_.group_count_ > 1;
+  const bool multi_partitions = engine_->get_options().thread_.group_count_ > 1U;
+
+  if (!engine_->get_storage_manager()->get_storage(hashlist.storage_id_)->exists()) {
+    // We ignore such logs in snapshot. As DROP STORAGE immediately becomes durable,
+    // There is no point to collect logs for the storage.
+    LOG(INFO) << "These logs are sent to a dropped storage.. ignore them";
+    return;
+  }
 
   uint64_t log_count = 0;  // just for reporting
   debugging::StopWatch stop_watch;
@@ -453,24 +463,25 @@ void LogMapper::send_bucket_partition(
     << bucket.storage_id_ << " to partition-" << static_cast<int>(partition);
   // stitch the log entries in send buffer
   char* send_buffer = reinterpret_cast<char*>(tmp_send_buffer_slice_.get_block());
-  const char* buffer_base_address = reinterpret_cast<const char*>(io_buffer_.get_block());
+  const char* io_base = reinterpret_cast<const char*>(io_buffer_.get_block());
   ASSERT_ND(tmp_send_buffer_slice_.get_size() == kSendBufferSize);
 
   uint64_t written = 0;
   uint32_t log_count = 0;
   for (uint32_t i = 0; i < bucket.counts_; ++i) {
-    const log::LogHeader* header = reinterpret_cast<const log::LogHeader*>(
-      buffer_base_address + from_buffer_position(bucket.log_positions_[i]));
+    uint64_t pos = from_buffer_position(bucket.log_positions_[i]);
+    const log::LogHeader* header = reinterpret_cast<const log::LogHeader*>(io_base + pos);
     ASSERT_ND(header->storage_id_ == bucket.storage_id_);
-    ASSERT_ND(header->log_length_ > 0);
-    ASSERT_ND(header->log_length_ % 8 == 0);
-    if (written + header->log_length_ > kSendBufferSize) {
+    uint16_t log_length = header->log_length_;
+    ASSERT_ND(log_length > 0);
+    ASSERT_ND(log_length % 8 == 0);
+    if (written + log_length > kSendBufferSize) {
       // buffer full. send out.
       send_bucket_partition_buffer(bucket, partition, send_buffer, log_count, written);
       log_count = 0;
       written = 0;
     }
-    std::memcpy(send_buffer, header, header->log_length_);
+    std::memcpy(send_buffer + written, header, header->log_length_);
     written += header->log_length_;
     ++log_count;
   }

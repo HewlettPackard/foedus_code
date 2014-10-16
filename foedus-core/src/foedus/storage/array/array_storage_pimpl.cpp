@@ -39,14 +39,9 @@ namespace storage {
 namespace array {
 
 // Defines ArrayStorage methods so that we can inline implementation calls
-bool        ArrayStorage::exists()           const  { return control_block_->exists(); }
 uint16_t    ArrayStorage::get_payload_size() const  { return control_block_->meta_.payload_size_; }
 ArrayOffset ArrayStorage::get_array_size()   const  { return control_block_->meta_.array_size_; }
 uint8_t     ArrayStorage::get_levels()       const  { return control_block_->levels_; }
-StorageId   ArrayStorage::get_id()           const  { return control_block_->meta_.id_; }
-StorageType ArrayStorage::get_type()         const  { return control_block_->meta_.type_; }
-const StorageName& ArrayStorage::get_name()  const  { return control_block_->meta_.name_; }
-const Metadata* ArrayStorage::get_metadata() const  { return &control_block_->meta_; }
 const ArrayMetadata* ArrayStorage::get_array_metadata() const  { return &control_block_->meta_; }
 
 ErrorCode   ArrayStorage::prefetch_pages(
@@ -417,6 +412,7 @@ ErrorStack ArrayStorage::create(const Metadata &metadata) {
 ErrorStack ArrayStoragePimpl::load(const StorageControlBlock& snapshot_block) {
   control_block_->meta_ = static_cast<const ArrayMetadata&>(snapshot_block.meta_);
   const ArrayMetadata& meta = control_block_->meta_;
+  ASSERT_ND(meta.root_snapshot_page_id_ != 0);
   const uint16_t levels = calculate_levels(meta);
   control_block_->levels_ = levels;
   control_block_->route_finder_ = LookupRouteFinder(levels, get_payload_size());
@@ -426,7 +422,7 @@ ErrorStack ArrayStoragePimpl::load(const StorageControlBlock& snapshot_block) {
   // So far we assume the root page always has a volatile version.
   // Create it now.
   VolatilePagePointer volatile_pointer;
-  Page* volatile_root;
+  ArrayPage* volatile_root;
   cache::SnapshotFileSet fileset(engine_);
   CHECK_ERROR(fileset.initialize());
   UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
@@ -434,7 +430,7 @@ ErrorStack ArrayStoragePimpl::load(const StorageControlBlock& snapshot_block) {
     &fileset,
     meta.root_snapshot_page_id_,
     &volatile_pointer,
-    &volatile_root));
+    reinterpret_cast<Page**>(&volatile_root)));
   CHECK_ERROR(fileset.uninitialize());
 
   control_block_->root_page_pointer_.volatile_pointer_ = volatile_pointer;
@@ -1155,6 +1151,7 @@ ArrayPage* ArrayStoragePimpl::resolve_volatile(VolatilePagePointer pointer) {
 
 ErrorStack ArrayStoragePimpl::replace_pointers(const Composer::ReplacePointersArguments& args) {
   // First, install the root page snapshot pointer.
+  control_block_->meta_.root_snapshot_page_id_ = args.new_root_page_pointer_;
   control_block_->root_page_pointer_.snapshot_pointer_ = args.new_root_page_pointer_;
   ++(*args.installed_count_);
 
@@ -1205,7 +1202,7 @@ ErrorStack ArrayStoragePimpl::replace_pointers_recurse(
       ArrayPage* child_page = resolve_volatile(child_pointer.volatile_pointer_);
       bool child_kept = false;
       if (child_page->is_leaf()) {
-        child_kept = replace_pointers_leaf(args, pointer, volatile_page);
+        child_kept = replace_pointers_leaf(args, &child_pointer, child_page);
       } else {
         CHECK_ERROR(replace_pointers_recurse(args, &child_pointer, &child_kept, child_page));
       }

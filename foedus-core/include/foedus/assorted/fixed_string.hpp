@@ -134,6 +134,14 @@ class FixedString {
   void      clear() CXX11_NOEXCEPT { length_ = 0; }
   /** Test if string is empty */
   bool      empty() const CXX11_NOEXCEPT { return length_ == 0; }
+  /** Sets zeros to unused data_ region. This is just to make valgrind happy. */
+  void      zero_fill_remaining() const CXX11_NOEXCEPT {
+    if (length_ < MAXLEN) {
+      // this is not logically changing the content, so const is the right semantics.
+      std::memset(const_cast<char*>(data_ + length_), 0, MAXLEN - length_);
+    }
+  }
+
 
   /** Get string data  */
   const CHAR* data() const CXX11_NOEXCEPT { return data_; }

@@ -11,6 +11,7 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/cxx11.hpp"
+#include "foedus/error_code.hpp"
 
 namespace foedus {
 namespace memory {
@@ -126,6 +127,14 @@ class AlignedMemory CXX11_FINAL {
   /** Allocate a memory, releasing the current memory if exists. */
   void        alloc(uint64_t size, uint64_t alignment,
             AllocType alloc_type, int numa_node) CXX11_NOEXCEPT;
+  /**
+   * If the current size is smaller than the given size, automatically expands.
+   * This is useful for temporary work buffer.
+   * @pre !is_null(), so you have to first alloc(). Because otherwise we don't know have to alloc.
+   * @attention When expanded, the memory address changes.
+   * @return only possible error is out-of-memory
+   */
+  ErrorCode   assure_capacity(uint64_t required_size, double expand_margin = 2.0) CXX11_NOEXCEPT;
   /** Returns the memory block. */
   void*       get_block() const { return block_; }
   /** Returns if this object doesn't hold a valid memory block. */

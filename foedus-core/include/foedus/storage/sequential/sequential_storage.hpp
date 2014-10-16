@@ -26,56 +26,27 @@ namespace sequential {
  * @brief Represents an append/scan-only store.
  * @ingroup SEQUENTIAL
  */
-class SequentialStorage CXX11_FINAL
-  : public virtual Storage, public Attachable<SequentialStorageControlBlock> {
+class SequentialStorage CXX11_FINAL : public Storage<SequentialStorageControlBlock> {
  public:
-  SequentialStorage() : Attachable<SequentialStorageControlBlock>() {}
-  /**
-   * Constructs an sequential storage either from disk or newly create.
-   */
-  SequentialStorage(Engine* engine, SequentialStorageControlBlock* control_block)
-    : Attachable<SequentialStorageControlBlock>(engine, control_block) {
-      ASSERT_ND(get_type() == kSequentialStorage || !exists());
-    }
-  SequentialStorage(Engine* engine, StorageControlBlock* control_block)
-    : Attachable<SequentialStorageControlBlock>(
-      engine,
-      reinterpret_cast<SequentialStorageControlBlock*>(control_block)) {
-      ASSERT_ND(get_type() == kSequentialStorage || !exists());
-  }
-  /** Shorthand for engine->get_storage_manager()->get_sequential(id) */
+  typedef SequentialStoragePimpl   ThisPimpl;
+  typedef SequentialCreateLogType  ThisCreateLogType;
+  typedef SequentialMetadata       ThisMetadata;
+
+  SequentialStorage();
+  SequentialStorage(Engine* engine, SequentialStorageControlBlock* control_block);
+  SequentialStorage(Engine* engine, StorageControlBlock* control_block);
   SequentialStorage(Engine* engine, StorageId id);
-  /** Shorthand for engine->get_storage_manager()->get_sequential(name) */
   SequentialStorage(Engine* engine, const StorageName& name);
-  SequentialStorage(const SequentialStorage& other)
-    : Attachable<SequentialStorageControlBlock>(other.engine_, other.control_block_) {
-  }
-  SequentialStorage& operator=(const SequentialStorage& other) {
-    engine_ = other.engine_;
-    control_block_ = other.control_block_;
-    return *this;
-  }
+  SequentialStorage(const SequentialStorage& other);
+  SequentialStorage& operator=(const SequentialStorage& other);
 
   // Storage interface
-  StorageId           get_id()    const CXX11_OVERRIDE;
-  StorageType         get_type()  const CXX11_OVERRIDE;
-  const StorageName&  get_name()  const CXX11_OVERRIDE;
-  const Metadata*     get_metadata()  const CXX11_OVERRIDE;
   const SequentialMetadata*  get_sequential_metadata()  const;
-  bool                exists()    const CXX11_OVERRIDE;
-  ErrorStack          create(const Metadata &metadata) CXX11_OVERRIDE;
+  ErrorStack          create(const Metadata &metadata);
   ErrorStack          load(const StorageControlBlock& snapshot_block);
-  ErrorStack          drop() CXX11_OVERRIDE;
+  ErrorStack          drop();
 
   // this storage type doesn't use moved bit
-  bool track_moved_record(xct::WriteXctAccess* /*write*/) CXX11_OVERRIDE {
-    ASSERT_ND(false);
-    return false;
-  }
-  xct::LockableXctId* track_moved_record(xct::LockableXctId* /*address*/) CXX11_OVERRIDE {
-    ASSERT_ND(false);
-    return CXX11_NULLPTR;
-  }
 
   /**
    * @brief Append one record to this sequential storage.
@@ -99,7 +70,7 @@ class SequentialStorage CXX11_FINAL
 
   // TODO(Hideaki) Scan-access methods
 
-  void       describe(std::ostream* o) const CXX11_OVERRIDE;
+  friend std::ostream& operator<<(std::ostream& o, const SequentialStorage& v);
 
   /** Implementation of Composer::replace_pointers() */
   ErrorStack replace_pointers(const Composer::ReplacePointersArguments& args);

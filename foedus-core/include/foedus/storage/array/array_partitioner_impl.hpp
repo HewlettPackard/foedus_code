@@ -61,12 +61,9 @@ class ArrayPartitioner final {
   explicit ArrayPartitioner(Partitioner* parent);
 
   ErrorStack design_partition(const Partitioner::DesignPartitionArguments& args);
-  uint64_t   get_required_design_buffer_size() const { return 0; }
   bool is_partitionable() const;
   void partition_batch(const Partitioner::PartitionBatchArguments& args) const;
   void sort_batch(const Partitioner::SortBatchArguments& args) const;
-
-  uint64_t  get_required_sort_buffer_size(uint32_t log_count) const;
 
   ArrayOffset get_array_size() const;
   uint8_t   get_array_levels() const;
@@ -86,8 +83,8 @@ struct ArrayPartitionerData final {
   ArrayPartitionerData() = delete;
   ~ArrayPartitionerData() = delete;
 
-  /** whether this array has only one page, so no interior page nor partitioning. */
-  bool                  array_single_page_;
+  /** if false, every record goes to node-0. single-page array, only one SOC, etc. */
+  bool                  partitionable_;
   uint8_t               array_levels_;
 
   /** Size of the entire array. */

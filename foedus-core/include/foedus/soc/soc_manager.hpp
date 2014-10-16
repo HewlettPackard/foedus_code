@@ -72,6 +72,9 @@ class SocManager CXX11_FINAL : public virtual Initializable {
    */
   ErrorStack  wait_for_children_module(bool init, ModuleType module);
 
+  /** Announce fatal error state of this (either master or child) engine if possible. */
+  void        report_engine_fatal_error();
+
   /**
    * @brief This should be called at the beginning of main() if the executable expects to be
    * spawned as SOC engines.

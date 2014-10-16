@@ -13,6 +13,7 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/storage/storage_log_types.hpp"
 #include "foedus/storage/hash/hash_metadata.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/thread/thread.hpp"
@@ -21,56 +22,17 @@ namespace foedus {
 namespace storage {
 namespace hash {
 
-void HashCreateLogType::populate(
-  StorageId storage_id,
-  uint16_t name_length,
-  const char* name,
-  uint8_t bin_bits) {
-  ASSERT_ND(storage_id > 0);
-  ASSERT_ND(name_length > 0);
-  ASSERT_ND(name);
-  ASSERT_ND(bin_bits >= 8);
-  ASSERT_ND(bin_bits < 48);
-  header_.log_type_code_ = log::kLogCodeHashCreate;
-  header_.log_length_ = calculate_log_length(name_length);
-  header_.storage_id_ = storage_id;
-  name_length_ = name_length;
-  std::memcpy(name_, name, name_length);
-  bin_bits_ = bin_bits;
-}
-
 void HashCreateLogType::apply_storage(Engine* engine, StorageId storage_id) {
-  ASSERT_ND(storage_id > 0);
-  LOG(INFO) << "Applying CREATE HASH STORAGE log: " << *this;
-  StorageName name(name_, name_length_);
-  HashMetadata metadata(header_.storage_id_, name, bin_bits_);
-  engine->get_storage_manager()->create_storage_apply(&metadata);
-  LOG(INFO) << "Applied CREATE HASH STORAGE log: " << *this;
-}
-
-void HashCreateLogType::construct(const Metadata* metadata, void* buffer) {
-  ASSERT_ND(metadata->type_ == kHashStorage);
-  const HashMetadata* casted = static_cast<const HashMetadata*>(metadata);
-  HashCreateLogType* log_entry = reinterpret_cast<HashCreateLogType*>(buffer);
-  log_entry->populate(
-    casted->id_,
-    casted->name_.size(),
-    casted->name_.data(),
-    casted->bin_bits_);
+  reinterpret_cast<CreateLogType*>(this)->apply_storage(engine, storage_id);
 }
 
 void HashCreateLogType::assert_valid() {
-  assert_valid_generic();
-  ASSERT_ND(header_.log_length_ == calculate_log_length(name_length_));
+  reinterpret_cast<CreateLogType*>(this)->assert_valid();
+  ASSERT_ND(header_.log_length_ == sizeof(HashCreateLogType));
   ASSERT_ND(header_.get_type() == log::get_log_code<HashCreateLogType>());
 }
 std::ostream& operator<<(std::ostream& o, const HashCreateLogType& v) {
-  o << "<HashCreateLog>"
-    << "<storage_id_>" << v.header_.storage_id_ << "</storage_id_>"
-    << "<name_>" << StorageName(v.name_, v.name_length_) << "</name_>"
-    << "<name_length_>" << v.name_length_ << "</name_length_>"
-    << "<bin_bits_>" << static_cast<int>(v.bin_bits_) << "</bin_bits_>"
-    << "</HashCreateLog>";
+  o << "<HashCreateLog>" << v.metadata_ << "</HashCreateLog>";
   return o;
 }
 

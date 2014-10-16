@@ -51,6 +51,25 @@ ErrorStack SocManagerPimpl::uninitialize_once() {
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 
+void SocManagerPimpl::report_engine_fatal_error() {
+  if (!is_initialized()) {
+      std::cerr << "[FOEDUS] Shared memory not initialized yet. Can't report errors" << std::endl;
+      return;
+  }
+  if (engine_->is_master()) {
+    MasterEngineStatus* status = memory_repo_.get_global_memory_anchors()->master_status_memory_;
+    if (status) {
+      status->change_status_atomic(MasterEngineStatus::kFatalError);
+    }
+  } else {
+    ChildEngineStatus* status = memory_repo_.get_node_memory_anchors(
+      engine_->get_soc_id())->child_status_memory_;
+    if (status) {
+      status->change_status_atomic(ChildEngineStatus::kFatalError);
+    }
+  }
+}
+
 ErrorStack SocManagerPimpl::initialize_master() {
   ErrorStack alloc_error = memory_repo_.allocate_shared_memories(
     engine_->get_master_upid(),
@@ -290,19 +309,29 @@ ErrorStack SocManagerPimpl::wait_for_master_status(MasterEngineStatus::StatusCod
   return kRetOk;
 }
 ErrorStack SocManagerPimpl::wait_for_master_module(bool init, ModuleType desired) {
-  // if parent dies, children automatically die. So, no additional checks here.
   const uint32_t kWarnSleeps = 400;
   for (uint32_t count = 0;; ++count) {
     if (count > 0 && count % kWarnSleeps == 0) {
       LOG(WARNING) << "Suspiciously long wait for master " << (init ? "" : "un") << "initializing"
         << " module-" << desired << ". count=" << count;
     }
+    soc::MasterEngineStatus* status
+      = memory_repo_.get_global_memory_anchors()->master_status_memory_;
+    if (status->status_code_ == MasterEngineStatus::kFatalError
+      || status->status_code_ == MasterEngineStatus::kTerminated) {
+      LOG(ERROR) << "Master apparently died while wait_for_master_module";
+      if (init) {
+        return ERROR_STACK(kErrorCodeSocChildInitFailed);
+      } else {
+        return ERROR_STACK(kErrorCodeSocChildUninitFailed);
+      }
+    }
     assorted::memory_fence_acq_rel();
     ModuleType cur;
     if (init) {
-      cur = memory_repo_.get_global_memory_anchors()->master_status_memory_->initialized_modules_;
+      cur = status->initialized_modules_;
     } else {
-      cur = memory_repo_.get_global_memory_anchors()->master_status_memory_->uninitialized_modules_;
+      cur = status->uninitialized_modules_;
     }
     if (cur == desired) {
       break;

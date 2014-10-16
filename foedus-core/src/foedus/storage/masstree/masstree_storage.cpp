@@ -19,26 +19,29 @@
 namespace foedus {
 namespace storage {
 namespace masstree {
-MasstreeStorage::MasstreeStorage(Engine* engine, StorageId id) {
-  engine_ = engine;
-  control_block_
-    = reinterpret_cast<MasstreeStorageControlBlock*>(
-        engine->get_storage_manager()->get_storage(id));
+
+MasstreeStorage::MasstreeStorage() : Storage<MasstreeStorageControlBlock>() {}
+MasstreeStorage::MasstreeStorage(Engine* engine, MasstreeStorageControlBlock* control_block)
+  : Storage<MasstreeStorageControlBlock>(engine, control_block) {
+  ASSERT_ND(get_type() == kMasstreeStorage || !exists());
 }
-MasstreeStorage::MasstreeStorage(Engine* engine, const StorageName& name) {
-  engine_ = engine;
-  control_block_
-    = reinterpret_cast<MasstreeStorageControlBlock*>(
-        engine->get_storage_manager()->get_storage(name));
+MasstreeStorage::MasstreeStorage(Engine* engine, StorageControlBlock* control_block)
+  : Storage<MasstreeStorageControlBlock>(engine, control_block) {
+  ASSERT_ND(get_type() == kMasstreeStorage || !exists());
+}
+MasstreeStorage::MasstreeStorage(Engine* engine, StorageId id)
+  : Storage<MasstreeStorageControlBlock>(engine, id) {}
+MasstreeStorage::MasstreeStorage(Engine* engine, const StorageName& name)
+  : Storage<MasstreeStorageControlBlock>(engine, name) {}
+MasstreeStorage::MasstreeStorage(const MasstreeStorage& other)
+  : Storage<MasstreeStorageControlBlock>(other.engine_, other.control_block_) {
+}
+MasstreeStorage& MasstreeStorage::operator=(const MasstreeStorage& other) {
+  engine_ = other.engine_;
+  control_block_ = other.control_block_;
+  return *this;
 }
 
-bool        MasstreeStorage::exists()           const  {
-  return control_block_ != nullptr && control_block_->exists();
-}
-StorageId   MasstreeStorage::get_id()           const  { return control_block_->meta_.id_; }
-StorageType MasstreeStorage::get_type()         const  { return control_block_->meta_.type_; }
-const StorageName& MasstreeStorage::get_name()  const  { return control_block_->meta_.name_; }
-const Metadata* MasstreeStorage::get_metadata() const  { return &control_block_->meta_; }
 const MasstreeMetadata* MasstreeStorage::get_masstree_metadata() const  {
   return &control_block_->meta_;
 }
@@ -51,12 +54,12 @@ ErrorStack MasstreeStorage::load(const StorageControlBlock& snapshot_block) {
 }
 ErrorStack  MasstreeStorage::drop()   { return MasstreeStoragePimpl(this).drop(); }
 
-void MasstreeStorage::describe(std::ostream* o_ptr) const {
-  std::ostream& o = *o_ptr;
+std::ostream& operator<<(std::ostream& o, const MasstreeStorage& v) {
   o << "<MasstreeStorage>"
-    << "<id>" << get_id() << "</id>"
-    << "<name>" << get_name() << "</name>"
+    << "<id>" << v.get_id() << "</id>"
+    << "<name>" << v.get_name() << "</name>"
     << "</MasstreeStorage>";
+  return o;
 }
 
 ErrorCode MasstreeStorage::get_record(

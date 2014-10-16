@@ -91,8 +91,8 @@ class Composer CXX11_FINAL {
     snapshot::SortedBuffer* const*    log_streams_;
     /** Number of sorted runs. */
     uint32_t                          log_streams_count_;
-    /** Working memory to be used in this method. */
-    memory::AlignedMemorySlice        work_memory_;
+    /** Working memory to be used in this method. Automatically expand if needed. */
+    memory::AlignedMemory*            work_memory_;
     /**
      * [OUT] Returns pointers and related information that is required
      * to construct the root page. The data format depends on the composer. In all implementations,
@@ -115,8 +115,8 @@ class Composer CXX11_FINAL {
     const Page* const*                root_info_pages_;
     /** Number of root info pages. */
     uint32_t                          root_info_pages_count_;
-    /** Working memory to be used in this method. */
-    memory::AlignedMemorySlice        work_memory_;
+    /** Working memory to be used in this method. Automatically expand if needed. */
+    memory::AlignedMemory*            work_memory_;
     /** [OUT] Returns pointer to new root snapshot page/ */
     SnapshotPagePointer*              new_root_page_pointer_;
   };

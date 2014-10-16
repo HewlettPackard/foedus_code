@@ -138,6 +138,7 @@ ErrorStack MetadataSerializer::save_all_storages_to_xml(
   StorageControlBlock* blocks) {
   uint32_t saved_count = 0;
   for (storage::StorageId id = 1; id <= largest_storage_id; ++id) {
+    ASSERT_ND(blocks[id].is_valid_status());
     if (!blocks[id].exists()) {
       continue;
     }

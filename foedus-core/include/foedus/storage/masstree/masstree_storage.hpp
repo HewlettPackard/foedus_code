@@ -26,47 +26,26 @@ namespace masstree {
  * @brief Represents a Masstree storage.
  * @ingroup MASSTREE
  */
-class MasstreeStorage CXX11_FINAL
-  : public virtual Storage, public Attachable<MasstreeStorageControlBlock> {
+class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> {
  public:
-  MasstreeStorage() : Attachable<MasstreeStorageControlBlock>() {}
-  /**
-   * Constructs an masstree storage either from disk or newly create.
-   */
-  MasstreeStorage(Engine* engine, MasstreeStorageControlBlock* control_block)
-    : Attachable<MasstreeStorageControlBlock>(engine, control_block) {
-    ASSERT_ND(get_type() == kMasstreeStorage || !exists());
-  }
-  MasstreeStorage(Engine* engine, StorageControlBlock* control_block)
-    : Attachable<MasstreeStorageControlBlock>(
-      engine,
-      reinterpret_cast<MasstreeStorageControlBlock*>(control_block)) {
-    ASSERT_ND(get_type() == kMasstreeStorage || !exists());
-  }
-  /** Shorthand for engine->get_storage_manager()->get_masstree(id) */
+  typedef MasstreeStoragePimpl   ThisPimpl;
+  typedef MasstreeCreateLogType  ThisCreateLogType;
+  typedef MasstreeMetadata       ThisMetadata;
+
+  MasstreeStorage();
+  MasstreeStorage(Engine* engine, MasstreeStorageControlBlock* control_block);
+  MasstreeStorage(Engine* engine, StorageControlBlock* control_block);
   MasstreeStorage(Engine* engine, StorageId id);
-  /** Shorthand for engine->get_storage_manager()->get_masstree(name) */
   MasstreeStorage(Engine* engine, const StorageName& name);
-  MasstreeStorage(const MasstreeStorage& other)
-    : Attachable<MasstreeStorageControlBlock>(other.engine_, other.control_block_) {
-  }
-  MasstreeStorage& operator=(const MasstreeStorage& other) {
-    engine_ = other.engine_;
-    control_block_ = other.control_block_;
-    return *this;
-  }
+  MasstreeStorage(const MasstreeStorage& other);
+  MasstreeStorage& operator=(const MasstreeStorage& other);
 
   // Storage interface
-  StorageId           get_id()    const CXX11_OVERRIDE;
-  StorageType         get_type()  const CXX11_OVERRIDE;
-  const StorageName&  get_name()  const CXX11_OVERRIDE;
-  const Metadata*     get_metadata()  const CXX11_OVERRIDE;
   const MasstreeMetadata*  get_masstree_metadata()  const;
-  bool                exists()    const CXX11_OVERRIDE;
-  ErrorStack          create(const Metadata &metadata) CXX11_OVERRIDE;
+  ErrorStack          create(const Metadata &metadata);
   ErrorStack          load(const StorageControlBlock& snapshot_block);
-  ErrorStack          drop() CXX11_OVERRIDE;
-  void       describe(std::ostream* o) const CXX11_OVERRIDE;
+  ErrorStack          drop();
+  friend std::ostream& operator<<(std::ostream& o, const MasstreeStorage& v);
 
 
   /**
@@ -89,8 +68,8 @@ class MasstreeStorage CXX11_FINAL
   // TODO(Hideaki) implement non key-slice version of prefetch_pages. so far this is enough, tho.
 
   // this storage type does use moved bit. so this is implemented
-  bool                track_moved_record(xct::WriteXctAccess* write) CXX11_OVERRIDE;
-  xct::LockableXctId* track_moved_record(xct::LockableXctId* address) CXX11_OVERRIDE;
+  bool                track_moved_record(xct::WriteXctAccess* write);
+  xct::LockableXctId* track_moved_record(xct::LockableXctId* address);
 
   //// Masstree API
 

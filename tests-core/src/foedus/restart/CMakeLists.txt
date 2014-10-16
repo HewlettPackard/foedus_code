@@ -1,0 +1,1 @@
+add_foedus_test_individual(test_restart_meta "Empty;OneArray;OneArrayOneSequential;OneMasstree;CreateDropCreate")

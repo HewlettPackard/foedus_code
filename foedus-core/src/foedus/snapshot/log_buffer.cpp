@@ -23,7 +23,7 @@ std::ostream& operator<<(std::ostream& o, const SortedBuffer& v) {
 
 void SortedBuffer::describe_base_elements(std::ostream* optr) const {
   std::ostream& o = *optr;
-  o << "<buffer_>" << buffer_ << "</buffer_>"
+  o << "<buffer_>" << reinterpret_cast<const void*>(buffer_) << "</buffer_>"
     << "<buffer_size_>" << buffer_size_ << "</buffer_size_>"
     << "<offset_>" << offset_ << "</offset_>"
     << "<total_size_>" << total_size_ << "</total_size_>"
@@ -68,11 +68,13 @@ void DumpFileSortedBuffer::describe(std::ostream* optr) const {
 
 ErrorCode DumpFileSortedBuffer::wind(uint64_t next_absolute_pos) {
   ASSERT_ND(offset_ % kAlignment == 0);
+  assert_checks();
   if (next_absolute_pos == offset_ || offset_ + buffer_size_ >= total_size_) {
     return kErrorCodeOk;  // nothing to do then
-  } else if (next_absolute_pos < offset_ ||
-    next_absolute_pos >= offset_ + buffer_size_ ||
-    next_absolute_pos >= total_size_) {
+  } else if (next_absolute_pos < offset_ ||  // backward wind
+    next_absolute_pos >= offset_ + buffer_size_ ||  // jumps more than one buffer
+    next_absolute_pos >= total_size_) {  // jumps exceeding the end of file
+    // this class doesn't support these operations. We shouldn't need them in any case.
     LOG(FATAL) << " wtf next_absolute_pos=" << next_absolute_pos << ", offset=" << offset_
       << ", buffer_size=" << buffer_size_ << ", total_size_=" << total_size_;
     return kErrorCodeInvalidParameter;
@@ -94,8 +96,8 @@ ErrorCode DumpFileSortedBuffer::wind(uint64_t next_absolute_pos) {
     read_to_relative = kAlignment;
   }
 
-  // we read as much as possible. note that "cur_file_pos_ + buffer_size" might become
-  // larger than end_file_pos_. It's fine, the next DumpFileSortedBuffer object for another
+  // we read as much as possible. note that "next_absolute_pos + buffer_size_" might become larger
+  // than cur_block_abosulte_end_. It's fine, the next DumpFileSortedBuffer object for another
   // storage will take care of the excessive bytes.
   uint64_t desired_reads = std::min(
     buffer_size_ - read_to_relative,
@@ -104,6 +106,7 @@ ErrorCode DumpFileSortedBuffer::wind(uint64_t next_absolute_pos) {
 
   offset_ += jump_distance;
   ASSERT_ND(offset_ % kAlignment == 0);
+  assert_checks();
   return kErrorCodeOk;
 }
 

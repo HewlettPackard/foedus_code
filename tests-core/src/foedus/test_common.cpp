@@ -48,17 +48,18 @@ namespace foedus {
     std::cout << "test uniquefier=" << uniquefier << std::endl;
     {
       std::stringstream str;
-      str << "tmp_logs/" << uniquefier << "/node_$NODE$/logger_$LOGGER$";
+      str << "tmp_folders/" << uniquefier << "/logs/node_$NODE$/logger_$LOGGER$";
       options.log_.folder_path_pattern_.assign(str.str());
     }
 
     {
       std::stringstream str;
-      str << "tmp_snapshots/" << uniquefier << "/node_$NODE$";
+      str << "tmp_folders/" << uniquefier << "/snapshots/node_$NODE$";
       options.snapshot_.folder_path_pattern_.assign(str.str());
     }
 
-    options.savepoint_.savepoint_path_.assign(std::string("tmp_savepoints/") + uniquefier + ".xml");
+    options.savepoint_.savepoint_path_.assign(
+      std::string("tmp_folders/") + uniquefier + "/savepoints.xml");
 
     return options;
   }
@@ -96,9 +97,9 @@ namespace foedus {
     }
   }
   void cleanup_test(const EngineOptions& options) {
-    fs::remove(fs::Path(options.savepoint_.savepoint_path_.str()));
-    fs::remove(fs::Path("tmp_logs"));
-    fs::remove(fs::Path("tmp_snapshots"));
+    fs::Path savepoint_path(options.savepoint_.savepoint_path_.str());
+    fs::Path unique_root = savepoint_path.parent_path();
+    fs::remove_all(unique_root);
   }
 
   bool is_multi_nodes() {

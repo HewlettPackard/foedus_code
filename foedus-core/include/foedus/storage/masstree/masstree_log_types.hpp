@@ -15,6 +15,7 @@
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
+#include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 
 /**
@@ -38,20 +39,8 @@ namespace masstree {
  */
 struct MasstreeCreateLogType : public log::StorageLogType {
   LOG_TYPE_NO_CONSTRUCT(MasstreeCreateLogType)
-  uint16_t        border_early_split_threshold_;  // +2 => 18
-  uint16_t        name_length_;       // +2 => 20
-  char            name_[4];           // +4 => 24
+  MasstreeMetadata metadata_;
 
-  static uint16_t calculate_log_length(uint16_t name_length) {
-    return assorted::align8(20 + name_length);
-  }
-
-  void populate(
-    StorageId storage_id,
-    uint16_t border_early_split_threshold,
-    uint16_t name_length,
-    const char* name);
-  static void construct(const Metadata* metadata, void* buffer);
   void apply_storage(Engine* engine, StorageId storage_id);
   void assert_valid();
   friend std::ostream& operator<<(std::ostream& o, const MasstreeCreateLogType& v);

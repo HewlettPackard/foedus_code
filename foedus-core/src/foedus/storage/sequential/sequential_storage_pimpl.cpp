@@ -142,6 +142,8 @@ ErrorStack SequentialStoragePimpl::create(const SequentialMetadata& metadata) {
   return kRetOk;
 }
 ErrorStack SequentialStoragePimpl::load(const StorageControlBlock& snapshot_block) {
+  // for sequential storage, whether the snapshot root pointer is null or not doesn't matter.
+  // essentially load==create, except that it just sets the snapshot root pointer.
   control_block_->meta_ = static_cast<const SequentialMetadata&>(snapshot_block.meta_);
   CHECK_ERROR(initialize_head_tail_pages());
   control_block_->root_page_pointer_.snapshot_pointer_
@@ -282,6 +284,7 @@ SequentialPage* SequentialStoragePimpl::get_tail(
 ErrorStack SequentialStoragePimpl::replace_pointers(
   const Composer::ReplacePointersArguments& args) {
   // In sequential, there is only one snapshot pointer to install, the root page.
+  control_block_->meta_.root_snapshot_page_id_ = args.new_root_page_pointer_;
   control_block_->root_page_pointer_.snapshot_pointer_ = args.new_root_page_pointer_;
   ++(*args.installed_count_);
 
@@ -322,7 +325,7 @@ ErrorStack SequentialStoragePimpl::replace_pointers(
         // okay, drop this
         memory::PagePoolOffset next = head->next_page().volatile_pointer_.components.offset;
         ASSERT_ND(next != offset);
-        ASSERT_ND(head->next_page().volatile_pointer_.components.numa_node == node);
+        ASSERT_ND(next == 0 || head->next_page().volatile_pointer_.components.numa_node == node);
         args.drop_volatile_page(combine_volatile_page_pointer(node, 0, 0, offset));
         if (next == 0) {
           // it was the tail

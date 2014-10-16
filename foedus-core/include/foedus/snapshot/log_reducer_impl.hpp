@@ -45,12 +45,6 @@ enum ReducerConstants {
    * If this bit is on, no more mappers can enter the buffer as a new writer.
    */
   kFlagNoMoreWriters = 0x0001,
-  /** @see BlockHeader::magic_word_ */
-  kBlockHeaderMagicWord = 0xDEADBEEF,
-  /** @see DumpStorageHeaderFiller */
-  kStorageHeaderFillerMagicWord = 0x8BADF00D,
-  /** @see DumpStorageHeaderReal */
-  kStorageHeaderRealMagicWord = 0xCAFEBABE,
 };
 
 /**
@@ -72,43 +66,54 @@ union ReducerBufferStatus {
   }
   bool is_clear() const { return word == 0; }
   uint16_t get_active_writers() const { return components.active_writers_; }
+  BufferPosition get_tail_position() const { return components.tail_position_; }
 };
 
 /**
-  * All buffer blocks sent via append_log_chunk() put this header at first.
-  */
-struct BlockHeader {
+ * @brief All log blocks in mapper/reducers start with this header.
+ * @ingroup SNAPSHOT
+ * @details
+ * This base object MUST be within 8 bytes so that FillerBlockHeader is within 8 bytes.
+ * As logs are multiply of 8 bytes, 8-byte filler header can fill any gap.
+ */
+struct BlockHeaderBase {
+  enum Constants {
+    /** @see FullBlockHeader::magic_word_ */
+    kFullBlockHeaderMagicWord = 0xDEADBEEF,
+    /** @see FillerBlockHeader::magic_word_ */
+    kFillerBlockHeaderMagicWord = 0x8BADF00D,
+  };
+  bool is_full_block() const {
+    ASSERT_ND(magic_word_ == kFullBlockHeaderMagicWord
+      || magic_word_ == kFillerBlockHeaderMagicWord);
+    return magic_word_ == kFullBlockHeaderMagicWord;
+  }
+  bool is_filler() const {
+    ASSERT_ND(magic_word_ == kFullBlockHeaderMagicWord
+      || magic_word_ == kFillerBlockHeaderMagicWord);
+    return magic_word_ == kFillerBlockHeaderMagicWord;
+  }
+
+  /**
+   * This is used to identify the storage block is a dummy (filler) one or a full one.
+   * This must be either kFullBlockHeaderMagicWord or kFillerBlockHeaderMagicWord.
+   */
+  uint32_t            magic_word_;
+  /** Length (in 8-bytes) of this block \e including the header. */
+  BufferPosition      block_length_;
+};
+
+/**
+ * @brief All blocks that have content start with this header.
+ * @ingroup SNAPSHOT
+ * @details
+ * Either that's an in-memory block or a block in dumped file, we use this header.
+ */
+struct FullBlockHeader : BlockHeaderBase {
   storage::StorageId  storage_id_;
   uint32_t            log_count_;
-  BufferPosition      block_length_;
-  /** just for sanity check. */
-  uint32_t            magic_word_;
 };
 
-/**
-  * All storage blocks in dump file start with this header.
-  * This base object MUST be within 8 bytes so that DumpStorageHeaderFiller is within 8 bytes.
-  */
-struct DumpStorageHeaderBase {
-  /**
-    * This is used to identify the storage block is a dummy (filler) one or a real one.
-    * This must be either kStorageHeaderFillerMagicWord or kStorageHeaderRealMagicWord.
-    */
-  uint32_t            magic_word_;
-  /**
-    * Length of this block \e including the header.
-    */
-  BufferPosition      block_length_;
-};
-
-/**
-  * A storage block in dump file that actually stores some storage.
-  * The magic word for this is kStorageHeaderDummyMagicWord.
-  */
-struct DumpStorageHeaderReal : public DumpStorageHeaderBase {
-  storage::StorageId  storage_id_;
-  uint32_t            log_count_;
-};
 
 /**
   * @brief A header for a dummy storage block that fills the gap between the end of
@@ -118,9 +123,9 @@ struct DumpStorageHeaderReal : public DumpStorageHeaderBase {
   * (we can also do it without dummy blocks by retaining the "fragment" until the next
   * storage block, but the complexity isn't worth it. 4kb for each storage? nothing.)
   * This object MUST be 8 bytes so that it can fill any gap (all log entries are 8-byte aligned).
-  * The magic word for this is kStorageHeaderFillerMagicWord.
+  * The magic word for this is kFillerBlockHeaderMagicWord.
   */
-struct DumpStorageHeaderFiller : public DumpStorageHeaderBase {};
+struct FillerBlockHeader : public BlockHeaderBase {};
 
 /**
  * Shared data for LogReducer. One instance in each node memory.
@@ -279,10 +284,15 @@ class LogReducer final : public MapReduceBase {
    * Context object used throughout merge_sort().
    */
   struct MergeContext {
-    explicit MergeContext(uint32_t sorted_buffer_count);
+    explicit MergeContext(uint32_t dumped_files_count_);
     ~MergeContext();
 
-    const uint32_t                            sorted_buffer_count_;
+    /**
+     * Number of sorted runs dumped to files.
+     * After populating sorted_buffers_, this number should be come sorted_buffers_.size() - 1
+     * because of the in-memory sorted buffer.
+     */
+    const uint32_t                            dumped_files_count_;
     memory::AlignedMemory                     io_memory_;
     std::vector< memory::AlignedMemorySlice > io_buffers_;
 
@@ -356,12 +366,6 @@ class LogReducer final : public MapReduceBase {
   /** Half of positions_buffers_ used for output buffer for batch-sorting method. */
   memory::AlignedMemorySlice output_positions_slice_;
 
-  /**
-   * Temporary work memory for composers during merge_sort().
-   * Automatically expanded if needed.
-   */
-  memory::AlignedMemory   composer_work_memory_;
-
   /** Main page pool for SnapshotWriter. */
   memory::AlignedMemory   writer_pool_memory_;
   /**
@@ -384,12 +388,6 @@ class LogReducer final : public MapReduceBase {
     uint64_t required_size,
     memory::AlignedMemory *memory,
     const std::string& name);
-  void expand_sort_buffer_if_needed(uint64_t required_size) {
-    expand_if_needed(required_size, &sort_buffer_, "sort_buffer_");
-  }
-  void expand_composer_work_memory_if_needed(uint64_t required_size) {
-    expand_if_needed(required_size, &composer_work_memory_, "composer_work_memory_");
-  }
   /** This one is a bit special. */
   void expand_positions_buffers_if_needed(uint64_t required_size_per_buffer);
 
@@ -428,22 +426,35 @@ class LogReducer final : public MapReduceBase {
 
   /**
    * Third sub routine of dump_buffer().
-   * For the specified storage, sort all log entries in key-and-ordinal order, then dump
-   * them to the file.
+   * For the specified storage, sort all log entries in key-and-ordinal order.
+   * Outputs are written_count and output_positions_slice_ (written to the member variable)
    */
   ErrorStack dump_buffer_sort_storage(
     const LogBuffer &buffer,
     storage::StorageId storage_id,
     const std::vector<BufferPosition>& log_positions,
-    fs::DirectIoFile *dump_file);
+    uint32_t* written_count);
 
-  /** Sub routine of dump_buffer_sort_storage to write the sorted logs to the file. */
+  /**
+   * Fourth sub routine of dump_buffer().
+   * Write the sorted logs to the file.
+   */
   ErrorStack dump_buffer_sort_storage_write(
     const LogBuffer &buffer,
     storage::StorageId storage_id,
     const BufferPosition* sorted_logs,
     uint32_t log_count,
     fs::DirectIoFile *dump_file);
+  /**
+   * figure out the total length by iterating over all blocks and write out block header.
+   * returns the total number of bytes calculated.
+   */
+  uint64_t dump_block_header(
+    const LogBuffer &buffer,
+    storage::StorageId storage_id,
+    const BufferPosition* sorted_logs,
+    uint32_t log_count,
+    void* destination) const;
 
   /**
    * @brief Called at the end of the reducer to construct a snapshot file
@@ -458,13 +469,19 @@ class LogReducer final : public MapReduceBase {
 
   /** just sanity checks. */
   void        merge_sort_check_buffer_status() const;
+  /**
+   * First sub routine that sorts the active in-memory buffer just like dump_buffer.
+   * The difference is that this does not write out a file. It outputs to the other
+   * in-memory buffer to avoid file I/O.
+   */
+  ErrorStack  merge_sort_dump_last_buffer();
 
   /**
-   * First sub routine of merge_sort() which allocates I/O buffers to read from sorted run files.
+   * Second sub routine of merge_sort() which allocates I/O buffers to read from sorted run files.
    */
   void        merge_sort_allocate_io_buffers(MergeContext* context) const;
   /**
-   * Second sub routine that opens the files with the I/O buffers.
+   * Third sub routine that opens the files with the I/O buffers.
    */
   ErrorStack  merge_sort_open_sorted_runs(MergeContext* context) const;
   /**

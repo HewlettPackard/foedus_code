@@ -68,6 +68,7 @@ class Partitioner CXX11_FINAL : public Attachable<PartitionerMetadata> {
 
   /** Returns tiny metadata of the partitioner in shared memory. */
   const PartitionerMetadata& get_metadata() const;
+  /** whether this object is ready for partitioning. if only sorting is needed, it doesn't matter */
   bool        is_valid()          const;
   StorageId   get_storage_id()    const { return id_;}
   StorageType get_storage_type()  const { return type_; }
@@ -85,8 +86,8 @@ class Partitioner CXX11_FINAL : public Attachable<PartitionerMetadata> {
 
   /** Arguments for design_partition() */
   struct DesignPartitionArguments {
-    /** Temporary memory at least of size get_required_design_buffer_size() */
-    memory::AlignedMemorySlice work_memory_;
+    /** Working memory to be used in this method. Automatically expand if needed. */
+    memory::AlignedMemory*  work_memory_;
     cache::SnapshotFileSet* snapshot_files_;
   };
 
@@ -97,8 +98,6 @@ class Partitioner CXX11_FINAL : public Attachable<PartitionerMetadata> {
    * This method should be called only once per snapshot.
    */
   ErrorStack design_partition(const DesignPartitionArguments& args);
-  /** Returns the minimum temporary memory size for design_partition() */
-  uint64_t   get_required_design_buffer_size();
 
   /** Arguments for partition_batch() */
   struct PartitionBatchArguments {
@@ -132,8 +131,8 @@ class Partitioner CXX11_FINAL : public Attachable<PartitionerMetadata> {
     const snapshot::BufferPosition*   log_positions_;
     /** number of entries to process. */
     uint32_t                          logs_count_;
-    /** For whatever purpose, the implementation can use this buffer as temporary working space. */
-    memory::AlignedMemorySlice        sort_buffer_;
+    /** Working memory to be used in this method. Automatically expand if needed. */
+    memory::AlignedMemory*            work_memory_;
     /**
      * All log entries in this inputs are assured to be after this epoch.
      * Also, it is assured to be within 2^16 from this epoch.
@@ -165,9 +164,6 @@ class Partitioner CXX11_FINAL : public Attachable<PartitionerMetadata> {
    * @see get_required_sort_buffer_size()
    */
   void                sort_batch(const SortBatchArguments& args);
-
-  /** Returns required size of sort buffer for sort_batch() */
-  uint64_t            get_required_sort_buffer_size(uint32_t log_count);
 
   friend std::ostream& operator<<(std::ostream& o, const Partitioner& v);
 

@@ -72,6 +72,7 @@ class SnapshotWriter final {
 
   /** Open the file so that the writer can start writing. */
   ErrorStack  open();
+  bool        is_opened() const { return snapshot_file_; }
   /**
    * Close the file and makes sure all writes become durable (including the directory entry).
    * @return whether successfully closed and synced.
@@ -85,10 +86,10 @@ class SnapshotWriter final {
 
   uint16_t                get_numa_node() const { return numa_node_; }
   storage::Page*          get_page_base() { return page_base_; }
-  memory::PagePoolOffset  get_page_size() const { return pool_size_;}
+  memory::PagePoolOffset  get_page_size() const { return pool_size_; }
   storage::Page*          get_intermediate_base() { return intermediate_base_; }
-  memory::PagePoolOffset  get_intermediate_size() const { return intermediate_size_;}
-  storage::SnapshotPagePointer get_next_page_id() const { return next_page_id_;}
+  memory::PagePoolOffset  get_intermediate_size() const { return intermediate_size_; }
+  storage::SnapshotPagePointer get_next_page_id() const { return next_page_id_; }
   SnapshotId              get_snapshot_id() const { return snapshot_id_; }
 
   storage::Page*          resolve(memory::PagePoolOffset offset) ALWAYS_INLINE {

@@ -40,6 +40,7 @@ ErrorStack SocManager::wait_for_children_module(bool init, ModuleType module) {
 ErrorStack SocManager::wait_for_master_module(bool init, ModuleType module) {
   return pimpl_->wait_for_master_module(init, module);
 }
+void SocManager::report_engine_fatal_error() { pimpl_->report_engine_fatal_error(); }
 
 }  // namespace soc
 }  // namespace foedus
