@@ -341,6 +341,8 @@ ErrorCode ThreadPimpl::follow_page_pointer(
       } else {
         // place an empty new page
         ASSERT_ND(page_initializer != &(storage::kDummyPageInitializer));
+        // we must not install a new volatile page in snapshot page. We must not hit this case.
+        ASSERT_ND(!storage::to_page(pointer)->get_header().snapshot_);
         memory::PagePoolOffset offset = core_memory_->grab_free_volatile_page();
         if (UNLIKELY(offset == 0)) {
           return kErrorCodeMemoryNoFreePages;

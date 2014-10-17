@@ -223,6 +223,9 @@ ErrorStack ArrayComposeContext::execute() {
   root_info_page_->header_.storage_id_ = storage_id_;
   CHECK_ERROR(init_more());
 
+  // TODO(Hideaki) in case the storage's current root snapshot page pointer is null
+  // and not all the records are modified, we must create zero-cleared snapshot pages even though
+  // there are no logs. So far this does not happen in our experiments/testcases, but it will.
   while (ended_inputs_count_ < inputs_count_) {
     const ArrayCommonUpdateLogType* entry = get_next_entry();
     Record* record = cur_path_[0]->get_leaf_record(next_route_.route[0], payload_size_);
@@ -239,10 +242,10 @@ ErrorStack ArrayComposeContext::execute() {
     WRAP_ERROR_CODE(advance());
   }
 
-  if (levels_ <= 1) {
+  if (levels_ <= 1U) {
     // this storage has only one page. This is very special and trivial.
     // we process this case separately.
-    ASSERT_ND(allocated_pages_ == 1);
+    ASSERT_ND(allocated_pages_ == 1U);
     ASSERT_ND(allocated_intermediates_ == 0);
     ASSERT_ND(cur_path_[0] == page_base_);
     ASSERT_ND(snapshot_writer_->get_next_page_id() == page_base_[0].header().page_id_);
@@ -255,7 +258,7 @@ ErrorStack ArrayComposeContext::execute() {
 }
 
 ErrorStack ArrayComposeContext::finalize() {
-  ASSERT_ND(levels_ > 1);
+  ASSERT_ND(levels_ > 1U);
   // flush the main buffer. now we finalized all leaf pages
   if (allocated_pages_ > 0) {
     // dump everything in main buffer (intermediate pages are kept)
@@ -283,9 +286,9 @@ ErrorStack ArrayComposeContext::finalize() {
     ArrayPage* page = intermediate_base_ + i;
     ASSERT_ND(page->header().page_id_ == i);
     ASSERT_ND(page->get_level() > 0);
-    ASSERT_ND(page->get_level() < levels_ - 1);
+    ASSERT_ND(page->get_level() < levels_ - 1U);
     page->header().page_id_ = new_page_id;
-    if (page->get_level() > 1) {
+    if (page->get_level() > 1U) {
       for (uint16_t j = 0; j < kInteriorFanout; ++j) {
         DualPagePointer& pointer = page->get_interior_record(j);
         if (pointer.volatile_pointer_.word != 0) {
