@@ -1,4 +1,4 @@
-add_foedus_test_individual(test_array_basic "CreateAndQuery;CreateAndDrop;CreateAndWrite;CreateAndReadWrite")
+add_foedus_test_individual(test_array_basic "RangeCalculation;RangeCalculation2;Create;CreateAndQuery;CreateAndDrop;CreateAndWrite;CreateAndReadWrite")
 
 add_foedus_test_individual(test_array_partitioner "InitialPartition;Empty;PartitionBasic;SortBasic;SortCompact;SortNoCompact")
 

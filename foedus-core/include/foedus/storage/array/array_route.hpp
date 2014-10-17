@@ -33,7 +33,17 @@ union LookupRoute {
    * [levels - 1] is the ordinal in root page.
    */
   uint8_t route[8];
+
+  ArrayRange calculate_page_range(
+    uint8_t page_level,
+    uint8_t total_levels,
+    uint16_t payload_size,
+    ArrayOffset array_size) const;
 };
+
+inline uint16_t to_records_in_leaf(uint16_t payload_size) {
+  return kDataSize / (assorted::align8(payload_size) + kRecordOverhead);
+}
 
 /**
  * @brief Packages logic and required properties to calculate LookupRoute in array storage
@@ -56,7 +66,7 @@ class LookupRouteFinder {
   }
   LookupRouteFinder(uint8_t levels,  uint16_t payload_size)
     : levels_(levels),
-      records_in_leaf_(kDataSize / (assorted::align8(payload_size) + kRecordOverhead)),
+      records_in_leaf_(to_records_in_leaf(payload_size)),
       leaf_fanout_div_(records_in_leaf_),
       interior_fanout_div_(kInteriorFanout) {
   }
@@ -136,6 +146,43 @@ inline LookupRoute LookupRouteFinder::find_route_and_switch(
     ret.route[levels_ - 1] = offset;
   }
 
+  return ret;
+}
+
+inline ArrayRange LookupRoute::calculate_page_range(
+  uint8_t page_level,
+  uint8_t total_levels,
+  uint16_t payload_size,
+  ArrayOffset array_size) const {
+  ASSERT_ND(total_levels > page_level);
+  ASSERT_ND(payload_size > 0);
+  ASSERT_ND(array_size > 0);
+  uint16_t records_in_leaf = to_records_in_leaf(payload_size);
+  uint64_t interval = records_in_leaf;
+  // for example:
+  // page_level==0, route={xxx, 3, 4} (levels=3): r*3 + r*kInteriorFanout*4 ~ +r
+  // page_level==1, route={xxx, yyy, 4}  (levels=3): r*kInteriorFanout*4 ~ +r*kInteriorFanout
+  ArrayRange ret(0, 0);
+  if (page_level == 0) {
+    ret.end_ = records_in_leaf;
+  }
+  for (uint16_t level = 1; level < total_levels; ++level) {
+    if (level == page_level) {
+      ASSERT_ND(ret.begin_ == 0);
+      ASSERT_ND(ret.end_ == 0);
+      ret.end_ = interval * kInteriorFanout;
+    } else if (level > page_level) {
+      uint64_t shift = interval * route[level];
+      ret.begin_ += shift;
+      ret.end_ += shift;
+    }
+    interval *= kInteriorFanout;
+  }
+  ASSERT_ND(ret.begin_ < ret.end_);
+  ASSERT_ND(ret.begin_ < array_size);
+  if (ret.end_ > array_size) {
+    ret.end_ = array_size;
+  }
   return ret;
 }
 

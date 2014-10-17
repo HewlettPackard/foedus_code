@@ -44,6 +44,23 @@ void ArrayPage::initialize_volatile_page(
   }
 }
 
+void ArrayVolatileInitializer::initialize_more(Page* page) const {
+  ArrayRange range = route_.calculate_page_range(
+    page_level_,
+    total_levels_,
+    payload_size_,
+    array_size_);
+  VolatilePagePointer volatile_pointer;
+  volatile_pointer.word = page->get_header().page_id_;
+  ArrayPage* casted = reinterpret_cast<ArrayPage*>(page);
+  casted->initialize_volatile_page(
+    initial_epoch_,
+    storage_id_,
+    volatile_pointer,
+    payload_size_,
+    page_level_,
+    range);
+}
 
 }  // namespace array
 }  // namespace storage

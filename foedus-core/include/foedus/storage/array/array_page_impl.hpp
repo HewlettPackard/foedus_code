@@ -8,10 +8,13 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
+#include "foedus/fwd.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/array/array_id.hpp"
+#include "foedus/storage/array/array_metadata.hpp"
+#include "foedus/storage/array/array_route.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
@@ -107,7 +110,11 @@ class ArrayPage final {
   uint8_t             reserved1_;     // +1 -> 36
   uint32_t            reserved2_;     // +4 -> 40
 
-  /** The offset range this node is in charge of. Mainly for sanity checking. */
+  /**
+   * The offset range this node is in charge of. Mainly for sanity checking.
+   * If this page is right-most (eg root page), the end is the array's size,
+   * which might be smaller than the range it can physically contain.
+   */
   ArrayRange          array_range_;   // +16 -> 56
 
   uint64_t            dummy_;         // +8 -> 64
@@ -117,6 +124,38 @@ class ArrayPage final {
   /** Dynamic records in this page. */
   Data                data_;
 };
+
+/**
+ * volatile page initialize callback for ArrayPage.
+ * @ingroup ARRAY
+ */
+struct ArrayVolatileInitializer final : public VolatilePageInitializer {
+  ArrayVolatileInitializer(
+    const ArrayMetadata& meta,
+    uint8_t page_level,
+    uint8_t total_levels,
+    Epoch initial_epoch,
+    LookupRoute route)
+    : VolatilePageInitializer(meta.id_, kArrayPageType),
+      storage_id_(meta.id_),
+      payload_size_(meta.payload_size_),
+      page_level_(page_level),
+      total_levels_(total_levels),
+      initial_epoch_(initial_epoch),
+      array_size_(meta.array_size_),
+      route_(route) {
+  }
+  void initialize_more(Page* page) const override;
+
+  const StorageId       storage_id_;
+  const uint16_t        payload_size_;
+  const uint8_t         page_level_;
+  const uint8_t         total_levels_;
+  const Epoch           initial_epoch_;
+  const ArrayOffset     array_size_;
+  const LookupRoute     route_;
+};
+
 static_assert(sizeof(ArrayPage) == kPageSize, "sizeof(ArrayPage) is not kPageSize");
 static_assert(sizeof(ArrayPage) - sizeof(ArrayPage::Data) == kHeaderSize, "kHeaderSize is wrong");
 

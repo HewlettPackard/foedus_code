@@ -76,7 +76,9 @@ class ArrayStoragePimpl final {
 
   ~ArrayStoragePimpl() {}
 
+  ErrorStack  create(const Metadata& metadata);
   ErrorStack  load(const StorageControlBlock& snapshot_block);
+  ErrorStack  load_empty(VolatilePagePointer* volatile_pointer, ArrayPage** volatile_root);
 
   void        report_page_distribution();
 
@@ -238,16 +240,12 @@ class ArrayStoragePimpl final {
    */
   static std::vector<uint64_t> calculate_offset_intervals(uint8_t levels, uint16_t payload);
 
-  static ErrorCode follow_pointer_for_read(
+  ErrorCode follow_pointer(
     thread::Thread* context,
-    xct::Xct* current_xct,
-    const memory::GlobalVolatilePageResolver& page_resolver,
-    DualPagePointer* pointer,
-    bool* followed_snapshot_pointer,
-    ArrayPage** out) ALWAYS_INLINE;
-  static ErrorCode follow_pointer_for_write(
-    thread::Thread* context,
-    const memory::GlobalVolatilePageResolver& page_resolver,
+    LookupRoute route,
+    uint8_t parent_level,
+    bool in_snapshot,
+    bool for_write,
     DualPagePointer* pointer,
     ArrayPage** out) ALWAYS_INLINE;
 
