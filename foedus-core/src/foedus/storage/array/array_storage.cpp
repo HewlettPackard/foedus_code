@@ -36,6 +36,9 @@ ArrayStorage& ArrayStorage::operator=(const ArrayStorage& other) {
   control_block_ = other.control_block_;
   return *this;
 }
+ErrorStack ArrayStorage::create(const Metadata& metadata) {
+  return ArrayStoragePimpl(this).create(metadata);
+}
 
 ErrorStack ArrayStorage::load(const StorageControlBlock& snapshot_block) {
   return ArrayStoragePimpl(this).load(snapshot_block);

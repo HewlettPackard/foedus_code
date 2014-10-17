@@ -6,6 +6,7 @@
 
 #include <cstring>
 #include <iostream>
+#include <vector>
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
@@ -14,7 +15,9 @@
 #include "foedus/proc/proc_manager.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
+#include "foedus/storage/array/array_route.hpp"
 #include "foedus/storage/array/array_storage.hpp"
+#include "foedus/storage/array/array_storage_pimpl.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/xct/xct_manager.hpp"
@@ -23,6 +26,60 @@ namespace foedus {
 namespace storage {
 namespace array {
 DEFINE_TEST_CASE_PACKAGE(ArrayBasicTest, foedus.storage.array);
+TEST(ArrayBasicTest, RangeCalculation) {
+  LookupRoute route;
+  route.route[0] = 3;
+  route.route[1] = 4;
+  route.route[2] = 5;
+  route.route[3] = 7;
+  const uint8_t kLevels = 4;
+  const uint16_t kPayload = 200;  // about 20 per leaf page
+  const uint64_t kRecordsInLeaf = to_records_in_leaf(kPayload);
+  const uint64_t kArraySize = kRecordsInLeaf * kInteriorFanout * kInteriorFanout * kInteriorFanout;
+  std::vector<uint64_t> pages = ArrayStoragePimpl::calculate_required_pages(kArraySize, kPayload);
+  EXPECT_EQ(kLevels, pages.size());
+  uint64_t base = 7 * kRecordsInLeaf * kInteriorFanout * kInteriorFanout;
+  ArrayRange range = route.calculate_page_range(0, kLevels, kPayload, kArraySize);
+  EXPECT_EQ(4 * kRecordsInLeaf + 5 * kRecordsInLeaf * kInteriorFanout + base, range.begin_);
+  EXPECT_EQ(5 * kRecordsInLeaf + 5 * kRecordsInLeaf * kInteriorFanout + base, range.end_);
+  range = route.calculate_page_range(1, kLevels, kPayload, kArraySize);
+  EXPECT_EQ(5 * kRecordsInLeaf * kInteriorFanout + base, range.begin_);
+  EXPECT_EQ(6 * kRecordsInLeaf * kInteriorFanout + base, range.end_);
+  range = route.calculate_page_range(2, kLevels, kPayload, kArraySize);
+  EXPECT_EQ(base, range.begin_);
+  EXPECT_EQ(base + kRecordsInLeaf * kInteriorFanout * kInteriorFanout, range.end_);
+  range = route.calculate_page_range(3, kLevels, kPayload, kArraySize);
+  EXPECT_EQ(0, range.begin_);
+  EXPECT_EQ(kRecordsInLeaf * kInteriorFanout * kInteriorFanout * kInteriorFanout, range.end_);
+}
+TEST(ArrayBasicTest, RangeCalculation2) {
+  LookupRoute route;
+  route.route[0] = 3;
+  route.route[1] = 4;
+  route.route[2] = 5;
+  route.route[3] = kInteriorFanout - 1;
+  const uint8_t kLevels = 4;
+  const uint16_t kPayload = 200;
+  const uint64_t kRecordsInLeaf = to_records_in_leaf(kPayload);
+  const uint64_t kArraySize
+    = kRecordsInLeaf * kInteriorFanout * kInteriorFanout * kInteriorFanout - 10U;
+  std::vector<uint64_t> pages = ArrayStoragePimpl::calculate_required_pages(kArraySize, kPayload);
+  EXPECT_EQ(kLevels, pages.size());
+  uint64_t base = (kInteriorFanout - 1U) * kRecordsInLeaf * kInteriorFanout * kInteriorFanout;
+  ArrayRange range = route.calculate_page_range(0, kLevels, kPayload, kArraySize);
+  EXPECT_EQ(4 * kRecordsInLeaf + 5 * kRecordsInLeaf * kInteriorFanout + base, range.begin_);
+  EXPECT_EQ(5 * kRecordsInLeaf + 5 * kRecordsInLeaf * kInteriorFanout + base, range.end_);
+  range = route.calculate_page_range(1, kLevels, kPayload, kArraySize);
+  EXPECT_EQ(5 * kRecordsInLeaf * kInteriorFanout + base, range.begin_);
+  EXPECT_EQ(6 * kRecordsInLeaf * kInteriorFanout + base, range.end_);
+  range = route.calculate_page_range(2, kLevels, kPayload, kArraySize);
+  EXPECT_EQ(base, range.begin_);
+  EXPECT_EQ(kArraySize, range.end_);
+  range = route.calculate_page_range(3, kLevels, kPayload, kArraySize);
+  EXPECT_EQ(0, range.begin_);
+  EXPECT_EQ(kArraySize, range.end_);
+}
+
 TEST(ArrayBasicTest, Create) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);

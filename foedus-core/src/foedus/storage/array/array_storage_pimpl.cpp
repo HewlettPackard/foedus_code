@@ -20,6 +20,7 @@
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
+#include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_manager.hpp"
@@ -252,158 +253,43 @@ std::vector<uint64_t> ArrayStoragePimpl::calculate_offset_intervals(
   return offset_intervals;
 }
 
-ErrorStack ArrayStorage::create(const Metadata &metadata) {
+ErrorStack ArrayStoragePimpl::load_empty(
+  VolatilePagePointer* volatile_pointer,
+  ArrayPage** volatile_root) {
+  const uint16_t levels = calculate_levels(control_block_->meta_);
+  const uint32_t payload_size = control_block_->meta_.payload_size_;
+  const ArrayOffset array_size = control_block_->meta_.array_size_;
+  control_block_->levels_ = levels;
+  control_block_->route_finder_ = LookupRouteFinder(levels, payload_size);
+  control_block_->root_page_pointer_.snapshot_pointer_ = 0;
+  control_block_->root_page_pointer_.volatile_pointer_.word = 0;
+  control_block_->meta_.root_snapshot_page_id_ = 0;
+
+  CHECK_ERROR(engine_->get_memory_manager()->grab_one_volatile_page(
+    0,
+    volatile_pointer,
+    reinterpret_cast<Page**>(volatile_root)));
+  (*volatile_root)->initialize_volatile_page(
+    engine_->get_savepoint_manager()->get_initial_current_epoch(),  // lowest epoch in the system
+    get_id(),
+    *volatile_pointer,
+    payload_size,
+    levels - 1U,
+    ArrayRange(0, array_size));
+  control_block_->root_page_pointer_.volatile_pointer_ = *volatile_pointer;
+  return kRetOk;
+}
+
+ErrorStack ArrayStoragePimpl::create(const Metadata& metadata) {
   if (exists()) {
-    LOG(ERROR) << "This array-storage already exists: " << *this;
+    LOG(ERROR) << "This array-storage already exists-" << metadata.id_;
     return ERROR_STACK(kErrorCodeStrAlreadyExists);
   }
   control_block_->meta_ = static_cast<const ArrayMetadata&>(metadata);
-  const ArrayMetadata& meta = control_block_->meta_;
-  const uint16_t levels = calculate_levels(meta);
-  const ArrayOffset array_size = meta.array_size_;
-  control_block_->levels_ = levels;
-  control_block_->route_finder_ = LookupRouteFinder(levels, get_payload_size());
-  control_block_->root_page_pointer_.snapshot_pointer_ = meta.root_snapshot_page_id_;
-  control_block_->root_page_pointer_.volatile_pointer_.word = 0;
-
-  // Number of pages in each level. index=level.
-  std::vector<uint64_t> pages = ArrayStoragePimpl::calculate_required_pages(
-    array_size, get_payload_size());
-
-  std::vector<uint64_t> offset_intervals = ArrayStoragePimpl::calculate_offset_intervals(
-    levels,
-    get_payload_size());
-  for (uint8_t level = 0; level < levels; ++level) {
-    LOG(INFO) << "Level-" << static_cast<int>(level) << " pages=" << pages[level]
-      << " interval=" << offset_intervals[level];
-  }
-
-  Epoch initial_epoch = engine_->get_xct_manager()->get_current_global_epoch();
-  LOG(INFO) << "Newly creating an array-storage "  << *this << " as epoch=" << initial_epoch;
-
-  // TODO(Hideaki) This part must handle the case where RAM < Array Size
-  // So far, we just crash in DivvyupPageGrabBatch::grab().
-
-  // we create from left, keeping cursors on each level.
-  // first, create the left-most in each level
-  // All of the following, index=level
-  std::vector<ArrayPage*> current_pages;
-  std::vector<VolatilePagePointer> current_pages_ids;
-  std::vector<uint16_t> current_records;
-  // we grab free page from each node evenly.
-  const memory::GlobalVolatilePageResolver& page_resolver
-    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
-  memory::DivvyupPageGrabBatch grab_batch(engine_);
-  for (uint8_t level = 0; level < levels; ++level) {
-    VolatilePagePointer page_pointer = grab_batch.grab_evenly(0, pages[level]);
-    ASSERT_ND(page_pointer.components.offset != 0);
-    ArrayPage* page = reinterpret_cast<ArrayPage*>(
-      page_resolver.resolve_offset_newpage(page_pointer));
-    current_pages.push_back(page);
-    current_pages_ids.push_back(page_pointer);
-  }
-  for (uint8_t level = 0; level < levels; ++level) {
-    ArrayPage* page = current_pages[level];
-    ArrayRange range(0, offset_intervals[level]);
-    if (range.end_ > array_size) {
-      ASSERT_ND(level == levels - 1);
-      range.end_ = array_size;
-    }
-    page->initialize_volatile_page(
-      initial_epoch,
-      get_id(),
-      current_pages_ids[level],
-      get_payload_size(),
-      level,
-      range);
-
-    if (level == 0) {
-      current_records.push_back(0);
-    } else {
-      current_records.push_back(1);
-      DualPagePointer& child_pointer = page->get_interior_record(0);
-      child_pointer.snapshot_pointer_ = 0;
-      child_pointer.volatile_pointer_ = current_pages_ids[level - 1];
-      child_pointer.volatile_pointer_.components.flags = 0;
-      child_pointer.volatile_pointer_.components.mod_count = 0;
-    }
-  }
-  ASSERT_ND(current_pages.size() == levels);
-  ASSERT_ND(current_pages_ids.size() == levels);
-  ASSERT_ND(current_records.size() == levels);
-
-  // then moves on to right
-  for (uint64_t leaf = 1; leaf < pages[0]; ++leaf) {
-    VolatilePagePointer page_pointer = grab_batch.grab_evenly(leaf, pages[0]);
-    ASSERT_ND(page_pointer.components.offset != 0);
-    ArrayPage* page = reinterpret_cast<ArrayPage*>(
-      page_resolver.resolve_offset_newpage(page_pointer));
-
-    ArrayRange range(current_pages[0]->get_array_range().end_,
-             current_pages[0]->get_array_range().end_ + offset_intervals[0]);
-    if (range.end_ > array_size) {
-      range.end_ = array_size;
-    }
-    page->initialize_volatile_page(
-      initial_epoch,
-      get_id(),
-      page_pointer,
-      get_payload_size(),
-      0,
-      range);
-    current_pages[0] = page;
-    current_pages_ids[0] = page_pointer;
-    // current_records[0] is always 0
-
-    // push it up to parent, potentially up to root
-    for (uint8_t level = 1; level < levels; ++level) {
-      if (current_records[level] == kInteriorFanout) {
-        VLOG(2) << "leaf=" << leaf << ", interior level=" << static_cast<int>(level);
-        // On same NUMA node as the leaf.
-        VolatilePagePointer interior_pointer = grab_batch.grab(page_pointer.components.numa_node);
-        ASSERT_ND(interior_pointer.components.offset != 0);
-        ArrayPage* interior_page = reinterpret_cast<ArrayPage*>(
-          page_resolver.resolve_offset_newpage(interior_pointer));
-        ArrayRange interior_range(current_pages[level]->get_array_range().end_,
-             current_pages[level]->get_array_range().end_ + offset_intervals[level]);
-        if (range.end_ > array_size) {
-          range.end_ = array_size;
-        }
-        interior_page->initialize_volatile_page(
-          initial_epoch,
-          get_id(),
-          interior_pointer,
-          get_payload_size(),
-          level,
-          interior_range);
-
-        DualPagePointer& child_pointer = interior_page->get_interior_record(0);
-        child_pointer.snapshot_pointer_ = 0;
-        child_pointer.volatile_pointer_ = current_pages_ids[level - 1];
-        child_pointer.volatile_pointer_.components.flags = 0;
-        child_pointer.volatile_pointer_.components.mod_count = 0;
-        current_pages[level] = interior_page;
-        current_pages_ids[level] = interior_pointer;
-        current_records[level] = 1;
-        // also inserts this to parent
-      } else {
-        DualPagePointer& child_pointer = current_pages[level]->get_interior_record(
-          current_records[level]);
-        child_pointer.snapshot_pointer_ = 0;
-        child_pointer.volatile_pointer_ = current_pages_ids[level - 1];
-        child_pointer.volatile_pointer_.components.flags = 0;
-        child_pointer.volatile_pointer_.components.mod_count = 0;
-        ++current_records[level];
-        break;
-      }
-    }
-  }
-
-  control_block_->root_page_pointer_.snapshot_pointer_ = 0;
-  control_block_->root_page_pointer_.volatile_pointer_ = current_pages_ids[levels - 1];
-  control_block_->root_page_pointer_.volatile_pointer_.components.flags = 0;
-  control_block_->root_page_pointer_.volatile_pointer_.components.mod_count = 0;
-  LOG(INFO) << "Newly created an array-storage " << *this;
+  VolatilePagePointer volatile_pointer;
+  ArrayPage* volatile_root;
+  CHECK_ERROR(load_empty(&volatile_pointer, &volatile_root));
+  LOG(INFO) << "Newly created an array-storage " << metadata.id_;
 
   control_block_->status_ = kExists;
   return kRetOk;
@@ -423,15 +309,20 @@ ErrorStack ArrayStoragePimpl::load(const StorageControlBlock& snapshot_block) {
   // Create it now.
   VolatilePagePointer volatile_pointer;
   ArrayPage* volatile_root;
-  cache::SnapshotFileSet fileset(engine_);
-  CHECK_ERROR(fileset.initialize());
-  UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
-  CHECK_ERROR(engine_->get_memory_manager()->load_one_volatile_page(
-    &fileset,
-    meta.root_snapshot_page_id_,
-    &volatile_pointer,
-    reinterpret_cast<Page**>(&volatile_root)));
-  CHECK_ERROR(fileset.uninitialize());
+  if (meta.root_snapshot_page_id_ != 0) {
+    cache::SnapshotFileSet fileset(engine_);
+    CHECK_ERROR(fileset.initialize());
+    UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
+    CHECK_ERROR(engine_->get_memory_manager()->load_one_volatile_page(
+      &fileset,
+      meta.root_snapshot_page_id_,
+      &volatile_pointer,
+      reinterpret_cast<Page**>(&volatile_root)));
+    CHECK_ERROR(fileset.uninitialize());
+  } else {
+    LOG(INFO) << "Loading an empty array-storage-" << get_meta();
+    CHECK_ERROR(load_empty(&volatile_pointer, &volatile_root));
+  }
 
   control_block_->root_page_pointer_.volatile_pointer_ = volatile_pointer;
   control_block_->status_ = kExists;
@@ -679,27 +570,26 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read(
   uint16_t levels = get_levels();
   ASSERT_ND(current_page->get_array_range().contains(offset));
   LookupRoute route = control_block_->route_finder_.find_route(offset);
-  const memory::GlobalVolatilePageResolver& page_resolver
-    = context->get_global_volatile_page_resolver();
-  xct::Xct& current_xct = context->get_current_xct();
-  bool followed_snapshot_pointer = false;
+  bool in_snapshot = false;
   for (uint8_t level = levels - 1; level > 0; --level) {
     ASSERT_ND(current_page->get_array_range().contains(offset));
     DualPagePointer& pointer = current_page->get_interior_record(route.route[level]);
-    CHECK_ERROR_CODE(follow_pointer_for_read(
+    CHECK_ERROR_CODE(follow_pointer(
       context,
-      &current_xct,
-      page_resolver,
+      route,
+      level,
+      in_snapshot,
+      false,
       &pointer,
-      &followed_snapshot_pointer,
       &current_page));
+    in_snapshot = current_page->header().snapshot_;
   }
   ASSERT_ND(current_page->is_leaf());
   ASSERT_ND(current_page->get_array_range().contains(offset));
   ASSERT_ND(current_page->get_array_range().begin_ + route.route[0] == offset);
   *out = current_page;
   *index = route.route[0];
-  *snapshot_page = followed_snapshot_pointer;
+  *snapshot_page = (*out)->header().snapshot_;
   return kErrorCodeOk;
 }
 
@@ -716,13 +606,14 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write(
   uint16_t levels = get_levels();
   ASSERT_ND(current_page->get_array_range().contains(offset));
   LookupRoute route = control_block_->route_finder_.find_route(offset);
-  const memory::GlobalVolatilePageResolver& page_resolver
-    = context->get_global_volatile_page_resolver();
   for (uint8_t level = levels - 1; level > 0; --level) {
     ASSERT_ND(current_page->get_array_range().contains(offset));
-    CHECK_ERROR_CODE(follow_pointer_for_write(
+    CHECK_ERROR_CODE(follow_pointer(
       context,
-      page_resolver,
+      route,
+      level,
+      false,
+      true,
       &current_page->get_interior_record(route.route[level]),
       &current_page));
   }
@@ -957,20 +848,19 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
     snapshot_page_batch[i] = false;
   }
 
-  const memory::GlobalVolatilePageResolver& page_resolver
-    = context->get_global_volatile_page_resolver();
-  xct::Xct& current_xct = context->get_current_xct();
   for (uint8_t level = levels - 1; level > 0; --level) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       ASSERT_ND(out_batch[i]->get_array_range().contains(offset_batch[i]));
       DualPagePointer& pointer = out_batch[i]->get_interior_record(routes[i].route[level]);
-      CHECK_ERROR_CODE(follow_pointer_for_read(
+      CHECK_ERROR_CODE(follow_pointer(
         context,
-        &current_xct,
-        page_resolver,
+        routes[i],
+        level,
+        snapshot_page_batch[i],
+        false,
         &pointer,
-        snapshot_page_batch + i,
         &(out_batch[i])));
+      snapshot_page_batch[i] = out_batch[i]->header().snapshot_;
       if (level == 1U) {
         assorted::prefetch_cacheline(out_batch[i]->get_leaf_record(
           routes[i].route[0],
@@ -1015,14 +905,15 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
     pages[i] = root_page;
   }
 
-  const memory::GlobalVolatilePageResolver& page_resolver
-    = context->get_global_volatile_page_resolver();
   for (uint8_t level = levels - 1; level > 0; --level) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       ASSERT_ND(pages[i]->get_array_range().contains(offset_batch[i]));
-      CHECK_ERROR_CODE(follow_pointer_for_write(
+      CHECK_ERROR_CODE(follow_pointer(
         context,
-        page_resolver,
+        routes[i],
+        level,
+        false,
+        true,
         &pages[i]->get_interior_record(routes[i].route[level]),
         &pages[i]));
       if (level == 1U) {
@@ -1044,62 +935,30 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
   return kErrorCodeOk;
 }
 
-inline ErrorCode ArrayStoragePimpl::follow_pointer_for_read(
+inline ErrorCode ArrayStoragePimpl::follow_pointer(
   thread::Thread* context,
-  xct::Xct* current_xct,
-  const memory::GlobalVolatilePageResolver& page_resolver,
-  DualPagePointer* pointer,
-  bool* followed_snapshot_pointer,
-  ArrayPage** out) {
-  storage::VolatilePagePointer volatile_pointer = pointer->volatile_pointer_;
-  if (*followed_snapshot_pointer) {
-    // we already followed a snapshot pointer, so everything under it is stable.
-    // just follow the snapstho pointer
-    ASSERT_ND(pointer->snapshot_pointer_ != 0);
-    ASSERT_ND(pointer->volatile_pointer_.word == 0);
-    CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
-      pointer->snapshot_pointer_,
-      reinterpret_cast<Page**>(out)));
-  } else if (volatile_pointer.components.offset == 0
-    || current_xct->get_isolation_level() == xct::kDirtyReadPreferSnapshot) {
-    // then read from snapshot page. this is the beginning point to follow a snapshot pointer,
-    // so we have to take a pointer set in case someone else installs a new volatile pointer
-    // (after here, everything is stable).
-    ASSERT_ND(pointer->snapshot_pointer_ != 0);
-    *followed_snapshot_pointer = true;
-    current_xct->add_to_pointer_set(&(pointer->volatile_pointer_), volatile_pointer);
-    CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
-      pointer->snapshot_pointer_,
-      reinterpret_cast<Page**>(out)));
-  } else {
-    // NOTE: In Array storage, we don't have to take a ptr set for following a volatile pointer
-    // because we don't swap volatile pointer like Masstree's page split.
-    // The only case we change volatile pointer is for snapshot thread to drop volatile pages
-    // that are equivalent to snapshot pages, so it never affects serializability.
-    *out = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(volatile_pointer));
-  }
-  return kErrorCodeOk;
-}
-
-inline ErrorCode ArrayStoragePimpl::follow_pointer_for_write(
-  thread::Thread* context,
-  const memory::GlobalVolatilePageResolver& page_resolver,
+  LookupRoute route,
+  uint8_t parent_level,
+  bool in_snapshot,
+  bool for_write,
   DualPagePointer* pointer,
   ArrayPage** out) {
-  storage::VolatilePagePointer volatile_pointer = pointer->volatile_pointer_;
-  if (volatile_pointer.components.offset == 0) {
-    ASSERT_ND(pointer->snapshot_pointer_ != 0);
-    // then we have to install a new volatile page, starting from the snapshot page image.
-    // this should, hopefully, do not happen too often. if the page is worth keeping as
-    // a volatile page, snapshot thread shouldn't drop it or at least the page should
-    // come back during the grace period.
-    CHECK_ERROR_CODE(context->install_a_volatile_page(
-      pointer,
-      reinterpret_cast<Page**>(out)));
-  } else {
-    *out = reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(volatile_pointer));
-  }
-  return kErrorCodeOk;
+  ASSERT_ND(!in_snapshot || !for_write);  // if we are modifying, we must be in volatile world
+  ASSERT_ND(parent_level > 0);
+  ArrayVolatileInitializer initializer(
+    control_block_->meta_,
+    parent_level - 1U,
+    control_block_->levels_,
+    context->get_current_xct().get_id().get_epoch(),
+    route);
+  return context->follow_page_pointer(
+    &initializer,  // array storage might have null pointer. in that case create an empty new page
+    false,  // if both volatile/snapshot null, create a new volatile (logically all-zero)
+    for_write,
+    !in_snapshot,  // if we are already in snapshot world, no need to take more pointer set
+    false,
+    pointer,
+    reinterpret_cast<Page**>(out));
 }
 
 #define CHECK_AND_ASSERT(x) do { ASSERT_ND(x); if (!(x)) \

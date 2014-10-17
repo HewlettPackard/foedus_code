@@ -12,6 +12,7 @@
 #include "foedus/test_common.hpp"
 #include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/memory/engine_memory.hpp"
+#include "foedus/proc/proc_manager.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_log_types.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
@@ -19,11 +20,32 @@
 #include "foedus/storage/array/array_partitioner_impl.hpp"
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/array/array_storage_pimpl.hpp"
+#include "foedus/thread/thread.hpp"
+#include "foedus/thread/thread_pool.hpp"
+#include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 namespace storage {
 namespace array {
 DEFINE_TEST_CASE_PACKAGE(ArrayPartitionerTest, foedus.storage.array);
+
+ErrorStack populate(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  ArrayStorage array(args.engine_, "test");
+  xct::XctManager* xct_manager = args.engine_->get_xct_manager();
+  CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
+  char buf[4096];
+  for (uint32_t i = 0; i < array.get_array_size() / 2U; ++i) {
+    ArrayOffset rec = i;
+    if (context->get_numa_node() != 0) {
+      rec += array.get_array_size() / 2U;
+    }
+    CHECK_ERROR(array.get_record(context, rec, buf));
+  }
+  Epoch commit_epoch;
+  CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+  return kRetOk;
+}
 
 TEST(ArrayPartitionerTest, InitialPartition) {
   if (!is_multi_nodes()) {
@@ -34,14 +56,17 @@ TEST(ArrayPartitionerTest, InitialPartition) {
   options.thread_.group_count_ = 2;
   options.memory_.page_pool_size_mb_per_node_ = 4;
   Engine engine(options);
+  engine.get_proc_manager()->pre_register("populate", populate);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
     ArrayStorage out;
     Epoch commit_epoch;
-    ArrayMetadata meta("test5", 3000, 300);  // 1 record per page. 300 leaf pages.
+    ArrayMetadata meta("test", 3000, 300);  // 1 record per page. 300 leaf pages.
     COERCE_ERROR(engine.get_storage_manager()->create_array(&meta, &out, &commit_epoch));
     EXPECT_TRUE(out.exists());
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_on_numa_node_synchronous(0, "populate"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_on_numa_node_synchronous(1, "populate"));
     VolatilePagePointer root_ptr = out.get_control_block()->root_page_pointer_.volatile_pointer_;
     EXPECT_EQ(0, root_ptr.components.numa_node);
     const memory::GlobalVolatilePageResolver& resolver
@@ -74,6 +99,7 @@ void execute_test(TestFunctor functor, uint64_t array_size = 1024) {
   EngineOptions options = get_tiny_options();
   options.thread_.group_count_ = 2;  // otherwise we can't test partitioning
   Engine engine(options);
+  engine.get_proc_manager()->pre_register("populate", populate);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
@@ -82,6 +108,8 @@ void execute_test(TestFunctor functor, uint64_t array_size = 1024) {
     ArrayMetadata meta("test", kPayload, array_size);
     COERCE_ERROR(engine.get_storage_manager()->create_array(&meta, &out, &commit_epoch));
     EXPECT_TRUE(out.exists());
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_on_numa_node_synchronous(0, "populate"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_on_numa_node_synchronous(1, "populate"));
     Partitioner partitioner(&engine, out.get_id());
     memory::AlignedMemory work_memory;
     work_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
