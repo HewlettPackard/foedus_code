@@ -65,3 +65,8 @@ ant hstore-prepare hstore-benchmark -Dproject=tpcc -Dsite.jvm_asserts=false -Dcl
 
 kimurhid         soft    nproc           65536
 kimurhid         hard    nproc           65536
+
+Note, be aware of this error:
+  hstore-site:
+  OpenJDK 64-Bit Server VM warning: Max heap size too large for Compressed Oops
+Keep heap sizes within 32GB.

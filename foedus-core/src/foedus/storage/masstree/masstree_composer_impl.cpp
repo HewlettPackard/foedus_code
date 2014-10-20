@@ -255,7 +255,7 @@ void MasstreeComposeContext::init_inputs() {
   ASSERT_ND(next_entry_);
 }
 
-ErrorCode MasstreeComposeContext::advance() {
+inline ErrorCode MasstreeComposeContext::advance() {
   ASSERT_ND(!inputs_[next_input_].ended_);
   // advance the chosen stream
   CHECK_ERROR_CODE(inputs_[next_input_].next());
