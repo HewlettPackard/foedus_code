@@ -70,10 +70,8 @@ ErrorStack ArrayComposer::compose(const Composer::ComposeArguments& args) {
 ErrorStack ArrayComposer::construct_root(const Composer::ConstructRootArguments& args) {
   // compose() created root_info_pages that contain pointers to fill in the root page,
   // so we just find non-zero entry and copy it to root page.
-  ArrayStorage storage(engine_, storage_id_);
-
-  uint8_t levels = storage.get_levels();
-  uint16_t payload_size = storage.get_payload_size();
+  uint8_t levels = storage_.get_levels();
+  uint16_t payload_size = storage_.get_payload_size();
   snapshot::SnapshotId new_snapshot_id = args.snapshot_writer_->get_snapshot_id();
   if (levels == 1U) {
     // if it's single-page array, we have already created the root page in compose().
@@ -84,7 +82,7 @@ ErrorStack ArrayComposer::construct_root(const Composer::ConstructRootArguments&
     *args.new_root_page_pointer_ = casted->pointers_[0];
   } else {
     ArrayPage* root_page = reinterpret_cast<ArrayPage*>(args.snapshot_writer_->get_page_base());
-    SnapshotPagePointer page_id = storage.get_metadata()->root_snapshot_page_id_;
+    SnapshotPagePointer page_id = storage_.get_metadata()->root_snapshot_page_id_;
     SnapshotPagePointer new_page_id = args.snapshot_writer_->get_next_page_id();
     *args.new_root_page_pointer_ = new_page_id;
     if (page_id != 0) {
@@ -159,6 +157,9 @@ void ArrayStreamStatus::init(snapshot::SortedBuffer* stream) {
   end_absolute_pos_ = stream->get_cur_block_abosulte_end();
   ended_ = false;
   read_entry();
+  if (cur_absolute_pos_ >= end_absolute_pos_) {
+    ended_ = true;
+  }
 }
 
 
@@ -343,8 +344,12 @@ ErrorStack ArrayComposeContext::init_more() {
   next_input_ = inputs_count_;
   next_key_ = 0xFFFFFFFFFFFFFFFFULL;
   next_xct_id_.set_epoch_int(Epoch::kEpochIntHalf - 1U);
-  next_xct_id_.set_ordinal(0xFFFFU);
+  next_xct_id_.set_ordinal(0xFFFFFFFFU);
   for (uint32_t i = 0; i < inputs_count_; ++i) {
+    if (inputs_[i].ended_) {
+      ++ended_inputs_count_;
+      continue;
+    }
     if (inputs_[i].cur_value_ < next_key_ || (
         inputs_[i].cur_value_ == next_key_ &&
         inputs_[i].cur_xct_id_.before(next_xct_id_))) {

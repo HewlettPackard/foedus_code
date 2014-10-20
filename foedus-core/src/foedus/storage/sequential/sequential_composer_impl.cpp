@@ -37,7 +37,7 @@ SequentialComposer::SequentialComposer(Composer *parent)
 struct StreamStatus {
   void init(snapshot::SortedBuffer* stream) {
     stream_ = stream;
-  stream_->assert_checks();
+    stream_->assert_checks();
     buffer_ = stream->get_buffer();
     buffer_size_ = stream->get_buffer_size();
     cur_absolute_pos_ = stream->get_cur_block_abosulte_begin();
@@ -46,6 +46,9 @@ struct StreamStatus {
     end_absolute_pos_ = stream->get_cur_block_abosulte_end();
     ended_ = false;
     read_entry();
+    if (cur_absolute_pos_ >= end_absolute_pos_) {
+      ended_ = true;
+    }
   }
   ErrorCode next() {
     ASSERT_ND(!ended_);
@@ -115,39 +118,41 @@ ErrorStack SequentialComposer::compose(const Composer::ComposeArguments& args) {
   for (uint32_t i = 0; i < args.log_streams_count_; ++i) {
     StreamStatus status;
     status.init(args.log_streams_[i]);
-    const SequentialAppendLogType* entry = status.get_entry();
+    while (!status.ended_) {
+      const SequentialAppendLogType* entry = status.get_entry();
 
-    // need to allocate a new page?
-    if (!cur_page->can_insert_record(entry->payload_count_)) {
-      // need to flush the buffer?
-      if (allocated_pages >= max_pages) {
-        // dump everything and allocate a new head page
-        WRAP_ERROR_CODE(snapshot_writer->dump_pages(0, allocated_pages));
-        ASSERT_ND(snapshot_writer->get_next_page_id() == cur_page->header().page_id_ + 1ULL);
-        cur_page = compose_new_head(snapshot_writer, root_info_page_casted);
-        allocated_pages = 1;
-      } else {
-        // sequential storage is a bit special. As every page is written-once, we need only
-        // snapshot pointer. No dual page pointers.
-        SequentialPage* next_page = base + allocated_pages;
-        ++allocated_pages;
-        next_page->initialize_snapshot_page(storage_id_, cur_page->header().page_id_ + 1ULL);
-        cur_page->next_page().snapshot_pointer_ = next_page->header().page_id_;
-        cur_page = next_page;
-        ASSERT_ND(extract_numa_node_from_snapshot_pointer(cur_page->header().page_id_)
-            == snapshot_writer->get_numa_node());
-        ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(cur_page->header().page_id_)
-            == snapshot_writer->get_snapshot_id());
+      // need to allocate a new page?
+      if (!cur_page->can_insert_record(entry->payload_count_)) {
+        // need to flush the buffer?
+        if (allocated_pages >= max_pages) {
+          // dump everything and allocate a new head page
+          WRAP_ERROR_CODE(snapshot_writer->dump_pages(0, allocated_pages));
+          ASSERT_ND(snapshot_writer->get_next_page_id() == cur_page->header().page_id_ + 1ULL);
+          cur_page = compose_new_head(snapshot_writer, root_info_page_casted);
+          allocated_pages = 1;
+        } else {
+          // sequential storage is a bit special. As every page is written-once, we need only
+          // snapshot pointer. No dual page pointers.
+          SequentialPage* next_page = base + allocated_pages;
+          ++allocated_pages;
+          next_page->initialize_snapshot_page(storage_id_, cur_page->header().page_id_ + 1ULL);
+          cur_page->next_page().snapshot_pointer_ = next_page->header().page_id_;
+          cur_page = next_page;
+          ASSERT_ND(extract_numa_node_from_snapshot_pointer(cur_page->header().page_id_)
+              == snapshot_writer->get_numa_node());
+          ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(cur_page->header().page_id_)
+              == snapshot_writer->get_snapshot_id());
+        }
       }
-    }
 
-    ASSERT_ND(cur_page->can_insert_record(entry->payload_count_));
-    cur_page->append_record_nosync(status.cur_owner_id_, status.cur_length_, status.cur_payload_);
+      ASSERT_ND(cur_page->can_insert_record(entry->payload_count_));
+      cur_page->append_record_nosync(
+        status.cur_owner_id_,
+        entry->payload_count_,
+        status.cur_payload_);
 
-    // then, read next
-    WRAP_ERROR_CODE(status.next());
-    if (status.ended_) {
-      break;
+      // then, read next
+      WRAP_ERROR_CODE(status.next());
     }
   }
   // dump everything

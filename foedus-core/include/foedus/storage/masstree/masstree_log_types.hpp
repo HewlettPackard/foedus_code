@@ -64,6 +64,37 @@ inline uint16_t calculate_skipped_key_length(uint16_t key_length, uint8_t layer)
 }
 
 /**
+ * @brief A base class for MasstreeInsertLogType/MasstreeDeleteLogType/MasstreeOverwriteLogType.
+ * @ingroup MASSTREE LOGTYPE
+ * @details
+ * This defines a common layout for the log types so that composer/partitioner can easier
+ * handle these log types. This means we waste a bit (eg delete log type doesn't need payload
+ * offset/count), but we anyway have extra space if we want to have data_ 8-byte aligned.
+ * data_ always starts with the key, followed by payload for insert/overwrite.
+ */
+struct MasstreeCommonLogType : public log::RecordLogType {
+  LOG_TYPE_NO_CONSTRUCT(MasstreeCommonLogType)
+  uint16_t        key_length_;        // +2 => 18
+  uint16_t        payload_offset_;    // +2 => 20
+  uint16_t        payload_count_;     // +2 => 22
+  /**
+   * Note, this has nothing with snapshot page. Composer might make a different choice
+   * on when to make next layer. This value is precise only on volatile world where
+   * we lock the record before applying.
+   */
+  uint8_t         layer_;             // +1 => 23
+  uint8_t         reserved_;          // +1 => 24
+  char            data_[8];           // ~ (+key_length_+payload_count_)
+
+  static uint16_t calculate_log_length(uint16_t key_length, uint16_t payload_count) ALWAYS_INLINE {
+    return assorted::align8(24U + key_length + payload_count);
+  }
+  char*           get_key() { return data_; }
+  const char*     get_key() const { return data_; }
+};
+
+
+/**
  * @brief Log type of masstree-storage's insert operation.
  * @ingroup MASSTREE LOGTYPE
  * @details
@@ -72,21 +103,8 @@ inline uint16_t calculate_skipped_key_length(uint16_t key_length, uint8_t layer)
  * set slot, leaves it as deleted, then unlock the page lock. When we get to here,
  * the record already has key set and has reserved slot.
  */
-struct MasstreeInsertLogType : public log::RecordLogType {
+struct MasstreeInsertLogType : public MasstreeCommonLogType {
   LOG_TYPE_NO_CONSTRUCT(MasstreeInsertLogType)
-  /** This is the whole key length. When we apply, we only set suffix in the record. */
-  uint16_t        key_length_;        // +2 => 18
-  uint16_t        payload_count_;     // +2 => 20
-  /**
-   * This is used only when we apply the changes to volatile pages in commit protocol.
-   * When we construct snapshot pages or when we recover, this is ignored.
-   */
-  uint8_t         layer_;             // +1 => 21
-  char            data_[3];           // +3 => 24
-
-  static uint16_t calculate_log_length(uint16_t key_length, uint16_t payload_count) ALWAYS_INLINE {
-    return assorted::align8(21 + key_length + payload_count);
-  }
 
   void            populate(
     StorageId   storage_id,
@@ -99,8 +117,10 @@ struct MasstreeInsertLogType : public log::RecordLogType {
     header_.log_length_ = calculate_log_length(key_length, payload_count);
     header_.storage_id_ = storage_id;
     key_length_ = key_length;
+    payload_offset_ = 0;
     payload_count_ = payload_count;
     layer_ = layer;
+    reserved_ = 0;
     std::memcpy(data_, key, key_length);
     if (payload_count > 0U) {
       std::memcpy(data_ + key_length_, payload, payload_count);
@@ -139,14 +159,11 @@ struct MasstreeInsertLogType : public log::RecordLogType {
  * @details
  * This one does nothing but flipping delete bit.
  */
-struct MasstreeDeleteLogType : public log::RecordLogType {
+struct MasstreeDeleteLogType : public MasstreeCommonLogType {
   LOG_TYPE_NO_CONSTRUCT(MasstreeDeleteLogType)
-  uint16_t        key_length_;        // +2 => 18
-  uint8_t         layer_;             // +1 => 19
-  char            data_[5];           // +5 => 24
 
   static uint16_t calculate_log_length(uint16_t key_length) ALWAYS_INLINE {
-    return assorted::align8(19 + key_length);
+    return MasstreeCommonLogType::calculate_log_length(key_length, 0);
   }
 
   void            populate(
@@ -158,7 +175,10 @@ struct MasstreeDeleteLogType : public log::RecordLogType {
     header_.log_length_ = calculate_log_length(key_length);
     header_.storage_id_ = storage_id;
     key_length_ = key_length;
+    payload_offset_ = 0;
+    payload_count_ = 0;
     layer_ = layer;
+    reserved_ = 0;
     std::memcpy(data_, key, key_length);
   }
 
@@ -188,17 +208,8 @@ struct MasstreeDeleteLogType : public log::RecordLogType {
  * @details
  * Same as insert log.
  */
-struct MasstreeOverwriteLogType : public log::RecordLogType {
+struct MasstreeOverwriteLogType : public MasstreeCommonLogType {
   LOG_TYPE_NO_CONSTRUCT(MasstreeOverwriteLogType)
-  uint16_t        key_length_;        // +2 => 18
-  uint16_t        payload_offset_;    // +2 => 20
-  uint16_t        payload_count_;     // +2 => 22
-  uint8_t         layer_;             // +1 => 23
-  char            data_[1];           // +1 => 24
-
-  static uint16_t calculate_log_length(uint16_t key_length, uint16_t payload_count) ALWAYS_INLINE {
-    return assorted::align8(23 + key_length + payload_count);
-  }
 
   void            populate(
     StorageId   storage_id,
@@ -215,6 +226,7 @@ struct MasstreeOverwriteLogType : public log::RecordLogType {
     payload_offset_ = payload_offset;
     payload_count_ = payload_count;
     layer_ = layer;
+    reserved_ = 0;
     std::memcpy(data_, key, key_length);
     std::memcpy(data_ + key_length_, payload, payload_count);
   }
