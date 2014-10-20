@@ -87,6 +87,26 @@ avg_per_core_abort_rate: 1.84789 aborts/sec/core
 txn breakdown: [[Delivery, 2649836], [NewOrder, 29819860], [OrderStatus, 2651989], [Payment, 28493597], [StockLevel, 2649523]]
 --- system counters (for benchmark) ---
 
+./benchmarks/dbtest --verbose --bench tpcc --num-threads 48 --scale-factor 48 --runtime 30 --numa-memory 96G
+--- benchmark statistics ---
+runtime: 30.0038 sec
+memory delta: 1315.01 MB
+memory delta rate: 43.8281 MB/sec
+logical memory delta: 3865.12 MB
+logical memory delta rate: 128.821 MB/sec
+agg_nosync_throughput: 2.03084e+06 ops/sec
+avg_nosync_per_core_throughput: 42309.2 ops/sec/core
+agg_throughput: 2.03084e+06 ops/sec
+avg_per_core_throughput: 42309.2 ops/sec/core
+agg_persist_throughput: 2.03084e+06 ops/sec
+avg_per_core_persist_throughput: 42309.2 ops/sec/core
+avg_latency: 0.0235673 ms
+avg_persist_latency: 0 ms
+agg_abort_rate: 84.7893 aborts/sec
+avg_per_core_abort_rate: 1.76644 aborts/sec/core
+txn breakdown: [[Delivery, 2436634], [NewOrder, 27423337], [OrderStatus, 2438722], [Payment, 26199431], [StockLevel, 2437261]]
+--- system counters (for benchmark) ---
+
 
 # large (DH)
 ./benchmarks/dbtest --verbose --bench tpcc --num-threads 192 --scale-factor 192 --runtime 30 --numa-memory 384G
