@@ -170,7 +170,7 @@ void MasstreeBorderPage::initialize_layer_root(
   const char* parent_record = copy_from->get_record(copy_index);
   KeySlice new_slice = slice_key(parent_record, remaining);
   uint16_t payload_length = copy_from->payload_length_[copy_index];
-  uint8_t suffix_length = calculate_suffix_length(remaining);
+  uint8_t suffix_length_aligned = calculate_suffix_length_aligned(remaining);
 
   slices_[0] = new_slice;
   remaining_key_length_[0] = remaining;
@@ -182,13 +182,14 @@ void MasstreeBorderPage::initialize_layer_root(
   owner_ids_[0].xct_id_ = copy_from->owner_ids_[copy_index].xct_id_;
   // but we don't want to inherit locks
   owner_ids_[0].lock_.reset();
-  if (suffix_length > 0) {
-    std::memcpy(get_record(0), parent_record + sizeof(KeySlice), suffix_length);
+  if (suffix_length_aligned > 0) {
+    // because suffix parts are 8-byte aligned with zero padding, we can memcpy in 8-bytes unit
+    std::memcpy(get_record(0), parent_record + sizeof(KeySlice), suffix_length_aligned);
   }
   std::memcpy(
-    get_record(0) + suffix_length,
-    parent_record + remaining,
-    payload_length);
+    get_record(0) + suffix_length_aligned,
+    copy_from->get_record_payload(copy_index),
+    assorted::align8(payload_length));  // payload is zero-padded to 8 bytes, too.
 
   // as we don't lock this page, we directly increment it to avoid is_locked assertion
   ++header_.key_count_;

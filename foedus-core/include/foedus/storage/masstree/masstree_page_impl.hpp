@@ -449,6 +449,16 @@ class MasstreeBorderPage final : public MasstreePage {
     ASSERT_ND(offsets_[index] < (kDataSize >> 4));
     return data_ + (static_cast<uint16_t>(offsets_[index]) << 4);
   }
+  char* get_record_payload(uint8_t index) ALWAYS_INLINE {
+    char* record = get_record(index);
+    uint16_t skipped = get_suffix_length_aligned(index);
+    return record + skipped;
+  }
+  const char* get_record_payload(uint8_t index) const ALWAYS_INLINE {
+    const char* record = get_record(index);
+    uint16_t skipped = get_suffix_length_aligned(index);
+    return record + skipped;
+  }
   DualPagePointer* get_next_layer(uint8_t index) ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
     ASSERT_ND(offsets_[index] < (kDataSize >> 4));
@@ -497,6 +507,9 @@ class MasstreeBorderPage final : public MasstreePage {
       return remaining_key_length_[index] - sizeof(KeySlice);
     }
   }
+  uint16_t get_suffix_length_aligned(uint8_t index) const ALWAYS_INLINE {
+    return assorted::align8(get_suffix_length(index));
+  }
   uint16_t get_payload_length(uint8_t index) const ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
     return payload_length_[index];
@@ -510,15 +523,18 @@ class MasstreeBorderPage final : public MasstreePage {
       return 0;
     }
   }
+  static uint8_t calculate_suffix_length_aligned(uint8_t remaining_length) ALWAYS_INLINE {
+    return assorted::align8(calculate_suffix_length(remaining_length));
+  }
   static uint16_t calculate_record_size(
     uint8_t remaining_length,
     uint16_t payload_count) ALWAYS_INLINE {
-    uint16_t suffix_length = calculate_suffix_length(remaining_length);
-    uint16_t record_length = suffix_length + payload_count;
+    uint16_t suffix_length_aligned = calculate_suffix_length_aligned(remaining_length);
+    uint16_t record_length = suffix_length_aligned + payload_count;
     if (record_length < sizeof(DualPagePointer)) {
       return sizeof(DualPagePointer);
     }
-    return assorted::align16(suffix_length + payload_count);
+    return assorted::align16(record_length);
   }
 
   bool    should_split_early(uint8_t new_index, uint8_t threshold) const ALWAYS_INLINE {
@@ -541,7 +557,7 @@ class MasstreeBorderPage final : public MasstreePage {
     uint8_t remaining_length,
     uint16_t payload_count) const ALWAYS_INLINE {
     if (new_index == 0) {
-      ASSERT_ND(remaining_length + payload_count <= kDataSize);
+      ASSERT_ND(assorted::align8(remaining_length) + assorted::align8(payload_count) <= kDataSize);
       return true;
     } else if (new_index >= kMaxKeys) {
       return false;
@@ -677,6 +693,31 @@ class MasstreeBorderPage final : public MasstreePage {
         ASSERT_ND(remaining_key_length_[pre] <= sizeof(KeySlice));
       }
     }
+
+    // also check the padding between key suffix and payload
+    for (uint8_t i = 0; i < key_count; ++i) {
+      if (does_point_to_layer(i)) {
+        continue;
+      }
+      uint16_t suffix_length = get_suffix_length(i);
+      uint16_t suffix_length_aligned = get_suffix_length_aligned(i);
+      if (suffix_length > 0 && suffix_length != suffix_length_aligned) {
+        ASSERT_ND(suffix_length_aligned > suffix_length);
+        for (uint16_t pos = suffix_length; pos < suffix_length_aligned; ++pos) {
+          // must be zero-padded
+          ASSERT_ND(get_record(i)[pos] == 0);
+        }
+      }
+      uint16_t payload_length = get_payload_length(i);
+      uint16_t payload_length_aligned = assorted::align8(payload_length);
+      if (payload_length > 0 && payload_length != payload_length_aligned) {
+        ASSERT_ND(payload_length_aligned > payload_length);
+        for (uint16_t pos = payload_length; pos < payload_length_aligned; ++pos) {
+          // must be zero-padded
+          ASSERT_ND(get_record(i)[suffix_length_aligned + pos] == 0);
+        }
+      }
+    }
 #endif  // NDEBUG
   }
 
@@ -725,7 +766,8 @@ class MasstreeBorderPage final : public MasstreePage {
   xct::LockableXctId  owner_ids_[kMaxKeys];               // +1024 -> 1872
 
   /**
-   * The main data region of this page. Suffix and payload contiguously.
+   * The main data region of this page. Suffix and payload, both 8-bytes aligned (zero-padded).
+   * This alignment makes further slicing easier.
    * Starts at the tail and grows backwards.
    * All records are 16-byte aligned so that we can later replace records to next-layer pointer.
    */
@@ -912,7 +954,13 @@ inline void MasstreeBorderPage::reserve_record_space(
   owner_ids_[index].lock_.reset();
   owner_ids_[index].xct_id_ = initial_owner_id;
   if (suffix_length > 0) {
-    std::memcpy(get_record(index), suffix, suffix_length);
+    char* record = get_record(index);
+    std::memcpy(record, suffix, suffix_length);
+    uint16_t suffix_length_aligned = assorted::align8(suffix_length);
+    // zero-padding
+    if (suffix_length_aligned > suffix_length) {
+      std::memset(record + suffix_length, 0, suffix_length_aligned - suffix_length);
+    }
   }
 }
 

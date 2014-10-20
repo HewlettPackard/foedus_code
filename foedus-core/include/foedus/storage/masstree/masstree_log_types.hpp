@@ -10,9 +10,11 @@
 #include <cstring>
 #include <iosfwd>
 
+#include "foedus/compiler.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/log/common_log_types.hpp"
 #include "foedus/log/log_type.hpp"
+#include "foedus/storage/page.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
@@ -49,20 +51,14 @@ struct MasstreeCreateLogType : public log::StorageLogType {
 };
 
 /**
- * Calculate number of bytes we skip for suffix handling.
- * In general, (layer+1) * 8 bytes are skipped as that part is already represented by slices,
- * but often the entire key length is shorter than that. For example:
- *  \li layer=0, keylen=12 -> 8 bytes to skip
- *  \li layer=10,keylen=100 -> 88 bytes to skip
- *  \li layer=10,keylen=82 -> 82 bytes to skip
+ * Retrieve masstree layer information from the header of the page that contains the pointer.
+ * We initially stored layer information in the log, but that might be incorrect when someone
+ * moves the record to next layer between log creation and record locking, so we now extract it
+ * in apply_record().
  */
-inline uint16_t calculate_skipped_key_length(uint16_t key_length, uint8_t layer) {
-  uint16_t skipped = (layer + 1) * sizeof(KeySlice);
-  if (key_length < skipped) {
-    return key_length;
-  } else {
-    return skipped;
-  }
+inline uint8_t extract_page_layer(const void* in_page_pointer) {
+  const Page* page = to_page(in_page_pointer);
+  return page->get_header().masstree_layer_;
 }
 
 /**
@@ -79,13 +75,7 @@ struct MasstreeCommonLogType : public log::RecordLogType {
   uint16_t        key_length_;        // +2 => 18
   uint16_t        payload_offset_;    // +2 => 20
   uint16_t        payload_count_;     // +2 => 22
-  /**
-   * Note, this has nothing with snapshot page. Composer might make a different choice
-   * on when to make next layer. This value is precise only on volatile world where
-   * we lock the record before applying.
-   */
-  uint8_t         layer_;             // +1 => 23
-  uint8_t         reserved_;          // +1 => 24
+  uint16_t        reserved_;          // +2 => 24
   /**
    * Full key and (if exists) payload data, both of which are padded to 8 bytes.
    * By padding key part to 8 bytes, slicing becomes more efficient.
@@ -98,12 +88,12 @@ struct MasstreeCommonLogType : public log::RecordLogType {
 
   char*           get_key() { return aligned_data_; }
   const char*     get_key() const { return aligned_data_; }
-  char*           get_payload() { return aligned_data_ + assorted::align8(key_length_); }
-  const char*     get_payload() const { return aligned_data_ + assorted::align8(key_length_); }
+  uint16_t        get_key_length_aligned() const { return assorted::align8(key_length_); }
+  char*           get_payload() { return aligned_data_ + get_key_length_aligned(); }
+  const char*     get_payload() const { return aligned_data_ + get_key_length_aligned(); }
   void            populate_base(
     log::LogCode  type,
     StorageId     storage_id,
-    uint8_t       layer,
     const void*   key,
     uint16_t      key_length,
     const void*   payload = CXX11_NULLPTR,
@@ -115,7 +105,6 @@ struct MasstreeCommonLogType : public log::RecordLogType {
     key_length_ = key_length;
     payload_offset_ = payload_offset;
     payload_count_ = payload_count;
-    layer_ = layer;
     reserved_ = 0;
 
     std::memcpy(aligned_data_, key, key_length);
@@ -131,6 +120,24 @@ struct MasstreeCommonLogType : public log::RecordLogType {
         std::memset(payload_base + payload_count, 0, aligned_payload_count - payload_count);
       }
     }
+  }
+
+  /** used only for sanity check. returns if the record's and log's suffix keys are equal */
+  bool equal_record_and_log_suffixes(const char* data) const {
+    uint8_t layer = extract_page_layer(data);
+    // Keys shorter than 8h+8 bytes are stored at layer <= h
+    ASSERT_ND(layer <= key_length_ / sizeof(KeySlice));
+    // both record and log keep 8-byte padded keys. so we can simply compare keys
+    uint16_t skipped = (layer + 1U) * sizeof(KeySlice);
+    if (key_length_ > skipped) {
+      const char* key = get_key();
+      uint16_t suffix_length = key_length_ - skipped;
+      uint16_t suffix_length_aligned = assorted::align8(suffix_length);
+      // both record and log's suffix keys are 8-byte aligned with zero-padding, so we can
+      // compare multiply of 8 bytes
+      return std::memcmp(data, key + skipped, suffix_length_aligned) == 0;
+    }
+    return true;
   }
 
   /**
@@ -193,26 +200,33 @@ struct MasstreeInsertLogType : public MasstreeCommonLogType {
     const void* key,
     uint16_t    key_length,
     const void* payload,
-    uint16_t    payload_count,
-    uint8_t     layer) ALWAYS_INLINE {
+    uint16_t    payload_count) ALWAYS_INLINE {
     log::LogCode type = log::kLogCodeMasstreeInsert;
-    populate_base(type, storage_id, layer, key, key_length, payload, 0, payload_count);
+    populate_base(type, storage_id, key, key_length, payload, 0, payload_count);
   }
 
   void            apply_record(
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
-    char* payload) ALWAYS_INLINE {
+    char* data) ALWAYS_INLINE {
     ASSERT_ND(owner_id->xct_id_.is_deleted());  // the physical record should be in 'deleted' status
-    uint16_t skipped = calculate_skipped_key_length(key_length_, layer_);
+    uint8_t layer = extract_page_layer(owner_id);
+    uint16_t skipped = (layer + 1U) * sizeof(KeySlice);
+    uint16_t key_length_aligned = get_key_length_aligned();
+    ASSERT_ND(key_length_aligned >= skipped);
     // no need to set key in apply(). it's already set when the record is physically inserted
     // (or in other places if this is recovery).
-    ASSERT_ND(std::memcmp(payload, get_key() + skipped, key_length_ - skipped) == 0);
+    ASSERT_ND(equal_record_and_log_suffixes(data));
     if (payload_count_ > 0U) {
-      std::memcpy(payload + key_length_ - skipped, get_payload(), payload_count_);
+      // record's payload is also 8-byte aligned, so copy multiply of 8 bytes.
+      // if the compiler is smart enough, it will do some optimization here.
+      uint16_t suffix_length_aligned = key_length_aligned - skipped;
+      void* data_payload = ASSUME_ALIGNED(data + suffix_length_aligned, 8U);
+      const void* log_payload = ASSUME_ALIGNED(get_payload(), 8U);
+      std::memcpy(data_payload, log_payload, assorted::align8(payload_count_));
     }
-    ASSERT_ND(std::memcmp(payload, get_key() + skipped, key_length_ - skipped) == 0);
+    ASSERT_ND(equal_record_and_log_suffixes(data));
     owner_id->xct_id_.set_notdeleted();
   }
 
@@ -241,20 +255,18 @@ struct MasstreeDeleteLogType : public MasstreeCommonLogType {
   void            populate(
     StorageId   storage_id,
     const void* key,
-    uint16_t    key_length,
-    uint8_t     layer) ALWAYS_INLINE {
+    uint16_t    key_length) ALWAYS_INLINE {
     log::LogCode type = log::kLogCodeMasstreeDelete;
-    populate_base(type, storage_id, layer, key, key_length);
+    populate_base(type, storage_id, key, key_length);
   }
 
   void            apply_record(
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
-    char* payload) ALWAYS_INLINE {
+    char* data) ALWAYS_INLINE {
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
-    uint16_t skipped = calculate_skipped_key_length(key_length_, layer_);
-    ASSERT_ND(std::memcmp(payload, get_key() + skipped, key_length_ - skipped) == 0);
+    ASSERT_ND(equal_record_and_log_suffixes(data));
     owner_id->xct_id_.set_deleted();
   }
 
@@ -282,22 +294,27 @@ struct MasstreeOverwriteLogType : public MasstreeCommonLogType {
     uint16_t    key_length,
     const void* payload,
     uint16_t    payload_offset,
-    uint16_t    payload_count,
-    uint8_t     layer) ALWAYS_INLINE {
+    uint16_t    payload_count) ALWAYS_INLINE {
     log::LogCode type = log::kLogCodeMasstreeOverwrite;
-    populate_base(type, storage_id, layer, key, key_length, payload, payload_offset, payload_count);
+    populate_base(type, storage_id, key, key_length, payload, payload_offset, payload_count);
   }
 
   void            apply_record(
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
-    char* payload) ALWAYS_INLINE {
+    char* data) ALWAYS_INLINE {
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
 
-    uint16_t skipped = calculate_skipped_key_length(key_length_, layer_);
-    ASSERT_ND(std::memcmp(payload, get_key() + skipped, key_length_ - skipped) == 0);
-    std::memcpy(payload + key_length_ - skipped + payload_offset_, get_payload(), payload_count_);
+    uint8_t layer = extract_page_layer(owner_id);
+    uint16_t skipped = (layer + 1U) * sizeof(KeySlice);
+    uint16_t key_length_aligned = get_key_length_aligned();
+    ASSERT_ND(equal_record_and_log_suffixes(data));
+
+    ASSERT_ND(payload_count_ > 0U);
+    // Unlike insert, we can't assume 8-bytes alignment because of payload_offset
+    uint16_t suffix_length_aligned = key_length_aligned - skipped;
+    std::memcpy(data + suffix_length_aligned + payload_offset_, get_payload(), payload_count_);
   }
 
   void            assert_valid() ALWAYS_INLINE {

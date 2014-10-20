@@ -67,7 +67,7 @@ DEFINE_int32(log_buffer_mb, 128, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
 DEFINE_int32(warehouses, 8, "Number of warehouses.");
-DEFINE_int64(duration_micro, 1000000, "Duration of benchmark in microseconds.");
+DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
 
 TpccDriver::Result TpccDriver::run() {
   const EngineOptions& options = engine_->get_options();
