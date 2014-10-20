@@ -122,7 +122,7 @@ struct Logs {
     char key_be[sizeof(KeySlice)];
     assorted::write_bigendian<KeySlice>(nm(key), key_be);
     uint32_t data = key;
-    entry->populate(partitioner_.get_storage_id(), key_be, sizeof(key_be), &data, sizeof(data), 0);
+    entry->populate(partitioner_.get_storage_id(), key_be, sizeof(key_be), &data, sizeof(data));
     entry->header_.xct_id_.set(epoch_int, ordinal);
     positions_[cur_count_] = log_buffer_.compact(entry);
     cur_pos_ += entry->header_.log_length_;

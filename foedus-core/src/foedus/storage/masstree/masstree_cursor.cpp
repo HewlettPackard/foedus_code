@@ -442,10 +442,6 @@ void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, uint8_t record) 
     cur_key_observed_owner_id_ = cur_key_owner_id_address->xct_id_;
   }
   uint8_t remaining = page->get_remaining_key_length(record);
-  uint8_t suffix_length = 0;
-  if (remaining > sizeof(KeySlice)) {
-    suffix_length = remaining - sizeof(KeySlice);
-  }
   cur_key_in_layer_remaining_ = remaining;
   cur_key_in_layer_slice_ = page->get_slice(record);
   uint8_t layer = page->get_layer();
@@ -453,11 +449,14 @@ void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, uint8_t record) 
   char* layer_key = cur_key_ + layer * sizeof(KeySlice);
   assorted::write_bigendian<KeySlice>(cur_key_in_layer_slice_, layer_key);
   ASSERT_ND(assorted::read_bigendian<KeySlice>(layer_key) == cur_key_in_layer_slice_);
-  if (suffix_length > 0) {
-    std::memcpy(cur_key_ + (layer + 1) * sizeof(KeySlice), page->get_record(record), suffix_length);
+  if (remaining != MasstreeBorderPage::kKeyLengthNextLayer) {
+    uint8_t suffix_len = page->get_suffix_length(record);
+    if (suffix_len > 0) {
+      std::memcpy(cur_key_ + (layer + 1) * sizeof(KeySlice), page->get_record(record), suffix_len);
+    }
+    cur_payload_length_ = page->get_payload_length(record);
+    cur_payload_ = page->get_record_payload(record);
   }
-  cur_payload_length_ = page->get_payload_length(record);
-  cur_payload_ = page->get_record(record) + suffix_length;
 }
 
 inline void MasstreeCursor::Route::setup_order() {

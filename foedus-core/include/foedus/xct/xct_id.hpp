@@ -296,6 +296,36 @@ struct XctId {
   void      set_ordinal(uint32_t ordinal) ALWAYS_INLINE {
     data_ = (data_ & (~kXctIdMaskOrdinal)) | ordinal;
   }
+  /**
+   * Returns -1, 0, 1 when this is less than, same, larger than other in terms of epoch/ordinal
+   * @pre this->is_valid(), other.is_valid()
+   * @pre this->get_ordinal() != 0, other.get_ordinal() != 0
+   */
+  int       compare_epoch_and_orginal(const XctId& other) const ALWAYS_INLINE {
+    // compare epoch
+    if (get_epoch_int() != other.get_epoch_int()) {
+      Epoch this_epoch = get_epoch();
+      Epoch other_epoch = other.get_epoch();
+      ASSERT_ND(this_epoch.is_valid());
+      ASSERT_ND(other_epoch.is_valid());
+      if (this_epoch < other_epoch) {
+        return -1;
+      } else {
+        ASSERT_ND(this_epoch > other_epoch);
+        return 1;
+      }
+    }
+
+    // if the epoch is the same, compare in_epoch_ordinal_.
+    ASSERT_ND(get_epoch() == other.get_epoch());
+    if (get_ordinal() < other.get_ordinal()) {
+      return -1;
+    } else if (get_ordinal() > other.get_ordinal()) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
 
   void    set_being_written() ALWAYS_INLINE { data_ |= kXctIdBeingWrittenBit; }
   void    set_write_complete() ALWAYS_INLINE { data_ &= (~kXctIdBeingWrittenBit); }

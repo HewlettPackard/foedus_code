@@ -847,8 +847,7 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
     return kErrorCodeStrTooSmallPayloadBuffer;
   }
   *payload_capacity = payload_length;
-  uint16_t suffix_length = border->get_suffix_length(index);
-  std::memcpy(payload, border->get_record(index) + suffix_length, payload_length);
+  std::memcpy(payload, border->get_record_payload(index), payload_length);
   return kErrorCodeOk;
 }
 
@@ -873,8 +872,7 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
     LOG(WARNING) << "short record";  // probably this is a rare error. so warn.
     return kErrorCodeStrTooShortPayload;
   }
-  uint16_t suffix_len = border->get_suffix_length(index);
-  std::memcpy(payload, border->get_record(index) + suffix_len + payload_offset, payload_count);
+  std::memcpy(payload, border->get_record_payload(index) + payload_offset, payload_count);
   return kErrorCodeOk;
 }
 
@@ -905,8 +903,7 @@ ErrorCode MasstreeStoragePimpl::insert_general(
     be_key,
     key_length,
     payload,
-    payload_count,
-    border->get_layer());
+    payload_count);
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_write_set(
@@ -936,7 +933,7 @@ ErrorCode MasstreeStoragePimpl::delete_general(
   uint16_t log_length = MasstreeDeleteLogType::calculate_log_length(key_length);
   MasstreeDeleteLogType* log_entry = reinterpret_cast<MasstreeDeleteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(get_id(), be_key, key_length, border->get_layer());
+  log_entry->populate(get_id(), be_key, key_length);
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_write_set(
@@ -979,8 +976,7 @@ ErrorCode MasstreeStoragePimpl::overwrite_general(
     key_length,
     payload,
     payload_offset,
-    payload_count,
-    border->get_layer());
+    payload_count);
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_write_set(
@@ -1015,8 +1011,7 @@ ErrorCode MasstreeStoragePimpl::increment_general(
     return kErrorCodeStrTooShortPayload;
   }
 
-  uint16_t suffix_length = border->get_suffix_length(index);
-  char* ptr = border->get_record(index) + suffix_length + payload_offset;
+  char* ptr = border->get_record_payload(index) + payload_offset;
   *value += *reinterpret_cast<const PAYLOAD*>(ptr);
 
   uint16_t log_length = MasstreeOverwriteLogType::calculate_log_length(key_length, sizeof(PAYLOAD));
@@ -1028,8 +1023,7 @@ ErrorCode MasstreeStoragePimpl::increment_general(
     key_length,
     value,
     payload_offset,
-    sizeof(PAYLOAD),
-    border->get_layer());
+    sizeof(PAYLOAD));
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_write_set(

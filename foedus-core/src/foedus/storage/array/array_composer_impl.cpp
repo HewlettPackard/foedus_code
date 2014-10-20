@@ -70,10 +70,8 @@ ErrorStack ArrayComposer::compose(const Composer::ComposeArguments& args) {
 ErrorStack ArrayComposer::construct_root(const Composer::ConstructRootArguments& args) {
   // compose() created root_info_pages that contain pointers to fill in the root page,
   // so we just find non-zero entry and copy it to root page.
-  ArrayStorage storage(engine_, storage_id_);
-
-  uint8_t levels = storage.get_levels();
-  uint16_t payload_size = storage.get_payload_size();
+  uint8_t levels = storage_.get_levels();
+  uint16_t payload_size = storage_.get_payload_size();
   snapshot::SnapshotId new_snapshot_id = args.snapshot_writer_->get_snapshot_id();
   if (levels == 1U) {
     // if it's single-page array, we have already created the root page in compose().
@@ -84,7 +82,7 @@ ErrorStack ArrayComposer::construct_root(const Composer::ConstructRootArguments&
     *args.new_root_page_pointer_ = casted->pointers_[0];
   } else {
     ArrayPage* root_page = reinterpret_cast<ArrayPage*>(args.snapshot_writer_->get_page_base());
-    SnapshotPagePointer page_id = storage.get_metadata()->root_snapshot_page_id_;
+    SnapshotPagePointer page_id = storage_.get_metadata()->root_snapshot_page_id_;
     SnapshotPagePointer new_page_id = args.snapshot_writer_->get_next_page_id();
     *args.new_root_page_pointer_ = new_page_id;
     if (page_id != 0) {
@@ -159,6 +157,9 @@ void ArrayStreamStatus::init(snapshot::SortedBuffer* stream) {
   end_absolute_pos_ = stream->get_cur_block_abosulte_end();
   ended_ = false;
   read_entry();
+  if (cur_absolute_pos_ >= end_absolute_pos_) {
+    ended_ = true;
+  }
 }
 
 
@@ -223,6 +224,9 @@ ErrorStack ArrayComposeContext::execute() {
   root_info_page_->header_.storage_id_ = storage_id_;
   CHECK_ERROR(init_more());
 
+  // TODO(Hideaki) in case the storage's current root snapshot page pointer is null
+  // and not all the records are modified, we must create zero-cleared snapshot pages even though
+  // there are no logs. So far this does not happen in our experiments/testcases, but it will.
   while (ended_inputs_count_ < inputs_count_) {
     const ArrayCommonUpdateLogType* entry = get_next_entry();
     Record* record = cur_path_[0]->get_leaf_record(next_route_.route[0], payload_size_);
@@ -239,10 +243,10 @@ ErrorStack ArrayComposeContext::execute() {
     WRAP_ERROR_CODE(advance());
   }
 
-  if (levels_ <= 1) {
+  if (levels_ <= 1U) {
     // this storage has only one page. This is very special and trivial.
     // we process this case separately.
-    ASSERT_ND(allocated_pages_ == 1);
+    ASSERT_ND(allocated_pages_ == 1U);
     ASSERT_ND(allocated_intermediates_ == 0);
     ASSERT_ND(cur_path_[0] == page_base_);
     ASSERT_ND(snapshot_writer_->get_next_page_id() == page_base_[0].header().page_id_);
@@ -255,7 +259,7 @@ ErrorStack ArrayComposeContext::execute() {
 }
 
 ErrorStack ArrayComposeContext::finalize() {
-  ASSERT_ND(levels_ > 1);
+  ASSERT_ND(levels_ > 1U);
   // flush the main buffer. now we finalized all leaf pages
   if (allocated_pages_ > 0) {
     // dump everything in main buffer (intermediate pages are kept)
@@ -283,9 +287,9 @@ ErrorStack ArrayComposeContext::finalize() {
     ArrayPage* page = intermediate_base_ + i;
     ASSERT_ND(page->header().page_id_ == i);
     ASSERT_ND(page->get_level() > 0);
-    ASSERT_ND(page->get_level() < levels_ - 1);
+    ASSERT_ND(page->get_level() < levels_ - 1U);
     page->header().page_id_ = new_page_id;
-    if (page->get_level() > 1) {
+    if (page->get_level() > 1U) {
       for (uint16_t j = 0; j < kInteriorFanout; ++j) {
         DualPagePointer& pointer = page->get_interior_record(j);
         if (pointer.volatile_pointer_.word != 0) {
@@ -340,8 +344,12 @@ ErrorStack ArrayComposeContext::init_more() {
   next_input_ = inputs_count_;
   next_key_ = 0xFFFFFFFFFFFFFFFFULL;
   next_xct_id_.set_epoch_int(Epoch::kEpochIntHalf - 1U);
-  next_xct_id_.set_ordinal(0xFFFFU);
+  next_xct_id_.set_ordinal(0xFFFFFFFFU);
   for (uint32_t i = 0; i < inputs_count_; ++i) {
+    if (inputs_[i].ended_) {
+      ++ended_inputs_count_;
+      continue;
+    }
     if (inputs_[i].cur_value_ < next_key_ || (
         inputs_[i].cur_value_ == next_key_ &&
         inputs_[i].cur_xct_id_.before(next_xct_id_))) {

@@ -1,6 +1,8 @@
 http://hstore.cs.brown.edu/documentation/deployment/client-configuration/
 
-git clone http://github.com/apavlo/h-store.git
+cd /dev/shm
+git clone --depth 1 http://github.com/apavlo/h-store.git
+Or tar -xf ~/h-store_copy_20141019.tar.gz
 
 ant build
 
@@ -63,3 +65,8 @@ ant hstore-prepare hstore-benchmark -Dproject=tpcc -Dsite.jvm_asserts=false -Dcl
 
 kimurhid         soft    nproc           65536
 kimurhid         hard    nproc           65536
+
+Note, be aware of this error:
+  hstore-site:
+  OpenJDK 64-Bit Server VM warning: Max heap size too large for Compressed Oops
+Keep heap sizes within 32GB.

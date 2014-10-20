@@ -90,22 +90,15 @@ inline int compare_keys(
   }
 }
 
-inline const char* extract_log_key(const log::RecordLogType* rec, uint16_t* key_length) {
-  log::LogCode type = static_cast<log::LogCode>(rec->header_.log_type_code_);
-  switch (type) {
-  case log::kLogCodeMasstreeInsert:
-    *key_length = reinterpret_cast<const MasstreeInsertLogType*>(rec)->key_length_;
-    return reinterpret_cast<const MasstreeInsertLogType*>(rec)->data_;
-  case log::kLogCodeMasstreeDelete:
-    *key_length = reinterpret_cast<const MasstreeDeleteLogType*>(rec)->key_length_;
-    return reinterpret_cast<const MasstreeDeleteLogType*>(rec)->data_;
-  case log::kLogCodeMasstreeOverwrite:
-    *key_length = reinterpret_cast<const MasstreeOverwriteLogType*>(rec)->key_length_;
-    return reinterpret_cast<const MasstreeOverwriteLogType*>(rec)->data_;
-  default:
-    LOG(FATAL) << "Unexpected log type for masstree storage:" << rec->header_;
-    return nullptr;
-  }
+inline const MasstreeCommonLogType* resolve_log(
+  const snapshot::LogBuffer& log_buffer,
+  snapshot::BufferPosition pos) {
+  const MasstreeCommonLogType* rec = reinterpret_cast<const MasstreeCommonLogType*>(
+    log_buffer.resolve(pos));
+  ASSERT_ND(rec->header_.get_type() == log::kLogCodeMasstreeInsert
+    || rec->header_.get_type() == log::kLogCodeMasstreeDelete
+    || rec->header_.get_type() == log::kLogCodeMasstreeOverwrite);
+  return rec;
 }
 
 
@@ -160,9 +153,9 @@ bool MasstreePartitioner::is_partitionable() const {
 void MasstreePartitioner::partition_batch(const Partitioner::PartitionBatchArguments& args) const {
   debugging::RdtscWatch stop_watch;
   for (uint32_t i = 0; i < args.logs_count_; ++i) {
-    const log::RecordLogType* rec = args.log_buffer_.resolve(args.log_positions_[i]);
-    uint16_t key_length;
-    const char* key = extract_log_key(rec, &key_length);
+    const MasstreeCommonLogType* rec = resolve_log(args.log_buffer_, args.log_positions_[i]);
+    uint16_t key_length = rec->key_length_;
+    const char* key = rec->get_key();
     args.results_[i] = data_->find_partition(key, key_length);
   }
   stop_watch.stop();
@@ -200,41 +193,9 @@ void MasstreePartitioner::sort_batch(const Partitioner::SortBatchArguments& args
     /** less than operator */
     bool operator() (snapshot::BufferPosition left, snapshot::BufferPosition right) const {
       ASSERT_ND(left != right);
-      const log::RecordLogType* left_rec = log_buffer_.resolve(left);
-      const log::RecordLogType* right_rec = log_buffer_.resolve(right);
-      uint16_t left_key_length, right_key_length;
-      const char* left_key = extract_log_key(left_rec, &left_key_length);
-      const char* right_key = extract_log_key(right_rec, &right_key_length);
-      int cmp = compare_keys(left_key, left_key_length, right_key, right_key_length);
-      if (cmp < 0) {
-        return true;
-      } else if (cmp > 0) {
-        return false;
-      }
-
-      // if the key is same, we have to compare epoch and in_epoch_ordinal_
-      Epoch left_epoch = left_rec->header_.xct_id_.get_epoch();
-      Epoch right_epoch = right_rec->header_.xct_id_.get_epoch();
-      ASSERT_ND(left_epoch.is_valid());
-      ASSERT_ND(right_epoch.is_valid());
-      if (left_epoch < right_epoch) {
-        return true;
-      } else if (left_epoch > right_epoch) {
-        return false;
-      }
-
-      // if the epoch is the same, compare in_epoch_ordinal_.
-      uint32_t left_ordinal = left_rec->header_.xct_id_.get_ordinal();
-      uint32_t right_ordinal = right_rec->header_.xct_id_.get_ordinal();
-      if (left_ordinal < right_ordinal) {
-        return true;
-      } else if (left_ordinal > right_ordinal) {
-        return false;
-      }
-
-      // if all of them are the same, this must be log entries of one transaction on same key.
-      // in that case the log position tells chronological order.
-      return left < right;
+      const MasstreeCommonLogType* left_rec = resolve_log(log_buffer_, left);
+      const MasstreeCommonLogType* right_rec = resolve_log(log_buffer_, right);
+      return MasstreeCommonLogType::compare_key_and_xct_id(left_rec, right_rec) < 0;
     }
     const snapshot::LogBuffer& log_buffer_;
   };

@@ -2,7 +2,8 @@ echo "H-store TPC-C experiments script for $machine_shortname ($machine_name)"
 echo "hstore_client_memory=$hstore_client_memory, hstore_site_memory=$hstore_site_memory, hstore_global_memory=$hstore_global_memory, hstore_client_threads_per_host=$hstore_client_threads_per_host,hstore_hosts=$hstore_hosts."
 
 # terrible assumption, but works.
-hstore_folder="$HOME/h-store"
+hstore_folder="/dev/shm/h-store"
+cpu_affinity="true"
 
 payment_percents[0]=0
 payment_percents[1]=15
@@ -40,7 +41,10 @@ do
     echo "NewOrder Remote-percent=$neworder_remote_percent, Payment Remote-percent=$payment_remote_percent, rep=$rep/3..."
     cp -f "hstore_tpcc_$remote_percent.properties" "$hstore_folder/properties/benchmarks/tpcc.properties"
     pushd "$hstore_folder"
-    ant hstore-prepare hstore-benchmark -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false -Dsite.cpu_affinity=false -Dclient.memory=$hstore_client_memory -Dsite.memory=$hstore_site_memory -Dglobal.memory=$hstore_global_memory -Dclient.txnrate=10000 -Dclient.threads_per_host=$hstore_client_threads_per_host -Dhosts="$hstore_hosts" &> "hstore_tpcc_$machine_shortname.n$remote_percent.r$rep.log"
+    ant hstore-prepare hstore-benchmark -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false -Dsite.cpu_affinity=$cpu_affinity -Dclient.memory=$hstore_client_memory -Dsite.memory=$hstore_site_memory -Dglobal.memory=$hstore_global_memory -Dclient.txnrate=10000 -Dclient.threads_per_host=$hstore_client_threads_per_host -Dhosts="$hstore_hosts" &> "hstore_tpcc_$machine_shortname.n$remote_percent.r$rep.log"
+    echo "sleeping after experiments..."
+    sleep 10
+    echo "woke up."
     popd
   done
 done
