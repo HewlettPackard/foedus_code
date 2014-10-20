@@ -7,6 +7,8 @@
 
 #include <stdint.h>
 
+#include <algorithm>
+#include <cstring>
 #include <iosfwd>
 #include <queue>
 #include <string>
@@ -20,6 +22,8 @@
 #include "foedus/storage/partitioner.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
+#include "foedus/storage/masstree/masstree_log_types.hpp"
+#include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 
 namespace foedus {
@@ -288,6 +292,78 @@ struct MasstreePartitionerInDesignData final {
    */
   memory::PagePool          tmp_pages_;
 };
+
+
+////////////////////////////////////////////////////////////////////////////////
+///
+///      Local utility functions. Used in partitioner and composer.
+///
+////////////////////////////////////////////////////////////////////////////////
+inline std::string append_slice_to_prefix(const std::string& prefix, KeySlice slice) {
+  char appendix[sizeof(slice)];
+  assorted::write_bigendian<KeySlice>(slice, appendix);
+  uint16_t trailing_nulls;
+  for (trailing_nulls = 0; trailing_nulls < sizeof(slice); ++trailing_nulls) {
+    if (appendix[sizeof(slice) - trailing_nulls - 1U] != 0) {
+      break;
+    }
+  }
+  ASSERT_ND(trailing_nulls <= sizeof(slice));
+  ASSERT_ND((trailing_nulls == sizeof(slice)) == (slice == 0));
+  return prefix + std::string(appendix, sizeof(slice) - trailing_nulls);
+}
+
+inline std::string get_full_key(
+  const MasstreeBorderPage& page,
+  uint32_t rec,
+  const std::string& prefix) {
+  KeySlice slice = page.get_slice(rec);
+  char slice_be[sizeof(slice)];
+  assorted::write_bigendian<KeySlice>(slice, slice_be);
+
+  uint16_t remaining = page.get_remaining_key_length(rec);
+  uint16_t suffix_length = page.get_suffix_length(rec);
+
+  std::string ret;
+  ret.reserve(prefix.length() + remaining);
+  ret.append(prefix);
+  ret.append(std::string(slice_be, remaining >= 8U ? 8U : remaining));
+  if (suffix_length > 0) {
+    ret.append(std::string(page.get_record(rec), suffix_length));
+  }
+  ASSERT_ND(ret.size() == prefix.length() + remaining);
+  return ret;
+}
+
+/** Returns negative, 0, positive if left<right, left==right, left>right. */
+inline int compare_keys(
+  const char* left,
+  uint16_t left_length,
+  const char* right,
+  uint16_t right_length) {
+  uint16_t cmp_length = std::min(left_length, right_length);
+  int result = std::memcmp(left, right, cmp_length);
+  if (result != 0) {
+    return result;
+  } else if (left_length < right_length) {
+    return -1;
+  } else if (left_length > right_length) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+inline const MasstreeCommonLogType* resolve_log(
+  const snapshot::LogBuffer& log_buffer,
+  snapshot::BufferPosition pos) {
+  const MasstreeCommonLogType* rec = reinterpret_cast<const MasstreeCommonLogType*>(
+    log_buffer.resolve(pos));
+  ASSERT_ND(rec->header_.get_type() == log::kLogCodeMasstreeInsert
+    || rec->header_.get_type() == log::kLogCodeMasstreeDelete
+    || rec->header_.get_type() == log::kLogCodeMasstreeOverwrite);
+  return rec;
+}
 
 }  // namespace masstree
 }  // namespace storage

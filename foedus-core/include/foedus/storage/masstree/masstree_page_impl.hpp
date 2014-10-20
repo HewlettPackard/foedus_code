@@ -157,6 +157,14 @@ class MasstreePage {
     uint8_t             layer,
     KeySlice            low_fence,
     KeySlice            high_fence);
+
+  void                initialize_snapshot_common(
+    StorageId           storage_id,
+    SnapshotPagePointer page_id,
+    PageType            page_type,
+    uint8_t             layer,
+    KeySlice            low_fence,
+    KeySlice            high_fence);
 };
 
 struct BorderSplitStrategy {
@@ -195,7 +203,6 @@ struct IntermediateSplitStrategy {
   uint16_t mid_index_;  // -> 4092
   uint32_t dummy_;      // -> 4096
 };
-STATIC_SIZE_CHECK(sizeof(IntermediateSplitStrategy), 1 << 12)
 
 /**
  * @brief Represents one intermediate page in \ref MASSTREE.
@@ -280,6 +287,12 @@ class MasstreeIntermediatePage final : public MasstreePage {
     uint8_t             layer,
     KeySlice            low_fence,
     KeySlice            high_fence);
+  void initialize_snapshot_page(
+    StorageId           storage_id,
+    SnapshotPagePointer page_id,
+    uint8_t             layer,
+    KeySlice            low_fence,
+    KeySlice            high_fence);
 
   /**
    * Splits this page as a physical-only operation, creating a new foster twin, adopting
@@ -338,8 +351,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
     uint8_t minipage_index,
     MasstreePage* child);
 };
-STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage::MiniPage), 128 + 256)
-STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage), 1 << 12)
 
 /**
  * @brief Represents one border page in \ref MASSTREE.
@@ -399,6 +410,12 @@ class MasstreeBorderPage final : public MasstreePage {
   void initialize_volatile_page(
     StorageId           storage_id,
     VolatilePagePointer page_id,
+    uint8_t             layer,
+    KeySlice            low_fence,
+    KeySlice            high_fence);
+  void initialize_snapshot_page(
+    StorageId           storage_id,
+    SnapshotPagePointer page_id,
     uint8_t             layer,
     KeySlice            low_fence,
     KeySlice            high_fence);
@@ -795,7 +812,6 @@ class MasstreeBorderPage final : public MasstreePage {
    */
   xct::McsBlockIndex split_foster_lock_existing_records(thread::Thread* context, uint8_t key_count);
 };
-STATIC_SIZE_CHECK(sizeof(MasstreeBorderPage), 1 << 12)
 
 inline uint8_t MasstreeBorderPage::find_key(
   KeySlice slice,
@@ -963,6 +979,12 @@ inline void MasstreeBorderPage::reserve_record_space(
     }
   }
 }
+
+// We must place static asserts at the end, otherwise doxygen gets confused (most likely its bug)
+STATIC_SIZE_CHECK(sizeof(IntermediateSplitStrategy), 1 << 12)
+STATIC_SIZE_CHECK(sizeof(MasstreeBorderPage), 1 << 12)
+STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage::MiniPage), 128 + 256)
+STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage), 1 << 12)
 
 }  // namespace masstree
 }  // namespace storage

@@ -15,6 +15,7 @@
 #include <cstring>
 #include <limits>
 
+#include "foedus/compiler.hpp"
 #include "foedus/assorted/endianness.hpp"
 #include "foedus/storage/storage_id.hpp"
 
@@ -32,6 +33,13 @@ const uint8_t kMaxIntermediateSeparators = 9;
  * @ingroup MASSTREE
  */
 const uint8_t kMaxIntermediateMiniSeparators = 15;
+
+/**
+ * Max number of pointers (if completely filled) stored in an intermediate pages.
+ * @ingroup MASSTREE
+ */
+const uint16_t kMaxIntermediatePointers
+  = (kMaxIntermediateSeparators + 1U) * (kMaxIntermediateMiniSeparators + 1U);
 
 /**
  * Max length of a key.
@@ -54,6 +62,9 @@ const uint16_t kMaxKeyLength = 1024;
  * If the primitive is a signed type, the sign bit will bite (pun intended) you otherwise.
  */
 typedef uint64_t KeySlice;
+
+/** Shorthand for sizeof(KeySlice). Not much shorter? you are right.. */
+const uint64_t kSliceLen = sizeof(KeySlice);
 
 // infimum can be simply 0 because low-fence is inclusive.
 const KeySlice kInfimumSlice = 0;
@@ -169,6 +180,25 @@ inline KeySlice slice_layer(const void* be_bytes, uint16_t key_length, uint8_t c
       reinterpret_cast<const char*>(be_bytes) + current_layer * 8,
       remaining_length);
   }
+}
+
+/**
+ * Returns the number of 8-byte slices that the two strings share as prefix.
+ * @param[in] left aligned string pointer. can be either big-endian or little endian.
+ * @param[in] right aligned string pointer must be in same endian as left.
+ * @param[in] max_slices min(left_len / 8, right_len / 8)
+ * @return number of shared slices
+ * @ingroup MASSTREE
+ */
+inline uint16_t count_common_slices(const void* left, const void* right, uint16_t max_slices) {
+  const uint64_t* left_casted = reinterpret_cast<const uint64_t*>(ASSUME_ALIGNED(left, 8));
+  const uint64_t* right_casted = reinterpret_cast<const uint64_t*>(ASSUME_ALIGNED(right, 8));
+  for (uint16_t slices = 0; slices < max_slices; ++slices) {
+    if (left_casted[slices] != right_casted[slices]) {
+      return slices;
+    }
+  }
+  return max_slices;
 }
 
 }  // namespace masstree

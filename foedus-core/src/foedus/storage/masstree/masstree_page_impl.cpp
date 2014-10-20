@@ -44,6 +44,23 @@ void MasstreePage::initialize_volatile_common(
   ASSERT_ND(get_key_count() == 0);
 }
 
+void MasstreePage::initialize_snapshot_common(
+  StorageId           storage_id,
+  SnapshotPagePointer page_id,
+  PageType            page_type,
+  uint8_t             layer,
+  KeySlice            low_fence,
+  KeySlice            high_fence) {
+  header_.init_snapshot(page_id, storage_id, page_type);
+  header_.masstree_layer_ = layer;
+  high_fence_ = high_fence;
+  low_fence_ = low_fence;
+  foster_fence_ = low_fence;
+  foster_twin_[0].word = 0;
+  foster_twin_[1].word = 0;
+  ASSERT_ND(get_key_count() == 0);
+}
+
 void MasstreeIntermediatePage::initialize_volatile_page(
   StorageId           storage_id,
   VolatilePagePointer page_id,
@@ -51,6 +68,24 @@ void MasstreeIntermediatePage::initialize_volatile_page(
   KeySlice            low_fence,
   KeySlice            high_fence) {
   initialize_volatile_common(
+    storage_id,
+    page_id,
+    kMasstreeIntermediatePageType,
+    layer,
+    low_fence,
+    high_fence);
+  for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
+    get_minipage(i).key_count_ = 0;
+  }
+}
+
+void MasstreeIntermediatePage::initialize_snapshot_page(
+  StorageId           storage_id,
+  SnapshotPagePointer page_id,
+  uint8_t             layer,
+  KeySlice            low_fence,
+  KeySlice            high_fence) {
+  initialize_snapshot_common(
     storage_id,
     page_id,
     kMasstreeIntermediatePageType,
@@ -76,6 +111,21 @@ void MasstreeBorderPage::initialize_volatile_page(
     low_fence,
     high_fence);
   consecutive_inserts_ = true;  // initially key_count = 0, so of course sorted
+}
+
+void MasstreeBorderPage::initialize_snapshot_page(
+  StorageId           storage_id,
+  SnapshotPagePointer page_id,
+  uint8_t             layer,
+  KeySlice            low_fence,
+  KeySlice            high_fence) {
+  initialize_snapshot_common(
+    storage_id,
+    page_id,
+    kMasstreeBorderPageType,
+    layer,
+    low_fence,
+    high_fence);
 }
 
 void MasstreePage::release_pages_recursive_common(
