@@ -20,6 +20,7 @@
 #include "foedus/snapshot/snapshot_writer_impl.hpp"
 #include "foedus/storage/metadata.hpp"
 #include "foedus/storage/storage_manager.hpp"
+#include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/storage/masstree/masstree_log_types.hpp"
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_partitioner_impl.hpp"
@@ -27,34 +28,6 @@
 namespace foedus {
 namespace storage {
 namespace masstree {
-
-///////////////////////////////////////////////////////////////////////
-///
-///  Misc common methods
-///
-///////////////////////////////////////////////////////////////////////
-
-inline bool log_less_than(
-  const MasstreeCommonLogType* left,
-  const MasstreeCommonLogType* right) {
-  ASSERT_ND(left->header_.storage_id_ == right->header_.storage_id_);
-  // so far we simply compare with memcmp. No KeySlice optimization.
-  uint16_t min_length = std::min(left->key_length_, right->key_length_);
-  int result = std::memcmp(left->get_key(), right->get_key(), min_length);
-  if (result < 0) {
-    return true;
-  } else if (result > 0) {
-    return false;
-  }
-  if (left->key_length_ < right->key_length_) {
-    return true;
-  } else if (left->key_length_ < right->key_length_) {
-    return false;
-  }
-
-  // same key, now compare xct_id
-  return left->header_.xct_id_.before(right->header_.xct_id_);
-}
 
 ///////////////////////////////////////////////////////////////////////
 ///
@@ -173,23 +146,8 @@ MasstreeComposeContext::MasstreeComposeContext(
   cur_path_levels_ = 0;
   cur_path_layers_ = 0;
   std::memset(cur_path_, 0, sizeof(cur_path_));
-  std::memset(cur_prefixes_, 0, sizeof(cur_prefixes_));
-  for (uint32_t i = 0; i < args.log_streams_count_; ++i) {
-    inputs_[i].init(args.log_streams_[i]);
-  }
-}
-
-inline MasstreePage* MasstreeComposeContext::get_page(memory::PagePoolOffset offset) const {
-  ASSERT_ND(offset > 0);
-  ASSERT_ND(offset < allocated_pages_);
-  ASSERT_ND(offset < max_pages_);
-  return page_base_ + offset;
-}
-
-inline MasstreePage* MasstreeComposeContext::get_original(memory::PagePoolOffset offset) const {
-  ASSERT_ND(offset < kMaxLevels);
-  ASSERT_ND(offset < cur_path_levels_);
-  return original_base_ + offset;
+  std::memset(cur_prefix_slices_, 0, sizeof(cur_prefix_slices_));
+  std::memset(cur_prefix_be_, 0, sizeof(cur_prefix_be_));
 }
 
 ErrorStack MasstreeComposeContext::assure_work_memory_size(const Composer::ComposeArguments& args) {
@@ -210,12 +168,26 @@ void MasstreeComposeContext::write_dummy_page_zero() {
   allocated_pages_ = 1;
 }
 
+inline MasstreePage* MasstreeComposeContext::get_page(memory::PagePoolOffset offset) const {
+  ASSERT_ND(offset > 0);
+  ASSERT_ND(offset < allocated_pages_);
+  ASSERT_ND(offset < max_pages_);
+  return page_base_ + offset;
+}
+inline MasstreePage* MasstreeComposeContext::get_original(memory::PagePoolOffset offset) const {
+  ASSERT_ND(offset < kMaxLevels);
+  ASSERT_ND(offset < cur_path_levels_);
+  return original_base_ + offset;
+}
+
+
 ErrorStack MasstreeComposeContext::execute() {
   write_dummy_page_zero();
-  init_inputs();
+  CHECK_ERROR(init_inputs());
 
   while (ended_inputs_count_ < args_.log_streams_count_) {
     const MasstreeCommonLogType* entry = next_entry_;
+
     if (entry->header_.get_type() == log::kLogCodeMasstreeOverwrite) {
       const MasstreeOverwriteLogType* casted
         = reinterpret_cast<const MasstreeOverwriteLogType*>(entry);
@@ -237,22 +209,18 @@ ErrorStack MasstreeComposeContext::finalize() {
   return kRetOk;
 }
 
-void MasstreeComposeContext::init_inputs() {
-  next_input_ = args_.log_streams_count_;
-  next_entry_ = nullptr;
+ErrorStack MasstreeComposeContext::init_inputs() {
   for (uint32_t i = 0; i < args_.log_streams_count_; ++i) {
+    inputs_[i].init(args_.log_streams_[i]);
     if (inputs_[i].ended_) {
       ++ended_inputs_count_;
-      continue;
-    }
-    const MasstreeCommonLogType* entry = inputs_[i].get_entry();
-    if (next_entry_ == nullptr || log_less_than(entry, next_entry_)) {
-      next_input_ = i;
-      next_entry_ = inputs_[i].get_entry();
     }
   }
-  ASSERT_ND(next_input_ < args_.log_streams_count_);
-  ASSERT_ND(next_entry_);
+  if (ended_inputs_count_ >= args_.log_streams_count_) {
+    return kRetOk;
+  }
+  WRAP_ERROR_CODE(read_inputs());
+  return kRetOk;
 }
 
 inline ErrorCode MasstreeComposeContext::advance() {
@@ -267,7 +235,13 @@ inline ErrorCode MasstreeComposeContext::advance() {
     }
   }
 
+  return read_inputs();
+}
+
+inline ErrorCode MasstreeComposeContext::read_inputs() {
+  ASSERT_ND(ended_inputs_count_ < args_.log_streams_count_);
   if (args_.log_streams_count_ == 1U) {
+    ASSERT_ND(!inputs_[0].ended_);
     next_input_ = 0;
     next_entry_ = inputs_[0].get_entry();
   } else {
@@ -276,7 +250,8 @@ inline ErrorCode MasstreeComposeContext::advance() {
     for (uint32_t i = 0; i < args_.log_streams_count_; ++i) {
       if (!inputs_[i].ended_) {
         const MasstreeCommonLogType* entry = inputs_[i].get_entry();
-        if (next_entry_ == nullptr || log_less_than(entry, next_entry_)) {
+        if (next_entry_ == nullptr
+          || MasstreeCommonLogType::compare_key_and_xct_id(entry, next_entry_) < 0) {
           next_input_ = i;
           next_entry_ = inputs_[i].get_entry();
         }
@@ -285,6 +260,18 @@ inline ErrorCode MasstreeComposeContext::advance() {
   }
   ASSERT_ND(next_input_ < args_.log_streams_count_);
   ASSERT_ND(next_entry_);
+
+  const char* next_key = next_entry_->get_key();
+  const uint16_t next_key_length = next_entry_->key_length_;
+  const uint16_t cur_prefix_length = get_cur_prefix_length();
+  if (next_key_length >= cur_prefix_length) {
+    int prefix_cmp = std::memcmp(cur_prefix_be_, next_key, cur_prefix_length);
+    ASSERT_ND(prefix_cmp >= 0);  // inputs are sorted
+    if (prefix_cmp == 0) {
+      // prefix matched!
+    }
+  }
+  return kErrorCodeOk;
 }
 
 

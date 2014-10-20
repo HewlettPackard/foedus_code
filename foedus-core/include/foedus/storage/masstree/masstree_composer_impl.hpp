@@ -188,12 +188,15 @@ class MasstreeComposeContext {
  private:
   snapshot::SnapshotWriter* get_writer()  const { return args_.snapshot_writer_; }
   cache::SnapshotFileSet*   get_files()   const { return args_.previous_snapshot_files_; }
-  MasstreePage*             get_page(memory::PagePoolOffset offset) const;
-  MasstreePage*             get_original(memory::PagePoolOffset offset) const;
+  MasstreePage*             get_page(memory::PagePoolOffset offset) const ALWAYS_INLINE;
+  MasstreePage*             get_original(memory::PagePoolOffset offset) const ALWAYS_INLINE;
+  uint16_t get_cur_prefix_length() const { return cur_path_layers_ * sizeof(KeySlice); }
 
   /** When the main buffer of writer has no page, appends a dummy page for easier debugging. */
   void                      write_dummy_page_zero();
-  void                      init_inputs();
+
+  ErrorStack                init_inputs();
+  ErrorCode                 read_inputs() ALWAYS_INLINE;
   ErrorCode                 advance() ALWAYS_INLINE;
 
   ErrorStack                finalize();
@@ -243,7 +246,9 @@ class MasstreeComposeContext {
   /** Page path to the currently opened page. [0] to [cur_path_levels_-1] are opened levels. */
   PathLevel                 cur_path_[kMaxLevels];
   /** Prefix slice of B-tree layers upto cur_path_layers_. Remember level != layer. */
-  KeySlice                  cur_prefixes_[kMaxLayers];
+  KeySlice                  cur_prefix_slices_[kMaxLayers];
+  /** Prefix slice in the original big-endian format. */
+  char                      cur_prefix_be_[kMaxLayers * sizeof(KeySlice)];
 };
 
 }  // namespace masstree

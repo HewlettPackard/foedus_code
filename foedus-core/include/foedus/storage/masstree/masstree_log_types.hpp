@@ -6,6 +6,8 @@
 #define FOEDUS_STORAGE_MASSTREE_MASSTREE_LOG_TYPES_HPP_
 #include <stdint.h>
 
+#include <algorithm>
+#include <cstring>
 #include <iosfwd>
 
 #include "foedus/assorted/assorted_func.hpp"
@@ -84,13 +86,93 @@ struct MasstreeCommonLogType : public log::RecordLogType {
    */
   uint8_t         layer_;             // +1 => 23
   uint8_t         reserved_;          // +1 => 24
-  char            data_[8];           // ~ (+key_length_+payload_count_)
+  /**
+   * Full key and (if exists) payload data, both of which are padded to 8 bytes.
+   * By padding key part to 8 bytes, slicing becomes more efficient.
+   */
+  char            aligned_data_[8];   // ~ (+align8(key_length_)+align8(payload_count_))
 
   static uint16_t calculate_log_length(uint16_t key_length, uint16_t payload_count) ALWAYS_INLINE {
-    return assorted::align8(24U + key_length + payload_count);
+    return 24U + assorted::align8(key_length) + assorted::align8(payload_count);
   }
-  char*           get_key() { return data_; }
-  const char*     get_key() const { return data_; }
+
+  char*           get_key() { return aligned_data_; }
+  const char*     get_key() const { return aligned_data_; }
+  char*           get_payload() { return aligned_data_ + assorted::align8(key_length_); }
+  const char*     get_payload() const { return aligned_data_ + assorted::align8(key_length_); }
+  void            populate_base(
+    log::LogCode  type,
+    StorageId     storage_id,
+    uint8_t       layer,
+    const void*   key,
+    uint16_t      key_length,
+    const void*   payload = CXX11_NULLPTR,
+    uint16_t      payload_offset = 0,
+    uint16_t      payload_count = 0) ALWAYS_INLINE {
+    header_.log_type_code_ = type;
+    header_.log_length_ = calculate_log_length(key_length, payload_count);
+    header_.storage_id_ = storage_id;
+    key_length_ = key_length;
+    payload_offset_ = payload_offset;
+    payload_count_ = payload_count;
+    layer_ = layer;
+    reserved_ = 0;
+
+    std::memcpy(aligned_data_, key, key_length);
+    uint16_t aligned_key_length = assorted::align8(key_length);
+    if (aligned_key_length != key_length) {
+      std::memset(aligned_data_ + key_length, 0, aligned_key_length - key_length);
+    }
+    if (payload_count > 0) {
+      uint16_t aligned_payload_count = assorted::align8(payload_count);
+      char* payload_base = aligned_data_ + aligned_key_length;
+      std::memcpy(payload_base, payload, payload_count);
+      if (aligned_payload_count != payload_count) {
+        std::memset(payload_base + payload_count, 0, aligned_payload_count - payload_count);
+      }
+    }
+  }
+
+  /**
+   * Returns -1, 0, 1 when left is less than, same, larger than right in terms of key,
+   * xct_id, then pointer (which means position in buffer).
+   * @pre this->is_valid(), other.is_valid()
+   * @pre this->get_ordinal() != 0, other.get_ordinal() != 0
+   */
+  static int compare_key_and_xct_id(
+    const MasstreeCommonLogType* left,
+    const MasstreeCommonLogType* right) {
+    ASSERT_ND(left->header_.storage_id_ == right->header_.storage_id_);
+    if (left == right) {
+      return 0;
+    }
+
+    // so far we simply compare with memcmp. No KeySlice optimization.
+    uint16_t min_length = std::min(left->key_length_, right->key_length_);
+    int key_result = std::memcmp(left->get_key(), right->get_key(), min_length);
+    if (key_result != 0) {
+      return key_result;
+    }
+    if (left->key_length_ < right->key_length_) {
+      return -1;
+    } else if (left->key_length_ < right->key_length_) {
+      return 1;
+    }
+
+    // same key, now compare xct_id
+    int xct_cmp = left->header_.xct_id_.compare_epoch_and_orginal(right->header_.xct_id_);
+    if (xct_cmp != 0) {
+      return xct_cmp;
+    }
+
+    // if all of them are the same, this must be log entries of one transaction on same key.
+    // in that case the log position tells chronological order.
+    if (left < right) {
+      return -1;
+    } else {
+      return 1;
+    }
+  }
 };
 
 
@@ -113,18 +195,8 @@ struct MasstreeInsertLogType : public MasstreeCommonLogType {
     const void* payload,
     uint16_t    payload_count,
     uint8_t     layer) ALWAYS_INLINE {
-    header_.log_type_code_ = log::kLogCodeMasstreeInsert;
-    header_.log_length_ = calculate_log_length(key_length, payload_count);
-    header_.storage_id_ = storage_id;
-    key_length_ = key_length;
-    payload_offset_ = 0;
-    payload_count_ = payload_count;
-    layer_ = layer;
-    reserved_ = 0;
-    std::memcpy(data_, key, key_length);
-    if (payload_count > 0U) {
-      std::memcpy(data_ + key_length_, payload, payload_count);
-    }
+    log::LogCode type = log::kLogCodeMasstreeInsert;
+    populate_base(type, storage_id, layer, key, key_length, payload, 0, payload_count);
   }
 
   void            apply_record(
@@ -136,11 +208,11 @@ struct MasstreeInsertLogType : public MasstreeCommonLogType {
     uint16_t skipped = calculate_skipped_key_length(key_length_, layer_);
     // no need to set key in apply(). it's already set when the record is physically inserted
     // (or in other places if this is recovery).
-    ASSERT_ND(std::memcmp(payload, data_ + skipped, key_length_ - skipped) == 0);
+    ASSERT_ND(std::memcmp(payload, get_key() + skipped, key_length_ - skipped) == 0);
     if (payload_count_ > 0U) {
-      std::memcpy(payload + key_length_ - skipped, data_ + key_length_, payload_count_);
+      std::memcpy(payload + key_length_ - skipped, get_payload(), payload_count_);
     }
-    ASSERT_ND(std::memcmp(payload, data_ + skipped, key_length_ - skipped) == 0);
+    ASSERT_ND(std::memcmp(payload, get_key() + skipped, key_length_ - skipped) == 0);
     owner_id->xct_id_.set_notdeleted();
   }
 
@@ -171,15 +243,8 @@ struct MasstreeDeleteLogType : public MasstreeCommonLogType {
     const void* key,
     uint16_t    key_length,
     uint8_t     layer) ALWAYS_INLINE {
-    header_.log_type_code_ = log::kLogCodeMasstreeDelete;
-    header_.log_length_ = calculate_log_length(key_length);
-    header_.storage_id_ = storage_id;
-    key_length_ = key_length;
-    payload_offset_ = 0;
-    payload_count_ = 0;
-    layer_ = layer;
-    reserved_ = 0;
-    std::memcpy(data_, key, key_length);
+    log::LogCode type = log::kLogCodeMasstreeDelete;
+    populate_base(type, storage_id, layer, key, key_length);
   }
 
   void            apply_record(
@@ -189,7 +254,7 @@ struct MasstreeDeleteLogType : public MasstreeCommonLogType {
     char* payload) ALWAYS_INLINE {
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
     uint16_t skipped = calculate_skipped_key_length(key_length_, layer_);
-    ASSERT_ND(std::memcmp(payload, data_ + skipped, key_length_ - skipped) == 0);
+    ASSERT_ND(std::memcmp(payload, get_key() + skipped, key_length_ - skipped) == 0);
     owner_id->xct_id_.set_deleted();
   }
 
@@ -219,16 +284,8 @@ struct MasstreeOverwriteLogType : public MasstreeCommonLogType {
     uint16_t    payload_offset,
     uint16_t    payload_count,
     uint8_t     layer) ALWAYS_INLINE {
-    header_.log_type_code_ = log::kLogCodeMasstreeOverwrite;
-    header_.log_length_ = calculate_log_length(key_length, payload_count);
-    header_.storage_id_ = storage_id;
-    key_length_ = key_length;
-    payload_offset_ = payload_offset;
-    payload_count_ = payload_count;
-    layer_ = layer;
-    reserved_ = 0;
-    std::memcpy(data_, key, key_length);
-    std::memcpy(data_ + key_length_, payload, payload_count);
+    log::LogCode type = log::kLogCodeMasstreeOverwrite;
+    populate_base(type, storage_id, layer, key, key_length, payload, payload_offset, payload_count);
   }
 
   void            apply_record(
@@ -239,11 +296,8 @@ struct MasstreeOverwriteLogType : public MasstreeCommonLogType {
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
 
     uint16_t skipped = calculate_skipped_key_length(key_length_, layer_);
-    ASSERT_ND(std::memcmp(payload, data_ + skipped, key_length_ - skipped) == 0);
-    std::memcpy(
-      payload + key_length_ - skipped + payload_offset_,
-      data_ + key_length_,
-      payload_count_);
+    ASSERT_ND(std::memcmp(payload, get_key() + skipped, key_length_ - skipped) == 0);
+    std::memcpy(payload + key_length_ - skipped + payload_offset_, get_payload(), payload_count_);
   }
 
   void            assert_valid() ALWAYS_INLINE {
