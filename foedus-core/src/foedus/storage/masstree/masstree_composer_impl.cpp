@@ -24,6 +24,7 @@
 #include "foedus/storage/masstree/masstree_log_types.hpp"
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_partitioner_impl.hpp"
+#include "foedus/storage/masstree/masstree_storage_pimpl.hpp"
 
 namespace foedus {
 namespace storage {
@@ -52,12 +53,145 @@ ErrorStack MasstreeComposer::compose(const Composer::ComposeArguments& args) {
   return kRetOk;
 }
 
+bool from_this_snapshot(SnapshotPagePointer pointer, const Composer::ConstructRootArguments& args) {
+  if (pointer == 0) {
+    return false;
+  }
+  snapshot::SnapshotId snapshot_id = extract_snapshot_id_from_snapshot_pointer(pointer);
+  ASSERT_ND(snapshot_id != snapshot::kNullSnapshotId);
+  return snapshot_id == args.snapshot_writer_->get_snapshot_id();
+}
+
 ErrorStack MasstreeComposer::construct_root(const Composer::ConstructRootArguments& args) {
   ASSERT_ND(args.root_info_pages_count_ > 0);
   VLOG(0) << to_string() << " combining " << args.root_info_pages_count_ << " root page info.";
   debugging::StopWatch stop_watch;
+  SnapshotPagePointer new_root_id = args.snapshot_writer_->get_next_page_id();
+  Page* new_root = args.snapshot_writer_->get_page_base();
+  std::memcpy(new_root, args.root_info_pages_[0], kPageSize);  // use the first one as base
+  if (args.root_info_pages_count_ == 1U) {
+    VLOG(0) << to_string() << " only 1 root info page, so we just use it as the new root.";
+  } else {
+    // otherwise, we merge inputs from each reducer. because of how we design partitions,
+    // the inputs are always intermediate pages with same partitioning. we just place new
+    // pointers to children
+    CHECK_ERROR(check_buddies(args));
+
+    MasstreeIntermediatePage* base = reinterpret_cast<MasstreeIntermediatePage*>(new_root);
+    ASSERT_ND(!base->is_border());
+    uint16_t updated_count = 0;
+    for (uint16_t i = 0; i <= base->get_key_count(); ++i) {
+      MasstreeIntermediatePage::MiniPage& base_mini = base->get_minipage(i);
+      for (uint16_t j = 0; j <= base_mini.key_count_; ++j) {
+        SnapshotPagePointer base_pointer = base_mini.pointers_[j].snapshot_pointer_;
+        if (from_this_snapshot(base_pointer, args)) {
+          ++updated_count;
+          continue;  // base has updated it
+        }
+
+        for (uint16_t buddy = 1; buddy < args.root_info_pages_count_; ++buddy) {
+          const MasstreeIntermediatePage* page
+            = reinterpret_cast<const MasstreeIntermediatePage*>(args.root_info_pages_[buddy]);
+          const MasstreeIntermediatePage::MiniPage& mini = page->get_minipage(i);
+          SnapshotPagePointer pointer = mini.pointers_[j].snapshot_pointer_;
+          if (from_this_snapshot(pointer, args)) {
+            base_mini.pointers_[j].snapshot_pointer_ = pointer;  // this buddy has updated it
+            ++updated_count;
+            break;
+          }
+        }
+      }
+    }
+    VLOG(0) << to_string() << " has " << updated_count << " new pointers from root.";
+  }
+
+  ASSERT_ND(new_root->get_header().snapshot_);
+  ASSERT_ND(new_root->get_header().storage_id_ == storage_id_);
+  ASSERT_ND(new_root->get_header().get_page_type() == kMasstreeIntermediatePageType);
+
+  new_root->get_header().page_id_ = new_root_id;
+  *args.new_root_page_pointer_ = new_root_id;
+  WRAP_ERROR_CODE(args.snapshot_writer_->dump_pages(0, 1));
+
   stop_watch.stop();
   VLOG(0) << to_string() << " done in " << stop_watch.elapsed_ms() << "ms.";
+  return kRetOk;
+}
+
+
+ErrorStack MasstreeComposer::check_buddies(const Composer::ConstructRootArguments& args) const {
+  const MasstreeIntermediatePage* base
+    = reinterpret_cast<const MasstreeIntermediatePage*>(args.root_info_pages_[0]);
+  const uint16_t key_count = base->header().key_count_;
+  const uint32_t buddy_count = args.root_info_pages_count_;
+  // check key_count
+  for (uint16_t buddy = 1; buddy < buddy_count; ++buddy) {
+    const MasstreeIntermediatePage* page
+      = reinterpret_cast<const MasstreeIntermediatePage*>(args.root_info_pages_[buddy]);
+    if (page->header().key_count_ != key_count) {
+      ASSERT_ND(false);
+      return ERROR_STACK_MSG(kErrorCodeInternalError, "key count");
+    } else if (base->get_low_fence() != page->get_low_fence()) {
+      ASSERT_ND(false);
+      return ERROR_STACK_MSG(kErrorCodeInternalError, "low fence");
+    } else if (base->get_high_fence() != page->get_high_fence()) {
+      ASSERT_ND(false);
+      return ERROR_STACK_MSG(kErrorCodeInternalError, "high fence");
+    }
+  }
+
+  // check inside minipages
+  for (uint16_t i = 0; i <= key_count; ++i) {
+    const MasstreeIntermediatePage::MiniPage& base_mini = base->get_minipage(i);
+    uint16_t mini_count = base_mini.key_count_;
+    // check separator
+    for (uint16_t buddy = 1; buddy < buddy_count; ++buddy) {
+      const MasstreeIntermediatePage* page
+        = reinterpret_cast<const MasstreeIntermediatePage*>(args.root_info_pages_[buddy]);
+      if (i < key_count) {
+        if (base->get_separator(i) != page->get_separator(i)) {
+          ASSERT_ND(false);
+          return ERROR_STACK_MSG(kErrorCodeInternalError, "separator");
+        }
+      }
+    }
+    // check individual separator and pointers
+    for (uint16_t j = 0; j <= mini_count; ++j) {
+      ASSERT_ND(base_mini.pointers_[j].volatile_pointer_.is_null());
+      uint16_t updated_by = buddy_count;  // only one should have updated each pointer
+      SnapshotPagePointer old_pointer = base_mini.pointers_[j].snapshot_pointer_;
+      if (from_this_snapshot(old_pointer, args)) {
+        updated_by = 0;
+        old_pointer = 0;  // will use buddy-1's pointer below
+      }
+
+      for (uint16_t buddy = 1; buddy < buddy_count; ++buddy) {
+        const MasstreeIntermediatePage* page
+          = reinterpret_cast<const MasstreeIntermediatePage*>(args.root_info_pages_[buddy]);
+        const MasstreeIntermediatePage::MiniPage& mini = page->get_minipage(i);
+        ASSERT_ND(mini.pointers_[j].volatile_pointer_.is_null());
+        if (j < mini_count) {
+          if (mini.separators_[j] != base_mini.separators_[j]) {
+            ASSERT_ND(false);
+            return ERROR_STACK_MSG(kErrorCodeInternalError, "individual separator");
+          }
+        }
+        SnapshotPagePointer pointer = mini.pointers_[j].snapshot_pointer_;
+        if (buddy == 1U && updated_by == 0) {
+          old_pointer = pointer;
+        }
+        if (from_this_snapshot(pointer, args)) {
+          if (updated_by != buddy_count) {
+            return ERROR_STACK_MSG(kErrorCodeInternalError, "multiple updaters");
+          }
+          updated_by = buddy;
+        } else if (old_pointer != pointer) {
+          return ERROR_STACK_MSG(kErrorCodeInternalError, "original pointer mismatch");
+        }
+      }
+    }
+  }
+
   return kRetOk;
 }
 
@@ -136,6 +270,7 @@ MasstreeComposeContext::MasstreeComposeContext(
     args_(args),
     numa_node_(get_writer()->get_numa_node()),
     max_pages_(get_writer()->get_page_size()),
+    root_(reinterpret_cast<MasstreeIntermediatePage*>(args.root_info_page_)),
     // max_intermediates_(get_writer()->get_intermediate_size()),
     page_base_(reinterpret_cast<MasstreePage*>(get_writer()->get_page_base())),
     // intermediate_base_(reinterpret_cast<MasstreePage*>(get_writer()->get_intermediate_base())) {
@@ -191,10 +326,10 @@ inline MasstreePage* MasstreeComposeContext::get_original(memory::PagePoolOffset
   return original_base_ + offset;
 }
 
-
 ErrorStack MasstreeComposeContext::execute() {
   write_dummy_page_zero();
   CHECK_ERROR(init_inputs());
+  CHECK_ERROR(init_root());
 
   uint64_t flush_threshold = max_pages_ * 8ULL / 10ULL;
   while (ended_inputs_count_ < args_.log_streams_count_) {
@@ -207,9 +342,8 @@ ErrorStack MasstreeComposeContext::execute() {
     }
 
     PathLevel* last = get_last_level();
-    uint16_t index = last->tail_cur_index_;
     MasstreeBorderPage* page = as_border(get_page(last->tail_));
-    ASSERT_ND(index + 1U == page->get_key_count());
+    uint16_t index = page->get_key_count() - 1;
     char* record = page->get_record(index);
     if (entry->header_.get_type() == log::kLogCodeMasstreeOverwrite) {
       ASSERT_ND(!page->does_point_to_layer(index));
@@ -250,6 +384,31 @@ ErrorStack MasstreeComposeContext::execute() {
 
 ErrorStack MasstreeComposeContext::finalize() {
   CHECK_ERROR(flush_buffer());
+  return kRetOk;
+}
+
+ErrorStack MasstreeComposeContext::init_root() {
+  SnapshotPagePointer snapshot_page_id
+    = storage_.get_control_block()->root_page_pointer_.snapshot_pointer_;
+  if (snapshot_page_id != 0) {
+    WRAP_ERROR_CODE(args_.previous_snapshot_files_->read_page(snapshot_page_id, root_));
+  } else {
+    // if this is the initial snapshot, we create a dummy image of the root page based on
+    // partitioning. all composers in all reducers follow the same protocol so that
+    // we can easily merge their outputs.
+    PartitionerMetadata* metadata = PartitionerMetadata::get_metadata(engine_, id_);
+    ASSERT_ND(metadata->valid_);
+    MasstreePartitionerData* data
+      = reinterpret_cast<MasstreePartitionerData*>(metadata->locate_data(engine_));
+    ASSERT_ND(data->partition_count_ > 0);
+    ASSERT_ND(data->partition_count_ < kMaxIntermediatePointers);
+
+    root_->initialize_snapshot_page(id_, 0, 0, kInfimumSlice, kSupremumSlice);
+    for (uint16_t i = 0; i < data->partition_count_; ++i) {
+      root_->append_pointer_snapshot(data->low_keys_[i], 0);
+    }
+  }
+
   return kRetOk;
 }
 

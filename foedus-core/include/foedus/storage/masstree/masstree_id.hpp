@@ -201,6 +201,27 @@ inline uint16_t count_common_slices(const void* left, const void* right, uint16_
   return max_slices;
 }
 
+/**
+ * Returns if the given key is 8-bytes aligned and also zero-padded to 8-bytes
+ * for easier slicing (which most of our code does). This method is usually used for assertions.
+ * @ingroup MASSTREE
+ */
+inline bool is_key_aligned_and_zero_padded(const char* key, uint16_t key_length) {
+  uintptr_t int_address = reinterpret_cast<uintptr_t>(key);
+  if (int_address % 8 != 0) {
+    return false;
+  }
+  if (key_length % 8 != 0) {
+    uint16_t paddings = 8 - (key_length % 8);
+    for (uint16_t i = 0; i < paddings; ++i) {
+      if (key[key_length + i] != 0) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus

@@ -19,16 +19,17 @@ namespace foedus {
 namespace storage {
 namespace masstree {
 
+#define CHECK_AND_ASSERT(x) do { ASSERT_ND(x); if (!(x)) \
+  return ERROR_STACK(kErrorCodeStrMasstreeFailedVerification); } while (0)
+
 
 ErrorStack MasstreeStoragePimpl::verify_single_thread(thread::Thread* context) {
-  MasstreePage* layer_root;
+  MasstreeIntermediatePage* layer_root;
   WRAP_ERROR_CODE(get_first_root(context, &layer_root));
+  CHECK_AND_ASSERT(!layer_root->is_border());  // root of first layer is always intermediate page
   CHECK_ERROR(verify_single_thread_layer(context, 0, layer_root));
   return kRetOk;
 }
-
-#define CHECK_AND_ASSERT(x) do { ASSERT_ND(x); if (!(x)) \
-  return ERROR_STACK(kErrorCodeStrMasstreeFailedVerification); } while (0)
 
 ErrorStack MasstreeStoragePimpl::verify_single_thread_layer(
   thread::Thread* context,

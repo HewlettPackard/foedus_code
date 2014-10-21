@@ -1230,7 +1230,6 @@ bool MasstreeBorderPage::track_moved_record(
   return true;
 }
 
-
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus

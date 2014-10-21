@@ -45,7 +45,7 @@ struct MasstreeStorageControlBlock final {
    * Points to the root page (or something equivalent).
    * Masstree-specific:
    * Volatile pointer is always active.
-   * This might be MasstreeIntermediatePage or MasstreeBoundaryPage.
+   * This is always MasstreeIntermediatePage (a contract only for first layer's root page).
    * When the first layer B-tree grows, this points to a new page. So, this is one of the few
    * page pointers that might be \e swapped. Transactions thus have to add this to a pointer
    * set even thought they are following a volatile pointer.
@@ -81,6 +81,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
 
   ErrorStack  create(const MasstreeMetadata& metadata);
   ErrorStack  load(const StorageControlBlock& snapshot_block);
+  ErrorStack  load_empty();
   ErrorStack  drop();
 
   bool                exists()    const { return control_block_->exists(); }
@@ -90,7 +91,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
   DualPagePointer& get_first_root_pointer() { return control_block_->root_page_pointer_; }
   xct::LockableXctId& get_first_root_owner() { return control_block_->first_root_owner_; }
 
-  ErrorCode get_first_root(thread::Thread* context, MasstreePage** root);
+  ErrorCode get_first_root(thread::Thread* context, MasstreeIntermediatePage** root);
   ErrorCode grow_root(
     thread::Thread* context,
     DualPagePointer* root_pointer,

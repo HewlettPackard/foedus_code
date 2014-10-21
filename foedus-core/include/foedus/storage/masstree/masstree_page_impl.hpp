@@ -334,6 +334,21 @@ class MasstreeIntermediatePage final : public MasstreePage {
     MasstreePage* child);
 
 
+  /**
+   * Appends a new poiner and individual , used only by snapshot composer.
+   * @pre header_.snapshot
+   * @pre !is_full_snapshot()
+   */
+  void      append_pointer_snapshot(KeySlice low_fence, SnapshotPagePointer pointer);
+  /**
+   * Appends a new separator and the initial pointer in new page, used only by snapshot composer.
+   * @pre header_.snapshot
+   * @pre !is_full_snapshot()
+   */
+  void      append_minipage_snapshot(KeySlice low_fence, SnapshotPagePointer pointer);
+  /** Whether this page is full of poiters, used only by snapshot composer (or when no race) */
+  bool      is_full_snapshot() const;
+
   void verify_separators() const;
 
  private:
@@ -1024,6 +1039,46 @@ inline void MasstreeBorderPage::append_next_layer_snapshot(
   dual_pointer->volatile_pointer_.clear();
   dual_pointer->snapshot_pointer_ = pointer;
   set_key_count(index + 1U);
+}
+
+inline bool MasstreeIntermediatePage::is_full_snapshot() const {
+  return get_key_count() < kMaxIntermediateSeparators
+    || mini_pages_[get_key_count()].key_count_ < kMaxIntermediateMiniSeparators;
+}
+
+inline void MasstreeIntermediatePage::append_pointer_snapshot(
+  KeySlice low_fence,
+  SnapshotPagePointer pointer) {
+  ASSERT_ND(header_.snapshot_);
+  ASSERT_ND(!is_full_snapshot());
+  uint16_t index = get_key_count();
+  MiniPage& mini = mini_pages_[index];
+  uint16_t index_mini = mini.key_count_;
+  if (index_mini < kMaxIntermediateMiniSeparators) {
+    // p0 s0 p1  + "s p" -> p0 s0 p1 s1 p2
+    mini.separators_[index_mini] = low_fence;
+    mini.pointers_[index_mini + 1].volatile_pointer_.clear();
+    mini.pointers_[index_mini + 1].snapshot_pointer_ = pointer;
+    ++mini.key_count_;
+  } else {
+    append_minipage_snapshot(low_fence, pointer);
+  }
+}
+
+inline void MasstreeIntermediatePage::append_minipage_snapshot(
+  KeySlice low_fence,
+  SnapshotPagePointer pointer) {
+  ASSERT_ND(header_.snapshot_);
+  ASSERT_ND(!is_full_snapshot());
+  uint16_t key_count = get_key_count();
+  ASSERT_ND(key_count < kMaxIntermediateSeparators);
+  ASSERT_ND(mini_pages_[key_count].key_count_ == kMaxIntermediateMiniSeparators);
+  separators_[key_count] = low_fence;
+  MiniPage& new_minipage = mini_pages_[key_count + 1];
+  new_minipage.key_count_ = 0;
+  new_minipage.pointers_[0].volatile_pointer_.clear();
+  new_minipage.pointers_[0].snapshot_pointer_ = pointer;
+  set_key_count(key_count + 1);
 }
 
 // We must place static asserts at the end, otherwise doxygen gets confused (most likely its bug)

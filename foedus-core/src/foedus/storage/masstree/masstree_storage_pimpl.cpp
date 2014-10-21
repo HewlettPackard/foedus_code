@@ -57,10 +57,12 @@ ErrorStack MasstreeStoragePimpl::drop() {
   return kRetOk;
 }
 
-ErrorCode MasstreeStoragePimpl::get_first_root(thread::Thread* context, MasstreePage** root) {
+ErrorCode MasstreeStoragePimpl::get_first_root(
+  thread::Thread* context,
+  MasstreeIntermediatePage** root) {
   ASSERT_ND(get_first_root_pointer().volatile_pointer_.components.offset);
   const memory::GlobalVolatilePageResolver& resolver = context->get_global_volatile_page_resolver();
-  MasstreePage* page = reinterpret_cast<MasstreePage*>(
+  MasstreeIntermediatePage* page = reinterpret_cast<MasstreeIntermediatePage*>(
     resolver.resolve_offset(control_block_->root_page_pointer_.volatile_pointer_));
   assert_aligned_page(page);
 
@@ -187,24 +189,22 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     construct_volatile_page_pointer(root->header().page_id_));
   return kErrorCodeOk;
 }
+ErrorStack MasstreeStoragePimpl::load_empty() {
+  control_block_->root_page_pointer_.snapshot_pointer_ = 0;
+  control_block_->root_page_pointer_.volatile_pointer_.word = 0;
+  control_block_->meta_.root_snapshot_page_id_ = 0;
 
-ErrorStack MasstreeStoragePimpl::create(const MasstreeMetadata& metadata) {
-  if (exists()) {
-    LOG(ERROR) << "This masstree-storage already exists: " << get_name();
-    return ERROR_STACK(kErrorCodeStrAlreadyExists);
-  }
-
-  control_block_->meta_ = metadata;
   const uint16_t kDummyNode = 0;  // whatever. just pick from the first node
   memory::PagePool* pool
     = engine_->get_memory_manager()->get_node_memory(kDummyNode)->get_volatile_pool();
   const memory::LocalPageResolver &local_resolver = pool->get_resolver();
 
-  // just allocate an empty root page for the first layer
+  // The root of first layer is always an intermediate page.
+  // This is a special rule only for first layer to simplify partitioning and composer.
   memory::PagePoolOffset root_offset;
   WRAP_ERROR_CODE(pool->grab_one(&root_offset));
   ASSERT_ND(root_offset);
-  MasstreeBorderPage* root_page = reinterpret_cast<MasstreeBorderPage*>(
+  MasstreeIntermediatePage* root_page = reinterpret_cast<MasstreeIntermediatePage*>(
     local_resolver.resolve_offset_newpage(root_offset));
   control_block_->root_page_pointer_.snapshot_pointer_ = 0;
   control_block_->root_page_pointer_.volatile_pointer_ = combine_volatile_page_pointer(
@@ -215,10 +215,31 @@ ErrorStack MasstreeStoragePimpl::create(const MasstreeMetadata& metadata) {
   root_page->initialize_volatile_page(
     get_id(),
     control_block_->root_page_pointer_.volatile_pointer_,
-    0,  // first layer
-    kInfimumSlice,    // infimum slice
-    kSupremumSlice);   // high-fence is supremum
+    0,
+    kInfimumSlice,
+    kSupremumSlice);
 
+  // Also allocate the only child.
+  memory::PagePoolOffset child_offset;
+  WRAP_ERROR_CODE(pool->grab_one(&child_offset));
+  ASSERT_ND(child_offset);
+  MasstreeBorderPage* child_page = reinterpret_cast<MasstreeBorderPage*>(
+    local_resolver.resolve_offset_newpage(child_offset));
+  VolatilePagePointer child_pointer = combine_volatile_page_pointer(kDummyNode, 0, 0, child_offset);
+  child_page->initialize_volatile_page(get_id(), child_pointer, 0, kInfimumSlice, kSupremumSlice);
+  root_page->get_minipage(0).pointers_[0].snapshot_pointer_ = 0;
+  root_page->get_minipage(0).pointers_[0].volatile_pointer_ = child_pointer;
+  return kRetOk;
+}
+
+ErrorStack MasstreeStoragePimpl::create(const MasstreeMetadata& metadata) {
+  if (exists()) {
+    LOG(ERROR) << "This masstree-storage already exists: " << get_name();
+    return ERROR_STACK(kErrorCodeStrAlreadyExists);
+  }
+
+  control_block_->meta_ = metadata;
+  CHECK_ERROR(load_empty());
   control_block_->status_ = kExists;
   LOG(INFO) << "Newly created an masstree-storage " << get_name();
   return kRetOk;
@@ -231,35 +252,29 @@ ErrorStack MasstreeStoragePimpl::load(const StorageControlBlock& snapshot_block)
 
   // So far we assume the root page always has a volatile version.
   // Create it now.
-  VolatilePagePointer volatile_pointer;
-  Page* volatile_root;
   if (meta.root_snapshot_page_id_ != 0) {
     cache::SnapshotFileSet fileset(engine_);
     CHECK_ERROR(fileset.initialize());
     UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
+    VolatilePagePointer volatile_pointer;
+    MasstreeIntermediatePage* volatile_root;
     CHECK_ERROR(engine_->get_memory_manager()->load_one_volatile_page(
       &fileset,
       meta.root_snapshot_page_id_,
       &volatile_pointer,
-      &volatile_root));
+      reinterpret_cast<Page**>(&volatile_root)));
     CHECK_ERROR(fileset.uninitialize());
+    volatile_pointer.components.flags = kVolatilePointerFlagSwappable;
+    control_block_->root_page_pointer_.volatile_pointer_ = volatile_pointer;
   } else {
     LOG(INFO) << "This is an empty masstree: " << get_meta();
-    CHECK_ERROR(engine_->get_memory_manager()->grab_one_volatile_page(
-      0,
-      &volatile_pointer,
-      &volatile_root));
-    MasstreeBorderPage* casted = reinterpret_cast<MasstreeBorderPage*>(volatile_root);
-    casted->initialize_volatile_page(get_id(), volatile_pointer, 0, kInfimumSlice, kSupremumSlice);
+    CHECK_ERROR(load_empty());
   }
 
-  volatile_pointer.components.flags = kVolatilePointerFlagSwappable;
-  control_block_->root_page_pointer_.volatile_pointer_ = volatile_pointer;
   control_block_->status_ = kExists;
   LOG(INFO) << "Loaded a masstree-storage " << get_meta();
   return kRetOk;
 }
-
 
 inline ErrorCode MasstreeStoragePimpl::find_border(
   thread::Thread* context,
@@ -331,7 +346,9 @@ ErrorCode MasstreeStoragePimpl::locate_record(
   xct::XctId* observed) {
   ASSERT_ND(key_length <= kMaxKeyLength);
   MasstreePage* layer_root;
-  CHECK_ERROR_CODE(get_first_root(context, &layer_root));
+  CHECK_ERROR_CODE(get_first_root(
+    context,
+    reinterpret_cast<MasstreeIntermediatePage**>(&layer_root)));
   for (uint16_t current_layer = 0;; ++current_layer) {
     uint8_t remaining_length = key_length - current_layer * 8;
     KeySlice slice = slice_layer(key, key_length, current_layer);
@@ -380,7 +397,7 @@ ErrorCode MasstreeStoragePimpl::locate_record_normalized(
   xct::XctId* observed) {
   MasstreeBorderPage* border;
 
-  MasstreePage* layer_root;
+  MasstreeIntermediatePage* layer_root;
   CHECK_ERROR_CODE(get_first_root(context, &layer_root));
   CHECK_ERROR_CODE(find_border(context, layer_root, 0, for_writes, key, &border));
   uint8_t index = border->find_key_normalized(0, border->get_key_count(), key);
@@ -524,7 +541,9 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
   ASSERT_ND(key_length <= kMaxKeyLength);
 
   MasstreePage* layer_root;
-  CHECK_ERROR_CODE(get_first_root(context, &layer_root));
+  CHECK_ERROR_CODE(get_first_root(
+    context,
+    reinterpret_cast<MasstreeIntermediatePage**>(&layer_root)));
   for (uint16_t layer = 0;; ++layer) {
     const uint8_t remaining = key_length - layer * sizeof(KeySlice);
     const KeySlice slice = slice_layer(key, key_length, layer);
@@ -664,7 +683,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
   const uint8_t kRemaining = sizeof(KeySlice);
   MasstreeBorderPage* border;
 
-  MasstreePage* layer_root;
+  MasstreeIntermediatePage* layer_root;
   CHECK_ERROR_CODE(get_first_root(context, &layer_root));
   CHECK_ERROR_CODE(find_border(context, layer_root, 0, true, key, &border));
   while (true) {  // retry loop for following foster child

@@ -153,12 +153,29 @@ struct MasstreeCommonLogType : public log::RecordLogType {
     if (left == right) {
       return 0;
     }
+    if (LIKELY(left->key_length_ > 0 && right->key_length_ > 0)) {
+      // Compare the first slice. This should be enough to differentiate most logs
+      const char* left_key = left->get_key();
+      const char* right_key = right->get_key();
+      ASSERT_ND(is_key_aligned_and_zero_padded(left_key, left->key_length_));
+      ASSERT_ND(is_key_aligned_and_zero_padded(right_key, right->key_length_));
+      KeySlice left_slice = normalize_be_bytes_full_aligned(left_key);
+      KeySlice right_slice = normalize_be_bytes_full_aligned(right_key);
+      if (left_slice < right_slice) {
+        return -1;
+      } else if (left_slice > right_slice) {
+        return 1;
+      }
 
-    // so far we simply compare with memcmp. No KeySlice optimization.
-    uint16_t min_length = std::min(left->key_length_, right->key_length_);
-    int key_result = std::memcmp(left->get_key(), right->get_key(), min_length);
-    if (key_result != 0) {
-      return key_result;
+      // compare the rest with memcmp.
+      uint16_t min_length = std::min(left->key_length_, right->key_length_);
+      if (min_length > kSliceLen) {
+        uint16_t remaining = min_length - kSliceLen;
+        int key_result = std::memcmp(left_key + kSliceLen, right_key + kSliceLen, remaining);
+        if (key_result != 0) {
+          return key_result;
+        }
+      }
     }
     if (left->key_length_ < right->key_length_) {
       return -1;

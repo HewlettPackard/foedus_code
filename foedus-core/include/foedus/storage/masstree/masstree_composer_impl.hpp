@@ -65,6 +65,9 @@ class MasstreeComposer final {
   Engine* const             engine_;
   const StorageId           storage_id_;
   const MasstreeStorage     storage_;
+
+  /** Rigorously check the input parameters of construct_root() */
+  ErrorStack check_buddies(const Composer::ConstructRootArguments& args) const;
 };
 
 
@@ -161,8 +164,6 @@ class MasstreeComposeContext {
     uint8_t   layer_;
     /** Whether this level is a border page */
     bool      border_;
-    uint8_t   tail_cur_index_;
-    uint8_t   tail_cur_index_mini_;
     /**
      * If this entry is based on an existing snapshot page, the remaining entries (pointers or
      * records) in the original page to copy. Remember, we copy the entries when it is same as or
@@ -249,6 +250,7 @@ class MasstreeComposeContext {
   void        write_dummy_page_zero();
 
   // init/uninit called only once or at most a few times
+  ErrorStack  init_root();
   ErrorStack  init_inputs();
   ErrorStack  init_first_level(const char* key, uint16_t key_length);
   ErrorStack  finalize();
@@ -329,6 +331,12 @@ class MasstreeComposeContext {
   const uint16_t            numa_node_;
   const uint32_t            max_pages_;
   // const uint32_t            max_intermediates_;
+
+  /**
+   * Root of first layer, which is the joint point for partitioner and composer.
+   * This is not on the writer buffer, but the root_info_page shared memory.
+   */
+  MasstreeIntermediatePage* const root_;
 
   /** same as snapshot_writer_->get_page_base()*/
   MasstreePage* const       page_base_;
