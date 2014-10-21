@@ -127,6 +127,18 @@ class MasstreePage {
     const memory::GlobalVolatilePageResolver& page_resolver,
     memory::PageReleaseBatch* batch);
 
+
+  /** As the name suggests, this should be used only by composer. foster twin should be immutable */
+  void              set_foster_major_offset_unsafe(memory::PagePoolOffset offset) ALWAYS_INLINE {
+    ASSERT_ND(header_.snapshot_);
+    foster_twin_[1].components.offset = offset;
+  }
+  /** As the name suggests, this should be used only by composer. fence should be immutable */
+  void              set_high_fence_unsafe(KeySlice high_fence) ALWAYS_INLINE {
+    ASSERT_ND(header_.snapshot_);
+    high_fence_ = high_fence;
+  }
+
  protected:
   PageHeader          header_;      // +32 -> 32
 
@@ -617,10 +629,19 @@ class MasstreeBorderPage final : public MasstreePage {
     uint8_t remaining_length,
     uint16_t payload_count);
 
+  /**
+   * Installs a next layer pointer. This is used only from snapshot composer, so no race.
+   */
+  void    append_next_layer_snapshot(
+    xct::XctId initial_owner_id,
+    KeySlice slice,
+    SnapshotPagePointer pointer);
+
   /** morph the specified record to a next layer pointer. this needs a record lock to execute. */
   void    set_next_layer(uint8_t index, const DualPagePointer& pointer) {
-    ASSERT_ND(get_owner_id(index)->lock_.is_keylocked());
-    ASSERT_ND(remaining_key_length_[index] > sizeof(KeySlice));
+    ASSERT_ND(header_.snapshot_ || get_owner_id(index)->lock_.is_keylocked());
+    ASSERT_ND(header_.snapshot_ || remaining_key_length_[index] > sizeof(KeySlice));
+    ASSERT_ND(!header_.snapshot_ || pointer.volatile_pointer_.is_null());
     remaining_key_length_[index] = kKeyLengthNextLayer;
     *get_next_layer(index) = pointer;
   }
@@ -940,10 +961,10 @@ inline void MasstreeBorderPage::reserve_record_space(
   const void* suffix,
   uint8_t remaining_length,
   uint16_t payload_count) {
-  ASSERT_ND(initial_owner_id.is_deleted());
+  ASSERT_ND(header().snapshot_ || initial_owner_id.is_deleted());
   ASSERT_ND(index < kMaxKeys);
   ASSERT_ND(remaining_length <= kKeyLengthMax);
-  ASSERT_ND(is_locked());
+  ASSERT_ND(header().snapshot_ || is_locked());
   ASSERT_ND(get_key_count() == index);
   ASSERT_ND(can_accomodate(index, remaining_length, payload_count));
   uint16_t suffix_length = calculate_suffix_length(remaining_length);
@@ -978,6 +999,31 @@ inline void MasstreeBorderPage::reserve_record_space(
       std::memset(record + suffix_length, 0, suffix_length_aligned - suffix_length);
     }
   }
+}
+
+inline void MasstreeBorderPage::append_next_layer_snapshot(
+  xct::XctId initial_owner_id,
+  KeySlice slice,
+  SnapshotPagePointer pointer) {
+  ASSERT_ND(header().snapshot_);  // this is used only from snapshot composer
+  uint8_t index = get_key_count();
+  ASSERT_ND(can_accomodate(index, 0, sizeof(DualPagePointer)));
+  DataOffset record_size = calculate_record_size(0, sizeof(DualPagePointer)) >> 4;
+  DataOffset previous_offset;
+  if (index == 0) {
+    previous_offset = kDataSize >> 4;
+  } else {
+    previous_offset = offsets_[index - 1];
+  }
+  slices_[index] = slice;
+  remaining_key_length_[index] = kKeyLengthNextLayer;
+  payload_length_[index] = sizeof(DualPagePointer);
+  offsets_[index] = previous_offset - record_size;
+  owner_ids_[index].xct_id_ = initial_owner_id;
+  DualPagePointer* dual_pointer = get_next_layer(index);
+  dual_pointer->volatile_pointer_.clear();
+  dual_pointer->snapshot_pointer_ = pointer;
+  set_key_count(index + 1U);
 }
 
 // We must place static asserts at the end, otherwise doxygen gets confused (most likely its bug)

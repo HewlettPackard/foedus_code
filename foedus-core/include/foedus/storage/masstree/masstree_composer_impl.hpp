@@ -17,6 +17,7 @@
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
+#include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 
 namespace foedus {
@@ -156,11 +157,18 @@ class MasstreeComposeContext {
      * This value is also the offset in original_base_ for the original page (if exists).
      */
     uint8_t   level_;
-    /** Whether this entry is based on an existing snapshot page. */
-    bool      has_original_;
     /** B-tri layer of this level */
     uint8_t   layer_;
-    uint8_t   reserved_;
+    /** Whether this level is a border page */
+    bool      border_;
+    uint8_t   tail_cur_index_;
+    uint8_t   tail_cur_index_mini_;
+    /**
+     * If this entry is based on an existing snapshot page, the remaining entries (pointers or
+     * records) in the original page to copy. Remember, we copy the entries when it is same as or
+     * less than the next key.
+     */
+    uint16_t  remaining_original_;
     /** number of pages in this level including head/tail, without original page (so, initial=1). */
     uint32_t  page_count_;
     /** same as low_fence of head */
@@ -174,6 +182,25 @@ class MasstreeComposeContext {
     }
 
     friend std::ostream& operator<<(std::ostream& o, const PathLevel& v);
+  };
+
+  struct FenceAndPointer {
+    KeySlice high_fence_;
+    SnapshotPagePointer pointer_;
+  };
+  /**
+   * We convert an intermediate original page to this format for easier copying.
+   */
+  struct ConvertedIntermediatePage : public MasstreePage {
+    uint32_t pointer_count_;
+    FenceAndPointer pointers_[kMaxIntermediatePointers];
+    const FenceAndPointer& get(const PathLevel& level) const {
+      ASSERT_ND(level.low_fence_ == get_low_fence());
+      ASSERT_ND(level.high_fence_ == get_high_fence());
+      ASSERT_ND(level.remaining_original_ <= pointer_count_);
+      uint16_t cur = pointer_count_ - level.remaining_original_;
+      return pointers_[cur];
+    }
   };
 
   MasstreeComposeContext(Engine* engine, StorageId id, const Composer::ComposeArguments& args);
@@ -192,12 +219,22 @@ class MasstreeComposeContext {
   }
   MasstreePage*             get_page(memory::PagePoolOffset offset) const ALWAYS_INLINE;
   MasstreePage*             get_original(memory::PagePoolOffset offset) const ALWAYS_INLINE;
+  ConvertedIntermediatePage*  get_original_converted(
+    memory::PagePoolOffset offset) const ALWAYS_INLINE {
+    return reinterpret_cast<ConvertedIntermediatePage*>(get_original(offset));
+  }
   MasstreeIntermediatePage* as_intermdiate(MasstreePage* page) const ALWAYS_INLINE;
   MasstreeBorderPage*       as_border(MasstreePage* page) const ALWAYS_INLINE;
   uint16_t get_cur_prefix_length() const { return cur_path_layers_ * sizeof(KeySlice); }
   PathLevel*                get_last_level() {
     ASSERT_ND(cur_path_levels_ > 0);
     PathLevel* ret = cur_path_ + (cur_path_levels_ - 1U);
+    ASSERT_ND(ret->level_ == (cur_path_levels_ - 1U));
+    return ret;
+  }
+  const PathLevel*          get_last_level() const {
+    ASSERT_ND(cur_path_levels_ > 0);
+    const PathLevel* ret = cur_path_ + (cur_path_levels_ - 1U);
     ASSERT_ND(ret->level_ == (cur_path_levels_ - 1U));
     return ret;
   }
@@ -213,7 +250,7 @@ class MasstreeComposeContext {
 
   // init/uninit called only once or at most a few times
   ErrorStack  init_inputs();
-  ErrorStack  init_first_level();
+  ErrorStack  init_first_level(const char* key, uint16_t key_length);
   ErrorStack  finalize();
 
   /**
@@ -234,8 +271,9 @@ class MasstreeComposeContext {
    * Assuming buffer size is reasonably large, this method is only occasionally called.
    * Writing-out and re-reading the tentative pages in pathway shouldn't be a big issue.
    */
-  ErrorStack  flush_buffer(bool more_logs);
+  ErrorStack  flush_buffer();
 
+  ErrorStack  adjust_path(const char* key, uint16_t key_length);
   /**
    * Close the root of first layer. This is called from flush_buffer().
    * @pre cur_path_levels_ == 1
@@ -243,21 +281,45 @@ class MasstreeComposeContext {
    */
   ErrorStack  close_first_level();
 
+  ErrorStack  consume_original_all();
+  ErrorStack  grow_layer_root(SnapshotPagePointer* root_pointer);
+
   // next methods called for each log entry. must be efficient! So these methods return ErrorCode.
-  ErrorCode   read_inputs() ALWAYS_INLINE;
+
+  /** Find the log entry to apply next. so far this is a dumb sequential search. loser tree? */
+  void        read_inputs() ALWAYS_INLINE;
   ErrorCode   advance() ALWAYS_INLINE;
+  /** Returns if the given key is not contained in the current path */
+  bool        does_need_to_adjust_path(const char* key, uint16_t key_length) const ALWAYS_INLINE;
 
   /**
    * Close last levels whose layer is deeper than max_layer
    * @pre cur_path_layers_ > max_layer
    * @post cur_path_layers_ == max_layer
    */
-  ErrorCode   close_path_layer(uint16_t max_layer);
+  ErrorStack  close_path_layer(uint16_t max_layer);
   /**
    * Close the last (deepest) level.
    * @pre cur_path_levels_ > 1 (this method must not be used to close the root of first layer.)
    */
-  ErrorCode   close_last_level();
+  ErrorStack  close_last_level();
+
+  ErrorCode   read_original_page(SnapshotPagePointer page_id, uint16_t path_level);
+
+  void        append_border(
+    KeySlice slice,
+    xct::XctId xct_id,
+    uint16_t remaining_length,
+    const char* suffix,
+    uint16_t payload_count,
+    const char* payload,
+    PathLevel* level);
+  void        append_border_next_layer(
+    KeySlice slice,
+    xct::XctId xct_id,
+    SnapshotPagePointer pointer,
+    PathLevel* level);
+  void        append_border_newpage(KeySlice slice, PathLevel* level);
 
   Engine* const             engine_;
   const StorageId           id_;

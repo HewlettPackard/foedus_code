@@ -209,7 +209,7 @@ struct MasstreeInsertLogType : public MasstreeCommonLogType {
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
-    char* data) ALWAYS_INLINE {
+    char* data) const ALWAYS_INLINE {
     ASSERT_ND(owner_id->xct_id_.is_deleted());  // the physical record should be in 'deleted' status
     uint8_t layer = extract_page_layer(owner_id);
     uint16_t skipped = (layer + 1U) * sizeof(KeySlice);
@@ -230,7 +230,7 @@ struct MasstreeInsertLogType : public MasstreeCommonLogType {
     owner_id->xct_id_.set_notdeleted();
   }
 
-  void            assert_valid() ALWAYS_INLINE {
+  void            assert_valid() const ALWAYS_INLINE {
     assert_valid_generic();
     ASSERT_ND(header_.log_length_ == calculate_log_length(key_length_, payload_count_));
     ASSERT_ND(header_.get_type() == log::kLogCodeMasstreeInsert);
@@ -264,13 +264,13 @@ struct MasstreeDeleteLogType : public MasstreeCommonLogType {
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
-    char* data) ALWAYS_INLINE {
+    char* data) const ALWAYS_INLINE {
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
     ASSERT_ND(equal_record_and_log_suffixes(data));
     owner_id->xct_id_.set_deleted();
   }
 
-  void            assert_valid() ALWAYS_INLINE {
+  void            assert_valid() const ALWAYS_INLINE {
     assert_valid_generic();
     ASSERT_ND(header_.log_length_ == calculate_log_length(key_length_));
     ASSERT_ND(header_.get_type() == log::kLogCodeMasstreeDelete);
@@ -303,7 +303,7 @@ struct MasstreeOverwriteLogType : public MasstreeCommonLogType {
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
-    char* data) ALWAYS_INLINE {
+    char* data) const ALWAYS_INLINE {
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
 
     uint8_t layer = extract_page_layer(owner_id);
@@ -317,7 +317,7 @@ struct MasstreeOverwriteLogType : public MasstreeCommonLogType {
     std::memcpy(data + suffix_length_aligned + payload_offset_, get_payload(), payload_count_);
   }
 
-  void            assert_valid() ALWAYS_INLINE {
+  void            assert_valid() const ALWAYS_INLINE {
     assert_valid_generic();
     ASSERT_ND(header_.log_length_ == calculate_log_length(key_length_, payload_count_));
     ASSERT_ND(header_.get_type() == log::kLogCodeMasstreeOverwrite);
