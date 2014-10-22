@@ -348,6 +348,12 @@ class MasstreeIntermediatePage final : public MasstreePage {
   void      append_minipage_snapshot(KeySlice low_fence, SnapshotPagePointer pointer);
   /** Whether this page is full of poiters, used only by snapshot composer (or when no race) */
   bool      is_full_snapshot() const;
+  /** Retrieves separators defining the index, used only by snapshot composer (or when no race) */
+  void      extract_separators_snapshot(
+    uint8_t index,
+    uint8_t index_mini,
+    KeySlice* separator_low,
+    KeySlice* separator_high) const;
 
   void verify_separators() const;
 
@@ -479,6 +485,16 @@ class MasstreeBorderPage final : public MasstreePage {
   FindKeyForReserveResult find_key_for_reserve(
     uint8_t from_index,
     uint8_t to_index,
+    KeySlice slice,
+    const void* suffix,
+    uint8_t remaining) const ALWAYS_INLINE;
+  /**
+   * This one is used for snapshot pages.
+   * Because keys are fully sorted in snapshot pages, this returns the index of the first record
+   * whose key is strictly larger than given key (key_count if not exists).
+   * @pre header_.snapshot
+   */
+  FindKeyForReserveResult find_key_for_snapshot(
     KeySlice slice,
     const void* suffix,
     uint8_t remaining) const ALWAYS_INLINE;
@@ -651,6 +667,11 @@ class MasstreeBorderPage final : public MasstreePage {
     xct::XctId initial_owner_id,
     KeySlice slice,
     SnapshotPagePointer pointer);
+  /**
+   * Same as above, except this is used to transform an existing record at end to a next
+   * layer pointer. Unlike set_next_layer, this shrinks the payload part.
+   */
+  void    replace_next_layer_snapshot(SnapshotPagePointer pointer);
 
   /** morph the specified record to a next layer pointer. this needs a record lock to execute. */
   void    set_next_layer(uint8_t index, const DualPagePointer& pointer) {
@@ -969,6 +990,69 @@ inline MasstreeBorderPage::FindKeyForReserveResult MasstreeBorderPage::find_key_
   return FindKeyForReserveResult(kMaxKeys, kNotFound);
 }
 
+inline MasstreeBorderPage::FindKeyForReserveResult MasstreeBorderPage::find_key_for_snapshot(
+  KeySlice slice,
+  const void* suffix,
+  uint8_t remaining) const {
+  ASSERT_ND(header_.snapshot_);
+  ASSERT_ND(remaining <= kKeyLengthMax);
+  uint8_t key_count = get_key_count();
+  for (uint8_t i = 0; i < key_count; ++i) {
+    if (slices_[i] < slice) {
+      continue;
+    } else if (slices_[i] > slice) {
+      // as keys are sorted in snapshot page, "i" is the place the slice would be inserted.
+      return FindKeyForReserveResult(i, kNotFound);
+    }
+    ASSERT_ND(slices_[i] == slice);
+    if (remaining <= sizeof(KeySlice)) {
+      if (remaining_key_length_[i] == remaining) {
+        ASSERT_ND(!does_point_to_layer(i));
+        return FindKeyForReserveResult(i, kExactMatchLocalRecord);
+      } else if (remaining_key_length_[i] < remaining) {
+        continue;  // same as "slices_[i] < slice" case
+      } else {
+        return FindKeyForReserveResult(i, kNotFound);  // same as "slices_[i] > slice" case
+      }
+    }
+    ASSERT_ND(remaining > sizeof(KeySlice));
+
+    if (does_point_to_layer(i)) {
+      return FindKeyForReserveResult(i, kExactMatchLayerPointer);
+    }
+
+    ASSERT_ND(!does_point_to_layer(i));
+
+    if (remaining_key_length_[i] <= sizeof(KeySlice)) {
+      continue;  // same as "slices_[i] < slice" case
+    }
+
+    // unlike find_key_for_reserve, we precisely compare the key and returns NotFound if the record
+    // is larger than the searching key. The conflicting original record will be merged after
+    // the current key so that we always append even in next layer.
+    const char* record_suffix = get_record(i);
+    uint8_t min_remaining = std::min(remaining, remaining_key_length_[i]);
+    int cmp = std::memcmp(suffix, record_suffix, min_remaining - sizeof(KeySlice));
+    if (cmp == 0 && remaining != remaining_key_length_[i]) {
+      if (remaining < remaining_key_length_[i]) {
+        cmp = -1;
+      } else {
+        cmp = 1;
+      }
+    }
+    if (cmp == 0) {
+      return FindKeyForReserveResult(i, kExactMatchLocalRecord);
+    } else if (cmp < 0) {
+      return FindKeyForReserveResult(i, kNotFound);  // same as "slices_[i] > slice" case
+    } else {
+      // this is the only case we create next layer immediately.
+      // the existing record is smaller than the searching key and yet conflicting.
+      return FindKeyForReserveResult(i, kConflictingLocalRecord);
+    }
+  }
+  return FindKeyForReserveResult(key_count, kNotFound);
+}
+
 inline void MasstreeBorderPage::reserve_record_space(
   uint8_t index,
   xct::XctId initial_owner_id,
@@ -1041,6 +1125,30 @@ inline void MasstreeBorderPage::append_next_layer_snapshot(
   set_key_count(index + 1U);
 }
 
+inline void MasstreeBorderPage::replace_next_layer_snapshot(SnapshotPagePointer pointer) {
+  ASSERT_ND(header().snapshot_);  // this is used only from snapshot composer
+  ASSERT_ND(get_key_count() > 0);
+  uint8_t index = get_key_count() - 1U;
+
+  ASSERT_ND(does_point_to_layer(index));
+  ASSERT_ND(can_accomodate(index, 0, sizeof(DualPagePointer)));
+  DataOffset record_size = calculate_record_size(0, sizeof(DualPagePointer)) >> 4;
+  DataOffset previous_offset;
+  if (index == 0) {
+    previous_offset = kDataSize >> 4;
+  } else {
+    previous_offset = offsets_[index - 1];
+  }
+  remaining_key_length_[index] = kKeyLengthNextLayer;
+  payload_length_[index] = sizeof(DualPagePointer);
+  offsets_[index] = previous_offset - record_size;
+  DualPagePointer* dual_pointer = get_next_layer(index);
+  dual_pointer->volatile_pointer_.clear();
+  dual_pointer->snapshot_pointer_ = pointer;
+
+  ASSERT_ND(!does_point_to_layer(index));
+}
+
 inline bool MasstreeIntermediatePage::is_full_snapshot() const {
   return get_key_count() < kMaxIntermediateSeparators
     || mini_pages_[get_key_count()].key_count_ < kMaxIntermediateMiniSeparators;
@@ -1080,6 +1188,38 @@ inline void MasstreeIntermediatePage::append_minipage_snapshot(
   new_minipage.pointers_[0].snapshot_pointer_ = pointer;
   set_key_count(key_count + 1);
 }
+
+inline void MasstreeIntermediatePage::extract_separators_snapshot(
+  uint8_t index,
+  uint8_t index_mini,
+  KeySlice* separator_low,
+  KeySlice* separator_high) const {
+  ASSERT_ND(!is_border());
+  ASSERT_ND(header_.snapshot_);
+  uint8_t key_count = get_key_count();
+  ASSERT_ND(index <= key_count);
+  const MasstreeIntermediatePage::MiniPage& minipage = get_minipage(index);
+  ASSERT_ND(index_mini <= minipage.key_count_);
+  if (index_mini == 0) {
+    if (index == 0) {
+      *separator_low = get_low_fence();
+    } else {
+      *separator_low = get_separator(index - 1U);
+    }
+  } else {
+    *separator_low = minipage.separators_[index_mini - 1U];
+  }
+  if (index_mini == minipage.key_count_) {
+    if (index == key_count) {
+      *separator_high = get_high_fence();
+    } else {
+      *separator_high = get_separator(index);
+    }
+  } else {
+    *separator_high = minipage.separators_[index_mini];
+  }
+}
+
 
 // We must place static asserts at the end, otherwise doxygen gets confused (most likely its bug)
 STATIC_SIZE_CHECK(sizeof(IntermediateSplitStrategy), 1 << 12)

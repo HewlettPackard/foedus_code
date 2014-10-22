@@ -593,6 +593,9 @@ inline ErrorCode MasstreeCursor::follow_foster(KeySlice slice) {
 inline void MasstreeCursor::extract_separators(
   KeySlice* separator_low,
   KeySlice* separator_high) const {
+  // so far this method does not call MasstreeIntermediatePage::extract_separators() to avoid
+  // relying on key_count in the page (this method uses Route's counts which are taken with fences).
+  // I suspect it's okay to call it (and to reduce code), lets revisit later.
   const Route* route = cur_route();
   ASSERT_ND(!route->page_->is_border());
   ASSERT_ND(route->index_ <= route->key_count_);
