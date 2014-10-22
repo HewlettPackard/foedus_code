@@ -12,6 +12,7 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/storage/composer.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -358,6 +359,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
 
   // TODO(Hideaki): Extend/shrink/update methods for payload. A bit faster than delete + insert.
 
+  /** Implementation of Composer::replace_pointers() */
+  ErrorStack  replace_pointers(const Composer::ReplacePointersArguments& args);
 
   ErrorStack  verify_single_thread(thread::Thread* context);
 };

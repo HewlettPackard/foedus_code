@@ -626,7 +626,7 @@ class MasstreeBorderPage final : public MasstreePage {
     uint16_t last_offset = static_cast<uint16_t>(offsets_[new_index - 1]) << 4;
     return record_size <= last_offset;
   }
-
+  /** actually this method should be renamed to equal_key... */
   bool    compare_key(uint8_t index, const void* be_key, uint16_t key_length) const ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
     uint16_t remaining = key_length - get_layer() * sizeof(KeySlice);
@@ -645,6 +645,72 @@ class MasstreeBorderPage final : public MasstreePage {
     } else {
       return true;
     }
+  }
+
+  /** compare the key. returns negative, 0, positive when the given key is smaller,same,larger. */
+  int ltgt_key(uint8_t index, const char* be_key, uint16_t key_length) const ALWAYS_INLINE {
+    ASSERT_ND(key_length > get_layer() * kSliceLen);
+    uint16_t remaining = key_length - get_layer() * kSliceLen;
+    KeySlice slice = slice_layer(be_key, key_length, get_layer());
+    const char* suffix = be_key + (get_layer() + 1) * kSliceLen;
+    return ltgt_key(index, slice, suffix, remaining);
+  }
+  /** Overload to receive slice+suffix */
+  int ltgt_key(
+    uint8_t index,
+    KeySlice slice,
+    const char* suffix,
+    uint16_t remaining) const ALWAYS_INLINE {
+    ASSERT_ND(index < kMaxKeys);
+    ASSERT_ND(!does_point_to_layer(index));
+    ASSERT_ND(remaining > 0);
+    uint16_t rec_remaining = get_remaining_key_length(index);
+    if (remaining != remaining_key_length_[index]) {
+      return false;
+    }
+    KeySlice rec_slice = get_slice(index);
+    if (slice < rec_slice) {
+      return -1;
+    } else if (slice > rec_slice) {
+      return 1;
+    }
+    if (remaining <= kSliceLen || rec_remaining <= kSliceLen) {
+      return static_cast<int>(remaining) - static_cast<int>(rec_remaining);
+    }
+    uint16_t min_remaining = std::min(remaining, rec_remaining);
+    const char* rec_suffix = get_record(index);
+    int cmp = std::memcmp(suffix, rec_suffix, min_remaining);
+    if (cmp != 0) {
+      return cmp;
+    }
+    return static_cast<int>(remaining) - static_cast<int>(rec_remaining);
+  }
+  /**
+   * Returns whether inserting the key cannot fit in the same page.
+   * This is mainly used for assertions.
+   */
+  bool will_conflict(uint8_t index, const char* be_key, uint16_t key_length) const ALWAYS_INLINE {
+    ASSERT_ND(key_length > get_layer() * kSliceLen);
+    uint16_t remaining = key_length - get_layer() * kSliceLen;
+    KeySlice slice = slice_layer(be_key, key_length, get_layer());
+    return will_conflict(index, slice, remaining);
+  }
+  /** Overload to receive slice */
+  bool will_conflict(
+    uint8_t index,
+    KeySlice slice,
+    uint16_t remaining) const ALWAYS_INLINE {
+    ASSERT_ND(index < kMaxKeys);
+    ASSERT_ND(!does_point_to_layer(index));
+    ASSERT_ND(remaining > 0);
+    if (slice != get_slice(index)) {
+      return false;
+    }
+    uint16_t rec_remaining = get_remaining_key_length(index);
+    if (remaining > kSliceLen && rec_remaining > kSliceLen) {
+      return true;  // need to create next layer
+    }
+    return (remaining == rec_remaining);  // if same, it's exactly the same key
   }
 
   /**
@@ -735,7 +801,8 @@ class MasstreeBorderPage final : public MasstreePage {
 
   void assert_entries() ALWAYS_INLINE {
 #ifndef NDEBUG
-    ASSERT_ND(is_locked());  // the following logic holds only when this page is locked
+    // the following logic holds only when this page is locked
+    ASSERT_ND(header_.snapshot_ || is_locked());
     struct Sorter {
       explicit Sorter(const MasstreeBorderPage* target) : target_(target) {}
       bool operator() (uint8_t left, uint8_t right) {
@@ -757,6 +824,13 @@ class MasstreeBorderPage final : public MasstreePage {
       order[i] = i;
     }
     std::sort(order, order + key_count, Sorter(this));
+
+    if (header_.snapshot_) {
+      // in snapshot page, all entries should be fully sorted
+      for (uint8_t i = 0; i < key_count; ++i) {
+        ASSERT_ND(order[i] == i);
+      }
+    }
 
     for (uint8_t i = 1; i < key_count; ++i) {
       uint8_t pre = order[i - 1];
@@ -869,6 +943,51 @@ class MasstreeBorderPage final : public MasstreePage {
    */
   xct::McsBlockIndex split_foster_lock_existing_records(thread::Thread* context, uint8_t key_count);
 };
+
+/**
+ * Handy iterator for MasstreeIntermediate. Note that this object is not thread safe.
+ * Use it only where it's safe.
+ */
+struct MasstreeIntermediatePointerIterator final {
+  explicit MasstreeIntermediatePointerIterator(const MasstreeIntermediatePage* page)
+    : page_(page), index_(0), index_mini_(0) {}
+
+  void next() {
+    if (!is_valid()) {
+      return;
+    }
+    ++index_mini_;
+    if (index_mini_ > page_->get_minipage(index_).key_count_) {
+      ++index_;
+      index_mini_ = 0;
+    }
+  }
+  bool is_valid() const {
+    return index_ <= page_->get_key_count()
+      && index_mini_ <= page_->get_minipage(index_).key_count_;
+  }
+  KeySlice get_low_key() const {
+    ASSERT_ND(is_valid());
+    const MasstreeIntermediatePage::MiniPage& minipage = page_->get_minipage(index_);
+    if (index_mini_ > 0) {
+      return minipage.separators_[index_mini_ - 1];
+    } else if (index_ > 0) {
+      return page_->get_separator(index_ - 1);
+    } else {
+      return page_->get_low_fence();
+    }
+  }
+  const DualPagePointer& get_pointer() const {
+    ASSERT_ND(is_valid());
+    const MasstreeIntermediatePage::MiniPage& minipage = page_->get_minipage(index_);
+    return minipage.pointers_[index_mini_];
+  }
+
+  const MasstreeIntermediatePage* const page_;
+  uint16_t  index_;
+  uint16_t  index_mini_;
+};
+
 
 inline uint8_t MasstreeBorderPage::find_key(
   KeySlice slice,
@@ -1027,26 +1146,14 @@ inline MasstreeBorderPage::FindKeyForReserveResult MasstreeBorderPage::find_key_
       continue;  // same as "slices_[i] < slice" case
     }
 
-    // unlike find_key_for_reserve, we precisely compare the key and returns NotFound if the record
-    // is larger than the searching key. The conflicting original record will be merged after
-    // the current key so that we always append even in next layer.
+    // see the comment in MasstreeComposerContext::PathLevel.
+    // Even if the record is larger than the current key, we consider it "matched" and cause
+    // next layer creation, but keeping the larger record in a dummy original page in nexy layer.
     const char* record_suffix = get_record(i);
-    uint8_t min_remaining = std::min(remaining, remaining_key_length_[i]);
-    int cmp = std::memcmp(suffix, record_suffix, min_remaining - sizeof(KeySlice));
-    if (cmp == 0 && remaining != remaining_key_length_[i]) {
-      if (remaining < remaining_key_length_[i]) {
-        cmp = -1;
-      } else {
-        cmp = 1;
-      }
-    }
-    if (cmp == 0) {
+    if (remaining_key_length_[i] == remaining &&
+      std::memcmp(record_suffix, suffix, remaining - sizeof(KeySlice)) == 0) {
       return FindKeyForReserveResult(i, kExactMatchLocalRecord);
-    } else if (cmp < 0) {
-      return FindKeyForReserveResult(i, kNotFound);  // same as "slices_[i] > slice" case
     } else {
-      // this is the only case we create next layer immediately.
-      // the existing record is smaller than the searching key and yet conflicting.
       return FindKeyForReserveResult(i, kConflictingLocalRecord);
     }
   }
@@ -1162,8 +1269,11 @@ inline void MasstreeIntermediatePage::append_pointer_snapshot(
   uint16_t index = get_key_count();
   MiniPage& mini = mini_pages_[index];
   uint16_t index_mini = mini.key_count_;
+  ASSERT_ND(low_fence > get_low_fence());
   if (index_mini < kMaxIntermediateMiniSeparators) {
     // p0 s0 p1  + "s p" -> p0 s0 p1 s1 p2
+    ASSERT_ND(index_mini == 0 || low_fence > mini.separators_[index_mini - 1]);
+    ASSERT_ND(index == 0 || low_fence > separators_[index - 1]);
     mini.separators_[index_mini] = low_fence;
     mini.pointers_[index_mini + 1].volatile_pointer_.clear();
     mini.pointers_[index_mini + 1].snapshot_pointer_ = pointer;
@@ -1181,6 +1291,7 @@ inline void MasstreeIntermediatePage::append_minipage_snapshot(
   uint16_t key_count = get_key_count();
   ASSERT_ND(key_count < kMaxIntermediateSeparators);
   ASSERT_ND(mini_pages_[key_count].key_count_ == kMaxIntermediateMiniSeparators);
+  ASSERT_ND(low_fence > get_minipage(key_count).separators_[kMaxIntermediateMiniSeparators - 1]);
   separators_[key_count] = low_fence;
   MiniPage& new_minipage = mini_pages_[key_count + 1];
   new_minipage.key_count_ = 0;

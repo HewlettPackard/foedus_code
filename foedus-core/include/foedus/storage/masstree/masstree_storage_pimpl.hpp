@@ -16,6 +16,7 @@
 #include "foedus/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/storage/composer.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage.hpp"
@@ -274,6 +275,20 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
 
   bool track_moved_record(xct::WriteXctAccess* write) ALWAYS_INLINE;
   xct::LockableXctId* track_moved_record(xct::LockableXctId* address) ALWAYS_INLINE;
+
+  // composer-related
+  MasstreePage* resolve_volatile(VolatilePagePointer pointer);
+  ErrorStack    replace_pointers(const Composer::ReplacePointersArguments& args);
+  ErrorStack    replace_pointers_intermediate(
+    const Composer::ReplacePointersArguments& args,
+    DualPagePointer* pointer,
+    bool* kept_volatile,
+    MasstreeIntermediatePage* volatile_page);
+  ErrorStack    replace_pointers_border(
+    const Composer::ReplacePointersArguments& args,
+    DualPagePointer* pointer,
+    bool* kept_volatile,
+    MasstreeBorderPage* volatile_page);
 };
 static_assert(sizeof(MasstreeStoragePimpl) <= kPageSize, "MasstreeStoragePimpl is too large");
 static_assert(

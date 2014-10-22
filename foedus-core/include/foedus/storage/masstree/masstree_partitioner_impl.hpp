@@ -125,46 +125,6 @@ struct MasstreePartitionerData final {
   uint16_t    partitions_[kMaxIntermediatePointers];
 };
 
-struct MasstreeIntermediatePointerIterator final {
-  explicit MasstreeIntermediatePointerIterator(const MasstreeIntermediatePage* page)
-    : page_(page), index_(0), index_mini_(0) {}
-
-  void next() {
-    if (!is_valid()) {
-      return;
-    }
-    ++index_mini_;
-    if (index_mini_ > page_->get_minipage(index_).key_count_) {
-      ++index_;
-      index_mini_ = 0;
-    }
-  }
-  bool is_valid() const {
-    return index_ <= page_->get_key_count()
-      && index_mini_ <= page_->get_minipage(index_).key_count_;
-  }
-  KeySlice get_low_key() const {
-    ASSERT_ND(is_valid());
-    const MasstreeIntermediatePage::MiniPage& minipage = page_->get_minipage(index_);
-    if (index_mini_ > 0) {
-      return minipage.separators_[index_mini_ - 1];
-    } else if (index_ > 0) {
-      return page_->get_separator(index_ - 1);
-    } else {
-      return page_->get_low_fence();
-    }
-  }
-  const DualPagePointer& get_pointer() const {
-    ASSERT_ND(is_valid());
-    const MasstreeIntermediatePage::MiniPage& minipage = page_->get_minipage(index_);
-    return minipage.pointers_[index_mini_];
-  }
-
-  const MasstreeIntermediatePage* const page_;
-  uint16_t  index_;
-  uint16_t  index_mini_;
-};
-
 ////////////////////////////////////////////////////////////////////////////////
 ///
 ///      Local utility functions. Used in partitioner and composer.
