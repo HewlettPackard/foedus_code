@@ -172,7 +172,7 @@ ErrorCode XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel iso
   if (UNLIKELY(control_block_->new_transaction_paused_.load())) {
     wait_until_resume_accepting_xct(context);
   }
-  DLOG(INFO) << *context << " Began new transaction";
+  DVLOG(1) << *context << " Began new transaction";
   current_xct.activate(isolation_level);
   ASSERT_ND(current_xct.get_mcs_block_current() == 0);
   ASSERT_ND(context->get_thread_log_buffer().get_offset_tail()

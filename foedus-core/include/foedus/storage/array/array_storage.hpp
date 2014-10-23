@@ -55,6 +55,9 @@ class ArrayStorage CXX11_FINAL : public Storage<ArrayStorageControlBlock> {
   /**
    * @brief Prefetch data pages in this storage.
    * @param[in] context Thread context.
+   * @param[in] install_volatile Whether to install volatile pages based on the recent
+   * snapshot page if there is none.
+   * @param[in] cache_snapshot Whether to cache snapshot pages if exists.
    * @param[in] from inclusive begin offset of records that are specifically prefetched even in
    * data pages.
    * @param[in] to exclusive end offset of records that are specifically prefetched even in data
@@ -62,9 +65,13 @@ class ArrayStorage CXX11_FINAL : public Storage<ArrayStorageControlBlock> {
    * @details
    * This is to \e warmup the storage for the current core.
    * Data pages are prefetched within from/to.
-   * So far prefetches only volatile pages, but it will also cache and prefetch snapshot pages.
    */
-  ErrorCode prefetch_pages(thread::Thread* context, ArrayOffset from = 0, ArrayOffset to = 0);
+  ErrorCode prefetch_pages(
+    thread::Thread* context,
+    bool install_volatile,
+    bool cache_snapshot,
+    ArrayOffset from,
+    ArrayOffset to);
 
   // this storage type doesn't use moved bit
 

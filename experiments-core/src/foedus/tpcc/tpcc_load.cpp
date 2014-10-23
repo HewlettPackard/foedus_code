@@ -350,7 +350,6 @@ ErrorStack TpccLoadTask::load_items() {
   random_orig(orig);
 
   Epoch ep;
-  auto storage = storages_.items_;
   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
   ItemData data;
   for (Iid iid = from_iid_; iid < to_iid_; ++iid) {
@@ -369,7 +368,7 @@ ErrorStack TpccLoadTask::load_items() {
     DVLOG(2) << "IID = " << iid << ", Name= " << data.name_ << ", Price = " << data.price_;
 
     data.im_id_ = 0;
-    WRAP_ERROR_CODE(storage.overwrite_record(context_, iid, &data, 0, sizeof(data)));
+    WRAP_ERROR_CODE(storages_.items_.overwrite_record(context_, iid, &data, 0, sizeof(data)));
     WRAP_ERROR_CODE(commit_if_full());
     if ((iid % 20000) == 0) {
       LOG(INFO) << "IID=" << iid << "/" << kItems;
@@ -383,7 +382,6 @@ ErrorStack TpccLoadTask::load_items() {
 
 ErrorStack TpccLoadTask::load_stocks() {
   Epoch ep;
-  auto storage = storages_.stocks_;
   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
   StockData data;
   for (Wid wid = from_wid_; wid < to_wid_; ++wid) {
@@ -409,7 +407,7 @@ ErrorStack TpccLoadTask::load_stocks() {
       data.order_cnt_ = 0;
       data.remote_cnt_ = 0;
       Sid sid = combine_sid(wid, iid);
-      WRAP_ERROR_CODE(storage.overwrite_record(context_, sid, &data, 0, sizeof(data)));
+      WRAP_ERROR_CODE(storages_.stocks_.overwrite_record(context_, sid, &data, 0, sizeof(data)));
       WRAP_ERROR_CODE(commit_if_full());
       DVLOG(2) << "SID = " << iid << ", WID = " << wid << ", Quan = " << data.quantity_;
       if ((iid % 20000) == 0) {

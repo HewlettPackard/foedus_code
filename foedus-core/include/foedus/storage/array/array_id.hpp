@@ -40,6 +40,12 @@ struct ArrayRange {
   ArrayRange() : begin_(0), end_(0) {}
   ArrayRange(ArrayOffset begin, ArrayOffset end) : begin_(begin), end_(end) {}
 
+  /** Returns if there is any overlap with the other range. */
+  bool    overlaps(const ArrayRange& other) const {
+    // Case 1: contains(other.begin) or contains(other.end)
+    // Case 2: not case 1, but other.contains(begin)
+    return contains(other.begin_) || contains(other.end_) || other.contains(begin_);
+  }
   bool    contains(ArrayOffset offset) const { return offset >= begin_ && offset < end_; }
   bool    operator==(const ArrayRange& other) const {
     return begin_ == other.begin_ && end_ == other.end_;

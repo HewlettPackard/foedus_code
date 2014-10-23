@@ -95,11 +95,12 @@ ErrorStack PagePoolPimpl::initialize_once() {
 
 ErrorStack PagePoolPimpl::uninitialize_once() {
   if (owns_) {
-    if (free_pool_count() != free_pool_capacity_) {
+    uint64_t free_count = get_free_pool_count();
+    if (free_count != free_pool_capacity_) {
       // This is not a memory leak as we anyway releases everything, but it's a smell of bug.
       LOG(WARNING) << get_debug_pool_name()
         << " - Page Pool has not received back all free pages by its uninitialization!!"
-        << " count=" << free_pool_count() << ", capacity=" << free_pool_capacity_;
+        << " count=" << free_count << ", capacity=" << free_pool_capacity_;
     } else {
       LOG(INFO) << get_debug_pool_name()
         << " - Page Pool has received back all free pages. No suspicious behavior.";
@@ -112,23 +113,24 @@ ErrorStack PagePoolPimpl::uninitialize_once() {
 ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chunk) {
   ASSERT_ND(chunk->size() + desired_grab_count <= chunk->capacity());
   VLOG(0) << get_debug_pool_name() << " - Grabbing " << desired_grab_count << " pages."
-    << " free_pool_count_=" << free_pool_count()
-    << "->" << (free_pool_count() - desired_grab_count);
+    << " free_pool_count_=" << get_free_pool_count()
+    << "->" << (get_free_pool_count() - desired_grab_count);
   soc::SharedMutexScope guard(&control_block_->lock_);
-  if (UNLIKELY(free_pool_count() == 0)) {
+  uint64_t free_count = get_free_pool_count();
+  if (UNLIKELY(free_count == 0)) {
     LOG(WARNING) << get_debug_pool_name() << " - No more free pages left in the pool";
     return kErrorCodeMemoryNoFreePages;
   }
 
   // grab from the head
-  uint64_t grab_count = std::min<uint64_t>(desired_grab_count, free_pool_count());
+  uint64_t grab_count = std::min<uint64_t>(desired_grab_count, free_count);
   PagePoolOffset* head = free_pool_ + free_pool_head();
   if (free_pool_head() + grab_count > free_pool_capacity_) {
     // wrap around
     uint64_t wrap_count = free_pool_capacity_ - free_pool_head();
     chunk->push_back(head, head + wrap_count);
     free_pool_head() = 0;
-    free_pool_count() -= wrap_count;
+    decrease_free_pool_count(wrap_count);
     grab_count -= wrap_count;
     head = free_pool_;
   }
@@ -137,17 +139,18 @@ ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* 
   ASSERT_ND(free_pool_head() + grab_count <= free_pool_capacity_);
   chunk->push_back(head, head + grab_count);
   free_pool_head() += grab_count;
-  free_pool_count() -= grab_count;
+  decrease_free_pool_count(grab_count);
   return kErrorCodeOk;
 }
 
 ErrorCode PagePoolPimpl::grab_one(PagePoolOffset *offset) {
   VLOG(1) << get_debug_pool_name()
-    << " - Grabbing just one page. free_pool_count_=" << free_pool_count() << "->"
-    << (free_pool_count() - 1);
+    << " - Grabbing just one page. free_pool_count_=" << get_free_pool_count() << "->"
+    << (get_free_pool_count() - 1);
   *offset = 0;
   soc::SharedMutexScope guard(&control_block_->lock_);
-  if (UNLIKELY(free_pool_count() == 0)) {
+  uint64_t free_count = get_free_pool_count();
+  if (UNLIKELY(free_count == 0)) {
     LOG(WARNING) << get_debug_pool_name() << " - No more free pages left in the pool";
     return kErrorCodeMemoryNoFreePages;
   }
@@ -164,7 +167,7 @@ ErrorCode PagePoolPimpl::grab_one(PagePoolOffset *offset) {
   ASSERT_ND(free_pool_head() + 1 <= free_pool_capacity_);
   *offset = *head;
   ++free_pool_head();
-  --free_pool_count();
+  decrease_free_pool_count(1);
   return kErrorCodeOk;
 }
 
@@ -172,23 +175,26 @@ template <typename CHUNK>
 void PagePoolPimpl::release_impl(uint32_t desired_release_count, CHUNK* chunk) {
   ASSERT_ND(chunk->size() >= desired_release_count);
   VLOG(0) << get_debug_pool_name() << " - Releasing " << desired_release_count << " pages."
-    << " free_pool_count_=" << free_pool_count() << "->"
-    << (free_pool_count() + desired_release_count);
+    << " free_pool_count_=" << get_free_pool_count() << "->"
+    << (get_free_pool_count() + desired_release_count);
   soc::SharedMutexScope guard(&control_block_->lock_);
-  if (free_pool_count() + desired_release_count > free_pool_capacity_) {
+  uint64_t free_count = get_free_pool_count();
+  if (free_count + desired_release_count > free_pool_capacity_) {
     // this can't happen unless something is wrong! This is a critical issue from which
     // we can't recover because page pool is inconsistent!
     LOG(ERROR) << get_debug_pool_name()
-      << " - PagePoolPimpl::release() More than full free-pool. inconsistent state!";
+      << " - PagePoolPimpl::release() More than full free-pool. inconsistent state!"
+        << " free_count/capacity/release_count=" << free_count << "/" << free_pool_capacity_
+          << "/" << desired_release_count;
     // TODO(Hideaki) Minor: Do a duplicate-check here to identify the problemetic pages.
     // crash here only in debug mode. otherwise just log the error
-    ASSERT_ND(free_pool_count() + desired_release_count <= free_pool_capacity_);
+    ASSERT_ND(free_count + desired_release_count <= free_pool_capacity_);
     return;
   }
 
   // append to the tail
   uint64_t release_count = std::min<uint64_t>(desired_release_count, chunk->size());
-  uint64_t tail = free_pool_head() + free_pool_count();
+  uint64_t tail = free_pool_head() + free_count;
   if (tail >= free_pool_capacity_) {
     tail -= free_pool_capacity_;
   }
@@ -196,7 +202,7 @@ void PagePoolPimpl::release_impl(uint32_t desired_release_count, CHUNK* chunk) {
     // wrap around
     uint32_t wrap_count = free_pool_capacity_ - tail;
     chunk->move_to(free_pool_ + tail, wrap_count);
-    free_pool_count() += wrap_count;
+    increase_free_pool_count(wrap_count);
     release_count -= wrap_count;
     tail = 0;
   }
@@ -204,7 +210,7 @@ void PagePoolPimpl::release_impl(uint32_t desired_release_count, CHUNK* chunk) {
   // no wrap around (or no more wrap around)
   ASSERT_ND(tail + release_count <= free_pool_capacity_);
   chunk->move_to(free_pool_ + tail, release_count);
-  free_pool_count() += release_count;
+  increase_free_pool_count(release_count);
 }
 void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk) {
   release_impl<PagePoolOffsetChunk>(desired_release_count, chunk);
@@ -216,9 +222,10 @@ void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetAndEpo
 void PagePoolPimpl::release_one(PagePoolOffset offset) {
   ASSERT_ND(is_initialized() || !owns_);
   VLOG(1) << get_debug_pool_name() << " - Releasing just one page. free_pool_count_="
-    << free_pool_count() << "->" << (free_pool_count() + 1);
+    << get_free_pool_count() << "->" << (get_free_pool_count() + 1);
   soc::SharedMutexScope guard(&control_block_->lock_);
-  if (free_pool_count() >= free_pool_capacity_) {
+  uint64_t free_count = get_free_pool_count();
+  if (free_count >= free_pool_capacity_) {
     // this can't happen unless something is wrong! This is a critical issue from which
     // we can't recover because page pool is inconsistent!
     LOG(ERROR) << get_debug_pool_name()
@@ -227,7 +234,7 @@ void PagePoolPimpl::release_one(PagePoolOffset offset) {
   }
 
   // append to the tail
-  uint64_t tail = free_pool_head() + free_pool_count();
+  uint64_t tail = free_pool_head() + free_count;
   if (tail >= free_pool_capacity_) {
     tail -= free_pool_capacity_;
   }
@@ -239,7 +246,7 @@ void PagePoolPimpl::release_one(PagePoolOffset offset) {
   // no wrap around (or no more wrap around)
   ASSERT_ND(tail + 1 <= free_pool_capacity_);
   free_pool_[tail] = offset;
-  ++free_pool_count();
+  increase_free_pool_count(1);
 }
 
 
@@ -252,7 +259,7 @@ std::ostream& operator<<(std::ostream& o, const PagePoolPimpl& v) {
     << "<pages_for_free_pool_>" << v.pages_for_free_pool_ << "</pages_for_free_pool_>"
     << "<free_pool_capacity_>" << v.free_pool_capacity_ << "</free_pool_capacity_>"
     << "<free_pool_head_>" << v.free_pool_head() << "</free_pool_head_>"
-    << "<free_pool_count_>" << v.free_pool_count() << "</free_pool_count_>"
+    << "<free_pool_count_>" << v.get_free_pool_count() << "</free_pool_count_>"
     << "</PagePool>";
   return o;
 }
@@ -260,7 +267,7 @@ std::ostream& operator<<(std::ostream& o, const PagePoolPimpl& v) {
 PagePool::Stat PagePoolPimpl::get_stat() const {
   PagePool::Stat ret;
   ret.total_pages_ = pool_size_ - pages_for_free_pool_;
-  ret.allocated_pages_ = ret.total_pages_ - free_pool_count();
+  ret.allocated_pages_ = ret.total_pages_ - get_free_pool_count();
   return ret;
 }
 

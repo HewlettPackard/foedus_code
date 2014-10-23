@@ -105,13 +105,36 @@ ErrorStack MasstreeComposer::construct_root(const Composer::ConstructRootArgumen
     VLOG(0) << to_string() << " has " << updated_count << " new pointers from root.";
   }
 
+  // In either case, some pointer might be null if that partition had no log record
+  // and if this is an initial snapshot. Create a dummy page for them.
+  MasstreeIntermediatePage* merged = reinterpret_cast<MasstreeIntermediatePage*>(new_root);
+  ASSERT_ND(!merged->is_border());
+  uint16_t dummy_count = 0;
+  for (MasstreeIntermediatePointerIterator it(merged); it.is_valid(); it.next()) {
+    DualPagePointer& pointer = merged->get_minipage(it.index_).pointers_[it.index_mini_];
+    if (pointer.snapshot_pointer_ == 0) {
+      // this should happen only while an initial snapshot for this storage.
+      ASSERT_ND(storage_.get_control_block()->root_page_pointer_.snapshot_pointer_ == 0);
+      KeySlice low, high;
+      merged->extract_separators_snapshot(it.index_, it.index_mini_, &low, &high);
+      uint32_t offset = 1U + dummy_count;  // +1 for new_root
+      SnapshotPagePointer page_id = args.snapshot_writer_->get_next_page_id() + offset;
+      MasstreeBorderPage* dummy = reinterpret_cast<MasstreeBorderPage*>(
+        args.snapshot_writer_->get_page_base() + offset);
+      dummy->initialize_snapshot_page(storage_id_, page_id, 0, low, high);
+      pointer.snapshot_pointer_ = page_id;
+      ++dummy_count;
+    }
+  }
+  VLOG(0) << to_string() << " has added " << dummy_count << " dummy pointers in root.";
+
   ASSERT_ND(new_root->get_header().snapshot_);
   ASSERT_ND(new_root->get_header().storage_id_ == storage_id_);
   ASSERT_ND(new_root->get_header().get_page_type() == kMasstreeIntermediatePageType);
 
   new_root->get_header().page_id_ = new_root_id;
   *args.new_root_page_pointer_ = new_root_id;
-  WRAP_ERROR_CODE(args.snapshot_writer_->dump_pages(0, 1));
+  WRAP_ERROR_CODE(args.snapshot_writer_->dump_pages(0, 1 + dummy_count));
 
   stop_watch.stop();
   VLOG(0) << to_string() << " done in " << stop_watch.elapsed_ms() << "ms.";

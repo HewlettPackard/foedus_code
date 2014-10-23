@@ -45,16 +45,6 @@ ArrayOffset ArrayStorage::get_array_size()   const  { return control_block_->met
 uint8_t     ArrayStorage::get_levels()       const  { return control_block_->levels_; }
 const ArrayMetadata* ArrayStorage::get_array_metadata() const  { return &control_block_->meta_; }
 
-ErrorCode   ArrayStorage::prefetch_pages(
-  thread::Thread* context,
-  ArrayOffset from,
-  ArrayOffset to) {
-  if (to == 0) {
-    to = get_array_size();
-  }
-  return ArrayStoragePimpl(this).prefetch_pages(context, from, to);
-}
-
 ErrorStack ArrayStorage::verify_single_thread(thread::Thread* context) {
   return ArrayStoragePimpl(this).verify_single_thread(context);
 }

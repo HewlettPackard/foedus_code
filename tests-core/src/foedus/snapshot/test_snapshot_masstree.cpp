@@ -110,13 +110,13 @@ ErrorStack inserts_varlen_task(const proc::ProcArguments& args) {
       EXPECT_EQ(kErrorCodeOk, ret) << rec;
     }
 
-    CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
+    // CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
     if (rep == 0) {
       WRAP_ERROR_CODE(xct_manager->abort_xct(context));
     } else {
       WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
     }
-    CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
+    // CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
   }
   WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   return kRetOk;
@@ -126,7 +126,7 @@ ErrorStack verify_varlen_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   storage::masstree::MasstreeStorage masstree(args.engine_, kName);
   ASSERT_ND(masstree.exists());
-  CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
+  // CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
   xct::XctManager* xct_manager = args.engine_->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
 
