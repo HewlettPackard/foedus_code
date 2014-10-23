@@ -202,6 +202,11 @@ class MasstreeComposeContext {
       ASSERT_ND(low_fence_ <= slice);  // as logs are sorted, this must not happen
       return high_fence_ == kSupremumSlice || slice < high_fence_;  // careful on supremum case
     }
+    bool contains_key(const char* key, uint16_t key_length) const {
+      ASSERT_ND(is_key_aligned_and_zero_padded(key, key_length));
+      KeySlice slice = normalize_be_bytes_full_aligned(key + layer_ * kSliceLen);
+      return contains_slice(slice);
+    }
     bool needs_to_consume_original(KeySlice slice, uint16_t key_length) const {
       return has_next_original()
         && (
@@ -298,12 +303,6 @@ class MasstreeComposeContext {
   ErrorStack  flush_buffer();
 
   ErrorStack  adjust_path(const char* key, uint16_t key_length);
-  /**
-   * Close the root of first layer. This is called from flush_buffer().
-   * @pre cur_path_levels_ == 1
-   * @post cur_path_levels_ == 0
-   */
-  ErrorStack  close_first_level();
 
   ErrorStack  consume_original_upto_border(KeySlice slice, uint16_t key_length, PathLevel* level);
   ErrorStack  consume_original_upto_intermediate(KeySlice slice, PathLevel* level);
@@ -330,6 +329,13 @@ class MasstreeComposeContext {
    * @pre cur_path_levels_ > 1 (this method must not be used to close the root of first layer.)
    */
   ErrorStack  close_last_level();
+  /**
+   * Close the root of first layer. This is called from flush_buffer().
+   * @pre cur_path_levels_ == 1
+   * @post cur_path_levels_ == 0
+   */
+  ErrorStack  close_first_level();
+  ErrorStack  close_all_levels();
 
   ErrorCode   read_original_page(SnapshotPagePointer page_id, uint16_t path_level);
 

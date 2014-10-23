@@ -20,7 +20,7 @@ add_foedus_test_individual(test_snapshot_sequential "AppendsOneLogger;AppendsTwo
 
 set(test_snapshot_masstree_individuals
   InsertsNormalizedOneLogger
-#  InsertsTwoLoggers
-#  InsertsTwoPartitions
+  InsertsNormalizedTwoLoggers
+  InsertsNormalizedTwoPartitions
   )
 add_foedus_test_individual(test_snapshot_masstree "${test_snapshot_masstree_individuals}")

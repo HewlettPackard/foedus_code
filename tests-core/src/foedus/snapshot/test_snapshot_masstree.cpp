@@ -141,6 +141,8 @@ void test_run(const proc::ProcName& proc_name, bool multiple_loggers, bool multi
 
 const proc::ProcName kInsN("inserts_normalized_task");
 TEST(SnapshotMasstreeTest, InsertsNormalizedOneLogger) { test_run(kInsN, false, false); }
+TEST(SnapshotMasstreeTest, InsertsNormalizedTwoLoggers) { test_run(kInsN, true, false); }
+TEST(SnapshotMasstreeTest, InsertsNormalizedTwoPartitions) { test_run(kInsN, true, true); }
 }  // namespace snapshot
 }  // namespace foedus
 

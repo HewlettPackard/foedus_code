@@ -744,6 +744,11 @@ inline bool MasstreeComposeContext::does_need_to_adjust_path(
   uint16_t key_length) const {
   if (cur_path_levels_ == 0) {
     return true;  // the path is empty. need to initialize path
+  } else if (!cur_path_[0].contains_key(key, key_length)) {
+    // first slice does not match
+    return true;
+  } else if (get_last_level()->layer_ == 0) {
+    return false;  // first slice check already done.
   }
 
   // Does the slices of the next_key match the current path? if not we have to close them
@@ -767,6 +772,10 @@ inline bool MasstreeComposeContext::does_need_to_adjust_path(
 }
 
 ErrorStack MasstreeComposeContext::adjust_path(const char* key, uint16_t key_length) {
+  if (UNLIKELY(cur_path_levels_ > 0 && !cur_path_[0].contains_key(key, key_length))) {
+    // have to switch the first level!
+    CHECK_ERROR(close_all_levels());
+  }
   if (cur_path_levels_ == 0) {
     CHECK_ERROR(open_first_level(key, key_length));
   }
@@ -1254,8 +1263,6 @@ ErrorStack MasstreeComposeContext::close_first_level() {
   ASSERT_ND(cur_path_levels_ == 1U);
   ASSERT_ND(get_last_layer() == 0U);
   PathLevel* first = cur_path_;
-  ASSERT_ND(first->low_fence_ == kInfimumSlice);
-  ASSERT_ND(first->high_fence_ == kSupremumSlice);
 
   // Do we have to make another level?
   CHECK_ERROR(consume_original_all());
@@ -1273,15 +1280,25 @@ ErrorStack MasstreeComposeContext::close_first_level() {
   return kRetOk;
 }
 
-ErrorStack MasstreeComposeContext::flush_buffer() {
-  LOG(INFO) << "Flushing buffer. buffered pages=" << allocated_pages_;
-  // 1) Close all levels. Otherwise we might still have many 'active' pages.
+ErrorStack MasstreeComposeContext::close_all_levels() {
+  LOG(INFO) << "Closing all levels except root_";
   while (cur_path_levels_ > 1U) {
     CHECK_ERROR(close_last_level());
   }
-  CHECK_ERROR(close_first_level());
-
+  ASSERT_ND(cur_path_levels_ <= 1U);
+  if (cur_path_levels_ > 0) {
+    CHECK_ERROR(close_first_level());
+  }
+  ASSERT_ND(cur_path_levels_ == 0);
   LOG(INFO) << "Closed all levels. now buffered pages=" << allocated_pages_;
+  return kRetOk;
+}
+
+ErrorStack MasstreeComposeContext::flush_buffer() {
+  LOG(INFO) << "Flushing buffer. buffered pages=" << allocated_pages_;
+  // 1) Close all levels. Otherwise we might still have many 'active' pages.
+  close_all_levels();
+
   ASSERT_ND(allocated_pages_ <= max_pages_);
 
   WRAP_ERROR_CODE(get_writer()->dump_pages(0, allocated_pages_));
