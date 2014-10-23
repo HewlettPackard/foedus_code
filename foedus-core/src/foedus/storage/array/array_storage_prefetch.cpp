@@ -17,8 +17,8 @@ namespace storage {
 namespace array {
 ErrorCode ArrayStoragePimpl::prefetch_pages(
   thread::Thread* context,
-  bool install_volatile,
-  bool cache_snapshot,
+  bool vol_on,
+  bool snp_on,
   ArrayOffset from,
   ArrayOffset to) {
   debugging::StopWatch watch;
@@ -27,13 +27,7 @@ ErrorCode ArrayStoragePimpl::prefetch_pages(
   ArrayPage* root_page = get_root_page();
   prefetch_page_l2(root_page);
   if (!root_page->is_leaf()) {
-    CHECK_ERROR_CODE(prefetch_pages_recurse(
-      context,
-      install_volatile,
-      cache_snapshot,
-      from,
-      to,
-      root_page));
+    CHECK_ERROR_CODE(prefetch_pages_recurse(context, vol_on, snp_on, from, to, root_page));
   }
 
   watch.stop();
@@ -44,8 +38,8 @@ ErrorCode ArrayStoragePimpl::prefetch_pages(
 
 ErrorCode ArrayStoragePimpl::prefetch_pages_recurse(
   thread::Thread* context,
-  bool install_volatile,
-  bool cache_snapshot,
+  bool vol_on,
+  bool snp_on,
   ArrayOffset from,
   ArrayOffset to,
   ArrayPage* page) {
@@ -71,19 +65,18 @@ ErrorCode ArrayStoragePimpl::prefetch_pages_recurse(
 
     // first, do we have to cache snapshot page?
     if (pointer.snapshot_pointer_ != 0) {
-      if (cache_snapshot) {
+      if (snp_on) {
         ArrayPage* child;
         CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
           pointer.snapshot_pointer_,
           reinterpret_cast<Page**>(&child)));
         prefetch_page_l2(child);
         if (level > 1U) {
-          CHECK_ERROR_CODE(
-            prefetch_pages_recurse(context, false, cache_snapshot, from, to, child));
+          CHECK_ERROR_CODE(prefetch_pages_recurse(context, false, snp_on, from, to, child));
         }
       }
       // do we have to install volatile page based on it?
-      if (pointer.volatile_pointer_.is_null() && install_volatile) {
+      if (pointer.volatile_pointer_.is_null() && vol_on) {
         ASSERT_ND(!page->header().snapshot_);
         Page* child;
         CHECK_ERROR_CODE(context->install_a_volatile_page(&pointer, &child));
@@ -91,13 +84,12 @@ ErrorCode ArrayStoragePimpl::prefetch_pages_recurse(
     }
 
     // then go down
-    if (!pointer.volatile_pointer_.is_null() && install_volatile) {
+    if (!pointer.volatile_pointer_.is_null() && vol_on) {
       ASSERT_ND(!page->header().snapshot_);
       ArrayPage* child = context->resolve_cast<ArrayPage>(pointer.volatile_pointer_);
       prefetch_page_l2(child);
       if (level > 1U) {
-        CHECK_ERROR_CODE(
-          prefetch_pages_recurse(context, install_volatile, cache_snapshot, from, to, child));
+        CHECK_ERROR_CODE(prefetch_pages_recurse(context, vol_on, snp_on, from, to, child));
       }
     }
   }

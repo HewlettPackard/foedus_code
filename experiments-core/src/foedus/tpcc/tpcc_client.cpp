@@ -216,7 +216,12 @@ ErrorStack TpccClientTask::warmup(thread::Thread* context) {
     // customers secondary
     storage::masstree::KeySlice from = static_cast<storage::masstree::KeySlice>(wid_begin) << 48U;
     storage::masstree::KeySlice to = static_cast<storage::masstree::KeySlice>(wid_end) << 48U;
-    WRAP_ERROR_CODE(storages_.customers_secondary_.prefetch_pages_normalized(context, from, to));
+    WRAP_ERROR_CODE(storages_.customers_secondary_.prefetch_pages_normalized(
+      context,
+      false,
+      true,
+      from,
+      to));
   }
   {
     // stocks
@@ -228,20 +233,30 @@ ErrorStack TpccClientTask::warmup(thread::Thread* context) {
     // order/neworder
     Wdoid from = combine_wdoid(combine_wdid(wid_begin, 0), 0);
     Wdoid to = combine_wdoid(combine_wdid(wid_end, 0), 0);
-    WRAP_ERROR_CODE(storages_.neworders_.prefetch_pages_normalized(context, from, to));
-    WRAP_ERROR_CODE(storages_.orders_.prefetch_pages_normalized(context, from, to));
+    WRAP_ERROR_CODE(storages_.neworders_.prefetch_pages_normalized(context, true, false, from, to));
+    WRAP_ERROR_CODE(storages_.orders_.prefetch_pages_normalized(context, true, false, from, to));
   }
   {
     // order_secondary
     Wdcoid from = combine_wdcoid(combine_wdcid(combine_wdid(wid_begin, 0), 0), 0);
     Wdcoid to = combine_wdcoid(combine_wdcid(combine_wdid(wid_end, 0), 0), 0);
-    WRAP_ERROR_CODE(storages_.orders_secondary_.prefetch_pages_normalized(context, from, to));
+    WRAP_ERROR_CODE(storages_.orders_secondary_.prefetch_pages_normalized(
+      context,
+      true,
+      false,
+      from,
+      to));
   }
   {
     // orderlines
     Wdol from = combine_wdol(combine_wdoid(combine_wdid(wid_begin, 0), 0), 0);
     Wdol to = combine_wdol(combine_wdoid(combine_wdid(wid_end, 0), 0), 0);
-    WRAP_ERROR_CODE(storages_.orderlines_.prefetch_pages_normalized(context, from, to));
+    WRAP_ERROR_CODE(storages_.orderlines_.prefetch_pages_normalized(
+      context,
+      true,
+      false,
+      from,
+      to));
   }
 
   WRAP_ERROR_CODE(storages_.warehouses_static_.prefetch_pages(

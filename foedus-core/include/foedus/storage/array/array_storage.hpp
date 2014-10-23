@@ -55,9 +55,9 @@ class ArrayStorage CXX11_FINAL : public Storage<ArrayStorageControlBlock> {
   /**
    * @brief Prefetch data pages in this storage.
    * @param[in] context Thread context.
-   * @param[in] install_volatile Whether to install volatile pages based on the recent
+   * @param[in] install_volatile Whether to install/prefetch volatile pages based on the recent
    * snapshot page if there is none.
-   * @param[in] cache_snapshot Whether to cache snapshot pages if exists.
+   * @param[in] cache_snapshot Whether to cache/prefetch snapshot pages if exists.
    * @param[in] from inclusive begin offset of records that are specifically prefetched even in
    * data pages.
    * @param[in] to exclusive end offset of records that are specifically prefetched even in data

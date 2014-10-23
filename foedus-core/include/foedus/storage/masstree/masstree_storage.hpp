@@ -52,6 +52,9 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
   /**
    * @brief Prefetch data pages in this storage. Key Slice version (from/to are 8 bytes or less).
    * @param[in] context Thread context.
+   * @param[in] install_volatile Whether to install/prefetch volatile pages based on the recent
+   * snapshot page if there is none.
+   * @param[in] cache_snapshot Whether to cache/prefetch snapshot pages if exists.
    * @param[in] from inclusive begin slice of records that are specifically prefetched even in
    * data pages.
    * @param[in] to inclusive end slice of records that are specifically prefetched even in data
@@ -63,6 +66,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    */
   ErrorCode prefetch_pages_normalized(
     thread::Thread* context,
+    bool install_volatile,
+    bool cache_snapshot,
     KeySlice from = kInfimumSlice,
     KeySlice to = kSupremumSlice);
 

@@ -520,9 +520,16 @@ ErrorStack MasstreeStorage::debugout_single_thread(
 
 ErrorCode MasstreeStorage::prefetch_pages_normalized(
   thread::Thread* context,
+  bool install_volatile,
+  bool cache_snapshot,
   KeySlice from,
   KeySlice to) {
-  return MasstreeStoragePimpl(this).prefetch_pages_normalized(context, from, to);
+  return MasstreeStoragePimpl(this).prefetch_pages_normalized(
+    context,
+    install_volatile,
+    cache_snapshot,
+    from,
+    to);
 }
 
 
