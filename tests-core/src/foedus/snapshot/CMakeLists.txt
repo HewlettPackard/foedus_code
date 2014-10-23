@@ -22,5 +22,8 @@ set(test_snapshot_masstree_individuals
   InsertsNormalizedOneLogger
   InsertsNormalizedTwoLoggers
   InsertsNormalizedTwoPartitions
+#  InsertsVarlenOneLogger
+#  InsertsVarlenTwoLoggers
+#  InsertsVarlenTwoPartitions
   )
 add_foedus_test_individual(test_snapshot_masstree "${test_snapshot_masstree_individuals}")

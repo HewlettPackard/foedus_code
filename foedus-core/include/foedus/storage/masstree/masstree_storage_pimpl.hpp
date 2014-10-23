@@ -14,6 +14,7 @@
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
+#include "foedus/cache/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/storage/composer.hpp"
@@ -224,6 +225,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     PAYLOAD* value,
     uint16_t payload_offset);
 
+  /** These are defined in masstree_storage_verify.cpp */
   ErrorStack verify_single_thread(thread::Thread* context);
   ErrorStack verify_single_thread_layer(
     thread::Thread* context,
@@ -240,6 +242,23 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     HighFence high_fence,
     MasstreeBorderPage* page);
 
+  /** These are defined in masstree_storage_debug.cpp */
+  ErrorStack debugout_single_thread(
+    Engine* engine,
+    bool volatile_only,
+    uint32_t max_pages);
+  ErrorStack debugout_single_thread_recurse(
+    Engine* engine,
+    cache::SnapshotFileSet* fileset,
+    MasstreePage* parent,
+    bool follow_volatile,
+    uint32_t* remaining_pages);
+  ErrorStack debugout_single_thread_follow(
+    Engine* engine,
+    cache::SnapshotFileSet* fileset,
+    const DualPagePointer& pointer,
+    bool follow_volatile,
+    uint32_t* remaining_pages);
 
   /** Thread::follow_page_pointer() for masstree */
   ErrorCode follow_page(

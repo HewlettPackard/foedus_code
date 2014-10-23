@@ -35,6 +35,7 @@ TEST(MasstreeBasicTest, Create) {
     MasstreeStorage storage;
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
+    COERCE_ERROR(storage.debugout_single_thread(&engine));
     EXPECT_TRUE(storage.exists());
     COERCE_ERROR(engine.uninitialize());
   }
@@ -111,6 +112,7 @@ TEST(MasstreeBasicTest, CreateAndInsert) {
     COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
     COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("insert_task"));
+    COERCE_ERROR(storage.debugout_single_thread(&engine));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -261,6 +263,7 @@ TEST(MasstreeBasicTest, NextLayer) {
     COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
     COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("next_layer_task"));
+    COERCE_ERROR(storage.debugout_single_thread(&engine));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

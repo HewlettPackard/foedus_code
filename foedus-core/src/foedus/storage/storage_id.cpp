@@ -13,21 +13,29 @@ namespace storage {
 
 void describe_snapshot_pointer(std::ostream* o_ptr, SnapshotPagePointer pointer) {
   std::ostream& o = *o_ptr;
-  o << "<SnapshotPagePointer>";
-  o << "<SnapshotId>" << extract_snapshot_id_from_snapshot_pointer(pointer) << "</SnapshotId>";
-  o << "<Node>" << static_cast<int>(extract_numa_node_from_snapshot_pointer(pointer)) << "</Node>";
-  o << "<PageId>" << extract_local_page_id_from_snapshot_pointer(pointer) << "</PageId>";
-  o << "</SnapshotPagePointer>";
+  if (pointer == 0) {
+    o << "<SnapshotPointer is_null=\"true\"/>";
+    return;
+  }
+  o << "<SnapshotPointer"
+    << " snapshot_id=\"" << extract_snapshot_id_from_snapshot_pointer(pointer)
+    << "\" node=\"" << static_cast<int>(extract_numa_node_from_snapshot_pointer(pointer))
+    << "\" offset=\"" << extract_local_page_id_from_snapshot_pointer(pointer)
+    << "\" />";
 }
 
 void describe_volatile_pointer(std::ostream* o_ptr, VolatilePagePointer pointer) {
   std::ostream& o = *o_ptr;
-  o << "<VolatilePagePointer>";
-  o << "<Node>" << static_cast<int>(pointer.components.numa_node) << "</Node>";
-  o << "<Offset>" << pointer.components.offset << "</Offset>";
-  o << "<Flags>" << assorted::Hex(pointer.components.flags) << "</Flags>";
-  o << "<ModCount>" << pointer.components.mod_count << "</ModCount>";
-  o << "</VolatilePagePointer>";
+  if (pointer.is_null()) {
+    o << "<VolatilePointer is_null=\"true\"/>";
+    return;
+  }
+  o << "<VolatilePointer"
+    << " node=\"" << static_cast<int>(pointer.components.numa_node)
+    << "\" offset=\"" << pointer.components.offset
+    << "\" flags=\"" << assorted::Hex(pointer.components.flags)
+    << "\" modCount=\"" << pointer.components.mod_count
+    << "\" />";
 }
 
 std::ostream& operator<<(std::ostream& o, const DualPagePointer& v) {
