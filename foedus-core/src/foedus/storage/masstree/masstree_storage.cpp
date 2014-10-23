@@ -510,6 +510,14 @@ ErrorStack MasstreeStorage::verify_single_thread(thread::Thread* context) {
   return MasstreeStoragePimpl(this).verify_single_thread(context);
 }
 
+ErrorStack MasstreeStorage::debugout_single_thread(
+  Engine* engine,
+  bool volatile_only,
+  uint32_t max_pages) {
+  return MasstreeStoragePimpl(this).debugout_single_thread(engine, volatile_only, max_pages);
+}
+
+
 ErrorCode MasstreeStorage::prefetch_pages_normalized(
   thread::Thread* context,
   KeySlice from,

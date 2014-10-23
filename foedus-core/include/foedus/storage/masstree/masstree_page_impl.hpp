@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iosfwd>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
@@ -138,6 +139,9 @@ class MasstreePage {
     ASSERT_ND(header_.snapshot_);
     high_fence_ = high_fence;
   }
+
+  /** defined in masstree_page_debug.cpp. */
+  friend std::ostream& operator<<(std::ostream& o, const MasstreePage& v);
 
  protected:
   PageHeader          header_;      // +32 -> 32
@@ -356,6 +360,9 @@ class MasstreeIntermediatePage final : public MasstreePage {
     KeySlice* separator_high) const;
 
   void verify_separators() const;
+
+  /** defined in masstree_page_debug.cpp. */
+  friend std::ostream& operator<<(std::ostream& o, const MasstreeIntermediatePage& v);
 
  private:
   // 72
@@ -662,12 +669,8 @@ class MasstreeBorderPage final : public MasstreePage {
     const char* suffix,
     uint16_t remaining) const ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
-    ASSERT_ND(!does_point_to_layer(index));
     ASSERT_ND(remaining > 0);
     uint16_t rec_remaining = get_remaining_key_length(index);
-    if (remaining != remaining_key_length_[index]) {
-      return false;
-    }
     KeySlice rec_slice = get_slice(index);
     if (slice < rec_slice) {
       return -1;
@@ -675,7 +678,11 @@ class MasstreeBorderPage final : public MasstreePage {
       return 1;
     }
     if (remaining <= kSliceLen || rec_remaining <= kSliceLen) {
+      // this is correct even when rec_remaining==255
       return static_cast<int>(remaining) - static_cast<int>(rec_remaining);
+    }
+    if (does_point_to_layer(index)) {
+      return 0;
     }
     uint16_t min_remaining = std::min(remaining, rec_remaining);
     const char* rec_suffix = get_record(index);
@@ -686,7 +693,7 @@ class MasstreeBorderPage final : public MasstreePage {
     return static_cast<int>(remaining) - static_cast<int>(rec_remaining);
   }
   /**
-   * Returns whether inserting the key cannot fit in the same page.
+   * Returns whether inserting the key will cause creation of a new next layer.
    * This is mainly used for assertions.
    */
   bool will_conflict(uint8_t index, const char* be_key, uint16_t key_length) const ALWAYS_INLINE {
@@ -701,7 +708,6 @@ class MasstreeBorderPage final : public MasstreePage {
     KeySlice slice,
     uint16_t remaining) const ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
-    ASSERT_ND(!does_point_to_layer(index));
     ASSERT_ND(remaining > 0);
     if (slice != get_slice(index)) {
       return false;
@@ -711,6 +717,24 @@ class MasstreeBorderPage final : public MasstreePage {
       return true;  // need to create next layer
     }
     return (remaining == rec_remaining);  // if same, it's exactly the same key
+  }
+  /** Returns whether the record is a next-layer pointer that would contain the key */
+  bool will_contain_next_layer(
+    uint8_t index,
+    const char* be_key,
+    uint16_t key_length) const ALWAYS_INLINE {
+    ASSERT_ND(key_length > get_layer() * kSliceLen);
+    uint16_t remaining = key_length - get_layer() * kSliceLen;
+    KeySlice slice = slice_layer(be_key, key_length, get_layer());
+    return will_contain_next_layer(index, slice, remaining);
+  }
+  bool will_contain_next_layer(
+    uint8_t index,
+    KeySlice slice,
+    uint16_t remaining) const ALWAYS_INLINE {
+    ASSERT_ND(index < kMaxKeys);
+    ASSERT_ND(remaining > 0);
+    return slice == get_slice(index) && does_point_to_layer(index) && remaining > kSliceLen;
   }
 
   /**
@@ -745,7 +769,11 @@ class MasstreeBorderPage final : public MasstreePage {
     ASSERT_ND(header_.snapshot_ || remaining_key_length_[index] > sizeof(KeySlice));
     ASSERT_ND(!header_.snapshot_ || pointer.volatile_pointer_.is_null());
     remaining_key_length_[index] = kKeyLengthNextLayer;
+    payload_length_[index] = sizeof(DualPagePointer);
     *get_next_layer(index) = pointer;
+    // TODO(Hideaki) we should have a flag in xct_id to denote "next_layer pointer"
+    // simply using is_moved for this purpose is not enough because it's a page-split flag.
+    // next_layer is not a page split, something else.
   }
 
   /**
@@ -801,73 +829,13 @@ class MasstreeBorderPage final : public MasstreePage {
 
   void assert_entries() ALWAYS_INLINE {
 #ifndef NDEBUG
-    // the following logic holds only when this page is locked
-    ASSERT_ND(header_.snapshot_ || is_locked());
-    struct Sorter {
-      explicit Sorter(const MasstreeBorderPage* target) : target_(target) {}
-      bool operator() (uint8_t left, uint8_t right) {
-        KeySlice left_slice = target_->get_slice(left);
-        KeySlice right_slice = target_->get_slice(right);
-        if (left_slice < right_slice) {
-          return true;
-        } else if (left_slice == right_slice) {
-          return target_->get_remaining_key_length(left) < target_->get_remaining_key_length(right);
-        } else {
-          return false;
-        }
-      }
-      const MasstreeBorderPage* target_;
-    };
-    uint8_t key_count = get_key_count();
-    uint8_t order[kMaxKeys];
-    for (uint8_t i = 0; i < key_count; ++i) {
-      order[i] = i;
-    }
-    std::sort(order, order + key_count, Sorter(this));
-
-    if (header_.snapshot_) {
-      // in snapshot page, all entries should be fully sorted
-      for (uint8_t i = 0; i < key_count; ++i) {
-        ASSERT_ND(order[i] == i);
-      }
-    }
-
-    for (uint8_t i = 1; i < key_count; ++i) {
-      uint8_t pre = order[i - 1];
-      uint8_t cur = order[i];
-      ASSERT_ND(slices_[pre] <= slices_[cur]);
-      if (slices_[pre] == slices_[cur]) {
-        ASSERT_ND(remaining_key_length_[pre] < remaining_key_length_[cur]);
-        ASSERT_ND(remaining_key_length_[pre] <= sizeof(KeySlice));
-      }
-    }
-
-    // also check the padding between key suffix and payload
-    for (uint8_t i = 0; i < key_count; ++i) {
-      if (does_point_to_layer(i)) {
-        continue;
-      }
-      uint16_t suffix_length = get_suffix_length(i);
-      uint16_t suffix_length_aligned = get_suffix_length_aligned(i);
-      if (suffix_length > 0 && suffix_length != suffix_length_aligned) {
-        ASSERT_ND(suffix_length_aligned > suffix_length);
-        for (uint16_t pos = suffix_length; pos < suffix_length_aligned; ++pos) {
-          // must be zero-padded
-          ASSERT_ND(get_record(i)[pos] == 0);
-        }
-      }
-      uint16_t payload_length = get_payload_length(i);
-      uint16_t payload_length_aligned = assorted::align8(payload_length);
-      if (payload_length > 0 && payload_length != payload_length_aligned) {
-        ASSERT_ND(payload_length_aligned > payload_length);
-        for (uint16_t pos = payload_length; pos < payload_length_aligned; ++pos) {
-          // must be zero-padded
-          ASSERT_ND(get_record(i)[suffix_length_aligned + pos] == 0);
-        }
-      }
-    }
+    assert_entries_impl();
 #endif  // NDEBUG
   }
+  /** defined in masstree_page_debug.cpp. */
+  void assert_entries_impl() const;
+  /** defined in masstree_page_debug.cpp. */
+  friend std::ostream& operator<<(std::ostream& o, const MasstreeBorderPage& v);
 
  private:
   // 72
@@ -889,7 +857,7 @@ class MasstreeBorderPage final : public MasstreePage {
    */
   KeySlice    slices_[kMaxKeys];                  // +512 -> 648
 
-  /** Offset of the beginning of record in data_, divided by 8. */
+  /** Offset of the beginning of record in data_, divided by 16. */
   uint8_t     offsets_[kMaxKeys];                 // +64  -> 712
   /**
    * length of the payload.
@@ -1237,7 +1205,7 @@ inline void MasstreeBorderPage::replace_next_layer_snapshot(SnapshotPagePointer 
   ASSERT_ND(get_key_count() > 0);
   uint8_t index = get_key_count() - 1U;
 
-  ASSERT_ND(does_point_to_layer(index));
+  ASSERT_ND(!does_point_to_layer(index));
   ASSERT_ND(can_accomodate(index, 0, sizeof(DualPagePointer)));
   DataOffset record_size = calculate_record_size(0, sizeof(DualPagePointer)) >> 4;
   DataOffset previous_offset;
@@ -1253,7 +1221,7 @@ inline void MasstreeBorderPage::replace_next_layer_snapshot(SnapshotPagePointer 
   dual_pointer->volatile_pointer_.clear();
   dual_pointer->snapshot_pointer_ = pointer;
 
-  ASSERT_ND(!does_point_to_layer(index));
+  ASSERT_ND(does_point_to_layer(index));
 }
 
 inline bool MasstreeIntermediatePage::is_full_snapshot() const {

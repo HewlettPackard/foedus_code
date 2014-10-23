@@ -28,7 +28,6 @@
 namespace foedus {
 namespace snapshot {
 DEFINE_TEST_CASE_PACKAGE(SnapshotMasstreeTest, foedus.snapshot);
-
 const uint32_t kRecords = 1024;
 const uint32_t kThreads = 2;
 const storage::StorageName kName("test");
@@ -79,7 +78,85 @@ ErrorStack verify_task(const proc::ProcArguments& args) {
   return kRetOk;
 }
 
-void test_run(const proc::ProcName& proc_name, bool multiple_loggers, bool multiple_partitions) {
+ErrorStack inserts_varlen_task(const proc::ProcArguments& args) {
+  EXPECT_EQ(sizeof(uint32_t), args.input_len_);
+  uint32_t id = *reinterpret_cast<const uint32_t*>(args.input_buffer_);
+  EXPECT_NE(id, 2U);
+
+  thread::Thread* context = args.context_;
+  storage::masstree::MasstreeStorage masstree(args.engine_, kName);
+  ASSERT_ND(masstree.exists());
+  xct::XctManager* xct_manager = args.engine_->get_xct_manager();
+  Epoch commit_epoch;
+
+  // TODO(Hideaki) dirty hack. currently create_next_layer will cause an abort when the original
+  // record was already in readset. to avoid it, the first rep physically creates the records
+  // and second path logically inserts. as soon as we add "next_layer" flag in xct_id,
+  // we will not need this hack.
+  for (uint16_t rep = 0; rep < 2; ++rep) {
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+
+    char buffer[16];
+    std::memset(buffer, 0, sizeof(buffer));
+    for (uint32_t i = 0; i < kRecords / 2U; ++i) {
+      uint64_t rec = id * kRecords / 2U + i;
+      // first 8 bytes, mod 17 to have next layers.
+      assorted::write_bigendian<uint64_t>(static_cast<uint64_t>(rec % 17U), buffer);
+      // and 1-4 bytes of decimal representation in text
+      std::string str = std::to_string(rec);
+      std::memcpy(buffer + sizeof(uint64_t), str.data(), str.size());
+      uint16_t len = sizeof(uint64_t) + str.size();
+      ErrorCode ret = masstree.insert_record(context, buffer, len, &rec, sizeof(rec));
+      EXPECT_EQ(kErrorCodeOk, ret) << rec;
+    }
+
+    CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
+    if (rep == 0) {
+      WRAP_ERROR_CODE(xct_manager->abort_xct(context));
+    } else {
+      WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+    }
+    CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
+  }
+  WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
+  return kRetOk;
+}
+
+ErrorStack verify_varlen_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  storage::masstree::MasstreeStorage masstree(args.engine_, kName);
+  ASSERT_ND(masstree.exists());
+  CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
+  xct::XctManager* xct_manager = args.engine_->get_xct_manager();
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+
+  char buffer[16];
+  std::memset(buffer, 0, sizeof(buffer));
+  for (uint32_t i = 0; i < kRecords; ++i) {
+    uint64_t rec = i;
+    assorted::write_bigendian<uint64_t>(static_cast<uint64_t>(rec % 17U), buffer);
+    std::string str = std::to_string(rec);
+    std::memcpy(buffer + sizeof(uint64_t), str.data(), str.size());
+    uint16_t len = sizeof(uint64_t) + str.size();
+
+    uint64_t data;
+    uint16_t capacity = sizeof(data);
+    ErrorCode ret = masstree.get_record(context, buffer, len, &data, &capacity);
+    EXPECT_EQ(kErrorCodeOk, ret) << i;
+    EXPECT_EQ(rec, data) << i;
+    EXPECT_EQ(sizeof(data), capacity) << i;
+  }
+
+  Epoch commit_epoch;
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  return kRetOk;
+}
+
+void test_run(
+  const proc::ProcName& proc_name,
+  const proc::ProcName& verify_name,
+  bool multiple_loggers,
+  bool multiple_partitions) {
   EngineOptions options = get_tiny_options();
   if (multiple_partitions) {
     options.thread_.thread_count_per_group_ = 1;
@@ -97,7 +174,9 @@ void test_run(const proc::ProcName& proc_name, bool multiple_loggers, bool multi
   {
     Engine engine(options);
     engine.get_proc_manager()->pre_register("inserts_normalized_task", inserts_normalized_task);
+    engine.get_proc_manager()->pre_register("inserts_varlen_task", inserts_varlen_task);
     engine.get_proc_manager()->pre_register("verify_task", verify_task);
+    engine.get_proc_manager()->pre_register("verify_varlen_task", verify_varlen_task);
     COERCE_ERROR(engine.initialize());
     {
       UninitializeGuard guard(&engine);
@@ -118,7 +197,7 @@ void test_run(const proc::ProcName& proc_name, bool multiple_loggers, bool multi
       }
 
       EXPECT_TRUE(out.exists());
-      COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("verify_task"));
+      COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous(verify_name));
       EXPECT_TRUE(out.exists());
       engine.get_snapshot_manager()->trigger_snapshot_immediate(true);
       EXPECT_TRUE(out.exists());
@@ -129,10 +208,11 @@ void test_run(const proc::ProcName& proc_name, bool multiple_loggers, bool multi
   {
     Engine engine(options);
     engine.get_proc_manager()->pre_register("verify_task", verify_task);
+    engine.get_proc_manager()->pre_register("verify_varlen_task", verify_varlen_task);
     COERCE_ERROR(engine.initialize());
     {
       UninitializeGuard guard(&engine);
-      COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("verify_task"));
+      COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous(verify_name));
       COERCE_ERROR(engine.uninitialize());
     }
   }
@@ -140,7 +220,17 @@ void test_run(const proc::ProcName& proc_name, bool multiple_loggers, bool multi
 }
 
 const proc::ProcName kInsN("inserts_normalized_task");
-TEST(SnapshotMasstreeTest, InsertsNormalizedOneLogger) { test_run(kInsN, false, false); }
+const proc::ProcName kInsV("inserts_varlen_task");
+const proc::ProcName kVerN("verify_task");
+const proc::ProcName kVerV("verify_varlen_task");
+
+TEST(SnapshotMasstreeTest, InsertsNormalizedOneLogger) { test_run(kInsN, kVerN, false, false); }
+TEST(SnapshotMasstreeTest, InsertsNormalizedTwoLoggers) { test_run(kInsN, kVerN, true, false); }
+TEST(SnapshotMasstreeTest, InsertsNormalizedTwoPartitions) { test_run(kInsN, kVerN, true, true); }
+TEST(SnapshotMasstreeTest, InsertsVarlenOneLogger) { test_run(kInsV, kVerV, false, false); }
+TEST(SnapshotMasstreeTest, InsertsVarlenTwoLoggers) { test_run(kInsV, kVerV, true, false); }
+TEST(SnapshotMasstreeTest, InsertsVarlenTwoPartitions) { test_run(kInsV, kVerV, true, true); }
+
 }  // namespace snapshot
 }  // namespace foedus
 

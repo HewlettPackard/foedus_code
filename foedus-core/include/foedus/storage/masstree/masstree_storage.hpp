@@ -363,6 +363,18 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
   ErrorStack  replace_pointers(const Composer::ReplacePointersArguments& args);
 
   ErrorStack  verify_single_thread(thread::Thread* context);
+
+  /**
+   * @brief A super-expensive and single-thread only debugging feature to write out
+   * gigantic human-readable texts to describe the Masstree in details.
+   * @details
+   * Do not invoke this method for more than 100 pages, or in production use.
+   * This is for debugging.
+   */
+  ErrorStack  debugout_single_thread(
+    Engine* engine,
+    bool volatile_only = false,
+    uint32_t max_pages = 1024U);
 };
 }  // namespace masstree
 }  // namespace storage

@@ -31,6 +31,33 @@ std::ostream& operator<<(std::ostream& o, const PageVersion& v) {
     << "</PageVersion>";
   return o;
 }
+
+std::ostream& operator<<(std::ostream& o, const PageHeader& v) {
+  o << "<PageHeader>";
+  o << std::endl << "<page_id>"
+    << "<raw>" << assorted::Hex(v.page_id_, 16) << "</raw>";
+  // Also write out interpreted version
+  if (v.snapshot_) {
+    describe_snapshot_pointer(&o, v.page_id_);
+  } else {
+    VolatilePagePointer pointer;
+    pointer.word = v.page_id_;
+    describe_volatile_pointer(&o, pointer);
+  }
+  o << "</page_id>";
+  o << std::endl << "<storage_id_>" << v.storage_id_ << "</storage_id_>";
+  o << "<checksum_>" << v.checksum_ << "</checksum_>";
+  o << "<page_type_>" << static_cast<int>(v.page_type_) << "</page_type_>";
+  o << std::endl << "<snapshot_>" << v.snapshot_ << "</snapshot_>";
+  o << "<key_count_>" << v.key_count_ << "</key_count_>";
+  o << "<masstree_layer_>" << static_cast<int>(v.masstree_layer_) << "</masstree_layer_>";
+  o << std::endl << "<stat_last_updater_node_>" << static_cast<int>(v.stat_last_updater_node_)
+    << "</stat_last_updater_node_>";
+  o << v.page_version_;
+  o << "</PageHeader>";
+  return o;
+}
+
 PageVersionLockScope::PageVersionLockScope(
   thread::Thread* context,
   PageVersion* version,

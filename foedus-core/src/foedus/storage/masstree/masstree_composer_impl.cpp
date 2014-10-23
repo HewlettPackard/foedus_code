@@ -406,7 +406,7 @@ ErrorStack MasstreeComposeContext::execute() {
         slice,
         entry->header_.xct_id_,
         key_length - skip,
-        key + skip,
+        key + skip + kSliceLen,
         entry->payload_count_,
         entry->get_payload(),
         last);
@@ -663,8 +663,10 @@ void MasstreeComposeContext::open_next_level_create_layer(
   KeySlice prefix_slice,
   uint8_t parent_index) {
   ASSERT_ND(!parent->does_point_to_layer(parent_index));  // not yet a next-layer pointer
+  ASSERT_ND(parent->get_slice(parent_index) == prefix_slice);
   ASSERT_ND(key_length > 0);
   ASSERT_ND(is_key_aligned_and_zero_padded(key, key_length));
+  // DLOG(INFO) << "asdasdas " << *parent;
   uint8_t this_level = cur_path_levels_;
   PathLevel* level = cur_path_ + this_level;
   ++cur_path_levels_;
@@ -678,21 +680,26 @@ void MasstreeComposeContext::open_next_level_create_layer(
   level->low_fence_ = kInfimumSlice;
   level->high_fence_ = kSupremumSlice;
 
+  // DLOG(INFO) << "Fdsdsfsdas " << *parent;
   ASSERT_ND(key_length > level->layer_ * kSliceLen);
 
   SnapshotPagePointer page_id = page_id_base_ + level->head_;
   MasstreeBorderPage* target = reinterpret_cast<MasstreeBorderPage*>(get_page(level->head_));
   target->initialize_snapshot_page(id_, page_id, level->layer_, kInfimumSlice, kSupremumSlice);
 
+  // DLOG(INFO) << "eqeqwe2 " << *parent;
+
   // migrate the exiting record from parent.
   uint16_t remaining_length = parent->get_remaining_key_length(parent_index) - kSliceLen;
-  const char* remaining = parent->get_record(parent_index) + kSliceLen;
-  ASSERT_ND(is_key_aligned_and_zero_padded(remaining, remaining_length));
-  KeySlice slice = normalize_be_bytes_full_aligned(remaining);
-  const char* suffix = remaining + kSliceLen;
+  const char* parent_suffix = parent->get_record(parent_index);
+  ASSERT_ND(is_key_aligned_and_zero_padded(parent_suffix, remaining_length));
+  KeySlice slice = normalize_be_bytes_full_aligned(parent_suffix);
+  const char* suffix = parent_suffix + kSliceLen;
   const char* payload = parent->get_record_payload(parent_index);
   uint16_t payload_count = parent->get_payload_length(parent_index);
   xct::XctId xct_id = parent->get_owner_id(parent_index)->xct_id_;
+
+  // DLOG(INFO) << "eqeqwe3 " << *parent;
 
   // see the comment in PathLevel. If the existing key in parent is larger than searching key,
   // we move the existing record to a dummy original page here.
@@ -721,9 +728,12 @@ void MasstreeComposeContext::open_next_level_create_layer(
     }
     ASSERT_ND(target->ltgt_key(0, key, key_length) > 0);
   }
+  // DLOG(INFO) << "easdasdf " << *original;
+  // DLOG(INFO) << "dsdfsdf " << *target;
 
   // and modify the record to be a next layer pointer
   parent->replace_next_layer_snapshot(page_id);
+  // DLOG(INFO) << "Fdsddss " << *parent;
 }
 
 inline ErrorCode MasstreeComposeContext::advance() {
@@ -744,6 +754,11 @@ inline bool MasstreeComposeContext::does_need_to_adjust_path(
   uint16_t key_length) const {
   if (cur_path_levels_ == 0) {
     return true;  // the path is empty. need to initialize path
+  } else if (!cur_path_[0].contains_key(key, key_length)) {
+    // first slice does not match
+    return true;
+  } else if (get_last_level()->layer_ == 0) {
+    return false;  // first slice check already done.
   }
 
   // Does the slices of the next_key match the current path? if not we have to close them
@@ -767,6 +782,10 @@ inline bool MasstreeComposeContext::does_need_to_adjust_path(
 }
 
 ErrorStack MasstreeComposeContext::adjust_path(const char* key, uint16_t key_length) {
+  if (UNLIKELY(cur_path_levels_ > 0 && !cur_path_[0].contains_key(key, key_length))) {
+    // have to switch the first level!
+    CHECK_ERROR(close_all_levels());
+  }
   if (cur_path_levels_ == 0) {
     CHECK_ERROR(open_first_level(key, key_length));
   }
@@ -873,6 +892,8 @@ inline void MasstreeComposeContext::append_border(
   uint16_t key_count = target->get_key_count();
   uint16_t new_index = key_count;
   ASSERT_ND(key_count == 0 || !target->will_conflict(key_count - 1, slice, remaining_length));
+  ASSERT_ND(key_count == 0
+    || !target->will_contain_next_layer(key_count - 1, slice, remaining_length));
   ASSERT_ND(key_count == 0 || target->ltgt_key(key_count - 1, slice, suffix, remaining_length) > 0);
   if (UNLIKELY(!target->can_accomodate(new_index, remaining_length, payload_count))) {
     append_border_newpage(slice, level);
@@ -1254,8 +1275,6 @@ ErrorStack MasstreeComposeContext::close_first_level() {
   ASSERT_ND(cur_path_levels_ == 1U);
   ASSERT_ND(get_last_layer() == 0U);
   PathLevel* first = cur_path_;
-  ASSERT_ND(first->low_fence_ == kInfimumSlice);
-  ASSERT_ND(first->high_fence_ == kSupremumSlice);
 
   // Do we have to make another level?
   CHECK_ERROR(consume_original_all());
@@ -1273,15 +1292,25 @@ ErrorStack MasstreeComposeContext::close_first_level() {
   return kRetOk;
 }
 
-ErrorStack MasstreeComposeContext::flush_buffer() {
-  LOG(INFO) << "Flushing buffer. buffered pages=" << allocated_pages_;
-  // 1) Close all levels. Otherwise we might still have many 'active' pages.
+ErrorStack MasstreeComposeContext::close_all_levels() {
+  LOG(INFO) << "Closing all levels except root_";
   while (cur_path_levels_ > 1U) {
     CHECK_ERROR(close_last_level());
   }
-  CHECK_ERROR(close_first_level());
-
+  ASSERT_ND(cur_path_levels_ <= 1U);
+  if (cur_path_levels_ > 0) {
+    CHECK_ERROR(close_first_level());
+  }
+  ASSERT_ND(cur_path_levels_ == 0);
   LOG(INFO) << "Closed all levels. now buffered pages=" << allocated_pages_;
+  return kRetOk;
+}
+
+ErrorStack MasstreeComposeContext::flush_buffer() {
+  LOG(INFO) << "Flushing buffer. buffered pages=" << allocated_pages_;
+  // 1) Close all levels. Otherwise we might still have many 'active' pages.
+  close_all_levels();
+
   ASSERT_ND(allocated_pages_ <= max_pages_);
 
   WRAP_ERROR_CODE(get_writer()->dump_pages(0, allocated_pages_));

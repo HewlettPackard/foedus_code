@@ -6,6 +6,7 @@
 #define FOEDUS_STORAGE_PAGE_HPP_
 
 #include <cstring>
+#include <iosfwd>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
@@ -247,6 +248,7 @@ struct PageHeader CXX11_FINAL {
   PageHeader() CXX11_FUNC_DELETE;
   PageHeader(const PageHeader& other) CXX11_FUNC_DELETE;
   PageHeader& operator=(const PageHeader& other) CXX11_FUNC_DELETE;
+  friend std::ostream& operator<<(std::ostream& o, const PageHeader& v);
 
   PageType get_page_type() const { return static_cast<PageType>(page_type_); }
 

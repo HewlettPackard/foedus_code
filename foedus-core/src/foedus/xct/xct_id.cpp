@@ -56,19 +56,18 @@ std::ostream& operator<<(std::ostream& o, const CombinedLock& v) {
 }
 
 std::ostream& operator<<(std::ostream& o, const XctId& v) {
-  o << "<XctId><epoch>" << v.get_epoch() << "</epoch>"
-    << "<ordinal>" << v.get_ordinal() << "</ordinal>"
-    << "<status>"
-    << (v.is_deleted() ? "D" : " ")
-    << (v.is_moved() ? "M" : " ")
-    << (v.is_being_written() ? "W" : " ")
-    << "</status>"
-    << "</XctId>";
+  o << "<XctId epoch=\"" << v.get_epoch()
+    << "\" ordinal=\"" << v.get_ordinal()
+    << "\" status=\""
+      << (v.is_deleted() ? "D" : " ")
+      << (v.is_moved() ? "M" : " ")
+      << (v.is_being_written() ? "W" : " ")
+    << "\" />";
   return o;
 }
 
 std::ostream& operator<<(std::ostream& o, const LockableXctId& v) {
-  o << "<LockableXctId>" << v.lock_ << v.xct_id_ << "</LockableXctId>";
+  o << "<LockableXctId>" << v.xct_id_ << v.lock_ << "</LockableXctId>";
   return o;
 }
 
