@@ -1257,8 +1257,12 @@ inline void MasstreeBorderPage::replace_next_layer_snapshot(SnapshotPagePointer 
 }
 
 inline bool MasstreeIntermediatePage::is_full_snapshot() const {
-  return get_key_count() < kMaxIntermediateSeparators
-    || mini_pages_[get_key_count()].key_count_ < kMaxIntermediateMiniSeparators;
+  uint16_t keys = get_key_count();
+  ASSERT_ND(keys <= kMaxIntermediateSeparators);
+  const MiniPage& minipage = mini_pages_[keys];
+  uint16_t keys_mini = minipage.key_count_;
+  ASSERT_ND(keys_mini <= kMaxIntermediateMiniSeparators);
+  return keys == kMaxIntermediateSeparators && keys_mini == kMaxIntermediateMiniSeparators;
 }
 
 inline void MasstreeIntermediatePage::append_pointer_snapshot(

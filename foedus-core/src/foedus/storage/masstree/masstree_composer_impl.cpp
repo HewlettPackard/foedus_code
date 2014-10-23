@@ -327,6 +327,7 @@ ErrorStack MasstreeComposeContext::execute() {
   CHECK_ERROR(init_root());
 
   uint64_t flush_threshold = max_pages_ * 8ULL / 10ULL;
+  uint64_t processed = 0;
   while (ended_inputs_count_ < args_.log_streams_count_) {
     read_inputs();
     const MasstreeCommonLogType* entry = next_entry_;
@@ -412,11 +413,13 @@ ErrorStack MasstreeComposeContext::execute() {
     }
     WRAP_ERROR_CODE(advance());
 
+    ++processed;
     if (UNLIKELY(allocated_pages_ >= flush_threshold)) {
       CHECK_ERROR(flush_buffer());
     }
   }
 
+  VLOG(0) << storage_ << " processed " << processed << " logs. now pages=" << allocated_pages_;
   CHECK_ERROR(flush_buffer());
   return kRetOk;
 }
@@ -439,7 +442,9 @@ ErrorStack MasstreeComposeContext::init_root() {
     ASSERT_ND(data->partition_count_ < kMaxIntermediatePointers);
 
     root_->initialize_snapshot_page(id_, 0, 0, kInfimumSlice, kSupremumSlice);
-    for (uint16_t i = 0; i < data->partition_count_; ++i) {
+    ASSERT_ND(data->low_keys_[0] == kInfimumSlice);
+    root_->get_minipage(0).pointers_[0].snapshot_pointer_ = 0;
+    for (uint16_t i = 1; i < data->partition_count_; ++i) {
       root_->append_pointer_snapshot(data->low_keys_[i], 0);
     }
   }
@@ -491,6 +496,7 @@ ErrorStack MasstreeComposeContext::open_first_level(const char* key, uint16_t ke
     first->high_fence_ = high_fence;
     MasstreePage* page = get_page(first->head_);
     SnapshotPagePointer page_id = page_id_base_ + first->head_;
+    *pointer_address = page_id;
     MasstreeBorderPage* casted = reinterpret_cast<MasstreeBorderPage*>(page);
     casted->initialize_snapshot_page(id_, page_id, 0, low_fence, high_fence);
     page->header().page_id_ = page_id;
@@ -694,6 +700,7 @@ void MasstreeComposeContext::open_next_level_create_layer(
   original->initialize_snapshot_page(id_, 0, level->layer_, kInfimumSlice, kSupremumSlice);
   ASSERT_ND(original->can_accomodate(0, remaining_length, payload_count));
   original->reserve_record_space(0, xct_id, slice, suffix, remaining_length, payload_count);
+  original->increment_key_count();
   if (payload_count > 0) {
     std::memcpy(original->get_record_payload(0), payload, payload_count);
   }
@@ -708,6 +715,7 @@ void MasstreeComposeContext::open_next_level_create_layer(
   } else {
     // okay, insert it now.
     target->reserve_record_space(0, xct_id, slice, suffix, remaining_length, payload_count);
+    target->increment_key_count();
     if (payload_count > 0) {
       std::memcpy(target->get_record_payload(0), payload, payload_count);
     }
@@ -875,6 +883,7 @@ inline void MasstreeComposeContext::append_border(
   }
 
   target->reserve_record_space(new_index, xct_id, slice, suffix, remaining_length, payload_count);
+  target->increment_key_count();
   if (payload_count > 0) {
     std::memcpy(target->get_record_payload(new_index), payload, payload_count);
   }
@@ -943,6 +952,7 @@ void MasstreeComposeContext::append_border_newpage(KeySlice slice, PathLevel* le
           target->get_record(old_index),
           remaining,
           payload_count);
+        new_target->increment_key_count();
         if (payload_count > 0) {
           std::memcpy(
             new_target->get_record_payload(new_index),
@@ -962,6 +972,8 @@ inline void MasstreeComposeContext::append_intermediate(
   KeySlice low_fence,
   SnapshotPagePointer pointer,
   PathLevel* level) {
+  ASSERT_ND(low_fence != kInfimumSlice);
+  ASSERT_ND(low_fence != kSupremumSlice);
   MasstreeIntermediatePage* target = as_intermdiate(get_page(level->tail_));
   if (UNLIKELY(target->is_full_snapshot())) {
     append_intermediate_newpage_and_pointer(low_fence, pointer, level);
@@ -1146,7 +1158,12 @@ ErrorStack MasstreeComposeContext::grow_layer_root(SnapshotPagePointer* root_poi
   last->head_ = new_offset;
   last->tail_ = new_offset;
   last->page_count_ = 1;
-  for (const FenceAndPointer& child : children) {
+  ASSERT_ND(children.size() > 0);
+  ASSERT_ND(children[0].low_fence_ == kInfimumSlice);
+  new_page->get_minipage(0).pointers_[0].volatile_pointer_.clear();
+  new_page->get_minipage(0).pointers_[0].snapshot_pointer_ = children[0].pointer_;
+  for (uint32_t i = 1; i < children.size(); ++i) {
+    const FenceAndPointer& child = children[i];
     append_intermediate(child.low_fence_, child.pointer_, last);
   }
 
