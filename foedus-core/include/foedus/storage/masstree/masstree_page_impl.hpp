@@ -769,7 +769,11 @@ class MasstreeBorderPage final : public MasstreePage {
     ASSERT_ND(header_.snapshot_ || remaining_key_length_[index] > sizeof(KeySlice));
     ASSERT_ND(!header_.snapshot_ || pointer.volatile_pointer_.is_null());
     remaining_key_length_[index] = kKeyLengthNextLayer;
+    payload_length_[index] = sizeof(DualPagePointer);
     *get_next_layer(index) = pointer;
+    // TODO(Hideaki) we should have a flag in xct_id to denote "next_layer pointer"
+    // simply using is_moved for this purpose is not enough because it's a page-split flag.
+    // next_layer is not a page split, something else.
   }
 
   /**

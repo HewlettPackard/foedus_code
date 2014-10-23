@@ -83,33 +83,41 @@ ErrorStack inserts_varlen_task(const proc::ProcArguments& args) {
   uint32_t id = *reinterpret_cast<const uint32_t*>(args.input_buffer_);
   EXPECT_NE(id, 2U);
 
-  if (id > 0) {
-    EXPECT_EQ(1, 1);
-  }
-
   thread::Thread* context = args.context_;
   storage::masstree::MasstreeStorage masstree(args.engine_, kName);
   ASSERT_ND(masstree.exists());
   xct::XctManager* xct_manager = args.engine_->get_xct_manager();
-  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-
-  char buffer[16];
-  std::memset(buffer, 0, sizeof(buffer));
-  for (uint32_t i = 0; i < kRecords / 2U; ++i) {
-    uint64_t rec = id * kRecords / 2U + i;
-    // first 8 bytes, mod 17 to have next layers.
-    assorted::write_bigendian<uint64_t>(static_cast<uint64_t>(rec % 17U), buffer);
-    // and 1-4 bytes of decimal representation in text
-    std::string str = std::to_string(rec);
-    std::memcpy(buffer + sizeof(uint64_t), str.data(), str.size());
-    uint16_t len = sizeof(uint64_t) + str.size();
-    ErrorCode ret = masstree.insert_record(context, buffer, len, &rec, sizeof(rec));
-    EXPECT_EQ(kErrorCodeOk, ret) << rec;
-  }
-
   Epoch commit_epoch;
-  CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
-  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+
+  // TODO(Hideaki) dirty hack. currently create_next_layer will cause an abort when the original
+  // record was already in readset. to avoid it, the first rep physically creates the records
+  // and second path logically inserts. as soon as we add "next_layer" flag in xct_id,
+  // we will not need this hack.
+  for (uint16_t rep = 0; rep < 2; ++rep) {
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+
+    char buffer[16];
+    std::memset(buffer, 0, sizeof(buffer));
+    for (uint32_t i = 0; i < kRecords / 2U; ++i) {
+      uint64_t rec = id * kRecords / 2U + i;
+      // first 8 bytes, mod 17 to have next layers.
+      assorted::write_bigendian<uint64_t>(static_cast<uint64_t>(rec % 17U), buffer);
+      // and 1-4 bytes of decimal representation in text
+      std::string str = std::to_string(rec);
+      std::memcpy(buffer + sizeof(uint64_t), str.data(), str.size());
+      uint16_t len = sizeof(uint64_t) + str.size();
+      ErrorCode ret = masstree.insert_record(context, buffer, len, &rec, sizeof(rec));
+      EXPECT_EQ(kErrorCodeOk, ret) << rec;
+    }
+
+    CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
+    if (rep == 0) {
+      WRAP_ERROR_CODE(xct_manager->abort_xct(context));
+    } else {
+      WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+    }
+    CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
+  }
   WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   return kRetOk;
 }
@@ -215,12 +223,14 @@ const proc::ProcName kInsN("inserts_normalized_task");
 const proc::ProcName kInsV("inserts_varlen_task");
 const proc::ProcName kVerN("verify_task");
 const proc::ProcName kVerV("verify_varlen_task");
+
 TEST(SnapshotMasstreeTest, InsertsNormalizedOneLogger) { test_run(kInsN, kVerN, false, false); }
 TEST(SnapshotMasstreeTest, InsertsNormalizedTwoLoggers) { test_run(kInsN, kVerN, true, false); }
 TEST(SnapshotMasstreeTest, InsertsNormalizedTwoPartitions) { test_run(kInsN, kVerN, true, true); }
-// TEST(SnapshotMasstreeTest, InsertsVarlenOneLogger) { test_run(kInsV, kVerV, false, false); }
-// TEST(SnapshotMasstreeTest, InsertsVarlenTwoLoggers) { test_run(kInsV, kVerV, true, false); }
-// TEST(SnapshotMasstreeTest, InsertsVarlenTwoPartitions) { test_run(kInsV, kVerV, true, true); }
+TEST(SnapshotMasstreeTest, InsertsVarlenOneLogger) { test_run(kInsV, kVerV, false, false); }
+TEST(SnapshotMasstreeTest, InsertsVarlenTwoLoggers) { test_run(kInsV, kVerV, true, false); }
+TEST(SnapshotMasstreeTest, InsertsVarlenTwoPartitions) { test_run(kInsV, kVerV, true, true); }
+
 }  // namespace snapshot
 }  // namespace foedus
 
