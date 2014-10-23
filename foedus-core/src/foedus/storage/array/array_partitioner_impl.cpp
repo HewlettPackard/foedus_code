@@ -217,7 +217,6 @@ void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) c
     return;
   }
 
-
   // we so far sort them in one path.
   // to save memory, we could do multi-path merge-sort.
   // however, in reality each log has many bytes, so log_count is not that big.

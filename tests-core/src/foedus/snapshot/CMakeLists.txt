@@ -17,3 +17,10 @@ set(test_snapshot_array_individuals
 add_foedus_test_individual(test_snapshot_array "${test_snapshot_array_individuals}")
 
 add_foedus_test_individual(test_snapshot_sequential "AppendsOneLogger;AppendsTwoLoggers;AppendsTwoPartitions")
+
+set(test_snapshot_masstree_individuals
+  InsertsNormalizedOneLogger
+#  InsertsTwoLoggers
+#  InsertsTwoPartitions
+  )
+add_foedus_test_individual(test_snapshot_masstree "${test_snapshot_masstree_individuals}")

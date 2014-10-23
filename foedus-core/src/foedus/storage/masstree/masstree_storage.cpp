@@ -502,6 +502,10 @@ ErrorCode MasstreeStorage::increment_record_normalized(
     payload_offset);
 }
 
+ErrorStack MasstreeStorage::replace_pointers(const Composer::ReplacePointersArguments& args) {
+  return MasstreeStoragePimpl(this).replace_pointers(args);
+}
+
 ErrorStack MasstreeStorage::verify_single_thread(thread::Thread* context) {
   return MasstreeStoragePimpl(this).verify_single_thread(context);
 }

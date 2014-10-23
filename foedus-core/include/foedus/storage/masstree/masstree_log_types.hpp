@@ -153,12 +153,29 @@ struct MasstreeCommonLogType : public log::RecordLogType {
     if (left == right) {
       return 0;
     }
+    if (LIKELY(left->key_length_ > 0 && right->key_length_ > 0)) {
+      // Compare the first slice. This should be enough to differentiate most logs
+      const char* left_key = left->get_key();
+      const char* right_key = right->get_key();
+      ASSERT_ND(is_key_aligned_and_zero_padded(left_key, left->key_length_));
+      ASSERT_ND(is_key_aligned_and_zero_padded(right_key, right->key_length_));
+      KeySlice left_slice = normalize_be_bytes_full_aligned(left_key);
+      KeySlice right_slice = normalize_be_bytes_full_aligned(right_key);
+      if (left_slice < right_slice) {
+        return -1;
+      } else if (left_slice > right_slice) {
+        return 1;
+      }
 
-    // so far we simply compare with memcmp. No KeySlice optimization.
-    uint16_t min_length = std::min(left->key_length_, right->key_length_);
-    int key_result = std::memcmp(left->get_key(), right->get_key(), min_length);
-    if (key_result != 0) {
-      return key_result;
+      // compare the rest with memcmp.
+      uint16_t min_length = std::min(left->key_length_, right->key_length_);
+      if (min_length > kSliceLen) {
+        uint16_t remaining = min_length - kSliceLen;
+        int key_result = std::memcmp(left_key + kSliceLen, right_key + kSliceLen, remaining);
+        if (key_result != 0) {
+          return key_result;
+        }
+      }
     }
     if (left->key_length_ < right->key_length_) {
       return -1;
@@ -209,7 +226,7 @@ struct MasstreeInsertLogType : public MasstreeCommonLogType {
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
-    char* data) ALWAYS_INLINE {
+    char* data) const ALWAYS_INLINE {
     ASSERT_ND(owner_id->xct_id_.is_deleted());  // the physical record should be in 'deleted' status
     uint8_t layer = extract_page_layer(owner_id);
     uint16_t skipped = (layer + 1U) * sizeof(KeySlice);
@@ -230,7 +247,7 @@ struct MasstreeInsertLogType : public MasstreeCommonLogType {
     owner_id->xct_id_.set_notdeleted();
   }
 
-  void            assert_valid() ALWAYS_INLINE {
+  void            assert_valid() const ALWAYS_INLINE {
     assert_valid_generic();
     ASSERT_ND(header_.log_length_ == calculate_log_length(key_length_, payload_count_));
     ASSERT_ND(header_.get_type() == log::kLogCodeMasstreeInsert);
@@ -264,13 +281,13 @@ struct MasstreeDeleteLogType : public MasstreeCommonLogType {
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
-    char* data) ALWAYS_INLINE {
+    char* data) const ALWAYS_INLINE {
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
     ASSERT_ND(equal_record_and_log_suffixes(data));
     owner_id->xct_id_.set_deleted();
   }
 
-  void            assert_valid() ALWAYS_INLINE {
+  void            assert_valid() const ALWAYS_INLINE {
     assert_valid_generic();
     ASSERT_ND(header_.log_length_ == calculate_log_length(key_length_));
     ASSERT_ND(header_.get_type() == log::kLogCodeMasstreeDelete);
@@ -303,7 +320,7 @@ struct MasstreeOverwriteLogType : public MasstreeCommonLogType {
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
-    char* data) ALWAYS_INLINE {
+    char* data) const ALWAYS_INLINE {
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
 
     uint8_t layer = extract_page_layer(owner_id);
@@ -317,7 +334,7 @@ struct MasstreeOverwriteLogType : public MasstreeCommonLogType {
     std::memcpy(data + suffix_length_aligned + payload_offset_, get_payload(), payload_count_);
   }
 
-  void            assert_valid() ALWAYS_INLINE {
+  void            assert_valid() const ALWAYS_INLINE {
     assert_valid_generic();
     ASSERT_ND(header_.log_length_ == calculate_log_length(key_length_, payload_count_));
     ASSERT_ND(header_.get_type() == log::kLogCodeMasstreeOverwrite);

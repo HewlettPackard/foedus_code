@@ -17,6 +17,7 @@
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
+#include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 
 namespace foedus {
@@ -64,6 +65,9 @@ class MasstreeComposer final {
   Engine* const             engine_;
   const StorageId           storage_id_;
   const MasstreeStorage     storage_;
+
+  /** Rigorously check the input parameters of construct_root() */
+  ErrorStack check_buddies(const Composer::ConstructRootArguments& args) const;
 };
 
 
@@ -104,7 +108,7 @@ struct MasstreeStreamStatus final {
  *  \li The way we initialize with snapshot page is a bit special. We keep the image of
  * the snapshot page as \e original page and append them to the maintained page up to the current
  * key. The original page is stored in work memory (because we will not write them out), and
- * foster_twin[0] points to it. More details below (Original page pointer).
+ * PathLevel points to it. More details below (Original page pointer).
  *  \li Assuming the original page trick, each maintained page always appends a new record
  * to the end or update the record in the end, thus it's trivial to achieve 100% fill factor without
  * any record movement.
@@ -135,20 +139,9 @@ class MasstreeComposeContext {
  public:
   enum Constants {
     /** We assume the path wouldn't be this deep. */
-    kMaxLevels = 64,
-    /** We assume B-tri depth is at most this (prefix is at most 8*this value)*/
+    kMaxLevels = 32,
+    /** We assume B-trie depth is at most this (prefix is at most 8*this value)*/
     kMaxLayers = 16,
-  };
-  /**
-   * Flags for volatile pages. These are mainly for sanity checks so far.
-   */
-  enum VolatilePointerType {
-    /** The pointer is null */
-    kNullPage = 0,
-    /** The pointer is an offset in original_base_ */
-    kOriginalPage = 1,
-    /** The pointer is an offset in page_base_ */
-    kNextPage = 2,
   };
 
   /**
@@ -156,28 +149,74 @@ class MasstreeComposeContext {
    * Each level consists of one or more pages with contiguous key ranges.
    * Initially, head==tail. Whenever tail becomes full, it adds a new page which becomes the new
    * tail.
+   * @note We move records in the original page when they are \e either
+   *  \li Smaller, equal to, or containing (already next-layer pointer) the current key
+   *  \li Will create a next layer with the current key
+   * The second condition means that, even if the original record is larger than the current
+   * key, we move it and trigger next layer creation. The reason behind this is that we don't
+   * want to cause next layer creation when the deeper levels are already closed.
+   * However, this approach instead violates "always append" policy. To work it around,
+   * if the record was copied because of the second condition, we move the record
+   * to a dummy original page in next layer, rather than the initial record. By doing so,
+   * we still keep the always-append policy as well as guarantee that deeper levels never
+   * receive records from upper levels.
    */
   struct PathLevel {
     /** Offset in page_base_*/
     memory::PagePoolOffset head_;
     /** Offset in page_base_*/
     memory::PagePoolOffset tail_;
-    /**
-     * Level of this entry. 0 means the first entry.
-     * This value is also the offset in original_base_ for the original page (if exists).
-     */
-    uint8_t   level_;
-    /** Whether this entry is based on an existing snapshot page. */
-    bool      has_original_;
     /** B-tri layer of this level */
     uint8_t   layer_;
-    uint8_t   reserved_;
+    /**
+     * If level is based on an existing snapshot page, the next entry (pointer or
+     * record) in the original page to copy. Remember, we copy the entries when it is same as or
+     * less than the next key so that we always append. 255 means no more entry to copy.
+     */
+    uint8_t   next_original_;
+    /** for intermediate page */
+    uint8_t   next_original_mini_;
+    /** for border page. remaining key_length. 255 for next layer. */
+    uint8_t   next_original_remaining_;
     /** number of pages in this level including head/tail, without original page (so, initial=1). */
     uint32_t  page_count_;
     /** same as low_fence of head */
     KeySlice  low_fence_;
     /** same as high_fence of tail */
     KeySlice  high_fence_;
+    /**
+     * Slice of next entry. Depending on the key length, this might be not enough to determine
+     * the current key is smaller than or larger than that, in that case we have to go check
+     * the entry each time (but hopefully that's rare).
+     */
+    KeySlice  next_original_slice_;
+
+    bool has_next_original() const { return next_original_ != 0xFFU; }
+    void set_no_more_next_original() {
+      next_original_ = 0xFFU;
+      next_original_mini_ = 0xFFU;
+      next_original_remaining_ = 0xFFU;
+      next_original_slice_ = kSupremumSlice;
+    }
+    bool contains_slice(KeySlice slice) const {
+      ASSERT_ND(low_fence_ <= slice);  // as logs are sorted, this must not happen
+      return high_fence_ == kSupremumSlice || slice < high_fence_;  // careful on supremum case
+    }
+    bool needs_to_consume_original(KeySlice slice, uint16_t key_length) const {
+      return has_next_original()
+        && (
+          next_original_slice_ < slice
+          || (next_original_slice_ == slice
+              && next_original_remaining_ > kSliceLen
+              && key_length > (layer_ + 1U) * kSliceLen));
+    }
+
+    friend std::ostream& operator<<(std::ostream& o, const PathLevel& v);
+  };
+
+  struct FenceAndPointer {
+    KeySlice low_fence_;
+    SnapshotPagePointer pointer_;
   };
 
   MasstreeComposeContext(Engine* engine, StorageId id, const Composer::ComposeArguments& args);
@@ -188,37 +227,175 @@ class MasstreeComposeContext {
  private:
   snapshot::SnapshotWriter* get_writer()  const { return args_.snapshot_writer_; }
   cache::SnapshotFileSet*   get_files()   const { return args_.previous_snapshot_files_; }
+  memory::PagePoolOffset    allocate_page() {
+    ASSERT_ND(allocated_pages_ < max_pages_);
+    memory::PagePoolOffset new_offset = allocated_pages_;
+    ++allocated_pages_;
+    return new_offset;
+  }
   MasstreePage*             get_page(memory::PagePoolOffset offset) const ALWAYS_INLINE;
   MasstreePage*             get_original(memory::PagePoolOffset offset) const ALWAYS_INLINE;
-  uint16_t get_cur_prefix_length() const { return cur_path_layers_ * sizeof(KeySlice); }
+  MasstreeIntermediatePage* as_intermdiate(MasstreePage* page) const ALWAYS_INLINE;
+  MasstreeBorderPage*       as_border(MasstreePage* page) const ALWAYS_INLINE;
+  uint16_t get_cur_prefix_length() const { return get_last_layer() * sizeof(KeySlice); }
+  uint8_t                   get_last_level_index() const {
+    ASSERT_ND(cur_path_levels_ > 0);
+    return cur_path_levels_ - 1U;
+  }
+  PathLevel*                get_last_level() { return cur_path_ + get_last_level_index(); }
+  const PathLevel*          get_last_level() const  { return cur_path_ + get_last_level_index(); }
+  uint8_t                   get_last_layer() const  {
+    if (cur_path_levels_ == 0) {
+      return 0;
+    } else {
+      return get_last_level()->layer_;
+    }
+  }
+  void                      store_cur_prefix_be(uint8_t layer, KeySlice prefix_slice);
+
+  PathLevel*                get_second_last_level() {
+    ASSERT_ND(cur_path_levels_ > 1U);
+    return cur_path_ + (cur_path_levels_ - 2U);
+  }
 
   /** When the main buffer of writer has no page, appends a dummy page for easier debugging. */
-  void                      write_dummy_page_zero();
+  void        write_dummy_page_zero();
 
-  ErrorStack                init_inputs();
-  ErrorCode                 read_inputs() ALWAYS_INLINE;
-  ErrorCode                 advance() ALWAYS_INLINE;
+  // init/uninit called only once or at most a few times
+  ErrorStack  init_root();
+  ErrorStack  init_inputs();
+  ErrorStack  open_first_level(const char* key, uint16_t key_length);
+  ErrorStack  open_next_level(
+    const char* key,
+    uint16_t key_length,
+    MasstreePage* parent,
+    KeySlice prefix_slice,
+    SnapshotPagePointer* next_page_id);
+  void        open_next_level_create_layer(
+    const char* key,
+    uint16_t key_length,
+    MasstreeBorderPage* parent,
+    KeySlice prefix_slice,
+    uint8_t parent_index);
 
-  ErrorStack                finalize();
+  /**
+   * @brief Writes out the main buffer in the writer to the file.
+   * @details
+   * This method is occasionally called to flush out buffered pages and make room for further
+   * processing. Unlike the simpler array, we have to also write out higher-level pages
+   * because we don't know which pages will end up being "higher-level" in masstree.
+   * Thus, this method consists of a few steps.
+   *  \li Close all path levels to finalize as many pages as possible. This creates a few new pages
+   * in the buffer, so this method must be called when there are still some rooms in the buffer
+   * (eg 80% full).
+   *  \li Write out all pages. Remember the snapshot-page ID of the (tentative) first-root page.
+   *  \li Re-read the first-root page just like the initialization steps.
+   *  \li Resume log processing. When needed, the written-out pages are re-read as original pages.
+   *
+   * Assuming buffer size is reasonably large, this method is only occasionally called.
+   * Writing-out and re-reading the tentative pages in pathway shouldn't be a big issue.
+   */
+  ErrorStack  flush_buffer();
+
+  ErrorStack  adjust_path(const char* key, uint16_t key_length);
+  /**
+   * Close the root of first layer. This is called from flush_buffer().
+   * @pre cur_path_levels_ == 1
+   * @post cur_path_levels_ == 0
+   */
+  ErrorStack  close_first_level();
+
+  ErrorStack  consume_original_upto_border(KeySlice slice, uint16_t key_length, PathLevel* level);
+  ErrorStack  consume_original_upto_intermediate(KeySlice slice, PathLevel* level);
+  ErrorStack  consume_original_all();
+  ErrorStack  grow_layer_root(SnapshotPagePointer* root_pointer);
+  ErrorStack  pushup_non_root();
+
+  // next methods called for each log entry. must be efficient! So these methods return ErrorCode.
+
+  /** Find the log entry to apply next. so far this is a dumb sequential search. loser tree? */
+  void        read_inputs() ALWAYS_INLINE;
+  ErrorCode   advance() ALWAYS_INLINE;
+  /** Returns if the given key is not contained in the current path */
+  bool        does_need_to_adjust_path(const char* key, uint16_t key_length) const ALWAYS_INLINE;
+
+  /**
+   * Close last levels whose layer is deeper than max_layer
+   * @pre get_last_layer() > max_layer
+   * @post get_last_layer() == max_layer
+   */
+  ErrorStack  close_path_layer(uint16_t max_layer);
+  /**
+   * Close the last (deepest) level.
+   * @pre cur_path_levels_ > 1 (this method must not be used to close the root of first layer.)
+   */
+  ErrorStack  close_last_level();
+
+  ErrorCode   read_original_page(SnapshotPagePointer page_id, uint16_t path_level);
+
+  void        append_border(
+    KeySlice slice,
+    xct::XctId xct_id,
+    uint16_t remaining_length,
+    const char* suffix,
+    uint16_t payload_count,
+    const char* payload,
+    PathLevel* level);
+  void        append_border_next_layer(
+    KeySlice slice,
+    xct::XctId xct_id,
+    SnapshotPagePointer pointer,
+    PathLevel* level);
+  void        append_border_newpage(KeySlice slice, PathLevel* level);
+  void        append_intermediate(
+    KeySlice low_fence,
+    SnapshotPagePointer pointer,
+    PathLevel* level);
+  void        append_intermediate_newpage_and_pointer(
+    KeySlice low_fence,
+    SnapshotPagePointer pointer,
+    PathLevel* level);
 
   Engine* const             engine_;
   const StorageId           id_;
   const MasstreeStorage     storage_;
   const Composer::ComposeArguments& args_;
 
+  const uint16_t            numa_node_;
   const uint32_t            max_pages_;
   // const uint32_t            max_intermediates_;
 
-  /** same as snapshot_writer_->get_page_base()*/
-  MasstreePage* const       page_base_;
-  /** same as snapshot_writer_->get_intermediate_base()*/
-  // MasstreePage* const       intermediate_base_;
-  /** same as work_memory_->get_block() */
-  MasstreePage* const       original_base_;
-  /** same as work_memory_->get_block() + sizeof(MasstreePage)*(kMaxLevels+1) */
+  /**
+   * Root of first layer, which is the joint point for partitioner and composer.
+   * This is not on the writer buffer, but the root_info_page shared memory.
+   */
+  MasstreeIntermediatePage* const root_;
+
+  /** same as snapshot_writer_->get_page_base() */
+  Page* const       page_base_;
+  /** same as work_memory_->get_block(). Index is level. */
+  Page* const       original_base_;
+  /** same as work_memory_->get_block() + sizeof(Page)*(kMaxLevels+1) */
   MasstreeStreamStatus* const inputs_;
 
   // const members up to here.
+
+  /**
+   * This value plus offset in page_base_ will be the final snapshot page ID when the pages are
+   * written out. This value is changed for each buffer flush.
+   */
+  SnapshotPagePointer       page_id_base_;
+
+  /**
+   * The index of the pointer we followed from the root_ to first level.
+   * When cur_path_levels_ == 0, no meaning.
+   */
+  uint8_t                   root_index_;
+  /**
+   * The minipage index of the pointer we followed from the root_ to first level.
+   * When cur_path_levels_ == 0, no meaning.
+   */
+  uint8_t                   root_index_mini_;
 
   /**
    * How many pages we allocated in the main buffer of args_.snapshot_writer.
@@ -239,16 +416,12 @@ class MasstreeComposeContext {
   /** Same as inputs_[next_input_].get_entry() */
   const MasstreeCommonLogType* next_entry_;
 
-  /** Number of cur_route_ entries that are now active. */
+  /** Number of cur_route_ entries that are now active. Does not count root_ as a level. */
   uint8_t                   cur_path_levels_;
-  /** Layer of the last level. */
-  uint8_t                   cur_path_layers_;
   /** Page path to the currently opened page. [0] to [cur_path_levels_-1] are opened levels. */
   PathLevel                 cur_path_[kMaxLevels];
-  /** Prefix slice of B-tree layers upto cur_path_layers_. Remember level != layer. */
-  KeySlice                  cur_prefix_slices_[kMaxLayers];
-  /** Prefix slice in the original big-endian format. */
-  char                      cur_prefix_be_[kMaxLayers * sizeof(KeySlice)];
+  /** Prefix slice in the original big-endian format, upto get_last_layer() * kSliceLen. */
+  char                      cur_prefix_be_[kMaxLayers * kSliceLen];
 };
 
 }  // namespace masstree

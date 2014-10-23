@@ -253,9 +253,7 @@ std::vector<uint64_t> ArrayStoragePimpl::calculate_offset_intervals(
   return offset_intervals;
 }
 
-ErrorStack ArrayStoragePimpl::load_empty(
-  VolatilePagePointer* volatile_pointer,
-  ArrayPage** volatile_root) {
+ErrorStack ArrayStoragePimpl::load_empty() {
   const uint16_t levels = calculate_levels(control_block_->meta_);
   const uint32_t payload_size = control_block_->meta_.payload_size_;
   const ArrayOffset array_size = control_block_->meta_.array_size_;
@@ -265,18 +263,20 @@ ErrorStack ArrayStoragePimpl::load_empty(
   control_block_->root_page_pointer_.volatile_pointer_.word = 0;
   control_block_->meta_.root_snapshot_page_id_ = 0;
 
+  VolatilePagePointer volatile_pointer;
+  ArrayPage* volatile_root;
   CHECK_ERROR(engine_->get_memory_manager()->grab_one_volatile_page(
     0,
-    volatile_pointer,
-    reinterpret_cast<Page**>(volatile_root)));
-  (*volatile_root)->initialize_volatile_page(
+    &volatile_pointer,
+    reinterpret_cast<Page**>(&volatile_root)));
+  volatile_root->initialize_volatile_page(
     engine_->get_savepoint_manager()->get_initial_current_epoch(),  // lowest epoch in the system
     get_id(),
-    *volatile_pointer,
+    volatile_pointer,
     payload_size,
     levels - 1U,
     ArrayRange(0, array_size));
-  control_block_->root_page_pointer_.volatile_pointer_ = *volatile_pointer;
+  control_block_->root_page_pointer_.volatile_pointer_ = volatile_pointer;
   return kRetOk;
 }
 
@@ -286,9 +286,7 @@ ErrorStack ArrayStoragePimpl::create(const Metadata& metadata) {
     return ERROR_STACK(kErrorCodeStrAlreadyExists);
   }
   control_block_->meta_ = static_cast<const ArrayMetadata&>(metadata);
-  VolatilePagePointer volatile_pointer;
-  ArrayPage* volatile_root;
-  CHECK_ERROR(load_empty(&volatile_pointer, &volatile_root));
+  CHECK_ERROR(load_empty());
   LOG(INFO) << "Newly created an array-storage " << metadata.id_;
 
   control_block_->status_ = kExists;
@@ -307,24 +305,24 @@ ErrorStack ArrayStoragePimpl::load(const StorageControlBlock& snapshot_block) {
 
   // So far we assume the root page always has a volatile version.
   // Create it now.
-  VolatilePagePointer volatile_pointer;
-  ArrayPage* volatile_root;
   if (meta.root_snapshot_page_id_ != 0) {
     cache::SnapshotFileSet fileset(engine_);
     CHECK_ERROR(fileset.initialize());
     UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
+    VolatilePagePointer volatile_pointer;
+    Page* volatile_root;
     CHECK_ERROR(engine_->get_memory_manager()->load_one_volatile_page(
       &fileset,
       meta.root_snapshot_page_id_,
       &volatile_pointer,
-      reinterpret_cast<Page**>(&volatile_root)));
+      &volatile_root));
+    control_block_->root_page_pointer_.volatile_pointer_ = volatile_pointer;
     CHECK_ERROR(fileset.uninitialize());
   } else {
     LOG(INFO) << "Loading an empty array-storage-" << get_meta();
-    CHECK_ERROR(load_empty(&volatile_pointer, &volatile_root));
+    CHECK_ERROR(load_empty());
   }
 
-  control_block_->root_page_pointer_.volatile_pointer_ = volatile_pointer;
   control_block_->status_ = kExists;
   LOG(INFO) << "Loaded an array-storage-" << get_meta();
   return kRetOk;

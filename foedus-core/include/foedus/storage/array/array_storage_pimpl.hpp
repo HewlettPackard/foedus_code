@@ -78,7 +78,7 @@ class ArrayStoragePimpl final {
 
   ErrorStack  create(const Metadata& metadata);
   ErrorStack  load(const StorageControlBlock& snapshot_block);
-  ErrorStack  load_empty(VolatilePagePointer* volatile_pointer, ArrayPage** volatile_root);
+  ErrorStack  load_empty();
 
   void        report_page_distribution();
 
