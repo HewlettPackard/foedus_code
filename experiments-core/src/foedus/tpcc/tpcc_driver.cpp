@@ -42,12 +42,12 @@ namespace tpcc {
 DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
     " than threads in the same process. This is required to scale up to 100+ cores.");
 DEFINE_bool(take_snapshot, false, "Whether to run a log gleaner after loading data.");
+DEFINE_string(nvm_folder, "/nvmmnt", "Full path of the device representing NVM.");
 DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) worker threads in child"
     " processes on replicated binaries. This is required to scale up to 16 sockets.");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
 DEFINE_int32(volatile_pool_size, 4, "Size of volatile memory pool per NUMA node in GB.");
-DEFINE_bool(ignore_volatile_size_warning, true, "Ignores warning on volatile_pool_size setting.");
 DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
@@ -379,6 +379,13 @@ int driver_main(int argc, char **argv) {
       options.memory_.interleave_numa_alloc_ = true;
     }
   }
+
+  options.snapshot_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/snapshot/node_$NODE$";
+  options.log_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/log/node_$NODE$/logger_$LOGGER$";
+  options.log_.loggers_per_node_ = FLAGS_loggers_per_node;
+  options.log_.flush_at_shutdown_ = false;
+  options.snapshot_.snapshot_interval_milliseconds_ = 100000000U;
+
   if (FLAGS_take_snapshot) {
     std::cout << "Will take snapshot after initial data load." << std::endl;
     FLAGS_null_log_device = false;
@@ -388,13 +395,49 @@ int driver_main(int argc, char **argv) {
     options.snapshot_.snapshot_writer_page_pool_size_mb_ = 1 << 10;
     options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 1 << 8;
     options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 13;
-  }
 
-  options.snapshot_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/snapshot/node_$NODE$";
-  options.log_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/log/node_$NODE$/logger_$LOGGER$";
-  options.log_.loggers_per_node_ = FLAGS_loggers_per_node;
-  options.log_.flush_at_shutdown_ = false;
-  options.snapshot_.snapshot_interval_milliseconds_ = 100000000U;
+    fs::Path nvm_folder(FLAGS_nvm_folder);
+    if (!fs::exists(nvm_folder)) {
+      std::cerr << "The NVM-folder " << nvm_folder << " not mounted yet";
+      return 1;
+    }
+
+    fs::Path tpcc_folder(nvm_folder);
+    tpcc_folder /= "foedus_tpcc";
+    if (fs::exists(tpcc_folder)) {
+      fs::remove_all(tpcc_folder);
+    }
+    if (!fs::create_directories(tpcc_folder)) {
+      std::cerr << "Couldn't create " << tpcc_folder << ". err=" << assorted::os_error();
+      return 1;
+    }
+
+    savepoint_path = tpcc_folder;
+    savepoint_path /= "savepoint.xml";
+    if (fs::exists(savepoint_path)) {
+      fs::remove(savepoint_path);
+    }
+    ASSERT_ND(!fs::exists(savepoint_path));
+    options.savepoint_.savepoint_path_.assign(savepoint_path.string());
+
+    fs::Path snapshot_folder(tpcc_folder);
+    snapshot_folder /= "snapshot";
+    if (fs::exists(snapshot_folder)) {
+      fs::remove_all(snapshot_folder);
+    }
+    fs::Path snapshot_pattern(snapshot_folder);
+    snapshot_pattern /= "node_$NODE$";
+    options.snapshot_.folder_path_pattern_.assign(snapshot_pattern.string());
+
+    fs::Path log_folder(tpcc_folder);
+    log_folder /= "log";
+    if (fs::exists(log_folder)) {
+      fs::remove_all(log_folder);
+    }
+    fs::Path log_pattern(log_folder);
+    log_pattern /= "node_$NODE$/logger_$LOGGER$";
+    options.log_.folder_path_pattern_.assign(log_pattern.string());
+  }
 
   options.debugging_.debug_log_min_threshold_
     = debugging::DebuggingOptions::kDebugLogInfo;
@@ -435,15 +478,6 @@ int driver_main(int argc, char **argv) {
     options.thread_.overwrite_thread_schedule_ = true;
     options.thread_.thread_policy_ = thread::kScheduleFifo;
     options.thread_.thread_priority_ = thread::kPriorityHighest;
-  }
-
-  if (!FLAGS_ignore_volatile_size_warning) {
-    if (FLAGS_volatile_pool_size < FLAGS_warehouses * 4 / options.thread_.group_count_) {
-      LOG(FATAL) << "You have specified: warehouses=" << FLAGS_warehouses << ", which is "
-        << (static_cast<float>(FLAGS_warehouses) / options.thread_.group_count_) << " warehouses"
-        << " per NUMA node. You should specify at least "
-        << (FLAGS_warehouses * 4 / options.thread_.group_count_) << "GB for volatile_pool_size.";
-    }
   }
 
   if (FLAGS_fork_workers) {
