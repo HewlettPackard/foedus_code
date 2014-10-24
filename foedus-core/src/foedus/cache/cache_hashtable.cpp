@@ -41,7 +41,7 @@ CacheHashtable::CacheHashtable(
 }
 
 uint32_t CacheHashtable::find_next_empty_bucket(uint32_t from_bucket) const {
-  for (uint16_t bucket = from_bucket + 1; bucket < physical_table_size_; ++bucket) {
+  for (uint32_t bucket = from_bucket + 1; bucket < physical_table_size_; ++bucket) {
     if (buckets_[bucket].status_.components.offset == 0) {
       return bucket;
     }
