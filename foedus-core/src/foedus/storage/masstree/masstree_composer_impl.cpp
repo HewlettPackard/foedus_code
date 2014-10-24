@@ -378,7 +378,8 @@ ErrorStack MasstreeComposeContext::execute() {
     uint16_t key_count = page->get_key_count();
 
     // we might have to follow next-layer pointers. Check it.
-    if (key_count > 0
+    // notice it's "while", not "if", because we might follow more than one next-layer pointer
+    while (key_count > 0
         && key_length > (last->layer_ + 1U) * kSliceLen
         && page->get_slice(key_count - 1) == slice
         && page->get_remaining_key_length(key_count - 1) > kSliceLen) {
@@ -532,6 +533,13 @@ ErrorStack MasstreeComposeContext::open_first_level(const char* key, uint16_t ke
   ASSERT_ND(first->high_fence_ == high_fence);
   ASSERT_ND(minipage.pointers_[index_mini].snapshot_pointer_ != old_pointer);
   return kRetOk;
+}
+
+inline void fill_payload_padded(char* destination, const char* source, uint16_t count) {
+  if (count > 0) {
+    ASSERT_ND(is_key_aligned_and_zero_padded(source, count));
+    std::memcpy(destination, source, assorted::align8(count));
+  }
 }
 
 ErrorStack MasstreeComposeContext::open_next_level(
@@ -731,9 +739,7 @@ void MasstreeComposeContext::open_next_level_create_layer(
   ASSERT_ND(original->can_accomodate(0, remaining_length, payload_count));
   original->reserve_record_space(0, xct_id, slice, suffix, remaining_length, payload_count);
   original->increment_key_count();
-  if (payload_count > 0) {
-    std::memcpy(original->get_record_payload(0), payload, payload_count);
-  }
+  fill_payload_padded(original->get_record_payload(0), payload, payload_count);
 
   ASSERT_ND(original->ltgt_key(0, key, key_length) != 0);  // if exactly same key, why here
   if (original->ltgt_key(0, key, key_length) < 0) {  // the original record is larger than key
@@ -746,9 +752,7 @@ void MasstreeComposeContext::open_next_level_create_layer(
     // okay, insert it now.
     target->reserve_record_space(0, xct_id, slice, suffix, remaining_length, payload_count);
     target->increment_key_count();
-    if (payload_count > 0) {
-      std::memcpy(target->get_record_payload(0), payload, payload_count);
-    }
+    fill_payload_padded(target->get_record_payload(0), payload, payload_count);
     ASSERT_ND(target->ltgt_key(0, key, key_length) > 0);
   }
   // DLOG(INFO) << "easdasdf " << *original;
@@ -928,9 +932,7 @@ inline void MasstreeComposeContext::append_border(
 
   target->reserve_record_space(new_index, xct_id, slice, suffix, remaining_length, payload_count);
   target->increment_key_count();
-  if (payload_count > 0) {
-    std::memcpy(target->get_record_payload(new_index), payload, payload_count);
-  }
+  fill_payload_padded(target->get_record_payload(new_index), payload, payload_count);
 }
 
 inline void MasstreeComposeContext::append_border_next_layer(
@@ -997,12 +999,10 @@ void MasstreeComposeContext::append_border_newpage(KeySlice slice, PathLevel* le
           remaining,
           payload_count);
         new_target->increment_key_count();
-        if (payload_count > 0) {
-          std::memcpy(
+        fill_payload_padded(
             new_target->get_record_payload(new_index),
             target->get_record_payload(old_index),
             payload_count);
-        }
       }
     }
 

@@ -136,7 +136,10 @@ void        LogReducerRef::append_log_chunk(
     // the buffer is now full. let's mark this buffer full and
     // then wake up reducer to do switch.
     uint64_t buffer_size = get_buffer_size();
-    if (cur_status.components.tail_position_ + required_size > buffer_size) {
+    ASSERT_ND(buffer_size
+      == engine_->get_options().snapshot_.log_reducer_buffer_mb_ * (1ULL << 19));
+    ASSERT_ND(from_buffer_position(cur_status.components.tail_position_) <= buffer_size);
+    if (from_buffer_position(cur_status.components.tail_position_) + required_size > buffer_size) {
       ReducerBufferStatus new_status = cur_status;
       new_status.components.flags_ |= kFlagNoMoreWriters;
       if (!status_address->compare_exchange_strong(cur_status.word, new_status.word)) {
@@ -152,6 +155,7 @@ void        LogReducerRef::append_log_chunk(
     ReducerBufferStatus new_status = cur_status;
     ++new_status.components.active_writers_;
     new_status.components.tail_position_ += to_buffer_position(required_size);
+    ASSERT_ND(from_buffer_position(cur_status.components.tail_position_) <= buffer_size);
     if (!status_address->compare_exchange_strong(cur_status.word, new_status.word)) {
       // someone else did something. retry
       continue;
@@ -167,6 +171,8 @@ void        LogReducerRef::append_log_chunk(
   void* buffer = get_buffer(buffer_index);
   debugging::RdtscWatch copy_watch;
   char* destination = reinterpret_cast<char*>(buffer) + begin_position;
+  ASSERT_ND(begin_position + sizeof(FullBlockHeader) + send_buffer_size
+    <= engine_->get_options().snapshot_.log_reducer_buffer_mb_ * (1ULL << 19));
   FullBlockHeader header;
   header.storage_id_ = storage_id;
   header.log_count_ = log_count;

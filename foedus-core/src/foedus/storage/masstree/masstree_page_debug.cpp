@@ -148,13 +148,15 @@ void MasstreeBorderPage::assert_entries_impl() const {
         ASSERT_ND(get_record(i)[pos] == 0);
       }
     }
-    uint16_t payload_length = get_payload_length(i);
-    uint16_t payload_length_aligned = assorted::align8(payload_length);
-    if (payload_length > 0 && payload_length != payload_length_aligned) {
-      ASSERT_ND(payload_length_aligned > payload_length);
-      for (uint16_t pos = payload_length; pos < payload_length_aligned; ++pos) {
-        // must be zero-padded
-        ASSERT_ND(get_record(i)[suffix_length_aligned + pos] == 0);
+    if (header().snapshot_) {  // this can't be checked in volatile pages that are being changed
+      uint16_t payload_length = get_payload_length(i);
+      uint16_t payload_length_aligned = assorted::align8(payload_length);
+      if (payload_length > 0 && payload_length != payload_length_aligned) {
+        ASSERT_ND(payload_length_aligned > payload_length);
+        for (uint16_t pos = payload_length; pos < payload_length_aligned; ++pos) {
+          // must be zero-padded
+          ASSERT_ND(get_record(i)[suffix_length_aligned + pos] == 0);
+        }
       }
     }
   }

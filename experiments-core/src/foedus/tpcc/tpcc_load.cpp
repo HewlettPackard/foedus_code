@@ -676,6 +676,12 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
           &(ol_data[ol]),
           sizeof(OrderlineData)));
       }
+      if (successive_aborts == 0) {
+        // first rep is just to reserve records
+        WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
+        ++successive_aborts;
+        continue;
+      }
       ErrorCode ret = xct_manager_->precommit_xct(context_, &ep);
       if (ret == kErrorCodeOk) {
         break;

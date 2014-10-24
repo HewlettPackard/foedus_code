@@ -351,11 +351,6 @@ void SharedMemoryRepo::set_node_memory_anchors(SocId node, const EngineOptions& 
 
   anchor.log_reducer_memory_ = reinterpret_cast<snapshot::LogReducerControlBlock*>(base + total);
   total += NodeMemoryAnchors::kLogReducerMemorySize;
-  uint64_t reducer_buffer_size
-    = static_cast<uint64_t>(options.snapshot_.log_reducer_buffer_mb_) << 20;
-  anchor.log_reducer_buffers_[0] = base + total;
-  anchor.log_reducer_buffers_[1] = base + total + (reducer_buffer_size / 2);
-  total += reducer_buffer_size;
 
   anchor.log_reducer_root_info_pages_ = reinterpret_cast<storage::Page*>(base + total);
   total += options.storage_.max_storages_ * 4096ULL;
@@ -377,6 +372,13 @@ void SharedMemoryRepo::set_node_memory_anchors(SocId node, const EngineOptions& 
     total += ThreadMemoryAnchors::kMcsLockMemorySize;
   }
 
+  // This is by far the biggest. we place this at the end.
+  uint64_t reducer_buffer_size
+    = static_cast<uint64_t>(options.snapshot_.log_reducer_buffer_mb_) << 20;
+  anchor.log_reducer_buffers_[0] = base + total;
+  anchor.log_reducer_buffers_[1] = base + total + (reducer_buffer_size / 2);
+  total += reducer_buffer_size;
+
   // we have to be super careful here. let's not use assertion.
   if (total != calculate_node_memory_size(options)) {
     std::cerr << "[FOEDUS] node memory size doesn't match. bug?"
@@ -393,7 +395,6 @@ uint64_t SharedMemoryRepo::calculate_node_memory_size(const EngineOptions& optio
   total += align_4kb(sizeof(proc::ProcAndName) * options.proc_.max_proc_count_);
   total += align_4kb(sizeof(proc::LocalProcId) * options.proc_.max_proc_count_);
   total += NodeMemoryAnchors::kLogReducerMemorySize;
-  total += static_cast<uint64_t>(options.snapshot_.log_reducer_buffer_mb_) << 20;
   total += options.storage_.max_storages_ * 4096ULL;
 
   uint64_t loggers_per_node = options.log_.loggers_per_node_;
@@ -404,6 +405,8 @@ uint64_t SharedMemoryRepo::calculate_node_memory_size(const EngineOptions& optio
   total += threads_per_node * ThreadMemoryAnchors::kTaskInputMemorySize;
   total += threads_per_node * ThreadMemoryAnchors::kTaskOutputMemorySize;
   total += threads_per_node * ThreadMemoryAnchors::kMcsLockMemorySize;
+
+  total += static_cast<uint64_t>(options.snapshot_.log_reducer_buffer_mb_) << 20;
   return total;
 }
 

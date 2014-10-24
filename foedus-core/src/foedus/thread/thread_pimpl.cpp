@@ -250,7 +250,7 @@ ErrorCode ThreadPimpl::install_a_volatile_page(
   *installed_page = local_volatile_page_resolver_.resolve_offset_newpage(offset);
   std::memcpy(*installed_page, snapshot_page, storage::kPageSize);
   // We copied from a snapshot page, so the snapshot flag is on.
-  ASSERT_ND((*installed_page)->get_header().snapshot_ == false);
+  ASSERT_ND((*installed_page)->get_header().snapshot_);
   // This page is a volatile page, so set the snapshot flag off.
   (*installed_page)->get_header().snapshot_ = false;
   storage::VolatilePagePointer volatile_pointer = storage::combine_volatile_page_pointer(

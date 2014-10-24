@@ -25,6 +25,7 @@
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/proc/proc_manager.hpp"
+#include "foedus/snapshot/snapshot_manager.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
@@ -40,6 +41,7 @@ namespace foedus {
 namespace tpcc {
 DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
     " than threads in the same process. This is required to scale up to 100+ cores.");
+DEFINE_bool(take_snapshot, false, "Whether to run a log gleaner after loading data.");
 DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) worker threads in child"
     " processes on replicated binaries. This is required to scale up to 16 sockets.");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
@@ -153,6 +155,15 @@ TpccDriver::Result TpccDriver::run() {
 
   LOG(INFO) << "neworder_remote_percent=" << FLAGS_neworder_remote_percent;
   LOG(INFO) << "payment_remote_percent=" << FLAGS_payment_remote_percent;
+
+
+  if (FLAGS_take_snapshot) {
+    LOG(INFO) << "Now taking a snapshot...";
+    debugging::StopWatch watch;
+    engine_->get_snapshot_manager()->trigger_snapshot_immediate(true);
+    watch.stop();
+    LOG(INFO) << "Took a snapshot in " << watch.elapsed_ms() << "ms";
+  }
 
   TpccClientChannel* channel = reinterpret_cast<TpccClientChannel*>(
     engine_->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
@@ -368,12 +379,22 @@ int driver_main(int argc, char **argv) {
       options.memory_.interleave_numa_alloc_ = true;
     }
   }
+  if (FLAGS_take_snapshot) {
+    std::cout << "Will take snapshot after initial data load." << std::endl;
+    FLAGS_null_log_device = false;
+  }
 
   options.snapshot_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/snapshot/node_$NODE$";
   options.log_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/log/node_$NODE$/logger_$LOGGER$";
   options.log_.loggers_per_node_ = FLAGS_loggers_per_node;
   options.log_.flush_at_shutdown_ = false;
   options.snapshot_.snapshot_interval_milliseconds_ = 100000000U;
+  /*
+  options.snapshot_.log_mapper_io_buffer_mb_ = 1ULL << 28;
+  options.snapshot_.log_reducer_buffer_mb_ = 1ULL << 30;
+  options.snapshot_.snapshot_writer_page_pool_size_mb_ = 1ULL << 30;
+  options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 1ULL << 28;
+  */
   options.debugging_.debug_log_min_threshold_
     = debugging::DebuggingOptions::kDebugLogInfo;
     // = debugging::DebuggingOptions::kDebugLogWarning;

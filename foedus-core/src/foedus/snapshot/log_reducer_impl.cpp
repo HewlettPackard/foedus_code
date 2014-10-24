@@ -377,7 +377,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage_write(
     }
   }
 
-  ASSERT_ND(total_bytes == current_pos);  // now we went over all logs again
+  ASSERT_ND(total_bytes == total_written + current_pos);  // now we went over all logs again
 
   if (current_pos > 0) {
     ASSERT_ND(current_pos < flush_threshold);
@@ -538,7 +538,8 @@ ErrorStack LogReducer::merge_sort() {
 
   MergeContext context(sorted_runs_);
   LOG(INFO) << to_string() << " merge sorting " << sorted_runs_ << " sorted runs and the current"
-    << " buffer which has " << control_block_->get_current_buffer_status().get_tail_position()
+    << " buffer which has "
+    << 8ULL * control_block_->get_current_buffer_status().get_tail_position()
     << " bytes";
   debugging::StopWatch merge_watch;
 
@@ -586,8 +587,8 @@ ErrorStack LogReducer::merge_sort() {
     CHECK_ERROR(composer.compose(args));
 
     // move on to next blocks
-    for (uint32_t i = 0 ; i < context.sorted_buffers_.size(); ++i) {
-      SortedBuffer *buffer = context.sorted_buffers_[i].get();
+    for (auto& ptr : context.sorted_buffers_) {
+      SortedBuffer *buffer = ptr.get();
       WRAP_ERROR_CODE(merge_sort_advance_sort_buffers(buffer, storage_id));
     }
   }
@@ -617,20 +618,20 @@ void LogReducer::merge_sort_check_buffer_status() const {
 }
 
 void LogReducer::merge_sort_allocate_io_buffers(LogReducer::MergeContext* context) const {
-  if (context->sorted_buffers_.size() == 0) {
+  if (context->dumped_files_count_ == 0) {
     LOG(INFO) << to_string() << " great, no sorted run files. everything in-memory";
     return;
   }
   debugging::StopWatch alloc_watch;
   uint64_t size_per_run =
     static_cast<uint64_t>(engine_->get_options().snapshot_.log_reducer_read_io_buffer_kb_) << 10;
-  uint64_t size_total = size_per_run * context->sorted_buffers_.size();
+  uint64_t size_total = size_per_run * context->dumped_files_count_;
   context->io_memory_.alloc(
     size_total,
     memory::kHugepageSize,
     memory::AlignedMemory::kNumaAllocOnnode,
     get_numa_node());
-  for (uint32_t i = 0; i < context->sorted_buffers_.size(); ++i) {
+  for (uint32_t i = 0; i < context->dumped_files_count_; ++i) {
     context->io_buffers_.emplace_back(memory::AlignedMemorySlice(
       &context->io_memory_,
       i * size_per_run,
@@ -659,9 +660,9 @@ ErrorStack LogReducer::merge_sort_dump_last_buffer() {
     CHECK_ERROR(dump_buffer_sort_storage(buffer, storage_id, kv.second, &count));
     BufferPosition* pos = reinterpret_cast<BufferPosition*>(output_positions_slice_.get_block());
 
-      // The only difference is here. Output the sorted result to the other buffer, not to file.
-    uint64_t total_bytes = dump_block_header(buffer, storage_id, pos, count, other);
-    uint64_t current_pos = sizeof(FullBlockHeader);
+    // The only difference is here. Output the sorted result to the other buffer, not to file.
+    uint64_t total_bytes = dump_block_header(buffer, storage_id, pos, count, other + other_bytes);
+    uint64_t current_pos = sizeof(FullBlockHeader) + other_bytes;
     for (uint32_t i = 0; i < count; ++i) {
       const log::RecordLogType* record = buffer.resolve(pos[i]);
       ASSERT_ND(current_pos % 8 == 0);
@@ -671,7 +672,7 @@ ErrorStack LogReducer::merge_sort_dump_last_buffer() {
       std::memcpy(other + current_pos, record, record->header_.log_length_);
       current_pos += record->header_.log_length_;
     }
-    ASSERT_ND(total_bytes == current_pos);  // now we went over all logs again
+    ASSERT_ND(total_bytes + other_bytes == current_pos);  // now we went over all logs again
     other_bytes += total_bytes;
   }
 

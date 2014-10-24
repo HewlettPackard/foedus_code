@@ -767,7 +767,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
   } else {
 #ifndef NDEBUG
     if (border->should_split_early(count, get_meta().border_early_split_threshold_)) {
-      LOG(INFO) << "Early split! cur count=" << static_cast<int>(count)
+      DVLOG(1) << "Early split! cur count=" << static_cast<int>(count)
         << ", storage=" << get_name();
     }
 #endif  // NDEBUG
@@ -1057,8 +1057,9 @@ inline bool MasstreeStoragePimpl::track_moved_record(xct::WriteXctAccess* write)
   MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(
     to_page(write->owner_id_address_));
   ASSERT_ND(page == reinterpret_cast<MasstreeBorderPage*>(to_page(write->payload_address_)));
-  MasstreeBorderPage* located_page;
-  uint8_t located_index;
+  ASSERT_ND(page->is_moved());
+  MasstreeBorderPage* located_page = nullptr;
+  uint8_t located_index = 0;
   if (!page->track_moved_record(engine_, write->owner_id_address_, &located_page, &located_index)) {
     return false;
   }
@@ -1069,8 +1070,9 @@ inline bool MasstreeStoragePimpl::track_moved_record(xct::WriteXctAccess* write)
 
 inline xct::LockableXctId* MasstreeStoragePimpl::track_moved_record(xct::LockableXctId* address) {
   MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(to_page(address));
-  MasstreeBorderPage* located_page;
-  uint8_t located_index;
+  ASSERT_ND(page->is_moved());
+  MasstreeBorderPage* located_page = nullptr;
+  uint8_t located_index = 0;
   if (!page->track_moved_record(engine_, address, &located_page, &located_index)) {
     return nullptr;
   }

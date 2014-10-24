@@ -618,7 +618,7 @@ ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
   if (!current_xct.is_active()) {
     return kErrorCodeXctNoXct;
   }
-  DLOG(INFO) << *context << " Aborted transaction in thread-" << context->get_thread_id();
+  DVLOG(1) << *context << " Aborted transaction in thread-" << context->get_thread_id();
   current_xct.deactivate();
   context->get_thread_log_buffer().discard_current_xct_log();
   return kErrorCodeOk;

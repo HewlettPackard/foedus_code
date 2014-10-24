@@ -163,6 +163,23 @@ class LogMapper final : public MapReduceBase {
     BufferPosition        position_;  // +4 => 8
   };
 
+  struct IoBufStatus {
+    uint64_t size_inbuf_aligned_;
+    uint64_t size_infile_aligned_;
+
+    uint64_t next_infile_;
+    uint64_t buf_infile_aligned_;
+    uint64_t cur_inbuf_;
+    uint64_t end_inbuf_aligned_;
+    uint64_t end_infile_;
+    bool more_in_the_file_;
+    bool first_read_;
+    bool ended_;
+    log::LogFileOrdinal cur_file_ordinal_;
+
+    uint64_t to_infile(uint64_t inbuf) const { return inbuf + buf_infile_aligned_; }
+  };
+
   /** buffer to read from file. */
   memory::AlignedMemory   io_buffer_;
 
@@ -237,8 +254,7 @@ class LogMapper final : public MapReduceBase {
   /**
    * Process one I/O buffer, which is the unit of batching in mapper.
    */
-  ErrorStack  handle_process_buffer(const fs::DirectIoFile &file, uint64_t buffered_bytes,
-                      log::LogFileOrdinal cur_file_ordinal, uint64_t *cur_offset, bool *first_read);
+  ErrorStack  handle_process_buffer(const fs::DirectIoFile &file, IoBufStatus* status);
 
   /**
    * Add the given log position to a bucket for the specified storage.
