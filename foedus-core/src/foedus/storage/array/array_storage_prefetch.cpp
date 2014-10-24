@@ -70,6 +70,8 @@ ErrorCode ArrayStoragePimpl::prefetch_pages_recurse(
         CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(
           pointer.snapshot_pointer_,
           reinterpret_cast<Page**>(&child)));
+        ASSERT_ND(child->get_array_range().begin_ == page_range.begin_ + i * interval);
+        ASSERT_ND(range.overlaps(child->get_array_range()));
         prefetch_page_l2(child);
         if (level > 1U) {
           CHECK_ERROR_CODE(prefetch_pages_recurse(context, false, snp_on, from, to, child));
@@ -78,8 +80,12 @@ ErrorCode ArrayStoragePimpl::prefetch_pages_recurse(
       // do we have to install volatile page based on it?
       if (pointer.volatile_pointer_.is_null() && vol_on) {
         ASSERT_ND(!page->header().snapshot_);
-        Page* child;
-        CHECK_ERROR_CODE(context->install_a_volatile_page(&pointer, &child));
+        ArrayPage* child;
+        CHECK_ERROR_CODE(context->install_a_volatile_page(
+          &pointer,
+          reinterpret_cast<Page**>(&child)));
+        ASSERT_ND(child->get_array_range().begin_ == page_range.begin_ + i * interval);
+        ASSERT_ND(range.overlaps(child->get_array_range()));
       }
     }
 
@@ -87,6 +93,8 @@ ErrorCode ArrayStoragePimpl::prefetch_pages_recurse(
     if (!pointer.volatile_pointer_.is_null() && vol_on) {
       ASSERT_ND(!page->header().snapshot_);
       ArrayPage* child = context->resolve_cast<ArrayPage>(pointer.volatile_pointer_);
+        ASSERT_ND(child->get_array_range().begin_ == page_range.begin_ + i * interval);
+        ASSERT_ND(range.overlaps(child->get_array_range()));
       prefetch_page_l2(child);
       if (level > 1U) {
         CHECK_ERROR_CODE(prefetch_pages_recurse(context, vol_on, snp_on, from, to, child));

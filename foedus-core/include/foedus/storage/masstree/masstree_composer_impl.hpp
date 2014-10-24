@@ -307,7 +307,10 @@ class MasstreeComposeContext {
   ErrorStack  consume_original_upto_border(KeySlice slice, uint16_t key_length, PathLevel* level);
   ErrorStack  consume_original_upto_intermediate(KeySlice slice, PathLevel* level);
   ErrorStack  consume_original_all();
-  ErrorStack  grow_layer_root(SnapshotPagePointer* root_pointer);
+  ErrorStack  grow_subtree(
+    SnapshotPagePointer* root_pointer,
+    KeySlice subtree_low,
+    KeySlice subtree_high);
   ErrorStack  pushup_non_root();
 
   // next methods called for each log entry. must be efficient! So these methods return ErrorCode.

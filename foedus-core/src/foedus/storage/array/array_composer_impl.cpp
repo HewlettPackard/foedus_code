@@ -280,8 +280,8 @@ ErrorStack ArrayComposeContext::finalize() {
   ASSERT_ND(root_page->get_level() == levels_ - 1);
 
   // base_pointer + offset in intermediate buffer will be the new page ID.
-  // -1 because we don't write out root page.
-  const SnapshotPagePointer base_pointer = snapshot_writer_->get_next_page_id() - 1ULL;
+  const SnapshotPagePointer base_pointer = snapshot_writer_->get_next_page_id();
+  root_page->header().page_id_ = base_pointer;
   for (uint32_t i = 1; i < allocated_intermediates_; ++i) {
     SnapshotPagePointer new_page_id = base_pointer + i;
     ArrayPage* page = intermediate_base_ + i;
@@ -303,9 +303,9 @@ ErrorStack ArrayComposeContext::finalize() {
     }
   }
 
-  // we do not write out root page. rather we just put an equivalent information to the
+  // we also write out root page, but we don't use it as we just put an equivalent information to
   // root_info_page. construct_root() will combine all composers' output later.
-  snapshot_writer_->dump_intermediates(1, allocated_intermediates_ - 1);
+  snapshot_writer_->dump_intermediates(0, allocated_intermediates_);
   for (uint16_t j = 0; j < kInteriorFanout; ++j) {
     DualPagePointer& pointer = root_page->get_interior_record(j);
     if (pointer.snapshot_pointer_ != 0) {
@@ -426,7 +426,7 @@ ErrorStack ArrayComposeContext::init_context_cur_path() {
         // next page is still intermediate page. In this case, we use volatile page
         // to denote that we also have the pointed page in intermediate buffer.
         pointer.volatile_pointer_.components.flags = kFlagIntermediatePointer;
-        pointer.volatile_pointer_.components.offset = allocated_intermediates_ + 1;
+        pointer.volatile_pointer_.components.offset = allocated_intermediates_;
       }
     } else {
       break;
@@ -457,7 +457,7 @@ void ArrayComposeContext::init_context_empty_cur_path() {
       ASSERT_ND(verify_snapshot_pointer(pointer.snapshot_pointer_));
     } else {
       pointer.volatile_pointer_.components.flags = kFlagIntermediatePointer;
-      pointer.volatile_pointer_.components.offset = allocated_intermediates_ + 1;
+      pointer.volatile_pointer_.components.offset = allocated_intermediates_;
     }
   }
   {
@@ -582,6 +582,9 @@ ErrorCode ArrayComposeContext::update_cur_path() {
       CHECK_ERROR_CODE(read_or_init_page(old_page_id, new_page_id, page_level, cur_route_, page));
       pointer.volatile_pointer_.components.flags = kFlagIntermediatePointer;
       pointer.volatile_pointer_.components.offset = new_page_id;
+      ASSERT_ND(cur_route_.route[level] == 0
+        || parent->get_interior_record(cur_route_.route[level] - 1).
+          volatile_pointer_.components.offset != pointer.volatile_pointer_.components.offset);
     } else {
       // we switched a leaf page. in this case, we might have to flush the buffer
       if (allocated_pages_ >= max_pages_) {

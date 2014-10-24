@@ -382,6 +382,12 @@ int driver_main(int argc, char **argv) {
   if (FLAGS_take_snapshot) {
     std::cout << "Will take snapshot after initial data load." << std::endl;
     FLAGS_null_log_device = false;
+
+    options.snapshot_.log_mapper_io_buffer_mb_ = 1 << 8;
+    options.snapshot_.log_reducer_buffer_mb_ = 1 << 11;
+    options.snapshot_.snapshot_writer_page_pool_size_mb_ = 1 << 10;
+    options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 1 << 8;
+    options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 13;
   }
 
   options.snapshot_.folder_path_pattern_ = "/dev/shm/foedus_tpcc/snapshot/node_$NODE$";
@@ -389,12 +395,7 @@ int driver_main(int argc, char **argv) {
   options.log_.loggers_per_node_ = FLAGS_loggers_per_node;
   options.log_.flush_at_shutdown_ = false;
   options.snapshot_.snapshot_interval_milliseconds_ = 100000000U;
-  /*
-  options.snapshot_.log_mapper_io_buffer_mb_ = 1ULL << 28;
-  options.snapshot_.log_reducer_buffer_mb_ = 1ULL << 30;
-  options.snapshot_.snapshot_writer_page_pool_size_mb_ = 1ULL << 30;
-  options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 1ULL << 28;
-  */
+
   options.debugging_.debug_log_min_threshold_
     = debugging::DebuggingOptions::kDebugLogInfo;
     // = debugging::DebuggingOptions::kDebugLogWarning;
