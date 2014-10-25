@@ -44,6 +44,11 @@ cd out-perf.masstree/
 
 
 --new-order-remote-item-pct %d
+./benchmarks/dbtest --verbose --bench tpcc --num-threads 1 --scale-factor 1 --runtime 30 --numa-memory 2G
+
+Example:
+./benchmarks/dbtest --verbose --bench tpcc --num-threads 1 --scale-factor 1 --runtime 30 --numa-memory 2G --bench-opts --new-order-remote-item-pct=10
+
 
 # small (z820)
 ./benchmarks/dbtest --verbose --bench tpcc --num-threads 14 --scale-factor 14 --runtime 30 --numa-memory 14G
