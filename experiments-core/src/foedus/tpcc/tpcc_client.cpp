@@ -58,6 +58,15 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
   storages_.initialize_tables(engine_);
   channel_ = reinterpret_cast<TpccClientChannel*>(
     engine_->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
+  ErrorStack result = run_impl(context);
+  if (result.is_error()) {
+    LOG(ERROR) << "TPCC Client-" << worker_id_ << " exit with an error:" << result;
+  }
+  ++channel_->exit_nodes_;
+  return result;
+}
+
+ErrorStack TpccClientTask::run_impl(thread::Thread* context) {
   // std::memset(debug_wdcid_access_, 0, sizeof(debug_wdcid_access_));
   // std::memset(debug_wdid_access_, 0, sizeof(debug_wdid_access_));
   CHECK_ERROR(warmup(context));

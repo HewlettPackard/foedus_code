@@ -18,30 +18,38 @@
 namespace foedus {
 namespace cache {
 
-uint32_t determine_table_size(const memory::AlignedMemory& table_memory) {
-  uint64_t buckets = table_memory.get_size() / sizeof(CacheHashtable::Bucket);
+uint32_t determine_logical_buckets(uint32_t physical_buckets) {
+  ASSERT_ND(physical_buckets >= 1024U);
   // to speed up, leave space in neighbors of the last bucket.
   // Instead, we do not wrap-around.
-  buckets -= CacheHashtable::kHopNeighbors;
+  uint32_t buckets = physical_buckets - CacheHashtable::kHopNeighbors;
 
   // to make the division-hashing more effective, make it prime-like.
-  return assorted::generate_almost_prime_below(buckets);
+  uint32_t logical_buckets = assorted::generate_almost_prime_below(buckets);
+  ASSERT_ND(logical_buckets <= physical_buckets);
+  ASSERT_ND((logical_buckets & (logical_buckets - 1U)) != 0);  // at least not power of 2
+  return logical_buckets;
+}
+
+HashFunc::HashFunc(uint32_t physical_buckets)
+  : logical_buckets_(determine_logical_buckets(physical_buckets)),
+    physical_buckets_(physical_buckets),
+    bucket_div_(logical_buckets_) {
 }
 
 CacheHashtable::CacheHashtable(
   const memory::AlignedMemory& table_memory,
   storage::Page* cache_base)
-  : table_size_(determine_table_size(table_memory)),
-  physical_table_size_(table_memory.get_size() / sizeof(CacheHashtable::Bucket)),
-  bucket_div_(table_size_),
+  : hash_func_(table_memory.get_size() / sizeof(CacheHashtable::Bucket)),
   buckets_(reinterpret_cast<Bucket*>(table_memory.get_block())),
   cache_base_(cache_base) {
   LOG(INFO) << "Initialized CacheHashtable. node=" << table_memory.get_numa_node()
-    << ", table_size=" << table_size_;
+    << ", hash_func=" << hash_func_;
 }
 
 uint32_t CacheHashtable::find_next_empty_bucket(uint32_t from_bucket) const {
-  for (uint32_t bucket = from_bucket + 1; bucket < physical_table_size_; ++bucket) {
+  uint32_t physical_buckets = get_physical_buckets();
+  for (uint32_t bucket = from_bucket + 1; bucket < physical_buckets; ++bucket) {
     if (buckets_[bucket].status_.components.offset == 0) {
       return bucket;
     }
@@ -99,6 +107,7 @@ ErrorCode CacheHashtable::miss(
     }
   }
 
+  const uint32_t physical_buckets = get_physical_buckets();
   uint32_t empty_bucket = bucket_number;
   while (true) {
     empty_bucket = find_next_empty_bucket(empty_bucket);
@@ -108,7 +117,7 @@ ErrorCode CacheHashtable::miss(
       context->get_thread_memory()->release_free_snapshot_page(offset);
       return kErrorCodeCacheTableFull;
     }
-    ASSERT_ND(empty_bucket > 0 && empty_bucket < physical_table_size_);
+    ASSERT_ND(empty_bucket > 0 && empty_bucket < physical_buckets);
     BucketStatus empty_status = buckets_[empty_bucket].status_;
     if (empty_status.components.offset > 0) {
       continue;
@@ -235,10 +244,17 @@ void CacheHashtable::Bucket::atomic_empty() {
   }
 }
 
+std::ostream& operator<<(std::ostream& o, const HashFunc& v) {
+  o << "<HashFunc>"
+    << "<logical_buckets_>" << v.logical_buckets_ << "<logical_buckets_>"
+    << "<physical_buckets_>" << v.physical_buckets_ << "<physical_buckets_>"
+    << "</HashFunc>";
+  return o;
+}
+
 std::ostream& operator<<(std::ostream& o, const CacheHashtable& v) {
   o << "<CacheHashtable>"
-    << "<table_size_>" << v.table_size_ << "<table_size_>"
-    << "<physical_table_size_>" << v.physical_table_size_ << "<physical_table_size_>"
+    << v.hash_func_
     << "<cache_base_>" << v.cache_base_ << "<cache_base_>"
     << "</CacheHashtable>";
   return o;

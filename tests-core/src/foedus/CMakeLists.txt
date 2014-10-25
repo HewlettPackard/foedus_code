@@ -2,6 +2,7 @@
 add_library(test_common STATIC ${CMAKE_CURRENT_SOURCE_DIR}/test_common.cpp)
 
 add_subdirectory(assorted)
+add_subdirectory(cache)
 add_subdirectory(debugging)
 add_subdirectory(fs)
 add_subdirectory(log)

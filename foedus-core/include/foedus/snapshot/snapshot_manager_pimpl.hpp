@@ -113,6 +113,7 @@ struct SnapshotManagerControlBlock {
     snapshot_wakeup_.initialize();
     snapshot_children_wakeup_.initialize();
     gleaner_.initialize();
+    requested_snapshot_epoch_.store(Epoch::kEpochInvalid);
   }
   void uninitialize() {
     gleaner_.uninitialize();
@@ -129,6 +130,7 @@ struct SnapshotManagerControlBlock {
   SnapshotId get_previous_snapshot_id_weak() const {
     return previous_snapshot_id_.load(std::memory_order_relaxed);
   }
+  Epoch get_requested_snapshot_epoch() const { return Epoch(requested_snapshot_epoch_.load()); }
 
   /**
    * Fires snapshot_children_wakeup_.
@@ -149,9 +151,10 @@ struct SnapshotManagerControlBlock {
   /**
    * When a caller wants to immediately invoke snapshot, it calls trigger_snapshot_immediate(),
    * which sets this value and then wakes up snapshot_thread_.
-   * snapshot_thread_ sees this value, unsets it, then immediately start snapshotting.
+   * snapshot_thread_ sees this value then immediately starts snapshotting if the value is larger
+   * than the current snapshot_epoch_.
    */
-  std::atomic<bool>               immediate_snapshot_requested_;
+  std::atomic< Epoch::EpochInteger >  requested_snapshot_epoch_;
 
 
   /**
@@ -165,7 +168,7 @@ struct SnapshotManagerControlBlock {
 
   /**
    * Snapshot thread sleeps on this condition variable.
-   * The real variable is immediate_snapshot_requested_.
+   * The real variable is requested_snapshot_epoch_.
    */
   soc::SharedCond                 snapshot_wakeup_;
 

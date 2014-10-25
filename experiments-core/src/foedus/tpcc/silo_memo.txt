@@ -42,6 +42,9 @@ make -j dbtest
 
 cd out-perf.masstree/
 
+
+--new-order-remote-item-pct %d
+
 # small (z820)
 ./benchmarks/dbtest --verbose --bench tpcc --num-threads 14 --scale-factor 14 --runtime 30 --numa-memory 14G
 

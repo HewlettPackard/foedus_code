@@ -27,6 +27,45 @@
 
 namespace foedus {
 namespace cache {
+
+  /**
+ * @brief A simple hash function logic used in snasphot cache cache.
+ * @ingroup CACHE
+ * The hash key is SnapshotPagePointer, whose least significant bits are local page IDs, which
+ * are sequnetial. To avoid placing adjacent page IDs in adjacent hash buckets, we
+ * use GCC's __builtin_bswap64, a few bit shifts, then divide by logical table size which is
+ * adjusted to an almost-prime number.
+ */
+struct HashFunc CXX11_FINAL {
+  /** Number of logical (actually used) buckets in this table. */
+  const uint32_t            logical_buckets_;
+  /** Number of buckets that are physically allocated, at least kHopNeighbors more than logical. */
+  const uint32_t            physical_buckets_;
+  /** to efficiently divide a number by bucket_div_. */
+  const assorted::ConstDiv  bucket_div_;
+
+  explicit HashFunc(uint32_t physical_buckets);
+
+  /**
+   * Returns a bucket number the given page ID \e should belong to.
+   */
+  uint32_t get_bucket_number(storage::SnapshotPagePointer page_id) const ALWAYS_INLINE {
+    uint64_t seed = __builtin_bswap64(page_id);  // TODO(Hideaki) non-GCC
+    seed ^= seed << 3;
+    seed += seed >> 5;
+    seed ^= seed << 4;
+    seed += seed >> 17;
+    seed ^= seed << 25;
+    seed += seed >> 6;
+    uint64_t quotient = bucket_div_.div64(seed);
+    uint32_t bucket = bucket_div_.rem64(seed, logical_buckets_, quotient);
+    ASSERT_ND(bucket == seed % logical_buckets_);
+    return bucket;
+  }
+
+  friend std::ostream& operator<<(std::ostream& o, const HashFunc& v);
+};
+
 /**
  * @brief A NUMA-local hashtable of cached snapshot pages.
  * @ingroup CACHE
@@ -53,6 +92,7 @@ class CacheHashtable CXX11_FINAL {
   enum Costants {
     kHopNeighbors = 32,
   };
+
   union BucketStatus {
     uint64_t                  word;
     struct Components {
@@ -93,19 +133,19 @@ class CacheHashtable CXX11_FINAL {
   friend std::ostream& operator<<(std::ostream& o, const CacheHashtable& v);
 
  private:
-  /** Number of buckets in this table. */
-  const uint32_t            table_size_;
-  /** table_size_ is at least kHopNeighbors smaller than this. */
-  const uint32_t            physical_table_size_;
-  /** to efficiently divide a number by bucket_div_. */
-  const assorted::ConstDiv  bucket_div_;
+  const HashFunc            hash_func_;
   Bucket* const             buckets_;
   storage::Page* const      cache_base_;
+
+  uint32_t get_logical_buckets() const ALWAYS_INLINE { return hash_func_.logical_buckets_; }
+  uint32_t get_physical_buckets() const ALWAYS_INLINE { return hash_func_.physical_buckets_; }
 
   /**
    * Returns a bucket number the given page ID \e should belong to.
    */
-  uint32_t get_bucket_number(storage::SnapshotPagePointer page_id) const ALWAYS_INLINE;
+  uint32_t get_bucket_number(storage::SnapshotPagePointer page_id) const ALWAYS_INLINE {
+    return hash_func_.get_bucket_number(page_id);
+  }
 
   /**
    * @brief Returns an offset for the given page ID \e conservatively.
@@ -135,17 +175,11 @@ class CacheHashtable CXX11_FINAL {
     storage::Page** out);
 };
 
-inline uint32_t CacheHashtable::get_bucket_number(storage::SnapshotPagePointer page_id) const {
-  uint64_t reversed = __builtin_bswap64(page_id);  // TODO(Hideaki) non-GCC
-  uint64_t quotient = bucket_div_.div64(reversed);
-  return bucket_div_.rem64(reversed, table_size_, quotient);
-}
-
 inline memory::PagePoolOffset CacheHashtable::conservatively_locate(
   storage::SnapshotPagePointer page_id) const {
   ASSERT_ND(page_id > 0);
   uint32_t bucket_number = get_bucket_number(page_id);
-  ASSERT_ND(bucket_number < table_size_);
+  ASSERT_ND(bucket_number < get_logical_buckets());
   const Bucket& bucket = buckets_[bucket_number];
   uint32_t hop_bitmap = bucket.status_.components.hop_bitmap;
   if (hop_bitmap == 0) {

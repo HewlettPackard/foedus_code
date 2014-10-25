@@ -40,6 +40,7 @@ struct TpccStorages {
 
 
   void assert_initialized();
+  bool has_snapshot_versions();
   void initialize_tables(Engine* engine);
 
   /** (Wid, Did, Cid) == Wdcid */
