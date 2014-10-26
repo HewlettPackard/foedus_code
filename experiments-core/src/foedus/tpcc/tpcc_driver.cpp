@@ -42,7 +42,7 @@ namespace foedus {
 namespace tpcc {
 DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
     " than threads in the same process. This is required to scale up to 100+ cores.");
-DEFINE_bool(take_snapshot, true, "Whether to run a log gleaner after loading data.");
+DEFINE_bool(take_snapshot, false, "Whether to run a log gleaner after loading data.");
 DEFINE_string(nvm_folder, "/testnvm", "Full path of the device representing NVM.");
 DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) worker threads in child"
     " processes on replicated binaries. This is required to scale up to 16 sockets.");
