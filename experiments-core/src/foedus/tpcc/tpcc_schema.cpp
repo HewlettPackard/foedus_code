@@ -57,35 +57,13 @@ bool TpccStorages::has_snapshot_versions() {
     return false;
   } else if (customers_static_.get_metadata()->root_snapshot_page_id_ == 0) {
     return false;
-  } else if (customers_dynamic_.get_metadata()->root_snapshot_page_id_ == 0) {
-    return false;
-  } else if (customers_history_.get_metadata()->root_snapshot_page_id_ == 0) {
-    return false;
   } else if (customers_secondary_.get_metadata()->root_snapshot_page_id_ == 0) {
     return false;
   } else if (districts_static_.get_metadata()->root_snapshot_page_id_ == 0) {
     return false;
-  } else if (districts_ytd_.get_metadata()->root_snapshot_page_id_ == 0) {
-    return false;
-  } else if (districts_next_oid_.get_metadata()->root_snapshot_page_id_ == 0) {
-    return false;
-  } else if (histories_.get_metadata()->root_snapshot_page_id_ == 0) {
-    return false;
-  } else if (neworders_.get_metadata()->root_snapshot_page_id_ == 0) {
-    return false;
-  } else if (orders_.get_metadata()->root_snapshot_page_id_ == 0) {
-    return false;
-  } else if (orders_secondary_.get_metadata()->root_snapshot_page_id_ == 0) {
-    return false;
-  } else if (orderlines_.get_metadata()->root_snapshot_page_id_ == 0) {
-    return false;
   } else if (items_.get_metadata()->root_snapshot_page_id_ == 0) {
     return false;
-  } else if (stocks_.get_metadata()->root_snapshot_page_id_ == 0) {
-    return false;
   } else if (warehouses_static_.get_metadata()->root_snapshot_page_id_ == 0) {
-    return false;
-  } else if (warehouses_ytd_.get_metadata()->root_snapshot_page_id_ == 0) {
     return false;
   }
   return true;
