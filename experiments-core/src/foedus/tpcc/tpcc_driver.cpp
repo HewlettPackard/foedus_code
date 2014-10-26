@@ -49,6 +49,8 @@ DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) work
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
 DEFINE_int32(volatile_pool_size, 8, "Size of volatile memory pool per NUMA node in GB.");
+DEFINE_int32(snapshot_pool_size, 4, "Size of snapshot memory pool per NUMA node in GB.");
+DEFINE_int32(reducer_buffer_size, 4, "Size of reducer's buffer per NUMA node in GB.");
 DEFINE_int32(loggers_per_node, 2, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 0, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
@@ -406,10 +408,10 @@ int driver_main(int argc, char **argv) {
     FLAGS_null_log_device = false;
 
     options.snapshot_.log_mapper_io_buffer_mb_ = 1 << 8;
-    options.snapshot_.log_reducer_buffer_mb_ = 1 << 11;
+    options.snapshot_.log_reducer_buffer_mb_ = FLAGS_reducer_buffer_size << 10;
     options.snapshot_.snapshot_writer_page_pool_size_mb_ = 1 << 10;
     options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 1 << 8;
-    options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 12;
+    options.cache_.snapshot_cache_size_mb_per_node_ = FLAGS_snapshot_pool_size << 10;
 
     fs::Path nvm_folder(FLAGS_nvm_folder);
     if (!fs::exists(nvm_folder)) {

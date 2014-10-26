@@ -1,6 +1,6 @@
 echo "FOEDUS TPC-C experiments script for $machine_shortname ($machine_name)"
 echo "warehouses=$warehouses, loggers_per_node=$loggers_per_node, volatile_pool_size=$volatile_pool_size, duration_micro=$duration_micro."
-echo "thread_per_node=$thread_per_node, numa_nodes=$numa_nodes, volatile_pool_size=$volatile_pool_size, duration_micro=$duration_micro."
+echo "thread_per_node=$thread_per_node, numa_nodes=$numa_nodes, snapshot_pool_size=$snapshot_pool_size, reducer_buffer_size=$reducer_buffer_size."
 
 payment_percents[0]=0
 payment_percents[1]=15
@@ -30,7 +30,7 @@ do
     rm -rf /dev/shm/foedus_tpcc/
     rm -rf /tmp/libfoedus.*
     sleep 5 # Linux's release of shared memory has a bit of timelag.
-    echo "./tpcc -warehouses=$warehouses -fork_workers=$fork_workers -high_priority=$high_priority -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=$neworder_remote_percent -payment_remote_percent=$payment_remote_percent -volatile_pool_size=$volatile_pool_size -duration_micro=$duration_micro"
-    ./tpcc -warehouses=$warehouses -fork_workers=$fork_workers -high_priority=$high_priority -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=$neworder_remote_percent -payment_remote_percent=$payment_remote_percent -volatile_pool_size=$volatile_pool_size -duration_micro=$duration_micro &> "result_tpcc_$machine_shortname.n$remote_percent.r$rep.log"
+    echo "./tpcc -warehouses=$warehouses -fork_workers=$fork_workers -high_priority=$high_priority -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=$neworder_remote_percent -payment_remote_percent=$payment_remote_percent -volatile_pool_size=$volatile_pool_size -snapshot_pool_size=$snapshot_pool_size -reducer_buffer_size=$reducer_buffer_size -duration_micro=$duration_micro"
+    ./tpcc -warehouses=$warehouses -fork_workers=$fork_workers -high_priority=$high_priority -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=$neworder_remote_percent -payment_remote_percent=$payment_remote_percent -volatile_pool_size=$volatile_pool_size -snapshot_pool_size=$snapshot_pool_size -reducer_buffer_size=$reducer_buffer_size -duration_micro=$duration_micro &> "result_tpcc_$machine_shortname.n$remote_percent.r$rep.log"
   done
 done
