@@ -1,3 +1,4 @@
+add_foedus_test_individual(test_assorted "Align32;Align64")
 set(test_endianness_individual
   RoundtripU8
   RoundtripU16

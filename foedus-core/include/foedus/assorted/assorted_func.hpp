@@ -14,6 +14,7 @@
 #include <string>
 #include <typeinfo>
 
+#include "foedus/assert_nd.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/assorted/uniform_random.hpp"
 
@@ -30,9 +31,15 @@ namespace assorted {
  * @see https://en.wikipedia.org/wiki/Data_structure_alignment
  * @see Hacker's Delight 2nd Ed. Chap 3-1.
  */
-template <typename T, unsigned int ALIGNMENT>
+template <typename T, uint64_t ALIGNMENT>
 inline T align(T value) {
-  return static_cast<T>((value + ALIGNMENT - 1) & (-ALIGNMENT));
+  uint64_t left = (value + ALIGNMENT - 1);
+  uint64_t right = -ALIGNMENT;
+  uint64_t result = left & right;
+  ASSERT_ND(result >= value);
+  ASSERT_ND(result % ALIGNMENT == 0);
+  ASSERT_ND(result < value + ALIGNMENT);
+  return static_cast<T>(result);
 }
 
 /**
