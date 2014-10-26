@@ -36,16 +36,13 @@ MasstreeCursor::MasstreeCursor(MasstreeStorage storage, thread::Thread* context)
 
   route_count_ = 0;
   routes_ = nullptr;
-  routes_memory_offset_ = 0;
 
   end_inclusive_ = false;
   end_key_length_ = 0;
   end_key_ = nullptr;
-  end_key_memory_offset_ = 0;
 
   cur_key_length_ = 0;
   cur_key_ = nullptr;
-  cur_key_memory_offset_ = 0;
   cur_key_owner_id_address = nullptr;
   cur_key_in_layer_slice_ = 0;
   cur_key_in_layer_remaining_ = 0;
@@ -54,44 +51,21 @@ MasstreeCursor::MasstreeCursor(MasstreeStorage storage, thread::Thread* context)
 
   search_key_length_ = 0;
   search_key_ = nullptr;
-  search_key_memory_offset_ = 0;
 }
 
 template <typename T>
-void MasstreeCursor::release_if_exist(memory::PagePoolOffset* offset, T** pointer) {
-  if (*offset) {
-    ASSERT_ND(*pointer);
-    context_->get_thread_memory()->release_free_snapshot_page(*offset);
-    *offset = 0;
-    *pointer = nullptr;
-  }
-}
-
-MasstreeCursor::~MasstreeCursor() {
-  release_if_exist(&routes_memory_offset_, &routes_);
-  release_if_exist(&search_key_memory_offset_, &search_key_);
-  release_if_exist(&cur_key_memory_offset_, &cur_key_);
-  release_if_exist(&end_key_memory_offset_, &end_key_);
-}
-
-template <typename T>
-inline ErrorCode MasstreeCursor::allocate_if_not_exist(
-  memory::PagePoolOffset* offset,
-  T** pointer) {
-  if (*offset) {
-    ASSERT_ND(*pointer);
+inline ErrorCode MasstreeCursor::allocate_if_not_exist(T** pointer) {
+  if (*pointer) {
     return kErrorCodeOk;
   }
 
   ASSERT_ND(*pointer == nullptr);
-  *offset = context_->get_thread_memory()->grab_free_snapshot_page();
-  if (*offset == 0) {
-    return kErrorCodeMemoryNoFreePages;
-  }
-
-  *pointer = reinterpret_cast<T*>(
-    context_->get_thread_memory()->get_snapshot_pool()->get_resolver().resolve_offset_newpage(
-      *offset));
+  void* out;
+  CHECK_ERROR_CODE(context_->get_current_xct().acquire_local_work_memory(
+    1U << 12,
+    &out,
+    1U << 12));
+  *pointer = reinterpret_cast<T*>(out);
   return kErrorCodeOk;
 }
 
@@ -757,10 +731,10 @@ ErrorCode MasstreeCursor::open(
   bool for_writes,
   bool begin_inclusive,
   bool end_inclusive) {
-  CHECK_ERROR_CODE(allocate_if_not_exist(&routes_memory_offset_, &routes_));
-  CHECK_ERROR_CODE(allocate_if_not_exist(&search_key_memory_offset_, &search_key_));
-  CHECK_ERROR_CODE(allocate_if_not_exist(&cur_key_memory_offset_, &cur_key_));
-  CHECK_ERROR_CODE(allocate_if_not_exist(&end_key_memory_offset_, &end_key_));
+  CHECK_ERROR_CODE(allocate_if_not_exist(&routes_));
+  CHECK_ERROR_CODE(allocate_if_not_exist(&search_key_));
+  CHECK_ERROR_CODE(allocate_if_not_exist(&cur_key_));
+  CHECK_ERROR_CODE(allocate_if_not_exist(&end_key_));
 
   forward_cursor_ = forward_cursor;
   reached_end_ = false;

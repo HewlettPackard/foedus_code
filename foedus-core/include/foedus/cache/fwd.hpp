@@ -11,10 +11,13 @@
  */
 namespace foedus {
 namespace cache {
+struct  CacheBucket;
+struct  CacheBucketStatus;
 class   CacheHashtable;
 class   CacheManager;
 class   CacheManagerPimpl;
 struct  CacheOptions;
+struct  HashFunc;
 class   SnapshotFileSet;
 }  // namespace cache
 }  // namespace foedus

@@ -4,6 +4,8 @@ cd /dev/shm
 git clone --depth 1 http://github.com/apavlo/h-store.git
 Or tar -xf ~/h-store_copy_20141019.tar.gz
 
+git clone --depth 1 http://245-1.bfc.hpl.hp.com/kimurhid/h-store.git
+
 ant build
 
 ssh-keygen -t dsa

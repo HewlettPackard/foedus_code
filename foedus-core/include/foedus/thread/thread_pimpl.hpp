@@ -14,6 +14,7 @@
 #include "foedus/log/thread_log_buffer_impl.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
+#include "foedus/memory/page_pool.hpp"
 #include "foedus/memory/page_resolver.hpp"
 #include "foedus/proc/proc_id.hpp"
 #include "foedus/soc/shared_cond.hpp"
@@ -161,6 +162,10 @@ class ThreadPimpl final : public DefaultInitializable {
     bool take_ptr_set_volatile,
     storage::DualPagePointer* pointer,
     storage::Page** page);
+  ErrorCode on_snapshot_page_read_callback(
+    cache::CacheHashtable* table,
+    storage::SnapshotPagePointer page_id,
+    memory::PagePoolOffset* pool_offset);
 
   /**
    * @brief Subroutine of install_a_volatile_page() and follow_page_pointer() to atomically place
@@ -238,6 +243,8 @@ class ThreadPimpl final : public DefaultInitializable {
   memory::NumaNodeMemory* node_memory_;
   /** same above */
   cache::CacheHashtable*  snapshot_cache_hashtable_;
+  /** shorthand for node_memory_->get_snapshot_pool() */
+  memory::PagePool*       snapshot_page_pool_;
 
   /** Page resolver to convert all page ID to page pointer. */
   memory::GlobalVolatilePageResolver global_volatile_page_resolver_;
@@ -282,10 +289,28 @@ inline ErrorCode ThreadPimpl::read_a_snapshot_page(
   return snapshot_file_set_.read_page(page_id, buffer);
 }
 
+/** Implementation of PageReadCallback in CacheHashtable */
+inline ErrorCode snapshot_page_read_callback(
+  cache::CacheHashtable* table,
+  void* context,
+  storage::SnapshotPagePointer page_id,
+  memory::PagePoolOffset* pool_offset) {
+  ThreadPimpl* casted = reinterpret_cast<ThreadPimpl*>(context);
+  return casted->on_snapshot_page_read_callback(table, page_id, pool_offset);
+}
+
 inline ErrorCode ThreadPimpl::find_or_read_a_snapshot_page(
   storage::SnapshotPagePointer page_id,
   storage::Page** out) {
-  return snapshot_cache_hashtable_->read_page(page_id, holder_, out);
+  memory::PagePoolOffset offset;
+  CHECK_ERROR_CODE(snapshot_cache_hashtable_->retrieve(
+    page_id,
+    &offset,
+    snapshot_page_read_callback,
+    this));
+  ASSERT_ND(offset != 0);
+  *out = snapshot_page_pool_->get_base() + offset;
+  return kErrorCodeOk;
 }
 
 static_assert(

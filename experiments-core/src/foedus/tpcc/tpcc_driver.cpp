@@ -42,7 +42,7 @@ namespace foedus {
 namespace tpcc {
 DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
     " than threads in the same process. This is required to scale up to 100+ cores.");
-DEFINE_bool(take_snapshot, false, "Whether to run a log gleaner after loading data.");
+DEFINE_bool(take_snapshot, true, "Whether to run a log gleaner after loading data.");
 DEFINE_string(nvm_folder, "/testnvm", "Full path of the device representing NVM.");
 DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) worker threads in child"
     " processes on replicated binaries. This is required to scale up to 16 sockets.");
@@ -50,11 +50,11 @@ DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.")
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
 DEFINE_int32(volatile_pool_size, 8, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_int32(loggers_per_node, 2, "Number of log writers per numa node.");
-DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inserted to remote"
+DEFINE_int32(neworder_remote_percent, 0, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
   " remote orderline). This corresponds to H-Store's neworder_multip/neworder_multip_mix in"
   " tpcc.properties.");
-DEFINE_int32(payment_remote_percent, 15, "Percent of each payment that is inserted to remote"
+DEFINE_int32(payment_remote_percent, 0, "Percent of each payment that is inserted to remote"
   " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");

@@ -39,6 +39,14 @@ ErrorStack MetadataSerializer::load_base(tinyxml2::XMLElement* element) {
   CHECK_ERROR(get_enum_element(element, "type_", &data_->type_))
   CHECK_ERROR(get_element(element, "name_", &data_->name_))
   CHECK_ERROR(get_element(element, "root_snapshot_page_id_", &data_->root_snapshot_page_id_))
+  CHECK_ERROR(get_element(
+    element,
+    "snapshot_trigger_threshold_",
+    &data_->snapshot_thresholds_.snapshot_trigger_threshold_));
+  CHECK_ERROR(get_element(
+    element,
+    "snapshot_keep_threshold_",
+    &data_->snapshot_thresholds_.snapshot_keep_threshold_));
   return kRetOk;
 }
 
@@ -47,6 +55,16 @@ ErrorStack MetadataSerializer::save_base(tinyxml2::XMLElement* element) const {
   CHECK_ERROR(add_enum_element(element, "type_", "", data_->type_));
   CHECK_ERROR(add_element(element, "name_", "", data_->name_));
   CHECK_ERROR(add_element(element, "root_snapshot_page_id_", "", data_->root_snapshot_page_id_));
+  CHECK_ERROR(add_element(
+    element,
+    "snapshot_trigger_threshold_",
+    "",
+    data_->snapshot_thresholds_.snapshot_trigger_threshold_));
+  CHECK_ERROR(add_element(
+    element,
+    "snapshot_keep_threshold_",
+    "",
+    data_->snapshot_thresholds_.snapshot_keep_threshold_));
   return kRetOk;
 }
 
@@ -165,7 +183,6 @@ ErrorStack MetadataSerializer::save_all_storages_to_xml(
   LOG(INFO) << "Written metadata of " << saved_count << " storages";
   return kRetOk;
 }
-
 
 }  // namespace storage
 }  // namespace foedus

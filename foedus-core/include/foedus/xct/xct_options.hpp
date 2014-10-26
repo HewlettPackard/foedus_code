@@ -28,6 +28,8 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
     kDefaultMaxWriteSetSize = 8 << 10,
     /** Default value for max_lock_free_write_set_size_. */
     kDefaultMaxLockFreeWriteSetSize = 4 << 10,
+    /** Default value for local_work_memory_size_mb_. */
+    kDefaultLocalWorkMemorySizeMb = 2,
     /** Default value for epoch_advance_interval_ms_. */
     kDefaultEpochAdvanceIntervalMs = 20,
   };
@@ -62,6 +64,15 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
    * We pre-allocate this much memory for each NumaCoreMemory. So, don't make it too large.
    */
   uint32_t    max_lock_free_write_set_size_;
+
+  /**
+   * @brief Size of local and temporary work memory one transaction can use during transaction.
+   * @details
+   * Local work memory is used for various purposes during a transaction.
+   * We avoid allocating such temporary memory for each transaction and pre-allocate this
+   * size at start up.
+   */
+  uint32_t    local_work_memory_size_mb_;
 
   /**
    * @brief Intervals in milliseconds between epoch advancements.

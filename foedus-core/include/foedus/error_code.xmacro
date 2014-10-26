@@ -104,6 +104,7 @@ X(kErrorCodeXctRaceAbort,           0x0A05, "XCTION : Aborted a transaction beca
 X(kErrorCodeXctPageVersionSetOverflow, 0x0A06, "XCTION : Too large page-version set. Consider using snapshot isolation.")
 X(kErrorCodeXctPointerSetOverflow,  0x0A07, "XCTION : Too large pointer-set. Consider using snapshot isolation.")
 X(kErrorCodeXctUserAbort,           0x0A08, "XCTION : User explicitly aborted a transaction.")
+X(kErrorCodeXctNoMoreLocalWorkMemory, 0x0A09, "XCTION : Out of local work memory for the current transaction. Adjust XctOptions::local_work_memory_size_mb_.")
 
 X(kErrorCodeDbgGperftools,          0x0B01, "DEBUG  : Gperftools reported an error")
 

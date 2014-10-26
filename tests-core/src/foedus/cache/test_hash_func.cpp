@@ -131,7 +131,7 @@ void test_skewed_page_ids(uint32_t table_size) {
 
   double expected_collisions = static_cast<double>(kReps) * kReps / (2 * func.logical_buckets_);
   // same, but more tolerant. this is a harder case.
-  EXPECT_LT(dups, expected_collisions * 1.3 + 5) << "kReps=" << kReps << ":func=" << func;
+  EXPECT_LT(dups, expected_collisions * 1.4 + 5) << "kReps=" << kReps << ":func=" << func;
   // As this is not uniform random, "GT" testcase doesn't make sense. it often happens that
   // a good hash function has no collisions for such inputs.
 

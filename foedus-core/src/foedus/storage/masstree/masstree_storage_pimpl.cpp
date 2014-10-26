@@ -1099,6 +1099,14 @@ ErrorStack MasstreeStoragePimpl::replace_pointers(const Composer::ReplacePointer
   control_block_->root_page_pointer_.snapshot_pointer_ = args.new_root_page_pointer_;
   ++(*args.installed_count_);
 
+  if (get_meta().keeps_all_volatile_pages()) {
+    LOG(INFO) << "Keep-all-volatile: Storage-" << control_block_->meta_.name_
+      << " is configured to keep all volatile pages.";
+    // in this case, there isn't much point to install snapshot pages to volatile images.
+    // they will not be used anyways.
+    return kRetOk;
+  }
+
   // TODO(Hideaki) As described below, we so far drop all volatile pages and reload only the root.
   MasstreePage* first_root = resolve_volatile(control_block_->root_page_pointer_.volatile_pointer_);
   const memory::GlobalVolatilePageResolver& page_resolver

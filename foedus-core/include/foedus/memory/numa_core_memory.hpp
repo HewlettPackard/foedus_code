@@ -73,6 +73,9 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
     return small_thread_local_memory_pieces_;
   }
 
+  void*           get_local_work_memory() const { return local_work_memory_.get_block(); }
+  uint64_t        get_local_work_memory_size() const { return local_work_memory_.get_size(); }
+
  private:
   /** Called when there no local free pages. */
   static ErrorCode  grab_free_pages_from_node(
@@ -115,6 +118,13 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
    */
   memory::AlignedMemory   small_thread_local_memory_;
   SmallThreadLocalMemoryPieces small_thread_local_memory_pieces_;
+
+  /**
+   * Local work memory is used for various purposes during a transaction.
+   * We avoid allocating such temporary memory for each transaction and pre-allocate it
+   * at start up.
+   */
+  memory::AlignedMemory   local_work_memory_;
 
   /**
    * @brief Holds a \b local set of pointers to free volatile pages.
