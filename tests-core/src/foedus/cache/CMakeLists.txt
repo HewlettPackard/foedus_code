@@ -1,0 +1,3 @@
+add_foedus_test_individual(test_hash_func "Instantiate;Fixed;Random;SkewedPageIds")
+
+add_foedus_test_individual(test_hash_table "Instantiate")

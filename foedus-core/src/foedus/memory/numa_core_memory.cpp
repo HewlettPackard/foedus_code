@@ -87,6 +87,10 @@ ErrorStack NumaCoreMemory::initialize_once() {
     retired_volatile_pool_chunks_[node].clear();
   }
 
+  CHECK_ERROR(node_memory_->allocate_numa_memory(
+    xct_opt.local_work_memory_size_mb_ * (1ULL << 20),
+    &local_work_memory_));
+
   // Each core starts from 50%-full free pool chunk (configurable)
   uint32_t initial_pages = engine_->get_options().memory_.private_page_pool_initial_grab_;
   WRAP_ERROR_CODE(volatile_pool_->grab(initial_pages, free_volatile_pool_chunk_));
@@ -117,6 +121,7 @@ ErrorStack NumaCoreMemory::uninitialize_once() {
     snapshot_pool_ = nullptr;
   }
   log_buffer_memory_.clear();
+  local_work_memory_.release_block();
   small_thread_local_memory_.release_block();
   return SUMMARIZE_ERROR_BATCH(batch);
 }

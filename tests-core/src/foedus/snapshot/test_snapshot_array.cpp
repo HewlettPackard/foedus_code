@@ -32,6 +32,7 @@ const uint32_t kRecords = 1024;
 const uint32_t kPayload = sizeof(storage::array::ArrayOffset);
 const uint32_t kThreads = 2;
 const storage::StorageName kName("test");
+const storage::StorageName kNameAnother("test2");
 
 ErrorStack overwrites_task(const proc::ProcArguments& args) {
   EXPECT_EQ(sizeof(uint32_t), args.input_len_);
@@ -105,10 +106,36 @@ ErrorStack increments_twice_task(const proc::ProcArguments& args) {
   return kRetOk;
 }
 
+ErrorStack two_arrays_task(const proc::ProcArguments& args) {
+  EXPECT_EQ(sizeof(uint32_t), args.input_len_);
+  uint32_t id = *reinterpret_cast<const uint32_t*>(args.input_buffer_);
+  EXPECT_NE(id, 2U);
+
+  thread::Thread* context = args.context_;
+  storage::array::ArrayStorage array(args.engine_, kName);
+  ASSERT_ND(array.exists());
+  storage::array::ArrayStorage another(args.engine_, kNameAnother);
+  ASSERT_ND(another.exists());
+  xct::XctManager* xct_manager = args.engine_->get_xct_manager();
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+
+  for (uint32_t i = 0; i < kRecords / 2U; ++i) {
+    storage::array::ArrayOffset rec = id * kRecords / 2U + i;
+    WRAP_ERROR_CODE(array.overwrite_record(context, rec, &rec));
+    WRAP_ERROR_CODE(another.overwrite_record(context, kRecords - rec - 1U, &rec));
+  }
+
+  Epoch commit_epoch;
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
+  return kRetOk;
+}
+
 ErrorStack verify_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   storage::array::ArrayStorage array(args.engine_, kName);
   ASSERT_ND(array.exists());
+  storage::array::ArrayStorage another(args.engine_, kNameAnother);
   xct::XctManager* xct_manager = args.engine_->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
 
@@ -117,12 +144,21 @@ ErrorStack verify_task(const proc::ProcArguments& args) {
     storage::array::ArrayOffset data = 0;
     WRAP_ERROR_CODE(array.get_record(context, rec, &data));
     EXPECT_EQ(rec, data) << i;
+    if (another.exists()) {
+      WRAP_ERROR_CODE(another.get_record(context, kRecords - rec - 1U, &data));
+      EXPECT_EQ(rec, data) << i;
+    }
   }
 
   Epoch commit_epoch;
   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
   return kRetOk;
 }
+
+const proc::ProcName kOv("overwrites_task");
+const proc::ProcName kInc("increments_task");
+const proc::ProcName kInc2("increments_twice_task");
+const proc::ProcName kTwo("two_arrays_task");
 
 void test_run(const proc::ProcName& proc_name, bool multiple_loggers, bool multiple_partitions) {
   EngineOptions options = get_tiny_options();
@@ -144,6 +180,7 @@ void test_run(const proc::ProcName& proc_name, bool multiple_loggers, bool multi
     engine.get_proc_manager()->pre_register("overwrites_task", overwrites_task);
     engine.get_proc_manager()->pre_register("increments_task", increments_task);
     engine.get_proc_manager()->pre_register("increments_twice_task", increments_twice_task);
+    engine.get_proc_manager()->pre_register("two_arrays_task", two_arrays_task);
     engine.get_proc_manager()->pre_register("verify_task", verify_task);
     COERCE_ERROR(engine.initialize());
     {
@@ -154,6 +191,16 @@ void test_run(const proc::ProcName& proc_name, bool multiple_loggers, bool multi
       COERCE_ERROR(engine.get_storage_manager()->create_array(&meta, &out, &commit_epoch));
       EXPECT_TRUE(out.exists());
       EXPECT_TRUE(commit_epoch.is_valid());
+
+      if (proc_name == kTwo) {
+        storage::array::ArrayStorage another;
+        storage::array::ArrayMetadata another_meta(kNameAnother, kPayload, kRecords);
+        COERCE_ERROR(engine.get_storage_manager()->create_array(
+          &another_meta,
+          &another,
+          &commit_epoch));
+        EXPECT_TRUE(another.exists());
+      }
 
       thread::ThreadPool* pool = engine.get_thread_pool();
       for (uint32_t i = 0; i < kThreads; ++i) {
@@ -186,9 +233,6 @@ void test_run(const proc::ProcName& proc_name, bool multiple_loggers, bool multi
   cleanup_test(options);
 }
 
-const proc::ProcName kOv("overwrites_task");
-const proc::ProcName kInc("increments_task");
-const proc::ProcName kInc2("increments_twice_task");
 TEST(SnapshotArrayTest, OverwritesOneLogger) { test_run(kOv, false, false); }
 TEST(SnapshotArrayTest, OverwritesTwoLoggers) { test_run(kOv, true, false); }
 TEST(SnapshotArrayTest, OverwritesTwoPartitions) { test_run(kOv, true, true); }
@@ -198,6 +242,10 @@ TEST(SnapshotArrayTest, IncrementsTwoPartitions) { test_run(kInc, true, true); }
 TEST(SnapshotArrayTest, IncrementsTwiceOneLogger) { test_run(kInc2, false, false); }
 TEST(SnapshotArrayTest, IncrementsTwiceTwoLoggers) { test_run(kInc2, true, false); }
 TEST(SnapshotArrayTest, IncrementsTwiceTwoPartitions) { test_run(kInc2, true, true); }
+TEST(SnapshotArrayTest, TwoArraysOneLogger) { test_run(kTwo, false, false); }
+TEST(SnapshotArrayTest, TwoArraysTwoLoggers) { test_run(kTwo, true, false); }
+TEST(SnapshotArrayTest, TwoArraysTwoPartitions) { test_run(kTwo, true, true); }
+
 }  // namespace snapshot
 }  // namespace foedus
 

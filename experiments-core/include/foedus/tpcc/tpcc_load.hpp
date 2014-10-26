@@ -30,11 +30,13 @@ ErrorStack create_all(Engine* engine, Wid total_warehouses);
 ErrorStack create_array(
   Engine* engine,
   const storage::StorageName& name,
+  bool keep_all_volatile_pages,
   uint32_t payload_size,
   uint64_t array_size);
 ErrorStack create_masstree(
   Engine* engine,
   const storage::StorageName& name,
+  bool keep_all_volatile_pages,
   float border_fill_factor);
 ErrorStack create_sequential(Engine* engine, const storage::StorageName& name);
 

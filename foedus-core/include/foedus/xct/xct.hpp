@@ -69,6 +69,7 @@ class Xct {
     write_set_size_ = 0;
     lock_free_write_set_size_ = 0;
     *mcs_block_current_ = 0;
+    local_work_memory_cur_ = 0;
   }
 
   /**
@@ -237,6 +238,26 @@ class Xct {
   }
 
   /**
+   * Get a tentative work memory of the specified size from pre-allocated thread-private memory.
+   * The local work memory is recycled after the current transaction.
+   */
+  ErrorCode           acquire_local_work_memory(uint32_t size, void** out, uint32_t alignment = 8) {
+    if (size % alignment != 0) {
+      size = ((size / alignment) + 1U) * alignment;
+    }
+    uint64_t begin = local_work_memory_cur_;
+    if (begin % alignment != 0) {
+      begin = ((begin / alignment) + 1U) * alignment;
+    }
+    if (UNLIKELY(size + begin > local_work_memory_size_)) {
+      return kErrorCodeXctNoMoreLocalWorkMemory;
+    }
+    local_work_memory_cur_ = size + begin;
+    *out = reinterpret_cast<char*>(local_work_memory_) + begin;
+    return kErrorCodeOk;
+  }
+
+  /**
    * Automatically resets in_commit_log_epoch_ with appropriate fence.
    * This guards the range from a read-write transaction starts committing until it publishes
    * or discards the logs.
@@ -314,6 +335,11 @@ class Xct {
 
   PageVersionAccess*  page_version_set_;
   uint32_t            page_version_set_size_;
+
+  void*               local_work_memory_;
+  uint64_t            local_work_memory_size_;
+  /** This value is reset to zero for each transaction, and always <= local_work_memory_size_ */
+  uint64_t            local_work_memory_cur_;
 
   /** @copydoc get_in_commit_log_epoch() */
   Epoch               in_commit_log_epoch_;

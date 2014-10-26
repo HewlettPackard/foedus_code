@@ -329,6 +329,13 @@ ErrorCode MasstreeBorderPage::split_foster(
       strategy.largest_slice_);  // this is inclusive (to avoid supremum hassles)
   }
 
+  foster_fence_ = strategy.mid_slice_;
+  assorted::memory_fence_release();
+
+  // invoking set_moved is the point we announce all of these changes. take fence to make it right
+  get_version().set_moved();
+  assorted::memory_fence_release();
+
   // release all record locks, but set the "moved" bit so that concurrent transactions
   // check foster-twin for read-set/write-set checks.
   xct::XctId new_id;
@@ -345,10 +352,10 @@ ErrorCode MasstreeBorderPage::split_foster(
     context->mcs_release_lock_batch(mcs_locks, head_lock, key_count);
   }
 
+  assorted::memory_fence_release();
+
   // this page is now "moved".
   // which will be the target page?
-  get_version().set_moved();
-  foster_fence_ = strategy.mid_slice_;
   if (within_foster_minor(trigger)) {
     *target = twin[0];
     *target_lock = twin_locks[0];
@@ -743,8 +750,10 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
       construct_volatile_page_pointer(trigger_child->header().page_id_));
   }
 
-  set_moved();
   foster_fence_ = new_foster_fence;
+  assorted::memory_fence_release();
+  // invoking set_moved is the point we announce all of these changes. take fence to make it right
+  set_moved();
 
   watch.stop();
   DVLOG(1) << "Costed " << watch.elapsed() << " cycles to split a node. original node"

@@ -46,6 +46,7 @@ ThreadPimpl::ThreadPimpl(
     core_memory_(nullptr),
     node_memory_(nullptr),
     snapshot_cache_hashtable_(nullptr),
+    snapshot_page_pool_(nullptr),
     log_buffer_(engine, id),
     current_xct_(engine, id),
     snapshot_file_set_(engine),
@@ -69,6 +70,7 @@ ErrorStack ThreadPimpl::initialize_once() {
   node_memory_ = engine_->get_memory_manager()->get_local_memory();
   core_memory_ = node_memory_->get_core_memory(id_);
   snapshot_cache_hashtable_ = node_memory_->get_snapshot_cache_table();
+  snapshot_page_pool_ = node_memory_->get_snapshot_pool();
   current_xct_.initialize(core_memory_, &control_block_->mcs_block_current_);
   CHECK_ERROR(snapshot_file_set_.initialize());
   CHECK_ERROR(log_buffer_.initialize());
@@ -250,7 +252,7 @@ ErrorCode ThreadPimpl::install_a_volatile_page(
   *installed_page = local_volatile_page_resolver_.resolve_offset_newpage(offset);
   std::memcpy(*installed_page, snapshot_page, storage::kPageSize);
   // We copied from a snapshot page, so the snapshot flag is on.
-  ASSERT_ND((*installed_page)->get_header().snapshot_ == false);
+  ASSERT_ND((*installed_page)->get_header().snapshot_);
   // This page is a volatile page, so set the snapshot flag off.
   (*installed_page)->get_header().snapshot_ = false;
   storage::VolatilePagePointer volatile_pointer = storage::combine_volatile_page_pointer(
@@ -389,6 +391,33 @@ ErrorCode ThreadPimpl::follow_page_pointer(
       current_xct_.add_to_pointer_set(&pointer->volatile_pointer_, volatile_pointer);
     }
   }
+  return kErrorCodeOk;
+}
+
+ErrorCode ThreadPimpl::on_snapshot_page_read_callback(
+  cache::CacheHashtable* /*table*/,
+  storage::SnapshotPagePointer page_id,
+  memory::PagePoolOffset* pool_offset) {
+  // grab a buffer page to read into.
+  memory::PagePoolOffset offset = core_memory_->grab_free_snapshot_page();
+  if (offset == 0) {
+    // TODO(Hideaki) First, we have to make sure this doesn't happen often (cleaner's work).
+    // Second, when this happens, we have to do eviction now, but probably after aborting the xct.
+    LOG(ERROR) << "Could not grab free snapshot page while cache miss. thread=" << *holder_
+      << ", page_id=" << assorted::Hex(page_id);
+    return kErrorCodeCacheNoFreePages;
+  }
+
+  storage::Page* new_page = snapshot_page_pool_->get_base() + offset;
+  ErrorCode read_result = read_a_snapshot_page(page_id, new_page);
+  if (read_result != kErrorCodeOk) {
+    LOG(ERROR) << "Failed to read a snapshot page. thread=" << *holder_
+      << ", page_id=" << assorted::Hex(page_id);
+    core_memory_->release_free_snapshot_page(offset);
+    return read_result;
+  }
+
+  *pool_offset = offset;
   return kErrorCodeOk;
 }
 

@@ -110,6 +110,7 @@ class TpccClientTask {
   ~TpccClientTask() {}
 
   ErrorStack run(thread::Thread* context);
+  ErrorStack run_impl(thread::Thread* context);
 
   uint32_t get_worker_id() const { return worker_id_; }
   uint32_t get_user_requested_aborts() const { return outputs_->user_requested_aborts_; }

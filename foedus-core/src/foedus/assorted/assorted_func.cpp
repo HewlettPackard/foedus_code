@@ -135,12 +135,12 @@ std::string demangle_type_name(const char* mangled_name) {
 uint64_t generate_almost_prime_below(uint64_t threshold) {
   if (threshold <= 2) {
     return 1;  // almost an invalid input...
-  } else if (threshold < 3500) {
+  } else if (threshold < 5000) {
     // for a small number, we just use a (very) sparse prime list
     uint16_t small_primes[] = {3677, 2347, 1361, 773, 449, 263, 151, 89, 41, 17, 2};
-    for (int i = 1;; ++i) {
+    for (int i = 0;; ++i) {
       if (threshold > small_primes[i]) {
-        return small_primes[i - 1];
+        return small_primes[i];
       }
     }
   } else {

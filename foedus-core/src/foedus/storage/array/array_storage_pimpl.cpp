@@ -45,16 +45,6 @@ ArrayOffset ArrayStorage::get_array_size()   const  { return control_block_->met
 uint8_t     ArrayStorage::get_levels()       const  { return control_block_->levels_; }
 const ArrayMetadata* ArrayStorage::get_array_metadata() const  { return &control_block_->meta_; }
 
-ErrorCode   ArrayStorage::prefetch_pages(
-  thread::Thread* context,
-  ArrayOffset from,
-  ArrayOffset to) {
-  if (to == 0) {
-    to = get_array_size();
-  }
-  return ArrayStoragePimpl(this).prefetch_pages(context, from, to);
-}
-
 ErrorStack ArrayStorage::verify_single_thread(thread::Thread* context) {
   return ArrayStoragePimpl(this).verify_single_thread(context);
 }
@@ -1012,6 +1002,14 @@ ErrorStack ArrayStoragePimpl::replace_pointers(const Composer::ReplacePointersAr
   control_block_->root_page_pointer_.snapshot_pointer_ = args.new_root_page_pointer_;
   ++(*args.installed_count_);
 
+  if (get_meta().keeps_all_volatile_pages()) {
+    LOG(INFO) << "Keep-all-volatile: Storage-" << control_block_->meta_.name_
+      << " is configured to keep all volatile pages.";
+    // in this case, there isn't much point to install snapshot pages to volatile images.
+    // they will not be used anyways.
+    return kRetOk;
+  }
+
   // Second, we iterate through all existing volatile pages to 1) install snapshot pages
   // and 2) drop volatile pages of level-3 or deeper (if the storage has only 2 levels, keeps all).
   // this "level-3 or deeper" is a configuration per storage.
@@ -1049,8 +1047,7 @@ ErrorStack ArrayStoragePimpl::replace_pointers_recurse(
   // Explore/replace children first because we need to know if there is new modification
   // in that case, we must keep this volatile page, too.
   ASSERT_ND(!volatile_page->is_leaf());
-  bool to_keep_volatile = is_to_keep_volatile(volatile_page->get_level());
-  if (to_keep_volatile) {
+  if (is_to_keep_volatile(volatile_page->get_level())) {
     *kept_volatile = true;
   }
   for (uint16_t i = 0; i < kInteriorFanout; ++i) {

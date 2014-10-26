@@ -284,13 +284,26 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     uint8_t parent_index);
 
   /** defined in masstree_storage_prefetch.cpp */
-  ErrorCode prefetch_pages_normalized(thread::Thread* context, KeySlice from, KeySlice to);
+  ErrorCode prefetch_pages_normalized(
+    thread::Thread* context,
+    bool install_volatile,
+    bool cache_snapshot,
+    KeySlice from,
+    KeySlice to);
   ErrorCode prefetch_pages_normalized_recurse(
     thread::Thread* context,
+    bool install_volatile,
+    bool cache_snapshot,
     KeySlice from,
     KeySlice to,
     MasstreePage* page);
-  ErrorCode prefetch_pages_exhaustive(thread::Thread* context, MasstreePage* page);
+  ErrorCode prefetch_pages_follow(
+    thread::Thread* context,
+    DualPagePointer* pointer,
+    bool vol_on,
+    bool snp_on,
+    KeySlice from,
+    KeySlice to);
 
   bool track_moved_record(xct::WriteXctAccess* write) ALWAYS_INLINE;
   xct::LockableXctId* track_moved_record(xct::LockableXctId* address) ALWAYS_INLINE;

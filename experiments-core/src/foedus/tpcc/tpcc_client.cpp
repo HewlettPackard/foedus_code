@@ -58,6 +58,15 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
   storages_.initialize_tables(engine_);
   channel_ = reinterpret_cast<TpccClientChannel*>(
     engine_->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
+  ErrorStack result = run_impl(context);
+  if (result.is_error()) {
+    LOG(ERROR) << "TPCC Client-" << worker_id_ << " exit with an error:" << result;
+  }
+  ++channel_->exit_nodes_;
+  return result;
+}
+
+ErrorStack TpccClientTask::run_impl(thread::Thread* context) {
   // std::memset(debug_wdcid_access_, 0, sizeof(debug_wdcid_access_));
   // std::memset(debug_wdid_access_, 0, sizeof(debug_wdid_access_));
   CHECK_ERROR(warmup(context));
@@ -192,14 +201,15 @@ ErrorCode TpccClientTask::lookup_customer_by_name(Wid wid, Did did, const char* 
 }
 
 ErrorStack TpccClientTask::warmup(thread::Thread* context) {
-  // prefetch small AND static tables completely
-  // we don't fully prefetch dynamic tables even if it's small because it will make
-  // later cacheline write more expensive
-  WRAP_ERROR_CODE(storages_.warehouses_static_.prefetch_pages(context));
-  WRAP_ERROR_CODE(storages_.districts_static_.prefetch_pages(context));
+  // Warmup snapshot cache for read-only tables. Install volatile pages for dynamic tables.
 
-  // item is a bit too large. let's not prefetch. no locality anyway
-  // WRAP_ERROR_CODE(storages_.items_.prefetch_pages(context));
+  // item has no locality, but still we want to pre-load snapshot cache, so:
+  {
+    uint64_t items_per_warehouse = kItems / total_warehouses_;
+    uint64_t from = items_per_warehouse * from_wid_;
+    uint64_t to = items_per_warehouse * to_wid_;
+    WRAP_ERROR_CODE(storages_.items_.prefetch_pages(context, false, true, from, to));
+  }
 
   Wid wid_begin = from_wid_;
   Wid wid_end = to_wid_;
@@ -207,48 +217,75 @@ ErrorStack TpccClientTask::warmup(thread::Thread* context) {
     // customers arrays
     Wdcid from = combine_wdcid(combine_wdid(wid_begin, 0), 0);
     Wdcid to = combine_wdcid(combine_wdid(wid_end, 0), 0);
-    WRAP_ERROR_CODE(storages_.customers_static_.prefetch_pages(context, from, to));
-    WRAP_ERROR_CODE(storages_.customers_dynamic_.prefetch_pages(context, from, to));
-    WRAP_ERROR_CODE(storages_.customers_history_.prefetch_pages(context, from, to));
+    WRAP_ERROR_CODE(storages_.customers_static_.prefetch_pages(context, false, true, from, to));
+    WRAP_ERROR_CODE(storages_.customers_dynamic_.prefetch_pages(context, true, false, from, to));
+    WRAP_ERROR_CODE(storages_.customers_history_.prefetch_pages(context, true, false, from, to));
   }
   {
     // customers secondary
     storage::masstree::KeySlice from = static_cast<storage::masstree::KeySlice>(wid_begin) << 48U;
     storage::masstree::KeySlice to = static_cast<storage::masstree::KeySlice>(wid_end) << 48U;
-    WRAP_ERROR_CODE(storages_.customers_secondary_.prefetch_pages_normalized(context, from, to));
+    WRAP_ERROR_CODE(storages_.customers_secondary_.prefetch_pages_normalized(
+      context,
+      false,
+      true,
+      from,
+      to));
   }
   {
     // stocks
     Sid from = combine_sid(wid_begin, 0);
     Sid to = combine_sid(wid_end, 0);
-    WRAP_ERROR_CODE(storages_.stocks_.prefetch_pages(context, from, to));
+    WRAP_ERROR_CODE(storages_.stocks_.prefetch_pages(context, true, false, from, to));
   }
   {
     // order/neworder
     Wdoid from = combine_wdoid(combine_wdid(wid_begin, 0), 0);
     Wdoid to = combine_wdoid(combine_wdid(wid_end, 0), 0);
-    WRAP_ERROR_CODE(storages_.neworders_.prefetch_pages_normalized(context, from, to));
-    WRAP_ERROR_CODE(storages_.orders_.prefetch_pages_normalized(context, from, to));
+    WRAP_ERROR_CODE(storages_.neworders_.prefetch_pages_normalized(context, true, false, from, to));
+    WRAP_ERROR_CODE(storages_.orders_.prefetch_pages_normalized(context, true, false, from, to));
   }
   {
     // order_secondary
     Wdcoid from = combine_wdcoid(combine_wdcid(combine_wdid(wid_begin, 0), 0), 0);
     Wdcoid to = combine_wdcoid(combine_wdcid(combine_wdid(wid_end, 0), 0), 0);
-    WRAP_ERROR_CODE(storages_.orders_secondary_.prefetch_pages_normalized(context, from, to));
+    WRAP_ERROR_CODE(storages_.orders_secondary_.prefetch_pages_normalized(
+      context,
+      true,
+      false,
+      from,
+      to));
   }
   {
     // orderlines
     Wdol from = combine_wdol(combine_wdoid(combine_wdid(wid_begin, 0), 0), 0);
     Wdol to = combine_wdol(combine_wdoid(combine_wdid(wid_end, 0), 0), 0);
-    WRAP_ERROR_CODE(storages_.orderlines_.prefetch_pages_normalized(context, from, to));
+    WRAP_ERROR_CODE(storages_.orderlines_.prefetch_pages_normalized(
+      context,
+      true,
+      false,
+      from,
+      to));
   }
 
-  WRAP_ERROR_CODE(storages_.warehouses_ytd_.prefetch_pages(context, wid_begin, wid_end));
+  WRAP_ERROR_CODE(storages_.warehouses_static_.prefetch_pages(
+    context,
+    false,
+    true,
+    wid_begin,
+    wid_end));
+  WRAP_ERROR_CODE(storages_.warehouses_ytd_.prefetch_pages(
+    context,
+    true,
+    false,
+    wid_begin,
+    wid_end));
   {
     Wdid from = combine_wdid(wid_begin, 0);
     Wdid to = combine_wdid(wid_end, 0);
-    WRAP_ERROR_CODE(storages_.districts_ytd_.prefetch_pages(context, from, to));
-    WRAP_ERROR_CODE(storages_.districts_next_oid_.prefetch_pages(context, from, to));
+    WRAP_ERROR_CODE(storages_.districts_static_.prefetch_pages(context, false, true, from, to));
+    WRAP_ERROR_CODE(storages_.districts_ytd_.prefetch_pages(context, true, false, from, to));
+    WRAP_ERROR_CODE(storages_.districts_next_oid_.prefetch_pages(context, true, false, from, to));
   }
 
   // Warmup done!

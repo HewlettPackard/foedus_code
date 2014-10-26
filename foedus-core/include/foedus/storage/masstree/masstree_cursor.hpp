@@ -117,7 +117,6 @@ class MasstreeCursor CXX11_FINAL {
   };
 
   MasstreeCursor(MasstreeStorage storage, thread::Thread* context);
-  ~MasstreeCursor();
 
   thread::Thread*   get_context() { return context_; }
   MasstreeStorage&  get_storage() { return storage_; }
@@ -217,29 +216,23 @@ class MasstreeCursor CXX11_FINAL {
   xct::XctId  cur_key_observed_owner_id_;
   xct::LockableXctId* cur_key_owner_id_address;
 
-  /** full big-endian key to terminate search. backed by end_key_memory_offset_ */
+  /** full big-endian key to terminate search. allocated in transaction's local work memory */
   char*       end_key_;
 
-  /** full big-endian key of current record. backed by cur_key_memory_offset_  */
+  /** full big-endian key of current record. allocated in transaction's local work memory */
   char*       cur_key_;
 
   /** full payload of current record. Directly points to address in current page */
   const char* cur_payload_;
 
-  /** full big-endian key of current search. backed by search_key_memory_offset_  */
+  /** full big-endian key of current search. allocated in transaction's local work memory */
   char*       search_key_;
 
   /** stable version of teh current border page as of copying cur_page_. */
   PageVersionStatus cur_page_stable_;
 
-  /** backed by routes_memory_offset_. */
+  /** allocated in transaction's local work memory. */
   Route*      routes_;
-
-  memory::PagePoolOffset routes_memory_offset_;
-  memory::PagePoolOffset end_key_memory_offset_;
-  memory::PagePoolOffset cur_key_memory_offset_;
-  memory::PagePoolOffset cur_payload_memory_offset_;
-  memory::PagePoolOffset search_key_memory_offset_;
 
   ErrorCode push_route(MasstreePage* page);
   void      fetch_cur_record(MasstreeBorderPage* page, uint8_t record);
@@ -271,10 +264,7 @@ class MasstreeCursor CXX11_FINAL {
   }
 
   template <typename T>
-  void release_if_exist(memory::PagePoolOffset* offset, T** pointer);
-
-  template <typename T>
-  ErrorCode allocate_if_not_exist(memory::PagePoolOffset* offset, T** pointer);
+  ErrorCode allocate_if_not_exist(T** pointer);
 
   bool is_search_key_extremum() const ALWAYS_INLINE {
     return search_key_length_ == kKeyLengthExtremum;

@@ -106,61 +106,101 @@ ErrorStack LogMapper::uninitialize_once() {
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 
+const uint64_t kIoAlignment = 0x1000;
+uint64_t align_io_floor(uint64_t offset) { return (offset / kIoAlignment) * kIoAlignment; }
+uint64_t align_io_ceil(uint64_t offset) { return align_io_floor(offset + kIoAlignment - 1U); }
+
 ErrorStack LogMapper::handle_process() {
   const Epoch base_epoch = parent_.get_base_epoch();
   const Epoch until_epoch = parent_.get_valid_until_epoch();
   log::LoggerRef logger = engine_->get_log_manager()->get_logger(id_);
   const log::LogRange log_range = logger.get_log_range(base_epoch, until_epoch);
-  log::LogFileOrdinal cur_file_ordinal = log_range.begin_file_ordinal;
-  uint64_t cur_offset = log_range.begin_offset;
+  // uint64_t cur_offset = log_range.begin_offset;
   if (log_range.is_empty()) {
     LOG(INFO) << to_string() << " has no logs to process";
     report_completion();
     return kRetOk;
   }
 
-  // open the file and seek to there.
+  // open the file and seek to there. be careful on page boundary.
+  // as we use direct I/O, all I/O must be 4kb-aligned. when the read range is not
+  // a multiply of 4kb, we read a little bit more (at most 4kb per read, so negligible).
+  // to clarify, here we use the following suffixes
+  //   "infile"/"inbuf" : the offset is an offset in entire file/IO buffer
+  //   "aligned" : the offset is 4kb-aligned (careful on floor vs ceil)
+  // Lengthy, but otherwise it's so confusing.
   processed_log_count_ = 0;
-  bool ended = false;
-  bool first_read = true;
-  while (!ended) {  // loop for log file switch
+  IoBufStatus status;
+  status.size_inbuf_aligned_ = io_buffer_.get_size();
+  status.cur_file_ordinal_ = log_range.begin_file_ordinal;
+  status.ended_ = false;
+  status.first_read_ = true;
+  while (!status.ended_) {  // loop for log file switch
     fs::Path path(engine_->get_options().log_.construct_suffixed_log_path(
       numa_node_,
       id_,
-      cur_file_ordinal));
+      status.cur_file_ordinal_));
     uint64_t file_size = fs::file_size(path);
-    uint64_t read_end;
-    if (cur_file_ordinal == log_range.end_file_ordinal) {
-      ASSERT_ND(log_range.end_offset <= file_size);
-      read_end = log_range.end_offset;
-    } else {
-      read_end = file_size;
+    if (file_size % kIoAlignment != 0) {
+      LOG(WARNING) << to_string() << " Interesting, non-aligned file size, which probably means"
+        << " previous writes didn't flush. file path=" << path << ", file size=" << file_size;
+      file_size = align_io_floor(file_size);
     }
-    DVLOG(1) << to_string() << " file path=" << path << ", file size=" << file_size
-      << ", read_end=" << read_end;
+    ASSERT_ND(file_size % kIoAlignment == 0);
+    status.size_infile_aligned_ = file_size;
+
+    // If this is the first file to read, we might be reading from non-zero position.
+    // In that case, be careful on alignment.
+    if (status.cur_file_ordinal_ == log_range.begin_file_ordinal) {
+      status.next_infile_ = log_range.begin_offset;
+    } else {
+      status.next_infile_ = 0;
+    }
+
+    if (status.cur_file_ordinal_ == log_range.end_file_ordinal) {
+      ASSERT_ND(log_range.end_offset <= file_size);
+      status.end_infile_ = log_range.end_offset;
+    } else {
+      status.end_infile_ = file_size;
+    }
+
+    DVLOG(1) << to_string() << " file path=" << path << ", file size=" << assorted::Hex(file_size)
+      << ", read_end=" << assorted::Hex(status.end_infile_);
     fs::DirectIoFile file(path, engine_->get_options().snapshot_.emulation_);
     WRAP_ERROR_CODE(file.open(true, false, false, false));
     DVLOG(1) << to_string() << "opened log file " << file;
 
-    while (!ended && cur_offset < read_end) {  // loop for each read in the file
+    while (true) {
       WRAP_ERROR_CODE(check_cancelled());  // check per each read
-      if (file.get_current_offset() != cur_offset) {
-        WRAP_ERROR_CODE(file.seek(cur_offset, fs::DirectIoFile::kDirectIoSeekSet));
-        DVLOG(1) << to_string() << "seeked to: " << cur_offset;
-      }
-      const uint64_t reads = std::min(io_buffer_.get_size(), read_end - cur_offset);
-      WRAP_ERROR_CODE(file.read(reads, &io_buffer_));
-      CHECK_ERROR(handle_process_buffer(file, reads, cur_file_ordinal, &cur_offset, &first_read));
+      status.buf_infile_aligned_ = align_io_floor(status.next_infile_);
+      WRAP_ERROR_CODE(file.seek(status.buf_infile_aligned_, fs::DirectIoFile::kDirectIoSeekSet));
+      DVLOG(1) << to_string() << " seeked to: " << assorted::Hex(status.buf_infile_aligned_);
+      status.end_inbuf_aligned_ = std::min(
+        io_buffer_.get_size(),
+        align_io_ceil(status.end_infile_ - status.buf_infile_aligned_));
+      ASSERT_ND(status.end_inbuf_aligned_ % kIoAlignment == 0);
+      WRAP_ERROR_CODE(file.read(status.end_inbuf_aligned_, &io_buffer_));
 
-      if (!ended && cur_offset == read_end) {
-        // we reached end of this file. was it the last file?
-        if (log_range.end_file_ordinal == cur_file_ordinal) {
-          ended = true;
+      status.cur_inbuf_ = 0;
+      if (status.next_infile_ != status.buf_infile_aligned_) {
+        ASSERT_ND(status.next_infile_ > status.buf_infile_aligned_);
+        status.cur_inbuf_ = status.next_infile_ - status.buf_infile_aligned_;
+        status.cur_inbuf_ = status.next_infile_ - status.buf_infile_aligned_;
+        DVLOG(1) << to_string() << " skipped " << status.cur_inbuf_ << " bytes for aligned read";
+      }
+
+      CHECK_ERROR(handle_process_buffer(file, &status));
+      if (status.more_in_the_file_) {
+        ASSERT_ND(status.next_infile_ > status.buf_infile_aligned_);
+      } else {
+        if (log_range.end_file_ordinal == status.cur_file_ordinal_) {
+          status.ended_ = true;
+          break;
         } else {
-          ++cur_file_ordinal;
-          cur_offset = 0;
+          ++status.cur_file_ordinal_;
+          status.next_infile_ = 0;
           LOG(INFO) << to_string()
-            << " moved on to next log file ordinal " << cur_file_ordinal;
+            << " moved on to next log file ordinal " << status.cur_file_ordinal_;
         }
       }
     }
@@ -177,86 +217,86 @@ void LogMapper::report_completion() {
   }
 }
 
-ErrorStack LogMapper::handle_process_buffer(
-  const fs::DirectIoFile &file, uint64_t buffered_bytes, log::LogFileOrdinal cur_file_ordinal,
-  uint64_t *cur_offset, bool *first_read) {
+ErrorStack LogMapper::handle_process_buffer(const fs::DirectIoFile &file, IoBufStatus* status) {
   const Epoch base_epoch = parent_.get_base_epoch();  // only for assertions
   const Epoch until_epoch = parent_.get_valid_until_epoch();  // only for assertions
-  const uint64_t file_len = fs::file_size(file.get_path());
 
   // many temporary memory are used only within this method and completely cleared out
   // for every call.
   clear_storage_buckets();
 
-  uint64_t pos;  // buffer-position
   char* buffer = reinterpret_cast<char*>(io_buffer_.get_block());
-  for (pos = 0; pos < buffered_bytes; ++processed_log_count_) {
+  status->more_in_the_file_ = false;
+  for (; status->cur_inbuf_ < status->end_inbuf_aligned_; ++processed_log_count_) {
     // Note: The loop here must be a VERY tight loop, iterated over every single log entry!
     // In most cases, we should be just calling bucket_log().
     const log::LogHeader* header
-      = reinterpret_cast<const log::LogHeader*>(buffer + pos);
+      = reinterpret_cast<const log::LogHeader*>(buffer + status->cur_inbuf_);
     ASSERT_ND(header->log_length_ > 0);
-    ASSERT_ND(*cur_offset != 0 || pos != 0
+    ASSERT_ND(status->buf_infile_aligned_ != 0 || status->cur_inbuf_ != 0
       || header->get_type() == log::kLogCodeEpochMarker);  // file starts with marker
     // we must be starting from epoch marker.
-    ASSERT_ND(!*first_read || header->get_type() == log::kLogCodeEpochMarker);
+    ASSERT_ND(!status->first_read_ || header->get_type() == log::kLogCodeEpochMarker);
     ASSERT_ND(header->get_kind() == log::kRecordLogs
       || header->get_type() == log::kLogCodeEpochMarker
       || header->get_type() == log::kLogCodeFiller);
 
-    if (UNLIKELY(header->log_length_ > buffered_bytes - pos)) {
+    if (UNLIKELY(header->log_length_ + status->cur_inbuf_ > status->end_inbuf_aligned_)) {
       // if a log goes beyond this read, stop processing here and read from that offset again.
       // this is simpler than glue-ing the fragment. This happens just once per 64MB read,
       // so not a big waste.
-      if (*cur_offset + pos + header->log_length_ > file_len) {
+      if (status->to_infile(status->cur_inbuf_ + header->log_length_)
+          > status->size_infile_aligned_) {
         // but it never spans two files. something is wrong.
-        LOG(ERROR) << "inconsistent end of log entry. offset=" << (*cur_offset + pos)
+        LOG(ERROR) << "inconsistent end of log entry. offset="
+          << status->to_infile(status->cur_inbuf_)
           << ", file=" << file << ", log header=" << *header;
         return ERROR_STACK_MSG(kErrorCodeSnapshotInvalidLogEnd, file.get_path().c_str());
       }
+      status->next_infile_ = status->to_infile(status->cur_inbuf_);
+      status->more_in_the_file_ = true;
       break;
     } else if (UNLIKELY(header->get_type() == log::kLogCodeEpochMarker)) {
       // skip epoch marker
       const log::EpochMarkerLogType *marker =
         reinterpret_cast<const log::EpochMarkerLogType*>(header);
       ASSERT_ND(header->log_length_ == sizeof(log::EpochMarkerLogType));
-      ASSERT_ND(marker->log_file_ordinal_ == cur_file_ordinal);
-      ASSERT_ND(marker->log_file_offset_ == *cur_offset + pos);
+      ASSERT_ND(marker->log_file_ordinal_ == status->cur_file_ordinal_);
+      ASSERT_ND(marker->log_file_offset_ == status->to_infile(status->cur_inbuf_));
       ASSERT_ND(marker->new_epoch_ >= marker->old_epoch_);
       ASSERT_ND(!base_epoch.is_valid() || marker->new_epoch_ >= base_epoch);
       ASSERT_ND(marker->new_epoch_ <= until_epoch);
-      if (*first_read) {
+      if (status->first_read_) {
         ASSERT_ND(!base_epoch.is_valid()
           || marker->old_epoch_ <= base_epoch  // otherwise we skipped some logs
           || marker->old_epoch_ == marker->new_epoch_);  // the first marker (old==new) is ok
-        *first_read = false;
+        status->first_read_ = false;
       } else {
         ASSERT_ND(!base_epoch.is_valid() || marker->old_epoch_ >= base_epoch);
       }
     } else if (UNLIKELY(header->get_type() == log::kLogCodeFiller)) {
       // skip filler log
     } else {
-      bool bucketed = bucket_log(header->storage_id_, pos);
+      bool bucketed = bucket_log(header->storage_id_, status->cur_inbuf_);
       if (UNLIKELY(!bucketed)) {
         // need to add a new bucket
         bool added = add_new_bucket(header->storage_id_);
         if (added) {
-          bucketed = bucket_log(header->storage_id_, pos);
+          bucketed = bucket_log(header->storage_id_, status->cur_inbuf_);
           ASSERT_ND(bucketed);
         } else {
           // runs out of bucket_memory. have to flush now.
           flush_all_buckets();
           added = add_new_bucket(header->storage_id_);
           ASSERT_ND(added);
-          bucketed = bucket_log(header->storage_id_, pos);
+          bucketed = bucket_log(header->storage_id_, status->cur_inbuf_);
           ASSERT_ND(bucketed);
         }
       }
     }
 
-    pos += header->log_length_;
+    status->cur_inbuf_ += header->log_length_;
   }
-  *cur_offset += pos;
 
   // bucktized all logs. now let's send them out to reducers
   flush_all_buckets();

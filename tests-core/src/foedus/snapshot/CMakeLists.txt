@@ -13,6 +13,9 @@ set(test_snapshot_array_individuals
   IncrementsTwiceOneLogger
   IncrementsTwiceTwoLoggers
   IncrementsTwiceTwoPartitions
+  TwoArraysOneLogger
+  TwoArraysTwoLoggers
+  TwoArraysTwoPartitions
   )
 add_foedus_test_individual(test_snapshot_array "${test_snapshot_array_individuals}")
 

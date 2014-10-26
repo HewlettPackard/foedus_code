@@ -68,12 +68,11 @@ ErrorStack NumaNodeMemory::initialize_once() {
   CHECK_ERROR(volatile_pool_.initialize());
   CHECK_ERROR(snapshot_pool_.initialize());
 
-  uint64_t cache_hashtable_entries = snapshot_pool_.get_memory_size() * 3 / storage::kPageSize;
-  CHECK_ERROR(allocate_huge_numa_memory(
-    cache_hashtable_entries * sizeof(cache::CacheHashtable::Bucket), &snapshot_hashtable_memory_));
-  snapshot_cache_table_ = new cache::CacheHashtable(
-    snapshot_hashtable_memory_,
-    snapshot_pool_.get_resolver().base_);
+  // snapshot_pool_ consumes #pages * 4kb bytes of memory.
+  // CacheBucket is 16 bytes, so even with 32-fold (3% full hashtable), we spend only
+  // #pages * 0.5kb for hash buckets. This is a neligible overhead.
+  uint64_t cache_hashtable_buckets = (snapshot_pool_.get_memory_size() / storage::kPageSize) * 32;
+  snapshot_cache_table_ = new cache::CacheHashtable(cache_hashtable_buckets, numa_node_);
   CHECK_ERROR(initialize_page_offset_chunk_memory());
   CHECK_ERROR(initialize_log_buffers_memory());
   for (auto ordinal = 0; ordinal < cores_; ++ordinal) {
@@ -160,7 +159,6 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
     delete snapshot_cache_table_;
     snapshot_cache_table_ = nullptr;
   }
-  snapshot_hashtable_memory_.release_block();
   batch.emprace_back(volatile_pool_.uninitialize());
   batch.emprace_back(snapshot_pool_.uninitialize());
   snapshot_pool_memory_.release_block();

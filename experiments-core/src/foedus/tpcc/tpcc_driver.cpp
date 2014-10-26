@@ -23,8 +23,10 @@
 #include "foedus/debugging/debugging_supports.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/fs/filesystem.hpp"
+#include "foedus/log/log_manager.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/proc/proc_manager.hpp"
+#include "foedus/snapshot/snapshot_manager.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
@@ -40,22 +42,25 @@ namespace foedus {
 namespace tpcc {
 DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
     " than threads in the same process. This is required to scale up to 100+ cores.");
+DEFINE_bool(take_snapshot, true, "Whether to run a log gleaner after loading data.");
+DEFINE_string(nvm_folder, "/testnvm", "Full path of the device representing NVM.");
 DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) worker threads in child"
     " processes on replicated binaries. This is required to scale up to 16 sockets.");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
-DEFINE_int32(volatile_pool_size, 4, "Size of volatile memory pool per NUMA node in GB.");
-DEFINE_bool(ignore_volatile_size_warning, true, "Ignores warning on volatile_pool_size setting.");
-DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
-DEFINE_int32(neworder_remote_percent, 1, "Percent of each orderline that is inserted to remote"
+DEFINE_int32(volatile_pool_size, 8, "Size of volatile memory pool per NUMA node in GB.");
+DEFINE_int32(snapshot_pool_size, 4, "Size of snapshot memory pool per NUMA node in GB.");
+DEFINE_int32(reducer_buffer_size, 4, "Size of reducer's buffer per NUMA node in GB.");
+DEFINE_int32(loggers_per_node, 2, "Number of log writers per numa node.");
+DEFINE_int32(neworder_remote_percent, 0, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
   " remote orderline). This corresponds to H-Store's neworder_multip/neworder_multip_mix in"
   " tpcc.properties.");
-DEFINE_int32(payment_remote_percent, 15, "Percent of each payment that is inserted to remote"
+DEFINE_int32(payment_remote_percent, 0, "Percent of each payment that is inserted to remote"
   " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
-DEFINE_int32(thread_per_node, 4, "Number of threads per NUMA node. 0 uses logical count");
+DEFINE_int32(thread_per_node, 6, "Number of threads per NUMA node. 0 uses logical count");
 DEFINE_int32(numa_nodes, 2, "Number of NUMA nodes. 0 uses physical count");
 DEFINE_bool(use_numa_alloc, true, "Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode()"
   " to allocate memories. If false, we use usual posix_memalign() instead");
@@ -63,10 +68,10 @@ DEFINE_bool(interleave_numa_alloc, false, "Whether to use ::numa_alloc_interleav
   " instead of ::numa_alloc_onnode()");
 DEFINE_bool(mmap_hugepages, false, "Whether to use mmap for 1GB hugepages."
   " This requies special setup written in the readme.");
-DEFINE_int32(log_buffer_mb, 128, "Size in MB of log buffer for each thread");
+DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
-DEFINE_int32(warehouses, 8, "Number of warehouses.");
+DEFINE_int32(warehouses, 12, "Number of warehouses.");
 DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
 
 TpccDriver::Result TpccDriver::run() {
@@ -154,6 +159,26 @@ TpccDriver::Result TpccDriver::run() {
   LOG(INFO) << "neworder_remote_percent=" << FLAGS_neworder_remote_percent;
   LOG(INFO) << "payment_remote_percent=" << FLAGS_payment_remote_percent;
 
+
+  if (FLAGS_take_snapshot) {
+    Epoch global_durable = engine_->get_log_manager()->get_durable_global_epoch();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    LOG(INFO) << "Now taking a snapshot...";
+    debugging::StopWatch watch;
+    engine_->get_snapshot_manager()->trigger_snapshot_immediate(true);
+    watch.stop();
+    LOG(INFO) << "Took a snapshot in " << watch.elapsed_ms() << "ms";
+    Epoch snapshot_epoch = engine_->get_snapshot_manager()->get_snapshot_epoch();
+    if (!snapshot_epoch.is_valid() || snapshot_epoch < global_durable) {
+      LOG(FATAL) << "Failed to take snapshot??";
+    }
+    TpccStorages storages;
+    storages.initialize_tables(engine_);
+    if (!storages.has_snapshot_versions()) {
+      LOG(FATAL) << "No snapshot versions??";
+    }
+  }
+
   TpccClientChannel* channel = reinterpret_cast<TpccClientChannel*>(
     engine_->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
   channel->initialize();
@@ -191,6 +216,9 @@ TpccDriver::Result TpccDriver::run() {
   while (channel->warmup_complete_counter_.load() < total_thread_count) {
     LOG(INFO) << "Waiting for warmup completion... done=" << channel->warmup_complete_counter_
       << "/" << total_thread_count;
+    if (channel->exit_nodes_ != 0) {
+      LOG(FATAL) << "FATAL. Some client exitted with error.";
+    }
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
 
@@ -374,6 +402,60 @@ int driver_main(int argc, char **argv) {
   options.log_.loggers_per_node_ = FLAGS_loggers_per_node;
   options.log_.flush_at_shutdown_ = false;
   options.snapshot_.snapshot_interval_milliseconds_ = 100000000U;
+
+  if (FLAGS_take_snapshot) {
+    std::cout << "Will take snapshot after initial data load." << std::endl;
+    FLAGS_null_log_device = false;
+
+    options.snapshot_.log_mapper_io_buffer_mb_ = 1 << 8;
+    options.snapshot_.log_reducer_buffer_mb_ = FLAGS_reducer_buffer_size << 10;
+    options.snapshot_.snapshot_writer_page_pool_size_mb_ = 1 << 10;
+    options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 1 << 8;
+    options.cache_.snapshot_cache_size_mb_per_node_ = FLAGS_snapshot_pool_size << 10;
+
+    fs::Path nvm_folder(FLAGS_nvm_folder);
+    if (!fs::exists(nvm_folder)) {
+      std::cerr << "The NVM-folder " << nvm_folder << " not mounted yet";
+      return 1;
+    }
+
+    fs::Path tpcc_folder(nvm_folder);
+    tpcc_folder /= "foedus_tpcc";
+    if (fs::exists(tpcc_folder)) {
+      fs::remove_all(tpcc_folder);
+    }
+    if (!fs::create_directories(tpcc_folder)) {
+      std::cerr << "Couldn't create " << tpcc_folder << ". err=" << assorted::os_error();
+      return 1;
+    }
+
+    savepoint_path = tpcc_folder;
+    savepoint_path /= "savepoint.xml";
+    if (fs::exists(savepoint_path)) {
+      fs::remove(savepoint_path);
+    }
+    ASSERT_ND(!fs::exists(savepoint_path));
+    options.savepoint_.savepoint_path_.assign(savepoint_path.string());
+
+    fs::Path snapshot_folder(tpcc_folder);
+    snapshot_folder /= "snapshot";
+    if (fs::exists(snapshot_folder)) {
+      fs::remove_all(snapshot_folder);
+    }
+    fs::Path snapshot_pattern(snapshot_folder);
+    snapshot_pattern /= "node_$NODE$";
+    options.snapshot_.folder_path_pattern_.assign(snapshot_pattern.string());
+
+    fs::Path log_folder(tpcc_folder);
+    log_folder /= "log";
+    if (fs::exists(log_folder)) {
+      fs::remove_all(log_folder);
+    }
+    fs::Path log_pattern(log_folder);
+    log_pattern /= "node_$NODE$/logger_$LOGGER$";
+    options.log_.folder_path_pattern_.assign(log_pattern.string());
+  }
+
   options.debugging_.debug_log_min_threshold_
     = debugging::DebuggingOptions::kDebugLogInfo;
     // = debugging::DebuggingOptions::kDebugLogWarning;
@@ -413,15 +495,6 @@ int driver_main(int argc, char **argv) {
     options.thread_.overwrite_thread_schedule_ = true;
     options.thread_.thread_policy_ = thread::kScheduleFifo;
     options.thread_.thread_priority_ = thread::kPriorityHighest;
-  }
-
-  if (!FLAGS_ignore_volatile_size_warning) {
-    if (FLAGS_volatile_pool_size < FLAGS_warehouses * 4 / options.thread_.group_count_) {
-      LOG(FATAL) << "You have specified: warehouses=" << FLAGS_warehouses << ", which is "
-        << (static_cast<float>(FLAGS_warehouses) / options.thread_.group_count_) << " warehouses"
-        << " per NUMA node. You should specify at least "
-        << (FLAGS_warehouses * 4 / options.thread_.group_count_) << "GB for volatile_pool_size.";
-    }
   }
 
   if (FLAGS_fork_workers) {

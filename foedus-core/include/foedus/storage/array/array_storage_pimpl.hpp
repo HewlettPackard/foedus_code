@@ -96,9 +96,16 @@ class ArrayStoragePimpl final {
   ErrorStack  verify_single_thread(thread::Thread* context, ArrayPage* page);
 
   /** defined in array_storage_prefetch.cpp */
-  ErrorCode   prefetch_pages(thread::Thread* context, ArrayOffset from, ArrayOffset to);
+  ErrorCode   prefetch_pages(
+    thread::Thread* context,
+    bool install_volatile,
+    bool cache_snapshot,
+    ArrayOffset from,
+    ArrayOffset to);
   ErrorCode   prefetch_pages_recurse(
     thread::Thread* context,
+    bool install_volatile,
+    bool cache_snapshot,
     ArrayOffset from,
     ArrayOffset to,
     ArrayPage* page);

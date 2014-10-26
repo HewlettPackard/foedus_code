@@ -3,12 +3,10 @@
 warehouses=192
 loggers_per_node=2
 volatile_pool_size=16
-snapshot_pool_size=8
-reducer_buffer_size=16
 duration_micro=10000000
 thread_per_node=12
 numa_nodes=16
 log_buffer_mb=1024
 machine_name="DragonHawk"
 machine_shortname="dh"
-. run_common.sh
+. run_nvm.sh

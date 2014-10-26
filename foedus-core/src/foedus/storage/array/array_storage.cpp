@@ -55,6 +55,23 @@ std::ostream& operator<<(std::ostream& o, const ArrayStorage& v) {
 }
 
 
+ErrorCode   ArrayStorage::prefetch_pages(
+  thread::Thread* context,
+  bool install_volatile,
+  bool cache_snapshot,
+  ArrayOffset from,
+  ArrayOffset to) {
+  if (to == 0) {
+    to = get_array_size();
+  }
+  return ArrayStoragePimpl(this).prefetch_pages(
+    context,
+    install_volatile,
+    cache_snapshot,
+    from,
+    to);
+}
+
 ErrorStack ArrayStorage::replace_pointers(const Composer::ReplacePointersArguments& args) {
   return ArrayStoragePimpl(this).replace_pointers(args);
 }

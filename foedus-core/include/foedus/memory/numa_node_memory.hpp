@@ -119,8 +119,6 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   AlignedMemory                           snapshot_pool_control_block_;
   AlignedMemory                           snapshot_pool_memory_;
 
-  /** Memory for hash buckets for snapshot_cache_table_. */
-  AlignedMemory                           snapshot_hashtable_memory_;
   /** Hashtable for in-memory snapshot page pool in this node. */
   cache::CacheHashtable*                  snapshot_cache_table_;
 

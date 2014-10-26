@@ -98,6 +98,8 @@ ErrorStack RestartManagerPimpl::redo_meta_logs(Epoch durable_epoch, Epoch snapsh
   uint64_t oldest_offset;
   uint64_t durable_offset;
   engine_->get_savepoint_manager()->get_meta_logger_offsets(&oldest_offset, &durable_offset);
+  ASSERT_ND(oldest_offset % (1 << 12) == 0);
+  ASSERT_ND(durable_offset % (1 << 12) == 0);
   ASSERT_ND(oldest_offset <= durable_offset);
   ASSERT_ND(fs::file_size(path) >= durable_offset);
   uint32_t read_size = durable_offset - oldest_offset;

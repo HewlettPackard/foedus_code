@@ -4,6 +4,8 @@ cd /dev/shm
 git clone --depth 1 http://github.com/apavlo/h-store.git
 Or tar -xf ~/h-store_copy_20141019.tar.gz
 
+git clone --depth 1 http://245-1.bfc.hpl.hp.com/kimurhid/h-store.git
+
 ant build
 
 ssh-keygen -t dsa
@@ -70,3 +72,20 @@ Note, be aware of this error:
   hstore-site:
   OpenJDK 64-Bit Server VM warning: Max heap size too large for Compressed Oops
 Keep heap sizes within 32GB.
+
+
+Edit this file:
+emacs -nw src/frontend/org/voltdb/processtools/ProcessSetManager.java
+
+Change line 77
+    private static final int POLLING_DELAY = 2000; // ms
+to
+    private static final int POLLING_DELAY = 60000; // ms
+
+Change line 329:
+  this(null, false, 10000, null);
+to
+  this(null, false, 60000, null);
+
+
+Then ant

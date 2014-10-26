@@ -767,7 +767,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
   } else {
 #ifndef NDEBUG
     if (border->should_split_early(count, get_meta().border_early_split_threshold_)) {
-      LOG(INFO) << "Early split! cur count=" << static_cast<int>(count)
+      DVLOG(1) << "Early split! cur count=" << static_cast<int>(count)
         << ", storage=" << get_name();
     }
 #endif  // NDEBUG
@@ -1057,8 +1057,9 @@ inline bool MasstreeStoragePimpl::track_moved_record(xct::WriteXctAccess* write)
   MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(
     to_page(write->owner_id_address_));
   ASSERT_ND(page == reinterpret_cast<MasstreeBorderPage*>(to_page(write->payload_address_)));
-  MasstreeBorderPage* located_page;
-  uint8_t located_index;
+  ASSERT_ND(page->is_moved());
+  MasstreeBorderPage* located_page = nullptr;
+  uint8_t located_index = 0;
   if (!page->track_moved_record(engine_, write->owner_id_address_, &located_page, &located_index)) {
     return false;
   }
@@ -1069,8 +1070,9 @@ inline bool MasstreeStoragePimpl::track_moved_record(xct::WriteXctAccess* write)
 
 inline xct::LockableXctId* MasstreeStoragePimpl::track_moved_record(xct::LockableXctId* address) {
   MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(to_page(address));
-  MasstreeBorderPage* located_page;
-  uint8_t located_index;
+  ASSERT_ND(page->is_moved());
+  MasstreeBorderPage* located_page = nullptr;
+  uint8_t located_index = 0;
   if (!page->track_moved_record(engine_, address, &located_page, &located_index)) {
     return nullptr;
   }
@@ -1096,6 +1098,14 @@ ErrorStack MasstreeStoragePimpl::replace_pointers(const Composer::ReplacePointer
   control_block_->meta_.root_snapshot_page_id_ = args.new_root_page_pointer_;
   control_block_->root_page_pointer_.snapshot_pointer_ = args.new_root_page_pointer_;
   ++(*args.installed_count_);
+
+  if (get_meta().keeps_all_volatile_pages()) {
+    LOG(INFO) << "Keep-all-volatile: Storage-" << control_block_->meta_.name_
+      << " is configured to keep all volatile pages.";
+    // in this case, there isn't much point to install snapshot pages to volatile images.
+    // they will not be used anyways.
+    return kRetOk;
+  }
 
   // TODO(Hideaki) As described below, we so far drop all volatile pages and reload only the root.
   MasstreePage* first_root = resolve_volatile(control_block_->root_page_pointer_.volatile_pointer_);

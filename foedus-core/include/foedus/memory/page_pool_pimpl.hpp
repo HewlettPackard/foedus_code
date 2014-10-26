@@ -78,8 +78,9 @@ class PagePoolPimpl final : public DefaultInitializable {
   PagePool::Stat      get_stat() const;
   uint64_t&           free_pool_head() { return control_block_->free_pool_head_;}
   uint64_t            free_pool_head() const { return control_block_->free_pool_head_;}
-  uint64_t&           free_pool_count() { return control_block_->free_pool_count_;}
-  uint64_t            free_pool_count() const { return control_block_->free_pool_count_;}
+  uint64_t  get_free_pool_count() const { return control_block_->free_pool_count_;}
+  void      increase_free_pool_count(uint64_t op) { control_block_->free_pool_count_ += op; }
+  void      decrease_free_pool_count(uint64_t op) { control_block_->free_pool_count_ -= op; }
 
   std::string         get_debug_pool_name() const {
     if (control_block_) {

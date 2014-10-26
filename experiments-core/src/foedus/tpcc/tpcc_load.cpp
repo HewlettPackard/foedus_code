@@ -69,16 +69,19 @@ ErrorStack create_all(Engine* engine, Wid total_warehouses) {
   CHECK_ERROR(create_array(
     engine,
     "customers_static",
+    false,
     sizeof(CustomerStaticData),
     total_warehouses * kDistricts * kCustomers));
   CHECK_ERROR(create_array(
     engine,
     "customers_dynamic",
+    true,
     sizeof(CustomerDynamicData),
     total_warehouses * kDistricts * kCustomers));
   CHECK_ERROR(create_array(
     engine,
     "customers_history",
+    true,
     CustomerStaticData::kHistoryDataLength,
     total_warehouses * kDistricts * kCustomers));
   LOG(INFO) << "Created Customers:" << engine->get_memory_manager()->dump_free_memory_stat();
@@ -86,21 +89,25 @@ ErrorStack create_all(Engine* engine, Wid total_warehouses) {
   CHECK_ERROR(create_masstree(
     engine,
     "customers_secondary",
+    false,
     0));  // customer is a static table, so why not 100% fill-factor
 
   CHECK_ERROR(create_array(
     engine,
     "districts_static",
+    false,
     sizeof(DistrictStaticData),
     total_warehouses * kDistricts));
   CHECK_ERROR(create_array(
     engine,
     "districts_ytd",
+    true,
     sizeof(DistrictYtdData),
     total_warehouses * kDistricts));
   CHECK_ERROR(create_array(
     engine,
     "districts_next_oid",
+    true,
     sizeof(DistrictNextOidData),
     total_warehouses * kDistricts));
   LOG(INFO) << "Created Districts:" << engine->get_memory_manager()->dump_free_memory_stat();
@@ -111,26 +118,36 @@ ErrorStack create_all(Engine* engine, Wid total_warehouses) {
   CHECK_ERROR(create_masstree(
     engine,
     "neworders",
+    true,
     64 * 0.75));
   CHECK_ERROR(create_masstree(
     engine,
     "orders",
+    true,
     (storage::masstree::MasstreeBorderPage::kDataSize / sizeof(OrderData)) * 0.75));
   CHECK_ERROR(create_masstree(
     engine,
     "orders_secondary",
+    true,
     64 * 0.75));
   CHECK_ERROR(create_masstree(
     engine,
     "orderlines",
+    true,
     (storage::masstree::MasstreeBorderPage::kDataSize / sizeof(OrderlineData)) * 0.75));
 
-  CHECK_ERROR(create_array(engine, "items", sizeof(ItemData), kItems));
+  CHECK_ERROR(create_array(
+    engine,
+    "items",
+    false,
+    sizeof(ItemData),
+    kItems));
   LOG(INFO) << "Created Items:" << engine->get_memory_manager()->dump_free_memory_stat();
 
   CHECK_ERROR(create_array(
     engine,
     "stocks",
+    true,
     sizeof(StockData),
     total_warehouses * kItems));
   LOG(INFO) << "Created Stocks:" << engine->get_memory_manager()->dump_free_memory_stat();
@@ -138,11 +155,13 @@ ErrorStack create_all(Engine* engine, Wid total_warehouses) {
   CHECK_ERROR(create_array(
     engine,
     "warehouses_static",
+    false,
     sizeof(WarehouseStaticData),
     total_warehouses));
   CHECK_ERROR(create_array(
     engine,
     "warehouses_ytd",
+    true,
     sizeof(WarehouseYtdData),
     total_warehouses));
   LOG(INFO) << "Created Warehouses:" << engine->get_memory_manager()->dump_free_memory_stat();
@@ -156,19 +175,27 @@ ErrorStack create_all(Engine* engine, Wid total_warehouses) {
 ErrorStack create_array(
   Engine* engine,
   const storage::StorageName& name,
+  bool keep_all_volatile_pages,
   uint32_t payload_size,
   uint64_t array_size) {
   Epoch ep;
   storage::array::ArrayMetadata meta(name, payload_size, array_size);
+  if (keep_all_volatile_pages) {
+    meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
+  }
   return engine->get_storage_manager()->create_storage(&meta, &ep);
 }
 
 ErrorStack create_masstree(
   Engine* engine,
   const storage::StorageName& name,
+  bool keep_all_volatile_pages,
   float border_fill_factor) {
   Epoch ep;
   storage::masstree::MasstreeMetadata meta(name, border_fill_factor);
+  if (keep_all_volatile_pages) {
+    meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
+  }
   return engine->get_storage_manager()->create_storage(&meta, &ep);
 }
 
@@ -350,7 +377,6 @@ ErrorStack TpccLoadTask::load_items() {
   random_orig(orig);
 
   Epoch ep;
-  auto storage = storages_.items_;
   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
   ItemData data;
   for (Iid iid = from_iid_; iid < to_iid_; ++iid) {
@@ -369,7 +395,7 @@ ErrorStack TpccLoadTask::load_items() {
     DVLOG(2) << "IID = " << iid << ", Name= " << data.name_ << ", Price = " << data.price_;
 
     data.im_id_ = 0;
-    WRAP_ERROR_CODE(storage.overwrite_record(context_, iid, &data, 0, sizeof(data)));
+    WRAP_ERROR_CODE(storages_.items_.overwrite_record(context_, iid, &data, 0, sizeof(data)));
     WRAP_ERROR_CODE(commit_if_full());
     if ((iid % 20000) == 0) {
       LOG(INFO) << "IID=" << iid << "/" << kItems;
@@ -383,7 +409,6 @@ ErrorStack TpccLoadTask::load_items() {
 
 ErrorStack TpccLoadTask::load_stocks() {
   Epoch ep;
-  auto storage = storages_.stocks_;
   WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
   StockData data;
   for (Wid wid = from_wid_; wid < to_wid_; ++wid) {
@@ -409,7 +434,7 @@ ErrorStack TpccLoadTask::load_stocks() {
       data.order_cnt_ = 0;
       data.remote_cnt_ = 0;
       Sid sid = combine_sid(wid, iid);
-      WRAP_ERROR_CODE(storage.overwrite_record(context_, sid, &data, 0, sizeof(data)));
+      WRAP_ERROR_CODE(storages_.stocks_.overwrite_record(context_, sid, &data, 0, sizeof(data)));
       WRAP_ERROR_CODE(commit_if_full());
       DVLOG(2) << "SID = " << iid << ", WID = " << wid << ", Quan = " << data.quantity_;
       if ((iid % 20000) == 0) {
@@ -677,6 +702,12 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
           wdol,
           &(ol_data[ol]),
           sizeof(OrderlineData)));
+      }
+      if (successive_aborts == 0) {
+        // first rep is just to reserve records
+        WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
+        ++successive_aborts;
+        continue;
       }
       ErrorCode ret = xct_manager_->precommit_xct(context_, &ep);
       if (ret == kErrorCodeOk) {

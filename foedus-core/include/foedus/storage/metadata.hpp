@@ -43,18 +43,46 @@ namespace storage {
  * It must not have any heap-allocated data (eg std::string) nor virtual methods.
  */
 struct Metadata {
-  Metadata() : id_(0), type_(kInvalidStorage), name_(""), root_snapshot_page_id_(0) {}
+  /** Tuning parameters related to snapshotting. */
+  struct SnapshotThresholds {
+    SnapshotThresholds() : snapshot_trigger_threshold_(0), snapshot_keep_threshold_(0) {}
+    /**
+     * [Not implemented yet] If this storage has more than this number of volatile pages,
+     * log gleaner will soon start to drop some of the volatile pages.
+     * Default is 0, meaning this storage has no such threshold.
+     */
+    uint32_t        snapshot_trigger_threshold_;
+    /**
+     * [Only partially implemented] When a log gleaner created new snapshot pages for this storage,
+     * this storage tries to keep this number of volatile pages. The implementation will try to
+     * keep volatile pages that will most frequently used.
+     * Default is 0, meaning this storage drops all volatile pages after each snapshot.
+     */
+    uint32_t        snapshot_keep_threshold_;
+  };
+
+  Metadata()
+    : id_(0), type_(kInvalidStorage), name_(""), root_snapshot_page_id_(0), snapshot_thresholds_() {
+  }
   Metadata(StorageId id, StorageType type, const StorageName& name)
-    : id_(id), type_(type), name_(name), root_snapshot_page_id_(0) {}
+    : id_(id), type_(type), name_(name), root_snapshot_page_id_(0), snapshot_thresholds_() {}
   Metadata(
     StorageId id,
     StorageType type,
     const StorageName& name,
     SnapshotPagePointer root_snapshot_page_id)
-    : id_(id), type_(type), name_(name), root_snapshot_page_id_(root_snapshot_page_id) {}
+    : id_(id),
+    type_(type),
+    name_(name),
+    root_snapshot_page_id_(root_snapshot_page_id),
+    snapshot_thresholds_() {}
 
   /** to_string operator of all Metadata objects. */
   static std::string describe(const Metadata& metadata);
+
+  bool keeps_all_volatile_pages() const {
+    return snapshot_thresholds_.snapshot_keep_threshold_ == 0xFFFFFFFFU;
+  }
 
   /** the unique ID of this storage. */
   StorageId       id_;
@@ -67,6 +95,8 @@ struct Metadata {
    * This is 0 until this storage has the first snapshot.
    */
   SnapshotPagePointer root_snapshot_page_id_;
+
+  SnapshotThresholds  snapshot_thresholds_;
 };
 
 struct MetadataSerializer : public virtual externalize::Externalizable {

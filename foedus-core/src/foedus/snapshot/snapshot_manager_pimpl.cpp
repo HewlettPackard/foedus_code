@@ -58,7 +58,7 @@ ErrorStack SnapshotManagerPimpl::initialize_once() {
       = engine_->get_savepoint_manager()->get_latest_snapshot_id();
     LOG(INFO) << "Latest snapshot: id=" << control_block_->previous_snapshot_id_ << ", epoch="
       << control_block_->snapshot_epoch_;
-    control_block_->immediate_snapshot_requested_.store(false);
+    control_block_->requested_snapshot_epoch_.store(Epoch::kEpochInvalid);
 
     const EngineOptions& options = engine_->get_options();
     uint32_t reducer_count = options.thread_.group_count_;
@@ -188,10 +188,11 @@ void SnapshotManagerPimpl::handle_snapshot() {
     Epoch previous_epoch = get_snapshot_epoch();
     if (previous_epoch.is_valid() && previous_epoch == durable_epoch) {
       LOG(INFO) << "Current snapshot is already latest. durable_epoch=" << durable_epoch;
-    } else if (control_block_->immediate_snapshot_requested_) {
+    } else if (control_block_->get_requested_snapshot_epoch().is_valid()
+        && (!previous_epoch.is_valid()
+            || control_block_->get_requested_snapshot_epoch() > previous_epoch)) {
       // if someone requested immediate snapshot, do it.
       triggered = true;
-      control_block_->immediate_snapshot_requested_.store(false);
       LOG(INFO) << "Immediate snapshot request detected. snapshotting..";
     } else if (std::chrono::system_clock::now() >= until) {
       triggered = true;
@@ -256,22 +257,20 @@ void SnapshotManagerPimpl::trigger_snapshot_immediate(bool wait_completion) {
   LOG(INFO) << "Requesting to immediately take a snapshot...";
   Epoch before = get_snapshot_epoch();
   Epoch durable_epoch = engine_->get_log_manager()->get_durable_global_epoch();
-  if (before.is_valid() && before == durable_epoch) {
+  ASSERT_ND(durable_epoch.is_valid());
+  if (before.is_valid() && before >= durable_epoch) {
     LOG(INFO) << "Current snapshot is already latest. durable_epoch=" << durable_epoch;
     return;
   }
 
-  while (before == get_snapshot_epoch() && !is_stop_requested()) {
-    control_block_->immediate_snapshot_requested_.store(true);
-    wakeup();
-    if (wait_completion) {
-      LOG(INFO) << "Waiting for the completion of snapshot... before=" << before;
-      {
-        soc::SharedMutexScope scope(control_block_->snapshot_taken_.get_mutex());
-        control_block_->snapshot_taken_.timedwait(&scope, 10000000ULL);
-      }
-    } else {
-      break;
+  control_block_->requested_snapshot_epoch_.store(durable_epoch.value());
+  wakeup();
+  if (wait_completion) {
+    VLOG(0) << "Waiting for the completion of snapshot... before=" << before;
+    while (!is_stop_requested() &&
+        (!get_snapshot_epoch().is_valid() || durable_epoch > get_snapshot_epoch())) {
+      soc::SharedMutexScope scope(control_block_->snapshot_taken_.get_mutex());
+      control_block_->snapshot_taken_.timedwait(&scope, 100000000ULL);
     }
   }
   LOG(INFO) << "Observed the completion of snapshot! after=" << get_snapshot_epoch();
