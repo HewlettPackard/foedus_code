@@ -409,7 +409,7 @@ int driver_main(int argc, char **argv) {
     options.snapshot_.log_reducer_buffer_mb_ = 1 << 11;
     options.snapshot_.snapshot_writer_page_pool_size_mb_ = 1 << 10;
     options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 1 << 8;
-    options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 14;
+    options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 12;
 
     fs::Path nvm_folder(FLAGS_nvm_folder);
     if (!fs::exists(nvm_folder)) {
