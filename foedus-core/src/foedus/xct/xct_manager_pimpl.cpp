@@ -68,6 +68,7 @@ ErrorStack XctManagerPimpl::initialize_once() {
     control_block_->current_global_epoch_
       = engine_->get_savepoint_manager()->get_initial_current_epoch().value();
     ASSERT_ND(get_current_global_epoch().is_valid());
+    control_block_->requested_global_epoch_ = control_block_->current_global_epoch_.load();
     control_block_->epoch_advance_thread_terminate_requested_ = false;
     epoch_advance_thread_ = std::move(std::thread(&XctManagerPimpl::handle_epoch_advance, this));
   }
@@ -113,8 +114,10 @@ void XctManagerPimpl::handle_epoch_advance() {
       if (is_stop_requested()) {
         break;
       }
-      bool signaled = control_block_->epoch_advance_wakeup_.timedwait(&scope, interval_nanosec);
-      VLOG(1) << "epoch_advance_thread. wokeup with " << (signaled ? "signal" : "timeout");
+      if (get_requested_global_epoch() <= get_current_global_epoch())  {  // otherwise no sleep
+        bool signaled = control_block_->epoch_advance_wakeup_.timedwait(&scope, interval_nanosec);
+        VLOG(1) << "epoch_advance_thread. wokeup with " << (signaled ? "signal" : "timeout");
+      }
     }
     if (is_stop_requested()) {
       break;
@@ -139,15 +142,26 @@ void XctManagerPimpl::wakeup_epoch_advance_thread() {
 
 void XctManagerPimpl::advance_current_global_epoch() {
   Epoch now = get_current_global_epoch();
-  LOG(INFO) << "Requesting to immediately advance epoch. current_global_epoch_=" << now << "...";
-  while (now == get_current_global_epoch()) {
+  Epoch request = now.one_more();
+  LOG(INFO) << "Requesting to immediately advance epoch. request=" << request << "...";
+  // set request value, atomically
+  while (true) {
+    Epoch already_requested = get_requested_global_epoch();
+    if (already_requested >= request) {
+      break;
+    }
+    Epoch::EpochInteger cmp = already_requested.value();
+    if (control_block_->requested_global_epoch_.compare_exchange_strong(cmp, request.value())) {
+      break;
+    }
+  }
+  while (get_current_global_epoch() < request) {
     wakeup_epoch_advance_thread();
     {
       soc::SharedMutexScope scope(control_block_->current_global_epoch_advanced_.get_mutex());
-      if (now != get_current_global_epoch()) {
-        break;
+      if (get_current_global_epoch() < request) {
+        control_block_->current_global_epoch_advanced_.wait(&scope);
       }
-      control_block_->current_global_epoch_advanced_.wait(&scope);
     }
   }
 
