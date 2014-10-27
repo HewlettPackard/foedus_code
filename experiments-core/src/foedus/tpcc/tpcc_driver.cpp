@@ -42,7 +42,7 @@ namespace foedus {
 namespace tpcc {
 DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
     " than threads in the same process. This is required to scale up to 100+ cores.");
-DEFINE_bool(take_snapshot, true, "Whether to run a log gleaner after loading data.");
+DEFINE_bool(take_snapshot, false, "Whether to run a log gleaner after loading data.");
 DEFINE_string(nvm_folder, "/testnvm", "Full path of the device representing NVM.");
 DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) worker threads in child"
     " processes on replicated binaries. This is required to scale up to 16 sockets.");
@@ -126,7 +126,19 @@ TpccDriver::Result TpccDriver::run() {
     }
 
     bool had_error = false;
+    const uint64_t kMaxWaitMs = 60 * 1000;
+    const uint64_t kIntervalMs = 10;
+    uint64_t wait_count = 0;
     for (uint16_t i = 0; i < sessions.size(); ++i) {
+      assorted::memory_fence_acquire();
+      if (wait_count * kIntervalMs > kMaxWaitMs) {
+        LOG(FATAL) << "Data population is taking much longer than expected. Quiting.";
+      }
+      if (sessions[i].is_running()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMs));
+        ++wait_count;
+        continue;
+      }
       LOG(INFO) << "loader_result[" << i << "]=" << sessions[i].get_result();
       if (sessions[i].get_result().is_error()) {
         had_error = true;
