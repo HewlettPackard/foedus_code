@@ -218,6 +218,26 @@ ErrorCode CacheHashtable::install_missed_page(
   // The bucket does not have to be the only bucket to serve the page, so
   // the logic below is much simpler than typical bufferpool.
   BucketId ideal_bucket = get_bucket_number(page_id);
+
+  // An opportunistic optimization. if the exact bucket already has the same page_id,
+  // most likely someone else is trying to install it at the same time. let's wait.
+  if (buckets_[ideal_bucket].page_id_ == page_id) {
+    const CacheBucket& bucket = buckets_[ideal_bucket];
+    SPINLOCK_WHILE(bucket.status_.is_being_modified()) {
+      assorted::memory_fence_acquire();
+    }
+    assorted::memory_fence_acquire();
+    CacheBucketStatus status = bucket.status_;  // regular read
+    if (bucket.page_id_ == page_id && status.is_content_set() && !status.is_being_modified()) {
+      assorted::memory_fence_consume();
+      if (bucket.page_id_ == page_id) {
+        DVLOG(0) << "See, a bit of patience paid off!";
+        *out = status.get_content_id();
+        return kErrorCodeOk;
+      }
+    }
+  }
+
   BucketId occupied_bucket = kBucketNotFound;
   CHECK_ERROR_CODE(grab_unused_bucket(page_id, ideal_bucket, &occupied_bucket));
   ASSERT_ND(occupied_bucket != kBucketNotFound);

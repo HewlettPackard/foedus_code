@@ -211,63 +211,69 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
 // let's do this even in release. good to check abnormal state
 // #ifndef NDEBUG
   WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kSerializable));
-  CHECK_ERROR(storages_.customers_secondary_.verify_single_thread(context));
+  // to speedup experiments, skip a few storages' verify() if they are static storages.
+  // TODO(Hideaki) make verify() checks snapshot pages too.
+  if (storages_.customers_secondary_.get_metadata()->root_snapshot_page_id_ != 0) {
+    CHECK_ERROR(storages_.customers_secondary_.verify_single_thread(context));
+  }
   CHECK_ERROR(storages_.neworders_.verify_single_thread(context));
   CHECK_ERROR(storages_.orderlines_.verify_single_thread(context));
   CHECK_ERROR(storages_.orders_.verify_single_thread(context));
   CHECK_ERROR(storages_.orders_secondary_.verify_single_thread(context));
   WRAP_ERROR_CODE(engine->get_xct_manager()->abort_xct(context));
 
-  LOG(INFO) << "Verifying customers_secondary_ in detail..";
-  WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kDirtyReadPreferVolatile));
-  storage::masstree::MasstreeCursor cursor(storages_.customers_secondary_, context);
-  WRAP_ERROR_CODE(cursor.open());
-  for (Wid wid = 0; wid < total_warehouses_; ++wid) {
-    for (Did did = 0; did < kDistricts; ++did) {
-      bool cid_array[kCustomers];
-      std::memset(cid_array, 0, sizeof(cid_array));
-      for (uint32_t c = 0; c < kCustomers; ++c) {  // NOT cid
-        if (!cursor.is_valid_record()) {
-          LOG(FATAL) << "Record not exist: customers_secondary_: wid=" << wid << ", did="
-            << static_cast<int>(did) << ", c=" << c;
+  if (storages_.customers_secondary_.get_metadata()->root_snapshot_page_id_ != 0) {
+    LOG(INFO) << "Verifying customers_secondary_ in detail..";
+    WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kDirtyReadPreferVolatile));
+    storage::masstree::MasstreeCursor cursor(storages_.customers_secondary_, context);
+    WRAP_ERROR_CODE(cursor.open());
+    for (Wid wid = 0; wid < total_warehouses_; ++wid) {
+      for (Did did = 0; did < kDistricts; ++did) {
+        bool cid_array[kCustomers];
+        std::memset(cid_array, 0, sizeof(cid_array));
+        for (uint32_t c = 0; c < kCustomers; ++c) {  // NOT cid
+          if (!cursor.is_valid_record()) {
+            LOG(FATAL) << "Record not exist: customers_secondary_: wid=" << wid << ", did="
+              << static_cast<int>(did) << ", c=" << c;
+          }
+          if (cursor.get_key_length() != CustomerSecondaryKey::kKeyLength) {
+            LOG(FATAL) << "Key Length wrong: customers_secondary_: wid=" << wid << ", did="
+              << static_cast<int>(did) << ", c=" << c;
+          }
+          if (cursor.get_payload_length() != 0) {
+            LOG(FATAL) << "Payload Length wrong: customers_secondary_: wid=" << wid << ", did="
+              << static_cast<int>(did) << ", c=" << c;
+          }
+          const char* key = cursor.get_key();
+          Wid wid2 = assorted::read_bigendian<Wid>(key);
+          if (wid != wid2) {
+            LOG(FATAL) << "Wid mismatch: customers_secondary_: wid=" << wid << ", did="
+              << static_cast<int>(did) << ", c=" << c << ". value=" << wid2;
+          }
+          Did did2 = assorted::read_bigendian<Did>(key + sizeof(Wid));
+          if (did != did2) {
+            LOG(FATAL) << "Did mismatch: customers_secondary_: wid=" << wid << ", did="
+              << static_cast<int>(did) << ", c=" << c << ". value=" << static_cast<int>(did2);
+          }
+          Cid cid = assorted::betoh<Cid>(
+            *reinterpret_cast<const Cid*>(key + sizeof(Wid) + sizeof(Did) + 32));
+          if (cid >= kCustomers) {
+            LOG(FATAL) << "Cid out of range: customers_secondary_: wid=" << wid << ", did="
+              << static_cast<int>(did) << ", c=" << c << ". value=" << cid;
+          }
+          if (cid_array[cid]) {
+            LOG(FATAL) << "Cid duplicate: customers_secondary_: wid=" << wid << ", did="
+              << static_cast<int>(did) << ", c=" << c << ". value=" << cid;
+          }
+          cid_array[cid] = true;
+          WRAP_ERROR_CODE(cursor.next());
         }
-        if (cursor.get_key_length() != CustomerSecondaryKey::kKeyLength) {
-          LOG(FATAL) << "Key Length wrong: customers_secondary_: wid=" << wid << ", did="
-            << static_cast<int>(did) << ", c=" << c;
-        }
-        if (cursor.get_payload_length() != 0) {
-          LOG(FATAL) << "Payload Length wrong: customers_secondary_: wid=" << wid << ", did="
-            << static_cast<int>(did) << ", c=" << c;
-        }
-        const char* key = cursor.get_key();
-        Wid wid2 = assorted::read_bigendian<Wid>(key);
-        if (wid != wid2) {
-          LOG(FATAL) << "Wid mismatch: customers_secondary_: wid=" << wid << ", did="
-            << static_cast<int>(did) << ", c=" << c << ". value=" << wid2;
-        }
-        Did did2 = assorted::read_bigendian<Did>(key + sizeof(Wid));
-        if (did != did2) {
-          LOG(FATAL) << "Did mismatch: customers_secondary_: wid=" << wid << ", did="
-            << static_cast<int>(did) << ", c=" << c << ". value=" << static_cast<int>(did2);
-        }
-        Cid cid = assorted::betoh<Cid>(
-          *reinterpret_cast<const Cid*>(key + sizeof(Wid) + sizeof(Did) + 32));
-        if (cid >= kCustomers) {
-          LOG(FATAL) << "Cid out of range: customers_secondary_: wid=" << wid << ", did="
-            << static_cast<int>(did) << ", c=" << c << ". value=" << cid;
-        }
-        if (cid_array[cid]) {
-          LOG(FATAL) << "Cid duplicate: customers_secondary_: wid=" << wid << ", did="
-            << static_cast<int>(did) << ", c=" << c << ". value=" << cid;
-        }
-        cid_array[cid] = true;
-        WRAP_ERROR_CODE(cursor.next());
       }
     }
-  }
 
-  WRAP_ERROR_CODE(engine->get_xct_manager()->abort_xct(context));
-  LOG(INFO) << "Verified customers_secondary_ in detail.";
+    WRAP_ERROR_CODE(engine->get_xct_manager()->abort_xct(context));
+    LOG(INFO) << "Verified customers_secondary_ in detail.";
+  }
 // #endif  // NDEBUG
 
   LOG(INFO) << "Loaded all tables. Waiting for flushing all logs...";
