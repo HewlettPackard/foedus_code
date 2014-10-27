@@ -42,16 +42,16 @@ namespace foedus {
 namespace tpcc {
 DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
     " than threads in the same process. This is required to scale up to 100+ cores.");
-DEFINE_bool(take_snapshot, true, "Whether to run a log gleaner after loading data.");
+DEFINE_bool(take_snapshot, false, "Whether to run a log gleaner after loading data.");
 DEFINE_string(nvm_folder, "/testnvm", "Full path of the device representing NVM.");
 DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) worker threads in child"
     " processes on replicated binaries. This is required to scale up to 16 sockets.");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
-DEFINE_int32(volatile_pool_size, 8, "Size of volatile memory pool per NUMA node in GB.");
+DEFINE_int32(volatile_pool_size, 6, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_int32(snapshot_pool_size, 4, "Size of snapshot memory pool per NUMA node in GB.");
 DEFINE_int32(reducer_buffer_size, 4, "Size of reducer's buffer per NUMA node in GB.");
-DEFINE_int32(loggers_per_node, 2, "Number of log writers per numa node.");
+DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 0, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
   " remote orderline). This corresponds to H-Store's neworder_multip/neworder_multip_mix in"
@@ -60,8 +60,8 @@ DEFINE_int32(payment_remote_percent, 0, "Percent of each payment that is inserte
   " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
-DEFINE_int32(thread_per_node, 6, "Number of threads per NUMA node. 0 uses logical count");
-DEFINE_int32(numa_nodes, 2, "Number of NUMA nodes. 0 uses physical count");
+DEFINE_int32(thread_per_node, 4, "Number of threads per NUMA node. 0 uses logical count");
+DEFINE_int32(numa_nodes, 4, "Number of NUMA nodes. 0 uses physical count");
 DEFINE_bool(use_numa_alloc, true, "Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode()"
   " to allocate memories. If false, we use usual posix_memalign() instead");
 DEFINE_bool(interleave_numa_alloc, false, "Whether to use ::numa_alloc_interleaved()"
@@ -71,8 +71,8 @@ DEFINE_bool(mmap_hugepages, false, "Whether to use mmap for 1GB hugepages."
 DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
-DEFINE_int32(warehouses, 12, "Number of warehouses.");
-DEFINE_int64(duration_micro, 5000000, "Duration of benchmark in microseconds.");
+DEFINE_int32(warehouses, 16, "Number of warehouses.");
+DEFINE_int64(duration_micro, 1000000, "Duration of benchmark in microseconds.");
 
 TpccDriver::Result TpccDriver::run() {
   const EngineOptions& options = engine_->get_options();
@@ -126,7 +126,19 @@ TpccDriver::Result TpccDriver::run() {
     }
 
     bool had_error = false;
+    const uint64_t kMaxWaitMs = 60 * 1000;
+    const uint64_t kIntervalMs = 10;
+    uint64_t wait_count = 0;
     for (uint16_t i = 0; i < sessions.size(); ++i) {
+      assorted::memory_fence_acquire();
+      if (wait_count * kIntervalMs > kMaxWaitMs) {
+        LOG(FATAL) << "Data population is taking much longer than expected. Quiting.";
+      }
+      if (sessions[i].is_running()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMs));
+        ++wait_count;
+        continue;
+      }
       LOG(INFO) << "loader_result[" << i << "]=" << sessions[i].get_result();
       if (sessions[i].get_result().is_error()) {
         had_error = true;

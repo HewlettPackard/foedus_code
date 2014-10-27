@@ -313,6 +313,8 @@ struct MasstreeOverwriteLogType : public MasstreeCommonLogType {
     uint16_t    payload_offset,
     uint16_t    payload_count) ALWAYS_INLINE {
     log::LogCode type = log::kLogCodeMasstreeOverwrite;
+    ASSERT_ND(payload_count > 0U);
+    ASSERT_ND(key_length > 0U);
     populate_base(type, storage_id, key, key_length, payload, payload_offset, payload_count);
   }
 

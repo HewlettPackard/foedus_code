@@ -126,6 +126,7 @@ void MasstreeBorderPage::initialize_snapshot_page(
     layer,
     low_fence,
     high_fence);
+  consecutive_inserts_ = true;  // snapshot pages are always completely sorted
 }
 
 void MasstreePage::release_pages_recursive_common(

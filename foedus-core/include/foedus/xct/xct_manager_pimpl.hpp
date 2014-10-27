@@ -47,6 +47,13 @@ struct XctManagerControlBlock {
    * (current_global_epoch_ begins with 1, not 0. So, epoch-0 is always an empty/dummy epoch)
    */
   std::atomic<Epoch::EpochInteger>  current_global_epoch_;
+  /**
+   * If some thread requested to immediately advance epoch, the requested epoch.
+   * If this is less than or equal to current_global_epoch_, there is no immediate
+   * advance request.
+   * @invariant requested_global_epoch_.is_valid()
+   */
+  std::atomic<Epoch::EpochInteger>  requested_global_epoch_;
 
   /** Fired (broadcast) whenever current_global_epoch_ is advanced. */
   soc::SharedCond                   current_global_epoch_advanced_;
@@ -86,6 +93,9 @@ class XctManagerPimpl final : public DefaultInitializable {
 
   Epoch       get_current_global_epoch() const {
     return Epoch(control_block_->current_global_epoch_.load());
+  }
+  Epoch       get_requested_global_epoch() const {
+    return Epoch(control_block_->requested_global_epoch_.load());
   }
   Epoch       get_current_global_epoch_weak() const {
     return Epoch(control_block_->current_global_epoch_.load(std::memory_order_relaxed));
