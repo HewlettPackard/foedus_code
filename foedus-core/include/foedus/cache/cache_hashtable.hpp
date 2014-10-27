@@ -14,6 +14,7 @@
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/error_code.hpp"
+#include "foedus/error_stack.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/assorted/cacheline.hpp"
 #include "foedus/assorted/const_div.hpp"
@@ -121,6 +122,32 @@ struct CacheBucketStatus CXX11_FINAL {
   }
 };
 
+/** Auto-release scope */
+struct CacheBucketUnsetModifyScope CXX11_FINAL {
+  explicit CacheBucketUnsetModifyScope(CacheBucketStatus* status)
+    : status_(status), unset_(false) {
+    ASSERT_ND(status->is_being_modified());
+  }
+  ~CacheBucketUnsetModifyScope() {
+    if (!unset_) {
+      CacheBucketStatus new_status = *status_;
+      new_status.unset_being_modified();
+      unset_now(new_status);
+    }
+  }
+  void unset_now(CacheBucketStatus new_status) {
+    ASSERT_ND(!unset_);
+    unset_ = true;
+    ASSERT_ND(status_->is_being_modified());
+    ASSERT_ND(!new_status.is_being_modified());
+    assorted::memory_fence_release();
+    *status_ = new_status;
+    assorted::memory_fence_release();
+  }
+  CacheBucketStatus* const status_;
+  bool unset_;
+};
+
 
 /**
  * @brief Hash bucket in cache table.
@@ -144,6 +171,7 @@ struct CacheBucket CXX11_FINAL {
   void atomic_set_hop_bit(uint16_t hop);
   void atomic_empty();
   bool try_occupy_unused_bucket();
+  void spin_occupy();
 };
 
 /**
@@ -214,6 +242,9 @@ class CacheHashtable CXX11_FINAL {
 
   BucketId find_next_empty_bucket(BucketId from_bucket) const;
 
+  /** only for debugging. don't call this in a race */
+  ErrorStack verify_single_thread() const;
+
 
  protected:
   const uint16_t            numa_node_;
@@ -267,6 +298,17 @@ inline ContentId CacheHashtable::conservatively_locate(
   ASSERT_ND(page_id > 0);
   uint32_t bucket_number = get_bucket_number(page_id);
   ASSERT_ND(bucket_number < get_logical_buckets());
+
+  /* sequential search version. for debugging
+  for (uint8_t i = 0; i < kHopNeighbors; ++i) {
+    const CacheBucket& bucket = buckets_[bucket_number + i];
+    CacheBucketStatus status = bucket.status_;  // this is guaranteed to be a regular read in x86
+    if (bucket.page_id_ == page_id && status.is_content_set() && !status.is_being_modified()) {
+      return status.get_content_id();
+    }
+  }
+  */
+
   const CacheBucket& bucket = buckets_[bucket_number];
   CacheBucketStatus status = bucket.status_;  // this is guaranteed to be a regular read in x86
   uint32_t hop_bitmap = status.get_hop_bitmap();
@@ -309,6 +351,7 @@ inline ContentId CacheHashtable::conservatively_locate(
       }
     }
   }
+
   return 0;
 }
 
