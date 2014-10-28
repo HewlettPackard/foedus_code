@@ -328,7 +328,7 @@ class LogMapper final : public MapReduceBase {
   /** Insert the new BucketHashList. This shouldn't be called often. */
   void add_storage_hashlist(BucketHashList* new_hashlist);
 
-  void report_completion();
+  void report_completion(double elapsed_sec);
 };
 
 
