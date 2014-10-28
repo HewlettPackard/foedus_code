@@ -118,7 +118,7 @@ ErrorStack LogMapper::handle_process() {
   // uint64_t cur_offset = log_range.begin_offset;
   if (log_range.is_empty()) {
     LOG(INFO) << to_string() << " has no logs to process";
-    report_completion();
+    report_completion(0);
     return kRetOk;
   }
 
