@@ -208,15 +208,16 @@ ErrorStack LogMapper::handle_process() {
     file.close();
   }
   watch.stop();
-  VLOG(0) << to_string() << " processed " << processed_log_count_ << " log entries in "
+  LOG(INFO) << to_string() << " processed " << processed_log_count_ << " log entries in "
     << watch.elapsed_sec() << "s";
-  report_completion();
+  report_completion(watch.elapsed_sec());
   return kRetOk;
 }
-void LogMapper::report_completion() {
+void LogMapper::report_completion(double elapsed_sec) {
   uint16_t value_after = parent_.increment_completed_mapper_count();
   if (value_after == parent_.get_mappers_count()) {
-    LOG(INFO) << "All mappers done. " << to_string() << " was the last mapper.";
+    LOG(INFO) << "All mappers done. " << to_string() << " was the last mapper. took "
+      << elapsed_sec << "s";
   }
 }
 
