@@ -132,13 +132,17 @@ ErrorStack LogGleaner::execute() {
   clear_all();
 
   LOG(INFO) << "Gleaner Step 1: Design partitions for all storages...";
+  debugging::StopWatch watch1;
   // Another approach is to delay this step until some mapper really needs it so that we can
   // skip partition-designing for storages that weren't modified.
   // However, it requires synchronization in mapper/reducer and this step is anyway fast enough.
   // So, we so far simply design partitions for all of them.
   CHECK_ERROR(design_partitions());
+  watch1.stop();
+  LOG(INFO) << "Gleaner Step 1: Ended in " << watch1.elapsed_sec() << "s";
 
   LOG(INFO) << "Gleaner Step 2: Run mappers/reducers...";
+  debugging::StopWatch watch2;
   // Request each node's snapshot manager to launch mappers/reducers threads
   control_block_->gleaning_ = true;
   engine_->get_soc_manager()->get_shared_memory_repo()->get_global_memory_anchors()->
@@ -152,8 +156,11 @@ ErrorStack LogGleaner::execute() {
   }
 
   control_block_->gleaning_ = false;
+  watch2.stop();
+  LOG(INFO) << "Gleaner Step 2: Ended in " << watch2.elapsed_sec() << "s";
 
   LOG(INFO) << "Gleaner Step 3: Combine outputs from reducers (root page info)..." << *this;
+  debugging::StopWatch watch3;
   if (is_error()) {
     LOG(ERROR) << "Some mapper/reducer got an error. " << *this;
   } else if (!is_all_completed()) {
@@ -162,6 +169,8 @@ ErrorStack LogGleaner::execute() {
     LOG(INFO) << "All mappers/reducers successfully done. Now on to the final phase." << *this;
     CHECK_ERROR(construct_root_pages());
   }
+  watch3.stop();
+  LOG(INFO) << "Gleaner Step 3: Ended in " << watch3.elapsed_sec() << "s";
 
   LOG(INFO) << "Gleaner Step 4: Uninitializing...";
   CHECK_ERROR(cancel_reducers_mappers());

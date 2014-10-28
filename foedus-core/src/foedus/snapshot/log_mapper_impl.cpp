@@ -135,6 +135,7 @@ ErrorStack LogMapper::handle_process() {
   status.cur_file_ordinal_ = log_range.begin_file_ordinal;
   status.ended_ = false;
   status.first_read_ = true;
+  debugging::StopWatch watch;
   while (!status.ended_) {  // loop for log file switch
     fs::Path path(engine_->get_options().log_.construct_suffixed_log_path(
       numa_node_,
@@ -206,7 +207,9 @@ ErrorStack LogMapper::handle_process() {
     }
     file.close();
   }
-  VLOG(0) << to_string() << " processed " << processed_log_count_ << " log entries";
+  watch.stop();
+  VLOG(0) << to_string() << " processed " << processed_log_count_ << " log entries in "
+    << watch.elapsed_sec() << "s";
   report_completion();
   return kRetOk;
 }

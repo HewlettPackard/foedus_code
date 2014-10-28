@@ -499,6 +499,7 @@ ErrorStack SnapshotManagerPimpl::replace_pointers(
         dropped_chunks,
         &installed_count,
         &dropped_count};
+      debugging::StopWatch watch;
       result = composer.replace_pointers(args);
       if (result.is_error()) {
         LOG(ERROR) << "composer.replace_pointers() failed with storage-" << id << ":" << result;
@@ -510,6 +511,8 @@ ErrorStack SnapshotManagerPimpl::replace_pointers(
         == new_root_page_pointer);
       installed_count_total += installed_count;
       dropped_count_total += dropped_count;
+      watch.stop();
+      LOG(INFO) << "replace_pointers for storage-" << id << " took " << watch.elapsed_sec() << "s";
     }
   }
   engine_->get_xct_manager()->resume_accepting_xct();

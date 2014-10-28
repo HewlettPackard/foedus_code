@@ -1,3 +1,11 @@
+First, sudo yum install ant ant-*
+Otherwise
+[kimurhid@tmsim-4 h-store]$ ant
+Buildfile: /dev/shm/h-store/build.xml
+  [taskdef] Could not load definitions from resource net/sf/antcontrib/antcontrib.properties. It could not be found.
+
+
+
 http://hstore.cs.brown.edu/documentation/deployment/client-configuration/
 
 cd /dev/shm
@@ -107,6 +115,10 @@ sudo umount /testnvm
 sudo mount -t nvmfs -o rd_delay_ns_fixed=0,wr_delay_ns_fixed=0,rd_delay_ns_per_kb=0,wr_delay_ns_per_kb=0,cpu_freq_mhz=2800,size=1000000m nvmfs /testnvm
 mkdir /testnvm/anticache;mkdir /testnvm/commandlog
 
+
+sudo umount /testnvm
+sudo mount -t nvmfs -o rd_delay_ns_fixed=10000000,wr_delay_ns_fixed=10000000,rd_delay_ns_per_kb=0,wr_delay_ns_per_kb=0,cpu_freq_mhz=2800,size=1000000m nvmfs /testnvm
+mkdir /testnvm/anticache;mkdir /testnvm/commandlog
 
 "site.anticache_batching"
 Default:  false
