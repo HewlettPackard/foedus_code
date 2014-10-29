@@ -540,13 +540,13 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
   if (middle_size > 0) {
     memory::AlignedMemorySlice subslice(buffer->buffer_memory_, from_offset, middle_size);
     {
-      debugging::StopWatch watch;
+      // debugging::StopWatch watch;
       VLOG(1) << "Writing middle regions: " << middle_size << " bytes. slice=" << subslice;
       WRAP_ERROR_CODE(current_file_->write(middle_size, subslice));
-      watch.stop();
-      // Maybe VLOG(0). but we need this information for the paper
-      LOG(INFO) << "Wrote middle regions of " << middle_size << " bytes in "
-        << watch.elapsed_ms() << "ms";
+      // watch.stop();
+      // mm, in fact too noisy... Maybe VLOG(0). but we need this information for the paper
+      // LOG(INFO) << "Wrote middle regions of " << middle_size << " bytes in "
+      //   << watch.elapsed_ms() << "ms";
     }
     buffer->advance_offset_durable(middle_size);
   }
