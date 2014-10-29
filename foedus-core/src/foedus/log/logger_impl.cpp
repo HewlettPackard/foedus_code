@@ -161,15 +161,17 @@ void Logger::handle_logger() {
     }
     const int kMaxIterations = 100;
     int iterations = 0;
+    // just for debug out
     debugging::StopWatch watch;
-    uint64_t before_offset = control_block_->current_file_durable_offset_;  // just for debug out
+    uint64_t before_offset = (current_file_ ? current_file_-> get_current_offset() : 0);
+
     while (!is_stop_requested()) {
       assert_consistent();
       bool more_log_to_process = false;
       COERCE_ERROR(handle_logger_once(&more_log_to_process));
       if (!more_log_to_process) {
         watch.stop();
-        uint64_t after_offset = control_block_->current_file_durable_offset_;
+        uint64_t after_offset = (current_file_ ? current_file_-> get_current_offset() : 0);
         // maybe VLOG(0)
         if (after_offset != before_offset) {
           LOG(INFO) << "Logger-" << id_ << " wrote out " << (after_offset - before_offset)
