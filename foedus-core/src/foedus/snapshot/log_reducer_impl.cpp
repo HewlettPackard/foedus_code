@@ -290,7 +290,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
         << ", storage_id=" << storage_id;
     }
     shortest_key_length = std::min<uint32_t>(shortest_key_length, header->shortest_key_length_);
-    longest_key_length = std::min<uint32_t>(longest_key_length, header->longest_key_length_);
+    longest_key_length = std::max<uint32_t>(longest_key_length, header->longest_key_length_);
     BufferPosition record_pos = position + to_buffer_position(sizeof(FullBlockHeader));
     for (uint32_t i = 0; i < header->log_count_; ++i) {
       log::RecordLogType* record = buffer.resolve(record_pos);

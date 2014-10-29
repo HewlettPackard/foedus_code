@@ -548,7 +548,7 @@ void LogMapper::send_bucket_partition(
       uint16_t key_length = the_log->key_length_;
       ASSERT_ND(key_length > 0);
       shortest_key_length = std::min<uint32_t>(shortest_key_length, key_length);
-      longest_key_length = std::min<uint32_t>(longest_key_length, key_length);
+      longest_key_length = std::max<uint32_t>(longest_key_length, key_length);
     }
     // TODO(Hideaki) and hash storage later
   }
