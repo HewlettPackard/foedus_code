@@ -293,6 +293,12 @@ class MasstreeIntermediatePage final : public MasstreePage {
   const MiniPage&   get_minipage(uint8_t index) const ALWAYS_INLINE { return mini_pages_[index]; }
   KeySlice          get_separator(uint8_t index) const ALWAYS_INLINE { return separators_[index]; }
 
+  /**
+   * This method is used when we release a large number of volatile pages, most likely
+   * when we drop a storage. In that case, we don't need to stick to the current thread.
+   * rather, this thread spawns lots of threads to parallelize the work.
+   */
+  void              release_pages_recursive_parallel(Engine* engine);
   void              release_pages_recursive(
     const memory::GlobalVolatilePageResolver& page_resolver,
     memory::PageReleaseBatch* batch);

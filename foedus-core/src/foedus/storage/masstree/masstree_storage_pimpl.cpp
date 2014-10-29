@@ -46,11 +46,10 @@ ErrorStack MasstreeStoragePimpl::drop() {
     // release volatile pages
     const memory::GlobalVolatilePageResolver& page_resolver
       = engine_->get_memory_manager()->get_global_volatile_page_resolver();
-    MasstreePage* first_root = reinterpret_cast<MasstreePage*>(
+    // first root is guaranteed to be an intermediate page
+    MasstreeIntermediatePage* first_root = reinterpret_cast<MasstreeIntermediatePage*>(
       page_resolver.resolve_offset(control_block_->root_page_pointer_.volatile_pointer_));
-    memory::PageReleaseBatch release_batch(engine_);
-    first_root->release_pages_recursive_common(page_resolver, &release_batch);
-    release_batch.release_all();
+    first_root->release_pages_recursive_parallel(engine_);
     control_block_->root_page_pointer_.volatile_pointer_.word = 0;
   }
 
@@ -1108,12 +1107,9 @@ ErrorStack MasstreeStoragePimpl::replace_pointers(const Composer::ReplacePointer
   }
 
   // TODO(Hideaki) As described below, we so far drop all volatile pages and reload only the root.
-  MasstreePage* first_root = resolve_volatile(control_block_->root_page_pointer_.volatile_pointer_);
-  const memory::GlobalVolatilePageResolver& page_resolver
-    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
-  memory::PageReleaseBatch release_batch(engine_);
-  first_root->release_pages_recursive_common(page_resolver, &release_batch);
-  release_batch.release_all();
+  MasstreeIntermediatePage* first_root = reinterpret_cast<MasstreeIntermediatePage*>(
+    resolve_volatile(control_block_->root_page_pointer_.volatile_pointer_));
+  first_root->release_pages_recursive_parallel(engine_);
   control_block_->root_page_pointer_.volatile_pointer_.clear();
 
   // we always keep a root volatile page. install it now

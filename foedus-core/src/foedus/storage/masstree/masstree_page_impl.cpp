@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <thread>
 
 #include "foedus/engine.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
@@ -16,6 +17,7 @@
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
+#include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/thread.hpp"
@@ -140,6 +142,51 @@ void MasstreePage::release_pages_recursive_common(
     MasstreeIntermediatePage* casted = reinterpret_cast<MasstreeIntermediatePage*>(this);
     casted->release_pages_recursive(page_resolver, batch);
   }
+}
+
+
+void release_parallel(Engine* engine, VolatilePagePointer pointer) {
+  const memory::GlobalVolatilePageResolver& page_resolver
+    = engine->get_memory_manager()->get_global_volatile_page_resolver();
+  MasstreePage* p = reinterpret_cast<MasstreePage*>(page_resolver.resolve_offset(pointer));
+  memory::PageReleaseBatch release_batch(engine);
+  p->release_pages_recursive_common(page_resolver, &release_batch);
+  release_batch.release_all();
+}
+
+
+void MasstreeIntermediatePage::release_pages_recursive_parallel(Engine* engine) {
+  // so far, we spawn a thread for every single pointer.
+  // it might be an oversubscription, but not a big issue.
+  std::vector<std::thread> threads;
+  for (int i = 0; i < 2; ++i) {
+    if (!foster_twin_[i].is_null()) {
+      threads.emplace_back(release_parallel, engine, foster_twin_[i]);
+    }
+  }
+  uint16_t key_count = get_key_count();
+  ASSERT_ND(key_count <= kMaxIntermediateSeparators);
+  for (uint8_t i = 0; i < key_count + 1; ++i) {
+    MiniPage& minipage = get_minipage(i);
+    uint16_t mini_count = minipage.key_count_;
+    ASSERT_ND(mini_count <= kMaxIntermediateMiniSeparators);
+    for (uint8_t j = 0; j < mini_count + 1; ++j) {
+      VolatilePagePointer pointer = minipage.pointers_[j].volatile_pointer_;
+      if (pointer.components.offset != 0) {
+        threads.emplace_back(release_parallel, engine, pointer);
+      }
+    }
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  VolatilePagePointer volatile_id;
+  volatile_id.word = header().page_id_;
+  memory::PagePool* pool = engine->get_memory_manager()->get_node_memory(
+    volatile_id.components.numa_node)->get_volatile_pool();
+  pool->release_one(volatile_id.components.offset);
 }
 
 void MasstreeIntermediatePage::release_pages_recursive(
