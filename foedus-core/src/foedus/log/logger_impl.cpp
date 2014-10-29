@@ -171,8 +171,10 @@ void Logger::handle_logger() {
         watch.stop();
         uint64_t after_offset = control_block_->current_file_durable_offset_;
         // maybe VLOG(0)
-        LOG(INFO) << "Logger-" << id_ << " wrote out " << (after_offset - before_offset)
-          << " bytes in " << watch.elapsed_ms() << " ms";
+        if (after_offset != before_offset) {
+          LOG(INFO) << "Logger-" << id_ << " wrote out " << (after_offset - before_offset)
+            << " bytes in " << watch.elapsed_ms() << " ms";
+        }
         break;
       }
       if (((++iterations) % kMaxIterations) == 0) {
