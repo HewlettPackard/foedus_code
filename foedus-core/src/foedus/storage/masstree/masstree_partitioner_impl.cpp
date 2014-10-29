@@ -221,7 +221,7 @@ void MasstreePartitioner::sort_batch(const Partitioner::SortBatchArguments& args
   // No compaction for masstree yet. Anyway this method is not optimized
   *args.written_count_ = args.logs_count_;
   stop_watch_entire.stop();
-  VLOG(0) << "Masstree-" << id_ << " sort_batch() done in  " << stop_watch_entire.elapsed_ms()
+  LOG(INFO) << "Masstree-" << id_ << " sort_batch() done in  " << stop_watch_entire.elapsed_ms()
       << "ms  for " << args.logs_count_ << " log entries";
 }
 

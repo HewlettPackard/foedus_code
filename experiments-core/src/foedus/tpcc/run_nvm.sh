@@ -4,7 +4,7 @@ echo "thread_per_node=$thread_per_node, numa_nodes=$numa_nodes, volatile_pool_si
 
 high_priority=false # To set this to true, you must add "yourname - rtprio 99" to limits.conf
 fork_workers=true
-snapshot_pool_size=4096
+snapshot_pool_size=1024
 
 # remote fraction is fixed to 1 (default TPC-C)
 # instead, this experiment varies NVM latency to emulate

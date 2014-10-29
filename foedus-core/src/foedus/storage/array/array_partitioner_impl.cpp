@@ -307,7 +307,7 @@ void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) c
   }
 
   stop_watch_entire.stop();
-  VLOG(0) << "Array-" << id_ << " sort_batch() done in  " << stop_watch_entire.elapsed_ms()
+  LOG(INFO) << "Array-" << id_ << " sort_batch() done in  " << stop_watch_entire.elapsed_ms()
       << "ms  for " << args.logs_count_ << " log entries, compacted them to"
         << result_count << " log entries";
   *args.written_count_ = result_count;

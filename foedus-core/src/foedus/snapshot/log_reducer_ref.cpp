@@ -114,12 +114,6 @@ void        LogReducerRef::append_log_chunk(
     << " entries) to " << to_string() << "'s buffer for storage-" << storage_id;
   ASSERT_ND(verify_log_chunk(storage_id, send_buffer, log_count, send_buffer_size));
 
-  if (engine_->get_storage_manager()->get_storage(storage_id)->meta_.keeps_all_volatile_pages()) {
-    // TODO(Hideaki) Tentative hack.
-    // To speed up experiments, keep-all-volatile storage skips log gleaner
-    return;
-  }
-
   debugging::RdtscWatch stop_watch;
 
   const uint64_t required_size = send_buffer_size + sizeof(FullBlockHeader);
