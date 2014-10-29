@@ -173,6 +173,8 @@ struct Logs {
       log_buffer_,
       positions_,
       cur_count_,
+      0,
+      0,
       &sort_buffer_,
       Epoch(base_epoch),
       sort_results_,

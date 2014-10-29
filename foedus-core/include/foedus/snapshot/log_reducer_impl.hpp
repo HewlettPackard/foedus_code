@@ -112,6 +112,10 @@ struct BlockHeaderBase {
 struct FullBlockHeader : BlockHeaderBase {
   storage::StorageId  storage_id_;
   uint32_t            log_count_;
+  /** additional statistics for masstree/hash */
+  uint32_t            shortest_key_length_;
+  /** additional statistics for masstree/hash */
+  uint32_t            longest_key_length_;
 };
 
 

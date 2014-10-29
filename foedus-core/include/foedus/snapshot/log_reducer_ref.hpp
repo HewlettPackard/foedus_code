@@ -48,6 +48,8 @@ class LogReducerRef {
    * @param[in] send_buffer contains log entries to copy
    * @param[in] log_count number of log entries to copy
    * @param[in] send_buffer_size byte count to copy
+   * @param[in] shortest_key_length [masstree/hash] shortest key length in the log entries
+   * @param[in] longest_key_length [masstree/hash] longest key length in the log entries
    * @details
    * This is the interface via which mappers send log entries to reducers.
    * Internally, this atomically changes the status of the current reducer buffer to reserve
@@ -60,7 +62,9 @@ class LogReducerRef {
     storage::StorageId storage_id,
     const char* send_buffer,
     uint32_t log_count,
-    uint64_t send_buffer_size);
+    uint64_t send_buffer_size,
+    uint32_t shortest_key_length,
+    uint32_t longest_key_length);
 
  protected:
   const Snapshot& get_cur_snapshot() const;

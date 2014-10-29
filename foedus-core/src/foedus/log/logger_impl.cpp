@@ -172,9 +172,9 @@ void Logger::handle_logger() {
       if (!more_log_to_process) {
         watch.stop();
         uint64_t after_offset = (current_file_ ? current_file_-> get_current_offset() : 0);
-        // maybe VLOG(0)
+        // LOG(INFO) was too noisy
         if (after_offset != before_offset) {
-          LOG(INFO) << "Logger-" << id_ << " wrote out " << (after_offset - before_offset)
+          VLOG(0) << "Logger-" << id_ << " wrote out " << (after_offset - before_offset)
             << " bytes in " << watch.elapsed_ms() << " ms";
         }
         break;

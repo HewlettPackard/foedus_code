@@ -28,6 +28,7 @@
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/storage/partitioner.hpp"
 #include "foedus/storage/storage_manager.hpp"
+#include "foedus/storage/masstree/masstree_log_types.hpp"
 
 namespace foedus {
 namespace snapshot {
@@ -509,9 +510,13 @@ void LogMapper::send_bucket_partition(
   char* send_buffer = reinterpret_cast<char*>(tmp_send_buffer_slice_.get_block());
   const char* io_base = reinterpret_cast<const char*>(io_buffer_.get_block());
   ASSERT_ND(tmp_send_buffer_slice_.get_size() == kSendBufferSize);
+  storage::StorageType storage_type
+    = engine_->get_storage_manager()->get_storage(bucket.storage_id_)->meta_.type_;
 
   uint64_t written = 0;
   uint32_t log_count = 0;
+  uint32_t shortest_key_length = 0xFFFF;
+  uint32_t longest_key_length = 0;
   for (uint32_t i = 0; i < bucket.counts_; ++i) {
     uint64_t pos = from_buffer_position(bucket.log_positions_[i]);
     const log::LogHeader* header = reinterpret_cast<const log::LogHeader*>(io_base + pos);
@@ -521,15 +526,40 @@ void LogMapper::send_bucket_partition(
     ASSERT_ND(log_length % 8 == 0);
     if (written + log_length > kSendBufferSize) {
       // buffer full. send out.
-      send_bucket_partition_buffer(bucket, partition, send_buffer, log_count, written);
+      send_bucket_partition_buffer(
+        bucket,
+        partition,
+        send_buffer,
+        log_count,
+        written,
+        shortest_key_length,
+        longest_key_length);
       log_count = 0;
       written = 0;
+      shortest_key_length = 0xFFFF;
+      longest_key_length = 0;
     }
     std::memcpy(send_buffer + written, header, header->log_length_);
     written += header->log_length_;
     ++log_count;
+    if (storage_type == storage::kMasstreeStorage) {
+      const storage::masstree::MasstreeCommonLogType* the_log =
+        reinterpret_cast<const storage::masstree::MasstreeCommonLogType*>(header);
+      uint16_t key_length = the_log->key_length_;
+      ASSERT_ND(key_length > 0);
+      shortest_key_length = std::min<uint32_t>(shortest_key_length, key_length);
+      longest_key_length = std::min<uint32_t>(longest_key_length, key_length);
+    }
+    // TODO(Hideaki) and hash storage later
   }
-  send_bucket_partition_buffer(bucket, partition, send_buffer, log_count, written);
+  send_bucket_partition_buffer(
+    bucket,
+    partition,
+    send_buffer,
+    log_count,
+    written,
+    shortest_key_length,
+    longest_key_length);
 }
 
 void LogMapper::send_bucket_partition_buffer(
@@ -537,12 +567,20 @@ void LogMapper::send_bucket_partition_buffer(
   storage::PartitionId partition,
   const char* send_buffer,
   uint32_t log_count,
-  uint64_t written) {
+  uint64_t written,
+  uint32_t shortest_key_length,
+  uint32_t longest_key_length) {
   if (written == 0) {
     return;
   }
   LogReducerRef reducer(engine_, partition);
-  reducer.append_log_chunk(bucket.storage_id_, send_buffer, log_count, written);
+  reducer.append_log_chunk(
+    bucket.storage_id_,
+    send_buffer,
+    log_count,
+    written,
+    shortest_key_length,
+    longest_key_length);
 }
 
 

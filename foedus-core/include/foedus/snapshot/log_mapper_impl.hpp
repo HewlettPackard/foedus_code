@@ -296,8 +296,14 @@ class LogMapper final : public MapReduceBase {
    */
   void        send_bucket_partition(const Bucket& bucket, storage::PartitionId partition);
   /** subroutine of send_bucket_partition to send out a send-buffer. */
-  void        send_bucket_partition_buffer(const Bucket& bucket, storage::PartitionId partition,
-    const char* send_buffer, uint32_t log_count, uint64_t written);
+  void        send_bucket_partition_buffer(
+    const Bucket& bucket,
+    storage::PartitionId partition,
+    const char* send_buffer,
+    uint32_t log_count,
+    uint64_t written,
+    uint32_t shortest_key_length,
+    uint32_t longest_key_length);
 
   /**
    * Zero-clears storage_hashlists_ and resets other related temporary variables.
