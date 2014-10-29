@@ -161,11 +161,18 @@ void Logger::handle_logger() {
     }
     const int kMaxIterations = 100;
     int iterations = 0;
+    debugging::StopWatch watch;
+    uint64_t before_offset = control_block_->current_file_durable_offset_;  // just for debug out
     while (!is_stop_requested()) {
       assert_consistent();
       bool more_log_to_process = false;
       COERCE_ERROR(handle_logger_once(&more_log_to_process));
       if (!more_log_to_process) {
+        watch.stop();
+        uint64_t after_offset = control_block_->current_file_durable_offset_;
+        // maybe VLOG(0)
+        LOG(INFO) << "Logger-" << id_ << " wrote out " << (after_offset - before_offset)
+          << " bytes in " << watch.elapsed_ms() << " ms";
         break;
       }
       if (((++iterations) % kMaxIterations) == 0) {
