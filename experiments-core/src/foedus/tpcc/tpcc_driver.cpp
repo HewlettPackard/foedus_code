@@ -420,6 +420,7 @@ int driver_main(int argc, char **argv) {
     FLAGS_null_log_device = false;
 
     options.snapshot_.log_mapper_io_buffer_mb_ = 1 << 8;
+    options.snapshot_.log_mapper_bucket_kb_ = 1 << 12;
     options.snapshot_.log_reducer_buffer_mb_ = FLAGS_reducer_buffer_size << 10;
     options.snapshot_.snapshot_writer_page_pool_size_mb_ = 1 << 10;
     options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 1 << 8;

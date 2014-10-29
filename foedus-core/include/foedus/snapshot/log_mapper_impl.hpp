@@ -197,6 +197,13 @@ class LogMapper final : public MapReduceBase {
    */
   memory::AlignedMemory   tmp_memory_;
 
+  /** temporary memory for pre-sort. automatically expands. */
+  memory::AlignedMemory   presort_buffer_;
+  /** same above. for output positions. */
+  memory::AlignedMemory   presort_ouputs_;
+  /** same above. for re-ordering logs using the ouputs. */
+  memory::AlignedMemory   presort_reordered_;
+
   /**
    * Slice of tmp_memory_ used as send buffer.
    * Size is kSendBufferSize (1MB).
@@ -294,10 +301,19 @@ class LogMapper final : public MapReduceBase {
   /**
    * Send out all logs in the bucket to the given partition.
    */
-  void        send_bucket_partition(const Bucket& bucket, storage::PartitionId partition);
+  void        send_bucket_partition(Bucket* bucket, storage::PartitionId partition);
+  void send_bucket_partition_general(
+    const Bucket* bucket,
+    storage::StorageType storage_type,
+    storage::PartitionId partition,
+    const BufferPosition* positions);
+  void        send_bucket_partition_presort(
+    Bucket* bucket,
+    storage::StorageType storage_type,
+    storage::PartitionId partition);
   /** subroutine of send_bucket_partition to send out a send-buffer. */
   void        send_bucket_partition_buffer(
-    const Bucket& bucket,
+    const Bucket* bucket,
     storage::PartitionId partition,
     const char* send_buffer,
     uint32_t log_count,

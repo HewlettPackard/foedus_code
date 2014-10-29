@@ -16,6 +16,7 @@ SnapshotOptions::SnapshotOptions() {
   snapshot_interval_milliseconds_ = kDefaultSnapshotIntervalMilliseconds;
   log_mapper_bucket_kb_ = kDefaultLogMapperBucketKb;
   log_mapper_io_buffer_mb_ = kDefaultLogMapperIoBufferMb;
+  log_mapper_sort_before_send_ = true;
   log_reducer_buffer_mb_ = kDefaultLogReducerBufferMb;
   log_reducer_dump_io_buffer_mb_ = kDefaultLogReducerDumpIoBufferMb;
   log_reducer_read_io_buffer_kb_ = kDefaultLogReducerReadIoBufferKb;
@@ -42,6 +43,7 @@ ErrorStack SnapshotOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, snapshot_interval_milliseconds_);
   EXTERNALIZE_LOAD_ELEMENT(element, log_mapper_bucket_kb_);
   EXTERNALIZE_LOAD_ELEMENT(element, log_mapper_io_buffer_mb_);
+  EXTERNALIZE_LOAD_ELEMENT(element, log_mapper_sort_before_send_);
   EXTERNALIZE_LOAD_ELEMENT(element, log_reducer_buffer_mb_);
   EXTERNALIZE_LOAD_ELEMENT(element, log_reducer_dump_io_buffer_mb_);
   EXTERNALIZE_LOAD_ELEMENT(element, log_reducer_read_io_buffer_kb_);
@@ -71,6 +73,8 @@ ErrorStack SnapshotOptions::save(tinyxml2::XMLElement* element) const {
   EXTERNALIZE_SAVE_ELEMENT(element, log_mapper_io_buffer_mb_,
     "Size in MB of IO buffer to read log files in mapper."
     " This buffer is also the unit of batch processing in mapper.");
+  EXTERNALIZE_SAVE_ELEMENT(element, log_mapper_sort_before_send_,
+    "Whether to sort logs in mapper side before sending it to reducer.");
   EXTERNALIZE_SAVE_ELEMENT(element, log_reducer_buffer_mb_,
     "The size in MB of a buffer to store log entries in reducer (partition).");
   EXTERNALIZE_SAVE_ELEMENT(element, log_reducer_dump_io_buffer_mb_,
