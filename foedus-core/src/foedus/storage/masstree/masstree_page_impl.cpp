@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstring>
 #include <thread>
+#include <vector>
 
 #include "foedus/engine.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
@@ -16,8 +17,8 @@
 #include "foedus/debugging/rdtsc_watch.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
-#include "foedus/memory/page_pool.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/memory/page_pool.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/thread.hpp"

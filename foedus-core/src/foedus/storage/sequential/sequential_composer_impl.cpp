@@ -160,7 +160,7 @@ ErrorStack SequentialComposer::compose(const Composer::ComposeArguments& args) {
   ASSERT_ND(snapshot_writer->get_next_page_id() == cur_page->header().page_id_ + 1ULL);
 
   stop_watch.stop();
-  VLOG(0) << to_string() << " compose() done in " << stop_watch.elapsed_ms() << "ms. #head pages="
+  LOG(INFO) << to_string() << " compose() done in " << stop_watch.elapsed_ms() << "ms. #head pages="
     << root_info_page_casted->pointer_count_;
   return kRetOk;
 }
