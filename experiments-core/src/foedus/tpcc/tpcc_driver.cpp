@@ -43,6 +43,7 @@ namespace tpcc {
 DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
     " than threads in the same process. This is required to scale up to 100+ cores.");
 DEFINE_bool(take_snapshot, false, "Whether to run a log gleaner after loading data.");
+DEFINE_bool(preload_snapshot_pages, false, "Pre-fetch snapshot pages before execution.");
 DEFINE_string(nvm_folder, "/testnvm", "Full path of the device representing NVM.");
 DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) worker threads in child"
     " processes on replicated binaries. This is required to scale up to 16 sockets.");
@@ -194,6 +195,7 @@ TpccDriver::Result TpccDriver::run() {
   TpccClientChannel* channel = reinterpret_cast<TpccClientChannel*>(
     engine_->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
   channel->initialize();
+  channel->preload_snapshot_pages_ = FLAGS_preload_snapshot_pages;
 
   std::vector< thread::ImpersonateSession > sessions;
   std::vector< const TpccClientTask::Outputs* > outputs;

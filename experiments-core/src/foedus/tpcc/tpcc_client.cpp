@@ -204,7 +204,7 @@ ErrorStack TpccClientTask::warmup(thread::Thread* context) {
   // Warmup snapshot cache for read-only tables. Install volatile pages for dynamic tables.
 
   // item has no locality, but still we want to pre-load snapshot cache, so:
-  {
+  if (channel_->preload_snapshot_pages_) {
     uint64_t items_per_warehouse = kItems / total_warehouses_;
     uint64_t from = items_per_warehouse * from_wid_;
     uint64_t to = items_per_warehouse * to_wid_;
@@ -217,11 +217,13 @@ ErrorStack TpccClientTask::warmup(thread::Thread* context) {
     // customers arrays
     Wdcid from = combine_wdcid(combine_wdid(wid_begin, 0), 0);
     Wdcid to = combine_wdcid(combine_wdid(wid_end, 0), 0);
-    WRAP_ERROR_CODE(storages_.customers_static_.prefetch_pages(context, false, true, from, to));
+    if (channel_->preload_snapshot_pages_) {
+      WRAP_ERROR_CODE(storages_.customers_static_.prefetch_pages(context, false, true, from, to));
+    }
     WRAP_ERROR_CODE(storages_.customers_dynamic_.prefetch_pages(context, true, false, from, to));
     WRAP_ERROR_CODE(storages_.customers_history_.prefetch_pages(context, true, false, from, to));
   }
-  {
+  if (channel_->preload_snapshot_pages_) {
     // customers secondary
     storage::masstree::KeySlice from = static_cast<storage::masstree::KeySlice>(wid_begin) << 48U;
     storage::masstree::KeySlice to = static_cast<storage::masstree::KeySlice>(wid_end) << 48U;

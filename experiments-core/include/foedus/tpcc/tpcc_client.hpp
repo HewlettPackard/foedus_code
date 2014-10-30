@@ -41,6 +41,7 @@ struct TpccClientChannel {
     warmup_complete_counter_.store(0);
     exit_nodes_.store(0);
     stop_flag_.store(false);
+    preload_snapshot_pages_.store(false);
   }
   void uninitialize() {
     start_rendezvous_.uninitialize();
@@ -50,6 +51,7 @@ struct TpccClientChannel {
   std::atomic<uint32_t> warmup_complete_counter_;
   std::atomic<uint16_t> exit_nodes_;
   std::atomic<bool> stop_flag_;
+  std::atomic<bool> preload_snapshot_pages_;
 };
 
 /**
