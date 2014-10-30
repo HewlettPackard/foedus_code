@@ -199,7 +199,7 @@ void MasstreePartitioner::sort_batch_general(const Partitioner::SortBatchArgumen
   // No compaction for masstree yet. Anyway this method is not optimized
   *args.written_count_ = args.logs_count_;
   stop_watch_entire.stop();
-  LOG(INFO) << "Masstree-" << id_ << " sort_batch_general() done in  "
+  VLOG(0) << "Masstree-" << id_ << " sort_batch_general() done in  "
       << stop_watch_entire.elapsed_ms() << "ms  for " << args.logs_count_ << " log entries. "
       << " shorted_key=" << args.shortest_key_length_
       << " longest_key=" << args.longest_key_length_;
@@ -277,7 +277,7 @@ void MasstreePartitioner::sort_batch_8bytes(const Partitioner::SortBatchArgument
   }
   *args.written_count_ = args.logs_count_;
   stop_watch_entire.stop();
-  LOG(INFO) << "Masstree-" << id_ << " sort_batch_8bytes() done in  "
+  VLOG(0) << "Masstree-" << id_ << " sort_batch_8bytes() done in  "
       << stop_watch_entire.elapsed_ms() << "ms  for " << args.logs_count_ << " log entries. "
       << " shorted_key=" << args.shortest_key_length_
       << " longest_key=" << args.longest_key_length_;
