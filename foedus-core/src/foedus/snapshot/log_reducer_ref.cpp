@@ -109,16 +109,12 @@ void        LogReducerRef::append_log_chunk(
   storage::StorageId storage_id,
   const char* send_buffer,
   uint32_t log_count,
-  uint64_t send_buffer_size) {
+  uint64_t send_buffer_size,
+  uint32_t shortest_key_length,
+  uint32_t longest_key_length) {
   DVLOG(1) << "Appending a block of " << send_buffer_size << " bytes (" << log_count
     << " entries) to " << to_string() << "'s buffer for storage-" << storage_id;
   ASSERT_ND(verify_log_chunk(storage_id, send_buffer, log_count, send_buffer_size));
-
-  if (engine_->get_storage_manager()->get_storage(storage_id)->meta_.keeps_all_volatile_pages()) {
-    // TODO(Hideaki) Tentative hack.
-    // To speed up experiments, keep-all-volatile storage skips log gleaner
-    return;
-  }
 
   debugging::RdtscWatch stop_watch;
 
@@ -186,6 +182,8 @@ void        LogReducerRef::append_log_chunk(
   header.log_count_ = log_count;
   header.block_length_ = to_buffer_position(required_size);
   header.magic_word_ = BlockHeaderBase::kFullBlockHeaderMagicWord;
+  header.shortest_key_length_ = shortest_key_length;
+  header.longest_key_length_ = longest_key_length;
   std::memcpy(destination, &header, sizeof(FullBlockHeader));
   std::memcpy(destination + sizeof(FullBlockHeader), send_buffer, send_buffer_size);
   copy_watch.stop();

@@ -99,6 +99,9 @@ class MasstreePartitioner final {
   PartitionerMetadata* const  metadata_;
   MasstreePartitionerData*    data_;
 
+  void sort_batch_8bytes(const Partitioner::SortBatchArguments& args) const;
+  void sort_batch_general(const Partitioner::SortBatchArguments& args) const;
+
   /**
    * if it's a volatile page, we might be reading a half-updated image.
    * as we don't maintain read-sets like usual transactions, we instead do the optimistic

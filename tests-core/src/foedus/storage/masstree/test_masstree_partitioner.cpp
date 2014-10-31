@@ -144,6 +144,8 @@ struct Logs {
       log_buffer_,
       positions_,
       cur_count_,
+      sizeof(KeySlice),
+      sizeof(KeySlice),
       &sort_buffer_,
       Epoch(base_epoch),
       sort_results_,

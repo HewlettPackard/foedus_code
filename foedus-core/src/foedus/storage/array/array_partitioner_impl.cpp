@@ -224,7 +224,7 @@ void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) c
 
   debugging::StopWatch stop_watch_entire;
 
-  ASSERT_ND(sizeof(SortEntry) == 16);
+  ASSERT_ND(sizeof(SortEntry) == 16U);
   const Epoch::EpochInteger base_epoch_int = args.base_epoch_.value();
   SortEntry* entries = reinterpret_cast<SortEntry*>(args.work_memory_->get_block());
   for (uint32_t i = 0; i < args.logs_count_; ++i) {

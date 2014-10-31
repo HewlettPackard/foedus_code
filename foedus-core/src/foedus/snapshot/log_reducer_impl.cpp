@@ -281,12 +281,16 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
   uint64_t cur_rec_total = 0;
 
   // put all log positions to the array
+  uint32_t shortest_key_length = 0xFFFF;
+  uint32_t longest_key_length = 0;
   for (BufferPosition position : log_positions) {
     FullBlockHeader* header = reinterpret_cast<FullBlockHeader*>(buffer.resolve(position));
     if (!header->is_full_block()) {
       LOG(FATAL) << to_string() << " wtf. magic word doesn't match. position=" << position
         << ", storage_id=" << storage_id;
     }
+    shortest_key_length = std::min<uint32_t>(shortest_key_length, header->shortest_key_length_);
+    longest_key_length = std::max<uint32_t>(longest_key_length, header->longest_key_length_);
     BufferPosition record_pos = position + to_buffer_position(sizeof(FullBlockHeader));
     for (uint32_t i = 0; i < header->log_count_; ++i) {
       log::RecordLogType* record = buffer.resolve(record_pos);
@@ -308,6 +312,8 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
     buffer,
     inputs,
     static_cast<uint32_t>(records),
+    shortest_key_length,
+    longest_key_length,
     &sort_buffer_,
     parent_.get_base_epoch(),
     pos,
@@ -653,11 +659,13 @@ ErrorStack LogReducer::merge_sort_dump_last_buffer() {
   std::map<storage::StorageId, std::vector<BufferPosition> > blocks;
   dump_buffer_scan_block_headers(base, last_pos, &blocks);
   uint64_t other_bytes = 0;
+  uint64_t total_log_count = 0;
   for (auto& kv : blocks) {
     LogBuffer buffer(base);
     storage::StorageId storage_id = kv.first;
     uint32_t count;
     CHECK_ERROR(dump_buffer_sort_storage(buffer, storage_id, kv.second, &count));
+    total_log_count += count;
     BufferPosition* pos = reinterpret_cast<BufferPosition*>(output_positions_slice_.get_block());
 
     // The only difference is here. Output the sorted result to the other buffer, not to file.
@@ -685,7 +693,7 @@ ErrorStack LogReducer::merge_sort_dump_last_buffer() {
   control_block_->buffer_status_[control_block_->current_buffer_ % 2] = other_status.word;
   watch.stop();
   LOG(INFO) << to_string() << " sorted the last buffer in memory (" << last_pos * 8 << "B -> "
-    << other_bytes << "B)  in " << watch.elapsed_ms() << "ms";
+    << other_bytes << "B)  in " << watch.elapsed_ms() << "ms, total_log_count=" << total_log_count;
   return kRetOk;
 }
 

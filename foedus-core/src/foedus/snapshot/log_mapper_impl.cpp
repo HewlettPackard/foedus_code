@@ -28,6 +28,7 @@
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/storage/partitioner.hpp"
 #include "foedus/storage/storage_manager.hpp"
+#include "foedus/storage/masstree/masstree_log_types.hpp"
 
 namespace foedus {
 namespace snapshot {
@@ -74,6 +75,23 @@ ErrorStack LogMapper::initialize_once() {
     numa_node_);
   ASSERT_ND(!tmp_memory_.is_null());
 
+  // these automatically expand
+  presort_buffer_.alloc(
+    1U << 21,
+    memory::kHugepageSize,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    numa_node_);
+  presort_ouputs_.alloc(
+    1U << 21,
+    memory::kHugepageSize,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    numa_node_);
+  presort_reordered_.alloc(
+    1U << 26,
+    memory::kHugepageSize,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    numa_node_);
+
   uint64_t tmp_offset = 0;
   tmp_send_buffer_slice_ = memory::AlignedMemorySlice(&tmp_memory_, tmp_offset, kSendBufferSize);
   tmp_offset += kSendBufferSize;
@@ -118,7 +136,7 @@ ErrorStack LogMapper::handle_process() {
   // uint64_t cur_offset = log_range.begin_offset;
   if (log_range.is_empty()) {
     LOG(INFO) << to_string() << " has no logs to process";
-    report_completion();
+    report_completion(0);
     return kRetOk;
   }
 
@@ -135,6 +153,7 @@ ErrorStack LogMapper::handle_process() {
   status.cur_file_ordinal_ = log_range.begin_file_ordinal;
   status.ended_ = false;
   status.first_read_ = true;
+  debugging::StopWatch watch;
   while (!status.ended_) {  // loop for log file switch
     fs::Path path(engine_->get_options().log_.construct_suffixed_log_path(
       numa_node_,
@@ -206,14 +225,17 @@ ErrorStack LogMapper::handle_process() {
     }
     file.close();
   }
-  VLOG(0) << to_string() << " processed " << processed_log_count_ << " log entries";
-  report_completion();
+  watch.stop();
+  LOG(INFO) << to_string() << " processed " << processed_log_count_ << " log entries in "
+    << watch.elapsed_sec() << "s";
+  report_completion(watch.elapsed_sec());
   return kRetOk;
 }
-void LogMapper::report_completion() {
+void LogMapper::report_completion(double elapsed_sec) {
   uint16_t value_after = parent_.increment_completed_mapper_count();
   if (value_after == parent_.get_mappers_count()) {
-    LOG(INFO) << "All mappers done. " << to_string() << " was the last mapper.";
+    LOG(INFO) << "All mappers done. " << to_string() << " was the last mapper. took "
+      << elapsed_sec << "s";
   }
 }
 
@@ -471,7 +493,7 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
           } else {
             // the current partition has ended.
             // let's send out these log entries to this partition
-            send_bucket_partition(*bucket, current_partition);
+            send_bucket_partition(bucket, current_partition);
             // this is the beginning of next partition
             current_partition = sort_array[i].partition_;
             bucket->log_positions_[0] = sort_array[i].position_;
@@ -481,14 +503,14 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
 
         ASSERT_ND(bucket->counts_ > 0);
         // send out the last partition
-        send_bucket_partition(*bucket, current_partition);
+        send_bucket_partition(bucket, current_partition);
       } else {
         // in this case, it's same as single partition regarding this storage.
-        send_bucket_partition(*bucket, 0);
+        send_bucket_partition(bucket, 0);
       }
     } else {
       // if it's not multi-partition, we blindly send everything to partition-0 (NUMA node 0)
-      send_bucket_partition(*bucket, 0);
+      send_bucket_partition(bucket, 0);
     }
   }
 
@@ -497,48 +519,150 @@ void LogMapper::flush_bucket(const BucketHashList& hashlist) {
     << hashlist.storage_id_ << " in " << stop_watch.elapsed_ms() << " milliseconds";
 }
 
+inline void update_key_lengthes(
+  const log::LogHeader* header,
+  storage::StorageType storage_type,
+  uint32_t* shortest_key_length,
+  uint32_t* longest_key_length) {
+  if (storage_type == storage::kMasstreeStorage) {
+    const storage::masstree::MasstreeCommonLogType* the_log =
+      reinterpret_cast<const storage::masstree::MasstreeCommonLogType*>(header);
+    uint16_t key_length = the_log->key_length_;
+    ASSERT_ND(key_length > 0);
+    *shortest_key_length = std::min<uint32_t>(*shortest_key_length, key_length);
+    *longest_key_length = std::max<uint32_t>(*longest_key_length, key_length);
+  }
+  // TODO(Hideaki) and hash storage later
+}
+
+
 void LogMapper::send_bucket_partition(
-  const Bucket& bucket, storage::PartitionId partition) {
-  VLOG(0) << to_string() << " sending " << bucket.counts_ << " log entries for storage-"
-    << bucket.storage_id_ << " to partition-" << static_cast<int>(partition);
+  Bucket* bucket, storage::PartitionId partition) {
+  VLOG(0) << to_string() << " sending " << bucket->counts_ << " log entries for storage-"
+    << bucket->storage_id_ << " to partition-" << static_cast<int>(partition);
+  storage::StorageType storage_type
+    = engine_->get_storage_manager()->get_storage(bucket->storage_id_)->meta_.type_;
+
+  // let's do "pre-sort" to mitigate work from reducer to mapper
+  if (engine_->get_options().snapshot_.log_mapper_sort_before_send_
+    && storage_type != storage::kSequentialStorage) {  // if sequential, presorting is useless
+    send_bucket_partition_presort(bucket, storage_type, partition);
+  } else {
+    send_bucket_partition_general(bucket, storage_type, partition, bucket->log_positions_);
+  }
+}
+
+void LogMapper::send_bucket_partition_general(
+  const Bucket* bucket,
+  storage::StorageType storage_type,
+  storage::PartitionId partition,
+  const BufferPosition* positions) {
+  uint64_t written = 0;
+  uint32_t log_count = 0;
+  uint32_t shortest_key_length = 0xFFFF;
+  uint32_t longest_key_length = 0;
   // stitch the log entries in send buffer
   char* send_buffer = reinterpret_cast<char*>(tmp_send_buffer_slice_.get_block());
   const char* io_base = reinterpret_cast<const char*>(io_buffer_.get_block());
   ASSERT_ND(tmp_send_buffer_slice_.get_size() == kSendBufferSize);
 
-  uint64_t written = 0;
-  uint32_t log_count = 0;
-  for (uint32_t i = 0; i < bucket.counts_; ++i) {
-    uint64_t pos = from_buffer_position(bucket.log_positions_[i]);
+  for (uint32_t i = 0; i < bucket->counts_; ++i) {
+    uint64_t pos = from_buffer_position(positions[i]);
     const log::LogHeader* header = reinterpret_cast<const log::LogHeader*>(io_base + pos);
-    ASSERT_ND(header->storage_id_ == bucket.storage_id_);
+    ASSERT_ND(header->storage_id_ == bucket->storage_id_);
     uint16_t log_length = header->log_length_;
     ASSERT_ND(log_length > 0);
     ASSERT_ND(log_length % 8 == 0);
     if (written + log_length > kSendBufferSize) {
       // buffer full. send out.
-      send_bucket_partition_buffer(bucket, partition, send_buffer, log_count, written);
+      send_bucket_partition_buffer(
+        bucket,
+        partition,
+        send_buffer,
+        log_count,
+        written,
+        shortest_key_length,
+        longest_key_length);
       log_count = 0;
       written = 0;
+      shortest_key_length = 0xFFFF;
+      longest_key_length = 0;
     }
     std::memcpy(send_buffer + written, header, header->log_length_);
     written += header->log_length_;
     ++log_count;
+    update_key_lengthes(header, storage_type, &shortest_key_length, &longest_key_length);
   }
-  send_bucket_partition_buffer(bucket, partition, send_buffer, log_count, written);
+  send_bucket_partition_buffer(
+    bucket,
+    partition,
+    send_buffer,
+    log_count,
+    written,
+    shortest_key_length,
+    longest_key_length);
+}
+
+void LogMapper::send_bucket_partition_presort(
+  Bucket* bucket,
+  storage::StorageType storage_type,
+  storage::PartitionId partition) {
+  storage::Partitioner partitioner(engine_, bucket->storage_id_);
+
+  char* io_base = reinterpret_cast<char*>(io_buffer_.get_block());
+  presort_ouputs_.assure_capacity(sizeof(BufferPosition) * bucket->counts_);
+  BufferPosition* outputs = reinterpret_cast<BufferPosition*>(presort_ouputs_.get_block());
+
+  uint32_t shortest_key_length = 0xFFFF;
+  uint32_t longest_key_length = 0;
+  if (storage_type == storage::kMasstreeStorage) {
+    for (uint32_t i = 0; i < bucket->counts_; ++i) {
+      uint64_t pos = from_buffer_position(bucket->log_positions_[i]);
+      const log::LogHeader* header = reinterpret_cast<const log::LogHeader*>(io_base + pos);
+      update_key_lengthes(header, storage_type, &shortest_key_length, &longest_key_length);
+    }
+  }
+
+  LogBuffer buffer(io_base);
+  uint32_t count = 0;
+  storage::Partitioner::SortBatchArguments args = {
+    buffer,
+    bucket->log_positions_,
+    bucket->counts_,
+    shortest_key_length,
+    longest_key_length,
+    &presort_buffer_,
+    parent_.get_base_epoch(),
+    outputs,
+    &count};
+  partitioner.sort_batch(args);
+  ASSERT_ND(count <= bucket->counts_);
+  bucket->counts_ = count;  // it might be compacted
+
+  // then same as usual send_bucket_partition() except we use outputs
+  send_bucket_partition_general(bucket, storage_type, partition, outputs);
 }
 
 void LogMapper::send_bucket_partition_buffer(
-  const Bucket& bucket,
+  const Bucket* bucket,
   storage::PartitionId partition,
   const char* send_buffer,
   uint32_t log_count,
-  uint64_t written) {
+  uint64_t written,
+  uint32_t shortest_key_length,
+  uint32_t longest_key_length) {
   if (written == 0) {
     return;
   }
+
   LogReducerRef reducer(engine_, partition);
-  reducer.append_log_chunk(bucket.storage_id_, send_buffer, log_count, written);
+  reducer.append_log_chunk(
+    bucket->storage_id_,
+    send_buffer,
+    log_count,
+    written,
+    shortest_key_length,
+    longest_key_length);
 }
 
 

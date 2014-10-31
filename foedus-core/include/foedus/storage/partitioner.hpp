@@ -131,6 +131,10 @@ class Partitioner CXX11_FINAL : public Attachable<PartitionerMetadata> {
     const snapshot::BufferPosition*   log_positions_;
     /** number of entries to process. */
     uint32_t                          logs_count_;
+    /** [masstree/hash] shortest key length in the log entries. */
+    uint32_t                          shortest_key_length_;
+    /** [masstree/hash] longest key length in the log entries. */
+    uint32_t                          longest_key_length_;
     /** Working memory to be used in this method. Automatically expand if needed. */
     memory::AlignedMemory*            work_memory_;
     /**

@@ -170,29 +170,7 @@ void MasstreePartitioner::partition_batch(const Partitioner::PartitionBatchArgum
   // if these binary searches are too costly, let's optimize them.
 }
 
-#if 0
-/**
- * Unlike array's sort entry, this doesn't contain key itself except the first 8 byte.
- * Keys are arbitrary lengthes, so we just point to outside memory.
- * In case this causes too much overhead, we store first slice in this object.
- * If this is not enough to differentiate most of keys, it will cause cache miss.
- * @todo not used so far. let's try this if the following code turns out to be slow.
- */
-struct SortEntry {
-  /** First 8-byte slice of key. infimum if key_length==0 (so, can simply use it in all cases).*/
-  KeySlice                  first_slice_;
-  /** Points to part of log_buffer rather than containing the key itself */
-  const char*               key_;
-  uint16_t                  key_length_;
-  /** compressed epoch (difference from base_epoch) */
-  uint16_t                  compressed_epoch_;
-  /** in-epoch-ordinal */
-  uint16_t                  in_epoch_ordinal_;
-  snapshot::BufferPosition  position_;
-};
-#endif  // 0
-
-void MasstreePartitioner::sort_batch(const Partitioner::SortBatchArguments& args) const {
+void MasstreePartitioner::sort_batch_general(const Partitioner::SortBatchArguments& args) const {
   debugging::StopWatch stop_watch_entire;
 
   // Unlike array's sort_batch, we don't do any advanced optimization here.
@@ -221,8 +199,102 @@ void MasstreePartitioner::sort_batch(const Partitioner::SortBatchArguments& args
   // No compaction for masstree yet. Anyway this method is not optimized
   *args.written_count_ = args.logs_count_;
   stop_watch_entire.stop();
-  VLOG(0) << "Masstree-" << id_ << " sort_batch() done in  " << stop_watch_entire.elapsed_ms()
-      << "ms  for " << args.logs_count_ << " log entries";
+  VLOG(0) << "Masstree-" << id_ << " sort_batch_general() done in  "
+      << stop_watch_entire.elapsed_ms() << "ms  for " << args.logs_count_ << " log entries. "
+      << " shorted_key=" << args.shortest_key_length_
+      << " longest_key=" << args.longest_key_length_;
+}
+
+
+/**
+ * Unlike array's sort entry, we don't always use this because keys are arbitrary lengthes.
+ * We use this when all keys are up to 8 bytes.
+ * To speed up other cases, we might want to use this for more than 8 bytes, later, later..
+ */
+struct SortEntry {
+  inline void set(
+    KeySlice                  first_slice,
+    uint16_t                  compressed_epoch,
+    uint16_t                  in_epoch_ordinal,
+    snapshot::BufferPosition  position) ALWAYS_INLINE {
+    *reinterpret_cast<__uint128_t*>(this)
+      = static_cast<__uint128_t>(first_slice) << 64
+        | static_cast<__uint128_t>(compressed_epoch) << 48
+        | static_cast<__uint128_t>(in_epoch_ordinal) << 32
+        | static_cast<__uint128_t>(position);
+  }
+  inline KeySlice get_first_slice() const ALWAYS_INLINE {
+    return static_cast<KeySlice>(
+      *reinterpret_cast<const __uint128_t*>(this) >> 64);
+  }
+  inline snapshot::BufferPosition get_position() const ALWAYS_INLINE {
+    return static_cast<snapshot::BufferPosition>(*reinterpret_cast<const __uint128_t*>(this));
+  }
+  char data_[16];
+};
+
+void MasstreePartitioner::sort_batch_8bytes(const Partitioner::SortBatchArguments& args) const {
+  ASSERT_ND(args.shortest_key_length_ == sizeof(KeySlice));
+  ASSERT_ND(args.longest_key_length_ == sizeof(KeySlice));
+  args.work_memory_->assure_capacity(sizeof(SortEntry) * args.logs_count_);
+
+  debugging::StopWatch stop_watch_entire;
+  ASSERT_ND(sizeof(SortEntry) == 16U);
+  const Epoch::EpochInteger base_epoch_int = args.base_epoch_.value();
+  SortEntry* entries = reinterpret_cast<SortEntry*>(args.work_memory_->get_block());
+  for (uint32_t i = 0; i < args.logs_count_; ++i) {
+    const MasstreeCommonLogType* log_entry = reinterpret_cast<const MasstreeCommonLogType*>(
+      args.log_buffer_.resolve(args.log_positions_[i]));
+    ASSERT_ND(log_entry->header_.log_type_code_ == log::kLogCodeMasstreeInsert
+      || log_entry->header_.log_type_code_ == log::kLogCodeMasstreeDelete
+      || log_entry->header_.log_type_code_ == log::kLogCodeMasstreeOverwrite);
+    ASSERT_ND(log_entry->key_length_ == sizeof(KeySlice));
+    uint16_t compressed_epoch;
+    const Epoch::EpochInteger epoch = log_entry->header_.xct_id_.get_epoch_int();
+    if (epoch >= base_epoch_int) {
+      ASSERT_ND(epoch - base_epoch_int < (1U << 16));
+      compressed_epoch = epoch - base_epoch_int;
+    } else {
+      // wrap around
+      ASSERT_ND(epoch + Epoch::kEpochIntOverflow - base_epoch_int < (1U << 16));
+      compressed_epoch = epoch + Epoch::kEpochIntOverflow - base_epoch_int;
+    }
+    entries[i].set(
+      normalize_be_bytes_full_aligned(log_entry->get_key()),
+      compressed_epoch,
+      log_entry->header_.xct_id_.get_ordinal(),
+      args.log_positions_[i]);
+  }
+
+  // TODO(Hideaki) non-gcc support.
+  // Actually, we need only 12-bytes sorting, so perhaps doing without __uint128_t is faster?
+  std::sort(
+    reinterpret_cast<__uint128_t*>(entries),
+    reinterpret_cast<__uint128_t*>(entries + args.logs_count_));
+
+  for (uint32_t i = 0; i < args.logs_count_; ++i) {
+    args.output_buffer_[i] = entries[i].get_position();
+  }
+  *args.written_count_ = args.logs_count_;
+  stop_watch_entire.stop();
+  VLOG(0) << "Masstree-" << id_ << " sort_batch_8bytes() done in  "
+      << stop_watch_entire.elapsed_ms() << "ms  for " << args.logs_count_ << " log entries. "
+      << " shorted_key=" << args.shortest_key_length_
+      << " longest_key=" << args.longest_key_length_;
+}
+
+void MasstreePartitioner::sort_batch(const Partitioner::SortBatchArguments& args) const {
+  if (args.logs_count_ == 0) {
+    *args.written_count_ = 0;
+    return;
+  }
+
+  if (args.longest_key_length_ == sizeof(KeySlice)
+      && args.shortest_key_length_ == sizeof(KeySlice)) {
+    sort_batch_8bytes(args);
+  } else {
+    sort_batch_general(args);
+  }
 }
 
 std::ostream& operator<<(std::ostream& o, const MasstreePartitioner& v) {

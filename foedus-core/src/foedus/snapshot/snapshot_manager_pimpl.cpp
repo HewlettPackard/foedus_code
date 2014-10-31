@@ -486,6 +486,7 @@ ErrorStack SnapshotManagerPimpl::replace_pointers(
   for (storage::StorageId id = 1; id <= new_snapshot.max_storage_id_; ++id) {
     const auto& it = new_root_page_pointers.find(id);
     if (it != new_root_page_pointers.end()) {
+      VLOG(0) << "replacing pointers for storage-" << id << " ...";
       storage::SnapshotPagePointer new_root_page_pointer = it->second;
       ASSERT_ND(new_root_page_pointer != 0);
       storage::Composer composer(engine_, id);
@@ -499,6 +500,7 @@ ErrorStack SnapshotManagerPimpl::replace_pointers(
         dropped_chunks,
         &installed_count,
         &dropped_count};
+      debugging::StopWatch watch;
       result = composer.replace_pointers(args);
       if (result.is_error()) {
         LOG(ERROR) << "composer.replace_pointers() failed with storage-" << id << ":" << result;
@@ -510,6 +512,10 @@ ErrorStack SnapshotManagerPimpl::replace_pointers(
         == new_root_page_pointer);
       installed_count_total += installed_count;
       dropped_count_total += dropped_count;
+      watch.stop();
+      LOG(INFO) << "replace_pointers for storage-" << id << " took " << watch.elapsed_sec() << "s";
+    } else {
+      VLOG(0) << "storage-" << id << " wasn't changed no drop pointers";
     }
   }
   engine_->get_xct_manager()->resume_accepting_xct();

@@ -43,13 +43,14 @@ namespace tpcc {
 DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
     " than threads in the same process. This is required to scale up to 100+ cores.");
 DEFINE_bool(take_snapshot, false, "Whether to run a log gleaner after loading data.");
+DEFINE_bool(preload_snapshot_pages, false, "Pre-fetch snapshot pages before execution.");
 DEFINE_string(nvm_folder, "/testnvm", "Full path of the device representing NVM.");
 DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) worker threads in child"
     " processes on replicated binaries. This is required to scale up to 16 sockets.");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
 DEFINE_int32(volatile_pool_size, 6, "Size of volatile memory pool per NUMA node in GB.");
-DEFINE_int32(snapshot_pool_size, 4, "Size of snapshot memory pool per NUMA node in GB.");
+DEFINE_int32(snapshot_pool_size, 4096, "Size of snapshot memory pool per NUMA node in MB.");
 DEFINE_int32(reducer_buffer_size, 4, "Size of reducer's buffer per NUMA node in GB.");
 DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 0, "Percent of each orderline that is inserted to remote"
@@ -194,6 +195,7 @@ TpccDriver::Result TpccDriver::run() {
   TpccClientChannel* channel = reinterpret_cast<TpccClientChannel*>(
     engine_->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
   channel->initialize();
+  channel->preload_snapshot_pages_ = FLAGS_preload_snapshot_pages;
 
   std::vector< thread::ImpersonateSession > sessions;
   std::vector< const TpccClientTask::Outputs* > outputs;
@@ -420,10 +422,11 @@ int driver_main(int argc, char **argv) {
     FLAGS_null_log_device = false;
 
     options.snapshot_.log_mapper_io_buffer_mb_ = 1 << 8;
+    options.snapshot_.log_mapper_bucket_kb_ = 1 << 12;
     options.snapshot_.log_reducer_buffer_mb_ = FLAGS_reducer_buffer_size << 10;
     options.snapshot_.snapshot_writer_page_pool_size_mb_ = 1 << 10;
     options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 1 << 8;
-    options.cache_.snapshot_cache_size_mb_per_node_ = FLAGS_snapshot_pool_size << 10;
+    options.cache_.snapshot_cache_size_mb_per_node_ = FLAGS_snapshot_pool_size;
 
     fs::Path nvm_folder(FLAGS_nvm_folder);
     if (!fs::exists(nvm_folder)) {

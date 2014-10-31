@@ -49,7 +49,7 @@ ErrorStack MasstreeComposer::compose(const Composer::ComposeArguments& args) {
   MasstreeComposeContext context(engine_, storage_id_, args);
   CHECK_ERROR(context.execute());
   stop_watch.stop();
-  VLOG(0) << to_string() << " done in " << stop_watch.elapsed_ms() << "ms.";
+  LOG(INFO) << to_string() << " done in " << stop_watch.elapsed_ms() << "ms.";
   return kRetOk;
 }
 

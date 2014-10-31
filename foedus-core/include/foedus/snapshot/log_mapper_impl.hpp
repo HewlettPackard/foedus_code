@@ -197,6 +197,13 @@ class LogMapper final : public MapReduceBase {
    */
   memory::AlignedMemory   tmp_memory_;
 
+  /** temporary memory for pre-sort. automatically expands. */
+  memory::AlignedMemory   presort_buffer_;
+  /** same above. for output positions. */
+  memory::AlignedMemory   presort_ouputs_;
+  /** same above. for re-ordering logs using the ouputs. */
+  memory::AlignedMemory   presort_reordered_;
+
   /**
    * Slice of tmp_memory_ used as send buffer.
    * Size is kSendBufferSize (1MB).
@@ -294,10 +301,25 @@ class LogMapper final : public MapReduceBase {
   /**
    * Send out all logs in the bucket to the given partition.
    */
-  void        send_bucket_partition(const Bucket& bucket, storage::PartitionId partition);
+  void        send_bucket_partition(Bucket* bucket, storage::PartitionId partition);
+  void send_bucket_partition_general(
+    const Bucket* bucket,
+    storage::StorageType storage_type,
+    storage::PartitionId partition,
+    const BufferPosition* positions);
+  void        send_bucket_partition_presort(
+    Bucket* bucket,
+    storage::StorageType storage_type,
+    storage::PartitionId partition);
   /** subroutine of send_bucket_partition to send out a send-buffer. */
-  void        send_bucket_partition_buffer(const Bucket& bucket, storage::PartitionId partition,
-    const char* send_buffer, uint32_t log_count, uint64_t written);
+  void        send_bucket_partition_buffer(
+    const Bucket* bucket,
+    storage::PartitionId partition,
+    const char* send_buffer,
+    uint32_t log_count,
+    uint64_t written,
+    uint32_t shortest_key_length,
+    uint32_t longest_key_length);
 
   /**
    * Zero-clears storage_hashlists_ and resets other related temporary variables.
@@ -328,7 +350,7 @@ class LogMapper final : public MapReduceBase {
   /** Insert the new BucketHashList. This shouldn't be called often. */
   void add_storage_hashlist(BucketHashList* new_hashlist);
 
-  void report_completion();
+  void report_completion(double elapsed_sec);
 };
 
 

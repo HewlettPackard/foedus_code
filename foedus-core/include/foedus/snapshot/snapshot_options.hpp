@@ -82,6 +82,14 @@ struct SnapshotOptions CXX11_FINAL : public virtual externalize::Externalizable 
   uint16_t                            log_mapper_io_buffer_mb_;
 
   /**
+   * Whether to sort logs in mapper side before sending it to reducer.
+   * Recuder anyway has to sort it again to merge multiple blocks, but probably it might reduce
+   * the work in reducer side (sorting "almost-sorted" array is faster depending on sort algo).
+   * default is true.
+   */
+  bool                                log_mapper_sort_before_send_;
+
+  /**
    * The size in MB of a buffer to store log entries in reducer (partition).
    * Each reducer receives log entries from all mappers, so the right size is likely much
    * larger than log_mapper_bucket_kb_.

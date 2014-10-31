@@ -21,6 +21,7 @@
 #include "foedus/epoch.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/debugging/stop_watch.hpp"
 #include "foedus/fs/direct_io_file.hpp"
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/log/common_log_types.hpp"
@@ -160,11 +161,22 @@ void Logger::handle_logger() {
     }
     const int kMaxIterations = 100;
     int iterations = 0;
+    // just for debug out
+    debugging::StopWatch watch;
+    uint64_t before_offset = (current_file_ ? current_file_-> get_current_offset() : 0);
+
     while (!is_stop_requested()) {
       assert_consistent();
       bool more_log_to_process = false;
       COERCE_ERROR(handle_logger_once(&more_log_to_process));
       if (!more_log_to_process) {
+        watch.stop();
+        uint64_t after_offset = (current_file_ ? current_file_-> get_current_offset() : 0);
+        // LOG(INFO) was too noisy
+        if (after_offset != before_offset) {
+          VLOG(0) << "Logger-" << id_ << " wrote out " << (after_offset - before_offset)
+            << " bytes in " << watch.elapsed_ms() << " ms";
+        }
         break;
       }
       if (((++iterations) % kMaxIterations) == 0) {
@@ -538,8 +550,15 @@ ErrorStack Logger::write_log(ThreadLogBuffer* buffer, uint64_t upto_offset) {
   uint64_t middle_size = align_log_floor(upto_offset) - from_offset;
   if (middle_size > 0) {
     memory::AlignedMemorySlice subslice(buffer->buffer_memory_, from_offset, middle_size);
-    VLOG(1) << "Writing middle regions: " << middle_size << " bytes. slice=" << subslice;
-    WRAP_ERROR_CODE(current_file_->write(middle_size, subslice));
+    {
+      // debugging::StopWatch watch;
+      VLOG(1) << "Writing middle regions: " << middle_size << " bytes. slice=" << subslice;
+      WRAP_ERROR_CODE(current_file_->write(middle_size, subslice));
+      // watch.stop();
+      // mm, in fact too noisy... Maybe VLOG(0). but we need this information for the paper
+      // LOG(INFO) << "Wrote middle regions of " << middle_size << " bytes in "
+      //   << watch.elapsed_ms() << "ms";
+    }
     buffer->advance_offset_durable(middle_size);
   }
 

@@ -223,7 +223,6 @@ const proc::ProcName kInsN("inserts_normalized_task");
 const proc::ProcName kInsV("inserts_varlen_task");
 const proc::ProcName kVerN("verify_task");
 const proc::ProcName kVerV("verify_varlen_task");
-
 TEST(SnapshotMasstreeTest, InsertsNormalizedOneLogger) { test_run(kInsN, kVerN, false, false); }
 TEST(SnapshotMasstreeTest, InsertsNormalizedTwoLoggers) { test_run(kInsN, kVerN, true, false); }
 TEST(SnapshotMasstreeTest, InsertsNormalizedTwoPartitions) { test_run(kInsN, kVerN, true, true); }
