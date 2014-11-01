@@ -127,7 +127,6 @@ TpccDriver::Result TpccDriver::run() {
       }
     }
 
-    bool had_error = false;
     const uint64_t kMaxWaitMs = 60 * 1000;
     const uint64_t kIntervalMs = 10;
     uint64_t wait_count = 0;
@@ -143,16 +142,12 @@ TpccDriver::Result TpccDriver::run() {
       }
       LOG(INFO) << "loader_result[" << i << "]=" << sessions[i].get_result();
       if (sessions[i].get_result().is_error()) {
-        had_error = true;
+        LOG(FATAL) << "Failed data load " << sessions[i].get_result();
       }
       sessions[i].release();
       ++i;
     }
 
-    if (had_error) {
-      LOG(ERROR) << "Failed data load";
-      return Result();
-    }
     LOG(INFO) << "Completed data load";
   }
 
