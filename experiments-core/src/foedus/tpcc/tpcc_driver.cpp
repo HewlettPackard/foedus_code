@@ -131,7 +131,7 @@ TpccDriver::Result TpccDriver::run() {
     const uint64_t kMaxWaitMs = 60 * 1000;
     const uint64_t kIntervalMs = 10;
     uint64_t wait_count = 0;
-    for (uint16_t i = 0; i < sessions.size(); ++i) {
+    for (uint16_t i = 0; i < sessions.size();) {
       assorted::memory_fence_acquire();
       if (wait_count * kIntervalMs > kMaxWaitMs) {
         LOG(FATAL) << "Data population is taking much longer than expected. Quiting.";
@@ -146,6 +146,7 @@ TpccDriver::Result TpccDriver::run() {
         had_error = true;
       }
       sessions[i].release();
+      ++i;
     }
 
     if (had_error) {
@@ -158,16 +159,44 @@ TpccDriver::Result TpccDriver::run() {
 
   // Verify the loaded data. this is done in single thread
   Wid total_warehouses = FLAGS_warehouses;
-  ErrorStack finishup_result = thread_pool->impersonate_synchronous(
-    "tpcc_finishup_task",
-    &total_warehouses,
-    sizeof(total_warehouses));
-  LOG(INFO) << "finish_result=" << finishup_result;
-  if (finishup_result.is_error()) {
-    COERCE_ERROR(finishup_result);
-    return Result();
-  }
+  {
+    thread::ImpersonateSession finishup_session;
+    bool impersonated = thread_pool->impersonate(
+      "tpcc_finishup_task",
+      &total_warehouses,
+      sizeof(total_warehouses),
+      &finishup_session);
+    if (!impersonated) {
+      LOG(FATAL) << "Failed to impersonate??";
+    }
 
+    const uint64_t kMaxWaitMs = 60 * 1000;
+    const uint64_t kIntervalMs = 10;
+    uint64_t wait_count = 0;
+    LOG(INFO) << "waiting for tpcc_finishup_task....";
+    while (true) {
+      assorted::memory_fence_acquire();
+      if (wait_count * kIntervalMs > kMaxWaitMs) {
+        LOG(FATAL) << "tpcc_finishup_task is taking much longer than expected. Quiting.";
+      }
+      if (finishup_session.is_running()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMs));
+        ++wait_count;
+        continue;
+      } else {
+        break;
+      }
+    }
+
+    ASSERT_ND(!finishup_session.is_running());
+    ErrorStack finishup_result = finishup_session.get_result();
+    finishup_session.release();
+    LOG(INFO) << "finish_result=" << finishup_result;
+    if (finishup_result.is_error()) {
+      COERCE_ERROR(finishup_result);
+      return Result();
+    }
+  }
   LOG(INFO) << engine_->get_memory_manager()->dump_free_memory_stat();
 
   LOG(INFO) << "neworder_remote_percent=" << FLAGS_neworder_remote_percent;
