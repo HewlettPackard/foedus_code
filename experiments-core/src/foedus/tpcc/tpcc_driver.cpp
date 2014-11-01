@@ -44,6 +44,7 @@ DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child pro
     " than threads in the same process. This is required to scale up to 100+ cores.");
 DEFINE_bool(take_snapshot, false, "Whether to run a log gleaner after loading data.");
 DEFINE_bool(preload_snapshot_pages, false, "Pre-fetch snapshot pages before execution.");
+DEFINE_bool(disable_snapshot_cache, false, "Disable snapshot cache and read from file always.");
 DEFINE_string(nvm_folder, "/testnvm", "Full path of the device representing NVM.");
 DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) worker threads in child"
     " processes on replicated binaries. This is required to scale up to 16 sockets.");
@@ -420,6 +421,11 @@ int driver_main(int argc, char **argv) {
   if (FLAGS_take_snapshot) {
     std::cout << "Will take snapshot after initial data load." << std::endl;
     FLAGS_null_log_device = false;
+
+    if (FLAGS_disable_snapshot_cache) {
+      std::cout << "Oh, snapshot cache is disabled. will read from file everytime" << std::endl;
+      options.cache_.snapshot_cache_enabled_ = false;
+    }
 
     options.snapshot_.log_mapper_io_buffer_mb_ = 1 << 8;
     options.snapshot_.log_mapper_bucket_kb_ = 1 << 12;

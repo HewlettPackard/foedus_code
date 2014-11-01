@@ -69,7 +69,11 @@ ErrorStack ThreadPimpl::initialize_once() {
 
   node_memory_ = engine_->get_memory_manager()->get_local_memory();
   core_memory_ = node_memory_->get_core_memory(id_);
-  snapshot_cache_hashtable_ = node_memory_->get_snapshot_cache_table();
+  if (engine_->get_options().cache_.snapshot_cache_enabled_) {
+    snapshot_cache_hashtable_ = node_memory_->get_snapshot_cache_table();
+  } else {
+    snapshot_cache_hashtable_ = nullptr;
+  }
   snapshot_page_pool_ = node_memory_->get_snapshot_pool();
   current_xct_.initialize(core_memory_, &control_block_->mcs_block_current_);
   CHECK_ERROR(snapshot_file_set_.initialize());

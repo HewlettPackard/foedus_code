@@ -302,14 +302,26 @@ inline ErrorCode snapshot_page_read_callback(
 inline ErrorCode ThreadPimpl::find_or_read_a_snapshot_page(
   storage::SnapshotPagePointer page_id,
   storage::Page** out) {
-  memory::PagePoolOffset offset;
-  CHECK_ERROR_CODE(snapshot_cache_hashtable_->retrieve(
-    page_id,
-    &offset,
-    snapshot_page_read_callback,
-    this));
-  ASSERT_ND(offset != 0);
-  *out = snapshot_page_pool_->get_base() + offset;
+  if (snapshot_cache_hashtable_) {
+    ASSERT_ND(engine_->get_options().cache_.snapshot_cache_enabled_);
+    memory::PagePoolOffset offset;
+    CHECK_ERROR_CODE(snapshot_cache_hashtable_->retrieve(
+      page_id,
+      &offset,
+      snapshot_page_read_callback,
+      this));
+    ASSERT_ND(offset != 0);
+    *out = snapshot_page_pool_->get_base() + offset;
+  } else {
+    ASSERT_ND(!engine_->get_options().cache_.snapshot_cache_enabled_);
+    // Snapshot is disabled. So far this happens only in performance experiments.
+    // We use local work memory in this case.
+    CHECK_ERROR_CODE(current_xct_.acquire_local_work_memory(
+      storage::kPageSize,
+      reinterpret_cast<void**>(out),
+      storage::kPageSize));
+    return read_a_snapshot_page(page_id, *out);
+  }
   return kErrorCodeOk;
 }
 
