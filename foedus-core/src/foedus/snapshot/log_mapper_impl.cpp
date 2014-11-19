@@ -86,11 +86,13 @@ ErrorStack LogMapper::initialize_once() {
     memory::kHugepageSize,
     memory::AlignedMemory::kNumaAllocOnnode,
     numa_node_);
+  /* TODO(Hideaki) not used now..
   presort_reordered_.alloc(
     1U << 26,
     memory::kHugepageSize,
     memory::AlignedMemory::kNumaAllocOnnode,
     numa_node_);
+  */
 
   uint64_t tmp_offset = 0;
   tmp_send_buffer_slice_ = memory::AlignedMemorySlice(&tmp_memory_, tmp_offset, kSendBufferSize);
