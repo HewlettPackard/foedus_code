@@ -168,6 +168,17 @@ void XctManagerPimpl::advance_current_global_epoch() {
   LOG(INFO) << "epoch advanced. current_global_epoch_=" << get_current_global_epoch();
 }
 
+void XctManagerPimpl::wait_for_current_global_epoch(Epoch target_epoch) {
+  // this method doesn't aggressively wake up the epoch-advance thread. it just waits.
+  while (get_current_global_epoch() < target_epoch) {
+    soc::SharedMutexScope scope(control_block_->current_global_epoch_advanced_.get_mutex());
+    if (get_current_global_epoch() < target_epoch) {
+      control_block_->current_global_epoch_advanced_.wait(&scope);
+    }
+  }
+}
+
+
 ErrorCode XctManagerPimpl::wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds) {
   assorted::memory_fence_acquire();
   if (commit_epoch < get_current_global_epoch()) {

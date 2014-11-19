@@ -32,6 +32,11 @@ void PagePoolOffsetChunk::move_to(PagePoolOffset* destination, uint32_t count) {
   size_ -= count;
 }
 
+void PagePoolOffsetDynamicChunk::move_to(PagePoolOffset* destination, uint32_t count) const {
+  ASSERT_ND(size_ == count);  // this is the only assumed usecase
+  std::memcpy(destination, chunk_, count * sizeof(PagePoolOffset));
+}
+
 uint32_t PagePoolOffsetAndEpochChunk::get_safe_offset_count(const Epoch& threshold) const {
   ASSERT_ND(is_sorted());
   OffsetAndEpoch dummy;
@@ -103,6 +108,9 @@ ErrorCode   PagePool::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chu
 ErrorCode   PagePool::grab_one(PagePoolOffset* offset) { return pimpl_->grab_one(offset); }
 
 void        PagePool::release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk) {
+  pimpl_->release(desired_release_count, chunk);
+}
+void        PagePool::release(uint32_t desired_release_count, PagePoolOffsetDynamicChunk* chunk) {
   pimpl_->release(desired_release_count, chunk);
 }
 void        PagePool::release(uint32_t desired_release_count, PagePoolOffsetAndEpochChunk* chunk) {
