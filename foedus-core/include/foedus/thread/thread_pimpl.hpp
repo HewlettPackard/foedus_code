@@ -162,8 +162,7 @@ class ThreadPimpl final : public DefaultInitializable {
     bool take_ptr_set_volatile,
     storage::DualPagePointer* pointer,
     storage::Page** page);
-  ErrorCode on_snapshot_page_read_callback(
-    cache::CacheHashtable* table,
+  ErrorCode on_snapshot_cache_miss(
     storage::SnapshotPagePointer page_id,
     memory::PagePoolOffset* pool_offset);
 
@@ -289,27 +288,20 @@ inline ErrorCode ThreadPimpl::read_a_snapshot_page(
   return snapshot_file_set_.read_page(page_id, buffer);
 }
 
-/** Implementation of PageReadCallback in CacheHashtable */
-inline ErrorCode snapshot_page_read_callback(
-  cache::CacheHashtable* table,
-  void* context,
-  storage::SnapshotPagePointer page_id,
-  memory::PagePoolOffset* pool_offset) {
-  ThreadPimpl* casted = reinterpret_cast<ThreadPimpl*>(context);
-  return casted->on_snapshot_page_read_callback(table, page_id, pool_offset);
-}
-
 inline ErrorCode ThreadPimpl::find_or_read_a_snapshot_page(
   storage::SnapshotPagePointer page_id,
   storage::Page** out) {
   if (snapshot_cache_hashtable_) {
     ASSERT_ND(engine_->get_options().cache_.snapshot_cache_enabled_);
-    memory::PagePoolOffset offset;
-    CHECK_ERROR_CODE(snapshot_cache_hashtable_->retrieve(
-      page_id,
-      &offset,
-      snapshot_page_read_callback,
-      this));
+    memory::PagePoolOffset offset = snapshot_cache_hashtable_->find(page_id);
+    // the "find" is very efficient and wait-free, but instead it might have false positive/nagative
+    // in which case we should just install a new page. No worry about duplicate thanks to the
+    // immutability of snapshot pages. it just wastes a bit of CPU and memory.
+    if (offset == 0 || snapshot_page_pool_->get_base()[offset].get_header().page_id_ != page_id) {
+      CHECK_ERROR_CODE(on_snapshot_cache_miss(page_id, &offset));
+      ASSERT_ND(offset != 0);
+      CHECK_ERROR_CODE(snapshot_cache_hashtable_->install(page_id, offset));
+    }
     ASSERT_ND(offset != 0);
     *out = snapshot_page_pool_->get_base() + offset;
   } else {

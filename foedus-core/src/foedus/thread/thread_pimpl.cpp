@@ -398,8 +398,7 @@ ErrorCode ThreadPimpl::follow_page_pointer(
   return kErrorCodeOk;
 }
 
-ErrorCode ThreadPimpl::on_snapshot_page_read_callback(
-  cache::CacheHashtable* /*table*/,
+ErrorCode ThreadPimpl::on_snapshot_cache_miss(
   storage::SnapshotPagePointer page_id,
   memory::PagePoolOffset* pool_offset) {
   // grab a buffer page to read into.
