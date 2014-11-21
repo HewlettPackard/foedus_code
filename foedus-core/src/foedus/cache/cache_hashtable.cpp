@@ -53,7 +53,8 @@ HashFunc::HashFunc(BucketId physical_buckets)
 CacheHashtable::CacheHashtable(BucketId physical_buckets, uint16_t numa_node)
   : numa_node_(numa_node),
   overflow_buckets_count_(determine_overflow_list_size(physical_buckets)),
-  hash_func_(physical_buckets) {
+  hash_func_(physical_buckets),
+  clockhand_(0) {
   buckets_memory_.alloc(
     sizeof(CacheBucket) * physical_buckets,
     1U << 21,
