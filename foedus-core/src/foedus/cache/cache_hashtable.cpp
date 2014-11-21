@@ -11,6 +11,7 @@
 
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/cache/snapshot_file_set.hpp"
+#include "foedus/debugging/stop_watch.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/thread/thread.hpp"
@@ -22,7 +23,8 @@ BucketId determine_logical_buckets(BucketId physical_buckets) {
   ASSERT_ND(physical_buckets >= 1024U);
   // to speed up, leave space in neighbors of the last bucket.
   // Instead, we do not wrap-around.
-  BucketId buckets = physical_buckets - kHopNeighbors;
+  // Also, leave space for at least one cacheline so that we never overrun when we prefetch.
+  BucketId buckets = physical_buckets - kHopNeighbors - 64ULL;
 
   // to make the division-hashing more effective, make it prime-like.
   BucketId logical_buckets = assorted::generate_almost_prime_below(buckets);
@@ -33,7 +35,7 @@ BucketId determine_logical_buckets(BucketId physical_buckets) {
 
 uint32_t determine_overflow_list_size(BucketId physical_buckets) {
   // there should be very few overflow entries. This can be super small.
-  const uint32_t kOverflowFraction = 1024U;
+  const uint32_t kOverflowFraction = 128U;
   const uint32_t kOverflowMinSize = 256U;
   uint32_t overflow_size = physical_buckets / kOverflowFraction;
   if (overflow_size <= kOverflowMinSize) {
@@ -155,6 +157,167 @@ ErrorCode CacheHashtable::install(storage::SnapshotPagePointer page_id, ContentI
   return kErrorCodeOk;
 }
 
+void CacheHashtable::evict(CacheHashtable::EvictArgs* args) {
+  LOG(INFO) << "Snapshot-Cache eviction starts at node-" << numa_node_
+    << ", clockhand_=" << clockhand_ << ", #target=" << args->target_count_;
+  const BucketId end = get_physical_buckets();
+  BucketId cur = clockhand_;
+
+  // we check each entry in refcounts_, which are 2 bytes each.
+  // for quicker checks, we want 8-byte aligned access.
+  // also, we should anyway do prefetch, so make it 64-byte aligned
+  cur = (cur >> 5) << 5;
+  ASSERT_ND(cur % (1U << 5) == 0);
+  if (cur >= end) {
+    cur = 0;
+  }
+
+  // evict on the normal buckets first.
+  args->evicted_count_ = 0;
+  uint16_t loops;
+  const uint16_t kMaxLoops = 16;  // if we need more loops than this, something is wrong...
+  for (loops = 0; loops < kMaxLoops; ++loops) {
+    cur = evict_main_loop(args, cur, loops);
+    if (cur >= get_physical_buckets()) {
+      cur = 0;
+      // we went over all buckets in usual entries. now check the overflow linked list.
+      if (overflow_buckets_head_) {
+        evict_overflow_loop(args, loops);
+      }
+    }
+    if (args->evicted_count_ >= args->target_count_) {
+      break;
+    } else {
+      ASSERT_ND(cur == 0);  // we checked all buckets and wrapped around, right? go on to next loop
+    }
+  }
+
+  clockhand_ = cur;
+  LOG(INFO) << "Snapshot-Cache eviction completed at node-" << numa_node_
+    << ", clockhand_=" << clockhand_ << ", #evicted=" << args->evicted_count_
+    << ", looped-over the whole hashtable for " << loops << " times";
+}
+
+BucketId CacheHashtable::evict_main_loop(
+  CacheHashtable::EvictArgs* args,
+  BucketId cur,
+  uint16_t loop) {
+  ASSERT_ND(cur % (1U << 5) == 0);
+  ASSERT_ND((assorted::kCachelineSize >> 5) == sizeof(CacheRefCount));
+  const uint16_t decrements = 1U << loop;
+  debugging::StopWatch watch;
+
+  // the main idea is as follows.
+  // whenever the bucket has never been used or been used but released without unlucky races,
+  // the corresponding refcount is zero. hence, we just check for non-zeros in refcounts_.
+  // this is trivially vectorized and the only observable cost is L1 cache miss.
+  // we reduce L1 cache miss cost by prefetching a lot.
+  uint32_t cur_cacheline = cur >> 5;
+  const uint32_t end_cacheline = (get_physical_buckets() >> 5) + 1ULL;
+  // for example, we prefetch cacheline 16-23 while reading cacheline 0-7.
+  const uint16_t kL1PrefetchBatch = 8;
+  const uint16_t kL1PrefetchAhead = 16;
+  for (; cur_cacheline < end_cacheline; ++cur_cacheline) {
+    if (cur_cacheline / kL1PrefetchBatch == 0) {
+      assorted::prefetch_cachelines(
+        refcounts_ + ((cur_cacheline + kL1PrefetchAhead) << 5),
+        kL1PrefetchBatch);
+    }
+
+    BucketId bucket = cur_cacheline << 5;
+    // gcc, you should be smart enough to optimize this. at least with O3.
+    uint64_t* ints = reinterpret_cast<uint64_t*>(ASSUME_ALIGNED(refcounts_ + bucket, 64));
+    bool all_zeros = true;
+    for (uint16_t i = 0; i < 8U; ++i) {
+      if (ints[i] != 0) {
+        all_zeros = false;
+        break;
+      }
+    }
+
+    if (LIKELY(all_zeros)) {
+      continue;
+    } else {
+      // this should be a rare case as far as we keep the hashtable sparse.
+      CacheRefCount* base = reinterpret_cast<CacheRefCount*>(refcounts_ + bucket);
+      for (uint16_t i = 0; i < 32U; ++i) {
+        if (base[i].count_ > 0) {
+          bool still_non_zero = base[i].decrement(decrements);
+          if (!still_non_zero) {
+            args->add_evicted(buckets_[bucket + i].get_content_id());
+            buckets_[bucket + i].data_ = 0;
+          }
+        }
+      }
+    }
+
+    if (args->evicted_count_ >= args->target_count_) {
+      break;
+    }
+  }
+
+  watch.stop();
+  LOG(INFO) << "Snapshot-Cache eviction main_loop at node-" << numa_node_ << ", checked "
+    << ((cur_cacheline << 5) - clockhand_) << " buckets in " << watch.elapsed_us() << "us";
+
+  return cur_cacheline << 5;
+}
+
+void CacheHashtable::evict_overflow_loop(CacheHashtable::EvictArgs* args, uint16_t loop) {
+  const uint16_t decrements = 1U << loop;
+  uint32_t checked_count = 0;
+
+  // store evicted entries into
+  OverflowPointer evicted_head = 0;  // evicted
+  debugging::StopWatch watch;
+  {
+    // We block this method entirely with the free buckets mutex.
+    // This does NOT block usual transactions unless they actually have to newly add to overflow,
+    // which should be very rare. This is cheap yet enough to make the free-list safe.
+    soc::SharedMutexScope scope(&overflow_free_buckets_mutex_);
+
+    // no interesting optimization. overflow list should be empty or almost empty.
+    OverflowPointer head = overflow_buckets_head_;
+    if (head != 0) {
+      // skip the head. we handle it at the last.
+      OverflowPointer prev = head;
+      for (OverflowPointer cur = overflow_buckets_[prev].next_; cur != 0;) {
+        CacheOverflowEntry* cur_entry = overflow_buckets_ + cur;
+        OverflowPointer next = cur_entry->next_;
+        bool still_non_zero = cur_entry->refcount_.decrement(decrements);
+        if (!still_non_zero) {
+          args->add_evicted(cur_entry->bucket_.get_content_id());
+          CacheOverflowEntry* prev_entry = overflow_buckets_ + prev;
+          prev_entry->next_ = next;
+          cur_entry->bucket_.data_ = 0;
+          cur_entry->next_ = evicted_head;
+          evicted_head = cur;
+        }
+
+        prev = cur;
+        cur = next;
+        ++checked_count;
+      }
+
+      // finally check the head
+      CacheOverflowEntry* cur_entry = overflow_buckets_ + head;
+      bool still_non_zero = cur_entry->refcount_.decrement(decrements);
+      if (!still_non_zero) {
+        args->add_evicted(cur_entry->bucket_.get_content_id());
+        overflow_buckets_head_ = cur_entry->next_;
+        cur_entry->bucket_.data_ = 0;
+        cur_entry->next_ = evicted_head;
+        evicted_head = head;
+      }
+      ++checked_count;
+    }
+  }
+  watch.stop();
+  LOG(INFO) << "Snapshot-Cache eviction overflow_loop at node-" << numa_node_ << ", checked "
+    << (checked_count) << " buckets in " << watch.elapsed_us() << "us";
+}
+
+
 std::ostream& operator<<(std::ostream& o, const HashFunc& v) {
   o << "<HashFunc>"
     << "<logical_buckets_>" << v.logical_buckets_ << "<logical_buckets_>"
@@ -172,6 +335,30 @@ ErrorStack CacheHashtable::verify_single_thread() const {
     }
   }
   return kRetOk;
+}
+
+CacheHashtable::Stat CacheHashtable::get_stat_single_thread() const {
+  Stat result;
+  result.normal_entries_ = 0;
+  result.overflow_entries_ = 0;
+
+  BucketId end = get_physical_buckets();
+  for (BucketId i = 0; i < end; ++i) {
+    if (buckets_[i].is_content_set()) {
+      ++result.normal_entries_;
+    }
+  }
+
+  if (overflow_buckets_head_) {
+    for (OverflowPointer i = overflow_buckets_head_; i != 0;) {
+      if (overflow_buckets_[i].bucket_.is_content_set()) {
+        ++result.overflow_entries_;
+      }
+      i = overflow_buckets_[i].next_;
+    }
+  }
+
+  return result;
 }
 
 

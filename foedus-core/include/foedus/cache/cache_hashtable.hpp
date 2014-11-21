@@ -30,7 +30,7 @@
 namespace foedus {
 namespace cache {
 
-// these two are actually of the same integer type, but have very different meanings.
+// these are actually of the same integer type, but have very different meanings.
 /**
  * Offset in hashtable bucket.
  */
@@ -47,7 +47,7 @@ typedef memory::PagePoolOffset ContentId;
 
 /**
  * This is a lossy-compressed representation of SnapshotPagePointer used to quickly identify
- * the content of a bucket \e may represent the given SnapshotPagePointer or not.
+ * whether the content of a bucket \e may represent the given SnapshotPagePointer or not.
  * This value is calculated via another simple formula, which should be as independent as possible
  * from hash function (otherwise it can't differentiate entries with similar hash values).
  * This value avoids 0 for sanity checks. If our formula results in 0, we change it to 1.
@@ -66,7 +66,6 @@ typedef uint32_t OverflowPointer;
  * It is anyway cheap because it's a sequential read, but still must not be too large.
  */
 const uint16_t kHopNeighbors = 16U;
-// const BucketId kBucketNotFound = 0xFFFFFFFFU;
 
 /**
  * @brief A simple hash function logic used in snasphot cache.
@@ -241,6 +240,34 @@ class CacheHashtable CXX11_FINAL {
    */
   ErrorCode install(storage::SnapshotPagePointer page_id, ContentId content);
 
+  /** Parameters for evict() */
+  struct EvictArgs {
+    /** [In] Evicts entries up to about target_count (maybe a bit more or less) */
+    uint64_t  target_count_;
+    /** [Out] Number of entries that were actually evicted */
+    uint64_t  evicted_count_;
+    /** [Out] Array of ContentId evicted. */
+    ContentId* evicted_contents_;
+    // probably will add more in/out parameters to fine-tune its behavior later.
+
+    void add_evicted(ContentId content) {
+      // because of the loose synchronization, we might get zero. skip it.
+      if (content) {
+        evicted_contents_[evicted_count_] = content;
+        ++evicted_count_;
+      }
+    }
+  };
+  /**
+   * @brief Evict some entries from the hashtable.
+   * @details
+   * Compared to traditional bufferpools, this is much simpler and more scalable thanks to
+   * the loose requirements and epoch-based reclamation of the evicted pages.
+   * This method only evicts the hashtable entries, so reclaiming the pages pointed from the
+   * entries is done by the caller.
+   */
+  void evict(EvictArgs* args);
+
   BucketId get_logical_buckets() const ALWAYS_INLINE { return hash_func_.logical_buckets_; }
   BucketId get_physical_buckets() const ALWAYS_INLINE { return hash_func_.physical_buckets_; }
 
@@ -254,6 +281,14 @@ class CacheHashtable CXX11_FINAL {
   /** only for debugging. don't call this in a race */
   ErrorStack verify_single_thread() const;
 
+  struct Stat {
+    uint32_t normal_entries_;
+    uint32_t overflow_entries_;
+  };
+  /** only for debugging. you can call this in a race, but the results are a bit inaccurate. */
+  Stat  get_stat_single_thread() const;
+
+  friend std::ostream& operator<<(std::ostream& o, const CacheHashtable& v);
 
  protected:
   const uint16_t            numa_node_;
@@ -297,6 +332,9 @@ class CacheHashtable CXX11_FINAL {
    * so we don't have a dedicated clock hand for overflow list.
    */
   BucketId                  clockhand_;
+
+  BucketId  evict_main_loop(EvictArgs* args, BucketId cur, uint16_t loop);
+  void      evict_overflow_loop(EvictArgs* args, uint16_t loop);
 };
 
 inline uint32_t HashFunc::get_hash(storage::SnapshotPagePointer page_id) {
@@ -308,10 +346,11 @@ inline uint32_t HashFunc::get_hash(storage::SnapshotPagePointer page_id) {
   uint32_t seed = snapshot_id * 0x5a2948074497175aULL;
   seed += numa_node * 0xc30a95f6e63dd908ULL;
 
-  // local_page_id is 40 bits. the highest 8 bits are very sparse, and it has no correlation with
-  // the first 8 bits (how come 4kb-th page and 16Tb+4kb-th page has anything in common..).
-  // so, let's combine highest 8 bits and lowest 8 bits.
-  uint32_t folded_local_page_id = local_page_id ^ static_cast<uint32_t>(local_page_id >> 32);
+  // local_page_id is 40 bits. 32-40 bits are very sparse, and it has no correlation with
+  // other bits (how come 4kb-th page and 16Tb+4kb-th page has anything in common..).
+  // so, let's treat it with another multiplicative.
+  uint8_t highest_bits = static_cast<uint8_t>(local_page_id >> 32);
+  uint32_t folded_local_page_id = local_page_id + highest_bits * 0xd3561f5bedac324cULL;
 
   // now, we don't want to place adjacent pages in adjacent hash buckets. so, let's swap bytes.
   // this benefits hop-scotch hashing table.
@@ -321,7 +360,8 @@ inline uint32_t HashFunc::get_hash(storage::SnapshotPagePointer page_id) {
 }
 
 inline PageIdTag HashFunc::get_tag(storage::SnapshotPagePointer page_id) {
-  PageIdTag tag = static_cast<PageIdTag>(page_id >> 32) ^ static_cast<PageIdTag>(page_id);
+  PageIdTag high_bits = static_cast<PageIdTag>(page_id >> 32);
+  PageIdTag tag = high_bits * 0x8e1d76486c3e638dULL + static_cast<PageIdTag>(page_id);
   if (tag == 0) {
     tag = 1;  // we avoid 0 as a valid value. this enables sanity checks.
   }

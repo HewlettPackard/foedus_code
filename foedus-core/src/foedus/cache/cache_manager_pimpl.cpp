@@ -12,6 +12,7 @@
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
+#include "foedus/cache/cache_hashtable.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
@@ -157,6 +158,9 @@ void CacheManagerPimpl::handle_cleaner() {
 void CacheManagerPimpl::handle_cleaner_evict_pages(uint64_t target_count) {
   ASSERT_ND(reclaimed_pages_count_ == 0);
   ASSERT_ND(target_count > 0);
+  CacheHashtable::EvictArgs args = { target_count, 0, reclaimed_pages_ };
+  hashtable_->evict(&args);
+  reclaimed_pages_count_ = args.evicted_count_;
 }
 
 std::string CacheManagerPimpl::describe() const {

@@ -78,6 +78,106 @@ TEST(HashTableTest, RandomMultiThread) {
   }
 }
 
+
+void test_evict(const uint32_t kHashTableSize, const uint32_t kCounts) {
+  CacheHashtable hashtable(kHashTableSize, 0);
+  bool collides[kCounts];
+  bool exists[kCounts];
+  std::memset(collides, 0, sizeof(bool) * kCounts);
+  std::memset(exists, 0, sizeof(bool) * kCounts);
+  uint32_t collisions = 0;
+  for (uint32_t i = 0; i < kCounts; ++i) {
+    storage::SnapshotPagePointer pointer;
+    pointer = storage::to_snapshot_page_pointer(1, i % 3, i / 3);
+    ContentId content_id = hashtable.find(pointer);
+    if (content_id > 0) {
+      std::cout << "hash collision. rare, but possible. "
+        << i << " collided with " << (content_id - 42U) << std::endl;
+      ++collisions;
+      collides[i] = true;
+      continue;
+    }
+    ErrorCode install_ret = hashtable.install(pointer, i + 42);
+    if (install_ret != kErrorCodeOk) {
+      EXPECT_EQ(kErrorCodeCacheTooManyOverflow, install_ret);
+      std::cout << "oh yeah, too many overflows. this is intented: " << i << std::endl;
+      // give up inserting them, too.
+      ++collisions;
+      collides[i] = true;
+      continue;
+    }
+    exists[i] = true;
+    // access it for a slightly random times to add up the refcount
+    for (uint32_t rep = 0; rep < 1U + (i % 7U); ++rep) {
+      ContentId found = hashtable.find(pointer);
+      EXPECT_EQ(i + 42U, found) << i;
+    }
+  }
+  COERCE_ERROR(hashtable.verify_single_thread());
+  CacheHashtable::Stat stat = hashtable.get_stat_single_thread();
+  std::cout << "before: normal=" << stat.normal_entries_
+    << ", overflow=" << stat.overflow_entries_ << std::endl;
+  EXPECT_EQ(kCounts, stat.normal_entries_ + stat.overflow_entries_ + collisions);
+
+  // evict some of them over a few times.
+  uint32_t evicted_total = 0;
+  for (uint32_t rep = 0; rep < 3U; ++rep) {
+    uint32_t evicted[kCounts];
+    std::memset(evicted, 0, sizeof(evicted));
+    CacheHashtable::EvictArgs args = { kCounts / 10, 0, evicted };
+    hashtable.evict(&args);
+    EXPECT_GE(args.evicted_count_, args.target_count_ * 8U / 10U);  // might be a bit smaller
+    EXPECT_LE(args.evicted_count_, args.target_count_ * 12U / 10U);  // might be a bit larger
+    for (uint32_t i = 0; i < args.evicted_count_; ++i) {
+      EXPECT_NE(0, evicted[i]) << i;
+      EXPECT_LE(42U, evicted[i]) << i;
+      EXPECT_GT(42U + kCounts, evicted[i]) << i;
+      EXPECT_TRUE(exists[evicted[i] - 42U]) << i;
+      exists[evicted[i] - 42U] = false;
+    }
+    evicted_total += args.evicted_count_;
+  }
+
+  COERCE_ERROR(hashtable.verify_single_thread());
+  stat = hashtable.get_stat_single_thread();
+  std::cout << "after: normal=" << stat.normal_entries_
+    << ", overflow=" << stat.overflow_entries_ << std::endl;
+  EXPECT_EQ(kCounts, stat.normal_entries_ + stat.overflow_entries_ + collisions + evicted_total);
+
+  for (uint32_t i = 0; i < kCounts; ++i) {
+    if (collides[i]) {
+      // in this case, we are not sure the entry it collided is still there or not. can't test.
+      continue;
+    }
+    storage::SnapshotPagePointer pointer;
+    pointer = storage::to_snapshot_page_pointer(1, i % 3, i / 3);
+    ContentId content_id = hashtable.find(pointer);
+    if (exists[i]) {
+      EXPECT_EQ(i + 42U, content_id) << i;
+    } else {
+      // usually content_id should be 0 here. However,
+      // the returned content_id might be someone else's if our "tag" formula causes a collision
+      if (content_id > 0) {
+        uint32_t other = content_id - 42U;
+        storage::SnapshotPagePointer other_pointer
+          = storage::to_snapshot_page_pointer(1, other % 3, other / 3);
+        PageIdTag other_tag = HashFunc::get_tag(other_pointer);
+        PageIdTag my_tag = HashFunc::get_tag(pointer);
+        EXPECT_EQ(my_tag, other_tag) << i;
+        std::cout << "tag collision? me=" << i << ":" << my_tag
+          << ", other=" << other << ":" << other_tag << std::endl;
+      }
+    }
+  }
+}
+
+TEST(HashTableTest, EvictLittleEntries) { test_evict(12345, 10); }
+TEST(HashTableTest, EvictNoOverflow) { test_evict(12345, 1000); }
+TEST(HashTableTest, EvictLittleOverflow) { test_evict(12345, 2000); }
+
+// these take long time if run with the same scale. so, one tenth.
+TEST(HashTableTest, EvictManyOverflow) { test_evict(1234, 500); }
+TEST(HashTableTest, EvictMostlyOverflow) { test_evict(1234, 1000); }
 }  // namespace cache
 }  // namespace foedus
 
