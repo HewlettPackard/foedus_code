@@ -128,6 +128,10 @@ struct HashFunc CXX11_FINAL {
 struct CacheBucket CXX11_FINAL {
   uint64_t data_;
 
+  void    reset(ContentId id = 0, PageIdTag tag = 0) {
+    data_ = (static_cast<uint64_t>(tag) << 32) | id;
+  }
+
   ContentId get_content_id() const { return data_; }
   /**
    * @note this operation is not guaranteed to be either atomic or reglar. This should be called

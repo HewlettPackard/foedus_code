@@ -68,8 +68,7 @@ CacheHashtable::CacheHashtable(BucketId physical_buckets, uint16_t numa_node)
   refcounts_ = reinterpret_cast<CacheRefCount*>(refcounts_memory_.get_block());
 
   // index-0 should be never used. 0 means null.
-  buckets_[0].set_content_id(0);
-  buckets_[0].set_tag(0);
+  buckets_[0].reset();
   refcounts_[0].count_ = 0;
 
   // for overflow list
@@ -81,8 +80,7 @@ CacheHashtable::CacheHashtable(BucketId physical_buckets, uint16_t numa_node)
   overflow_buckets_ = reinterpret_cast<CacheOverflowEntry*>(overflow_buckets_memory_.get_block());
   overflow_buckets_head_ = 0;
   // index-0 should be never used. 0 means null.
-  overflow_buckets_[0].bucket_.set_content_id(0);
-  overflow_buckets_[0].bucket_.set_tag(0);
+  overflow_buckets_[0].bucket_.reset();
   overflow_buckets_[0].next_ = 0;
   overflow_buckets_[0].padding_ = 0;
   overflow_buckets_[0].refcount_.count_ = 0;
@@ -110,8 +108,7 @@ ErrorCode CacheHashtable::install(storage::SnapshotPagePointer page_id, ContentI
   ASSERT_ND(tag != 0);
 
   CacheBucket new_bucket;
-  new_bucket.set_content_id(content);
-  new_bucket.set_tag(tag);
+  new_bucket.reset(content, tag);
 
   // An opportunistic optimization. if the exact bucket already has the same page_id,
   // most likely someone else is trying to install it at the same time. let's wait.
