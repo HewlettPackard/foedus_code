@@ -398,8 +398,39 @@ ErrorCode ThreadPimpl::follow_page_pointer(
   return kErrorCodeOk;
 }
 
-ErrorCode ThreadPimpl::on_snapshot_page_read_callback(
-  cache::CacheHashtable* /*table*/,
+ErrorCode ThreadPimpl::find_or_read_a_snapshot_page(
+  storage::SnapshotPagePointer page_id,
+  storage::Page** out) {
+  if (snapshot_cache_hashtable_) {
+    ASSERT_ND(engine_->get_options().cache_.snapshot_cache_enabled_);
+    memory::PagePoolOffset offset = snapshot_cache_hashtable_->find(page_id);
+    // the "find" is very efficient and wait-free, but instead it might have false positive/nagative
+    // in which case we should just install a new page. No worry about duplicate thanks to the
+    // immutability of snapshot pages. it just wastes a bit of CPU and memory.
+    if (offset == 0 || snapshot_page_pool_->get_base()[offset].get_header().page_id_ != page_id) {
+      if (offset != 0) {
+        DVLOG(0) << "Interesting, this race is rare, but possible. offset=" << offset;
+      }
+      CHECK_ERROR_CODE(on_snapshot_cache_miss(page_id, &offset));
+      ASSERT_ND(offset != 0);
+      CHECK_ERROR_CODE(snapshot_cache_hashtable_->install(page_id, offset));
+    }
+    ASSERT_ND(offset != 0);
+    *out = snapshot_page_pool_->get_base() + offset;
+  } else {
+    ASSERT_ND(!engine_->get_options().cache_.snapshot_cache_enabled_);
+    // Snapshot is disabled. So far this happens only in performance experiments.
+    // We use local work memory in this case.
+    CHECK_ERROR_CODE(current_xct_.acquire_local_work_memory(
+      storage::kPageSize,
+      reinterpret_cast<void**>(out),
+      storage::kPageSize));
+    return read_a_snapshot_page(page_id, *out);
+  }
+  return kErrorCodeOk;
+}
+
+ErrorCode ThreadPimpl::on_snapshot_cache_miss(
   storage::SnapshotPagePointer page_id,
   memory::PagePoolOffset* pool_offset) {
   // grab a buffer page to read into.

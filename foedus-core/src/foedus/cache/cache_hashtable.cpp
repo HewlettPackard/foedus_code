@@ -11,6 +11,7 @@
 
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/cache/snapshot_file_set.hpp"
+#include "foedus/debugging/stop_watch.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/thread/thread.hpp"
@@ -22,13 +23,25 @@ BucketId determine_logical_buckets(BucketId physical_buckets) {
   ASSERT_ND(physical_buckets >= 1024U);
   // to speed up, leave space in neighbors of the last bucket.
   // Instead, we do not wrap-around.
-  BucketId buckets = physical_buckets - kHopNeighbors;
+  // Also, leave space for at least one cacheline so that we never overrun when we prefetch.
+  BucketId buckets = physical_buckets - kHopNeighbors - 64ULL;
 
   // to make the division-hashing more effective, make it prime-like.
   BucketId logical_buckets = assorted::generate_almost_prime_below(buckets);
   ASSERT_ND(logical_buckets <= physical_buckets);
   ASSERT_ND((logical_buckets & (logical_buckets - 1U)) != 0);  // at least not power of 2
   return logical_buckets;
+}
+
+uint32_t determine_overflow_list_size(BucketId physical_buckets) {
+  // there should be very few overflow entries. This can be super small.
+  const uint32_t kOverflowFraction = 128U;
+  const uint32_t kOverflowMinSize = 256U;
+  uint32_t overflow_size = physical_buckets / kOverflowFraction;
+  if (overflow_size <= kOverflowMinSize) {
+    overflow_size = kOverflowMinSize;
+  }
+  return overflow_size;
 }
 
 HashFunc::HashFunc(BucketId physical_buckets)
@@ -39,289 +52,271 @@ HashFunc::HashFunc(BucketId physical_buckets)
 
 CacheHashtable::CacheHashtable(BucketId physical_buckets, uint16_t numa_node)
   : numa_node_(numa_node),
+  overflow_buckets_count_(determine_overflow_list_size(physical_buckets)),
   hash_func_(physical_buckets) {
   buckets_memory_.alloc(
     sizeof(CacheBucket) * physical_buckets,
     1U << 21,
     memory::AlignedMemory::kNumaAllocOnnode,
     numa_node);
+  refcounts_memory_.alloc(
+    sizeof(CacheRefCount) * physical_buckets,
+    1U << 21,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    numa_node);
   buckets_ = reinterpret_cast<CacheBucket*>(buckets_memory_.get_block());
-}
+  refcounts_ = reinterpret_cast<CacheRefCount*>(refcounts_memory_.get_block());
 
-bool CacheBucket::atomic_status_cas(CacheBucketStatus expected, CacheBucketStatus desired) {
-  return assorted::raw_atomic_compare_exchange_strong<uint64_t>(
-    &status_.data_,
-    &expected.data_,
-    desired.data_);
-}
+  // index-0 should be never used. 0 means null.
+  buckets_[0].set_content_id(0);
+  buckets_[0].set_tag(0);
+  refcounts_[0].count_ = 0;
 
-void CacheBucket::atomic_set_hop_bit(uint16_t hop) {
-  while (true) {
-    CacheBucketStatus cur_status = status_;
-    ASSERT_ND(!cur_status.is_hop_bit_on(hop));
-    CacheBucketStatus new_status = cur_status;
-    new_status.set_hop_bit_on(hop);
-    if (atomic_status_cas(cur_status, new_status)) {
-      break;
-    }
-  }
-}
-void CacheBucket::atomic_unset_hop_bit(uint16_t hop) {
-  while (true) {
-    CacheBucketStatus cur_status = status_;
-    ASSERT_ND(cur_status.is_hop_bit_on(hop));
-    CacheBucketStatus new_status = cur_status;
-    new_status.set_hop_bit_off(hop);
-    if (atomic_status_cas(cur_status, new_status)) {
-      break;
-    }
-  }
-}
+  // for overflow list
+  overflow_buckets_memory_.alloc(
+    sizeof(CacheOverflowEntry) * overflow_buckets_count_,
+    1U << 21,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    numa_node);
+  overflow_buckets_ = reinterpret_cast<CacheOverflowEntry*>(overflow_buckets_memory_.get_block());
+  overflow_buckets_head_ = 0;
+  // index-0 should be never used. 0 means null.
+  overflow_buckets_[0].bucket_.set_content_id(0);
+  overflow_buckets_[0].bucket_.set_tag(0);
+  overflow_buckets_[0].next_ = 0;
+  overflow_buckets_[0].padding_ = 0;
+  overflow_buckets_[0].refcount_.count_ = 0;
 
-void CacheBucket::atomic_empty() {
-  page_id_ = 0;
-  while (true) {
-    CacheBucketStatus cur_status = status_;
-    CacheBucketStatus new_status = cur_status;
-    new_status.set_content_id(0);
-    new_status.set_hop_bit_off(0);
-    if (atomic_status_cas(cur_status, new_status)) {
-      break;
-    }
-  }
-}
-
-bool CacheBucket::try_occupy_unused_bucket() {
-  CacheBucketStatus cur_status = status_;
-  if (cur_status.is_content_set() || cur_status.is_being_modified()) {
-    return false;
-  }
-  CacheBucketStatus new_status = cur_status;
-  new_status.set_being_modified();
-  ASSERT_ND(!cur_status.is_being_modified());
-  ASSERT_ND(new_status.is_being_modified());
-  bool success = atomic_status_cas(cur_status, new_status);
-  if (!success) {
-    DVLOG(0) << "Interesting. lost race for occupying bucket";
-  } else {
-    ASSERT_ND(status_.is_being_modified());
-    ASSERT_ND(!status_.is_content_set());
-  }
-  return success;
-}
-
-void CacheBucket::spin_occupy() {
-  SPINLOCK_WHILE(true) {
-    assorted::memory_fence_acquire();
-    CacheBucketStatus cur_status = status_;
-    CacheBucketStatus new_status = cur_status;
-    if (new_status.is_being_modified()) {
-      DVLOG(2) << "someone is already writing. retry...";
-      continue;
-    }
-    new_status.set_being_modified();
-    ASSERT_ND(!cur_status.is_being_modified());
-    ASSERT_ND(new_status.is_being_modified());
-    bool success = atomic_status_cas(cur_status, new_status);
-    if (!success) {
-      DVLOG(0) << "Interesting. lost race for unconditionally occupying bucket. retry";
+  // initially all entries are in free list.
+  overflow_free_buckets_head_ = 1;
+  for (OverflowPointer i = 1U; i < overflow_buckets_count_; ++i) {
+    if (i < overflow_buckets_count_ - 1U) {
+      overflow_buckets_[i].next_ = i + 1U;
     } else {
-      ASSERT_ND(status_.is_being_modified());
-      break;
+      overflow_buckets_[i].next_ = 0;
     }
   }
 }
 
-BucketId CacheHashtable::find_next_empty_bucket(BucketId from_bucket) const {
-  const BucketId physical_buckets = get_physical_buckets();
-  for (BucketId bucket = from_bucket + 1; bucket < physical_buckets; ++bucket) {
-    if (buckets_[bucket].page_id_ == 0
-        && !buckets_[bucket].status_.is_content_set()
-        && !buckets_[bucket].status_.is_being_modified()) {
-      return bucket;
-    }
-  }
-  return kBucketNotFound;
-}
 
-ErrorCode CacheHashtable::grab_unused_bucket(
-  storage::SnapshotPagePointer page_id,
-  BucketId from_bucket,
-  BucketId* occupied_bucket) {
-  *occupied_bucket = kBucketNotFound;
-  {
-    CacheBucket& bucket = buckets_[from_bucket];
-    if (bucket.try_occupy_unused_bucket()) {
-      *occupied_bucket = from_bucket;
-      DVLOG(2) << "Okay, grabbed best position for page_id " << assorted::Hex(page_id)
-        << ". bucket-" << from_bucket;
-      return kErrorCodeOk;
-    }
-  }
-
-  const BucketId physical_buckets = get_physical_buckets();
-  BucketId empty_bucket = from_bucket;
-  while (true) {
-    empty_bucket = find_next_empty_bucket(empty_bucket);
-    if (empty_bucket == kBucketNotFound) {
-      LOG(FATAL) << "Could not find an empty bucket while cache miss. "
-        << ", bucket=" << from_bucket << ", cur=" << empty_bucket;
-      return kErrorCodeCacheTableFull;
-    }
-    // occupy larger index first. otherwise deadlock
-    if (!buckets_[empty_bucket].try_occupy_unused_bucket()) {
-      DVLOG(0) << "Umm, no longer an empty bucket.. " << empty_bucket;
-      continue;
-    }
-    // below, "buckets_[empty_bucket]" are always locked and empty
-    ASSERT_ND(buckets_[empty_bucket].status_.is_being_modified());
-    ASSERT_ND(!buckets_[empty_bucket].status_.is_content_set());
-    ASSERT_ND(empty_bucket > 0 && empty_bucket < physical_buckets);
-    while (empty_bucket - from_bucket >= kHopNeighbors) {
-      LOG(INFO) << "Mmm, it's a bit too far(cur=" << empty_bucket << ", bucket=" << from_bucket
-        << "). we must move the hole towards it."
-        << " For the best performance, we have to make sure this won't happen often...";
-      BucketId back;
-      for (back = 1; back < kHopNeighbors; ++back) {
-        storage::SnapshotPagePointer target_page_id = buckets_[empty_bucket - back].page_id_;
-        if (target_page_id == 0) {
-          continue;
-        }
-        BucketId original = get_bucket_number(target_page_id);
-        ASSERT_ND(original + back <= empty_bucket);
-        BucketId original_hop = empty_bucket - back - original;
-        if (original + kHopNeighbors <= empty_bucket + 1U) {
-          // okay, then we can move this to empty_bucket.
-          // again, larger index -> smaller index
-          buckets_[empty_bucket - back].spin_occupy();
-
-          // move the content to empty_bucket and unlock
-          buckets_[empty_bucket].page_id_ = target_page_id;
-          CacheBucketStatus new_status = buckets_[empty_bucket].status_;
-          new_status.set_content_id(buckets_[empty_bucket - back].status_.get_content_id());
-          new_status.unset_being_modified();
-          ASSERT_ND(!new_status.is_hop_bit_on(back));
-          new_status.set_hop_bit_on(back);
-
-          assorted::memory_fence_release();
-          buckets_[empty_bucket].status_ = new_status;
-          assorted::memory_fence_release();
-
-          buckets_[original].atomic_unset_hop_bit(original_hop);
-          buckets_[original].atomic_set_hop_bit(empty_bucket - original);
-
-          // empty the back. keep the lock, though
-          buckets_[empty_bucket - back].page_id_ = 0;
-          buckets_[empty_bucket - back].status_.set_content_id(0);
-          DVLOG(0) << "Okay, moved a hole from " << empty_bucket
-            << " to " << (empty_bucket - back) << "(original=" << original << ")";
-          break;
-        }
-      }
-
-      // if we reach here, we must resize the table. we so far refuse the insert in the case.
-      // we don't fill up the hashtable more than 50%, so this shouldn't happen.
-      if (back == kHopNeighbors) {
-        LOG(FATAL) << "Could not find an empty bucket while moving holes towards bucket. "
-          << ", bucket=" << from_bucket << ", cur=" << empty_bucket;
-        buckets_[empty_bucket - back].status_.unset_being_modified();
-        return kErrorCodeCacheTableFull;
-      } else {
-        ASSERT_ND(buckets_[empty_bucket - back].status_.is_being_modified());
-        ASSERT_ND(!buckets_[empty_bucket - back].status_.is_content_set());
-        empty_bucket = empty_bucket - back;
-      }
-    }
-
-    // Now it should be a neighbor. just insert to there
-    BucketId hop = empty_bucket - from_bucket;
-    ASSERT_ND(hop < kHopNeighbors);
-    DVLOG(1) << "Okay, grabbed an alternative position for page_id" << assorted::Hex(page_id)
-      << " bucket-" << empty_bucket << "(hop=" << hop << ")";
-    *occupied_bucket = empty_bucket;
-    return kErrorCodeOk;
-  }
-
-  return kErrorCodeCacheTableFull;
-}
-
-
-ErrorCode CacheHashtable::install_missed_page(
-  storage::SnapshotPagePointer page_id,
-  ContentId* out,
-  PageReadCallback cachemiss_callback,
-  void* cachemiss_context) {
-  *out = 0;
+ErrorCode CacheHashtable::install(storage::SnapshotPagePointer page_id, ContentId content) {
+  ASSERT_ND(content != 0);
 
   // Grab a bucket to install a new page.
   // The bucket does not have to be the only bucket to serve the page, so
   // the logic below is much simpler than typical bufferpool.
   BucketId ideal_bucket = get_bucket_number(page_id);
+  PageIdTag tag = HashFunc::get_tag(page_id);
+  ASSERT_ND(tag != 0);
+
+  CacheBucket new_bucket;
+  new_bucket.set_content_id(content);
+  new_bucket.set_tag(tag);
 
   // An opportunistic optimization. if the exact bucket already has the same page_id,
   // most likely someone else is trying to install it at the same time. let's wait.
-  if (buckets_[ideal_bucket].page_id_ == page_id) {
-    const CacheBucket& bucket = buckets_[ideal_bucket];
-    SPINLOCK_WHILE(bucket.status_.is_being_modified()) {
-      assorted::memory_fence_acquire();
-    }
-    assorted::memory_fence_acquire();
-    CacheBucketStatus status = bucket.status_;  // regular read
-    if (bucket.page_id_ == page_id && status.is_content_set() && !status.is_being_modified()) {
-      assorted::memory_fence_consume();
-      if (bucket.page_id_ == page_id) {
-        DVLOG(0) << "See, a bit of patience paid off!";
-        *out = status.get_content_id();
-        return kErrorCodeOk;
-      }
+  for (BucketId bucket = ideal_bucket; bucket < ideal_bucket + kHopNeighbors; ++bucket) {
+    if (!buckets_[bucket].is_content_set()) {
+      // looks like this is empty!
+      buckets_[bucket] = new_bucket;  // 8-byte implicitly-atomic write
+      refcounts_[bucket].count_ = 1;
+      // this might be immediately overwritten by someone else, but that's fine.
+      // that only causes a future cache miss. no correctness issue.
+      return kErrorCodeOk;
     }
   }
 
-  BucketId occupied_bucket = kBucketNotFound;
-  CHECK_ERROR_CODE(grab_unused_bucket(page_id, ideal_bucket, &occupied_bucket));
-  ASSERT_ND(occupied_bucket != kBucketNotFound);
-  BucketId hop = occupied_bucket - ideal_bucket;
-  ASSERT_ND(hop < kHopNeighbors);
+  // unlucky, no empty slot. If this happens often, we are seriously troubled.
+  DVLOG(0) << "Ohhh, we have to add this to overflow list! This should be really rare."
+    << " page_id=" << assorted::Hex(page_id)
+    << ", content=" << assorted::Hex(content)
+    << ", ideal_bucket=" << assorted::Hex(ideal_bucket)
+    << ", tag=" << assorted::Hex(tag)
+    << ", page_id=" << assorted::Hex(page_id);
 
-  CacheBucket& bucket = buckets_[occupied_bucket];
-  CacheBucketUnsetModifyScope scope(&bucket.status_);
-
-  // set page_id first to help the opportunistic optimization above
-  bucket.page_id_ = page_id;
+  // we come here anyway very occasionally, so taking mutex here wouldn't cause performance issue.
+  // note that this mutex just protects the free-list, which is rarely used.
+  soc::SharedMutexScope scope(&overflow_free_buckets_mutex_);
+  OverflowPointer new_overflow_entry = overflow_free_buckets_head_;
+  if (new_overflow_entry == 0) {
+    LOG(ERROR) << "Oh my god. we consumed all overflow entries, which means we have too many"
+      << " hash collisions. page_id=" << assorted::Hex(page_id)
+      << ", content=" << assorted::Hex(content)
+      << ", ideal_bucket=" << assorted::Hex(ideal_bucket)
+      << ", tag=" << assorted::Hex(tag)
+      << ", page_id=" << assorted::Hex(page_id);
+    return kErrorCodeCacheTooManyOverflow;
+  }
+  ASSERT_ND(new_overflow_entry < overflow_buckets_count_);
+  overflow_free_buckets_head_ = overflow_buckets_[new_overflow_entry].next_;
+  overflow_buckets_[new_overflow_entry].next_ = overflow_buckets_head_;
+  overflow_buckets_[new_overflow_entry].refcount_.count_ = 1;
+  overflow_buckets_[new_overflow_entry].bucket_ = new_bucket;
   assorted::memory_fence_release();
-
-  ContentId callback_out;
-  ErrorCode callback_result = cachemiss_callback(this, cachemiss_context, page_id, &callback_out);
-  if (callback_result != kErrorCodeOk) {
-    LOG(ERROR) << "Umm cachemiss callback returned an error. PageId= " << assorted::Hex(page_id)
-      << " Releasing the bucket-" << occupied_bucket << "...";
-    return callback_result;
-  }
-
-  CacheBucketStatus new_status = bucket.status_;
-  ASSERT_ND(new_status.is_being_modified());
-  if (hop == 0) {
-    // exact place, easier.
-    new_status.set_hop_bit_on(0);
-  } else {
-    // we have to leave a hop information in ideal bucket
-    CacheBucket& origin = buckets_[ideal_bucket];
-    origin.spin_occupy();
-    assorted::memory_fence_acq_rel();  // implied by the spin, but to make sure
-    CacheBucketStatus new_origin_status = origin.status_;
-    ASSERT_ND(new_origin_status.is_being_modified());
-    new_origin_status.set_hop_bit_on(hop);
-    new_origin_status.unset_being_modified();
-    assorted::memory_fence_release();
-    origin.status_ = new_origin_status;
-    assorted::memory_fence_release();
-  }
-  new_status.unset_being_modified();
-  new_status.set_content_id(callback_out);
-  scope.unset_now(new_status);  // also unlock. 8 bytes atomic write.
-  *out = callback_out;
+  overflow_buckets_head_ = new_overflow_entry;
   return kErrorCodeOk;
 }
+
+void CacheHashtable::evict(CacheHashtable::EvictArgs* args) {
+  LOG(INFO) << "Snapshot-Cache eviction starts at node-" << numa_node_
+    << ", clockhand_=" << clockhand_ << ", #target=" << args->target_count_;
+  const BucketId end = get_physical_buckets();
+  BucketId cur = clockhand_;
+
+  // we check each entry in refcounts_, which are 2 bytes each.
+  // for quicker checks, we want 8-byte aligned access.
+  // also, we should anyway do prefetch, so make it 64-byte aligned
+  cur = (cur >> 5) << 5;
+  ASSERT_ND(cur % (1U << 5) == 0);
+  if (cur >= end) {
+    cur = 0;
+  }
+
+  // evict on the normal buckets first.
+  args->evicted_count_ = 0;
+  uint16_t loops;
+  const uint16_t kMaxLoops = 16;  // if we need more loops than this, something is wrong...
+  for (loops = 0; loops < kMaxLoops; ++loops) {
+    cur = evict_main_loop(args, cur, loops);
+    if (cur >= get_physical_buckets()) {
+      cur = 0;
+      // we went over all buckets in usual entries. now check the overflow linked list.
+      if (overflow_buckets_head_) {
+        evict_overflow_loop(args, loops);
+      }
+    }
+    if (args->evicted_count_ >= args->target_count_) {
+      break;
+    } else {
+      ASSERT_ND(cur == 0);  // we checked all buckets and wrapped around, right? go on to next loop
+    }
+  }
+
+  clockhand_ = cur;
+  LOG(INFO) << "Snapshot-Cache eviction completed at node-" << numa_node_
+    << ", clockhand_=" << clockhand_ << ", #evicted=" << args->evicted_count_
+    << ", looped-over the whole hashtable for " << loops << " times";
+}
+
+BucketId CacheHashtable::evict_main_loop(
+  CacheHashtable::EvictArgs* args,
+  BucketId cur,
+  uint16_t loop) {
+  ASSERT_ND(cur % (1U << 5) == 0);
+  ASSERT_ND((assorted::kCachelineSize >> 5) == sizeof(CacheRefCount));
+  const uint16_t decrements = 1U << loop;
+  debugging::StopWatch watch;
+
+  // the main idea is as follows.
+  // whenever the bucket has never been used or been used but released without unlucky races,
+  // the corresponding refcount is zero. hence, we just check for non-zeros in refcounts_.
+  // this is trivially vectorized and the only observable cost is L1 cache miss.
+  // we reduce L1 cache miss cost by prefetching a lot.
+  uint32_t cur_cacheline = cur >> 5;
+  const uint32_t end_cacheline = (get_physical_buckets() >> 5) + 1ULL;
+  // for example, we prefetch cacheline 16-23 while reading cacheline 0-7.
+  const uint16_t kL1PrefetchBatch = 8;
+  const uint16_t kL1PrefetchAhead = 16;
+  for (; cur_cacheline < end_cacheline; ++cur_cacheline) {
+    if (cur_cacheline / kL1PrefetchBatch == 0) {
+      assorted::prefetch_cachelines(
+        refcounts_ + ((cur_cacheline + kL1PrefetchAhead) << 5),
+        kL1PrefetchBatch);
+    }
+
+    BucketId bucket = cur_cacheline << 5;
+    // gcc, you should be smart enough to optimize this. at least with O3.
+    uint64_t* ints = reinterpret_cast<uint64_t*>(ASSUME_ALIGNED(refcounts_ + bucket, 64));
+    bool all_zeros = true;
+    for (uint16_t i = 0; i < 8U; ++i) {
+      if (ints[i] != 0) {
+        all_zeros = false;
+        break;
+      }
+    }
+
+    if (LIKELY(all_zeros)) {
+      continue;
+    } else {
+      // this should be a rare case as far as we keep the hashtable sparse.
+      CacheRefCount* base = reinterpret_cast<CacheRefCount*>(refcounts_ + bucket);
+      for (uint16_t i = 0; i < 32U; ++i) {
+        if (base[i].count_ > 0) {
+          bool still_non_zero = base[i].decrement(decrements);
+          if (!still_non_zero) {
+            args->add_evicted(buckets_[bucket + i].get_content_id());
+            buckets_[bucket + i].data_ = 0;
+          }
+        }
+      }
+    }
+
+    if (args->evicted_count_ >= args->target_count_) {
+      break;
+    }
+  }
+
+  watch.stop();
+  LOG(INFO) << "Snapshot-Cache eviction main_loop at node-" << numa_node_ << ", checked "
+    << ((cur_cacheline << 5) - clockhand_) << " buckets in " << watch.elapsed_us() << "us";
+
+  return cur_cacheline << 5;
+}
+
+void CacheHashtable::evict_overflow_loop(CacheHashtable::EvictArgs* args, uint16_t loop) {
+  const uint16_t decrements = 1U << loop;
+  uint32_t checked_count = 0;
+
+  // store evicted entries into
+  OverflowPointer evicted_head = 0;  // evicted
+  debugging::StopWatch watch;
+  {
+    // We block this method entirely with the free buckets mutex.
+    // This does NOT block usual transactions unless they actually have to newly add to overflow,
+    // which should be very rare. This is cheap yet enough to make the free-list safe.
+    soc::SharedMutexScope scope(&overflow_free_buckets_mutex_);
+
+    // no interesting optimization. overflow list should be empty or almost empty.
+    OverflowPointer head = overflow_buckets_head_;
+    if (head != 0) {
+      // skip the head. we handle it at the last.
+      OverflowPointer prev = head;
+      for (OverflowPointer cur = overflow_buckets_[prev].next_; cur != 0;) {
+        CacheOverflowEntry* cur_entry = overflow_buckets_ + cur;
+        OverflowPointer next = cur_entry->next_;
+        bool still_non_zero = cur_entry->refcount_.decrement(decrements);
+        if (!still_non_zero) {
+          args->add_evicted(cur_entry->bucket_.get_content_id());
+          CacheOverflowEntry* prev_entry = overflow_buckets_ + prev;
+          prev_entry->next_ = next;
+          cur_entry->bucket_.data_ = 0;
+          cur_entry->next_ = evicted_head;
+          evicted_head = cur;
+        }
+
+        prev = cur;
+        cur = next;
+        ++checked_count;
+      }
+
+      // finally check the head
+      CacheOverflowEntry* cur_entry = overflow_buckets_ + head;
+      bool still_non_zero = cur_entry->refcount_.decrement(decrements);
+      if (!still_non_zero) {
+        args->add_evicted(cur_entry->bucket_.get_content_id());
+        overflow_buckets_head_ = cur_entry->next_;
+        cur_entry->bucket_.data_ = 0;
+        cur_entry->next_ = evicted_head;
+        evicted_head = head;
+      }
+      ++checked_count;
+    }
+  }
+  watch.stop();
+  LOG(INFO) << "Snapshot-Cache eviction overflow_loop at node-" << numa_node_ << ", checked "
+    << (checked_count) << " buckets in " << watch.elapsed_us() << "us";
+}
+
 
 std::ostream& operator<<(std::ostream& o, const HashFunc& v) {
   o << "<HashFunc>"
@@ -333,16 +328,37 @@ std::ostream& operator<<(std::ostream& o, const HashFunc& v) {
 
 ErrorStack CacheHashtable::verify_single_thread() const {
   for (BucketId i = 0; i < get_physical_buckets(); ++i) {
-    ASSERT_ND(!buckets_[i].status_.is_being_modified());
-    if (buckets_[i].status_.is_content_set()) {
-      BucketId ideal = get_bucket_number(buckets_[i].page_id_);
-      if (ideal != i) {
-        ASSERT_ND(ideal < i);
-        ASSERT_ND(i - ideal < kHopNeighbors);
-      }
+    if (buckets_[i].is_content_set()) {
+      ASSERT_ND(buckets_[i].get_tag() != 0);
+    } else {
+      ASSERT_ND(buckets_[i].get_tag() == 0);
     }
   }
   return kRetOk;
+}
+
+CacheHashtable::Stat CacheHashtable::get_stat_single_thread() const {
+  Stat result;
+  result.normal_entries_ = 0;
+  result.overflow_entries_ = 0;
+
+  BucketId end = get_physical_buckets();
+  for (BucketId i = 0; i < end; ++i) {
+    if (buckets_[i].is_content_set()) {
+      ++result.normal_entries_;
+    }
+  }
+
+  if (overflow_buckets_head_) {
+    for (OverflowPointer i = overflow_buckets_head_; i != 0;) {
+      if (overflow_buckets_[i].bucket_.is_content_set()) {
+        ++result.overflow_entries_;
+      }
+      i = overflow_buckets_[i].next_;
+    }
+  }
+
+  return result;
 }
 
 
