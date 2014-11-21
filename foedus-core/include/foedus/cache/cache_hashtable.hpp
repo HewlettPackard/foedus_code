@@ -194,6 +194,13 @@ struct CacheOverflowEntry CXX11_FINAL {
  * (including) and best position + kHopNeighbors (excluding) or in the \e overflow linked list.
  * Simple, stupid, thus fast.
  *
+ * @par Modularity for Testability
+ * Yes, we love them. Classes in this file are totally orthogonal to the actual page pool and
+ * other stuffs in the engine. This class only handles \e content (eg offset in page pool)
+ * as the data linked to the key. It's left to the caller on how the content
+ * is created, consumed, or reclaimed so that we can test/debug/tune the classes easily.
+ * In fact, test_hash_table.cpp (the testcase for this class) doesn't even instantiate an engine.
+ *
  * @par Hash Function in cache table
  * We have a fixed type of key, SnapshotPagePointer. For the fastest calculation of
  * the hash we simply divide by the size of hashtable, which we adjust to be \e almost a prime
