@@ -600,6 +600,9 @@ void run_test(
   options.log_.log_file_size_mb_ = 1 << 10;
   options.memory_.page_pool_size_mb_per_node_ = 1 << 5;
   options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 3;
+  if (load_orderlines) {
+    options.memory_.page_pool_size_mb_per_node_ = 1 << 6;
+  }
   Engine engine(options);
   engine.get_proc_manager()->pre_register("the_task", proc);
   engine.get_proc_manager()->pre_register("tpcc_load_task", tpcc_load_task);
