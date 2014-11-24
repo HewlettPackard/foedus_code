@@ -47,9 +47,9 @@ namespace graphlda {
 DEFINE_string(dictionary_fname, "dictionary.txt", "Dictionary file");
 DEFINE_string(counts_fname, "counts.tsv", "Counts file");
 DEFINE_int32(ntopics, 50, "Number of topics");
-DEFINE_int32(nburnin, 5, "Number of burnin iterations");
-DEFINE_int32(nsamples, 1, "Number of sampling iterations");
-DEFINE_int32(nthreads, 1, "Total number of threads");
+DEFINE_int32(nburnin, 50, "Number of burnin iterations");
+DEFINE_int32(nsamples, 10, "Number of sampling iterations");
+DEFINE_int32(nthreads, 16, "Total number of threads");
 DEFINE_double(alpha, 1.0, "Alpha prior");
 DEFINE_double(beta, 0.1, "Beta prior");
 DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
@@ -80,11 +80,6 @@ const char* kNtd = "n_td";
 const char* kNtw = "n_tw";
 /** n_t(t) [1d: t] The total number of words assigned to topic t */
 const char* kNt = "n_t";
-
-/** d * ntopics + t */
-inline uint32_t to_td(TopicId t, DocId d, uint32_t ntopics) { return d * ntopics + t; }
-/** w * ntopics + t */
-inline uint32_t to_tw(TopicId t, WordId w, uint32_t ntopics) { return w * ntopics + t; }
 
 struct Token {
   WordId word;
@@ -157,13 +152,13 @@ struct SharedInputs {
   double    alpha;
   double    beta;
   /**
-   * Actually Token tokens[ntokens] and then TopicId topics[ntokens].
+   * Actually "Token tokens[ntokens]" and then "TopicId topics[ntokens]".
    * Note that you can't do sizeof(SharedCorpus).
    */
   char      dynamic_data[8];
 
   static uint64_t get_object_size(uint32_t ntokens) {
-    return sizeof(uint32_t) * 4 + sizeof(double) * 2 + (sizeof(Token) + sizeof(TopicId)) * ntokens;
+    return sizeof(SharedInputs) + (sizeof(Token) + sizeof(TopicId)) * ntokens;
   }
 
   void init(const Corpus& original) {
@@ -220,10 +215,9 @@ class LdaWorker {
     // allocate tmp memory on local NUMA node.
     // These are the only memory that need dynamic allocation in main_loop
     uint64_t tmp_memory_size = ntopics * sizeof(uint64_t)  // conditional
-        + ntopics * sizeof(storage::array::ArrayOffset)  // batch_array_in
-        + ntopics * sizeof(Count)  // batch_array_td
-        + ntopics * sizeof(Count)  // batch_array_tw
-        + ntopics * sizeof(Count)  // batch_array_t
+        + ntopics * sizeof(Count)  // record_td
+        + ntopics * sizeof(Count)  // record_tw
+        + ntopics * sizeof(Count)  // record_t
         + tokens_per_core * sizeof(TopicId);  // topics_tmp
     tmp_memory.alloc(
       tmp_memory_size,
@@ -235,16 +229,13 @@ class LdaWorker {
     int_conditional = reinterpret_cast<uint64_t*>(tmp_block);
     tmp_block += ntopics * sizeof(uint64_t);
 
-    batch_in = reinterpret_cast<storage::array::ArrayOffset*>(tmp_block);
-    tmp_block += ntopics * sizeof(storage::array::ArrayOffset);
-
-    batch_td = reinterpret_cast<Count*>(tmp_block);
+    record_td = reinterpret_cast<Count*>(tmp_block);
     tmp_block += ntopics * sizeof(Count);
 
-    batch_tw = reinterpret_cast<Count*>(tmp_block);
+    record_tw = reinterpret_cast<Count*>(tmp_block);
     tmp_block += ntopics * sizeof(Count);
 
-    batch_t = reinterpret_cast<Count*>(tmp_block);
+    record_t = reinterpret_cast<Count*>(tmp_block);
     tmp_block += ntopics * sizeof(Count);
 
     topics_tmp = reinterpret_cast<TopicId*>(tmp_block);
@@ -298,18 +289,17 @@ class LdaWorker {
   uint64_t nchanges;
   uint64_t int_a;
   uint64_t int_b;
-  storage::array::ArrayStorage n_td;
-  storage::array::ArrayStorage n_tw;
-  storage::array::ArrayStorage n_t;
+  storage::array::ArrayStorage n_td;  // d records of ntopics Count
+  storage::array::ArrayStorage n_tw;  // w records of ntopics Count
+  storage::array::ArrayStorage n_t;  // 1 record of ntopics Count
   assorted::UniformRandom unirand;
 
   /** local memory to back the followings */
   memory::AlignedMemory tmp_memory;
   uint64_t* int_conditional;  // [ntopics]
-  storage::array::ArrayOffset* batch_in;  // [ntopics]
-  Count* batch_td;  // [ntopics]
-  Count* batch_tw;  // [ntopics]
-  Count* batch_t;  // [ntopics]
+  Count* record_td;  // [ntopics]
+  Count* record_tw;  // [ntopics]
+  Count* record_t;  // [ntopics]
   TopicId* topics_tmp;  // [tokens_per_core]
 
   ErrorCode main_loop() {
@@ -323,24 +313,10 @@ class LdaWorker {
 
       CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
 
-      // First, read from the global arrays in batch
-      // n_td(t,d) [1d: d * ntopics + t] Number of occurences of topic t in document d
-      for (TopicId t = 0; t < ntopics; ++t) {
-        batch_in[t] = d * ntopics + t;
-      }
-      CHECK_ERROR_CODE(n_td.get_record_primitive_batch(context, 0, ntopics, batch_in, batch_td));
-
-      // n_tw(t,w) [1d: w * ntopics + t] Number of occurences of word w in topic t
-      for (TopicId t = 0; t < ntopics; ++t) {
-        batch_in[t] = w * ntopics + t;
-      }
-      CHECK_ERROR_CODE(n_tw.get_record_primitive_batch(context, 0, ntopics, batch_in, batch_tw));
-
-      // n_t(t) [1d: t] The total number of words assigned to topic t
-      for (TopicId t = 0; t < ntopics; ++t) {
-        batch_in[t] = t;
-      }
-      CHECK_ERROR_CODE(n_t.get_record_primitive_batch(context, 0, ntopics, batch_in, batch_t));
+      // First, read from the global arrays
+      CHECK_ERROR_CODE(n_td.get_record(context, d, record_td));
+      CHECK_ERROR_CODE(n_tw.get_record(context, w, record_tw));
+      CHECK_ERROR_CODE(n_t.get_record(context, 0, record_t));
 
       // Construct the conditional
       uint64_t normalizer = 0;
@@ -351,7 +327,7 @@ class LdaWorker {
       // <=>  conditional[t] = (int_a + int_ntd) * (b + ntw) / (int_b * nwords + int_nt)
       // <=>  int_conditional[t] = (int_a + int_ntd) * (int_b + int_ntw) / (int_b * nwords + int_nt)
       for (TopicId t = 0; t < ntopics; ++t) {
-        uint64_t int_ntd = batch_td[t], int_ntw = batch_tw[t], int_nt = batch_t[t];
+        uint64_t int_ntd = record_td[t], int_ntw = record_tw[t], int_nt = record_t[t];
         if (t == old_topic) {
           // locally apply the decrements. we apply it to global array
           // when we are sure that new_topic != old_topic
@@ -379,19 +355,17 @@ class LdaWorker {
 
         if (old_topic != kNullTopicId) {
           // Remove the word from the old counters
-          uint32_t old_td = to_td(old_topic, d, ntopics);
-          CHECK_ERROR_CODE(n_td.increment_record_oneshot<uint32_t>(context, old_td, -1, 0));
-          uint32_t old_tw = to_tw(old_topic, w, ntopics);
-          CHECK_ERROR_CODE(n_tw.increment_record_oneshot<uint32_t>(context, old_tw, -1, 0));
-          CHECK_ERROR_CODE(n_t.increment_record_oneshot<uint32_t>(context, old_topic, -1, 0));
+          uint16_t offset = old_topic * sizeof(Count);
+          CHECK_ERROR_CODE(n_td.increment_record_oneshot<Count>(context, d, -1, offset));
+          CHECK_ERROR_CODE(n_tw.increment_record_oneshot<Count>(context, w, -1, offset));
+          CHECK_ERROR_CODE(n_t.increment_record_oneshot<Count>(context, 0, -1, offset));
         }
 
         // Add the word to the new counters
-        uint32_t td = to_td(new_topic, d, ntopics);
-        CHECK_ERROR_CODE(n_td.increment_record_oneshot<uint32_t>(context, td, 1, 0));
-        uint32_t tw = to_tw(new_topic, w, ntopics);
-        CHECK_ERROR_CODE(n_tw.increment_record_oneshot<uint32_t>(context, tw, 1, 0));
-        CHECK_ERROR_CODE(n_t.increment_record_oneshot<uint32_t>(context, new_topic, 1, 0));
+        uint16_t offset = new_topic * sizeof(Count);
+        CHECK_ERROR_CODE(n_td.increment_record_oneshot<Count>(context, d, 1, offset));
+        CHECK_ERROR_CODE(n_tw.increment_record_oneshot<Count>(context, w, 1, offset));
+        CHECK_ERROR_CODE(n_t.increment_record_oneshot<Count>(context, 0, 1, offset));
 
         Epoch ep;
         // because this is not serializable level and the only update is one-shot increment,
@@ -454,21 +428,61 @@ void run_workers(Engine* engine, SharedInputs* shared_inputs, uint32_t niteratio
   LOG(INFO) << "Completed";
 }
 
-void create_count_array(Engine* engine, const char* name, uint64_t size) {
-  Epoch ep;
-  storage::array::ArrayMetadata meta(name, sizeof(Count), size);
-  COERCE_ERROR(engine->get_storage_manager()->create_storage(&meta, &ep));
+ErrorStack lda_populate_array_task(const proc::ProcArguments& args) {
+  ASSERT_ND(args.input_len_ == sizeof(storage::StorageId));
+  storage::StorageId storage_id = *reinterpret_cast<const storage::StorageId*>(args.input_buffer_);
+  storage::array::ArrayStorage array(args.engine_, storage_id);
+  ASSERT_ND(array.exists());
+  thread::Thread* context = args.context_;
+
+  uint16_t nodes = args.engine_->get_options().thread_.group_count_;
+  uint16_t node = context->get_numa_node();
+  uint64_t records_per_node = array.get_array_size() / nodes;
+  storage::array::ArrayOffset begin = records_per_node * node;
+  storage::array::ArrayOffset end = records_per_node * (node + 1U);
+  WRAP_ERROR_CODE(array.prefetch_pages(context, true, false, begin, end));
+
+  LOG(INFO) << "Population of " << array.get_name() << " done in node-" << node;
+  return kRetOk;
 }
 
-void run_experiment(Engine* engine, const Corpus &corpus) {
+void create_count_array(
+  Engine* engine,
+  const char* name,
+  uint64_t records,
+  uint64_t counts) {
+  Epoch ep;
+  storage::array::ArrayMetadata meta(name, counts * sizeof(Count), records);
+  COERCE_ERROR(engine->get_storage_manager()->create_storage(&meta, &ep));
+  LOG(INFO) << "Populating empty " << name << "(id=" << meta.id_ << ")...";
+
+  // populate it with one thread per node.
   const EngineOptions& options = engine->get_options();
+  auto* thread_pool = engine->get_thread_pool();
+  std::vector< thread::ImpersonateSession > sessions;
+  for (uint16_t node = 0; node < options.thread_.group_count_; ++node) {
+    thread::ImpersonateSession session;
+    bool ret = thread_pool->impersonate_on_numa_node(
+      node,
+      "populate_array_task",
+      &meta.id_,
+      sizeof(meta.id_),
+      &session);
+    if (!ret) {
+      LOG(FATAL) << "Couldn't impersonate";
+    }
+    sessions.emplace_back(std::move(session));
+  }
+  for (uint32_t i = 0; i < sessions.size(); ++i) {
+    LOG(INFO) << "populate result[" << i << "]=" << sessions[i].get_result();
+    COERCE_ERROR(sessions[i].get_result());
+    sessions[i].release();
+  }
+  LOG(INFO) << "Populated empty " << name;
+}
 
-  // first, create empty tables. this is done in single thread
-  create_count_array(engine, kNtd, FLAGS_ntopics * corpus.ndocs);
-  create_count_array(engine, kNtw, FLAGS_ntopics * corpus.nwords);
-  create_count_array(engine, kNt, FLAGS_ntopics);
-
-  LOG(INFO) << "Created arrays";
+double run_experiment(Engine* engine, const Corpus &corpus) {
+  const EngineOptions& options = engine->get_options();
 
   // Input information placed in shared memory
   SharedInputs* shared_inputs = reinterpret_cast<SharedInputs*>(
@@ -477,16 +491,26 @@ void run_experiment(Engine* engine, const Corpus &corpus) {
     >= SharedInputs::get_object_size(corpus.ntokens));
   shared_inputs->init(corpus);
 
+  // create empty tables.
+  create_count_array(engine, kNtd, corpus.ndocs, FLAGS_ntopics);
+  create_count_array(engine, kNtw, corpus.nwords, FLAGS_ntopics);
+  create_count_array(engine, kNt, 1, FLAGS_ntopics);
+
+  LOG(INFO) << "Created arrays";
+
   if (FLAGS_profile) {
     COERCE_ERROR(engine->get_debug()->start_profile("lda.prof"));
   }
 
+  debugging::StopWatch watch;
   run_workers(engine, shared_inputs, FLAGS_nburnin);
   LOG(INFO) << "Completed burnin!";
   run_workers(engine, shared_inputs, FLAGS_nsamples);
   LOG(INFO) << "Completed final sampling!";
 
-  LOG(INFO) << "Experiment ended.";
+  watch.stop();
+
+  LOG(INFO) << "Experiment ended. Elapsed time=" << watch.elapsed_sec() << "sec";
   if (FLAGS_profile) {
     engine->get_debug()->stop_profile();
     LOG(INFO) << "Check out the profile result: pprof --pdf lda lda.prof > lda.pdf; okular lda.pdf";
@@ -495,6 +519,7 @@ void run_experiment(Engine* engine, const Corpus &corpus) {
   LOG(INFO) << "Shutting down...";
 
   LOG(INFO) << engine->get_memory_manager()->dump_free_memory_stat();
+  return watch.elapsed_sec();
 }
 
 
@@ -579,16 +604,20 @@ int driver_main(int argc, char** argv) {
   options.soc_.shared_user_memory_size_kb_
     = (SharedInputs::get_object_size(corpus.ntokens) >> 10) + 64;
 
+  double elapsed;
   {
     Engine engine(options);
     engine.get_proc_manager()->pre_register("worker_task", lda_worker_task);
+    engine.get_proc_manager()->pre_register("populate_array_task", lda_populate_array_task);
     COERCE_ERROR(engine.initialize());
     {
       UninitializeGuard guard(&engine);
-      run_experiment(&engine, corpus);
+      elapsed = run_experiment(&engine, corpus);
       COERCE_ERROR(engine.uninitialize());
     }
   }
+
+  std::cout << "All done. elapsed time=" << elapsed << "sec" << std::endl;
 
   return 0;
 }

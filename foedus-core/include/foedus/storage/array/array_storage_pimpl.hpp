@@ -104,6 +104,7 @@ class ArrayStoragePimpl final {
     ArrayOffset to);
   ErrorCode   prefetch_pages_recurse(
     thread::Thread* context,
+    LookupRoute route,
     bool install_volatile,
     bool cache_snapshot,
     ArrayOffset from,
@@ -255,7 +256,7 @@ class ArrayStoragePimpl final {
     bool in_snapshot,
     bool for_write,
     DualPagePointer* pointer,
-    ArrayPage** out) ALWAYS_INLINE;
+    ArrayPage** out);
 
   // composer-related
   ArrayPage*  resolve_volatile(VolatilePagePointer pointer);

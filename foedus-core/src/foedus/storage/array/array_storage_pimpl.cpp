@@ -923,7 +923,7 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
   return kErrorCodeOk;
 }
 
-inline ErrorCode ArrayStoragePimpl::follow_pointer(
+ErrorCode ArrayStoragePimpl::follow_pointer(
   thread::Thread* context,
   LookupRoute route,
   uint8_t parent_level,
