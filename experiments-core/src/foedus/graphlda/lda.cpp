@@ -73,12 +73,20 @@ inline Count check_overflow(Count count) {
 }
 
 // storage names
-
-/** n_td(t,d) [1d: d * ntopics + t] Number of occurences of topic t in document d */
+/**
+ * n_td(t,d) [1d: d * ntopics + t] Number of occurences of topic t in document d.
+ * As an array storage, it's d records of ntopics Count.
+ */
 const char* kNtd = "n_td";
-/** n_tw(t,w) [1d: w * ntopics + t] Number of occurences of word w in topic t */
+/**
+ * n_tw(t,w) [1d: w * ntopics + t] Number of occurences of word w in topic t.
+ * As an array storage, it's w records of ntopics Count.
+ */
 const char* kNtw = "n_tw";
-/** n_t(t) [1d: t] The total number of words assigned to topic t */
+/**
+ * n_t(t) [1d: t] The total number of words assigned to topic t.
+ * As an array storage, it's 1 record of ntopics Count.
+ */
 const char* kNt = "n_t";
 
 struct Token {
@@ -181,10 +189,12 @@ struct SharedInputs {
   }
 };
 
+/** Core implementation of LDA experiment. */
 class LdaWorker {
  public:
   enum Constant {
     kIntNormalizer = 1 << 24,
+    kNtApplyBatch = 1 << 8,
   };
   explicit LdaWorker(const proc::ProcArguments& args) {
     // Maybe we want to copy this input to a local memory.
@@ -202,6 +212,7 @@ class LdaWorker {
 
     shared_tokens = shared_inputs->get_tokens_data();
     ntopics = shared_inputs->ntopics;
+    ntopics_aligned = assorted::align8(ntopics);
     numwords = shared_inputs->nwords;
 
     TopicId* shared_topics = shared_inputs->get_topics_data();
@@ -214,10 +225,11 @@ class LdaWorker {
 
     // allocate tmp memory on local NUMA node.
     // These are the only memory that need dynamic allocation in main_loop
-    uint64_t tmp_memory_size = ntopics * sizeof(uint64_t)  // conditional
-        + ntopics * sizeof(Count)  // record_td
-        + ntopics * sizeof(Count)  // record_tw
-        + ntopics * sizeof(Count)  // record_t
+    uint64_t tmp_memory_size = ntopics_aligned * sizeof(uint64_t)  // conditional
+        + ntopics_aligned * sizeof(Count)  // record_td
+        + ntopics_aligned * sizeof(Count)  // record_tw
+        + ntopics_aligned * sizeof(Count)  // record_t
+        + ntopics_aligned * sizeof(Count)  // record_t_diff
         + tokens_per_core * sizeof(TopicId);  // topics_tmp
     tmp_memory.alloc(
       tmp_memory_size,
@@ -227,16 +239,19 @@ class LdaWorker {
     char* tmp_block = reinterpret_cast<char*>(tmp_memory.get_block());
 
     int_conditional = reinterpret_cast<uint64_t*>(tmp_block);
-    tmp_block += ntopics * sizeof(uint64_t);
+    tmp_block += ntopics_aligned * sizeof(uint64_t);
 
     record_td = reinterpret_cast<Count*>(tmp_block);
-    tmp_block += ntopics * sizeof(Count);
+    tmp_block += ntopics_aligned * sizeof(Count);
 
     record_tw = reinterpret_cast<Count*>(tmp_block);
-    tmp_block += ntopics * sizeof(Count);
+    tmp_block += ntopics_aligned * sizeof(Count);
 
     record_t = reinterpret_cast<Count*>(tmp_block);
-    tmp_block += ntopics * sizeof(Count);
+    tmp_block += ntopics_aligned * sizeof(Count);
+
+    record_t_diff = reinterpret_cast<Count*>(tmp_block);
+    tmp_block += ntopics_aligned * sizeof(Count);
 
     topics_tmp = reinterpret_cast<TopicId*>(tmp_block);
     tmp_block += tokens_per_core * sizeof(TopicId);
@@ -244,7 +259,7 @@ class LdaWorker {
     uint64_t size_check = tmp_block - reinterpret_cast<char*>(tmp_memory.get_block());
     ASSERT_ND(size_check == tmp_memory_size);
 
-    // initialize with previous result (of this is burnin, all null-topic)
+    // initialize with previous result (if this is burnin, all null-topic)
     std::memcpy(
       topics_tmp,
       shared_topics + tokens_per_core * thread_id,
@@ -258,6 +273,11 @@ class LdaWorker {
     ASSERT_ND(n_t.exists());
 
     nchanges = 0;
+    std::memset(int_conditional, 0, sizeof(uint64_t) * ntopics_aligned);
+    std::memset(record_td, 0, sizeof(Count) * ntopics_aligned);
+    std::memset(record_tw, 0, sizeof(Count) * ntopics_aligned);
+    std::memset(record_t, 0, sizeof(Count) * ntopics_aligned);
+    std::memset(record_t_diff, 0, sizeof(Count) * ntopics_aligned);
 
     // Loop over all the tokens
     for (size_t gn = 0; gn < niterations; ++gn) {
@@ -284,6 +304,7 @@ class LdaWorker {
   SharedInputs* shared_inputs;
   Token* shared_tokens;
   uint16_t ntopics;
+  uint16_t ntopics_aligned;
   uint32_t numwords;
   uint32_t tokens_per_core;
   uint64_t nchanges;
@@ -300,10 +321,12 @@ class LdaWorker {
   Count* record_td;  // [ntopics]
   Count* record_tw;  // [ntopics]
   Count* record_t;  // [ntopics]
+  Count* record_t_diff;  // [ntopics]. This batches changes to n_t, which is so contentious.
   TopicId* topics_tmp;  // [tokens_per_core]
 
   ErrorCode main_loop() {
     xct::XctManager* xct_manager = engine->get_xct_manager();
+    uint16_t batched_t = 0;
     for (size_t i = 0; i < tokens_per_core; ++i) {
       const uint32_t token_id = i + tokens_per_core * thread_id;
       // Get the word and document for the ith token
@@ -316,7 +339,6 @@ class LdaWorker {
       // First, read from the global arrays
       CHECK_ERROR_CODE(n_td.get_record(context, d, record_td));
       CHECK_ERROR_CODE(n_tw.get_record(context, w, record_tw));
-      CHECK_ERROR_CODE(n_t.get_record(context, 0, record_t));
 
       // Construct the conditional
       uint64_t normalizer = 0;
@@ -352,29 +374,39 @@ class LdaWorker {
         topics_tmp[i] = new_topic;
 
         // We apply the inc/dec to global array only in this case.
-
         if (old_topic != kNullTopicId) {
           // Remove the word from the old counters
           uint16_t offset = old_topic * sizeof(Count);
           CHECK_ERROR_CODE(n_td.increment_record_oneshot<Count>(context, d, -1, offset));
           CHECK_ERROR_CODE(n_tw.increment_record_oneshot<Count>(context, w, -1, offset));
-          CHECK_ERROR_CODE(n_t.increment_record_oneshot<Count>(context, 0, -1, offset));
+          // change to t are batched. will be applied later
+          --record_t[old_topic];
+          --record_t_diff[old_topic];
         }
 
         // Add the word to the new counters
         uint16_t offset = new_topic * sizeof(Count);
         CHECK_ERROR_CODE(n_td.increment_record_oneshot<Count>(context, d, 1, offset));
         CHECK_ERROR_CODE(n_tw.increment_record_oneshot<Count>(context, w, 1, offset));
-        CHECK_ERROR_CODE(n_t.increment_record_oneshot<Count>(context, 0, 1, offset));
+        ++record_t[new_topic];
+        ++record_t_diff[new_topic];
 
         Epoch ep;
         // because this is not serializable level and the only update is one-shot increment,
         // no race is possible.
         CHECK_ERROR_CODE(xct_manager->precommit_xct(context, &ep));
+
+        ++batched_t;
+        if (batched_t >= kNtApplyBatch) {
+          CHECK_ERROR_CODE(sync_record_t());
+          batched_t = 0;
+        }
       } else {
         CHECK_ERROR_CODE(xct_manager->abort_xct(context));
       }
     }
+
+    CHECK_ERROR_CODE(sync_record_t());
 
     return kErrorCodeOk;
   }
@@ -389,6 +421,32 @@ class LdaWorker {
       }
     }
     return ntopics - 1U;
+  }
+
+
+  ErrorCode sync_record_t() {
+    xct::XctManager* xct_manager = engine->get_xct_manager();
+    Epoch ep;
+    // first, "flush" batched increments/decrements to the global n_t
+    // this transactionally applies all the inc/dec.
+    CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+    for (TopicId t = 0; t < ntopics_aligned; t += 4) {
+      // for each uint64_t. we reserved additional size (align8) for simplifying this.
+      uint64_t diff = *reinterpret_cast<uint64_t*>(&record_t_diff[t]);
+      if (diff != 0) {
+        uint16_t offset = t * sizeof(Count);
+        CHECK_ERROR_CODE(n_t.increment_record_oneshot<uint64_t>(context, 0, diff, offset));
+      }
+    }
+    CHECK_ERROR_CODE(xct_manager->precommit_xct(context, &ep));
+
+    // then, retrive a fresh new copy of record_t, which contains updates from other threads.
+    std::memset(record_t, 0, sizeof(Count) * ntopics_aligned);
+    std::memset(record_t_diff, 0, sizeof(Count) * ntopics_aligned);
+    CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+    CHECK_ERROR_CODE(n_t.get_record(context, 0, record_t));
+    CHECK_ERROR_CODE(xct_manager->abort_xct(context));
+    return kErrorCodeOk;
   }
 };
 
@@ -452,7 +510,8 @@ void create_count_array(
   uint64_t records,
   uint64_t counts) {
   Epoch ep;
-  storage::array::ArrayMetadata meta(name, counts * sizeof(Count), records);
+  uint64_t counts_aligned = assorted::align8(counts);
+  storage::array::ArrayMetadata meta(name, counts_aligned * sizeof(Count), records);
   COERCE_ERROR(engine->get_storage_manager()->create_storage(&meta, &ep));
   LOG(INFO) << "Populating empty " << name << "(id=" << meta.id_ << ")...";
 
