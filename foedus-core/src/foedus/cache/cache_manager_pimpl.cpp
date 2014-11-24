@@ -51,8 +51,23 @@ ErrorStack CacheManagerPimpl::initialize_once() {
   // is anyway negligibly smaller than the page pool itself. Keep it simple stupid.
   total_pages_ = pool_->get_stat().total_pages_;
   const CacheOptions& options = engine_->get_options().cache_;
+
   cleaner_threshold_ = total_pages_ * options.snapshot_cache_eviction_threshold_;
   urgent_threshold_ = total_pages_ * options.snapshot_cache_urgent_threshold_;
+
+  // exclude page counts initially grabbed by each thread.
+  uint64_t initial_allocations
+    = engine_->get_options().memory_.private_page_pool_initial_grab_
+    * engine_->get_options().thread_.get_total_thread_count();
+  cleaner_threshold_ += initial_allocations;
+  urgent_threshold_ += initial_allocations;
+  if (cleaner_threshold_ > total_pages_) {
+    cleaner_threshold_ = total_pages_;
+  }
+  if (urgent_threshold_ > total_pages_) {
+    urgent_threshold_ = total_pages_;
+  }
+
   ASSERT_ND(cleaner_threshold_ > 0);
   ASSERT_ND(urgent_threshold_ >= cleaner_threshold_);
   ASSERT_ND(total_pages_ >= urgent_threshold_);

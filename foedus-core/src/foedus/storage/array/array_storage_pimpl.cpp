@@ -825,7 +825,7 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
   for (uint8_t i = 0; i < batch_size; ++i) {
     ASSERT_ND(offset_batch[i] < get_array_size());
     routes[i] = control_block_->route_finder_.find_route(offset_batch[i]);
-    if (levels == 0) {
+    if (levels <= 1U) {
       assorted::prefetch_cacheline(root_page->get_leaf_record(
         routes[i].route[0],
         get_payload_size()));
@@ -881,7 +881,7 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
   for (uint8_t i = 0; i < batch_size; ++i) {
     ASSERT_ND(offset_batch[i] < get_array_size());
     routes[i] = control_block_->route_finder_.find_route(offset_batch[i]);
-    if (levels == 0) {
+    if (levels <= 1U) {
       assorted::prefetch_cacheline(
         root_page->get_leaf_record(
         routes[i].route[0],

@@ -211,24 +211,25 @@ class ArrayStoragePimpl final {
     ArrayPage** out,
     uint16_t* index) ALWAYS_INLINE;
 
+  // the following methods are for batching. no point to do ALWAYS_INLINE
   ErrorCode locate_record_for_read_batch(
     thread::Thread* context,
     uint16_t batch_size,
     const ArrayOffset* offset_batch,
     Record** out_batch,
-    bool* snapshot_page_batch) ALWAYS_INLINE;
+    bool* snapshot_page_batch);
   ErrorCode lookup_for_read_batch(
     thread::Thread* context,
     uint16_t batch_size,
     const ArrayOffset* offset_batch,
     ArrayPage** out_batch,
     uint16_t* index_batch,
-    bool* snapshot_page_batch) ALWAYS_INLINE;
+    bool* snapshot_page_batch);
   ErrorCode lookup_for_write_batch(
     thread::Thread* context,
     uint16_t batch_size,
     const ArrayOffset* offset_batch,
-    Record** record_batch) ALWAYS_INLINE;
+    Record** record_batch);
 
   /** Used only from drop() */
   static void release_pages_recursive(
