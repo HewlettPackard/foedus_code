@@ -323,48 +323,32 @@ struct Page CXX11_FINAL {
 };
 
 /**
- * @brief Callback interface to initialize a volatile page.
+ * @brief Set of arguments, both inputs and outputs, given to each volatile page initializer.
  * @ingroup STORAGE
- * @details
- * This is used when a method might initialize a volatile page (eg following a page pointer).
- * Page initialization depends on page type and some of them needs additional parameters,
- * so we made it this object. One virtual function call overhead, but more flexible and no
- * need for lambda.
  */
-struct VolatilePageInitializer {
-  VolatilePageInitializer(StorageId storage_id, PageType page_type)
-    : storage_id_(storage_id), page_type_(page_type) {
-  }
-  // no virtual destructor for better performance. make sure derived class doesn't need
-  // any explicit destruction.
-
-  inline void initialize(Page* page, VolatilePagePointer page_id) const ALWAYS_INLINE {
-    std::memset(page, 0, kPageSize);
-    page->get_header().init_volatile(page_id, storage_id_, page_type_);
-    initialize_more(page);
-  }
-
-  /** Implement this in derived class to do additional initialization. */
-  virtual void initialize_more(Page* page) const = 0;
-
-  const StorageId storage_id_;
-  const PageType  page_type_;
+struct VolatilePageInitArguments {
+  /** [IN] Thread on which the procedure is running */
+  thread::Thread* context_;
+  /** [IN] New page ID */
+  VolatilePagePointer page_id;
+  /** [IN, OUT] The new page to initialize. */
+  Page*           page_;
+  /** [IN] Parent of the new page. */
+  const Page*     parent_;
+  /** [IN] Some index (meaning depends on page type) of pointer in parent page to the new page. */
+  uint16_t        index_in_parent_;
 };
 
 /**
- * @brief Empty implementation of VolatilePageInitializer.
+ * @brief A pointer of a function to initializer a volatile page.
  * @ingroup STORAGE
  * @details
- * Use this if new page is never created (tolerate_null_page).
+ * Used as a callback argument to follow_page_pointer.
+ * This is used when a method might initialize a volatile page (eg following a page pointer).
+ * Page initialization depends on page type and many of them need custom logic,
+ * so we made it this callback.
  */
-struct DummyVolatilePageInitializer CXX11_FINAL : public VolatilePageInitializer {
-  DummyVolatilePageInitializer()
-    : VolatilePageInitializer(0, kUnknownPageType) {
-  }
-  void initialize_more(Page* /*page*/) const CXX11_OVERRIDE {}
-};
-
-const DummyVolatilePageInitializer kDummyPageInitializer;
+typedef void (*VolatilePageInit)(const VolatilePageInitArguments& args);
 
 /**
  * @brief super-dirty way to obtain Page the address belongs to.

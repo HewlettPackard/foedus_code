@@ -125,7 +125,8 @@ class Thread CXX11_FINAL : public virtual Initializable {
 
   /**
    * @brief A general method to follow (read) a page pointer.
-   * @param[in] page_initializer callback object in case we need to initialize a new volatile page.
+   * @param[in] page_initializer callback function in case we need to initialize a new volatile
+   * page. null if it never happens (eg tolerate_null_pointer is false).
    * @param[in] tolerate_null_pointer when true and when both the volatile and snapshot pointers
    * seem null, we return null page rather than creating a new volatile page.
    * @param[in] will_modify if true, we always return a non-null volatile page. This is true
@@ -140,6 +141,9 @@ class Thread CXX11_FINAL : public virtual Initializable {
    * If the isolation level is not serializable, we don't take ptr set anyways.
    * @param[in,out] pointer the page pointer.
    * @param[out] page the read page.
+   * @param[in] parent the parent page that contains a pointer to the page.
+   * @param[in] index_in_parent Some index (meaning depends on page type) of pointer in
+   * parent page to the page.
    * @pre !tolerate_null_pointer || !will_modify (if we are modifying the page, tolerating null
    * pointer doesn't make sense. we should always initialize a new volatile page)
    * @details
@@ -153,13 +157,15 @@ class Thread CXX11_FINAL : public virtual Initializable {
    * type, so generalize it here.
    */
   ErrorCode     follow_page_pointer(
-    const storage::VolatilePageInitializer* page_initializer,
+    storage::VolatilePageInit page_initializer,
     bool tolerate_null_pointer,
     bool will_modify,
     bool take_ptr_set_snapshot,
     bool take_ptr_set_volatile,
     storage::DualPagePointer* pointer,
-    storage::Page** page);
+    storage::Page** page,
+    const storage::Page* parent,
+    uint16_t index_in_parent);
 
   /**
    * @brief Keeps the specified volatile page as retired as of the current epoch.

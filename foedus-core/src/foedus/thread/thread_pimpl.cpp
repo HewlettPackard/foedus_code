@@ -310,13 +310,15 @@ storage::Page* ThreadPimpl::place_a_new_volatile_page(
 
 // placed here to allow inlining
 ErrorCode Thread::follow_page_pointer(
-  const storage::VolatilePageInitializer* page_initializer,
+  storage::VolatilePageInit page_initializer,
   bool tolerate_null_pointer,
   bool will_modify,
   bool take_ptr_set_snapshot,
   bool take_ptr_set_volatile,
   storage::DualPagePointer* pointer,
-  storage::Page** page) {
+  storage::Page** page,
+  const storage::Page* parent,
+  uint16_t index_in_parent) {
   return pimpl_->follow_page_pointer(
     page_initializer,
     tolerate_null_pointer,
@@ -324,17 +326,21 @@ ErrorCode Thread::follow_page_pointer(
     take_ptr_set_snapshot,
     take_ptr_set_volatile,
     pointer,
-    page);
+    page,
+    parent,
+    index_in_parent);
 }
 
 ErrorCode ThreadPimpl::follow_page_pointer(
-  const storage::VolatilePageInitializer* page_initializer,
+  storage::VolatilePageInit page_initializer,
   bool tolerate_null_pointer,
   bool will_modify,
   bool take_ptr_set_snapshot,
   bool take_ptr_set_volatile,
   storage::DualPagePointer* pointer,
-  storage::Page** page) {
+  storage::Page** page,
+  const storage::Page* parent,
+  uint16_t index_in_parent) {
   ASSERT_ND(!tolerate_null_pointer || !will_modify);
 
   storage::VolatilePagePointer volatile_pointer = pointer->volatile_pointer_;
@@ -346,9 +352,9 @@ ErrorCode ThreadPimpl::follow_page_pointer(
         *page = nullptr;
       } else {
         // place an empty new page
-        ASSERT_ND(page_initializer != &(storage::kDummyPageInitializer));
+        ASSERT_ND(page_initializer);
         // we must not install a new volatile page in snapshot page. We must not hit this case.
-        ASSERT_ND(!storage::to_page(pointer)->get_header().snapshot_);
+        ASSERT_ND(!parent->get_header().snapshot_);
         memory::PagePoolOffset offset = core_memory_->grab_free_volatile_page();
         if (UNLIKELY(offset == 0)) {
           return kErrorCodeMemoryNoFreePages;
@@ -357,7 +363,14 @@ ErrorCode ThreadPimpl::follow_page_pointer(
         storage::VolatilePagePointer new_page_id;
         new_page_id.components.numa_node = numa_node_;
         new_page_id.components.offset = offset;
-        page_initializer->initialize(new_page, new_page_id);
+        storage::VolatilePageInitArguments args = {
+          holder_,
+          new_page_id,
+          new_page,
+          parent,
+          index_in_parent
+        };
+        page_initializer(args);
         storage::assert_valid_volatile_page(new_page, offset);
         ASSERT_ND(new_page->get_header().snapshot_ == false);
 

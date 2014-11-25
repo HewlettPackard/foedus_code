@@ -42,11 +42,24 @@ class HashRootPage final {
   void                    initialize_volatile_page(
     StorageId storage_id,
     VolatilePagePointer page_id,
-    HashRootPage* parent);
+    const HashRootPage* parent,
+    uint64_t begin_bin,
+    uint64_t end_bin);
+
+  uint64_t get_begin_bin() const { return begin_bin_; }
+  uint64_t get_end_bin() const { return end_bin_; }
+
+  inline void       assert_bin(uint64_t bin) ALWAYS_INLINE {
+    ASSERT_ND(bin >= begin_bin_);
+    ASSERT_ND(bin < end_bin_);
+  }
 
  private:
   /** common header */
   PageHeader          header_;        // +32 -> 32
+
+  uint64_t            begin_bin_;     // +8 -> 40
+  uint64_t            end_bin_;       // +8 -> 48
 
   /**
    * Pointers to child nodes.
@@ -54,7 +67,6 @@ class HashRootPage final {
    */
   DualPagePointer     pointers_[kHashRootPageFanout];
 };
-static_assert(sizeof(HashRootPage) == kPageSize, "sizeof(HashRootPage) is not kPageSize");
 
 /**
  * @brief Represents a bin page in \ref HASH.
@@ -70,18 +82,12 @@ class HashBinPage final {
   HashBinPage(const HashBinPage& other) = delete;
   HashBinPage& operator=(const HashBinPage& other) = delete;
 
-  /** volatile page initialize callback. */
-  struct Initializer final : public VolatilePageInitializer {
-    Initializer(StorageId storage_id, uint64_t begin_bin)
-      : VolatilePageInitializer(storage_id, kHashBinPageType),
-        begin_bin_(begin_bin) {
-    }
-    void initialize_more(Page* page) const override {
-      reinterpret_cast<HashBinPage*>(page)->begin_bin_ = begin_bin_;
-      reinterpret_cast<HashBinPage*>(page)->end_bin_ = begin_bin_ + kBinsPerPage;
-    }
-    const uint64_t begin_bin_;
-  };
+  void initialize_volatile_page(
+    StorageId storage_id,
+    VolatilePagePointer page_id,
+    const HashRootPage* parent,
+    uint64_t begin_bin,
+    uint64_t end_bin);
 
   /**
    * One hash bin. It should contain around kMaxEntriesPerBin * 0.5~0.7 entries.
@@ -115,7 +121,12 @@ class HashBinPage final {
     return bins_[i];
   }
 
-  inline void       assert_bin(uint64_t bin) ALWAYS_INLINE {
+  void set_begin_bin(uint64_t bin) { begin_bin_ = bin; }
+  void set_end_bin(uint64_t bin) { end_bin_ = bin; }
+  uint64_t get_begin_bin() const { return begin_bin_; }
+  uint64_t get_end_bin() const { return end_bin_; }
+
+  inline void       assert_bin(uint64_t bin) const ALWAYS_INLINE {
     ASSERT_ND(bin >= begin_bin_);
     ASSERT_ND(bin < end_bin_);
   }
@@ -140,8 +151,6 @@ class HashBinPage final {
    */
   Bin         bins_[kBinsPerPage];
 };
-static_assert(sizeof(HashBinPage) == kPageSize, "sizeof(HashBinPage) is not kPageSize");
-static_assert(sizeof(HashBinPage::Bin) == kHashBinSize, "kHashBinSize is wrong");
 
 /**
  * @brief Represents an individual data page in \ref HASH.
@@ -163,17 +172,11 @@ class HashDataPage final {
     kFlagStoredInNextPages = 0x4000,
   };
 
-  /** volatile page initialize callback. */
-  struct Initializer final : public VolatilePageInitializer {
-    Initializer(StorageId storage_id, uint64_t bin)
-      : VolatilePageInitializer(storage_id, kHashDataPageType),
-        bin_(bin) {
-    }
-    void initialize_more(Page* page) const override {
-      reinterpret_cast<HashDataPage*>(page)->set_bin(bin_);
-    }
-    const uint64_t bin_;
-  };
+  void initialize_volatile_page(
+    StorageId storage_id,
+    VolatilePagePointer page_id,
+    const Page* parent,
+    uint64_t bin);
 
   /**
    * Fix-sized slot for each record, which is placed at the end of data region.
@@ -342,6 +345,25 @@ class HashDataPage final {
    */
   char            data_[kPageSize - kHashDataPageHeaderSize];
 };
+
+
+/**
+ * volatile page initialize callback for HashBinPage.
+ * @ingroup ARRAY
+ * @see foedus::storage::VolatilePageInit
+ */
+void hash_bin_volatile_page_init(const VolatilePageInitArguments& args);
+
+/**
+ * volatile page initialize callback for HashDataPage.
+ * @ingroup ARRAY
+ * @see foedus::storage::VolatilePageInit
+ */
+void hash_data_volatile_page_init(const VolatilePageInitArguments& args);
+
+static_assert(sizeof(HashRootPage) == kPageSize, "sizeof(HashRootPage) is not kPageSize");
+static_assert(sizeof(HashBinPage) == kPageSize, "sizeof(HashBinPage) is not kPageSize");
+static_assert(sizeof(HashBinPage::Bin) == kHashBinSize, "kHashBinSize is wrong");
 
 }  // namespace hash
 }  // namespace storage

@@ -156,13 +156,15 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /** @copydoc foedus::thread::Thread::follow_page_pointer() */
   ErrorCode   follow_page_pointer(
-    const storage::VolatilePageInitializer* page_initializer,
+    storage::VolatilePageInit page_initializer,
     bool tolerate_null_pointer,
     bool will_modify,
     bool take_ptr_set_snapshot,
     bool take_ptr_set_volatile,
     storage::DualPagePointer* pointer,
-    storage::Page** page);
+    storage::Page** page,
+    const storage::Page* parent,
+    uint16_t index_in_parent);
   ErrorCode on_snapshot_cache_miss(
     storage::SnapshotPagePointer page_id,
     memory::PagePoolOffset* pool_offset);

@@ -252,6 +252,10 @@ ErrorStack ArrayStoragePimpl::load_empty() {
   control_block_->root_page_pointer_.snapshot_pointer_ = 0;
   control_block_->root_page_pointer_.volatile_pointer_.word = 0;
   control_block_->meta_.root_snapshot_page_id_ = 0;
+  control_block_->intervals_[0] = control_block_->route_finder_.get_records_in_leaf();
+  for (uint16_t level = 1; level < levels; ++level) {
+    control_block_->intervals_[level] = control_block_->intervals_[level - 1U] * kInteriorFanout;
+  }
 
   VolatilePagePointer volatile_pointer;
   ArrayPage* volatile_root;
@@ -564,12 +568,12 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read(
     DualPagePointer& pointer = current_page->get_interior_record(route.route[level]);
     CHECK_ERROR_CODE(follow_pointer(
       context,
-      route,
-      level,
       in_snapshot,
       false,
       &pointer,
-      &current_page));
+      &current_page,
+      current_page,
+      route.route[level]));
     in_snapshot = current_page->header().snapshot_;
   }
   ASSERT_ND(current_page->is_leaf());
@@ -598,12 +602,12 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write(
     ASSERT_ND(current_page->get_array_range().contains(offset));
     CHECK_ERROR_CODE(follow_pointer(
       context,
-      route,
-      level,
       false,
       true,
       &current_page->get_interior_record(route.route[level]),
-      &current_page));
+      &current_page,
+      current_page,
+      route.route[level]));
   }
   ASSERT_ND(current_page->is_leaf());
   ASSERT_ND(current_page->get_array_range().contains(offset));
@@ -839,15 +843,16 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
   for (uint8_t level = levels - 1; level > 0; --level) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       ASSERT_ND(out_batch[i]->get_array_range().contains(offset_batch[i]));
-      DualPagePointer& pointer = out_batch[i]->get_interior_record(routes[i].route[level]);
+      uint16_t in_page_pos = routes[i].route[level];
+      DualPagePointer& pointer = out_batch[i]->get_interior_record(in_page_pos);
       CHECK_ERROR_CODE(follow_pointer(
         context,
-        routes[i],
-        level,
         snapshot_page_batch[i],
         false,
         &pointer,
-        &(out_batch[i])));
+        &(out_batch[i]),
+        out_batch[i],
+        in_page_pos));
       snapshot_page_batch[i] = out_batch[i]->header().snapshot_;
       if (level == 1U) {
         assorted::prefetch_cacheline(out_batch[i]->get_leaf_record(
@@ -896,14 +901,15 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
   for (uint8_t level = levels - 1; level > 0; --level) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       ASSERT_ND(pages[i]->get_array_range().contains(offset_batch[i]));
+      uint16_t in_page_pos = routes[i].route[level];
       CHECK_ERROR_CODE(follow_pointer(
         context,
-        routes[i],
-        level,
         false,
         true,
-        &pages[i]->get_interior_record(routes[i].route[level]),
-        &pages[i]));
+        &pages[i]->get_interior_record(in_page_pos),
+        &pages[i],
+        pages[i],
+        in_page_pos));
       if (level == 1U) {
         assorted::prefetch_cacheline(pages[i]->get_leaf_record(
           routes[i].route[0],
@@ -921,32 +927,6 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
     record_batch[i] = pages[i]->get_leaf_record(routes[i].route[0], get_payload_size());
   }
   return kErrorCodeOk;
-}
-
-ErrorCode ArrayStoragePimpl::follow_pointer(
-  thread::Thread* context,
-  LookupRoute route,
-  uint8_t parent_level,
-  bool in_snapshot,
-  bool for_write,
-  DualPagePointer* pointer,
-  ArrayPage** out) {
-  ASSERT_ND(!in_snapshot || !for_write);  // if we are modifying, we must be in volatile world
-  ASSERT_ND(parent_level > 0);
-  ArrayVolatileInitializer initializer(
-    control_block_->meta_,
-    parent_level - 1U,
-    control_block_->levels_,
-    context->get_current_xct().get_id().get_epoch(),
-    route);
-  return context->follow_page_pointer(
-    &initializer,  // array storage might have null pointer. in that case create an empty new page
-    false,  // if both volatile/snapshot null, create a new volatile (logically all-zero)
-    for_write,
-    !in_snapshot,  // if we are already in snapshot world, no need to take more pointer set
-    false,
-    pointer,
-    reinterpret_cast<Page**>(out));
 }
 
 #define CHECK_AND_ASSERT(x) do { ASSERT_ND(x); if (!(x)) \
