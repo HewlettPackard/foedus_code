@@ -197,7 +197,6 @@ class LdaWorker {
     kNtApplyBatch = 1 << 8,
   };
   explicit LdaWorker(const proc::ProcArguments& args) {
-    // Maybe we want to copy this input to a local memory.
     engine = args.engine_;
     context = args.context_;
     shared_inputs = reinterpret_cast<SharedInputs*>(
@@ -205,12 +204,12 @@ class LdaWorker {
     *args.output_used_ = 0;
   }
   ErrorStack on_lda_worker_task() {
-    thread_id = context->get_thread_global_ordinal();
+    uint16_t thread_id = context->get_thread_global_ordinal();
     LOG(INFO) << "Thread-" << thread_id << " started";
     unirand.set_current_seed(thread_id);
 
 
-    shared_tokens = shared_inputs->get_tokens_data();
+    Token* shared_tokens = shared_inputs->get_tokens_data();
     ntopics = shared_inputs->ntopics;
     ntopics_aligned = assorted::align8(ntopics);
     numwords = shared_inputs->nwords;
@@ -226,6 +225,7 @@ class LdaWorker {
     // allocate tmp memory on local NUMA node.
     // These are the only memory that need dynamic allocation in main_loop
     uint64_t tmp_memory_size = ntopics_aligned * sizeof(uint64_t)  // conditional
+        + tokens_per_core * sizeof(Token)  // assigned_tokens
         + ntopics_aligned * sizeof(Count)  // record_td
         + ntopics_aligned * sizeof(Count)  // record_tw
         + ntopics_aligned * sizeof(Count)  // record_t
@@ -240,6 +240,9 @@ class LdaWorker {
 
     int_conditional = reinterpret_cast<uint64_t*>(tmp_block);
     tmp_block += ntopics_aligned * sizeof(uint64_t);
+
+    assigned_tokens = reinterpret_cast<Token*>(tmp_block);
+    tmp_block += tokens_per_core * sizeof(Token);
 
     record_td = reinterpret_cast<Count*>(tmp_block);
     tmp_block += ntopics_aligned * sizeof(Count);
@@ -260,10 +263,9 @@ class LdaWorker {
     ASSERT_ND(size_check == tmp_memory_size);
 
     // initialize with previous result (if this is burnin, all null-topic)
-    std::memcpy(
-      topics_tmp,
-      shared_topics + tokens_per_core * thread_id,
-      tokens_per_core * sizeof(TopicId));
+    uint64_t assign_pos = tokens_per_core * thread_id;
+    std::memcpy(topics_tmp, shared_topics + assign_pos, tokens_per_core * sizeof(TopicId));
+    std::memcpy(assigned_tokens, shared_tokens + assign_pos, tokens_per_core * sizeof(Token));
 
     n_td = storage::array::ArrayStorage(engine, kNtd);
     n_tw = storage::array::ArrayStorage(engine, kNtw);
@@ -286,10 +288,7 @@ class LdaWorker {
     }
 
     // copy back the topics to shared. it's per-core, so this is the only thread that modifies it.
-    std::memcpy(
-      shared_topics + tokens_per_core * thread_id,
-      topics_tmp,
-      tokens_per_core * sizeof(TopicId));
+    std::memcpy(shared_topics + assign_pos, topics_tmp, tokens_per_core * sizeof(TopicId));
 
     const uint64_t ntotal = niterations * tokens_per_core;
     LOG(INFO) << "Thread-" << thread_id << " done. nchanges/ntotal="
@@ -300,9 +299,7 @@ class LdaWorker {
  private:
   Engine* engine;
   thread::Thread* context;
-  uint16_t thread_id;
   SharedInputs* shared_inputs;
-  Token* shared_tokens;
   uint16_t ntopics;
   uint16_t ntopics_aligned;
   uint32_t numwords;
@@ -318,6 +315,7 @@ class LdaWorker {
   /** local memory to back the followings */
   memory::AlignedMemory tmp_memory;
   uint64_t* int_conditional;  // [ntopics]
+  Token* assigned_tokens;  // [tokens_per_core]
   Count* record_td;  // [ntopics]
   Count* record_tw;  // [ntopics]
   Count* record_t;  // [ntopics]
@@ -328,10 +326,9 @@ class LdaWorker {
     xct::XctManager* xct_manager = engine->get_xct_manager();
     uint16_t batched_t = 0;
     for (size_t i = 0; i < tokens_per_core; ++i) {
-      const uint32_t token_id = i + tokens_per_core * thread_id;
       // Get the word and document for the ith token
-      const WordId w = shared_tokens[token_id].word;
-      const DocId d = shared_tokens[token_id].doc;
+      const WordId w = assigned_tokens[i].word;
+      const DocId d = assigned_tokens[i].doc;
       const TopicId old_topic = topics_tmp[i];
 
       CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
