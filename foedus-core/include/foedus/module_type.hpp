@@ -20,6 +20,7 @@ enum ModuleType {
   kThread,
   kLog,
   kSnapshot,
+  kCache,
   kStorage,
   kXct,
   kRestart,

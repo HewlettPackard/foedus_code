@@ -240,7 +240,7 @@ ErrorStack HashStoragePimpl::create(const HashMetadata& metadata) {
   LOG(INFO) << "Newly creating an hash-storage " << get_name();
   control_block_->bin_count_ = 1ULL << get_bin_bits();
   control_block_->bin_pages_ = assorted::int_div_ceil(get_bin_count(), kBinsPerPage);
-  const uint32_t root_pages = assorted::int_div_ceil(get_bin_pages(), kHashRootPageFanout);;
+  const uint32_t root_pages = assorted::int_div_ceil(get_bin_pages(), kHashRootPageFanout);
   control_block_->root_pages_ = root_pages;
   ASSERT_ND(root_pages >= 1);
   LOG(INFO) << "bin_count=" << get_bin_count() << ", bin_pages=" << get_bin_pages()
@@ -270,12 +270,15 @@ ErrorStack HashStoragePimpl::create(const HashMetadata& metadata) {
   root_page->initialize_volatile_page(
     get_id(),
     control_block_->root_page_pointer_.volatile_pointer_,
-    nullptr);
+    nullptr,
+    0,
+    control_block_->bin_count_);
   if (root_pages > 1U) {
     memory::PagePoolOffsetChunk chunk;
     chunk.clear();
     ASSERT_ND(chunk.capacity() >= root_pages);
     WRAP_ERROR_CODE(pool->grab(root_pages, &chunk));
+    const uint64_t bins_per_root_page = kHashRootPageFanout * kBinsPerPage;
     for (uint16_t i = 0; i < root_pages; ++i) {
       memory::PagePoolOffset offset = chunk.pop_back();
       ASSERT_ND(offset);
@@ -286,7 +289,19 @@ ErrorStack HashStoragePimpl::create(const HashMetadata& metadata) {
         0,
         0,
         offset);
-      page->initialize_volatile_page(get_id(), pointer, root_page);
+      uint64_t begin_bin = bins_per_root_page * i;
+      uint64_t end_bin = bins_per_root_page * (i + 1U);
+      if (end_bin > control_block_->bin_count_) {
+        // this can happen only in right-most page
+        ASSERT_ND(i + 1U == root_pages);
+        end_bin = control_block_->bin_count_;
+      }
+      page->initialize_volatile_page(
+        get_id(),
+        pointer,
+        root_page,
+        begin_bin,
+        end_bin);
       root_page->pointer(i).volatile_pointer_ = pointer;
     }
   }
@@ -784,17 +799,16 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, bool for_write, 
   for (uint8_t i = 0; i < 2; ++i) {
     uint16_t pointer_index;
     HashRootPage* boundary = lookup_boundary_root(context, combo->bins_[i], &pointer_index);
-    HashBinPage::Initializer initializer(
-      get_id(),
-      combo->bins_[i] / kBinsPerPage * kBinsPerPage);
     CHECK_ERROR_CODE(context->follow_page_pointer(
-      &initializer,
+      hash_bin_volatile_page_init,
       !for_write,  // tolerate null page for read. if that happens, we get nullptr on the bin page
       for_write,  // always get volatile pages for writes
       true,
       false,
       &(boundary->pointer(pointer_index)),
-      reinterpret_cast<Page**>(&(combo->bin_pages_[i]))));
+      reinterpret_cast<Page**>(&(combo->bin_pages_[i])),
+      reinterpret_cast<const Page*>(boundary),
+      pointer_index));
   }
 
   // read bin pages
@@ -823,15 +837,16 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, bool for_write, 
       // obtain data pages, but not read it yet. it's done in locate_record()
       if (combo->hit_bitmap_[i] || for_write) {
         // becauase it's hitting. either page must be non-null
-        HashDataPage::Initializer initializer(get_id(), combo->bins_[i]);
         CHECK_ERROR_CODE(context->follow_page_pointer(
-          &initializer,
+          hash_data_volatile_page_init,
           !for_write,  // tolerate null page for read
           for_write,  // always get volatile pages for writes
           !snapshot && !for_write,  // if bin page is snapshot, data page is stable
           false,
           &(bin.data_pointer_),
-          reinterpret_cast<Page**>(&(combo->data_pages_[i]))));
+          reinterpret_cast<Page**>(&(combo->data_pages_[i])),
+          reinterpret_cast<const Page*>(bin_page),
+          bin_pos));
       } else {
         combo->data_pages_[i] = nullptr;
       }

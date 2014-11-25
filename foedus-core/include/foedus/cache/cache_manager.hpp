@@ -4,27 +4,37 @@
  */
 #ifndef FOEDUS_CACHE_CACHE_MANAGER_HPP_
 #define FOEDUS_CACHE_CACHE_MANAGER_HPP_
+
+#include <string>
+
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/cache/cache_options.hpp"
+#include "foedus/cache/fwd.hpp"
+
 namespace foedus {
 namespace cache {
 /**
- * @brief Brief description of this class.
+ * @brief Snapshot cache manager.
  * @details
- * Detailed description of this class.
+ * A snapshot cache manager exists in each SOC engine, maintaining their SOC-local
+ * snapshot cache. Everything is SOC-local, so actually a master engine does nothing here.
  */
 class CacheManager : public DefaultInitializable {
  public:
   CacheManager() CXX11_FUNC_DELETE;
-  explicit CacheManager(Engine* engine) : engine_(engine) {}
+  explicit CacheManager(Engine* engine);
+  ~CacheManager();
   ErrorStack  initialize_once() CXX11_OVERRIDE;
   ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
   const CacheOptions&    get_options() const;
 
+  /** kind of to_string(). this might be slow, so do not call too often */
+  std::string describe() const;
+
  private:
-  Engine* const           engine_;
+  CacheManagerPimpl* pimpl_;
 };
 }  // namespace cache
 }  // namespace foedus

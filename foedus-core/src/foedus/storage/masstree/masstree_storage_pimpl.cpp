@@ -489,13 +489,15 @@ ErrorCode MasstreeStoragePimpl::follow_page(
   storage::DualPagePointer* pointer,
   MasstreePage** page) {
   return context->follow_page_pointer(
-    &kDummyPageInitializer,  // masstree doesn't create a new page except splits.
+    nullptr,  // masstree doesn't create a new page except splits.
     false,  // so, there is no null page possible
     for_writes,  // always get volatile pages for writes
     true,
     false,  // root pointer might change, but we have is_root check. so no need for pointer set
     pointer,
-    reinterpret_cast<Page**>(page));
+    reinterpret_cast<Page**>(page),
+    nullptr,  // only used for new page creation, so nothing to pass
+    -1);  // same as above
 }
 
 inline ErrorCode MasstreeStoragePimpl::follow_layer(

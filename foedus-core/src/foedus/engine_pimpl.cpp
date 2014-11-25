@@ -39,6 +39,7 @@ EnginePimpl::EnginePimpl(Engine* engine, const EngineOptions &options) :
   thread_pool_(engine),
   log_manager_(engine),
   snapshot_manager_(engine),
+  cache_manager_(engine),
   storage_manager_(engine),
   xct_manager_(engine),
   restart_manager_(engine) {
@@ -62,6 +63,7 @@ EnginePimpl::EnginePimpl(
   thread_pool_(engine),
   log_manager_(engine),
   snapshot_manager_(engine),
+  cache_manager_(engine),
   storage_manager_(engine),
   xct_manager_(engine),
   restart_manager_(engine) {

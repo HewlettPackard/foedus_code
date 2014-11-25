@@ -73,6 +73,8 @@ class Epoch {
   }
   // default copy-constructor/assignment/destructor suffice
 
+  /** Clears this epoch variable so that it points to an invalid epoch */
+  void    reset() { epoch_ = kEpochInvalid; }
   bool    is_valid() const {
     ASSERT_ND(epoch_ < kEpochIntOverflow);
     return epoch_ != kEpochInvalid;

@@ -15,7 +15,8 @@ payment_percents[9]=100
 payment_percents[10]=100
 
 # This argument is to measure performance without logging I/O
-null_log_device=true
+# null_log_device=true
+null_log_device=false # With logging I/O
 high_priority=false # To set this to true, you must add "yourname - rtprio 99" to limits.conf
 fork_workers=true
 

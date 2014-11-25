@@ -39,6 +39,9 @@ class XctManager CXX11_FINAL : public virtual Initializable {
   Epoch       get_current_global_epoch() const;
   Epoch       get_current_global_epoch_weak() const;
 
+  /** Passively wait until the current global epoch becomes the given value. */
+  void        wait_for_current_global_epoch(Epoch target_epoch);
+
   /**
    * @brief Requests to advance the current global epoch as soon as possible and blocks until
    * it actually does.

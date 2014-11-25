@@ -23,7 +23,7 @@ namespace hash {
  * @brief Byte size of header in root page of hash storage.
  * @ingroup HASH
  */
-const uint16_t kHashRootPageHeaderSize  = 32;
+const uint16_t kHashRootPageHeaderSize  = 32 + 8 * 2;
 
 /**
  * @brief Number of pointers in a root page of hash storage.

@@ -14,6 +14,7 @@
 #include "foedus/initializable.hpp"
 #include "foedus/module_type.hpp"
 // This is pimpl. no need for further indirections. just include them all.
+#include "foedus/cache/cache_manager.hpp"
 #include "foedus/debugging/debugging_supports.hpp"
 #include "foedus/log/log_manager.hpp"
 #include "foedus/memory/engine_memory.hpp"
@@ -104,6 +105,7 @@ class EnginePimpl final : public DefaultInitializable {
   thread::ThreadPool              thread_pool_;
   log::LogManager                 log_manager_;
   snapshot::SnapshotManager       snapshot_manager_;
+  cache::CacheManager             cache_manager_;
   storage::StorageManager         storage_manager_;
   xct::XctManager                 xct_manager_;
   restart::RestartManager         restart_manager_;
@@ -119,6 +121,7 @@ class EnginePimpl final : public DefaultInitializable {
     modules.push_back(ModulePtr(&thread_pool_, kThread));
     modules.push_back(ModulePtr(&log_manager_, kLog));
     modules.push_back(ModulePtr(&snapshot_manager_, kSnapshot));
+    modules.push_back(ModulePtr(&cache_manager_, kCache));
     modules.push_back(ModulePtr(&storage_manager_, kStorage));
     modules.push_back(ModulePtr(&xct_manager_, kXct));
     modules.push_back(ModulePtr(&restart_manager_, kRestart));

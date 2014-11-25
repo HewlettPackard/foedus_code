@@ -4,6 +4,7 @@
  */
 #ifndef FOEDUS_THREAD_THREAD_PIMPL_HPP_
 #define FOEDUS_THREAD_THREAD_PIMPL_HPP_
+
 #include <atomic>
 
 #include "foedus/fixed_error_stack.hpp"
@@ -141,7 +142,7 @@ class ThreadPimpl final : public DefaultInitializable {
   /** @copydoc foedus::thread::Thread::find_or_read_a_snapshot_page() */
   ErrorCode   find_or_read_a_snapshot_page(
     storage::SnapshotPagePointer page_id,
-    storage::Page** out) ALWAYS_INLINE;
+    storage::Page** out);
 
   /** @copydoc foedus::thread::Thread::read_a_snapshot_page() */
   ErrorCode   read_a_snapshot_page(
@@ -155,15 +156,16 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /** @copydoc foedus::thread::Thread::follow_page_pointer() */
   ErrorCode   follow_page_pointer(
-    const storage::VolatilePageInitializer* page_initializer,
+    storage::VolatilePageInit page_initializer,
     bool tolerate_null_pointer,
     bool will_modify,
     bool take_ptr_set_snapshot,
     bool take_ptr_set_volatile,
     storage::DualPagePointer* pointer,
-    storage::Page** page);
-  ErrorCode on_snapshot_page_read_callback(
-    cache::CacheHashtable* table,
+    storage::Page** page,
+    const storage::Page* parent,
+    uint16_t index_in_parent);
+  ErrorCode on_snapshot_cache_miss(
     storage::SnapshotPagePointer page_id,
     memory::PagePoolOffset* pool_offset);
 
@@ -287,30 +289,6 @@ inline ErrorCode ThreadPimpl::read_a_snapshot_page(
   storage::SnapshotPagePointer page_id,
   storage::Page* buffer) {
   return snapshot_file_set_.read_page(page_id, buffer);
-}
-
-/** Implementation of PageReadCallback in CacheHashtable */
-inline ErrorCode snapshot_page_read_callback(
-  cache::CacheHashtable* table,
-  void* context,
-  storage::SnapshotPagePointer page_id,
-  memory::PagePoolOffset* pool_offset) {
-  ThreadPimpl* casted = reinterpret_cast<ThreadPimpl*>(context);
-  return casted->on_snapshot_page_read_callback(table, page_id, pool_offset);
-}
-
-inline ErrorCode ThreadPimpl::find_or_read_a_snapshot_page(
-  storage::SnapshotPagePointer page_id,
-  storage::Page** out) {
-  memory::PagePoolOffset offset;
-  CHECK_ERROR_CODE(snapshot_cache_hashtable_->retrieve(
-    page_id,
-    &offset,
-    snapshot_page_read_callback,
-    this));
-  ASSERT_ND(offset != 0);
-  *out = snapshot_page_pool_->get_base() + offset;
-  return kErrorCodeOk;
 }
 
 static_assert(

@@ -598,8 +598,11 @@ void run_test(
   options.thread_.thread_count_per_group_ = 1;
   options.log_.log_buffer_kb_ = 1 << 14;
   options.log_.log_file_size_mb_ = 1 << 10;
-  options.memory_.page_pool_size_mb_per_node_ = 1 << 7;
-  options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 4;
+  options.memory_.page_pool_size_mb_per_node_ = 1 << 5;
+  options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 3;
+  if (load_orderlines) {
+    options.memory_.page_pool_size_mb_per_node_ = 1 << 6;
+  }
   Engine engine(options);
   engine.get_proc_manager()->pre_register("the_task", proc);
   engine.get_proc_manager()->pre_register("tpcc_load_task", tpcc_load_task);

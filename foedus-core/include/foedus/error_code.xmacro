@@ -95,6 +95,7 @@ X(kErrorCodeStrPartitionerDataMemoryTooSmall, 0x0825, "STORAGE: Memory for Parti
 
 X(kErrorCodeCacheNoFreePages,       0x0901, "SPCACHE: Not enough free snapshot pages. Cleaner is not catching up")
 X(kErrorCodeCacheTableFull,         0x0902, "SPCACHE: Hashtable full or too many skewed inserts")
+X(kErrorCodeCacheTooManyOverflow,   0x0903, "SPCACHE: Hashtable for snapshot cache got too many overflow entries")
 
 X(kErrorCodeXctReadSetOverflow,     0x0A01, "XCTION : Too large read-set. Check the config of XctOptions")
 X(kErrorCodeXctWriteSetOverflow,    0x0A02, "XCTION : Too large write-set. Check the config of XctOptions")

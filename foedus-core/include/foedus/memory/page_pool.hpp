@@ -64,6 +64,25 @@ class PagePoolOffsetChunk {
   PagePoolOffset  chunk_[kMaxSize];
 };
 
+/** Used to point to an already existing array. Everything must be const in this case. */
+class PagePoolOffsetDynamicChunk {
+ public:
+  PagePoolOffsetDynamicChunk(uint32_t size, PagePoolOffset* chunk)
+    : size_(size), padding_(0), chunk_(chunk) {}
+
+  uint32_t                capacity() const { return size_; }
+  uint32_t                size()  const   { return size_; }
+  bool                    empty() const   { return size_ == 0; }
+  bool                    full()  const   { return true; }
+
+  void                    move_to(PagePoolOffset* destination, uint32_t count) const;
+
+ private:
+  const uint32_t        size_;
+  const uint32_t        padding_;
+  PagePoolOffset* const chunk_;  // of arbitrary size
+};
+
 /**
  * @brief Used to store an epoch value with each entry in PagePoolOffsetChunk.
  * @ingroup MEMORY
@@ -174,7 +193,8 @@ class PagePool CXX11_FINAL : public virtual Initializable {
    * calls this method when the size() goes above some threshold (eg 90%)
    * so as to get size() about 50%.
    */
-  void        release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
+  void        release(uint32_t desired_release_count, PagePoolOffsetChunk* chunk);
+  void        release(uint32_t desired_release_count, PagePoolOffsetDynamicChunk* chunk);
 
   /** Overload for PagePoolOffsetAndEpochChunk. */
   void        release(uint32_t desired_release_count, PagePoolOffsetAndEpochChunk* chunk);

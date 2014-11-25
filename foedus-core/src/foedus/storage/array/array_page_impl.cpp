@@ -6,7 +6,12 @@
 
 #include <cstring>
 
+#include "foedus/engine.hpp"
 #include "foedus/epoch.hpp"
+#include "foedus/savepoint/savepoint_manager.hpp"
+#include "foedus/storage/storage_manager.hpp"
+#include "foedus/storage/array/array_storage_pimpl.hpp"
+#include "foedus/thread/thread.hpp"
 
 namespace foedus {
 namespace storage {
@@ -44,22 +49,45 @@ void ArrayPage::initialize_volatile_page(
   }
 }
 
-void ArrayVolatileInitializer::initialize_more(Page* page) const {
-  ArrayRange range = route_.calculate_page_range(
-    page_level_,
-    total_levels_,
-    payload_size_,
-    array_size_);
-  VolatilePagePointer volatile_pointer;
-  volatile_pointer.word = page->get_header().page_id_;
-  ArrayPage* casted = reinterpret_cast<ArrayPage*>(page);
-  casted->initialize_volatile_page(
-    initial_epoch_,
-    storage_id_,
-    volatile_pointer,
-    payload_size_,
-    page_level_,
-    range);
+void array_volatile_page_init(const VolatilePageInitArguments& args) {
+  ASSERT_ND(args.parent_);
+  ASSERT_ND(args.page_);
+  ASSERT_ND(args.index_in_parent_ < kInteriorFanout);
+  const ArrayPage* parent = reinterpret_cast<const ArrayPage*>(args.parent_);
+  ArrayPage* page = reinterpret_cast<ArrayPage*>(args.page_);
+
+  Engine* engine = args.context_->get_engine();
+  StorageId storage_id = parent->get_storage_id();
+  ArrayStorage storage(engine, storage_id);
+  ASSERT_ND(storage.exists());
+  const ArrayStorageControlBlock* cb = storage.get_control_block();
+
+  ArrayRange parent_range = parent->get_array_range();
+  uint8_t parent_level = parent->get_level();
+  ASSERT_ND(parent_level > 0);
+  ASSERT_ND(parent_range.end_ - parent_range.begin_ == cb->intervals_[parent_level]
+    || parent_range.end_ == storage.get_array_size());
+
+  uint8_t child_level = parent_level - 1U;
+  uint64_t interval = cb->intervals_[child_level];
+  ASSERT_ND(interval > 0);
+  ArrayRange child_range;
+  child_range.begin_ = parent_range.begin_ + args.index_in_parent_ * interval;
+  child_range.end_ = child_range.begin_ + interval;
+  if (child_range.end_ > storage.get_array_size()) {
+    child_range.end_ = storage.get_array_size();
+  }
+  ASSERT_ND(child_range.end_ > 0);
+
+  // Because this is a new page, records in it are in the earliest epoch of the system
+  Epoch initial_epoch = engine->get_savepoint_manager()->get_initial_current_epoch();
+  page->initialize_volatile_page(
+    initial_epoch,
+    storage_id,
+    args.page_id,
+    storage.get_payload_size(),
+    child_level,
+    child_range);
 }
 
 }  // namespace array

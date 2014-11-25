@@ -110,6 +110,7 @@ class XctManagerPimpl final : public DefaultInitializable {
 
   ErrorCode   wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds);
   void        advance_current_global_epoch();
+  void        wait_for_current_global_epoch(Epoch target_epoch);
   void        wakeup_epoch_advance_thread();
 
   /**

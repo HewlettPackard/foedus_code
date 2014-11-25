@@ -128,33 +128,10 @@ class ArrayPage final {
 /**
  * volatile page initialize callback for ArrayPage.
  * @ingroup ARRAY
+ * @see foedus::storage::VolatilePageInit
  */
-struct ArrayVolatileInitializer final : public VolatilePageInitializer {
-  ArrayVolatileInitializer(
-    const ArrayMetadata& meta,
-    uint8_t page_level,
-    uint8_t total_levels,
-    Epoch initial_epoch,
-    LookupRoute route)
-    : VolatilePageInitializer(meta.id_, kArrayPageType),
-      storage_id_(meta.id_),
-      payload_size_(meta.payload_size_),
-      page_level_(page_level),
-      total_levels_(total_levels),
-      initial_epoch_(initial_epoch),
-      array_size_(meta.array_size_),
-      route_(route) {
-  }
-  void initialize_more(Page* page) const override;
+void array_volatile_page_init(const VolatilePageInitArguments& args);
 
-  const StorageId       storage_id_;
-  const uint16_t        payload_size_;
-  const uint8_t         page_level_;
-  const uint8_t         total_levels_;
-  const Epoch           initial_epoch_;
-  const ArrayOffset     array_size_;
-  const LookupRoute     route_;
-};
 
 static_assert(sizeof(ArrayPage) == kPageSize, "sizeof(ArrayPage) is not kPageSize");
 static_assert(sizeof(ArrayPage) - sizeof(ArrayPage::Data) == kHeaderSize, "kHeaderSize is wrong");

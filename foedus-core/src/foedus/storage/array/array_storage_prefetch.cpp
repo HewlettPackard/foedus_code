@@ -90,14 +90,22 @@ ErrorCode ArrayStoragePimpl::prefetch_pages_recurse(
     }
 
     // then go down
-    if (!pointer.volatile_pointer_.is_null() && vol_on) {
-      ASSERT_ND(!page->header().snapshot_);
-      ArrayPage* child = context->resolve_cast<ArrayPage>(pointer.volatile_pointer_);
-        ASSERT_ND(child->get_array_range().begin_ == page_range.begin_ + i * interval);
-        ASSERT_ND(range.overlaps(child->get_array_range()));
-      prefetch_page_l2(child);
-      if (level > 1U) {
-        CHECK_ERROR_CODE(prefetch_pages_recurse(context, vol_on, snp_on, from, to, child));
+    if (vol_on) {
+      if (pointer.volatile_pointer_.is_null() && pointer.snapshot_pointer_ == 0) {
+        // the page is not populated yet. we create an empty page in this case.
+        ArrayPage* dummy;
+        CHECK_ERROR_CODE(follow_pointer(context, false, true, &pointer, &dummy, page, i));
+      }
+
+      if (!pointer.volatile_pointer_.is_null()) {
+        ASSERT_ND(!page->header().snapshot_);
+        ArrayPage* child = context->resolve_cast<ArrayPage>(pointer.volatile_pointer_);
+          ASSERT_ND(child->get_array_range().begin_ == page_range.begin_ + i * interval);
+          ASSERT_ND(range.overlaps(child->get_array_range()));
+        prefetch_page_l2(child);
+        if (level > 1U) {
+          CHECK_ERROR_CODE(prefetch_pages_recurse(context, vol_on, snp_on, from, to, child));
+        }
       }
     }
   }

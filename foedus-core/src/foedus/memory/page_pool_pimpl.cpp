@@ -213,8 +213,11 @@ void PagePoolPimpl::release_impl(uint32_t desired_release_count, CHUNK* chunk) {
   chunk->move_to(free_pool_ + tail, release_count);
   increase_free_pool_count(release_count);
 }
-void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk) {
+void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk* chunk) {
   release_impl<PagePoolOffsetChunk>(desired_release_count, chunk);
+}
+void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetDynamicChunk* chunk) {
+  release_impl<PagePoolOffsetDynamicChunk>(desired_release_count, chunk);
 }
 void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetAndEpochChunk* chunk) {
   release_impl<PagePoolOffsetAndEpochChunk>(desired_release_count, chunk);

@@ -69,7 +69,11 @@ ErrorStack ThreadPimpl::initialize_once() {
 
   node_memory_ = engine_->get_memory_manager()->get_local_memory();
   core_memory_ = node_memory_->get_core_memory(id_);
-  snapshot_cache_hashtable_ = node_memory_->get_snapshot_cache_table();
+  if (engine_->get_options().cache_.snapshot_cache_enabled_) {
+    snapshot_cache_hashtable_ = node_memory_->get_snapshot_cache_table();
+  } else {
+    snapshot_cache_hashtable_ = nullptr;
+  }
   snapshot_page_pool_ = node_memory_->get_snapshot_pool();
   current_xct_.initialize(core_memory_, &control_block_->mcs_block_current_);
   CHECK_ERROR(snapshot_file_set_.initialize());
@@ -306,13 +310,15 @@ storage::Page* ThreadPimpl::place_a_new_volatile_page(
 
 // placed here to allow inlining
 ErrorCode Thread::follow_page_pointer(
-  const storage::VolatilePageInitializer* page_initializer,
+  storage::VolatilePageInit page_initializer,
   bool tolerate_null_pointer,
   bool will_modify,
   bool take_ptr_set_snapshot,
   bool take_ptr_set_volatile,
   storage::DualPagePointer* pointer,
-  storage::Page** page) {
+  storage::Page** page,
+  const storage::Page* parent,
+  uint16_t index_in_parent) {
   return pimpl_->follow_page_pointer(
     page_initializer,
     tolerate_null_pointer,
@@ -320,17 +326,21 @@ ErrorCode Thread::follow_page_pointer(
     take_ptr_set_snapshot,
     take_ptr_set_volatile,
     pointer,
-    page);
+    page,
+    parent,
+    index_in_parent);
 }
 
 ErrorCode ThreadPimpl::follow_page_pointer(
-  const storage::VolatilePageInitializer* page_initializer,
+  storage::VolatilePageInit page_initializer,
   bool tolerate_null_pointer,
   bool will_modify,
   bool take_ptr_set_snapshot,
   bool take_ptr_set_volatile,
   storage::DualPagePointer* pointer,
-  storage::Page** page) {
+  storage::Page** page,
+  const storage::Page* parent,
+  uint16_t index_in_parent) {
   ASSERT_ND(!tolerate_null_pointer || !will_modify);
 
   storage::VolatilePagePointer volatile_pointer = pointer->volatile_pointer_;
@@ -342,9 +352,9 @@ ErrorCode ThreadPimpl::follow_page_pointer(
         *page = nullptr;
       } else {
         // place an empty new page
-        ASSERT_ND(page_initializer != &(storage::kDummyPageInitializer));
+        ASSERT_ND(page_initializer);
         // we must not install a new volatile page in snapshot page. We must not hit this case.
-        ASSERT_ND(!storage::to_page(pointer)->get_header().snapshot_);
+        ASSERT_ND(!parent->get_header().snapshot_);
         memory::PagePoolOffset offset = core_memory_->grab_free_volatile_page();
         if (UNLIKELY(offset == 0)) {
           return kErrorCodeMemoryNoFreePages;
@@ -353,7 +363,14 @@ ErrorCode ThreadPimpl::follow_page_pointer(
         storage::VolatilePagePointer new_page_id;
         new_page_id.components.numa_node = numa_node_;
         new_page_id.components.offset = offset;
-        page_initializer->initialize(new_page, new_page_id);
+        storage::VolatilePageInitArguments args = {
+          holder_,
+          new_page_id,
+          new_page,
+          parent,
+          index_in_parent
+        };
+        page_initializer(args);
         storage::assert_valid_volatile_page(new_page, offset);
         ASSERT_ND(new_page->get_header().snapshot_ == false);
 
@@ -394,8 +411,39 @@ ErrorCode ThreadPimpl::follow_page_pointer(
   return kErrorCodeOk;
 }
 
-ErrorCode ThreadPimpl::on_snapshot_page_read_callback(
-  cache::CacheHashtable* /*table*/,
+ErrorCode ThreadPimpl::find_or_read_a_snapshot_page(
+  storage::SnapshotPagePointer page_id,
+  storage::Page** out) {
+  if (snapshot_cache_hashtable_) {
+    ASSERT_ND(engine_->get_options().cache_.snapshot_cache_enabled_);
+    memory::PagePoolOffset offset = snapshot_cache_hashtable_->find(page_id);
+    // the "find" is very efficient and wait-free, but instead it might have false positive/nagative
+    // in which case we should just install a new page. No worry about duplicate thanks to the
+    // immutability of snapshot pages. it just wastes a bit of CPU and memory.
+    if (offset == 0 || snapshot_page_pool_->get_base()[offset].get_header().page_id_ != page_id) {
+      if (offset != 0) {
+        DVLOG(0) << "Interesting, this race is rare, but possible. offset=" << offset;
+      }
+      CHECK_ERROR_CODE(on_snapshot_cache_miss(page_id, &offset));
+      ASSERT_ND(offset != 0);
+      CHECK_ERROR_CODE(snapshot_cache_hashtable_->install(page_id, offset));
+    }
+    ASSERT_ND(offset != 0);
+    *out = snapshot_page_pool_->get_base() + offset;
+  } else {
+    ASSERT_ND(!engine_->get_options().cache_.snapshot_cache_enabled_);
+    // Snapshot is disabled. So far this happens only in performance experiments.
+    // We use local work memory in this case.
+    CHECK_ERROR_CODE(current_xct_.acquire_local_work_memory(
+      storage::kPageSize,
+      reinterpret_cast<void**>(out),
+      storage::kPageSize));
+    return read_a_snapshot_page(page_id, *out);
+  }
+  return kErrorCodeOk;
+}
+
+ErrorCode ThreadPimpl::on_snapshot_cache_miss(
   storage::SnapshotPagePointer page_id,
   memory::PagePoolOffset* pool_offset) {
   // grab a buffer page to read into.

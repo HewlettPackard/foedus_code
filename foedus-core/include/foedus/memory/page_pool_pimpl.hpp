@@ -70,6 +70,7 @@ class PagePoolPimpl final : public DefaultInitializable {
   template <typename CHUNK>
   void                release_impl(uint32_t desired_release_count, CHUNK* chunk);
   void                release(uint32_t desired_release_count, PagePoolOffsetChunk *chunk);
+  void                release(uint32_t desired_release_count, PagePoolOffsetDynamicChunk* chunk);
   void                release(uint32_t desired_release_count, PagePoolOffsetAndEpochChunk* chunk);
 
   ErrorCode           grab_one(PagePoolOffset *offset);

@@ -168,6 +168,17 @@ void XctManagerPimpl::advance_current_global_epoch() {
   LOG(INFO) << "epoch advanced. current_global_epoch_=" << get_current_global_epoch();
 }
 
+void XctManagerPimpl::wait_for_current_global_epoch(Epoch target_epoch) {
+  // this method doesn't aggressively wake up the epoch-advance thread. it just waits.
+  while (get_current_global_epoch() < target_epoch) {
+    soc::SharedMutexScope scope(control_block_->current_global_epoch_advanced_.get_mutex());
+    if (get_current_global_epoch() < target_epoch) {
+      control_block_->current_global_epoch_advanced_.wait(&scope);
+    }
+  }
+}
+
+
 ErrorCode XctManagerPimpl::wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds) {
   assorted::memory_fence_acquire();
   if (commit_epoch < get_current_global_epoch()) {
@@ -279,7 +290,11 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     precommit_xct_apply(context, max_xct_id, commit_epoch);  // phase 3. this also unlocks
     // announce log AFTER (with fence) apply, because apply sets xct_order in the logs.
     assorted::memory_fence_release();
-    context->get_thread_log_buffer().publish_committed_log(*commit_epoch);
+    if (engine_->get_options().log_.emulation_.null_device_) {
+      context->get_thread_log_buffer().discard_current_xct_log();
+    } else {
+      context->get_thread_log_buffer().publish_committed_log(*commit_epoch);
+    }
   } else {
     precommit_xct_unlock(context);  // just unlock in this case
   }

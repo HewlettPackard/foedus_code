@@ -22,10 +22,12 @@
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/array/array_id.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
+#include "foedus/storage/array/array_page_impl.hpp"
 #include "foedus/storage/array/array_route.hpp"
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/array/fwd.hpp"
 #include "foedus/thread/fwd.hpp"
+#include "foedus/thread/thread.hpp"
 
 namespace foedus {
 namespace storage {
@@ -52,6 +54,16 @@ struct ArrayStorageControlBlock final {
   /** Number of levels. */
   uint8_t             levels_;
   LookupRouteFinder   route_finder_;
+
+  /**
+   * intervals_[x] is the range of array offset in one page of level-x.
+   * For example, [0] is the number of records in leaf (level-0),
+   * [1] = [0] * kInteriorFanout, ....
+   * When you use this information, be careful on right-most page.
+   * If the page is right-most (eg root page), the end should be the array's size,
+   * which might be smaller than the range it can physically contain.
+   */
+  uint64_t            intervals_[8];
 };
 
 /**
@@ -211,24 +223,25 @@ class ArrayStoragePimpl final {
     ArrayPage** out,
     uint16_t* index) ALWAYS_INLINE;
 
+  // the following methods are for batching. no point to do ALWAYS_INLINE
   ErrorCode locate_record_for_read_batch(
     thread::Thread* context,
     uint16_t batch_size,
     const ArrayOffset* offset_batch,
     Record** out_batch,
-    bool* snapshot_page_batch) ALWAYS_INLINE;
+    bool* snapshot_page_batch);
   ErrorCode lookup_for_read_batch(
     thread::Thread* context,
     uint16_t batch_size,
     const ArrayOffset* offset_batch,
     ArrayPage** out_batch,
     uint16_t* index_batch,
-    bool* snapshot_page_batch) ALWAYS_INLINE;
+    bool* snapshot_page_batch);
   ErrorCode lookup_for_write_batch(
     thread::Thread* context,
     uint16_t batch_size,
     const ArrayOffset* offset_batch,
-    Record** record_batch) ALWAYS_INLINE;
+    Record** record_batch);
 
   /** Used only from drop() */
   static void release_pages_recursive(
@@ -249,12 +262,12 @@ class ArrayStoragePimpl final {
 
   ErrorCode follow_pointer(
     thread::Thread* context,
-    LookupRoute route,
-    uint8_t parent_level,
     bool in_snapshot,
     bool for_write,
     DualPagePointer* pointer,
-    ArrayPage** out) ALWAYS_INLINE;
+    ArrayPage** out,
+    const ArrayPage* parent,
+    uint16_t index_in_parent) ALWAYS_INLINE;
 
   // composer-related
   ArrayPage*  resolve_volatile(VolatilePagePointer pointer);
@@ -274,6 +287,30 @@ class ArrayStoragePimpl final {
   Engine* const                   engine_;
   ArrayStorageControlBlock* const control_block_;
 };
+
+inline ErrorCode ArrayStoragePimpl::follow_pointer(
+  thread::Thread* context,
+  bool in_snapshot,
+  bool for_write,
+  DualPagePointer* pointer,
+  ArrayPage** out,
+  const ArrayPage* parent,
+  uint16_t index_in_parent) {
+  ASSERT_ND(!in_snapshot || !for_write);  // if we are modifying, we must be in volatile world
+  ASSERT_ND(!parent->is_leaf());
+  return context->follow_page_pointer(
+    array_volatile_page_init,  // array might have null pointer. in that case create empty new page
+    false,  // if both volatile/snapshot null, create a new volatile (logically all-zero)
+    for_write,
+    !in_snapshot,  // if we are already in snapshot world, no need to take more pointer set
+    false,
+    pointer,
+    reinterpret_cast<Page**>(out),
+    reinterpret_cast<const Page*>(parent),
+    index_in_parent);
+}
+
+
 static_assert(sizeof(ArrayStoragePimpl) <= kPageSize, "ArrayStoragePimpl is too large");
 static_assert(
   sizeof(ArrayStorageControlBlock) <= soc::GlobalMemoryAnchors::kStorageMemorySize,
