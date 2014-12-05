@@ -12,7 +12,7 @@
 #include "foedus/test_common.hpp"
 #include "foedus/log/common_log_types.hpp"
 #include "foedus/log/log_options.hpp"
-#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/proc/proc_manager.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"

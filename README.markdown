@@ -80,8 +80,8 @@ To compile this project, simply build it as a CMake project. For example:
     # We prohibit in-source build, so you have to create a build folder and compile there.
     mkdir build
     cd build
-    # Note, this is equivalent to -DCMAKE_BUILD_TYPE=Debug. You can also use Release/RelWithDebInfo.
-    cmake ../
+    # You can also use Release/RelWithDebInfo just like usual CMake projects.
+    cmake ../  -DCMAKE_BUILD_TYPE=Debug
     make
 
 Or, import it to C++ IDE, such as kdevelop. Any IDEs that support CMake build should work.
@@ -243,3 +243,34 @@ Unfortunately, kdevelop template has limited flexibility in a few things:
 * Manually edit the generated file name so that words are separated by "\_" (eg my\_new\_class.cpp)
 * Manually edit the generated cpp/hpp path so that hpp is under include, cpp is under src.
 * Don't let the wizard add new cpp to a target. Most likely it puts it in a stupid place. Add it to a right place yourself.
+
+At least kdevelop up to 4.x didn't like the almost-standard style where .cpp and .h are placed in
+separate folders (src and include).
+
+eclipse-specific Recommendations (For FOEDUS Developers)
+--------
+While eclipse-CDT doesn't support CMake projects as nicely as kdevelop, we know it's a great IDE
+in general. If you prefer eclipse, follow the following tips
+[recommended here](http://www.nightshadesoftware.org/projects/nightshade/wiki/CMake_and_Eclipse)
+ (again, we strongly prefer out-of-source builds, but you need a bit of trick to do it in eclipse):
+
+    # http://www.nightshadesoftware.org/projects/nightshade/wiki/CMake_and_Eclipse
+    # Suppose you are at foedus_code.
+    cd ..
+    mkdir foedus_code_eclipse_build   # build directory root at the same level as the source root
+    cd foedus_code_eclipse_build
+    cmake ../foedus_code -G"Eclipse CDT4 - Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug
+
+
+Now start up Eclipse and do the following to import the project.
+
+* File->Import...
+* General->Existing Projects into Workspace
+* For the root directory enter the build root directory, not the source root
+* Leave other options unchecked and click Finish
+
+If you want to *edit* CMakeLists.txt or add new ones, we recommend repeating the same process.
+Eclipse sometimes works without it, sometimes not. We let yourself figure out other eclipse
+configurations for ctest/cpplint/git/etc and find cool plugins for them.
+Good luck, and let us know if there were some gotchas.
+You might find [this](https://code.google.com/p/google-styleguide/source/browse/trunk/eclipse-cpp-google-style.xml) helpful.

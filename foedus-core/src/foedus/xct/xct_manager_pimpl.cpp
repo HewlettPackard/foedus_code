@@ -19,7 +19,7 @@
 #include "foedus/assorted/cacheline.hpp"
 #include "foedus/log/log_manager.hpp"
 #include "foedus/log/log_type_invoke.hpp"
-#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/savepoint/savepoint.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/soc/soc_manager.hpp"
@@ -181,7 +181,7 @@ void XctManagerPimpl::wait_for_current_global_epoch(Epoch target_epoch) {
 
 ErrorCode XctManagerPimpl::wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds) {
   assorted::memory_fence_acquire();
-  if (commit_epoch < get_current_global_epoch()) {
+  if (commit_epoch < get_current_global_epoch().one_less()) {
     wakeup_epoch_advance_thread();
   }
 

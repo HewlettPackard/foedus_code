@@ -68,13 +68,21 @@ ErrorStack verify_task(const proc::ProcArguments& args) {
     uint64_t data;
     uint16_t capacity = sizeof(data);
     ErrorCode ret = masstree.get_record_normalized(context, slice, &data, &capacity);
+/*
+    if (ret != kErrorCodeOk || rec != data) {
+      CHECK_ERROR(masstree.verify_single_thread(context));
+      CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
+      std::cout << "asdasd" << std::endl;
+    }
+*/
     EXPECT_EQ(kErrorCodeOk, ret) << i;
     EXPECT_EQ(rec, data) << i;
     EXPECT_EQ(sizeof(data), capacity) << i;
   }
 
   Epoch commit_epoch;
-  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  ErrorCode committed = xct_manager->precommit_xct(context, &commit_epoch);
+  EXPECT_EQ(kErrorCodeOk, committed);
   return kRetOk;
 }
 
@@ -148,7 +156,8 @@ ErrorStack verify_varlen_task(const proc::ProcArguments& args) {
   }
 
   Epoch commit_epoch;
-  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  ErrorCode committed = xct_manager->precommit_xct(context, &commit_epoch);
+  EXPECT_EQ(kErrorCodeOk, committed);
   return kRetOk;
 }
 
@@ -229,7 +238,6 @@ TEST(SnapshotMasstreeTest, InsertsNormalizedTwoPartitions) { test_run(kInsN, kVe
 TEST(SnapshotMasstreeTest, InsertsVarlenOneLogger) { test_run(kInsV, kVerV, false, false); }
 TEST(SnapshotMasstreeTest, InsertsVarlenTwoLoggers) { test_run(kInsV, kVerV, true, false); }
 TEST(SnapshotMasstreeTest, InsertsVarlenTwoPartitions) { test_run(kInsV, kVerV, true, true); }
-
 }  // namespace snapshot
 }  // namespace foedus
 

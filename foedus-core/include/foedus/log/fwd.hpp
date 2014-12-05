@@ -29,7 +29,9 @@ struct  MetaLogControlBlock;
 class   MetaLogger;
 struct  RecordLogType;
 struct  StorageLogType;
+class   ThreadEpockMark;
 class   ThreadLogBuffer;
+class   ThreadLogBufferMeta;
 }  // namespace log
 }  // namespace foedus
 #endif  // FOEDUS_LOG_FWD_HPP_

@@ -62,6 +62,11 @@ void LoggerRef::add_epoch_history(const EpochMarkerLogType& epoch_marker) {
     LOG(INFO) << "Ignored a dummy epoch marker while replaying epoch marker log on Logger-"
       << id_ << ". marker=" << epoch_marker;
   } else {
+    if (control_block_->epoch_history_count_ >= LoggerControlBlock::kMaxEpochHistory) {
+      // TODO(Hideaki) To avoid this, we should maintain sparse history, like one history per
+      // tens of epochs. So far kMaxEpochHistory is enough big, so it won't happen.
+      LOG(FATAL) << "Exceeded kMaxEpochHistory. Unexpected.";
+    }
     ++control_block_->epoch_history_count_;
     tail_index = control_block_->get_tail_epoch_history();
     control_block_->epoch_histories_[tail_index] = EpochHistory(epoch_marker);
@@ -76,28 +81,19 @@ LogRange LoggerRef::get_log_range(Epoch prev_epoch, Epoch until_epoch) {
   ASSERT_ND(until_epoch <= get_durable_epoch());
   LogRange result;
 
-  // to make sure we have an epoch mark, we update marked_epoch_
-  while (control_block_->marked_epoch_ <= until_epoch) {
-    LOG(INFO) << "Logger-" << id_ << " does not have an epoch mark for "
-      << until_epoch << ". Waiting for the logger to catch up...";
-    control_block_->marked_epoch_update_requested_ = true;
-    wakeup();
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    assorted::memory_fence_acquire();
-  }
-  ASSERT_ND(control_block_->marked_epoch_ > until_epoch);
-
+  // Epoch mark is not written to empty epoch. Thus, we might holes at the beginning, in the
+  // middle, and at the end. Be careful.
   soc::SharedMutexScope scope(&control_block_->epoch_history_mutex_);
-  uint32_t head = control_block_->epoch_history_head_;
-  uint32_t count = control_block_->epoch_history_count_;
+  const uint32_t head = control_block_->epoch_history_head_;
+  const uint32_t count = control_block_->epoch_history_count_;
   uint32_t pos = 0;  // RELATIVE position from head
   result.begin_file_ordinal = 0;
   result.begin_offset = 0;
   if (prev_epoch.is_valid()) {
     // first, locate the prev_epoch
     for (; pos < count; ++pos) {
-      const EpochHistory& cur = control_block_->epoch_histories_[
-        control_block_->wrap_epoch_history_index(head + pos)];
+      uint32_t abs_pos = control_block_->wrap_epoch_history_index(head + pos);
+      const EpochHistory& cur = control_block_->epoch_histories_[abs_pos];
       if (cur.new_epoch_ > prev_epoch) {
         result.begin_file_ordinal = cur.log_file_ordinal_;
         result.begin_offset = cur.log_file_offset_;
@@ -110,10 +106,13 @@ LogRange LoggerRef::get_log_range(Epoch prev_epoch, Epoch until_epoch) {
   }
 
   // next, locate until_epoch. we might not find it if the logger was idle for a while.
-  // in that case, the current file/ordinal is used.
+  // in that case, the last mark tells the file/ordinal.
   for (; pos < count; ++pos) {
-    const EpochHistory& cur = control_block_->epoch_histories_[
-      control_block_->wrap_epoch_history_index(head + pos)];
+    uint32_t abs_pos = control_block_->wrap_epoch_history_index(head + pos);
+    const EpochHistory& cur = control_block_->epoch_histories_[abs_pos];
+    // first mark that is after the until_epoch tells how much we have to read.
+    // note that we might have multiple marks of the same epoch because of beginning-of-file marker.
+    // we can't stop at the first mark with new_epoch==until.
     if (cur.new_epoch_ > until_epoch) {
       result.end_file_ordinal = cur.log_file_ordinal_;
       result.end_offset = cur.log_file_offset_;
@@ -121,8 +120,17 @@ LogRange LoggerRef::get_log_range(Epoch prev_epoch, Epoch until_epoch) {
     }
   }
 
-  if (pos == count && !result.is_empty()) {
-    LOG(FATAL) << "No epoch mark found for " << until_epoch << " in logger-" << id_;
+  if (pos == count) {
+    if (count == 0) {
+      ASSERT_ND(result.begin_file_ordinal == 0);
+      ASSERT_ND(result.begin_offset == 0);
+      result.end_file_ordinal = 0;
+      result.end_offset = 0;
+    } else {
+      // in this case, we read everything.
+      result.end_file_ordinal = control_block_->current_ordinal_;
+      result.end_offset = control_block_->current_file_durable_offset_;
+    }
   }
 
   ASSERT_ND(result.begin_file_ordinal <= result.end_file_ordinal);

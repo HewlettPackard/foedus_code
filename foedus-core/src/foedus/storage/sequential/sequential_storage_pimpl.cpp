@@ -14,7 +14,7 @@
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_type.hpp"
-#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/memory/numa_core_memory.hpp"

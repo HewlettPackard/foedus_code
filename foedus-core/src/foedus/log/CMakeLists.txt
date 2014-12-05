@@ -10,5 +10,5 @@ set_property(GLOBAL APPEND PROPERTY ALL_FOEDUS_CORE_SRC
   ${CMAKE_CURRENT_SOURCE_DIR}/log_type_invoke.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/meta_log_buffer.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/meta_logger_impl.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/thread_log_buffer_impl.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/thread_log_buffer.cpp
 )
