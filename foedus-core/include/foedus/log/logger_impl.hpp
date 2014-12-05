@@ -51,7 +51,6 @@ struct LoggerControlBlock {
     wakeup_cond_.initialize();
     epoch_history_mutex_.initialize();
     stop_requested_ = false;
-    marked_epoch_update_requested_ = false;
     epoch_history_head_ = 0;
     epoch_history_count_ = 0;
   }
@@ -71,14 +70,13 @@ struct LoggerControlBlock {
   /**
    * @brief Upto what epoch the logger flushed logs in \b all buffers assigned to it.
    * @invariant durable_epoch_.is_valid()
-   * @invariant global durable epoch <= durable_epoch_ < global current epoch
+   * @invariant global durable epoch <= durable_epoch_ < global current epoch - 1
    * @details
-   * Unlike buffer.logger_epoch, this value is continuously maintained by the logger, thus
-   * no case of stale values. Actually, the global durable epoch does not advance until all
-   * loggers' durable_epoch_ advance.
-   * Hence, if some thread is idle or running a long transaction, this value could be larger
-   * than buffer.logger_epoch_. Otherwise (when the worker thread is running normal), this value
-   * is most likely smaller than buffer.logger_epoch_.
+   * The logger advances this value when it writes out all logs in all buffers in an epoch.
+   * The global durable epoch is an aggregate (min) of this value from all loggers.
+   * Even when some thread is idle, this value could be advanced upto "global current epoch - 2"
+   * because of the way the epoch-chime starts a new epoch. It is guaranteed that no thread
+   * will emit any log in that epoch or older.
    */
   std::atomic< Epoch::EpochInteger >  durable_epoch_;
   /**
@@ -101,17 +99,8 @@ struct LoggerControlBlock {
    * (eg when the system is idle for long time, there will be tons of empty epochs),
    * so we do not write out the epoch marker and let this value remain same.
    * When the logger later writes out a log, it checks this value and writes out an epoch mark.
-   * @see no_log_epoch_
    */
   Epoch                           marked_epoch_;
-  /**
-   * Occasionally (only during log gleaning), we need a recent marked epoch immediately.
-   * The logger creates one if it sees this true.
-   */
-  std::atomic<bool>               marked_epoch_update_requested_;
-
-  /** Whether so far this logger has not written out any log since previous epoch switch. */
-  bool                            no_log_epoch_;
 
   // the followings are also shared just for savepoint.
 
@@ -198,14 +187,12 @@ class Logger final : public DefaultInitializable, public LoggerRef {
    * This method exits when this object's uninitialize() is called.
    */
   void        handle_logger();
-  /** handle_logger() keeps calling this with sleeps. */
-  ErrorStack  handle_logger_once(bool *more_log_to_process);
 
   /**
    * Check if we can advance the durable epoch of this logger, invoking fsync BEFORE actually
    * advancing it in that case.
    */
-  ErrorStack  update_durable_epoch();
+  ErrorStack  update_durable_epoch(Epoch new_durable_epoch, bool had_any_log);
   /**
    * Subroutine of update_durable_epoch to get the minimum durable epoch of assigned loggers.
    * This function is assured to be no-error and instantaneous.
@@ -216,6 +203,13 @@ class Logger final : public DefaultInitializable, public LoggerRef {
    * Moves on to next file if the current file exceeds the configured max size.
    */
   ErrorStack  switch_file_if_required();
+
+  /**
+   * Makes sure no thread is still writing out logs in epochs older than the given epoch
+   * (same epoch is fine). Waits (spins) if needed, and also writes out the logs of lagging
+   * threads up to new_epoch.one_less().
+   */
+  ErrorStack  check_lagging_threads(Epoch new_epoch);
 
   /**
    * Adds a log entry to annotate the switch of epoch.
@@ -230,14 +224,28 @@ class Logger final : public DefaultInitializable, public LoggerRef {
   ErrorStack  write_dummy_epoch_mark();
 
   /**
-   * Writes out the given buffer upto the offset.
-   * This method handles non-aligned starting/ending offsets by padding, and also handles wrap
-   * around.
+   * Write out all logs in all buffers for the given epoch.
+   * @pre write_epoch == logger's durable_epoch + 1
+   * @pre write_epoch < global current epoch - 1 (must not write out logs in current/grace ep)
+   * @post logger's durable_epoch is updated to write_epoch if this method successfully returns
    */
-  ErrorStack  write_log(ThreadLogBuffer* buffer, uint64_t upto_offset);
+  ErrorStack  write_one_epoch(Epoch write_epoch);
+  /**
+   * Sub-routine of write_one_epoch().
+   * Writes out the given piece of the given buffer.
+   * This method handles non-aligned starting/ending offsets by padding.
+   * @pre from_offset < upto_offset (no wrap around)
+   */
+  ErrorStack  write_one_epoch_piece(
+    const ThreadLogBuffer& buffer,
+    Epoch write_epoch,
+    uint64_t from_offset,
+    uint64_t upto_offset);
 
-  /** Check invariants. This method should be wiped in NDEBUG. */
+  /** Check invariants. This method is wiped out in NDEBUG. */
   void        assert_consistent();
+  /** Sanity check on logs to write out. This method is wiped out in NDEBUG. */
+  void        assert_written_logs(Epoch write_epoch, const char* logs, uint64_t bytes) const;
 
   const fs::Path                  log_folder_;
   const std::vector< thread::ThreadId > assigned_thread_ids_;

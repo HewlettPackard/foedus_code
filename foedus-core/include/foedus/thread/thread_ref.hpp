@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "foedus/cxx11.hpp"
+#include "foedus/epoch.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/proc/proc_id.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -49,6 +50,9 @@ class ThreadRef CXX11_FINAL {
   xct::McsBlock* get_mcs_blocks() const { return mcs_blocks_; }
   ThreadControlBlock* get_control_block() const { return control_block_; }
 
+  /** @see foedus::xct::InCommitEpochGuard  */
+  Epoch         get_in_commit_epoch() const;
+
   friend std::ostream& operator<<(std::ostream& o, const ThreadRef& v);
 
  private:
@@ -79,6 +83,14 @@ class ThreadGroupRef CXX11_FINAL {
 
   /** Returns Thread object for the given ordinal in this group. */
   ThreadRef*              get_thread(ThreadLocalOrdinal ordinal) { return &threads_[ordinal]; }
+
+  /**
+   * Returns the oldest in-commit epoch of the threads in this group.
+   * Empty in-commit epoch is skipped. If all of them are empty, returns an invalid epoch
+   * (meaning all of them will get the latest current epoch and are safe).
+   * @see foedus::xct::InCommitEpochGuard
+   */
+  Epoch                   get_min_in_commit_epoch() const;
 
   friend std::ostream& operator<<(std::ostream& o, const ThreadGroupRef& v);
 

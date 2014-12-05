@@ -17,9 +17,10 @@
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/assorted/cacheline.hpp"
+#include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_manager.hpp"
 #include "foedus/log/log_type_invoke.hpp"
-#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/savepoint/savepoint.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/soc/soc_manager.hpp"
@@ -27,6 +28,8 @@
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
+#include "foedus/thread/thread_ref.hpp"
+#include "foedus/xct/in_commit_epoch_guard.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_access.hpp"
 #include "foedus/xct/xct_manager.hpp"
@@ -69,8 +72,8 @@ ErrorStack XctManagerPimpl::initialize_once() {
       = engine_->get_savepoint_manager()->get_initial_current_epoch().value();
     ASSERT_ND(get_current_global_epoch().is_valid());
     control_block_->requested_global_epoch_ = control_block_->current_global_epoch_.load();
-    control_block_->epoch_advance_thread_terminate_requested_ = false;
-    epoch_advance_thread_ = std::move(std::thread(&XctManagerPimpl::handle_epoch_advance, this));
+    control_block_->epoch_chime_terminate_requested_ = false;
+    epoch_chime_thread_ = std::move(std::thread(&XctManagerPimpl::handle_epoch_chime, this));
   }
   return kRetOk;
 }
@@ -82,13 +85,13 @@ ErrorStack XctManagerPimpl::uninitialize_once() {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
   if (engine_->is_master()) {
-    if (epoch_advance_thread_.joinable()) {
+    if (epoch_chime_thread_.joinable()) {
       {
-        soc::SharedMutexScope scope(control_block_->epoch_advance_wakeup_.get_mutex());
-        control_block_->epoch_advance_thread_terminate_requested_ = true;
-        control_block_->epoch_advance_wakeup_.signal(&scope);
+        soc::SharedMutexScope scope(control_block_->epoch_chime_wakeup_.get_mutex());
+        control_block_->epoch_chime_terminate_requested_ = true;
+        control_block_->epoch_chime_wakeup_.signal(&scope);
       }
-      epoch_advance_thread_.join();
+      epoch_chime_thread_.join();
     }
     control_block_->uninitialize();
   }
@@ -97,33 +100,48 @@ ErrorStack XctManagerPimpl::uninitialize_once() {
 
 bool XctManagerPimpl::is_stop_requested() const {
   ASSERT_ND(engine_->is_master());
-  return control_block_->epoch_advance_thread_terminate_requested_;
+  return control_block_->epoch_chime_terminate_requested_;
 }
 
-void XctManagerPimpl::handle_epoch_advance() {
-  LOG(INFO) << "epoch_advance_thread started.";
+////////////////////////////////////////////////////////////////////////////////////////////
+///
+///       Epoch Chime related methods
+///
+////////////////////////////////////////////////////////////////////////////////////////////
+void XctManagerPimpl::handle_epoch_chime() {
+  LOG(INFO) << "epoch_chime_thread started.";
+  ASSERT_ND(engine_->is_master());
   // Wait until all the other initializations are done.
   SPINLOCK_WHILE(!is_stop_requested() && !is_initialized()) {
     assorted::memory_fence_acquire();
   }
   uint64_t interval_nanosec = engine_->get_options().xct_.epoch_advance_interval_ms_ * 1000000ULL;
-  LOG(INFO) << "epoch_advance_thread now starts processing. interval_nanosec=" << interval_nanosec;
+  LOG(INFO) << "epoch_chime_thread now starts processing. interval_nanosec=" << interval_nanosec;
   while (!is_stop_requested()) {
     {
-      soc::SharedMutexScope scope(control_block_->epoch_advance_wakeup_.get_mutex());
+      soc::SharedMutexScope scope(control_block_->epoch_chime_wakeup_.get_mutex());
       if (is_stop_requested()) {
         break;
       }
       if (get_requested_global_epoch() <= get_current_global_epoch())  {  // otherwise no sleep
-        bool signaled = control_block_->epoch_advance_wakeup_.timedwait(&scope, interval_nanosec);
-        VLOG(1) << "epoch_advance_thread. wokeup with " << (signaled ? "signal" : "timeout");
+        bool signaled = control_block_->epoch_chime_wakeup_.timedwait(&scope, interval_nanosec);
+        VLOG(1) << "epoch_chime_thread. wokeup with " << (signaled ? "signal" : "timeout");
       }
     }
     if (is_stop_requested()) {
       break;
     }
-    VLOG(1) << "epoch_advance_thread. current_global_epoch_=" << get_current_global_epoch();
+    VLOG(1) << "epoch_chime_thread. current_global_epoch_=" << get_current_global_epoch();
     ASSERT_ND(get_current_global_epoch().is_valid());
+
+    // Before advanding the epoch, we have to make sure there is no thread that might commit
+    // with previous epoch.
+    Epoch grace_epoch = get_current_global_epoch().one_less();
+    handle_epoch_chime_wait_grace_period(grace_epoch);
+    if (is_stop_requested()) {
+      break;
+    }
+
     {
       soc::SharedMutexScope scope(control_block_->current_global_epoch_advanced_.get_mutex());
       control_block_->current_global_epoch_ = get_current_global_epoch().one_more().value();
@@ -131,19 +149,66 @@ void XctManagerPimpl::handle_epoch_advance() {
     }
     engine_->get_log_manager()->wakeup_loggers();
   }
-  LOG(INFO) << "epoch_advance_thread ended.";
+  LOG(INFO) << "epoch_chime_thread ended.";
+}
+
+void XctManagerPimpl::handle_epoch_chime_wait_grace_period(Epoch grace_epoch) {
+  ASSERT_ND(engine_->is_master());
+  ASSERT_ND(grace_epoch.one_more() == get_current_global_epoch());
+
+  VLOG(1) << "XctManager waiting until all worker threads exit grace_epoch:" << grace_epoch;
+  debugging::StopWatch watch;
+
+  // In most cases, all workers have already switched to the current epoch long before.
+  // Quickly check it, then really wait if there is suspicious one.
+  thread::ThreadPool* pool = engine_->get_thread_pool();
+  uint16_t nodes = engine_->get_soc_count();
+  for (uint16_t node = 0; node < nodes; ++node) {
+    // Check all threads' in-commit epoch now.
+    // We might add a background thread in each SOC to avoid checking too many threads
+    // in the master engine, but anyway this happens only once in tens of milliseconds.
+    thread::ThreadGroupRef* group = pool->get_group_ref(node);
+
+    // @spinlock until the long-running transaction exits.
+    const uint32_t kSpins = 1 << 12;  // some number of spins first, then sleep.
+    uint32_t spins = 0;
+    SPINLOCK_WHILE(!is_stop_requested()) {
+      Epoch min_epoch = group->get_min_in_commit_epoch();
+      if (!min_epoch.is_valid() || min_epoch > grace_epoch) {
+        break;
+      }
+      ++spins;
+      if (spins == 1U) {
+        // first spin.
+        VLOG(0) << "Interesting, node-" << node << " has some thread that is still running "
+          << "epoch-" << grace_epoch << ". we have to wait before advancing epoch. min_epoch="
+          << min_epoch;
+      } else if (spins >= kSpins) {
+        if (spins == kSpins) {
+          LOG(INFO) << "node-" << node << " has some thread that is running "
+            << "epoch-" << grace_epoch << " for long time. we are still waiting before advancing"
+            << " epoch. min_epoch=" << min_epoch;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+    }
+  }
+
+  watch.stop();
+  VLOG(1) << "grace_epoch-" << grace_epoch << " guaranteed. took " << watch.elapsed_ns() << "ns";
+  if (watch.elapsed_ms() > 10) {
+    LOG(INFO) << "Very interesting, grace_epoch-" << grace_epoch << " took "
+      << watch.elapsed_ms() << "ms to be guaranteed. Most likely there was a long-running xct";
+  }
 }
 
 
-void XctManagerPimpl::wakeup_epoch_advance_thread() {
-  soc::SharedMutexScope scope(control_block_->epoch_advance_wakeup_.get_mutex());
-  control_block_->epoch_advance_wakeup_.signal(&scope);  // hurrrrry up!
+void XctManagerPimpl::wakeup_epoch_chime_thread() {
+  soc::SharedMutexScope scope(control_block_->epoch_chime_wakeup_.get_mutex());
+  control_block_->epoch_chime_wakeup_.signal(&scope);  // hurrrrry up!
 }
 
-void XctManagerPimpl::advance_current_global_epoch() {
-  Epoch now = get_current_global_epoch();
-  Epoch request = now.one_more();
-  LOG(INFO) << "Requesting to immediately advance epoch. request=" << request << "...";
+void XctManagerPimpl::set_requested_global_epoch(Epoch request) {
   // set request value, atomically
   while (true) {
     Epoch already_requested = get_requested_global_epoch();
@@ -155,8 +220,15 @@ void XctManagerPimpl::advance_current_global_epoch() {
       break;
     }
   }
+}
+
+void XctManagerPimpl::advance_current_global_epoch() {
+  Epoch now = get_current_global_epoch();
+  Epoch request = now.one_more();
+  LOG(INFO) << "Requesting to immediately advance epoch. request=" << request << "...";
+  set_requested_global_epoch(request);
   while (get_current_global_epoch() < request) {
-    wakeup_epoch_advance_thread();
+    wakeup_epoch_chime_thread();
     {
       soc::SharedMutexScope scope(control_block_->current_global_epoch_advanced_.get_mutex());
       if (get_current_global_epoch() < request) {
@@ -170,6 +242,7 @@ void XctManagerPimpl::advance_current_global_epoch() {
 
 void XctManagerPimpl::wait_for_current_global_epoch(Epoch target_epoch) {
   // this method doesn't aggressively wake up the epoch-advance thread. it just waits.
+  set_requested_global_epoch(target_epoch);
   while (get_current_global_epoch() < target_epoch) {
     soc::SharedMutexScope scope(control_block_->current_global_epoch_advanced_.get_mutex());
     if (get_current_global_epoch() < target_epoch) {
@@ -180,15 +253,22 @@ void XctManagerPimpl::wait_for_current_global_epoch(Epoch target_epoch) {
 
 
 ErrorCode XctManagerPimpl::wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds) {
-  assorted::memory_fence_acquire();
-  if (commit_epoch < get_current_global_epoch()) {
-    wakeup_epoch_advance_thread();
+  // to durably commit transactions in commit_epoch, the current global epoch should be
+  // commit_epoch + 2 or more. (current-1 is grace epoch. current-2 is the the latest loggable ep)
+  Epoch target_epoch = commit_epoch.one_more().one_more();
+  if (target_epoch > get_current_global_epoch()) {
+    set_requested_global_epoch(target_epoch);
+    wakeup_epoch_chime_thread();
   }
 
   return engine_->get_log_manager()->wait_until_durable(commit_epoch, wait_microseconds);
 }
 
-
+////////////////////////////////////////////////////////////////////////////////////////////
+///
+///       User transactions related methods
+///
+////////////////////////////////////////////////////////////////////////////////////////////
 ErrorCode XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel isolation_level) {
   Xct& current_xct = context->get_current_xct();
   if (current_xct.is_active()) {
@@ -267,8 +347,10 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     return false;
   }
 
-  // BEFORE the first fence, update the in_commit_log_epoch_ for logger
-  Xct::InCommitLogEpochGuard guard(&context->get_current_xct(), get_current_global_epoch_weak());
+  // BEFORE the first fence, update the in commit epoch for epoch chime.
+  // see InCommitEpochGuard class comments for why we need to do this.
+  Epoch conservative_epoch = get_current_global_epoch_weak();
+  InCommitEpochGuard guard(context->get_in_commit_epoch_address(), conservative_epoch);
 
   assorted::memory_fence_acq_rel();
 

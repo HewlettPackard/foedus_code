@@ -292,6 +292,8 @@ class CacheHashtable CXX11_FINAL {
   /** only for debugging. don't call this in a race */
   ErrorStack verify_single_thread() const;
 
+  const CacheBucket& get_bucket(BucketId bucket_id) const { return buckets_[bucket_id]; }
+
   struct Stat {
     uint32_t normal_entries_;
     uint32_t overflow_entries_;

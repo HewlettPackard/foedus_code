@@ -194,6 +194,9 @@ class Thread CXX11_FINAL : public virtual Initializable {
     xct::McsBlockIndex head_block,
     uint16_t batch_size);
 
+  /** @see foedus::xct::InCommitEpochGuard  */
+  Epoch*        get_in_commit_epoch_address();
+
   /** Returns the pimpl of this object. Use it only when you know what you are doing. */
   ThreadPimpl*  get_pimpl() const { return pimpl_; }
 

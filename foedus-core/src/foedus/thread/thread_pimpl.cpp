@@ -18,7 +18,7 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
-#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
@@ -138,7 +138,9 @@ void ThreadPimpl::handle_tasks() {
       if (is_stop_requested()) {
         break;
       }
-      if (control_block_->status_ == kWaitingForTask) {
+      // these two status are "not urgent".
+      if (control_block_->status_ == kWaitingForTask
+        || control_block_->status_ == kWaitingForClientRelease) {
         VLOG(0) << "Thread-" << id_ << " sleeping...";
         control_block_->wakeup_cond_.timedwait(&scope, 100000000ULL);
       }

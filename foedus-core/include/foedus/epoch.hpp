@@ -55,8 +55,13 @@ class Epoch {
     kEpochInvalid = 0,
     /** As there is no transaction in ep-1, initial durable_epoch is 1. */
     kEpochInitialDurable = 1,
-    /** The first epoch (before wrap-around) that might have transactions is ep-2. */
-    kEpochInitialCurrent = 2,
+    /**
+     * Usually, current epoch -1 is the grace period before being durable.
+     * Initial epochs don't need grace period, but let's reserve one for consistency.
+     */
+    kEpochInitialGrace = 2,
+    /** The first epoch (before wrap-around) that might have transactions is ep-3. */
+    kEpochInitialCurrent = 3,
     /** Bits to represent an epoch. */
     kEpochBits = 28,
     /** Epoch values wrap around at this value. */

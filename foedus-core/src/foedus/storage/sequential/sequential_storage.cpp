@@ -9,7 +9,7 @@
 #include <iostream>
 #include <string>
 
-#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/storage/sequential/sequential_log_types.hpp"
 #include "foedus/storage/sequential/sequential_storage_pimpl.hpp"
 #include "foedus/thread/thread.hpp"

@@ -9,7 +9,7 @@
 #include <iostream>
 #include <string>
 
-#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/masstree/masstree_log_types.hpp"
 #include "foedus/storage/masstree/masstree_retry_impl.hpp"

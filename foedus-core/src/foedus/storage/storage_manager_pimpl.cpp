@@ -18,7 +18,7 @@
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_manager.hpp"
 #include "foedus/log/meta_log_buffer.hpp"
-#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/snapshot/snapshot_manager.hpp"
 #include "foedus/snapshot/snapshot_metadata.hpp"

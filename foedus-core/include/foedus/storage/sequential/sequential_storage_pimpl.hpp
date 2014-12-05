@@ -87,7 +87,7 @@ struct SequentialStorageControlBlock final {
  *  \li For scanning threads (which only rarely occur and are fundamentally slow anyways),
  * we take an exclusive lock. Further, the scanning thread must wait until all other threads
  * did NOT start before the scanning thread take lock. (otherwise serializability is not
- * guaranteed). We will have something like Xct::InCommitLogEpochGuard for this purpose.
+ * guaranteed). We will have something like Xct::InCommitEpochGuard for this purpose.
  * As scanning threads are rare, they can wait for a while, so it's okay for other threads
  * to complete at least one transacion before they get aware of the lock.
  *  \li However, the above requirement is not mandatory if the scanning threads are running in

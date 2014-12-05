@@ -12,7 +12,7 @@
 #include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/cache/cache_hashtable.hpp"
 #include "foedus/cache/snapshot_file_set.hpp"
-#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
@@ -48,6 +48,7 @@ struct ThreadControlBlock {
     wakeup_cond_.initialize();
     task_mutex_.initialize();
     task_complete_cond_.initialize();
+    in_commit_epoch_ = INVALID_EPOCH;
   }
   void uninitialize() {
     task_complete_cond_.uninitialize();
@@ -102,6 +103,9 @@ struct ThreadControlBlock {
    * When the current task has been completed, the thread signals this.
    */
   soc::SharedCond     task_complete_cond_;
+
+  /** @see foedus::xct::InCommitEpochGuard  */
+  Epoch               in_commit_epoch_;
 };
 
 /**
