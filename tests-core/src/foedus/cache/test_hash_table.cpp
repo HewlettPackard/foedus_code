@@ -54,10 +54,29 @@ void test_multi_thread(uint32_t id, CacheHashtable* hashtable) {
     ContentId content_id = hashtable->find(pointer);
     EXPECT_EQ(0, content_id);
     EXPECT_EQ(kErrorCodeOk, hashtable->install(pointer, i * 3 + 42));
+    // the install() of hashtable in snapshot cache is opportunitstic.
+    // in order to make it wait-free, we tolerate a chance of other thread overwriting what is
+    // written. thus, we confirm whether it's installed there, and install it again if not.
+    assorted::memory_fence_acq_rel();
+    content_id = hashtable->find(pointer);
+    if (content_id == 0) {
+      std::cout << "Interesting, concurrent threads have just overwritten what I wrote."
+        << "id=" << id << ", i=" << i << std::endl;
+      // we assume the same unlucky wouldn't happen again. it is possible, but negligible in the
+      // test case. even if it happens, it's not a bug, btw.
+      EXPECT_EQ(kErrorCodeOk, hashtable->install(pointer, i * 3 + 42));
+    } else {
+      EXPECT_EQ(i * 3U + 42U, content_id);
+    }
+
+    // we once had a testcase failure caused by the above (enable the 1000-time repeat below,
+    // you will see the message above once in hundred times).
   }
 }
 
 TEST(HashTableTest, RandomMultiThread) {
+  // there is a hard-to-reproduce bug. repeat many times just for repro. do not push it to repo!
+  // for (int aaa = 0; aaa < 1000; ++aaa) {
   const uint32_t kThreads = 4;
   std::vector<std::thread> threads;
   CacheHashtable hashtable(123456, 0);
@@ -76,6 +95,7 @@ TEST(HashTableTest, RandomMultiThread) {
     ContentId content_id = hashtable.find(pointer);
     EXPECT_EQ(i * 3U + 42U, content_id);
   }
+  // }
 }
 
 
