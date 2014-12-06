@@ -10,6 +10,7 @@
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/thread/impersonate_session.hpp"
@@ -87,6 +88,30 @@ ThreadGroupRef::ThreadGroupRef(Engine* engine, ThreadGroupId group_id)
     threads_.emplace_back(ThreadRef(engine, compose_thread_id(group_id, i)));
   }
 }
+
+Epoch ThreadRef::get_in_commit_epoch() const {
+  assorted::memory_fence_acquire();
+  return control_block_->in_commit_epoch_;
+}
+
+Epoch ThreadGroupRef::get_min_in_commit_epoch() const {
+  assorted::memory_fence_acquire();
+  Epoch ret = INVALID_EPOCH;
+  for (const auto& t : threads_) {
+    Epoch in_commit_epoch = t.get_control_block()->in_commit_epoch_;
+    if (in_commit_epoch.is_valid()) {
+      if (!ret.is_valid()) {
+        ret = in_commit_epoch;
+      } else {
+        ret.store_min(in_commit_epoch);
+      }
+    }
+  }
+
+  return ret;
+}
+
+
 std::ostream& operator<<(std::ostream& o, const ThreadGroupRef& v) {
   o << "<ThreadGroupRef>";
   o << "<group_id_>" << static_cast<int>(v.get_group_id()) << "</group_id_>";

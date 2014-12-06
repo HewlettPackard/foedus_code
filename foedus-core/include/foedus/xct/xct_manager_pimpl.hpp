@@ -28,11 +28,11 @@ struct XctManagerControlBlock {
 
   void initialize() {
     current_global_epoch_advanced_.initialize();
-    epoch_advance_wakeup_.initialize();
+    epoch_chime_wakeup_.initialize();
     new_transaction_paused_ = false;
   }
   void uninitialize() {
-    epoch_advance_wakeup_.uninitialize();
+    epoch_chime_wakeup_.uninitialize();
     current_global_epoch_advanced_.uninitialize();
   }
 
@@ -58,10 +58,10 @@ struct XctManagerControlBlock {
   /** Fired (broadcast) whenever current_global_epoch_ is advanced. */
   soc::SharedCond                   current_global_epoch_advanced_;
 
-  /** Fired to wakeup epoch_advance_thread_ */
-  soc::SharedCond                   epoch_advance_wakeup_;
-  /** Protected by the mutex in epoch_advance_wakeup_ */
-  std::atomic<bool>                 epoch_advance_thread_terminate_requested_;
+  /** Fired to wakeup epoch_chime_thread_ */
+  soc::SharedCond                   epoch_chime_wakeup_;
+  /** Protected by the mutex in epoch_chime_wakeup_ */
+  std::atomic<bool>                 epoch_chime_terminate_requested_;
 
   /**
    * @brief If true, all new requests to begin_xct() will be paused until this becomes false.
@@ -109,9 +109,10 @@ class XctManagerPimpl final : public DefaultInitializable {
   ErrorCode   abort_xct(thread::Thread* context);
 
   ErrorCode   wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds);
+  void        set_requested_global_epoch(Epoch request);
   void        advance_current_global_epoch();
   void        wait_for_current_global_epoch(Epoch target_epoch);
-  void        wakeup_epoch_advance_thread();
+  void        wakeup_epoch_chime_thread();
 
   /**
    * @brief precommit_xct() if the transaction is read-only
@@ -171,12 +172,14 @@ class XctManagerPimpl final : public DefaultInitializable {
   void        precommit_xct_unlock(thread::Thread* context);
 
   /**
-   * @brief Main routine for epoch_advance_thread_.
+   * @brief Main routine for epoch_chime_thread_.
    * @details
    * This method keeps advancing global_epoch with the interval configured in XctOptions.
    * This method exits when this object's uninitialize() is called.
    */
-  void        handle_epoch_advance();
+  void        handle_epoch_chime();
+  /** Makes sure all worker threads will commit with an epoch larger than grace_epoch. */
+  void        handle_epoch_chime_wait_grace_period(Epoch grace_epoch);
   bool        is_stop_requested() const;
 
   /** Pause all begin_xct until you call resume_accepting_xct() */
@@ -189,10 +192,10 @@ class XctManagerPimpl final : public DefaultInitializable {
   XctManagerControlBlock*       control_block_;
 
   /**
-   * This thread keeps advancing the current_global_epoch_ and durable_global_epoch_.
+   * This thread keeps advancing the current_global_epoch_.
    * Launched only in master engine.
    */
-  std::thread epoch_advance_thread_;
+  std::thread epoch_chime_thread_;
 };
 static_assert(
   sizeof(XctManagerControlBlock) <= soc::GlobalMemoryAnchors::kXctManagerMemorySize,

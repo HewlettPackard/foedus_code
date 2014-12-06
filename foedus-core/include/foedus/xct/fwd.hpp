@@ -12,6 +12,7 @@
 namespace foedus {
 namespace xct {
 class   CombinedLock;
+struct  InCommitEpochGuard;
 struct  LockableXctId;
 struct  LockFreeWriteXctAccess;
 struct  McsBlock;

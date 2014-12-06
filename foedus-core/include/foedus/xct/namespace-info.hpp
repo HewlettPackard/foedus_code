@@ -61,6 +61,24 @@
  * while the log module advances durable epoch when it confirms that all log entries up to the epoch
  * becomes durable and also that the log module durably writes a savepoint ( \ref SAVEPOINT ) file.
  *
+ * @subsection EPOCH_CHIME Epoch Chime
+ * \e Epoch \e Chime advances the current global epoch when a configured interval elapses or the
+ * user explicitly requests it. The chime checks whether it can safely advance an epoch so that
+ * the following invariant always holds.
+ *  \li A newly started transaction will always commit with current global epoch or larger.
+ *  \li All running transactions will always commit with at least current global epoch - 1,
+ * called \e grace-period epoch, or larger.
+ *
+ * In many cases, the invariants are trivially achieved. However, there are a few tricky cases.
+ *  \li There is a long running transaction that already acquired a commit-epoch but not yet
+ * exit from the pre-commit stage.
+ *  \li Three is a worker thread that has been idle for a while.
+ *
+ * Whenever the chime advances the epoch, we have to safely detect whether there is any transaction
+ * that might violate the invariant \b without causing expensive synchronization.
+ * This is done via the in-commit epoch guard. For more details, see the following class.
+ * @see foedus::xct::InCommitEpochGuard
+ *
  * @section ISOLATION Isolation Levels
  * See foedus::xct::IsolationLevel
  *

@@ -201,35 +201,6 @@ class Xct {
     storage::StorageId storage_id,
     log::RecordLogType* log_entry);
 
-  /**
-   * @brief If this transaction is currently committing with some log to publish, this
-   * gives the \e conservative estimate (although usually exact) of the commit epoch.
-   * @details
-   * This is used by loggers to tell if it can assume that this transaction already got a new
-   * epoch or not in commit phase. If it's not the case, the logger will spin on this until
-   * this returns 0 or epoch that is enough recent. Without this mechanisim, we will get a too
-   * conservative value of "min(ctid_w)" (Sec 4.10 [TU2013]) when there are some threads that
-   * are either idle or spending long time before/after commit.
-   *
-   * The transaction takes an appropriate fence before updating this value so that
-   * followings are guaranteed:
-   * \li When this returns 0, this transaction will not publish any more log without getting
-   * recent epoch (see destructor of InCommitLogEpochGuard).
-   * \li If this returns epoch-X, the transaction will never publishe a log whose epoch is less
-   * than X. (this is assured by taking InCommitLogEpochGuard BEFORE the first fence in commit)
-   * \li As an added guarantee, this value will be updated as soon as the commit phase ends, so
-   * the logger can safely spin on this value.
-   *
-   * @note A similar protocol seems implemented in MIT Silo, too. See
-   * how "txn_logger::advance_system_sync_epoch" updates per_thread_sync_epochs_ and
-   * system_sync_epoch_. However, not quite sure about their implementation. Will ask.
-   * @see InCommitLogEpochGuard
-   */
-  Epoch               get_in_commit_log_epoch() const {
-    assorted::memory_fence_acquire();
-    return in_commit_log_epoch_;
-  }
-
   void                remember_previous_xct_id(XctId new_id) {
     ASSERT_ND(id_.before(new_id));
     id_ = new_id;
@@ -256,33 +227,6 @@ class Xct {
     *out = reinterpret_cast<char*>(local_work_memory_) + begin;
     return kErrorCodeOk;
   }
-
-  /**
-   * Automatically resets in_commit_log_epoch_ with appropriate fence.
-   * This guards the range from a read-write transaction starts committing until it publishes
-   * or discards the logs.
-   * @see get_in_commit_log_epoch()
-   * @see foedus::xct::XctManagerPimpl::precommit_xct_readwrite()
-   */
-  struct InCommitLogEpochGuard {
-    InCommitLogEpochGuard(Xct *xct, Epoch current_epoch) : xct_(xct) {
-      xct_->in_commit_log_epoch_ = current_epoch;
-    }
-    ~InCommitLogEpochGuard() {
-      // prohibit reorder the change on ThreadLogBuffer#offset_committed_
-      // BEFORE update to in_commit_log_epoch_. This is to satisfy the first requirement:
-      // ("When this returns 0, this transaction will not publish any more log without getting
-      // recent epoch").
-      // Without this fence, logger can potentially miss the log that has been just published
-      // with the old epoch.
-      assorted::memory_fence_release();
-      xct_->in_commit_log_epoch_ = Epoch(0);
-      // We can also call another memory_order_release here to immediately publish it,
-      // but it's anyway rare. The spinning logger will eventually get the update, so no need.
-      // In non-TSO architecture, this also saves some overhead in critical path.
-    }
-    Xct* const xct_;
-  };
 
   friend std::ostream& operator<<(std::ostream& o, const Xct& v);
 
@@ -340,9 +284,6 @@ class Xct {
   uint64_t            local_work_memory_size_;
   /** This value is reset to zero for each transaction, and always <= local_work_memory_size_ */
   uint64_t            local_work_memory_cur_;
-
-  /** @copydoc get_in_commit_log_epoch() */
-  Epoch               in_commit_log_epoch_;
 };
 
 

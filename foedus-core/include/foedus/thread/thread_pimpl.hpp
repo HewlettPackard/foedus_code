@@ -48,6 +48,7 @@ struct ThreadControlBlock {
     wakeup_cond_.initialize();
     task_mutex_.initialize();
     task_complete_cond_.initialize();
+    in_commit_epoch_ = INVALID_EPOCH;
   }
   void uninitialize() {
     task_complete_cond_.uninitialize();
@@ -102,6 +103,9 @@ struct ThreadControlBlock {
    * When the current task has been completed, the thread signals this.
    */
   soc::SharedCond     task_complete_cond_;
+
+  /** @see foedus::xct::InCommitEpochGuard  */
+  Epoch               in_commit_epoch_;
 };
 
 /**
