@@ -6,19 +6,27 @@
 
 #include <numa.h>
 
+#include <thread>
+
 #include "foedus/externalize/externalizable.hpp"
 
 namespace foedus {
 namespace thread {
 ThreadOptions::ThreadOptions() {
-  group_count_ = ::numa_num_configured_nodes();
-  if (group_count_ == 0) {
+  int total_cores;
+  if (::numa_available() < 0) {
     group_count_ = 1;
-  }
+    total_cores = std::thread::hardware_concurrency();  // seems to use pthread_num_processors_np?
+  } else {
+    group_count_ = ::numa_num_configured_nodes();
+    if (group_count_ == 0) {
+      group_count_ = 1;
+    }
 
-  int total_cores = numa_num_configured_cpus();
-  if (total_cores == 0) {
-    total_cores = 1;
+    total_cores = ::numa_num_configured_cpus();
+    if (total_cores == 0) {
+      total_cores = 1;
+    }
   }
   thread_count_per_group_ = total_cores / group_count_;
   overwrite_thread_schedule_ = false;

@@ -31,7 +31,10 @@ ErrorStack EngineMemory::initialize_once() {
   if (!engine_->get_debug()->is_initialized()) {
     return ERROR_STACK(kErrorCodeDepedentModuleUnavailableInit);
   } else if (::numa_available() < 0) {
-    return ERROR_STACK(kErrorCodeMemoryNumaUnavailable);
+    LOG(WARNING) << "WARNING, this machine is not a NUMA machine. FOEDUS still works fine,"
+      << " but it is mainly designed for large servers with many sockets and cores";
+    // Even if the kernel is built without NUMA (eg ARMv8), we keep running.
+    // return ERROR_STACK(kErrorCodeMemoryNumaUnavailable);
   }
   ASSERT_ND(node_memories_.empty());
   const EngineOptions& options = engine_->get_options();
