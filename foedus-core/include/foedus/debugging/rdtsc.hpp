@@ -29,7 +29,7 @@ inline uint64_t get_rdtsc() {
   // AArch64. "cntvct_el0" gives read-only physical 64bit timer.
   // http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0488d/ch09s03s01.html
   uint64_t ret;
-  asm volatile ("isb; mrs %0, cntvct_el0" : "=r" (ret));
+  asm volatile("isb; mrs %0, cntvct_el0" : "=r" (ret));
   return ret;
 #endif  // __aarch64__
 }
