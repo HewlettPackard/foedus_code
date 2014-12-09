@@ -288,6 +288,11 @@ struct SpinlockStat {
  * @ingroup ASSORTED
  */
 /**
+ * @def INSTANTIATE_ALL_INTEGER_PLUS_BOOL_TYPES(M)
+ * @brief INSTANTIATE_ALL_TYPES minus std::string/float/double.
+ * @ingroup ASSORTED
+ */
+/**
  * @def INSTANTIATE_ALL_INTEGER_TYPES(M)
  * @brief INSTANTIATE_ALL_NUMERIC_TYPES minus bool/double/float.
  * @ingroup ASSORTED
@@ -295,6 +300,9 @@ struct SpinlockStat {
 #define INSTANTIATE_ALL_INTEGER_TYPES(M) M(int64_t);  /** NOLINT(readability/function) */\
   M(int32_t); M(int16_t); M(int8_t); M(uint64_t);  /** NOLINT(readability/function) */\
   M(uint32_t); M(uint16_t); M(uint8_t); /** NOLINT(readability/function) */
+
+#define INSTANTIATE_ALL_INTEGER_PLUS_BOOL_TYPES(M) INSTANTIATE_ALL_INTEGER_TYPES(M);\
+  M(bool); /** NOLINT(readability/function) */
 
 #define INSTANTIATE_ALL_NUMERIC_TYPES(M) INSTANTIATE_ALL_INTEGER_TYPES(M);\
   M(bool); M(float); M(double); /** NOLINT(readability/function) */

@@ -16,12 +16,21 @@
  * So, also leave the date you wrote each section.
  *
  * @par Target compiler is GCC
- * [Dec14]
  * We assume gcc. This is very unfortunate because clang seems doing a very good job supporting
  * AArch64. However, the issue is that gcc and clang are not agree-ing on many subtle things on
  * what programs (FOEDUS) have to do on the new environment (eg -mcx16/libatomic would be totally
  * different in clang).
  * It's intractable to support both of them, and if we pick just one, it's of course gcc.
+ *
+ * @par FOEDUS_ON_AARCH64 macro
+ * This macro is defined if FOEDUS is being compiled in AArch64.
+ * Use it like:
+ * @code{.cpp}
+ * #if defined(FOEDUS_ON_AARCH64)
+ * ...
+ * #if undefined(FOEDUS_ON_AARCH64)
+ * ...
+ * @endcode
  *
  * @par 128-bit atomic CAS
  * [Dec14]
@@ -36,6 +45,13 @@
  * more details. We keep using the old way (-mcx16 without libatomic.so) in x86 because that would
  * be just a waste (one shared-library call overhead) on x86.
  *
+ * @par Atomic CAS on ARMV8.1
+ * [Dec14] There is an additional information on this subject.
+ * Currently, ARMv8 doesn't have a specific instruction for CAS (like x86's cmpxchg).
+ * You lock the cacheline with ldax, then store with stlx.
+ * Some one says that this might be different in ARMv8.1, adding cmpxchg for better performance.
+ * It makes sense and might be much faster. We hope gcc would automatically make use of it.
+ *
  * @par [...]mintrin.h, such as xmmintrin.h
  * [Dec14]
  * In one sentence, it's not there.
@@ -46,23 +62,16 @@
  * such as mm_pause and mm_prefetch.
  *
  * @par Cacheline prefetch
+ * [Dec14]
  * Because xmmintrin.h is not available, we use gcc's __builtin_prefetch on ARMv8 instead of
  * mm_prefetch, discarding compiler-portability for the sake of OS-portability. how damn.
  * __builtin_prefetch also allows users to specify r or rw, but as far as I understand no
  * implementation actually makes use of this hint so far.
+ *
+ * @par RDTSC-equivalent
+ * [Dec14]
+ * foedus/debugging/rdtsc.hpp uses x86's rdtsc as a low-overhead high-precision counter.
+ * The equivalent on ARMv8 is
  */
 
-/**
- * @def FOEDUS_ON_AARCH64
- * @ingroup ARMV8
- * @brief This macro is defined if FOEDUS is being compiled in AArch64.
- * @details
- * Use it like:
- * @code{.cpp}
- * #if defined(FOEDUS_ON_AARCH64)
- * ...
- * #if undefined(FOEDUS_ON_AARCH64)
- * ...
- * @endcode
- */
 #endif  // FOEDUS_ARMV8_SUPPORT_HPP_
