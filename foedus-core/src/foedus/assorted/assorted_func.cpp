@@ -161,6 +161,19 @@ uint64_t generate_almost_prime_below(uint64_t threshold) {
   }
 }
 
+void spinlock_yield() {
+  // we initially used gcc's mm_pause and manual assembly, but now we use this to handle AArch64.
+  // It might be no-op (not guaranteed to yield, according to the C++ specifictation)
+  // depending on GCC's implementation, but portability is more important.
+  std::this_thread::yield();
+  // #if defined(__GNUC__)
+  //   ::_mm_pause();
+  // #else  // defined(__GNUC__)
+  //   // Non-gcc compiler.
+  //   asm volatile("pause" ::: "memory");
+  // #endif  // defined(__GNUC__)
+}
+
 void SpinlockStat::yield_backoff() {
   if (spins_ == 0) {
     // do the real initialization only when we couldn't get a lock.
@@ -187,6 +200,7 @@ void SpinlockStat::yield_backoff() {
     spinlock_yield();
   }
 }
+
 
 }  // namespace assorted
 }  // namespace foedus

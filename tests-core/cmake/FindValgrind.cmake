@@ -21,9 +21,10 @@ if (VALGRIND_DIR)
     message(STATUS "Running ${VALGRIND_EXEC} to check version...")
     exec_program(${VALGRIND_EXEC} ARGS --version OUTPUT_VARIABLE VALGRIND_VERSION)
     # parse it
-    string(REGEX REPLACE "valgrind\\-([0-9]+)\\.[0-9]+\\.[0-9]+" "\\1" VALGRIND_VERSION_MAJOR "${VALGRIND_VERSION}")
-    string(REGEX REPLACE "valgrind\\-[0-9]+\\.([0-9])+\\.[0-9]+" "\\1" VALGRIND_VERSION_MINOR "${VALGRIND_VERSION}")
-    string(REGEX REPLACE "valgrind\\-[0-9]+\\.[0-9]+\\.([0-9]+)" "\\1" VALGRIND_VERSION_PATCH "${VALGRIND_VERSION}")
+    # Examples. "valgrind-3.9.0", "valgrind-3.10.0.SVN", etc
+    string(REGEX REPLACE "valgrind\\-([0-9]+)\\.[0-9]+\\.[0-9]+.*" "\\1" VALGRIND_VERSION_MAJOR "${VALGRIND_VERSION}")
+    string(REGEX REPLACE "valgrind\\-[0-9]+\\.([0-9]+)\\.[0-9]+.*" "\\1" VALGRIND_VERSION_MINOR "${VALGRIND_VERSION}")
+    string(REGEX REPLACE "valgrind\\-[0-9]+\\.[0-9]+\\.([0-9]+).*" "\\1" VALGRIND_VERSION_PATCH "${VALGRIND_VERSION}")
     message(STATUS "VALGRIND_VERSION_MAJOR=${VALGRIND_VERSION_MAJOR}")
     message(STATUS "VALGRIND_VERSION_MINOR=${VALGRIND_VERSION_MINOR}")
     message(STATUS "VALGRIND_VERSION_PATCH=${VALGRIND_VERSION_PATCH}")

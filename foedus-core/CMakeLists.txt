@@ -87,8 +87,21 @@ endif ()
 # We are seeing an weird compiler behavior on union. let's prohibit assuming string aliasing
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-strict-aliasing")
 
-# Enable GCC's built-in 128bit CAS
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcx16")
+# We need gcc's libatomic.so for AArch64. It's not required on x86.
+find_package(GccAtomic)
+
+if ("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "aarch64")
+  # gcc-aarch64 doesn't support -mcx16. We use gcc's libatomic instead.
+  # You must make sure you have libatomic.so.
+  message(STATUS "Yikes, you are on AArch64!")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DFOEDUS_ON_AARCH64")
+  if (NOT GCCLIBATOMIC_FOUND)
+    message(SEND_ERROR "ERROR: FOEDUS on AArch64 needs gcc's libatomic.so. We couldn't find it.")
+  endif ()
+else ()
+  # Enable GCC's built-in 128bit CAS via -mcx16. We don't need libatomic.so on x86.
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcx16")
+endif ()
 
 set(CMAKE_INCLUDE_CURRENT_DIR OFF)
 
@@ -148,6 +161,10 @@ if (PAPI_FOUND)
   # in terms of license, it's okay to statically link (BSD-style).
   set(foedus-dependencies ${foedus-dependencies} ${PAPI_DYNAMIC_LIBRARY})
 endif (PAPI_FOUND)
+
+if (GCCLIBATOMIC_FOUND AND "${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "aarch64")
+  set(foedus-dependencies ${foedus-dependencies} ${GCCLIBATOMIC_LIBRARY})
+endif ()
 
 target_link_libraries(foedus-core ${foedus-dependencies})
 target_link_libraries(foedus-core-static ${foedus-dependencies})
