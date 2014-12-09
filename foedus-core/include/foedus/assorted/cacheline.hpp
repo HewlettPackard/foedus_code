@@ -6,9 +6,6 @@
 #define FOEDUS_ASSORTED_CACHELINE_HPP_
 
 #include <stdint.h>
-#if defined(__GNUC__) && !defined(FOEDUS_ON_AARCH64)
-// #include <xmmintrin.h>
-#endif  // defined(__GNUC__) && !defined(FOEDUS_ON_AARCH64)
 
 #include "foedus/compiler.hpp"
 
@@ -38,12 +35,12 @@ const uint16_t kCachelineSize = 64;
  */
 inline void prefetch_cacheline(const void* address) {
 #if defined(__GNUC__)
-#if defined(FOEDUS_ON_AARCH64)
+#if defined(__aarch64__)
   ::__builtin_prefetch(address, 1, 3);
-#else  // defined(FOEDUS_ON_AARCH64)
+#else  // defined(__aarch64__)
   ::__builtin_prefetch(address, 1, 3);
   // ::_mm_prefetch(address, ::_MM_HINT_T0);
-#endif  // defined(FOEDUS_ON_AARCH64)
+#endif  // defined(__aarch64__)
 #endif  // defined(__GNUC__)
 }
 

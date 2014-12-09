@@ -45,7 +45,7 @@ bool raw_atomic_compare_exchange_strong_uint128(
   __uint128_t old_casted = *reinterpret_cast<const __uint128_t*>(old_value);
   __uint128_t new_casted = *reinterpret_cast<const __uint128_t*>(new_value);
   ret = ::__sync_bool_compare_and_swap(ptr_casted, old_casted, new_casted);
-#elif defined(__GNUC__) && defined(FOEDUS_ON_AARCH64)
+#elif defined(__GNUC__) && defined(__aarch64__)
   // gcc-AArch64 doesn't allow -mcx16. But, it supports __atomic_compare_exchange_16 with
   // libatomic.so. We need to link to it in that case.
   __uint128_t* ptr_casted = reinterpret_cast<__uint128_t*>(ptr);

@@ -22,13 +22,14 @@
  * different in clang).
  * It's intractable to support both of them, and if we pick just one, it's of course gcc.
  *
- * @par FOEDUS_ON_AARCH64 macro
- * This macro is defined if FOEDUS is being compiled in AArch64.
+ * @par __aarch64__ and __AARCH64EB__/__AARCH64EL__ macro
+ * This macro is defined if gcc is running on AArch64 (latter two for big/little endian, but
+ * I bet you are getting __AARCH64EL__. see "gcc -dM -E - < /dev/null ").
  * Use it like:
  * @code{.cpp}
- * #if defined(FOEDUS_ON_AARCH64)
+ * #if defined(__aarch64__)
  * ...
- * #if undefined(FOEDUS_ON_AARCH64)
+ * #if undefined(__aarch64__)
  * ...
  * @endcode
  *

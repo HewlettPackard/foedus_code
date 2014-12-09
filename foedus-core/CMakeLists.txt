@@ -35,6 +35,10 @@ message (STATUS "CMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
 message (STATUS "========================================")
 message (STATUS)
 
+if ("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "aarch64")
+  message(STATUS "Yikes, you are on AArch64! Note: FOEDUS's AArch64 support is still experimental.")
+endif ()
+
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 
@@ -93,8 +97,6 @@ find_package(GccAtomic)
 if ("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "aarch64")
   # gcc-aarch64 doesn't support -mcx16. We use gcc's libatomic instead.
   # You must make sure you have libatomic.so.
-  message(STATUS "Yikes, you are on AArch64!")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DFOEDUS_ON_AARCH64")
   if (NOT GCCLIBATOMIC_FOUND)
     message(SEND_ERROR "ERROR: FOEDUS on AArch64 needs gcc's libatomic.so. We couldn't find it.")
   endif ()

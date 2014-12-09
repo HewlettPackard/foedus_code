@@ -20,18 +20,18 @@ namespace debugging {
  * @ingroup DEBUGGING
  */
 inline uint64_t get_rdtsc() {
-#ifndef FOEDUS_ON_AARCH64
+#ifndef __aarch64__
   // x86.
   uint32_t low, high;
   asm volatile("rdtsc" : "=a" (low), "=d" (high));
   return (static_cast<uint64_t>(high) << 32) | low;
-#else  // FOEDUS_ON_AARCH64
+#else  // __aarch64__
   // AArch64. "cntvct_el0" gives read-only physical 64bit timer.
   // http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0488d/ch09s03s01.html
   uint64_t ret;
-  asm volatile ("isb; mrs %0, cntvct_el0" : "=r" (ret))
+  asm volatile ("isb; mrs %0, cntvct_el0" : "=r" (ret));
   return ret;
-#endif  // FOEDUS_ON_AARCH64
+#endif  // __aarch64__
 }
 
 /**
