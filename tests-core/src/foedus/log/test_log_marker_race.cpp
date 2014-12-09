@@ -42,7 +42,8 @@ DEFINE_TEST_CASE_PACKAGE(LogMarkerRaceTest, foedus.log);
 // Even this number doesn't reliably reproduce the bug, but at least once in a few times.
 // To avoid too long testcase, increase it only when you want to specifically test this.
 // const uint32_t kTestMarkerRacesLastEpoch = 100000U;  // to reliably repro. don't push this!
-const uint32_t kTestMarkerRacesLastEpoch = 1000U;  // should be usually this.
+// const uint32_t kTestMarkerRacesLastEpoch = 1000U;  // should be usually this.
+const uint32_t kTestMarkerRacesLastEpoch = 100U;  // fast, but only occasionally repro.
 const uint16_t kThreads = 4U;
 const uint16_t kRecordsPerThread = 4U;
 

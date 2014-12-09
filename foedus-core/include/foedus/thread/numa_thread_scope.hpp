@@ -19,12 +19,16 @@ namespace thread {
  */
 struct NumaThreadScope {
   explicit NumaThreadScope(int numa_node) {
-    numa_node = assorted::mod_numa_node(numa_node);
-    ::numa_run_on_node(numa_node);
-    ::numa_set_localalloc();
+    if (::numa_available() >= 0) {
+      numa_node = assorted::mod_numa_node(numa_node);
+      ::numa_run_on_node(numa_node);
+      ::numa_set_localalloc();
+    }
   }
   ~NumaThreadScope() {
-    ::numa_run_on_node_mask(::numa_all_nodes_ptr);
+    if (::numa_available() >= 0) {
+      ::numa_run_on_node_mask(::numa_all_nodes_ptr);
+    }
   }
 };
 

@@ -8,6 +8,8 @@
 #include <time.h>
 #include <sys/time.h>
 
+#include <atomic>
+
 #include "foedus/assert_nd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/atomic_fences.hpp"

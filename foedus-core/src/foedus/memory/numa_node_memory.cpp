@@ -33,9 +33,17 @@ NumaNodeMemory::NumaNodeMemory(Engine* engine, thread::ThreadGroupId numa_node)
     snapshot_cache_table_(nullptr) {
 }
 
+int64_t get_numa_node_size(int node) {
+  if (::numa_available() < 0) {
+    return 0;
+  } else {
+    return ::numa_node_size(node, nullptr);
+  }
+}
+
 ErrorStack NumaNodeMemory::initialize_once() {
   LOG(INFO) << "Initializing NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
-    << " BEFORE: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
+    << " BEFORE: numa_node_size=" << get_numa_node_size(numa_node_);
 
 
   // volatile pool is placed on the shared memory
@@ -86,7 +94,7 @@ ErrorStack NumaNodeMemory::initialize_once() {
   ASSERT_ND(log_buffer_memory_pieces_.size() == cores_);
 
   LOG(INFO) << "Initialized NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
-    << " AFTER: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
+    << " AFTER: numa_node_size=" << get_numa_node_size(numa_node_);
   return kRetOk;
 }
 ErrorStack NumaNodeMemory::initialize_page_offset_chunk_memory() {
@@ -145,7 +153,7 @@ ErrorStack NumaNodeMemory::initialize_core_memory(thread::ThreadLocalOrdinal ord
 
 ErrorStack NumaNodeMemory::uninitialize_once() {
   LOG(INFO) << "Uninitializing NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
-    << " BEFORE: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
+    << " BEFORE: numa_node_size=" << get_numa_node_size(numa_node_);
 
   ErrorStackBatch batch;
   batch.uninitialize_and_delete_all(&core_memories_);
@@ -165,7 +173,7 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
   snapshot_pool_control_block_.release_block();
 
   LOG(INFO) << "Uninitialized NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
-    << " AFTER: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
+    << " AFTER: numa_node_size=" << get_numa_node_size(numa_node_);
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 

@@ -114,8 +114,11 @@ void AlignedMemory::alloc(
   // Use libnuma's numa_set_preferred to initialize the NUMA node of the memory.
   // We can later do the equivalent with mbind IF the memory is not shared.
   // mbind does nothing for shared memory. So, this is the only way
-  int original_node = ::numa_preferred();
-  ::numa_set_preferred(assorted::mod_numa_node(numa_node));
+  int original_node = 0;
+  if (::numa_available() >= 0) {
+    original_node = ::numa_preferred();
+    ::numa_set_preferred(assorted::mod_numa_node(numa_node));
+  }
 
   debugging::StopWatch watch;
   switch (alloc_type_) {
@@ -137,7 +140,9 @@ void AlignedMemory::alloc(
   debugging::StopWatch watch2;
   std::memset(block_, 0, size_);  // see class comment for why we do this immediately
   watch2.stop();
-  ::numa_set_preferred(original_node);
+  if (::numa_available() >= 0) {
+    ::numa_set_preferred(original_node);
+  }
   LOG(INFO) << "Allocated memory in " << watch.elapsed_ns() << "+"
     << watch2.elapsed_ns() << " ns (alloc+memset)." << *this;
 }

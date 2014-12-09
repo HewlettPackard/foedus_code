@@ -38,8 +38,6 @@ namespace externalize {
  * Derived classes must implement load() and save().
  */
 struct Externalizable {
-  virtual ~Externalizable() {}
-
   /**
    * @brief Reads the content of this object from the given XML element.
    * @param[in] element the XML element that represents this object

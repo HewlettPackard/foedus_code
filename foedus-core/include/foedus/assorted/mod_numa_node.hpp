@@ -16,6 +16,10 @@ namespace assorted {
  * @ingroup ASSORTED
  */
 inline int mod_numa_node(int numa_node) {
+  // if the machine is not a NUMA machine (1-socket), then avoid calling libnuma functions.
+  if (::numa_available() < 0) {
+    return 0;
+  }
   int hardware_nodes = ::numa_num_configured_nodes();
   if (numa_node >= 0 && numa_node >= hardware_nodes && hardware_nodes > 0) {
     numa_node = numa_node % hardware_nodes;

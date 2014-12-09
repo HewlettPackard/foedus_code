@@ -6,7 +6,6 @@
 #define FOEDUS_ASSORTED_CACHELINE_HPP_
 
 #include <stdint.h>
-#include <xmmintrin.h>
 
 #include "foedus/compiler.hpp"
 
@@ -35,7 +34,14 @@ const uint16_t kCachelineSize = 64;
  * @ingroup ASSORTED
  */
 inline void prefetch_cacheline(const void* address) {
-  ::_mm_prefetch(address, ::_MM_HINT_T0);
+#if defined(__GNUC__)
+#if defined(__aarch64__)
+  ::__builtin_prefetch(address, 1, 3);
+#else  // defined(__aarch64__)
+  ::__builtin_prefetch(address, 1, 3);
+  // ::_mm_prefetch(address, ::_MM_HINT_T0);
+#endif  // defined(__aarch64__)
+#endif  // defined(__GNUC__)
 }
 
 /**
@@ -47,7 +53,7 @@ inline void prefetch_cacheline(const void* address) {
 inline void prefetch_cachelines(const void* address, int cacheline_count) {
   for (int i = 0; i < cacheline_count; ++i) {
     const void* shifted = reinterpret_cast<const char*>(address) + kCachelineSize * cacheline_count;
-    ::_mm_prefetch(shifted, ::_MM_HINT_T0);
+    prefetch_cacheline(shifted);
   }
 }
 
@@ -60,8 +66,7 @@ inline void prefetch_cachelines(const void* address, int cacheline_count) {
 inline void prefetch_l2(const void* address, int cacheline_count) {
   for (int i = 0; i < cacheline_count; ++i) {
     const void* shifted = reinterpret_cast<const char*>(address) + kCachelineSize * cacheline_count;
-    // ::_mm_prefetch(shifted, ::_MM_HINT_T1);
-    ::_mm_prefetch(shifted, ::_MM_HINT_T0);  // this also works for L2/L3
+    prefetch_cacheline(shifted);  // this also works for L2/L3
   }
 }
 

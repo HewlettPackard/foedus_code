@@ -44,6 +44,12 @@ const uint64_t kHugepageSize = 1 << 21;
  */
 struct ScopedNumaPreferred {
   ScopedNumaPreferred(int numa_node, bool retain_old = false) {
+    // if the machine is not a NUMA machine (1-socket), then avoid calling libnuma functions.
+    numa_enabled_ = (::numa_available() >= 0);
+    if (!numa_enabled_) {
+      numa_node = 0;
+      return;
+    }
     if (retain_old) {
       old_value_ = ::numa_preferred();
     } else {
@@ -55,9 +61,12 @@ struct ScopedNumaPreferred {
     ::numa_set_preferred(numa_node);
   }
   ~ScopedNumaPreferred() {
-    ::numa_set_preferred(old_value_);
+    if (numa_enabled_) {
+      ::numa_set_preferred(old_value_);
+    }
   }
   int old_value_;
+  bool numa_enabled_;
 };
 
 }  // namespace memory

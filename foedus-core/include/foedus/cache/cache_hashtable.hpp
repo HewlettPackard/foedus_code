@@ -6,7 +6,6 @@
 #define FOEDUS_CACHE_CACHE_HASHTABLE_HPP_
 
 #include <stdint.h>
-#include <xmmintrin.h>
 
 #include <iosfwd>
 
