@@ -72,7 +72,7 @@
  * @par RDTSC-equivalent
  * [Dec14]
  * foedus/debugging/rdtsc.hpp uses x86's rdtsc as a low-overhead high-precision counter.
- * The equivalent on ARMv8 is
+ * The equivalent on ARMv8 is cntvct_el0, which can be used in user mode unlike earlier ARM ISA.
  */
 
 #endif  // FOEDUS_ARMV8_SUPPORT_HPP_
