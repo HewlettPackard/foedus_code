@@ -100,7 +100,7 @@ struct CasTestImpl {
   thread::Rendezvous start_rendezvous_;
   T data_;
   int conflicts_;
-  bool observed_[kThreads * kIterations];
+  bool observed_[(kThreads * kIterations) / 8 * 8 + 8];
 };
 template <typename T>
 struct CasTest {
