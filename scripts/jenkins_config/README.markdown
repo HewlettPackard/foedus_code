@@ -13,6 +13,7 @@ List of plugins (some of them maybe not used now. just a list of plugins on our 
 * cmake Builder
 * CCCC Plug-in
 * Doxygen Plugin
+* Embeddable Build Status Plugin
 * Git Client Plugin
 * Git Plugin
 * Gitlab Hook Plugin
