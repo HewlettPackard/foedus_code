@@ -54,7 +54,7 @@
       <builderImpl/>
     </hudson.plugins.cmake.CmakeBuilder>
     <hudson.tasks.Shell>
-      <command>cd build; ctest -R valgrind --timeout 600 || /usr/bin/true</command>
+      <command>cd build; ctest -R valgrind --timeout 600 || true</command>
     </hudson.tasks.Shell>
   </builders>
   <publishers>
