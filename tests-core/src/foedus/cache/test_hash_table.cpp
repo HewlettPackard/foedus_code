@@ -64,6 +64,9 @@ void test_multi_thread(uint32_t id, CacheHashtable* hashtable) {
         << "id=" << id << ", i=" << i << std::endl;
       // we assume the same unlucky wouldn't happen again. it is possible, but negligible in the
       // test case. even if it happens, it's not a bug, btw.
+      // also, it might be overwritten by other threads AFTER the if above, so it can definitely
+      // happen, and we do observe it a few times per several runs.
+      // man, writing a multi-thread testcase on an opportunitstic data structure is tough.
       EXPECT_EQ(kErrorCodeOk, hashtable->install(pointer, i * 3 + 42));
     } else {
       EXPECT_EQ(i * 3U + 42U, content_id);
@@ -89,12 +92,22 @@ TEST(HashTableTest, RandomMultiThread) {
   }
 
   COERCE_ERROR(hashtable.verify_single_thread());
+  // As noted above, it is possible that the entry we thought we inserted might not exist.
+  // This is fine because our snapshot cache is an opportunitstic data structre. Not a bug
+  // ... as far as it's rare. So, let's check it.
+  const uint32_t kTolerableMisses = 5;
+  uint32_t miss_count = 0;
   for (uint32_t i = 0; i < 10000U * kThreads; ++i) {
     storage::SnapshotPagePointer pointer;
     pointer = storage::to_snapshot_page_pointer(1, 0, i * 3);
     ContentId content_id = hashtable.find(pointer);
-    EXPECT_EQ(i * 3U + 42U, content_id);
+    if (i * 3U + 42U != content_id) {
+      ++miss_count;
+      std::cout << "Interesting, we thought we inserted " << i << ", but it's " << content_id << "."
+        << " this CAN happen and is not a bug. misses so far=" << miss_count << std::endl;
+    }
   }
+  EXPECT_LE(miss_count, kTolerableMisses);
   // }
 }
 
