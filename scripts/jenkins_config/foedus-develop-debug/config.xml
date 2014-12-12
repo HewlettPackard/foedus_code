@@ -65,7 +65,7 @@
       <builderImpl/>
     </hudson.plugins.cmake.CmakeBuilder>
     <hudson.tasks.Shell>
-      <command>cd build; ctest -E valgrind || /usr/bin/true</command>
+      <command>cd build; ctest -E valgrind || true</command>
     </hudson.tasks.Shell>
     <hudson.tasks.Shell>
       <command>cd build; make sloccount</command>
