@@ -224,6 +224,15 @@ const uint64_t kXctIdMaskEpoch      = 0x0FFFFFFF00000000ULL;
 const uint64_t kXctIdMaskOrdinal    = 0x00000000FFFFFFFFULL;
 
 /**
+ * @brief Maximum value of in-epoch ordinal.
+ * @ingroup XCT
+ * @details
+ * We reserve 4 bytes in XctId, but in reality 3 bytes are more than enough.
+ * By restricting it to within 3 bytes, we can pack more information in a few places.
+ */
+const uint64_t kMaxXctOrdinal       = (1ULL << 24) - 1U;
+
+/**
  * @brief Persistent status part of Transaction ID
  * @ingroup XCT
  * @details
@@ -277,6 +286,7 @@ struct XctId {
 
   void set(Epoch::EpochInteger epoch_int, uint32_t ordinal) {
     ASSERT_ND(epoch_int < Epoch::kEpochIntOverflow);
+    ASSERT_ND(ordinal <= kMaxXctOrdinal);
     data_ = static_cast<uint64_t>(epoch_int) << 32 | ordinal;
   }
 
@@ -292,8 +302,12 @@ struct XctId {
   bool    is_valid() const ALWAYS_INLINE { return get_epoch_int() != Epoch::kEpochInvalid; }
 
 
-  uint32_t  get_ordinal() const ALWAYS_INLINE { return data_; }
+  uint32_t  get_ordinal() const ALWAYS_INLINE {
+    ASSERT_ND(static_cast<uint32_t>(data_) <= kMaxXctOrdinal);
+    return static_cast<uint32_t>(data_);
+  }
   void      set_ordinal(uint32_t ordinal) ALWAYS_INLINE {
+    ASSERT_ND(ordinal <= kMaxXctOrdinal);
     data_ = (data_ & (~kXctIdMaskOrdinal)) | ordinal;
   }
   /**

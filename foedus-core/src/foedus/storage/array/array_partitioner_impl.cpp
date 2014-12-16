@@ -182,33 +182,32 @@ void ArrayPartitioner::partition_batch(const Partitioner::PartitionBatchArgument
 
 /**
   * Used in sort_batch().
-  * \li 0-7 bytes: ArrayOffset, the most significant.
-  * \li 8-9 bytes: compressed epoch (difference from base_epoch)
-  * \li 10-11 bytes: in-epoch-ordinal
+  * \li 0-5 bytes: ArrayOffset, the most significant.
+  * \li 6-7 bytes: compressed epoch (difference from base_epoch)
+  * \li 8-11 bytes: in-epoch-ordinal
   * \li 12-15 bytes: BufferPosition (doesn't have to be sorted together, but for simplicity)
   * Be careful on endian! We use uint128_t to make it easier and faster.
-  * @todo non-gcc support.
   */
 struct SortEntry {
   inline void set(
     ArrayOffset               offset,
     uint16_t                  compressed_epoch,
-    uint16_t                  in_epoch_ordinal,
+    uint32_t                  in_epoch_ordinal,
     snapshot::BufferPosition  position) ALWAYS_INLINE {
-    *reinterpret_cast<__uint128_t*>(this)
-      = static_cast<__uint128_t>(offset) << 64
-        | static_cast<__uint128_t>(compressed_epoch) << 48
+    ASSERT_ND(offset < kMaxArrayOffset);
+    data_
+      = static_cast<__uint128_t>(offset) << 80
+        | static_cast<__uint128_t>(compressed_epoch) << 64
         | static_cast<__uint128_t>(in_epoch_ordinal) << 32
         | static_cast<__uint128_t>(position);
   }
   inline ArrayOffset get_offset() const ALWAYS_INLINE {
-    return static_cast<ArrayOffset>(
-      *reinterpret_cast<const __uint128_t*>(this) >> 64);
+    return static_cast<ArrayOffset>(data_ >> 80);
   }
   inline snapshot::BufferPosition get_position() const ALWAYS_INLINE {
-    return static_cast<snapshot::BufferPosition>(*reinterpret_cast<const __uint128_t*>(this));
+    return static_cast<snapshot::BufferPosition>(data_);
   }
-  char data_[16];
+  __uint128_t data_;
 };
 
 void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) const {
@@ -250,7 +249,7 @@ void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) c
   }
 
   debugging::StopWatch stop_watch;
-  // TODO(Hideaki) non-gcc support.
+  // Gave up non-gcc support because of aarch64 support. yes, we can also assume __uint128_t.
   // Actually, we need only 12-bytes sorting, so perhaps doing without __uint128_t is faster?
   std::sort(
     reinterpret_cast<__uint128_t*>(entries),

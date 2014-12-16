@@ -344,7 +344,7 @@ ErrorStack ArrayComposeContext::init_more() {
   next_input_ = inputs_count_;
   next_key_ = 0xFFFFFFFFFFFFFFFFULL;
   next_xct_id_.set_epoch_int(Epoch::kEpochIntHalf - 1U);
-  next_xct_id_.set_ordinal(0xFFFFFFFFU);
+  next_xct_id_.set_ordinal(xct::kMaxXctOrdinal);
   for (uint32_t i = 0; i < inputs_count_; ++i) {
     if (inputs_[i].ended_) {
       ++ended_inputs_count_;

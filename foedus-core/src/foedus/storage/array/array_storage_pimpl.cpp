@@ -247,6 +247,9 @@ ErrorStack ArrayStoragePimpl::load_empty() {
   const uint16_t levels = calculate_levels(control_block_->meta_);
   const uint32_t payload_size = control_block_->meta_.payload_size_;
   const ArrayOffset array_size = control_block_->meta_.array_size_;
+  if (array_size > kMaxArrayOffset) {
+    return ERROR_STACK(kErrorCodeStrTooLargeArray);
+  }
   control_block_->levels_ = levels;
   control_block_->route_finder_ = LookupRouteFinder(levels, payload_size);
   control_block_->root_page_pointer_.snapshot_pointer_ = 0;
