@@ -215,7 +215,7 @@ int main_impl(int argc, char **argv) {
     {
       UninitializeGuard guard(&engine);
       Epoch commit_epoch;
-      storage::array::ArrayMetadata meta("aaa", kRecords, kPayloadSize);
+      storage::array::ArrayMetadata meta("aaa", kPayloadSize, kRecords);
       storage::array::ArrayStorage target;
       COERCE_ERROR(engine.get_storage_manager()->create_array(&meta, &target, &commit_epoch));
       ASSERT_ND(target.exists());
