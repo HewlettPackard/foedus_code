@@ -287,7 +287,7 @@ struct SortEntry {
   }
 
   KeySlice first_slice_;
-  uint64_t combined_epoch_; // compressed_epoch_ << 32 | in_epoch_ordinal_
+  uint64_t combined_epoch_;  // compressed_epoch_ << 32 | in_epoch_ordinal_
   snapshot::BufferPosition position_;
   uint32_t dummy2_;
   // so unfortunate that this doesn't fit in 16 bytes.
