@@ -210,22 +210,11 @@ struct SortEntry {
   __uint128_t data_;
 };
 
-void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) const {
-  if (args.logs_count_ == 0) {
-    *args.written_count_ = 0;
-    return;
-  }
-
-  // we so far sort them in one path.
-  // to save memory, we could do multi-path merge-sort.
-  // however, in reality each log has many bytes, so log_count is not that big.
-  args.work_memory_->assure_capacity(sizeof(SortEntry) * args.logs_count_);
-
-  debugging::StopWatch stop_watch_entire;
-
-  ASSERT_ND(sizeof(SortEntry) == 16U);
+/** subroutine of sort_batch */
+// __attribute__ ((noinline))  // was useful to forcibly show it on cpu profile. nothing more.
+void prepare_sort_entries(const Partitioner::SortBatchArguments& args, SortEntry* entries) {
+  // CPU profile of partition_array_perf: 6-10%.
   const Epoch::EpochInteger base_epoch_int = args.base_epoch_.value();
-  SortEntry* entries = reinterpret_cast<SortEntry*>(args.work_memory_->get_block());
   for (uint32_t i = 0; i < args.logs_count_; ++i) {
     const ArrayCommonUpdateLogType* log_entry = reinterpret_cast<const ArrayCommonUpdateLogType*>(
       args.log_buffer_.resolve(args.log_positions_[i]));
@@ -247,22 +236,27 @@ void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) c
       log_entry->header_.xct_id_.get_ordinal(),
       args.log_positions_[i]);
   }
+}
 
-  debugging::StopWatch stop_watch;
-  // Gave up non-gcc support because of aarch64 support. yes, we can also assume __uint128_t.
-  // Actually, we need only 12-bytes sorting, so perhaps doing without __uint128_t is faster?
-  std::sort(
-    reinterpret_cast<__uint128_t*>(entries),
-    reinterpret_cast<__uint128_t*>(entries + args.logs_count_));
-  stop_watch.stop();
-  VLOG(0) << "Sorted " << args.logs_count_ << " log entries in " << stop_watch.elapsed_ms() << "ms";
-
+/** subroutine of sort_batch */
+// __attribute__ ((noinline))  // was useful to forcibly show it on cpu profile. nothing more.
+uint32_t compact_logs(const Partitioner::SortBatchArguments& args, SortEntry* entries) {
+  // CPU profile of partition_array_perf: 30-35%.
+  // Yeah, this is not cheap... but it can dramatically compact the logs.
   uint32_t result_count = 1;
   args.output_buffer_[0] = entries[0].get_position();
+  ArrayOffset prev_offset = entries[0].get_offset();
   for (uint32_t i = 1; i < args.logs_count_; ++i) {
     // compact the logs if the same offset appears in a row, and covers the same data region.
     // because we sorted it by offset and then ordinal, later logs can overwrite the earlier one.
-    if (entries[i].get_offset() == entries[i - 1].get_offset()) {
+    ArrayOffset cur_offset = entries[i].get_offset();
+    // wow, adding this UNLIKELY changed the CPU cost of this function from 35% to 13%,
+    // throughput of entire partition_array_perf 5M to 8.5M. because in this experiment
+    // there are few entries with same offset. I haven't seen this much difference with
+    // gcc's unlikely hint before! umm, compiler is not that smart, after all.
+    // this will penalize the case where we have many compaction, but in that case
+    // the following code has more cost anyways.
+    if (UNLIKELY(cur_offset == prev_offset)) {
       const log::RecordLogType* prev_p = args.log_buffer_.resolve(entries[i - 1].get_position());
       log::RecordLogType* next_p = args.log_buffer_.resolve(entries[i].get_position());
       if (prev_p->header_.log_type_code_ != next_p->header_.log_type_code_) {
@@ -300,10 +294,42 @@ void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) c
           --result_count;
         }
       }
+    } else {
+      prev_offset = cur_offset;
     }
     args.output_buffer_[result_count] = entries[i].get_position();
     ++result_count;
   }
+  return result_count;
+}
+
+void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) const {
+  if (args.logs_count_ == 0) {
+    *args.written_count_ = 0;
+    return;
+  }
+
+  // we so far sort them in one path.
+  // to save memory, we could do multi-path merge-sort.
+  // however, in reality each log has many bytes, so log_count is not that big.
+  args.work_memory_->assure_capacity(sizeof(SortEntry) * args.logs_count_);
+
+  debugging::StopWatch stop_watch_entire;
+
+  ASSERT_ND(sizeof(SortEntry) == 16U);
+  SortEntry* entries = reinterpret_cast<SortEntry*>(args.work_memory_->get_block());
+  prepare_sort_entries(args, entries);
+
+  debugging::StopWatch stop_watch;
+  // Gave up non-gcc support because of aarch64 support. yes, we can also assume __uint128_t.
+  // CPU profile of partition_array_perf: 50% (introsort_loop) + 7% (other inlined).
+  std::sort(
+    reinterpret_cast<__uint128_t*>(entries),
+    reinterpret_cast<__uint128_t*>(entries + args.logs_count_));
+  stop_watch.stop();
+  VLOG(0) << "Sorted " << args.logs_count_ << " log entries in " << stop_watch.elapsed_ms() << "ms";
+
+  uint32_t result_count = compact_logs(args, entries);
 
   stop_watch_entire.stop();
   VLOG(0) << "Array-" << id_ << " sort_batch() done in  " << stop_watch_entire.elapsed_ms()

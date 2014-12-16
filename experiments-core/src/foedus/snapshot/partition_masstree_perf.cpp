@@ -141,17 +141,15 @@ void make_dummy_partitions(Engine* engine, storage::PartitionerMetadata* metadat
     sizeof(storage::masstree::MasstreePartitionerData));
   storage::masstree::MasstreePartitionerData* data
     = reinterpret_cast<storage::masstree::MasstreePartitionerData*>(metadata->locate_data(engine));
-  data->partition_count_ = 16;
-  for (uint64_t i = 0; i < 16U; ++i) {
-    data->low_keys_[i] = (1ULL << 60) * i;
-    data->partitions_[i] = i;
-  }
+  data->partition_count_ = 1;
+  data->low_keys_[0] = 0;
+  data->partitions_[0] = 0;
   metadata->valid_ = true;
 }
 
 void populate_logs(storage::StorageId id, char* buffer, BufferPosition* positions, uint64_t* size) {
   uint64_t cur = 0;
-  uint64_t key;;
+  uint64_t key;
   char payload[kPayloadSize];
   std::memset(payload, 0, kPayloadSize);
   assorted::UniformRandom r(1234);
