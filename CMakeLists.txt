@@ -147,7 +147,7 @@ add_custom_target(sloccount
 
 add_custom_target(cloc
   COMMAND cloc ${CMAKE_CURRENT_SOURCE_DIR}
-    --exclude-dir=third_party,build,.git,.kdev4,release,relwithdebinfo
+    --exclude-dir=third_party,build,.git,.kdev4,release,relwithdebinfo --exclude-ext=tsv
     --by-file --xml
     --out=${CMAKE_CURRENT_BINARY_DIR}/cloc_out.xml
   COMMENT "Count source lines of code with cloc")
