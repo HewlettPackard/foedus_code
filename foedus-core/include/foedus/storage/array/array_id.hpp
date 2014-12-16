@@ -27,8 +27,18 @@ namespace array {
  * This means we don't support multi-dimensional, dynamic, sparse, nor any other fancy arrays.
  * However, those arrays can be provided by the relational layer based on this array storage.
  * The offset-conversion is fairly straightforward.
+ * @note Although it is an 8-byte integer, The valid value range of ArrayOffset is 0 to 2^48 - 1.
+ * Creating an array of size 2^48 or more will fail. This won't cause any issue in reality
+ * yet allows the implementation to pack more information.
+ * @see kMaxArrayOffset
  */
 typedef uint64_t ArrayOffset;
+
+/**
+ * @brief The maximum value allowed for ArrayOffset.
+ * @ingroup ARRAY
+ */
+const ArrayOffset kMaxArrayOffset = (1ULL << 48) - 1ULL;
 
 /**
  * @brief Represents an offset range in an array storage.

@@ -88,8 +88,12 @@ if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-D\\_FILE\\_OFFSET\\_BITS\\=64")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
 endif ()
 
-# We are seeing an weird compiler behavior on union. let's prohibit assuming string aliasing
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-strict-aliasing")
+# In an ideal world, our code should be free from bugs caused by careless aliasing.
+# gcc gives some warning to achieve that, but in reality far from enough to be safe.
+# Hence, we prohibit compilers from assuming strict alising rule.
+# If it has a significant performance impact, probably something is anyway wrong..
+#   http://stackoverflow.com/questions/1225741/performance-impact-of-fno-strict-aliasing
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-strict-aliasing")
 
 # We need gcc's libatomic.so for AArch64. It's not required on x86.
 find_package(GccAtomic)

@@ -68,7 +68,7 @@
       <command>cd build; ctest -E valgrind || true</command>
     </hudson.tasks.Shell>
     <hudson.tasks.Shell>
-      <command>cd build; make sloccount</command>
+      <command>cd build; make cloc</command>
     </hudson.tasks.Shell>
   </builders>
   <publishers>
@@ -104,10 +104,10 @@
         </hudson.plugins.warnings.ConsoleParser>
       </consoleParsers>
     </hudson.plugins.warnings.WarningsPublisher>
-    <hudson.plugins.sloccount.SloccountPublisher plugin="sloccount@1.19">
-      <pattern>build/sloccount.ac</pattern>
+    <hudson.plugins.sloccount.SloccountPublisher plugin="sloccount@1.20">
+      <pattern>build/cloc_out.xml</pattern>
       <encoding></encoding>
-      <numBuildsInGraph>0</numBuildsInGraph>
+      <commentIsCode>true</commentIsCode><numBuildsInGraph>0</numBuildsInGraph>
       <ignoreBuildFailure>false</ignoreBuildFailure>
     </hudson.plugins.sloccount.SloccountPublisher>
     <xunit plugin="xunit@1.89">

@@ -86,7 +86,7 @@ void Xct::issue_next_id(XctId max_xct_id, Epoch *epoch)  {
     ASSERT_ND(new_id.get_epoch() == *epoch);
 
     // Now, is it possible to get an ordinal one larger than this one?
-    if (UNLIKELY(new_id.get_ordinal() == 0xFFFFFFFFU)) {
+    if (UNLIKELY(new_id.get_ordinal() >= kMaxXctOrdinal)) {
       // oh, that's rare.
       LOG(WARNING) << "Reached the maximum ordinal in this epoch. Advancing current epoch"
         << " just for this reason. It's rare, but not an error.";
@@ -97,7 +97,7 @@ void Xct::issue_next_id(XctId max_xct_id, Epoch *epoch)  {
       continue;  // try again with this epoch.
     }
 
-    ASSERT_ND(new_id.get_ordinal() < 0xFFFFFFFFU);
+    ASSERT_ND(new_id.get_ordinal() < kMaxXctOrdinal);
     new_id.set_ordinal(new_id.get_ordinal() + 1U);
     remember_previous_xct_id(new_id);
     break;
