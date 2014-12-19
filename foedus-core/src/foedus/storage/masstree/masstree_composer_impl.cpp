@@ -349,6 +349,11 @@ ErrorStack MasstreeComposeContext::execute() {
   CHECK_ERROR(init_inputs());
   CHECK_ERROR(init_root());
 
+#ifndef NDEBUG
+  char debug_prev[8192];
+  uint16_t debug_prev_length = 0;
+#endif  // NDEBUG
+
   uint64_t flush_threshold = max_pages_ * 8ULL / 10ULL;
   uint64_t processed = 0;
   while (ended_inputs_count_ < args_.log_streams_count_) {
@@ -359,6 +364,17 @@ ErrorStack MasstreeComposeContext::execute() {
     ASSERT_ND(key_length > 0);
     ASSERT_ND(cur_path_levels_ == 0 || get_page(get_last_level()->tail_)->is_border());
     ASSERT_ND(is_key_aligned_and_zero_padded(key, key_length));
+
+#ifndef NDEBUG
+    if (key_length < debug_prev_length) {
+      ASSERT_ND(std::memcmp(debug_prev, key, key_length) <= 0);
+    } else {
+      ASSERT_ND(std::memcmp(debug_prev, key, debug_prev_length) <= 0);
+    }
+    std::memcpy(debug_prev, key, key_length);
+    debug_prev_length = key_length;
+#endif  // NDEBUG
+
     if (UNLIKELY(does_need_to_adjust_path(key, key_length))) {
       CHECK_ERROR(adjust_path(key, key_length));
     }
@@ -1238,11 +1254,16 @@ ErrorStack MasstreeComposeContext::pushup_non_root() {
   ASSERT_ND(last->page_count_ > 1U);
   ASSERT_ND(!last->has_next_original());
 
+  bool is_head = true;
   for (memory::PagePoolOffset cur = last->head_; cur != 0;) {
     MasstreePage* page = get_page(cur);
     ASSERT_ND(page->get_foster_minor().is_null());
     SnapshotPagePointer pointer = page_id_base_ + cur;
     KeySlice low_fence = page->get_low_fence();
+    ASSERT_ND(cur != last->head_ || low_fence == last->low_fence_);  // first entry's low_fence
+    ASSERT_ND(cur != last->tail_ || page->get_high_fence() == last->high_fence_);  // tail's high
+    ASSERT_ND(cur != last->tail_ || page->get_foster_major().is_null());  // iff tail, has no next
+    ASSERT_ND(cur == last->tail_ || !page->get_foster_major().is_null());
     cur = page->get_foster_major().components.offset;
     page->set_foster_major_offset_unsafe(0);  // no longer needed
 
@@ -1251,7 +1272,33 @@ ErrorStack MasstreeComposeContext::pushup_non_root() {
       ASSERT_ND(parent->next_original_slice_ != low_fence);
       CHECK_ERROR(consume_original_upto_intermediate(low_fence, parent));
     }
-    append_intermediate(low_fence, pointer, parent);
+
+    // if this is a re-opened existing page (which is always the head), we already have
+    // a pointer to this page in the parent page, so appending it will cause a duplicate.
+    // let's check if that's the case.
+    bool already_appended = false;
+    if (is_head) {
+      const MasstreeIntermediatePage* parent_page = as_intermdiate(get_page(parent->tail_));
+      uint8_t index = parent_page->get_key_count();
+      const MasstreeIntermediatePage::MiniPage& mini = parent_page->get_minipage(index);
+      uint16_t index_mini = mini.key_count_;
+      if (mini.pointers_[index_mini].snapshot_pointer_ == pointer) {
+        already_appended = true;
+#ifndef NDEBUG
+        // If that's the case, the low-fence should match. let's check.
+        KeySlice check_low, check_high;
+        parent_page->extract_separators_snapshot(index, index_mini, &check_low, &check_high);
+        ASSERT_ND(check_low == low_fence);
+        // high-fence should be same as tail's high if this level has split. let's check it, too.
+        MasstreePage* tail = get_page(last->tail_);
+        ASSERT_ND(check_high == tail->get_high_fence());
+#endif  // NDEBUG
+      }
+    }
+    if (!already_appended) {
+      append_intermediate(low_fence, pointer, parent);
+    }
+    is_head = false;
   }
 
   return kRetOk;

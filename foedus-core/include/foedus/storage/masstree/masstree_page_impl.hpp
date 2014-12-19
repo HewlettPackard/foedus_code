@@ -345,13 +345,14 @@ class MasstreeIntermediatePage final : public MasstreePage {
 
 
   /**
-   * Appends a new poiner and individual , used only by snapshot composer.
+   * Appends a new poiner and separator in an existing mini page, used only by snapshot composer.
    * @pre header_.snapshot
    * @pre !is_full_snapshot()
    */
   void      append_pointer_snapshot(KeySlice low_fence, SnapshotPagePointer pointer);
   /**
-   * Appends a new separator and the initial pointer in new page, used only by snapshot composer.
+   * Appends a new separator and the initial pointer in new mini page,
+   * used only by snapshot composer.
    * @pre header_.snapshot
    * @pre !is_full_snapshot()
    */
@@ -920,7 +921,7 @@ class MasstreeBorderPage final : public MasstreePage {
 
 /**
  * Handy iterator for MasstreeIntermediate. Note that this object is not thread safe.
- * Use it only where it's safe.
+ * Use it only where it's safe (eg snapshot page).
  */
 struct MasstreeIntermediatePointerIterator final {
   explicit MasstreeIntermediatePointerIterator(const MasstreeIntermediatePage* page)
@@ -1248,8 +1249,12 @@ inline void MasstreeIntermediatePage::append_pointer_snapshot(
   MiniPage& mini = mini_pages_[index];
   uint16_t index_mini = mini.key_count_;
   ASSERT_ND(low_fence > get_low_fence());
+  ASSERT_ND(is_high_fence_supremum() || low_fence < get_high_fence());
+  ASSERT_ND(pointer == 0 || extract_snapshot_id_from_snapshot_pointer(pointer) != 0);
   if (index_mini < kMaxIntermediateMiniSeparators) {
     // p0 s0 p1  + "s p" -> p0 s0 p1 s1 p2
+    ASSERT_ND(pointer == 0  // composer init_root uses this method to set null pointers..
+      || mini.pointers_[index_mini].snapshot_pointer_ != pointer);  // otherwise dup.
     ASSERT_ND(index_mini == 0 || low_fence > mini.separators_[index_mini - 1]);
     ASSERT_ND(index == 0 || low_fence > separators_[index - 1]);
     mini.separators_[index_mini] = low_fence;

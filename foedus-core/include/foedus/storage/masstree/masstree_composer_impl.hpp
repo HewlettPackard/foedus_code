@@ -311,6 +311,11 @@ class MasstreeComposeContext {
     SnapshotPagePointer* root_pointer,
     KeySlice subtree_low,
     KeySlice subtree_high);
+  /**
+   * Used to close a level that is not a root of B-tree (either first layer or not).
+   * Pushes up all pages to parent level, which is guaranteed to be an intermediate page because
+   * this level is non-root.
+   */
   ErrorStack  pushup_non_root();
 
   // next methods called for each log entry. must be efficient! So these methods return ErrorCode.
