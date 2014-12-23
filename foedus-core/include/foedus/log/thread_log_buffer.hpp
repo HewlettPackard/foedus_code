@@ -146,6 +146,11 @@ struct ThreadLogBufferMeta final {
 
   ThreadLogBufferMeta();
 
+  /**
+   * Only for Debug-assertion.
+   * This method must be called by the worker thread itself. When logger calls it, it must make
+   * sure the worker is not modifying anything concurrently.
+   */
   void  assert_consistent() const;
   friend std::ostream& operator<<(std::ostream& o, const ThreadLogBufferMeta& v);
 
@@ -280,6 +285,11 @@ class ThreadLogBuffer final : public DefaultInitializable {
   ThreadLogBuffer(const ThreadLogBuffer &other) = delete;
   ThreadLogBuffer& operator=(const ThreadLogBuffer &other) = delete;
 
+  /**
+   * Only for Debug-assertion.
+   * This method must be called by the worker thread itself. When logger calls it, it must make
+   * sure the worker is not modifying anything concurrently.
+   */
   void        assert_consistent() const {
 #ifndef NDEBUG
     meta_.assert_consistent();

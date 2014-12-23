@@ -50,6 +50,7 @@ void ThreadLogBufferMeta::assert_consistent() const {
   // So, if you believe you are hitting assertion here because of a sheer luck, ignore.
   // In 99% cases these assersions fire for a valid reason, though.
   // Q: Making it thread-safe? A: That means even non-debug codepath becomes superslow.
+  // Note, we thus use this method only from the worker thread itself. Then it's safe.
   ASSERT_ND(offset_head_ < buffer_size_
     && offset_durable_ < buffer_size_
     && offset_committed_ < buffer_size_
@@ -219,7 +220,7 @@ void ThreadLogBuffer::crash_stale_commit_epoch(Epoch commit_epoch) {
 
 ThreadLogBuffer::OffsetRange ThreadLogBuffer::get_logs_to_write(Epoch written_epoch) {
   // See ThreadLogBufferMeta's class comment about tricky cases (the thread being idle).
-  assert_consistent();
+  // assert_consistent(); this verification assumes the worker is not working. we can't use it here
   OffsetRange ret;
   ThreadEpockMark& target = meta_.thread_epoch_marks_[meta_.oldest_mark_index_];
   if (target.new_epoch_ > written_epoch) {
@@ -283,7 +284,7 @@ ThreadLogBuffer::OffsetRange ThreadLogBuffer::get_logs_to_write(Epoch written_ep
 
 void ThreadLogBuffer::on_log_written(Epoch written_epoch) {
   // See ThreadLogBufferMeta's class comment about tricky cases (the thread being idle).
-  assert_consistent();
+  // assert_consistent(); this verification assumes the worker is not working. we can't use it here
 
   ThreadEpockMark& target = meta_.thread_epoch_marks_[meta_.oldest_mark_index_];
   if (target.new_epoch_ > written_epoch) {
@@ -305,7 +306,7 @@ void ThreadLogBuffer::on_log_written(Epoch written_epoch) {
     ASSERT_ND(target.new_epoch_ < written_epoch);
   }
   DVLOG(0) << "Logger has written out all logs in epoch-" << written_epoch << ". " << *this;
-  assert_consistent();
+  // assert_consistent(); this verification assumes the worker is not working. we can't use it here
 }
 
 std::ostream& operator<<(std::ostream& o, const ThreadLogBuffer& v) {
