@@ -180,7 +180,9 @@ void MasstreePartitioner::sort_batch_general(const Partitioner::SortBatchArgumen
   struct Comparator {
     explicit Comparator(const snapshot::LogBuffer& log_buffer) : log_buffer_(log_buffer) {}
     /** less than operator */
-    bool operator() (snapshot::BufferPosition left, snapshot::BufferPosition right) const {
+    inline bool operator() (
+      snapshot::BufferPosition left,
+      snapshot::BufferPosition right) const ALWAYS_INLINE {
       ASSERT_ND(left != right);
       const MasstreeCommonLogType* left_rec = resolve_log(log_buffer_, left);
       const MasstreeCommonLogType* right_rec = resolve_log(log_buffer_, right);
@@ -276,7 +278,7 @@ struct SortEntry {
     combined_epoch_ = (static_cast<uint64_t>(compressed_epoch) << 32) | in_epoch_ordinal;
     position_ = position;
   }
-  inline bool operator<(const SortEntry& rhs) const {
+  inline bool operator<(const SortEntry& rhs) const ALWAYS_INLINE {
     if (first_slice_ != rhs.first_slice_) {
       return first_slice_ < rhs.first_slice_;
     }
