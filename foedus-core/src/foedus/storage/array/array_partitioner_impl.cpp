@@ -214,22 +214,15 @@ struct SortEntry {
 // __attribute__ ((noinline))  // was useful to forcibly show it on cpu profile. nothing more.
 void prepare_sort_entries(const Partitioner::SortBatchArguments& args, SortEntry* entries) {
   // CPU profile of partition_array_perf: 6-10%.
-  const Epoch::EpochInteger base_epoch_int = args.base_epoch_.value();
+  const Epoch base_epoch = args.base_epoch_;
   for (uint32_t i = 0; i < args.logs_count_; ++i) {
     const ArrayCommonUpdateLogType* log_entry = reinterpret_cast<const ArrayCommonUpdateLogType*>(
       args.log_buffer_.resolve(args.log_positions_[i]));
     ASSERT_ND(log_entry->header_.log_type_code_ == log::kLogCodeArrayOverwrite
       || log_entry->header_.log_type_code_ == log::kLogCodeArrayIncrement);
-    uint16_t compressed_epoch;
-    const Epoch::EpochInteger epoch = log_entry->header_.xct_id_.get_epoch_int();
-    if (epoch >= base_epoch_int) {
-      ASSERT_ND(epoch - base_epoch_int < (1 << 16));
-      compressed_epoch = epoch - base_epoch_int;
-    } else {
-      // wrap around
-      ASSERT_ND(epoch + Epoch::kEpochIntOverflow - base_epoch_int < (1 << 16));
-      compressed_epoch = epoch + Epoch::kEpochIntOverflow - base_epoch_int;
-    }
+    Epoch epoch = log_entry->header_.xct_id_.get_epoch();
+    ASSERT_ND(epoch.subtract(base_epoch) < (1U << 16));
+    uint16_t compressed_epoch = epoch.subtract(base_epoch);
     entries[i].set(
       log_entry->offset_,
       compressed_epoch,

@@ -170,7 +170,7 @@ inline void ConstDiv::init(uint32_t d) {
   // then 64bit version.
   {
     shift64_ = d_highest_bits_;
-    // TODO(Hideaki): non-GCC version
+    // At least GCC and clang supports __uint128_t
     __uint128_t numer = 1;
     numer <<= 64 + d_highest_bits_;
     uint64_t m = numer / d;
@@ -236,7 +236,7 @@ inline uint64_t ConstDiv::div64(uint64_t n) const {
   }
 
   ASSERT_ND(n >= (1ULL << 32));
-  // TODO(Hideaki): non-GCC which doesn't have uint128_t.
+  // At least GCC and clang supports __uint128_t
   __uint128_t product = static_cast<__uint128_t>(n) * magic64_;
   uint64_t quotient = static_cast<uint64_t>(product >> 64);
   if (flags_ & kFlagAdd64) {

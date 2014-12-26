@@ -76,11 +76,6 @@ class Composer CXX11_FINAL {
   StorageId get_storage_id() const { return storage_id_; }
   StorageType get_storage_type() const { return storage_type_; }
 
-  /** Returns the size of working memory this composer needs in compose(). */
-  uint64_t    get_required_work_memory_size_compose(
-    snapshot::SortedBuffer**  log_streams,
-    uint32_t                  log_streams_count);
-
   /** Arguments for compose() */
   struct ComposeArguments {
     /** Writes out composed pages. */

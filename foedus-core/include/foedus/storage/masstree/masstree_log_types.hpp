@@ -88,6 +88,7 @@ struct MasstreeCommonLogType : public log::RecordLogType {
 
   char*           get_key() { return aligned_data_; }
   const char*     get_key() const { return aligned_data_; }
+  KeySlice        get_first_slice() const { return normalize_be_bytes_full_aligned(aligned_data_); }
   uint16_t        get_key_length_aligned() const { return assorted::align8(key_length_); }
   char*           get_payload() { return aligned_data_ + get_key_length_aligned(); }
   const char*     get_payload() const { return aligned_data_ + get_key_length_aligned(); }
@@ -141,14 +142,13 @@ struct MasstreeCommonLogType : public log::RecordLogType {
   }
 
   /**
-   * Returns -1, 0, 1 when left is less than, same, larger than right in terms of key,
-   * xct_id, then pointer (which means position in buffer).
+   * Returns -1, 0, 1 when left is less than, same, larger than right in terms of key and xct_id.
    * @pre this->is_valid(), other.is_valid()
    * @pre this->get_ordinal() != 0, other.get_ordinal() != 0
    */
-  static int compare_key_and_xct_id(
+  inline static int compare_logs(
     const MasstreeCommonLogType* left,
-    const MasstreeCommonLogType* right) {
+    const MasstreeCommonLogType* right) ALWAYS_INLINE {
     ASSERT_ND(left->header_.storage_id_ == right->header_.storage_id_);
     if (left == right) {
       return 0;
@@ -184,18 +184,7 @@ struct MasstreeCommonLogType : public log::RecordLogType {
     }
 
     // same key, now compare xct_id
-    int xct_cmp = left->header_.xct_id_.compare_epoch_and_orginal(right->header_.xct_id_);
-    if (xct_cmp != 0) {
-      return xct_cmp;
-    }
-
-    // if all of them are the same, this must be log entries of one transaction on same key.
-    // in that case the log position tells chronological order.
-    if (left < right) {
-      return -1;
-    } else {
-      return 1;
-    }
+    return left->header_.xct_id_.compare_epoch_and_orginal(right->header_.xct_id_);
   }
 };
 

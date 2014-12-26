@@ -118,6 +118,20 @@ class Epoch {
   }
 
   /**
+   * @brief Returns the number epochs from the given epoch to this epoch accounting for wrap-around.
+   * @pre this->is_valid(). other doesn't have to be valid, considered as 0.
+   */
+  uint32_t subtract(const Epoch& other) const {
+    ASSERT_ND(is_valid());
+    if (epoch_ >= other.epoch_) {
+      return epoch_ - other.epoch_;
+    } else {
+      // wrap around
+      return epoch_ + kEpochIntOverflow - other.epoch_;
+    }
+  }
+
+  /**
    * @brief Kind of std::min(this, other).
    * @pre other.is_valid() otherwise what's the point?
    * @details

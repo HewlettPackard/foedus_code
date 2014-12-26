@@ -918,7 +918,7 @@ inline void MasstreeComposeContext::read_inputs() {
       if (!inputs_[i].ended_) {
         const MasstreeCommonLogType* entry = inputs_[i].get_entry();
         if (next_entry_ == nullptr
-          || MasstreeCommonLogType::compare_key_and_xct_id(entry, next_entry_) < 0) {
+          || MasstreeCommonLogType::compare_logs(entry, next_entry_) < 0) {
           next_input_ = i;
           next_entry_ = inputs_[i].get_entry();
         }
