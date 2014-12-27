@@ -6,8 +6,12 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
+
 #include "foedus/epoch.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/cacheline.hpp"
+#include "foedus/debugging/stop_watch.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/snapshot/log_buffer.hpp"
 #include "foedus/storage/page.hpp"
@@ -36,6 +40,7 @@ MergeSort::MergeSort(
   uint16_t longest_key_length,
   SortedBuffer* const* inputs,
   uint16_t inputs_count,
+  uint16_t max_original_pages,
   memory::AlignedMemory* const work_memory)
   : DefaultInitializable(),
     id_(id),
@@ -45,6 +50,7 @@ MergeSort::MergeSort(
     longest_key_length_(longest_key_length),
     inputs_(inputs),
     inputs_count_(inputs_count),
+    max_original_pages_(max_original_pages),
     work_memory_(work_memory) {
   current_count_ = 0;
   sort_entries_ = nullptr;
@@ -60,7 +66,7 @@ ErrorStack MergeSort::initialize_once() {
   buffer_capacity_ = assorted::align<uint32_t, 512U>(buffer_capacity);
   uint64_t byte_size = buffer_capacity_ * (sizeof(SortEntry) + sizeof(PositionEntry));
   ASSERT_ND(byte_size % 4096U == 0);
-  byte_size += storage::kPageSize * (kMaxLevels + 1U);
+  byte_size += storage::kPageSize * (max_original_pages_ + 1U);
   byte_size += sizeof(InputStatus) * inputs_count_;
   WRAP_ERROR_CODE(work_memory_->assure_capacity(byte_size));
 
@@ -75,7 +81,7 @@ ErrorStack MergeSort::initialize_once() {
   position_entries_ = reinterpret_cast<PositionEntry*>(block + offset);
   offset += sizeof(PositionEntry) * buffer_capacity;
   original_pages_ = reinterpret_cast<storage::Page*>(block + offset);
-  offset += sizeof(storage::Page) * (kMaxLevels + 1U);
+  offset += sizeof(storage::Page) * (max_original_pages_ + 1U);
   inputs_status_ = reinterpret_cast<InputStatus*>(block + offset);
   offset += sizeof(InputStatus) * inputs_count_;
   ASSERT_ND(offset == byte_size);
@@ -109,6 +115,54 @@ ErrorStack MergeSort::initialize_once() {
   }
   return kRetOk;
 }
+
+bool MergeSort::next_window() {
+  ASSERT_ND(is_initialized());
+  return true;
+}
+
+
+uint32_t MergeSort::fetch_logs(
+  uint32_t sort_pos,
+  uint32_t count,
+  log::RecordLogType const** out) const {
+  ASSERT_ND(sort_pos <= current_count_);
+  uint32_t fetched_count = count;
+  if (sort_pos + count > current_count_) {
+    fetched_count = current_count_ - sort_pos;
+  }
+
+  if (inputs_count_ == 1U) {
+    // no merge sort.
+#ifndef NDEBUG
+    for (uint32_t i = 0; i < fetched_count; ++i) {
+      ASSERT_ND(sort_entries_[sort_pos + i].get_position() == sort_pos + i);
+    }
+#endif  // NDEBUG
+    // in this case, the pointed logs are also contiguous. no point to do prefetching.
+    for (uint32_t i = 0; i < fetched_count; ++i) {
+      MergedPosition pos = sort_pos + i;
+      ASSERT_ND(position_entries_[pos].input_index_ == 0);
+      out[i] = inputs_status_[0].from_compact_pos(position_entries_[pos].input_position_);
+    }
+    return fetched_count;
+  }
+
+  // prefetch position entries
+  for (uint32_t i = 0; i < fetched_count; ++i) {
+    MergedPosition pos = sort_entries_[sort_pos + i].get_position();
+    assorted::prefetch_cacheline(position_entries_ + pos);
+  }
+  // prefetch and fetch logs
+  for (uint32_t i = 0; i < fetched_count; ++i) {
+    MergedPosition pos = sort_entries_[sort_pos + i].get_position();
+    InputIndex input = position_entries_[pos].input_index_;
+    out[i] = inputs_status_[input].from_compact_pos(position_entries_[pos].input_position_);
+    assorted::prefetch_cacheline(out[i]);
+  }
+  return fetched_count;
+}
+
 
 bool MergeSort::next_chunk(InputIndex input_index) {
   InputStatus* status = inputs_status_ + input_index;
@@ -171,18 +225,32 @@ MergeSort::InputIndex MergeSort::pick_chunks() {
 
     bool retrieved = next_chunk(min_input);
     if (!retrieved) {
-      VLOG(0) << "Input-" << min_input << " needs to shift window. chunks=" << chunks;
+      VLOG(1) << "Input-" << min_input << " needs to shift window. chunks=" << chunks;
       break;
     }
   }
 
-  VLOG(0) << "Now determining batch-threshold... chunks=" << chunks;
+  VLOG(1) << "Now determining batch-threshold... chunks=" << chunks;
   return determine_min_input();
 }
 
 void MergeSort::batch_sort(MergeSort::InputIndex min_input) {
   batch_sort_prepare(min_input);
   ASSERT_ND(current_count_ <= buffer_capacity_);
+
+  // First, sort it with std::sort, which is (*) smart enough to switch to heap sort for this case.
+  // (*) at least gcc's does.
+  debugging::StopWatch sort_watch;
+  std::sort(&(sort_entries_->data_), &(sort_entries_[current_count_].data_));
+  sort_watch.stop();
+  VLOG(1) << "Storage-" << id_ << ", merge sort (main) of " << current_count_ << " logs in "
+    << sort_watch.elapsed_ms() << "ms";
+
+  if (type_ != storage::kArrayStorage
+    && (shortest_key_length_ != 8U || longest_key_length_ != 8U)) {
+    // the sorting above has to be adjusted if we need additional logic for key comparison
+    batch_sort_adjust_sort();
+  }
 
   assert_sorted();
 }
@@ -249,6 +317,52 @@ void MergeSort::batch_sort_prepare(MergeSort::InputIndex min_input) {
   }
 }
 
+void MergeSort::batch_sort_adjust_sort() {
+  debugging::StopWatch sort_watch;
+  uint32_t cur = 0;
+  uint32_t debug_stat_run_count = 0;
+  uint32_t debug_stat_longest_run = 0;
+  uint32_t debug_stat_runs_total = 0;
+  while (cur + 1U < current_count_) {
+    // if the 8-bytes key is strictly smaller, we don't need additional check.
+    // and it should be the vast majority of cases.
+    uint64_t short_key = sort_entries_[cur].get_key();
+    ASSERT_ND(short_key <= sort_entries_[cur + 1U].get_key());
+    if (LIKELY(short_key < sort_entries_[cur + 1U].get_key())) {
+      ++cur;
+      continue;
+    }
+
+    // figure out how long the run goes on.
+    uint32_t next = cur + 2U;
+    bool needs_to_check =
+      sort_entries_[cur].needs_additional_check()
+      || sort_entries_[cur + 1U].needs_additional_check();
+    for (next = cur + 2U;
+        next < current_count_ && short_key == sort_entries_[next].get_key();
+        ++next) {
+      ASSERT_ND(short_key <= sort_entries_[next].get_key());
+      needs_to_check |= sort_entries_[next].needs_additional_check();
+    }
+    // now, next points to the first entry that has a different key (or current_count_). thus:
+    uint32_t run_length = next - cur;
+    debug_stat_runs_total += run_length;
+    debug_stat_longest_run = std::max<uint32_t>(debug_stat_longest_run, run_length);
+    ++debug_stat_run_count;
+
+    // so far only masstree. hash should be added
+    ASSERT_ND(type_ == storage::kMasstreeStorage);
+    if (needs_to_check) {  // if all entries in this range are 8-bytes keys, no need.
+      AdjustComparatorMasstree comparator(position_entries_, inputs_status_);
+      std::sort(sort_entries_ + cur, sort_entries_ + next, comparator);
+    }
+    cur = next;
+  }
+  sort_watch.stop();
+  VLOG(1) << "Storage-" << id_ << ", merge sort (adjust) of " << current_count_ << " logs in "
+    << sort_watch.elapsed_ms() << "ms. run_count=" << debug_stat_run_count << ", "
+      << "longest_run=" << debug_stat_longest_run << ", total_runs=" << debug_stat_runs_total;
+}
 
 
 template <typename T>
