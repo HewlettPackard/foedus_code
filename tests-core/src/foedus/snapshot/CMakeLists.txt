@@ -36,5 +36,9 @@ set(test_merge_sort_individuals
   SingleInputDistinctEpochArray
   SingleInputDistinctOrdinalArray
   SingleInputDuplicatesArray
+  MultiInputsDistinctKeyArray
+  MultiInputsDistinctEpochArray
+  MultiInputsDistinctOrdinalArray
+  MultiInputsDuplicatesArray
   )
 add_foedus_test_individual(test_merge_sort "${test_merge_sort_individuals}")

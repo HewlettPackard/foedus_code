@@ -41,7 +41,8 @@ MergeSort::MergeSort(
   SortedBuffer* const* inputs,
   uint16_t inputs_count,
   uint16_t max_original_pages,
-  memory::AlignedMemory* const work_memory)
+  memory::AlignedMemory* const work_memory,
+  uint16_t chunk_batch_size)
   : DefaultInitializable(),
     id_(id),
     type_(type),
@@ -51,7 +52,9 @@ MergeSort::MergeSort(
     inputs_(inputs),
     inputs_count_(inputs_count),
     max_original_pages_(max_original_pages),
+    chunk_batch_size_(chunk_batch_size),
     work_memory_(work_memory) {
+  ASSERT_ND(chunk_batch_size_ > 0);
   current_count_ = 0;
   sort_entries_ = nullptr;
   position_entries_ = nullptr;
@@ -61,8 +64,8 @@ MergeSort::MergeSort(
 
 ErrorStack MergeSort::initialize_once() {
   // in each batch, we might include tuples from an input even if we didn't fully pick a chunk from
-  // it (at most kLogChunk-1 such tuples). so, conservatively kChunkBatch + inputs_count_.
-  uint32_t buffer_capacity = kLogChunk * (kChunkBatch + inputs_count_);
+  // it (at most kLogChunk-1 such tuples). so, conservatively chunk_batch_size_ + inputs_count_.
+  uint32_t buffer_capacity = kLogChunk * (chunk_batch_size_ + inputs_count_);
   buffer_capacity_ = assorted::align<uint32_t, 512U>(buffer_capacity);
   uint64_t byte_size = buffer_capacity_ * (sizeof(SortEntry) + sizeof(PositionEntry));
   ASSERT_ND(byte_size % 4096U == 0);
@@ -109,25 +112,25 @@ ErrorStack MergeSort::initialize_once() {
   return kRetOk;
 }
 
-bool MergeSort::next_window() {
+ErrorStack MergeSort::next_batch() {
   ASSERT_ND(is_initialized());
   current_count_ = 0;
-  advance_window();
+  CHECK_ERROR(advance_window());
 
   if (is_ended_all()) {
-    return false;
+    return kRetOk;
   }
 
   if (is_no_merging()) {
-    next_window_one_input();
+    next_batch_one_input();
   } else {
     InputIndex min_input = pick_chunks();
     batch_sort(min_input);
   }
-  return true;
+  return kRetOk;
 }
 
-void MergeSort::next_window_one_input() {
+void MergeSort::next_batch_one_input() {
   // In this case, we could even skip setting sort_entries_. However, composer benefits from the
   // concise array that tells the most significant 8 bytes key, so we populate it even in this case.
   ASSERT_ND(is_no_merging());
@@ -165,7 +168,7 @@ void MergeSort::next_window_one_input() {
   assert_sorted();
 }
 
-void MergeSort::advance_window() {
+ErrorStack MergeSort::advance_window() {
   // this method is called while we do not grab anything from the input yet.
   // otherwise we can't move window here.
   ASSERT_ND(current_count_ == 0);
@@ -177,13 +180,24 @@ void MergeSort::advance_window() {
     ASSERT_ND(status->cur_relative_pos_ == status->chunk_relative_pos_);
     ASSERT_ND(status->cur_relative_pos_ == status->previous_chunk_relative_pos_);
     if (status->cur_relative_pos_
-        >= static_cast<uint64_t>(status->window_size_ * kWindowMoveThreshold)) {
+        >= static_cast<uint64_t>(status->window_size_ * kWindowMoveThreshold)
+       || status->cur_relative_pos_ + kWindowChunkReserveBytes >= status->window_size_) {
       uint64_t cur_abs_pos = status->to_absolute_pos(status->cur_relative_pos_);
-      status->cur_relative_pos_ = inputs_[i]->wind(cur_abs_pos);
+
+      SortedBuffer* input = inputs_[i];
+      WRAP_ERROR_CODE(input->wind(cur_abs_pos));
+      status->window_offset_ = input->get_offset();
+      ASSERT_ND(status->window_size_ == input->get_buffer_size());
+      ASSERT_ND(status->window_ == input->get_buffer());
+
+      ASSERT_ND(cur_abs_pos >= status->window_offset_);
+      status->cur_relative_pos_ = cur_abs_pos - status->window_offset_;
       status->chunk_relative_pos_ = status->cur_relative_pos_;
       status->previous_chunk_relative_pos_ = status->cur_relative_pos_;
+      status->assert_consistent();
     }
   }
+  return kRetOk;
 }
 
 uint32_t MergeSort::fetch_logs(
@@ -235,15 +249,21 @@ void MergeSort::next_chunk(InputIndex input_index) {
   status->assert_consistent();
 
   uint64_t pos = status->chunk_relative_pos_;
+  uint64_t relative_end = status->end_absolute_pos_ - status->window_offset_;
+  if (relative_end >= status->window_size_) {
+    relative_end = status->window_size_;
+  }
 
   for (uint32_t i = 0; i < kLogChunk; ++i) {
     ASSERT_ND(pos < status->window_size_);
     const log::RecordLogType* the_log = status->from_byte_pos(pos);
     uint16_t log_length = the_log->header_.log_length_;
-    if (pos + log_length >= status->window_size_) {
+    if (pos + log_length >= relative_end) {
       break;
     }
+    pos += log_length;
   }
+  ASSERT_ND(pos < relative_end);
   status->previous_chunk_relative_pos_ = status->chunk_relative_pos_;
   status->chunk_relative_pos_ = pos;
 
@@ -272,7 +292,7 @@ MergeSort::InputIndex MergeSort::determine_min_input() const {
 
 MergeSort::InputIndex MergeSort::pick_chunks() {
   uint32_t chunks;
-  for (chunks = 0; chunks < kChunkBatch; ++chunks) {
+  for (chunks = 0; chunks < chunk_batch_size_; ++chunks) {
     InputIndex min_input = determine_min_input();
     if (min_input == kInvalidInput) {
       // now all inputs are in the last chunks, we can simply merge them all in one shot!
@@ -337,12 +357,13 @@ void MergeSort::batch_sort_prepare(MergeSort::InputIndex min_input) {
         // the input that provides threshold itself. Hence, all logs before the last log are
         // guaranteed to be strictly smaller than the threshold.
         append_logs(i, status->chunk_relative_pos_);
+        ASSERT_ND(status->chunk_relative_pos_ == status->cur_relative_pos_);
       } else {
         // otherwise, we have to add logs that are smaller than the threshold.
         // to avoid key comparison in most cases, we use "previous chunk" hint.
         if (status->previous_chunk_relative_pos_ != status->chunk_relative_pos_) {
           append_logs(i, status->previous_chunk_relative_pos_);
-          ASSERT_ND(status->previous_chunk_relative_pos_ == status->chunk_relative_pos_);
+          ASSERT_ND(status->previous_chunk_relative_pos_ == status->cur_relative_pos_);
         }
 
         // and then we have to check one by one. we could do binary search here, but >90%
@@ -444,6 +465,7 @@ int MergeSort::compare_logs(const log::RecordLogType* lhs, const log::RecordLogT
 
 void MergeSort::append_logs(MergeSort::InputIndex input_index, uint64_t upto_relative_pos) {
   InputStatus* status = inputs_status_ + input_index;
+  ASSERT_ND(status->to_absolute_pos(upto_relative_pos) <= status->end_absolute_pos_);
   uint64_t relative_pos = status->cur_relative_pos_;
   if (type_ == storage::kArrayStorage) {
     while (LIKELY(relative_pos < upto_relative_pos)) {
@@ -457,13 +479,13 @@ void MergeSort::append_logs(MergeSort::InputIndex input_index, uint64_t upto_rel
   }
   ASSERT_ND(relative_pos == upto_relative_pos);
 
-  status->cur_relative_pos_ = upto_relative_pos;
   if (upto_relative_pos > status->chunk_relative_pos_) {
     // we appeneded even the last log of this chunk! this should happen only at the last chunk.
     ASSERT_ND(status->is_last_chunk_overall());
     status->chunk_relative_pos_ = upto_relative_pos;
-    status->previous_chunk_relative_pos_ = upto_relative_pos;
   }
+  status->cur_relative_pos_ = upto_relative_pos;
+  status->previous_chunk_relative_pos_ = upto_relative_pos;
   status->assert_consistent();
 }
 

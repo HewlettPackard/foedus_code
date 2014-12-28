@@ -16,6 +16,9 @@ namespace foedus {
    */
   std::string     get_random_name();
 
+  /** Constructs a file path of the given file name using a randomly generated folder. */
+  std::string     get_random_tmp_file_path(const std::string& name);
+
   /**
    * Constructs an EngineOption so that all file paths are unique random.
    * This makes it possible to run an arbitrary number of tests in parallel.

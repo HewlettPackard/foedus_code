@@ -75,7 +75,7 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
     /** 1024 logs per chunk */
     kLogChunk = 1 << 10,
     /** Suppose each log is 50 bytes: 1k*256*50b=12.5 MB worth logs to sort per batch. */
-    kChunkBatch = 1 << 8,
+    kDefaultChunkBatch = 1 << 8,
     /** We assume the path wouldn't be this deep. */
     kMaxLevels = 32,
     /**
@@ -87,7 +87,7 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
   };
   /**
    * Also, when the input consumed more than this fraction of current window, we move the window.
-   * This means we are re-reading 5% everytime, but instead we can avoid many-small batches.
+   * This means we have to memmove 5% everytime, but instead we can avoid many-small batches.
    */
   const float kWindowMoveThreshold = 0.95;
 
@@ -268,11 +268,11 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
     SortedBuffer* const* inputs,
     uint16_t inputs_count,
     uint16_t max_original_pages,
-    memory::AlignedMemory* const work_memory);
+    memory::AlignedMemory* const work_memory,
+    uint16_t chunk_batch_size = kDefaultChunkBatch);
 
   /**
    * @brief Executes merge-sort on several thousands of logs and provides the result as a batch.
-   * @return whether it read any log. False when we have no more logs for this storage.
    * @pre is_initialized (call initialize() first!)
    * @details
    * Composer repeatedly invokes this method until it returns false.
@@ -283,7 +283,7 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
    * @see fetch_logs(), which does the prefetching
    * @see get_current_count(), which will return the number of logs in the generated batch.
    */
-  bool next_window();
+  ErrorStack next_batch();
 
   /**
    * To reduce L1 cache miss stall, we prefetch some number of position entries and
@@ -347,6 +347,8 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
   const InputIndex              inputs_count_;
   /** Number of pages to allocate for get_original_pages() */
   const uint16_t                max_original_pages_;
+  /** how many chunks one batch has */
+  const uint16_t                chunk_batch_size_;
   /** Working memory to be used in this class. Automatically expanded if needed. */
   memory::AlignedMemory* const  work_memory_;
 
@@ -368,14 +370,14 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
   /** index is 0 to inputs_count_ - 1 */
   InputStatus*                  inputs_status_;
 
-  /** trivial case of next_window(). */
-  void next_window_one_input();
+  /** trivial case of next_batch(). */
+  void next_batch_one_input();
 
   /**
-   * subroutine of next_window() to move window (Step e) if there is any input close
+   * subroutine of next_batch() to move window (Step e) if there is any input close
    * to the end of window.
    */
-  void advance_window();
+  ErrorStack advance_window();
 
   /**
    * Advance chunk_relative_pos_ for one-chunk of logs within the current window (this method
@@ -394,7 +396,7 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
   InputIndex determine_min_input() const;
 
   /**
-   * subroutine of next_window for Step a and b.
+   * subroutine of next_batch for Step a and b.
    * Pick up to kChunkBatch chunks from inputs whose chunk-last-key is the smallest among inputs.
    * @return same as determine_min_input().
    */

@@ -155,7 +155,6 @@ class SortedBuffer {
 
   void assert_checks() {
     ASSERT_ND(offset_ <= total_size_);
-    ASSERT_ND(offset_ <= buffer_size_);
     if (cur_block_storage_id_ != 0) {
       ASSERT_ND(cur_block_log_count_ > 0);
       ASSERT_ND(cur_block_abosulte_begin_ <= cur_block_abosulte_end_);
