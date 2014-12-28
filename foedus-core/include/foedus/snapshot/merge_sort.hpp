@@ -52,6 +52,10 @@ namespace snapshot {
  * If all inputs are in the last chunk (last iteration), we include all remainings from all inputs.
  * \li Another special condition: Obviously, this class does nothing when input_count is 1,
  * skipping all the overheads. This should hopefully happen often if reducers have large buffers.
+ *
+ * @par Modularity
+ * This class has no dependency to other modules. It receives buffers of logs, that's it.
+ * We must keep this class in that way for easier testing and tuning.
  */
 class MergeSort CXX11_FINAL : public DefaultInitializable {
  public:
@@ -66,6 +70,7 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
   const InputIndex kInvalidInput = static_cast<InputIndex>(-1U);
 
   enum Constants {
+    /** This is a theoretical max. additionally it must be less than buffer_capacity_ */
     kMaxMergedPosition = 1 << 23,
     /** 1024 logs per chunk */
     kLogChunk = 1 << 10,
@@ -73,7 +78,18 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
     kChunkBatch = 1 << 8,
     /** We assume the path wouldn't be this deep. */
     kMaxLevels = 32,
+    /**
+     * To avoid handling the case where a log spans an end of window, chunks leave at least
+     * this many bytes in each window. No single log can be more than this size, so it simplifies
+     * the logic. If the input is in the last window, this value has no effects.
+     */
+    kWindowChunkReserveBytes = 1 << 16,
   };
+  /**
+   * Also, when the input consumed more than this fraction of current window, we move the window.
+   * This means we are re-reading 5% everytime, but instead we can avoid many-small batches.
+   */
+  const float kWindowMoveThreshold = 0.95;
 
   /**
    * Entries we actually sort.
@@ -85,7 +101,7 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
    * \li 13 byte's other bits -15 bytes: Position in MergeSort's buffer.
    *
    * It's quite important to keep this 16 bytes. But, in some cases, we need more than 16 bytes to
-   * compare logs. In that case, we use the position to determine the order.
+   * compare logs. In that case, we have to addtionally invoke batch_sort_adjust_sort().
    */
   struct SortEntry {
     inline void set(
@@ -139,22 +155,27 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
     uint64_t        cur_relative_pos_;
     /** @invariant cur_relative_pos_ <= chunk_relative_pos_ < window_size_ */
     uint64_t        chunk_relative_pos_;
+    char            padding_[6];
     /** @invariant previous_chunk_relative_pos_ <= chunk_relative_pos_ */
     uint64_t        previous_chunk_relative_pos_;
+    /** relative pos counts from this offset */
+    uint64_t        window_offset_;
     uint64_t        window_size_;
     uint64_t        end_absolute_pos_;
 
-    bool            ended_;
-    bool            last_chunk_;
-    char            pad_[6];
-
     inline void assert_consistent() const ALWAYS_INLINE {
+#ifndef NDEBUG
       ASSERT_ND(window_);
-      ASSERT_ND(cur_relative_pos_ < window_size_);
+      ASSERT_ND(cur_relative_pos_ <= window_size_);
+      ASSERT_ND(chunk_relative_pos_ <= window_size_);
+      ASSERT_ND(previous_chunk_relative_pos_ <= window_size_);
+      ASSERT_ND(window_offset_ <= end_absolute_pos_);
+      ASSERT_ND(cur_relative_pos_ + window_offset_ <= end_absolute_pos_);
+      ASSERT_ND(chunk_relative_pos_ + window_offset_ <= end_absolute_pos_);
+      ASSERT_ND(previous_chunk_relative_pos_ + window_offset_ <= end_absolute_pos_);
       ASSERT_ND(cur_relative_pos_ <= chunk_relative_pos_);
       ASSERT_ND(previous_chunk_relative_pos_ <= chunk_relative_pos_);
-      ASSERT_ND(chunk_relative_pos_ < window_size_);
-      ASSERT_ND(!ended_ || last_chunk_);  // if it's ended, should have been in last chunk
+#endif  // NDEBUG
     }
     inline const log::RecordLogType* get_cur_log() const ALWAYS_INLINE {
       assert_consistent();
@@ -173,6 +194,38 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
       assert_consistent();
       ASSERT_ND(pos * 8ULL < window_size_);
       return reinterpret_cast<const log::RecordLogType*>(window_ + pos * 8ULL);
+    }
+    inline uint64_t to_absolute_pos(uint64_t relative_pos) const ALWAYS_INLINE {
+      assert_consistent();
+      return window_offset_ + relative_pos;
+    }
+    inline bool is_last_window() const ALWAYS_INLINE {
+      assert_consistent();
+      return to_absolute_pos(window_size_) >= end_absolute_pos_;
+    }
+    inline bool is_ended() const ALWAYS_INLINE {
+      assert_consistent();
+      return to_absolute_pos(cur_relative_pos_) == end_absolute_pos_;
+    }
+    inline bool is_last_chunk_in_window() const ALWAYS_INLINE {
+      if (is_last_window()) {
+        // in last window, we accurately determines the last chunk
+        uint64_t chunk_abs_pos = to_absolute_pos(chunk_relative_pos_);
+        ASSERT_ND(chunk_abs_pos <= end_absolute_pos_);
+        if (chunk_abs_pos >= end_absolute_pos_) {
+          return true;
+        }
+        uint16_t length = get_chunk_log()->header_.log_length_;
+        ASSERT_ND(length > 0);
+        ASSERT_ND(chunk_abs_pos + length <= end_absolute_pos_);
+        return chunk_abs_pos + length >= end_absolute_pos_;
+      } else {
+        // in this case, we conservatively determines the last chunk
+        return chunk_relative_pos_ + kWindowChunkReserveBytes >= window_size_;
+      }
+    }
+    inline bool is_last_chunk_overall() const ALWAYS_INLINE {
+      return is_last_window() && is_last_chunk_in_window();
     }
   };
 
@@ -253,6 +306,17 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
   ErrorStack initialize_once() CXX11_OVERRIDE;
   ErrorStack uninitialize_once() CXX11_OVERRIDE { return kRetOk; }
 
+  inline bool is_no_merging() const ALWAYS_INLINE { return inputs_count_ == 1U; }
+
+  inline bool is_ended_all() const {
+    for (InputIndex i = 0; i < inputs_count_; ++i) {
+      if (!inputs_status_[i].is_ended()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   inline MergedPosition get_current_count() const ALWAYS_INLINE { return current_count_; }
   inline InputIndex     get_inputs_count() const ALWAYS_INLINE { return inputs_count_; }
   inline const PositionEntry* get_position_entries() const ALWAYS_INLINE {
@@ -304,25 +368,33 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
   /** index is 0 to inputs_count_ - 1 */
   InputStatus*                  inputs_status_;
 
+  /** trivial case of next_window(). */
+  void next_window_one_input();
+
+  /**
+   * subroutine of next_window() to move window (Step e) if there is any input close
+   * to the end of window.
+   */
+  void advance_window();
+
   /**
    * Advance chunk_relative_pos_ for one-chunk of logs within the current window (this method
    * does not move window).
    * @pre !ended_
-   * @pre !last_chunk_
-   * @return whether it could get more chunk in current window. In other words, it returns false iff
-   * chunk_relative_pos_ already points to the last log in the current window.
+   * @pre !is_last_chunk_in_window
    */
-  bool next_chunk(InputIndex input_index);
+  void next_chunk(InputIndex input_index);
 
   /**
    * @return index of the input whose chunk-last-key will be the current batch-threshold.
    * -1U if all inputs are either ended or in last chunk. In other word,
    * return value is -1 or !inputs_status_[returned]->last_chunk_.
+   * When there is a tie, we pick an input with smaller index (input-0 is most preferred).
    */
   InputIndex determine_min_input() const;
 
   /**
-   * Step a and b.
+   * subroutine of next_window for Step a and b.
    * Pick up to kChunkBatch chunks from inputs whose chunk-last-key is the smallest among inputs.
    * @return same as determine_min_input().
    */
@@ -350,8 +422,9 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
   int compare_logs(const log::RecordLogType* lhs, const log::RecordLogType* rhs) const;
 
   void append_logs(InputIndex input_index, uint64_t upto_relative_pos);
-  void append_logs_array(InputIndex input_index, uint64_t upto_relative_pos);
-  void append_logs_masstree(InputIndex input_index, uint64_t upto_relative_pos);
+
+  uint16_t populate_entry_array(InputIndex input_index, uint64_t relative_pos) ALWAYS_INLINE;
+  uint16_t populate_entry_masstree(InputIndex input_index, uint64_t relative_pos) ALWAYS_INLINE;
 };
 
 

@@ -30,3 +30,11 @@ set(test_snapshot_masstree_individuals
   InsertsVarlenTwoPartitions
   )
 add_foedus_test_individual(test_snapshot_masstree "${test_snapshot_masstree_individuals}")
+
+set(test_merge_sort_individuals
+  SingleInputDistinctKeyArray
+  SingleInputDistinctEpochArray
+  SingleInputDistinctOrdinalArray
+  SingleInputDuplicatesArray
+  )
+add_foedus_test_individual(test_merge_sort "${test_merge_sort_individuals}")
