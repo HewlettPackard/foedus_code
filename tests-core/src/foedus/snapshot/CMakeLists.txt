@@ -40,5 +40,21 @@ set(test_merge_sort_individuals
   MultiInputsDistinctEpochArray
   MultiInputsDistinctOrdinalArray
   MultiInputsDuplicatesArray
+  SingleInputDistinctKeyMasstreeNormalized
+  SingleInputDistinctEpochMasstreeNormalized
+  SingleInputDistinctOrdinalMasstreeNormalized
+  SingleInputDuplicatesMasstreeNormalized
+  MultiInputsDistinctKeyMasstreeNormalized
+  MultiInputsDistinctEpochMasstreeNormalized
+  MultiInputsDistinctOrdinalMasstreeNormalized
+  MultiInputsDuplicatesMasstreeNormalized
+  SingleInputDistinctKeyMasstreeVarlen
+  SingleInputDistinctEpochMasstreeVarlen
+  SingleInputDistinctOrdinalMasstreeVarlen
+  SingleInputDuplicatesMasstreeVarlen
+  MultiInputsDistinctKeyMasstreeVarlen
+  MultiInputsDistinctEpochMasstreeVarlen
+  MultiInputsDistinctOrdinalMasstreeVarlen
+  MultiInputsDuplicatesMasstreeVarlen
   )
 add_foedus_test_individual(test_merge_sort "${test_merge_sort_individuals}")
