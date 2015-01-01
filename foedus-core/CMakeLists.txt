@@ -282,8 +282,10 @@ add_custom_target(set-env
   COMMAND sysctl -w kernel.shmmax=9223372036854775807
   COMMAND sysctl -w kernel.shmall=1152921504606846720
   COMMAND sysctl -p
+  COMMAND sysctl -w vm.nr_hugepages=1000
   COMMENT "Sets linux environments for FOEDUS. This is convenient to setup a test/develop environment."
     " You need to run this with sudo. To avoid running this after each reboot, you should also set"
     "the following in /etc/sysctl.conf: kernel.shmmax = 9223372036854775807"
-    " kernel.shmall = 1152921504606846720"
+    " kernel.shmall = 1152921504606846720. Also, the nr_hugepages set here is a minimal value"
+    " to pass testcases. You must configure it for performance tests and real use"
   )

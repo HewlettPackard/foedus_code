@@ -182,7 +182,15 @@ ErrorStack LogReducer::dump_buffer() {
     LogBuffer log_buffer(base);
     storage::StorageId storage_id = kv.first;
     uint32_t written_count;
-    CHECK_ERROR(dump_buffer_sort_storage(log_buffer, storage_id, kv.second, &written_count));
+    uint32_t shortest_key_length;
+    uint32_t longest_key_length;
+    CHECK_ERROR(dump_buffer_sort_storage(
+      log_buffer,
+      storage_id,
+      kv.second,
+      &shortest_key_length,
+      &longest_key_length,
+      &written_count));
     // write them out to the file
     BufferPosition* outputs
       = reinterpret_cast<BufferPosition*>(output_positions_slice_.get_block());
@@ -190,6 +198,8 @@ ErrorStack LogReducer::dump_buffer() {
       log_buffer,
       storage_id,
       outputs,
+      shortest_key_length,
+      longest_key_length,
       written_count,
       &file));
   }
@@ -237,6 +247,7 @@ void LogReducer::dump_buffer_scan_block_headers(
     if (!header->is_full_block()) {
       LOG(FATAL) << to_string() << " wtf. magic word doesn't match. cur=" << cur;
     }
+    header->assert_key_length();
     auto it = blocks->find(header->storage_id_);
     if (it != blocks->end()) {
       it->second.push_back(to_buffer_position(cur));
@@ -261,6 +272,8 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
   const LogBuffer &buffer,
   storage::StorageId storage_id,
   const std::vector<BufferPosition>& log_positions,
+  uint32_t* out_shortest_key_length,
+  uint32_t* out_longest_key_length,
   uint32_t* written_count) {
   // first, count how many log entries are there. this is quick as we have a statistics
   // in the header.
@@ -271,6 +284,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
       LOG(FATAL) << to_string() << " wtf. magic word doesn't match. position=" << position
         << ", storage_id=" << storage_id;
     }
+    header->assert_key_length();
     records += header->log_count_;
   }
 
@@ -289,6 +303,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
       LOG(FATAL) << to_string() << " wtf. magic word doesn't match. position=" << position
         << ", storage_id=" << storage_id;
     }
+    header->assert_key_length();
     shortest_key_length = std::min<uint32_t>(shortest_key_length, header->shortest_key_length_);
     longest_key_length = std::max<uint32_t>(longest_key_length, header->longest_key_length_);
     BufferPosition record_pos = position + to_buffer_position(sizeof(FullBlockHeader));
@@ -319,6 +334,9 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
     pos,
     written_count};
   partitioner.sort_batch(args);
+
+  *out_shortest_key_length = shortest_key_length;
+  *out_longest_key_length = longest_key_length;
   return kRetOk;
 }
 
@@ -326,6 +344,8 @@ uint64_t LogReducer::dump_block_header(
   const LogBuffer &buffer,
   storage::StorageId storage_id,
   const BufferPosition* sorted_logs,
+  uint32_t shortest_key_length,
+  uint32_t longest_key_length,
   uint32_t log_count,
   void* destination) const {
   // figuring out the block length is a bit expensive. we have to go through all log entries.
@@ -345,6 +365,9 @@ uint64_t LogReducer::dump_block_header(
   header->log_count_ = log_count;
   header->magic_word_ = BlockHeaderBase::kFullBlockHeaderMagicWord;
   header->block_length_ = to_buffer_position(total_bytes);
+  header->shortest_key_length_ = shortest_key_length;
+  header->longest_key_length_ = longest_key_length;
+  header->assert_key_length();
   return total_bytes;
 }
 
@@ -352,6 +375,8 @@ ErrorStack LogReducer::dump_buffer_sort_storage_write(
   const LogBuffer &buffer,
   storage::StorageId storage_id,
   const BufferPosition* sorted_logs,
+  uint32_t shortest_key_length,
+  uint32_t longest_key_length,
   uint32_t log_count,
   fs::DirectIoFile *dump_file) {
   debugging::StopWatch write_watch;
@@ -360,7 +385,14 @@ ErrorStack LogReducer::dump_buffer_sort_storage_write(
   // to keep it aligned, the bytes after this threshold have to be retained and copied over to
   // the beginning of the buffer.
   const uint64_t flush_threshold = dump_io_buffer_.get_size() - (1 << 16);
-  uint64_t total_bytes = dump_block_header(buffer, storage_id, sorted_logs, log_count, io_buffer);
+  uint64_t total_bytes = dump_block_header(
+    buffer,
+    storage_id,
+    sorted_logs,
+    shortest_key_length,
+    longest_key_length,
+    log_count,
+    io_buffer);
   uint64_t total_written = 0;
   uint64_t current_pos = sizeof(FullBlockHeader);
   for (uint32_t i = 0; i < log_count; ++i) {
@@ -589,6 +621,7 @@ ErrorStack LogReducer::merge_sort() {
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_,
       &composer_work_memory,
+      parent_.get_base_epoch(),
       root_info_page};
     CHECK_ERROR(composer.compose(args));
 
@@ -663,13 +696,28 @@ ErrorStack LogReducer::merge_sort_dump_last_buffer() {
   for (auto& kv : blocks) {
     LogBuffer buffer(base);
     storage::StorageId storage_id = kv.first;
+    uint32_t shortest_key_length;
+    uint32_t longest_key_length;
     uint32_t count;
-    CHECK_ERROR(dump_buffer_sort_storage(buffer, storage_id, kv.second, &count));
+    CHECK_ERROR(dump_buffer_sort_storage(
+      buffer,
+      storage_id,
+      kv.second,
+      &shortest_key_length,
+      &longest_key_length,
+      &count));
     total_log_count += count;
     BufferPosition* pos = reinterpret_cast<BufferPosition*>(output_positions_slice_.get_block());
 
     // The only difference is here. Output the sorted result to the other buffer, not to file.
-    uint64_t total_bytes = dump_block_header(buffer, storage_id, pos, count, other + other_bytes);
+    uint64_t total_bytes = dump_block_header(
+      buffer,
+      storage_id,
+      pos,
+      shortest_key_length,
+      longest_key_length,
+      count,
+      other + other_bytes);
     uint64_t current_pos = sizeof(FullBlockHeader) + other_bytes;
     for (uint32_t i = 0; i < count; ++i) {
       const log::RecordLogType* record = buffer.resolve(pos[i]);
@@ -765,7 +813,9 @@ ErrorStack LogReducer::merge_sort_initialize_sort_buffers(LogReducer::MergeConte
       header->storage_id_,
       header->log_count_,
       sizeof(FullBlockHeader),
-      from_buffer_position(header->block_length_));
+      from_buffer_position(header->block_length_),
+      header->shortest_key_length_,
+      header->longest_key_length_);
   }
 
   return kRetOk;
@@ -831,7 +881,9 @@ ErrorCode LogReducer::merge_sort_advance_sort_buffers(
       next_header_casted->storage_id_,
       next_header_casted->log_count_,
       next_block_header_pos + sizeof(FullBlockHeader),
-      next_block_header_pos + from_buffer_position(next_header_casted->block_length_));
+      next_block_header_pos + from_buffer_position(next_header_casted->block_length_),
+      next_header_casted->shortest_key_length_,
+      next_header_casted->longest_key_length_);
   }
   return kErrorCodeOk;
 }

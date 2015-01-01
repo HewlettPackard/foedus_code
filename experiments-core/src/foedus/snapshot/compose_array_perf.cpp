@@ -7,6 +7,12 @@
  * @brief Measures the performance of array composer
  * @author kimurhid
  * @details
+ * Current results (Z820):
+ * \li performance before the improved merge-sort (~Dec14): 7-9M logs/sec/core.
+ * \li performance after (Jan 1, 15 commit): 13-14M logs/sec/core.
+ *
+ * ohhhhhh! well, this benchmark gives just one input. if we really have to do merge-sort,
+ * something else will be the bottleneck. but still.
  */
 #include <gflags/gflags.h>
 #include <glog/logging.h>
@@ -34,6 +40,7 @@
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_log_types.hpp"
 #include "foedus/storage/array/array_metadata.hpp"
+#include "foedus/storage/array/array_partitioner_impl.hpp"
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
@@ -49,6 +56,10 @@ const uint64_t kRecords = 1 << 22;
 const uint32_t kPayloadSize = 1 << 6;
 const uint32_t kSnapshotId = 1;
 
+void make_dummy_partitions(
+  Engine* engine,
+  storage::StorageId id,
+  storage::PartitionerMetadata* metadata);
 void populate_logs(storage::StorageId id, char* buffer, uint64_t* size);
 
 ErrorStack execute(
@@ -78,9 +89,14 @@ ErrorStack execute(
   uint64_t log_size = 0;
   populate_logs(id, log_buffer, &log_size);
   InMemorySortedBuffer buffer(log_buffer, log_size);
-  buffer.set_current_block(id, kRecords, 0, log_size);
+  uint16_t key_len = sizeof(storage::array::ArrayOffset);
+  buffer.set_current_block(id, kRecords, 0, log_size, key_len, key_len);
   log_watch.stop();
   LOG(INFO) << "Populated logs to process in " << log_watch.elapsed_ms() << "ms";
+
+  // we need at least a dummy partitioning information because array composer uses it.
+  storage::PartitionerMetadata* metadata = storage::PartitionerMetadata::get_metadata(engine, id);
+  make_dummy_partitions(engine, id, metadata);
 
   SnapshotWriter writer(engine, 0, kSnapshotId, &page_memory, &intermediate_memory);
   CHECK_ERROR(writer.open());
@@ -94,6 +110,7 @@ ErrorStack execute(
     log_array,
     1,
     &work_memory,
+    Epoch(1),
     root_page
   };
 
@@ -121,6 +138,29 @@ ErrorStack execute(
   writer.close();
   CHECK_ERROR(dummy_files.uninitialize());
   return kRetOk;
+}
+
+void make_dummy_partitions(
+  Engine* engine,
+  storage::StorageId id,
+  storage::PartitionerMetadata* metadata) {
+  soc::SharedMutexScope scope(&metadata->mutex_);  // protect this metadata
+  ASSERT_ND(!metadata->valid_);
+  metadata->allocate_data(
+    engine,
+    &scope,
+    sizeof(storage::array::ArrayPartitionerData));
+  storage::array::ArrayStorage target(engine, id);
+  storage::array::ArrayPartitionerData* data
+    = reinterpret_cast<storage::array::ArrayPartitionerData*>(metadata->locate_data(engine));
+  data->partitionable_ = true;
+  data->array_levels_ = target.get_levels();
+  data->array_size_ = kRecords;
+  data->bucket_size_ = kRecords / 16;
+  for (uint64_t i = 0; i < 16U; ++i) {
+    data->bucket_owners_[i] = i;
+  }
+  metadata->valid_ = true;
 }
 
 void populate_logs(storage::StorageId id, char* buffer, uint64_t* size) {

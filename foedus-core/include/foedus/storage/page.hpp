@@ -340,13 +340,13 @@ struct VolatilePageInitArguments {
 };
 
 /**
- * @brief A pointer of a function to initializer a volatile page.
+ * @brief A function pointer to initialize a volatile page.
  * @ingroup STORAGE
  * @details
  * Used as a callback argument to follow_page_pointer.
  * This is used when a method might initialize a volatile page (eg following a page pointer).
  * Page initialization depends on page type and many of them need custom logic,
- * so we made it this callback.
+ * so we made it a callback.
  */
 typedef void (*VolatilePageInit)(const VolatilePageInitArguments& args);
 

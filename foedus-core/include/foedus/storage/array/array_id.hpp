@@ -49,6 +49,13 @@ const ArrayOffset kMaxArrayOffset = (1ULL << 48) - 1ULL;
 struct ArrayRange {
   ArrayRange() : begin_(0), end_(0) {}
   ArrayRange(ArrayOffset begin, ArrayOffset end) : begin_(begin), end_(end) {}
+  /** this one adjusts the case where end might be larger than the whole array size (right-most) */
+  ArrayRange(ArrayOffset begin, ArrayOffset end, ArrayOffset array_size)
+    : begin_(begin), end_(end) {
+    if (end > array_size) {
+      end_ = array_size;
+    }
+  }
 
   /** Returns if there is any overlap with the other range. */
   bool    overlaps(const ArrayRange& other) const {

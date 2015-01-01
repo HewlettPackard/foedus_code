@@ -107,6 +107,14 @@
    fun:_ZNSs15_M_replace_safeEmmPKcm
    fun:_ZN6google12SetVLOGLevelEPKci
 }
+{
+   glog_setvloglevel_leak3
+   Memcheck:Leak
+   fun:_Znwm
+   ...
+   fun:_ZN6google12SetVLOGLevelEPKci
+   ...
+}
 
 
 # Hideaki, 2014 Aug, Fedora 19.

@@ -116,6 +116,10 @@ struct FullBlockHeader : BlockHeaderBase {
   uint32_t            shortest_key_length_;
   /** additional statistics for masstree/hash */
   uint32_t            longest_key_length_;
+  inline void assert_key_length() const {
+    ASSERT_ND(shortest_key_length_ > 0);
+    ASSERT_ND(shortest_key_length_ <= longest_key_length_);
+  }
 };
 
 
@@ -437,6 +441,8 @@ class LogReducer final : public MapReduceBase {
     const LogBuffer &buffer,
     storage::StorageId storage_id,
     const std::vector<BufferPosition>& log_positions,
+    uint32_t* out_shortest_key_length,
+    uint32_t* out_longest_key_length,
     uint32_t* written_count);
 
   /**
@@ -447,6 +453,8 @@ class LogReducer final : public MapReduceBase {
     const LogBuffer &buffer,
     storage::StorageId storage_id,
     const BufferPosition* sorted_logs,
+    uint32_t shortest_key_length,
+    uint32_t longest_key_length,
     uint32_t log_count,
     fs::DirectIoFile *dump_file);
   /**
@@ -457,6 +465,8 @@ class LogReducer final : public MapReduceBase {
     const LogBuffer &buffer,
     storage::StorageId storage_id,
     const BufferPosition* sorted_logs,
+    uint32_t shortest_key_length,
+    uint32_t longest_key_length,
     uint32_t log_count,
     void* destination) const;
 

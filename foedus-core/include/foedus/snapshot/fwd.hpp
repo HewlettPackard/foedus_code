@@ -22,6 +22,7 @@ class   LogReducer;
 struct  LogReducerControlBlock;
 class   LogReducerRef;
 class   MapReduceBase;
+class   MergeSort;
 struct  NumaThreadScope;
 struct  Snapshot;
 class   SnapshotManager;

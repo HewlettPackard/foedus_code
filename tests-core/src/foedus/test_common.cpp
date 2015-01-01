@@ -42,6 +42,13 @@ namespace foedus {
     return fs::unique_name("%%%%_%%%%_%%%%_%%%%", differentiator);
   }
 
+  std::string get_random_tmp_file_path(const std::string& name) {
+    std::string uniquefier = get_random_name();
+    std::stringstream str;
+    str << "tmp_folders/" << uniquefier << "/" << name;
+    return str.str();
+  }
+
   EngineOptions get_randomized_paths() {
     EngineOptions options;
     std::string uniquefier = get_random_name();

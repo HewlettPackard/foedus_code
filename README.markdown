@@ -190,7 +190,9 @@ Coding Convention (For FOEDUS Developers)
 --------
 We conform to [Google C++ Style Guide](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml)
 except the arguable rule on streams. See [the discussions](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Streams)
-if you are interested. Other minor differences from the convention:
+if you are interested (Dec 2014: I have realized that the latest cpplint actually disables this
+warning as well as allowing most C++11 features. The guide seems thoroughly revised around Sep14.
+Great!). Other minor differences from the convention:
 
 * Max 100 characters per line rather than 80 (you are welcomed to keep it within 80, though).
 * C++ file names are ".cpp" rather than ".cc", header files are ".hpp" rather than ".h".

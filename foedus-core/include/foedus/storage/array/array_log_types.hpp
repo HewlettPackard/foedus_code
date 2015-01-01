@@ -62,6 +62,28 @@ struct ArrayCommonUpdateLogType : public log::RecordLogType {
   LOG_TYPE_NO_CONSTRUCT(ArrayCommonUpdateLogType)
   ArrayOffset     offset_;            // +8 => 24
   // payload_offset_ is also a common property, but we can't include it here for alignment.
+
+  /**
+   * Returns -1, 0, 1 when left is less than, same, larger than right in terms of key and xct_id.
+   * @pre this->is_valid(), other.is_valid()
+   * @pre this->get_ordinal() != 0, other.get_ordinal() != 0
+   */
+  inline static int compare_logs(
+    const ArrayCommonUpdateLogType* left,
+    const ArrayCommonUpdateLogType* right) ALWAYS_INLINE {
+    ASSERT_ND(left->header_.storage_id_ == right->header_.storage_id_);
+    if (left == right) {
+      return 0;
+    }
+    if (left->offset_ != right->offset_) {
+      if (left->offset_ < right->offset_) {
+        return -1;
+      } else {
+        return 1;
+      }
+    }
+    return left->header_.xct_id_.compare_epoch_and_orginal(right->header_.xct_id_);
+  }
 };
 
 /**

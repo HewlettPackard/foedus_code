@@ -107,6 +107,7 @@ ErrorStack SharedMemory::alloc(const std::string& meta_path, uint64_t size, int 
   block_ = reinterpret_cast<char*>(::shmat(shmid_, nullptr, 0));
 
   if (block_ == reinterpret_cast<void*>(-1)) {
+    ::shmctl(shmid_, IPC_RMID, nullptr);  // first thing. release it! before everything else.
     block_ = nullptr;
     std::stringstream msg;
     msg << "shmat alloc failed!" << *this << ", error=" << assorted::os_error();

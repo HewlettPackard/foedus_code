@@ -57,7 +57,7 @@ TEST(RendezvousTest, Simple) {
   another.join();
 }
 
-const int kRep = 300;
+const int kRep = 100;  // 300;  otherwise this test case takes really long time depending on #cores.
 const int kClients = 4;
 std::vector<Rendezvous*>            many_rendezvous;
 std::vector< std::atomic<int>* >    many_ends;

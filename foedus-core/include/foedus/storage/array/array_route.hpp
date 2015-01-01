@@ -39,6 +39,20 @@ union LookupRoute {
     uint8_t total_levels,
     uint16_t payload_size,
     ArrayOffset array_size) const;
+
+  bool operator==(const LookupRoute& rhs) const { return word == rhs.word; }
+  bool operator!=(const LookupRoute& rhs) const { return word != rhs.word; }
+  bool operator<(const LookupRoute& rhs) const {
+    for (uint16_t i = 1; i <= 8U; ++i) {
+      // compare the higher level first. if the machine is big-endian, we can just compare word.
+      // but, this method is not used in performance-sensitive place, so let's be explicit.
+      if (route[8U - i] != rhs.route[8U - i]) {
+        return route[8U - i] < rhs.route[8U - i];
+      }
+    }
+    return false;
+  }
+  bool operator<=(const LookupRoute& rhs) const { return *this == rhs || *this < rhs; }
 };
 
 inline uint16_t to_records_in_leaf(uint16_t payload_size) {

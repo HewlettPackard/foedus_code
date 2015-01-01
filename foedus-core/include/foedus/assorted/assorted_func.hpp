@@ -32,9 +32,9 @@ inline T align(T value) {
   uint64_t left = (value + ALIGNMENT - 1);
   uint64_t right = -ALIGNMENT;
   uint64_t result = left & right;
-  ASSERT_ND(result >= value);
+  ASSERT_ND(result >= static_cast<uint64_t>(value));
   ASSERT_ND(result % ALIGNMENT == 0);
-  ASSERT_ND(result < value + ALIGNMENT);
+  ASSERT_ND(result < static_cast<uint64_t>(value) + ALIGNMENT);
   return static_cast<T>(result);
 }
 

@@ -65,6 +65,16 @@
  * I'm seeing weird behaviors even with -fno-strict-aliasing. This keyword might help.
  * Otherwise, we have to memcpy to type-pun everything. uggggrrr.
  */
+/**
+ * @def RESTRICT_ALIAS
+ * @ingroup COMPILER
+ * @brief Wraps GCC's  __restrict.
+ * @details
+ * OTOH, this explicitly helps compiler auto-vectorize and do other stuffs, saying that the
+ * variable is never aliased in the function. Seems like older gcc ignored __restrict when
+ * fno-strict-aliasing is specified, but recent gcc doesn't.
+ * @attention DO NOT USE THIS if you don't know what __restrict means.
+ */
 #ifdef __INTEL_COMPILER
 // ICC
 #define LIKELY(x)      (x)
@@ -73,16 +83,18 @@
 #define ALWAYS_INLINE
 #define ASSUME_ALIGNED(x, y) x
 #define MAY_ALIAS
+#define RESTRICT_ALIAS
 #else  // __INTEL_COMPILER
-#ifdef __GNUC__
-// GCC
+#if defined(__GNUC__) || defined(__clang__)
+// GCC and Clang (not sure Clang supports all of below, tho..)
 #define LIKELY(x)      __builtin_expect(!!(x), 1)
 #define UNLIKELY(x)    __builtin_expect(!!(x), 0)
 #define NO_INLINE       __attribute__((noinline))
 #define ALWAYS_INLINE   __attribute__((always_inline))
 #define ASSUME_ALIGNED(x, y) __builtin_assume_aligned(x, y)
 #define MAY_ALIAS __attribute__((__may_alias__))
-#else  // __GNUC__
+#define RESTRICT_ALIAS __restrict
+#else  // defined(__GNUC__) || defined(__clang__)
 // Others. MSVC?
 #define LIKELY(x)      (x)
 #define UNLIKELY(x)    (x)
@@ -90,6 +102,7 @@
 #define ALWAYS_INLINE
 #define ASSUME_ALIGNED(x, y) x
 #define MAY_ALIAS
+#define RESTRICT_ALIAS
 #endif   // __GNUC__
 #endif  // __INTEL_COMPILER
 

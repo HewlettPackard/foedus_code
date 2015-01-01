@@ -72,25 +72,6 @@ class MasstreeComposer final {
 
 
 /**
- * Represents one sorted input stream with its status.
- * @todo extract common code with ArrayStreamStatus and sequential StreamStatus.
- */
-struct MasstreeStreamStatus final {
-  void init(snapshot::SortedBuffer* stream);
-  ErrorCode next() ALWAYS_INLINE;
-  const MasstreeCommonLogType* get_entry() const ALWAYS_INLINE;
-
-  snapshot::SortedBuffer* stream_;
-  const char*     buffer_;
-  uint64_t        buffer_size_;
-  uint64_t        cur_absolute_pos_;
-  uint64_t        cur_relative_pos_;
-  uint64_t        end_absolute_pos_;
-  uint16_t        cur_log_length_;
-  bool            ended_;
-};
-
-/**
  * @brief MasstreeComposer's compose() implementation separated from the class itself.
  * @ingroup MASSTREE
  * @details
@@ -224,7 +205,10 @@ class MasstreeComposeContext {
     SnapshotPagePointer pointer_;
   };
 
-  MasstreeComposeContext(Engine* engine, StorageId id, const Composer::ComposeArguments& args);
+  MasstreeComposeContext(
+    Engine* engine,
+    snapshot::MergeSort* merge_sort,
+    const Composer::ComposeArguments& args);
   ErrorStack execute();
 
   static ErrorStack assure_work_memory_size(const Composer::ComposeArguments& args);
@@ -263,12 +247,13 @@ class MasstreeComposeContext {
     return cur_path_ + (cur_path_levels_ - 2U);
   }
 
+  ErrorStack  execute_a_batch();
+
   /** When the main buffer of writer has no page, appends a dummy page for easier debugging. */
   void        write_dummy_page_zero();
 
   // init/uninit called only once or at most a few times
   ErrorStack  init_root();
-  ErrorStack  init_inputs();
   ErrorStack  open_first_level(const char* key, uint16_t key_length);
   ErrorStack  open_next_level(
     const char* key,
@@ -311,13 +296,15 @@ class MasstreeComposeContext {
     SnapshotPagePointer* root_pointer,
     KeySlice subtree_low,
     KeySlice subtree_high);
+  /**
+   * Used to close a level that is not a root of B-tree (either first layer or not).
+   * Pushes up all pages to parent level, which is guaranteed to be an intermediate page because
+   * this level is non-root.
+   */
   ErrorStack  pushup_non_root();
 
   // next methods called for each log entry. must be efficient! So these methods return ErrorCode.
 
-  /** Find the log entry to apply next. so far this is a dumb sequential search. loser tree? */
-  void        read_inputs() ALWAYS_INLINE;
-  ErrorCode   advance() ALWAYS_INLINE;
   /** Returns if the given key is not contained in the current path */
   bool        does_need_to_adjust_path(const char* key, uint16_t key_length) const ALWAYS_INLINE;
 
@@ -366,6 +353,7 @@ class MasstreeComposeContext {
     PathLevel* level);
 
   Engine* const             engine_;
+  snapshot::MergeSort* const  merge_sort_;
   const StorageId           id_;
   const MasstreeStorage     storage_;
   const Composer::ComposeArguments& args_;
@@ -384,8 +372,6 @@ class MasstreeComposeContext {
   Page* const       page_base_;
   /** same as work_memory_->get_block(). Index is level. */
   Page* const       original_base_;
-  /** same as work_memory_->get_block() + sizeof(Page)*(kMaxLevels+1) */
-  MasstreeStreamStatus* const inputs_;
 
   // const members up to here.
 
@@ -418,12 +404,6 @@ class MasstreeComposeContext {
    * of compose().
    */
   // uint32_t                  allocated_intermediates_;
-
-  uint32_t                  ended_inputs_count_;
-
-  uint32_t                  next_input_;
-  /** Same as inputs_[next_input_].get_entry() */
-  const MasstreeCommonLogType* next_entry_;
 
   /** Number of cur_route_ entries that are now active. Does not count root_ as a level. */
   uint8_t                   cur_path_levels_;

@@ -80,32 +80,28 @@ ErrorCode DumpFileSortedBuffer::wind(uint64_t next_absolute_pos) {
     return kErrorCodeInvalidParameter;
   }
 
-  uint32_t jump_distance;
-  uint64_t next_relative_pos = to_relative_pos(next_absolute_pos);
-  uint64_t read_to_relative;
-  if (next_absolute_pos % kAlignment == 0) {
-    jump_distance = buffer_size_;
-    read_to_relative = 0;
-  } else {
-    // move the remaining (non-consumed) content in the buffer to the beginning of buffer.
-    // we have to do this for alignment
-    jump_distance = next_relative_pos / kAlignment * kAlignment;
-    ASSERT_ND(jump_distance < next_relative_pos);
-    ASSERT_ND(jump_distance > next_relative_pos - kAlignment);
-    std::memmove(buffer_, buffer_ + jump_distance, buffer_size_ - jump_distance);
-    read_to_relative = kAlignment;
-  }
+  // suppose buf=64M and we have read second window(64M-128M) and now moving on to third window.
+  // in the easiest case, current offset_=64M, next_absolute_pos=128M. we just read 64M.
+  // but, probably next_absolute_pos=128M-alpha, further alpha might not be 4k-aligned.
+  // the following code takes care of those cases.
+  ASSERT_ND(file_->get_current_offset() == offset_ + buffer_size_);
+  uint64_t retained_bytes
+    = assorted::align<uint64_t, kAlignment>(offset_ + buffer_size_ - next_absolute_pos);
+  ASSERT_ND(retained_bytes <= buffer_size_);
+  std::memmove(buffer_, buffer_ + buffer_size_ - retained_bytes, retained_bytes);
 
   // we read as much as possible. note that "next_absolute_pos + buffer_size_" might become larger
   // than cur_block_abosulte_end_. It's fine, the next DumpFileSortedBuffer object for another
-  // storage will take care of the excessive bytes.
+  // storage will take care (and make use) of the excessive bytes.
   uint64_t desired_reads = std::min(
-    buffer_size_ - read_to_relative,
-    total_size_ - offset_ - read_to_relative);
-  CHECK_ERROR_CODE(file_->read(desired_reads, io_buffer_));
+    buffer_size_ - retained_bytes,
+    total_size_ - (offset_ + buffer_size_));
+  memory::AlignedMemorySlice sub_slice(io_buffer_, retained_bytes, desired_reads);
+  CHECK_ERROR_CODE(file_->read(desired_reads, sub_slice));
+  offset_ = offset_ + buffer_size_ - retained_bytes;
 
-  offset_ += jump_distance;
   ASSERT_ND(offset_ % kAlignment == 0);
+  ASSERT_ND(next_absolute_pos >= offset_);
   assert_checks();
   return kErrorCodeOk;
 }

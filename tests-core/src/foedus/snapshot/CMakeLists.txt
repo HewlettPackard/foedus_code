@@ -16,6 +16,9 @@ set(test_snapshot_array_individuals
   TwoArraysOneLogger
   TwoArraysTwoLoggers
   TwoArraysTwoPartitions
+  HolesOneLogger
+  HolesTwoLoggers
+  HolesTwoPartitions
   )
 add_foedus_test_individual(test_snapshot_array "${test_snapshot_array_individuals}")
 
@@ -30,3 +33,31 @@ set(test_snapshot_masstree_individuals
   InsertsVarlenTwoPartitions
   )
 add_foedus_test_individual(test_snapshot_masstree "${test_snapshot_masstree_individuals}")
+
+set(test_merge_sort_individuals
+  SingleInputDistinctKeyArray
+  SingleInputDistinctEpochArray
+  SingleInputDistinctOrdinalArray
+  SingleInputDuplicatesArray
+  MultiInputsDistinctKeyArray
+  MultiInputsDistinctEpochArray
+  MultiInputsDistinctOrdinalArray
+  MultiInputsDuplicatesArray
+  SingleInputDistinctKeyMasstreeNormalized
+  SingleInputDistinctEpochMasstreeNormalized
+  SingleInputDistinctOrdinalMasstreeNormalized
+  SingleInputDuplicatesMasstreeNormalized
+  MultiInputsDistinctKeyMasstreeNormalized
+  MultiInputsDistinctEpochMasstreeNormalized
+  MultiInputsDistinctOrdinalMasstreeNormalized
+  MultiInputsDuplicatesMasstreeNormalized
+  SingleInputDistinctKeyMasstreeVarlen
+  SingleInputDistinctEpochMasstreeVarlen
+  SingleInputDistinctOrdinalMasstreeVarlen
+  SingleInputDuplicatesMasstreeVarlen
+  MultiInputsDistinctKeyMasstreeVarlen
+  MultiInputsDistinctEpochMasstreeVarlen
+  MultiInputsDistinctOrdinalMasstreeVarlen
+  MultiInputsDuplicatesMasstreeVarlen
+  )
+add_foedus_test_individual(test_merge_sort "${test_merge_sort_individuals}")
