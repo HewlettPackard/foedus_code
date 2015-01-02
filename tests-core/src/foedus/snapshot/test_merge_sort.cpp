@@ -393,10 +393,10 @@ void test_multi_inputs_masstree_normalized(TestKeyDistribution distribution) {
 //  3) yet, the key and its ordinal after sorting is easy to understand for humans (for debugging)
 // let's do the following:
 // - "key / 100" is the "0"-padded 4 digits at beginning. We assume "key" fits in 6 digits.
-// - the last digit of key/100 also os the number of spacing (#) after that
+// - the last digit of key/100 also is the number of spacing (#) after that
 // - then key % 100 is appended as "0"-padded 2 digits
 // For example, key=12345 becomes "0123###45".
-// largest key is 4 + 9 + 2 = 15 bytes. shortest key is 4 + 2 = 6 bytes.
+// longest key is 4 + 9 + 2 = 15 bytes. shortest key is 4 + 2 = 6 bytes.
 // some key is not differentiated in the first 8 bytes, eg ("0004####01" vs "0004####02")
 uint16_t construct_varlen(uint64_t int_key, char* key) {
   static_assert(kLogsPerInput * 2U < 1000000U, "doesn't fit in 6 digits!");

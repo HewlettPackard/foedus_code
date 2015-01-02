@@ -89,6 +89,11 @@ class Composer CXX11_FINAL {
     /** Working memory to be used in this method. Automatically expand if needed. */
     memory::AlignedMemory*            work_memory_;
     /**
+     * All log entries in this inputs are assured to be after this epoch.
+     * Also, it is assured to be within 2^16 from this epoch.
+     */
+    Epoch                             base_epoch_;
+    /**
      * [OUT] Returns pointers and related information that is required
      * to construct the root page. The data format depends on the composer. In all implementations,
      * the information must fit in one page (should be, otherwise we can't have a root page)

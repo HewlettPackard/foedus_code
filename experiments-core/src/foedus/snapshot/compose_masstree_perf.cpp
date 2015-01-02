@@ -101,6 +101,7 @@ ErrorStack execute(
     log_masstree,
     1,
     &work_memory,
+    Epoch(1),
     root_page
   };
 

@@ -16,6 +16,9 @@ set(test_snapshot_array_individuals
   TwoArraysOneLogger
   TwoArraysTwoLoggers
   TwoArraysTwoPartitions
+  HolesOneLogger
+  HolesTwoLoggers
+  HolesTwoPartitions
   )
 add_foedus_test_individual(test_snapshot_array "${test_snapshot_array_individuals}")
 

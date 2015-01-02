@@ -589,6 +589,7 @@ ErrorStack LogReducer::merge_sort() {
       context.tmp_sorted_buffer_array_,
       context.tmp_sorted_buffer_count_,
       &composer_work_memory,
+      parent_.get_base_epoch(),
       root_info_page};
     CHECK_ERROR(composer.compose(args));
 

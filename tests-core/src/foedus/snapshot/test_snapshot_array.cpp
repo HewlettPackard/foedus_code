@@ -155,10 +155,58 @@ ErrorStack verify_task(const proc::ProcArguments& args) {
   return kRetOk;
 }
 
+ErrorStack overwrites_holes_task(const proc::ProcArguments& args) {
+  EXPECT_EQ(sizeof(uint32_t), args.input_len_);
+  uint32_t id = *reinterpret_cast<const uint32_t*>(args.input_buffer_);
+  EXPECT_NE(id, 2U);
+
+  thread::Thread* context = args.context_;
+  storage::array::ArrayStorage array(args.engine_, kName);
+  ASSERT_ND(array.exists());
+  xct::XctManager* xct_manager = args.engine_->get_xct_manager();
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+
+  // holes at the beginning and end. (set only the middle half)
+  // we might want to test a hole in the middle..
+  uint32_t from = (id == 0) ? kRecords / 4U : 0;
+  for (uint32_t i = from; i < from + (kRecords / 4U); ++i) {
+    storage::array::ArrayOffset rec = id * kRecords / 2U + i;
+    WRAP_ERROR_CODE(array.overwrite_record(context, rec, &rec));
+  }
+
+  Epoch commit_epoch;
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
+  return kRetOk;
+}
+
+ErrorStack verify_holes_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  storage::array::ArrayStorage array(args.engine_, kName);
+  ASSERT_ND(array.exists());
+  xct::XctManager* xct_manager = args.engine_->get_xct_manager();
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+  for (uint32_t i = 0; i < kRecords; ++i) {
+    storage::array::ArrayOffset rec = i;
+    storage::array::ArrayOffset data = 0;
+    WRAP_ERROR_CODE(array.get_record(context, rec, &data));
+    if (i < kRecords / 4U || i >= (kRecords / 2U) + (kRecords / 4U)) {
+      EXPECT_EQ(0, data) << i;
+    } else {
+      EXPECT_EQ(rec, data) << i;
+    }
+  }
+
+  Epoch commit_epoch;
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  return kRetOk;
+}
+
 const proc::ProcName kOv("overwrites_task");
 const proc::ProcName kInc("increments_task");
 const proc::ProcName kInc2("increments_twice_task");
 const proc::ProcName kTwo("two_arrays_task");
+const proc::ProcName kHoles("overwrites_holes_task");
 
 void test_run(const proc::ProcName& proc_name, bool multiple_loggers, bool multiple_partitions) {
   EngineOptions options = get_tiny_options();
@@ -175,13 +223,15 @@ void test_run(const proc::ProcName& proc_name, bool multiple_loggers, bool multi
     options.log_.loggers_per_node_ = multiple_loggers ? kThreads : 1;
   }
 
+  proc::Proc verify_proc = proc_name == kHoles ? verify_holes_task : verify_task;
   {
     Engine engine(options);
     engine.get_proc_manager()->pre_register("overwrites_task", overwrites_task);
     engine.get_proc_manager()->pre_register("increments_task", increments_task);
     engine.get_proc_manager()->pre_register("increments_twice_task", increments_twice_task);
     engine.get_proc_manager()->pre_register("two_arrays_task", two_arrays_task);
-    engine.get_proc_manager()->pre_register("verify_task", verify_task);
+    engine.get_proc_manager()->pre_register("overwrites_holes_task", overwrites_holes_task);
+    engine.get_proc_manager()->pre_register("verify", verify_proc);
     COERCE_ERROR(engine.initialize());
     {
       UninitializeGuard guard(&engine);
@@ -212,7 +262,7 @@ void test_run(const proc::ProcName& proc_name, bool multiple_loggers, bool multi
       }
 
       EXPECT_TRUE(out.exists());
-      COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("verify_task"));
+      COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("verify"));
       EXPECT_TRUE(out.exists());
       engine.get_snapshot_manager()->trigger_snapshot_immediate(true);
       EXPECT_TRUE(out.exists());
@@ -222,11 +272,11 @@ void test_run(const proc::ProcName& proc_name, bool multiple_loggers, bool multi
   }
   {
     Engine engine(options);
-    engine.get_proc_manager()->pre_register("verify_task", verify_task);
+    engine.get_proc_manager()->pre_register("verify", verify_proc);
     COERCE_ERROR(engine.initialize());
     {
       UninitializeGuard guard(&engine);
-      COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("verify_task"));
+      COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("verify"));
       COERCE_ERROR(engine.uninitialize());
     }
   }
@@ -245,6 +295,9 @@ TEST(SnapshotArrayTest, IncrementsTwiceTwoPartitions) { test_run(kInc2, true, tr
 TEST(SnapshotArrayTest, TwoArraysOneLogger) { test_run(kTwo, false, false); }
 TEST(SnapshotArrayTest, TwoArraysTwoLoggers) { test_run(kTwo, true, false); }
 TEST(SnapshotArrayTest, TwoArraysTwoPartitions) { test_run(kTwo, true, true); }
+TEST(SnapshotArrayTest, HolesOneLogger) { test_run(kHoles, false, false); }
+TEST(SnapshotArrayTest, HolesTwoLoggers) { test_run(kHoles, true, false); }
+TEST(SnapshotArrayTest, HolesTwoPartitions) { test_run(kHoles, true, true); }
 
 }  // namespace snapshot
 }  // namespace foedus

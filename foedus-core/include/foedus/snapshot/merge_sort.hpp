@@ -317,6 +317,7 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
     return true;
   }
 
+  inline storage::StorageId get_storage_id() const ALWAYS_INLINE { return id_; }
   inline MergedPosition get_current_count() const ALWAYS_INLINE { return current_count_; }
   inline InputIndex     get_inputs_count() const ALWAYS_INLINE { return inputs_count_; }
   inline const PositionEntry* get_position_entries() const ALWAYS_INLINE {
