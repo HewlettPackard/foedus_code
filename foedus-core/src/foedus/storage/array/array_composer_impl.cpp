@@ -291,11 +291,11 @@ ErrorStack ArrayComposeContext::execute_single_level_array() {
   // no page-switch in this case
   ArrayRange range(0, storage_.get_array_size());
   // single-page array. root is a leaf page.
-  ArrayPage* page = page_base_;
+  cur_path_[0] = page_base_;
   SnapshotPagePointer page_id = snapshot_writer_->get_next_page_id();
   ASSERT_ND(allocated_pages_ == 0);
   allocated_pages_ = 1;
-  WRAP_ERROR_CODE(read_or_init_page(previous_root_page_pointer_, page_id, 0, range, page));
+  WRAP_ERROR_CODE(read_or_init_page(previous_root_page_pointer_, page_id, 0, range, cur_path_[0]));
 
   while (true) {
     CHECK_ERROR(merge_sort_->next_batch());
