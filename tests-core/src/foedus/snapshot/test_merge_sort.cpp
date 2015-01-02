@@ -92,10 +92,15 @@ uint32_t to_in_epoch_ordinal(uint64_t i, TestKeyDistribution distribution) {
 struct TestBase {
   TestBase(
     TestKeyDistribution distribution,
+    uint32_t shortest_key_length,
+    uint32_t longest_key_length,
     uint64_t max_log_length)
     : distribution_(distribution),
+      shortest_key_length_(shortest_key_length),
+      longest_key_length_(longest_key_length),
       max_log_length_(max_log_length),
       inmemory_buffer_(nullptr) {
+    ASSERT_ND(shortest_key_length_ <= longest_key_length_);
     capacity_ = max_log_length * kLogsPerInput;
     memory_.alloc(capacity_, 1U << 21, memory::AlignedMemory::kNumaAllocOnnode, 0);
   }
@@ -124,8 +129,6 @@ struct TestBase {
   template <typename VERIFY>
   void merge_inputs(
     storage::StorageType storage_type,
-    uint16_t shortest_key_length,
-    uint16_t longest_key_length,
     VERIFY verify) {
     memory::AlignedMemory work_memory;
     work_memory.alloc(1U << 21, 1U << 21, memory::AlignedMemory::kNumaAllocOnnode, 0);
@@ -134,8 +137,6 @@ struct TestBase {
       kStorageId,
       storage_type,
       Epoch(1),
-      shortest_key_length,
-      longest_key_length,
       get_inputs(),
       get_input_count(),
       32,
@@ -168,8 +169,8 @@ struct TestBase {
           EXPECT_EQ(accumulative_i % get_input_count(), pos.input_index_);
         }
 
-        EXPECT_GE(pos.key_length_, shortest_key_length);
-        EXPECT_LE(pos.key_length_, longest_key_length);
+        EXPECT_GE(pos.key_length_, shortest_key_length_);
+        EXPECT_LE(pos.key_length_, longest_key_length_);
 
         const auto* log = reinterpret_cast<const log::RecordLogType*>(
           merge_sort.resolve_sort_position(i));
@@ -206,6 +207,8 @@ struct TestBase {
 
   TestKeyDistribution distribution_;
   uint64_t capacity_;
+  uint32_t shortest_key_length_;
+  uint32_t longest_key_length_;
   uint64_t max_log_length_;
 
   // in-memory buffer (1st buffer)
@@ -219,8 +222,10 @@ struct TestBase {
 struct SingleInputTest : public TestBase {
   SingleInputTest(
     TestKeyDistribution distribution,
+    uint32_t shortest_key_length,
+    uint32_t longest_key_length,
     uint64_t max_log_length)
-    : TestBase(distribution, max_log_length) {
+    : TestBase(distribution, shortest_key_length, longest_key_length, max_log_length) {
   }
 
   ~SingleInputTest() {}
@@ -236,7 +241,13 @@ struct SingleInputTest : public TestBase {
     }
 
     inmemory_buffer_ = new InMemorySortedBuffer(buf, cur);
-    inmemory_buffer_->set_current_block(kStorageId, kLogsPerInput, 0, cur);
+    inmemory_buffer_->set_current_block(
+      kStorageId,
+      kLogsPerInput,
+      0,
+      cur,
+      shortest_key_length_,
+      longest_key_length_);
   }
   uint16_t get_input_count() const override { return 1; }
   SortedBuffer** get_inputs() override {
@@ -255,8 +266,10 @@ struct MultiInputsTest : public TestBase {
   MultiInputsTest(
     const std::string& experiment_name,
     TestKeyDistribution distribution,
+    uint32_t shortest_key_length,
+    uint32_t longest_key_length,
     uint64_t max_log_length)
-    : TestBase(distribution, max_log_length),
+    : TestBase(distribution, shortest_key_length, longest_key_length, max_log_length),
       path_(get_random_tmp_file_path(experiment_name + to_string(distribution))),
       file_(path_),
       io_buffer_(nullptr) {
@@ -281,7 +294,13 @@ struct MultiInputsTest : public TestBase {
     }
 
     inmemory_buffer_ = new InMemorySortedBuffer(buf, cur);
-    inmemory_buffer_->set_current_block(kStorageId, kLogsPerInput, 0, cur);
+    inmemory_buffer_->set_current_block(
+      kStorageId,
+      kLogsPerInput,
+      0,
+      cur,
+      shortest_key_length_,
+      longest_key_length_);
 
     cur = 0;
     buf = reinterpret_cast<char*>(io_memory_.get_block());
@@ -304,7 +323,13 @@ struct MultiInputsTest : public TestBase {
     COERCE_ERROR_CODE(file_.read(slice.get_size(), slice));
 
     io_buffer_ = new DumpFileSortedBuffer(&file_, slice);
-    io_buffer_->set_current_block(kStorageId, kLogsPerInput, 0, cur);
+    io_buffer_->set_current_block(
+      kStorageId,
+      kLogsPerInput,
+      0,
+      cur,
+      shortest_key_length_,
+      longest_key_length_);
   }
 
   uint16_t get_input_count() const override { return 2; }
@@ -340,17 +365,17 @@ void array_verify(const log::RecordLogType* log, uint64_t key, const char* paylo
 void test_single_inputs_array(TestKeyDistribution distribution) {
   const uint16_t kLen = sizeof(storage::array::ArrayOffset);
   uint16_t length = storage::array::ArrayOverwriteLogType::calculate_log_length(kPayload);
-  SingleInputTest impl(distribution, length);
+  SingleInputTest impl(distribution, kLen, kLen, length);
   impl.prepare_inputs(array_populate);
-  impl.merge_inputs(storage::kArrayStorage, kLen, kLen, array_verify);
+  impl.merge_inputs(storage::kArrayStorage, array_verify);
 }
 
 void test_multi_inputs_array(TestKeyDistribution distribution) {
   const uint16_t kLen = sizeof(storage::array::ArrayOffset);
   uint16_t length = storage::array::ArrayOverwriteLogType::calculate_log_length(kPayload);
-  MultiInputsTest impl("test_multi_inputs_array_", distribution, length);
+  MultiInputsTest impl("test_multi_inputs_array_", distribution, kLen, kLen, length);
   impl.prepare_inputs(array_populate);
-  impl.merge_inputs(storage::kArrayStorage, kLen, kLen, array_verify);
+  impl.merge_inputs(storage::kArrayStorage, array_verify);
 }
 
 
@@ -374,17 +399,17 @@ void masstree_normalized_verify(const log::RecordLogType* log, uint64_t key, con
 void test_single_input_masstree_normalized(TestKeyDistribution distribution) {
   const uint16_t kLen = sizeof(storage::masstree::KeySlice);
   uint16_t length = storage::masstree::MasstreeInsertLogType::calculate_log_length(kLen, kPayload);
-  SingleInputTest impl(distribution, length);
+  SingleInputTest impl(distribution, kLen, kLen, length);
   impl.prepare_inputs(masstree_normalized_populate);
-  impl.merge_inputs(storage::kMasstreeStorage, kLen, kLen, masstree_normalized_verify);
+  impl.merge_inputs(storage::kMasstreeStorage, masstree_normalized_verify);
 }
 
 void test_multi_inputs_masstree_normalized(TestKeyDistribution distribution) {
   const uint16_t kLen = sizeof(storage::masstree::KeySlice);
   uint16_t length = storage::masstree::MasstreeInsertLogType::calculate_log_length(kLen, kPayload);
-  MultiInputsTest impl("test_multi_inputs_masstree_normalized_", distribution, length);
+  MultiInputsTest impl("test_multi_inputs_masstree_normalized_", distribution, kLen, kLen, length);
   impl.prepare_inputs(masstree_normalized_populate);
-  impl.merge_inputs(storage::kMasstreeStorage, kLen, kLen, masstree_normalized_verify);
+  impl.merge_inputs(storage::kMasstreeStorage, masstree_normalized_verify);
 }
 
 // varlen key is a bit tricky. test requirements:
@@ -439,15 +464,20 @@ void masstree_varlen_verify(const log::RecordLogType* log, uint64_t int_key, con
 }
 
 void test_single_input_masstree_varlen(TestKeyDistribution distribution) {
-  SingleInputTest impl(distribution, kVarlenMaxLog);
+  SingleInputTest impl(distribution, kVarlenMin, kVarlenMax, kVarlenMaxLog);
   impl.prepare_inputs(masstree_varlen_populate);
-  impl.merge_inputs(storage::kMasstreeStorage, kVarlenMin, kVarlenMax, masstree_varlen_verify);
+  impl.merge_inputs(storage::kMasstreeStorage, masstree_varlen_verify);
 }
 
 void test_multi_inputs_masstree_varlen(TestKeyDistribution distribution) {
-  MultiInputsTest impl("test_multi_inputs_masstree_varlen_", distribution, kVarlenMaxLog);
+  MultiInputsTest impl(
+    "test_multi_inputs_masstree_varlen_",
+    distribution,
+    kVarlenMin,
+    kVarlenMax,
+    kVarlenMaxLog);
   impl.prepare_inputs(masstree_varlen_populate);
-  impl.merge_inputs(storage::kMasstreeStorage, kVarlenMin, kVarlenMax, masstree_varlen_verify);
+  impl.merge_inputs(storage::kMasstreeStorage, masstree_varlen_verify);
 }
 
 TEST(MergeSortTestTest, SingleInputDistinctKeyArray) {

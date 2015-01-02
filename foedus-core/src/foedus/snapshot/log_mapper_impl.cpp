@@ -526,13 +526,20 @@ inline void update_key_lengthes(
   storage::StorageType storage_type,
   uint32_t* shortest_key_length,
   uint32_t* longest_key_length) {
-  if (storage_type == storage::kMasstreeStorage) {
+  if (storage_type == storage::kArrayStorage) {
+    *shortest_key_length = sizeof(storage::array::ArrayOffset);
+    *longest_key_length = sizeof(storage::array::ArrayOffset);
+  } else if (storage_type == storage::kMasstreeStorage) {
     const storage::masstree::MasstreeCommonLogType* the_log =
       reinterpret_cast<const storage::masstree::MasstreeCommonLogType*>(header);
     uint16_t key_length = the_log->key_length_;
     ASSERT_ND(key_length > 0);
     *shortest_key_length = std::min<uint32_t>(*shortest_key_length, key_length);
     *longest_key_length = std::max<uint32_t>(*longest_key_length, key_length);
+  } else if (storage_type == storage::kSequentialStorage) {
+    // this has no meaning for sequential storage. just put some number.
+    *shortest_key_length = 8U;
+    *longest_key_length = 8U;
   }
   // TODO(Hideaki) and hash storage later
 }

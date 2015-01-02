@@ -55,8 +55,6 @@ ErrorStack ArrayComposer::compose(const Composer::ComposeArguments& args) {
     storage_id_,
     kArrayStorage,
     args.base_epoch_,
-    sizeof(ArrayOffset),
-    sizeof(ArrayOffset),
     args.log_streams_,
     args.log_streams_count_,
     kMaxLevels,

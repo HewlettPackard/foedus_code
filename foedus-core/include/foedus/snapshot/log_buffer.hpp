@@ -116,16 +116,24 @@ class SortedBuffer {
   uint64_t            get_cur_block_abosulte_begin() const { return cur_block_abosulte_begin_; }
   /** Current storage block's end in absolute byte position in the file. */
   uint64_t            get_cur_block_abosulte_end() const { return cur_block_abosulte_end_; }
+  /** Current storage block's shortest key length */
+  uint32_t  get_cur_block_shortest_key_length() const { return cur_block_shortest_key_length_; }
+  /** Current storage block's longest key length */
+  uint32_t  get_cur_block_longest_key_length() const { return cur_block_longest_key_length_; }
 
   void        set_current_block(
     storage::StorageId storage_id,
     uint32_t           log_count,
     uint64_t           abosulte_begin,
-    uint64_t           abosulte_end) {
+    uint64_t           abosulte_end,
+    uint32_t           shortest_key_length,
+    uint32_t           longest_key_length) {
     cur_block_storage_id_ = storage_id;
     cur_block_log_count_ = log_count;
     cur_block_abosulte_begin_ = abosulte_begin;
     cur_block_abosulte_end_ = abosulte_end;
+    cur_block_shortest_key_length_ = shortest_key_length;
+    cur_block_longest_key_length_ = longest_key_length;
     assert_checks();
   }
   bool        is_valid_current_block() const { return cur_block_storage_id_ != 0; }
@@ -163,6 +171,9 @@ class SortedBuffer {
       // did we overlook the begin/end of the block?
       ASSERT_ND(cur_block_abosulte_begin_ <= offset_ + buffer_size_);
       ASSERT_ND(cur_block_abosulte_end_ >= offset_);
+      ASSERT_ND(cur_block_shortest_key_length_ <= cur_block_longest_key_length_);
+      ASSERT_ND(cur_block_shortest_key_length_ > 0);
+      ASSERT_ND(cur_block_longest_key_length_ <= 0xFFFFU);
     }
   }
 
@@ -181,6 +192,10 @@ class SortedBuffer {
   uint64_t            cur_block_abosulte_begin_;
   /** see get_cur_block_abosulte_end() */
   uint64_t            cur_block_abosulte_end_;
+  /** additional statistics for masstree/hash */
+  uint32_t            cur_block_shortest_key_length_;
+  /** additional statistics for masstree/hash */
+  uint32_t            cur_block_longest_key_length_;
 
   void describe_base_elements(std::ostream* o) const;
 };

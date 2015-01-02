@@ -85,7 +85,8 @@ ErrorStack execute(
   uint64_t log_size = 0;
   populate_logs(id, log_buffer, &log_size);
   InMemorySortedBuffer buffer(log_buffer, log_size);
-  buffer.set_current_block(id, kRecords, 0, log_size);
+  uint16_t key_len = sizeof(storage::masstree::KeySlice);
+  buffer.set_current_block(id, kRecords, 0, log_size, key_len, key_len);
   log_watch.stop();
   LOG(INFO) << "Populated logs to process in " << log_watch.elapsed_ms() << "ms";
 

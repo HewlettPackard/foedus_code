@@ -32,12 +32,25 @@ bool is_masstree_log_type(uint16_t log_type) {
     || log_type == log::kLogCodeMasstreeOverwrite;
 }
 
+uint16_t extract_shortest_key_length(SortedBuffer* const* inputs, uint16_t inputs_count) {
+  uint16_t ret = inputs[0]->get_cur_block_shortest_key_length();
+  for (uint16_t i = 1; i < inputs_count; ++i) {
+    ret = std::min<uint16_t>(ret, inputs[i]->get_cur_block_shortest_key_length());
+  }
+  return ret;
+}
+uint16_t extract_longest_key_length(SortedBuffer* const* inputs, uint16_t inputs_count) {
+  uint16_t ret = inputs[0]->get_cur_block_longest_key_length();
+  for (uint16_t i = 1; i < inputs_count; ++i) {
+    ret = std::max<uint16_t>(ret, inputs[i]->get_cur_block_longest_key_length());
+  }
+  return ret;
+}
+
 MergeSort::MergeSort(
   storage::StorageId id,
   storage::StorageType type,
   Epoch base_epoch,
-  uint16_t shortest_key_length,
-  uint16_t longest_key_length,
   SortedBuffer* const* inputs,
   uint16_t inputs_count,
   uint16_t max_original_pages,
@@ -47,13 +60,15 @@ MergeSort::MergeSort(
     id_(id),
     type_(type),
     base_epoch_(base_epoch),
-    shortest_key_length_(shortest_key_length),
-    longest_key_length_(longest_key_length),
+    shortest_key_length_(extract_shortest_key_length(inputs, inputs_count)),
+    longest_key_length_(extract_longest_key_length(inputs, inputs_count)),
     inputs_(inputs),
     inputs_count_(inputs_count),
     max_original_pages_(max_original_pages),
     chunk_batch_size_(chunk_batch_size),
     work_memory_(work_memory) {
+  ASSERT_ND(shortest_key_length_ <= longest_key_length_);
+  ASSERT_ND(shortest_key_length_ > 0);
   ASSERT_ND(chunk_batch_size_ > 0);
   current_count_ = 0;
   sort_entries_ = nullptr;

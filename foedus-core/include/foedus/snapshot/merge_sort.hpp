@@ -263,8 +263,6 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
     storage::StorageId id,
     storage::StorageType type,
     Epoch base_epoch,
-    uint16_t shortest_key_length,
-    uint16_t longest_key_length,
     SortedBuffer* const* inputs,
     uint16_t inputs_count,
     uint16_t max_original_pages,

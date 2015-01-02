@@ -16,6 +16,7 @@
 #include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/fs/direct_io_file.hpp"
+#include "foedus/snapshot/merge_sort.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_writer_impl.hpp"
 #include "foedus/storage/metadata.hpp"
@@ -45,9 +46,22 @@ MasstreeComposer::MasstreeComposer(Composer *parent)
 ErrorStack MasstreeComposer::compose(const Composer::ComposeArguments& args) {
   VLOG(0) << to_string() << " composing with " << args.log_streams_count_ << " streams.";
   debugging::StopWatch stop_watch;
-  CHECK_ERROR(MasstreeComposeContext::assure_work_memory_size(args));
-  MasstreeComposeContext context(engine_, storage_id_, args);
+
+  snapshot::MergeSort merge_sort(
+    storage_id_,
+    kMasstreeStorage,
+    args.base_epoch_,
+    args.log_streams_,
+    args.log_streams_count_,
+    MasstreeComposeContext::kMaxLevels,
+    args.work_memory_);
+  CHECK_ERROR(merge_sort.initialize());
+
+  MasstreeComposeContext context(engine_, &merge_sort, args);
   CHECK_ERROR(context.execute());
+
+  CHECK_ERROR(merge_sort.uninitialize());  // no need for scoped release. its destructor is safe.
+
   stop_watch.stop();
   LOG(INFO) << to_string() << " done in " << stop_watch.elapsed_ms() << "ms.";
   return kRetOk;
@@ -229,62 +243,17 @@ ErrorStack MasstreeComposer::replace_pointers(const Composer::ReplacePointersArg
 
 ///////////////////////////////////////////////////////////////////////
 ///
-///  MasstreeStreamStatus methods
-///
-///////////////////////////////////////////////////////////////////////
-void MasstreeStreamStatus::init(snapshot::SortedBuffer* stream) {
-  stream_ = stream;
-  stream_->assert_checks();
-  buffer_ = stream->get_buffer();
-  buffer_size_ = stream->get_buffer_size();
-  cur_absolute_pos_ = stream->get_cur_block_abosulte_begin();
-  // this is the initial read of this block, so we are sure cur_block_abosulte_begin is the window
-  ASSERT_ND(cur_absolute_pos_ >= stream->get_offset());
-  cur_relative_pos_ = cur_absolute_pos_ - stream->get_offset();
-  end_absolute_pos_ = stream->get_cur_block_abosulte_end();
-  ended_ = false;
-  if (cur_absolute_pos_ >= end_absolute_pos_) {
-    ended_ = true;
-  }
-}
-
-inline ErrorCode MasstreeStreamStatus::next() {
-  ASSERT_ND(!ended_);
-  const MasstreeCommonLogType* entry = get_entry();
-  cur_absolute_pos_ += entry->header_.log_length_;
-  cur_relative_pos_ += entry->header_.log_length_;
-  if (UNLIKELY(cur_absolute_pos_ >= end_absolute_pos_)) {
-    ended_ = true;
-    return kErrorCodeOk;
-  } else if (UNLIKELY(cur_relative_pos_ >= buffer_size_)) {
-    CHECK_ERROR_CODE(stream_->wind(cur_absolute_pos_));
-    cur_relative_pos_ = stream_->to_relative_pos(cur_absolute_pos_);
-  }
-  return kErrorCodeOk;
-}
-
-inline const MasstreeCommonLogType* MasstreeStreamStatus::get_entry() const {
-  const MasstreeCommonLogType* entry
-    = reinterpret_cast<const MasstreeCommonLogType*>(buffer_ + cur_relative_pos_);
-  ASSERT_ND(entry->header_.get_type() == log::kLogCodeMasstreeOverwrite
-    || entry->header_.get_type() == log::kLogCodeMasstreeDelete
-    || entry->header_.get_type() == log::kLogCodeMasstreeInsert);
-  return entry;
-}
-
-
-///////////////////////////////////////////////////////////////////////
-///
 ///  MasstreeComposeContext methods
 ///
 ///////////////////////////////////////////////////////////////////////
 MasstreeComposeContext::MasstreeComposeContext(
   Engine* engine,
-  StorageId id,
+  snapshot::MergeSort* merge_sort,
   const Composer::ComposeArguments& args)
   : engine_(engine),
-    id_(id),
-    storage_(engine, id),
+    merge_sort_(merge_sort),
+    id_(merge_sort->get_storage_id()),
+    storage_(engine, id_),
     args_(args),
     numa_node_(get_writer()->get_numa_node()),
     max_pages_(get_writer()->get_page_size()),
@@ -292,25 +261,15 @@ MasstreeComposeContext::MasstreeComposeContext(
     // max_intermediates_(get_writer()->get_intermediate_size()),
     page_base_(reinterpret_cast<Page*>(get_writer()->get_page_base())),
     // intermediate_base_(reinterpret_cast<MasstreePage*>(get_writer()->get_intermediate_base())) {
-    original_base_(reinterpret_cast<Page*>(args.work_memory_->get_block())),
-    inputs_(reinterpret_cast<MasstreeStreamStatus*>(
-      reinterpret_cast<char*>(args.work_memory_->get_block()) + kPageSize * (kMaxLevels + 1ULL))) {
+    original_base_(merge_sort->get_original_pages()) {
   page_id_base_ = get_writer()->get_next_page_id();
   root_index_ = 0;
   root_index_mini_ = 0;
   allocated_pages_ = 0;
-  ended_inputs_count_ = 0;
   // allocated_intermediates_ = 0;
   cur_path_levels_ = 0;
   std::memset(cur_path_, 0, sizeof(cur_path_));
   std::memset(cur_prefix_be_, 0, sizeof(cur_prefix_be_));
-}
-
-ErrorStack MasstreeComposeContext::assure_work_memory_size(const Composer::ComposeArguments& args) {
-  uint64_t required_size = sizeof(Page) * (kMaxLevels + 1U);  // original pages
-  required_size += sizeof(MasstreeStreamStatus) * args.log_streams_count_;
-  WRAP_ERROR_CODE(args.work_memory_->assure_capacity(required_size));
-  return kRetOk;
 }
 
 void MasstreeComposeContext::write_dummy_page_zero() {
@@ -346,19 +305,35 @@ inline MasstreePage* MasstreeComposeContext::get_original(memory::PagePoolOffset
 
 ErrorStack MasstreeComposeContext::execute() {
   write_dummy_page_zero();
-  CHECK_ERROR(init_inputs());
   CHECK_ERROR(init_root());
 
+  uint64_t processed = 0;
+  while (true) {
+    CHECK_ERROR(merge_sort_->next_batch());
+    uint64_t count = merge_sort_->get_current_count();
+    if (count == 0 && merge_sort_->is_ended_all()) {
+      break;
+    }
+    CHECK_ERROR(execute_a_batch());
+    processed += count;
+  }
+
+  VLOG(0) << storage_ << " processed " << processed << " logs. now pages=" << allocated_pages_;
+  CHECK_ERROR(flush_buffer());
+  return kRetOk;
+}
+
+inline ErrorStack MasstreeComposeContext::execute_a_batch() {
 #ifndef NDEBUG
   char debug_prev[8192];
   uint16_t debug_prev_length = 0;
 #endif  // NDEBUG
 
   uint64_t flush_threshold = max_pages_ * 8ULL / 10ULL;
-  uint64_t processed = 0;
-  while (ended_inputs_count_ < args_.log_streams_count_) {
-    read_inputs();
-    const MasstreeCommonLogType* entry = next_entry_;
+  uint64_t count = merge_sort_->get_current_count();
+  for (uint64_t cur = 0; cur < count; ++cur) {
+    const MasstreeCommonLogType* entry =
+      reinterpret_cast<const MasstreeCommonLogType*>(merge_sort_->resolve_sort_position(cur));
     const char* key = entry->get_key();
     uint16_t key_length = entry->key_length_;
     ASSERT_ND(key_length > 0);
@@ -451,16 +426,12 @@ ErrorStack MasstreeComposeContext::execute() {
         entry->get_payload(),
         last);
     }
-    WRAP_ERROR_CODE(advance());
 
-    ++processed;
     if (UNLIKELY(allocated_pages_ >= flush_threshold)) {
       CHECK_ERROR(flush_buffer());
     }
   }
 
-  VLOG(0) << storage_ << " processed " << processed << " logs. now pages=" << allocated_pages_;
-  CHECK_ERROR(flush_buffer());
   return kRetOk;
 }
 
@@ -489,16 +460,6 @@ ErrorStack MasstreeComposeContext::init_root() {
     }
   }
 
-  return kRetOk;
-}
-
-ErrorStack MasstreeComposeContext::init_inputs() {
-  for (uint32_t i = 0; i < args_.log_streams_count_; ++i) {
-    inputs_[i].init(args_.log_streams_[i]);
-    if (inputs_[i].ended_) {
-      ++ended_inputs_count_;
-    }
-  }
   return kRetOk;
 }
 
@@ -779,19 +740,6 @@ void MasstreeComposeContext::open_next_level_create_layer(
   // DLOG(INFO) << "Fdsddss " << *parent;
 }
 
-inline ErrorCode MasstreeComposeContext::advance() {
-  ASSERT_ND(!inputs_[next_input_].ended_);
-  // advance the chosen stream
-  CHECK_ERROR_CODE(inputs_[next_input_].next());
-  if (inputs_[next_input_].ended_) {
-    ++ended_inputs_count_;
-    if (ended_inputs_count_ >= args_.log_streams_count_) {
-      ASSERT_ND(ended_inputs_count_ == args_.log_streams_count_);
-    }
-  }
-  return kErrorCodeOk;
-}
-
 inline bool MasstreeComposeContext::does_need_to_adjust_path(
   const char* key,
   uint16_t key_length) const {
@@ -903,30 +851,6 @@ ErrorStack MasstreeComposeContext::adjust_path(const char* key, uint16_t key_len
   ASSERT_ND(get_last_level()->contains_slice(next_slice));
   ASSERT_ND(get_page(get_last_level()->tail_)->is_border());
   return kRetOk;
-}
-
-inline void MasstreeComposeContext::read_inputs() {
-  ASSERT_ND(ended_inputs_count_ < args_.log_streams_count_);
-  if (args_.log_streams_count_ == 1U) {
-    ASSERT_ND(!inputs_[0].ended_);
-    next_input_ = 0;
-    next_entry_ = inputs_[0].get_entry();
-  } else {
-    next_input_ = args_.log_streams_count_;
-    next_entry_ = nullptr;
-    for (uint32_t i = 0; i < args_.log_streams_count_; ++i) {
-      if (!inputs_[i].ended_) {
-        const MasstreeCommonLogType* entry = inputs_[i].get_entry();
-        if (next_entry_ == nullptr
-          || MasstreeCommonLogType::compare_logs(entry, next_entry_) < 0) {
-          next_input_ = i;
-          next_entry_ = inputs_[i].get_entry();
-        }
-      }
-    }
-  }
-  ASSERT_ND(next_input_ < args_.log_streams_count_);
-  ASSERT_ND(next_entry_);
 }
 
 inline void MasstreeComposeContext::append_border(
