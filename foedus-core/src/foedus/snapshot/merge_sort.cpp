@@ -22,16 +22,6 @@
 namespace foedus {
 namespace snapshot {
 
-bool is_array_log_type(uint16_t log_type) {
-  return log_type == log::kLogCodeArrayOverwrite || log_type == log::kLogCodeArrayIncrement;
-}
-bool is_masstree_log_type(uint16_t log_type) {
-  return
-    log_type == log::kLogCodeMasstreeInsert
-    || log_type == log::kLogCodeMasstreeDelete
-    || log_type == log::kLogCodeMasstreeOverwrite;
-}
-
 uint16_t extract_shortest_key_length(SortedBuffer* const* inputs, uint16_t inputs_count) {
   uint16_t ret = inputs[0]->get_cur_block_shortest_key_length();
   for (uint16_t i = 1; i < inputs_count; ++i) {
@@ -255,7 +245,6 @@ uint32_t MergeSort::fetch_logs(
   }
   return fetched_count;
 }
-
 
 void MergeSort::next_chunk(InputIndex input_index) {
   InputStatus* status = inputs_status_ + input_index;
@@ -525,7 +514,7 @@ inline uint16_t MergeSort::populate_entry_array(InputIndex input_index, uint64_t
     false,
     current_count_);
   position_entries_[current_count_].input_index_ = input_index;
-  position_entries_[current_count_].key_length_ = sizeof(storage::array::ArrayOffset);
+  position_entries_[current_count_].log_type_ = the_log->header_.log_type_code_;
   position_entries_[current_count_].input_position_ = to_buffer_position(relative_pos);
   ++current_count_;
 
@@ -556,7 +545,7 @@ inline uint16_t MergeSort::populate_entry_masstree(InputIndex input_index, uint6
     key_length != sizeof(storage::masstree::KeySlice),
     current_count_);
   position_entries_[current_count_].input_index_ = input_index;
-  position_entries_[current_count_].key_length_ = key_length;
+  position_entries_[current_count_].log_type_ = the_log->header_.log_type_code_;
   position_entries_[current_count_].input_position_ = to_buffer_position(relative_pos);
   ++current_count_;
 

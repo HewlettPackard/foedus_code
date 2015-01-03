@@ -10,12 +10,14 @@
 #include "foedus/epoch.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/assorted/cacheline.hpp"
 #include "foedus/log/common_log_types.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/snapshot/fwd.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
+#include "foedus/storage/array/array_log_types.hpp"
 #include "foedus/storage/masstree/masstree_log_types.hpp"
 
 namespace foedus {
@@ -137,8 +139,13 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
    */
   struct PositionEntry {
     uint16_t        input_index_;     // +2 -> 2
-    uint16_t        key_length_;      // +2 -> 4
+    /** not the enum itself for explicit size. use the getter for type safety. */
+    uint16_t        log_type_;        // +2 -> 4
     BufferPosition  input_position_;  // +4 -> 8
+
+    inline log::LogCode get_log_type() const ALWAYS_INLINE {
+      return static_cast<log::LogCode>(log_type_);
+    }
   };
 
   /**
@@ -259,6 +266,17 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
     InputStatus* inputs_status_;
   };
 
+  /**
+   * Represents a group of consecutive logs in the current batch.
+   * Priority is 1) common-key (at least 2 logs), 2) common log code.
+   */
+  struct GroupifyResult {
+    uint32_t count_;            // +4 -> 4
+    bool has_common_key_;       // +1 -> 5
+    bool has_common_log_code_;  // +1 -> 6
+    uint16_t log_code_;         // +2 -> 8
+  };
+
   MergeSort(
     storage::StorageId id,
     storage::StorageType type,
@@ -294,6 +312,19 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
    * @return fetched count. unless sort_pos+count>current_count, same as count.
    */
   uint32_t fetch_logs(uint32_t sort_pos, uint32_t count, log::RecordLogType const** out) const;
+
+  /**
+   * @brief Find a group of consecutive logs from the given position that have either a common
+   * log type or a common key.
+   * @param[in] begin starting position in the sorted array.
+   * @return the group found in the current batch.
+   * @details
+   * Some composer uses this optional method to batch-process the logs.
+   * In an ideal case, there always is a big group, and composer calls this method per
+   * hundreds of logs. But, it's also quite possible that there isn't a good group. Hence,
+   * these methods are called very frequently (potentially for each log). Worth explicit inlining.
+   */
+  GroupifyResult groupify(uint32_t begin) const ALWAYS_INLINE;
 
   /**
    * For debug/test only. Checks if sort_entries_ are indeed fully sorted.
@@ -426,8 +457,157 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
 
   uint16_t populate_entry_array(InputIndex input_index, uint64_t relative_pos) ALWAYS_INLINE;
   uint16_t populate_entry_masstree(InputIndex input_index, uint64_t relative_pos) ALWAYS_INLINE;
+
+  // these methods are called very frequently (potentially for each log). worth explicit inlining.
+  // all of them return the position upto (inclusive) which the logs have the common feature.
+  uint32_t groupify_find_common_keys_8b(uint32_t begin) const ALWAYS_INLINE;
+  uint32_t groupify_find_common_keys_general(uint32_t begin) const ALWAYS_INLINE;
+  uint32_t groupify_find_common_log_type(uint32_t begin) const ALWAYS_INLINE;
 };
 
+
+inline bool is_array_log_type(uint16_t log_type) {
+  return log_type == log::kLogCodeArrayOverwrite || log_type == log::kLogCodeArrayIncrement;
+}
+inline bool is_masstree_log_type(uint16_t log_type) {
+  return
+    log_type == log::kLogCodeMasstreeInsert
+    || log_type == log::kLogCodeMasstreeDelete
+    || log_type == log::kLogCodeMasstreeOverwrite;
+}
+
+inline MergeSort::GroupifyResult MergeSort::groupify(uint32_t begin) const {
+  ASSERT_ND(begin < current_count_);
+  GroupifyResult result;
+  result.count_ = 1;
+  result.has_common_key_ = false;
+  result.has_common_log_code_ = false;
+  result.log_code_ = log::kLogCodeInvalid;
+  if (UNLIKELY(begin + 1U == current_count_)) {
+    return result;
+  }
+
+  // first, check common keys
+  uint32_t cur;
+  if (shortest_key_length_ == 8U && longest_key_length_ == 8U) {
+    cur = groupify_find_common_keys_8b(begin);
+  } else {
+    cur = groupify_find_common_keys_general(begin);
+  }
+
+  ASSERT_ND(cur >= begin);
+  ASSERT_ND(cur < current_count_);
+  if (UNLIKELY(cur != begin)) {
+    result.has_common_key_ = true;
+    result.count_ = cur - begin + 1U;
+    return result;
+  }
+
+  // if keys are different, check common log types.
+  cur = groupify_find_common_log_type(begin);
+  ASSERT_ND(cur >= begin);
+  ASSERT_ND(cur < current_count_);
+  if (UNLIKELY(cur != begin)) {
+    result.has_common_log_code_ = true;
+    result.count_ = cur - begin + 1U;
+    return result;
+  } else {
+    return result;
+  }
+}
+
+inline uint32_t MergeSort::groupify_find_common_keys_8b(uint32_t begin) const {
+  ASSERT_ND(shortest_key_length_ == 8U && longest_key_length_ == 8U);
+  ASSERT_ND(begin + 1U < current_count_);
+  uint32_t cur = begin;
+  // 8 byte key is enough to determine equality.
+  while (sort_entries_[cur].get_key() == sort_entries_[cur + 1U].get_key()
+      && LIKELY(cur + 1U < current_count_)) {
+    ++cur;
+  }
+  return cur;
+}
+
+inline uint32_t MergeSort::groupify_find_common_keys_general(uint32_t begin) const {
+  ASSERT_ND(type_ != storage::kArrayStorage);
+  ASSERT_ND(begin + 1U < current_count_);
+  uint32_t cur = begin;
+  // we might need more. a bit slower.
+  while (sort_entries_[cur].get_key() == sort_entries_[cur + 1U].get_key()
+      && LIKELY(cur + 1U < current_count_)) {
+    if (sort_entries_[cur].needs_additional_check()
+      || sort_entries_[cur + 1U].needs_additional_check()) {
+      MergedPosition cur_pos = sort_entries_[cur].get_position();
+      MergedPosition next_pos = sort_entries_[cur + 1U].get_position();
+      ASSERT_ND(is_masstree_log_type(position_entries_[cur_pos].get_log_type()));
+      ASSERT_ND(is_masstree_log_type(position_entries_[next_pos].get_log_type()));
+      const storage::masstree::MasstreeCommonLogType* cur_log
+        = reinterpret_cast<const storage::masstree::MasstreeCommonLogType*>(
+            resolve_merged_position(cur_pos));
+      const storage::masstree::MasstreeCommonLogType* next_log
+        = reinterpret_cast<const storage::masstree::MasstreeCommonLogType*>(
+            resolve_merged_position(next_pos));
+      uint16_t key_len = cur_log->key_length_;
+      ASSERT_ND(key_len != 8U || next_log->key_length_ != 8U);
+      if (key_len != next_log->key_length_) {
+        break;
+      } else if (key_len > 8U) {
+        if (std::memcmp(cur_log->get_key() + 8, next_log->get_key() + 8, key_len - 8U) != 0) {
+          break;
+        }
+      }
+    }
+    ++cur;
+  }
+  return cur;
+}
+
+inline uint32_t MergeSort::groupify_find_common_log_type(uint32_t begin) const {
+  ASSERT_ND(begin + 1U < current_count_);
+
+  // First, let's avoid (relatively) expensive checks if there is no common log type,
+  // and assume the worst case; we are calling this method for each log.
+  uint32_t cur = begin;
+  PositionEntry cur_pos = position_entries_[sort_entries_[cur].get_position()];
+  PositionEntry next_pos = position_entries_[sort_entries_[cur + 1U].get_position()];
+  if (LIKELY(cur_pos.log_type_ != next_pos.log_type_)) {
+    return cur;
+  }
+
+  // the LIKELY above will be false if there is a group, but then the cost of branch misdetection
+  // is amortized by the (hopefully) large number of logs processed together below.
+
+  // okay, from now on, there likely is a number of logs with same log type.
+  // this method has to read potentially a large number of position entries, which might be
+  // not contiguous. thus, let's do parallel prefetching.
+  const uint16_t kFetchSize = 8;
+  cur = begin + 1U;
+  while (LIKELY(cur + kFetchSize < current_count_)) {
+    for (uint16_t i = 0; i < kFetchSize; ++i) {
+      assorted::prefetch_cacheline(position_entries_ + sort_entries_[cur + i].get_position());
+    }
+    for (uint16_t i = 0; i < kFetchSize; ++i) {
+      PositionEntry cur_pos = position_entries_[sort_entries_[cur + i].get_position()];
+      PositionEntry next_pos = position_entries_[sort_entries_[cur + i + 1U].get_position()];
+      // now that we assume there is a large group, this is UNLIKELY.
+      if (UNLIKELY(cur_pos.log_type_ != next_pos.log_type_)) {
+        return cur + i;
+      }
+    }
+    cur += kFetchSize;
+  }
+
+  // last bits. no optimization needed.
+  while (cur + 1U < current_count_) {
+    PositionEntry cur_pos = position_entries_[sort_entries_[cur].get_position()];
+    PositionEntry next_pos = position_entries_[sort_entries_[cur + 1U].get_position()];
+    if (cur_pos.log_type_ != next_pos.log_type_) {
+      return cur;
+    }
+    ++cur;
+  }
+  return cur;
+}
 
 }  // namespace snapshot
 }  // namespace foedus
