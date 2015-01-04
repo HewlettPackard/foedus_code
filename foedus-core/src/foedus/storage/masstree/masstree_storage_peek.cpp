@@ -17,7 +17,8 @@ namespace masstree {
 
 ErrorCode MasstreeStorage::peek_volatile_page_boundaries(
   Engine* engine, const MasstreeStorage::PeekBoundariesArguments& args) {
-  return MasstreeStoragePimpl(this).peek_volatile_page_boundaries(engine, args);
+  MasstreeStoragePimpl pimpl(this);
+  return pimpl.peek_volatile_page_boundaries(engine, args);
 }
 
 ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries(
@@ -100,8 +101,25 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_next_layer(
   // following code are not transactional at all, but it's fine because these are just hints.
   // however, make sure we don't hit something like segfault. check nulls etc.
   ASSERT_ND(border->within_fences(slice));
-  uint8_t rec = border->find_key_normalized(0, border->get_key_count(), slice);
-  if (UNLIKELY(rec >= border->get_key_count() || !border->does_point_to_layer(rec))) {
+  uint8_t key_count = border->get_key_count();
+  uint8_t rec = MasstreeBorderPage::kMaxKeys;
+  border->prefetch_additional_if_needed(key_count);
+  for (uint8_t i = 0; i < key_count; ++i) {
+    KeySlice cur_slice = border->get_slice(i);
+    if (LIKELY(cur_slice < slice)) {
+      continue;
+    }
+    if (cur_slice > slice) {
+      break;
+    }
+    // one slice might be used for up to 10 keys, length 0 to 8 and pointer to next layer.
+    if (border->does_point_to_layer(i)) {
+      rec = i;
+      break;
+    }
+  }
+
+  if (UNLIKELY(rec >= key_count || !border->does_point_to_layer(rec))) {
     LOG(INFO) << "Slice not found during peeking. Gives up finding a page boundary hint";
     return kErrorCodeOk;
   }
@@ -170,7 +188,7 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_this_layer_recurse
     if (boundary >= args.to_) {  // all pages under the pointer are >= boundary.
       break;
     }
-    if (boundary >= args.from_) {
+    if (boundary > args.from_) {
       // at least guarantee that the resulting found_boundaries_ is ordered.
       if ((*args.found_boundary_count_) == 0
         || args.found_boundaries_[(*args.found_boundary_count_) - 1U] < boundary) {

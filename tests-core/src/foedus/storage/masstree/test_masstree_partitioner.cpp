@@ -43,17 +43,17 @@ ErrorStack populate_task(const proc::ProcArguments& args) {
   EXPECT_TRUE(storage.exists());
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   Epoch commit_epoch;
-  COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   for (uint64_t i = 0; i < table_size / 2U; ++i) {
     uint32_t id = i + (context->get_thread_id() == 0 ? 0 : table_size / 2U);
-    COERCE_ERROR(storage.insert_record_normalized(context, nm(id), &id, sizeof(id)));
+    WRAP_ERROR_CODE(storage.insert_record_normalized(context, nm(id), &id, sizeof(id)));
   }
-  COERCE_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
-  COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   COERCE_ERROR(storage.verify_single_thread(context));
-  COERCE_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
-  COERCE_ERROR(xct_manager->wait_for_commit(commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   return kRetOk;
 }
 
