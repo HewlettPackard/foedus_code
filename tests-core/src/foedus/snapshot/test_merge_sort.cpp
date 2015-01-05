@@ -169,8 +169,14 @@ struct TestBase {
           EXPECT_EQ(accumulative_i % get_input_count(), pos.input_index_);
         }
 
-        EXPECT_GE(pos.key_length_, shortest_key_length_);
-        EXPECT_LE(pos.key_length_, longest_key_length_);
+        if (storage_type == storage::kArrayStorage) {
+          EXPECT_TRUE(pos.get_log_type() == log::kLogCodeArrayOverwrite
+            || pos.get_log_type() == log::kLogCodeArrayIncrement);
+        } else {
+          EXPECT_TRUE(pos.get_log_type() == log::kLogCodeMasstreeInsert
+            || pos.get_log_type() == log::kLogCodeMasstreeDelete
+            || pos.get_log_type() == log::kLogCodeMasstreeOverwrite);
+        }
 
         const auto* log = reinterpret_cast<const log::RecordLogType*>(
           merge_sort.resolve_sort_position(i));
@@ -178,6 +184,7 @@ struct TestBase {
         EXPECT_EQ(ordinal, log->header_.xct_id_.get_ordinal());
         verify(log, key, reinterpret_cast<const char*>(&accumulative_i));
       }
+
       // also try fetch_logs
       const storage::array::ArrayOverwriteLogType* logs[kFetchSize];
       for (uint64_t i = 0; i < merge_sort.get_current_count();) {
@@ -199,6 +206,47 @@ struct TestBase {
         i+= fetched;
         ASSERT_ND(i <= merge_sort.get_current_count());
       }
+
+      // also also, try groupify.
+      // because these testcases use just one log type, this only covers the common-key cases.
+      // better to have a specific testcase to cover common log-type cases.
+      uint64_t cur;
+      for (cur = 0; cur < merge_sort.get_current_count();) {
+        MergeSort::GroupifyResult result = merge_sort.groupify(cur);
+        ASSERT_ND(result.count_ > 0);
+        if (result.count_ == 1U) {
+          EXPECT_FALSE(result.has_common_key_);
+          EXPECT_FALSE(result.has_common_log_code_);
+          if (cur + 1U < merge_sort.get_current_count()) {
+            uint64_t cur_key = to_key(cur + total_processed, distribution_);
+            uint64_t next_key = to_key(cur + 1U + total_processed, distribution_);
+            EXPECT_NE(cur_key, next_key) << cur;
+          }
+        } else if (result.has_common_key_) {
+          EXPECT_FALSE(result.has_common_log_code_);
+          ASSERT_ND(result.count_ > 1U);
+          for (uint32_t i = 0; i < result.count_ - 1U; ++i) {
+            uint64_t cur_key = to_key(cur + i + total_processed, distribution_);
+            uint64_t next_key = to_key(cur + i + 1U + total_processed, distribution_);
+            EXPECT_EQ(cur_key, next_key) << cur;
+          }
+          if (cur + result.count_ - 1U < merge_sort.get_current_count()) {
+            uint64_t cur_key = to_key(cur + result.count_ - 1U + total_processed, distribution_);
+            uint64_t next_key = to_key(cur + result.count_ + total_processed, distribution_);
+            EXPECT_NE(cur_key, next_key) << cur;
+          }
+        } else {
+          EXPECT_TRUE(result.has_common_log_code_);
+          ASSERT_ND(result.count_ > 1U);
+        }
+
+        // std::cout << "group " << cur << "-" << (cur + result.count_)
+        //   << ". common-key=" << result.has_common_key_
+        //   << ", common_type=" << result.has_common_log_code_ << std::endl;
+        cur += result.count_;
+      }
+      ASSERT_ND(cur == merge_sort.get_current_count());
+
       total_processed += merge_sort.get_current_count();
     }
     COERCE_ERROR(merge_sort.uninitialize());

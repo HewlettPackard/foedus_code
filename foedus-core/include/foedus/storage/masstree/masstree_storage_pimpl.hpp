@@ -321,6 +321,23 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     DualPagePointer* pointer,
     bool* kept_volatile,
     MasstreeBorderPage* volatile_page);
+
+  /** Defined in masstree_storage_peek.cpp */
+  ErrorCode     peek_volatile_page_boundaries(
+    Engine* engine,
+    const MasstreeStorage::PeekBoundariesArguments& args);
+  ErrorCode     peek_volatile_page_boundaries_next_layer(
+    const MasstreeIntermediatePage* layer_root,
+    const memory::GlobalVolatilePageResolver& resolver,
+    const MasstreeStorage::PeekBoundariesArguments& args);
+  ErrorCode     peek_volatile_page_boundaries_this_layer(
+    const MasstreeIntermediatePage* layer_root,
+    const memory::GlobalVolatilePageResolver& resolver,
+    const MasstreeStorage::PeekBoundariesArguments& args);
+  ErrorCode     peek_volatile_page_boundaries_this_layer_recurse(
+    const MasstreeIntermediatePage* cur,
+    const memory::GlobalVolatilePageResolver& resolver,
+    const MasstreeStorage::PeekBoundariesArguments& args);
 };
 static_assert(sizeof(MasstreeStoragePimpl) <= kPageSize, "MasstreeStoragePimpl is too large");
 static_assert(

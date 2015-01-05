@@ -380,6 +380,37 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     Engine* engine,
     bool volatile_only = false,
     uint32_t max_pages = 1024U);
+
+  /** Arguments for peek_volatile_page_boundaries() */
+  struct PeekBoundariesArguments {
+    /** [IN] slices of higher layers that lead to the B-trie layer of interest. null if 1st layer */
+    const KeySlice* prefix_slices_;
+    /** [IN] size of prefix_slices_. 0 means we are interested in the first layer. */
+    uint32_t prefix_slice_count_;
+    /** [IN] capacity of found_boundaries_. */
+    uint32_t found_boundary_capacity_;
+    /** [IN] lists up page boundaries from this slice */
+    KeySlice from_;
+    /** [IN] lists up page boundaries up to this slice */
+    KeySlice to_;
+    /** [OUT] fence-slices of border pages between from-to */
+    KeySlice* found_boundaries_;
+    /** [OUT] number of found_boundaries_ entries returned */
+    uint32_t* found_boundary_count_;
+  };
+
+  /**
+   * @brief Checks the volatile pages of this storage to give hints to decide page boundary keys.
+   * @details
+   * This method is used from the composer to make page boundaries in snapshot pages better aligned
+   * with those of volatile pages so that we can drop more volatile pages at the end.
+   * This method is opportunistic, meaning the result is not guaranteed to be transactionally
+   * correct, but that's fine because these are just hints. If the page boundary is not aligned
+   * well with volatile pages, we just have to keep more volatile pages for a while.
+   * In fact, the composer might ignore these hints in some cases (eg. a page has too few tuples).
+   * Defined in masstree_storage_peek.cpp
+   */
+  ErrorCode   peek_volatile_page_boundaries(Engine* engine, const PeekBoundariesArguments& args);
 };
 }  // namespace masstree
 }  // namespace storage
