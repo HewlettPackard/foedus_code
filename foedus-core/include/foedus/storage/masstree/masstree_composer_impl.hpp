@@ -123,6 +123,13 @@ class MasstreeComposeContext {
     kMaxLevels = 32,
     /** We assume B-trie depth is at most this (prefix is at most 8*this value)*/
     kMaxLayers = 16,
+    /** Maximum number of logs execute_xxx_group methods process in one shot */
+    kMaxLogGroupSize = 1 << 14,
+    /**
+     * Size of the tmp_boundary_array_.
+     * Most likely we don't need this much, but this memory consumtion is negligible anyways.
+     */
+    kTmpBoundaryArraySize = 1 << 11,
   };
 
   /**
@@ -222,6 +229,7 @@ class MasstreeComposeContext {
     ++allocated_pages_;
     return new_offset;
   }
+
   MasstreePage*             get_page(memory::PagePoolOffset offset) const ALWAYS_INLINE;
   MasstreePage*             get_original(memory::PagePoolOffset offset) const ALWAYS_INLINE;
   MasstreeIntermediatePage* as_intermdiate(MasstreePage* page) const ALWAYS_INLINE;
@@ -240,14 +248,67 @@ class MasstreeComposeContext {
       return get_last_level()->layer_;
     }
   }
-  void                      store_cur_prefix_be(uint8_t layer, KeySlice prefix_slice);
+  void                      store_cur_prefix(uint8_t layer, KeySlice prefix_slice);
 
   PathLevel*                get_second_last_level() {
     ASSERT_ND(cur_path_levels_ > 1U);
     return cur_path_ + (cur_path_levels_ - 2U);
   }
 
-  ErrorStack  execute_a_batch();
+  /**
+   * execute() invokes this to process just one log that does not fit any of the following groups.
+   * unlike other group-based method, this method must be much faster.
+   * it's possible that we can't find a group, in which case this method is invoked for each log.
+   */
+  ErrorStack  execute_a_log(uint32_t cur);
+  /**
+   * execute() invokes this to process a number of contiguous logs that have the same key.
+   * Optimization benefits:
+   *  \li amortize the cost of adjust_path and in-page key comparison
+   *  \li nullify all logs before delete-log.
+   *
+   * This often eliminates a large fraction of logs in a high-frequency insert-delete type of table.
+   */
+  ErrorStack  execute_same_key_group(uint32_t from, uint32_t to);
+  /**
+   * execute() invokes this to process a number of contiguous insert-logs.
+   * Optimization benefits:
+   *  \li amortize the cost of adjust_path
+   *  \li amortize the cost of peeking to determine page boundaries
+   *
+   * This is one of the most important optimizations. Lots of inserts as table-load or creating a
+   * new sub-tree is quite common.
+   * We have to also choose a right page boundary in this case, so we use peeking to get hints.
+   */
+  ErrorStack  execute_insert_group(uint32_t from, uint32_t to);
+  /**
+   * Sub routine of execute_insert_group().
+   * @return the number of logs from cur that can be processed without considering page-shift,
+   * next-layer, or original-records. 0 means we have to process the log as usual.
+   */
+  uint32_t    execute_insert_group_get_cur_run(
+    uint32_t cur,
+    uint32_t to,
+    KeySlice* min_slice,
+    KeySlice* max_slice);
+  /** Sub routine of execute_insert_group(). The tight loop to actually append records. */
+  ErrorCode   execute_insert_group_append_loop(uint32_t from, uint32_t to, uint32_t hint_count);
+  /**
+   * execute() invokes this to process a number of contiguous delete-logs.
+   * Optimization benefits:
+   *  \li amortize the cost of adjust_path (per page. still page-shift is required)
+   *
+   * This is not a so common case. Optimization not implemented yet.
+   */
+  ErrorStack  execute_delete_group(uint32_t from, uint32_t to);
+  /**
+   * execute() invokes this to process a number of contiguous overwrite-logs.
+   * Optimization benefits:
+   *  \li amortize the cost of adjust_path (per page. still page-shift is required)
+   *
+   * This one is so-so common. Anyway this one is simple as there is no page split/merge.
+   */
+  ErrorStack  execute_overwrite_group(uint32_t from, uint32_t to);
 
   /** When the main buffer of writer has no page, appends a dummy page for easier debugging. */
   void        write_dummy_page_zero();
@@ -286,6 +347,13 @@ class MasstreeComposeContext {
    * Writing-out and re-reading the tentative pages in pathway shouldn't be a big issue.
    */
   ErrorStack  flush_buffer();
+  inline ErrorStack flush_if_nearly_full() {
+    uint64_t threshold = max_pages_ * 8ULL / 10ULL;
+    if (UNLIKELY(allocated_pages_ >= threshold || allocated_pages_ + 256U >= max_pages_)) {
+      CHECK_ERROR(flush_buffer());
+    }
+    return kRetOk;
+  }
 
   ErrorStack  adjust_path(const char* key, uint16_t key_length);
 
@@ -355,7 +423,7 @@ class MasstreeComposeContext {
   Engine* const             engine_;
   snapshot::MergeSort* const  merge_sort_;
   const StorageId           id_;
-  const MasstreeStorage     storage_;
+  MasstreeStorage           storage_;
   const Composer::ComposeArguments& args_;
 
   const uint16_t            numa_node_;
@@ -370,7 +438,7 @@ class MasstreeComposeContext {
 
   /** same as snapshot_writer_->get_page_base() */
   Page* const       page_base_;
-  /** same as work_memory_->get_block(). Index is level. */
+  /** backed by work memory in merge_sort_. Index is level. */
   Page* const       original_base_;
 
   // const members up to here.
@@ -411,6 +479,10 @@ class MasstreeComposeContext {
   PathLevel                 cur_path_[kMaxLevels];
   /** Prefix slice in the original big-endian format, upto get_last_layer() * kSliceLen. */
   char                      cur_prefix_be_[kMaxLayers * kSliceLen];
+  /** Prefix slice in native order */
+  KeySlice                  cur_prefix_slices_[kMaxLayers];
+  /** only used in execute_insert_group() */
+  KeySlice                  tmp_boundary_array_[kTmpBoundaryArraySize];
 };
 
 }  // namespace masstree

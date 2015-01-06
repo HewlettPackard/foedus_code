@@ -5,6 +5,8 @@
 #ifndef FOEDUS_SNAPSHOT_MERGE_SORT_HPP_
 #define FOEDUS_SNAPSHOT_MERGE_SORT_HPP_
 
+#include <algorithm>
+
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
 #include "foedus/epoch.hpp"
@@ -275,6 +277,9 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
     bool has_common_key_;       // +1 -> 5
     bool has_common_log_code_;  // +1 -> 6
     uint16_t log_code_;         // +2 -> 8
+    inline log::LogCode get_log_type() const ALWAYS_INLINE {
+      return static_cast<log::LogCode>(log_code_);
+    }
   };
 
   MergeSort(
@@ -317,6 +322,7 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
    * @brief Find a group of consecutive logs from the given position that have either a common
    * log type or a common key.
    * @param[in] begin starting position in the sorted array.
+   * @param[in] limit maximum number of logs to check. If not specified, all logs in the batch.
    * @return the group found in the current batch.
    * @details
    * Some composer uses this optional method to batch-process the logs.
@@ -324,7 +330,7 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
    * hundreds of logs. But, it's also quite possible that there isn't a good group. Hence,
    * these methods are called very frequently (potentially for each log). Worth explicit inlining.
    */
-  GroupifyResult groupify(uint32_t begin) const ALWAYS_INLINE;
+  GroupifyResult groupify(uint32_t begin, uint32_t limit = 0) const ALWAYS_INLINE;
 
   /**
    * For debug/test only. Checks if sort_entries_ are indeed fully sorted.
@@ -347,10 +353,15 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
   }
 
   inline storage::StorageId get_storage_id() const ALWAYS_INLINE { return id_; }
+  inline Epoch          get_base_epoch() const ALWAYS_INLINE { return base_epoch_; }
   inline MergedPosition get_current_count() const ALWAYS_INLINE { return current_count_; }
   inline InputIndex     get_inputs_count() const ALWAYS_INLINE { return inputs_count_; }
   inline const PositionEntry* get_position_entries() const ALWAYS_INLINE {
     return position_entries_;
+  }
+  inline log::LogCode get_log_type_from_sort_position(uint32_t sort_pos) const ALWAYS_INLINE {
+    MergedPosition pos = sort_entries_[sort_pos].get_position();
+    return position_entries_[pos].get_log_type();
   }
   inline const SortEntry* get_sort_entries() const ALWAYS_INLINE { return sort_entries_; }
   inline const log::RecordLogType* resolve_merged_position(MergedPosition pos) const ALWAYS_INLINE {
@@ -460,9 +471,9 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
 
   // these methods are called very frequently (potentially for each log). worth explicit inlining.
   // all of them return the position upto (inclusive) which the logs have the common feature.
-  uint32_t groupify_find_common_keys_8b(uint32_t begin) const ALWAYS_INLINE;
-  uint32_t groupify_find_common_keys_general(uint32_t begin) const ALWAYS_INLINE;
-  uint32_t groupify_find_common_log_type(uint32_t begin) const ALWAYS_INLINE;
+  uint32_t groupify_find_common_keys_8b(uint32_t begin, uint32_t limit) const ALWAYS_INLINE;
+  uint32_t groupify_find_common_keys_general(uint32_t begin, uint32_t limit) const ALWAYS_INLINE;
+  uint32_t groupify_find_common_log_type(uint32_t begin, uint32_t limit) const ALWAYS_INLINE;
 };
 
 
@@ -476,7 +487,7 @@ inline bool is_masstree_log_type(uint16_t log_type) {
     || log_type == log::kLogCodeMasstreeOverwrite;
 }
 
-inline MergeSort::GroupifyResult MergeSort::groupify(uint32_t begin) const {
+inline MergeSort::GroupifyResult MergeSort::groupify(uint32_t begin, uint32_t limit) const {
   ASSERT_ND(begin < current_count_);
   GroupifyResult result;
   result.count_ = 1;
@@ -490,9 +501,9 @@ inline MergeSort::GroupifyResult MergeSort::groupify(uint32_t begin) const {
   // first, check common keys
   uint32_t cur;
   if (shortest_key_length_ == 8U && longest_key_length_ == 8U) {
-    cur = groupify_find_common_keys_8b(begin);
+    cur = groupify_find_common_keys_8b(begin, limit);
   } else {
-    cur = groupify_find_common_keys_general(begin);
+    cur = groupify_find_common_keys_general(begin, limit);
   }
 
   ASSERT_ND(cur >= begin);
@@ -504,11 +515,12 @@ inline MergeSort::GroupifyResult MergeSort::groupify(uint32_t begin) const {
   }
 
   // if keys are different, check common log types.
-  cur = groupify_find_common_log_type(begin);
+  cur = groupify_find_common_log_type(begin, limit);
   ASSERT_ND(cur >= begin);
   ASSERT_ND(cur < current_count_);
   if (UNLIKELY(cur != begin)) {
     result.has_common_log_code_ = true;
+    result.log_code_ = position_entries_[sort_entries_[cur].get_position()].log_type_;
     result.count_ = cur - begin + 1U;
     return result;
   } else {
@@ -516,25 +528,27 @@ inline MergeSort::GroupifyResult MergeSort::groupify(uint32_t begin) const {
   }
 }
 
-inline uint32_t MergeSort::groupify_find_common_keys_8b(uint32_t begin) const {
+inline uint32_t MergeSort::groupify_find_common_keys_8b(uint32_t begin, uint32_t limit) const {
   ASSERT_ND(shortest_key_length_ == 8U && longest_key_length_ == 8U);
   ASSERT_ND(begin + 1U < current_count_);
+  const uint32_t end = limit ? std::min<uint32_t>(current_count_, begin + limit) : current_count_;
   uint32_t cur = begin;
   // 8 byte key is enough to determine equality.
   while (sort_entries_[cur].get_key() == sort_entries_[cur + 1U].get_key()
-      && LIKELY(cur + 1U < current_count_)) {
+      && LIKELY(cur + 1U < end)) {
     ++cur;
   }
   return cur;
 }
 
-inline uint32_t MergeSort::groupify_find_common_keys_general(uint32_t begin) const {
+inline uint32_t MergeSort::groupify_find_common_keys_general(uint32_t begin, uint32_t limit) const {
   ASSERT_ND(type_ != storage::kArrayStorage);
   ASSERT_ND(begin + 1U < current_count_);
+  const uint32_t end = limit ? std::min<uint32_t>(current_count_, begin + limit) : current_count_;
   uint32_t cur = begin;
   // we might need more. a bit slower.
   while (sort_entries_[cur].get_key() == sort_entries_[cur + 1U].get_key()
-      && LIKELY(cur + 1U < current_count_)) {
+      && LIKELY(cur + 1U < end)) {
     if (sort_entries_[cur].needs_additional_check()
       || sort_entries_[cur + 1U].needs_additional_check()) {
       MergedPosition cur_pos = sort_entries_[cur].get_position();
@@ -562,12 +576,13 @@ inline uint32_t MergeSort::groupify_find_common_keys_general(uint32_t begin) con
   return cur;
 }
 
-inline uint32_t MergeSort::groupify_find_common_log_type(uint32_t begin) const {
+inline uint32_t MergeSort::groupify_find_common_log_type(uint32_t begin, uint32_t limit) const {
   ASSERT_ND(begin + 1U < current_count_);
 
   // First, let's avoid (relatively) expensive checks if there is no common log type,
   // and assume the worst case; we are calling this method for each log.
   uint32_t cur = begin;
+  const uint32_t end = limit ? std::min<uint32_t>(current_count_, begin + limit) : current_count_;
   PositionEntry cur_pos = position_entries_[sort_entries_[cur].get_position()];
   PositionEntry next_pos = position_entries_[sort_entries_[cur + 1U].get_position()];
   if (LIKELY(cur_pos.log_type_ != next_pos.log_type_)) {
@@ -582,7 +597,7 @@ inline uint32_t MergeSort::groupify_find_common_log_type(uint32_t begin) const {
   // not contiguous. thus, let's do parallel prefetching.
   const uint16_t kFetchSize = 8;
   cur = begin + 1U;
-  while (LIKELY(cur + kFetchSize < current_count_)) {
+  while (LIKELY(cur + kFetchSize < end)) {
     for (uint16_t i = 0; i < kFetchSize; ++i) {
       assorted::prefetch_cacheline(position_entries_ + sort_entries_[cur + i].get_position());
     }
@@ -598,7 +613,7 @@ inline uint32_t MergeSort::groupify_find_common_log_type(uint32_t begin) const {
   }
 
   // last bits. no optimization needed.
-  while (cur + 1U < current_count_) {
+  while (cur + 1U < end) {
     PositionEntry cur_pos = position_entries_[sort_entries_[cur].get_position()];
     PositionEntry next_pos = position_entries_[sort_entries_[cur + 1U].get_position()];
     if (cur_pos.log_type_ != next_pos.log_type_) {

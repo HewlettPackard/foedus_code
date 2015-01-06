@@ -31,6 +31,14 @@ namespace foedus {
 namespace storage {
 namespace masstree {
 
+inline void fill_payload_padded(char* destination, const char* source, uint16_t count) {
+  if (count > 0) {
+    ASSERT_ND(is_key_aligned_and_zero_padded(source, count));
+    std::memcpy(destination, source, assorted::align8(count));
+  }
+}
+
+
 ///////////////////////////////////////////////////////////////////////
 ///
 ///  MasstreeComposer methods
@@ -270,6 +278,8 @@ MasstreeComposeContext::MasstreeComposeContext(
   cur_path_levels_ = 0;
   std::memset(cur_path_, 0, sizeof(cur_path_));
   std::memset(cur_prefix_be_, 0, sizeof(cur_prefix_be_));
+  std::memset(cur_prefix_slices_, 0, sizeof(cur_prefix_slices_));
+  std::memset(tmp_boundary_array_, 0, sizeof(tmp_boundary_array_));
 }
 
 void MasstreeComposeContext::write_dummy_page_zero() {
@@ -303,9 +313,19 @@ inline MasstreePage* MasstreeComposeContext::get_original(memory::PagePoolOffset
   return reinterpret_cast<MasstreePage*>(original_base_ + offset);
 }
 
+///////////////////////////////////////////////////////////////////////
+///
+///  MasstreeComposeContext::execute() and subroutines for log groups
+///
+///////////////////////////////////////////////////////////////////////
 ErrorStack MasstreeComposeContext::execute() {
   write_dummy_page_zero();
   CHECK_ERROR(init_root());
+
+#ifndef NDEBUG
+  char debug_prev[8192];
+  uint16_t debug_prev_length = 0;
+#endif  // NDEBUG
 
   uint64_t processed = 0;
   while (true) {
@@ -314,8 +334,58 @@ ErrorStack MasstreeComposeContext::execute() {
     if (count == 0 && merge_sort_->is_ended_all()) {
       break;
     }
-    CHECK_ERROR(execute_a_batch());
-    processed += count;
+
+#ifndef NDEBUG
+    // confirm that it's fully sorted
+    for (uint64_t i = 0; i < count; ++i) {
+      const MasstreeCommonLogType* entry =
+        reinterpret_cast<const MasstreeCommonLogType*>(merge_sort_->resolve_sort_position(i));
+      const char* key = entry->get_key();
+      uint16_t key_length = entry->key_length_;
+      ASSERT_ND(key_length > 0);
+      if (key_length < debug_prev_length) {
+        ASSERT_ND(std::memcmp(debug_prev, key, key_length) <= 0);
+      } else {
+        ASSERT_ND(std::memcmp(debug_prev, key, debug_prev_length) <= 0);
+      }
+      std::memcpy(debug_prev, key, key_length);
+      debug_prev_length = key_length;
+    }
+#endif  // NDEBUG
+
+    // within the batch, we further split them into "groups" that share the same key or log types
+    // so that we can process a number of logs in a tight loop.
+    uint64_t cur = 0;
+    uint32_t group_count = 0;
+    while (cur < count) {
+      snapshot::MergeSort::GroupifyResult group = merge_sort_->groupify(cur, kMaxLogGroupSize);
+      ASSERT_ND(group.count_ <= kMaxLogGroupSize);
+      if (LIKELY(group.count_ == 1U)) {  // misprediction is amortized by group, so LIKELY is better
+        // no grouping. slowest case. has to be reasonably fast even in this case.
+        ASSERT_ND(!group.has_common_key_);
+        ASSERT_ND(!group.has_common_log_code_);
+        CHECK_ERROR(execute_a_log(cur));
+      } else if (group.has_common_key_) {
+        CHECK_ERROR(execute_same_key_group(cur, cur + group.count_));
+      } else {
+        ASSERT_ND(group.has_common_log_code_);
+        log::LogCode log_type = group.get_log_type();
+        if (log_type == log::kLogCodeMasstreeInsert) {
+          CHECK_ERROR(execute_insert_group(cur, cur + group.count_));
+        } else if (log_type == log::kLogCodeMasstreeDelete) {
+          CHECK_ERROR(execute_delete_group(cur, cur + group.count_));
+        } else {
+          ASSERT_ND(log_type == log::kLogCodeMasstreeOverwrite);
+          CHECK_ERROR(execute_overwrite_group(cur, cur + group.count_));
+        }
+      }
+      cur += group.count_;
+      processed += group.count_;
+      ++group_count;
+    }
+    ASSERT_ND(cur == count);
+    VLOG(1) << storage_ << " processed a batch of " << cur << " logs that has " << group_count
+      << " groups";
   }
 
   VLOG(0) << storage_ << " processed " << processed << " logs. now pages=" << allocated_pages_;
@@ -323,118 +393,495 @@ ErrorStack MasstreeComposeContext::execute() {
   return kRetOk;
 }
 
-inline ErrorStack MasstreeComposeContext::execute_a_batch() {
-#ifndef NDEBUG
-  char debug_prev[8192];
-  uint16_t debug_prev_length = 0;
-#endif  // NDEBUG
-
-  uint64_t flush_threshold = max_pages_ * 8ULL / 10ULL;
-  uint64_t count = merge_sort_->get_current_count();
-  for (uint64_t cur = 0; cur < count; ++cur) {
-    const MasstreeCommonLogType* entry =
-      reinterpret_cast<const MasstreeCommonLogType*>(merge_sort_->resolve_sort_position(cur));
-    const char* key = entry->get_key();
-    uint16_t key_length = entry->key_length_;
-    ASSERT_ND(key_length > 0);
-    ASSERT_ND(cur_path_levels_ == 0 || get_page(get_last_level()->tail_)->is_border());
-    ASSERT_ND(is_key_aligned_and_zero_padded(key, key_length));
-
-#ifndef NDEBUG
-    if (key_length < debug_prev_length) {
-      ASSERT_ND(std::memcmp(debug_prev, key, key_length) <= 0);
+ErrorStack MasstreeComposeContext::execute_same_key_group(uint32_t from, uint32_t to) {
+  // before everything else, we look for delete-log, which nullifies all logs before it.
+  bool observed_insert_log = false;
+  bool processed_deletion = false;  // just for sanity check
+  uint32_t processed_count = 0;
+  for (uint32_t i = from; i < to; ++i) {
+    log::LogCode log_type = merge_sort_->get_log_type_from_sort_position(i);
+    if (log_type == log::kLogCodeMasstreeInsert) {
+      ASSERT_ND(observed_insert_log == false);
+      observed_insert_log = true;
+      processed_deletion = false;
+    } else if (log_type == log::kLogCodeMasstreeDelete) {
+      // bingo! we can ignore everything before this.
+      // 1) if there is an insert-log before this, we don't have to even look at the data page.
+      // the insert-log (and overwrite-logs after that) and delete-log cancel each other.
+      // 2) if there is not an insert-log, we process the deletion as usual.
+      if (observed_insert_log) {
+        observed_insert_log = false;  // case 1)
+      } else {
+        CHECK_ERROR(execute_a_log(i));  // case 2)
+      }
+      ASSERT_ND(!processed_deletion);
+      processed_deletion = true;   // thus, this can be followed only by insertion
+      processed_count = i + 1U - from;
     } else {
-      ASSERT_ND(std::memcmp(debug_prev, key, debug_prev_length) <= 0);
+      ASSERT_ND(log_type == log::kLogCodeMasstreeOverwrite);
+      ASSERT_ND(!processed_deletion);  // if so, we are sure the key doesn't exist!
     }
-    std::memcpy(debug_prev, key, key_length);
-    debug_prev_length = key_length;
-#endif  // NDEBUG
+  }
 
-    if (UNLIKELY(does_need_to_adjust_path(key, key_length))) {
-      CHECK_ERROR(adjust_path(key, key_length));
+  ASSERT_ND(processed_count + from <= to);
+  if (processed_count + from == to) {
+    DVLOG(1) << "yay, same-key-group completely eliminated a group of "
+      << processed_count << " logs";
+    return kRetOk;
+  }
+
+  // after removing deletions, the only possible combinations are:
+  // a) insert-log at first, then all overwrite-logs after that. the data page doesn't have the key.
+  // b) all overwrite-logs. the data page already has the key.
+  if (observed_insert_log) {
+    // case a)
+    // process the first insertion as usual. after this, we are guaranteed to be at the key.
+    ASSERT_ND(merge_sort_->get_log_type_from_sort_position(from + processed_count)
+      == log::kLogCodeMasstreeInsert);
+  } else {
+    // case b)
+    // to simplify the code, process the first overwrite as usual to do seek.
+    // we could do a bit different thing, but performance is same if the group is large.
+    ASSERT_ND(merge_sort_->get_log_type_from_sort_position(from + processed_count)
+      == log::kLogCodeMasstreeOverwrite);
+  }
+
+  // in either case above, we process the first log as usual.
+  CHECK_ERROR(execute_a_log(from + processed_count));
+
+  // then process the remaining overwrites in a tight loop.
+  // we are sure the tail-record in the tail page points to the record.
+  PathLevel* last = get_last_level();
+  ASSERT_ND(get_page(last->tail_)->is_border());
+  MasstreeBorderPage* page = as_border(get_page(last->tail_));
+  uint16_t key_count = page->get_key_count();
+  ASSERT_ND(key_count > 0);
+  uint16_t index = key_count - 1;
+  ASSERT_ND(!page->does_point_to_layer(index));
+  char* record = page->get_record(index);
+  for (uint32_t i = from + processed_count + 1U; i < to; ++i) {
+    const MasstreeOverwriteLogType* casted =
+      reinterpret_cast<const MasstreeOverwriteLogType*>(merge_sort_->resolve_sort_position(i));
+    ASSERT_ND(casted->header_.get_type() == log::kLogCodeMasstreeOverwrite);
+    ASSERT_ND(page->equal_key(index, casted->get_key(), casted->key_length_));
+    casted->apply_record(nullptr, id_, page->get_owner_id(index), record);
+  }
+  return kRetOk;
+}
+
+ErrorStack MasstreeComposeContext::execute_insert_group(uint32_t from, uint32_t to) {
+  uint32_t cur = from;
+  while (cur < to) {
+    // let's see if the remaining logs are smaller than existing records or the page boundary.
+    // if so, we can simply create new pages for a (hopefully large) number of logs.
+    // in the worst case, it's like a marble (newrec, oldrec, newrec, oldrec, ...) in a page
+    // or even worse a newrec in a page, a newrec in another page, ... If that is the case,
+    // we insert as usual. but, in many cases a group of inserts create a new region.
+    KeySlice min_slice;
+    KeySlice max_slice;
+    uint32_t run_count = execute_insert_group_get_cur_run(cur, to, &min_slice, &max_slice);
+    if (run_count <= 1U) {
+      ASSERT_ND(merge_sort_->get_log_type_from_sort_position(cur) == log::kLogCodeMasstreeInsert);
+      CHECK_ERROR(execute_a_log(cur));
+      ++cur;
+      continue;
     }
+
+    DVLOG(2) << "Great, " << run_count << " insert-logs to process in the current context.";
+    CHECK_ERROR(flush_if_nearly_full());  // so that the append loop doesn't have to check
 
     PathLevel* last = get_last_level();
     ASSERT_ND(get_page(last->tail_)->is_border());
-    KeySlice slice = normalize_be_bytes_full_aligned(key + last->layer_ * kSliceLen);
-    ASSERT_ND(last->contains_slice(slice));
+    MasstreeBorderPage* page = as_border(get_page(last->tail_));
+    // now these logs are guaranteed to be:
+    //  1) fence-wise fit in the current B-tree page (of course might need page splits).
+    //  2) can be stored in the current B-trie layer.
+    //  3) no overlap with existing records.
+    // thus, we just create a sequence of new B-tree pages next to the current page.
 
-    // we might have to consume original records before processing this log.
-    if (last->needs_to_consume_original(slice, key_length)) {
-      CHECK_ERROR(consume_original_upto_border(slice, key_length, last));
-      ASSERT_ND(!last->needs_to_consume_original(slice, key_length));
+    // first, let's get hints about new page boundaries to align well with volatile pages.
+    ASSERT_ND(min_slice >= page->get_low_fence());
+    ASSERT_ND(max_slice <= page->get_high_fence());
+    uint32_t found_boundaries_count = 0;
+    MasstreeStorage::PeekBoundariesArguments args = {
+      cur_prefix_slices_,
+      last->layer_,
+      kTmpBoundaryArraySize,
+      min_slice,
+      max_slice,
+      tmp_boundary_array_,
+      &found_boundaries_count };
+    WRAP_ERROR_CODE(storage_.peek_volatile_page_boundaries(engine_, args));
+    ASSERT_ND(found_boundaries_count <= kTmpBoundaryArraySize);
+    DVLOG(2) << found_boundaries_count << " boundary hints for " << run_count << " insert-logs.";
+    if (found_boundaries_count >= kTmpBoundaryArraySize) {
+      LOG(INFO) << "holy crap, we get more than " << kTmpBoundaryArraySize << " page boundaries"
+        << " as hints for " << run_count << " insert-logs!!";
+      // as this is just a hint, we can go on. if this often happens, reduce kMaxLogGroupSize.
+      // or increase kTmpBoundaryArraySize.
     }
 
-    MasstreeBorderPage* page = as_border(get_page(last->tail_));
-    uint16_t key_count = page->get_key_count();
+    // then, append all of them in a tight loop
+    WRAP_ERROR_CODE(execute_insert_group_append_loop(cur, cur + run_count, found_boundaries_count));
+    cur += run_count;
+  }
 
-    // we might have to follow next-layer pointers. Check it.
-    // notice it's "while", not "if", because we might follow more than one next-layer pointer
-    while (key_count > 0
-        && key_length > (last->layer_ + 1U) * kSliceLen
-        && page->get_slice(key_count - 1) == slice
-        && page->get_remaining_key_length(key_count - 1) > kSliceLen) {
-      // then we have to either go next layer.
-      if (page->does_point_to_layer(key_count - 1)) {
-        // the next layer already exists. just follow it.
-        ASSERT_ND(page->get_next_layer(key_count - 1)->volatile_pointer_.is_null());
-        SnapshotPagePointer* next_pointer = &page->get_next_layer(key_count - 1)->snapshot_pointer_;
-        CHECK_ERROR(open_next_level(key, key_length, page, slice, next_pointer));
-      } else {
-        // then we have to newly create a layer.
-        ASSERT_ND(page->will_conflict(key_count - 1, slice, key_length - last->layer_ * kSliceLen));
-        open_next_level_create_layer(key, key_length, page, slice, key_count - 1);
-        ASSERT_ND(page->does_point_to_layer(key_count - 1));
+  ASSERT_ND(cur == to);
+  return kRetOk;
+}
+
+ErrorCode MasstreeComposeContext::execute_insert_group_append_loop(
+  uint32_t from,
+  uint32_t to,
+  uint32_t hint_count) {
+  const uint16_t kFetch = 8;  // parallel fetch to amortize L1 cachemiss cost.
+  const KeySlice* hints = tmp_boundary_array_;
+  const log::RecordLogType* logs[kFetch];
+  uint32_t cur = from;
+  uint32_t next_hint = 0;
+  uint32_t dubious_hints = 0;  // # of previous hints that resulted in too-empty pages
+  PathLevel* last = get_last_level();
+  ASSERT_ND(get_page(last->tail_)->is_border());
+  MasstreeBorderPage* page = as_border(get_page(last->tail_));
+  uint8_t cur_layer = page->get_layer();
+
+  while (cur < to) {
+    uint16_t fetch_count = std::min<uint32_t>(kFetch, to - cur);
+    uint16_t actual_count = merge_sort_->fetch_logs(cur, fetch_count, logs);
+    ASSERT_ND(actual_count == fetch_count);
+
+    for (uint32_t i = 0; i < actual_count; ++i) {
+      // hints[next_hint] tells when we should close the current page. check if we overlooked it.
+      // whether we followed the hints or not, we advance next_hint, so the followings always hold.
+      ASSERT_ND(next_hint >= hint_count || page->get_low_fence() < hints[next_hint]);
+      ASSERT_ND(next_hint >= hint_count
+        || page->get_key_count() == 0
+        || page->get_slice(page->get_key_count() - 1) < hints[next_hint]);
+
+      const MasstreeInsertLogType* entry
+        = reinterpret_cast<const MasstreeInsertLogType*>(ASSUME_ALIGNED(logs[i], 8));
+      ASSERT_ND(entry->header_.get_type() == log::kLogCodeMasstreeInsert);
+      const char* key = entry->get_key();
+      uint16_t key_length = entry->key_length_;
+
+#ifndef NDEBUG
+      ASSERT_ND(key_length > cur_layer * sizeof(KeySlice));
+      for (uint8_t layer = 0; layer < cur_layer; ++layer) {
+        KeySlice prefix_slice = normalize_be_bytes_full_aligned(key + layer * sizeof(KeySlice));
+        ASSERT_ND(prefix_slice == cur_prefix_slices_[layer]);
+      }
+#endif  // NDEBUG
+
+      uint16_t remaining_length = key_length - cur_layer * sizeof(KeySlice);
+      const char* suffix = key + (cur_layer + 1) * sizeof(KeySlice);
+      KeySlice slice = normalize_be_bytes_full_aligned(key + cur_layer * sizeof(KeySlice));
+      ASSERT_ND(page->within_fences(slice));
+      uint8_t key_count = page->get_key_count();
+      ASSERT_ND(key_count == 0 || slice > page->get_slice(key_count - 1));
+      uint16_t payload_count = entry->payload_count_;
+      const char* payload = entry->get_payload();
+      xct::XctId xct_id = entry->header_.xct_id_;
+      ASSERT_ND(!merge_sort_->get_base_epoch().is_valid()
+        || xct_id.get_epoch() >= merge_sort_->get_base_epoch());
+
+      // If the hint says the new record should be in a new page, we close the current page
+      // EXCEPT when we are getting too many cases that result in too-empty pages.
+      // It can happen when the volatile world is way ahead of the snapshotted epochs.
+      // We still have to tolerate some too-empty pages, otherwise, :
+      //   hint tells: 0-10, 10-20, 20-30, ...
+      //   the first page for some reason became full at 0-8. when processing 10, the new page is
+      //   still almost empty, we ignore the hint. close at 10-18. same thing happens at 20, ...
+      // Hence, we ignore hints if kDubiousHintsThreshold previous hints caused too empty pages.
+      const uint32_t kDubiousHintsThreshold = 2;  // to tolerate more, increase this.
+      const uint16_t kTooEmptySize = MasstreeBorderPage::kDataSize * 2 / 10;
+      bool page_switch_hinted = false;
+      KeySlice hint_suggested_slice = kInfimumSlice;
+      if (UNLIKELY(next_hint < hint_count && slice >= hints[next_hint])) {
+        DVLOG(3) << "the hint tells that we should close the page now.";
+        bool too_empty
+          = key_count == 0 || page->get_unused_region_size(key_count - 1) <= kTooEmptySize;
+        if (too_empty) {
+          DVLOG(1) << "however, the page is still quite empty!";
+          if (dubious_hints >= kDubiousHintsThreshold) {
+            DVLOG(1) << "um, let's ignore the hints.";
+          } else {
+            DVLOG(1) << "neverthelss, let's trust the hints for now.";
+            ++dubious_hints;
+            page_switch_hinted = true;
+            hint_suggested_slice = hints[next_hint];
+          }
+        }
+        // consume all hints up to this slice.
+        ++next_hint;
+        while (next_hint < hint_count && slice >= hints[next_hint]) {
+          ++next_hint;
+        }
       }
 
-      // in either case, we went deeper. retrieve these again
-      last = get_last_level();
-      ASSERT_ND(get_page(last->tail_)->is_border());
-      slice = normalize_be_bytes_full_aligned(key + last->layer_ * kSliceLen);
-      ASSERT_ND(last->contains_slice(slice));
-      page = as_border(get_page(last->tail_));
-      key_count = page->get_key_count();
+      if (UNLIKELY(page_switch_hinted)
+        || UNLIKELY(!page->can_accomodate(key_count, remaining_length, payload_count))) {
+        // unlike append_border_newpage(), which is used in the per-log method, this does no
+        // page migration. much simpler and faster.
+        memory::PagePoolOffset new_offset = allocate_page();
+        SnapshotPagePointer new_page_id = page_id_base_ + new_offset;
+        MasstreeBorderPage* new_page = reinterpret_cast<MasstreeBorderPage*>(get_page(new_offset));
+
+        KeySlice middle;
+        if (page_switch_hinted) {
+          ASSERT_ND(hint_suggested_slice > page->get_low_fence());
+          ASSERT_ND(hint_suggested_slice <= slice);
+          ASSERT_ND(hint_suggested_slice < page->get_high_fence());
+          middle = hint_suggested_slice;
+        } else {
+          middle = slice;
+        }
+        KeySlice high_fence = page->get_high_fence();
+        new_page->initialize_snapshot_page(id_, new_page_id, cur_layer, middle, high_fence);
+        page->set_foster_major_offset_unsafe(new_offset);  // set next link
+        page->set_high_fence_unsafe(middle);
+        last->tail_ = new_offset;
+        ++last->page_count_;
+        page = new_page;
+        key_count = 0;
+      }
+
+      ASSERT_ND(page->can_accomodate(key_count, remaining_length, payload_count));
+      page->reserve_record_space(key_count, xct_id, slice, suffix, remaining_length, payload_count);
+      page->increment_key_count();
+      fill_payload_padded(page->get_record_payload(key_count), payload, payload_count);
     }
 
-    // Now we are sure the tail of the last level is the only relevant record. process the log.
-    if (entry->header_.get_type() == log::kLogCodeMasstreeOverwrite) {
-      // [Overwrite] simply reuse log.apply
-      uint16_t index = key_count - 1;
-      ASSERT_ND(!page->does_point_to_layer(index));
-      ASSERT_ND(page->compare_key(index, key, key_length));
-      char* record = page->get_record(index);
-      const MasstreeOverwriteLogType* casted
-        = reinterpret_cast<const MasstreeOverwriteLogType*>(entry);
-      casted->apply_record(nullptr, id_, page->get_owner_id(index), record);
-    } else if (entry->header_.get_type() == log::kLogCodeMasstreeDelete) {
-      // [Delete] Physically deletes the last record in this page.
-      uint16_t index = key_count - 1;
-      ASSERT_ND(!page->does_point_to_layer(index));
-      ASSERT_ND(page->compare_key(index, key, key_length));
-      page->set_key_count(index);
-    } else {
-      // [Insert] next-layer is already handled above, so just append it.
-      ASSERT_ND(entry->header_.get_type() == log::kLogCodeMasstreeInsert);
-      ASSERT_ND(key_count == 0 || !page->compare_key(key_count - 1, key, key_length));  // no dup
-      uint16_t skip = last->layer_ * kSliceLen;
-      append_border(
-        slice,
-        entry->header_.xct_id_,
-        key_length - skip,
-        key + skip + kSliceLen,
-        entry->payload_count_,
-        entry->get_payload(),
-        last);
-    }
+    cur += actual_count;
+  }
+  ASSERT_ND(cur == to);
+  return kErrorCodeOk;
+}
 
-    if (UNLIKELY(allocated_pages_ >= flush_threshold)) {
-      CHECK_ERROR(flush_buffer());
+uint32_t MasstreeComposeContext::execute_insert_group_get_cur_run(
+  uint32_t cur,
+  uint32_t to,
+  KeySlice* min_slice,
+  KeySlice* max_slice) {
+  ASSERT_ND(cur < to);
+  ASSERT_ND(merge_sort_->get_log_type_from_sort_position(cur) == log::kLogCodeMasstreeInsert);
+  *min_slice = kInfimumSlice;
+  *max_slice = kInfimumSlice;
+  if (cur_path_levels_ == 0) {
+    // initial call. even get_last_level() doesn't work. process it as usual
+    return 0;
+  }
+
+  PathLevel* last = get_last_level();
+  MasstreePage* tail_page = get_page(last->tail_);
+  if (!tail_page->is_border()) {
+    LOG(WARNING) << "um, why this can happen? anyway, let's process it per log";
+    return 0;
+  }
+
+  const MasstreeBorderPage* page = as_border(tail_page);
+  const KeySlice low_fence = page->get_low_fence();
+  const KeySlice high_fence = page->get_high_fence();
+  const uint8_t existing_keys = page->get_key_count();
+  const KeySlice existing_slice
+    = existing_keys == 0 ? kInfimumSlice : page->get_slice(existing_keys - 1);
+  ASSERT_ND(last->layer_ == page->get_layer());
+  const uint8_t prefix_count = last->layer_;
+  const snapshot::MergeSort::SortEntry* sort_entries = merge_sort_->get_sort_entries();
+  uint32_t run_count;
+  KeySlice prev_slice = existing_slice;
+  if (prefix_count == 0) {
+    // optimized impl for this common case. sort_entries provides enough information.
+    for (run_count = 0; cur + run_count < to; ++run_count) {
+      KeySlice slice = sort_entries[cur + run_count].get_key();  // sole key of interest.
+      ASSERT_ND(slice >= low_fence);  // because logs are sorted
+      if (slice >= high_fence) {  // page boundary
+        return run_count;
+      }
+      if (slice == prev_slice) {  // next-layer
+        // if both happen to be 0 (infimum) or key_length is not a multiply of 8, this check is
+        // conservative. but, it's rare, so okay to process them per log.
+        return run_count;
+      }
+      if (last->has_next_original() && slice >= last->next_original_slice_) {  // original record
+        // this is a conservative break because we don't check the key length and it's ">=".
+        // it's fine, if that happens, we just process them per log.
+        return run_count;
+      }
+
+      prev_slice = slice;
+      if (run_count == 0) {
+        *min_slice = slice;
+      } else {
+        ASSERT_ND(slice > *min_slice);
+      }
+      *max_slice = slice;
+    }
+  } else {
+    // then, a bit more expensive. we might have to grab the log itself, which causes L1 cachemiss.
+    for (run_count = 0; cur + run_count < to; ++run_count) {
+      // a low-cost check first. match the first prefix layer
+      KeySlice first_slice = sort_entries[cur + run_count].get_key();
+      ASSERT_ND(first_slice >= cur_prefix_slices_[0]);  // because logs are sorted
+      if (first_slice != cur_prefix_slices_[0]) {
+        return run_count;
+      }
+
+      // ah, we have to grab the log.
+      const MasstreeCommonLogType* entry =
+        reinterpret_cast<const MasstreeCommonLogType*>(
+          merge_sort_->resolve_sort_position(cur + run_count));
+      const char* key = entry->get_key();
+      uint16_t key_length = entry->key_length_;
+      ASSERT_ND(is_key_aligned_and_zero_padded(key, key_length));
+      if (key_length <= prefix_count * sizeof(KeySlice)) {
+        return run_count;
+      }
+
+      // match remaining prefix layers
+      for (uint8_t layer = 1; layer < prefix_count; ++layer) {
+        KeySlice prefix_slice = normalize_be_bytes_full_aligned(key + layer * sizeof(KeySlice));
+        ASSERT_ND(prefix_slice >= cur_prefix_slices_[layer]);  // because logs are sorted
+        if (prefix_slice != cur_prefix_slices_[layer]) {
+          return run_count;
+        }
+      }
+
+      // then same checks
+      KeySlice slice = normalize_be_bytes_full_aligned(key + prefix_count * sizeof(KeySlice));
+      ASSERT_ND(slice >= low_fence);  // because logs are sorted
+      if (slice >= high_fence
+        || slice == prev_slice
+        || (last->has_next_original() && slice >= last->next_original_slice_)) {
+        return run_count;
+      }
+
+      prev_slice = slice;
+      if (run_count == 0) {
+        *min_slice = slice;
+      } else {
+        ASSERT_ND(slice > *min_slice);
+      }
+      *max_slice = slice;
     }
   }
+  ASSERT_ND(cur + run_count == to);  // because above code returns rather than breaks.
+  return run_count;
+}
+
+ErrorStack MasstreeComposeContext::execute_delete_group(uint32_t from, uint32_t to) {
+  // minor-TODO(Hideaki) batched impl. but this case is not common, so later, later..
+  for (uint32_t i = from; i < to; ++i) {
+    CHECK_ERROR(execute_a_log(i));
+  }
+  return kRetOk;
+}
+
+ErrorStack MasstreeComposeContext::execute_overwrite_group(uint32_t from, uint32_t to) {
+  // TODO(Hideaki) batched impl
+  for (uint32_t i = from; i < to; ++i) {
+    CHECK_ERROR(execute_a_log(i));
+  }
+  return kRetOk;
+}
+
+inline ErrorStack MasstreeComposeContext::execute_a_log(uint32_t cur) {
+  ASSERT_ND(cur < merge_sort_->get_current_count());
+
+  const MasstreeCommonLogType* entry =
+    reinterpret_cast<const MasstreeCommonLogType*>(merge_sort_->resolve_sort_position(cur));
+  const char* key = entry->get_key();
+  uint16_t key_length = entry->key_length_;
+  ASSERT_ND(key_length > 0);
+  ASSERT_ND(cur_path_levels_ == 0 || get_page(get_last_level()->tail_)->is_border());
+  ASSERT_ND(is_key_aligned_and_zero_padded(key, key_length));
+
+  if (UNLIKELY(does_need_to_adjust_path(key, key_length))) {
+    CHECK_ERROR(adjust_path(key, key_length));
+  }
+
+  PathLevel* last = get_last_level();
+  ASSERT_ND(get_page(last->tail_)->is_border());
+  KeySlice slice = normalize_be_bytes_full_aligned(key + last->layer_ * kSliceLen);
+  ASSERT_ND(last->contains_slice(slice));
+
+  // we might have to consume original records before processing this log.
+  if (last->needs_to_consume_original(slice, key_length)) {
+    CHECK_ERROR(consume_original_upto_border(slice, key_length, last));
+    ASSERT_ND(!last->needs_to_consume_original(slice, key_length));
+  }
+
+  MasstreeBorderPage* page = as_border(get_page(last->tail_));
+  uint16_t key_count = page->get_key_count();
+
+  // we might have to follow next-layer pointers. Check it.
+  // notice it's "while", not "if", because we might follow more than one next-layer pointer
+  while (key_count > 0
+      && key_length > (last->layer_ + 1U) * kSliceLen
+      && page->get_slice(key_count - 1) == slice
+      && page->get_remaining_key_length(key_count - 1) > kSliceLen) {
+    // then we have to either go next layer.
+    if (page->does_point_to_layer(key_count - 1)) {
+      // the next layer already exists. just follow it.
+      ASSERT_ND(page->get_next_layer(key_count - 1)->volatile_pointer_.is_null());
+      SnapshotPagePointer* next_pointer = &page->get_next_layer(key_count - 1)->snapshot_pointer_;
+      CHECK_ERROR(open_next_level(key, key_length, page, slice, next_pointer));
+    } else {
+      // then we have to newly create a layer.
+      ASSERT_ND(page->will_conflict(key_count - 1, slice, key_length - last->layer_ * kSliceLen));
+      open_next_level_create_layer(key, key_length, page, slice, key_count - 1);
+      ASSERT_ND(page->does_point_to_layer(key_count - 1));
+    }
+
+    // in either case, we went deeper. retrieve these again
+    last = get_last_level();
+    ASSERT_ND(get_page(last->tail_)->is_border());
+    slice = normalize_be_bytes_full_aligned(key + last->layer_ * kSliceLen);
+    ASSERT_ND(last->contains_slice(slice));
+    page = as_border(get_page(last->tail_));
+    key_count = page->get_key_count();
+  }
+
+  // Now we are sure the tail of the last level is the only relevant record. process the log.
+  if (entry->header_.get_type() == log::kLogCodeMasstreeOverwrite) {
+    // [Overwrite] simply reuse log.apply
+    uint16_t index = key_count - 1;
+    ASSERT_ND(!page->does_point_to_layer(index));
+    ASSERT_ND(page->equal_key(index, key, key_length));
+    char* record = page->get_record(index);
+    const MasstreeOverwriteLogType* casted
+      = reinterpret_cast<const MasstreeOverwriteLogType*>(entry);
+    casted->apply_record(nullptr, id_, page->get_owner_id(index), record);
+  } else if (entry->header_.get_type() == log::kLogCodeMasstreeDelete) {
+    // [Delete] Physically deletes the last record in this page.
+    uint16_t index = key_count - 1;
+    ASSERT_ND(!page->does_point_to_layer(index));
+    ASSERT_ND(page->equal_key(index, key, key_length));
+    page->set_key_count(index);
+  } else {
+    // [Insert] next-layer is already handled above, so just append it.
+    ASSERT_ND(entry->header_.get_type() == log::kLogCodeMasstreeInsert);
+    ASSERT_ND(key_count == 0 || !page->equal_key(key_count - 1, key, key_length));  // no dup
+    uint16_t skip = last->layer_ * kSliceLen;
+    append_border(
+      slice,
+      entry->header_.xct_id_,
+      key_length - skip,
+      key + skip + kSliceLen,
+      entry->payload_count_,
+      entry->get_payload(),
+      last);
+  }
+
+  CHECK_ERROR(flush_if_nearly_full());
 
   return kRetOk;
 }
 
+///////////////////////////////////////////////////////////////////////
+///
+///  MasstreeComposeContext open/close/init of path levels
+///
+///////////////////////////////////////////////////////////////////////
 ErrorStack MasstreeComposeContext::init_root() {
   SnapshotPagePointer snapshot_page_id
     = storage_.get_control_block()->root_page_pointer_.snapshot_pointer_;
@@ -512,13 +959,6 @@ ErrorStack MasstreeComposeContext::open_first_level(const char* key, uint16_t ke
   return kRetOk;
 }
 
-inline void fill_payload_padded(char* destination, const char* source, uint16_t count) {
-  if (count > 0) {
-    ASSERT_ND(is_key_aligned_and_zero_padded(source, count));
-    std::memcpy(destination, source, assorted::align8(count));
-  }
-}
-
 ErrorStack MasstreeComposeContext::open_next_level(
   const char* key,
   uint16_t key_length,
@@ -535,7 +975,7 @@ ErrorStack MasstreeComposeContext::open_next_level(
   ++cur_path_levels_;
 
   if (parent->is_border()) {
-    store_cur_prefix_be(parent->get_layer(), prefix_slice);
+    store_cur_prefix(parent->get_layer(), prefix_slice);
     level->layer_ = parent->get_layer() + 1;
   } else {
     level->layer_ = parent->get_layer();
@@ -679,7 +1119,7 @@ void MasstreeComposeContext::open_next_level_create_layer(
   PathLevel* level = cur_path_ + this_level;
   ++cur_path_levels_;
 
-  store_cur_prefix_be(parent->get_layer(), prefix_slice);
+  store_cur_prefix(parent->get_layer(), prefix_slice);
   level->layer_ = parent->get_layer() + 1;
   level->head_ = allocate_page();
   level->page_count_ = 1;
@@ -1325,8 +1765,9 @@ ErrorStack MasstreeComposeContext::flush_buffer() {
   return kRetOk;
 }
 
-void MasstreeComposeContext::store_cur_prefix_be(uint8_t layer, KeySlice prefix_slice) {
+void MasstreeComposeContext::store_cur_prefix(uint8_t layer, KeySlice prefix_slice) {
   assorted::write_bigendian<KeySlice>(prefix_slice, cur_prefix_be_ + layer * kSliceLen);
+  cur_prefix_slices_[layer] = prefix_slice;
 }
 
 std::ostream& operator<<(std::ostream& o, const MasstreeComposeContext::PathLevel& v) {

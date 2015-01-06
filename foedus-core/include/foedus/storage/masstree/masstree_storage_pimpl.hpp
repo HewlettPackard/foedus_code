@@ -327,11 +327,11 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     Engine* engine,
     const MasstreeStorage::PeekBoundariesArguments& args);
   ErrorCode     peek_volatile_page_boundaries_next_layer(
-    const MasstreeIntermediatePage* layer_root,
+    const MasstreePage* layer_root,
     const memory::GlobalVolatilePageResolver& resolver,
     const MasstreeStorage::PeekBoundariesArguments& args);
   ErrorCode     peek_volatile_page_boundaries_this_layer(
-    const MasstreeIntermediatePage* layer_root,
+    const MasstreePage* layer_root,
     const memory::GlobalVolatilePageResolver& resolver,
     const MasstreeStorage::PeekBoundariesArguments& args);
   ErrorCode     peek_volatile_page_boundaries_this_layer_recurse(

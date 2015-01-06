@@ -626,6 +626,9 @@ class MasstreeBorderPage final : public MasstreePage {
     }
     return true;
   }
+  inline uint16_t get_unused_region_size(uint8_t last_index) const ALWAYS_INLINE {
+    return static_cast<uint16_t>(offsets_[last_index]) << 4;
+  }
   bool    can_accomodate(
     uint8_t new_index,
     uint8_t remaining_length,
@@ -659,6 +662,10 @@ class MasstreeBorderPage final : public MasstreePage {
     } else {
       return true;
     }
+  }
+  /** let's gradually migrate from compare_key() to this. */
+  bool    equal_key(uint8_t index, const void* be_key, uint16_t key_length) const ALWAYS_INLINE {
+    return compare_key(index, be_key, key_length);
   }
 
   /** compare the key. returns negative, 0, positive when the given key is smaller,same,larger. */
