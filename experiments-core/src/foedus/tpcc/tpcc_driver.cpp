@@ -42,7 +42,7 @@ namespace foedus {
 namespace tpcc {
 DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
     " than threads in the same process. This is required to scale up to 100+ cores.");
-DEFINE_bool(take_snapshot, false, "Whether to run a log gleaner after loading data.");
+DEFINE_bool(take_snapshot, true, "Whether to run a log gleaner after loading data.");
 DEFINE_bool(preload_snapshot_pages, false, "Pre-fetch snapshot pages before execution.");
 DEFINE_bool(disable_snapshot_cache, false, "Disable snapshot cache and read from file always.");
 DEFINE_string(nvm_folder, "/testnvm", "Full path of the device representing NVM.");

@@ -195,11 +195,12 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_this_layer_recurse
       // at least guarantee that the resulting found_boundaries_ is ordered.
       if ((*args.found_boundary_count_) == 0
         || args.found_boundaries_[(*args.found_boundary_count_) - 1U] < boundary) {
+        ASSERT_ND((*args.found_boundary_count_) < args.found_boundary_capacity_);
         args.found_boundaries_[*args.found_boundary_count_] = boundary;
         ++(*args.found_boundary_count_);
         if ((*args.found_boundary_count_) >= args.found_boundary_capacity_) {
           VLOG(0) << "Found too many boundaries while peeking. stops here.";
-          break;
+          return kErrorCodeOk;
         }
       }
     }
@@ -212,11 +213,14 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_this_layer_recurse
         const MasstreePage* next
           = reinterpret_cast<const MasstreePage*>(resolver.resolve_offset(pointer));
         if (next->header().get_page_type() != kMasstreeIntermediatePageType) {
-          //
           needs_recurse = false;
         } else {
           CHECK_ERROR_CODE(peek_volatile_page_boundaries_this_layer_recurse(
             reinterpret_cast<const MasstreeIntermediatePage*>(next), resolver, args));
+          ASSERT_ND((*args.found_boundary_count_) <= args.found_boundary_capacity_);
+          if ((*args.found_boundary_count_) >= args.found_boundary_capacity_) {
+            return kErrorCodeOk;
+          }
         }
       }
     }
