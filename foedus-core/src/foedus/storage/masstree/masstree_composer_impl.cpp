@@ -472,6 +472,8 @@ ErrorStack MasstreeComposeContext::execute_same_key_group(uint32_t from, uint32_
 ErrorStack MasstreeComposeContext::execute_insert_group(uint32_t from, uint32_t to) {
   uint32_t cur = from;
   while (cur < to) {
+    CHECK_ERROR(flush_if_nearly_full());  // so that the append loop doesn't have to check
+
     // let's see if the remaining logs are smaller than existing records or the page boundary.
     // if so, we can simply create new pages for a (hopefully large) number of logs.
     // in the worst case, it's like a marble (newrec, oldrec, newrec, oldrec, ...) in a page
@@ -488,7 +490,6 @@ ErrorStack MasstreeComposeContext::execute_insert_group(uint32_t from, uint32_t 
     }
 
     DVLOG(2) << "Great, " << run_count << " insert-logs to process in the current context.";
-    CHECK_ERROR(flush_if_nearly_full());  // so that the append loop doesn't have to check
 
     PathLevel* last = get_last_level();
     ASSERT_ND(get_page(last->tail_)->is_border());
