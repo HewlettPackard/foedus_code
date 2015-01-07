@@ -375,6 +375,8 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
     return resolve_merged_position(pos);
   }
   inline storage::Page* get_original_pages() const ALWAYS_INLINE { return original_pages_; }
+  inline bool are_all_single_layer_logs() const ALWAYS_INLINE { return longest_key_length_ <= 8U; }
+  inline uint16_t get_longest_key_length() const ALWAYS_INLINE { return longest_key_length_; }
 
  private:
   const storage::StorageId      id_;

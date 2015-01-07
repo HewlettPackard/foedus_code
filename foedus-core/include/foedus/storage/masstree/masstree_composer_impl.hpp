@@ -215,12 +215,11 @@ class MasstreeComposeContext {
 
   /** Represents a minimal information to install a new snapshot page pointer */
   struct PageBoundaryInfo {
+    uint8_t reserved_;
     /** set to true when this page is closed/reopened so that only one entry matches exactly */
     uint8_t removed_;
     /** B-trie layer of the new page. layer_+2 slices are stored. */
     uint8_t layer_;
-    /** B-tree level of the new page. */
-    uint8_t btree_level_;
     /** high 8-bits of SnapshotLocalPageId of the new page. */
     uint8_t local_snapshot_pointer_high_;
     /** low 32-bits of SnapshotLocalPageId of the new page. */
@@ -240,7 +239,6 @@ class MasstreeComposeContext {
     uint32_t dynamic_sizeof() const ALWAYS_INLINE { return (layer_ + 2U) * sizeof(KeySlice) + 8U; }
     static uint32_t calculate_hash(
       uint8_t layer,
-      uint8_t btree_level,
       const KeySlice* prefixes,
       KeySlice low_fence,
       KeySlice high_fence) ALWAYS_INLINE {
@@ -253,8 +251,6 @@ class MasstreeComposeContext {
       hash = hash * kMult + low_fence;
       hash = hash * kMult + high_fence;
       uint32_t compressed = static_cast<uint32_t>(hash >> 32) ^ static_cast<uint32_t>(hash);
-      // also use btree-level to reduce collisions. put it in the 24-32 bit
-      compressed ^= static_cast<uint32_t>(btree_level) << 24;
       return compressed;
     }
     SnapshotLocalPageId get_local_page_id() const ALWAYS_INLINE {
@@ -271,11 +267,10 @@ class MasstreeComposeContext {
      */
     bool exact_match(
       uint8_t layer,
-      uint8_t btree_level,
       const KeySlice* prefixes,
       KeySlice low,
       KeySlice high) const ALWAYS_INLINE {
-      if (layer != layer_ || btree_level_ != btree_level || removed_) {
+      if (layer != layer_ || removed_) {
         return false;
       }
       for (uint8_t i = 0; i < layer_; ++i) {
@@ -300,6 +295,12 @@ class MasstreeComposeContext {
     bool operator<(const PageBoundarySort& rhs) const ALWAYS_INLINE {
       return hash_ < rhs.hash_;
     }
+    /** used by std::lower_bound */
+    static bool static_less_than(
+      const PageBoundarySort& lhs,
+      const PageBoundarySort& rhs) ALWAYS_INLINE {
+      return lhs.hash_ < rhs.hash_;
+    }
   };
 
   MasstreeComposeContext(
@@ -307,8 +308,6 @@ class MasstreeComposeContext {
     snapshot::MergeSort* merge_sort,
     const Composer::ComposeArguments& args);
   ErrorStack execute();
-
-  static ErrorStack assure_work_memory_size(const Composer::ComposeArguments& args);
 
  private:
   snapshot::SnapshotWriter* get_writer()  const { return args_.snapshot_writer_; }
@@ -489,8 +488,6 @@ class MasstreeComposeContext {
   ErrorStack  close_first_level();
   ErrorStack  close_all_levels();
 
-  ErrorCode   read_original_page(SnapshotPagePointer page_id, uint16_t path_level);
-
   void        append_border(
     KeySlice slice,
     xct::XctId xct_id,
@@ -514,6 +511,8 @@ class MasstreeComposeContext {
     SnapshotPagePointer pointer,
     PathLevel* level);
 
+
+  //// page_boundary_info/install_pointers related
   void close_level_register_page_boundaries();
   void remove_old_page_boundary_info(SnapshotPagePointer page_id, MasstreePage* page);
   PageBoundaryInfo* get_page_boundary_info(snapshot::BufferPosition pos) ALWAYS_INLINE {
@@ -527,10 +526,34 @@ class MasstreeComposeContext {
   /** checks that the entry does not exist yet. wiped out in release mode */
   void assert_page_boundary_not_exists(
     uint8_t layer,
-    uint8_t btree_level,
     const KeySlice* prefixes,
     KeySlice low,
     KeySlice high) const ALWAYS_INLINE;
+  void sort_page_boundary_info();
+  SnapshotPagePointer lookup_page_boundary_info(
+    uint8_t layer,
+    const KeySlice* prefixes,
+    KeySlice low,
+    KeySlice high) const ALWAYS_INLINE;
+  ErrorStack install_snapshot_pointers(uint64_t* installed_count) const;
+  ErrorCode install_snapshot_pointers_recurse(
+    const memory::GlobalVolatilePageResolver& resolver,
+    uint8_t layer,
+    KeySlice* prefixes,
+    MasstreePage* volatile_page,
+    uint64_t* installed_count) const ALWAYS_INLINE;
+  ErrorCode install_snapshot_pointers_recurse_intermediate(
+    const memory::GlobalVolatilePageResolver& resolver,
+    uint8_t layer,
+    KeySlice* prefixes,
+    MasstreeIntermediatePage* volatile_page,
+    uint64_t* installed_count) const;
+  ErrorCode install_snapshot_pointers_recurse_border(
+    const memory::GlobalVolatilePageResolver& resolver,
+    uint8_t layer,
+    KeySlice* prefixes,
+    MasstreeBorderPage* volatile_page,
+    uint64_t* installed_count) const;
 
   Engine* const             engine_;
   snapshot::MergeSort* const  merge_sort_;
@@ -538,6 +561,7 @@ class MasstreeComposeContext {
   MasstreeStorage           storage_;
   const Composer::ComposeArguments& args_;
 
+  const snapshot::SnapshotId snapshot_id_;
   const uint16_t            numa_node_;
   const uint32_t            max_pages_;
   /** max size of page_boundary_info_. bytes/8 */

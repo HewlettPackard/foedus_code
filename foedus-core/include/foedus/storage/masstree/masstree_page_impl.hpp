@@ -964,6 +964,17 @@ struct MasstreeIntermediatePointerIterator final {
       return page_->get_low_fence();
     }
   }
+  KeySlice get_high_key() const {
+    ASSERT_ND(is_valid());
+    const MasstreeIntermediatePage::MiniPage& minipage = page_->get_minipage(index_);
+    if (index_mini_ < minipage.key_count_) {
+      return minipage.separators_[index_mini_];
+    } else if (index_ < page_->get_key_count()) {
+      return page_->get_separator(index_ );
+    } else {
+      return page_->get_high_fence();
+    }
+  }
   const DualPagePointer& get_pointer() const {
     ASSERT_ND(is_valid());
     const MasstreeIntermediatePage::MiniPage& minipage = page_->get_minipage(index_);

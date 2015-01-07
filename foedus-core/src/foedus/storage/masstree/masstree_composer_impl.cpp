@@ -16,6 +16,7 @@
 #include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/fs/direct_io_file.hpp"
+#include "foedus/memory/engine_memory.hpp"
 #include "foedus/snapshot/merge_sort.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_writer_impl.hpp"
@@ -99,8 +100,19 @@ ErrorStack MasstreeComposer::construct_root(const Composer::ConstructRootArgumen
     // pointers to children
     CHECK_ERROR(check_buddies(args));
 
+    // because of how we partition, B-tree levels might be unbalanced at the root of first layer.
+    // thus, we take the max of btree-level here.
     MasstreeIntermediatePage* base = reinterpret_cast<MasstreeIntermediatePage*>(new_root);
     ASSERT_ND(!base->is_border());
+    for (uint16_t buddy = 1; buddy < args.root_info_pages_count_; ++buddy) {
+      const MasstreeIntermediatePage* page
+        = reinterpret_cast<const MasstreeIntermediatePage*>(args.root_info_pages_[buddy]);
+      if (page->get_btree_level() > base->get_btree_level()) {
+        LOG(INFO) << "MasstreeStorage-" << storage_id_ << " has an unbalanced depth in sub-tree";
+        base->header().masstree_in_layer_level_ = page->get_btree_level();
+      }
+    }
+
     uint16_t updated_count = 0;
     for (uint16_t i = 0; i <= base->get_key_count(); ++i) {
       MasstreeIntermediatePage::MiniPage& base_mini = base->get_minipage(i);
@@ -157,6 +169,9 @@ ErrorStack MasstreeComposer::construct_root(const Composer::ConstructRootArgumen
   new_root->get_header().page_id_ = new_root_id;
   *args.new_root_page_pointer_ = new_root_id;
   WRAP_ERROR_CODE(args.snapshot_writer_->dump_pages(0, 1 + dummy_count));
+
+  // AFTER writing out the root page, install the pointer to new root page
+  storage_.get_control_block()->root_page_pointer_.snapshot_pointer_ = new_root_id;
 
   stop_watch.stop();
   VLOG(0) << to_string() << " done in " << stop_watch.elapsed_ms() << "ms.";
@@ -262,6 +277,7 @@ MasstreeComposeContext::MasstreeComposeContext(
     id_(merge_sort->get_storage_id()),
     storage_(engine, id_),
     args_(args),
+    snapshot_id_(args.snapshot_writer_->get_snapshot_id()),
     numa_node_(get_writer()->get_numa_node()),
     max_pages_(get_writer()->get_page_size()),
     // leave some space for page_boundary_sort_
@@ -395,6 +411,10 @@ ErrorStack MasstreeComposeContext::execute() {
 
   VLOG(0) << storage_ << " processed " << processed << " logs. now pages=" << allocated_pages_;
   CHECK_ERROR(flush_buffer());
+
+  // at the end, install pointers to the created snapshot pages except root page.
+  uint64_t installed_count = 0;
+  CHECK_ERROR(install_snapshot_pointers(&installed_count));
   return kRetOk;
 }
 
@@ -1006,7 +1026,7 @@ ErrorStack MasstreeComposeContext::open_next_level(
 
   snapshot::SnapshotId old_snapshot_id = extract_snapshot_id_from_snapshot_pointer(old_page_id);
   ASSERT_ND(old_snapshot_id != snapshot::kNullSnapshotId);
-  if (UNLIKELY(old_snapshot_id == args_.snapshot_writer_->get_snapshot_id())) {
+  if (UNLIKELY(old_snapshot_id == snapshot_id_)) {
     // if we are re-opening a page we have created in this execution,
     // we have to remove the old entry in page_boundary_info we created when we closed it.
     remove_old_page_boundary_info(old_page_id, original);
@@ -1707,122 +1727,6 @@ ErrorStack MasstreeComposeContext::close_path_layer(uint16_t max_layer) {
   return kRetOk;
 }
 
-void MasstreeComposeContext::remove_old_page_boundary_info(
-  SnapshotPagePointer page_id,
-  MasstreePage* page) {
-  snapshot::SnapshotId snapshot_id = extract_snapshot_id_from_snapshot_pointer(page_id);
-  ASSERT_ND(snapshot_id == args_.snapshot_writer_->get_snapshot_id());
-  ASSERT_ND(extract_numa_node_from_snapshot_pointer(page_id) == numa_node_);
-  ASSERT_ND(page->header().page_id_ == page_id);
-  ASSERT_ND(page_boundary_info_cur_pos_ > 0);
-  ASSERT_ND(page_boundary_info_elements_ > 0);
-  ASSERT_ND(cur_path_levels_ > 0);
-
-  // this should happen very rarely (after flush_buffer), so the performance doesn't matter.
-  // hence we do somewhat sloppy thing here for simpler code.
-  LOG(INFO) << "Removing a page_boundary_info entry for a re-opened page. This should happen"
-    << " very infrequently, or the buffer size is too small.";
-  const uint8_t layer = page->get_layer();
-  const uint8_t btree_level = page->get_btree_level();
-  const KeySlice* prefixes = cur_prefix_slices_;
-  const KeySlice low = page->get_low_fence();
-  const KeySlice high = page->get_high_fence();
-  const uint32_t hash = PageBoundaryInfo::calculate_hash(layer, btree_level, prefixes, low, high);
-
-  // check them all! again, this method is called very occasionally
-  bool found = false;
-  for (uint32_t i = 0; i < LIKELY(page_boundary_info_elements_); ++i) {
-    if (LIKELY(page_boundary_sort_[i].hash_ != hash)) {
-      continue;
-    }
-    ASSERT_ND(page_boundary_sort_[i].info_pos_ < page_boundary_info_cur_pos_);
-    PageBoundaryInfo* info = get_page_boundary_info(page_boundary_sort_[i].info_pos_);
-    if (info->exact_match(layer, btree_level, prefixes, low, high)) {
-      ASSERT_ND(!info->removed_);
-      // mark the entry as removed. later exact_match() will ignore this entry, although
-      // hash value is still there. but it only causes a bit more false positives.
-      info->removed_ = true;
-      found = true;
-      break;
-    }
-  }
-
-  if (!found) {
-    LOG(ERROR) << "WTF. The old page_boundary_info entry was not found. page_id="
-      << assorted::Hex(page_id);
-  }
-}
-
-inline void MasstreeComposeContext::assert_page_boundary_not_exists(
-  uint8_t layer,
-  uint8_t btree_level,
-  const KeySlice* prefixes,
-  KeySlice low,
-  KeySlice high) const {
-#ifndef NDEBUG
-  uint32_t hash = PageBoundaryInfo::calculate_hash(layer, btree_level, prefixes, low, high);
-  for (uint32_t i = 0; LIKELY(i < page_boundary_info_elements_); ++i) {
-    if (LIKELY(page_boundary_sort_[i].hash_ != hash)) {
-      continue;
-    }
-    ASSERT_ND(page_boundary_sort_[i].info_pos_ < page_boundary_info_cur_pos_);
-    const PageBoundaryInfo* info = get_page_boundary_info(page_boundary_sort_[i].info_pos_);
-    ASSERT_ND(!info->exact_match(layer, btree_level, prefixes, low, high));
-  }
-#else  // NDEBUG
-  UNUSED_ND(layer);
-  UNUSED_ND(btree_level);
-  UNUSED_ND(prefixes);
-  UNUSED_ND(low);
-  UNUSED_ND(high);
-#endif  // NDEBUG
-}
-
-void MasstreeComposeContext::close_level_register_page_boundaries() {
-  // this method must be called *after* the pages in the last level are finalized because
-  // we need to know the page fences. this is thus called at the end of close_xxx_level
-  ASSERT_ND(cur_path_levels_ > 0U);
-  PathLevel* last = get_last_level();
-  ASSERT_ND(!last->has_next_original());  // otherwise tail's page boundary is not finalized yet
-
-  for (memory::PagePoolOffset cur = last->head_; cur != 0;) {
-    const MasstreePage* page = get_page(cur);
-    const SnapshotPagePointer page_id = page->header().page_id_;
-    const uint8_t layer = last->layer_;
-    const uint8_t btree_level = page->get_btree_level();
-    const KeySlice low = page->get_low_fence();
-    const KeySlice high = page->get_high_fence();
-    ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(page_id)
-      == args_.snapshot_writer_->get_snapshot_id());
-    ASSERT_ND(page_boundary_info_elements_ < max_page_boundary_info_);
-    ASSERT_ND(page_boundary_info_cur_pos_ + (layer + 3U) < page_boundary_info_capacity_);
-    assert_page_boundary_not_exists(layer, btree_level, cur_prefix_slices_, low, high);
-
-    PageBoundaryInfo* info = get_page_boundary_info(page_boundary_info_cur_pos_);
-    info->removed_ = false;
-    info->layer_ = layer;
-    info->btree_level_ = btree_level;
-    SnapshotLocalPageId local_id = extract_local_page_id_from_snapshot_pointer(page_id);
-    ASSERT_ND(local_id > 0);
-    ASSERT_ND(local_id < (1ULL << 40));
-    info->local_snapshot_pointer_high_ = local_id >> 32;
-    info->local_snapshot_pointer_low_ = static_cast<uint32_t>(local_id);
-    for (uint8_t i = 0; i < layer; ++i) {
-      info->slices_[i] = cur_prefix_slices_[i];
-    }
-    info->slices_[layer] = low;
-    info->slices_[layer + 1] = high;
-
-    page_boundary_sort_[page_boundary_info_elements_].hash_
-      = PageBoundaryInfo::calculate_hash(layer, btree_level, cur_prefix_slices_, low, high);
-    page_boundary_sort_[page_boundary_info_elements_].info_pos_ = page_boundary_info_cur_pos_;
-    ++page_boundary_info_elements_;
-    page_boundary_info_cur_pos_ += info->dynamic_sizeof() / 8U;
-    ASSERT_ND(page->get_foster_major().components.offset || cur == last->tail_);
-    cur = page->get_foster_major().components.offset;
-  }
-}
-
 ErrorStack MasstreeComposeContext::close_last_level() {
   ASSERT_ND(cur_path_levels_ > 1U);  // do not use this method to close the first one.
   DVLOG(1) << "Closing the last level " << *get_last_level();
@@ -1875,6 +1779,15 @@ ErrorStack MasstreeComposeContext::close_first_level() {
     CHECK_ERROR(close_level_grow_subtree(&root_pointer.snapshot_pointer_, root_low, root_high));
   }
 
+  // adjust root page's btree-level if needed. as an exceptional rule, btree-level of 1st layer root
+  // is max(child's level)+1.
+  ASSERT_ND(first->page_count_ == 1U);
+  MasstreePage* child = get_page(first->head_);
+  if (child->get_btree_level() + 1U > root_->get_btree_level()) {
+    VLOG(0) << "Masstree-" << id_ << " subtree of first layer root has grown.";
+    root_->header().masstree_in_layer_level_ = child->get_btree_level() + 1U;
+  }
+
   cur_path_levels_ = 0;
   root_index_ = 0xDA;  // just some
   root_index_mini_= 0xDA;  // random number
@@ -1912,6 +1825,415 @@ ErrorStack MasstreeComposeContext::flush_buffer() {
 void MasstreeComposeContext::store_cur_prefix(uint8_t layer, KeySlice prefix_slice) {
   assorted::write_bigendian<KeySlice>(prefix_slice, cur_prefix_be_ + layer * kSliceLen);
   cur_prefix_slices_[layer] = prefix_slice;
+}
+
+///////////////////////////////////////////////////////////////////////
+///
+///  MasstreeComposeContext page_boundary_info/install_pointers related
+///
+///////////////////////////////////////////////////////////////////////
+void MasstreeComposeContext::remove_old_page_boundary_info(
+  SnapshotPagePointer page_id,
+  MasstreePage* page) {
+  snapshot::SnapshotId snapshot_id = extract_snapshot_id_from_snapshot_pointer(page_id);
+  ASSERT_ND(snapshot_id == snapshot_id_);
+  ASSERT_ND(extract_numa_node_from_snapshot_pointer(page_id) == numa_node_);
+  ASSERT_ND(page->header().page_id_ == page_id);
+  ASSERT_ND(page_boundary_info_cur_pos_ > 0);
+  ASSERT_ND(page_boundary_info_elements_ > 0);
+  ASSERT_ND(cur_path_levels_ > 0);
+
+  // this should happen very rarely (after flush_buffer), so the performance doesn't matter.
+  // hence we do somewhat sloppy thing here for simpler code.
+  LOG(INFO) << "Removing a page_boundary_info entry for a re-opened page. This should happen"
+    << " very infrequently, or the buffer size is too small.";
+  const uint8_t layer = page->get_layer();
+  const KeySlice* prefixes = cur_prefix_slices_;
+  const KeySlice low = page->get_low_fence();
+  const KeySlice high = page->get_high_fence();
+  const uint32_t hash = PageBoundaryInfo::calculate_hash(layer, prefixes, low, high);
+
+  // check them all! again, this method is called very occasionally
+  bool found = false;
+  for (uint32_t i = 0; i < LIKELY(page_boundary_info_elements_); ++i) {
+    if (LIKELY(page_boundary_sort_[i].hash_ != hash)) {
+      continue;
+    }
+    ASSERT_ND(page_boundary_sort_[i].info_pos_ < page_boundary_info_cur_pos_);
+    PageBoundaryInfo* info = get_page_boundary_info(page_boundary_sort_[i].info_pos_);
+    if (info->exact_match(layer, prefixes, low, high)) {
+      ASSERT_ND(!info->removed_);
+      // mark the entry as removed. later exact_match() will ignore this entry, although
+      // hash value is still there. but it only causes a bit more false positives.
+      info->removed_ = true;
+      found = true;
+      break;
+    }
+  }
+
+  if (!found) {
+    LOG(ERROR) << "WTF. The old page_boundary_info entry was not found. page_id="
+      << assorted::Hex(page_id);
+  }
+}
+
+inline void MasstreeComposeContext::assert_page_boundary_not_exists(
+  uint8_t layer,
+  const KeySlice* prefixes,
+  KeySlice low,
+  KeySlice high) const {
+#ifndef NDEBUG
+  uint32_t hash = PageBoundaryInfo::calculate_hash(layer, prefixes, low, high);
+  for (uint32_t i = 0; LIKELY(i < page_boundary_info_elements_); ++i) {
+    if (LIKELY(page_boundary_sort_[i].hash_ != hash)) {
+      continue;
+    }
+    ASSERT_ND(page_boundary_sort_[i].info_pos_ < page_boundary_info_cur_pos_);
+    const PageBoundaryInfo* info = get_page_boundary_info(page_boundary_sort_[i].info_pos_);
+    ASSERT_ND(!info->exact_match(layer, prefixes, low, high));
+  }
+#else  // NDEBUG
+  UNUSED_ND(layer);
+  UNUSED_ND(prefixes);
+  UNUSED_ND(low);
+  UNUSED_ND(high);
+#endif  // NDEBUG
+}
+
+void MasstreeComposeContext::close_level_register_page_boundaries() {
+  // this method must be called *after* the pages in the last level are finalized because
+  // we need to know the page fences. this is thus called at the end of close_xxx_level
+  ASSERT_ND(cur_path_levels_ > 0U);
+  PathLevel* last = get_last_level();
+  ASSERT_ND(!last->has_next_original());  // otherwise tail's page boundary is not finalized yet
+
+  for (memory::PagePoolOffset cur = last->head_; cur != 0;) {
+    const MasstreePage* page = get_page(cur);
+    const SnapshotPagePointer page_id = page->header().page_id_;
+    const uint8_t layer = last->layer_;
+    const KeySlice low = page->get_low_fence();
+    const KeySlice high = page->get_high_fence();
+    ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(page_id) == snapshot_id_);
+    ASSERT_ND(page_boundary_info_elements_ < max_page_boundary_info_);
+    ASSERT_ND(page_boundary_info_cur_pos_ + (layer + 3U) < page_boundary_info_capacity_);
+    assert_page_boundary_not_exists(layer, cur_prefix_slices_, low, high);
+
+    PageBoundaryInfo* info = get_page_boundary_info(page_boundary_info_cur_pos_);
+    info->removed_ = false;
+    info->layer_ = layer;
+    SnapshotLocalPageId local_id = extract_local_page_id_from_snapshot_pointer(page_id);
+    ASSERT_ND(local_id > 0);
+    ASSERT_ND(local_id < (1ULL << 40));
+    info->local_snapshot_pointer_high_ = local_id >> 32;
+    info->local_snapshot_pointer_low_ = static_cast<uint32_t>(local_id);
+    for (uint8_t i = 0; i < layer; ++i) {
+      info->slices_[i] = cur_prefix_slices_[i];
+    }
+    info->slices_[layer] = low;
+    info->slices_[layer + 1] = high;
+
+    page_boundary_sort_[page_boundary_info_elements_].hash_
+      = PageBoundaryInfo::calculate_hash(layer, cur_prefix_slices_, low, high);
+    page_boundary_sort_[page_boundary_info_elements_].info_pos_ = page_boundary_info_cur_pos_;
+    ++page_boundary_info_elements_;
+    page_boundary_info_cur_pos_ += info->dynamic_sizeof() / 8U;
+    ASSERT_ND(page->get_foster_major().components.offset || cur == last->tail_);
+    cur = page->get_foster_major().components.offset;
+  }
+}
+
+void MasstreeComposeContext::sort_page_boundary_info() {
+  ASSERT_ND(page_boundary_info_cur_pos_ <= page_boundary_info_capacity_);
+  ASSERT_ND(page_boundary_info_elements_ <= max_page_boundary_info_);
+  debugging::StopWatch watch;
+  std::sort(page_boundary_sort_, page_boundary_sort_ + page_boundary_info_elements_);
+  watch.stop();
+  VLOG(0) << "MasstreeStorage-" << id_ << " sorted " << page_boundary_info_elements_ << " entries"
+    << " to track page_boundary_info in " << watch.elapsed_ms() << "ms";
+}
+
+inline SnapshotPagePointer MasstreeComposeContext::lookup_page_boundary_info(
+  uint8_t layer,
+  const KeySlice* prefixes,
+  KeySlice low,
+  KeySlice high) const {
+  PageBoundarySort dummy;
+  dummy.hash_ = PageBoundaryInfo::calculate_hash(layer, prefixes, low, high);
+  const PageBoundarySort* begin_entry = std::lower_bound(
+    page_boundary_sort_,
+    page_boundary_sort_ + page_boundary_info_elements_,
+    dummy,
+    PageBoundarySort::static_less_than);
+  uint32_t begin = begin_entry - page_boundary_sort_;
+  for (uint32_t i = begin; i < page_boundary_info_elements_; ++i) {
+    if (page_boundary_sort_[i].hash_ != dummy.hash_) {
+      break;
+    }
+    const PageBoundaryInfo* info = get_page_boundary_info(page_boundary_sort_[i].info_pos_);
+    if (!info->exact_match(layer, prefixes, low, high)) {
+      continue;
+    }
+    SnapshotLocalPageId local_page_id = info->get_local_page_id();
+    ASSERT_ND(local_page_id > 0);
+    SnapshotPagePointer page_id = to_snapshot_page_pointer(snapshot_id_, numa_node_, local_page_id);
+    ASSERT_ND(page_id < get_writer()->get_next_page_id());  // otherwise not yet flushed
+    return page_id;
+  }
+  DVLOG(1) << "exactly corresponding page boundaries not found. cannot install a snapshot"
+    << " pointer";
+  return 0;
+}
+
+ErrorStack MasstreeComposeContext::install_snapshot_pointers(uint64_t* installed_count) const {
+  ASSERT_ND(allocated_pages_ == 1U);  // this method must be called at the end, after flush_buffer
+  *installed_count = 0;
+  VolatilePagePointer pointer = storage_.get_control_block()->root_page_pointer_.volatile_pointer_;
+  if (pointer.is_null()) {
+    VLOG(0) << "No volatile pages.. maybe while restart?";
+    return kRetOk;
+  }
+
+  const memory::GlobalVolatilePageResolver& resolver
+    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
+  MasstreeIntermediatePage* volatile_root
+    = reinterpret_cast<MasstreeIntermediatePage*>(resolver.resolve_offset(pointer));
+
+  KeySlice prefixes[kMaxLayers];
+  std::memset(prefixes, 0, sizeof(prefixes));
+
+  // then, at least this snapshot contains no snapshot page in next layers, so we don't have to
+  // check any border pages (although the volatile world might now contain next layer).
+  const bool no_next_layer = merge_sort_->are_all_single_layer_logs();
+
+  debugging::StopWatch watch;
+  // Install pointers. same as install_snapshot_pointers_recurse EXCEPT we skip other partition.
+  // Because the volatle world only splits pages (no merge), no child spans two partitions.
+  // So, it's easy to determine whether this composer should follow the pointer.
+  // If there is such a pointer as a rare case for whatever reason, we skip it in this snapshot.
+
+  // We don't even need partitioning information to figure this out. We just check the
+  // new pointers in the root page and find a volatile pointer that equals or contains the range.
+  struct InstallationInfo {
+    KeySlice low_;
+    KeySlice high_;
+    SnapshotPagePointer pointer_;
+  };
+  std::vector<InstallationInfo> infos;  // only one root page, so vector wouldn't hurt
+  infos.reserve(kMaxIntermediatePointers);
+  for (MasstreeIntermediatePointerIterator it(root_); it.is_valid(); it.next()) {
+    SnapshotPagePointer pointer = it.get_pointer().snapshot_pointer_;
+    if (pointer == 0) {
+      continue;
+    }
+
+    snapshot::SnapshotId snapshot_id = extract_snapshot_id_from_snapshot_pointer(pointer);
+    ASSERT_ND(snapshot_id != snapshot::kNullSnapshotId);
+    if (snapshot_id == snapshot_id_) {
+      ASSERT_ND(extract_numa_node_from_snapshot_pointer(pointer) == numa_node_);
+    }
+    InstallationInfo info = {it.get_low_key(), it.get_high_key(), pointer};
+    infos.emplace_back(info);
+  }
+
+  // vector, same above. in the recursed functions, we use stack array to avoid frequent heap alloc.
+  std::vector<VolatilePagePointer> recursion_targets;
+  recursion_targets.reserve(kMaxIntermediatePointers);
+  {
+    // first, install pointers. this step is quickly and safely done after taking a page lock.
+    // recursion is done after releasing this lock because it might take long time.
+    assorted::memory_fence_acq_rel();
+    // TODO(Hideaki) PAGE LOCK HERE
+    uint16_t cur = 0;  // upto infos[cur] is the first that might fully contain the range
+    for (MasstreeIntermediatePointerIterator it(volatile_root); it.is_valid(); it.next()) {
+      KeySlice low = it.get_low_key();
+      KeySlice high = it.get_high_key();
+      // the snapshot's page range is more coarse or same,
+      //  1) page range exactly matches -> install pointer and recurse
+      //  2) volatile range is subset of snapshot's -> just recurse
+      // in either case, we are interested only when
+      // snapshot's low <= volatile's low && snapshot's high >= volatile's high
+      while (cur < infos.size() && (infos[cur].low_ > low || infos[cur].high_ < high)) {
+        ++cur;
+      }
+      if (cur == infos.size()) {
+        break;
+      }
+      ASSERT_ND(infos[cur].low_ <= low && infos[cur].high_ >= high);
+      DualPagePointer& pointer = volatile_root->get_minipage(it.index_).pointers_[it.index_mini_];
+      if (infos[cur].low_ == low && infos[cur].high_ == high) {
+        pointer.snapshot_pointer_ = infos[cur].pointer_;
+        ++cur;  // in this case we know next volatile pointer is beyond this snapshot range
+      }
+      // will recurse on it.
+      if (!pointer.volatile_pointer_.is_null()) {
+        recursion_targets.emplace_back(pointer.volatile_pointer_);
+      }
+    }
+    assorted::memory_fence_acq_rel();
+  }
+
+  // The recursion is not transactionally protected. That's fine; even if we skip over
+  // something, it's just that we can't drop the page this time.
+  for (VolatilePagePointer pointer : recursion_targets) {
+    MasstreePage* child = reinterpret_cast<MasstreePage*>(resolver.resolve_offset(pointer));
+    if (no_next_layer && child->is_border()) {
+      // unlike install_snapshot_pointers_recurse_intermediate, we check it here.
+      // because btree-levels might be unbalanced in first layer's root, we have to follow
+      // the pointer to figure this out.
+      continue;
+    }
+    WRAP_ERROR_CODE(install_snapshot_pointers_recurse(
+      resolver,
+      0,
+      prefixes,
+      child,
+      installed_count));
+  }
+  watch.stop();
+  VLOG(0) << "MasstreeStorage-" << id_ << " installed " << *installed_count << " pointers"
+    << " in " << watch.elapsed_ms() << "ms";
+  return kRetOk;
+}
+
+inline ErrorCode MasstreeComposeContext::install_snapshot_pointers_recurse(
+  const memory::GlobalVolatilePageResolver& resolver,
+  uint8_t layer,
+  KeySlice* prefixes,
+  MasstreePage* volatile_page,
+  uint64_t* installed_count) const {
+  if (volatile_page->is_border()) {
+    return install_snapshot_pointers_recurse_border(
+      resolver,
+      layer,
+      prefixes,
+      reinterpret_cast<MasstreeBorderPage*>(volatile_page),
+      installed_count);
+  } else {
+    return install_snapshot_pointers_recurse_intermediate(
+      resolver,
+      layer,
+      prefixes,
+      reinterpret_cast<MasstreeIntermediatePage*>(volatile_page),
+      installed_count);
+  }
+}
+
+ErrorCode MasstreeComposeContext::install_snapshot_pointers_recurse_intermediate(
+  const memory::GlobalVolatilePageResolver& resolver,
+  uint8_t layer,
+  KeySlice* prefixes,
+  MasstreeIntermediatePage* volatile_page,
+  uint64_t* installed_count) const {
+  ASSERT_ND(volatile_page->get_layer() == layer);
+
+  // we do not track down to foster-children. most pages are reachable without it anyways.
+  // we have to recurse to children, but we _might_ know that we can ignore next layers (borders)
+  const bool no_next_layer = (merge_sort_->get_longest_key_length() <= (layer + 1U) * 8U);
+  const bool is_child_intermediate = volatile_page->get_btree_level() >= 2U;
+  const bool follow_children = !no_next_layer || is_child_intermediate;
+
+  // at this point we don't have to worry about partitioning. this subtree is solely ours.
+  // we just follow every volatile pointer. this might mean a wasted recursion if this snapshot
+  // modified only a part of the storage. However, the checks in root level have already cut most
+  // un-touched subtrees. So, it won't be a big issue.
+
+  // 160*8 bytes in each stack frame... hopefully not too much. nowadays default stack size is 2MB.
+  VolatilePagePointer recursion_targets[kMaxIntermediatePointers];
+  uint16_t recursion_target_count = 0;
+
+  {
+    // look for exactly matching page boundaries. we install pointer only in exact match case
+    // while we recurse on every volatile page.
+    assorted::memory_fence_acq_rel();
+    // TODO(Hideaki) PAGE LOCK HERE
+    for (MasstreeIntermediatePointerIterator it(volatile_page); it.is_valid(); it.next()) {
+      KeySlice low = it.get_low_key();
+      KeySlice high = it.get_high_key();
+      DualPagePointer& pointer = volatile_page->get_minipage(it.index_).pointers_[it.index_mini_];
+      SnapshotPagePointer snapshot_pointer = lookup_page_boundary_info(layer, prefixes, low, high);
+      if (snapshot_pointer != 0) {
+        pointer.snapshot_pointer_ = snapshot_pointer;
+        ++(*installed_count);
+      }
+      if (follow_children && !pointer.volatile_pointer_.is_null()) {
+        ASSERT_ND(recursion_target_count < kMaxIntermediatePointers);
+        recursion_targets[recursion_target_count] = pointer.volatile_pointer_;
+        ++recursion_target_count;
+      }
+    }
+    assorted::memory_fence_acq_rel();
+  }
+
+  for (uint16_t i = 0; i < recursion_target_count; ++i) {
+    MasstreePage* child
+      = reinterpret_cast<MasstreePage*>(resolver.resolve_offset(recursion_targets[i]));
+    if (no_next_layer && child->is_border()) {
+      continue;
+    }
+    CHECK_ERROR_CODE(install_snapshot_pointers_recurse(
+      resolver,
+      layer,
+      prefixes,
+      child,
+      installed_count));
+  }
+
+  return kErrorCodeOk;
+}
+
+ErrorCode MasstreeComposeContext::install_snapshot_pointers_recurse_border(
+  const memory::GlobalVolatilePageResolver& resolver,
+  uint8_t layer,
+  KeySlice* prefixes,
+  MasstreeBorderPage* volatile_page,
+  uint64_t* installed_count) const {
+  ASSERT_ND(volatile_page->get_layer() == layer);
+  const bool no_next_layer = (merge_sort_->get_longest_key_length() <= (layer + 1U) * 8U);
+  ASSERT_ND(!no_next_layer);
+  const bool no_next_next_layer = (merge_sort_->get_longest_key_length() <= (layer + 2U) * 8U);
+
+  // unlike intermediate pages, we don't need a page lock.
+  // a record in border page is never physically deleted.
+  // also once a record becomes next-layer pointer, it never gets reverted to a usual record.
+  // just make sure we put consume (no need to be acquire) fence in a few places.
+  uint8_t key_count = volatile_page->get_key_count();
+  assorted::memory_fence_consume();
+  for (uint8_t i = 0; i < key_count; ++i) {
+    if (!volatile_page->does_point_to_layer(i)) {
+      continue;
+    }
+    assorted::memory_fence_consume();
+    DualPagePointer* next_pointer = volatile_page->get_next_layer(i);
+    if (next_pointer->volatile_pointer_.is_null()) {
+      // this also means that there was no change since the last snapshot.
+      continue;
+    }
+
+    KeySlice slice = volatile_page->get_slice(i);
+    prefixes[layer] = slice;
+    SnapshotPagePointer snapshot_pointer
+      = lookup_page_boundary_info(layer + 1U, prefixes, kInfimumSlice, kSupremumSlice);
+    if (snapshot_pointer != 0) {
+      // okay, exactly corresponding snapshot page found
+      next_pointer->snapshot_pointer_ = snapshot_pointer;
+      ++(*installed_count);
+    }
+
+    MasstreePage* child
+      = reinterpret_cast<MasstreePage*>(resolver.resolve_offset(next_pointer->volatile_pointer_));
+    if (child->is_border() && no_next_next_layer) {
+      // the root page of next layer is a border page and we don't have that long keys.
+      continue;
+    }
+    CHECK_ERROR_CODE(install_snapshot_pointers_recurse(
+      resolver,
+      layer + 1U,
+      prefixes,
+      child,
+      installed_count));
+  }
+
+  return kErrorCodeOk;
 }
 
 std::ostream& operator<<(std::ostream& o, const MasstreeComposeContext::PathLevel& v) {

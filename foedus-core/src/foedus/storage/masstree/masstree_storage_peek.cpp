@@ -212,6 +212,12 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_this_layer_recurse
         && pointer.components.offset < resolver.end_)) {
         const MasstreeIntermediatePage* next
           = reinterpret_cast<const MasstreeIntermediatePage*>(resolver.resolve_offset(pointer));
+        if (next->is_border()) {
+          // this is possible because our masstree might be unbalanced.
+          ASSERT_ND(cur->get_layer() == 0);  // but it can happen only at first layer's root
+          ASSERT_ND(cur->get_low_fence() == kInfimumSlice && cur->is_high_fence_supremum());
+          continue;
+        }
         ASSERT_ND(next->header().get_page_type() == kMasstreeIntermediatePageType);
         CHECK_ERROR_CODE(peek_volatile_page_boundaries_this_layer_recurse(next, resolver, args));
         ASSERT_ND((*args.found_boundary_count_) <= args.found_boundary_capacity_);

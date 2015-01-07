@@ -236,6 +236,11 @@ struct PageHeader CXX11_FINAL {
    * Intermediate pages right above border pages are level-1, their parents are level-2, ...
    * Foster-child of an intermediate page has the same level as its foster parent.
    * Again, this is a logical level, not physical.
+   *
+   * Our implementation of masstree might have unbalanced sub-trees. In that case,
+   * an interemediate page's level is max(child's level) + 1.
+   * This imbalance can happen only at the root page of the first layer because of how
+   * the masstree composer work. Other than that, all B-tree nodes are balanced.
    */
   uint8_t       masstree_in_layer_level_;     // +1 -> 22
 

@@ -64,6 +64,8 @@ namespace storage {
  * These are written to the snapshot pointer part of DualPagePointer so that transactions
  * can start using the snapshot pages.
  * Composers also drop volatile pointers if possible, reducing pressures to volatile page pool.
+ * This volatile-drop is carefully done after pausing all transactions because we have to make sure
+ * no transactions are newly installing a volatile page while we are dropping its parent.
  *
  * @par Shared memory, No virtual methods
  * Like Partitioner, no virtual methods allowed. We just do switch-case.
