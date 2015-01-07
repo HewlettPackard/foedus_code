@@ -121,9 +121,15 @@ void AlignedMemory::alloc(
   }
 
   debugging::StopWatch watch;
+  int posix_memalign_ret;
   switch (alloc_type_) {
     case kPosixMemalign:
-      ::posix_memalign(&block_, alignment, size_);
+      // https://bugzilla.mozilla.org/show_bug.cgi?id=606270
+      // kind of pathetic, but to make sure.
+      posix_memalign_ret = ::posix_memalign(&block_, alignment, size_);
+      if (posix_memalign_ret != 0) {
+        block_ = nullptr;
+      }
       break;
     case kNumaAllocInterleaved:  // actually we no longer support this.. no reason to use this.
     case kNumaAllocOnnode:
@@ -137,6 +143,15 @@ void AlignedMemory::alloc(
   }
   watch.stop();
 
+  if (block_ == nullptr) {
+    LOG(ERROR) << "Aligned memory allocation failed. OS error=" << assorted::os_error() << *this;
+    // also reset the numa_preferred
+    if (::numa_available() >= 0) {
+      ::numa_set_preferred(original_node);
+    }
+    return;
+  }
+
   debugging::StopWatch watch2;
   std::memset(block_, 0, size_);  // see class comment for why we do this immediately
   watch2.stop();
@@ -146,7 +161,10 @@ void AlignedMemory::alloc(
   LOG(INFO) << "Allocated memory in " << watch.elapsed_ns() << "+"
     << watch2.elapsed_ns() << " ns (alloc+memset)." << *this;
 }
-ErrorCode AlignedMemory::assure_capacity(uint64_t required_size, double expand_margin) noexcept {
+ErrorCode AlignedMemory::assure_capacity(
+  uint64_t required_size,
+  double expand_margin,
+  bool retain_content) noexcept {
   if (is_null()) {
     LOG(FATAL) << "Misuse of assure_capacity. Can't extend a null buffer";
     return kErrorCodeInvalidParameter;
@@ -159,15 +177,29 @@ ErrorCode AlignedMemory::assure_capacity(uint64_t required_size, double expand_m
   }
   uint64_t expanded = required_size * expand_margin;
   VLOG(0) << "Expanding work memory from " << size_ << " to " << expanded;
+
+  // save the current memory
+  AlignedMemory old(std::move(*this));
+  ASSERT_ND(!old.is_null());
+  ASSERT_ND(is_null());
+
   alloc(expanded, alignment_, alloc_type_, numa_node_);
   if (is_null()) {
     LOG(ERROR) << "Out of memory error while expanding work memory from "
       << size_ << " to " << expanded;
+    *this = std::move(old);  // recover the old one
     return kErrorCodeOutofmemory;
   }
+
+  // copies the old content if specified
+  if (retain_content) {
+    ASSERT_ND(size_ >= old.size_);
+    std::memcpy(block_, old.block_, old.size_);
+  }
+
+  old.release_block();
   return kErrorCodeOk;
 }
-
 
 AlignedMemory::AlignedMemory(AlignedMemory &&other) noexcept : block_(nullptr) {
   *this = std::move(other);

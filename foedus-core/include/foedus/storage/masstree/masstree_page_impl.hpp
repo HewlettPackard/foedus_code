@@ -89,6 +89,8 @@ class MasstreePage {
 
   /** Layer-0 stores the first 8 byte slice, Layer-1 next 8 byte... */
   uint8_t             get_layer() const ALWAYS_INLINE { return header_.masstree_layer_; }
+  /** @copydoc foedus::storage::PageHeader::masstree_in_layer_level_ */
+  uint8_t get_btree_level() const ALWAYS_INLINE { return header_.masstree_in_layer_level_; }
   /** \e physical key count (those keys might be deleted) in this page. */
   uint16_t            get_key_count() const ALWAYS_INLINE { return header_.key_count_; }
   void                set_key_count(uint16_t count) ALWAYS_INLINE { header_.set_key_count(count); }
@@ -171,6 +173,7 @@ class MasstreePage {
     VolatilePagePointer page_id,
     PageType            page_type,
     uint8_t             layer,
+    uint8_t             level,
     KeySlice            low_fence,
     KeySlice            high_fence);
 
@@ -179,6 +182,7 @@ class MasstreePage {
     SnapshotPagePointer page_id,
     PageType            page_type,
     uint8_t             layer,
+    uint8_t             level,
     KeySlice            low_fence,
     KeySlice            high_fence);
 };
@@ -288,7 +292,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
     }
     return key_count;
   }
-
   MiniPage&         get_minipage(uint8_t index) ALWAYS_INLINE { return mini_pages_[index]; }
   const MiniPage&   get_minipage(uint8_t index) const ALWAYS_INLINE { return mini_pages_[index]; }
   KeySlice          get_separator(uint8_t index) const ALWAYS_INLINE { return separators_[index]; }
@@ -307,12 +310,14 @@ class MasstreeIntermediatePage final : public MasstreePage {
     StorageId           storage_id,
     VolatilePagePointer page_id,
     uint8_t             layer,
+    uint8_t             level,
     KeySlice            low_fence,
     KeySlice            high_fence);
   void initialize_snapshot_page(
     StorageId           storage_id,
     SnapshotPagePointer page_id,
     uint8_t             layer,
+    uint8_t             level,
     KeySlice            low_fence,
     KeySlice            high_fence);
 

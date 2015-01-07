@@ -34,11 +34,14 @@ void MasstreePage::initialize_volatile_common(
   VolatilePagePointer page_id,
   PageType            page_type,
   uint8_t             layer,
+  uint8_t             level,
   KeySlice            low_fence,
   KeySlice            high_fence) {
   // std::memset(this, 0, kPageSize);  // expensive
   header_.init_volatile(page_id, storage_id, page_type);
   header_.masstree_layer_ = layer;
+  header_.masstree_in_layer_level_ = level;
+  ASSERT_ND((page_type == kMasstreeIntermediatePageType) == (level > 0));
   high_fence_ = high_fence;
   low_fence_ = low_fence;
   foster_fence_ = low_fence;
@@ -52,10 +55,13 @@ void MasstreePage::initialize_snapshot_common(
   SnapshotPagePointer page_id,
   PageType            page_type,
   uint8_t             layer,
+  uint8_t             level,
   KeySlice            low_fence,
   KeySlice            high_fence) {
   header_.init_snapshot(page_id, storage_id, page_type);
   header_.masstree_layer_ = layer;
+  header_.masstree_in_layer_level_ = level;
+  ASSERT_ND((page_type == kMasstreeIntermediatePageType) == (level > 0));
   high_fence_ = high_fence;
   low_fence_ = low_fence;
   foster_fence_ = low_fence;
@@ -68,6 +74,7 @@ void MasstreeIntermediatePage::initialize_volatile_page(
   StorageId           storage_id,
   VolatilePagePointer page_id,
   uint8_t             layer,
+  uint8_t             level,
   KeySlice            low_fence,
   KeySlice            high_fence) {
   initialize_volatile_common(
@@ -75,6 +82,7 @@ void MasstreeIntermediatePage::initialize_volatile_page(
     page_id,
     kMasstreeIntermediatePageType,
     layer,
+    level,
     low_fence,
     high_fence);
   for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
@@ -86,6 +94,7 @@ void MasstreeIntermediatePage::initialize_snapshot_page(
   StorageId           storage_id,
   SnapshotPagePointer page_id,
   uint8_t             layer,
+  uint8_t             level,
   KeySlice            low_fence,
   KeySlice            high_fence) {
   initialize_snapshot_common(
@@ -93,6 +102,7 @@ void MasstreeIntermediatePage::initialize_snapshot_page(
     page_id,
     kMasstreeIntermediatePageType,
     layer,
+    level,
     low_fence,
     high_fence);
   for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
@@ -111,6 +121,7 @@ void MasstreeBorderPage::initialize_volatile_page(
     page_id,
     kMasstreeBorderPageType,
     layer,
+    0,
     low_fence,
     high_fence);
   consecutive_inserts_ = true;  // initially key_count = 0, so of course sorted
@@ -127,6 +138,7 @@ void MasstreeBorderPage::initialize_snapshot_page(
     page_id,
     kMasstreeBorderPageType,
     layer,
+    0,
     low_fence,
     high_fence);
   consecutive_inserts_ = true;  // snapshot pages are always completely sorted
@@ -744,6 +756,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
       header_.storage_id_,
       new_pointer,
       get_layer(),
+      get_btree_level(),  // foster child has the same level as foster-parent
       i == 0 ? low_fence_ : new_foster_fence,
       i == 0 ? new_foster_fence : high_fence_);
     twin_locks[i] = context->mcs_initial_lock(twin[i]->get_lock_address());

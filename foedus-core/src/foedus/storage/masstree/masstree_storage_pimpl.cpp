@@ -146,6 +146,7 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     get_id(),
     new_pointer,
     root->get_layer(),
+    root->get_btree_level() + 1,
     kInfimumSlice,    // infimum slice
     kSupremumSlice);   // high-fence is supremum
 
@@ -215,6 +216,7 @@ ErrorStack MasstreeStoragePimpl::load_empty() {
     get_id(),
     control_block_->root_page_pointer_.volatile_pointer_,
     0,
+    1,
     kInfimumSlice,
     kSupremumSlice);
 
