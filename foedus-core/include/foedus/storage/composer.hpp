@@ -131,16 +131,14 @@ class Composer CXX11_FINAL {
    */
   ErrorStack  construct_root(const ConstructRootArguments& args);
 
-  /** Arguments for replace_pointers() */
-  struct ReplacePointersArguments {
+  /** Arguments for drop_volatiles() */
+  struct DropVolatilesArguments {
     /** The new snapshot. All newly created snapshot pages are of this snapshot */
     snapshot::Snapshot            snapshot_;
-    /** To read the new snapshot. */
-    cache::SnapshotFileSet*       snapshot_files_;
-    /** Pointer to new root snapshot page */
-    SnapshotPagePointer           new_root_page_pointer_;
-    /** Working memory to be used in this method. Automatically expand if needed. */
-    memory::AlignedMemory*        work_memory_;
+    /** if partitioned_drop_ is true, the partition this thread should drop volatile pages from */
+    uint16_t                      my_partition_;
+    /** if true, one thread for each partition will invoke drop_volatiles() */
+    bool                          partitioned_drop_;
     /**
      * Caches dropped pages to avoid returning every single page.
      * This is an array of PagePoolOffsetChunk whose index is node ID.
@@ -148,33 +146,29 @@ class Composer CXX11_FINAL {
      * volatile pool when it becomes full or after processing all storages.
      */
     memory::PagePoolOffsetChunk*  dropped_chunks_;
-    /** [OUT] Number of snapshot pages that were installed */
-    uint64_t*                     installed_count_;
     /** [OUT] Number of volatile pages that were dropped */
     uint64_t*                     dropped_count_;
 
     /**
      * Returns (might cache) the given pointer to volatile pool.
      */
-    void drop_volatile_page(VolatilePagePointer pointer) const;
-    /** Same as snapshot_files_->read_page(pointer, out) */
-    ErrorCode read_snapshot_page(SnapshotPagePointer pointer, void* out) const;
+    void drop(Engine* engine, VolatilePagePointer pointer) const;
   };
 
   /**
-   * @brief Installs new snapshot pages and drops volatile pages that
-   * have not been modified since the snapshotted epoch.
+   * @brief Drops volatile pages that have not been modified since the snapshotted epoch.
+   * @return whether this thread dropped _all_ volatile pages. We can drop the root volatile page
+   * only when all threads return true.
    * @details
    * This is called after pausing transaction executions, so this method does not worry about
    * concurrent reads/writes while running this. Otherwise this method becomes
    * very complex and/or expensive. It's just milliseconds for each several minutes, so should
    * be fine to pause transactions.
    * Also, this method is best-effort in many aspects. It might not drop some volatile pages
-   * that were not logically modified, or it might not install some of snapshot pages to pointers
-   * in volatile pages. In long run, it will be done at next snapshot,
+   * that were not logically modified. In long run, it will be done at next snapshot,
    * so it's okay to be opportunistic.
    */
-  ErrorStack  replace_pointers(const ReplacePointersArguments& args);
+  bool drop_volatiles(const DropVolatilesArguments& args);
 
   friend std::ostream&    operator<<(std::ostream& o, const Composer& v);
 

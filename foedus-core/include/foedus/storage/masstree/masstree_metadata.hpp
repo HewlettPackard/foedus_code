@@ -26,19 +26,38 @@ namespace masstree {
  * @details
  */
 struct MasstreeMetadata CXX11_FINAL : public Metadata {
+  enum Constants {
+    kDefaultDropVolatilePagesBtreeLevels = 3,
+  };
   MasstreeMetadata() :
-    Metadata(0, kMasstreeStorage, ""), border_early_split_threshold_(0), pad1_(0), pad2_(0) {}
+    Metadata(0, kMasstreeStorage, ""),
+    border_early_split_threshold_(0),
+    snapshot_drop_volatile_pages_layer_threshold_(0),
+    snapshot_drop_volatile_pages_btree_levels_(kDefaultDropVolatilePagesBtreeLevels),
+    pad1_(0) {}
   MasstreeMetadata(
     StorageId id,
     const StorageName& name,
-    uint16_t border_early_split_threshold = 0)
+    uint16_t border_early_split_threshold = 0,
+    uint16_t snapshot_drop_volatile_pages_layer_threshold = 0,
+    uint16_t snapshot_drop_volatile_pages_btree_levels = kDefaultDropVolatilePagesBtreeLevels)
     : Metadata(id, kMasstreeStorage, name),
-      border_early_split_threshold_(border_early_split_threshold), pad1_(0), pad2_(0) {
+      border_early_split_threshold_(border_early_split_threshold),
+      snapshot_drop_volatile_pages_layer_threshold_(snapshot_drop_volatile_pages_layer_threshold),
+      snapshot_drop_volatile_pages_btree_levels_(snapshot_drop_volatile_pages_btree_levels),
+      pad1_(0) {
   }
   /** This one is for newly creating a storage. */
-  MasstreeMetadata(const StorageName& name, uint16_t border_early_split_threshold = 0)
+  MasstreeMetadata(
+    const StorageName& name,
+    uint16_t border_early_split_threshold = 0,
+    uint16_t snapshot_drop_volatile_pages_layer_threshold = 0,
+    uint16_t snapshot_drop_volatile_pages_btree_levels = kDefaultDropVolatilePagesBtreeLevels)
     : Metadata(0, kMasstreeStorage, name),
-      border_early_split_threshold_(border_early_split_threshold), pad1_(0), pad2_(0) {
+      border_early_split_threshold_(border_early_split_threshold),
+      snapshot_drop_volatile_pages_layer_threshold_(snapshot_drop_volatile_pages_layer_threshold),
+      snapshot_drop_volatile_pages_btree_levels_(snapshot_drop_volatile_pages_btree_levels),
+      pad1_(0) {
   }
 
   std::string describe() const;
@@ -56,9 +75,26 @@ struct MasstreeMetadata CXX11_FINAL : public Metadata {
    */
   uint16_t border_early_split_threshold_;
 
+  /**
+   * Number of B-trie layers of volatile pages to keep after each snapshotting.
+   * 0 means this storage drops volatile pages even if it's in the first layer.
+   * 1 means it keeps all pages in first layer.
+   * The default is 0.
+   */
+  uint16_t snapshot_drop_volatile_pages_layer_threshold_;
+  /**
+   * Volatile pages of this B-tree level or higher are always kept after each snapshotting.
+   * 0 means we don't drop any volatile pages.
+   * 1 means we drop only border pages.
+   * Note that this and snapshot_drop_volatile_pages_layer_threshold_ are AND conditions,
+   * meaning we drop volatile pages that meet both conditions.
+   * Further, we anyway don't drop volatile pages that have modifications after the snapshot epoch.
+   * The default is kDefaultDropVolatilePagesBtreeLevels.
+   */
+  uint16_t snapshot_drop_volatile_pages_btree_levels_;
+
   // just for valgrind when this metadata is written to file. ggr
   uint16_t pad1_;
-  uint32_t pad2_;
 };
 
 struct MasstreeMetadataSerializer CXX11_FINAL : public virtual MetadataSerializer {

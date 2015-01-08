@@ -43,12 +43,27 @@ class ArrayComposer final {
 
   ErrorStack compose(const Composer::ComposeArguments& args);
   ErrorStack construct_root(const Composer::ConstructRootArguments& args);
-  ErrorStack replace_pointers(const Composer::ReplacePointersArguments& args);
+  bool drop_volatiles(const Composer::DropVolatilesArguments& args);
 
  private:
   Engine* const             engine_;
   const StorageId           storage_id_;
   const ArrayStorage        storage_;
+
+  ArrayPage*  resolve_volatile(VolatilePagePointer pointer);
+  bool drop_volatiles_recurse(
+    const Composer::DropVolatilesArguments& args,
+    DualPagePointer* pointer);
+  /** also returns if we kept the volatile leaf page */
+  bool drop_volatiles_intermediate(
+    const Composer::DropVolatilesArguments& args,
+    DualPagePointer* pointer,
+    ArrayPage* volatile_page);
+  bool drop_volatiles_leaf(
+    const Composer::DropVolatilesArguments& args,
+    DualPagePointer* pointer,
+    ArrayPage* volatile_page);
+  bool is_to_keep_volatile(uint16_t level);
 };
 
 /**

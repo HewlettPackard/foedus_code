@@ -288,11 +288,16 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
 
   /**
    * Sub-routine of handle_snapshot_triggered().
-   * install pointers to snapshot pages and drop volatile pages.
+   * Drop pointers to volatile pages based on the already-installed snapshot pointers.
    */
-  ErrorStack  replace_pointers(
+  ErrorStack  drop_volatile_pages(
     const Snapshot& new_snapshot,
     const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers);
+  /** subroutine invoked by one thread for one node. */
+  void        drop_volatile_pages_parallel(
+    const Snapshot& new_snapshot,
+    const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers,
+    uint16_t parallel_id);
 
   /**
    * each snapshot has a snapshot-metadata file "snapshot_metadata_<SNAPSHOT_ID>.xml"

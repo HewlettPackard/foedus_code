@@ -22,6 +22,7 @@
 #include "foedus/storage/sequential/sequential_page_impl.hpp"
 #include "foedus/storage/sequential/sequential_partitioner_impl.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
+#include "foedus/storage/sequential/sequential_storage_pimpl.hpp"
 
 namespace foedus {
 namespace storage {
@@ -232,6 +233,10 @@ ErrorStack SequentialComposer::construct_root(const Composer::ConstructRootArgum
   ASSERT_ND(snapshot_writer->get_next_page_id() == root_of_root_page_id + allocated_pages);
   *args.new_root_page_pointer_ = root_of_root_page_id;
 
+  // In sequential, there is only one snapshot pointer to install, the root page.
+  storage.get_control_block()->root_page_pointer_.snapshot_pointer_ = root_of_root_page_id;
+  storage.get_control_block()->meta_.root_snapshot_page_id_ = root_of_root_page_id;
+
   stop_watch.stop();
   VLOG(0) << to_string() << " construct_root() done in " << stop_watch.elapsed_us() << "us."
     << " total head page pointers=" << all_head_pages.size()
@@ -244,10 +249,69 @@ std::string SequentialComposer::to_string() const {
   return std::string("SequentialComposer-") + std::to_string(storage_id_);
 }
 
-ErrorStack SequentialComposer::replace_pointers(const Composer::ReplacePointersArguments& args) {
-  return SequentialStorage(engine_, storage_id_).replace_pointers(args);
-}
+bool SequentialComposer::drop_volatiles(const Composer::DropVolatilesArguments& args) {
+  // In sequential, no need to determine what volatile pages to keep.
+  SequentialStorage storage(engine_, storage_id_);
+  SequentialStoragePimpl pimpl(engine_, storage.get_control_block());
+  uint16_t nodes = engine_->get_options().thread_.group_count_;
+  uint16_t threads_per_node = engine_->get_options().thread_.thread_count_per_group_;
+  for (uint16_t node = 0; node < nodes; ++node) {
+    if (args.partitioned_drop_ && args.my_partition_ != node) {
+      continue;
+    }
+    const memory::LocalPageResolver& resolver
+      = engine_->get_memory_manager()->get_node_memory(node)->get_volatile_pool()->get_resolver();
+    for (uint16_t local_ordinal = 0; local_ordinal < threads_per_node; ++local_ordinal) {
+      thread::ThreadId thread_id = thread::compose_thread_id(node, local_ordinal);
+      memory::PagePoolOffset* head_ptr = pimpl.get_head_pointer(thread_id);
+      memory::PagePoolOffset* tail_ptr = pimpl.get_tail_pointer(thread_id);
+      memory::PagePoolOffset tail_offset = *tail_ptr;
+      if ((*head_ptr) == 0) {
+        ASSERT_ND(tail_offset == 0);
+        VLOG(0) << "No volatile pages for thread-" << thread_id << " in sequential-" << storage_id_;
+        continue;
+      }
 
+      ASSERT_ND(tail_offset != 0);
+      while (true) {
+        memory::PagePoolOffset offset = *head_ptr;
+        ASSERT_ND(offset != 0);
+
+        // if the page is newer than the snapshot, keep them.
+        // all volatile pages/records are appended in epoch order, so no need to check further.
+        SequentialPage* head = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(offset));
+        ASSERT_ND(head->get_record_count() > 0);
+        if (head->get_record_count() > 0
+          && head->get_first_record_epoch() > args.snapshot_.valid_until_epoch_) {
+          VLOG(0) << "Thread-" << thread_id << " in sequential-" << storage_id_ << " keeps volatile"
+            << " pages at and after epoch-" << head->get_first_record_epoch();
+          break;
+        }
+
+        // okay, drop this
+        memory::PagePoolOffset next = head->next_page().volatile_pointer_.components.offset;
+        ASSERT_ND(next != offset);
+        ASSERT_ND(next == 0 || head->next_page().volatile_pointer_.components.numa_node == node);
+        args.drop(engine_, combine_volatile_page_pointer(node, 0, 0, offset));
+        if (next == 0) {
+          // it was the tail
+          ASSERT_ND(tail_offset == offset);
+          VLOG(0) << "Thread-" << thread_id << " in sequential-" << storage_id_ << " dropped all"
+            << " volatile pages";
+          *head_ptr = 0;
+          *tail_ptr = 0;
+          break;
+        } else {
+          // move head
+          *head_ptr = next;
+          DVLOG(1) << "Thread-" << thread_id << " in sequential-" << storage_id_ << " dropped a"
+            << " page.";
+        }
+      }
+    }
+  }
+  return true;
+}
 
 }  // namespace sequential
 }  // namespace storage

@@ -60,25 +60,26 @@ ErrorStack Composer::construct_root(const ConstructRootArguments& args) {
   }
 }
 
-ErrorStack Composer::replace_pointers(const ReplacePointersArguments& args) {
+bool Composer::drop_volatiles(const DropVolatilesArguments& args) {
   switch (storage_type_) {
-    case kArrayStorage:  return array::ArrayComposer(this).replace_pointers(args);
-    case kSequentialStorage: return sequential::SequentialComposer(this).replace_pointers(args);
-    case kMasstreeStorage: return masstree::MasstreeComposer(this).replace_pointers(args);
+    case kArrayStorage:  return array::ArrayComposer(this).drop_volatiles(args);
+    case kSequentialStorage: return sequential::SequentialComposer(this).drop_volatiles(args);
+    case kMasstreeStorage: return masstree::MasstreeComposer(this).drop_volatiles(args);
     // TODO(Hideaki) implement
     case kHashStorage:
     default:
-      return kRetOk;
+      return true;
   }
 }
 
-void Composer::ReplacePointersArguments::drop_volatile_page(VolatilePagePointer pointer) const {
+void Composer::DropVolatilesArguments::drop(
+  Engine* engine,
+  VolatilePagePointer pointer) const {
   uint16_t node = pointer.components.numa_node;
-  ASSERT_ND(node < snapshot_files_->get_engine()->get_soc_count());
+  ASSERT_ND(node < engine->get_soc_count());
   ASSERT_ND(pointer.components.offset > 0);
   memory::PagePoolOffsetChunk* chunk = dropped_chunks_ + node;
   if (chunk->full()) {
-    Engine* engine = snapshot_files_->get_engine();
     memory::PagePool* pool
       = engine->get_memory_manager()->get_node_memory(node)->get_volatile_pool();
     pool->release(chunk->size(), chunk);
@@ -87,12 +88,6 @@ void Composer::ReplacePointersArguments::drop_volatile_page(VolatilePagePointer 
   ASSERT_ND(!chunk->full());
   chunk->push_back(pointer.components.offset);
   ++(*dropped_count_);
-}
-
-ErrorCode Composer::ReplacePointersArguments::read_snapshot_page(
-  SnapshotPagePointer pointer,
-  void* out) const {
-  return snapshot_files_->read_page(pointer, out);
 }
 
 }  // namespace storage

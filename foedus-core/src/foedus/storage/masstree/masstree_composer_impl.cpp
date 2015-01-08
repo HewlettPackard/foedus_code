@@ -40,6 +40,16 @@ inline void fill_payload_padded(char* destination, const char* source, uint16_t 
 }
 
 
+inline MasstreeBorderPage* as_border(MasstreePage* page) {
+  ASSERT_ND(page->is_border());
+  return reinterpret_cast<MasstreeBorderPage*>(page);
+}
+
+inline MasstreeIntermediatePage* as_intermediate(MasstreePage* page) {
+  ASSERT_ND(!page->is_border());
+  return reinterpret_cast<MasstreeIntermediatePage*>(page);
+}
+
 ///////////////////////////////////////////////////////////////////////
 ///
 ///  MasstreeComposer methods
@@ -172,6 +182,7 @@ ErrorStack MasstreeComposer::construct_root(const Composer::ConstructRootArgumen
 
   // AFTER writing out the root page, install the pointer to new root page
   storage_.get_control_block()->root_page_pointer_.snapshot_pointer_ = new_root_id;
+  storage_.get_control_block()->meta_.root_snapshot_page_id_ = new_root_id;
 
   stop_watch.stop();
   VLOG(0) << to_string() << " done in " << stop_watch.elapsed_ms() << "ms.";
@@ -257,10 +268,6 @@ ErrorStack MasstreeComposer::check_buddies(const Composer::ConstructRootArgument
 
 std::string MasstreeComposer::to_string() const {
   return std::string("MasstreeComposer-") + std::to_string(storage_id_);
-}
-
-ErrorStack MasstreeComposer::replace_pointers(const Composer::ReplacePointersArguments& args) {
-  return MasstreeStorage(engine_, storage_id_).replace_pointers(args);
 }
 
 ///////////////////////////////////////////////////////////////////////
@@ -2234,6 +2241,229 @@ ErrorCode MasstreeComposeContext::install_snapshot_pointers_recurse_border(
   }
 
   return kErrorCodeOk;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+///
+///  drop_volatiles and related methods
+///
+/////////////////////////////////////////////////////////////////////////////
+bool MasstreeComposer::drop_volatiles(const Composer::DropVolatilesArguments& args) {
+  if (storage_.get_masstree_metadata()->keeps_all_volatile_pages()) {
+    LOG(INFO) << "Keep-all-volatile: Storage-" << storage_.get_name()
+      << " is configured to keep all volatile pages.";
+    return false;
+  }
+
+  DualPagePointer* root_pointer = &storage_.get_control_block()->root_page_pointer_;
+  MasstreeIntermediatePage* volatile_page = reinterpret_cast<MasstreeIntermediatePage*>(
+    resolve_volatile(root_pointer->volatile_pointer_));
+  if (volatile_page == nullptr) {
+    LOG(INFO) << "No volatile root page. Probably while restart";
+    return true;  // this case doesn't matter. true/false are same things
+  }
+
+  // Unlike array-storage, each thread decides partititions to follow a bit differently
+  // because the snapshot pointer might be not installed.
+  // We check the partitioning assignment.
+  PartitionerMetadata* metadata = PartitionerMetadata::get_metadata(engine_, storage_id_);
+  ASSERT_ND(metadata->valid_);
+  MasstreePartitionerData* data
+    = reinterpret_cast<MasstreePartitionerData*>(metadata->locate_data(engine_));
+  ASSERT_ND(data->partition_count_ > 0);
+  ASSERT_ND(data->partition_count_ < kMaxIntermediatePointers);
+  uint16_t cur = 0;
+  for (MasstreeIntermediatePointerIterator it(volatile_page); it.is_valid(); it.next()) {
+    DualPagePointer* pointer = &volatile_page->get_minipage(it.index_).pointers_[it.index_mini_];
+    if (!args.partitioned_drop_) {
+      drop_volatiles_recurse(args, pointer);
+      continue;
+    }
+    // the page boundaries as of partitioning might be different from the volatile page's,
+    // but at least it's more coarse. Each pointer belongs to just one partition.
+    // same trick as install_pointers.
+    KeySlice low = it.get_low_key();
+    KeySlice high = it.get_high_key();
+    while (true) {
+      KeySlice partition_high;
+      if (cur + 1U == data->partition_count_) {
+        partition_high = kSupremumSlice;
+      } else {
+        partition_high = data->low_keys_[cur + 1U];
+      }
+      if (high <= partition_high) {
+        break;
+      }
+      ++cur;
+    }
+    ASSERT_ND(cur < data->partition_count_);
+    if (data->partitions_[cur] == args.my_partition_) {
+      if (data->low_keys_[cur] != low) {
+        VLOG(0) << "Not exactly matching page boundary.";  // but not a big issue.
+      }
+      drop_volatiles_recurse(args, pointer);
+    }
+  }
+
+  // we so far always keep the volatile root of a masstree storage.
+  return false;
+}
+
+inline MasstreePage* MasstreeComposer::resolve_volatile(VolatilePagePointer pointer) {
+  if (pointer.is_null()) {
+    return nullptr;
+  }
+  const memory::GlobalVolatilePageResolver& page_resolver
+    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
+  return reinterpret_cast<MasstreePage*>(page_resolver.resolve_offset(pointer));
+}
+
+inline bool MasstreeComposer::drop_volatiles_recurse(
+  const Composer::DropVolatilesArguments& args,
+  DualPagePointer* pointer) {
+  if (pointer->volatile_pointer_.is_null()) {
+    return true;
+  }
+  // Unlike array-storage, even if this pointer itself has not updated the snapshot pointer,
+  // we might have updated the descendants because of not-matching page boundaries.
+  // so, anyway we recurse.
+  MasstreePage* page = resolve_volatile(pointer->volatile_pointer_);
+
+  // Also, masstree might have foster children.
+  // they are kept as far as this page is kept.
+  bool dropped_all;
+  if (page->has_foster_child()) {
+    MasstreePage* minor = resolve_volatile(page->get_foster_minor());
+    MasstreePage* major = resolve_volatile(page->get_foster_major());
+    bool minor_dropped_all, major_dropped_all;
+    if (page->is_border()) {
+      minor_dropped_all = drop_volatiles_border(args, as_border(minor));
+      major_dropped_all = drop_volatiles_border(args, as_border(major));
+    } else {
+      minor_dropped_all = drop_volatiles_intermediate(args, as_intermediate(minor));
+      major_dropped_all = drop_volatiles_intermediate(args, as_intermediate(major));
+    }
+    dropped_all = minor_dropped_all && major_dropped_all;
+  } else {
+    if (page->is_border()) {
+      dropped_all = drop_volatiles_border(args, as_border(page));
+    } else {
+      dropped_all = drop_volatiles_intermediate(args, as_intermediate(page));
+    }
+  }
+  bool updated_pointer = is_updated_pointer(args, pointer->snapshot_pointer_);
+  if (updated_pointer && dropped_all) {
+    if (is_to_keep_volatile(page->get_layer(), page->get_btree_level())) {
+      DVLOG(2) << "Exempted";
+      return false;
+    } else {
+      if (page->has_foster_child()) {
+        drop_foster_twins(args, page);
+      }
+      args.drop(engine_, pointer->volatile_pointer_);
+      pointer->volatile_pointer_.clear();
+      return true;
+    }
+  } else {
+    DVLOG(1) << "Couldn't drop a volatile page that has a recent modification"
+      << " or non-matching boundary";
+    return false;
+  }
+}
+void MasstreeComposer::drop_foster_twins(
+  const Composer::DropVolatilesArguments& args,
+  MasstreePage* page) {
+  ASSERT_ND(page->has_foster_child());
+  MasstreePage* minor = resolve_volatile(page->get_foster_minor());
+  MasstreePage* major = resolve_volatile(page->get_foster_major());
+  if (minor->has_foster_child()) {
+    drop_foster_twins(args, minor);
+  }
+  if (major->has_foster_child()) {
+    drop_foster_twins(args, major);
+  }
+  args.drop(engine_, page->get_foster_minor());
+  args.drop(engine_, page->get_foster_major());
+}
+
+bool MasstreeComposer::drop_volatiles_intermediate(
+  const Composer::DropVolatilesArguments& args,
+  MasstreeIntermediatePage* page) {
+  ASSERT_ND(!page->header().snapshot_);
+  ASSERT_ND(!page->is_border());
+
+  if (page->has_foster_child()) {
+    // iff both minor and major foster children dropped all descendants,
+    // we drop this page and its foster children altogether.
+    // otherwise, we keep all of them.
+    MasstreeIntermediatePage* minor = as_intermediate(resolve_volatile(page->get_foster_minor()));
+    MasstreeIntermediatePage* major = as_intermediate(resolve_volatile(page->get_foster_major()));
+    bool minor_dropped_all = drop_volatiles_intermediate(args, minor);
+    bool major_dropped_all = drop_volatiles_intermediate(args, major);
+    return minor_dropped_all && major_dropped_all;
+  }
+
+  // Explore/replace children first because we need to know if there is new modification.
+  // In that case, we must keep this volatile page, too.
+  ASSERT_ND(!page->has_foster_child());
+  bool dropped_all = true;
+  for (MasstreeIntermediatePointerIterator it(page); it.is_valid(); it.next()) {
+    DualPagePointer* pointer = &page->get_minipage(it.index_).pointers_[it.index_mini_];
+    bool dropped = drop_volatiles_recurse(args, pointer);
+    if (!dropped) {
+      dropped_all = false;
+    }
+  }
+
+  return dropped_all;
+}
+
+inline bool MasstreeComposer::drop_volatiles_border(
+  const Composer::DropVolatilesArguments& args,
+  MasstreeBorderPage* page) {
+  ASSERT_ND(!page->header().snapshot_);
+  ASSERT_ND(page->is_border());
+
+  if (page->has_foster_child()) {
+    MasstreeBorderPage* minor = as_border(resolve_volatile(page->get_foster_minor()));
+    MasstreeBorderPage* major = as_border(resolve_volatile(page->get_foster_major()));
+    bool minor_dropped_all = drop_volatiles_border(args, minor);
+    bool major_dropped_all = drop_volatiles_border(args, major);
+    return minor_dropped_all && major_dropped_all;
+  }
+
+  ASSERT_ND(!page->has_foster_child());
+  bool dropped_all = true;
+  const uint8_t key_count = page->get_key_count();
+  for (uint8_t i = 0; i < key_count; ++i) {
+    bool dropped;
+    if (page->does_point_to_layer(i)) {
+      DualPagePointer* pointer = page->get_next_layer(i);
+      dropped = drop_volatiles_recurse(args, pointer);
+    } else {
+      Epoch epoch = page->get_owner_id(i)->xct_id_.get_epoch();
+      dropped = (epoch.is_valid() && epoch > args.snapshot_.valid_until_epoch_);
+    }
+    if (!dropped) {
+      // new record exists! so we must keep this volatile page
+      DVLOG(1) << "Couldn't drop a border volatile page that has a recent modification";
+      dropped_all = false;
+    }
+  }
+  return dropped_all;
+}
+inline bool MasstreeComposer::is_updated_pointer(
+  const Composer::DropVolatilesArguments& args,
+  SnapshotPagePointer pointer) const {
+  snapshot::SnapshotId snapshot_id = extract_snapshot_id_from_snapshot_pointer(pointer);
+  return (pointer != 0 && args.snapshot_.id_ == snapshot_id);
+}
+inline bool MasstreeComposer::is_to_keep_volatile(uint8_t layer, uint16_t btree_level) const {
+  const MasstreeMetadata* meta = storage_.get_masstree_metadata();
+  if (layer <= meta->snapshot_drop_volatile_pages_layer_threshold_) {
+    return true;
+  }
+  return (btree_level < meta->snapshot_drop_volatile_pages_btree_levels_);
 }
 
 std::ostream& operator<<(std::ostream& o, const MasstreeComposeContext::PathLevel& v) {

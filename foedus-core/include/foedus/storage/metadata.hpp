@@ -56,7 +56,9 @@ struct Metadata {
      * [Only partially implemented] When a log gleaner created new snapshot pages for this storage,
      * this storage tries to keep this number of volatile pages. The implementation will try to
      * keep volatile pages that will most frequently used.
-     * Default is 0, meaning this storage drops all volatile pages after each snapshot.
+     * Default is 0, meaning this storage drops all unmodified volatile pages after each snapshot.
+     * Each storage type provides additional knobs specific to their structure.
+     * Checkout the derived metadata class.
      */
     uint32_t        snapshot_keep_threshold_;
   };

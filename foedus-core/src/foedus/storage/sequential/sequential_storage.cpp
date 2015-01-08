@@ -54,10 +54,6 @@ ErrorStack SequentialStorage::drop() {
   return SequentialStoragePimpl(this).drop();
 }
 
-ErrorStack SequentialStorage::replace_pointers(const Composer::ReplacePointersArguments& args) {
-  return SequentialStoragePimpl(this).replace_pointers(args);
-}
-
 std::ostream& operator<<(std::ostream& o, const SequentialStorage& v) {
   uint64_t page_count = 0;
   uint64_t record_count = 0;

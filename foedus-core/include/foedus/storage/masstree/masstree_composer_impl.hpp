@@ -60,7 +60,7 @@ class MasstreeComposer final {
 
   ErrorStack compose(const Composer::ComposeArguments& args);
   ErrorStack construct_root(const Composer::ConstructRootArguments& args);
-  ErrorStack replace_pointers(const Composer::ReplacePointersArguments& args);
+  bool drop_volatiles(const Composer::DropVolatilesArguments& args);
 
  private:
   Engine* const             engine_;
@@ -69,6 +69,24 @@ class MasstreeComposer final {
 
   /** Rigorously check the input parameters of construct_root() */
   ErrorStack check_buddies(const Composer::ConstructRootArguments& args) const;
+
+  MasstreePage* resolve_volatile(VolatilePagePointer pointer);
+  bool drop_volatiles_recurse(
+    const Composer::DropVolatilesArguments& args,
+    DualPagePointer* pointer);
+  bool drop_volatiles_intermediate(
+    const Composer::DropVolatilesArguments& args,
+    MasstreeIntermediatePage* page);
+  bool drop_volatiles_border(
+    const Composer::DropVolatilesArguments& args,
+    MasstreeBorderPage* page);
+  bool is_updated_pointer(
+    const Composer::DropVolatilesArguments& args,
+    SnapshotPagePointer pointer) const;
+  bool is_to_keep_volatile(uint8_t layer, uint16_t btree_level) const;
+
+  /** used only when "page" is guaranteed to be dropped. */
+  void drop_foster_twins(const Composer::DropVolatilesArguments& args, MasstreePage* page);
 };
 
 
