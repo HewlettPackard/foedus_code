@@ -43,12 +43,27 @@ class ArrayComposer final {
 
   ErrorStack compose(const Composer::ComposeArguments& args);
   ErrorStack construct_root(const Composer::ConstructRootArguments& args);
-  ErrorStack replace_pointers(const Composer::ReplacePointersArguments& args);
+  bool drop_volatiles(const Composer::DropVolatilesArguments& args);
 
  private:
   Engine* const             engine_;
   const StorageId           storage_id_;
   const ArrayStorage        storage_;
+
+  ArrayPage*  resolve_volatile(VolatilePagePointer pointer);
+  bool drop_volatiles_recurse(
+    const Composer::DropVolatilesArguments& args,
+    DualPagePointer* pointer);
+  /** also returns if we kept the volatile leaf page */
+  bool drop_volatiles_intermediate(
+    const Composer::DropVolatilesArguments& args,
+    DualPagePointer* pointer,
+    ArrayPage* volatile_page);
+  bool drop_volatiles_leaf(
+    const Composer::DropVolatilesArguments& args,
+    DualPagePointer* pointer,
+    ArrayPage* volatile_page);
+  bool is_to_keep_volatile(uint16_t level);
 };
 
 /**
@@ -120,6 +135,22 @@ class ArrayComposeContext {
   ErrorCode create_empty_intermediate_page(ArrayPage* parent, uint16_t index, ArrayRange range);
   ErrorCode create_empty_leaf_page(ArrayPage* parent, uint16_t index, ArrayRange range);
 
+  /**
+   * Called at the end of execute() to install pointers to snapshot pages constructed in this
+   * composer. The snapshot pointer to the combined root is separately installed later.
+   * This method does not drop volatile pages, it just installs snapshot pages, thus it's
+   * trivially safe as far as the snapshot pages are already flushed to the storage.
+   */
+  ErrorStack install_snapshot_pointers(
+    SnapshotPagePointer snapshot_base,
+    uint64_t* installed_count) const;
+  ErrorCode install_snapshot_pointers_recurse(
+    SnapshotPagePointer snapshot_base,
+    const memory::GlobalVolatilePageResolver& resolver,
+    const ArrayPage* snapshot_page,
+    ArrayPage* volatile_page,
+    uint64_t* installed_count) const;
+
   /** dump everything in main buffer (intermediate pages are kept) */
   ErrorCode dump_leaf_pages();
   /** used only in debug mode */
@@ -132,6 +163,8 @@ class ArrayComposeContext {
     return ArrayRange(begin, begin + offset_intervals_[0], storage_.get_array_size());
   }
   bool is_initial_snapshot() const { return previous_root_page_pointer_ == 0; }
+
+  uint16_t get_root_children() const;
 
   // these properties are initialized in constructor and never changed afterwards
   Engine* const                   engine_;

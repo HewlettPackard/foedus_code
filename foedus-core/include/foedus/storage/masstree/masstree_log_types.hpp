@@ -217,6 +217,8 @@ struct MasstreeInsertLogType : public MasstreeCommonLogType {
     xct::LockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
     ASSERT_ND(owner_id->xct_id_.is_deleted());  // the physical record should be in 'deleted' status
+    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
+    ASSERT_ND(!owner_id->xct_id_.is_moved());
     uint8_t layer = extract_page_layer(owner_id);
     uint16_t skipped = (layer + 1U) * sizeof(KeySlice);
     uint16_t key_length_aligned = get_key_length_aligned();
@@ -272,6 +274,8 @@ struct MasstreeDeleteLogType : public MasstreeCommonLogType {
     xct::LockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
+    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
+    ASSERT_ND(!owner_id->xct_id_.is_moved());
     ASSERT_ND(equal_record_and_log_suffixes(data));
     owner_id->xct_id_.set_deleted();
   }
@@ -313,6 +317,8 @@ struct MasstreeOverwriteLogType : public MasstreeCommonLogType {
     xct::LockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
+    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
+    ASSERT_ND(!owner_id->xct_id_.is_moved());
 
     uint8_t layer = extract_page_layer(owner_id);
     uint16_t skipped = (layer + 1U) * sizeof(KeySlice);

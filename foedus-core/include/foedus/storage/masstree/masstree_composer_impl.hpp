@@ -13,6 +13,7 @@
 #include "foedus/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/snapshot/fwd.hpp"
+#include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/storage/composer.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -59,7 +60,7 @@ class MasstreeComposer final {
 
   ErrorStack compose(const Composer::ComposeArguments& args);
   ErrorStack construct_root(const Composer::ConstructRootArguments& args);
-  ErrorStack replace_pointers(const Composer::ReplacePointersArguments& args);
+  bool drop_volatiles(const Composer::DropVolatilesArguments& args);
 
  private:
   Engine* const             engine_;
@@ -68,6 +69,24 @@ class MasstreeComposer final {
 
   /** Rigorously check the input parameters of construct_root() */
   ErrorStack check_buddies(const Composer::ConstructRootArguments& args) const;
+
+  MasstreePage* resolve_volatile(VolatilePagePointer pointer);
+  bool drop_volatiles_recurse(
+    const Composer::DropVolatilesArguments& args,
+    DualPagePointer* pointer);
+  bool drop_volatiles_intermediate(
+    const Composer::DropVolatilesArguments& args,
+    MasstreeIntermediatePage* page);
+  bool drop_volatiles_border(
+    const Composer::DropVolatilesArguments& args,
+    MasstreeBorderPage* page);
+  bool is_updated_pointer(
+    const Composer::DropVolatilesArguments& args,
+    SnapshotPagePointer pointer) const;
+  bool is_to_keep_volatile(uint8_t layer, uint16_t btree_level) const;
+
+  /** used only when "page" is guaranteed to be dropped. */
+  void drop_foster_twins(const Composer::DropVolatilesArguments& args, MasstreePage* page);
 };
 
 
@@ -123,6 +142,13 @@ class MasstreeComposeContext {
     kMaxLevels = 32,
     /** We assume B-trie depth is at most this (prefix is at most 8*this value)*/
     kMaxLayers = 16,
+    /** Maximum number of logs execute_xxx_group methods process in one shot */
+    kMaxLogGroupSize = 1 << 14,
+    /**
+     * Size of the tmp_boundary_array_.
+     * Most likely we don't need this much, but this memory consumtion is negligible anyways.
+     */
+    kTmpBoundaryArraySize = 1 << 11,
   };
 
   /**
@@ -205,13 +231,101 @@ class MasstreeComposeContext {
     SnapshotPagePointer pointer_;
   };
 
+  /** Represents a minimal information to install a new snapshot page pointer */
+  struct PageBoundaryInfo {
+    uint8_t reserved_;
+    /** set to true when this page is closed/reopened so that only one entry matches exactly */
+    uint8_t removed_;
+    /** B-trie layer of the new page. layer_+2 slices are stored. */
+    uint8_t layer_;
+    /** high 8-bits of SnapshotLocalPageId of the new page. */
+    uint8_t local_snapshot_pointer_high_;
+    /** low 32-bits of SnapshotLocalPageId of the new page. */
+    uint32_t local_snapshot_pointer_low_;
+
+    /**
+     * actually of layer_+2. which is why sizeof does not work.
+     * slices_[0] to slices_[layer_-1] store prefix slices.
+     * slices_[layer_] is the low_fence, slices_[layer_+1] is the high fence of the new page.
+     */
+    KeySlice slices_[2];
+
+    /** This object must be reinterpreted. Also, sizeof does not work. */
+    PageBoundaryInfo() = delete;
+    ~PageBoundaryInfo() = delete;
+
+    uint32_t dynamic_sizeof() const ALWAYS_INLINE { return (layer_ + 2U) * sizeof(KeySlice) + 8U; }
+    static uint32_t calculate_hash(
+      uint8_t layer,
+      const KeySlice* prefixes,
+      KeySlice low_fence,
+      KeySlice high_fence) ALWAYS_INLINE {
+      // good old multiply-hash
+      uint64_t hash = 0;
+      const uint64_t kMult = 0x7ada20dc734afb6fULL;
+      for (uint8_t i = 0; i < layer; ++i) {
+        hash = hash * kMult + prefixes[i];
+      }
+      hash = hash * kMult + low_fence;
+      hash = hash * kMult + high_fence;
+      uint32_t compressed = static_cast<uint32_t>(hash >> 32) ^ static_cast<uint32_t>(hash);
+      return compressed;
+    }
+    SnapshotLocalPageId get_local_page_id() const ALWAYS_INLINE {
+      return static_cast<SnapshotLocalPageId>(local_snapshot_pointer_high_) << 32
+        | static_cast<SnapshotLocalPageId>(local_snapshot_pointer_low_);
+    }
+
+    /**
+     * returns whether the entry exactly matches with the page boundaries we look for.
+     * There must be only one entry that exactly matches. To guarantee this, we have to remove
+     * an old entry when we close/re-open the same page during this execution.
+     * It should happen rarely (when flush_buffer() is called).
+     * @see removed_
+     */
+    bool exact_match(
+      uint8_t layer,
+      const KeySlice* prefixes,
+      KeySlice low,
+      KeySlice high) const ALWAYS_INLINE {
+      if (layer != layer_ || removed_) {
+        return false;
+      }
+      for (uint8_t i = 0; i < layer_; ++i) {
+        if (prefixes[i] != slices_[i]) {
+          return false;
+        }
+      }
+      return low == slices_[layer_] && high == slices_[layer_ + 1];
+    }
+  };
+
+  /** Points to PageBoundaryInfo with a sorting information */
+  struct PageBoundarySort {
+    /**
+     * Hash value of the entry. This is the sort key.
+     * As we can install snapshot pointers only to pages whose fences exactly match, hashing works.
+     */
+    uint32_t                  hash_;
+    /** Points to PageBoundaryInfo in page_boundary_info_ */
+    snapshot::BufferPosition  info_pos_;
+    /** used by std::sort */
+    bool operator<(const PageBoundarySort& rhs) const ALWAYS_INLINE {
+      return hash_ < rhs.hash_;
+    }
+    /** used by std::lower_bound */
+    static bool static_less_than(
+      const PageBoundarySort& lhs,
+      const PageBoundarySort& rhs) ALWAYS_INLINE {
+      return lhs.hash_ < rhs.hash_;
+    }
+  };
+
   MasstreeComposeContext(
     Engine* engine,
     snapshot::MergeSort* merge_sort,
     const Composer::ComposeArguments& args);
   ErrorStack execute();
-
-  static ErrorStack assure_work_memory_size(const Composer::ComposeArguments& args);
 
  private:
   snapshot::SnapshotWriter* get_writer()  const { return args_.snapshot_writer_; }
@@ -222,6 +336,7 @@ class MasstreeComposeContext {
     ++allocated_pages_;
     return new_offset;
   }
+
   MasstreePage*             get_page(memory::PagePoolOffset offset) const ALWAYS_INLINE;
   MasstreePage*             get_original(memory::PagePoolOffset offset) const ALWAYS_INLINE;
   MasstreeIntermediatePage* as_intermdiate(MasstreePage* page) const ALWAYS_INLINE;
@@ -240,14 +355,67 @@ class MasstreeComposeContext {
       return get_last_level()->layer_;
     }
   }
-  void                      store_cur_prefix_be(uint8_t layer, KeySlice prefix_slice);
+  void                      store_cur_prefix(uint8_t layer, KeySlice prefix_slice);
 
   PathLevel*                get_second_last_level() {
     ASSERT_ND(cur_path_levels_ > 1U);
     return cur_path_ + (cur_path_levels_ - 2U);
   }
 
-  ErrorStack  execute_a_batch();
+  /**
+   * execute() invokes this to process just one log that does not fit any of the following groups.
+   * unlike other group-based method, this method must be much faster.
+   * it's possible that we can't find a group, in which case this method is invoked for each log.
+   */
+  ErrorStack  execute_a_log(uint32_t cur);
+  /**
+   * execute() invokes this to process a number of contiguous logs that have the same key.
+   * Optimization benefits:
+   *  \li amortize the cost of adjust_path and in-page key comparison
+   *  \li nullify all logs before delete-log.
+   *
+   * This often eliminates a large fraction of logs in a high-frequency insert-delete type of table.
+   */
+  ErrorStack  execute_same_key_group(uint32_t from, uint32_t to);
+  /**
+   * execute() invokes this to process a number of contiguous insert-logs.
+   * Optimization benefits:
+   *  \li amortize the cost of adjust_path
+   *  \li amortize the cost of peeking to determine page boundaries
+   *
+   * This is one of the most important optimizations. Lots of inserts as table-load or creating a
+   * new sub-tree is quite common.
+   * We have to also choose a right page boundary in this case, so we use peeking to get hints.
+   */
+  ErrorStack  execute_insert_group(uint32_t from, uint32_t to);
+  /**
+   * Sub routine of execute_insert_group().
+   * @return the number of logs from cur that can be processed without considering page-shift,
+   * next-layer, or original-records. 0 means we have to process the log as usual.
+   */
+  uint32_t    execute_insert_group_get_cur_run(
+    uint32_t cur,
+    uint32_t to,
+    KeySlice* min_slice,
+    KeySlice* max_slice);
+  /** Sub routine of execute_insert_group(). The tight loop to actually append records. */
+  ErrorCode   execute_insert_group_append_loop(uint32_t from, uint32_t to, uint32_t hint_count);
+  /**
+   * execute() invokes this to process a number of contiguous delete-logs.
+   * Optimization benefits:
+   *  \li amortize the cost of adjust_path (per page. still page-shift is required)
+   *
+   * This is not a so common case. Optimization not implemented yet.
+   */
+  ErrorStack  execute_delete_group(uint32_t from, uint32_t to);
+  /**
+   * execute() invokes this to process a number of contiguous overwrite-logs.
+   * Optimization benefits:
+   *  \li amortize the cost of adjust_path (per page. still page-shift is required)
+   *
+   * This one is so-so common. Anyway this one is simple as there is no page split/merge.
+   */
+  ErrorStack  execute_overwrite_group(uint32_t from, uint32_t to);
 
   /** When the main buffer of writer has no page, appends a dummy page for easier debugging. */
   void        write_dummy_page_zero();
@@ -286,13 +454,24 @@ class MasstreeComposeContext {
    * Writing-out and re-reading the tentative pages in pathway shouldn't be a big issue.
    */
   ErrorStack  flush_buffer();
+  inline ErrorStack flush_if_nearly_full() {
+    uint64_t threshold = max_pages_ * 8ULL / 10ULL;
+    if (UNLIKELY(allocated_pages_ >= threshold || allocated_pages_ + 256U >= max_pages_)) {
+      CHECK_ERROR(flush_buffer());
+    }
+    return kRetOk;
+  }
 
   ErrorStack  adjust_path(const char* key, uint16_t key_length);
 
   ErrorStack  consume_original_upto_border(KeySlice slice, uint16_t key_length, PathLevel* level);
   ErrorStack  consume_original_upto_intermediate(KeySlice slice, PathLevel* level);
   ErrorStack  consume_original_all();
-  ErrorStack  grow_subtree(
+  /**
+   * Invoked from close_xxx_level when it results in a new level on top of the closed level.
+   * This method replaces the closed level with a newly created level.
+   */
+  ErrorStack  close_level_grow_subtree(
     SnapshotPagePointer* root_pointer,
     KeySlice subtree_low,
     KeySlice subtree_high);
@@ -327,8 +506,6 @@ class MasstreeComposeContext {
   ErrorStack  close_first_level();
   ErrorStack  close_all_levels();
 
-  ErrorCode   read_original_page(SnapshotPagePointer page_id, uint16_t path_level);
-
   void        append_border(
     KeySlice slice,
     xct::XctId xct_id,
@@ -352,15 +529,63 @@ class MasstreeComposeContext {
     SnapshotPagePointer pointer,
     PathLevel* level);
 
+
+  //// page_boundary_info/install_pointers related
+  void close_level_register_page_boundaries();
+  void remove_old_page_boundary_info(SnapshotPagePointer page_id, MasstreePage* page);
+  PageBoundaryInfo* get_page_boundary_info(snapshot::BufferPosition pos) ALWAYS_INLINE {
+    ASSERT_ND(pos <= page_boundary_info_cur_pos_);
+    return reinterpret_cast<PageBoundaryInfo*>(page_boundary_info_ + pos * 8ULL);
+  }
+  const PageBoundaryInfo* get_page_boundary_info(snapshot::BufferPosition pos) const ALWAYS_INLINE {
+    ASSERT_ND(pos <= page_boundary_info_cur_pos_);
+    return reinterpret_cast<PageBoundaryInfo*>(page_boundary_info_ + pos * 8ULL);
+  }
+  /** checks that the entry does not exist yet. wiped out in release mode */
+  void assert_page_boundary_not_exists(
+    uint8_t layer,
+    const KeySlice* prefixes,
+    KeySlice low,
+    KeySlice high) const ALWAYS_INLINE;
+  void sort_page_boundary_info();
+  SnapshotPagePointer lookup_page_boundary_info(
+    uint8_t layer,
+    const KeySlice* prefixes,
+    KeySlice low,
+    KeySlice high) const ALWAYS_INLINE;
+  ErrorStack install_snapshot_pointers(uint64_t* installed_count) const;
+  ErrorCode install_snapshot_pointers_recurse(
+    const memory::GlobalVolatilePageResolver& resolver,
+    uint8_t layer,
+    KeySlice* prefixes,
+    MasstreePage* volatile_page,
+    uint64_t* installed_count) const ALWAYS_INLINE;
+  ErrorCode install_snapshot_pointers_recurse_intermediate(
+    const memory::GlobalVolatilePageResolver& resolver,
+    uint8_t layer,
+    KeySlice* prefixes,
+    MasstreeIntermediatePage* volatile_page,
+    uint64_t* installed_count) const;
+  ErrorCode install_snapshot_pointers_recurse_border(
+    const memory::GlobalVolatilePageResolver& resolver,
+    uint8_t layer,
+    KeySlice* prefixes,
+    MasstreeBorderPage* volatile_page,
+    uint64_t* installed_count) const;
+
   Engine* const             engine_;
   snapshot::MergeSort* const  merge_sort_;
   const StorageId           id_;
-  const MasstreeStorage     storage_;
+  MasstreeStorage           storage_;
   const Composer::ComposeArguments& args_;
 
+  const snapshot::SnapshotId snapshot_id_;
   const uint16_t            numa_node_;
   const uint32_t            max_pages_;
-  // const uint32_t            max_intermediates_;
+  /** max size of page_boundary_info_. bytes/8 */
+  const snapshot::BufferPosition  page_boundary_info_capacity_;
+  /** maximum number of page_boundary_info_elements_ */
+  const uint32_t            max_page_boundary_info_;
 
   /**
    * Root of first layer, which is the joint point for partitioner and composer.
@@ -370,8 +595,19 @@ class MasstreeComposeContext {
 
   /** same as snapshot_writer_->get_page_base() */
   Page* const       page_base_;
-  /** same as work_memory_->get_block(). Index is level. */
+  /** backed by work memory in merge_sort_. Index is level. */
   Page* const       original_base_;
+
+  /**
+   * backed by the snapshot_writer's intermediate page memory.
+   * In this composer, we don't use intermediate page memory. Instead, we use it to store
+   * only minimal information we need later (when we install snapshot page pointers).
+   * Each element is actually of type PageBoundaryInfo, but we must use byte positions to
+   * obtain each element because PageBoundaryInfo does not allow sizeof.
+   */
+  char* const       page_boundary_info_;
+  /** Sorting entries for page_boundary_info_. */
+  PageBoundarySort* const page_boundary_sort_;
 
   // const members up to here.
 
@@ -380,6 +616,18 @@ class MasstreeComposeContext {
    * written out. This value is changed for each buffer flush.
    */
   SnapshotPagePointer       page_id_base_;
+
+  /** How much we filled in page_boundary_info_. bytes/8. */
+  snapshot::BufferPosition  page_boundary_info_cur_pos_;
+  /** number of elements in page_boundary_info_ */
+  uint32_t                  page_boundary_info_elements_;
+
+  /**
+   * How many pages we allocated in the main buffer of args_.snapshot_writer.
+   * This is reset to zero for each buffer flush, then immediately incremented to 1 as we always
+   * output a dummy page to avoid offset-0 (for easier debugging, not mandatory).
+   */
+  uint32_t                  allocated_pages_;
 
   /**
    * The index of the pointer we followed from the root_ to first level.
@@ -392,25 +640,16 @@ class MasstreeComposeContext {
    */
   uint8_t                   root_index_mini_;
 
-  /**
-   * How many pages we allocated in the main buffer of args_.snapshot_writer.
-   * This is reset to zero for each buffer flush, then immediately incremented to 1 as we always
-   * output a dummy page to avoid offset-0 (for easier debugging, not mandatory).
-   */
-  uint32_t                  allocated_pages_;
-  /**
-   * How many pages we allocated in the intermediate-page buffer of args_.snapshot_writer.
-   * This is purely monotonially increasing beecause we keep intermediate pages until the end
-   * of compose().
-   */
-  // uint32_t                  allocated_intermediates_;
-
   /** Number of cur_route_ entries that are now active. Does not count root_ as a level. */
   uint8_t                   cur_path_levels_;
   /** Page path to the currently opened page. [0] to [cur_path_levels_-1] are opened levels. */
   PathLevel                 cur_path_[kMaxLevels];
   /** Prefix slice in the original big-endian format, upto get_last_layer() * kSliceLen. */
   char                      cur_prefix_be_[kMaxLayers * kSliceLen];
+  /** Prefix slice in native order */
+  KeySlice                  cur_prefix_slices_[kMaxLayers];
+  /** only used in execute_insert_group() */
+  KeySlice                  tmp_boundary_array_[kTmpBoundaryArraySize];
 };
 
 }  // namespace masstree

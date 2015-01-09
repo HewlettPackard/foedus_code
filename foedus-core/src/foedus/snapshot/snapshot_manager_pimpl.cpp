@@ -9,6 +9,8 @@
 #include <chrono>
 #include <map>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
@@ -159,7 +161,7 @@ void SnapshotManagerPimpl::stop_snapshot_thread() {
 void SnapshotManagerPimpl::sleep_a_while() {
   soc::SharedMutexScope scope(control_block_->snapshot_wakeup_.get_mutex());
   if (!is_stop_requested()) {
-    control_block_->snapshot_wakeup_.timedwait(&scope, 100000000ULL);
+    control_block_->snapshot_wakeup_.timedwait(&scope, 20000000ULL);
   }
 }
 void SnapshotManagerPimpl::wakeup() {
@@ -321,7 +323,7 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
   CHECK_ERROR(snapshot_savepoint(*new_snapshot));
 
   // install pointers to snapshot pages and drop volatile pages.
-  CHECK_ERROR(replace_pointers(*new_snapshot, new_root_page_pointers));
+  CHECK_ERROR(drop_volatile_pages(*new_snapshot, new_root_page_pointers));
 
   Epoch new_snapshot_epoch = new_snapshot->valid_until_epoch_;
   ASSERT_ND(new_snapshot_epoch.is_valid() &&
@@ -365,7 +367,7 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(
   metadata.largest_storage_id_ = new_snapshot.max_storage_id_;
   CHECK_ERROR(engine_->get_storage_manager()->clone_all_storage_metadata(&metadata));
 
-  // we modified the root page. install it.
+  // we modified the root page.
   uint32_t installed_root_pages_count = 0;
   for (storage::StorageId id = 1; id <= metadata.largest_storage_id_; ++id) {
     const auto& it = new_root_page_pointers.find(id);
@@ -373,9 +375,8 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(
     storage::Metadata* meta = metadata.get_metadata(id);
     if (it != new_root_page_pointers.end()) {
       storage::SnapshotPagePointer new_pointer = it->second;
-      ASSERT_ND(new_pointer != 0);
-      ASSERT_ND(new_pointer != meta->root_snapshot_page_id_);
-      meta->root_snapshot_page_id_ = new_pointer;
+      // composer's construct_root should have been already set the new root pointer
+      ASSERT_ND(new_pointer == meta->root_snapshot_page_id_);
       ++installed_root_pages_count;
     }
   }
@@ -442,37 +443,15 @@ fs::Path SnapshotManagerPimpl::get_snapshot_metadata_file_path(SnapshotId snapsh
   return file;
 }
 
-ErrorStack SnapshotManagerPimpl::replace_pointers(
+ErrorStack SnapshotManagerPimpl::drop_volatile_pages(
   const Snapshot& new_snapshot,
   const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers) {
-  // To speed up, this method should be parallelized at least for per-storage.
-  LOG(INFO) << "Installing new snapshot pointers and dropping volatile pointers...";
-
-  // To avoid invoking volatile pool for every dropped page, we cache them in chunks
-  memory::AlignedMemory chunks_memory;
-  chunks_memory.alloc(
-    sizeof(memory::PagePoolOffsetChunk) * engine_->get_soc_count(),
-    1U << 12,
-    memory::AlignedMemory::kNumaAllocOnnode,
-    0);
-  memory::PagePoolOffsetChunk* dropped_chunks = reinterpret_cast<memory::PagePoolOffsetChunk*>(
-    chunks_memory.get_block());
-  for (uint16_t node = 0; node < engine_->get_soc_count(); ++node) {
-    dropped_chunks[node].clear();
-  }
-
-  // For whatever use.. this is automatically expanded by the replace_pointers() implementation.
-  memory::AlignedMemory work_memory;
-  work_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
-
-  cache::SnapshotFileSet fileset(engine_);
-  CHECK_ERROR(fileset.initialize());
+  // To speed up, we parallelize this process per node, and use the same partitioning scheme.
+  LOG(INFO) << "Dropping volatile pointers...";
 
   // initializations done.
   // below, we should release the resources before exiting. So, let's not just use CHECK_ERROR.
-  ErrorStack result;
-  uint64_t installed_count_total = 0;
-  uint64_t dropped_count_total = 0;
+
   // So far, we pause transaction executions during this step to simplify the algorithm.
   // Without this simplification, not only this thread but also normal transaction executions
   // have to do several complex and expensive checks.
@@ -483,52 +462,88 @@ ErrorStack SnapshotManagerPimpl::replace_pointers(
   LOG(INFO) << "Paused transaction executions to safely drop volatile pages and waited enough"
     << " to let currently running xcts end. Now start replace pointers.";
   debugging::StopWatch stop_watch;
+
+  std::vector< std::thread > threads;
+  for (uint16_t node = 0; node < engine_->get_soc_count(); ++node) {
+    threads.emplace_back(
+      &SnapshotManagerPimpl::drop_volatile_pages_parallel,
+      this,
+      new_snapshot,
+      new_root_page_pointers,
+      node);
+  }
+
+  for (std::thread& thr : threads) {
+    thr.join();
+  }
+
+  engine_->get_xct_manager()->resume_accepting_xct();
+
+  stop_watch.stop();
+  LOG(INFO) << "Total: Dropped volatile pages in " << stop_watch.elapsed_ms() << "ms.";
+
+  return kRetOk;
+}
+
+void SnapshotManagerPimpl::drop_volatile_pages_parallel(
+  const Snapshot& new_snapshot,
+  const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers,
+  uint16_t parallel_id) {
+  // this thread is pinned on its own socket. We use the same partitioning scheme as reducer
+  // so that this method mostly hits local pages
+  thread::NumaThreadScope numa_scope(parallel_id);
+
+  // To avoid invoking volatile pool for every dropped page, we cache them in chunks
+  memory::AlignedMemory chunks_memory;
+  chunks_memory.alloc(
+    sizeof(memory::PagePoolOffsetChunk) * engine_->get_soc_count(),
+    1U << 12,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    parallel_id);
+  memory::PagePoolOffsetChunk* dropped_chunks = reinterpret_cast<memory::PagePoolOffsetChunk*>(
+    chunks_memory.get_block());
+  for (uint16_t node = 0; node < engine_->get_soc_count(); ++node) {
+    dropped_chunks[node].clear();
+  }
+
+  LOG(INFO) << "Thread-" << parallel_id << " started dropping volatile pages.";
+
+  uint64_t dropped_count_total = 0;
+  debugging::StopWatch stop_watch;
   for (storage::StorageId id = 1; id <= new_snapshot.max_storage_id_; ++id) {
     const auto& it = new_root_page_pointers.find(id);
     if (it != new_root_page_pointers.end()) {
-      VLOG(0) << "replacing pointers for storage-" << id << " ...";
+      VLOG(0) << "Dropping pointers for storage-" << id << " ...";
       storage::SnapshotPagePointer new_root_page_pointer = it->second;
       ASSERT_ND(new_root_page_pointer != 0);
       storage::Composer composer(engine_, id);
-      uint64_t installed_count = 0;
       uint64_t dropped_count = 0;
-      storage::Composer::ReplacePointersArguments args = {
+      storage::Composer::DropVolatilesArguments args = {
         new_snapshot,
-        &fileset,
-        new_root_page_pointer,
-        &work_memory,
+        parallel_id,
+        true,
         dropped_chunks,
-        &installed_count,
         &dropped_count};
       debugging::StopWatch watch;
-      result = composer.replace_pointers(args);
-      if (result.is_error()) {
-        LOG(ERROR) << "composer.replace_pointers() failed with storage-" << id << ":" << result;
-        break;
-      }
+      bool dropped_all = composer.drop_volatiles(args);
       ASSERT_ND(engine_->get_storage_manager()->get_storage(id)->root_page_pointer_.
         snapshot_pointer_ == new_root_page_pointer);
       ASSERT_ND(engine_->get_storage_manager()->get_storage(id)->meta_.root_snapshot_page_id_
         == new_root_page_pointer);
-      installed_count_total += installed_count;
       dropped_count_total += dropped_count;
       watch.stop();
-      LOG(INFO) << "replace_pointers for storage-" << id << " took " << watch.elapsed_sec() << "s";
+      LOG(INFO) << "Thread-" << parallel_id << " drop_volatiles for storage-" << id
+        << " took " << watch.elapsed_sec() << "s. dropped_all=" << dropped_all;
     } else {
-      VLOG(0) << "storage-" << id << " wasn't changed no drop pointers";
+      VLOG(0) << "Thread-" << parallel_id << " storage-"
+        << id << " wasn't changed no drop pointers";
     }
   }
-  engine_->get_xct_manager()->resume_accepting_xct();
 
   stop_watch.stop();
-  LOG(INFO) << "Installed " << installed_count_total << " new snapshot pointers and "
-    << dropped_count_total << " dropped volatile pointers in "
-    << stop_watch.elapsed_ms() << "ms.";
+  LOG(INFO) << "Thread-" << parallel_id << " dropped " << dropped_count_total
+    << " volatile pointers in " << stop_watch.elapsed_ms() << "ms.";
 
-  ErrorStack fileset_error = fileset.uninitialize();
-  if (fileset_error.is_error()) {
-    LOG(WARNING) << "Failed to close snapshot fileset. weird. " << fileset_error;
-  }
   for (uint16_t node = 0; node < engine_->get_soc_count(); ++node) {
     memory::PagePoolOffsetChunk* chunk = dropped_chunks + node;
     memory::PagePool* volatile_pool
@@ -539,7 +554,6 @@ ErrorStack SnapshotManagerPimpl::replace_pointers(
     ASSERT_ND(chunk->empty());
   }
   chunks_memory.release_block();
-  return result;
 }
 
 }  // namespace snapshot

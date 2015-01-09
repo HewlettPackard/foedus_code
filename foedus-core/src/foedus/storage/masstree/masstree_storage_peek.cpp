@@ -35,8 +35,8 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries(
 
   const memory::GlobalVolatilePageResolver& resolver
     = engine->get_memory_manager()->get_global_volatile_page_resolver();
-  const MasstreeIntermediatePage* root =
-    reinterpret_cast<const MasstreeIntermediatePage*>(resolver.resolve_offset(root_pointer));
+  const MasstreePage* root
+    = reinterpret_cast<const MasstreePage*>(resolver.resolve_offset(root_pointer));
 
   if (args.prefix_slice_count_ == 0) {
     return peek_volatile_page_boundaries_this_layer(root, resolver, args);
@@ -46,7 +46,7 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries(
 }
 
 ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_next_layer(
-  const MasstreeIntermediatePage* layer_root,
+  const MasstreePage* layer_root,
   const memory::GlobalVolatilePageResolver& resolver,
   const MasstreeStorage::PeekBoundariesArguments& args) {
   ASSERT_ND(!layer_root->header().snapshot_);
@@ -59,9 +59,8 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_next_layer(
   // compared to tree-traversal code in the transactional methods, we can give up whenever
   // something rare happens.
   const MasstreePage* cur = layer_root;
-  const MasstreeBorderPage* border = nullptr;
   cur->prefetch_general();
-  while (true) {
+  while (!cur->is_border()) {
     ASSERT_ND(cur->within_fences(slice));
     if (UNLIKELY(cur->has_foster_child())) {
       // follow one of foster-twin.
@@ -72,11 +71,6 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_next_layer(
       }
       ASSERT_ND(cur->within_fences(slice));
       continue;
-    }
-
-    if (cur->is_border()) {
-      border = reinterpret_cast<const MasstreeBorderPage*>(cur);
-      break;
     }
 
     const MasstreeIntermediatePage* page = reinterpret_cast<const MasstreeIntermediatePage*>(cur);
@@ -97,6 +91,7 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_next_layer(
       assorted::memory_fence_acquire();
     }
   }
+  const MasstreeBorderPage* border = reinterpret_cast<const MasstreeBorderPage*>(cur);
 
   // following code are not transactional at all, but it's fine because these are just hints.
   // however, make sure we don't hit something like segfault. check nulls etc.
@@ -132,8 +127,8 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_next_layer(
     LOG(INFO) << "Encountered invalid page during peeking. Gives up finding a page boundary hint";
     return kErrorCodeOk;
   }
-  const MasstreeIntermediatePage* next_root
-    = reinterpret_cast<const MasstreeIntermediatePage*>(resolver.resolve_offset(pointer));
+  const MasstreePage* next_root
+    = reinterpret_cast<const MasstreePage*>(resolver.resolve_offset(pointer));
   if (this_layer + 1U == args.prefix_slice_count_) {
     return peek_volatile_page_boundaries_this_layer(next_root, resolver, args);
   } else {
@@ -142,13 +137,20 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_next_layer(
 }
 
 ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_this_layer(
-  const MasstreeIntermediatePage* layer_root,
+  const MasstreePage* layer_root,
   const memory::GlobalVolatilePageResolver& resolver,
   const MasstreeStorage::PeekBoundariesArguments& args) {
   ASSERT_ND(!layer_root->header().snapshot_);
   ASSERT_ND(layer_root->get_layer() == args.prefix_slice_count_);
   ASSERT_ND(layer_root->get_low_fence() == kInfimumSlice && layer_root->is_high_fence_supremum());
-  return peek_volatile_page_boundaries_this_layer_recurse(layer_root, resolver, args);
+  if (layer_root->is_border()) {
+    ASSERT_ND(layer_root->get_layer() > 0);  // first layer's root page is always intermediate
+    // the root page of the layer of interest is a border page, hence no boundaries.
+    return kErrorCodeOk;
+  }
+  const MasstreeIntermediatePage* cur
+    = reinterpret_cast<const MasstreeIntermediatePage*>(layer_root);
+  return peek_volatile_page_boundaries_this_layer_recurse(cur, resolver, args);
 }
 
 ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_this_layer_recurse(
@@ -156,6 +158,7 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_this_layer_recurse
   const memory::GlobalVolatilePageResolver& resolver,
   const MasstreeStorage::PeekBoundariesArguments& args) {
   ASSERT_ND(!cur->header().snapshot_);
+  ASSERT_ND(!cur->is_border());
   ASSERT_ND(cur->get_layer() == args.prefix_slice_count_);
   // because of concurrent modifications, this is possible. we just give up finding hints.
   if (UNLIKELY(cur->get_low_fence() >= args.to_ || cur->get_high_fence() <= args.from_)) {
@@ -171,12 +174,12 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_this_layer_recurse
     begin_mini_index = minipage.find_pointer(args.from_);
   }
 
-  // if children of this page are intermediate pages, we further recurse.
+  // if children of this page are intermediate pages (this level>=2), we further recurse.
   // if children of this page are border pages, just append the page boundaries stored in this page.
+  const bool needs_recurse = (cur->get_btree_level() >= 2U);
   // we don't care wherther the child has foster twins. it's rare, and most keys are already
   // pushed up to this page. again, this method is opportunistic.
   // this guarantees that the cost of peeking is cheap. we just read intermediate pages.
-  bool needs_recurse = true;  // determined when we check some child.
   // again, this code is not protected from concurrent transactions at all.
   // we just make sure it doesn't hit segfault etc.
   MasstreeIntermediatePointerIterator it(cur);
@@ -192,11 +195,12 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_this_layer_recurse
       // at least guarantee that the resulting found_boundaries_ is ordered.
       if ((*args.found_boundary_count_) == 0
         || args.found_boundaries_[(*args.found_boundary_count_) - 1U] < boundary) {
+        ASSERT_ND((*args.found_boundary_count_) < args.found_boundary_capacity_);
         args.found_boundaries_[*args.found_boundary_count_] = boundary;
         ++(*args.found_boundary_count_);
         if ((*args.found_boundary_count_) >= args.found_boundary_capacity_) {
           VLOG(0) << "Found too many boundaries while peeking. stops here.";
-          break;
+          return kErrorCodeOk;
         }
       }
     }
@@ -206,14 +210,19 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_this_layer_recurse
       if (LIKELY(pointer.components.numa_node < resolver.numa_node_count_
         && pointer.components.offset >= resolver.begin_
         && pointer.components.offset < resolver.end_)) {
-        const MasstreePage* next
-          = reinterpret_cast<const MasstreePage*>(resolver.resolve_offset(pointer));
-        if (next->header().get_page_type() != kMasstreeIntermediatePageType) {
-          //
-          needs_recurse = false;
-        } else {
-          CHECK_ERROR_CODE(peek_volatile_page_boundaries_this_layer_recurse(
-            reinterpret_cast<const MasstreeIntermediatePage*>(next), resolver, args));
+        const MasstreeIntermediatePage* next
+          = reinterpret_cast<const MasstreeIntermediatePage*>(resolver.resolve_offset(pointer));
+        if (next->is_border()) {
+          // this is possible because our masstree might be unbalanced.
+          ASSERT_ND(cur->get_layer() == 0);  // but it can happen only at first layer's root
+          ASSERT_ND(cur->get_low_fence() == kInfimumSlice && cur->is_high_fence_supremum());
+          continue;
+        }
+        ASSERT_ND(next->header().get_page_type() == kMasstreeIntermediatePageType);
+        CHECK_ERROR_CODE(peek_volatile_page_boundaries_this_layer_recurse(next, resolver, args));
+        ASSERT_ND((*args.found_boundary_count_) <= args.found_boundary_capacity_);
+        if ((*args.found_boundary_count_) >= args.found_boundary_capacity_) {
+          return kErrorCodeOk;
         }
       }
     }

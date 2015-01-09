@@ -17,7 +17,6 @@
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
-#include "foedus/storage/composer.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -157,8 +156,6 @@ class SequentialStoragePimpl final : public Attachable<SequentialStorageControlB
     xct::XctId owner_id,
     const void *payload,
     uint16_t payload_count);
-
-  ErrorStack replace_pointers(const Composer::ReplacePointersArguments& args);
 
   /**
    * @brief Traverse all pages and call back the handler for every page.

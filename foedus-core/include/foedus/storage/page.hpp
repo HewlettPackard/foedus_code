@@ -230,15 +230,28 @@ struct PageHeader CXX11_FINAL {
   uint8_t       masstree_layer_;  // +1 -> 21
 
   /**
+   * used only in masstree.
+   * \e Logical B-tree level of the page.
+   * Border pages are always level-0 whether they are foster-child or not.
+   * Intermediate pages right above border pages are level-1, their parents are level-2, ...
+   * Foster-child of an intermediate page has the same level as its foster parent.
+   * Again, this is a logical level, not physical.
+   *
+   * Our implementation of masstree might have unbalanced sub-trees. In that case,
+   * an interemediate page's level is max(child's level) + 1.
+   * This imbalance can happen only at the root page of the first layer because of how
+   * the masstree composer work. Other than that, all B-tree nodes are balanced.
+   */
+  uint8_t       masstree_in_layer_level_;     // +1 -> 22
+
+  /**
    * A loosely maintained statistics for volatile pages.
    * The NUMA node of the thread that has most recently tried to update this page.
    * This is not atomically/transactionally maintained and should be used only as a stat.
    * Depending on page type, this might not be even maintained (eg implicit in sequential pages).
    */
-  uint8_t       stat_last_updater_node_;       // +1 -> 22
-  uint8_t       reserved2_;       // +1 -> 23
-  uint8_t       reserved3_;       // +1 -> 24
-
+  uint8_t       stat_last_updater_node_;       // +1 -> 23
+  uint8_t       reserved_;       // +1 -> 24
   /**
    * Used in several storage types as concurrency control mechanism for the page.
    */
@@ -263,9 +276,9 @@ struct PageHeader CXX11_FINAL {
     snapshot_ = false;
     key_count_ = 0;
     masstree_layer_ = 0;
+    masstree_in_layer_level_ = 0;
     stat_last_updater_node_ = page_id.components.numa_node;
-    reserved2_ = 0;
-    reserved3_ = 0;
+    reserved_ = 0;
     page_version_.reset();
   }
 
@@ -280,9 +293,9 @@ struct PageHeader CXX11_FINAL {
     snapshot_ = true;
     key_count_ = 0;
     masstree_layer_ = 0;
+    masstree_in_layer_level_ = 0;
     stat_last_updater_node_ = extract_numa_node_from_snapshot_pointer(page_id);
-    reserved2_ = 0;
-    reserved3_ = 0;
+    reserved_ = 0;
     page_version_.reset();
   }
 

@@ -281,6 +281,7 @@ endif(DOXYGEN_FOUND)
 add_custom_target(set-env
   COMMAND sysctl -w kernel.shmmax=9223372036854775807
   COMMAND sysctl -w kernel.shmall=1152921504606846720
+  COMMAND sysctl -w fs.file-max=1000000
   COMMAND sysctl -p
   COMMAND sysctl -w vm.nr_hugepages=1000
   COMMENT "Sets linux environments for FOEDUS. This is convenient to setup a test/develop environment."

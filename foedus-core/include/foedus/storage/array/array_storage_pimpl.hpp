@@ -16,7 +16,6 @@
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
-#include "foedus/storage/composer.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -268,21 +267,6 @@ class ArrayStoragePimpl final {
     ArrayPage** out,
     const ArrayPage* parent,
     uint16_t index_in_parent) ALWAYS_INLINE;
-
-  // composer-related
-  ArrayPage*  resolve_volatile(VolatilePagePointer pointer);
-  ErrorStack  replace_pointers(const Composer::ReplacePointersArguments& args);
-  ErrorStack  replace_pointers_recurse(
-    const Composer::ReplacePointersArguments& args,
-    DualPagePointer* pointer,
-    bool* kept_volatile,
-    ArrayPage* volatile_page);
-  /** also returns if we kept the volatile leaf page */
-  bool        replace_pointers_leaf(
-    const Composer::ReplacePointersArguments& args,
-    DualPagePointer* pointer,
-    ArrayPage* volatile_page);
-  bool        is_to_keep_volatile(uint16_t level);
 
   Engine* const                   engine_;
   ArrayStorageControlBlock* const control_block_;

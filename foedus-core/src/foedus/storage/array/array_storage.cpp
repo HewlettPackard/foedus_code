@@ -72,10 +72,6 @@ ErrorCode   ArrayStorage::prefetch_pages(
     to);
 }
 
-ErrorStack ArrayStorage::replace_pointers(const Composer::ReplacePointersArguments& args) {
-  return ArrayStoragePimpl(this).replace_pointers(args);
-}
-
 // most other methods are defined in pimpl.cpp to allow inlining
 
 }  // namespace array

@@ -21,6 +21,7 @@
 #include "foedus/memory/page_pool.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_manager.hpp"
+#include "foedus/storage/masstree/masstree_log_types.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_manager.hpp"
@@ -34,11 +35,14 @@ void MasstreePage::initialize_volatile_common(
   VolatilePagePointer page_id,
   PageType            page_type,
   uint8_t             layer,
+  uint8_t             level,
   KeySlice            low_fence,
   KeySlice            high_fence) {
   // std::memset(this, 0, kPageSize);  // expensive
   header_.init_volatile(page_id, storage_id, page_type);
   header_.masstree_layer_ = layer;
+  header_.masstree_in_layer_level_ = level;
+  ASSERT_ND((page_type == kMasstreeIntermediatePageType) == (level > 0));
   high_fence_ = high_fence;
   low_fence_ = low_fence;
   foster_fence_ = low_fence;
@@ -52,10 +56,13 @@ void MasstreePage::initialize_snapshot_common(
   SnapshotPagePointer page_id,
   PageType            page_type,
   uint8_t             layer,
+  uint8_t             level,
   KeySlice            low_fence,
   KeySlice            high_fence) {
   header_.init_snapshot(page_id, storage_id, page_type);
   header_.masstree_layer_ = layer;
+  header_.masstree_in_layer_level_ = level;
+  ASSERT_ND((page_type == kMasstreeIntermediatePageType) == (level > 0));
   high_fence_ = high_fence;
   low_fence_ = low_fence;
   foster_fence_ = low_fence;
@@ -68,6 +75,7 @@ void MasstreeIntermediatePage::initialize_volatile_page(
   StorageId           storage_id,
   VolatilePagePointer page_id,
   uint8_t             layer,
+  uint8_t             level,
   KeySlice            low_fence,
   KeySlice            high_fence) {
   initialize_volatile_common(
@@ -75,6 +83,7 @@ void MasstreeIntermediatePage::initialize_volatile_page(
     page_id,
     kMasstreeIntermediatePageType,
     layer,
+    level,
     low_fence,
     high_fence);
   for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
@@ -86,6 +95,7 @@ void MasstreeIntermediatePage::initialize_snapshot_page(
   StorageId           storage_id,
   SnapshotPagePointer page_id,
   uint8_t             layer,
+  uint8_t             level,
   KeySlice            low_fence,
   KeySlice            high_fence) {
   initialize_snapshot_common(
@@ -93,6 +103,7 @@ void MasstreeIntermediatePage::initialize_snapshot_page(
     page_id,
     kMasstreeIntermediatePageType,
     layer,
+    level,
     low_fence,
     high_fence);
   for (uint16_t i = 0; i <= kMaxIntermediateSeparators; ++i) {
@@ -111,6 +122,7 @@ void MasstreeBorderPage::initialize_volatile_page(
     page_id,
     kMasstreeBorderPageType,
     layer,
+    0,
     low_fence,
     high_fence);
   consecutive_inserts_ = true;  // initially key_count = 0, so of course sorted
@@ -127,6 +139,7 @@ void MasstreeBorderPage::initialize_snapshot_page(
     page_id,
     kMasstreeBorderPageType,
     layer,
+    0,
     low_fence,
     high_fence);
   consecutive_inserts_ = true;  // snapshot pages are always completely sorted
@@ -744,6 +757,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
       header_.storage_id_,
       new_pointer,
       get_layer(),
+      get_btree_level(),  // foster child has the same level as foster-parent
       i == 0 ? low_fence_ : new_foster_fence,
       i == 0 ? new_foster_fence : high_fence_);
     twin_locks[i] = context->mcs_initial_lock(twin[i]->get_lock_address());
@@ -1218,46 +1232,164 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   verify_separators();
 }
 
-bool MasstreeBorderPage::track_moved_record(
+MasstreePage* MasstreePage::track_foster_child(
+  KeySlice slice,
+  const memory::GlobalVolatilePageResolver& resolver) {
+  MasstreePage* cur_page = this;
+  while (cur_page->is_moved()) {
+    ASSERT_ND(cur_page->has_foster_child());
+    if (cur_page->within_foster_minor(slice)) {
+      ASSERT_ND(!cur_page->within_foster_major(slice));
+      cur_page = reinterpret_cast<MasstreePage*>(
+        resolver.resolve_offset(cur_page->get_foster_minor()));
+    } else {
+      ASSERT_ND(cur_page->within_foster_major(slice));
+      cur_page = reinterpret_cast<MasstreePage*>(
+        resolver.resolve_offset(cur_page->get_foster_major()));
+    }
+  }
+  return cur_page;
+}
+
+xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record(
   Engine* engine,
   xct::LockableXctId* owner_address,
-  MasstreeBorderPage** located_page,
-  uint8_t* located_index) {
-  ASSERT_ND(is_moved());
-  ASSERT_ND(has_foster_child());
-  ASSERT_ND(!get_foster_minor().is_null());
-  ASSERT_ND(!get_foster_major().is_null());
+  xct::WriteXctAccess* write_set) {
   ASSERT_ND(!header().snapshot_);
   ASSERT_ND(header().get_page_type() == kMasstreeBorderPageType);
   ASSERT_ND(owner_address >= owner_ids_);
   ASSERT_ND(owner_address - owner_ids_ < kMaxKeys);
   ASSERT_ND(owner_address - owner_ids_ < get_key_count());
-  uint8_t index = owner_address - owner_ids_;
-  KeySlice slice = slices_[index];
-  uint8_t remaining = remaining_key_length_[index];
-  bool originally_pointer = false;
-  if (remaining == kKeyLengthNextLayer) {
-    remaining = sizeof(KeySlice);
-    originally_pointer = true;
+
+  if (owner_address->xct_id_.is_next_layer()) {
+    return track_moved_record_next_layer(engine, owner_address, write_set);
   }
-  const char* suffix = get_record(index);
+
+  // otherwise, we can track without key information within this layer.
+  // the slice and key length is enough to identify the record.
+  ASSERT_ND(is_moved());
+  ASSERT_ND(has_foster_child());
+  ASSERT_ND(!get_foster_minor().is_null());
+  ASSERT_ND(!get_foster_major().is_null());
+  uint8_t original_index = owner_address - owner_ids_;
+  KeySlice slice = slices_[original_index];
+  uint8_t remaining = remaining_key_length_[original_index];
+  if (remaining == kKeyLengthNextLayer) {  // we just checked it above.. but possible
+    LOG(INFO) << "A very rare event. the record has now become a next layer pointer";
+    return xct::TrackMovedRecordResult();
+  }
+  const char* suffix = get_record(original_index);
+
+  // if remaining <= 8 : this layer can have only one record that has this slice and this length.
+  // if remaining > 8  : this layer has either the exact record, or it's now a next layer pointer.
 
   // recursively track. although probably it's only one level
   MasstreeBorderPage* cur_page = this;
   const memory::GlobalVolatilePageResolver& resolver
     = engine->get_memory_manager()->get_global_volatile_page_resolver();
   while (true) {
-    if (cur_page->is_moved()) {
-      ASSERT_ND(cur_page->has_foster_child());
-      if (cur_page->within_foster_minor(slice)) {
-        ASSERT_ND(!cur_page->within_foster_major(slice));
-        cur_page = reinterpret_cast<MasstreeBorderPage*>(
-          resolver.resolve_offset(cur_page->get_foster_minor()));
-      } else {
-        ASSERT_ND(cur_page->within_foster_major(slice));
-        cur_page = reinterpret_cast<MasstreeBorderPage*>(
-          resolver.resolve_offset(cur_page->get_foster_major()));
+    cur_page = reinterpret_cast<MasstreeBorderPage*>(cur_page->track_foster_child(slice, resolver));
+
+    // now cur_page must be the page that contains the record.
+    // the only exception is
+    // 1) again the record is being moved concurrently
+    // 2) the record was moved to another layer (remaining==kKeyLengthNextLayer).
+    uint8_t index = cur_page->find_key(slice, suffix, remaining);
+    if (index == kMaxKeys) {
+      // this can happen rarely because we are not doing the stable version trick here.
+      // this is rare, so we just abort. no safety violation.
+      VLOG(0) << "Very interesting. moved record not found due to concurrent updates";
+      return xct::TrackMovedRecordResult();
+    }
+
+    xct::LockableXctId* new_owner_address = cur_page->get_owner_id(index);
+    char* new_record_address = cur_page->get_record(index);
+    if (cur_page->does_point_to_layer(index)) {
+      // another rare case. the record has been now moved to another layer.
+
+      if (remaining <= sizeof(KeySlice)) {
+        // the record we are looking for can't be stored in next layer..
+        VLOG(0) << "Wtf 2. moved record in next layer not found. Probably due to concurrent thread";
+        return xct::TrackMovedRecordResult();
       }
+
+      VLOG(0) << "Interesting. moved record are now in another layer. further track.";
+      return cur_page->track_moved_record_next_layer(engine, new_owner_address, write_set);
+    }
+
+    // Otherwise, this is it!
+    // be careful, we give get_record() as "payload". the word "payload" is a bit overused here.
+    return xct::TrackMovedRecordResult(new_owner_address, new_record_address);
+  }
+}
+
+xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record_next_layer(
+  Engine* engine,
+  xct::LockableXctId* owner_address,
+  xct::WriteXctAccess* write_set) {
+  ASSERT_ND(!header().snapshot_);
+  ASSERT_ND(header().get_page_type() == kMasstreeBorderPageType);
+  ASSERT_ND(owner_address >= owner_ids_);
+  ASSERT_ND(owner_address - owner_ids_ < kMaxKeys);
+  ASSERT_ND(owner_address - owner_ids_ < get_key_count());
+  ASSERT_ND(owner_address->xct_id_.is_next_layer());
+
+  // if the record went down to next layer, we need write_set (its log) to track the exact key.
+  if (write_set == nullptr) {
+    VLOG(0) << "A rare event. The record went down to next layer. We need write-set to track"
+      << " this, but seems like this is a read-only access. Give up tracking.";
+    return xct::TrackMovedRecordResult();  // which will result in abort
+  }
+
+  ASSERT_ND(write_set);
+  ASSERT_ND(write_set->log_entry_);
+  const MasstreeCommonLogType* log_entry
+    = reinterpret_cast<const MasstreeCommonLogType*>(write_set->log_entry_);
+  uint16_t key_length = log_entry->key_length_;
+  const char* key = log_entry->get_key();
+
+  uint8_t cur_layer = get_layer();
+  uint8_t next_layer = cur_layer + 1U;
+  KeySlice next_slice = slice_layer(key, key_length, next_layer);
+  ASSERT_ND(key_length > sizeof(KeySlice) * (cur_layer + 1U));
+  uint16_t next_remaining = key_length - (cur_layer + 1U) * sizeof(KeySlice);
+  const char* next_suffix = key + (cur_layer + 1U) * sizeof(KeySlice);
+
+  uint8_t original_index = owner_address - owner_ids_;
+  ASSERT_ND(slice_layer(key, key_length, cur_layer) == slices_[original_index]);
+  ASSERT_ND(does_point_to_layer(original_index));
+
+  VolatilePagePointer root_pointer = get_next_layer(original_index)->volatile_pointer_;
+  if (root_pointer.is_null()) {
+    VLOG(0) << "Wtf. moved record in next layer not found. Probably due to concurrent thread";
+    return xct::TrackMovedRecordResult();
+  }
+
+  const memory::GlobalVolatilePageResolver& resolver
+    = engine->get_memory_manager()->get_global_volatile_page_resolver();
+  MasstreePage* cur_page
+    = reinterpret_cast<MasstreeBorderPage*>(resolver.resolve_offset(root_pointer));
+  ASSERT_ND(cur_page->get_low_fence() == kInfimumSlice && cur_page->is_high_fence_supremum());
+  ASSERT_ND(cur_page->get_layer() == next_layer);
+
+  while (true) {
+    cur_page = cur_page->track_foster_child(next_slice, resolver);
+    ASSERT_ND(cur_page->get_layer() == next_layer);
+    ASSERT_ND(cur_page->within_fences(next_slice));
+
+    if (!cur_page->is_border()) {
+      MasstreeIntermediatePage* casted = reinterpret_cast<MasstreeIntermediatePage*>(cur_page);
+      uint8_t index = casted->find_minipage(next_slice);
+      MasstreeIntermediatePage::MiniPage& minipage = casted->get_minipage(index);
+      uint8_t index_mini = minipage.find_pointer(next_slice);
+      VolatilePagePointer pointer = minipage.pointers_[index_mini].volatile_pointer_;
+      if (pointer.is_null()) {
+        VLOG(0) << "Wtf 1. moved record in next layer not found. Probably due to concurrent thread";
+        return xct::TrackMovedRecordResult();
+      }
+      cur_page = reinterpret_cast<MasstreePage*>(resolver.resolve_offset(pointer));
+      ASSERT_ND(cur_page->get_layer() == next_layer);
+      ASSERT_ND(cur_page->within_fences(next_slice));
       continue;
     }
 
@@ -1265,27 +1397,32 @@ bool MasstreeBorderPage::track_moved_record(
     // the only exception is
     // 1) again the record is being moved concurrently
     // 2) the record was moved to another layer (remaining==kKeyLengthNextLayer).
-    *located_index = cur_page->find_key(slice, suffix, remaining);
-    if (*located_index == kMaxKeys) {
-      // this can happen rarely because we are not doing the stable version trick here.
-      // this is rare, so we just abort. no safety violation.
+    MasstreeBorderPage* casted = reinterpret_cast<MasstreeBorderPage*>(cur_page);
+    ASSERT_ND(casted != this);
+    uint8_t index = casted->find_key(next_slice, next_suffix, next_remaining);
+    if (index == kMaxKeys) {
       VLOG(0) << "Very interesting. moved record not found due to concurrent updates";
-      *located_index = cur_page->find_key(slice, suffix, remaining);
-      return false;
-    } else if (cur_page->remaining_key_length_[*located_index] == kKeyLengthNextLayer &&
-      !originally_pointer) {
-      // another rare case. the record has been moved to another layer.
-      // we can potentially track it, but not worth doing. abort.
-      // TODO(Hideaki) we should track even in this case.
-      VLOG(0) << "Interesting. moved record are now in another layer";
-      return false;
+      return xct::TrackMovedRecordResult();
     }
 
-    // Otherwise, this is it!
-    *located_page = cur_page;
-    break;
+    xct::LockableXctId* new_owner_address = casted->get_owner_id(index);
+    ASSERT_ND(new_owner_address != owner_address);
+    char* new_record_address = casted->get_record(index);
+    if (casted->does_point_to_layer(index)) {
+      // the record has been now moved to yet another layer.
+      if (next_remaining <= sizeof(KeySlice)) {
+        // the record we are looking for can't be stored in next layer..
+        VLOG(0) << "Wtf 2. moved record in next layer not found. Probably due to concurrent thread";
+        return xct::TrackMovedRecordResult();
+      }
+
+      VLOG(0) << "Interesting. moved record are now in another layer. further track.";
+      return casted->track_moved_record_next_layer(engine, new_owner_address, write_set);
+    }
+
+    // be careful, we give get_record() as "payload". the word "payload" is a bit overused here.
+    return xct::TrackMovedRecordResult(new_owner_address, new_record_address);
   }
-  return true;
 }
 
 }  // namespace masstree

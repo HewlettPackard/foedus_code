@@ -19,6 +19,21 @@ set(test_snapshot_array_individuals
   HolesOneLogger
   HolesTwoLoggers
   HolesTwoPartitions
+  OverwritesOneLogger3Lv
+  OverwritesTwoLoggers3Lv
+  OverwritesTwoPartitions3Lv
+  IncrementsOneLogger3Lv
+  IncrementsTwoLoggers3Lv
+  IncrementsTwoPartitions3Lv
+  IncrementsTwiceOneLogger3Lv
+  IncrementsTwiceTwoLoggers3Lv
+  IncrementsTwiceTwoPartitions3Lv
+  TwoArraysOneLogger3Lv
+  TwoArraysTwoLoggers3Lv
+  TwoArraysTwoPartitions3Lv
+  HolesOneLogger3Lv
+  HolesTwoLoggers3Lv
+  HolesTwoPartitions3Lv
   )
 add_foedus_test_individual(test_snapshot_array "${test_snapshot_array_individuals}")
 

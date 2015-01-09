@@ -151,6 +151,7 @@ ErrorStack SocManagerPimpl::wait_for_child_attach() {
   uint32_t trials = 0;
   bool child_as_process = engine_->get_options().soc_.soc_type_ != kChildEmulated;
   while (true) {
+    assorted::spinlock_yield();
     std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMillisecond));
     bool error_happened = false;
     bool remaining = false;
@@ -218,6 +219,7 @@ ErrorStack SocManagerPimpl::wait_for_child_terminate() {
   uint32_t trials = 0;
   bool child_as_process = engine_->get_options().soc_.soc_type_ != kChildEmulated;
   while (true) {
+    assorted::spinlock_yield();
     std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMillisecond));
     bool remaining = false;
     for (uint16_t node = 0; node < soc_count; ++node) {
@@ -273,6 +275,7 @@ ErrorStack SocManagerPimpl::wait_for_master_status(MasterEngineStatus::StatusCod
   const uint32_t kIntervalMillisecond = 10;
 //  bool child_as_process = engine_->get_options().soc_.soc_type_ != kChildEmulated;
   while (true) {
+    assorted::spinlock_yield();
     std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMillisecond));
     MasterEngineStatus::StatusCode master_status = memory_repo_.get_master_status();
     if (master_status == target_status) {
@@ -326,6 +329,7 @@ ErrorStack SocManagerPimpl::wait_for_master_module(bool init, ModuleType desired
         return ERROR_STACK(kErrorCodeSocChildUninitFailed);
       }
     }
+    assorted::spinlock_yield();
     assorted::memory_fence_acq_rel();
     ModuleType cur;
     if (init) {
@@ -353,6 +357,7 @@ ErrorStack SocManagerPimpl::wait_for_children_module(bool init, ModuleType desir
       LOG(WARNING) << "Suspiciously long wait for child " << (init ? "" : "un") << "initializing"
         << " module-" << desired << ". count=" << count;
     }
+    assorted::spinlock_yield();
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
     assorted::memory_fence_acq_rel();
     bool error_happened = false;

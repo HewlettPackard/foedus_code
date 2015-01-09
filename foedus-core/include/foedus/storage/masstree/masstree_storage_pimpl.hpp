@@ -17,7 +17,6 @@
 #include "foedus/cache/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
-#include "foedus/storage/composer.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage.hpp"
@@ -28,6 +27,7 @@
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/thread.hpp"
+#include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace storage {
@@ -305,39 +305,28 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     KeySlice from,
     KeySlice to);
 
-  bool track_moved_record(xct::WriteXctAccess* write) ALWAYS_INLINE;
-  xct::LockableXctId* track_moved_record(xct::LockableXctId* address) ALWAYS_INLINE;
-
-  // composer-related
-  MasstreePage* resolve_volatile(VolatilePagePointer pointer);
-  ErrorStack    replace_pointers(const Composer::ReplacePointersArguments& args);
-  ErrorStack    replace_pointers_intermediate(
-    const Composer::ReplacePointersArguments& args,
-    DualPagePointer* pointer,
-    bool* kept_volatile,
-    MasstreeIntermediatePage* volatile_page);
-  ErrorStack    replace_pointers_border(
-    const Composer::ReplacePointersArguments& args,
-    DualPagePointer* pointer,
-    bool* kept_volatile,
-    MasstreeBorderPage* volatile_page);
+  xct::TrackMovedRecordResult track_moved_record(
+    xct::LockableXctId* old_address,
+    xct::WriteXctAccess* write_set) ALWAYS_INLINE;
 
   /** Defined in masstree_storage_peek.cpp */
   ErrorCode     peek_volatile_page_boundaries(
     Engine* engine,
     const MasstreeStorage::PeekBoundariesArguments& args);
   ErrorCode     peek_volatile_page_boundaries_next_layer(
-    const MasstreeIntermediatePage* layer_root,
+    const MasstreePage* layer_root,
     const memory::GlobalVolatilePageResolver& resolver,
     const MasstreeStorage::PeekBoundariesArguments& args);
   ErrorCode     peek_volatile_page_boundaries_this_layer(
-    const MasstreeIntermediatePage* layer_root,
+    const MasstreePage* layer_root,
     const memory::GlobalVolatilePageResolver& resolver,
     const MasstreeStorage::PeekBoundariesArguments& args);
   ErrorCode     peek_volatile_page_boundaries_this_layer_recurse(
     const MasstreeIntermediatePage* cur,
     const memory::GlobalVolatilePageResolver& resolver,
     const MasstreeStorage::PeekBoundariesArguments& args);
+
+  static ErrorCode check_next_layer_bit(xct::XctId observed) ALWAYS_INLINE;
 };
 static_assert(sizeof(MasstreeStoragePimpl) <= kPageSize, "MasstreeStoragePimpl is too large");
 static_assert(

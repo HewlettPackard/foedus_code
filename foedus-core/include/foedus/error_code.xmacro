@@ -114,6 +114,7 @@ X(kErrorCodeSocShmAllocFailed,      0x0C01, "SOC    : Failed to allocate a share
       " - Too small kernel.shmmax/kernel.shmmin. sudo sysctl -w kernel.shmmax=9223372036854775807;sudo sysctl -w kernel.shmall=1152921504606846720;sudo sysctl -p"
       " - Too few hugepages. sudo sh -c 'echo 196608 > /proc/sys/vm/nr_hugepages'"
       " - Too small mlock. Check ulimit -l. Configure /etc/security/limits.conf"
+      " - Too small nofile. Check ulimit -a. Configure /etc/security/limits.conf"
       " - Simply larger than DRAM in the machine. "
       " - (Very rare) shm key conflict.")
 X(kErrorCodeSocShmAttachFailed,     0x0C02, "SOC    : Failed to attach a shared memory.")

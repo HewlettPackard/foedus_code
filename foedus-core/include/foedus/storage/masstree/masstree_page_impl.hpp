@@ -25,6 +25,7 @@
 #include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/thread/fwd.hpp"
+#include "foedus/xct/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
@@ -89,6 +90,8 @@ class MasstreePage {
 
   /** Layer-0 stores the first 8 byte slice, Layer-1 next 8 byte... */
   uint8_t             get_layer() const ALWAYS_INLINE { return header_.masstree_layer_; }
+  /** @copydoc foedus::storage::PageHeader::masstree_in_layer_level_ */
+  uint8_t get_btree_level() const ALWAYS_INLINE { return header_.masstree_in_layer_level_; }
   /** \e physical key count (those keys might be deleted) in this page. */
   uint16_t            get_key_count() const ALWAYS_INLINE { return header_.key_count_; }
   void                set_key_count(uint16_t count) ALWAYS_INLINE { header_.set_key_count(count); }
@@ -140,6 +143,10 @@ class MasstreePage {
     high_fence_ = high_fence;
   }
 
+  MasstreePage* track_foster_child(
+    KeySlice slice,
+    const memory::GlobalVolatilePageResolver& resolver);
+
   /** defined in masstree_page_debug.cpp. */
   friend std::ostream& operator<<(std::ostream& o, const MasstreePage& v);
 
@@ -171,6 +178,7 @@ class MasstreePage {
     VolatilePagePointer page_id,
     PageType            page_type,
     uint8_t             layer,
+    uint8_t             level,
     KeySlice            low_fence,
     KeySlice            high_fence);
 
@@ -179,6 +187,7 @@ class MasstreePage {
     SnapshotPagePointer page_id,
     PageType            page_type,
     uint8_t             layer,
+    uint8_t             level,
     KeySlice            low_fence,
     KeySlice            high_fence);
 };
@@ -288,7 +297,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
     }
     return key_count;
   }
-
   MiniPage&         get_minipage(uint8_t index) ALWAYS_INLINE { return mini_pages_[index]; }
   const MiniPage&   get_minipage(uint8_t index) const ALWAYS_INLINE { return mini_pages_[index]; }
   KeySlice          get_separator(uint8_t index) const ALWAYS_INLINE { return separators_[index]; }
@@ -307,12 +315,14 @@ class MasstreeIntermediatePage final : public MasstreePage {
     StorageId           storage_id,
     VolatilePagePointer page_id,
     uint8_t             layer,
+    uint8_t             level,
     KeySlice            low_fence,
     KeySlice            high_fence);
   void initialize_snapshot_page(
     StorageId           storage_id,
     SnapshotPagePointer page_id,
     uint8_t             layer,
+    uint8_t             level,
     KeySlice            low_fence,
     KeySlice            high_fence);
 
@@ -626,6 +636,9 @@ class MasstreeBorderPage final : public MasstreePage {
     }
     return true;
   }
+  inline uint16_t get_unused_region_size(uint8_t last_index) const ALWAYS_INLINE {
+    return static_cast<uint16_t>(offsets_[last_index]) << 4;
+  }
   bool    can_accomodate(
     uint8_t new_index,
     uint8_t remaining_length,
@@ -659,6 +672,10 @@ class MasstreeBorderPage final : public MasstreePage {
     } else {
       return true;
     }
+  }
+  /** let's gradually migrate from compare_key() to this. */
+  bool    equal_key(uint8_t index, const void* be_key, uint16_t key_length) const ALWAYS_INLINE {
+    return compare_key(index, be_key, key_length);
   }
 
   /** compare the key. returns negative, 0, positive when the given key is smaller,same,larger. */
@@ -778,9 +795,10 @@ class MasstreeBorderPage final : public MasstreePage {
     remaining_key_length_[index] = kKeyLengthNextLayer;
     payload_length_[index] = sizeof(DualPagePointer);
     *get_next_layer(index) = pointer;
-    // TODO(Hideaki) we should have a flag in xct_id to denote "next_layer pointer"
-    // simply using is_moved for this purpose is not enough because it's a page-split flag.
-    // next_layer is not a page split, something else.
+    xct::XctId& xct_id = get_owner_id(index)->xct_id_;
+    ASSERT_ND(!xct_id.is_moved());
+    ASSERT_ND(!xct_id.is_next_layer());
+    xct_id.set_next_layer();
   }
 
   /**
@@ -823,16 +841,16 @@ class MasstreeBorderPage final : public MasstreePage {
     MasstreeBorderPage** target,
     xct::McsBlockIndex *target_lock);
 
-  /**
-   * @return whether we could track it. the only case it fails to track is the record moved
-   * to deeper layers. we can also track it down to other layers, but it's rare. so, just retry
-   * the whole transaction.
-   */
-  bool track_moved_record(
+  /** @see StorageManager::track_moved_record() */
+  xct::TrackMovedRecordResult track_moved_record(
     Engine* engine,
-    xct::LockableXctId* owner_address,
-    MasstreeBorderPage** located_page,
-    uint8_t* located_index);
+    xct::LockableXctId* old_address,
+    xct::WriteXctAccess* write_set);
+  /** This one further tracks it to next layer. Instead it requires a non-null write_set. */
+  xct::TrackMovedRecordResult track_moved_record_next_layer(
+    Engine* engine,
+    xct::LockableXctId* old_address,
+    xct::WriteXctAccess* write_set);
 
   void assert_entries() ALWAYS_INLINE {
 #ifndef NDEBUG
@@ -950,6 +968,17 @@ struct MasstreeIntermediatePointerIterator final {
       return page_->get_separator(index_ - 1);
     } else {
       return page_->get_low_fence();
+    }
+  }
+  KeySlice get_high_key() const {
+    ASSERT_ND(is_valid());
+    const MasstreeIntermediatePage::MiniPage& minipage = page_->get_minipage(index_);
+    if (index_mini_ < minipage.key_count_) {
+      return minipage.separators_[index_mini_];
+    } else if (index_ < page_->get_key_count()) {
+      return page_->get_separator(index_ );
+    } else {
+      return page_->get_high_fence();
     }
   }
   const DualPagePointer& get_pointer() const {
@@ -1201,6 +1230,7 @@ inline void MasstreeBorderPage::append_next_layer_snapshot(
   payload_length_[index] = sizeof(DualPagePointer);
   offsets_[index] = previous_offset - record_size;
   owner_ids_[index].xct_id_ = initial_owner_id;
+  owner_ids_[index].xct_id_.set_next_layer();
   DualPagePointer* dual_pointer = get_next_layer(index);
   dual_pointer->volatile_pointer_.clear();
   dual_pointer->snapshot_pointer_ = pointer;
@@ -1213,6 +1243,7 @@ inline void MasstreeBorderPage::replace_next_layer_snapshot(SnapshotPagePointer 
   uint8_t index = get_key_count() - 1U;
 
   ASSERT_ND(!does_point_to_layer(index));
+  ASSERT_ND(!owner_ids_[index].xct_id_.is_next_layer());
   ASSERT_ND(can_accomodate(index, 0, sizeof(DualPagePointer)));
   DataOffset record_size = calculate_record_size(0, sizeof(DualPagePointer)) >> 4;
   DataOffset previous_offset;
@@ -1224,6 +1255,7 @@ inline void MasstreeBorderPage::replace_next_layer_snapshot(SnapshotPagePointer 
   remaining_key_length_[index] = kKeyLengthNextLayer;
   payload_length_[index] = sizeof(DualPagePointer);
   offsets_[index] = previous_offset - record_size;
+  owner_ids_[index].xct_id_.set_next_layer();
   DualPagePointer* dual_pointer = get_next_layer(index);
   dual_pointer->volatile_pointer_.clear();
   dual_pointer->snapshot_pointer_ = pointer;

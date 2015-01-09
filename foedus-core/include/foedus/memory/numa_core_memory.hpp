@@ -108,7 +108,7 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
    * To reduce # of TLB entries, we pack several small things to this 2MB.
    * \li (used in Xct) PointerAccess(16b) * 1k : 16kb
    * \li (used in Xct) PageVersionAccess(16b) * 1k : 16kb
-   * \li (used in Xct) XctAccess(24b) * 32k :768kb
+   * \li (used in Xct) ReadXctAccess(32b) * 32k :1024kb
    * \li (used in Xct) WriteXctAccess(40b) * 8k : 320kb
    * \li (used in Xct) LockFreeWriteXctAccess(16b) * 4k : 64kb
    * \li (used in Xct) Retired pages(PagePoolOffsetAndEpochChunk=32kb) * #-of-nodes : 32kb * #nodes

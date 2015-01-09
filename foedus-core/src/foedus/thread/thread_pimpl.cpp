@@ -133,6 +133,7 @@ void ThreadPimpl::handle_tasks() {
   ASSERT_ND(control_block_->status_ == kNotInitialized);
   control_block_->status_ = kWaitingForTask;
   while (!is_stop_requested()) {
+    assorted::spinlock_yield();
     {
       soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());
       if (is_stop_requested()) {

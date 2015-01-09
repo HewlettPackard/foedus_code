@@ -20,6 +20,8 @@
 #include "foedus/fs/direct_io_file.hpp"
 #include "foedus/log/common_log_types.hpp"
 #include "foedus/memory/aligned_memory.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/page_resolver.hpp"
 #include "foedus/snapshot/merge_sort.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_writer_impl.hpp"
@@ -89,22 +91,30 @@ ErrorStack ArrayComposer::construct_root(const Composer::ConstructRootArguments&
       = reinterpret_cast<const ArrayRootInfoPage*>(args.root_info_pages_[0]);
     ASSERT_ND(casted->pointers_[0] != 0);
     *args.new_root_page_pointer_ = casted->pointers_[0];
+
+    // and we have already installed it, right?
+    ASSERT_ND(storage_.get_control_block()->meta_.root_snapshot_page_id_
+      == casted->pointers_[0]);
+    ASSERT_ND(storage_.get_control_block()->root_page_pointer_.snapshot_pointer_
+      == casted->pointers_[0]);
   } else {
     ArrayPage* root_page = reinterpret_cast<ArrayPage*>(args.snapshot_writer_->get_page_base());
     SnapshotPagePointer page_id = storage_.get_metadata()->root_snapshot_page_id_;
     SnapshotPagePointer new_page_id = args.snapshot_writer_->get_next_page_id();
     *args.new_root_page_pointer_ = new_page_id;
+
+    uint64_t root_interval = LookupRouteFinder(levels, payload_size).get_records_in_leaf();
+    for (uint8_t level = 1; level < levels; ++level) {
+      root_interval *= kInteriorFanout;
+    }
+    ArrayRange range(0, root_interval, storage_.get_array_size());
     if (page_id != 0) {
       WRAP_ERROR_CODE(args.previous_snapshot_files_->read_page(page_id, root_page));
       ASSERT_ND(root_page->header().storage_id_ == storage_id_);
       ASSERT_ND(root_page->header().page_id_ == page_id);
+      ASSERT_ND(root_page->get_array_range() == range);
       root_page->header().page_id_ = new_page_id;
     } else {
-      uint64_t root_interval = LookupRouteFinder(levels, payload_size).get_records_in_leaf();
-      for (uint8_t level = 1; level < levels; ++level) {
-        root_interval *= kInteriorFanout;
-      }
-      ArrayRange range(0, root_interval, storage_.get_array_size());
       root_page->initialize_snapshot_page(
         storage_id_,
         new_page_id,
@@ -113,11 +123,14 @@ ErrorStack ArrayComposer::construct_root(const Composer::ConstructRootArguments&
         range);
     }
 
+    uint64_t child_interval = root_interval / kInteriorFanout;
+    uint16_t root_children = assorted::int_div_ceil(storage_.get_array_size(), child_interval);
+
     // overwrite pointers with root_info_pages.
     for (uint32_t i = 0; i < args.root_info_pages_count_; ++i) {
       const ArrayRootInfoPage* casted
         = reinterpret_cast<const ArrayRootInfoPage*>(args.root_info_pages_[i]);
-      for (uint16_t j = 0; j < kInteriorFanout; ++j) {
+      for (uint16_t j = 0; j < root_children; ++j) {
         SnapshotPagePointer pointer = casted->pointers_[j];
         if (pointer != 0) {
           ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(pointer) == new_snapshot_id);
@@ -129,10 +142,22 @@ ErrorStack ArrayComposer::construct_root(const Composer::ConstructRootArguments&
           record.snapshot_pointer_ = pointer;
         }
       }
+      for (uint16_t j = root_children; j < kInteriorFanout; ++j) {
+        ASSERT_ND(casted->pointers_[j] == 0);
+      }
+    }
+
+    // even in initial snapshot, all pointers must be set because we create empty pages
+    // even if some sub-tree receives no logs.
+    for (uint16_t j = 0; j < root_children; ++j) {
+      ASSERT_ND(root_page->get_interior_record(j).snapshot_pointer_ != 0);
     }
 
     WRAP_ERROR_CODE(args.snapshot_writer_->dump_pages(0, 1));
     ASSERT_ND(args.snapshot_writer_->get_next_page_id() == new_page_id + 1ULL);
+    // AFTER writing out the root page, install the pointer to new root page
+    storage_.get_control_block()->root_page_pointer_.snapshot_pointer_ = new_page_id;
+    storage_.get_control_block()->meta_.root_snapshot_page_id_ = new_page_id;
   }
   return kRetOk;
 }
@@ -140,10 +165,6 @@ ErrorStack ArrayComposer::construct_root(const Composer::ConstructRootArguments&
 
 std::string ArrayComposer::to_string() const {
   return std::string("ArrayComposer-") + std::to_string(storage_id_);
-}
-
-ErrorStack ArrayComposer::replace_pointers(const Composer::ReplacePointersArguments& args) {
-  return ArrayStorage(engine_, storage_id_).replace_pointers(args);
 }
 
 ///////////////////////////////////////////////////////////////////////
@@ -252,6 +273,24 @@ ErrorStack ArrayComposeContext::execute() {
   } else {
     LOG(ERROR) << "wtf? no logs? storage-" << storage_id_;
   }
+
+#ifndef NDEBUG
+  uint16_t children = get_root_children();
+  PartitionId partition = snapshot_writer_->get_numa_node();
+  ASSERT_ND(partitioning_data_);
+  for (uint16_t i = 0; i < children; ++i) {
+    if (!partitioning_data_->partitionable_ || partitioning_data_->bucket_owners_[i] == partition) {
+      ASSERT_ND(root_info_page_->pointers_[i] != 0);
+    } else {
+      ASSERT_ND((!is_initial_snapshot() && root_info_page_->pointers_[i] != 0)
+        || (is_initial_snapshot() && root_info_page_->pointers_[i] == 0));
+    }
+  }
+  for (uint16_t i = children; i < kInteriorFanout; ++i) {
+    ASSERT_ND(root_info_page_->pointers_[i] == 0);
+  }
+#endif  // NDEBUG
+
   return kRetOk;
 }
 
@@ -308,10 +347,20 @@ ErrorStack ArrayComposeContext::execute_single_level_array() {
   ASSERT_ND(allocated_pages_ == 1U);
   ASSERT_ND(allocated_intermediates_ == 0);
   ASSERT_ND(cur_path_[0] == page_base_);
-  ASSERT_ND(snapshot_writer_->get_next_page_id() == page_base_[0].header().page_id_);
+  ASSERT_ND(page_id == page_base_[0].header().page_id_);
+  ASSERT_ND(snapshot_writer_->get_next_page_id() == page_id);
   WRAP_ERROR_CODE(snapshot_writer_->dump_pages(0, 1));
-  root_info_page_->pointers_[0] = page_base_[0].header().page_id_;
+  root_info_page_->pointers_[0] = page_id;
+
+  // further, we install the only snapshot pointer now.
+  storage_.get_control_block()->meta_.root_snapshot_page_id_ = page_id;
+  storage_.get_control_block()->root_page_pointer_.snapshot_pointer_ = page_id;
   return kRetOk;
+}
+
+uint16_t ArrayComposeContext::get_root_children() const {
+  uint64_t child_interval = offset_intervals_[levels_ - 2U];
+  return assorted::int_div_ceil(storage_.get_array_size(), child_interval);
 }
 
 ErrorStack ArrayComposeContext::finalize() {
@@ -332,7 +381,7 @@ ErrorStack ArrayComposeContext::finalize() {
 
   // intermediate pages are different animals.
   // we store them in a separate buffer, and now finally we can get their page IDs.
-  // Until now, we relative used indexes in intermediate buffer as page ID, storing them in
+  // Until now, we used relative indexes in intermediate buffer as page ID, storing them in
   // page ID header. now let's convert all of them to be final page ID.
   ArrayPage* root_page = intermediate_base_;
   ASSERT_ND(root_page == cur_path_[levels_ - 1]);
@@ -374,32 +423,54 @@ ErrorStack ArrayComposeContext::finalize() {
   // we also write out root page, but we don't use it as we just put an equivalent information to
   // root_info_page. construct_root() will combine all composers' output later.
   snapshot_writer_->dump_intermediates(0, allocated_intermediates_);
-  for (uint16_t j = 0; j < kInteriorFanout; ++j) {
+
+  const uint16_t root_children = get_root_children();
+  const PartitionId partition = snapshot_writer_->get_numa_node();
+  ASSERT_ND(partitioning_data_);
+  for (uint16_t j = 0; j < root_children; ++j) {
     DualPagePointer& pointer = root_page->get_interior_record(j);
     ASSERT_ND(pointer.volatile_pointer_.is_null());
     SnapshotPagePointer page_id = pointer.snapshot_pointer_;
     snapshot::SnapshotId snapshot_id = extract_snapshot_id_from_snapshot_pointer(page_id);
-    if (page_id != 0) {
+
+    if (!partitioning_data_->partitionable_ || partitioning_data_->bucket_owners_[j] == partition) {
+      ASSERT_ND(page_id != 0);
+      // okay, this is a page this node is responsible for.
       if (snapshot_id == snapshot_id_) {
         // we already have snapshot pointers because it points to leaf pages. (2 level array)
+        // the pointer is already valid as a snapshot pointer
         ASSERT_ND(extract_numa_node_from_snapshot_pointer(page_id)
           == snapshot_writer_->get_numa_node());
         ASSERT_ND(root_page->get_level() == 1U);
         ASSERT_ND(verify_snapshot_pointer(pointer.snapshot_pointer_));
-        root_info_page_->pointers_[j] = pointer.snapshot_pointer_;
       } else if (snapshot_id == snapshot::kNullSnapshotId) {
-        // intermediate pages created in this snapshot
+        // intermediate pages created in this snapshot.
+        // just like other pages adjusted above, it's an offset from intermediate_base_
         ASSERT_ND(root_page->get_level() > 1U);
         ASSERT_ND(extract_numa_node_from_snapshot_pointer(page_id) == 0);
         ASSERT_ND(page_id < allocated_intermediates_);
         pointer.snapshot_pointer_ = base_pointer + page_id;
         ASSERT_ND(verify_snapshot_pointer(pointer.snapshot_pointer_));
-        root_info_page_->pointers_[j] = pointer.snapshot_pointer_;
       } else {
-        // then, it's a page in some previous snapshots created in some node. skip
+        // then, it's a page in previous snapshots we didn't modify
+        ASSERT_ND(!is_initial_snapshot());
+        ASSERT_ND(snapshot_id != snapshot_id_);
       }
+      root_info_page_->pointers_[j] = pointer.snapshot_pointer_;
+    } else {
+      ASSERT_ND((!is_initial_snapshot() && page_id != 0 && snapshot_id != snapshot_id_)
+        || (is_initial_snapshot() && page_id == 0));
     }
   }
+  for (uint16_t j = root_children; j < kInteriorFanout; ++j) {
+    ASSERT_ND(root_page->get_interior_record(j).is_both_null());
+  }
+
+
+  // AFTER durably writing out the intermediate pages to the file, we install snapshot pointers.
+  uint64_t installed_count = 0;
+  CHECK_ERROR(install_snapshot_pointers(base_pointer, &installed_count));
+
   return kRetOk;
 }
 
@@ -411,14 +482,14 @@ ErrorStack ArrayComposeContext::initialize(ArrayOffset initial_offset) {
   // First, load or create the root page.
   CHECK_ERROR(init_root_page());
 
-  // If an initial snapshot, we might have to create empty pages that received no logs.
+  // If an initial snapshot, we have to create empty pages first.
   if (is_initial_snapshot()) {
     ArrayRange leaf_range = to_leaf_range(initial_offset);
-    if (leaf_range.begin_ != 0) {
-      VLOG(0) << "Need to fill out empty pages in initial snapshot of array-" << storage_id_
-        << ", upto " << leaf_range.begin_;
-      WRAP_ERROR_CODE(create_empty_pages(0, leaf_range.begin_));
-    }
+    VLOG(0) << "Need to fill out empty pages in initial snapshot of array-" << storage_id_
+      << ", upto " << leaf_range.end_;
+    WRAP_ERROR_CODE(create_empty_pages(0, leaf_range.end_));
+    ASSERT_ND(cur_path_[0]);
+    ASSERT_ND(cur_path_[0]->get_array_range() == leaf_range);
   }
   return kRetOk;
 }
@@ -476,12 +547,17 @@ ErrorCode ArrayComposeContext::create_empty_pages(ArrayOffset from, ArrayOffset 
     if (page->get_interior_record(i).snapshot_pointer_ == 0) {
       if (child_level > 0) {
         CHECK_ERROR_CODE(create_empty_intermediate_page(page, i, child_range));
+        ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(
+          cur_path_[child_level]->header().page_id_) == snapshot::kNullSnapshotId);
       } else {
         CHECK_ERROR_CODE(create_empty_leaf_page(page, i, child_range));
+        ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(
+          cur_path_[child_level]->header().page_id_) == snapshot_id_);
       }
     }
 
     ASSERT_ND(cur_path_[child_level]);
+    page->get_interior_record(i).snapshot_pointer_ = cur_path_[child_level]->header().page_id_;
     if (child_level > 0) {
       CHECK_ERROR_CODE(create_empty_pages_recurse(from, to, cur_path_[child_level]));
     }
@@ -529,12 +605,17 @@ ErrorCode ArrayComposeContext::create_empty_pages_recurse(
     if (page->get_interior_record(i).snapshot_pointer_ == 0) {
       if (child_level > 0) {
         CHECK_ERROR_CODE(create_empty_intermediate_page(page, i, child_range));
+        ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(
+          cur_path_[child_level]->header().page_id_) == snapshot::kNullSnapshotId);
       } else {
         CHECK_ERROR_CODE(create_empty_leaf_page(page, i, child_range));
+        ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(
+          cur_path_[child_level]->header().page_id_) == snapshot_id_);
       }
     }
 
     ASSERT_ND(cur_path_[child_level]);
+    page->get_interior_record(i).snapshot_pointer_ = cur_path_[child_level]->header().page_id_;
     if (child_level > 0) {
       CHECK_ERROR_CODE(create_empty_pages_recurse(from, to, cur_path_[child_level]));
     }
@@ -641,10 +722,11 @@ ErrorCode ArrayComposeContext::update_cur_path(ArrayOffset next_offset) {
       || (is_initial_snapshot() && old_page_id == 0));
 
     ArrayPage* page;
+    SnapshotPagePointer new_page_id;
     if (level > 0U) {
       // we switched an intermediate page
       page = intermediate_base_ + allocated_intermediates_;
-      SnapshotPagePointer new_page_id = allocated_intermediates_;
+      new_page_id = allocated_intermediates_;
       ++allocated_intermediates_;
       CHECK_ERROR_CODE(read_or_init_page(old_page_id, new_page_id, level, child_range, page));
     } else {
@@ -656,12 +738,13 @@ ErrorCode ArrayComposeContext::update_cur_path(ArrayOffset next_offset) {
 
       // remember, we can finalize the page ID of leaf pages at this point
       page = page_base_ + allocated_pages_;
-      SnapshotPagePointer new_page_id = snapshot_writer_->get_next_page_id() + allocated_pages_;
+      new_page_id = snapshot_writer_->get_next_page_id() + allocated_pages_;
       ASSERT_ND(verify_snapshot_pointer(new_page_id));
       ++allocated_pages_;
       CHECK_ERROR_CODE(read_or_init_page(old_page_id, new_page_id, level, child_range, page));
-      pointer.snapshot_pointer_ = new_page_id;
     }
+    ASSERT_ND(page->header().page_id_ == new_page_id);
+    pointer.snapshot_pointer_ = new_page_id;
     cur_path_[level] = page;
   }
   ASSERT_ND(verify_cur_path());
@@ -718,6 +801,239 @@ bool ArrayComposeContext::verify_snapshot_pointer(SnapshotPagePointer pointer) {
     == snapshot_writer_->get_snapshot_id());
   return true;
 }
+
+///////////////////////////////////////////////////////////////////////
+///
+///  ArrayComposeContext::install_snapshot_pointers() related methods
+///
+///////////////////////////////////////////////////////////////////////
+ErrorStack ArrayComposeContext::install_snapshot_pointers(
+  SnapshotPagePointer snapshot_base,
+  uint64_t* installed_count) const {
+  ASSERT_ND(levels_ > 1U);  // no need to call this method in one-page array
+  ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(snapshot_base) == snapshot_id_);
+
+  *installed_count = 0;
+  VolatilePagePointer pointer = storage_.get_control_block()->root_page_pointer_.volatile_pointer_;
+  if (pointer.is_null()) {
+    VLOG(0) << "No volatile pages.. maybe while restart?";
+    return kRetOk;
+  }
+
+  const memory::GlobalVolatilePageResolver& resolver
+    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
+  ArrayPage* volatile_root = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(pointer));
+
+  // compared to masstree, array is much easier to install snapshot pointers because the
+  // shape of the tree is exactly same between volatile and snapshot.
+  // we just recurse with the corresponding snapshot and volatile pages.
+  debugging::StopWatch watch;
+  const ArrayPage* snapshot_root = intermediate_base_;
+  WRAP_ERROR_CODE(install_snapshot_pointers_recurse(
+    snapshot_base,
+    resolver,
+    snapshot_root,
+    volatile_root,
+    installed_count));
+  watch.stop();
+  VLOG(0) << "ArrayStorage-" << storage_id_ << " installed " << *installed_count << " pointers"
+    << " in " << watch.elapsed_ms() << "ms";
+  return kRetOk;
+}
+
+ErrorCode ArrayComposeContext::install_snapshot_pointers_recurse(
+  SnapshotPagePointer snapshot_base,
+  const memory::GlobalVolatilePageResolver& resolver,
+  const ArrayPage* snapshot_page,
+  ArrayPage* volatile_page,
+  uint64_t* installed_count) const {
+  ASSERT_ND(snapshot_page->get_array_range() == volatile_page->get_array_range());
+  ASSERT_ND(!snapshot_page->is_leaf());
+  ASSERT_ND(!volatile_page->is_leaf());
+  const bool needs_recursion = snapshot_page->get_level() > 1U;
+  for (uint16_t i = 0; i < kInteriorFanout; ++i) {
+    SnapshotPagePointer pointer = snapshot_page->get_interior_record(i).snapshot_pointer_;
+    if (pointer == 0) {
+      continue;  // either this is right-most page or the range is not in this partition
+    }
+    snapshot::SnapshotId snapshot_id = extract_snapshot_id_from_snapshot_pointer(pointer);
+    ASSERT_ND(snapshot_id != snapshot::kNullSnapshotId);
+    if (snapshot_id != snapshot_id_) {
+      continue;
+    }
+    ASSERT_ND(extract_numa_node_from_snapshot_pointer(pointer)
+      == snapshot_writer_->get_numa_node());
+    DualPagePointer& target = volatile_page->get_interior_record(i);
+    target.snapshot_pointer_ = pointer;
+    ++(*installed_count);
+
+    if (needs_recursion) {
+      ASSERT_ND(pointer > snapshot_base);
+      // if it has a volatile page, further recurse.
+      VolatilePagePointer volatile_pointer = target.volatile_pointer_;
+      if (!volatile_pointer.is_null()) {
+        ArrayPage* volatile_next
+          = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(volatile_pointer));
+        uint64_t offset = pointer - snapshot_base;
+        const ArrayPage* snapshot_next = intermediate_base_ + offset;
+        CHECK_ERROR_CODE(install_snapshot_pointers_recurse(
+          snapshot_base,
+          resolver,
+          snapshot_next,
+          volatile_next,
+          installed_count));
+      }
+    }
+  }
+  return kErrorCodeOk;
+}
+
+
+/////////////////////////////////////////////////////////////////////////////
+///
+///  drop_volatiles and related methods
+///
+/////////////////////////////////////////////////////////////////////////////
+bool ArrayComposer::drop_volatiles(const Composer::DropVolatilesArguments& args) {
+  if (storage_.get_array_metadata()->keeps_all_volatile_pages()) {
+    LOG(INFO) << "Keep-all-volatile: Storage-" << storage_.get_name()
+      << " is configured to keep all volatile pages.";
+    return false;
+  }
+
+  DualPagePointer* root_pointer = &storage_.get_control_block()->root_page_pointer_;
+  ArrayPage* volatile_page = resolve_volatile(root_pointer->volatile_pointer_);
+  if (volatile_page == nullptr) {
+    LOG(INFO) << "No volatile root page. Probably while restart";
+    return true;  // this case doesn't matter. true/false are same things
+  }
+
+  if (volatile_page->is_leaf()) {
+    return drop_volatiles_leaf(args, root_pointer, volatile_page);
+  }
+
+  // We iterate through all existing volatile pages to drop volatile pages of
+  // level-3 or deeper (if the storage has only 2 levels, keeps all).
+  // this "level-3 or deeper" is a configuration per storage.
+  // Even if the volatile page is deeper than that, we keep them if it contains newer modification,
+  // including descendants (so, probably we will keep higher levels anyways).
+  bool kept_any = false;
+  for (uint16_t i = 0; i < kInteriorFanout; ++i) {
+    DualPagePointer &child_pointer = volatile_page->get_interior_record(i);
+    if (!child_pointer.volatile_pointer_.is_null()) {
+      ASSERT_ND(child_pointer.snapshot_pointer_ != 0);
+      uint16_t partition = extract_numa_node_from_snapshot_pointer(child_pointer.snapshot_pointer_);
+      if (!args.partitioned_drop_ || partition == args.my_partition_) {
+        bool dropped_all = drop_volatiles_recurse(args, &child_pointer);
+        if (!dropped_all) {
+          kept_any = true;
+        }
+      }
+    }
+  }
+  // root page is kept at this point in this case. we need to check with other threads
+  return !kept_any;
+}
+
+inline ArrayPage* ArrayComposer::resolve_volatile(VolatilePagePointer pointer) {
+  if (pointer.is_null()) {
+    return nullptr;
+  }
+  const memory::GlobalVolatilePageResolver& page_resolver
+    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
+  return reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(pointer));
+}
+
+inline bool ArrayComposer::drop_volatiles_recurse(
+  const Composer::DropVolatilesArguments& args,
+  DualPagePointer* pointer) {
+  if (pointer->volatile_pointer_.is_null()) {
+    return true;
+  }
+  ASSERT_ND(pointer->snapshot_pointer_);
+  snapshot::SnapshotId snapshot_id
+    = extract_snapshot_id_from_snapshot_pointer(pointer->snapshot_pointer_);
+  ASSERT_ND(snapshot_id != snapshot::kNullSnapshotId);
+  if (snapshot_id != args.snapshot_.id_) {
+    // if we have any page modified under this pointer, we should have a new snapshot page
+    // here, too. Thus, we can ignore this subtree.
+    return true;
+  }
+
+  ArrayPage* child_page = resolve_volatile(pointer->volatile_pointer_);
+  if (child_page->is_leaf()) {
+    return drop_volatiles_leaf(args, pointer, child_page);
+  } else {
+    return drop_volatiles_intermediate(args, pointer, child_page);
+  }
+}
+
+bool ArrayComposer::drop_volatiles_intermediate(
+  const Composer::DropVolatilesArguments& args,
+  DualPagePointer* pointer,
+  ArrayPage* volatile_page) {
+  ASSERT_ND(!volatile_page->header().snapshot_);
+  ASSERT_ND(!volatile_page->is_leaf());
+
+  // Explore/replace children first because we need to know if there is new modification.
+  // In that case, we must keep this volatile page, too.
+  bool kept_any = false;
+  for (uint16_t i = 0; i < kInteriorFanout; ++i) {
+    DualPagePointer& child_pointer = volatile_page->get_interior_record(i);
+    bool dropped_all = drop_volatiles_recurse(args, &child_pointer);
+    if (!dropped_all) {
+      kept_any = true;
+    }
+  }
+
+  if (!kept_any) {
+    if (is_to_keep_volatile(volatile_page->get_level())) {
+      DVLOG(2) << "Exempted";
+    } else {
+      args.drop(engine_, pointer->volatile_pointer_);
+      pointer->volatile_pointer_.clear();
+    }
+  } else {
+    DVLOG(1) << "Couldn't drop an intermediate volatile page that has a recent modification";
+  }
+  return !kept_any;
+}
+
+inline bool ArrayComposer::drop_volatiles_leaf(
+  const Composer::DropVolatilesArguments& args,
+  DualPagePointer* pointer,
+  ArrayPage* volatile_page) {
+  ASSERT_ND(!volatile_page->header().snapshot_);
+  ASSERT_ND(volatile_page->is_leaf());
+  const uint16_t payload_size = storage_.get_payload_size();
+  for (uint16_t i = 0; i < volatile_page->get_leaf_record_count(); ++i) {
+    Record* record = volatile_page->get_leaf_record(i, payload_size);
+    Epoch epoch = record->owner_id_.xct_id_.get_epoch();
+    if (epoch.is_valid() && epoch > args.snapshot_.valid_until_epoch_) {
+      // new record exists! so we must keep this volatile page
+      DVLOG(1) << "Couldn't drop a leaf volatile page that has a recent modification";
+      return false;
+    }
+  }
+  if (is_to_keep_volatile(volatile_page->get_level())) {
+    DVLOG(2) << "Exempted";
+  } else {
+    args.drop(engine_, pointer->volatile_pointer_);
+    pointer->volatile_pointer_.clear();
+  }
+  return true;
+}
+inline bool ArrayComposer::is_to_keep_volatile(uint16_t level) {
+  uint16_t threshold = storage_.get_array_metadata()->snapshot_drop_volatile_pages_threshold_;
+  uint16_t array_levels = storage_.get_levels();
+  ASSERT_ND(level < array_levels);
+  // examples:
+  // when threshold=0, all levels (0~array_levels-1) should return false.
+  // when threshold=1, only root level (array_levels-1) should return true
+  // when threshold=2, upto array_levels-2..
+  return threshold >= array_levels - level;
+}
+
 
 }  // namespace array
 }  // namespace storage

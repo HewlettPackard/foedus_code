@@ -49,7 +49,7 @@ void Xct::initialize(memory::NumaCoreMemory* core_memory, uint32_t* mcs_block_cu
   memory::NumaCoreMemory:: SmallThreadLocalMemoryPieces pieces
     = core_memory->get_small_thread_local_memory_pieces();
   const XctOptions& xct_opt = engine_->get_options().xct_;
-  read_set_ = reinterpret_cast<XctAccess*>(pieces.xct_read_access_memory_);
+  read_set_ = reinterpret_cast<ReadXctAccess*>(pieces.xct_read_access_memory_);
   read_set_size_ = 0;
   max_read_set_size_ = xct_opt.max_read_set_size_;
   write_set_ = reinterpret_cast<WriteXctAccess*>(pieces.xct_write_access_memory_);

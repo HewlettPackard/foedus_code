@@ -177,27 +177,6 @@ class Storage : public Attachable<CONTROL_BLOCK> {
 
   /** Drop the storage */
   // ErrorStack          drop();
-
-  /**
-   * @brief Resolves a "moved" record for a write set
-   * @return whether we could track it. the only case it fails to track is the record moved
-   * to deeper layers. we can also track it down to other layers, but it's rare. so, just retry
-   * the whole transaction.
-   * @details
-   * This is the cord of the moved-bit protocol. Receiving a xct_id address that points
-   * to a moved record, track the physical record in another page.
-   * This method does not take lock, so it is possible that concurrent threads
-   * again move the record after this.
-   */
-  // bool                track_moved_record(xct::WriteXctAccess *write);
-
-  /**
-   * @brief Resolves a "moved" record's xct_id only.
-   * @return returns null if we couldn't track it. in that case we retry the whole transaction.
-   * @details
-   * This is enough for read-set verification.
-   */
-  // xct::LockableXctId* track_moved_record(xct::LockableXctId *address);
 };
 
 
