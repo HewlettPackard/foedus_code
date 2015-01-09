@@ -54,7 +54,7 @@ ErrorStack NumaCoreMemory::initialize_once() {
   memory_size += sizeof(xct::PointerAccess) * xct::Xct::kMaxPointerSets;
   const xct::XctOptions& xct_opt = engine_->get_options().xct_;
   const uint16_t nodes = engine_->get_options().thread_.group_count_;
-  memory_size += sizeof(xct::XctAccess) * xct_opt.max_read_set_size_;
+  memory_size += sizeof(xct::ReadXctAccess) * xct_opt.max_read_set_size_;
   memory_size += sizeof(xct::WriteXctAccess) * xct_opt.max_write_set_size_;
   memory_size += sizeof(xct::LockFreeWriteXctAccess)
     * xct_opt.max_lock_free_write_set_size_;
@@ -73,7 +73,7 @@ ErrorStack NumaCoreMemory::initialize_once() {
   small_thread_local_memory_pieces_.xct_pointer_access_memory_ = memory;
   memory += sizeof(xct::PointerAccess) * xct::Xct::kMaxPointerSets;
   small_thread_local_memory_pieces_.xct_read_access_memory_ = memory;
-  memory += sizeof(xct::XctAccess) * xct_opt.max_read_set_size_;
+  memory += sizeof(xct::ReadXctAccess) * xct_opt.max_read_set_size_;
   small_thread_local_memory_pieces_.xct_write_access_memory_ = memory;
   memory += sizeof(xct::WriteXctAccess) * xct_opt.max_write_set_size_;
   small_thread_local_memory_pieces_.xct_lock_free_write_access_memory_ = memory;

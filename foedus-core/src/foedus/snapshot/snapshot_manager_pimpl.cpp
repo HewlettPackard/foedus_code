@@ -161,7 +161,7 @@ void SnapshotManagerPimpl::stop_snapshot_thread() {
 void SnapshotManagerPimpl::sleep_a_while() {
   soc::SharedMutexScope scope(control_block_->snapshot_wakeup_.get_mutex());
   if (!is_stop_requested()) {
-    control_block_->snapshot_wakeup_.timedwait(&scope, 100000000ULL);
+    control_block_->snapshot_wakeup_.timedwait(&scope, 20000000ULL);
   }
 }
 void SnapshotManagerPimpl::wakeup() {

@@ -127,6 +127,11 @@ class XctManagerPimpl final : public DefaultInitializable {
    * See [TU2013] for the full protocol in this case.
    */
   bool        precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch);
+
+  /** used from precommit_xct_lock() to track moved record */
+  bool        precommit_xct_lock_track_write(WriteXctAccess* entry);
+  /** used from verification methods to track moved record */
+  bool        precommit_xct_verify_track_read(ReadXctAccess* entry);
   /**
    * @brief Phase 1 of precommit_xct()
    * @param[in] context thread context

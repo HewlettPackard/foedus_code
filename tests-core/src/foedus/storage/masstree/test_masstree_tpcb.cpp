@@ -510,7 +510,7 @@ ErrorStack verify_tpcb_task(const proc::ProcArguments& args) {
     EXPECT_EQ(expected_account[i], data.account_balance_) << "account-" << i;
   }
   for (uint32_t i = 0; i < context->get_current_xct().get_read_set_size(); ++i) {
-    xct::XctAccess& access = context->get_current_xct().get_read_set()[i];
+    xct::ReadXctAccess& access = context->get_current_xct().get_read_set()[i];
     EXPECT_FALSE(access.observed_owner_id_.is_being_written()) << i;
     EXPECT_FALSE(access.observed_owner_id_.is_deleted()) << i;
     EXPECT_FALSE(access.observed_owner_id_.is_moved()) << i;

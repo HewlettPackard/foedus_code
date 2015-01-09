@@ -218,7 +218,7 @@ class CombinedLock {
 const uint64_t kXctIdDeletedBit     = 1ULL << 63;
 const uint64_t kXctIdMovedBit       = 1ULL << 62;
 const uint64_t kXctIdBeingWrittenBit = 1ULL << 61;
-const uint64_t kXctIdReservedBit    = 1ULL << 60;
+const uint64_t kXctIdNextLayerBit    = 1ULL << 60;
 const uint64_t kXctIdMaskSerializer = 0x0FFFFFFFFFFFFFFFULL;
 const uint64_t kXctIdMaskEpoch      = 0x0FFFFFFF00000000ULL;
 const uint64_t kXctIdMaskOrdinal    = 0x00000000FFFFFFFFULL;
@@ -249,7 +249,13 @@ const uint64_t kMaxXctOrdinal       = (1ULL << 24) - 1U;
  * <tr><td>3</td><td>BeingWritten</td><td>Before we start applying modifications to a record,
  * we set true to this so that optimistic-read can easily check for half-updated value.
  * After the modification, we set false to this. Of course with appropriate fences.</td></tr>
- * <tr><td>4</td><td>Reserved</td><td>Reserved for later use.</td></tr>
+ * <tr><td>4</td><td>NextLayer</td><td>This is used only in Masstree. This bit indicates whether
+ * the record represents a pointer to next layer. False if it is a tuple itself. We put this
+ * information as part of XctId because we sometimes have to transactionally know whether the
+ * record is a next-layer pointer or not. There is something wrong if a read-set or write-set
+ * contains an XctId whose NextLayer bit is ON, because then the record is not a logical tuple.
+ * In other words, a reading transaction can efficiently protect their reads on a record that
+ * might become a next-layer pointer with a simple check after the usual read protocol.</td></tr>
  * <tr><td>5..32</td><td>Epoch</td><td>The recent owning transaction was in this Epoch.
  * We don't consume full 32 bits for epoch.
  * Assuming 20ms per epoch, 28bit still represents 1 year. All epochs will be refreshed by then
@@ -346,10 +352,19 @@ struct XctId {
   void    set_deleted() ALWAYS_INLINE { data_ |= kXctIdDeletedBit; }
   void    set_notdeleted() ALWAYS_INLINE { data_ &= (~kXctIdDeletedBit); }
   void    set_moved() ALWAYS_INLINE { data_ |= kXctIdMovedBit; }
+  void    set_next_layer() ALWAYS_INLINE { data_ |= kXctIdNextLayerBit; }
+  // note, we should not need this method because becoming a next-layer-pointer is permanent.
+  // we never revert it, which simplifies a concurrency control.
+  // void    set_not_next_layer() ALWAYS_INLINE { data_ &= (~kXctIdNextLayerBit); }
 
   bool    is_being_written() const ALWAYS_INLINE { return (data_ & kXctIdBeingWrittenBit) != 0; }
   bool    is_deleted() const ALWAYS_INLINE { return (data_ & kXctIdDeletedBit) != 0; }
   bool    is_moved() const ALWAYS_INLINE { return (data_ & kXctIdMovedBit) != 0; }
+  bool    is_next_layer() const ALWAYS_INLINE { return (data_ & kXctIdNextLayerBit) != 0; }
+  /** is_moved() || is_next_layer() */
+  bool    needs_track_moved() const ALWAYS_INLINE {
+    return (data_ & (kXctIdMovedBit | kXctIdNextLayerBit)) != 0;
+  }
 
 
   bool operator==(const XctId &other) const ALWAYS_INLINE { return data_ == other.data_; }
@@ -420,6 +435,8 @@ struct LockableXctId {
   bool is_keylocked() const ALWAYS_INLINE { return lock_.is_keylocked(); }
   bool is_deleted() const ALWAYS_INLINE { return xct_id_.is_deleted(); }
   bool is_moved() const ALWAYS_INLINE { return xct_id_.is_moved(); }
+  bool is_next_layer() const ALWAYS_INLINE { return xct_id_.is_next_layer(); }
+  bool needs_track_moved() const ALWAYS_INLINE { return xct_id_.needs_track_moved(); }
   bool is_being_written() const ALWAYS_INLINE { return xct_id_.is_being_written(); }
 
   /** used only while page initialization */
@@ -439,6 +456,18 @@ struct McsLockScope {
   McsLock* lock_;
   McsBlockIndex block_;
 };
+
+/** Result of track_moved_record(). When failed to track, both null. */
+struct TrackMovedRecordResult {
+  TrackMovedRecordResult()
+    : new_owner_address_(CXX11_NULLPTR), new_payload_address_(CXX11_NULLPTR) {}
+  TrackMovedRecordResult(LockableXctId* new_owner_address, char* new_payload_address)
+    : new_owner_address_(new_owner_address), new_payload_address_(new_payload_address) {}
+
+  LockableXctId* new_owner_address_;
+  char* new_payload_address_;
+};
+
 
 // sizeof(XctId) must be 64 bits.
 STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))

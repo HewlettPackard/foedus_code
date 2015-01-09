@@ -226,12 +226,15 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_border(
     CHECK_AND_ASSERT(slice >= low_fence);
     CHECK_AND_ASSERT(slice < high_fence.slice_ || page->is_high_fence_supremum());
     if (page->does_point_to_layer(i)) {
+      CHECK_AND_ASSERT(page->get_owner_id(i)->xct_id_.is_next_layer());
       CHECK_AND_ASSERT(!page->get_next_layer(i)->is_both_null());
       MasstreePage* next;
       // TODO(Hideaki) probably two versions: always follow volatile vs snapshot
       // so far check volatile only
       WRAP_ERROR_CODE(follow_page(context, true, page->get_next_layer(i), &next));
       CHECK_ERROR(verify_single_thread_layer(context, page->get_layer() + 1, next));
+    } else {
+      CHECK_AND_ASSERT(!page->get_owner_id(i)->xct_id_.is_next_layer());
     }
   }
 

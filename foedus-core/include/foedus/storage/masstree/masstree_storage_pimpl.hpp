@@ -27,6 +27,7 @@
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/thread.hpp"
+#include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace storage {
@@ -304,8 +305,9 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     KeySlice from,
     KeySlice to);
 
-  bool track_moved_record(xct::WriteXctAccess* write) ALWAYS_INLINE;
-  xct::LockableXctId* track_moved_record(xct::LockableXctId* address) ALWAYS_INLINE;
+  xct::TrackMovedRecordResult track_moved_record(
+    xct::LockableXctId* old_address,
+    xct::WriteXctAccess* write_set) ALWAYS_INLINE;
 
   /** Defined in masstree_storage_peek.cpp */
   ErrorCode     peek_volatile_page_boundaries(
@@ -323,6 +325,8 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     const MasstreeIntermediatePage* cur,
     const memory::GlobalVolatilePageResolver& resolver,
     const MasstreeStorage::PeekBoundariesArguments& args);
+
+  static ErrorCode check_next_layer_bit(xct::XctId observed) ALWAYS_INLINE;
 };
 static_assert(sizeof(MasstreeStoragePimpl) <= kPageSize, "MasstreeStoragePimpl is too large");
 static_assert(

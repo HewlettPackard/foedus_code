@@ -33,11 +33,10 @@ namespace storage {
 namespace masstree {
 
 // Defines MasstreeStorage methods so that we can inline implementation calls
-bool MasstreeStorage::track_moved_record(xct::WriteXctAccess* write) {
-  return MasstreeStoragePimpl(this).track_moved_record(write);
-}
-xct::LockableXctId* MasstreeStorage::track_moved_record(xct::LockableXctId* address) {
-  return MasstreeStoragePimpl(this).track_moved_record(address);
+xct::TrackMovedRecordResult MasstreeStorage::track_moved_record(
+  xct::LockableXctId* old_address,
+  xct::WriteXctAccess* write_set) {
+  return MasstreeStoragePimpl(this).track_moved_record(old_address, write_set);
 }
 ErrorStack MasstreeStoragePimpl::drop() {
   LOG(INFO) << "Uninitializing a masstree-storage " << get_name();
@@ -446,8 +445,8 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
   if (parent_lock->is_moved() || parent->does_point_to_layer(parent_index)) {
     // someone else has also made this to a next layer or the page itself is moved!
     // our effort was a waste, but anyway the goal was achieved.
-    VLOG(0) << "interesting. a concurrent thread has already made "
-      << (parent_lock->is_moved() ? "this page moved" : " it point to next layer");
+    VLOG(0) << "interesting. a concurrent thread has already made this page moved "
+      << " or moved the record to next layer";
     memory->release_free_volatile_page(offset);
   } else {
     // initialize the root page by copying the record
@@ -512,6 +511,7 @@ inline ErrorCode MasstreeStoragePimpl::follow_layer(
   ASSERT_ND(parent->does_point_to_layer(record_index));
   DualPagePointer* pointer = parent->get_next_layer(record_index);
   xct::LockableXctId* owner = parent->get_owner_id(record_index);
+  ASSERT_ND(owner->xct_id_.is_next_layer());
   ASSERT_ND(!pointer->is_both_null());
   MasstreePage* next_root;
   CHECK_ERROR_CODE(follow_page(context, for_writes, pointer, &next_root));
@@ -585,6 +585,12 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         *out_page = border;
         *record_index = match.index_;
         *observed = border->get_owner_id(match.index_)->xct_id_;
+        if (observed->is_next_layer()) {
+          // because the search is optimistic, we might now see a XctId with next-layer bit on.
+          // in this case, we retry.
+          VLOG(0) << "Interesting. Next-layer-retry due to concurrent transaction";
+          continue;
+        }
         assorted::memory_fence_consume();
         return kErrorCodeOk;
       } else if (match.match_type_ == MasstreeBorderPage::kConflictingLocalRecord) {
@@ -598,6 +604,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         // because we do this without page lock, this might have failed. in that case,
         // we retry.
         if (border->does_point_to_layer(match.index_)) {
+          ASSERT_ND(border->get_owner_id(match.index_)->xct_id_.is_next_layer());
           CHECK_ERROR_CODE(follow_layer(context, true, border, match.index_, &layer_root));
           break;  // next layer
         } else {
@@ -631,6 +638,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
 
       if (match.match_type_ == MasstreeBorderPage::kExactMatchLayerPointer) {
         scope.release();
+        ASSERT_ND(border->get_owner_id(match.index_)->xct_id_.is_next_layer());
         CHECK_ERROR_CODE(follow_layer(context, true, border, match.index_, &layer_root));
         break;  // next layer
       } else if (match.match_type_ == MasstreeBorderPage::kExactMatchLocalRecord) {
@@ -638,6 +646,10 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         *out_page = border;
         *record_index = match.index_;
         *observed = border->get_owner_id(match.index_)->xct_id_;
+        if (observed->is_next_layer()) {
+          VLOG(0) << "Interesting 2. Next-layer-retry due to concurrent transaction";
+          continue;
+        }
         assorted::memory_fence_consume();
         return kErrorCodeOk;
       } else if (match.match_type_ == MasstreeBorderPage::kNotFound) {
@@ -667,6 +679,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         border->assert_entries();
         // because of page lock, this always succeeds (unlike the above w/o page lock)
         ASSERT_ND(border->does_point_to_layer(match.index_));
+        ASSERT_ND(border->get_owner_id(match.index_)->xct_id_.is_next_layer());
         CHECK_ERROR_CODE(follow_layer(context, true, border, match.index_, &layer_root));
         ASSERT_ND(!border->is_moved());
         ASSERT_ND(!border->is_retired());
@@ -842,6 +855,16 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
   target->assert_entries();
 }
 
+inline ErrorCode MasstreeStoragePimpl::check_next_layer_bit(xct::XctId observed) {
+  if (UNLIKELY(observed.is_next_layer())) {
+    // this should have been checked before this method and resolved as abort or retry,
+    // but if it reaches here for some reason, we treat it as usual contention abort.
+    DLOG(INFO) << "Probably this should be caught beforehand. next_layer bit is on";
+    return kErrorCodeXctRaceAbort;
+  }
+  return kErrorCodeOk;
+}
+
 ErrorCode MasstreeStoragePimpl::retrieve_general(
   thread::Thread* context,
   MasstreeBorderPage* border,
@@ -853,7 +876,7 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
   }
-  // TODO(Hideaki) does_point_to_layer should be a flag in XctId
+  CHECK_ERROR_CODE(check_next_layer_bit(observed));
   CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
     get_id(),
     observed,
@@ -885,7 +908,7 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
   }
-  // TODO(Hideaki) does_point_to_layer should be a flag in XctId
+  CHECK_ERROR_CODE(check_next_layer_bit(observed));
   CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
     get_id(),
     observed,
@@ -910,12 +933,7 @@ ErrorCode MasstreeStoragePimpl::insert_general(
   if (!observed.is_deleted()) {
     return kErrorCodeStrKeyAlreadyExists;
   }
-  // TODO(Hideaki) does_point_to_layer should be a flag in XctId
-
-  CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
-    get_id(),
-    observed,
-    border->get_owner_id(index)));
+  CHECK_ERROR_CODE(check_next_layer_bit(observed));
 
   uint16_t log_length = MasstreeInsertLogType::calculate_log_length(key_length, payload_count);
   MasstreeInsertLogType* log_entry = reinterpret_cast<MasstreeInsertLogType*>(
@@ -928,8 +946,9 @@ ErrorCode MasstreeStoragePimpl::insert_general(
     payload_count);
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
-  return context->get_current_xct().add_to_write_set(
+  return context->get_current_xct().add_to_read_and_write_set(
     get_id(),
+    observed,
     border->get_owner_id(index),
     border->get_record(index),
     log_entry);
@@ -946,11 +965,7 @@ ErrorCode MasstreeStoragePimpl::delete_general(
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
   }
-  // TODO(Hideaki) does_point_to_layer should be a flag in XctId
-  CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
-    get_id(),
-    observed,
-    border->get_owner_id(index)));
+  CHECK_ERROR_CODE(check_next_layer_bit(observed));
 
   uint16_t log_length = MasstreeDeleteLogType::calculate_log_length(key_length);
   MasstreeDeleteLogType* log_entry = reinterpret_cast<MasstreeDeleteLogType*>(
@@ -958,8 +973,9 @@ ErrorCode MasstreeStoragePimpl::delete_general(
   log_entry->populate(get_id(), be_key, key_length);
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
-  return context->get_current_xct().add_to_write_set(
+  return context->get_current_xct().add_to_read_and_write_set(
     get_id(),
+    observed,
     border->get_owner_id(index),
     border->get_record(index),
     log_entry);
@@ -979,16 +995,12 @@ ErrorCode MasstreeStoragePimpl::overwrite_general(
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
   }
-  // TODO(Hideaki) does_point_to_layer should be a flag in XctId
-  CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
-    get_id(),
-    observed,
-    border->get_owner_id(index)));
-
+  CHECK_ERROR_CODE(check_next_layer_bit(observed));
   if (border->get_payload_length(index) < payload_offset + payload_count) {
     LOG(WARNING) << "short record ";  // probably this is a rare error. so warn.
     return kErrorCodeStrTooShortPayload;
   }
+
   uint16_t log_length = MasstreeOverwriteLogType::calculate_log_length(key_length, payload_count);
   MasstreeOverwriteLogType* log_entry = reinterpret_cast<MasstreeOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
@@ -1001,8 +1013,9 @@ ErrorCode MasstreeStoragePimpl::overwrite_general(
     payload_count);
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
-  return context->get_current_xct().add_to_write_set(
+  return context->get_current_xct().add_to_read_and_write_set(
     get_id(),
+    observed,
     border->get_owner_id(index),
     border->get_record(index),
     log_entry);
@@ -1022,12 +1035,7 @@ ErrorCode MasstreeStoragePimpl::increment_general(
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
   }
-  // TODO(Hideaki) does_point_to_layer should be a flag in XctId
-  CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
-    get_id(),
-    observed,
-    border->get_owner_id(index)));
-
+  CHECK_ERROR_CODE(check_next_layer_bit(observed));
   if (border->get_payload_length(index) < payload_offset + sizeof(PAYLOAD)) {
     LOG(WARNING) << "short record ";  // probably this is a rare error. so warn.
     return kErrorCodeStrTooShortPayload;
@@ -1048,38 +1056,23 @@ ErrorCode MasstreeStoragePimpl::increment_general(
     sizeof(PAYLOAD));
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
-  return context->get_current_xct().add_to_write_set(
+  return context->get_current_xct().add_to_read_and_write_set(
     get_id(),
+    observed,
     border->get_owner_id(index),
     border->get_record(index),
     log_entry);
 }
 
-inline bool MasstreeStoragePimpl::track_moved_record(xct::WriteXctAccess* write) {
+inline xct::TrackMovedRecordResult MasstreeStoragePimpl::track_moved_record(
+  xct::LockableXctId* old_address,
+  xct::WriteXctAccess* write_set) {
+  ASSERT_ND(old_address);
   // We use moved bit only for volatile border pages
-  MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(
-    to_page(write->owner_id_address_));
-  ASSERT_ND(page == reinterpret_cast<MasstreeBorderPage*>(to_page(write->payload_address_)));
-  ASSERT_ND(page->is_moved());
-  MasstreeBorderPage* located_page = nullptr;
-  uint8_t located_index = 0;
-  if (!page->track_moved_record(engine_, write->owner_id_address_, &located_page, &located_index)) {
-    return false;
-  }
-  write->owner_id_address_ = located_page->get_owner_id(located_index);
-  write->payload_address_ = located_page->get_record(located_index);
-  return true;
-}
-
-inline xct::LockableXctId* MasstreeStoragePimpl::track_moved_record(xct::LockableXctId* address) {
-  MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(to_page(address));
-  ASSERT_ND(page->is_moved());
-  MasstreeBorderPage* located_page = nullptr;
-  uint8_t located_index = 0;
-  if (!page->track_moved_record(engine_, address, &located_page, &located_index)) {
-    return nullptr;
-  }
-  return located_page->get_owner_id(located_index);
+  MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(to_page(old_address));
+  ASSERT_ND(page->is_border());
+  ASSERT_ND(page->is_moved() || old_address->is_next_layer());
+  return page->track_moved_record(engine_, old_address, write_set);
 }
 
 // Explicit instantiations for each payload type

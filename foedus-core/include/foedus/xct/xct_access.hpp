@@ -12,6 +12,7 @@
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage_id.hpp"
+#include "foedus/xct/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
@@ -69,10 +70,9 @@ struct PageVersionAccess {
  * @details
  * @par POD
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
- * TODO(Hideaki) should be renamed to ReadXctAccess. might be a bit lengthy tho.
  */
-struct XctAccess {
-  friend std::ostream& operator<<(std::ostream& o, const XctAccess& v);
+struct ReadXctAccess {
+  friend std::ostream& operator<<(std::ostream& o, const ReadXctAccess& v);
 
   /** Transaction ID of the record observed as of the access. */
   XctId               observed_owner_id_;
@@ -83,8 +83,18 @@ struct XctAccess {
   /** Pointer to the accessed record. */
   LockableXctId*      owner_id_address_;
 
+  /**
+   * An optional member that points to a write access related to this read.
+   * For example, an insert in masstree consists of a read-access that verifies the
+   * physical record and a write-access to actually install the record logically.
+   * If some other thread logically installs the record between the read and write,
+   * the xct must abort.
+   * This member connects such "related" read-write pairs so that our commit protocol can utilize.
+   */
+  WriteXctAccess*     related_write_;
+
   /** sort the read set in a unique order. We use address of records as done in [TU2013]. */
-  static bool compare(const XctAccess &left, const XctAccess& right) {
+  static bool compare(const ReadXctAccess &left, const ReadXctAccess& right) {
     return reinterpret_cast<uintptr_t>(left.owner_id_address_)
       < reinterpret_cast<uintptr_t>(right.owner_id_address_);
   }
@@ -104,6 +114,12 @@ struct WriteXctAccess {
   /** The storage we accessed. */
   storage::StorageId    storage_id_;
 
+  /**
+   * If we have locked it, the MCS block index for the lock.
+   * 0 if not locked (or locked by adjacent write-set with same owner_id address).
+   */
+  McsBlockIndex         mcs_block_;
+
   /** Pointer to the accessed record. */
   LockableXctId*        owner_id_address_;
 
@@ -113,11 +129,8 @@ struct WriteXctAccess {
   /** Pointer to the log entry in private log buffer for this write opereation. */
   log::RecordLogType*   log_entry_;
 
-  /**
-   * If we have locked it, the MCS block index for the lock.
-   * 0 if not locked (or locked by adjacent write-set with same owner_id address).
-   */
-  McsBlockIndex         mcs_block_;
+  /** @see ReadXctAccess::related_write_ */
+  ReadXctAccess*        related_read_;
 
   /** sort the write set in a unique order. We use address of records as done in [TU2013]. */
   static bool compare(const WriteXctAccess &left, const WriteXctAccess& right) {

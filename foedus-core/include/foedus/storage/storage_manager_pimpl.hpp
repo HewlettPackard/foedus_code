@@ -18,6 +18,7 @@
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
+#include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/fwd.hpp"
 
 namespace foedus {
@@ -76,8 +77,10 @@ class StorageManagerPimpl final : public DefaultInitializable {
   template <typename STORAGE>
   ErrorStack  create_storage_and_log(const Metadata* meta, Epoch *commit_epoch);
 
-  bool                track_moved_record(StorageId storage_id, xct::WriteXctAccess *write);
-  xct::LockableXctId* track_moved_record(StorageId storage_id, xct::LockableXctId *address);
+  xct::TrackMovedRecordResult track_moved_record(
+    StorageId storage_id,
+    xct::LockableXctId* old_address,
+    xct::WriteXctAccess *write);
   ErrorStack  clone_all_storage_metadata(snapshot::SnapshotMetadata *metadata);
 
   uint32_t    get_max_storages() const;

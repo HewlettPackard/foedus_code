@@ -101,7 +101,7 @@ class Xct {
   uint32_t            get_lock_free_write_set_size() const { return lock_free_write_set_size_; }
   const PointerAccess*   get_pointer_set() const { return pointer_set_; }
   const PageVersionAccess*  get_page_version_set() const { return page_version_set_; }
-  XctAccess*          get_read_set()  { return read_set_; }
+  ReadXctAccess*      get_read_set()  { return read_set_; }
   WriteXctAccess*     get_write_set() { return write_set_; }
   LockFreeWriteXctAccess* get_lock_free_write_set() { return lock_free_write_set_; }
 
@@ -195,6 +195,16 @@ class Xct {
     log::RecordLogType* log_entry) ALWAYS_INLINE;
 
   /**
+   * @brief Add a pair of read and write set of this transaction.
+   */
+  ErrorCode           add_to_read_and_write_set(
+    storage::StorageId storage_id,
+    XctId observed_owner_id,
+    LockableXctId* owner_id_address,
+    char* payload_address,
+    log::RecordLogType* log_entry) ALWAYS_INLINE;
+
+  /**
    * @brief Add the given log to the lock-free write set of this transaction.
    */
   ErrorCode           add_to_lock_free_write_set(
@@ -256,7 +266,7 @@ class Xct {
    */
   uint32_t*           mcs_block_current_;
 
-  XctAccess*          read_set_;
+  ReadXctAccess*      read_set_;
   uint32_t            read_set_size_;
   uint32_t            max_read_set_size_;
 
@@ -359,9 +369,13 @@ inline ErrorCode Xct::add_to_read_set(
   } else if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
     return kErrorCodeXctReadSetOverflow;
   }
+  // if the next-layer bit is ON, the record is not logically a record, so why we are adding
+  // it to read-set? we should have already either aborted or retried in this case.
+  ASSERT_ND(!observed_owner_id.is_next_layer());
   read_set_[read_set_size_].storage_id_ = storage_id;
   read_set_[read_set_size_].owner_id_address_ = owner_id_address;
   read_set_[read_set_size_].observed_owner_id_ = observed_owner_id;
+  read_set_[read_set_size_].related_write_ = CXX11_NULLPTR;
   ++read_set_size_;
   return kErrorCodeOk;
 }
@@ -384,10 +398,11 @@ inline ErrorCode Xct::add_to_write_set(
 #endif  // NDEBUG
 
   write_set_[write_set_size_].storage_id_ = storage_id;
+  write_set_[write_set_size_].mcs_block_ = 0;
   write_set_[write_set_size_].owner_id_address_ = owner_id_address;
   write_set_[write_set_size_].payload_address_ = payload_address;
   write_set_[write_set_size_].log_entry_ = log_entry;
-  write_set_[write_set_size_].mcs_block_ = 0;
+  write_set_[write_set_size_].related_read_ = CXX11_NULLPTR;
   ++write_set_size_;
   return kErrorCodeOk;
 }
@@ -397,6 +412,28 @@ inline ErrorCode Xct::add_to_write_set(
   storage::Record* record,
   log::RecordLogType* log_entry) {
   return add_to_write_set(storage_id, &record->owner_id_, record->payload_, log_entry);
+}
+
+inline ErrorCode Xct::add_to_read_and_write_set(
+  storage::StorageId storage_id,
+  XctId observed_owner_id,
+  LockableXctId* owner_id_address,
+  char* payload_address,
+  log::RecordLogType* log_entry) {
+  WriteXctAccess* write = write_set_ + write_set_size_;
+  CHECK_ERROR_CODE(add_to_write_set(storage_id, owner_id_address, payload_address, log_entry));
+  ASSERT_ND(write->log_entry_ == log_entry);
+  ASSERT_ND(write->owner_id_address_ == owner_id_address);
+  if (isolation_level_ != kSerializable) {
+    return kErrorCodeOk;
+  }
+
+  ReadXctAccess* read = read_set_ + read_set_size_;
+  CHECK_ERROR_CODE(add_to_read_set(storage_id, observed_owner_id, owner_id_address));
+  ASSERT_ND(read->owner_id_address_ == owner_id_address);
+  read->related_write_ = write;
+  write->related_read_ = read;
+  return kErrorCodeOk;
 }
 
 inline ErrorCode Xct::add_to_lock_free_write_set(

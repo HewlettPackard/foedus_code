@@ -365,6 +365,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     uint32_t        write_set_size = context->get_current_xct().get_write_set_size();
     for (uint32_t i = 0; i < write_set_size; ++i) {
       ASSERT_ND(write_set[i].owner_id_address_->is_keylocked());
+      ASSERT_ND(!write_set[i].owner_id_address_->needs_track_moved());
     }
   }
 #endif  // NDEBUG
@@ -384,6 +385,46 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
   return verified;
 }
 
+
+bool XctManagerPimpl::precommit_xct_lock_track_write(WriteXctAccess* entry) {
+  ASSERT_ND(entry->owner_id_address_->needs_track_moved());
+  storage::StorageManager* st = engine_->get_storage_manager();
+  TrackMovedRecordResult result = st->track_moved_record(
+    entry->storage_id_,
+    entry->owner_id_address_,
+    entry);
+  if (result.new_owner_address_ == nullptr) {
+    // failed to track down even with the write set. this is a quite rare event.
+    // in that case, retry the whole transaction.
+    DLOG(INFO) << "Failed to track moved record even with write set";
+    return false;
+  }
+  if (entry->related_read_) {
+    // also apply the result to related read access so that we don't have to track twice.
+    ASSERT_ND(entry->related_read_->related_write_ == entry);
+    ASSERT_ND(entry->related_read_->owner_id_address_ == entry->owner_id_address_);
+    entry->related_read_->owner_id_address_ = result.new_owner_address_;
+  }
+  entry->owner_id_address_ = result.new_owner_address_;
+  entry->payload_address_ = result.new_payload_address_;
+  return true;
+}
+bool XctManagerPimpl::precommit_xct_verify_track_read(ReadXctAccess* entry) {
+  ASSERT_ND(entry->owner_id_address_->needs_track_moved());
+  ASSERT_ND(entry->related_write_ == nullptr);  // if there is, lock() should have updated it.
+  storage::StorageManager* st = engine_->get_storage_manager();
+  TrackMovedRecordResult result = st->track_moved_record(
+    entry->storage_id_,
+    entry->owner_id_address_,
+    entry->related_write_);
+  if (result.new_owner_address_ == nullptr) {
+    // failed to track down. if entry->related_write_ is null, this always happens when
+    // the record is now in next layer. in this case, retry the whole transaction.
+    return false;
+  }
+  entry->owner_id_address_ = result.new_owner_address_;
+  return true;
+}
 
 bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct_id) {
   Xct& current_xct = context->get_current_xct();
@@ -405,11 +446,9 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
     for (uint32_t i = 0; i < write_set_size; ++i) {
       // TODO(Hideaki) if this happens often, this might be too frequent virtual method call.
       // maybe a batched version of this? I'm not sure if this is that often, though.
-      if (UNLIKELY(write_set[i].owner_id_address_->is_moved())) {
-        bool success = st->track_moved_record(write_set[i].storage_id_, write_set + i);
-        if (!success) {
-          // this happens when the record went too far away (eg another layer in masstree).
-          // in that case, retry the whole transaction. This is rare.
+      WriteXctAccess* entry = write_set + i;
+      if (UNLIKELY(entry->owner_id_address_->needs_track_moved())) {
+        if (!precommit_xct_lock_track_write(entry)) {
           return false;
         }
       }
@@ -445,7 +484,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
       } else {
         write_set[i].mcs_block_ = context->mcs_acquire_lock(
           write_set[i].owner_id_address_->get_key_lock());
-        if (UNLIKELY(write_set[i].owner_id_address_->is_moved())) {
+        if (UNLIKELY(write_set[i].owner_id_address_->needs_track_moved())) {
           VLOG(0) << *context << " Interesting. moved-bit conflict in "
             << st->get_name(write_set[i].storage_id_)
             << ":" << write_set[i].owner_id_address_
@@ -456,6 +495,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
           break;
         }
         ASSERT_ND(!write_set[i].owner_id_address_->is_moved());
+        ASSERT_ND(!write_set[i].owner_id_address_->is_next_layer());
         ASSERT_ND(write_set[i].owner_id_address_->is_keylocked());
         max_xct_id->store_max(write_set[i].owner_id_address_->xct_id_);
       }
@@ -478,10 +518,11 @@ const uint16_t kReadsetPrefetchBatch = 16;
 
 bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epoch *commit_epoch) {
   Xct& current_xct = context->get_current_xct();
-  XctAccess*        read_set = current_xct.get_read_set();
+  ReadXctAccess*    read_set = current_xct.get_read_set();
   const uint32_t    read_set_size = current_xct.get_read_set_size();
   storage::StorageManager* st = engine_->get_storage_manager();
   for (uint32_t i = 0; i < read_set_size; ++i) {
+    ASSERT_ND(read_set[i].related_write_ == nullptr);
     // let's prefetch owner_id in parallel
     if (i % kReadsetPrefetchBatch == 0) {
       for (uint32_t j = i; j < i + kReadsetPrefetchBatch && j < read_set_size; ++j) {
@@ -491,14 +532,14 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
 
     // The owning transaction has changed.
     // We don't check ordinal here because there is no change we are racing with ourselves.
-    XctAccess& access = read_set[i];
+    ReadXctAccess& access = read_set[i];
     DVLOG(2) << *context << "Verifying " << st->get_name(access.storage_id_)
       << ":" << access.owner_id_address_ << ". observed_xid=" << access.observed_owner_id_
         << ", now_xid=" << access.owner_id_address_->xct_id_;
-    if (UNLIKELY(access.owner_id_address_->is_moved())) {
-      access.owner_id_address_ = st->track_moved_record(
-        access.storage_id_,
-        access.owner_id_address_);
+    if (UNLIKELY(access.owner_id_address_->needs_track_moved())) {
+      if (!precommit_xct_verify_track_read(&access)) {
+        return false;
+      }
     }
     if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
       DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
@@ -530,7 +571,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
 
 bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, XctId* max_xct_id) {
   Xct& current_xct = context->get_current_xct();
-  XctAccess*              read_set = current_xct.get_read_set();
+  ReadXctAccess*          read_set = current_xct.get_read_set();
   const uint32_t          read_set_size = current_xct.get_read_set_size();
   storage::StorageManager* st = engine_->get_storage_manager();
   for (uint32_t i = 0; i < read_set_size; ++i) {
@@ -543,7 +584,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
 
     // The owning transaction has changed.
     // We don't check ordinal here because there is no change we are racing with ourselves.
-    XctAccess& access = read_set[i];
+    ReadXctAccess& access = read_set[i];
     DVLOG(2) << *context << " Verifying " << st->get_name(access.storage_id_)
       << ":" << access.owner_id_address_ << ". observed_xid=" << access.observed_owner_id_
         << ", now_xid=" << access.owner_id_address_->xct_id_;
@@ -551,10 +592,10 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
     // read-set has to also track moved records.
     // however, unlike write-set locks, we don't have to do retry-loop.
     // if the rare event (yet another concurrent split) happens, we just abort the transaction.
-    if (UNLIKELY(access.owner_id_address_->is_moved())) {
-      access.owner_id_address_ = st->track_moved_record(
-        access.storage_id_,
-        access.owner_id_address_);
+    if (UNLIKELY(access.owner_id_address_->needs_track_moved())) {
+      if (!precommit_xct_verify_track_read(&access)) {
+        return false;
+      }
     }
 
     if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {

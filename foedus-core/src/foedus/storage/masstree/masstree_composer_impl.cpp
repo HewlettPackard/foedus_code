@@ -969,6 +969,8 @@ ErrorStack MasstreeComposeContext::open_first_level(const char* key, uint16_t ke
     // to update/insert/delete the given key. this might recurse
     CHECK_ERROR(open_next_level(key, key_length, root_, kInfimumSlice, pointer_address));
   } else {
+    // this should happen only while an initial snapshot for this storage.
+    ASSERT_ND(storage_.get_control_block()->root_page_pointer_.snapshot_pointer_ == 0);
     // newly creating a whole subtree. Start with a border page.
     first->layer_ = 0;
     first->head_ = allocate_page();

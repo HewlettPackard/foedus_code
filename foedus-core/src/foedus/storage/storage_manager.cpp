@@ -103,17 +103,6 @@ ErrorStack StorageManager::create_masstree(
   return kRetOk;
 }
 
-bool StorageManager::track_moved_record(StorageId storage_id, xct::WriteXctAccess* write) {
-  return pimpl_->track_moved_record(storage_id, write);
-}
-
-xct::LockableXctId* StorageManager::track_moved_record(
-  StorageId storage_id,
-  xct::LockableXctId* address) {
-  return pimpl_->track_moved_record(storage_id, address);
-}
-
-
 ErrorStack StorageManager::clone_all_storage_metadata(snapshot::SnapshotMetadata *metadata) {
   return pimpl_->clone_all_storage_metadata(metadata);
 }

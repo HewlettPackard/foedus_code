@@ -355,19 +355,27 @@ void StorageManagerPimpl::create_storage_apply(const Metadata& metadata) {
   ASSERT_ND(get_storage(id)->exists());
 }
 
-bool StorageManagerPimpl::track_moved_record(StorageId storage_id, xct::WriteXctAccess* write) {
+
+
+
+// define here to allow inline
+xct::TrackMovedRecordResult StorageManager::track_moved_record(
+  StorageId storage_id,
+  xct::LockableXctId* old_address,
+  xct::WriteXctAccess* write_set) {
+  return pimpl_->track_moved_record(storage_id, old_address, write_set);
+}
+
+xct::TrackMovedRecordResult StorageManagerPimpl::track_moved_record(
+  StorageId storage_id,
+  xct::LockableXctId* old_address,
+  xct::WriteXctAccess* write_set) {
   // so far only Masstree has tracking
   ASSERT_ND(storages_[storage_id].exists());
   ASSERT_ND(storages_[storage_id].meta_.type_ == kMasstreeStorage);
-  return masstree::MasstreeStorage(engine_, storages_ + storage_id).track_moved_record(write);
-}
-
-xct::LockableXctId* StorageManagerPimpl::track_moved_record(
-  StorageId storage_id,
-  xct::LockableXctId* address) {
-  ASSERT_ND(storages_[storage_id].exists());
-  ASSERT_ND(storages_[storage_id].meta_.type_ == kMasstreeStorage);
-  return masstree::MasstreeStorage(engine_, storages_ + storage_id).track_moved_record(address);
+  return masstree::MasstreeStorage(engine_, storages_ + storage_id).track_moved_record(
+    old_address,
+    write_set);
 }
 
 ErrorStack StorageManagerPimpl::clone_all_storage_metadata(
