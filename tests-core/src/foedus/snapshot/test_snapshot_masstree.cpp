@@ -228,14 +228,12 @@ const proc::ProcName kInsN("inserts_normalized_task");
 const proc::ProcName kInsV("inserts_varlen_task");
 const proc::ProcName kVerN("verify_task");
 const proc::ProcName kVerV("verify_varlen_task");
-/*
 TEST(SnapshotMasstreeTest, InsertsNormalizedOneLogger) { test_run(kInsN, kVerN, false, false); }
 TEST(SnapshotMasstreeTest, InsertsNormalizedTwoLoggers) { test_run(kInsN, kVerN, true, false); }
 TEST(SnapshotMasstreeTest, InsertsNormalizedTwoPartitions) { test_run(kInsN, kVerN, true, true); }
-*/
 TEST(SnapshotMasstreeTest, InsertsVarlenOneLogger) { test_run(kInsV, kVerV, false, false); }
-// TEST(SnapshotMasstreeTest, InsertsVarlenTwoLoggers) { test_run(kInsV, kVerV, true, false); }
-// TEST(SnapshotMasstreeTest, InsertsVarlenTwoPartitions) { test_run(kInsV, kVerV, true, true); }
+TEST(SnapshotMasstreeTest, InsertsVarlenTwoLoggers) { test_run(kInsV, kVerV, true, false); }
+TEST(SnapshotMasstreeTest, InsertsVarlenTwoPartitions) { test_run(kInsV, kVerV, true, true); }
 }  // namespace snapshot
 }  // namespace foedus
 
