@@ -102,17 +102,19 @@ ErrorStack ArrayComposer::construct_root(const Composer::ConstructRootArguments&
     SnapshotPagePointer page_id = storage_.get_metadata()->root_snapshot_page_id_;
     SnapshotPagePointer new_page_id = args.snapshot_writer_->get_next_page_id();
     *args.new_root_page_pointer_ = new_page_id;
+
+    uint64_t root_interval = LookupRouteFinder(levels, payload_size).get_records_in_leaf();
+    for (uint8_t level = 1; level < levels; ++level) {
+      root_interval *= kInteriorFanout;
+    }
+    ArrayRange range(0, root_interval, storage_.get_array_size());
     if (page_id != 0) {
       WRAP_ERROR_CODE(args.previous_snapshot_files_->read_page(page_id, root_page));
       ASSERT_ND(root_page->header().storage_id_ == storage_id_);
       ASSERT_ND(root_page->header().page_id_ == page_id);
+      ASSERT_ND(root_page->get_array_range() == range);
       root_page->header().page_id_ = new_page_id;
     } else {
-      uint64_t root_interval = LookupRouteFinder(levels, payload_size).get_records_in_leaf();
-      for (uint8_t level = 1; level < levels; ++level) {
-        root_interval *= kInteriorFanout;
-      }
-      ArrayRange range(0, root_interval, storage_.get_array_size());
       root_page->initialize_snapshot_page(
         storage_id_,
         new_page_id,
@@ -121,11 +123,14 @@ ErrorStack ArrayComposer::construct_root(const Composer::ConstructRootArguments&
         range);
     }
 
+    uint64_t child_interval = root_interval / kInteriorFanout;
+    uint16_t root_children = assorted::int_div_ceil(storage_.get_array_size(), child_interval);
+
     // overwrite pointers with root_info_pages.
     for (uint32_t i = 0; i < args.root_info_pages_count_; ++i) {
       const ArrayRootInfoPage* casted
         = reinterpret_cast<const ArrayRootInfoPage*>(args.root_info_pages_[i]);
-      for (uint16_t j = 0; j < kInteriorFanout; ++j) {
+      for (uint16_t j = 0; j < root_children; ++j) {
         SnapshotPagePointer pointer = casted->pointers_[j];
         if (pointer != 0) {
           ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(pointer) == new_snapshot_id);
@@ -137,6 +142,15 @@ ErrorStack ArrayComposer::construct_root(const Composer::ConstructRootArguments&
           record.snapshot_pointer_ = pointer;
         }
       }
+      for (uint16_t j = root_children; j < kInteriorFanout; ++j) {
+        ASSERT_ND(casted->pointers_[j] == 0);
+      }
+    }
+
+    // even in initial snapshot, all pointers must be set because we create empty pages
+    // even if some sub-tree receives no logs.
+    for (uint16_t j = 0; j < root_children; ++j) {
+      ASSERT_ND(root_page->get_interior_record(j).snapshot_pointer_ != 0);
     }
 
     WRAP_ERROR_CODE(args.snapshot_writer_->dump_pages(0, 1));
@@ -259,6 +273,24 @@ ErrorStack ArrayComposeContext::execute() {
   } else {
     LOG(ERROR) << "wtf? no logs? storage-" << storage_id_;
   }
+
+#ifndef NDEBUG
+  uint16_t children = get_root_children();
+  PartitionId partition = snapshot_writer_->get_numa_node();
+  ASSERT_ND(partitioning_data_);
+  for (uint16_t i = 0; i < children; ++i) {
+    if (!partitioning_data_->partitionable_ || partitioning_data_->bucket_owners_[i] == partition) {
+      ASSERT_ND(root_info_page_->pointers_[i] != 0);
+    } else {
+      ASSERT_ND((!is_initial_snapshot() && root_info_page_->pointers_[i] != 0)
+        || (is_initial_snapshot() && root_info_page_->pointers_[i] == 0));
+    }
+  }
+  for (uint16_t i = children; i < kInteriorFanout; ++i) {
+    ASSERT_ND(root_info_page_->pointers_[i] == 0);
+  }
+#endif  // NDEBUG
+
   return kRetOk;
 }
 
@@ -326,6 +358,11 @@ ErrorStack ArrayComposeContext::execute_single_level_array() {
   return kRetOk;
 }
 
+uint16_t ArrayComposeContext::get_root_children() const {
+  uint64_t child_interval = offset_intervals_[levels_ - 2U];
+  return assorted::int_div_ceil(storage_.get_array_size(), child_interval);
+}
+
 ErrorStack ArrayComposeContext::finalize() {
   ASSERT_ND(levels_ > 1U);
 
@@ -344,7 +381,7 @@ ErrorStack ArrayComposeContext::finalize() {
 
   // intermediate pages are different animals.
   // we store them in a separate buffer, and now finally we can get their page IDs.
-  // Until now, we relative used indexes in intermediate buffer as page ID, storing them in
+  // Until now, we used relative indexes in intermediate buffer as page ID, storing them in
   // page ID header. now let's convert all of them to be final page ID.
   ArrayPage* root_page = intermediate_base_;
   ASSERT_ND(root_page == cur_path_[levels_ - 1]);
@@ -386,31 +423,47 @@ ErrorStack ArrayComposeContext::finalize() {
   // we also write out root page, but we don't use it as we just put an equivalent information to
   // root_info_page. construct_root() will combine all composers' output later.
   snapshot_writer_->dump_intermediates(0, allocated_intermediates_);
-  for (uint16_t j = 0; j < kInteriorFanout; ++j) {
+
+  const uint16_t root_children = get_root_children();
+  const PartitionId partition = snapshot_writer_->get_numa_node();
+  ASSERT_ND(partitioning_data_);
+  for (uint16_t j = 0; j < root_children; ++j) {
     DualPagePointer& pointer = root_page->get_interior_record(j);
     ASSERT_ND(pointer.volatile_pointer_.is_null());
     SnapshotPagePointer page_id = pointer.snapshot_pointer_;
     snapshot::SnapshotId snapshot_id = extract_snapshot_id_from_snapshot_pointer(page_id);
-    if (page_id != 0) {
+
+    if (!partitioning_data_->partitionable_ || partitioning_data_->bucket_owners_[j] == partition) {
+      ASSERT_ND(page_id != 0);
+      // okay, this is a page this node is responsible for.
       if (snapshot_id == snapshot_id_) {
         // we already have snapshot pointers because it points to leaf pages. (2 level array)
+        // the pointer is already valid as a snapshot pointer
         ASSERT_ND(extract_numa_node_from_snapshot_pointer(page_id)
           == snapshot_writer_->get_numa_node());
         ASSERT_ND(root_page->get_level() == 1U);
         ASSERT_ND(verify_snapshot_pointer(pointer.snapshot_pointer_));
-        root_info_page_->pointers_[j] = pointer.snapshot_pointer_;
       } else if (snapshot_id == snapshot::kNullSnapshotId) {
-        // intermediate pages created in this snapshot
+        // intermediate pages created in this snapshot.
+        // just like other pages adjusted above, it's an offset from intermediate_base_
         ASSERT_ND(root_page->get_level() > 1U);
         ASSERT_ND(extract_numa_node_from_snapshot_pointer(page_id) == 0);
         ASSERT_ND(page_id < allocated_intermediates_);
         pointer.snapshot_pointer_ = base_pointer + page_id;
         ASSERT_ND(verify_snapshot_pointer(pointer.snapshot_pointer_));
-        root_info_page_->pointers_[j] = pointer.snapshot_pointer_;
       } else {
-        // then, it's a page in some previous snapshots created in some node. skip
+        // then, it's a page in previous snapshots we didn't modify
+        ASSERT_ND(!is_initial_snapshot());
+        ASSERT_ND(snapshot_id != snapshot_id_);
       }
+      root_info_page_->pointers_[j] = pointer.snapshot_pointer_;
+    } else {
+      ASSERT_ND((!is_initial_snapshot() && page_id != 0 && snapshot_id != snapshot_id_)
+        || (is_initial_snapshot() && page_id == 0));
     }
+  }
+  for (uint16_t j = root_children; j < kInteriorFanout; ++j) {
+    ASSERT_ND(root_page->get_interior_record(j).is_both_null());
   }
 
 
@@ -429,14 +482,14 @@ ErrorStack ArrayComposeContext::initialize(ArrayOffset initial_offset) {
   // First, load or create the root page.
   CHECK_ERROR(init_root_page());
 
-  // If an initial snapshot, we might have to create empty pages that received no logs.
+  // If an initial snapshot, we have to create empty pages first.
   if (is_initial_snapshot()) {
     ArrayRange leaf_range = to_leaf_range(initial_offset);
-    if (leaf_range.begin_ != 0) {
-      VLOG(0) << "Need to fill out empty pages in initial snapshot of array-" << storage_id_
-        << ", upto " << leaf_range.begin_;
-      WRAP_ERROR_CODE(create_empty_pages(0, leaf_range.begin_));
-    }
+    VLOG(0) << "Need to fill out empty pages in initial snapshot of array-" << storage_id_
+      << ", upto " << leaf_range.end_;
+    WRAP_ERROR_CODE(create_empty_pages(0, leaf_range.end_));
+    ASSERT_ND(cur_path_[0]);
+    ASSERT_ND(cur_path_[0]->get_array_range() == leaf_range);
   }
   return kRetOk;
 }
@@ -494,12 +547,17 @@ ErrorCode ArrayComposeContext::create_empty_pages(ArrayOffset from, ArrayOffset 
     if (page->get_interior_record(i).snapshot_pointer_ == 0) {
       if (child_level > 0) {
         CHECK_ERROR_CODE(create_empty_intermediate_page(page, i, child_range));
+        ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(
+          cur_path_[child_level]->header().page_id_) == snapshot::kNullSnapshotId);
       } else {
         CHECK_ERROR_CODE(create_empty_leaf_page(page, i, child_range));
+        ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(
+          cur_path_[child_level]->header().page_id_) == snapshot_id_);
       }
     }
 
     ASSERT_ND(cur_path_[child_level]);
+    page->get_interior_record(i).snapshot_pointer_ = cur_path_[child_level]->header().page_id_;
     if (child_level > 0) {
       CHECK_ERROR_CODE(create_empty_pages_recurse(from, to, cur_path_[child_level]));
     }
@@ -547,12 +605,17 @@ ErrorCode ArrayComposeContext::create_empty_pages_recurse(
     if (page->get_interior_record(i).snapshot_pointer_ == 0) {
       if (child_level > 0) {
         CHECK_ERROR_CODE(create_empty_intermediate_page(page, i, child_range));
+        ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(
+          cur_path_[child_level]->header().page_id_) == snapshot::kNullSnapshotId);
       } else {
         CHECK_ERROR_CODE(create_empty_leaf_page(page, i, child_range));
+        ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(
+          cur_path_[child_level]->header().page_id_) == snapshot_id_);
       }
     }
 
     ASSERT_ND(cur_path_[child_level]);
+    page->get_interior_record(i).snapshot_pointer_ = cur_path_[child_level]->header().page_id_;
     if (child_level > 0) {
       CHECK_ERROR_CODE(create_empty_pages_recurse(from, to, cur_path_[child_level]));
     }
@@ -659,10 +722,11 @@ ErrorCode ArrayComposeContext::update_cur_path(ArrayOffset next_offset) {
       || (is_initial_snapshot() && old_page_id == 0));
 
     ArrayPage* page;
+    SnapshotPagePointer new_page_id;
     if (level > 0U) {
       // we switched an intermediate page
       page = intermediate_base_ + allocated_intermediates_;
-      SnapshotPagePointer new_page_id = allocated_intermediates_;
+      new_page_id = allocated_intermediates_;
       ++allocated_intermediates_;
       CHECK_ERROR_CODE(read_or_init_page(old_page_id, new_page_id, level, child_range, page));
     } else {
@@ -674,12 +738,13 @@ ErrorCode ArrayComposeContext::update_cur_path(ArrayOffset next_offset) {
 
       // remember, we can finalize the page ID of leaf pages at this point
       page = page_base_ + allocated_pages_;
-      SnapshotPagePointer new_page_id = snapshot_writer_->get_next_page_id() + allocated_pages_;
+      new_page_id = snapshot_writer_->get_next_page_id() + allocated_pages_;
       ASSERT_ND(verify_snapshot_pointer(new_page_id));
       ++allocated_pages_;
       CHECK_ERROR_CODE(read_or_init_page(old_page_id, new_page_id, level, child_range, page));
-      pointer.snapshot_pointer_ = new_page_id;
     }
+    ASSERT_ND(page->header().page_id_ == new_page_id);
+    pointer.snapshot_pointer_ = new_page_id;
     cur_path_[level] = page;
   }
   ASSERT_ND(verify_cur_path());
@@ -855,11 +920,14 @@ bool ArrayComposer::drop_volatiles(const Composer::DropVolatilesArguments& args)
   bool kept_any = false;
   for (uint16_t i = 0; i < kInteriorFanout; ++i) {
     DualPagePointer &child_pointer = volatile_page->get_interior_record(i);
-    uint16_t partition = extract_numa_node_from_snapshot_pointer(child_pointer.snapshot_pointer_);
-    if (!args.partitioned_drop_ || partition == args.my_partition_) {
-      bool dropped_all = drop_volatiles_recurse(args, &child_pointer);
-      if (!dropped_all) {
-        kept_any = true;
+    if (!child_pointer.volatile_pointer_.is_null()) {
+      ASSERT_ND(child_pointer.snapshot_pointer_ != 0);
+      uint16_t partition = extract_numa_node_from_snapshot_pointer(child_pointer.snapshot_pointer_);
+      if (!args.partitioned_drop_ || partition == args.my_partition_) {
+        bool dropped_all = drop_volatiles_recurse(args, &child_pointer);
+        if (!dropped_all) {
+          kept_any = true;
+        }
       }
     }
   }

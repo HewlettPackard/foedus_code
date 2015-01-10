@@ -63,7 +63,7 @@ DEFINE_int32(payment_remote_percent, 0, "Percent of each payment that is inserte
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
 DEFINE_int32(thread_per_node, 4, "Number of threads per NUMA node. 0 uses logical count");
-DEFINE_int32(numa_nodes, 4, "Number of NUMA nodes. 0 uses physical count");
+DEFINE_int32(numa_nodes, 2, "Number of NUMA nodes. 0 uses physical count");
 DEFINE_bool(use_numa_alloc, true, "Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode()"
   " to allocate memories. If false, we use usual posix_memalign() instead");
 DEFINE_bool(interleave_numa_alloc, false, "Whether to use ::numa_alloc_interleaved()"
@@ -73,7 +73,7 @@ DEFINE_bool(mmap_hugepages, false, "Whether to use mmap for 1GB hugepages."
 DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
-DEFINE_int32(warehouses, 16, "Number of warehouses.");
+DEFINE_int32(warehouses, 8, "Number of warehouses.");
 DEFINE_int64(duration_micro, 1000000, "Duration of benchmark in microseconds.");
 
 TpccDriver::Result TpccDriver::run() {

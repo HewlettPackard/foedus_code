@@ -182,6 +182,7 @@ ErrorStack create_array(
   storage::array::ArrayMetadata meta(name, payload_size, array_size);
   if (keep_all_volatile_pages) {
     meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
+    meta.snapshot_drop_volatile_pages_threshold_ = 8;
   }
   return engine->get_storage_manager()->create_storage(&meta, &ep);
 }
@@ -195,6 +196,8 @@ ErrorStack create_masstree(
   storage::masstree::MasstreeMetadata meta(name, border_fill_factor);
   if (keep_all_volatile_pages) {
     meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
+    meta.snapshot_drop_volatile_pages_btree_levels_ = 0;
+    meta.snapshot_drop_volatile_pages_layer_threshold_ = 8;
   }
   return engine->get_storage_manager()->create_storage(&meta, &ep);
 }

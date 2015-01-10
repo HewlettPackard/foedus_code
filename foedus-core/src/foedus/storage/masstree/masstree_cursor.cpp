@@ -502,7 +502,9 @@ inline ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
     if (page->is_border() && !route.stable_.is_moved()) {
       route.setup_order();
       assorted::memory_fence_consume();
-      // the setup_order must not be confused by concurrent updates
+      // the setup_order must not be confused by concurrent updates.
+      // because we check version after consume fence, this also catches the case where
+      // we have a new key, is_consecutive_inserts()==true no longer holds, etc.
       if (UNLIKELY(route.stable_ != page->get_version().status_)) {
         continue;
       }

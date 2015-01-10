@@ -309,6 +309,7 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
   if (!current_xct.is_active()) {
     return kErrorCodeXctNoXct;
   }
+  ASSERT_ND(current_xct.assert_related_read_write());
 
   bool success;
   bool read_only = context->get_current_xct().is_read_only();
@@ -318,6 +319,7 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
     success = precommit_xct_readwrite(context, commit_epoch);
   }
 
+  ASSERT_ND(current_xct.assert_related_read_write());
   current_xct.deactivate();
   if (success) {
     return kErrorCodeOk;
@@ -439,6 +441,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
 
   storage::StorageManager* st = engine_->get_storage_manager();
   while (true) {  // while loop for retrying in case of moved-bit error
+    ASSERT_ND(current_xct.assert_related_read_write());
     // first, check for moved-bit and track where the corresponding physical record went.
     // we do this before locking, so it is possible that later we find it moved again.
     // if that happens, we retry.
@@ -454,7 +457,19 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
       }
     }
 
+    ASSERT_ND(current_xct.assert_related_read_write());
     std::sort(write_set, write_set + write_set_size, WriteXctAccess::compare);
+    // after the sorting, the related-link from read-set to write-set is now broken.
+    // we fix it by following the back-link from write-set to read-set.
+    for (uint32_t i = 0; i < write_set_size; ++i) {
+      WriteXctAccess* entry = write_set + i;
+      if (entry->related_read_) {
+        ASSERT_ND(entry->owner_id_address_ == entry->related_read_->owner_id_address_);
+        ASSERT_ND(entry->related_read_->related_write_);
+        entry->related_read_->related_write_ = entry;
+      }
+    }
+    ASSERT_ND(current_xct.assert_related_read_write());
 
 #ifndef NDEBUG
     // check that write sets are now sorted

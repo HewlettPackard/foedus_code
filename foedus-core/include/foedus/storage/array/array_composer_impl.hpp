@@ -164,6 +164,8 @@ class ArrayComposeContext {
   }
   bool is_initial_snapshot() const { return previous_root_page_pointer_ == 0; }
 
+  uint16_t get_root_children() const;
+
   // these properties are initialized in constructor and never changed afterwards
   Engine* const                   engine_;
   snapshot::MergeSort* const      merge_sort_;

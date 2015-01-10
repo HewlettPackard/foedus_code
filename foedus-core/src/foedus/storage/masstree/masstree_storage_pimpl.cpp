@@ -511,7 +511,7 @@ inline ErrorCode MasstreeStoragePimpl::follow_layer(
   ASSERT_ND(parent->does_point_to_layer(record_index));
   DualPagePointer* pointer = parent->get_next_layer(record_index);
   xct::LockableXctId* owner = parent->get_owner_id(record_index);
-  ASSERT_ND(owner->xct_id_.is_next_layer());
+  ASSERT_ND(owner->xct_id_.is_next_layer() || owner->xct_id_.is_moved());
   ASSERT_ND(!pointer->is_both_null());
   MasstreePage* next_root;
   CHECK_ERROR_CODE(follow_page(context, for_writes, pointer, &next_root));
