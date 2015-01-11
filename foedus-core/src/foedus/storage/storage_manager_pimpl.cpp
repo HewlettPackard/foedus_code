@@ -149,7 +149,7 @@ ErrorStack StorageManagerPimpl::uninitialize_once() {
     uint32_t dropped = 0;
     for (storage::StorageId i = 1; i <= control_block_->largest_storage_id_; ++i) {
       if (storages_[i].exists()) {
-        // TODO(Hideaki) we should have a separate method for this once we add "marked-for-death"
+        // TASK(Hideaki) we should have a separate method for this once we add "marked-for-death"
         // feature.
         drop_storage_apply(i);
         ++dropped;
@@ -172,7 +172,7 @@ StorageId StorageManagerPimpl::issue_next_storage_id() {
 
 StorageControlBlock* StorageManagerPimpl::get_storage(const StorageName& name) {
   soc::SharedMutexScope guard(&control_block_->mod_lock_);
-  // TODO(Hideaki) so far sequential search
+  // TASK(Hideaki) so far sequential search
   for (uint32_t i = 0; i <= control_block_->largest_storage_id_; ++i) {
     if (storages_[i].meta_.name_ == name) {
       return &storages_[i];
@@ -183,7 +183,7 @@ StorageControlBlock* StorageManagerPimpl::get_storage(const StorageName& name) {
 }
 bool StorageManagerPimpl::exists(const StorageName& name) {
   soc::SharedMutexScope guard(&control_block_->mod_lock_);
-  // TODO(Hideaki) so far sequential search
+  // TASK(Hideaki) so far sequential search
   for (uint32_t i = 0; i <= control_block_->largest_storage_id_; ++i) {
     if (storages_[i].meta_.name_ == name) {
       return true;

@@ -447,7 +447,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
     // if that happens, we retry.
     // we must not do lock-then-track to avoid deadlocks.
     for (uint32_t i = 0; i < write_set_size; ++i) {
-      // TODO(Hideaki) if this happens often, this might be too frequent virtual method call.
+      // TASK(Hideaki) if this happens often, this might be too frequent virtual method call.
       // maybe a batched version of this? I'm not sure if this is that often, though.
       WriteXctAccess* entry = write_set + i;
       if (UNLIKELY(entry->owner_id_address_->needs_track_moved())) {

@@ -133,7 +133,7 @@ void ThreadLogBuffer::wait_for_space(uint16_t required_space) {
   while (head_to_tail_distance() + required_space >= meta_.buffer_size_safe_) {
     assorted::memory_fence_acquire();
     if (meta_.offset_durable_ != meta_.offset_head_) {
-      // TODO(Hideaki) actually we should kick axx of log gleaner in this case.
+      // TASK(Hideaki) actually we should kick axx of log gleaner in this case.
       LOG(INFO) << "Thread-" << meta_.thread_id_ << " moving head to durable: " << *this;
       assorted::memory_fence_release();
       meta_.offset_head_ = meta_.offset_durable_;
@@ -142,7 +142,7 @@ void ThreadLogBuffer::wait_for_space(uint16_t required_space) {
       LOG(WARNING) << "Thread-" << meta_.thread_id_ << " logger is getting behind. sleeping "
         << " for a while.." << *this;
       engine_->get_log_manager()->wakeup_loggers();
-      // TODO(Hideaki) this duration should be configurable.
+      // TASK(Hideaki) this duration should be configurable.
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
   }

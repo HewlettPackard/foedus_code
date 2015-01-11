@@ -200,7 +200,7 @@ void SnapshotManagerPimpl::handle_snapshot() {
       triggered = true;
       LOG(INFO) << "Snapshot interval has elapsed. snapshotting..";
     } else {
-      // TODO(Hideaki): check free pages in page pool and compare with configuration.
+      // TASK(Hideaki): check free pages in page pool and compare with configuration.
     }
 
     if (triggered) {

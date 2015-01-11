@@ -452,7 +452,7 @@ ErrorCode ThreadPimpl::on_snapshot_cache_miss(
   // grab a buffer page to read into.
   memory::PagePoolOffset offset = core_memory_->grab_free_snapshot_page();
   if (offset == 0) {
-    // TODO(Hideaki) First, we have to make sure this doesn't happen often (cleaner's work).
+    // TASK(Hideaki) First, we have to make sure this doesn't happen often (cleaner's work).
     // Second, when this happens, we have to do eviction now, but probably after aborting the xct.
     LOG(ERROR) << "Could not grab free snapshot page while cache miss. thread=" << *holder_
       << ", page_id=" << assorted::Hex(page_id);

@@ -118,7 +118,7 @@ ErrorCode MasstreeCursor::proceed_route_border() {
   ASSERT_ND(route->page_->is_border());
   if (UNLIKELY(route->page_->get_version().status_ != route->stable_)) {
     // something has changed in this page.
-    // TODO(Hideaki) until we implement range lock, we have to roll back in this case.
+    // TASK(Hideaki) until we implement range lock, we have to roll back in this case.
     return kErrorCodeXctRaceAbort;
   }
 

@@ -803,7 +803,7 @@ uint32_t MasstreeComposeContext::execute_insert_group_get_cur_run(
 }
 
 ErrorStack MasstreeComposeContext::execute_delete_group(uint32_t from, uint32_t to) {
-  // minor-TODO(Hideaki) batched impl. but this case is not common, so later, later..
+  // TASK(Hideaki) batched impl. but this case is not common, so later, later..
   for (uint32_t i = from; i < to; ++i) {
     CHECK_ERROR(execute_a_log(i));
   }
@@ -811,7 +811,7 @@ ErrorStack MasstreeComposeContext::execute_delete_group(uint32_t from, uint32_t 
 }
 
 ErrorStack MasstreeComposeContext::execute_overwrite_group(uint32_t from, uint32_t to) {
-  // TODO(Hideaki) batched impl
+  // TASK(Hideaki) batched impl
   for (uint32_t i = from; i < to; ++i) {
     CHECK_ERROR(execute_a_log(i));
   }

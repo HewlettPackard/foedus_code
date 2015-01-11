@@ -176,7 +176,7 @@ void SavepointManagerPimpl::savepoint_main() {
 
       log::MetaLogControlBlock* metalog_block = engine_->get_soc_manager()->get_shared_memory_repo()
         ->get_global_memory_anchors()->meta_logger_memory_;
-      // TODO(Hideaki) Here, we should update oldest_offset_ by checking where the snapshot_epoch
+      // TASK(Hideaki) Here, we should update oldest_offset_ by checking where the snapshot_epoch
       // ends. So far we don't update this, but metalog is anyway tiny, so isn't a big issue.
       new_savepoint.meta_log_oldest_offset_ = metalog_block->oldest_offset_;
       new_savepoint.meta_log_durable_offset_ = metalog_block->durable_offset_;

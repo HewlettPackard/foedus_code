@@ -99,7 +99,7 @@ ErrorStack EnginePimpl::initialize_once() {
     soc::SharedMemoryRepo* repo = soc_manager_.get_shared_memory_repo();
     repo->change_master_status(soc::MasterEngineStatus::kRunning);
     // wait for children's kRunning status
-    // TODO(Hideaki) should be a function in soc manager
+    // TASK(Hideaki) should be a function in soc manager
     uint16_t soc_count = engine_->get_options().thread_.group_count_;
     while (true) {
       std::this_thread::sleep_for(std::chrono::milliseconds(5));

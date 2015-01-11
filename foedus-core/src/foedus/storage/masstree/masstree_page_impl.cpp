@@ -1022,7 +1022,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
       return kErrorCodeOk;
     }
 
-    // TODO(Hideaki) let's make this a function.
+    // TASK(Hideaki) let's make this a function.
     KeySlice separator_low;
     KeySlice separator_high;
     if (pointer_index == 0) {

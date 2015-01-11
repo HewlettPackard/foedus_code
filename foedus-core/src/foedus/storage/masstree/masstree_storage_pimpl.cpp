@@ -372,7 +372,7 @@ ErrorCode MasstreeStoragePimpl::locate_record(
           border->get_version_address(),
           border_version));
       }
-      // TODO(Hideaki) range lock rather than page-set to improve concurrency?
+      // TASK(Hideaki) range lock rather than page-set to improve concurrency?
       return kErrorCodeStrKeyNotFound;
     }
     if (border->does_point_to_layer(index)) {
@@ -409,7 +409,7 @@ ErrorCode MasstreeStoragePimpl::locate_record_normalized(
         border->get_version_address(),
         border_version));
     }
-    // TODO(Hideaki) range lock
+    // TASK(Hideaki) range lock
     return kErrorCodeStrKeyNotFound;
   }
   // because this is just one slice, we never go to second layer
@@ -580,7 +580,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         CHECK_ERROR_CODE(follow_layer(context, true, border, match.index_, &layer_root));
         break;  // next layer
       } else if (match.match_type_ == MasstreeBorderPage::kExactMatchLocalRecord) {
-        // TODO(Hideaki) even if in this case, if the record space is too small, we can't insert.
+        // Even if in this case, if the record space is too small, we can't insert.
         // in that case, we should do delete then insert.
         *out_page = border;
         *record_index = match.index_;
@@ -728,7 +728,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
     uint8_t index = border->find_key_normalized(0, count, key);
 
     if (index != MasstreeBorderPage::kMaxKeys) {
-      // TODO(Hideaki) even if in this case, if the record space is too small, we can't insert.
+      // Even if in this case, if the record space is too small, we can't insert.
       // in that case, we should do delete then insert.
       scope.release();
       *out_page = border;

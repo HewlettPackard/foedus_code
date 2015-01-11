@@ -120,7 +120,7 @@ ErrorStack LogManagerPimpl::initialize_once() {
     for (auto j = 0; j < loggers_per_node_; ++j) {
       Logger* logger = loggers_[j];
       init_threads.push_back(std::thread([logger]() {
-        COERCE_ERROR(logger->initialize());  // TODO(Hideaki) collect errors
+        COERCE_ERROR(logger->initialize());  // TASK(Hideaki) collect errors
       }));
     }
     LOG(INFO) << "Launched threads to initialize loggers in node-" << node << ". waiting..";

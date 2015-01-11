@@ -60,7 +60,7 @@ std::string os_error(int error_number) {
     return "[No Error]";
   }
   std::stringstream str;
-  // TODO(Hideaki) is std::strerror thread-safe? Thre is no std::strerror_r. Windows, mmm.
+  // NOTE(Hideaki) is std::strerror thread-safe? Thre is no std::strerror_r. Windows, mmm.
   str << "[Errno " << error_number << "] " << std::strerror(error_number);
   return str.str();
 }

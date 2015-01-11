@@ -317,7 +317,7 @@ inline ErrorCode Xct::add_to_pointer_set(
     return kErrorCodeOk;
   }
 
-  // TODO(Hideaki) even though pointer set should be small, we don't want sequential search
+  // TASK(Hideaki) even though pointer set should be small, we don't want sequential search
   // everytime. but insertion sort requires shifting. mmm.
   for (uint32_t i = 0; i < pointer_set_size_; ++i) {
     if (pointer_set_[i].address_ == pointer_address) {

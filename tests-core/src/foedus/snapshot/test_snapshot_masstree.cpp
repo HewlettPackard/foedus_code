@@ -98,10 +98,6 @@ ErrorStack inserts_varlen_task(const proc::ProcArguments& args) {
   xct::XctManager* xct_manager = args.engine_->get_xct_manager();
   Epoch commit_epoch;
 
-  // TODO(Hideaki) dirty hack. currently create_next_layer will cause an abort when the original
-  // record was already in readset. to avoid it, the first rep physically creates the records
-  // and second path logically inserts. as soon as we add "next_layer" flag in xct_id,
-  // we will not need this hack.
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
 
   char buffer[16];
