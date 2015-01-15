@@ -179,6 +179,8 @@ class TpccClientTask {
   /** Updates timestring_ only per second. */
   uint64_t    previous_timestring_update_;
 
+  char        ctime_buffer_[64];
+
   assorted::FixedString<28> timestring_;
 
   Cid     tmp_cids_[kMaxCidsPerLname];

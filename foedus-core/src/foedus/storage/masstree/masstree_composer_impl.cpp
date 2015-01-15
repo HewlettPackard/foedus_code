@@ -287,27 +287,36 @@ MasstreeComposeContext::MasstreeComposeContext(
     snapshot_id_(args.snapshot_writer_->get_snapshot_id()),
     numa_node_(get_writer()->get_numa_node()),
     max_pages_(get_writer()->get_page_size()),
-    // leave some space for page_boundary_sort_
-    page_boundary_info_capacity_(get_writer()->get_intermediate_size() * (4096ULL / 12ULL)),
-    max_page_boundary_info_(get_writer()->get_intermediate_size()),
     root_(reinterpret_cast<MasstreeIntermediatePage*>(args.root_info_page_)),
     page_base_(reinterpret_cast<Page*>(get_writer()->get_page_base())),
-    original_base_(merge_sort->get_original_pages()),
-    page_boundary_info_(reinterpret_cast<char*>(get_writer()->get_intermediate_base())),
-    page_boundary_sort_(reinterpret_cast<PageBoundarySort*>(
-      page_boundary_info_ + page_boundary_info_capacity_ * 8ULL)) {
+    original_base_(merge_sort->get_original_pages()) {
   page_id_base_ = get_writer()->get_next_page_id();
+  refresh_page_boundary_info_variables();
   root_index_ = 0;
   root_index_mini_ = 0;
   allocated_pages_ = 0;
-  // allocated_intermediates_ = 0;
   cur_path_levels_ = 0;
   page_boundary_info_cur_pos_ = 0;
-  page_boundary_info_elements_ = 0;
+  page_boundary_elements_ = 0;
   std::memset(cur_path_, 0, sizeof(cur_path_));
   std::memset(cur_prefix_be_, 0, sizeof(cur_prefix_be_));
   std::memset(cur_prefix_slices_, 0, sizeof(cur_prefix_slices_));
   std::memset(tmp_boundary_array_, 0, sizeof(tmp_boundary_array_));
+}
+
+void MasstreeComposeContext::refresh_page_boundary_info_variables() {
+  // we use intermediate pool of snapshot writer for page_boundary_info_/sort_
+  uint32_t size_in_pages = get_writer()->get_intermediate_size();
+  uint64_t size_in_bytes = size_in_pages * sizeof(Page);
+  // page_boundary_info_ consumes many more bytes than page_boundary_sort_ per entry.
+  // PageBoundaryInfo: (layer+3) * 8 bytes. So, at least 24 bytes. Likely 40-60 bytes or more.
+  // PageBoundarySort: Always 8 bytes.
+  // Let's be conservative. 15:1 distribution between the two.
+  max_page_boundary_elements_ = size_in_bytes / (16ULL * 8ULL);
+  page_boundary_info_capacity_ = max_page_boundary_elements_ * 15ULL;
+  page_boundary_info_ = reinterpret_cast<char*>(get_writer()->get_intermediate_base());
+  page_boundary_sort_ = reinterpret_cast<PageBoundarySort*>(
+    page_boundary_info_ + page_boundary_info_capacity_ * 8ULL);
 }
 
 void MasstreeComposeContext::write_dummy_page_zero() {
@@ -921,7 +930,7 @@ ErrorStack MasstreeComposeContext::init_root() {
     = storage_.get_control_block()->root_page_pointer_.snapshot_pointer_;
   if (snapshot_page_id != 0) {
     // based on previous snapshot page.
-    ASSERT_ND(page_boundary_info_cur_pos_ == 0 && page_boundary_info_elements_ == 0);
+    ASSERT_ND(page_boundary_info_cur_pos_ == 0 && page_boundary_elements_ == 0);
     WRAP_ERROR_CODE(args_.previous_snapshot_files_->read_page(snapshot_page_id, root_));
   } else {
     // if this is the initial snapshot, we create a dummy image of the root page based on
@@ -1652,7 +1661,7 @@ ErrorStack MasstreeComposeContext::close_level_grow_subtree(
 
 
   // also register the pages in the newly created level.
-  close_level_register_page_boundaries();
+  WRAP_ERROR_CODE(close_level_register_page_boundaries());
 
   if (last->page_count_ > 1U) {
     // recurse until we get just one page. this also means, when there are skewed inserts,
@@ -1744,7 +1753,7 @@ ErrorStack MasstreeComposeContext::close_last_level() {
 
   // before closing, consume all records in original page.
   CHECK_ERROR(consume_original_all());
-  close_level_register_page_boundaries();
+  WRAP_ERROR_CODE(close_level_register_page_boundaries());
 
   // Closing this level means we might have to push up the last level's chain to previous.
   if (last->page_count_ > 1U) {
@@ -1776,7 +1785,7 @@ ErrorStack MasstreeComposeContext::close_first_level() {
 
   // Do we have to make another level?
   CHECK_ERROR(consume_original_all());
-  close_level_register_page_boundaries();
+  WRAP_ERROR_CODE(close_level_register_page_boundaries());
 
   SnapshotPagePointer current_pointer = first->head_ + page_id_base_;
   DualPagePointer& root_pointer = root_->get_minipage(root_index_).pointers_[root_index_mini_];
@@ -1849,7 +1858,7 @@ void MasstreeComposeContext::remove_old_page_boundary_info(
   ASSERT_ND(extract_numa_node_from_snapshot_pointer(page_id) == numa_node_);
   ASSERT_ND(page->header().page_id_ == page_id);
   ASSERT_ND(page_boundary_info_cur_pos_ > 0);
-  ASSERT_ND(page_boundary_info_elements_ > 0);
+  ASSERT_ND(page_boundary_elements_ > 0);
   ASSERT_ND(cur_path_levels_ > 0);
 
   // this should happen very rarely (after flush_buffer), so the performance doesn't matter.
@@ -1864,7 +1873,7 @@ void MasstreeComposeContext::remove_old_page_boundary_info(
 
   // check them all! again, this method is called very occasionally
   bool found = false;
-  for (uint32_t i = 0; i < LIKELY(page_boundary_info_elements_); ++i) {
+  for (uint32_t i = 0; LIKELY(i < page_boundary_elements_); ++i) {
     if (LIKELY(page_boundary_sort_[i].hash_ != hash)) {
       continue;
     }
@@ -1893,13 +1902,19 @@ inline void MasstreeComposeContext::assert_page_boundary_not_exists(
   KeySlice high) const {
 #ifndef NDEBUG
   uint32_t hash = PageBoundaryInfo::calculate_hash(layer, prefixes, low, high);
-  for (uint32_t i = 0; LIKELY(i < page_boundary_info_elements_); ++i) {
+  for (uint32_t i = 0; LIKELY(i < page_boundary_elements_); ++i) {
     if (LIKELY(page_boundary_sort_[i].hash_ != hash)) {
       continue;
     }
     ASSERT_ND(page_boundary_sort_[i].info_pos_ < page_boundary_info_cur_pos_);
     const PageBoundaryInfo* info = get_page_boundary_info(page_boundary_sort_[i].info_pos_);
-    ASSERT_ND(!info->exact_match(layer, prefixes, low, high));
+    bool exists = info->exact_match(layer, prefixes, low, high);
+    if (exists) {  // just for debugging.
+      // umm, this occasionally happens in TPC-C. did not figure out when this happens.
+      // seems like the conflicting entry is created before/after close_level_grow_subtree??
+      info->exact_match(layer, prefixes, low, high);
+    }
+    ASSERT_ND(!exists);
   }
 #else  // NDEBUG
   UNUSED_ND(layer);
@@ -1909,27 +1924,42 @@ inline void MasstreeComposeContext::assert_page_boundary_not_exists(
 #endif  // NDEBUG
 }
 
-void MasstreeComposeContext::close_level_register_page_boundaries() {
+ErrorCode MasstreeComposeContext::close_level_register_page_boundaries() {
   // this method must be called *after* the pages in the last level are finalized because
   // we need to know the page fences. this is thus called at the end of close_xxx_level
   ASSERT_ND(cur_path_levels_ > 0U);
   PathLevel* last = get_last_level();
   ASSERT_ND(!last->has_next_original());  // otherwise tail's page boundary is not finalized yet
 
+  KeySlice prev_high = 0;  // only for assertion
   for (memory::PagePoolOffset cur = last->head_; cur != 0;) {
     const MasstreePage* page = get_page(cur);
     const SnapshotPagePointer page_id = page->header().page_id_;
     const uint8_t layer = last->layer_;
     const KeySlice low = page->get_low_fence();
     const KeySlice high = page->get_high_fence();
+    ASSERT_ND(low < high);
+    ASSERT_ND(cur == last->head_ || low == prev_high);
     ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(page_id) == snapshot_id_);
-    ASSERT_ND(page_boundary_info_elements_ < max_page_boundary_info_);
-    ASSERT_ND(page_boundary_info_cur_pos_ + (layer + 3U) < page_boundary_info_capacity_);
+
+    // we might have to expand memory for page_boundary_info.
+    uint16_t info_size = (layer + 3U) * sizeof(KeySlice);  // see dynamic_sizeof()
+    if (UNLIKELY(page_boundary_elements_ == max_page_boundary_elements_
+      || page_boundary_info_cur_pos_ + (info_size / 8U) >= page_boundary_info_capacity_)) {
+      LOG(INFO) << "Automatically expanding memory for page_boundary_info. This is super-rare";
+      CHECK_ERROR_CODE(get_writer()->expand_intermediate_memory(
+        get_writer()->get_intermediate_size() * 2U,
+        true));  // we need to retain the current content
+      refresh_page_boundary_info_variables();
+    }
+    ASSERT_ND(page_boundary_elements_ < max_page_boundary_elements_);
+    ASSERT_ND(page_boundary_info_cur_pos_ + (info_size / 8U) < page_boundary_info_capacity_);
     assert_page_boundary_not_exists(layer, cur_prefix_slices_, low, high);
 
     PageBoundaryInfo* info = get_page_boundary_info(page_boundary_info_cur_pos_);
     info->removed_ = false;
     info->layer_ = layer;
+    ASSERT_ND(info->dynamic_sizeof() == info_size);
     SnapshotLocalPageId local_id = extract_local_page_id_from_snapshot_pointer(page_id);
     ASSERT_ND(local_id > 0);
     ASSERT_ND(local_id < (1ULL << 40));
@@ -1941,23 +1971,26 @@ void MasstreeComposeContext::close_level_register_page_boundaries() {
     info->slices_[layer] = low;
     info->slices_[layer + 1] = high;
 
-    page_boundary_sort_[page_boundary_info_elements_].hash_
+    page_boundary_sort_[page_boundary_elements_].hash_
       = PageBoundaryInfo::calculate_hash(layer, cur_prefix_slices_, low, high);
-    page_boundary_sort_[page_boundary_info_elements_].info_pos_ = page_boundary_info_cur_pos_;
-    ++page_boundary_info_elements_;
+    page_boundary_sort_[page_boundary_elements_].info_pos_ = page_boundary_info_cur_pos_;
+    ++page_boundary_elements_;
     page_boundary_info_cur_pos_ += info->dynamic_sizeof() / 8U;
     ASSERT_ND(page->get_foster_major().components.offset || cur == last->tail_);
     cur = page->get_foster_major().components.offset;
+    prev_high = high;
   }
+
+  return kErrorCodeOk;
 }
 
 void MasstreeComposeContext::sort_page_boundary_info() {
   ASSERT_ND(page_boundary_info_cur_pos_ <= page_boundary_info_capacity_);
-  ASSERT_ND(page_boundary_info_elements_ <= max_page_boundary_info_);
+  ASSERT_ND(page_boundary_elements_ <= max_page_boundary_elements_);
   debugging::StopWatch watch;
-  std::sort(page_boundary_sort_, page_boundary_sort_ + page_boundary_info_elements_);
+  std::sort(page_boundary_sort_, page_boundary_sort_ + page_boundary_elements_);
   watch.stop();
-  VLOG(0) << "MasstreeStorage-" << id_ << " sorted " << page_boundary_info_elements_ << " entries"
+  VLOG(0) << "MasstreeStorage-" << id_ << " sorted " << page_boundary_elements_ << " entries"
     << " to track page_boundary_info in " << watch.elapsed_ms() << "ms";
 }
 
@@ -1970,11 +2003,11 @@ inline SnapshotPagePointer MasstreeComposeContext::lookup_page_boundary_info(
   dummy.hash_ = PageBoundaryInfo::calculate_hash(layer, prefixes, low, high);
   const PageBoundarySort* begin_entry = std::lower_bound(
     page_boundary_sort_,
-    page_boundary_sort_ + page_boundary_info_elements_,
+    page_boundary_sort_ + page_boundary_elements_,
     dummy,
     PageBoundarySort::static_less_than);
   uint32_t begin = begin_entry - page_boundary_sort_;
-  for (uint32_t i = begin; i < page_boundary_info_elements_; ++i) {
+  for (uint32_t i = begin; i < page_boundary_elements_; ++i) {
     if (page_boundary_sort_[i].hash_ != dummy.hash_) {
       break;
     }

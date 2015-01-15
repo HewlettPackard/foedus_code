@@ -97,7 +97,7 @@ TpccDriver::Result TpccDriver::run() {
     // Initialize timestamp (for date columns)
     time_t t_clock;
     ::time(&t_clock);
-    const char* timestamp = ::ctime(&t_clock);  // NOLINT(runtime/threadsafe_fn) no race here
+    const char* timestamp = ::ctime_r(&t_clock, ctime_buffer_);
     ASSERT_ND(timestamp);
 
     // then, load data into the tables.

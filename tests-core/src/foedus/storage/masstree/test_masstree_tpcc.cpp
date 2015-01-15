@@ -223,7 +223,7 @@ bool load_orderlines;
 
 class TpccLoadTask {
  public:
-  TpccLoadTask();
+  explicit TpccLoadTask(char* ctime_buffer);
   ErrorStack          run(thread::Thread* context);
 
   ErrorStack          load_tables();
@@ -274,11 +274,11 @@ class TpccLoadTask {
   /** Make a string of letter */
   int32_t    make_alpha_string(int32_t min, int32_t max, char *str);
 };
-TpccLoadTask::TpccLoadTask() {
+TpccLoadTask::TpccLoadTask(char* ctime_buffer) {
   // Initialize timestamp (for date columns)
   time_t t_clock;
   ::time(&t_clock);
-  timestamp_ = ::ctime(&t_clock);  // NOLINT(runtime/threadsafe_fn) no race here
+  timestamp_ = ::ctime_r(&t_clock, ctime_buffer);
   ASSERT_ND(timestamp_);
 }
 
@@ -577,7 +577,8 @@ Cid TpccLoadTask::get_permutation(bool* cid_array) {
 
 ErrorStack tpcc_load_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
-  return TpccLoadTask().run(context);
+  char ctime_buffer[64];
+  return TpccLoadTask(ctime_buffer).run(context);
 }
 
 void run_test(

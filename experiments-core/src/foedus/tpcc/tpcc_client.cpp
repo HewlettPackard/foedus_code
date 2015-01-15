@@ -44,9 +44,10 @@ ErrorStack tpcc_client_task(const proc::ProcArguments& args) {
 void TpccClientTask::update_timestring_if_needed() {
   uint64_t now = debugging::get_rdtsc();
   if (now  - previous_timestring_update_ > (1ULL << 30)) {
-    timestring_.assign(get_current_time_string());
+    timestring_.assign(get_current_time_string(ctime_buffer_));
     previous_timestring_update_ = now;
   }
+  ASSERT_ND(timestring_.length() > 0);
 }
 
 const uint32_t kMaxUnexpectedErrors = 1;
@@ -71,7 +72,8 @@ ErrorStack TpccClientTask::run_impl(thread::Thread* context) {
   // std::memset(debug_wdid_access_, 0, sizeof(debug_wdid_access_));
   CHECK_ERROR(warmup(context));
   outputs_->processed_ = 0;
-  timestring_.assign(get_current_time_string());
+  timestring_.assign(get_current_time_string(ctime_buffer_));
+  ASSERT_ND(timestring_.length() > 0);
   previous_timestring_update_ = debugging::get_rdtsc();
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
 

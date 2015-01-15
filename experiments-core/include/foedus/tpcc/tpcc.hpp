@@ -70,10 +70,10 @@ inline storage::masstree::KeySlice to_wdcid_slice(Wid wid, Did did, Cid cid) {
   return storage::masstree::normalize_primitive<Wdcid>(wdcid);
 }
 
-inline std::string get_current_time_string() {
+inline std::string get_current_time_string(char* ctime_buffer) {
   time_t t_clock;
   ::time(&t_clock);
-  const char* str = ::ctime(&t_clock);  // NOLINT(runtime/threadsafe_fn) no race here
+  const char* str = ::ctime_r(&t_clock, ctime_buffer);
   return std::string(str, ::strlen(str));
 }
 

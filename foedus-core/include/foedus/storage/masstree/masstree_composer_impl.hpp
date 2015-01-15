@@ -148,7 +148,7 @@ class MasstreeComposeContext {
      * Size of the tmp_boundary_array_.
      * Most likely we don't need this much, but this memory consumtion is negligible anyways.
      */
-    kTmpBoundaryArraySize = 1 << 11,
+    kTmpBoundaryArraySize = kMaxLogGroupSize,
   };
 
   /**
@@ -531,7 +531,8 @@ class MasstreeComposeContext {
 
 
   //// page_boundary_info/install_pointers related
-  void close_level_register_page_boundaries();
+  void refresh_page_boundary_info_variables();
+  ErrorCode close_level_register_page_boundaries();
   void remove_old_page_boundary_info(SnapshotPagePointer page_id, MasstreePage* page);
   PageBoundaryInfo* get_page_boundary_info(snapshot::BufferPosition pos) ALWAYS_INLINE {
     ASSERT_ND(pos <= page_boundary_info_cur_pos_);
@@ -582,10 +583,6 @@ class MasstreeComposeContext {
   const snapshot::SnapshotId snapshot_id_;
   const uint16_t            numa_node_;
   const uint32_t            max_pages_;
-  /** max size of page_boundary_info_. bytes/8 */
-  const snapshot::BufferPosition  page_boundary_info_capacity_;
-  /** maximum number of page_boundary_info_elements_ */
-  const uint32_t            max_page_boundary_info_;
 
   /**
    * Root of first layer, which is the joint point for partitioner and composer.
@@ -598,17 +595,6 @@ class MasstreeComposeContext {
   /** backed by work memory in merge_sort_. Index is level. */
   Page* const       original_base_;
 
-  /**
-   * backed by the snapshot_writer's intermediate page memory.
-   * In this composer, we don't use intermediate page memory. Instead, we use it to store
-   * only minimal information we need later (when we install snapshot page pointers).
-   * Each element is actually of type PageBoundaryInfo, but we must use byte positions to
-   * obtain each element because PageBoundaryInfo does not allow sizeof.
-   */
-  char* const       page_boundary_info_;
-  /** Sorting entries for page_boundary_info_. */
-  PageBoundarySort* const page_boundary_sort_;
-
   // const members up to here.
 
   /**
@@ -617,10 +603,26 @@ class MasstreeComposeContext {
    */
   SnapshotPagePointer       page_id_base_;
 
+  /**
+   * backed by the snapshot_writer's intermediate page memory.
+   * In this composer, we don't use intermediate page memory. Instead, we use it to store
+   * only minimal information we need later (when we install snapshot page pointers).
+   * Each element is actually of type PageBoundaryInfo, but we must use byte positions to
+   * obtain each element because PageBoundaryInfo does not allow sizeof.
+   */
+  char*                     page_boundary_info_;
+  /** Sorting entries for page_boundary_info_. */
+  PageBoundarySort*         page_boundary_sort_;
+
   /** How much we filled in page_boundary_info_. bytes/8. */
   snapshot::BufferPosition  page_boundary_info_cur_pos_;
-  /** number of elements in page_boundary_info_ */
-  uint32_t                  page_boundary_info_elements_;
+  /** number of elements in page_boundary_info_ and page_boundary_sort_ */
+  uint32_t                  page_boundary_elements_;
+
+  /** max size of page_boundary_info_. Unit is bytes/8 */
+  snapshot::BufferPosition  page_boundary_info_capacity_;
+  /** maximum number of page_boundary_info_elements_. Unit is count. */
+  uint32_t                  max_page_boundary_elements_;
 
   /**
    * How many pages we allocated in the main buffer of args_.snapshot_writer.

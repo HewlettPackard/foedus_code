@@ -642,6 +642,7 @@ ErrorCode ArrayComposeContext::create_empty_intermediate_page(
   DualPagePointer& pointer = parent->get_interior_record(index);
   ASSERT_ND(pointer.is_both_null());
   uint8_t level = parent->get_level() - 1U;
+  CHECK_ERROR_CODE(expand_intermediate_pool_if_needed());
   ArrayPage* page = intermediate_base_ + allocated_intermediates_;
   SnapshotPagePointer new_page_id = allocated_intermediates_;
   ++allocated_intermediates_;
@@ -672,6 +673,18 @@ ErrorCode ArrayComposeContext::create_empty_leaf_page(
   pointer.snapshot_pointer_ = new_page_id;
 
   cur_path_[0] = page;
+  return kErrorCodeOk;
+}
+
+inline ErrorCode ArrayComposeContext::expand_intermediate_pool_if_needed() {
+  ASSERT_ND(allocated_intermediates_ <= max_intermediates_);
+  if (UNLIKELY(allocated_intermediates_ == max_intermediates_)) {
+    LOG(INFO) << "Automatically expanding intermediate_pool. This should be a rare event";
+    uint32_t required = allocated_intermediates_ + 1U;
+    CHECK_ERROR_CODE(snapshot_writer_->expand_intermediate_memory(required, true));
+    intermediate_base_ = reinterpret_cast<ArrayPage*>(snapshot_writer_->get_intermediate_base());
+    max_intermediates_ = snapshot_writer_->get_intermediate_size();
+  }
   return kErrorCodeOk;
 }
 
@@ -725,6 +738,7 @@ ErrorCode ArrayComposeContext::update_cur_path(ArrayOffset next_offset) {
     SnapshotPagePointer new_page_id;
     if (level > 0U) {
       // we switched an intermediate page
+      CHECK_ERROR_CODE(expand_intermediate_pool_if_needed());
       page = intermediate_base_ + allocated_intermediates_;
       new_page_id = allocated_intermediates_;
       ++allocated_intermediates_;

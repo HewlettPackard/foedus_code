@@ -74,6 +74,8 @@ class TpccDriver {
   /** exclusive end of responsible iid. index=thread ordinal */
   std::vector<Iid>              to_iids_;
 
+  char ctime_buffer_[64];
+
   void assign_wids();
   void assign_iids();
 };

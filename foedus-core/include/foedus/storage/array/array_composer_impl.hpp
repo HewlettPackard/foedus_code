@@ -135,6 +135,9 @@ class ArrayComposeContext {
   ErrorCode create_empty_intermediate_page(ArrayPage* parent, uint16_t index, ArrayRange range);
   ErrorCode create_empty_leaf_page(ArrayPage* parent, uint16_t index, ArrayRange range);
 
+  /** call this before obtaining a new intermediate page */
+  ErrorCode expand_intermediate_pool_if_needed() ALWAYS_INLINE;
+
   /**
    * Called at the end of execute() to install pointers to snapshot pages constructed in this
    * composer. The snapshot pointer to the combined root is separately installed later.
