@@ -70,6 +70,13 @@ class Thread CXX11_FINAL : public virtual Initializable {
   /** Returns page resolver to convert only local page ID to page pointer. */
   const memory::LocalPageResolver& get_local_volatile_page_resolver() const;
 
+  /** [statistics] count of cache hits in snapshot caches */
+  uint64_t      get_snapshot_cache_hits() const;
+  /** [statistics] count of cache misses in snapshot caches */
+  uint64_t      get_snapshot_cache_misses() const;
+  /** [statistics] resets the above two */
+  void          reset_snapshot_cache_counts() const;
+
   /** Shorthand for get_global_volatile_page_resolver.resolve_offset() */
   storage::Page* resolve(storage::VolatilePagePointer ptr) const;
   /** Shorthand for get_global_volatile_page_resolver.resolve_offset_newpage() */

@@ -93,6 +93,9 @@ class TpccClientTask {
     /** this is usually up to 1 because we stop execution as soon as this happens */
     uint32_t unexpected_aborts_;
     uint32_t largereadset_aborts_;
+
+    uint64_t snapshot_cache_hits_;
+    uint64_t snapshot_cache_misses_;
   };
   TpccClientTask(const Inputs& inputs, Outputs* outputs)
     : worker_id_(inputs.worker_id_),

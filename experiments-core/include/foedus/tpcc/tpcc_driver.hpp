@@ -34,6 +34,8 @@ class TpccDriver {
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
     uint64_t unexpected_aborts_;
+    uint64_t snapshot_cache_hits_;
+    uint64_t snapshot_cache_misses_;
     friend std::ostream& operator<<(std::ostream& o, const WorkerResult& v);
   };
   struct Result {
@@ -44,7 +46,9 @@ class TpccDriver {
         user_requested_aborts_(0),
         race_aborts_(0),
         largereadset_aborts_(0),
-        unexpected_aborts_(0) {}
+        unexpected_aborts_(0),
+        snapshot_cache_hits_(0),
+        snapshot_cache_misses_(0) {}
     double   duration_sec_;
     uint32_t worker_count_;
     uint64_t processed_;
@@ -52,6 +56,8 @@ class TpccDriver {
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
     uint64_t unexpected_aborts_;
+    uint64_t snapshot_cache_hits_;
+    uint64_t snapshot_cache_misses_;
     WorkerResult workers_[kMaxWorkers];
     std::vector<std::string> papi_results_;
     friend std::ostream& operator<<(std::ostream& o, const Result& v);

@@ -53,6 +53,10 @@ class ThreadRef CXX11_FINAL {
   /** @see foedus::xct::InCommitEpochGuard  */
   Epoch         get_in_commit_epoch() const;
 
+  uint64_t      get_snapshot_cache_hits() const;
+  uint64_t      get_snapshot_cache_misses() const;
+  void          reset_snapshot_cache_counts() const;
+
   friend std::ostream& operator<<(std::ostream& o, const ThreadRef& v);
 
  private:

@@ -73,6 +73,8 @@ ErrorStack TpccClientTask::run_impl(thread::Thread* context) {
   CHECK_ERROR(warmup(context));
 
   outputs_->processed_ = 0;
+  outputs_->snapshot_cache_hits_ = 0;
+  outputs_->snapshot_cache_misses_ = 0;
   timestring_.assign(get_current_time_string(ctime_buffer_));
   ASSERT_ND(timestring_.length() > 0);
   previous_timestring_update_ = debugging::get_rdtsc();
@@ -81,6 +83,8 @@ ErrorStack TpccClientTask::run_impl(thread::Thread* context) {
   channel_->start_rendezvous_.wait();
   LOG(INFO) << "TPCC Client-" << worker_id_ << " started working! home wid="
     << from_wid_ << "-" << to_wid_;
+
+  context->reset_snapshot_cache_counts();
 
   while (!is_stop_requested()) {
     Wid wid = from_wid_;  // home WID. some transaction randomly uses remote WID.
@@ -146,8 +150,14 @@ ErrorStack TpccClientTask::run_impl(thread::Thread* context) {
     }
 
     ++outputs_->processed_;
+    if (UNLIKELY(outputs_->processed_ % (1U << 8) == 0)) {  // it's just stats. not too frequent
+      outputs_->snapshot_cache_hits_ = context->get_snapshot_cache_hits();
+      outputs_->snapshot_cache_misses_ = context->get_snapshot_cache_misses();
+    }
   }
 
+  outputs_->snapshot_cache_hits_ = context->get_snapshot_cache_hits();
+  outputs_->snapshot_cache_misses_ = context->get_snapshot_cache_misses();
   return kRetOk;
 }
 

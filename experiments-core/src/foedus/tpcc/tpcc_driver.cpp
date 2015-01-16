@@ -312,6 +312,8 @@ TpccDriver::Result TpccDriver::run() {
       result.unexpected_aborts_ += output->unexpected_aborts_;
       result.largereadset_aborts_ += output->largereadset_aborts_;
       result.user_requested_aborts_ += output->user_requested_aborts_;
+      result.snapshot_cache_hits_ += output->snapshot_cache_hits_;
+      result.snapshot_cache_misses_ += output->snapshot_cache_misses_;
     }
     LOG(INFO) << "Intermediate report after " << result.duration_sec_ << " sec";
     LOG(INFO) << result;
@@ -341,11 +343,15 @@ TpccDriver::Result TpccDriver::run() {
     result.workers_[i].unexpected_aborts_ = output->unexpected_aborts_;
     result.workers_[i].largereadset_aborts_ = output->largereadset_aborts_;
     result.workers_[i].user_requested_aborts_ = output->user_requested_aborts_;
+    result.workers_[i].snapshot_cache_hits_ = output->snapshot_cache_hits_;
+    result.workers_[i].snapshot_cache_misses_ = output->snapshot_cache_misses_;
     result.processed_ += output->processed_;
     result.race_aborts_ += output->race_aborts_;
     result.unexpected_aborts_ += output->unexpected_aborts_;
     result.largereadset_aborts_ += output->largereadset_aborts_;
     result.user_requested_aborts_ += output->user_requested_aborts_;
+    result.snapshot_cache_hits_ += output->snapshot_cache_hits_;
+    result.snapshot_cache_misses_ += output->snapshot_cache_misses_;
   }
   LOG(INFO) << "Shutting down...";
 
@@ -625,8 +631,10 @@ std::ostream& operator<<(std::ostream& o, const TpccDriver::Result& v) {
     << "<user_requested_aborts_>" << v.user_requested_aborts_ << "</user_requested_aborts_>"
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
     << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"
-    << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>";
-  o << "</total_result>";
+    << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>"
+    << "<snapshot_cache_hits_>" << v.snapshot_cache_hits_ << "</snapshot_cache_hits_>"
+    << "<snapshot_cache_misses_>" << v.snapshot_cache_misses_ << "</snapshot_cache_misses_>"
+    << "</total_result>";
   return o;
 }
 
@@ -637,6 +645,8 @@ std::ostream& operator<<(std::ostream& o, const TpccDriver::WorkerResult& v) {
     << "<raceab>" << v.race_aborts_ << "</raceab>"
     << "<rsetab>" << v.largereadset_aborts_ << "</rsetab>"
     << "<unexab>" << v.unexpected_aborts_ << "</unexab>"
+    << "<sphit>" << v.snapshot_cache_hits_ << "</sphit>"
+    << "<spmis>" << v.snapshot_cache_misses_ << "</spmis>"
     << "</worker>";
   return o;
 }

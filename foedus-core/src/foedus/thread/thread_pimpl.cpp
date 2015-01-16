@@ -431,6 +431,9 @@ ErrorCode ThreadPimpl::find_or_read_a_snapshot_page(
       CHECK_ERROR_CODE(on_snapshot_cache_miss(page_id, &offset));
       ASSERT_ND(offset != 0);
       CHECK_ERROR_CODE(snapshot_cache_hashtable_->install(page_id, offset));
+      ++control_block_->stat_snapshot_cache_misses_;
+    } else {
+      ++control_block_->stat_snapshot_cache_hits_;
     }
     ASSERT_ND(offset != 0);
     *out = snapshot_page_pool_->get_base() + offset;

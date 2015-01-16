@@ -6,6 +6,7 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <cstddef>
 
 #include "foedus/storage/array/array_storage.hpp"

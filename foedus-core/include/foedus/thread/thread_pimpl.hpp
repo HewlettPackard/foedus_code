@@ -49,6 +49,8 @@ struct ThreadControlBlock {
     task_mutex_.initialize();
     task_complete_cond_.initialize();
     in_commit_epoch_ = INVALID_EPOCH;
+    stat_snapshot_cache_hits_ = 0;
+    stat_snapshot_cache_misses_ = 0;
   }
   void uninitialize() {
     task_complete_cond_.uninitialize();
@@ -106,6 +108,9 @@ struct ThreadControlBlock {
 
   /** @see foedus::xct::InCommitEpochGuard  */
   Epoch               in_commit_epoch_;
+
+  uint64_t            stat_snapshot_cache_hits_;
+  uint64_t            stat_snapshot_cache_misses_;
 };
 
 /**
