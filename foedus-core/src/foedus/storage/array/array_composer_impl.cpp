@@ -22,6 +22,7 @@
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/page_resolver.hpp"
+#include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/snapshot/merge_sort.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_writer_impl.hpp"
@@ -84,6 +85,7 @@ ErrorStack ArrayComposer::construct_root(const Composer::ConstructRootArguments&
   uint8_t levels = storage_.get_levels();
   uint16_t payload_size = storage_.get_payload_size();
   snapshot::SnapshotId new_snapshot_id = args.snapshot_writer_->get_snapshot_id();
+  Epoch system_initial_epoch = engine_->get_savepoint_manager()->get_initial_durable_epoch();
   if (levels == 1U) {
     // if it's single-page array, we have already created the root page in compose().
     ASSERT_ND(args.root_info_pages_count_ == 1U);
@@ -116,6 +118,7 @@ ErrorStack ArrayComposer::construct_root(const Composer::ConstructRootArguments&
       root_page->header().page_id_ = new_page_id;
     } else {
       root_page->initialize_snapshot_page(
+        system_initial_epoch,
         storage_id_,
         new_page_id,
         payload_size,
@@ -180,6 +183,7 @@ ArrayComposeContext::ArrayComposeContext(
   Page*                             root_info_page)
   : engine_(engine),
     merge_sort_(merge_sort),
+    system_initial_epoch_(engine->get_savepoint_manager()->get_initial_durable_epoch()),
     storage_id_(merge_sort_->get_storage_id()),
     snapshot_id_(snapshot_writer->get_snapshot_id()),
     storage_(engine, storage_id_),
@@ -783,6 +787,7 @@ inline ErrorCode ArrayComposeContext::read_or_init_page(
   } else {
     ASSERT_ND(is_initial_snapshot());
     page->initialize_snapshot_page(
+      system_initial_epoch_,
       storage_id_,
       new_page_id,
       payload_size_,
@@ -922,8 +927,14 @@ bool ArrayComposer::drop_volatiles(const Composer::DropVolatilesArguments& args)
     return true;  // this case doesn't matter. true/false are same things
   }
 
+  // single-page array is solely owned by partition-0. others do nothing.
   if (volatile_page->is_leaf()) {
-    return drop_volatiles_leaf(args, root_pointer, volatile_page);
+    if (args.my_partition_ == 0) {
+      return drop_volatiles_leaf(args, root_pointer, volatile_page);
+    } else {
+      LOG(INFO) << "Single-page array skipped by non-zero thread.";
+      return true;
+    }
   }
 
   // We iterate through all existing volatile pages to drop volatile pages of
@@ -964,16 +975,11 @@ inline bool ArrayComposer::drop_volatiles_recurse(
   if (pointer->volatile_pointer_.is_null()) {
     return true;
   }
-  ASSERT_ND(pointer->snapshot_pointer_);
-  snapshot::SnapshotId snapshot_id
-    = extract_snapshot_id_from_snapshot_pointer(pointer->snapshot_pointer_);
-  ASSERT_ND(snapshot_id != snapshot::kNullSnapshotId);
-  if (snapshot_id != args.snapshot_.id_) {
-    // if we have any page modified under this pointer, we should have a new snapshot page
-    // here, too. Thus, we can ignore this subtree.
-    return true;
-  }
-
+  ASSERT_ND(pointer->snapshot_pointer_ == 0
+    || extract_snapshot_id_from_snapshot_pointer(pointer->snapshot_pointer_)
+        != snapshot::kNullSnapshotId);
+  // The snapshot pointer CAN be null.
+  // It means that this subtree has not constructed a new snapshot page in this snapshot.
   ArrayPage* child_page = resolve_volatile(pointer->volatile_pointer_);
   if (child_page->is_leaf()) {
     return drop_volatiles_leaf(args, pointer, child_page);
@@ -991,6 +997,7 @@ bool ArrayComposer::drop_volatiles_intermediate(
 
   // Explore/replace children first because we need to know if there is new modification.
   // In that case, we must keep this volatile page, too.
+  // Intermediate volatile page is kept iff there are no child volatile pages.
   bool kept_any = false;
   for (uint16_t i = 0; i < kInteriorFanout; ++i) {
     DualPagePointer& child_pointer = volatile_page->get_interior_record(i);
@@ -1010,6 +1017,8 @@ bool ArrayComposer::drop_volatiles_intermediate(
   } else {
     DVLOG(1) << "Couldn't drop an intermediate volatile page that has a recent modification";
   }
+  ASSERT_ND((pointer->volatile_pointer_.is_null() && !kept_any)
+    || (!pointer->volatile_pointer_.is_null() && kept_any));
   return !kept_any;
 }
 
@@ -1019,6 +1028,11 @@ inline bool ArrayComposer::drop_volatiles_leaf(
   ArrayPage* volatile_page) {
   ASSERT_ND(!volatile_page->header().snapshot_);
   ASSERT_ND(volatile_page->is_leaf());
+  if (is_to_keep_volatile(volatile_page->get_level())) {
+    DVLOG(2) << "Exempted";
+    return false;
+  }
+
   const uint16_t payload_size = storage_.get_payload_size();
   for (uint16_t i = 0; i < volatile_page->get_leaf_record_count(); ++i) {
     Record* record = volatile_page->get_leaf_record(i, payload_size);
@@ -1029,12 +1043,8 @@ inline bool ArrayComposer::drop_volatiles_leaf(
       return false;
     }
   }
-  if (is_to_keep_volatile(volatile_page->get_level())) {
-    DVLOG(2) << "Exempted";
-  } else {
-    args.drop(engine_, pointer->volatile_pointer_);
-    pointer->volatile_pointer_.clear();
-  }
+  args.drop(engine_, pointer->volatile_pointer_);
+  pointer->volatile_pointer_.clear();
   return true;
 }
 inline bool ArrayComposer::is_to_keep_volatile(uint16_t level) {
@@ -1045,7 +1055,7 @@ inline bool ArrayComposer::is_to_keep_volatile(uint16_t level) {
   // when threshold=0, all levels (0~array_levels-1) should return false.
   // when threshold=1, only root level (array_levels-1) should return true
   // when threshold=2, upto array_levels-2..
-  return threshold >= array_levels - level;
+  return threshold + level >= array_levels;
 }
 
 

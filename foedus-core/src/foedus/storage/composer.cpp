@@ -78,6 +78,14 @@ void Composer::DropVolatilesArguments::drop(
   uint16_t node = pointer.components.numa_node;
   ASSERT_ND(node < engine->get_soc_count());
   ASSERT_ND(pointer.components.offset > 0);
+#ifndef NDEBUG
+  // let's fill the page with garbage to help debugging
+  std::memset(
+    engine->get_memory_manager()->get_global_volatile_page_resolver().resolve_offset(pointer),
+    0xDA,
+    sizeof(Page));
+#endif  // NDEBUG
+
   memory::PagePoolOffsetChunk* chunk = dropped_chunks_ + node;
   if (chunk->full()) {
     memory::PagePool* pool

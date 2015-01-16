@@ -172,6 +172,7 @@ class ArrayComposeContext {
   // these properties are initialized in constructor and never changed afterwards
   Engine* const                   engine_;
   snapshot::MergeSort* const      merge_sort_;
+  const Epoch                     system_initial_epoch_;
   const StorageId                 storage_id_;
   const snapshot::SnapshotId      snapshot_id_;
   const ArrayStorage              storage_;

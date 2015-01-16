@@ -403,6 +403,7 @@ ErrorCode ThreadPimpl::follow_page_pointer(
       followed_snapshot = true;
     }
   }
+  ASSERT_ND((*page) == nullptr || (followed_snapshot == (*page)->get_header().snapshot_));
 
   // if we follow a snapshot pointer, remember pointer set
   if (current_xct_.get_isolation_level() == xct::kSerializable) {

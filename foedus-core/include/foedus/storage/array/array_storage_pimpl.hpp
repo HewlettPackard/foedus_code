@@ -102,7 +102,7 @@ class ArrayStoragePimpl final {
   }
   uint16_t    get_payload_size() const { return get_meta().payload_size_; }
   ArrayOffset get_array_size() const { return get_meta().array_size_; }
-  ArrayPage*  get_root_page();
+  ErrorCode   get_root_page(thread::Thread* context, bool for_write, ArrayPage** out) ALWAYS_INLINE;
   ErrorStack  verify_single_thread(thread::Thread* context);
   ErrorStack  verify_single_thread(thread::Thread* context, ArrayPage* page);
 
@@ -282,7 +282,7 @@ inline ErrorCode ArrayStoragePimpl::follow_pointer(
   uint16_t index_in_parent) {
   ASSERT_ND(!in_snapshot || !for_write);  // if we are modifying, we must be in volatile world
   ASSERT_ND(!parent->is_leaf());
-  return context->follow_page_pointer(
+  CHECK_ERROR_CODE(context->follow_page_pointer(
     array_volatile_page_init,  // array might have null pointer. in that case create empty new page
     false,  // if both volatile/snapshot null, create a new volatile (logically all-zero)
     for_write,
@@ -291,7 +291,35 @@ inline ErrorCode ArrayStoragePimpl::follow_pointer(
     pointer,
     reinterpret_cast<Page**>(out),
     reinterpret_cast<const Page*>(parent),
-    index_in_parent);
+    index_in_parent));
+
+#ifndef NDEBUG
+  ArrayPage* page = *out;
+  ASSERT_ND(page != nullptr);
+  ASSERT_ND(page->get_level() + 1U == parent->get_level());
+  if (page->is_leaf()) {
+    xct::XctId xct_id = page->get_leaf_record(0, get_payload_size())->owner_id_.xct_id_;
+    ASSERT_ND(xct_id.is_valid());
+  }
+#endif  // NDEBUG
+  return kErrorCodeOk;
+}
+
+
+inline ErrorCode ArrayStoragePimpl::get_root_page(
+  thread::Thread* context,
+  bool for_write,
+  ArrayPage** out) {
+  return context->follow_page_pointer(
+    nullptr,
+    false,
+    for_write,
+    true,
+    false,
+    &control_block_->root_page_pointer_,
+    reinterpret_cast<Page**>(out),
+    nullptr,
+    0);
 }
 
 

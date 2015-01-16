@@ -1,4 +1,4 @@
-add_executable(tpcc
+set(tpcc_cpps
   ${CMAKE_CURRENT_SOURCE_DIR}/tpcc.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/tpcc_client.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/tpcc_delivery.cpp
@@ -11,7 +11,15 @@ add_executable(tpcc
   ${CMAKE_CURRENT_SOURCE_DIR}/tpcc_schema.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/tpcc_stock_level.cpp
 )
+add_executable(tpcc ${tpcc_cpps})
 target_link_libraries(tpcc ${EXPERIMENT_LIB} gflags-static)
+
+# "OLAP version" of the TPC-C benchmark.
+# It runs only stock-level and order-status.
+# Also, the max number of orderlines per order is 100x higher (750 on average).
+add_executable(tpcc_olap ${tpcc_cpps})
+set_target_properties(tpcc_olap PROPERTIES COMPILE_FLAGS "-DOLAP_MODE")
+target_link_libraries(tpcc_olap ${EXPERIMENT_LIB} gflags-static)
 
 # Copy the scripts to build folders. this is just for convenience
 configure_file(run_z820.sh run_z820.sh COPYONLY)

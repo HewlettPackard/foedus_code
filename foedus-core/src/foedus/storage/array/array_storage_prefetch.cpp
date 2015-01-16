@@ -24,7 +24,8 @@ ErrorCode ArrayStoragePimpl::prefetch_pages(
   debugging::StopWatch watch;
   VLOG(0) << "Thread-" << context->get_thread_id()
     << " prefetching " << get_meta().name_ << " from=" << from << ", to=" << to;
-  ArrayPage* root_page = get_root_page();
+  ArrayPage* root_page;
+  CHECK_ERROR_CODE(get_root_page(context, vol_on, &root_page));
   prefetch_page_l2(root_page);
   if (!root_page->is_leaf()) {
     CHECK_ERROR_CODE(prefetch_pages_recurse(context, vol_on, snp_on, from, to, root_page));
@@ -43,12 +44,14 @@ ErrorCode ArrayStoragePimpl::prefetch_pages_recurse(
   ArrayOffset from,
   ArrayOffset to,
   ArrayPage* page) {
+  ASSERT_ND(!page->header().snapshot_ || !vol_on);
   uint8_t level = page->get_level();
   ASSERT_ND(level > 0);
   ArrayOffset interval = control_block_->route_finder_.get_records_in_leaf();
   for (uint8_t i = 1; i < level; ++i) {
     interval *= kInteriorFanout;
   }
+  bool in_snapshot = page->header().snapshot_;
   ArrayRange page_range = page->get_array_range();
   ArrayRange range(from, to);
   ASSERT_ND(page_range.overlaps(range));  // otherwise why we came here...
@@ -78,8 +81,7 @@ ErrorCode ArrayStoragePimpl::prefetch_pages_recurse(
         }
       }
       // do we have to install volatile page based on it?
-      if (pointer.volatile_pointer_.is_null() && vol_on) {
-        ASSERT_ND(!page->header().snapshot_);
+      if (pointer.volatile_pointer_.is_null() && vol_on && !in_snapshot) {
         ArrayPage* child;
         CHECK_ERROR_CODE(context->install_a_volatile_page(
           &pointer,
@@ -90,22 +92,14 @@ ErrorCode ArrayStoragePimpl::prefetch_pages_recurse(
     }
 
     // then go down
-    if (vol_on) {
-      if (pointer.volatile_pointer_.is_null() && pointer.snapshot_pointer_ == 0) {
-        // the page is not populated yet. we create an empty page in this case.
-        ArrayPage* dummy;
-        CHECK_ERROR_CODE(follow_pointer(context, false, true, &pointer, &dummy, page, i));
-      }
-
-      if (!pointer.volatile_pointer_.is_null()) {
-        ASSERT_ND(!page->header().snapshot_);
-        ArrayPage* child = context->resolve_cast<ArrayPage>(pointer.volatile_pointer_);
-          ASSERT_ND(child->get_array_range().begin_ == page_range.begin_ + i * interval);
-          ASSERT_ND(range.overlaps(child->get_array_range()));
-        prefetch_page_l2(child);
-        if (level > 1U) {
-          CHECK_ERROR_CODE(prefetch_pages_recurse(context, vol_on, snp_on, from, to, child));
-        }
+    if (vol_on && !pointer.volatile_pointer_.is_null()) {
+      ASSERT_ND(!in_snapshot);
+      ArrayPage* child = context->resolve_cast<ArrayPage>(pointer.volatile_pointer_);
+        ASSERT_ND(child->get_array_range().begin_ == page_range.begin_ + i * interval);
+        ASSERT_ND(range.overlaps(child->get_array_range()));
+      prefetch_page_l2(child);
+      if (level > 1U) {
+        CHECK_ERROR_CODE(prefetch_pages_recurse(context, vol_on, snp_on, from, to, child));
       }
     }
   }

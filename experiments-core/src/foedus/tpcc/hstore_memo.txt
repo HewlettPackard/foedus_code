@@ -134,3 +134,17 @@ ant hstore-benchmark -Dproject=tpcc -Dsite.anticache_enable=true -Dsite.anticach
   -Dclient.txnrate=2000 -Dclient.threads_per_host=20 -Dsite.anticache_batching=true \
   -Dhosts="localhost:0:0-7"
 No, it doesn't help. Actually it causes crashes.
+
+
+-- Notes on anti-cache issue (2015 Jan)
+We encountered it back in Nov, but lost the context after 3 months. Let's keep note this time.
+There are two issues.
+ 1. The hang/crash due to buffer overrun after retrieval from anti cache
+ 2. The hang when some transactions retrieves from remote anti cache
+
+1 is solved by the 2MB-buffer fix by Michael. It's NOT pushed to the master, so do not forget to
+apply.
+2 is still unsolved. Root cause not known either. The only reliable workaround so far is to
+disable remote transactions to use anti cache. In the paper we do this. So, only the H-store
+line is remote=0.
+

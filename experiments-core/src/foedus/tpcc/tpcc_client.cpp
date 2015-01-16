@@ -71,6 +71,7 @@ ErrorStack TpccClientTask::run_impl(thread::Thread* context) {
   // std::memset(debug_wdcid_access_, 0, sizeof(debug_wdcid_access_));
   // std::memset(debug_wdid_access_, 0, sizeof(debug_wdid_access_));
   CHECK_ERROR(warmup(context));
+
   outputs_->processed_ = 0;
   timestring_.assign(get_current_time_string(ctime_buffer_));
   ASSERT_ND(timestring_.length() > 0);
@@ -91,7 +92,9 @@ ErrorStack TpccClientTask::run_impl(thread::Thread* context) {
     while (!is_stop_requested()) {
       rnd_.set_current_seed(rnd_seed);
       update_timestring_if_needed();
-      WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+      xct::IsolationLevel isolation
+        = dirty_read_mode_ ? xct::kDirtyReadPreferVolatile : xct::kSerializable;
+      WRAP_ERROR_CODE(xct_manager->begin_xct(context, isolation));
       ErrorCode ret;
       if (transaction_type <= kXctNewOrderPercent) {
         ret = do_neworder(wid);
@@ -206,7 +209,7 @@ ErrorStack TpccClientTask::warmup(thread::Thread* context) {
   // Warmup snapshot cache for read-only tables. Install volatile pages for dynamic tables.
 
   // item has no locality, but still we want to pre-load snapshot cache, so:
-  if (channel_->preload_snapshot_pages_) {
+  if (channel_->preload_snapshot_pages_ || olap_mode_) {
     uint64_t items_per_warehouse = kItems / total_warehouses_;
     uint64_t from = items_per_warehouse * from_wid_;
     uint64_t to = items_per_warehouse * to_wid_;
@@ -219,13 +222,18 @@ ErrorStack TpccClientTask::warmup(thread::Thread* context) {
     // customers arrays
     Wdcid from = combine_wdcid(combine_wdid(wid_begin, 0), 0);
     Wdcid to = combine_wdcid(combine_wdid(wid_end, 0), 0);
-    if (channel_->preload_snapshot_pages_) {
+    if (channel_->preload_snapshot_pages_ || olap_mode_) {
       WRAP_ERROR_CODE(storages_.customers_static_.prefetch_pages(context, false, true, from, to));
     }
-    WRAP_ERROR_CODE(storages_.customers_dynamic_.prefetch_pages(context, true, false, from, to));
-    WRAP_ERROR_CODE(storages_.customers_history_.prefetch_pages(context, true, false, from, to));
+    if (olap_mode_) {
+      WRAP_ERROR_CODE(storages_.customers_dynamic_.prefetch_pages(context, false, true, from, to));
+      WRAP_ERROR_CODE(storages_.customers_history_.prefetch_pages(context, false, true, from, to));
+    } else {
+      WRAP_ERROR_CODE(storages_.customers_dynamic_.prefetch_pages(context, true, false, from, to));
+      WRAP_ERROR_CODE(storages_.customers_history_.prefetch_pages(context, true, false, from, to));
+    }
   }
-  if (channel_->preload_snapshot_pages_) {
+  if (channel_->preload_snapshot_pages_ || olap_mode_) {
     // customers secondary
     storage::masstree::KeySlice from = static_cast<storage::masstree::KeySlice>(wid_begin) << 48U;
     storage::masstree::KeySlice to = static_cast<storage::masstree::KeySlice>(wid_end) << 48U;
@@ -240,14 +248,25 @@ ErrorStack TpccClientTask::warmup(thread::Thread* context) {
     // stocks
     Sid from = combine_sid(wid_begin, 0);
     Sid to = combine_sid(wid_end, 0);
-    WRAP_ERROR_CODE(storages_.stocks_.prefetch_pages(context, true, false, from, to));
+    if (olap_mode_) {
+      WRAP_ERROR_CODE(storages_.stocks_.prefetch_pages(context, false, true, from, to));
+    } else {
+      WRAP_ERROR_CODE(storages_.stocks_.prefetch_pages(context, true, false, from, to));
+    }
   }
   {
     // order/neworder
     Wdoid from = combine_wdoid(combine_wdid(wid_begin, 0), 0);
     Wdoid to = combine_wdoid(combine_wdid(wid_end, 0), 0);
-    WRAP_ERROR_CODE(storages_.neworders_.prefetch_pages_normalized(context, true, false, from, to));
-    WRAP_ERROR_CODE(storages_.orders_.prefetch_pages_normalized(context, true, false, from, to));
+    if (olap_mode_) {
+      WRAP_ERROR_CODE(
+        storages_.neworders_.prefetch_pages_normalized(context, false, true, from, to));
+      WRAP_ERROR_CODE(storages_.orders_.prefetch_pages_normalized(context, false, true, from, to));
+    } else {
+      WRAP_ERROR_CODE(
+        storages_.neworders_.prefetch_pages_normalized(context, true, false, from, to));
+      WRAP_ERROR_CODE(storages_.orders_.prefetch_pages_normalized(context, true, false, from, to));
+    }
   }
   {
     // order_secondary
@@ -255,8 +274,8 @@ ErrorStack TpccClientTask::warmup(thread::Thread* context) {
     Wdcoid to = combine_wdcoid(combine_wdcid(combine_wdid(wid_end, 0), 0), 0);
     WRAP_ERROR_CODE(storages_.orders_secondary_.prefetch_pages_normalized(
       context,
-      true,
-      false,
+      olap_mode_ ? false : true,
+      olap_mode_ ? true : false,
       from,
       to));
   }
@@ -266,8 +285,8 @@ ErrorStack TpccClientTask::warmup(thread::Thread* context) {
     Wdol to = combine_wdol(combine_wdoid(combine_wdid(wid_end, 0), 0), 0);
     WRAP_ERROR_CODE(storages_.orderlines_.prefetch_pages_normalized(
       context,
-      true,
-      false,
+      olap_mode_ ? false : true,
+      olap_mode_ ? true : false,
       from,
       to));
   }
@@ -280,16 +299,21 @@ ErrorStack TpccClientTask::warmup(thread::Thread* context) {
     wid_end));
   WRAP_ERROR_CODE(storages_.warehouses_ytd_.prefetch_pages(
     context,
-    true,
-    false,
+    olap_mode_ ? false : true,
+    olap_mode_ ? true : false,
     wid_begin,
     wid_end));
   {
     Wdid from = combine_wdid(wid_begin, 0);
     Wdid to = combine_wdid(wid_end, 0);
     WRAP_ERROR_CODE(storages_.districts_static_.prefetch_pages(context, false, true, from, to));
-    WRAP_ERROR_CODE(storages_.districts_ytd_.prefetch_pages(context, true, false, from, to));
-    WRAP_ERROR_CODE(storages_.districts_next_oid_.prefetch_pages(context, true, false, from, to));
+    if (olap_mode_) {
+      WRAP_ERROR_CODE(storages_.districts_ytd_.prefetch_pages(context, false, true, from, to));
+      WRAP_ERROR_CODE(storages_.districts_next_oid_.prefetch_pages(context, false, true, from, to));
+    } else {
+      WRAP_ERROR_CODE(storages_.districts_ytd_.prefetch_pages(context, true, false, from, to));
+      WRAP_ERROR_CODE(storages_.districts_next_oid_.prefetch_pages(context, true, false, from, to));
+    }
   }
 
   // Warmup done!

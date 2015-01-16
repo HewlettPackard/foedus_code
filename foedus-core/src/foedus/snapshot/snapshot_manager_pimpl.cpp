@@ -533,7 +533,9 @@ void SnapshotManagerPimpl::drop_volatile_pages_parallel(
       dropped_count_total += dropped_count;
       watch.stop();
       LOG(INFO) << "Thread-" << parallel_id << " drop_volatiles for storage-" << id
-        << " took " << watch.elapsed_sec() << "s. dropped_all=" << dropped_all;
+        << " (" << engine_->get_storage_manager()->get_storage(id)->meta_.name_ << ")"
+        << " took " << watch.elapsed_sec() << "s. dropped_count=" << dropped_count
+        << ". dropped_all(this partition)? =" << dropped_all;
     } else {
       VLOG(0) << "Thread-" << parallel_id << " storage-"
         << id << " wasn't changed no drop pointers";

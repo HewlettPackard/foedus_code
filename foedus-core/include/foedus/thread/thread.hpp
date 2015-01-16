@@ -137,7 +137,7 @@ class Thread CXX11_FINAL : public virtual Initializable {
    * If the isolation level is not serializable, we don't take ptr set anyways.
    * @param[in] take_ptr_set_volatile if true, we add the address of volatile page pointer
    * to ptr set even when we follow a volatile pointer. This is true only when the storage
-   * might have RCU-style page switching (eg Masstree).
+   * might have RCU-style page switching (so far only Masstree's first-layer root).
    * If the isolation level is not serializable, we don't take ptr set anyways.
    * @param[in,out] pointer the page pointer.
    * @param[out] page the read page.

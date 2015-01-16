@@ -150,13 +150,6 @@ ErrorCode ArrayStorage::increment_record_oneshot(
     payload_offset);
 }
 
-ArrayPage* ArrayStoragePimpl::get_root_page() {
-  // Array storage is guaranteed to keep the root page as a volatile page.
-  return reinterpret_cast<ArrayPage*>(
-    engine_->get_memory_manager()->get_global_volatile_page_resolver().resolve_offset(
-    control_block_->root_page_pointer_.volatile_pointer_));
-}
-
 /**
  * Calculate leaf/interior pages we need.
  * @return index=level.
@@ -220,13 +213,15 @@ void ArrayStoragePimpl::release_pages_recursive(
 
 ErrorStack ArrayStorage::drop() {
   LOG(INFO) << "Uninitializing an array-storage " << *this;
-  memory::PageReleaseBatch release_batch(engine_);
-  ArrayStoragePimpl::release_pages_recursive(
-    engine_->get_memory_manager()->get_global_volatile_page_resolver(),
-    &release_batch,
-    control_block_->root_page_pointer_.volatile_pointer_);
-  release_batch.release_all();
-  control_block_->root_page_pointer_.volatile_pointer_.word = 0;
+  if (!control_block_->root_page_pointer_.volatile_pointer_.is_null()) {
+    memory::PageReleaseBatch release_batch(engine_);
+    ArrayStoragePimpl::release_pages_recursive(
+      engine_->get_memory_manager()->get_global_volatile_page_resolver(),
+      &release_batch,
+      control_block_->root_page_pointer_.volatile_pointer_);
+    release_batch.release_all();
+    control_block_->root_page_pointer_.volatile_pointer_.word = 0;
+  }
   return kRetOk;
 }
 
@@ -339,6 +334,7 @@ inline ErrorCode ArrayStoragePimpl::locate_record_for_read(
   ASSERT_ND(page);
   ASSERT_ND(page->is_leaf());
   ASSERT_ND(page->get_array_range().contains(offset));
+  ASSERT_ND(page->get_leaf_record(0, get_payload_size())->owner_id_.xct_id_.is_valid());
   *out = page->get_leaf_record(index, get_payload_size());
   return kErrorCodeOk;
 }
@@ -355,6 +351,7 @@ inline ErrorCode ArrayStoragePimpl::locate_record_for_write(
   ASSERT_ND(page);
   ASSERT_ND(page->is_leaf());
   ASSERT_ND(page->get_array_range().contains(offset));
+  ASSERT_ND(page->get_leaf_record(0, get_payload_size())->owner_id_.xct_id_.is_valid());
   *out = page->get_leaf_record(index, get_payload_size());
   return kErrorCodeOk;
 }
@@ -561,11 +558,12 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read(
   ASSERT_ND(offset < get_array_size());
   ASSERT_ND(out);
   ASSERT_ND(index);
-  ArrayPage* current_page = get_root_page();
+  ArrayPage* current_page;
+  CHECK_ERROR_CODE(get_root_page(context, false, &current_page));
   uint16_t levels = get_levels();
   ASSERT_ND(current_page->get_array_range().contains(offset));
   LookupRoute route = control_block_->route_finder_.find_route(offset);
-  bool in_snapshot = false;
+  bool in_snapshot = current_page->header().snapshot_;
   for (uint8_t level = levels - 1; level > 0; --level) {
     ASSERT_ND(current_page->get_array_range().contains(offset));
     DualPagePointer& pointer = current_page->get_interior_record(route.route[level]);
@@ -582,6 +580,7 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read(
   ASSERT_ND(current_page->is_leaf());
   ASSERT_ND(current_page->get_array_range().contains(offset));
   ASSERT_ND(current_page->get_array_range().begin_ + route.route[0] == offset);
+  ASSERT_ND(current_page->get_leaf_record(0, get_payload_size())->owner_id_.xct_id_.is_valid());
   *out = current_page;
   *index = route.route[0];
   *snapshot_page = (*out)->header().snapshot_;
@@ -597,7 +596,9 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write(
   ASSERT_ND(offset < get_array_size());
   ASSERT_ND(out);
   ASSERT_ND(index);
-  ArrayPage* current_page = get_root_page();
+  ArrayPage* current_page;
+  CHECK_ERROR_CODE(get_root_page(context, true, &current_page));
+  ASSERT_ND(!current_page->header().snapshot_);
   uint16_t levels = get_levels();
   ASSERT_ND(current_page->get_array_range().contains(offset));
   LookupRoute route = control_block_->route_finder_.find_route(offset);
@@ -615,6 +616,7 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write(
   ASSERT_ND(current_page->is_leaf());
   ASSERT_ND(current_page->get_array_range().contains(offset));
   ASSERT_ND(current_page->get_array_range().begin_ + route.route[0] == offset);
+  ASSERT_ND(current_page->get_leaf_record(0, get_payload_size())->owner_id_.xct_id_.is_valid());
   *out = current_page;
   *index = route.route[0];
   return kErrorCodeOk;
@@ -814,6 +816,7 @@ inline ErrorCode ArrayStoragePimpl::locate_record_for_read_batch(
     ASSERT_ND(page_batch[i]->is_leaf());
     ASSERT_ND(page_batch[i]->get_array_range().contains(offset_batch[i]));
     out_batch[i] = page_batch[i]->get_leaf_record(index_batch[i], get_payload_size());
+    ASSERT_ND(out_batch[i]->owner_id_.xct_id_.is_valid());
   }
   return kErrorCodeOk;
 }
@@ -827,20 +830,23 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
   bool* snapshot_page_batch) {
   ASSERT_ND(batch_size <= kBatchMax);
   LookupRoute routes[kBatchMax];
-  ArrayPage* root_page = get_root_page();
+  ArrayPage* root_page;
+  CHECK_ERROR_CODE(get_root_page(context, false, &root_page));
   uint16_t levels = get_levels();
+  bool root_snapshot = root_page->header().snapshot_;
+  const uint16_t payload_size = get_payload_size();
   for (uint8_t i = 0; i < batch_size; ++i) {
     ASSERT_ND(offset_batch[i] < get_array_size());
     routes[i] = control_block_->route_finder_.find_route(offset_batch[i]);
     if (levels <= 1U) {
       assorted::prefetch_cacheline(root_page->get_leaf_record(
         routes[i].route[0],
-        get_payload_size()));
+        payload_size));
     } else {
       assorted::prefetch_cacheline(&root_page->get_interior_record(routes[i].route[levels - 1]));
     }
     out_batch[i] = root_page;
-    snapshot_page_batch[i] = false;
+    snapshot_page_batch[i] = root_snapshot;
   }
 
   for (uint8_t level = levels - 1; level > 0; --level) {
@@ -857,10 +863,15 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
         out_batch[i],
         in_page_pos));
       snapshot_page_batch[i] = out_batch[i]->header().snapshot_;
+      ASSERT_ND(out_batch[i]->get_storage_id() == get_id());
+      ASSERT_ND(snapshot_page_batch[i]
+        || !construct_volatile_page_pointer(out_batch[i]->header().page_id_).is_null());
+      ASSERT_ND(!snapshot_page_batch[i]
+        || extract_local_page_id_from_snapshot_pointer(out_batch[i]->header().page_id_));
       if (level == 1U) {
         assorted::prefetch_cacheline(out_batch[i]->get_leaf_record(
           routes[i].route[0],
-          get_payload_size()));
+          payload_size));
       } else {
         assorted::prefetch_cacheline(
           &out_batch[i]->get_interior_record(routes[i].route[levels - 1]));
@@ -872,6 +883,8 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
     ASSERT_ND(out_batch[i]->get_array_range().contains(offset_batch[i]));
     ASSERT_ND(out_batch[i]->get_array_range().begin_ + routes[i].route[0] == offset_batch[i]);
     index_batch[i] = routes[i].route[0];
+    ASSERT_ND(
+      out_batch[i]->get_leaf_record(index_batch[i], payload_size)->owner_id_.xct_id_.is_valid());
   }
   return kErrorCodeOk;
 }
@@ -884,7 +897,9 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
   ASSERT_ND(batch_size <= kBatchMax);
   ArrayPage* pages[kBatchMax];
   LookupRoute routes[kBatchMax];
-  ArrayPage* root_page = get_root_page();
+  ArrayPage* root_page;
+  CHECK_ERROR_CODE(get_root_page(context, true, &root_page));
+  ASSERT_ND(!root_page->header().snapshot_);
   uint16_t levels = get_levels();
   for (uint8_t i = 0; i < batch_size; ++i) {
     ASSERT_ND(offset_batch[i] < get_array_size());
@@ -913,6 +928,9 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
         &pages[i],
         pages[i],
         in_page_pos));
+      ASSERT_ND(!pages[i]->header().snapshot_);
+      ASSERT_ND(pages[i]->get_storage_id() == get_id());
+      ASSERT_ND(!construct_volatile_page_pointer(pages[i]->header().page_id_).is_null());
       if (level == 1U) {
         assorted::prefetch_cacheline(pages[i]->get_leaf_record(
           routes[i].route[0],
@@ -936,7 +954,9 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
   return ERROR_STACK(kErrorCodeStrArrayFailedVerification); } while (0)
 
 ErrorStack ArrayStoragePimpl::verify_single_thread(thread::Thread* context) {
-  return verify_single_thread(context, get_root_page());
+  ArrayPage* root;
+  WRAP_ERROR_CODE(get_root_page(context, false, &root));
+  return verify_single_thread(context, root);
 }
 ErrorStack ArrayStoragePimpl::verify_single_thread(thread::Thread* context, ArrayPage* page) {
   const memory::GlobalVolatilePageResolver& resolver = context->get_global_volatile_page_resolver();

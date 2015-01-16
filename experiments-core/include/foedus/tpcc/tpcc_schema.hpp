@@ -125,7 +125,7 @@ inline Wdcid  extract_wdcid_from_wdcoid(Wdcoid id) { return static_cast<Wdcid>(i
 inline Oid    extract_oid_from_wdcoid(Wdcoid id) { return static_cast<Oid>(id % kMaxOrders); }
 
 /** Orderline ordinal (1-25) */
-typedef uint8_t Ol;
+typedef uint16_t Ol;
 
 /** Wdoid and Ol combined */
 typedef uint64_t Wdol;

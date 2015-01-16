@@ -80,6 +80,8 @@ class TpccClientTask {
     Wid to_wid_;
     uint16_t neworder_remote_percent_;
     uint16_t payment_remote_percent_;
+    bool olap_mode_;
+    bool dirty_read_mode_;
   };
   struct Outputs {
     /** How many transactions processed so far*/
@@ -97,6 +99,8 @@ class TpccClientTask {
       total_warehouses_(inputs.total_warehouses_),
       from_wid_(inputs.from_wid_),
       to_wid_(inputs.to_wid_),
+      olap_mode_(inputs.olap_mode_),
+      dirty_read_mode_(inputs.dirty_read_mode_),
       outputs_(outputs),
       neworder_remote_percent_(inputs.neworder_remote_percent_),
       payment_remote_percent_(inputs.payment_remote_percent_),
@@ -147,6 +151,12 @@ class TpccClientTask {
   const Wid from_wid_;
   /** exclusive end of "home" wid */
   const Wid to_wid_;
+
+  /** Set to true only when compiled and run in OLAP_MODE */
+  const bool olap_mode_;
+
+  /** Set to true only when compiled and run in OLAP_MODE and also given dirty_read=true */
+  const bool dirty_read_mode_;
 
   TpccClientChannel* channel_;
 
