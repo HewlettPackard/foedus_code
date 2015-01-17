@@ -63,9 +63,9 @@ ErrorCode TpccClientTask::do_stock_level(Wid wid) {
   // to justify the sorting cost.
   //// sort sids before the search. this is called sorted-index-scan and used in many DBMS.
   //// it makes sense only when we have many sids.
-  //if (read > 50U) {
-  //  std::sort(sids, sids + read);
-  //}
+  // if (read > 50U) {
+  //   std::sort(sids, sids + read);
+  // }
 
   uint32_t* quantities = tmp_quantities_;
   CHECK_ERROR_CODE(storages_.stocks_.get_record_primitive_batch<uint32_t>(

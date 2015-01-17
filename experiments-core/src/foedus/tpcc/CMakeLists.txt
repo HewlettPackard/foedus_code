@@ -27,6 +27,12 @@ configure_file(run_dl580.sh run_dl580.sh COPYONLY)
 configure_file(run_dragonhawk.sh run_dragonhawk.sh COPYONLY)
 configure_file(run_common.sh run_common.sh COPYONLY)
 
+# For main-memory experiments, but with logs on NVM
+configure_file(run_withlog_z820.sh run_withlog_z820.sh COPYONLY)
+configure_file(run_withlog_dl580.sh run_withlog_dl580.sh COPYONLY)
+configure_file(run_withlog_dragonhawk.sh run_withlog_dragonhawk.sh COPYONLY)
+configure_file(run_withlog.sh run_withlog.sh COPYONLY)
+
 # For NVM experiments
 configure_file(run_nvm_z820.sh run_nvm_z820.sh COPYONLY)
 configure_file(run_nvm_dl580.sh run_nvm_dl580.sh COPYONLY)
