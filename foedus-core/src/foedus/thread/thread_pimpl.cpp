@@ -317,7 +317,6 @@ ErrorCode Thread::follow_page_pointer(
   bool tolerate_null_pointer,
   bool will_modify,
   bool take_ptr_set_snapshot,
-  bool take_ptr_set_volatile,
   storage::DualPagePointer* pointer,
   storage::Page** page,
   const storage::Page* parent,
@@ -327,11 +326,48 @@ ErrorCode Thread::follow_page_pointer(
     tolerate_null_pointer,
     will_modify,
     take_ptr_set_snapshot,
-    take_ptr_set_volatile,
     pointer,
     page,
     parent,
     index_in_parent);
+}
+
+ErrorCode Thread::follow_page_pointers_for_read_batch(
+  uint16_t batch_size,
+  storage::VolatilePageInit page_initializer,
+  bool tolerate_null_pointer,
+  bool take_ptr_set_snapshot,
+  storage::DualPagePointer** pointers,
+  storage::Page** parents,
+  const uint16_t* index_in_parents,
+  bool* followed_snapshots,
+  storage::Page** out) {
+  return pimpl_->follow_page_pointers_for_read_batch(
+    batch_size,
+    page_initializer,
+    tolerate_null_pointer,
+    take_ptr_set_snapshot,
+    pointers,
+    parents,
+    index_in_parents,
+    followed_snapshots,
+    out);
+}
+
+ErrorCode Thread::follow_page_pointers_for_write_batch(
+  uint16_t batch_size,
+  storage::VolatilePageInit page_initializer,
+  storage::DualPagePointer** pointers,
+  storage::Page** parents,
+  const uint16_t* index_in_parents,
+  storage::Page** out) {
+  return pimpl_->follow_page_pointers_for_write_batch(
+    batch_size,
+    page_initializer,
+    pointers,
+    parents,
+    index_in_parents,
+    out);
 }
 
 ErrorCode ThreadPimpl::follow_page_pointer(
@@ -339,7 +375,6 @@ ErrorCode ThreadPimpl::follow_page_pointer(
   bool tolerate_null_pointer,
   bool will_modify,
   bool take_ptr_set_snapshot,
-  bool take_ptr_set_volatile,
   storage::DualPagePointer* pointer,
   storage::Page** page,
   const storage::Page* parent,
@@ -407,10 +442,182 @@ ErrorCode ThreadPimpl::follow_page_pointer(
 
   // if we follow a snapshot pointer, remember pointer set
   if (current_xct_.get_isolation_level() == xct::kSerializable) {
-    if (((*page == nullptr || followed_snapshot) && take_ptr_set_snapshot) ||
-        (!followed_snapshot && take_ptr_set_volatile)) {
+    if ((*page == nullptr || followed_snapshot) && take_ptr_set_snapshot) {
       current_xct_.add_to_pointer_set(&pointer->volatile_pointer_, volatile_pointer);
     }
+  }
+  return kErrorCodeOk;
+}
+
+ErrorCode ThreadPimpl::follow_page_pointers_for_read_batch(
+  uint16_t batch_size,
+  storage::VolatilePageInit page_initializer,
+  bool tolerate_null_pointer,
+  bool take_ptr_set_snapshot,
+  storage::DualPagePointer** pointers,
+  storage::Page** parents,
+  const uint16_t* index_in_parents,
+  bool* followed_snapshots,
+  storage::Page** out) {
+  ASSERT_ND(tolerate_null_pointer || page_initializer);
+  if (batch_size == 0) {
+    return kErrorCodeOk;
+  } else if (UNLIKELY(batch_size > Thread::kMaxFindPagesBatch)) {
+    return kErrorCodeInvalidParameter;
+  }
+
+  // this one uses a batched find method for following snapshot pages.
+  // some of them might follow volatile pages, so we do it only when at least one snapshot ptr.
+  bool has_some_snapshot = false;
+  const bool prefer_snapshot = current_xct_.get_isolation_level() == xct::kDirtyReadPreferSnapshot;
+  const bool needs_ptr_set
+    = take_ptr_set_snapshot && current_xct_.get_isolation_level() == xct::kSerializable;
+
+  // REMINDER: Remember that it might be parents == out. We thus use tmp_out.
+  storage::Page* tmp_out[Thread::kMaxFindPagesBatch];
+#ifndef NDEBUG
+  // fill with garbage for easier debugging
+  std::memset(tmp_out, 0xDA, sizeof(tmp_out));
+#endif  // NDEBUG
+
+  // collect snapshot page IDs.
+  storage::SnapshotPagePointer snapshot_page_ids[Thread::kMaxFindPagesBatch];
+  for (uint16_t b = 0; b < batch_size; ++b) {
+    snapshot_page_ids[b] = 0;
+    storage::DualPagePointer* pointer = pointers[b];
+    if (pointer == nullptr) {
+      continue;
+    }
+    // followed_snapshots is both input and output.
+    // as input, it should indicate whether the parent is snapshot or not
+    ASSERT_ND(parents[b]->get_header().snapshot_ == followed_snapshots[b]);
+    if (pointer->snapshot_pointer_ != 0
+      && (pointer->volatile_pointer_.is_null() || prefer_snapshot)) {
+      has_some_snapshot = true;
+      snapshot_page_ids[b] = pointer->snapshot_pointer_;
+    }
+  }
+
+  // follow them in a batch. output to tmp_out.
+  if (has_some_snapshot) {
+    CHECK_ERROR_CODE(find_or_read_snapshot_pages_batch(batch_size, snapshot_page_ids, tmp_out));
+  }
+
+  // handle cases we have to volatile pages. also we might have to create a new page.
+  for (uint16_t b = 0; b < batch_size; ++b) {
+    storage::DualPagePointer* pointer = pointers[b];
+    if (has_some_snapshot) {
+      if (pointer == nullptr) {
+        out[b] = nullptr;
+        continue;
+      } else if (tmp_out[b]) {
+        // if we follow a snapshot pointer _from volatile page_, remember pointer set
+        if (needs_ptr_set && !followed_snapshots[b]) {
+          current_xct_.add_to_pointer_set(&pointer->volatile_pointer_, pointer->volatile_pointer_);
+        }
+        followed_snapshots[b] = true;
+        out[b] = tmp_out[b];
+        continue;
+      }
+      ASSERT_ND(tmp_out[b] == nullptr);
+    }
+
+    // we didn't follow snapshot page. we must follow volatile page, or null.
+    followed_snapshots[b] = false;
+    ASSERT_ND(!parents[b]->get_header().snapshot_);
+    if (pointer->snapshot_pointer_ == 0) {
+      if (pointer->volatile_pointer_.is_null()) {
+        // both null, so the page is not created yet.
+        if (tolerate_null_pointer) {
+          out[b] = nullptr;
+        } else {
+          memory::PagePoolOffset offset = core_memory_->grab_free_volatile_page();
+          if (UNLIKELY(offset == 0)) {
+            return kErrorCodeMemoryNoFreePages;
+          }
+          storage::Page* new_page = local_volatile_page_resolver_.resolve_offset_newpage(offset);
+          storage::VolatilePagePointer new_page_id;
+          new_page_id.components.numa_node = numa_node_;
+          new_page_id.components.offset = offset;
+          storage::VolatilePageInitArguments args = {
+            holder_,
+            new_page_id,
+            new_page,
+            parents[b],
+            index_in_parents[b]
+          };
+          page_initializer(args);
+          storage::assert_valid_volatile_page(new_page, offset);
+          ASSERT_ND(new_page->get_header().snapshot_ == false);
+
+          out[b] = place_a_new_volatile_page(offset, pointer);
+        }
+      } else {
+        out[b] = global_volatile_page_resolver_.resolve_offset(pointer->volatile_pointer_);
+      }
+    } else {
+      ASSERT_ND(!pointer->volatile_pointer_.is_null());
+      if (prefer_snapshot) {
+        // we checked this case above, but volatile pointer might be _now_ installed.
+        // in that rare case, use the non-batch method.
+        CHECK_ERROR_CODE(find_or_read_a_snapshot_page(pointer->snapshot_pointer_, out + b));
+      } else {
+        out[b] = global_volatile_page_resolver_.resolve_offset(pointer->volatile_pointer_);
+      }
+    }
+  }
+  return kErrorCodeOk;
+}
+
+ErrorCode ThreadPimpl::follow_page_pointers_for_write_batch(
+  uint16_t batch_size,
+  storage::VolatilePageInit page_initializer,
+  storage::DualPagePointer** pointers,
+  storage::Page** parents,
+  const uint16_t* index_in_parents,
+  storage::Page** out) {
+  // REMINDER: Remember that it might be parents == out. It's not an issue in this function, tho.
+  // this method is not quite batched as it doesn't need to be.
+  // still, less branches because we can assume all of them need a writable volatile page.
+  for (uint16_t b = 0; b < batch_size; ++b) {
+    storage::DualPagePointer* pointer = pointers[b];
+    if (pointer == nullptr) {
+      out[b] = nullptr;
+      continue;
+    }
+    ASSERT_ND(!parents[b]->get_header().snapshot_);
+    storage::Page** page = out + b;
+    storage::VolatilePagePointer volatile_pointer = pointer->volatile_pointer_;
+    if (!volatile_pointer.is_null()) {
+      *page = global_volatile_page_resolver_.resolve_offset(volatile_pointer);
+    } else if (pointer->snapshot_pointer_ == 0) {
+      // we need a volatile page. so construct it from snapshot
+      CHECK_ERROR_CODE(install_a_volatile_page(pointer, page));
+    } else {
+      ASSERT_ND(page_initializer);
+      // we must not install a new volatile page in snapshot page. We must not hit this case.
+      memory::PagePoolOffset offset = core_memory_->grab_free_volatile_page();
+      if (UNLIKELY(offset == 0)) {
+        return kErrorCodeMemoryNoFreePages;
+      }
+      storage::Page* new_page = local_volatile_page_resolver_.resolve_offset_newpage(offset);
+      storage::VolatilePagePointer new_page_id;
+      new_page_id.components.numa_node = numa_node_;
+      new_page_id.components.offset = offset;
+      storage::VolatilePageInitArguments args = {
+        holder_,
+        new_page_id,
+        new_page,
+        parents[b],
+        index_in_parents[b]
+      };
+      page_initializer(args);
+      storage::assert_valid_volatile_page(new_page, offset);
+      ASSERT_ND(new_page->get_header().snapshot_ == false);
+
+      *page = place_a_new_volatile_page(offset, pointer);
+    }
+    ASSERT_ND(out[b] != nullptr);
   }
   return kErrorCodeOk;
 }
@@ -449,6 +656,65 @@ ErrorCode ThreadPimpl::find_or_read_a_snapshot_page(
   }
   return kErrorCodeOk;
 }
+
+static_assert(
+  static_cast<int>(Thread::kMaxFindPagesBatch)
+    <= static_cast<int>(cache::CacheHashtable::kMaxFindBatchSize),
+  "Booo");
+
+ErrorCode ThreadPimpl::find_or_read_snapshot_pages_batch(
+  uint16_t batch_size,
+  const storage::SnapshotPagePointer* page_ids,
+  storage::Page** out) {
+  ASSERT_ND(batch_size <= Thread::kMaxFindPagesBatch);
+  if (batch_size == 0) {
+    return kErrorCodeOk;
+  } else if (UNLIKELY(batch_size > Thread::kMaxFindPagesBatch)) {
+    return kErrorCodeInvalidParameter;
+  }
+
+  if (snapshot_cache_hashtable_) {
+    ASSERT_ND(engine_->get_options().cache_.snapshot_cache_enabled_);
+    memory::PagePoolOffset offsets[Thread::kMaxFindPagesBatch];
+    CHECK_ERROR_CODE(snapshot_cache_hashtable_->find_batch(batch_size, page_ids, offsets));
+    for (uint16_t b = 0; b < batch_size; ++b) {
+      memory::PagePoolOffset offset = offsets[b];
+      storage::SnapshotPagePointer page_id = page_ids[b];
+      if (page_id == 0) {
+        out[b] = nullptr;
+        continue;
+      } else if (b > 0 && page_ids[b - 1] == page_id) {
+        ASSERT_ND(offsets[b - 1] == offset);
+        out[b] = out[b - 1];
+        continue;
+      }
+      if (offset == 0 || snapshot_page_pool_->get_base()[offset].get_header().page_id_ != page_id) {
+        if (offset != 0) {
+          DVLOG(0) << "Interesting, this race is rare, but possible. offset=" << offset;
+        }
+        CHECK_ERROR_CODE(on_snapshot_cache_miss(page_id, &offset));
+        ASSERT_ND(offset != 0);
+        CHECK_ERROR_CODE(snapshot_cache_hashtable_->install(page_id, offset));
+        ++control_block_->stat_snapshot_cache_misses_;
+      } else {
+        ++control_block_->stat_snapshot_cache_hits_;
+      }
+      ASSERT_ND(offset != 0);
+      out[b] = snapshot_page_pool_->get_base() + offset;
+    }
+  } else {
+    ASSERT_ND(!engine_->get_options().cache_.snapshot_cache_enabled_);
+    for (uint16_t b = 0; b < batch_size; ++b) {
+      CHECK_ERROR_CODE(current_xct_.acquire_local_work_memory(
+        storage::kPageSize,
+        reinterpret_cast<void**>(out + b),
+        storage::kPageSize));
+      CHECK_ERROR_CODE(read_a_snapshot_page(page_ids[b], out[b]));
+    }
+  }
+  return kErrorCodeOk;
+}
+
 
 ErrorCode ThreadPimpl::on_snapshot_cache_miss(
   storage::SnapshotPagePointer page_id,

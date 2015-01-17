@@ -33,6 +33,13 @@ namespace thread {
  */
 class Thread CXX11_FINAL : public virtual Initializable {
  public:
+  enum Constants {
+    /**
+     * Max size for find_or_read_snapshot_pages_batch() etc.
+     * This must be same or less than CacheHashtable::kMaxFindBatchSize.
+     */
+    kMaxFindPagesBatch = 32,
+  };
   Thread() CXX11_FUNC_DELETE;
   Thread(Engine* engine, ThreadId id, ThreadGlobalOrdinal global_ordinal);
   ~Thread();
@@ -105,6 +112,19 @@ class Thread CXX11_FINAL : public virtual Initializable {
   ErrorCode     find_or_read_a_snapshot_page(
     storage::SnapshotPagePointer page_id,
     storage::Page** out);
+  /**
+   * @brief Batched version of find_or_read_a_snapshot_page().
+   * @param[in] batch_size Batch size. Must be kMaxFindPagesBatch or less.
+   * @param[in] page_ids Array of Page IDs to look for, size=batch_size
+   * @param[out] out Output
+   * @details
+   * This might perform much faster because of parallel prefetching, SIMD-ized hash
+   * calculattion (planned, not implemented yet) etc.
+   */
+  ErrorCode     find_or_read_snapshot_pages_batch(
+    uint16_t batch_size,
+    const storage::SnapshotPagePointer* page_ids,
+    storage::Page** out);
 
   /**
    * Read a snapshot page using the thread-local file descriptor set.
@@ -142,10 +162,6 @@ class Thread CXX11_FINAL : public virtual Initializable {
    * to ptr set when we do not follow a volatile pointer (null or volatile). This is usually true
    * to make sure we get aware of new page installment by concurrent threads.
    * If the isolation level is not serializable, we don't take ptr set anyways.
-   * @param[in] take_ptr_set_volatile if true, we add the address of volatile page pointer
-   * to ptr set even when we follow a volatile pointer. This is true only when the storage
-   * might have RCU-style page switching (so far only Masstree's first-layer root).
-   * If the isolation level is not serializable, we don't take ptr set anyways.
    * @param[in,out] pointer the page pointer.
    * @param[out] page the read page.
    * @param[in] parent the parent page that contains a pointer to the page.
@@ -168,11 +184,63 @@ class Thread CXX11_FINAL : public virtual Initializable {
     bool tolerate_null_pointer,
     bool will_modify,
     bool take_ptr_set_snapshot,
-    bool take_ptr_set_volatile,
     storage::DualPagePointer* pointer,
     storage::Page** page,
     const storage::Page* parent,
     uint16_t index_in_parent);
+
+  /**
+   * @brief Batched version of follow_page_pointer with will_modify==false.
+   * @param[in] batch_size Batch size. Must be kMaxFindPagesBatch or less.
+   * @param[in] page_initializer callback function in case we need to initialize a new volatile
+   * page. null if it never happens (eg tolerate_null_pointer is false).
+   * @param[in] tolerate_null_pointer when true and when both the volatile and snapshot pointers
+   * seem null, we return null page rather than creating a new volatile page.
+   * @param[in] take_ptr_set_snapshot if true, we add the address of volatile page pointer
+   * to ptr set when we do not follow a volatile pointer (null or volatile). This is usually true
+   * to make sure we get aware of new page installment by concurrent threads.
+   * If the isolation level is not serializable, we don't take ptr set anyways.
+   * @param[in,out] pointers the page pointers.
+   * @param[in] parents the parent page that contains a pointer to the page.
+   * @param[in] index_in_parents Some index (meaning depends on page type) of pointer in
+   * parent page to the page.
+   * @param[in,out] followed_snapshots As input, must be same as parents[i]==followed_snapshots[i].
+   * As output, same as out[i]->header().snapshot_. We receive/emit this to avoid accessing
+   * page header.
+   * @param[out] out the read page.
+   * @note this method is guaranteed to work even if parents==out
+   */
+  ErrorCode follow_page_pointers_for_read_batch(
+    uint16_t batch_size,
+    storage::VolatilePageInit page_initializer,
+    bool tolerate_null_pointer,
+    bool take_ptr_set_snapshot,
+    storage::DualPagePointer** pointers,
+    storage::Page** parents,
+    const uint16_t* index_in_parents,
+    bool* followed_snapshots,
+    storage::Page** out);
+
+  /**
+   * @brief Batched version of follow_page_pointer with will_modify==true and
+   * tolerate_null_pointer==true.
+   * @param[in] batch_size Batch size. Must be kMaxFindPagesBatch or less.
+   * @param[in] page_initializer callback function in case we need to initialize a new volatile
+   * page. null if it never happens (eg tolerate_null_pointer is false).
+   * @param[in,out] pointers the page pointers.
+   * @param[in] parents the parent page that contains a pointer to the page.
+   * @param[in] index_in_parents Some index (meaning depends on page type) of pointer in
+   * parent page to the page.
+   * @param[out] out the read page.
+   * @note this method is guaranteed to work even if parents==out
+   */
+  ErrorCode follow_page_pointers_for_write_batch(
+    uint16_t batch_size,
+    storage::VolatilePageInit page_initializer,
+    storage::DualPagePointer** pointers,
+    storage::Page** parents,
+    const uint16_t* index_in_parents,
+    storage::Page** out);
 
   /**
    * @brief Keeps the specified volatile page as retired as of the current epoch.

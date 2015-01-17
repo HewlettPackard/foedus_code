@@ -152,6 +152,11 @@ class ThreadPimpl final : public DefaultInitializable {
   ErrorCode   find_or_read_a_snapshot_page(
     storage::SnapshotPagePointer page_id,
     storage::Page** out);
+  /** @copydoc foedus::thread::Thread::find_or_read_snapshot_pages_batch() */
+  ErrorCode   find_or_read_snapshot_pages_batch(
+    uint16_t batch_size,
+    const storage::SnapshotPagePointer* page_ids,
+    storage::Page** out);
 
   /** @copydoc foedus::thread::Thread::read_a_snapshot_page() */
   ErrorCode   read_a_snapshot_page(
@@ -169,11 +174,29 @@ class ThreadPimpl final : public DefaultInitializable {
     bool tolerate_null_pointer,
     bool will_modify,
     bool take_ptr_set_snapshot,
-    bool take_ptr_set_volatile,
     storage::DualPagePointer* pointer,
     storage::Page** page,
     const storage::Page* parent,
     uint16_t index_in_parent);
+  /** @copydoc foedus::thread::Thread::follow_page_pointers_for_read_batch() */
+  ErrorCode follow_page_pointers_for_read_batch(
+    uint16_t batch_size,
+    storage::VolatilePageInit page_initializer,
+    bool tolerate_null_pointer,
+    bool take_ptr_set_snapshot,
+    storage::DualPagePointer** pointers,
+    storage::Page** parents,
+    const uint16_t* index_in_parents,
+    bool* followed_snapshots,
+    storage::Page** out);
+  /** @copydoc foedus::thread::Thread::follow_page_pointers_for_write_batch() */
+  ErrorCode follow_page_pointers_for_write_batch(
+    uint16_t batch_size,
+    storage::VolatilePageInit page_initializer,
+    storage::DualPagePointer** pointers,
+    storage::Page** parents,
+    const uint16_t* index_in_parents,
+    storage::Page** out);
   ErrorCode on_snapshot_cache_miss(
     storage::SnapshotPagePointer page_id,
     memory::PagePoolOffset* pool_offset);

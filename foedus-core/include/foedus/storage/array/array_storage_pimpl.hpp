@@ -267,6 +267,19 @@ class ArrayStoragePimpl final {
     ArrayPage** out,
     const ArrayPage* parent,
     uint16_t index_in_parent) ALWAYS_INLINE;
+  ErrorCode follow_pointers_for_read_batch(
+    thread::Thread* context,
+    uint16_t batch_size,
+    bool* in_snapshot,
+    ArrayPage** parents,
+    const uint16_t* index_in_parents,
+    ArrayPage** out);
+  ErrorCode follow_pointers_for_write_batch(
+    thread::Thread* context,
+    uint16_t batch_size,
+    ArrayPage** parents,
+    const uint16_t* index_in_parents,
+    ArrayPage** out);
 
   Engine* const                   engine_;
   ArrayStorageControlBlock* const control_block_;
@@ -287,7 +300,6 @@ inline ErrorCode ArrayStoragePimpl::follow_pointer(
     false,  // if both volatile/snapshot null, create a new volatile (logically all-zero)
     for_write,
     !in_snapshot,  // if we are already in snapshot world, no need to take more pointer set
-    false,
     pointer,
     reinterpret_cast<Page**>(out),
     reinterpret_cast<const Page*>(parent),
@@ -315,7 +327,6 @@ inline ErrorCode ArrayStoragePimpl::get_root_page(
     false,
     for_write,
     true,
-    false,
     &control_block_->root_page_pointer_,
     reinterpret_cast<Page**>(out),
     nullptr,

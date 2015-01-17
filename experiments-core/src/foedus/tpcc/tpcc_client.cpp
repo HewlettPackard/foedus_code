@@ -59,6 +59,19 @@ ErrorStack TpccClientTask::run(thread::Thread* context) {
   storages_.initialize_tables(engine_);
   channel_ = reinterpret_cast<TpccClientChannel*>(
     engine_->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
+  tmp_sids_memory_.alloc(
+    kMaxOlCount * 21U * sizeof(storage::array::ArrayOffset),
+    1U << 21,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    context->get_numa_node());
+  tmp_sids_ = reinterpret_cast<storage::array::ArrayOffset*>(tmp_sids_memory_.get_block());
+  tmp_quantities_memory_.alloc(
+    kMaxOlCount * 21U * sizeof(uint32_t),
+    1U << 21,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    context->get_numa_node());
+  tmp_quantities_ = reinterpret_cast<uint32_t*>(tmp_quantities_memory_.get_block());
+
   ErrorStack result = run_impl(context);
   if (result.is_error()) {
     LOG(ERROR) << "TPCC Client-" << worker_id_ << " exit with an error:" << result;

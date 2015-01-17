@@ -494,7 +494,6 @@ ErrorCode MasstreeStoragePimpl::follow_page(
     false,  // so, there is no null page possible
     for_writes,  // always get volatile pages for writes
     true,
-    false,  // root pointer might change, but we have is_root check. so no need for pointer set
     pointer,
     reinterpret_cast<Page**>(page),
     nullptr,  // only used for new page creation, so nothing to pass

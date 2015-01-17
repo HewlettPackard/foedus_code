@@ -804,7 +804,6 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, bool for_write, 
       !for_write,  // tolerate null page for read. if that happens, we get nullptr on the bin page
       for_write,  // always get volatile pages for writes
       true,
-      false,
       &(boundary->pointer(pointer_index)),
       reinterpret_cast<Page**>(&(combo->bin_pages_[i])),
       reinterpret_cast<const Page*>(boundary),
@@ -842,7 +841,6 @@ ErrorCode HashStoragePimpl::lookup_bin(thread::Thread* context, bool for_write, 
           !for_write,  // tolerate null page for read
           for_write,  // always get volatile pages for writes
           !snapshot && !for_write,  // if bin page is snapshot, data page is stable
-          false,
           &(bin.data_pointer_),
           reinterpret_cast<Page**>(&(combo->data_pages_[i])),
           reinterpret_cast<const Page*>(bin_page),

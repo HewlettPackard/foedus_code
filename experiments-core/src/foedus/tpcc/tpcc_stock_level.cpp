@@ -42,8 +42,7 @@ ErrorCode TpccClientTask::do_stock_level(Wid wid) {
   CHECK_ERROR_CODE(cursor.open_normalized(low, high));
   uint16_t s_offset = offsetof(StockData, quantity_);
 
-  const uint16_t kMaxItems = kMaxOlCount * 21;
-  storage::array::ArrayOffset sids[kMaxItems];
+  storage::array::ArrayOffset* sids = tmp_sids_;
   uint16_t read = 0;
   while (cursor.is_valid_record()) {
     ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) >= low);
@@ -59,7 +58,16 @@ ErrorCode TpccClientTask::do_stock_level(Wid wid) {
     CHECK_ERROR_CODE(cursor.next());
   }
 
-  uint32_t quantities[kMaxItems];
+  // hmm, this makes it slower. std::__introsort_loop() is really significant in cpu profile.
+  // However, CacheHashTable::find_batch() etc does get faster instead. It's just not enough
+  // to justify the sorting cost.
+  //// sort sids before the search. this is called sorted-index-scan and used in many DBMS.
+  //// it makes sense only when we have many sids.
+  //if (read > 50U) {
+  //  std::sort(sids, sids + read);
+  //}
+
+  uint32_t* quantities = tmp_quantities_;
   CHECK_ERROR_CODE(storages_.stocks_.get_record_primitive_batch<uint32_t>(
     context_,
     s_offset,

@@ -113,6 +113,8 @@ class TpccClientTask {
     outputs_->race_aborts_ = 0;
     outputs_->unexpected_aborts_ = 0;
     outputs_->largereadset_aborts_ = 0;
+    tmp_sids_ = nullptr;
+    tmp_quantities_ = nullptr;
 //    std::memset(stat_wids_, 0, sizeof(stat_wids_));
 //    std::memset(stat_dids_, 0, sizeof(stat_dids_));
   }
@@ -197,6 +199,12 @@ class TpccClientTask {
   assorted::FixedString<28> timestring_;
 
   Cid     tmp_cids_[kMaxCidsPerLname];
+
+  /** used in stock_level*/
+  storage::array::ArrayOffset* tmp_sids_;
+  uint32_t* tmp_quantities_;
+  memory::AlignedMemory tmp_sids_memory_;
+  memory::AlignedMemory tmp_quantities_memory_;
 
   // For neworder. these are for showing results on stdout (part of the spec, kind of)
   char        output_bg_[kMaxOlCount];

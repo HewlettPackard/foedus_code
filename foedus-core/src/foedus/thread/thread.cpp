@@ -75,6 +75,12 @@ ErrorCode Thread::find_or_read_a_snapshot_page(
   storage::Page** out) {
   return pimpl_->find_or_read_a_snapshot_page(page_id, out);
 }
+ErrorCode Thread::find_or_read_snapshot_pages_batch(
+  uint16_t batch_size,
+  const storage::SnapshotPagePointer* page_ids,
+  storage::Page** out) {
+  return pimpl_->find_or_read_snapshot_pages_batch(batch_size, page_ids, out);
+}
 
 ErrorCode Thread::install_a_volatile_page(
   storage::DualPagePointer* pointer,
