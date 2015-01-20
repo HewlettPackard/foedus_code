@@ -148,3 +148,198 @@ apply.
 disable remote transactions to use anti cache. In the paper we do this. So, only the H-store
 line is remote=0.
 
+
+-- OLAP experiment (2015 Jan)
+cd src/benchmarks/org/voltdb/benchmark/tpcc/
+Open TPCCConstants.java
+MAX_OL_CNT to 500
+Edit FREQUENCY_xxx. STOCK_LEVEL and ORDER_STATUS 50. Others 0.
+**Build clean**. For some reason, ant didn't catch the change at least once... clock skew?
+ant clean
+ant build
+
+Examples:
+
+ant hstore-prepare -Dproject=tpcc -Dhosts="localhost:0:0-7"
+
+ant hstore-benchmark -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=512 -Dsite.memory=8192 -Dglobal.memory=2048 \
+  -Dclient.txnrate=2000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-7"
+
+
+ant hstore-benchmark -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=512 -Dsite.memory=25000 -Dglobal.memory=2048 \
+  -Dclient.txnrate=2000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-7"
+
+ Mmm, errors on data loading. probably outofmem. but we can't exceed 32GB oops limit.
+ try small.
+ant hstore-prepare -Dproject=tpcc -Dhosts="localhost:0:0-1"
+ant hstore-benchmark -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=1024 -Dsite.memory=20000 -Dglobal.memory=2048 \
+  -Dclient.txnrate=2000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-1"
+
+wut. even this fails.
+ohh yeah, forgot about this issue:
+  https://github.com/apavlo/h-store/issues/180
+
+mmm, it fails even after this.
+
+[java] 11:59:02,598 WARN  - Hit with RuntimeException from Load Thread 0. Halting the loading process...
+[java] java.lang.RuntimeException: java.lang.RuntimeException: Error when trying load data for 'ORDER_LINE'
+[java] 11:59:02,598 INFO  - Waiting for all threads to clean themselves up
+[java]     at org.voltdb.benchmark.tpcc.TPCCLoader.load(TPCCLoader.java:823)11:59:02,598 INFO  - Finished loading all warehouses
+[java]
+[java]     at edu.brown.api.Loader.runLoop(Loader.java:15)
+[java] 11:59:02,601 ERROR - Unexpected error from worker-000
+[java]     at edu.brown.api.ControlWorker.run(ControlWorker.java:59)
+[java] java.lang.RuntimeException: java.lang.RuntimeException: java.lang.RuntimeException: Error when trying load data for 'ORDER_LINE'Caused by: java.lang.RuntimeException: Error when trying load data for 'ORDER_LINE'
+[java]
+[java]     at edu.brown.api.ControlWorker.run(ControlWorker.java:66)
+[java]     at edu.brown.api.BenchmarkComponent.loadVoltTable(BenchmarkComponent.java:1045)
+[java] Caused by: java.lang.RuntimeException: java.lang.RuntimeException: Error when trying load data for 'ORDER_LINE'
+[java]     at org.voltdb.benchmark.tpcc.TPCCLoader$LoadThread.commitDataTables_VoltDB(TPCCLoader.java:638) at org.voltdb.benchmark.tpcc.TPCCLoader.load(TPCCLoader.java:823)
+[java]
+[java]     at org.voltdb.benchmark.tpcc.TPCCLoader$LoadThread.commitDataTables(TPCCLoader.java:615)
+[java]     at edu.brown.api.Loader.runLoop(Loader.java:15)
+[java]     at org.voltdb.benchmark.tpcc.TPCCLoader$LoadThread.makeWarehouse(TPCCLoader.java:560)   at edu.brown.api.ControlWorker.run(ControlWorker.java:59)
+[java]
+[java]     at org.voltdb.benchmark.tpcc.TPCCLoader$LoadThread.run(TPCCLoader.java:195)Caused by: java.lang.RuntimeException: Error when trying load data for 'ORDER_LINE'
+[java]
+[java] Caused by: org.voltdb.client.ProcCallException: Connection to database host (localhost) was lost before a response was received     at edu.brown.api.BenchmarkComponent.loadVoltTable(BenchmarkComponent.java:1045)
+[java]
+[java]     at org.voltdb.client.ClientImpl.callProcedure(ClientImpl.java:249)      at org.voltdb.benchmark.tpcc.TPCCLoader$LoadThread.commitDataTables_VoltDB(TPCCLoader.java:638)
+[java]
+[java]     at org.voltdb.client.ClientImpl.callProcedure(ClientImpl.java:188)      at org.voltdb.benchmark.tpcc.TPCCLoader$LoadThread.commitDataTables(TPCCLoader.java:615)
+
+
+
+ant hstore-prepare -Dproject=tpcc -Dhosts="localhost:0:0"
+ant hstore-benchmark -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=1024 -Dsite.memory=8192 -Dglobal.memory=2048 \
+  -Dclient.txnrate=2000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0"
+
+
+Ahhh, figured it out. TPCCLoader.java buffers too many rows that cause buffer overflow.
+TPCCLoader.java  makeWarehouse(). add commitDataTables(w_id) in the district loop to flush
+it for each district. and remove the one out of the loop.
+Now it works, but even a single-partition load took 4 minutes.
+
+ant hstore-benchmark -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=1024 -Dsite.memory=1024 -Dglobal.memory=2048 \
+  -Dclient.txnrate=2000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0"
+Okay, this works fine, too. The memory usage on top is around 2.5GB in this case.
+Most memory consumption is in native side, so site.memory doesn't matter much I guess.
+x8 will be 20GB per site.
+
+
+I'm too lazy to make a script file for this experiment.
+Just take note of the command lines.
+
+ant hstore-prepare -Dproject=tpcc -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95"
+
+All experiments in smaug.
+
+
+* Edit TPCCConstants.java. Slev/Olstatus=50/50
+* Edit TPCCLoader.java  makeWarehouse(). add commitDataTables(w_id).
+* Edit ProcessSetManager.java. Timeout 60/60
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=1024 -Dsite.memory=8192 \
+  -Dglobal.memory=2048 -Dclient.txnrate=1000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m15.r0.log"
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=1024 -Dsite.memory=8192 \
+  -Dglobal.memory=2048 -Dclient.txnrate=1000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m15.r1.log"
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=1024 -Dsite.memory=8192 \
+  -Dglobal.memory=2048 -Dclient.txnrate=1000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m15.r2.log"
+
+* Edit TPCCConstants.java. MAX_OL_CNT=100
+
+* ant clean
+* ant build
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=1024 -Dsite.memory=8192 \
+  -Dglobal.memory=2048 -Dclient.txnrate=1000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m100.r0.log"
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=1024 -Dsite.memory=8192 \
+  -Dglobal.memory=2048 -Dclient.txnrate=1000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m100.r1.log"
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=1024 -Dsite.memory=8192 \
+  -Dglobal.memory=2048 -Dclient.txnrate=1000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m100.r2.log"
+
+* Edit TPCCConstants.java. MAX_OL_CNT=500
+
+* ant clean
+* ant build
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=1024 -Dsite.memory=8192 \
+  -Dglobal.memory=2048 -Dclient.txnrate=1000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m500.r0.log"
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=1024 -Dsite.memory=8192 \
+  -Dglobal.memory=2048 -Dclient.txnrate=1000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m500.r1.log"
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=1024 -Dsite.memory=8192 \
+  -Dglobal.memory=2048 -Dclient.txnrate=1000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m500.r2.log"
+
+
+- Result summary
+M=15 takes about 30 minutes to load.
+     [java] 13:49:50,724 INFO  - ---------------------------- BENCHMARK LOAD :: TPCC ----------------------------
+     [java] 13:49:50,727 INFO  - Starting TPCC Benchmark Loader - TPCCLoader / ScaleFactor 1.00
+     [java] 13:49:51,762 INFO  - Loading 96 warehouses using 96 load threads
+     [java] 14:16:46,366 INFO  - Finished WAREHOUSE 86 [1/96]
+     ...
+     [java] ======================================== BENCHMARK RESULTS ========================================
+     [java] Execution Time: 60000 ms
+     [java] Transactions:   Total:1204602 / Distributed:0 (0.0%) / SpecExec:0 (0.0%)
+     [java] Throughput:     20076.70 txn/s [min:19882.50 / max:20492.30 / stdev:229.31]
+     [java] Latency:        17.29 ms [min:5.00 / max:2874.00 / stdev:91.89]
+     [java]
+     [java] ----------------------------------------------------------------------------------------------------
+     [java]                          TOTAL EXECUTED     DISTRIBUTED        THROUGHPUT      AVG LATENCY
+     [java]               Delivery:         0 (  0.0%)         0 (  0.0%)      0.00 txn/s         - ms
+     [java]              New Order:         0 (  0.0%)         0 (  0.0%)      0.00 txn/s         - ms
+     [java]            Stock Level:    614310 ( 51.0%)         0 (  0.0%)  10238.50 txn/s     17.60 ms
+     [java]                Payment:         0 (  0.0%)         0 (  0.0%)      0.00 txn/s         - ms
+     [java]        Reset Warehouse:         0 (  0.0%)         0 (  0.0%)      0.00 txn/s         - ms
+     [java]           Order Status:    590292 ( 49.0%)         0 (  0.0%)   9838.20 txn/s     16.97 ms
+     [java] ====================================================================================================
+     [java] Client Response Statuses:
+     [java]    OK                   [1204592 - 100.0%] **************************************************
+     [java] ====================================================================================================
+     [java]
+
+wait, so M=100/500 would take... 200 minutes and 1000 minutes!?
+Actually, that's even best case. Probably something gets slower super-linearly.
+I hate you, H-store. Revision deadline two weeks to go.

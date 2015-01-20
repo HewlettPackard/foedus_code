@@ -36,9 +36,10 @@ do
     rm -rf /dev/shm/foedus_tpcc/
     rm -rf /tmp/libfoedus.*
     sleep 5 # Linux's release of shared memory has a bit of timelag.
+    export CPUPROFILE_FREQUENCY=1 # https://code.google.com/p/gperftools/issues/detail?id=133
     sudo mount -t nvmfs -o rd_delay_ns_fixed=$nvm_latency,wr_delay_ns_fixed=$nvm_latency,rd_delay_ns_per_kb=0,wr_delay_ns_per_kb=0,cpu_freq_mhz=2800,size=1000000m nvmfs /testnvm
     echo "./tpcc -warehouses=$warehouses -fork_workers=$fork_workers -nvm_folder=/testnvm -high_priority=$high_priority -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=$neworder_remote_percent -payment_remote_percent=$payment_remote_percent -volatile_pool_size=$volatile_pool_size -snapshot_pool_size=$snapshot_pool_size -reducer_buffer_size=$reducer_buffer_size -duration_micro=$duration_micro"
-    ./tpcc -warehouses=$warehouses -take_snapshot=false -fork_workers=$fork_workers -nvm_folder=/testnvm -high_priority=$high_priority -null_log_device=false -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=$neworder_remote_percent -payment_remote_percent=$payment_remote_percent -volatile_pool_size=$volatile_pool_size -snapshot_pool_size=$snapshot_pool_size -reducer_buffer_size=$reducer_buffer_size -duration_micro=$duration_micro &> "result_tpcc_withlog_$machine_shortname.n$remote_percent.r$rep.log"
+    env CPUPROFILE_FREQUENCY=1 ./tpcc -warehouses=$warehouses -take_snapshot=false -fork_workers=$fork_workers -nvm_folder=/testnvm -high_priority=$high_priority -null_log_device=false -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=$neworder_remote_percent -payment_remote_percent=$payment_remote_percent -volatile_pool_size=$volatile_pool_size -snapshot_pool_size=$snapshot_pool_size -reducer_buffer_size=$reducer_buffer_size -duration_micro=$duration_micro &> "result_tpcc_withlog_$machine_shortname.n$remote_percent.r$rep.log"
     sudo umount /testnvm
   done
 done

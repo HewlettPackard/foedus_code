@@ -33,6 +33,11 @@ configure_file(run_withlog_dl580.sh run_withlog_dl580.sh COPYONLY)
 configure_file(run_withlog_dragonhawk.sh run_withlog_dragonhawk.sh COPYONLY)
 configure_file(run_withlog.sh run_withlog.sh COPYONLY)
 
+# For OLAP experiments
+configure_file(run_olap_z820.sh run_olap_z820.sh COPYONLY)
+configure_file(run_olap_dragonhawk.sh run_olap_dragonhawk.sh COPYONLY)
+configure_file(run_olap.sh run_olap.sh COPYONLY)
+
 # For NVM experiments
 configure_file(run_nvm_z820.sh run_nvm_z820.sh COPYONLY)
 configure_file(run_nvm_dl580.sh run_nvm_dl580.sh COPYONLY)
