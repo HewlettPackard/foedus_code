@@ -913,28 +913,27 @@ ErrorCode ArrayComposeContext::install_snapshot_pointers_recurse(
 ///  drop_volatiles and related methods
 ///
 /////////////////////////////////////////////////////////////////////////////
-bool ArrayComposer::drop_volatiles(const Composer::DropVolatilesArguments& args) {
+Composer::DropResult ArrayComposer::drop_volatiles(const Composer::DropVolatilesArguments& args) {
+  Composer::DropResult result(args);
   if (storage_.get_array_metadata()->keeps_all_volatile_pages()) {
     LOG(INFO) << "Keep-all-volatile: Storage-" << storage_.get_name()
       << " is configured to keep all volatile pages.";
-    return false;
+    result.dropped_all_ = false;
+    return result;
   }
 
   DualPagePointer* root_pointer = &storage_.get_control_block()->root_page_pointer_;
   ArrayPage* volatile_page = resolve_volatile(root_pointer->volatile_pointer_);
   if (volatile_page == nullptr) {
     LOG(INFO) << "No volatile root page. Probably while restart";
-    return true;  // this case doesn't matter. true/false are same things
+    return result;
   }
 
-  // single-page array is solely owned by partition-0. others do nothing.
+  // single-page array has only the root page. nothing to do here.
+  // we might drop the root page later, just like non-single-page cases.
   if (volatile_page->is_leaf()) {
-    if (args.my_partition_ == 0) {
-      return drop_volatiles_leaf(args, root_pointer, volatile_page);
-    } else {
-      LOG(INFO) << "Single-page array skipped by non-zero thread.";
-      return true;
-    }
+    LOG(INFO) << "Single-page array skipped by .";
+    return result;
   }
 
   // We iterate through all existing volatile pages to drop volatile pages of
@@ -942,22 +941,72 @@ bool ArrayComposer::drop_volatiles(const Composer::DropVolatilesArguments& args)
   // this "level-3 or deeper" is a configuration per storage.
   // Even if the volatile page is deeper than that, we keep them if it contains newer modification,
   // including descendants (so, probably we will keep higher levels anyways).
-  bool kept_any = false;
   for (uint16_t i = 0; i < kInteriorFanout; ++i) {
-    DualPagePointer &child_pointer = volatile_page->get_interior_record(i);
+    DualPagePointer& child_pointer = volatile_page->get_interior_record(i);
     if (!child_pointer.volatile_pointer_.is_null()) {
       ASSERT_ND(child_pointer.snapshot_pointer_ != 0);
       uint16_t partition = extract_numa_node_from_snapshot_pointer(child_pointer.snapshot_pointer_);
       if (!args.partitioned_drop_ || partition == args.my_partition_) {
-        bool dropped_all = drop_volatiles_recurse(args, &child_pointer);
-        if (!dropped_all) {
-          kept_any = true;
-        }
+        result.combine(drop_volatiles_recurse(args, &child_pointer));
       }
     }
   }
   // root page is kept at this point in this case. we need to check with other threads
-  return !kept_any;
+  return result;
+}
+
+void ArrayComposer::drop_root_volatile(const Composer::DropVolatilesArguments& args) {
+  if (storage_.get_array_metadata()->keeps_all_volatile_pages()) {
+    LOG(INFO) << "Oh, but keep-all-volatile is on. Storage-" << storage_.get_name()
+      << " is configured to keep all volatile pages.";
+    return;
+  }
+  if (is_to_keep_volatile(storage_.get_levels() - 1U)) {
+    LOG(INFO) << "Oh, but Storage-" << storage_.get_name() << " is configured to keep"
+      << " the root page.";
+    return;
+  }
+  DualPagePointer* root_pointer = &storage_.get_control_block()->root_page_pointer_;
+  ArrayPage* volatile_page = resolve_volatile(root_pointer->volatile_pointer_);
+  if (volatile_page == nullptr) {
+    LOG(INFO) << "Oh, but root volatile page already null";
+    return;
+  }
+
+  if (volatile_page->is_leaf()) {
+    // if this is a single-level array. we now have to check epochs of records in the root page.
+    uint16_t records = storage_.get_array_size();
+    for (uint16_t i = 0; i < records; ++i) {
+      Record* record = volatile_page->get_leaf_record(i, storage_.get_payload_size());
+      Epoch epoch = record->owner_id_.xct_id_.get_epoch();
+      ASSERT_ND(epoch.is_valid());
+      if (epoch > args.snapshot_.valid_until_epoch_) {
+        LOG(INFO) << "Oh, but the root volatile page in single-level array contains a new rec";
+        return;
+      }
+    }
+  } else {
+    // otherwise, all verifications already done. go drop everything!
+  }
+  LOG(INFO) << "Okay, drop em all!!";
+  drop_all_recurse(args, root_pointer);
+}
+
+void ArrayComposer::drop_all_recurse(
+  const Composer::DropVolatilesArguments& args,
+  DualPagePointer* pointer) {
+  if (pointer->volatile_pointer_.is_null()) {
+    return;
+  }
+  ArrayPage* page = resolve_volatile(pointer->volatile_pointer_);
+  if (!page->is_leaf()) {
+    for (uint16_t i = 0; i < kInteriorFanout; ++i) {
+      DualPagePointer& child_pointer = page->get_interior_record(i);
+      drop_all_recurse(args, &child_pointer);
+    }
+  }
+  args.drop(engine_, pointer->volatile_pointer_);
+  pointer->volatile_pointer_.clear();
 }
 
 inline ArrayPage* ArrayComposer::resolve_volatile(VolatilePagePointer pointer) {
@@ -969,11 +1018,11 @@ inline ArrayPage* ArrayComposer::resolve_volatile(VolatilePagePointer pointer) {
   return reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(pointer));
 }
 
-inline bool ArrayComposer::drop_volatiles_recurse(
+inline Composer::DropResult ArrayComposer::drop_volatiles_recurse(
   const Composer::DropVolatilesArguments& args,
   DualPagePointer* pointer) {
   if (pointer->volatile_pointer_.is_null()) {
-    return true;
+    return Composer::DropResult(args);
   }
   ASSERT_ND(pointer->snapshot_pointer_ == 0
     || extract_snapshot_id_from_snapshot_pointer(pointer->snapshot_pointer_)
@@ -988,64 +1037,67 @@ inline bool ArrayComposer::drop_volatiles_recurse(
   }
 }
 
-bool ArrayComposer::drop_volatiles_intermediate(
+Composer::DropResult ArrayComposer::drop_volatiles_intermediate(
   const Composer::DropVolatilesArguments& args,
   DualPagePointer* pointer,
   ArrayPage* volatile_page) {
   ASSERT_ND(!volatile_page->header().snapshot_);
   ASSERT_ND(!volatile_page->is_leaf());
+  Composer::DropResult result(args);
 
   // Explore/replace children first because we need to know if there is new modification.
   // In that case, we must keep this volatile page, too.
   // Intermediate volatile page is kept iff there are no child volatile pages.
-  bool kept_any = false;
   for (uint16_t i = 0; i < kInteriorFanout; ++i) {
     DualPagePointer& child_pointer = volatile_page->get_interior_record(i);
-    bool dropped_all = drop_volatiles_recurse(args, &child_pointer);
-    if (!dropped_all) {
-      kept_any = true;
-    }
+    result.combine(drop_volatiles_recurse(args, &child_pointer));
   }
 
-  if (!kept_any) {
+  if (result.dropped_all_) {
     if (is_to_keep_volatile(volatile_page->get_level())) {
       DVLOG(2) << "Exempted";
+      result.dropped_all_ = false;
     } else {
       args.drop(engine_, pointer->volatile_pointer_);
       pointer->volatile_pointer_.clear();
     }
   } else {
-    DVLOG(1) << "Couldn't drop an intermediate volatile page that has a recent modification";
+    DVLOG(1) << "Couldn't drop an intermediate page that has a recent modification in child";
   }
-  ASSERT_ND((pointer->volatile_pointer_.is_null() && !kept_any)
-    || (!pointer->volatile_pointer_.is_null() && kept_any));
-  return !kept_any;
+  ASSERT_ND(!result.dropped_all_ || pointer->volatile_pointer_.is_null());
+  return result;
 }
 
-inline bool ArrayComposer::drop_volatiles_leaf(
+inline Composer::DropResult ArrayComposer::drop_volatiles_leaf(
   const Composer::DropVolatilesArguments& args,
   DualPagePointer* pointer,
   ArrayPage* volatile_page) {
   ASSERT_ND(!volatile_page->header().snapshot_);
   ASSERT_ND(volatile_page->is_leaf());
+  Composer::DropResult result(args);
   if (is_to_keep_volatile(volatile_page->get_level())) {
     DVLOG(2) << "Exempted";
-    return false;
+    result.dropped_all_ = false;
+    return result;
   }
 
   const uint16_t payload_size = storage_.get_payload_size();
-  for (uint16_t i = 0; i < volatile_page->get_leaf_record_count(); ++i) {
+  const ArrayRange& range = volatile_page->get_array_range();
+  ASSERT_ND(range.end_ <= range.begin_ + volatile_page->get_leaf_record_count());
+  ASSERT_ND(range.end_ == range.begin_ + volatile_page->get_leaf_record_count()
+    || range.end_ == storage_.get_array_size());
+  uint16_t records = range.end_ - range.begin_;
+  for (uint16_t i = 0; i < records; ++i) {
     Record* record = volatile_page->get_leaf_record(i, payload_size);
     Epoch epoch = record->owner_id_.xct_id_.get_epoch();
-    if (epoch.is_valid() && epoch > args.snapshot_.valid_until_epoch_) {
-      // new record exists! so we must keep this volatile page
-      DVLOG(1) << "Couldn't drop a leaf volatile page that has a recent modification";
-      return false;
-    }
+    ASSERT_ND(epoch.is_valid());
+    result.on_rec_observed(epoch);
   }
-  args.drop(engine_, pointer->volatile_pointer_);
-  pointer->volatile_pointer_.clear();
-  return true;
+  if (result.dropped_all_) {
+    args.drop(engine_, pointer->volatile_pointer_);
+    pointer->volatile_pointer_.clear();
+  }
+  return result;
 }
 inline bool ArrayComposer::is_to_keep_volatile(uint16_t level) {
   uint16_t threshold = storage_.get_array_metadata()->snapshot_drop_volatile_pages_threshold_;

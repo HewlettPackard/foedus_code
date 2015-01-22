@@ -19,8 +19,8 @@ bool        XctManager::is_initialized() const { return pimpl_->is_initialized()
 ErrorStack  XctManager::uninitialize() { return pimpl_->uninitialize(); }
 void        XctManager::pause_accepting_xct() { pimpl_->pause_accepting_xct(); }
 void        XctManager::resume_accepting_xct() { pimpl_->resume_accepting_xct(); }
-void        XctManager::wait_for_current_global_epoch(Epoch target_epoch) {
-  pimpl_->wait_for_current_global_epoch(target_epoch);
+void XctManager::wait_for_current_global_epoch(Epoch target_epoch, int64_t wait_microseconds) {
+  pimpl_->wait_for_current_global_epoch(target_epoch, wait_microseconds);
 }
 
 

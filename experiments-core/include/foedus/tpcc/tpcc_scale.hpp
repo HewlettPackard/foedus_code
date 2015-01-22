@@ -44,7 +44,7 @@ const uint16_t kMaxOlCount = 15U;
 // tested with at least 1500U. But, h-store doesn't handle that many due to OOPS 32GB limit,
 // so we might use smaller setting for comparison.
 const uint32_t kMaxOrders = 1U << 20;
-const uint16_t kMaxOlCount = 15U;
+const uint16_t kMaxOlCount = 500U;
 #endif  // OLAP_MODE
 
 /** Number of variations of last names. Does not grow dynamically. */

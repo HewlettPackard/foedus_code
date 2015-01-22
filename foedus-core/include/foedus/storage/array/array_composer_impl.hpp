@@ -43,7 +43,8 @@ class ArrayComposer final {
 
   ErrorStack compose(const Composer::ComposeArguments& args);
   ErrorStack construct_root(const Composer::ConstructRootArguments& args);
-  bool drop_volatiles(const Composer::DropVolatilesArguments& args);
+  Composer::DropResult  drop_volatiles(const Composer::DropVolatilesArguments& args);
+  void                  drop_root_volatile(const Composer::DropVolatilesArguments& args);
 
  private:
   Engine* const             engine_;
@@ -51,19 +52,23 @@ class ArrayComposer final {
   const ArrayStorage        storage_;
 
   ArrayPage*  resolve_volatile(VolatilePagePointer pointer);
-  bool drop_volatiles_recurse(
+  Composer::DropResult drop_volatiles_recurse(
     const Composer::DropVolatilesArguments& args,
     DualPagePointer* pointer);
   /** also returns if we kept the volatile leaf page */
-  bool drop_volatiles_intermediate(
+  Composer::DropResult drop_volatiles_intermediate(
     const Composer::DropVolatilesArguments& args,
     DualPagePointer* pointer,
     ArrayPage* volatile_page);
-  bool drop_volatiles_leaf(
+  Composer::DropResult drop_volatiles_leaf(
     const Composer::DropVolatilesArguments& args,
     DualPagePointer* pointer,
     ArrayPage* volatile_page);
   bool is_to_keep_volatile(uint16_t level);
+  /** Used only from drop_root_volatile. Drop every volatile page. */
+  void drop_all_recurse(
+    const Composer::DropVolatilesArguments& args,
+    DualPagePointer* pointer);
 };
 
 /**

@@ -297,6 +297,7 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
   void        drop_volatile_pages_parallel(
     const Snapshot& new_snapshot,
     const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers,
+    void* result_memory,
     uint16_t parallel_id);
 
   /**

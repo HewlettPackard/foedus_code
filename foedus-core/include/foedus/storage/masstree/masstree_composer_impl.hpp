@@ -60,7 +60,8 @@ class MasstreeComposer final {
 
   ErrorStack compose(const Composer::ComposeArguments& args);
   ErrorStack construct_root(const Composer::ConstructRootArguments& args);
-  bool drop_volatiles(const Composer::DropVolatilesArguments& args);
+  Composer::DropResult  drop_volatiles(const Composer::DropVolatilesArguments& args);
+  void                  drop_root_volatile(const Composer::DropVolatilesArguments& args);
 
  private:
   Engine* const             engine_;
@@ -71,20 +72,14 @@ class MasstreeComposer final {
   ErrorStack check_buddies(const Composer::ConstructRootArguments& args) const;
 
   MasstreePage* resolve_volatile(VolatilePagePointer pointer);
-  /** @return the largest Epoch it observed. The page is dropped iff the return value
-   * is ==args.snapshot_.valid_until_epoch_. If some record under this contains larger (newer)
-   * epoch, it returns that epoch.
-   * For ease of store_max, the returned epoch
-   * is adjusted to args.snapshot_.valid_until_epoch_ if it's smaller than that. */
-  Epoch drop_volatiles_recurse(
+
+  Composer::DropResult drop_volatiles_recurse(
     const Composer::DropVolatilesArguments& args,
     DualPagePointer* pointer);
-  /** @see drop_volatiles_recurse() */
-  Epoch drop_volatiles_intermediate(
+  Composer::DropResult drop_volatiles_intermediate(
     const Composer::DropVolatilesArguments& args,
     MasstreeIntermediatePage* page);
-  /** @see drop_volatiles_recurse() */
-  Epoch drop_volatiles_border(
+  Composer::DropResult drop_volatiles_border(
     const Composer::DropVolatilesArguments& args,
     MasstreeBorderPage* page);
   bool is_updated_pointer(
@@ -94,6 +89,14 @@ class MasstreeComposer final {
 
   /** used only when "page" is guaranteed to be dropped. */
   void drop_foster_twins(const Composer::DropVolatilesArguments& args, MasstreePage* page);
+  /** Used only from drop_root_volatile. Drop every volatile page. */
+  void drop_all_recurse(
+    const Composer::DropVolatilesArguments& args,
+    DualPagePointer* pointer);
+  /** separated out the core logic for foster-twins which aren't dual pointers. */
+  void drop_all_recurse_page_only(
+    const Composer::DropVolatilesArguments& args,
+    MasstreePage* page);
 };
 
 

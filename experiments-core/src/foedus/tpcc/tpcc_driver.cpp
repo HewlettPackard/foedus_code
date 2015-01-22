@@ -52,7 +52,7 @@ DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.")
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
 DEFINE_int32(volatile_pool_size, 6, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_int32(snapshot_pool_size, 4096, "Size of snapshot memory pool per NUMA node in MB.");
-DEFINE_int32(reducer_buffer_size, 4, "Size of reducer's buffer per NUMA node in GB.");
+DEFINE_int32(reducer_buffer_size, 8, "Size of reducer's buffer per NUMA node in GB.");
 DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 0, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
@@ -62,8 +62,8 @@ DEFINE_int32(payment_remote_percent, 0, "Percent of each payment that is inserte
   " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
-DEFINE_int32(thread_per_node, 1, "Number of threads per NUMA node. 0 uses logical count");
-DEFINE_int32(numa_nodes, 1, "Number of NUMA nodes. 0 uses physical count");
+DEFINE_int32(thread_per_node, 2, "Number of threads per NUMA node. 0 uses logical count");
+DEFINE_int32(numa_nodes, 2, "Number of NUMA nodes. 0 uses physical count");
 DEFINE_bool(use_numa_alloc, true, "Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode()"
   " to allocate memories. If false, we use usual posix_memalign() instead");
 DEFINE_bool(interleave_numa_alloc, false, "Whether to use ::numa_alloc_interleaved()"
@@ -73,7 +73,7 @@ DEFINE_bool(mmap_hugepages, false, "Whether to use mmap for 1GB hugepages."
 DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
-DEFINE_int32(warehouses, 1, "Number of warehouses.");
+DEFINE_int32(warehouses, 4, "Number of warehouses.");
 DEFINE_int64(duration_micro, 1000000, "Duration of benchmark in microseconds.");
 
 #ifdef OLAP_MODE
@@ -540,10 +540,9 @@ int driver_main(int argc, char **argv) {
 
   options.log_.log_buffer_kb_ = FLAGS_log_buffer_mb << 10;
   std::cout << "log_buffer_mb=" << FLAGS_log_buffer_mb << "MB per thread" << std::endl;
-  options.log_.log_file_size_mb_ = 1 << 10;
+  options.log_.log_file_size_mb_ = 1 << 15;
   std::cout << "volatile_pool_size=" << FLAGS_volatile_pool_size << "GB per NUMA node" << std::endl;
   options.memory_.page_pool_size_mb_per_node_ = (FLAGS_volatile_pool_size) << 10;
-  options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 10;
 
 #ifdef OLAP_MODE
   // then we need larger read/write set buffer for each transaction
@@ -564,7 +563,6 @@ int driver_main(int argc, char **argv) {
   if (FLAGS_single_thread_test) {
     FLAGS_warehouses = 1;
     options.log_.log_buffer_kb_ = 1 << 16;
-    options.log_.log_file_size_mb_ = 1 << 10;
     options.log_.loggers_per_node_ = 1;
     options.memory_.page_pool_size_mb_per_node_ = 1 << 12;
     options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 12;

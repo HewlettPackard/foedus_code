@@ -29,6 +29,14 @@ std::ostream& operator<<(std::ostream& o, const Composer& v) {
     << "</Composer>";
   return o;
 }
+std::ostream& operator<<(std::ostream& o, const Composer::DropResult& v) {
+  o << "<DropResult>"
+    << "<max_observed_>" << v.max_observed_ << "</max_observed_>"
+    << "<dropped_all_>" << v.dropped_all_ << "</dropped_all_>"
+    << "</DropResult>";
+  return o;
+}
+
 
 Composer::Composer(Engine *engine, StorageId storage_id)
   : engine_(engine),
@@ -60,7 +68,7 @@ ErrorStack Composer::construct_root(const ConstructRootArguments& args) {
   }
 }
 
-bool Composer::drop_volatiles(const DropVolatilesArguments& args) {
+Composer::DropResult Composer::drop_volatiles(const DropVolatilesArguments& args) {
   switch (storage_type_) {
     case kArrayStorage:  return array::ArrayComposer(this).drop_volatiles(args);
     case kSequentialStorage: return sequential::SequentialComposer(this).drop_volatiles(args);
@@ -68,9 +76,29 @@ bool Composer::drop_volatiles(const DropVolatilesArguments& args) {
     // TODO(Hideaki) implement
     case kHashStorage:
     default:
-      return true;
+      return DropResult(args);
   }
 }
+
+void Composer::drop_root_volatile(const Composer::DropVolatilesArguments& args) {
+  switch (storage_type_) {
+    case kArrayStorage:
+      array::ArrayComposer(this).drop_root_volatile(args);
+      return;
+    case kSequentialStorage:
+      // Sequential storage already dropped it. Nothing to do.
+      return;
+    case kMasstreeStorage:
+      masstree::MasstreeComposer(this).drop_root_volatile(args);
+      return;
+    // TODO(Hideaki) implement
+    case kHashStorage:
+      return;
+    default:
+      return;
+  }
+}
+
 
 void Composer::DropVolatilesArguments::drop(
   Engine* engine,

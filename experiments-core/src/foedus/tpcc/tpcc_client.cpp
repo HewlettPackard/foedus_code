@@ -150,6 +150,15 @@ ErrorStack TpccClientTask::run_impl(thread::Thread* context) {
         // this usually doesn't happen, but possible.
         increment_largereadset_aborts();
         continue;
+#ifdef OLAP_MODE
+      } else if (ret == kErrorCodeFsTooShortRead) {
+        // this is an unexpected bug, but only happens in OLAP experiment once in a while.
+        // wtf. TODO(Hideaki) figure this out.
+        // This seems to happen only when log file moves on to next file.
+        LOG(ERROR) << "The kErrorCodeFsTooShortRead error happened while OLAP experiment";
+        rnd_seed = rnd_.next_uint64();  // re-roll, and go on. This is rare.
+        continue;
+#endif  // OLAP_MODE
       } else {
         increment_unexpected_aborts();
         LOG(WARNING) << "Unexpected error: " << get_error_name(ret);
@@ -230,6 +239,13 @@ ErrorCode TpccClientTask::lookup_customer_by_name(Wid wid, Did did, const char* 
 
 ErrorStack TpccClientTask::warmup(thread::Thread* context) {
   // Warmup snapshot cache for read-only tables. Install volatile pages for dynamic tables.
+
+  // in olap mode, let's not prefetch anything because the data size is huge.
+  // as far as duration_micro is long enough, we don't need it. flip-flopped about this.
+  if (olap_mode_) {
+    ++(channel_->warmup_complete_counter_);
+    return kRetOk;
+  }
 
   // item has no locality, but still we want to pre-load snapshot cache, so:
   if (channel_->preload_snapshot_pages_ || olap_mode_) {

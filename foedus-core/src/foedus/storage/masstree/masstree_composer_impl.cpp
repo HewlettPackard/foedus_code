@@ -2132,7 +2132,7 @@ ErrorStack MasstreeComposeContext::install_snapshot_pointers(uint64_t* installed
       installed_count));
   }
   watch.stop();
-  VLOG(0) << "MasstreeStorage-" << id_ << " installed " << *installed_count << " pointers"
+  LOG(INFO) << "MasstreeStorage-" << id_ << " installed " << *installed_count << " pointers"
     << " in " << watch.elapsed_ms() << "ms";
   return kRetOk;
 }
@@ -2287,11 +2287,14 @@ ErrorCode MasstreeComposeContext::install_snapshot_pointers_recurse_border(
 ///  drop_volatiles and related methods
 ///
 /////////////////////////////////////////////////////////////////////////////
-bool MasstreeComposer::drop_volatiles(const Composer::DropVolatilesArguments& args) {
+Composer::DropResult MasstreeComposer::drop_volatiles(
+  const Composer::DropVolatilesArguments& args) {
+  Composer::DropResult result(args);
   if (storage_.get_masstree_metadata()->keeps_all_volatile_pages()) {
     LOG(INFO) << "Keep-all-volatile: Storage-" << storage_.get_name()
       << " is configured to keep all volatile pages.";
-    return false;
+    result.dropped_all_ = false;
+    return result;
   }
 
   DualPagePointer* root_pointer = &storage_.get_control_block()->root_page_pointer_;
@@ -2299,7 +2302,7 @@ bool MasstreeComposer::drop_volatiles(const Composer::DropVolatilesArguments& ar
     resolve_volatile(root_pointer->volatile_pointer_));
   if (volatile_page == nullptr) {
     LOG(INFO) << "No volatile root page. Probably while restart";
-    return true;  // this case doesn't matter. true/false are same things
+    return result;
   }
 
   // Unlike array-storage, each thread decides partititions to follow a bit differently
@@ -2315,7 +2318,7 @@ bool MasstreeComposer::drop_volatiles(const Composer::DropVolatilesArguments& ar
   for (MasstreeIntermediatePointerIterator it(volatile_page); it.is_valid(); it.next()) {
     DualPagePointer* pointer = &volatile_page->get_minipage(it.index_).pointers_[it.index_mini_];
     if (!args.partitioned_drop_) {
-      drop_volatiles_recurse(args, pointer);
+      result.combine(drop_volatiles_recurse(args, pointer));
       continue;
     }
     // the page boundaries as of partitioning might be different from the volatile page's,
@@ -2340,12 +2343,80 @@ bool MasstreeComposer::drop_volatiles(const Composer::DropVolatilesArguments& ar
       if (data->low_keys_[cur] != low) {
         VLOG(0) << "Not exactly matching page boundary.";  // but not a big issue.
       }
-      drop_volatiles_recurse(args, pointer);
+      result.combine(drop_volatiles_recurse(args, pointer));
     }
   }
 
   // we so far always keep the volatile root of a masstree storage.
-  return false;
+  return result;
+}
+
+void MasstreeComposer::drop_root_volatile(const Composer::DropVolatilesArguments& args) {
+  if (storage_.get_masstree_metadata()->keeps_all_volatile_pages()) {
+    LOG(INFO) << "Oh, but keep-all-volatile is on. Storage-" << storage_.get_name()
+      << " is configured to keep all volatile pages.";
+    return;
+  }
+  DualPagePointer* root_pointer = &storage_.get_control_block()->root_page_pointer_;
+  MasstreeIntermediatePage* volatile_page = reinterpret_cast<MasstreeIntermediatePage*>(
+    resolve_volatile(root_pointer->volatile_pointer_));
+  if (volatile_page == nullptr) {
+    LOG(INFO) << "Oh, but root volatile page already null";
+    return;
+  }
+
+  if (is_to_keep_volatile(0, volatile_page->get_btree_level())) {
+    LOG(INFO) << "Oh, but " << storage_ << " is configured to keep the root page.";
+    return;
+  }
+
+  // yes, we can drop ALL volatile pages!
+  LOG(INFO) << "Okay, drop em all!!";
+  drop_all_recurse(args, root_pointer);
+  root_pointer->volatile_pointer_.clear();
+}
+
+void MasstreeComposer::drop_all_recurse(
+  const Composer::DropVolatilesArguments& args,
+  DualPagePointer* pointer) {
+  MasstreePage* page = resolve_volatile(pointer->volatile_pointer_);
+  if (page == nullptr) {
+    return;
+  }
+  drop_all_recurse_page_only(args, page);
+  args.drop(engine_, pointer->volatile_pointer_);
+  pointer->volatile_pointer_.clear();  // not required, but to be clear.
+}
+
+void MasstreeComposer::drop_all_recurse_page_only(
+  const Composer::DropVolatilesArguments& args,
+  MasstreePage* page) {
+  ASSERT_ND(page);
+  if (page->has_foster_child()) {
+    MasstreePage* minor = resolve_volatile(page->get_foster_minor());
+    MasstreePage* major = resolve_volatile(page->get_foster_major());
+    drop_all_recurse_page_only(args, minor);
+    drop_all_recurse_page_only(args, major);
+    return;
+  }
+
+  ASSERT_ND(!page->has_foster_child());
+  if (page->is_border()) {
+    MasstreeBorderPage* border = as_border(page);
+    const uint8_t key_count = page->get_key_count();
+    for (uint8_t i = 0; i < key_count; ++i) {
+      if (border->does_point_to_layer(i)) {
+        DualPagePointer* pointer = border->get_next_layer(i);
+        drop_all_recurse(args, pointer);
+      }
+    }
+  } else {
+    MasstreeIntermediatePage* casted = as_intermediate(page);
+    for (MasstreeIntermediatePointerIterator it(casted); it.is_valid(); it.next()) {
+      DualPagePointer* pointer = const_cast<DualPagePointer*>(&it.get_pointer());
+      drop_all_recurse(args, pointer);
+    }
+  }
 }
 
 inline MasstreePage* MasstreeComposer::resolve_volatile(VolatilePagePointer pointer) {
@@ -2357,11 +2428,12 @@ inline MasstreePage* MasstreeComposer::resolve_volatile(VolatilePagePointer poin
   return reinterpret_cast<MasstreePage*>(page_resolver.resolve_offset(pointer));
 }
 
-inline Epoch MasstreeComposer::drop_volatiles_recurse(
+inline Composer::DropResult MasstreeComposer::drop_volatiles_recurse(
   const Composer::DropVolatilesArguments& args,
   DualPagePointer* pointer) {
+  Composer::DropResult result(args);
   if (pointer->volatile_pointer_.is_null()) {
-    return args.snapshot_.valid_until_epoch_;
+    return result;
   }
   // Unlike array-storage, even if this pointer itself has not updated the snapshot pointer,
   // we might have updated the descendants because of not-matching page boundaries.
@@ -2370,52 +2442,50 @@ inline Epoch MasstreeComposer::drop_volatiles_recurse(
 
   // Also, masstree might have foster children.
   // they are kept as far as this page is kept.
-  Epoch max_observed = args.snapshot_.valid_until_epoch_;
   if (page->has_foster_child()) {
     MasstreePage* minor = resolve_volatile(page->get_foster_minor());
     MasstreePage* major = resolve_volatile(page->get_foster_major());
-    Epoch minor_max;
-    Epoch major_max;
     if (page->is_border()) {
-      minor_max = drop_volatiles_border(args, as_border(minor));
-      major_max = drop_volatiles_border(args, as_border(major));
+      result.combine(drop_volatiles_border(args, as_border(minor)));
+      result.combine(drop_volatiles_border(args, as_border(major)));
     } else {
-      minor_max = drop_volatiles_intermediate(args, as_intermediate(minor));
-      major_max = drop_volatiles_intermediate(args, as_intermediate(major));
+      result.combine(drop_volatiles_intermediate(args, as_intermediate(minor)));
+      result.combine(drop_volatiles_intermediate(args, as_intermediate(major)));
     }
-    ASSERT_ND(minor_max >= args.snapshot_.valid_until_epoch_);
-    ASSERT_ND(major_max >= args.snapshot_.valid_until_epoch_);
-    max_observed = minor_max > major_max ? minor_max : major_max;
+    ASSERT_ND(result.max_observed_ >= args.snapshot_.valid_until_epoch_);
   } else {
     if (page->is_border()) {
-      max_observed = drop_volatiles_border(args, as_border(page));
+      result.combine(drop_volatiles_border(args, as_border(page)));
     } else {
-      max_observed = drop_volatiles_intermediate(args, as_intermediate(page));
+      result.combine(drop_volatiles_intermediate(args, as_intermediate(page)));
     }
   }
-  if (max_observed > args.snapshot_.valid_until_epoch_) {
+  if (result.max_observed_ > args.snapshot_.valid_until_epoch_ || !result.dropped_all_) {
     DVLOG(1) << "Couldn't drop a volatile page that has a recent modification";
-    return max_observed;
+    result.dropped_all_ = false;
+    return result;
   }
+  ASSERT_ND(result.max_observed_ == args.snapshot_.valid_until_epoch_);
+  ASSERT_ND(result.dropped_all_);
   bool updated_pointer = is_updated_pointer(args, pointer->snapshot_pointer_);
-  ASSERT_ND(max_observed == args.snapshot_.valid_until_epoch_);
   if (updated_pointer) {
     if (is_to_keep_volatile(page->get_layer(), page->get_btree_level())) {
       DVLOG(2) << "Exempted";
-      return args.snapshot_.valid_until_epoch_.one_more();  // as if there was some new record.
+      result.dropped_all_ = false;  // max_observed is satisfactory, but we chose to not drop.
     } else {
       if (page->has_foster_child()) {
         drop_foster_twins(args, page);
       }
       args.drop(engine_, pointer->volatile_pointer_);
       pointer->volatile_pointer_.clear();
-      return args.snapshot_.valid_until_epoch_;  // dropped!
     }
   } else {
     DVLOG(1) << "Couldn't drop a volatile page that has a non-matching boundary";
-    return args.snapshot_.valid_until_epoch_.one_more();  // as if there was some new record.
+    result.dropped_all_ = false;
   }
+  return result;
 }
+
 void MasstreeComposer::drop_foster_twins(
   const Composer::DropVolatilesArguments& args,
   MasstreePage* page) {
@@ -2432,104 +2502,63 @@ void MasstreeComposer::drop_foster_twins(
   args.drop(engine_, page->get_foster_major());
 }
 
-Epoch MasstreeComposer::drop_volatiles_intermediate(
+Composer::DropResult MasstreeComposer::drop_volatiles_intermediate(
   const Composer::DropVolatilesArguments& args,
   MasstreeIntermediatePage* page) {
   ASSERT_ND(!page->header().snapshot_);
   ASSERT_ND(!page->is_border());
 
+  Composer::DropResult result(args);
   if (page->has_foster_child()) {
     // iff both minor and major foster children dropped all descendants,
     // we drop this page and its foster children altogether.
     // otherwise, we keep all of them.
     MasstreeIntermediatePage* minor = as_intermediate(resolve_volatile(page->get_foster_minor()));
     MasstreeIntermediatePage* major = as_intermediate(resolve_volatile(page->get_foster_major()));
-    Epoch minor_max = drop_volatiles_intermediate(args, minor);
-    Epoch major_max = drop_volatiles_intermediate(args, major);
-    ASSERT_ND(minor_max >= args.snapshot_.valid_until_epoch_);
-    ASSERT_ND(major_max >= args.snapshot_.valid_until_epoch_);
-#ifndef NDEBUG
-    if (minor_max > args.snapshot_.valid_until_epoch_) {
-      DVLOG(1) << "Couldn't drop an intermediate page that has a recently modified minor child";
-    }
-    if (major_max > args.snapshot_.valid_until_epoch_) {
-      DVLOG(1) << "Couldn't drop an intermediate page that has a recently modified major child";
-    }
-#endif  // NDEBUG
-    return minor_max > major_max ? minor_max : major_max;
+    result.combine(drop_volatiles_intermediate(args, minor));
+    result.combine(drop_volatiles_intermediate(args, major));
+    return result;
   }
 
   // Explore/replace children first because we need to know if there is new modification.
   // In that case, we must keep this volatile page, too.
   ASSERT_ND(!page->has_foster_child());
-  Epoch max_observed = args.snapshot_.valid_until_epoch_;
   for (MasstreeIntermediatePointerIterator it(page); it.is_valid(); it.next()) {
     DualPagePointer* pointer = &page->get_minipage(it.index_).pointers_[it.index_mini_];
-    Epoch epoch = drop_volatiles_recurse(args, pointer);
-#ifndef NDEBUG
-    if (max_observed == args.snapshot_.valid_until_epoch_ && epoch > max_observed) {
-      // new record exists! so we must keep this volatile page
-      DVLOG(1) << "Couldn't drop an intermediate page that has a recently modified child";
-    }
-#endif  // NDEBUG
-    max_observed.store_max(epoch);
+    result.combine(drop_volatiles_recurse(args, pointer));
   }
 
-  return max_observed;
+  return result;
 }
 
-inline Epoch MasstreeComposer::drop_volatiles_border(
+inline Composer::DropResult MasstreeComposer::drop_volatiles_border(
   const Composer::DropVolatilesArguments& args,
   MasstreeBorderPage* page) {
   ASSERT_ND(!page->header().snapshot_);
   ASSERT_ND(page->is_border());
 
+  Composer::DropResult result(args);
   if (page->has_foster_child()) {
     MasstreeBorderPage* minor = as_border(resolve_volatile(page->get_foster_minor()));
     MasstreeBorderPage* major = as_border(resolve_volatile(page->get_foster_major()));
-    Epoch minor_max = drop_volatiles_border(args, minor);
-    Epoch major_max = drop_volatiles_border(args, major);
-    ASSERT_ND(minor_max >= args.snapshot_.valid_until_epoch_);
-    ASSERT_ND(major_max >= args.snapshot_.valid_until_epoch_);
-#ifndef NDEBUG
-    if (minor_max > args.snapshot_.valid_until_epoch_) {
-      DVLOG(1) << "Couldn't drop a border volatile page that has a recently modified minor child";
-    }
-    if (major_max > args.snapshot_.valid_until_epoch_) {
-      DVLOG(1) << "Couldn't drop a border volatile page that has a recently modified major child";
-    }
-#endif  // NDEBUG
-    return minor_max > major_max ? minor_max : major_max;
+    result.combine(drop_volatiles_border(args, minor));
+    result.combine(drop_volatiles_border(args, major));
+    return result;
   }
 
   ASSERT_ND(!page->has_foster_child());
-  Epoch max_observed = args.snapshot_.valid_until_epoch_;
   const uint8_t key_count = page->get_key_count();
   for (uint8_t i = 0; i < key_count; ++i) {
     if (page->does_point_to_layer(i)) {
       DualPagePointer* pointer = page->get_next_layer(i);
-      Epoch epoch = drop_volatiles_recurse(args, pointer);
-      ASSERT_ND(epoch >= args.snapshot_.valid_until_epoch_);
-#ifndef NDEBUG
-      if (max_observed == args.snapshot_.valid_until_epoch_ && epoch > max_observed) {
-        // new record exists! so we must keep this volatile page
-        DVLOG(1) << "Couldn't drop a border volatile page that has a recently modified record";
-      }
-#endif  // NDEBUG
-      max_observed.store_max(epoch);
+      result.combine(drop_volatiles_recurse(args, pointer));
     } else {
       Epoch epoch = page->get_owner_id(i)->xct_id_.get_epoch();
       ASSERT_ND(epoch.is_valid());
-#ifndef NDEBUG
-      if (max_observed == args.snapshot_.valid_until_epoch_ && epoch > max_observed) {
-        // new record exists! so we must keep this volatile page
-        DVLOG(1) << "Couldn't drop a border volatile page that has a recently modified next layer";
-      }
-#endif  // NDEBUG
-      max_observed.store_max(epoch);
+      result.on_rec_observed(epoch);
     }
   }
-  return max_observed;
+  return result;
 }
 inline bool MasstreeComposer::is_updated_pointer(
   const Composer::DropVolatilesArguments& args,
@@ -2539,10 +2568,16 @@ inline bool MasstreeComposer::is_updated_pointer(
 }
 inline bool MasstreeComposer::is_to_keep_volatile(uint8_t layer, uint16_t btree_level) const {
   const MasstreeMetadata* meta = storage_.get_masstree_metadata();
-  if (layer <= meta->snapshot_drop_volatile_pages_layer_threshold_) {
+  // snapshot_drop_volatile_pages_layer_threshold_:
+  // Number of B-trie layers of volatile pages to keep after each snapshotting.
+  // Ex. 0 drops all (always false).
+  if (layer < meta->snapshot_drop_volatile_pages_layer_threshold_) {
     return true;
   }
-  return (btree_level < meta->snapshot_drop_volatile_pages_btree_levels_);
+  // snapshot_drop_volatile_pages_btree_levels_:
+  // Volatile pages of this B-tree level or higher are always kept after each snapshotting.
+  // Ex. 0 keeps all. 0xFF drops all.
+  return (btree_level >= meta->snapshot_drop_volatile_pages_btree_levels_);
 }
 
 std::ostream& operator<<(std::ostream& o, const MasstreeComposeContext::PathLevel& v) {

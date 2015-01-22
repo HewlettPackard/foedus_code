@@ -129,8 +129,9 @@ void CacheManagerPimpl::handle_cleaner() {
       if (reclaimed_pages_count_ > 0) {
         // We collected some number of pages in previous execution. now we have to wait for
         // grace period befire returning them to the pool as free pages.
-        ASSERT_ND(engine_->get_xct_manager()->is_initialized());  // otherwise why already collected
-        Epoch reclaimed_pages_epoch = engine_->get_xct_manager()->get_current_global_epoch();
+        xct::XctManager* xct_manager = engine_->get_xct_manager();
+        ASSERT_ND(xct_manager->is_initialized());  // otherwise why already collected
+        Epoch reclaimed_pages_epoch = xct_manager->get_current_global_epoch();
         VLOG(0) << "Collected " << reclaimed_pages_count_ << " pages. let's return them to "
           << "the pool: " << describe();
         Epoch wait_until = reclaimed_pages_epoch.one_more();
@@ -138,11 +139,15 @@ void CacheManagerPimpl::handle_cleaner() {
         // We have to wait for grace-period, in other words until the next epoch.
         if (stat.allocated_pages_ >= urgent_threshold_) {
           VLOG(0) << "We are in urgent lack of free pages, let's advance epoch right now";
-          engine_->get_xct_manager()->advance_current_global_epoch();
+          xct_manager->advance_current_global_epoch();
         }
-        engine_->get_xct_manager()->wait_for_current_global_epoch(wait_until);
+        // wait forever, but occasionally wake up to check if the system is being shutdown
+        while (!stop_requested_ && xct_manager->get_current_global_epoch() < wait_until) {
+          const uint64_t interval_microsec = 100000ULL;
+          xct_manager->wait_for_current_global_epoch(wait_until, interval_microsec);
+        }
 
-        Epoch current_epoch = engine_->get_xct_manager()->get_current_global_epoch();
+        Epoch current_epoch = xct_manager->get_current_global_epoch();
         ASSERT_ND(reclaimed_pages_epoch < current_epoch);
         VLOG(0) << "Okay! reclaimed_pages_epoch_=" << reclaimed_pages_epoch
           << ", current_epoch=" << current_epoch;

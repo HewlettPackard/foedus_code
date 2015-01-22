@@ -3,8 +3,8 @@
 warehouses=192
 loggers_per_node=2
 volatile_pool_size=80 # HUGE. Make sure you have enough /proc/sys/vm/nr_hugepages
-snapshot_pool_size=2
-reducer_buffer_size=1
+snapshot_pool_size=32768 # note, this one is in MB. yes, confusing...
+reducer_buffer_size=50
 duration_micro=30000000
 thread_per_node=12
 numa_nodes=16

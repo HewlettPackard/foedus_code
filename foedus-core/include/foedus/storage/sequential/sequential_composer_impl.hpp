@@ -61,7 +61,7 @@ class SequentialComposer final {
 
   ErrorStack compose(const Composer::ComposeArguments& args);
   ErrorStack construct_root(const Composer::ConstructRootArguments& args);
-  bool drop_volatiles(const Composer::DropVolatilesArguments& args);
+  Composer::DropResult drop_volatiles(const Composer::DropVolatilesArguments& args);
 
  private:
   SequentialPage*     compose_new_head(

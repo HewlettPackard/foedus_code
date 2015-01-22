@@ -451,6 +451,22 @@ ErrorStack SnapshotManagerPimpl::drop_volatile_pages(
 
   // initializations done.
   // below, we should release the resources before exiting. So, let's not just use CHECK_ERROR.
+  const uint16_t soc_count = engine_->get_soc_count();
+
+  // collect results of pointer dropping for all storages for all nodes.
+  // this is just to drop the root page. DropResult[storage_id][node].
+  memory::AlignedMemory result_memory;
+  result_memory.alloc(
+    sizeof(storage::Composer::DropResult) * soc_count * (new_snapshot.max_storage_id_ + 2U),
+    1U << 12,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    0);
+  memory::AlignedMemory chunks_memory;  // only for drop_root
+  chunks_memory.alloc(
+    sizeof(memory::PagePoolOffsetChunk) * soc_count,
+    1U << 12,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    0);
 
   // So far, we pause transaction executions during this step to simplify the algorithm.
   // Without this simplification, not only this thread but also normal transaction executions
@@ -464,12 +480,13 @@ ErrorStack SnapshotManagerPimpl::drop_volatile_pages(
   debugging::StopWatch stop_watch;
 
   std::vector< std::thread > threads;
-  for (uint16_t node = 0; node < engine_->get_soc_count(); ++node) {
+  for (uint16_t node = 0; node < soc_count; ++node) {
     threads.emplace_back(
       &SnapshotManagerPimpl::drop_volatile_pages_parallel,
       this,
       new_snapshot,
       new_root_page_pointers,
+      result_memory.get_block(),
       node);
   }
 
@@ -477,10 +494,58 @@ ErrorStack SnapshotManagerPimpl::drop_volatile_pages(
     thr.join();
   }
 
+  LOG(INFO) << "Joined child threads. Now consider dropping root pages";
+
+  // At last, we consider dropping root volatile pages.
+  // usually, this happens only when the root page doesn't have any volatile pointer.
+  // As an exceptional case, we might drop ALL volatile pages of a storage whose max_observed
+  // is not updated but for some reason dropped_all is false, eg non-matching boundaries.
+  // even in that case, we can drop all volatile pages safely because this is within pause.
+  memory::PagePoolOffsetChunk* dropped_chunks = reinterpret_cast<memory::PagePoolOffsetChunk*>(
+    chunks_memory.get_block());
+  for (uint16_t node = 0; node < soc_count; ++node) {
+    dropped_chunks[node].clear();
+  }
+  storage::Composer::DropResult* results
+    = reinterpret_cast<storage::Composer::DropResult*>(result_memory.get_block());
+  for (storage::StorageId id = 1; id <= new_snapshot.max_storage_id_; ++id) {
+    VLOG(1) << "Considering to drop root page of storage-" << id << " ...";
+    bool cannot_drop = false;
+    for (uint16_t node = 0; node < soc_count; ++node) {
+      storage::Composer::DropResult result = results[soc_count * id + node];
+      ASSERT_ND(result.max_observed_.is_valid());
+      ASSERT_ND(result.max_observed_ >= new_snapshot.valid_until_epoch_);
+      if (result.max_observed_ > new_snapshot.valid_until_epoch_) {
+        cannot_drop = true;
+        break;
+      }
+    }
+    if (cannot_drop) {
+      continue;
+    }
+    LOG(INFO) << "Looks like we can drop ALL volatile pages of storage-" << id << "!!!";
+    // Still, the specific implementation of the storage might not choose to do so.
+    // We call a method in composer.
+    uint64_t dropped_count = 0;
+    storage::Composer::DropVolatilesArguments args = {
+      new_snapshot,
+      0,
+      false,
+      dropped_chunks,
+      &dropped_count};
+    storage::Composer composer(engine_, id);
+    composer.drop_root_volatile(args);
+    LOG(INFO) << "As a result, we dropped " << dropped_count << " pages from storage-" << id;
+  }
+
+
   engine_->get_xct_manager()->resume_accepting_xct();
 
   stop_watch.stop();
   LOG(INFO) << "Total: Dropped volatile pages in " << stop_watch.elapsed_ms() << "ms.";
+
+  chunks_memory.release_block();
+  result_memory.release_block();
 
   return kRetOk;
 }
@@ -488,21 +553,26 @@ ErrorStack SnapshotManagerPimpl::drop_volatile_pages(
 void SnapshotManagerPimpl::drop_volatile_pages_parallel(
   const Snapshot& new_snapshot,
   const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers,
+  void* result_memory,
   uint16_t parallel_id) {
   // this thread is pinned on its own socket. We use the same partitioning scheme as reducer
   // so that this method mostly hits local pages
   thread::NumaThreadScope numa_scope(parallel_id);
 
+  const uint16_t soc_count = engine_->get_soc_count();
+  storage::Composer::DropResult* results  // DropResult[storage_id][node]
+    = reinterpret_cast<storage::Composer::DropResult*>(result_memory);
+
   // To avoid invoking volatile pool for every dropped page, we cache them in chunks
   memory::AlignedMemory chunks_memory;
   chunks_memory.alloc(
-    sizeof(memory::PagePoolOffsetChunk) * engine_->get_soc_count(),
+    sizeof(memory::PagePoolOffsetChunk) * soc_count,
     1U << 12,
     memory::AlignedMemory::kNumaAllocOnnode,
     parallel_id);
   memory::PagePoolOffsetChunk* dropped_chunks = reinterpret_cast<memory::PagePoolOffsetChunk*>(
     chunks_memory.get_block());
-  for (uint16_t node = 0; node < engine_->get_soc_count(); ++node) {
+  for (uint16_t node = 0; node < soc_count; ++node) {
     dropped_chunks[node].clear();
   }
 
@@ -525,7 +595,7 @@ void SnapshotManagerPimpl::drop_volatile_pages_parallel(
         dropped_chunks,
         &dropped_count};
       debugging::StopWatch watch;
-      bool dropped_all = composer.drop_volatiles(args);
+      storage::Composer::DropResult result = composer.drop_volatiles(args);
       ASSERT_ND(engine_->get_storage_manager()->get_storage(id)->root_page_pointer_.
         snapshot_pointer_ == new_root_page_pointer);
       ASSERT_ND(engine_->get_storage_manager()->get_storage(id)->meta_.root_snapshot_page_id_
@@ -535,10 +605,14 @@ void SnapshotManagerPimpl::drop_volatile_pages_parallel(
       LOG(INFO) << "Thread-" << parallel_id << " drop_volatiles for storage-" << id
         << " (" << engine_->get_storage_manager()->get_storage(id)->meta_.name_ << ")"
         << " took " << watch.elapsed_sec() << "s. dropped_count=" << dropped_count
-        << ". dropped_all(this partition)? =" << dropped_all;
+        << ". result =" << result;
+      results[soc_count * id + parallel_id] = result;
     } else {
       VLOG(0) << "Thread-" << parallel_id << " storage-"
         << id << " wasn't changed no drop pointers";
+      results[soc_count * id + parallel_id].max_observed_
+        = new_snapshot.valid_until_epoch_.one_more();  // do NOT drop root page in this case.
+      results[soc_count * id + parallel_id].dropped_all_ = false;
     }
   }
 
@@ -546,7 +620,7 @@ void SnapshotManagerPimpl::drop_volatile_pages_parallel(
   LOG(INFO) << "Thread-" << parallel_id << " dropped " << dropped_count_total
     << " volatile pointers in " << stop_watch.elapsed_ms() << "ms.";
 
-  for (uint16_t node = 0; node < engine_->get_soc_count(); ++node) {
+  for (uint16_t node = 0; node < soc_count; ++node) {
     memory::PagePoolOffsetChunk* chunk = dropped_chunks + node;
     memory::PagePool* volatile_pool
       = engine_->get_memory_manager()->get_node_memory(node)->get_volatile_pool();

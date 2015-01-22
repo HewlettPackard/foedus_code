@@ -3,9 +3,9 @@
 # heh, I thought 128GB is too much when I got the machine.
 warehouses=4
 loggers_per_node=2
-volatile_pool_size=12
-snapshot_pool_size=1
-reducer_buffer_size=2
+volatile_pool_size=6
+snapshot_pool_size=8192 # note, this one is in MB. yes, confusing...
+reducer_buffer_size=8
 duration_micro=30000000
 thread_per_node=2
 numa_nodes=2

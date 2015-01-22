@@ -249,7 +249,8 @@ std::string SequentialComposer::to_string() const {
   return std::string("SequentialComposer-") + std::to_string(storage_id_);
 }
 
-bool SequentialComposer::drop_volatiles(const Composer::DropVolatilesArguments& args) {
+Composer::DropResult SequentialComposer::drop_volatiles(
+  const Composer::DropVolatilesArguments& args) {
   // In sequential, no need to determine what volatile pages to keep.
   SequentialStorage storage(engine_, storage_id_);
   SequentialStoragePimpl pimpl(engine_, storage.get_control_block());
@@ -310,7 +311,7 @@ bool SequentialComposer::drop_volatiles(const Composer::DropVolatilesArguments& 
       }
     }
   }
-  return true;
+  return Composer::DropResult(args);  // always everything dropped
 }
 
 }  // namespace sequential

@@ -218,9 +218,9 @@ ErrorStack create_masstree(
 
 #ifdef OLAP_MODE
   // completely drop all volatile pages. even higher levels
-  meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0;
-  meta.snapshot_drop_volatile_pages_btree_levels_ = 0;
-  meta.snapshot_drop_volatile_pages_layer_threshold_ = 0;
+  meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0;  // this one lower = drop more
+  meta.snapshot_drop_volatile_pages_btree_levels_ = 100;  // this one higher = drop more
+  meta.snapshot_drop_volatile_pages_layer_threshold_ = 0;  // this one lower = drop more
 #endif  // OLAP_MODE
 
   return engine->get_storage_manager()->create_storage(&meta, &ep);

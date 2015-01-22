@@ -516,3 +516,13 @@ ant hstore-benchmark -Dproject=tpcc -Dsite.anticache_enable=true -Dsite.anticach
 sudo umount /testnvm
 sudo mount -t nvmfs -o rd_delay_ns_fixed=0,wr_delay_ns_fixed=0,rd_delay_ns_per_kb=0,wr_delay_ns_per_kb=0,cpu_freq_mhz=2800,size=1000000m nvmfs /testnvm
 mkdir /testnvm/anticache;mkdir /testnvm/commandlog
+
+ant hstore-benchmark -Dproject=tpcc -Dsite.anticache_enable=true -Dsite.anticache_dir=/testnvm/anticache \
+  -Dsite.anticache_threshold_mb=7500 \
+  -Dsite.commandlog_enable=true -Dsite.commandlog_dir="/testnvm/commandlog/" \
+  -Dsite.commandlog_timeout=500 -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=30000 -Dglobal.memory=2048 \
+  -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63" &> "hstore_olap.m500.r1.log"
+
+come on, crashes again.
