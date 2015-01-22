@@ -5,10 +5,6 @@
 #ifndef FOEDUS_STORAGE_COMPOSER_HPP_
 #define FOEDUS_STORAGE_COMPOSER_HPP_
 
-#ifndef NDEBUG
-#include <glog/logging.h>
-#endif  // NDEBUG
-
 #include <iosfwd>
 #include <string>
 
@@ -165,27 +161,12 @@ class Composer CXX11_FINAL {
       dropped_all_ = true;  // "so far". zero-inspected, thus zero-failure.
     }
     inline void combine(const DropResult& other) {
-#ifndef NDEBUG
-      if (other.max_observed_ > max_observed_) {
-        DVLOG(3) << "Will update max_observed_";
-      }
-      if (!other.dropped_all_ && dropped_all_) {
-        DVLOG(3) << "Will update dropped_all_";
-      }
-#endif  // NDEBUG
-
       max_observed_.store_max(other.max_observed_);
       dropped_all_ &= other.dropped_all_;
     }
 
     inline void on_rec_observed(Epoch epoch) {
       if (epoch > max_observed_) {
-#ifndef NDEBUG
-      if (dropped_all_) {
-        DVLOG(2) << "dropped_all_ now false";
-      }
-      DVLOG(3) << "max_observed_ will become " << epoch;
-#endif  // NDEBUG
         max_observed_ = epoch;
         dropped_all_ = false;
       }
