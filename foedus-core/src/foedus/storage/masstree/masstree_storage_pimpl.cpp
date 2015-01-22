@@ -57,14 +57,25 @@ ErrorStack MasstreeStoragePimpl::drop() {
 
 ErrorCode MasstreeStoragePimpl::get_first_root(
   thread::Thread* context,
+  bool for_write,
   MasstreeIntermediatePage** root) {
-  ASSERT_ND(get_first_root_pointer().volatile_pointer_.components.offset);
-  const memory::GlobalVolatilePageResolver& resolver = context->get_global_volatile_page_resolver();
-  MasstreeIntermediatePage* page = reinterpret_cast<MasstreeIntermediatePage*>(
-    resolver.resolve_offset(control_block_->root_page_pointer_.volatile_pointer_));
+  DualPagePointer* root_pointer = get_first_root_pointer_address();
+  MasstreeIntermediatePage* page = nullptr;
+  CHECK_ERROR_CODE(context->follow_page_pointer(
+    nullptr,
+    false,
+    for_write,
+    true,
+    root_pointer,
+    reinterpret_cast<Page**>(&page),
+    nullptr,
+    0));
+
   assert_aligned_page(page);
+  ASSERT_ND(!for_write || !page->header().snapshot_);
 
   if (UNLIKELY(page->has_foster_child())) {
+    ASSERT_ND(!page->header().snapshot_);
     ASSERT_ND(!get_first_root_owner().is_deleted());
     ASSERT_ND(!get_first_root_owner().is_moved());
     // root page has a foster child... time for tree growth!
@@ -82,10 +93,11 @@ ErrorCode MasstreeStoragePimpl::get_first_root(
       // the immutability
     }
   }
-  *root = page;
 
+  *root = page;
   return kErrorCodeOk;
 }
+
 
 ErrorCode MasstreeStoragePimpl::grow_root(
   thread::Thread* context,
@@ -348,6 +360,7 @@ ErrorCode MasstreeStoragePimpl::locate_record(
   MasstreePage* layer_root;
   CHECK_ERROR_CODE(get_first_root(
     context,
+    for_writes,
     reinterpret_cast<MasstreeIntermediatePage**>(&layer_root)));
   for (uint16_t current_layer = 0;; ++current_layer) {
     uint8_t remaining_length = key_length - current_layer * 8;
@@ -398,7 +411,7 @@ ErrorCode MasstreeStoragePimpl::locate_record_normalized(
   MasstreeBorderPage* border;
 
   MasstreeIntermediatePage* layer_root;
-  CHECK_ERROR_CODE(get_first_root(context, &layer_root));
+  CHECK_ERROR_CODE(get_first_root(context, for_writes, &layer_root));
   CHECK_ERROR_CODE(find_border(context, layer_root, 0, for_writes, key, &border));
   uint8_t index = border->find_key_normalized(0, border->get_key_count(), key);
   PageVersionStatus border_version = border->get_version().status_;
@@ -545,6 +558,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
   MasstreePage* layer_root;
   CHECK_ERROR_CODE(get_first_root(
     context,
+    true,
     reinterpret_cast<MasstreeIntermediatePage**>(&layer_root)));
   for (uint16_t layer = 0;; ++layer) {
     const uint8_t remaining = key_length - layer * sizeof(KeySlice);
@@ -699,7 +713,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
   MasstreeBorderPage* border;
 
   MasstreeIntermediatePage* layer_root;
-  CHECK_ERROR_CODE(get_first_root(context, &layer_root));
+  CHECK_ERROR_CODE(get_first_root(context, true, &layer_root));
   CHECK_ERROR_CODE(find_border(context, layer_root, 0, true, key, &border));
   while (true) {  // retry loop for following foster child
     // if we found out that the page was split and we should follow foster child, do it.

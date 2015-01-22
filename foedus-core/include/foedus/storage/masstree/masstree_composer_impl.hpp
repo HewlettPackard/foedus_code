@@ -71,13 +71,20 @@ class MasstreeComposer final {
   ErrorStack check_buddies(const Composer::ConstructRootArguments& args) const;
 
   MasstreePage* resolve_volatile(VolatilePagePointer pointer);
-  bool drop_volatiles_recurse(
+  /** @return the largest Epoch it observed. The page is dropped iff the return value
+   * is ==args.snapshot_.valid_until_epoch_. If some record under this contains larger (newer)
+   * epoch, it returns that epoch.
+   * For ease of store_max, the returned epoch
+   * is adjusted to args.snapshot_.valid_until_epoch_ if it's smaller than that. */
+  Epoch drop_volatiles_recurse(
     const Composer::DropVolatilesArguments& args,
     DualPagePointer* pointer);
-  bool drop_volatiles_intermediate(
+  /** @see drop_volatiles_recurse() */
+  Epoch drop_volatiles_intermediate(
     const Composer::DropVolatilesArguments& args,
     MasstreeIntermediatePage* page);
-  bool drop_volatiles_border(
+  /** @see drop_volatiles_recurse() */
+  Epoch drop_volatiles_border(
     const Composer::DropVolatilesArguments& args,
     MasstreeBorderPage* page);
   bool is_updated_pointer(

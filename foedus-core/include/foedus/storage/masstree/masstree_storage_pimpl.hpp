@@ -91,9 +91,13 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
   const StorageName&  get_name()  const { return control_block_->meta_.name_; }
   const MasstreeMetadata& get_meta()  const { return control_block_->meta_; }
   DualPagePointer& get_first_root_pointer() { return control_block_->root_page_pointer_; }
+  DualPagePointer* get_first_root_pointer_address() { return &control_block_->root_page_pointer_; }
   xct::LockableXctId& get_first_root_owner() { return control_block_->first_root_owner_; }
 
-  ErrorCode get_first_root(thread::Thread* context, MasstreeIntermediatePage** root);
+  ErrorCode get_first_root(
+    thread::Thread* context,
+    bool for_write,
+    MasstreeIntermediatePage** root);
   ErrorCode grow_root(
     thread::Thread* context,
     DualPagePointer* root_pointer,

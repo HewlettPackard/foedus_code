@@ -25,7 +25,7 @@ namespace masstree {
 
 ErrorStack MasstreeStoragePimpl::verify_single_thread(thread::Thread* context) {
   MasstreeIntermediatePage* layer_root;
-  WRAP_ERROR_CODE(get_first_root(context, &layer_root));
+  WRAP_ERROR_CODE(get_first_root(context, false, &layer_root));
   CHECK_AND_ASSERT(!layer_root->is_border());  // root of first layer is always intermediate page
   CHECK_ERROR(verify_single_thread_layer(context, 0, layer_root));
   return kRetOk;
