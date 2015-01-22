@@ -24,9 +24,8 @@ ErrorCode MasstreeStoragePimpl::prefetch_pages_normalized(
   VLOG(0) << "Thread-" << context->get_thread_id()
     << " prefetching " << get_name() << " from=" << from << ", to=" << to;
 
-  ASSERT_ND(control_block_->root_page_pointer_.volatile_pointer_.components.offset);
-  VolatilePagePointer pointer = control_block_->root_page_pointer_.volatile_pointer_;
-  MasstreePage* root_page = context->resolve_cast<MasstreePage>(pointer);
+  MasstreeIntermediatePage* root_page;
+  CHECK_ERROR_CODE(get_first_root(context, false, &root_page));
   prefetch_page_l2(root_page);
   CHECK_ERROR_CODE(prefetch_pages_normalized_recurse(context, vol_on, snp_on, from, to, root_page));
 

@@ -247,7 +247,7 @@ ErrorCode  DirectIoFile::write_raw(uint64_t desired_bytes, const void* buffer) {
         << ", total_written=" << total_written << ", desired_bytes=" << desired_bytes
         << ", remaining=" << remaining << ", written_bytes=" << written_bytes
         << ", err=" << assorted::os_error();
-      // TODO(Hideaki) more error codes depending on errno. but mostly it should be disk-full
+      // TASK(Hideaki) more error codes depending on errno. but mostly it should be disk-full
       return kErrorCodeFsWriteFail;
     }
 

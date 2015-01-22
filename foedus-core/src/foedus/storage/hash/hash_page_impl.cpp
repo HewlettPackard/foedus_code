@@ -57,6 +57,7 @@ void HashDataPage::initialize_volatile_page(
   std::memset(this, 0, kPageSize);
   header_.init_volatile(page_id, storage_id, kHashDataPageType);
   set_bin(bin);
+  page_owner_.xct_id_.set(Epoch::kEpochInitialDurable, 0);
   ASSERT_ND(parent);
   if (parent->get_header().get_page_type() == kHashBinPageType) {
     const HashBinPage* parent_casted = reinterpret_cast<const HashBinPage*>(parent);

@@ -60,7 +60,8 @@ class MasstreeComposer final {
 
   ErrorStack compose(const Composer::ComposeArguments& args);
   ErrorStack construct_root(const Composer::ConstructRootArguments& args);
-  bool drop_volatiles(const Composer::DropVolatilesArguments& args);
+  Composer::DropResult  drop_volatiles(const Composer::DropVolatilesArguments& args);
+  void                  drop_root_volatile(const Composer::DropVolatilesArguments& args);
 
  private:
   Engine* const             engine_;
@@ -71,13 +72,14 @@ class MasstreeComposer final {
   ErrorStack check_buddies(const Composer::ConstructRootArguments& args) const;
 
   MasstreePage* resolve_volatile(VolatilePagePointer pointer);
-  bool drop_volatiles_recurse(
+
+  Composer::DropResult drop_volatiles_recurse(
     const Composer::DropVolatilesArguments& args,
     DualPagePointer* pointer);
-  bool drop_volatiles_intermediate(
+  Composer::DropResult drop_volatiles_intermediate(
     const Composer::DropVolatilesArguments& args,
     MasstreeIntermediatePage* page);
-  bool drop_volatiles_border(
+  Composer::DropResult drop_volatiles_border(
     const Composer::DropVolatilesArguments& args,
     MasstreeBorderPage* page);
   bool is_updated_pointer(
@@ -87,6 +89,14 @@ class MasstreeComposer final {
 
   /** used only when "page" is guaranteed to be dropped. */
   void drop_foster_twins(const Composer::DropVolatilesArguments& args, MasstreePage* page);
+  /** Used only from drop_root_volatile. Drop every volatile page. */
+  void drop_all_recurse(
+    const Composer::DropVolatilesArguments& args,
+    DualPagePointer* pointer);
+  /** separated out the core logic for foster-twins which aren't dual pointers. */
+  void drop_all_recurse_page_only(
+    const Composer::DropVolatilesArguments& args,
+    MasstreePage* page);
 };
 
 
@@ -148,7 +158,7 @@ class MasstreeComposeContext {
      * Size of the tmp_boundary_array_.
      * Most likely we don't need this much, but this memory consumtion is negligible anyways.
      */
-    kTmpBoundaryArraySize = 1 << 11,
+    kTmpBoundaryArraySize = kMaxLogGroupSize,
   };
 
   /**
@@ -531,7 +541,8 @@ class MasstreeComposeContext {
 
 
   //// page_boundary_info/install_pointers related
-  void close_level_register_page_boundaries();
+  void refresh_page_boundary_info_variables();
+  ErrorCode close_level_register_page_boundaries();
   void remove_old_page_boundary_info(SnapshotPagePointer page_id, MasstreePage* page);
   PageBoundaryInfo* get_page_boundary_info(snapshot::BufferPosition pos) ALWAYS_INLINE {
     ASSERT_ND(pos <= page_boundary_info_cur_pos_);
@@ -582,10 +593,6 @@ class MasstreeComposeContext {
   const snapshot::SnapshotId snapshot_id_;
   const uint16_t            numa_node_;
   const uint32_t            max_pages_;
-  /** max size of page_boundary_info_. bytes/8 */
-  const snapshot::BufferPosition  page_boundary_info_capacity_;
-  /** maximum number of page_boundary_info_elements_ */
-  const uint32_t            max_page_boundary_info_;
 
   /**
    * Root of first layer, which is the joint point for partitioner and composer.
@@ -598,17 +605,6 @@ class MasstreeComposeContext {
   /** backed by work memory in merge_sort_. Index is level. */
   Page* const       original_base_;
 
-  /**
-   * backed by the snapshot_writer's intermediate page memory.
-   * In this composer, we don't use intermediate page memory. Instead, we use it to store
-   * only minimal information we need later (when we install snapshot page pointers).
-   * Each element is actually of type PageBoundaryInfo, but we must use byte positions to
-   * obtain each element because PageBoundaryInfo does not allow sizeof.
-   */
-  char* const       page_boundary_info_;
-  /** Sorting entries for page_boundary_info_. */
-  PageBoundarySort* const page_boundary_sort_;
-
   // const members up to here.
 
   /**
@@ -617,10 +613,26 @@ class MasstreeComposeContext {
    */
   SnapshotPagePointer       page_id_base_;
 
+  /**
+   * backed by the snapshot_writer's intermediate page memory.
+   * In this composer, we don't use intermediate page memory. Instead, we use it to store
+   * only minimal information we need later (when we install snapshot page pointers).
+   * Each element is actually of type PageBoundaryInfo, but we must use byte positions to
+   * obtain each element because PageBoundaryInfo does not allow sizeof.
+   */
+  char*                     page_boundary_info_;
+  /** Sorting entries for page_boundary_info_. */
+  PageBoundarySort*         page_boundary_sort_;
+
   /** How much we filled in page_boundary_info_. bytes/8. */
   snapshot::BufferPosition  page_boundary_info_cur_pos_;
-  /** number of elements in page_boundary_info_ */
-  uint32_t                  page_boundary_info_elements_;
+  /** number of elements in page_boundary_info_ and page_boundary_sort_ */
+  uint32_t                  page_boundary_elements_;
+
+  /** max size of page_boundary_info_. Unit is bytes/8 */
+  snapshot::BufferPosition  page_boundary_info_capacity_;
+  /** maximum number of page_boundary_info_elements_. Unit is count. */
+  uint32_t                  max_page_boundary_elements_;
 
   /**
    * How many pages we allocated in the main buffer of args_.snapshot_writer.

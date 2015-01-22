@@ -349,7 +349,7 @@ ErrorStack SocManagerPimpl::wait_for_children_module(bool init, ModuleType desir
   uint16_t soc_count = engine_->get_options().thread_.group_count_;
   bool child_as_process = engine_->get_options().soc_.soc_type_ != kChildEmulated;
 
-  // TODO(Hideaki) should be a function in soc manager
+  // TASK(Hideaki) should be a function in soc manager
   // We also check if the child died unexpectedly
   const uint32_t kWarnSleeps = 400;
   for (uint32_t count = 0;; ++count) {
@@ -390,7 +390,7 @@ ErrorStack SocManagerPimpl::wait_for_children_module(bool init, ModuleType desir
       }
       remaining = true;
       if (child_as_process) {
-        // TODO(Hideaki) check child process status with waitpid
+        // TASK(Hideaki) check child process status with waitpid
         if (child_upids_[node] != 0) {
           int status = 0;
           pid_t wait_ret = ::waitpid(child_upids_[node], &status, WNOHANG | __WALL);

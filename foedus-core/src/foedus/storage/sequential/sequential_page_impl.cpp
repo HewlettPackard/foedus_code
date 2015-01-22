@@ -7,7 +7,7 @@
 namespace foedus {
 namespace storage {
 namespace sequential {
-// TODO(Hideaki) we should have stream methods for easy debugging.
+// TASK(Hideaki) we should have stream methods for easy debugging.
 }  // namespace sequential
 }  // namespace storage
 }  // namespace foedus

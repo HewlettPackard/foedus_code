@@ -124,7 +124,7 @@ struct ConstDiv {
 inline void ConstDiv::init(uint32_t d) {
   // this one is inlined just to avoid multiple-definition, not for performance.
   ASSERT_ND(d);
-  d_highest_bits_ = 31 - __builtin_clz(d);  // TODO(Hideaki): non-GCC support
+  d_highest_bits_ = 31 - __builtin_clz(d);  // TASK(Hideaki): non-GCC support
 #ifndef NDEBUG
   d_ = d;
   dummy_ = 0;

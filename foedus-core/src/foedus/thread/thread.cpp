@@ -43,6 +43,19 @@ memory::NumaNodeMemory* Thread::get_node_memory() const {
   return pimpl_->core_memory_->get_node_memory();
 }
 
+uint64_t Thread::get_snapshot_cache_hits() const {
+  return pimpl_->control_block_->stat_snapshot_cache_hits_;
+}
+
+uint64_t Thread::get_snapshot_cache_misses() const {
+  return pimpl_->control_block_->stat_snapshot_cache_misses_;
+}
+
+void Thread::reset_snapshot_cache_counts() const {
+  pimpl_->control_block_->stat_snapshot_cache_hits_ = 0;
+  pimpl_->control_block_->stat_snapshot_cache_misses_ = 0;
+}
+
 xct::Xct&   Thread::get_current_xct()   { return pimpl_->current_xct_; }
 bool        Thread::is_running_xct()    const { return pimpl_->current_xct_.is_active(); }
 
@@ -61,6 +74,12 @@ ErrorCode Thread::find_or_read_a_snapshot_page(
   storage::SnapshotPagePointer page_id,
   storage::Page** out) {
   return pimpl_->find_or_read_a_snapshot_page(page_id, out);
+}
+ErrorCode Thread::find_or_read_snapshot_pages_batch(
+  uint16_t batch_size,
+  const storage::SnapshotPagePointer* page_ids,
+  storage::Page** out) {
+  return pimpl_->find_or_read_snapshot_pages_batch(batch_size, page_ids, out);
 }
 
 ErrorCode Thread::install_a_volatile_page(

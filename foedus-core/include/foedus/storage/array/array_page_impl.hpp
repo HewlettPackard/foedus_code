@@ -60,6 +60,7 @@ class ArrayPage final {
 
   /** Called only when this page is initialized. */
   void                initialize_snapshot_page(
+    Epoch initial_epoch,
     StorageId storage_id,
     SnapshotPagePointer page_id,
     uint16_t payload_size,

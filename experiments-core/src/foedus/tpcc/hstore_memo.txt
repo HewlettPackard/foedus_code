@@ -134,3 +134,395 @@ ant hstore-benchmark -Dproject=tpcc -Dsite.anticache_enable=true -Dsite.anticach
   -Dclient.txnrate=2000 -Dclient.threads_per_host=20 -Dsite.anticache_batching=true \
   -Dhosts="localhost:0:0-7"
 No, it doesn't help. Actually it causes crashes.
+
+
+-- Notes on anti-cache issue (2015 Jan)
+We encountered it back in Nov, but lost the context after 3 months. Let's keep note this time.
+There are two issues.
+ 1. The hang/crash due to buffer overrun after retrieval from anti cache
+ 2. The hang when some transactions retrieves from remote anti cache
+
+1 is solved by the 2MB-buffer fix by Michael. It's NOT pushed to the master, so do not forget to
+apply.
+2 is still unsolved. Root cause not known either. The only reliable workaround so far is to
+disable remote transactions to use anti cache. In the paper we do this. So, only the H-store
+line is remote=0.
+
+
+-- OLAP experiment (2015 Jan)
+cd src/benchmarks/org/voltdb/benchmark/tpcc/
+Open TPCCConstants.java
+MAX_OL_CNT to 500
+Edit FREQUENCY_xxx. STOCK_LEVEL and ORDER_STATUS 50. Others 0.
+**Build clean**. For some reason, ant didn't catch the change at least once... clock skew?
+To make sure, we should edit TPCCLoader.java L798
+
+        LOG.info(String.format("Loading %d warehouses using %d load threads", warehouseIds.size(), m_loadThreads.length));
+        to be
+        LOG.info(String.format("Loading %d warehouses using %d load threads. MAX_OL_CNT=%d", warehouseIds.size(), m_loadThreads.length, TPCCConstants.MAX_OL_CNT));
+
+
+ant clean
+ant build
+
+Examples:
+
+ant hstore-prepare -Dproject=tpcc -Dhosts="localhost:0:0-7"
+
+ant hstore-benchmark -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=512 -Dsite.memory=8192 -Dglobal.memory=2048 \
+  -Dclient.txnrate=2000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-7"
+
+
+ant hstore-benchmark -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=512 -Dsite.memory=25000 -Dglobal.memory=2048 \
+  -Dclient.txnrate=2000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-7"
+
+ Mmm, errors on data loading. probably outofmem. but we can't exceed 32GB oops limit.
+ try small.
+ant hstore-prepare -Dproject=tpcc -Dhosts="localhost:0:0-1"
+ant hstore-benchmark -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=1024 -Dsite.memory=20000 -Dglobal.memory=2048 \
+  -Dclient.txnrate=2000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-1"
+
+wut. even this fails.
+ohh yeah, forgot about this issue:
+  https://github.com/apavlo/h-store/issues/180
+
+mmm, it fails even after this.
+
+[java] 11:59:02,598 WARN  - Hit with RuntimeException from Load Thread 0. Halting the loading process...
+[java] java.lang.RuntimeException: java.lang.RuntimeException: Error when trying load data for 'ORDER_LINE'
+[java] 11:59:02,598 INFO  - Waiting for all threads to clean themselves up
+[java]     at org.voltdb.benchmark.tpcc.TPCCLoader.load(TPCCLoader.java:823)11:59:02,598 INFO  - Finished loading all warehouses
+[java]
+[java]     at edu.brown.api.Loader.runLoop(Loader.java:15)
+[java] 11:59:02,601 ERROR - Unexpected error from worker-000
+[java]     at edu.brown.api.ControlWorker.run(ControlWorker.java:59)
+[java] java.lang.RuntimeException: java.lang.RuntimeException: java.lang.RuntimeException: Error when trying load data for 'ORDER_LINE'Caused by: java.lang.RuntimeException: Error when trying load data for 'ORDER_LINE'
+[java]
+[java]     at edu.brown.api.ControlWorker.run(ControlWorker.java:66)
+[java]     at edu.brown.api.BenchmarkComponent.loadVoltTable(BenchmarkComponent.java:1045)
+[java] Caused by: java.lang.RuntimeException: java.lang.RuntimeException: Error when trying load data for 'ORDER_LINE'
+[java]     at org.voltdb.benchmark.tpcc.TPCCLoader$LoadThread.commitDataTables_VoltDB(TPCCLoader.java:638) at org.voltdb.benchmark.tpcc.TPCCLoader.load(TPCCLoader.java:823)
+[java]
+[java]     at org.voltdb.benchmark.tpcc.TPCCLoader$LoadThread.commitDataTables(TPCCLoader.java:615)
+[java]     at edu.brown.api.Loader.runLoop(Loader.java:15)
+[java]     at org.voltdb.benchmark.tpcc.TPCCLoader$LoadThread.makeWarehouse(TPCCLoader.java:560)   at edu.brown.api.ControlWorker.run(ControlWorker.java:59)
+[java]
+[java]     at org.voltdb.benchmark.tpcc.TPCCLoader$LoadThread.run(TPCCLoader.java:195)Caused by: java.lang.RuntimeException: Error when trying load data for 'ORDER_LINE'
+[java]
+[java] Caused by: org.voltdb.client.ProcCallException: Connection to database host (localhost) was lost before a response was received     at edu.brown.api.BenchmarkComponent.loadVoltTable(BenchmarkComponent.java:1045)
+[java]
+[java]     at org.voltdb.client.ClientImpl.callProcedure(ClientImpl.java:249)      at org.voltdb.benchmark.tpcc.TPCCLoader$LoadThread.commitDataTables_VoltDB(TPCCLoader.java:638)
+[java]
+[java]     at org.voltdb.client.ClientImpl.callProcedure(ClientImpl.java:188)      at org.voltdb.benchmark.tpcc.TPCCLoader$LoadThread.commitDataTables(TPCCLoader.java:615)
+
+
+
+ant hstore-prepare -Dproject=tpcc -Dhosts="localhost:0:0"
+ant hstore-benchmark -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=1024 -Dsite.memory=8192 -Dglobal.memory=2048 \
+  -Dclient.txnrate=2000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0"
+
+
+Ahhh, figured it out. TPCCLoader.java buffers too many rows that cause buffer overflow.
+TPCCLoader.java  makeWarehouse(). add commitDataTables(w_id) in the district loop to flush
+it for each district. and remove the one out of the loop.
+Now it works, but even a single-partition load took 4 minutes.
+
+ant hstore-benchmark -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=1024 -Dsite.memory=1024 -Dglobal.memory=2048 \
+  -Dclient.txnrate=2000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0"
+Okay, this works fine, too. The memory usage on top is around 2.5GB in this case.
+Most memory consumption is in native side, so site.memory doesn't matter much I guess.
+x8 will be 20GB per site.
+
+
+I'm too lazy to make a script file for this experiment.
+Just take note of the command lines.
+
+ant hstore-prepare -Dproject=tpcc -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95"
+
+All experiments in smaug.
+
+
+* Edit src/benchmarks/org/voltdb/benchmark/tpcc/TPCCConstants.java. Slev/Olstatus=50/50
+* Edit TPCCLoader.java  makeWarehouse(). add commitDataTables(w_id).
+* Edit ProcessSetManager.java. Timeout 60/60
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=16384 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m15.r0.log"
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=16384 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m15.r1.log"
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=16384 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m15.r2.log"
+
+* Edit src/benchmarks/org/voltdb/benchmark/tpcc/TPCCConstants.java. MAX_OL_CNT=100
+
+* ant clean
+* ant build
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=16384 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m100.r0.log"
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=16384 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m100.r1.log"
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=16384 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m100.r2.log"
+
+* Edit TPCCConstants.java. MAX_OL_CNT=500
+
+* ant clean
+* ant build
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=16384 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m500.r0.log"
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=16384 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m500.r1.log"
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=16384 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m500.r2.log"
+
+
+- Result summary
+M=15 takes about 30 minutes to load.
+     [java] 13:49:50,724 INFO  - ---------------------------- BENCHMARK LOAD :: TPCC ----------------------------
+     [java] 13:49:50,727 INFO  - Starting TPCC Benchmark Loader - TPCCLoader / ScaleFactor 1.00
+     [java] 13:49:51,762 INFO  - Loading 96 warehouses using 96 load threads
+     [java] 14:16:46,366 INFO  - Finished WAREHOUSE 86 [1/96]
+     ...
+     [java] ======================================== BENCHMARK RESULTS ========================================
+     [java] Execution Time: 60000 ms
+     [java] Transactions:   Total:1204602 / Distributed:0 (0.0%) / SpecExec:0 (0.0%)
+     [java] Throughput:     20076.70 txn/s [min:19882.50 / max:20492.30 / stdev:229.31]
+     [java] Latency:        17.29 ms [min:5.00 / max:2874.00 / stdev:91.89]
+     [java]
+     [java] ----------------------------------------------------------------------------------------------------
+     [java]                          TOTAL EXECUTED     DISTRIBUTED        THROUGHPUT      AVG LATENCY
+     [java]               Delivery:         0 (  0.0%)         0 (  0.0%)      0.00 txn/s         - ms
+     [java]              New Order:         0 (  0.0%)         0 (  0.0%)      0.00 txn/s         - ms
+     [java]            Stock Level:    614310 ( 51.0%)         0 (  0.0%)  10238.50 txn/s     17.60 ms
+     [java]                Payment:         0 (  0.0%)         0 (  0.0%)      0.00 txn/s         - ms
+     [java]        Reset Warehouse:         0 (  0.0%)         0 (  0.0%)      0.00 txn/s         - ms
+     [java]           Order Status:    590292 ( 49.0%)         0 (  0.0%)   9838.20 txn/s     16.97 ms
+     [java] ====================================================================================================
+     [java] Client Response Statuses:
+     [java]    OK                   [1204592 - 100.0%] **************************************************
+     [java] ====================================================================================================
+     [java]
+
+wait, so M=100/500 would take... 200 minutes and 1000 minutes!?
+Actually, that's even best case. Probably something gets slower super-linearly.
+I hate you, H-store. Revision deadline two weeks to go.
+
+Umm, getting this error
+
+[kimurhid@smaug-1 h-store]$ more obj/logs/sites/site-06-localhost.log
+# 2015-01-20T17:11:19.690.0
+Buildfile: /dev/shm/h-store/h-store/build.xml
+hstore-site:
+17:11:50,226 [H06-main] (HStoreCoordinator.java:553) WARN  - Failed to connect to remote sites. Going to try again...
+java.lang.RuntimeException
+        at edu.brown.hstore.HStoreCoordinator.initConnections(HStoreCoordinator.java:561)
+        at edu.brown.hstore.HStoreCoordinator.start(HStoreCoordinator.java:390)
+        at edu.brown.hstore.HStoreSite.init(HStoreSite.java:685)
+        at edu.brown.hstore.HStoreSite.run(HStoreSite.java:1476)
+        at edu.brown.hstore.HStore.main(HStore.java:266)
+
+site.network_startup_wait. This seems it. Let's increase it (default 15000).
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=16384 -Dsite.network_startup_wait=60000\
+  -Dglobal.memory=4096 -Dclient.txnrate=1000 -Dclient.threads_per_host=20 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m15.r1.log"
+
+Jan 21. Reran with 8 sites. This time does not crash.
+Further increased ProcessSetManager waits to 10 minutes.
+Let's increase site.network_startup_wait, too.
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=16384 -Dsite.network_startup_wait=600000\
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79;localhost:10:80-87;localhost:11:88-95" &> "hstore_olap.m15.r1.log"
+
+ggrr, even THIS fails after 10 minutes. I now don't think it's just an issue of too short wait.
+Result of jstack while waiting.
+
+[kimurhid@smaug-1 ~]$ jstack 309587
+2015-01-21 11:14:23
+Full thread dump OpenJDK 64-Bit Server VM (24.51-b03 mixed mode):
+
+"Attach Listener" daemon prio=10 tid=0x00007f0e94001000 nid=0x4e956 waiting on condition [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"Thread-45" daemon prio=10 tid=0x00007f141478e000 nid=0x4bb0b runnable [0x00007f0f5befd000]
+   java.lang.Thread.State: RUNNABLE
+        at java.lang.Thread.yield(Native Method)
+        at org.voltdb.processtools.ProcessSetManager$StreamWatcher.run(ProcessSetManager.java:266)
+
+"Thread-44" daemon prio=10 tid=0x00007f141478c000 nid=0x4bb09 runnable [0x00007f0f5bffe000]
+   java.lang.Thread.State: RUNNABLE
+        at java.lang.Thread.yield(Native Method)
+        at org.voltdb.processtools.ProcessSetManager$StreamWatcher.run(ProcessSetManager.java:266)
+
+[many of this. probably one for each site]
+"Thread-43" daemon prio=10 tid=0x00007f1414788000 nid=0x4bb04 in Object.wait() [0x00007f0f601b5000]
+   java.lang.Thread.State: WAITING (on object monitor)
+        at java.lang.Object.wait(Native Method)
+        - waiting on <0x00000007800222d8> (a java.lang.UNIXProcess)
+        at java.lang.Object.wait(Object.java:503)
+        at java.lang.UNIXProcess.waitFor(UNIXProcess.java:210)
+        - locked <0x00000007800222d8> (a java.lang.UNIXProcess)
+        at org.voltdb.processtools.ProcessSetManager$ProcessPoller.run(ProcessSetManager.java:142)
+
+[many of this. probably one for each site]
+"Thread-42" daemon prio=10 tid=0x00007f1414785800 nid=0x4bb03 runnable [0x00007f0f602b6000]
+   java.lang.Thread.State: RUNNABLE
+        at java.io.FileInputStream.readBytes(Native Method)
+        at java.io.FileInputStream.read(FileInputStream.java:272)
+        at java.io.BufferedInputStream.read1(BufferedInputStream.java:273)
+        at java.io.BufferedInputStream.read(BufferedInputStream.java:334)
+        - locked <0x000000078001a488> (a java.lang.UNIXProcess$ProcessPipeInputStream)
+        at sun.nio.cs.StreamDecoder.readBytes(StreamDecoder.java:283)
+        at sun.nio.cs.StreamDecoder.implRead(StreamDecoder.java:325)
+        at sun.nio.cs.StreamDecoder.read(StreamDecoder.java:177)
+        - locked <0x000000078001a510> (a java.io.InputStreamReader)
+        at java.io.InputStreamReader.read(InputStreamReader.java:184)
+        at java.io.BufferedReader.fill(BufferedReader.java:154)
+        at java.io.BufferedReader.readLine(BufferedReader.java:317)
+        - locked <0x000000078001a510> (a java.io.InputStreamReader)
+        at java.io.BufferedReader.readLine(BufferedReader.java:382)
+        at org.voltdb.processtools.ProcessSetManager$StreamWatcher.run(ProcessSetManager.java:258)
+
+[many of this. probably one for each site]
+"process reaper" daemon prio=10 tid=0x00007f1414781800 nid=0x4bb00 runnable [0x00007f0f603f0000]
+   java.lang.Thread.State: RUNNABLE
+        at java.lang.UNIXProcess.waitForProcessExit(Native Method)
+        at java.lang.UNIXProcess.access$200(UNIXProcess.java:54)
+        at java.lang.UNIXProcess$3.run(UNIXProcess.java:174)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:615)
+        at java.lang.Thread.run(Thread.java:744)
+
+
+"Thread-4" daemon prio=10 tid=0x00007f1414773000 nid=0x4bac2 waiting on condition [0x00007f0f68ea8000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+        at java.lang.Thread.sleep(Native Method)
+        at org.voltdb.processtools.ProcessSetManager$ProcessSetPoller.run(ProcessSetManager.java:175)
+
+"logging" daemon prio=10 tid=0x00007f141460c800 nid=0x4ba8f waiting on condition [0x00007f0f692ac000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+        at java.lang.Thread.sleep(Native Method)
+        at edu.brown.logging.LoggerUtil$LoggerCheck.run(LoggerUtil.java:125)
+        at java.lang.Thread.run(Thread.java:744)
+
+"Service Thread" daemon prio=10 tid=0x00007f1414336800 nid=0x4ba8d runnable [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"C2 CompilerThread1" daemon prio=10 tid=0x00007f1414334800 nid=0x4ba8c waiting on condition [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"C2 CompilerThread0" daemon prio=10 tid=0x00007f1414331800 nid=0x4ba8b waiting on condition [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"Signal Dispatcher" daemon prio=10 tid=0x00007f141432f800 nid=0x4ba8a runnable [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"Finalizer" daemon prio=10 tid=0x00007f141430c000 nid=0x4ba89 in Object.wait() [0x00007f0f69cdb000]
+   java.lang.Thread.State: WAITING (on object monitor)
+        at java.lang.Object.wait(Native Method)
+        - waiting on <0x0000000780020fe8> (a java.lang.ref.ReferenceQueue$Lock)
+        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:135)
+        - locked <0x0000000780020fe8> (a java.lang.ref.ReferenceQueue$Lock)
+        at java.lang.ref.ReferenceQueue.remove(ReferenceQueue.java:151)
+        at java.lang.ref.Finalizer$FinalizerThread.run(Finalizer.java:189)
+
+"Reference Handler" daemon prio=10 tid=0x00007f141430a000 nid=0x4ba88 in Object.wait() [0x00007f0f69ddc000]
+   java.lang.Thread.State: WAITING (on object monitor)
+        at java.lang.Object.wait(Native Method)
+        - waiting on <0x0000000780020a48> (a java.lang.ref.Reference$Lock)
+        at java.lang.Object.wait(Object.java:503)
+        at java.lang.ref.Reference$ReferenceHandler.run(Reference.java:133)
+        - locked <0x0000000780020a48> (a java.lang.ref.Reference$Lock)
+
+"main" prio=10 tid=0x00007f1414012800 nid=0x4b957 waiting on condition [0x00007f141c145000]
+   java.lang.Thread.State: WAITING (parking)
+        at sun.misc.Unsafe.park(Native Method)
+        - parking to wait for  <0x00000007800b6920> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:186)
+        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2043)
+        at java.util.concurrent.LinkedBlockingQueue.take(LinkedBlockingQueue.java:442)
+        at org.voltdb.processtools.ProcessSetManager.nextBlocking(ProcessSetManager.java:416)
+        at edu.brown.api.BenchmarkController.startSites(BenchmarkController.java:626)
+        at edu.brown.api.BenchmarkController.setupBenchmark(BenchmarkController.java:504)
+        at edu.brown.api.BenchmarkController.main(BenchmarkController.java:2228)
+
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=16384 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63" &> "hstore_olap.m500.r0.log"
+
+# NVM version
+ant hstore-prepare -Dproject=tpcc -Devictable="HISTORY,CUSTOMER,ORDERS,ORDER_LINE" \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63"
+
+ant hstore-benchmark -Dproject=tpcc -Dsite.anticache_enable=true -Dsite.anticache_dir=/testnvm/anticache \
+  -Dsite.commandlog_enable=true -Dsite.commandlog_dir="/testnvm/commandlog/" \
+  -Dsite.commandlog_timeout=500 -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=16384 \
+  -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63" &> "hstore_olap.m500.r1.log"
+
+sudo umount /testnvm
+sudo mount -t nvmfs -o rd_delay_ns_fixed=0,wr_delay_ns_fixed=0,rd_delay_ns_per_kb=0,wr_delay_ns_per_kb=0,cpu_freq_mhz=2800,size=1000000m nvmfs /testnvm
+mkdir /testnvm/anticache;mkdir /testnvm/commandlog
+
+ant hstore-benchmark -Dproject=tpcc -Dsite.anticache_enable=true -Dsite.anticache_dir=/testnvm/anticache \
+  -Dsite.anticache_threshold_mb=7500 \
+  -Dsite.commandlog_enable=true -Dsite.commandlog_dir="/testnvm/commandlog/" \
+  -Dsite.commandlog_timeout=500 -Dsite.jvm_asserts=false -Dclient.blocking=false \
+  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=30000 -Dglobal.memory=2048 \
+  -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63" &> "hstore_olap.m500.r1.log"
+
+come on, crashes again.

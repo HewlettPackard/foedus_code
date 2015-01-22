@@ -317,7 +317,7 @@ inline ErrorCode Xct::add_to_pointer_set(
     return kErrorCodeOk;
   }
 
-  // TODO(Hideaki) even though pointer set should be small, we don't want sequential search
+  // TASK(Hideaki) even though pointer set should be small, we don't want sequential search
   // everytime. but insertion sort requires shifting. mmm.
   for (uint32_t i = 0; i < pointer_set_size_; ++i) {
     if (pointer_set_[i].address_ == pointer_address) {
@@ -375,6 +375,7 @@ inline ErrorCode Xct::add_to_read_set(
   LockableXctId* owner_id_address) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
+  ASSERT_ND(observed_owner_id.is_valid());
   if (isolation_level_ != kSerializable) {
     return kErrorCodeOk;
   }
@@ -440,6 +441,7 @@ inline ErrorCode Xct::add_to_read_and_write_set(
   LockableXctId* owner_id_address,
   char* payload_address,
   log::RecordLogType* log_entry) {
+  ASSERT_ND(observed_owner_id.is_valid());
   WriteXctAccess* write = write_set_ + write_set_size_;
   CHECK_ERROR_CODE(add_to_write_set(storage_id, owner_id_address, payload_address, log_entry));
   ASSERT_ND(write->log_entry_ == log_entry);

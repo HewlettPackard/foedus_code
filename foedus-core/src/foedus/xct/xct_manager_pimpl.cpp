@@ -240,13 +240,19 @@ void XctManagerPimpl::advance_current_global_epoch() {
   LOG(INFO) << "epoch advanced. current_global_epoch_=" << get_current_global_epoch();
 }
 
-void XctManagerPimpl::wait_for_current_global_epoch(Epoch target_epoch) {
+void XctManagerPimpl::wait_for_current_global_epoch(Epoch target_epoch, int64_t wait_microseconds) {
   // this method doesn't aggressively wake up the epoch-advance thread. it just waits.
   set_requested_global_epoch(target_epoch);
   while (get_current_global_epoch() < target_epoch) {
     soc::SharedMutexScope scope(control_block_->current_global_epoch_advanced_.get_mutex());
     if (get_current_global_epoch() < target_epoch) {
-      control_block_->current_global_epoch_advanced_.wait(&scope);
+      if (wait_microseconds < 0) {
+        control_block_->current_global_epoch_advanced_.wait(&scope);
+      } else {
+        uint64_t wait_nanosec = wait_microseconds * 1000ULL;
+        control_block_->current_global_epoch_advanced_.timedwait(&scope, wait_nanosec);
+        return;
+      }
     }
   }
 }
@@ -447,7 +453,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
     // if that happens, we retry.
     // we must not do lock-then-track to avoid deadlocks.
     for (uint32_t i = 0; i < write_set_size; ++i) {
-      // TODO(Hideaki) if this happens often, this might be too frequent virtual method call.
+      // TASK(Hideaki) if this happens often, this might be too frequent virtual method call.
       // maybe a batched version of this? I'm not sure if this is that often, though.
       WriteXctAccess* entry = write_set + i;
       if (UNLIKELY(entry->owner_id_address_->needs_track_moved())) {
@@ -567,7 +573,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
 
   DVLOG(1) << *context << "Read-only higest epoch observed: " << *commit_epoch;
   if (!commit_epoch->is_valid()) {
-    DLOG(INFO) << *context
+    DVLOG(1) << *context
       << " Read-only higest epoch was empty. The transaction has no read set??";
     // In this case, set already-durable epoch. We don't have to use atomic version because
     // it's just conservatively telling how long it should wait.

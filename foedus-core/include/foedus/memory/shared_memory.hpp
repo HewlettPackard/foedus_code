@@ -179,8 +179,6 @@ class SharedMemory CXX11_FINAL {
   pid_t       owner_pid_;
   /** Allocated memory block. */
   char*       block_;
-
-  void        generate_shmkey();
 };
 
 }  // namespace memory

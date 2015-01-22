@@ -145,14 +145,14 @@ LocalProcId ProcManagerPimpl::find_by_name(const ProcName& name, SharedData* sha
 LocalProcId ProcManagerPimpl::insert(const ProcAndName& proc_and_name, SharedData* shared_data) {
   soc::SharedMutexScope lock_scope(&shared_data->control_block_->lock_);
   LocalProcId found = find_by_name(proc_and_name.first, shared_data);
-  // TODO(Hideaki) max_proc_count check.
+  // TASK(Hideaki) max_proc_count check.
   if (found != kLocalProcInvalid) {
     return kLocalProcInvalid;
   }
   LocalProcId new_id = shared_data->control_block_->count_;
   shared_data->procs_[new_id] = proc_and_name;
   ++shared_data->control_block_->count_;
-  // TODO(Hideaki) insert-sort to name_sort
+  // TASK(Hideaki) insert-sort to name_sort
   return new_id;
 }
 

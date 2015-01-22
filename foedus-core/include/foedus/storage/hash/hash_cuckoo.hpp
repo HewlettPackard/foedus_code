@@ -311,7 +311,7 @@ inline void HashCombo::init(uint64_t hash, HashTag tag, uint8_t bin_bits) {
   hash_ = hash;
   tag_ = tag;
   bin_bits_ = bin_bits;
-  uint64_t reversed = __builtin_bswap64(hash_);  // TODO(Hideaki) non-GCC
+  uint64_t reversed = __builtin_bswap64(hash_);  // TASK(Hideaki) non-GCC
   bins_[0] = fold_bits(reversed, bin_bits);
   bins_[1] = bins_[0] ^ fold_bits(tag_to_randomizer(tag_), bin_bits);
 

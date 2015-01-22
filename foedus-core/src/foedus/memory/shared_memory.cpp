@@ -22,6 +22,7 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/debugging/rdtsc.hpp"
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/memory/memory_id.hpp"
 
@@ -46,10 +47,6 @@ SharedMemory& SharedMemory::operator=(SharedMemory &&other) noexcept {
   return *this;
 }
 
-void SharedMemory::generate_shmkey() {
-  shmkey_ = ::ftok(meta_path_.c_str(), 42);
-}
-
 bool SharedMemory::is_owned() const {
   return owner_pid_ != 0 && owner_pid_ == ::getpid();
 }
@@ -72,17 +69,32 @@ ErrorStack SharedMemory::alloc(const std::string& meta_path, uint64_t size, int 
     std::string msg = std::string("Failed to create shared memory meta file:") + meta_path;
     return ERROR_STACK_MSG(kErrorCodeSocShmAllocFailed, msg.c_str());
   }
-  // Write out the size/node of the shared memory in the meta file
+
+  // randomly generate shmkey. We initially used ftok(), but it occasionally gives lots of
+  // conflicts for some reason, esp on aarch64. we just need some random number, so here
+  // we use pid and CPU cycle.
+  pid_t the_pid = ::getpid();
+  uint64_t key64 = debugging::get_rdtsc() ^ the_pid;
+  key_t the_key = (key64 >> 32) ^ key64;
+
+  if (the_key == 0) {
+    // rdtsc and getpid not working??
+    std::string msg = std::string("Dubious shmkey");
+    return ERROR_STACK_MSG(kErrorCodeSocShmAllocFailed, msg.c_str());
+  }
+
+  // Write out the size/node/shmkey of the shared memory in the meta file
   file.write(reinterpret_cast<char*>(&size), sizeof(size));
   file.write(reinterpret_cast<char*>(&numa_node), sizeof(numa_node));
+  file.write(reinterpret_cast<char*>(&the_key), sizeof(key_t));
   file.flush();
   file.close();
 
   size_ = size;
   numa_node_ = numa_node;
-  owner_pid_ = ::getpid();
+  owner_pid_ = the_pid;
   meta_path_ = meta_path;
-  generate_shmkey();
+  shmkey_ = the_key;
 
   // if this is running under valgrind, we have to avoid using hugepages due to a bug in valgrind.
   // When we are running on valgrind, we don't care performance anyway. So shouldn't matter.
@@ -137,8 +149,10 @@ void SharedMemory::attach(const std::string& meta_path) {
   }
   uint64_t shared_size = 0;
   int numa_node = 0;
+  key_t the_key = 0;
   file.read(reinterpret_cast<char*>(&shared_size), sizeof(shared_size));
   file.read(reinterpret_cast<char*>(&numa_node), sizeof(numa_node));
+  file.read(reinterpret_cast<char*>(&the_key), sizeof(key_t));
   file.close();
 
   // we always use hugepages, so it's at least 2MB
@@ -147,11 +161,15 @@ void SharedMemory::attach(const std::string& meta_path) {
       << ". It looks like:" << shared_size << std::endl;
     return;
   }
+  if (the_key == 0) {
+    std::cerr << "Failed to read shmkey from meta file:" << meta_path << std::endl;
+    return;
+  }
 
   size_ = shared_size;
   numa_node_ = numa_node;
   meta_path_ = meta_path;
-  generate_shmkey();
+  shmkey_ = the_key;
   owner_pid_ = 0;
 
   shmid_ = ::shmget(shmkey_, size_, 0);

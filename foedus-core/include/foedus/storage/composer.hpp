@@ -154,11 +154,44 @@ class Composer CXX11_FINAL {
      */
     void drop(Engine* engine, VolatilePagePointer pointer) const;
   };
+  /** Retrun value of drop_volatiles() */
+  struct DropResult {
+    explicit DropResult(const DropVolatilesArguments& args) {
+      max_observed_ = args.snapshot_.valid_until_epoch_;  // min value to make store_max easier.
+      dropped_all_ = true;  // "so far". zero-inspected, thus zero-failure.
+    }
+    inline void combine(const DropResult& other) {
+      max_observed_.store_max(other.max_observed_);
+      dropped_all_ &= other.dropped_all_;
+    }
+
+    inline void on_rec_observed(Epoch epoch) {
+      if (epoch > max_observed_) {
+        max_observed_ = epoch;
+        dropped_all_ = false;
+      }
+    }
+
+    friend std::ostream&    operator<<(std::ostream& o, const DropResult& v);
+
+    /**
+     * the largest Epoch it observed recursively. The page is dropped only if the return value
+     * is ==args.snapshot_.valid_until_epoch_. If some record under this contains larger (newer)
+     * epoch, it returns that epoch. For ease of store_max, the returned epoch
+     * is adjusted to args.snapshot_.valid_until_epoch_ if it's smaller than that.
+     * Note that not all volatile pages might be dropped even if this is equal to
+     * snapshot_.valid_until_epoch_ (eg no new modifications, but keep-volatile policy
+     * told us to keep the volatile page).
+     * Use dropped_all_ for that purpose.
+     */
+    Epoch max_observed_;
+    /** Whether all volatile pages under the page was dropped. */
+    bool  dropped_all_;
+    bool  padding_[3];
+  };
 
   /**
    * @brief Drops volatile pages that have not been modified since the snapshotted epoch.
-   * @return whether this thread dropped _all_ volatile pages. We can drop the root volatile page
-   * only when all threads return true.
    * @details
    * This is called after pausing transaction executions, so this method does not worry about
    * concurrent reads/writes while running this. Otherwise this method becomes
@@ -168,7 +201,15 @@ class Composer CXX11_FINAL {
    * that were not logically modified. In long run, it will be done at next snapshot,
    * so it's okay to be opportunistic.
    */
-  bool drop_volatiles(const DropVolatilesArguments& args);
+  DropResult drop_volatiles(const DropVolatilesArguments& args);
+
+  /**
+   * This is additionally called when no partitions observed any new modifications.
+   * Only in this case, we can drop the root volatile page. Further, we can also drop
+   * all the descendent volatile pages safely in this case.
+   * Remember these methods are called within xct pausing.
+   */
+  void drop_root_volatile(const DropVolatilesArguments& args);
 
   friend std::ostream&    operator<<(std::ostream& o, const Composer& v);
 

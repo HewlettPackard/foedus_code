@@ -80,6 +80,8 @@ class TpccClientTask {
     Wid to_wid_;
     uint16_t neworder_remote_percent_;
     uint16_t payment_remote_percent_;
+    bool olap_mode_;
+    bool dirty_read_mode_;
   };
   struct Outputs {
     /** How many transactions processed so far*/
@@ -91,12 +93,17 @@ class TpccClientTask {
     /** this is usually up to 1 because we stop execution as soon as this happens */
     uint32_t unexpected_aborts_;
     uint32_t largereadset_aborts_;
+
+    uint64_t snapshot_cache_hits_;
+    uint64_t snapshot_cache_misses_;
   };
   TpccClientTask(const Inputs& inputs, Outputs* outputs)
     : worker_id_(inputs.worker_id_),
       total_warehouses_(inputs.total_warehouses_),
       from_wid_(inputs.from_wid_),
       to_wid_(inputs.to_wid_),
+      olap_mode_(inputs.olap_mode_),
+      dirty_read_mode_(inputs.dirty_read_mode_),
       outputs_(outputs),
       neworder_remote_percent_(inputs.neworder_remote_percent_),
       payment_remote_percent_(inputs.payment_remote_percent_),
@@ -106,6 +113,8 @@ class TpccClientTask {
     outputs_->race_aborts_ = 0;
     outputs_->unexpected_aborts_ = 0;
     outputs_->largereadset_aborts_ = 0;
+    tmp_sids_ = nullptr;
+    tmp_quantities_ = nullptr;
 //    std::memset(stat_wids_, 0, sizeof(stat_wids_));
 //    std::memset(stat_dids_, 0, sizeof(stat_dids_));
   }
@@ -148,6 +157,12 @@ class TpccClientTask {
   /** exclusive end of "home" wid */
   const Wid to_wid_;
 
+  /** Set to true only when compiled and run in OLAP_MODE */
+  const bool olap_mode_;
+
+  /** Set to true only when compiled and run in OLAP_MODE and also given dirty_read=true */
+  const bool dirty_read_mode_;
+
   TpccClientChannel* channel_;
 
   TpccStorages      storages_;
@@ -179,9 +194,17 @@ class TpccClientTask {
   /** Updates timestring_ only per second. */
   uint64_t    previous_timestring_update_;
 
+  char        ctime_buffer_[64];
+
   assorted::FixedString<28> timestring_;
 
   Cid     tmp_cids_[kMaxCidsPerLname];
+
+  /** used in stock_level*/
+  storage::array::ArrayOffset* tmp_sids_;
+  uint32_t* tmp_quantities_;
+  memory::AlignedMemory tmp_sids_memory_;
+  memory::AlignedMemory tmp_quantities_memory_;
 
   // For neworder. these are for showing results on stdout (part of the spec, kind of)
   char        output_bg_[kMaxOlCount];

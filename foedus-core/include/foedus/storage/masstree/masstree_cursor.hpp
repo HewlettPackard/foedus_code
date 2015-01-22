@@ -293,7 +293,7 @@ class MasstreeCursor CXX11_FINAL {
   ErrorCode proceed_deeper_intermediate();
   void      proceed_route_intermediate_rebase_separator();
 
-  MasstreePage* resolve(VolatilePagePointer ptr) const;
+  MasstreePage* resolve_volatile(VolatilePagePointer ptr) const;
 
   void assert_modify() const ALWAYS_INLINE {
 #ifndef NDEBUG

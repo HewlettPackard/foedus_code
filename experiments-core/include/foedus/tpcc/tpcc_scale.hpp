@@ -34,21 +34,38 @@ const uint32_t kCustomers = 3000U;
 
 /** Number of orders per district. Does grow dynamically. */
 const uint32_t kOrders = 3000U;
+
+#ifndef OLAP_MODE  // see cmake script for tpcc_olap
 /** Max number of orders per district */
 const uint32_t kMaxOrders = 1U << 31;
+const uint16_t kMaxOlCount = 15U;
+#else  // OLAP_MODE
+// in OLAP mode, many more orderlines per order.
+// tested with at least 1500U. But, h-store doesn't handle that many due to OOPS 32GB limit,
+// so we might use smaller setting for comparison.
+const uint32_t kMaxOrders = 1U << 20;
+const uint16_t kMaxOlCount = 500U;
+#endif  // OLAP_MODE
 
 /** Number of variations of last names. Does not grow dynamically. */
 const uint32_t kLnames = 1000U;
 
 const uint8_t kMinOlCount = 5U;
-const uint8_t kMaxOlCount = 15U;
-const uint8_t kOlMax = kMaxOlCount + 1U;
+const uint16_t kOlMax = kMaxOlCount + 1U;
 
+#ifndef OLAP_MODE  // see cmake script for tpcc_olap
 // See Sec 5.2.2 of the TPCC spec
 const uint8_t kXctNewOrderPercent = 45U;
 const uint8_t kXctPaymentPercent = 43U + kXctNewOrderPercent;
 const uint8_t kXctOrderStatusPercent = 4U + kXctPaymentPercent;
 const uint8_t kXctDelieveryPercent = 4U + kXctOrderStatusPercent;
+#else  // OLAP_MODE
+const uint8_t kXctNewOrderPercent = 0U;
+const uint8_t kXctPaymentPercent = 0U + kXctNewOrderPercent;
+// const uint8_t kXctOrderStatusPercent = 50U + kXctPaymentPercent;
+const uint8_t kXctOrderStatusPercent = 100U + kXctPaymentPercent;
+const uint8_t kXctDelieveryPercent = 0U + kXctOrderStatusPercent;
+#endif  // OLAP_MODE
 // remainings are stock-level xct.
 
 /**

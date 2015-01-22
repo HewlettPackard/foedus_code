@@ -45,14 +45,14 @@ DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child pro
 DEFINE_bool(take_snapshot, true, "Whether to run a log gleaner after loading data.");
 DEFINE_bool(preload_snapshot_pages, false, "Pre-fetch snapshot pages before execution.");
 DEFINE_bool(disable_snapshot_cache, false, "Disable snapshot cache and read from file always.");
-DEFINE_string(nvm_folder, "/testnvm", "Full path of the device representing NVM.");
+DEFINE_string(nvm_folder, "/dev/shm", "Full path of the device representing NVM.");
 DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) worker threads in child"
     " processes on replicated binaries. This is required to scale up to 16 sockets.");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
 DEFINE_int32(volatile_pool_size, 6, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_int32(snapshot_pool_size, 4096, "Size of snapshot memory pool per NUMA node in MB.");
-DEFINE_int32(reducer_buffer_size, 4, "Size of reducer's buffer per NUMA node in GB.");
+DEFINE_int32(reducer_buffer_size, 8, "Size of reducer's buffer per NUMA node in GB.");
 DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 0, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
@@ -62,7 +62,7 @@ DEFINE_int32(payment_remote_percent, 0, "Percent of each payment that is inserte
   " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
-DEFINE_int32(thread_per_node, 4, "Number of threads per NUMA node. 0 uses logical count");
+DEFINE_int32(thread_per_node, 2, "Number of threads per NUMA node. 0 uses logical count");
 DEFINE_int32(numa_nodes, 2, "Number of NUMA nodes. 0 uses physical count");
 DEFINE_bool(use_numa_alloc, true, "Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode()"
   " to allocate memories. If false, we use usual posix_memalign() instead");
@@ -73,8 +73,13 @@ DEFINE_bool(mmap_hugepages, false, "Whether to use mmap for 1GB hugepages."
 DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
-DEFINE_int32(warehouses, 8, "Number of warehouses.");
+DEFINE_int32(warehouses, 4, "Number of warehouses.");
 DEFINE_int64(duration_micro, 1000000, "Duration of benchmark in microseconds.");
+
+#ifdef OLAP_MODE
+DEFINE_bool(dirty_read, false, "[Experimental] Whether to use dirty-read isolation level."
+  " Can be used only in OLAP_MODE.");
+#endif  // OLAP_MODE
 
 TpccDriver::Result TpccDriver::run() {
   const EngineOptions& options = engine_->get_options();
@@ -82,6 +87,14 @@ TpccDriver::Result TpccDriver::run() {
   assign_wids();
   assign_iids();
 
+#ifndef OLAP_MODE  // see cmake script for tpcc_olap
+  LOG(INFO) << "=========== Default TPC-C mode! ===========";
+#else  // OLAP_MODE
+  LOG(INFO) << "=========== OLAP TPC-C mode! ===========";
+  if (FLAGS_dirty_read) {
+    LOG(INFO) << "=========== Dirty Read mode! ===========";
+  }
+#endif  // OLAP_MODE
   {
     // first, create empty tables. this is done in single thread
     ErrorStack create_result = create_all(engine_, FLAGS_warehouses);
@@ -97,7 +110,7 @@ TpccDriver::Result TpccDriver::run() {
     // Initialize timestamp (for date columns)
     time_t t_clock;
     ::time(&t_clock);
-    const char* timestamp = ::ctime(&t_clock);  // NOLINT(runtime/threadsafe_fn) no race here
+    const char* timestamp = ::ctime_r(&t_clock, ctime_buffer_);
     ASSERT_ND(timestamp);
 
     // then, load data into the tables.
@@ -127,8 +140,13 @@ TpccDriver::Result TpccDriver::run() {
       }
     }
 
+#ifndef OLAP_MODE
     const uint64_t kMaxWaitMs = 60 * 1000;
     const uint64_t kIntervalMs = 10;
+#else  // OLAP_MODE
+    const uint64_t kMaxWaitMs = 1000 * 1000;
+    const uint64_t kIntervalMs = 100;
+#endif  // OLAP_MODE
     uint64_t wait_count = 0;
     for (uint16_t i = 0; i < sessions.size();) {
       assorted::memory_fence_acquire();
@@ -235,6 +253,13 @@ TpccDriver::Result TpccDriver::run() {
       inputs.to_wid_ = to_wids_[global_ordinal];
       inputs.neworder_remote_percent_ = FLAGS_neworder_remote_percent;
       inputs.payment_remote_percent_ = FLAGS_payment_remote_percent;
+#ifndef OLAP_MODE  // see cmake script for tpcc_olap
+      inputs.olap_mode_ = false;
+      inputs.dirty_read_mode_ = false;
+#else  // OLAP_MODE
+      inputs.olap_mode_ = true;
+      inputs.dirty_read_mode_ = FLAGS_dirty_read;
+#endif  // OLAP_MODE
       thread::ImpersonateSession session;
       bool ret = thread_pool->impersonate_on_numa_node(
         node,
@@ -287,6 +312,8 @@ TpccDriver::Result TpccDriver::run() {
       result.unexpected_aborts_ += output->unexpected_aborts_;
       result.largereadset_aborts_ += output->largereadset_aborts_;
       result.user_requested_aborts_ += output->user_requested_aborts_;
+      result.snapshot_cache_hits_ += output->snapshot_cache_hits_;
+      result.snapshot_cache_misses_ += output->snapshot_cache_misses_;
     }
     LOG(INFO) << "Intermediate report after " << result.duration_sec_ << " sec";
     LOG(INFO) << result;
@@ -316,11 +343,15 @@ TpccDriver::Result TpccDriver::run() {
     result.workers_[i].unexpected_aborts_ = output->unexpected_aborts_;
     result.workers_[i].largereadset_aborts_ = output->largereadset_aborts_;
     result.workers_[i].user_requested_aborts_ = output->user_requested_aborts_;
+    result.workers_[i].snapshot_cache_hits_ = output->snapshot_cache_hits_;
+    result.workers_[i].snapshot_cache_misses_ = output->snapshot_cache_misses_;
     result.processed_ += output->processed_;
     result.race_aborts_ += output->race_aborts_;
     result.unexpected_aborts_ += output->unexpected_aborts_;
     result.largereadset_aborts_ += output->largereadset_aborts_;
     result.user_requested_aborts_ += output->user_requested_aborts_;
+    result.snapshot_cache_hits_ += output->snapshot_cache_hits_;
+    result.snapshot_cache_misses_ += output->snapshot_cache_misses_;
   }
   LOG(INFO) << "Shutting down...";
 
@@ -509,10 +540,15 @@ int driver_main(int argc, char **argv) {
 
   options.log_.log_buffer_kb_ = FLAGS_log_buffer_mb << 10;
   std::cout << "log_buffer_mb=" << FLAGS_log_buffer_mb << "MB per thread" << std::endl;
-  options.log_.log_file_size_mb_ = 1 << 10;
+  options.log_.log_file_size_mb_ = 1 << 15;
   std::cout << "volatile_pool_size=" << FLAGS_volatile_pool_size << "GB per NUMA node" << std::endl;
   options.memory_.page_pool_size_mb_per_node_ = (FLAGS_volatile_pool_size) << 10;
-  options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 10;
+
+#ifdef OLAP_MODE
+  // then we need larger read/write set buffer for each transaction
+  options.xct_.max_read_set_size_ = 1U << 17;
+  options.xct_.max_write_set_size_ = 1U << 15;
+#endif  // OLAP_MODE
 
   if (FLAGS_thread_per_node != 0) {
     std::cout << "thread_per_node=" << FLAGS_thread_per_node << std::endl;
@@ -527,7 +563,6 @@ int driver_main(int argc, char **argv) {
   if (FLAGS_single_thread_test) {
     FLAGS_warehouses = 1;
     options.log_.log_buffer_kb_ = 1 << 16;
-    options.log_.log_file_size_mb_ = 1 << 10;
     options.log_.loggers_per_node_ = 1;
     options.memory_.page_pool_size_mb_per_node_ = 1 << 12;
     options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 12;
@@ -594,8 +629,10 @@ std::ostream& operator<<(std::ostream& o, const TpccDriver::Result& v) {
     << "<user_requested_aborts_>" << v.user_requested_aborts_ << "</user_requested_aborts_>"
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
     << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"
-    << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>";
-  o << "</total_result>";
+    << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>"
+    << "<snapshot_cache_hits_>" << v.snapshot_cache_hits_ << "</snapshot_cache_hits_>"
+    << "<snapshot_cache_misses_>" << v.snapshot_cache_misses_ << "</snapshot_cache_misses_>"
+    << "</total_result>";
   return o;
 }
 
@@ -606,6 +643,8 @@ std::ostream& operator<<(std::ostream& o, const TpccDriver::WorkerResult& v) {
     << "<raceab>" << v.race_aborts_ << "</raceab>"
     << "<rsetab>" << v.largereadset_aborts_ << "</rsetab>"
     << "<unexab>" << v.unexpected_aborts_ << "</unexab>"
+    << "<sphit>" << v.snapshot_cache_hits_ << "</sphit>"
+    << "<spmis>" << v.snapshot_cache_misses_ << "</spmis>"
     << "</worker>";
   return o;
 }

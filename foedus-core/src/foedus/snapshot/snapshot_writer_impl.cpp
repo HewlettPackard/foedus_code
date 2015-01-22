@@ -32,11 +32,7 @@ SnapshotWriter::SnapshotWriter(
   append_(append),
   snapshot_id_(snapshot_id),
   pool_memory_(pool_memory),
-  page_base_(reinterpret_cast<storage::Page*>(pool_memory_.get_block())),
-  pool_size_(pool_memory_.get_size() / sizeof(storage::Page)),
   intermediate_memory_(intermediate_memory),
-  intermediate_base_(reinterpret_cast<storage::Page*>(intermediate_memory_.get_block())),
-  intermediate_size_(intermediate_memory_.get_size() / sizeof(storage::Page)),
   snapshot_file_(nullptr),
   next_page_id_(0) {
 }
@@ -78,7 +74,7 @@ ErrorStack SnapshotWriter::open() {
   WRAP_ERROR_CODE(snapshot_file_->open(true, true, true, create_new_file));
   if (!append_) {
     // write page-0. this is a dummy page which will never be read
-    char* first_page = reinterpret_cast<char*>(pool_memory_.get_block());
+    char* first_page = reinterpret_cast<char*>(pool_memory_->get_block());
     // first 8 bytes have some data, but we would use them just for sanity checks and debugging
     storage::PageHeader* first_page_header = reinterpret_cast<storage::PageHeader*>(first_page);
     first_page_header->page_id_ = storage::to_snapshot_page_pointer(snapshot_id_, numa_node_, 0);
@@ -93,7 +89,7 @@ ErrorStack SnapshotWriter::open() {
       " and these useless sentences. Maybe we put our complaints on our cafeteria here.");
     std::memcpy(first_page + sizeof(storage::PageHeader), duh.data(), duh.size());
 
-    WRAP_ERROR_CODE(snapshot_file_->write(sizeof(storage::Page), pool_memory_));
+    WRAP_ERROR_CODE(snapshot_file_->write(sizeof(storage::Page), *pool_memory_));
     next_page_id_ = storage::to_snapshot_page_pointer(snapshot_id_, numa_node_, 1);
   } else {
     // if appending, nothing to do
@@ -108,12 +104,12 @@ ErrorStack SnapshotWriter::open() {
 }
 
 ErrorCode SnapshotWriter::dump_general(
-  const memory::AlignedMemorySlice& slice,
+  memory::AlignedMemory* buffer,
   memory::PagePoolOffset from_page,
   uint32_t count) {
-  ASSERT_ND(slice.get_size() / sizeof(storage::Page) >= from_page + count);
+  ASSERT_ND(buffer->get_size() / sizeof(storage::Page) >= from_page + count);
 #ifndef NDEBUG
-  storage::Page* base = reinterpret_cast<storage::Page*>(slice.get_block());
+  storage::Page* base = reinterpret_cast<storage::Page*>(buffer->get_block());
   for (memory::PagePoolOffset i = 0; i < count; ++i) {
     storage::SnapshotLocalPageId correct_local_page_id
       = storage::extract_local_page_id_from_snapshot_pointer(next_page_id_) + i;
@@ -131,10 +127,34 @@ ErrorCode SnapshotWriter::dump_general(
   CHECK_ERROR_CODE(snapshot_file_->write(
     sizeof(storage::Page) * count,
     memory::AlignedMemorySlice(
-      slice,
+      buffer,
       sizeof(storage::Page) * from_page,
       sizeof(storage::Page) * count)));
   next_page_id_ += count;
+  return kErrorCodeOk;
+}
+
+ErrorCode SnapshotWriter::expand_pool_memory(uint32_t required_pages, bool retain_content) {
+  if (required_pages <= get_page_size()) {
+    return kErrorCodeOk;
+  }
+
+  uint64_t bytes = required_pages * sizeof(storage::Page);
+  CHECK_ERROR_CODE(pool_memory_->assure_capacity(bytes, 2.0, retain_content));
+  ASSERT_ND(get_page_size() >= required_pages);
+  return kErrorCodeOk;
+}
+
+
+
+ErrorCode SnapshotWriter::expand_intermediate_memory(uint32_t required_pages, bool retain_content) {
+  if (required_pages <= get_intermediate_size()) {
+    return kErrorCodeOk;
+  }
+
+  uint64_t bytes = required_pages * sizeof(storage::Page);
+  CHECK_ERROR_CODE(intermediate_memory_->assure_capacity(bytes, 2.0, retain_content));
+  ASSERT_ND(get_intermediate_size() >= required_pages);
   return kErrorCodeOk;
 }
 
@@ -143,10 +163,8 @@ std::ostream& operator<<(std::ostream& o, const SnapshotWriter& v) {
     << "<numa_node_>" << v.numa_node_ << "</numa_node_>"
     << "<append_>" << v.append_ << "</append_>"
     << "<snapshot_id_>" << v.snapshot_id_ << "</snapshot_id_>"
-    << "<pool_memory_>" << v.pool_memory_ << "</pool_memory_>"
-    << "<pool_size_>" << v.pool_size_ << "</pool_size_>"
-    << "<intermediate_memory_>" << v.intermediate_memory_ << "</intermediate_memory_>"
-    << "<intermediate_size_>" << v.intermediate_size_ << "</intermediate_size_>"
+    << "<pool_memory_>" << *v.pool_memory_ << "</pool_memory_>"
+    << "<intermediate_memory_>" << *v.intermediate_memory_ << "</intermediate_memory_>"
     << "<next_page_id_>" << v.next_page_id_ << "</next_page_id_>"
     << "</SnapshotWriter>";
   return o;

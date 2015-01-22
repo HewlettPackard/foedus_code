@@ -219,6 +219,10 @@ struct CacheOverflowEntry CXX11_FINAL {
  */
 class CacheHashtable CXX11_FINAL {
  public:
+  enum Constants {
+    /** Max size for find_batch() */
+    kMaxFindBatchSize = 32,
+  };
   CacheHashtable(BucketId physical_buckets, uint16_t numa_node);
 
   /**
@@ -240,6 +244,21 @@ class CacheHashtable CXX11_FINAL {
    * we just get a bit slower. No correctness issue.
    */
   ContentId find(storage::SnapshotPagePointer page_id) const ALWAYS_INLINE;
+
+  /**
+   * @brief Batched version of find().
+   * @param[in] batch_size Batch size. Must be kMaxFindBatchSize or less.
+   * @param[in] page_ids Array of Page IDs to look for, size=batch_size
+   * @param[out] out Output
+   * @return Only possible error is kErrorCodeInvalidParameter for too large batch_size
+   * @details
+   * This might perform much faster because of parallel prefetching, SIMD-ized hash
+   * calculattion (planned, not implemented yet) etc.
+   */
+  ErrorCode find_batch(
+    uint16_t batch_size,
+    const storage::SnapshotPagePointer* page_ids,
+    ContentId* out) const;
 
   /**
    * @brief Called when a cached page is not found.

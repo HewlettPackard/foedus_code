@@ -71,7 +71,7 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     KeySlice from = kInfimumSlice,
     KeySlice to = kSupremumSlice);
 
-  // TODO(Hideaki) implement non key-slice version of prefetch_pages. so far this is enough, tho.
+  // TASK(Hideaki) implement non key-slice version of prefetch_pages. so far this is enough, tho.
 
   /**
    * @copydoc foedus::storage::StorageManager::track_moved_record()

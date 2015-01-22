@@ -63,7 +63,7 @@ void LoggerRef::add_epoch_history(const EpochMarkerLogType& epoch_marker) {
       << id_ << ". marker=" << epoch_marker;
   } else {
     if (control_block_->epoch_history_count_ >= LoggerControlBlock::kMaxEpochHistory) {
-      // TODO(Hideaki) To avoid this, we should maintain sparse history, like one history per
+      // TASK(Hideaki) To avoid this, we should maintain sparse history, like one history per
       // tens of epochs. So far kMaxEpochHistory is enough big, so it won't happen.
       LOG(FATAL) << "Exceeded kMaxEpochHistory. Unexpected.";
     }
@@ -77,7 +77,7 @@ void LoggerRef::add_epoch_history(const EpochMarkerLogType& epoch_marker) {
 
 
 LogRange LoggerRef::get_log_range(Epoch prev_epoch, Epoch until_epoch) {
-  // TODO(Hideaki) binary search. we assume there are not many epoch histories, so not urgent.
+  // TASK(Hideaki) binary search. we assume there are not many epoch histories, so not urgent.
   ASSERT_ND(until_epoch <= get_durable_epoch());
   LogRange result;
 

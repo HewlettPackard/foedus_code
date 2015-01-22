@@ -94,6 +94,19 @@ Epoch ThreadRef::get_in_commit_epoch() const {
   return control_block_->in_commit_epoch_;
 }
 
+uint64_t ThreadRef::get_snapshot_cache_hits() const {
+  return control_block_->stat_snapshot_cache_hits_;
+}
+
+uint64_t ThreadRef::get_snapshot_cache_misses() const {
+  return control_block_->stat_snapshot_cache_misses_;
+}
+
+void ThreadRef::reset_snapshot_cache_counts() const {
+  control_block_->stat_snapshot_cache_hits_ = 0;
+  control_block_->stat_snapshot_cache_misses_ = 0;
+}
+
 Epoch ThreadGroupRef::get_min_in_commit_epoch() const {
   assorted::memory_fence_acquire();
   Epoch ret = INVALID_EPOCH;

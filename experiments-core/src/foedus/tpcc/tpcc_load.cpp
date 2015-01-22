@@ -183,7 +183,18 @@ ErrorStack create_array(
   if (keep_all_volatile_pages) {
     meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
     meta.snapshot_drop_volatile_pages_threshold_ = 8;
+  } else {
+    meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0;
+    meta.snapshot_drop_volatile_pages_threshold_
+      = storage::array::ArrayMetadata::kDefaultSnapshotDropVolatilePagesThreshold;
   }
+
+#ifdef OLAP_MODE
+  // completely drop all volatile pages. even higher levels
+  meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0;
+  meta.snapshot_drop_volatile_pages_threshold_ = 0;
+#endif  // OLAP_MODE
+
   return engine->get_storage_manager()->create_storage(&meta, &ep);
 }
 
@@ -198,7 +209,20 @@ ErrorStack create_masstree(
     meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
     meta.snapshot_drop_volatile_pages_btree_levels_ = 0;
     meta.snapshot_drop_volatile_pages_layer_threshold_ = 8;
+  } else {
+    meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0;
+    meta.snapshot_drop_volatile_pages_btree_levels_
+      = storage::masstree::MasstreeMetadata::kDefaultDropVolatilePagesBtreeLevels;
+    meta.snapshot_drop_volatile_pages_layer_threshold_ = 0;
   }
+
+#ifdef OLAP_MODE
+  // completely drop all volatile pages. even higher levels
+  meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0;  // this one lower = drop more
+  meta.snapshot_drop_volatile_pages_btree_levels_ = 100;  // this one higher = drop more
+  meta.snapshot_drop_volatile_pages_layer_threshold_ = 0;  // this one lower = drop more
+#endif  // OLAP_MODE
+
   return engine->get_storage_manager()->create_storage(&meta, &ep);
 }
 
@@ -662,7 +686,7 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
     Cid o_cid = get_permutation(cid_array);
     Wdcid wdcid = combine_wdcid(wdid, o_cid);
     uint32_t o_carrier_id = rnd_.uniform_within(1, 10);
-    uint32_t o_ol_cnt = rnd_.uniform_within(5, 15);
+    uint32_t o_ol_cnt = rnd_.uniform_within(kMinOlCount, kMaxOlCount);
 
     o_data.cid_ = o_cid;
     o_data.all_local_ = 1;
