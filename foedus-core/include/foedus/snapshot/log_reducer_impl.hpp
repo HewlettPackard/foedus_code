@@ -94,6 +94,8 @@ struct BlockHeaderBase {
     return magic_word_ == kFillerBlockHeaderMagicWord;
   }
 
+  friend std::ostream& operator<<(std::ostream& o, const BlockHeaderBase& v);
+
   /**
    * This is used to identify the storage block is a dummy (filler) one or a full one.
    * This must be either kFullBlockHeaderMagicWord or kFillerBlockHeaderMagicWord.

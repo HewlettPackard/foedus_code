@@ -53,7 +53,7 @@ DEFINE_bool(papi, false, "Whether to profile with PAPI.");
 DEFINE_int32(volatile_pool_size, 6, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_int32(snapshot_pool_size, 4096, "Size of snapshot memory pool per NUMA node in MB.");
 DEFINE_int32(reducer_buffer_size, 8, "Size of reducer's buffer per NUMA node in GB.");
-DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
+DEFINE_int32(loggers_per_node, 2, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 0, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
   " remote orderline). This corresponds to H-Store's neworder_multip/neworder_multip_mix in"
@@ -484,6 +484,10 @@ int driver_main(int argc, char **argv) {
 
     options.snapshot_.log_mapper_io_buffer_mb_ = 1 << 8;
     options.snapshot_.log_mapper_bucket_kb_ = 1 << 12;
+    if (FLAGS_reducer_buffer_size > 10) {  // probably OLAP experiment in a large machine?
+      options.snapshot_.log_mapper_io_buffer_mb_ = 1 << 11;
+      options.snapshot_.log_mapper_bucket_kb_ = 1 << 15;
+    }
     options.snapshot_.log_reducer_buffer_mb_ = FLAGS_reducer_buffer_size << 10;
     options.snapshot_.snapshot_writer_page_pool_size_mb_ = 1 << 10;
     options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 1 << 8;

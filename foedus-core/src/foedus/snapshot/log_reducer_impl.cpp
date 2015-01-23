@@ -282,7 +282,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
     FullBlockHeader* header = reinterpret_cast<FullBlockHeader*>(buffer.resolve(position));
     if (!header->is_full_block()) {
       LOG(FATAL) << to_string() << " wtf. magic word doesn't match. position=" << position
-        << ", storage_id=" << storage_id;
+        << ", storage_id=" << storage_id << *header;
     }
     header->assert_key_length();
     records += header->log_count_;
@@ -301,7 +301,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
     FullBlockHeader* header = reinterpret_cast<FullBlockHeader*>(buffer.resolve(position));
     if (!header->is_full_block()) {
       LOG(FATAL) << to_string() << " wtf. magic word doesn't match. position=" << position
-        << ", storage_id=" << storage_id;
+        << ", storage_id=" << storage_id << *header;
     }
     header->assert_key_length();
     shortest_key_length = std::min<uint32_t>(shortest_key_length, header->shortest_key_length_);
@@ -807,7 +807,7 @@ ErrorStack LogReducer::merge_sort_initialize_sort_buffers(LogReducer::MergeConte
       buffer->get_buffer());
     if (!header->is_full_block()) {
       LOG(FATAL) << to_string() << " wtf. first block in the file is not a real storage block."
-        << *buffer;
+        << *buffer << *header;
     }
     buffer->set_current_block(
       header->storage_id_,
@@ -866,7 +866,7 @@ ErrorCode LogReducer::merge_sort_advance_sort_buffers(
   } else {
     if (!next_header->is_full_block()) {
       LOG(FATAL) << to_string() << " wtf. block magic word doesn't match. pos="
-        << next_block_header_pos << ", magic=" << assorted::Hex(next_header->magic_word_);
+        << next_block_header_pos << ", " << *next_header;
     }
 
     const FullBlockHeader* next_header_casted
@@ -875,7 +875,7 @@ ErrorCode LogReducer::merge_sort_advance_sort_buffers(
       next_header_casted->log_count_ == 0 ||
       next_header_casted->block_length_ == 0) {
       LOG(FATAL) << to_string() << " wtf. invalid block header. pos="
-        << next_block_header_pos;
+        << next_block_header_pos << *next_header_casted;
     }
     buffer->set_current_block(
       next_header_casted->storage_id_,
@@ -898,6 +898,14 @@ std::ostream& operator<<(std::ostream& o, const LogReducer& v) {
     << "<current_buffer_>" << v.control_block_->current_buffer_ << "</current_buffer_>"
     << "<sorted_runs_>" << v.sorted_runs_ << "</sorted_runs_>"
     << "</LogReducer>";
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const BlockHeaderBase& v) {
+  o << "<BlockHeader>"
+    << "<magic_word_>" << assorted::Hex(v.magic_word_) << "</magic_word_>"
+    << "<block_length_>" << v.block_length_ << "</block_length_>"
+    << "</BlockHeader>";
   return o;
 }
 
