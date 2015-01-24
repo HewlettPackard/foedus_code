@@ -3,7 +3,7 @@ echo "warehouses=$warehouses, loggers_per_node=$loggers_per_node, volatile_pool_
 echo "thread_per_node=$thread_per_node, numa_nodes=$numa_nodes, volatile_pool_size=$volatile_pool_size, duration_micro=$duration_micro."
 
 high_priority=false # To set this to true, you must add "yourname - rtprio 99" to limits.conf
-fork_workers=true
+fork_workers=false
 snapshot_pool_size=1024
 disable_snapshot_cache=false
 

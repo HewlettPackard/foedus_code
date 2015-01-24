@@ -17,7 +17,7 @@ payment_percents[10]=100
 # This argument is to measure performance without logging I/O
 null_log_device=false # With logging I/O
 high_priority=false # To set this to true, you must add "yourname - rtprio 99" to limits.conf
-fork_workers=true
+fork_workers=false
 nvm_latency=5000 # fixed to 5us
 
 sudo mkdir /testnvm
