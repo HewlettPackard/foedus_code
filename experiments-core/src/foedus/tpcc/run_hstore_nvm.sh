@@ -5,7 +5,7 @@ echo "hstore_client_memory=$hstore_client_memory, hstore_site_memory=$hstore_sit
 hstore_folder="/dev/shm/h-store"
 nvm_folder="/testnvm"
 cpu_affinity="true"
-threshold_mb=750
+threshold_mb=1000
 
 cp -f "hstore_tpcc_nvm.properties" "$hstore_folder/properties/benchmarks/tpcc.properties"
 for nvm_latency in 0 100 200 400 600 800 1000 1300 1600 2000 3000 5000 10000 30000 50000 # in nanoseconds

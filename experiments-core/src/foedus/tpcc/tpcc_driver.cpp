@@ -52,7 +52,7 @@ DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.")
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
 DEFINE_int32(volatile_pool_size, 6, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_int32(snapshot_pool_size, 4096, "Size of snapshot memory pool per NUMA node in MB.");
-DEFINE_int32(reducer_buffer_size, 8, "Size of reducer's buffer per NUMA node in GB.");
+DEFINE_int32(reducer_buffer_size, 1, "Size of reducer's buffer per NUMA node in GB.");
 DEFINE_int32(loggers_per_node, 2, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 0, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
