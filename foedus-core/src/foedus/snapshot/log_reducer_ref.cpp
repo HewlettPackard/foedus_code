@@ -143,6 +143,8 @@ void        LogReducerRef::append_log_chunk(
     ASSERT_ND(buffer_size
       == engine_->get_options().snapshot_.log_reducer_buffer_mb_ * (1ULL << 19));
     ASSERT_ND(from_buffer_position(cur_status.components.tail_position_) <= buffer_size);
+    ASSERT_ND(reinterpret_cast<char*>(buffers_[0]) + buffer_size
+      == reinterpret_cast<char*>(buffers_[1]));
     if (from_buffer_position(cur_status.components.tail_position_) + required_size > buffer_size) {
       ReducerBufferStatus new_status = cur_status;
       new_status.components.flags_ |= kFlagNoMoreWriters;
@@ -217,6 +219,10 @@ void        LogReducerRef::append_log_chunk(
   stop_watch.stop();
   DVLOG(1) << "Completed appending a block of " << send_buffer_size << " bytes to " << to_string()
     << "'s buffer for storage-" << storage_id << " in " << stop_watch.elapsed() << " cycles";
+  ASSERT_ND(reinterpret_cast<FullBlockHeader*>(destination)->is_full_block());
+  ASSERT_ND(reinterpret_cast<FullBlockHeader*>(destination)->storage_id_ == storage_id);
+  ASSERT_ND(reinterpret_cast<FullBlockHeader*>(destination)->block_length_
+    == to_buffer_position(required_size));
 }
 
 }  // namespace snapshot

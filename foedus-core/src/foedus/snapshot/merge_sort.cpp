@@ -139,16 +139,35 @@ void MergeSort::next_batch_one_input() {
   // In this case, we could even skip setting sort_entries_. However, composer benefits from the
   // concise array that tells the most significant 8 bytes key, so we populate it even in this case.
   ASSERT_ND(is_no_merging());
-  ASSERT_ND(dynamic_cast<InMemorySortedBuffer*>(inputs_[0]));  // the only (1st) input is in-memory
+  // Note, even in this case, inputs_[0] might NOT be InMemorySortedBuffer.
+  // Example:
+  //   in-memory: blocks for storage-1, storage-3
+  //   dump-0: blocks for storage-1, storage-2, storage-3
+  //   dump-1: blocks for storage-3
+  // For storage-2, dump-0 is the only input. Had a bug to overlook this case...
   InputStatus* status = inputs_status_;
-  ASSERT_ND(status->is_last_window());  // thus it's always the last window. easy!
-  ASSERT_ND(status->window_offset_ == 0);
-  ASSERT_ND(!status->is_ended());
-
   uint64_t relative_pos = status->cur_relative_pos_;
-  const uint64_t end_pos = status->end_absolute_pos_ - status->window_offset_;
-  debugging::StopWatch watch;
+  uint64_t end_pos = status->end_absolute_pos_ - status->window_offset_;
+  const uint32_t kLongestLog = 1U << 16;
+  if (dynamic_cast<InMemorySortedBuffer*>(inputs_[0])) {
+    VLOG(0) << "1-input in-memory case.";
+    ASSERT_ND(status->is_last_window());  // then it's always the last window.
+    ASSERT_ND(status->window_offset_ == 0);
+    ASSERT_ND(!status->is_ended());
+    ASSERT_ND(end_pos <= status->window_size_);
+  } else {
+    VLOG(0) << "1-input dump-file case.";
+    ASSERT_ND(dynamic_cast<DumpFileSortedBuffer*>(inputs_[0]));
+    // In this case, end_pos might be careful on a log spanning the end.
+    // rather than checking the length each time, we conservatively close the current window.
+    if (end_pos + kLongestLog > status->window_size_) {
+      end_pos = status->window_size_ - kLongestLog;
+    }
+  }
+
+  ASSERT_ND(relative_pos <= end_pos + kLongestLog);
   uint64_t processed = 0;
+  debugging::StopWatch watch;
   if (type_ == storage::kArrayStorage) {
     for (; LIKELY(relative_pos < end_pos && processed < buffer_capacity_); ++processed) {
       relative_pos += populate_entry_array(0, relative_pos);
@@ -159,7 +178,7 @@ void MergeSort::next_batch_one_input() {
       relative_pos += populate_entry_masstree(0, relative_pos);
     }
   }
-  ASSERT_ND(relative_pos <= end_pos);
+  ASSERT_ND(relative_pos <= end_pos + kLongestLog);
   ASSERT_ND(processed <= buffer_capacity_);
   ASSERT_ND(current_count_ == processed);
 
@@ -182,7 +201,7 @@ ErrorStack MergeSort::advance_window() {
     if (status->is_ended() || status->is_last_window()) {
       continue;
     }
-    ASSERT_ND(status->cur_relative_pos_ == status->chunk_relative_pos_);
+    ASSERT_ND(status->cur_relative_pos_ <= status->chunk_relative_pos_);
     ASSERT_ND(status->cur_relative_pos_ == status->previous_chunk_relative_pos_);
     if (status->cur_relative_pos_
         >= static_cast<uint64_t>(status->window_size_ * kWindowMoveThreshold)
@@ -201,7 +220,26 @@ ErrorStack MergeSort::advance_window() {
       status->previous_chunk_relative_pos_ = status->cur_relative_pos_;
       status->assert_consistent();
     }
+    ASSERT_ND(status->chunk_relative_pos_ + status->get_chunk_log()->header_.log_length_
+        <= status->window_size_);
   }
+
+#ifndef NDEBUG
+  // after the conservative move above, all inputs should be either
+  // 1) in last window, including already ended
+  // 2) in non-last window that has at least kWindowChunkReserveBytes to be consumed
+  // let's confirm.
+  for (InputIndex i = 0; i < inputs_count_; ++i) {
+    InputStatus* status = inputs_status_ + i;
+    status->assert_consistent();
+    if (status->is_ended() || status->is_last_window()) {
+      continue;
+    }
+    ASSERT_ND(status->cur_relative_pos_ + kWindowChunkReserveBytes <= status->window_size_);
+    ASSERT_ND(status->chunk_relative_pos_ + status->get_chunk_log()->header_.log_length_
+        <= status->window_size_);
+  }
+#endif  // NDEBUG
   return kRetOk;
 }
 
@@ -257,27 +295,55 @@ void MergeSort::next_chunk(InputIndex input_index) {
   if (relative_end >= status->window_size_) {
     relative_end = status->window_size_;
   }
+  ASSERT_ND(pos + status->from_byte_pos(pos)->header_.log_length_ <= status->window_size_);
 
-  for (uint32_t i = 0; i < kLogChunk; ++i) {
-    ASSERT_ND(pos < status->window_size_);
-    const log::RecordLogType* the_log = status->from_byte_pos(pos);
-    uint16_t log_length = the_log->header_.log_length_;
-    if (pos + log_length >= relative_end) {
-      break;
+  // Be careful on advancing "too much". If the next log spans to next window,
+  // we can't use it as a chunk-log. But, we don't know the log length until we advance.
+  // We thus maintain two values:
+  //   pos : we are sure log entry at this position completely fits in the window.
+  //   next_pos : we are considering to set this value to pos
+  if (status->is_last_window()) {
+    // separately handle last-window, where there is no concern on spanning to next window,
+    // but instead we have to include the last log in last chunk.
+    for (uint32_t i = 0; i < kLogChunk; ++i) {
+      ASSERT_ND(pos < status->window_size_);
+      const log::RecordLogType* the_log = status->from_byte_pos(pos);
+      uint16_t log_length = the_log->header_.log_length_;
+      ASSERT_ND(pos + log_length <= relative_end);  // because it's last window
+      if (pos + log_length >= relative_end) {
+        break;
+      }
+      pos += log_length;
     }
-    pos += log_length;
+  } else {
+    uint64_t next_pos = pos;
+    for (uint32_t i = 0; i < kLogChunk; ++i) {
+      ASSERT_ND(next_pos < status->window_size_);
+      const log::RecordLogType* the_log = status->from_byte_pos(next_pos);
+      uint16_t log_length = the_log->header_.log_length_;
+      if (next_pos + log_length >= relative_end) {
+        break;
+      }
+      pos = next_pos;
+      next_pos += log_length;
+    }
   }
   ASSERT_ND(pos < relative_end);
+  ASSERT_ND(pos + status->from_byte_pos(pos)->header_.log_length_ <= status->window_size_);
   status->previous_chunk_relative_pos_ = status->chunk_relative_pos_;
   status->chunk_relative_pos_ = pos;
 
   status->assert_consistent();
+  // ALWAYS, the chunk-log is fully contained in the window.
+  ASSERT_ND(status->chunk_relative_pos_ + status->get_chunk_log()->header_.log_length_
+      <= status->window_size_);
 }
 
 MergeSort::InputIndex MergeSort::determine_min_input() const {
   InputIndex min_input = kInvalidInput;
   for (InputIndex i = 0; i < inputs_count_; ++i) {
     InputStatus* status = inputs_status_ + i;
+    status->assert_consistent();
     if (status->is_ended() || status->is_last_chunk_overall()) {
       continue;
     }
@@ -308,6 +374,8 @@ MergeSort::InputIndex MergeSort::pick_chunks() {
       break;
     }
     next_chunk(min_input);
+
+    inputs_status_[min_input].assert_consistent();
   }
 
   VLOG(1) << "Now determining batch-threshold... chunks=" << chunks;

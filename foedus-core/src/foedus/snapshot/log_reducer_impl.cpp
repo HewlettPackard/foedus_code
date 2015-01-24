@@ -45,6 +45,10 @@ LogReducer::LogReducer(Engine* engine)
   control_block_ = anchors->log_reducer_memory_;
   buffers_[0] = anchors->log_reducer_buffers_[0];
   buffers_[1] = anchors->log_reducer_buffers_[1];
+  const SnapshotOptions& option = engine_->get_options().snapshot_;
+  buffer_half_size_bytes_ = static_cast<uint64_t>(option.log_reducer_buffer_mb_) << 19;
+  ASSERT_ND(reinterpret_cast<char*>(buffers_[0]) + buffer_half_size_bytes_
+    == reinterpret_cast<char*>(buffers_[1]));
   root_info_pages_ = anchors->log_reducer_root_info_pages_;
 }
 
@@ -54,7 +58,6 @@ ErrorStack LogReducer::initialize_once() {
 
   const SnapshotOptions& option = engine_->get_options().snapshot_;
 
-  uint64_t buffer_size = static_cast<uint64_t>(option.log_reducer_buffer_mb_) << 20;
   uint64_t dump_buffer_size = static_cast<uint64_t>(option.log_reducer_dump_io_buffer_mb_) << 20;
   dump_io_buffer_.alloc(
     dump_buffer_size,
@@ -65,14 +68,14 @@ ErrorStack LogReducer::initialize_once() {
 
   // start from 1/16 of the main buffer. Should be big enough.
   sort_buffer_.alloc(
-    buffer_size >> 4,
+    buffer_half_size_bytes_ >> 5,
     memory::kHugepageSize,
     memory::AlignedMemory::kNumaAllocOnnode,
     get_numa_node());
 
   // start from 1/16 of the main buffer. Should be big enough.
   positions_buffers_.alloc(
-    buffer_size >> 4,
+    buffer_half_size_bytes_ >> 5,
     memory::kHugepageSize,
     memory::AlignedMemory::kNumaAllocOnnode,
     get_numa_node());
@@ -162,9 +165,10 @@ ErrorStack LogReducer::dump_buffer() {
   WRAP_ERROR_CODE(check_cancelled());
 
   ReducerBufferStatus final_status = control_block_->get_buffer_status_atomic(buffer_index);
+  ASSERT_ND(final_status.get_tail_bytes() <= buffer_half_size_bytes_);
   debugging::StopWatch stop_watch;
   LOG(INFO) << to_string() << " Started sort/dump " <<
-    from_buffer_position(final_status.components.tail_position_) << " bytes of logs";
+    final_status.get_tail_bytes() << " bytes of logs";
 
   char* const base = reinterpret_cast<char*>(buffers_[buffer_index]);
   std::map<storage::StorageId, std::vector<BufferPosition> > blocks;
@@ -245,7 +249,7 @@ void LogReducer::dump_buffer_scan_block_headers(
   while (cur < end) {
     FullBlockHeader* header = reinterpret_cast<FullBlockHeader*>(buffer_base + cur);
     if (!header->is_full_block()) {
-      LOG(FATAL) << to_string() << " wtf. magic word doesn't match. cur=" << cur;
+      LOG(FATAL) << to_string() << " wtf. magic word doesn't match. cur=" << cur << *header;
     }
     header->assert_key_length();
     auto it = blocks->find(header->storage_id_);
@@ -282,7 +286,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
     FullBlockHeader* header = reinterpret_cast<FullBlockHeader*>(buffer.resolve(position));
     if (!header->is_full_block()) {
       LOG(FATAL) << to_string() << " wtf. magic word doesn't match. position=" << position
-        << ", storage_id=" << storage_id;
+        << ", storage_id=" << storage_id << *header;
     }
     header->assert_key_length();
     records += header->log_count_;
@@ -301,7 +305,7 @@ ErrorStack LogReducer::dump_buffer_sort_storage(
     FullBlockHeader* header = reinterpret_cast<FullBlockHeader*>(buffer.resolve(position));
     if (!header->is_full_block()) {
       LOG(FATAL) << to_string() << " wtf. magic word doesn't match. position=" << position
-        << ", storage_id=" << storage_id;
+        << ", storage_id=" << storage_id << *header;
     }
     header->assert_key_length();
     shortest_key_length = std::min<uint32_t>(shortest_key_length, header->shortest_key_length_);
@@ -643,6 +647,10 @@ ErrorStack LogReducer::merge_sort() {
 
 void LogReducer::merge_sort_check_buffer_status() const {
   ASSERT_ND(sorted_runs_ == control_block_->current_buffer_);
+  ASSERT_ND(control_block_->get_current_buffer_status().get_tail_bytes()
+    <= buffer_half_size_bytes_);
+  ASSERT_ND(control_block_->get_non_current_buffer_status().get_tail_bytes()
+    <= buffer_half_size_bytes_);
   if (control_block_->get_non_current_buffer_status().components.tail_position_ > 0 ||
       control_block_->get_non_current_buffer_status().components.active_writers_ > 0) {
     LOG(FATAL) << to_string() << " non-current buffer still has some data. this must not happen"
@@ -688,7 +696,7 @@ ErrorStack LogReducer::merge_sort_dump_last_buffer() {
 
   // Reuse most of dump_buffer_xxx methods
   char* const base = reinterpret_cast<char*>(buffers_[last]);
-  char* const other = reinterpret_cast<char*>(buffers_[last + 1]);
+  char* const other = reinterpret_cast<char*>(buffers_[(last + 1) % 2]);
   std::map<storage::StorageId, std::vector<BufferPosition> > blocks;
   dump_buffer_scan_block_headers(base, last_pos, &blocks);
   uint64_t other_bytes = 0;
@@ -807,7 +815,7 @@ ErrorStack LogReducer::merge_sort_initialize_sort_buffers(LogReducer::MergeConte
       buffer->get_buffer());
     if (!header->is_full_block()) {
       LOG(FATAL) << to_string() << " wtf. first block in the file is not a real storage block."
-        << *buffer;
+        << *buffer << *header;
     }
     buffer->set_current_block(
       header->storage_id_,
@@ -866,7 +874,7 @@ ErrorCode LogReducer::merge_sort_advance_sort_buffers(
   } else {
     if (!next_header->is_full_block()) {
       LOG(FATAL) << to_string() << " wtf. block magic word doesn't match. pos="
-        << next_block_header_pos << ", magic=" << assorted::Hex(next_header->magic_word_);
+        << next_block_header_pos << ", " << *next_header;
     }
 
     const FullBlockHeader* next_header_casted
@@ -875,7 +883,7 @@ ErrorCode LogReducer::merge_sort_advance_sort_buffers(
       next_header_casted->log_count_ == 0 ||
       next_header_casted->block_length_ == 0) {
       LOG(FATAL) << to_string() << " wtf. invalid block header. pos="
-        << next_block_header_pos;
+        << next_block_header_pos << *next_header_casted;
     }
     buffer->set_current_block(
       next_header_casted->storage_id_,
@@ -898,6 +906,14 @@ std::ostream& operator<<(std::ostream& o, const LogReducer& v) {
     << "<current_buffer_>" << v.control_block_->current_buffer_ << "</current_buffer_>"
     << "<sorted_runs_>" << v.sorted_runs_ << "</sorted_runs_>"
     << "</LogReducer>";
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const BlockHeaderBase& v) {
+  o << "<BlockHeader>"
+    << "<magic_word_>" << assorted::Hex(v.magic_word_) << "</magic_word_>"
+    << "<block_length_>" << v.block_length_ << "</block_length_>"
+    << "</BlockHeader>";
   return o;
 }
 

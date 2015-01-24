@@ -230,7 +230,7 @@ struct TestBase {
             uint64_t next_key = to_key(cur + i + 1U + total_processed, distribution_);
             EXPECT_EQ(cur_key, next_key) << cur;
           }
-          if (cur + result.count_ - 1U < merge_sort.get_current_count()) {
+          if (cur + result.count_ < merge_sort.get_current_count()) {
             uint64_t cur_key = to_key(cur + result.count_ - 1U + total_processed, distribution_);
             uint64_t next_key = to_key(cur + result.count_ + total_processed, distribution_);
             EXPECT_NE(cur_key, next_key) << cur;

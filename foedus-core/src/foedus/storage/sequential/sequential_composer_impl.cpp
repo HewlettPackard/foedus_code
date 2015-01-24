@@ -33,10 +33,10 @@ SequentialComposer::SequentialComposer(Composer *parent)
 }
 
 /**
- * @todo some of below should become a SortedBuffer method.
+ * Unlike other composers, this one doesn't need merge sort. It's dumb simple.
  */
 struct StreamStatus {
-  void init(snapshot::SortedBuffer* stream) {
+  ErrorCode init(snapshot::SortedBuffer* stream) {
     stream_ = stream;
     stream_->assert_checks();
     buffer_ = stream->get_buffer();
@@ -49,20 +49,37 @@ struct StreamStatus {
     read_entry();
     if (cur_absolute_pos_ >= end_absolute_pos_) {
       ended_ = true;
+    } else if (cur_relative_pos_ + cur_length_ > buffer_size_) {
+      LOG(INFO) << "interesting, super unlucky case. wind immediately";
+      CHECK_ERROR_CODE(wind_stream());
+      read_entry();
+      ASSERT_ND(cur_relative_pos_ + cur_length_ <= buffer_size_);
     }
+    return kErrorCodeOk;
   }
   ErrorCode next() {
     ASSERT_ND(!ended_);
+    ASSERT_ND(cur_relative_pos_ + cur_length_ <= buffer_size_);
     cur_absolute_pos_ += cur_length_;
     cur_relative_pos_ += cur_length_;
     if (UNLIKELY(cur_absolute_pos_ >= end_absolute_pos_)) {
       ended_ = true;
       return kErrorCodeOk;
     } else if (UNLIKELY(cur_relative_pos_ >= buffer_size_)) {
-      CHECK_ERROR_CODE(stream_->wind(cur_absolute_pos_));
-      cur_relative_pos_ = stream_->to_relative_pos(cur_absolute_pos_);
+      CHECK_ERROR_CODE(wind_stream());
     }
     read_entry();
+    if (UNLIKELY(cur_relative_pos_ + cur_length_ > buffer_size_)) {
+      CHECK_ERROR_CODE(wind_stream());
+      read_entry();
+    }
+
+    ASSERT_ND(cur_relative_pos_ + cur_length_ <= buffer_size_);
+    return kErrorCodeOk;
+  }
+  ErrorCode wind_stream() {
+    CHECK_ERROR_CODE(stream_->wind(cur_absolute_pos_));
+    cur_relative_pos_ = stream_->to_relative_pos(cur_absolute_pos_);
     return kErrorCodeOk;
   }
   void read_entry() {
@@ -118,7 +135,7 @@ ErrorStack SequentialComposer::compose(const Composer::ComposeArguments& args) {
   VLOG(0) << to_string() << " composing with " << args.log_streams_count_ << " streams.";
   for (uint32_t i = 0; i < args.log_streams_count_; ++i) {
     StreamStatus status;
-    status.init(args.log_streams_[i]);
+    WRAP_ERROR_CODE(status.init(args.log_streams_[i]));
     while (!status.ended_) {
       const SequentialAppendLogType* entry = status.get_entry();
 

@@ -9,4 +9,4 @@ numa_nodes=4
 log_buffer_mb=1024
 machine_name="DL580"
 machine_shortname="dl580"
-. run_common.sh
+. run_withlog.sh

@@ -9,4 +9,4 @@ numa_nodes=2
 log_buffer_mb=1024
 machine_name="Hideaki's Z820"
 machine_shortname="z820"
-. run_common.sh
+. run_withlog.sh

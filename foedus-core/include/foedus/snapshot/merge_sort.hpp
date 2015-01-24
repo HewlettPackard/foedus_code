@@ -174,6 +174,7 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
 
     inline void assert_consistent() const ALWAYS_INLINE {
 #ifndef NDEBUG
+      // be careful on infinite loop! don't call any function here
       ASSERT_ND(window_);
       ASSERT_ND(cur_relative_pos_ <= window_size_);
       ASSERT_ND(chunk_relative_pos_ <= window_size_);
@@ -184,6 +185,11 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
       ASSERT_ND(previous_chunk_relative_pos_ + window_offset_ <= end_absolute_pos_);
       ASSERT_ND(cur_relative_pos_ <= chunk_relative_pos_);
       ASSERT_ND(previous_chunk_relative_pos_ <= chunk_relative_pos_);
+      if (window_offset_ + cur_relative_pos_ != end_absolute_pos_) {
+        const log::RecordLogType* l
+          = reinterpret_cast<const log::RecordLogType*>(window_ + chunk_relative_pos_);
+        ASSERT_ND(chunk_relative_pos_ + l->header_.log_length_ <= window_size_);
+      }
 #endif  // NDEBUG
     }
     inline const log::RecordLogType* get_cur_log() const ALWAYS_INLINE {

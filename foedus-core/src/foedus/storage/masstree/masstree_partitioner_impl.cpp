@@ -11,7 +11,9 @@
 #include <map>
 #include <ostream>
 #include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/endianness.hpp"
@@ -86,20 +88,7 @@ ErrorStack MasstreePartitioner::design_partition(
     // assigned nodes might be changed
     data_->partition_count_ = 0;
     if (snapshot_page_id == 0) {
-      for (MasstreeIntermediatePointerIterator it(vol); it.is_valid(); it.next()) {
-        data_->low_keys_[data_->partition_count_] = it.get_low_key();
-        const DualPagePointer& pointer = it.get_pointer();
-        uint16_t assignment;
-        if (!pointer.volatile_pointer_.is_null()) {
-          Page* page = resolver.resolve_offset(pointer.volatile_pointer_);
-          assignment = page->get_header().stat_last_updater_node_;
-        } else {
-          SnapshotPagePointer pointer = it.get_pointer().snapshot_pointer_;
-          assignment = extract_numa_node_from_snapshot_pointer(pointer);
-        }
-        data_->partitions_[data_->partition_count_] = assignment;
-        ++data_->partition_count_;
-      }
+      CHECK_ERROR(design_partition_first(vol));
     } else {
       // So far same assignment as previous snapshot.
       // TODO(Hideaki) check current volatile pages to change the assignments.
@@ -116,6 +105,134 @@ ErrorStack MasstreePartitioner::design_partition(
   metadata_->valid_ = true;
   LOG(INFO) << "Masstree-" << id_ << std::endl << " partitions:" << *this;
   return kRetOk;
+}
+
+
+void design_partition_first_parallel_recurse(
+  const memory::GlobalVolatilePageResolver& resolver,
+  const MasstreePage* page,
+  uint32_t subtree_id,
+  OwnerSamples* result,
+  assorted::UniformRandom* unirand) {
+  uint32_t node = page->header().stat_last_updater_node_;
+  result->increment(node, subtree_id);
+  // we don't care foster twins. this is just for sampling.
+  if (!page->is_border()) {
+    const auto* casted = reinterpret_cast<const MasstreeIntermediatePage*>(page);
+    const uint32_t kSamplingWidth = 3;  // follow this many pointers per page.
+    for (uint32_t rep = 0; rep < kSamplingWidth; ++rep) {
+      uint32_t index = unirand->next_uint32() % (casted->get_key_count() + 1U);
+      const MasstreeIntermediatePage::MiniPage& minipage = casted->get_minipage(index);
+      uint32_t index_mini = unirand->next_uint32() % (minipage.key_count_ + 1U);
+      VolatilePagePointer pointer = minipage.pointers_[index_mini].volatile_pointer_;
+      if (pointer.is_null()) {
+        // because now this page might be changing, this is possible
+        continue;
+      }
+      MasstreePage* child = reinterpret_cast<MasstreePage*>(resolver.resolve_offset(pointer));
+      design_partition_first_parallel_recurse(resolver, child, subtree_id, result, unirand);
+    }
+  } else {
+    // so far do not bother going down to next layer. the border page's owner probably
+    // represents it well. it might not, but a worst case always exists (such as just 1 page
+    // in the first layer.. in that case anyway no luck).
+  }
+}
+
+void design_partition_first_parallel(
+  Engine* engine,
+  VolatilePagePointer subtree,
+  uint32_t subtree_id,
+  OwnerSamples* result) {
+  const memory::GlobalVolatilePageResolver& resolver
+    = engine->get_memory_manager()->get_global_volatile_page_resolver();
+  ASSERT_ND(subtree_id < result->subtrees_);
+  debugging::StopWatch watch;
+  MasstreePage* page = reinterpret_cast<MasstreePage*>(resolver.resolve_offset(subtree));
+  assorted::UniformRandom unirand(subtree_id);
+  design_partition_first_parallel_recurse(resolver, page, subtree_id, result, &unirand);
+  watch.stop();
+  VLOG(0) << "Subtree-" << subtree_id << " done in " << watch.elapsed_us() << "us";
+}
+
+
+ErrorStack MasstreePartitioner::design_partition_first(const MasstreeIntermediatePage* root) {
+  LOG(INFO) << "Initial partition design for Masstree-" << id_;
+  // randomly sample descendant pages to determine the assignment.
+  // we parallelize this step for each pointer in the root page
+  data_->partition_count_ = 0;
+  std::vector<VolatilePagePointer> pointers;
+  pointers.reserve(kMaxIntermediatePointers);
+  for (MasstreeIntermediatePointerIterator it(root); it.is_valid(); it.next()) {
+    data_->low_keys_[data_->partition_count_] = it.get_low_key();
+    const DualPagePointer& pointer = it.get_pointer();
+    ASSERT_ND(!pointer.volatile_pointer_.is_null());  // because this is first snapshot.
+    pointers.push_back(pointer.volatile_pointer_);
+    data_->partitions_[data_->partition_count_] = 0;
+    ++data_->partition_count_;
+  }
+
+  ASSERT_ND(data_->partition_count_ == pointers.size());
+  LOG(INFO) << "Launching " << data_->partition_count_ << " threads to take random samples..";
+  OwnerSamples samples(engine_->get_soc_count(), data_->partition_count_);
+  std::vector< std::thread > threads;
+  threads.reserve(data_->partition_count_);
+  for (uint32_t subtree_id = 0; subtree_id < data_->partition_count_; ++subtree_id) {
+    threads.emplace_back(
+      design_partition_first_parallel,
+      engine_,
+      pointers[subtree_id],
+      subtree_id,
+      &samples);
+  }
+
+  LOG(INFO) << "Launched. Joining..";
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  samples.assign_owners();
+  LOG(INFO) << "Joined. Results:" << samples;
+  for (uint32_t subtree_id = 0; subtree_id < data_->partition_count_; ++subtree_id) {
+    data_->partitions_[subtree_id] = samples.get_assignment(subtree_id);
+  }
+
+  return kRetOk;
+}
+
+void OwnerSamples::assign_owners() {
+  // so far simply the node that has majority. but we might want to balance out
+  for (uint32_t subtree_id = 0; subtree_id < subtrees_; ++subtree_id) {
+    uint32_t max_node = 0;
+    uint32_t max_count = at(0, subtree_id);
+    for (uint32_t node = 1; node < nodes_; ++node) {
+      if (at(node, subtree_id) > max_count) {
+        max_node = node;
+        max_count = at(node, subtree_id);
+      }
+    }
+    assignments_[subtree_id] = max_node;
+  }
+}
+
+std::ostream& operator<<(std::ostream& o, const OwnerSamples& v) {
+  o << "<OwnerSamples nodes=\"" << v.nodes_
+    << "\" subtrees=\"" << v.subtrees_ << "\">" << std::endl;
+  o << "<!-- legend id=\"x\" assignment=\"x\">";
+  for (uint32_t node = 0; node < v.nodes_; ++node) {
+    o << "[Node-" << node << "] ";
+  }
+  o << " -->" << std::endl;
+  for (uint32_t subtree_id = 0; subtree_id < v.subtrees_; ++subtree_id) {
+    o << "  <subtree id=\"" << subtree_id
+      << "\" assignment=\"" << v.get_assignment(subtree_id) << "\">";
+    for (uint32_t node = 0; node < v.nodes_; ++node) {
+      o << assorted::Hex(v.at(node, subtree_id), 6) << " ";
+    }
+    o << "</subtree>" << std::endl;
+  }
+  o << std::endl << "</OwnerSamples>";
+  return o;
 }
 
 ErrorStack MasstreePartitioner::read_page_safe(MasstreePage* src, MasstreePage* out) {

@@ -67,6 +67,7 @@ union ReducerBufferStatus {
   bool is_clear() const { return word == 0; }
   uint16_t get_active_writers() const { return components.active_writers_; }
   BufferPosition get_tail_position() const { return components.tail_position_; }
+  uint64_t get_tail_bytes() const { return from_buffer_position(components.tail_position_); }
 };
 
 /**
@@ -93,6 +94,8 @@ struct BlockHeaderBase {
       || magic_word_ == kFillerBlockHeaderMagicWord);
     return magic_word_ == kFillerBlockHeaderMagicWord;
   }
+
+  friend std::ostream& operator<<(std::ostream& o, const BlockHeaderBase& v);
 
   /**
    * This is used to identify the storage block is a dummy (filler) one or a full one.
@@ -338,6 +341,12 @@ class LogReducer final : public MapReduceBase {
    * buffer while mappers keep appending to another buffer.
    */
   void*                   buffers_[2];
+
+  /**
+   * Byte size of buffers_[0] and buffers_[1]. Be careful, this is log_reducer_buffer_mb_ / 2
+   * because we split it into two buffers.
+   */
+  uint64_t                buffer_half_size_bytes_;
 
   /**
    * This is the 'output' of the reducer in this node.
