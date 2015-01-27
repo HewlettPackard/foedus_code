@@ -54,6 +54,7 @@ ErrorStack tpcc_load_task(const proc::ProcArguments& args) {
     args.input_buffer_);
   TpccLoadTask task(
     inputs->total_warehouses_,
+    inputs->olap_mode_,
     inputs->timestamp_,
     inputs->from_wid_,
     inputs->to_wid_,
@@ -244,9 +245,7 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
     WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kSerializable));
     // to speedup experiments, skip a few storages' verify() if they are static storages.
     // TODO(Hideaki) make verify() checks snapshot pages too.
-    if (storages_.customers_secondary_.get_metadata()->root_snapshot_page_id_ != 0) {
-      CHECK_ERROR(storages_.customers_secondary_.verify_single_thread(context));
-    }
+    CHECK_ERROR(storages_.customers_secondary_.verify_single_thread(context));
     CHECK_ERROR(storages_.neworders_.verify_single_thread(context));
     CHECK_ERROR(storages_.orderlines_.verify_single_thread(context));
     CHECK_ERROR(storages_.orders_.verify_single_thread(context));
@@ -329,16 +328,20 @@ ErrorStack TpccLoadTask::run(thread::Thread* context) {
 }
 
 ErrorStack TpccLoadTask::load_tables() {
-  CHECK_ERROR(load_warehouses());
-  VLOG(0) << "Loaded Warehouses:" << engine_->get_memory_manager()->dump_free_memory_stat();
-  CHECK_ERROR(load_districts());
-  VLOG(0) << "Loaded Districts:" << engine_->get_memory_manager()->dump_free_memory_stat();
+  if (!olap_mode_) {
+    CHECK_ERROR(load_warehouses());
+    VLOG(0) << "Loaded Warehouses:" << engine_->get_memory_manager()->dump_free_memory_stat();
+    CHECK_ERROR(load_districts());
+    VLOG(0) << "Loaded Districts:" << engine_->get_memory_manager()->dump_free_memory_stat();
+  }
   CHECK_ERROR(load_customers());
   VLOG(0) << "Loaded Customers:" << engine_->get_memory_manager()->dump_free_memory_stat();
-  CHECK_ERROR(load_items());
-  VLOG(0) << "Loaded Items:" << engine_->get_memory_manager()->dump_free_memory_stat();
-  CHECK_ERROR(load_stocks());
-  VLOG(0) << "Loaded Strocks:" << engine_->get_memory_manager()->dump_free_memory_stat();
+  if (!olap_mode_) {
+    CHECK_ERROR(load_items());
+    VLOG(0) << "Loaded Items:" << engine_->get_memory_manager()->dump_free_memory_stat();
+    CHECK_ERROR(load_stocks());
+    VLOG(0) << "Loaded Strocks:" << engine_->get_memory_manager()->dump_free_memory_stat();
+  }
   CHECK_ERROR(load_orders());
   VLOG(0) << "Loaded Orders:" << engine_->get_memory_manager()->dump_free_memory_stat();
   return kRetOk;
@@ -574,25 +577,27 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
     c_data.credit_lim_ = 50000;
 
     Wdcid wdcid = combine_wdcid(wdid, cid);
-    WRAP_ERROR_CODE(storages_.customers_static_.overwrite_record(
-      context_,
-      wdcid,
-      &c_data,
-      0,
-      sizeof(c_data)));
-    WRAP_ERROR_CODE(storages_.customers_dynamic_.overwrite_record(
-      context_,
-      wdcid,
-      &c_dynamic,
-      0,
-      sizeof(c_dynamic)));
-    WRAP_ERROR_CODE(storages_.customers_history_.overwrite_record(
-      context_,
-      wdcid,
-      &c_history,
-      0,
-      sizeof(c_history)));
-    WRAP_ERROR_CODE(commit_if_full());
+    if (!olap_mode_) {
+      WRAP_ERROR_CODE(storages_.customers_static_.overwrite_record(
+        context_,
+        wdcid,
+        &c_data,
+        0,
+        sizeof(c_data)));
+      WRAP_ERROR_CODE(storages_.customers_dynamic_.overwrite_record(
+        context_,
+        wdcid,
+        &c_dynamic,
+        0,
+        sizeof(c_dynamic)));
+      WRAP_ERROR_CODE(storages_.customers_history_.overwrite_record(
+        context_,
+        wdcid,
+        &c_history,
+        0,
+        sizeof(c_history)));
+      WRAP_ERROR_CODE(commit_if_full());
+    }
     std::memcpy(secondary_keys[cid].last_, c_data.last_, sizeof(c_data.last_));
     std::memcpy(secondary_keys[cid].first_, c_data.first_, sizeof(c_data.first_));
     secondary_keys[cid].cid_ = cid;
@@ -607,8 +612,10 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
     h_data.did_ = did;
     h_data.amount_ = 10.0;
     std::memcpy(h_data.date_, timestamp_.data(), sizeof(h_data.date_));
-    WRAP_ERROR_CODE(histories.append_record(context_, &h_data, sizeof(h_data)));
-    WRAP_ERROR_CODE(commit_if_full());
+    if (!olap_mode_) {
+      WRAP_ERROR_CODE(histories.append_record(context_, &h_data, sizeof(h_data)));
+      WRAP_ERROR_CODE(commit_if_full());
+    }
   }
   WRAP_ERROR_CODE(xct_manager_->precommit_xct(context_, &ep));
 
@@ -728,10 +735,12 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
     uint32_t successive_aborts = 0;
     while (true) {
       WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
-      if (o_data.carrier_id_ == 0) {
-        WRAP_ERROR_CODE(neworders.insert_record_normalized(context_, wdoid));
+      if (!olap_mode_) {
+        if (o_data.carrier_id_ == 0) {
+          WRAP_ERROR_CODE(neworders.insert_record_normalized(context_, wdoid));
+        }
+        WRAP_ERROR_CODE(orders.insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
       }
-      WRAP_ERROR_CODE(orders.insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
       WRAP_ERROR_CODE(orders_secondary.insert_record_normalized(context_, wdcoid));
       for (Ol ol = 1; ol <= o_ol_cnt; ol++) {
         Wdol wdol = combine_wdol(wdoid, ol);

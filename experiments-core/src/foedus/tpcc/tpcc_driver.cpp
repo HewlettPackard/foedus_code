@@ -124,6 +124,10 @@ TpccDriver::Result TpccDriver::run() {
         uint16_t count = sessions.size();
         TpccLoadTask::Inputs inputs;
         inputs.total_warehouses_ = FLAGS_warehouses;
+        inputs.olap_mode_ = false;
+#ifdef OLAP_MODE
+        inputs.olap_mode_ = true;
+#endif  // OLAP_MODE
         inputs.timestamp_ = timestamp;
         inputs.from_wid_ = from_wids_[count];
         inputs.to_wid_ = to_wids_[count];
@@ -497,6 +501,7 @@ int driver_main(int argc, char **argv) {
       options.snapshot_.log_mapper_bucket_kb_ = 1 << 15;
       options.snapshot_.snapshot_writer_page_pool_size_mb_ = 1 << 13;
       options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 1 << 11;
+      options.snapshot_.log_reducer_read_io_buffer_kb_ = FLAGS_reducer_buffer_size * 1024;
     }
 
     fs::Path nvm_folder(FLAGS_nvm_folder);
@@ -558,6 +563,8 @@ int driver_main(int argc, char **argv) {
   // then we need larger read/write set buffer for each transaction
   options.xct_.max_read_set_size_ = 1U << 17;
   options.xct_.max_write_set_size_ = 1U << 15;
+  options.cache_.snapshot_cache_eviction_threshold_ = 0.99;
+  options.cache_.snapshot_cache_urgent_threshold_ = 0.999;
 #endif  // OLAP_MODE
 
   if (FLAGS_thread_per_node != 0) {

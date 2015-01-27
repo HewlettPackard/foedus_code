@@ -75,6 +75,7 @@ class TpccLoadTask {
  public:
   struct Inputs {
     Wid total_warehouses_;
+    bool olap_mode_;
     assorted::FixedString<28> timestamp_;
     Wid from_wid_;
     Wid to_wid_;
@@ -83,12 +84,14 @@ class TpccLoadTask {
   };
   TpccLoadTask(
     Wid total_warehouses,
+    bool olap_mode,
     const assorted::FixedString<28>& timestamp,
     Wid from_wid,
     Wid to_wid,
     Iid from_iid,
     Iid to_iid)
     : total_warehouses_(total_warehouses),
+      olap_mode_(olap_mode),
       timestamp_(timestamp),
       from_wid_(from_wid),
       to_wid_(to_wid),
@@ -104,6 +107,7 @@ class TpccLoadTask {
   };
 
   const Wid total_warehouses_;
+  const bool olap_mode_;
   TpccStorages storages_;
   /** timestamp for date fields. */
   const assorted::FixedString<28> timestamp_;
