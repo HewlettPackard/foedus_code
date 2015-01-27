@@ -240,15 +240,15 @@ ErrorCode TpccClientTask::lookup_customer_by_name(Wid wid, Did did, const char* 
 ErrorStack TpccClientTask::warmup(thread::Thread* context) {
   // Warmup snapshot cache for read-only tables. Install volatile pages for dynamic tables.
 
-  // in olap mode, let's not prefetch anything because the data size is huge.
-  // as far as duration_micro is long enough, we don't need it. flip-flopped about this.
+  // in olap mode, let's selectively prefetch because the data size is huge.
   if (olap_mode_) {
+    CHECK_ERROR(warmup_olap(context));
     ++(channel_->warmup_complete_counter_);
     return kRetOk;
   }
 
   // item has no locality, but still we want to pre-load snapshot cache, so:
-  if (channel_->preload_snapshot_pages_ || olap_mode_) {
+  if (channel_->preload_snapshot_pages_) {
     uint64_t items_per_warehouse = kItems / total_warehouses_;
     uint64_t from = items_per_warehouse * from_wid_;
     uint64_t to = items_per_warehouse * to_wid_;
@@ -357,6 +357,52 @@ ErrorStack TpccClientTask::warmup(thread::Thread* context) {
 
   // Warmup done!
   ++(channel_->warmup_complete_counter_);
+  return kRetOk;
+}
+
+ErrorStack TpccClientTask::warmup_olap(thread::Thread* context) {
+  // we so far use only order_status in OLAP mode. so, just prefetch that part
+  if (storages_.orderlines_.get_metadata()->root_snapshot_page_id_ == 0) {
+    LOG(INFO) << "No warmup needed for volatile OLAP experiment";
+    return kRetOk;
+  }
+
+  Wid wid_begin = from_wid_;
+  Wid wid_end = to_wid_;
+
+  {
+    // customers secondary
+    storage::masstree::KeySlice from = static_cast<storage::masstree::KeySlice>(wid_begin) << 48U;
+    storage::masstree::KeySlice to = static_cast<storage::masstree::KeySlice>(wid_end) << 48U;
+    WRAP_ERROR_CODE(storages_.customers_secondary_.prefetch_pages_normalized(
+      context,
+      false,
+      true,
+      from,
+      to));
+  }
+  {
+    // order_secondary
+    Wdcoid from = combine_wdcoid(combine_wdcid(combine_wdid(wid_begin, 0), 0), 0);
+    Wdcoid to = combine_wdcoid(combine_wdcid(combine_wdid(wid_end, 0), 0), 0);
+    WRAP_ERROR_CODE(storages_.orders_secondary_.prefetch_pages_normalized(
+      context,
+      false,
+      true,
+      from,
+      to));
+  }
+  {
+    // orderlines
+    Wdol from = combine_wdol(combine_wdoid(combine_wdid(wid_begin, 0), 0), 0);
+    Wdol to = combine_wdol(combine_wdoid(combine_wdid(wid_end, 0), 0), 0);
+    WRAP_ERROR_CODE(storages_.orderlines_.prefetch_pages_normalized(
+      context,
+      false,
+      true,
+      from,
+      to));
+  }
   return kRetOk;
 }
 

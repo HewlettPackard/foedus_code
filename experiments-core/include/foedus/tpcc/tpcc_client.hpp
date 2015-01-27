@@ -275,6 +275,7 @@ class TpccClientTask {
   }
 
   ErrorStack warmup(thread::Thread* context);
+  ErrorStack warmup_olap(thread::Thread* context);
 };
 }  // namespace tpcc
 }  // namespace foedus

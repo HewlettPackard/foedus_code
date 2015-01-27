@@ -62,6 +62,9 @@ DEFINE_int32(payment_remote_percent, 0, "Percent of each payment that is inserte
   " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
+DEFINE_bool(skip_verify, false, "Whether to skip the detailed verification after data load."
+  " The verification is single-threaded, and scans all pages. In a big machine, it takes a minute."
+  " In case you want to skip it, enable this. But, we should usually check bugs.");
 DEFINE_int32(thread_per_node, 2, "Number of threads per NUMA node. 0 uses logical count");
 DEFINE_int32(numa_nodes, 2, "Number of NUMA nodes. 0 uses physical count");
 DEFINE_bool(use_numa_alloc, true, "Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode()"
@@ -173,11 +176,12 @@ TpccDriver::Result TpccDriver::run() {
   // Verify the loaded data. this is done in single thread
   Wid total_warehouses = FLAGS_warehouses;
   {
+    TpccFinishupInput input = {total_warehouses, FLAGS_skip_verify};
     thread::ImpersonateSession finishup_session;
     bool impersonated = thread_pool->impersonate(
       "tpcc_finishup_task",
-      &total_warehouses,
-      sizeof(total_warehouses),
+      &input,
+      sizeof(input),
       &finishup_session);
     if (!impersonated) {
       LOG(FATAL) << "Failed to impersonate??";
@@ -484,14 +488,16 @@ int driver_main(int argc, char **argv) {
 
     options.snapshot_.log_mapper_io_buffer_mb_ = 1 << 8;
     options.snapshot_.log_mapper_bucket_kb_ = 1 << 12;
-    if (FLAGS_reducer_buffer_size > 10) {  // probably OLAP experiment in a large machine?
-      options.snapshot_.log_mapper_io_buffer_mb_ = 1 << 11;
-      options.snapshot_.log_mapper_bucket_kb_ = 1 << 15;
-    }
     options.snapshot_.log_reducer_buffer_mb_ = FLAGS_reducer_buffer_size << 10;
     options.snapshot_.snapshot_writer_page_pool_size_mb_ = 1 << 10;
     options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 1 << 8;
     options.cache_.snapshot_cache_size_mb_per_node_ = FLAGS_snapshot_pool_size;
+    if (FLAGS_reducer_buffer_size > 10) {  // probably OLAP experiment in a large machine?
+      options.snapshot_.log_mapper_io_buffer_mb_ = 1 << 11;
+      options.snapshot_.log_mapper_bucket_kb_ = 1 << 15;
+      options.snapshot_.snapshot_writer_page_pool_size_mb_ = 1 << 13;
+      options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 1 << 11;
+    }
 
     fs::Path nvm_folder(FLAGS_nvm_folder);
     if (!fs::exists(nvm_folder)) {

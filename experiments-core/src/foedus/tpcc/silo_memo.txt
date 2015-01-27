@@ -36,6 +36,15 @@ This line (L152)
 to
   BENCH_LDFLAGS := $(LDFLAGS) -L/usr/lib64/libdb4 -ldb_cxx -lz -lrt -lcrypt -laio -ldl -lssl -lcrypto
 
+### 20150125 NEW. DO NOT SKIP THIS
+If the machie has more than 250 LOGICAL cores (eg DragonHawk), you must
+turn off HTT to make # of logical cores within 250 or apply the following change.
+Otherwise SILO doesn't run. See the memo at the end.
+
+emacs -nw core.cc
+Replace the content of "coreid::num_cpus_online()" with just "return <physical core count in the machine>;"
+# This is a super-evil hard-coding hack, but surely works.
+
 
 make -j
 make -j dbtest
@@ -144,3 +153,86 @@ txn breakdown: [[Delivery, 7371674], [NewOrder, 83011096], [OrderStatus, 7377100
 --- system counters (for benchmark) ---
 
 About half of FOEDUS's throughput.
+
+
+
+# 20150125
+Umm? While re-running experiments, I got aborts I didn't see before.
+It happens only when I run with many threads. (DL580 one doesn't have any issue)
+
+table stock_0 size 19200000
+table stock_data_0 size 19200000
+table warehouse_0 size 192
+starting benchmark...
+
+Program received signal SIGABRT, Aborted.
+0x00007ffff5580989 in raise () from /lib64/libc.so.6
+Missing separate debuginfos, use: debuginfo-install glibc-2.17-55.el7.x86_64 jemalloc-3.6.0-1.el7.x86_64 keyutils-libs-1.5.8-3.el7.x86_64 krb5-libs-1.11.3-49.el7.x86_64 libaio-0.3.109-12.el7.x86_64 libcom_err-1.42.9-4.el7.x86_64 libdb4-cxx-4.8.30-13.el7.x86_64 libgcc-4.8.2-16.el7.x86_64 libselinux-2.2.2-6.el7.x86_64 libstdc++-4.8.2-16.el7.x86_64 nss-softokn-freebl-3.15.4-2.el7.x86_64 numactl-libs-2.0.9-2.el7.x86_64 openssl-libs-1.0.1e-34.el7.x86_64 pcre-8.32-12.el7.x86_64 xz-libs-5.1.2-8alpha.el7.x86_64 zlib-1.2.7-13.el7.x86_64
+(gdb) info threads
+  Id   Target Id         Frame
+  2    Thread 0x7ffff33ff700 (LWP 16678) "dbtest" 0x00007ffff79c799d in nanosleep () from /lib64/libpthread.so.0
+* 1    Thread 0x7ffff7fd5880 (LWP 16674) "dbtest" 0x00007ffff5580989 in raise () from /lib64/libc.so.6
+(gdb) thread 1
+[Switching to thread 1 (Thread 0x7ffff7fd5880 (LWP 16674))]
+#0  0x00007ffff5580989 in raise () from /lib64/libc.so.6
+(gdb) bt
+#0  0x00007ffff5580989 in raise () from /lib64/libc.so.6
+#1  0x00007ffff5582098 in abort () from /lib64/libc.so.6
+#2  0x00000000004ef1e5 in tpcc_bench_runner::make_workers (this=0x7fffffffda90) at benchmarks/tpcc.cc:2099
+#3  0x00000000004c3251 in bench_runner::run (this=this@entry=0x7fffffffda90) at benchmarks/bench.cc:229
+#4  0x00000000004de457 in tpcc_do_test (db=0x7ffff3428258, argc=1, argv=<optimized out>) at benchmarks/tpcc.cc:2213
+#5  0x000000000040749f in main (argc=<optimized out>, argv=<optimized out>) at benchmarks/dbtest.cc:404
+
+
+Seems like this one:
+    const unsigned alignment = coreid::num_cpus_online();
+    const int blockstart =
+      coreid::allocate_contiguous_aligned_block(nthreads, alignment);
+    ALWAYS_ASSERT(blockstart >= 0);
+
+coreid::allocate_contiguous_aligned_block(unsigned n, unsigned alignment)
+{
+retry:
+  unsigned current = g_core_count.load(memory_order_acquire);
+  const unsigned rounded = slow_round_up(current, alignment);
+  const unsigned replace = rounded + n;
+  if (unlikely(replace > NMaxCores))
+    return -1;
+  if (!g_core_count.compare_exchange_strong(current, replace, memory_order_acq_rel)) {
+    nop_pause();
+    goto retry;
+  }
+  return rounded;
+}
+
+
+So, this returns -1? mm.
+
+
+96-threads: still crashes
+60-threads: still crashes...??? maybe it's not about thread-count
+
+
+Wait, now even this fails
+./benchmarks/dbtest --verbose --bench tpcc --num-threads 48 --scale-factor 48 --runtime 30 --numa-memory 96G
+
+But, this works fine:
+./benchmarks/dbtest --verbose --bench tpcc --num-threads 14 --scale-factor 14 --runtime 30 --numa-memory 14G
+
+wtf..
+
+
+AHHHHHHHHHHHHHHHHHHH! I got! I got! FUUUUUUUUUUUUUUUUUUUUUUUUUCK.
+I slightly remember I disabled HTT back then. Thus core-count was 240.
+And this:
+  if (unlikely(replace > NMaxCores))
+It was fine because NMaxCores is 512, but now 480+32 would break it.
+
+First of all, why SILO assigns worker-ID from _SC_NPROCESSORS_ONLN, not from 0.
+Ggggrrr.
+
+Ah, I see. because there are background threads that are also pinned.
+Fortunately, the worker-ID is important only for thread pinning on libnuma where
+CPU-ID loops at the middle if HTT enabled. CPU 0-14=node0, CPU 15-29=node1,... CPU240-254=node0,..
+I confirmed this. So, it's safe to just report the physical core count in
+coreid::num_cpus_online().

@@ -40,13 +40,20 @@ ErrorStack create_masstree(
   float border_fill_factor);
 ErrorStack create_sequential(Engine* engine, const storage::StorageName& name);
 
+struct TpccFinishupInput {
+  Wid   total_warehouses_;
+  bool  skip_verify_;
+};
+
 class TpccFinishupTask {
  public:
-  explicit TpccFinishupTask(Wid total_warehouses) : total_warehouses_(total_warehouses) {}
+  explicit TpccFinishupTask(const TpccFinishupInput &input)
+    : total_warehouses_(input.total_warehouses_), skip_verify_(input.skip_verify_) {}
   ErrorStack          run(thread::Thread* context);
 
  private:
   const Wid total_warehouses_;
+  const bool skip_verify_;
   TpccStorages storages_;
 };
 
