@@ -243,7 +243,17 @@ class MasstreeComposeContext {
 
   /** Represents a minimal information to install a new snapshot page pointer */
   struct PageBoundaryInfo {
-    uint8_t reserved_;
+    /**
+     * B-tree level. Note that it IS possible that we have two pages with the exact same
+     * prefix and fences, but in different levels. We hit the case as a rare bug like this:
+     * This happens when the tail page of the growing level has only one pointer.
+     * eg. Btree-level-0 : A, B, ... E, F, ..., X, Y, Z. We had 26 pages. and we closed it.
+     * Now the B-tree level-1 replaces the last level, which usually has much coarser keys.
+     * HOWEVER, unluckily, it's like this:
+     * A-E, E-K, ... V-Y, ***Y-Z***. Here, the intermediate page Y-Z only has one pointer.
+     * In this case, both the level-0 page (Z) and the level-1 page has Y-Z as the range.
+     */
+    uint8_t btree_level_;
     /** set to true when this page is closed/reopened so that only one entry matches exactly */
     uint8_t removed_;
     /** B-trie layer of the new page. layer_+2 slices are stored. */
@@ -266,12 +276,13 @@ class MasstreeComposeContext {
 
     uint32_t dynamic_sizeof() const ALWAYS_INLINE { return (layer_ + 2U) * sizeof(KeySlice) + 8U; }
     static uint32_t calculate_hash(
+      uint8_t btree_level,
       uint8_t layer,
       const KeySlice* prefixes,
       KeySlice low_fence,
       KeySlice high_fence) ALWAYS_INLINE {
       // good old multiply-hash
-      uint64_t hash = 0;
+      uint64_t hash = btree_level + (layer * 256U);
       const uint64_t kMult = 0x7ada20dc734afb6fULL;
       for (uint8_t i = 0; i < layer; ++i) {
         hash = hash * kMult + prefixes[i];
@@ -294,11 +305,12 @@ class MasstreeComposeContext {
      * @see removed_
      */
     bool exact_match(
+      uint8_t btree_level,
       uint8_t layer,
       const KeySlice* prefixes,
       KeySlice low,
       KeySlice high) const ALWAYS_INLINE {
-      if (layer != layer_ || removed_) {
+      if (layer != layer_ || btree_level != btree_level_ || removed_) {
         return false;
       }
       for (uint8_t i = 0; i < layer_; ++i) {
@@ -554,12 +566,14 @@ class MasstreeComposeContext {
   }
   /** checks that the entry does not exist yet. wiped out in release mode */
   void assert_page_boundary_not_exists(
+    uint8_t btree_level,
     uint8_t layer,
     const KeySlice* prefixes,
     KeySlice low,
     KeySlice high) const ALWAYS_INLINE;
   void sort_page_boundary_info();
   SnapshotPagePointer lookup_page_boundary_info(
+    uint8_t btree_level,
     uint8_t layer,
     const KeySlice* prefixes,
     KeySlice low,

@@ -439,6 +439,19 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * Defined in masstree_storage_peek.cpp
    */
   ErrorCode   peek_volatile_page_boundaries(Engine* engine, const PeekBoundariesArguments& args);
+
+  /**
+   * @brief Deliberately causes splits under the volatile root of first layer, or "fatify" it.
+   * @param[in] desired_count Does nothing if the root of first layer already has this
+   * many children.
+   * @details
+   * This is a special-purpose, physical-only method that does nothing logically.
+   * It increases the number of direct children in first root, which is useful when we partition
+   * based on children in first root. Fatifying beforehand shouldn't have any significant drawback,
+   * but we so far restrict the use of this method to performance benchmarks.
+   * @todo testcase for this method. TDD? shut up.
+   */
+  ErrorStack  fatify_first_root(thread::Thread* context, uint32_t desired_count);
 };
 }  // namespace masstree
 }  // namespace storage

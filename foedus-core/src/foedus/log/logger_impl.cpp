@@ -319,6 +319,16 @@ ErrorStack Logger::write_one_epoch(Epoch write_epoch) {
   for (thread::Thread* the_thread : assigned_threads_) {
     ThreadLogBuffer& buffer = the_thread->get_thread_log_buffer();
     ThreadLogBuffer::OffsetRange range = buffer.get_logs_to_write(write_epoch);
+    ASSERT_ND(range.begin_ <= buffer.get_meta().buffer_size_);
+    ASSERT_ND(range.end_ <= buffer.get_meta().buffer_size_);
+    if (range.begin_ > buffer.get_meta().buffer_size_
+      || range.end_ > buffer.get_meta().buffer_size_) {
+      LOG(FATAL) << "Logger-" << id_ << " reported an invalid buffer range for epoch-"
+        << write_epoch << ". begin=" << range.begin_ << ", end=" << range.end_
+          << " while log buffer size=" << buffer.get_meta().buffer_size_
+          << ". " << *this;
+    }
+
     if (!range.is_empty()) {
       if (had_any_log == false) {
         // First log for this epoch. Now we write out an epoch mark.

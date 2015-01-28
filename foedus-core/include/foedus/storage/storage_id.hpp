@@ -204,6 +204,10 @@ union VolatilePagePointer {
     components.mod_count = mod_count;
     components.offset = offset;
   }
+  bool is_equivalent(const VolatilePagePointer& other) {
+    return components.numa_node == other.components.numa_node
+      && components.offset == other.components.offset;
+  }
 };
 void describe_volatile_pointer(std::ostream* o, VolatilePagePointer pointer);
 

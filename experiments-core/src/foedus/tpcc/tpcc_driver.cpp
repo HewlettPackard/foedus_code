@@ -42,7 +42,7 @@ namespace foedus {
 namespace tpcc {
 DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
     " than threads in the same process. This is required to scale up to 100+ cores.");
-DEFINE_bool(take_snapshot, true, "Whether to run a log gleaner after loading data.");
+DEFINE_bool(take_snapshot, false, "Whether to run a log gleaner after loading data.");
 DEFINE_bool(preload_snapshot_pages, false, "Pre-fetch snapshot pages before execution.");
 DEFINE_bool(disable_snapshot_cache, false, "Disable snapshot cache and read from file always.");
 DEFINE_string(nvm_folder, "/dev/shm", "Full path of the device representing NVM.");
@@ -50,9 +50,9 @@ DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) work
     " processes on replicated binaries. This is required to scale up to 16 sockets.");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
-DEFINE_int32(volatile_pool_size, 6, "Size of volatile memory pool per NUMA node in GB.");
+DEFINE_int32(volatile_pool_size, 12, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_int32(snapshot_pool_size, 4096, "Size of snapshot memory pool per NUMA node in MB.");
-DEFINE_int32(reducer_buffer_size, 1, "Size of reducer's buffer per NUMA node in GB.");
+DEFINE_int32(reducer_buffer_size, 2, "Size of reducer's buffer per NUMA node in GB.");
 DEFINE_int32(loggers_per_node, 2, "Number of log writers per numa node.");
 DEFINE_int32(neworder_remote_percent, 0, "Percent of each orderline that is inserted to remote"
   " warehouse. The default value is 1 (which means a little bit less than 10% of an order has some"
@@ -62,7 +62,10 @@ DEFINE_int32(payment_remote_percent, 0, "Percent of each payment that is inserte
   " warehouse. The default value is 15. This corresponds to H-Store's payment_multip/"
   "payment_multip_mix in tpcc.properties.");
 DEFINE_bool(single_thread_test, false, "Whether to run a single-threaded sanity test.");
-DEFINE_int32(thread_per_node, 2, "Number of threads per NUMA node. 0 uses logical count");
+DEFINE_bool(skip_verify, false, "Whether to skip the detailed verification after data load."
+  " The verification is single-threaded, and scans all pages. In a big machine, it takes a minute."
+  " In case you want to skip it, enable this. But, we should usually check bugs.");
+DEFINE_int32(thread_per_node, 8, "Number of threads per NUMA node. 0 uses logical count");
 DEFINE_int32(numa_nodes, 2, "Number of NUMA nodes. 0 uses physical count");
 DEFINE_bool(use_numa_alloc, true, "Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode()"
   " to allocate memories. If false, we use usual posix_memalign() instead");
@@ -73,7 +76,7 @@ DEFINE_bool(mmap_hugepages, false, "Whether to use mmap for 1GB hugepages."
 DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
-DEFINE_int32(warehouses, 4, "Number of warehouses.");
+DEFINE_int32(warehouses, 16, "Number of warehouses.");
 DEFINE_int64(duration_micro, 1000000, "Duration of benchmark in microseconds.");
 
 #ifdef OLAP_MODE
@@ -121,6 +124,10 @@ TpccDriver::Result TpccDriver::run() {
         uint16_t count = sessions.size();
         TpccLoadTask::Inputs inputs;
         inputs.total_warehouses_ = FLAGS_warehouses;
+        inputs.olap_mode_ = false;
+#ifdef OLAP_MODE
+        inputs.olap_mode_ = true;
+#endif  // OLAP_MODE
         inputs.timestamp_ = timestamp;
         inputs.from_wid_ = from_wids_[count];
         inputs.to_wid_ = to_wids_[count];
@@ -173,11 +180,12 @@ TpccDriver::Result TpccDriver::run() {
   // Verify the loaded data. this is done in single thread
   Wid total_warehouses = FLAGS_warehouses;
   {
+    TpccFinishupTask::Inputs input = {total_warehouses, FLAGS_skip_verify, FLAGS_take_snapshot};
     thread::ImpersonateSession finishup_session;
     bool impersonated = thread_pool->impersonate(
       "tpcc_finishup_task",
-      &total_warehouses,
-      sizeof(total_warehouses),
+      &input,
+      sizeof(input),
       &finishup_session);
     if (!impersonated) {
       LOG(FATAL) << "Failed to impersonate??";
@@ -484,14 +492,17 @@ int driver_main(int argc, char **argv) {
 
     options.snapshot_.log_mapper_io_buffer_mb_ = 1 << 8;
     options.snapshot_.log_mapper_bucket_kb_ = 1 << 12;
-    if (FLAGS_reducer_buffer_size > 10) {  // probably OLAP experiment in a large machine?
-      options.snapshot_.log_mapper_io_buffer_mb_ = 1 << 11;
-      options.snapshot_.log_mapper_bucket_kb_ = 1 << 15;
-    }
     options.snapshot_.log_reducer_buffer_mb_ = FLAGS_reducer_buffer_size << 10;
     options.snapshot_.snapshot_writer_page_pool_size_mb_ = 1 << 10;
     options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 1 << 8;
     options.cache_.snapshot_cache_size_mb_per_node_ = FLAGS_snapshot_pool_size;
+    if (FLAGS_reducer_buffer_size > 10) {  // probably OLAP experiment in a large machine?
+      options.snapshot_.log_mapper_io_buffer_mb_ = 1 << 11;
+      options.snapshot_.log_mapper_bucket_kb_ = 1 << 15;
+      options.snapshot_.snapshot_writer_page_pool_size_mb_ = 1 << 13;
+      options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 1 << 11;
+      options.snapshot_.log_reducer_read_io_buffer_kb_ = FLAGS_reducer_buffer_size * 1024;
+    }
 
     fs::Path nvm_folder(FLAGS_nvm_folder);
     if (!fs::exists(nvm_folder)) {
@@ -552,6 +563,8 @@ int driver_main(int argc, char **argv) {
   // then we need larger read/write set buffer for each transaction
   options.xct_.max_read_set_size_ = 1U << 17;
   options.xct_.max_write_set_size_ = 1U << 15;
+  options.cache_.snapshot_cache_eviction_threshold_ = 0.99;
+  options.cache_.snapshot_cache_urgent_threshold_ = 0.999;
 #endif  // OLAP_MODE
 
   if (FLAGS_thread_per_node != 0) {

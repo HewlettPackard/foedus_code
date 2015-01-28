@@ -8,6 +8,7 @@ echo "FOEDUS TPC-C OLAP experiments script for $machine_shortname ($machine_name
 null_log_device=false
 high_priority=false
 fork_workers=true
+skip_verify=true # life is too short. or verificaiton should be parallelized.
 
 for rep in 0 1 2
 do
@@ -17,7 +18,7 @@ do
   rm -rf /tmp/libfoedus.*
   sleep 5 # Linux's release of shared memory has a bit of timelag.
   export CPUPROFILE_FREQUENCY=1 # https://code.google.com/p/gperftools/issues/detail?id=133
-  env CPUPROFILE_FREQUENCY=1 ./tpcc_olap -warehouses=$warehouses -take_snapshot=false -fork_workers=$fork_workers -nvm_folder=/dev/shm -high_priority=$high_priority -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=1 -payment_remote_percent=15 -volatile_pool_size=$volatile_pool_size -snapshot_pool_size=2 -reducer_buffer_size=2 -duration_micro=$duration_micro &> "result_tpcc_olap_vol_$machine_shortname.r$rep.log"
+  env CPUPROFILE_FREQUENCY=1 ./tpcc_olap -skip_verify=$skip_verify -warehouses=$warehouses -take_snapshot=false -fork_workers=$fork_workers -nvm_folder=/dev/shm -high_priority=$high_priority -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=1 -payment_remote_percent=15 -volatile_pool_size=$volatile_pool_size -snapshot_pool_size=2 -reducer_buffer_size=2 -duration_micro=$duration_micro &> "result_tpcc_olap_vol_$machine_shortname.r$rep.log"
 done
 
 
@@ -34,6 +35,6 @@ do
   export CPUPROFILE_FREQUENCY=1 # https://code.google.com/p/gperftools/issues/detail?id=133
   sudo mount -t nvmfs -o rd_delay_ns_fixed=$nvm_latency,wr_delay_ns_fixed=$nvm_latency,rd_delay_ns_per_kb=0,wr_delay_ns_per_kb=0,cpu_freq_mhz=2800,size=1000000m nvmfs /testnvm
   echo "./tpcc_olap -warehouses=$warehouses -fork_workers=$fork_workers -nvm_folder=/dev/shm -high_priority=$high_priority -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=1 -payment_remote_percent=15 -volatile_pool_size=$volatile_pool_size -snapshot_pool_size=$snapshot_pool_size -reducer_buffer_size=$reducer_buffer_size -duration_micro=$duration_micro"
-  env CPUPROFILE_FREQUENCY=1 ./tpcc_olap -warehouses=$warehouses -take_snapshot=true -fork_workers=$fork_workers -nvm_folder=/testnvm -high_priority=$high_priority -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=1 -payment_remote_percent=15 -volatile_pool_size=$volatile_pool_size -snapshot_pool_size=$snapshot_pool_size -reducer_buffer_size=$reducer_buffer_size -duration_micro=$duration_micro &> "result_tpcc_olap_nvm_$machine_shortname.r$rep.log"
+  env CPUPROFILE_FREQUENCY=1 ./tpcc_olap -skip_verify=$skip_verify -warehouses=$warehouses -take_snapshot=true -fork_workers=$fork_workers -nvm_folder=/testnvm -high_priority=$high_priority -null_log_device=$null_log_device -loggers_per_node=$loggers_per_node -thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -log_buffer_mb=$log_buffer_mb -neworder_remote_percent=1 -payment_remote_percent=15 -volatile_pool_size=$volatile_pool_size -snapshot_pool_size=$snapshot_pool_size -reducer_buffer_size=$reducer_buffer_size -duration_micro=$duration_micro &> "result_tpcc_olap_nvm_$machine_shortname.r$rep.log"
   sudo umount /testnvm
 done

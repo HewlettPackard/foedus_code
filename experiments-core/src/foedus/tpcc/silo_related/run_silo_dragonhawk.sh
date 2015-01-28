@@ -12,7 +12,8 @@ sudo mkdir /testnvm
 sudo chmod 666 /testnvm
 nvm_latency=5000 # fixed to 5us
 
-loggers=32
+loggers=16 # 32 causes a crash in txn_proto2_impl.cc: L182. So, one per socket in this case.
+# I bet it's because something goes over 512 (SILO's NMAXCORES). it's fine on DL580.
 log_param=""
 for a in $(seq $loggers)
 do

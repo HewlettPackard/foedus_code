@@ -330,6 +330,10 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     const memory::GlobalVolatilePageResolver& resolver,
     const MasstreeStorage::PeekBoundariesArguments& args);
 
+  /** Defined in masstree_storage_fatify.cpp */
+  ErrorStack    fatify_first_root(thread::Thread* context, uint32_t desired_count);
+  ErrorStack    fatify_first_root_double(thread::Thread* context);
+
   static ErrorCode check_next_layer_bit(xct::XctId observed) ALWAYS_INLINE;
 };
 static_assert(sizeof(MasstreeStoragePimpl) <= kPageSize, "MasstreeStoragePimpl is too large");

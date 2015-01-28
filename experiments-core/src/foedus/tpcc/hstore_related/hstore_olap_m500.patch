@@ -1,0 +1,93 @@
+diff --git a/src/benchmarks/org/voltdb/benchmark/tpcc/TPCCConstants.java b/src/benchmarks/org/voltdb/benchmark/tpcc/TPCCConstants.java
+index 941470c..f20c9cc 100644
+--- a/src/benchmarks/org/voltdb/benchmark/tpcc/TPCCConstants.java
++++ b/src/benchmarks/org/voltdb/benchmark/tpcc/TPCCConstants.java
+@@ -78,11 +78,11 @@ public final class TPCCConstants {
+         TABLENAME_ORDER_LINE,
+     };
+ 
+-    public static final int FREQUENCY_STOCK_LEVEL = 4;
+-    public static final int FREQUENCY_DELIVERY = 4;
+-    public static final int FREQUENCY_ORDER_STATUS = 4;
+-    public static final int FREQUENCY_PAYMENT = 43;
+-    public static final int FREQUENCY_NEW_ORDER = 45;
++    public static final int FREQUENCY_STOCK_LEVEL = 0;
++    public static final int FREQUENCY_DELIVERY = 0;
++    public static final int FREQUENCY_ORDER_STATUS = 100;
++    public static final int FREQUENCY_PAYMENT = 0;
++    public static final int FREQUENCY_NEW_ORDER = 0;
+     
+ //    public static final int FREQUENCY_STOCK_LEVEL = 0;
+ //    public static final int FREQUENCY_DELIVERY = 0;
+@@ -169,7 +169,7 @@ public final class TPCCConstants {
+     // o_id < than this value, carrier != null, >= -> carrier == null
+     public static final int NULL_CARRIER_LOWER_BOUND = 2101;
+     public static final int MIN_OL_CNT = 5;
+-    public static final int MAX_OL_CNT = 15;
++    public static final int MAX_OL_CNT = 500;
+     public static final int INITIAL_ALL_LOCAL = 1;
+     public static final int INITIAL_ORDERS_PER_DISTRICT = 3000;
+     // Used to generate new order transactions
+diff --git a/src/benchmarks/org/voltdb/benchmark/tpcc/TPCCLoader.java b/src/benchmarks/org/voltdb/benchmark/tpcc/TPCCLoader.java
+index 02cff50..fece03c 100644
+--- a/src/benchmarks/org/voltdb/benchmark/tpcc/TPCCLoader.java
++++ b/src/benchmarks/org/voltdb/benchmark/tpcc/TPCCLoader.java
+@@ -189,7 +189,7 @@ public class TPCCLoader extends Loader {
+             while (this.stop == false && (warehouseId = availableWarehouseIds.poll()) != null) {
+                 if (debug.val)
+                     LOG.debug(String.format("Loading warehouse %d / %d", (m_tpccConfig.num_warehouses - availableWarehouseIds.size()), m_tpccConfig.num_warehouses));
+-                makeStock(warehouseId); // STOCK is made separately to reduce
++                // makeStock(warehouseId); // STOCK is made separately to reduce
+                                         // memory consumption
+                 createDataTables();
+                 makeWarehouse(warehouseId);
+@@ -201,7 +201,7 @@ public class TPCCLoader extends Loader {
+             } // WHILE
+             if (this.stop) return;
+             
+-            makeItems(this.itemStart, itemEnd);
++            //makeItems(this.itemStart, itemEnd);
+             LOG.info(String.format("Finished ITEM %d - %d [%d/%d]",
+                      this.itemStart, this.itemEnd, finishedCounter.incrementAndGet(), m_tpccConfig.num_loadthreads));
+ 
+@@ -526,7 +526,7 @@ public class TPCCLoader extends Loader {
+                 for (int c_id = 1; c_id <= m_parameters.customersPerDistrict; ++c_id) {
+                     boolean badCredit = selectedRows.contains(c_id);
+                     generateCustomer(w_id, d_id, c_id, badCredit);
+-                    generateHistory(w_id, d_id, c_id);
++                    //generateHistory(w_id, d_id, c_id);
+                 }
+ 
+                 // TPC-C 4.3.3.1. says that o_c_id should be a permutation of
+@@ -556,6 +556,9 @@ public class TPCCLoader extends Loader {
+                         // This is a new order: make one for it
+                         data_tables[IDX_NEWORDERS].addRow((long) o_id, (long) d_id, w_id);
+                     }
++                    if (o_id % 100 == 0) {
++                        commitDataTables(w_id);
++                    }
+                 }
+                 commitDataTables(w_id); // flushout current data to avoid
+                                         // outofmemory
+diff --git a/src/frontend/org/voltdb/processtools/ProcessSetManager.java b/src/frontend/org/voltdb/processtools/ProcessSetManager.java
+index 34ad279..4b70482 100644
+--- a/src/frontend/org/voltdb/processtools/ProcessSetManager.java
++++ b/src/frontend/org/voltdb/processtools/ProcessSetManager.java
+@@ -74,7 +74,7 @@ public class ProcessSetManager implements Shutdownable {
+      * How long to wait after a process starts before we will check whether
+      * it's still alive. 
+      */
+-    private static final int POLLING_DELAY = 2000; // ms
++    private static final int POLLING_DELAY = 60000; // ms
+     
+     /**
+      * Regular expressions of strings that we want to exclude from the remote
+@@ -326,7 +326,7 @@ public class ProcessSetManager implements Shutdownable {
+     }
+     
+     public ProcessSetManager() {
+-        this(null, false, 10000, null);
++        this(null, false, 60000, null);
+     }
+     
+     // ============================================================================

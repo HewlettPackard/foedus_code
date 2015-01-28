@@ -528,6 +528,10 @@ ErrorCode MasstreeStorage::prefetch_pages_normalized(
     to);
 }
 
+ErrorStack MasstreeStorage::fatify_first_root(thread::Thread* context, uint32_t desired_count) {
+  return MasstreeStoragePimpl(this).fatify_first_root(context, desired_count);
+}
+
 
 // Explicit instantiations for each payload type
 // @cond DOXYGEN_IGNORE

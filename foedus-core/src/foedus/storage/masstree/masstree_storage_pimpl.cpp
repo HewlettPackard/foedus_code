@@ -189,7 +189,12 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   // Let's install a pointer to the new root page
   assorted::memory_fence_release();
   root_pointer->volatile_pointer_.word = new_pointer.word;
-  root_pointer->snapshot_pointer_ = 0;
+  if (root->get_layer() == 0) {
+    LOG(INFO) << "Root of first layer is logically unchanged by grow_root, so the snapshot"
+      << " pointer is unchanged. value=" << root_pointer->snapshot_pointer_;
+  } else {
+    root_pointer->snapshot_pointer_ = 0;
+  }
   ASSERT_ND(reinterpret_cast<Page*>(*new_root) ==
     context->get_global_volatile_page_resolver().resolve_offset_newpage(
       root_pointer->volatile_pointer_));

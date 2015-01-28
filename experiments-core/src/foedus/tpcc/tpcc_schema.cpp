@@ -53,6 +53,7 @@ void TpccStorages::assert_initialized() {
 }
 
 bool TpccStorages::has_snapshot_versions() {
+#ifndef OLAP_MODE
   if (customers_static_.get_metadata()->root_snapshot_page_id_ == 0) {
     return false;
   } else if (customers_static_.get_metadata()->root_snapshot_page_id_ == 0) {
@@ -66,6 +67,7 @@ bool TpccStorages::has_snapshot_versions() {
   } else if (warehouses_static_.get_metadata()->root_snapshot_page_id_ == 0) {
     return false;
   }
+#endif  // OLAP_MODE
   return true;
 }
 

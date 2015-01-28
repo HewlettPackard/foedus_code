@@ -307,16 +307,19 @@ void MasstreeBorderPage::initialize_layer_root(
   ++header_.key_count_;
 }
 
-inline ErrorCode grab_two_free_pages(thread::Thread* context, memory::PagePoolOffset* offsets) {
+inline ErrorCode grab_free_pages(
+  thread::Thread* context,
+  uint32_t count,
+  memory::PagePoolOffset* offsets) {
   memory::NumaCoreMemory* memory = context->get_thread_memory();
-  offsets[0] = memory->grab_free_volatile_page();
-  if (offsets[0] == 0) {
-    return kErrorCodeMemoryNoFreePages;
-  }
-  offsets[1] = memory->grab_free_volatile_page();
-  if (offsets[1] == 0) {
-    memory->release_free_volatile_page(offsets[0]);
-    return kErrorCodeMemoryNoFreePages;
+  for (uint32_t i = 0; i < count; ++i) {
+    offsets[i] = memory->grab_free_volatile_page();
+    if (offsets[i] == 0) {
+      for (uint32_t j = 0; j < i; ++j) {
+        memory->release_free_volatile_page(offsets[j]);
+      }
+      return kErrorCodeMemoryNoFreePages;
+    }
   }
   return kErrorCodeOk;
 }
@@ -343,7 +346,7 @@ ErrorCode MasstreeBorderPage::split_foster(
   DVLOG(1) << "Splitting a page... ";
 
   memory::PagePoolOffset offsets[2];
-  CHECK_ERROR_CODE(grab_two_free_pages(context, offsets));
+  CHECK_ERROR_CODE(grab_free_pages(context, 2, offsets));
 
   // from now on no failure possible.
   BorderSplitStrategy strategy = split_foster_decide_strategy(key_count, trigger);
@@ -713,16 +716,10 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   DVLOG(1) << "Splitting an intermediate page... ";
   verify_separators();
 
-  memory::PagePoolOffset offsets[2];
-  CHECK_ERROR_CODE(grab_two_free_pages(context, offsets));
+  memory::PagePoolOffset offsets[3];
+  CHECK_ERROR_CODE(grab_free_pages(context, 3, offsets));
   memory::NumaCoreMemory* memory = context->get_thread_memory();
-
-  memory::PagePoolOffset work_offset = memory->grab_free_volatile_page();
-  if (work_offset == 0) {
-    memory->release_free_volatile_page(offsets[0]);
-    memory->release_free_volatile_page(offsets[1]);
-    return kErrorCodeMemoryNoFreePages;
-  }
+  memory::PagePoolOffset work_offset = offsets[2];
 
   // from now on no failure possible.
   // it might be a sorted insert.
@@ -829,6 +826,72 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   return kErrorCodeOk;
 }
 
+ErrorCode MasstreeIntermediatePage::split_foster_no_adopt(thread::Thread* context) {
+  ASSERT_ND(!header_.snapshot_);
+  ASSERT_ND(is_locked());
+  ASSERT_ND(!is_moved());
+  ASSERT_ND(foster_twin_[0].is_null() && foster_twin_[1].is_null());  // same as !is_moved()
+  DVLOG(1) << "Splitting an intermediate page without adopt.. ";
+  verify_separators();
+
+  memory::PagePoolOffset offsets[3];
+  CHECK_ERROR_CODE(grab_free_pages(context, 3, offsets));
+  memory::NumaCoreMemory* memory = context->get_thread_memory();
+  memory::PagePoolOffset work_offset = offsets[2];
+
+  // from now on no failure possible.
+  KeySlice new_foster_fence;
+  IntermediateSplitStrategy* strategy = reinterpret_cast<IntermediateSplitStrategy*>(
+      context->get_local_volatile_page_resolver().resolve_offset_newpage(work_offset));
+  ASSERT_ND(sizeof(IntermediateSplitStrategy) <= kPageSize);
+  split_foster_decide_strategy(strategy);
+  new_foster_fence = strategy->mid_separator_;  // the new separator is the low fence of new page
+
+  MasstreeIntermediatePage* twin[2];
+  xct::McsBlockIndex twin_locks[2];
+  for (int i = 0; i < 2; ++i) {
+    twin[i] = reinterpret_cast<MasstreeIntermediatePage*>(
+      context->get_local_volatile_page_resolver().resolve_offset_newpage(offsets[i]));
+    foster_twin_[i].set(context->get_numa_node(), 0, 0, offsets[i]);
+    VolatilePagePointer new_pointer = combine_volatile_page_pointer(
+      context->get_numa_node(), 0, 0, offsets[i]);
+
+    twin[i]->initialize_volatile_page(
+      header_.storage_id_,
+      new_pointer,
+      get_layer(),
+      get_btree_level(),  // foster child has the same level as foster-parent
+      i == 0 ? low_fence_ : new_foster_fence,
+      i == 0 ? new_foster_fence : high_fence_);
+    twin_locks[i] = context->mcs_initial_lock(twin[i]->get_lock_address());
+    ASSERT_ND(twin[i]->is_locked());
+  }
+
+
+  // reconstruct both old page and new page.
+  // left : 0, 1, ... mid_index
+  // right : mid_index + 1, +2, ... total_count - 1
+  twin[0]->split_foster_migrate_records(*strategy, 0, strategy->mid_index_ + 1, new_foster_fence);
+  twin[1]->split_foster_migrate_records(
+    *strategy,
+    strategy->mid_index_ + 1,
+    strategy->total_separator_count_,
+    high_fence_);
+
+  for (int i = 0; i < 2; ++i) {
+    context->mcs_release_lock(twin[i]->get_lock_address(), twin_locks[i]);
+  }
+
+  foster_fence_ = new_foster_fence;
+  assorted::memory_fence_release();
+  set_moved();
+
+  memory->release_free_volatile_page(work_offset);
+
+  verify_separators();
+  return kErrorCodeOk;
+}
+
 void MasstreeIntermediatePage::split_foster_decide_strategy(IntermediateSplitStrategy* out) const {
   ASSERT_ND(is_locked());
   out->total_separator_count_ = 0;
@@ -857,7 +920,11 @@ void MasstreeIntermediatePage::split_foster_decide_strategy(IntermediateSplitStr
     ++(out->total_separator_count_);
     ASSERT_ND(out->total_separator_count_ < IntermediateSplitStrategy::kMaxSeparators);
   }
-  out->mid_index_ = out->total_separator_count_ / 2;
+  ASSERT_ND(out->total_separator_count_ >= 2U);
+  // left takes 0 to mid_index, right takes mid_index+1 to total-1, thus if we simply
+  // mid=total/2, right takes less (think about this: total=20, mid=10. #left=11, #right=9).
+  // We thus use mid=(total-1)/2.  total=20,mid=9,left=right=10. total=21,mid=10,left=11,right=10
+  out->mid_index_ = (out->total_separator_count_ - 1U) / 2;
   out->mid_separator_ = out->separators_[out->mid_index_];
 }
 
@@ -936,7 +1003,12 @@ void MasstreeIntermediatePage::verify_separators() const {
       high = separators_[i];
       ASSERT_ND(separators_[i] > low);
     } else {
-      low = separators_[get_key_count() - 1];
+      ASSERT_ND(i == get_key_count());
+      if (i == 0) {
+        low = low_fence_;
+      } else {
+        low = separators_[i - 1];
+      }
       high = high_fence_;
     }
     const MiniPage& minipage = get_minipage(i);
