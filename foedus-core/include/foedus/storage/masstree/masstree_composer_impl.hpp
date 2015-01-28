@@ -243,7 +243,13 @@ class MasstreeComposeContext {
 
   /** Represents a minimal information to install a new snapshot page pointer */
   struct PageBoundaryInfo {
-    uint8_t reserved_;
+    /**
+     * This is NOT used for identification because we must match key-ranges regardless of
+     * physical B-tree levels, which might differ in volatile pages.
+     * Nonetheless, storing this information helps debugging, so we just have it only for
+     * debugging.
+     */
+    uint8_t btree_level_;
     /** set to true when this page is closed/reopened so that only one entry matches exactly */
     uint8_t removed_;
     /** B-trie layer of the new page. layer_+2 slices are stored. */

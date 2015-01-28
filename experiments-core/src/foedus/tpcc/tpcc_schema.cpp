@@ -67,7 +67,7 @@ bool TpccStorages::has_snapshot_versions() {
   } else if (warehouses_static_.get_metadata()->root_snapshot_page_id_ == 0) {
     return false;
   }
-#endif // OLAP_MODE
+#endif  // OLAP_MODE
   return true;
 }
 

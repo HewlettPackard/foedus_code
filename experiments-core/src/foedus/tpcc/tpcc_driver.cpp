@@ -180,7 +180,7 @@ TpccDriver::Result TpccDriver::run() {
   // Verify the loaded data. this is done in single thread
   Wid total_warehouses = FLAGS_warehouses;
   {
-    TpccFinishupInput input = {total_warehouses, FLAGS_skip_verify};
+    TpccFinishupTask::Inputs input = {total_warehouses, FLAGS_skip_verify, FLAGS_take_snapshot};
     thread::ImpersonateSession finishup_session;
     bool impersonated = thread_pool->impersonate(
       "tpcc_finishup_task",

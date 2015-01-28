@@ -335,6 +335,11 @@ class MasstreeIntermediatePage final : public MasstreePage {
    * @pre is_locked() (the page must be locked)
    */
   ErrorCode split_foster_and_adopt(thread::Thread* context, MasstreePage* trigger_child);
+  /**
+   * same as split_foster_and_adopt() except this does not adopt the new page, and
+   * ignores the possibility of no-record-split.
+   */
+  ErrorCode split_foster_no_adopt(thread::Thread* context);
 
   /**
    * @brief Adopts a foster-child of given child as an entry in this page.
@@ -377,6 +382,15 @@ class MasstreeIntermediatePage final : public MasstreePage {
     KeySlice* separator_high) const;
 
   void verify_separators() const;
+
+
+  /**
+   * This public version of split_foster_migrate_records() is not for general use.
+   * It's only for constructing a new first-layer root, and so far only used from fatify code.
+   * Thus defined in masstree_storage_fatify.cpp.
+   * We shouldn't expose this kind of feature in general.
+   */
+  void split_foster_migrate_records_new_first_root(const void* strategy);
 
   /** defined in masstree_page_debug.cpp. */
   friend std::ostream& operator<<(std::ostream& o, const MasstreeIntermediatePage& v);

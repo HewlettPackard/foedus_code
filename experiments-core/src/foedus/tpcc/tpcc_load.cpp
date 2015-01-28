@@ -37,10 +37,11 @@ namespace foedus {
 namespace tpcc {
 ErrorStack tpcc_finishup_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
-  if (args.input_len_ != sizeof(TpccFinishupInput)) {
+  if (args.input_len_ != sizeof(TpccFinishupTask::Inputs)) {
     return ERROR_STACK(kErrorCodeUserDefined);
   }
-  const TpccFinishupInput* input = reinterpret_cast<const TpccFinishupInput*>(args.input_buffer_);
+  const TpccFinishupTask::Inputs* input
+    = reinterpret_cast<const TpccFinishupTask::Inputs*>(args.input_buffer_);
   TpccFinishupTask task(*input);
   return task.run(context);
 }
@@ -238,8 +239,19 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
   storages_.initialize_tables(engine);
 // let's do this even in release. good to check abnormal state
 // #ifndef NDEBUG
+  if (inputs_.fatify_masstree_) {
+    // assure some number of direct children in root page to make partition more efficient.
+    // a better solution for partitioning is to consider children, not just root. later, later, ...
+    LOG(INFO) << "FAT. FAAAT. FAAAAAAAAAAAAAAAAAT";
+    uint32_t desired = 32; // context->get_engine()->get_soc_count();  // maybe 2x?
+    CHECK_ERROR(storages_.customers_secondary_.fatify_first_root(context, desired));
+    CHECK_ERROR(storages_.neworders_.fatify_first_root(context, desired));
+    CHECK_ERROR(storages_.orders_.fatify_first_root(context, desired));
+    CHECK_ERROR(storages_.orders_secondary_.fatify_first_root(context, desired));
+    CHECK_ERROR(storages_.orderlines_.fatify_first_root(context, desired));
+  }
 
-  if (skip_verify_) {
+  if (inputs_.skip_verify_) {
     LOG(INFO) << "oh boy. are you going to skip verification?";
   } else {
     WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kSerializable));
@@ -257,7 +269,7 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
       WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kDirtyReadPreferVolatile));
       storage::masstree::MasstreeCursor cursor(storages_.customers_secondary_, context);
       WRAP_ERROR_CODE(cursor.open());
-      for (Wid wid = 0; wid < total_warehouses_; ++wid) {
+      for (Wid wid = 0; wid < inputs_.total_warehouses_; ++wid) {
         for (Did did = 0; did < kDistricts; ++did) {
           bool cid_array[kCustomers];
           std::memset(cid_array, 0, sizeof(cid_array));

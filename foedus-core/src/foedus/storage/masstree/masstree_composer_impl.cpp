@@ -1913,6 +1913,16 @@ inline void MasstreeComposeContext::assert_page_boundary_not_exists(
       // umm, this occasionally happens in TPC-C. did not figure out when this happens.
       // seems like the conflicting entry is created before/after close_level_grow_subtree??
       info->exact_match(layer, prefixes, low, high);
+
+      // AHHHHHHHHHHHHH, Figured it out.
+      // This happens when the tail page of the growing level has only one pointer.
+      // eg. Btree-level-0 : A, B, ... E, F, ..., X, Y, Z. We had 26 pages. and we closed it.
+      // Now the B-tree level-1 replaces the last level, which usually has much coarser keys.
+      // HOWEVER, unluckily, it's like this:
+      // A-E, E-K, ... V-Y, ***Y-Z***. Here, the intermediate page Y-Z only has one pointer.
+      // In this case, both the level-0 page (Z) and the level-1 page has Y-Z as the range.
+      // Ah, huh. Then, the fix is to actually use B-tree level as identifier.
+      // hmm, let's apply the change as a separate commit.
     }
     ASSERT_ND(!exists);
   }
@@ -1930,6 +1940,24 @@ ErrorCode MasstreeComposeContext::close_level_register_page_boundaries() {
   ASSERT_ND(cur_path_levels_ > 0U);
   PathLevel* last = get_last_level();
   ASSERT_ND(!last->has_next_original());  // otherwise tail's page boundary is not finalized yet
+
+#ifndef NDEBUG
+  // let's check that the last level is finalized.
+  KeySlice prev = last->low_fence_;
+  uint32_t counted = 0;
+  for (memory::PagePoolOffset cur = last->head_; cur != 0;) {
+    const MasstreePage* page = get_page(cur);
+    ++counted;
+    ASSERT_ND(page->get_low_fence() == prev);
+    ASSERT_ND(page->get_high_fence() > prev);
+    ASSERT_ND(page->get_layer() == last->layer_);
+    prev = page->get_high_fence();
+    cur = page->get_foster_major().components.offset;
+  }
+  ASSERT_ND(prev == last->high_fence_);
+  ASSERT_ND(counted == last->page_count_);
+#endif  // NDEBUG
+
 
   KeySlice prev_high = 0;  // only for assertion
   for (memory::PagePoolOffset cur = last->head_; cur != 0;) {
@@ -1957,6 +1985,7 @@ ErrorCode MasstreeComposeContext::close_level_register_page_boundaries() {
     assert_page_boundary_not_exists(layer, cur_prefix_slices_, low, high);
 
     PageBoundaryInfo* info = get_page_boundary_info(page_boundary_info_cur_pos_);
+    info->btree_level_ = page->get_btree_level();
     info->removed_ = false;
     info->layer_ = layer;
     ASSERT_ND(info->dynamic_sizeof() == info_size);

@@ -370,6 +370,7 @@ ErrorStack TpccClientTask::warmup_olap(thread::Thread* context) {
   Wid wid_begin = from_wid_;
   Wid wid_end = to_wid_;
 
+  LOG(INFO) << "Client-" << from_wid_ << " OLAP Mode Warmup. customers secondary...";
   {
     // customers secondary
     storage::masstree::KeySlice from = static_cast<storage::masstree::KeySlice>(wid_begin) << 48U;
@@ -381,6 +382,7 @@ ErrorStack TpccClientTask::warmup_olap(thread::Thread* context) {
       from,
       to));
   }
+  LOG(INFO) << "Client-" << from_wid_ << " OLAP Mode Warmup. order_secondary...";
   {
     // order_secondary
     Wdcoid from = combine_wdcoid(combine_wdcid(combine_wdid(wid_begin, 0), 0), 0);
@@ -392,6 +394,7 @@ ErrorStack TpccClientTask::warmup_olap(thread::Thread* context) {
       from,
       to));
   }
+  LOG(INFO) << "Client-" << from_wid_ << " OLAP Mode Warmup. orderlines...";
   {
     // orderlines
     Wdol from = combine_wdol(combine_wdoid(combine_wdid(wid_begin, 0), 0), 0);
@@ -403,6 +406,7 @@ ErrorStack TpccClientTask::warmup_olap(thread::Thread* context) {
       from,
       to));
   }
+  LOG(INFO) << "Client-" << from_wid_ << " OLAP Mode Warmup done.";
   return kRetOk;
 }
 
