@@ -831,8 +831,6 @@ ErrorCode MasstreeIntermediatePage::split_foster_no_adopt(thread::Thread* contex
   ASSERT_ND(is_locked());
   ASSERT_ND(!is_moved());
   ASSERT_ND(foster_twin_[0].is_null() && foster_twin_[1].is_null());  // same as !is_moved()
-
-  uint8_t key_count = get_key_count();
   DVLOG(1) << "Splitting an intermediate page without adopt.. ";
   verify_separators();
 

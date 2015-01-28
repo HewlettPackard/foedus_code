@@ -511,7 +511,52 @@ ErrorStack TpccLoadTask::load_customers() {
 
 // synchronize data load to customer_secondary.
 // this is ideal for almost sequential inserts.
-// std::mutex customer_secondary_mutex;
+std::mutex customer_secondary_mutex;
+/* TODO(Hideaki) Tentative note
+Currently, the main reason to enable this is a deadlock bug.
+It happens occasionally, when many threads are trying to adopt something.
+I can easily reproduce it on 240 cores, but almost never on 16 cores.
+
+When it happens, it looks like this:
+
+Thread 125 (Thread 0x78d1c37fe700 (LWP 75894)):
+#0  0x00000000004e7d80 in foedus::thread::ThreadPimpl::mcs_acquire_lock(foedus::xct::McsLock*) ()
+#1  0x00000000004d6392 in foedus::storage::PageVersionLockScope::PageVersionLockScope(foedus::thread::Thread*, foedus::storage::PageVersion*, bool) ()
+#2  0x0000000000544b78 in foedus::storage::masstree::MasstreeIntermediatePage::adopt_from_child(foedus::thread::Thread*, unsigned long, unsigned char, unsigned char, foedus::storage::masstree::MasstreePage*) ()
+#3  0x00000000004cb381 in foedus::storage::masstree::MasstreeStoragePimpl::reserve_record(foedus::thread::Thread*, void const*, unsigned short, unsigned short, foedus::storage::masstree::MasstreeBorderPage**, unsigned char*, foedus::xct::XctId*) ()
+#4  0x00000000004c296c in foedus::storage::masstree::MasstreeStorage::insert_record(foedus::thread::Thread*, void const*, unsigned short, void const*, unsigned short) ()
+#5  0x000000000047cbee in foedus::tpcc::TpccLoadTask::load_customers_in_district(unsigned short, unsigned char) ()
+#6  0x000000000047d5a0 in foedus::tpcc::TpccLoadTask::load_customers() ()
+#7  0x000000000047d9bb in foedus::tpcc::TpccLoadTask::load_tables() ()
+#8  0x000000000047e3ad in foedus::tpcc::TpccLoadTask::run(foedus::thread::Thread*) ()
+#9  0x000000000047e81f in foedus::tpcc::tpcc_load_task(foedus::proc::ProcArguments const&) ()
+#10 0x00000000004e582b in foedus::thread::ThreadPimpl::handle_tasks() ()
+#11 0x00007fabfbf01da0 in ?? () from /lib64/libstdc++.so.6
+#12 0x00007fabfc7f0df3 in start_thread () from /lib64/libpthread.so.0
+#13 0x00007fabfb66a3dd in clone () from /lib64/libc.so.6
+x several.
+
+
+Thread 113 (Thread 0x78d1b27fc700 (LWP 75905)):
+#0  0x00000000004e7abf in foedus::thread::Thread::mcs_release_lock(foedus::xct::McsLock*, unsigned int) ()
+#1  0x00000000004d63d7 in foedus::storage::PageVersionLockScope::release() ()
+#2  0x0000000000544be0 in foedus::storage::masstree::MasstreeIntermediatePage::adopt_from_child(foedus::thread::Thread*, unsigned long, unsigned char, unsigned char, foedus::storage::masstree::MasstreePage*) ()
+#3  0x00000000004cb381 in foedus::storage::masstree::MasstreeStoragePimpl::reserve_record(foedus::thread::Thread*, void const*, unsigned short, unsigned short, foedus::storage::masstree::MasstreeBorderPage**, unsigned char*, foedus::xct::XctId*) ()
+#4  0x00000000004c296c in foedus::storage::masstree::MasstreeStorage::insert_record(foedus::thread::Thread*, void const*, unsigned short, void const*, unsigned short) ()
+#5  0x000000000047cbee in foedus::tpcc::TpccLoadTask::load_customers_in_district(unsigned short, unsigned char) ()
+#6  0x000000000047d5a0 in foedus::tpcc::TpccLoadTask::load_customers() ()
+#7  0x000000000047d9bb in foedus::tpcc::TpccLoadTask::load_tables() ()
+#8  0x000000000047e3ad in foedus::tpcc::TpccLoadTask::run(foedus::thread::Thread*) ()
+#9  0x000000000047e81f in foedus::tpcc::tpcc_load_task(foedus::proc::ProcArguments const&) ()
+#10 0x00000000004e582b in foedus::thread::ThreadPimpl::handle_tasks() ()
+#11 0x00007fabfbf01da0 in ?? () from /lib64/libstdc++.so.6
+#12 0x00007fabfc7f0df3 in start_thread () from /lib64/libpthread.so.0
+#13 0x00007fabfb66a3dd in clone () from /lib64/libc.so.6
+just one
+
+
+I will track down this bug with high priority. But, for now, let's just synchronize here.
+*/
 
 ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   LOG(INFO) << "Loading Customer for DID=" << static_cast<int>(did) << ", WID=" << wid;
@@ -640,7 +685,7 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   auto customers_secondary = storages_.customers_secondary_;
 
   // synchronize insert to customer_secondary
-  // std::lock_guard<std::mutex> guard(customer_secondary_mutex);
+  std::lock_guard<std::mutex> guard(customer_secondary_mutex);
   for (Cid from = 0; from < kCustomers;) {
     uint32_t cur_batch_size = std::min<uint32_t>(kCommitBatch, kCustomers - from);
     char key_be[CustomerSecondaryKey::kKeyLength];
