@@ -243,7 +243,7 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
     // assure some number of direct children in root page to make partition more efficient.
     // a better solution for partitioning is to consider children, not just root. later, later, ...
     LOG(INFO) << "FAT. FAAAT. FAAAAAAAAAAAAAAAAAT";
-    uint32_t desired = 32; // context->get_engine()->get_soc_count();  // maybe 2x?
+    uint32_t desired = 32;  // context->get_engine()->get_soc_count();  // maybe 2x?
     CHECK_ERROR(storages_.customers_secondary_.fatify_first_root(context, desired));
     CHECK_ERROR(storages_.neworders_.fatify_first_root(context, desired));
     CHECK_ERROR(storages_.orders_.fatify_first_root(context, desired));

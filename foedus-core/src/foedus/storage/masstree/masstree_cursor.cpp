@@ -351,6 +351,7 @@ inline ErrorCode MasstreeCursor::proceed_deeper_border() {
   Route* route = cur_route();
   ASSERT_ND(route->page_->is_border());
   ASSERT_ND(!route->stable_.is_moved());
+  ASSERT_ND(route->key_count_ > 0);
   MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
   route->index_ = forward_cursor_ ? 0 : route->key_count_ - 1;
   uint8_t record = route->get_original_index(route->index_);

@@ -1755,6 +1755,28 @@ ErrorStack MasstreeComposeContext::close_last_level() {
   CHECK_ERROR(consume_original_all());
   WRAP_ERROR_CODE(close_level_register_page_boundaries());
 
+#ifndef NDEBUG
+  {
+    // some sanity checks.
+    KeySlice prev = last->low_fence_;
+    uint32_t counted = 0;
+    for (memory::PagePoolOffset cur = last->head_; cur != 0;) {
+      const MasstreePage* page = get_page(cur);
+      ++counted;
+      ASSERT_ND(page->get_low_fence() == prev);
+      ASSERT_ND(page->get_high_fence() > prev);
+      ASSERT_ND(page->get_layer() == last->layer_);
+      prev = page->get_high_fence();
+      cur = page->get_foster_major().components.offset;
+      if (page->is_border()) {
+        ASSERT_ND(page->get_key_count() > 0);
+      }
+    }
+    ASSERT_ND(prev == last->high_fence_);
+    ASSERT_ND(counted == last->page_count_);
+  }
+#endif  // NDEBUG
+
   // Closing this level means we might have to push up the last level's chain to previous.
   if (last->page_count_ > 1U) {
     ASSERT_ND(parent->layer_ <= last->layer_);

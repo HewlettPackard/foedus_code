@@ -12,6 +12,7 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/assorted/endianness.hpp"
 #include "foedus/debugging/rdtsc.hpp"
+#include "foedus/debugging/stop_watch.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
@@ -396,15 +397,41 @@ ErrorStack TpccClientTask::warmup_olap(thread::Thread* context) {
   }
   LOG(INFO) << "Client-" << from_wid_ << " OLAP Mode Warmup. orderlines...";
   {
-    // orderlines
+    // orderlines. in OLAP experiment, this is HUGE.
+    // let's report something for each 10k tuples or something.
+    // it will take longer, instead.
+    xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSnapshot));
     Wdol from = combine_wdol(combine_wdoid(combine_wdid(wid_begin, 0), 0), 0);
     Wdol to = combine_wdol(combine_wdoid(combine_wdid(wid_end, 0), 0), 0);
+    storage::masstree::MasstreeCursor cursor(storages_.orderlines_, context);
+    WRAP_ERROR_CODE(cursor.open_normalized(from, to));
+    uint32_t cnt = 0;
+    debugging::StopWatch watch;
+    while (cursor.is_valid_record()) {
+      ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) >= from);
+      ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) < to);
+      ASSERT_ND(cursor.get_key_length() == sizeof(Wdol));
+      ASSERT_ND(cursor.get_payload_length() == sizeof(OrderlineData));
+      ++cnt;
+      if ((cnt % (1U << 16)) == 0) {
+        LOG(INFO) << "Client-" << from_wid_ << " OLAP Mode Warmup. orderlines-" << cnt
+          << ", elapsed so far = " << watch.elapsed_ms() << "ms";
+      }
+      WRAP_ERROR_CODE(cursor.next());
+    }
+    WRAP_ERROR_CODE(xct_manager->abort_xct(context));
+    watch.stop();
+    LOG(INFO) << "Client-" << from_wid_ << " OLAP Mode Warmup. read " << cnt << " orderlines"
+      << " in " << watch.elapsed_ms() << "ms";
+    /*
     WRAP_ERROR_CODE(storages_.orderlines_.prefetch_pages_normalized(
       context,
       false,
       true,
       from,
       to));
+    */
   }
   LOG(INFO) << "Client-" << from_wid_ << " OLAP Mode Warmup done.";
   return kRetOk;
