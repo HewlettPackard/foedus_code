@@ -414,9 +414,9 @@ ErrorStack TpccClientTask::warmup_olap(thread::Thread* context) {
       ASSERT_ND(cursor.get_key_length() == sizeof(Wdol));
       ASSERT_ND(cursor.get_payload_length() == sizeof(OrderlineData));
       ++cnt;
-      if ((cnt % (1U << 16)) == 0) {
+      if ((cnt % (1U << 19)) == 0) {
         LOG(INFO) << "Client-" << from_wid_ << " OLAP Mode Warmup. orderlines-" << cnt
-          << ", elapsed so far = " << watch.elapsed_ms() << "ms";
+          << ", elapsed so far = " << watch.peek_elapsed_ns() << "ns";
       }
       WRAP_ERROR_CODE(cursor.next());
     }
