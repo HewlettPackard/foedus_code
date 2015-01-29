@@ -35,68 +35,99 @@ in LoadThread's run(). Also generateHistory() in makeWarehouse().
 * Edit src/frontend/org/voltdb/processtools/ProcessSetManager.java. Timeout 60/60
 Also added a patch file for lazy kids.
 
+* ant clean
+* git checkout .
+* git apply  FOEDUS_PATH/foedus_code/experiments-core/src/foedus/tpcc/hstore_related/hstore_olap_m15.patch
+* ant build
+
 ant hstore-prepare hstore-benchmark \
   -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false  -Dsite.network_startup_wait=60000\
-  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=30720 \
+  -Dsite.cpu_affinity=true -Dclient.memory=10240 -Dsite.memory=30720 \
   -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=200 \
   -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63" &> "hstore_olap.m15.r0.log"
 
 ant hstore-prepare hstore-benchmark \
   -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false  -Dsite.network_startup_wait=60000\
-  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=30720 \
-  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dsite.cpu_affinity=true -Dclient.memory=10240 -Dsite.memory=30720 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=200 \
   -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63" &> "hstore_olap.m15.r1.log"
 
 ant hstore-prepare hstore-benchmark \
   -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false  -Dsite.network_startup_wait=60000\
-  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=30720 \
-  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
+  -Dsite.cpu_affinity=true -Dclient.memory=10240 -Dsite.memory=30720 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=200 \
   -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63" &> "hstore_olap.m15.r2.log"
 
 * Edit src/benchmarks/org/voltdb/benchmark/tpcc/TPCCConstants.java. MAX_OL_CNT=100
 
 * ant clean
+* git checkout .
+* git apply  FOEDUS_PATH/foedus_code/experiments-core/src/foedus/tpcc/hstore_related/hstore_olap_m100.patch
 * ant build
 
 ant hstore-prepare hstore-benchmark \
   -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false  -Dsite.network_startup_wait=60000\
-  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=30720 \
-  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
-  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79" &> "hstore_olap.m100.r0.log"
+  -Dsite.cpu_affinity=true -Dclient.memory=10240 -Dsite.memory=30720 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=150 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63" &> "hstore_olap.m100.r0.log"
 
 ant hstore-prepare hstore-benchmark \
   -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false  -Dsite.network_startup_wait=60000\
-  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=30720 \
-  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
-  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79" &> "hstore_olap.m100.r1.log"
+  -Dsite.cpu_affinity=true -Dclient.memory=10240 -Dsite.memory=30720 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=150 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63" &> "hstore_olap.m100.r1.log"
 
 ant hstore-prepare hstore-benchmark \
   -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false  -Dsite.network_startup_wait=60000\
-  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=30720 \
-  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
-  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79" &> "hstore_olap.m100.r2.log"
+  -Dsite.cpu_affinity=true -Dclient.memory=10240 -Dsite.memory=30720 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=150 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63" &> "hstore_olap.m100.r2.log"
 
 * Edit TPCCConstants.java. MAX_OL_CNT=500
 
 * ant clean
+* git checkout .
+* git apply  FOEDUS_PATH/foedus_code/experiments-core/src/foedus/tpcc/hstore_related/hstore_olap_m500.patch
 * ant build
+
+# 8x8 case. This causes OOM in site
 ant hstore-prepare hstore-benchmark \
   -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false  -Dsite.network_startup_wait=60000\
-  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=30720 \
-  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
-  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79" &> "hstore_olap.m500.r0.log"
+  -Dsite.cpu_affinity=true -Dclient.memory=10240 -Dsite.memory=30720 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=100 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63" &> "hstore_olap.m500.r0.log"
 
 ant hstore-prepare hstore-benchmark \
   -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false  -Dsite.network_startup_wait=60000\
-  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=30720 \
-  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
-  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79" &> "hstore_olap.m500.r1.log"
+  -Dsite.cpu_affinity=true -Dclient.memory=10240 -Dsite.memory=30720 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=100 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63" &> "hstore_olap.m500.r1.log"
 
 ant hstore-prepare hstore-benchmark \
   -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false  -Dsite.network_startup_wait=60000\
-  -Dsite.cpu_affinity=true -Dclient.memory=4096 -Dsite.memory=30720 \
-  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=30 \
-  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63;localhost:8:64-71;localhost:9:72-79" &> "hstore_olap.m500.r2.log"
+  -Dsite.cpu_affinity=true -Dclient.memory=10240 -Dsite.memory=30720 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=100 \
+  -Dhosts="localhost:0:0-7;localhost:1:8-15;localhost:2:16-23;localhost:3:24-31;localhost:4:32-39;localhost:5:40-47;localhost:6:48-55;localhost:7:56-63" &> "hstore_olap.m500.r2.log"
+
+
+# 8x6 case. This one worked! and took only 48 minutes
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false  -Dsite.network_startup_wait=60000\
+  -Dsite.cpu_affinity=true -Dclient.memory=10240 -Dsite.memory=30720 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=100 \
+  -Dhosts="localhost:0:0-5;localhost:1:6-11;localhost:2:12-17;localhost:3:18-23;localhost:4:24-29;localhost:5:30-35;localhost:6:36-41;localhost:7:42-47" &> "hstore_olap.m500.r0.log"
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false  -Dsite.network_startup_wait=60000\
+  -Dsite.cpu_affinity=true -Dclient.memory=10240 -Dsite.memory=30720 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=100 \
+  -Dhosts="localhost:0:0-5;localhost:1:6-11;localhost:2:12-17;localhost:3:18-23;localhost:4:24-29;localhost:5:30-35;localhost:6:36-41;localhost:7:42-47" &> "hstore_olap.m500.r1.log"
+
+ant hstore-prepare hstore-benchmark \
+  -Dproject=tpcc -Dsite.jvm_asserts=false -Dclient.blocking=false  -Dsite.network_startup_wait=60000\
+  -Dsite.cpu_affinity=true -Dclient.memory=10240 -Dsite.memory=30720 \
+  -Dglobal.memory=4096 -Dclient.txnrate=10000 -Dclient.threads_per_host=100 \
+  -Dhosts="localhost:0:0-5;localhost:1:6-11;localhost:2:12-17;localhost:3:18-23;localhost:4:24-29;localhost:5:30-35;localhost:6:36-41;localhost:7:42-47" &> "hstore_olap.m500.r2.log"
 
 
 - Result summary
@@ -318,3 +349,16 @@ M15, no-anticache, no log, 8 sites. 200 client threads, 10000 per thread.
      [java] Latency:        2503.54 ms [min:5.00 / max:8974.00 / stdev:1473.83]
      [java]
 
+Jan 29.
+Just a wrapping-up note. The tricks to make this work were:
+ - Up to 8 sites. Otherwise H-Store won't startup.
+ - Frequent commit. per 100 order seems good. per 1 order takes forever.
+ - Skip loading unused tables. Not just experimental time, but also avoid OOM and other crashes.
+ - Turn off command logging and anti caching.
+ - Increase wait times.
+ - For M500, 6 partitions per site to avoid OOM.
+ - At most around 200k TPS, so 50 threads * 10k would be enough.
+
+Added the final instructions at the beginning of this file.
+I'll be glad to help reproduce all experiments, but I just feel sorry for (probably) grad-students
+who will run the hstore experiments. Be patient.
