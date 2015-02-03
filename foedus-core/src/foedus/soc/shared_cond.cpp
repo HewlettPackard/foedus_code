@@ -127,7 +127,8 @@ void SharedCond::broadcast(SharedMutexScope* scope) {
 
 void SharedCond::broadcast_nolock() {
   ugly_atomic_inc(&notifiers_);
-  int ret = ::pthread_cond_broadcast(&cond_);
+  // int ret = ::pthread_cond_broadcast(&cond_);
+  int ret = ::pthread_cond_signal(&cond_);
   ASSERT_ND(ret == 0);
   ugly_atomic_dec(&notifiers_);
 }

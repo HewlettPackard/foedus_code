@@ -37,8 +37,7 @@ void LoggerRef::wakeup_for_durable_epoch(Epoch desired_durable_epoch) {
 }
 
 void LoggerRef::wakeup() {
-  soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());
-  control_block_->wakeup_cond_.signal(&scope);
+  control_block_->wakeup_cond_.signal();
 }
 
 void LoggerRef::copy_logger_state(savepoint::Savepoint* new_savepoint) const {

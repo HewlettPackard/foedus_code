@@ -159,14 +159,13 @@ void SnapshotManagerPimpl::stop_snapshot_thread() {
 }
 
 void SnapshotManagerPimpl::sleep_a_while() {
-  soc::SharedMutexScope scope(control_block_->snapshot_wakeup_.get_mutex());
+  uint64_t demand = control_block_->snapshot_wakeup_.acquire_ticket();
   if (!is_stop_requested()) {
-    control_block_->snapshot_wakeup_.timedwait(&scope, 20000000ULL);
+    control_block_->snapshot_wakeup_.timedwait(demand, 20000ULL);
   }
 }
 void SnapshotManagerPimpl::wakeup() {
-  soc::SharedMutexScope scope(control_block_->snapshot_wakeup_.get_mutex());
-  control_block_->snapshot_wakeup_.signal(&scope);
+  control_block_->snapshot_wakeup_.signal();
 }
 
 void SnapshotManagerPimpl::handle_snapshot() {
@@ -223,9 +222,9 @@ void SnapshotManagerPimpl::handle_snapshot_child() {
   SnapshotId previous_id = control_block_->gleaner_.cur_snapshot_.id_;
   while (!is_stop_requested()) {
     {
-      soc::SharedMutexScope scope(control_block_->snapshot_children_wakeup_.get_mutex());
+      uint64_t demand = control_block_->snapshot_children_wakeup_.acquire_ticket();
       if (!is_stop_requested() && !is_gleaning()) {
-        control_block_->snapshot_children_wakeup_.timedwait(&scope, 100000000ULL);
+        control_block_->snapshot_children_wakeup_.timedwait(demand, 100000ULL);
       }
     }
     if (is_stop_requested()) {
@@ -271,8 +270,11 @@ void SnapshotManagerPimpl::trigger_snapshot_immediate(bool wait_completion) {
     VLOG(0) << "Waiting for the completion of snapshot... before=" << before;
     while (!is_stop_requested() &&
         (!get_snapshot_epoch().is_valid() || durable_epoch > get_snapshot_epoch())) {
-      soc::SharedMutexScope scope(control_block_->snapshot_taken_.get_mutex());
-      control_block_->snapshot_taken_.timedwait(&scope, 100000000ULL);
+      uint64_t demand = control_block_->snapshot_taken_.acquire_ticket();
+      if (!is_stop_requested() &&
+        (!get_snapshot_epoch().is_valid() || durable_epoch > get_snapshot_epoch())) {
+        control_block_->snapshot_taken_.timedwait(demand, 100000ULL);
+      }
     }
   }
   LOG(INFO) << "Observed the completion of snapshot! after=" << get_snapshot_epoch();
@@ -333,13 +335,10 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
   Epoch::EpochInteger epoch_after = new_snapshot_epoch.value();
   control_block_->previous_snapshot_id_ = snapshot_id;
   previous_snapshot_time_ = std::chrono::system_clock::now();
-  {
-    soc::SharedMutexScope scope(control_block_->snapshot_taken_.get_mutex());
-    control_block_->snapshot_epoch_ = epoch_after;
-    // release the mutex BEFORE broadcasting
-  }
+
+  control_block_->snapshot_epoch_ = epoch_after;
   assorted::memory_fence_release();
-  control_block_->snapshot_taken_.broadcast_nolock();
+  control_block_->snapshot_taken_.signal();
   return kRetOk;
 }
 

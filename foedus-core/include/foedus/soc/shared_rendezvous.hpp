@@ -7,7 +7,7 @@
 
 #include "foedus/cxx11.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
-#include "foedus/soc/shared_cond.hpp"
+#include "foedus/soc/shared_polling.hpp"
 
 namespace foedus {
 namespace soc {
@@ -20,7 +20,7 @@ namespace soc {
  */
 class SharedRendezvous CXX11_FINAL {
  public:
-  SharedRendezvous() : signaled_(false), cond_() { initialize(); }
+  SharedRendezvous() : signaled_(false), initialized_(false), cond_() { initialize(); }
   ~SharedRendezvous() { uninitialize(); }
 
   // Disable copy constructors
@@ -29,7 +29,7 @@ class SharedRendezvous CXX11_FINAL {
 
   void initialize();
   void uninitialize();
-  bool is_initialized() const { return cond_.is_initialized(); }
+  bool is_initialized() const { return initialized_; }
 
   /** returns whether the even has signaled. */
   bool is_signaled() const {
@@ -62,8 +62,9 @@ class SharedRendezvous CXX11_FINAL {
  private:
   /** whether the event has signaled. */
   volatile bool       signaled_;
+  bool                initialized_;
   /** used to notify waiters to wakeup. */
-  SharedCond          cond_;
+  SharedPolling       cond_;
 };
 
 }  // namespace soc

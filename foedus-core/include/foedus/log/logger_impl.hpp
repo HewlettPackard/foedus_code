@@ -25,8 +25,9 @@
 #include "foedus/log/logger_ref.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/savepoint/fwd.hpp"
-#include "foedus/soc/shared_cond.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_mutex.hpp"
+#include "foedus/soc/shared_polling.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 
@@ -56,7 +57,6 @@ struct LoggerControlBlock {
   }
   void uninitialize() {
     epoch_history_mutex_.uninitialize();
-    wakeup_cond_.uninitialize();
   }
 
 
@@ -86,7 +86,7 @@ struct LoggerControlBlock {
    * The logger simply wakes on this cond and resumes as far as it wakes up.
    * It might be a spurrious wakeup, but doesn't matter.
    */
-  soc::SharedCond                     wakeup_cond_;
+  soc::SharedPolling              wakeup_cond_;
 
   /**
    * @brief Upto what epoch the logger has put epoch marker in the log file.

@@ -10,6 +10,7 @@
 
 #include "foedus/cxx11.hpp"
 #include "foedus/soc/shared_mutex.hpp"
+#include "foedus/soc/shared_polling.hpp"
 
 namespace foedus {
 namespace soc {

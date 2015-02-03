@@ -16,9 +16,9 @@
 #include "foedus/log/logger_ref.hpp"
 #include "foedus/log/meta_log_buffer.hpp"
 #include "foedus/savepoint/fwd.hpp"
-#include "foedus/soc/shared_cond.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/shared_mutex.hpp"
+#include "foedus/soc/shared_polling.hpp"
 #include "foedus/thread/condition_variable_impl.hpp"
 #include "foedus/thread/thread_id.hpp"
 
@@ -37,7 +37,6 @@ struct LogManagerControlBlock {
   }
   void uninitialize() {
     durable_global_epoch_savepoint_mutex_.uninitialize();
-    durable_global_epoch_advanced_.uninitialize();
   }
 
   /**
@@ -51,7 +50,7 @@ struct LogManagerControlBlock {
   std::atomic<Epoch::EpochInteger>    durable_global_epoch_;
 
   /** Fired (broadcast) whenever durable_global_epoch_ is advanced. */
-  soc::SharedCond                     durable_global_epoch_advanced_;
+  soc::SharedPolling                  durable_global_epoch_advanced_;
 
   /** To-be-removed Serializes the thread to take savepoint to advance durable_global_epoch_. */
   soc::SharedMutex                    durable_global_epoch_savepoint_mutex_;

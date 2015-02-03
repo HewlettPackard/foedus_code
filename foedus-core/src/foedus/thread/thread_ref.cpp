@@ -59,21 +59,24 @@ bool ThreadRef::try_impersonate(
     return false;
   }
 
-  // now, check it with mutex
-  soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());
-  if (control_block_->status_ != kWaitingForTask) {
-    DVLOG(0) << "(slow path) Someone already took Thread-" << id_ << ".";
-    return false;
+  {
+    // now, check it and grab it with mutex
+    soc::SharedMutexScope scope(&control_block_->task_mutex_);
+    if (control_block_->status_ != kWaitingForTask) {
+      DVLOG(0) << "(slow path) Someone already took Thread-" << id_ << ".";
+      return false;
+    }
+    session->thread_ = this;
+    session->ticket_ = ++control_block_->current_ticket_;
+    control_block_->proc_name_ = proc_name;
+    control_block_->status_ = kWaitingForExecution;
+    control_block_->input_len_ = task_input_size;
+    if (task_input_size > 0) {
+      std::memcpy(task_input_memory_, task_input, task_input_size);
+    }
   }
-  session->thread_ = this;
-  session->ticket_ = ++control_block_->current_ticket_;
-  control_block_->proc_name_ = proc_name;
-  control_block_->status_ = kWaitingForExecution;
-  control_block_->input_len_ = task_input_size;
-  if (task_input_size > 0) {
-    std::memcpy(task_input_memory_, task_input, task_input_size);
-  }
-  control_block_->wakeup_cond_.signal(&scope);
+  // waking up doesn't need mutex
+  control_block_->wakeup_cond_.signal();
   VLOG(0) << "Impersonation succeeded for Thread-" << id_ << ".";
   return true;
 }

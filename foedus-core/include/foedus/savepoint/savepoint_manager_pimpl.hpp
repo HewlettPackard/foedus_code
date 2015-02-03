@@ -14,9 +14,9 @@
 #include "foedus/fs/path.hpp"
 #include "foedus/savepoint/fwd.hpp"
 #include "foedus/savepoint/savepoint.hpp"
-#include "foedus/soc/shared_cond.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/shared_mutex.hpp"
+#include "foedus/soc/shared_polling.hpp"
 
 namespace foedus {
 namespace savepoint {
@@ -36,8 +36,6 @@ struct SavepointManagerControlBlock {
   }
   void uninitialize() {
     savepoint_mutex_.uninitialize();
-    save_done_event_.uninitialize();
-    save_wakeup_.uninitialize();
   }
 
   std::atomic<bool>   master_initialized_;
@@ -48,7 +46,7 @@ struct SavepointManagerControlBlock {
    * savepoint thread sleeps on this condition variable.
    * The real variable is saved_durable_epoch_.
    */
-  soc::SharedCond     save_wakeup_;
+  soc::SharedPolling  save_wakeup_;
   /** The durable epoch that has been made persistent in previous savepoint-ing. */
   Epoch::EpochInteger saved_durable_epoch_;
   /**
@@ -62,7 +60,7 @@ struct SavepointManagerControlBlock {
    * Whenever a savepoint has been taken, this event is fired.
    * The thread that has requested the savepoint sleeps on this.
    */
-  soc::SharedCond     save_done_event_;
+  soc::SharedPolling  save_done_event_;
 
   /**
    * Read/write to savepoint_ is protected with this mutex.
