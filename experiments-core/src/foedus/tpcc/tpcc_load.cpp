@@ -511,8 +511,8 @@ ErrorStack TpccLoadTask::load_customers() {
 
 // synchronize data load to customer_secondary.
 // this is ideal for almost sequential inserts.
-std::mutex customer_secondary_mutex;
-/* TODO(Hideaki) Tentative note
+// std::mutex customer_secondary_mutex;
+/* The following issue seemingly resolved. 20150203 Hideaki. We should have a wiki entry for this..
 Currently, the main reason to enable this is a deadlock bug.
 It happens occasionally, when many threads are trying to adopt something.
 I can easily reproduce it on 240 cores, but almost never on 16 cores.
@@ -685,7 +685,7 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   auto customers_secondary = storages_.customers_secondary_;
 
   // synchronize insert to customer_secondary
-  std::lock_guard<std::mutex> guard(customer_secondary_mutex);
+  // std::lock_guard<std::mutex> guard(customer_secondary_mutex);
   for (Cid from = 0; from < kCustomers;) {
     uint32_t cur_batch_size = std::min<uint32_t>(kCommitBatch, kCustomers - from);
     char key_be[CustomerSecondaryKey::kKeyLength];

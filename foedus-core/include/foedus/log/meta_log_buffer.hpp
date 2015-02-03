@@ -13,8 +13,8 @@
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/log/fwd.hpp"
-#include "foedus/soc/shared_cond.hpp"
 #include "foedus/soc/shared_mutex.hpp"
+#include "foedus/soc/shared_polling.hpp"
 
 namespace foedus {
 namespace log {
@@ -31,7 +31,6 @@ struct MetaLogControlBlock {
     durable_offset_ = 0;
   }
   void uninitialize() {
-    logger_wakeup_.uninitialize();
     mutex_.uninitialize();
   }
 
@@ -55,7 +54,7 @@ struct MetaLogControlBlock {
    */
   soc::SharedMutex  mutex_;
   /** the logger sleeps on this variable */
-  soc::SharedCond   logger_wakeup_;
+  soc::SharedPolling  logger_wakeup_;
 };
 
 /**

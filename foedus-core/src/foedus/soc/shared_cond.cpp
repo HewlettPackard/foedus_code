@@ -115,12 +115,21 @@ void SharedCond::broadcast(SharedMutexScope* scope) {
   // to avoid the glibc 2.18 pthread bug in broadcast, we use signal, one by one.
   scope->unlock();
   while (waiters_ > 0) {
+    // int ret = ::pthread_cond_broadcast(&cond_);
     int ret = ::pthread_cond_signal(&cond_);
     ASSERT_ND(ret == 0);
     assorted::memory_fence_acq_rel();
     assorted::spinlock_yield();
   }
 
+  ugly_atomic_dec(&notifiers_);
+}
+
+void SharedCond::broadcast_nolock() {
+  ugly_atomic_inc(&notifiers_);
+  // int ret = ::pthread_cond_broadcast(&cond_);
+  int ret = ::pthread_cond_signal(&cond_);
+  ASSERT_ND(ret == 0);
   ugly_atomic_dec(&notifiers_);
 }
 

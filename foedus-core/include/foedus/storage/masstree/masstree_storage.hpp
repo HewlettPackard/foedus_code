@@ -442,6 +442,7 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
 
   /**
    * @brief Deliberately causes splits under the volatile root of first layer, or "fatify" it.
+   * @param[in] context Thread context
    * @param[in] desired_count Does nothing if the root of first layer already has this
    * many children.
    * @details

@@ -18,9 +18,9 @@
 #include "foedus/memory/page_pool.hpp"
 #include "foedus/memory/page_resolver.hpp"
 #include "foedus/proc/proc_id.hpp"
-#include "foedus/soc/shared_cond.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/shared_mutex.hpp"
+#include "foedus/soc/shared_polling.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -53,9 +53,7 @@ struct ThreadControlBlock {
     stat_snapshot_cache_misses_ = 0;
   }
   void uninitialize() {
-    task_complete_cond_.uninitialize();
     task_mutex_.uninitialize();
-    wakeup_cond_.uninitialize();
   }
 
   /**
@@ -71,7 +69,7 @@ struct ThreadControlBlock {
    * When someone else (whether in same SOC or other SOC) wants to wake up this logger,
    * they fire this. The 'real' condition variable is the status_.
    */
-  soc::SharedCond     wakeup_cond_;
+  soc::SharedPolling  wakeup_cond_;
 
   /**
    * Impersonation status of this thread. Protected by the mutex in wakeup_cond_,
@@ -104,7 +102,7 @@ struct ThreadControlBlock {
   /**
    * When the current task has been completed, the thread signals this.
    */
-  soc::SharedCond     task_complete_cond_;
+  soc::SharedPolling  task_complete_cond_;
 
   /** @see foedus::xct::InCommitEpochGuard  */
   Epoch               in_commit_epoch_;

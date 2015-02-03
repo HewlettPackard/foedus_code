@@ -40,9 +40,8 @@ void MetaLogBuffer::commit(BaseLogType* metalog, Epoch* commit_epoch) {
     // Also, do it within mutex to avoid lost signal
     {
       // Wakeup the logger
-      soc::SharedMutexScope scope(control_block_->logger_wakeup_.get_mutex());
       control_block_->buffer_used_ = metalog->header_.log_length_;
-      control_block_->logger_wakeup_.signal(&scope);
+      control_block_->logger_wakeup_.signal();
     }
 
     // Simply sleep for a while. Metadata logging is not so often, so we can simply spin

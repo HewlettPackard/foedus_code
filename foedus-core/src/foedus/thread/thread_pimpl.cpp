@@ -91,9 +91,8 @@ ErrorStack ThreadPimpl::uninitialize_once() {
   ErrorStackBatch batch;
   {
     {
-      soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());
       control_block_->status_ = kWaitingForTerminate;
-      control_block_->wakeup_cond_.signal(&scope);
+      control_block_->wakeup_cond_.signal();
     }
     LOG(INFO) << "Thread-" << id_ << " requested to terminate";
     if (raw_thread_.joinable()) {
@@ -135,7 +134,7 @@ void ThreadPimpl::handle_tasks() {
   while (!is_stop_requested()) {
     assorted::spinlock_yield();
     {
-      soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());
+      uint64_t demand = control_block_->wakeup_cond_.acquire_ticket();
       if (is_stop_requested()) {
         break;
       }
@@ -143,7 +142,7 @@ void ThreadPimpl::handle_tasks() {
       if (control_block_->status_ == kWaitingForTask
         || control_block_->status_ == kWaitingForClientRelease) {
         VLOG(0) << "Thread-" << id_ << " sleeping...";
-        control_block_->wakeup_cond_.timedwait(&scope, 100000000ULL);
+        control_block_->wakeup_cond_.timedwait(demand, 100000ULL, 1U << 16, 1U << 13);
       }
     }
     VLOG(0) << "Thread-" << id_ << " woke up. status=" << control_block_->status_;
@@ -181,8 +180,7 @@ void ThreadPimpl::handle_tasks() {
       control_block_->status_ = kWaitingForClientRelease;
       {
         // Wakeup the client if it's waiting.
-        soc::SharedMutexScope scope(control_block_->task_complete_cond_.get_mutex());
-        control_block_->task_complete_cond_.signal(&scope);
+        control_block_->task_complete_cond_.signal();
       }
       VLOG(0) << "Thread-" << id_ << " finished a task. result =" << result;
     }
@@ -768,7 +766,8 @@ void ThreadPimpl::flush_retired_volatile_page(
   }
   uint32_t safe_count = chunk->get_safe_offset_count(current_epoch);
   while (safe_count < chunk->size() / 10U) {
-    LOG(INFO) << "Thread-" << id_ << " can return only" << safe_count << " out of " << chunk->size()
+    LOG(WARNING) << "Thread-" << id_ << " can return only "
+      << safe_count << " out of " << chunk->size()
       << " retired pages to node-" << node  << " in epoch=" << current_epoch
       << ". This means the thread received so many retired pages in a short time period."
       << " Will adavance an epoch to safely return the retired pages."

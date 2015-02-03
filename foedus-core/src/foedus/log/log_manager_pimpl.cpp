@@ -190,9 +190,9 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
 
     // set durable_global_epoch_ within the SharedCond's mutex scope, and then broadcast.
     // this is required to avoid lost signals.
-    soc::SharedMutexScope cond_guard(control_block_->durable_global_epoch_advanced_.get_mutex());
     control_block_->durable_global_epoch_ = min_durable_epoch.value();
-    control_block_->durable_global_epoch_advanced_.broadcast(&cond_guard);
+    assorted::memory_fence_release();
+    control_block_->durable_global_epoch_advanced_.signal();
   }
   return kRetOk;
 }
@@ -225,11 +225,11 @@ ErrorCode LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_m
     if (wait_microseconds <= 0)  {
       // set durable_global_epoch_ within the SharedCond's mutex scope, and then wait.
       // this is required to avoid lost signals.
-      soc::SharedMutexScope wait_guard(control_block_->durable_global_epoch_advanced_.get_mutex());
+      uint64_t demand = control_block_->durable_global_epoch_advanced_.acquire_ticket();
       if (commit_epoch <= get_durable_global_epoch()) {
         break;
       }
-      control_block_->durable_global_epoch_advanced_.wait(&wait_guard);
+      control_block_->durable_global_epoch_advanced_.wait(demand);
       continue;
     }
 
@@ -239,13 +239,13 @@ ErrorCode LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_m
     }
 
     {
-      soc::SharedMutexScope wait_guard(control_block_->durable_global_epoch_advanced_.get_mutex());
+      uint64_t demand = control_block_->durable_global_epoch_advanced_.acquire_ticket();
       if (commit_epoch <= get_durable_global_epoch()) {
         break;
       }
       control_block_->durable_global_epoch_advanced_.timedwait(
-        &wait_guard,
-        wait_microseconds * 1000ULL);  // a bit lazy. we sleep longer in case of spurrious wakeup
+        demand,
+        wait_microseconds);  // a bit lazy. we sleep longer in case of spurrious wakeup
     }
   }
 
@@ -254,9 +254,9 @@ ErrorCode LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_m
 }
 void LogManagerPimpl::announce_new_durable_global_epoch(Epoch new_epoch) {
   ASSERT_ND(new_epoch >= Epoch(control_block_->durable_global_epoch_));
-  soc::SharedMutexScope scope(control_block_->durable_global_epoch_advanced_.get_mutex());
   control_block_->durable_global_epoch_ = new_epoch.value();
-  control_block_->durable_global_epoch_advanced_.broadcast(&scope);
+  assorted::memory_fence_release();
+  control_block_->durable_global_epoch_advanced_.signal();
 }
 
 

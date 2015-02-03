@@ -6,7 +6,8 @@ project(tests_core)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../general_projects.cmake)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 include_directories(SYSTEM
-  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/gtest-1.7.0/include)
+  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/gtest-1.7.0/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../foedus-core/third_party/valgrind-3.9.0/include)
 
 # Not used any more.
 # CMake function to add compile target, linking, add_test directives.

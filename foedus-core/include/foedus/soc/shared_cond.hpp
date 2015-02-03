@@ -10,6 +10,7 @@
 
 #include "foedus/cxx11.hpp"
 #include "foedus/soc/shared_mutex.hpp"
+#include "foedus/soc/shared_polling.hpp"
 
 namespace foedus {
 namespace soc {
@@ -73,8 +74,24 @@ class SharedCond CXX11_FINAL {
    * @details
    * You should set the real condition variable itself after locking the mutex before
    * calling this method to avoid lost signals.
+   * @attention Consider using broadcast_nolock(). We encountered a deadlock bug with
+   * a very high contention. We were not sure where the problem is; maybe the glibc's
+   * pthread_cond_broadcast() issue, simply our code's bug (lack or duplicated release etc), or a
+   * contention that causes repeated wakeup/broadcast loop. But, we did observe that
+   * the problem went away with broadcast_nolock().
+   * @deprecated see above. But, not yet 100% sure why it happened...
+   * We should have a wiki entry to track this issue.
    */
   void broadcast(SharedMutexScope* scope);
+
+  /**
+   * @brief Unblock all waiters without a mutex held by the signaller
+   * @details
+   * You should set the real condition variable itself after locking the mutex,
+   * \b AND release it before calling this method.
+   * This method does not assume a mutex, thus a lost signal is possible.
+   */
+  void broadcast_nolock();
 
   /**
    * @brief Unblock one waiter
@@ -96,6 +113,12 @@ class SharedCond CXX11_FINAL {
    * This is why the methods above receive SharedMutexScope as parameter.
    */
   SharedMutex* get_mutex() { return &mutex_; }
+
+  /**
+   * A non-synchronized method to tell \b seemingly whether there is a waiter or not.
+   * The caller is responsible for using this method with appropriate fences, retries, etc.
+   */
+  bool exists_waiters() const { return waiters_ != 0; }
 
  private:
   /** Whether this mutex is ready for use. We don't tolerate race in initialization. */

@@ -59,11 +59,11 @@ void ImpersonateSession::wait() const {
   }
   ThreadControlBlock* block = thread_->get_control_block();
   while (is_running()) {
-    soc::SharedMutexScope scope(block->task_complete_cond_.get_mutex());
+    uint64_t demand = block->task_complete_cond_.acquire_ticket();
     if (!is_running()) {
       break;
     }
-    block->task_complete_cond_.timedwait(&scope, 100000000ULL);
+    block->task_complete_cond_.timedwait(demand, 100000ULL);
   }
 }
 
@@ -84,10 +84,7 @@ void ImpersonateSession::release() {
   wait();
   ThreadControlBlock* block = thread_->get_control_block();
   if (block->current_ticket_ == ticket_ && block->status_ == kWaitingForClientRelease) {
-    soc::SharedMutexScope scope(block->wakeup_cond_.get_mutex());
-    if (block->current_ticket_ == ticket_ && block->status_ == kWaitingForClientRelease) {
-      block->status_ = kWaitingForTask;
-    }
+    block->status_ = kWaitingForTask;
   }
 
   ticket_ = 0;

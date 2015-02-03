@@ -19,9 +19,9 @@
 #include "foedus/snapshot/fwd.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
-#include "foedus/soc/shared_cond.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/shared_mutex.hpp"
+#include "foedus/soc/shared_polling.hpp"
 #include "foedus/thread/condition_variable_impl.hpp"
 
 namespace foedus {
@@ -117,9 +117,6 @@ struct SnapshotManagerControlBlock {
   }
   void uninitialize() {
     gleaner_.uninitialize();
-    snapshot_children_wakeup_.uninitialize();
-    snapshot_wakeup_.uninitialize();
-    snapshot_taken_.uninitialize();
   }
 
   Epoch get_snapshot_epoch() const { return Epoch(snapshot_epoch_.load()); }
@@ -137,8 +134,8 @@ struct SnapshotManagerControlBlock {
    * This is n-to-n condition variable, so expect spurrious wakeups.
    */
   void wakeup_snapshot_children() {
-    soc::SharedMutexScope scope(snapshot_children_wakeup_.get_mutex());
-    snapshot_children_wakeup_.broadcast(&scope);
+    assorted::memory_fence_release();
+    snapshot_children_wakeup_.signal();
   }
 
   /**
@@ -164,20 +161,20 @@ struct SnapshotManagerControlBlock {
   std::atomic<SnapshotId>         previous_snapshot_id_;
 
   /** Fired (notify_all) whenever snapshotting is completed. */
-  soc::SharedCond                 snapshot_taken_;
+  soc::SharedPolling              snapshot_taken_;
 
   /**
    * Snapshot thread sleeps on this condition variable.
    * The real variable is requested_snapshot_epoch_.
    */
-  soc::SharedCond                 snapshot_wakeup_;
+  soc::SharedPolling              snapshot_wakeup_;
 
   /**
    * Child snapshot managers (the ones in SOC engines) sleep on this condition until
    * the master snapshot manager requests them to launch mappers/reducers for snapshot.
    * The real condition is the various status flag in gleaner_.
    */
-  soc::SharedCond                 snapshot_children_wakeup_;
+  soc::SharedPolling              snapshot_children_wakeup_;
 
   /** Gleaner-related variables */
   LogGleanerControlBlock          gleaner_;

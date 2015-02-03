@@ -125,9 +125,8 @@ ErrorStack Logger::uninitialize_once() {
   ErrorStackBatch batch;
   if (logger_thread_.joinable()) {
     {
-      soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());
       control_block_->stop_requested_ = true;
-      control_block_->wakeup_cond_.signal(&scope);
+      control_block_->wakeup_cond_.signal();
     }
     logger_thread_.join();
   }
@@ -153,9 +152,9 @@ void Logger::handle_logger() {
   LOG(INFO) << "Logger-" << id_ << " now starts logging";
   while (!is_stop_requested()) {
     {
-      soc::SharedMutexScope scope(control_block_->wakeup_cond_.get_mutex());
+      uint64_t demand = control_block_->wakeup_cond_.acquire_ticket();
       if (!is_stop_requested()) {
-        control_block_->wakeup_cond_.timedwait(&scope, 10000000ULL);
+        control_block_->wakeup_cond_.timedwait(demand, 10000ULL);
       }
     }
     const int kMaxIterations = 100;

@@ -54,9 +54,8 @@ ErrorStack MetaLogger::uninitialize_once() {
   ASSERT_ND(engine_->is_master());
   if (logger_thread_.joinable()) {
     {
-      soc::SharedMutexScope scope(control_block_->logger_wakeup_.get_mutex());
       stop_requested_ = true;
-      control_block_->logger_wakeup_.signal(&scope);
+      control_block_->logger_wakeup_.signal();
     }
     logger_thread_.join();
   }
@@ -73,10 +72,10 @@ void MetaLogger::meta_logger_main() {
   LOG(INFO) << "Meta-logger started";
   while (!stop_requested_) {
     {
-      soc::SharedMutexScope scope(control_block_->logger_wakeup_.get_mutex());
+      uint64_t demand = control_block_->logger_wakeup_.acquire_ticket();
       if (!stop_requested_ && !control_block_->has_waiting_log()) {
         VLOG(0) << "Meta-logger going to sleep";
-        control_block_->logger_wakeup_.timedwait(&scope, 100000000ULL);
+        control_block_->logger_wakeup_.timedwait(demand, 100000ULL);
       }
     }
     VLOG(0) << "Meta-logger woke up";

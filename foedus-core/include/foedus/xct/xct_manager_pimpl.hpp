@@ -10,8 +10,8 @@
 #include "foedus/epoch.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
-#include "foedus/soc/shared_cond.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_polling.hpp"
 #include "foedus/thread/condition_variable_impl.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
@@ -32,8 +32,6 @@ struct XctManagerControlBlock {
     new_transaction_paused_ = false;
   }
   void uninitialize() {
-    epoch_chime_wakeup_.uninitialize();
-    current_global_epoch_advanced_.uninitialize();
   }
 
   /**
@@ -56,10 +54,10 @@ struct XctManagerControlBlock {
   std::atomic<Epoch::EpochInteger>  requested_global_epoch_;
 
   /** Fired (broadcast) whenever current_global_epoch_ is advanced. */
-  soc::SharedCond                   current_global_epoch_advanced_;
+  soc::SharedPolling                current_global_epoch_advanced_;
 
   /** Fired to wakeup epoch_chime_thread_ */
-  soc::SharedCond                   epoch_chime_wakeup_;
+  soc::SharedPolling                epoch_chime_wakeup_;
   /** Protected by the mutex in epoch_chime_wakeup_ */
   std::atomic<bool>                 epoch_chime_terminate_requested_;
 

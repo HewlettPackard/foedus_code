@@ -87,9 +87,8 @@ ErrorStack XctManagerPimpl::uninitialize_once() {
   if (engine_->is_master()) {
     if (epoch_chime_thread_.joinable()) {
       {
-        soc::SharedMutexScope scope(control_block_->epoch_chime_wakeup_.get_mutex());
         control_block_->epoch_chime_terminate_requested_ = true;
-        control_block_->epoch_chime_wakeup_.signal(&scope);
+        control_block_->epoch_chime_wakeup_.signal();
       }
       epoch_chime_thread_.join();
     }
@@ -115,16 +114,16 @@ void XctManagerPimpl::handle_epoch_chime() {
   SPINLOCK_WHILE(!is_stop_requested() && !is_initialized()) {
     assorted::memory_fence_acquire();
   }
-  uint64_t interval_nanosec = engine_->get_options().xct_.epoch_advance_interval_ms_ * 1000000ULL;
-  LOG(INFO) << "epoch_chime_thread now starts processing. interval_nanosec=" << interval_nanosec;
+  uint64_t interval_microsec = engine_->get_options().xct_.epoch_advance_interval_ms_ * 1000ULL;
+  LOG(INFO) << "epoch_chime_thread now starts processing. interval_microsec=" << interval_microsec;
   while (!is_stop_requested()) {
     {
-      soc::SharedMutexScope scope(control_block_->epoch_chime_wakeup_.get_mutex());
+      uint64_t demand = control_block_->epoch_chime_wakeup_.acquire_ticket();
       if (is_stop_requested()) {
         break;
       }
       if (get_requested_global_epoch() <= get_current_global_epoch())  {  // otherwise no sleep
-        bool signaled = control_block_->epoch_chime_wakeup_.timedwait(&scope, interval_nanosec);
+        bool signaled = control_block_->epoch_chime_wakeup_.timedwait(demand, interval_microsec);
         VLOG(1) << "epoch_chime_thread. wokeup with " << (signaled ? "signal" : "timeout");
       }
     }
@@ -143,9 +142,12 @@ void XctManagerPimpl::handle_epoch_chime() {
     }
 
     {
-      soc::SharedMutexScope scope(control_block_->current_global_epoch_advanced_.get_mutex());
+      // soc::SharedMutexScope scope(control_block_->current_global_epoch_advanced_.get_mutex());
+      // There is only one thread (this) that might update current_global_epoch_, so
+      // no mutex needed. just set it and put fence.
       control_block_->current_global_epoch_ = get_current_global_epoch().one_more().value();
-      control_block_->current_global_epoch_advanced_.broadcast(&scope);
+      assorted::memory_fence_release();
+      control_block_->current_global_epoch_advanced_.signal();
     }
     engine_->get_log_manager()->wakeup_loggers();
   }
@@ -204,8 +206,7 @@ void XctManagerPimpl::handle_epoch_chime_wait_grace_period(Epoch grace_epoch) {
 
 
 void XctManagerPimpl::wakeup_epoch_chime_thread() {
-  soc::SharedMutexScope scope(control_block_->epoch_chime_wakeup_.get_mutex());
-  control_block_->epoch_chime_wakeup_.signal(&scope);  // hurrrrry up!
+  control_block_->epoch_chime_wakeup_.signal();  // hurrrrry up!
 }
 
 void XctManagerPimpl::set_requested_global_epoch(Epoch request) {
@@ -230,9 +231,9 @@ void XctManagerPimpl::advance_current_global_epoch() {
   while (get_current_global_epoch() < request) {
     wakeup_epoch_chime_thread();
     {
-      soc::SharedMutexScope scope(control_block_->current_global_epoch_advanced_.get_mutex());
+      uint64_t demand = control_block_->current_global_epoch_advanced_.acquire_ticket();
       if (get_current_global_epoch() < request) {
-        control_block_->current_global_epoch_advanced_.wait(&scope);
+        control_block_->current_global_epoch_advanced_.wait(demand);
       }
     }
   }
@@ -244,13 +245,12 @@ void XctManagerPimpl::wait_for_current_global_epoch(Epoch target_epoch, int64_t 
   // this method doesn't aggressively wake up the epoch-advance thread. it just waits.
   set_requested_global_epoch(target_epoch);
   while (get_current_global_epoch() < target_epoch) {
-    soc::SharedMutexScope scope(control_block_->current_global_epoch_advanced_.get_mutex());
+    uint64_t demand = control_block_->current_global_epoch_advanced_.acquire_ticket();
     if (get_current_global_epoch() < target_epoch) {
       if (wait_microseconds < 0) {
-        control_block_->current_global_epoch_advanced_.wait(&scope);
+        control_block_->current_global_epoch_advanced_.wait(demand);
       } else {
-        uint64_t wait_nanosec = wait_microseconds * 1000ULL;
-        control_block_->current_global_epoch_advanced_.timedwait(&scope, wait_nanosec);
+        control_block_->current_global_epoch_advanced_.timedwait(demand, wait_microseconds);
         return;
       }
     }
