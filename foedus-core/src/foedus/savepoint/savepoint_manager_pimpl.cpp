@@ -191,8 +191,10 @@ void SavepointManagerPimpl::savepoint_main() {
       {
         soc::SharedMutexScope scope(control_block_->save_done_event_.get_mutex());
         control_block_->saved_durable_epoch_ = new_durable_epoch.value();
-        control_block_->save_done_event_.broadcast(&scope);
+        // release the mutex BEFORE broadcasting
       }
+      assorted::memory_fence_release();
+      control_block_->save_done_event_.broadcast_nolock();
     }
   }
   LOG(INFO) << "Savepoint thread has terminated.";

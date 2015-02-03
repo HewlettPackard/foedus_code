@@ -6,6 +6,8 @@
 
 #include <time.h>
 
+#include <thread>
+
 #include "foedus/assert_nd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
@@ -74,9 +76,28 @@ bool SharedRendezvous::wait_for(uint64_t timeout_nanosec) {
 }
 
 void SharedRendezvous::signal() {
-  SharedMutexScope scope(cond_.get_mutex());
-  signaled_ = true;  // set _in_ the mutex scope
-  cond_.broadcast(&scope);
+  signaled_ = true;
+  assorted::memory_fence_acq_rel();  // otherwise lost signal possible.
+
+  // use the no-lock version.
+  // because we use the no-lock version, we have to make sure lost-signal does not happen by
+  // retrying here.
+  while (true) {
+    cond_.broadcast_nolock();
+    if (!cond_.exists_waiters()) {
+      return;
+    }
+    for (uint32_t rep = 0; rep < (1U << 10); ++rep) {
+      assorted::spinlock_yield();
+      assorted::memory_fence_acq_rel();
+      if (!cond_.exists_waiters()) {
+        return;
+      }
+    }
+    // not quite expected to hit here, but possible. re-broadcast after some sleep to avoid
+    // occupying CPU (though we already yield a lot above).
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
 }
 
 }  // namespace soc

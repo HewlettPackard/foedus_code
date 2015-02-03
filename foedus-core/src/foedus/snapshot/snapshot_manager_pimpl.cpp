@@ -336,8 +336,10 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
   {
     soc::SharedMutexScope scope(control_block_->snapshot_taken_.get_mutex());
     control_block_->snapshot_epoch_ = epoch_after;
-    control_block_->snapshot_taken_.broadcast(&scope);
+    // release the mutex BEFORE broadcasting
   }
+  assorted::memory_fence_release();
+  control_block_->snapshot_taken_.broadcast_nolock();
   return kRetOk;
 }
 

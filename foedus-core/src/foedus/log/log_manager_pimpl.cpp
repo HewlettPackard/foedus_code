@@ -190,9 +190,13 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
 
     // set durable_global_epoch_ within the SharedCond's mutex scope, and then broadcast.
     // this is required to avoid lost signals.
-    soc::SharedMutexScope cond_guard(control_block_->durable_global_epoch_advanced_.get_mutex());
-    control_block_->durable_global_epoch_ = min_durable_epoch.value();
-    control_block_->durable_global_epoch_advanced_.broadcast(&cond_guard);
+    {
+      soc::SharedMutexScope cond_guard(control_block_->durable_global_epoch_advanced_.get_mutex());
+      control_block_->durable_global_epoch_ = min_durable_epoch.value();
+      // release the mutex BEFORE broadcasting
+    }
+    assorted::memory_fence_release();
+    control_block_->durable_global_epoch_advanced_.broadcast_nolock();
   }
   return kRetOk;
 }
@@ -254,9 +258,13 @@ ErrorCode LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_m
 }
 void LogManagerPimpl::announce_new_durable_global_epoch(Epoch new_epoch) {
   ASSERT_ND(new_epoch >= Epoch(control_block_->durable_global_epoch_));
-  soc::SharedMutexScope scope(control_block_->durable_global_epoch_advanced_.get_mutex());
-  control_block_->durable_global_epoch_ = new_epoch.value();
-  control_block_->durable_global_epoch_advanced_.broadcast(&scope);
+  {
+    soc::SharedMutexScope scope(control_block_->durable_global_epoch_advanced_.get_mutex());
+    control_block_->durable_global_epoch_ = new_epoch.value();
+    // release the mutex BEFORE broadcasting
+  }
+  assorted::memory_fence_release();
+  control_block_->durable_global_epoch_advanced_.broadcast_nolock();
 }
 
 

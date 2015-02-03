@@ -137,8 +137,8 @@ struct SnapshotManagerControlBlock {
    * This is n-to-n condition variable, so expect spurrious wakeups.
    */
   void wakeup_snapshot_children() {
-    soc::SharedMutexScope scope(snapshot_children_wakeup_.get_mutex());
-    snapshot_children_wakeup_.broadcast(&scope);
+    assorted::memory_fence_release();
+    snapshot_children_wakeup_.broadcast_nolock();
   }
 
   /**
