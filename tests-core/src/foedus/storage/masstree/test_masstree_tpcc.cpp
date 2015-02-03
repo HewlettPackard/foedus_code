@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -74,21 +75,38 @@ const uint8_t kOlMax = kMaxOlCount + 1U;
 struct TpccStorages {
   /** (Wid, Did, last, first, Cid) */
   MasstreeStorage      customers_secondary_;
-  uint32_t             customers_secondary_count_;
+  std::atomic<uint32_t> customers_secondary_count_;
+
   /** (Wid, Did, Oid) == Wdoid */
   MasstreeStorage      neworders_;
-  uint32_t             neworders_count_;
+  std::atomic<uint32_t> neworders_count_;
+
   /** (Wid, Did, Oid) == Wdoid */
   MasstreeStorage      orders_;
-  uint32_t             orders_count_;
+  std::atomic<uint32_t> orders_count_;
+
   /** (Wid, Did, Cid, Oid) == Wdcoid */
   MasstreeStorage      orders_secondary_;
-  uint32_t             orders_secondary_count_;
+  std::atomic<uint32_t> orders_secondary_count_;
+
   /** (Wid, Did, Oid, Ol) == Wdol */
   MasstreeStorage      orderlines_;
-  uint32_t             orderlines_count_;
+  std::atomic<uint32_t> orderlines_count_;
+
+  void init(Engine* engine) {
+    customers_secondary_count_.store(0);
+    neworders_count_.store(0);
+    orders_count_.store(0);
+    orders_secondary_count_.store(0);
+    orderlines_count_.store(0);
+    customers_secondary_ = MasstreeStorage(engine, "customers_secondary");
+    neworders_  = MasstreeStorage(engine, "neworders");
+    orders_  = MasstreeStorage(engine, "orders");
+    orders_secondary_  = MasstreeStorage(engine, "orders_secondary");
+    orderlines_  = MasstreeStorage(engine, "orderlines");
+  }
 };
-/** Set in TpccLoadTask::run() */
+/** initialized in run_test() */
 TpccStorages storages;
 
 /** Warehouse ID */
@@ -237,15 +255,14 @@ class TpccLoadTask {
   xct::XctManager* xct_manager_;
   /** timestamp for date fields. */
   char* timestamp_;
+  uint32_t load_threads_;
+  uint32_t thread_ordinal_;
 
   assorted::UniformRandom rnd_;
 
   void      random_orig(bool *orig);
 
   Cid       get_permutation(bool* cid_array);
-
-  ErrorStack create_tables();
-  ErrorStack create_masstree(const storage::StorageName& name, MasstreeStorage* storage);
 
   ErrorCode  commit_if_full();
 
@@ -273,6 +290,24 @@ class TpccLoadTask {
 
   /** Make a string of letter */
   int32_t    make_alpha_string(int32_t min, int32_t max, char *str);
+
+  void get_assignments(uint32_t count, uint32_t* result_from, uint32_t* result_to) const {
+    if (load_threads_ == 1U) {
+      ASSERT_ND(thread_ordinal_ == 0);
+      *result_from = 0;
+      *result_to = count;
+    } else {
+      ASSERT_ND(thread_ordinal_ < load_threads_);
+      uint32_t div = count / load_threads_;
+      ASSERT_ND(div > 0);
+      EXPECT_GT(div, 0);
+      *result_from = div * thread_ordinal_;
+      *result_to = div * (thread_ordinal_ + 1U);
+      if (thread_ordinal_ + 1U == load_threads_) {
+        *result_to = count;
+      }
+    }
+  }
 };
 TpccLoadTask::TpccLoadTask(char* ctime_buffer) {
   // Initialize timestamp (for date columns)
@@ -285,54 +320,21 @@ TpccLoadTask::TpccLoadTask(char* ctime_buffer) {
 ErrorStack TpccLoadTask::run(thread::Thread* context) {
   context_ = context;
   engine_ = context->get_engine();
-  engine_->get_debug()->set_debug_log_min_threshold(debugging::DebuggingOptions::kDebugLogWarning);
   xct_manager_ = engine_->get_xct_manager();
+  load_threads_ = engine_->get_options().thread_.get_total_thread_count();
+  thread_ordinal_ = context->get_thread_global_ordinal();
+  ASSERT_ND(thread_ordinal_ < load_threads_);
+  LOG(INFO) << "Load Thread-" << thread_ordinal_ << " start";
   debugging::StopWatch watch;
   CHECK_ERROR(load_tables());
   watch.stop();
-  LOG(INFO) << "Loaded TPC-C tables in " << watch.elapsed_sec() << "sec";
-  engine_->get_debug()->set_debug_log_min_threshold(debugging::DebuggingOptions::kDebugLogInfo);
+  LOG(INFO) << "Load-Thread-" << thread_ordinal_ << " done in " << watch.elapsed_sec() << "sec";
   return kRetOk;
 }
 
 ErrorStack TpccLoadTask::load_tables() {
-  CHECK_ERROR(create_tables());
-
   CHECK_ERROR(load_customers());
   CHECK_ERROR(load_orders_data());
-
-  WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
-  CHECK_ERROR(storages.customers_secondary_.verify_single_thread(context_));
-  CHECK_ERROR(storages.neworders_.verify_single_thread(context_));
-  CHECK_ERROR(storages.orderlines_.verify_single_thread(context_));
-  CHECK_ERROR(storages.orders_.verify_single_thread(context_));
-  CHECK_ERROR(storages.orders_secondary_.verify_single_thread(context_));
-  WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
-  LOG(INFO) << "Loaded all:" << engine_->get_memory_manager()->dump_free_memory_stat();
-  return kRetOk;
-}
-
-ErrorStack TpccLoadTask::create_tables() {
-  std::memset(&storages, 0, sizeof(storages));
-
-  LOG(INFO) << "Initial:" << engine_->get_memory_manager()->dump_free_memory_stat();
-  CHECK_ERROR(create_masstree("customers_secondary", &storages.customers_secondary_));
-  CHECK_ERROR(create_masstree("neworders", &storages.neworders_));
-  CHECK_ERROR(create_masstree("orders", &storages.orders_));
-  CHECK_ERROR(create_masstree("orders_secondary", &storages.orders_secondary_));
-  CHECK_ERROR(create_masstree("orderlines", &storages.orderlines_));
-
-  return kRetOk;
-}
-
-ErrorStack TpccLoadTask::create_masstree(
-  const storage::StorageName& name,
-  MasstreeStorage* storage) {
-  Epoch ep;
-  storage::masstree::MasstreeMetadata meta(name);
-  EXPECT_FALSE(storage->exists());
-  CHECK_ERROR(engine_->get_storage_manager()->create_masstree(&meta, storage, &ep));
-  EXPECT_TRUE(storage->exists());
   return kRetOk;
 }
 
@@ -349,7 +351,9 @@ ErrorStack TpccLoadTask::load_customers() {
   if (!load_customers_secondary) {
     return kRetOk;
   }
-  for (Wid wid = 0; wid < kWarehouses; ++wid) {
+  uint32_t from_wid, to_wid;
+  get_assignments(kWarehouses, &from_wid, &to_wid);
+  for (Wid wid = from_wid; wid < to_wid; ++wid) {
     for (Did did = 0; did < kDistricts; ++did) {
       CHECK_ERROR(load_customers_in_district(wid, did));
     }
@@ -445,7 +449,9 @@ ErrorStack TpccLoadTask::load_orders_data() {
   if (!load_neworders && !load_orders && !load_orders_secondary && !load_orderlines) {
     return kRetOk;
   }
-  for (Wid wid = 0; wid < kWarehouses; ++wid) {
+  uint32_t from_wid, to_wid;
+  get_assignments(kWarehouses, &from_wid, &to_wid);
+  for (Wid wid = from_wid; wid < to_wid; ++wid) {
     for (Did did = 0; did < kDistricts; ++did) {
       CHECK_ERROR(load_orders_in_district(wid, did));
     }
@@ -575,10 +581,47 @@ Cid TpccLoadTask::get_permutation(bool* cid_array) {
   }
 }
 
+
+ErrorStack create_tables(Engine* engine);
+ErrorStack create_masstree(Engine* engine, const StorageName& name);
+
+ErrorStack create_tables(Engine* engine) {
+  CHECK_ERROR(create_masstree(engine, "customers_secondary"));
+  CHECK_ERROR(create_masstree(engine, "neworders"));
+  CHECK_ERROR(create_masstree(engine, "orders"));
+  CHECK_ERROR(create_masstree(engine, "orders_secondary"));
+  CHECK_ERROR(create_masstree(engine, "orderlines"));
+  return kRetOk;
+}
+
+ErrorStack create_masstree(Engine* engine, const StorageName& name) {
+  Epoch ep;
+  MasstreeMetadata meta(name);
+  MasstreeStorage storage;
+  EXPECT_FALSE(storage.exists());
+  CHECK_ERROR(engine->get_storage_manager()->create_masstree(&meta, &storage, &ep));
+  EXPECT_TRUE(storage.exists());
+  return kRetOk;
+}
+
 ErrorStack tpcc_load_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   char ctime_buffer[64];
   return TpccLoadTask(ctime_buffer).run(context);
+}
+
+ErrorStack verify_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  Engine* engine = args.engine_;
+  WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kSnapshot));
+  CHECK_ERROR(storages.customers_secondary_.verify_single_thread(context));
+  CHECK_ERROR(storages.neworders_.verify_single_thread(context));
+  CHECK_ERROR(storages.orderlines_.verify_single_thread(context));
+  CHECK_ERROR(storages.orders_.verify_single_thread(context));
+  CHECK_ERROR(storages.orders_secondary_.verify_single_thread(context));
+  WRAP_ERROR_CODE(engine->get_xct_manager()->abort_xct(context));
+  LOG(INFO) << "Loaded all:" << engine->get_memory_manager()->dump_free_memory_stat();
+  return kRetOk;
 }
 
 void run_test(
@@ -587,16 +630,18 @@ void run_test(
   bool load_neworders_arg,
   bool load_orders_arg,
   bool load_orders_secondary_arg,
-  bool load_orderlines_arg) {
+  bool load_orderlines_arg,
+  bool parallel_load = false) {
   load_customers_secondary = load_customers_secondary_arg;
   load_neworders = load_neworders_arg;
   load_orders = load_orders_arg;
   load_orders_secondary = load_orders_secondary_arg;
   load_orderlines = load_orderlines_arg;
 
+  const uint32_t kLoadThreads = kWarehouses;
   EngineOptions options = get_tiny_options();
   options.thread_.group_count_ = 1;
-  options.thread_.thread_count_per_group_ = 1;
+  options.thread_.thread_count_per_group_ = parallel_load ? kLoadThreads : 1;
   options.log_.log_buffer_kb_ = 1 << 14;
   options.log_.log_file_size_mb_ = 1 << 10;
   options.memory_.page_pool_size_mb_per_node_ = 1 << 5;
@@ -604,13 +649,47 @@ void run_test(
   if (load_orderlines) {
     options.memory_.page_pool_size_mb_per_node_ = 1 << 6;
   }
+  if (parallel_load) {
+    options.memory_.page_pool_size_mb_per_node_ *= kLoadThreads;
+    options.cache_.snapshot_cache_size_mb_per_node_ *= kLoadThreads;
+  }
   Engine engine(options);
   engine.get_proc_manager()->pre_register("the_task", proc);
+  engine.get_proc_manager()->pre_register("verify_task", verify_task);
   engine.get_proc_manager()->pre_register("tpcc_load_task", tpcc_load_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("tpcc_load_task"));
+    COERCE_ERROR(create_tables(&engine));
+    storages.init(&engine);
+    engine.get_debug()->set_debug_log_min_threshold(
+       debugging::DebuggingOptions::kDebugLogWarning);
+    if (parallel_load) {
+      std::vector< thread::ImpersonateSession > sessions;
+      for (uint32_t i = 0; i < kLoadThreads; ++i) {
+        thread::ImpersonateSession session;
+        bool ret = engine.get_thread_pool()->impersonate_on_numa_core(
+          i,
+          "tpcc_load_task",
+          nullptr,
+          0,
+          &session);
+        EXPECT_TRUE(ret);
+        ASSERT_ND(ret);
+        LOG(INFO) << "session-" << i << ":" << session;
+        sessions.emplace_back(std::move(session));
+      }
+      for (uint16_t i = 0; i < sessions.size(); ++i) {
+        thread::ImpersonateSession& session = sessions[i];
+        ErrorStack result = session.get_result();
+        COERCE_ERROR(result);
+        session.release();
+      }
+    } else {
+      COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("tpcc_load_task"));
+    }
+    engine.get_debug()->set_debug_log_min_threshold(debugging::DebuggingOptions::kDebugLogInfo);
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("verify_task"));
     COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("the_task"));
     COERCE_ERROR(engine.uninitialize());
   }
@@ -727,22 +806,6 @@ ErrorStack full_scan_task(const proc::ProcArguments& args) {
   return kRetOk;
 }
 
-TEST(MasstreeTpccTest, FullscanCustomersSecondary) {
-  run_test(full_scan_task, true, false, false, false, false);
-}
-TEST(MasstreeTpccTest, FullscanNeworders) {
-  run_test(full_scan_task, false, true, false, false, false);
-}
-TEST(MasstreeTpccTest, FullscanOrders) {
-  run_test(full_scan_task, false, false, true, false, false);
-}
-TEST(MasstreeTpccTest, FullscanOrdersSecondary) {
-  run_test(full_scan_task, false, false, false, true, false);
-}
-TEST(MasstreeTpccTest, FullscanOrderlines) {
-  run_test(full_scan_task, false, false, false, false, true);
-}
-
 ErrorStack district_scan_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   uint32_t expected_records;
@@ -851,6 +914,37 @@ ErrorStack district_scan_task(const proc::ProcArguments& args) {
   return kRetOk;
 }
 
+TEST(MasstreeTpccTest, FullscanCustomersSecondary) {
+  run_test(full_scan_task, true, false, false, false, false);
+}
+TEST(MasstreeTpccTest, FullscanNeworders) {
+  run_test(full_scan_task, false, true, false, false, false);
+}
+TEST(MasstreeTpccTest, FullscanOrders) {
+  run_test(full_scan_task, false, false, true, false, false);
+}
+TEST(MasstreeTpccTest, FullscanOrdersSecondary) {
+  run_test(full_scan_task, false, false, false, true, false);
+}
+TEST(MasstreeTpccTest, FullscanOrderlines) {
+  run_test(full_scan_task, false, false, false, false, true);
+}
+
+TEST(MasstreeTpccTest, ParallelLoadCustomersSecondary) {
+  run_test(full_scan_task, true, false, false, false, false, true);
+}
+TEST(MasstreeTpccTest, ParallelLoadNeworders) {
+  run_test(full_scan_task, false, true, false, false, false, true);
+}
+TEST(MasstreeTpccTest, ParallelLoadOrders) {
+  run_test(full_scan_task, false, false, true, false, false, true);
+}
+TEST(MasstreeTpccTest, ParallelLoadOrdersSecondary) {
+  run_test(full_scan_task, false, false, false, true, false, true);
+}
+TEST(MasstreeTpccTest, ParallelLoadOrderlines) {
+  run_test(full_scan_task, false, false, false, false, true, true);
+}
 
 TEST(MasstreeTpccTest, DistrictScanCustomersSecondary) {
   run_test(district_scan_task, true, false, false, false, false);

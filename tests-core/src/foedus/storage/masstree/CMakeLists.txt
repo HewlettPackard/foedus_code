@@ -45,6 +45,11 @@ set(test_masstree_tpcc_individuals
   FullscanOrders
   FullscanOrdersSecondary
   FullscanOrderlines
+  ParallelLoadCustomersSecondary
+  ParallelLoadNeworders
+  ParallelLoadOrders
+  ParallelLoadOrdersSecondary
+  ParallelLoadOrderlines
   DistrictScanCustomersSecondary
   DistrictScanNeworders
   DistrictScanOrders
