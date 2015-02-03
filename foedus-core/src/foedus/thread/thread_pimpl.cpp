@@ -768,7 +768,8 @@ void ThreadPimpl::flush_retired_volatile_page(
   }
   uint32_t safe_count = chunk->get_safe_offset_count(current_epoch);
   while (safe_count < chunk->size() / 10U) {
-    LOG(INFO) << "Thread-" << id_ << " can return only" << safe_count << " out of " << chunk->size()
+    LOG(WARNING) << "Thread-" << id_ << " can return only "
+      << safe_count << " out of " << chunk->size()
       << " retired pages to node-" << node  << " in epoch=" << current_epoch
       << ". This means the thread received so many retired pages in a short time period."
       << " Will adavance an epoch to safely return the retired pages."

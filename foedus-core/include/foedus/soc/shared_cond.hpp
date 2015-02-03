@@ -77,6 +77,15 @@ class SharedCond CXX11_FINAL {
   void broadcast(SharedMutexScope* scope);
 
   /**
+   * @brief Unblock all waiters without a mutex held by the signaller
+   * @details
+   * You should set the real condition variable itself after locking the mutex,
+   * \b AND release it before calling this method.
+   * This method does not assume a mutex, thus a lost signal is possible.
+   */
+  void broadcast_nolock();
+
+  /**
    * @brief Unblock one waiter
    * @param[in,out] scope the mutex scope that protects this conditional variable
    * @pre scope->is_locked_by_me() (the caller must have locked it)

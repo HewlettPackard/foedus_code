@@ -143,9 +143,14 @@ void XctManagerPimpl::handle_epoch_chime() {
     }
 
     {
-      soc::SharedMutexScope scope(control_block_->current_global_epoch_advanced_.get_mutex());
+      // soc::SharedMutexScope scope(control_block_->current_global_epoch_advanced_.get_mutex());
+      // There is only one thread (this) that might update current_global_epoch_, so
+      // no mutex needed. just set it and put fence.
       control_block_->current_global_epoch_ = get_current_global_epoch().one_more().value();
-      control_block_->current_global_epoch_advanced_.broadcast(&scope);
+      assorted::memory_fence_release();
+      // use the no-lock version. we observed a deadlock with waiters for some reason.
+      // is it related to the pthread_cond_broadcast bug in glibc? not sure at this point.
+      control_block_->current_global_epoch_advanced_.broadcast_nolock();
     }
     engine_->get_log_manager()->wakeup_loggers();
   }
