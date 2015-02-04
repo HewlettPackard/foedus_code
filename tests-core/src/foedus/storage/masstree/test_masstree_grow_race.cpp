@@ -232,7 +232,7 @@ void run_test() {
   std::cout << "kRecords=" << kRecords << std::endl;
   std::cout << "Physical core count = "
     << native_options.thread_.get_total_thread_count() << std::endl;
-  uint32_t test_core_count = native_options.thread_.get_total_thread_count() * 2U;
+  uint32_t test_core_count = native_options.thread_.get_total_thread_count() * kThreadsPerCore;
   if (RUNNING_ON_VALGRIND) {
     std::cout << "This testcase takes too long on Valgrind. exit" << std::endl;
     return;
@@ -244,7 +244,7 @@ void run_test() {
 
   options.thread_.group_count_ = 1;
   options.thread_.thread_count_per_group_ = test_core_count;
-  uint32_t vol_mb = 2U * test_core_count;
+  uint32_t vol_mb = 2U * test_core_count + 200;
   uint32_t records_per_border = (1U << 11) / kPayload;
   uint32_t total_borders = (test_core_count * kRecords) / records_per_border;
   uint32_t border_kb = total_borders * 4U * 3ULL;  // *3 as a margin. splits require tentative pages
