@@ -268,7 +268,12 @@ ThreadLogBuffer::OffsetRange ThreadLogBuffer::get_logs_to_write(Epoch written_ep
       VLOG(0) << "Advancing oldest mark index. before=" << *this;
       while (meta_.oldest_mark_index_ != meta_.current_mark_index_
           && meta_.thread_epoch_marks_[meta_.oldest_mark_index_].new_epoch_ < written_epoch) {
-        ++meta_.oldest_mark_index_;
+        meta_.oldest_mark_index_
+          = ThreadLogBufferMeta::increment_mark_index(meta_.oldest_mark_index_);
+        ASSERT_ND(meta_.oldest_mark_index_ < ThreadLogBufferMeta::kMaxNonDurableEpochs);
+        if (meta_.oldest_mark_index_ >= ThreadLogBufferMeta::kMaxNonDurableEpochs) {
+          LOG(FATAL) << "meta_.oldest_mark_index_ out of range. we must have waited.";
+        }
       }
       VLOG(0) << "Advanced oldest mark index. after=" << *this;
       // Then re-evaluate. It might be now Case 1 or 2. recursion, but essentially a retry.

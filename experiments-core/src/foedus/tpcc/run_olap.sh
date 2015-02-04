@@ -7,7 +7,7 @@ echo "FOEDUS TPC-C OLAP experiments script for $machine_shortname ($machine_name
 
 null_log_device=false
 high_priority=false
-fork_workers=true
+fork_workers=false
 skip_verify=true # life is too short. or verificaiton should be parallelized.
 
 for rep in 0 1 2
