@@ -111,10 +111,11 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
    * \li (used in Xct) ReadXctAccess(32b) * 32k :1024kb
    * \li (used in Xct) WriteXctAccess(40b) * 8k : 320kb
    * \li (used in Xct) LockFreeWriteXctAccess(16b) * 4k : 64kb
-   * \li (used in Xct) Retired pages(PagePoolOffsetAndEpochChunk=32kb) * #-of-nodes : 32kb * #nodes
-   * In total within 2MB in most cases.
+   * \li (used in Xct) Retired pages(PagePoolOffsetAndEpochChunk=512kb) * #-of-nodes
+   *  : 512kb * #nodes
+   * In total within 4MB in most cases.
    * Depending on options (esp, #nodes, xct_.max_read_set_size and max_write_set_size), this might
-   * become two 2MB pages, which is not ideal. Hopefully the numbers above are sufficient.
+   * become more than that, which is not ideal. Hopefully the numbers above are sufficient.
    */
   memory::AlignedMemory   small_thread_local_memory_;
   SmallThreadLocalMemoryPieces small_thread_local_memory_pieces_;
