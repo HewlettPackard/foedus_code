@@ -237,6 +237,10 @@ void run_test() {
     std::cout << "This testcase takes too long on Valgrind. exit" << std::endl;
     return;
   }
+  if (test_core_count > 100U) {
+    std::cout << "This testcase throttles thread count to 100." << std::endl;
+    test_core_count = 100U;
+  }
 
   options.thread_.group_count_ = 1;
   options.thread_.thread_count_per_group_ = test_core_count;
