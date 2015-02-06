@@ -604,6 +604,8 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
 
 bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, XctId* max_xct_id) {
   Xct& current_xct = context->get_current_xct();
+  const WriteXctAccess*   write_set = current_xct.get_write_set();
+  const uint32_t          write_set_size = current_xct.get_write_set_size();
   ReadXctAccess*          read_set = current_xct.get_read_set();
   const uint32_t          read_set_size = current_xct.get_read_set_size();
   storage::StorageManager* st = engine_->get_storage_manager();
@@ -644,6 +646,24 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
       return false;
     }
     max_xct_id->store_max(access.observed_owner_id_);
+    if (access.owner_id_address_->is_keylocked()) {
+      DVLOG(2) << *context
+        << " read set contained a locked record. was it myself who locked it?";
+      // write set is sorted. so we can do binary search.
+      WriteXctAccess dummy;
+      dummy.owner_id_address_ = access.owner_id_address_;
+      bool found = std::binary_search(
+        write_set,
+        write_set + write_set_size,
+        dummy,
+        WriteXctAccess::compare);
+      if (!found) {
+        DLOG(WARNING) << *context << " no, not me. will abort";
+        return false;
+      } else {
+        DVLOG(2) << *context << " okay, myself. go on.";
+      }
+    }
   }
 
   // Check Page Pointer/Version
