@@ -3,24 +3,45 @@
 
 Overview
 --------
-FOEDUS is a new transactional key-value library developped at Hewlett-Packard Labs that is optimized
+FOEDUS is a new transactional key-value library developed at Hewlett-Packard Labs that is optimized
 for a large number of CPU cores and NVRAM storage. It is a handy C++ library you can
 either include in your source code (by invoking CMake script) or dynamically link to.
 In a nutshell, it is something like BerkeleyDB, but it is much more efficient on new hardware.
 
+Alpha-Version WARNING
+--------
+The repository is currently in **PRE-ALPHA** state.
+Nothing is guaranteed.
+Please expect that many parts of the code are unstable and lack critical/important features.
+We are working hard to move on to next steps hinted below, but without any promises.
+
+* Alpha Version (aka first open sourcing): This is supporsed to be at the beginning of June 2015
+at/before SIGMOD conference. By this time, we should have most of critical features.
+But, still no guarantee for stable behavior, data migration to next version, etc.
+Important APIs and even the library name might change in next version.
+This version is for people who want to take a look at FOEDUS.
+* Beta Version: This is supposed to be sometime in 2016, hopefully early 2016.
+We should fix most of critical issues/features so that users can start using FOEDUS.
+We will start release versioning from this point, probably from ver 0.1.
+* Stable Version (aka ver 1.0): Some time between 2018 to 2020.
+
+Again, we are in **PRE-ALPHA** now.
+**BE REALLY WARNED. I TOLD YOU, OKAY?**
+
+
 Folder Structure (For Everyone)
 --------
 This root project contains a few sub-projects.
-Some of them are *NOT* supposed to be directly linked from client programs (_your_ programs).
+Some of them are **NOT** supposed to be directly linked from client programs (_your_ programs).
 
 * [foedus-core](foedus-core) : Key-value store library.
 * [foedus-util](foedus-util) : A series of utility programs to help use libfoedus.
-* foedus-rdb : Relational database engine on top of foedus-core.
+* foedus-rdb (not_exist_yet) : Relational database engine on top of foedus-core.
 * tests-[core/util/rdb] : Unit testcase projects.
 * experiments-[core/util/rdb] : Performance experiments projects.
 * [third_party](third_party) : Third party source code used in our programs.
 
-You are supposed to link only to *foedus-core* and *foedus-rdb*.
+You are supposed to link only to **foedus-core** and *foedus-rdb*.
 Other projects are for internal use or to provide executables, rather than libraries.
 You can still contain all projects (or this folder's CMakeLists.txt) in your source code,
 but note that some restrictions on compiler options apply if you do so.
@@ -30,7 +51,8 @@ libfoedus-core (For FOEDUS Users)
 For more details of how your client program links to and uses our library,
 start from [foedus-core](foedus-core) and
 [its API document](http://243-1.bfc.hpl.hp.com:8080/job/foedus-master-doxygen/doxygen/).
-The sections below are for people developping FOEDUS itself.
+Licensing, short get-started examples, etc for **users** are there.
+The sections below are for people developing FOEDUS itself.
 
 Current Build Status on Jenkins (For FOEDUS Developers)
 --------

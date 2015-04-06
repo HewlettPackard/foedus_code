@@ -239,6 +239,19 @@ One last optional package is tmpwatch to clean up /tmp where we output glog log 
 Licensing
 --------
 See [LICENSE.txt](LICENSE.txt) for the license term of libfoedus-core itself.
+
+In short, FOEDUS is open-sourced under **GPL** with **classpath exception that covers every file**.
+Yes, every file is exception though it might sound weird.
+This means you can link to libfoedus, either dynamically or statically, from an arbitrary
+program: GPL, Apache/BSD, or even proprietary program. However, if you modify FOEDUS itself,
+you need to provide your modification in a GPL-fashion. libstdc++ in gcc employs a similar license.
+We believe this style of GPL is more flexible/simple for users than LGPL.
+
+We internally had intensive discussions on Apache/BSD vs GPL/LGPL, and this is our *final* decision.
+Almost no chance of later switching to Apache/BSD or other permissive licenses.
+
+All manuals/documents (doxygen-generated HTMLs) are in Creative Commons.
+
 libfoedus-core uses a few open source libraries listed below.
 
 |    Library   | License |    Linking/Distribution in libfoedus-core    |
