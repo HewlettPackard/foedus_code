@@ -35,6 +35,51 @@ namespace storage {
 namespace hash {
 
 /**
+ * @brief Represents an intermediate page in \ref HASH.
+ * @ingroup HASH
+ * @details
+ * This is one of the page types in hash.
+ * An intermediate page is simply a list of pointers to child pages, which might be
+ * intermediate or data pages.
+ */
+class HashIntermediatePage final {
+ public:
+  HashIntermediatePage() = delete;
+  HashIntermediatePage(const HashIntermediatePage& other) = delete;
+  HashIntermediatePage& operator=(const HashIntermediatePage& other) = delete;
+
+  const PageHeader&       header() const { return header_; }
+  DualPagePointer&        pointer(uint16_t index) { return pointers_[index]; }
+  const DualPagePointer&  pointer(uint16_t index) const { return pointers_[index]; }
+
+  /** Called only when this page is initialized. */
+  void                    initialize_volatile_page(
+    StorageId storage_id,
+    VolatilePagePointer page_id,
+    const HashIntermediatePage* parent,
+    const HashRange& range);
+
+  const HashRange& get_range() const { return range_; }
+
+  inline void      assert_hash(HashValue hash) ALWAYS_INLINE {
+    ASSERT_ND(range_.contains(hash));
+  }
+
+ private:
+  /** common header */
+  PageHeader          header_;        // +32 -> 32
+
+  /** these are used only for sanity checks in debug builds. they are always implicit. */
+  HashRange           range_;         // +16 -> 48
+
+  /**
+   * Pointers to child nodes.
+   * It might point to either child intermediate page or a data page.
+   */
+  DualPagePointer     pointers_[kHashIntermediatePageFanout];
+};
+
+/**
  * @brief Represents a root page in \ref HASH.
  * @ingroup HASH
  * @details
@@ -374,6 +419,9 @@ void hash_bin_volatile_page_init(const VolatilePageInitArguments& args);
  */
 void hash_data_volatile_page_init(const VolatilePageInitArguments& args);
 
+static_assert(
+  sizeof(HashIntermediatePage) == kPageSize,
+  "sizeof(HashIntermediatePage) is not kPageSize");
 static_assert(sizeof(HashRootPage) == kPageSize, "sizeof(HashRootPage) is not kPageSize");
 static_assert(sizeof(HashBinPage) == kPageSize, "sizeof(HashBinPage) is not kPageSize");
 static_assert(sizeof(HashBinPage::Bin) == kHashBinSize, "kHashBinSize is wrong");

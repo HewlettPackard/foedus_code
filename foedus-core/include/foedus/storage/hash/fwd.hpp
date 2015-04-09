@@ -31,6 +31,7 @@ struct  HashCreateLogType;
 class   HashDataPage;
 struct  HashDeleteLogType;
 struct  HashInsertLogType;
+class   HashIntermediatePage;
 struct  HashMetadata;
 struct  HashOverwriteLogType;
 class   HashPartitioner;

@@ -46,6 +46,19 @@ const uint16_t kHashRootPageFanout      =
   (kPageSize - kHashRootPageHeaderSize) / sizeof(DualPagePointer);
 
 /**
+ * @brief Byte size of header in an intermediate page of hash storage.
+ * @ingroup HASH
+ */
+const uint16_t kHashIntermediatePageHeaderSize  = 32 + 8 * 2;
+
+/**
+ * @brief Number of pointers in an intermediate page of hash storage.
+ * @ingroup HASH
+ */
+const uint16_t kHashIntermediatePageFanout      =
+  (kPageSize - kHashIntermediatePageHeaderSize) / sizeof(DualPagePointer);
+
+/**
  * @brief Byte size of header in bin page of hash storage.
  * @ingroup HASH
  */
@@ -58,6 +71,50 @@ const uint16_t kHashBinPageHeaderSize   = 64;
 const uint16_t kHashDataPageHeaderSize  = 256;
 
 /**
+ * @brief Represents a full 64-bit hash value calculated from a key.
+ * @ingroup HASH
+ * @details
+ * This value is usually split into two parts, higher bits as \e bins and other bits as \e tag.
+ * Each hash storage has a static configuration that determines how many bits are used for bins.
+ * Each bin represents a range of hash values, such as 0x1234000000000000 (inclusive)
+ * to 0x1235000000000000 (exclusive) where bins use the high 16 bits and tags use low 48 bits.
+ * HashTag, which is always 16 bits, is calculated by collapsing low 48 bits.
+ * @see HashTag
+ * @see HashRange
+ */
+typedef uint64_t HashValue;
+
+/**
+ * @brief Represents a range of hash values in a hash storage, such as what an intermediate page
+ * is responsible for.
+ * @ingroup HASH
+ * @details
+ * Begin is inclusive, end is exclusive.
+ */
+struct HashRange {
+  HashRange() : begin_(0), end_(0) {}
+  HashRange(HashValue begin, HashValue end) : begin_(begin), end_(end) {}
+
+  /** Returns if there is any overlap with the other range. */
+  bool    overlaps(const HashRange& other) const {
+    // Case 1: contains(other.begin) or contains(other.end)
+    // Case 2: not case 1, but other.contains(begin)
+    return contains(other.begin_) || contains(other.end_) || other.contains(begin_);
+  }
+  bool    contains(HashValue hash) const { return hash >= begin_ && hash < end_; }
+  bool    operator==(const HashRange& other) const {
+    return begin_ == other.begin_ && end_ == other.end_;
+  }
+  bool    operator!=(const HashRange& other) const { return !(this->operator==(other)); }
+
+  /** Inclusive beginning of the hash range. */
+  HashValue begin_;
+  /** Exclusive end of the hash range. */
+  HashValue end_;
+};
+
+
+/**
  * @brief Represents a compact \e tag of hash values.
  * @ingroup HASH
  * @details
@@ -68,6 +125,7 @@ const uint16_t kHashDataPageHeaderSize  = 256;
  * our bin stores a relatively large number of entries, so we picked 2 bytes rather than 1 byte.
  */
 typedef uint16_t HashTag;
+
 
 /**
  * @brief Byte size of one hash bin.
