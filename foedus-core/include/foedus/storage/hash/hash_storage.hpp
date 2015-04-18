@@ -98,6 +98,13 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     return get_record(context, &key, sizeof(key), payload, payload_capacity);
   }
 
+  /** If you have already computed HashCombo, use this. */
+  ErrorCode get_record(
+    thread::Thread* context,
+    const HashCombo& combo,
+    void* payload,
+    uint16_t* payload_capacity);
+
   /**
    * @brief Retrieves a part of the given key in this hash storage.
    * @param[in] context Thread context
@@ -128,6 +135,14 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     return get_record_part(context, &key, sizeof(key), payload, payload_offset, payload_count);
   }
 
+  /** If you have already computed HashCombo, use this. */
+  ErrorCode get_record_part(
+    thread::Thread* context,
+    const HashCombo& combo,
+    void* payload,
+    uint16_t payload_offset,
+    uint16_t* payload_capacity);
+
   /**
    * @brief Retrieves a part of the given key in this storage as a primitive value.
    * @param[in] context Thread context
@@ -156,6 +171,14 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     uint16_t payload_offset) {
     return get_record_primitive<PAYLOAD>(context, &key, sizeof(key), payload, payload_offset);
   }
+
+  /** If you have already computed HashCombo, use this. */
+  template <typename PAYLOAD>
+  ErrorCode   get_record_primitive(
+    thread::Thread* context,
+    const HashCombo& combo,
+    PAYLOAD* payload,
+    uint16_t payload_offset);
 
   // insert_record() methods
 
@@ -187,6 +210,13 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     return insert_record(context, &key, sizeof(key), payload, payload_count);
   }
 
+  /** If you have already computed HashCombo, use this. */
+  ErrorCode   insert_record(
+    thread::Thread* context,
+    const HashCombo& combo,
+    const void* payload,
+    uint16_t payload_count);
+
   // delete_record() methods
 
   /**
@@ -205,6 +235,9 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
   inline ErrorCode delete_record(thread::Thread* context, KEY key) {
     return delete_record(context, &key, sizeof(key));
   }
+
+  /** If you have already computed HashCombo, use this. */
+  ErrorCode   delete_record(thread::Thread* context, const HashCombo& combo);
 
   // overwrite_record() methods
 
@@ -241,6 +274,14 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     return overwrite_record(context, &key, sizeof(key), payload, payload_offset, payload_count);
   }
 
+  /** If you have already computed HashCombo, use this. */
+  ErrorCode   overwrite_record(
+    thread::Thread* context,
+    const HashCombo& combo,
+    const void* payload,
+    uint16_t payload_offset,
+    uint16_t payload_count);
+
   /**
    * @brief Overwrites a part of one record of the given key in this storage as a primitive value.
    * @param[in] context Thread context
@@ -269,6 +310,14 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     uint16_t payload_offset) {
     return overwrite_record_primitive(context, &key, sizeof(key), payload, payload_offset);
   }
+
+  /** If you have already computed HashCombo, use this. */
+  template <typename PAYLOAD>
+  ErrorCode   overwrite_record_primitive(
+    thread::Thread* context,
+    const HashCombo& combo,
+    PAYLOAD payload,
+    uint16_t payload_offset);
 
   // increment_record() methods
 
@@ -302,19 +351,13 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     return increment_record(context, &key, sizeof(key), value, payload_offset);
   }
 
-  // log apply methods.
-  // some of them are so trivial that they are inlined in log class.
-
-  void        apply_insert_record(
+  /** If you have already computed HashCombo, use this. */
+  template <typename PAYLOAD>
+  ErrorCode   increment_record(
     thread::Thread* context,
-    const HashInsertLogType* log_entry,
-    xct::LockableXctId* owner_id,
-    char* payload);
-  void        apply_delete_record(
-    thread::Thread* context,
-    const HashDeleteLogType* log_entry,
-    xct::LockableXctId* owner_id,
-    char* payload);
+    const HashCombo& combo,
+    PAYLOAD* value,
+    uint16_t payload_offset);
 };
 }  // namespace hash
 }  // namespace storage

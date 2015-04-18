@@ -25,7 +25,7 @@
 namespace foedus {
 namespace storage {
 namespace hash {
-class   HashBinPage;
+struct  DataPageBloomFilter;
 struct  HashCombo;
 struct  HashCreateLogType;
 class   HashDataPage;
@@ -35,7 +35,6 @@ class   HashIntermediatePage;
 struct  HashMetadata;
 struct  HashOverwriteLogType;
 class   HashPartitioner;
-class   HashRootPage;
 class   HashStorage;
 struct  HashStorageControlBlock;
 class   HashStorageFactory;

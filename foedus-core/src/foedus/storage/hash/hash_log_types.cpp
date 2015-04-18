@@ -52,11 +52,9 @@ std::ostream& operator<<(std::ostream& o, const HashCreateLogType& v) {
 std::ostream& operator<<(std::ostream& o, const HashInsertLogType& v) {
   o << "<HashInsertLogType>"
     << "<key_length_>" << v.key_length_ << "</key_length_>"
-    << "<key_>" << assorted::Top(v.data_, v.key_length_) << "</key_>"
-    << "<bin1_>" << v.bin1_ << "</bin1_>"
-    << "<hashtag_>" << v.hashtag_ << "</hashtag_>"
+    << "<key_>" << assorted::Top(v.get_key(), v.key_length_) << "</key_>"
     << "<payload_count_>" << v.payload_count_ << "</payload_count_>"
-    << "<payload_>" << assorted::Top(v.data_ + v.key_length_, v.payload_count_) << "</payload_>"
+    << "<payload_>" << assorted::Top(v.get_payload(), v.payload_count_) << "</payload_>"
     << "</HashInsertLogType>";
   return o;
 }
@@ -64,8 +62,7 @@ std::ostream& operator<<(std::ostream& o, const HashInsertLogType& v) {
 std::ostream& operator<<(std::ostream& o, const HashDeleteLogType& v) {
   o << "<HashDeleteLogType>"
     << "<key_length_>" << v.key_length_ << "</key_length_>"
-    << "<key_>" << assorted::Top(v.data_, v.key_length_) << "</key_>"
-    << "<bin1_>" << v.bin1_ << "</bin1_>"
+    << "<key_>" << assorted::Top(v.get_key(), v.key_length_) << "</key_>"
     << "</HashDeleteLogType>";
   return o;
 }
@@ -73,11 +70,10 @@ std::ostream& operator<<(std::ostream& o, const HashDeleteLogType& v) {
 std::ostream& operator<<(std::ostream& o, const HashOverwriteLogType& v) {
   o << "<HashOverwriteLog>"
     << "<key_length_>" << v.key_length_ << "</key_length_>"
-    << "<key_>" << assorted::Top(v.data_, v.key_length_) << "</key_>"
-    << "<bin1_>" << v.bin1_ << "</bin1_>"
+    << "<key_>" << assorted::Top(v.get_key(), v.key_length_) << "</key_>"
     << "<payload_offset_>" << v.payload_offset_ << "</payload_offset_>"
     << "<payload_count_>" << v.payload_count_ << "</payload_count_>"
-    << "<payload_>" << assorted::Top(v.data_ + v.key_length_, v.payload_count_) << "</payload_>"
+    << "<payload_>" << assorted::Top(v.get_payload(), v.payload_count_) << "</payload_>"
     << "</HashOverwriteLog>";
   return o;
 }

@@ -62,13 +62,22 @@ struct HashStorageControlBlock final {
   // Type-specific shared members below.
 
   // these are static auxiliary variables. doesn't have to be shared actually, but easier.
-  uint32_t            root_pages_;
+  /**
+   * How many hash bins this storage has.
+   * bin_count_ = 2^bin_bits
+   */
   uint64_t            bin_count_;
-  uint64_t            bin_pages_;
+  /**
+   * Number of levels of pages. 1 means there is only 1 intermediate page pointing to data pages.
+   * 2 means a root page pointing down to leaf intermediate pages pointing to data pages.
+   * At least 1, and surely within 8 levels.
+   */
+  uint8_t             levels_;
+  char                padding_[7];
 };
 
 /**
-* @brief Pimpl object of HashStorage.
+ * @brief Pimpl object of HashStorage.
  * @ingroup HASH
  * @details
  * A private pimpl object for HashStorage.
@@ -85,11 +94,11 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   /** Used only from uninitialize() */
   void        release_pages_recursive_root(
     memory::PageReleaseBatch* batch,
-    HashRootPage* page,
+    HashIntermediatePage* page,
     VolatilePagePointer volatile_page_id);
-  void        release_pages_recursive_bin(
+  void        release_pages_recursive_intermediate(
     memory::PageReleaseBatch* batch,
-    HashBinPage* page,
+    HashIntermediatePage* page,
     VolatilePagePointer volatile_page_id);
   void        release_pages_recursive_data(
     memory::PageReleaseBatch* batch,
@@ -100,22 +109,21 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   ErrorStack  create(const HashMetadata& metadata);
   ErrorStack  load(const StorageControlBlock& snapshot_block);
   ErrorStack  drop();
-  HashRootPage* get_root_page();
+  HashIntermediatePage* get_root_page();
 
   bool                exists()    const { return control_block_->exists(); }
   StorageId           get_id()    const { return control_block_->meta_.id_; }
   const StorageName&  get_name()  const { return control_block_->meta_.name_; }
   const HashMetadata& get_meta()  const { return control_block_->meta_; }
+  uint8_t             get_levels() const { return control_block_->levels_; }
+  HashBin             get_bin_count() const { return get_meta().get_bin_count(); }
   uint8_t             get_bin_bits() const { return get_meta().bin_bits_; }
-  uint32_t            get_root_pages() const { return control_block_->root_pages_; }
-  uint64_t            get_bin_count() const { return control_block_->bin_count_; }
-  uint64_t            get_bin_pages() const { return control_block_->bin_pages_; }
+  uint8_t             get_bin_shifts() const { return get_meta().get_bin_shifts(); }
 
   /** @copydoc foedus::storage::hash::HashStorage::get_record() */
   ErrorCode   get_record(
     thread::Thread* context,
-    const void* key,
-    uint16_t key_length,
+    const HashCombo& combo,
     void* payload,
     uint16_t* payload_capacity);
 
@@ -123,16 +131,14 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   template <typename PAYLOAD>
   ErrorCode   get_record_primitive(
     thread::Thread* context,
-    const void* key,
-    uint16_t key_length,
+    const HashCombo& combo,
     PAYLOAD* payload,
     uint16_t payload_offset);
 
   /** @copydoc foedus::storage::hash::HashStorage::get_record_part() */
   ErrorCode   get_record_part(
     thread::Thread* context,
-    const void* key,
-    uint16_t key_length,
+    const HashCombo& combo,
     void* payload,
     uint16_t payload_offset,
     uint16_t payload_count);
@@ -140,19 +146,17 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   /** @copydoc foedus::storage::hash::HashStorage::insert_record() */
   ErrorCode insert_record(
     thread::Thread* context,
-    const void* key,
-    uint16_t key_length,
+    const HashCombo& combo,
     const void* payload,
     uint16_t payload_count);
 
   /** @copydoc foedus::storage::hash::HashStorage::delete_record() */
-  ErrorCode delete_record(thread::Thread* context, const void* key, uint16_t key_length);
+  ErrorCode delete_record(thread::Thread* context, const HashCombo& combo);
 
   /** @copydoc foedus::storage::hash::HashStorage::overwrite_record() */
   ErrorCode overwrite_record(
     thread::Thread* context,
-    const void* key,
-    uint16_t key_length,
+    const HashCombo& combo,
     const void* payload,
     uint16_t payload_offset,
     uint16_t payload_count);
@@ -161,8 +165,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   template <typename PAYLOAD>
   ErrorCode   overwrite_record_primitive(
     thread::Thread* context,
-    const void* key,
-    uint16_t key_length,
+    const HashCombo& combo,
     PAYLOAD payload,
     uint16_t payload_offset);
 
@@ -170,44 +173,43 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   template <typename PAYLOAD>
   ErrorCode   increment_record(
     thread::Thread* context,
-    const void* key,
-    uint16_t key_length,
+    const HashCombo& combo,
     PAYLOAD* value,
     uint16_t payload_offset);
 
-  void      apply_insert_record(
-    thread::Thread* context,
-    const HashInsertLogType* log_entry,
-    xct::LockableXctId* owner_id,
-    char* payload);
-  void      apply_delete_record(
-    thread::Thread* context,
-    const HashDeleteLogType* log_entry,
-    xct::LockableXctId* owner_id,
-    char* payload);
+  /** Result of lookup_bin() */
+  struct BinSearchResult {
+    /** Address of a pointer to the head data page that corresponds to the searched bin. */
+    DualPagePointer* pointer_address_;
+  };
 
   /**
-   * @brief Find a bin page that contains a bin for the hash.
+   * @brief Find a pointer to the bin that contains records for the hash.
    * @param[in] context Thread context
    * @param[in] for_write Whether we are reading these pages to modify
-   * @param[in,out] combo Hash values. Also the result of this method.
+   * @param[in] combo Hash values. Also the result of this method.
+   * @param[out] result Pointer to a data page.
    * @details
-   * It might set null to out if there is no bin page created yet.
-   * In this case, the pointer to the bin page is added as a node set to capture a concurrent
-   * event installing a new volatile page there.
+   * If the search is for-write search, we always create a volatile page, even recursively,
+   * thus pointer_address_!= null and also pointer_address_->volatile_pointer_!=null.
+   *
+   * If the search is a for-read search and also the corresponding data page or its ascendants
+   * do not exist yet, pointer_address_ is still non null, but it might be an address to
+   * a DualPagePointer in higher level, and also pointer_address_->volatile_pointer_
+   * or pointer_address_->snapshot_pointer_ might be null.
+   * In that case, you can just return "not found" as a result.
+   * lookup_bin() internally adds a pointer set to protect the result, too.
    */
-  ErrorCode     lookup_bin(thread::Thread* context, bool for_write, HashCombo *combo);
-
-  HashRootPage* lookup_boundary_root(
+  ErrorCode   lookup_bin(
     thread::Thread* context,
-    uint64_t bin,
-    uint16_t *pointer_index) ALWAYS_INLINE;
+    bool for_write,
+    const HashCombo& combo,
+    BinSearchResult* result);
 
-  ErrorCode     locate_record(
+  ErrorCode   locate_record(
     thread::Thread* context,
-    const void* key,
-    uint16_t key_length,
-    HashCombo* combo) ALWAYS_INLINE;
+    bool for_write,
+    const HashCombo& combo) ALWAYS_INLINE;
 };
 static_assert(sizeof(HashStoragePimpl) <= kPageSize, "HashStoragePimpl is too large");
 static_assert(

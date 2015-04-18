@@ -48,9 +48,8 @@ enum PageType {
   kMasstreeBorderPageType = 3,
   kSequentialPageType = 4,
   kSequentialRootPageType = 5,
-  kHashRootPageType = 6,
-  kHashBinPageType = 7,
-  kHashDataPageType = 8,
+  kHashIntermediatePageType = 6,
+  kHashDataPageType = 7,
   kDummyLastPageType,
 };
 
@@ -254,6 +253,8 @@ struct PageHeader CXX11_FINAL {
    * an interemediate page's level is max(child's level) + 1.
    * This imbalance can happen only at the root page of the first layer because of how
    * the masstree composer work. Other than that, all B-tree nodes are balanced.
+   *
+   * @todo this should be renamed to in_layer_level. now both masstree and hash use this.
    */
   uint8_t       masstree_in_layer_level_;     // +1 -> 22
 
@@ -277,6 +278,8 @@ struct PageHeader CXX11_FINAL {
   friend std::ostream& operator<<(std::ostream& o, const PageHeader& v);
 
   PageType get_page_type() const { return static_cast<PageType>(page_type_); }
+  uint8_t get_in_layer_level() const { return masstree_in_layer_level_; }
+  void set_in_layer_level(uint8_t level) { masstree_in_layer_level_ = level; }
 
   inline void init_volatile(
     VolatilePagePointer page_id,

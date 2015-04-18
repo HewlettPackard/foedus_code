@@ -24,18 +24,15 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
-#include "foedus/engine.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/log/common_log_types.hpp"
 #include "foedus/log/log_type.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_id.hpp"
-#include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/hash/fwd.hpp"
+#include "foedus/storage/hash/hash_hashinate.hpp"
 #include "foedus/storage/hash/hash_id.hpp"
 #include "foedus/storage/hash/hash_metadata.hpp"
-#include "foedus/storage/hash/hash_storage.hpp"
-#include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 /**
@@ -67,58 +64,139 @@ struct HashCreateLogType : public log::StorageLogType {
 };
 
 /**
+ * @brief A base class for HashInsertLogType/HashDeleteLogType/HashOverwriteLogType.
+ * @ingroup HASH LOGTYPE
+ * @details
+ * This defines a common layout for the log types so that composer/partitioner can easier
+ * handle these log types. This means we waste a bit (eg delete log type doesn't need payload
+ * offset/count), but we anyway have extra space if we want to have data_ 8-byte aligned.
+ * data_ always starts with the key, followed by payload for insert/overwrite.
+ * @note This data layout is so far compatible even with MasstreeCommonLogType.
+ * We might keep this way and reuse some code for masstree package, or maybe not.
+ */
+struct HashCommonLogType : public log::RecordLogType {
+  LOG_TYPE_NO_CONSTRUCT(HashCommonLogType)
+  uint16_t        key_length_;        // +2 => 18
+  uint16_t        payload_offset_;    // +2 => 20
+  uint16_t        payload_count_;     // +2 => 22
+  uint16_t        reserved_;          // +2 => 24
+
+  /**
+   * Full key and (if exists) payload data, both of which are padded to 8 bytes.
+   * By padding key part to 8 bytes, slicing becomes more efficient.
+   */
+  char            aligned_data_[8];   // ~ (+align8(key_length_)+align8(payload_count_))
+
+  static uint16_t calculate_log_length(uint16_t key_length, uint16_t payload_count) ALWAYS_INLINE {
+    return 24U + assorted::align8(key_length) + assorted::align8(payload_count);
+  }
+
+  char*           get_key() { return aligned_data_; }
+  const char*     get_key() const { return aligned_data_; }
+  HashValue       calculate_hash() const { return hashinate(get_key(), key_length_); }
+  uint16_t        get_key_length_aligned() const { return assorted::align8(key_length_); }
+  char*           get_payload() { return aligned_data_ + get_key_length_aligned(); }
+  const char*     get_payload() const { return aligned_data_ + get_key_length_aligned(); }
+  void            populate_base(
+    log::LogCode  type,
+    StorageId     storage_id,
+    const void*   key,
+    uint16_t      key_length,
+    const void*   payload = CXX11_NULLPTR,
+    uint16_t      payload_offset = 0,
+    uint16_t      payload_count = 0) ALWAYS_INLINE {
+    header_.log_type_code_ = type;
+    header_.log_length_ = calculate_log_length(key_length, payload_count);
+    header_.storage_id_ = storage_id;
+    key_length_ = key_length;
+    payload_offset_ = payload_offset;
+    payload_count_ = payload_count;
+    reserved_ = 0;
+
+    std::memcpy(aligned_data_, key, key_length);
+    uint16_t aligned_key_length = assorted::align8(key_length);
+    if (aligned_key_length != key_length) {
+      std::memset(aligned_data_ + key_length, 0, aligned_key_length - key_length);
+    }
+    if (payload_count > 0) {
+      uint16_t aligned_payload_count = assorted::align8(payload_count);
+      char* payload_base = aligned_data_ + aligned_key_length;
+      std::memcpy(payload_base, payload, payload_count);
+      if (aligned_payload_count != payload_count) {
+        std::memset(payload_base + payload_count, 0, aligned_payload_count - payload_count);
+      }
+    }
+  }
+
+  /** used only for sanity check. returns if the record's and log's keys are equal */
+#ifndef NDEBUG
+  void assert_record_and_log_keys(xct::LockableXctId* owner_id, const char* data) const {
+    const char* log_key = get_key();
+    uint16_t log_key_length_aligned = get_key_length_aligned();
+
+    // In HashDataPage::Slot, offset_ etc comes after owner_id. Let's do sanity checks.
+    uint16_t* lengthes = reinterpret_cast<uint16_t*>(owner_id + 1);
+    // physical length enough long?
+    ASSERT_ND(lengthes[1] >= log_key_length_aligned + assorted::align8(payload_count_));
+    ASSERT_ND(lengthes[2] == key_length_);  // key length correct?
+
+    // and then HashValue follows.
+    ASSERT_ND(hashinate(log_key, key_length_) == reinterpret_cast<HashValue*>(owner_id + 1)[1]);
+    // finally, does the key really match?
+    ASSERT_ND(std::memcmp(log_key, data, log_key_length_aligned) == 0);
+  }
+#else  // NDEBUG
+  void assert_record_and_log_keys(xct::LockableXctId* /*owner_id*/, const char* /*data*/) const {}
+#endif  // NDEBUG
+};
+
+
+/**
  * @brief Log type of hash-storage's insert operation.
  * @ingroup HASH LOGTYPE
  * @details
- * This one does a bit more than memcpy because it has to install the record.
- * @todo This needs to actually modify slot. Maybe system transaction to prepare everything and
- * apply just flip delete bit?
+ * Applying this log just flips the delete flag and installs the payload.
+ * Allocating the slot and modifying the bloom filter is already done by a system transaction.
  */
-struct HashInsertLogType : public log::RecordLogType {
+struct HashInsertLogType : public HashCommonLogType {
   LOG_TYPE_NO_CONSTRUCT(HashInsertLogType)
-  uint16_t        key_length_;        // +2 => 18
-  uint16_t        payload_count_;     // +2 => 20
-  /** Is it inserted to the primary bin, not the alternative bin. */
-  bool            bin1_;              // +1 => 21
-  uint8_t         reserved_;          // +1 => 22
-  /**
-   * This is auxiliary. We can calculate from the key, but 2 bytes is not that big waste,
-   * and by doing this the data part is fully 8-byte aligned. Might be slightly faster.
-   */
-  uint16_t        hashtag_;           // +2 => 24
-  char            data_[8];           // +8 => 32
-
-  static uint16_t calculate_log_length(uint16_t key_length, uint16_t payload_count) ALWAYS_INLINE {
-    // we pad to 8 bytes so that we always have a room for FillerLogType to align.
-    return assorted::align8(24 + key_length + payload_count);
-  }
 
   void            populate(
     StorageId   storage_id,
     const void* key,
     uint16_t    key_length,
-    bool        bin1,
-    uint16_t    hashtag,
     const void* payload,
     uint16_t    payload_count) ALWAYS_INLINE {
-    header_.log_type_code_ = log::kLogCodeHashInsert;
-    header_.log_length_ = calculate_log_length(key_length, payload_count);
-    header_.storage_id_ = storage_id;
-    bin1_ = bin1;
-    hashtag_ = hashtag;
-    key_length_ = key_length;
-    payload_count_ = payload_count;
-    std::memcpy(data_, key, key_length);
-    std::memcpy(data_ + key_length_, payload, payload_count);
+    log::LogCode type = log::kLogCodeHashInsert;
+    populate_base(type, storage_id, key, key_length, payload, 0, payload_count);
   }
 
   void            apply_record(
-    thread::Thread* context,
-    StorageId storage_id,
+    thread::Thread* /*context*/,
+    StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
-    char* payload) ALWAYS_INLINE {
-    HashStorage storage = context->get_engine()->get_storage_manager()->get_hash(storage_id);
-    storage.apply_insert_record(context, this, owner_id, payload);
+    char* data) const ALWAYS_INLINE {
+    ASSERT_ND(owner_id->xct_id_.is_deleted());  // the physical record should be in 'deleted' status
+    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
+    ASSERT_ND(!owner_id->xct_id_.is_moved());
+
+    // no need to set key in apply(). it's already set when the record is physically inserted
+    // (or in other places if this is recovery).
+    assert_record_and_log_keys(owner_id, data);
+
+    uint16_t* lengthes = reinterpret_cast<uint16_t*>(owner_id + 1);
+    lengthes[3] = payload_count_;  // set payload length
+
+    if (payload_count_ > 0U) {
+      // record's payload is also 8-byte aligned, so copy multiply of 8 bytes.
+      // if the compiler is smart enough, it will do some optimization here.
+      uint16_t key_length_aligned = get_key_length_aligned();
+      void* data_payload = ASSUME_ALIGNED(data + key_length_aligned, 8U);
+      const void* log_payload = ASSUME_ALIGNED(get_payload(), 8U);
+      std::memcpy(data_payload, log_payload, assorted::align8(payload_count_));
+    }
+    assert_record_and_log_keys(owner_id, data);
+    owner_id->xct_id_.set_notdeleted();
   }
 
   void            assert_valid() ALWAYS_INLINE {
@@ -135,48 +213,33 @@ struct HashInsertLogType : public log::RecordLogType {
  * @ingroup HASH LOGTYPE
  * @details
  * This one does nothing but flipping delete bit.
- * @todo Same above
  */
-struct HashDeleteLogType : public log::RecordLogType {
+struct HashDeleteLogType : public HashCommonLogType {
   LOG_TYPE_NO_CONSTRUCT(HashDeleteLogType)
-  uint16_t        key_length_;        // +2 => 18
-  bool            bin1_;              // +1 => 19
-  /** Auxilirary, but makes the search faster. */
-  uint8_t         slot_;              // +1 => 20
-  char            data_[4];           // +4 => 24
-
-  static uint16_t calculate_log_length(uint16_t key_length) ALWAYS_INLINE {
-    return assorted::align8(20 + key_length);
-  }
 
   void            populate(
     StorageId   storage_id,
     const void* key,
-    uint16_t    key_length,
-    bool        bin1,
-    uint16_t    slot) ALWAYS_INLINE {
-    ASSERT_ND(slot < kMaxEntriesPerBin);
-    header_.log_type_code_ = log::kLogCodeHashDelete;
-    header_.log_length_ = calculate_log_length(key_length);
-    header_.storage_id_ = storage_id;
-    bin1_ = bin1;
-    slot_ = slot;
-    key_length_ = key_length;
-    std::memcpy(data_, key, key_length);
+    uint16_t    key_length) ALWAYS_INLINE {
+    log::LogCode type = log::kLogCodeHashDelete;
+    populate_base(type, storage_id, key, key_length);
   }
 
   void            apply_record(
-    thread::Thread* context,
-    StorageId storage_id,
+    thread::Thread* /*context*/,
+    StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
-    char* payload) ALWAYS_INLINE {
-    HashStorage storage = context->get_engine()->get_storage_manager()->get_hash(storage_id);
-    storage.apply_delete_record(context, this, owner_id, payload);
+    char* data) const ALWAYS_INLINE {
+    ASSERT_ND(!owner_id->xct_id_.is_deleted());
+    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
+    ASSERT_ND(!owner_id->xct_id_.is_moved());
+    assert_record_and_log_keys(owner_id, data);
+    owner_id->xct_id_.set_deleted();
   }
 
   void            assert_valid() ALWAYS_INLINE {
     assert_valid_generic();
-    ASSERT_ND(header_.log_length_ == calculate_log_length(key_length_));
+    ASSERT_ND(header_.log_length_ == calculate_log_length(key_length_, payload_count_));
     ASSERT_ND(header_.get_type() == log::kLogCodeHashDelete);
   }
 
@@ -190,51 +253,40 @@ struct HashDeleteLogType : public log::RecordLogType {
  * This is one of the modification operations in hash.
  * It simply invokes memcpy to the payload.
  */
-struct HashOverwriteLogType : public log::RecordLogType {
+struct HashOverwriteLogType : public HashCommonLogType {
   LOG_TYPE_NO_CONSTRUCT(HashOverwriteLogType)
-  uint16_t        key_length_;        // +2 => 18
-  uint16_t        payload_offset_;    // +2 => 20
-  uint16_t        payload_count_;     // +2 => 22
-  bool            bin1_;              // +1 => 23
-  uint8_t         slot_;              // +1 => 24
-  char            data_[1];           // +8 => 32
-
-  static uint16_t calculate_log_length(uint16_t key_length, uint16_t payload_count) ALWAYS_INLINE {
-    // we pad to 8 bytes so that we always have a room for FillerLogType to align.
-    return assorted::align8(24 + key_length + payload_count);
-  }
 
   void            populate(
     StorageId   storage_id,
     const void* key,
     uint16_t    key_length,
-    bool        bin1,
-    uint16_t    slot,
     const void* payload,
     uint16_t    payload_offset,
     uint16_t    payload_count) ALWAYS_INLINE {
-    ASSERT_ND(slot < kMaxEntriesPerBin);
-    header_.log_type_code_ = log::kLogCodeHashOverwrite;
-    header_.log_length_ = calculate_log_length(key_length, payload_count);
-    header_.storage_id_ = storage_id;
-    bin1_ = bin1;
-    slot_ = slot;
-    key_length_ = key_length;
-    payload_offset_ = payload_offset;
-    payload_count_ = payload_count;
-    std::memcpy(data_, key, key_length);
-    std::memcpy(data_ + key_length_, payload, payload_count);
+    log::LogCode type = log::kLogCodeHashOverwrite;
+    populate_base(type, storage_id, key, key_length, payload, payload_offset, payload_count);
   }
 
   void            apply_record(
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
-    xct::LockableXctId* /*owner_id*/,
-    char* payload) ALWAYS_INLINE {
-    std::memcpy(
-      payload + key_length_ + payload_offset_,
-      data_ + key_length_,
-      payload_count_);
+    xct::LockableXctId* owner_id,
+    char* data) ALWAYS_INLINE {
+    ASSERT_ND(!owner_id->xct_id_.is_deleted());
+    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
+    ASSERT_ND(!owner_id->xct_id_.is_moved());
+
+    uint16_t key_length_aligned = get_key_length_aligned();
+    assert_record_and_log_keys(owner_id, data);
+
+#ifndef NDEBUG
+    uint16_t* lengthes = reinterpret_cast<uint16_t*>(owner_id + 1);
+    ASSERT_ND(payload_offset_ + payload_count_ <= lengthes[3]);  // aren't we over-running?
+#endif  // NDEBUG
+
+    ASSERT_ND(payload_count_ > 0U);
+    // Unlike insert, we can't assume 8-bytes alignment because of payload_offset
+    std::memcpy(data + key_length_aligned + payload_offset_, get_payload(), payload_count_);
   }
 
   void            assert_valid() ALWAYS_INLINE {

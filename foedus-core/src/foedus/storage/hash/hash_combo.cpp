@@ -15,7 +15,28 @@
  * HP designates this particular file as subject to the "Classpath" exception
  * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
-#ifndef FOEDUS_STORAGE_HASH_CUCKOO_HPP_
-#define FOEDUS_STORAGE_HASH_CUCKOO_HPP_
-// to be deleted
-#endif  // FOEDUS_STORAGE_HASH_CUCKOO_HPP_
+#include "foedus/storage/hash/hash_combo.hpp"
+
+#include <ostream>
+#include <string>
+
+#include "foedus/assorted/assorted_func.hpp"
+
+namespace foedus {
+namespace storage {
+namespace hash {
+
+std::ostream& operator<<(std::ostream& o, const HashCombo& v) {
+  o << "<HashCombo>"
+    << "<hash>" << assorted::Hex(v.hash_, 16) << "</hash>"
+    << "<bin>" << v.bin_ << "</bin>"
+    << v.fingerprint_
+    << v.route_
+    << "<key>" << assorted::Top(v.key_, v.key_length_, 128) << "</key>"
+    << "</HashCombo>";
+  return o;
+}
+
+}  // namespace hash
+}  // namespace storage
+}  // namespace foedus
