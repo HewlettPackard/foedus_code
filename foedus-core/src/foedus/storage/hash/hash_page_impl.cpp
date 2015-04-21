@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 
 #include <cstring>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -79,7 +80,8 @@ DataPageSlotIndex HashDataPage::search_key(
   const BloomFilterFingerprint& fingerprint,
   const char* key,
   uint16_t key_length,
-  uint16_t record_count) const {
+  uint16_t record_count,
+  xct::XctId* observed) const {
   // invariant checks
   ASSERT_ND(hash == hashinate(key, key_length));
   ASSERT_ND(DataPageBloomFilter::extract_fingerprint(hash) == fingerprint);
@@ -92,11 +94,12 @@ DataPageSlotIndex HashDataPage::search_key(
 
   // then most likely this page contains it. let's check one by one.
   for (uint16_t i = 0; i < record_count; ++i) {
-    const Slot& s = slot(i);
-    if (LIKELY(s.hash_ != hash) || s.key_length_ != key_length || s.tid_.is_moved()) {
+    const Slot& s = get_slot(i);
+    if (LIKELY(s.hash_ != hash) || s.key_length_ != key_length) {
       continue;
     }
-    if (s.tid_.is_moved()) {
+    xct::XctId xid = s.tid_.xct_id_;
+    if (xid.is_moved()) {
       // not so rare. this happens.
       DVLOG(1) << "Hash matched, but the record was moved";
       continue;
@@ -104,6 +107,7 @@ DataPageSlotIndex HashDataPage::search_key(
 
     const char* data = record_from_offset(s.offset_);
     if (s.key_length_ == key_length && std::memcmp(data, key, key_length) == 0) {
+      *observed = xid;
       return i;
     }
     // hash matched, but key didn't match? wow, that's rare
@@ -115,6 +119,45 @@ DataPageSlotIndex HashDataPage::search_key(
   // should be 1~2%
   DVLOG(0) << "Nope, bloom filter contained it, but key not found in this page. false positive";
   return kSlotNotFound;
+}
+
+DataPageSlotIndex HashDataPage::reserve_record(
+  HashValue hash,
+  const BloomFilterFingerprint& fingerprint,
+  const char* key,
+  uint16_t key_length,
+  uint16_t payload_length) {
+  ASSERT_ND(header_.page_version_.is_locked());
+  ASSERT_ND(available_space() >= HashDataPage::required_space(key_length, payload_length));
+  DataPageSlotIndex index = get_record_count();
+  Slot& slot = get_slot(index);
+  slot.offset_ = next_offset();
+  slot.hash_ = hash;
+  slot.key_length_ = key_length;
+  slot.physical_record_length_ = assorted::align8(key_length) + assorted::align8(payload_length);
+  slot.payload_length_ = 0;
+  char* record = record_from_offset(slot.offset_);
+  std::memcpy(record, key, key_length);
+  if (key_length % 8 != 0) {
+    std::memset(record + key_length, 0, 8 - (key_length % 8));
+  }
+  xct::XctId initial_id;
+  initial_id.set(
+    Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
+    0);
+  initial_id.set_deleted();
+  slot.tid_.xct_id_ = initial_id;
+
+  // we install the fingerprint to bloom filter BEFORE we increment key count.
+  // it's okay for concurrent reads to see false positives, but false negatives are wrong!
+  bloom_filter_.add(fingerprint);
+
+  // we increment key count AFTER installing the key because otherwise the optimistic read
+  // might see the record but find that the key doesn't match. we need a fence to prevent it.
+  assorted::memory_fence_release();
+  header_.increment_key_count();
+
+  return index;
 }
 
 
@@ -229,7 +272,6 @@ void HashIntermediatePage::release_pages_recursive(
 void HashDataPage::release_pages_recursive(
   const memory::GlobalVolatilePageResolver& page_resolver,
   memory::PageReleaseBatch* batch) {
-  VolatilePagePointer pointer = next_page_.volatile_pointer_;
   if (next_page_.volatile_pointer_.components.offset != 0) {
     HashDataPage* next = reinterpret_cast<HashDataPage*>(
       page_resolver.resolve_offset(next_page_.volatile_pointer_));

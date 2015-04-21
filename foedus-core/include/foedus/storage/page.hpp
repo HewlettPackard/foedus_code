@@ -57,7 +57,8 @@ struct PageVersionStatus CXX11_FINAL {
   enum Constants {
     kRetiredBit = 1 << 31,
     kMovedBit = 1 << 30,
-    kReservedBit1 = 1 << 29,
+    /** so far used only in hash storage, where data page forms a linked list */
+    kHasNextPageBit = 1 << 29,
     kReservedBit2 = 1 << 28,
     kVersionMask = 0x0FFFFFFF,
   };
@@ -66,6 +67,7 @@ struct PageVersionStatus CXX11_FINAL {
 
   bool    is_moved() const ALWAYS_INLINE { return (status_ & kMovedBit) != 0; }
   bool    is_retired() const ALWAYS_INLINE { return (status_ & kRetiredBit) != 0; }
+  bool    has_next_page() const ALWAYS_INLINE { return (status_ & kHasNextPageBit) != 0; }
 
   bool operator==(const PageVersionStatus& other) const ALWAYS_INLINE {
     return status_ == other.status_;
@@ -82,6 +84,12 @@ struct PageVersionStatus CXX11_FINAL {
     ASSERT_ND(is_moved());  // we always set moved bit first. retire must happen later.
     ASSERT_ND(!is_retired());
     status_ |= kRetiredBit;
+  }
+  void      set_has_next_page() ALWAYS_INLINE {
+    ASSERT_ND(!is_moved());
+    ASSERT_ND(!is_retired());
+    ASSERT_ND(!has_next_page());
+    status_ |= kHasNextPageBit;
   }
 
   uint32_t  get_version_counter() const ALWAYS_INLINE {
@@ -125,6 +133,7 @@ struct PageVersion CXX11_FINAL {
   bool    is_locked() const ALWAYS_INLINE { return lock_.is_locked(); }
   bool    is_moved() const ALWAYS_INLINE { return status_.is_moved(); }
   bool    is_retired() const ALWAYS_INLINE { return status_.is_retired(); }
+  bool    has_next_page() const ALWAYS_INLINE { return status_.has_next_page(); }
 
   bool operator==(const PageVersion& other) const ALWAYS_INLINE { return status_ == other.status_; }
   bool operator!=(const PageVersion& other) const ALWAYS_INLINE { return status_ != other.status_; }
@@ -136,6 +145,10 @@ struct PageVersion CXX11_FINAL {
   void      set_retired() ALWAYS_INLINE {
     ASSERT_ND(is_locked());
     status_.set_retired();
+  }
+  void      set_has_next_page() ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    status_.set_has_next_page();
   }
 
   uint32_t  get_version_counter() const ALWAYS_INLINE {
@@ -339,6 +352,7 @@ struct Page CXX11_FINAL {
   /** At least the basic header exists in all pages. */
   PageHeader&  get_header()              { return header_; }
   const PageHeader&  get_header() const  { return header_; }
+  PageType     get_page_type() const     { return header_.get_page_type(); }
 
  private:
   PageHeader  header_;

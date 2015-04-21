@@ -27,6 +27,7 @@
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/hash/fwd.hpp"
+#include "foedus/storage/hash/hash_combo.hpp"
 #include "foedus/storage/hash/hash_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/fwd.hpp"
@@ -59,10 +60,22 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
   ErrorStack          drop();
   friend std::ostream& operator<<(std::ostream& o, const HashStorage& v);
 
-  // this storage type doesn't use moved bit...so far.
-
   //// Hash table API
   // TODO(Hideaki) Add primitive-optimized versions and increment versions. Later.
+
+
+  /**
+   * Prepares a set of information that are used in many places, extracted from the given key.
+   */
+  inline HashCombo combo(const void* key, uint16_t key_length) const {
+    return HashCombo(reinterpret_cast<const char*>(key), key_length, *get_hash_metadata());
+  }
+  /** Overlord to receive key as a primitive type. */
+  template <typename KEY>
+  inline HashCombo combo(KEY key) const {
+    return HashCombo(reinterpret_cast<const char*>(&key), sizeof(key), *get_hash_metadata());
+  }
+
 
   // get_record() methods
 
@@ -79,14 +92,16 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
    * kErrorCodeStrTooSmallPayloadBuffer and payload_capacity is set to be the required length.
    *
    * When the key is not found (kErrorCodeStrKeyNotFound), we add an appropriate
-   * bin mod counter to read set because it is part of a transactional information.
+   * page-version set because it is part of a transactional information.
    */
-  ErrorCode get_record(
+  inline ErrorCode get_record(
     thread::Thread* context,
     const void* key,
     uint16_t key_length,
     void* payload,
-    uint16_t* payload_capacity);
+    uint16_t* payload_capacity) {
+    return get_record(context, combo(key, key_length), payload, payload_capacity);
+  }
 
   /** Overlord to receive key as a primitive type. */
   template <typename KEY>
@@ -95,7 +110,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     KEY key,
     void* payload,
     uint16_t* payload_capacity) {
-    return get_record(context, &key, sizeof(key), payload, payload_capacity);
+    return get_record(context, combo<KEY>(key), payload, payload_capacity);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -116,13 +131,15 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
    * @pre payload_offset + payload_count must be within the record's actual payload size
    * (returns kErrorCodeStrTooShortPayload if not)
    */
-  ErrorCode get_record_part(
+  inline ErrorCode get_record_part(
     thread::Thread* context,
     const void* key,
     uint16_t key_length,
     void* payload,
     uint16_t payload_offset,
-    uint16_t payload_count);
+    uint16_t payload_count) {
+    return get_record_part(context, combo(key, key_length), payload, payload_offset, payload_count);
+  }
 
   /** Overlord to receive key as a primitive type. */
   template <typename KEY>
@@ -132,7 +149,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     void* payload,
     uint16_t payload_offset,
     uint16_t payload_count) {
-    return get_record_part(context, &key, sizeof(key), payload, payload_offset, payload_count);
+    return get_record_part(context, combo<KEY>(key), payload, payload_offset, payload_count);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -141,7 +158,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     const HashCombo& combo,
     void* payload,
     uint16_t payload_offset,
-    uint16_t* payload_capacity);
+    uint16_t payload_count);
 
   /**
    * @brief Retrieves a part of the given key in this storage as a primitive value.
@@ -155,12 +172,14 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
    * @tparam PAYLOAD primitive type of the payload. all integers and floats are allowed.
    */
   template <typename PAYLOAD>
-  ErrorCode   get_record_primitive(
+  inline ErrorCode get_record_primitive(
     thread::Thread* context,
     const void* key,
     uint16_t key_length,
     PAYLOAD* payload,
-    uint16_t payload_offset);
+    uint16_t payload_offset) {
+    return get_record_primitive<PAYLOAD>(context, combo(key, key_length), payload, payload_offset);
+  }
 
   /** Overlord to receive key as a primitive type. */
   template <typename KEY, typename PAYLOAD>
@@ -169,7 +188,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     KEY key,
     PAYLOAD* payload,
     uint16_t payload_offset) {
-    return get_record_primitive<PAYLOAD>(context, &key, sizeof(key), payload, payload_offset);
+    return get_record_primitive<PAYLOAD>(context, combo<KEY>(key), payload, payload_offset);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -191,14 +210,16 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
    * @param[in] payload_count Length of payload.
    * @details
    * If the key already exists, it returns kErrorCodeStrKeyAlreadyExists and we add an appropriate
-   * bin mod counter to read set because it is part of a transactional information.
+   * page-version set because it is part of a transactional information.
    */
-  ErrorCode   insert_record(
+  inline ErrorCode insert_record(
     thread::Thread* context,
     const void* key,
     uint16_t key_length,
     const void* payload,
-    uint16_t payload_count);
+    uint16_t payload_count) {
+    return insert_record(context, combo(key, key_length), payload, payload_count);
+  }
 
   /** Overlord to receive key as a primitive type. */
   template <typename KEY>
@@ -207,7 +228,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     KEY key,
     const void* payload,
     uint16_t payload_count) {
-    return insert_record(context, &key, sizeof(key), payload, payload_count);
+    return insert_record(context, combo<KEY>(key), payload, payload_count);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -226,14 +247,16 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
    * @param[in] key_length Byte size of key.
    * @details
    * When the key does not exist, it returns kErrorCodeStrKeyNotFound and we add an appropriate
-   * bin mod counter to read set because it is part of a transactional information.
+   * page-version set because it is part of a transactional information.
    */
-  ErrorCode   delete_record(thread::Thread* context, const void* key, uint16_t key_length);
+  inline ErrorCode delete_record(thread::Thread* context, const void* key, uint16_t key_length) {
+    return delete_record(context, combo(key, key_length));
+  }
 
   /** Overlord to receive key as a primitive type. */
   template <typename KEY>
   inline ErrorCode delete_record(thread::Thread* context, KEY key) {
-    return delete_record(context, &key, sizeof(key));
+    return delete_record(context, combo<KEY>(key));
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -253,15 +276,22 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
    * When payload_offset+payload_count is larger than the actual payload, this method returns
    * kErrorCodeStrTooShortPayload. Just like others, when the key does not exist,
    * it returns kErrorCodeStrKeyNotFound and we add an appropriate
-   * bin mod counter to read set because it is part of a transactional information.
+   * page-version set because it is part of a transactional information.
    */
-  ErrorCode   overwrite_record(
+  inline ErrorCode overwrite_record(
     thread::Thread* context,
     const void* key,
     uint16_t key_length,
     const void* payload,
     uint16_t payload_offset,
-    uint16_t payload_count);
+    uint16_t payload_count) {
+    return overwrite_record(
+      context,
+      combo(key, key_length),
+      payload,
+      payload_offset,
+      payload_count);
+  }
 
   /** Overlord to receive key as a primitive type. */
   template <typename KEY>
@@ -271,7 +301,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     const void* payload,
     uint16_t payload_offset,
     uint16_t payload_count) {
-    return overwrite_record(context, &key, sizeof(key), payload, payload_offset, payload_count);
+    return overwrite_record(context, combo<KEY>(key), payload, payload_offset, payload_count);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -294,12 +324,14 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
    * @tparam PAYLOAD primitive type of the payload. all integers and floats are allowed.
    */
   template <typename PAYLOAD>
-  ErrorCode   overwrite_record_primitive(
+  inline ErrorCode overwrite_record_primitive(
     thread::Thread* context,
     const void* key,
     uint16_t key_length,
     PAYLOAD payload,
-    uint16_t payload_offset);
+    uint16_t payload_offset) {
+    return overwrite_record_primitive(context, combo(key, key_length), payload, payload_offset);
+  }
 
   /** Overlord to receive key as a primitive type. */
   template <typename KEY, typename PAYLOAD>
@@ -308,7 +340,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     KEY key,
     PAYLOAD payload,
     uint16_t payload_offset) {
-    return overwrite_record_primitive(context, &key, sizeof(key), payload, payload_offset);
+    return overwrite_record_primitive(context, combo<KEY>(key), payload, payload_offset);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -334,12 +366,14 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
    * @tparam PAYLOAD primitive type of the payload. all integers and floats are allowed.
    */
   template <typename PAYLOAD>
-  ErrorCode   increment_record(
+  inline ErrorCode increment_record(
     thread::Thread* context,
     const void* key,
     uint16_t key_length,
     PAYLOAD* value,
-    uint16_t payload_offset);
+    uint16_t payload_offset) {
+    return increment_record(context, combo(key, key_length), value, payload_offset);
+  }
 
   /** Overlord to receive key as a primitive type. */
   template <typename KEY, typename PAYLOAD>
@@ -348,7 +382,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     KEY key,
     PAYLOAD* value,
     uint16_t payload_offset) {
-    return increment_record(context, &key, sizeof(key), value, payload_offset);
+    return increment_record(context, combo<KEY>(key), value, payload_offset);
   }
 
   /** If you have already computed HashCombo, use this. */

@@ -35,6 +35,7 @@
 #include "foedus/storage/hash/fwd.hpp"
 #include "foedus/storage/hash/hash_id.hpp"
 #include "foedus/storage/hash/hash_metadata.hpp"
+#include "foedus/storage/hash/hash_page_impl.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/fwd.hpp"
@@ -109,7 +110,6 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   ErrorStack  create(const HashMetadata& metadata);
   ErrorStack  load(const StorageControlBlock& snapshot_block);
   ErrorStack  drop();
-  HashIntermediatePage* get_root_page();
 
   bool                exists()    const { return control_block_->exists(); }
   StorageId           get_id()    const { return control_block_->meta_.id_; }
@@ -129,11 +129,15 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
 
   /** @copydoc foedus::storage::hash::HashStorage::get_record_primitive() */
   template <typename PAYLOAD>
-  ErrorCode   get_record_primitive(
+  inline ErrorCode get_record_primitive(
     thread::Thread* context,
     const HashCombo& combo,
     PAYLOAD* payload,
-    uint16_t payload_offset);
+    uint16_t payload_offset) {
+    // at this point, there isn't enough benefit to do optimization specific to this case.
+    // hash-lookup is anyway dominant. memcpy-vs-primitive is not the issue.
+    return get_record_part(context, combo, payload, payload_offset, sizeof(PAYLOAD));
+  }
 
   /** @copydoc foedus::storage::hash::HashStorage::get_record_part() */
   ErrorCode   get_record_part(
@@ -163,11 +167,14 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
 
   /** @copydoc foedus::storage::hash::HashStorage::overwrite_record_primitive() */
   template <typename PAYLOAD>
-  ErrorCode   overwrite_record_primitive(
+  inline ErrorCode overwrite_record_primitive(
     thread::Thread* context,
     const HashCombo& combo,
     PAYLOAD payload,
-    uint16_t payload_offset);
+    uint16_t payload_offset) {
+    // same above. still handy as an API, though.
+    return overwrite_record(context, combo, &payload, payload_offset, sizeof(payload));
+  }
 
   /** @copydoc foedus::storage::hash::HashStorage::increment_record() */
   template <typename PAYLOAD>
@@ -177,39 +184,117 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     PAYLOAD* value,
     uint16_t payload_offset);
 
-  /** Result of lookup_bin() */
-  struct BinSearchResult {
-    /** Address of a pointer to the head data page that corresponds to the searched bin. */
-    DualPagePointer* pointer_address_;
-  };
+  /**
+   * Retrieves the root page of this storage.
+   */
+  ErrorCode   get_root_page(
+    thread::Thread* context,
+    bool for_write,
+    HashIntermediatePage** root);
+  /** for non-root */
+  ErrorCode   follow_page(
+    thread::Thread* context,
+    bool for_write,
+    HashIntermediatePage* parent,
+    uint16_t index_in_parent,
+    Page** page);
 
   /**
    * @brief Find a pointer to the bin that contains records for the hash.
    * @param[in] context Thread context
    * @param[in] for_write Whether we are reading these pages to modify
-   * @param[in] combo Hash values. Also the result of this method.
-   * @param[out] result Pointer to a data page.
+   * @param[in] combo Hash values.
+   * @param[out] bin_head Pointer to the first data page of the bin. Might be null.
    * @details
    * If the search is for-write search, we always create a volatile page, even recursively,
-   * thus pointer_address_!= null and also pointer_address_->volatile_pointer_!=null.
+   * thus *bin_head!= null.
    *
    * If the search is a for-read search and also the corresponding data page or its ascendants
-   * do not exist yet, pointer_address_ is still non null, but it might be an address to
-   * a DualPagePointer in higher level, and also pointer_address_->volatile_pointer_
-   * or pointer_address_->snapshot_pointer_ might be null.
+   * do not exist yet, *bin_head returns null.
    * In that case, you can just return "not found" as a result.
-   * lookup_bin() internally adds a pointer set to protect the result, too.
+   * locate_bin() internally adds a pointer set to protect the result, too.
+   *
+   * @note Although the above rule is simple, this might be wasteful in some situation.
+   * Deletions and updates for non-existing keys do not need to instantiate volatile pages.
+   * It can be handled like read access in that case.
+   * But, to really achieve it, delete/update have to be 2-path. Search it using snapshot pages,
+   * then goes through volatile path when found.
+   * Rather, let's always create volatile pages for all writes. It's simple and performs
+   * the best except a very unlucky case. If miss-delete/update is really the common path,
+   * the user code can manually achieve the same thing by get() first, then delete/update().
    */
-  ErrorCode   lookup_bin(
+  ErrorCode   locate_bin(
     thread::Thread* context,
     bool for_write,
     const HashCombo& combo,
-    BinSearchResult* result);
+    HashDataPage** bin_head);
 
+  /** return value of locate_record() */
+  struct RecordLocation {
+    /** Address of the slot. null if not found. */
+    HashDataPage::Slot* slot_;
+    /** Address of the record. null if not found. */
+    char* record_;
+    /**
+     * TID as of locate_record() identifying the record.
+     * guaranteed to be not is_moved (then automatically retried), though the \b current
+     * TID might be now moved, in which case pre-commit will catch it.
+     */
+    xct::XctId observed_;
+
+    void clear() {
+      slot_ = nullptr;
+      record_ = nullptr;
+      observed_.data_ = 0;
+    }
+  };
+
+  /**
+   * @brief Usually follows locate_bin to locate the exact physical record for the key, or
+   * create a new one if not exists (only when for_write).
+   * @param[in] context Thread context
+   * @param[in] for_write Whether we are seeking the record to modify
+   * @param[in] create_if_notfound Whether we will create a new physical record if not exists
+   * @param[in] create_payload_length If this method creates a physical record, it makes sure
+   * the record can accomodate at least this size of payload.
+   * @param[in] combo Hash values. Also the result of this method.
+   * @param[in] bin_head Pointer to the first data page of the bin.
+   * @param[out] result Information on the found slot.
+   * @pre bin_head->get_bin() == combo.bin_
+   * @pre bin_head != nullptr
+   * @pre bin_head must be volatile page if for_write
+   * @details
+   * If the exact record is not found, this method protects the result by adding page version set.
+   * Delete/update are just done in that case.
+   * If create_if_notfound is true (an insert case), this method creates a new physical record for
+   * the key with a deleted-state as a system transaction.
+   */
   ErrorCode   locate_record(
     thread::Thread* context,
     bool for_write,
-    const HashCombo& combo) ALWAYS_INLINE;
+    bool create_if_notfound,
+    uint16_t create_payload_length,
+    const HashCombo& combo,
+    HashDataPage* bin_head,
+    RecordLocation* result);
+
+  ErrorCode   reserve_record(
+    thread::Thread* context,
+    const HashCombo& combo,
+    uint16_t payload_length,
+    HashDataPage* page,
+    uint16_t examined_records,
+    RecordLocation* result);
+
+  /**
+   * subroutine in locate_record() and reserve_record() to look for the key in one page.
+   * result returns null pointers if not found, \b assuming the record_count.
+   */
+  void search_key_in_a_page(
+    const HashCombo& combo,
+    HashDataPage* page,
+    uint16_t record_count,
+    RecordLocation* result);
 };
 static_assert(sizeof(HashStoragePimpl) <= kPageSize, "HashStoragePimpl is too large");
 static_assert(

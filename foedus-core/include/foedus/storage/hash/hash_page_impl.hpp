@@ -29,6 +29,7 @@
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_id.hpp"
+#include "foedus/storage/hash/hash_combo.hpp"
 #include "foedus/storage/hash/hash_hashinate.hpp"
 #include "foedus/storage/hash/hash_id.hpp"
 #include "foedus/xct/xct_id.hpp"
@@ -120,15 +121,6 @@ const DataPageSlotIndex kSlotNotFound = 0xFFFFU;
  */
 class HashDataPage final {
  public:
-  void initialize_volatile_page(
-    StorageId storage_id,
-    VolatilePagePointer page_id,
-    const Page* parent,
-    HashBin bin);
-  void release_pages_recursive(
-    const memory::GlobalVolatilePageResolver& page_resolver,
-    memory::PageReleaseBatch* batch);
-
   /**
    * Fix-sized slot for each record, which is placed at the end of data region.
    */
@@ -166,6 +158,11 @@ class HashDataPage final {
 
     /** Full hash of the key of the record. This is \b immutable once the record is allocated. */
     HashValue hash_;                    // +8  -> 32
+
+    inline uint16_t get_aligned_key_length() const { return assorted::align8(key_length_); }
+    inline uint16_t get_max_payload() const {
+      return physical_record_length_ - get_aligned_key_length();
+    }
   };
 
   // A page object is never explicitly instantiated. You must reinterpret_cast.
@@ -173,22 +170,109 @@ class HashDataPage final {
   HashDataPage(const HashDataPage& other) = delete;
   HashDataPage& operator=(const HashDataPage& other) = delete;
 
+  void initialize_volatile_page(
+    StorageId storage_id,
+    VolatilePagePointer page_id,
+    const Page* parent,
+    HashBin bin);
+  void release_pages_recursive(
+    const memory::GlobalVolatilePageResolver& page_resolver,
+    memory::PageReleaseBatch* batch);
+
+
   // simple accessors
+  PageHeader&               header() { return header_; }
   const PageHeader&         header() const { return header_; }
+
   inline const DualPagePointer&  next_page() const ALWAYS_INLINE { return next_page_; }
   inline DualPagePointer&   next_page() ALWAYS_INLINE { return next_page_; }
+  inline const DualPagePointer*  next_page_address() const ALWAYS_INLINE { return &next_page_; }
+  inline DualPagePointer*   next_page_address() ALWAYS_INLINE { return &next_page_; }
+
   inline const DataPageBloomFilter& bloom_filter() const ALWAYS_INLINE { return bloom_filter_; }
   inline DataPageBloomFilter& bloom_filter() ALWAYS_INLINE { return bloom_filter_; }
+
   inline uint16_t           get_record_count() const ALWAYS_INLINE { return header_.key_count_; }
-  inline const Slot&        slot(uint16_t record) const ALWAYS_INLINE {
+
+  inline const Slot&        get_slot(DataPageSlotIndex record) const ALWAYS_INLINE {
     return reinterpret_cast<const Slot*>(this + 1)[-record - 1];
   }
-  inline Slot&              slot(uint16_t record) ALWAYS_INLINE {
+  inline Slot&              get_slot(DataPageSlotIndex record) ALWAYS_INLINE {
     return reinterpret_cast<Slot*>(this + 1)[-record - 1];
+  }
+  /** same as &get_slot(), but this is more explicit and easier to understand/maintain */
+  inline const Slot*        get_slot_address(DataPageSlotIndex record) const ALWAYS_INLINE {
+    return reinterpret_cast<const Slot*>(this + 1) - record - 1;
+  }
+  inline Slot*              get_slot_address(DataPageSlotIndex record) ALWAYS_INLINE {
+    return reinterpret_cast<Slot*>(this + 1) - record - 1;
   }
 
   inline char*        record_from_offset(uint16_t offset) { return data_ + offset; }
   inline const char*  record_from_offset(uint16_t offset) const { return data_ + offset; }
+
+  // methods about available/required spaces
+
+  /** Returns usable space in bytes. */
+  inline uint16_t     available_space() const {
+    uint16_t consumed = next_offset() + get_record_count() * sizeof(Slot);
+    ASSERT_ND(consumed <= sizeof(data_));
+    if (consumed > sizeof(data_)) {  // just to be conservative on release build
+      return 0;
+    }
+    return sizeof(data_) - consumed;
+  }
+
+  /** Returns offset of a next record */
+  inline uint16_t     next_offset() const {
+    DataPageSlotIndex count = get_record_count();
+    if (count == 0) {
+      return 0;
+    }
+    const Slot& last_slot = get_slot(count - 1);
+    ASSERT_ND(last_slot.offset_ + last_slot.physical_record_length_ % 8 == 0);
+    return last_slot.offset_ + last_slot.physical_record_length_;
+  }
+
+  /** returns physical_record_length_ for a new record */
+  inline static uint16_t required_space(uint16_t key_length, uint16_t payload_length) {
+    return assorted::align8(key_length) + assorted::align8(payload_length) + sizeof(Slot);
+  }
+
+
+  // search, insert, migrate, etc to manipulate records in this page
+
+  /**
+   * @brief A system transaction that creates a logically deleted record in this page
+   * for the given key.
+   * @param[in] hash hash value of the key.
+   * @param[in] fingerprint Bloom Filter fingerprint of the key.
+   * @param[in] key full key.
+   * @param[in] key_length full key length.
+   * @param[in] payload_length the new record can contain at least this length of payload
+   * @return slot index of the newly created record
+   * @pre the page is locked
+   * @pre the page must not already contain a record with the exact key except it's moved
+   * @pre required_space(key_length, payload_length) <= available_space()
+   * @details
+   * This method also adds the fingerprint to the bloom filter.
+   */
+  DataPageSlotIndex reserve_record(
+    HashValue hash,
+    const BloomFilterFingerprint& fingerprint,
+    const char* key,
+    uint16_t key_length,
+    uint16_t payload_length);
+
+  /** overload for HashCombo */
+  inline DataPageSlotIndex reserve_record(const HashCombo& combo, uint16_t payload_length) {
+    return reserve_record(
+      combo.hash_,
+      combo.fingerprint_,
+      combo.key_,
+      combo.key_length_,
+      payload_length);
+  }
 
   /**
    * @brief Search for a physical slot that exactly contains the given key.
@@ -197,6 +281,7 @@ class HashDataPage final {
    * @param[in] key full key.
    * @param[in] key_length full key length.
    * @param[in] record_count how many records this page \e supposedly contains. See below.
+   * @param[out] observed When the key is found, we save its TID to this variable
    * @return index of the slot that has the key. kSlotNotFound if not found (including
    * the case where an exactly-matched record's TID says it's "moved").
    * @invariant hash == hashinate(key, key_length)
@@ -214,7 +299,43 @@ class HashDataPage final {
     const BloomFilterFingerprint& fingerprint,
     const char* key,
     uint16_t key_length,
-    uint16_t record_count) const;
+    uint16_t record_count,
+    xct::XctId* observed) const;
+
+  /** This version receives HashCombo */
+  inline DataPageSlotIndex search_key(
+    const HashCombo& combo,
+    uint16_t record_count,
+    xct::XctId* observed) const {
+    return search_key(
+      combo.hash_,
+      combo.fingerprint_,
+      combo.key_,
+      combo.key_length_,
+      record_count,
+      observed);
+  }
+
+  /** returns whether the slot contains the exact key specified */
+  inline bool compare_slot_key(
+    DataPageSlotIndex index,
+    HashValue hash,
+    const char* key,
+    uint16_t key_length) const {
+    ASSERT_ND(index < get_record_count());  // record count purely increasing
+    const Slot& slot = get_slot(index);
+    ASSERT_ND(hashinate(record_from_offset(slot.offset_), slot.key_length_) == slot.hash_);
+    // quick check first
+    if (slot.hash_ != hash || slot.key_length_ != key_length) {
+      return false;
+    }
+    const char* data = record_from_offset(slot.offset_);
+    return std::memcmp(data, key, key_length) == 0;
+  }
+  inline bool compare_slot_key(DataPageSlotIndex index, const HashCombo& combo) const {
+    ASSERT_ND(get_bin() == combo.bin_);
+    return compare_slot_key(index, combo.hash_, combo.key_, combo.key_length_);
+  }
 
   HashBin     get_bin() const { return bin_; }
   inline void assert_bin(HashBin bin) const ALWAYS_INLINE { ASSERT_ND(bin_ == bin); }

@@ -22,9 +22,9 @@
 
 #include <iosfwd>
 
+#include "foedus/storage/hash/fwd.hpp"
 #include "foedus/storage/hash/hash_hashinate.hpp"
 #include "foedus/storage/hash/hash_id.hpp"
-#include "foedus/storage/hash/hash_metadata.hpp"
 
 namespace foedus {
 namespace storage {
@@ -47,15 +47,7 @@ struct HashCombo {
   const char*             key_;
   uint16_t                key_length_;
 
-  HashCombo(const char* key, uint16_t key_length, const HashMetadata& meta) {
-    uint8_t bin_shifts = meta.get_bin_shifts();
-    key_ = key;
-    key_length_ = key_length;
-    hash_ = hashinate(key, key_length);
-    bin_ = hash_ >> bin_shifts;
-    fingerprint_ = DataPageBloomFilter::extract_fingerprint(hash_);
-    route_ = IntermediateRoute::construct(bin_);
-  }
+  HashCombo(const char* key, uint16_t key_length, const HashMetadata& meta);
 
   friend std::ostream& operator<<(std::ostream& o, const HashCombo& v);
 };

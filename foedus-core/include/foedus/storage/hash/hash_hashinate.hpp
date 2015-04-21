@@ -19,10 +19,10 @@
 #define FOEDUS_STORAGE_HASH_HASHINATE_HPP_
 
 #include <stdint.h>
-#include <xxhash.h>
 
 #include <iosfwd>
 
+#include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/storage/hash/fwd.hpp"
 #include "foedus/storage/hash/hash_id.hpp"
@@ -48,21 +48,16 @@ const uint64_t kXxhashKeySeed = 0x3f119e0435262a17ULL;
  * @brief Calculates hash value for general input.
  * @ingroup HASH
  */
-inline HashValue hashinate(const void *key, uint16_t key_length) {
-  return ::XXH64(key, key_length, kXxhashKeySeed);
-}
+HashValue hashinate(const void *key, uint16_t key_length);
 
 /**
  * @brief Calculates hash value for a primitive type.
  * @param[in] key Primitive key to hash
- * @tparam T Primitive type.
+ * @tparam T Primitive type. All primitive types are explicitly instantiated.
  * @ingroup HASH
  */
 template <typename T>
-inline HashValue hashinate(T key) {
-  return ::XXH64(key, sizeof(T), kXxhashKeySeed);
-}
-
+HashValue hashinate(T key);
 
 /**
  * @brief Byte size of bloom filter in each HashDataPage.
@@ -148,7 +143,7 @@ struct DataPageBloomFilter CXX11_FINAL {
   uint8_t values_[kHashDataPageBloomFilterBytes];
 
   /** @return whether this page \e might contain the fingerprint */
-  bool contains(const BloomFilterFingerprint& fingerprint) const {
+  inline bool contains(const BloomFilterFingerprint& fingerprint) const ALWAYS_INLINE {
     for (uint8_t k = 0; k < kHashDataPageBloomFilterHashes; ++k) {
       ASSERT_ND(fingerprint.indexes_[k] < kHashDataPageBloomFilterBits);
       uint8_t byte_index = fingerprint.indexes_[k] / 8U;
@@ -158,6 +153,16 @@ struct DataPageBloomFilter CXX11_FINAL {
       }
     }
     return true;
+  }
+
+  /** Adds the fingerprint to this bloom filter. This must be called with page lock */
+  inline void add(const BloomFilterFingerprint& fingerprint) ALWAYS_INLINE {
+    for (uint8_t k = 0; k < kHashDataPageBloomFilterHashes; ++k) {
+      ASSERT_ND(fingerprint.indexes_[k] < kHashDataPageBloomFilterBits);
+      uint8_t byte_index = fingerprint.indexes_[k] / 8U;
+      uint8_t bit_index = fingerprint.indexes_[k] % 8U;
+      values_[byte_index] |= (1U << bit_index);
+    }
   }
 
   /** @return The indexes for bloom filter extracted from a hash value. */

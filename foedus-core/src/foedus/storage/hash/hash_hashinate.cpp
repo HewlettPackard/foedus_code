@@ -17,6 +17,8 @@
  */
 #include "foedus/storage/hash/hash_hashinate.hpp"
 
+#include <xxhash.h>
+
 #include <ostream>
 #include <string>
 
@@ -25,6 +27,30 @@
 namespace foedus {
 namespace storage {
 namespace hash {
+
+HashValue hashinate(const void *key, uint16_t key_length) {
+  return ::XXH64(key, key_length, kXxhashKeySeed);
+}
+
+/**
+ * @brief Calculates hash value for a primitive type.
+ * @param[in] key Primitive key to hash
+ * @tparam T Primitive type.
+ * @ingroup HASH
+ */
+template <typename T>
+HashValue hashinate(T key) {
+  return ::XXH64(&key, sizeof(T), kXxhashKeySeed);
+}
+
+// @cond DOXYGEN_IGNORE
+// explicit instantiation of primitive version of hashinate()
+#define EXP_HASHINATE(x) template HashValue hashinate< x >(x key)
+INSTANTIATE_ALL_NUMERIC_TYPES(EXP_HASHINATE);
+// also 128bit types. we might use it...
+template HashValue hashinate< __uint128_t >(__uint128_t key);
+template HashValue hashinate< __int128_t >(__int128_t key);
+// @endcond
 
 std::ostream& operator<<(std::ostream& o, const BloomFilterFingerprint& v) {
   o << "<Fingerprint indexes=\"";
