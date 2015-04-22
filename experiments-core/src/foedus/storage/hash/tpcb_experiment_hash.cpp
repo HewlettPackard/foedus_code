@@ -24,7 +24,7 @@
  * Unlike array/seq experiments that use array for main tables, this has an additional
  * populate phase to insert required records.
  * @section RESULTS Latest Results
- * 8.8 MTPS. 7% CPU costs are in tag-checking.
+ * On Z820, 8.6 MTPS. 50% locks contention, HashCombo() 5%, locate_bin+locate_record 25%.
  */
 #include <atomic>
 #include <chrono>
@@ -79,7 +79,11 @@ const int kTellers   =   10;
 const int kAccounts  =   100000;
 const int kAccountsPerTeller = kAccounts / kTellers;
 
+#ifndef NDEBUG
 const uint64_t kDurationMicro = 1000000;
+#else  // NDEBUG
+const uint64_t kDurationMicro = 5000000;
+#endif  // NDEBUG
 
 static_assert(kAccounts % kTellers == 0, "kAccounts must be multiply of kTellers");
 
@@ -131,7 +135,7 @@ class PopulateTpcbTask {
   }
   ErrorStack run(thread::Thread* context) {
     xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
-    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
 
     std::cout << "Populating records from branch " << from_branch_ << " to "
       << to_branch_ << " in node-" << static_cast<int>(context->get_numa_node()) << std::endl;
@@ -352,6 +356,7 @@ int main_impl(int argc, char **argv) {
     return 1;
   }
 
+  double final_mtps = 0;
   EngineOptions options;
 
   fs::Path savepoint_path(folder);
@@ -369,7 +374,7 @@ int main_impl(int argc, char **argv) {
     // = debugging::DebuggingOptions::kDebugLogWarning;
   options.debugging_.verbose_modules_ = "";
   options.debugging_.verbose_log_level_ = -1;
-  options.log_.log_buffer_kb_ = 1 << 21;
+  options.log_.log_buffer_kb_ = 1 << 18;
   options.log_.log_file_size_mb_ = 1 << 10;
   options.memory_.page_pool_size_mb_per_node_ = 12 << 10;
   kTotalThreads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
@@ -463,13 +468,14 @@ int main_impl(int argc, char **argv) {
         total += processed;
         sessions[i].release();
       }
-      std::cout << "total=" << total << ", MTPS="
-        << (static_cast<double>(total)/kDurationMicro) << std::endl;
+      final_mtps = (static_cast<double>(total)/kDurationMicro);
+      std::cout << "total=" << total << ", MTPS=" << final_mtps << std::endl;
       std::cout << "Shutting down..." << std::endl;
       COERCE_ERROR(engine.uninitialize());
     }
   }
 
+  std::cout << "MTPS=" << final_mtps << std::endl;
   return 0;
 }
 

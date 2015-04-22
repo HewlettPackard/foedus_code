@@ -177,7 +177,7 @@ void hash_intermediate_volatile_page_init(const VolatilePageInitArguments& args)
   HashBin parent_begin = parent->get_bin_range().begin_;
   HashBin begin = parent_begin + args.index_in_parent_ * interval;
   uint8_t level = parent->get_level() - 1U;
-  page->initialize_volatile_page(storage_id, args.page_id, parent, begin, level);
+  page->initialize_volatile_page(storage_id, args.page_id, parent, level, begin);
 }
 
 void hash_data_volatile_page_init(const VolatilePageInitArguments& args) {
