@@ -123,9 +123,9 @@ ErrorStack create_tpcb_tables_task(const proc::ProcArguments& args) {
   Epoch commit_epoch;
 
   // Create branches
-  const float kHashFillFactor = 0.2;
+  const float kHashPreferredRecordsPerBin = 5.0;
   HashMetadata branch_meta("branches");
-  branch_meta.set_capacity(kBranches, kHashFillFactor);
+  branch_meta.set_capacity(kBranches, kHashPreferredRecordsPerBin);
   COERCE_ERROR(str_manager->create_hash(&branch_meta, &branches, &commit_epoch));
   EXPECT_TRUE(branches.exists());
   COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
@@ -140,7 +140,7 @@ ErrorStack create_tpcb_tables_task(const proc::ProcArguments& args) {
 
   // Create tellers
   HashMetadata teller_meta("tellers");
-  teller_meta.set_capacity(kBranches * kTellers, kHashFillFactor);
+  teller_meta.set_capacity(kBranches * kTellers, kHashPreferredRecordsPerBin);
   COERCE_ERROR(str_manager->create_hash(&teller_meta, &tellers, &commit_epoch));
   EXPECT_TRUE(tellers.exists());
   COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
@@ -156,7 +156,7 @@ ErrorStack create_tpcb_tables_task(const proc::ProcArguments& args) {
 
   // Create accounts
   HashMetadata account_meta("accounts");
-  account_meta.set_capacity(kBranches * kAccounts, kHashFillFactor);
+  account_meta.set_capacity(kBranches * kAccounts, kHashPreferredRecordsPerBin);
   COERCE_ERROR(str_manager->create_hash(&account_meta, &accounts, &commit_epoch));
   EXPECT_TRUE(accounts.exists());
   COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
