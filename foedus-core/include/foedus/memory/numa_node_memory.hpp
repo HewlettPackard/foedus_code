@@ -27,6 +27,7 @@
 #include "foedus/initializable.hpp"
 #include "foedus/cache/fwd.hpp"
 #include "foedus/log/log_id.hpp"
+#include "foedus/memory/alex_stat.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/page_pool.hpp"
@@ -104,6 +105,9 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
   /** Report rough statistics of free memory */
   std::string         dump_free_memory_stat() const;
 
+  /** Only in alex_memstat branch. */
+  inline const AlexStatPack& alex_stat() const { return alex_stat_pack_; }
+
  private:
   /** initialize page_offset_chunk_memory_/page_offset_chunk_memory_pieces_. */
   ErrorStack      initialize_page_offset_chunk_memory();
@@ -158,6 +162,15 @@ class NumaNodeMemory CXX11_FINAL : public DefaultInitializable {
    */
   AlignedMemory                           log_buffer_memory_;
   std::vector<AlignedMemorySlice>         log_buffer_memory_pieces_;
+
+  /**
+   * Only in alex_memstat branch.
+   * Per-node memory that is incremented for each memory access by threads in this node.
+   * The memory consists of #node sets of counters. In other words,
+   * AlexStatBlock[#node][alex_stat_blocks_per_node_].
+   */
+  AlignedMemory                           alex_stat_memory_;
+  AlexStatPack                            alex_stat_pack_;
 };
 
 /**

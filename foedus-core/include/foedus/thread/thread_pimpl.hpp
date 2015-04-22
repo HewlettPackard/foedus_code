@@ -26,6 +26,7 @@
 #include "foedus/cache/cache_hashtable.hpp"
 #include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/log/thread_log_buffer.hpp"
+#include "foedus/memory/alex_stat.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
@@ -326,6 +327,9 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /** Pre-allocated MCS blocks. index 0 is not used so that successor_block=0 means null. */
   xct::McsBlock*          mcs_blocks_;
+
+  /** Only in alex_memstat branch. Points to node memory */
+  memory::AlexStatPack    alex_stat_pack_;
 };
 
 inline ErrorCode ThreadPimpl::read_a_snapshot_page(

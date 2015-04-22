@@ -108,6 +108,8 @@ ErrorStack NumaCoreMemory::initialize_once() {
   uint32_t initial_pages = engine_->get_options().memory_.private_page_pool_initial_grab_;
   WRAP_ERROR_CODE(volatile_pool_->grab(initial_pages, free_volatile_pool_chunk_));
   WRAP_ERROR_CODE(snapshot_pool_->grab(initial_pages, free_snapshot_pool_chunk_));
+
+  alex_stat_pack_ = node_memory_->alex_stat();
   return kRetOk;
 }
 ErrorStack NumaCoreMemory::uninitialize_once() {

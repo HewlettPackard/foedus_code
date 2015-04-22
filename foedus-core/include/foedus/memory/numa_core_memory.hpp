@@ -24,6 +24,7 @@
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/memory/alex_stat.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/memory_id.hpp"
@@ -88,6 +89,9 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
 
   void*           get_local_work_memory() const { return local_work_memory_.get_block(); }
   uint64_t        get_local_work_memory_size() const { return local_work_memory_.get_size(); }
+
+  /** Only in alex_memstat branch. */
+  inline const AlexStatPack& alex_stat() const { return alex_stat_pack_; }
 
  private:
   /** Called when there no local free pages. */
@@ -169,6 +173,9 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
 
   /** Private memory to hold log entries. */
   AlignedMemorySlice                      log_buffer_memory_;
+
+  /** Only in alex_memstat branch. Points to node memory */
+  AlexStatPack                            alex_stat_pack_;
 };
 
 /**

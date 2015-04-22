@@ -30,6 +30,7 @@
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/cache/cache_hashtable.hpp"
+#include "foedus/fs/direct_io_file.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
@@ -88,6 +89,14 @@ ErrorStack NumaNodeMemory::initialize_once() {
 
   CHECK_ERROR(volatile_pool_.initialize());
   CHECK_ERROR(snapshot_pool_.initialize());
+
+  // Only in alex_memstat branch.
+  alex_stat_pack_.blocks_per_node_ = volatile_size / storage::kPageSize;
+  uint64_t alex_stat_total_size
+    = alex_stat_pack_.blocks_per_node_ * sizeof(AlexStatBlock) * engine_->get_soc_count();
+  CHECK_ERROR(allocate_huge_numa_memory(alex_stat_total_size, &alex_stat_memory_));
+  alex_stat_pack_.memory_ = reinterpret_cast<AlexStatBlock*>(alex_stat_memory_.get_block());
+  alex_stat_pack_.nodes_ = engine_->get_soc_count();
 
   // snapshot_pool_ consumes #pages * 4kb bytes of memory.
   // CacheBucket is 16 bytes, so even with 32-fold (3% full hashtable), we spend only
@@ -184,6 +193,23 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
   batch.emprace_back(snapshot_pool_.uninitialize());
   snapshot_pool_memory_.release_block();
   snapshot_pool_control_block_.release_block();
+
+  // Only in alex_memstat branch.
+  LOG(INFO) << "Writing out alex_memstat (" << (alex_stat_memory_.get_size() >> 20)
+    << " MB) for node " << static_cast<int>(numa_node_) << "...";
+  std::stringstream str;
+  str << "/tmp/alex_memstat_node_" << static_cast<int>(numa_node_) << ".bin";
+  fs::Path path(str.str());
+  if (fs::exists(path)) {
+    fs::remove(path);
+  }
+  fs::DirectIoFile out(path);
+  out.open(true, true, true, true);
+  out.write(alex_stat_memory_.get_size(), alex_stat_memory_);
+  out.sync();
+  out.close();
+  LOG(INFO) << "Wrote out alex_memstat for node " << static_cast<int>(numa_node_) << ".";
+  alex_stat_memory_.release_block();
 
   LOG(INFO) << "Uninitialized NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
     << " AFTER: numa_node_size=" << get_numa_node_size(numa_node_);

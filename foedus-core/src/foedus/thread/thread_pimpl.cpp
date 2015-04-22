@@ -81,6 +81,7 @@ ErrorStack ThreadPimpl::initialize_once() {
   mcs_blocks_ = anchors->mcs_lock_memories_;
 
   node_memory_ = engine_->get_memory_manager()->get_local_memory();
+  alex_stat_pack_ = node_memory_->alex_stat();
   core_memory_ = node_memory_->get_core_memory(id_);
   if (engine_->get_options().cache_.snapshot_cache_enabled_) {
     snapshot_cache_hashtable_ = node_memory_->get_snapshot_cache_table();
@@ -295,6 +296,7 @@ storage::Page* ThreadPimpl::place_a_new_volatile_page(
       cur_pointer.components.mod_count + 1,
       new_offset);
     // atomically install it.
+    memory::add_alex_atomic_inpage(alex_stat_pack_, pointer);
     if (cur_pointer.components.offset == 0 &&
       assorted::raw_atomic_compare_exchange_strong<uint64_t>(
         &(pointer->volatile_pointer_.word),
@@ -427,6 +429,7 @@ ErrorCode ThreadPimpl::follow_page_pointer(
       }
     } else {
       // then we have to follow volatile page anyway
+      memory::add_alex_read(alex_stat_pack_, volatile_pointer);
       *page = global_volatile_page_resolver_.resolve_offset(volatile_pointer);
     }
   } else {
@@ -438,6 +441,7 @@ ErrorCode ThreadPimpl::follow_page_pointer(
         followed_snapshot = true;
       } else {
         // otherwise (most cases) just return volatile page
+        memory::add_alex_read(alex_stat_pack_, volatile_pointer);
         *page = global_volatile_page_resolver_.resolve_offset(volatile_pointer);
       }
     } else if (will_modify) {
@@ -564,6 +568,7 @@ ErrorCode ThreadPimpl::follow_page_pointers_for_read_batch(
           out[b] = place_a_new_volatile_page(offset, pointer);
         }
       } else {
+        memory::add_alex_read(alex_stat_pack_, pointer->volatile_pointer_);
         out[b] = global_volatile_page_resolver_.resolve_offset(pointer->volatile_pointer_);
       }
     } else {
@@ -573,6 +578,7 @@ ErrorCode ThreadPimpl::follow_page_pointers_for_read_batch(
         // in that rare case, use the non-batch method.
         CHECK_ERROR_CODE(find_or_read_a_snapshot_page(pointer->snapshot_pointer_, out + b));
       } else {
+        memory::add_alex_read(alex_stat_pack_, pointer->volatile_pointer_);
         out[b] = global_volatile_page_resolver_.resolve_offset(pointer->volatile_pointer_);
       }
     }
@@ -600,6 +606,7 @@ ErrorCode ThreadPimpl::follow_page_pointers_for_write_batch(
     storage::Page** page = out + b;
     storage::VolatilePagePointer volatile_pointer = pointer->volatile_pointer_;
     if (!volatile_pointer.is_null()) {
+      memory::add_alex_read(alex_stat_pack_, pointer->volatile_pointer_);
       *page = global_volatile_page_resolver_.resolve_offset(volatile_pointer);
     } else if (pointer->snapshot_pointer_ == 0) {
       // we need a volatile page. so construct it from snapshot
@@ -906,6 +913,8 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   uint32_t old_int = assorted::raw_atomic_exchange<uint32_t>(address, desired);
 #endif  // defined(__GNUC__)
 
+  memory::add_alex_atomic_inpage(alex_stat_pack_, mcs_lock);
+
   xct::McsLock old;
   old.data_ = old_int;
   if (!old.is_locked()) {
@@ -1000,6 +1009,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
 #else  // defined(__GNUC__)
     bool swapped = assorted::raw_atomic_compare_exchange_strong<uint32_t>(address, &expected, 0);
 #endif  // defined(__GNUC__)
+    memory::add_alex_atomic_inpage(alex_stat_pack_, mcs_lock);
     if (swapped) {
       // we have just unset the locked flag, but someone else might have just acquired it,
       // so we can't put assertion here.
