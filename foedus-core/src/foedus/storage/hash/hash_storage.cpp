@@ -157,6 +157,12 @@ std::ostream& operator<<(std::ostream& o, const HashStorage& v) {
   return o;
 }
 
+xct::TrackMovedRecordResult HashStorage::track_moved_record(
+  xct::LockableXctId* old_address,
+  xct::WriteXctAccess* write_set) {
+  return HashStoragePimpl(this).track_moved_record(old_address, write_set);
+}
+
 // Explicit instantiations for each payload type
 // @cond DOXYGEN_IGNORE
 #define EXPIN_2(x) template ErrorCode HashStorage::get_record_primitive< x > \

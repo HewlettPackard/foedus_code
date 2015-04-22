@@ -31,6 +31,7 @@
 #include "foedus/storage/hash/hash_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/fwd.hpp"
+#include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace storage {
@@ -59,6 +60,22 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
   ErrorStack          load(const StorageControlBlock& snapshot_block);
   ErrorStack          drop();
   friend std::ostream& operator<<(std::ostream& o, const HashStorage& v);
+
+  /**
+   * @copydoc foedus::storage::StorageManager::track_moved_record()
+   * @note Implementation note
+   * Hash storage also uses the moved bit for record expansion.
+   * The basic idea and protocol are same as the masstree package, but it's easier here!
+   *
+   * When we migrate records for expansion, we only move it to a later position, either
+   * a larger slot index in the same page or somewhere in next-page linked-list.
+   * Further, we keep the full key in the original place.
+   * So, tracking the moved record is fairly simple and efficient.
+   * Also, no chance of cannot-track case.
+   */
+  xct::TrackMovedRecordResult track_moved_record(
+    xct::LockableXctId* old_address,
+    xct::WriteXctAccess* write_set);
 
   //// Hash table API
   // TODO(Hideaki) Add primitive-optimized versions and increment versions. Later.

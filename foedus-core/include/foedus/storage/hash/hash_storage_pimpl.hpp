@@ -107,6 +107,11 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     VolatilePagePointer volatile_page_id);
 
 
+  xct::TrackMovedRecordResult track_moved_record(
+    xct::LockableXctId* old_address,
+    xct::WriteXctAccess* write_set);
+  xct::TrackMovedRecordResult track_moved_record_search(HashDataPage* page, const HashCombo& combo);
+
   ErrorStack  create(const HashMetadata& metadata);
   ErrorStack  load(const StorageControlBlock& snapshot_block);
   ErrorStack  drop();
