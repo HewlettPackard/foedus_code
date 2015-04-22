@@ -52,6 +52,7 @@ const uint8_t kTestBinShifts = 64 - kTestBinBits;
 
 template <typename VALUE>
 void test_collisions(bool sequential) {
+  std::set<VALUE> values;
   std::set<HashValue> hashes;
   std::vector<uint32_t> bin_counts(1U << kTestBinBits, 0U);
   assorted::UniformRandom rnd(12345ULL);
@@ -59,11 +60,27 @@ void test_collisions(bool sequential) {
   const char* name = (sequential ? "seq" : "rnd");
   for (uint64_t i = 0; i < kCollisionReps; ++i) {
     HashValue hash;
+    VALUE v;
     if (sequential) {
-      hash = hashinate<VALUE>(i);
+      v = i;
     } else {
-      hash = hashinate<VALUE>(rnd.next_uint64());
+      while (true) {
+        v = rnd.next_uint64();
+        if (values.find(v) == values.end()) {
+          break;
+        } else {
+          // the value itself is duplicate.
+          std::cout << name << " reroll" << std::endl;
+          // I see this happening for about 0.01% in 32bit release case.
+          // pool of 2^20 randoms in 2^32 space, of course there is some collision.
+          // when we have only 2^16 (debug), then never.
+        }
+      }
     }
+    ASSERT_ND(values.find(v) == values.end());
+    values.insert(v);
+
+    hash = hashinate<VALUE>(v);
     if (hashes.find(hash) != hashes.end()) {
       ++hash_collisions;
       std::cout << name << " hash collision (" << i << "/" << kCollisionReps << "): hash="
@@ -80,7 +97,13 @@ void test_collisions(bool sequential) {
   double hash_percent = 100.0f * hash_collisions / kCollisionReps;
   std::cout << "Total " << name << " hash collisions: " << hash_collisions << "/"
     << kCollisionReps << " (" << hash_percent << "%)" << std::endl;
-  EXPECT_LT(hash_percent, 0.00001f);
+  double tolerable_percent;
+  if (sizeof(VALUE) == 8U) {
+    tolerable_percent = 0.000001f;
+  } else {
+    tolerable_percent = 0.0001f;
+  }
+  EXPECT_LT(hash_percent, tolerable_percent);
 
   // let's calculate stddev of bin_counts.
   double bin_counts_sum = 0;
@@ -101,6 +124,8 @@ void test_collisions(bool sequential) {
     << ", stdev=" << stdev << " (" << stdev_div_ave << " [/average])" << std::endl;
   EXPECT_LT(max_count, average * 5);
   EXPECT_LT(stdev_div_ave, 0.5);
+  // well, stdev/ave of course decreases for more tries, so this test favors release mode.
+  // it's fine as far as both tests are run.
 }
 
 TEST(HashHashinateTest, SequentialCollisions64) { test_collisions<uint64_t>(true); }
