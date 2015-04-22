@@ -41,17 +41,17 @@ void HashIntermediatePage::initialize_volatile_page(
   StorageId storage_id,
   VolatilePagePointer page_id,
   const HashIntermediatePage* parent,
-  const HashBinRange& bin_range) {
+  uint8_t level,
+  HashBin start_bin) {
   std::memset(this, 0, kPageSize);
   header_.init_volatile(page_id, storage_id, kHashIntermediatePageType);
-  bin_range_ = bin_range;
+  bin_range_.begin_ = start_bin;
+  bin_range_.end_ = bin_range_.begin_ + kHashMaxBins[level + 1U];
+  header_.set_in_layer_level(level);
   if (parent) {
-    ASSERT_ND(!parent->is_leaf());
     ASSERT_ND(parent->get_level() > 0);
+    ASSERT_ND(level + 1U == parent->get_level());
     ASSERT_ND(parent->bin_range_.contains(bin_range_));
-    header_.set_in_layer_level(parent->get_level() - 1U);
-  } else {
-    // in this case (root page), header_.set_in_layer_level must be called separately
   }
 }
 
@@ -67,7 +67,7 @@ void HashDataPage::initialize_volatile_page(
   if (parent->get_header().get_page_type() == kHashIntermediatePageType) {
     const HashIntermediatePage* parent_casted
       = reinterpret_cast<const HashIntermediatePage*>(parent);
-    ASSERT_ND(parent_casted->is_leaf());
+    ASSERT_ND(parent_casted->get_level() == 0);
     ASSERT_ND(parent_casted->get_bin_range().contains(bin));
   } else {
     const HashDataPage* parent_casted = reinterpret_cast<const HashDataPage*>(parent);
@@ -171,9 +171,13 @@ void hash_intermediate_volatile_page_init(const VolatilePageInitArguments& args)
   ASSERT_ND(args.parent_->get_header().get_page_type() == kHashIntermediatePageType);
   const HashIntermediatePage* parent = reinterpret_cast<const HashIntermediatePage*>(args.parent_);
 
-  ASSERT_ND(parent->get_bin_range().length() % kHashIntermediatePageFanout == 0);
-  HashBinRange bin_range = parent->get_bin_range().subrange(args.index_in_parent_);
-  page->initialize_volatile_page(storage_id, args.page_id, parent, bin_range);
+  ASSERT_ND(parent->get_level() > 0);
+  parent->assert_range();
+  HashBin interval = kHashMaxBins[parent->get_level()];
+  HashBin parent_begin = parent->get_bin_range().begin_;
+  HashBin begin = parent_begin + args.index_in_parent_ * interval;
+  uint8_t level = parent->get_level() - 1U;
+  page->initialize_volatile_page(storage_id, args.page_id, parent, begin, level);
 }
 
 void hash_data_volatile_page_init(const VolatilePageInitArguments& args) {
@@ -188,7 +192,7 @@ void hash_data_volatile_page_init(const VolatilePageInitArguments& args) {
       = reinterpret_cast<const HashIntermediatePage*>(args.parent_);
 
     ASSERT_ND(args.index_in_parent_ < kHashIntermediatePageFanout);
-    ASSERT_ND(parent->is_leaf());
+    ASSERT_ND(parent->get_level() == 0);
     ASSERT_ND(parent->get_bin_range().length() == kHashIntermediatePageFanout);
     bin = parent->get_bin_range().begin_ + args.index_in_parent_;
   } else {
@@ -207,14 +211,14 @@ void release_parallel(Engine* engine, VolatilePagePointer pointer) {
     = engine->get_memory_manager()->get_global_volatile_page_resolver();
   HashIntermediatePage* p
     = reinterpret_cast<HashIntermediatePage*>(page_resolver.resolve_offset(pointer));
-  ASSERT_ND(!p->is_leaf());
+  ASSERT_ND(p->header().get_page_type() == kHashIntermediatePageType);
   memory::PageReleaseBatch release_batch(engine);
   p->release_pages_recursive(page_resolver, &release_batch);
   release_batch.release_all();
 }
 
 void HashIntermediatePage::release_pages_recursive_parallel(Engine* engine) {
-  if (is_leaf()) {
+  if (get_level() == 0) {
     // root page is a leaf page.. don't bother parallelize.
     const memory::GlobalVolatilePageResolver& page_resolver
       = engine->get_memory_manager()->get_global_volatile_page_resolver();
@@ -251,13 +255,15 @@ void HashIntermediatePage::release_pages_recursive(
     VolatilePagePointer pointer = pointers_[i].volatile_pointer_;
     if (pointer.components.offset != 0) {
       Page* page = page_resolver.resolve_offset(pointer);
-      if (is_leaf()) {
+      if (get_level() == 0) {
         HashDataPage* child = reinterpret_cast<HashDataPage*>(page);
+        ASSERT_ND(child->header().get_page_type() == kHashDataPageType);
         ASSERT_ND(child->header().get_in_layer_level() == 0);
         child->release_pages_recursive(page_resolver, batch);
       } else {
         HashIntermediatePage* child = reinterpret_cast<HashIntermediatePage*>(page);
-        ASSERT_ND(!child->is_leaf());
+        ASSERT_ND(child->header().get_page_type() == kHashIntermediatePageType);
+        ASSERT_ND(child->get_level() + 1U == get_level());
         child->release_pages_recursive(page_resolver, batch);
       }
       pointer.components.offset = 0;

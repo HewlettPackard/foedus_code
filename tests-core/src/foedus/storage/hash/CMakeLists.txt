@@ -1,5 +1,18 @@
 add_foedus_test_individual(test_hash_basic "Create;CreateAndQuery;CreateAndInsert;CreateAndInsertAndRead;Overwrite;CreateAndDrop")
 
+set(test_hash_hashinate_individuals
+  Primitives
+  SequentialCollisions64
+  RandomCollisions64
+  SequentialCollisions32
+  RandomCollisions32
+  SequentialBloomFilter64
+  RandomBloomFilter64
+  SequentialBloomFilter32
+  RandomBloomFilter32
+  )
+add_foedus_test_individual(test_hash_hashinate "${test_hash_hashinate_individuals}")
+
 set(test_hash_tpcb_individuals
   SingleThreadedNoContention
   TwoThreadedNoContention

@@ -55,6 +55,11 @@ namespace hash {
  * </table>
  *
  * Each page simply contains kHashIntermediatePageFanout pointers to lower level.
+ *
+ * @note Let's not use the word 'leaf' in hash storage. We previously called intermediate
+ * pages whose get_level()==0 as leaves, but it's confusing. A leaf page usually means a
+ * last-level page that contains tuple data. Here, such a page still points to lower level
+ * (data pages). So, we should call it something like "level-0 intermediate" or just "level-0".
  */
 class HashIntermediatePage final {
  public:
@@ -72,7 +77,8 @@ class HashIntermediatePage final {
     StorageId storage_id,
     VolatilePagePointer page_id,
     const HashIntermediatePage* parent,
-    const HashBinRange& bin_range);
+    uint8_t level,
+    HashBin start_bin);
 
   void release_pages_recursive_parallel(Engine* engine);
   void release_pages_recursive(
@@ -80,18 +86,25 @@ class HashIntermediatePage final {
     memory::PageReleaseBatch* batch);
 
   const HashBinRange&   get_bin_range() const { return bin_range_; }
-  inline bool      is_leaf() const { return header_.get_in_layer_level() == 0; }
   inline uint8_t   get_level() const { return header_.get_in_layer_level(); }
 
   inline void      assert_bin(HashBin bin) const ALWAYS_INLINE {
     ASSERT_ND(bin_range_.contains(bin));
+  }
+  inline void      assert_range() const ALWAYS_INLINE {
+    ASSERT_ND(bin_range_.length() == kHashMaxBins[get_level() + 1U]);
   }
 
  private:
   /** common header */
   PageHeader          header_;        // +32 -> 32
 
-  /** these are used only for sanity checks in debug builds. they are always implicit. */
+  /**
+   * these are used only for sanity checks in debug builds. they are always implicit.
+   * the end is always "begin + kFanout^(level+1)". it doesn't matter what the maximum
+   * hash bin value is for the storage.
+   * @invariant bin_range_.length() == kHashMaxBins[get_level() + 1U]
+   */
   HashBinRange        bin_range_;     // +16 -> 48
 
   /**
@@ -230,7 +243,7 @@ class HashDataPage final {
       return 0;
     }
     const Slot& last_slot = get_slot(count - 1);
-    ASSERT_ND(last_slot.offset_ + last_slot.physical_record_length_ % 8 == 0);
+    ASSERT_ND((last_slot.offset_ + last_slot.physical_record_length_) % 8 == 0);
     return last_slot.offset_ + last_slot.physical_record_length_;
   }
 

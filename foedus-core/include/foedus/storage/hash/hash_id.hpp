@@ -166,12 +166,6 @@ struct HashBinRange {
 
   uint64_t length() const { return end_ - begin_; }
 
-  /** @pre length() % kHashIntermediatePageFanout == 0 (should be the case for all interm. pages) */
-  HashBinRange subrange(uint8_t index) const {
-    HashBin interval = length() / kHashIntermediatePageFanout;
-    return HashBinRange(begin_ + interval * index, begin_ + interval * (index + 1U));
-  }
-
   /** Inclusive beginning of the range. */
   HashBin begin_;
   /** Exclusive end of the range. */

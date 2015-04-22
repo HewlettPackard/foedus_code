@@ -103,13 +103,13 @@ ErrorStack HashStoragePimpl::create(const HashMetadata& metadata) {
     0,
     0,
     root_offset);
-  HashBinRange root_bin_range(0, control_block_->bin_count_);
   root_page->initialize_volatile_page(
     get_id(),
     control_block_->root_page_pointer_.volatile_pointer_,
     nullptr,
-    root_bin_range);
-  root_page->header().set_in_layer_level(control_block_->levels_ - 1U);
+    control_block_->levels_ - 1U,
+    0);
+  root_page->assert_range();
 
   LOG(INFO) << "Newly created an hash-storage " << get_name();
   control_block_->status_ = kExists;
@@ -403,7 +403,7 @@ ErrorCode HashStoragePimpl::follow_page(
   Page** page) {
   ASSERT_ND(index_in_parent < kHashIntermediatePageFanout);
   ASSERT_ND(parent);
-  ASSERT_ND(!parent->is_leaf());
+  ASSERT_ND(parent->header().get_page_type() == kHashIntermediatePageType);
   bool is_parent_snapshot = parent->header().snapshot_;
   uint8_t parent_level = parent->get_level();
   ASSERT_ND(!is_parent_snapshot || !for_write);
@@ -426,15 +426,20 @@ ErrorCode HashStoragePimpl::follow_page(
       !for_write,  // null page is a valid result only for reads ("not found")
       for_write,
       true,   // if we jump to snapshot page, we need to add it to pointer set for serializability.
-      &control_block_->root_page_pointer_,
+      &pointer,
       page,
       reinterpret_cast<Page*>(parent),
       index_in_parent));
   }
 
-  ASSERT_ND(!child_intermediate || (*page)->get_page_type() == kHashIntermediatePageType);
-  ASSERT_ND(child_intermediate || (*page)->get_page_type() == kHashDataPageType);
-  ASSERT_ND((*page)->get_header().get_in_layer_level() + 1U == parent_level);
+  if (*page) {
+    if (child_intermediate) {
+      ASSERT_ND((*page)->get_page_type() == kHashIntermediatePageType);
+      ASSERT_ND((*page)->get_header().get_in_layer_level() + 1U == parent_level);
+    } else {
+      ASSERT_ND((*page)->get_page_type() == kHashDataPageType);
+    }
+  }
   return kErrorCodeOk;
 }
 
@@ -686,7 +691,7 @@ ErrorCode HashStoragePimpl::reserve_record(
     result->record_ = page->record_from_offset(result->slot_->offset_);
     result->observed_ = result->slot_->tid_.xct_id_;
     // as we still have page lock, we are sure the TID is still the one we installed.
-    ASSERT_ND(!result->observed_.is_deleted());
+    ASSERT_ND(result->observed_.is_deleted());
     ASSERT_ND(!result->observed_.is_moved());
     return kErrorCodeOk;
   }

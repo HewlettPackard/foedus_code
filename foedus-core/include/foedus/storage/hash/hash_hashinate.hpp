@@ -20,6 +20,7 @@
 
 #include <stdint.h>
 
+#include <cstring>
 #include <iosfwd>
 
 #include "foedus/compiler.hpp"
@@ -141,6 +142,11 @@ struct BloomFilterFingerprint {
  */
 struct DataPageBloomFilter CXX11_FINAL {
   uint8_t values_[kHashDataPageBloomFilterBytes];
+
+  /** usually zero-cleared as part of a data page, but in case of specifically clearing this */
+  void clear() {
+    std::memset(values_, 0, sizeof(values_));
+  }
 
   /** @return whether this page \e might contain the fingerprint */
   inline bool contains(const BloomFilterFingerprint& fingerprint) const ALWAYS_INLINE {

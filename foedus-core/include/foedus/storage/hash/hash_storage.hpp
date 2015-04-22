@@ -70,10 +70,15 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
   inline HashCombo combo(const void* key, uint16_t key_length) const {
     return HashCombo(reinterpret_cast<const char*>(key), key_length, *get_hash_metadata());
   }
-  /** Overlord to receive key as a primitive type. */
+  /**
+   * Overlord to receive key as a primitive type.
+   * @attention Here we receive a pointer because HashCombo remembers the point to key.
+   * In other words, the caller must make sure the primitive variable doesn't get out of scope
+   * while it might reuse the returned HashCombo.
+   */
   template <typename KEY>
-  inline HashCombo combo(KEY key) const {
-    return HashCombo(reinterpret_cast<const char*>(&key), sizeof(key), *get_hash_metadata());
+  inline HashCombo combo(KEY* key) const {
+    return HashCombo(reinterpret_cast<const char*>(key), sizeof(KEY), *get_hash_metadata());
   }
 
 
@@ -110,7 +115,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     KEY key,
     void* payload,
     uint16_t* payload_capacity) {
-    return get_record(context, combo<KEY>(key), payload, payload_capacity);
+    return get_record(context, combo<KEY>(&key), payload, payload_capacity);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -149,7 +154,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     void* payload,
     uint16_t payload_offset,
     uint16_t payload_count) {
-    return get_record_part(context, combo<KEY>(key), payload, payload_offset, payload_count);
+    return get_record_part(context, combo<KEY>(&key), payload, payload_offset, payload_count);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -188,7 +193,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     KEY key,
     PAYLOAD* payload,
     uint16_t payload_offset) {
-    return get_record_primitive<PAYLOAD>(context, combo<KEY>(key), payload, payload_offset);
+    return get_record_primitive<PAYLOAD>(context, combo<KEY>(&key), payload, payload_offset);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -228,7 +233,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     KEY key,
     const void* payload,
     uint16_t payload_count) {
-    return insert_record(context, combo<KEY>(key), payload, payload_count);
+    return insert_record(context, combo<KEY>(&key), payload, payload_count);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -256,7 +261,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
   /** Overlord to receive key as a primitive type. */
   template <typename KEY>
   inline ErrorCode delete_record(thread::Thread* context, KEY key) {
-    return delete_record(context, combo<KEY>(key));
+    return delete_record(context, combo<KEY>(&key));
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -301,7 +306,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     const void* payload,
     uint16_t payload_offset,
     uint16_t payload_count) {
-    return overwrite_record(context, combo<KEY>(key), payload, payload_offset, payload_count);
+    return overwrite_record(context, combo<KEY>(&key), payload, payload_offset, payload_count);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -340,7 +345,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     KEY key,
     PAYLOAD payload,
     uint16_t payload_offset) {
-    return overwrite_record_primitive(context, combo<KEY>(key), payload, payload_offset);
+    return overwrite_record_primitive(context, combo<KEY>(&key), payload, payload_offset);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -382,7 +387,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     KEY key,
     PAYLOAD* value,
     uint16_t payload_offset) {
-    return increment_record(context, combo<KEY>(key), value, payload_offset);
+    return increment_record(context, combo<KEY>(&key), value, payload_offset);
   }
 
   /** If you have already computed HashCombo, use this. */

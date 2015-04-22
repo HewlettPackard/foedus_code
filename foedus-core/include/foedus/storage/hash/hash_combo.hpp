@@ -36,7 +36,7 @@ namespace hash {
  * @details
  * These are just "usual" combo, and of course we occasionally need only some of them.
  * In such a place, constructing this object is a waste, so be careful.
- * This is a POD, assuming key_ is points to an immutable place.
+ * This is a POD, assuming key_ points to an immutable place.
  * Also, header-only except ostream.
  */
 struct HashCombo {
@@ -44,6 +44,11 @@ struct HashCombo {
   HashBin                 bin_;
   BloomFilterFingerprint  fingerprint_;
   IntermediateRoute       route_;
+  /**
+   * TASK(Hideaki) it might cause more harm than good to have this member.
+   * The caller must be careful on the lifetime of the pointee.
+   * We might exclude this one later. Then this object really becomes an independent value-object.
+   */
   const char*             key_;
   uint16_t                key_length_;
 
