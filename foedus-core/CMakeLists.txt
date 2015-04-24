@@ -129,6 +129,7 @@ include_directories(SYSTEM
   # We also include the BINARY folder of glog as glog generates config.h
   ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog-0.3.3/src
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/valgrind-3.9.0/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/xxHash-r39 # xxhash
   )
 # gperftools is optional for this library
 if (GOOGLEPERFTOOLS_FOUND)
@@ -158,6 +159,7 @@ set(foedus-dependencies ${foedus-dependencies} backtrace)
 set(foedus-dependencies ${foedus-dependencies} glog-static)
 set(foedus-dependencies ${foedus-dependencies} ${NUMA_LIBRARY})
 set(foedus-dependencies ${foedus-dependencies} tinyxml2static)
+set(foedus-dependencies ${foedus-dependencies} xxhashstatic)
 set(foedus-dependencies ${foedus-dependencies} ${CMAKE_THREAD_LIBS_INIT})
 if (GOOGLEPERFTOOLS_FOUND)
   set(foedus-dependencies ${foedus-dependencies} ${GooglePerftools_LIBRARIES})

@@ -68,7 +68,7 @@
  *  <tr><th>Fix-Sized HEADER (kHeaderSize bytes)</th></tr>
  *  <tr><td>Record Data part, which grows forward</td></tr>
  *  <tr><th>Unused part</th></tr>
- *  <tr><td>Record Lengthes part, which grows backawrd</td></tr>
+ *  <tr><td>Record Lengthes part, which grows backward</td></tr>
  * </table>
  *
  * @subsection SEQ_LAYOUT_ROOT Layout of Root Page (foedus::storage::sequential::SequentialRootPage)

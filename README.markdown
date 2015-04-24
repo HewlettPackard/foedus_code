@@ -12,18 +12,23 @@ Alpha-Version WARNING
 --------
 The repository is currently in **PRE-ALPHA** state.
 Nothing is guaranteed.
-Please expect that many parts of the code are unstable and lack critical/important features.
+Please expect that many parts of the code are unstable and might lack critical features.
 We are working hard to move on to next steps hinted below, but without any promises.
+If you want to expedite the development, **PLEASE JOIN US**. That's the spirit of open-source.
 
-* Alpha Version (aka first open sourcing): This is supporsed to be at the beginning of June 2015
+* Alpha Version (aka first open sourcing): This is supposed to be at the beginning of June 2015
 at/before SIGMOD conference. By this time, we should have most of critical features.
 But, still no guarantee for stable behavior, data migration to next version, etc.
-Important APIs and even the library name might change in next version.
-This version is for people who want to take a look at FOEDUS.
-* Beta Version: This is supposed to be sometime in 2016, hopefully early 2016.
-We should fix most of critical issues/features so that users can start using FOEDUS.
+Important APIs and even the library name might change in next versions.
+This version is for people who want to take a look at FOEDUS, and for early adopters who
+are okay to adjust their programs when the APIs significantly change.
+* Beta Version: This is supposed to be released sometime in 2016, hopefully early 2016.
+We should fix most of critical issues/features by this time so that users can start
+developing their programs on top of FOEDUS.
 We will start release versioning from this point, probably from ver 0.1.
 * Stable Version (aka ver 1.0): Some time between 2018 to 2020.
+We really need more people to make this happen on time,
+especially for stabilizing/documenting FOEDUS and for establishing/helping the community.
 
 Again, we are in **PRE-ALPHA** now.
 **BE REALLY WARNED. I TOLD YOU, OKAY?**

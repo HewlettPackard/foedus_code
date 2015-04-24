@@ -71,3 +71,9 @@ add_subdirectory(libbacktrace)
 # Without this, I got sigsegv in read_uint32() just like this:
 #   https://groups.google.com/forum/#!topic/golang-nuts/hSEBs6Blo8U
 # In case of other issues happening later, I applied the latest from gcc.
+
+# xxHash library for hash function
+set(BUILD_STATIC_LIBS ON) # this creates xxhashstatic library
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -w") # to statically link from libfoedus.so
+add_subdirectory(xxHash-r39)
+
