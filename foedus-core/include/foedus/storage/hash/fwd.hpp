@@ -27,11 +27,14 @@ namespace storage {
 namespace hash {
 struct  DataPageBloomFilter;
 struct  HashCombo;
+class   HashComposer;
 struct  HashCreateLogType;
 class   HashDataPage;
 struct  HashDeleteLogType;
 struct  HashInsertLogType;
 class   HashIntermediatePage;
+class   HashPartitioner;
+struct  HashPartitionerData;
 struct  HashMetadata;
 struct  HashOverwriteLogType;
 class   HashPartitioner;

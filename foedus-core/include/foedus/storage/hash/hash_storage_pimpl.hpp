@@ -125,14 +125,14 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   uint8_t             get_bin_bits() const { return get_meta().bin_bits_; }
   uint8_t             get_bin_shifts() const { return get_meta().get_bin_shifts(); }
 
-  /** @copydoc foedus::storage::hash::HashStorage::get_record() */
+  /** @see foedus::storage::hash::HashStorage::get_record() */
   ErrorCode   get_record(
     thread::Thread* context,
     const HashCombo& combo,
     void* payload,
     uint16_t* payload_capacity);
 
-  /** @copydoc foedus::storage::hash::HashStorage::get_record_primitive() */
+  /** @see foedus::storage::hash::HashStorage::get_record_primitive() */
   template <typename PAYLOAD>
   inline ErrorCode get_record_primitive(
     thread::Thread* context,
@@ -144,7 +144,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     return get_record_part(context, combo, payload, payload_offset, sizeof(PAYLOAD));
   }
 
-  /** @copydoc foedus::storage::hash::HashStorage::get_record_part() */
+  /** @see foedus::storage::hash::HashStorage::get_record_part() */
   ErrorCode   get_record_part(
     thread::Thread* context,
     const HashCombo& combo,
@@ -152,17 +152,17 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     uint16_t payload_offset,
     uint16_t payload_count);
 
-  /** @copydoc foedus::storage::hash::HashStorage::insert_record() */
+  /** @see foedus::storage::hash::HashStorage::insert_record() */
   ErrorCode insert_record(
     thread::Thread* context,
     const HashCombo& combo,
     const void* payload,
     uint16_t payload_count);
 
-  /** @copydoc foedus::storage::hash::HashStorage::delete_record() */
+  /** @see foedus::storage::hash::HashStorage::delete_record() */
   ErrorCode delete_record(thread::Thread* context, const HashCombo& combo);
 
-  /** @copydoc foedus::storage::hash::HashStorage::overwrite_record() */
+  /** @see foedus::storage::hash::HashStorage::overwrite_record() */
   ErrorCode overwrite_record(
     thread::Thread* context,
     const HashCombo& combo,
@@ -170,7 +170,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     uint16_t payload_offset,
     uint16_t payload_count);
 
-  /** @copydoc foedus::storage::hash::HashStorage::overwrite_record_primitive() */
+  /** @see foedus::storage::hash::HashStorage::overwrite_record_primitive() */
   template <typename PAYLOAD>
   inline ErrorCode overwrite_record_primitive(
     thread::Thread* context,
@@ -181,7 +181,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     return overwrite_record(context, combo, &payload, payload_offset, sizeof(payload));
   }
 
-  /** @copydoc foedus::storage::hash::HashStorage::increment_record() */
+  /** @see foedus::storage::hash::HashStorage::increment_record() */
   template <typename PAYLOAD>
   ErrorCode   increment_record(
     thread::Thread* context,

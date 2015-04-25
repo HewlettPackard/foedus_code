@@ -80,6 +80,7 @@ const uint64_t kHashMaxBins[] = {
   kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64,
   kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64,
   kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64,
+  kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64,
 };
 
 /**
@@ -93,6 +94,14 @@ inline uint8_t bins_to_level(uint64_t bins) {
   }
   return level;
 }
+
+/**
+ * @brief Max level of intermediate pages.
+ * @ingroup HASH
+ * @details
+ * In reality 7, but let's make it 8 so that it's good for alignments in several places.
+ */
+const uint8_t kHashMaxLevels = 8;
 
 /**
  * @brief Byte size of header in data page of hash storage.
