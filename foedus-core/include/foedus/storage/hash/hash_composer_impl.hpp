@@ -48,6 +48,9 @@ namespace hash {
  * Unlike array, we have a quite granular partitioning, so constructing intermediate pages is
  * trickier. We do 2-path construction to parallelize this part without losing partitioning benefit.
  *
+ * @section HASH_COMPOSE_RESULTS HashRootInfoPage as the results
+ * @copydetails foedus::storage::hash::HashRootInfoPage
+ *
  * @note
  * This is a private implementation-details of \ref HASH, thus file name ends with _impl.
  * Do not include this header from a client program. There is no case client program needs to
@@ -114,8 +117,8 @@ struct HashComposedBinsPage final {
 /**
  * @brief Output of one compose() call, which are then combined in construct_root().
  * @details
- * The format is exactly same as HashIntermediatePage, but typedef-ed for clarity.
- * It points to HashComposedBinsPage, rather than HashDataPage or HashIntermediatePage.
+ * The format is exactly same as HashIntermediatePage, but typedef-ed for clarity. The only
+ * difference is it points to HashComposedBinsPage instead of HashDataPage/HashIntermediatePage.
  *
  * @par Linked list of HashComposedBinsPage
  * In hash storage, what compose() returns are just a list of bins.
@@ -129,6 +132,10 @@ struct HashComposedBinsPage final {
  * Each reducer returns a linked-list of HashComposedBinsPage for every direct-child of the
  * root page. Then, the gleaner combines them in a parallel fashion, resulting in snapshot
  * interemediate pages that will be installed to the root page.
+ *
+ * @par Exception for 1-level hashtable
+ * If the hash table has only one level (root directly points to data pages), then
+ * HashRootInfoPage also directly points to HashDataPage. No HashComposedBinsPage created.
  */
 typedef HashIntermediatePage HashRootInfoPage;
 
@@ -160,12 +167,19 @@ class HashComposeContext {
   void apply_batch(uint64_t cur, uint64_t next);
 
   /**
-   * separate and trivial implementation of execute() for when the hash has only one page.
-   * All other methods assume that the root page is an interemediate page.
+   * separate and trivial implementation of execute() for when the hash has only the root
+   * intermediate page, which directly points to data pages.
+   * All other methods assume that the root page points to child interemediate pages.
    */
   ErrorStack execute_single_level_hash();
   ErrorStack finalize();
 
+  HashIntermediatePage* get_cur_path(uint8_t level) const { return cur_path_ + level; }
+  /** @returns The bin range of cur_path_[0]. */
+  const HashBinRange&   get_cur_range_level0() const ALWAYS_INLINE {
+    return cur_path_[0].get_bin_range();
+  }
+  ErrorCode init_cur_path();
   ErrorCode update_cur_path(HashBin bin);
 
   ErrorCode read_or_init_page(
@@ -173,15 +187,6 @@ class HashComposeContext {
     SnapshotPagePointer new_page_id,
     HashBin bin,
     HashDataPage* bin_head) ALWAYS_INLINE;
-
-  /**
-   * creates empty snapshot pages that didn't receive any logs during the initial snapshot.
-   * We have to create snapshot pages even for such pages only for initial snapshot.
-   */
-  ErrorCode create_empty_pages(HashOffset from, HashOffset to);
-  ErrorCode create_empty_pages_recurse(HashOffset from, HashOffset to, HashPage* page);
-  ErrorCode create_empty_intermediate_page(HashPage* parent, uint16_t index, HashRange range);
-  ErrorCode create_empty_leaf_page(HashPage* parent, uint16_t index, HashRange range);
 
   /** call this before obtaining a new intermediate page */
   ErrorCode expand_intermediate_pool_if_needed() ALWAYS_INLINE;
@@ -204,6 +209,7 @@ class HashComposeContext {
 
   bool is_initial_snapshot() const { return previous_root_page_pointer_ == 0; }
 
+
   uint16_t get_root_children() const;
 
   // these properties are initialized in constructor and never changed afterwards
@@ -218,44 +224,47 @@ class HashComposeContext {
   /** The final output of the compose() call */
   HashRootInfoPage* const         root_info_page_;
 
+  const bool                      partitionable_;
   const uint8_t                   levels_;
+  const uint8_t                   bin_bits_;
+  const uint8_t                   bin_shifts_;
+  const uint16_t                  root_children_;
+  uint16_t                        padding_;
+  const HashBin                   total_bin_count_;
   const SnapshotPagePointer       previous_root_page_pointer_;
 
   /**
-   * cur_path_[n] points to the snapshot intermediate page of level-n.
+   * cur_path_[n] is the snapshot intermediate page of level-n.
    * We only read from them. We don't modify them.
    */
-  HashIntermediatePage*           cur_path_[kHashMaxLevels];
+  HashIntermediatePage*           cur_path_;
   /**
    * A small memory to back cur_path_.
    */
   memory::AlignedMemory           cur_path_memory_;
 
   /**
-  * How many pages we allocated in the main buffer of snapshot_writer.
-  * This is reset to zero for each buffer flush.
-  */
+   * How many pages we allocated in the main buffer of snapshot_writer.
+   * This is reset to zero for each buffer flush.
+   */
   uint32_t                  allocated_pages_;
   /**
    * How many pages we allocated in the intermediate-page buffer of snapshot_writer.
    * This is purely monotonially increasing beecause we keep intermediate pages until the end
    * of compose().
-   * The first intermediate page (relative index=0) is always the root page.
    */
   uint32_t                  allocated_intermediates_;
   uint32_t                  max_pages_;
   uint32_t                  max_intermediates_;
   /** same as snapshot_writer_->get_page_base()*/
   HashDataPage*             page_base_;
-  /** same as snapshot_writer_->get_intermediate_base()*/
-  HashComposedBinsPage*     intermediate_base_;
-
   /**
-   * we need partitioning information just for the initial filling.
-   * this is used only when there is a range of pages that received no logs so that we have to
-   * create empty pages in this partition.
+   * same as snapshot_writer_->get_intermediate_base().
+   * In a 1-level hash, no intermediate pages created.
+   * Otherwise, this starts with root_children_ HashComposedBinsPage, and those pages remain
+   * as the heads of HashComposedBinsPage linked-lists.
    */
-  const HashPartitionerData* partitioning_data_;
+  HashComposedBinsPage*     intermediate_base_;
 };
 
 static_assert(sizeof(HashRootInfoPage) == kPageSize, "incorrect sizeof(RootInfoPage)");

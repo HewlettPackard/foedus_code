@@ -28,6 +28,7 @@
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_partitioner_impl.hpp"
+#include "foedus/storage/hash/hash_partitioner_impl.hpp"
 #include "foedus/storage/masstree/masstree_partitioner_impl.hpp"
 #include "foedus/storage/sequential/sequential_partitioner_impl.hpp"
 
@@ -93,7 +94,7 @@ bool  Partitioner::is_valid() const { return control_block_->valid_; }
 bool Partitioner::is_partitionable() {
   switch (type_) {
   case kArrayStorage: return array::ArrayPartitioner(this).is_partitionable();
-  case kHashStorage: return false;
+  case kHashStorage: return hash::HashPartitioner(this).is_partitionable();
   case kMasstreeStorage: return masstree::MasstreePartitioner(this).is_partitionable();
   case kSequentialStorage: return sequential::SequentialPartitioner(this).is_partitionable();
   default:
@@ -105,9 +106,9 @@ bool Partitioner::is_partitionable() {
 ErrorStack Partitioner::design_partition(const DesignPartitionArguments& args) {
   switch (type_) {
   case kArrayStorage: return array::ArrayPartitioner(this).design_partition(args);
+  case kHashStorage: return hash::HashPartitioner(this).design_partition(args);
   case kSequentialStorage: return sequential::SequentialPartitioner(this).design_partition(args);
   case kMasstreeStorage: return masstree::MasstreePartitioner(this).design_partition(args);
-  case kHashStorage:
   default:
     LOG(FATAL) << "Unsupported storage type:" << type_;
     return kRetOk;
@@ -117,7 +118,7 @@ ErrorStack Partitioner::design_partition(const DesignPartitionArguments& args) {
 void Partitioner::partition_batch(const Partitioner::PartitionBatchArguments& args) {
   switch (type_) {
   case kArrayStorage: return array::ArrayPartitioner(this).partition_batch(args);
-  case kHashStorage: return;
+  case kHashStorage: return hash::HashPartitioner(this).partition_batch(args);
   case kMasstreeStorage: return masstree::MasstreePartitioner(this).partition_batch(args);
   case kSequentialStorage: return sequential::SequentialPartitioner(this).partition_batch(args);
   default:
@@ -128,7 +129,7 @@ void Partitioner::partition_batch(const Partitioner::PartitionBatchArguments& ar
 void Partitioner::sort_batch(const Partitioner::SortBatchArguments& args) {
   switch (type_) {
   case kArrayStorage: return array::ArrayPartitioner(this).sort_batch(args);
-  case kHashStorage: return;
+  case kHashStorage: return hash::HashPartitioner(this).sort_batch(args);
   case kMasstreeStorage: return masstree::MasstreePartitioner(this).sort_batch(args);
   case kSequentialStorage: return sequential::SequentialPartitioner(this).sort_batch(args);
   default:

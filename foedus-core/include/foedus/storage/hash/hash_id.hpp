@@ -84,7 +84,7 @@ const uint64_t kHashMaxBins[] = {
 };
 
 /**
- * @returns levels appropriate to hold at least the give number of bins.
+ * @returns levels appropriate to hold at least the given number of bins.
  * @ingroup HASH
  */
 inline uint8_t bins_to_level(uint64_t bins) {

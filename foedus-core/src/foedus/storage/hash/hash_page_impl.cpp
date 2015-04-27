@@ -55,6 +55,18 @@ void HashIntermediatePage::initialize_volatile_page(
   }
 }
 
+void HashIntermediatePage::initialize_snapshot_page(
+  StorageId storage_id,
+  SnapshotPagePointer page_id,
+  uint8_t level,
+  HashBin start_bin) {
+  std::memset(this, 0, kPageSize);
+  header_.init_snapshot(page_id, storage_id, kHashIntermediatePageType);
+  bin_range_.begin_ = start_bin;
+  bin_range_.end_ = bin_range_.begin_ + kHashMaxBins[level + 1U];
+  header_.set_in_layer_level(level);
+}
+
 void HashDataPage::initialize_volatile_page(
   StorageId storage_id,
   VolatilePagePointer page_id,

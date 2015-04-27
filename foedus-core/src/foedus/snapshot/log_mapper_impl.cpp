@@ -41,6 +41,7 @@
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/storage/partitioner.hpp"
 #include "foedus/storage/storage_manager.hpp"
+#include "foedus/storage/hash/hash_log_types.hpp"
 #include "foedus/storage/masstree/masstree_log_types.hpp"
 
 namespace foedus {
@@ -542,12 +543,18 @@ inline void update_key_lengthes(
     ASSERT_ND(key_length > 0);
     *shortest_key_length = std::min<uint32_t>(*shortest_key_length, key_length);
     *longest_key_length = std::max<uint32_t>(*longest_key_length, key_length);
+  } else if (storage_type == storage::kHashStorage) {
+    const storage::hash::HashCommonLogType* the_log =
+      reinterpret_cast<const storage::hash::HashCommonLogType*>(header);
+    uint16_t key_length = the_log->key_length_;
+    ASSERT_ND(key_length > 0);
+    *shortest_key_length = std::min<uint32_t>(*shortest_key_length, key_length);
+    *longest_key_length = std::max<uint32_t>(*longest_key_length, key_length);
   } else if (storage_type == storage::kSequentialStorage) {
     // this has no meaning for sequential storage. just put some number.
     *shortest_key_length = 8U;
     *longest_key_length = 8U;
   }
-  // TODO(Hideaki) and hash storage later
 }
 
 

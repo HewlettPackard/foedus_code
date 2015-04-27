@@ -69,6 +69,8 @@ class HashPartitioner final {
   explicit HashPartitioner(Partitioner* parent);
 
   ErrorStack design_partition(const Partitioner::DesignPartitionArguments& args);
+  void design_partition_task(uint16_t task);
+
   bool is_partitionable() const;
   void partition_batch(const Partitioner::PartitionBatchArguments& args) const;
   void sort_batch(const Partitioner::SortBatchArguments& args) const;
@@ -78,6 +80,10 @@ class HashPartitioner final {
   friend std::ostream& operator<<(std::ostream& o, const HashPartitioner& v);
 
  private:
+  void design_partition_task_recurse(
+    const memory::GlobalVolatilePageResolver& resolver,
+    const HashIntermediatePage* page);
+
   Engine* const               engine_;
   const StorageId             id_;
   PartitionerMetadata* const  metadata_;
@@ -89,21 +95,35 @@ struct HashPartitionerData final {
   HashPartitionerData() = delete;
   ~HashPartitionerData() = delete;
 
-  static uint64_t object_size(HashBin total_bin_count) {
-    return total_bin_count + 16;
+  static uint64_t object_size(uint16_t node_count, HashBin total_bin_count) {
+    if (node_count <= 1U) {
+      return 16;  // in this case we don't need bin_owners_
+    } else {
+      return total_bin_count + 16;
+    }
   }
   uint64_t object_size() const {
-    return total_bin_count_ + 16;
+    if (!partitionable_) {
+      return 16;
+    } else {
+      return total_bin_count_ + 16;
+    }
   }
 
   /** if false, every record goes to node-0. single-page hash, only one SOC, etc. */
   bool                  partitionable_;   // +1 -> 1
-  char                  padding_[7];      // +7 -> 8
+  uint8_t               levels_;          // +1 -> 2
+  uint8_t               bin_bits_;        // +1 -> 3
+  uint8_t               bin_shifts_;      // +1 -> 4
+  char                  padding_[4];      // +4 -> 8
 
   /** Size of the entire hash. */
   HashBin               total_bin_count_;   // +8 -> 16
 
-  /** partition of each hash bin. Actual size is total_bin_count_ */
+  /**
+   * partition of each hash bin. Actual size is total_bin_count_.
+   * If !partitionable_, we don't even allocate memory for this part.
+   */
   PartitionId           bin_owners_[8];
 };
 

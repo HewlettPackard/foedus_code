@@ -77,6 +77,22 @@ ErrorStack HashStoragePimpl::create(const HashMetadata& metadata) {
     return ERROR_STACK(kErrorCodeStrAlreadyExists);
   }
 
+  // hash-specific check.
+  // Due to the current design of hash_partitioner, we spend hashbins bytes
+  // out of the partitioner memory.
+  uint64_t required_partitioner_bytes = metadata.get_bin_count() + 4096ULL;
+  uint64_t partitioner_bytes
+    = engine_->get_options().storage_.partitioner_data_memory_mb_ * (1ULL << 20);
+  // we don't bother checking other storages' consumption. the config might later change anyways.
+  // Instead, leave a bit of margin (25%) for others.
+  if (partitioner_bytes < required_partitioner_bytes * 1.25) {
+    std::stringstream str;
+    str << metadata << ".\n"
+      << "To accomodate this number of hash bins, partitioner_data_memory_mb_ must be"
+      << " at least " << (required_partitioner_bytes * 1.25 / (1ULL << 20));
+    return ERROR_STACK_MSG(kErrorCodeStrHashBinsTooMany, str.str().c_str());
+  }
+
   control_block_->meta_ = metadata;
   LOG(INFO) << "Newly creating an hash-storage " << get_name();
   control_block_->bin_count_ = 1ULL << get_bin_bits();

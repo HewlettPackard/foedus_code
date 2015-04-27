@@ -80,6 +80,12 @@ class HashIntermediatePage final {
     uint8_t level,
     HashBin start_bin);
 
+  void                    initialize_snapshot_page(
+    StorageId storage_id,
+    SnapshotPagePointer page_id,
+    uint8_t level,
+    HashBin start_bin);
+
   void release_pages_recursive_parallel(Engine* engine);
   void release_pages_recursive(
     const memory::GlobalVolatilePageResolver& page_resolver,

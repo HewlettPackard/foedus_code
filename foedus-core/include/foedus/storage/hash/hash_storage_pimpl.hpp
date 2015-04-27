@@ -26,6 +26,7 @@
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
+#include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
@@ -50,6 +51,10 @@ struct HashStorageControlBlock final {
   ~HashStorageControlBlock() = delete;
 
   bool exists() const { return status_ == kExists || status_ == kMarkedForDeath; }
+  /** @return the number of child pointers in the root page for this storage */
+  uint16_t get_root_children() const {
+    return assorted::int_div_ceil(bin_count_, kHashMaxBins[levels_ - 1U]);
+  }
 
   soc::SharedMutex    status_mutex_;
   /** Status of the storage */

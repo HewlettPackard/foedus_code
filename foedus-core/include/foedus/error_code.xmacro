@@ -82,7 +82,7 @@ X(kErrorCodeStrTooSmallPayloadBuffer, 0x0809, "STORAGE: The record's payload is 
 X(kErrorCodeStrTooShortPayload,     0x080A, "STORAGE: The record's payload is smaller than requested")
 X(kErrorCodeStrKeyAlreadyExists,    0x080B, "STORAGE: This key already exists in this storage")
 X(kErrorCodeStrKeyNotFound,         0x080C, "STORAGE: This key is not found in this storage")
-X(kErrorCodeStrCuckooTooDeep,       0x080D, "STORAGE: HASH: The cuckoo depth is too deep")
+X(kErrorCodeStrHashBinsTooMany,     0x080D, "STORAGE: HASH: Number of hash-bins too large compared to storage.partitioner_data_memory_mb_.")
 X(kErrorCodeStrMasstreeRetry,       0x0811, "STORAGE: MASSTREE: Retry search. This is an internal error code used to retry find_border.")
 X(kErrorCodeStrMasstreeTooManyRetries, 0x0812, "STORAGE: MASSTREE: Retrying too many times. Gave up")
 X(kErrorCodeStrMasstreeFailedVerification, 0x0813, "STORAGE: MASSTREE: Failed verification. Found an inconsistency")
