@@ -234,10 +234,11 @@ union IntermediateRoute {
     IntermediateRoute ret;
     ret.word = 0;
     uint8_t level = 0;
-    while (bin > 0) {
+    HashBin remaining = bin;
+    while (remaining > 0) {
       // in hash, fanout is always fixed, so no need for pre-calculated const_div. compiler does it.
-      ret.route[level] = bin % kHashIntermediatePageFanout;
-      bin /= kHashIntermediatePageFanout;
+      ret.route[level] = remaining % kHashIntermediatePageFanout;
+      remaining /= kHashIntermediatePageFanout;
       ++level;
       ASSERT_ND(level < 8U);
     }
