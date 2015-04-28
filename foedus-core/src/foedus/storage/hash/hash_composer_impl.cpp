@@ -96,85 +96,69 @@ ErrorStack HashComposer::construct_root(const Composer::ConstructRootArguments& 
   // compose() created root_info_pages that contain pointers to fill in the root page,
   // so we just find non-zero entry and copy it to root page.
   uint8_t levels = storage_.get_levels();
-  uint16_t payload_size = storage_.get_payload_size();
   snapshot::SnapshotId new_snapshot_id = args.snapshot_writer_->get_snapshot_id();
   Epoch system_initial_epoch = engine_->get_savepoint_manager()->get_initial_durable_epoch();
-  if (levels == 1U) {
-    // if it's single-page hash, we have already created the root page in compose().
-    ASSERT_ND(args.root_info_pages_count_ == 1U);
-    const HashRootInfoPage* casted
-      = reinterpret_cast<const HashRootInfoPage*>(args.root_info_pages_[0]);
-    ASSERT_ND(casted->pointers_[0] != 0);
-    *args.new_root_page_pointer_ = casted->pointers_[0];
+  HashPage* root_page = reinterpret_cast<HashPage*>(args.snapshot_writer_->get_page_base());
+  SnapshotPagePointer page_id = storage_.get_metadata()->root_snapshot_page_id_;
+  SnapshotPagePointer new_page_id = args.snapshot_writer_->get_next_page_id();
+  *args.new_root_page_pointer_ = new_page_id;
 
-    // and we have already installed it, right?
-    ASSERT_ND(storage_.get_control_block()->meta_.root_snapshot_page_id_
-      == casted->pointers_[0]);
-    ASSERT_ND(storage_.get_control_block()->root_page_pointer_.snapshot_pointer_
-      == casted->pointers_[0]);
-  } else {
-    HashPage* root_page = reinterpret_cast<HashPage*>(args.snapshot_writer_->get_page_base());
-    SnapshotPagePointer page_id = storage_.get_metadata()->root_snapshot_page_id_;
-    SnapshotPagePointer new_page_id = args.snapshot_writer_->get_next_page_id();
-    *args.new_root_page_pointer_ = new_page_id;
-
-    uint64_t root_interval = LookupRouteFinder(levels, payload_size).get_records_in_leaf();
-    for (uint8_t level = 1; level < levels; ++level) {
-      root_interval *= kInteriorFanout;
-    }
-    HashRange range(0, root_interval, storage_.get_hash_size());
-    if (page_id != 0) {
-      WRAP_ERROR_CODE(args.previous_snapshot_files_->read_page(page_id, root_page));
-      ASSERT_ND(root_page->header().storage_id_ == storage_id_);
-      ASSERT_ND(root_page->header().page_id_ == page_id);
-      ASSERT_ND(root_page->get_hash_range() == range);
-      root_page->header().page_id_ = new_page_id;
-    } else {
-      root_page->initialize_snapshot_page(
-        system_initial_epoch,
-        storage_id_,
-        new_page_id,
-        payload_size,
-        levels - 1,
-        range);
-    }
-
-    uint64_t child_interval = root_interval / kInteriorFanout;
-    uint16_t root_children = assorted::int_div_ceil(storage_.get_hash_size(), child_interval);
-
-    // overwrite pointers with root_info_pages.
-    for (uint32_t i = 0; i < args.root_info_pages_count_; ++i) {
-      const HashRootInfoPage* casted
-        = reinterpret_cast<const HashRootInfoPage*>(args.root_info_pages_[i]);
-      for (uint16_t j = 0; j < root_children; ++j) {
-        SnapshotPagePointer pointer = casted->pointers_[j];
-        if (pointer != 0) {
-          ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(pointer) == new_snapshot_id);
-          DualPagePointer& record = root_page->get_interior_record(j);
-          // partitioning has no overlap, so this must be the only overwriting pointer
-          ASSERT_ND(record.snapshot_pointer_ == 0 ||
-            extract_snapshot_id_from_snapshot_pointer(record.snapshot_pointer_)
-              != new_snapshot_id);
-          record.snapshot_pointer_ = pointer;
-        }
-      }
-      for (uint16_t j = root_children; j < kInteriorFanout; ++j) {
-        ASSERT_ND(casted->pointers_[j] == 0);
-      }
-    }
-
-    // even in initial snapshot, all pointers must be set because we create empty pages
-    // even if some sub-tree receives no logs.
-    for (uint16_t j = 0; j < root_children; ++j) {
-      ASSERT_ND(root_page->get_interior_record(j).snapshot_pointer_ != 0);
-    }
-
-    WRAP_ERROR_CODE(args.snapshot_writer_->dump_pages(0, 1));
-    ASSERT_ND(args.snapshot_writer_->get_next_page_id() == new_page_id + 1ULL);
-    // AFTER writing out the root page, install the pointer to new root page
-    storage_.get_control_block()->root_page_pointer_.snapshot_pointer_ = new_page_id;
-    storage_.get_control_block()->meta_.root_snapshot_page_id_ = new_page_id;
+  uint64_t root_interval = LookupRouteFinder(levels, payload_size).get_records_in_leaf();
+  for (uint8_t level = 1; level < levels; ++level) {
+    root_interval *= kInteriorFanout;
   }
+  HashRange range(0, root_interval, storage_.get_hash_size());
+  if (page_id != 0) {
+    WRAP_ERROR_CODE(args.previous_snapshot_files_->read_page(page_id, root_page));
+    ASSERT_ND(root_page->header().storage_id_ == storage_id_);
+    ASSERT_ND(root_page->header().page_id_ == page_id);
+    ASSERT_ND(root_page->get_hash_range() == range);
+    root_page->header().page_id_ = new_page_id;
+  } else {
+    root_page->initialize_snapshot_page(
+      system_initial_epoch,
+      storage_id_,
+      new_page_id,
+      payload_size,
+      levels - 1,
+      range);
+  }
+
+  uint64_t child_interval = root_interval / kInteriorFanout;
+  uint16_t root_children = assorted::int_div_ceil(storage_.get_hash_size(), child_interval);
+
+  // overwrite pointers with root_info_pages.
+  for (uint32_t i = 0; i < args.root_info_pages_count_; ++i) {
+    const HashRootInfoPage* casted
+      = reinterpret_cast<const HashRootInfoPage*>(args.root_info_pages_[i]);
+    for (uint16_t j = 0; j < root_children; ++j) {
+      SnapshotPagePointer pointer = casted->pointers_[j];
+      if (pointer != 0) {
+        ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(pointer) == new_snapshot_id);
+        DualPagePointer& record = root_page->get_interior_record(j);
+        // partitioning has no overlap, so this must be the only overwriting pointer
+        ASSERT_ND(record.snapshot_pointer_ == 0 ||
+          extract_snapshot_id_from_snapshot_pointer(record.snapshot_pointer_)
+            != new_snapshot_id);
+        record.snapshot_pointer_ = pointer;
+      }
+    }
+    for (uint16_t j = root_children; j < kInteriorFanout; ++j) {
+      ASSERT_ND(casted->pointers_[j] == 0);
+    }
+  }
+
+  // even in initial snapshot, all pointers must be set because we create empty pages
+  // even if some sub-tree receives no logs.
+  for (uint16_t j = 0; j < root_children; ++j) {
+    ASSERT_ND(root_page->get_interior_record(j).snapshot_pointer_ != 0);
+  }
+
+  WRAP_ERROR_CODE(args.snapshot_writer_->dump_pages(0, 1));
+  ASSERT_ND(args.snapshot_writer_->get_next_page_id() == new_page_id + 1ULL);
+  // AFTER writing out the root page, install the pointer to new root page
+  storage_.get_control_block()->root_page_pointer_.snapshot_pointer_ = new_page_id;
+  storage_.get_control_block()->meta_.root_snapshot_page_id_ = new_page_id;
   return kRetOk;
 }
 
@@ -216,6 +200,11 @@ HashComposeContext::HashComposeContext(
     memory::AlignedMemory::kNumaAllocOnnode,
     snapshot_writer->get_numa_node());
   cur_path_ = reinterpret_cast<HashIntermediatePage*>(cur_path_memory_.get_block());
+  cur_path_lowest_level_ = levels_;
+  cur_path_valid_range_ = HashBinRange(0, 0);
+
+  cur_bin_ = kCurBinNotOpened;
+  cur_intermediate_tail_ = nullptr;
 
   allocated_pages_ = 0;
   allocated_intermediates_ = 0;
@@ -227,19 +216,13 @@ HashComposeContext::HashComposeContext(
 }
 
 ErrorStack HashComposeContext::execute() {
+  // Initializations
   std::memset(root_info_page_, 0, kPageSize);
   root_info_page_->header_.storage_id_ = storage_id_;
+  CHECK_ERROR(init_intermediates());
+  CHECK_ERROR(init_cur_path());
+  VLOG(0) << "HashComposer-" << storage_id_ << " initialization done. processing...";
 
-  if (levels_ <= 1U) {
-    // this storage has only one page. This is very special and trivial.
-    // we process this case separately.
-    return execute_single_level_hash();
-  }
-
-  // This implementation is batch-based to make it significantly more efficient.
-  // We receive a fully-sorted/integrated stream of logs from merge_sort_, and merge them with
-  // previous snapshot on page-basis. Most pages have many logs, so this achieves a tight loop
-  // without expensive cost to switch pages.
   bool processed_any = false;
   while (true) {
     CHECK_ERROR(merge_sort_->next_batch());
@@ -247,18 +230,11 @@ ErrorStack HashComposeContext::execute() {
     if (count == 0 && merge_sort_->is_ended_all()) {
       break;
     }
+    processed_any = true;
     const snapshot::MergeSort::SortEntry* sort_entries = merge_sort_->get_sort_entries();
-    if (!processed_any) {
-      // this is the first log. let's initialize cur_path to this log.
-      processed_any = true;
-      HashOffset initial_offset = sort_entries[0].get_key();
-
-      CHECK_ERROR(initialize(initial_offset));
-    }
-
     uint64_t cur = 0;
     while (cur < count) {
-      const HashCommonUpdateLogType* head = reinterpret_cast<const HashCommonUpdateLogType*>(
+      const HashCommonLogType* head = reinterpret_cast<const HashCommonLogType*>(
         merge_sort_->resolve_sort_position(cur));
       HashOffset head_offset = head->offset_;
       ASSERT_ND(head_offset == sort_entries[cur].get_key());
@@ -321,46 +297,6 @@ void HashComposeContext::apply_batch(uint64_t cur, uint64_t next) {
     cur += fetched;
     ASSERT_ND(cur <= next);
   }
-}
-
-ErrorStack HashComposeContext::read_root_page() {
-}
-
-ErrorStack HashComposeContext::execute_single_level_hash() {
-  // single-page hash. root is a leaf page.
-  cur_path_[0] = page_base_;
-  SnapshotPagePointer page_id = snapshot_writer_->get_next_page_id();
-  ASSERT_ND(allocated_pages_ == 0);
-  allocated_pages_ = 1;
-  WRAP_ERROR_CODE(read_or_init_page(previous_root_page_pointer_, page_id, 0, range, cur_path_[0]));
-
-  while (true) {
-    CHECK_ERROR(merge_sort_->next_batch());
-    uint64_t count = merge_sort_->get_current_count();
-    if (count == 0 && merge_sort_->is_ended_all()) {
-      break;
-    }
-
-    apply_batch(0, count);
-  }
-
-  ASSERT_ND(allocated_pages_ == 1U);
-  ASSERT_ND(allocated_intermediates_ == 0);
-  ASSERT_ND(cur_path_[0] == page_base_);
-  ASSERT_ND(page_id == page_base_[0].header().page_id_);
-  ASSERT_ND(snapshot_writer_->get_next_page_id() == page_id);
-  WRAP_ERROR_CODE(snapshot_writer_->dump_pages(0, 1));
-  root_info_page_->pointers_[0] = page_id;
-
-  // further, we install the only snapshot pointer now.
-  storage_.get_control_block()->meta_.root_snapshot_page_id_ = page_id;
-  storage_.get_control_block()->root_page_pointer_.snapshot_pointer_ = page_id;
-  return kRetOk;
-}
-
-uint16_t HashComposeContext::get_root_children() const {
-  uint64_t child_interval = offset_intervals_[levels_ - 2U];
-  return assorted::int_div_ceil(storage_.get_hash_size(), child_interval);
 }
 
 ErrorStack HashComposeContext::finalize() {
@@ -474,37 +410,6 @@ ErrorStack HashComposeContext::finalize() {
   return kRetOk;
 }
 
-ErrorStack HashComposeContext::initialize(HashBin initial_bin) {
-  ASSERT_ND(allocated_intermediates_ == 0);
-  ASSERT_ND(allocated_pages_ == 0);
-  ASSERT_ND(levels_ > 1U);
-
-  // First, load or create the root page.
-  CHECK_ERROR(init_root_page());
-
-  // If an initial snapshot, we have to create empty pages first.
-  if (is_initial_snapshot()) {
-    HashRange leaf_range = to_leaf_range(initial_offset);
-    VLOG(0) << "Need to fill out empty pages in initial snapshot of hash-" << storage_id_
-      << ", upto " << leaf_range.end_;
-    WRAP_ERROR_CODE(create_empty_pages(0, leaf_range.end_));
-    ASSERT_ND(cur_path_[0]);
-    ASSERT_ND(cur_path_[0]->get_hash_range() == leaf_range);
-  }
-  return kRetOk;
-}
-
-ErrorStack HashComposeContext::init_root_page() {
-  uint8_t level = levels_ - 1U;
-  ASSERT_ND(level > 0);
-  HashPage* page = intermediate_base_;
-  HashRange range(0, storage_.get_hash_size());
-
-  WRAP_ERROR_CODE(read_or_init_page(previous_root_page_pointer_, 0, level, range, page));
-  cur_path_[level] = page;
-  return kRetOk;
-}
-
 ErrorCode HashComposeContext::dump_data_pages() {
   CHECK_ERROR_CODE(snapshot_writer_->dump_pages(0, allocated_pages_));
   ASSERT_ND(snapshot_writer_->get_next_page_id()
@@ -515,155 +420,136 @@ ErrorCode HashComposeContext::dump_data_pages() {
   return kErrorCodeOk;
 }
 
-inline ErrorCode HashComposeContext::expand_intermediate_pool_if_needed() {
-  ASSERT_ND(allocated_intermediates_ <= max_intermediates_);
-  if (UNLIKELY(allocated_intermediates_ == max_intermediates_)) {
-    LOG(INFO) << "Automatically expanding intermediate_pool. This should be a rare event";
-    uint32_t required = allocated_intermediates_ + 1U;
-    CHECK_ERROR_CODE(snapshot_writer_->expand_intermediate_memory(required, true));
-    intermediate_base_ = reinterpret_cast<HashPage*>(snapshot_writer_->get_intermediate_base());
-    max_intermediates_ = snapshot_writer_->get_intermediate_size();
+///////////////////////////////////////////////////////////////////////
+///
+///  cur_path (snapshot pages in previous snapshot) related methods
+///
+///////////////////////////////////////////////////////////////////////
+ErrorStack HashComposeContext::init_cur_path() {
+  if (previous_root_page_pointer_ == 0) {
+    ASSERT_ND(is_initial_snapshot());
+    std::memset(cur_path_, 0, kPageSize * levels_);
+    cur_path_lowest_level_ = 0;
+    cur_path_valid_range_ = HashBinRange(0, 0);
+  } else {
+    ASSERT_ND(!is_initial_snapshot());
+    HashIntermediatePage* root = get_cur_path_page(levels_ - 1U);
+    WRAP_ERROR_CODE(previous_snapshot_files_->read_page(previous_root_page_pointer_, root));
+    ASSERT_ND(root->header().storage_id_ == storage_id_);
+    ASSERT_ND(root->header().page_id_ == previous_root_page_pointer_);
+    ASSERT_ND(root->get_level() + 1U == levels_);
+    ASSERT_ND(root->get_bin_range() == HashBinRange(0ULL, kHashMaxBins[levels_]));
+    cur_path_lowest_level_ = root->get_level();
+    cur_path_valid_range_ = root->get_bin_range();
+
+    HashIntermediatePage* parent = root;
+    while (parent->get_level() > 0) {
+      HashIntermediatePage* child = get_cur_path_page(parent->get_level() - 1U);
+      SnapshotPagePointer pointer = parent->get_pointer(0).snapshot_pointer_;
+      if (pointer == 0) {
+        std::memset(child, 0, kPageSize);
+        break;
+      } else {
+        WRAP_ERROR_CODE(previous_snapshot_files_->read_page(pointer, child));
+        ASSERT_ND(child->header().storage_id_ == storage_id_);
+        ASSERT_ND(child->header().page_id_ == pointer);
+        ASSERT_ND(child->get_level() + 1U == parent->get_level());
+        ASSERT_ND(child->get_bin_range() == HashBinRange(0ULL, parent->get_level()));
+        cur_path_lowest_level_ = child->get_level();
+        cur_path_valid_range_ = child->get_bin_range();
+        parent = child;
+      }
+    }
   }
-  return kErrorCodeOk;
+  return kRetOk;
 }
 
-ErrorCode HashComposeContext::update_cur_path(HashOffset next_offset) {
-  ASSERT_ND(levels_ > 1U);
-  ASSERT_ND(cur_path_[0] == nullptr || next_offset >= cur_path_[0]->get_hash_range().begin_);
-  if (cur_path_[0] != nullptr && next_offset < cur_path_[0]->get_hash_range().end_) {
-    // already in the page. this usually doesn't happen as we batch-apply as many as possible,
-    // but might happen when logs for the same page are on a boundary of windows.
+inline ErrorCode HashComposeContext::update_cur_path_if_needed(HashBin bin) {
+  ASSERT_ND(verify_cur_path());
+
+  // Even when LIKELY mis-predicts, the penalty is amortized by the page-read cost.
+  if (LIKELY(is_initial_snapshot()
+    || levels_ == 1U
+    || (cur_path_valid_range_.contains(bin) && cur_path_lowest_level_ == 0))) {
     return kErrorCodeOk;
   }
 
-  HashRange next_range = to_leaf_range(next_offset);
-  HashOffset jump_from = cur_path_[0] == nullptr ? 0 : cur_path_[0]->get_hash_range().end_;
-  HashOffset jump_to = next_range.begin_;
-  if (jump_to > jump_from && is_initial_snapshot()) {
-    VLOG(0) << "Need to fill out empty pages in initial snapshot of hash-" << storage_id_
-      << ", from " << jump_from << " to " << jump_to;
-    CHECK_ERROR_CODE(create_empty_pages(jump_from, jump_to));
+  return update_cur_path(bin);
+}
+
+ErrorCode HashComposeContext::update_cur_path(HashBin bin) {
+  ASSERT_ND(!is_initial_snapshot());
+  ASSERT_ND(!cur_path_valid_range_.contains(bin));
+  ASSERT_ND(levels_ > 1U);  // otherwise no page switch should happen
+  ASSERT_ND(verify_cur_path());
+
+  // goes up until cur_path_valid_range_.contains(bin)
+  while (!cur_path_valid_range_.contains(bin)) {
+    ASSERT_ND(cur_path_lowest_level_ + 1U < levels_);  // otherwise even root doesn't contain it
+    ++cur_path_lowest_level_;
+    cur_path_valid_range_ = get_cur_path_lowest()->get_bin_range();
+    ASSERT_ND(get_cur_path_lowest()->get_bin_range() == cur_path_valid_range_);
   }
 
-  // then switch pages. we might have to switch parent pages, too.
-  ASSERT_ND(cur_path_[levels_ - 1U]->get_hash_range().contains(next_offset));
-  for (uint8_t level = levels_ - 2U; level < kMaxLevels; --level) {  // note, unsigned.
-    // we don't care changes in route[0] (record ordinals in page)
-    if (cur_path_[level] != nullptr && cur_path_[level]->get_hash_range().contains(next_offset)) {
-      // skip non-changed path. most likely only the leaf has changed.
-      continue;
-    }
+  // then goes down as much as possible
+  IntermediateRoute route = IntermediateRoute::construct(bin);
 
-    // page switched! we have to allocate a new page and point to it.
-    HashPage* parent = cur_path_[level + 1U];
-    HashRange parent_range = parent->get_hash_range();
-    ASSERT_ND(parent_range.contains(next_offset));
-    uint64_t interval = offset_intervals_[level];
-    uint16_t i = (next_offset - parent_range.begin_) / interval;
-    ASSERT_ND(i < kInteriorFanout);
+#ifndef NDEBUG
+  // route[level+1] is the ordinal in intermediate page of the level+1, pointing to the child.
+  // thus cur_path[level] should have that pointer as its page ID.
+  for (uint8_t level = cur_path_lowest_level_; level + 1U < levels_; ++level) {
+    SnapshotPagePointer child_id = get_cur_path_page(level)->header().page_id_;
+    HashIntermediatePage* parent = get_cur_path_page(level + 1U);
+    ASSERT_ND(parent->get_pointer(route.route[level + 1U]).snapshot_pointer_ == child_id);
+  }
+#endif  // NDEBUG
 
-    HashRange child_range(
-      parent_range.begin_ + i * interval,
-      parent_range.begin_ + (i + 1U) * interval,
-      parent_range.end_);
-
-    DualPagePointer& pointer = parent->get_interior_record(i);
-    ASSERT_ND(pointer.volatile_pointer_.is_null());
-    SnapshotPagePointer old_page_id = pointer.snapshot_pointer_;
-    ASSERT_ND((!is_initial_snapshot() && old_page_id != 0)
-      || (is_initial_snapshot() && old_page_id == 0));
-
-    HashPage* page;
-    SnapshotPagePointer new_page_id;
-    if (level > 0U) {
-      // we switched an intermediate page
-      CHECK_ERROR_CODE(expand_intermediate_pool_if_needed());
-      page = intermediate_base_ + allocated_intermediates_;
-      new_page_id = allocated_intermediates_;
-      ++allocated_intermediates_;
-      CHECK_ERROR_CODE(read_or_init_page(old_page_id, new_page_id, level, child_range, page));
+  while (cur_path_lowest_level_ > 0) {
+    uint8_t index = route.route[cur_path_lowest_level_];
+    HashIntermediatePage* page = get_cur_path_page(cur_path_lowest_level_);
+    SnapshotPagePointer pointer = page->get_pointer(index).snapshot_pointer_;
+    if (pointer == 0) {
+      // the page doesn't exist in previous snapshot. that's fine.
+      break;
     } else {
-      // we switched a leaf page. in this case, we might have to flush the buffer
-      if (allocated_pages_ >= max_pages_) {
-        CHECK_ERROR_CODE(dump_data_pages());
-        ASSERT_ND(allocated_pages_ == 0);
-      }
-
-      // remember, we can finalize the page ID of leaf pages at this point
-      page = page_base_ + allocated_pages_;
-      new_page_id = snapshot_writer_->get_next_page_id() + allocated_pages_;
-      ASSERT_ND(verify_snapshot_pointer(new_page_id));
-      ++allocated_pages_;
-      CHECK_ERROR_CODE(read_or_init_page(old_page_id, new_page_id, level, child_range, page));
+      HashIntermediatePage* child = get_cur_path_page(cur_path_lowest_level_ + 1U);
+      CHECK_ERROR_CODE(previous_snapshot_files_->read_page(pointer, child));
+      ASSERT_ND(child->header().storage_id_ == storage_id_);
+      ASSERT_ND(child->header().page_id_ == pointer);
+      ASSERT_ND(child->get_level() + 1U == cur_path_lowest_level_);
+      ASSERT_ND(child->get_bin_range().contains(bin));
+      cur_path_lowest_level_ = child->get_level();
+      cur_path_valid_range_ = child->get_bin_range();
     }
-    ASSERT_ND(page->header().page_id_ == new_page_id);
-    pointer.snapshot_pointer_ = new_page_id;
-    cur_path_[level] = page;
   }
+
+  ASSERT_ND(cur_path_valid_range_.contains(bin));
+  ASSERT_ND(get_cur_path_lowest()->get_bin_range() == cur_path_valid_range_);
   ASSERT_ND(verify_cur_path());
   return kErrorCodeOk;
 }
 
-inline ErrorCode HashComposeContext::read_or_init_page(
-  SnapshotPagePointer old_page_id,
-  SnapshotPagePointer new_page_id,
-  uint8_t level,
-  HashRange range,
-  HashPage* page) {
-  ASSERT_ND(new_page_id != 0 || level == levels_ - 1U);
-  if (old_page_id != 0) {
-    ASSERT_ND(!is_initial_snapshot());
-    CHECK_ERROR_CODE(previous_snapshot_files_->read_page(old_page_id, page));
-    ASSERT_ND(page->header().storage_id_ == storage_id_);
-    ASSERT_ND(page->header().page_id_ == old_page_id);
-    ASSERT_ND(page->get_level() == level);
-    ASSERT_ND(page->get_hash_range() == range);
-    page->header().page_id_ = new_page_id;
-  } else {
-    ASSERT_ND(is_initial_snapshot());
-    page->initialize_snapshot_page(
-      system_initial_epoch_,
-      storage_id_,
-      new_page_id,
-      payload_size_,
-      level,
-      range);
-  }
-  return kErrorCodeOk;
-}
-
-inline ErrorCode HashComposeContext::read_cur_path(
-  SnapshotPagePointer page_id,
-  uint8_t level) {
-  ASSERT_ND(page_id != 0 && level == levels_ - 1U);
-  HashIntermediatePage* page = get_cur_path(level);
-  if (page_id != 0) {
-    ASSERT_ND(!is_initial_snapshot());
-    CHECK_ERROR_CODE(previous_snapshot_files_->read_page(page_id, page));
-    ASSERT_ND(page->header().storage_id_ == storage_id_);
-    ASSERT_ND(page->header().page_id_ == page_id);
-    ASSERT_ND(page->get_level() == level);
-  } else {
-    ASSERT_ND(is_initial_snapshot());
-    page->initialize_snapshot_page(
-      storage_id_,
-      page_id,
-      level,
-      );
-  }
-  return kErrorCodeOk;
-}
-
 bool HashComposeContext::verify_cur_path() const {
-  for (uint8_t level = 0; level < kMaxLevels; ++level) {
+  if (is_initial_snapshot()) {
+    ASSERT_ND(cur_path_lowest_level_ == levels_);
+  } else {
+    ASSERT_ND(cur_path_lowest_level_ < levels_);
+  }
+  for (uint8_t level = cur_path_lowest_level_; level < kHashMaxLevels; ++level) {
     if (level >= levels_) {
-      ASSERT_ND(cur_path_[level] == nullptr);
+      ASSERT_ND(cur_path_[level].header().page_id_ == 0);
       continue;
     }
-    ASSERT_ND(cur_path_[level]);
-    ASSERT_ND(cur_path_[level]->get_level() == level);
-    ASSERT_ND(cur_path_[level]->get_storage_id() == storage_id_);
+    ASSERT_ND(cur_path_[level].header().page_id_ != 0);
+    ASSERT_ND(cur_path_[level].get_level() == level);
+    ASSERT_ND(cur_path_[level].get_storage_id() == storage_id_);
+    if (level > cur_path_lowest_level_) {
+      HashBinRange range = cur_path_[level].get_bin_range();
+      HashBinRange child_range = cur_path_[level - 1U].get_bin_range();
+      ASSERT_ND(range.contains(child_range));
+    }
   }
+
   return true;
 }
 
@@ -677,6 +563,108 @@ bool HashComposeContext::verify_snapshot_pointer(SnapshotPagePointer pointer) {
     == snapshot_writer_->get_snapshot_id());
   return true;
 }
+
+///////////////////////////////////////////////////////////////////////
+///
+///  HashComposedBinsPage (snapshot's intermediate) related methods
+///
+///////////////////////////////////////////////////////////////////////
+ErrorStack HashComposeContext::init_intermediates() {
+  ASSERT_ND(allocated_intermediates_ == 0);
+  ASSERT_ND(intermediate_base_
+    == reinterpret_cast<HashComposedBinsPage*>(snapshot_writer_->get_intermediate_base()));
+  uint16_t count = storage_.get_root_children();
+  if (max_intermediates_ < count) {
+    return ERROR_STACK_MSG(kErrorCodeInternalError, "max_intermediates weirdly too small");
+  }
+
+  std::memset(intermediate_base_, 0, kPageSize * count);
+  for (uint16_t i = 0; i < count; ++i) {
+    SnapshotPagePointer new_page_id = allocated_intermediates_;
+    ++allocated_intermediates_;
+    intermediate_base_[i].header_.page_id_ = new_page_id;
+    intermediate_base_[i].header_.page_type_ = kHashComposedBinsPageType;
+    uint64_t interval = kHashMaxBins[levels_ - 1U];
+    HashBinRange range(i * interval, (i + 1U) * interval);
+    intermediate_base_[i].bin_range_ = range;
+  }
+
+  return kRetOk;
+}
+
+HashComposedBinsPage* HashComposeContext::get_intermediate_tail(uint8_t root_index) const {
+  HashComposedBinsPage* page = get_intermediate_head(root_index);
+  while (true) {
+    ASSERT_ND(page);
+    ASSERT_ND(intermediate_base_ + page->header_.page_id_ == page);
+    ASSERT_ND(page->header_.get_page_type() == kHashComposedBinsPageType);
+    if (page->next_page_ == 0) {
+      return page;
+    }
+    page = intermediate_base_ + page->next_page_;
+  }
+}
+
+inline void HashComposeContext::update_cur_intermediate_tail_if_needed(HashBin bin) {
+  ASSERT_ND(bin < total_bin_count_);
+  if (LIKELY(cur_intermediate_tail_->bin_range_.contains(bin))) {
+    return;
+  }
+  update_cur_intermediate_tail(bin);
+}
+
+
+void HashComposeContext::update_cur_intermediate_tail(HashBin bin) {
+  ASSERT_ND(!cur_intermediate_tail_->bin_range_.contains(bin));
+  IntermediateRoute route = IntermediateRoute::construct(bin);
+  uint8_t root_index = route.route[levels_ - 1U];
+  cur_intermediate_tail_ = get_intermediate_tail(root_index);
+  ASSERT_ND(cur_intermediate_tail_->bin_range_.contains(bin));
+}
+
+ErrorCode HashComposeContext::append_to_intermediate(SnapshotPagePointer page_id, HashBin bin) {
+  ASSERT_ND(cur_intermediate_tail_->bin_range_.contains(bin));
+  ASSERT_ND(cur_intermediate_tail_->bins_ <= kHashComposedBinsPageMaxBins);
+  ASSERT_ND(cur_intermediate_tail_->next_page_ == 0);
+  if (cur_intermediate_tail_->bin_count_ == kHashComposedBinsPageMaxBins) {
+    // Now we need to append a new intermediate page.
+    DVLOG(1) << "Growing intermediate page in hash composer...";
+    CHECK_ERROR_CODE(expand_intermediate_pool_if_needed());
+    SnapshotPagePointer next_page_id = allocated_intermediates_;
+    HashComposedBinsPage* next = intermediate_base_ + next_page_id;
+    std::memset(next, 0, kPageSize);
+    next->header_.page_id_ = next_page_id;
+    next->bin_range_ = cur_intermediate_tail_->bin_range_;
+    ++allocated_intermediates_;
+    cur_intermediate_tail_->next_page_ = next_page_id;
+    cur_intermediate_tail_ = next;
+    ASSERT_ND(cur_intermediate_tail_->next_page_ == 0);
+    ASSERT_ND(cur_intermediate_tail_->bin_range_.contains(bin));
+  }
+
+  ASSERT_ND(cur_intermediate_tail_->bin_count_ < kHashComposedBinsPageMaxBins);
+  uint8_t index = cur_intermediate_tail_->bin_count_;
+  // hash-bin should be fully sorted
+  ASSERT_ND(index == 0 || cur_intermediate_tail_->bins_[index - 1U] < bin);
+  ComposedBin& entry = cur_intermediate_tail_->bins_[index];
+  entry.page_id_ = page_id;
+  entry.bin_ = bin;
+  ++cur_intermediate_tail_->bin_count_;
+}
+
+ErrorCode HashComposeContext::expand_intermediate_pool_if_needed() {
+  ASSERT_ND(allocated_intermediates_ <= max_intermediates_);
+  if (UNLIKELY(allocated_intermediates_ == max_intermediates_)) {
+    LOG(INFO) << "Automatically expanding intermediate_pool. This should be a rare event";
+    uint32_t required = allocated_intermediates_ + 1U;
+    CHECK_ERROR_CODE(snapshot_writer_->expand_intermediate_memory(required, true));
+    intermediate_base_
+      = reinterpret_cast<HashComposedBinsPage*>(snapshot_writer_->get_intermediate_base());
+    max_intermediates_ = snapshot_writer_->get_intermediate_size();
+  }
+  return kErrorCodeOk;
+}
+
 
 ///////////////////////////////////////////////////////////////////////
 ///

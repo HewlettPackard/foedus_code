@@ -50,6 +50,7 @@ enum PageType {
   kSequentialRootPageType = 5,
   kHashIntermediatePageType = 6,
   kHashDataPageType = 7,
+  kHashComposedBinsPageType = 8,
   kDummyLastPageType,
 };
 

@@ -197,7 +197,7 @@ union IntermediateRoute {
   /** This is a 64bit data. */
   uint64_t word;
   /**
-   * [0] means ordinal in leaf intermediate page, [1] in its parent page, [2]...
+   * [0] means ordinal in level-0 intermediate page, [1] in its parent page, [2]...
    * [levels - 1] is the ordinal in root intermediate page.
    */
   uint8_t route[8];
@@ -217,6 +217,19 @@ union IntermediateRoute {
   bool operator<=(const IntermediateRoute& rhs) const { return *this == rhs || *this < rhs; }
   friend std::ostream& operator<<(std::ostream& o, const IntermediateRoute& v);
 
+  /**
+   * @returns the original hash bin for this route
+   * Probably used only for sanity checks.
+   */
+  HashBin convert_back() const {
+    HashBin bin = 0;
+    for (uint8_t level = 0; level < kHashMaxLevels; ++level) {
+      bin += route[level] * kHashMaxBins[level];
+    }
+    return bin;
+  }
+
+  /** Calculates the rout for the given hash bin */
   static IntermediateRoute construct(HashBin bin) {
     IntermediateRoute ret;
     ret.word = 0;
@@ -229,6 +242,7 @@ union IntermediateRoute {
       ASSERT_ND(level < 8U);
     }
 
+    ASSERT_ND(ret.convert_back() == bin);
     return ret;
   }
 };

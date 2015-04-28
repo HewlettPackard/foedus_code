@@ -133,9 +133,14 @@ struct HashComposedBinsPage final {
  * root page. Then, the gleaner combines them in a parallel fashion, resulting in snapshot
  * interemediate pages that will be installed to the root page.
  *
- * @par Exception for 1-level hashtable
- * If the hash table has only one level (root directly points to data pages), then
- * HashRootInfoPage also directly points to HashDataPage. No HashComposedBinsPage created.
+ * @par 1-level hashtable
+ * It works the same way even when the hash table has only one level (root directly points to data
+ * pages). Even in this case, HashRootInfoPage still points to HashComposedBinsPage,
+ * which contains only one entry per page. Kind of wasteful, but it has negligible overheads
+ * compared to the entire mapper/reducer.
+ * Unlike array package, we don't do special optimization for this case in order to keep the code
+ * simpler, and because the storage could benefit from parallelization even in this case
+ * (the root page still contains hundreds of hash bins).
  */
 typedef HashIntermediatePage HashRootInfoPage;
 
@@ -156,9 +161,6 @@ class HashComposeContext {
   ErrorStack execute();
 
  private:
-  ErrorStack initialize(HashBin initial_bin);
-  ErrorStack init_root_page();
-
   /**
    * apply the range of logs in a tight loop.
    * this needs to access the logs themselves, which might cause L1 cache miss.
@@ -166,30 +168,73 @@ class HashComposeContext {
    */
   void apply_batch(uint64_t cur, uint64_t next);
 
-  /**
-   * separate and trivial implementation of execute() for when the hash has only the root
-   * intermediate page, which directly points to data pages.
-   * All other methods assume that the root page points to child interemediate pages.
-   */
-  ErrorStack execute_single_level_hash();
   ErrorStack finalize();
 
-  HashIntermediatePage* get_cur_path(uint8_t level) const { return cur_path_ + level; }
-  /** @returns The bin range of cur_path_[0]. */
-  const HashBinRange&   get_cur_range_level0() const ALWAYS_INLINE {
-    return cur_path_[0].get_bin_range();
+  ///////////////////////////////////////////////////////////////
+  //// cur_path_ related methods
+  ///////////////////////////////////////////////////////////////
+  /** @return intermediate page of the given level in cur_path */
+  HashIntermediatePage*   get_cur_path_page(uint8_t level) const { return cur_path_ + level; }
+  /** @return intermediate page of the lowest valid level in cur_path */
+  HashIntermediatePage*   get_cur_path_lowest() const {
+    return get_cur_path_page(cur_path_lowest_level_);
   }
-  ErrorCode init_cur_path();
-  ErrorCode update_cur_path(HashBin bin);
+  /**
+   * @return page ID of a head-data page of the given bin in previous snapshot. 0 (null) if
+   * the data page doesn't exist in previous snapshot.
+   * @pre cur_path_valid_range_.contains(bin)
+   */
+  SnapshotPagePointer     get_cur_path_bin_head(HashBin bin);
 
-  ErrorCode read_or_init_page(
-    SnapshotPagePointer old_page_id,
-    SnapshotPagePointer new_page_id,
-    HashBin bin,
-    HashDataPage* bin_head) ALWAYS_INLINE;
+  /** Initialize the cur_path_ to bin-0. */
+  ErrorStack              init_cur_path();
+  /**
+   * Move the cur_path so that it contains the given bin.
+   * @post cur_path_valid_range_.contains(bin), \b BUT cur_path_lowest_level_ might be not 0.
+   */
+  ErrorCode               update_cur_path(HashBin bin);
+  /**
+   * Invokes update_cur_path() when needed.
+   * It does nothing if is_initial_snapshot() or
+   * cur_path_valid_range_.contains(bin) && cur_path_lowest_level_ == 0.
+   * This method is inlined to allow the check-part efficient while the switch part is not.
+   */
+  ErrorCode               update_cur_path_if_needed(HashBin bin) ALWAYS_INLINE;
+  /** used only in debug mode */
+  bool                    verify_cur_path() const;
+
+  ///////////////////////////////////////////////////////////////
+  //// HashComposedBinsPage (intermediate) related methods
+  ///////////////////////////////////////////////////////////////
+  /** Prepares empty HashComposedBinsPage for all direct children in the root page */
+  ErrorStack              init_intermediates();
+  /** @returns the head of linked-list for each direct child in the root page. */
+  HashComposedBinsPage*   get_intermediate_head(uint8_t root_index) const {
+    ASSERT_ND(root_index < storage_.get_root_children());
+    return intermediate_base_ + root_index;
+  }
+  /** @returns the tail of linked-list for each direct child in the root page. */
+  HashComposedBinsPage*   get_intermediate_tail(uint8_t root_index) const;
+
+  /**
+   * Switch cur_intermediate_tail_ for the given bin.
+   * @pre !cur_intermediate_tail_->bin_range_.contains(bin)
+   * @post cur_intermediate_tail_->bin_range_.contains(bin)
+   */
+  void                    update_cur_intermediate_tail(HashBin bin);
+  /** Invokes update_cur_intermediate_tail if needed. Inlined to do checks efficiently */
+  void                    update_cur_intermediate_tail_if_needed(HashBin bin) ALWAYS_INLINE;
+
+  /**
+   * Adds the pointer to finalized data pages of one hash bin to cur_intermediate_tail_.
+   * @pre cur_intermediate_tail_->bin_range_.contains(bin)
+   * @param[in] page_id The \e finalized snapshot page ID of head page of the given bin
+   * @param[in] bin The hash bin that has been finalized.
+   */
+  ErrorCode               append_to_intermediate(SnapshotPagePointer page_id, HashBin bin);
 
   /** call this before obtaining a new intermediate page */
-  ErrorCode expand_intermediate_pool_if_needed() ALWAYS_INLINE;
+  ErrorCode               expand_intermediate_pool_if_needed();
 
   /**
    * Called at the end of execute() to install pointers to snapshot pages constructed in this
@@ -203,16 +248,13 @@ class HashComposeContext {
 
   /** dump everything in main buffer (intermediate pages are kept) */
   ErrorCode dump_data_pages();
-  /** used only in debug mode */
-  bool verify_cur_path() const;
   bool verify_snapshot_pointer(storage::SnapshotPagePointer pointer);
 
   bool is_initial_snapshot() const { return previous_root_page_pointer_ == 0; }
 
-
-  uint16_t get_root_children() const;
-
-  // these properties are initialized in constructor and never changed afterwards
+  ///////////////////////////////////////////////////////////////
+  //// immutable properties
+  ///////////////////////////////////////////////////////////////
   Engine* const                   engine_;
   snapshot::MergeSort* const      merge_sort_;
   const Epoch                     system_initial_epoch_;
@@ -233,15 +275,49 @@ class HashComposeContext {
   const HashBin                   total_bin_count_;
   const SnapshotPagePointer       previous_root_page_pointer_;
 
+  ///////////////////////////////////////////////////////////////
+  //// mutable properties
+  ///////////////////////////////////////////////////////////////
   /**
    * cur_path_[n] is the snapshot intermediate page of level-n.
    * We only read from them. We don't modify them.
+   * @see cur_path_valid_upto_
    */
   HashIntermediatePage*           cur_path_;
   /**
    * A small memory to back cur_path_.
    */
   memory::AlignedMemory           cur_path_memory_;
+
+  /**
+   * cur_path_[n] is invalid where n is less than this value.
+   * In other words, cur_path_[n] is non-existent in previous snapshot when that is the case.
+   * If this value is levels_, even root (levels_ - 1) is invalid, meaning no previous snapshot.
+   */
+  uint8_t                         cur_path_lowest_level_;
+
+  /**
+   * The bin range of cur_path_[cur_path_lowest_level_].
+   * If cur_path_lowest_level_ == levels_, (0,0), but this value shouldn't be used in that case.
+   */
+  HashBinRange                    cur_path_valid_range_;
+
+  /**
+   * The hash bin that is currently composed.
+   * Whenever we observe a log whose bin is different from this value, we close the current bin
+   * and write out data pages.
+   * When no bin is being composed, kCurBinNotOpened.
+   */
+  HashBin                         cur_bin_;
+  const HashBin                   kCurBinNotOpened = (1ULL << kHashMaxBinBits);
+
+  /**
+   * Points to the HashComposedBinsPage to which we will add cur_bin_ data pages when they are done.
+   * This is the tail of the linked-list for the sub-tree. When this page becomes full, we append
+   * next pages and move on.
+   * null iff cur_bin_ == kCurBinNotOpened.
+   */
+  HashComposedBinsPage*           cur_intermediate_tail_;
 
   /**
    * How many pages we allocated in the main buffer of snapshot_writer.

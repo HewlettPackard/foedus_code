@@ -100,7 +100,8 @@ ErrorStack HashPartitioner::design_partition(
   // though this is an in-memory task, parallelize to make it even faster.
   // each sub-task is a pointer from the root intermediate page.
   if (storage.get_levels() == 1U) {
-    VLOG(0) << "Not worth parallelization. just one level. run it on a single thread";
+    VLOG(0) << "Not worth parallelization. just one level. Design on a single thread";
+    // Note, this is just about partition-design. Mapper/Reducer still runs on multi-nodes.
     for (uint16_t i = 0; i < total_bin_count; ++i) {
       design_partition_task(i);
     }
