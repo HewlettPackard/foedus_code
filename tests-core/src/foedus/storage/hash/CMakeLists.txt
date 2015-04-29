@@ -38,6 +38,8 @@ add_foedus_test_individual(test_hash_tpcb "${test_hash_tpcb_individuals}")
 set(test_hash_tmpbin_individuals
   Sequential
   SequentialResize
+  SequentialQuickClean
+  SequentialResizeQuickClean
 #  RandomNoCollision
 #  RandomCollision
   )

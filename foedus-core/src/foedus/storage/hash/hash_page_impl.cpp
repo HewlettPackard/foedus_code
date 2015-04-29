@@ -87,6 +87,15 @@ void HashDataPage::initialize_volatile_page(
   }
 }
 
+void HashDataPage::initialize_snapshot_page(
+  StorageId storage_id,
+  SnapshotPagePointer page_id,
+  HashBin bin) {
+  std::memset(this, 0, kPageSize);
+  header_.init_snapshot(page_id, storage_id, kHashDataPageType);
+  bin_ = bin;
+}
+
 DataPageSlotIndex HashDataPage::search_key(
   HashValue hash,
   const BloomFilterFingerprint& fingerprint,

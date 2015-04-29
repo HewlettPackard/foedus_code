@@ -1,5 +1,6 @@
 set_property(GLOBAL APPEND PROPERTY ALL_FOEDUS_CORE_SRC
   ${CMAKE_CURRENT_SOURCE_DIR}/hash_combo.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/hash_composer_impl.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/hash_hashinate.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/hash_log_types.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/hash_metadata.cpp

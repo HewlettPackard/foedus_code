@@ -108,6 +108,7 @@ class HashTmpBin CXX11_FINAL {
       aligned_key_length_ = assorted::align8(key_length);
       aligned_payload_length_ = assorted::align8(payload_length);
       hash_ = hash;
+      next_ = 0;
 
       std::memcpy(get_key(), key, key_length);
       if (key_length != aligned_key_length_) {
@@ -179,8 +180,18 @@ class HashTmpBin CXX11_FINAL {
   /**
    * Removes all tuple data for the current bin.
    * The memory is kept so that we can efficiently reuse resources for next bins to process.
+   *
+   * This is a \e full cleaning method that can be used anytime, but costs a bit more.
+   * When there were few records, it is a bit expensive to mem-zero the entire buckets_.
+   * In that case, use clean_quick()
    */
   void      clean();
+  /**
+   * This version selectively clears buckets_ by seeing individual records.
+   * Hence, this can be used only after records_consumed_ is populated.
+   * Instead, when there are just a few records, this is much faster than clean().
+   */
+  void      clean_quick();
 
   //// Record-access methods
   Record*     get_record(RecordIndex index) const {
@@ -192,6 +203,14 @@ class HashTmpBin CXX11_FINAL {
   RecordIndex get_records_consumed() const { return records_consumed_; }
   RecordIndex get_first_record() const {
     return sizeof(RecordIndex) * kBucketCount / sizeof(Record);
+  }
+  /** @returns number of physical records, which may or may not be logically deleted */
+  uint32_t    get_physical_record_count() const {
+    return get_records_consumed() - get_first_record();
+  }
+  RecordIndex get_bucket_head(uint32_t bucket) const {
+    ASSERT_ND(bucket < kBucketCount);
+    return buckets_[bucket];
   }
 
   //// Data manipulation methods

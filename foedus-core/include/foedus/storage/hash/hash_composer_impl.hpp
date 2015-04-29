@@ -33,6 +33,7 @@
 #include "foedus/storage/hash/hash_id.hpp"
 #include "foedus/storage/hash/hash_page_impl.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
+#include "foedus/storage/hash/hash_tmpbin.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
@@ -64,6 +65,8 @@ class HashComposer final {
 
   ErrorStack compose(const Composer::ComposeArguments& args);
   ErrorStack construct_root(const Composer::ConstructRootArguments& args);
+
+
   Composer::DropResult  drop_volatiles(const Composer::DropVolatilesArguments& args);
   void                  drop_root_volatile(const Composer::DropVolatilesArguments& args);
 
@@ -72,19 +75,27 @@ class HashComposer final {
   const StorageId           storage_id_;
   const HashStorage         storage_;
 
-  HashDataPage* resolve_volatile(VolatilePagePointer pointer);
+  /** just because we use it frequently... */
+  const memory::GlobalVolatilePageResolver& volatile_resolver_;
+
+  HashDataPage* resolve_data(VolatilePagePointer pointer) const ALWAYS_INLINE;
+  HashIntermediatePage* resolve_intermediate(VolatilePagePointer pointer) const ALWAYS_INLINE;
+
   Composer::DropResult drop_volatiles_recurse(
     const Composer::DropVolatilesArguments& args,
     DualPagePointer* pointer);
-  /** also returns if we kept the volatile data pages */
-  Composer::DropResult drop_volatiles_intermediate(
+
+  /**
+   * @returns if the given bin data pages contain any information later than the given
+   * threshold epoch (valid_until).
+   */
+  bool can_drop_volatile_bin(VolatilePagePointer head, Epoch valid_until) const;
+
+  /** Drops all data pages in a bin, starting from the pointer. */
+  void drop_volatile_entire_bin(
     const Composer::DropVolatilesArguments& args,
-    DualPagePointer* pointer,
-    HashIntermediatePage* volatile_page);
-  Composer::DropResult drop_volatiles_bin(
-    const Composer::DropVolatilesArguments& args,
-    DualPagePointer* pointer,
-    HashDataPage* volatile_page);
+    DualPagePointer* pointer_to_head) const;
+
   bool is_to_keep_volatile(uint16_t level);
   /** Used only from drop_root_volatile. Drop every volatile page. */
   void drop_all_recurse(
@@ -162,13 +173,25 @@ class HashComposeContext {
 
  private:
   /**
-   * apply the range of logs in a tight loop.
-   * this needs to access the logs themselves, which might cause L1 cache miss.
-   * the fetch method ameriolates it by pararell prefetching for this number.
+   * Apply the range of logs that are all of cur_bin_ in a tight loop.
+   * Well, the implementation of this method is not so batched so far, but it can be later.
    */
-  void apply_batch(uint64_t cur, uint64_t next);
+  ErrorCode apply_batch(uint64_t cur, uint64_t next);
 
   ErrorStack finalize();
+
+  /** dump everything in main buffer (intermediate pages are kept) */
+  ErrorCode dump_data_pages();
+
+  /** @returns if the given pointer is valid as a snapshot page ID in this new snapshot */
+  bool verify_new_pointer(storage::SnapshotPagePointer pointer) const;
+  /** @returns if the given pointer is null or valid as a snapshot page ID in previous snapshots */
+  bool verify_old_pointer(storage::SnapshotPagePointer pointer) const;
+
+  HashDataPage* resolve_data(VolatilePagePointer pointer) const ALWAYS_INLINE;
+  HashIntermediatePage* resolve_intermediate(VolatilePagePointer pointer) const ALWAYS_INLINE;
+
+  bool is_initial_snapshot() const { return previous_root_page_pointer_ == 0; }
 
   ///////////////////////////////////////////////////////////////
   //// cur_path_ related methods
@@ -184,7 +207,7 @@ class HashComposeContext {
    * the data page doesn't exist in previous snapshot.
    * @pre cur_path_valid_range_.contains(bin)
    */
-  SnapshotPagePointer     get_cur_path_bin_head(HashBin bin);
+  SnapshotPagePointer     get_cur_path_bin_head(HashBin bin) const;
 
   /** Initialize the cur_path_ to bin-0. */
   ErrorStack              init_cur_path();
@@ -202,6 +225,21 @@ class HashComposeContext {
   ErrorCode               update_cur_path_if_needed(HashBin bin) ALWAYS_INLINE;
   /** used only in debug mode */
   bool                    verify_cur_path() const;
+
+  ///////////////////////////////////////////////////////////////
+  //// cur_bin related methods
+  ///////////////////////////////////////////////////////////////
+  /**
+   * Finalizes the content of cur_bin_table_ and write it out as data pages.
+   * @post cur_bin_ == kCurBinNotOpened
+   */
+  ErrorStack              close_cur_bin();
+  /**
+   * Loads data pages in previous snapshot and initializes cur_bin_table_ with the existing records.
+   * @pre cur_bin_ == kCurBinNotOpened
+   * @post cur_bin_ == bin
+   */
+  ErrorStack              open_cur_bin(HashBin bin);
 
   ///////////////////////////////////////////////////////////////
   //// HashComposedBinsPage (intermediate) related methods
@@ -237,20 +275,17 @@ class HashComposeContext {
   ErrorCode               expand_intermediate_pool_if_needed();
 
   /**
-   * Called at the end of execute() to install pointers to snapshot pages constructed in this
-   * composer. The snapshot pointer to intermediate pages is separately installed later.
+   * Called at the end of execute() to install pointers to snapshot \e data pages constructed in
+   * this composer. The snapshot pointer to intermediate pages is separately installed later.
    * This method does not drop volatile pages, it just installs snapshot pages to data pages,
-   * thus it's trivially safe as far as the snapshot pages are already flushed to the storage.
+   * thus it's trivially safe as far as the snapshot data pages are already flushed to the storage.
    */
-  ErrorStack install_snapshot_pointers(
-    SnapshotPagePointer snapshot_base,
+  ErrorStack install_snapshot_data_pages(uint64_t* installed_count) const;
+  /** Subroutine of install_snapshot_pointers_data_pages() called for each direct-child of root */
+  ErrorStack install_snapshot_data_pages_root_child(
+    const HashComposedBinsPage* composed,
+    HashIntermediatePage* volatile_root_child,
     uint64_t* installed_count) const;
-
-  /** dump everything in main buffer (intermediate pages are kept) */
-  ErrorCode dump_data_pages();
-  bool verify_snapshot_pointer(storage::SnapshotPagePointer pointer);
-
-  bool is_initial_snapshot() const { return previous_root_page_pointer_ == 0; }
 
   ///////////////////////////////////////////////////////////////
   //// immutable properties
@@ -271,9 +306,12 @@ class HashComposeContext {
   const uint8_t                   bin_bits_;
   const uint8_t                   bin_shifts_;
   const uint16_t                  root_children_;
-  uint16_t                        padding_;
+  const uint16_t                  numa_node_;
   const HashBin                   total_bin_count_;
   const SnapshotPagePointer       previous_root_page_pointer_;
+
+  /** just because we use it frequently... */
+  const memory::GlobalVolatilePageResolver& volatile_resolver_;
 
   ///////////////////////////////////////////////////////////////
   //// mutable properties
@@ -312,10 +350,17 @@ class HashComposeContext {
   const HashBin                   kCurBinNotOpened = (1ULL << kHashMaxBinBits);
 
   /**
+   * Small hashtable of records being modified in cur_bin_.
+   */
+  HashTmpBin                      cur_bin_table_;
+
+  /** Just memory of one-page to read data pages in previous snapshot */
+  memory::AlignedMemory           data_page_io_memory_;
+
+  /**
    * Points to the HashComposedBinsPage to which we will add cur_bin_ data pages when they are done.
    * This is the tail of the linked-list for the sub-tree. When this page becomes full, we append
    * next pages and move on.
-   * null iff cur_bin_ == kCurBinNotOpened.
    */
   HashComposedBinsPage*           cur_intermediate_tail_;
 
@@ -336,8 +381,7 @@ class HashComposeContext {
   HashDataPage*             page_base_;
   /**
    * same as snapshot_writer_->get_intermediate_base().
-   * In a 1-level hash, no intermediate pages created.
-   * Otherwise, this starts with root_children_ HashComposedBinsPage, and those pages remain
+   * This starts with root_children_ HashComposedBinsPage, and those pages remain
    * as the heads of HashComposedBinsPage linked-lists.
    */
   HashComposedBinsPage*     intermediate_base_;

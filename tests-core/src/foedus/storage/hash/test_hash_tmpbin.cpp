@@ -30,7 +30,7 @@ namespace storage {
 namespace hash {
 DEFINE_TEST_CASE_PACKAGE(HashTmpBinTest, foedus.storage.hash);
 
-void test_sequential(bool with_resize) {
+void test_sequential(bool with_resize, bool quick_clean) {
   const uint32_t kRecords = 1U << 10;
   uint64_t byte_size = HashTmpBin::kDefaultInitialSize;
   if (with_resize) {
@@ -39,111 +39,122 @@ void test_sequential(bool with_resize) {
   }
   HashTmpBin table;
   ASSERT_EQ(kErrorCodeOk, table.create_memory(0, byte_size));
-  for (uint32_t i = 0; i < kRecords; ++i) {
-    uint32_t key = i;
-    uint64_t value = i + 42;
-    xct::XctId xct_id;
-    xct_id.set(123 + (i / 50), 1 + (i % 50));
-    HashValue hash = hashinate(&key, sizeof(key));
-    ErrorCode code = table.insert_record(xct_id, &key, sizeof(key), hash, &value, sizeof(value));
-    EXPECT_EQ(kErrorCodeOk, code);
-  }
-  // delete odd-numbered records
-  for (uint32_t i = 1; i < kRecords; i += 2U) {
-    uint32_t key = i;
-    xct::XctId xct_id;
-    xct_id.set(500 + (i / 50), 1 + (i % 50));
-    xct_id.set_deleted();
-    HashValue hash = hashinate(&key, sizeof(key));
-    ErrorCode code = table.delete_record(xct_id, &key, sizeof(key), hash);
-    EXPECT_EQ(kErrorCodeOk, code);
-  }
+  for (uint16_t rep = 0; rep < 3U; ++rep) {  // repeat to test cleaning feature
+    SCOPED_TRACE(testing::Message() << "rep=" << rep);
+    for (uint32_t i = 0; i < kRecords; ++i) {
+      uint32_t key = i;
+      uint64_t value = i + 42;
+      xct::XctId xct_id;
+      xct_id.set(123 + (i / 50), 1 + (i % 50));
+      HashValue hash = hashinate(&key, sizeof(key));
+      ErrorCode code = table.insert_record(xct_id, &key, sizeof(key), hash, &value, sizeof(value));
+      EXPECT_EQ(kErrorCodeOk, code) << i;
+    }
+    // delete odd-numbered records
+    for (uint32_t i = 1; i < kRecords; i += 2U) {
+      uint32_t key = i;
+      xct::XctId xct_id;
+      xct_id.set(500 + (i / 50), 1 + (i % 50));
+      xct_id.set_deleted();
+      HashValue hash = hashinate(&key, sizeof(key));
+      ErrorCode code = table.delete_record(xct_id, &key, sizeof(key), hash);
+      EXPECT_EQ(kErrorCodeOk, code) << i;
+    }
 
-  // overwrite even-numbered records
-  for (uint32_t i = 0; i < kRecords; i += 2U) {
-    uint32_t key = i;
-    uint64_t value = i + 42 + 100;
-    xct::XctId xct_id;
-    xct_id.set(600 + (i / 50), 1 + (i % 50));
-    HashValue hash = hashinate(&key, sizeof(key));
-    ErrorCode code = table.overwrite_record(
-      xct_id,
-      &key,
-      sizeof(key),
-      hash,
-      &value,
-      0,
-      sizeof(value));
-    EXPECT_EQ(kErrorCodeOk, code);
-  }
-  // change payload length for 1/4th of records
-  for (uint32_t i = 0; i < kRecords; i += 4U) {
-    uint32_t key = i;
-    uint32_t value = i + 42 + 200;
-    xct::XctId xct_id;
-    xct_id.set(50000 + (i / 50), 432 + (i % 50));
-    HashValue hash = hashinate(&key, sizeof(key));
-    ErrorCode code = table.update_record(xct_id, &key, sizeof(key), hash, &value, sizeof(value));
-    EXPECT_EQ(kErrorCodeOk, code);
-  }
-  // out of the deleted records, insert-back half of them with a different value
-  for (uint32_t i = 1; i < kRecords; i += 4U) {
-    uint32_t key = i;
-    uint64_t value = i + 42 + 12345;
-    xct::XctId xct_id;
-    xct_id.set(66666 + (i / 50), 1 + (i % 50));
-    HashValue hash = hashinate(&key, sizeof(key));
-    ErrorCode code = table.insert_record(xct_id, &key, sizeof(key), hash, &value, sizeof(value));
-    EXPECT_EQ(kErrorCodeOk, code);
-  }
+    // overwrite even-numbered records
+    for (uint32_t i = 0; i < kRecords; i += 2U) {
+      uint32_t key = i;
+      uint64_t value = i + 42 + 100;
+      xct::XctId xct_id;
+      xct_id.set(600 + (i / 50), 1 + (i % 50));
+      HashValue hash = hashinate(&key, sizeof(key));
+      ErrorCode code = table.overwrite_record(
+        xct_id,
+        &key,
+        sizeof(key),
+        hash,
+        &value,
+        0,
+        sizeof(value));
+      EXPECT_EQ(kErrorCodeOk, code) << i;
+    }
+    // change payload length for 1/4th of records
+    for (uint32_t i = 0; i < kRecords; i += 4U) {
+      uint32_t key = i;
+      uint32_t value = i + 42 + 200;
+      xct::XctId xct_id;
+      xct_id.set(50000 + (i / 50), 432 + (i % 50));
+      HashValue hash = hashinate(&key, sizeof(key));
+      ErrorCode code = table.update_record(xct_id, &key, sizeof(key), hash, &value, sizeof(value));
+      EXPECT_EQ(kErrorCodeOk, code) << i;
+    }
+    // out of the deleted records, insert-back half of them with a different value
+    for (uint32_t i = 1; i < kRecords; i += 4U) {
+      uint32_t key = i;
+      uint64_t value = i + 42 + 12345;
+      xct::XctId xct_id;
+      xct_id.set(66666 + (i / 50), 1 + (i % 50));
+      HashValue hash = hashinate(&key, sizeof(key));
+      ErrorCode code = table.insert_record(xct_id, &key, sizeof(key), hash, &value, sizeof(value));
+      EXPECT_EQ(kErrorCodeOk, code) << i;
+    }
 
-  // finally verify the table.
-  EXPECT_EQ(kRecords, table.get_records_consumed() - table.get_first_record());
-  for (uint32_t index = table.get_first_record(); index < table.get_records_consumed(); ++index) {
-    HashTmpBin::Record* record = table.get_record(index);
-    EXPECT_EQ(sizeof(uint32_t), record->key_length_);
-    EXPECT_EQ(8U, record->aligned_key_length_);
-    uint32_t key = *reinterpret_cast<uint32_t*>(record->get_key());
-    SCOPED_TRACE(testing::Message() << "key=" << key << ", index=" << index);
-    EXPECT_LT(key, kRecords);
-    HashValue hash = hashinate(&key, sizeof(key));
-    EXPECT_EQ(hash, record->hash_);
-    if (key % 2U != 0) {
-      EXPECT_EQ(sizeof(uint64_t), record->payload_length_);
-      EXPECT_EQ(8U, record->aligned_payload_length_);
-      if (key % 4U != 1U) {
-        EXPECT_TRUE(record->xct_id_.is_deleted());
-        EXPECT_EQ(key + 42U, *reinterpret_cast<uint64_t*>(record->get_payload()));
-        EXPECT_EQ(500U + (key / 50U), record->xct_id_.get_epoch_int());
-        EXPECT_EQ(1U + (key % 50U), record->xct_id_.get_ordinal());
-      } else {
-        EXPECT_TRUE(!record->xct_id_.is_deleted());
-        EXPECT_EQ(key + 42U + 12345U, *reinterpret_cast<uint64_t*>(record->get_payload()));
-        EXPECT_EQ(66666U + (key / 50U), record->xct_id_.get_epoch_int());
-        EXPECT_EQ(1U + (key % 50U), record->xct_id_.get_ordinal());
-      }
-    } else {
-      EXPECT_FALSE(record->xct_id_.is_deleted());
-      if (key % 4U != 0) {
+    // finally verify the table.
+    EXPECT_EQ(kRecords, table.get_records_consumed() - table.get_first_record());
+    for (uint32_t index = table.get_first_record(); index < table.get_records_consumed(); ++index) {
+      HashTmpBin::Record* record = table.get_record(index);
+      EXPECT_EQ(sizeof(uint32_t), record->key_length_);
+      EXPECT_EQ(8U, record->aligned_key_length_);
+      uint32_t key = *reinterpret_cast<uint32_t*>(record->get_key());
+      SCOPED_TRACE(testing::Message() << "key=" << key << ", index=" << index);
+      EXPECT_LT(key, kRecords);
+      HashValue hash = hashinate(&key, sizeof(key));
+      EXPECT_EQ(hash, record->hash_);
+      if (key % 2U != 0) {
         EXPECT_EQ(sizeof(uint64_t), record->payload_length_);
         EXPECT_EQ(8U, record->aligned_payload_length_);
-        EXPECT_EQ(key + 42U + 100, *reinterpret_cast<uint64_t*>(record->get_payload()));
-        EXPECT_EQ(600U + (key / 50U), record->xct_id_.get_epoch_int());
-        EXPECT_EQ(1U + (key % 50U), record->xct_id_.get_ordinal());
+        if (key % 4U != 1U) {
+          EXPECT_TRUE(record->xct_id_.is_deleted());
+          EXPECT_EQ(key + 42U, *reinterpret_cast<uint64_t*>(record->get_payload()));
+          EXPECT_EQ(500U + (key / 50U), record->xct_id_.get_epoch_int());
+          EXPECT_EQ(1U + (key % 50U), record->xct_id_.get_ordinal());
+        } else {
+          EXPECT_TRUE(!record->xct_id_.is_deleted());
+          EXPECT_EQ(key + 42U + 12345U, *reinterpret_cast<uint64_t*>(record->get_payload()));
+          EXPECT_EQ(66666U + (key / 50U), record->xct_id_.get_epoch_int());
+          EXPECT_EQ(1U + (key % 50U), record->xct_id_.get_ordinal());
+        }
       } else {
-        EXPECT_EQ(sizeof(uint32_t), record->payload_length_);
-        EXPECT_EQ(8U, record->aligned_payload_length_);
-        EXPECT_EQ(key + 42U + 200U, *reinterpret_cast<uint32_t*>(record->get_payload()));
-        EXPECT_EQ(50000U + (key / 50U), record->xct_id_.get_epoch_int());
-        EXPECT_EQ(432U + (key % 50U), record->xct_id_.get_ordinal());
+        EXPECT_FALSE(record->xct_id_.is_deleted());
+        if (key % 4U != 0) {
+          EXPECT_EQ(sizeof(uint64_t), record->payload_length_);
+          EXPECT_EQ(8U, record->aligned_payload_length_);
+          EXPECT_EQ(key + 42U + 100, *reinterpret_cast<uint64_t*>(record->get_payload()));
+          EXPECT_EQ(600U + (key / 50U), record->xct_id_.get_epoch_int());
+          EXPECT_EQ(1U + (key % 50U), record->xct_id_.get_ordinal());
+        } else {
+          EXPECT_EQ(sizeof(uint32_t), record->payload_length_);
+          EXPECT_EQ(8U, record->aligned_payload_length_);
+          EXPECT_EQ(key + 42U + 200U, *reinterpret_cast<uint32_t*>(record->get_payload()));
+          EXPECT_EQ(50000U + (key / 50U), record->xct_id_.get_epoch_int());
+          EXPECT_EQ(432U + (key % 50U), record->xct_id_.get_ordinal());
+        }
       }
     }
-  }
+    // std::cout << table << std::endl;
 
-  // std::cout << table << std::endl;
+    if (quick_clean) {
+      table.clean_quick();
+    } else {
+      table.clean();
+    }
+    // std::cout << table << std::endl;
+  }
 }
-TEST(HashTmpBinTest, Sequential) { test_sequential(false); }
-TEST(HashTmpBinTest, SequentialResize) { test_sequential(true); }
+TEST(HashTmpBinTest, Sequential) { test_sequential(false, false); }
+TEST(HashTmpBinTest, SequentialResize) { test_sequential(true, false); }
+TEST(HashTmpBinTest, SequentialQuickClean) { test_sequential(false, true); }
+TEST(HashTmpBinTest, SequentialResizeQuickClean) { test_sequential(true, true); }
 
 }  // namespace hash
 }  // namespace storage

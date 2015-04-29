@@ -41,12 +41,14 @@ ErrorCode HashTmpBin::create_memory(uint16_t numa_node, uint64_t initial_size) {
     1ULL << 21,
     memory::AlignedMemory::kNumaAllocOnnode,
     numa_node);
+  on_memory_set();
   clean();
   return kErrorCodeOk;
 }
 
 void HashTmpBin::release_memory() {
   memory_.release_block();
+  on_memory_set();
   clean();
 }
 
@@ -55,6 +57,7 @@ void HashTmpBin::steal_memory(memory::AlignedMemory* provider) {
   memory_ = std::move(*provider);
   ASSERT_ND(provider->is_null());
   ASSERT_ND(!memory_.is_null());
+  on_memory_set();
   clean();
 }
 
@@ -63,17 +66,35 @@ void HashTmpBin::give_memory(memory::AlignedMemory* recipient) {
   *recipient = std::move(memory_);
   ASSERT_ND(!recipient->is_null());
   ASSERT_ND(memory_.is_null());
+  on_memory_set();
   clean();
 }
 
 
 void HashTmpBin::clean() {
-  on_memory_set();
-  records_consumed_ = sizeof(RecordIndex) * kBucketCount / sizeof(Record);
+  records_consumed_ = get_first_record();
   if (buckets_) {
-    std::memset(buckets_, 0, sizeof(RecordIndex) * kBucketCount);
+    std::memset(buckets_, 0, records_consumed_ * sizeof(Record));
   }
 }
+
+void HashTmpBin::clean_quick() {
+  ASSERT_ND(buckets_);
+  ASSERT_ND(records_capacity_ > 0);
+  ASSERT_ND(records_consumed_ >= get_first_record());
+  // at some point, just mem-zero is faster. we could do a switch like below, but it's rare.
+  // this also makes unit-testing more tricky.
+  // if (records_consumed_ > get_first_record() + 256U) {
+  //   clean();
+  //   return;
+  // }
+  for (RecordIndex index = get_first_record(); index < records_consumed_; ++index) {
+    Record* record = get_record(index);
+    buckets_[extract_bucket(record->hash_)] = 0;
+  }
+  records_consumed_ = get_first_record();
+}
+
 
 void HashTmpBin::on_memory_set() {
   if (memory_.is_null()) {
