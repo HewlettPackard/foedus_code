@@ -26,6 +26,7 @@
 #include "foedus/engine.hpp"
 #include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/debugging/stop_watch.hpp"
+#include "foedus/snapshot/log_gleaner_resource.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_writer_impl.hpp"
 #include "foedus/storage/composer.hpp"
@@ -207,7 +208,7 @@ ErrorStack SequentialComposer::construct_root(const Composer::ConstructRootArgum
     // if there already is a root page, read them all.
     // we have to anyway re-write all of them, at least the next pointer.
     SequentialRootPage* root_page = reinterpret_cast<SequentialRootPage*>(
-      args.work_memory_->get_block());
+      args.gleaner_resource_->work_memory_.get_block());
     WRAP_ERROR_CODE(args.previous_snapshot_files_->read_page(page_id, root_page));
     ASSERT_ND(root_page->header().storage_id_ == storage_id_);
     ASSERT_ND(root_page->header().page_id_ == page_id);

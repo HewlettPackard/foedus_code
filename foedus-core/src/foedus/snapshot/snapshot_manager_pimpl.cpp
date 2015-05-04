@@ -33,6 +33,7 @@
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/fs/path.hpp"
 #include "foedus/log/log_manager.hpp"
+#include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
@@ -95,6 +96,9 @@ ErrorStack SnapshotManagerPimpl::initialize_once() {
     // set the size of partitioner data
     repo->get_global_memory_anchors()->partitioner_metadata_[0].data_size_
       = engine_->get_options().storage_.partitioner_data_memory_mb_ * (1ULL << 20);
+
+    // And master-only resources for running gleaner. These are NOT shared memory. local to master.
+    gleaner_resource_.allocate(engine_->get_soc_count());
   }
 
   // in child engines, we instantiate local mappers/reducer objects (but not the threads yet)
@@ -139,6 +143,8 @@ ErrorStack SnapshotManagerPimpl::uninitialize_once() {
     control_block_->uninitialize();
     ASSERT_ND(local_reducer_ == nullptr);
     ASSERT_ND(local_mappers_.size() == 0);
+
+    gleaner_resource_.deallocate();
   } else {
     if (local_reducer_) {
       batch.emprace_back(local_reducer_->uninitialize());
@@ -150,6 +156,7 @@ ErrorStack SnapshotManagerPimpl::uninitialize_once() {
       delete mapper;
     }
     local_mappers_.clear();
+    ASSERT_ND(gleaner_resource_.per_node_resources_.empty());
   }
 
   return SUMMARIZE_ERROR_BATCH(batch);
@@ -360,7 +367,7 @@ ErrorStack SnapshotManagerPimpl::glean_logs(
   std::map<storage::StorageId, storage::SnapshotPagePointer>* new_root_page_pointers) {
   // Log gleaner is an object allocated/deallocated per snapshotting.
   // Gleaner runs on this thread (snapshot_thread_)
-  LogGleaner gleaner(engine_, new_snapshot);
+  LogGleaner gleaner(engine_, &gleaner_resource_, new_snapshot);
   ErrorStack result = gleaner.execute();
   if (result.is_error()) {
     LOG(ERROR) << "Log Gleaner encountered either an error or early termination request";

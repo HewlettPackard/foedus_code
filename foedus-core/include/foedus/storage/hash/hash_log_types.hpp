@@ -128,7 +128,7 @@ struct HashCommonLogType : public log::RecordLogType {
     }
   }
 
-  /** used only for sanity check. returns if the record's and log's keys are equal */
+  /** used only for sanity check. checks if the record's and log's keys are equal */
 #ifndef NDEBUG
   void assert_record_and_log_keys(xct::LockableXctId* owner_id, const char* data) const {
     const char* log_key = get_key();
@@ -148,6 +148,12 @@ struct HashCommonLogType : public log::RecordLogType {
 #else  // NDEBUG
   void assert_record_and_log_keys(xct::LockableXctId* /*owner_id*/, const char* /*data*/) const {}
 #endif  // NDEBUG
+
+  void assert_type() const ALWAYS_INLINE {
+    ASSERT_ND(header_.log_type_code_ == log::kLogCodeHashOverwrite
+      || header_.log_type_code_ == log::kLogCodeHashInsert
+      || header_.log_type_code_ == log::kLogCodeHashDelete);
+  }
 };
 
 

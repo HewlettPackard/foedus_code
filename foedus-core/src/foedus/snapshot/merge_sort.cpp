@@ -35,6 +35,15 @@
 namespace foedus {
 namespace snapshot {
 
+/** Represents null. */
+const MergeSort::InputIndex kInvalidInput = static_cast<MergeSort::InputIndex>(-1U);
+/**
+ * Also, when the input consumed more than this fraction of current window, we move the window.
+ * This means we have to memmove 5% everytime, but instead we can avoid many-small batches.
+ */
+const float kWindowMoveThreshold = 0.95;
+
+
 uint16_t extract_shortest_key_length(SortedBuffer* const* inputs, uint16_t inputs_count) {
   uint16_t ret = inputs[0]->get_cur_block_shortest_key_length();
   for (uint16_t i = 1; i < inputs_count; ++i) {

@@ -167,7 +167,7 @@ ErrorStack TpccClientTask::run_impl(thread::Thread* context) {
 #ifdef OLAP_MODE
       } else if (ret == kErrorCodeFsTooShortRead) {
         // this is an unexpected bug, but only happens in OLAP experiment once in a while.
-        // wtf. TODO(Hideaki) figure this out.
+        // wtf. TASK(Hideaki) figure this out.
         // This seems to happen only when log file moves on to next file.
         LOG(ERROR) << "The kErrorCodeFsTooShortRead error happened while OLAP experiment";
         rnd_seed = rnd_.next_uint64();  // re-roll, and go on. This is rare.

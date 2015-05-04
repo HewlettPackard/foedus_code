@@ -30,6 +30,7 @@ struct  LogBuffer;
 class   LogGleaner;
 struct  LogGleanerControlBlock;
 class   LogGleanerRef;
+struct  LogGleanerResource;
 class   LogMapper;
 class   LogReducer;
 struct  LogReducerControlBlock;

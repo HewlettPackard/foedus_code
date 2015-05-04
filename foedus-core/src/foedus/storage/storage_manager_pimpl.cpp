@@ -383,12 +383,18 @@ xct::TrackMovedRecordResult StorageManagerPimpl::track_moved_record(
   StorageId storage_id,
   xct::LockableXctId* old_address,
   xct::WriteXctAccess* write_set) {
-  // so far only Masstree has tracking
-  ASSERT_ND(storages_[storage_id].exists());
-  ASSERT_ND(storages_[storage_id].meta_.type_ == kMasstreeStorage);
-  return masstree::MasstreeStorage(engine_, storages_ + storage_id).track_moved_record(
-    old_address,
-    write_set);
+  // so far Masstree and Hash have tracking
+  StorageControlBlock* block = storages_ + storage_id;
+  ASSERT_ND(block->exists());
+  StorageType type = block->meta_.type_;
+  if (type == kMasstreeStorage) {
+    return masstree::MasstreeStorage(engine_, block).track_moved_record(old_address, write_set);
+  } else if (type == kHashStorage) {
+    return hash::HashStorage(engine_, block).track_moved_record(old_address, write_set);
+  } else {
+    LOG(ERROR) << "Unexpected storage type for a moved-record. Bug? type=" << type;
+    return xct::TrackMovedRecordResult();
+  }
 }
 
 ErrorStack StorageManagerPimpl::clone_all_storage_metadata(

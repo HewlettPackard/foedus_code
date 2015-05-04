@@ -26,6 +26,7 @@
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
+#include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/const_div.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
@@ -50,6 +51,10 @@ struct HashStorageControlBlock final {
   ~HashStorageControlBlock() = delete;
 
   bool exists() const { return status_ == kExists || status_ == kMarkedForDeath; }
+  /** @return the number of child pointers in the root page for this storage */
+  uint16_t get_root_children() const {
+    return assorted::int_div_ceil(bin_count_, kHashMaxBins[levels_ - 1U]);
+  }
 
   soc::SharedMutex    status_mutex_;
   /** Status of the storage */
@@ -107,6 +112,11 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     VolatilePagePointer volatile_page_id);
 
 
+  xct::TrackMovedRecordResult track_moved_record(
+    xct::LockableXctId* old_address,
+    xct::WriteXctAccess* write_set);
+  xct::TrackMovedRecordResult track_moved_record_search(HashDataPage* page, const HashCombo& combo);
+
   ErrorStack  create(const HashMetadata& metadata);
   ErrorStack  load(const StorageControlBlock& snapshot_block);
   ErrorStack  drop();
@@ -120,14 +130,14 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   uint8_t             get_bin_bits() const { return get_meta().bin_bits_; }
   uint8_t             get_bin_shifts() const { return get_meta().get_bin_shifts(); }
 
-  /** @copydoc foedus::storage::hash::HashStorage::get_record() */
+  /** @see foedus::storage::hash::HashStorage::get_record() */
   ErrorCode   get_record(
     thread::Thread* context,
     const HashCombo& combo,
     void* payload,
     uint16_t* payload_capacity);
 
-  /** @copydoc foedus::storage::hash::HashStorage::get_record_primitive() */
+  /** @see foedus::storage::hash::HashStorage::get_record_primitive() */
   template <typename PAYLOAD>
   inline ErrorCode get_record_primitive(
     thread::Thread* context,
@@ -139,7 +149,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     return get_record_part(context, combo, payload, payload_offset, sizeof(PAYLOAD));
   }
 
-  /** @copydoc foedus::storage::hash::HashStorage::get_record_part() */
+  /** @see foedus::storage::hash::HashStorage::get_record_part() */
   ErrorCode   get_record_part(
     thread::Thread* context,
     const HashCombo& combo,
@@ -147,17 +157,17 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     uint16_t payload_offset,
     uint16_t payload_count);
 
-  /** @copydoc foedus::storage::hash::HashStorage::insert_record() */
+  /** @see foedus::storage::hash::HashStorage::insert_record() */
   ErrorCode insert_record(
     thread::Thread* context,
     const HashCombo& combo,
     const void* payload,
     uint16_t payload_count);
 
-  /** @copydoc foedus::storage::hash::HashStorage::delete_record() */
+  /** @see foedus::storage::hash::HashStorage::delete_record() */
   ErrorCode delete_record(thread::Thread* context, const HashCombo& combo);
 
-  /** @copydoc foedus::storage::hash::HashStorage::overwrite_record() */
+  /** @see foedus::storage::hash::HashStorage::overwrite_record() */
   ErrorCode overwrite_record(
     thread::Thread* context,
     const HashCombo& combo,
@@ -165,7 +175,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     uint16_t payload_offset,
     uint16_t payload_count);
 
-  /** @copydoc foedus::storage::hash::HashStorage::overwrite_record_primitive() */
+  /** @see foedus::storage::hash::HashStorage::overwrite_record_primitive() */
   template <typename PAYLOAD>
   inline ErrorCode overwrite_record_primitive(
     thread::Thread* context,
@@ -176,7 +186,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     return overwrite_record(context, combo, &payload, payload_offset, sizeof(payload));
   }
 
-  /** @copydoc foedus::storage::hash::HashStorage::increment_record() */
+  /** @see foedus::storage::hash::HashStorage::increment_record() */
   template <typename PAYLOAD>
   ErrorCode   increment_record(
     thread::Thread* context,

@@ -113,7 +113,7 @@ class PagePoolOffsetAndEpochChunk {
      * To avoid that, we now use a much larger kMaxSize than PagePoolOffsetChunk.
      * Yes, it means much larger memory consumption in NumaCoreMemory, but shouldn't be
      * a big issue.
-     * 8 * 2^16 * #nodes * #threads. On 16-node/12 threads-per-core (DH), 96MB per node.
+     * 8 * 2^16 * nodes * threads. On 16-node/12 threads-per-core (DH), 96MB per node.
      * On 4-node/12 (DL580), 24 MB per node. I'd say negligible.
      */
     kMaxSize = (1 << 16) - 1,

@@ -269,7 +269,7 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
   } else {
     WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kSerializable));
     // to speedup experiments, skip a few storages' verify() if they are static storages.
-    // TODO(Hideaki) make verify() checks snapshot pages too.
+    // TASK(Hideaki) make verify() checks snapshot pages too.
     CHECK_ERROR(storages_.customers_secondary_.verify_single_thread(context));
     CHECK_ERROR(storages_.neworders_.verify_single_thread(context));
     CHECK_ERROR(storages_.orderlines_.verify_single_thread(context));
