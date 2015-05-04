@@ -103,7 +103,7 @@ namespace snapshot {
  */
 class LogGleaner final : public LogGleanerRef {
  public:
-  LogGleaner(Engine* engine, const Snapshot& new_snapshot);
+  LogGleaner(Engine* engine, LogGleanerResource* gleaner_resource, const Snapshot& new_snapshot);
 
   LogGleaner() = delete;
   LogGleaner(const LogGleaner &other) = delete;
@@ -122,6 +122,8 @@ class LogGleaner final : public LogGleanerRef {
   }
 
  private:
+  /** Local resources reused throughout gleaner execution */
+  LogGleanerResource* const       gleaner_resource_;
   /** The snapshot we are now taking. */
   const Snapshot                  new_snapshot_;
 

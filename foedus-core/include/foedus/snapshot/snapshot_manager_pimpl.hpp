@@ -30,6 +30,7 @@
 #include "foedus/initializable.hpp"
 #include "foedus/fs/path.hpp"
 #include "foedus/snapshot/fwd.hpp"
+#include "foedus/snapshot/log_gleaner_resource.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
@@ -348,6 +349,9 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
   std::vector<LogMapper*>     local_mappers_;
   /** Reducer in this node. Null in master engine. */
   LogReducer*                 local_reducer_;
+
+  /** Local resources for gleaner, which runs only in the master node. Empty in child nodes. */
+  LogGleanerResource          gleaner_resource_;
 };
 
 static_assert(

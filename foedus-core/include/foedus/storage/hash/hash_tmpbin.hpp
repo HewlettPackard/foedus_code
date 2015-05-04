@@ -150,7 +150,7 @@ class HashTmpBin CXX11_FINAL {
    * @param[in] numa_node the NUMA node to allocate this object's memory on
    * @param[in] initial_size byte size of the memory to start from.
    * @pre initial_size > sizeof(RecordIndex)*kBucketCount, in reality should be much larger
-   * @post
+   * @post !memory_->is_null()
    */
   ErrorCode create_memory(uint16_t numa_node, uint64_t initial_size = kDefaultInitialSize);
 

@@ -104,6 +104,25 @@ ErrorCode SnapshotFileSet::read_page(storage::SnapshotPagePointer page_id, void*
   return kErrorCodeOk;
 }
 
+ErrorCode SnapshotFileSet::read_pages(
+  storage::SnapshotPagePointer page_id_begin,
+  uint32_t page_count,
+  void* out) {
+  fs::DirectIoFile* file;
+  CHECK_ERROR_CODE(get_or_open_file(page_id_begin, &file));
+  storage::SnapshotLocalPageId local_page_id_begin
+    = storage::extract_local_page_id_from_snapshot_pointer(page_id_begin);
+  CHECK_ERROR_CODE(
+    file->seek(local_page_id_begin * sizeof(storage::Page), fs::DirectIoFile::kDirectIoSeekSet));
+  CHECK_ERROR_CODE(file->read_raw(sizeof(storage::Page) * page_count, out));
+#ifndef NDEBUG
+  storage::Page* pages = reinterpret_cast<storage::Page*>(out);
+  for (uint32_t i = 0; i < page_count; ++i) {
+    ASSERT_ND(pages[i].get_header().page_id_ == page_id_begin + i);
+  }
+#endif  // NDEBUG
+  return kErrorCodeOk;
+}
 
 std::ostream& operator<<(std::ostream& o, const SnapshotFileSet& v) {
   o << "<SnapshotFileSet>";

@@ -25,9 +25,13 @@
 namespace foedus {
 namespace storage {
 namespace hash {
+struct  ComposedBins;
+struct  ComposedBinsBuffer;
+struct  ComposedBinsMergedStream;
 struct  DataPageBloomFilter;
 struct  HashCombo;
 class   HashComposer;
+struct  HashComposedBinsPage;
 struct  HashCreateLogType;
 class   HashDataPage;
 struct  HashDeleteLogType;

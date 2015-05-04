@@ -143,6 +143,10 @@ class AlignedMemory CXX11_FINAL {
     uint64_t alignment,
     AllocType alloc_type,
     int numa_node) CXX11_NOEXCEPT;
+  /** Short for alloc(kNumaAllocOnnode) */
+  void        alloc_onnode(uint64_t size, uint64_t alignment, int numa_node) CXX11_NOEXCEPT {
+    alloc(size, alignment, kNumaAllocOnnode, numa_node);
+  }
 
   /**
    * If the current size is smaller than the given size, automatically expands.

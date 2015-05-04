@@ -152,6 +152,9 @@ const uint8_t kHashMinBinBits = 7U;
  */
 const uint8_t kHashMaxBinBits = 48U;
 
+/** This value or larger never appears as a valid HashBin */
+const HashBin kInvalidHashBin = 1ULL << kHashMaxBinBits;
+
 /**
  * @brief Represents a range of hash bins in a hash storage, such as what an intermediate page
  * is responsible for.

@@ -74,6 +74,8 @@ class SnapshotFileSet CXX11_FINAL : public DefaultInitializable {
     fs::DirectIoFile** out);
 
   ErrorCode read_page(storage::SnapshotPagePointer page_id, void* out);
+  /** Read contiguous pages in one shot */
+  ErrorCode read_pages(storage::SnapshotPagePointer page_id_begin, uint32_t page_count, void* out);
 
   friend std::ostream&    operator<<(std::ostream& o, const SnapshotFileSet& v);
 

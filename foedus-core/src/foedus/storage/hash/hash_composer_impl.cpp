@@ -21,8 +21,10 @@
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
 #include <ostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "foedus/engine.hpp"
@@ -36,6 +38,7 @@
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/page_resolver.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
+#include "foedus/snapshot/log_gleaner_resource.hpp"
 #include "foedus/snapshot/merge_sort.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_writer_impl.hpp"
@@ -46,6 +49,7 @@
 #include "foedus/storage/hash/hash_partitioner_impl.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/storage/hash/hash_storage_pimpl.hpp"
+#include "foedus/thread/numa_thread_scope.hpp"
 
 namespace foedus {
 namespace storage {
@@ -118,82 +122,199 @@ ErrorStack HashComposer::compose(const Composer::ComposeArguments& args) {
   return kRetOk;
 }
 
-ErrorStack HashComposer::construct_root(const Composer::ConstructRootArguments& /*args*/) {
+ErrorStack HashComposer::construct_root(const Composer::ConstructRootArguments& args) {
   // Unlike array package, this method might do lots of I/O.
-  // In each reducer, we only created data pages. They don't create intermediate pages
-  // and instead they emit linked-lists of HashComposedBinsPage and HashRootInfoPage
+  // Each reducer creates only data pages. They don't create intermediate pages
+  // and instead they emit linked-lists of HashComposedBinsPage as well as HashRootInfoPage
   // pointing to them. We combine these information here, writing out new intermediate pages.
 
-/* TODO(Hideaki) so much for today..
   // compose() created root_info_pages that contain pointers to fill in the root page,
   // so we just find non-zero entry and copy it to root page.
-  uint8_t levels = storage_.get_levels();
-  snapshot::SnapshotId new_snapshot_id = args.snapshot_writer_->get_snapshot_id();
-  Epoch system_initial_epoch = engine_->get_savepoint_manager()->get_initial_durable_epoch();
-  HashPage* root_page = reinterpret_cast<HashPage*>(args.snapshot_writer_->get_page_base());
-  SnapshotPagePointer page_id = storage_.get_metadata()->root_snapshot_page_id_;
-  SnapshotPagePointer new_page_id = args.snapshot_writer_->get_next_page_id();
-  *args.new_root_page_pointer_ = new_page_id;
+  const uint8_t levels = storage_.get_levels();
 
-  uint64_t root_interval = LookupRouteFinder(levels, payload_size).get_records_in_leaf();
-  for (uint8_t level = 1; level < levels; ++level) {
-    root_interval *= kInteriorFanout;
-  }
-  HashRange range(0, root_interval, storage_.get_hash_size());
-  if (page_id != 0) {
-    WRAP_ERROR_CODE(args.previous_snapshot_files_->read_page(page_id, root_page));
+  HashIntermediatePage* root_page = reinterpret_cast<HashIntermediatePage*>(
+    args.gleaner_resource_->tmp_root_page_memory_.get_block());
+  SnapshotPagePointer old_root_page_id = storage_.get_metadata()->root_snapshot_page_id_;
+  if (old_root_page_id != 0) {
+    WRAP_ERROR_CODE(args.previous_snapshot_files_->read_page(old_root_page_id, root_page));
     ASSERT_ND(root_page->header().storage_id_ == storage_id_);
-    ASSERT_ND(root_page->header().page_id_ == page_id);
-    ASSERT_ND(root_page->get_hash_range() == range);
-    root_page->header().page_id_ = new_page_id;
+    ASSERT_ND(root_page->header().page_id_ == old_root_page_id);
+    ASSERT_ND(root_page->get_level() + 1U == storage_.get_levels());
+    root_page->header().page_id_ = 0;
   } else {
     root_page->initialize_snapshot_page(
-      system_initial_epoch,
       storage_id_,
-      new_page_id,
-      payload_size,
-      levels - 1,
-      range);
+      0,  // new page ID not known at this point
+      storage_.get_levels() - 1U,
+      0);
   }
 
-  uint64_t child_interval = root_interval / kInteriorFanout;
-  uint16_t root_children = assorted::int_div_ceil(storage_.get_hash_size(), child_interval);
+  if (levels == 1U) {
+    // single-level hash storage's root info page directly points to data pages, so
+    // no need for parallelization. we separate the case below.
+    CHECK_ERROR(construct_root_single_level(args, root_page));
+  } else {
+    // otherwise, we parallelze the heavy lifting part, which involves raeds/writes of pages.
+    LOG(INFO) << to_string() << " construct_root() multi-level parallelized path";
+    std::vector< std::thread > threads;
 
-  // overwrite pointers with root_info_pages.
+    const uint16_t nodes = engine_->get_soc_count();
+    std::unique_ptr< ErrorStack[] > error_stacks(new ErrorStack[nodes]);
+    for (uint16_t numa_node = 0; numa_node < nodes; ++numa_node) {
+      threads.emplace_back(
+        HashComposer::launch_construct_root_multi_level,
+        this,
+        &args,
+        numa_node,
+        root_page,
+        error_stacks.get() + numa_node);
+    }
+
+    LOG(INFO) << to_string() << " construct_root() launched " << nodes << " threads...";
+    for (uint16_t numa_node = 0; numa_node < nodes; ++numa_node) {
+      threads[numa_node].join();
+      if (error_stacks.get()[numa_node].is_error()) {
+        LOG(ERROR) << to_string() << " construct_root() observed an error in the launched"
+          << " thread-" << numa_node << ". will propagate after joining the worker threads. "
+          << "error description: " << error_stacks.get()[numa_node];
+      }
+      CHECK_ERROR(error_stacks.get()[numa_node]);
+    }
+    LOG(INFO) << to_string() << " construct_root() joined";
+    // propagate errors.
+    for (uint16_t numa_node = 0; numa_node < nodes; ++numa_node) {
+      CHECK_ERROR(error_stacks.get()[numa_node]);
+    }
+  }
+
+  // write out root_page image
+  SnapshotPagePointer new_root_page_id = args.snapshot_writer_->get_next_page_id();
+  root_page->header().page_id_ = new_root_page_id;
+  std::memcpy(args.snapshot_writer_->get_page_base(), root_page, kPageSize);
+  WRAP_ERROR_CODE(args.snapshot_writer_->dump_pages(0, 1));
+  ASSERT_ND(args.snapshot_writer_->get_next_page_id() == new_root_page_id + 1ULL);
+
+  *args.new_root_page_pointer_ = new_root_page_id;
+  // AFTER writing out the root page, install the pointer to new root page
+  storage_.get_control_block()->root_page_pointer_.snapshot_pointer_ = new_root_page_id;
+  storage_.get_control_block()->meta_.root_snapshot_page_id_ = new_root_page_id;
+  return kRetOk;
+}
+
+ErrorStack HashComposer::construct_root_single_level(
+  const Composer::ConstructRootArguments& args,
+  HashIntermediatePage* root_page) {
+  ASSERT_ND(storage_.get_levels() == 1U);
+  LOG(INFO) << to_string() << " construct_root() Single-level path";
+  snapshot::SnapshotId new_snapshot_id = args.snapshot_writer_->get_snapshot_id();
+
+  // single-level, so all reducuers wrote out at most only one entry per sub-tree.
+  // so, the bins pages must be contiguous. just one read!
+  HashComposedBinsPage* buffer = reinterpret_cast<HashComposedBinsPage*>(
+    args.gleaner_resource_->writer_pool_memory_.get_block());  // whatever memory. just 1 thread.
+  uint32_t buffer_pages = args.gleaner_resource_->writer_pool_memory_.get_size() / kPageSize;
+  uint16_t root_children = storage_.get_root_children();
+  ASSERT_ND(buffer_pages > root_children);
   for (uint32_t i = 0; i < args.root_info_pages_count_; ++i) {
     const HashRootInfoPage* casted
       = reinterpret_cast<const HashRootInfoPage*>(args.root_info_pages_[i]);
-    for (uint16_t j = 0; j < root_children; ++j) {
-      SnapshotPagePointer pointer = casted->pointers_[j];
-      if (pointer != 0) {
-        ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(pointer) == new_snapshot_id);
-        DualPagePointer& record = root_page->get_interior_record(j);
-        // partitioning has no overlap, so this must be the only overwriting pointer
-        ASSERT_ND(record.snapshot_pointer_ == 0 ||
-          extract_snapshot_id_from_snapshot_pointer(record.snapshot_pointer_)
-            != new_snapshot_id);
-        record.snapshot_pointer_ = pointer;
+    ASSERT_ND(casted->get_pointer(0).volatile_pointer_.word == 1);  // only one page
+    SnapshotPagePointer bins_page_id = casted->get_pointer(0).snapshot_pointer_;
+
+    // check if it's really contiguous
+    for (uint16_t index = 0; index < root_children; ++index) {
+      ASSERT_ND(casted->get_pointer(index).volatile_pointer_.word == 1U);
+      ASSERT_ND(casted->get_pointer(index).snapshot_pointer_ == bins_page_id + i);
+      if (casted->get_pointer(index).volatile_pointer_.word != 1U) {
+        return ERROR_STACK_MSG(kErrorCodeInternalError, "wtf 1");
+      }
+      if (casted->get_pointer(index).snapshot_pointer_ != bins_page_id + i) {
+        return ERROR_STACK_MSG(kErrorCodeInternalError, "wtf 2");
       }
     }
-    for (uint16_t j = root_children; j < kInteriorFanout; ++j) {
-      ASSERT_ND(casted->pointers_[j] == 0);
+
+    // collect pointers to data pages.
+    WRAP_ERROR_CODE(args.previous_snapshot_files_->read_pages(bins_page_id, root_children, buffer));
+    for (uint16_t index = 0; index < root_children; ++index) {
+      HashComposedBinsPage* bins_page = buffer + index;
+      if (bins_page->bin_count_) {
+        ASSERT_ND(bins_page->bin_count_ == 1U);
+        ASSERT_ND(bins_page->bins_[0].bin_ == index);
+        SnapshotPagePointer new_pointer = bins_page->bins_[0].page_id_;
+        SnapshotPagePointer cur_pointer = root_page->get_pointer(index).snapshot_pointer_;
+        ASSERT_ND(new_pointer != 0);
+        ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(new_pointer) == new_snapshot_id);
+        ASSERT_ND(cur_pointer == 0
+          || extract_snapshot_id_from_snapshot_pointer(cur_pointer) != new_snapshot_id);
+        root_page->get_pointer(index).snapshot_pointer_ = new_pointer;
+      }
     }
   }
 
-  // even in initial snapshot, all pointers must be set because we create empty pages
-  // even if some sub-tree receives no logs.
-  for (uint16_t j = 0; j < root_children; ++j) {
-    ASSERT_ND(root_page->get_interior_record(j).snapshot_pointer_ != 0);
+  return kRetOk;
+}
+
+ErrorStack HashComposer::construct_root_multi_level(
+  const Composer::ConstructRootArguments& args,
+  uint16_t numa_node,
+  HashIntermediatePage* /*root_page*/) {
+  const uint16_t nodes = engine_->get_soc_count();
+  const uint16_t root_children = storage_.get_root_children();
+  ASSERT_ND(numa_node < nodes);
+  thread::NumaThreadScope numa_scope(numa_node);
+
+  VLOG(0) << to_string() << " construct_root() child thread numa_node-" << numa_node;
+  const snapshot::SnapshotId new_snapshot_id = args.snapshot_writer_->get_snapshot_id();
+
+  // This method runs on multi-threads, but in this NUMA node I'm the only one.
+  // We thus can open a snapshot_writer for this thread and write out to there.
+  cache::SnapshotFileSet fileset(engine_);
+  CHECK_ERROR(fileset.initialize());
+  UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
+
+  snapshot::LogGleanerResource::PerNodeResource& resource
+    = args.gleaner_resource_->per_node_resources_[numa_node];
+  // Just be careful in the case of node-0: the gleaner itself holds it.
+  // In that case, create another snapshot_writer.
+  std::unique_ptr< snapshot::SnapshotWriter > snapshot_writer_to_delete(nullptr);
+  snapshot::SnapshotWriter* snapshot_writer;
+  if (numa_node == 0) {
+    snapshot_writer = args.snapshot_writer_;
+  } else {
+    snapshot_writer_to_delete.reset(new snapshot::SnapshotWriter(
+      engine_,
+      numa_node,
+      new_snapshot_id,
+      &resource.write_buffer_,
+      &resource.write_intermediate_buffer_,
+      true));  // we append to the node-0 snapshot file.
+    snapshot_writer = snapshot_writer_to_delete.get();
+    CHECK_ERROR(snapshot_writer->open());
+  }
+
+  const uint32_t inputs = args.root_info_pages_count_;
+  ASSERT_ND(inputs > 0);
+  ComposedBinsBuffer::assure_read_buffer_size(&resource.read_buffer_, inputs);
+
+  // HashComposedBinsPage resource.read_buffer_.get_block();
+  for (uint16_t index = 0; index < root_children; ++index) {
+    if (index % nodes != numa_node) {
+      // round robin assignment
+      continue;
+    }
+
+    // read all
   }
 
   WRAP_ERROR_CODE(args.snapshot_writer_->dump_pages(0, 1));
-  ASSERT_ND(args.snapshot_writer_->get_next_page_id() == new_page_id + 1ULL);
-  // AFTER writing out the root page, install the pointer to new root page
-  storage_.get_control_block()->root_page_pointer_.snapshot_pointer_ = new_page_id;
-  storage_.get_control_block()->meta_.root_snapshot_page_id_ = new_page_id;
-*/
+
+  if (numa_node != 0) {
+    snapshot_writer_to_delete.get()->close();
+  }
+
   return kRetOk;
 }
+
 
 inline HashDataPage* HashComposer::resolve_data(VolatilePagePointer pointer) const {
   return resolve_data_impl(volatile_resolver_, pointer);
@@ -388,8 +509,9 @@ ErrorStack HashComposeContext::finalize() {
   const SnapshotPagePointer base_pointer = snapshot_writer_->get_next_page_id();
   for (uint32_t i = 0; i < root_children_; ++i) {
     // these are heads of linked-list. We keep pointers to these pages in root-info page
-    root_info_page_->get_pointer(i).volatile_pointer_.clear();
     root_info_page_->get_pointer(i).snapshot_pointer_ = base_pointer + i;
+    // we use the volatile pointer to represent the number of pages in the sub-tree.
+    ASSERT_ND(root_info_page_->get_pointer(i).volatile_pointer_.word > 0);
   }
   for (uint32_t i = 0; i < allocated_intermediates_; ++i) {
     HashComposedBinsPage* page = intermediate_base_ + i;
@@ -717,6 +839,10 @@ ErrorStack HashComposeContext::init_intermediates() {
     uint64_t interval = kHashMaxBins[levels_ - 1U];
     HashBinRange range(i * interval, (i + 1U) * interval);
     intermediate_base_[i].bin_range_ = range;
+
+    // we use the volatile pointer to represent the number of pages in the sub-tree. initialize it.
+    ASSERT_ND(root_info_page_->get_pointer(i).volatile_pointer_.word == 0);  // we did mem-zero.
+    root_info_page_->get_pointer(i).volatile_pointer_.word = 1;  // just one page initially
   }
 
   return kRetOk;
@@ -771,6 +897,14 @@ ErrorCode HashComposeContext::append_to_intermediate(SnapshotPagePointer page_id
     cur_intermediate_tail_ = next;
     ASSERT_ND(cur_intermediate_tail_->next_page_ == 0);
     ASSERT_ND(cur_intermediate_tail_->bin_range_.contains(bin));
+
+    // also maintain the count of pages in root-child pointer
+    uint16_t root_child = bin / kHashMaxBins[levels_ - 1U];
+    ASSERT_ND(root_child < root_children_);
+    ASSERT_ND((
+      intermediate_base_ + root_info_page_->get_pointer(root_child).snapshot_pointer_)->bin_range_
+        == cur_intermediate_tail_->bin_range_);
+    ++root_info_page_->get_pointer(root_child).volatile_pointer_.word;
   }
 
   ASSERT_ND(cur_intermediate_tail_->bin_count_ < kHashComposedBinsPageMaxBins);

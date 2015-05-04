@@ -25,11 +25,13 @@
 
 #include "foedus/compiler.hpp"
 #include "foedus/fwd.hpp"
+#include "foedus/cache/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/snapshot/fwd.hpp"
 #include "foedus/storage/composer.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/hash/fwd.hpp"
+#include "foedus/storage/hash/hash_composed_bins_impl.hpp"
 #include "foedus/storage/hash/hash_id.hpp"
 #include "foedus/storage/hash/hash_page_impl.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
@@ -70,6 +72,16 @@ class HashComposer final {
   Composer::DropResult  drop_volatiles(const Composer::DropVolatilesArguments& args);
   void                  drop_root_volatile(const Composer::DropVolatilesArguments& args);
 
+  /** launched on its own thread. */
+  static void           launch_construct_root_multi_level(
+    HashComposer* pointer,
+    const Composer::ConstructRootArguments* args,
+    uint16_t numa_node,
+    HashIntermediatePage* root_page,
+    ErrorStack* out_error) {
+    *out_error = pointer->construct_root_multi_level(*args, numa_node, root_page);
+  }
+
  private:
   Engine* const             engine_;
   const StorageId           storage_id_;
@@ -80,6 +92,20 @@ class HashComposer final {
 
   HashDataPage* resolve_data(VolatilePagePointer pointer) const ALWAYS_INLINE;
   HashIntermediatePage* resolve_intermediate(VolatilePagePointer pointer) const ALWAYS_INLINE;
+
+  /** implementation of construct_root when levels == 1 */
+  ErrorStack construct_root_single_level(
+    const Composer::ConstructRootArguments& args,
+    HashIntermediatePage* root_page);
+  /**
+   * implementation of construct_root when levels > 1. run on its own thread, one per NUMA node.
+   * The assignment is round-robin. Suppose there are 4 NUMA nodes.
+   * Node-0 takes child-0, child-4, child-8, ... Node-1 takes child-1, child-5,...
+   */
+  ErrorStack construct_root_multi_level(
+    const Composer::ConstructRootArguments& args,
+    uint16_t numa_node,
+    HashIntermediatePage* root_page);
 
   Composer::DropResult drop_volatiles_recurse(
     const Composer::DropVolatilesArguments& args,
@@ -102,58 +128,6 @@ class HashComposer final {
     const Composer::DropVolatilesArguments& args,
     DualPagePointer* pointer);
 };
-
-struct ComposedBin {
-  HashBin             bin_;
-  SnapshotPagePointer page_id_;
-};
-
-const uint16_t kHashComposedBinsPageMaxBins = (kPageSize - 64) / sizeof(ComposedBin);
-
-/**
- * Output of compose() call consists of many of this pages.
- * Each HashComposedBinsPage contains lots of snapshotted-bins.
- * This is simply a linked list connected by the next-page pointer.
- * All bins stored here are sorted by bin.
- */
-struct HashComposedBinsPage final {
-  PageHeader          header_;      // +32 -> 32
-  HashBinRange        bin_range_;   // +16 -> 48
-  SnapshotPagePointer next_page_;   // +8  -> 56
-  uint32_t            bin_count_;   // +4  -> 60
-  uint32_t            dummy_;       // +4  -> 64
-  ComposedBin         bins_[kHashComposedBinsPageMaxBins];    // -> 4096
-};
-
-/**
- * @brief Output of one compose() call, which are then combined in construct_root().
- * @details
- * The format is exactly same as HashIntermediatePage, but typedef-ed for clarity. The only
- * difference is it points to HashComposedBinsPage instead of HashDataPage/HashIntermediatePage.
- *
- * @par Linked list of HashComposedBinsPage
- * In hash storage, what compose() returns are just a list of bins.
- * There essentially is no structure of them.
- * The only reason we have this "root" page is to allow parallel combination by the gleaner.
- * Each child-pointer from the root page is assigned to one thread on its own node,
- * then written out in that node. So, after following the first child pointer, we just
- * need a linked list, which is HashComposedBinsPage.
- *
- * @par 2-path composition
- * Each reducer returns a linked-list of HashComposedBinsPage for every direct-child of the
- * root page. Then, the gleaner combines them in a parallel fashion, resulting in snapshot
- * interemediate pages that will be installed to the root page.
- *
- * @par 1-level hashtable
- * It works the same way even when the hash table has only one level (root directly points to data
- * pages). Even in this case, HashRootInfoPage still points to HashComposedBinsPage,
- * which contains only one entry per page. Kind of wasteful, but it has negligible overheads
- * compared to the entire mapper/reducer.
- * Unlike array package, we don't do special optimization for this case in order to keep the code
- * simpler, and because the storage could benefit from parallelization even in this case
- * (the root page still contains hundreds of hash bins).
- */
-typedef HashIntermediatePage HashRootInfoPage;
 
 /**
  * HashComposer's compose() implementation separated from the class itself.
@@ -386,9 +360,6 @@ class HashComposeContext {
    */
   HashComposedBinsPage*     intermediate_base_;
 };
-
-static_assert(sizeof(HashRootInfoPage) == kPageSize, "incorrect sizeof(RootInfoPage)");
-static_assert(sizeof(HashComposedBinsPage) == kPageSize, "incorrect sizeof(HashComposedBinsPage)");
 
 
 }  // namespace hash

@@ -3,7 +3,7 @@
 
 Overview
 --------
-FOEDUS is a new transactional key-value library developed at Hewlett-Packard Labs that is optimized
+FOEDUS is a new transactional key-value store developed at Hewlett-Packard Labs that is optimized
 for a large number of CPU cores and NVRAM storage. It is a handy C++ library you can
 either include in your source code (by invoking CMake script) or dynamically link to.
 In a nutshell, it is something like BerkeleyDB, but it is much more efficient on new hardware.
