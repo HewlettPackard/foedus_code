@@ -144,7 +144,7 @@ struct ThreadEpockMark {
  * @see foedus::log::ThreadEpockMark
  * @see foedus::log::ThreadLogBuffer
  */
-struct ThreadLogBufferMeta final {
+struct ThreadLogBufferMeta CXX11_FINAL {
   enum Constants {
     /**
      * @brief Each thread can have at most this number of epochs in this log buffer.
@@ -263,7 +263,7 @@ struct ThreadLogBufferMeta final {
  * @par Epoch marks
  * @copydoc foedus::log::ThreadEpockMark
  */
-class ThreadLogBuffer final : public DefaultInitializable {
+class ThreadLogBuffer CXX11_FINAL : public DefaultInitializable {
  public:
   friend class Logger;
   /**
@@ -291,12 +291,12 @@ class ThreadLogBuffer final : public DefaultInitializable {
   }
 
   ThreadLogBuffer(Engine* engine, thread::ThreadId thread_id);
-  ErrorStack  initialize_once() override;
-  ErrorStack  uninitialize_once() override;
+  ErrorStack  initialize_once() CXX11_OVERRIDE;
+  ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
-  ThreadLogBuffer() = delete;
-  ThreadLogBuffer(const ThreadLogBuffer &other) = delete;
-  ThreadLogBuffer& operator=(const ThreadLogBuffer &other) = delete;
+  ThreadLogBuffer() CXX11_FUNC_DELETE;
+  ThreadLogBuffer(const ThreadLogBuffer &other) CXX11_FUNC_DELETE;
+  ThreadLogBuffer& operator=(const ThreadLogBuffer &other) CXX11_FUNC_DELETE;
 
   /**
    * Only for Debug-assertion.

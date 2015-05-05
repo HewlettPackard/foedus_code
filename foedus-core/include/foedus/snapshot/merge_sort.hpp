@@ -83,8 +83,6 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
   typedef uint32_t MergedPosition;
   /** Index in input streams */
   typedef uint16_t InputIndex;
-  /** Represents null. */
-  const InputIndex kInvalidInput = static_cast<InputIndex>(-1U);
 
   enum Constants {
     /** This is a theoretical max. additionally it must be less than buffer_capacity_ */
@@ -102,11 +100,6 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
      */
     kWindowChunkReserveBytes = 1 << 16,
   };
-  /**
-   * Also, when the input consumed more than this fraction of current window, we move the window.
-   * This means we have to memmove 5% everytime, but instead we can avoid many-small batches.
-   */
-  const float kWindowMoveThreshold = 0.95;
 
   /**
    * Entries we actually sort.
