@@ -267,18 +267,17 @@ ErrorCode ThreadPimpl::install_a_volatile_page(
   if (UNLIKELY(offset == 0)) {
     return kErrorCodeMemoryNoFreePages;
   }
-  *installed_page = local_volatile_page_resolver_.resolve_offset_newpage(offset);
-  std::memcpy(*installed_page, snapshot_page, storage::kPageSize);
+  storage::Page* page = local_volatile_page_resolver_.resolve_offset_newpage(offset);
+  std::memcpy(page, snapshot_page, storage::kPageSize);
   // We copied from a snapshot page, so the snapshot flag is on.
-  ASSERT_ND((*installed_page)->get_header().snapshot_);
-  // This page is a volatile page, so set the snapshot flag off.
-  (*installed_page)->get_header().snapshot_ = false;
+  ASSERT_ND(page->get_header().snapshot_);
+  page->get_header().snapshot_ = false;  // now it's volatile
   storage::VolatilePagePointer volatile_pointer = storage::combine_volatile_page_pointer(
     numa_node_,
     0,
     0,
     offset);
-  (*installed_page)->get_header().page_id_ = volatile_pointer.word;  // and correct page ID
+  page->get_header().page_id_ = volatile_pointer.word;  // and correct page ID
 
   *installed_page = place_a_new_volatile_page(offset, pointer);
   return kErrorCodeOk;
@@ -432,14 +431,8 @@ ErrorCode ThreadPimpl::follow_page_pointer(
   } else {
     // if there is a snapshot page, we have a few more choices.
     if (volatile_pointer.components.offset != 0) {
-      if (!will_modify && current_xct_.get_isolation_level() == xct::kDirtyReadPreferSnapshot) {
-        // even if volatile page exists. kDirtyReadPreferSnapshot prefers the snapshot page
-        CHECK_ERROR_CODE(find_or_read_a_snapshot_page(pointer->snapshot_pointer_, page));
-        followed_snapshot = true;
-      } else {
-        // otherwise (most cases) just return volatile page
-        *page = global_volatile_page_resolver_.resolve_offset(volatile_pointer);
-      }
+      // we have a volatile page, which is guaranteed to be latest
+      *page = global_volatile_page_resolver_.resolve_offset(volatile_pointer);
     } else if (will_modify) {
       // we need a volatile page. so construct it from snapshot
       CHECK_ERROR_CODE(install_a_volatile_page(pointer, page));
@@ -480,7 +473,6 @@ ErrorCode ThreadPimpl::follow_page_pointers_for_read_batch(
   // this one uses a batched find method for following snapshot pages.
   // some of them might follow volatile pages, so we do it only when at least one snapshot ptr.
   bool has_some_snapshot = false;
-  const bool prefer_snapshot = current_xct_.get_isolation_level() == xct::kDirtyReadPreferSnapshot;
   const bool needs_ptr_set
     = take_ptr_set_snapshot && current_xct_.get_isolation_level() == xct::kSerializable;
 
@@ -502,8 +494,7 @@ ErrorCode ThreadPimpl::follow_page_pointers_for_read_batch(
     // followed_snapshots is both input and output.
     // as input, it should indicate whether the parent is snapshot or not
     ASSERT_ND(parents[b]->get_header().snapshot_ == followed_snapshots[b]);
-    if (pointer->snapshot_pointer_ != 0
-      && (pointer->volatile_pointer_.is_null() || prefer_snapshot)) {
+    if (pointer->snapshot_pointer_ != 0 && pointer->volatile_pointer_.is_null()) {
       has_some_snapshot = true;
       snapshot_page_ids[b] = pointer->snapshot_pointer_;
     }
@@ -568,13 +559,7 @@ ErrorCode ThreadPimpl::follow_page_pointers_for_read_batch(
       }
     } else {
       ASSERT_ND(!pointer->volatile_pointer_.is_null());
-      if (prefer_snapshot) {
-        // we checked this case above, but volatile pointer might be _now_ installed.
-        // in that rare case, use the non-batch method.
-        CHECK_ERROR_CODE(find_or_read_a_snapshot_page(pointer->snapshot_pointer_, out + b));
-      } else {
-        out[b] = global_volatile_page_resolver_.resolve_offset(pointer->volatile_pointer_);
-      }
+      out[b] = global_volatile_page_resolver_.resolve_offset(pointer->volatile_pointer_);
     }
   }
   return kErrorCodeOk;

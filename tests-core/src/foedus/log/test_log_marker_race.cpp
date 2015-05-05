@@ -73,7 +73,7 @@ ErrorStack test_marker_races(const proc::ProcArguments& args) {
     if (xct_manager->get_current_global_epoch() >= Epoch(kTestMarkerRacesLastEpoch)) {
       break;
     }
-    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyRead));
 
     for (uint16_t i = 0; i < kRecordsPerThread; ++i) {
       storage::array::ArrayOffset offset = ordinal * kRecordsPerThread + i;

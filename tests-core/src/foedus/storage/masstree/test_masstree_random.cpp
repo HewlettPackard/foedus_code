@@ -175,7 +175,7 @@ ErrorStack insert_many_normalized_mt_task(const proc::ProcArguments& args) {
   {
     char buf2[kBufSize];
     assorted::UniformRandom uniform_random(123456L);
-    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyRead));
     for (uint32_t i = 0; i < kCount; ++i) {
       KeySlice key = normalize_primitive<uint64_t>(uniform_random.next_uint64()) * 8 + id;
       *reinterpret_cast<uint64_t*>(buf + 3) = key;

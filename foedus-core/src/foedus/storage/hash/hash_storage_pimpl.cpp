@@ -436,9 +436,9 @@ ErrorCode HashStoragePimpl::follow_page(
       CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(pointer.snapshot_pointer_, page));
       ASSERT_ND((*page)->get_header().snapshot_);
     }
-  } else {
+  } else if (child_intermediate) {
     CHECK_ERROR_CODE(context->follow_page_pointer(
-      child_intermediate ? hash_intermediate_volatile_page_init : hash_data_volatile_page_init,
+      hash_intermediate_volatile_page_init,
       !for_write,  // null page is a valid result only for reads ("not found")
       for_write,
       true,   // if we jump to snapshot page, we need to add it to pointer set for serializability.
@@ -446,6 +446,10 @@ ErrorCode HashStoragePimpl::follow_page(
       page,
       reinterpret_cast<Page*>(parent),
       index_in_parent));
+  } else {
+    // we are in a level-0 volatile page. so the pointee is a bin-head.
+    // we need a bit special handling in this case
+    CHECK_ERROR_CODE(follow_page_bin_head(context, for_write, parent, index_in_parent, page));
   }
 
   if (*page) {
@@ -454,8 +458,181 @@ ErrorCode HashStoragePimpl::follow_page(
       ASSERT_ND((*page)->get_header().get_in_layer_level() + 1U == parent_level);
     } else {
       ASSERT_ND((*page)->get_page_type() == kHashDataPageType);
+      ASSERT_ND(reinterpret_cast<HashDataPage*>(*page)->get_bin()
+        == parent->get_bin_range().begin_ + index_in_parent);
     }
   }
+  return kErrorCodeOk;
+}
+
+ErrorCode HashStoragePimpl::follow_page_bin_head(
+  thread::Thread* context,
+  bool for_write,
+  HashIntermediatePage* parent,
+  uint16_t index_in_parent,
+  Page** page) {
+  // do we have to newly create a volatile version of the pointed bin?
+  ASSERT_ND(!parent->header().snapshot_);
+  ASSERT_ND(parent->header().get_page_type() == kHashIntermediatePageType);
+  ASSERT_ND(parent->get_level() == 0);
+  xct::Xct& cur_xct = context->get_current_xct();
+  xct::IsolationLevel isolation = cur_xct.get_isolation_level();
+  DualPagePointer* pointer = parent->get_pointer_address(index_in_parent);
+
+  // otherwise why in volatile page.
+  ASSERT_ND(for_write || isolation != xct::kSnapshot || pointer->snapshot_pointer_ == 0);
+  // in other words, we can safely "prefer" volatile page here.
+  if (!pointer->volatile_pointer_.is_null()) {
+    *page = context->resolve(pointer->volatile_pointer_);
+  } else {
+    SnapshotPagePointer snapshot_pointer = pointer->snapshot_pointer_;
+    if (!for_write) {
+      // reads don't have to create a new page. easy
+      if (snapshot_pointer == 0) {
+        *page = nullptr;
+      } else {
+        CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(snapshot_pointer, page));
+      }
+
+      if (isolation == xct::kSerializable) {
+        VolatilePagePointer null_pointer;
+        null_pointer.clear();
+        cur_xct.add_to_pointer_set(&(pointer->volatile_pointer_), null_pointer);
+      }
+    } else {
+      // writes need the volatile version.
+      if (snapshot_pointer == 0) {
+        // The bin is completely empty. we just make a new empty page.
+        CHECK_ERROR_CODE(context->follow_page_pointer(
+          hash_data_volatile_page_init,
+          false,
+          true,
+          true,
+          pointer,
+          page,
+          reinterpret_cast<Page*>(parent),
+          index_in_parent));
+      } else {
+        // Otherwise, we must create a volatile version of the existing page.
+        // a special rule for hash storage in this case: we create/drop volatile versions
+        // in the granularity of hash bin. all or nothing.
+        // thus, not just the head page of the bin, we have to volatilize the entire bin.
+        memory::NumaCoreMemory* core_memory = context->get_thread_memory();
+        const memory::LocalPageResolver& local_resolver
+          = context->get_local_volatile_page_resolver();
+        memory::PagePoolOffset offset = core_memory->grab_free_volatile_page();
+        if (UNLIKELY(offset == 0)) {
+          return kErrorCodeMemoryNoFreePages;
+        }
+
+        HashDataPage* head_page
+          = reinterpret_cast<HashDataPage*>(local_resolver.resolve_offset_newpage(offset));
+        VolatilePagePointer head_page_id = combine_volatile_page_pointer(
+          context->get_numa_node(),
+          0,
+          0,
+          offset);
+        storage::Page* snapshot_head;
+        ErrorCode code = context->find_or_read_a_snapshot_page(snapshot_pointer, &snapshot_head);
+        if (code != kErrorCodeOk) {
+          core_memory->release_free_volatile_page(offset);
+          return code;
+        }
+
+        std::memcpy(head_page, snapshot_head, kPageSize);
+        ASSERT_ND(head_page->header().snapshot_);
+        head_page->header().snapshot_ = false;
+        head_page->header().page_id_ = head_page_id.word;
+
+        // load following pages. hopefully this is a rare case.
+        ErrorCode last_error = kErrorCodeOk;
+        if (UNLIKELY(head_page->next_page().snapshot_pointer_)) {
+          HashDataPage* cur_page = head_page;
+          while (true) {
+            ASSERT_ND(last_error == kErrorCodeOk);
+            SnapshotPagePointer next = cur_page->next_page().snapshot_pointer_;
+            if (next == 0) {
+              break;
+            }
+
+            DVLOG(1) << "Following next-link in hash data pages. Hopefully it's not that long..";
+            memory::PagePoolOffset next_offset = core_memory->grab_free_volatile_page();
+            if (UNLIKELY(next_offset == 0)) {
+              // we have to release preceding pages too
+              last_error = kErrorCodeMemoryNoFreePages;
+              break;
+            }
+            HashDataPage* next_page
+              = reinterpret_cast<HashDataPage*>(local_resolver.resolve_offset_newpage(next_offset));
+            VolatilePagePointer next_page_id = combine_volatile_page_pointer(
+              context->get_numa_node(),
+              0,
+              0,
+              next_offset);
+            // immediately install because:
+            // 1) we don't have any race here, 2) we need to follow them to release on error.
+            DualPagePointer* target = cur_page->next_page_address();
+            ASSERT_ND(target->volatile_pointer_.is_null());
+            target->volatile_pointer_ = next_page_id;
+            target->snapshot_pointer_ = 0;  // will be no longer used, let's clear them
+
+            storage::Page* snapshot_page;
+            last_error = context->find_or_read_a_snapshot_page(next, &snapshot_page);
+            if (last_error != kErrorCodeOk) {
+              break;
+            }
+            std::memcpy(next_page, snapshot_page, kPageSize);
+            ASSERT_ND(next_page->header().snapshot_);
+            ASSERT_ND(next_page->get_bin() == cur_page->get_bin());
+            next_page->header().snapshot_ = false;
+            next_page->header().page_id_ = next_page_id.word;
+            cur_page = next_page;
+          }
+        }
+
+        // all rihgt, now atomically install the pointer to the volatile head page.
+        bool must_release_pages = false;
+        if (last_error == kErrorCodeOk) {
+          uint64_t expected = 0;
+          if (assorted::raw_atomic_compare_exchange_strong<uint64_t>(
+            &(pointer->volatile_pointer_.word),
+            &expected,
+            head_page_id.word)) {
+            // successfully installed the head pointer. fine.
+            *page = reinterpret_cast<Page*>(head_page);
+          } else {
+            ASSERT_ND(expected);
+            // someone else has installed it, which is also fine.
+            // but, we must release pages we created (which turned out to be a waste effort)
+            LOG(INFO) << "Interesting. Someone else has installed a volatile version.";
+            *page = context->resolve(pointer->volatile_pointer_);
+            must_release_pages = true;
+          }
+        } else {
+          must_release_pages = true;
+        }
+
+        if (must_release_pages) {
+          HashDataPage* cur = head_page;
+          while (true) {
+            VolatilePagePointer cur_id = construct_volatile_page_pointer(cur->header().page_id_);
+            ASSERT_ND(cur_id.components.numa_node == context->get_numa_node());
+            ASSERT_ND(!cur_id.is_null());
+            // retrieve next_id BEFORE releasing (revoking) cur page.
+            VolatilePagePointer next_id = cur->next_page().volatile_pointer_;
+            core_memory->release_free_volatile_page(cur_id.components.offset);
+            if (next_id.is_null()) {
+              break;
+            }
+            cur = context->resolve_cast<HashDataPage>(next_id);
+          }
+        }
+
+        CHECK_ERROR_CODE(last_error);
+      }
+    }
+  }
+
   return kErrorCodeOk;
 }
 

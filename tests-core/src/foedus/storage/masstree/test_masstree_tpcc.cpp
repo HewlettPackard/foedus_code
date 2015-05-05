@@ -355,7 +355,7 @@ ErrorCode TpccLoadTask::commit_if_full() {
   if (context_->get_current_xct().get_write_set_size() >= kCommitBatch) {
     Epoch commit_epoch;
     CHECK_ERROR_CODE(xct_manager_->precommit_xct(context_, &commit_epoch));
-    CHECK_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kDirtyReadPreferVolatile));
+    CHECK_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kDirtyRead));
   }
   return kErrorCodeOk;
 }

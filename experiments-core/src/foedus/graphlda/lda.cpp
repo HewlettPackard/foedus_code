@@ -344,7 +344,7 @@ class LdaWorker {
       const DocId d = assigned_tokens[i].doc;
       const TopicId old_topic = topics_tmp[i];
 
-      CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+      CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyRead));
 
       // First, read from the global arrays
       CHECK_ERROR_CODE(n_td.get_record(context, d, record_td));
@@ -439,7 +439,7 @@ class LdaWorker {
     Epoch ep;
     // first, "flush" batched increments/decrements to the global n_t
     // this transactionally applies all the inc/dec.
-    CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+    CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyRead));
     for (TopicId t = 0; t < ntopics_aligned; t += 4) {
       // for each uint64_t. we reserved additional size (align8) for simplifying this.
       uint64_t diff = *reinterpret_cast<uint64_t*>(&record_t_diff[t]);
@@ -453,7 +453,7 @@ class LdaWorker {
     // then, retrive a fresh new copy of record_t, which contains updates from other threads.
     std::memset(record_t, 0, sizeof(Count) * ntopics_aligned);
     std::memset(record_t_diff, 0, sizeof(Count) * ntopics_aligned);
-    CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+    CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyRead));
     CHECK_ERROR_CODE(n_t.get_record(context, 0, record_t));
     CHECK_ERROR_CODE(xct_manager->abort_xct(context));
     return kErrorCodeOk;

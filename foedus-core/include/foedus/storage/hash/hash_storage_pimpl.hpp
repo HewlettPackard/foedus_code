@@ -208,6 +208,13 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     HashIntermediatePage* parent,
     uint16_t index_in_parent,
     Page** page);
+  /** subroutine to follow a pointer to head of bin from a volatile parent */
+  ErrorCode   follow_page_bin_head(
+    thread::Thread* context,
+    bool for_write,
+    HashIntermediatePage* parent,
+    uint16_t index_in_parent,
+    Page** page);
 
   /**
    * @brief Find a pointer to the bin that contains records for the hash.

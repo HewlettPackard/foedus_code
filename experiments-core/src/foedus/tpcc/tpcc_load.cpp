@@ -279,7 +279,7 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
 
     if (storages_.customers_secondary_.get_metadata()->root_snapshot_page_id_ != 0) {
       LOG(INFO) << "Verifying customers_secondary_ in detail..";
-      WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kDirtyReadPreferVolatile));
+      WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kDirtyRead));
       storage::masstree::MasstreeCursor cursor(storages_.customers_secondary_, context);
       WRAP_ERROR_CODE(cursor.open());
       for (Wid wid = 0; wid < inputs_.total_warehouses_; ++wid) {
@@ -376,7 +376,7 @@ ErrorCode TpccLoadTask::commit_if_full() {
   if (context_->get_current_xct().get_write_set_size() >= kCommitBatch) {
     Epoch commit_epoch;
     CHECK_ERROR_CODE(xct_manager_->precommit_xct(context_, &commit_epoch));
-    CHECK_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kDirtyReadPreferVolatile));
+    CHECK_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kDirtyRead));
   }
   return kErrorCodeOk;
 }

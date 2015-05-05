@@ -27,9 +27,9 @@
  * @section HASH_PAGES Hash Interemediate page and Data page
  * The hash storage has two types of pages: HashIntermediatePage and HashDataPage.
  * HashIntermediatePage, starting from the root page, points down to other intermediate pages,
- * and the the leaf-level intermediate pages point to HashDataPage.
+ * and the level-0 intermediate pages point to HashDataPage.
  * HashDataPage has a next-pointer.
- * One entry (pointer) in a leaf-level intermediate page corresponds to a hash \e bin.
+ * One entry (pointer) in a level-0 intermediate page corresponds to a hash \e bin.
  * Usually one hash bin corresponds to a very small number of data pages, zero, one or rarely two.
  *
  * @ref foedus::storage::hash::HashIntermediatePage

@@ -137,7 +137,7 @@ class PopulateTpcbTask {
   }
   ErrorStack run(thread::Thread* context) {
     xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
-    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyRead));
 
     std::cout << "Populating records from branch " << from_branch_ << " to "
       << to_branch_ << " in node-" << static_cast<int>(context->get_numa_node()) << std::endl;
@@ -216,7 +216,7 @@ class PopulateTpcbTask {
       Epoch commit_epoch;
       xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
       CHECK_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
-      CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+      CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyRead));
     }
     return kErrorCodeOk;
   }
@@ -306,7 +306,7 @@ class RunTpcbTask {
     int64_t amount) {
     xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
     // CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-    CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+    CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyRead));
 
     int64_t balance = amount;
     CHECK_ERROR_CODE(branches_.increment_record_normalized(context, nm(branch_id), &balance, 0));

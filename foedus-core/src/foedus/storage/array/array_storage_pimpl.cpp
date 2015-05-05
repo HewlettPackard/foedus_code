@@ -423,8 +423,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload(
   CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
   xct::Xct& current_xct = context->get_current_xct();
   if (!snapshot_record &&
-    current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
-    current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
+    current_xct.get_isolation_level() != xct::kDirtyRead) {
     xct::XctId observed(record->owner_id_.xct_id_);
     assorted::memory_fence_consume();
     CHECK_ERROR_CODE(current_xct.add_to_read_set(get_id(), observed, &record->owner_id_));
@@ -439,8 +438,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write(
   Record** record) {
   CHECK_ERROR_CODE(locate_record_for_write(context, offset, record));
   xct::Xct& current_xct = context->get_current_xct();
-  if (current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
-    current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
+  if (current_xct.get_isolation_level() != xct::kDirtyRead) {
     xct::XctId observed((*record)->owner_id_.xct_id_);
     assorted::memory_fence_consume();
     CHECK_ERROR_CODE(current_xct.add_to_read_set(get_id(), observed, &((*record)->owner_id_)));
@@ -720,8 +718,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_primitive_batch(
     record_batch,
     snapshot_record_batch));
   xct::Xct& current_xct = context->get_current_xct();
-  if (current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
-      current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
+  if (current_xct.get_isolation_level() != xct::kDirtyRead) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       if (!snapshot_record_batch[i]) {
         xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
@@ -763,8 +760,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload_batch(
     record_batch,
     snapshot_record_batch));
   xct::Xct& current_xct = context->get_current_xct();
-  if (current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
-      current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
+  if (current_xct.get_isolation_level() != xct::kDirtyRead) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       if (!snapshot_record_batch[i]) {
         xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
@@ -794,8 +790,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write_batch(
     offset_batch,
     record_batch));
   xct::Xct& current_xct = context->get_current_xct();
-  if (current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
-      current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
+  if (current_xct.get_isolation_level() != xct::kDirtyRead) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
       CHECK_ERROR_CODE(current_xct.add_to_read_set(

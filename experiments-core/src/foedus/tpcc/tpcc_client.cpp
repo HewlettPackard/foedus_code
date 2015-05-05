@@ -124,7 +124,7 @@ ErrorStack TpccClientTask::run_impl(thread::Thread* context) {
       rnd_.set_current_seed(rnd_seed);
       update_timestring_if_needed();
       xct::IsolationLevel isolation
-        = dirty_read_mode_ ? xct::kDirtyReadPreferVolatile : xct::kSerializable;
+        = dirty_read_mode_ ? xct::kDirtyRead : xct::kSerializable;
       WRAP_ERROR_CODE(xct_manager->begin_xct(context, isolation));
       ErrorCode ret;
       if (transaction_type <= kXctNewOrderPercent) {
