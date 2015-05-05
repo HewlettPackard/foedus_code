@@ -84,6 +84,65 @@ void ComposedBinsBuffer::assure_read_buffer_size(
   ASSERT_ND(buffer_size >= kMinBufferSize);
 }
 
+ErrorStack ComposedBinsMergedStream::init(
+  const HashRootInfoPage* const* inputs,
+  uint32_t                  input_count,
+  PagePtr                   root_page,
+  uint16_t                  root_child_index,
+  memory::AlignedMemory*    read_buffer,
+  cache::SnapshotFileSet*   fileset,
+  snapshot::SnapshotWriter* writer,
+  uint32_t*                 writer_buffer_pos,
+  uint32_t*                 writer_higher_buffer_pos,
+  bool*                     had_any_change) {
+  ASSERT_ND(root_page->get_level() >= 1U);
+  snapshot_id_ = writer->get_snapshot_id();
+  std::memset(cur_path_, 0, sizeof(cur_path_));
+
+  inputs_memory_.reset(new ComposedBinsBuffer[input_count]);
+  inputs_ = inputs_memory_.get();
+  input_count_ = input_count;
+
+  ComposedBinsBuffer::assure_read_buffer_size(read_buffer, input_count);
+  uint64_t buffer_piece_size = read_buffer->get_size() / kPageSize / input_count;
+  for (uint32_t i = 0; i < input_count_; ++i) {
+    const DualPagePointer& root_child = inputs[i]->get_pointer(root_child_index);
+    SnapshotPagePointer head_page_id = root_child.snapshot_pointer_;
+    uint32_t total_pages = root_child.volatile_pointer_.word;
+    ASSERT_ND(total_pages > 0);
+    HashComposedBinsPage* read_buffer_casted
+      = reinterpret_cast<HashComposedBinsPage*>(read_buffer->get_block());
+    HashComposedBinsPage* buffer_piece = read_buffer_casted + buffer_piece_size * i;
+    inputs_[i].init(fileset, head_page_id, total_pages, buffer_piece_size, buffer_piece);
+  }
+
+  levels_ = root_page->get_level() + 1U;
+  cur_path_[root_page->get_level()] = root_page;
+
+  // what's the bin we initially seek to?
+  HashBin initial_bin = kInvalidHashBin;
+  for (uint32_t i = 0; i < input_count_; ++i) {
+    ComposedBinsBuffer* input = inputs_ + i;
+    if (input->has_more()) {
+      initial_bin = std::min<HashBin>(initial_bin, input->get_cur_bin().bin_);
+    }
+  }
+
+  if (initial_bin == kInvalidHashBin) {
+    *had_any_change = false;
+  } else {
+    *had_any_change = true;
+    WRAP_ERROR_CODE(open_path(
+      initial_bin,
+      root_page->get_level(),
+      fileset,
+      writer,
+      writer_buffer_pos,
+      writer_higher_buffer_pos));
+  }
+
+  return kRetOk;
+}
 
 ErrorCode ComposedBinsMergedStream::process_a_bin(
   uint32_t* installed_count,
@@ -126,72 +185,67 @@ ErrorCode ComposedBinsMergedStream::process_a_bin(
   return kErrorCodeOk;
 }
 
-ErrorStack ComposedBinsMergedStream::init(
-  const HashRootInfoPage**  inputs,
-  uint32_t                  input_count,
-  PagePtr                   root_page,
-  uint16_t                  root_child_index,
-  memory::AlignedMemory*    read_buffer,
-  cache::SnapshotFileSet*   fileset,
+ErrorCode ComposedBinsMergedStream::switch_path(
+  HashBin lowest_bin,
+  cache::SnapshotFileSet* fileset,
   snapshot::SnapshotWriter* writer,
-  uint32_t*                 writer_buffer_pos,
-  uint32_t*                 writer_higher_buffer_pos) {
-  ASSERT_ND(root_page->get_level() > 0);
-  snapshot_id_ = writer->get_snapshot_id();
-  std::memset(cur_path_, 0, sizeof(cur_path_));
+  uint32_t* writer_buffer_pos,
+  uint32_t* writer_higher_buffer_pos) {
+  ASSERT_ND(lowest_bin != kInvalidHashBin);
+  // because a path in this sub-tree must be switched, this is at least 3-levels.
+  // levels_==1 : single-level hash, separately processed in construct_root
+  // levels_==2 : then each sub-tree has only one level-0 page. switch_path is never called.
+  ASSERT_ND(levels_ >= 3U);
+  ASSERT_ND(!cur_path_[0]->get_bin_range().contains(lowest_bin));
+  ASSERT_ND(!cur_path_[levels_ - 1U]->get_bin_range().contains(lowest_bin));  // root page
+  ASSERT_ND(!cur_path_[levels_ - 2U]->get_bin_range().contains(lowest_bin));  // root_child page
 
-  inputs_memory_.reset(new ComposedBinsBuffer[input_count]);
-  inputs_ = inputs_memory_.get();
-  input_count_ = input_count;
-
-  ComposedBinsBuffer::assure_read_buffer_size(read_buffer, input_count);
-  uint64_t buffer_piece_size = read_buffer->get_size() / kPageSize / input_count;
-  for (uint32_t i = 0; i < input_count_; ++i) {
-    const DualPagePointer& root_child = inputs[i]->get_pointer(root_child_index);
-    SnapshotPagePointer head_page_id = root_child.snapshot_pointer_;
-    uint32_t total_pages = root_child.volatile_pointer_.word;
-    ASSERT_ND(total_pages > 0);
-    HashComposedBinsPage* read_buffer_casted
-      = reinterpret_cast<HashComposedBinsPage*>(read_buffer->get_block());
-    HashComposedBinsPage* buffer_piece = read_buffer_casted + buffer_piece_size * i;
-    inputs_[i].init(fileset, head_page_id, total_pages, buffer_piece_size, buffer_piece);
+  // where do we have to switch?
+  uint8_t valid_upto;
+  for (valid_upto = 1U; valid_upto + 2U < levels_; ++valid_upto) {
+    if (cur_path_[valid_upto]->get_bin_range().contains(lowest_bin)) {
+      break;
+    }
   }
+  ASSERT_ND(cur_path_[valid_upto]->get_bin_range().contains(lowest_bin));
+  ASSERT_ND(!cur_path_[valid_upto - 1U]->get_bin_range().contains(lowest_bin));
 
-  levels_ = root_page->get_level() + 1U;
-  cur_path_[root_page->get_level()] = root_page;
-  const StorageId storage_id = root_page->header().storage_id_;
+  return open_path(
+    lowest_bin,
+    valid_upto,
+    fileset,
+    writer,
+    writer_buffer_pos,
+    writer_higher_buffer_pos);
+}
+
+ErrorCode ComposedBinsMergedStream::open_path(
+  HashBin bin,
+  uint8_t fixed_upto_level,
+  cache::SnapshotFileSet* fileset,
+  snapshot::SnapshotWriter* writer,
+  uint32_t* writer_buffer_pos,
+  uint32_t* writer_higher_buffer_pos) {
+  ASSERT_ND(bin != kInvalidHashBin);
+  ASSERT_ND(cur_path_[fixed_upto_level]->get_bin_range().contains(bin));
+  ASSERT_ND(fixed_upto_level < levels_);
 
   // we need a room for one-page in main buffer, and levels pages in higher-level buffer.
-  ASSERT_ND(*writer_buffer_pos <= writer->get_page_size());
-  ASSERT_ND(*writer_higher_buffer_pos <= writer->get_intermediate_size());
-  if (*writer_buffer_pos == writer->get_page_size()) {
-    WRAP_ERROR_CODE(writer->dump_pages(0, *writer_buffer_pos));
-    *writer_buffer_pos = 0;
-  }
-  if (*writer_higher_buffer_pos + levels_ >= writer->get_intermediate_size()) {
-    WRAP_ERROR_CODE(writer->expand_intermediate_memory(*writer_higher_buffer_pos + levels_, true));
-    ASSERT_ND(*writer_higher_buffer_pos + levels_ < writer->get_intermediate_size());
-  }
+  CHECK_ERROR_CODE(assure_writer_buffer(writer, writer_buffer_pos, *writer_higher_buffer_pos));
   PagePtr higher_base = reinterpret_cast<PagePtr>(writer->get_intermediate_base());
   PagePtr main_base = reinterpret_cast<PagePtr>(writer->get_page_base());
 
-  // what's the bin we initially seek to?
-  HashBin initial_bin = kInvalidHashBin;
-  for (uint32_t i = 0; i < input_count_; ++i) {
-    ComposedBinsBuffer* input = inputs_ + i;
-    if (input->has_more()) {
-      initial_bin = std::min<HashBin>(initial_bin, input->get_cur_bin().bin_);
-    }
-  }
-  ASSERT_ND(initial_bin != kInvalidHashBin);
-  IntermediateRoute route = IntermediateRoute::construct(initial_bin);
+  IntermediateRoute route = IntermediateRoute::construct(bin);
   ASSERT_ND(route.route[levels_] == 0);
+  const StorageId storage_id = cur_path_[levels_ - 1U]->header().storage_id_;
 
   // let's open the page that contains the bin. higher levels first.
-  for (uint8_t parent_level = root_page->get_level(); parent_level > 0; --parent_level) {
+  for (uint8_t parent_level = fixed_upto_level; parent_level > 0; --parent_level) {
     uint8_t level = parent_level - 1U;
     PagePtr parent = cur_path_[parent_level];
     ASSERT_ND(parent->get_level() == parent_level);
+    ASSERT_ND(parent->get_bin_range().contains(bin));
+
     const uint16_t index = route.route[parent_level];
     HashBin range_begin = parent->get_bin_range().begin_ + index * kHashMaxBins[parent_level];
     ASSERT_ND(parent->get_bin_range().length() == kHashMaxBins[parent_level + 1U]);
@@ -219,7 +273,7 @@ ErrorStack ComposedBinsMergedStream::init(
     } else {
       // otherwise, start from the previous page image.
       ASSERT_ND(extract_snapshot_id_from_snapshot_pointer(old_page_id) != snapshot_id_);
-      WRAP_ERROR_CODE(fileset->read_page(old_page_id, new_page));
+      CHECK_ERROR_CODE(fileset->read_page(old_page_id, new_page));
       ASSERT_ND(new_page->get_bin_range().begin_ == range_begin);
       ASSERT_ND(new_page->get_level() == level);
       new_page->header().page_id_ = new_page_id;
@@ -227,7 +281,24 @@ ErrorStack ComposedBinsMergedStream::init(
     parent->get_pointer(index).snapshot_pointer_ = new_page_id;
   }
 
-  return kRetOk;
+  return kErrorCodeOk;
+}
+
+ErrorCode ComposedBinsMergedStream::assure_writer_buffer(
+  snapshot::SnapshotWriter* writer,
+  uint32_t* writer_buffer_pos,
+  uint32_t writer_higher_buffer_pos) {
+  ASSERT_ND(*writer_buffer_pos <= writer->get_page_size());
+  ASSERT_ND(writer_higher_buffer_pos <= writer->get_intermediate_size());
+  if (UNLIKELY(*writer_buffer_pos == writer->get_page_size())) {
+    CHECK_ERROR_CODE(writer->dump_pages(0, *writer_buffer_pos));
+    *writer_buffer_pos = 0;
+  }
+  if (UNLIKELY(writer_higher_buffer_pos + levels_ >= writer->get_intermediate_size())) {
+    CHECK_ERROR_CODE(writer->expand_intermediate_memory(writer_higher_buffer_pos + levels_, true));
+    ASSERT_ND(writer_higher_buffer_pos + levels_ < writer->get_intermediate_size());
+  }
+  return kErrorCodeOk;
 }
 
 }  // namespace hash

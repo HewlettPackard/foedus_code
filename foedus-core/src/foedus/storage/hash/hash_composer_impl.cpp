@@ -44,6 +44,7 @@
 #include "foedus/snapshot/snapshot_writer_impl.hpp"
 #include "foedus/storage/metadata.hpp"
 #include "foedus/storage/storage_manager.hpp"
+#include "foedus/storage/hash/hash_composed_bins_impl.hpp"
 #include "foedus/storage/hash/hash_log_types.hpp"
 #include "foedus/storage/hash/hash_page_impl.hpp"
 #include "foedus/storage/hash/hash_partitioner_impl.hpp"
@@ -257,7 +258,7 @@ ErrorStack HashComposer::construct_root_single_level(
 ErrorStack HashComposer::construct_root_multi_level(
   const Composer::ConstructRootArguments& args,
   uint16_t numa_node,
-  HashIntermediatePage* /*root_page*/) {
+  HashIntermediatePage* root_page) {
   const uint16_t nodes = engine_->get_soc_count();
   const uint16_t root_children = storage_.get_root_children();
   ASSERT_ND(numa_node < nodes);
@@ -294,24 +295,123 @@ ErrorStack HashComposer::construct_root_multi_level(
 
   const uint32_t inputs = args.root_info_pages_count_;
   ASSERT_ND(inputs > 0);
-  ComposedBinsBuffer::assure_read_buffer_size(&resource.read_buffer_, inputs);
 
-  // HashComposedBinsPage resource.read_buffer_.get_block();
+  ComposedBinsMergedStream streams;
   for (uint16_t index = 0; index < root_children; ++index) {
     if (index % nodes != numa_node) {
       // round robin assignment
       continue;
     }
 
-    // read all
+    SnapshotPagePointer* destination = &root_page->get_pointer(index).snapshot_pointer_;
+    ASSERT_ND((*destination) == 0
+      || extract_snapshot_id_from_snapshot_pointer(*destination) != new_snapshot_id);
+
+    bool had_any_change = false;
+    uint32_t writer_buffer_pos = 0;  // how many level-0 pages made in the main buffer
+    uint32_t writer_higher_buffer_pos = 0;  // how many higher level pages made in the sub buffer
+
+    CHECK_ERROR(streams.init(
+      reinterpret_cast<const HashRootInfoPage* const*>(args.root_info_pages_),
+      args.root_info_pages_count_,
+      root_page,
+      index,
+      &resource.read_buffer_,
+      &fileset,
+      snapshot_writer,
+      &writer_buffer_pos,
+      &writer_higher_buffer_pos,
+      &had_any_change));
+
+    if (!had_any_change) {
+      VLOG(0) << to_string() << " empty sub-tree " << index;
+    } else {
+      VLOG(0) << to_string() << " processing sub-tree " << index << "...";
+      uint32_t installed_count = 0;
+      HashBin next_bin = kInvalidHashBin;
+      while (true) {
+        WRAP_ERROR_CODE(streams.process_a_bin(&installed_count, &next_bin));
+        if (next_bin == kInvalidHashBin) {
+          break;
+        }
+        WRAP_ERROR_CODE(streams.switch_path(
+          next_bin,
+          &fileset,
+          snapshot_writer,
+          &writer_buffer_pos,
+          &writer_higher_buffer_pos));
+      }
+      VLOG(0) << to_string() << " processed sub-tree " << index << "."
+        << " installed_count=" << installed_count
+        << " writer_buffer_pos=" << writer_buffer_pos
+        << " writer_higher_buffer_pos=" << writer_higher_buffer_pos;
+
+      // We have modified at least one level-0 page because we had at least one bin.
+      // level-0 page knew its page ID back then. just write them out.
+      ASSERT_ND(writer_buffer_pos > 0);
+      WRAP_ERROR_CODE(snapshot_writer->dump_pages(0, writer_buffer_pos));
+
+      // higher-levels need to set page IDs because we couldn't know their page IDs back then.
+      if (storage_.get_levels() == 2U) {
+        // 2-level means root's child is level-0 page, thus no "higher-level".
+        ASSERT_ND(writer_higher_buffer_pos == 0);
+      } else {
+        ASSERT_ND(writer_higher_buffer_pos > 0);
+        HashIntermediatePage* higher_base
+          = reinterpret_cast<HashIntermediatePage*>(snapshot_writer->get_intermediate_base());
+        // the first page is always the root-child because we open it first
+        HashIntermediatePage* root_child = higher_base + 0;
+        ASSERT_ND(root_child->get_level() == storage_.get_levels() - 2U);
+        ASSERT_ND(root_page->get_pointer(index).snapshot_pointer_ == 0);
+        // and this is the highest level for this sub-tree, so there is no pointer to this page.
+        // hence, page_id==0 means null.
+        SnapshotPagePointer base_id = snapshot_writer->get_next_page_id();
+
+#ifndef NDEBUG
+        // each page should be referenced exactly once. let's check it
+        uint8_t* ref_counts = new uint8_t[writer_higher_buffer_pos];
+        std::memset(ref_counts, 0, sizeof(uint8_t) * writer_higher_buffer_pos);
+        uint32_t total_replaced = 0;
+#endif  // NDEBUG
+
+        for (uint32_t i = 0; i < writer_higher_buffer_pos; ++i) {
+          SnapshotPagePointer page_id = base_id + i;
+          HashIntermediatePage* page = higher_base + i;
+          ASSERT_ND(page->get_level() > 0);
+          page->header().page_id_ = page_id;
+          for (uint16_t j = 0; j < kHashIntermediatePageFanout; ++j) {
+            SnapshotPagePointer id = page->get_pointer(j).snapshot_pointer_;
+            if (id != 0 && extract_snapshot_id_from_snapshot_pointer(id) == 0) {
+              ASSERT_ND(id < writer_higher_buffer_pos);
+              page->get_pointer(j).snapshot_pointer_ = id + base_id;
+#ifndef NDEBUG
+              ++total_replaced;
+#endif  // NDEBUG
+            }
+          }
+        }
+
+#ifndef NDEBUG
+        ASSERT_ND(total_replaced + 1U == writer_higher_buffer_pos);  // replaced all pointers
+        ASSERT_ND(ref_counts[0] == 0);  // highest level in sub-tree. it should be never referenced.
+        for (uint32_t i = 1; i < writer_higher_buffer_pos; ++i) {
+          ASSERT_ND(ref_counts[i] == 1U);
+        }
+        delete[] ref_counts;
+#endif  // NDEBUG
+
+        WRAP_ERROR_CODE(snapshot_writer->dump_intermediates(0, writer_higher_buffer_pos));
+        root_page->get_pointer(index).snapshot_pointer_ = base_id;
+      }
+    }
   }
 
-  WRAP_ERROR_CODE(args.snapshot_writer_->dump_pages(0, 1));
 
   if (numa_node != 0) {
     snapshot_writer_to_delete.get()->close();
   }
 
+  VLOG(0) << to_string() << " construct_root() child thread numa_node-" << numa_node << " done";
   return kRetOk;
 }
 

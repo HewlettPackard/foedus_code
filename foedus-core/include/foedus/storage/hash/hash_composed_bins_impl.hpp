@@ -218,7 +218,7 @@ struct ComposedBinsMergedStream final {
   PagePtr               cur_path_[kHashMaxLevels];
 
   ErrorStack init(
-    const HashRootInfoPage**  inputs,
+    const HashRootInfoPage* const*  inputs,
     uint32_t                  input_count,
     PagePtr                   root_page,
     uint16_t                  root_child_index,
@@ -226,7 +226,8 @@ struct ComposedBinsMergedStream final {
     cache::SnapshotFileSet*   fileset,
     snapshot::SnapshotWriter* writer,
     uint32_t*                 writer_buffer_pos,
-    uint32_t*                 writer_higher_buffer_pos);
+    uint32_t*                 writer_higher_buffer_pos,
+    bool*                     had_any_change);
 
   /**
    * Consumes inputs for the cur_path_[0] page and install snapshot pointers there.
@@ -237,9 +238,30 @@ struct ComposedBinsMergedStream final {
   ErrorCode process_a_bin(uint32_t* installed_count, HashBin* next_lowest_bin);
 
   /**
-   *
+   * Moves cur_path_ to a page that cotains the specified bin.
+   * It opens higher-level pages if needed.
    */
-  ErrorCode switch_path(HashBin lowest_bin, snapshot::SnapshotWriter* writer);
+  ErrorCode switch_path(
+    HashBin                   lowest_bin,
+    cache::SnapshotFileSet*   fileset,
+    snapshot::SnapshotWriter* writer,
+    uint32_t*                 writer_buffer_pos,
+    uint32_t*                 writer_higher_buffer_pos);
+
+  /** Recursively opens pages down from fixed_upto_level */
+  ErrorCode open_path(
+    HashBin bin,
+    uint8_t fixed_upto_level,
+    cache::SnapshotFileSet* fileset,
+    snapshot::SnapshotWriter* writer,
+    uint32_t* writer_buffer_pos,
+    uint32_t* writer_higher_buffer_pos);
+
+  /** Subroutine to flush the writer if needed to make sure it has enough room */
+  ErrorCode assure_writer_buffer(
+    snapshot::SnapshotWriter* writer,
+    uint32_t*                 writer_buffer_pos,
+    uint32_t                  writer_higher_buffer_pos);
 };
 
 inline ErrorCode ComposedBinsBuffer::next_bin() {
