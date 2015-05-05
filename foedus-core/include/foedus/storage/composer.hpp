@@ -130,8 +130,8 @@ class Composer CXX11_FINAL {
     const Page* const*                root_info_pages_;
     /** Number of root info pages. */
     uint32_t                          root_info_pages_count_;
-    /** Working memory to be used in this method. Automatically expand if needed. */
-    memory::AlignedMemory*            work_memory_;
+    /** All pre-allocated resouces to help run construct_root(), such as memory buffers. */
+    snapshot::LogGleanerResource*     gleaner_resource_;
     /** [OUT] Returns pointer to new root snapshot page/ */
     SnapshotPagePointer*              new_root_page_pointer_;
   };

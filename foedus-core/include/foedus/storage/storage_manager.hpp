@@ -231,7 +231,7 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
   /**
    * @brief Resolves a "moved" record.
    * @details
-   * This is the cord of the moved-bit protocol. Receiving a xct_id address that points
+   * This is the core of the moved-bit protocol. Receiving a xct_id address that points
    * to a moved record, track the physical record in another page.
    * This method does not take lock, so it is possible that concurrent threads
    * again move the record after this.

@@ -31,6 +31,7 @@
 #include "foedus/storage/hash/hash_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/fwd.hpp"
+#include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace storage {
@@ -55,13 +56,40 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
 
   // Storage interface
   const HashMetadata* get_hash_metadata()  const;
+  /** @return levels of intermediate pages in this storage */
+  uint8_t             get_levels() const;
+  /** @return the total number of hash bins in this storage */
+  HashBin             get_bin_count() const;
+  /** @return the number of bits to represent hash bins in this storage */
+  uint8_t             get_bin_bits() const;
+  /** @return the number of bit shifts to extract bins from hashes for this storage */
+  uint8_t             get_bin_shifts() const;
+  /** @return the number of child pointers in the root page for this storage */
+  uint16_t            get_root_children() const;
   ErrorStack          create(const Metadata &metadata);
   ErrorStack          load(const StorageControlBlock& snapshot_block);
   ErrorStack          drop();
   friend std::ostream& operator<<(std::ostream& o, const HashStorage& v);
 
+  /**
+   * @copydoc foedus::storage::StorageManager::track_moved_record()
+   * @note Implementation note
+   * Hash storage also uses the moved bit for record expansion.
+   * The basic idea and protocol are same as the masstree package, but it's easier here!
+   *
+   * When we migrate records for expansion, we only move it to a later position, either
+   * a larger slot index in the same page or somewhere in next-page linked-list.
+   * Further, we keep the full key in the original place.
+   * So, tracking the moved record is fairly simple and efficient.
+   * Also, no chance of cannot-track case.
+   */
+  xct::TrackMovedRecordResult track_moved_record(
+    xct::LockableXctId* old_address,
+    xct::WriteXctAccess* write_set);
+
   //// Hash table API
-  // TODO(Hideaki) Add primitive-optimized versions and increment versions. Later.
+  // TASK(Hideaki) Add primitive-optimized versions and increment versions.
+  // Low priority. Most costs are from page-traversal and hashinate.
 
 
   /**

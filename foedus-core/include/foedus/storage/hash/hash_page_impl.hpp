@@ -71,12 +71,20 @@ class HashIntermediatePage final {
   const PageHeader&       header() const { return header_; }
   DualPagePointer&        get_pointer(uint16_t index) { return pointers_[index]; }
   const DualPagePointer&  get_pointer(uint16_t index) const { return pointers_[index]; }
+  DualPagePointer*        get_pointer_address(uint16_t index) { return pointers_ + index; }
+  const DualPagePointer*  get_pointer_address(uint16_t index) const { return pointers_ + index; }
 
   /** Called only when this page is initialized. */
   void                    initialize_volatile_page(
     StorageId storage_id,
     VolatilePagePointer page_id,
     const HashIntermediatePage* parent,
+    uint8_t level,
+    HashBin start_bin);
+
+  void                    initialize_snapshot_page(
+    StorageId storage_id,
+    SnapshotPagePointer page_id,
     uint8_t level,
     HashBin start_bin);
 
@@ -188,6 +196,10 @@ class HashDataPage final {
     VolatilePagePointer page_id,
     const Page* parent,
     HashBin bin);
+  void initialize_snapshot_page(
+    StorageId storage_id,
+    SnapshotPagePointer page_id,
+    HashBin bin);
   void release_pages_recursive(
     const memory::GlobalVolatilePageResolver& page_resolver,
     memory::PageReleaseBatch* batch);
@@ -286,6 +298,33 @@ class HashDataPage final {
       combo.key_length_,
       payload_length);
   }
+
+  /**
+   * @brief A simplified/efficient version to insert an active record, which must be used
+   * only in snapshot pages.
+   * @param[in] xct_id XctId of the record.
+   * @param[in] hash hash value of the key.
+   * @param[in] fingerprint Bloom Filter fingerprint of the key.
+   * @param[in] key full key.
+   * @param[in] key_length full key length.
+   * @param[in] payload the payload of the new record
+   * @param[in] payload_length length of payload
+   * @pre the page is a snapshot page being constructed
+   * @pre the page doesn't have the key
+   * @pre required_space(key_length, payload_length) <= available_space()
+   * @details
+   * On constructing snapshot pages, we don't need any concurrency control, and we can
+   * loosen all restrictions. We thus have this method as an optimized version for snapshot pages.
+   * Inlined to make it more efficient.
+   */
+  void create_record_in_snapshot(
+    xct::XctId xct_id,
+    HashValue hash,
+    const BloomFilterFingerprint& fingerprint,
+    const void* key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_length) ALWAYS_INLINE;
 
   /**
    * @brief Search for a physical slot that exactly contains the given key.
@@ -399,6 +438,56 @@ void hash_intermediate_volatile_page_init(const VolatilePageInitArguments& args)
  * @see foedus::storage::VolatilePageInit
  */
 void hash_data_volatile_page_init(const VolatilePageInitArguments& args);
+
+inline void HashDataPage::create_record_in_snapshot(
+  xct::XctId xct_id,
+  HashValue hash,
+  const BloomFilterFingerprint& fingerprint,
+  const void* key_arg,
+  uint16_t key_length,
+  const void* payload_arg,
+  uint16_t payload_length) {
+  ASSERT_ND(header_.snapshot_);
+  ASSERT_ND(available_space() >= required_space(key_length, payload_length));
+  ASSERT_ND(reinterpret_cast<uintptr_t>(this) % kPageSize == 0);
+  ASSERT_ND(reinterpret_cast<uintptr_t>(key_arg) % 8 == 0);
+  ASSERT_ND(reinterpret_cast<uintptr_t>(payload_arg) % 8 == 0);
+
+  const void* key = ASSUME_ALIGNED(key_arg, 8U);
+  const void* payload = ASSUME_ALIGNED(payload_arg, 8U);
+  DataPageSlotIndex index = get_record_count();
+  Slot& slot = get_slot(index);
+  slot.tid_.xct_id_ = xct_id;
+  slot.offset_ = next_offset();
+  slot.hash_ = hash;
+  slot.key_length_ = key_length;
+  uint16_t aligned_key_length = assorted::align8(key_length);
+  slot.physical_record_length_ = aligned_key_length + assorted::align8(payload_length);
+  slot.payload_length_ = payload_length;
+
+  ASSERT_ND(reinterpret_cast<uintptr_t>(record_from_offset(slot.offset_)) % 8 == 0);
+  char* record = reinterpret_cast<char*>(ASSUME_ALIGNED(record_from_offset(slot.offset_), 8U));
+
+  ASSERT_ND(key_length > 0);
+  std::memcpy(record, key, key_length);
+  if (key_length != aligned_key_length) {
+    std::memset(record + key_length, 0, aligned_key_length - key_length % 8);
+  }
+
+  if (payload_length > 0) {
+    char* dest = reinterpret_cast<char*>(ASSUME_ALIGNED(record + aligned_key_length, 8U));
+    uint16_t aligned_payload_length = assorted::align8(payload_length);
+    std::memcpy(dest, payload, payload_length);
+    if (key_length != aligned_payload_length) {
+      std::memset(dest + payload_length, 0, aligned_payload_length - payload_length);
+    }
+  }
+
+  bloom_filter_.add(fingerprint);
+
+  header_.increment_key_count();
+}
+
 
 static_assert(
   sizeof(HashIntermediatePage) == kPageSize,

@@ -77,6 +77,22 @@ ErrorStack HashStoragePimpl::create(const HashMetadata& metadata) {
     return ERROR_STACK(kErrorCodeStrAlreadyExists);
   }
 
+  // hash-specific check.
+  // Due to the current design of hash_partitioner, we spend hashbins bytes
+  // out of the partitioner memory.
+  uint64_t required_partitioner_bytes = metadata.get_bin_count() + 4096ULL;
+  uint64_t partitioner_bytes
+    = engine_->get_options().storage_.partitioner_data_memory_mb_ * (1ULL << 20);
+  // we don't bother checking other storages' consumption. the config might later change anyways.
+  // Instead, leave a bit of margin (25%) for others.
+  if (partitioner_bytes < required_partitioner_bytes * 1.25) {
+    std::stringstream str;
+    str << metadata << ".\n"
+      << "To accomodate this number of hash bins, partitioner_data_memory_mb_ must be"
+      << " at least " << (required_partitioner_bytes * 1.25 / (1ULL << 20));
+    return ERROR_STACK_MSG(kErrorCodeStrHashBinsTooMany, str.str().c_str());
+  }
+
   control_block_->meta_ = metadata;
   LOG(INFO) << "Newly creating an hash-storage " << get_name();
   control_block_->bin_count_ = 1ULL << get_bin_bits();
@@ -694,6 +710,85 @@ ErrorCode HashStoragePimpl::reserve_record(
     ASSERT_ND(result->observed_.is_deleted());
     ASSERT_ND(!result->observed_.is_moved());
     return kErrorCodeOk;
+  }
+}
+
+
+
+xct::TrackMovedRecordResult HashStoragePimpl::track_moved_record(
+  xct::LockableXctId* old_address,
+  xct::WriteXctAccess* write_set) {
+  ASSERT_ND(old_address);
+  ASSERT_ND(old_address->is_moved());
+  // We use moved bit only for volatile data pages
+  HashDataPage* page = reinterpret_cast<HashDataPage*>(to_page(old_address));
+  ASSERT_ND(!page->header().snapshot_);
+  ASSERT_ND(page->header().get_page_type() == kHashDataPageType);
+
+  // TID is the first member in slot, so this ugly cast works.
+  HashDataPage::Slot* old_slot = reinterpret_cast<HashDataPage::Slot*>(old_address);
+  ASSERT_ND(&old_slot->tid_ == old_address);
+
+  // for tracking, we need the full key and hash. let's extract them.
+  const char* key = page->record_from_offset(old_slot->offset_);
+  uint16_t key_length = old_slot->key_length_;
+  HashCombo combo(key, key_length, control_block_->meta_);
+
+  // we need write_set only for sanity check. It's easier in hash storage!
+  if (write_set) {
+#ifndef NDEBUG
+    ASSERT_ND(write_set->storage_id_ == page->header().storage_id_);
+    ASSERT_ND(write_set->payload_address_ == page->record_from_offset(old_slot->offset_));
+    HashCommonLogType* the_log = reinterpret_cast<HashCommonLogType*>(write_set->log_entry_);
+    the_log->assert_record_and_log_keys(old_address, page->record_from_offset(old_slot->offset_));
+#endif  // NDEBUG
+  }
+  HashDataPage::Slot* slot_origin = reinterpret_cast<HashDataPage::Slot*>(page + 1);
+  ASSERT_ND(slot_origin > old_slot);  // because origin corresponds to "-1".
+  DataPageSlotIndex old_index = slot_origin - old_slot - 1;
+  ASSERT_ND(page->get_slot_address(old_index) == old_slot);
+
+  return track_moved_record_search(page, combo);
+}
+
+xct::TrackMovedRecordResult HashStoragePimpl::track_moved_record_search(
+  HashDataPage* page,
+  const HashCombo& combo) {
+  const memory::GlobalVolatilePageResolver& resolver
+    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
+  RecordLocation result;
+  while (true) {
+    ASSERT_ND(!page->header().snapshot_);
+    ASSERT_ND(page->next_page_address()->snapshot_pointer_ == 0);
+    uint16_t record_count = page->get_record_count();
+    search_key_in_a_page(combo, page, record_count, &result);
+    if (result.record_) {
+      return xct::TrackMovedRecordResult(&result.slot_->tid_, result.record_);
+    }
+
+    // we must meet the same invariant as usual case. a bit simpler, though
+    assorted::memory_fence_consume();
+    DualPagePointer* next_page = page->next_page_address();
+    assorted::memory_fence_consume();
+
+    uint16_t record_count_again = page->get_record_count();
+    if (UNLIKELY(record_count != record_count_again)) {
+      LOG(INFO) << "Interesting. concurrent insertion just happend to the page";
+      assorted::memory_fence_consume();
+      continue;
+    }
+    if (next_page->volatile_pointer_.is_null()) {
+      // This shouldn't happen as far as we flip moved bit after installing the new record
+      LOG(WARNING) << "no next page?? but we didn't find the moved record in this page";
+      assorted::memory_fence_acquire();
+      if (next_page->volatile_pointer_.is_null()) {
+        LOG(ERROR) << "Unexpected error, failed to track moved record in hash storage."
+          << " This should not happen. hash combo=" << combo;
+        return xct::TrackMovedRecordResult();
+      }
+      continue;
+    }
+    page = reinterpret_cast<HashDataPage*>(resolver.resolve_offset(next_page->volatile_pointer_));
   }
 }
 

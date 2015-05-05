@@ -56,6 +56,11 @@ HashStorage& HashStorage::operator=(const HashStorage& other) {
   return *this;
 }
 
+uint8_t HashStorage::get_levels() const { return control_block_->levels_; }
+HashBin HashStorage::get_bin_count() const { return control_block_->bin_count_; }
+uint8_t HashStorage::get_bin_bits() const { return control_block_->meta_.bin_bits_; }
+uint8_t HashStorage::get_bin_shifts() const { return control_block_->meta_.get_bin_shifts(); }
+uint16_t HashStorage::get_root_children() const { return control_block_->get_root_children(); }
 
 ErrorStack  HashStorage::create(const Metadata &metadata) {
   return HashStoragePimpl(this).create(static_cast<const HashMetadata&>(metadata));
@@ -155,6 +160,12 @@ std::ostream& operator<<(std::ostream& o, const HashStorage& v) {
     << "<bin_bits>" << static_cast<int>(v.control_block_->meta_.bin_bits_) << "</bin_bits>"
     << "</HashStorage>";
   return o;
+}
+
+xct::TrackMovedRecordResult HashStorage::track_moved_record(
+  xct::LockableXctId* old_address,
+  xct::WriteXctAccess* write_set) {
+  return HashStoragePimpl(this).track_moved_record(old_address, write_set);
 }
 
 // Explicit instantiations for each payload type

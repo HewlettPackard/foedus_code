@@ -30,6 +30,7 @@
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/array/array_composer_impl.hpp"
+#include "foedus/storage/hash/hash_composer_impl.hpp"
 #include "foedus/storage/masstree/masstree_composer_impl.hpp"
 #include "foedus/storage/sequential/sequential_composer_impl.hpp"
 
@@ -60,10 +61,9 @@ Composer::Composer(Engine *engine, StorageId storage_id)
 ErrorStack Composer::compose(const ComposeArguments& args) {
   switch (storage_type_) {
     case kArrayStorage: return array::ArrayComposer(this).compose(args);
+    case kHashStorage: return hash::HashComposer(this).compose(args);
     case kSequentialStorage: return sequential::SequentialComposer(this).compose(args);
     case kMasstreeStorage: return masstree::MasstreeComposer(this).compose(args);
-    // TODO(Hideaki) implement
-    case kHashStorage: return kRetOk;
     default:
       return kRetOk;
   }
@@ -72,10 +72,9 @@ ErrorStack Composer::compose(const ComposeArguments& args) {
 ErrorStack Composer::construct_root(const ConstructRootArguments& args) {
   switch (storage_type_) {
     case kArrayStorage: return array::ArrayComposer(this).construct_root(args);
+    case kHashStorage: return hash::HashComposer(this).construct_root(args);
     case kSequentialStorage: return sequential::SequentialComposer(this).construct_root(args);
     case kMasstreeStorage: return masstree::MasstreeComposer(this).construct_root(args);
-    // TODO(Hideaki) implement
-    case kHashStorage:
     default:
       return kRetOk;
   }
@@ -84,10 +83,9 @@ ErrorStack Composer::construct_root(const ConstructRootArguments& args) {
 Composer::DropResult Composer::drop_volatiles(const DropVolatilesArguments& args) {
   switch (storage_type_) {
     case kArrayStorage:  return array::ArrayComposer(this).drop_volatiles(args);
+    case kHashStorage:  return hash::HashComposer(this).drop_volatiles(args);
     case kSequentialStorage: return sequential::SequentialComposer(this).drop_volatiles(args);
     case kMasstreeStorage: return masstree::MasstreeComposer(this).drop_volatiles(args);
-    // TODO(Hideaki) implement
-    case kHashStorage:
     default:
       return DropResult(args);
   }
@@ -98,14 +96,14 @@ void Composer::drop_root_volatile(const Composer::DropVolatilesArguments& args) 
     case kArrayStorage:
       array::ArrayComposer(this).drop_root_volatile(args);
       return;
+    case kHashStorage:
+      hash::HashComposer(this).drop_root_volatile(args);
+      return;
     case kSequentialStorage:
       // Sequential storage already dropped it. Nothing to do.
       return;
     case kMasstreeStorage:
       masstree::MasstreeComposer(this).drop_root_volatile(args);
-      return;
-    // TODO(Hideaki) implement
-    case kHashStorage:
       return;
     default:
       return;

@@ -60,7 +60,7 @@ ErrorCode TpccClientTask::do_delivery(Wid wid) {
       wdoid,
       carrier_id,
       offsetof(OrderData, carrier_id_)));
-    // TODO(Hideaki) it's a waste to do this in two steps. but exposing more complicated APIs
+    // TASK(Hideaki) it's a waste to do this in two steps. but exposing more complicated APIs
     // to do read+write in one shot is arguable... is it cheating or not?
 
     // SELECT SUM(ol_amount) FROM ORDERLINE WHERE wid/did/oid=..

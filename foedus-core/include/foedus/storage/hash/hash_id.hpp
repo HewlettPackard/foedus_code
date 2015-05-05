@@ -80,10 +80,11 @@ const uint64_t kHashMaxBins[] = {
   kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64,
   kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64,
   kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64,
+  kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64 * kFanout64,
 };
 
 /**
- * @returns levels appropriate to hold at least the give number of bins.
+ * @returns levels appropriate to hold at least the given number of bins.
  * @ingroup HASH
  */
 inline uint8_t bins_to_level(uint64_t bins) {
@@ -93,6 +94,14 @@ inline uint8_t bins_to_level(uint64_t bins) {
   }
   return level;
 }
+
+/**
+ * @brief Max level of intermediate pages.
+ * @ingroup HASH
+ * @details
+ * In reality 7, but let's make it 8 so that it's good for alignments in several places.
+ */
+const uint8_t kHashMaxLevels = 8;
 
 /**
  * @brief Byte size of header in data page of hash storage.
@@ -142,6 +151,9 @@ const uint8_t kHashMinBinBits = 7U;
  * for 128-bit sorting.
  */
 const uint8_t kHashMaxBinBits = 48U;
+
+/** This value or larger never appears as a valid HashBin */
+const HashBin kInvalidHashBin = 1ULL << kHashMaxBinBits;
 
 /**
  * @brief Represents a range of hash bins in a hash storage, such as what an intermediate page
