@@ -172,7 +172,9 @@ ErrorCode TpccClientTask::do_neworder_create_orderlines(
     bool remote_warehouse = (rnd_.uniform_within(1, 100) <= neworder_remote_percent_);
     uint32_t supply_wid;
     if (remote_warehouse && total_warehouses_ > 1U) {
-        supply_wid = rnd_.uniform_within_except(0, total_warehouses_ - 1, wid);
+        // alex_memstat only: pair with "the only remote node"
+        // supply_wid = rnd_.uniform_within_except(0, total_warehouses_ - 1, wid);
+        supply_wid = (wid + (total_warehouses_ / 2)) % total_warehouses_;
         *all_local_warehouse = false;
     } else {
         supply_wid = wid;

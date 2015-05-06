@@ -198,7 +198,7 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
   LOG(INFO) << "Writing out alex_memstat (" << (alex_stat_memory_.get_size() >> 20)
     << " MB) for node " << static_cast<int>(numa_node_) << "...";
   std::stringstream str;
-  str << "/tmp/alex_memstat_node_" << static_cast<int>(numa_node_) << ".bin";
+  str << "/dev/shm/alex_result/alex_memstat_node_" << static_cast<int>(numa_node_) << ".bin";
   fs::Path path(str.str());
   if (fs::exists(path)) {
     fs::remove(path);

@@ -40,7 +40,9 @@ ErrorCode TpccClientTask::do_payment(Wid c_wid) {
   Did did;
   const bool remote_warehouse = (rnd_.uniform_within(1, 100) <= payment_remote_percent_);
   if (remote_warehouse && total_warehouses_ > 1U) {
-    wid = rnd_.uniform_within_except(0, total_warehouses_ - 1, c_wid);
+    // alex_memstat only: pair with "the only remote node"
+    // wid = rnd_.uniform_within_except(0, total_warehouses_ - 1, c_wid);
+    wid = (c_wid + (total_warehouses_ / 2)) % total_warehouses_;
     did = rnd_.uniform_within(0, kDistricts - 1);  // re-draw did.
 //    ++stat_wids_[wid];
 //    ++stat_dids_[did];
