@@ -47,34 +47,39 @@ namespace xct {
  * May add:
  * \li COMMITTED_READ: see-epoch and read data -> fence -> check-epoch, then forget the read set
  * \li REPEATABLE_READ: assuming no-repeated-access (which we do assume), same as COMMITTED_READ
+ *
+ * but probably they are superseded either by kDirtyRead or kSnapshot.
  */
 enum IsolationLevel {
   /**
-   * No guarantee at all for reads, for the sake of best performance and scalability.
+   * @brief No guarantee at all for reads, for the sake of best performance and scalability.
+   * @details
    * This avoids checking and even storing read set, thus provides the best performance.
    * However, concurrent transactions might be modifying the data the transaction is now reading.
    * So, this has a chance of reading half-changed data.
-   * To ameriolate the issue a bit, this mode prefers snapshot pages if both a snapshot page
-   * and a volatile page is available. In other words, more consistent but more stale data.
+   * This mode prefers volatile pages if both a snapshot page and a volatile page is available.
+   * In other words, more recent but more inconsistent reads compared to kSnapshot.
    */
-  kDirtyReadPreferSnapshot,
+  kDirtyRead,
 
   /**
-   * Basically same as kDirtyReadPreferSnapshot, but this mode prefers volatile pages
-   * if both a snapshot page and a volatile page is available. In other words,
-   * more recent but more inconsistent data.
-   */
-  kDirtyReadPreferVolatile,
-
-  /**
-   * Snapshot isolation, meaning the transaction might see or be based on stale snapshot.
-   * Optionally, the client can specify which snapshot we should be based on.
+   * @brief Snapshot isolation (SI), meaning the transaction reads a consistent and complete image
+   * of the database as of the previous snapshot.
+   * @details
+   * Writes are same as kSerializable, but all reads
+   * simply follow snapshot-pointer from the root, so there is no race, no abort, no verification.
+   * Hence, higher scalability than kSerializable.
+   * However, this level can result in \e write \e skews.
+   * Choose this level if you want highly consistent reads and very high performance.
+   * TASK(Hideaki): Allow specifying which snapshot we should be based on. Low priority.
    */
   kSnapshot,
 
   /**
-   * Protects against all anomalies in all situations.
+   * @brief Protects against all anomalies in all situations.
+   * @details
    * This is the most expensive level, but everything good has a price.
+   * Choose this level if you want full correctness.
    */
   kSerializable,
 };

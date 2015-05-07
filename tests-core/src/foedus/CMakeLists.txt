@@ -1,5 +1,5 @@
 # all test case programas link to this library
-add_library(test_common STATIC ${CMAKE_CURRENT_SOURCE_DIR}/test_common.cpp)
+add_library(test_common SHARED ${CMAKE_CURRENT_SOURCE_DIR}/test_common.cpp)
 
 add_subdirectory(assorted)
 add_subdirectory(cache)

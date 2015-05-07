@@ -85,7 +85,7 @@ See the *Environment Setup* section in [foedus-core](foedus-core).
 In Fedora/RedHat/CentOS etc, run the following:
 
     sudo yum install gcc gcc-c++ libstdc* cmake glibc glibc-* valgrind valgrind-devel
-    sudo yum install libunwind libunwind-devel
+    sudo yum install libunwind libunwind-devel libdrwaf libdrwaf-devel
     sudo yum install numactl numactl-devel google-perftools google-perftools-devel
     sudo yum install papi papi-devel papi-static
     sudo yum install python python-*

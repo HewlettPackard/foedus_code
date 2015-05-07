@@ -7,10 +7,22 @@
 # Therefore, this CMake script must be compilable even if it was NOT invoked
 # by the super build.
 #
+# Output library: foedus-core
+#
+# Parameters:
+#
+# FOEDUS_BUILD_STATIC_LIBS, ON/OFF (Default OFF), Whether to build foedus-core as a static library.
+# We recommend building the shared version. It saves space, and you won't save more than
+# a few CPU cycles per non-inlined function call, which is probably negligible.
+# We avoid overloading cmake's standard params, BUILD_SHARED_LIBS etc, because they are used in
+# other libraries we link to.
+#
 #############################################################################
 cmake_minimum_required(VERSION 2.4)
 cmake_policy(SET CMP0003 NEW)
 project(foedus_core)
+
+option(FOEDUS_BUILD_STATIC_LIBS "Build FOEDUS static library." OFF)
 
 # FIRST, prohibit in-source build.
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/WarnInSrcBuild.cmake)
@@ -150,8 +162,11 @@ add_subdirectory(third_party)
 set_property(GLOBAL PROPERTY ALL_FOEDUS_CORE_SRC "")
 add_subdirectory(src)
 get_property(TMP_ALL_FOEDUS_CORE_SRC GLOBAL PROPERTY ALL_FOEDUS_CORE_SRC)
-add_library(foedus-core SHARED ${TMP_ALL_FOEDUS_CORE_SRC})
-add_library(foedus-core-static STATIC ${TMP_ALL_FOEDUS_CORE_SRC})
+if (FOEDUS_BUILD_STATIC_LIBS)
+  add_library(foedus-core STATIC ${TMP_ALL_FOEDUS_CORE_SRC})
+else (FOEDUS_BUILD_STATIC_LIBS)
+  add_library(foedus-core SHARED ${TMP_ALL_FOEDUS_CORE_SRC})
+endif (FOEDUS_BUILD_STATIC_LIBS)
 
 set(foedus-dependencies)
 # Link to libbacktrace, libglog, libnuma, libgperftools (if found)
@@ -175,7 +190,6 @@ if (GCCLIBATOMIC_FOUND AND "${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "aarch64")
 endif ()
 
 target_link_libraries(foedus-core ${foedus-dependencies})
-target_link_libraries(foedus-core-static ${foedus-dependencies})
 
 # Invoke CPPLINT (if ENABLE_CPPLINT is given)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CpplintWrapper.cmake)

@@ -42,9 +42,7 @@ inline ErrorCode optimistic_read_protocol(
   LockableXctId* owner_id_address,
   bool in_snapshot,
   HANDLER handler) {
-  if (in_snapshot ||
-    xct->get_isolation_level() == kDirtyReadPreferSnapshot ||
-    xct->get_isolation_level() == kDirtyReadPreferVolatile) {
+  if (in_snapshot || xct->get_isolation_level() == kDirtyRead) {
     CHECK_ERROR_CODE(handler(owner_id_address->xct_id_));
     return kErrorCodeOk;
   }

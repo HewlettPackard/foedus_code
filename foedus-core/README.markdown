@@ -222,6 +222,11 @@ google-perftools-devel.
 
     sudo yum install google-perftools google-perftools-devel    # RedHat/Fedora
 
+FOEDUS outputs a detailed backtrace to logs/traces if you have libdwarf installed.
+Whenever you report some bugs/crashes, we appreciate installing it to get informative stacktrace.
+
+    sudo yum install libdrwaf libdrwaf-devel
+
 Another optional library is [PAPI](http://icl.cs.utk.edu/trac/papi/), with which FOEDUS can provide
 additional performance counters.
 

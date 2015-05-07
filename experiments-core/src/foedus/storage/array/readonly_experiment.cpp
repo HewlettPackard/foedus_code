@@ -94,7 +94,7 @@ class ReadTask {
     Engine *engine = context->get_engine();
     ExperimentControlBlock* control = reinterpret_cast<ExperimentControlBlock*>(
       engine->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
-    const xct::IsolationLevel isolation = xct::kDirtyReadPreferVolatile;
+    const xct::IsolationLevel isolation = xct::kDirtyRead;
     // const xct::IsolationLevel isolation = xct::kSerializable;
     CHECK_ERROR(engine->get_xct_manager()->begin_xct(context, isolation));
     Epoch commit_epoch;
