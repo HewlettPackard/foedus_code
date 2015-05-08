@@ -369,9 +369,11 @@ ErrorCode MasstreeBorderPage::split_foster(
     twin[i] = reinterpret_cast<MasstreeBorderPage*>(
       context->get_local_volatile_page_resolver().resolve_offset_newpage(offsets[i]));
     foster_twin_[i].set(context->get_numa_node(), 0, 0, offsets[i]);
+    VolatilePagePointer new_page_id
+      = combine_volatile_page_pointer(context->get_numa_node(), 0, 0, offsets[i]);
     twin[i]->initialize_volatile_page(
       header_.storage_id_,
-      combine_volatile_page_pointer(context->get_numa_node(), 0, 0, offsets[i]),
+      new_page_id,
       get_layer(),
       i == 0 ? low_fence_ : strategy.mid_slice_,  // low-fence
       i == 0 ? strategy.mid_slice_ : high_fence_);  // high-fence
@@ -416,9 +418,9 @@ ErrorCode MasstreeBorderPage::split_foster(
 
   // release all record locks, but set the "moved" bit so that concurrent transactions
   // check foster-twin for read-set/write-set checks.
-  xct::XctId new_id;
-  new_id.set_moved();
   for (uint8_t i = 0; i < key_count; ++i) {
+    xct::XctId new_id = owner_ids_[i].xct_id_;
+    new_id.set_moved();
     owner_ids_[i].xct_id_ = new_id;
   }
   {

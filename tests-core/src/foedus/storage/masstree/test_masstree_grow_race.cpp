@@ -255,12 +255,19 @@ void run_test() {
     test_core_count = 100U;
   }
 
+  uint64_t kSplitMargin = 6;  // splits require tentative pages
+  // TODO(Hideaki) if I set the following, it crases in debug build. seems to be some bogus
+  // memory access. Not enough free pages? but in that case a different error should be thrown.
+  // needs investigation.
+  // test_core_count = 12;
+  // kSplitMargin = 3;
+
   options.thread_.group_count_ = 1;
   options.thread_.thread_count_per_group_ = test_core_count;
   uint32_t vol_mb = 2U * test_core_count + 200;
   uint32_t records_per_border = (1U << 11) / kPayload;
   uint32_t total_borders = (test_core_count * kRecords) / records_per_border;
-  uint32_t border_kb = total_borders * 4U * 3ULL;  // *3 as a margin. splits require tentative pages
+  uint32_t border_kb = total_borders * 4U * kSplitMargin;
   vol_mb += border_kb / 1024ULL;
   std::cout << "vol_mb=" << vol_mb << std::endl;
   options.memory_.page_pool_size_mb_per_node_ = vol_mb;

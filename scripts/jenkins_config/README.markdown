@@ -37,3 +37,7 @@ Other stuffs to do on Jenkins machine.
     sudo yum install yum-utils
     sudo debuginfo-install gcc gcc-c++
     sudo debuginfo-install libunwind numactl
+    sudo sh -c  'echo never > /sys/kernel/mm/transparent_hugepage/enabled'
+    sudo sh -c 'echo 15000 > /proc/sys/vm/nr_hugepages'
+    Modify /etc/sysctl.conf
+    Modify /etc/security/limits.conf

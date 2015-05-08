@@ -7,17 +7,25 @@ This project is the gut of FOEDUS as a transactional key-value storage system.
 Your client program can use this library by containing the CMakeLists.txt or linking to the shared
 library.
 
+For more introductory stuffs, visit [our github site](https://github.com/hkimura/foedus).
+and/or take a look at the [overview paper](http://www.hpl.hp.com/techreports/2015/HPL-2015-37.html).
 
-Hardware/Compiler Requeirements
+
+Hardware/Compiler/OS Requeirements
 --------
 
 * We support only 64-bits CPUs. More specifically, x86_64 and ARMv8.
 * We assume Linux/Unix so far. No MacOS, Windows, nor Solaris.
-* We assume fsync(2) penetrates all the way through the device. [^1]
-* We require reasonably modern C++ compilers.
+* We strongly recommend linux kernel 3.16 or later. [^1]
+* We assume fsync(2) penetrates all the way through the device. [^2]
+* We require reasonably modern C++ compilers, namely gcc 4.8.2 or later.
 * We depend on CMake.
 
-[^1]: If this is not the case, check your write-cache settings in the filesystem and device driver.
+[^1]: In older linux kernel, page-fault of hugepages was almost single-threaded.
+This issue was fixed in 3.15 along with many other scalability improvements contributed by HP's
+linux developers.
+
+[^2]: If this is not the case, check your write-cache settings in the filesystem and device driver.
 Unfortunately, even if users configure it right, some storage device sacrifices durability for the
 sake of performance. So is some file system. For those environments, we cannot guarantee ACID.
 
