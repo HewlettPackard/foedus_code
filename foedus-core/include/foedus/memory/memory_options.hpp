@@ -72,6 +72,14 @@ struct MemoryOptions CXX11_FINAL : public virtual externalize::Externalizable {
   bool        use_mmap_hugepages_;
 
   /**
+   * @brief Whether to use mprotect() for memory boundaries to detect bogus memory accesses.
+   * @details
+   * Using this might cause performance degradation, but it helps debugging.
+   * Default is false.
+   */
+  bool        rigorous_memory_boundary_check_;
+
+  /**
    * @brief Size of the page pool in MB per each NUMA node.
    * @details
    * Must be multiply of 2MB. Default is 1GB.

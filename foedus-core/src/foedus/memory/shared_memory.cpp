@@ -68,7 +68,7 @@ ErrorStack SharedMemory::alloc(const std::string& meta_path, uint64_t size, int 
   release_block();
 
   if (size % (1ULL << 21) != 0) {
-    size = ((size_ >> 21) + 1ULL) << 21;
+    size = ((size >> 21) + 1ULL) << 21;
   }
 
   // create a meta file. we must first create it then generate key.

@@ -186,21 +186,25 @@ void MasstreeIntermediatePage::release_pages_recursive_parallel(Engine* engine) 
   // so far, we spawn a thread for every single pointer.
   // it might be an oversubscription, but not a big issue.
   std::vector<std::thread> threads;
-  for (int i = 0; i < 2; ++i) {
-    if (!foster_twin_[i].is_null()) {
+  if (header_.page_version_.is_moved()) {
+    for (int i = 0; i < 2; ++i) {
+      ASSERT_ND(!foster_twin_[i].is_null());
       threads.emplace_back(release_parallel, engine, foster_twin_[i]);
     }
-  }
-  uint16_t key_count = get_key_count();
-  ASSERT_ND(key_count <= kMaxIntermediateSeparators);
-  for (uint8_t i = 0; i < key_count + 1; ++i) {
-    MiniPage& minipage = get_minipage(i);
-    uint16_t mini_count = minipage.key_count_;
-    ASSERT_ND(mini_count <= kMaxIntermediateMiniSeparators);
-    for (uint8_t j = 0; j < mini_count + 1; ++j) {
-      VolatilePagePointer pointer = minipage.pointers_[j].volatile_pointer_;
-      if (pointer.components.offset != 0) {
-        threads.emplace_back(release_parallel, engine, pointer);
+    // if this page is moved, following pointers in this page results in double-release.
+    // we just follow pointers in non-moved page.
+  } else {
+    uint16_t key_count = get_key_count();
+    ASSERT_ND(key_count <= kMaxIntermediateSeparators);
+    for (uint8_t i = 0; i < key_count + 1; ++i) {
+      MiniPage& minipage = get_minipage(i);
+      uint16_t mini_count = minipage.key_count_;
+      ASSERT_ND(mini_count <= kMaxIntermediateMiniSeparators);
+      for (uint8_t j = 0; j < mini_count + 1; ++j) {
+        VolatilePagePointer pointer = minipage.pointers_[j].volatile_pointer_;
+        if (pointer.components.offset != 0) {
+          threads.emplace_back(release_parallel, engine, pointer);
+        }
       }
     }
   }
@@ -219,27 +223,28 @@ void MasstreeIntermediatePage::release_pages_recursive_parallel(Engine* engine) 
 void MasstreeIntermediatePage::release_pages_recursive(
   const memory::GlobalVolatilePageResolver& page_resolver,
   memory::PageReleaseBatch* batch) {
-  for (int i = 0; i < 2; ++i) {
-    if (!foster_twin_[i].is_null()) {
+  if (header_.page_version_.is_moved()) {
+    for (int i = 0; i < 2; ++i) {
+      ASSERT_ND(!foster_twin_[i].is_null());
       MasstreeIntermediatePage* p =
         reinterpret_cast<MasstreeIntermediatePage*>(page_resolver.resolve_offset(foster_twin_[i]));
       p->release_pages_recursive(page_resolver, batch);
       foster_twin_[i].word = 0;
     }
-  }
-  uint16_t key_count = get_key_count();
-  ASSERT_ND(key_count <= kMaxIntermediateSeparators);
-  for (uint8_t i = 0; i < key_count + 1; ++i) {
-    MiniPage& minipage = get_minipage(i);
-    uint16_t mini_count = minipage.key_count_;
-    ASSERT_ND(mini_count <= kMaxIntermediateMiniSeparators);
-    for (uint8_t j = 0; j < mini_count + 1; ++j) {
-      VolatilePagePointer& pointer = minipage.pointers_[j].volatile_pointer_;
-      if (pointer.components.offset != 0) {
-        MasstreePage* child = reinterpret_cast<MasstreePage*>(
-          page_resolver.resolve_offset(pointer));
-        child->release_pages_recursive_common(page_resolver, batch);
-        pointer.components.offset = 0;
+  } else {
+    uint16_t key_count = get_key_count();
+    ASSERT_ND(key_count <= kMaxIntermediateSeparators);
+    for (uint8_t i = 0; i < key_count + 1; ++i) {
+      MiniPage& minipage = get_minipage(i);
+      uint16_t mini_count = minipage.key_count_;
+      ASSERT_ND(mini_count <= kMaxIntermediateMiniSeparators);
+      for (uint8_t j = 0; j < mini_count + 1; ++j) {
+        VolatilePagePointer pointer = minipage.pointers_[j].volatile_pointer_;
+        if (pointer.components.offset != 0) {
+          MasstreePage* child = reinterpret_cast<MasstreePage*>(
+            page_resolver.resolve_offset(pointer));
+          child->release_pages_recursive_common(page_resolver, batch);
+        }
       }
     }
   }
@@ -252,24 +257,25 @@ void MasstreeIntermediatePage::release_pages_recursive(
 void MasstreeBorderPage::release_pages_recursive(
   const memory::GlobalVolatilePageResolver& page_resolver,
   memory::PageReleaseBatch* batch) {
-  for (int i = 0; i < 2; ++i) {
-    if (!foster_twin_[i].is_null()) {
+  if (header_.page_version_.is_moved()) {
+    for (int i = 0; i < 2; ++i) {
+      ASSERT_ND(!foster_twin_[i].is_null());
       MasstreeBorderPage* p
         = reinterpret_cast<MasstreeBorderPage*>(page_resolver.resolve_offset(foster_twin_[i]));
       p->release_pages_recursive(page_resolver, batch);
       foster_twin_[i].word = 0;
     }
-  }
-  uint16_t key_count = get_key_count();
-  ASSERT_ND(key_count <= kMaxKeys);
-  for (uint8_t i = 0; i < key_count; ++i) {
-    if (does_point_to_layer(i)) {
-      DualPagePointer& pointer = *get_next_layer(i);
-      if (pointer.volatile_pointer_.components.offset != 0) {
-        MasstreePage* child = reinterpret_cast<MasstreePage*>(
-          page_resolver.resolve_offset(pointer.volatile_pointer_));
-        child->release_pages_recursive_common(page_resolver, batch);
-        pointer.volatile_pointer_.components.offset = 0;
+  } else {
+    uint16_t key_count = get_key_count();
+    ASSERT_ND(key_count <= kMaxKeys);
+    for (uint8_t i = 0; i < key_count; ++i) {
+      if (does_point_to_layer(i)) {
+        DualPagePointer* pointer = get_next_layer(i);
+        if (!pointer->volatile_pointer_.is_null()) {
+          MasstreePage* child = reinterpret_cast<MasstreePage*>(
+            page_resolver.resolve_offset(pointer->volatile_pointer_));
+          child->release_pages_recursive_common(page_resolver, batch);
+        }
       }
     }
   }
