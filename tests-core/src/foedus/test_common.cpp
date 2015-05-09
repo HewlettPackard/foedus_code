@@ -64,6 +64,7 @@ namespace foedus {
 
   EngineOptions get_randomized_paths() {
     EngineOptions options;
+    options.memory_.rigorous_memory_boundary_check_ = true;
     std::string uniquefier = get_random_name();
     std::cout << "test uniquefier=" << uniquefier << std::endl;
     {
@@ -95,6 +96,7 @@ namespace foedus {
     options.log_.log_buffer_kb_ = 1 << 8;
     options.memory_.page_pool_size_mb_per_node_ = 2;
     options.memory_.private_page_pool_initial_grab_ = 32;
+    options.memory_.rigorous_memory_boundary_check_ = true;
     options.cache_.snapshot_cache_size_mb_per_node_ = 2;
     options.cache_.private_snapshot_cache_initial_grab_ = 32;
     options.thread_.group_count_ = 1;

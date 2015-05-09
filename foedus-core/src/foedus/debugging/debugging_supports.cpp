@@ -24,7 +24,8 @@
 #include <glog/logging.h>
 #include <glog/vlog_is_on.h>
 #ifdef HAVE_GOOGLEPERFTOOLS
-#include <google/profiler.h>
+// #include <google/profiler.h>  // older version of gperftools.
+#include <gperftools/profiler.h>
 #endif  // HAVE_GOOGLEPERFTOOLS
 
 #include <cstring>

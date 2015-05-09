@@ -236,6 +236,7 @@ ErrorStack verify_task(const proc::ProcArguments& args) {
   WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kSnapshot));
   CHECK_ERROR(storage.verify_single_thread(context));
   WRAP_ERROR_CODE(engine->get_xct_manager()->abort_xct(context));
+  CHECK_ERROR(storage.debugout_single_thread(engine, true, 0xFFFFFF));
   return kRetOk;
 }
 
@@ -255,13 +256,7 @@ void run_test() {
     test_core_count = 100U;
   }
 
-  uint64_t kSplitMargin = 6;  // splits require tentative pages
-  // TODO(Hideaki) if I set the following, it crases in debug build. seems to be some bogus
-  // memory access. Not enough free pages? but in that case a different error should be thrown.
-  // needs investigation.
-  // test_core_count = 12;
-  // kSplitMargin = 3;
-
+  uint64_t kSplitMargin = 3;  // splits require tentative pages
   options.thread_.group_count_ = 1;
   options.thread_.thread_count_per_group_ = test_core_count;
   uint32_t vol_mb = 2U * test_core_count + 200;

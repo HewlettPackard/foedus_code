@@ -38,6 +38,7 @@ std::ostream& operator<<(std::ostream& o, const MasstreePage& v) {
 
 void describe_masstree_page_common(std::ostream* o_ptr, const MasstreePage& v) {
   std::ostream& o = *o_ptr;
+  o << std::endl << "<addr>" << assorted::Hex(reinterpret_cast<uintptr_t>(&v), 16) << "</addr>";
   o << std::endl << v.header();
   o << std::endl << "<low_fence_>" << assorted::Hex(v.get_low_fence(), 16) << "</low_fence_>";
   o << "<high_fence_>" << assorted::Hex(v.get_high_fence(), 16) << "</high_fence_>";
