@@ -116,9 +116,6 @@ void EmptyFunctor(Partitioner partitioner) {
   partitioner.partition_batch(args);
 }
 TEST(MasstreePartitionerTest, Empty) {
-  if (!is_multi_nodes()) {
-    return;
-  }
   execute_test(&EmptyFunctor, 1024);
 }
 
@@ -193,9 +190,6 @@ void PartitionBasicFunctor(Partitioner partitioner) {
 }
 
 TEST(MasstreePartitionerTest, PartitionBasic) {
-  if (!is_multi_nodes()) {
-    return;
-  }
   execute_test(&PartitionBasicFunctor);
 }
 
@@ -213,9 +207,6 @@ void SortBasicFunctor(Partitioner partitioner) {
 }
 
 TEST(MasstreePartitionerTest, SortBasic) {
-  if (!is_multi_nodes()) {
-    return;
-  }
   execute_test(&SortBasicFunctor);
 }
 }  // namespace masstree

@@ -95,9 +95,6 @@ void test_appends(bool multiple_loggers, bool multiple_partitions) {
     options.thread_.thread_count_per_group_ = 1;
     options.thread_.group_count_ = 2;
     options.log_.loggers_per_node_ = 1;
-    if (!is_multi_nodes()) {
-      return;
-    }
   } else {
     options.thread_.thread_count_per_group_ = kThreads;
     options.thread_.group_count_ = 1;

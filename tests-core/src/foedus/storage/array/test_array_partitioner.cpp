@@ -61,9 +61,6 @@ ErrorStack populate(const proc::ProcArguments& args) {
 }
 
 TEST(ArrayPartitionerTest, InitialPartition) {
-  if (!is_multi_nodes()) {
-    return;
-  }
   EngineOptions options = get_tiny_options();
   options.log_.log_buffer_kb_ = 1 << 10;
   options.thread_.group_count_ = 2;
@@ -146,9 +143,6 @@ void EmptyFunctor(Partitioner partitioner) {
   partitioner.partition_batch(args);
 }
 TEST(ArrayPartitionerTest, Empty) {
-  if (!is_multi_nodes()) {
-    return;
-  }
   execute_test(&EmptyFunctor);
 }
 
@@ -216,9 +210,6 @@ void PartitionBasicFunctor(Partitioner partitioner) {
 }
 
 TEST(ArrayPartitionerTest, PartitionBasic) {
-  if (!is_multi_nodes()) {
-    return;
-  }
   execute_test(&PartitionBasicFunctor);
 }
 
@@ -237,9 +228,6 @@ void SortBasicFunctor(Partitioner partitioner) {
 }
 
 TEST(ArrayPartitionerTest, SortBasic) {
-  if (!is_multi_nodes()) {
-    return;
-  }
   execute_test(&SortBasicFunctor);
 }
 
@@ -257,9 +245,6 @@ void SortCompactFunctor(Partitioner partitioner) {
 }
 
 TEST(ArrayPartitionerTest, SortCompact) {
-  if (!is_multi_nodes()) {
-    return;
-  }
   execute_test(&SortCompactFunctor);
 }
 
@@ -277,9 +262,6 @@ void SortNoCompactFunctor(Partitioner partitioner) {
 }
 
 TEST(ArrayPartitionerTest, SortNoCompact) {
-  if (!is_multi_nodes()) {
-    return;
-  }
   execute_test(&SortNoCompactFunctor);
 }
 

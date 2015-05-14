@@ -58,9 +58,6 @@ TEST(EngineMemoryTest, SingleNode) {
 }
 
 TEST(EngineMemoryTest, TwoNodes) {
-  if (!is_multi_nodes()) {
-    return;
-  }
   EngineOptions options = get_tiny_options();
   options.thread_.group_count_ = 2;
   options.memory_.page_pool_size_mb_per_node_ = 2;

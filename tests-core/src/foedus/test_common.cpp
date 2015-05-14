@@ -127,17 +127,6 @@ namespace foedus {
     fs::remove_all(unique_root);
   }
 
-  bool is_multi_nodes() {
-    EngineOptions options;
-    if (options.thread_.group_count_ > 1U) {
-      return true;
-    } else {
-      std::cerr << "These tests inherently require multi NUMA nodes! skipping them." << std::endl;
-      return false;
-    }
-  }
-
-
   std::string to_signal_name(int sig) {
     switch (sig) {
     case SIGHUP    : return "Hangup (POSIX).";
