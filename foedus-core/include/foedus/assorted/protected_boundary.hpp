@@ -57,7 +57,7 @@ struct ProtectedBoundary {
 
   /**
    * Puts a strict access prohibition via mprotect().
-   * @attention This method might cause severe performance. Use in appropriate places.
+   * @attention This method might cause severe performance degradation. Use in appropriate places.
    * We use hugepages in most places, but mprotect() most likely splits the TLB entries to
    * achieve the protection, throwing away the performance benefits of hugepages.
    * @note this method is idempotent. safe to call multiple times

@@ -52,12 +52,6 @@ namespace foedus {
   void            cleanup_test(const EngineOptions& options);
 
   /**
-   * Call this method at the beginning of a testcase that requires more than 1 NUMA node.
-   * All testcases have to pass even in a single-NUMA node machine!
-   */
-  bool            is_multi_nodes();
-
-  /**
    * Register signal handlers to capture signals during testcase execution.
    */
   void            register_signal_handlers(
