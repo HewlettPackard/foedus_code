@@ -251,7 +251,7 @@ ErrorCode HashStoragePimpl::insert_record(
   if (!location.observed_.is_deleted()) {
     CHECK_ERROR_CODE(cur_xct.add_to_read_set(get_id(), location.observed_, &location.slot_->tid_));
     return kErrorCodeStrKeyAlreadyExists;  // protected by the read set
-  } else if (location.slot_->get_max_payload() > payload_count) {
+  } else if (payload_count > location.slot_->get_max_payload()) {
     // TODO(Hideaki) : Record migration for expanding payload.
     LOG(ERROR) << "Currently record expansion is not supported. In short list.";
     return kErrorCodeStrTooShortPayload;

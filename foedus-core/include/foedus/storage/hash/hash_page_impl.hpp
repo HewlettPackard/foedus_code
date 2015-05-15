@@ -103,6 +103,9 @@ class HashIntermediatePage final {
     ASSERT_ND(bin_range_.length() == kHashMaxBins[get_level() + 1U]);
   }
 
+  /** defined in hash_page_debug.cpp. */
+  friend std::ostream& operator<<(std::ostream& o, const HashIntermediatePage& v);
+
  private:
   /** common header */
   PageHeader          header_;        // +32 -> 32
@@ -391,6 +394,16 @@ class HashDataPage final {
 
   HashBin     get_bin() const { return bin_; }
   inline void assert_bin(HashBin bin) const ALWAYS_INLINE { ASSERT_ND(bin_ == bin); }
+
+  void        assert_entries() const ALWAYS_INLINE {
+#ifndef NDEBUG
+    assert_entries_impl();
+#endif  // NDEBUG
+  }
+  /** defined in hash_page_debug.cpp. */
+  void        assert_entries_impl() const;
+  /** defined in hash_page_debug.cpp. */
+  friend std::ostream& operator<<(std::ostream& o, const HashDataPage& v);
 
  private:
   PageHeader      header_;        // +32 -> 32
