@@ -118,6 +118,12 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     xct::WriteXctAccess* write_set);
   xct::TrackMovedRecordResult track_moved_record_search(HashDataPage* page, const HashCombo& combo);
 
+  /** These are defined in hash_storage_verify.cpp */
+  ErrorStack  verify_single_thread(Engine* engine);
+  ErrorStack  verify_single_thread(thread::Thread* context);
+  ErrorStack  verify_single_thread_intermediate(Engine* engine, HashIntermediatePage* page);
+  ErrorStack  verify_single_thread_data(Engine* engine, HashDataPage* head);
+
   /** These are defined in hash_storage_debug.cpp */
   ErrorStack debugout_single_thread(
     Engine* engine,

@@ -87,8 +87,7 @@ std::ostream& operator<<(std::ostream& o, const HashDataPage& v) {
 
 
 void HashDataPage::assert_entries_impl() const {
-  // the following logic holds only when this page is locked
-  ASSERT_ND(header_.snapshot_ || header_.page_version_.is_locked());
+  ASSERT_ND(bin_bits_ + bin_shifts_ == 64U);
   uint8_t records = get_record_count();
 
   if (header_.snapshot_) {
@@ -105,12 +104,18 @@ void HashDataPage::assert_entries_impl() const {
       const HashDataPage::Slot* pre = get_slot_address(i - 1);
       ASSERT_ND(slot->offset_ == pre->offset_ + pre->physical_record_length_);
     }
+    HashValue hash = hashinate(record_from_offset(slot->offset_), slot->key_length_);
+    ASSERT_ND(slot->hash_ == hash);
+    HashBin bin = hash >> bin_shifts_;
+    ASSERT_ND(bin_ == bin);
+
     correct_filter.add(DataPageBloomFilter::extract_fingerprint(slot->hash_));
     ASSERT_ND(slot->physical_record_length_
       >= slot->get_aligned_key_length() + slot->payload_length_);
     uint16_t end_offset = slot->offset_ + slot->physical_record_length_;
     ASSERT_ND(end_offset + records * sizeof(Slot) <= (kPageSize - kHashDataPageHeaderSize));
   }
+
   for (uint16_t i = 0; i < sizeof(correct_filter.values_); ++i) {
     ASSERT_ND(correct_filter.values_[i] == bloom_filter_.values_[i]);
   }

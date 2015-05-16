@@ -864,7 +864,13 @@ ErrorCode HashStoragePimpl::reserve_record(
       VolatilePagePointer new_pointer = combine_volatile_page_pointer(
         context->get_numa_node(), 0, 0, new_page_offset);
       HashBin bin = page->get_bin();
-      next->initialize_volatile_page(get_id(), new_pointer, reinterpret_cast<Page*>(page), bin);
+      next->initialize_volatile_page(
+        get_id(),
+        new_pointer,
+        reinterpret_cast<Page*>(page),
+        bin,
+        get_bin_bits(),
+        get_bin_shifts());
       assorted::memory_fence_release();  // so that others don't see uninitialized page
       page->next_page().volatile_pointer_ = new_pointer;
       assorted::memory_fence_release();  // so that others don't have "where's the next page" issue

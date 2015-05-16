@@ -117,8 +117,7 @@ void execute_test(TestFunctor functor, uint32_t records) {
     }
 
     HashStorage storage(&engine, kTableName);
-    // TASK(Hideaki) verify API for hash
-    // COERCE_ERROR(storage.verify_single_thread(context));
+    COERCE_ERROR(storage.verify_single_thread(&engine));
     // only when debugging
     // COERCE_ERROR(storage.debugout_single_thread(&engine, true, true));
 

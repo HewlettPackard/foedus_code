@@ -136,6 +136,7 @@ ErrorStack create_tpcb_tables_task(const proc::ProcArguments& args) {
     COERCE_ERROR(branches.insert_record(context, i, &data, sizeof(data)));
   }
   COERCE_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+  COERCE_ERROR(branches.verify_single_thread(context));
   highest_commit_epoch.store_max(commit_epoch);
 
   // Create tellers
@@ -152,6 +153,7 @@ ErrorStack create_tpcb_tables_task(const proc::ProcArguments& args) {
     COERCE_ERROR(tellers.insert_record(context, i, &data, sizeof(data)));
   }
   COERCE_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+  COERCE_ERROR(tellers.verify_single_thread(context));
   highest_commit_epoch.store_max(commit_epoch);
 
   // Create accounts
@@ -168,6 +170,7 @@ ErrorStack create_tpcb_tables_task(const proc::ProcArguments& args) {
     COERCE_ERROR(accounts.insert_record(context, i, &data, sizeof(data)));
   }
   COERCE_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+  COERCE_ERROR(accounts.verify_single_thread(context));
   highest_commit_epoch.store_max(commit_epoch);
 
   // Create histories
@@ -402,6 +405,9 @@ ErrorStack run_tpcb_task(const proc::ProcArguments& args) {
 /** Verify TPC-B results. */
 ErrorStack verify_tpcb_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
+  COERCE_ERROR(accounts.verify_single_thread(context));
+  COERCE_ERROR(branches.verify_single_thread(context));
+  COERCE_ERROR(tellers.verify_single_thread(context));
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
 

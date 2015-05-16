@@ -168,6 +168,16 @@ xct::TrackMovedRecordResult HashStorage::track_moved_record(
   return HashStoragePimpl(this).track_moved_record(old_address, write_set);
 }
 
+ErrorStack HashStorage::verify_single_thread(Engine* engine) {
+  HashStoragePimpl pimpl(this);
+  return pimpl.verify_single_thread(engine);
+}
+
+ErrorStack HashStorage::verify_single_thread(thread::Thread* context) {
+  HashStoragePimpl pimpl(this);
+  return pimpl.verify_single_thread(context);
+}
+
 ErrorStack HashStorage::debugout_single_thread(
   Engine* engine,
   bool volatile_only,

@@ -87,6 +87,9 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     xct::LockableXctId* old_address,
     xct::WriteXctAccess* write_set);
 
+  ErrorStack  verify_single_thread(Engine* engine);
+  ErrorStack  verify_single_thread(thread::Thread* context);
+
   /**
    * @brief A super-expensive and single-thread only debugging feature to write out
    * gigantic human-readable texts to describe the hash storage in details.

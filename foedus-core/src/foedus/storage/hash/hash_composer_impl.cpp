@@ -832,7 +832,9 @@ ErrorStack HashComposeContext::close_cur_bin() {
   const SnapshotPagePointer base_pointer = snapshot_writer_->get_next_page_id();
   HashDataPage* head_page = page_base_ + allocated_pages_;
   SnapshotPagePointer head_page_id = base_pointer + allocated_pages_;
-  head_page->initialize_snapshot_page(storage_id_, head_page_id, cur_bin_);
+  const uint8_t bin_bits = storage_.get_bin_bits();
+  const uint8_t bin_shifts = storage_.get_bin_shifts();
+  head_page->initialize_snapshot_page(storage_id_, head_page_id, cur_bin_, bin_bits, bin_shifts);
   ++allocated_pages_;
   ASSERT_ND(allocated_pages_ <= max_pages_);
 
@@ -851,7 +853,7 @@ ErrorStack HashComposeContext::close_cur_bin() {
       // move on to next page
       SnapshotPagePointer page_id = base_pointer + allocated_pages_;
       HashDataPage* next_page = page_base_ + allocated_pages_;
-      next_page->initialize_snapshot_page(storage_id_, page_id, cur_bin_);
+      next_page->initialize_snapshot_page(storage_id_, page_id, cur_bin_, bin_bits, bin_shifts);
       cur_page->next_page_address()->snapshot_pointer_ = page_id;
       cur_page = next_page;
 
