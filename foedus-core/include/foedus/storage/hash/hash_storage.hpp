@@ -87,6 +87,22 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     xct::LockableXctId* old_address,
     xct::WriteXctAccess* write_set);
 
+  ErrorStack  verify_single_thread(Engine* engine);
+  ErrorStack  verify_single_thread(thread::Thread* context);
+
+  /**
+   * @brief A super-expensive and single-thread only debugging feature to write out
+   * gigantic human-readable texts to describe the hash storage in details.
+   * @details
+   * Do not invoke this method for more than 100 pages, or in production use.
+   * This is for debugging.
+   */
+  ErrorStack  debugout_single_thread(
+    Engine* engine,
+    bool volatile_only = false,
+    bool intermediate_only = false,
+    uint32_t max_pages = 1024U);
+
   //// Hash table API
   // TASK(Hideaki) Add primitive-optimized versions and increment versions.
   // Low priority. Most costs are from page-traversal and hashinate.

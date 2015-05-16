@@ -13,6 +13,8 @@ set(test_hash_hashinate_individuals
   )
 add_foedus_test_individual(test_hash_hashinate "${test_hash_hashinate_individuals}")
 
+add_foedus_test_individual(test_hash_partitioner "Empty;EmptyMany;PartitionBasic;PartitionBasicMany;SortBasic")
+
 set(test_hash_tpcb_individuals
   SingleThreadedNoContention
   TwoThreadedNoContention

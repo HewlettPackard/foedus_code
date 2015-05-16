@@ -78,7 +78,7 @@ ErrorStack MasstreeStoragePimpl::debugout_single_thread_recurse(
   MasstreePage* parent,
   bool follow_volatile,
   uint32_t* remaining_pages) {
-  if (--(*remaining_pages) == 0) {
+  if (((*remaining_pages) == 0) || --(*remaining_pages) == 0) {
     LOG(INFO) << "Reached write-out max. skip the following";
     return kRetOk;
   }

@@ -168,6 +168,25 @@ xct::TrackMovedRecordResult HashStorage::track_moved_record(
   return HashStoragePimpl(this).track_moved_record(old_address, write_set);
 }
 
+ErrorStack HashStorage::verify_single_thread(Engine* engine) {
+  HashStoragePimpl pimpl(this);
+  return pimpl.verify_single_thread(engine);
+}
+
+ErrorStack HashStorage::verify_single_thread(thread::Thread* context) {
+  HashStoragePimpl pimpl(this);
+  return pimpl.verify_single_thread(context);
+}
+
+ErrorStack HashStorage::debugout_single_thread(
+  Engine* engine,
+  bool volatile_only,
+  bool intermediate_only,
+  uint32_t max_pages) {
+  HashStoragePimpl pimpl(this);
+  return pimpl.debugout_single_thread(engine, volatile_only, intermediate_only, max_pages);
+}
+
 // Explicit instantiations for each payload type
 // @cond DOXYGEN_IGNORE
 #define EXPIN_2(x) template ErrorCode HashStorage::get_record_primitive< x > \

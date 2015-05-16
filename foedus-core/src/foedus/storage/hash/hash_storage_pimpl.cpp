@@ -251,7 +251,7 @@ ErrorCode HashStoragePimpl::insert_record(
   if (!location.observed_.is_deleted()) {
     CHECK_ERROR_CODE(cur_xct.add_to_read_set(get_id(), location.observed_, &location.slot_->tid_));
     return kErrorCodeStrKeyAlreadyExists;  // protected by the read set
-  } else if (location.slot_->get_max_payload() > payload_count) {
+  } else if (payload_count > location.slot_->get_max_payload()) {
     // TODO(Hideaki) : Record migration for expanding payload.
     LOG(ERROR) << "Currently record expansion is not supported. In short list.";
     return kErrorCodeStrTooShortPayload;
@@ -864,7 +864,13 @@ ErrorCode HashStoragePimpl::reserve_record(
       VolatilePagePointer new_pointer = combine_volatile_page_pointer(
         context->get_numa_node(), 0, 0, new_page_offset);
       HashBin bin = page->get_bin();
-      next->initialize_volatile_page(get_id(), new_pointer, reinterpret_cast<Page*>(page), bin);
+      next->initialize_volatile_page(
+        get_id(),
+        new_pointer,
+        reinterpret_cast<Page*>(page),
+        bin,
+        get_bin_bits(),
+        get_bin_shifts());
       assorted::memory_fence_release();  // so that others don't see uninitialized page
       page->next_page().volatile_pointer_ = new_pointer;
       assorted::memory_fence_release();  // so that others don't have "where's the next page" issue

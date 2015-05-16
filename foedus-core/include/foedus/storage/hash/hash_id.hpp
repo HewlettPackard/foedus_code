@@ -178,6 +178,9 @@ struct HashBinRange {
 
   uint64_t length() const { return end_ - begin_; }
 
+  /** this one is NOT header-only. Defined in hash_id.cpp */
+  friend std::ostream& operator<<(std::ostream& o, const HashBinRange& v);
+
   /** Inclusive beginning of the range. */
   HashBin begin_;
   /** Exclusive end of the range. */

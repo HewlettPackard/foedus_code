@@ -47,6 +47,7 @@ TEST(HashBasicTest, Create) {
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager()->create_hash(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
+    COERCE_ERROR(storage.verify_single_thread(&engine));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -86,6 +87,7 @@ TEST(HashBasicTest, CreateAndQuery) {
     COERCE_ERROR(engine.get_storage_manager()->create_hash(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
     COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("query_task"));
+    COERCE_ERROR(storage.verify_single_thread(&engine));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -118,6 +120,7 @@ TEST(HashBasicTest, CreateAndInsert) {
     COERCE_ERROR(engine.get_storage_manager()->create_hash(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
     COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("insert_task"));
+    COERCE_ERROR(storage.verify_single_thread(&engine));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -158,6 +161,7 @@ TEST(HashBasicTest, CreateAndInsertAndRead) {
     COERCE_ERROR(engine.get_storage_manager()->create_hash(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
     COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("insert_and_read_task"));
+    COERCE_ERROR(storage.verify_single_thread(&engine));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
@@ -202,6 +206,7 @@ TEST(HashBasicTest, Overwrite) {
     COERCE_ERROR(engine.get_storage_manager()->create_hash(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
     COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("overwrite_task"));
+    COERCE_ERROR(storage.verify_single_thread(&engine));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);

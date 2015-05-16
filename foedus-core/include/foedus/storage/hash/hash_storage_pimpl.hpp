@@ -28,6 +28,7 @@
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/const_div.hpp"
+#include "foedus/cache/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/storage/fwd.hpp"
@@ -116,6 +117,32 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     xct::LockableXctId* old_address,
     xct::WriteXctAccess* write_set);
   xct::TrackMovedRecordResult track_moved_record_search(HashDataPage* page, const HashCombo& combo);
+
+  /** These are defined in hash_storage_verify.cpp */
+  ErrorStack  verify_single_thread(Engine* engine);
+  ErrorStack  verify_single_thread(thread::Thread* context);
+  ErrorStack  verify_single_thread_intermediate(Engine* engine, HashIntermediatePage* page);
+  ErrorStack  verify_single_thread_data(Engine* engine, HashDataPage* head);
+
+  /** These are defined in hash_storage_debug.cpp */
+  ErrorStack debugout_single_thread(
+    Engine* engine,
+    bool volatile_only,
+    bool intermediate_only,
+    uint32_t max_pages);
+  ErrorStack debugout_single_thread_intermediate(
+    Engine* engine,
+    cache::SnapshotFileSet* fileset,
+    HashIntermediatePage* parent,
+    bool follow_volatile,
+    bool intermediate_only,
+    uint32_t* remaining_pages);
+  ErrorStack debugout_single_thread_data(
+    Engine* engine,
+    cache::SnapshotFileSet* fileset,
+    HashDataPage* head,
+    bool follow_volatile,
+    uint32_t* remaining_pages);
 
   ErrorStack  create(const HashMetadata& metadata);
   ErrorStack  load(const StorageControlBlock& snapshot_block);

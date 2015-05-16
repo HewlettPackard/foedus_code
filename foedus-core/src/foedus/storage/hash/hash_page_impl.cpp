@@ -71,10 +71,14 @@ void HashDataPage::initialize_volatile_page(
   StorageId storage_id,
   VolatilePagePointer page_id,
   const Page* parent,
-  HashBin bin) {
+  HashBin bin,
+  uint8_t bin_bits,
+  uint8_t bin_shifts) {
   std::memset(this, 0, kPageSize);
   header_.init_volatile(page_id, storage_id, kHashDataPageType);
   bin_ = bin;
+  bin_bits_ = bin_bits;
+  bin_shifts_ = bin_shifts;
   ASSERT_ND(parent);
   if (parent->get_header().get_page_type() == kHashIntermediatePageType) {
     const HashIntermediatePage* parent_casted
@@ -84,16 +88,22 @@ void HashDataPage::initialize_volatile_page(
   } else {
     const HashDataPage* parent_casted = reinterpret_cast<const HashDataPage*>(parent);
     ASSERT_ND(parent_casted->get_bin() == bin);
+    ASSERT_ND(parent_casted->bin_bits_ == bin_bits);
+    ASSERT_ND(parent_casted->bin_shifts_ == bin_shifts);
   }
 }
 
 void HashDataPage::initialize_snapshot_page(
   StorageId storage_id,
   SnapshotPagePointer page_id,
-  HashBin bin) {
+  HashBin bin,
+  uint8_t bin_bits,
+  uint8_t bin_shifts) {
   std::memset(this, 0, kPageSize);
   header_.init_snapshot(page_id, storage_id, kHashDataPageType);
   bin_ = bin;
+  bin_bits_ = bin_bits;
+  bin_shifts_ = bin_shifts;
 }
 
 DataPageSlotIndex HashDataPage::search_key(
@@ -222,7 +232,10 @@ void hash_data_volatile_page_init(const VolatilePageInitArguments& args) {
     const HashDataPage* parent = reinterpret_cast<const HashDataPage*>(args.parent_);
     bin = parent->get_bin();
   }
-  page->initialize_volatile_page(storage_id, args.page_id, args.parent_, bin);
+  HashStorage storage(args.context_->get_engine(), storage_id);
+  uint8_t bin_bits = storage.get_bin_bits();
+  uint8_t bin_shifts = storage.get_bin_shifts();
+  page->initialize_volatile_page(storage_id, args.page_id, args.parent_, bin, bin_bits, bin_shifts);
 }
 
 // Parallel page release for shutdown/drop. simpler than masstree package

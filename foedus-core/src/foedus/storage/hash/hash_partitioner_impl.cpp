@@ -162,11 +162,13 @@ void HashPartitioner::design_partition_task_recurse(
   ASSERT_ND(page->header().get_page_type() == kHashIntermediatePageType);
   HashBin interval = kHashMaxBins[page->get_level()];
   HashBin begin = page->get_bin_range().begin_;
-  for (uint16_t i = 0; begin + i * interval < data_->total_bin_count_; ++i) {
+  for (uint16_t i = 0;
+        begin + i * interval < data_->total_bin_count_ && i < kHashIntermediatePageFanout;
+        ++i) {
     HashBin sub_begin = begin + i * interval;
     VolatilePagePointer pointer = page->get_pointer(i).volatile_pointer_;
     if (pointer.is_null()) {
-      std::memset(data_->bin_owners_ + begin + (interval * i), 0, interval);
+      std::memset(data_->bin_owners_ + sub_begin, 0, interval);
     } else if (page->get_level() == 0) {
       ASSERT_ND(interval = 1ULL);
       data_->bin_owners_[sub_begin] = pointer.components.numa_node;
@@ -260,10 +262,13 @@ void prepare_sort_entries(
 uint32_t compact_logs(
   uint8_t /*bin_shifts*/,
   const Partitioner::SortBatchArguments& args,
-  SortEntry* /*entries*/) {
+  SortEntry* entries) {
   // TASK(Hideaki) mapper side compaction.
   // Unlike array, we have to consider all combinations of insert/delete/overwrite.
   // Also needs to exactly compare keys. We probably need to store hashes in log to make it worth.
+  for (uint32_t i = 0; i < args.logs_count_; ++i) {
+    args.output_buffer_[i] = entries[i].get_position();
+  }
   return args.logs_count_;
 /*
   // CPU profile of partition_hash_perf: ??%.

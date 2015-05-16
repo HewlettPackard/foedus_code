@@ -103,6 +103,9 @@ class HashIntermediatePage final {
     ASSERT_ND(bin_range_.length() == kHashMaxBins[get_level() + 1U]);
   }
 
+  /** defined in hash_page_debug.cpp. */
+  friend std::ostream& operator<<(std::ostream& o, const HashIntermediatePage& v);
+
  private:
   /** common header */
   PageHeader          header_;        // +32 -> 32
@@ -195,11 +198,15 @@ class HashDataPage final {
     StorageId storage_id,
     VolatilePagePointer page_id,
     const Page* parent,
-    HashBin bin);
+    HashBin bin,
+    uint8_t bin_bits,
+    uint8_t bin_shifts);
   void initialize_snapshot_page(
     StorageId storage_id,
     SnapshotPagePointer page_id,
-    HashBin bin);
+    HashBin bin,
+    uint8_t bin_bits,
+    uint8_t bin_shifts);
   void release_pages_recursive(
     const memory::GlobalVolatilePageResolver& page_resolver,
     memory::PageReleaseBatch* batch);
@@ -390,7 +397,19 @@ class HashDataPage final {
   }
 
   HashBin     get_bin() const { return bin_; }
+  uint8_t     get_bin_bits() const { return bin_bits_; }
+  uint8_t     get_bin_shifts() const { return bin_shifts_; }
   inline void assert_bin(HashBin bin) const ALWAYS_INLINE { ASSERT_ND(bin_ == bin); }
+
+  void        assert_entries() const ALWAYS_INLINE {
+#ifndef NDEBUG
+    assert_entries_impl();
+#endif  // NDEBUG
+  }
+  /** defined in hash_page_debug.cpp. */
+  void        assert_entries_impl() const;
+  /** defined in hash_page_debug.cpp. */
+  friend std::ostream& operator<<(std::ostream& o, const HashDataPage& v);
 
  private:
   PageHeader      header_;        // +32 -> 32
@@ -408,7 +427,11 @@ class HashDataPage final {
    * Used only for sanity check, so we actually don't need it. Kind of a padding.
    */
   HashBin         bin_;           // +8 -> 56
-  uint64_t        padding_;       // +8 -> 64
+  /** same above. always same as storage's bin_bits */
+  uint8_t         bin_bits_;      // +1 -> 57
+  /** same above. always same as storage's bin_shifts */
+  uint8_t         bin_shifts_;    // +1 -> 58
+  uint8_t         paddings_[6];   // +6 -> 64
 
   /**
    * Registers the keys this page contains. 64 bytes might sound too generous, but
