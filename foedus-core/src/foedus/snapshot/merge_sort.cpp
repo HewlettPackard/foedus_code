@@ -30,6 +30,7 @@
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/array/array_log_types.hpp"
+#include "foedus/storage/hash/hash_log_types.hpp"
 #include "foedus/storage/masstree/masstree_log_types.hpp"
 
 namespace foedus {
@@ -194,10 +195,14 @@ void MergeSort::next_batch_one_input() {
     for (; LIKELY(relative_pos < end_pos && processed < buffer_capacity_); ++processed) {
       relative_pos += populate_entry_array(0, relative_pos);
     }
-  } else {
-    ASSERT_ND(type_ == storage::kMasstreeStorage);
+  } else if (type_ == storage::kMasstreeStorage) {
     for (; LIKELY(relative_pos < end_pos && processed < buffer_capacity_); ++processed) {
       relative_pos += populate_entry_masstree(0, relative_pos);
+    }
+  } else {
+    ASSERT_ND(type_ == storage::kHashStorage);
+    for (; LIKELY(relative_pos < end_pos && processed < buffer_capacity_); ++processed) {
+      relative_pos += populate_entry_hash(0, relative_pos);
     }
   }
   ASSERT_ND(relative_pos <= end_pos + kLongestLog);
@@ -520,7 +525,7 @@ void MergeSort::batch_sort_adjust_sort() {
     debug_stat_longest_run = std::max<uint32_t>(debug_stat_longest_run, run_length);
     ++debug_stat_run_count;
 
-    // so far only masstree. hash should be added
+    // so far only masstree. hash does not need this either (at the cost of less compression)
     ASSERT_ND(type_ == storage::kMasstreeStorage);
     if (needs_to_check) {  // if all entries in this range are 8-bytes keys, no need.
       AdjustComparatorMasstree comparator(position_entries_, inputs_status_);
@@ -549,11 +554,15 @@ int MergeSort::compare_logs(const log::RecordLogType* lhs, const log::RecordLogT
     ASSERT_ND(is_array_log_type(lhs->header_.log_type_code_));
     ASSERT_ND(is_array_log_type(rhs->header_.log_type_code_));
     return compare_logs_as< storage::array::ArrayCommonUpdateLogType >(lhs, rhs);
-  } else {
-    ASSERT_ND(type_ == storage::kMasstreeStorage);
+  } else if (type_ == storage::kMasstreeStorage) {
     ASSERT_ND(is_masstree_log_type(lhs->header_.log_type_code_));
     ASSERT_ND(is_masstree_log_type(rhs->header_.log_type_code_));
     return compare_logs_as< storage::masstree::MasstreeCommonLogType >(lhs, rhs);
+  } else {
+    ASSERT_ND(type_ == storage::kHashStorage);
+    ASSERT_ND(is_hash_log_type(lhs->header_.log_type_code_));
+    ASSERT_ND(is_hash_log_type(rhs->header_.log_type_code_));
+    return compare_logs_as< storage::hash::HashCommonLogType >(lhs, rhs);
   }
 }
 
@@ -599,6 +608,38 @@ inline uint16_t MergeSort::populate_entry_array(InputIndex input_index, uint64_t
   uint16_t compressed_epoch = epoch.subtract(base_epoch_);
   sort_entries_[current_count_].set(
     the_log->offset_,
+    compressed_epoch,
+    the_log->header_.xct_id_.get_ordinal(),
+    false,
+    current_count_);
+  position_entries_[current_count_].input_index_ = input_index;
+  position_entries_[current_count_].log_type_ = the_log->header_.log_type_code_;
+  position_entries_[current_count_].input_position_ = to_buffer_position(relative_pos);
+  ++current_count_;
+
+  return the_log->header_.log_length_;
+}
+
+inline uint16_t MergeSort::populate_entry_hash(InputIndex input_index, uint64_t relative_pos) {
+  InputStatus* status = inputs_status_ + input_index;
+  ASSERT_ND(current_count_ < buffer_capacity_);
+  ASSERT_ND(relative_pos < status->window_size_);
+  ASSERT_ND(relative_pos % 8U == 0);
+  const storage::hash::HashCommonLogType* the_log
+    = reinterpret_cast<const storage::hash::HashCommonLogType*>(
+        status->from_byte_pos(relative_pos));
+  ASSERT_ND(is_hash_log_type(the_log->header_.log_type_code_));
+  the_log->assert_type();
+
+  Epoch epoch = the_log->header_.xct_id_.get_epoch();
+  ASSERT_ND(epoch.subtract(base_epoch_) < (1U << 16));
+  uint16_t compressed_epoch = epoch.subtract(base_epoch_);
+  uint16_t key_length = the_log->key_length_;
+  ASSERT_ND(key_length >= shortest_key_length_);
+  ASSERT_ND(key_length <= longest_key_length_);
+  storage::hash::HashBin bin = the_log->hash_ >> (64U - the_log->bin_bits_);
+  sort_entries_[current_count_].set(
+    bin,
     compressed_epoch,
     the_log->header_.xct_id_.get_ordinal(),
     false,
@@ -662,13 +703,24 @@ void MergeSort::assert_sorted() {
         cur->header_.xct_id_.get_ordinal(),
         false,
         cur_pos);
-    } else {
+    } else if (type_ == storage::kMasstreeStorage) {
       const auto* casted = reinterpret_cast<const storage::masstree::MasstreeCommonLogType*>(cur);
       dummy.set(
         casted->get_first_slice(),
         compressed_epoch,
         cur->header_.xct_id_.get_ordinal(),
         casted->key_length_ != sizeof(storage::masstree::KeySlice),
+        cur_pos);
+    } else {
+      ASSERT_ND(type_ == storage::kHashStorage);
+      const auto* casted = reinterpret_cast<const storage::hash::HashCommonLogType*>(cur);
+      casted->assert_type();
+      storage::hash::HashBin bin = casted->hash_ >> (64U - casted->bin_bits_);
+      dummy.set(
+        bin,
+        compressed_epoch,
+        cur->header_.xct_id_.get_ordinal(),
+        false,  // hash doesn't need further sorting so far.
         cur_pos);
     }
     ASSERT_ND(dummy.data_ == sort_entries_[i].data_);

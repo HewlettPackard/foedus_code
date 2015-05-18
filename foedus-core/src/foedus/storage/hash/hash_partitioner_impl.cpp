@@ -194,8 +194,7 @@ void HashPartitioner::partition_batch(const Partitioner::PartitionBatchArguments
       args.log_buffer_.resolve(args.log_positions_[i]));
     log->assert_type();
     ASSERT_ND(log->header_.storage_id_ == id_);
-    // wanna SIMD-ize this... most of the cost here comes from this function.
-    HashValue hash = hashinate(log->get_key(), log->key_length_);
+    HashValue hash = log->hash_;
     HashBin bin = hash >> bin_shifts;
     ASSERT_ND(bin < storage.get_bin_count());
     args.results_[i] = data_->bin_owners_[bin];
@@ -248,7 +247,7 @@ void prepare_sort_entries(
     ASSERT_ND(epoch.subtract(base_epoch) < (1U << 16));
     uint16_t compressed_epoch = epoch.subtract(base_epoch);
     // this is expensive.. should keep hash in log entries
-    HashValue hash = hashinate(log_entry->get_key(), log_entry->key_length_);
+    HashValue hash = log_entry->hash_;
     entries[i].set(
       hash >> bin_shifts,
       compressed_epoch,

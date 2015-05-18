@@ -265,10 +265,10 @@ struct ComposedBinsMergedStream final {
 };
 
 inline ErrorCode ComposedBinsBuffer::next_bin() {
-  if (LIKELY(cursor_bin_ < cursor_bin_count_)) {
+  if (LIKELY(cursor_bin_ + 1U < cursor_bin_count_)) {
     ++cursor_bin_;
     return kErrorCodeOk;
-  } else if (LIKELY(cursor_buffer_ < buffer_count_)) {
+  } else if (LIKELY(cursor_buffer_ + 1U < buffer_count_)) {
     ++cursor_buffer_;
     cursor_bin_ = 0;
     cursor_bin_count_ = buffer_[cursor_buffer_].bin_count_;

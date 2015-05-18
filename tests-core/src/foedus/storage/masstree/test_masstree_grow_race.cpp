@@ -245,8 +245,8 @@ void run_test() {
   EngineOptions native_options;
   std::cout << "kRecords=" << kRecords << std::endl;
   std::cout << "Physical core count = "
-    << native_options.thread_.get_total_thread_count() << std::endl;
-  uint32_t test_core_count = native_options.thread_.get_total_thread_count() * kThreadsPerCore;
+    << native_options.thread_.thread_count_per_group_ << std::endl;
+  uint32_t test_core_count = native_options.thread_.thread_count_per_group_ * kThreadsPerCore;
   if (RUNNING_ON_VALGRIND) {
     std::cout << "This testcase takes too long on Valgrind. exit" << std::endl;
     return;

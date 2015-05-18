@@ -39,6 +39,22 @@ add_foedus_test_individual(test_snapshot_array "${test_snapshot_array_individual
 
 add_foedus_test_individual(test_snapshot_sequential "AppendsOneLogger;AppendsTwoLoggers;AppendsTwoPartitions")
 
+set(test_snapshot_hash_individuals
+  InsertsFixedLenOneLogger1Lv
+  InsertsFixedLenOneLogger2Lv
+  InsertsFixedLenTwoLoggers1Lv
+  InsertsFixedLenTwoLoggers2Lv
+  InsertsFixedLenTwoPartitions1Lv
+  InsertsFixedLenTwoPartitions2Lv
+  InsertsVarlenOneLogger1Lv
+  InsertsVarlenOneLogger2Lv
+  InsertsVarlenTwoLoggers1Lv
+  InsertsVarlenTwoLoggers2Lv
+  InsertsVarlenTwoPartitions1Lv
+  InsertsVarlenTwoPartitions2Lv
+  )
+add_foedus_test_individual(test_snapshot_hash "${test_snapshot_hash_individuals}")
+
 set(test_snapshot_masstree_individuals
   InsertsNormalizedOneLogger
   InsertsNormalizedTwoLoggers

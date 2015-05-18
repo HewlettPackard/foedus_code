@@ -114,6 +114,9 @@ ErrorStack ComposedBinsMergedStream::init(
       = reinterpret_cast<HashComposedBinsPage*>(read_buffer->get_block());
     HashComposedBinsPage* buffer_piece = read_buffer_casted + buffer_piece_size * i;
     inputs_[i].init(fileset, head_page_id, total_pages, buffer_piece_size, buffer_piece);
+    if (inputs_[i].has_more()) {
+      WRAP_ERROR_CODE(inputs_[i].next_pages());
+    }
   }
 
   levels_ = root_page->get_level() + 1U;

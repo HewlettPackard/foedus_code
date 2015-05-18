@@ -64,7 +64,7 @@ inline HashDataPage* resolve_data_impl(
   }
   HashDataPage* ret = reinterpret_cast<HashDataPage*>(resolver.resolve_offset(pointer));
   ASSERT_ND(ret->header().get_page_type() == kHashDataPageType);
-  ASSERT_ND(ret->header().page_id_ == pointer.word);
+  ASSERT_ND(pointer.is_equivalent(construct_volatile_page_pointer(ret->header().page_id_)));
   return ret;
 }
 
@@ -77,7 +77,7 @@ inline HashIntermediatePage* resolve_intermediate_impl(
   HashIntermediatePage* ret
     = reinterpret_cast<HashIntermediatePage*>(resolver.resolve_offset(pointer));
   ASSERT_ND(ret->header().get_page_type() == kHashIntermediatePageType);
-  ASSERT_ND(ret->header().page_id_ == pointer.word);
+  ASSERT_ND(pointer.is_equivalent(construct_volatile_page_pointer(ret->header().page_id_)));
   return ret;
 }
 
@@ -224,12 +224,13 @@ ErrorStack HashComposer::construct_root_single_level(
 
     // check if it's really contiguous
     for (uint16_t index = 0; index < root_children; ++index) {
-      ASSERT_ND(casted->get_pointer(index).volatile_pointer_.word == 1U);
-      ASSERT_ND(casted->get_pointer(index).snapshot_pointer_ == bins_page_id + i);
-      if (casted->get_pointer(index).volatile_pointer_.word != 1U) {
+      DualPagePointer pointer = casted->get_pointer(index);
+      ASSERT_ND(pointer.volatile_pointer_.word == 1U);
+      ASSERT_ND(pointer.snapshot_pointer_ == bins_page_id + index);
+      if (pointer.volatile_pointer_.word != 1U) {
         return ERROR_STACK_MSG(kErrorCodeInternalError, "wtf 1");
       }
-      if (casted->get_pointer(index).snapshot_pointer_ != bins_page_id + i) {
+      if (pointer.snapshot_pointer_ != bins_page_id + index) {
         return ERROR_STACK_MSG(kErrorCodeInternalError, "wtf 2");
       }
     }
@@ -509,7 +510,7 @@ ErrorStack HashComposeContext::execute() {
       ASSERT_ND(head_bin < storage_.get_bin_count());
       if (cur_bin_ != head_bin) {
         // now we have to finalize the previous bin and switch to a new bin!
-        ASSERT_ND(cur_bin_ < head_bin);  // sorted by bins
+        ASSERT_ND(cur_bin_ == kCurBinNotOpened || cur_bin_ < head_bin);  // sorted by bins
         CHECK_ERROR(close_cur_bin());
         ASSERT_ND(cur_bin_ == kCurBinNotOpened);
         CHECK_ERROR(open_cur_bin(head_bin));
@@ -542,8 +543,7 @@ ErrorStack HashComposeContext::execute() {
 }
 
 ErrorCode HashComposeContext::apply_batch(uint64_t cur, uint64_t next) {
-  // so far not much benefit of prefetching in hash composer.
-  // the vast majority of the cost comes from hashinate.
+  // TASK(Hideaki) prefetching in hash composer.
   const uint16_t kFetchSize = 8;
   const log::RecordLogType* logs[kFetchSize];
   while (cur < next) {
@@ -551,7 +551,8 @@ ErrorCode HashComposeContext::apply_batch(uint64_t cur, uint64_t next) {
     uint16_t fetched = merge_sort_->fetch_logs(cur, desired, logs);
     for (uint16_t i = 0; i < kFetchSize && LIKELY(i < fetched); ++i) {
       const HashCommonLogType* log = reinterpret_cast<const HashCommonLogType*>(logs[i]);
-      HashValue hash = hashinate(log->get_key(), log->key_length_);
+      log->assert_type();
+      HashValue hash = log->hash_;
       ASSERT_ND(cur_bin_ == (hash >> storage_.get_bin_shifts()));
       if (log->header_.get_type() == log::kLogCodeHashOverwrite) {
         CHECK_ERROR_CODE(cur_bin_table_.overwrite_record(
@@ -586,8 +587,6 @@ ErrorCode HashComposeContext::apply_batch(uint64_t cur, uint64_t next) {
 }
 
 ErrorStack HashComposeContext::finalize() {
-  ASSERT_ND(levels_ > 1U);
-
   CHECK_ERROR(close_cur_bin());
 
   // flush the main buffer. now we finalized all data pages
@@ -680,8 +679,8 @@ ErrorStack HashComposeContext::init_cur_path() {
   if (previous_root_page_pointer_ == 0) {
     ASSERT_ND(is_initial_snapshot());
     std::memset(cur_path_, 0, kPageSize * levels_);
-    cur_path_lowest_level_ = 0;
-    cur_path_valid_range_ = HashBinRange(0, 0);
+    cur_path_lowest_level_ = levels_;
+    cur_path_valid_range_ = HashBinRange(0, kHashMaxBins[levels_]);
   } else {
     ASSERT_ND(!is_initial_snapshot());
     HashIntermediatePage* root = get_cur_path_page(levels_ - 1U);
@@ -1177,18 +1176,40 @@ Composer::DropResult HashComposer::drop_volatiles(const Composer::DropVolatilesA
   // Even if the volatile page is deeper than that, we keep them if it contains newer modification,
   // including descendants (so, probably we will keep higher levels anyways).
   uint16_t count = storage_.get_root_children();
+  uint8_t root_level = volatile_page->get_level();
+  ASSERT_ND(root_level + 1U == storage_.get_levels());
   for (uint16_t i = 0; i < count; ++i) {
     DualPagePointer& child_pointer = volatile_page->get_pointer(i);
-    if (!child_pointer.volatile_pointer_.is_null()) {
-      ASSERT_ND(child_pointer.snapshot_pointer_ != 0);
+    if (!child_pointer.volatile_pointer_.is_null() && child_pointer.snapshot_pointer_ != 0) {
       uint16_t partition = extract_numa_node_from_snapshot_pointer(child_pointer.snapshot_pointer_);
       if (!args.partitioned_drop_ || partition == args.my_partition_) {
-        result.combine(drop_volatiles_recurse(args, &child_pointer));
+        drop_volatiles_child(args, &child_pointer, root_level, &result);
       }
     }
   }
   // root page is kept at this point in this case. we need to check with other threads
   return result;
+}
+
+void HashComposer::drop_volatiles_child(
+  const Composer::DropVolatilesArguments& args,
+  DualPagePointer* child_pointer,
+  uint8_t parent_level,
+  Composer::DropResult *result) {
+  if (parent_level > 0) {
+    result->combine(drop_volatiles_recurse(args, child_pointer));
+  } else {
+    if (can_drop_volatile_bin(
+      child_pointer->volatile_pointer_,
+      args.snapshot_.valid_until_epoch_)) {
+      drop_volatile_entire_bin(args, child_pointer);
+    } else {
+      result->dropped_all_ = false;
+      // in hash composer, we currently do not emit accurate information on this.
+      // we are not using this information anyway.
+      result->max_observed_ = args.snapshot_.valid_until_epoch_.one_more();
+    }
+  }
 }
 
 void HashComposer::drop_root_volatile(const Composer::DropVolatilesArguments& args) {
@@ -1263,23 +1284,11 @@ inline Composer::DropResult HashComposer::drop_volatiles_recurse(
   // Explore/replace children first because we need to know if there is new modification.
   // In that case, we must keep this volatile page, too.
   // Intermediate volatile page is kept iff there are no child volatile pages.
+  uint8_t this_level = page->get_level();
   for (uint16_t i = 0; i < kHashIntermediatePageFanout; ++i) {
     DualPagePointer* child_pointer = page->get_pointer_address(i);
     if (!child_pointer->volatile_pointer_.is_null()) {
-      if (page->get_level() > 0) {
-        result.combine(drop_volatiles_recurse(args, child_pointer));
-      } else {
-        if (can_drop_volatile_bin(
-          child_pointer->volatile_pointer_,
-          args.snapshot_.valid_until_epoch_)) {
-          drop_volatile_entire_bin(args, child_pointer);
-        } else {
-          result.dropped_all_ = false;
-          // in hash composer, we currently do not emit accurate information on this.
-          // we are not using this information anyway.
-          result.max_observed_ = args.snapshot_.valid_until_epoch_.one_more();
-        }
-      }
+      drop_volatiles_child(args, child_pointer, this_level, &result);
     }
   }
   if (result.dropped_all_) {

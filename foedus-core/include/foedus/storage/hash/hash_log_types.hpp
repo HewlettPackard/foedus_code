@@ -71,15 +71,20 @@ struct HashCreateLogType : public log::StorageLogType {
  * handle these log types. This means we waste a bit (eg delete log type doesn't need payload
  * offset/count), but we anyway have extra space if we want to have data_ 8-byte aligned.
  * data_ always starts with the key, followed by payload for insert/overwrite.
- * @note This data layout is so far compatible even with MasstreeCommonLogType.
- * We might keep this way and reuse some code for masstree package, or maybe not.
  */
 struct HashCommonLogType : public log::RecordLogType {
   LOG_TYPE_NO_CONSTRUCT(HashCommonLogType)
   uint16_t        key_length_;        // +2 => 18
   uint16_t        payload_offset_;    // +2 => 20
   uint16_t        payload_count_;     // +2 => 22
-  uint16_t        reserved_;          // +2 => 24
+  /** this is not strictly needed here, but helps a bit. */
+  uint8_t         bin_bits_;          // +1 => 23
+  uint8_t         reserved_;          // +1 => 24
+  /**
+   * Hash value of the key. We can always re-calculate this from the key, but it can be
+   * quite expensive. Instead, we pay extra 8 bytes to save CPU cost.
+   */
+  HashValue       hash_;              // +8 => 32
 
   /**
    * Full key and (if exists) payload data, both of which are padded to 8 bytes.
@@ -88,12 +93,11 @@ struct HashCommonLogType : public log::RecordLogType {
   char            aligned_data_[8];   // ~ (+align8(key_length_)+align8(payload_count_))
 
   static uint16_t calculate_log_length(uint16_t key_length, uint16_t payload_count) ALWAYS_INLINE {
-    return 24U + assorted::align8(key_length) + assorted::align8(payload_count);
+    return 32U + assorted::align8(key_length) + assorted::align8(payload_count);
   }
 
   char*           get_key() { return aligned_data_; }
   const char*     get_key() const { return aligned_data_; }
-  HashValue       calculate_hash() const { return hashinate(get_key(), key_length_); }
   uint16_t        get_key_length_aligned() const { return assorted::align8(key_length_); }
   char*           get_payload() { return aligned_data_ + get_key_length_aligned(); }
   const char*     get_payload() const { return aligned_data_ + get_key_length_aligned(); }
@@ -102,6 +106,8 @@ struct HashCommonLogType : public log::RecordLogType {
     StorageId     storage_id,
     const void*   key,
     uint16_t      key_length,
+    uint8_t       bin_bits,
+    HashValue     hash,
     const void*   payload = CXX11_NULLPTR,
     uint16_t      payload_offset = 0,
     uint16_t      payload_count = 0) ALWAYS_INLINE {
@@ -111,7 +117,10 @@ struct HashCommonLogType : public log::RecordLogType {
     key_length_ = key_length;
     payload_offset_ = payload_offset;
     payload_count_ = payload_count;
+    bin_bits_ = bin_bits;
     reserved_ = 0;
+    ASSERT_ND(hash == hashinate(key, key_length));
+    hash_ = hash;
 
     std::memcpy(aligned_data_, key, key_length);
     uint16_t aligned_key_length = assorted::align8(key_length);
@@ -132,6 +141,7 @@ struct HashCommonLogType : public log::RecordLogType {
 #ifndef NDEBUG
   void assert_record_and_log_keys(xct::LockableXctId* owner_id, const char* data) const {
     const char* log_key = get_key();
+    ASSERT_ND(hash_ == hashinate(log_key, key_length_));
     uint16_t log_key_length_aligned = get_key_length_aligned();
 
     // In HashDataPage::Slot, offset_ etc comes after owner_id. Let's do sanity checks.
@@ -141,7 +151,7 @@ struct HashCommonLogType : public log::RecordLogType {
     ASSERT_ND(lengthes[2] == key_length_);  // key length correct?
 
     // and then HashValue follows.
-    ASSERT_ND(hashinate(log_key, key_length_) == reinterpret_cast<HashValue*>(owner_id + 1)[1]);
+    ASSERT_ND(hash_ == reinterpret_cast<HashValue*>(owner_id + 1)[1]);
     // finally, does the key really match?
     ASSERT_ND(std::memcmp(log_key, data, log_key_length_aligned) == 0);
   }
@@ -153,6 +163,37 @@ struct HashCommonLogType : public log::RecordLogType {
     ASSERT_ND(header_.log_type_code_ == log::kLogCodeHashOverwrite
       || header_.log_type_code_ == log::kLogCodeHashInsert
       || header_.log_type_code_ == log::kLogCodeHashDelete);
+    ASSERT_ND(hash_ == hashinate(get_key(), key_length_));
+  }
+
+  /**
+   * Returns -1, 0, 1 when left is less than, same, larger than right in terms of bin and xct_id.
+   * @pre this->is_valid(), other.is_valid()
+   * @pre this->get_ordinal() != 0, other.get_ordinal() != 0
+   * @note This does NOT fully compare the key. Only bins. this method is used in merge-sort code
+   * to batch-sort logs. Hash doesn't need to fully sort logs on keys. We probably should rename
+   * this method to avoid confusion later.
+   */
+  inline static int compare_logs(
+    const HashCommonLogType* left,
+    const HashCommonLogType* right) ALWAYS_INLINE {
+    ASSERT_ND(left->header_.storage_id_ == right->header_.storage_id_);
+    ASSERT_ND(left->bin_bits_ == right->bin_bits_);
+    ASSERT_ND(left->hash_ == hashinate(left->get_key(), left->key_length_));
+    ASSERT_ND(right->hash_ == hashinate(right->get_key(), right->key_length_));
+    if (left == right) {
+      return 0;
+    }
+    HashBin   left_bin = left->hash_ >> (64U - left->bin_bits_);
+    HashBin   right_bin = right->hash_ >> (64U - right->bin_bits_);
+    if (left_bin != right_bin) {
+      if (left_bin < right_bin) {
+        return -1;
+      } else {
+        return 1;
+      }
+    }
+    return left->header_.xct_id_.compare_epoch_and_orginal(right->header_.xct_id_);
   }
 };
 
@@ -171,10 +212,12 @@ struct HashInsertLogType : public HashCommonLogType {
     StorageId   storage_id,
     const void* key,
     uint16_t    key_length,
+    uint8_t     bin_bits,
+    HashValue   hash,
     const void* payload,
     uint16_t    payload_count) ALWAYS_INLINE {
     log::LogCode type = log::kLogCodeHashInsert;
-    populate_base(type, storage_id, key, key_length, payload, 0, payload_count);
+    populate_base(type, storage_id, key, key_length, bin_bits, hash, payload, 0, payload_count);
   }
 
   void            apply_record(
@@ -207,6 +250,7 @@ struct HashInsertLogType : public HashCommonLogType {
 
   void            assert_valid() ALWAYS_INLINE {
     assert_valid_generic();
+    assert_type();
     ASSERT_ND(header_.log_length_ == calculate_log_length(key_length_, payload_count_));
     ASSERT_ND(header_.get_type() == log::kLogCodeHashInsert);
   }
@@ -226,9 +270,11 @@ struct HashDeleteLogType : public HashCommonLogType {
   void            populate(
     StorageId   storage_id,
     const void* key,
-    uint16_t    key_length) ALWAYS_INLINE {
+    uint16_t    key_length,
+    uint8_t     bin_bits,
+    HashValue   hash) ALWAYS_INLINE {
     log::LogCode type = log::kLogCodeHashDelete;
-    populate_base(type, storage_id, key, key_length);
+    populate_base(type, storage_id, key, key_length, bin_bits, hash);
   }
 
   void            apply_record(
@@ -245,6 +291,7 @@ struct HashDeleteLogType : public HashCommonLogType {
 
   void            assert_valid() ALWAYS_INLINE {
     assert_valid_generic();
+    assert_type();
     ASSERT_ND(header_.log_length_ == calculate_log_length(key_length_, payload_count_));
     ASSERT_ND(header_.get_type() == log::kLogCodeHashDelete);
   }
@@ -266,11 +313,22 @@ struct HashOverwriteLogType : public HashCommonLogType {
     StorageId   storage_id,
     const void* key,
     uint16_t    key_length,
+    uint8_t     bin_bits,
+    HashValue   hash,
     const void* payload,
     uint16_t    payload_offset,
     uint16_t    payload_count) ALWAYS_INLINE {
     log::LogCode type = log::kLogCodeHashOverwrite;
-    populate_base(type, storage_id, key, key_length, payload, payload_offset, payload_count);
+    populate_base(
+      type,
+      storage_id,
+      key,
+      key_length,
+      bin_bits,
+      hash,
+      payload,
+      payload_offset,
+      payload_count);
   }
 
   void            apply_record(
@@ -297,6 +355,7 @@ struct HashOverwriteLogType : public HashCommonLogType {
 
   void            assert_valid() ALWAYS_INLINE {
     assert_valid_generic();
+    assert_type();
     ASSERT_ND(header_.log_length_ == calculate_log_length(key_length_, payload_count_));
     ASSERT_ND(header_.get_type() == log::kLogCodeHashOverwrite);
   }

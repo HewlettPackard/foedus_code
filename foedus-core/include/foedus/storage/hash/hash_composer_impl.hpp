@@ -107,6 +107,11 @@ class HashComposer final {
     uint16_t numa_node,
     HashIntermediatePage* root_page);
 
+  void drop_volatiles_child(
+    const Composer::DropVolatilesArguments& args,
+    DualPagePointer* child_pointer,
+    uint8_t parent_level,
+    Composer::DropResult *result);
   Composer::DropResult drop_volatiles_recurse(
     const Composer::DropVolatilesArguments& args,
     DualPagePointer* pointer);
