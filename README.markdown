@@ -36,7 +36,6 @@ especially for stabilizing/documenting FOEDUS and for establishing/helping the c
 Again, we are in **PRE-ALPHA** now.
 **BE REALLY WARNED. I TOLD YOU, OKAY?**
 
-
 Folder Structure (For Everyone)
 --------
 This root project contains a few sub-projects.
@@ -210,11 +209,12 @@ Each person should usually work on her/his own branch made from *develop* branch
 On your own branch, do what you want. We recommend to run at least non-valgrind testcases
 either on *relwithdebinfo* or *debug* before commit, but it is really up to you.
 
-Before pushing to *develop* branch, you must pass all testcases on *relwithdebinfo*, *debug*,
+Before pull request to *develop* branch, you must pass all testcases on *relwithdebinfo*, *debug*,
 and *release*, preferrably including valgrind versions (not mandatory if you
 are in hurry). But, if Jenkins reports an error on develop branch, others will yell at you.
 
-Hideaki will push to *master* from *develop*.
+We will process your pull requests on *develop*, then occasionally merge *develop* to
+*master*.
 
 Coding Convention (For FOEDUS Developers)
 --------
@@ -310,3 +310,29 @@ Eclipse sometimes works without it, sometimes not. We let yourself figure out ot
 configurations for ctest/cpplint/git/etc and find cool plugins for them.
 Good luck, and let us know if there were some gotchas.
 You might find [this](https://code.google.com/p/google-styleguide/source/browse/trunk/eclipse-cpp-google-style.xml) helpful.
+
+
+How to Contribute
+--------
+You can help us in different ways:
+
+1. Reporting [issues](https://github.com/hkimura/foedus_code/issues).
+2. Contributing code and sending a [Pull Request](https://github.com/hkimura/foedus_code/pulls).
+
+In order to contribute the code base of this project, you must agree to the Developer Certificate
+of Origin 1.1 for this project under GPLv2.
+
+By making a contribution to this project, I certify that:
+
+1. The contribution was created in whole or in part by me and I have the right to submit it under
+the open source license indicated in the file; or
+2. The contribution is based upon previous work that, to the best of my knowledge, is covered under
+an appropriate open source license and I have the right under that license to submit that work with
+modifications, whether created in whole or in part by me, under the same open source license
+(unless I am permitted to submit under a different license), as indicated in the file; or
+3. The contribution was provided directly to me by some other person who certified (a), (b)
+or (c) and I have not modified it.
+4. I understand and agree that this project and the contribution are public and that a record of the
+contribution (including all personal information I submit with it, including my sign-off) is
+maintained indefinitely and may be redistributed consistent with this project or the open source
+license(s) involved.
