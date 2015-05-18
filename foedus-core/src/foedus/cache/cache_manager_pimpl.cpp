@@ -160,14 +160,16 @@ void CacheManagerPimpl::handle_cleaner() {
           xct_manager->wait_for_current_global_epoch(wait_until, interval_microsec);
         }
 
-        Epoch current_epoch = xct_manager->get_current_global_epoch();
-        ASSERT_ND(reclaimed_pages_epoch < current_epoch);
-        VLOG(0) << "Okay! reclaimed_pages_epoch_=" << reclaimed_pages_epoch
-          << ", current_epoch=" << current_epoch;
+        if (!stop_requested_) {
+          Epoch current_epoch = xct_manager->get_current_global_epoch();
+          ASSERT_ND(reclaimed_pages_epoch < current_epoch);
+          VLOG(0) << "Okay! reclaimed_pages_epoch_=" << reclaimed_pages_epoch
+            << ", current_epoch=" << current_epoch;
 
-        memory::PagePoolOffsetDynamicChunk chunk(reclaimed_pages_count_, reclaimed_pages_);
-        pool_->release(reclaimed_pages_count_, &chunk);
-        reclaimed_pages_count_ = 0;
+          memory::PagePoolOffsetDynamicChunk chunk(reclaimed_pages_count_, reclaimed_pages_);
+          pool_->release(reclaimed_pages_count_, &chunk);
+          reclaimed_pages_count_ = 0;
+        }
       } else {
         LOG(INFO) << "Wtf, we couldn't collect any pages? that's weird...: " << describe();
       }

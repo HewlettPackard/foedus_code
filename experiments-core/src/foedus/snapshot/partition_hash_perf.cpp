@@ -185,7 +185,8 @@ void populate_logs(storage::StorageId id, char* buffer, BufferPosition* position
       = reinterpret_cast<storage::hash::HashOverwriteLogType*>(buffer + cur);
     std::memcpy(payload, &i, sizeof(i));
     uint64_t key = r.next_uint64();
-    log->populate(id, &key, sizeof(key), payload, 0, kPayloadSize);
+    storage::hash::HashValue hash = storage::hash::hashinate(&key, sizeof(key));
+    log->populate(id, &key, sizeof(key), kBinBits, hash, payload, 0, kPayloadSize);
     log->header_.xct_id_.set(1, 1);
     cur += log->header_.log_length_;
   }

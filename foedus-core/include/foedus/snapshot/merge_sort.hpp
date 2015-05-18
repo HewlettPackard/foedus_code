@@ -107,7 +107,7 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
    * \li 8-9 bytes: compressed epoch (difference from base_epoch)
    * \li 10-12 bytes: in-epoch-ordinal
    * \li 13 byte's 1st bit: Whether the key needs additional comparison if the 8-bytes are the same.
-   * This is set to true only in masstree/hash and the key length is not 8 bytes.
+   * This is set to true only in masstree and the key length is not 8 bytes.
    * \li 13 byte's other bits -15 bytes: Position in MergeSort's buffer.
    *
    * It's quite important to keep this 16 bytes. But, in some cases, we need more than 16 bytes to
@@ -481,6 +481,7 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
   void append_logs(InputIndex input_index, uint64_t upto_relative_pos);
 
   uint16_t populate_entry_array(InputIndex input_index, uint64_t relative_pos) ALWAYS_INLINE;
+  uint16_t populate_entry_hash(InputIndex input_index, uint64_t relative_pos) ALWAYS_INLINE;
   uint16_t populate_entry_masstree(InputIndex input_index, uint64_t relative_pos) ALWAYS_INLINE;
 
   // these methods are called very frequently (potentially for each log). worth explicit inlining.
@@ -493,6 +494,12 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
 
 inline bool is_array_log_type(uint16_t log_type) {
   return log_type == log::kLogCodeArrayOverwrite || log_type == log::kLogCodeArrayIncrement;
+}
+inline bool is_hash_log_type(uint16_t log_type) {
+  return
+    log_type == log::kLogCodeHashOverwrite
+    || log_type == log::kLogCodeHashInsert
+    || log_type == log::kLogCodeHashDelete;
 }
 inline bool is_masstree_log_type(uint16_t log_type) {
   return

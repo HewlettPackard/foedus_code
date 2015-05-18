@@ -260,7 +260,14 @@ ErrorCode HashStoragePimpl::insert_record(
   uint16_t log_length = HashInsertLogType::calculate_log_length(combo.key_length_, payload_count);
   HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(get_id(), combo.key_, combo.key_length_, payload, payload_count);
+  log_entry->populate(
+    get_id(),
+    combo.key_,
+    combo.key_length_,
+    get_bin_bits(),
+    combo.hash_,
+    payload,
+    payload_count);
 
   return context->get_current_xct().add_to_read_and_write_set(
     get_id(),
@@ -290,7 +297,7 @@ ErrorCode HashStoragePimpl::delete_record(
   uint16_t log_length = HashDeleteLogType::calculate_log_length(combo.key_length_, 0);
   HashDeleteLogType* log_entry = reinterpret_cast<HashDeleteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(get_id(), combo.key_, combo.key_length_);
+  log_entry->populate(get_id(), combo.key_, combo.key_length_, get_bin_bits(), combo.hash_);
 
   return context->get_current_xct().add_to_read_and_write_set(
     get_id(),
@@ -332,6 +339,8 @@ ErrorCode HashStoragePimpl::overwrite_record(
     get_id(),
     combo.key_,
     combo.key_length_,
+    get_bin_bits(),
+    combo.hash_,
     payload,
     payload_offset,
     payload_count);
@@ -381,6 +390,8 @@ ErrorCode HashStoragePimpl::increment_record(
     get_id(),
     combo.key_,
     combo.key_length_,
+    get_bin_bits(),
+    combo.hash_,
     value,
     payload_offset,
     sizeof(PAYLOAD));

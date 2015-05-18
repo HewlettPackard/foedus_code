@@ -53,6 +53,8 @@ std::ostream& operator<<(std::ostream& o, const HashInsertLogType& v) {
   o << "<HashInsertLogType>"
     << "<key_length_>" << v.key_length_ << "</key_length_>"
     << "<key_>" << assorted::Top(v.get_key(), v.key_length_) << "</key_>"
+    << "<bin_bits_>" << static_cast<int>(v.bin_bits_) << "</bin_bits_>"
+    << "<hash_>" << assorted::Hex(v.hash_, 16) << "</hash_>"
     << "<payload_count_>" << v.payload_count_ << "</payload_count_>"
     << "<payload_>" << assorted::Top(v.get_payload(), v.payload_count_) << "</payload_>"
     << "</HashInsertLogType>";
@@ -63,6 +65,8 @@ std::ostream& operator<<(std::ostream& o, const HashDeleteLogType& v) {
   o << "<HashDeleteLogType>"
     << "<key_length_>" << v.key_length_ << "</key_length_>"
     << "<key_>" << assorted::Top(v.get_key(), v.key_length_) << "</key_>"
+    << "<bin_bits_>" << static_cast<int>(v.bin_bits_) << "</bin_bits_>"
+    << "<hash_>" << assorted::Hex(v.hash_, 16) << "</hash_>"
     << "</HashDeleteLogType>";
   return o;
 }
@@ -71,6 +75,8 @@ std::ostream& operator<<(std::ostream& o, const HashOverwriteLogType& v) {
   o << "<HashOverwriteLog>"
     << "<key_length_>" << v.key_length_ << "</key_length_>"
     << "<key_>" << assorted::Top(v.get_key(), v.key_length_) << "</key_>"
+    << "<bin_bits_>" << static_cast<int>(v.bin_bits_) << "</bin_bits_>"
+    << "<hash_>" << assorted::Hex(v.hash_, 16) << "</hash_>"
     << "<payload_offset_>" << v.payload_offset_ << "</payload_offset_>"
     << "<payload_count_>" << v.payload_count_ << "</payload_count_>"
     << "<payload_>" << assorted::Top(v.get_payload(), v.payload_count_) << "</payload_>"

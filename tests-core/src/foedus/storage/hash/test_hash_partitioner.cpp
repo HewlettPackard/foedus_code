@@ -177,7 +177,15 @@ struct Logs {
   void add_log(Epoch::EpochInteger epoch_int, uint32_t ordinal, uint64_t key) {
     HashInsertLogType* entry = reinterpret_cast<HashInsertLogType*>(memory_ + cur_pos_);
     uint32_t data = key;
-    entry->populate(partitioner_.get_storage_id(), &key, sizeof(key), &data, sizeof(data));
+    HashValue hash = hashinate(&key, sizeof(key));
+    entry->populate(
+      partitioner_.get_storage_id(),
+      &key,
+      sizeof(key),
+      kBinBits,
+      hash,
+      &data,
+      sizeof(data));
     entry->header_.xct_id_.set(epoch_int, ordinal);
     positions_[cur_count_] = log_buffer_.compact(entry);
     cur_pos_ += entry->header_.log_length_;

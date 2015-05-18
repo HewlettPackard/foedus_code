@@ -77,7 +77,7 @@ class PagePoolOffsetChunk {
   PagePoolOffset  chunk_[kMaxSize];
 };
 
-/** Used to point to an already existing array. Everything must be const in this case. */
+/** Used to point to an already existing array. */
 class PagePoolOffsetDynamicChunk {
  public:
   PagePoolOffsetDynamicChunk(uint32_t size, PagePoolOffset* chunk)
@@ -88,12 +88,12 @@ class PagePoolOffsetDynamicChunk {
   bool                    empty() const   { return size_ == 0; }
   bool                    full()  const   { return true; }
 
-  void                    move_to(PagePoolOffset* destination, uint32_t count) const;
+  void                    move_to(PagePoolOffset* destination, uint32_t count);
 
  private:
-  const uint32_t        size_;
+  uint32_t              size_;
   const uint32_t        padding_;
-  PagePoolOffset* const chunk_;  // of arbitrary size
+  PagePoolOffset*       chunk_;  // of arbitrary size
 };
 
 /**

@@ -45,9 +45,13 @@ void PagePoolOffsetChunk::move_to(PagePoolOffset* destination, uint32_t count) {
   size_ -= count;
 }
 
-void PagePoolOffsetDynamicChunk::move_to(PagePoolOffset* destination, uint32_t count) const {
-  ASSERT_ND(size_ == count);  // this is the only assumed usecase
+void PagePoolOffsetDynamicChunk::move_to(PagePoolOffset* destination, uint32_t count) {
+  ASSERT_ND(size_ >= count);
   std::memcpy(destination, chunk_, count * sizeof(PagePoolOffset));
+
+  // Skip the consumed entries
+  chunk_ += count;
+  size_ -= count;
 }
 
 uint32_t PagePoolOffsetAndEpochChunk::get_safe_offset_count(const Epoch& threshold) const {
