@@ -44,6 +44,7 @@ EngineOptions* Engine::get_nonconst_options()       {
 }
 
 
+cache::CacheManager*    Engine::get_cache_manager() const   { return &pimpl_->cache_manager_; }
 debugging::DebuggingSupports* Engine::get_debug() const     { return &pimpl_->debug_; }
 log::LogManager*        Engine::get_log_manager() const     { return &pimpl_->log_manager_; }
 memory::EngineMemory*   Engine::get_memory_manager() const  { return &pimpl_->memory_manager_; }

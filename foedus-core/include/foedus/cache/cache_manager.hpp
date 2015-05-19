@@ -29,6 +29,7 @@ namespace foedus {
 namespace cache {
 /**
  * @brief Snapshot cache manager.
+ * @ingroup CACHE
  * @details
  * A snapshot cache manager exists in each SOC engine, maintaining their SOC-local
  * snapshot cache. Everything is SOC-local, so actually a master engine does nothing here.
@@ -45,6 +46,20 @@ class CacheManager : public DefaultInitializable {
 
   /** kind of to_string(). this might be slow, so do not call too often */
   std::string describe() const;
+
+  /**
+   * @brief Stops internal eviction thread even before uninitialize() of this object is called.
+   * @details
+   * It is also automatically called from uninitialize().
+   * Currently, this is used to avoid the race condition between XctManager's uninitialize() and
+   * this object's uninitialize(). Here is why:
+   * The cache cleaner depends on XctManager because the eviction is based on epochs.
+   * However, XctManager will be uninitialized before cache manager.
+   * If XctManager gets uninitialized _while_ cleaner is processing, we'll get a trouble.
+   * To avoid that, XctManager's uninitialize() invokes stop_cleaner() once it
+   * finishes all transaction threads, meaning there will be no more new entries.
+   */
+  ErrorStack  stop_cleaner();
 
  private:
   CacheManagerPimpl* pimpl_;

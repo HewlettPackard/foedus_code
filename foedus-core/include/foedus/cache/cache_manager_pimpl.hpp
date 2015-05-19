@@ -58,6 +58,8 @@ class CacheManagerPimpl final : public DefaultInitializable {
    */
   void        handle_cleaner_evict_pages(uint64_t target_count);
 
+  ErrorStack  stop_cleaner();
+
   Engine* const     engine_;
 
   /**

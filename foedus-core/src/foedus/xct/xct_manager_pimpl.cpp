@@ -30,6 +30,7 @@
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/assorted/cacheline.hpp"
+#include "foedus/cache/cache_manager.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_manager.hpp"
 #include "foedus/log/log_type_invoke.hpp"
@@ -97,6 +98,8 @@ ErrorStack XctManagerPimpl::uninitialize_once() {
   if (!engine_->get_storage_manager()->is_initialized()) {
     batch.emprace_back(ERROR_STACK(kErrorCodeDepedentModuleUnavailableUninit));
   }
+  // See CacheManager's comments for why we have to stop the cleaner here
+  CHECK_ERROR(engine_->get_cache_manager()->stop_cleaner());
   if (engine_->is_master()) {
     if (epoch_chime_thread_.joinable()) {
       {

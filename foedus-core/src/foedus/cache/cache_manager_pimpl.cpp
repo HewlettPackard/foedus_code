@@ -106,10 +106,7 @@ ErrorStack CacheManagerPimpl::uninitialize_once() {
   }
 
   LOG(INFO) << "Uninitializing Snapshot Cache... " << describe();
-  stop_requested_.store(true);
-  if (cleaner_.joinable()) {
-    cleaner_.join();
-  }
+  CHECK_ERROR(stop_cleaner());
 
   pool_ = nullptr;
   hashtable_ = nullptr;
@@ -141,9 +138,9 @@ void CacheManagerPimpl::handle_cleaner() {
 
       if (reclaimed_pages_count_ > 0) {
         // We collected some number of pages in previous execution. now we have to wait for
-        // grace period befire returning them to the pool as free pages.
+        // grace period before returning them to the pool as free pages.
         xct::XctManager* xct_manager = engine_->get_xct_manager();
-        ASSERT_ND(xct_manager->is_initialized());  // otherwise why already collected
+        ASSERT_ND(xct_manager->is_initialized());  // see stop_cleaner()'s comment why this is true.
         Epoch reclaimed_pages_epoch = xct_manager->get_current_global_epoch();
         VLOG(0) << "Collected " << reclaimed_pages_count_ << " pages. let's return them to "
           << "the pool: " << describe();
@@ -197,6 +194,21 @@ void CacheManagerPimpl::handle_cleaner_evict_pages(uint64_t target_count) {
   hashtable_->evict(&args);
   reclaimed_pages_count_ = args.evicted_count_;
 }
+
+ErrorStack CacheManagerPimpl::stop_cleaner() {
+  bool original = false;
+  bool changed = stop_requested_.compare_exchange_strong(original, true);
+  if (changed) {
+    if (cleaner_.joinable()) {
+      LOG(INFO) << "Requesting Cache Cleaner to stop...";
+      cleaner_.join();
+    }
+  } else {
+    LOG(INFO) << "Cache Cleaner seems already stop-requested";
+  }
+  return kRetOk;
+}
+
 
 std::string CacheManagerPimpl::describe() const {
   if (pool_ == nullptr) {

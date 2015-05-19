@@ -421,7 +421,11 @@ void MergeSort::batch_sort(MergeSort::InputIndex min_input) {
   VLOG(1) << "Storage-" << id_ << ", merge sort (main) of " << current_count_ << " logs in "
     << sort_watch.elapsed_ms() << "ms";
 
-  if (type_ != storage::kArrayStorage
+  // We need additional sorting just for masstree.
+  // Array never needs it because 8-byte is enough to compare precisely.
+  // Hash neither because it doesn't need the inputs to be fully sorted. Bin-sort is enough.
+  // Sequential doesn't need any sorting at all.
+  if (type_ == storage::kMasstreeStorage
     && (shortest_key_length_ != 8U || longest_key_length_ != 8U)) {
     // the sorting above has to be adjusted if we need additional logic for key comparison
     batch_sort_adjust_sort();
@@ -574,10 +578,14 @@ void MergeSort::append_logs(MergeSort::InputIndex input_index, uint64_t upto_rel
     while (LIKELY(relative_pos < upto_relative_pos)) {
       relative_pos += populate_entry_array(input_index, relative_pos);
     }
-  } else {
-    ASSERT_ND(type_ == storage::kMasstreeStorage);
+  } else if (type_ == storage::kMasstreeStorage) {
     while (LIKELY(relative_pos < upto_relative_pos)) {
       relative_pos += populate_entry_masstree(input_index, relative_pos);
+    }
+  } else {
+    ASSERT_ND(type_ == storage::kHashStorage);
+    while (LIKELY(relative_pos < upto_relative_pos)) {
+      relative_pos += populate_entry_hash(input_index, relative_pos);
     }
   }
   ASSERT_ND(relative_pos == upto_relative_pos);

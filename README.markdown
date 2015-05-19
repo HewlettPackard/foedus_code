@@ -36,6 +36,31 @@ especially for stabilizing/documenting FOEDUS and for establishing/helping the c
 Again, we are in **PRE-ALPHA** now.
 **BE REALLY WARNED. I TOLD YOU, OKAY?**
 
+How to Contribute
+--------
+You can help us in different ways:
+
+1. Reporting [issues](https://github.com/hkimura/foedus_code/issues).
+2. Contributing code and sending a [Pull Request](https://github.com/hkimura/foedus_code/pulls).
+
+In order to contribute the code base of this project, you must agree to the Developer Certificate
+of Origin 1.1 for this project under GPLv2.
+
+By making a contribution to this project, I certify that:
+
+1. The contribution was created in whole or in part by me and I have the right to submit it under
+the open source license indicated in the file; or
+2. The contribution is based upon previous work that, to the best of my knowledge, is covered under
+an appropriate open source license and I have the right under that license to submit that work with
+modifications, whether created in whole or in part by me, under the same open source license
+(unless I am permitted to submit under a different license), as indicated in the file; or
+3. The contribution was provided directly to me by some other person who certified (a), (b)
+or (c) and I have not modified it.
+4. I understand and agree that this project and the contribution are public and that a record of the
+contribution (including all personal information I submit with it, including my sign-off) is
+maintained indefinitely and may be redistributed consistent with this project or the open source
+license(s) involved.
+
 Folder Structure (For Everyone)
 --------
 This root project contains a few sub-projects.
@@ -88,7 +113,7 @@ In Fedora/RedHat/CentOS etc, run the following:
     sudo yum install numactl numactl-devel google-perftools google-perftools-devel
     sudo yum install papi papi-devel papi-static
     sudo yum install python python-*
-    sudo yum install doxygen texlive-eps* graphviz mscgen texlive-epspdf sloccount kdevelop
+    sudo yum install doxygen texlive-eps* graphviz mscgen texlive-epspdf sloccount kdevelop cloc
 
 For valgrind, check its version after installation.
 If it is not 3.9 or later, we recommend installing a newer one. See the section below.
@@ -214,7 +239,8 @@ and *release*, preferrably including valgrind versions (not mandatory if you
 are in hurry). But, if Jenkins reports an error on develop branch, others will yell at you.
 
 We will process your pull requests on *develop*, then occasionally merge *develop* to
-*master*.
+*master*. The pull requests might have a few iterations of review/resubmit process.
+See Code Review Policy below.
 
 Coding Convention (For FOEDUS Developers)
 --------
@@ -258,6 +284,24 @@ Doxygen documentation of the folder, just like "package-info.java" in Java proje
 the package. As the Google style guide recommends, prefer forward declarations as much as possible.
 * In addition to general C++ coding conventions, there are several foedus-specific programming
 idioms. Read our Doxygen document first to get familiar with them (see "FOEDUS Programming Idioms").
+
+
+Code Review Policy (For FOEDUS Developers)
+--------
+Each pull request must meet the following requirements before being merged.
+
+* Compile without errors and warnings (either compiler warnings or cpplint warnings).
+* Conform to our coding standards and house rules (see above).
+* Pass all testcases on *relwithdebinfo*, *debug*, and *release*, including valgrind versions in
+at least one of them.
+* A reasonable amount/quality of new unit testcases, depending on how much you changed/added.
+* A reasonable amount/quality of code comments, especially doxygen comments in hpp.
+* A summary of the changes in pull request comments.
+
+Depending on the content of the change and your commit history, expect a few iterations.
+When the change is only in documentations (e.g., README, namespace-info.hpp), we will most likely
+process it immediately and you do not have to worry about testing the changes.
+
 
 kdevelop-specific Recommendations (For FOEDUS Developers)
 --------
@@ -310,29 +354,3 @@ Eclipse sometimes works without it, sometimes not. We let yourself figure out ot
 configurations for ctest/cpplint/git/etc and find cool plugins for them.
 Good luck, and let us know if there were some gotchas.
 You might find [this](https://code.google.com/p/google-styleguide/source/browse/trunk/eclipse-cpp-google-style.xml) helpful.
-
-
-How to Contribute
---------
-You can help us in different ways:
-
-1. Reporting [issues](https://github.com/hkimura/foedus_code/issues).
-2. Contributing code and sending a [Pull Request](https://github.com/hkimura/foedus_code/pulls).
-
-In order to contribute the code base of this project, you must agree to the Developer Certificate
-of Origin 1.1 for this project under GPLv2.
-
-By making a contribution to this project, I certify that:
-
-1. The contribution was created in whole or in part by me and I have the right to submit it under
-the open source license indicated in the file; or
-2. The contribution is based upon previous work that, to the best of my knowledge, is covered under
-an appropriate open source license and I have the right under that license to submit that work with
-modifications, whether created in whole or in part by me, under the same open source license
-(unless I am permitted to submit under a different license), as indicated in the file; or
-3. The contribution was provided directly to me by some other person who certified (a), (b)
-or (c) and I have not modified it.
-4. I understand and agree that this project and the contribution are public and that a record of the
-contribution (including all personal information I submit with it, including my sign-off) is
-maintained indefinitely and may be redistributed consistent with this project or the open source
-license(s) involved.
