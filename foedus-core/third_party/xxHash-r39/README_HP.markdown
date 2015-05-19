@@ -3,6 +3,6 @@ This folder contains xxHash, a super-fast C/C++ hasing library published under B
 
 Below are the changes we (HP) made.
 
-* Removed xxhsum.c, which seems under GPL.
+* Removed xxhsum.c and Makefile, which seem under GPL.
 * Added CMakeLists.txt, which exports "xxhash" as shared library and "xxhashstatic" as static library (with BUILD_STATIC_LIBS ON).
 
