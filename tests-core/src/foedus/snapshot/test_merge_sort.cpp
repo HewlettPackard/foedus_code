@@ -16,10 +16,15 @@
  * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 // #include <gperftools/profiler.h>
+#include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <cstring>
+#include <set>
 #include <string>
+#include <vector>
 
 #include "foedus/test_common.hpp"
 #include "foedus/fs/direct_io_file.hpp"
@@ -29,6 +34,7 @@
 #include "foedus/snapshot/merge_sort.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/storage/array/array_log_types.hpp"
+#include "foedus/storage/hash/hash_log_types.hpp"
 #include "foedus/storage/masstree/masstree_log_types.hpp"
 
 /**
@@ -185,6 +191,10 @@ struct TestBase {
         if (storage_type == storage::kArrayStorage) {
           EXPECT_TRUE(pos.get_log_type() == log::kLogCodeArrayOverwrite
             || pos.get_log_type() == log::kLogCodeArrayIncrement);
+        } else if (storage_type == storage::kHashStorage) {
+          EXPECT_TRUE(pos.get_log_type() == log::kLogCodeHashInsert
+            || pos.get_log_type() == log::kLogCodeHashDelete
+            || pos.get_log_type() == log::kLogCodeHashOverwrite);
         } else {
           EXPECT_TRUE(pos.get_log_type() == log::kLogCodeMasstreeInsert
             || pos.get_log_type() == log::kLogCodeMasstreeDelete
@@ -410,7 +420,9 @@ struct MultiInputsTest : public TestBase {
   DumpFileSortedBuffer* io_buffer_;
 };
 
-
+///////////////////////////////////////////////////
+/// Array testcases
+///////////////////////////////////////////////////
 void array_populate(log::RecordLogType* log, uint64_t key, const char* payload) {
   auto* entry = reinterpret_cast<storage::array::ArrayOverwriteLogType*>(log);
   entry->populate(kStorageId, key, payload, 0, kPayload);
@@ -439,7 +451,181 @@ void test_multi_inputs_array(TestKeyDistribution distribution) {
   impl.merge_inputs(storage::kArrayStorage, array_verify);
 }
 
+///////////////////////////////////////////////////
+/// Hash testcases
+/// Here, "key" for merge-sort must have unique hashbin. Further,
+/// individual inputs must be ordered by that, which was trivial in array/masstree.
+/// We thus pre-generate such keys.
+///////////////////////////////////////////////////
 
+struct OrderedHashKey {
+  storage::hash::HashBin  bin_;
+  /** the key that is that is ideally unique and ordered */
+  uint64_t                key_;
+  /** this is just for debugging. not used. */
+  uint64_t                original_key_;
+
+  bool operator<(const OrderedHashKey& other) const { return bin_ < other.bin_; }
+};
+
+const uint16_t  kBufSize = 16;
+const uint8_t   kHashBinBits = 31;  // big enough to avoid hash collisions
+const uint32_t  kKeyCount = kLogsPerInput * 2U;
+
+bool                        g_hash_pregenerated = false;
+std::vector<OrderedHashKey> g_hash_ordered_fixlen;
+std::vector<OrderedHashKey> g_hash_ordered_varlen;
+
+/** Simply "keystr<number>" */
+uint16_t construct_varlen_hash(uint64_t int_key, char* key) {
+  // this puts an unnecessary null char at the end, but doesn't matter.
+  std::snprintf(key, kBufSize, "keystr%ju", int_key);
+  return std::strlen(key);
+}
+
+
+void hash_pregenerate_if_needed() {
+  if (LIKELY(g_hash_pregenerated)) {
+    return;
+  }
+  g_hash_ordered_fixlen.clear();
+  g_hash_ordered_varlen.clear();
+  LOG(INFO) << "Pre-generating hash keys...";
+
+  std::set<OrderedHashKey> set_fixlen;
+  std::set<OrderedHashKey> set_varlen;
+  char buf[kBufSize];
+  for (uint64_t key = 0; key < kKeyCount; ++key) {
+    uint64_t cur = key;
+    while (true) {
+      storage::hash::HashBin fixlen_bin
+        = storage::hash::hashinate(&cur, sizeof(cur)) >> (64U - kHashBinBits);
+      OrderedHashKey fixlen_entry = {fixlen_bin, cur, key};
+      if (set_fixlen.find(fixlen_entry) != set_fixlen.end()) {
+        LOG(INFO) << "Ouuuuuuuuuuu. hash collision in fixlen key. we must reroll:"
+          << cur << ", bin=" << fixlen_bin;
+        cur += kKeyCount;  // reroll
+        continue;
+      }
+
+      uint16_t varlen = construct_varlen_hash(cur, buf);
+      storage::hash::HashBin varlen_bin
+        = storage::hash::hashinate(buf, varlen) >> (64U - kHashBinBits);
+      OrderedHashKey varlen_entry = {varlen_bin, cur, key};
+      if (set_varlen.find(varlen_entry) != set_varlen.end()) {
+        LOG(INFO) << "Ouuuuuuuuuuu. hash collision in varlen key. we must reroll:"
+          << cur << ", bin=" << varlen_bin;
+        cur += kKeyCount;  // reroll
+        continue;
+      }
+
+      set_fixlen.insert(fixlen_entry);
+      set_varlen.insert(varlen_entry);
+      break;
+    }
+  }
+
+  g_hash_ordered_fixlen.assign(set_fixlen.cbegin(), set_fixlen.cend());
+  g_hash_ordered_varlen.assign(set_varlen.cbegin(), set_varlen.cend());
+  ASSERT_ND(g_hash_ordered_fixlen.size() == kKeyCount);
+  ASSERT_ND(g_hash_ordered_varlen.size() == kKeyCount);
+
+  LOG(INFO) << "Pre-generated hash keys.";
+  ASSERT_ND(g_hash_pregenerated == false);
+  g_hash_pregenerated = true;
+}
+
+/**
+ * @param[in] int_key the key generated by to_key().
+ * @return the actual key value we should use.
+ */
+uint64_t to_hash_safe_fixlen_key(uint64_t int_key) {
+  ASSERT_ND(int_key < kKeyCount);
+  hash_pregenerate_if_needed();
+  return g_hash_ordered_fixlen[int_key].key_;
+}
+uint16_t to_hash_safe_varlen_key(uint64_t int_key, char* key) {
+  ASSERT_ND(int_key < kKeyCount);
+  hash_pregenerate_if_needed();
+  uint64_t ordered_key = g_hash_ordered_varlen[int_key].key_;
+  return construct_varlen_hash(ordered_key, key);
+}
+
+void hash_fixlen_populate(log::RecordLogType* log, uint64_t int_key, const char* payload) {
+  uint64_t key = to_hash_safe_fixlen_key(int_key);
+  auto* entry = reinterpret_cast<storage::hash::HashInsertLogType*>(log);
+  storage::hash::HashValue hash = storage::hash::hashinate(&key, sizeof(key));
+  entry->populate(kStorageId, &key, sizeof(key), kHashBinBits, hash, payload, kPayload);
+}
+void hash_fixlen_verify(const log::RecordLogType* log, uint64_t int_key, const char* payload) {
+  uint64_t key = to_hash_safe_fixlen_key(int_key);
+  const auto* entry = reinterpret_cast<const storage::hash::HashInsertLogType*>(log);
+  EXPECT_EQ(kHashBinBits, entry->bin_bits_);
+  EXPECT_EQ(entry->hash_, storage::hash::hashinate(entry->get_key(), entry->key_length_));
+  EXPECT_EQ(sizeof(key), entry->key_length_);
+  EXPECT_EQ(0, std::memcmp(entry->get_key(), &key, sizeof(key)));
+  EXPECT_EQ(kPayload, entry->payload_count_);
+  EXPECT_EQ(0, std::memcmp(entry->get_payload(), payload, kPayload));
+}
+
+void test_single_input_hash_fixlen(TestKeyDistribution distribution) {
+  const uint16_t kLen = sizeof(uint64_t);
+  uint16_t length = storage::hash::HashInsertLogType::calculate_log_length(kLen, kPayload);
+  SingleInputTest impl(distribution, kLen, kLen, length);
+  impl.prepare_inputs(hash_fixlen_populate);
+  impl.merge_inputs(storage::kHashStorage, hash_fixlen_verify);
+}
+
+void test_multi_inputs_hash_fixlen(TestKeyDistribution distribution) {
+  const uint16_t kLen = sizeof(uint64_t);
+  uint16_t length = storage::hash::HashInsertLogType::calculate_log_length(kLen, kPayload);
+  MultiInputsTest impl("test_multi_inputs_hash_fixlen_", distribution, kLen, kLen, length);
+  impl.prepare_inputs(hash_fixlen_populate);
+  impl.merge_inputs(storage::kHashStorage, hash_fixlen_verify);
+}
+
+const uint16_t kVarlenMinHash = 6 + 1;
+const uint16_t kVarlenMaxHash = 6 + 9;
+const uint16_t kVarlenMaxLogHash
+    = storage::hash::HashInsertLogType::calculate_log_length(kVarlenMaxHash, kPayload);
+
+void hash_varlen_populate(log::RecordLogType* log, uint64_t int_key, const char* payload) {
+  char key[16];
+  uint16_t len = to_hash_safe_varlen_key(int_key, key);
+  storage::hash::HashValue hash = storage::hash::hashinate(key, len);
+  auto* entry = reinterpret_cast<storage::hash::HashInsertLogType*>(log);
+  entry->populate(kStorageId, key, len, kHashBinBits, hash, payload, kPayload);
+}
+void hash_varlen_verify(const log::RecordLogType* log, uint64_t int_key, const char* payload) {
+  char key[16];
+  uint16_t len = to_hash_safe_varlen_key(int_key, key);
+  const auto* entry = reinterpret_cast<const storage::hash::HashInsertLogType*>(log);
+  EXPECT_EQ(len, entry->key_length_);
+  EXPECT_EQ(0, std::memcmp(entry->get_key(), key, len));
+  EXPECT_EQ(kPayload, entry->payload_count_);
+  EXPECT_EQ(0, std::memcmp(entry->get_payload(), payload, kPayload));
+}
+
+void test_single_input_hash_varlen(TestKeyDistribution distribution) {
+  SingleInputTest impl(distribution, kVarlenMinHash, kVarlenMaxHash, kVarlenMaxLogHash);
+  impl.prepare_inputs(hash_varlen_populate);
+  impl.merge_inputs(storage::kHashStorage, hash_varlen_verify);
+}
+
+void test_multi_inputs_hash_varlen(TestKeyDistribution distribution) {
+  MultiInputsTest impl(
+    "test_multi_inputs_hash_varlen_",
+    distribution,
+    kVarlenMinHash,
+    kVarlenMaxHash,
+    kVarlenMaxLogHash);
+  impl.prepare_inputs(hash_varlen_populate);
+  impl.merge_inputs(storage::kHashStorage, hash_varlen_verify);
+}
+
+///////////////////////////////////////////////////
+/// Masstree testcases
+///////////////////////////////////////////////////
 void masstree_normalized_populate(log::RecordLogType* log, uint64_t key, const char* payload) {
   char key_be[sizeof(storage::masstree::KeySlice)];
   assorted::write_bigendian<uint64_t>(key, key_be);
@@ -484,7 +670,7 @@ void test_multi_inputs_masstree_normalized(TestKeyDistribution distribution) {
 // For example, key=12345 becomes "0123###45".
 // longest key is 4 + 9 + 2 = 15 bytes. shortest key is 4 + 2 = 6 bytes.
 // some key is not differentiated in the first 8 bytes, eg ("0004####01" vs "0004####02")
-uint16_t construct_varlen(uint64_t int_key, char* key) {
+uint16_t construct_varlen_masstree(uint64_t int_key, char* key) {
   static_assert(kLogsPerInput * 2U < 1000000U, "doesn't fit in 6 digits!");
   uint32_t head = int_key / 100;
   key[0] = '0' + ((head / 1000) % 10);
@@ -503,20 +689,20 @@ uint16_t construct_varlen(uint64_t int_key, char* key) {
   ++len;
   return len;
 }
-const uint16_t kVarlenMin = 4 + 0 + 2;
-const uint16_t kVarlenMax = 4 + 9 + 2;
-const uint16_t kVarlenMaxLog
-    = storage::masstree::MasstreeInsertLogType::calculate_log_length(kVarlenMax, kPayload);
+const uint16_t kVarlenMinMasstree = 4 + 0 + 2;
+const uint16_t kVarlenMaxMasstree = 4 + 9 + 2;
+const uint16_t kVarlenMaxLogMasstree
+    = storage::masstree::MasstreeInsertLogType::calculate_log_length(kVarlenMaxMasstree, kPayload);
 
 void masstree_varlen_populate(log::RecordLogType* log, uint64_t int_key, const char* payload) {
   char key[16];
-  uint16_t len = construct_varlen(int_key, key);
+  uint16_t len = construct_varlen_masstree(int_key, key);
   auto* entry = reinterpret_cast<storage::masstree::MasstreeInsertLogType*>(log);
   entry->populate(kStorageId, key, len, payload, kPayload);
 }
 void masstree_varlen_verify(const log::RecordLogType* log, uint64_t int_key, const char* payload) {
   char key[16];
-  uint16_t len = construct_varlen(int_key, key);
+  uint16_t len = construct_varlen_masstree(int_key, key);
   const auto* entry = reinterpret_cast<const storage::masstree::MasstreeInsertLogType*>(log);
   EXPECT_EQ(len, entry->key_length_);
   EXPECT_EQ(0, std::memcmp(entry->get_key(), key, len));
@@ -525,7 +711,7 @@ void masstree_varlen_verify(const log::RecordLogType* log, uint64_t int_key, con
 }
 
 void test_single_input_masstree_varlen(TestKeyDistribution distribution) {
-  SingleInputTest impl(distribution, kVarlenMin, kVarlenMax, kVarlenMaxLog);
+  SingleInputTest impl(distribution, kVarlenMinMasstree, kVarlenMaxMasstree, kVarlenMaxLogMasstree);
   impl.prepare_inputs(masstree_varlen_populate);
   impl.merge_inputs(storage::kMasstreeStorage, masstree_varlen_verify);
 }
@@ -534,9 +720,9 @@ void test_multi_inputs_masstree_varlen(TestKeyDistribution distribution) {
   MultiInputsTest impl(
     "test_multi_inputs_masstree_varlen_",
     distribution,
-    kVarlenMin,
-    kVarlenMax,
-    kVarlenMaxLog);
+    kVarlenMinMasstree,
+    kVarlenMaxMasstree,
+    kVarlenMaxLogMasstree);
   impl.prepare_inputs(masstree_varlen_populate);
   impl.merge_inputs(storage::kMasstreeStorage, masstree_varlen_verify);
 }
@@ -565,6 +751,58 @@ TEST(MergeSortTestTest, MultiInputsDistinctOrdinalArray) {
 }
 TEST(MergeSortTestTest, MultiInputsDuplicatesArray) {
   test_multi_inputs_array(kDuplicates);
+}
+
+TEST(MergeSortTestTest, SingleInputDistinctKeyHashFixlen) {
+  test_single_input_hash_fixlen(kDistinctKey);
+}
+TEST(MergeSortTestTest, SingleInputDistinctEpochHashFixlen) {
+  test_single_input_hash_fixlen(kDistinctEpoch);
+}
+TEST(MergeSortTestTest, SingleInputDistinctOrdinalHashFixlen) {
+  test_single_input_hash_fixlen(kDistinctOrdinal);
+}
+TEST(MergeSortTestTest, SingleInputDuplicatesHashFixlen) {
+  test_single_input_hash_fixlen(kDuplicates);
+}
+
+TEST(MergeSortTestTest, MultiInputsDistinctKeyHashFixlen) {
+  test_multi_inputs_hash_fixlen(kDistinctKey);
+}
+TEST(MergeSortTestTest, MultiInputsDistinctEpochHashFixlen) {
+  test_multi_inputs_hash_fixlen(kDistinctEpoch);
+}
+TEST(MergeSortTestTest, MultiInputsDistinctOrdinalHashFixlen) {
+  test_multi_inputs_hash_fixlen(kDistinctOrdinal);
+}
+TEST(MergeSortTestTest, MultiInputsDuplicatesHashFixlen) {
+  test_multi_inputs_hash_fixlen(kDuplicates);
+}
+
+TEST(MergeSortTestTest, SingleInputDistinctKeyHashVarlen) {
+  test_single_input_hash_varlen(kDistinctKey);
+}
+TEST(MergeSortTestTest, SingleInputDistinctEpochHashVarlen) {
+  test_single_input_hash_varlen(kDistinctEpoch);
+}
+TEST(MergeSortTestTest, SingleInputDistinctOrdinalHashVarlen) {
+  test_single_input_hash_varlen(kDistinctOrdinal);
+}
+TEST(MergeSortTestTest, SingleInputDuplicatesHashVarlen) {
+  test_single_input_hash_varlen(kDuplicates);
+}
+
+TEST(MergeSortTestTest, MultiInputsDistinctKeyHashVarlen) {
+  test_multi_inputs_hash_varlen(kDistinctKey);
+}
+TEST(MergeSortTestTest, MultiInputsDistinctEpochHashVarlen) {
+  test_multi_inputs_hash_varlen(kDistinctEpoch);
+}
+TEST(MergeSortTestTest, MultiInputsDistinctOrdinalHashVarlen) {
+  test_multi_inputs_hash_varlen(kDistinctOrdinal);
+}
+TEST(MergeSortTestTest, MultiInputsDuplicatesHashVarlen) {
+  test_multi_inputs_hash_varlen(kDuplicates);
 }
 
 TEST(MergeSortTestTest, SingleInputDistinctKeyMasstreeNormalized) {

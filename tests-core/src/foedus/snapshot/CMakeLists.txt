@@ -74,6 +74,22 @@ set(test_merge_sort_individuals
   MultiInputsDistinctEpochArray
   MultiInputsDistinctOrdinalArray
   MultiInputsDuplicatesArray
+  SingleInputDistinctKeyHashFixlen
+  SingleInputDistinctEpochHashFixlen
+  SingleInputDistinctOrdinalHashFixlen
+  SingleInputDuplicatesHashFixlen
+  MultiInputsDistinctKeyHashFixlen
+  MultiInputsDistinctEpochHashFixlen
+  MultiInputsDistinctOrdinalHashFixlen
+  MultiInputsDuplicatesHashFixlen
+  SingleInputDistinctKeyHashVarlen
+  SingleInputDistinctEpochHashVarlen
+  SingleInputDistinctOrdinalHashVarlen
+  SingleInputDuplicatesHashVarlen
+  MultiInputsDistinctKeyHashVarlen
+  MultiInputsDistinctEpochHashVarlen
+  MultiInputsDistinctOrdinalHashVarlen
+  MultiInputsDuplicatesHashVarlen
   SingleInputDistinctKeyMasstreeNormalized
   SingleInputDistinctEpochMasstreeNormalized
   SingleInputDistinctOrdinalMasstreeNormalized
