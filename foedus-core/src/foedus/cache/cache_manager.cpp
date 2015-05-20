@@ -35,6 +35,7 @@ CacheManager::~CacheManager() {
 ErrorStack CacheManager::initialize_once() { return pimpl_->initialize_once(); }
 ErrorStack CacheManager::uninitialize_once() { return pimpl_->uninitialize_once(); }
 std::string CacheManager::describe() const { return pimpl_->describe(); }
+ErrorStack CacheManager::stop_cleaner() { return pimpl_->stop_cleaner(); }
 
 }  // namespace cache
 }  // namespace foedus

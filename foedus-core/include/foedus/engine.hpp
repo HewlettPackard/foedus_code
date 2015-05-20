@@ -25,6 +25,7 @@
 #include "foedus/error_stack.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/module_type.hpp"
+#include "foedus/cache/fwd.hpp"
 #include "foedus/debugging/fwd.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
@@ -164,6 +165,8 @@ class Engine CXX11_FINAL : public virtual Initializable {
 
   /** @see EngineOptions */
   const EngineOptions&            get_options() const;
+  /** See \ref CACHE */
+  cache::CacheManager*            get_cache_manager() const;
   /** See \ref DEBUGGING */
   debugging::DebuggingSupports*   get_debug() const;
   /** See \ref LOG */

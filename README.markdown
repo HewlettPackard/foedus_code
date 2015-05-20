@@ -299,7 +299,7 @@ at least one of them.
 * A summary of the changes in pull request comments.
 
 Depending on the content of the change and your commit history, expect a few iterations.
-When the change is only in documentations (e.g., README, package-info.hpp), we will most likely
+When the change is only in documentations (e.g., README, namespace-info.hpp), we will most likely
 process it immediately and you do not have to worry about testing the changes.
 
 
