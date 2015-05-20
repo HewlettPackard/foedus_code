@@ -41,3 +41,8 @@ Other stuffs to do on Jenkins machine.
     sudo sh -c 'echo 15000 > /proc/sys/vm/nr_hugepages'
     Modify /etc/sysctl.conf
     Modify /etc/security/limits.conf
+
+Cron jobs to clean logs.
+
+    # Clean file and dirs more than 3 days old in /dev/shm/foedus_test/glog nightly
+    /usr/bin/find /dev/shm/foedus_test/glog -type d -mtime +2 -exec /bin/rm -rf '{}' \;

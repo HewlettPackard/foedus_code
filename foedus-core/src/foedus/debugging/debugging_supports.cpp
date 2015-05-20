@@ -36,6 +36,7 @@
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/fs/filesystem.hpp"
 
 namespace foedus {
 namespace debugging {
@@ -74,6 +75,11 @@ void DebuggingSupports::initialize_glog() {
       // Watch out for this bug, if we get a crash here:
       // https://code.google.com/p/google-glog/issues/detail?id=172
       google::SetVLOGLevel(options.verbose_modules_.str().c_str(), options.verbose_log_level_);
+    }
+
+    fs::Path log_dir(options.debug_log_dir_.str());
+    if (!fs::exists(log_dir)) {
+      fs::create_directories(log_dir);
     }
 
     // Use separate log files for the master engine and soc engine.
