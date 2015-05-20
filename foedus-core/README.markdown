@@ -11,7 +11,7 @@ For more introductory stuffs, visit [our github site](https://github.com/hkimura
 and/or take a look at the [overview paper](http://www.hpl.hp.com/techreports/2015/HPL-2015-37.html).
 
 
-Hardware/Compiler/OS Requeirements
+Hardware/Compiler/OS Requirements
 --------
 
 * We support only 64-bits CPUs. More specifically, x86_64 and ARMv8.
@@ -19,15 +19,32 @@ Hardware/Compiler/OS Requeirements
 * We strongly recommend linux kernel 3.16 or later. [^1]
 * We assume fsync(2) penetrates all the way through the device. [^2]
 * We require reasonably modern C++ compilers, namely gcc 4.8.2 or later.
-* We depend on CMake.
+* We depend on CMake and several other toolsets/libraries. But, we guarantee that
+all of them are commonly available from default package repositories.
+Otherwise, we include the dependency in our code.
 
-[^1]: In older linux kernel, page-fault of hugepages was almost single-threaded.
+[^1]: In older linux kernel, page-fault of hugepages was almost single-threaded (!!!).
 This issue was fixed in 3.15 along with many other scalability improvements contributed by HP's
 linux developers.
 
 [^2]: If this is not the case, check your write-cache settings in the filesystem and device driver.
 Unfortunately, even if users configure it right, some storage device sacrifices durability for the
 sake of performance. So is some file system. For those environments, we cannot guarantee ACID.
+
+Verified Environments
+--------
+The Linux kernel, distros, compilers, and libraries are quickly moving forward.
+Which is great, but we often see breaking issues due to version differences.
+If you want to minimize unexpected bumps, we recommend to use one of the following
+**verified environments** where we continuously test our code on Jenkins services.
+
+* (Primary) Fedora 21, x86_64. [Our Jenkins Server](http://foedus-build.hpl.hp.com:8080/).
+* Ubuntu 15.04, x86_64. [Our Jenkins Server](http://foedus-build-ub.hpl.hp.com:8080/).
+* Ubuntu 14.04, aarch64. [Our Jenkins Server](http://ms01915-003.hpl.hp.com:8080/).
+
+We will occasionally switch to semi-latest versions of Fedora (or some Redhat-flavor) and Ubuntu
+(or some Debian-flavor). In other words, we do not have enough resource to support
+versions that are several years old or less-popular distros.
 
 
 Environment Setup (ATTENTION! Read this before using FOEDUS!)
