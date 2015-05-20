@@ -20,8 +20,6 @@
 
 #include <stdint.h>
 
-#include <memory>
-
 #include "foedus/epoch.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/sequential/fwd.hpp"
@@ -100,7 +98,7 @@ class SequentialCursor {
   uint64_t                      tuples_so_far_;
 
   /** How far we have read from each node. Index is node ID. */
-  std::unique_ptr<NodeState[]>  states_;
+  NodeState*                    states_;
 };
 
 
